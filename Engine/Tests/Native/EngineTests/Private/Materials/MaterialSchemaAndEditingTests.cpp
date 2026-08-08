@@ -1,5 +1,7 @@
 #include "MaterialTestSupport.h"
 
+#include "DObject/DefaultObjectGraph.h"
+#include "DObject/MathStructs.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 
 TEST(FMaterialTests, StaticPropertiesHaveStableDefaultsAndInstanceInheritance)
@@ -697,6 +699,20 @@ TEST(FMaterialTests, ParentTransactionsRenderFromCurrentCanonicalStorage)
 TEST(FMaterialTests, ProductionClassDefaultsMatchFreshOrdinaryObjectGraphs)
 {
 	InitializeDObjectSystem();
+	(void)Durin::Z_Construct_DStruct_Durin_FVector4();
+	Durin::uint32 ProductionStructCount = 0;
+	for (Durin::DObject* Object : Durin::GDObjectArray.GetAll(Durin::EObjectQueryScope::IncludeTemplates))
+	{
+		auto* Struct = Durin::Cast<Durin::DStruct>(Object);
+		if (!Struct || !Struct->GetQualifiedName().ToString().starts_with("Durin::")) continue;
+		++ProductionStructCount;
+		EXPECT_EQ(Struct->GetDefaultState(), Durin::EDStructDefaultState::Ready)
+			<< Struct->GetQualifiedName().ToString()
+			<< " reason=" << static_cast<int>(Struct->GetDefaultReason());
+		EXPECT_NE(Struct->GetDefaultValue(), nullptr) << Struct->GetQualifiedName().ToString();
+	}
+	EXPECT_EQ(ProductionStructCount, 26u);
+
 	std::vector<Durin::DClass*> Classes;
 	Durin::uint32 ProductionClassCount = 0;
 	for (Durin::DObject* Object : Durin::GDObjectArray.GetAll(Durin::EObjectQueryScope::IncludeTemplates))
@@ -730,50 +746,36 @@ TEST(FMaterialTests, ProductionClassDefaultsMatchFreshOrdinaryObjectGraphs)
 			Durin::FName(std::format("Parity_{}", Class->GetShortName())));
 		ASSERT_NE(Instance, nullptr) << Class->GetQualifiedName().ToString();
 
-		std::unordered_map<const Durin::DObject*, const Durin::DObject*> TemplateToLive;
-		TemplateToLive.emplace(DefaultObject, Instance);
-		std::function<void(const Durin::DObject*, const Durin::DObject*)> PairGraphs;
-		PairGraphs = [&](const Durin::DObject* Template, const Durin::DObject* Live) {
-			const std::vector<Durin::DObject*> TemplateChildren = Durin::GDObjectArray.GetObjectsWithOuter(
-				Template, Durin::EObjectQueryScope::IncludeTemplates);
-			const std::vector<Durin::DObject*> LiveChildren = Durin::GDObjectArray.GetObjectsWithOuter(
-				Live, Durin::EObjectQueryScope::LiveOnly);
-			EXPECT_EQ(TemplateChildren.size(), LiveChildren.size()) << Class->GetQualifiedName().ToString();
-			for (const Durin::DObject* TemplateChild : TemplateChildren)
-			{
-				const auto It = std::ranges::find_if(LiveChildren, [&](const Durin::DObject* Candidate) {
-					return Candidate->GetClass() == TemplateChild->GetClass()
-						&& Candidate->GetFName() == TemplateChild->GetFName();
-				});
-				ASSERT_NE(It, LiveChildren.end())
-					<< Class->GetQualifiedName().ToString() << ":" << TemplateChild->GetName();
-				TemplateToLive.emplace(TemplateChild, *It);
-				PairGraphs(TemplateChild, *It);
-			}
-		};
-		PairGraphs(DefaultObject, Instance);
-
-		for (const auto& [Template, Live] : TemplateToLive)
+		Durin::FDefaultObjectGraphMap DefaultGraph;
+		Durin::FDefaultObjectGraphDiagnostic GraphDiagnostic;
+		ASSERT_TRUE(DefaultGraph.Build(DefaultObject, Instance, &GraphDiagnostic))
+			<< Class->GetQualifiedName().ToString()
+			<< " graph_reason=" << static_cast<int>(GraphDiagnostic.Reason)
+			<< " path=" << GraphDiagnostic.LogicalPath;
+		std::vector<const Durin::DObject*> Templates{DefaultObject};
+		for (size_t TemplateIndex = 0; TemplateIndex < Templates.size(); ++TemplateIndex)
 		{
+			const Durin::DObject* Template = Templates[TemplateIndex];
+			const Durin::DObject* Live = DefaultGraph.FindInstance(Template);
+			ASSERT_NE(Live, nullptr);
+			for (Durin::DObject* Child : Durin::GDObjectArray.GetObjectsWithOuter(
+					 Template, Durin::EObjectQueryScope::IncludeTemplates))
+			{
+				Templates.push_back(Child);
+			}
 			Template->GetClass()->ForEachProperty([&](Durin::FProperty* Property) {
 				if (Property->HasAnyPropertyFlags(Durin::EPropertyFlags::Transient)
 					|| Property->NamePrivate == Durin::FName("SkyBoxSceneId")) return;
 				for (Durin::uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
 				{
-					if (Durin::ArePropertyValuesIdentical(Property, Template, Index, Live, Index)) continue;
-					if (Property->ClassPrivate->IsChildOf(Durin::FObjectProperty::StaticClass()))
-					{
-						auto* ObjectProperty = static_cast<Durin::FObjectProperty*>(Property);
-						const Durin::DObject* TemplateValue = ObjectProperty->GetObjectPropertyValue(Template, Index);
-						const Durin::DObject* LiveValue = ObjectProperty->GetObjectPropertyValue(Live, Index);
-						const auto PairIt = TemplateToLive.find(TemplateValue);
-						EXPECT_TRUE(PairIt != TemplateToLive.end() && PairIt->second == LiveValue)
-							<< Class->GetQualifiedName().ToString() << ":" << Property->NamePrivate.ToString();
-						continue;
-					}
-					if (Property->NamePrivate == Durin::FName("OwnedComponents")) continue;
-					ADD_FAILURE() << Class->GetQualifiedName().ToString() << ":"
-						<< Property->NamePrivate.ToString() << " differs from its class default";
+					Durin::FPropertyIdentityDiagnostic IdentityDiagnostic;
+					EXPECT_EQ(
+						Durin::ComparePropertyValuesWithDefaultGraph(
+							Property, Template, Index, Live, Index, DefaultGraph, &IdentityDiagnostic),
+						Durin::EPropertyIdentityResult::Identical)
+						<< Class->GetQualifiedName().ToString() << ":"
+						<< IdentityDiagnostic.PropertyPath << " reason="
+						<< static_cast<int>(IdentityDiagnostic.Reason);
 				}
 			}, true);
 		}

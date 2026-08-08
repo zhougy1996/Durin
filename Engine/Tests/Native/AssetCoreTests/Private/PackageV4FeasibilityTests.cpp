@@ -3,7 +3,14 @@
 #include "PackageV4Feasibility.h"
 
 #include "Hash/XxHash.h"
+#include "AssetSystem.h"
+#include "CoreGlobals.h"
+#include "DObject/DObjectGlobals.h"
+#include "EngineAssetServices.h"
+#include "Materials/Material.h"
 #include "Misc/FileHelper.h"
+#include "Misc/Name.h"
+#include "Misc/Paths.h"
 
 #include <filesystem>
 #include <format>
@@ -21,6 +28,33 @@ namespace
 		EXPECT_TRUE(FFileHelper::LoadFileToArray(Bytes,
 			(std::filesystem::path(DAST_V3_CORPUS_ROOT) / Relative).generic_string()));
 		return Bytes;
+	}
+
+	auto LoadDefaultMaterialForPlan() -> Durin::DMaterial*
+	{
+		static const bool Initialized = [] {
+			Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
+			Durin::GIsGameThreadIdInitialized = true;
+			if (!Durin::IsFNameInitialized()) Durin::FNameInit();
+			if (!Durin::FindClassByQualifiedName("Durin::DObject")) Durin::DObjectInit();
+			Durin::InitializeEngineAssetServices();
+			return true;
+		}();
+		(void)Initialized;
+		(void)Durin::DMaterial::StaticClass();
+		static const bool Mounted = [] {
+			const std::filesystem::path Content =
+				std::filesystem::path(DAST_V3_CORPUS_ROOT) / "Engine" / "Content";
+			Durin::PathUtilities::RegisterMountPointForTests(
+				"/Engine/", Content.generic_string() + "/");
+			return true;
+		}();
+		(void)Mounted;
+		Durin::FAssetPath Path;
+		EXPECT_TRUE(Durin::FAssetPath::TryCreate("/Engine/Materials/DefaultMaterial", Path));
+		Durin::DObject* Loaded = nullptr;
+		EXPECT_TRUE(Durin::Asset::LoadAsset(Path, Loaded));
+		return Durin::Cast<Durin::DMaterial>(Loaded);
 	}
 
 	auto Breakdown(const FFeasibilityReport& Report) -> std::string
@@ -70,30 +104,52 @@ TEST(FPackageV4FeasibilityTests, DefaultMaterialIsCompleteDeterministicAndWithin
 	ASSERT_EQ(V3Report.Bytes.Total(), 115479);
 
 	FFeasibilityPackage First, Repeated, Reversed;
-	ASSERT_TRUE(BuildFeasibilityPackageFromV3(V3, false, First, Error)) << Error;
-	ASSERT_TRUE(BuildFeasibilityPackageFromV3(V3, false, Repeated, Error)) << Error;
-	ASSERT_TRUE(BuildFeasibilityPackageFromV3(V3, true, Reversed, Error)) << Error;
+	Durin::DMaterial* Material = LoadDefaultMaterialForPlan();
+	ASSERT_NE(Material, nullptr);
+	FDefaultDeltaPlan DeltaPlan;
+	FDefaultDeltaDiagnostic DeltaDiagnostic;
+	ASSERT_TRUE(BuildDefaultDeltaPlan(
+		Material, EDefaultDeltaMode::Enabled, DeltaPlan, &DeltaDiagnostic))
+		<< "reason=" << static_cast<int>(DeltaDiagnostic.Reason)
+		<< " path=" << DeltaDiagnostic.LogicalPath;
+	FDefaultDeltaPlan RepeatedDeltaPlan;
+	ASSERT_TRUE(BuildDefaultDeltaPlan(
+		Material, EDefaultDeltaMode::Enabled, RepeatedDeltaPlan, &DeltaDiagnostic));
+	EXPECT_TRUE(AreDefaultDeltaPlansEquivalent(DeltaPlan, RepeatedDeltaPlan));
+	ASSERT_TRUE(BuildFeasibilityPackageFromV3(V3, false, First, Error, &DeltaPlan)) << Error;
+	ASSERT_TRUE(BuildFeasibilityPackageFromV3(V3, false, Repeated, Error, &DeltaPlan)) << Error;
+	ASSERT_TRUE(BuildFeasibilityPackageFromV3(V3, true, Reversed, Error, &DeltaPlan)) << Error;
 	EXPECT_EQ(First.Bytes, Repeated.Bytes);
 	EXPECT_EQ(First.Bytes, Reversed.Bytes);
 	EXPECT_EQ(First.Report, Repeated.Report);
 	EXPECT_EQ(First.Report, Reversed.Report);
 
-	const std::string Detail = Breakdown(First.Report);
-	EXPECT_EQ(First.Report.TotalBytes, 10869) << Detail;
+	const std::string Detail = std::format(
+		"{} plan_objects={} plan_fields={} plan_emitted={} plan_omitted={} comparisons={} plan_depth={}",
+		Breakdown(First.Report), DeltaPlan.Objects.size(), DeltaPlan.FieldCount,
+		DeltaPlan.EmittedFieldCount, DeltaPlan.OmittedFieldCount,
+		DeltaPlan.ComparisonCount, DeltaPlan.MaximumDepth);
+	EXPECT_EQ(First.Report.TotalBytes, 6275) << Detail;
 	EXPECT_EQ(First.Report.EnvelopeAndDirectoryBytes, 79) << Detail;
 	EXPECT_EQ(First.Report.SectionBytes,
-		(std::array<uint64, SectionCount>{1803, 62, 107, 5, 8813})) << Detail;
+		(std::array<uint64, SectionCount>{1803, 62, 107, 5, 4219})) << Detail;
 	EXPECT_EQ(First.Report.NameCount, 105);
 	EXPECT_EQ(First.Report.TypeCount, 21);
 	EXPECT_EQ(First.Report.SchemaCount, 6);
 	EXPECT_EQ(First.Report.ObjectCount, 1);
-	EXPECT_EQ(First.Report.OverrideCount, 3);
-	EXPECT_EQ(First.Report.OmittedDefaultCount, 0);
+	EXPECT_EQ(First.Report.OverrideCount, 1);
+	EXPECT_EQ(First.Report.OmittedDefaultCount, 231);
 	EXPECT_EQ(First.Report.RetainedDescriptorBytes, 0);
-	EXPECT_EQ(First.Report.ParseOperations, 136);
+	EXPECT_EQ(First.Report.ParseOperations, 134);
 	EXPECT_EQ(First.Report.AllocationInputs, 133);
 	EXPECT_EQ(First.Report.MaximumNesting, 5);
-	EXPECT_EQ(First.Report.Digest, 0x5955D6A8C777870Cull);
+	EXPECT_EQ(First.Report.Digest, 0xC4111B7609C78D4Full);
+	EXPECT_EQ(DeltaPlan.Objects.size(), 1u) << Detail;
+	EXPECT_EQ(DeltaPlan.FieldCount, 785u) << Detail;
+	EXPECT_EQ(DeltaPlan.EmittedFieldCount, 554u) << Detail;
+	EXPECT_EQ(DeltaPlan.OmittedFieldCount, 231u) << Detail;
+	EXPECT_EQ(DeltaPlan.ComparisonCount, 1275u) << Detail;
+	EXPECT_EQ(DeltaPlan.MaximumDepth, 5u) << Detail;
 	EXPECT_LE(First.Report.TotalBytes, 16384) << Detail;
 	EXPECT_LE(First.Report.TotalBytes, 20659) << Detail;
 	EXPECT_EQ(First.Report.TotalBytes,
@@ -121,6 +177,55 @@ TEST(FPackageV4FeasibilityTests, DefaultMaterialIsCompleteDeterministicAndWithin
 	const FSectionEntry& ValueEntry = Header.Sections[4];
 	ASSERT_TRUE(ValidateValueSection(std::span(First.Bytes).subspan(
 		ValueEntry.Offset, ValueEntry.Length), DecodedTables, Error)) << Error;
+
+	ASSERT_FALSE(Material->HasAllocatedAuthoredOverrideLedger());
+	const auto Omitted = std::ranges::find_if(DeltaPlan.Objects.front().Fields,
+		[](const FDefaultDeltaFieldPlan& Field) {
+			return Field.Disposition == EDefaultDeltaDisposition::Omitted;
+		});
+	ASSERT_NE(Omitted, DeltaPlan.Objects.front().Fields.end());
+	const FAuthoredOverridePath OverridePath{
+		FAuthoredOverridePathToken::Field(
+			Omitted->Descriptor.DeclaringType, Omitted->Descriptor.Name)};
+	struct FOverrideReset
+	{
+		DObject* Object;
+		~FOverrideReset() { Object->ResetAuthoredOverrides(); }
+	} OverrideReset{Material};
+	FAuthoredOverrideDiagnostic OverrideDiagnostic;
+	ASSERT_TRUE(Material->SetAuthoredOverride(
+		OverridePath, EAuthoredOverrideProvenance::LoadedExplicit, &OverrideDiagnostic));
+	FDefaultDeltaPlan LoadedExplicitPlan, LoadedExplicitRepeated;
+	ASSERT_TRUE(BuildDefaultDeltaPlan(
+		Material, EDefaultDeltaMode::Enabled, LoadedExplicitPlan, &DeltaDiagnostic));
+	ASSERT_TRUE(BuildDefaultDeltaPlan(
+		Material, EDefaultDeltaMode::Enabled, LoadedExplicitRepeated, &DeltaDiagnostic));
+	EXPECT_TRUE(AreDefaultDeltaPlansEquivalent(LoadedExplicitPlan, LoadedExplicitRepeated));
+	EXPECT_EQ(LoadedExplicitPlan.EmittedFieldCount, DeltaPlan.EmittedFieldCount + 1);
+	EXPECT_EQ(LoadedExplicitPlan.OmittedFieldCount + 1, DeltaPlan.OmittedFieldCount);
+	FFeasibilityPackage LoadedExplicitPackage, LoadedExplicitPackageRepeated;
+	ASSERT_TRUE(BuildFeasibilityPackageFromV3(
+		V3, false, LoadedExplicitPackage, Error, &LoadedExplicitPlan)) << Error;
+	ASSERT_TRUE(BuildFeasibilityPackageFromV3(
+		V3, false, LoadedExplicitPackageRepeated, Error, &LoadedExplicitRepeated)) << Error;
+	EXPECT_EQ(LoadedExplicitPackage.Bytes, LoadedExplicitPackageRepeated.Bytes);
+	EXPECT_NE(LoadedExplicitPackage.Bytes, First.Bytes);
+	EXPECT_EQ(LoadedExplicitPackage.Report.OverrideCount, First.Report.OverrideCount + 1);
+
+	ASSERT_TRUE(Material->SetAuthoredOverride(
+		OverridePath, EAuthoredOverrideProvenance::Forced, &OverrideDiagnostic));
+	FDefaultDeltaPlan ForcedPlan;
+	ASSERT_TRUE(BuildDefaultDeltaPlan(Material, EDefaultDeltaMode::Enabled, ForcedPlan, &DeltaDiagnostic));
+	FFeasibilityPackage ForcedPackage;
+	ASSERT_TRUE(BuildFeasibilityPackageFromV3(V3, false, ForcedPackage, Error, &ForcedPlan)) << Error;
+	EXPECT_EQ(ForcedPackage.Bytes.size(), LoadedExplicitPackage.Bytes.size());
+	EXPECT_NE(ForcedPackage.Bytes, LoadedExplicitPackage.Bytes);
+	EXPECT_EQ(ForcedPlan.EmittedFieldCount, LoadedExplicitPlan.EmittedFieldCount);
+	ASSERT_TRUE(Material->ClearAuthoredOverride(OverridePath));
+	EXPECT_FALSE(Material->HasAllocatedAuthoredOverrideLedger());
+	FDefaultDeltaPlan ClearedPlan;
+	ASSERT_TRUE(BuildDefaultDeltaPlan(Material, EDefaultDeltaMode::Enabled, ClearedPlan, &DeltaDiagnostic));
+	EXPECT_TRUE(AreDefaultDeltaPlansEquivalent(DeltaPlan, ClearedPlan));
 
 	// The fixture consists solely of the five uncompressed canonical sections.
 	// A compression flag/block is absent from the frozen v4 envelope vocabulary.

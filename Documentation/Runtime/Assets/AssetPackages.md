@@ -238,15 +238,21 @@ incomplete length-delimited consumption fail before destination mutation or
 output publication. V4 has no optional section or opcode; extensions requiring
 new kinds require a later format version.
 
-The executable reference goldens qualify a complete current Default Material
-at 10,869 bytes: envelope/directory 79, Name 1,803, Type 62, Schema/custom
-versions 107, Object 5, and Value 8,813. It contains 105 names, 21 structural
-types, 6 schemas, 1 object, 3 explicit overrides, zero unproven default
-omissions, and maximum depth 5; XXH64 is `5955D6A8C777870C`. This is 5,515 bytes
-below the 16,384-byte controlling gate and 9,790 bytes below the 20,659-byte
-same-content-v2-relative gate. Modeled parse operations/allocation inputs fall
-from v3's 5,020/3,948 to 136/133 without compression. These values qualify the
-wire contract; they do not make v4 production-readable or writable.
+The executable reference goldens consume the production logical delta plan and
+qualify a complete current Default Material at 6,275 bytes: envelope/directory
+79, Name 1,803, Type 62, Schema/custom versions 107, Object 5, and Value 4,219.
+It contains 105 names, 21 structural types, 6 schemas, 1 object, 1 top-level
+override, and maximum depth 5; the plan contains 785 fields, emits 554, omits
+231, performs 1,275 logical comparisons, and allocates no authored-intent
+ledger for the v3-loaded object. XXH64 is `C4111B7609C78D4F`. This is 10,109
+bytes below the 16,384-byte controlling gate and 14,384 bytes below the
+20,659-byte same-content-v2-relative gate. Modeled parse operations/allocation
+inputs fall from v3's 5,020/3,948 to 134/133 without compression. Repeated and
+reverse-discovery packages are byte-identical. Loaded-explicit and forced ledger
+fixtures exercise provenance `00` and `01`, while unknown-retention fixtures
+keep `02`; clearing the ledger restores the same baseline bytes. These values
+qualify the wire and planning contracts; they do not make v4 production-readable
+or writable.
 
 Object records store object id, outer id, qualified class name, object name, and
 a field table. Fields are identified by declaring qualified class plus property

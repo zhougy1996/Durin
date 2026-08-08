@@ -50,6 +50,8 @@ namespace Durin
 	COREDOBJECT_API auto ReleaseClassDefaultObjects() -> void;
 	// Releases and drains only defaults owned by classes from one compiled-in module.
 	COREDOBJECT_API auto ReleaseClassDefaultObjectsForModule(FName ModuleName) -> bool;
+	COREDOBJECT_API auto ReleaseDStructDefaults() -> void;
+	COREDOBJECT_API auto ReleaseDStructDefaultsForModule(FName ModuleName) -> void;
 	COREDOBJECT_API auto CollectGarbage() -> void;
 	COREDOBJECT_API auto GetGarbageObjectCount() -> uint64;
 	COREDOBJECT_API auto GetLastGarbageCollectionStats() -> const FGarbageCollectionStats&;

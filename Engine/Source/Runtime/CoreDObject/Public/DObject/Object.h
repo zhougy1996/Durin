@@ -2,6 +2,7 @@
 
 #include "CoreDObjectAPI.h"
 #include "DObject/ObjectMacros.h"
+#include "DObject/AuthoredOverrideLedger.h"
 #include "DObject/PropertyChange.h"
 #include "DObjectGlobals.h"
 
@@ -119,6 +120,22 @@ namespace Durin
 		// lets the object refresh state derived from a successfully changed value.
 		COREDOBJECT_API virtual auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void;
 
+		COREDOBJECT_API auto SetAuthoredOverride(
+			const FAuthoredOverridePath& Path,
+			EAuthoredOverrideProvenance Provenance,
+			FAuthoredOverrideDiagnostic* OutDiagnostic = nullptr) -> bool;
+		COREDOBJECT_API auto ReplaceAuthoredOverrides(
+			std::span<const FAuthoredOverrideEntry> Entries,
+			FAuthoredOverrideDiagnostic* OutDiagnostic = nullptr) -> bool;
+		COREDOBJECT_API auto ClearAuthoredOverride(const FAuthoredOverridePath& Path) -> bool;
+		COREDOBJECT_API auto ClearAuthoredOverrideSubtree(const FAuthoredOverridePath& Path) -> uint64;
+		COREDOBJECT_API auto ResetAuthoredOverrides() -> void;
+		COREDOBJECT_API auto GetAuthoredOverrideEntries() const -> std::vector<FAuthoredOverrideEntry>;
+		COREDOBJECT_API auto HasAllocatedAuthoredOverrideLedger() const -> bool;
+		COREDOBJECT_API auto CopyAuthoredOverridesFrom(
+			const DObject& Source,
+			FAuthoredOverrideDiagnostic* OutDiagnostic = nullptr) -> bool;
+
 		static void IntrinsicClassInit(DClass* Class);
 
 		/**
@@ -157,6 +174,8 @@ namespace Durin
 		EObjectInternalFlags InternalFlags = EObjectInternalFlags::None;
 
 		uint32 RootReferenceCount = 0;
+
+		std::shared_ptr<const FAuthoredOverrideLedger> AuthoredOverrideLedger;
 
 	public:
 		auto SetInternalFlags(EObjectInternalFlags InFlags) -> void { InternalFlags |= InFlags; }

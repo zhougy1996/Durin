@@ -1,6 +1,7 @@
 #include "DObject/DurinPropertyTypes.h"
 
 #include "DObject/Class.h"
+#include "DObject/DefaultObjectGraph.h"
 #include "DObject/Object.h"
 #include "DObject/ObjectPtr.h"
 
@@ -87,47 +88,125 @@ namespace Durin
 			return false;
 		}
 
-		auto ArePropertyValuesIdenticalImpl(
-			const FProperty* Property,
-			const void* LeftContainer,
-			uint32 LeftArrayIndex,
-			const void* RightContainer,
-			uint32 RightArrayIndex
-		) -> bool;
-
-		struct FMapIdenticalContext
+		struct FPropertyIdentityContext
 		{
-			const FMapProperty* Map = nullptr;
-			const FProperty* ValueProperty = nullptr;
-			const void* RightContainer = nullptr;
-			uint32 RightArrayIndex = 0;
-			bool bIdentical = true;
+			FPropertyIdentityDiagnostic* Diagnostic = nullptr;
+			const FDefaultObjectGraphMap* DefaultGraph = nullptr;
+			std::vector<const DStruct*> ActiveStructs;
 		};
 
-		auto VisitMapIdenticalEntry(void* RawContext, const void* Key, const void* LeftValue) -> bool
+		auto SetIdentityDiagnostic(
+			FPropertyIdentityContext& Context,
+			std::string_view Path,
+			DurinCodeGen::EPropertyGenFlags Kind,
+			EPropertyIdentityReason Reason,
+			EPropertyIdentityResult Result
+		) -> EPropertyIdentityResult
 		{
-			auto& Context = *static_cast<FMapIdenticalContext*>(RawContext);
-			const void* RightValue = nullptr;
-			if (Context.Map->FindValue(Context.RightContainer, Key, &RightValue, Context.RightArrayIndex) != EContainerOpResult::Success
-				|| !ArePropertyValuesIdenticalImpl(Context.ValueProperty, LeftValue, 0, RightValue, 0))
+			if (Context.Diagnostic && Context.Diagnostic->Reason == EPropertyIdentityReason::None)
 			{
-				Context.bIdentical = false;
+				Context.Diagnostic->PropertyPath.assign(Path);
+				Context.Diagnostic->LogicalKind = Kind;
+				Context.Diagnostic->Reason = Reason;
+			}
+			return Result;
+		}
+
+		auto AppendIdentityPath(
+			FPropertyIdentityContext& Context,
+			std::string_view Path,
+			std::string_view Segment,
+			DurinCodeGen::EPropertyGenFlags Kind,
+			std::string& OutPath
+		) -> bool
+		{
+			if (Path.size() + Segment.size() > PropertyIdentityMaxPathLength)
+			{
+				SetIdentityDiagnostic(
+					Context, Path, Kind, EPropertyIdentityReason::DiagnosticPathLimit,
+					EPropertyIdentityResult::Unsupported
+				);
 				return false;
 			}
+			OutPath.assign(Path);
+			OutPath.append(Segment);
 			return true;
 		}
 
-		auto ArePropertyValuesIdenticalImpl(
+		auto HexToken(std::span<const uint8> Token) -> std::string
+		{
+			static constexpr char Digits[] = "0123456789abcdef";
+			std::string Result;
+			Result.reserve(Token.size() * 2 + 2);
+			Result.push_back('{');
+			for (uint8 Byte : Token)
+			{
+				Result.push_back(Digits[Byte >> 4]);
+				Result.push_back(Digits[Byte & 0x0f]);
+			}
+			Result.push_back('}');
+			return Result;
+		}
+
+		struct FIdentityMapEntry
+		{
+			const void* Key = nullptr;
+			const void* Value = nullptr;
+			std::vector<uint8> KeyToken;
+		};
+
+		struct FIdentityMapCollectContext
+		{
+			const FProperty* KeyProperty = nullptr;
+			std::vector<FIdentityMapEntry>* Entries = nullptr;
+			std::string Error;
+			bool bSucceeded = true;
+		};
+
+		auto CollectIdentityMapEntry(void* RawContext, const void* Key, const void* Value) -> bool
+		{
+			auto& Context = *static_cast<FIdentityMapCollectContext*>(RawContext);
+			FIdentityMapEntry Entry{Key, Value, {}};
+			if (!BuildCanonicalMapKeyToken(Context.KeyProperty, Key, 0, Entry.KeyToken, &Context.Error))
+			{
+				Context.bSucceeded = false;
+				return false;
+			}
+			Context.Entries->push_back(std::move(Entry));
+			return true;
+		}
+
+		auto CompareStructValuesImpl(
+			const DStruct* Struct,
+			const void* LeftValue,
+			const void* RightValue,
+			uint32 Depth,
+			std::string_view Path,
+			FPropertyIdentityContext& Context
+		) -> EPropertyIdentityResult;
+
+		auto ComparePropertyValuesImpl(
 			const FProperty* Property,
 			const void* LeftContainer,
 			uint32 LeftArrayIndex,
 			const void* RightContainer,
-			uint32 RightArrayIndex
-		) -> bool
+			uint32 RightArrayIndex,
+			uint32 Depth,
+			std::string_view Path,
+			FPropertyIdentityContext& Context
+		) -> EPropertyIdentityResult
 		{
-			if (!Property || !LeftContainer || !RightContainer) return false;
+			using enum EPropertyIdentityResult;
+			using enum EPropertyIdentityReason;
+			const auto Kind = Property ? Property->GetKind() : DurinCodeGen::EPropertyGenFlags::None;
+			if (!Property || !LeftContainer || !RightContainer)
+				return SetIdentityDiagnostic(Context, Path, Kind, InvalidInput, Unsupported);
+			if (LeftArrayIndex >= Property->GetArrayDim() || RightArrayIndex >= Property->GetArrayDim())
+				return SetIdentityDiagnostic(Context, Path, Kind, InvalidArrayIndex, Unsupported);
+			if (Depth > PropertyIdentityMaxDepth)
+				return SetIdentityDiagnostic(Context, Path, Kind, DepthLimit, Unsupported);
 
-			switch (Property->GetKind())
+			switch (Kind)
 			{
 			case DurinCodeGen::EPropertyGenFlags::Bool:
 			case DurinCodeGen::EPropertyGenFlags::Int8:
@@ -146,93 +225,293 @@ namespace Durin
 						   Property->GetValuePtr(RightContainer, RightArrayIndex),
 						   Property->GetElementSize()
 					   )
-					   == 0;
+					   == 0 ? Identical : SetIdentityDiagnostic(Context, Path, Kind, ValueMismatch, Different);
 			case DurinCodeGen::EPropertyGenFlags::String:
 				{
 					const auto* StringProperty = static_cast<const FStringProperty*>(Property);
 					return *StringProperty->GetStringValuePtr(LeftContainer, LeftArrayIndex)
-						   == *StringProperty->GetStringValuePtr(RightContainer, RightArrayIndex);
+						   == *StringProperty->GetStringValuePtr(RightContainer, RightArrayIndex)
+						? Identical : SetIdentityDiagnostic(Context, Path, Kind, ValueMismatch, Different);
 				}
 			case DurinCodeGen::EPropertyGenFlags::Name:
 				{
 					const auto* NameProperty = static_cast<const FNameProperty*>(Property);
 					return *NameProperty->GetNameValuePtr(LeftContainer, LeftArrayIndex)
-						   == *NameProperty->GetNameValuePtr(RightContainer, RightArrayIndex);
+						   == *NameProperty->GetNameValuePtr(RightContainer, RightArrayIndex)
+						? Identical : SetIdentityDiagnostic(Context, Path, Kind, ValueMismatch, Different);
 				}
 			case DurinCodeGen::EPropertyGenFlags::Guid:
 				{
 					const auto* GuidProperty = static_cast<const FGuidProperty*>(Property);
 					return *GuidProperty->GetGuidValuePtr(LeftContainer, LeftArrayIndex)
-						   == *GuidProperty->GetGuidValuePtr(RightContainer, RightArrayIndex);
+						   == *GuidProperty->GetGuidValuePtr(RightContainer, RightArrayIndex)
+						? Identical : SetIdentityDiagnostic(Context, Path, Kind, ValueMismatch, Different);
 				}
 			case DurinCodeGen::EPropertyGenFlags::Object:
 				{
 					const auto* ObjectProperty = static_cast<const FObjectProperty*>(Property);
-					return ObjectProperty->GetObjectPropertyValue(LeftContainer, LeftArrayIndex)
-						   == ObjectProperty->GetObjectPropertyValue(RightContainer, RightArrayIndex);
+					const DObject* Left = ObjectProperty->GetObjectPropertyValue(LeftContainer, LeftArrayIndex);
+					const DObject* Right = ObjectProperty->GetObjectPropertyValue(RightContainer, RightArrayIndex);
+					return (Left == Right || (Context.DefaultGraph && Context.DefaultGraph->AreReferencesEquivalent(Left, Right)))
+						? Identical : SetIdentityDiagnostic(Context, Path, Kind, ValueMismatch, Different);
 				}
 			case DurinCodeGen::EPropertyGenFlags::SoftObject:
 				{
 					const auto* SoftProperty = static_cast<const FSoftObjectProperty*>(Property);
 					const FSoftObjectPtr* Left = SoftProperty->GetSoftObjectPtr(LeftContainer, LeftArrayIndex);
 					const FSoftObjectPtr* Right = SoftProperty->GetSoftObjectPtr(RightContainer, RightArrayIndex);
-					return Left && Right && *Left == *Right;
+					if (!Left || !Right) return SetIdentityDiagnostic(Context, Path, Kind, InvalidInput, Unsupported);
+					return *Left == *Right ? Identical : SetIdentityDiagnostic(Context, Path, Kind, ValueMismatch, Different);
 				}
 			case DurinCodeGen::EPropertyGenFlags::Struct:
 				{
 					const auto* StructProperty = static_cast<const FStructProperty*>(Property);
 					DStruct* Struct = StructProperty->GetStruct();
-					if (!Struct) return false;
 					const void* LeftValue = Property->GetValuePtr(LeftContainer, LeftArrayIndex);
 					const void* RightValue = Property->GetValuePtr(RightContainer, RightArrayIndex);
-					if (Struct->HasIdentical()) return Struct->GetOps().Identical(LeftValue, RightValue);
-
-					bool bIdentical = true;
-					Struct->ForEachProperty([&](FProperty* Field) {
-						if (!bIdentical || !Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
-						for (uint32 Index = 0; Index < Field->GetArrayDim(); ++Index)
-						{
-							if (!ArePropertyValuesIdenticalImpl(Field, LeftValue, Index, RightValue, Index))
-							{
-								bIdentical = false;
-								break;
-							}
-						}
-					},
-											false);
-					return bIdentical;
+					return CompareStructValuesImpl(Struct, LeftValue, RightValue, Depth, Path, Context);
 				}
 			case DurinCodeGen::EPropertyGenFlags::Array:
 				{
 					const auto* ArrayProperty = static_cast<const FArrayProperty*>(Property);
 					FProperty* Inner = ArrayProperty->GetInner();
-					if (!Inner || !ArrayProperty->HasArrayOps()) return false;
-					const uint64 LeftNum = ArrayProperty->Num(LeftContainer, LeftArrayIndex);
-					if (LeftNum != ArrayProperty->Num(RightContainer, RightArrayIndex)) return false;
+					if (!Inner) return SetIdentityDiagnostic(Context, Path, Kind, MissingArrayDescriptor, Unsupported);
+					if (!ArrayProperty->HasArrayOps()) return SetIdentityDiagnostic(Context, Path, Kind, MissingArrayOperations, Unsupported);
+					uint64 LeftNum = 0;
+					uint64 RightNum = 0;
+					if (ArrayProperty->GetNum(LeftContainer, LeftNum, LeftArrayIndex) != EContainerOpResult::Success
+						|| ArrayProperty->GetNum(RightContainer, RightNum, RightArrayIndex) != EContainerOpResult::Success)
+						return SetIdentityDiagnostic(Context, Path, Kind, ContainerOperationFailed, Unsupported);
+					if (LeftNum != RightNum)
+						return SetIdentityDiagnostic(Context, Path, Kind, ContainerLengthMismatch, Different);
 					for (uint64 Index = 0; Index < LeftNum; ++Index)
 					{
-						if (!ArePropertyValuesIdenticalImpl(
-								Inner, ArrayProperty->GetElementPtr(LeftContainer, Index, LeftArrayIndex), 0,
-								ArrayProperty->GetElementPtr(RightContainer, Index, RightArrayIndex), 0
-							)) return false;
+						const void* LeftElement = nullptr;
+						const void* RightElement = nullptr;
+						if (ArrayProperty->GetElement(LeftContainer, Index, &LeftElement, LeftArrayIndex) != EContainerOpResult::Success
+							|| ArrayProperty->GetElement(RightContainer, Index, &RightElement, RightArrayIndex) != EContainerOpResult::Success)
+							return SetIdentityDiagnostic(Context, Path, Kind, ContainerOperationFailed, Unsupported);
+						std::string ChildPath;
+						if (!AppendIdentityPath(Context, Path, std::format("[{}]", Index), Inner->GetKind(), ChildPath)) return Unsupported;
+						const auto Result = ComparePropertyValuesImpl(
+							Inner, LeftElement, 0, RightElement, 0, Depth + 1, ChildPath, Context
+						);
+						if (Result != Identical) return Result;
 					}
-					return true;
+					return Identical;
 				}
 			case DurinCodeGen::EPropertyGenFlags::Map:
 				{
 					const auto* MapProperty = static_cast<const FMapProperty*>(Property);
 					FProperty* KeyProperty = MapProperty->GetKeyProp();
 					FProperty* ValueProperty = MapProperty->GetValueProp();
-					if (!KeyProperty || !ValueProperty || !MapProperty->HasMapOps()) return false;
-					const uint64 LeftNum = MapProperty->Num(LeftContainer, LeftArrayIndex);
-					if (LeftNum != MapProperty->Num(RightContainer, RightArrayIndex)) return false;
-					if (!MapProperty->HasCapability(EMapOpsFlags::Lookup)) return false;
-					FMapIdenticalContext Context{MapProperty, ValueProperty, RightContainer, RightArrayIndex};
-					return MapProperty->VisitEntries(LeftContainer, &VisitMapIdenticalEntry, &Context, LeftArrayIndex)
-							   == EContainerOpResult::Success
-						   && Context.bIdentical;
+					if (!KeyProperty || !ValueProperty)
+						return SetIdentityDiagnostic(Context, Path, Kind, MissingMapDescriptor, Unsupported);
+					if (!MapProperty->HasMapOps() || !MapProperty->HasCapability(EMapOpsFlags::Lookup | EMapOpsFlags::ConstTraversal))
+						return SetIdentityDiagnostic(Context, Path, Kind, MissingMapOperations, Unsupported);
+					uint64 LeftNum = 0;
+					uint64 RightNum = 0;
+					if (MapProperty->GetNum(LeftContainer, LeftNum, LeftArrayIndex) != EContainerOpResult::Success
+						|| MapProperty->GetNum(RightContainer, RightNum, RightArrayIndex) != EContainerOpResult::Success)
+						return SetIdentityDiagnostic(Context, Path, Kind, ContainerOperationFailed, Unsupported);
+					if (LeftNum != RightNum)
+						return SetIdentityDiagnostic(Context, Path, Kind, ContainerLengthMismatch, Different);
+
+					std::vector<FIdentityMapEntry> Entries;
+					Entries.reserve(static_cast<size_t>(LeftNum));
+					FIdentityMapCollectContext Collect{KeyProperty, &Entries};
+					if (MapProperty->VisitEntries(LeftContainer, &CollectIdentityMapEntry, &Collect, LeftArrayIndex)
+							!= EContainerOpResult::Success || !Collect.bSucceeded)
+						return SetIdentityDiagnostic(Context, Path, Kind, MissingMapOperations, Unsupported);
+					std::ranges::sort(Entries, {}, &FIdentityMapEntry::KeyToken);
+					for (const FIdentityMapEntry& Entry : Entries)
+					{
+						const std::string Segment = HexToken(Entry.KeyToken);
+						std::string ChildPath;
+						if (!AppendIdentityPath(Context, Path, Segment, ValueProperty->GetKind(), ChildPath)) return Unsupported;
+						const void* RightValue = nullptr;
+						const EContainerOpResult Lookup = MapProperty->FindValue(
+							RightContainer, Entry.Key, &RightValue, RightArrayIndex
+						);
+						if (Lookup == EContainerOpResult::NotFound)
+							return SetIdentityDiagnostic(Context, ChildPath, Kind, MapKeyMissing, Different);
+						if (Lookup != EContainerOpResult::Success)
+							return SetIdentityDiagnostic(Context, ChildPath, Kind, ContainerOperationFailed, Unsupported);
+						const auto Result = ComparePropertyValuesImpl(
+							ValueProperty, Entry.Value, 0, RightValue, 0, Depth + 1, ChildPath, Context
+						);
+						if (Result != Identical) return Result;
+					}
+					return Identical;
 				}
 			default:
+				return SetIdentityDiagnostic(Context, Path, Kind, UnsupportedLogicalKind, Unsupported);
+			}
+		}
+
+		auto CompareStructValuesImpl(
+			const DStruct* Struct,
+			const void* LeftValue,
+			const void* RightValue,
+			uint32 Depth,
+			std::string_view Path,
+			FPropertyIdentityContext& Context
+		) -> EPropertyIdentityResult
+		{
+			using enum EPropertyIdentityResult;
+			using enum EPropertyIdentityReason;
+			constexpr auto Kind = DurinCodeGen::EPropertyGenFlags::Struct;
+			if (!Struct) return SetIdentityDiagnostic(Context, Path, Kind, MissingStructDescriptor, Unsupported);
+			if (!LeftValue || !RightValue) return SetIdentityDiagnostic(Context, Path, Kind, InvalidInput, Unsupported);
+			if (Depth > PropertyIdentityMaxDepth) return SetIdentityDiagnostic(Context, Path, Kind, DepthLimit, Unsupported);
+			if (!Struct->HasCompleteAuthoredFields())
+				return SetIdentityDiagnostic(Context, Path, Kind, IncompleteAuthoredFields, Unsupported);
+			if (std::ranges::find(Context.ActiveStructs, Struct) != Context.ActiveStructs.end())
+				return SetIdentityDiagnostic(Context, Path, Kind, DescriptorCycle, Unsupported);
+			if (Struct->HasIdentical())
+				return Struct->GetOps().Identical(LeftValue, RightValue)
+					? Identical : SetIdentityDiagnostic(Context, Path, Kind, ValueMismatch, Different);
+
+			Context.ActiveStructs.push_back(Struct);
+			EPropertyIdentityResult Result = Identical;
+			Struct->ForEachProperty([&](FProperty* Field) {
+				if (Result != Identical || !Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
+				for (uint32 Index = 0; Index < Field->GetArrayDim(); ++Index)
+				{
+					const std::string Segment = std::format(
+						".{}{}", Field->NamePrivate.ToString(),
+						Field->GetArrayDim() > 1 ? std::format("[{}]", Index) : std::string{}
+					);
+					std::string ChildPath;
+					if (!AppendIdentityPath(Context, Path, Segment, Field->GetKind(), ChildPath))
+					{
+						Result = Unsupported;
+						break;
+					}
+					Result = ComparePropertyValuesImpl(
+						Field, LeftValue, Index, RightValue, Index, Depth + 1, ChildPath, Context
+					);
+				}
+			}, false);
+			Context.ActiveStructs.pop_back();
+			return Result;
+		}
+
+		auto ValidatePropertyIdentityDescriptorImpl(
+			const FProperty* Property,
+			uint32 Depth,
+			std::string_view Path,
+			FPropertyIdentityContext& Context
+		) -> bool
+		{
+			using enum EPropertyIdentityReason;
+			using enum EPropertyIdentityResult;
+			const auto Kind = Property ? Property->GetKind() : DurinCodeGen::EPropertyGenFlags::None;
+			if (!Property)
+			{
+				SetIdentityDiagnostic(Context, Path, Kind, InvalidInput, Unsupported);
+				return false;
+			}
+			if (Depth > PropertyIdentityMaxDepth)
+			{
+				SetIdentityDiagnostic(Context, Path, Kind, DepthLimit, Unsupported);
+				return false;
+			}
+
+			switch (Kind)
+			{
+			case DurinCodeGen::EPropertyGenFlags::Bool:
+			case DurinCodeGen::EPropertyGenFlags::Int8:
+			case DurinCodeGen::EPropertyGenFlags::Int16:
+			case DurinCodeGen::EPropertyGenFlags::Int32:
+			case DurinCodeGen::EPropertyGenFlags::Int64:
+			case DurinCodeGen::EPropertyGenFlags::UInt8:
+			case DurinCodeGen::EPropertyGenFlags::UInt16:
+			case DurinCodeGen::EPropertyGenFlags::UInt32:
+			case DurinCodeGen::EPropertyGenFlags::UInt64:
+			case DurinCodeGen::EPropertyGenFlags::Float:
+			case DurinCodeGen::EPropertyGenFlags::Double:
+			case DurinCodeGen::EPropertyGenFlags::Enum:
+			case DurinCodeGen::EPropertyGenFlags::String:
+			case DurinCodeGen::EPropertyGenFlags::Name:
+			case DurinCodeGen::EPropertyGenFlags::Guid:
+			case DurinCodeGen::EPropertyGenFlags::Object:
+			case DurinCodeGen::EPropertyGenFlags::SoftObject:
+				return true;
+			case DurinCodeGen::EPropertyGenFlags::Struct:
+				{
+					const DStruct* Struct = static_cast<const FStructProperty*>(Property)->GetStruct();
+					if (!Struct)
+					{
+						SetIdentityDiagnostic(Context, Path, Kind, MissingStructDescriptor, Unsupported);
+						return false;
+					}
+					if (!Struct->HasCompleteAuthoredFields())
+					{
+						SetIdentityDiagnostic(Context, Path, Kind, IncompleteAuthoredFields, Unsupported);
+						return false;
+					}
+					if (std::ranges::find(Context.ActiveStructs, Struct) != Context.ActiveStructs.end())
+					{
+						SetIdentityDiagnostic(Context, Path, Kind, DescriptorCycle, Unsupported);
+						return false;
+					}
+					if (Struct->HasIdentical()) return true;
+					Context.ActiveStructs.push_back(Struct);
+					bool bSupported = true;
+					Struct->ForEachProperty([&](FProperty* Field) {
+						if (!bSupported || !Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
+						std::string ChildPath;
+						const std::string Segment = std::format(".{}", Field->NamePrivate.ToString());
+						bSupported = AppendIdentityPath(Context, Path, Segment, Field->GetKind(), ChildPath)
+							&& ValidatePropertyIdentityDescriptorImpl(Field, Depth + 1, ChildPath, Context);
+					}, false);
+					Context.ActiveStructs.pop_back();
+					return bSupported;
+				}
+			case DurinCodeGen::EPropertyGenFlags::Array:
+				{
+					const auto* Array = static_cast<const FArrayProperty*>(Property);
+					if (!Array->GetInner())
+					{
+						SetIdentityDiagnostic(Context, Path, Kind, MissingArrayDescriptor, Unsupported);
+						return false;
+					}
+					if (!Array->HasArrayOps()
+						|| !Array->HasCapability(EArrayOpsFlags::Count | EArrayOpsFlags::RandomAccess))
+					{
+						SetIdentityDiagnostic(Context, Path, Kind, MissingArrayOperations, Unsupported);
+						return false;
+					}
+					std::string ChildPath;
+					return AppendIdentityPath(Context, Path, "[]", Array->GetInner()->GetKind(), ChildPath)
+						&& ValidatePropertyIdentityDescriptorImpl(Array->GetInner(), Depth + 1, ChildPath, Context);
+				}
+			case DurinCodeGen::EPropertyGenFlags::Map:
+				{
+					const auto* Map = static_cast<const FMapProperty*>(Property);
+					if (!Map->GetKeyProp() || !Map->GetValueProp())
+					{
+						SetIdentityDiagnostic(Context, Path, Kind, MissingMapDescriptor, Unsupported);
+						return false;
+					}
+					if (!Map->HasMapOps()
+						|| !Map->HasCapability(EMapOpsFlags::Count | EMapOpsFlags::ConstTraversal | EMapOpsFlags::Lookup))
+					{
+						SetIdentityDiagnostic(Context, Path, Kind, MissingMapOperations, Unsupported);
+						return false;
+					}
+					if (!ValidateCanonicalMapKeyProperty(Map->GetKeyProp()))
+					{
+						SetIdentityDiagnostic(Context, Path, Kind, UnsupportedMapKey, Unsupported);
+						return false;
+					}
+					std::string ChildPath;
+					return AppendIdentityPath(Context, Path, "{}", Map->GetValueProp()->GetKind(), ChildPath)
+						&& ValidatePropertyIdentityDescriptorImpl(Map->GetValueProp(), Depth + 1, ChildPath, Context);
+				}
+			default:
+				SetIdentityDiagnostic(Context, Path, Kind, UnsupportedLogicalKind, Unsupported);
 				return false;
 			}
 		}
@@ -568,6 +847,143 @@ namespace Durin
 		return ReportUnavailablePropertyOperation(Property, Operation, OutError);
 	}
 
+	auto ComparePropertyValues(
+		const FProperty* Property,
+		const void* LeftContainer,
+		uint32 LeftArrayIndex,
+		const void* RightContainer,
+		uint32 RightArrayIndex,
+		FPropertyIdentityDiagnostic* OutDiagnostic
+	) -> EPropertyIdentityResult
+	{
+		if (OutDiagnostic) OutDiagnostic->Reset();
+		FPropertyIdentityContext Context{OutDiagnostic, nullptr};
+		std::string Path = Property ? Property->NamePrivate.ToString() : std::string("<null>");
+		if (Property && Property->GetArrayDim() > 1) Path += std::format("[{}]", LeftArrayIndex);
+		if (Path.size() > PropertyIdentityMaxPathLength)
+			return SetIdentityDiagnostic(
+				Context, std::string_view(Path).substr(0, PropertyIdentityMaxPathLength),
+				Property ? Property->GetKind() : DurinCodeGen::EPropertyGenFlags::None,
+				EPropertyIdentityReason::DiagnosticPathLimit, EPropertyIdentityResult::Unsupported
+			);
+		return ComparePropertyValuesImpl(
+			Property, LeftContainer, LeftArrayIndex, RightContainer, RightArrayIndex, 0, Path, Context
+		);
+	}
+
+	auto ComparePropertyValuesWithDefaultGraph(
+		const FProperty* Property,
+		const void* LeftContainer,
+		uint32 LeftArrayIndex,
+		const void* RightContainer,
+		uint32 RightArrayIndex,
+		const FDefaultObjectGraphMap& DefaultGraph,
+		FPropertyIdentityDiagnostic* OutDiagnostic
+	) -> EPropertyIdentityResult
+	{
+		if (OutDiagnostic) OutDiagnostic->Reset();
+		FPropertyIdentityContext Context{OutDiagnostic, &DefaultGraph};
+		std::string Path = Property ? Property->NamePrivate.ToString() : std::string("<null>");
+		if (Property && Property->GetArrayDim() > 1) Path += std::format("[{}]", LeftArrayIndex);
+		if (Path.size() > PropertyIdentityMaxPathLength)
+			return SetIdentityDiagnostic(
+				Context, std::string_view(Path).substr(0, PropertyIdentityMaxPathLength),
+				Property ? Property->GetKind() : DurinCodeGen::EPropertyGenFlags::None,
+				EPropertyIdentityReason::DiagnosticPathLimit, EPropertyIdentityResult::Unsupported
+			);
+		return ComparePropertyValuesImpl(
+			Property, LeftContainer, LeftArrayIndex, RightContainer, RightArrayIndex, 0, Path, Context
+		);
+	}
+
+	auto CompareObjectPropertyToClassDefault(
+		const FProperty* Property,
+		const DObject* LiveObject,
+		uint32 ArrayIndex,
+		const FDefaultObjectGraphMap& DefaultGraph,
+		FPropertyIdentityDiagnostic* OutDiagnostic
+	) -> EPropertyIdentityResult
+	{
+		DClass* PropertyOwner = Property ? Cast<DClass>(Property->Owner.ToDObject()) : nullptr;
+		if (!Property || !LiveObject || !LiveObject->GetClass() || !PropertyOwner
+			|| !LiveObject->GetClass()->IsChildOf(PropertyOwner)
+			|| LiveObject->IsTemplateObject() || ArrayIndex >= Property->GetArrayDim())
+		{
+			if (OutDiagnostic)
+			{
+				OutDiagnostic->Reset();
+				OutDiagnostic->PropertyPath = Property ? Property->NamePrivate.ToString() : "<null>";
+				OutDiagnostic->LogicalKind = Property ? Property->GetKind() : DurinCodeGen::EPropertyGenFlags::None;
+				OutDiagnostic->Reason = EPropertyIdentityReason::InvalidInput;
+			}
+			return EPropertyIdentityResult::Unsupported;
+		}
+		const DObject* DefaultObject = LiveObject->GetClass()->GetDefaultObject();
+		if (!DefaultObject || DefaultGraph.FindInstance(DefaultObject) != LiveObject)
+		{
+			if (OutDiagnostic)
+			{
+				OutDiagnostic->Reset();
+				OutDiagnostic->PropertyPath = Property->NamePrivate.ToString();
+				OutDiagnostic->LogicalKind = Property->GetKind();
+				OutDiagnostic->Reason = EPropertyIdentityReason::InvalidInput;
+			}
+			return EPropertyIdentityResult::Unsupported;
+		}
+		return ComparePropertyValuesWithDefaultGraph(
+			Property, DefaultObject, ArrayIndex, LiveObject, ArrayIndex, DefaultGraph, OutDiagnostic
+		);
+	}
+
+	auto CompareStructPropertyToTypeDefault(
+		const FStructProperty* Property,
+		const void* LiveContainer,
+		uint32 ArrayIndex,
+		FPropertyIdentityDiagnostic* OutDiagnostic
+	) -> EPropertyIdentityResult
+	{
+		DStruct* Struct = Property ? Property->GetStruct() : nullptr;
+		const void* DefaultValue = Struct ? Struct->GetDefaultValue() : nullptr;
+		if (!Property || !LiveContainer || ArrayIndex >= Property->GetArrayDim() || !DefaultValue)
+		{
+			if (OutDiagnostic)
+			{
+				OutDiagnostic->Reset();
+				OutDiagnostic->PropertyPath = Property ? Property->NamePrivate.ToString() : "<null>";
+				OutDiagnostic->LogicalKind = DurinCodeGen::EPropertyGenFlags::Struct;
+				OutDiagnostic->Reason = EPropertyIdentityReason::InvalidInput;
+			}
+			return EPropertyIdentityResult::Unsupported;
+		}
+		return CompareStructValues(
+			Struct, Property->GetValuePtr(LiveContainer, ArrayIndex), DefaultValue, OutDiagnostic
+		);
+	}
+
+	auto CompareStructValues(
+		const DStruct* Struct,
+		const void* LeftValue,
+		const void* RightValue,
+		FPropertyIdentityDiagnostic* OutDiagnostic
+	) -> EPropertyIdentityResult
+	{
+		if (OutDiagnostic) OutDiagnostic->Reset();
+		FPropertyIdentityContext Context{OutDiagnostic, nullptr};
+		const std::string Path = Struct ? Struct->GetQualifiedName().ToString() : std::string("<null>");
+		return CompareStructValuesImpl(Struct, LeftValue, RightValue, 0, Path, Context);
+	}
+
+	auto ValidatePropertyIdentityDescriptor(
+		const FProperty* Property,
+		FPropertyIdentityDiagnostic* OutDiagnostic
+	) -> bool
+	{
+		if (OutDiagnostic) OutDiagnostic->Reset();
+		FPropertyIdentityContext Context{OutDiagnostic, nullptr};
+		const std::string Path = Property ? Property->NamePrivate.ToString() : std::string("<null>");
+		return ValidatePropertyIdentityDescriptorImpl(Property, 0, Path, Context);
+	}
+
 	auto ArePropertyValuesIdentical(
 		const FProperty* Property,
 		const void* LeftContainer,
@@ -576,9 +992,9 @@ namespace Durin
 		uint32 RightArrayIndex
 	) -> bool
 	{
-		return ArePropertyValuesIdenticalImpl(
+		return ComparePropertyValues(
 			Property, LeftContainer, LeftArrayIndex, RightContainer, RightArrayIndex
-		);
+		) == EPropertyIdentityResult::Identical;
 	}
 
 	FNumericProperty::FNumericProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags)

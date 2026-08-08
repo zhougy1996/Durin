@@ -203,6 +203,11 @@ namespace Durin
 
 	namespace Private
 	{
+		auto ReleaseDStructDefaultOwnership(DStruct* Struct) -> void
+		{
+			if (Struct) Struct->DestroyDefaultStorage(Struct->ReleaseDefaultValue());
+		}
+
 		auto ReleaseClassDefaultObjectOwnership(DClass* Class) -> DObject*
 		{
 			return Class ? Class->ReleaseDefaultObjectOwnership() : nullptr;
@@ -293,6 +298,42 @@ namespace Durin
 		CollectGarbage();
 		return !std::ranges::any_of(
 			GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates), IsOwnedByModule);
+	}
+
+	namespace
+	{
+		template<typename Predicate>
+		auto ReleaseMatchingDStructDefaults(Predicate&& Matches) -> void
+		{
+			std::vector<DStruct*> Structs;
+			for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates))
+			{
+				if (auto* Struct = Cast<DStruct>(Object); Struct && Matches(Struct)) Structs.push_back(Struct);
+			}
+			std::ranges::sort(Structs, [](const DStruct* Left, const DStruct* Right) {
+				return Left->GetQualifiedName().ToString() > Right->GetQualifiedName().ToString();
+			});
+			for (DStruct* Struct : Structs)
+			{
+				Private::ReleaseDStructDefaultOwnership(Struct);
+			}
+		}
+	}
+
+	auto ReleaseDStructDefaults() -> void
+	{
+		CheckObjectThread();
+		ReleaseMatchingDStructDefaults([](const DStruct*) { return true; });
+	}
+
+	auto ReleaseDStructDefaultsForModule(FName ModuleName) -> void
+	{
+		CheckObjectThread();
+		const std::string ModulePackagePath = std::format("/Cpp/{}", ModuleName.ToString());
+		ReleaseMatchingDStructDefaults([&](const DStruct* Struct) {
+			const DPackage* Package = Struct->GetPackage();
+			return Package && Package->GetPackagePath() == ModulePackagePath;
+		});
 	}
 
 	COREDOBJECT_API auto ConditionallyMarkAsReachable(DObject* Object) -> void

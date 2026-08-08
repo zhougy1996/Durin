@@ -1,13 +1,17 @@
 #include "DObject/Class.h"
 
-#include "DObject/Property.h"
 #include "DObject/DObjectArray.h"
+#include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/Property.h"
+#include "GCReferenceSchema.h"
 #include "Misc/StringHelper.h"
 #include "QualifiedTypeRegistry.h"
 
 namespace
 {
+	Durin::uint32 GDStructRegistrationBatchDepth = 0;
+
 	struct FQualifiedTypeRegistry
 	{
 		std::unordered_map<Durin::FName, Durin::DClass*> Classes;
@@ -117,6 +121,127 @@ namespace Durin
 		return FoundProperty;
 	}
 
+	DStruct::~DStruct()
+	{
+		DestroyDefaultStorage(PendingDefaultValue);
+		DestroyDefaultStorage(DefaultValue);
+		PendingDefaultValue = nullptr;
+		DefaultValue = nullptr;
+	}
+
+	auto DStruct::GetDefaultValue() const -> const void*
+	{
+		const EDStructDefaultState State = DefaultState.load(std::memory_order_acquire);
+		if (State == EDStructDefaultState::Constructing)
+		{
+			bRecursiveDefaultAccess.store(true, std::memory_order_relaxed);
+			return nullptr;
+		}
+		return State == EDStructDefaultState::Ready ? DefaultValue : nullptr;
+	}
+
+	auto DStruct::AddReferencedObjects(FReferenceCollector& Collector) -> void
+	{
+		Super::AddReferencedObjects(Collector);
+		if (DefaultState.load(std::memory_order_acquire) == EDStructDefaultState::Ready)
+		{
+			Private::FGCReferenceSchemaRegistry::Visit(this, DefaultValue, Collector);
+		}
+	}
+
+	auto DStruct::ResolveDefaultEligibility() -> bool
+	{
+		if (DefaultState.load(std::memory_order_relaxed) != EDStructDefaultState::Uninitialized) return false;
+		EDStructDefaultReason Reason = EDStructDefaultReason::None;
+		if (PropertiesSize == 0 || MinAlignment == 0 || (MinAlignment & (MinAlignment - 1)) != 0)
+			Reason = EDStructDefaultReason::InvalidLayout;
+		else if (!bOpsInitialized)
+			Reason = EDStructDefaultReason::MissingInitializedOps;
+		else if (!CanDefaultConstruct())
+			Reason = EDStructDefaultReason::MissingDefaultConstructor;
+		else if (!CanDestroy())
+			Reason = EDStructDefaultReason::MissingDestructor;
+		else if (!HasCompleteAuthoredFields())
+			Reason = EDStructDefaultReason::IncompleteAuthoredFields;
+		else if (HasSerializer())
+			Reason = EDStructDefaultReason::CustomSerializer;
+		else
+		{
+			bool bSupported = true;
+			ForEachProperty([&](FProperty* Property) {
+				if (bSupported && Property && !Property->HasAnyPropertyFlags(EPropertyFlags::Transient))
+				{
+					FPropertyIdentityDiagnostic Diagnostic;
+					bSupported = ValidatePropertyIdentityDescriptor(Property, &Diagnostic);
+					if (!bSupported && Diagnostic.Reason == EPropertyIdentityReason::DescriptorCycle)
+						Reason = EDStructDefaultReason::RecursiveDependency;
+				}
+			}, false);
+			if (!bSupported && Reason == EDStructDefaultReason::None)
+				Reason = EDStructDefaultReason::UnsupportedPropertyIdentity;
+		}
+
+		if (Reason == EDStructDefaultReason::None) return true;
+		DefaultReason.store(Reason, std::memory_order_relaxed);
+		DefaultState.store(EDStructDefaultState::Unavailable, std::memory_order_release);
+		return false;
+	}
+
+	auto DStruct::BeginDefaultConstruction() -> bool
+	{
+		EDStructDefaultState Expected = EDStructDefaultState::Uninitialized;
+		if (!DefaultState.compare_exchange_strong(
+				Expected, EDStructDefaultState::Constructing,
+				std::memory_order_acq_rel, std::memory_order_acquire)) return false;
+		DefaultReason.store(EDStructDefaultReason::None, std::memory_order_relaxed);
+		bRecursiveDefaultAccess.store(false, std::memory_order_relaxed);
+		return true;
+	}
+
+	auto DStruct::SetPendingDefaultValue(void* Value) -> void
+	{
+		check(DefaultState.load(std::memory_order_relaxed) == EDStructDefaultState::Constructing);
+		check(Value && !PendingDefaultValue && !DefaultValue);
+		PendingDefaultValue = Value;
+	}
+
+	auto DStruct::PublishDefaultValue() -> void
+	{
+		check(DefaultState.load(std::memory_order_relaxed) == EDStructDefaultState::Constructing);
+		check(PendingDefaultValue && !DefaultValue);
+		DefaultValue = PendingDefaultValue;
+		PendingDefaultValue = nullptr;
+		DefaultReason.store(EDStructDefaultReason::None, std::memory_order_relaxed);
+		DefaultState.store(EDStructDefaultState::Ready, std::memory_order_release);
+	}
+
+	auto DStruct::FailDefaultConstruction(EDStructDefaultReason Reason) -> void*
+	{
+		void* FailedValue = PendingDefaultValue;
+		PendingDefaultValue = nullptr;
+		DefaultValue = nullptr;
+		DefaultReason.store(Reason, std::memory_order_relaxed);
+		DefaultState.store(EDStructDefaultState::Failed, std::memory_order_release);
+		return FailedValue;
+	}
+
+	auto DStruct::ReleaseDefaultValue() -> void*
+	{
+		if (DefaultState.load(std::memory_order_acquire) != EDStructDefaultState::Ready) return nullptr;
+		void* Value = DefaultValue;
+		DefaultValue = nullptr;
+		DefaultReason.store(EDStructDefaultReason::None, std::memory_order_relaxed);
+		DefaultState.store(EDStructDefaultState::Released, std::memory_order_release);
+		return Value;
+	}
+
+	auto DStruct::DestroyDefaultStorage(void* Value) const -> void
+	{
+		if (!Value) return;
+		if (NeedsDestroy()) Ops->Destroy(Value);
+		::operator delete(Value, std::align_val_t(MinAlignment));
+	}
+
 	DEnum::DEnum(
 		EStaticConstructor,
 		FName InName,
@@ -222,6 +347,22 @@ namespace Durin
 
 	namespace Private
 	{
+		auto BeginDStructRegistrationBatch() -> void
+		{
+			++GDStructRegistrationBatchDepth;
+		}
+
+		auto EndDStructRegistrationBatch() -> void
+		{
+			check(GDStructRegistrationBatchDepth > 0);
+			--GDStructRegistrationBatchDepth;
+		}
+
+		auto IsDStructRegistrationBatchActive() -> bool
+		{
+			return GDStructRegistrationBatchDepth > 0;
+		}
+
 		auto UpdateQualifiedClassName(DClass* Class, FName PreviousName) -> void
 		{
 			auto& Classes = GetQualifiedTypeRegistry().Classes;
@@ -241,6 +382,190 @@ namespace Durin
 		auto RegisterQualifiedEnum(DEnum* Enum) -> void
 		{
 			RegisterQualifiedType(GetQualifiedTypeRegistry().Enums, Enum->GetQualifiedName(), Enum);
+		}
+
+		auto CreateDStructDefaultsForBatch(std::span<DStruct* const> Structs) -> bool
+		{
+			auto VisitContainedStructs = [](FProperty* Root, const std::function<void(DStruct*)>& Visitor) {
+				std::function<void(FProperty*)> VisitProperty = [&](FProperty* Property) {
+					if (!Property) return;
+					switch (Property->GetKind())
+					{
+					case DurinCodeGen::EPropertyGenFlags::Struct:
+						Visitor(static_cast<FStructProperty*>(Property)->GetStruct());
+						break;
+					case DurinCodeGen::EPropertyGenFlags::Array:
+						VisitProperty(static_cast<FArrayProperty*>(Property)->GetInner());
+						break;
+					case DurinCodeGen::EPropertyGenFlags::Map:
+						VisitProperty(static_cast<FMapProperty*>(Property)->GetKeyProp());
+						VisitProperty(static_cast<FMapProperty*>(Property)->GetValueProp());
+						break;
+					default:
+						break;
+					}
+				};
+				VisitProperty(Root);
+			};
+			std::vector<DStruct*> BatchStructs;
+			std::unordered_set<DStruct*> Added;
+			auto AddStruct = [&](DStruct* Struct) {
+				if (Struct && Added.insert(Struct).second) BatchStructs.push_back(Struct);
+			};
+			for (DStruct* Struct : Structs) AddStruct(Struct);
+			for (size_t Index = 0; Index < BatchStructs.size(); ++Index)
+			{
+				BatchStructs[Index]->ForEachProperty([&](FProperty* Property) {
+					VisitContainedStructs(Property, AddStruct);
+				}, false);
+			}
+			std::ranges::sort(BatchStructs, [](const DStruct* Left, const DStruct* Right) {
+				return Left->GetQualifiedName().ToString() < Right->GetQualifiedName().ToString();
+			});
+
+			std::unordered_set<DStruct*> Visiting;
+			std::function<bool(DStruct*)> Resolve = [&](DStruct* Struct) -> bool {
+				if (!Struct) return false;
+				const EDStructDefaultState State = Struct->GetDefaultState();
+				if (State == EDStructDefaultState::Ready || State == EDStructDefaultState::Constructing) return true;
+				if (State != EDStructDefaultState::Uninitialized) return false;
+				if (!Visiting.insert(Struct).second)
+				{
+					Struct->DefaultReason.store(EDStructDefaultReason::RecursiveDependency, std::memory_order_relaxed);
+					Struct->DefaultState.store(EDStructDefaultState::Unavailable, std::memory_order_release);
+					return false;
+				}
+				if (!Struct->ResolveDefaultEligibility())
+				{
+					Visiting.erase(Struct);
+					return false;
+				}
+				bool bDependenciesReady = true;
+				Struct->ForEachProperty([&](FProperty* Property) {
+					if (!bDependenciesReady || !Property || Property->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
+					VisitContainedStructs(Property, [&](DStruct* Dependency) {
+						if (bDependenciesReady) bDependenciesReady = Resolve(Dependency);
+					});
+				}, false);
+				Visiting.erase(Struct);
+				if (!bDependenciesReady)
+				{
+					Struct->DefaultReason.store(EDStructDefaultReason::UnsupportedPropertyIdentity, std::memory_order_relaxed);
+					Struct->DefaultState.store(EDStructDefaultState::Unavailable, std::memory_order_release);
+					return false;
+				}
+				return true;
+			};
+
+			std::vector<DStruct*> Eligible;
+			for (DStruct* Struct : BatchStructs)
+			{
+				if (Resolve(Struct) && Struct->GetDefaultState() == EDStructDefaultState::Uninitialized)
+					Eligible.push_back(Struct);
+			}
+
+			std::vector<DStruct*> Constructing;
+			auto FailBatch = [&](DStruct* FailedStruct, EDStructDefaultReason Reason) {
+				DURIN_ERROR(STR("DStruct-default batch failed at '{}' with reason {}."),
+					FailedStruct ? FailedStruct->GetQualifiedName().ToString() : std::string("<null>"),
+					static_cast<uint32>(Reason));
+				for (auto It = Constructing.rbegin(); It != Constructing.rend(); ++It)
+				{
+					DStruct* Struct = *It;
+					void* Value = Struct->FailDefaultConstruction(
+						Struct == FailedStruct ? Reason : EDStructDefaultReason::ConstructionFailed);
+					Struct->DestroyDefaultStorage(Value);
+				}
+				for (DStruct* Struct : Eligible)
+				{
+					if (Struct->GetDefaultState() == EDStructDefaultState::Uninitialized)
+					{
+						Struct->DefaultReason.store(
+							Struct == FailedStruct ? Reason : EDStructDefaultReason::ConstructionFailed,
+							std::memory_order_relaxed);
+						Struct->DefaultState.store(EDStructDefaultState::Failed, std::memory_order_release);
+					}
+				}
+			};
+
+			for (DStruct* Struct : Eligible)
+			{
+				if (!Struct->BeginDefaultConstruction())
+				{
+					FailBatch(Struct, EDStructDefaultReason::ConstructionFailed);
+					return false;
+				}
+				Constructing.push_back(Struct);
+				void* First = nullptr;
+				void* Second = nullptr;
+				bool bFirstLive = false;
+				bool bSecondLive = false;
+				EDStructDefaultReason Failure = EDStructDefaultReason::None;
+				const std::vector<DObject*> ObjectsBefore = GDObjectArray.GetAll(
+					EObjectQueryScope::IncludeTemplates);
+				const std::unordered_set<DObject*> ExistingObjects(
+					ObjectsBefore.begin(), ObjectsBefore.end());
+				std::vector<DObject*> SideEffectObjects;
+				try
+				{
+					First = ::operator new(Struct->PropertiesSize, std::align_val_t(Struct->MinAlignment));
+					Second = ::operator new(Struct->PropertiesSize, std::align_val_t(Struct->MinAlignment));
+					Struct->Ops->DefaultConstruct(First);
+					bFirstLive = true;
+					Struct->Ops->DefaultConstruct(Second);
+					bSecondLive = true;
+				}
+				catch (...)
+				{
+					Failure = EDStructDefaultReason::ConstructionFailed;
+				}
+
+				if (Failure == EDStructDefaultReason::None)
+				{
+					for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates))
+					{
+						if (!ExistingObjects.contains(Object)) SideEffectObjects.push_back(Object);
+					}
+					if (!SideEffectObjects.empty()) Failure = EDStructDefaultReason::PublicationSideEffect;
+				}
+				if (Failure == EDStructDefaultReason::None
+					&& Struct->bRecursiveDefaultAccess.load(std::memory_order_relaxed))
+					Failure = EDStructDefaultReason::RecursiveConstruction;
+				if (Failure == EDStructDefaultReason::None)
+				{
+					const EPropertyIdentityResult Identity = CompareStructValues(Struct, First, Second);
+					if (Identity == EPropertyIdentityResult::Different)
+						Failure = EDStructDefaultReason::NonDeterministicConstruction;
+					else if (Identity == EPropertyIdentityResult::Unsupported)
+						Failure = EDStructDefaultReason::UnsupportedPropertyIdentity;
+				}
+
+				if (bSecondLive) Struct->DestroyDefaultStorage(Second);
+				else if (Second) ::operator delete(Second, std::align_val_t(Struct->MinAlignment));
+				if (Failure != EDStructDefaultReason::None)
+				{
+					if (bFirstLive) Struct->DestroyDefaultStorage(First);
+					else if (First) ::operator delete(First, std::align_val_t(Struct->MinAlignment));
+					if (!SideEffectObjects.empty())
+					{
+						const std::unordered_set<DObject*> SideEffectSet(
+							SideEffectObjects.begin(), SideEffectObjects.end());
+						for (DObject* Object : SideEffectObjects)
+						{
+							if (!Object || SideEffectSet.contains(Object->GetOuter())) continue;
+							if (Object->IsTemplateObject()) Private::MarkTemplateObjectHierarchyAsGarbage(Object);
+							else MarkObjectHierarchyAsGarbage(Object);
+						}
+						CollectGarbage();
+					}
+					FailBatch(Struct, Failure);
+					return false;
+				}
+				Struct->SetPendingDefaultValue(First);
+			}
+
+			for (DStruct* Struct : Constructing) Struct->PublishDefaultValue();
+			return true;
 		}
 	}
 

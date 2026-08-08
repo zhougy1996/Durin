@@ -40,6 +40,7 @@ function(durin_add_asset_functional_test target_name)
 endfunction()
 
 durin_add_asset_functional_test(AssetPackageTests
+	LIBRARIES Engine
 	SOURCES
 		Private/PackageTests.cpp
 		Private/PackageV3Measurement.cpp

@@ -419,7 +419,8 @@ namespace Durin::Testing::DastV4
 		}
 
 		auto MaterializeValue(const FParsedValue& Parsed, const FTypePtr& Type,
-			const FFrozenTables& Tables, FValue& Out, uint64& Omitted, std::string& Error) -> bool
+			const FFrozenTables& Tables, FValue& Out, uint64& Omitted, std::string& Error,
+			const FDefaultDeltaNode* DeltaNode = nullptr) -> bool
 		{
 			Out = Parsed.Value;
 			if (Type->Opcode == ETypeOpcode::FixedArray || Type->Opcode == ETypeOpcode::Array
@@ -431,7 +432,9 @@ namespace Durin::Testing::DastV4
 					const FTypePtr& ElementType = Type->Opcode == ETypeOpcode::Map
 						? Type->Children[Index % 2] : Type->Children[0];
 					FValue Element;
-					if (!MaterializeValue(Parsed.Elements[Index], ElementType, Tables, Element, Omitted, Error)) return false;
+					const FDefaultDeltaNode* ElementPlan = DeltaNode && Index < DeltaNode->Elements.size()
+						? DeltaNode->Elements[Index].get() : nullptr;
+					if (!MaterializeValue(Parsed.Elements[Index], ElementType, Tables, Element, Omitted, Error, ElementPlan)) return false;
 					Out.Elements.push_back(std::move(Element));
 				}
 				return true;
@@ -440,22 +443,40 @@ namespace Durin::Testing::DastV4
 			Out = {};
 			const uint64 SchemaId = Tables.SchemaId(Type->QualifiedName);
 			if (SchemaId == 0) return Fail(Error, "parsed struct schema was not discovered");
-			struct FChanged { uint64 Id; FValue Value; };
+			struct FChanged { uint64 Id; uint8 Provenance; FValue Value; };
 			std::vector<FChanged> Changed;
 			for (const auto& [Name, Child] : Parsed.StructFields)
 			{
+				const FDefaultDeltaFieldPlan* DeltaField = nullptr;
+				if (DeltaNode)
+				{
+					auto It = std::ranges::find_if(DeltaNode->Fields,
+						[&](const FDefaultDeltaFieldPlan& Candidate) {
+							return Candidate.Descriptor.Name.ToString() == Name;
+						});
+					if (It == DeltaNode->Fields.end()) return Fail(Error, "delta plan is missing a parsed struct field");
+					DeltaField = &*It;
+					if (DeltaField->Disposition == EDefaultDeltaDisposition::Omitted)
+					{
+						++Omitted;
+						continue;
+					}
+				}
 				const uint64 FieldId = Tables.FieldId(SchemaId, Name);
 				if (FieldId == 0) return Fail(Error, "parsed struct field was not discovered");
 				const FTypePtr& FieldType = Tables.Schemas[SchemaId - 1].Fields[FieldId - 1].Type;
 				FValue Value;
-				if (!MaterializeValue(Child, FieldType, Tables, Value, Omitted, Error)) return false;
-				Changed.push_back({FieldId, std::move(Value)});
+				if (!MaterializeValue(Child, FieldType, Tables, Value, Omitted, Error,
+					DeltaField && DeltaField->Value ? DeltaField->Value.get() : nullptr)) return false;
+				const uint8 Provenance = DeltaField
+					&& DeltaField->Provenance == EDefaultDeltaProvenance::Forced ? 1 : 0;
+				Changed.push_back({FieldId, Provenance, std::move(Value)});
 			}
 			std::sort(Changed.begin(), Changed.end(), [](const FChanged& A, const FChanged& B) { return A.Id < B.Id; });
 			for (FChanged& Field : Changed)
 			{
 				Out.FieldIds.push_back(Field.Id);
-				Out.Provenances.push_back(0);
+				Out.Provenances.push_back(Field.Provenance);
 				Out.Elements.push_back(std::move(Field.Value));
 			}
 			return true;
@@ -536,7 +557,7 @@ namespace Durin::Testing::DastV4
 	}
 
 	auto BuildFeasibilityPackageFromV3(std::span<const uint8> V3Bytes, bool ReverseDiscovery,
-		FFeasibilityPackage& OutPackage, std::string& OutError) -> bool
+		FFeasibilityPackage& OutPackage, std::string& OutError, const FDefaultDeltaPlan* DeltaPlan) -> bool
 	{
 		FParsedPackage Parsed;
 		if (!ParsePackage(V3Bytes, Parsed, OutError)) return false;
@@ -575,19 +596,43 @@ namespace Durin::Testing::DastV4
 		std::vector<FObjectValueInput> ObjectValues;
 		uint64 Omitted = 0;
 		uint64 OverrideCount = 0;
-		for (const FParsedObject& Object : Parsed.Objects)
+		for (size_t ObjectIndex = 0; ObjectIndex < Parsed.Objects.size(); ++ObjectIndex)
 		{
+			const FParsedObject& Object = Parsed.Objects[ObjectIndex];
+			const FDefaultDeltaObjectPlan* DeltaObject = DeltaPlan && ObjectIndex < DeltaPlan->Objects.size()
+				? &DeltaPlan->Objects[ObjectIndex] : nullptr;
 			FObjectValueInput ObjectValue{.ObjectPath = ObjectPaths.at(Object.Id)};
 			for (const FParsedField& Field : Object.Fields)
 			{
+				const FDefaultDeltaFieldPlan* DeltaField = nullptr;
+				if (DeltaObject)
+				{
+					auto It = std::ranges::find_if(DeltaObject->Fields,
+						[&](const FDefaultDeltaFieldPlan& Candidate) {
+							return Candidate.Descriptor.DeclaringType.ToString() == Field.DeclaringType
+								&& Candidate.Descriptor.Name.ToString() == Field.Name;
+						});
+					if (It == DeltaObject->Fields.end()) return Fail(OutError, "delta plan is missing a parsed object field");
+					DeltaField = &*It;
+					if (DeltaField->Disposition == EDefaultDeltaDisposition::Omitted)
+					{
+						++Omitted;
+						continue;
+					}
+				}
 				FValue Value;
-				if (!MaterializeValue(Field.Value, Field.Type, Tables, Value, Omitted, OutError)) return false;
-				// V3 records prove authored presence but do not prove equality with a
-				// current class default. The immutable test oracle therefore preserves
-				// every authored value explicitly; a future production default snapshot
-				// may only make this conservative size upper bound smaller.
-				ObjectValue.Overrides.push_back({Field.DeclaringType, Field.Name,
-					std::move(Value), {}, true});
+				if (!MaterializeValue(Field.Value, Field.Type, Tables, Value, Omitted, OutError,
+					DeltaField && DeltaField->Value ? DeltaField->Value.get() : nullptr)) return false;
+				FOverrideCandidate Override{
+					.SchemaName = Field.DeclaringType,
+					.FieldName = Field.Name,
+					.Value = std::move(Value),
+					.LoadedExplicit = DeltaField == nullptr
+						|| DeltaField->Provenance == EDefaultDeltaProvenance::Explicit,
+					.Forced = DeltaField
+						&& DeltaField->Provenance == EDefaultDeltaProvenance::Forced,
+				};
+				ObjectValue.Overrides.push_back(std::move(Override));
 				++OverrideCount;
 			}
 			ObjectValues.push_back(std::move(ObjectValue));

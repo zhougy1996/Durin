@@ -900,6 +900,164 @@ namespace
 		EXPECT_EQ(LeftSnapshot.GetBytes(), RightSnapshot.GetBytes());
 	}
 
+	TEST(FReflectedStructConsumerTests, LogicalIdentityDistinguishesDifferencesFromUnsupportedSemantics)
+	{
+		Durin::FNumericProperty Values(
+			Durin::FFieldVariant(), Durin::FName("Values"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 2, 0, sizeof(Durin::int32),
+			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr
+		);
+		const std::array<Durin::int32, 2> LeftValues{7, 11};
+		const std::array<Durin::int32, 2> RightValues{7, 13};
+		Durin::FPropertyIdentityDiagnostic Diagnostic;
+		EXPECT_EQ(
+			Durin::ComparePropertyValues(&Values, &LeftValues, 1, &RightValues, 1, &Diagnostic),
+			Durin::EPropertyIdentityResult::Different
+		);
+		EXPECT_EQ(Diagnostic.PropertyPath, "Values[1]");
+		EXPECT_EQ(Diagnostic.LogicalKind, Durin::DurinCodeGen::EPropertyGenFlags::Int32);
+		EXPECT_EQ(Diagnostic.Reason, Durin::EPropertyIdentityReason::ValueMismatch);
+		EXPECT_FALSE(Durin::ArePropertyValuesIdentical(&Values, &LeftValues, 1, &RightValues, 1));
+
+		using FArray = std::vector<Durin::int32>;
+		Durin::FArrayOps MissingRandomAccess = *Durin::ResolveArrayOps<FArray>();
+		MissingRandomAccess.Flags &= ~Durin::EArrayOpsFlags::RandomAccess;
+		MissingRandomAccess.GetConstAt = nullptr;
+		MissingRandomAccess.GetMutableAt = nullptr;
+		Durin::FArrayProperty ArrayProperty(
+			Durin::FFieldVariant(), Durin::FName("Array"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(FArray),
+			Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, &MissingRandomAccess
+		);
+		Durin::FNumericProperty Inner(
+			Durin::FFieldVariant(&ArrayProperty), Durin::FName("Array_Inner"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::int32),
+			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr
+		);
+		ArrayProperty.SetInner(&Inner);
+		const FArray LeftArray{1};
+		const FArray RightArray{2};
+		EXPECT_EQ(
+			Durin::ComparePropertyValues(&ArrayProperty, &LeftArray, 0, &RightArray, 0, &Diagnostic),
+			Durin::EPropertyIdentityResult::Unsupported
+		);
+		EXPECT_EQ(Diagnostic.PropertyPath, "Array");
+		EXPECT_EQ(Diagnostic.Reason, Durin::EPropertyIdentityReason::ContainerOperationFailed);
+		EXPECT_FALSE(Durin::ArePropertyValuesIdentical(&ArrayProperty, &LeftArray, 0, &RightArray, 0));
+	}
+
+	TEST(FReflectedStructConsumerTests, LogicalIdentityReportsCanonicalMapPathsIndependentOfIterationOrder)
+	{
+		Durin::FMapProperty MapProperty(
+			Durin::FFieldVariant(), Durin::FName("Map"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(FEqualityMap),
+			Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, GEqualityMapHelper()
+		);
+		Durin::FNumericProperty KeyProperty(
+			Durin::FFieldVariant(&MapProperty), Durin::FName("Map_Key"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::int32),
+			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr
+		);
+		Durin::FStringProperty ValueProperty(
+			Durin::FFieldVariant(&MapProperty), Durin::FName("Map_Value"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(std::string),
+			Durin::DurinCodeGen::EPropertyGenFlags::String, nullptr
+		);
+		MapProperty.SetKeyProp(&KeyProperty);
+		MapProperty.SetValueProp(&ValueProperty);
+
+		FEqualityMap FirstLeft{{3, "changed"}, {1, "changed"}, {2, "same"}};
+		FEqualityMap SecondLeft{{2, "same"}, {1, "changed"}, {3, "changed"}};
+		FEqualityMap Right{{3, "right"}, {2, "same"}, {1, "right"}};
+		Durin::FPropertyIdentityDiagnostic FirstDiagnostic;
+		Durin::FPropertyIdentityDiagnostic SecondDiagnostic;
+		EXPECT_EQ(
+			Durin::ComparePropertyValues(&MapProperty, &FirstLeft, 0, &Right, 0, &FirstDiagnostic),
+			Durin::EPropertyIdentityResult::Different
+		);
+		EXPECT_EQ(
+			Durin::ComparePropertyValues(&MapProperty, &SecondLeft, 0, &Right, 0, &SecondDiagnostic),
+			Durin::EPropertyIdentityResult::Different
+		);
+		EXPECT_EQ(FirstDiagnostic.PropertyPath, SecondDiagnostic.PropertyPath);
+		EXPECT_EQ(FirstDiagnostic.Reason, Durin::EPropertyIdentityReason::ValueMismatch);
+		EXPECT_EQ(FirstDiagnostic.PropertyPath.find("Map{"), 0u);
+	}
+
+	TEST(FReflectedStructConsumerTests, LogicalIdentityRejectsDescriptorCyclesAndExcessiveDepth)
+	{
+		Durin::FDStructOps CompleteOps;
+		CompleteOps.Flags = Durin::EDStructOpsFlags::AuthoredFieldsComplete;
+		std::array<std::byte, 64> Left{};
+		std::array<std::byte, 64> Right{};
+
+		Durin::DStruct CycleA(
+			Durin::EC_StaticConstructor, Durin::FName("Tests::FCycleA"), Durin::FName("FCycleA"),
+			64, 8, Durin::EObjectFlags::Transient
+		);
+		Durin::DStruct CycleB(
+			Durin::EC_StaticConstructor, Durin::FName("Tests::FCycleB"), Durin::FName("FCycleB"),
+			64, 8, Durin::EObjectFlags::Transient
+		);
+		CycleA.InitializeOps(&CompleteOps);
+		CycleB.InitializeOps(&CompleteOps);
+		Durin::FStructProperty AToB(
+			Durin::FFieldVariant(&CycleA), Durin::FName("B"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, &CycleB
+		);
+		Durin::FStructProperty BToA(
+			Durin::FFieldVariant(&CycleB), Durin::FName("A"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, &CycleA
+		);
+		CycleA.ChildProperties = &AToB;
+		CycleB.ChildProperties = &BToA;
+		Durin::FStructProperty CycleRoot(
+			Durin::FFieldVariant(), Durin::FName("Root"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, &CycleA
+		);
+		Durin::FPropertyIdentityDiagnostic Diagnostic;
+		EXPECT_EQ(
+			Durin::ComparePropertyValues(&CycleRoot, &Left, 0, &Right, 0, &Diagnostic),
+			Durin::EPropertyIdentityResult::Unsupported
+		);
+		EXPECT_EQ(Diagnostic.PropertyPath, "Root.B.A");
+		EXPECT_EQ(Diagnostic.Reason, Durin::EPropertyIdentityReason::DescriptorCycle);
+
+		constexpr size_t StructCount = Durin::PropertyIdentityMaxDepth + 2;
+		std::vector<std::unique_ptr<Durin::DStruct>> Structs;
+		std::vector<std::unique_ptr<Durin::FStructProperty>> Fields;
+		Structs.reserve(StructCount);
+		Fields.reserve(StructCount - 1);
+		for (size_t Index = 0; Index < StructCount; ++Index)
+		{
+			Structs.push_back(std::make_unique<Durin::DStruct>(
+				Durin::EC_StaticConstructor,
+				Durin::FName(std::format("Tests::FDepth{}", Index)),
+				Durin::FName(std::format("FDepth{}", Index)),
+				64, 8, Durin::EObjectFlags::Transient
+			));
+			Structs.back()->InitializeOps(&CompleteOps);
+		}
+		for (size_t Index = 0; Index + 1 < StructCount; ++Index)
+		{
+			Fields.push_back(std::make_unique<Durin::FStructProperty>(
+				Durin::FFieldVariant(Structs[Index].get()), Durin::FName("Next"), Durin::EObjectFlags::NoFlags,
+				Durin::EPropertyFlags::None, 1, 0, Structs[Index + 1].get()
+			));
+			Structs[Index]->ChildProperties = Fields.back().get();
+		}
+		Durin::FStructProperty DepthRoot(
+			Durin::FFieldVariant(), Durin::FName("Depth"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, Structs.front().get()
+		);
+		EXPECT_EQ(
+			Durin::ComparePropertyValues(&DepthRoot, &Left, 0, &Right, 0, &Diagnostic),
+			Durin::EPropertyIdentityResult::Unsupported
+		);
+		EXPECT_EQ(Diagnostic.Reason, Durin::EPropertyIdentityReason::DepthLimit);
+		EXPECT_LE(Diagnostic.PropertyPath.size(), Durin::PropertyIdentityMaxPathLength);
+	}
+
 	TEST(FReflectedStructConsumerTests, HiddenReferencesAreCollectedAndRootedBySnapshots)
 	{
 		EnsureSnapshotTestsInitialized();

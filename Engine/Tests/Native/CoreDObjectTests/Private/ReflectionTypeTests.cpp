@@ -1,5 +1,7 @@
 #include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
+#include "DObject/DefaultObjectGraph.h"
+#include "DObject/DefaultDeltaPlan.h"
 #include "DObject/Object.h"
 #include "DObject/ObjectPtr.h"
 #include "DObject/WeakObjectPtr.h"
@@ -23,6 +25,88 @@
 
 namespace StructOpsTest
 {
+	inline Durin::uint32 DefaultSequence = 0;
+	inline Durin::DStruct* ReentrantDefaultStruct = nullptr;
+	inline Durin::DObject* DefaultReferenceTarget = nullptr;
+	inline Durin::uint32 SideEffectSequence = 0;
+	inline std::vector<Durin::DObject*> SideEffectObjects;
+
+	auto ConstructStableDefault(void* Destination) -> void
+	{
+		std::construct_at(static_cast<Durin::int32*>(Destination), 7);
+	}
+
+	auto ConstructChangingDefault(void* Destination) -> void
+	{
+		std::construct_at(static_cast<Durin::int32*>(Destination), static_cast<Durin::int32>(++DefaultSequence));
+	}
+
+	auto ConstructReentrantDefault(void* Destination) -> void
+	{
+		(void)ReentrantDefaultStruct->GetDefaultValue();
+		std::construct_at(static_cast<Durin::int32*>(Destination), 7);
+	}
+
+	struct FReferenceDefault
+	{
+		Durin::DObject* Value = nullptr;
+	};
+
+	struct FAuthoritativeText
+	{
+		std::string Value = "default";
+	};
+
+	auto ConstructAuthoritativeText(void* Destination) -> void
+	{
+		std::construct_at(static_cast<FAuthoritativeText*>(Destination));
+	}
+
+	auto DestroyAuthoritativeText(void* Value) -> void
+	{
+		std::destroy_at(static_cast<FAuthoritativeText*>(Value));
+	}
+
+	auto IdenticalAuthoritativeText(const void* Left, const void* Right) -> bool
+	{
+		auto Fold = [](std::string Value) {
+			std::ranges::transform(Value, Value.begin(), [](unsigned char Character) {
+				return static_cast<char>(std::tolower(Character));
+			});
+			return Value;
+		};
+		return Fold(static_cast<const FAuthoritativeText*>(Left)->Value)
+			== Fold(static_cast<const FAuthoritativeText*>(Right)->Value);
+	}
+
+	auto ConstructReferenceDefault(void* Destination) -> void
+	{
+		std::construct_at(
+			static_cast<FReferenceDefault*>(Destination),
+			FReferenceDefault{DefaultReferenceTarget});
+	}
+
+	auto ConstructSideEffectDefault(void* Destination) -> void
+	{
+		SideEffectObjects.push_back(Durin::NewObject<Durin::DObject>(
+			nullptr, Durin::FName(std::format("StructDefaultSideEffect{}", ++SideEffectSequence))));
+		std::construct_at(static_cast<Durin::int32*>(Destination), 7);
+	}
+
+	auto DestroyReferenceDefault(void* Value) -> void
+	{
+		std::destroy_at(static_cast<FReferenceDefault*>(Value));
+	}
+
+	auto CollectReferenceDefault(void* Value, Durin::FReferenceCollector& Collector) -> void
+	{
+		Collector.AddReferencedObject(static_cast<FReferenceDefault*>(Value)->Value);
+	}
+
+	auto SerializeDefault(Durin::FArchive&, void*) -> void
+	{
+	}
+
 	struct FUnsupportedArchiveLayout
 	{
 		Durin::int32 Value = 0;
@@ -558,6 +642,312 @@ namespace
 			}
 			return Class;
 		}
+	};
+
+	class DDefaultGraphOwnerForTest : public Durin::DObject
+	{
+	public:
+		explicit DDefaultGraphOwnerForTest(
+			const Durin::FObjectInitializer& ObjectInitializer = Durin::FObjectInitializer::Get())
+			: DObject(ObjectInitializer)
+		{
+			const Durin::EObjectConstructionPurpose ChildPurpose = IsClassDefaultObject()
+				? Durin::EObjectConstructionPurpose::ClassDefaultSubobject
+				: Durin::EObjectConstructionPurpose::RuntimeObject;
+			Child = Durin::NewObject<DLifecycleTestObject>(this, Durin::FName("StableChild"), ChildPurpose);
+		}
+
+		static void __DefaultConstructor(const Durin::FObjectInitializer& X)
+		{
+			new (X.GetObj()) DDefaultGraphOwnerForTest(X);
+		}
+
+		auto Serialize(Durin::FArchive& Ar) -> void override
+		{
+			DObject::Serialize(Ar);
+			const Durin::FName Owner("Tests::DDefaultGraphOwnerForTest");
+			auto SerializeFirst = [&] {
+				auto Field = Ar.EnterField({Owner, Durin::FName("NativeFirst"),
+					Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32)});
+				Ar << NativeFirst;
+			};
+			auto SerializeSecond = [&] {
+				auto Field = Ar.EnterField({Owner, Durin::FName("NativeSecond"),
+					Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32)});
+				Ar << NativeSecond;
+			};
+			if (bReverseNativeOrder) { SerializeSecond(); SerializeFirst(); }
+			else { SerializeFirst(); SerializeSecond(); }
+			{
+				auto Field = Ar.EnterField({Owner, Durin::FName("NativeOnlyStruct"),
+					Durin::FArchiveLogicalTypeDescriptor::Struct(
+						Durin::FName("Tests::FNativeOnlyStruct"), 1)});
+				auto ValueField = Ar.EnterField({Durin::FName("Tests::FNativeOnlyStruct"),
+					Durin::FName("Value"), Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32)});
+				Ar << NativeOnlyStructValue;
+			}
+			{
+				auto Field = Ar.EnterField({Owner, Durin::FName("NativeMap"),
+					Durin::FArchiveLogicalTypeDescriptor::Map(
+						Durin::FArchiveLogicalTypeDescriptor::String(),
+						Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32))});
+				Durin::uint64 Count = 1;
+				Ar << Count;
+				std::string Key = "Key";
+				{
+					auto KeyScope = Ar.EnterMapKey(0);
+					Ar << Key;
+				}
+				{
+					auto ValueScope = Ar.EnterMapValue(0);
+					Ar << NativeMapValue;
+				}
+			}
+			if (bEmitLateField && !Ar.IsDiscovering())
+			{
+				auto Field = Ar.EnterField({Owner, Durin::FName("LateField"),
+					Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32)});
+				Ar << NativeFirst;
+			}
+			if (bEmitOptionalField)
+			{
+				auto Field = Ar.EnterField({Owner, Durin::FName("OptionalField"),
+					Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32)});
+				Ar << NativeFirst;
+			}
+			if (bEmitDeepField)
+			{
+				std::vector<Durin::FArchiveFieldScope> Scopes;
+				for (Durin::uint32 Depth = 0; Depth < Durin::DefaultDeltaMaxDepth + 2; ++Depth)
+				{
+					Scopes.push_back(Ar.EnterField({Durin::FName("Tests::FDeepDelta"),
+						Durin::FName(std::format("Depth{}", Depth)),
+						Durin::FArchiveLogicalTypeDescriptor::Struct(Durin::FName("Tests::FDeepDelta"))}));
+				}
+				auto Leaf = Ar.EnterField({Durin::FName("Tests::FDeepDelta"), Durin::FName("Leaf"),
+					Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32)});
+				Ar << NativeFirst;
+			}
+			if (bEmitOversizedArray)
+			{
+				auto Field = Ar.EnterField({Owner, Durin::FName("OversizedArray"),
+					Durin::FArchiveLogicalTypeDescriptor::Array(
+						Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32))});
+				Durin::uint64 Count = Durin::DefaultDeltaMaxFields + 1;
+				Ar << Count;
+			}
+		}
+
+		static auto StaticClass() -> Durin::DClass*
+		{
+			static Durin::DClass* Class = nullptr;
+			if (!Class)
+			{
+				Class = new Durin::DClass(
+					Durin::EC_StaticConstructor,
+					Durin::FName("Tests::DDefaultGraphOwnerForTest"),
+					sizeof(DDefaultGraphOwnerForTest),
+					alignof(DDefaultGraphOwnerForTest),
+					Durin::EObjectFlags::NoFlags,
+					Durin::EClassFlags::None,
+					Durin::EClassCastFlags::DClass,
+					(Durin::DClass::ClassConstructorType)Durin::InternalConstructor<DDefaultGraphOwnerForTest>
+				);
+				Class->SetSuperStructBase(Durin::DObject::StaticClass());
+				Class->SetTypeNames("DDefaultGraphOwnerForTest", "", "");
+				Class->Register(Durin::DClass::StaticClass, "", "DDefaultGraphOwnerForTest");
+				Durin::DObjectForceRegistration(Class);
+				const auto Params = Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>(
+					"Child", Durin::EPropertyFlags::None, 1,
+					static_cast<Durin::uint16>(offsetof(DDefaultGraphOwnerForTest, Child)),
+					&Durin::DObject::StaticClass
+				);
+				auto* ChildProperty = new Durin::FObjectProperty(
+					Durin::FFieldVariant(Class), Durin::FName("Child"), Durin::EObjectFlags::NoFlags,
+					Durin::EPropertyFlags::None, 1,
+					static_cast<Durin::uint16>(offsetof(DDefaultGraphOwnerForTest, Child)),
+					static_cast<Durin::uint16>(sizeof(Durin::DObject*)),
+					Durin::DurinCodeGen::EPropertyGenFlags::Object, Durin::DObject::StaticClass(),
+					true, Params.ReadObjectValue, Params.WriteObjectValue
+				);
+				auto* ClassSpecificProperty = new Durin::FStructProperty(
+					Durin::FFieldVariant(Class), Durin::FName("ClassSpecific"), Durin::EObjectFlags::NoFlags,
+					Durin::EPropertyFlags::None, 1,
+					static_cast<Durin::uint16>(offsetof(DDefaultGraphOwnerForTest, ClassSpecific)),
+					Durin::Z_Construct_DStruct_Durin_FVector3()
+				);
+				auto* FixedProperty = new Durin::FNumericProperty(
+					Durin::FFieldVariant(Class), Durin::FName("Fixed"), Durin::EObjectFlags::NoFlags,
+					Durin::EPropertyFlags::None, 2,
+					static_cast<Durin::uint16>(offsetof(DDefaultGraphOwnerForTest, Fixed)),
+					sizeof(Durin::int32), Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
+				auto* ExactFloatProperty = new Durin::FNumericProperty(
+					Durin::FFieldVariant(Class), Durin::FName("ExactFloat"), Durin::EObjectFlags::NoFlags,
+					Durin::EPropertyFlags::None, 1,
+					static_cast<Durin::uint16>(offsetof(DDefaultGraphOwnerForTest, ExactFloat)),
+					sizeof(double), Durin::DurinCodeGen::EPropertyGenFlags::Double, nullptr);
+				ChildProperty->Next = ClassSpecificProperty;
+				ClassSpecificProperty->Next = FixedProperty;
+				FixedProperty->Next = ExactFloatProperty;
+				Class->ChildProperties = ChildProperty;
+			}
+			return Class;
+		}
+
+		Durin::TObjectPtr<Durin::DObject> Child;
+		Durin::FVector3 ClassSpecific{1.0, 2.0, 3.0};
+		Durin::int32 Fixed[2]{4, 5};
+		double ExactFloat = std::bit_cast<double>(Durin::uint64{0x7FF8000000000042ull});
+		Durin::int32 NativeFirst = 7;
+		Durin::int32 NativeSecond = 9;
+		Durin::int32 NativeOnlyStructValue = 3;
+		Durin::int32 NativeMapValue = 11;
+		bool bReverseNativeOrder = false;
+		bool bEmitLateField = false;
+		bool bEmitOptionalField = false;
+		bool bEmitDeepField = false;
+		bool bEmitOversizedArray = false;
+	};
+
+	class DAuthoritativeDeltaOwnerForTest : public Durin::DObject
+	{
+	public:
+		explicit DAuthoritativeDeltaOwnerForTest(
+			const Durin::FObjectInitializer& ObjectInitializer = Durin::FObjectInitializer::Get())
+			: DObject(ObjectInitializer)
+		{
+			Value.Value = "Default";
+		}
+
+		static void __DefaultConstructor(const Durin::FObjectInitializer& X)
+		{
+			new (X.GetObj()) DAuthoritativeDeltaOwnerForTest(X);
+		}
+
+		static auto StaticClass() -> Durin::DClass*
+		{
+			static Durin::DStruct* TextStruct = nullptr;
+			if (!TextStruct)
+			{
+				static Durin::FDStructOps Ops;
+				Ops.Flags = Durin::EDStructOpsFlags::DefaultConstruct
+					| Durin::EDStructOpsFlags::Destroy
+					| Durin::EDStructOpsFlags::Identical
+					| Durin::EDStructOpsFlags::AuthoredFieldsComplete;
+				Ops.DefaultConstruct = &StructOpsTest::ConstructAuthoritativeText;
+				Ops.Destroy = &StructOpsTest::DestroyAuthoritativeText;
+				Ops.Identical = &StructOpsTest::IdenticalAuthoritativeText;
+				static const Durin::DurinCodeGen::FStringPropertyParams TextProperty = {
+					"Value", Durin::EPropertyFlags::None, 1,
+					static_cast<Durin::uint16>(offsetof(StructOpsTest::FAuthoritativeText, Value))};
+				static const Durin::DurinCodeGen::FPropertyParamsBase* const Properties[] = {
+					&TextProperty};
+				auto NoRegister = []() -> Durin::DStruct* {
+					if (!TextStruct)
+					{
+						TextStruct = new Durin::DStruct(
+							Durin::EC_StaticConstructor, Durin::FName("Tests::FAuthoritativeText"),
+							Durin::FName("FAuthoritativeText"), sizeof(StructOpsTest::FAuthoritativeText),
+							alignof(StructOpsTest::FAuthoritativeText), Durin::EObjectFlags::NoFlags);
+						TextStruct->Register(
+							Durin::DStruct::StaticClass, "/Cpp/CoreDObjectTests", "Tests::FAuthoritativeText");
+					}
+					return TextStruct;
+				};
+				const Durin::DurinCodeGen::FStructParams Params = {
+					NoRegister, "Tests::FAuthoritativeText", "FAuthoritativeText",
+					sizeof(StructOpsTest::FAuthoritativeText), alignof(StructOpsTest::FAuthoritativeText),
+					Properties, std::size(Properties), &Ops};
+				TextStruct = Durin::DurinCodeGen::ConstructDStruct(Params);
+			}
+
+			static Durin::DClass* Class = nullptr;
+			if (!Class)
+			{
+				Class = new Durin::DClass(
+					Durin::EC_StaticConstructor, Durin::FName("Tests::DAuthoritativeDeltaOwnerForTest"),
+					sizeof(DAuthoritativeDeltaOwnerForTest), alignof(DAuthoritativeDeltaOwnerForTest),
+					Durin::EObjectFlags::NoFlags, Durin::EClassFlags::None,
+					Durin::EClassCastFlags::DClass,
+					(Durin::DClass::ClassConstructorType)Durin::InternalConstructor<DAuthoritativeDeltaOwnerForTest>);
+				Class->SetSuperStructBase(Durin::DObject::StaticClass());
+				Class->Register(Durin::DClass::StaticClass, "", "DAuthoritativeDeltaOwnerForTest");
+				Durin::DObjectForceRegistration(Class);
+				Class->ChildProperties = new Durin::FStructProperty(
+					Durin::FFieldVariant(Class), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
+					Durin::EPropertyFlags::None, 1,
+					static_cast<Durin::uint16>(offsetof(DAuthoritativeDeltaOwnerForTest, Value)), TextStruct);
+			}
+			return Class;
+		}
+
+		StructOpsTest::FAuthoritativeText Value;
+	};
+
+	class DOverrideContainerOwnerForTest : public Durin::DObject
+	{
+	public:
+		explicit DOverrideContainerOwnerForTest(
+			const Durin::FObjectInitializer& ObjectInitializer = Durin::FObjectInitializer::Get())
+			: DObject(ObjectInitializer)
+		{
+			Values.push_back(0);
+			Lookup.emplace("Stable", 0);
+		}
+
+		static void __DefaultConstructor(const Durin::FObjectInitializer& X)
+		{
+			new (X.GetObj()) DOverrideContainerOwnerForTest(X);
+		}
+
+		static auto StaticClassNoRegister() -> Durin::DClass*
+		{
+			static Durin::DClass* Class = nullptr;
+			if (!Class)
+			{
+				Class = new Durin::DClass(
+					Durin::EC_StaticConstructor, Durin::FName("DOverrideContainerOwnerForTest"),
+					sizeof(DOverrideContainerOwnerForTest), alignof(DOverrideContainerOwnerForTest),
+					Durin::EObjectFlags::NoFlags, Durin::EClassFlags::None,
+					Durin::EClassCastFlags::DClass,
+					(Durin::DClass::ClassConstructorType)Durin::InternalConstructor<DOverrideContainerOwnerForTest>);
+				Class->SetSuperStructBase(Durin::DObject::StaticClass());
+				Class->Register(Durin::DClass::StaticClass, "", "DOverrideContainerOwnerForTest");
+			}
+			return Class;
+		}
+
+		static auto StaticClass() -> Durin::DClass*
+		{
+			static Durin::DClass* Class = [] {
+				static const Durin::DurinCodeGen::FInt32PropertyParams ValuesInner = {
+					"Values_Inner", Durin::EPropertyFlags::None, 1, 0};
+				static const Durin::DurinCodeGen::FArrayPropertyParams ValuesProperty = {
+					"Values", Durin::EPropertyFlags::None, 1,
+					static_cast<Durin::uint16>(offsetof(DOverrideContainerOwnerForTest, Values)),
+					&ValuesInner, &GVectorPropertyHelper<Durin::int32>};
+				static const Durin::DurinCodeGen::FStringPropertyParams LookupKey = {
+					"Lookup_Key", Durin::EPropertyFlags::None, 1, 0};
+				static const Durin::DurinCodeGen::FInt32PropertyParams LookupValue = {
+					"Lookup_Value", Durin::EPropertyFlags::None, 1, 0};
+				static const Durin::DurinCodeGen::FMapPropertyParams LookupProperty = {
+					"Lookup", Durin::EPropertyFlags::None, 1,
+					static_cast<Durin::uint16>(offsetof(DOverrideContainerOwnerForTest, Lookup)),
+					&LookupKey, &LookupValue,
+					&GMapPropertyHelper<std::string, Durin::int32>};
+				static const Durin::DurinCodeGen::FPropertyParamsBase* const Properties[] = {
+					&ValuesProperty, &LookupProperty};
+				static const Durin::DurinCodeGen::FClassParams Params = {
+					&DOverrideContainerOwnerForTest::StaticClassNoRegister,
+					"DOverrideContainerOwnerForTest", "DOverrideContainerOwnerForTest",
+					Properties, std::size(Properties)};
+				return Durin::DurinCodeGen::ConstructDClass(Params);
+			}();
+			return Class;
+		}
+
+		std::vector<Durin::int32> Values;
+		TTestMap<std::string, Durin::int32> Lookup;
 	};
 
 	class DLifecycleReferenceOwnerForTest : public Durin::DObject
@@ -1755,6 +2145,546 @@ namespace
 		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::FinishDestroyCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::DestructorCount, 1u);
+	}
+
+	TEST(FCoreDObjectReflectionTests, DefaultObjectGraphPairsStableSubobjectsAndResolvesClassBaselines)
+	{
+		EnsureDObjectInitialized();
+		Durin::DClass* Class = DDefaultGraphOwnerForTest::StaticClass();
+		const std::array Batch{Class};
+		ASSERT_TRUE(Durin::Private::CreateClassDefaultObjectsForBatch(Batch));
+		const auto* DefaultObject = static_cast<const DDefaultGraphOwnerForTest*>(Class->GetDefaultObject());
+		auto* Instance = Durin::NewObject<DDefaultGraphOwnerForTest>(nullptr, Durin::FName("DefaultGraphInstance"));
+		ASSERT_NE(DefaultObject, nullptr);
+		ASSERT_NE(DefaultObject->Child, nullptr);
+		ASSERT_NE(Instance->Child, nullptr);
+		EXPECT_TRUE(DefaultObject->Child->HasAnyObjectFlags(Durin::EObjectFlags::DefaultSubobject));
+		EXPECT_FALSE(Instance->Child->IsTemplateObject());
+
+		Durin::FDefaultObjectGraphMap Graph;
+		Durin::FDefaultObjectGraphDiagnostic GraphDiagnostic;
+		ASSERT_TRUE(Graph.Build(DefaultObject, Instance, &GraphDiagnostic));
+		EXPECT_EQ(Graph.Num(), 2u);
+		EXPECT_EQ(Graph.FindInstance(DefaultObject), Instance);
+		EXPECT_EQ(Graph.FindInstance(DefaultObject->Child), Instance->Child);
+		EXPECT_TRUE(Graph.AreReferencesEquivalent(DefaultObject->Child, Instance->Child));
+
+		Durin::FProperty* ChildProperty = Class->FindPropertyByName(Durin::FName("Child"), false);
+		ASSERT_NE(ChildProperty, nullptr);
+		EXPECT_EQ(
+			Durin::CompareObjectPropertyToClassDefault(ChildProperty, Instance, 0, Graph),
+			Durin::EPropertyIdentityResult::Identical
+		);
+		auto* ClassSpecificProperty = static_cast<Durin::FStructProperty*>(
+			Class->FindPropertyByName(Durin::FName("ClassSpecific"), false));
+		ASSERT_NE(ClassSpecificProperty, nullptr);
+		EXPECT_EQ(
+			Durin::CompareObjectPropertyToClassDefault(ClassSpecificProperty, Instance, 0, Graph),
+			Durin::EPropertyIdentityResult::Identical
+		);
+		EXPECT_EQ(
+			Durin::CompareStructPropertyToTypeDefault(ClassSpecificProperty, Instance, 0),
+			Durin::EPropertyIdentityResult::Different
+		);
+		Durin::DObject* OriginalChild = Instance->Child;
+		Instance->Child = Durin::NewObject<DLifecycleTestObject>(Instance, Durin::FName("ExternalChild"));
+		EXPECT_EQ(
+			Durin::CompareObjectPropertyToClassDefault(ChildProperty, Instance, 0, Graph),
+			Durin::EPropertyIdentityResult::Different
+		);
+		Instance->Child = OriginalChild;
+		auto* ExtraChild = Durin::NewObject<DLifecycleTestObject>(
+			Instance, Durin::FName("AllowedExtraChild"));
+		EXPECT_TRUE(Graph.Build(DefaultObject, Instance, &GraphDiagnostic));
+
+		auto* DuplicateChild = Durin::NewObject<DLifecycleTestObject>(
+			Instance, Durin::FName("StableChild"));
+		EXPECT_FALSE(Graph.Build(DefaultObject, Instance, &GraphDiagnostic));
+		EXPECT_EQ(GraphDiagnostic.Reason, Durin::EDefaultObjectGraphFailureReason::DuplicateInstanceIdentity);
+		Durin::MarkAsGarbage(DuplicateChild);
+
+		OriginalChild->SetOuterPrivate(nullptr);
+		EXPECT_FALSE(Graph.Build(DefaultObject, Instance, &GraphDiagnostic));
+		EXPECT_EQ(GraphDiagnostic.Reason, Durin::EDefaultObjectGraphFailureReason::MissingInstanceNode);
+		auto* WrongClassChild = Durin::NewObject<Durin::DObject>(
+			Instance, Durin::FName("StableChild"));
+		EXPECT_FALSE(Graph.Build(DefaultObject, Instance, &GraphDiagnostic));
+		EXPECT_EQ(GraphDiagnostic.Reason, Durin::EDefaultObjectGraphFailureReason::ClassMismatch);
+		Durin::MarkAsGarbage(WrongClassChild);
+		OriginalChild->SetOuterPrivate(Instance);
+		EXPECT_FALSE(Graph.Build(Instance, DefaultObject, &GraphDiagnostic));
+		EXPECT_EQ(GraphDiagnostic.Reason, Durin::EDefaultObjectGraphFailureReason::InvalidTemplateRoot);
+
+		Durin::MarkAsGarbage(ExtraChild);
+		Durin::MarkObjectHierarchyAsGarbage(Instance);
+		Durin::ReleaseClassDefaultObjects();
+		Durin::CollectGarbage();
+	}
+
+	TEST(FCoreDObjectReflectionTests, DefaultDeltaPlanCanonicalizesReflectedAndNativeClassDifferences)
+	{
+		EnsureDObjectInitialized();
+		Durin::DClass* Class = DDefaultGraphOwnerForTest::StaticClass();
+		const std::array Batch{Class};
+		ASSERT_TRUE(Durin::Private::CreateClassDefaultObjectsForBatch(Batch));
+		auto* Instance = Durin::NewObject<DDefaultGraphOwnerForTest>(
+			nullptr, Durin::FName("DefaultDeltaInstance"));
+		Instance->bReverseNativeOrder = true;
+
+		Durin::FDefaultDeltaPlan DefaultPlan;
+		Durin::FDefaultDeltaDiagnostic Diagnostic;
+		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
+			Instance, Durin::EDefaultDeltaMode::Enabled, DefaultPlan, &Diagnostic))
+			<< "reason=" << static_cast<int>(Diagnostic.Reason)
+			<< " path=" << Diagnostic.LogicalPath;
+		ASSERT_EQ(DefaultPlan.Objects.size(), 2u);
+		EXPECT_EQ(DefaultPlan.EmittedFieldCount, 0u);
+		EXPECT_GT(DefaultPlan.OmittedFieldCount, 0u);
+
+		Instance->ClassSpecific = Durin::FVector3(0.0);
+		Instance->Fixed[1] = 17;
+		Instance->NativeSecond = 11;
+		const Durin::FVector3 BeforeStruct = Instance->ClassSpecific;
+		const Durin::int32 BeforeFixed = Instance->Fixed[1];
+		Durin::FDefaultDeltaPlan ChangedPlan;
+		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
+			Instance, Durin::EDefaultDeltaMode::Enabled, ChangedPlan, &Diagnostic))
+			<< "reason=" << static_cast<int>(Diagnostic.Reason)
+			<< " path=" << Diagnostic.LogicalPath;
+		EXPECT_EQ(Instance->ClassSpecific, BeforeStruct);
+		EXPECT_EQ(Instance->Fixed[1], BeforeFixed);
+
+		const auto ChangedRootIt = std::ranges::find_if(ChangedPlan.Objects,
+			[&](const Durin::FDefaultDeltaObjectPlan& Object) { return Object.Object == Instance; });
+		ASSERT_NE(ChangedRootIt, ChangedPlan.Objects.end());
+		const auto& Root = *ChangedRootIt;
+		auto FindField = [&](std::string_view Name) -> const Durin::FDefaultDeltaFieldPlan* {
+			auto It = std::ranges::find_if(Root.Fields, [&](const Durin::FDefaultDeltaFieldPlan& Field) {
+				return Field.Descriptor.Name.ToString() == Name;
+			});
+			return It == Root.Fields.end() ? nullptr : &*It;
+		};
+		const auto* Child = FindField("Child");
+		const auto* ClassSpecific = FindField("ClassSpecific");
+		const auto* Fixed = FindField("Fixed");
+		const auto* ExactFloat = FindField("ExactFloat");
+		const auto* NativeFirst = FindField("NativeFirst");
+		const auto* NativeSecond = FindField("NativeSecond");
+		ASSERT_NE(Child, nullptr);
+		ASSERT_NE(ClassSpecific, nullptr);
+		ASSERT_NE(Fixed, nullptr);
+		ASSERT_NE(ExactFloat, nullptr);
+		ASSERT_NE(NativeFirst, nullptr);
+		ASSERT_NE(NativeSecond, nullptr);
+		EXPECT_EQ(Child->Disposition, Durin::EDefaultDeltaDisposition::Omitted);
+		EXPECT_EQ(NativeFirst->Disposition, Durin::EDefaultDeltaDisposition::Omitted);
+		EXPECT_EQ(ExactFloat->Disposition, Durin::EDefaultDeltaDisposition::Omitted);
+		EXPECT_EQ(NativeSecond->Disposition, Durin::EDefaultDeltaDisposition::Emitted);
+		ASSERT_EQ(ClassSpecific->Disposition, Durin::EDefaultDeltaDisposition::Emitted);
+		ASSERT_NE(ClassSpecific->Value, nullptr);
+		EXPECT_EQ(ClassSpecific->Baseline, Durin::EDefaultDeltaBaselineKind::ClassDefault);
+		EXPECT_EQ(ClassSpecific->Value->Fields.size(), 3u);
+		EXPECT_TRUE(std::ranges::all_of(ClassSpecific->Value->Fields,
+			[](const Durin::FDefaultDeltaFieldPlan& Field) {
+				return Field.Baseline == Durin::EDefaultDeltaBaselineKind::StructTypeDefault
+					&& Field.Disposition == Durin::EDefaultDeltaDisposition::Omitted;
+			}));
+		ASSERT_EQ(Fixed->Disposition, Durin::EDefaultDeltaDisposition::Emitted);
+		ASSERT_NE(Fixed->Value, nullptr);
+		EXPECT_EQ(Fixed->Value->Elements.size(), 2u);
+
+		Instance->ClassSpecific = Durin::FVector3(-0.0, 0.0, 0.0);
+		Durin::FDefaultDeltaPlan SignedZeroPlan;
+		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
+			Instance, Durin::EDefaultDeltaMode::Enabled, SignedZeroPlan, &Diagnostic));
+		const auto SignedZeroRoot = std::ranges::find_if(SignedZeroPlan.Objects,
+			[&](const Durin::FDefaultDeltaObjectPlan& Object) { return Object.Object == Instance; });
+		ASSERT_NE(SignedZeroRoot, SignedZeroPlan.Objects.end());
+		const auto SignedZeroStruct = std::ranges::find_if(SignedZeroRoot->Fields,
+			[](const Durin::FDefaultDeltaFieldPlan& Field) {
+				return Field.Descriptor.Name == Durin::FName("ClassSpecific");
+			});
+		ASSERT_NE(SignedZeroStruct, SignedZeroRoot->Fields.end());
+		ASSERT_NE(SignedZeroStruct->Value, nullptr);
+		ASSERT_EQ(SignedZeroStruct->Value->Fields.size(), 3u);
+		EXPECT_EQ(SignedZeroStruct->Value->Fields[0].Disposition,
+			Durin::EDefaultDeltaDisposition::Emitted);
+		EXPECT_EQ(SignedZeroStruct->Value->Fields[1].Disposition,
+			Durin::EDefaultDeltaDisposition::Omitted);
+		EXPECT_EQ(SignedZeroStruct->Value->Fields[2].Disposition,
+			Durin::EDefaultDeltaDisposition::Omitted);
+
+		Instance->ExactFloat = std::bit_cast<double>(Durin::uint64{0x7FF8000000000043ull});
+		Durin::FDefaultDeltaPlan NaNPlan;
+		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
+			Instance, Durin::EDefaultDeltaMode::Enabled, NaNPlan, &Diagnostic));
+		const auto RootIt = std::ranges::find_if(NaNPlan.Objects,
+			[&](const Durin::FDefaultDeltaObjectPlan& Object) { return Object.Object == Instance; });
+		ASSERT_NE(RootIt, NaNPlan.Objects.end());
+		const auto NaNField = std::ranges::find_if(RootIt->Fields,
+			[](const Durin::FDefaultDeltaFieldPlan& Field) {
+				return Field.Descriptor.Name == Durin::FName("ExactFloat");
+			});
+		ASSERT_NE(NaNField, RootIt->Fields.end());
+		EXPECT_EQ(NaNField->Disposition, Durin::EDefaultDeltaDisposition::Emitted);
+
+		Instance->bEmitLateField = true;
+		Durin::FDefaultDeltaPlan FailedPlan = NaNPlan;
+		EXPECT_FALSE(Durin::BuildDefaultDeltaPlan(
+			Instance, Durin::EDefaultDeltaMode::Enabled, FailedPlan, &Diagnostic));
+		EXPECT_EQ(Diagnostic.Reason, Durin::EDefaultDeltaFailureReason::ManifestMismatch);
+		EXPECT_TRUE(FailedPlan.Objects.empty());
+		Instance->bEmitLateField = false;
+		Instance->bEmitDeepField = true;
+		EXPECT_FALSE(Durin::BuildDefaultDeltaPlan(
+			Instance, Durin::EDefaultDeltaMode::Enabled, FailedPlan, &Diagnostic));
+		EXPECT_EQ(Diagnostic.Reason, Durin::EDefaultDeltaFailureReason::DepthLimit);
+		EXPECT_TRUE(FailedPlan.Objects.empty());
+		Instance->bEmitDeepField = false;
+		Instance->bEmitOversizedArray = true;
+		EXPECT_FALSE(Durin::BuildDefaultDeltaPlan(
+			Instance, Durin::EDefaultDeltaMode::Enabled, FailedPlan, &Diagnostic));
+		EXPECT_EQ(Diagnostic.Reason, Durin::EDefaultDeltaFailureReason::ArchiveFailure);
+		EXPECT_TRUE(FailedPlan.Objects.empty());
+		Instance->bEmitOversizedArray = false;
+		Instance->NativeOnlyStructValue = 4;
+		EXPECT_FALSE(Durin::BuildDefaultDeltaPlan(
+			Instance, Durin::EDefaultDeltaMode::Enabled, FailedPlan, &Diagnostic));
+		EXPECT_EQ(Diagnostic.Reason, Durin::EDefaultDeltaFailureReason::MissingStructDefault);
+		EXPECT_TRUE(FailedPlan.Objects.empty());
+
+		Durin::MarkObjectHierarchyAsGarbage(Instance);
+		Durin::ReleaseClassDefaultObjects();
+		Durin::CollectGarbage();
+	}
+
+	TEST(FCoreDObjectReflectionTests, DefaultDeltaPlanUsesAuthoritativeStructIdentity)
+	{
+		EnsureDObjectInitialized();
+		Durin::DClass* Class = DAuthoritativeDeltaOwnerForTest::StaticClass();
+		const std::array Batch{Class};
+		ASSERT_TRUE(Durin::Private::CreateClassDefaultObjectsForBatch(Batch));
+		auto* Instance = Durin::NewObject<DAuthoritativeDeltaOwnerForTest>(
+			nullptr, Durin::FName("AuthoritativeDeltaInstance"));
+		Instance->Value.Value = "DEFAULT";
+		Durin::FDefaultDeltaPlan Plan;
+		Durin::FDefaultDeltaDiagnostic Diagnostic;
+		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
+			Instance, Durin::EDefaultDeltaMode::Enabled, Plan, &Diagnostic))
+			<< "reason=" << static_cast<int>(Diagnostic.Reason)
+			<< " path=" << Diagnostic.LogicalPath;
+		ASSERT_EQ(Plan.Objects.size(), 1u);
+		ASSERT_EQ(Plan.Objects[0].Fields.size(), 1u);
+		EXPECT_EQ(Plan.Objects[0].Fields[0].Disposition,
+			Durin::EDefaultDeltaDisposition::Omitted);
+
+		Instance->Value.Value = "different";
+		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
+			Instance, Durin::EDefaultDeltaMode::Enabled, Plan, &Diagnostic))
+			<< "reason=" << static_cast<int>(Diagnostic.Reason)
+			<< " path=" << Diagnostic.LogicalPath;
+		ASSERT_EQ(Plan.Objects[0].Fields[0].Disposition,
+			Durin::EDefaultDeltaDisposition::Emitted);
+		ASSERT_NE(Plan.Objects[0].Fields[0].Value, nullptr);
+		ASSERT_EQ(Plan.Objects[0].Fields[0].Value->Fields.size(), 1u);
+		EXPECT_EQ(Plan.Objects[0].Fields[0].Value->Fields[0].Disposition,
+			Durin::EDefaultDeltaDisposition::Emitted);
+
+		Durin::MarkAsGarbage(Instance);
+		Durin::ReleaseClassDefaultObjects();
+		Durin::CollectGarbage();
+	}
+
+	TEST(FCoreDObjectReflectionTests, AuthoredOverrideLedgerIsCanonicalTransactionalAndCopied)
+	{
+		EnsureDObjectInitialized();
+		Durin::DClass* Class = DDefaultGraphOwnerForTest::StaticClass();
+		const std::array Batch{Class};
+		ASSERT_TRUE(Durin::Private::CreateClassDefaultObjectsForBatch(Batch));
+		auto* Instance = Durin::NewObject<DDefaultGraphOwnerForTest>(
+			nullptr, Durin::FName("AuthoredLedgerInstance"));
+		ASSERT_FALSE(Instance->HasAllocatedAuthoredOverrideLedger());
+
+		const Durin::FName Owner = Class->GetQualifiedName();
+		const Durin::FName Vector = Durin::Z_Construct_DStruct_Durin_FVector3()->GetQualifiedName();
+		const Durin::FAuthoredOverridePath StructPath{
+			Durin::FAuthoredOverridePathToken::Field(Owner, Durin::FName("ClassSpecific"))};
+		Durin::FAuthoredOverridePath NestedPath = StructPath;
+		NestedPath.push_back(Durin::FAuthoredOverridePathToken::Field(Vector, Durin::FName("x")));
+		const Durin::FAuthoredOverridePath FixedPath{
+			Durin::FAuthoredOverridePathToken::Field(Owner, Durin::FName("Fixed")),
+			Durin::FAuthoredOverridePathToken::FixedArrayElement(1)};
+		Durin::FAuthoredOverrideDiagnostic LedgerDiagnostic;
+		ASSERT_TRUE(Instance->SetAuthoredOverride(
+			NestedPath, Durin::EAuthoredOverrideProvenance::LoadedExplicit, &LedgerDiagnostic));
+		ASSERT_TRUE(Instance->SetAuthoredOverride(
+			FixedPath, Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic));
+		EXPECT_TRUE(Instance->HasAllocatedAuthoredOverrideLedger());
+		ASSERT_EQ(Instance->GetAuthoredOverrideEntries().size(), 2u);
+
+		Durin::FDefaultDeltaPlan Plan, Repeated;
+		Durin::FDefaultDeltaDiagnostic Diagnostic;
+		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
+			Instance, Durin::EDefaultDeltaMode::Enabled, Plan, &Diagnostic));
+		const auto EqualStruct = std::ranges::find_if(Plan.Objects.front().Fields, [](const auto& Field) {
+			return Field.Descriptor.Name == Durin::FName("ClassSpecific");
+		});
+		ASSERT_NE(EqualStruct, Plan.Objects.front().Fields.end());
+		EXPECT_EQ(EqualStruct->Identity, Durin::EPropertyIdentityResult::Identical);
+		EXPECT_EQ(EqualStruct->Disposition, Durin::EDefaultDeltaDisposition::Emitted);
+		EXPECT_EQ(EqualStruct->Provenance, Durin::EDefaultDeltaProvenance::Explicit);
+
+		Instance->ClassSpecific = Durin::FVector3(0.0, 0.0, 0.0);
+		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
+			Instance, Durin::EDefaultDeltaMode::Enabled, Plan, &Diagnostic));
+		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
+			Instance, Durin::EDefaultDeltaMode::Enabled, Repeated, &Diagnostic));
+		EXPECT_TRUE(Durin::AreDefaultDeltaPlansEquivalent(Plan, Repeated));
+		const auto& Fields = Plan.Objects.front().Fields;
+		const auto StructIt = std::ranges::find_if(Fields, [](const auto& Field) {
+			return Field.Descriptor.Name == Durin::FName("ClassSpecific");
+		});
+		const auto FixedIt = std::ranges::find_if(Fields, [](const auto& Field) {
+			return Field.Descriptor.Name == Durin::FName("Fixed");
+		});
+		ASSERT_NE(StructIt, Fields.end());
+		ASSERT_NE(FixedIt, Fields.end());
+		EXPECT_EQ(StructIt->Disposition, Durin::EDefaultDeltaDisposition::Emitted);
+		ASSERT_NE(StructIt->Value, nullptr);
+		const auto X = std::ranges::find_if(StructIt->Value->Fields, [](const auto& Field) {
+			return Field.Descriptor.Name == Durin::FName("x");
+		});
+		ASSERT_NE(X, StructIt->Value->Fields.end());
+		EXPECT_EQ(X->Disposition, Durin::EDefaultDeltaDisposition::Emitted);
+		EXPECT_EQ(X->Provenance, Durin::EDefaultDeltaProvenance::Explicit);
+		EXPECT_EQ(FixedIt->Provenance, Durin::EDefaultDeltaProvenance::Forced);
+
+		const auto BeforeDuplicateFailure = Instance->GetAuthoredOverrideEntries();
+		const std::array DuplicateEntries{
+			Durin::FAuthoredOverrideEntry{StructPath, Durin::EAuthoredOverrideProvenance::LoadedExplicit},
+			Durin::FAuthoredOverrideEntry{StructPath, Durin::EAuthoredOverrideProvenance::Forced}};
+		EXPECT_FALSE(Instance->ReplaceAuthoredOverrides(DuplicateEntries, &LedgerDiagnostic));
+		EXPECT_EQ(LedgerDiagnostic.Reason, Durin::EAuthoredOverrideFailureReason::DuplicatePath);
+		EXPECT_EQ(Instance->GetAuthoredOverrideEntries().size(), BeforeDuplicateFailure.size());
+
+		const Durin::FAuthoredOverridePath InvalidPath{
+			Durin::FAuthoredOverridePathToken::Field(Owner, Durin::FName("Missing"))};
+		EXPECT_FALSE(Instance->SetAuthoredOverride(
+			InvalidPath, Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic));
+		EXPECT_EQ(LedgerDiagnostic.Reason, Durin::EAuthoredOverrideFailureReason::FieldNotFound);
+		EXPECT_FALSE(Instance->SetAuthoredOverride(StructPath,
+			static_cast<Durin::EAuthoredOverrideProvenance>(255), &LedgerDiagnostic));
+		EXPECT_EQ(LedgerDiagnostic.Reason, Durin::EAuthoredOverrideFailureReason::InvalidProvenance);
+		auto* DefaultObject = const_cast<Durin::DObject*>(Class->GetDefaultObject());
+		ASSERT_NE(DefaultObject, nullptr);
+		EXPECT_FALSE(DefaultObject->SetAuthoredOverride(
+			StructPath, Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic));
+		EXPECT_EQ(LedgerDiagnostic.Reason, Durin::EAuthoredOverrideFailureReason::TemplateObject);
+		Durin::FAuthoredOverridePath Excessive = StructPath;
+		for (Durin::uint32 Index = 0; Index < Durin::DefaultDeltaMaxDepth; ++Index)
+			Excessive.push_back(Durin::FAuthoredOverridePathToken::Field(Vector, Durin::FName("x")));
+		EXPECT_FALSE(Instance->SetAuthoredOverride(
+			Excessive, Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic));
+		EXPECT_EQ(LedgerDiagnostic.Reason, Durin::EAuthoredOverrideFailureReason::DepthLimit);
+		ASSERT_TRUE(Instance->SetAuthoredOverride(
+			StructPath, Durin::EAuthoredOverrideProvenance::LoadedExplicit, &LedgerDiagnostic));
+		EXPECT_TRUE(Instance->ClearAuthoredOverride(StructPath));
+		EXPECT_EQ(Instance->GetAuthoredOverrideEntries().size(), 2u);
+
+		Instance->bEmitOptionalField = true;
+		const Durin::FAuthoredOverridePath RemovedNativePath{
+			Durin::FAuthoredOverridePathToken::Field(
+				Durin::FName("Tests::DDefaultGraphOwnerForTest"), Durin::FName("OptionalField"))};
+		ASSERT_TRUE(Instance->SetAuthoredOverride(RemovedNativePath,
+			Durin::EAuthoredOverrideProvenance::LoadedExplicit, &LedgerDiagnostic));
+		Instance->bEmitOptionalField = false;
+		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
+			Instance, Durin::EDefaultDeltaMode::Enabled, Plan, &Diagnostic));
+		EXPECT_TRUE(Instance->ClearAuthoredOverride(RemovedNativePath));
+
+		auto* NewOuter = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("LedgerDuplicateOuter"));
+		std::string Error;
+		auto* Duplicate = Durin::Cast<DDefaultGraphOwnerForTest>(Durin::DuplicateObjectGraph(
+			Instance, NewOuter, Durin::FName("LedgerDuplicate"), &Error));
+		ASSERT_NE(Duplicate, nullptr) << Error;
+		EXPECT_EQ(Duplicate->GetAuthoredOverrideEntries().size(), 2u);
+		std::atomic<bool> WorkerReadsSucceeded = true;
+		std::thread Worker([&] {
+			for (int Iteration = 0; Iteration < 256; ++Iteration)
+				if (Duplicate->GetAuthoredOverrideEntries().size() != 2u) WorkerReadsSucceeded = false;
+		});
+		Worker.join();
+		EXPECT_TRUE(WorkerReadsSucceeded.load());
+
+		EXPECT_EQ(Instance->ClearAuthoredOverrideSubtree(StructPath), 1u);
+		EXPECT_FALSE(Instance->ClearAuthoredOverride(StructPath));
+		Instance->ResetAuthoredOverrides();
+		EXPECT_FALSE(Instance->HasAllocatedAuthoredOverrideLedger());
+		EXPECT_TRUE(Instance->GetAuthoredOverrideEntries().empty());
+
+		Durin::MarkObjectHierarchyAsGarbage(Instance);
+		Durin::MarkObjectHierarchyAsGarbage(NewOuter);
+		Durin::ReleaseClassDefaultObjects();
+		Durin::CollectGarbage();
+	}
+
+	TEST(FCoreDObjectReflectionTests, AuthoredOverridePathsTrackArrayPositionsAndCanonicalMapKeys)
+	{
+		EnsureDObjectInitialized();
+		Durin::DClass* Class = DOverrideContainerOwnerForTest::StaticClass();
+		const std::array ClassBatch{Class};
+		ASSERT_TRUE(Durin::Private::CreateClassDefaultObjectsForBatch(ClassBatch));
+		auto* Instance = Durin::NewObject<DOverrideContainerOwnerForTest>(
+			nullptr, Durin::FName("ContainerLedgerInstance"));
+
+		const Durin::FName Owner = Class->GetQualifiedName();
+		Durin::FAuthoredOverridePath ArrayPath{
+			Durin::FAuthoredOverridePathToken::Field(Owner, Durin::FName("Values")),
+			Durin::FAuthoredOverridePathToken::ArrayElement(0)};
+		auto* MapProperty = static_cast<Durin::FMapProperty*>(Class->FindPropertyByName("Lookup"));
+		ASSERT_NE(MapProperty, nullptr);
+		std::string StableKey = "Stable";
+		std::vector<Durin::uint8> StableToken;
+		std::string TokenError;
+		ASSERT_TRUE(Durin::BuildCanonicalMapKeyToken(
+			MapProperty->GetKeyProp(), &StableKey, 0, StableToken, &TokenError)) << TokenError;
+		Durin::FAuthoredOverridePath MapPath{
+			Durin::FAuthoredOverridePathToken::Field(Owner, Durin::FName("Lookup")),
+			Durin::FAuthoredOverridePathToken::MapValue(StableToken)};
+		Durin::FAuthoredOverrideDiagnostic LedgerDiagnostic;
+		ASSERT_TRUE(Instance->SetAuthoredOverride(
+			ArrayPath, Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic))
+			<< "reason=" << static_cast<int>(LedgerDiagnostic.Reason)
+			<< " path=" << LedgerDiagnostic.LogicalPath;
+		ASSERT_TRUE(Instance->SetAuthoredOverride(
+			MapPath, Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic));
+
+		Durin::FDefaultDeltaPlan Plan;
+		Durin::FDefaultDeltaDiagnostic Diagnostic;
+		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
+			Instance, Durin::EDefaultDeltaMode::Enabled, Plan, &Diagnostic));
+		const auto& Fields = Plan.Objects.front().Fields;
+		const auto Array = std::ranges::find_if(Fields, [](const auto& Field) {
+			return Field.Descriptor.Name == Durin::FName("Values");
+		});
+		const auto Map = std::ranges::find_if(Fields, [](const auto& Field) {
+			return Field.Descriptor.Name == Durin::FName("Lookup");
+		});
+		ASSERT_NE(Array, Fields.end());
+		ASSERT_NE(Map, Fields.end());
+		ASSERT_NE(Array->Value, nullptr);
+		ASSERT_EQ(Array->Value->Elements.size(), 1u);
+		EXPECT_EQ(Array->Value->Elements[0]->Provenance, Durin::EDefaultDeltaProvenance::Forced);
+		ASSERT_NE(Map->Value, nullptr);
+		ASSERT_EQ(Map->Value->Elements.size(), 2u);
+		EXPECT_EQ(Map->Value->Elements[1]->Provenance, Durin::EDefaultDeltaProvenance::Forced);
+
+		Instance->Lookup.emplace("Earlier", 0);
+		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
+			Instance, Durin::EDefaultDeltaMode::Enabled, Plan, &Diagnostic));
+		const auto ReorderedMap = std::ranges::find_if(Plan.Objects.front().Fields, [](const auto& Field) {
+			return Field.Descriptor.Name == Durin::FName("Lookup");
+		});
+		ASSERT_NE(ReorderedMap, Plan.Objects.front().Fields.end());
+		ASSERT_NE(ReorderedMap->Value, nullptr);
+		const auto StableValue = std::ranges::find_if(ReorderedMap->Value->Elements,
+			[&](const auto& Element) {
+				return Element && Element->CanonicalMapKeyToken == StableToken
+					&& Element->LogicalType.Kind == Durin::FArchiveLogicalTypeDescriptor::EKind::Scalar;
+			});
+		ASSERT_NE(StableValue, ReorderedMap->Value->Elements.end());
+		EXPECT_EQ((*StableValue)->Provenance, Durin::EDefaultDeltaProvenance::Forced);
+
+		Instance->Values.clear();
+		Instance->Lookup.erase("Stable");
+		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
+			Instance, Durin::EDefaultDeltaMode::Enabled, Plan, &Diagnostic));
+		const auto StaleArray = std::ranges::find_if(Plan.Objects.front().Fields, [](const auto& Field) {
+			return Field.Descriptor.Name == Durin::FName("Values");
+		});
+		ASSERT_NE(StaleArray, Plan.Objects.front().Fields.end());
+		EXPECT_EQ(StaleArray->Disposition, Durin::EDefaultDeltaDisposition::Emitted);
+		EXPECT_EQ(StaleArray->Provenance, Durin::EDefaultDeltaProvenance::Explicit);
+
+		Durin::DClass* NativeClass = DDefaultGraphOwnerForTest::StaticClass();
+		const std::array NativeBatch{NativeClass};
+		ASSERT_TRUE(Durin::Private::CreateClassDefaultObjectsForBatch(NativeBatch));
+		auto* Native = Durin::NewObject<DDefaultGraphOwnerForTest>(
+			nullptr, Durin::FName("NativeMapLedgerInstance"));
+		const Durin::FAuthoredOverridePath UnavailableMapPath{
+			Durin::FAuthoredOverridePathToken::Field(
+				Durin::FName("Tests::DDefaultGraphOwnerForTest"), Durin::FName("NativeMap")),
+			Durin::FAuthoredOverridePathToken::MapValue({1, 2, 3})};
+		EXPECT_FALSE(Native->SetAuthoredOverride(UnavailableMapPath,
+			Durin::EAuthoredOverrideProvenance::Forced, &LedgerDiagnostic));
+		EXPECT_EQ(LedgerDiagnostic.Reason, Durin::EAuthoredOverrideFailureReason::MapKeyUnavailable);
+
+		Durin::MarkAsGarbage(Instance);
+		Durin::MarkObjectHierarchyAsGarbage(Native);
+		Durin::ReleaseClassDefaultObjects();
+		Durin::CollectGarbage();
+	}
+
+	TEST(FCoreDObjectReflectionTests, NoDeltaForcesCompleteLogicalGraphWithoutDefaults)
+	{
+		EnsureDObjectInitialized();
+		Durin::DClass* Class = DDefaultGraphOwnerForTest::StaticClass();
+		const std::array Batch{Class};
+		ASSERT_TRUE(Durin::Private::CreateClassDefaultObjectsForBatch(Batch));
+		auto* Instance = Durin::NewObject<DDefaultGraphOwnerForTest>(
+			nullptr, Durin::FName("NoDeltaInstance"));
+		Instance->NativeOnlyStructValue = 99;
+		Durin::ReleaseClassDefaultObjects();
+		Durin::FDefaultDeltaPlan Plan;
+		Durin::FDefaultDeltaDiagnostic Diagnostic;
+		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
+			Instance, Durin::EDefaultDeltaMode::NoDelta, Plan, &Diagnostic));
+		EXPECT_EQ(Plan.Mode, Durin::EDefaultDeltaMode::NoDelta);
+		EXPECT_EQ(Plan.Objects.size(), 2u);
+		EXPECT_EQ(Plan.OmittedFieldCount, 0u);
+		EXPECT_EQ(Plan.FieldCount, Plan.EmittedFieldCount);
+		std::function<void(const Durin::FDefaultDeltaNode&)> ExpectForcedNode;
+		ExpectForcedNode = [&](const Durin::FDefaultDeltaNode& Node) {
+			EXPECT_EQ(Node.Baseline, Durin::EDefaultDeltaBaselineKind::None);
+			EXPECT_EQ(Node.Disposition, Durin::EDefaultDeltaDisposition::Emitted);
+			EXPECT_EQ(Node.Provenance, Durin::EDefaultDeltaProvenance::Forced);
+			EXPECT_EQ(Node.SourceValue, nullptr);
+			EXPECT_EQ(Node.SourceStruct, nullptr);
+			for (const auto& Field : Node.Fields)
+			{
+				EXPECT_EQ(Field.Baseline, Durin::EDefaultDeltaBaselineKind::None);
+				EXPECT_EQ(Field.Disposition, Durin::EDefaultDeltaDisposition::Emitted);
+				EXPECT_EQ(Field.Provenance, Durin::EDefaultDeltaProvenance::Forced);
+				ASSERT_NE(Field.Value, nullptr);
+				ExpectForcedNode(*Field.Value);
+			}
+			for (const auto& Element : Node.Elements)
+			{
+				ASSERT_NE(Element, nullptr);
+				ExpectForcedNode(*Element);
+			}
+		};
+		for (const auto& Object : Plan.Objects)
+		{
+			EXPECT_EQ(Object.ClassDefaultObject, nullptr);
+			for (const auto& Field : Object.Fields)
+			{
+				EXPECT_EQ(Field.Provenance, Durin::EDefaultDeltaProvenance::Forced);
+				ASSERT_NE(Field.Value, nullptr);
+				ExpectForcedNode(*Field.Value);
+			}
+		}
+		EXPECT_FALSE(Instance->HasAllocatedAuthoredOverrideLedger());
+
+		Instance->bEmitLateField = true;
+		EXPECT_FALSE(Durin::BuildDefaultDeltaPlan(
+			Instance, Durin::EDefaultDeltaMode::NoDelta, Plan, &Diagnostic));
+		EXPECT_EQ(Diagnostic.Reason, Durin::EDefaultDeltaFailureReason::ManifestMismatch);
+		EXPECT_TRUE(Plan.Objects.empty());
+
+		Durin::MarkObjectHierarchyAsGarbage(Instance);
+		Durin::ReleaseClassDefaultObjects();
+		Durin::CollectGarbage();
 	}
 
 	TEST(FCoreDObjectReflectionTests, ClassDefaultMatchesReflectedAndNativeArchiveDefaults)
@@ -3952,6 +4882,9 @@ namespace
 		EXPECT_EQ(Durin::FindStructByQualifiedName("Durin::FLinearColor"), ColorStruct);
 		for (Durin::DStruct* Struct : {Vector2Struct, VectorStruct, Vector4Struct, QuatStruct, TransformStruct, ColorStruct})
 		{
+			EXPECT_EQ(Struct->GetDefaultState(), Durin::EDStructDefaultState::Ready);
+			EXPECT_EQ(Struct->GetDefaultReason(), Durin::EDStructDefaultReason::None);
+			EXPECT_NE(Struct->GetDefaultValue(), nullptr);
 			EXPECT_TRUE(Struct->CanDefaultConstruct());
 			EXPECT_TRUE(Struct->CanDestroy());
 			EXPECT_FALSE(Struct->NeedsDestroy());
@@ -4052,6 +4985,218 @@ namespace
 		EXPECT_EQ(X->GetValuePtr(&Source), &Source.x);
 		EXPECT_EQ(Y->GetValuePtr(&Source), &Source.y);
 		EXPECT_EQ(Z->GetValuePtr(&Source), &Source.z);
+	}
+
+	TEST(FCoreDObjectReflectionTests, StructDefaultsPublishAtomicallyAndRejectUnstableOrReentrantConstruction)
+	{
+		auto MakeOps = [](Durin::FDStructOps::FDefaultConstruct Construct) {
+			Durin::FDStructOps Ops;
+			Ops.Flags = Durin::EDStructOpsFlags::DefaultConstruct
+				| Durin::EDStructOpsFlags::TriviallyDestructible
+				| Durin::EDStructOpsFlags::AuthoredFieldsComplete;
+			Ops.DefaultConstruct = Construct;
+			return Ops;
+		};
+		auto AttachValue = [](Durin::DStruct& Struct, Durin::FNumericProperty& Property) {
+			Struct.ChildProperties = &Property;
+		};
+
+		Durin::FDStructOps StableOps = MakeOps(&StructOpsTest::ConstructStableDefault);
+		Durin::DStruct Stable(
+			Durin::EC_StaticConstructor, Durin::FName("Tests::FStableDefault"), Durin::FName("FStableDefault"),
+			sizeof(Durin::int32), alignof(Durin::int32), Durin::EObjectFlags::Transient
+		);
+		Stable.InitializeOps(&StableOps);
+		Durin::FNumericProperty StableValue(
+			Durin::FFieldVariant(&Stable), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::int32),
+			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr
+		);
+		AttachValue(Stable, StableValue);
+		const std::array StableBatch{&Stable};
+		ASSERT_TRUE(Durin::Private::CreateDStructDefaultsForBatch(StableBatch));
+		ASSERT_EQ(Stable.GetDefaultState(), Durin::EDStructDefaultState::Ready);
+		EXPECT_EQ(*static_cast<const Durin::int32*>(Stable.GetDefaultValue()), 7);
+		const void* WorkerDefault = nullptr;
+		std::thread Worker([&] { WorkerDefault = Stable.GetDefaultValue(); });
+		Worker.join();
+		EXPECT_EQ(WorkerDefault, Stable.GetDefaultValue());
+
+		StructOpsTest::DefaultSequence = 0;
+		Durin::FDStructOps ChangingOps = MakeOps(&StructOpsTest::ConstructChangingDefault);
+		Durin::DStruct AtomicStable(
+			Durin::EC_StaticConstructor, Durin::FName("Tests::AAtomicStableDefault"), Durin::FName("AAtomicStableDefault"),
+			sizeof(Durin::int32), alignof(Durin::int32), Durin::EObjectFlags::Transient
+		);
+		AtomicStable.InitializeOps(&StableOps);
+		Durin::FNumericProperty AtomicStableValue(
+			Durin::FFieldVariant(&AtomicStable), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::int32),
+			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr
+		);
+		AttachValue(AtomicStable, AtomicStableValue);
+		Durin::DStruct Changing(
+			Durin::EC_StaticConstructor, Durin::FName("Tests::ZChangingDefault"), Durin::FName("ZChangingDefault"),
+			sizeof(Durin::int32), alignof(Durin::int32), Durin::EObjectFlags::Transient
+		);
+		Changing.InitializeOps(&ChangingOps);
+		Durin::FNumericProperty ChangingValue(
+			Durin::FFieldVariant(&Changing), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::int32),
+			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr
+		);
+		AttachValue(Changing, ChangingValue);
+		const std::array ChangingBatch{&Changing, &AtomicStable};
+		EXPECT_FALSE(Durin::Private::CreateDStructDefaultsForBatch(ChangingBatch));
+		EXPECT_EQ(AtomicStable.GetDefaultState(), Durin::EDStructDefaultState::Failed);
+		EXPECT_EQ(AtomicStable.GetDefaultReason(), Durin::EDStructDefaultReason::ConstructionFailed);
+		EXPECT_EQ(AtomicStable.GetDefaultValue(), nullptr);
+		EXPECT_EQ(Changing.GetDefaultState(), Durin::EDStructDefaultState::Failed);
+		EXPECT_EQ(Changing.GetDefaultReason(), Durin::EDStructDefaultReason::NonDeterministicConstruction);
+		EXPECT_EQ(Changing.GetDefaultValue(), nullptr);
+
+		Durin::FDStructOps ReentrantOps = MakeOps(&StructOpsTest::ConstructReentrantDefault);
+		Durin::DStruct Reentrant(
+			Durin::EC_StaticConstructor, Durin::FName("Tests::FReentrantDefault"), Durin::FName("FReentrantDefault"),
+			sizeof(Durin::int32), alignof(Durin::int32), Durin::EObjectFlags::Transient
+		);
+		Reentrant.InitializeOps(&ReentrantOps);
+		Durin::FNumericProperty ReentrantValue(
+			Durin::FFieldVariant(&Reentrant), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::int32),
+			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr
+		);
+		AttachValue(Reentrant, ReentrantValue);
+		StructOpsTest::ReentrantDefaultStruct = &Reentrant;
+		const std::array ReentrantBatch{&Reentrant};
+		EXPECT_FALSE(Durin::Private::CreateDStructDefaultsForBatch(ReentrantBatch));
+		EXPECT_EQ(Reentrant.GetDefaultState(), Durin::EDStructDefaultState::Failed);
+		EXPECT_EQ(Reentrant.GetDefaultReason(), Durin::EDStructDefaultReason::RecursiveConstruction);
+		StructOpsTest::ReentrantDefaultStruct = nullptr;
+
+		Durin::FDStructOps SideEffectOps = MakeOps(&StructOpsTest::ConstructSideEffectDefault);
+		Durin::DStruct SideEffect(
+			Durin::EC_StaticConstructor, Durin::FName("Tests::FSideEffectDefault"),
+			Durin::FName("FSideEffectDefault"), sizeof(Durin::int32), alignof(Durin::int32),
+			Durin::EObjectFlags::Transient);
+		SideEffect.InitializeOps(&SideEffectOps);
+		Durin::FNumericProperty SideEffectValue(
+			Durin::FFieldVariant(&SideEffect), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::int32),
+			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
+		AttachValue(SideEffect, SideEffectValue);
+		StructOpsTest::SideEffectObjects.clear();
+		const Durin::uint64 ObjectCountBefore = Durin::GDObjectArray.GetNum();
+		const std::array SideEffectBatch{&SideEffect};
+		EXPECT_FALSE(Durin::Private::CreateDStructDefaultsForBatch(SideEffectBatch));
+		EXPECT_EQ(SideEffect.GetDefaultReason(), Durin::EDStructDefaultReason::PublicationSideEffect);
+		EXPECT_LE(Durin::GDObjectArray.GetNum(), ObjectCountBefore);
+		for (Durin::DObject* Object : StructOpsTest::SideEffectObjects)
+			EXPECT_FALSE(Durin::GDObjectArray.Contains(Object));
+		StructOpsTest::SideEffectObjects.clear();
+	}
+
+	TEST(FCoreDObjectReflectionTests, PublishedStructDefaultsRootReferencesUntilModuleRelease)
+	{
+		EnsureDObjectInitialized();
+		StructOpsTest::DefaultReferenceTarget = Durin::NewObject<Durin::DObject>(
+			nullptr, Durin::FName("StructDefaultReferenceTarget"));
+		Durin::DObject* Target = StructOpsTest::DefaultReferenceTarget;
+
+		static Durin::FDStructOps ReferenceOps;
+		ReferenceOps.Flags = Durin::EDStructOpsFlags::DefaultConstruct
+			| Durin::EDStructOpsFlags::Destroy
+			| Durin::EDStructOpsFlags::CollectReferences
+			| Durin::EDStructOpsFlags::AuthoredFieldsComplete;
+		ReferenceOps.DefaultConstruct = &StructOpsTest::ConstructReferenceDefault;
+		ReferenceOps.Destroy = &StructOpsTest::DestroyReferenceDefault;
+		ReferenceOps.CollectReferences = &StructOpsTest::CollectReferenceDefault;
+
+		auto* Struct = new Durin::DStruct(
+			Durin::EC_StaticConstructor, Durin::FName("Tests::FReferenceDefault"),
+			Durin::FName("FReferenceDefault"), sizeof(StructOpsTest::FReferenceDefault),
+			alignof(StructOpsTest::FReferenceDefault), Durin::EObjectFlags::NoFlags);
+		Struct->InitializeOps(&ReferenceOps);
+		const auto Params = Durin::DurinCodeGen::FObjectPropertyParams::Raw<Durin::DObject>(
+			"Value", Durin::EPropertyFlags::None, 1,
+			static_cast<Durin::uint16>(offsetof(StructOpsTest::FReferenceDefault, Value)),
+			&Durin::DObject::StaticClass);
+		auto* ValueProperty = new Durin::FObjectProperty(
+			Durin::FFieldVariant(Struct), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1,
+			static_cast<Durin::uint16>(offsetof(StructOpsTest::FReferenceDefault, Value)),
+			static_cast<Durin::uint16>(sizeof(Durin::DObject*)),
+			Durin::DurinCodeGen::EPropertyGenFlags::Object, Durin::DObject::StaticClass(),
+			false, Params.ReadObjectValue, Params.WriteObjectValue);
+		Struct->ChildProperties = ValueProperty;
+		Struct->Register(
+			Durin::DStruct::StaticClass, "/Cpp/StructDefaultLifecycleTest", "Tests::FReferenceDefault");
+		Durin::DObjectForceRegistration(Struct);
+
+		const std::array Batch{Struct};
+		ASSERT_TRUE(Durin::Private::CreateDStructDefaultsForBatch(Batch));
+		ASSERT_EQ(Struct->GetDefaultState(), Durin::EDStructDefaultState::Ready);
+		StructOpsTest::DefaultReferenceTarget = nullptr;
+		Durin::CollectGarbage();
+		EXPECT_TRUE(Durin::GDObjectArray.Contains(Target));
+
+		Durin::ReleaseDStructDefaultsForModule(Durin::FName("StructDefaultLifecycleTest"));
+		EXPECT_EQ(Struct->GetDefaultState(), Durin::EDStructDefaultState::Released);
+		Durin::CollectGarbage();
+		EXPECT_FALSE(Durin::GDObjectArray.Contains(Target));
+	}
+
+	TEST(FCoreDObjectReflectionTests, StructDefaultEligibilityReportsStableReasons)
+	{
+		auto ExpectReason = [](Durin::DStruct& Struct, Durin::EDStructDefaultReason Expected) {
+			const std::array Batch{&Struct};
+			EXPECT_TRUE(Durin::Private::CreateDStructDefaultsForBatch(Batch));
+			EXPECT_EQ(Struct.GetDefaultState(), Durin::EDStructDefaultState::Unavailable);
+			EXPECT_EQ(Struct.GetDefaultReason(), Expected);
+			EXPECT_EQ(Struct.GetDefaultValue(), nullptr);
+		};
+		auto MakeStruct = [](const char* Name) {
+			return Durin::DStruct(
+				Durin::EC_StaticConstructor, Durin::FName(Name), Durin::FName(Name),
+				sizeof(Durin::int32), alignof(Durin::int32), Durin::EObjectFlags::Transient);
+		};
+
+		auto MissingOps = MakeStruct("Tests::FMissingOpsDefault");
+		ExpectReason(MissingOps, Durin::EDStructDefaultReason::MissingInitializedOps);
+
+		auto MissingConstructor = MakeStruct("Tests::FMissingConstructorDefault");
+		Durin::FDStructOps MissingConstructorOps;
+		MissingConstructorOps.Flags = Durin::EDStructOpsFlags::TriviallyDestructible
+			| Durin::EDStructOpsFlags::AuthoredFieldsComplete;
+		MissingConstructor.InitializeOps(&MissingConstructorOps);
+		ExpectReason(MissingConstructor, Durin::EDStructDefaultReason::MissingDefaultConstructor);
+
+		auto MissingDestructor = MakeStruct("Tests::FMissingDestructorDefault");
+		Durin::FDStructOps MissingDestructorOps;
+		MissingDestructorOps.Flags = Durin::EDStructOpsFlags::DefaultConstruct
+			| Durin::EDStructOpsFlags::AuthoredFieldsComplete;
+		MissingDestructorOps.DefaultConstruct = &StructOpsTest::ConstructStableDefault;
+		MissingDestructor.InitializeOps(&MissingDestructorOps);
+		ExpectReason(MissingDestructor, Durin::EDStructDefaultReason::MissingDestructor);
+
+		auto Incomplete = MakeStruct("Tests::FIncompleteDefault");
+		Durin::FDStructOps IncompleteOps;
+		IncompleteOps.Flags = Durin::EDStructOpsFlags::DefaultConstruct
+			| Durin::EDStructOpsFlags::TriviallyDestructible;
+		IncompleteOps.DefaultConstruct = &StructOpsTest::ConstructStableDefault;
+		Incomplete.InitializeOps(&IncompleteOps);
+		ExpectReason(Incomplete, Durin::EDStructDefaultReason::IncompleteAuthoredFields);
+
+		auto CustomSerializer = MakeStruct("Tests::FCustomSerializerDefault");
+		Durin::FDStructOps CustomSerializerOps;
+		CustomSerializerOps.Flags = Durin::EDStructOpsFlags::DefaultConstruct
+			| Durin::EDStructOpsFlags::TriviallyDestructible
+			| Durin::EDStructOpsFlags::AuthoredFieldsComplete
+			| Durin::EDStructOpsFlags::Serialize;
+		CustomSerializerOps.DefaultConstruct = &StructOpsTest::ConstructStableDefault;
+		CustomSerializerOps.Serialize = &StructOpsTest::SerializeDefault;
+		CustomSerializer.InitializeOps(&CustomSerializerOps);
+		ExpectReason(CustomSerializer, Durin::EDStructDefaultReason::CustomSerializer);
 	}
 
 	TEST(FCoreDObjectReflectionTests, TypedStructPropertyCompiledMetadataFootprintIsRecorded)

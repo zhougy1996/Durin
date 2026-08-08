@@ -8,13 +8,21 @@ namespace Durin
 	class FProperty;
 	class FObjectInitializer;
 	class FReferenceCollector;
+	class DStruct;
 	COREDOBJECT_API auto ReleaseClassDefaultObjects() -> void;
 	COREDOBJECT_API auto ReleaseClassDefaultObjectsForModule(FName ModuleName) -> bool;
+	COREDOBJECT_API auto ReleaseDStructDefaults() -> void;
+	COREDOBJECT_API auto ReleaseDStructDefaultsForModule(FName ModuleName) -> void;
 	namespace Private
 	{
 		class FGCReferenceSchema;
 		class FGCReferenceSchemaRegistry;
 		COREDOBJECT_API auto CreateClassDefaultObjectsForBatch(std::span<DClass* const> Classes) -> bool;
+		COREDOBJECT_API auto CreateDStructDefaultsForBatch(std::span<DStruct* const> Structs) -> bool;
+		auto BeginDStructRegistrationBatch() -> void;
+		auto EndDStructRegistrationBatch() -> void;
+		auto IsDStructRegistrationBatchActive() -> bool;
+		auto ReleaseDStructDefaultOwnership(DStruct* Struct) -> void;
 		auto ReleaseClassDefaultObjectOwnership(DClass* Class) -> DObject*;
 	}
 
@@ -39,6 +47,35 @@ namespace Durin
 		InvalidLayout,
 		MissingSuperclassDisposition,
 		RecursiveConstruction,
+		ConstructionFailed,
+	};
+
+	// Describes immutable type-default publication independently from class defaults.
+	enum class EDStructDefaultState : uint8
+	{
+		Uninitialized,
+		Constructing,
+		Ready,
+		Unavailable,
+		Failed,
+		Released,
+	};
+
+	// Stable registration-time reasons why a DStruct cannot publish a type default.
+	enum class EDStructDefaultReason : uint8
+	{
+		None,
+		InvalidLayout,
+		MissingInitializedOps,
+		MissingDefaultConstructor,
+		MissingDestructor,
+		IncompleteAuthoredFields,
+		CustomSerializer,
+		UnsupportedPropertyIdentity,
+		RecursiveDependency,
+		RecursiveConstruction,
+		NonDeterministicConstruction,
+		PublicationSideEffect,
 		ConstructionFailed,
 	};
 
@@ -177,10 +214,12 @@ namespace Durin
 			, ShortName(InShortName)
 		{
 		}
+		COREDOBJECT_API ~DStruct() override;
 
 		auto GetQualifiedName() const -> FName { return QualifiedName; }
 		auto GetShortName() const -> FName { return ShortName; }
 		auto GetOps() const -> const FDStructOps& { return *Ops; }
+		auto AreOpsInitialized() const -> bool { return bOpsInitialized; }
 		auto CanDefaultConstruct() const -> bool { return HasOpsFlag(EDStructOpsFlags::DefaultConstruct); }
 		auto CanDestroy() const -> bool
 		{
@@ -196,6 +235,16 @@ namespace Durin
 		auto HasPostDeserialize() const -> bool { return HasOpsFlag(EDStructOpsFlags::PostDeserialize); }
 		auto HasReferenceCollector() const -> bool { return HasOpsFlag(EDStructOpsFlags::CollectReferences); }
 		auto HasCompleteAuthoredFields() const -> bool { return HasOpsFlag(EDStructOpsFlags::AuthoredFieldsComplete); }
+		auto GetDefaultState() const -> EDStructDefaultState
+		{
+			return DefaultState.load(std::memory_order_acquire);
+		}
+		auto GetDefaultReason() const -> EDStructDefaultReason
+		{
+			return DefaultReason.load(std::memory_order_acquire);
+		}
+		COREDOBJECT_API auto GetDefaultValue() const -> const void*;
+		COREDOBJECT_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 
 		auto InitializeOps(const FDStructOps* InOps) -> void
 		{
@@ -220,6 +269,24 @@ namespace Durin
 		FName ShortName;
 		const FDStructOps* Ops = &GetEmptyDStructOps();
 		bool bOpsInitialized = false;
+		void* DefaultValue = nullptr;
+		void* PendingDefaultValue = nullptr;
+		std::atomic<EDStructDefaultReason> DefaultReason{EDStructDefaultReason::None};
+		std::atomic<EDStructDefaultState> DefaultState{EDStructDefaultState::Uninitialized};
+		mutable std::atomic<bool> bRecursiveDefaultAccess = false;
+
+		auto ResolveDefaultEligibility() -> bool;
+		auto BeginDefaultConstruction() -> bool;
+		auto SetPendingDefaultValue(void* Value) -> void;
+		auto PublishDefaultValue() -> void;
+		auto FailDefaultConstruction(EDStructDefaultReason Reason) -> void*;
+		auto ReleaseDefaultValue() -> void*;
+		auto DestroyDefaultStorage(void* Value) const -> void;
+
+		friend COREDOBJECT_API auto Private::CreateDStructDefaultsForBatch(std::span<DStruct* const> Structs) -> bool;
+		friend auto Private::ReleaseDStructDefaultOwnership(DStruct* Struct) -> void;
+		friend COREDOBJECT_API auto ReleaseDStructDefaults() -> void;
+		friend COREDOBJECT_API auto ReleaseDStructDefaultsForModule(FName ModuleName) -> void;
 	};
 
 	// Stores one reflected enum value with its stable code name and editor label.

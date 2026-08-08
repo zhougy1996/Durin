@@ -110,6 +110,17 @@ namespace Durin
 		EPropertyFlags PropertyFlags = EPropertyFlags::None;
 	};
 
+	enum class EArchiveLogicalPrimitiveKind : uint8
+	{
+		Bool,
+		Int8, Int16, Int32, Int64,
+		UInt8, UInt16, UInt32, UInt64,
+		Float32, Float64,
+		Guid,
+	};
+
+	enum class EArchiveLogicalTextKind : uint8 { String, Name };
+
 	struct FArchiveFormatVersion { FName Format; uint32 Version = 0; };
 	struct FArchiveCustomVersion { FGuid Key; int32 Version = 0; };
 	struct FArchiveVersionContext
@@ -217,7 +228,13 @@ namespace Durin
 		COREDOBJECT_API auto EnterArrayElement(uint64 Index) -> FArchivePathScope;
 		COREDOBJECT_API auto EnterMapKey(uint64 Index) -> FArchivePathScope;
 		COREDOBJECT_API auto EnterMapValue(uint64 Index) -> FArchivePathScope;
+		COREDOBJECT_API auto NotifyCanonicalMapKey(
+			uint64 Index, std::span<const uint8> Token) -> void;
 		COREDOBJECT_API auto MarkBaseReflectedFieldsSerialized() -> void;
+		COREDOBJECT_API auto NotifyReflectedPropertyValue(
+			FProperty& Property,
+			const void* Container,
+			uint32 ArrayIndex) -> void;
 
 		virtual COREDOBJECT_API auto SerializeRawBytes(std::span<std::byte> Bytes) -> void;
 		virtual COREDOBJECT_API auto SerializeObjectReference(DObject*& Value) -> void;
@@ -261,7 +278,19 @@ namespace Durin
 		virtual COREDOBJECT_API auto OnEnterArrayElement(uint64 Index) -> void;
 		virtual COREDOBJECT_API auto OnEnterMapKey(uint64 Index) -> void;
 		virtual COREDOBJECT_API auto OnEnterMapValue(uint64 Index) -> void;
+		virtual COREDOBJECT_API auto OnCanonicalMapKey(
+			uint64 Index, std::span<const uint8> Token) -> void;
 		virtual COREDOBJECT_API auto OnLeavePath() -> void;
+		virtual COREDOBJECT_API auto TryCaptureLogicalPrimitive(
+			EArchiveLogicalPrimitiveKind Kind,
+			const void* Value) -> bool;
+		virtual COREDOBJECT_API auto TryCaptureLogicalText(
+			EArchiveLogicalTextKind Kind,
+			std::string_view Value) -> bool;
+		virtual COREDOBJECT_API auto OnReflectedPropertyValue(
+			FProperty& Property,
+			const void* Container,
+			uint32 ArrayIndex) -> void;
 
 	private:
 		struct FObjectScopeState

@@ -203,6 +203,7 @@ namespace Durin
 				Ar.SetError("Invalid reflected property serialization request.");
 				return;
 			}
+			Ar.NotifyReflectedPropertyValue(*Property, Container, ArrayIndex);
 			switch (Property->GetKind())
 			{
 			case DurinCodeGen::EPropertyGenFlags::Bool: Ar << *static_cast<bool*>(Property->GetValuePtr(Container, ArrayIndex)); break;
@@ -488,6 +489,7 @@ namespace Durin
 							Ar.SetError("CanonicalMapKeyCollision: distinct entries produced the same canonical token.");
 							break;
 						}
+						Ar.NotifyCanonicalMapKey(Index, Context.Entries[Index].Token);
 						{
 							auto KeyScope = Ar.EnterMapKey(Index);
 							SerializePropertyValue(Ar, MapProperty->GetKeyProp(), const_cast<void*>(Context.Entries[Index].Key), 0, bIncludeRawObjectReferences);
@@ -951,6 +953,11 @@ namespace Durin
 		return FArchivePathScope(this);
 	}
 
+	auto FArchive::NotifyCanonicalMapKey(uint64 Index, std::span<const uint8> Token) -> void
+	{
+		if (!HasError()) OnCanonicalMapKey(Index, Token);
+	}
+
 	auto FArchive::MarkBaseReflectedFieldsSerialized() -> void
 	{
 		if (ObjectScopes.empty()) return;
@@ -1024,7 +1031,16 @@ namespace Durin
 	auto FArchive::OnEnterArrayElement(uint64) -> void {}
 	auto FArchive::OnEnterMapKey(uint64) -> void {}
 	auto FArchive::OnEnterMapValue(uint64) -> void {}
+	auto FArchive::OnCanonicalMapKey(uint64, std::span<const uint8>) -> void {}
 	auto FArchive::OnLeavePath() -> void {}
+	auto FArchive::TryCaptureLogicalPrimitive(EArchiveLogicalPrimitiveKind, const void*) -> bool { return false; }
+	auto FArchive::TryCaptureLogicalText(EArchiveLogicalTextKind, std::string_view) -> bool { return false; }
+	auto FArchive::OnReflectedPropertyValue(FProperty&, const void*, uint32) -> void {}
+	auto FArchive::NotifyReflectedPropertyValue(
+		FProperty& Property, const void* Container, uint32 ArrayIndex) -> void
+	{
+		OnReflectedPropertyValue(Property, Container, ArrayIndex);
+	}
 
 	auto FArchive::SerializeRawBytes(std::span<std::byte>) -> void
 	{
@@ -1083,6 +1099,7 @@ namespace Durin
 	auto FArchive::operator<<(bool& Value) -> FArchive&
 	{
 		if (!IsCurrentFieldAvailable()) return *this;
+		if (IsSaving() && TryCaptureLogicalPrimitive(EArchiveLogicalPrimitiveKind::Bool, &Value)) return *this;
 		uint8 Encoded = IsSaving() && Value ? 1 : 0;
 		SerializePrimitive(*this, Encoded);
 		if (IsLoading() && !HasError())
@@ -1092,31 +1109,41 @@ namespace Durin
 		}
 		return *this;
 	}
-#define DURIN_ARCHIVE_PRIMITIVE(Type) auto FArchive::operator<<(Type& Value) -> FArchive& { return SerializePrimitive(*this, Value); }
-	DURIN_ARCHIVE_PRIMITIVE(int8)
-	DURIN_ARCHIVE_PRIMITIVE(int16)
-	DURIN_ARCHIVE_PRIMITIVE(int32)
-	DURIN_ARCHIVE_PRIMITIVE(int64)
-	DURIN_ARCHIVE_PRIMITIVE(uint8)
-	DURIN_ARCHIVE_PRIMITIVE(uint16)
-	DURIN_ARCHIVE_PRIMITIVE(uint32)
-	DURIN_ARCHIVE_PRIMITIVE(uint64)
-	DURIN_ARCHIVE_PRIMITIVE(float)
-	DURIN_ARCHIVE_PRIMITIVE(double)
+#define DURIN_ARCHIVE_PRIMITIVE(Type, Kind) auto FArchive::operator<<(Type& Value) -> FArchive& \
+	{ \
+		if (IsSaving() && TryCaptureLogicalPrimitive(EArchiveLogicalPrimitiveKind::Kind, &Value)) return *this; \
+		return SerializePrimitive(*this, Value); \
+	}
+	DURIN_ARCHIVE_PRIMITIVE(int8, Int8)
+	DURIN_ARCHIVE_PRIMITIVE(int16, Int16)
+	DURIN_ARCHIVE_PRIMITIVE(int32, Int32)
+	DURIN_ARCHIVE_PRIMITIVE(int64, Int64)
+	DURIN_ARCHIVE_PRIMITIVE(uint8, UInt8)
+	DURIN_ARCHIVE_PRIMITIVE(uint16, UInt16)
+	DURIN_ARCHIVE_PRIMITIVE(uint32, UInt32)
+	DURIN_ARCHIVE_PRIMITIVE(uint64, UInt64)
+	DURIN_ARCHIVE_PRIMITIVE(float, Float32)
+	DURIN_ARCHIVE_PRIMITIVE(double, Float64)
 #undef DURIN_ARCHIVE_PRIMITIVE
 	auto FArchive::operator<<(FName& Value) -> FArchive&
 	{
 		if (!IsCurrentFieldAvailable()) return *this;
+		if (IsSaving() && TryCaptureLogicalText(EArchiveLogicalTextKind::Name, Value.ToString())) return *this;
 		std::string Text = IsSaving() ? Value.ToString() : std::string();
 		*this << Text;
 		if (IsLoading() && !HasError()) Value = FName(Text);
 		return *this;
 	}
-	auto FArchive::operator<<(FGuid& Value) -> FArchive& { return *this << Value.A << Value.B << Value.C << Value.D; }
+	auto FArchive::operator<<(FGuid& Value) -> FArchive&
+	{
+		if (IsSaving() && TryCaptureLogicalPrimitive(EArchiveLogicalPrimitiveKind::Guid, &Value)) return *this;
+		return *this << Value.A << Value.B << Value.C << Value.D;
+	}
 	auto FArchive::operator<<(std::string& Value) -> FArchive&
 	{
 		if (HasError()) return *this;
 		if (!IsCurrentFieldAvailable()) return *this;
+		if (IsSaving() && TryCaptureLogicalText(EArchiveLogicalTextKind::String, Value)) return *this;
 		uint64 Size = static_cast<uint64>(Value.size());
 		*this << Size;
 		if (HasError()) return *this;
@@ -1819,6 +1846,19 @@ namespace Durin
 			{
 				if (OutError) *OutError = Reader.HasError()
 					? std::string(Reader.GetError()) : "Duplicate stream contains trailing bytes.";
+				DiscardDuplicates();
+				return nullptr;
+			}
+		}
+
+		for (DObject* Source : Sources)
+		{
+			FAuthoredOverrideDiagnostic LedgerDiagnostic;
+			if (!Duplicates[Source]->CopyAuthoredOverridesFrom(*Source, &LedgerDiagnostic))
+			{
+				if (OutError) *OutError = std::format(
+					"Duplicated authored override path failed validation (reason {}).",
+					static_cast<uint32>(LedgerDiagnostic.Reason));
 				DiscardDuplicates();
 				return nullptr;
 			}

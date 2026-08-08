@@ -370,6 +370,7 @@ namespace Durin
 			MarkObjectHierarchyAsGarbage(GEngine);
 			GEngine = nullptr;
 			ReleaseClassDefaultObjects();
+			ReleaseDStructDefaults();
 			CollectGarbage();
 			FModuleManager::Get().UnloadModulesAtShutdown();
 			ShutdownApplicationCore();
@@ -509,6 +510,7 @@ namespace Durin
 		GEngine = nullptr;
 		Asset::ShutdownAssetManager();
 		ReleaseClassDefaultObjects();
+		ReleaseDStructDefaults();
 		CollectGarbage();
 
 		if (GRenderingThread) FlushRenderingCommands();

@@ -1123,6 +1123,41 @@ TEST(FPackageAssetTests, WriterEmitsVersionThreeRedirectSummary)
 	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
 }
 
+TEST(FPackageAssetTests, VersionThreeLoadAndSaveIgnoreAuthoredOverrideLedger)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/V3IgnoresOverrideLedger", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
+	Asset->Label = "stable-v3";
+	ASSERT_FALSE(Asset->HasAllocatedAuthoredOverrideLedger());
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+	const auto File = Durin::Testing::GetTestWorkDirectory()
+		/ "Assets" / "V3IgnoresOverrideLedger.dasset";
+	std::vector<Durin::uint8> Before, After;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Before, File.generic_string()));
+
+	const Durin::FAuthoredOverridePath LabelPath{
+		Durin::FAuthoredOverridePathToken::Field(
+			Asset->GetClass()->GetQualifiedName(), Durin::FName("Label"))};
+	Durin::FAuthoredOverrideDiagnostic Diagnostic;
+	ASSERT_TRUE(Asset->SetAuthoredOverride(
+		LabelPath, Durin::EAuthoredOverrideProvenance::Forced, &Diagnostic));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(After, File.generic_string()));
+	EXPECT_EQ(After, Before);
+
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	Durin::DObject* LoadedObject = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, LoadedObject));
+	auto* Loaded = Durin::Cast<DPackageAssetForTest>(LoadedObject);
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_EQ(Loaded->Label, "stable-v3");
+	EXPECT_FALSE(Loaded->HasAllocatedAuthoredOverrideLedger());
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
+}
+
 TEST(FPackageAssetTests, HeaderReaderRejectsMalformedAndUnboundedDeclarations)
 {
 	InitializeAssetTests();

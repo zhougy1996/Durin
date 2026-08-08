@@ -23,11 +23,19 @@ Completed:
   baseline rejects every other package format or incompatible schema.
 - The bounded
   [DAST V4 Default-Relative Reflection Plan](../Plans/DASTV4DefaultRelativeReflection.md)
-  activated on 2026-08-08. It owns production struct-default storage, tri-state
+  completed on 2026-08-08. It owns production struct-default storage, tri-state
   recursive logical identity, class/default-subobject baselines, a wire-neutral
   logical delta plan, known-field override provenance, and no-delta policy. It
   consumes the frozen v4 bytes without reopening wire, custom-version, or
-  retained-closure decisions.
+  retained-closure decisions. Its production plan reduces the complete Default
+  Material reference package to 6,275 bytes with XXH64 `C4111B7609C78D4F`, 554
+  emitted and 231 omitted fields, and no ledger allocation on v3 load.
+- The bounded
+  [DAST V4 Deterministic Writer Plan](../Plans/DASTV4DeterministicWriter.md)
+  activated on 2026-08-08 after the default-relative exit gate passed. It owns
+  production table freezing and exact byte emission behind an explicit low-level
+  boundary; ordinary saves, readers, registries, migration, and tracked content
+  remain v3.
 - The completed [Asset Redirectors Refactor Plan](../Plans/Archive/2026-08/AssetRedirectors.md)
   owns DAST v3's bounded registry-entry kind and redirect-destination header
   summary. Compact serialization therefore starts at v4 and uses a temporary
@@ -189,8 +197,8 @@ compression.
 | Unified Archive serialization | Required prerequisite plan | Reflected struct operations complete | One live `Serialize` entry, purpose-specific Archives, exact DAST v3 adapters, and shared construct-free field codecs pass focused, full-build, and editor qualification | Completed 2026-08-07 |
 | Class default object lifecycle | Required prerequisite plan | Struct-operations and unified-Archive prerequisites complete; program explicitly scheduled | Every eligible concrete reflected class has one immutable deterministic default object; template construction is free of runtime publication, GC/shutdown ownership is explicit, and constructor/default parity passes full qualification | Completed 2026-08-08 |
 | [V4 measurement and wire contract](../Plans/DASTV4MeasurementAndWireContract.md) | Required child plan | Class-default-object lifecycle exit gate passed | Recursive v3 accounting, a frozen bounded v4 byte contract, golden primitives, and a test-only feasibility fixture demonstrate the size target without a production reader or writer | Completed 2026-08-08 |
-| [Default-relative reflection](../Plans/DASTV4DefaultRelativeReflection.md) | Required child plan | V4 default/override semantics frozen and measurement/wire-contract exit gate passed | Class defaults and safe struct defaults drive recursive logical equivalence, forced-override provenance, and no-delta policy under focused lifecycle tests | Active 2026-08-08 |
-| Deterministic v4 writer | Required child plan | Default-relative reflection exit gate passed | Discovery freezes every referenced table entry and version; canonical emission is byte-deterministic and meets both Default Material size gates | Proposed, deferred |
+| [Default-relative reflection](../Plans/DASTV4DefaultRelativeReflection.md) | Required child plan | V4 default/override semantics frozen and measurement/wire-contract exit gate passed | Class defaults and safe struct defaults drive recursive logical equivalence, forced-override provenance, and no-delta policy under focused lifecycle tests | Completed 2026-08-08 |
+| [Deterministic v4 writer](../Plans/DASTV4DeterministicWriter.md) | Required child plan | Default-relative reflection exit gate passed | Discovery freezes every referenced table entry and version; canonical emission is byte-deterministic and meets both Default Material size gates | Active 2026-08-08 |
 | V4 reader and compatibility | Required child plan | Writer fixtures and frozen schema model available | Bounded v4 loading and construct-free inspection preserve unknown descriptor closures and pass malformed-input, rollback, and compatibility parity suites | Proposed, deferred |
 | Mixed-version migration | Required child plan | V3/v4 readers and v4 writer stable | Latest-writer and supported-reader policy is separated; registry, cache, and explicit atomic v3-to-v4 migration pass mixed-corpus and rollback validation | Proposed, deferred |
 | Qualification and rollout | Required child plan | Mixed-version migration exit gate passed | Full validation and editor load/render/save/restart pass before tracked authored content is explicitly resaved and the temporary v3 edge is retired | Proposed, deferred |
@@ -252,6 +260,14 @@ tri-state recursive logical identity, class/default-subobject baseline pairing,
 a wire-neutral delta plan, forced/loaded-explicit override provenance, and
 no-delta policy. It consumes the completed struct-operations contract rather
 than adding alternate lifecycle callbacks or comparison logic inside AssetCore.
+
+### [Deterministic V4 Writer](../Plans/DASTV4DeterministicWriter.md)
+
+Consumes the completed logical delta plan and frozen wire contract. It owns
+production table discovery/freeze, checked byte emission, atomic publication,
+and independent reference parity behind an explicit low-level API. It does not
+activate a v4 reader, change ordinary v3 saves, alter registries or migration,
+or rewrite tracked content.
 
 ### Writer, Reader, Migration, and Rollout Plans
 

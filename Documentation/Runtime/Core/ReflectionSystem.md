@@ -376,6 +376,15 @@ succeeds. A default has Outer equal to its `DClass`, a
 The four authored actor defaults may create their fixed-name component templates
 with `DefaultSubobject | Transient`; arbitrary archetype graphs are not supported.
 
+Class defaults are created eagerly and published atomically after reflection
+registration. `DClass` records a stable ready/unavailable/failed/released state
+and reason; callers never lazily construct a default through a const read. The
+default and a live instance form a bounded graph by Outer-relative
+`(class, name)` identity. `FDefaultObjectGraphMap` pairs the root and every
+required default subobject, rejects missing, extra, duplicate, mis-parented, or
+class-mismatched nodes, and provides graph-relative hard-reference identity.
+Object fields use only this most-derived class-default graph as their baseline.
+
 `EObjectConstructionPurpose` distinguishes runtime, asset-load, duplication,
 class-default, and default-subobject construction. Constructors use it to retain
 authored values while skipping runtime publication or activation. Broad object
@@ -495,6 +504,27 @@ identical only when sign, exponent, and payload bits match. A declared
 `Identical` callback is authoritative for the complete struct value and is not
 combined with a field walk.
 
+Eligible `DStruct` values also publish one immutable deterministic type default
+during the registration batch. Eligibility requires complete authored fields,
+deterministic default construction and destruction, and no custom Archive
+serializer; unavailable structs retain a stable reason rather than a partial
+value. Publication is atomic, aligned storage is destroyed exactly once, hidden
+strong references are rooted through the struct's collection contract, and
+module teardown releases defaults before their callbacks can unload. Explicit
+Struct values compare against this type default, never against nested memory in
+a containing class default.
+
+`ComparePropertyValues(...)` returns `Identical`, `Different`, or `Unsupported`
+with a stable logical path, kind, and reason. Unsupported operations are not an
+ordinary difference and cannot authorize omission. The comparison grammar is
+recursive and bounded to depth 64: fixed arrays and Arrays are positional, Maps
+use canonical logical key tokens and compare key/value associations independent
+of iteration order, hard references may use a supplied default-object graph,
+soft references compare canonical paths, and floating-point values compare
+their complete bits. Descriptor cycles, missing container operations,
+incomplete/custom Struct semantics, duplicate Map keys, excessive counts, and
+malformed values fail with a typed diagnostic.
+
 Reflected GC traversal visits the compiled schema first and then invokes one
 optional `CollectReferences` callback for strong references outside reflected
 fields. Callback authors must not repeat reflected references. Detached
@@ -554,6 +584,61 @@ references are delegated to the selected Archive and are never persisted as
 process addresses. Soft references transfer only their bounded logical path.
 Map writers that advertise canonical ordering use stable logical key tokens, so
 supported Maps do not depend on bucket or insertion history.
+
+### Default-Relative Logical Planning
+
+`BuildDefaultDeltaPlan(...)` consumes the same Archive field and logical-type
+descriptors as ordinary serialization and produces no package bytes. Discovery
+and value capture run over the same virtual `Serialize` entry; the manifest,
+types, container shapes, and canonical Map keys must agree before planning.
+Reflected and native named fields enter one canonical order by declaring type
+and field name. Captured values are detached logical nodes; published nodes do
+not retain source-memory pointers.
+
+In `EDefaultDeltaMode::Enabled`, top-level fields compare with the paired class
+default object. Once a Struct is emitted, its fields recursively compare with
+the Struct type default, including Structs inside fixed arrays, Arrays, and Map
+values. Containers are complete authored values rather than insert/remove
+deltas. A class-specific non-type-default Struct can therefore emit an empty
+Struct block when it is explicit but every child equals the type default.
+Planning is transactional: missing defaults, unavailable identity, graph or
+Archive failure, manifest drift, duplicate fields, and depth/count/path bounds
+clear the output and return a typed diagnostic.
+
+`EDefaultDeltaMode::NoDelta` does not read class or Struct defaults. It walks the
+complete live Outer-owned graph and emits every supported non-`Transient`
+logical field and child with forced provenance. It is not a raw-memory fallback:
+unstable descriptors, incomplete/custom reflected Structs, unsupported logical
+values, malformed serializers, or limit violations still fail before output.
+
+### Authored Override Intent
+
+An ordinary `DObject` may lazily own an `FAuthoredOverrideLedger`; an untouched
+object allocates no ledger, and templates reject entries. The ledger uses
+copy-on-write immutable snapshots for concurrent reads and contains no object,
+property, schema, or memory pointer. A canonical path begins with a declaring
+type and field name, then may use Struct field identities, fixed-array indices,
+positional Array indices, or Map values selected by collision-checked canonical
+key bytes. Mutation validates the current discovery/value schema, token form,
+depth, byte length, provenance, bounds, and key availability before atomic
+publication. Bulk replacement sorts complete paths and rejects duplicates
+without changing the prior ledger.
+
+Known intent is exactly `LoadedExplicit` or `Forced`; absence means no known
+intent, while retained unknown v4 values remain separate AssetCore state.
+Enabled planning applies `Forced`, then `LoadedExplicit`, then logical
+difference, then omission. Nested intent emits every required parent record.
+Forced state cannot be downgraded by a loaded-explicit update. Exact clear,
+subtree clear, and reset change only intent, never the reflected value. Missing
+Array positions and removed Map keys or fields are ignored during planning;
+incompatible surviving routes fail closed. Array marks are intentionally not
+remapped after structural edits, while Map marks survive iteration-order changes.
+
+`DuplicateObjectGraph(...)` copies ledger snapshots only after the destination
+graph exists and revalidates every path against the destination. GC ignores the
+pointer-free tokens, object destruction releases the snapshot, and class/Struct
+default teardown cannot invalidate it. Current DAST v3 load creates no ledger
+and current v3 save never queries one.
 
 Structs use the reflected non-`Transient` field walk by default. A declared
 `FDStructOps::Serialize(FArchive&, void*)` callback replaces that complete walk

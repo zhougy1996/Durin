@@ -4,30 +4,26 @@ Summary: Establish deterministic production default-relative reflection, explici
 
 Last reviewed: 2026-08-08
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-08
 
 ## Current Status
 
-- Activated on 2026-08-08 from baseline `a0b67a4e` after the
-  [DAST V4 Measurement and Wire Contract Plan](DASTV4MeasurementAndWireContract.md)
-  completed every exit gate. The frozen v4 contract, test-only codec, and
-  10,869-byte Default Material golden are established inputs; this plan does
-  not reopen their bytes.
-- The [Compact Asset Serialization Roadmap](../Roadmaps/CompactAssetSerialization.md)
-  selects this as the next required child. Deterministic v4 writer, reader,
-  migration, and content rollout remain separately gated later children.
-- All 25 eligible production classes already own immutable class default
-  objects, and all 38 production reflected classes have an explicit default
-  disposition. Existing property identity recursively covers scalar, string,
-  Name, Guid, enum, struct, fixed array, Array, Map, hard reference, and soft
-  reference values.
-- The missing production layer is semantic rather than wire-level: reflected
-  equality cannot distinguish `Different` from `Unsupported`; `DStruct` owns no
-  immutable type-default value; there is no class-default/default-subobject
-  baseline resolver; Archives cannot request or suppress delta behavior; and a
-  live object cannot retain loaded-explicit or forced override intent by stable
-  logical path.
+- Completed on 2026-08-08 in one squashed implementation commit based on the
+  activated-plan baseline `752d68e8`. Production now owns immutable struct
+  defaults, tri-state logical identity, paired class and default-subobject
+  baselines, a canonical wire-neutral delta plan, and a pointer-free
+  authored-override ledger with complete no-delta behavior.
+- The real Default Material reference is 6,275 bytes with 554 emitted and 231
+  omitted fields, 1,275 comparisons, maximum depth 5, and digest
+  `0xC4111B7609C78D4F`. Repeated and reverse-order planning are identical, and a
+  v3-loaded object allocates no ledger.
+- Production remains DAST v3-only. All 17 tracked packages match the activation
+  SHA-256 manifest and no `.dasset` changed. The
+  [Compact Asset Serialization Roadmap](../Roadmaps/CompactAssetSerialization.md)
+  now activates only the
+  [DAST V4 Deterministic Writer Plan](DASTV4DeterministicWriter.md); reader,
+  registry, migration, and content rollout remain separately gated.
 
 ## Goal
 
@@ -363,21 +359,21 @@ logical equality rules remain authoritative.
 
 ### Stage 0: Freeze eligibility and tri-state logical identity
 
-- [ ] Record activation baseline, any worktree exclusions, exact build/test
+- [x] Record activation baseline, any worktree exclusions, exact build/test
   profile, production class/struct counts, current default feasibility, and the
   symbols that own identity and lifecycle.
-- [ ] Introduce tri-state property identity and stable bounded diagnostics while
+- [x] Introduce tri-state property identity and stable bounded diagnostics while
   retaining the existing bool wrapper for current callers.
-- [ ] Cover every logical kind, authoritative struct identity, reflected fallback,
+- [x] Cover every logical kind, authoritative struct identity, reflected fallback,
   fixed arrays, Arrays, Maps, hard/soft references, bit-exact floats, unavailable
   operations, depth, and descriptor cycles.
-- [ ] Audit every registered production `DStruct` for default construction,
+- [x] Audit every registered production `DStruct` for default construction,
   destruction, complete authored fields, custom serializers, hidden state,
   identity support, references, and deterministic construction side effects.
-- [ ] Freeze exact struct-default eligibility and failure reasons. Activate the
+- [x] Freeze exact struct-default eligibility and failure reasons. Activate the
   custom-codec roadmap milestone instead of proceeding if any current durable
   struct cannot be represented safely.
-- [ ] Record the stage handoff with baseline, initial five-file working set,
+- [x] Record the stage handoff with baseline, initial five-file working set,
   added direct dependencies, symbols, audit results, open questions, and focused
   validation.
 
@@ -403,26 +399,69 @@ The first direct validation expansion is
 AssetCore, Engine Material, and lifecycle files enter only when a later stage
 begins or a focused test points to that direct dependency.
 
+#### Stage 0 Handoff
+
+- Baseline: architecture baseline `a0b67a4e`; activated-plan/implementation
+  baseline `752d68e8`. The `architect` worktree on `feat/arch` was clean at
+  entry, has no concurrent source/build writer, and excludes all other
+  worktrees and their uncommitted state.
+- Profile and frozen evidence: `windows-msvc-x64`, preset
+  `Win64-Debug-DurinEditor-Tests`, target `CoreObjectTests`; 38 production
+  reflected classes have explicit CDO disposition, 25 are eligible, and the
+  frozen complete Default Material v4 reference remains 10,869 bytes against
+  the 16,384-byte and 20,659-byte gates.
+- Working set: the initial plan, `Class.h`, `StructOps.h`, `Property.h`, and
+  `Property.cpp`; direct validation inspection expanded to
+  `ReflectionTypeTests.cpp`, while the existing logical-identity fixture in
+  `ZPropertyValueSnapshotTests.cpp` received the focused tests. The production
+  struct audit additionally read only the ten headers that declare `DSTRUCT`
+  types.
+- Identity boundary: `ComparePropertyValues` now owns tri-state identity,
+  bounded paths, exact logical kind/reason, depth 64, descriptor-cycle
+  detection, checked container operations, and canonical-key-sorted Map
+  diagnostics. `ArePropertyValuesIdentical` remains the compatibility wrapper
+  and returns true only for `Identical`. `EPropertyIdentityResult`,
+  `EPropertyIdentityReason`, `FPropertyIdentityDiagnostic`,
+  `EDStructDefaultState`, and `EDStructDefaultReason` are the frozen Stage 1
+  vocabulary.
+- Audit: the DurinEditor production registration surface contains 26 structs:
+  six Core math mirror structs, 15 Runtime `DSTRUCT` types, and five Editor
+  `DSTRUCT` types. All 26 have valid deterministic member-initializer default
+  construction, destruction, complete reflected authored state, and recursive
+  identity support; none has a custom serializer or authoritative identity
+  callback. `FMaterialParameterValue` is the sole reflected strong-reference
+  carrier and is covered by the compiled reference schema. The two ImportRecord
+  structs with post-deserialize callbacks keep only derived `FAssetPath` caches;
+  their complete durable state is the reflected path text. Result: 26 eligible,
+  zero custom-codec blockers, and no opaque durable state.
+- Validation: `CoreObjectTests` built and all 82 tests passed. Focused tri-state
+  tests distinguish value differences from missing operations, prove stable Map
+  paths across perturbed insertion order, and reject descriptor cycles and depth
+  overflow without mutation.
+- Open questions: none. Stage 1 may publish defaults for all 26 audited structs;
+  synthetic malformed/nondeterministic/re-entrant fixtures remain intentionally
+  ineligible and must prove the typed failure paths.
+
 ### Stage 1: Publish immutable DStruct defaults and class baselines
 
-- [ ] Add `DStruct` default state/reason, const access, aligned owned storage,
+- [x] Add `DStruct` default state/reason, const access, aligned owned storage,
   eager two-candidate construction/identity validation, atomic batch
   publication, and fail-closed rollback.
-- [ ] Compile recursive default eligibility after ops and properties freeze;
+- [x] Compile recursive default eligibility after ops and properties freeze;
   reject custom serializers, incomplete authored fields, unsupported nested
   values, invalid size/alignment, re-entrancy, nondeterminism, and publication
   side effects.
-- [ ] Root references reachable from published struct defaults and release them
+- [x] Root references reachable from published struct defaults and release them
   before module-owned ops unload. Prove clean repeated initialize/shutdown and
   partial registration failure.
-- [ ] Implement bounded `FDefaultObjectGraphMap` pairing for the four supported
+- [x] Implement bounded `FDefaultObjectGraphMap` pairing for the four supported
   actor default-subobject graphs, including duplicate/missing/extra/class/Outer/
   cycle failures.
-- [ ] Implement top-level class-default property resolution and recursive
+- [x] Implement top-level class-default property resolution and recursive
   struct type-default resolution with exact inherited/fixed-array behavior.
-- [ ] Add production-wide class and struct default determinism tests, worker
+- [x] Add production-wide class and struct default determinism tests, worker
   const-read tests, GC/rooting tests, and derived-first module teardown tests.
-- [ ] Record the stage handoff and any audit-driven scope correction before the
+- [x] Record the stage handoff and any audit-driven scope correction before the
   logical delta planner begins.
 
 #### Acceptance Gate
@@ -436,26 +475,70 @@ begins or a focused test points to that direct dependency.
   resolve only type defaults; tests prove the distinction with non-type-default
   class members.
 
+#### Stage 1 Handoff
+
+- Baseline: the activated-plan commit `752d68e8`; Stage 0 and Stage 1 are part of
+  the same squashed implementation commit. The build profile remains
+  `windows-msvc-x64` with preset `Win64-Debug-DurinEditor-Tests`.
+- Working set: `Class.h/.cpp`, `DObjectGlobals.cpp`, `Object.cpp`,
+  `ObjectLifecycle.h/.cpp`, `Property.h/.cpp`, the new
+  `DefaultObjectGraph.h/.cpp`, `SplineCurve.cpp`, `LaunchEngineLoop.cpp`, and
+  the CoreDObject/Material reflection tests. No Archive or AssetCore production
+  serialization path changed.
+- Default boundary: `DStruct::GetDefaultValue` publishes one acquire-visible,
+  aligned immutable value only after two independently constructed candidates
+  compare identical. `Private::CreateDStructDefaultsForBatch` closes over
+  nested struct dependencies, orders qualified names, publishes atomically,
+  and destroys all pending values and object-construction side effects on any
+  failure. Eligibility is frozen before construction with stable reasons for
+  layout, ops, authored completeness, serializer, descriptor, recursion,
+  re-entrancy, nondeterminism, side effects, and construction failures.
+- Lifecycle: published defaults participate in compiled/reflected and custom
+  struct reference collection. Global and module-scoped release destroy values
+  before module ops unload; Launch now releases struct defaults alongside CDOs.
+  Tests prove worker const reads, GC rooting followed by module release, exact
+  typed ineligibility, re-entrancy, nondeterminism, side-effect cleanup, and
+  rollback after an earlier member of the same batch constructed successfully.
+- Baseline resolution: `FDefaultObjectGraphMap` pairs CDO/default-subobject
+  graphs by exact qualified class and stable name, permits unrelated live
+  extras, and reports bounded typed failures for invalid roots, missing,
+  duplicate, and class-mismatched nodes. Class properties compare to the
+  most-derived CDO with graph-relative hard references; explicit struct values
+  compare recursively to the immutable type default. A fixture with a
+  class-specific `FVector3{1,2,3}` proves these baselines are distinct.
+- Audit correction: all 26 frozen production structs publish `Ready`. The
+  production test explicitly activates lazy `FVector4`; the other 25 are
+  reached by the Material target's loaded modules. `FSplinePoint` was the sole
+  audit defect: its no-argument default generated a GUID. It now defaults to an
+  invalid stable GUID, while every curve insertion/duplication path continues
+  assigning a unique GUID.
+- Validation: focused default/graph/lifecycle tests pass; `CoreObjectTests`
+  and all 78 `MaterialTests` pass; a full `all` build succeeds. Documentation
+  validation is recorded in this completed plan.
+- Open questions: none. Stage 2 may consume only the published default APIs,
+  graph-relative identity, and tri-state diagnostics; it must not add a
+  production v4 byte encoder.
+
 ### Stage 2: Build the canonical logical delta planner
 
-- [ ] Introduce wire-neutral delta-plan types, stable ordering, exact baseline
+- [x] Introduce wire-neutral delta-plan types, stable ordering, exact baseline
   kinds, typed failures, deterministic counts, and discovery/value-pass freeze.
-- [ ] Adapt reflected and native unified Archive fields into the same plan without
+- [x] Adapt reflected and native unified Archive fields into the same plan without
   duplicating logical type inference in AssetCore.
-- [ ] Implement object omission against class defaults and recursive Struct
+- [x] Implement object omission against class defaults and recursive Struct
   omission against type defaults across nested fixed arrays, Arrays, and Map
   values; keep containers atomic.
-- [ ] Prove empty explicit Struct blocks, class-specific struct defaults,
+- [x] Prove empty explicit Struct blocks, class-specific struct defaults,
   inherited fields, default-subobject hard references, soft paths, canonical
   Maps, signed zero, NaNs, and custom authoritative identity.
-- [ ] Add repeated and reverse-discovery determinism, depth/count bounds,
+- [x] Add repeated and reverse-discovery determinism, depth/count bounds,
   unsupported-operation rollback, and zero-mutation tests.
-- [ ] Connect the production logical plan to the test-only v4 reference model
+- [x] Connect the production logical plan to the test-only v4 reference model
   without adding a production encoder. Record new Default Material omitted/
   explicit counts, section sizes, digest, and comparison work.
-- [ ] Preserve the 16,384-byte and 20,659-byte gates; investigate any regression
+- [x] Preserve the 16,384-byte and 20,659-byte gates; investigate any regression
   before proceeding rather than increasing the frozen budgets.
-- [ ] Record the stage handoff with exact plan cardinalities and reference-model
+- [x] Record the stage handoff with exact plan cardinalities and reference-model
   changes.
 
 #### Acceptance Gate
@@ -467,29 +550,66 @@ begins or a focused test points to that direct dependency.
 - Test-only complete v4 bytes remain within both size gates with every byte
   owned by the frozen contract.
 
+#### Stage 2 Handoff
+
+- Baseline: the activated-plan commit `752d68e8`; Stages 0-2 are part of the
+  same squashed implementation commit. The build profile remains
+  `windows-msvc-x64` with preset `Win64-Debug-DurinEditor-Tests`.
+- Working set: `Archive.h/.cpp`, the new `DefaultDeltaPlan.h/.cpp`,
+  `ReflectionTypeTests.cpp`, and the AssetPackage test-only feasibility model,
+  tests, and target linkage. Added direct dependencies are the Stage 1 default
+  registry/graph APIs and the real Engine `DMaterial` test fixture; production
+  AssetCore and its v3 writer remain unchanged.
+- Key symbols and decisions: `BuildDefaultDeltaPlan`,
+  `FDefaultDeltaPlan`, `FDefaultDeltaNode`, and
+  `AreDefaultDeltaPlansEquivalent` expose a wire-neutral, pointer-free value
+  plan with typed diagnostics and exact counters. Unified Archive supplies
+  opt-in logical capture hooks while preserving ordinary byte serialization.
+  Reflected and native fields share one canonical descriptor order; object
+  fields compare to class defaults, explicit Struct values compare recursively
+  to immutable type defaults, hard references use default-graph-relative
+  identity, containers remain atomic at their parent, and authoritative
+  `FDStructOps::Identical` wins when available. Capture freezes discovery/value
+  shapes, enforces depth/path/count limits, and clears the output transactionally
+  on every unsupported or malformed case.
+- Frozen Default Material result: one object, 785 logical fields, 554 emitted,
+  231 omitted, 1,275 comparisons, and maximum depth 5. The complete test-only
+  package is 6,275 bytes with section sizes `{1803, 62, 107, 5, 4219}`, one
+  override, 231 omitted defaults, 134 parse operations, 133 allocation inputs,
+  and digest `0xC4111B7609C78D4F`; both 16,384-byte and 20,659-byte gates hold.
+- Validation: planner-focused tests pass 2/2; `CoreObjectTests` pass 88/88 and
+  `AssetPackageTests` pass 105/105. Coverage includes reverse discovery,
+  repeated-plan equality, signed zero, NaN payloads, empty emitted Structs,
+  class-specific and authoritative Struct identity, default subobject hard
+  references, production inherited/soft/container fields, depth/count limits,
+  manifest drift, unavailable defaults, rollback, and zero mutation.
+- Open questions: none. Stage 3 owns authored-intent storage and precedence plus
+  complete recursive no-delta forcing; Stage 2 deliberately adds no production
+  v4 byte encoder.
+
 ### Stage 3: Preserve authored override intent and no-delta behavior
 
-- [ ] Add lazy object-owned ledger storage, canonical logical path tokens,
+- [x] Add lazy object-owned ledger storage, canonical logical path tokens,
   schema/path validation, deterministic sorting, exact/subtree clear, reset,
   duplication, and lifecycle behavior.
-- [ ] Cover top-level and nested Struct fields, fixed arrays, positional Arrays,
+- [x] Cover top-level and nested Struct fields, fixed arrays, positional Arrays,
   canonical-key Map values, invalid routes, excessive depth, duplicate entries,
   schema changes, removed fields, and unavailable key tokens.
-- [ ] Implement `LoadedExplicit` and `Forced` precedence in the logical planner.
+- [x] Implement `LoadedExplicit` and `Forced` precedence in the logical planner.
   Prove explicit-equals-current-default, changed defaults, clear/revert, nested
   intent, and repeated unchanged load/resave models.
-- [ ] Add explicit `Enabled` and `NoDelta` modes. Prove no-delta emits every
+- [x] Add explicit `Enabled` and `NoDelta` modes. Prove no-delta emits every
   supported authored field as forced without requiring published defaults and
   still fails closed for incomplete/custom/unsupported values.
-- [ ] Prove current v3 load creates no ledger and current v3 save never observes
+- [x] Prove current v3 load creates no ledger and current v3 save never observes
   it; retain exact production v3 byte goldens and tracked package hashes.
-- [ ] Exercise duplication, GC, object destruction, class/struct teardown, worker
+- [x] Exercise duplication, GC, object destruction, class/struct teardown, worker
   reads, and container path persistence without storing object pointers in the
   ledger.
-- [ ] Update the v4 reference fixtures to cover ledger-driven provenance `00`
+- [x] Update the v4 reference fixtures to cover ledger-driven provenance `00`
   and `01` while leaving retained unknown provenance `02` under the frozen test
   model.
-- [ ] Record the stage handoff and the exact writer-facing API boundary.
+- [x] Record the stage handoff and the exact writer-facing API boundary.
 
 #### Acceptance Gate
 
@@ -501,24 +621,106 @@ begins or a focused test points to that direct dependency.
 - No-delta is complete logical emission, not raw-memory fallback, and production
   v3 behavior remains byte-identical.
 
+#### Stage 3 Handoff
+
+- Baseline: the activated-plan commit `752d68e8`; Stages 0-3 are part of the
+  same squashed implementation commit. The build profile remains
+  `windows-msvc-x64` with preset `Win64-Debug-DurinEditor-Tests`.
+- Working set: the new `AuthoredOverrideLedger.h/.cpp`, `Object.h`, Archive's
+  canonical-Map-key notification path, `DefaultDeltaPlan.h/.cpp`, focused
+  CoreDObject tests, the production-v3 AssetPackage regression, and the
+  test-only v4 feasibility adapter/tests. No production AssetCore reader or
+  writer behavior changed.
+- Ledger contract: ordinary objects allocate no ledger until the first valid
+  entry. `FAuthoredOverridePath` contains only declaring/name tokens, fixed or
+  positional indices, and collision-checked canonical Map key bytes; it stores
+  no reflection or object pointer. Copy-on-write immutable snapshots provide
+  concurrent reads. Mutation validates discovery/value schema, bounds, token
+  shape, provenance, and canonical keys before atomic publication; bulk replace
+  rejects duplicates transactionally. Exact clear, subtree clear, and reset do
+  not touch authored values. Stale removed fields, missing Array positions, and
+  removed Map keys are ignored during planning, while incompatible routes fail
+  closed. Duplication copies only after the destination graph exists and
+  revalidates every entry.
+- Planner precedence is `Forced` -> forced provenance, `LoadedExplicit` ->
+  explicit provenance, logical difference -> explicit provenance, identical ->
+  omit, with unsupported identity still failing. Nested intent forces the
+  required parent records. Map intent follows canonical key bytes across
+  iteration-order changes; Array intent remains positional. `NoDelta` walks the
+  complete owned live graph, emits every supported field and logical child as
+  forced, uses no class or struct defaults, and still rejects manifest drift,
+  incomplete/custom reflected Structs, and unsupported capture.
+- Writer-facing boundary: a future v4 writer consumes only
+  `BuildDefaultDeltaPlan(...)` and the immutable `FDefaultDeltaPlan` tree.
+  Readers/editors populate intent through `DObject::SetAuthoredOverride` or the
+  transactional `ReplaceAuthoredOverrides`; callers clear via exact, subtree,
+  or reset APIs. The writer does not query ledger storage directly and does not
+  infer intent from object state.
+- Validation: `CoreObjectTests` pass 91/91 and `AssetPackageTests` pass 106/106.
+  The real v3 Default Material initially owns no ledger; repeated loaded-explicit
+  plans/packages are identical, forced upgrade changes only provenance, and
+  clear restores the Stage 2 plan. A production v3 create/save/resave/load test
+  proves ledger state changes neither bytes nor loaded state. Stage 2's frozen
+  Default Material baseline remains 6,275 bytes, 554 emitted, 231 omitted, and
+  digest `0xC4111B7609C78D4F`.
+- Open questions: none. Stage 4 may document and qualify these APIs, but must not
+  add the production v4 writer in this plan.
+
 ### Stage 4: Qualify and hand off to the deterministic v4 writer
 
-- [ ] Run focused CoreDObject reflection/lifecycle, Archive, AssetPackage v3/v4
+- [x] Run focused CoreDObject reflection/lifecycle, Archive, AssetPackage v3/v4
   reference, Material/default, StaticMesh/default-subobject, changed-document,
   and full `all` build validation through DurinDevTool.
-- [ ] Run `DevTool asset baseline`, verify every tracked package SHA-256 against
+- [x] Run `DevTool asset baseline`, verify every tracked package SHA-256 against
   the activation manifest, and prove no `.dasset` change.
-- [ ] Record production Default Material delta-plan counts, complete reference
+- [x] Record production Default Material delta-plan counts, complete reference
   bytes, section budget, digest, comparison work, ledger allocation state, and
   repeated/reverse-order determinism.
-- [ ] Move lasting struct-default, tri-state identity, baseline, delta-plan,
+- [x] Move lasting struct-default, tri-state identity, baseline, delta-plan,
   provenance, path, and no-delta contracts into owning Runtime documentation.
-- [ ] Complete this roadmap milestone and activate only the deterministic v4
+- [x] Complete this roadmap milestone and activate only the deterministic v4
   writer child. The writer boundary must consume the logical plan and frozen
   wire without absorbing reader, registry, or migration work.
-- [ ] Complete plan status/checklists and final handoff with baseline commits,
+- [x] Complete plan status/checklists and final handoff with baseline commits,
   working sets, symbols, decisions, open questions, validation, corpus hashes,
   measured budgets, and next-plan boundary.
+
+#### Stage 4 Handoff
+
+- Baseline: the activated-plan commit `752d68e8`; all five stages, lasting
+  documentation, roadmap transition, qualification evidence, and plan closure
+  are part of the same squashed implementation commit.
+- Working set: `ReflectionSystem.md` owns immutable defaults, tri-state identity,
+  class/default-subobject pairing, logical planning, override paths, provenance,
+  and no-delta contracts. `AssetPackages.md` owns the measured v4 reference
+  evidence. The compact-serialization roadmap completes this milestone and the
+  new `DASTV4DeterministicWriter.md` is the sole activated child. No production
+  writer/reader, registry policy, version constant, or asset content changed.
+- Default Material reference: 6,275 complete bytes; section sizes 79-byte
+  envelope, 1,803-byte Name, 62-byte Type, 107-byte Schema, 5-byte Object, and
+  4,219-byte Value; 105 Names, 21 Types, 6 Schemas, 1 Object, and 1 top-level
+  override. Planning visits 785 fields, emits 554, omits 231, performs 1,275
+  comparisons at maximum depth 5, and produces digest
+  `0xC4111B7609C78D4F`. The size margins are 10,109 bytes against the 16,384-byte
+  target and 14,384 bytes against the 20,659-byte hard gate; parse/allocation
+  work is 134/133. Repeated and reverse-registration/order runs are identical.
+  The source v3-loaded object owns no override ledger; loaded-explicit and forced
+  provenance change only the expected logical decisions.
+- Asset evidence: `DevTool asset baseline --project Sandbox/Sandbox.dproject`
+  reports 17 current DAST v3 packages. Independent SHA-256 comparison verifies
+  all 17 entries against the activation manifest, and the worktree contains no
+  changed `.dasset`.
+- Validation: `CoreObjectTests` pass 91/91, `AssetPackageTests` pass 106/106,
+  `MaterialTests` pass 78/78, and `StaticMeshTests` pass 49/49. Changed-document
+  validation passes for four tracked changed documents, all-plan validation
+  passes for 5 active, 8 completed, and 75 archived plans before this plan's
+  final status transition, and the full `all` build passes with profile
+  `windows-msvc-x64` and preset `Win64-Debug-DurinEditor-Tests`.
+- Decisions and next boundary: the writer consumes only
+  `BuildDefaultDeltaPlan(...)`, immutable `FDefaultDeltaPlan`, and the frozen
+  wire contract. It owns canonical discovery/freeze and byte emission only.
+  Reader activation, ledger population while loading, registry policy,
+  migration, and content rollout remain out of scope. Open questions: none.
 
 #### Acceptance Gate
 

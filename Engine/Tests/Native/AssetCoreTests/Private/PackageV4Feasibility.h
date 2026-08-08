@@ -4,6 +4,7 @@
 #include "PackageV4ReferenceModel.h"
 
 #include "DObject/Archive.h"
+#include "DObject/DefaultDeltaPlan.h"
 
 #include <array>
 
@@ -52,5 +53,6 @@ namespace Durin::Testing::DastV4
 		std::span<const uint8> V3Bytes,
 		bool ReverseDiscovery,
 		FFeasibilityPackage& OutPackage,
-		std::string& OutError) -> bool;
+		std::string& OutError,
+		const FDefaultDeltaPlan* DeltaPlan = nullptr) -> bool;
 }

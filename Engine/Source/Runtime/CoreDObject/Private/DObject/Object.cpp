@@ -546,11 +546,19 @@ namespace Durin
 		FClassDeferredRegistry& ClassRegistry = FClassDeferredRegistry::Get();
 		FEnumDeferredRegistry& EnumRegistry = FEnumDeferredRegistry::Get();
 
+		Private::BeginDStructRegistrationBatch();
 		RegisterAllCompiledInClasses();
 		RegisterAllCompiledInEnums();
 		LoadAllCompiledInDefaultProperties();
 		LoadAllCompiledInEnumValues();
 		ProcessRegisteredCppPackages();
+		std::vector<DStruct*> BatchStructs;
+		for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates))
+		{
+			if (auto* Struct = Cast<DStruct>(Object)) BatchStructs.push_back(Struct);
+		}
+		(void)Private::CreateDStructDefaultsForBatch(BatchStructs);
+		Private::EndDStructRegistrationBatch();
 
 		std::vector<DClass*> BatchClasses;
 		const std::array IntrinsicClasses{

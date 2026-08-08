@@ -6,6 +6,8 @@
 
 namespace Durin
 {
+	class FDefaultObjectGraphMap;
+	class FStructProperty;
 	// Describes one reflected field's storage, flags, referenced type, and value lifecycle.
 	class FProperty : public FField
 	{
@@ -156,6 +158,94 @@ namespace Durin
 		size_t Alignment = __STDCPP_DEFAULT_NEW_ALIGNMENT__;
 		bool bLive = false;
 	};
+
+	// Distinguishes an authored value difference from unavailable comparison semantics.
+	enum class EPropertyIdentityResult : uint8
+	{
+		Identical,
+		Different,
+		Unsupported,
+	};
+
+	// Stable reasons reported by the bounded logical identity walk.
+	enum class EPropertyIdentityReason : uint8
+	{
+		None,
+		ValueMismatch,
+		ContainerLengthMismatch,
+		MapKeyMissing,
+		InvalidInput,
+		InvalidArrayIndex,
+		UnsupportedLogicalKind,
+		MissingStructDescriptor,
+		IncompleteAuthoredFields,
+		MissingArrayDescriptor,
+		MissingArrayOperations,
+		MissingMapDescriptor,
+		MissingMapOperations,
+		UnsupportedMapKey,
+		ContainerOperationFailed,
+		DescriptorCycle,
+		DepthLimit,
+		DiagnosticPathLimit,
+	};
+
+	inline constexpr uint32 PropertyIdentityMaxDepth = 64;
+	inline constexpr size_t PropertyIdentityMaxPathLength = 1024;
+
+	struct FPropertyIdentityDiagnostic
+	{
+		std::string PropertyPath;
+		DurinCodeGen::EPropertyGenFlags LogicalKind = DurinCodeGen::EPropertyGenFlags::None;
+		EPropertyIdentityReason Reason = EPropertyIdentityReason::None;
+
+		auto Reset() -> void
+		{
+			PropertyPath.clear();
+			LogicalKind = DurinCodeGen::EPropertyGenFlags::None;
+			Reason = EPropertyIdentityReason::None;
+		}
+	};
+
+	COREDOBJECT_API auto ComparePropertyValues(
+		const FProperty* Property,
+		const void* LeftContainer,
+		uint32 LeftArrayIndex,
+		const void* RightContainer,
+		uint32 RightArrayIndex,
+		FPropertyIdentityDiagnostic* OutDiagnostic = nullptr) -> EPropertyIdentityResult;
+
+	COREDOBJECT_API auto ComparePropertyValuesWithDefaultGraph(
+		const FProperty* Property,
+		const void* LeftContainer,
+		uint32 LeftArrayIndex,
+		const void* RightContainer,
+		uint32 RightArrayIndex,
+		const FDefaultObjectGraphMap& DefaultGraph,
+		FPropertyIdentityDiagnostic* OutDiagnostic = nullptr) -> EPropertyIdentityResult;
+
+	COREDOBJECT_API auto CompareObjectPropertyToClassDefault(
+		const FProperty* Property,
+		const DObject* LiveObject,
+		uint32 ArrayIndex,
+		const FDefaultObjectGraphMap& DefaultGraph,
+		FPropertyIdentityDiagnostic* OutDiagnostic = nullptr) -> EPropertyIdentityResult;
+
+	COREDOBJECT_API auto CompareStructPropertyToTypeDefault(
+		const FStructProperty* Property,
+		const void* LiveContainer,
+		uint32 ArrayIndex,
+		FPropertyIdentityDiagnostic* OutDiagnostic = nullptr) -> EPropertyIdentityResult;
+
+	COREDOBJECT_API auto CompareStructValues(
+		const DStruct* Struct,
+		const void* LeftValue,
+		const void* RightValue,
+		FPropertyIdentityDiagnostic* OutDiagnostic = nullptr) -> EPropertyIdentityResult;
+
+	COREDOBJECT_API auto ValidatePropertyIdentityDescriptor(
+		const FProperty* Property,
+		FPropertyIdentityDiagnostic* OutDiagnostic = nullptr) -> bool;
 
 	COREDOBJECT_API auto ArePropertyValuesIdentical(
 		const FProperty* Property,

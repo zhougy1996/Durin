@@ -121,7 +121,7 @@ namespace Durin
 	} // namespace
 
 	FSplinePoint::FSplinePoint()
-		: Id(FGuid::NewGuid())
+		: Id{}
 	{
 	}
 

@@ -461,7 +461,10 @@ namespace Durin
 		AttachCoreIntrinsicTypesToCppPackage();
 
 		FModuleManager::Get().SetProcessLoadedObjectsCallback(ProcessNewlyLoadedDObjects);
-		FModuleManager::Get().SetPreShutdownModuleCallback(ReleaseClassDefaultObjectsForModule);
+		FModuleManager::Get().SetPreShutdownModuleCallback([](FName ModuleName) {
+			ReleaseDStructDefaultsForModule(ModuleName);
+			return ReleaseClassDefaultObjectsForModule(ModuleName);
+		});
 		FModuleManager::Get().StartProcessingNewlyLoadedObjects();
 
 		auto& array = GDObjectArray;
@@ -601,6 +604,11 @@ namespace Durin
 			}
 		}
 		Private::FGCReferenceSchemaRegistry::FinalizeAndAssemble(Struct);
+		if (!Private::IsDStructRegistrationBatchActive())
+		{
+			const std::array Batch{Struct};
+			(void)Private::CreateDStructDefaultsForBatch(Batch);
+		}
 		return Struct;
 	}
 } // namespace Durin
