@@ -128,9 +128,11 @@ namespace Durin
 	{
 		if (!InData.Skeleton || !InData.Payload || InData.ClipName.IsNone())
 			return Fail(OutError, "Animation imported data requires a Skeleton, payload, and clip name.");
-		if (InData.SkeletonCompatibilityIdentity != InData.Skeleton->GetCompatibilityIdentity())
+		const DSkeleton* ValidationSkeleton = InData.ValidationSkeleton
+			? InData.ValidationSkeleton : InData.Skeleton;
+		if (InData.SkeletonCompatibilityIdentity != ValidationSkeleton->GetCompatibilityIdentity())
 			return Fail(OutError, "Animation imported data is incompatible with its Skeleton.");
-		if (!ValidateAnimationClipPayload(*InData.Payload, *InData.Skeleton, OutError)) return false;
+		if (!ValidateAnimationClipPayload(*InData.Payload, *ValidationSkeleton, OutError)) return false;
 		uint64 KeyCount = 0;
 		for (const FAnimationTrackData& Track : InData.Payload->Tracks) KeyCount += Track.Times.size();
 
@@ -152,12 +154,19 @@ namespace Durin
 	{
 		if (!Skeleton)
 			return Fail(OutError, "AnimationClip has no Skeleton reference.");
-		if (!Skeleton->Validate(OutError))
+		return ValidateAgainstSkeleton(*Skeleton, OutError);
+	}
+
+	auto DAnimationClip::ValidateAgainstSkeleton(
+		const DSkeleton& ProspectiveSkeleton,
+		std::string& OutError) const -> bool
+	{
+		if (!ProspectiveSkeleton.Validate(OutError))
 		{
 			OutError = std::format("AnimationClip references an invalid Skeleton: {}", OutError);
 			return false;
 		}
-		if (SkeletonCompatibilityIdentity != Skeleton->GetCompatibilityIdentity())
+		if (!Skeleton || SkeletonCompatibilityIdentity != ProspectiveSkeleton.GetCompatibilityIdentity())
 			return Fail(OutError, "AnimationClip compatibility identity does not match its Skeleton.");
 		if (ClipName.IsNone() || !std::isfinite(Summary.DurationSeconds) || Summary.DurationSeconds < 0.0f
 			|| Summary.TrackCount == 0 || Summary.TrackCount > MaximumAnimationClipTracks
@@ -165,7 +174,7 @@ namespace Durin
 			return Fail(OutError, "AnimationClip authored summary or name is invalid.");
 		if (PayloadData)
 		{
-			if (!ValidateAnimationClipPayload(*PayloadData, *Skeleton, OutError)) return false;
+			if (!ValidateAnimationClipPayload(*PayloadData, ProspectiveSkeleton, OutError)) return false;
 			uint64 KeyCount = 0;
 			for (const FAnimationTrackData& Track : PayloadData->Tracks) KeyCount += Track.Times.size();
 			if (PayloadData->DurationSeconds != Summary.DurationSeconds
@@ -188,6 +197,16 @@ namespace Durin
 		DAnimationClip& Candidate,
 		std::string& OutError) -> std::unique_ptr<FAnimationClipImportedStateExchange>
 	{
+		if (!Candidate.GetSkeleton())
+			return Fail(OutError, "Candidate AnimationClip has no Skeleton reference."), nullptr;
+		return PrepareImportedStateExchange(Candidate, *Candidate.GetSkeleton(), OutError);
+	}
+
+	auto DAnimationClip::PrepareImportedStateExchange(
+		DAnimationClip& Candidate,
+		const DSkeleton& ProspectiveSkeleton,
+		std::string& OutError) -> std::unique_ptr<FAnimationClipImportedStateExchange>
+	{
 		if (&Candidate == this)
 			return Fail(OutError, "AnimationClip imported-state exchange requires distinct assets."), nullptr;
 		if (!Validate(OutError))
@@ -195,7 +214,7 @@ namespace Durin
 			OutError = std::format("Target AnimationClip is invalid: {}", OutError);
 			return nullptr;
 		}
-		if (!Candidate.Validate(OutError))
+		if (!Candidate.ValidateAgainstSkeleton(ProspectiveSkeleton, OutError))
 		{
 			OutError = std::format("Candidate AnimationClip is invalid: {}", OutError);
 			return nullptr;

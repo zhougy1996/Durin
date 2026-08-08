@@ -192,7 +192,9 @@ namespace Durin
 	{
 		if (!InData.Skeleton || !InData.Payload)
 			return Fail(&OutError, "Skeletal-mesh imported data requires a Skeleton and payload.");
-		if (InData.SkeletonCompatibilityIdentity != InData.Skeleton->GetCompatibilityIdentity())
+		const DSkeleton* ValidationSkeleton = InData.ValidationSkeleton
+			? InData.ValidationSkeleton : InData.Skeleton;
+		if (InData.SkeletonCompatibilityIdentity != ValidationSkeleton->GetCompatibilityIdentity())
 			return Fail(&OutError, "Skeletal-mesh imported data is incompatible with its Skeleton.");
 		if (!InData.MeshNodeBindTransform.IsValid(&OutError))
 		{
@@ -208,7 +210,7 @@ namespace Durin
 				|| !SourceIndices.insert(Slot.SourceMaterialIndex).second)
 				return Fail(&OutError, "Skeletal-mesh material slots require unique non-None names and source indices.");
 		if (!ValidateSkeletalMeshPayload(
-			*InData.Payload, *InData.Skeleton,
+			*InData.Payload, *ValidationSkeleton,
 			static_cast<uint32>(InData.MaterialSlots.size()), OutError)) return false;
 
 		Skeleton = InData.Skeleton;
@@ -231,12 +233,19 @@ namespace Durin
 	{
 		if (!Skeleton)
 			return Fail(&OutError, "SkeletalMesh has no Skeleton reference.");
-		if (!Skeleton->Validate(OutError))
+		return ValidateAgainstSkeleton(*Skeleton, OutError);
+	}
+
+	auto DSkeletalMesh::ValidateAgainstSkeleton(
+		const DSkeleton& ProspectiveSkeleton,
+		std::string& OutError) const -> bool
+	{
+		if (!ProspectiveSkeleton.Validate(OutError))
 		{
 			OutError = std::format("SkeletalMesh references an invalid Skeleton: {}", OutError);
 			return false;
 		}
-		if (SkeletonCompatibilityIdentity != Skeleton->GetCompatibilityIdentity())
+		if (!Skeleton || SkeletonCompatibilityIdentity != ProspectiveSkeleton.GetCompatibilityIdentity())
 			return Fail(&OutError, "SkeletalMesh compatibility identity does not match its Skeleton.");
 		if (!MeshNodeBindTransform.IsValid(&OutError))
 		{
@@ -259,7 +268,7 @@ namespace Durin
 		if (PayloadData)
 		{
 			if (!ValidateSkeletalMeshPayload(
-				*PayloadData, *Skeleton, static_cast<uint32>(MaterialSlots.size()), OutError)) return false;
+				*PayloadData, ProspectiveSkeleton, static_cast<uint32>(MaterialSlots.size()), OutError)) return false;
 			if (PayloadData->Positions.size() != Summary.VertexCount
 				|| PayloadData->Indices.size() != Summary.IndexCount
 				|| PayloadData->Sections.size() != Summary.SectionCount
@@ -282,6 +291,16 @@ namespace Durin
 		DSkeletalMesh& Candidate,
 		std::string& OutError) -> std::unique_ptr<FSkeletalMeshImportedStateExchange>
 	{
+		if (!Candidate.GetSkeleton())
+			return Fail(&OutError, "Candidate SkeletalMesh has no Skeleton reference."), nullptr;
+		return PrepareImportedStateExchange(Candidate, *Candidate.GetSkeleton(), OutError);
+	}
+
+	auto DSkeletalMesh::PrepareImportedStateExchange(
+		DSkeletalMesh& Candidate,
+		const DSkeleton& ProspectiveSkeleton,
+		std::string& OutError) -> std::unique_ptr<FSkeletalMeshImportedStateExchange>
+	{
 		if (&Candidate == this)
 			return Fail(&OutError, "SkeletalMesh imported-state exchange requires distinct assets."), nullptr;
 		if (!Validate(OutError))
@@ -289,7 +308,7 @@ namespace Durin
 			OutError = std::format("Target SkeletalMesh is invalid: {}", OutError);
 			return nullptr;
 		}
-		if (!Candidate.Validate(OutError))
+		if (!Candidate.ValidateAgainstSkeleton(ProspectiveSkeleton, OutError))
 		{
 			OutError = std::format("Candidate SkeletalMesh is invalid: {}", OutError);
 			return nullptr;

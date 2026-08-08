@@ -143,6 +143,8 @@ namespace Durin
 	struct FSkeletalMeshImportedData
 	{
 		DSkeleton* Skeleton = nullptr;
+		// Optional prospective state for failure-atomic multi-asset publication.
+		DSkeleton* ValidationSkeleton = nullptr;
 		std::string SkeletonCompatibilityIdentity;
 		FSkeletonTransform MeshNodeBindTransform;
 		std::vector<FSkeletalMeshMaterialSlotDefinition> MaterialSlots;
@@ -177,9 +179,16 @@ namespace Durin
 			FSkeletalMeshImportedData InData,
 			std::string& OutError) -> bool;
 		ENGINE_API auto Validate(std::string& OutError) const -> bool;
+		ENGINE_API auto ValidateAgainstSkeleton(
+			const DSkeleton& ProspectiveSkeleton,
+			std::string& OutError) const -> bool;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 		ENGINE_API auto PrepareImportedStateExchange(
 			DSkeletalMesh& Candidate,
+			std::string& OutError) -> std::unique_ptr<FSkeletalMeshImportedStateExchange>;
+		ENGINE_API auto PrepareImportedStateExchange(
+			DSkeletalMesh& Candidate,
+			const DSkeleton& ProspectiveSkeleton,
 			std::string& OutError) -> std::unique_ptr<FSkeletalMeshImportedStateExchange>;
 
 	private:

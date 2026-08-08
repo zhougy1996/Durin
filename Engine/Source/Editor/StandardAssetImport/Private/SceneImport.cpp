@@ -1,5 +1,6 @@
 #include "SceneImport.h"
 
+#include "Animation/AnimationClip.h"
 #include "ImportedScene.h"
 #include "AssetSystem.h"
 #include "ImageDecoder.h"
@@ -10,6 +11,8 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "SceneImportInternal.h"
+#include "SkeletalMesh/SkeletalMesh.h"
+#include "SkeletalMesh/Skeleton.h"
 #include "StandardAssetImportProviders.h"
 #include "StaticMeshImportAdapter.h"
 #include "Texture/Texture2D.h"
@@ -22,6 +25,9 @@ namespace Durin
 
 		enum class ESceneOutputKind : uint8
 		{
+			Skeleton,
+			SkeletalMesh,
+			AnimationClip,
 			StaticMesh,
 			MaterialInstance,
 			Texture2D
@@ -55,6 +61,7 @@ namespace Durin
 			float TextureDerivationScale = 1.0f;
 			FVector3f TextureDerivationColorScale{1.0f};
 			std::vector<FSceneMaterialTextureBinding> TextureBindings;
+			std::string SkeletonIdentity;
 		};
 
 		struct FSceneProviderPlanData
@@ -112,6 +119,51 @@ namespace Durin
 			std::memcpy(&OutValue, Bytes.data() + Offset, sizeof(T));
 			Offset += sizeof(T);
 			return true;
+		}
+
+		auto AppendString(std::vector<uint8>& Bytes, std::string_view Value) -> bool
+		{
+			if (Value.size() > std::numeric_limits<uint32>::max()) return false;
+			AppendValue(Bytes, static_cast<uint32>(Value.size()));
+			Bytes.insert(Bytes.end(), Value.begin(), Value.end());
+			return true;
+		}
+
+		auto MakeSceneProviderState(
+			const FSceneProviderPlanData& Data,
+			std::span<const FImportOutputPreview> PlannedOutputs,
+			FImportRecordPayload& OutState,
+			std::string& OutError) -> bool
+		{
+			constexpr uint32 Magic = 0x53504353;
+			std::vector<uint8> Bytes;
+			AppendValue(Bytes, Magic);
+			AppendValue(Bytes, static_cast<uint32>(1));
+			AppendValue(Bytes, static_cast<uint32>(Data.Scene.Skeletons.size()));
+			AppendValue(Bytes, static_cast<uint32>(Data.Scene.SkeletalMeshes.size()));
+			AppendValue(Bytes, static_cast<uint32>(Data.Scene.AnimationClips.size()));
+			AppendValue(Bytes, static_cast<uint32>(Data.Outputs.size()));
+			for (const FSceneOutputData& Output : Data.Outputs)
+			{
+				const auto Planned = std::ranges::find(
+					PlannedOutputs, Output.StableIdentity,
+					&FImportOutputPreview::StableIdentity);
+				if (Planned == PlannedOutputs.end()
+					|| !AppendString(Bytes, Output.StableIdentity)
+					|| !AppendString(Bytes, Planned->Role)
+					|| !AppendString(Bytes, Planned->AssetPath.ToString())
+					|| !AppendString(Bytes, Planned->AssetClassName)
+					|| !AppendString(Bytes, Output.SkeletonIdentity))
+				{
+					OutError = "Scene provider state contains an invalid output relationship.";
+					return false;
+				}
+				AppendValue(Bytes, Output.Kind);
+				AppendValue(Bytes, Output.SourceIndex);
+			}
+			return MakeImportRecordPayload(
+				"Durin.Scene.ProviderState", 1, Bytes,
+				MaximumImportRecordProviderStateBytes, OutState, OutError);
 		}
 
 		auto MakeSceneSettings(
@@ -516,6 +568,34 @@ namespace Durin
 				const std::string SceneName = SanitizeAssetName(
 					std::filesystem::path(RootSource->SourcePath.Path)
 						.stem().generic_string(), "Scene");
+				std::unordered_set<std::string> SkeletonNames;
+				for (uint32 SkeletonIndex = 0;
+					SkeletonIndex < Data->Scene.Skeletons.size(); ++SkeletonIndex)
+				{
+					if (CheckCanceled()) return false;
+					const Asset::FImportedSkeletonData& Skeleton =
+						Data->Scene.Skeletons[SkeletonIndex];
+					FAssetPath SkeletonPath;
+					if (!MakeSceneOutputPath(Decoded.DestinationDirectory, "Skeletons",
+						MakeUniqueName(Skeleton.SuggestedName,
+							std::format("Skeleton_{}", SkeletonIndex), SkeletonNames),
+						SkeletonPath, Error)) return false;
+					const uint64 AuthoredBytes = Skeleton.Bones.size() * sizeof(FSkeletonBone)
+						+ Skeleton.CompatibilityIdentity.size();
+					Builder.AddOutput({
+						.StableIdentity = Skeleton.StableIdentity,
+						.Role = "Skeleton",
+						.AssetPath = SkeletonPath,
+						.AssetClassName = "Durin::DSkeleton",
+						.Policy = EImportOutputPolicy::Create,
+						.Collision = EImportCollisionAction::Create,
+						.EstimatedCpuBytes = AuthoredBytes,
+						.EstimatedDiskBytes = AuthoredBytes});
+					Data->Outputs.push_back({
+						.StableIdentity = Skeleton.StableIdentity,
+						.Kind = ESceneOutputKind::Skeleton,
+						.SourceIndex = SkeletonIndex});
+				}
 				uint64 MeshBytes = 0;
 				for (const Asset::FImportedMeshData& Mesh : Data->Scene.Meshes)
 				{
@@ -551,6 +631,10 @@ namespace Durin
 				for (const Asset::FImportedMaterialSlot& Slot : Data->Scene.MaterialSlots)
 					if (UsedMaterialIndices.insert(Slot.SourceMaterialIndex).second)
 						MaterialIndices.push_back(Slot.SourceMaterialIndex);
+				for (const Asset::FImportedSkeletalMeshData& Mesh : Data->Scene.SkeletalMeshes)
+					for (const FSkeletalMeshMaterialSlotDefinition& Slot : Mesh.MaterialSlots)
+						if (UsedMaterialIndices.insert(Slot.SourceMaterialIndex).second)
+							MaterialIndices.push_back(Slot.SourceMaterialIndex);
 				std::unordered_map<std::string, uint32> MaterialNameCounts;
 				for (const Asset::FImportedMaterial& Material : Data->Scene.Materials)
 					++MaterialNameCounts[FoldAscii(Material.SourceName)];
@@ -675,6 +759,88 @@ namespace Durin
 						.EstimatedDiskBytes = 4096});
 					Data->Outputs.push_back(std::move(MaterialOutput));
 				}
+
+				std::unordered_set<std::string> SkeletalMeshNames;
+				for (uint32 MeshIndex = 0;
+					MeshIndex < Data->Scene.SkeletalMeshes.size(); ++MeshIndex)
+				{
+					if (CheckCanceled()) return false;
+					const Asset::FImportedSkeletalMeshData& Mesh =
+						Data->Scene.SkeletalMeshes[MeshIndex];
+					if (!Mesh.Payload || Mesh.SkeletonIndex >= Data->Scene.Skeletons.size())
+						return false;
+					const Asset::FImportedSkeletonData& Skeleton =
+						Data->Scene.Skeletons[Mesh.SkeletonIndex];
+					FAssetPath MeshPath;
+					if (!MakeSceneOutputPath(Decoded.DestinationDirectory, "SkeletalMeshes",
+						MakeUniqueName(Mesh.SuggestedName,
+							std::format("SkeletalMesh_{}", MeshIndex), SkeletalMeshNames),
+						MeshPath, Error)) return false;
+					uint64 PayloadBytes = Mesh.Payload->Positions.size() * sizeof(FVector3f)
+						+ Mesh.Payload->Normals.size() * sizeof(FVector3f)
+						+ Mesh.Payload->Tangents.size() * sizeof(FVector4f)
+						+ Mesh.Payload->Colors.size() * sizeof(FVector4f)
+						+ Mesh.Payload->Indices.size() * sizeof(uint32)
+						+ Mesh.Payload->Influences.size() * sizeof(FSkeletalMeshVertexInfluences)
+						+ Mesh.Payload->Sections.size() * sizeof(FSkeletalMeshSection)
+						+ Mesh.Payload->PaletteBoneIndices.size() * sizeof(uint16)
+						+ Mesh.Payload->InverseBindMatrices.size() * sizeof(FMatrix4f);
+					for (const auto& UVs : Mesh.Payload->UVChannels)
+						PayloadBytes += UVs.size() * sizeof(FVector2f);
+					Builder.AddOutput({
+						.StableIdentity = Mesh.StableIdentity,
+						.Role = "SkeletalMesh",
+						.AssetPath = MeshPath,
+						.AssetClassName = "Durin::DSkeletalMesh",
+						.Policy = EImportOutputPolicy::Create,
+						.Collision = EImportCollisionAction::Create,
+						.EstimatedCpuBytes = PayloadBytes,
+						.EstimatedGpuBytes = PayloadBytes,
+						.EstimatedDiskBytes = PayloadBytes});
+					Data->Outputs.push_back({
+						.StableIdentity = Mesh.StableIdentity,
+						.Kind = ESceneOutputKind::SkeletalMesh,
+						.SourceIndex = MeshIndex,
+						.SkeletonIdentity = Skeleton.StableIdentity});
+				}
+
+				std::unordered_set<std::string> AnimationNames;
+				for (uint32 ClipIndex = 0;
+					ClipIndex < Data->Scene.AnimationClips.size(); ++ClipIndex)
+				{
+					if (CheckCanceled()) return false;
+					const Asset::FImportedAnimationClipData& Clip =
+						Data->Scene.AnimationClips[ClipIndex];
+					if (!Clip.Payload || Clip.SkeletonIndex >= Data->Scene.Skeletons.size())
+						return false;
+					const Asset::FImportedSkeletonData& Skeleton =
+						Data->Scene.Skeletons[Clip.SkeletonIndex];
+					FAssetPath ClipPath;
+					if (!MakeSceneOutputPath(Decoded.DestinationDirectory, "Animations",
+						MakeUniqueName(Clip.SuggestedName,
+							std::format("Animation_{}", ClipIndex), AnimationNames),
+						ClipPath, Error)) return false;
+					uint64 PayloadBytes = sizeof(float)
+						+ Clip.Payload->Tracks.size() * sizeof(FAnimationTrackData);
+					for (const FAnimationTrackData& Track : Clip.Payload->Tracks)
+						PayloadBytes += Track.Times.size() * sizeof(float)
+							+ Track.VectorValues.size() * sizeof(FVector3f)
+							+ Track.RotationValues.size() * sizeof(FVector4f);
+					Builder.AddOutput({
+						.StableIdentity = Clip.StableIdentity,
+						.Role = std::format("AnimationClip.{:.6g}s", Clip.Payload->DurationSeconds),
+						.AssetPath = ClipPath,
+						.AssetClassName = "Durin::DAnimationClip",
+						.Policy = EImportOutputPolicy::Create,
+						.Collision = EImportCollisionAction::Create,
+						.EstimatedCpuBytes = PayloadBytes,
+						.EstimatedDiskBytes = PayloadBytes});
+					Data->Outputs.push_back({
+						.StableIdentity = Clip.StableIdentity,
+						.Kind = ESceneOutputKind::AnimationClip,
+						.SourceIndex = ClipIndex,
+						.SkeletonIdentity = Skeleton.StableIdentity});
+				}
 				for (const Asset::FImportDiagnostic& Diagnostic : Data->Scene.Diagnostics)
 				{
 					if (Diagnostic.Severity != Asset::EImportDiagnosticSeverity::Warning) continue;
@@ -720,6 +886,10 @@ namespace Durin
 			FSceneCandidate(DObject* InAsset, bool bInNewAsset)
 				: AssetObject(InAsset), Package(InAsset ? InAsset->GetPackage() : nullptr),
 				  bNewAsset(bInNewAsset) {}
+			auto SetProspectiveSkeleton(DSkeleton* InSkeleton) -> void
+			{
+				ProspectiveSkeleton = InSkeleton;
+			}
 			auto GetAsset() const -> DObject* override { return AssetObject; }
 			auto GetPackage() const -> DPackage* override { return Package; }
 			auto IsNewAsset() const -> bool override { return bNewAsset; }
@@ -736,7 +906,7 @@ namespace Durin
 			}
 			auto Validate(std::vector<FImportDiagnostic>& OutDiagnostics) const -> bool override
 			{
-				const bool bValid = AssetObject && Package
+				bool bValid = AssetObject && Package
 					&& (!AssetObject->IsA<DStaticMesh>()
 						|| Cast<DStaticMesh>(AssetObject)->GetRenderData())
 					&& (!AssetObject->IsA<DTexture2D>()
@@ -745,9 +915,21 @@ namespace Durin
 								== ETextureBuildStatus::Ready))
 					&& (!AssetObject->IsA<DMaterialInstance>()
 						|| Cast<DMaterialInstance>(AssetObject)->GetParent());
+				std::string Error;
+				if (bValid && AssetObject->IsA<DSkeleton>())
+					bValid = Cast<DSkeleton>(AssetObject)->Validate(Error);
+				else if (bValid && AssetObject->IsA<DSkeletalMesh>())
+					bValid = ProspectiveSkeleton
+						&& Cast<DSkeletalMesh>(AssetObject)->ValidateAgainstSkeleton(
+							*ProspectiveSkeleton, Error);
+				else if (bValid && AssetObject->IsA<DAnimationClip>())
+					bValid = ProspectiveSkeleton
+						&& Cast<DAnimationClip>(AssetObject)->ValidateAgainstSkeleton(
+							*ProspectiveSkeleton, Error);
 				if (!bValid) AddDiagnostic(OutDiagnostics,
 					EImportDiagnosticCategory::ValidationFailure,
-					"candidate-validation", "Scene output candidate is incomplete.");
+					"candidate-validation", Error.empty()
+						? "Scene output candidate is incomplete." : Error);
 				return bValid;
 			}
 			auto Abandon() noexcept -> void override
@@ -760,6 +942,7 @@ namespace Durin
 		private:
 			DObject* AssetObject = nullptr;
 			DPackage* Package = nullptr;
+			DSkeleton* ProspectiveSkeleton = nullptr;
 			bool bNewAsset = false;
 		};
 
@@ -785,19 +968,25 @@ namespace Durin
 			bool bCommitted = false;
 		};
 
-		class FStaticMeshExchange final : public IPreparedImportedStateExchange
+		template<typename TExchange>
+		class TPreparedSceneExchange final : public IPreparedImportedStateExchange
 		{
 		public:
-			explicit FStaticMeshExchange(
-				std::unique_ptr<FStaticMeshImportedStateExchange> InExchange)
+			explicit TPreparedSceneExchange(
+				std::unique_ptr<TExchange> InExchange)
 				: Exchange(std::move(InExchange)) {}
 			auto Commit() noexcept -> void override { Exchange->Commit(); }
 			auto Reverse() noexcept -> void override { Exchange->Reverse(); }
 			auto Finalize() noexcept -> void override { Exchange->Finalize(); }
 
 		private:
-			std::unique_ptr<FStaticMeshImportedStateExchange> Exchange;
+			std::unique_ptr<TExchange> Exchange;
 		};
+
+		using FStaticMeshExchange = TPreparedSceneExchange<FStaticMeshImportedStateExchange>;
+		using FSkeletonExchange = TPreparedSceneExchange<FSkeletonImportedStateExchange>;
+		using FSkeletalMeshExchange = TPreparedSceneExchange<FSkeletalMeshImportedStateExchange>;
+		using FAnimationClipExchange = TPreparedSceneExchange<FAnimationClipImportedStateExchange>;
 
 		auto FindSnapshotImageBytes(
 			const FSourceSnapshot& Snapshot,
@@ -972,6 +1161,12 @@ namespace Durin
 			DClass* Class = nullptr;
 			if (Entry.AssetClassName == DStaticMesh::StaticClass()->GetQualifiedName().ToString())
 				Class = DStaticMesh::StaticClass();
+			else if (Entry.AssetClassName == DSkeleton::StaticClass()->GetQualifiedName().ToString())
+				Class = DSkeleton::StaticClass();
+			else if (Entry.AssetClassName == DSkeletalMesh::StaticClass()->GetQualifiedName().ToString())
+				Class = DSkeletalMesh::StaticClass();
+			else if (Entry.AssetClassName == DAnimationClip::StaticClass()->GetQualifiedName().ToString())
+				Class = DAnimationClip::StaticClass();
 			else if (Entry.AssetClassName == DMaterialInstance::StaticClass()->GetQualifiedName().ToString())
 				Class = DMaterialInstance::StaticClass();
 			else if (Entry.AssetClassName == DTexture2D::StaticClass()->GetQualifiedName().ToString())
@@ -985,6 +1180,24 @@ namespace Durin
 			if (Class == DStaticMesh::StaticClass())
 			{
 				DStaticMesh* AssetObject = nullptr;
+				Create = Asset::CreateAsset(CandidatePath, AssetObject);
+				OutCandidate = AssetObject;
+			}
+			else if (Class == DSkeleton::StaticClass())
+			{
+				DSkeleton* AssetObject = nullptr;
+				Create = Asset::CreateAsset(CandidatePath, AssetObject);
+				OutCandidate = AssetObject;
+			}
+			else if (Class == DSkeletalMesh::StaticClass())
+			{
+				DSkeletalMesh* AssetObject = nullptr;
+				Create = Asset::CreateAsset(CandidatePath, AssetObject);
+				OutCandidate = AssetObject;
+			}
+			else if (Class == DAnimationClip::StaticClass())
+			{
+				DAnimationClip* AssetObject = nullptr;
 				Create = Asset::CreateAsset(CandidatePath, AssetObject);
 				OutCandidate = AssetObject;
 			}
@@ -1127,9 +1340,11 @@ namespace Durin
 			if (!MakeSceneOutputPath(Request.DestinationDirectory, {}, RecordName,
 				RecordPath, Result.Message)) return Result;
 		}
+		const auto Data = std::static_pointer_cast<const FSceneProviderPlanData>(
+			Generic.Plan.GetProviderData());
 		FImportRecordPayload ProviderState;
-		if (!MakeImportRecordPayload("Durin.Scene.ProviderState", 1, {},
-			MaximumImportRecordProviderStateBytes, ProviderState, Result.Message)) return Result;
+		if (!Data || !MakeSceneProviderState(
+			*Data, Generic.Plan.GetOutputs(), ProviderState, Result.Message)) return Result;
 		FMultiOutputPlanResult Multi = CreateMultiOutputImportPlan({
 			.GenericPlan = std::move(Generic.Plan),
 			.RecordPath = RecordPath,
@@ -1145,10 +1360,10 @@ namespace Durin
 			Result.Diagnostics = std::move(Multi.Diagnostics);
 			return Result;
 		}
-		const auto Data = std::static_pointer_cast<const FSceneProviderPlanData>(
+		const auto FinalData = std::static_pointer_cast<const FSceneProviderPlanData>(
 			Multi.Plan.GetGenericPlan().GetProviderData());
 		Result.Plan.MultiOutputPlan = std::move(Multi.Plan);
-		if (Data) Result.Plan.Warnings = Data->Warnings;
+		if (FinalData) Result.Plan.Warnings = FinalData->Warnings;
 		Result.Diagnostics.assign(
 			Result.Plan.MultiOutputPlan.GetGenericPlan().GetDiagnostics().begin(),
 			Result.Plan.MultiOutputPlan.GetGenericPlan().GetDiagnostics().end());
@@ -1347,6 +1562,7 @@ namespace Durin
 			EImportProgressState::Started);
 		std::vector<FMountedSourceFile> EmbeddedSources;
 		std::unordered_map<std::string, DObject*> PublishedObjects;
+		std::unordered_map<std::string, DObject*> ProspectiveObjects;
 		auto FailPrepared = [&](std::string Message) -> FSceneImportExecutionResult {
 			for (auto It = EmbeddedSources.rbegin(); It != EmbeddedSources.rend(); ++It)
 				RollbackMountedSourceFile(*It);
@@ -1382,6 +1598,7 @@ namespace Durin
 					Load ? "Referenced Scene output is unavailable." : Load.Message);
 			}
 			PublishedObjects.emplace(Entry.StableIdentity, Referenced);
+			ProspectiveObjects.emplace(Entry.StableIdentity, Referenced);
 		}
 		for (const FMultiOutputReconciliation& Entry
 			: Plan.MultiOutputPlan.GetReconciliation())
@@ -1409,6 +1626,7 @@ namespace Durin
 				}
 			}
 			PublishedObjects.emplace(Entry.StableIdentity, bNew ? Candidate : Target);
+			ProspectiveObjects.emplace(Entry.StableIdentity, Candidate);
 			Prepared.Outputs.push_back(std::move(Output));
 		}
 
@@ -1417,6 +1635,31 @@ namespace Durin
 				Prepared.Outputs, Identity, &FPreparedMultiOutput::StableIdentity);
 			return It == Prepared.Outputs.end() ? nullptr : &*It;
 		};
+		for (const auto& [Identity, Descriptor] : OutputData)
+		{
+			if (IsCanceled()) return FailCanceled();
+			if (Descriptor->Kind != ESceneOutputKind::Skeleton) continue;
+			FPreparedMultiOutput* Output = FindPrepared(Identity);
+			if (!Output) continue;
+			if (Descriptor->SourceIndex >= Data->Scene.Skeletons.size())
+				return FailPrepared("Scene Skeleton candidate mapping is invalid.");
+			auto* Skeleton = Cast<DSkeleton>(Output->Candidate->GetAsset());
+			const Asset::FImportedSkeletonData& Imported =
+				Data->Scene.Skeletons[Descriptor->SourceIndex];
+			if (!Skeleton || !Skeleton->InitializeCanonicalBones(Imported.Bones, Error)
+				|| Skeleton->GetCompatibilityIdentity() != Imported.CompatibilityIdentity)
+			{
+				return FailPrepared(Error.empty()
+					? "Scene Skeleton candidate failed." : std::move(Error));
+			}
+			if (Output->ExistingTarget)
+			{
+				auto Exchange = Cast<DSkeleton>(Output->ExistingTarget)
+					->PrepareImportedStateExchange(*Skeleton, Error);
+				if (!Exchange) return FailPrepared(std::move(Error));
+				Output->Exchange = std::make_unique<FSkeletonExchange>(std::move(Exchange));
+			}
+		}
 		for (const auto& [Identity, Descriptor] : OutputData)
 		{
 			if (IsCanceled()) return FailCanceled();
@@ -1592,6 +1835,111 @@ namespace Durin
 					*Cast<DMaterialInstance>(Output->ExistingTarget), *Material);
 		}
 
+		auto FindMaterial = [&](uint32 SourceMaterialIndex) -> DMaterialInterface* {
+			for (const FSceneOutputData& Descriptor : Data->Outputs)
+			{
+				if (Descriptor.Kind != ESceneOutputKind::MaterialInstance
+					|| Descriptor.SourceIndex != SourceMaterialIndex) continue;
+				const auto Object = PublishedObjects.find(Descriptor.StableIdentity);
+				return Object == PublishedObjects.end()
+					? nullptr : Cast<DMaterialInterface>(Object->second);
+			}
+			return nullptr;
+		};
+		for (const auto& [Identity, Descriptor] : OutputData)
+		{
+			if (IsCanceled()) return FailCanceled();
+			if (Descriptor->Kind != ESceneOutputKind::SkeletalMesh) continue;
+			FPreparedMultiOutput* Output = FindPrepared(Identity);
+			if (!Output) continue;
+			if (Descriptor->SourceIndex >= Data->Scene.SkeletalMeshes.size())
+				return FailPrepared("Scene SkeletalMesh candidate mapping is invalid.");
+			const auto FinalSkeletonObject = PublishedObjects.find(Descriptor->SkeletonIdentity);
+			const auto ProspectiveSkeletonObject = ProspectiveObjects.find(Descriptor->SkeletonIdentity);
+			auto* FinalSkeleton = FinalSkeletonObject == PublishedObjects.end()
+				? nullptr : Cast<DSkeleton>(FinalSkeletonObject->second);
+			auto* ProspectiveSkeleton = ProspectiveSkeletonObject == ProspectiveObjects.end()
+				? nullptr : Cast<DSkeleton>(ProspectiveSkeletonObject->second);
+			auto* Mesh = Cast<DSkeletalMesh>(Output->Candidate->GetAsset());
+			const Asset::FImportedSkeletalMeshData& Imported =
+				Data->Scene.SkeletalMeshes[Descriptor->SourceIndex];
+			if (!FinalSkeleton || !ProspectiveSkeleton || !Mesh
+				|| Imported.SkeletonIndex >= Data->Scene.Skeletons.size())
+				return FailPrepared("Scene SkeletalMesh Skeleton relationship is invalid.");
+			std::vector<FSkeletalMeshMaterialSlotDefinition> MaterialSlots = Imported.MaterialSlots;
+			for (FSkeletalMeshMaterialSlotDefinition& Slot : MaterialSlots)
+			{
+				Slot.DefaultMaterial = FindMaterial(Slot.SourceMaterialIndex);
+				if (!Slot.DefaultMaterial)
+					return FailPrepared("Scene SkeletalMesh material relationship is invalid.");
+			}
+			const Asset::FImportedSkeletonData& ImportedSkeleton =
+				Data->Scene.Skeletons[Imported.SkeletonIndex];
+			if (!Mesh->InitializeFromImportedData({
+					.Skeleton = FinalSkeleton,
+					.ValidationSkeleton = ProspectiveSkeleton,
+					.SkeletonCompatibilityIdentity = ImportedSkeleton.CompatibilityIdentity,
+					.MeshNodeBindTransform = Imported.MeshNodeBindTransform,
+					.MaterialSlots = std::move(MaterialSlots),
+					.Payload = Imported.Payload}, Error))
+			{
+				return FailPrepared(Error.empty()
+					? "Scene SkeletalMesh candidate failed." : std::move(Error));
+			}
+			static_cast<FSceneCandidate*>(Output->Candidate.get())
+				->SetProspectiveSkeleton(ProspectiveSkeleton);
+			if (Output->ExistingTarget)
+			{
+				auto Exchange = Cast<DSkeletalMesh>(Output->ExistingTarget)
+					->PrepareImportedStateExchange(*Mesh, *ProspectiveSkeleton, Error);
+				if (!Exchange) return FailPrepared(std::move(Error));
+				Output->Exchange = std::make_unique<FSkeletalMeshExchange>(std::move(Exchange));
+			}
+		}
+
+		for (const auto& [Identity, Descriptor] : OutputData)
+		{
+			if (IsCanceled()) return FailCanceled();
+			if (Descriptor->Kind != ESceneOutputKind::AnimationClip) continue;
+			FPreparedMultiOutput* Output = FindPrepared(Identity);
+			if (!Output) continue;
+			if (Descriptor->SourceIndex >= Data->Scene.AnimationClips.size())
+				return FailPrepared("Scene AnimationClip candidate mapping is invalid.");
+			const auto FinalSkeletonObject = PublishedObjects.find(Descriptor->SkeletonIdentity);
+			const auto ProspectiveSkeletonObject = ProspectiveObjects.find(Descriptor->SkeletonIdentity);
+			auto* FinalSkeleton = FinalSkeletonObject == PublishedObjects.end()
+				? nullptr : Cast<DSkeleton>(FinalSkeletonObject->second);
+			auto* ProspectiveSkeleton = ProspectiveSkeletonObject == ProspectiveObjects.end()
+				? nullptr : Cast<DSkeleton>(ProspectiveSkeletonObject->second);
+			auto* Clip = Cast<DAnimationClip>(Output->Candidate->GetAsset());
+			const Asset::FImportedAnimationClipData& Imported =
+				Data->Scene.AnimationClips[Descriptor->SourceIndex];
+			if (!FinalSkeleton || !ProspectiveSkeleton || !Clip
+				|| Imported.SkeletonIndex >= Data->Scene.Skeletons.size())
+				return FailPrepared("Scene AnimationClip Skeleton relationship is invalid.");
+			const Asset::FImportedSkeletonData& ImportedSkeleton =
+				Data->Scene.Skeletons[Imported.SkeletonIndex];
+			if (!Clip->InitializeFromImportedData({
+					.Skeleton = FinalSkeleton,
+					.ValidationSkeleton = ProspectiveSkeleton,
+					.SkeletonCompatibilityIdentity = ImportedSkeleton.CompatibilityIdentity,
+					.ClipName = FName(Imported.SuggestedName),
+					.Payload = Imported.Payload}, Error))
+			{
+				return FailPrepared(Error.empty()
+					? "Scene AnimationClip candidate failed." : std::move(Error));
+			}
+			static_cast<FSceneCandidate*>(Output->Candidate.get())
+				->SetProspectiveSkeleton(ProspectiveSkeleton);
+			if (Output->ExistingTarget)
+			{
+				auto Exchange = Cast<DAnimationClip>(Output->ExistingTarget)
+					->PrepareImportedStateExchange(*Clip, *ProspectiveSkeleton, Error);
+				if (!Exchange) return FailPrepared(std::move(Error));
+				Output->Exchange = std::make_unique<FAnimationClipExchange>(std::move(Exchange));
+			}
+		}
+
 		const FSceneOutputData* MeshDescriptor = nullptr;
 		for (const FSceneOutputData& Descriptor : Data->Outputs)
 			if (Descriptor.Kind == ESceneOutputKind::StaticMesh) MeshDescriptor = &Descriptor;
@@ -1663,6 +2011,11 @@ namespace Durin
 		for (DObject* Output : Executed.Outputs)
 		{
 			if (auto* Mesh = Cast<DStaticMesh>(Output)) Result.Meshes.push_back(Mesh);
+			else if (auto* Skeleton = Cast<DSkeleton>(Output)) Result.Skeletons.push_back(Skeleton);
+			else if (auto* SkeletalMesh = Cast<DSkeletalMesh>(Output))
+				Result.SkeletalMeshes.push_back(SkeletalMesh);
+			else if (auto* Clip = Cast<DAnimationClip>(Output))
+				Result.AnimationClips.push_back(Clip);
 			else if (auto* Material = Cast<DMaterialInstance>(Output))
 				Result.Materials.push_back(Material);
 			else if (auto* Texture = Cast<DTexture2D>(Output))

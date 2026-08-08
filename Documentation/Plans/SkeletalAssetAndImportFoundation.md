@@ -559,26 +559,26 @@ record model.
 
 Dependencies: Stage 1 asset exchange and Stage 2 normalized source values.
 
-- [ ] Extend Scene planning with stable skeletal output identities, selected
+- [x] Extend Scene planning with stable skeletal output identities, selected
   type directories, asset classes, create/replace/collision policy,
   relationships, resource estimates, and typed immutable provider state.
-- [ ] Construct detached Skeleton, SkeletalMesh, and AnimationClip candidates
+- [x] Construct detached Skeleton, SkeletalMesh, and AnimationClip candidates
   in dependency order without loading or mutating the destination packages.
-- [ ] Resolve material/texture outputs through existing Scene relationships and
+- [x] Resolve material/texture outputs through existing Scene relationships and
   make every SkeletalMesh/AnimationClip reference its candidate or existing
   compatible Skeleton by exact managed identity.
-- [ ] Validate the complete candidate graph, structural compatibility,
+- [x] Validate the complete candidate graph, structural compatibility,
   destination revisions, occupied paths, and management preconditions before
   publication.
-- [ ] Integrate typed prepared state exchange, root-last bundle publication,
+- [x] Integrate typed prepared state exchange, root-last bundle publication,
   record fingerprints, stable provider state, and record-index updates without
   designating a primary output.
-- [ ] Reconcile create, replace, unchanged, removed/orphaned, relocated, and
+- [x] Reconcile create, replace, unchanged, removed/orphaned, relocated, and
   occupied outputs deterministically. Never silently delete or adopt an output.
-- [ ] Extend preview and diagnostics with skeletal counts, clip durations,
+- [x] Extend preview and diagnostics with skeletal counts, clip durations,
   influence normalization, unsupported features, estimated authored/payload sizes,
   relationships, collisions, missing outputs, and orphans.
-- [ ] Add import/reimport determinism, stale-plan, collision, rollback,
+- [x] Add import/reimport determinism, stale-plan, collision, rollback,
   relocation, cancellation, provider-unload, project-switch, and editor-shutdown
   tests for skeletal output graphs.
 
@@ -597,6 +597,44 @@ Dependencies: Stage 1 asset exchange and Stage 2 normalized source values.
   their accepted output identities and behavior.
 - The stage handoff records baseline commit, working set, symbols, decisions,
   open questions, and validation outcome.
+
+#### Stage 3 Handoff
+
+- Baseline commit: `b2a6cf8e9bf5496685a9bc25532fb7ed35a44c40`.
+- Working set: `SceneImport.cpp/.h` and
+  `StandardAssetImportProviders.cpp`; the Runtime SkeletalMesh and
+  AnimationClip imported-state validation/exchange seams; the glTF influence
+  final-float canonicalization fix; `SceneImportTests.cpp` and
+  `SkeletalAssetTests.cpp`.
+- Key symbols: `ESceneOutputKind`, `FSceneOutputData::SkeletonIdentity`,
+  `MakeSceneProviderState`, `FSceneCandidate::SetProspectiveSkeleton`,
+  `DSkeletalMesh::ValidateAgainstSkeleton`,
+  `DAnimationClip::ValidateAgainstSkeleton`, and their prospective-Skeleton
+  `PrepareImportedStateExchange` overloads.
+- Decisions: Skeleton outputs are planned first, followed by the existing
+  StaticMesh/material/texture graph, then SkeletalMesh and AnimationClip
+  dependents. Candidate dependents store the final managed Skeleton pointer but
+  validate against its detached prospective state; publication commits in
+  dependency order and reverses in the executor's existing reverse order.
+  The typed version-1 provider state records every stable identity, role, path,
+  class, kind, source index, and Skeleton relationship. Provider-neutral action
+  results are reconstructed in import-record output order and no primary output
+  is selected.
+- The Stage 2 decoder's normalized floating-point residual could disturb exact
+  equal-weight ordering after conversion to `float`. Final stored influences
+  are now re-sorted by weight descending and bone index ascending; frozen source
+  values and diagnostics remain unchanged.
+- Open questions for Stage 4: none block implementation. Authored payloads are
+  intentionally still immediate shared CPU data with empty cooked descriptors;
+  Stage 4 owns deterministic codecs, DDC identities, cooked companions, and
+  runtime-only loading.
+- Validation: `TextureTests` passed 66/66, including skeletal graph preview,
+  hard references, provider-neutral output order, unchanged reimport,
+  synchronous/asynchronous equivalence, stale collision zero-publication, and
+  root-last byte restoration. `SkeletalAssetTests` passed 7/7, including
+  prospective dependency exchange commit/reverse. `AssetImportTests` passed
+  16/16, `AssetImportCoreTests` passed 24/24, and `StaticMeshTests` passed
+  49/49. `git diff --check` passed.
 
 ### Stage 4: Add derived data, cook, and runtime payload loading
 

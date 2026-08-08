@@ -720,6 +720,18 @@ namespace Durin::Asset::Private
 				Out.Weights[0] += Residual;
 				if (!std::isfinite(Out.Weights[0]) || Out.Weights[0] <= 0.0f)
 					return Malformed(std::string(Subject), "Vertex influence normalization produced an invalid weight.");
+				std::array<std::pair<uint16, float>, MaximumSkeletalMeshInfluences> Canonical{};
+				for (uint8 Index = 0; Index < Out.Count; ++Index)
+					Canonical[Index] = {Out.BoneIndices[Index], Out.Weights[Index]};
+				std::ranges::sort(Canonical.begin(), Canonical.begin() + Out.Count,
+					[](const auto& A, const auto& B) {
+						return A.second != B.second ? A.second > B.second : A.first < B.first;
+					});
+				for (uint8 Index = 0; Index < Out.Count; ++Index)
+				{
+					Out.BoneIndices[Index] = Canonical[Index].first;
+					Out.Weights[Index] = Canonical[Index].second;
+				}
 				return true;
 			}
 

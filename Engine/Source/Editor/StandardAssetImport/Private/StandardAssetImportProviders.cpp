@@ -1,5 +1,6 @@
 #include "StandardAssetImportProviders.h"
 
+#include "Animation/AnimationClip.h"
 #include "ImportedScene.h"
 #include "AssetImportCore.h"
 #include "AssetSystem.h"
@@ -8,6 +9,8 @@
 #include "SceneImport.h"
 #include "SceneImportInternal.h"
 #include "AsyncImport.h"
+#include "SkeletalMesh/SkeletalMesh.h"
+#include "SkeletalMesh/Skeleton.h"
 #include "StaticMeshImportAdapter.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
@@ -682,12 +685,23 @@ namespace Durin
 				Result.Orphans = std::move(Executed.OrphanedAssets);
 				Result.Diagnostics = std::move(Executed.Diagnostics);
 				Result.Provider = std::move(Executed.Provider);
-				for (DStaticMesh* Mesh : Executed.Meshes)
-					Result.Outputs.push_back(Mesh);
-				for (DMaterialInstance* Material : Executed.Materials)
-					Result.Outputs.push_back(Material);
-				for (DTexture2D* Texture : Executed.Textures)
-					Result.Outputs.push_back(Texture);
+				std::unordered_map<std::string, DObject*> OutputByPath;
+				auto IndexOutput = [&](DObject* Output) {
+					if (Output && Output->GetPackage())
+						OutputByPath.emplace(Output->GetPackage()->GetPackagePath(), Output);
+				};
+				for (DStaticMesh* Mesh : Executed.Meshes) IndexOutput(Mesh);
+				for (DSkeleton* Skeleton : Executed.Skeletons) IndexOutput(Skeleton);
+				for (DSkeletalMesh* Mesh : Executed.SkeletalMeshes) IndexOutput(Mesh);
+				for (DAnimationClip* Clip : Executed.AnimationClips) IndexOutput(Clip);
+				for (DMaterialInstance* Material : Executed.Materials) IndexOutput(Material);
+				for (DTexture2D* Texture : Executed.Textures) IndexOutput(Texture);
+				if (Result.Record)
+					for (const FImportRecordOutput& Output : Result.Record->GetOutputs())
+					{
+						const auto Found = OutputByPath.find(Output.AssetPath.ToString());
+						if (Found != OutputByPath.end()) Result.Outputs.push_back(Found->second);
+					}
 				return Result;
 			}
 		};

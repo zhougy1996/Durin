@@ -12,9 +12,12 @@ namespace Durin
 	class DMaterial;
 	class DMaterialInstance;
 	class DTexture2D;
+	class DSkeleton;
+	class DSkeletalMesh;
+	class DAnimationClip;
 
 	inline constexpr std::string_view SceneImportProviderId = "Durin.Scene";
-	inline constexpr uint32 SceneImportProviderContractVersion = 2;
+	inline constexpr uint32 SceneImportProviderContractVersion = 3;
 	inline constexpr std::string_view StandardImportedSurfaceMaterialPath =
 		"/Engine/Materials/ImportedSurface";
 
@@ -76,6 +79,9 @@ namespace Durin
 		std::string Message;
 		AssetImport::DImportRecord* Record = nullptr;
 		std::vector<DStaticMesh*> Meshes;
+		std::vector<DSkeleton*> Skeletons;
+		std::vector<DSkeletalMesh*> SkeletalMeshes;
+		std::vector<DAnimationClip*> AnimationClips;
 		std::vector<DMaterialInstance*> Materials;
 		std::vector<DTexture2D*> Textures;
 		std::vector<FAssetPath> OrphanedAssets;
