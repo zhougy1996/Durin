@@ -9,13 +9,13 @@ Completed:
 
 ## Current Status
 
-Stage 0 is complete on baseline `c3c09c13`. `AssetPackageVersionPolicy.h` now
-owns the DAST magic, v3/v4 format identities, supported-reader set, reader
-selection, latest writer, ordinary-save writer, and explicit-migration writer.
-All former production `AssetVersion` decisions use the named policy while
-retaining v3-only ordinary behavior. The frozen v4 writer and bounded header,
-logical, live, compatibility, and reference readers remain behind explicit
-low-level entries; Stage 1 must connect those entries to read-only dispatch.
+Stage 1 is complete on baseline `8f5524c0`. Header, inspection, compatibility,
+registry, and reference scans now select the bounded v3 or v4 reader from the
+central supported-reader policy. Registry and reference cache headers encode
+the reader-policy fingerprint, while each package/reference fingerprint records
+the selected reader version before incremental reuse. Mixed v3/v4 full and
+incremental scans remain construct-free and deterministic. Ordinary saves and
+live loading remain v3-only; Stage 2 activates transactional mixed live loading.
 
 ## Goal
 
@@ -113,16 +113,42 @@ version across discovery, loading, compatibility, registry, and saving.
 
 ### Stage 1: Activate read-only v3/v4 dispatch
 
-- [ ] Route header, inspection, compatibility, and reference operations through
+- [x] Route header, inspection, compatibility, and reference operations through
   supported-reader dispatch.
-- [ ] Version registry/cache fingerprints and qualify incremental mixed scans.
-- [ ] Preserve construct-free behavior, freshness, findings, costs, and exact
+- [x] Version registry/cache fingerprints and qualify incremental mixed scans.
+- [x] Preserve construct-free behavior, freshness, findings, costs, and exact
   retained data across equivalent v3/v4 content.
 
 #### Acceptance Gate
 
 - Mixed corpora scan and inspect deterministically without construction,
   callbacks, writes, registry drift, or stale cache reuse.
+
+#### Stage 1 Handoff
+
+- Baseline: `8f5524c0` (`feat(asset): define mixed-version package policy`).
+- Working set: `AssetSystem.h`, `AssetSystem.cpp`, `AssetCompatibility.cpp`,
+  `AssetPackageV4Reader.cpp`, `AssetPackageVersionPolicy.h`, and mixed package
+  tests. No authored `.dasset` files changed.
+- Key symbols and decisions: `ReadAssetPackageHeader`,
+  `InspectAssetPackageBytes`, and `ProbeAssetPackageCompatibility` dispatch via
+  `SelectAssetPackageReader`; v4 failures are corrupt supported input rather
+  than unsupported format. `AssetPackageReaderPolicyFingerprint` invalidates
+  persisted registry/reference snapshots when the supported-reader contract
+  changes. `FAssetPackageFingerprint::ReaderVersion` qualifies each source and
+  must match `FAssetData::FormatVersion` before reference-cache reuse.
+- Read-only guarantees: v4 header and inspection use the bounded frozen reader;
+  compatibility preserves physical identity, content/report hashes, freshness,
+  findings, and reader cost statistics; reference projection consumes the
+  construct-free v4 inspection payload. Full scans publish only their final
+  registry/reference projections, and incremental scans reuse both v3 and v4
+  sources without payload reads or revision drift.
+- Open questions: none for Stage 2. Mixed live loading must reuse the v4 live
+  reader's owned graph without publishing it until the root dependency
+  transaction succeeds.
+- Validation: focused mixed dispatch, malformed header, and compatibility tests
+  passed; `AssetPackageTests` passed all 123 tests. Existing v4 retained-closure,
+  bounded-cost, reference, and no-publication tests remain green.
 
 ### Stage 2: Activate transactional mixed-version live loading
 

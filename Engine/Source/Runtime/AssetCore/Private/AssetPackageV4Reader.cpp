@@ -998,7 +998,8 @@ namespace Durin::Asset::DastV4
 					return Fail(Diagnostic, EReaderFailure::InvalidHeader, "Dependency path is invalid.");
 				Inspection.Header.Dependencies.push_back(std::move(Path));
 			}
-			Inspection.Fingerprint = {.FileSize = Bytes.size(), .ContentHash = FXxHash128::HashBuffer(Bytes)};
+			Inspection.Fingerprint = {.FileSize = Bytes.size(),
+				.ContentHash = FXxHash128::HashBuffer(Bytes), .ReaderVersion = Version};
 			for (size_t ObjectIndex = 0; ObjectIndex < Package.Objects.size(); ++ObjectIndex)
 			{
 				const FDecodedObject& Object = Package.Objects[ObjectIndex];
@@ -1631,7 +1632,7 @@ namespace Durin::Asset::DastV4
 			return {EAssetError::CorruptFile, Diagnostic.Message};
 		}
 		const FAssetPackageFingerprint Fingerprint{.FileSize = Bytes.size(),
-			.ContentHash = FXxHash128::HashBuffer(Bytes)};
+			.ContentHash = FXxHash128::HashBuffer(Bytes), .ReaderVersion = Version};
 		std::vector<FAssetReferenceEdge> References;
 		if (Package.Header.EntryKind == EAssetRegistryEntryKind::Redirector)
 		{
@@ -1681,7 +1682,8 @@ namespace Durin::Asset::DastV4
 		}
 		FAssetPackageCompatibilityRecord Record{
 			.PackagePath = PackagePath,
-			.Fingerprint = {.FileSize = Bytes.size(), .ContentHash = FXxHash128::HashBuffer(Bytes)},
+			.Fingerprint = {.FileSize = Bytes.size(), .ContentHash = FXxHash128::HashBuffer(Bytes),
+				.ReaderVersion = Version},
 			.FormatVersion = Version,
 			.Inspection = EAssetCompatibilityInspection::Ready,
 			.Compatibility = EAssetPackageCompatibility::Compatible,

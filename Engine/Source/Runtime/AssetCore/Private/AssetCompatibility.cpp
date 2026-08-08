@@ -1,10 +1,12 @@
 #include "AssetCompatibility.h"
+#include "AssetPackageV4Reader.h"
 #include "AssetPackageVersionPolicy.h"
 
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Hash/XxHash.h"
 #include "Misc/DerivedDataCache.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 
 namespace Durin::Asset
@@ -162,6 +164,13 @@ namespace Durin::Asset
 				.FileSize = FinalSize,
 				.LastWriteTimeTicks = FinalTicks,
 				.ContentHash = Builder.Finalize()};
+			std::ifstream HeaderStream(Path, std::ios::binary);
+			uint32 Magic = 0;
+			uint32 Version = 0;
+			if (HeaderStream.read(reinterpret_cast<char*>(&Magic), sizeof(Magic))
+				&& HeaderStream.read(reinterpret_cast<char*>(&Version), sizeof(Version))
+				&& Magic == DastPackageMagic)
+				OutFingerprint.ReaderVersion = Version;
 			OutReportContentHash = Sha256.Finalize();
 			return EAssetPackageSnapshotStatus::Completed;
 		}
@@ -553,17 +562,50 @@ namespace Durin::Asset
 		}
 		Record.Fingerprint.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(InitialTime);
 		Record.Fingerprint.ContentHash = Input.ExpectedContentHash;
+		bool bUsedV4Reader = false;
 		Record.ReportContentHash = Input.ExpectedReportContentHash;
 
 		uint32 Magic = 0, Version = 0;
 		if (!Reader.Read(Magic) || !Reader.Read(Version) || Magic != DastPackageMagic)
 			AddTerminalFailure(Record, EAssetCompatibilityFindingCode::CorruptPackage, "Invalid or truncated asset package header.");
-		else if (Version != AssetPackageV3FormatVersion)
+		else if (SelectAssetPackageReader(Version) == EAssetPackageReaderKind::Unsupported)
 			AddTerminalFailure(Record, EAssetCompatibilityFindingCode::UnsupportedPackageFormat,
 				std::format("Unsupported asset package format version {}.", Version));
+		else if (SelectAssetPackageReader(Version) == EAssetPackageReaderKind::DastV4)
+		{
+			bUsedV4Reader = true;
+			std::vector<uint8> Bytes;
+			if (!FFileHelper::LoadFileToArray(Bytes, Input.PhysicalPath))
+				AddTerminalFailure(Record, EAssetCompatibilityFindingCode::IoFailure,
+					std::format("Failed to open asset package {}.", Input.PhysicalPath));
+			else if (IsCancelled())
+			{
+				Result.Status = EAssetCompatibilityProbeStatus::Cancelled;
+				return Result;
+			}
+			else
+			{
+				FAssetPackageCompatibilityRecord V4Record;
+				DastV4::FReaderDiagnostic Diagnostic;
+				FAssetResult ProbeResult = DastV4::ProbeCompatibility(
+					Bytes, Input.PackagePath, Catalog, V4Record, &Result.Stats, {}, &Diagnostic);
+				if (!ProbeResult)
+					AddTerminalFailure(Record, EAssetCompatibilityFindingCode::CorruptPackage,
+						ProbeResult.Message);
+				else
+				{
+					V4Record.PhysicalPath = Input.PhysicalPath;
+					V4Record.Fingerprint.LastWriteTimeTicks = Record.Fingerprint.LastWriteTimeTicks;
+					V4Record.Fingerprint.ReaderVersion = Version;
+					V4Record.ReportContentHash = Input.ExpectedReportContentHash;
+					Record = std::move(V4Record);
+				}
+			}
+		}
 		else
 		{
 			Record.FormatVersion = Version;
+			Record.Fingerprint.ReaderVersion = Version;
 			std::string AssetClass;
 			uint8 EntryKind = 0;
 			std::string RedirectDestination;
@@ -668,8 +710,11 @@ namespace Durin::Asset
 			}
 		}
 
-		Result.Stats.MetadataBytesRead = Reader.MetadataBytesRead;
-		Result.Stats.PeakMetadataBytes = EstimateMetadataBytes(Record);
+		if (!bUsedV4Reader)
+		{
+			Result.Stats.MetadataBytesRead = Reader.MetadataBytesRead;
+			Result.Stats.PeakMetadataBytes = EstimateMetadataBytes(Record);
+		}
 		std::error_code FinalError;
 		const uintmax_t FinalSize = std::filesystem::file_size(Input.PhysicalPath, FinalError);
 		const auto FinalTime = std::filesystem::last_write_time(Input.PhysicalPath, FinalError);

@@ -1,4 +1,5 @@
 #include "AssetSystem.h"
+#include "AssetPackageV4Reader.h"
 #include "AssetPackageVersionPolicy.h"
 #include "AssetRedirector.h"
 #include "AssetPackageArchive.h"
@@ -96,6 +97,14 @@ namespace Durin::Asset
 			}
 
 			auto IsOpen() const -> bool { return Stream.is_open() && !Stream.fail(); }
+
+			auto Reset() -> bool
+			{
+				Stream.clear();
+				Stream.seekg(0, std::ios::beg);
+				Offset = 0;
+				return !Stream.fail();
+			}
 
 			template<typename T> auto Read(T& Value) -> bool
 			{
@@ -358,10 +367,18 @@ namespace Durin::Asset
 			if (ErrorCode)
 				return Error(EAssetError::IoError, std::format(
 					"Failed to read the last-write time for asset package {}.", PhysicalPath));
+			uint32 Magic = 0;
+			uint32 Version = 0;
+			if (Bytes.size() >= sizeof(Magic) + sizeof(Version))
+			{
+				std::memcpy(&Magic, Bytes.data(), sizeof(Magic));
+				std::memcpy(&Version, Bytes.data() + sizeof(Magic), sizeof(Version));
+			}
 			OutFingerprint = {
 				.FileSize = Bytes.size(),
 				.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime),
-				.ContentHash = FXxHash128::HashBuffer(Bytes)};
+				.ContentHash = FXxHash128::HashBuffer(Bytes),
+				.ReaderVersion = Magic == DastPackageMagic ? Version : 0};
 			return {};
 		}
 
@@ -742,7 +759,7 @@ namespace Durin::Asset
 			uint32 Magic = 0, Version = 0;
 			if (!Reader.Read(Magic) || !Reader.Read(Version)) return Error(EAssetError::CorruptFile, "Truncated asset header.");
 			if (Magic != DastPackageMagic) return Error(EAssetError::CorruptFile, "Invalid asset magic.");
-			if (Version != AssetPackageV3FormatVersion)
+			if (SelectAssetPackageReader(Version) != EAssetPackageReaderKind::DastV3)
 				return Error(EAssetError::UnsupportedVersion, std::format("Unsupported asset version {}.", Version));
 			OutFile.FormatVersion = Version;
 			if (!Reader.ReadString(OutFile.AssetClassName, MaximumPackageStringBytes)) return Error(EAssetError::CorruptFile, "Invalid asset header strings.");
@@ -1728,7 +1745,7 @@ namespace Durin::Asset
 			}
 			DerivedDataCache::FReader Reader(Bytes);
 			uint32 MountCount = 0;
-			if (!Reader.ReadAndValidateHeader(DerivedDataCache::AssetRegistryMagic, DerivedDataCache::AssetRegistrySchemaVersion, AssetPackageV3FormatVersion)
+			if (!Reader.ReadAndValidateHeader(DerivedDataCache::AssetRegistryMagic, DerivedDataCache::AssetRegistrySchemaVersion, AssetPackageReaderPolicyFingerprint)
 				|| !Reader.ReadU32(MountCount) || MountCount > MaximumRegistryEntries)
 			{
 				OutWarning = "Ignoring incompatible or corrupt asset registry cache header.";
@@ -1794,7 +1811,7 @@ namespace Durin::Asset
 					Entry.Dependencies.push_back(std::move(Dependency));
 				}
 				if (!Reader.ReadU64(Entry.FileSize) || !Reader.ReadI64(Entry.LastWriteTimeTicks)
-					|| Entry.FormatVersion != AssetPackageV3FormatVersion
+					|| !IsSupportedAssetPackageReaderVersion(Entry.FormatVersion)
 					|| !std::ranges::binary_search(ExpectedMounts, Entry.MountRoot)
 					|| std::filesystem::path(Entry.RelativePath).is_absolute()
 					|| std::filesystem::path(Entry.RelativePath).extension() != ".dasset"
@@ -1842,7 +1859,7 @@ namespace Durin::Asset
 				return std::tie(A.MountRoot, A.RelativePath) < std::tie(B.MountRoot, B.RelativePath);
 			});
 			DerivedDataCache::FWriter Writer;
-			Writer.WriteHeader({DerivedDataCache::AssetRegistryMagic, DerivedDataCache::AssetRegistrySchemaVersion, AssetPackageV3FormatVersion});
+			Writer.WriteHeader({DerivedDataCache::AssetRegistryMagic, DerivedDataCache::AssetRegistrySchemaVersion, AssetPackageReaderPolicyFingerprint});
 			Writer.WriteU32(static_cast<uint32>(Mounts.size()));
 			for (const std::string& Mount : Mounts) Writer.WriteString(Mount);
 			Writer.WriteU64(Entries.size());
@@ -1947,7 +1964,7 @@ namespace Durin::Asset
 			uint32 ExtractorSchema = 0;
 			uint64 SourceCount = 0;
 			if (!Reader.ReadAndValidateHeader(
-					AssetReferenceIndexMagic, AssetReferenceIndexSchemaVersion, AssetPackageV3FormatVersion)
+					AssetReferenceIndexMagic, AssetReferenceIndexSchemaVersion, AssetPackageReaderPolicyFingerprint)
 				|| !Reader.ReadU32(ExtractorSchema)
 				|| ExtractorSchema != AssetReferenceExtractorSchemaVersion
 				|| !Reader.ReadU64(SourceCount) || SourceCount > MaximumRegistryEntries)
@@ -1969,6 +1986,8 @@ namespace Durin::Asset
 					|| !Reader.ReadI64(Source.Fingerprint.LastWriteTimeTicks)
 					|| !Reader.ReadU64(Source.Fingerprint.ContentHash.HashLow)
 					|| !Reader.ReadU64(Source.Fingerprint.ContentHash.HashHigh)
+					|| !Reader.ReadU32(Source.Fingerprint.ReaderVersion)
+					|| !IsSupportedAssetPackageReaderVersion(Source.Fingerprint.ReaderVersion)
 					|| !Reader.ReadU64(OccurrenceCount)
 					|| OccurrenceCount > MaximumReferencesPerPackage
 					|| TotalOccurrences > MaximumReferencesPerSnapshot - OccurrenceCount)
@@ -2084,7 +2103,7 @@ namespace Durin::Asset
 			});
 
 			DerivedDataCache::FWriter Writer;
-			Writer.WriteHeader({AssetReferenceIndexMagic, AssetReferenceIndexSchemaVersion, AssetPackageV3FormatVersion});
+			Writer.WriteHeader({AssetReferenceIndexMagic, AssetReferenceIndexSchemaVersion, AssetPackageReaderPolicyFingerprint});
 			Writer.WriteU32(AssetReferenceExtractorSchemaVersion);
 			Writer.WriteU64(Sources.size());
 			for (const FAssetPath& Source : Sources)
@@ -2104,6 +2123,7 @@ namespace Durin::Asset
 				Writer.WriteI64(Fingerprint.LastWriteTimeTicks);
 				Writer.WriteU64(Fingerprint.ContentHash.HashLow);
 				Writer.WriteU64(Fingerprint.ContentHash.HashHigh);
+				Writer.WriteU32(Fingerprint.ReaderVersion);
 				Writer.WriteU64(ReferenceCount);
 				if (ReferencesIt == BySource.end()) continue;
 				for (const FAssetReferenceEdge* Reference : ReferencesIt->second)
@@ -2178,6 +2198,42 @@ namespace Durin::Asset
 		OutHeader = {};
 		FFileByteReader Reader(PhysicalPath);
 		if (!Reader.IsOpen()) return Error(EAssetError::IoError, std::format("Failed to open asset package {}.", PhysicalPath));
+		uint32 Magic = 0;
+		uint32 Version = 0;
+		if (!Reader.Read(Magic) || !Reader.Read(Version))
+			return Error(EAssetError::CorruptFile, "Truncated asset header.");
+		if (Magic != DastPackageMagic)
+			return Error(EAssetError::CorruptFile, "Invalid asset magic.");
+		const EAssetPackageReaderKind ReaderKind = SelectAssetPackageReader(Version);
+		if (ReaderKind == EAssetPackageReaderKind::Unsupported)
+			return Error(EAssetError::UnsupportedVersion, std::format("Unsupported asset version {}.", Version));
+		if (ReaderKind == EAssetPackageReaderKind::DastV4)
+		{
+			std::vector<uint8> Bytes;
+			if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath))
+				return Error(EAssetError::IoError, std::format("Failed to open asset package {}.", PhysicalPath));
+			DastV4::FValidatedHeader Header;
+			DastV4::FReaderDiagnostic Diagnostic;
+			if (!DastV4::ReadHeader(Bytes, Header, {}, &Diagnostic))
+				return Error(EAssetError::CorruptFile, Diagnostic.Message);
+			OutHeader.AssetClassName = std::move(Header.AssetClass);
+			OutHeader.EntryKind = Header.EntryKind;
+			if (!Header.RedirectDestination.empty()
+				&& !FAssetPath::TryCreate(Header.RedirectDestination, OutHeader.RedirectDestination))
+				return CorruptRedirector("the redirect destination path is invalid.");
+			OutHeader.FormatVersion = Version;
+			for (std::string& DependencyString : Header.Dependencies)
+			{
+				FAssetPath Dependency;
+				if (!FAssetPath::TryCreate(DependencyString, Dependency))
+					return Error(EAssetError::CorruptFile, "Invalid dependency path.");
+				OutHeader.Dependencies.push_back(std::move(Dependency));
+			}
+			OutHeader.ObjectCount = Header.ObjectCount;
+			OutHeader.BytesRead = Header.BytesRead;
+			return {};
+		}
+		if (!Reader.Reset()) return Error(EAssetError::IoError, "Failed to rewind asset package header.");
 		FPackageFile File;
 		FAssetResult Result = ReadPackageHeader(Reader, File, OutHeader.ObjectCount);
 		OutHeader.BytesRead = Reader.Offset;
@@ -2541,6 +2597,32 @@ namespace Durin::Asset
 			OutInspection = {};
 			FAssetResult Result = MakePackageFingerprint(PhysicalPath, Bytes, OutInspection.Fingerprint);
 			if (!Result) return Result;
+			uint32 Magic = 0;
+			uint32 Version = 0;
+			if (Bytes.size() < sizeof(Magic) + sizeof(Version))
+				return Error(EAssetError::CorruptFile, "Truncated asset header.");
+			std::memcpy(&Magic, Bytes.data(), sizeof(Magic));
+			std::memcpy(&Version, Bytes.data() + sizeof(Magic), sizeof(Version));
+			if (Magic != DastPackageMagic)
+				return Error(EAssetError::CorruptFile, "Invalid asset magic.");
+			switch (SelectAssetPackageReader(Version))
+			{
+			case EAssetPackageReaderKind::DastV4:
+			{
+				FAssetPackageInspection Inspection;
+				DastV4::FReaderDiagnostic Diagnostic;
+				Result = DastV4::InspectPackage(Bytes, Inspection, {}, &Diagnostic);
+				if (!Result) return Result;
+				Inspection.Fingerprint = OutInspection.Fingerprint;
+				OutInspection = std::move(Inspection);
+				return {};
+			}
+			case EAssetPackageReaderKind::Unsupported:
+				return Error(EAssetError::UnsupportedVersion,
+					std::format("Unsupported asset version {}.", Version));
+			case EAssetPackageReaderKind::DastV3:
+				break;
+			}
 			FPackageFile File;
 			Result = ReadPackageFile(Bytes, File, false);
 			if (!Result) return Result;
@@ -3260,7 +3342,8 @@ namespace Durin::Asset
 			if (Mode == EAssetRegistryScanMode::Incremental && bReferenceCacheLoaded
 				&& CachedIt != CachedReferenceSources.end()
 				&& CachedIt->second.Fingerprint.FileSize == Data->FileSize
-				&& CachedIt->second.Fingerprint.LastWriteTimeTicks == Data->LastWriteTimeTicks)
+				&& CachedIt->second.Fingerprint.LastWriteTimeTicks == Data->LastWriteTimeTicks
+				&& CachedIt->second.Fingerprint.ReaderVersion == Data->FormatVersion)
 			{
 				if (NewReferenceEdges.size() > MaximumReferencesPerSnapshot
 					- CachedIt->second.References.size())

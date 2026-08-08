@@ -3,6 +3,7 @@
 #include "Asset/SourcePath.h"
 #include "AssetCompatibility.h"
 #include "AssetMigration.h"
+#include "AssetPackageV4Reader.h"
 #include "AssetRedirector.h"
 #include "AssetSystem.h"
 #include "CookedAsset.h"
@@ -1193,7 +1194,9 @@ TEST(FPackageAssetTests, HeaderReaderRejectsMalformedAndUnboundedDeclarations)
 		WriteTestBytes(UnsupportedFile, Unsupported);
 		EXPECT_EQ(
 			Durin::Asset::ReadAssetPackageHeader(UnsupportedFile.generic_string(), Header).Error,
-			Durin::Asset::EAssetError::UnsupportedVersion);
+			Version == Durin::Asset::AssetPackageV4FormatVersion
+				? Durin::Asset::EAssetError::CorruptFile
+				: Durin::Asset::EAssetError::UnsupportedVersion);
 		EXPECT_EQ(
 			Durin::Asset::ValidateAssetPackageBytes(Unsupported).Error,
 			Durin::Asset::EAssetError::UnsupportedVersion);
@@ -4026,7 +4029,9 @@ TEST(FPackageAssetTests, CompatibilityProbeSeparatesFormatGraphCorruptionIoAndCa
 		ASSERT_TRUE(Format.Record.has_value());
 		EXPECT_EQ(
 			Format.Record->Findings.front().Code,
-			Durin::Asset::EAssetCompatibilityFindingCode::UnsupportedPackageFormat);
+			Version == Durin::Asset::AssetPackageV4FormatVersion
+				? Durin::Asset::EAssetCompatibilityFindingCode::CorruptPackage
+				: Durin::Asset::EAssetCompatibilityFindingCode::UnsupportedPackageFormat);
 	}
 
 	auto [GraphPath, GraphFile] = MakeFixture("ProbeInvalidGraph");
@@ -5377,4 +5382,127 @@ TEST(FPackageAssetTests, SoftReferenceCacheUsesCheapMetadataAndFullValidationWit
 		RecoveredCache, CacheFile.generic_string()
 	));
 	EXPECT_NE(RecoveredCache, std::vector<Durin::uint8>(CorruptCache.begin(), CorruptCache.end()));
+}
+
+TEST(FPackageAssetTests, MixedVersionReadOnlyDispatchKeepsRegistryAndReferenceCachesVersionQualified)
+{
+	InitializeAssetTests();
+	const auto WorkRoot =
+		Durin::Testing::GetTestWorkDirectory() / "MixedVersionReadOnlyDispatch";
+	const auto ContentRoot = WorkRoot / "Content";
+	const auto CacheRoot = WorkRoot / "DerivedDataCache";
+	Durin::Testing::RemoveTestWorkDirectory(WorkRoot);
+	std::filesystem::create_directories(ContentRoot);
+	const std::array Definitions{
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/TestAssets/",
+			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.Root = Durin::Testing::GetTestWorkDirectory() / "Assets",
+			.ContentPath = ".",
+			.bAutoScan = false,
+			.bAuthoringWritable = true},
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/MixedDispatch/",
+			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.Root = ContentRoot,
+			.ContentPath = ".",
+			.bAutoScan = true,
+			.bAuthoringWritable = true}};
+	Durin::PathUtilities::FScopedMountRegistryFixture Mounts(Definitions);
+	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
+
+	Durin::FAssetPath SourcePath;
+	Durin::FAssetPath TargetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/MixedDispatchSource", SourcePath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MixedDispatch/Target", TargetPath));
+	DSoftPackageAssetForTest* Source = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(SourcePath, Source));
+	Source->Direct.SetPath(TargetPath);
+	ASSERT_TRUE(Durin::Asset::SavePackage(Source->GetPackage()));
+
+	const auto* SourceData = Durin::Asset::GetAssetRegistry().FindAssetExact(SourcePath);
+	ASSERT_NE(SourceData, nullptr);
+	std::vector<Durin::uint8> V3Bytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(V3Bytes, SourceData->PhysicalPath));
+	std::vector<Durin::uint8> V4Bytes;
+	const std::string SourceClass = DSoftPackageAssetForTest::StaticClass()
+		->GetQualifiedName().ToString();
+	const std::string TargetClass = DPackageAssetForTest::StaticClass()
+		->GetQualifiedName().ToString();
+	auto SoftReference = Durin::Asset::DastV4::MakeType(
+		Durin::Asset::DastV4::ETypeOpcode::SoftRef, TargetClass);
+	Durin::Asset::DastV4::FPackageInput V4Input{
+		.AssetClass = SourceClass,
+		.AdditionalNames = {TargetPath.ToString()},
+		.Types = {SoftReference},
+		.Schemas = {{SourceClass, {{"Direct", SoftReference, 0}}}},
+		.Objects = {{"Root", {}, SourceClass, "Root"}},
+		.ObjectValues = {{"Root", {{
+			.SchemaName = SourceClass,
+			.FieldName = "Direct",
+			.Value = {.Text = TargetPath.ToString(), .ReferenceTag = 1}}}}}};
+	Durin::Asset::DastV4::FWriterDiagnostic WriterDiagnostic;
+	ASSERT_TRUE(Durin::Asset::DastV4::WritePackage(
+		V4Input, V4Bytes, &WriterDiagnostic)) << WriterDiagnostic.Message;
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(SourcePath));
+
+	const auto V3File = ContentRoot / "V3.dasset";
+	const auto V4File = ContentRoot / "V4.dasset";
+	WriteTestBytes(V3File, V3Bytes);
+	WriteTestBytes(V4File, V4Bytes);
+	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
+
+	Durin::Asset::FAssetPackageHeader V3Header;
+	Durin::Asset::FAssetPackageHeader V4Header;
+	ASSERT_TRUE(Durin::Asset::ReadAssetPackageHeader(V3File.generic_string(), V3Header));
+	ASSERT_TRUE(Durin::Asset::ReadAssetPackageHeader(V4File.generic_string(), V4Header));
+	EXPECT_EQ(V3Header.FormatVersion, Durin::Asset::AssetPackageV3FormatVersion);
+	EXPECT_EQ(V4Header.FormatVersion, Durin::Asset::AssetPackageV4FormatVersion);
+	EXPECT_EQ(V4Header.AssetClassName, V3Header.AssetClassName);
+
+	Durin::Asset::FAssetPackageInspection V3Inspection;
+	Durin::Asset::FAssetPackageInspection V4Inspection;
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(V3File.generic_string(), V3Inspection));
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(V4File.generic_string(), V4Inspection));
+	EXPECT_EQ(V3Inspection.Fingerprint.ReaderVersion, Durin::Asset::AssetPackageV3FormatVersion);
+	EXPECT_EQ(V4Inspection.Fingerprint.ReaderVersion, Durin::Asset::AssetPackageV4FormatVersion);
+	EXPECT_EQ(V4Inspection.Header.AssetClassName, V3Inspection.Header.AssetClassName);
+
+	Durin::FAssetPath V4Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MixedDispatch/V4", V4Path));
+	const auto Catalog = Durin::Asset::FReflectionCompatibilityCatalog::Capture();
+	const auto Compatibility = Durin::Asset::ProbeAssetPackageCompatibility(
+		MakeCompatibilityProbeInput(V4Path, V4File), Catalog);
+	ASSERT_TRUE(Compatibility.Record.has_value());
+	EXPECT_EQ(Compatibility.Record->Inspection,
+		Durin::Asset::EAssetCompatibilityInspection::Ready);
+	EXPECT_EQ(Compatibility.Record->FormatVersion, Durin::Asset::AssetPackageV4FormatVersion);
+	EXPECT_EQ(Compatibility.Record->Fingerprint.ReaderVersion,
+		Durin::Asset::AssetPackageV4FormatVersion);
+
+	const Durin::uint64 ConstructionCount = GSoftPackageConstructionCount;
+	auto& Registry = Durin::Asset::GetAssetRegistry();
+	ASSERT_TRUE(Registry.ScanMountedContent(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	Durin::FAssetPath V3Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MixedDispatch/V3", V3Path));
+	ASSERT_NE(Registry.FindAssetExact(V3Path), nullptr);
+	ASSERT_NE(Registry.FindAssetExact(V4Path), nullptr);
+	EXPECT_EQ(Registry.FindAssetExact(V3Path)->FormatVersion,
+		Durin::Asset::AssetPackageV3FormatVersion);
+	EXPECT_EQ(Registry.FindAssetExact(V4Path)->FormatVersion,
+		Durin::Asset::AssetPackageV4FormatVersion);
+	EXPECT_EQ(Registry.GetReferenceIndex().FindTargets(V3Path),
+		(std::vector<Durin::FAssetPath>{TargetPath}));
+	EXPECT_EQ(Registry.GetReferenceIndex().FindTargets(V4Path),
+		(std::vector<Durin::FAssetPath>{TargetPath}));
+	EXPECT_EQ(GSoftPackageConstructionCount, ConstructionCount);
+
+	const Durin::uint64 StableRevision = Registry.GetRevision();
+	ASSERT_TRUE(Registry.ScanMountedContent());
+	EXPECT_EQ(Registry.GetRevision(), StableRevision);
+	EXPECT_EQ(Registry.GetLastScanStats().Reused, 2u);
+	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().ReusedSources, 2u);
+	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 0u);
+	EXPECT_EQ(GSoftPackageConstructionCount, ConstructionCount);
 }

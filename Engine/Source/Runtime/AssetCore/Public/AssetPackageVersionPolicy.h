@@ -17,6 +17,10 @@ namespace Durin::Asset
 	inline constexpr uint32 LatestAssetPackageWriterVersion = AssetPackageV4FormatVersion;
 	inline constexpr uint32 OrdinaryAssetPackageWriterVersion = AssetPackageV3FormatVersion;
 	inline constexpr uint32 AssetPackageMigrationWriterVersion = LatestAssetPackageWriterVersion;
+	// Persisted read-only caches use this identity so changing the supported
+	// reader set invalidates entries even when package timestamps and sizes match.
+	inline constexpr uint32 AssetPackageReaderPolicyFingerprint =
+		(AssetPackageV3FormatVersion << 16) | AssetPackageV4FormatVersion;
 
 	enum class EAssetPackageReaderKind : uint8
 	{
