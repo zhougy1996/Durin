@@ -1295,6 +1295,43 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			LitPipelineIdentity);
 		const std::vector<Durin::uint8> StaticIdentityPixels =
 			Capture(CaptureMaterial);
+		StaticProperties.BlendMode = Durin::EMaterialBlendMode::Masked;
+		StaticProperties.OpacityMaskThreshold = 0.4f;
+		ASSERT_TRUE(CaptureMaterial->SetStaticProperties(StaticProperties));
+		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Durin::MaterialParameters::OpacityMaskName(), 0.39f));
+		const std::vector<Durin::uint8> MaskedBelowPixels =
+			Capture(CaptureMaterial);
+		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Durin::MaterialParameters::OpacityMaskName(), 0.4f));
+		const std::vector<Durin::uint8> MaskedEqualPixels =
+			Capture(CaptureMaterial);
+		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Durin::MaterialParameters::OpacityMaskName(), 0.41f));
+		const std::vector<Durin::uint8> MaskedAbovePixels =
+			Capture(CaptureMaterial);
+
+		StaticProperties.BlendMode = Durin::EMaterialBlendMode::Translucent;
+		ASSERT_TRUE(CaptureMaterial->SetStaticProperties(StaticProperties));
+		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Durin::MaterialParameters::OpacityName(), 0.0f));
+		const std::vector<Durin::uint8> TranslucentZeroPixels =
+			Capture(CaptureMaterial);
+		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Durin::MaterialParameters::OpacityName(), 0.4f));
+		const std::vector<Durin::uint8> TranslucentPartialPixels =
+			Capture(CaptureMaterial);
+		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Durin::MaterialParameters::OpacityName(), 1.0f));
+		const std::vector<Durin::uint8> TranslucentFullPixels =
+			Capture(CaptureMaterial);
+
+		StaticProperties.BlendMode = Durin::EMaterialBlendMode::Opaque;
+		ASSERT_TRUE(CaptureMaterial->SetStaticProperties(StaticProperties));
+		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Durin::MaterialParameters::OpacityName(), 0.4f));
+		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Durin::MaterialParameters::OpacityMaskName(), 1.0f));
 		const Durin::FConsoleCommandResult ReloadResult =
 			Durin::FConsoleCommandRegistry::Get().Execute(
 				"renderer.reload-shaders all");
@@ -1346,6 +1383,15 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		EXPECT_EQ(StaticIdentityPixels, ReloadedPixels);
 		EXPECT_NEAR(static_cast<int>(StaticIdentityPixels[Center + 2]), 124, 2);
 		EXPECT_NEAR(static_cast<int>(StaticIdentityPixels[Center + 3]), 102, 2);
+		EXPECT_EQ(MaskedBelowPixels[Center + 3], 0u);
+		EXPECT_GT(MaskedEqualPixels[Center + 3], 0u);
+		EXPECT_EQ(MaskedEqualPixels, MaskedAbovePixels);
+		EXPECT_EQ(TranslucentZeroPixels[Center + 3], 0u);
+		EXPECT_NEAR(
+			static_cast<int>(TranslucentPartialPixels[Center + 3]), 102, 2);
+		EXPECT_EQ(TranslucentFullPixels[Center + 3], 255u);
+		EXPECT_LT(
+			TranslucentPartialPixels[Center], TranslucentFullPixels[Center]);
 		ASSERT_EQ(CubePixels.size(), MaterialPixels.size());
 		const std::array CubeCenterRgb = {
 			CubePixels[Center], CubePixels[Center + 1], CubePixels[Center + 2]};

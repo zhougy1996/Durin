@@ -22,6 +22,7 @@
 #include <glm/mat3x3.hpp>
 #include <glm/matrix.hpp>
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cmath>
@@ -433,6 +434,23 @@ namespace Durin
 				}
 			}
 		}
+		std::ranges::sort(
+			Result.Translucent,
+			[](const FPreparedStaticMeshSection& A,
+			   const FPreparedStaticMeshSection& B) {
+				if (A.TranslucentDistanceSquared
+					!= B.TranslucentDistanceSquared)
+				{
+					return A.TranslucentDistanceSquared
+						> B.TranslucentDistanceSquared;
+				}
+				if (A.PrimitiveId != B.PrimitiveId)
+				{
+					return A.PrimitiveId < B.PrimitiveId;
+				}
+				return A.SectionIndex < B.SectionIndex;
+			}
+		);
 		return Result;
 	}
 
@@ -488,17 +506,30 @@ namespace Durin
 		FPreparedStaticMeshView Prepared = PrepareStaticMeshView_RenderThread(
 			*RendererScene, View, RasterMode
 		);
-		auto DrawBucket = [&](const auto& Bucket) {
+		auto DrawBucket = [&](const auto& Bucket, EStaticMeshBasePass Pass) {
 			for (const FPreparedStaticMeshSection& Item : Bucket)
 			{
+				checkf(Item.Pass == Pass,
+					"StaticMesh prepared bucket does not match its pass.");
+				checkf(
+					Item.PrimitiveId != InvalidPrimitiveSceneId
+						&& Item.SceneInfo != nullptr && Item.Proxy != nullptr
+						&& Item.RenderData != nullptr && Item.LOD != nullptr
+						&& Item.Section != nullptr
+						&& std::isfinite(Item.TranslucentDistanceSquared)
+						&& Item.ShaderMapIdentity
+							== Item.Material.PipelineIdentity.ShaderMap
+						&& Item.PipelineKey.Material
+							== Item.Material.PipelineIdentity,
+					"StaticMesh execution requires one complete prepared section.");
 				DrawSection_RenderThread(
 					CommandList, View, Light, RenderMode, Item
 				);
 			}
 		};
-		DrawBucket(Prepared.Opaque);
-		DrawBucket(Prepared.Masked);
-		DrawBucket(Prepared.Translucent);
+		DrawBucket(Prepared.Opaque, EStaticMeshBasePass::Opaque);
+		DrawBucket(Prepared.Masked, EStaticMeshBasePass::Masked);
+		DrawBucket(Prepared.Translucent, EStaticMeshBasePass::Translucent);
 	}
 
 	auto FStaticMeshRenderer::DrawSection_RenderThread(
@@ -510,11 +541,8 @@ namespace Durin
 	) -> void
 	{
 		check(IsInRenderingThread());
-		if (Item.RenderData == nullptr || Item.LOD == nullptr
-			|| Item.Section == nullptr)
-		{
-			return;
-		}
+		check(Item.RenderData != nullptr && Item.LOD != nullptr
+			&& Item.Section != nullptr);
 		const FStaticMeshLODResources& LOD = *Item.LOD;
 		const FStaticMeshSection& Section = *Item.Section;
 		const FMatrix& LocalToWorld = Item.LocalToWorld;
@@ -728,14 +756,9 @@ namespace Durin
 						Candidate.FragmentShader.GetRHIShader();
 					Initializer.VertexDeclaration =
 						VertexFactory.GetDeclaration();
-					// Stage 2 carries the complete effective key but preserves
-					// the legacy visible state until the bucket policies are
-					// enabled by Stages 3 and 4.
-					Initializer.RasterizerState.PolygonMode =
-						Identity.Rasterizer.PolygonMode;
-					Initializer.RasterizerState.CullMode = ERHICullMode::None;
-					Initializer.DepthState.bEnableTest = true;
-					Initializer.DepthState.bEnableWrite = true;
+					Initializer.RasterizerState = Identity.Rasterizer;
+					Initializer.DepthState = Identity.Depth;
+					Initializer.ColorBlendState = Identity.ColorBlend;
 					Initializer.PipelineLayout =
 						Candidate.ShaderMap->GetMergedPipelineLayout();
 					Candidate.PipelineState =

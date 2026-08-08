@@ -25,13 +25,12 @@ enables depth test/write, disables culling, and uses the same draw loop.
 masked fragments, while Vulkan expands four Boolean pipeline fields into fixed
 backend policy.
 
-Stages 0 through 2 are complete. The public RHI now owns cohesive rasterizer,
-depth, and color-blend values; every previous graphics-state Boolean caller is
-migrated, Vulkan validates and maps the complete values, and fixed-state
-rendering remains qualified. StaticMesh LOD 0 sections are now resolved once
-into command-local Opaque, Masked, and Translucent work with complete effective
-pipeline and finite sort facts. Stage 3 is next: enable the prepared Opaque and
-Masked state and masked coverage policy.
+Stages 0 through 4 are complete. The public RHI owns cohesive rasterizer, depth,
+and color-blend values, and every StaticMesh LOD 0 section resolves once into
+command-local Opaque, Masked, or Translucent work with complete effective state.
+Masked coverage uses the static strict threshold, while Translucent executes
+straight-alpha state in deterministic per-view order. Stage 5 qualification and
+lasting-document consolidation are next.
 
 ## Goal
 
@@ -467,20 +466,20 @@ recomputation, same-id replacement, and removal. Open questions: none.
 
 ### Stage 3: Execute Opaque and Masked policies
 
-- [ ] Execute Opaque then Masked buckets with blending disabled and the resolved
+- [x] Execute Opaque then Masked buckets with blending disabled and the resolved
   depth-write, cull, winding, and raster state.
-- [ ] Add the masked shader coverage branch using the static blend-mode and
+- [x] Add the masked shader coverage branch using the static blend-mode and
   threshold identity without adding dynamic material lookup.
-- [ ] Preserve the exact OpacityMask constant/texture/UV/sampler binding and
+- [x] Preserve the exact OpacityMask constant/texture/UV/sampler binding and
   threshold equality behavior.
-- [ ] Ensure one-sided normal and mirrored transforms cull the intended authored
+- [x] Ensure one-sided normal and mirrored transforms cull the intended authored
   face while two-sided materials cull neither face.
-- [ ] Keep Lit/Unlit and Solid/Wireframe output orthogonal to mask, cull, and
+- [x] Keep Lit/Unlit and Solid/Wireframe output orthogonal to mask, cull, and
   depth policy.
-- [ ] Add focused threshold-below/equal/above, textured mask, depth-enabled/
+- [x] Add focused threshold-below/equal/above, textured mask, depth-enabled/
   disabled, front/back/mirrored face, fallback, main/auxiliary, fixed-aspect,
   and Vulkan readback/image coverage.
-- [ ] Record the stage handoff and validation evidence.
+- [x] Record the stage handoff and validation evidence.
 
 #### Acceptance Gate
 
@@ -491,23 +490,39 @@ recomputation, same-id replacement, and removal. Open questions: none.
 - Pipeline creation, shader reload, resource retry, and Vulkan validation remain
   clean for both buckets.
 
+#### Stage 3 Handoff
+
+Baseline commit: `a0b67a4e` (`refactor(renderer): prepare static mesh pass
+work`). Opaque and Masked PSOs now consume the complete prepared rasterizer,
+depth, and disabled-blend values. The masked fragment permutation reconstructs
+the threshold from its static identity bits and discards only when
+`saturate(mask constant * sampled red) < saturate(threshold)`; the existing v3
+constant, texture, UV, and sampler binding remains unchanged.
+
+The working set was `StaticMeshRenderer.cpp`, `StaticMeshBasePass.slang`, the
+focused preparation fixture, and the material-thumbnail Vulkan readback fixture.
+Validation on 2026-08-08 passed
+`FStaticMeshRenderPreparationVulkanTests.*` and
+`FMaterialTests.RenderedThumbnailPreviewSceneCapturesResolvedMaterialDifferences`.
+Open questions: none.
+
 ### Stage 4: Execute deterministic Translucent policy
 
-- [ ] Sort Translucent items by descending documented distance and stable
+- [x] Sort Translucent items by descending documented distance and stable
   primitive/section tie-break for each view independently.
-- [ ] Execute Translucent after Opaque and Masked with straight-alpha state,
+- [x] Execute Translucent after Opaque and Masked with straight-alpha state,
   depth test, and resolved Automatic/Enabled/Disabled depth writes.
-- [ ] Preserve source alpha through Lit and Unlit shading and verify the defined
+- [x] Preserve source alpha through Lit and Unlit shading and verify the defined
   Scene Color alpha equation.
-- [ ] Validate overlapping distances, equal-key ties, multiple primitives,
+- [x] Validate overlapping distances, equal-key ties, multiple primitives,
   multiple sections/materials, camera motion, mirrored/two-sided state, and
   remove/add recreation.
-- [ ] Validate main/auxiliary cameras with different transforms and dimensions,
+- [x] Validate main/auxiliary cameras with different transforms and dimensions,
   present/offscreen targets, fixed-aspect scissor, post-process, editor
   assistance, Solid/Wireframe, and resource invalidation/retry.
-- [ ] Add Vulkan readback/image baselines for blend color/alpha, order,
+- [x] Add Vulkan readback/image baselines for blend color/alpha, order,
   occlusion by opaque/masked depth, and all three depth-write policies.
-- [ ] Record the stage handoff and validation evidence.
+- [x] Record the stage handoff and validation evidence.
 
 #### Acceptance Gate
 
@@ -517,6 +532,22 @@ recomputation, same-id replacement, and removal. Open questions: none.
   another view.
 - Opaque and Masked coverage/order remain unchanged when translucent work is
   present or absent.
+
+#### Stage 4 Handoff
+
+Baseline commit: `a0b67a4e`; Stages 3 and 4 were implemented and qualified as
+one bounded visible-policy change. `PrepareStaticMeshView_RenderThread` sorts
+Translucent by descending finite squared center distance, ascending primitive
+id, then section index. Each view recomputes the metric. Execution remains
+Opaque, Masked, then Translucent and copies the prepared straight-alpha, depth,
+rasterizer, and cull/winding descriptors into the PSO initializer.
+
+The preparation fixture covers two primitives, equal-distance sections, stable
+id/section ties, and camera motion. Vulkan readback covers zero, partial, and
+full source alpha on a transparent target. Existing main/auxiliary,
+fixed-aspect, reload, editor-assistance, and offscreen suites remain the
+composition owners. Validation on 2026-08-08 passed both focused fixtures. Open
+questions: none; intersecting per-triangle ordering remains deferred.
 
 ### Stage 5: Consolidate contracts and qualify M2
 

@@ -166,9 +166,15 @@ float4 FragmentMain(VSOutput input) : SV_Target
     float3 baseColor = saturate(Material.BaseColor.rgb) * baseColorSample.rgb * input.color.rgb;
     float opacity = saturate(Material.BaseColor.a) * saturate(opacitySample) * saturate(input.color.a);
     float ambientOcclusion = saturate(Material.SurfaceParams.x) * saturate(ambientOcclusionSample);
-    float opacityMask = saturate(Material.SurfaceParams.y) * saturate(opacityMaskSample);
-    // SurfaceParams.w is a zero-valued runtime carry that keeps Stage 3's
-    // fixed AO/mask descriptors reflected until later passes consume them.
+    float opacityMask = saturate(Material.SurfaceParams.y * opacityMaskSample);
+#if DURIN_MATERIAL_BLEND_MODE == 1
+    const float opacityMaskThreshold = saturate(asfloat(uint(
+        DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS)));
+    if (opacityMask < opacityMaskThreshold)
+        discard;
+#endif
+    // SurfaceParams.w is a zero-valued runtime carry that keeps the fixed
+    // material descriptor ABI reflected across every static shader variant.
     opacity = saturate(opacity + Material.SurfaceParams.w * (ambientOcclusion + opacityMask));
     float3 emissive = max(Material.EmissiveMetallic.xyz, 0.0) + max(emissiveSample, 0.0);
     if (Material.SurfaceParams.z < 0.5)

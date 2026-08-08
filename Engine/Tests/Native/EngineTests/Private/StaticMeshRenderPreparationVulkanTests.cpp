@@ -179,6 +179,65 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	EXPECT_TRUE(Summary->bTranslucentBlend);
 	EXPECT_NE(Summary->FirstViewDistance, Summary->SecondViewDistance);
 
+	for (Durin::FStaticMeshSection& Section :
+		 RenderData->LODResources[0].Sections)
+	{
+		Section.LocalBounds = Durin::FBox(
+			Durin::FVector3(-1.0), Durin::FVector3(1.0));
+	}
+	Durin::FScene OrderingScene;
+	OrderingScene.AddOrReplacePrimitive(
+		Durin::FPrimitiveSceneId(90),
+		std::make_unique<Durin::FStaticMeshSceneProxy>(
+			RenderData.get(),
+			std::vector<Durin::FMaterialRenderProxyRef>(4, Translucent),
+			1),
+		glm::translate(
+			Durin::FMatrix(1.0), Durin::FVector3(0.0, 0.0, 20.0)));
+	OrderingScene.AddOrReplacePrimitive(
+		Durin::FPrimitiveSceneId(80),
+		std::make_unique<Durin::FStaticMeshSceneProxy>(
+			RenderData.get(),
+			std::vector<Durin::FMaterialRenderProxyRef>(4, Translucent),
+			1),
+		Durin::FMatrix(1.0));
+	Durin::FlushRenderingCommands();
+	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+		[&OrderingScene](Durin::FRHICommandListImmediate&) {
+			Durin::FSceneView OriginView;
+			const Durin::FPreparedStaticMeshView FromOrigin =
+				Durin::PrepareStaticMeshView_RenderThread(
+					OrderingScene, OriginView, Durin::ERasterMode::Solid);
+			ASSERT_EQ(FromOrigin.Translucent.size(), 8u);
+			for (Durin::uint32 Index = 0; Index < 4; ++Index)
+			{
+				EXPECT_EQ(
+					FromOrigin.Translucent[Index].PrimitiveId.Value, 90u);
+				EXPECT_EQ(
+					FromOrigin.Translucent[Index].SectionIndex, Index);
+				EXPECT_EQ(
+					FromOrigin.Translucent[Index + 4].PrimitiveId.Value, 80u);
+				EXPECT_EQ(
+					FromOrigin.Translucent[Index + 4].SectionIndex, Index);
+			}
+
+			Durin::FSceneView MovedView;
+			MovedView.ViewLocation = Durin::FVector3(0.0, 0.0, 30.0);
+			const Durin::FPreparedStaticMeshView FromMovedCamera =
+				Durin::PrepareStaticMeshView_RenderThread(
+					OrderingScene, MovedView, Durin::ERasterMode::Solid);
+			ASSERT_EQ(FromMovedCamera.Translucent.size(), 8u);
+			EXPECT_EQ(
+				FromMovedCamera.Translucent.front().PrimitiveId.Value, 80u);
+			EXPECT_EQ(
+				FromMovedCamera.Translucent.back().PrimitiveId.Value, 90u);
+		}
+	);
+	Durin::FlushRenderingCommands();
+	OrderingScene.RemovePrimitive(Durin::FPrimitiveSceneId(80));
+	OrderingScene.RemovePrimitive(Durin::FPrimitiveSceneId(90));
+	Durin::FlushRenderingCommands();
+
 	Scene.AddOrReplacePrimitive(Id, std::make_unique<Durin::FStaticMeshSceneProxy>(RenderData.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 2), Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
 	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
