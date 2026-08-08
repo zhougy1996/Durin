@@ -2,6 +2,7 @@
 
 #include "HAL/PlatformMisc.h"
 
+#include <charconv>
 #include <cstdlib>
 
 namespace Durin
@@ -22,6 +23,33 @@ namespace Durin
 
 	static constexpr uint32 FNameEntryIdBits = FNameMaxBlockBits + FNameBlockOffsetBits;
 	static constexpr uint32 FNameEntryIdMask = (1 << FNameEntryIdBits) - 1;
+	static constexpr size_t FNameMaxStoredLength = FName::MaxSize - 1;
+
+	static auto TruncateName(std::string_view Name) -> std::string_view
+	{
+		if (Name.length() <= FNameMaxStoredLength)
+		{
+			return Name;
+		}
+
+		size_t Length = FNameMaxStoredLength;
+		while (Length > 0 && (static_cast<uint8>(Name[Length]) & 0xc0U) == 0x80U)
+		{
+			--Length;
+		}
+
+		return Name.substr(0, Length);
+	}
+
+	static auto FoldAsciiCase(char Character) -> char
+	{
+		if (Character >= 'A' && Character <= 'Z')
+		{
+			return static_cast<char>(Character + ('a' - 'A'));
+		}
+
+		return Character;
+	}
 
 	CORE_API auto FNameInit() -> void
 	{
@@ -133,13 +161,14 @@ namespace Durin
 		static auto GenerateLowerCaseHash(const CharType* Str, size_t Len) -> uint64
 		{
 			CharType LowerName[FName::MaxSize];
+			const size_t ValidLen = std::min(Len, FNameMaxStoredLength);
 
-			for (size_t i = 0; i < Len && i < FName::MaxSize - 1; ++i)
+			for (size_t i = 0; i < ValidLen; ++i)
 			{
-				LowerName[i] = std::tolower(Str[i]);
+				LowerName[i] = FoldAsciiCase(Str[i]);
 			}
 
-			return FNameHash::GenerateHash(LowerName, Len);
+			return FNameHash::GenerateHash(LowerName, ValidLen);
 		}
 
 		static uint64 GenerateLowerCaseHash(std::string_view Name)
@@ -178,13 +207,14 @@ namespace Durin
 	FORCENOINLINE static auto HashLowerCase(const CharType* Str, size_t Len) -> FNameHash
 	{
 		CharType LowerName[FName::MaxSize];
+		const size_t ValidLen = std::min(Len, FNameMaxStoredLength);
 
-		for (size_t i = 0; i < Len && i < FName::MaxSize - 1; ++i)
+		for (size_t i = 0; i < ValidLen; ++i)
 		{
-			LowerName[i] = std::tolower(Str[i]);
+			LowerName[i] = FoldAsciiCase(Str[i]);
 		}
 
-		return FNameHash(LowerName, Len);
+		return FNameHash(LowerName, static_cast<int32>(ValidLen));
 	}
 
 	template<ENameCase Sensitivity>
@@ -419,10 +449,16 @@ namespace Durin
 		{
 			return !strncmp(A.data(), B.data(), Len);
 		}
-		else
+
+		for (uint32 Index = 0; Index < Len; ++Index)
 		{
-			return !FPlatformMisc::Strnicmp(A.data(), B.data(), Len);
+			if (FoldAsciiCase(A[Index]) != FoldAsciiCase(B[Index]))
+			{
+				return false;
+			}
 		}
+
+		return true;
 	}
 
 	template<ENameCase Sensitivity>
@@ -705,6 +741,7 @@ namespace Durin
 
 	auto FNamePool::Store(std::string_view Name) -> FNameEntryId
 	{
+		Name = TruncateName(Name);
 		FNameDisplayValue DisplayValue(Name);
 		if (FNameEntryId Existing = DisplayShards[DisplayValue.Hash.ShardIndex].Find(DisplayValue))
 		{
@@ -724,6 +761,7 @@ namespace Durin
 
 	auto FNamePool::Find(std::string_view Name) const -> FNameEntryId
 	{
+		Name = TruncateName(Name);
 		// First try to find the display name, then the comparison name
 		FNameDisplayValue DisplayValue(Name);
 		if (FNameEntryId Existing = DisplayShards[DisplayValue.Hash.ShardIndex].Find(DisplayValue))
@@ -795,9 +833,10 @@ namespace Durin
 				// is not 0 or the length of the number is 1 (since ROcket_0 is valid)
 				if (Digits == 1 || *FirstDigit != '0')
 				{
-					int Number = std::stoi(std::string(Name + Len - Digits, static_cast<size_t>(Digits)));
+					int32 Number = 0;
+					const auto [End, Error] = std::from_chars(FirstDigit, Name + Len, Number);
 
-					if (Number < INT_MAX)
+					if (Error == std::errc{} && End == Name + Len && Number < INT_MAX)
 					{
 						InOutLen -= 1 + Digits;
 						return static_cast<uint32>(Number + 1);
@@ -812,8 +851,9 @@ namespace Durin
 		static FName MakeWithNumber(const std::string_view View, uint32 InternalNumber)
 		{
 			FName Name;
+			const std::string_view StoredView = TruncateName(View);
 
-			Name.DisplayIndex = FNamePool::Get().Store(View);
+			Name.DisplayIndex = FNamePool::Get().Store(StoredView);
 			Name.ComparisonIndex = ResolveComparisonId(Name.DisplayIndex);
 			Name.Number = InternalNumber;
 
@@ -822,6 +862,7 @@ namespace Durin
 
 		static FName MakeDetectNumber(std::string_view View)
 		{
+			View = TruncateName(View);
 			if (View.length() == 0)
 			{
 				return FName();

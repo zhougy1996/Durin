@@ -104,6 +104,55 @@ namespace
 		EXPECT_EQ(DetectedName.ToString(), ExplicitName.ToString());
 	}
 
+	TEST(FNameTests, PreservesOutOfRangeNumericSuffixesAsPlainNames)
+	{
+		const Durin::FName LargestSupported("Bone_2147483646");
+		const Durin::FName IntMax("Bone_2147483647");
+		const Durin::FName TenDigitOverflow("Bone_9999999999");
+
+		EXPECT_EQ(LargestSupported.GetNumber(), 2147483647U);
+		EXPECT_EQ(IntMax.GetNumber(), 0U);
+		EXPECT_EQ(TenDigitOverflow.GetNumber(), 0U);
+		EXPECT_EQ(IntMax.ToString(), "Bone_2147483647");
+		EXPECT_EQ(TenDigitOverflow.ToString(), "Bone_9999999999");
+		EXPECT_EQ(Durin::FName("Bone_04").ToString(), "Bone_04");
+		EXPECT_EQ(Durin::FName("Bone_12345678901").ToString(), "Bone_12345678901");
+	}
+
+	TEST(FNameTests, TruncatesLongNamesToTheStoredLimit)
+	{
+		const std::string AtLimit(Durin::FName::MaxSize - 1, 'a');
+		const std::string OnePastLimit(Durin::FName::MaxSize, 'b');
+		const std::string TwoPastLimit(Durin::FName::MaxSize + 1, 'd');
+		const std::string FarPastLimit(Durin::FName::MaxSize * 4, 'c');
+
+		EXPECT_EQ(Durin::FName(AtLimit).ToString(), AtLimit);
+		EXPECT_EQ(Durin::FName(OnePastLimit).ToString(), OnePastLimit.substr(0, Durin::FName::MaxSize - 1));
+		EXPECT_EQ(Durin::FName(TwoPastLimit).ToString(), TwoPastLimit.substr(0, Durin::FName::MaxSize - 1));
+		EXPECT_EQ(Durin::FName(FarPastLimit).ToString(), FarPastLimit.substr(0, Durin::FName::MaxSize - 1));
+	}
+
+	TEST(FNameTests, TruncatesLongNamesAtUtf8Boundaries)
+	{
+		const std::string Prefix(Durin::FName::MaxSize - 2, 'a');
+		const std::string Name = Prefix + "\xe4\xb8\xad";
+
+		EXPECT_EQ(Durin::FName(Name).ToString(), Prefix);
+	}
+
+	TEST(FNameTests, IgnoresAsciiCaseAndPreservesUtf8Bytes)
+	{
+		const Durin::FName UpperName("MIXED_\xe4\xb8\xad\xe6\x96\x87");
+		const Durin::FName LowerName("mixed_\xe4\xb8\xad\xe6\x96\x87");
+		const Durin::FName UpperAccented("\xc3\x89");
+		const Durin::FName LowerAccented("\xc3\xa9");
+
+		EXPECT_TRUE(UpperName.Equals(LowerName));
+		EXPECT_FALSE(UpperName.Equals(LowerName, Durin::ENameCase::CaseSensitive));
+		EXPECT_FALSE(UpperAccented.Equals(LowerAccented));
+		EXPECT_EQ(UpperName.ToString(), "MIXED_\xe4\xb8\xad\xe6\x96\x87");
+	}
+
 	TEST(FNameTests, MinusOneMeansNoNumber)
 	{
 		const Durin::FName Name("Foo", -1);
