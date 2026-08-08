@@ -25,11 +25,13 @@ enables depth test/write, disables culling, and uses the same draw loop.
 masked fragments, while Vulkan expands four Boolean pipeline fields into fixed
 backend policy.
 
-Stages 0 and 1 are complete. The public RHI now owns cohesive rasterizer,
+Stages 0 through 2 are complete. The public RHI now owns cohesive rasterizer,
 depth, and color-blend values; every previous graphics-state Boolean caller is
 migrated, Vulkan validates and maps the complete values, and fixed-state
-rendering remains qualified. Stage 2 is next: prepare each StaticMesh LOD 0
-section once into view-local Opaque, Masked, and Translucent work.
+rendering remains qualified. StaticMesh LOD 0 sections are now resolved once
+into command-local Opaque, Masked, and Translucent work with complete effective
+pipeline and finite sort facts. Stage 3 is next: enable the prepared Opaque and
+Masked state and masked coverage policy.
 
 ## Goal
 
@@ -392,22 +394,22 @@ these values together with material, raster-mode, and mirrored-winding facts.
 
 ### Stage 2: Prepare and classify StaticMesh section work
 
-- [ ] Add the Renderer-private prepared section item and view-local Opaque,
+- [x] Add the Renderer-private prepared section item and view-local Opaque,
   Masked, and Translucent buckets.
-- [ ] Resolve each valid LOD 0 section material exactly once before bucket
+- [x] Resolve each valid LOD 0 section material exactly once before bucket
   insertion, preserving ErrorMaterial fallback and per-slot binding behavior.
-- [ ] Derive effective blend, depth, cull, winding, raster, shader, and pipeline
+- [x] Derive effective blend, depth, cull, winding, raster, shader, and pipeline
   identity from the material, SceneInfo transform, and view settings.
-- [ ] Compute finite section-center sort facts with the documented primitive-
+- [x] Compute finite section-center sort facts with the documented primitive-
   bounds and local-origin fallbacks.
-- [ ] Keep M2 preparation free of frustum rejection, LOD choice, broad
+- [x] Keep M2 preparation free of frustum rejection, LOD choice, broad
   state-group sorting, persistent frame caches, and duplicate scene membership.
-- [ ] Make execution consume prepared items rather than rescan typed SceneInfo
+- [x] Make execution consume prepared items rather than rescan typed SceneInfo
   collections or re-resolve pass identity.
-- [ ] Add focused multi-section classification, fallback, replacement,
+- [x] Add focused multi-section classification, fallback, replacement,
   removal, mirrored parity, deterministic membership, and independent
   multi-view preparation tests.
-- [ ] Record the stage handoff and validation evidence.
+- [x] Record the stage handoff and validation evidence.
 
 #### Acceptance Gate
 
@@ -417,6 +419,51 @@ these values together with material, raster-mode, and mirrored-winding facts.
   outlive the render command that owns its borrows.
 - Opaque-only scenes preserve existing draw count, ordering, fallback,
   lifecycle, and output before Masked/Translucent behavior is enabled.
+
+#### Stage 2 Handoff
+
+Baseline commit: `a6547688` (`refactor(rhi): model graphics state as values`).
+The working set was `StaticMeshRenderPreparation.h`,
+`StaticMeshRenderer.h/.cpp`, the Engine native-test target list, and the focused
+Vulkan preparation fixture.
+
+`PrepareStaticMeshView_RenderThread` now creates one stack-owned
+`FPreparedStaticMeshView` per draw call and resolves each accepted LOD 0
+section into exactly one ordered bucket. `FPreparedStaticMeshSection` contains
+only render-command-bounded SceneInfo/proxy/render-data borrows, copied
+transform/material/binding state, primitive and section identity, finite sort
+facts, `FMaterialShaderMapIdentity`, and
+`FEffectiveStaticMeshPipelineKey`. Material binding validation and the v2
+compatibility path run once during preparation; invalid bindings select the
+immutable ErrorMaterial before classification. Execution visits Opaque,
+Masked, then Translucent prepared items and never rescans Scene membership or
+resolves a material again.
+
+The effective key covers the complete material pipeline identity plus polygon,
+cull, front-face, depth, and color-blend values. Automatic depth writes resolve
+on for Opaque/Masked and off for Translucent; explicit overrides replace that
+choice. Negative determinant parity selects counter-clockwise front faces,
+two-sided materials select no cull, view raster mode selects Fill/Line, and
+Translucent carries straight-alpha state. Section-bounds center, stored
+primitive world-bounds center, and transformed local origin form the finite
+sort fallback chain; a non-finite final distance rejects only that item.
+
+To preserve the Stage 2 acceptance boundary, graphics PSO creation still uses
+the legacy visible state (blend off, depth test/write on, no cull) plus the
+prepared Fill/Line raster choice. The cache and diagnostics already use the
+complete effective key. Stage 3 enables effective Opaque/Masked depth and
+rasterizer state plus mask coverage; Stage 4 enables effective Translucent
+blend/depth state and sorting.
+
+Validation on 2026-08-08 with `Win64-Debug-DurinEditor-Tests` passed:
+`StaticMeshRenderPreparationVulkanTests` 1/1,
+`FRendererSceneContractTests.*` 2/2, `FMaterialTests.*` 45/45,
+`FStaticMeshMaterialTests.*` 11/11, `RHICommandListTests` 42/42,
+`RendererResourceReloadVulkanTests` 1/1, `EditorRenderingTests` 33/33, and a
+full `all` build. The focused fixture covers four-section classification,
+missing-slot ErrorMaterial fallback, mirrored parity, solid/wireframe keys,
+automatic translucent depth/blend facts, independent view distance
+recomputation, same-id replacement, and removal. Open questions: none.
 
 ### Stage 3: Execute Opaque and Masked policies
 
