@@ -314,6 +314,48 @@ namespace Durin::Asset
 		EXPECT_FLOAT_EQ(Scene.Meshes[2].Tangents[0].w, 1.0f);
 	}
 
+	TEST(FAssetImportTests, SkeletalContractContainersPreserveCurrentStaticBaseline)
+	{
+		std::array<FImportedSceneData, 3> Scenes;
+		const std::array<std::string_view, 3> Files = {
+			"Skeletal/StaticProjection.gltf",
+			"Skeletal/StaticProjectionExternal.gltf",
+			"Skeletal/StaticProjection.glb"};
+		for (size_t Index = 0; Index < Files.size(); ++Index)
+		{
+			SCOPED_TRACE(Files[Index]);
+			ASSERT_TRUE(ImportFromFile(TestDataPath(Files[Index]), Scenes[Index]));
+			ASSERT_EQ(Scenes[Index].MaterialSlots.size(), 2u);
+			EXPECT_EQ(Scenes[Index].MaterialSlots[0].Name, "Red");
+			EXPECT_EQ(Scenes[Index].MaterialSlots[1].Name, "Blue");
+			ASSERT_EQ(Scenes[Index].Meshes.size(), 4u);
+			EXPECT_TRUE(Scenes[Index].Diagnostics.empty());
+			for (const FImportedMeshData& Mesh : Scenes[Index].Meshes)
+			{
+				EXPECT_EQ(Mesh.Positions.size(), 3u);
+				EXPECT_EQ(Mesh.Normals.size(), 3u);
+				EXPECT_EQ(Mesh.Tangents.size(), 3u);
+				EXPECT_EQ(Mesh.UVChannels[0].size(), 3u);
+				EXPECT_EQ(Mesh.Indices, (std::vector<uint32>{0, 1, 2}));
+			}
+		}
+
+		for (size_t SceneIndex = 1; SceneIndex < Scenes.size(); ++SceneIndex)
+		{
+			ASSERT_EQ(Scenes[0].MaterialSlots.size(), Scenes[SceneIndex].MaterialSlots.size());
+			for (size_t SlotIndex = 0; SlotIndex < Scenes[0].MaterialSlots.size(); ++SlotIndex)
+			{
+				EXPECT_EQ(Scenes[0].MaterialSlots[SlotIndex].Name,
+					Scenes[SceneIndex].MaterialSlots[SlotIndex].Name);
+				EXPECT_EQ(Scenes[0].MaterialSlots[SlotIndex].SourceMaterialIndex,
+					Scenes[SceneIndex].MaterialSlots[SlotIndex].SourceMaterialIndex);
+			}
+			ASSERT_EQ(Scenes[0].Meshes.size(), Scenes[SceneIndex].Meshes.size());
+			for (size_t MeshIndex = 0; MeshIndex < Scenes[0].Meshes.size(); ++MeshIndex)
+				ExpectMeshEq(Scenes[0].Meshes[MeshIndex], Scenes[SceneIndex].Meshes[MeshIndex]);
+		}
+	}
+
 	TEST(FAssetImportTests, MaterialSlotFixturesCharacterizeNamesOrderAndSourceIndices)
 	{
 		struct FCase

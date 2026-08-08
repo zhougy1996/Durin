@@ -1,0 +1,12 @@
+Durin Skeletal Import Contract Fixtures
+
+Copyright (c) 2026 Durin contributors
+
+To the extent possible under law, the authors have dedicated all copyright and
+related and neighboring rights in these generated fixture assets to the public
+domain worldwide under the CC0 1.0 Universal Public Domain Dedication.
+
+The fixtures and their generator were authored for this repository. They are
+not derived from a third-party model or animation.
+
+CC0 1.0: https://creativecommons.org/publicdomain/zero/1.0/

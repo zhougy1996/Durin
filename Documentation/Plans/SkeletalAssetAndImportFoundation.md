@@ -11,10 +11,12 @@ Completed:
 
 This plan is the active S1 child of the
 [Skeletal Mesh and Animation Roadmap](../Roadmaps/SkeletalMeshAndAnimation.md).
-No skeletal implementation exists and no stage is complete. Stage 0 must first
-freeze the exact source subset, output graph, coordinate conversion, limits,
-payload split, and baseline fixtures against the current provider and asset
-lifecycle contracts.
+Stage 0 is complete at baseline `ca6eed295a1d67a1ed3035a04cea4c40a1c9068c`.
+The repository-owned skeletal fixture corpus now freezes the source subset,
+output graph, coordinate conversion, compatibility encoding, limits, payload
+split, malformed diagnostic categories, and current static projection baseline.
+Stage 1 is current and introduces the source-independent runtime asset schemas
+against that contract.
 
 The current normalized Scene result contains images, materials, material
 slots, and static mesh arrays only. `AssimpSceneGeometry.cpp` traverses nodes,
@@ -260,39 +262,39 @@ Outcome: implementation begins from fixture-proven source relationships,
 coordinate semantics, output identities, limits, and versioned payload
 boundaries rather than assumptions about glTF or Assimp behavior.
 
-- [ ] Select repository-owned or redistributable minimal `.gltf` and `.glb`
+- [x] Select repository-owned or redistributable minimal `.gltf` and `.glb`
   fixtures covering one skinned mesh, multiple mesh primitives, non-identity
   mesh/joint transforms, nontrivial inverse binds, four influences, STEP and
   LINEAR translation/rotation/scale tracks, multiple animations, and material
   relationships. Record source and license in the fixture directory.
-- [ ] Add malformed or generated fixtures for invalid joint indices, cyclic or
+- [x] Add malformed or generated fixtures for invalid joint indices, cyclic or
   disconnected hierarchy, count mismatch, zero/NaN weights, non-finite bind
   matrices, invalid animation targets, unordered/duplicate key times, truncated
   accessors, unsupported interpolation, unsupported secondary influence sets,
   required extensions, and resource-limit overflow.
-- [ ] Freeze exact source-to-Durin formulas with golden mesh positions, joint
+- [x] Freeze exact source-to-Durin formulas with golden mesh positions, joint
   local reference transforms, inverse-bind matrices, and animation values for
   identity, rotated, translated, scaled, and handedness-changing cases.
-- [ ] Freeze the multi-root, multi-skin, mesh-instance, shared-skeleton, and
+- [x] Freeze the multi-root, multi-skin, mesh-instance, shared-skeleton, and
   animation-to-skeleton output policy. Record explicit accepted and rejected
   shapes instead of relying on adapter behavior.
-- [ ] Freeze stable output identities, type directories, collision behavior,
+- [x] Freeze stable output identities, type directories, collision behavior,
   compatibility hash encoding, bone canonicalization, influence normalization,
   duplicate key-time handling, rotation sign canonicalization, and optional
   inverse-bind defaults.
-- [ ] Select exact accessor encodings and sparse-accessor policy for the initial
+- [x] Select exact accessor encodings and sparse-accessor policy for the initial
   subset. Record the distinction between unsupported, malformed, lossy, and
   resource-limit diagnostics.
-- [ ] Record bounded limits for every source, normalized, asset, and payload
+- [x] Record bounded limits for every source, normalized, asset, and payload
   collection plus total decoded bytes, using existing Scene/StaticMesh limits
   where their semantics match.
-- [ ] Freeze version-1 SkeletalMesh and AnimationClip payload magic, schemas,
+- [x] Freeze version-1 SkeletalMesh and AnimationClip payload magic, schemas,
   builder identities, DDC key inputs, target/profile fields, logical payload
   identities, authored metadata, and cook stripping.
-- [ ] Characterize current accepted StaticMesh outputs and Scene provider
+- [x] Characterize current accepted StaticMesh outputs and Scene provider
   diagnostics for the shared glTF fixtures so subsequent stages can prove no
   unplanned static-path change.
-- [ ] Record the exact Engine, StandardAssetImport, AssetCore, test, and fixture
+- [x] Record the exact Engine, StandardAssetImport, AssetCore, test, and fixture
   working set plus direct symbol ownership for Stage 1.
 
 #### Acceptance Gate
@@ -310,6 +312,54 @@ boundaries rather than assumptions about glTF or Assimp behavior.
   failure is recorded without being attributed to this plan.
 - The stage handoff records baseline commit, working set, symbols, decisions,
   open questions, and validation outcome.
+
+#### Stage 0 Handoff
+
+- Baseline commit: `ca6eed295a1d67a1ed3035a04cea4c40a1c9068c`
+  (`docs(skeletal): define asset and animation roadmap`).
+- Completed working set:
+  `Engine/Tests/Data/AssetImport/Skeletal/`,
+  `Engine/Tests/Native/AssetCoreTests/Private/AssetImportTests.cpp`, and this
+  plan. The fixture directory contains three complete contract containers,
+  three static projections, a reproducible generator, exact numeric and
+  compatibility goldens, licensing, 18 malformed sources, and their manifest.
+- Stage 1 working set: add runtime-owned headers and implementations under
+  `Engine/Source/Runtime/Engine/Public/SkeletalMesh/`,
+  `Engine/Source/Runtime/Engine/Private/SkeletalMesh/`,
+  `Engine/Source/Runtime/Engine/Public/Animation/`, and
+  `Engine/Source/Runtime/Engine/Private/Animation/`; register them through
+  `Engine/Source/Runtime/Engine/CMakeLists.txt`; add focused asset tests under
+  `Engine/Tests/Native/EngineTests/Private/` and that target's `CMakeLists.txt`.
+  `AssetCore`, `StandardAssetImport`, and the fixture generator are read-only
+  dependencies during Stage 1 unless a concrete missing generic seam is proven.
+- Direct symbol ownership: Engine owns `DSkeleton`, `DSkeletalMesh`,
+  `DAnimationClip`, canonical bone/material/clip summaries, detached payload
+  values, validation, hard Skeleton references, and symmetric imported-state
+  exchange. Existing `DStaticMesh`, its imported-state exchange,
+  `FCookedPayloadDescriptor`, reflected object references, package archive, and
+  Core math/hash APIs are the reference seams; no source/glTF type enters the
+  new public runtime headers.
+- Frozen decisions: glTF-to-Durin basis is `(-z,x,y)`; multi-root skins receive
+  `$DurinRoot`; canonical traversal is parent-first/source-index order; one
+  Skeleton is emitted per skin without coalescing; one SkeletalMesh is emitted
+  per node/mesh association; clips are animation/skin pairs; stable identities
+  and type directories are fixture-defined; compatibility is XXH3-128 over
+  `DSKC` encoding version 1 and has golden
+  `be0f679ef83133e5acfab7f12b688f54`; influence, rotation, key-time, accessor,
+  limit, diagnostic, payload, DDC, logical cook, and stripping policies are
+  singular in the fixture README.
+- Open questions: none block Stage 1. The exact private split between authored
+  asset implementation and detached payload validation may follow existing
+  Engine conventions, but it may not change the frozen wire/source contract.
+- Validation: fixture regeneration was byte-deterministic across 31 files; all
+  18 malformed files parse as JSON and have one manifest category; compatibility
+  bytes match the golden hash. `AssetImportTests` passed 14/14, including the
+  new three-container static projection regression. `TextureTests` with
+  `FSceneImportTests.*` passed 10/10. At the baseline commit, the complete
+  skeletal contract triggers pre-existing Assimp access violation `0xc0000005`,
+  while removing skeletal fields succeeds; this is recorded in the fixture
+  README and must be eliminated by Stage 2's format-owned decoder rather than
+  attributed to this stage.
 
 ### Stage 1: Introduce validated runtime asset schemas
 
