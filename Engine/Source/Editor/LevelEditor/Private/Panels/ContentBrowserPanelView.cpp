@@ -91,6 +91,14 @@ namespace Durin
 	auto FContentBrowserPanel::Draw(FLevelEditorContext& Context) -> void
 	{
 		(void)Context;
+		// The Level Editor workspace is constructed before feature modules register
+		// their thumbnail providers. Rebuild the restored directory snapshot once
+		// those registrations have completed and the panel is first submitted.
+		if (bRefreshItemsOnFirstDraw)
+		{
+			RefreshItemsSnapshot();
+			bRefreshItemsOnFirstDraw = false;
+		}
 		SynchronizeMountedContentMutation();
 		RefreshMountSnapshot();
 		if (!EditorWorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "Content Browser", "ContentBrowser", GetOpenPtr()))

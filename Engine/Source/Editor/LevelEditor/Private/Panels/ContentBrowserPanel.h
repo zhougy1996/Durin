@@ -144,6 +144,7 @@ namespace Durin
 		bool bRenameEditorHovered = false;
 		bool bDeletePopupRequested = false;
 		bool bDeletionPlanRefreshed = false;
+		bool bRefreshItemsOnFirstDraw = true;
 		FContentDeletionPlanPtr PendingDeletionPlan;
 		std::function<void()> DeferredContentAction;
 		std::string ErrorMessage;
