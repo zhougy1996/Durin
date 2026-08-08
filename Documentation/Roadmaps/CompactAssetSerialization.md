@@ -21,10 +21,12 @@ Completed:
   now owns the qualified layout and semantics. AssetCore still reads and writes
   only DAST v3, all 17 activation hashes remain unchanged, and the repository
   baseline rejects every other package format or incompatible schema.
-- Default-relative reflection is ready to activate as the next bounded child
-  plan. Its scope begins at production default storage, recursive logical
-  equivalence, forced-override state, and no-delta policy; it must consume the
-  frozen v4 bytes rather than reopen wire, custom-version, provenance, or
+- The bounded
+  [DAST V4 Default-Relative Reflection Plan](../Plans/DASTV4DefaultRelativeReflection.md)
+  activated on 2026-08-08. It owns production struct-default storage, tri-state
+  recursive logical identity, class/default-subobject baselines, a wire-neutral
+  logical delta plan, known-field override provenance, and no-delta policy. It
+  consumes the frozen v4 bytes without reopening wire, custom-version, or
   retained-closure decisions.
 - The completed [Asset Redirectors Refactor Plan](../Plans/Archive/2026-08/AssetRedirectors.md)
   owns DAST v3's bounded registry-entry kind and redirect-destination header
@@ -187,7 +189,7 @@ compression.
 | Unified Archive serialization | Required prerequisite plan | Reflected struct operations complete | One live `Serialize` entry, purpose-specific Archives, exact DAST v3 adapters, and shared construct-free field codecs pass focused, full-build, and editor qualification | Completed 2026-08-07 |
 | Class default object lifecycle | Required prerequisite plan | Struct-operations and unified-Archive prerequisites complete; program explicitly scheduled | Every eligible concrete reflected class has one immutable deterministic default object; template construction is free of runtime publication, GC/shutdown ownership is explicit, and constructor/default parity passes full qualification | Completed 2026-08-08 |
 | [V4 measurement and wire contract](../Plans/DASTV4MeasurementAndWireContract.md) | Required child plan | Class-default-object lifecycle exit gate passed | Recursive v3 accounting, a frozen bounded v4 byte contract, golden primitives, and a test-only feasibility fixture demonstrate the size target without a production reader or writer | Completed 2026-08-08 |
-| Default-relative reflection | Required child plan | V4 default/override semantics frozen and measurement/wire-contract exit gate passed | Class defaults and safe struct defaults drive recursive logical equivalence, forced-override provenance, and no-delta policy under focused lifecycle tests | Ready to activate |
+| [Default-relative reflection](../Plans/DASTV4DefaultRelativeReflection.md) | Required child plan | V4 default/override semantics frozen and measurement/wire-contract exit gate passed | Class defaults and safe struct defaults drive recursive logical equivalence, forced-override provenance, and no-delta policy under focused lifecycle tests | Active 2026-08-08 |
 | Deterministic v4 writer | Required child plan | Default-relative reflection exit gate passed | Discovery freezes every referenced table entry and version; canonical emission is byte-deterministic and meets both Default Material size gates | Proposed, deferred |
 | V4 reader and compatibility | Required child plan | Writer fixtures and frozen schema model available | Bounded v4 loading and construct-free inspection preserve unknown descriptor closures and pass malformed-input, rollback, and compatibility parity suites | Proposed, deferred |
 | Mixed-version migration | Required child plan | V3/v4 readers and v4 writer stable | Latest-writer and supported-reader policy is separated; registry, cache, and explicit atomic v3-to-v4 migration pass mixed-corpus and rollback validation | Proposed, deferred |
@@ -243,12 +245,13 @@ exact compatibility model. The generic test-only reference codec qualifies the
 complete Default Material size and parsing-cost gates. Production reader and
 writer activation remains outside this completed milestone.
 
-### Default-Relative Reflection
+### [Default-Relative Reflection](../Plans/DASTV4DefaultRelativeReflection.md)
 
-Will consume immutable class defaults and own deterministic struct default
-storage, recursive logical equivalence, forced-override provenance, and
-no-delta policy. It will consume the completed struct-operations contract rather
-than adding alternate lifecycle callbacks inside AssetCore.
+Consumes immutable class defaults and owns deterministic struct default storage,
+tri-state recursive logical identity, class/default-subobject baseline pairing,
+a wire-neutral delta plan, forced/loaded-explicit override provenance, and
+no-delta policy. It consumes the completed struct-operations contract rather
+than adding alternate lifecycle callbacks or comparison logic inside AssetCore.
 
 ### Writer, Reader, Migration, and Rollout Plans
 
