@@ -2,10 +2,10 @@
 
 Summary: Evolve Durin's bounded task graph from shared typed continuations into ownership-complete, structured, observable asynchronous workflows without weakening subsystem or render/RHI boundaries.
 
-Last reviewed: 2026-08-07
+Last reviewed: 2026-08-08
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-08
 
 ## Current Status
 
@@ -25,8 +25,10 @@ Tasks now carry bounded owner/category identity, per-task callable and execution
 costs, fixed-cardinality aggregate outcomes and distributions, and profiler
 correlation. `AssetImport` and `SourceImageThumbnail` are independent production
 owners with explicit admission/result shutdown boundaries. M4
-[Structured Task Scopes](../Plans/StructuredTaskScopes.md) has frozen its Stage
-0 contract and is active at Stage 1 with a bounded Core working set.
+[Structured Task Scopes](../Plans/StructuredTaskScopes.md) is complete: both
+owners now close scoped admission, preserve their domain publication policy,
+and reach observable quiescence under normal, cancellation, saturation, and
+shutdown coverage.
 
 M5 remains deferred. The M3 normal and saturated captures prove attribution and
 bounded CPU-task costs, but they do not show material Worker occupancy caused by
@@ -34,6 +36,13 @@ blocking file operations in a named owner/category, nor document platform
 cancellation limits for such an operation. Source-image decode includes file
 access but the current evidence does not separate blocking occupancy from CPU
 decode time. No `BoundedIOTaskExecutor` plan is opened.
+
+M6 is also deferred. The M4 pilots retain one request mailbox and existing
+render/RHI queues, but neither demonstrates two owners needing reusable ordered
+non-affine Worker execution that cannot be expressed with scopes and
+prerequisites. No `SerializedTaskLanes` plan is opened. With both conditional
+entry gates unmet and explicitly dispositioned, the required M1 through M4
+program is complete.
 
 ## Outcome
 
@@ -166,9 +175,9 @@ flowchart LR
 | M1: Move ownership | Required; completed | [Move-Only Tasks and Consuming Results](../Plans/Archive/2026-08/MoveOnlyTasksAndConsumingResults.md) | Foundation complete; concrete AsyncImportCore and thumbnail ownership gaps identified. | Move-only callables and one-consumer result sinks passed Core/lifecycle validation; AsyncImportCore adopted the sink without removing domain policy. |
 | M2: Typed fan-in | Required; completed | [Typed Task Fan-In](../Plans/Archive/2026-08/TypedTaskFanIn.md) | M1 ownership modes and terminal rules are stable. | Shared typed `WhenAll`/aggregate outcome composition is deterministic across success, failure, cancellation, fan-in, and destruction. |
 | M3: Owner diagnostics | Required; completed | [Task Owner Diagnostics](../Plans/Archive/2026-08/TaskOwnerDiagnostics.md) | M1 can attribute retained callable/result storage and existing queue timing is stable. | Bounded attribution, aggregate distributions, production pilots, Tracy correlation, qualification, and lifecycle validation passed. |
-| M4: Structured task scopes | Required; active | [Structured Task Scopes](../Plans/StructuredTaskScopes.md) | M2 and M3 are complete; `AssetImport` and `SourceImageThumbnail` have explicit, independently verified shutdown boundaries. | Scopes close admission, cancel or drain descendants, report nonterminal work, and quiesce explicitly without destructor blocking or scheduler-lifetime ownership. |
+| M4: Structured task scopes | Required; completed | [Structured Task Scopes](../Plans/StructuredTaskScopes.md) | M2 and M3 are complete; `AssetImport` and `SourceImageThumbnail` have explicit, independently verified shutdown boundaries. | Scopes close admission, cancel or drain descendants, report nonterminal work, and quiesce explicitly without destructor blocking or scheduler-lifetime ownership. |
 | M5: IO executor | Evidence-gated; deferred | `BoundedIOTaskExecutor` | Not met: M3 does not show material named blocking occupancy or document platform cancellation limits. | A bounded IO target improves the selected workload without starving CPU tasks and passes drain/cancel/shutdown validation. |
-| M6: Serialized lanes | Conditional | `SerializedTaskLanes` | At least two production owners need ordered non-affine work after M4 and cannot express it cleanly with a scope plus prerequisites. | Worker-backed lanes provide bounded FIFO execution, owner shutdown, reentrancy protection, and no thread-per-lane growth. |
+| M6: Serialized lanes | Conditional; deferred | `SerializedTaskLanes` | Not met: the M4 pilots do not provide two owners needing ordered non-affine Worker work beyond scopes, prerequisites, and existing domain queues. | Worker-backed lanes provide bounded FIFO execution, owner shutdown, reentrancy protection, and no thread-per-lane growth. |
 
 M1 through M4 define the required roadmap. M5 and M6 do not block completion
 when their entry evidence is absent; the roadmap must record the reviewed
@@ -248,6 +257,13 @@ commit provenance.
 | Generic targets bypass Render/RHI lifetime. | Roadmap non-goals keep render and RHI command ownership outside `ETaskTarget`. |
 
 ## Completion Criteria
+
+Completed on 2026-08-08. M1 through M4 passed their child-plan gates; full
+native and direct-lifecycle validation, Tracy-disabled and Tracy-enabled `all`
+builds, and hidden-window scheduler lifecycle smoke passed. The final M4
+qualification medians remained below the frozen no-scope thresholds, and both
+production owners preserved their subsystem and render/RHI policies. M5 and M6
+remain explicitly deferred because their evidence gates are not met.
 
 The required roadmap is complete when:
 

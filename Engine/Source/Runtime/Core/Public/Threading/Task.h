@@ -10,6 +10,7 @@ namespace Durin
 	namespace Private
 	{
 		struct FTaskAttributionAccess;
+		struct FTaskScopeAccess;
 	}
 
 	class FTaskAttribution
@@ -44,6 +45,8 @@ namespace Durin
 	class FTaskGenerationState;
 	class FTaskHandle;
 	class FTaskScheduler;
+	class FTaskScope;
+	class FTaskScopeState;
 	class FTaskStateData;
 	template<typename T>
 	class TTaskResultState;
@@ -85,6 +88,39 @@ namespace Durin
 	{
 		Drain,
 		Cancel,
+	};
+
+	enum class ETaskScopeCloseMode : uint8
+	{
+		Drain,
+		Cancel,
+	};
+
+	enum class ETaskScopeCloseResult : uint8
+	{
+		Closed,
+		EscalatedToCancel,
+		AlreadyClosed,
+		Invalid,
+	};
+
+	enum class ETaskScopeWaitResult : uint8
+	{
+		Quiescent,
+		TimedOut,
+		ScopeOpen,
+		UnsupportedThread,
+		Invalid,
+	};
+
+	enum class ETaskScopeState : uint8
+	{
+		Invalid,
+		Open,
+		ClosingDrain,
+		ClosingCancel,
+		QuiescentDrain,
+		QuiescentCancel,
 	};
 
 	enum class ETaskDependencyKind : uint8
@@ -143,6 +179,7 @@ namespace Durin
 	struct FTaskDiagnostics
 	{
 		uint64 TaskId = 0;
+		uint64 ScopeId = 0;
 		uint64 ParentTaskId = 0;
 		std::vector<uint64> PrerequisiteTaskIds;
 		std::vector<ETaskDependencyKind> PrerequisiteDependencyKinds;
@@ -173,6 +210,21 @@ namespace Durin
 		std::string AttributionCategory;
 		uint64 CallableStorageBytes = 0;
 		uint64 ExecutionNanoseconds = 0;
+	};
+
+	struct FTaskScopeDiagnostics
+	{
+		ETaskScopeState State = ETaskScopeState::Invalid;
+		uint64 ScopeId = 0;
+		uint64 AcceptedCount = 0;
+		uint64 RejectedCount = 0;
+		uint64 SucceededCount = 0;
+		uint64 FailedCount = 0;
+		uint64 CanceledCount = 0;
+		uint64 CurrentActiveCount = 0;
+		uint64 PeakActiveCount = 0;
+		std::vector<FTaskDiagnostics> NonterminalTasks;
+		uint64 NonterminalSnapshotTruncationCount = 0;
 	};
 
 	struct FTaskOwnerCategoryDiagnostics
@@ -229,6 +281,11 @@ namespace Durin
 		uint64 CanceledTaskCount = 0;
 		uint64 RejectedTaskCount = 0;
 		uint64 CapacityRejectedTaskCount = 0;
+		uint64 LiveScopeCount = 0;
+		uint64 OpenScopeCount = 0;
+		uint64 NonquiescentScopeCount = 0;
+		uint64 AbandonedOpenScopeCount = 0;
+		uint64 ScopeRejectedTaskCount = 0;
 		uint64 LongWaitCount = 0;
 		uint64 NonterminalTaskCount = 0;
 		uint64 RetainedTerminalHandleCount = 0;
@@ -367,6 +424,55 @@ namespace Durin
 		std::shared_ptr<FTaskCancellationState> State;
 	};
 
+	class FTaskScopeToken
+	{
+	public:
+		FTaskScopeToken() = default;
+		auto operator==(const FTaskScopeToken&) const -> bool = default;
+
+	private:
+		explicit FTaskScopeToken(std::shared_ptr<FTaskScopeState> InState)
+			: State(std::move(InState))
+		{
+		}
+
+		friend class FTaskScope;
+		friend class FTaskScheduler;
+		friend class FTaskStateData;
+		friend struct Private::FTaskScopeAccess;
+		friend CORE_API auto CreateTaskScope() -> FTaskScope;
+
+		std::shared_ptr<FTaskScopeState> State;
+	};
+
+	class FTaskScope
+	{
+	public:
+		FTaskScope() = default;
+		CORE_API ~FTaskScope();
+		FTaskScope(const FTaskScope&) = delete;
+		auto operator=(const FTaskScope&) -> FTaskScope& = delete;
+		CORE_API FTaskScope(FTaskScope&& Other) noexcept;
+		CORE_API auto operator=(FTaskScope&& Other) noexcept -> FTaskScope&;
+
+		CORE_API auto IsValid() const -> bool;
+		CORE_API auto GetToken() const -> FTaskScopeToken;
+		CORE_API auto Close(ETaskScopeCloseMode Mode) -> ETaskScopeCloseResult;
+		CORE_API auto Wait() const -> ETaskScopeWaitResult;
+		CORE_API auto WaitFor(double TimeoutSeconds) const -> ETaskScopeWaitResult;
+		CORE_API auto GetDiagnostics() const -> FTaskScopeDiagnostics;
+
+	private:
+		explicit FTaskScope(std::shared_ptr<FTaskScopeState> InState)
+			: State(std::move(InState))
+		{
+		}
+
+		friend CORE_API auto CreateTaskScope() -> FTaskScope;
+
+		std::shared_ptr<FTaskScopeState> State;
+	};
+
 	// Observes both ParallelFor group cancellation and caller-provided cancellation.
 	class FParallelForCancellationToken
 	{
@@ -489,6 +595,7 @@ namespace Durin
 		std::span<const FTaskHandle> Prerequisites;
 		FTaskCancellationToken CancellationToken;
 		FTaskAttribution Attribution;
+		FTaskScopeToken Scope;
 	};
 
 	struct FTaskContinuationOptions
@@ -501,6 +608,7 @@ namespace Durin
 		ETaskTarget Target = ETaskTarget::AnyWorker;
 		ETaskPriority Priority = ETaskPriority::Normal;
 		FTaskAttribution Attribution;
+		FTaskScopeToken Scope;
 	};
 
 	struct FParallelForOptions
@@ -509,6 +617,7 @@ namespace Durin
 		uint64 MinBatchSize = std::numeric_limits<uint64>::max();
 		FTaskCancellationToken CancellationToken;
 		FTaskAttribution Attribution;
+		FTaskScopeToken Scope;
 	};
 
 	struct FParallelForResult
@@ -527,6 +636,7 @@ namespace Durin
 	// Starts the process-owned CPU scheduler. Engine lifecycle starts it once during PreInit.
 	CORE_API auto InitializeTaskScheduler(uint32 InNumThreads = 0) -> bool;
 	CORE_API auto InitializeTaskScheduler(const FTaskSchedulerConfig& Config) -> bool;
+	CORE_API auto CreateTaskScope() -> FTaskScope;
 	// Closes admission and either drains or discards all accepted work before returning.
 	CORE_API auto ShutdownTaskScheduler(bool bWaitForQueuedWork = true) -> void;
 	CORE_API auto InitializeGameThreadDeferredExecutor(const FGameThreadDeferredWorkQueueConfig& Config = {}) -> bool;

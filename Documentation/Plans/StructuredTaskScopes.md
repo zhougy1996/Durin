@@ -2,19 +2,26 @@
 
 Summary: Add explicit bounded owner scopes that close task admission, propagate cancellation, expose descendant diagnostics, and quiesce without implicit destructor waits.
 
-Last reviewed: 2026-08-07
+Last reviewed: 2026-08-08
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-08
 
 ## Current Status
 
-Stage 0 is complete from the M3 completion baseline `97e046e9`; Stage 1 is ready
-to resume after completed [Task System Audit Remediation](TaskSystemAuditRemediation.md).
-That prerequisite established `FTaskSchedulerConfig`, the default 16,384-node
-process capacity, the final post-propagation terminal hook, and non-nested deep
-snapshot locking in the same Core working set. The frozen scope contract remains
-valid with the integration clarifications below.
+All stages are complete. Structured scopes now cover bounded admission,
+drain-to-cancel escalation, cooperative cancellation, post-propagation
+quiescence, Worker helping, GameThread deferred wait rejection, scheduler-wide
+weak scope tracking and shutdown closure, bounded diagnostics, and numeric
+profiler correlation. AssetImport request work and source-image thumbnail decode
+work now use explicit owner scopes. Qualification, lasting runtime contracts,
+profiling parity, lifecycle smoke, and M4 roadmap closure are complete.
+
+The completed [Task System Audit Remediation](TaskSystemAuditRemediation.md)
+established `FTaskSchedulerConfig`, the default 16,384-node process capacity,
+the final post-propagation terminal hook, and non-nested deep snapshot locking
+used by Stage 1. The frozen scope contract remains valid with the integration
+clarifications below.
 
 The frozen contract uses a move-only `FTaskScope` controller and a
 copyable `FTaskScopeToken`, appends explicit scope selection to existing option
@@ -24,13 +31,12 @@ balances each accepted node at `FTaskScheduler::Submit` and the end of
 close-and-cancel, scope destruction never waits, and bounded diagnostics retain
 at most 64 nonterminal task snapshots.
 
-AssetImport will use one request scope while retaining its owner/provider
-admission and mailbox. The source-image thumbnail cache will use one cache
-lifetime scope, close result publication, cancel the scope, and explicitly
-quiesce outstanding decode tasks before releasing asynchronous cache state.
-The Stage 1 working set is limited to `Task.h`, `Task.cpp`, and
-`ThreadingTests.cpp`; no Core API, admission-race, lock-order, GameThread, or
-pilot-boundary question remains open.
+AssetImport uses one request scope while retaining its owner/provider admission,
+mailbox, latest-wins selection, and explicit result taking. The source-image
+thumbnail cache uses one cache-lifetime scope, closes result publication,
+cancels the scope, and explicitly quiesces outstanding decode tasks before
+releasing asynchronous cache state. No Core API, admission-race, lock-order,
+GameThread, or pilot-boundary question remains open.
 
 ## Goal
 
@@ -394,15 +400,15 @@ the Task Owner Diagnostics handoff.
 ### Stage 1: Add bounded scope admission and inheritance
 
 Dependencies: Stage 0 frozen contract; completed
-[Task System Audit Remediation](TaskSystemAuditRemediation.md). Ready.
+[Task System Audit Remediation](TaskSystemAuditRemediation.md). Complete.
 
-- [ ] Implement scope state and public handles/options without changing default
+- [x] Implement scope state and public handles/options without changing default
   behavior for unscoped callers.
-- [ ] Associate roots and inherited descendants across continuations, typed
+- [x] Associate roots and inherited descendants across continuations, typed
   fan-in, unique sinks, and parallel-for according to the frozen precedence.
-- [ ] Linearize close against admission and reject post-close work without
+- [x] Linearize close against admission and reject post-close work without
   retaining callables or task nodes in the scope.
-- [ ] Add compile-time and focused tests for traits, defaults, explicit scope
+- [x] Add compile-time and focused tests for traits, defaults, explicit scope
   selection, inheritance, cross-scope prerequisites, and close races.
 
 #### Acceptance Gate
@@ -411,19 +417,51 @@ Dependencies: Stage 0 frozen contract; completed
   admission is rejected deterministically.
 - Existing unscoped task APIs and scheduling behavior remain source compatible.
 
+#### Stage 1 Handoff
+
+- Baseline commit: `c2535eea` (`docs(asset): activate DAST v4 wire contract
+  plan`). The task-system prerequisite is completion commit `21019339`
+  (`feat(tasks): remediate task system audit findings`); intervening commits do
+  not change the Stage 1 Core working set.
+- Working set: Stage 1 changed `Task.h`, `Task.cpp`, `ThreadingTests.cpp`, and
+  this plan. Stage 2 continues in those files and adds `Profiling.h` and
+  `LaunchEngineLoop.cpp` for profiler and shutdown integration.
+- Key symbols: `FTaskScope` owns the one non-copyable controller reference;
+  `FTaskScopeToken` carries copyable association; `FTaskScheduler::Submit`
+  resolves root inheritance or the already-selected primary-predecessor scope,
+  reserves process capacity, then calls `FTaskScopeState::TryAdmit` under the
+  scheduler mutex; `FTaskStateData::FinishTerminalPublication` releases the
+  scope after dependent notification and before `OnTaskTerminal`.
+- Decisions: a scoped executing root forbids explicit reparenting; continuation,
+  typed fan-in, and unique sinks select their primary predecessor before
+  admission; parallel-for forwards the selected token only to scheduled Worker
+  chunks. Scope construction rollback balances provisional capacity and scope
+  charges, and close/admission races reconcile accepted, rejected, terminal,
+  active, and peak counts.
+- Open questions: none for Stage 2. Worker helping, GameThread deferred wait
+  rejection, scheduler live-scope registry/shutdown closure, abandoned-open
+  diagnostics, profiler scope ids, and the full concurrent diagnostic suite
+  remain explicitly owned by Stage 2.
+- Validation: `FTaskScope*` passed 4/4; task-focused tests passed 58/58; full
+  `CoreConcurrencyTests` passed 113/113 on
+  `Win64-Debug-DurinEditor-Tests`. The five-run paired qualification recorded
+  7,673,100 ns unscoped and 7,804,300 ns scoped medians (about 1.7 percent
+  overhead), below the frozen 15 percent threshold, with all scope counts
+  reconciled.
+
 ### Stage 2: Implement cancellation, quiescence, and diagnostics
 
 Dependencies: Stage 1 stable scope association.
 
-- [ ] Add explicit drain/cancel close modes and bounded wait/quiescence APIs at
+- [x] Add explicit drain/cancel close modes and bounded wait/quiescence APIs at
   supported thread boundaries.
-- [ ] Propagate cooperative cancellation without changing terminal precedence or
+- [x] Propagate cooperative cancellation without changing terminal precedence or
   blocking destruction.
-- [ ] Add bounded scope counters, gauges, nonterminal snapshots, and scheduler
+- [x] Add bounded scope counters, gauges, nonterminal snapshots, and scheduler
   shutdown closure.
-- [ ] Append numeric scope correlation to per-task diagnostics and the existing
+- [x] Append numeric scope correlation to per-task diagnostics and the existing
   Tracy/no-op task profiler adapters without adding dynamic cardinality.
-- [ ] Add races for admission versus close, child launch versus cancel, terminal
+- [x] Add races for admission versus close, child launch versus cancel, terminal
   publication, handle release, scheduler shutdown, and concurrent diagnostics.
 
 #### Acceptance Gate
@@ -432,19 +470,49 @@ Dependencies: Stage 1 stable scope association.
   propagation are complete, including failure and cancellation races.
 - Wrong-thread and GameThread deferred waits reject rather than deadlock.
 
+#### Stage 2 Handoff
+
+- Baseline commit: `62a66263` (`feat(tasks): add bounded task scope admission`).
+- Working set: Stage 2 changed `Task.h`, `Task.cpp`, `Profiling.h`,
+  `ThreadingTests.cpp`, and this plan. No `LaunchEngineLoop.cpp` edit was needed:
+  its existing shutdown calls flow through the now scope-aware
+  `ShutdownTaskSystem` and `ShutdownTaskScheduler` entrypoints.
+- Key symbols: `FTaskScheduler::CreateScope`, `RegisterScope`,
+  `CloseLiveScopes`, and `SnapshotScopeCounts` own weak registry lifecycle;
+  `FTaskScopeState::WaitFor` blocks externally, helps from a Worker waiting on a
+  different scope, and rejects self-scope, rendering-thread, and scoped
+  GameThread-deferred waits; `AbandonOpen` performs the controller destructor's
+  non-blocking cancel fallback. `FTaskSchedulerDiagnostics` exposes live, open,
+  nonquiescent, abandoned-open, and scope-rejection totals.
+- Decisions: nonquiescent counts every live scope not yet in a quiescent state,
+  including idle open scopes. Scope registry entries remain weak and compact
+  only during creation, diagnostics, and shutdown. Scheduler shutdown closes
+  all pinned live scopes after root admission closes and before executor
+  teardown. Profiler enqueue, execute, and terminal events append only the
+  numeric scope id; the disabled adapters remain fixed-signature no-ops.
+- Open questions: none for Stage 3. The production migrations retain their
+  existing mailbox, cache serial, result-taking, and render/RHI policies.
+- Validation: `FTaskScopeTests.*` passed 9/9 and full
+  `CoreConcurrencyTests` passed 119/119 on
+  `Win64-Debug-DurinEditor-Tests`. The focused assertion side-effect audit
+  returned no new invocation; its four reported findings are pre-existing
+  scanner/allowlist entries shifted by this plan's source edits. The repository
+  wide audit remains blocked by unrelated stale allowlist entries outside this
+  working set.
+
 ### Stage 3: Migrate production owners
 
 Dependencies: Stage 2 lifecycle semantics.
 
-- [ ] Migrate AssetImport owner/provider shutdown to a scope while retaining its
+- [x] Migrate AssetImport owner/provider shutdown to a scope while retaining its
   request table, mailbox, unique result sink, latest-wins policy, and explicit
   result taking.
-- [ ] Migrate the selected source-image thumbnail boundary while retaining cache
+- [x] Migrate the selected source-image thumbnail boundary while retaining cache
   serial validation, decode/upload throttling, weak publication, and render/RHI
   ownership.
-- [ ] Add focused owner shutdown, late publication, cancellation, destruction,
+- [x] Add focused owner shutdown, late publication, cancellation, destruction,
   and restart tests for both pilots.
-- [ ] Capture diagnostics proving each owner closes admission and reaches its
+- [x] Capture diagnostics proving each owner closes admission and reaches its
   selected quiescence/detachment contract.
 
 #### Acceptance Gate
@@ -452,19 +520,50 @@ Dependencies: Stage 2 lifecycle semantics.
 - Both production owners shut down without hidden work, post-close publication,
   GameThread pumping inversion, or policy migration into Core.
 
+#### Stage 3 Handoff
+
+- Baseline commit: `5428947b` (`feat(tasks): complete structured scope
+  lifecycle`).
+- Working set: Stage 3 changed `AsyncImport.cpp`,
+  `SourceImageThumbnailCache.cpp`, their existing `AssetImportCoreTests.cpp` and
+  `SourceImageThumbnailTests.cpp` pilot suites, and this plan. Core scope APIs
+  required no change.
+- Key symbols: `FAsyncImportRequestState::Scope` owns one request controller;
+  `FAsyncImportCoordinator::Launch`, `RequestCancellation`, and
+  `CancelAndDrainMatching` own scoped admission, cancellation publication, and
+  quiescence. `FSourceImageThumbnailCache::FImpl::TaskScope` owns every decode;
+  `FSourceImageThumbnailCache::Shutdown` closes result publication before
+  cancel-and-wait, then clears entries and releases `AsyncState`.
+- Decisions: AssetImport publishes its subsystem-owned cancellation result and
+  mailbox notice before cancel-closing the scope, so cancellation of the result
+  continuation cannot strand a pending handle. Normal publication drain-closes
+  the scope. Matching drains wait on the scope without holding coordinator or
+  request locks. Thumbnail shutdown holds the async-state mutex only while
+  closing result admission; scope wait and render/RHI resource release remain
+  outside that mutex and on their existing owner paths. Quiescence is proven by
+  zero open and nonquiescent scope counts; a terminal queue node may briefly
+  retain an already-quiescent live scope reference.
+- Open questions: none for Stage 4. Qualification owns full native, full `all`,
+  profiling parity, lifecycle smoke, stable documentation, and roadmap closure.
+- Validation: `FAssetImportCoreTests.*` passed 12/12, full
+  `AssetImportCoreTests` passed 24/24, `FSourceImageThumbnailTests.*` passed
+  15/15, and full `ThumbnailTests` passed 61/61 on
+  `Win64-Debug-DurinEditor-Tests`. The focused assertion side-effect audit over
+  both implementations and pilot suites reported 0 invocations and 0 findings.
+
 ### Stage 4: Qualify, document, and close M4
 
 Dependencies: Stage 3 production evidence.
 
-- [ ] Compare post-change qualification medians with Stage 0 and disposition any
+- [x] Compare post-change qualification medians with Stage 0 and disposition any
   regression above the frozen threshold.
-- [ ] Run focused Core and pilot suites, full native aggregate, complete `all`
+- [x] Run focused Core and pilot suites, full native aggregate, complete `all`
   builds, and hidden-window lifecycle smoke through the repository contract.
-- [ ] Validate profiling-disabled and profiling-enabled builds and correlate
+- [x] Validate profiling-disabled and profiling-enabled builds and correlate
   bounded scope diagnostics without dynamic profiler cardinality.
-- [ ] Move stable scope rules into the CPU Task System and runtime lifecycle
+- [x] Move stable scope rules into the CPU Task System and runtime lifecycle
   documentation.
-- [ ] Record M4 completion and M6 serialized-lane evidence disposition in the
+- [x] Record M4 completion and M6 serialized-lane evidence disposition in the
   roadmap, then complete the final handoff and plan validation.
 
 #### Acceptance Gate
@@ -473,6 +572,45 @@ Dependencies: Stage 3 production evidence.
   cancellation, saturation, and shutdown loads.
 - Scope lifetime is explicit, bounded, behavior-neutral for unscoped callers,
   and independent of scheduler ownership.
+
+#### Stage 4 Handoff
+
+- Baseline commit: `78f53a2f` (`feat(tasks): migrate production owners to
+  scopes`). The lasting documentation working set is `TaskSystem.md`,
+  `RuntimeLifecycle.md`, `Profiling.md`, `TaskSystemEvolution.md`, and this
+  plan. Qualification also added one isolation fix to
+  `ReflectionTypeTests.cpp`: the recursive-CDO fixture now registers its
+  persistent dependency class before measuring rollback-owned object count.
+- Qualification: the frozen four-fixture five-run medians were 7,649,300 ns
+  copyable, 7,845,000 ns move-only, 4,101,100 ns shared transfer, 4,329,000 ns
+  unique transfer, 11,408,300 ns deferred admission, 5,194,000 ns deferred
+  pump, 10,390,641 ns average deferred residency, 54 ms process total, and 6 ms
+  diagnostic snapshot. They changed -50.24%, -47.73%, -49.43%, -48.08%,
+  -48.60%, -46.78%, -48.69%, -73.91%, and -94.64% from the Stage 0 frozen
+  medians, so no 10 percent regression investigation remained. Across five
+  paired scope runs, the median-of-medians was 8,384,500 ns unscoped and
+  8,471,400 ns scoped, about 1.04 percent overhead and below the frozen 15
+  percent threshold; every run reconciled its scope counts.
+- Key decisions: stable scope association, close, cancellation, quiescence,
+  waiting, shutdown, and bounded diagnostics now live in the CPU Task System
+  contract. Runtime lifecycle documents owner publication-before-close and
+  lock-free wait ordering for both pilots. Profiling carries only a numeric
+  scope id in existing task events; scope values create no dynamic zone, plot,
+  source-location, or registry cardinality.
+- Roadmap disposition: M4 is complete. M6 remains deferred because AssetImport
+  and source-image thumbnails do not provide two owners needing reusable
+  ordered non-affine Worker execution beyond scopes, prerequisites, and their
+  existing domain queues. M5 remains deferred under its existing unmet blocking
+  occupancy and platform-cancellation evidence gate.
+- Open questions: none. Full Core and both pilot suites passed; the full native
+  aggregate and direct-lifecycle phase passed after the fixture isolation fix.
+  Tracy-disabled `Win64-Debug-DurinEditor-Tests` and Tracy-enabled
+  `Win64-Release-DurinEditor-Profiling` completed `all` builds. Both presets
+  passed hidden-window scheduler lifecycle smoke through normal engine exit,
+  with matching completed, failed, canceled, rejected, long-wait, and retained-
+  handle diagnostics. The focused assertion side-effect audit reported zero
+  invocations and findings, the all-plan validator passed, and `git diff
+  --check` was clean.
 
 ## Validation Matrix
 

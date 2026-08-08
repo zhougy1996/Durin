@@ -17,9 +17,20 @@ namespace Durin
 	static_assert(std::is_trivially_copyable_v<FTaskAttribution>);
 	static_assert(std::is_standard_layout_v<FTaskAttribution>);
 	static_assert(std::equality_comparable<FTaskAttribution>);
-	static_assert(noexcept(Profiling::TaskEnqueued(1, 2, 2, 0)));
-	static_assert(noexcept(Profiling::TaskExecution(1, 2, 2, 0)));
-	static_assert(noexcept(Profiling::TaskTerminal(1, 2, 2, 0, 0)));
+	static_assert(std::is_default_constructible_v<FTaskScope>);
+	static_assert(std::is_move_constructible_v<FTaskScope>);
+	static_assert(std::is_move_assignable_v<FTaskScope>);
+	static_assert(!std::is_copy_constructible_v<FTaskScope>);
+	static_assert(!std::is_copy_assignable_v<FTaskScope>);
+	static_assert(std::is_default_constructible_v<FTaskScopeToken>);
+	static_assert(std::is_copy_constructible_v<FTaskScopeToken>);
+	static_assert(std::is_copy_assignable_v<FTaskScopeToken>);
+	static_assert(std::is_move_constructible_v<FTaskScopeToken>);
+	static_assert(std::is_move_assignable_v<FTaskScopeToken>);
+	static_assert(std::equality_comparable<FTaskScopeToken>);
+	static_assert(noexcept(Profiling::TaskEnqueued(1, 3, 2, 2, 0)));
+	static_assert(noexcept(Profiling::TaskExecution(1, 3, 2, 2, 0)));
+	static_assert(noexcept(Profiling::TaskTerminal(1, 3, 2, 2, 0, 0)));
 	static_assert(noexcept(Profiling::TaskAggregatePlots(2, 2, 0, 0, 0, 0, 0, 0, 0)));
 
 	namespace
@@ -791,6 +802,489 @@ namespace Durin
 			}
 		}
 		EXPECT_FALSE(LaunchTask("RejectedAfterClose", []() {}).IsValid());
+	}
+
+	TEST(FTaskScopeTests, DefaultsTraitsAndEmptyCloseRemainExplicit)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+
+		FTaskScope InvalidScope;
+		EXPECT_FALSE(InvalidScope.IsValid());
+		EXPECT_EQ(FTaskScopeToken{}, InvalidScope.GetToken());
+		EXPECT_EQ(ETaskScopeCloseResult::Invalid, InvalidScope.Close(ETaskScopeCloseMode::Drain));
+		EXPECT_EQ(ETaskScopeWaitResult::Invalid, InvalidScope.Wait());
+		EXPECT_EQ(ETaskScopeState::Invalid, InvalidScope.GetDiagnostics().State);
+		EXPECT_FALSE(CreateTaskScope().IsValid());
+		EXPECT_EQ(FTaskScopeToken{}, FTaskLaunchOptions{}.Scope);
+		EXPECT_EQ(FTaskScopeToken{}, FTaskContinuationOptions{}.Scope);
+		EXPECT_EQ(FTaskScopeToken{}, FParallelForOptions{}.Scope);
+
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		FTaskScope First = CreateTaskScope();
+		FTaskScope Second = CreateTaskScope();
+		ASSERT_TRUE(First.IsValid());
+		ASSERT_TRUE(Second.IsValid());
+		EXPECT_NE(First.GetToken(), Second.GetToken());
+		EXPECT_NE(0u, First.GetDiagnostics().ScopeId);
+		EXPECT_NE(First.GetDiagnostics().ScopeId, Second.GetDiagnostics().ScopeId);
+
+		EXPECT_EQ(ETaskScopeCloseResult::Closed, First.Close(ETaskScopeCloseMode::Drain));
+		EXPECT_EQ(ETaskScopeState::QuiescentDrain, First.GetDiagnostics().State);
+		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, First.Wait());
+		EXPECT_EQ(ETaskScopeCloseResult::AlreadyClosed, First.Close(ETaskScopeCloseMode::Cancel));
+	}
+
+	TEST(FTaskScopeTests, ExplicitAndInheritedSelectionCoversEveryTaskForm)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(4));
+
+		FTaskScope ScopeA = CreateTaskScope();
+		FTaskScope ScopeB = CreateTaskScope();
+		ASSERT_TRUE(ScopeA.IsValid());
+		ASSERT_TRUE(ScopeB.IsValid());
+		const uint64 ScopeAId = ScopeA.GetDiagnostics().ScopeId;
+		const uint64 ScopeBId = ScopeB.GetDiagnostics().ScopeId;
+		FTaskLaunchOptions RootAOptions;
+		RootAOptions.Scope = ScopeA.GetToken();
+		FTaskLaunchOptions RootBOptions;
+		RootBOptions.Scope = ScopeB.GetToken();
+
+		auto RootA = LaunchTask<int>("ScopedRootA", []() { return 7; }, RootAOptions);
+		auto RootB = LaunchTask<std::string>("ScopedRootB", []() { return std::string("scope-b"); }, RootBOptions);
+		ASSERT_TRUE(RootA.IsValid());
+		ASSERT_TRUE(RootB.IsValid());
+
+		FTaskHandle InheritedChild;
+		FTaskHandle MatchingExplicitChild;
+		FTaskHandle ReparentedChild;
+		FTaskHandle NestedParent = LaunchTask("ScopedNestedParent", [&]() {
+			InheritedChild = LaunchTask("ScopedInheritedChild", []() {});
+			FTaskLaunchOptions MatchingOptions;
+			MatchingOptions.Scope = ScopeA.GetToken();
+			MatchingExplicitChild = LaunchTask("ScopedMatchingChild", []() {}, MatchingOptions);
+			FTaskLaunchOptions ReparentOptions;
+			ReparentOptions.Scope = ScopeB.GetToken();
+			ReparentedChild = LaunchTask("ScopedReparentedChild", []() {}, ReparentOptions);
+		}, RootAOptions);
+		ASSERT_TRUE(NestedParent.IsValid());
+
+		FTaskHandle Continuation = Then(RootA, "ScopedContinuation", [](const int&) {});
+		std::array<FTaskHandle, 1> AdditionalPrerequisites{RootB.GetTaskHandle()};
+		FTaskContinuationOptions CrossScopePrerequisiteOptions;
+		CrossScopePrerequisiteOptions.Prerequisites = AdditionalPrerequisites;
+		FTaskHandle CrossScopePrerequisite = Then(RootA, "ScopedCrossScopePrerequisite", [](const int&) {}, CrossScopePrerequisiteOptions);
+		FTaskContinuationOptions ReparentContinuationOptions;
+		ReparentContinuationOptions.Scope = ScopeB.GetToken();
+		FTaskHandle ReparentedContinuation = Then(RootA, "ScopedReparentedContinuation", [](const int&) {}, ReparentContinuationOptions);
+		auto FanIn = WhenAll(std::make_tuple(RootA, RootB), "ScopedFanIn",
+			[](const int& Number, const std::string& Text) { return Number + static_cast<int>(Text.size()); });
+
+		auto UniqueProducer = LaunchUniqueTask<int>("ScopedUniqueProducer", []() { return 11; }, RootAOptions, sizeof(int));
+		FTaskHandle UniqueSink = ConsumeThen(std::move(UniqueProducer), "ScopedUniqueSink", [](int&&) {});
+
+		const uint64 AcceptedBeforeParallelFor = ScopeA.GetDiagnostics().AcceptedCount;
+		FParallelForOptions ParallelOptions;
+		ParallelOptions.MinBatchSize = 1;
+		ParallelOptions.Scope = ScopeA.GetToken();
+		const FParallelForResult ParallelResult = ParallelFor("ScopedParallelFor", 64, [](uint64) {}, ParallelOptions);
+		ASSERT_EQ(ETaskState::Succeeded, ParallelResult.State);
+		EXPECT_EQ(ParallelResult.ChunkCount - 1, ScopeA.GetDiagnostics().AcceptedCount - AcceptedBeforeParallelFor);
+
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(NestedParent));
+		ASSERT_TRUE(InheritedChild.IsValid());
+		ASSERT_TRUE(MatchingExplicitChild.IsValid());
+		EXPECT_FALSE(ReparentedChild.IsValid());
+		EXPECT_FALSE(ReparentedContinuation.IsValid());
+		for (const FTaskHandle& Task : std::array{
+			RootA.GetTaskHandle(), RootB.GetTaskHandle(), InheritedChild, MatchingExplicitChild,
+			Continuation, CrossScopePrerequisite, FanIn.GetTaskHandle(), UniqueSink})
+		{
+			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task));
+		}
+
+		EXPECT_EQ(ScopeAId, RootA.GetDiagnostics().ScopeId);
+		EXPECT_EQ(ScopeBId, RootB.GetDiagnostics().ScopeId);
+		EXPECT_EQ(ScopeAId, InheritedChild.GetDiagnostics().ScopeId);
+		EXPECT_EQ(ScopeAId, MatchingExplicitChild.GetDiagnostics().ScopeId);
+		EXPECT_EQ(ScopeAId, Continuation.GetDiagnostics().ScopeId);
+		EXPECT_EQ(ScopeAId, CrossScopePrerequisite.GetDiagnostics().ScopeId);
+		EXPECT_EQ(ScopeAId, FanIn.GetDiagnostics().ScopeId);
+		EXPECT_EQ(ScopeAId, UniqueSink.GetDiagnostics().ScopeId);
+
+		EXPECT_EQ(ETaskScopeCloseResult::Closed, ScopeA.Close(ETaskScopeCloseMode::Drain));
+		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, ScopeA.Wait());
+		FTaskLaunchOptions ClosedOptions;
+		ClosedOptions.Scope = ScopeA.GetToken();
+		EXPECT_FALSE(LaunchTask("ScopedRejectedAfterClose", []() {}, ClosedOptions).IsValid());
+		const FTaskScopeDiagnostics ScopeADiagnostics = ScopeA.GetDiagnostics();
+		EXPECT_EQ(ETaskScopeState::QuiescentDrain, ScopeADiagnostics.State);
+		EXPECT_EQ(0u, ScopeADiagnostics.CurrentActiveCount);
+		EXPECT_EQ(ScopeADiagnostics.AcceptedCount,
+			ScopeADiagnostics.SucceededCount + ScopeADiagnostics.FailedCount + ScopeADiagnostics.CanceledCount);
+		EXPECT_EQ(1u, ScopeADiagnostics.RejectedCount);
+		EXPECT_EQ(2u, ScopeB.GetDiagnostics().RejectedCount);
+	}
+
+	TEST(FTaskScopeTests, ConcurrentCloseLinearizesEveryAdmission)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(4));
+		FTaskScope Scope = CreateTaskScope();
+		ASSERT_TRUE(Scope.IsValid());
+
+		constexpr uint32 ProducerCount = 32;
+		std::barrier StartBarrier(ProducerCount + 1);
+		std::array<FTaskHandle, ProducerCount> Handles;
+		std::vector<std::thread> Producers;
+		Producers.reserve(ProducerCount);
+		const FTaskScopeToken Token = Scope.GetToken();
+		for (uint32 ProducerIndex = 0; ProducerIndex < ProducerCount; ++ProducerIndex)
+		{
+			Producers.emplace_back([&, ProducerIndex, Token]() {
+				FTaskLaunchOptions Options;
+				Options.Scope = Token;
+				StartBarrier.arrive_and_wait();
+				Handles[ProducerIndex] = LaunchTask("ScopedAdmissionRace", []() {}, Options);
+			});
+		}
+
+		StartBarrier.arrive_and_wait();
+		EXPECT_EQ(ETaskScopeCloseResult::Closed, Scope.Close(ETaskScopeCloseMode::Drain));
+		for (std::thread& Producer : Producers) Producer.join();
+
+		uint64 AcceptedCount = 0;
+		for (const FTaskHandle& Handle : Handles)
+		{
+			if (!Handle.IsValid()) continue;
+			++AcceptedCount;
+			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Handle));
+		}
+		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, Scope.Wait());
+		const FTaskScopeDiagnostics Diagnostics = Scope.GetDiagnostics();
+		EXPECT_EQ(AcceptedCount, Diagnostics.AcceptedCount);
+		EXPECT_EQ(ProducerCount - AcceptedCount, Diagnostics.RejectedCount);
+		EXPECT_EQ(AcceptedCount, Diagnostics.SucceededCount);
+		EXPECT_EQ(0u, Diagnostics.CurrentActiveCount);
+	}
+
+	TEST(FTaskScopeTests, CancelWaitAndTerminalPublicationPreserveFailurePrecedence)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		FTaskScope Scope = CreateTaskScope();
+		FTaskLaunchOptions Options;
+		Options.Scope = Scope.GetToken();
+
+		FThreadEvent Started;
+		FThreadEvent ReleaseCallable;
+		FThreadEvent RawTerminalReached;
+		FThreadEvent ReleasePublication;
+		std::atomic<bool> bObservedCancellation = false;
+		FTaskTerminalPublicationTestHookGuard HookGuard([&](uint64) {
+			Private::SetTaskTerminalPublicationTestHook({});
+			RawTerminalReached.Trigger();
+			ReleasePublication.Wait();
+		});
+		FTaskHandle Task = LaunchCancelableTask("ScopedCancelFailure", [&](const FTaskCancellationToken& Token) {
+			Started.Trigger();
+			ReleaseCallable.Wait();
+			bObservedCancellation.store(Token.IsCancellationRequested(), std::memory_order::release);
+			throw std::runtime_error("scope cancellation lost to failure");
+		}, Options);
+		ASSERT_TRUE(Started.WaitFor(1.0));
+
+		EXPECT_EQ(ETaskScopeCloseResult::Closed, Scope.Close(ETaskScopeCloseMode::Drain));
+		EXPECT_EQ(ETaskScopeWaitResult::TimedOut, Scope.WaitFor(0.001));
+		EXPECT_EQ(ETaskScopeCloseResult::EscalatedToCancel, Scope.Close(ETaskScopeCloseMode::Cancel));
+		EXPECT_EQ(ETaskScopeCloseResult::AlreadyClosed, Scope.Close(ETaskScopeCloseMode::Cancel));
+		ReleaseCallable.Trigger();
+		ASSERT_TRUE(RawTerminalReached.WaitFor(1.0));
+		EXPECT_EQ(1u, Scope.GetDiagnostics().CurrentActiveCount);
+		EXPECT_EQ(ETaskScopeWaitResult::TimedOut, Scope.WaitFor(0.001));
+		ReleasePublication.Trigger();
+
+		EXPECT_EQ(ETaskState::Failed, WaitTask(Task));
+		EXPECT_TRUE(bObservedCancellation.load(std::memory_order::acquire));
+		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, Scope.Wait());
+		const FTaskScopeDiagnostics Diagnostics = Scope.GetDiagnostics();
+		EXPECT_EQ(1u, Diagnostics.AcceptedCount);
+		EXPECT_EQ(1u, Diagnostics.FailedCount);
+		EXPECT_EQ(0u, Diagnostics.CanceledCount);
+		EXPECT_EQ(0u, Diagnostics.CurrentActiveCount);
+	}
+
+	TEST(FTaskScopeTests, WorkerHelpsAnotherClosedScopeWhileOwnScopeWaitIsRejected)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		FTaskScope WaitedScope = CreateTaskScope();
+		FTaskScope OwningScope = CreateTaskScope();
+		FThreadEvent OuterStarted;
+		FThreadEvent BeginWait;
+		std::atomic<ETaskScopeWaitResult> OtherWaitResult = ETaskScopeWaitResult::Invalid;
+		std::atomic<ETaskScopeWaitResult> OwnWaitResult = ETaskScopeWaitResult::Invalid;
+		FTaskLaunchOptions OuterOptions;
+		OuterOptions.Scope = OwningScope.GetToken();
+		FTaskHandle Outer = LaunchTask("ScopedWorkerWaiter", [&]() {
+			OuterStarted.Trigger();
+			BeginWait.Wait();
+			OwnWaitResult.store(OwningScope.WaitFor(0.001), std::memory_order::release);
+			OtherWaitResult.store(WaitedScope.WaitFor(1.0), std::memory_order::release);
+		}, OuterOptions);
+		ASSERT_TRUE(OuterStarted.WaitFor(1.0));
+
+		FTaskLaunchOptions WaitedOptions;
+		WaitedOptions.Scope = WaitedScope.GetToken();
+		FTaskHandle Helped = LaunchTask("ScopedWorkerHelped", []() {}, WaitedOptions);
+		ASSERT_TRUE(Helped.IsValid());
+		EXPECT_EQ(ETaskScopeCloseResult::Closed, WaitedScope.Close(ETaskScopeCloseMode::Drain));
+		EXPECT_EQ(ETaskScopeCloseResult::Closed, OwningScope.Close(ETaskScopeCloseMode::Drain));
+		BeginWait.Trigger();
+
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Outer));
+		EXPECT_EQ(ETaskState::Succeeded, Helped.GetState());
+		EXPECT_EQ(ETaskScopeWaitResult::UnsupportedThread, OwnWaitResult.load(std::memory_order::acquire));
+		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, OtherWaitResult.load(std::memory_order::acquire));
+		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, OwningScope.Wait());
+	}
+
+	TEST(FTaskScopeTests, ChildLaunchAndCancelCloseRaceReconcilesEveryDescendant)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		FTaskScope Scope = CreateTaskScope();
+		FTaskLaunchOptions Options;
+		Options.Scope = Scope.GetToken();
+		std::barrier StartRace(2);
+		std::vector<FTaskHandle> Children;
+		FTaskHandle Parent = LaunchCancelableTask("ScopedCancelRaceParent", [&](const FTaskCancellationToken&) {
+			StartRace.arrive_and_wait();
+			for (uint32 Index = 0; Index < 64; ++Index)
+			{
+				Children.emplace_back(LaunchTask("ScopedCancelRaceChild", []() {}));
+			}
+		}, Options);
+		ASSERT_TRUE(Parent.IsValid());
+		StartRace.arrive_and_wait();
+		EXPECT_EQ(ETaskScopeCloseResult::Closed, Scope.Close(ETaskScopeCloseMode::Cancel));
+		auto IsTerminal = [](ETaskState State) {
+			return State == ETaskState::Succeeded || State == ETaskState::Failed || State == ETaskState::Canceled;
+		};
+		EXPECT_TRUE(IsTerminal(WaitTask(Parent)));
+		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, Scope.Wait());
+
+		uint64 AcceptedChildren = 0;
+		for (const FTaskHandle& Child : Children)
+		{
+			if (!Child.IsValid()) continue;
+			++AcceptedChildren;
+			EXPECT_TRUE(IsTerminal(Child.GetState()));
+		}
+		const FTaskScopeDiagnostics Diagnostics = Scope.GetDiagnostics();
+		EXPECT_EQ(1u + AcceptedChildren, Diagnostics.AcceptedCount);
+		EXPECT_EQ(64u - AcceptedChildren, Diagnostics.RejectedCount);
+		EXPECT_EQ(Diagnostics.AcceptedCount, Diagnostics.SucceededCount + Diagnostics.FailedCount + Diagnostics.CanceledCount);
+		EXPECT_EQ(0u, Diagnostics.CurrentActiveCount);
+	}
+
+	TEST(FTaskScopeTests, DiagnosticsStayBoundedAcrossConcurrentTerminalRelease)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		FTaskScope Scope = CreateTaskScope();
+		FTaskLaunchOptions Options;
+		Options.Scope = Scope.GetToken();
+		FThreadEvent BlockerStarted;
+		FThreadEvent ReleaseBlocker;
+		FTaskHandle Blocker = LaunchTask("ScopedDiagnosticBlocker", [&]() {
+			BlockerStarted.Trigger();
+			ReleaseBlocker.Wait();
+		}, Options);
+		ASSERT_TRUE(BlockerStarted.WaitFor(1.0));
+		std::vector<FTaskHandle> Handles;
+		for (uint32 Index = 0; Index < 80; ++Index)
+		{
+			Handles.emplace_back(Then(Blocker, "ScopedDiagnosticWaiting", []() {}));
+		}
+
+		const FTaskScopeDiagnostics BeforeClose = Scope.GetDiagnostics();
+		ASSERT_EQ(81u, BeforeClose.CurrentActiveCount);
+		EXPECT_EQ(64u, BeforeClose.NonterminalTasks.size());
+		EXPECT_EQ(17u, BeforeClose.NonterminalSnapshotTruncationCount);
+		EXPECT_TRUE(std::ranges::is_sorted(BeforeClose.NonterminalTasks, {}, &FTaskDiagnostics::TaskId));
+		std::atomic<bool> bSnapshotsReconciled = true;
+		std::thread SnapshotThread([&]() {
+			for (uint32 Index = 0; Index < 100; ++Index)
+			{
+				const FTaskScopeDiagnostics Snapshot = Scope.GetDiagnostics();
+				if (Snapshot.NonterminalTasks.size() > 64
+					|| Snapshot.AcceptedCount != Snapshot.SucceededCount + Snapshot.FailedCount + Snapshot.CanceledCount + Snapshot.CurrentActiveCount)
+				{
+					bSnapshotsReconciled.store(false, std::memory_order::release);
+				}
+			}
+		});
+		EXPECT_EQ(ETaskScopeCloseResult::Closed, Scope.Close(ETaskScopeCloseMode::Cancel));
+		Handles.clear();
+		ReleaseBlocker.Trigger();
+		SnapshotThread.join();
+		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, Scope.Wait());
+		EXPECT_TRUE(bSnapshotsReconciled.load(std::memory_order::acquire));
+		const FTaskScopeDiagnostics Final = Scope.GetDiagnostics();
+		EXPECT_EQ(81u, Final.AcceptedCount);
+		EXPECT_EQ(Final.AcceptedCount, Final.SucceededCount + Final.FailedCount + Final.CanceledCount);
+		EXPECT_EQ(0u, Final.CurrentActiveCount);
+		EXPECT_TRUE(Final.NonterminalTasks.empty());
+	}
+
+	TEST(FTaskScopeTests, SchedulerTracksAbandonmentRejectionsAndShutdownClosure)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		{
+			FTaskScope Abandoned = CreateTaskScope();
+			const FTaskSchedulerDiagnostics Live = GetTaskSchedulerDiagnostics();
+			EXPECT_EQ(1u, Live.LiveScopeCount);
+			EXPECT_EQ(1u, Live.OpenScopeCount);
+			EXPECT_EQ(1u, Live.NonquiescentScopeCount);
+		}
+		EXPECT_EQ(1u, GetTaskSchedulerDiagnostics().AbandonedOpenScopeCount);
+
+		FTaskScope Scope = CreateTaskScope();
+		FTaskLaunchOptions Options;
+		Options.Scope = Scope.GetToken();
+		FThreadEvent Started;
+		FTaskHandle Running = LaunchCancelableTask("ScopedShutdownRunning", [&](const FTaskCancellationToken& Token) {
+			Started.Trigger();
+			while (!Token.IsCancellationRequested()) std::this_thread::yield();
+		}, Options);
+		ASSERT_TRUE(Started.WaitFor(1.0));
+		EXPECT_EQ(1u, GetTaskSchedulerDiagnostics().NonquiescentScopeCount);
+		ShutdownTaskScheduler(false);
+
+		EXPECT_EQ(ETaskState::Canceled, Running.GetState());
+		EXPECT_EQ(ETaskScopeState::QuiescentCancel, Scope.GetDiagnostics().State);
+		const FTaskSchedulerDiagnostics Shutdown = GetTaskSchedulerDiagnostics();
+		EXPECT_FALSE(Shutdown.bRunning);
+		EXPECT_EQ(1u, Shutdown.LiveScopeCount);
+		EXPECT_EQ(0u, Shutdown.OpenScopeCount);
+		EXPECT_EQ(0u, Shutdown.NonquiescentScopeCount);
+		EXPECT_EQ(1u, Shutdown.AbandonedOpenScopeCount);
+
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		EXPECT_FALSE(LaunchTask("RejectedOldScope", []() {}, Options).IsValid());
+		EXPECT_EQ(1u, GetTaskSchedulerDiagnostics().ScopeRejectedTaskCount);
+	}
+
+	TEST(FTaskScopeTests, GameThreadRejectsWaitForScopedDeferredWork)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+		FTaskScope Scope = CreateTaskScope();
+		FTaskLaunchOptions RootOptions;
+		RootOptions.Scope = Scope.GetToken();
+		FTaskHandle Root = LaunchTask("ScopedDeferredRoot", []() {}, RootOptions);
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root));
+		FTaskContinuationOptions DeferredOptions;
+		DeferredOptions.Target = ETaskTarget::GameThreadDeferred;
+		DeferredOptions.EstimatedPayloadBytes = 1;
+		FTaskHandle Deferred = Then(Root, "ScopedDeferredWaitTarget", []() {}, DeferredOptions);
+		ASSERT_EQ(ETaskState::Queued, Deferred.GetState());
+		EXPECT_EQ(ETaskScopeCloseResult::Closed, Scope.Close(ETaskScopeCloseMode::Drain));
+		EXPECT_EQ(ETaskScopeWaitResult::UnsupportedThread, Scope.WaitFor(0.001));
+		ShutdownTaskSystem(ETaskShutdownMode::Drain);
+		EXPECT_EQ(ETaskState::Succeeded, Deferred.GetState());
+		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, Scope.Wait());
+	}
+
+	TEST(FTaskScopeQualificationTests, PairedScopedAndUnscopedMediansStayWithinFrozenThreshold)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(4));
+		constexpr uint32 RootCount = 128;
+		constexpr uint32 SampleCount = 5;
+
+		auto RunCohort = [](bool bScoped) -> uint64 {
+			FTaskScope Scope = bScoped ? CreateTaskScope() : FTaskScope{};
+			FTaskLaunchOptions Options;
+			if (bScoped) Options.Scope = Scope.GetToken();
+			const auto Start = std::chrono::steady_clock::now();
+			std::vector<FTaskHandle> Roots;
+			Roots.reserve(RootCount);
+			for (uint32 Index = 0; Index < RootCount; ++Index)
+			{
+				Roots.emplace_back(LaunchTask("ScopeQualificationRoot", []() {}, Options));
+			}
+
+			FTaskHandle Child;
+			auto Primary = LaunchTask<int>("ScopeQualificationPrimary", [&]() {
+				Child = LaunchTask("ScopeQualificationChild", []() {});
+				return 3;
+			}, Options);
+			auto Secondary = LaunchTask<int>("ScopeQualificationSecondary", []() { return 4; }, Options);
+			FTaskHandle Continuation = Then(Primary, "ScopeQualificationContinuation", [](const int&) {});
+			auto FanIn = WhenAll(std::make_tuple(Primary, Secondary), "ScopeQualificationFanIn",
+				[](const int& Left, const int& Right) { return Left + Right; });
+
+			EXPECT_TRUE(std::ranges::all_of(WaitAll(Roots), [](ETaskState State) { return State == ETaskState::Succeeded; }));
+			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Primary.GetTaskHandle()));
+			EXPECT_TRUE(Child.IsValid());
+			if (Child.IsValid()) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Child));
+			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Continuation));
+			EXPECT_EQ(ETaskState::Succeeded, WaitTask(FanIn.GetTaskHandle()));
+			if (bScoped)
+			{
+				EXPECT_EQ(ETaskScopeCloseResult::Closed, Scope.Close(ETaskScopeCloseMode::Drain));
+				EXPECT_EQ(ETaskScopeWaitResult::Quiescent, Scope.Wait());
+				const FTaskScopeDiagnostics Diagnostics = Scope.GetDiagnostics();
+				EXPECT_EQ(RootCount + 5, Diagnostics.AcceptedCount);
+				EXPECT_EQ(Diagnostics.AcceptedCount, Diagnostics.SucceededCount);
+				EXPECT_EQ(0u, Diagnostics.RejectedCount);
+				EXPECT_EQ(0u, Diagnostics.CurrentActiveCount);
+			}
+			return static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - Start).count());
+		};
+
+		(void)RunCohort(false);
+		(void)RunCohort(true);
+		std::array<uint64, SampleCount> UnscopedSamples{};
+		std::array<uint64, SampleCount> ScopedSamples{};
+		for (uint32 SampleIndex = 0; SampleIndex < SampleCount; ++SampleIndex)
+		{
+			if (SampleIndex % 2 == 0)
+			{
+				UnscopedSamples[SampleIndex] = RunCohort(false);
+				ScopedSamples[SampleIndex] = RunCohort(true);
+			}
+			else
+			{
+				ScopedSamples[SampleIndex] = RunCohort(true);
+				UnscopedSamples[SampleIndex] = RunCohort(false);
+			}
+		}
+		std::ranges::sort(UnscopedSamples);
+		std::ranges::sort(ScopedSamples);
+		const uint64 UnscopedMedian = UnscopedSamples[SampleCount / 2];
+		const uint64 ScopedMedian = ScopedSamples[SampleCount / 2];
+		std::cout << "TaskScopeQualification,roots=" << RootCount
+			<< ",samples=" << SampleCount
+			<< ",unscoped_median_ns=" << UnscopedMedian
+			<< ",scoped_median_ns=" << ScopedMedian << '\n';
+		EXPECT_LE(ScopedMedian, UnscopedMedian + UnscopedMedian * 15 / 100);
 	}
 
 	TEST(FTaskTests, LaunchTaskReturnsValidHandleAndCompletes)

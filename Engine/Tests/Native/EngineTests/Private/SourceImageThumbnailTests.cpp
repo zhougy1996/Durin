@@ -45,6 +45,14 @@ namespace Durin
 				if (It->is_regular_file() && It->path().extension() == ".png") ++Count;
 			return Count;
 		}
+
+		struct FBlockingTaskState
+		{
+			std::mutex Mutex;
+			std::condition_variable Condition;
+			bool bEntered = false;
+			bool bRelease = false;
+		};
 	}
 
 	TEST(FSourceImageThumbnailTests, RecognizesOnlySupportedExtensionsCaseInsensitively)
@@ -177,6 +185,84 @@ namespace Durin
 		EXPECT_EQ(Iterator->AcceptedCount, 1u);
 		EXPECT_EQ(Iterator->SucceededCount, 1u);
 		EXPECT_EQ(Iterator->CurrentNonterminalCount, 0u);
+		ShutdownTaskScheduler(true);
+	}
+
+	TEST(FSourceImageThumbnailTests, ShutdownCancelsQueuedDecodeAndRecreatedCacheStartsClean)
+	{
+		ShutdownTaskScheduler(false);
+		struct FTaskSchedulerShutdownGuard
+		{
+			~FTaskSchedulerShutdownGuard() { ShutdownTaskScheduler(false); }
+		} SchedulerGuard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+
+		const auto BlockingState = std::make_shared<FBlockingTaskState>();
+		const FTaskHandle Blocker = LaunchTask("BlockThumbnailWorker", [BlockingState] {
+			std::unique_lock Lock(BlockingState->Mutex);
+			BlockingState->bEntered = true;
+			BlockingState->Condition.notify_all();
+			BlockingState->Condition.wait(Lock, [&] { return BlockingState->bRelease; });
+		});
+		ASSERT_TRUE(Blocker.IsValid());
+		{
+			std::unique_lock Lock(BlockingState->Mutex);
+			ASSERT_TRUE(BlockingState->Condition.wait_for(
+				Lock, std::chrono::seconds(5), [&] { return BlockingState->bEntered; }));
+		}
+
+		const std::filesystem::path Path =
+			WriteBinaryFixture("CanceledThumbnail.png", TransparentPngBytes());
+		{
+			FSourceImageThumbnailCache Cache;
+			Cache.BeginFrame();
+			Cache.Request({
+				.Identity = "/Game/Textures/CanceledThumbnail",
+				.PhysicalPath = Path.generic_string(),
+				.FileSize = std::filesystem::file_size(Path),
+				.LastWriteTime = std::filesystem::last_write_time(Path),
+				.Priority = EAssetThumbnailPriority::Visible});
+			Cache.EndFrame();
+
+			const FTaskSchedulerDiagnostics ActiveDiagnostics =
+				GetTaskSchedulerDiagnostics();
+			EXPECT_EQ(ActiveDiagnostics.LiveScopeCount, 1u);
+			EXPECT_EQ(ActiveDiagnostics.OpenScopeCount, 1u);
+			EXPECT_EQ(ActiveDiagnostics.NonquiescentScopeCount, 1u);
+
+			Cache.Shutdown();
+			EXPECT_EQ(Cache.Find("/Game/Textures/CanceledThumbnail").State,
+				EAssetThumbnailState::NotRequested);
+			const FTaskSchedulerDiagnostics ClosedDiagnostics =
+				GetTaskSchedulerDiagnostics();
+			EXPECT_EQ(ClosedDiagnostics.LiveScopeCount, 1u);
+			EXPECT_EQ(ClosedDiagnostics.OpenScopeCount, 0u);
+			EXPECT_EQ(ClosedDiagnostics.NonquiescentScopeCount, 0u);
+		}
+
+		{
+			std::lock_guard Lock(BlockingState->Mutex);
+			BlockingState->bRelease = true;
+		}
+		BlockingState->Condition.notify_all();
+		EXPECT_EQ(WaitTask(Blocker), ETaskState::Succeeded);
+		EXPECT_EQ(GetTaskSchedulerDiagnostics().OpenScopeCount, 0u);
+		EXPECT_EQ(GetTaskSchedulerDiagnostics().NonquiescentScopeCount, 0u);
+
+		{
+			FSourceImageThumbnailCache RecreatedCache;
+			const FTaskSchedulerDiagnostics RestartDiagnostics =
+				GetTaskSchedulerDiagnostics();
+			EXPECT_EQ(RestartDiagnostics.OpenScopeCount, 1u);
+			EXPECT_EQ(RestartDiagnostics.NonquiescentScopeCount, 1u);
+			RecreatedCache.Shutdown();
+			const FTaskSchedulerDiagnostics RestartClosedDiagnostics =
+				GetTaskSchedulerDiagnostics();
+			EXPECT_EQ(RestartClosedDiagnostics.OpenScopeCount, 0u);
+			EXPECT_EQ(RestartClosedDiagnostics.NonquiescentScopeCount, 0u);
+		}
+		EXPECT_EQ(GetTaskSchedulerDiagnostics().OpenScopeCount, 0u);
+		EXPECT_EQ(GetTaskSchedulerDiagnostics().NonquiescentScopeCount, 0u);
 		ShutdownTaskScheduler(true);
 	}
 

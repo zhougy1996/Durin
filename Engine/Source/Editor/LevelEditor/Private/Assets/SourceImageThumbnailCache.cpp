@@ -90,6 +90,7 @@ namespace Durin
 		std::vector<FPendingRequest> PendingRequests;
 		std::vector<FDecodeResult> PendingUploads;
 		std::shared_ptr<FAsyncThumbnailState> AsyncState = std::make_shared<FAsyncThumbnailState>();
+		FTaskScope TaskScope = CreateTaskScope();
 		uint64 FrameNumber = 0;
 		uint32 ActiveDecodeCount = 0;
 		bool bShuttingDown = false;
@@ -221,6 +222,7 @@ namespace Durin
 				const std::shared_ptr<FSourceImageThumbnailDiskCache> DiskCache = AsyncState->DiskCache;
 				FTaskLaunchOptions DecodeOptions;
 				DecodeOptions.Attribution = GetSourceImageThumbnailDecodeAttribution();
+				DecodeOptions.Scope = TaskScope.GetToken();
 				const FTaskHandle Task = LaunchTask("DecodeSourceImageThumbnail", [WeakState, DiskCache, PhysicalPath, FileSize, LastWriteTime, Serial] {
 					FDecodeResult Result;
 					Result.PhysicalPath = PhysicalPath;
@@ -273,7 +275,6 @@ namespace Durin
 	FSourceImageThumbnailCache::~FSourceImageThumbnailCache()
 	{
 		Shutdown();
-		Impl->AsyncState.reset();
 	}
 
 	auto FSourceImageThumbnailCache::BeginFrame() -> void
@@ -395,7 +396,10 @@ namespace Durin
 			Impl->AsyncState->DecodedResults.clear();
 			Impl->AsyncState->UploadedResults.clear();
 		}
+		(void)Impl->TaskScope.Close(ETaskScopeCloseMode::Cancel);
+		(void)Impl->TaskScope.Wait();
 		Clear();
+		Impl->AsyncState.reset();
 	}
 
 	auto FSourceImageThumbnailCache::IsShuttingDown() const -> bool

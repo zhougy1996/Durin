@@ -236,6 +236,22 @@ references:
 - consumers retain stable counted RHI references or non-owning snapshots only
   while their component, viewport, scene, or preview owner remains attached.
 
+An owner that launches a descendant CPU graph may hold an `FTaskScope`, but the
+scope does not replace the owner's publication or resource protocol. The owner
+first rejects new domain requests and closes result publication under its own
+lock, then releases that lock, closes the scope in drain or cancel mode, and
+waits for quiescence only from a supported thread. It releases mailboxes,
+caches, providers, objects, render resources, and RHI references in their
+existing domain order after the selected CPU boundary is satisfied. Scope
+destruction is never a hidden wait.
+
+AssetImport request scopes retain request-table, provider-lease, latest-wins,
+mailbox, and explicit result-taking policy. Source-image thumbnail decode uses
+one cache-lifetime scope while upload throttling, serial validation, weak result
+publication, and render/RHI command ownership remain cache-owned. Both owners
+close publication before canceling and wait without holding their owner or
+async-state locks.
+
 The process worker scheduler and GameThread deferred executor start once in
 `PreInit()` and stop once here; the normal engine never restarts them. Shutdown
 keeps internal continuation dispatch open after root admission closes, because

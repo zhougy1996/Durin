@@ -166,6 +166,51 @@ created on GameThread; it runs only from the engine-owned pump. Missing or
 closing executors reject dispatch and terminalize the accepted node as
 `Canceled/DispatchRejected`.
 
+## Structured Owner Scopes
+
+`FTaskScope` is a move-only owner controller for one bounded task lifetime;
+`FTaskScopeToken` is its copyable launch association. A scope does not own a
+scheduler, executor, native thread, result mailbox, or subsystem policy. An
+invalid token preserves the existing unscoped behavior.
+
+Roots select an explicit token through `FTaskLaunchOptions::Scope`. Otherwise,
+a root launched by a scoped task inherits that executing scope. Continuations,
+typed fan-in, and unique-result sinks inherit their primary predecessor before
+admission; additional prerequisites never merge scopes. A scoped task cannot
+reparent a descendant to a different explicit scope. Parallel-for selects one
+scope for the logical operation and forwards it only to scheduled Worker
+chunks.
+
+Scope admission and close are linearized with scheduler admission. Every
+accepted scoped node is charged once before publication and released once only
+after result publication and direct dependent propagation finish. Closing in
+`Drain` mode rejects new roots and descendants while accepted work completes.
+Closing in `Cancel` mode also requests cooperative cancellation; a draining
+scope may escalate to cancel. Work racing a completed close is rejected without
+retaining its callable or task node.
+
+`FTaskScope::Wait()` and `WaitFor()` observe scope quiescence, not merely an
+empty Worker queue or one producer handle. External threads may wait after the
+owner has closed admission. A Worker may help a different closed scope, but a
+self-scope wait is rejected. Rendering-thread waits and GameThread waits whose
+scope contains deferred GameThread work are rejected. Owners must release any
+mailbox, cache, provider, object, render, RHI, or async-state lock before
+waiting. Scope destruction never waits: abandoning an open controller performs
+a non-blocking cancel close and records the event.
+
+`FTaskScopeDiagnostics` reports the numeric scope id, state, accepted, active,
+terminal, rejected, and peak counts plus at most 64 nonterminal task snapshots.
+Scheduler diagnostics report live, open, nonquiescent, abandoned-open, and
+scope-rejected totals through a weak live-scope registry. The registry neither
+keeps completed scopes alive nor retains completed task history. A quiescent
+scope can remain live briefly while an external handle or terminal queue node
+still references it.
+
+Scheduler shutdown closes root admission, then closes every pinned live scope
+before executor teardown. This is a safety net, not an owner-lifetime policy:
+production owners close publication and scope admission at their own explicit
+shutdown boundary and wait only where their thread contract permits it.
+
 ## Cancellation
 
 `CancelTask()` requests cancellation for one task.
@@ -448,7 +493,10 @@ Unique-result diagnostics add per-task estimated and currently retained result
 bytes plus scheduler-wide retained unique bytes and duplicate-claim count.
 They retain no result payload, callable, claim token, or terminal history.
 
-Diagnostic reads have no profiler side effects. `FEngineLoop::Tick()` calls
+Diagnostic reads have no profiler side effects. Task profiler events correlate
+an optional scope with one fixed-width numeric scope id; they do not create
+scope-named zones, plots, source locations, or retained history.
+`FEngineLoop::Tick()` calls
 `PublishTaskSchedulerProfilerPlots()` once at the frame boundary immediately
 before `DURIN_PROFILE_FRAME_MARK()`. The publication surface copies only the
 fixed owner/category aggregates; with Tracy disabled it remains a no-op after

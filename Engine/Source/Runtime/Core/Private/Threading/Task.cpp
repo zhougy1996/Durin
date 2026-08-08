@@ -26,6 +26,11 @@ namespace Durin
 				return Attribution.OwnerId == 0 && Attribution.CategoryId == 0;
 			}
 		};
+
+		struct FTaskScopeAccess
+		{
+			static auto GetState(const FTaskScopeToken& Token) -> const std::shared_ptr<FTaskScopeState>& { return Token.State; }
+		};
 	}
 
 	namespace
@@ -352,6 +357,7 @@ namespace Durin
 		};
 
 		std::atomic<uint64> GNextTaskId = 1;
+		std::atomic<uint64> GNextTaskScopeId = 1;
 		std::mutex GTaskSchedulerMutex;
 		std::condition_variable GTaskSchedulerCV;
 		std::shared_ptr<FTaskScheduler> GTaskScheduler;
@@ -413,6 +419,12 @@ namespace Durin
 		return GTaskAttributionRegistry.Register(Owner, Category);
 	}
 
+	struct FTaskScopeSchedulerAccounting
+	{
+		std::atomic<uint64> RejectedTaskCount = 0;
+		std::atomic<uint64> AbandonedOpenScopeCount = 0;
+	};
+
 	class FTaskCancellationState
 	{
 	public:
@@ -430,6 +442,84 @@ namespace Durin
 		mutable std::mutex Mutex;
 		std::unordered_map<uint64, std::weak_ptr<FTaskStateData>> Tasks;
 		bool bCancellationRequested = false;
+	};
+
+	class FTaskScopeState final
+	{
+	public:
+		explicit FTaskScopeState(
+			std::weak_ptr<FTaskScheduler> InScheduler,
+			std::shared_ptr<FTaskScopeSchedulerAccounting> InSchedulerAccounting)
+			: Scheduler(std::move(InScheduler))
+			, SchedulerAccounting(std::move(InSchedulerAccounting))
+			, ScopeId(GNextTaskScopeId.fetch_add(1, std::memory_order::acq_rel))
+		{
+		}
+
+		auto TryAdmit(const FTaskScheduler* ExpectedScheduler) -> bool
+		{
+			std::lock_guard Lock(Mutex);
+			if (State != ETaskScopeState::Open || Scheduler.lock().get() != ExpectedScheduler)
+			{
+				++RejectedCount;
+				return false;
+			}
+			++AcceptedCount;
+			++CurrentActiveCount;
+			PeakActiveCount = std::max(PeakActiveCount, CurrentActiveCount);
+			return true;
+		}
+
+		auto RollbackAdmission() -> void
+		{
+			std::lock_guard Lock(Mutex);
+			require(AcceptedCount > 0 && CurrentActiveCount > 0);
+			--AcceptedCount;
+			--CurrentActiveCount;
+			if (CurrentActiveCount == 0)
+			{
+				if (State == ETaskScopeState::ClosingDrain) State = ETaskScopeState::QuiescentDrain;
+				else if (State == ETaskScopeState::ClosingCancel) State = ETaskScopeState::QuiescentCancel;
+				CV.notify_all();
+			}
+		}
+
+		auto BindTask(const std::shared_ptr<FTaskStateData>& Task) -> bool;
+		auto ReleaseTask(uint64 TaskId, ETaskState TerminalState) -> void;
+		auto Close(ETaskScopeCloseMode Mode) -> ETaskScopeCloseResult;
+		auto WaitFor(double TimeoutSeconds, bool bUnbounded) -> ETaskScopeWaitResult;
+		auto GetDiagnostics() const -> FTaskScopeDiagnostics;
+		auto AbandonOpen() -> void;
+		auto GetRegistryState(bool& bOutOpen, bool& bOutNonquiescent) const -> void
+		{
+			std::lock_guard Lock(Mutex);
+			bOutOpen = State == ETaskScopeState::Open;
+			bOutNonquiescent = State != ETaskScopeState::QuiescentDrain && State != ETaskScopeState::QuiescentCancel;
+		}
+
+		auto RecordRejected() -> void
+		{
+			std::lock_guard Lock(Mutex);
+			++RejectedCount;
+		}
+
+		auto GetScopeId() const -> uint64 { return ScopeId; }
+
+	private:
+		mutable std::mutex Mutex;
+		std::condition_variable CV;
+		std::weak_ptr<FTaskScheduler> Scheduler;
+		std::shared_ptr<FTaskScopeSchedulerAccounting> SchedulerAccounting;
+		std::unordered_map<uint64, std::weak_ptr<FTaskStateData>> ActiveTasks;
+		ETaskScopeState State = ETaskScopeState::Open;
+		uint64 ScopeId = 0;
+		uint64 AcceptedCount = 0;
+		uint64 RejectedCount = 0;
+		uint64 SucceededCount = 0;
+		uint64 FailedCount = 0;
+		uint64 CanceledCount = 0;
+		uint64 CurrentActiveCount = 0;
+		uint64 PeakActiveCount = 0;
 	};
 
 	class FTaskGenerationState
@@ -458,6 +548,7 @@ namespace Durin
 			uint64 InEstimatedPayloadBytes,
 			uint64 InEstimatedResultBytes,
 			FTaskAttribution InAttribution,
+			std::shared_ptr<FTaskScopeState> InScope,
 			FTaskGenerationToken InGenerationToken,
 			std::optional<FTaskCoalescingKey> InCoalescingKey
 		)
@@ -479,6 +570,7 @@ namespace Durin
 			, EstimatedPayloadBytes(InEstimatedPayloadBytes)
 			, EstimatedResultBytes(InEstimatedResultBytes)
 			, Attribution(InAttribution)
+			, Scope(std::move(InScope))
 			, CallableStorageBytes(PendingFunction ? PendingFunction->GetStorageBytes() : 0)
 			, GenerationToken(std::move(InGenerationToken))
 			, CoalescingKey(std::move(InCoalescingKey))
@@ -642,6 +734,7 @@ namespace Durin
 			{
 				std::lock_guard Lock(Mutex);
 				Snapshot.TaskId = TaskId;
+				Snapshot.ScopeId = Scope ? Scope->GetScopeId() : 0;
 				Snapshot.ParentTaskId = ParentTaskId;
 				Snapshot.PrerequisiteTaskIds = PrerequisiteTaskIds;
 				Snapshot.PrerequisiteDependencyKinds = PrerequisiteDependencyKinds;
@@ -709,6 +802,8 @@ namespace Durin
 		auto GetTarget() const -> ETaskTarget { return Target; }
 		auto GetPriority() const -> ETaskPriority { return Priority; }
 		auto GetAttribution() const -> FTaskAttribution { return Attribution; }
+		auto GetScope() const -> const std::shared_ptr<FTaskScopeState>& { return Scope; }
+		auto GetScopeToken() const -> FTaskScopeToken { return FTaskScopeToken(Scope); }
 		auto GetEstimatedPayloadBytes() const -> uint64 { return EstimatedPayloadBytes; }
 		auto GetGenerationToken() const -> const FTaskGenerationToken& { return GenerationToken; }
 		auto GetCoalescingKey() const -> const std::optional<FTaskCoalescingKey>& { return CoalescingKey; }
@@ -748,6 +843,7 @@ namespace Durin
 		uint64 EstimatedResultBytes = 0;
 		uint64 RetainedResultBytes = 0;
 		FTaskAttribution Attribution;
+		std::shared_ptr<FTaskScopeState> Scope;
 		uint64 CallableStorageBytes = 0;
 		FTaskGenerationToken GenerationToken;
 		std::optional<FTaskCoalescingKey> CoalescingKey;
@@ -766,6 +862,178 @@ namespace Durin
 		uint32 ExecutingThreadId = 0;
 		std::string ExecutingThreadName;
 	};
+
+	auto FTaskScopeState::BindTask(const std::shared_ptr<FTaskStateData>& Task) -> bool
+	{
+		std::lock_guard Lock(Mutex);
+		ActiveTasks.emplace(Task->GetTaskId(), Task);
+		return State == ETaskScopeState::ClosingCancel || State == ETaskScopeState::QuiescentCancel;
+	}
+
+	auto FTaskScopeState::ReleaseTask(uint64 TaskId, ETaskState TerminalState) -> void
+	{
+		std::lock_guard Lock(Mutex);
+		const size_t RemovedTaskCount = ActiveTasks.erase(TaskId);
+		check(RemovedTaskCount == 1);
+		require(CurrentActiveCount > 0);
+		--CurrentActiveCount;
+		if (TerminalState == ETaskState::Succeeded) ++SucceededCount;
+		else if (TerminalState == ETaskState::Failed) ++FailedCount;
+		else ++CanceledCount;
+		if (CurrentActiveCount == 0)
+		{
+			if (State == ETaskScopeState::ClosingDrain) State = ETaskScopeState::QuiescentDrain;
+			else if (State == ETaskScopeState::ClosingCancel) State = ETaskScopeState::QuiescentCancel;
+			CV.notify_all();
+		}
+	}
+
+	auto FTaskScopeState::Close(ETaskScopeCloseMode Mode) -> ETaskScopeCloseResult
+	{
+		std::vector<std::shared_ptr<FTaskStateData>> TasksToCancel;
+		ETaskScopeCloseResult Result = ETaskScopeCloseResult::Closed;
+		{
+			std::lock_guard Lock(Mutex);
+			if (State == ETaskScopeState::QuiescentDrain || State == ETaskScopeState::QuiescentCancel)
+			{
+				return ETaskScopeCloseResult::AlreadyClosed;
+			}
+			if (State == ETaskScopeState::ClosingCancel || (State == ETaskScopeState::ClosingDrain && Mode == ETaskScopeCloseMode::Drain))
+			{
+				return ETaskScopeCloseResult::AlreadyClosed;
+			}
+			if (State == ETaskScopeState::ClosingDrain)
+			{
+				State = ETaskScopeState::ClosingCancel;
+				Result = ETaskScopeCloseResult::EscalatedToCancel;
+			}
+			else
+			{
+				State = Mode == ETaskScopeCloseMode::Cancel ? ETaskScopeState::ClosingCancel : ETaskScopeState::ClosingDrain;
+			}
+			if (CurrentActiveCount == 0)
+			{
+				State = State == ETaskScopeState::ClosingCancel ? ETaskScopeState::QuiescentCancel : ETaskScopeState::QuiescentDrain;
+				CV.notify_all();
+			}
+			else if (State == ETaskScopeState::ClosingCancel)
+			{
+				TasksToCancel.reserve(ActiveTasks.size());
+				for (const auto& [TaskId, Task] : ActiveTasks)
+				{
+					if (std::shared_ptr<FTaskStateData> PinnedTask = Task.lock()) TasksToCancel.emplace_back(std::move(PinnedTask));
+				}
+			}
+		}
+		for (const std::shared_ptr<FTaskStateData>& Task : TasksToCancel)
+		{
+			Task->RequestCancellation("Task scope cancellation was requested.");
+		}
+		return Result;
+	}
+
+	auto FTaskScopeState::AbandonOpen() -> void
+	{
+		std::vector<std::shared_ptr<FTaskStateData>> TasksToCancel;
+		{
+			std::lock_guard Lock(Mutex);
+			if (State != ETaskScopeState::Open)
+			{
+				return;
+			}
+			State = CurrentActiveCount == 0 ? ETaskScopeState::QuiescentCancel : ETaskScopeState::ClosingCancel;
+			SchedulerAccounting->AbandonedOpenScopeCount.fetch_add(1, std::memory_order::acq_rel);
+			if (CurrentActiveCount == 0)
+			{
+				CV.notify_all();
+			}
+			else
+			{
+				TasksToCancel.reserve(ActiveTasks.size());
+				for (const auto& [TaskId, Task] : ActiveTasks)
+				{
+					if (std::shared_ptr<FTaskStateData> PinnedTask = Task.lock()) TasksToCancel.emplace_back(std::move(PinnedTask));
+				}
+			}
+		}
+		for (const std::shared_ptr<FTaskStateData>& Task : TasksToCancel)
+		{
+			Task->RequestCancellation("Task scope controller was destroyed while open.");
+		}
+	}
+
+	auto FTaskScopeState::GetDiagnostics() const -> FTaskScopeDiagnostics
+	{
+		FTaskScopeDiagnostics Snapshot;
+		std::vector<std::shared_ptr<FTaskStateData>> Tasks;
+		{
+			std::lock_guard Lock(Mutex);
+			Snapshot.State = State;
+			Snapshot.ScopeId = ScopeId;
+			Snapshot.AcceptedCount = AcceptedCount;
+			Snapshot.RejectedCount = RejectedCount;
+			Snapshot.SucceededCount = SucceededCount;
+			Snapshot.FailedCount = FailedCount;
+			Snapshot.CanceledCount = CanceledCount;
+			Snapshot.CurrentActiveCount = CurrentActiveCount;
+			Snapshot.PeakActiveCount = PeakActiveCount;
+			Tasks.reserve(std::min<size_t>(64, ActiveTasks.size()));
+			for (const auto& [TaskId, Task] : ActiveTasks)
+			{
+				if (std::shared_ptr<FTaskStateData> PinnedTask = Task.lock()) Tasks.emplace_back(std::move(PinnedTask));
+			}
+		}
+		std::ranges::sort(Tasks, {}, &FTaskStateData::GetTaskId);
+		if (Tasks.size() > 64)
+		{
+			Snapshot.NonterminalSnapshotTruncationCount = Tasks.size() - 64;
+			Tasks.resize(64);
+		}
+		Snapshot.NonterminalTasks.reserve(Tasks.size());
+		for (const std::shared_ptr<FTaskStateData>& Task : Tasks)
+		{
+			FTaskDiagnostics Diagnostics = Task->GetDiagnostics();
+			if (!IsTerminalState(Diagnostics.State)) Snapshot.NonterminalTasks.emplace_back(std::move(Diagnostics));
+		}
+		return Snapshot;
+	}
+
+	FTaskScope::~FTaskScope()
+	{
+		if (State) State->AbandonOpen();
+	}
+
+	FTaskScope::FTaskScope(FTaskScope&& Other) noexcept
+		: State(std::move(Other.State))
+	{
+	}
+
+	auto FTaskScope::operator=(FTaskScope&& Other) noexcept -> FTaskScope&
+	{
+		if (this == &Other) return *this;
+		if (State) State->AbandonOpen();
+		State = std::move(Other.State);
+		return *this;
+	}
+
+	auto FTaskScope::IsValid() const -> bool { return static_cast<bool>(State); }
+	auto FTaskScope::GetToken() const -> FTaskScopeToken { return FTaskScopeToken(State); }
+	auto FTaskScope::Close(ETaskScopeCloseMode Mode) -> ETaskScopeCloseResult
+	{
+		return State ? State->Close(Mode) : ETaskScopeCloseResult::Invalid;
+	}
+	auto FTaskScope::Wait() const -> ETaskScopeWaitResult
+	{
+		return State ? State->WaitFor(0.0, true) : ETaskScopeWaitResult::Invalid;
+	}
+	auto FTaskScope::WaitFor(double TimeoutSeconds) const -> ETaskScopeWaitResult
+	{
+		return State ? State->WaitFor(TimeoutSeconds, false) : ETaskScopeWaitResult::Invalid;
+	}
+	auto FTaskScope::GetDiagnostics() const -> FTaskScopeDiagnostics
+	{
+		return State ? State->GetDiagnostics() : FTaskScopeDiagnostics{};
+	}
 
 	auto DispatchGameThreadDeferredTask(
 		const std::shared_ptr<FTaskStateData>& State,
@@ -844,6 +1112,71 @@ namespace Durin
 		}
 
 		auto GetWorkerCount() const -> uint32 { return WorkerCount; }
+		auto CreateScope() -> std::shared_ptr<FTaskScopeState>
+		{
+			auto Scope = std::make_shared<FTaskScopeState>(weak_from_this(), ScopeAccounting);
+			RegisterScope(Scope);
+			return Scope;
+		}
+
+		auto RegisterScope(const std::shared_ptr<FTaskScopeState>& Scope) -> void
+		{
+			std::lock_guard Lock(Mutex);
+			std::erase_if(LiveScopes, [](const std::weak_ptr<FTaskScopeState>& Entry) { return Entry.expired(); });
+			LiveScopes.emplace_back(Scope);
+		}
+
+		auto CloseLiveScopes(ETaskScopeCloseMode Mode) -> void
+		{
+			std::vector<std::shared_ptr<FTaskScopeState>> Scopes;
+			{
+				std::lock_guard Lock(Mutex);
+				for (auto Iterator = LiveScopes.begin(); Iterator != LiveScopes.end();)
+				{
+					if (std::shared_ptr<FTaskScopeState> Scope = Iterator->lock())
+					{
+						Scopes.emplace_back(std::move(Scope));
+						++Iterator;
+					}
+					else
+					{
+						Iterator = LiveScopes.erase(Iterator);
+					}
+				}
+			}
+			for (const std::shared_ptr<FTaskScopeState>& Scope : Scopes) Scope->Close(Mode);
+		}
+
+		auto SnapshotScopeCounts(uint64& OutLive, uint64& OutOpen, uint64& OutNonquiescent) -> void
+		{
+			std::vector<std::shared_ptr<FTaskScopeState>> Scopes;
+			{
+				std::lock_guard Lock(Mutex);
+				for (auto Iterator = LiveScopes.begin(); Iterator != LiveScopes.end();)
+				{
+					if (std::shared_ptr<FTaskScopeState> Scope = Iterator->lock())
+					{
+						Scopes.emplace_back(std::move(Scope));
+						++Iterator;
+					}
+					else
+					{
+						Iterator = LiveScopes.erase(Iterator);
+					}
+				}
+			}
+			OutLive = Scopes.size();
+			OutOpen = 0;
+			OutNonquiescent = 0;
+			for (const std::shared_ptr<FTaskScopeState>& Scope : Scopes)
+			{
+				bool bOpen = false;
+				bool bNonquiescent = false;
+				Scope->GetRegistryState(bOpen, bNonquiescent);
+				OutOpen += bOpen ? 1 : 0;
+				OutNonquiescent += bNonquiescent ? 1 : 0;
+			}
+		}
 
 		auto Submit(
 			const char* Name,
@@ -857,9 +1190,11 @@ namespace Durin
 			uint64 EstimatedPayloadBytes = 0,
 			uint64 EstimatedResultBytes = 0,
 			FTaskGenerationToken GenerationToken = {},
-			std::optional<FTaskCoalescingKey> CoalescingKey = {}) -> std::shared_ptr<FTaskStateData>
+			std::optional<FTaskCoalescingKey> CoalescingKey = {},
+			bool bScopeSelectedByPrimaryPredecessor = false) -> std::shared_ptr<FTaskStateData>
 		{
 			std::shared_ptr<FTaskStateData> State;
+			std::shared_ptr<FTaskScopeState> SelectedScope;
 			std::vector<std::shared_ptr<FTaskStateData>> PrerequisiteStates;
 			{
 				std::lock_guard Lock(Mutex);
@@ -878,40 +1213,73 @@ namespace Durin
 					}
 					PrerequisiteStates.emplace_back(Prerequisite.State);
 				}
+				SelectedScope = Options.Scope.State;
+				if (!bScopeSelectedByPrimaryPredecessor && GCurrentTaskState && GCurrentTaskScheduler == this)
+				{
+					const std::shared_ptr<FTaskScopeState>& InheritedScope = GCurrentTaskState->GetScope();
+					if (InheritedScope && SelectedScope && SelectedScope != InheritedScope)
+					{
+						SelectedScope->RecordRejected();
+						ScopeAccounting->RejectedTaskCount.fetch_add(1, std::memory_order::acq_rel);
+						RecordRejectedTask(Options.Attribution, FunctionOwner ? FunctionOwner->GetStorageBytes() : 0);
+						return {};
+					}
+					if (InheritedScope) SelectedScope = InheritedScope;
+				}
 				if (CurrentTaskReservationCount.load(std::memory_order::acquire) >= TaskReservationCapacity)
 				{
 					RecordCapacityRejectedTask(Options.Attribution, FunctionOwner ? FunctionOwner->GetStorageBytes() : 0);
 					return {};
 				}
 				const uint64 CurrentReservations = CurrentTaskReservationCount.fetch_add(1, std::memory_order::acq_rel) + 1;
+				if (SelectedScope && !SelectedScope->TryAdmit(this))
+				{
+					ScopeAccounting->RejectedTaskCount.fetch_add(1, std::memory_order::acq_rel);
+					const uint64 PreviousReservationCount = CurrentTaskReservationCount.fetch_sub(1, std::memory_order::acq_rel);
+					require(PreviousReservationCount > 0);
+					RecordRejectedTask(Options.Attribution, FunctionOwner ? FunctionOwner->GetStorageBytes() : 0);
+					return {};
+				}
 				uint64 PeakReservations = PeakTaskReservationCount.load(std::memory_order::acquire);
 				while (PeakReservations < CurrentReservations
 					&& !PeakTaskReservationCount.compare_exchange_weak(PeakReservations, CurrentReservations, std::memory_order::acq_rel)) {}
 
-				State = std::make_shared<FTaskStateData>(
-					Name,
-					weak_from_this(),
-					LifetimeAccounting,
-					std::move(FunctionOwner),
-					std::move(CompletionFunction),
-					Options.CancellationToken,
-					PrerequisiteStates,
-					GCurrentTaskState ? GCurrentTaskState->GetTaskId() : 0,
-					DependencyKind,
-					bAggregatePrerequisites,
-					Target,
-					Priority,
-					EstimatedPayloadBytes,
-					EstimatedResultBytes,
-					Options.Attribution,
-					std::move(GenerationToken),
-					std::move(CoalescingKey)
-				);
+				try
+				{
+					State = std::make_shared<FTaskStateData>(
+						Name,
+						weak_from_this(),
+						LifetimeAccounting,
+						std::move(FunctionOwner),
+						std::move(CompletionFunction),
+						Options.CancellationToken,
+						PrerequisiteStates,
+						GCurrentTaskState ? GCurrentTaskState->GetTaskId() : 0,
+						DependencyKind,
+						bAggregatePrerequisites,
+						Target,
+						Priority,
+						EstimatedPayloadBytes,
+						EstimatedResultBytes,
+						Options.Attribution,
+						SelectedScope,
+						std::move(GenerationToken),
+						std::move(CoalescingKey)
+					);
+				}
+				catch (...)
+				{
+					const uint64 PreviousReservationCount = CurrentTaskReservationCount.fetch_sub(1, std::memory_order::acq_rel);
+					require(PreviousReservationCount > 0);
+					if (SelectedScope) SelectedScope->RollbackAdmission();
+					throw;
+				}
 				ActiveTasks.emplace(State->GetTaskId(), State);
 			}
 			RecordAcceptedTask(State->GetAccountingSnapshot());
 			Profiling::TaskEnqueued(
 				State->GetTaskId(),
+				State->GetScope() ? State->GetScope()->GetScopeId() : 0,
 				Private::FTaskAttributionAccess::GetOwnerId(State->GetAttribution()),
 				Private::FTaskAttributionAccess::GetCategoryId(State->GetAttribution()),
 				static_cast<uint8>(State->GetTarget()));
@@ -921,6 +1289,7 @@ namespace Durin
 				CancellationState->RegisterTask(State);
 			}
 
+			const bool bCancelAfterAdmission = SelectedScope && SelectedScope->BindTask(State);
 			for (const std::shared_ptr<FTaskStateData>& Prerequisite : PrerequisiteStates)
 			{
 				const ETaskState PrerequisiteState = Prerequisite->RegisterDependent(State);
@@ -930,7 +1299,11 @@ namespace Durin
 				}
 			}
 
-			if (Options.Prerequisites.empty())
+			if (bCancelAfterAdmission)
+			{
+				State->RequestCancellation("Task scope was canceled during admission.");
+			}
+			else if (Options.Prerequisites.empty())
 			{
 				QueueTask(State);
 			}
@@ -988,6 +1361,7 @@ namespace Durin
 			DURIN_PROFILE_TASK_EXECUTION_ZONE(
 				State->GetDebugName(),
 				State->GetTaskId(),
+				State->GetScope() ? State->GetScope()->GetScopeId() : 0,
 				Private::FTaskAttributionAccess::GetOwnerId(State->GetAttribution()),
 				Private::FTaskAttributionAccess::GetCategoryId(State->GetAttribution()),
 				static_cast<uint8>(State->GetTarget()));
@@ -1114,6 +1488,7 @@ namespace Durin
 			}
 			Profiling::TaskTerminal(
 				State->GetTaskId(),
+				State->GetScope() ? State->GetScope()->GetScopeId() : 0,
 				Private::FTaskAttributionAccess::GetOwnerId(Task.Attribution),
 				Private::FTaskAttributionAccess::GetCategoryId(Task.Attribution),
 				static_cast<uint8>(State->GetTarget()),
@@ -1164,6 +1539,11 @@ namespace Durin
 			FTaskOwnerCategoryAggregate& Aggregate = GetAggregate(Attribution);
 			Aggregate.Increment(ETaskAggregateCounter::Rejected);
 			if (CallableBytes) Aggregate.Record(ETaskAggregateHistogram::CallableBytes, *CallableBytes);
+		}
+
+		auto RecordScopeRejectedTask() -> void
+		{
+			ScopeAccounting->RejectedTaskCount.fetch_add(1, std::memory_order::acq_rel);
 		}
 
 		auto RecordCapacityRejectedTask(FTaskAttribution Attribution, std::optional<uint64> CallableBytes = {}) -> void
@@ -1233,6 +1613,9 @@ namespace Durin
 			Snapshot.CanceledTaskCount = CanceledTaskCount.load(std::memory_order::acquire);
 			Snapshot.RejectedTaskCount = RejectedTaskCount.load(std::memory_order::acquire);
 			Snapshot.CapacityRejectedTaskCount = CapacityRejectedTaskCount.load(std::memory_order::acquire);
+			Snapshot.AbandonedOpenScopeCount = ScopeAccounting->AbandonedOpenScopeCount.load(std::memory_order::acquire);
+			Snapshot.ScopeRejectedTaskCount = ScopeAccounting->RejectedTaskCount.load(std::memory_order::acquire);
+			SnapshotScopeCounts(Snapshot.LiveScopeCount, Snapshot.OpenScopeCount, Snapshot.NonquiescentScopeCount);
 			Snapshot.LongWaitCount = LongWaitCount.load(std::memory_order::acquire);
 			Snapshot.DuplicateUniqueConsumerClaimCount = DuplicateUniqueConsumerClaimCount.load(std::memory_order::acquire);
 			Snapshot.AttributionRegistrationOverflowCount = GTaskAttributionRegistry.GetOverflowCount();
@@ -1289,6 +1672,8 @@ namespace Durin
 		mutable std::mutex Mutex;
 		std::condition_variable QuiescenceCV;
 		std::unordered_map<uint64, std::shared_ptr<FTaskStateData>> ActiveTasks;
+		std::vector<std::weak_ptr<FTaskScopeState>> LiveScopes;
+		std::shared_ptr<FTaskScopeSchedulerAccounting> ScopeAccounting = std::make_shared<FTaskScopeSchedulerAccounting>();
 		std::shared_ptr<FTaskSchedulerLifetimeAccounting> LifetimeAccounting = std::make_shared<FTaskSchedulerLifetimeAccounting>();
 		std::array<FTaskOwnerCategoryAggregate, MaxTaskAttributionPairs> OwnerCategoryAggregates{};
 		std::atomic<uint32> ActiveWorkerCount = 0;
@@ -1310,6 +1695,71 @@ namespace Durin
 		uint64 TaskReservationCapacity = 0;
 		bool bAcceptingTasks = false;
 	};
+
+	auto FTaskScopeState::WaitFor(double TimeoutSeconds, bool bUnbounded) -> ETaskScopeWaitResult
+	{
+		std::vector<std::shared_ptr<FTaskStateData>> Tasks;
+		{
+			std::lock_guard Lock(Mutex);
+			if (State == ETaskScopeState::Open) return ETaskScopeWaitResult::ScopeOpen;
+			if (State == ETaskScopeState::QuiescentDrain || State == ETaskScopeState::QuiescentCancel)
+			{
+				return ETaskScopeWaitResult::Quiescent;
+			}
+			Tasks.reserve(ActiveTasks.size());
+			for (const auto& [TaskId, Task] : ActiveTasks)
+			{
+				if (std::shared_ptr<FTaskStateData> PinnedTask = Task.lock()) Tasks.emplace_back(std::move(PinnedTask));
+			}
+		}
+
+		if (IsInRenderingThread()) return ETaskScopeWaitResult::UnsupportedThread;
+		if (GIsGameThreadIdInitialized && IsInGameThread() && std::ranges::any_of(Tasks, [](const std::shared_ptr<FTaskStateData>& Task) {
+			return Task->GetTarget() == ETaskTarget::GameThreadDeferred;
+		}))
+		{
+			return ETaskScopeWaitResult::UnsupportedThread;
+		}
+
+		std::shared_ptr<FTaskScheduler> PinnedScheduler = Scheduler.lock();
+		const bool bWorkerHelping = GCurrentTaskState && PinnedScheduler && GCurrentTaskScheduler == PinnedScheduler.get();
+		if (bWorkerHelping && GCurrentTaskState->GetScope().get() == this)
+		{
+			return ETaskScopeWaitResult::UnsupportedThread;
+		}
+
+		const auto Start = std::chrono::steady_clock::now();
+		const double ClampedTimeout = std::max(0.0, TimeoutSeconds);
+		auto IsQuiescent = [this]() {
+			return State == ETaskScopeState::QuiescentDrain || State == ETaskScopeState::QuiescentCancel;
+		};
+		for (;;)
+		{
+			{
+				std::unique_lock Lock(Mutex);
+				if (IsQuiescent()) return ETaskScopeWaitResult::Quiescent;
+				if (!bUnbounded)
+				{
+					const double Elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - Start).count();
+					if (Elapsed >= ClampedTimeout) return ETaskScopeWaitResult::TimedOut;
+					const double Slice = bWorkerHelping ? std::min(WorkerWaitSliceSeconds, ClampedTimeout - Elapsed) : ClampedTimeout - Elapsed;
+					if (CV.wait_for(Lock, std::chrono::duration<double>(Slice), IsQuiescent)) return ETaskScopeWaitResult::Quiescent;
+					if (!bWorkerHelping) return ETaskScopeWaitResult::TimedOut;
+				}
+				else if (!bWorkerHelping)
+				{
+					CV.wait(Lock, IsQuiescent);
+					return ETaskScopeWaitResult::Quiescent;
+				}
+				else
+				{
+					CV.wait_for(Lock, std::chrono::duration<double>(WorkerWaitSliceSeconds), IsQuiescent);
+					if (IsQuiescent()) return ETaskScopeWaitResult::Quiescent;
+				}
+			}
+			if (bWorkerHelping) PinnedScheduler->TryExecuteOneQueuedTask();
+		}
+	}
 
 	auto FTaskStateData::SetRetainedResultBytes(uint64 InRetainedResultBytes) -> void
 	{
@@ -1746,6 +2196,10 @@ namespace Durin
 		{
 			Dependent->OnPrerequisiteTerminal(TerminalState, TaskId);
 		}
+		if (Scope)
+		{
+			Scope->ReleaseTask(TaskId, TerminalState);
+		}
 		if (std::shared_ptr<FTaskScheduler> PinnedScheduler = Scheduler.lock())
 		{
 			PinnedScheduler->OnTaskTerminal(shared_from_this());
@@ -2121,6 +2575,16 @@ namespace Durin
 		return InitializeTaskScheduler(FTaskSchedulerConfig{.NumWorkerThreads = InNumThreads});
 	}
 
+	auto CreateTaskScope() -> FTaskScope
+	{
+		std::lock_guard Lock(GTaskSchedulerMutex);
+		if (GTaskSchedulerLifetime != ETaskSchedulerLifetime::Running || !GTaskScheduler)
+		{
+			return {};
+		}
+		return FTaskScope(GTaskScheduler->CreateScope());
+	}
+
 	auto InitializeTaskScheduler(const FTaskSchedulerConfig& Config) -> bool
 	{
 		std::lock_guard Lock(GTaskSchedulerMutex);
@@ -2230,6 +2694,8 @@ namespace Durin
 			SchedulerToDestroy = GTaskScheduler;
 			SchedulerToDestroy->CloseAdmission();
 		}
+		SchedulerToDestroy->CloseLiveScopes(
+			Mode == ETaskShutdownMode::Cancel ? ETaskScopeCloseMode::Cancel : ETaskScopeCloseMode::Drain);
 
 		std::shared_ptr<FGameThreadDeferredWorkQueue> Queue;
 		{
@@ -2323,6 +2789,8 @@ namespace Durin
 			SchedulerToDestroy = GTaskScheduler;
 			SchedulerToDestroy->CloseAdmission();
 		}
+		SchedulerToDestroy->CloseLiveScopes(
+			bWaitForQueuedWork ? ETaskScopeCloseMode::Drain : ETaskScopeCloseMode::Cancel);
 
 		SchedulerToDestroy->Shutdown(bWaitForQueuedWork);
 		FTaskSchedulerDiagnostics ShutdownDiagnostics = SchedulerToDestroy->GetDiagnostics(false);
@@ -2518,6 +2986,21 @@ namespace Durin
 			FTaskAttribution ResolvedAttribution = FTaskAttributionAccess::IsDefault(Options.Attribution) && Predecessor.State
 				? Predecessor.State->GetAttribution()
 				: Options.Attribution;
+			const FTaskScopeToken ResolvedScope = Predecessor.State ? Predecessor.State->GetScopeToken() : FTaskScopeToken{};
+			if (!(Options.Scope == FTaskScopeToken{}) && !(Options.Scope == ResolvedScope))
+			{
+				if (const std::shared_ptr<FTaskScopeState>& RejectedScope = FTaskScopeAccess::GetState(Options.Scope))
+				{
+					RejectedScope->RecordRejected();
+				}
+				std::lock_guard Lock(GTaskSchedulerMutex);
+				if (GTaskScheduler)
+				{
+					GTaskScheduler->RecordRejectedTask(ResolvedAttribution, 0);
+					GTaskScheduler->RecordScopeRejectedTask();
+				}
+				return {};
+			}
 			if (!Function)
 			{
 				std::lock_guard Lock(GTaskSchedulerMutex);
@@ -2542,6 +3025,7 @@ namespace Durin
 			LaunchOptions.Prerequisites = Prerequisites;
 			LaunchOptions.CancellationToken = Options.CancellationToken;
 			LaunchOptions.Attribution = ResolvedAttribution;
+			LaunchOptions.Scope = ResolvedScope;
 
 			std::lock_guard Lock(GTaskSchedulerMutex);
 			if (GTaskSchedulerLifetime != ETaskSchedulerLifetime::Running)
@@ -2561,7 +3045,8 @@ namespace Durin
 				Options.EstimatedPayloadBytes,
 				EstimatedResultBytes,
 				Options.GenerationToken,
-				Options.CoalescingKey
+				Options.CoalescingKey,
+				true
 			);
 			return State ? FTaskHandle(std::move(State)) : FTaskHandle{};
 		}
@@ -2836,6 +3321,7 @@ namespace Durin
 		FTaskLaunchOptions LaunchOptions;
 		LaunchOptions.CancellationToken = SharedState->CancellationSource.GetToken();
 		LaunchOptions.Attribution = SelectedAttribution;
+		LaunchOptions.Scope = Options.Scope;
 		bool bLaunchFailed = false;
 		for (uint32 ChunkIndex = 1; ChunkIndex < EffectiveChunkCount; ++ChunkIndex)
 		{

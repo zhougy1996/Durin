@@ -1740,6 +1740,7 @@ namespace
 	{
 		EnsureDObjectInitialized();
 		Durin::DClass* Class = DRecursiveDefaultObjectForTest::StaticClass();
+		(void)DLifecycleTestObject::StaticClass();
 		const Durin::uint64 ObjectCountBeforeCreation = Durin::GDObjectArray.GetNum();
 		DRecursiveDefaultObjectForTest::DestructorCount = 0;
 		DLifecycleTestObject::ResetLifecycleCounts();
