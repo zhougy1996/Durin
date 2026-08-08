@@ -73,8 +73,14 @@ Files under `Malformed/` are deterministic mutations of that graph;
   are float32 VEC3/VEC4, inverse binds are float32 MAT4, and animation times are
   float32 SCALAR. Indices accept unsigned byte, unsigned short, or unsigned int.
   JOINTS_0 accepts non-normalized unsigned byte or unsigned short VEC4.
-  WEIGHTS_0, texture coordinates, and colors accept float32 or normalized
-  unsigned byte/unsigned short values of the required vector width.
+  WEIGHTS_0 and texture coordinates accept float32 or normalized unsigned
+  byte/unsigned short values of the required vector width. `COLOR_0` accepts
+  those encodings as VEC3 or VEC4, and VEC3 receives alpha `1`.
+- Missing normals are generated from converted indexed geometry. Missing
+  tangents are generated from UV0 and the final normals, with a deterministic
+  orthogonal fallback for missing or degenerate UV0. A missing primitive
+  material reference resolves to one implicit default material distinct from
+  every declared source material.
 - Accessor and buffer-view byte offsets and byte strides are honored when
   aligned and in range. Sparse accessors, JOINTS_1/WEIGHTS_1, morph targets,
   morph-weight animation, non-triangle primitives, CUBICSPLINE, and accessors

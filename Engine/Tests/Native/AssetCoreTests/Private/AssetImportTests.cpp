@@ -199,6 +199,41 @@ namespace Durin::Asset
 			return (std::filesystem::path{DURIN_TEST_DATA_DIR} / std::string(FileName)).string();
 		}
 
+		auto ReplaceAll(std::string& Value, std::string_view From, std::string_view To) -> size_t
+		{
+			size_t Count = 0;
+			for (size_t Offset = 0; (Offset = Value.find(From, Offset)) != std::string::npos; ++Count)
+			{
+				Value.replace(Offset, From.size(), To);
+				Offset += To.size();
+			}
+			return Count;
+		}
+
+		auto WriteOptionalSkeletalAttributesFixture() -> std::filesystem::path
+		{
+			std::ifstream Source(TestDataPath("Skeletal/Contract.gltf"), std::ios::binary);
+			EXPECT_TRUE(Source.is_open());
+			std::stringstream Stream;
+			Stream << Source.rdbuf();
+			std::string Document = Stream.str();
+			EXPECT_EQ(ReplaceAll(Document,
+				"            \"NORMAL\": 1,\n",
+				"            \"COLOR_0\": 1,\n"), 2u);
+			EXPECT_EQ(ReplaceAll(Document, "            \"TANGENT\": 2,\n", ""), 2u);
+			EXPECT_EQ(ReplaceAll(Document, "          \"material\": 0,\n", ""), 2u);
+
+			const std::filesystem::path Root =
+				Durin::Testing::GetTestWorkDirectory() / "OptionalSkeletalAttributes";
+			std::filesystem::create_directories(Root);
+			const std::filesystem::path Path = Root / "OptionalAttributes.gltf";
+			std::ofstream Destination(Path, std::ios::binary | std::ios::trunc);
+			EXPECT_TRUE(Destination.is_open());
+			Destination.write(Document.data(), static_cast<std::streamsize>(Document.size()));
+			EXPECT_TRUE(Destination.good());
+			return Path;
+		}
+
 		auto MakeYUpNegativeZForwardOptions() -> FMeshImportOptions
 		{
 			FMeshImportOptions Options;
@@ -415,6 +450,7 @@ namespace Durin::Asset
 				ASSERT_NE(Mesh.Payload, nullptr);
 				EXPECT_EQ(Mesh.Payload->Positions.size(), 6u);
 				EXPECT_EQ(Mesh.Payload->Indices.size(), 6u);
+				EXPECT_EQ(Mesh.Payload->Indices, (std::vector<uint32>{0, 2, 1, 3, 5, 4}));
 				EXPECT_EQ(Mesh.Payload->Sections.size(), 2u);
 				EXPECT_EQ(Mesh.Payload->PaletteBoneIndices, (std::vector<uint16>{1, 2, 3, 4}));
 				EXPECT_EQ(Mesh.Payload->InverseBindMatrices.size(), 4u);
@@ -484,6 +520,40 @@ namespace Durin::Asset
 					*Scenes[ContainerIndex].AnimationClips[ClipIndex].Payload);
 			}
 		}
+	}
+
+	TEST(FAssetImportTests, SkeletalGltfGeneratesMissingBasisAndAcceptsDefaultMaterialAndRgbColors)
+	{
+		FImportedSceneData Scene;
+		ASSERT_TRUE(ImportFromFile(WriteOptionalSkeletalAttributesFixture().generic_string(), Scene));
+		ASSERT_EQ(Scene.Materials.size(), 3u);
+		EXPECT_EQ(Scene.Materials[2].SourceMaterialIndex, 2u);
+		EXPECT_EQ(Scene.Materials[2].SourceName, "Default");
+		ASSERT_EQ(Scene.SkeletalMeshes.size(), 2u);
+
+		for (const FImportedSkeletalMeshData& Mesh : Scene.SkeletalMeshes)
+		{
+			ASSERT_NE(Mesh.Payload, nullptr);
+			EXPECT_EQ(Mesh.Payload->Indices, (std::vector<uint32>{0, 2, 1, 3, 5, 4}));
+			ASSERT_EQ(Mesh.MaterialSlots.size(), 2u);
+			EXPECT_EQ(Mesh.MaterialSlots[0].SourceMaterialIndex, 2u);
+			EXPECT_EQ(Mesh.MaterialSlots[0].SourceName, "Default");
+			ASSERT_EQ(Mesh.Payload->Normals.size(), 6u);
+			ASSERT_EQ(Mesh.Payload->Tangents.size(), 6u);
+			ASSERT_EQ(Mesh.Payload->Colors.size(), 6u);
+			for (size_t Vertex = 0; Vertex < 3; ++Vertex)
+			{
+				ExpectVec3Eq(FVector3f(-1.0f, 0.0f, 0.0f), Mesh.Payload->Normals[Vertex]);
+				ExpectVec4Eq(FVector4f(0.0f, 1.0f, 0.0f, -1.0f), Mesh.Payload->Tangents[Vertex]);
+				ExpectVec4Eq(FVector4f(0.0f, 0.0f, 1.0f, 1.0f), Mesh.Payload->Colors[Vertex]);
+			}
+		}
+
+		ASSERT_EQ(Scene.Meshes.size(), 4u);
+		EXPECT_EQ(Scene.Meshes[0].SourceMaterialIndex, 2u);
+		EXPECT_TRUE(std::ranges::any_of(Scene.MaterialSlots, [](const FImportedMaterialSlot& Slot) {
+			return Slot.SourceMaterialIndex == 2u && Slot.Name == "Default";
+		}));
 	}
 
 	TEST(FAssetImportTests, SkeletalMalformedFixturesUseFrozenDiagnosticCategories)

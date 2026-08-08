@@ -88,6 +88,93 @@ namespace Durin::Asset::Private
 			return Result;
 		}
 
+		auto NormalizeOr(const FVector3f& Value, const FVector3f& Fallback) -> FVector3f
+		{
+			const float LengthSquared = glm::dot(Value, Value);
+			if (!std::isfinite(LengthSquared) || LengthSquared <= 1.0e-20f) return Fallback;
+			return Value / std::sqrt(LengthSquared);
+		}
+
+		auto MakePerpendicularTangent(const FVector3f& Normal) -> FVector3f
+		{
+			const FVector3f Axis = std::abs(Normal.z) < 0.999f
+				? FVector3f(0.0f, 0.0f, 1.0f)
+				: FVector3f(0.0f, 1.0f, 0.0f);
+			return NormalizeOr(glm::cross(Axis, Normal), FVector3f(1.0f, 0.0f, 0.0f));
+		}
+
+		auto GenerateNormals(
+			std::span<const FVector3f> Positions,
+			std::span<const uint32> Indices,
+			uint32 VertexBase,
+			std::span<FVector3f> OutNormals) -> void
+		{
+			std::vector<FVector3f> Accumulated(Positions.size(), FVector3f(0.0f));
+			for (size_t Index = 0; Index < Indices.size(); Index += 3)
+			{
+				const uint32 A = Indices[Index] - VertexBase;
+				const uint32 B = Indices[Index + 1] - VertexBase;
+				const uint32 C = Indices[Index + 2] - VertexBase;
+				const FVector3f Face = glm::cross(Positions[B] - Positions[A], Positions[C] - Positions[A]);
+				if (!std::isfinite(glm::dot(Face, Face))) continue;
+				Accumulated[A] += Face;
+				Accumulated[B] += Face;
+				Accumulated[C] += Face;
+			}
+			for (size_t Vertex = 0; Vertex < Positions.size(); ++Vertex)
+			{
+				const FVector3f Normal = NormalizeOr(Accumulated[Vertex], FVector3f(0.0f, 0.0f, 1.0f));
+				OutNormals[Vertex] = FVector3f(
+					CleanNumber(Normal.x), CleanNumber(Normal.y), CleanNumber(Normal.z));
+			}
+		}
+
+		auto GenerateTangents(
+			std::span<const FVector3f> Positions,
+			std::span<const FVector3f> Normals,
+			std::span<const FVector2f> UVs,
+			std::span<const uint32> Indices,
+			uint32 VertexBase,
+			std::span<FVector4f> OutTangents) -> void
+		{
+			std::vector<FVector3f> AccumulatedTangents(Positions.size(), FVector3f(0.0f));
+			std::vector<FVector3f> AccumulatedBitangents(Positions.size(), FVector3f(0.0f));
+			if (UVs.size() == Positions.size())
+			{
+				for (size_t Index = 0; Index < Indices.size(); Index += 3)
+				{
+					const uint32 A = Indices[Index] - VertexBase;
+					const uint32 B = Indices[Index + 1] - VertexBase;
+					const uint32 C = Indices[Index + 2] - VertexBase;
+					const FVector3f Edge1 = Positions[B] - Positions[A];
+					const FVector3f Edge2 = Positions[C] - Positions[A];
+					const FVector2f Delta1 = UVs[B] - UVs[A];
+					const FVector2f Delta2 = UVs[C] - UVs[A];
+					const float Determinant = Delta1.x * Delta2.y - Delta1.y * Delta2.x;
+					if (!std::isfinite(Determinant) || std::abs(Determinant) <= 1.0e-20f) continue;
+					const float Reciprocal = 1.0f / Determinant;
+					const FVector3f Tangent = (Edge1 * Delta2.y - Edge2 * Delta1.y) * Reciprocal;
+					const FVector3f Bitangent = (Edge2 * Delta1.x - Edge1 * Delta2.x) * Reciprocal;
+					for (uint32 Vertex : {A, B, C})
+					{
+						AccumulatedTangents[Vertex] += Tangent;
+						AccumulatedBitangents[Vertex] += Bitangent;
+					}
+				}
+			}
+			for (size_t Vertex = 0; Vertex < Positions.size(); ++Vertex)
+			{
+				const FVector3f Normal = NormalizeOr(Normals[Vertex], FVector3f(0.0f, 0.0f, 1.0f));
+				const FVector3f Orthogonal = AccumulatedTangents[Vertex]
+					- Normal * glm::dot(Normal, AccumulatedTangents[Vertex]);
+				const FVector3f Tangent = NormalizeOr(Orthogonal, MakePerpendicularTangent(Normal));
+				const float Handedness = glm::dot(glm::cross(Normal, Tangent), AccumulatedBitangents[Vertex]) < 0.0f
+					? -1.0f : 1.0f;
+				OutTangents[Vertex] = FVector4f(
+					CleanNumber(Tangent.x), CleanNumber(Tangent.y), CleanNumber(Tangent.z), Handedness);
+			}
+		}
+
 		auto ToSkeletonTransform(const FMatrix4f& Matrix) -> FSkeletonTransform
 		{
 			return {
@@ -846,10 +933,22 @@ namespace Durin::Asset::Private
 					std::vector<std::array<double, 16>> Normals;
 					std::vector<std::array<double, 16>> Tangents;
 					std::vector<std::array<double, 16>> Colors;
+					bool bColorsHaveAlpha = true;
+					auto DecodeOptionalColor = [&]() -> bool {
+						if (!Attributes.Contains("COLOR_0")) return true;
+						uint32 Accessor = 0;
+						if (!ReadIndex(Attributes.GetView("COLOR_0"), Accessor)) return false;
+						const FJsonNodeView AccessorNode = Root.GetView("accessors").GetView(Accessor);
+						const std::string Type = AccessorNode.GetView("type").GetString();
+						bColorsHaveAlpha = Type == "VEC4";
+						return DecodeFloatVectors(Accessor, Type == "VEC3" ? "VEC3" : "VEC4",
+							MaximumSkeletalMeshVertices, Subject + ":COLOR_0",
+							{GltfFloat, GltfUnsignedByte, GltfUnsignedShort}, true, Colors)
+							&& Colors.size() == Positions.size();
+					};
 					if (!DecodeOptionalVector("NORMAL", "VEC3", {GltfFloat}, false, Normals)
 						|| !DecodeOptionalVector("TANGENT", "VEC4", {GltfFloat}, false, Tangents)
-						|| !DecodeOptionalVector("COLOR_0", "VEC4",
-							{GltfFloat, GltfUnsignedByte, GltfUnsignedShort}, true, Colors))
+						|| !DecodeOptionalColor())
 						return Malformed(Subject, "Skeletal primitive optional vertex stream is invalid.");
 					for (size_t Vertex = 0; Vertex < Positions.size(); ++Vertex)
 					{
@@ -863,7 +962,7 @@ namespace Durin::Asset::Private
 						if (bUseColors) Payload->Colors.push_back(Colors.empty()
 							? FVector4f(1.0f)
 							: FVector4f(CleanNumber(Colors[Vertex][0]), CleanNumber(Colors[Vertex][1]),
-								CleanNumber(Colors[Vertex][2]), CleanNumber(Colors[Vertex][3])));
+								CleanNumber(Colors[Vertex][2]), bColorsHaveAlpha ? CleanNumber(Colors[Vertex][3]) : 1.0f));
 					}
 					for (uint32 Channel = 0; Channel < UseUV.size(); ++Channel)
 					{
@@ -894,18 +993,54 @@ namespace Durin::Asset::Private
 					if (!DecodeIndices(IndexAccessor, MaximumSkeletalMeshIndices, Subject + ":indices", Indices)) return false;
 					if (Indices.size() % 3 != 0 || Indices.size() > MaximumSkeletalMeshIndices - Payload->Indices.size())
 						return Malformed(Subject, "Skeletal primitive index count is invalid.");
+					for (uint32 Index : Indices)
+						if (Index >= Positions.size()) return Malformed(Subject, "Skeletal primitive contains an out-of-range index.");
+					for (size_t Triangle = 0; Triangle < Indices.size(); Triangle += 3)
+						std::swap(Indices[Triangle + 1], Indices[Triangle + 2]);
 					uint32 MinIndex = std::numeric_limits<uint32>::max();
 					uint32 MaxIndex = 0;
 					for (uint32& Index : Indices)
 					{
-						if (Index >= Positions.size()) return Malformed(Subject, "Skeletal primitive contains an out-of-range index.");
 						MinIndex = std::min(MinIndex, Index + VertexBase);
 						MaxIndex = std::max(MaxIndex, Index + VertexBase);
 						Index += VertexBase;
 					}
+					const std::span<const FVector3f> PrimitivePositions(Payload->Positions.data() + VertexBase, Positions.size());
+					std::span<FVector3f> PrimitiveNormals(Payload->Normals.data() + VertexBase, Positions.size());
+					if (Normals.empty())
+						GenerateNormals(PrimitivePositions, Indices, VertexBase, PrimitiveNormals);
+					if (Tangents.empty())
+					{
+						const std::span<const FVector2f> PrimitiveUVs = UseUV[0]
+							? std::span<const FVector2f>(Payload->UVChannels[0].data() + VertexBase, Positions.size())
+							: std::span<const FVector2f>{};
+						GenerateTangents(
+							PrimitivePositions,
+							PrimitiveNormals,
+							PrimitiveUVs,
+							Indices,
+							VertexBase,
+							std::span<FVector4f>(Payload->Tangents.data() + VertexBase, Positions.size()));
+					}
 					const uint32 FirstIndex = static_cast<uint32>(Payload->Indices.size());
 					Payload->Indices.insert(Payload->Indices.end(), Indices.begin(), Indices.end());
-					const uint32 MaterialIndex = static_cast<uint32>(Primitive.GetView("material").GetUInt(0));
+					const FJsonNodeView Material = Primitive.GetView("material");
+					uint32 MaterialIndex = 0;
+					if (!Material.IsValid())
+					{
+						if (!Result.DefaultGltfMaterialIndex)
+						{
+							if (Result.Scene.Materials.size() >= MaxImportedSourceMaterials)
+								return Limit("materials", "The implicit glTF default material exceeds the material limit.");
+							Result.DefaultGltfMaterialIndex = static_cast<uint32>(Result.Scene.Materials.size());
+							Result.Scene.Materials.push_back({
+								.SourceMaterialIndex = *Result.DefaultGltfMaterialIndex,
+								.SourceName = "Default"});
+						}
+						MaterialIndex = *Result.DefaultGltfMaterialIndex;
+					}
+					else if (!ReadIndex(Material, MaterialIndex))
+						return Malformed(Subject, "Skeletal primitive material reference is invalid.");
 					if (MaterialIndex >= Result.Scene.Materials.size())
 						return Malformed(Subject, "Skeletal primitive material reference is invalid.");
 					uint32 MaterialSlot = 0;

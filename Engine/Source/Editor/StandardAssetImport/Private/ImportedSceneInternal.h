@@ -11,6 +11,7 @@ namespace Durin::Asset
 		bool bSucceeded = false;
 		FImportedSceneData Scene;
 		std::string ErrorMessage;
+		std::optional<uint32> DefaultGltfMaterialIndex;
 	};
 }
 

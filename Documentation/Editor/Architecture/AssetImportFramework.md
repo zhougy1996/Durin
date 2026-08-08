@@ -116,6 +116,14 @@ bones are parent-before-child and deterministic; multiple roots receive one
 synthetic `$DurinRoot`. Skeleton compatibility hashes canonical names, parents,
 and exact reference transforms.
 
+The handedness-changing basis conversion reverses each skeletal triangle's
+winding. Missing normals are generated from the converted indexed geometry;
+missing tangents are generated from UV0 and the final normals, with a stable
+orthogonal fallback when UV0 is absent or degenerate. `COLOR_0` accepts glTF
+`VEC3` and `VEC4` encodings, with RGB input receiving alpha `1`. A primitive
+without a `material` reference uses one stable implicit default material rather
+than aliasing source material zero.
+
 One Skeleton is planned per source skin, one SkeletalMesh per supported
 skinned-node/mesh association, and one AnimationClip per compatible
 animation/skin pair. Stable identities are `skeleton:skin/<skin-index>`,

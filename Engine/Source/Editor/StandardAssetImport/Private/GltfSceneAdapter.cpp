@@ -1021,8 +1021,30 @@ namespace Durin::Asset::Private
 		for (size_t PrimitiveIndex = 0; PrimitiveIndex < Primitives.Num(); ++PrimitiveIndex)
 		{
 			if (CheckSceneDecodeCancellation(Result, "mesh-primitives")) return false;
-			const uint64 MaterialIndex =
-				Primitives.GetView(PrimitiveIndex).GetView("material").GetUInt(0);
+			const FJsonNodeView Material = Primitives.GetView(PrimitiveIndex).GetView("material");
+			uint64 MaterialIndex = 0;
+			if (!Material.IsValid())
+			{
+				if (!Result.DefaultGltfMaterialIndex)
+				{
+					if (Result.Scene.Materials.size() >= MaxImportedSourceMaterials)
+					{
+						return FailImport(Result, EImportDiagnosticCategory::ResourceLimitExceeded,
+							"materials", "The implicit glTF default material exceeds the material limit.");
+					}
+					Result.DefaultGltfMaterialIndex = static_cast<uint32>(Result.Scene.Materials.size());
+					Result.Scene.Materials.push_back({
+						.SourceMaterialIndex = *Result.DefaultGltfMaterialIndex,
+						.SourceName = "Default"});
+				}
+				MaterialIndex = *Result.DefaultGltfMaterialIndex;
+			}
+			else if (!Material.GetValue(MaterialIndex))
+			{
+				return FailImport(Result, EImportDiagnosticCategory::InvalidReference,
+					std::format("mesh:{}:primitive:{}", MeshIndex, PrimitiveIndex),
+					"glTF primitive material index is invalid.");
+			}
 			if (MaterialIndex >= Result.Scene.Materials.size())
 			{
 				return FailImport(Result, EImportDiagnosticCategory::InvalidReference,
