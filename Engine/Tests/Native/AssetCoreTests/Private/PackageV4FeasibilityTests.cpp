@@ -2,6 +2,7 @@
 
 #include "PackageV4Feasibility.h"
 
+#include "AssetPackageV4Writer.h"
 #include "Hash/XxHash.h"
 #include "AssetSystem.h"
 #include "CoreGlobals.h"
@@ -14,6 +15,7 @@
 
 #include <filesystem>
 #include <format>
+#include <cstring>
 #include <numeric>
 
 namespace
@@ -123,6 +125,36 @@ TEST(FPackageV4FeasibilityTests, DefaultMaterialIsCompleteDeterministicAndWithin
 	EXPECT_EQ(First.Bytes, Reversed.Bytes);
 	EXPECT_EQ(First.Report, Repeated.Report);
 	EXPECT_EQ(First.Report, Reversed.Report);
+	std::vector<uint8> ProductionBytes = {0xee};
+	std::vector<uint8> ProductionRepeated;
+	Durin::Asset::DastV4::FWriterDiagnostic WriterDiagnostic;
+	ASSERT_TRUE(Durin::Asset::DastV4::WriteAssetPackage(
+		Material->GetPackage(), ProductionBytes, {}, &WriterDiagnostic))
+		<< WriterDiagnostic.Message;
+	ASSERT_TRUE(Durin::Asset::DastV4::WriteAssetPackage(
+		Material->GetPackage(), ProductionRepeated, {}, &WriterDiagnostic))
+		<< WriterDiagnostic.Message;
+	EXPECT_EQ(ProductionBytes, First.Bytes);
+	EXPECT_EQ(ProductionRepeated, First.Bytes);
+	FDefaultDeltaPlan NoDeltaPlan;
+	ASSERT_TRUE(BuildDefaultDeltaPlan(
+		Material, EDefaultDeltaMode::NoDelta, NoDeltaPlan, &DeltaDiagnostic));
+	FFeasibilityPackage NoDeltaReference;
+	ASSERT_TRUE(BuildFeasibilityPackageFromV3(
+		V3, false, NoDeltaReference, Error, &NoDeltaPlan)) << Error;
+	Durin::Asset::DastV4::FAssetPackageWriteOptions NoDeltaOptions;
+	NoDeltaOptions.DeltaMode = EDefaultDeltaMode::NoDelta;
+	std::vector<uint8> NoDeltaProduction;
+	ASSERT_TRUE(Durin::Asset::DastV4::WriteAssetPackage(
+		Material->GetPackage(), NoDeltaProduction, NoDeltaOptions, &WriterDiagnostic))
+		<< WriterDiagnostic.Message;
+	EXPECT_EQ(NoDeltaProduction, NoDeltaReference.Bytes);
+	std::vector<uint8> OrdinaryV3;
+	ASSERT_TRUE(Durin::Asset::SerializeAssetPackageBytes(Material->GetPackage(), OrdinaryV3));
+	ASSERT_GE(OrdinaryV3.size(), 8u);
+	uint32 OrdinaryVersion = 0;
+	std::memcpy(&OrdinaryVersion, OrdinaryV3.data() + 4, sizeof(OrdinaryVersion));
+	EXPECT_EQ(OrdinaryVersion, 3u);
 
 	const std::string Detail = std::format(
 		"{} plan_objects={} plan_fields={} plan_emitted={} plan_omitted={} comparisons={} plan_depth={}",
@@ -211,6 +243,11 @@ TEST(FPackageV4FeasibilityTests, DefaultMaterialIsCompleteDeterministicAndWithin
 	EXPECT_EQ(LoadedExplicitPackage.Bytes, LoadedExplicitPackageRepeated.Bytes);
 	EXPECT_NE(LoadedExplicitPackage.Bytes, First.Bytes);
 	EXPECT_EQ(LoadedExplicitPackage.Report.OverrideCount, First.Report.OverrideCount + 1);
+	std::vector<uint8> LoadedExplicitProduction;
+	ASSERT_TRUE(Durin::Asset::DastV4::WriteAssetPackage(
+		Material->GetPackage(), LoadedExplicitProduction, {}, &WriterDiagnostic))
+		<< WriterDiagnostic.Message;
+	EXPECT_EQ(LoadedExplicitProduction, LoadedExplicitPackage.Bytes);
 
 	ASSERT_TRUE(Material->SetAuthoredOverride(
 		OverridePath, EAuthoredOverrideProvenance::Forced, &OverrideDiagnostic));
@@ -221,6 +258,11 @@ TEST(FPackageV4FeasibilityTests, DefaultMaterialIsCompleteDeterministicAndWithin
 	EXPECT_EQ(ForcedPackage.Bytes.size(), LoadedExplicitPackage.Bytes.size());
 	EXPECT_NE(ForcedPackage.Bytes, LoadedExplicitPackage.Bytes);
 	EXPECT_EQ(ForcedPlan.EmittedFieldCount, LoadedExplicitPlan.EmittedFieldCount);
+	std::vector<uint8> ForcedProduction;
+	ASSERT_TRUE(Durin::Asset::DastV4::WriteAssetPackage(
+		Material->GetPackage(), ForcedProduction, {}, &WriterDiagnostic))
+		<< WriterDiagnostic.Message;
+	EXPECT_EQ(ForcedProduction, ForcedPackage.Bytes);
 	ASSERT_TRUE(Material->ClearAuthoredOverride(OverridePath));
 	EXPECT_FALSE(Material->HasAllocatedAuthoredOverrideLedger());
 	FDefaultDeltaPlan ClearedPlan;

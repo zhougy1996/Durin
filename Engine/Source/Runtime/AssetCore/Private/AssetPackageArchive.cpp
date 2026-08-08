@@ -1,4 +1,5 @@
 #include "AssetPackageArchive.h"
+#include "AssetPackageV4Writer.h"
 #include "AssetPackageValueCodec.h"
 
 #include "AssetRedirector.h"
@@ -950,6 +951,282 @@ namespace Durin::Asset::Private
 			OutBytes = std::move(Writer.Bytes);
 			return {};
 		}
+
+		auto AdaptV4Type(const FArchiveLogicalTypeDescriptor& Input,
+			DastV4::FTypePtr& OutType, DastV4::FWriterDiagnostic& Diagnostic) -> bool
+		{
+			using K = FArchiveLogicalTypeDescriptor::EKind;
+			using O = DastV4::ETypeOpcode;
+			switch (Input.Kind)
+			{
+			case K::Scalar:
+				if (Input.bFloating) OutType = DastV4::MakeType(Input.BitWidth == 32 ? O::F32 : O::F64);
+				else if (Input.bSigned) OutType = DastV4::MakeType(Input.BitWidth == 8 ? O::I8 : Input.BitWidth == 16 ? O::I16 : Input.BitWidth == 32 ? O::I32 : O::I64);
+				else OutType = DastV4::MakeType(Input.BitWidth == 8 ? O::U8 : Input.BitWidth == 16 ? O::U16 : Input.BitWidth == 32 ? O::U32 : O::U64);
+				return true;
+			case K::Enum:
+				// Authored DAST v3 enum signatures freeze storage width but not signedness;
+				// the qualified reference bridge therefore uses the unsigned opcode.
+				OutType = DastV4::MakeType(O::Enum, Input.QualifiedType.ToString(), uint8(
+					Input.BitWidth == 8 ? O::U8 : Input.BitWidth == 16 ? O::U16
+						: Input.BitWidth == 32 ? O::U32 : O::U64));
+				return true;
+			case K::String: OutType = DastV4::MakeType(O::String); return true;
+			case K::Name: OutType = DastV4::MakeType(O::Name); return true;
+			case K::Guid: OutType = DastV4::MakeType(O::Guid); return true;
+			case K::Bytes: OutType = DastV4::MakeType(O::Bytes); return true;
+			case K::Object: OutType = DastV4::MakeType(O::HardRef, Input.QualifiedType.ToString()); return true;
+			case K::SoftObject: OutType = DastV4::MakeType(O::SoftRef, Input.QualifiedType.ToString()); return true;
+			case K::Struct: OutType = DastV4::MakeType(O::Struct, Input.QualifiedType.ToString()); return true;
+			case K::Array: case K::FixedArray:
+			{
+				DastV4::FTypePtr Element;
+				if (!Input.ElementType || !AdaptV4Type(*Input.ElementType, Element, Diagnostic)) break;
+				OutType = DastV4::MakeType(Input.Kind == K::Array ? O::Array : O::FixedArray,
+					{}, Input.Kind == K::FixedArray ? Input.FixedArrayDimension : 0, {Element});
+				return true;
+			}
+			case K::Map:
+			{
+				DastV4::FTypePtr Key, Value;
+				if (!Input.KeyType || !Input.ValueType || !AdaptV4Type(*Input.KeyType, Key, Diagnostic)
+					|| !AdaptV4Type(*Input.ValueType, Value, Diagnostic)) break;
+				OutType = DastV4::MakeType(O::Map, {}, 0, {Key, Value}); return true;
+			}
+			}
+			Diagnostic = {DastV4::EWriterFailure::UnsupportedType, {}, "Archive logical type cannot be represented by DAST v4."};
+			return false;
+		}
+
+		auto AreV4TypesEquivalent(const DastV4::FTypeDescriptor& Left,
+			const DastV4::FTypeDescriptor& Right) -> bool
+		{
+			if (Left.Opcode != Right.Opcode || Left.QualifiedName != Right.QualifiedName
+				|| Left.Parameter != Right.Parameter || Left.Children.size() != Right.Children.size()
+				|| Left.bHasDeterministicStructOperations != Right.bHasDeterministicStructOperations
+				|| Left.bHasCustomSerializer != Right.bHasCustomSerializer) return false;
+			for (size_t Index = 0; Index < Left.Children.size(); ++Index)
+				if (!Left.Children[Index] || !Right.Children[Index]
+					|| !AreV4TypesEquivalent(*Left.Children[Index], *Right.Children[Index])) return false;
+			return true;
+		}
+
+		auto DiscoverV4Field(const FCapturedNode& Node, DastV4::FPackageInput& Input,
+			DastV4::FWriterDiagnostic& Diagnostic) -> bool
+		{
+			if (Node.Kind != ENodeKind::Field)
+			{
+				Diagnostic = {DastV4::EWriterFailure::ManifestMismatch, {}, "A discovered field node has the wrong event kind."};
+				return false;
+			}
+			DastV4::FTypePtr Type;
+			if (!AdaptV4Type(Node.Field.LogicalType, Type, Diagnostic)) return false;
+			if (Node.ReflectedProperty
+				&& Node.ReflectedProperty->GetKind() == DurinCodeGen::EPropertyGenFlags::Bool)
+				Type = DastV4::MakeType(DastV4::ETypeOpcode::Bool);
+			const std::string SchemaName = Node.Field.DeclaringType.ToString();
+			const std::string FieldName = Node.Field.Name.ToString();
+			auto Schema = std::ranges::find(Input.Schemas, SchemaName, &DastV4::FSchemaDescriptor::QualifiedName);
+			if (Schema == Input.Schemas.end())
+			{
+				Input.Schemas.push_back({SchemaName, {}});
+				Schema = std::prev(Input.Schemas.end());
+			}
+			auto Existing = std::ranges::find(Schema->Fields, FieldName, &DastV4::FFieldDescriptor::Name);
+			if (Existing == Schema->Fields.end()) Schema->Fields.push_back({FieldName, Type, 0});
+			else if (!Existing->Type || !AreV4TypesEquivalent(*Existing->Type, *Type))
+			{
+				Diagnostic = {DastV4::EWriterFailure::ManifestMismatch,
+					SchemaName + "::" + FieldName,
+					"Repeated field discovery changed its logical type."};
+				return false;
+			}
+			Input.Types.push_back(std::move(Type));
+			std::function<bool(const FCapturedNode&)> DiscoverChildren = [&](const FCapturedNode& Child) {
+				if (Child.Kind == ENodeKind::Field) return DiscoverV4Field(Child, Input, Diagnostic);
+				for (const FCapturedNode& Nested : Child.Children)
+					if (!DiscoverChildren(Nested)) return false;
+				return true;
+			};
+			for (const FCapturedNode& Child : Node.Children)
+				if (!DiscoverChildren(Child)) return false;
+			return true;
+		}
+
+		template<typename T>
+		auto ReadCaptured(std::span<const uint8> Bytes, size_t& Offset, T& Out) -> bool
+		{
+			if (sizeof(T) > Bytes.size() - Offset) return false;
+			std::memcpy(&Out, Bytes.data() + Offset, sizeof(T)); Offset += sizeof(T); return true;
+		}
+
+		auto ReadCapturedString(std::span<const uint8> Bytes, size_t& Offset, std::string& Out) -> bool
+		{
+			uint64 Size = 0;
+			if (!ReadCaptured(Bytes, Offset, Size) || Size > Bytes.size() - Offset) return false;
+			Out.assign(reinterpret_cast<const char*>(Bytes.data() + Offset), size_t(Size)); Offset += size_t(Size); return true;
+		}
+
+		auto FindDeltaField(const std::vector<FDefaultDeltaFieldPlan>* Fields,
+			const FArchiveFieldDescriptor& Descriptor) -> const FDefaultDeltaFieldPlan*
+		{
+			if (!Fields) return nullptr;
+			const auto It = std::ranges::find_if(*Fields, [&](const FDefaultDeltaFieldPlan& Candidate) {
+				return Candidate.Descriptor.DeclaringType == Descriptor.DeclaringType
+					&& Candidate.Descriptor.Name == Descriptor.Name;
+			});
+			return It == Fields->end() ? nullptr : &*It;
+		}
+
+		auto MaterializeV4Value(const FCapturedNode& Node, const FArchiveLogicalTypeDescriptor& Type,
+			const FCapturedPackage& Package, DastV4::FPackageInput& Input, DastV4::FValue& Out,
+			DastV4::FWriterDiagnostic& Diagnostic, const FDefaultDeltaNode* DeltaNode = nullptr) -> bool
+		{
+			using K = FArchiveLogicalTypeDescriptor::EKind;
+			auto Invalid = [&]() {
+				Diagnostic = {DastV4::EWriterFailure::ManifestMismatch, {}, "Captured Archive events do not match their frozen logical type."}; return false;
+			};
+			if (Type.Kind == K::FixedArray || Type.Kind == K::Array || Type.Kind == K::Map)
+			{
+				uint64 Count = Type.Kind == K::FixedArray ? Type.FixedArrayDimension : 0;
+				if (Type.Kind != K::FixedArray)
+				{
+					size_t Offset = 0; if (!ReadCaptured(std::span(Node.Raw), Offset, Count) || Offset != Node.Raw.size()) return Invalid();
+				}
+				const uint64 ExpectedChildren = Type.Kind == K::Map ? Count * 2 : Count;
+				if (Node.Children.size() != ExpectedChildren) return Invalid();
+				for (size_t Index = 0; Index < Node.Children.size(); ++Index)
+				{
+					const auto* ChildType = Type.Kind == K::Map ? (Index % 2 == 0 ? Type.KeyType.get() : Type.ValueType.get()) : Type.ElementType.get();
+					if (!ChildType) return Invalid();
+					DastV4::FValue Child;
+					const FDefaultDeltaNode* ChildDelta = DeltaNode && Index < DeltaNode->Elements.size() ? DeltaNode->Elements[Index].get() : nullptr;
+					if (!MaterializeV4Value(Node.Children[Index], *ChildType, Package, Input, Child, Diagnostic, ChildDelta)) return false;
+					Out.Elements.push_back(std::move(Child));
+				}
+				return true;
+			}
+			if (Type.Kind == K::Struct)
+			{
+				if (!Node.Raw.empty()) return Invalid();
+				for (const FCapturedNode& ChildNode : Node.Children)
+				{
+					const FDefaultDeltaFieldPlan* DeltaField = FindDeltaField(DeltaNode ? &DeltaNode->Fields : nullptr, ChildNode.Field);
+					if (DeltaNode && !DeltaField) return Invalid();
+					if (DeltaField && DeltaField->Disposition == EDefaultDeltaDisposition::Omitted) continue;
+					DastV4::FValue Child;
+					if (!MaterializeV4Value(ChildNode, ChildNode.Field.LogicalType, Package, Input, Child, Diagnostic,
+						DeltaField && DeltaField->Value ? DeltaField->Value.get() : nullptr)) return false;
+					Out.FieldNames.push_back(ChildNode.Field.Name.ToString());
+					Out.Provenances.push_back(DeltaField ? DeltaField->Provenance : EDefaultDeltaProvenance::Explicit);
+					Out.Elements.push_back(std::move(Child));
+				}
+				return true;
+			}
+
+			size_t Offset = 0;
+			switch (Type.Kind)
+			{
+			case K::Scalar:
+				if (Node.Kind == ENodeKind::Field && Node.ReflectedProperty
+					&& Node.ReflectedProperty->GetKind() == DurinCodeGen::EPropertyGenFlags::Bool)
+				{
+					uint8 Encoded = 0; if (!ReadCaptured(std::span(Node.Raw), Offset, Encoded) || Encoded > 1) return Invalid();
+					Out.Bool = Encoded != 0; break;
+				}
+				if (Type.bFloating)
+				{
+					if (Type.BitWidth == 32) { uint32 Bits = 0; if (!ReadCaptured(std::span(Node.Raw), Offset, Bits)) return Invalid(); Out.FloatingBits = Bits; }
+					else if (!ReadCaptured(std::span(Node.Raw), Offset, Out.FloatingBits)) return Invalid();
+				}
+				else if (Type.BitWidth == 8) { uint8 Bits = 0; if (!ReadCaptured(std::span(Node.Raw), Offset, Bits)) return Invalid(); if (Type.bSigned) Out.Signed = int8(Bits); else Out.Unsigned = Bits; }
+				else if (Type.BitWidth == 16) { uint16 Bits = 0; if (!ReadCaptured(std::span(Node.Raw), Offset, Bits)) return Invalid(); if (Type.bSigned) Out.Signed = int16(Bits); else Out.Unsigned = Bits; }
+				else if (Type.BitWidth == 32) { uint32 Bits = 0; if (!ReadCaptured(std::span(Node.Raw), Offset, Bits)) return Invalid(); if (Type.bSigned) Out.Signed = int32(Bits); else Out.Unsigned = Bits; }
+				else { uint64 Bits = 0; if (!ReadCaptured(std::span(Node.Raw), Offset, Bits)) return Invalid(); if (Type.bSigned) Out.Signed = int64(Bits); else Out.Unsigned = Bits; }
+				break;
+			case K::Enum:
+				if (Type.BitWidth == 8) { uint8 Bits = 0; if (!ReadCaptured(std::span(Node.Raw), Offset, Bits)) return Invalid(); Out.Unsigned = Bits; }
+				else if (Type.BitWidth == 16) { uint16 Bits = 0; if (!ReadCaptured(std::span(Node.Raw), Offset, Bits)) return Invalid(); Out.Unsigned = Bits; }
+				else if (Type.BitWidth == 32) { uint32 Bits = 0; if (!ReadCaptured(std::span(Node.Raw), Offset, Bits)) return Invalid(); Out.Unsigned = Bits; }
+				else { uint64 Bits = 0; if (!ReadCaptured(std::span(Node.Raw), Offset, Bits)) return Invalid(); Out.Unsigned = Bits; }
+				break;
+			case K::String: case K::Name:
+				if (!ReadCapturedString(Node.Raw, Offset, Out.Text)) return Invalid();
+				if (Type.Kind == K::Name && !Out.Text.empty()) Input.AdditionalNames.push_back(Out.Text);
+				break;
+			case K::Guid:
+				if (!ReadCaptured(std::span(Node.Raw), Offset, Out.Guid.A) || !ReadCaptured(std::span(Node.Raw), Offset, Out.Guid.B)
+					|| !ReadCaptured(std::span(Node.Raw), Offset, Out.Guid.C) || !ReadCaptured(std::span(Node.Raw), Offset, Out.Guid.D)) return Invalid();
+				break;
+			case K::Bytes: Out.Bytes = Node.Raw; Offset = Node.Raw.size(); break;
+			case K::Object:
+				if (!ReadCaptured(std::span(Node.Raw), Offset, Out.ReferenceTag) || Out.ReferenceTag > 2) return Invalid();
+				if (Out.ReferenceTag == 1 && !ReadCaptured(std::span(Node.Raw), Offset, Out.ReferenceId)) return Invalid();
+				if (Out.ReferenceTag == 2)
+				{
+					std::string Path; if (!ReadCapturedString(Node.Raw, Offset, Path)) return Invalid();
+					const auto It = std::ranges::find(Package.Dependencies, Path, [](const FAssetPath& Value) { return Value.GetView(); });
+					if (It == Package.Dependencies.end()) return Invalid(); Out.ReferenceId = uint64(std::distance(Package.Dependencies.begin(), It) + 1);
+				}
+				break;
+			case K::SoftObject:
+				if (!ReadCaptured(std::span(Node.Raw), Offset, Out.ReferenceTag) || Out.ReferenceTag > 1) return Invalid();
+				if (Out.ReferenceTag == 1) { if (!ReadCapturedString(Node.Raw, Offset, Out.Text)) return Invalid(); Input.AdditionalNames.push_back(Out.Text); }
+				break;
+			default: return Invalid();
+			}
+			return Offset == Node.Raw.size() || Invalid();
+		}
+
+		auto BuildV4Input(const FCapturedPackage& Captured, const FAuthoredPackageSummary& Summary,
+			std::span<DObject* const> Objects, const FDefaultDeltaPlan& DeltaPlan,
+			DastV4::FPackageInput& Out, DastV4::FWriterDiagnostic& Diagnostic) -> bool
+		{
+			DastV4::FPackageInput Input;
+			Input.AssetClass = Summary.AssetClassName;
+			Input.EntryKind = Summary.EntryKind;
+			Input.RedirectDestination = Summary.RedirectDestination.GetView();
+			for (const auto& Dependency : Summary.Dependencies) Input.Dependencies.emplace_back(Dependency.GetView());
+			std::vector<std::string> Paths(Captured.Objects.size());
+			for (const auto& Object : Captured.Objects)
+			{
+				if (Object.Id == 0 || Object.Id > Captured.Objects.size() || Object.OuterId >= Object.Id)
+				{
+					Diagnostic = {DastV4::EWriterFailure::InvalidTopology, {}, "Captured object ids are not topological."}; return false;
+				}
+				const std::string OuterPath = Object.OuterId == 0 ? std::string{} : Paths[Object.OuterId - 1];
+				const std::string Path = OuterPath.empty() ? Object.ObjectName : OuterPath + "/" + Object.ObjectName;
+				Paths[Object.Id - 1] = Path;
+				Input.Objects.push_back({Path, OuterPath, Object.ClassName, Object.ObjectName});
+				for (const auto& Field : Object.Fields) if (!DiscoverV4Field(Field, Input, Diagnostic)) return false;
+			}
+			if (Objects.size() != Captured.Objects.size() || DeltaPlan.Objects.size() != Captured.Objects.size())
+			{
+				Diagnostic = {DastV4::EWriterFailure::ManifestMismatch, {}, "Delta plan object graph differs from Archive discovery."}; return false;
+			}
+			for (size_t ObjectIndex = 0; ObjectIndex < Captured.Objects.size(); ++ObjectIndex)
+			{
+				const auto& Object = Captured.Objects[ObjectIndex];
+				const auto& DeltaObject = DeltaPlan.Objects[ObjectIndex];
+				if (DeltaObject.Object != Objects[ObjectIndex])
+				{
+					Diagnostic = {DastV4::EWriterFailure::ManifestMismatch, Paths[Object.Id - 1], "Delta plan object order differs from Archive discovery."}; return false;
+				}
+				DastV4::FObjectValueInput Values{.ObjectPath = Paths[Object.Id - 1]};
+				for (const auto& Field : Object.Fields)
+				{
+					const FDefaultDeltaFieldPlan* DeltaField = FindDeltaField(&DeltaObject.Fields, Field.Field);
+					if (!DeltaField) { Diagnostic = {DastV4::EWriterFailure::ManifestMismatch, {}, "Delta plan is missing an Archive field."}; return false; }
+					if (DeltaField->Disposition == EDefaultDeltaDisposition::Omitted) continue;
+					DastV4::FValue Value;
+					if (!MaterializeV4Value(Field, Field.Field.LogicalType, Captured, Input, Value, Diagnostic,
+						DeltaField->Value ? DeltaField->Value.get() : nullptr)) return false;
+					Values.KnownOverrides.push_back({Field.Field.DeclaringType.ToString(), Field.Field.Name.ToString(), DeltaField->Provenance, std::move(Value)});
+				}
+				Input.ObjectValues.push_back(std::move(Values));
+			}
+			Out = std::move(Input); return true;
+		}
 	}
 
 	auto BuildAuthoredPackageBytes(
@@ -1049,5 +1326,97 @@ namespace Durin::Asset::Private
 		OutLegacyFields.insert(OutLegacyFields.end(),
 			std::make_move_iterator(Legacy.begin()), std::make_move_iterator(Legacy.end()));
 		return {};
+	}
+}
+
+namespace Durin::Asset::DastV4
+{
+	auto WriteAssetPackage(DPackage* Package, std::vector<uint8>& OutBytes,
+		const FAssetPackageWriteOptions& Options, FWriterDiagnostic* OutDiagnostic) -> FAssetResult
+	{
+		FWriterDiagnostic Diagnostic;
+		auto Finish = [&](FAssetResult Result) {
+			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
+			return Result;
+		};
+		if (Package && !Package->IsAssetPackage())
+		{
+			Diagnostic = {EWriterFailure::InvalidInput, {}, "Only asset packages can be serialized."};
+			return Finish({EAssetError::InvalidPackageType, Diagnostic.Message});
+		}
+		if (!Package || !Package->GetAsset())
+		{
+			Diagnostic = {EWriterFailure::InvalidTopology, {}, "Package has no main asset."};
+			return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
+		}
+		FAssetPath PackagePath;
+		if (!FAssetPath::TryCreate(Package->GetPackagePath(), PackagePath))
+		{
+			Diagnostic = {EWriterFailure::InvalidInput, {}, "Package has an invalid asset path."};
+			return Finish({EAssetError::InvalidPath, Diagnostic.Message});
+		}
+
+		std::vector<DObject*> Objects;
+		Private::GatherObjects(Package->GetAsset(), Objects);
+		std::unordered_map<DObject*, uint64> ObjectIds;
+		for (size_t Index = 0; Index < Objects.size(); ++Index) ObjectIds.emplace(Objects[Index], Index + 1);
+		Private::FCapturedPackage Discovery;
+		FAssetResult Result = Private::CapturePackage(Objects, ObjectIds, Options.Serialization, false, Discovery);
+		if (!Result)
+		{
+			Diagnostic = {EWriterFailure::ArchiveFailure, {}, Result.Message}; return Finish(Result);
+		}
+		if (!Private::HasFrozenObjectGraph(Package->GetAsset(), Objects))
+		{
+			Diagnostic = {EWriterFailure::ManifestMismatch, {}, "Archive discovery mutated the frozen package object graph."};
+			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
+		}
+		Private::FCapturedPackage Captured;
+		Result = Private::CapturePackage(Objects, ObjectIds, Options.Serialization, true, Captured);
+		if (!Result)
+		{
+			Diagnostic = {EWriterFailure::ArchiveFailure, {}, Result.Message}; return Finish(Result);
+		}
+		if (!Private::HasFrozenObjectGraph(Package->GetAsset(), Objects)
+			|| !Private::EqualManifest(Discovery, Captured))
+		{
+			Diagnostic = {EWriterFailure::ManifestMismatch, {}, "Archive emission changed the frozen object, field, type, dependency, or version manifest."};
+			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
+		}
+
+		Private::FAuthoredPackageSummary Summary;
+		Summary.AssetClassName = Package->GetAsset()->GetClass()->GetQualifiedName().ToString();
+		Summary.Dependencies = Captured.Dependencies;
+		if (auto* Redirector = Cast<DAssetRedirector>(Package->GetAsset()))
+		{
+			Summary.EntryKind = EAssetRegistryEntryKind::Redirector;
+			DObject* Destination = Redirector->GetDestinationObject();
+			DPackage* DestinationPackage = Destination ? Destination->GetPackage() : nullptr;
+			if (!DestinationPackage || DestinationPackage->GetAsset() != Destination
+				|| !FAssetPath::TryCreate(DestinationPackage->GetPackagePath(), Summary.RedirectDestination)
+				|| Summary.RedirectDestination == PackagePath)
+			{
+				Diagnostic = {EWriterFailure::InvalidInput, {}, "Redirector destination is invalid."};
+				return Finish({EAssetError::CorruptFile, Diagnostic.Message});
+			}
+		}
+
+		FDefaultDeltaPlan DeltaPlan;
+		FDefaultDeltaDiagnostic DeltaDiagnostic;
+		if (!BuildDefaultDeltaPlan(Package->GetAsset(), Options.DeltaMode, DeltaPlan, &DeltaDiagnostic))
+		{
+			Diagnostic = {EWriterFailure::DeltaPlanFailure, DeltaDiagnostic.LogicalPath,
+				"Default-relative logical planning failed."};
+			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
+		}
+		FPackageInput Input;
+		if (!Private::BuildV4Input(Captured, Summary, Objects, DeltaPlan, Input, Diagnostic))
+			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
+		std::vector<uint8> Bytes;
+		if (!WritePackage(Input, Bytes, &Diagnostic))
+			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
+		OutBytes = std::move(Bytes);
+		Diagnostic.Reset();
+		return Finish({});
 	}
 }

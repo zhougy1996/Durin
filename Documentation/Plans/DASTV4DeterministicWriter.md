@@ -4,17 +4,44 @@ Summary: Implement the bounded production DAST v4 writer by consuming the frozen
 
 Last reviewed: 2026-08-08
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-08
 
 ## Current Status
 
-The entry gate is satisfied by the completed measurement/wire-contract and
-default-relative-reflection plans. Runtime now publishes deterministic class and
-Struct defaults, tri-state identity, default-object graph pairing, a canonical
-wire-neutral delta plan, pointer-free authored override intent, and complete
-no-delta planning. The test-only v4 reference codec remains the byte oracle.
-AssetCore production save/load and every tracked package remain DAST v3.
+The production writer is complete. `Durin::Asset::DastV4::WritePackage` owns a
+bounded logical package model, stable typed diagnostics, canonical Name, Type,
+Schema/custom-version, Object, dependency and Value freezing, every frozen
+opcode, exact retained-closure validation, checked envelope emission, and
+failure-atomic destination replacement. `WriteAssetPackage` is the sole
+explicit live-object entry and composes Archive discovery/emission,
+`BuildDefaultDeltaPlan`, and the low-level writer; no ordinary save, reader,
+registry, inspection, or migration path calls it.
+
+The independent reference codec matches production for every opcode,
+enabled/no-delta planning, loaded-explicit and forced provenance, two-object
+graph-relative internal/external/soft references, custom versions, unknown
+closure/payload retention, reverse discovery, malformed/limit failures, and the
+complete Default Material. Default Material remains exactly 6,275 bytes with
+sections `{1803, 62, 107, 5, 4219}`, XXH64 `C4111B7609C78D4F`, 785 planned
+fields, 554 emitted, 231 omitted, 1,275 comparisons, and maximum depth 5.
+Ordinary serialization still emits version 3, and the asset baseline reports
+all 17 tracked packages as unchanged DAST v3.
+
+Final handoff: baseline commit `ded6d3fd`; working set
+`AssetPackageV4Writer.h/.cpp`, `AssetPackageArchive.cpp`, AssetCore public
+aggregation, AssetPackage writer/feasibility tests, this plan, Asset Packages,
+the compact-serialization roadmap, and the activated reader plan. Key symbols
+are `FPackageInput`, `FWriterDiagnostic`, `WritePackage`, `WriteAssetPackage`,
+`BuildV4Input`, and `MaterializeV4Value`. The v3 enum bridge intentionally uses
+the unsigned width opcode because the frozen v3 enum signature carries width
+but not signedness; the low-level v4 model supports both signed and unsigned
+storage opcodes. Open questions: none. Validation passed AssetPackage 110/110,
+focused CoreDObject default/delta/override 6/6, documentation, all-plan
+validation, the 17-package asset baseline, and a full `all` build from the same
+baseline. The bounded
+[DAST V4 Reader and Compatibility Plan](DASTV4ReaderCompatibility.md) is the
+only newly activated child.
 
 ## Goal
 
@@ -77,11 +104,11 @@ and there is no low-level production v4 writer API.
 
 ### Stage 0: Freeze the production writer boundary
 
-- [ ] Audit the test reference codec against lasting Runtime contracts and list
+- [x] Audit the test reference codec against lasting Runtime contracts and list
   the minimal production-owned data model, without copying test-only policy.
-- [ ] Select the low-level API, destination publication contract, diagnostics,
+- [x] Select the low-level API, destination publication contract, diagnostics,
   limits, and retained-unknown input boundary.
-- [ ] Record the initial working set and byte-parity fixture matrix.
+- [x] Record the initial working set and byte-parity fixture matrix.
 
 #### Acceptance Gate
 
@@ -90,11 +117,11 @@ and there is no low-level production v4 writer API.
 
 ### Stage 1: Implement canonical discovery and table freezing
 
-- [ ] Implement bounded Name, Type, Schema/custom-version, Object, dependency,
+- [x] Implement bounded Name, Type, Schema/custom-version, Object, dependency,
   and retained-closure discovery with exact structural deduplication.
-- [ ] Freeze canonical ordering, ids, object topology, reference resolution, and
+- [x] Freeze canonical ordering, ids, object topology, reference resolution, and
   discovery/emission manifests before writing.
-- [ ] Add positive, reverse-order, duplicate, cycle, overflow, and late-input
+- [x] Add positive, reverse-order, duplicate, cycle, overflow, and late-input
   tests against the independent reference model.
 
 #### Acceptance Gate
@@ -104,12 +131,12 @@ and there is no low-level production v4 writer API.
 
 ### Stage 2: Emit the frozen v4 envelope and values
 
-- [ ] Implement checked primitive encoders, public summary, directory, five
+- [x] Implement checked primitive encoders, public summary, directory, five
   sections, records, and exact length framing.
-- [ ] Emit all supported logical node kinds from `FDefaultDeltaPlan`, including
+- [x] Emit all supported logical node kinds from `FDefaultDeltaPlan`, including
   nested Struct provenance, canonical Maps, references, no-delta, custom
   versions, and exact unknown closure/payload retention.
-- [ ] Prove byte-for-byte parity with every primitive, comprehensive,
+- [x] Prove byte-for-byte parity with every primitive, comprehensive,
   malformed-plan, and Default Material reference fixture.
 
 #### Acceptance Gate
@@ -119,11 +146,11 @@ and there is no low-level production v4 writer API.
 
 ### Stage 3: Integrate the explicit low-level writer
 
-- [ ] Add an explicit opt-in package-to-v4 planning/writing entry that composes
+- [x] Add an explicit opt-in package-to-v4 planning/writing entry that composes
   Archive discovery, `BuildDefaultDeltaPlan`, frozen tables, and byte emission.
-- [ ] Preserve production v3 save/load, registry, audit, migration, and package
+- [x] Preserve production v3 save/load, registry, audit, migration, and package
   version behavior; prove no call path reaches v4 accidentally.
-- [ ] Cover enabled/no-delta options, authored provenance, default subobjects,
+- [x] Cover enabled/no-delta options, authored provenance, default subobjects,
   dependencies, unknown retained values, unsupported Structs, and rollback.
 
 #### Acceptance Gate
@@ -133,12 +160,12 @@ and there is no low-level production v4 writer API.
 
 ### Stage 4: Qualify and hand off to the v4 reader
 
-- [ ] Run focused CoreDObject, Archive, AssetPackage reference/writer,
+- [x] Run focused CoreDObject, Archive, AssetPackage reference/writer,
   Material/default, StaticMesh/default-subobject, documentation, asset-baseline,
   hash, and full-build validation through DurinDevTool.
-- [ ] Record exact Default Material bytes, sections, digest, plan/table counts,
+- [x] Record exact Default Material bytes, sections, digest, plan/table counts,
   writer work, repeated/reverse determinism, and rollback evidence.
-- [ ] Move lasting writer contracts into Runtime documentation, complete this
+- [x] Move lasting writer contracts into Runtime documentation, complete this
   plan, and activate only the bounded v4 reader/compatibility child.
 
 #### Acceptance Gate

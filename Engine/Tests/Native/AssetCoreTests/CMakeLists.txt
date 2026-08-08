@@ -51,6 +51,7 @@ durin_add_asset_functional_test(AssetPackageTests
 		Private/PackageV4ReferenceModelTests.cpp
 		Private/PackageV4Feasibility.cpp
 		Private/PackageV4FeasibilityTests.cpp
+		Private/PackageV4WriterTests.cpp
 )
 target_compile_definitions(AssetPackageTests PRIVATE
 	DAST_V3_CORPUS_ROOT="${DURIN_PROJECT_ROOT_DIR}/.."

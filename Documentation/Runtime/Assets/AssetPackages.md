@@ -104,11 +104,13 @@ references it still begins with DAST.
 
 ### Frozen DAST v4 Wire Contract
 
-DAST v4 is qualified as the next authored-package format, but it is not a
-production-supported format yet. The production writer and every production
-reader remain v3-only until later writer, reader, and migration plans activate
-them explicitly. The v4 layout below is nevertheless frozen: later plans must
-implement these bytes and semantics rather than selecting another layout.
+DAST v4 is qualified as the next authored-package format. AssetCore exposes a
+production-owned, explicit low-level v4 writer, but every production reader,
+ordinary package save, registry path, and migration path remains v3-only. The
+v4 writer is therefore an integration boundary for the bounded reader and
+migration work, not the current authored-package policy. The layout below is
+frozen: later plans must consume these bytes and semantics rather than selecting
+another layout.
 
 A v4 package starts with bytes `44 41 53 54`, then `04 00 00 00` (`uint32`
 little-endian version 4), a little-endian `uint32` public-summary byte length,
@@ -251,8 +253,38 @@ inputs fall from v3's 5,020/3,948 to 134/133 without compression. Repeated and
 reverse-discovery packages are byte-identical. Loaded-explicit and forced ledger
 fixtures exercise provenance `00` and `01`, while unknown-retention fixtures
 keep `02`; clearing the ledger restores the same baseline bytes. These values
-qualify the wire and planning contracts; they do not make v4 production-readable
-or writable.
+also qualify the production writer byte-for-byte against the independent
+reference codec; they do not make v4 production-readable or change ordinary
+package saves.
+
+### Explicit DAST v4 Writer Boundary
+
+`Durin::Asset::DastV4::WritePackage` consumes only owned logical package input:
+public summary values, structural type and schema descriptors, custom versions,
+object topology, completed known overrides, and exact retained unknown closure
+and payload bytes. It closes and canonicalizes the package-local tables before
+emission, rejects malformed descriptors, topology, values, versions, retained
+closures, limits, and discovery mismatches with a stable typed diagnostic, and
+replaces the caller's destination only after the complete bounded package has
+been assembled.
+
+`Durin::Asset::DastV4::WriteAssetPackage` is the sole live-object integration
+entry. It is explicit opt-in, performs the existing Archive discovery/emission
+manifest check, consumes `BuildDefaultDeltaPlan` in enabled or no-delta mode,
+and then delegates to the low-level writer. AssetCore does not call this entry
+from `SerializeAssetPackageBytes`, `SavePackage`, registry publication,
+inspection, loading, or migration. Known enum values originating in DAST v3
+use the unsigned storage opcode frozen by the v3 type signature, which records
+qualified enum identity and width but not signedness; the low-level v4 model
+still supports every signed and unsigned enum storage opcode.
+
+Retained provenance `02` inputs keep their descriptor closure and payload as
+separate exact byte spans. Before publication, the writer parses all closure
+framing, canonical Name/Type/Schema tables, descriptor references and cycles,
+root schema/field resolution, bounds, and trailing-byte state. Package table
+reordering never remaps or rebuilds those bytes.
+
+### DAST v3 Production Save and Load
 
 Object records store object id, outer id, qualified class name, object name, and
 a field table. Fields are identified by declaring qualified class plus property

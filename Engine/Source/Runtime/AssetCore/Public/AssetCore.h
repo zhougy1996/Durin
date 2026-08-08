@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AssetCoreAPI.h"
+#include "AssetPackageV4Writer.h"
 #include "CoreFwd.h"
 #include "Math/MathFwd.h"
 #include "AssetRedirector.h"

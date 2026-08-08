@@ -32,10 +32,18 @@ Completed:
   emitted and 231 omitted fields, and no ledger allocation on v3 load.
 - The bounded
   [DAST V4 Deterministic Writer Plan](../Plans/DASTV4DeterministicWriter.md)
-  activated on 2026-08-08 after the default-relative exit gate passed. It owns
-  production table freezing and exact byte emission behind an explicit low-level
-  boundary; ordinary saves, readers, registries, migration, and tracked content
-  remain v3.
+  completed on 2026-08-08. Its production-owned low-level writer freezes every
+  table, validates exact retained descriptor closures, emits every frozen
+  opcode, and publishes atomically. The explicit live-package entry composes
+  Archive discovery with the default-relative plan; enabled/no-delta,
+  loaded-explicit, forced, graph/reference, all-opcode, and Default Material
+  fixtures match the independent reference codec byte-for-byte. Ordinary saves,
+  readers, registries, migration, and tracked content remain v3.
+- The bounded
+  [DAST V4 Reader and Compatibility Plan](../Plans/DASTV4ReaderCompatibility.md)
+  activated on 2026-08-08 after the writer exit gate passed. It owns header,
+  immutable table/value, transactional live, and construct-free compatibility
+  reading without activating v4 package policy or migration.
 - The completed [Asset Redirectors Refactor Plan](../Plans/Archive/2026-08/AssetRedirectors.md)
   owns DAST v3's bounded registry-entry kind and redirect-destination header
   summary. Compact serialization therefore starts at v4 and uses a temporary
@@ -172,22 +180,13 @@ compression.
 
 ### Gaps
 
-- Struct schemas and textual type signatures repeat at each occurrence.
-- Package-version handling conflates the latest writer with the supported reader
-  set. The v3 value is also duplicated across package saving, loading,
+- Production has no bounded v4 header, table/value, live-object, or construct-
+  free compatibility reader.
+- Package-version handling still conflates the latest writer with the supported
+  reader set. The v3 value is also duplicated across package saving, loading,
   compatibility, and migration code.
-- DAST v3 has no package-local GUID-keyed custom-version table. The v4 wire
-  contract must still choose its version-table representation, canonical order,
-  bounds, unknown-version behavior, and exact-retention policy.
-- Exact unknown-payload retention is not yet reconciled with package-local table
-  identifiers. The v4 contract must define a retained descriptor closure or a
-  stable/remappable identity rule so canonical table rebuilding cannot invalidate
-  opaque retained bytes.
-- Default-relative resave does not yet have a provenance rule for an explicit
-  override whose value equals the current default. The v4 contract must define
-  how a forced override remains distinguishable from an omitted default.
-- Existing tests do not enforce package metadata cardinality, section byte
-  accounting, or an authored-package size budget.
+- Registry/cache policy, explicit mixed-version migration, tracked-content
+  rollout, and retirement of the temporary v3 path remain gated later work.
 
 ## Milestone Map
 
@@ -198,8 +197,8 @@ compression.
 | Class default object lifecycle | Required prerequisite plan | Struct-operations and unified-Archive prerequisites complete; program explicitly scheduled | Every eligible concrete reflected class has one immutable deterministic default object; template construction is free of runtime publication, GC/shutdown ownership is explicit, and constructor/default parity passes full qualification | Completed 2026-08-08 |
 | [V4 measurement and wire contract](../Plans/DASTV4MeasurementAndWireContract.md) | Required child plan | Class-default-object lifecycle exit gate passed | Recursive v3 accounting, a frozen bounded v4 byte contract, golden primitives, and a test-only feasibility fixture demonstrate the size target without a production reader or writer | Completed 2026-08-08 |
 | [Default-relative reflection](../Plans/DASTV4DefaultRelativeReflection.md) | Required child plan | V4 default/override semantics frozen and measurement/wire-contract exit gate passed | Class defaults and safe struct defaults drive recursive logical equivalence, forced-override provenance, and no-delta policy under focused lifecycle tests | Completed 2026-08-08 |
-| [Deterministic v4 writer](../Plans/DASTV4DeterministicWriter.md) | Required child plan | Default-relative reflection exit gate passed | Discovery freezes every referenced table entry and version; canonical emission is byte-deterministic and meets both Default Material size gates | Active 2026-08-08 |
-| V4 reader and compatibility | Required child plan | Writer fixtures and frozen schema model available | Bounded v4 loading and construct-free inspection preserve unknown descriptor closures and pass malformed-input, rollback, and compatibility parity suites | Proposed, deferred |
+| [Deterministic v4 writer](../Plans/DASTV4DeterministicWriter.md) | Required child plan | Default-relative reflection exit gate passed | Discovery freezes every referenced table entry and version; canonical emission is byte-deterministic and meets both Default Material size gates | Completed 2026-08-08 |
+| [V4 reader and compatibility](../Plans/DASTV4ReaderCompatibility.md) | Required child plan | Writer fixtures and frozen schema model available | Bounded v4 loading and construct-free inspection preserve unknown descriptor closures and pass malformed-input, rollback, and compatibility parity suites | Active 2026-08-08 |
 | Mixed-version migration | Required child plan | V3/v4 readers and v4 writer stable | Latest-writer and supported-reader policy is separated; registry, cache, and explicit atomic v3-to-v4 migration pass mixed-corpus and rollback validation | Proposed, deferred |
 | Qualification and rollout | Required child plan | Mixed-version migration exit gate passed | Full validation and editor load/render/save/restart pass before tracked authored content is explicitly resaved and the temporary v3 edge is retired | Proposed, deferred |
 | Custom struct asset codecs | Conditional child plan | A current or future struct audit proves reflected fields plus repair cannot represent durable authored state | Versioned codecs provide dependency discovery, inspection, exact retention, and migration semantics, or the milestone is explicitly dispositioned by audit evidence | Evidence-gated; not currently required |
@@ -269,6 +268,13 @@ and independent reference parity behind an explicit low-level API. It does not
 activate a v4 reader, change ordinary v3 saves, alter registries or migration,
 or rewrite tracked content.
 
+### [V4 Reader and Compatibility](../Plans/DASTV4ReaderCompatibility.md)
+
+Consumes frozen writer bytes and owns bounded header, immutable logical,
+transactional live-object, and construct-free compatibility readers. It does
+not select v4 as the latest writer, activate registry/cache policy, migrate or
+resave packages, or change tracked content.
+
 ### Writer, Reader, Migration, and Rollout Plans
 
 Each later plan owns only its named production slice and focused validation.
@@ -335,6 +341,7 @@ and [Native Tests](../Development/Build/NativeTests.md).
 ## Related Documentation
 
 - [DAST V4 Measurement and Wire Contract Plan](../Plans/DASTV4MeasurementAndWireContract.md)
+- [DAST V4 Reader and Compatibility Plan](../Plans/DASTV4ReaderCompatibility.md)
 - [Class Default Object Lifecycle Plan](../Plans/ClassDefaultObjectLifecycle.md)
 - [Unified Archive Serialization Plan](../Plans/Archive/2026-08/UnifiedArchiveSerialization.md)
 - [Reflected Struct Operations Plan](../Plans/Archive/2026-08/ReflectedStructOperations.md)
