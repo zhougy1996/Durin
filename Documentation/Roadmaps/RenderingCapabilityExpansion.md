@@ -5,7 +5,7 @@ Summary: Expand the current static-mesh forward renderer into a pass-classified,
 Last reviewed: 2026-08-08
 
 Status: Active
-Completed: M1
+Completed: M1, M2
 
 ## Current Status
 
@@ -17,19 +17,17 @@ separate Renderer-private feature owners composed explicitly by
 RHI payloads, resource invalidation, retry, and release are no longer
 concentrated in the module adapter.
 
-The frame is still a fixed forward sequence. Sky, StaticMesh, and TextureCube
+The frame remains a fixed forward sequence. Sky, StaticMesh, and TextureCube
 preview draws share one LDR Scene Color plus depth pass, followed by copy or
-FXAA and an optional editor-assistance pass. StaticMesh always scans the whole
-primitive array, selects LOD 0, and submits every valid section. There is no
-primitive bounds contract, per-view visibility result, pass draw list, or
-depth/distance sorting.
+FXAA and an optional editor-assistance pass. StaticMesh prepares LOD 0 sections
+once per view into Opaque, Masked, and deterministically sorted Translucent
+buckets, then executes their effective mask/blend/depth/cull/winding state.
+Frustum culling and LOD selection remain M3.
 
-Material render snapshots already identify Opaque, Masked, and Translucent
-blend modes, Lit and Unlit shading, two-sided state, depth-write policy, and a
-mask threshold. The current graphics PSO ignores those policies: alpha blend
-is disabled, depth test and write are enabled, and back-face culling is
-disabled for every StaticMesh pipeline. The shader carries Opacity and
-OpacityMask but performs neither blending nor coverage rejection.
+Material render snapshots identify Opaque, Masked, and Translucent blend modes,
+Lit and Unlit shading, two-sided state, depth-write policy, and a mask threshold.
+Those properties now select complete effective RHI state and visible shader/pass
+behavior, including strict masked threshold coverage and straight-alpha output.
 
 The scene mutation boundary now uses paired SceneProxy and SceneInfo ownership
 for StaticMesh, TextureCube preview, SkyBox, and directional lights. Strong
@@ -42,10 +40,11 @@ M1 is complete through the
 [Renderer Scene Proxy and Info Contract Plan](../Plans/RendererSceneProxyAndInfoContract.md).
 The lasting contract is recorded in
 [Renderer Scene Representation](../Runtime/Rendering/SceneRepresentation.md).
-M2 is active through the
+M2 is complete through the
 [Material Render Pass Policies Plan](../Plans/MaterialRenderPassPolicies.md),
-which implements the visible material policies already prepared by the
-Material System roadmap.
+with lasting contracts recorded in
+[Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md) and
+[Material System](../Runtime/Rendering/MaterialSystem.md).
 
 The [Skeletal Mesh and Animation Roadmap](SkeletalMeshAndAnimation.md) owns the
 asset, source-ingestion, pose, playback, and product prerequisites for the
@@ -221,13 +220,13 @@ cross-product enum and lets a new primitive reuse existing pass semantics.
 | Primitive scene state | `FPrimitiveSceneInfo` owns strong identity, transform, finite local/world bounds, visibility, explicit kind, and authoritative typed membership; proxies retain family resources. | Per-view culling, LOD selection, and prepared draw lists remain M3 work. | M3 |
 | Light scene state | `FDirectionalLightSceneProxy` and `FLightSceneInfo` detach copied values from components and mutate through FIFO render commands. | Point/spot families, bounded GPU payloads, and multi-light selection remain M5 work. | M5 |
 | SkyBox scene state | `FSkyBoxSceneProxy` and `FSkyBoxSceneInfo` own retained texture state, strong identity, deterministic selection, and typed membership without a duplicate revision map. | No M1 ownership gap remains. | Complete |
-| Materials | Versioned immutable v3 representation, stable proxy publication, PBR roles, sampler state, and static shader/pipeline identities exist. | Opaque, masked, translucent, two-sided, depth-write, and mask-threshold identities do not produce distinct visible pass behavior. | M2 |
-| Graphics state | RHI supports render-target layouts, fill/line topology, depth toggles, one alpha-blend toggle, and back-face-culling toggle. | Blend factors/ops, full cull selection, depth compare, color mask, depth bias, and stencil are not value contracts; Vulkan fixes several policies internally. | M2, M6 |
+| Materials | Versioned immutable v3 representation drives visible Opaque, Masked, and Translucent behavior with authored cull/depth policy. | Material graph compilation and additional authored blend modes remain later Material System work. | Complete for M2 |
+| Graphics state | RHI value descriptors and Vulkan mapping cover selected polygon/cull/winding, depth, blend factors/ops, and RGBA write mask. | Depth bias and stencil remain unselected until M6 or another concrete consumer. | Complete for M2; M6 extension |
 | StaticMesh geometry | Validated per-LOD resources, a local vertex factory, section/material slots, and robust render-resource lifecycle exist. | Draw code always selects LOD 0, visits every proxy, allocates per-proxy uniforms, and has no bounds, instancing, or draw-list preparation. | M3 |
-| Scene passes | Scene Color/depth, post-process, and preserved-depth editor assistance work for present and offscreen outputs. | Sky and all scene geometry share one pass; there are no depth-only, shadow, translucent, GBuffer, or debug-view pass contracts. | M2, M6 |
+| Scene passes | Scene Color/depth executes explicit Opaque, Masked, and Translucent StaticMesh buckets before post-process and preserved-depth assistance for present/offscreen outputs. | There are no depth-only, shadow, GBuffer, or debug-view pass contracts. | Complete for M2; M6 extension |
 | Scene targets | Size-keyed cache is capped at eight entries and supports sequential multi-view rendering. | Scene Color is LDR `SRGBA8_UNORM`; D32 lacks shader-resource usage; allocation is entry-count rather than byte-budget based; no view history identity exists. | Conditional architecture branch |
 | View policy | Per-view Lit/Unlit, Solid/Wireframe, FXAA, fitted content rect, and editor assistance are immutable snapshots. | No exposure, debug buffer mode, temporal matrices/history, visibility mask, or per-view performance result exists. | M3 and conditional branches |
-| Validation | Proxy/SceneInfo membership, bounds, complete insertion, FIFO recreation, detached-light retirement, StaticMesh lifecycle, SkyBox, thumbnail, and Vulkan rendering coverage exists. | Pass classification/order, masking, blending, culling, LOD choice, second vertex factory, multi-light ordering, and shadow image baselines remain. | M2-M6 |
+| Validation | Pass classification/order, mask edges, straight-alpha output, effective state, lifecycle, and Vulkan readback extend the existing scene/StaticMesh coverage. | LOD choice, second vertex factory, multi-light ordering, and shadow image baselines remain. | M3-M6 |
 
 ## Milestone Map
 

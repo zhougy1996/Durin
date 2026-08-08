@@ -121,6 +121,14 @@ non-null wrapper with an invalid native handle or allocation is forbidden.
 Partially built native candidates clean up immediately on the RHI thread, and a
 later caller-defined or Renderer-generation retry may create a fresh candidate.
 
+Graphics-pipeline initialization owns cohesive value descriptors for
+rasterization (polygon, cull, front face), depth (test, write, compare), and one
+RGBA color attachment (enable, color/alpha factors and operations, write mask).
+Every field participates in caller cache identity and Vulkan translation.
+`FGraphicsPipelineStateInitializer::IsValid` rejects missing prerequisites,
+unsupported enum values, and invalid masks before fallible backend creation, so
+the public result is always a compatible complete PSO or null.
+
 Executor admission, serial wait, replay-context, queue, device-loss, and
 already-recorded command failures do not become a fallible result. Startup
 instance, device, and allocator creation also stays outside this surface: it

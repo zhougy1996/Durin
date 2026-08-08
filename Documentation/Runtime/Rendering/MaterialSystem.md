@@ -30,12 +30,15 @@ editor presentation, and renderer consumption at explicit boundaries.
 - Resolved static properties form a versioned shader-map identity (blend mode,
   shading model, and mask threshold) nested in a pipeline identity (shader map,
   two-sided state, and depth-write policy). The renderer lazily caches shader
-  maps by shader identity and solid/wireframe pairs by pipeline identity, so a
-  pipeline-only change does not rebuild the shader map.
-- The identity split does not yet implement the render-pass policies. Cached
-  entries still use the fixed opaque, depth-writing, two-sided pipeline;
-  visible blend, mask, culling, and depth behavior belongs to a future
-  render-pass plan.
+  maps by shader identity and PSOs by the complete effective pipeline identity,
+  so a pipeline-only change does not rebuild the shader map.
+- Opaque sections disable blending; Masked sections additionally discard the
+  saturated OpacityMask constant/texture product only when it is strictly below
+  the static threshold; Translucent sections use straight-alpha blending and
+  deterministic per-view back-to-front center sorting. Automatic depth writes
+  are enabled for Opaque/Masked and disabled for Translucent, while explicit
+  depth policy overrides that default. One-sided materials cull back faces with
+  mirrored-transform winding correction; two-sided materials disable culling.
 
 The current shader contract is the canonical metallic/roughness PBR schema.
 It declares BaseColor, tangent-space Normal, Metallic, Roughness, Ambient

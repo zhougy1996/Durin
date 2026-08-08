@@ -170,6 +170,38 @@ floats before the vertex-factory module receives them.
 dependencies before code generation and fingerprints imported modules so a
 change invalidates every dependent shader artifact.
 
+## View-Local Base-Pass Preparation
+
+For each `FSceneView`, `FStaticMeshRenderer` walks the authoritative typed
+StaticMesh SceneInfo collection and LOD 0 sections once. Every valid section
+resolves its material snapshot and ErrorMaterial fallback before entering
+exactly one stack-local Opaque, Masked, or Translucent bucket. The prepared item
+copies the transform, resolved material/binding, pass, shader-map identity,
+complete effective graphics state, and finite sort facts while borrowing only
+SceneInfo, proxy, and render-data storage for the owning render command.
+Execution consumes these items without rescanning scene membership or resolving
+material identity again.
+
+Opaque and Masked execute first in scene/section order with blending disabled,
+depth test `Less`, and automatic depth writes enabled. Translucent executes last
+with straight-alpha color factors `SrcAlpha`/`OneMinusSrcAlpha`, alpha factors
+`One`/`OneMinusSrcAlpha`, and automatic depth writes disabled. Explicit Enabled
+or Disabled depth-write policy overrides the blend-mode default.
+
+Masked coverage is `saturate(OpacityMask constant * OpacityMask texture red)`.
+The statically identified threshold discards only a strictly lower value, so
+equality is covered; Opacity and BaseColor alpha do not enter the mask.
+One-sided materials cull back faces, two-sided materials cull none, and negative
+local-to-world determinant parity changes the effective front face from
+clockwise to counter-clockwise. Solid/Wireframe and Lit/Unlit remain orthogonal
+pipeline/shader choices.
+
+Translucent items sort independently per view by descending squared distance
+from the camera to the transformed section-bounds center. Invalid section bounds
+fall back to primitive world bounds and then transformed local origin. Equal
+distance uses ascending primitive id and section index. This deterministic
+center metric does not provide per-triangle ordering for intersecting geometry.
+
 ## Material Binding Contract
 
 Each StaticMesh section carries one stable positional material-slot index and
@@ -191,8 +223,9 @@ The draw path does not perform parameter GUID or `FName` lookup and does not
 read reflected material objects or legacy fixed material fields. Dynamic
 uniform/resource bytes are not part of shader-map or pipeline cache keys, so
 dynamic edits reuse the existing identity while static-property edits select
-the corresponding cached shader/pipeline pair. The current uniform ABI,
-solid/wireframe choice and typed descriptor submission remain unchanged.
+the corresponding cached shader/pipeline pair. The effective pipeline key also
+contains polygon, cull, front-face, depth, and color-blend values, so mirrored
+winding, render mode, and every visible material policy select compatible PSOs.
 Texture resources use role-specific white, black, or flat-normal fallbacks;
 environment irradiance, prefilter, and BRDF-LUT resources are shared by the
 scene renderer and fall back together to black.

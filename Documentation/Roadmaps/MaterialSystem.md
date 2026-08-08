@@ -19,8 +19,9 @@ contract across level, preview, and thumbnail rendering. It includes eight
 texture roles with explicit color-space, UV transform, and independent sampler
 behavior, tangent-space normal
 mapping, Cook-Torrance GGX direct lighting, and a shared pre-baked studio IBL
-asset. Cached material identities still do not make blend, culling, depth, or
-masking policies visibly different. Material graph compilation, transient
+asset. Material identities now drive distinct opaque, masked, and translucent
+passes with authored culling, depth policy, mask coverage, and deterministic
+translucent ordering. Material graph compilation, transient
 runtime instances, and renderer scalability work have not landed.
 
 This roadmap records ordering and activation gates only. Executable decisions,
@@ -35,11 +36,11 @@ baseline.
 | --- | --- | --- |
 | 2. Versioned renderer-facing material representation | [Material Render Representation](../Plans/Archive/2026-08/MaterialRenderRepresentation.md) | Complete; final handoff recorded |
 | 3. Metallic/roughness PBR surface contract | [PBR Material Surface](../Plans/Archive/2026-08/PBRMaterialSurface.md) | Complete; final handoff recorded |
+| 4. Static permutations and render passes | [Material Render Pass Policies](../Plans/MaterialRenderPassPolicies.md) | Complete; M2 qualification recorded |
 
-Milestones 2 and 3 are complete. No render-pass execution plan is active; the
-landed surface outputs and limitations below are the review baseline for any
-future milestone 4 plan. Cross-program sequencing and the execution boundary
-for that milestone are now recorded in the
+Milestones 2 through 4 are complete. The pass execution contract is recorded in
+[Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md); M3
+visibility/LOD and M6 shadow-depth work extend it through the
 [Rendering Capability Expansion Roadmap](RenderingCapabilityExpansion.md).
 
 ## Completed Foundations
@@ -90,11 +91,10 @@ texture fallback, and the aggregate native/Vulkan/reload coverage plus full
 `all` build and editor smoke passed before this roadmap was marked complete.
 
 Milestone 3 completion evidence is recorded in the linked PBR plan. The landed
-surface writes finite scene-linear RGB and carries effective Opacity in alpha;
-OpacityMask is evaluated but intentionally changes neither color nor coverage.
-StaticMesh remains in the fixed opaque, depth-writing, two-sided pass, so
-blending, alpha test, culling, depth policy, depth-only/shadow passes, and
-translucent ordering are not implemented. The hidden studio IBL is an
+surface writes finite scene-linear RGB and carries effective Opacity in alpha.
+Milestone 4 adds visible mask coverage, straight-alpha translucency, authored
+culling/depth policy, and deterministic per-view ordering. Depth-only/shadow
+passes remain M6. The hidden studio IBL is an
 Engine-content asset with asset-owned Cook and an independent bake tool, not a
 SkyBox or material parameter.
 
@@ -118,17 +118,17 @@ surface contract owned by milestones 2 and 3.
 
 ## Future Milestones
 
-### 4. Static Permutations and Render Passes
+### 4. Static Permutations and Render Passes (Complete)
 
-Milestone 4 is active through the
+Milestone 4 is complete through the
 [Material Render Pass Policies Plan](../Plans/MaterialRenderPassPolicies.md).
 The selected M2 boundary owns actual opaque, masked, and translucent base-pass
 behavior; culling and depth-write policy; deterministic translucent sorting;
 and the minimum pass, shader, pipeline, and RHI state identity needed to make
 those policies visible. M3 later extends the prepared work with visibility and
-LOD, while M6 owns depth-only/shadow-depth resources and execution. Existing
-static properties remain identity inputs until their M2 stage is implemented
-and validated.
+LOD, while M6 owns depth-only/shadow-depth resources and execution. The lasting
+contract is recorded in
+[Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md).
 
 ### 5. Material Compilation
 

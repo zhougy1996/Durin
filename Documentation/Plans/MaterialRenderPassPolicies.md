@@ -4,33 +4,24 @@ Summary: Give Opaque, Masked, and Translucent StaticMesh materials distinct dete
 
 Last reviewed: 2026-08-08
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-08
 
 ## Current Status
 
-This plan is the active M2 child of the
+This completed plan delivered M2 of the
 [Rendering Capability Expansion Roadmap](../Roadmaps/RenderingCapabilityExpansion.md)
-and the execution boundary for Material System milestone 4's visible surface
-policies. M1 is complete: StaticMesh entries arrive through typed
-`FPrimitiveSceneInfo` storage with stable identity, transform, bounds, and
-detached material proxies.
+and Material System milestone 4. Every accepted StaticMesh LOD 0 section now
+resolves once per view into command-local Opaque, Masked, or Translucent work
+with complete material, shader, graphics-state, and finite sort facts.
 
-The material v3 snapshot already identifies blend mode, shading model, mask
-threshold, two-sided state, and depth-write policy. Those identities do not yet
-change visible behavior. `FStaticMeshRenderer` visits typed StaticMesh entries
-and LOD 0 sections in scene order, but every pipeline disables blending,
-enables depth test/write, disables culling, and uses the same draw loop.
-`StaticMeshBasePass.slang` calculates opacity and opacity mask but never rejects
-masked fragments, while Vulkan expands four Boolean pipeline fields into fixed
-backend policy.
-
-Stages 0 through 4 are complete. The public RHI owns cohesive rasterizer, depth,
-and color-blend values, and every StaticMesh LOD 0 section resolves once into
-command-local Opaque, Masked, or Translucent work with complete effective state.
-Masked coverage uses the static strict threshold, while Translucent executes
-straight-alpha state in deterministic per-view order. Stage 5 qualification and
-lasting-document consolidation are next.
+Opaque and Masked execute their resolved depth/cull/winding/raster state without
+blending; Masked rejects only coverage strictly below its static threshold.
+Translucent executes last with straight-alpha blending and deterministic
+per-view back-to-front center sorting. Public RHI value descriptors, Vulkan
+mapping, Renderer keys, assertions, focused readback, lifecycle/composition
+suites, lasting Runtime contracts, and the full runtime build are qualified.
+M3 retains visibility/LOD work and M6 retains shadow-depth execution.
 
 ## Goal
 
@@ -551,19 +542,19 @@ questions: none; intersecting per-triangle ordering remains deferred.
 
 ### Stage 5: Consolidate contracts and qualify M2
 
-- [ ] Remove obsolete fixed-state, unclassified section-loop, duplicate
+- [x] Remove obsolete fixed-state, unclassified section-loop, duplicate
   material-resolution, and feature-Boolean paths.
-- [ ] Add diagnostics or focused assertions for invalid pass kind, incomplete
+- [x] Add diagnostics or focused assertions for invalid pass kind, incomplete
   prepared item, non-finite sort key, unsupported RHI state, bucket mismatch,
   and execution outside the owning view lifetime.
-- [ ] Update Runtime Rendering documentation with lasting pass, mask, blend,
+- [x] Update Runtime Rendering documentation with lasting pass, mask, blend,
   depth, cull/winding, preparation, ordering, and RHI-state contracts.
-- [ ] Update both Rendering Capability Expansion and Material System roadmaps
+- [x] Update both Rendering Capability Expansion and Material System roadmaps
   with M2/milestone-4 completion evidence and retained M3/M6 boundaries.
-- [ ] Run focused Material, StaticMesh, Renderer, shader, public-RHI, and Vulkan
+- [x] Run focused Material, StaticMesh, Renderer, shader, public-RHI, and Vulkan
   suites; relevant main/auxiliary/offscreen rendering tests; plan validation;
   and a successful full `all` build using repository guidance.
-- [ ] Record the final handoff with baseline commit, working set, symbols,
+- [x] Record the final handoff with baseline commit, working set, symbols,
   decisions, open questions, and validation results.
 
 #### Acceptance Gate
@@ -578,6 +569,32 @@ questions: none; intersecting per-triangle ordering remains deferred.
   viewport composition, recovery, and Vulkan validation remain clean.
 - The Rendering Capability Expansion M2 exit gate is satisfied, and M3/M6 can
   extend preparation and auxiliary passes without redefining base surfaces.
+
+#### Stage 5 Handoff
+
+Baseline commit: `f099c607` (`feat(renderer): execute material pass policies`).
+The final working set is this plan, both owning roadmaps, Runtime Rendering's
+Material System, Static Mesh Rendering, Viewport Rendering, and RHI Command
+Execution contracts, plus prepared-item execution assertions in
+`StaticMeshRenderer.cpp`.
+
+Authoritative symbols are `PrepareStaticMeshView_RenderThread`,
+`FPreparedStaticMeshSection`, `FEffectiveStaticMeshPipelineKey`,
+`FStaticMeshRenderer::DrawScene_RenderThread`, and the masked permutation in
+`StaticMeshBasePass.slang`. Bucket/pass mismatch, incomplete borrows, identity
+drift, and non-finite sort keys now fail at the execution boundary; unsupported
+RHI state remains rejected by `FGraphicsPipelineStateInitializer::IsValid`.
+
+Validation on 2026-08-08 with `Win64-Debug-DurinEditor-Tests` passed:
+`FMaterialTests.*` 45/45, `FStaticMeshMaterialTests.*` 11/11,
+`FRendererSceneContractTests.*` 2/2, `RHICommandListTests` 42/42,
+`FVulkanCreateFailureInjectionTests.*` 7/7,
+`StaticMeshRenderPreparationVulkanTests` 1/1,
+`RendererResourceReloadVulkanTests` 1/1, `EditorRenderingTests` 33/33, the
+changed/all-plan documentation validators, and a full `all` build. An extra
+`test --target all` attempt was blocked before execution by the unrelated
+pre-existing explicit-id compile error at `TextureCookTests.cpp:399`; no M2
+focused target failed. Open questions: none.
 
 ## Validation Matrix
 

@@ -185,11 +185,12 @@ all use this same `FSceneView`-driven sky path.
 
 Lit StaticMesh output uses the same direct-light and image-based PBR surface
 contract in the main level viewport, auxiliary camera preview, Material
-Preview, and thumbnails. Unlit mode uses BaseColor plus Emissive. Surface alpha
-is carried to output, but StaticMesh still renders through the fixed opaque,
-depth-writing pass: Opacity does not blend and OpacityMask does not change
-coverage or depth. Those visible policies remain deferred to the future
-render-pass milestone.
+Preview, and thumbnails. Unlit mode uses BaseColor plus Emissive. Each view
+independently prepares Opaque, Masked, and back-to-front Translucent section
+buckets before drawing them in that order. Mask coverage, straight-alpha
+blending, depth-write overrides, authored culling, mirrored winding, and
+Solid/Wireframe state therefore apply identically to present and offscreen
+outputs, including fitted fixed-aspect content rectangles.
 
 All of those consumers resolve an unassigned StaticMesh slot through the same
 Engine-retained `/Engine/Materials/DefaultMaterial` proxy. Broken material
