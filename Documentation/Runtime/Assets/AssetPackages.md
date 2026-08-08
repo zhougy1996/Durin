@@ -102,6 +102,152 @@ payloads use TXPL. A cooked `.dbulk` uses the DBLK container format and may
 contain one of those asset-specific payloads; the cooked `.dasset` that
 references it still begins with DAST.
 
+### Frozen DAST v4 Wire Contract
+
+DAST v4 is qualified as the next authored-package format, but it is not a
+production-supported format yet. The production writer and every production
+reader remain v3-only until later writer, reader, and migration plans activate
+them explicitly. The v4 layout below is nevertheless frozen: later plans must
+implement these bytes and semantics rather than selecting another layout.
+
+A v4 package starts with bytes `44 41 53 54`, then `04 00 00 00` (`uint32`
+little-endian version 4), a little-endian `uint32` public-summary byte length,
+and `uint8(5)` section count. The summary is followed by exactly five 9-byte
+directory entries: `uint8 kind`, little-endian absolute `uint32 offset`, and
+little-endian `uint32 length`. Directory kinds and order are Name `0x01`, Type
+`0x02`, Schema `0x03`, Object `0x04`, and Value `0x05`. The first section begins
+immediately after the directory, each following offset equals the preceding
+offset plus length, and the last extent equals file size. There is no alignment
+padding. Duplicate, missing, unknown, out-of-order, overlapping, overflowing,
+gapped, or trailing extents are invalid. The summary is bounded to 65,535 bytes
+and the complete package to 256 MiB.
+
+The public summary contains, in order, an asset-class wire string, `uint8` entry
+kind (`0` asset or `1` redirector), redirect-destination wire string (empty only
+for an asset), VarUInt dependency count, canonical bytewise-sorted unique
+dependency strings, and VarUInt object count. It must be consumed completely.
+Header-only validation reads this payload and the fixed directory without
+parsing or allocating body tables.
+
+Fixed-width `uint16`, `uint32`, `uint64`, IEEE-754 binary32/binary64, and GUID
+components are little-endian independent of host layout. VarUInt is minimal
+unsigned LEB128 over `uint64`, at most 10 bytes, and rejects overflow, unused
+high bits, and overlong forms. Signed integers use ZigZag followed by VarUInt.
+Counts and ids apply their narrower semantic bounds before allocation. A wire
+string is a VarUInt byte length followed by valid shortest-form UTF-8;
+surrogates, invalid sequences, embedded NUL, and lengths over 1 MiB are invalid.
+Writers preserve code points without Unicode normalization, and identity/order
+uses exact UTF-8 bytes. Empty strings are allowed only where this contract says
+so.
+
+All table ids are one-based VarUInt; zero means absent only where explicitly
+permitted. Discovery closes before emission, and a late name, type, schema,
+object, dependency, or custom version is an internal save failure. The canonical
+tables are:
+
+- Name entries are nonempty strings deduplicated and sorted by unsigned bytewise
+  lexical order. The section is `count` followed by wire strings.
+- Type entries deduplicate and sort by their complete self-contained structural
+  descriptor bytes. Sorting keys recursively contain the opcode, directly
+  encoded qualified name where applicable, scalar parameters, and child keys;
+  they never contain package-local ids. Emitted length-delimited records replace
+  names and children with frozen ids. Opcodes are Bool `01`, I8 `02`, I16 `03`,
+  I32 `04`, I64 `05`, U8 `06`, U16 `07`, U32 `08`, U64 `09`, F32 `0A`, F64
+  `0B`, String `0C`, Name `0D`, Guid `0E`, Enum `0F`, Intrinsic `10`, Struct
+  `11`, FixedArray `12`, Array `13`, Map `14`, HardRef `15`, SoftRef `16`, and
+  Bytes `17`. Enum stores qualified-name id and integer storage opcode;
+  Intrinsic stores layout id; Struct stores qualified-name id; FixedArray stores
+  element-type id and nonzero dimension; Array stores element-type id; Map stores
+  key- and value-type ids; references store expected-class name id, with zero
+  meaning `DObject`. Resolved type cycles are invalid.
+- Schema begins with custom-version count and entries sorted by numeric GUID
+  tuple `(A,B,C,D)`, each four little-endian `uint32` components plus an unsigned
+  `uint32`-domain VarUInt value. Schemas then sort by qualified-type UTF-8 bytes.
+  Each length-delimited schema is qualified-name id, field count, then fields
+  sorted by field-name bytes, type descriptor bytes, and authored flags. A field
+  is field-name id, type id, and authored-flags VarUInt. The only v4 authored
+  flags value is zero; field ids are one-based positions in the canonical
+  schema.
+- Object is object count followed by length-delimited
+  `(outer-object-id, class-name-id, object-name-id)` records. Id 1 is the package
+  root with outer id zero. Remaining objects sort by canonical outer path,
+  class-name bytes, then object-name bytes; duplicate sibling identities are
+  invalid.
+
+Every table, record, and section is completely consumed. Limits are 1,048,575
+names, types, schemas, and objects; 65,535 fields per schema; 4,096 dependencies;
+256 custom versions; 1,048,575 container elements; and nesting depth 64, all
+further constrained by the package-size bound.
+
+The Value section is object count followed, in object-id order, by one
+length-delimited block per object. A block is override count followed by records
+sorted by `(schema id, field id)`. A known record is schema id, field id,
+provenance (`00` explicit or `01` forced), value byte length, and value. Duplicate
+fields and noncanonical order are invalid. The schema type selects exactly one
+payload, so values do not repeat opcodes:
+
+- Bool is byte `00` or `01`; unsigned integers are VarUInt and signed integers
+  ZigZag VarUInt. F32/F64 use little-endian IEEE bits, preserve signed zero and
+  infinities, and canonicalize NaNs to quiet `0x7FC00000` or
+  `0x7FF8000000000000`.
+- String is a wire string; Name is a Name id; Guid is four little-endian
+  components; Enum follows its declared integer storage; Bytes is VarUInt length
+  plus exact bytes.
+- Intrinsic layouts are `01` FVector2 `(x,y)` F64, `02` FVector3 `(x,y,z)` F64,
+  `03` FVector4 `(x,y,z,w)` F64, `04` FQuat `(w,x,y,z)` F64, `05` FTransform
+  `(rotation FQuat, translation FVector3, scale FVector3)`, and `06`
+  FLinearColor `(r,g,b,a)` F32. Raw GLM or C++ memory is never serialized.
+- Struct is changed-field count followed by canonical `(field id, provenance,
+  value length, value)` records under its schema. FixedArray emits exactly its
+  dimension elements without a count; Array emits count then elements. Map
+  rejects duplicate logical keys and sorts entries by complete canonical encoded
+  key bytes; keys are limited to Bool, integer, String, Name, Guid, Enum, and
+  fixed-size Intrinsic.
+- HardRef is tag `00` null, `01` plus internal object id, or `02` plus public
+  dependency id. SoftRef is tag `00` null or `01` plus a Name id containing the
+  canonical soft-object path. Unknown tags and zero or out-of-range ids are
+  invalid.
+
+An omitted object field means the current immutable class default. A struct
+field may be omitted only when registered operations provide deterministic
+construction and logical equality. Missing operations or an authored custom
+serializer without a proven v4 codec fail closed. A loaded explicit field keeps
+provenance `00` even when equal to today's default; provenance `01` records a
+serializer-forced override and equality never removes it.
+
+Custom-version discovery freezes with the other tables. Duplicate GUIDs,
+unsupported known values, out-of-range values, and discovery/emission mismatch
+fail before publication. Unknown GUID/value pairs are retained exactly and
+re-emitted in canonical GUID order; a live load may proceed only when no known
+codec declares that GUID required for interpretation.
+
+Unknown explicit values use provenance `02`. Their body is retained-closure
+length and bytes followed by payload length and exact payload bytes. The closure
+is a self-contained mini Name/Type/Schema table using the same canonical
+encodings, followed by root schema and field ids. Its ids never refer to or get
+remapped through package tables. Closure and payload bytes are copied exactly on
+canonical resave, and the closure must parse completely and resolve its root
+descriptor before acceptance. Canonical rebuilding therefore cannot change an
+opaque value's descriptor meaning.
+
+Validation uses checked arithmetic and temporary immutable models. Invalid
+UTF-8, nonminimal VarUInt, bounds or id violations, descriptor cycles,
+unordered or duplicate records, overlap or gaps, truncation, unsupported
+opcodes or flags, impossible counts, excess depth, trailing bytes, and
+incomplete length-delimited consumption fail before destination mutation or
+output publication. V4 has no optional section or opcode; extensions requiring
+new kinds require a later format version.
+
+The executable reference goldens qualify a complete current Default Material
+at 10,869 bytes: envelope/directory 79, Name 1,803, Type 62, Schema/custom
+versions 107, Object 5, and Value 8,813. It contains 105 names, 21 structural
+types, 6 schemas, 1 object, 3 explicit overrides, zero unproven default
+omissions, and maximum depth 5; XXH64 is `5955D6A8C777870C`. This is 5,515 bytes
+below the 16,384-byte controlling gate and 9,790 bytes below the 20,659-byte
+same-content-v2-relative gate. Modeled parse operations/allocation inputs fall
+from v3's 5,020/3,948 to 136/133 without compression. These values qualify the
+wire contract; they do not make v4 production-readable or writable.
+
 Object records store object id, outer id, qualified class name, object name, and
 a field table. Fields are identified by declaring qualified class plus property
 name and include a recursive serialized-type signature and payload size.

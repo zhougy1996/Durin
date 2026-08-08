@@ -10,17 +10,22 @@ Completed:
 ## Current Status
 
 - The bounded
-  [Class Default Object Lifecycle Plan](../Plans/ClassDefaultObjectLifecycle.md)
-  prerequisite is complete: all 38 production reflected classes have explicit
-  disposition, all 25 eligible classes own deterministic immutable defaults,
-  template construction is publication-free, and GC/module teardown is explicit.
-  Its exit gate activated the bounded
   [DAST V4 Measurement and Wire Contract Plan](../Plans/DASTV4MeasurementAndWireContract.md)
-  on 2026-08-08. That child owns recursive v3 accounting, the exact v4 byte
-  contract, golden primitives, and a test-only feasibility codec; it does not
-  add a production v4 reader or writer. AssetCore still reads and writes only
-  DAST v3, and the repository baseline gate rejects every other package format
-  or incompatible schema.
+  completed on 2026-08-08. Its recursive accounting conserves every byte of all
+  17 tracked v3 packages, and its generic test-only reference codec produces a
+  complete deterministic 10,869-byte Default Material with XXH64
+  `5955D6A8C777870C`. That is 5,515 bytes below the 16-KiB gate and 9,790 bytes
+  below the same-content-v2-relative gate; modeled parse/allocation inputs fall
+  from 5,020/3,948 to 136/133 without compression. The lasting
+  [frozen DAST v4 wire contract](../Runtime/Assets/AssetPackages.md#frozen-dast-v4-wire-contract)
+  now owns the qualified layout and semantics. AssetCore still reads and writes
+  only DAST v3, all 17 activation hashes remain unchanged, and the repository
+  baseline rejects every other package format or incompatible schema.
+- Default-relative reflection is ready to activate as the next bounded child
+  plan. Its scope begins at production default storage, recursive logical
+  equivalence, forced-override state, and no-delta policy; it must consume the
+  frozen v4 bytes rather than reopen wire, custom-version, provenance, or
+  retained-closure decisions.
 - The completed [Asset Redirectors Refactor Plan](../Plans/Archive/2026-08/AssetRedirectors.md)
   owns DAST v3's bounded registry-entry kind and redirect-destination header
   summary. Compact serialization therefore starts at v4 and uses a temporary
@@ -32,10 +37,9 @@ Completed:
   corpus. Its 2026-08-05 same-content v2 baseline is 82,636 bytes and its current
   v3 package is 115,479 bytes, 39.7 percent larger than that baseline. The
   16-KiB gate therefore requires an 85.8-percent reduction from current v3.
-  A top-level v3 scan attributes 115,053 bytes to three field payloads, but those
-  payloads recursively contain repeated struct field metadata; the future v4
-  measurement plan must produce recursive structural and value accounting before
-  selecting encodings.
+  Recursive measurement attributes 106,784 bytes to nested struct
+  metadata/framing and 8,269 bytes to logical value/container/reference data;
+  this evidence selected and qualified the frozen package-local table encoding.
 - General-purpose compression proves that the bytes are redundant, but it does
   not remove repeated parsing, allocation, or schema reconstruction.
 - The [Reflected Struct Operations](../Plans/Archive/2026-08/ReflectedStructOperations.md)
@@ -182,8 +186,8 @@ compression.
 | Reflected struct operations | External prerequisite | None | Declarative lifecycle, equality, reference, and serialization semantics are fail-closed; every current authored struct is audited and the full build passes | Completed 2026-08-05 |
 | Unified Archive serialization | Required prerequisite plan | Reflected struct operations complete | One live `Serialize` entry, purpose-specific Archives, exact DAST v3 adapters, and shared construct-free field codecs pass focused, full-build, and editor qualification | Completed 2026-08-07 |
 | Class default object lifecycle | Required prerequisite plan | Struct-operations and unified-Archive prerequisites complete; program explicitly scheduled | Every eligible concrete reflected class has one immutable deterministic default object; template construction is free of runtime publication, GC/shutdown ownership is explicit, and constructor/default parity passes full qualification | Completed 2026-08-08 |
-| [V4 measurement and wire contract](../Plans/DASTV4MeasurementAndWireContract.md) | Required child plan | Class-default-object lifecycle exit gate passed | Recursive v3 accounting, a frozen bounded v4 byte contract, golden primitives, and a test-only feasibility fixture demonstrate the size target without a production reader or writer | Active 2026-08-08 |
-| Default-relative reflection | Required child plan | V4 default/override semantics frozen and measurement/wire-contract exit gate passed | Class defaults and safe struct defaults drive recursive logical equivalence, forced-override provenance, and no-delta policy under focused lifecycle tests | Proposed, deferred |
+| [V4 measurement and wire contract](../Plans/DASTV4MeasurementAndWireContract.md) | Required child plan | Class-default-object lifecycle exit gate passed | Recursive v3 accounting, a frozen bounded v4 byte contract, golden primitives, and a test-only feasibility fixture demonstrate the size target without a production reader or writer | Completed 2026-08-08 |
+| Default-relative reflection | Required child plan | V4 default/override semantics frozen and measurement/wire-contract exit gate passed | Class defaults and safe struct defaults drive recursive logical equivalence, forced-override provenance, and no-delta policy under focused lifecycle tests | Ready to activate |
 | Deterministic v4 writer | Required child plan | Default-relative reflection exit gate passed | Discovery freezes every referenced table entry and version; canonical emission is byte-deterministic and meets both Default Material size gates | Proposed, deferred |
 | V4 reader and compatibility | Required child plan | Writer fixtures and frozen schema model available | Bounded v4 loading and construct-free inspection preserve unknown descriptor closures and pass malformed-input, rollback, and compatibility parity suites | Proposed, deferred |
 | Mixed-version migration | Required child plan | V3/v4 readers and v4 writer stable | Latest-writer and supported-reader policy is separated; registry, cache, and explicit atomic v3-to-v4 migration pass mixed-corpus and rollback validation | Proposed, deferred |
@@ -232,11 +236,12 @@ default-relative encoding, override provenance, or package migration.
 
 ### [V4 Measurement and Wire Contract](../Plans/DASTV4MeasurementAndWireContract.md)
 
-Will own byte-accounting fixtures, section kinds, opcodes, bounds, canonical
-ordering, intrinsic logical layouts, default/forced-override wire semantics,
-custom-version storage, retained unknown descriptor closure, and the exact
-compatibility model. It may use a test-only reference codec after decisions are
-frozen, but it must not implement or expose the production reader or writer.
+Completed recursive byte-accounting fixtures, section kinds, opcodes, bounds,
+canonical ordering, intrinsic logical layouts, default/forced-override wire
+semantics, custom-version storage, retained unknown descriptor closure, and the
+exact compatibility model. The generic test-only reference codec qualifies the
+complete Default Material size and parsing-cost gates. Production reader and
+writer activation remains outside this completed milestone.
 
 ### Default-Relative Reflection
 
