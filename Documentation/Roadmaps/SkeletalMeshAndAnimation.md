@@ -183,13 +183,13 @@ import, playback, and rendering baseline is measured.
 
 | Area | Reusable foundation | Gap owned by this program |
 | --- | --- | --- |
-| Import framework | Immutable snapshots, provider discovery, async CPU preparation, candidates, records, reconciliation, and atomic publication | No skeletal normalized values, outputs, limits, diagnostics, or typed state exchange |
-| Source adapters | glTF/GLB metadata and Assimp-backed Scene geometry/material workflows | Static geometry bakes node transforms and drops hierarchy, skins, influences, inverse binds, and animation channels |
-| Assets and storage | Reflected packages, hard references, DDC, DBLK, cook manifests, transactional payload load | No Skeleton, SkeletalMesh, AnimationClip, skeletal mesh payload, or animation payload schema |
-| Math | Vectors, matrices, quaternions, transforms, inversion, normalization | No selected pose convention, sampling contract, compatibility calculation, or golden skeletal transforms |
+| Import framework | Immutable snapshots, provider discovery, async CPU preparation, candidates, records, reconciliation, atomic publication, and stable skeletal peer graphs | Runtime playback has no component/animation-instance owner |
+| Source adapters | Direct bounded glTF/GLB skeletal decoding plus the unchanged Assimp-backed static Scene workflow | FBX skeletal import remains evidence-gated; S2 consumes runtime assets and does not extend source formats |
+| Assets and storage | Validated Skeleton, SkeletalMesh, and AnimationClip packages, hard compatibility relationships, DSKM/DANM DDC objects, DBLK cook, and runtime-only load | No runtime pose, sampler, clock, loop policy, or immutable palette candidate |
+| Math | Frozen glTF-to-Durin basis conversion, canonical reference transforms, compatibility encoding, and transform goldens | S2 must select pose composition, sampling edge cases, and palette publication contracts |
 | Components and scene | Primitive components, ordered render-state recreation, SceneProxy lifecycle | No skeletal component, animation instance, palette publication, skeletal proxy, or dynamic bounds |
 | Rendering | Static vertex factory, PBR material slots, resource coordination, viewport paths | No joint/weight streams, skinning shader, palette binding, pass participation, or shadow participation |
-| Validation | Asset/import, payload, cook, lifecycle, material, viewport, and Vulkan tests | No licensed skeletal fixtures, malformed corpus, pose goldens, animated image baseline, or palette lifetime coverage |
+| Validation | Repository-authored skeletal `.gltf`/`.glb` success and malformed corpus, normalized goldens, asset/payload/DDC/cook/runtime-only tests, plus existing rendering coverage | No sampled-pose goldens, palette lifetime coverage, or animated image baseline |
 
 ## Milestone Map
 
@@ -204,14 +204,48 @@ flowchart LR
 
 | Milestone | Requirement | Child-plan policy | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- |
-| S1: Asset and import foundation | Required and active | [Skeletal Asset and Import Foundation](../Plans/SkeletalAssetAndImportFoundation.md) | Existing import, package, DDC, cook, math, and static-model behavior is recorded; initial glTF fixtures and source limitations can be selected without changing StaticMesh outputs. | Supported glTF scenes publish stable Skeleton, SkeletalMesh, and AnimationClip assets; authored/DDC/cooked round trips are deterministic and bounded; runtime-only loading has no import dependency; unsupported data fails transactionally with structured diagnostics. |
-| S2: Runtime pose and clip playback | Required; plan authored at entry | No plan yet | S1 asset schemas, compatibility identity, payload access, transform convention, and fixture corpus are stable; actual gameplay/component ownership is re-inspected. | One component/runtime owner samples supported clips deterministically, evaluates local-to-component poses, handles time/looping, rejects incompatible clips, and publishes a bounded immutable palette candidate without rendering-thread object reads. |
+| S1: Asset and import foundation | Completed 2026-08-08 | [Skeletal Asset and Import Foundation](../Plans/SkeletalAssetAndImportFoundation.md) | Existing import, package, DDC, cook, math, and static-model behavior was recorded; the selected glTF fixture corpus did not change StaticMesh outputs. | Met: stable peer assets, deterministic bounded authored/DDC/cooked paths, runtime-only loading, and transactional structured failures are implemented and qualified below. |
+| S2: Runtime pose and clip playback | Required; entry gate satisfied, plan authored when implementation starts | No plan yet | Met for planning: S1 schemas, compatibility, immutable payload access, transform convention, and fixture corpus are stable. Component/animation-instance ownership remains a required just-in-time decision. | One component/runtime owner samples supported clips deterministically, evaluates local-to-component poses, handles time/looping, rejects incompatible clips, and publishes a bounded immutable palette candidate without rendering-thread object reads. |
 | S3: Skeletal rendering vertical slice | Required; shared with Rendering M4; plan authored at entry | No plan yet | S1-S2 are stable; Rendering Capability Expansion M1-M3 have completed; the current RHI binding limits and shared pass/visibility APIs are measured; SkeletalMesh remains the selected second primitive family. | GPU-skinned SkeletalMesh shares scene mutation, materials, passes, visibility, viewport, invalidation, and applicable shadow behavior with StaticMesh; palette and bounds updates are deterministic and lifecycle-safe; Vulkan validation and animated image coverage pass. |
 | S4: Editor workflow and production qualification | Required; plan authored at entry | No plan yet | S3 renders a representative animated asset and exposes stable inspection/playback seams; current Content Browser and inspector extension contracts are re-inspected. | Users can import/reimport, identify, inspect, preview, diagnose, cook, and run supported skeletal assets through documented workflows; representative engine/project fixtures pass full editor and runtime qualification. |
 
 S3 is intentionally represented once. When its entry gate is reached, the new
 child plan must be linked from both this roadmap and Rendering Capability
 Expansion M4, with one plan status and one set of acceptance gates.
+
+## S1 Completion Evidence and S2 Entry Re-inspection
+
+S1 completed through the six staged commits recorded by the
+[foundation plan](../Plans/SkeletalAssetAndImportFoundation.md). The shipped
+boundary consists of `DSkeleton`, `DSkeletalMesh`, `DAnimationClip`, structural
+compatibility encoding version 1, direct bounded glTF normalization, stable
+Scene-provider peer outputs, DSKM/DANM version-1 codecs and DDC keys, asset-level
+cook publication, and transactional runtime-only loading. Repository-authored
+data-URI `.gltf`, external-buffer `.gltf`, `.glb`, static-projection, and
+malformed fixtures supply reproducible source evidence. Lasting contracts now
+live in [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
+and [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md).
+
+The S2 entry gate is satisfied for planning, but this does not authorize or
+pre-design playback. Current world ticking traverses actor-owned components,
+while render publication accepts detached candidates and forbids render-thread
+reads of reflected objects. When S2 implementation actually starts, its new
+plan must re-inspect those seams and choose one explicit owner for clip time,
+loop/rate state, compatibility binding, local pose evaluation, and immutable
+palette publication. It must also freeze sampling edge cases and pose goldens.
+No S2 plan is created as part of S1 completion.
+
+Final S1 qualification passed `CoreObjectTests`, AssetCore package/DDC/cook,
+`AssetImportCoreTests`, the complete StandardAssetImport fixture corpus,
+SkeletalAsset payload/cook/runtime tests in Debug Editor and Shipping Game,
+StaticMesh regressions, Scene/editor workflow tests, and a full
+`Win64-Debug-DurinEditor-Tests` `all` build. The Scene regression performs one
+import and two unchanged reimports for both data-URI `.gltf` and `.glb`, while
+comparing exact Skeleton, SkeletalMesh payload, AnimationClip payload, object,
+record, and DDC-key stability. A separate lifecycle test performs two
+byte-identical clean cooks of both imported graphs, deletes authored Engine/Game
+content and DDC, then loads every skeletal mesh and clip through cooked-runtime
+ownership.
 
 ## Evidence-Gated Follow-Ups
 

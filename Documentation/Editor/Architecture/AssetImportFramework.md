@@ -4,7 +4,8 @@ Durin editor imports use one provider-neutral framework for source capture,
 planning, preview, candidate construction, validation, publication, diagnostics,
 and cancellation. `AssetImportCore` owns the generic contracts;
 `StandardAssetImport` supplies the built-in StaticMesh, texture, material, and
-Scene providers. Runtime targets depend on neither module.
+Scene providers, including the bounded glTF skeletal path. Runtime targets
+depend on neither module.
 
 ## Ownership and layering
 
@@ -66,11 +67,72 @@ FBX and glTF enter through the Scene source workflow. The request selects one
 Content destination directory rather than a primary StaticMesh. The provider
 places generated assets in type directories such as `Meshes`, `Materials`, and
 `Textures`, keeps the import record at the destination root, and leaves the
-record's optional primary-output identity unset.
+record's optional primary-output identity unset. FBX remains static-only;
+version-1 skeletal import is a glTF/GLB-specific direct decoder and does not use
+Assimp to associate joints, weights, inverse binds, or animation channels.
 
 Record reimport starts from the record and reconciles every managed output. It
 reports removed outputs as orphans and never silently deletes or adopts an
 occupied path. Detach, recreate, and repair are explicit record actions.
+
+### glTF Skeletal Scene Contract
+
+The version-1 path accepts glTF 2.0 `.gltf` and `.glb` roots with contained
+captured external buffers, data-URI buffers, or a GLB BIN chunk. It decodes
+finite node TRS/decomposable matrices, indexed triangle primitives, one
+`JOINTS_0`/`WEIGHTS_0` set with at most four canonical influences, optional
+inverse binds, and STEP/LINEAR translation, rotation, and scale tracks. Sparse
+accessors, second influence sets, morphs, cubic interpolation, animated
+intervening non-joints, and ambiguous mesh-to-skin ownership are unsupported
+and fail the complete skeletal scene transaction with a structured diagnostic.
+
+The version-1 limits are checked before allocation and use checked arithmetic:
+
+| Collection | Limit |
+| --- | ---: |
+| Captured dependencies | 8,192 |
+| Source nodes | 1,000,000 |
+| Source meshes / primitives per mesh | 65,536 / 65,536 |
+| Source skins / bones per Skeleton | 4,096 / 65,535 |
+| SkeletalMesh outputs / vertices / indices | 16,384 / 100,000,000 / 300,000,000 |
+| Sections / material slots / influences per vertex | 65,536 / 4,096 / 4 |
+| Source animations / AnimationClip outputs | 4,096 / 65,536 |
+| Tracks per clip / keys per track / total keys per clip | 65,536 / 16,777,216 / 100,000,000 |
+| Diagnostics / total normalized scene bytes | 4,096 / 16 GiB |
+
+Stable skeletal source categories are `UnsupportedFeature` for valid glTF
+outside the selected subset, `MalformedSource` for invalid structure/ranges or
+numeric relationships, `LossyNormalization` for accepted deterministic weight
+or rotation repair, and `ResourceLimitExceeded` for a pre-allocation bound.
+Missing-dependency, unsafe-path, and cancellation diagnostics retain their
+framework meanings. No partial normalized skeletal result survives an error.
+
+glTF's right-handed +Y-up values are converted to Durin's +X-forward,
++Y-right, +Z-up convention with `(x, y, z) -> (-z, x, y)`. The same basis
+change applies to reference transforms, mesh-node binds, inverse binds, and
+animation values. Skeletal vertices remain in mesh-local bind space; unlike the
+existing static projection, node transforms are not baked into them. Canonical
+bones are parent-before-child and deterministic; multiple roots receive one
+synthetic `$DurinRoot`. Skeleton compatibility hashes canonical names, parents,
+and exact reference transforms.
+
+One Skeleton is planned per source skin, one SkeletalMesh per supported
+skinned-node/mesh association, and one AnimationClip per compatible
+animation/skin pair. Stable identities are `skeleton:skin/<skin-index>`,
+`skeletal-mesh:node/<node-index>/mesh/<mesh-index>`, and
+`animation-clip:animation/<animation-index>/skin/<skin-index>`. Outputs live in
+`Skeletons`, `SkeletalMeshes`, and `Animations` alongside existing peer
+materials, textures, and static meshes. There is no primary output. Names are
+presentation only; source-array indices are version-1 reconciliation identity,
+so reordering a source array is an authored identity change.
+
+The provider plans and constructs Skeleton candidates before dependent mesh
+and clip candidates, validates every relationship against the prospective
+Skeleton state, and commits in dependency order with reverse rollback. The
+provider-neutral execution result is reconstructed in import-record order.
+Unchanged reimport preserves loaded object identities, output paths, record
+fingerprint, derived-data keys, and payload values. Removed managed outputs
+become orphans; occupied unmanaged output paths remain collisions.
 
 ## Candidates and publication
 
@@ -108,12 +170,22 @@ serialized and cache contents are never authoritative.
 
 `DImportRecord` packages, provider state, accepted editor diagnostics, and the
 record index are editor-only. Records carry an explicit cook-exclusion marker
-and are never runtime dependencies. StaticMesh and texture cook paths strip
-source provenance, derived-data keys, and editor diagnostics while publishing
-validated, redirect-free runtime packages and payloads into cooked ownership.
+and are never runtime dependencies. StaticMesh, texture, SkeletalMesh, and
+AnimationClip cook paths strip source provenance, derived-data keys, provider
+state, and editor diagnostics while publishing validated, redirect-free
+runtime packages and payloads into cooked ownership. Skeleton is package-only.
+Skeletal meshes and clips retain their hard Skeleton reference and structural
+compatibility identity.
 A runtime-only target loads
 cooked outputs without `AssetImportCore`, `StandardAssetImport`, Assimp, an
 editor image decoder, source files, or DDC fallback.
+
+For skeletal Scene outputs, candidate construction hashes the exact ordered
+source closure plus normalized Scene settings, typed provider state, stable
+output identity, Skeleton compatibility, payload fingerprint, builder/schema,
+and target/profile into the DDC key. The worker path produces only normalized
+values; `DObject` creation, relationship binding, DDC publication, package
+exchange, and registry publication remain on the editor thread.
 
 ## Compatibility baseline
 
@@ -124,7 +196,11 @@ retired StaticMesh-owned Scene `ImportManifest`, generated material/texture
 StaticMeshComponent `Material`/`Materials`, Texture2D `SourceFile`, and
 TextureCube face/panorama source-string fields have no compatibility reader or
 migration API. Import-record schema 1, Scene provider contract 1 and settings
-schema 1, and StaticMesh material-slot schema 0 are also unsupported.
+schema 1, and StaticMesh material-slot schema 0 are also unsupported. The
+current Scene provider contract is 3, its settings schema is 2, and its typed
+provider-state schema is 1; skeletal output identities and graph state are part
+of those current fingerprints rather than an inferred extension to an old
+record.
 Repository assets must be upgraded or regenerated in the same change that
 removes an old schema.
 

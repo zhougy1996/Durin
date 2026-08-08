@@ -80,24 +80,34 @@ namespace
 				"/SceneImportTests/SceneImport/{}", Name))};
 	}
 
-	auto InitializeSkeletalSceneFixture(std::string_view Name) -> FSceneFixture
+	auto InitializeSkeletalSceneFixture(
+		std::string_view Name,
+		std::string_view FixtureFile = "ContractExternal.gltf") -> FSceneFixture
 	{
 		FSceneFixture Fixture = InitializeSceneFixture(Name);
 		const std::filesystem::path SceneDirectory =
 			Durin::Testing::GetTestWorkDirectory() / "SceneImport" / std::string(Name)
 			/ "Project/Content/Scenes";
+		const std::filesystem::path SourceFixture =
+			std::filesystem::path(DURIN_TEST_DATA_DIR) / "Skeletal" / FixtureFile;
+		const std::string Extension = SourceFixture.extension().generic_string();
 		std::filesystem::copy_file(
-			std::filesystem::path(DURIN_TEST_DATA_DIR) / "Skeletal/ContractExternal.gltf",
-			SceneDirectory / (std::string(Name) + ".gltf"),
+			SourceFixture,
+			SceneDirectory / (std::string(Name) + Extension),
 			std::filesystem::copy_options::overwrite_existing);
-		std::filesystem::copy_file(
-			std::filesystem::path(DURIN_TEST_DATA_DIR) / "Skeletal/Contract.bin",
-			SceneDirectory / "Contract.bin",
-			std::filesystem::copy_options::overwrite_existing);
+		Fixture.Source.Path = std::format(
+			"/SceneImportTests/Scenes/{}{}", Name, Extension);
+		if (FixtureFile == "ContractExternal.gltf")
+		{
+			std::filesystem::copy_file(
+				std::filesystem::path(DURIN_TEST_DATA_DIR) / "Skeletal/Contract.bin",
+				SceneDirectory / "Contract.bin",
+				std::filesystem::copy_options::overwrite_existing);
+		}
 		return Fixture;
 	}
 
-	auto PlanAndExecute(const FSceneFixture& Fixture)
+	auto PlanAndExecute(const FSceneFixture& Fixture, size_t ExpectedOutputCount = 3)
 		-> Durin::FSceneImportExecutionResult
 	{
 		const Durin::FSceneImportPlanResult Planned = Durin::PlanSceneImport({
@@ -107,9 +117,11 @@ namespace
 		EXPECT_TRUE(Planned) << Planned.Message;
 		if (!Planned) return {};
 		EXPECT_EQ(
-			Planned.Plan.GetMultiOutputPlan().GetGenericPlan().GetOutputs().size(), 3u);
+			Planned.Plan.GetMultiOutputPlan().GetGenericPlan().GetOutputs().size(),
+			ExpectedOutputCount);
 		return Durin::ExecuteSceneImport(Planned.Plan);
 	}
+
 }
 
 TEST(FSceneImportTests, PublishesHeterogeneousPeersUnderGenericRecord)
@@ -259,6 +271,98 @@ TEST(FSceneImportTests, PublishesSkeletalAssetGraphAndDeterministicallyReimports
 		ASSERT_NE(ProviderNeutral.Outputs[OutputIndex], nullptr);
 		EXPECT_EQ(ProviderNeutral.Outputs[OutputIndex]->GetPackage()->GetPackagePath(),
 			Reimported.Record->GetOutputs()[OutputIndex].AssetPath.ToString());
+	}
+}
+
+TEST(FSceneImportTests, GltfAndGlbPublishEquivalentSkeletalGraphsAcrossRepeatedReimport)
+{
+	std::vector<std::vector<Durin::FSkeletonBone>> ExpectedSkeletons;
+	std::vector<Durin::FSkeletalMeshPayloadData> ExpectedMeshes;
+	std::vector<Durin::FAnimationClipPayloadData> ExpectedClips;
+	const std::array<std::pair<std::string_view, std::string_view>, 2> Cases{{
+		{"SkeletalDataUri", "Contract.gltf"},
+		{"SkeletalGlb", "Contract.glb"}}};
+
+	for (const auto& [Name, FixtureFile] : Cases)
+	{
+		SCOPED_TRACE(FixtureFile);
+		const FSceneFixture Fixture = InitializeSkeletalSceneFixture(Name, FixtureFile);
+		const Durin::FSceneImportExecutionResult Initial = PlanAndExecute(Fixture, 11);
+		ASSERT_TRUE(Initial) << Initial.Message;
+		ASSERT_NE(Initial.Record, nullptr);
+		ASSERT_EQ(Initial.Record->GetOutputs().size(), 11u);
+		ASSERT_EQ(Initial.Skeletons.size(), 2u);
+		ASSERT_EQ(Initial.SkeletalMeshes.size(), 2u);
+		ASSERT_EQ(Initial.AnimationClips.size(), 4u);
+
+		std::vector<std::vector<Durin::FSkeletonBone>> Skeletons;
+		std::vector<Durin::FSkeletalMeshPayloadData> Meshes;
+		std::vector<Durin::FAnimationClipPayloadData> Clips;
+		std::vector<std::string> MeshKeys;
+		std::vector<std::string> ClipKeys;
+		for (Durin::DSkeleton* Skeleton : Initial.Skeletons)
+		{
+			ASSERT_NE(Skeleton, nullptr);
+			const std::span<const Durin::FSkeletonBone> Bones = Skeleton->GetBones();
+			Skeletons.emplace_back(Bones.begin(), Bones.end());
+		}
+		for (Durin::DSkeletalMesh* Mesh : Initial.SkeletalMeshes)
+		{
+			ASSERT_NE(Mesh, nullptr);
+			ASSERT_NE(Mesh->GetPayloadData(), nullptr);
+			Meshes.push_back(*Mesh->GetPayloadData());
+			MeshKeys.push_back(Mesh->GetDerivedDataKey());
+		}
+		for (Durin::DAnimationClip* Clip : Initial.AnimationClips)
+		{
+			ASSERT_NE(Clip, nullptr);
+			ASSERT_NE(Clip->GetPayloadData(), nullptr);
+			Clips.push_back(*Clip->GetPayloadData());
+			ClipKeys.push_back(Clip->GetDerivedDataKey());
+		}
+
+		if (ExpectedSkeletons.empty())
+		{
+			ExpectedSkeletons = Skeletons;
+			ExpectedMeshes = Meshes;
+			ExpectedClips = Clips;
+		}
+		else
+		{
+			EXPECT_EQ(Skeletons, ExpectedSkeletons);
+			EXPECT_EQ(Meshes, ExpectedMeshes);
+			EXPECT_EQ(Clips, ExpectedClips);
+		}
+
+		const std::string RecordFingerprint = Initial.Record->GetFingerprint();
+		const std::vector<Durin::DSkeleton*> SkeletonIdentities = Initial.Skeletons;
+		const std::vector<Durin::DSkeletalMesh*> MeshIdentities = Initial.SkeletalMeshes;
+		const std::vector<Durin::DAnimationClip*> ClipIdentities = Initial.AnimationClips;
+		for (size_t ReimportIndex = 0; ReimportIndex < 2; ++ReimportIndex)
+		{
+			SCOPED_TRACE(std::format("reimport {}", ReimportIndex));
+			const Durin::FSceneImportPlanResult Planned =
+				Durin::PlanSceneReimport(*Initial.Record);
+			ASSERT_TRUE(Planned) << Planned.Message;
+			const Durin::FSceneImportExecutionResult Reimported =
+				Durin::ExecuteSceneImport(Planned.Plan);
+			ASSERT_TRUE(Reimported) << Reimported.Message;
+			EXPECT_EQ(Reimported.Record, Initial.Record);
+			EXPECT_EQ(Reimported.Record->GetFingerprint(), RecordFingerprint);
+			EXPECT_EQ(Reimported.Skeletons, SkeletonIdentities);
+			EXPECT_EQ(Reimported.SkeletalMeshes, MeshIdentities);
+			EXPECT_EQ(Reimported.AnimationClips, ClipIdentities);
+			for (size_t Index = 0; Index < Reimported.SkeletalMeshes.size(); ++Index)
+			{
+				EXPECT_EQ(Reimported.SkeletalMeshes[Index]->GetDerivedDataKey(), MeshKeys[Index]);
+				EXPECT_EQ(*Reimported.SkeletalMeshes[Index]->GetPayloadData(), Meshes[Index]);
+			}
+			for (size_t Index = 0; Index < Reimported.AnimationClips.size(); ++Index)
+			{
+				EXPECT_EQ(Reimported.AnimationClips[Index]->GetDerivedDataKey(), ClipKeys[Index]);
+				EXPECT_EQ(*Reimported.AnimationClips[Index]->GetPayloadData(), Clips[Index]);
+			}
+		}
 	}
 }
 

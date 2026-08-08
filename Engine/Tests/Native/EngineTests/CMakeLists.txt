@@ -245,6 +245,15 @@ durin_add_engine_functional_test(SkeletalAssetTests
 		Private/SkeletalAssetTests.cpp
 )
 
+durin_add_engine_functional_test(SkeletalSceneLifecycleTests
+	TIMEOUT 600
+	RUNTIME_STACK_RATIONALE "Exercises editor skeletal Scene import through cook and runtime-only load."
+	SOURCES
+		Private/SkeletalSceneLifecycleTests.cpp
+	LIBRARIES AssetImportCore StandardAssetImport RenderCore
+	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
+)
+
 durin_add_engine_functional_test(TextureTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises renderer-backed texture import, build, and cache behavior."

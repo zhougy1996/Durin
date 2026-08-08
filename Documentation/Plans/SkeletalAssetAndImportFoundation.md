@@ -4,33 +4,22 @@ Summary: Add bounded Skeleton, SkeletalMesh, and AnimationClip assets plus deter
 
 Last reviewed: 2026-08-08
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-08
 
 ## Current Status
 
-This plan is the active S1 child of the
-[Skeletal Mesh and Animation Roadmap](../Roadmaps/SkeletalMeshAndAnimation.md).
-Stage 0 is complete in `201ddf0d7a3888e729167e6eca427b974e0605d6`.
-The repository-owned skeletal fixture corpus now freezes the source subset,
-output graph, coordinate conversion, compatibility encoding, limits, payload
-split, malformed diagnostic categories, and current static projection baseline.
-Stages 1 and 2 are complete. Stage 3 is current and publishes the normalized
-skeletal values through the existing Scene provider transaction and record
-model.
+All six stages are complete. The S1 child of the
+[Skeletal Mesh and Animation Roadmap](../Roadmaps/SkeletalMeshAndAnimation.md)
+now supplies validated Skeleton, SkeletalMesh, and AnimationClip assets;
+bounded direct glTF normalization; stable Scene peer publication; deterministic
+DDC and cooked payloads; and runtime-only loading without import dependencies.
 
-The current normalized Scene result contains images, materials, material
-slots, and static mesh arrays only. `AssimpSceneGeometry.cpp` traverses nodes,
-accumulates their transforms, and writes transformed positions and tangent
-frames into independent mesh instances. That behavior is correct for the
-supported static path but discards the relationships required by skins and
-animation.
-
-The implementation can reuse provider-neutral source snapshots, async
-value-only preparation, Scene import records, detached candidates,
-failure-atomic publication, DDC storage, DBLK publication, and runtime-only
-loading. It must add skeletal domain contracts without moving source readers or
-Assimp into runtime Engine and without changing accepted StaticMesh outputs.
+The lasting asset/storage and editor/import contracts have moved to their
+owning documentation, and the roadmap records S1 completion plus a satisfied
+S2 planning gate. S1 deliberately contains no playback clock, pose evaluator,
+component, palette publisher, render resource, SceneProxy, skinning path, or
+RHI work. No S2-S4 implementation plan was created.
 
 ## Goal
 
@@ -742,22 +731,22 @@ validated end to end, and ready for a just-in-time runtime playback plan.
 
 Dependencies: Stages 0-4.
 
-- [ ] Move implemented Skeleton/SkeletalMesh/AnimationClip schemas,
+- [x] Move implemented Skeleton/SkeletalMesh/AnimationClip schemas,
   compatibility, payload, DDC, cook, runtime-load, source-subset, output, and
   reimport contracts into the owning Runtime Assets and Editor Architecture
   documentation.
-- [ ] Update the Skeletal Mesh and Animation Roadmap S1 status with completion
+- [x] Update the Skeletal Mesh and Animation Roadmap S1 status with completion
   evidence and re-inspect the S2 entry gate without creating the S2 plan.
-- [ ] Run focused CoreDObject, AssetCore, Engine asset/payload/cook,
+- [x] Run focused CoreDObject, AssetCore, Engine asset/payload/cook,
   AssetImportCore, StandardAssetImport, Scene provider, editor workflow, and
   runtime dependency-closure tests through the repository build/test entrypoint.
-- [ ] Run deterministic repeated import/reimport/cook and runtime-only load
+- [x] Run deterministic repeated import/reimport/cook and runtime-only load
   workflows for representative `.gltf` and `.glb` success fixtures and the
   malformed corpus.
-- [ ] Complete a successful full `all` build because the Scene import workflow
+- [x] Complete a successful full `all` build because the Scene import workflow
   is user-visible, following the repository build instructions and selected
   Agent Build Profile.
-- [ ] Run the all-plan validator, inspect the complete task diff/status, and
+- [x] Run the all-plan validator, inspect the complete task diff/status, and
   record any deliberately deferred source or product capability only in the
   roadmap's evidence-gated follow-ups.
 
@@ -775,6 +764,49 @@ Dependencies: Stages 0-4.
 - The final handoff records baseline commit, complete working set, key symbols
   and decisions, open questions for S2, validation outcome, and verified editor
   executable from the selected Agent Build Profile.
+
+#### Stage 5 Handoff
+
+- Baseline commit: `53f6b2d376c51b7aa6721b39e66a7a5a98ab8872`.
+- Complete working set: `AssetDataLifecycle.md`, `AssetImportFramework.md`,
+  `SkeletalMeshAndAnimation.md`, `SceneImportTests.cpp`, the new
+  `SkeletalSceneLifecycleTests.cpp` and its `EngineTests/CMakeLists.txt` target,
+  and this plan. No S2, S3, or S4 plan file was created.
+- Key symbols and published contracts: `DSkeleton`, `DSkeletalMesh`,
+  `DAnimationClip`, compatibility encoding version 1, DSKM/DANM schema and
+  builder version 1, skeletal DDC namespaces/key inputs, the Scene provider's
+  version-1 source subset and stable peer identities, prospective-Skeleton
+  dependency validation, dependency-order exchange, DBLK publication, and
+  cooked-runtime transactional load. The new
+  `GltfAndGlbPublishEquivalentSkeletalGraphsAcrossRepeatedReimport` regression
+  directly qualifies provider publication across both root container forms;
+  `GltfAndGlbCookDeterministicallyAndLoadRuntimeOnly` isolates the AssetManager
+  restart and qualifies the complete import-to-runtime lifecycle.
+- Decisions: S1 ends at immutable validated CPU payload access. Skeleton is
+  package-only; mesh and clip keep exact hard Skeleton relationships plus
+  compatibility identities across authored and cooked ownership. glTF skeletal
+  decoding remains format-owned and FBX remains static-only. S2 is ready to be
+  planned just in time, but no playback/component/rendering behavior is
+  inferred from the asset classes.
+- Open questions for S2: select the single owner of clip time, loop/rate state,
+  compatibility binding, local pose evaluation, and immutable palette
+  publication after re-inspecting current actor/component tick and detached
+  Scene publication seams. Freeze sampling edge cases, pose composition order,
+  and numeric goldens before implementation. None of these questions weakens
+  the completed S1 boundary.
+- Validation: `CoreObjectTests` passed 79/79; `AssetPackageTests` 105/105;
+  `AssetCookTests` 12/12; `AssetDerivedDataTests` 3/3;
+  `AssetImportCoreTests` 24/24; `AssetImportTests` 16/16;
+  `SkeletalAssetTests` 12/12 in Debug DurinEditor and 12/12 in Shipping
+  DurinGame; `StaticMeshTests` 49/49; `TextureTests` 67/67, including equivalent
+  data-URI `.gltf`/`.glb` publication and two stable reimports per container;
+  `SkeletalSceneLifecycleTests` 1/1, including byte-identical clean cooks and
+  runtime-only loads after deleting authored Engine/Game content and DDC;
+  and `EditorAssetWorkflowTests` completed with 78 passed and one reported
+  skip. The selected `Win64-Debug-DurinEditor-Tests` Profile completed a full
+  `all` build and produced
+  `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`. The
+  all-plan validator and final diff/status checks passed.
 
 ## Validation Matrix
 

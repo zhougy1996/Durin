@@ -74,13 +74,47 @@ The current import behavior is:
 | Texture2D | Decode source pixels, generate mips, select/compress the platform format, and encode TXPL for the DDC | Authored `.dasset`, normalized source file, DDC `.bin` |
 | TextureCube, six-face | Decode six sources, validate a common layout, generate/compress platform faces, and encode TXPL for the DDC | Authored `.dasset`, six normalized source files, DDC `.bin` |
 | TextureCube, panorama | Decode and project the panorama, generate/compress platform faces, and encode TXPL for the DDC | Authored `.dasset`, normalized panorama source, DDC `.bin` |
+| Skeleton | Validate and persist the canonical reference hierarchy and structural compatibility identity | Authored `.dasset` |
+| SkeletalMesh | Validate the Skeleton relationship and detached LOD0 CPU payload, then encode DSKM for the DDC | Authored `.dasset`, Scene source closure through its import record, DDC `.bin` |
+| AnimationClip | Validate the Skeleton relationship and detached track/key CPU payload, then encode DANM for the DDC | Authored `.dasset`, Scene source closure through its import record, DDC `.bin` |
 | Assets without an external platform payload | Construct and save reflected authoring state | Authored `.dasset` |
 
-StaticMesh and texture import currently build the Win64 Game platform/profile
-variant eagerly so the editor has immediately usable render data. This is a
-platform build stored under rebuildable DDC ownership; it is not cooked
-publication. Cook may later validate and reuse equivalent payload bytes, but
-only an explicit cook places them under `Cooked/` ownership.
+StaticMesh, texture, SkeletalMesh, and AnimationClip import currently build the
+Win64 Game platform/profile variant eagerly so the editor has immediately
+usable data. This is a platform build stored under rebuildable DDC ownership;
+it is not cooked publication. Cook may later validate and reuse equivalent
+payload bytes, but only an explicit cook places them under `Cooked/` ownership.
+
+### Skeletal Authored State
+
+`DSkeleton` is a package-only runtime asset. Its parent-before-child canonical
+bone array stores name, parent index, and finite decomposable local reference
+transform. Compatibility encoding version 1 hashes the exact canonical names,
+parents, and float32 reference matrices with XXH3-128. The identity deliberately
+excludes package path, source indices, inverse binds, materials, and animation
+tracks.
+
+The canonical little-endian compatibility stream begins with ASCII `DSKC`,
+encoding version 1, and the bone count. Each bone contributes its signed parent
+index, UTF-8 name length and bytes, then the 16 row-major float32 entries of its
+local reference matrix. Negative zero is canonicalized to positive zero and the
+rotation sign is canonical before encoding. The maximum bone count is 65,535.
+
+`DSkeletalMesh` and `DAnimationClip` each persist both a hard `DSkeleton`
+reference and the expected compatibility identity. Validation requires both to
+match; an equal name or hash without the referenced Skeleton is insufficient.
+The mesh also persists its mesh-node bind transform, stable material slots,
+LOD0/section/bounds summary, and payload descriptor. The clip persists its
+stable name, duration and track/key summary, and payload descriptor. Their
+large geometry, influence, inverse-bind, time, and typed-key arrays are detached
+immutable CPU payloads: they contain no source token, reflected object, RHI
+handle, playback clock, evaluated pose, or palette state.
+
+Authored editor packages may retain a content-addressed rebuild key and compact
+source/import metadata. A loaded package can populate a missing CPU payload
+from a validated DDC object when that key is present, but package load does not
+reopen Scene source or invoke an import provider. `DSkeleton` has no external
+payload and therefore no DDC object or DBLK companion.
 
 ## Derived Data Cache Objects
 
@@ -113,6 +147,23 @@ Readers validate magic, versions, declared sizes, allocation limits, structural
 invariants, and checksums before publishing data. A cache write failure does not
 invalidate a complete in-memory build result.
 
+### Skeletal Derived Data
+
+SkeletalMesh objects live under `SkeletalMesh/Objects` with builder identity
+`Durin.SkeletalMesh.Builder.V1`; AnimationClip objects live under
+`AnimationClip/Objects` with `Durin.AnimationClip.Builder.V1`. Their version-1
+keys are XXH3-128 over an explicit canonical encoding of builder and payload
+versions, target platform/profile, provider identity/version, the exact ordered
+captured source-closure hash, normalized settings and typed provider-state
+hashes, stable output identity, Skeleton compatibility, and the canonical
+payload-input fingerprint.
+
+The key is an editor rebuild locator, not runtime identity. Import stores a
+complete in-memory candidate even when its best-effort DDC write fails. A
+missing or corrupt object is a safe miss only while authoritative import inputs
+are available to the import operation; ordinary authored package load does not
+invent those inputs or silently reimport.
+
 ## Cooked Packages and Bulk Payloads
 
 Cook produces a platform-qualified runtime view under
@@ -142,8 +193,11 @@ Packages without external runtime payloads publish only their cooked
 fixed built-in Cook root so a minimal project includes it even though empty
 material slots deliberately serialize no reference.
 
-StaticMesh and texture cooked packages also omit import source provenance and
-editor diagnostics. Import-record packages are not cook inputs, and runtime
+StaticMesh, texture, SkeletalMesh, and AnimationClip cooked packages also omit
+import source provenance, rebuild keys, and editor diagnostics. SkeletalMesh
+and AnimationClip retain exact hard Skeleton dependencies and compatibility
+identities; their logical payload descriptors select fixed type payload IDs in
+the package companion. Import-record packages are not cook inputs, and runtime
 targets do not deploy `AssetImportCore`, `StandardAssetImport`, Assimp, or
 editor image decoders.
 
@@ -200,6 +254,31 @@ The initial texture payload uses no additional container compression because BC
 texture data is already compressed and must remain independently addressable by
 mip. Other payload types may select an explicit compression method when their
 codec and loading policy support it.
+
+### Skeletal Payload Codecs
+
+SkeletalMesh payload schema 1 uses `DSKM` (`0x4D4B5344` little-endian) and
+builder version 1. Its required chunks store metadata and bounds, sections,
+positions, vertex attributes, indices, canonical four-slot influences, and
+palette indices with inverse-bind matrices. AnimationClip payload schema 1 uses
+`DANM` (`0x4D4E4144`) and builder version 1; its required chunks store clip
+metadata, track records, key times, and typed translation/rotation/scale values.
+
+Both codecs use an explicit 64-byte little-endian header, 32-byte chunk
+records, 16-byte aligned non-overlapping ranges, zero padding, an XXH3-64 body
+checksum, at most 64 chunks, and complete byte consumption. Decoders bound all
+counts and allocations to at most 8 GiB per decoded payload, then reject
+incompatible target/profile, duplicate or
+unknown required chunks, invalid references or enums, non-finite values,
+invalid influences/transforms/times, truncation, overlap, overflow, checksum
+failure, and trailing required data before publishing a detached candidate.
+Neither format serializes a native structure image, pointer, `size_t`, source
+token, reflected object, physical cache path, or RHI state.
+
+The logical cooked identities are `<asset-path>#SkeletalMeshPayload.v1` and
+`<asset-path>#AnimationClipPayload.v1`. They select fixed type payload IDs in
+the package's DBLK companion; no physical DDC or companion path enters the
+asset package.
 
 ### Implemented Container Contract
 
@@ -312,15 +391,19 @@ disposable while that build is running or installed.
 The shared DDC object store, DBLK container, logical descriptors, deterministic
 cook publication, manifest, and explicit authored-editor/cooked-runtime package
 modes are implemented. StaticMesh uses DMSH schema 2; Texture2D and TextureCube
-use TXPL schema 1. Their cooked loaders validate the complete descriptor,
-container, target, payload schema, ranges, hash, and asset-specific structure
+use TXPL schema 1; SkeletalMesh uses DSKM schema 1; AnimationClip uses DANM
+schema 1. Their cooked loaders validate the complete descriptor, container,
+target, payload schema, ranges, hash, and asset-specific structure
 transactionally, and never invoke source or DDC fallback.
 
-StaticMesh, Texture2D, and TextureCube expose asset-level `AddToCook` operations
-for the Win64 Game target. Those operations can obtain or rebuild the required
-payload, add it to an `FCookContext`, serialize a cooked `.dasset` with logical
-payload descriptors, and publish the matching DBLK companion and manifest
-through that context.
+StaticMesh, Texture2D, TextureCube, Skeleton, SkeletalMesh, and AnimationClip
+expose asset-level `AddToCook` operations for the Win64 Game target. Payload-
+bearing assets can obtain or validate the required payload, add it to an
+`FCookContext`, serialize a cooked `.dasset` with logical descriptors, and
+publish the matching DBLK companion and manifest through that context.
+Skeleton contributes only its package. Cooked SkeletalMesh and AnimationClip
+load their Skeleton dependency and DBLK payload transactionally; they have no
+source, provider, DDC, Assimp, editor-decoder, playback, or rendering fallback.
 
 End-to-end packaging orchestration is not yet connected to an editor command or
 DurinDevTool action. There is currently no user-facing command that discovers an
