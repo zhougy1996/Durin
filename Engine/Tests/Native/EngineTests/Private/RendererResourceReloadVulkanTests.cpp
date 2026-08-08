@@ -332,10 +332,8 @@ float4 FragmentMain() : SV_Target
 								Candidate.FragmentShader.GetRHIShader();
 							Initializer.VertexDeclaration =
 								Candidate.VertexDeclaration;
-							Initializer.bEnableAlphaBlend = false;
-							Initializer.bEnableBackFaceCulling = false;
-							Initializer.bEnableDepthTest = false;
-							Initializer.bEnableDepthWrite = false;
+							Initializer.RasterizerState.CullMode =
+								ERHICullMode::None;
 							Initializer.PipelineLayout =
 								Candidate.ShaderMap
 									->GetMergedPipelineLayout();

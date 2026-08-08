@@ -79,8 +79,7 @@ namespace Durin
 			Initializer.BoundShaders.VertexShader = VertexShader;
 			Initializer.BoundShaders.FragmentShader = FragmentShader;
 			Initializer.VertexDeclaration = VertexDeclaration;
-			Initializer.bEnableAlphaBlend = false;
-			Initializer.bEnableBackFaceCulling = false;
+			Initializer.RasterizerState.CullMode = ERHICullMode::None;
 			Initializer.PipelineLayout = PipelineLayout;
 			return GDynamicRHI->RHICreateGraphicsPipelineState(
 				PipelineName,

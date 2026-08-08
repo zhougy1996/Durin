@@ -526,11 +526,11 @@ namespace Durin
 						Base->FragmentShader.GetRHIShader();
 					Initializer.VertexDeclaration =
 						Base->VertexDeclaration;
-					Initializer.bEnableAlphaBlend = true;
-					Initializer.bEnableBackFaceCulling = false;
-					Initializer.bEnableDepthTest =
+					Initializer.ColorBlendState =
+						FRHIColorBlendState::StraightAlpha();
+					Initializer.RasterizerState.CullMode = ERHICullMode::None;
+					Initializer.DepthState.bEnableTest =
 						Key.DepthMode == EDepthMode::Visible;
-					Initializer.bEnableDepthWrite = false;
 					Initializer.PipelineLayout =
 						Base->ShaderMap->GetMergedPipelineLayout();
 					FGraphicsPipelineStateRHIRef Candidate =

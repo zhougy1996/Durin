@@ -253,8 +253,6 @@ namespace Durin::VulkanRHI
 		Initializer.BoundShaders.VertexShader = VertexShader;
 		Initializer.BoundShaders.FragmentShader = FragmentShader;
 		Initializer.VertexDeclaration = VertexDeclaration;
-		Initializer.bEnableDepthTest = false;
-		Initializer.bEnableDepthWrite = false;
 
 		const FName PipelineName("RecoverableGraphicsPipeline");
 		const FVulkanGraphicsPipelineTestStats PipelineStatsBefore =
@@ -278,26 +276,57 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(SameNamePipeline->GetRefCount(), 1u);
 
 		FGraphicsPipelineStateInitializer ChangedInitializer = Initializer;
-		ChangedInitializer.bEnableBackFaceCulling =
-			!Initializer.bEnableBackFaceCulling;
+		ChangedInitializer.RasterizerState.CullMode = ERHICullMode::None;
 		FGraphicsPipelineStateRHIRef ChangedSameNamePipeline =
 			GDynamicRHI->RHICreateGraphicsPipelineState(
 				PipelineName, ChangedInitializer);
 		ASSERT_TRUE(ChangedSameNamePipeline);
 		EXPECT_NE(Pipeline.GetReference(), ChangedSameNamePipeline.GetReference());
 		EXPECT_EQ(ChangedSameNamePipeline->GetRefCount(), 1u);
+
+		std::vector<FGraphicsPipelineStateRHIRef> StatePipelines;
+		auto CreateStatePipeline = [&](FGraphicsPipelineStateInitializer State,
+			std::string_view Suffix) {
+			FGraphicsPipelineStateRHIRef StatePipeline =
+				GDynamicRHI->RHICreateGraphicsPipelineState(
+					FName(std::format("RecoverableGraphicsPipeline_{}", Suffix)),
+					State);
+			EXPECT_TRUE(StatePipeline);
+			if (StatePipeline)
+				StatePipelines.push_back(std::move(StatePipeline));
+		};
+		FGraphicsPipelineStateInitializer WireframeInitializer = Initializer;
+		WireframeInitializer.RasterizerState.PolygonMode = ERHIPolygonMode::Line;
+		CreateStatePipeline(WireframeInitializer, "Wireframe");
+		FGraphicsPipelineStateInitializer CounterClockwiseInitializer = Initializer;
+		CounterClockwiseInitializer.RasterizerState.FrontFace =
+			ERHIFrontFace::CounterClockwise;
+		CreateStatePipeline(CounterClockwiseInitializer, "CounterClockwise");
+		FGraphicsPipelineStateInitializer DepthInitializer = Initializer;
+		DepthInitializer.DepthState.bEnableTest = true;
+		DepthInitializer.DepthState.bEnableWrite = true;
+		CreateStatePipeline(DepthInitializer, "Depth");
+		FGraphicsPipelineStateInitializer BlendInitializer = Initializer;
+		BlendInitializer.ColorBlendState = FRHIColorBlendState::StraightAlpha();
+		CreateStatePipeline(BlendInitializer, "StraightAlpha");
+
+		FGraphicsPipelineStateInitializer InvalidInitializer = Initializer;
+		InvalidInitializer.RasterizerState.FrontFace = ERHIFrontFace::Count;
+		EXPECT_FALSE(GDynamicRHI->RHICreateGraphicsPipelineState(
+			"InvalidGraphicsPipeline", InvalidInitializer));
 		const FVulkanGraphicsPipelineTestStats PipelineStatsAfterCreation =
 			GetVulkanGraphicsPipelineTestStats();
 		EXPECT_EQ(
 			PipelineStatsAfterCreation.CommittedPipelineCount,
-			PipelineStatsBefore.CommittedPipelineCount + 3);
+			PipelineStatsBefore.CommittedPipelineCount + 7);
 		EXPECT_EQ(
 			PipelineStatsAfterCreation.CreatedPipelineLayoutCount,
-			PipelineStatsBefore.CreatedPipelineLayoutCount + 4);
+			PipelineStatsBefore.CreatedPipelineLayoutCount + 8);
 		EXPECT_EQ(
 			PipelineStatsAfterCreation.RolledBackPipelineLayoutCount,
 			PipelineStatsBefore.RolledBackPipelineLayoutCount + 1);
 
+		StatePipelines.clear();
 		ChangedSameNamePipeline = nullptr;
 		SameNamePipeline = nullptr;
 		Pipeline = nullptr;
@@ -313,7 +342,7 @@ namespace Durin::VulkanRHI
 			GetVulkanGraphicsPipelineTestStats();
 		EXPECT_EQ(
 			PipelineStatsAfterRelease.DestroyedPipelineCount,
-			PipelineStatsBefore.DestroyedPipelineCount + 3);
+			PipelineStatsBefore.DestroyedPipelineCount + 7);
 	}
 
 	TEST_F(FVulkanCreateFailureInjectionTests,

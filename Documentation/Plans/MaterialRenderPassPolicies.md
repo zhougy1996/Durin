@@ -25,11 +25,11 @@ enables depth test/write, disables culling, and uses the same draw loop.
 masked fragments, while Vulkan expands four Boolean pipeline fields into fixed
 backend policy.
 
-Stage 0 is complete against baseline `7af1a55c`. The effective pass, state,
-winding, sorting, preparation, migration, and validation contracts are frozen
-below, and all selected focused baselines pass. Stage 1 is next: introduce the
-value-based public-RHI graphics state and migrate every existing caller without
-changing visible behavior.
+Stages 0 and 1 are complete. The public RHI now owns cohesive rasterizer,
+depth, and color-blend values; every previous graphics-state Boolean caller is
+migrated, Vulkan validates and maps the complete values, and fixed-state
+rendering remains qualified. Stage 2 is next: prepare each StaticMesh LOD 0
+section once into view-local Opaque, Masked, and Translucent work.
 
 ## Goal
 
@@ -331,20 +331,20 @@ M6 boundaries.
 
 ### Stage 1: Introduce value-based graphics state
 
-- [ ] Add the selected rasterizer, depth, and color-blend value descriptors to
+- [x] Add the selected rasterizer, depth, and color-blend value descriptors to
   the public RHI graphics-pipeline initializer.
-- [ ] Replace current Boolean call sites atomically and preserve behavior for
+- [x] Replace current Boolean call sites atomically and preserve behavior for
   StaticMesh, SkyBox, post-process, editor assistance, and test pipelines.
-- [ ] Include every descriptor value in pipeline equality/hash or backend cache
+- [x] Include every descriptor value in pipeline equality/hash or backend cache
   identity and in relevant diagnostic identity text.
-- [ ] Map the descriptors exactly into Vulkan rasterization, depth/stencil, and
+- [x] Map the descriptors exactly into Vulkan rasterization, depth/stencil, and
   color-blend attachment state.
-- [ ] Reject invalid or unsupported descriptor combinations before publishing a
+- [x] Reject invalid or unsupported descriptor combination before publishing a
   graphics pipeline.
-- [ ] Extend public-RHI and Vulkan focused tests for opaque and straight-alpha
+- [x] Extend public-RHI and Vulkan focused tests for opaque and straight-alpha
   blend, depth write/compare, no/back cull, clockwise/counter-clockwise winding,
   solid/wireframe, cache separation, and nullable failure.
-- [ ] Record the stage handoff and validation evidence.
+- [x] Record the stage handoff and validation evidence.
 
 #### Acceptance Gate
 
@@ -354,6 +354,41 @@ M6 boundaries.
   state retains existing Renderer/backend reuse behavior.
 - Existing fixed-state output and complete-or-null failure behavior remain
   unchanged before material policies are enabled.
+
+#### Stage 1 Handoff
+
+Baseline commit: `87d54731` (`docs(renderer): freeze material pass policy
+baseline`). The working set was `RHIResources.h`, `VulkanPipeline.cpp`, every
+production `FGraphicsPipelineStateInitializer` caller in Renderer, MonaImGui,
+and TextureEditor, plus public-RHI, Renderer reload, and Vulkan failure tests.
+
+Public state is now expressed by `FRHIRasterizerState`, `FRHIDepthState`, and
+`FRHIColorBlendState`. Their selected enum vocabulary exactly matches the Stage
+0 handoff, every descriptor has defaulted value equality, and
+`FRHIColorBlendState::StraightAlpha` is the one shared construction path for
+the existing overlay/UI blend equation. The ordered Renderer slot cache uses
+whole-key equality rather than hashing, while Vulkan intentionally creates a
+new graphics PSO for each request and reuses only descriptor layouts; focused
+tests confirm that distinct state requests publish distinct complete pipelines.
+
+`FGraphicsPipelineStateInitializer::IsValid` now rejects missing shader,
+vertex-declaration, or render-target prerequisites, out-of-range topology or
+state enums, and invalid color masks. `RHICreateGraphicsPipelineState` applies
+that check before entering fallible Vulkan creation, so unsupported state
+returns null without publishing or disturbing later recovery. Vulkan maps all
+selected polygon, cull, front-face, depth, factor, operation, and color-mask
+values directly. Existing opaque callers use the default blend/depth state;
+existing alpha callers use the frozen straight-alpha value; and every former
+no-cull/depth-test/wireframe assignment now updates its owning value object.
+
+Validation on 2026-08-08 with `Win64-Debug-DurinEditor-Tests` passed:
+`RHICommandListTests` 42/42, `FVulkanCreateFailureInjectionTests.*` 7/7,
+`FMaterialTests.*` 45/45, `RendererResourceReloadVulkanTests` 1/1,
+`EditorRenderingTests` 33/33, and a full `all` build. Searches find no remaining
+`bEnableAlphaBlend`, `bEnableBackFaceCulling`, `bEnableDepthTest`,
+`bEnableDepthWrite`, or legacy `EPolygonMode` pipeline field. Open questions:
+none. Stage 2 will introduce the effective StaticMesh pipeline key that embeds
+these values together with material, raster-mode, and mirrored-winding facts.
 
 ### Stage 2: Prepare and classify StaticMesh section work
 

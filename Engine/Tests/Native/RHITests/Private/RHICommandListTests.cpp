@@ -1166,4 +1166,67 @@ namespace Durin
 		EXPECT_EQ(Context.Operations, (std::vector<std::string>{
 			"AllocateDynamicUniformBuffer", "RecordedBeforeSync"}));
 	}
+
+	TEST(FRHICommandListTests, GraphicsPipelineValueStateIsCohesiveAndComparable)
+	{
+		FGraphicsPipelineStateInitializer First;
+		FGraphicsPipelineStateInitializer Second;
+
+		EXPECT_EQ(First.RasterizerState, Second.RasterizerState);
+		EXPECT_EQ(First.DepthState, Second.DepthState);
+		EXPECT_EQ(First.ColorBlendState, Second.ColorBlendState);
+		EXPECT_EQ(First.RasterizerState.PolygonMode, ERHIPolygonMode::Fill);
+		EXPECT_EQ(First.RasterizerState.CullMode, ERHICullMode::Back);
+		EXPECT_EQ(First.RasterizerState.FrontFace, ERHIFrontFace::Clockwise);
+		EXPECT_FALSE(First.DepthState.bEnableTest);
+		EXPECT_FALSE(First.DepthState.bEnableWrite);
+		EXPECT_EQ(First.DepthState.CompareOp, ERHIDepthCompareOp::Less);
+		EXPECT_FALSE(First.ColorBlendState.bEnable);
+		EXPECT_EQ(First.ColorBlendState.ColorWriteMask,
+			ERHIColorWriteMask::All);
+
+		Second.ColorBlendState = FRHIColorBlendState::StraightAlpha();
+		EXPECT_NE(First.ColorBlendState, Second.ColorBlendState);
+		EXPECT_TRUE(Second.ColorBlendState.bEnable);
+		EXPECT_EQ(Second.ColorBlendState.SrcColorFactor,
+			ERHIBlendFactor::SrcAlpha);
+		EXPECT_EQ(Second.ColorBlendState.DstColorFactor,
+			ERHIBlendFactor::OneMinusSrcAlpha);
+		EXPECT_EQ(Second.ColorBlendState.SrcAlphaFactor,
+			ERHIBlendFactor::One);
+		EXPECT_EQ(Second.ColorBlendState.DstAlphaFactor,
+			ERHIBlendFactor::OneMinusSrcAlpha);
+	}
+
+	TEST(FRHICommandListTests, GraphicsPipelineInitializerRejectsUnsupportedState)
+	{
+		FGraphicsPipelineStateInitializer Initializer;
+		Initializer.BoundShaders.VertexShader =
+			reinterpret_cast<FRHIShader*>(uintptr_t{1});
+		Initializer.BoundShaders.FragmentShader =
+			reinterpret_cast<FRHIShader*>(uintptr_t{2});
+		Initializer.VertexDeclaration =
+			reinterpret_cast<FRHIVertexDeclaration*>(uintptr_t{3});
+		Initializer.RenderTargetLayout.NumColorRenderTargets = 1;
+		auto& Attachment = Initializer.RenderTargetLayout
+			.ColorAttachments[0].RenderTarget;
+		Attachment.Format = EPixelFormat::RGBA8_UNORM;
+		Attachment.LoadAction = ERHIRenderTargetLoadAction::Clear;
+		Attachment.StoreAction = ERHIRenderTargetStoreAction::Store;
+		Attachment.InitialLayout = ERHITextureLayout::Undefined;
+		Attachment.InitialAccess = ERHIAccess::None;
+		Attachment.FinalLayout = ERHITextureLayout::ShaderReadOnly;
+		Attachment.FinalAccess = ERHIAccess::ShaderRead;
+		ASSERT_TRUE(Initializer.IsValid());
+
+		Initializer.RasterizerState.CullMode = ERHICullMode::Count;
+		EXPECT_FALSE(Initializer.IsValid());
+		Initializer.RasterizerState.CullMode = ERHICullMode::None;
+		Initializer.ColorBlendState.SrcColorFactor = ERHIBlendFactor::Count;
+		EXPECT_FALSE(Initializer.IsValid());
+		Initializer.ColorBlendState.SrcColorFactor = ERHIBlendFactor::One;
+		Initializer.PrimitiveTopology =
+			FGraphicsPipelineStateInitializer::EPrimitiveTopology::Count;
+		EXPECT_FALSE(Initializer.IsValid());
+	}
 } // namespace Durin

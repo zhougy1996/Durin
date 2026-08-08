@@ -1025,6 +1025,106 @@ namespace Durin
 		virtual auto IsImmutable() const -> bool { return false; }
 	};
 
+	// Selects filled or line rasterization for pipeline primitives.
+	enum class ERHIPolygonMode : uint8
+	{
+		Fill,
+		Line,
+		Count,
+	};
+
+	enum class ERHICullMode : uint8
+	{
+		None,
+		Back,
+		Count,
+	};
+
+	enum class ERHIFrontFace : uint8
+	{
+		Clockwise,
+		CounterClockwise,
+		Count,
+	};
+
+	struct FRHIRasterizerState
+	{
+		ERHIPolygonMode PolygonMode = ERHIPolygonMode::Fill;
+		ERHICullMode CullMode = ERHICullMode::Back;
+		ERHIFrontFace FrontFace = ERHIFrontFace::Clockwise;
+
+		auto operator==(const FRHIRasterizerState&) const -> bool = default;
+	};
+
+	enum class ERHIDepthCompareOp : uint8
+	{
+		Less,
+		Count,
+	};
+
+	struct FRHIDepthState
+	{
+		bool bEnableTest = false;
+		bool bEnableWrite = false;
+		ERHIDepthCompareOp CompareOp = ERHIDepthCompareOp::Less;
+
+		auto operator==(const FRHIDepthState&) const -> bool = default;
+	};
+
+	enum class ERHIBlendFactor : uint8
+	{
+		Zero,
+		One,
+		SrcAlpha,
+		OneMinusSrcAlpha,
+		Count,
+	};
+
+	enum class ERHIBlendOp : uint8
+	{
+		Add,
+		Count,
+	};
+
+	enum class ERHIColorWriteMask : uint8
+	{
+		None = 0,
+		Red = 1 << 0,
+		Green = 1 << 1,
+		Blue = 1 << 2,
+		Alpha = 1 << 3,
+		All = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3),
+	};
+	ENUM_CLASS_FLAGS(ERHIColorWriteMask);
+
+	struct FRHIColorBlendState
+	{
+		bool bEnable = false;
+		ERHIBlendFactor SrcColorFactor = ERHIBlendFactor::One;
+		ERHIBlendFactor DstColorFactor = ERHIBlendFactor::Zero;
+		ERHIBlendOp ColorOp = ERHIBlendOp::Add;
+		ERHIBlendFactor SrcAlphaFactor = ERHIBlendFactor::One;
+		ERHIBlendFactor DstAlphaFactor = ERHIBlendFactor::Zero;
+		ERHIBlendOp AlphaOp = ERHIBlendOp::Add;
+		ERHIColorWriteMask ColorWriteMask = ERHIColorWriteMask::All;
+
+		static auto StraightAlpha() -> FRHIColorBlendState
+		{
+			return {
+				.bEnable = true,
+				.SrcColorFactor = ERHIBlendFactor::SrcAlpha,
+				.DstColorFactor = ERHIBlendFactor::OneMinusSrcAlpha,
+				.ColorOp = ERHIBlendOp::Add,
+				.SrcAlphaFactor = ERHIBlendFactor::One,
+				.DstAlphaFactor = ERHIBlendFactor::OneMinusSrcAlpha,
+				.AlphaOp = ERHIBlendOp::Add,
+				.ColorWriteMask = ERHIColorWriteMask::All,
+			};
+		}
+
+		auto operator==(const FRHIColorBlendState&) const -> bool = default;
+	};
+
 	// Collects all immutable state required to create a graphics pipeline.
 	class FGraphicsPipelineStateInitializer
 	{
@@ -1037,31 +1137,47 @@ namespace Durin
 
 		FPipelineLayoutDesc PipelineLayout;
 
-		bool bEnableAlphaBlend = false;
+		FRHIRasterizerState RasterizerState;
 
-		bool bEnableBackFaceCulling = true;
+		FRHIDepthState DepthState;
 
-		bool bEnableDepthTest = false;
-
-		bool bEnableDepthWrite = false;
-
-		// Selects filled or line rasterization for pipeline primitives.
-		enum class EPolygonMode : uint8
-		{
-			Fill,
-			Line
-		};
-
-		EPolygonMode PolygonMode = EPolygonMode::Fill;
+		FRHIColorBlendState ColorBlendState;
 
 		// Defines how submitted vertices are assembled into primitives.
 		enum class EPrimitiveTopology : uint8
 		{
 			TriangleList,
-			LineList
+			LineList,
+			Count,
 		};
 
 		EPrimitiveTopology PrimitiveTopology = EPrimitiveTopology::TriangleList;
+
+		auto IsValid() const -> bool
+		{
+			const auto IsBlendFactorValid = [](ERHIBlendFactor Factor) {
+				return Factor < ERHIBlendFactor::Count;
+			};
+			const uint8 ColorWriteMaskValue =
+				static_cast<uint8>(ColorBlendState.ColorWriteMask);
+			return BoundShaders.VertexShader != nullptr
+				&& BoundShaders.FragmentShader != nullptr
+				&& VertexDeclaration != nullptr
+				&& RenderTargetLayout.IsValid()
+				&& RasterizerState.PolygonMode < ERHIPolygonMode::Count
+				&& RasterizerState.CullMode < ERHICullMode::Count
+				&& RasterizerState.FrontFace < ERHIFrontFace::Count
+				&& DepthState.CompareOp < ERHIDepthCompareOp::Count
+				&& IsBlendFactorValid(ColorBlendState.SrcColorFactor)
+				&& IsBlendFactorValid(ColorBlendState.DstColorFactor)
+				&& ColorBlendState.ColorOp < ERHIBlendOp::Count
+				&& IsBlendFactorValid(ColorBlendState.SrcAlphaFactor)
+				&& IsBlendFactorValid(ColorBlendState.DstAlphaFactor)
+				&& ColorBlendState.AlphaOp < ERHIBlendOp::Count
+				&& (ColorWriteMaskValue
+					& ~static_cast<uint8>(ERHIColorWriteMask::All)) == 0
+				&& PrimitiveTopology < EPrimitiveTopology::Count;
+		}
 	};
 
 	// Describes the byte size, element stride, and allowed usages of a buffer.

@@ -546,10 +546,10 @@ namespace Durin
 							Candidate.FragmentShader.GetRHIShader();
 						Initializer.VertexDeclaration =
 							VertexFactory.GetDeclaration();
-						Initializer.bEnableAlphaBlend = false;
-						Initializer.bEnableDepthTest = true;
-						Initializer.bEnableDepthWrite = true;
-						Initializer.bEnableBackFaceCulling = false;
+						Initializer.DepthState.bEnableTest = true;
+						Initializer.DepthState.bEnableWrite = true;
+						Initializer.RasterizerState.CullMode =
+							ERHICullMode::None;
 						Initializer.PipelineLayout =
 							Candidate.ShaderMap->GetMergedPipelineLayout();
 						Candidate.SolidPipelineState =
@@ -573,10 +573,8 @@ namespace Durin
 										| ERenderResourceGenerationDependency::
 											Manual));
 						}
-						Initializer.PolygonMode =
-							FGraphicsPipelineStateInitializer::
-								EPolygonMode::Line;
-						Initializer.bEnableBackFaceCulling = false;
+						Initializer.RasterizerState.PolygonMode =
+							ERHIPolygonMode::Line;
 						Candidate.WireframePipelineState =
 							GDynamicRHI->RHICreateGraphicsPipelineState(
 								FName(std::format(

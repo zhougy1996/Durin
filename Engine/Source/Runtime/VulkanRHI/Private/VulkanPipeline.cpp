@@ -93,9 +93,60 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	static auto ToVulkan_PolygonMode(FGraphicsPipelineStateInitializer::EPolygonMode Mode) -> vk::PolygonMode
+	static auto ToVulkan_PolygonMode(ERHIPolygonMode Mode) -> vk::PolygonMode
 	{
-		return Mode == FGraphicsPipelineStateInitializer::EPolygonMode::Line ? vk::PolygonMode::eLine : vk::PolygonMode::eFill;
+		return Mode == ERHIPolygonMode::Line ? vk::PolygonMode::eLine : vk::PolygonMode::eFill;
+	}
+
+	static auto ToVulkan_CullMode(ERHICullMode Mode) -> vk::CullModeFlags
+	{
+		return Mode == ERHICullMode::Back
+			? vk::CullModeFlagBits::eBack : vk::CullModeFlagBits::eNone;
+	}
+
+	static auto ToVulkan_FrontFace(ERHIFrontFace FrontFace) -> vk::FrontFace
+	{
+		return FrontFace == ERHIFrontFace::CounterClockwise
+			? vk::FrontFace::eCounterClockwise : vk::FrontFace::eClockwise;
+	}
+
+	static auto ToVulkan_DepthCompareOp(ERHIDepthCompareOp CompareOp) -> vk::CompareOp
+	{
+		return CompareOp == ERHIDepthCompareOp::Less
+			? vk::CompareOp::eLess : vk::CompareOp::eNever;
+	}
+
+	static auto ToVulkan_BlendFactor(ERHIBlendFactor Factor) -> vk::BlendFactor
+	{
+		switch (Factor)
+		{
+		case ERHIBlendFactor::Zero: return vk::BlendFactor::eZero;
+		case ERHIBlendFactor::One: return vk::BlendFactor::eOne;
+		case ERHIBlendFactor::SrcAlpha: return vk::BlendFactor::eSrcAlpha;
+		case ERHIBlendFactor::OneMinusSrcAlpha:
+			return vk::BlendFactor::eOneMinusSrcAlpha;
+		default: return vk::BlendFactor::eZero;
+		}
+	}
+
+	static auto ToVulkan_BlendOp(ERHIBlendOp BlendOp) -> vk::BlendOp
+	{
+		return BlendOp == ERHIBlendOp::Add ? vk::BlendOp::eAdd : vk::BlendOp::eAdd;
+	}
+
+	static auto ToVulkan_ColorWriteMask(ERHIColorWriteMask Mask)
+		-> vk::ColorComponentFlags
+	{
+		vk::ColorComponentFlags Result;
+		if (EnumHasAnyFlags(Mask, ERHIColorWriteMask::Red))
+			Result |= vk::ColorComponentFlagBits::eR;
+		if (EnumHasAnyFlags(Mask, ERHIColorWriteMask::Green))
+			Result |= vk::ColorComponentFlagBits::eG;
+		if (EnumHasAnyFlags(Mask, ERHIColorWriteMask::Blue))
+			Result |= vk::ColorComponentFlagBits::eB;
+		if (EnumHasAnyFlags(Mask, ERHIColorWriteMask::Alpha))
+			Result |= vk::ColorComponentFlagBits::eA;
+		return Result;
 	}
 
 	static auto ToVulkan_SampleCount(uint8 NumSamples) -> vk::SampleCountFlagBits
@@ -229,14 +280,15 @@ namespace Durin::VulkanRHI
 		ViewportStateInfo.setViewportCount(1).setScissorCount(1);
 
 		vk::PipelineRasterizationStateCreateInfo RasterizerInfo;
-		const vk::CullModeFlags CullMode = Initializer.bEnableBackFaceCulling ? vk::CullModeFlagBits::eBack : vk::CullModeFlagBits::eNone;
 		RasterizerInfo
 			.setDepthClampEnable(vk::False)
 			.setLineWidth(1.0f)
 			.setRasterizerDiscardEnable(vk::False)
-			.setPolygonMode(ToVulkan_PolygonMode(Initializer.PolygonMode))
-			.setCullMode(CullMode)
-			.setFrontFace(vk::FrontFace::eClockwise)
+			.setPolygonMode(ToVulkan_PolygonMode(
+				Initializer.RasterizerState.PolygonMode))
+			.setCullMode(ToVulkan_CullMode(Initializer.RasterizerState.CullMode))
+			.setFrontFace(ToVulkan_FrontFace(
+				Initializer.RasterizerState.FrontFace))
 			.setDepthBiasEnable(vk::False)
 			.setDepthBiasConstantFactor(0.0f)
 			.setDepthBiasClamp(0.0f)
@@ -255,23 +307,24 @@ namespace Durin::VulkanRHI
 			.setAlphaToOneEnable(vk::False);
 
 		vk::PipelineDepthStencilStateCreateInfo DepthStencilInfo;
-		DepthStencilInfo.setDepthTestEnable(Initializer.bEnableDepthTest)
-			.setDepthWriteEnable(Initializer.bEnableDepthWrite)
-			.setDepthCompareOp(vk::CompareOp::eLess)
+		DepthStencilInfo.setDepthTestEnable(Initializer.DepthState.bEnableTest)
+			.setDepthWriteEnable(Initializer.DepthState.bEnableWrite)
+			.setDepthCompareOp(ToVulkan_DepthCompareOp(
+				Initializer.DepthState.CompareOp))
 			.setDepthBoundsTestEnable(false)
 			.setStencilTestEnable(false);
 
 		vk::PipelineColorBlendAttachmentState ColorBlendAttachment;
-		const bool bEnableAlphaBlend = Initializer.bEnableAlphaBlend;
+		const FRHIColorBlendState& BlendState = Initializer.ColorBlendState;
 		ColorBlendAttachment
-			.setColorWriteMask(vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA)
-			.setBlendEnable(bEnableAlphaBlend ? vk::True : vk::False)
-			.setSrcColorBlendFactor(bEnableAlphaBlend ? vk::BlendFactor::eSrcAlpha : vk::BlendFactor::eOne)
-			.setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
-			.setColorBlendOp(vk::BlendOp::eAdd)
-			.setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
-			.setDstAlphaBlendFactor(bEnableAlphaBlend ? vk::BlendFactor::eOneMinusSrcAlpha : vk::BlendFactor::eZero)
-			.setAlphaBlendOp(vk::BlendOp::eAdd);
+			.setColorWriteMask(ToVulkan_ColorWriteMask(BlendState.ColorWriteMask))
+			.setBlendEnable(BlendState.bEnable ? vk::True : vk::False)
+			.setSrcColorBlendFactor(ToVulkan_BlendFactor(BlendState.SrcColorFactor))
+			.setDstColorBlendFactor(ToVulkan_BlendFactor(BlendState.DstColorFactor))
+			.setColorBlendOp(ToVulkan_BlendOp(BlendState.ColorOp))
+			.setSrcAlphaBlendFactor(ToVulkan_BlendFactor(BlendState.SrcAlphaFactor))
+			.setDstAlphaBlendFactor(ToVulkan_BlendFactor(BlendState.DstAlphaFactor))
+			.setAlphaBlendOp(ToVulkan_BlendOp(BlendState.AlphaOp));
 
 		std::vector<vk::PipelineColorBlendAttachmentState> ColorBlendAttachments(Initializer.RenderTargetLayout.NumColorRenderTargets, ColorBlendAttachment);
 		vk::PipelineColorBlendStateCreateInfo ColorBlending;
@@ -457,6 +510,12 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHICreateGraphicsPipelineState(FName DebugName, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState>
 	{
+		if (!Initializer.IsValid())
+		{
+			DURIN_ERROR("Failed to create Vulkan RHI graphics pipeline '{}': initializer is invalid or unsupported.",
+				DebugName.ToString());
+			return nullptr;
+		}
 		TRefCountPtr<FRHIGraphicsPipelineState> Result;
 		const FRHIFallibleOperationResult CreationResult =
 			ExecuteFallibleVulkanCreationOperation(
