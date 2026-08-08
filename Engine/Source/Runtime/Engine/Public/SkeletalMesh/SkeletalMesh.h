@@ -150,6 +150,7 @@ namespace Durin
 		std::vector<FSkeletalMeshMaterialSlotDefinition> MaterialSlots;
 		std::shared_ptr<const FSkeletalMeshPayloadData> Payload;
 		Asset::FCookedPayloadDescriptor CookedPayload;
+		std::string DerivedDataKey;
 	};
 
 	ENGINE_API auto ValidateSkeletalMeshPayload(
@@ -174,6 +175,9 @@ namespace Durin
 		auto GetSummary() const -> const FSkeletalMeshSummary& { return Summary; }
 		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
 		auto GetPayloadData() const -> std::shared_ptr<const FSkeletalMeshPayloadData> { return PayloadData; }
+		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
+		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
+		auto GetPayloadStorageDiagnostic() const -> const std::string& { return PayloadStorageDiagnostic; }
 
 		ENGINE_API auto InitializeFromImportedData(
 			FSkeletalMeshImportedData InData,
@@ -183,6 +187,11 @@ namespace Durin
 			const DSkeleton& ProspectiveSkeleton,
 			std::string& OutError) const -> bool;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto AddToCook(
+			Asset::FCookContext& Context,
+			std::string_view VirtualPackagePath,
+			std::string& OutError,
+			bool bRetainDiagnosticEditorMetadata = false) -> bool;
 		ENGINE_API auto PrepareImportedStateExchange(
 			DSkeletalMesh& Candidate,
 			std::string& OutError) -> std::unique_ptr<FSkeletalMeshImportedStateExchange>;
@@ -210,7 +219,15 @@ namespace Durin
 		DPROPERTY()
 		Asset::FCookedPayloadDescriptor CookedPayload;
 
+		DPROPERTY()
+		std::string DerivedDataKey;
+
 		std::shared_ptr<const FSkeletalMeshPayloadData> PayloadData;
+		bool bLoadedFromDerivedDataCache = false;
+		std::string PayloadStorageDiagnostic;
+
+		auto LoadDerivedDataPayload(std::string& OutError) -> bool;
+		auto LoadCookedPayload(std::string& OutError) -> bool;
 
 		friend class FSkeletalMeshImportedStateExchange;
 	};

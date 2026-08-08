@@ -1,6 +1,9 @@
 #include "SkeletalMesh/SkeletalMesh.h"
 
+#include "AssetSystem.h"
+#include "DObject/Property.h"
 #include "Math/Operations.h"
+#include "SkeletalMesh/SkeletalDerivedData.h"
 
 namespace Durin
 {
@@ -223,7 +226,28 @@ namespace Durin
 			.SectionCount = static_cast<uint32>(InData.Payload->Sections.size()),
 			.LocalBounds = FSkeletalMeshBounds::FromBox(InData.Payload->LocalBounds)};
 		CookedPayload = InData.CookedPayload;
+		DerivedDataKey = std::move(InData.DerivedDataKey);
 		PayloadData = std::move(InData.Payload);
+		bLoadedFromDerivedDataCache = false;
+		PayloadStorageDiagnostic.clear();
+		if (!DerivedDataKey.empty())
+		{
+			std::vector<uint8> Bytes;
+			std::string CacheError;
+			if (EncodeSkeletalMeshPayload(
+					*PayloadData, *ValidationSkeleton,
+					static_cast<uint32>(MaterialSlots.size()),
+					ESkeletalPayloadTargetPlatform::Win64,
+					ESkeletalPayloadTargetProfile::Game,
+					Bytes, CacheError)
+				&& StoreSkeletalMeshDerivedData(DerivedDataKey, Bytes, CacheError))
+				PayloadStorageDiagnostic = std::format(
+					"Stored SkeletalMesh DDC key {}.", DerivedDataKey);
+			else
+				PayloadStorageDiagnostic = std::format(
+					"SkeletalMesh DDC write failed for key {}: {}",
+					DerivedDataKey, CacheError);
+		}
 		MarkPackageDirty();
 		OutError.clear();
 		return true;
@@ -256,9 +280,12 @@ namespace Durin
 			return Fail(&OutError, "SkeletalMesh material-slot count is outside the supported range.");
 		std::unordered_set<FName> Names;
 		std::unordered_set<uint32> SourceIndices;
+		const bool bRequireSourceIndices =
+			Asset::GetPackageLoadContext().Mode != Asset::EPackageLoadMode::CookedRuntime;
 		for (const FSkeletalMeshMaterialSlotDefinition& Slot : MaterialSlots)
 			if (Slot.Name.IsNone() || !Names.insert(Slot.Name).second
-				|| !SourceIndices.insert(Slot.SourceMaterialIndex).second)
+				|| (bRequireSourceIndices
+					&& !SourceIndices.insert(Slot.SourceMaterialIndex).second))
 				return Fail(&OutError, "SkeletalMesh material slots are not canonical and unique.");
 		if (Summary.VertexCount == 0 || Summary.VertexCount > MaximumSkeletalMeshVertices
 			|| Summary.IndexCount == 0 || Summary.IndexCount > MaximumSkeletalMeshIndices
@@ -282,9 +309,177 @@ namespace Durin
 	auto DSkeletalMesh::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
-		if (Validate(OutError)) return true;
-		OutError = std::format("{}: {}", GetName(), OutError);
-		return false;
+		if (!Validate(OutError))
+		{
+			OutError = std::format("{}: {}", GetName(), OutError);
+			return false;
+		}
+		if (PayloadData) return true;
+		if (Asset::GetPackageLoadContext().Mode == Asset::EPackageLoadMode::CookedRuntime)
+			return LoadCookedPayload(OutError);
+		if (!DerivedDataKey.empty()) return LoadDerivedDataPayload(OutError);
+		return true;
+	}
+
+	auto DSkeletalMesh::LoadDerivedDataPayload(std::string& OutError) -> bool
+	{
+		std::vector<uint8> Bytes;
+		std::string CacheMessage;
+		if (!LoadSkeletalMeshDerivedData(DerivedDataKey, Bytes, CacheMessage))
+		{
+			PayloadStorageDiagnostic = std::format(
+				"SkeletalMesh DDC miss for key {}: {}", DerivedDataKey, CacheMessage);
+			return Fail(&OutError, PayloadStorageDiagnostic);
+		}
+		FSkeletalMeshPayloadData Candidate;
+		const FPayloadDecodeResult Decoded = DecodeSkeletalMeshPayload(
+			Bytes, *Skeleton, static_cast<uint32>(MaterialSlots.size()),
+			ESkeletalPayloadTargetPlatform::Win64,
+			ESkeletalPayloadTargetProfile::Game, Candidate);
+		if (!Decoded)
+		{
+			PayloadStorageDiagnostic = std::format(
+				"SkeletalMesh DDC object {} is invalid: {}", DerivedDataKey, Decoded.Message);
+			return Fail(&OutError, PayloadStorageDiagnostic);
+		}
+		if (Candidate.Positions.size() != Summary.VertexCount
+			|| Candidate.Indices.size() != Summary.IndexCount
+			|| Candidate.Sections.size() != Summary.SectionCount
+			|| FSkeletalMeshBounds::FromBox(Candidate.LocalBounds) != Summary.LocalBounds)
+			return Fail(&OutError, "SkeletalMesh DDC payload does not match authored summary.");
+		PayloadData = std::make_shared<const FSkeletalMeshPayloadData>(std::move(Candidate));
+		bLoadedFromDerivedDataCache = true;
+		PayloadStorageDiagnostic = std::format(
+			"Loaded SkeletalMesh DDC key {}.", DerivedDataKey);
+		OutError.clear();
+		return true;
+	}
+
+	auto DSkeletalMesh::LoadCookedPayload(std::string& OutError) -> bool
+	{
+		auto FailCooked = [&](std::string Message) {
+			PayloadStorageDiagnostic = std::format(
+				"Cooked SkeletalMesh '{}': {}", GetObjectPath(), Message);
+			OutError = PayloadStorageDiagnostic;
+			return false;
+		};
+		if (CookedPayload.PayloadId != SkeletalMeshPrimaryCookedPayloadId
+			|| CookedPayload.LocationKind
+				!= static_cast<uint32>(Asset::ECookedPayloadLocationKind::PackageCompanion)
+			|| CookedPayload.PayloadSchemaVersion != SkeletalMeshPayloadSchemaVersion
+			|| CookedPayload.TargetPlatform
+				!= static_cast<uint32>(Asset::ECookTargetPlatform::Win64)
+			|| CookedPayload.TargetProfile
+				!= static_cast<uint32>(Asset::ECookTargetProfile::Game)
+			|| CookedPayload.CompressionMethod
+				!= static_cast<uint32>(Asset::ECookedPayloadCompression::None))
+			return FailCooked("required DSKM descriptor is missing or incompatible.");
+
+		const Asset::FPackageLoadContext& Context = Asset::GetPackageLoadContext();
+		std::filesystem::path PackagePath;
+		std::filesystem::path CompanionPath;
+		if (!GetPackage()
+			|| !Asset::ResolveCookedPackagePath(
+				Context.CookRoot, GetPackage()->GetPackagePath(), PackagePath, &OutError)
+			|| !Asset::ResolveCookedCompanionPath(
+				Context.CookRoot, PackagePath, CompanionPath, &OutError))
+			return FailCooked(OutError.empty()
+				? "package companion path could not be resolved." : OutError);
+		Asset::FCookedBulkContainer Container;
+		if (!Asset::LoadCookedBulkFile(
+			CompanionPath, Asset::ECookTargetPlatform::Win64,
+			Asset::ECookTargetProfile::Game, Container, &OutError))
+			return FailCooked(OutError);
+		std::span<const uint8> Bytes;
+		if (!Asset::ResolveCookedPayload(Container, CookedPayload, Bytes, &OutError))
+			return FailCooked(OutError);
+		FSkeletalMeshPayloadData Candidate;
+		const FPayloadDecodeResult Decoded = DecodeSkeletalMeshPayload(
+			Bytes, *Skeleton, static_cast<uint32>(MaterialSlots.size()),
+			ESkeletalPayloadTargetPlatform::Win64,
+			ESkeletalPayloadTargetProfile::Game, Candidate);
+		if (!Decoded) return FailCooked(Decoded.Message);
+		if (Candidate.Positions.size() != Summary.VertexCount
+			|| Candidate.Indices.size() != Summary.IndexCount
+			|| Candidate.Sections.size() != Summary.SectionCount
+			|| FSkeletalMeshBounds::FromBox(Candidate.LocalBounds) != Summary.LocalBounds)
+			return FailCooked("payload does not match authored summary.");
+		PayloadData = std::make_shared<const FSkeletalMeshPayloadData>(std::move(Candidate));
+		DerivedDataKey.clear();
+		bLoadedFromDerivedDataCache = false;
+		PayloadStorageDiagnostic = std::format(
+			"Loaded cooked SkeletalMesh payload for '{}'.", GetObjectPath());
+		OutError.clear();
+		return true;
+	}
+
+	auto DSkeletalMesh::AddToCook(
+		Asset::FCookContext& Context,
+		std::string_view VirtualPackagePath,
+		std::string& OutError,
+		bool bRetainDiagnosticEditorMetadata) -> bool
+	{
+		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
+			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
+			return Fail(&OutError, std::format(
+				"SkeletalMesh '{}' supports only the Win64 game cook target.", GetObjectPath()));
+		if (!PayloadData && !PostLoad(OutError)) return false;
+		if (!PayloadData) return Fail(&OutError, "SkeletalMesh has no CPU payload to cook.");
+		std::vector<uint8> PayloadBytes;
+		if (!EncodeSkeletalMeshPayload(
+			*PayloadData, *Skeleton, static_cast<uint32>(MaterialSlots.size()),
+			ESkeletalPayloadTargetPlatform::Win64,
+			ESkeletalPayloadTargetProfile::Game, PayloadBytes, OutError))
+			return false;
+		Asset::FCookedBulkPayload BulkPayload{
+			.PayloadId = SkeletalMeshPrimaryCookedPayloadId,
+			.Flags = 1,
+			.PayloadSchemaVersion = SkeletalMeshPayloadSchemaVersion,
+			.Compression = Asset::ECookedPayloadCompression::None,
+			.Alignment = SkeletalPayloadAlignment,
+			.Bytes = std::move(PayloadBytes)};
+		return Context.AddPackage(
+			std::string(VirtualPackagePath), {std::move(BulkPayload)},
+			[this, bRetainDiagnosticEditorMetadata](
+				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
+				std::vector<uint8>& OutPackageBytes,
+				std::string* Error) {
+				if (Descriptors.size() != 1
+					|| Descriptors.front().PayloadId != SkeletalMeshPrimaryCookedPayloadId)
+				{
+					if (Error) *Error = "SkeletalMesh cook did not produce its required descriptor.";
+					return false;
+				}
+				const Asset::FCookedPayloadDescriptor SavedDescriptor = CookedPayload;
+				const std::string SavedKey = DerivedDataKey;
+				const std::vector<FSkeletalMeshMaterialSlotDefinition> SavedSlots = MaterialSlots;
+				CookedPayload = Descriptors.front();
+				if (!bRetainDiagnosticEditorMetadata)
+				{
+					DerivedDataKey.clear();
+					for (FSkeletalMeshMaterialSlotDefinition& Slot : MaterialSlots)
+					{
+						Slot.SourceName.clear();
+						Slot.SourceMaterialIndex = 0;
+					}
+				}
+				Asset::FAssetPackageSerializationOptions Options;
+				if (!bRetainDiagnosticEditorMetadata)
+					Options.PropertyFilter = [this](const DObject* Object, const FProperty* Property) {
+						return Object != this || Property->NamePrivate != FName("DerivedDataKey");
+					};
+				const Asset::FAssetResult Serialized = Asset::SerializeAssetPackageBytes(
+					GetPackage(), OutPackageBytes, Options);
+				CookedPayload = SavedDescriptor;
+				DerivedDataKey = SavedKey;
+				MaterialSlots = SavedSlots;
+				if (!Serialized)
+				{
+					if (Error) *Error = Serialized.Message;
+					return false;
+				}
+				return true;
+			}, &OutError);
 	}
 
 	auto DSkeletalMesh::PrepareImportedStateExchange(
@@ -334,7 +529,10 @@ namespace Durin
 		std::swap(Target->MaterialSlots, Candidate->MaterialSlots);
 		std::swap(Target->Summary, Candidate->Summary);
 		std::swap(Target->CookedPayload, Candidate->CookedPayload);
+		std::swap(Target->DerivedDataKey, Candidate->DerivedDataKey);
 		std::swap(Target->PayloadData, Candidate->PayloadData);
+		std::swap(Target->bLoadedFromDerivedDataCache, Candidate->bLoadedFromDerivedDataCache);
+		std::swap(Target->PayloadStorageDiagnostic, Candidate->PayloadStorageDiagnostic);
 		Target->MarkPackageDirty();
 	}
 

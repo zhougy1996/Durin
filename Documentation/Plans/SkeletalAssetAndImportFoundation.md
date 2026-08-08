@@ -644,30 +644,30 @@ ownership and loads transactionally in editor and runtime-only targets.
 Dependencies: Stage 1 payload representations and Stage 3 authoritative source
 and authored relationships.
 
-- [ ] Implement the Stage 0-selected version-1 skeletal-mesh payload codec with
+- [x] Implement the Stage 0-selected version-1 skeletal-mesh payload codec with
   explicit little-endian records for geometry streams, influences, indices,
   sections, palette/inverse-bind data, bounds, counts, sizes, and checksum.
-- [ ] Implement the selected version-1 animation payload codec with explicit
+- [x] Implement the selected version-1 animation payload codec with explicit
   clip, track, interpolation, time, value, target, count, size, and checksum
   records.
-- [ ] Reject wrong magic/schema/profile, truncation, overflow, overlapping or
+- [x] Reject wrong magic/schema/profile, truncation, overflow, overlapping or
   out-of-range records, duplicate identities, invalid cross-references,
   non-finite values, invalid weights/transforms/times, trailing required data,
   and allocation-limit violations before publishing CPU data.
-- [ ] Build canonical DDC keys from exact source closure hashes, normalized
+- [x] Build canonical DDC keys from exact source closure hashes, normalized
   provider settings/state, compatibility identity, builder/payload versions,
   and target platform/profile. Never serialize a DDC path.
-- [ ] Store immediate editor payloads under disposable DDC ownership; treat
+- [x] Store immediate editor payloads under disposable DDC ownership; treat
   corrupt/incompatible objects as safe misses only when the import framework
   can provide authoritative rebuild inputs.
-- [ ] Add logical cooked payload descriptors and asset-level `AddToCook`
+- [x] Add logical cooked payload descriptors and asset-level `AddToCook`
   contributions. Publish DBLK companions before packages through
   `FCookContext`, strip source/provider/editor-only metadata, and retain exact
   runtime Skeleton dependencies.
-- [ ] Load cooked packages and payloads without source, DDC, import modules, or
+- [x] Load cooked packages and payloads without source, DDC, import modules, or
   Assimp fallback. Failure leaves the previous runtime CPU payload absent or
   unchanged according to the asset lifecycle contract.
-- [ ] Add byte-determinism, round-trip, malformed corpus, DDC hit/miss/corrupt,
+- [x] Add byte-determinism, round-trip, malformed corpus, DDC hit/miss/corrupt,
   clean cook, manifest, source/Assimp removal, cooked corruption, relationship,
   and runtime-only dependency tests.
 
@@ -688,6 +688,52 @@ and authored relationships.
   package-only cook behavior remains unchanged.
 - The stage handoff records baseline commit, working set, symbols, decisions,
   open questions, and validation outcome.
+
+#### Stage 4 Handoff
+
+- Baseline commit: `c20421a4c4b3dd22f99614933bbd1a3633e236c1`.
+- Working set: new `SkeletalDerivedData.h/.cpp`; Skeleton, SkeletalMesh,
+  AnimationClip headers and implementations; Scene execution key construction;
+  `SkeletalAssetTests.cpp`, `SceneImportTests.cpp`, and this plan.
+- Key symbols: `SkeletalMeshPayloadMagic` (`DSKM`),
+  `AnimationClipPayloadMagic` (`DANM`),
+  `FSkeletalDerivedDataKeyInput`, `Encode/DecodeSkeletalMeshPayload`,
+  `Encode/DecodeAnimationClipPayload`, the two payload-input fingerprint and
+  DDC store pairs, and `AddToCook`/`LoadCookedPayload` on the three assets.
+- Decisions: both version-1 formats use a 64-byte explicit little-endian header,
+  32-byte records, 16-byte aligned non-overlapping required chunks, zero
+  padding, XXH3-64 body checksum, Win64/Game target fields, complete
+  consumption, and transactional publication. Mesh uses seven chunks for
+  metadata/bounds, sections, positions, attributes, indices, canonical
+  influences, and palette/inverse binds; animation uses four chunks for clip
+  metadata, contiguous track records, times, and typed values.
+- DDC keys are XXH3-128 over builder/schema/target/profile, Scene provider
+  identity/version, the exact ordered source-closure hash, normalized settings
+  and typed provider-state hashes, stable output identity, Skeleton
+  compatibility, and canonical payload-input fingerprint. The authored package
+  stores only the rebuild key, never a physical path. Import writes are
+  best-effort after a complete memory candidate; authored reload validates the
+  DDC object and has no source fallback when authoritative inputs are absent.
+- Cook publishes fixed type payload IDs inside each asset-qualified DBLK
+  companion, writes the resulting logical descriptor into temporary package
+  state, strips rebuild keys and source material metadata, restores editor
+  state after serialization, and lets `FCookContext` publish companions before
+  packages. Cooked-runtime mode checks descriptors and DBLK target/profile,
+  loads the referenced Skeleton first, validates a detached CPU candidate, and
+  never consults source, DDC, import modules, Assimp, or RHI.
+- Open questions for Stage 5: none block qualification. S1 deliberately exposes
+  immutable CPU payloads only; playback state, components, render resources,
+  skinning, and RHI integration remain outside this plan and require the later
+  evidence-gated S2 plan.
+- Validation: `SkeletalAssetTests` passed 12/12 in both Debug DurinEditor and
+  Shipping DurinGame, covering deterministic codecs, exact round trip,
+  malformed headers/chunks/records/values, DDC hit/corruption/write failure,
+  two byte-identical clean cooks, manifest/stripping, runtime dependency
+  closure, and cooked corruption. A non-editor `Win64-Debug-DurinGame` Engine
+  build passed. Regressions passed: `TextureTests` 66/66,
+  `StaticMeshTests` 49/49, `AssetImportTests` 16/16,
+  `AssetPackageTests` 105/105, `AssetCookTests` 12/12, and
+  `AssetDerivedDataTests` 3/3. `git diff --check` passed.
 
 ### Stage 5: Qualify the S1 boundary and publish lasting contracts
 

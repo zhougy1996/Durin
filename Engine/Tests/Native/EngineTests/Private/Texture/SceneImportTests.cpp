@@ -197,6 +197,8 @@ TEST(FSceneImportTests, PublishesSkeletalAssetGraphAndDeterministicallyReimports
 		EXPECT_EQ(Mesh->GetSkeletonCompatibilityIdentity(),
 			Executed.Skeletons[MeshIndex]->GetCompatibilityIdentity());
 		ASSERT_NE(Mesh->GetPayloadData(), nullptr);
+		EXPECT_EQ(Mesh->GetDerivedDataKey().size(), 32u);
+		EXPECT_NE(Mesh->GetPayloadStorageDiagnostic().find("Stored"), std::string::npos);
 		ASSERT_EQ(Mesh->GetMaterialSlots().size(), 2u);
 		for (const Durin::FSkeletalMeshMaterialSlotDefinition& Slot : Mesh->GetMaterialSlots())
 			EXPECT_NE(Slot.DefaultMaterial.Get(), nullptr);
@@ -212,6 +214,8 @@ TEST(FSceneImportTests, PublishesSkeletalAssetGraphAndDeterministicallyReimports
 		EXPECT_EQ(Clip->GetSkeleton(), Executed.Skeletons[ExpectedSkeletonIndices[ClipIndex]]);
 		EXPECT_EQ(Clip->GetClipName(), Durin::FName(ExpectedClipNames[ClipIndex]));
 		ASSERT_NE(Clip->GetPayloadData(), nullptr);
+		EXPECT_EQ(Clip->GetDerivedDataKey().size(), 32u);
+		EXPECT_NE(Clip->GetPayloadStorageDiagnostic().find("Stored"), std::string::npos);
 		Error.clear();
 		EXPECT_TRUE(Clip->Validate(Error)) << Error;
 	}
@@ -220,6 +224,12 @@ TEST(FSceneImportTests, PublishesSkeletalAssetGraphAndDeterministicallyReimports
 	const std::vector<Durin::DSkeleton*> SkeletonIdentities = Executed.Skeletons;
 	const std::vector<Durin::DSkeletalMesh*> MeshIdentities = Executed.SkeletalMeshes;
 	const std::vector<Durin::DAnimationClip*> ClipIdentities = Executed.AnimationClips;
+	std::vector<std::string> MeshDerivedDataKeys;
+	std::vector<std::string> ClipDerivedDataKeys;
+	for (Durin::DSkeletalMesh* Mesh : Executed.SkeletalMeshes)
+		MeshDerivedDataKeys.push_back(Mesh->GetDerivedDataKey());
+	for (Durin::DAnimationClip* Clip : Executed.AnimationClips)
+		ClipDerivedDataKeys.push_back(Clip->GetDerivedDataKey());
 	const Durin::FSceneImportPlanResult ReimportPlan =
 		Durin::PlanSceneReimport(*Executed.Record);
 	ASSERT_TRUE(ReimportPlan) << ReimportPlan.Message;
@@ -231,6 +241,12 @@ TEST(FSceneImportTests, PublishesSkeletalAssetGraphAndDeterministicallyReimports
 	EXPECT_EQ(Reimported.Skeletons, SkeletonIdentities);
 	EXPECT_EQ(Reimported.SkeletalMeshes, MeshIdentities);
 	EXPECT_EQ(Reimported.AnimationClips, ClipIdentities);
+	for (size_t Index = 0; Index < Reimported.SkeletalMeshes.size(); ++Index)
+		EXPECT_EQ(Reimported.SkeletalMeshes[Index]->GetDerivedDataKey(),
+			MeshDerivedDataKeys[Index]);
+	for (size_t Index = 0; Index < Reimported.AnimationClips.size(); ++Index)
+		EXPECT_EQ(Reimported.AnimationClips[Index]->GetDerivedDataKey(),
+			ClipDerivedDataKeys[Index]);
 	const Durin::AssetImport::FImportRecordActionResult ProviderNeutral =
 		Durin::AssetImport::ExecuteImportRecordAction(
 			*Reimported.Record,

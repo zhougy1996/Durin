@@ -76,6 +76,7 @@ namespace Durin
 		FName ClipName;
 		std::shared_ptr<const FAnimationClipPayloadData> Payload;
 		Asset::FCookedPayloadDescriptor CookedPayload;
+		std::string DerivedDataKey;
 	};
 
 	ENGINE_API auto ValidateAnimationClipPayload(
@@ -98,6 +99,9 @@ namespace Durin
 		auto GetSummary() const -> const FAnimationClipSummary& { return Summary; }
 		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
 		auto GetPayloadData() const -> std::shared_ptr<const FAnimationClipPayloadData> { return PayloadData; }
+		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
+		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
+		auto GetPayloadStorageDiagnostic() const -> const std::string& { return PayloadStorageDiagnostic; }
 
 		ENGINE_API auto InitializeFromImportedData(
 			FAnimationClipImportedData InData,
@@ -107,6 +111,11 @@ namespace Durin
 			const DSkeleton& ProspectiveSkeleton,
 			std::string& OutError) const -> bool;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto AddToCook(
+			Asset::FCookContext& Context,
+			std::string_view VirtualPackagePath,
+			std::string& OutError,
+			bool bRetainDiagnosticEditorMetadata = false) -> bool;
 		ENGINE_API auto PrepareImportedStateExchange(
 			DAnimationClip& Candidate,
 			std::string& OutError) -> std::unique_ptr<FAnimationClipImportedStateExchange>;
@@ -131,7 +140,15 @@ namespace Durin
 		DPROPERTY()
 		Asset::FCookedPayloadDescriptor CookedPayload;
 
+		DPROPERTY()
+		std::string DerivedDataKey;
+
 		std::shared_ptr<const FAnimationClipPayloadData> PayloadData;
+		bool bLoadedFromDerivedDataCache = false;
+		std::string PayloadStorageDiagnostic;
+
+		auto LoadDerivedDataPayload(std::string& OutError) -> bool;
+		auto LoadCookedPayload(std::string& OutError) -> bool;
 
 		friend class FAnimationClipImportedStateExchange;
 	};

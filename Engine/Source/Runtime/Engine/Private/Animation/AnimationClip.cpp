@@ -1,6 +1,9 @@
 #include "Animation/AnimationClip.h"
 
+#include "AssetSystem.h"
+#include "DObject/Property.h"
 #include "Math/Operations.h"
+#include "SkeletalMesh/SkeletalDerivedData.h"
 
 namespace Durin
 {
@@ -144,7 +147,27 @@ namespace Durin
 			.TrackCount = static_cast<uint32>(InData.Payload->Tracks.size()),
 			.KeyCount = static_cast<uint32>(KeyCount)};
 		CookedPayload = InData.CookedPayload;
+		DerivedDataKey = std::move(InData.DerivedDataKey);
 		PayloadData = std::move(InData.Payload);
+		bLoadedFromDerivedDataCache = false;
+		PayloadStorageDiagnostic.clear();
+		if (!DerivedDataKey.empty())
+		{
+			std::vector<uint8> Bytes;
+			std::string CacheError;
+			if (EncodeAnimationClipPayload(
+					*PayloadData, *ValidationSkeleton,
+					ESkeletalPayloadTargetPlatform::Win64,
+					ESkeletalPayloadTargetProfile::Game,
+					Bytes, CacheError)
+				&& StoreAnimationClipDerivedData(DerivedDataKey, Bytes, CacheError))
+				PayloadStorageDiagnostic = std::format(
+					"Stored AnimationClip DDC key {}.", DerivedDataKey);
+			else
+				PayloadStorageDiagnostic = std::format(
+					"AnimationClip DDC write failed for key {}: {}",
+					DerivedDataKey, CacheError);
+		}
 		MarkPackageDirty();
 		OutError.clear();
 		return true;
@@ -188,9 +211,162 @@ namespace Durin
 	auto DAnimationClip::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
-		if (Validate(OutError)) return true;
-		OutError = std::format("{}: {}", GetName(), OutError);
-		return false;
+		if (!Validate(OutError))
+		{
+			OutError = std::format("{}: {}", GetName(), OutError);
+			return false;
+		}
+		if (PayloadData) return true;
+		if (Asset::GetPackageLoadContext().Mode == Asset::EPackageLoadMode::CookedRuntime)
+			return LoadCookedPayload(OutError);
+		if (!DerivedDataKey.empty()) return LoadDerivedDataPayload(OutError);
+		return true;
+	}
+
+	auto DAnimationClip::LoadDerivedDataPayload(std::string& OutError) -> bool
+	{
+		std::vector<uint8> Bytes;
+		std::string CacheMessage;
+		if (!LoadAnimationClipDerivedData(DerivedDataKey, Bytes, CacheMessage))
+		{
+			PayloadStorageDiagnostic = std::format(
+				"AnimationClip DDC miss for key {}: {}", DerivedDataKey, CacheMessage);
+			return Fail(OutError, PayloadStorageDiagnostic);
+		}
+		FAnimationClipPayloadData Candidate;
+		const FPayloadDecodeResult Decoded = DecodeAnimationClipPayload(
+			Bytes, *Skeleton, ESkeletalPayloadTargetPlatform::Win64,
+			ESkeletalPayloadTargetProfile::Game, Candidate);
+		if (!Decoded)
+		{
+			PayloadStorageDiagnostic = std::format(
+				"AnimationClip DDC object {} is invalid: {}", DerivedDataKey, Decoded.Message);
+			return Fail(OutError, PayloadStorageDiagnostic);
+		}
+		uint64 KeyCount = 0;
+		for (const FAnimationTrackData& Track : Candidate.Tracks) KeyCount += Track.Times.size();
+		if (Candidate.DurationSeconds != Summary.DurationSeconds
+			|| Candidate.Tracks.size() != Summary.TrackCount || KeyCount != Summary.KeyCount)
+			return Fail(OutError, "AnimationClip DDC payload does not match authored summary.");
+		PayloadData = std::make_shared<const FAnimationClipPayloadData>(std::move(Candidate));
+		bLoadedFromDerivedDataCache = true;
+		PayloadStorageDiagnostic = std::format(
+			"Loaded AnimationClip DDC key {}.", DerivedDataKey);
+		OutError.clear();
+		return true;
+	}
+
+	auto DAnimationClip::LoadCookedPayload(std::string& OutError) -> bool
+	{
+		auto FailCooked = [&](std::string Message) {
+			PayloadStorageDiagnostic = std::format(
+				"Cooked AnimationClip '{}': {}", GetObjectPath(), Message);
+			OutError = PayloadStorageDiagnostic;
+			return false;
+		};
+		if (CookedPayload.PayloadId != AnimationClipPrimaryCookedPayloadId
+			|| CookedPayload.LocationKind
+				!= static_cast<uint32>(Asset::ECookedPayloadLocationKind::PackageCompanion)
+			|| CookedPayload.PayloadSchemaVersion != AnimationClipPayloadSchemaVersion
+			|| CookedPayload.TargetPlatform
+				!= static_cast<uint32>(Asset::ECookTargetPlatform::Win64)
+			|| CookedPayload.TargetProfile
+				!= static_cast<uint32>(Asset::ECookTargetProfile::Game)
+			|| CookedPayload.CompressionMethod
+				!= static_cast<uint32>(Asset::ECookedPayloadCompression::None))
+			return FailCooked("required DANM descriptor is missing or incompatible.");
+		const Asset::FPackageLoadContext& Context = Asset::GetPackageLoadContext();
+		std::filesystem::path PackagePath;
+		std::filesystem::path CompanionPath;
+		if (!GetPackage()
+			|| !Asset::ResolveCookedPackagePath(
+				Context.CookRoot, GetPackage()->GetPackagePath(), PackagePath, &OutError)
+			|| !Asset::ResolveCookedCompanionPath(
+				Context.CookRoot, PackagePath, CompanionPath, &OutError))
+			return FailCooked(OutError.empty()
+				? "package companion path could not be resolved." : OutError);
+		Asset::FCookedBulkContainer Container;
+		if (!Asset::LoadCookedBulkFile(
+			CompanionPath, Asset::ECookTargetPlatform::Win64,
+			Asset::ECookTargetProfile::Game, Container, &OutError))
+			return FailCooked(OutError);
+		std::span<const uint8> Bytes;
+		if (!Asset::ResolveCookedPayload(Container, CookedPayload, Bytes, &OutError))
+			return FailCooked(OutError);
+		FAnimationClipPayloadData Candidate;
+		const FPayloadDecodeResult Decoded = DecodeAnimationClipPayload(
+			Bytes, *Skeleton, ESkeletalPayloadTargetPlatform::Win64,
+			ESkeletalPayloadTargetProfile::Game, Candidate);
+		if (!Decoded) return FailCooked(Decoded.Message);
+		uint64 KeyCount = 0;
+		for (const FAnimationTrackData& Track : Candidate.Tracks) KeyCount += Track.Times.size();
+		if (Candidate.DurationSeconds != Summary.DurationSeconds
+			|| Candidate.Tracks.size() != Summary.TrackCount || KeyCount != Summary.KeyCount)
+			return FailCooked("payload does not match authored summary.");
+		PayloadData = std::make_shared<const FAnimationClipPayloadData>(std::move(Candidate));
+		DerivedDataKey.clear();
+		bLoadedFromDerivedDataCache = false;
+		PayloadStorageDiagnostic = std::format(
+			"Loaded cooked AnimationClip payload for '{}'.", GetObjectPath());
+		OutError.clear();
+		return true;
+	}
+
+	auto DAnimationClip::AddToCook(
+		Asset::FCookContext& Context,
+		std::string_view VirtualPackagePath,
+		std::string& OutError,
+		bool bRetainDiagnosticEditorMetadata) -> bool
+	{
+		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
+			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
+			return Fail(OutError, std::format(
+				"AnimationClip '{}' supports only the Win64 game cook target.", GetObjectPath()));
+		if (!PayloadData && !PostLoad(OutError)) return false;
+		if (!PayloadData) return Fail(OutError, "AnimationClip has no CPU payload to cook.");
+		std::vector<uint8> PayloadBytes;
+		if (!EncodeAnimationClipPayload(
+			*PayloadData, *Skeleton, ESkeletalPayloadTargetPlatform::Win64,
+			ESkeletalPayloadTargetProfile::Game, PayloadBytes, OutError)) return false;
+		Asset::FCookedBulkPayload BulkPayload{
+			.PayloadId = AnimationClipPrimaryCookedPayloadId,
+			.Flags = 1,
+			.PayloadSchemaVersion = AnimationClipPayloadSchemaVersion,
+			.Compression = Asset::ECookedPayloadCompression::None,
+			.Alignment = SkeletalPayloadAlignment,
+			.Bytes = std::move(PayloadBytes)};
+		return Context.AddPackage(
+			std::string(VirtualPackagePath), {std::move(BulkPayload)},
+			[this, bRetainDiagnosticEditorMetadata](
+				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
+				std::vector<uint8>& OutPackageBytes,
+				std::string* Error) {
+				if (Descriptors.size() != 1
+					|| Descriptors.front().PayloadId != AnimationClipPrimaryCookedPayloadId)
+				{
+					if (Error) *Error = "AnimationClip cook did not produce its required descriptor.";
+					return false;
+				}
+				const Asset::FCookedPayloadDescriptor SavedDescriptor = CookedPayload;
+				const std::string SavedKey = DerivedDataKey;
+				CookedPayload = Descriptors.front();
+				if (!bRetainDiagnosticEditorMetadata) DerivedDataKey.clear();
+				Asset::FAssetPackageSerializationOptions Options;
+				if (!bRetainDiagnosticEditorMetadata)
+					Options.PropertyFilter = [this](const DObject* Object, const FProperty* Property) {
+						return Object != this || Property->NamePrivate != FName("DerivedDataKey");
+					};
+				const Asset::FAssetResult Serialized = Asset::SerializeAssetPackageBytes(
+					GetPackage(), OutPackageBytes, Options);
+				CookedPayload = SavedDescriptor;
+				DerivedDataKey = SavedKey;
+				if (!Serialized)
+				{
+					if (Error) *Error = Serialized.Message;
+					return false;
+				}
+				return true;
+			}, &OutError);
 	}
 
 	auto DAnimationClip::PrepareImportedStateExchange(
@@ -239,7 +415,10 @@ namespace Durin
 		std::swap(Target->ClipName, Candidate->ClipName);
 		std::swap(Target->Summary, Candidate->Summary);
 		std::swap(Target->CookedPayload, Candidate->CookedPayload);
+		std::swap(Target->DerivedDataKey, Candidate->DerivedDataKey);
 		std::swap(Target->PayloadData, Candidate->PayloadData);
+		std::swap(Target->bLoadedFromDerivedDataCache, Candidate->bLoadedFromDerivedDataCache);
+		std::swap(Target->PayloadStorageDiagnostic, Candidate->PayloadStorageDiagnostic);
 		Target->MarkPackageDirty();
 	}
 

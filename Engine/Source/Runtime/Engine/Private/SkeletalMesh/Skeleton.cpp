@@ -1,5 +1,6 @@
 #include "SkeletalMesh/Skeleton.h"
 
+#include "AssetSystem.h"
 #include "Hash/XxHash.h"
 #include "Math/Operations.h"
 
@@ -221,6 +222,24 @@ namespace Durin
 		if (Validate(OutError)) return true;
 		OutError = std::format("{}: {}", GetName(), OutError);
 		return false;
+	}
+
+	auto DSkeleton::AddToCook(
+		Asset::FCookContext& Context,
+		std::string_view VirtualPackagePath,
+		std::string& OutError) -> bool
+	{
+		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
+			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
+			return Fail(&OutError, std::format(
+				"Skeleton '{}' supports only the Win64 game cook target.", GetObjectPath()));
+		if (!GetPackage() || !Validate(OutError)) return false;
+		std::vector<uint8> PackageBytes;
+		const Asset::FAssetResult Serialized =
+			Asset::SerializeAssetPackageBytes(GetPackage(), PackageBytes);
+		if (!Serialized) return Fail(&OutError, Serialized.Message);
+		return Context.AddPackage(
+			std::string(VirtualPackagePath), std::move(PackageBytes), {}, &OutError);
 	}
 
 	auto DSkeleton::PrepareImportedStateExchange(

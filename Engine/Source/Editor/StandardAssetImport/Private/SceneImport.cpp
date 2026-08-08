@@ -11,6 +11,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "SceneImportInternal.h"
+#include "SkeletalMesh/SkeletalDerivedData.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "SkeletalMesh/Skeleton.h"
 #include "StandardAssetImportProviders.h"
@@ -127,6 +128,33 @@ namespace Durin
 			AppendValue(Bytes, static_cast<uint32>(Value.size()));
 			Bytes.insert(Bytes.end(), Value.begin(), Value.end());
 			return true;
+		}
+
+		auto UpdateHashString(FXxHash128Builder& Builder, std::string_view Value) -> void
+		{
+			Builder.UpdateValue(static_cast<uint64>(Value.size()));
+			Builder.Update(Value);
+		}
+
+		auto ComputeSourceClosureHash(const FImportPlan& Plan) -> FXxHash128
+		{
+			FXxHash128Builder Builder;
+			const std::span<const FSourceSnapshotEntry> Sources =
+				Plan.GetSnapshot().GetSources();
+			Builder.UpdateValue(static_cast<uint32>(Sources.size()));
+			for (const FSourceSnapshotEntry& Source : Sources)
+			{
+				UpdateHashString(Builder, Source.StableIdentity);
+				UpdateHashString(Builder, Source.Role);
+				UpdateHashString(Builder, Source.SourcePath.Path);
+				UpdateHashString(Builder, Source.DeclaringIdentity);
+				Builder.UpdateValue(Source.ContentHash.HashLow);
+				Builder.UpdateValue(Source.ContentHash.HashHigh);
+				Builder.UpdateValue(Source.ByteCount);
+				Builder.UpdateValue(Source.Depth);
+				Builder.UpdateValue(Source.bEmbedded);
+			}
+			return Builder.Finalize();
 		}
 
 		auto MakeSceneProviderState(
@@ -1535,6 +1563,27 @@ namespace Durin
 			Result.Message = "Scene provider plan data is unavailable.";
 			return Result;
 		}
+		const FImportPlan& GenericPlan = Plan.MultiOutputPlan.GetGenericPlan();
+		const FXxHash128 SourceClosureHash = ComputeSourceClosureHash(GenericPlan);
+		FXxHash128 ProviderStateHash;
+		ProviderStateHash.HashLow = Plan.MultiOutputPlan.GetProviderState().ContentHashLow;
+		ProviderStateHash.HashHigh = Plan.MultiOutputPlan.GetProviderState().ContentHashHigh;
+		auto MakeDerivedDataKeyInput = [&](
+			std::string_view StableIdentity,
+			std::string_view CompatibilityIdentity,
+			const FXxHash128& PayloadFingerprint) {
+			return FSkeletalDerivedDataKeyInput{
+				.ProviderIdentity = std::string(SceneImportProviderId),
+				.ProviderVersion = SceneImportProviderContractVersion,
+				.SourceClosureHash = SourceClosureHash,
+				.SettingsHash = GenericPlan.GetSettings().ContentHash,
+				.ProviderStateHash = ProviderStateHash,
+				.PayloadInputFingerprint = PayloadFingerprint,
+				.StableOutputIdentity = std::string(StableIdentity),
+				.SkeletonCompatibilityIdentity = std::string(CompatibilityIdentity),
+				.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
+				.TargetProfile = ESkeletalPayloadTargetProfile::Game};
+		};
 		std::string Error;
 		FAssetPath StandardMaterialPath;
 		DMaterial* StandardMaterial = nullptr;
@@ -1875,13 +1924,22 @@ namespace Durin
 			}
 			const Asset::FImportedSkeletonData& ImportedSkeleton =
 				Data->Scene.Skeletons[Imported.SkeletonIndex];
+			FXxHash128 PayloadFingerprint;
+			if (!ComputeSkeletalMeshPayloadInputFingerprint(
+				*Imported.Payload, *ProspectiveSkeleton,
+				static_cast<uint32>(MaterialSlots.size()), PayloadFingerprint, Error))
+				return FailPrepared(std::move(Error));
+			const std::string DerivedDataKey = BuildSkeletalMeshDerivedDataKey(
+				MakeDerivedDataKeyInput(Identity, ImportedSkeleton.CompatibilityIdentity,
+					PayloadFingerprint));
 			if (!Mesh->InitializeFromImportedData({
 					.Skeleton = FinalSkeleton,
 					.ValidationSkeleton = ProspectiveSkeleton,
 					.SkeletonCompatibilityIdentity = ImportedSkeleton.CompatibilityIdentity,
 					.MeshNodeBindTransform = Imported.MeshNodeBindTransform,
 					.MaterialSlots = std::move(MaterialSlots),
-					.Payload = Imported.Payload}, Error))
+					.Payload = Imported.Payload,
+					.DerivedDataKey = DerivedDataKey}, Error))
 			{
 				return FailPrepared(Error.empty()
 					? "Scene SkeletalMesh candidate failed." : std::move(Error));
@@ -1919,12 +1977,20 @@ namespace Durin
 				return FailPrepared("Scene AnimationClip Skeleton relationship is invalid.");
 			const Asset::FImportedSkeletonData& ImportedSkeleton =
 				Data->Scene.Skeletons[Imported.SkeletonIndex];
+			FXxHash128 PayloadFingerprint;
+			if (!ComputeAnimationClipPayloadInputFingerprint(
+				*Imported.Payload, *ProspectiveSkeleton, PayloadFingerprint, Error))
+				return FailPrepared(std::move(Error));
+			const std::string DerivedDataKey = BuildAnimationClipDerivedDataKey(
+				MakeDerivedDataKeyInput(Identity, ImportedSkeleton.CompatibilityIdentity,
+					PayloadFingerprint));
 			if (!Clip->InitializeFromImportedData({
 					.Skeleton = FinalSkeleton,
 					.ValidationSkeleton = ProspectiveSkeleton,
 					.SkeletonCompatibilityIdentity = ImportedSkeleton.CompatibilityIdentity,
 					.ClipName = FName(Imported.SuggestedName),
-					.Payload = Imported.Payload}, Error))
+					.Payload = Imported.Payload,
+					.DerivedDataKey = DerivedDataKey}, Error))
 			{
 				return FailPrepared(Error.empty()
 					? "Scene AnimationClip candidate failed." : std::move(Error));
