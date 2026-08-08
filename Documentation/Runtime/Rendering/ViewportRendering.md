@@ -34,8 +34,11 @@ This keeps the widget composition path consistent while still allowing each view
 `World` is Durin's high-level owner of actors, levels, components, and game
 logic. The renderer-facing representation of that world remains `IScene` in
 public contracts and `FScene` in the Renderer implementation. `FScene` owns
-render-thread primitive proxies, directional-light data, and SkyBox snapshots;
-it is not a second gameplay scene abstraction.
+render-thread SceneInfo/SceneProxy pairs and authoritative typed views for
+primitives, directional lights, and SkyBoxes; it is not a second gameplay
+scene abstraction. See
+[Renderer Scene Representation](SceneRepresentation.md) for its identity,
+ownership, and mutation contracts.
 
 `FSceneRenderer` is distinct from `FScene`: it executes one view and owns the
 resources and feature renderers used to produce that view. `FRendererModule`

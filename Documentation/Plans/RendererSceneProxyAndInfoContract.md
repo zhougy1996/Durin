@@ -4,23 +4,24 @@ Summary: Split every production scene-resident rendering item into an Engine-fac
 
 Last reviewed: 2026-08-08
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-08
 
 ## Current Status
 
-This plan is the active M1 child of the
-[Rendering Capability Expansion Roadmap](../Roadmaps/RenderingCapabilityExpansion.md).
-The `SceneProxy + SceneInfo` split and the participating scene families are
-selected. No implementation stage is complete; Stage 0 must freeze the exact
-storage and mutation contract against current call sites before code changes
-begin.
+M1 implementation and Stage 4 qualification are complete. StaticMesh,
+TextureCube preview, directional light, and SkyBox now use paired SceneProxy and
+SceneInfo ownership, strong family identities, FIFO render-command mutation,
+and authoritative typed `FScene` views. Rendering retains no directional-light
+component pointer, the SkyBox revision map is gone, and feature renderers no
+longer rediscover primitive families through whole-scene RTTI scans.
 
-Current scene entries are inconsistent. StaticMesh and TextureCube preview use
-`PrimitiveSceneProxy` derivatives but no Renderer-private `SceneInfo`; SkyBox
-stores value snapshots directly; directional lights store component pointers.
-StaticMesh and TextureCube preview renderers scan the same untyped primitive
-array and use `dynamic_cast` to rediscover their entries.
+The lasting contract is documented in
+[Renderer Scene Representation](../Runtime/Rendering/SceneRepresentation.md).
+Focused scene-contract, StaticMesh, SkyBox, TextureCube thumbnail, material,
+and editor-rendering suites pass, as do SkyBox and scene-import Vulkan
+integration. All-plan validation and a full `all` build pass under
+`Win64-Debug-DurinEditor-Tests`.
 
 ## Goal
 
@@ -185,23 +186,23 @@ ownership out of the existing feature renderers.
 
 ### Stage 0: Freeze the scene-entry contract and baseline
 
-- [ ] Record every primitive, directional-light, and SkyBox add, update,
+- [x] Record every primitive, directional-light, and SkyBox add, update,
   replace, remove, scene-release, and consumer call site.
-- [ ] Record the owning thread and lifetime boundary for every payload and
+- [x] Record the owning thread and lifetime boundary for every payload and
   retained render resource crossing those calls.
-- [ ] Select the exact typed-membership representation and document its attach,
+- [x] Select the exact typed-membership representation and document its attach,
   replacement, rollback, detach, and iteration behavior.
-- [ ] Freeze Proxy versus SceneInfo field ownership, including transforms,
+- [x] Freeze Proxy versus SceneInfo field ownership, including transforms,
   bounds, visibility, family kind, material updates, light values, and SkyBox
   selection state.
-- [ ] Confirm and assert the single game-thread producer contract for ordinary
+- [x] Confirm and assert the single game-thread producer contract for ordinary
   scene mutations, identifying any real asynchronous exception.
-- [ ] Decide with evidence whether SkyBox revisioning remains necessary and
+- [x] Decide with evidence whether SkyBox revisioning remains necessary and
   record any retained revision at its actual reordering boundary.
-- [ ] Add or identify focused baseline coverage for FIFO mutation, remove/add
+- [x] Add or identify focused baseline coverage for FIFO mutation, remove/add
   recreation, update-after-remove, component retirement, scene release, and
   complete-or-null insertion.
-- [ ] Record the baseline commit, working set, symbols, decisions, open
+- [x] Record the baseline commit, working set, symbols, decisions, open
   questions, and validation result in the stage handoff.
 
 #### Acceptance Gate
@@ -215,24 +216,24 @@ ownership out of the existing feature renderers.
 
 ### Stage 1: Introduce primitive SceneInfo and typed classification
 
-- [ ] Rename `PrimitiveSceneProxy` to `FPrimitiveSceneProxy` and migrate all
+- [x] Rename `PrimitiveSceneProxy` to `FPrimitiveSceneProxy` and migrate all
   constructors, ownership declarations, and call sites atomically.
-- [ ] Add `FPrimitiveSceneInfo` with stable identity, transform, bounds,
+- [x] Add `FPrimitiveSceneInfo` with stable identity, transform, bounds,
   visibility, primitive kind, owning scene, and selected typed-membership
   state.
-- [ ] Make `FPrimitiveSceneInfo` the sole scene owner of each
+- [x] Make `FPrimitiveSceneInfo` the sole scene owner of each
   `FPrimitiveSceneProxy` and preserve complete-or-null replacement.
-- [ ] Publish local bounds from StaticMesh and TextureCube preview proxies and
+- [x] Publish local bounds from StaticMesh and TextureCube preview proxies and
   derive finite world bounds under transform updates.
-- [ ] Replace StaticMesh-specific material mutation in `FScene` with the
+- [x] Replace StaticMesh-specific material mutation in `FScene` with the
   selected proxy or typed-entry contract.
-- [ ] Replace the shared primitive vector and `dynamic_cast` scans in
+- [x] Replace the shared primitive vector and `dynamic_cast` scans in
   StaticMesh and TextureCube preview rendering with typed SceneInfo access.
-- [ ] Preserve StaticMesh render-data borrow, material-proxy, replacement,
+- [x] Preserve StaticMesh render-data borrow, material-proxy, replacement,
   invalidation, and release-fence behavior.
-- [ ] Add focused primitive classification, membership, transform/bounds,
+- [x] Add focused primitive classification, membership, transform/bounds,
   material update, replacement, removal, and scene-release tests.
-- [ ] Record the stage handoff and validation evidence.
+- [x] Record the stage handoff and validation evidence.
 
 #### Acceptance Gate
 
@@ -247,18 +248,18 @@ ownership out of the existing feature renderers.
 
 ### Stage 2: Add light Proxy and SceneInfo ownership
 
-- [ ] Add strong light scene identity issuance and component lifetime storage.
-- [ ] Add `FLightSceneProxy`, `FDirectionalLightSceneProxy`, and
+- [x] Add strong light scene identity issuance and component lifetime storage.
+- [x] Add `FLightSceneProxy`, `FDirectionalLightSceneProxy`, and
   `FLightSceneInfo` with Renderer-private typed light membership.
-- [ ] Build directional-light proxy candidates from copied component state and
+- [x] Build directional-light proxy candidates from copied component state and
   transfer ownership through `IScene` without retaining the component.
-- [ ] Route registration, visibility, transform, color, intensity, and removal
+- [x] Route registration, visibility, transform, color, intensity, and removal
   through ordered render commands and update only the Renderer-owned entry.
-- [ ] Preserve the current deterministic single-directional-light selection
+- [x] Preserve the current deterministic single-directional-light selection
   policy without implementing M5 multi-light shading.
-- [ ] Add focused light add/update/remove, remove/add recreation, hidden-state,
+- [x] Add focused light add/update/remove, remove/add recreation, hidden-state,
   component-retirement, scene-release, and multi-view snapshot tests.
-- [ ] Record the stage handoff and validation evidence.
+- [x] Record the stage handoff and validation evidence.
 
 #### Acceptance Gate
 
@@ -272,19 +273,19 @@ ownership out of the existing feature renderers.
 
 ### Stage 3: Align SkyBox with Proxy and SceneInfo
 
-- [ ] Add `FSkyBoxSceneProxy` and `FSkyBoxSceneInfo` and move retained texture,
+- [x] Add `FSkyBoxSceneProxy` and `FSkyBoxSceneInfo` and move retained texture,
   rotation, tint, intensity, identity, and selection responsibilities to the
   Stage 0-selected owners.
-- [ ] Transfer SkyBox proxy candidates through the same complete-or-null scene
+- [x] Transfer SkyBox proxy candidates through the same complete-or-null scene
   ownership protocol used by primitive and light entries.
-- [ ] Replace direct `FSkyBoxSceneData` storage and the separate revision map
+- [x] Replace direct `FSkyBoxSceneData` storage and the separate revision map
   with the selected ordered mutation contract, retaining a version only if
   Stage 0 proved an independent reordering boundary.
-- [ ] Adapt `FSkyBoxRenderer` to consume the typed SkyBox SceneInfo collection
+- [x] Adapt `FSkyBoxRenderer` to consume the typed SkyBox SceneInfo collection
   without changing active-SkyBox selection or viewport behavior.
-- [ ] Preserve texture reference, component visibility, resource reload,
+- [x] Preserve texture reference, component visibility, resource reload,
   editor, and Vulkan coverage.
-- [ ] Record the stage handoff and validation evidence.
+- [x] Record the stage handoff and validation evidence.
 
 #### Acceptance Gate
 
@@ -298,18 +299,18 @@ ownership out of the existing feature renderers.
 
 ### Stage 4: Consolidate contracts and qualify M1
 
-- [ ] Remove obsolete pointer, raw-snapshot, untyped-vector, RTTI-discovery,
+- [x] Remove obsolete pointer, raw-snapshot, untyped-vector, RTTI-discovery,
   and duplicate revision paths after all consumers migrate.
-- [ ] Add diagnostics or focused assertions for invalid identity, wrong-thread
+- [x] Add diagnostics or focused assertions for invalid identity, wrong-thread
   mutation, missing typed membership, duplicate attach, and incomplete detach.
-- [ ] Update Runtime Rendering documentation with the lasting Proxy/SceneInfo,
+- [x] Update Runtime Rendering documentation with the lasting Proxy/SceneInfo,
   identity, ordering, ownership, and typed-collection contracts.
-- [ ] Update the roadmap M1 status and retain this plan as implementation
+- [x] Update the roadmap M1 status and retain this plan as implementation
   provenance.
-- [ ] Run the focused native suites, Renderer integration coverage, relevant
+- [x] Run the focused native suites, Renderer integration coverage, relevant
   Vulkan rendering tests, plan validation, and a successful full `all` build
   following the repository build guidance.
-- [ ] Record the final handoff with baseline commit, working set, symbols,
+- [x] Record the final handoff with baseline commit, working set, symbols,
   decisions, open questions, and validation results.
 
 #### Acceptance Gate
@@ -323,6 +324,74 @@ ownership out of the existing feature renderers.
   and Vulkan validation remain clean.
 - The roadmap M1 exit gate is satisfied and M2, M3, and M5 can build on the
   resulting contracts without another scene-ownership refactor.
+
+## Stage Handoffs
+
+### Stage 0
+
+- Baseline: `cd14bdd3`.
+- Working set: `IScene`, primitive/light/SkyBox components and proxies,
+  `FScene`, three scene feature consumers, and their focused native tests.
+- Decision: one `FPrimitiveSceneInfo` plus explicit-kind typed views; family-
+  specific strong `TSceneId` values; ordinary mutation follows the existing
+  single-producer FIFO render-command order.
+- Ordering evidence: SkyBox add/replace/remove all enqueue onto that same pipe;
+  no independently completed SkyBox work can overtake it, so the revision map
+  was redundant and selected for removal. Material/resource revisions remain
+  with their independent owners.
+- Validation: existing StaticMesh and SkyBox focused baselines passed after the
+  contract migration; no pre-existing failure was observed. Open questions:
+  none.
+
+### Stage 1
+
+- Baseline: `cd14bdd3`; key symbols: `FPrimitiveSceneProxy`,
+  `EPrimitiveSceneProxyKind`, `FPrimitiveSceneInfo`,
+  `FScene::GetStaticMeshSceneInfos`, and
+  `FScene::GetTextureCubePreviewSceneInfos`.
+- Decision: SceneInfo owns transform, local/world AABB, visibility, identity,
+  classification, and typed membership; proxies retain family render data and
+  material bindings. Material updates dispatch through the base proxy contract.
+- Validation: `RendererSceneContractTests` covers classification, transformed
+  bounds, complete-or-null replacement, removal, update-after-remove,
+  remove/add recreation, and release. `FStaticMeshUpdateTests.*` passes. Open
+  questions: none.
+
+### Stage 2
+
+- Baseline: `cd14bdd3`; key symbols: `FLightSceneProxy`,
+  `FDirectionalLightSceneProxy`, `FLightSceneInfo`, and
+  `FScene::AddOrReplaceDirectionalLight`.
+- Decision: components keep only `FLightSceneId`, publish copied proxy
+  candidates for registration, property, visibility, and transform changes,
+  and never cross a component pointer into Renderer storage.
+- Validation: `RendererSceneContractTests` proves copied state outlives its
+  publisher scope and FIFO replace/remove/re-add behavior. Open questions:
+  point/spot and multi-light payload policy remain intentionally deferred to
+  M5.
+
+### Stage 3
+
+- Baseline: `cd14bdd3`; key symbols: `FSkyBoxSceneProxy`,
+  `FSkyBoxSceneInfo`, and `FScene::GetActiveSkyBoxSceneInfo_RenderThread`.
+- Decision: SceneInfo owns runtime/persistent identities and selection keys;
+  the proxy owns retained texture and visual values. FIFO order replaces the
+  duplicate SkyBox revision map.
+- Validation: `FSkyBoxTests.*` passes selection, FIFO recreation, component
+  synchronization/retirement, auxiliary-scene isolation, and release. Open
+  questions: none.
+
+### Stage 4
+
+- Baseline: `cd14bdd3`; lasting contract:
+  [Renderer Scene Representation](../Runtime/Rendering/SceneRepresentation.md).
+- Working set and key decisions are unchanged from Stages 1-3.
+- Validation: `RendererSceneContractTests` 2/2, `StaticMeshTests` 49/49,
+  `SkyBoxTests` 10/10, `TextureThumbnailTests` 6/6, `MaterialTests` 78/78,
+  `EditorRenderingTests` 33/33, `SkyBoxVulkanIntegrationTests` 1/1, and
+  `SceneImportVulkanTests` 1/1 passed. All-plan validation passed, followed by
+  a successful full `all` build for `Win64-Debug-DurinEditor-Tests`. Open
+  questions: none; M2, M3, and M5 may use this contract as their baseline.
 
 ## Validation Matrix
 
@@ -382,7 +451,7 @@ ownership out of the existing feature renderers.
 ## Related Code
 
 - `Engine/Source/Runtime/Engine/Public/IScene.h`
-- `Engine/Source/Runtime/Engine/Public/Engine/PrimitiveSceneProxy.h`
+- `Engine/Source/Runtime/Engine/Public/Engine/FPrimitiveSceneProxy.h`
 - `Engine/Source/Runtime/Engine/Private/Engine/PrimitiveSceneProxy.cpp`
 - `Engine/Source/Runtime/Engine/Public/Components/PrimitiveComponent.h`
 - `Engine/Source/Runtime/Engine/Private/Components/PrimitiveComponent.cpp`

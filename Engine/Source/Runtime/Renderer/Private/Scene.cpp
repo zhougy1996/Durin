@@ -1,138 +1,228 @@
 #include "Scene.h"
 
-#include "Components/DirectionalLightComponent.h"
-#include "RHICommandList.h"
+#include "Math/Operations.h"
 #include "RenderingThread.h"
 
 namespace Durin
 {
-	auto FScene::AddOrReplacePrimitive(FPrimitiveSceneId PrimitiveId, std::unique_ptr<PrimitiveSceneProxy> Proxy, const FMatrix& Transform) -> void
+	namespace
 	{
-		if (PrimitiveId == InvalidPrimitiveSceneId || Proxy == nullptr) return;
-		// The command pipe stores copyable callables; after enqueue, the final proxy owner remains on the rendering thread.
-		std::shared_ptr<PrimitiveSceneProxy> SharedProxy(std::move(Proxy));
-		ENQUEUE_RENDER_COMMAND(AddOrReplacePrimitive)([this, PrimitiveId, SharedProxy = std::move(SharedProxy), Transform](FRHICommandListImmediate& CommandList) {
-			CheckRenderingThread();
-			if (const auto FoundIt = PrimitiveToProxy.find(PrimitiveId); FoundIt != PrimitiveToProxy.end())
+		auto TransformBounds(const FBox& Bounds, const FMatrix& Transform) -> FBox
+		{
+			FBox Result;
+			if (!Bounds.bIsValid || !Math::IsFinite(Transform)) return Result;
+			for (uint32 Corner = 0; Corner < 8; ++Corner)
 			{
-				std::erase(PrimitiveSceneProxies, FoundIt->second.get());
-				PrimitiveToProxy.erase(FoundIt);
+				const FVector3 Point(
+					(Corner & 1u) != 0 ? Bounds.Max.x : Bounds.Min.x,
+					(Corner & 2u) != 0 ? Bounds.Max.y : Bounds.Min.y,
+					(Corner & 4u) != 0 ? Bounds.Max.z : Bounds.Min.z);
+				const FVector4 Transformed = Transform * FVector4(Point, 1.0);
+				Result.AddPoint(FVector3(Transformed));
 			}
-			SharedProxy->SetTransform(CommandList, Transform, FVector3(0.0));
-			PrimitiveSceneProxies.push_back(SharedProxy.get());
-			PrimitiveToProxy.emplace(PrimitiveId, SharedProxy);
+			return Result;
+		}
+	}
+
+	FPrimitiveSceneInfo::FPrimitiveSceneInfo(FScene& InScene, FPrimitiveSceneId InId,
+		std::shared_ptr<FPrimitiveSceneProxy> InProxy, const FMatrix& InTransform)
+		: Scene(&InScene), Id(InId), Proxy(std::move(InProxy)), Kind(Proxy->GetKind()),
+		  Transform(InTransform), LocalBounds(Proxy->GetLocalBounds()),
+		  WorldBounds(TransformBounds(LocalBounds, Transform))
+	{
+	}
+
+	auto FPrimitiveSceneInfo::GetStaticMeshProxy() const -> FStaticMeshSceneProxy&
+	{
+		check(Kind == EPrimitiveSceneProxyKind::StaticMesh);
+		return static_cast<FStaticMeshSceneProxy&>(*Proxy);
+	}
+
+	auto FPrimitiveSceneInfo::GetTextureCubePreviewProxy() const -> FTextureCubePreviewSceneProxy&
+	{
+		check(Kind == EPrimitiveSceneProxyKind::TextureCubePreview);
+		return static_cast<FTextureCubePreviewSceneProxy&>(*Proxy);
+	}
+
+	auto FPrimitiveSceneInfo::SetTransform(const FMatrix& InTransform) -> void
+	{
+		Transform = InTransform;
+		WorldBounds = TransformBounds(LocalBounds, Transform);
+	}
+
+	auto FPrimitiveSceneInfo::UpdateMaterialBinding(const FMaterialRenderProxyBindingUpdate& Update) -> bool
+	{
+		return Proxy->UpdateMaterialBinding_RenderThread(Update);
+	}
+
+	auto FScene::DetachPrimitive(FPrimitiveSceneInfo& Info) -> void
+	{
+		std::erase(PrimitiveSceneInfos, &Info);
+		switch (Info.GetKind())
+		{
+		case EPrimitiveSceneProxyKind::StaticMesh: std::erase(StaticMeshSceneInfos, &Info); break;
+		case EPrimitiveSceneProxyKind::TextureCubePreview: std::erase(TextureCubePreviewSceneInfos, &Info); break;
+		}
+	}
+
+	auto FScene::AddOrReplacePrimitive(FPrimitiveSceneId PrimitiveId, std::unique_ptr<FPrimitiveSceneProxy> Proxy, const FMatrix& Transform) -> void
+	{
+		if (PrimitiveId == InvalidPrimitiveSceneId || Proxy == nullptr || !Math::IsFinite(Transform)) return;
+		std::shared_ptr<FPrimitiveSceneProxy> SharedProxy(std::move(Proxy));
+		ENQUEUE_RENDER_COMMAND(AddOrReplacePrimitive)([this, PrimitiveId, SharedProxy = std::move(SharedProxy), Transform](FRHICommandListImmediate&) {
+			CheckRenderingThread();
+			if (const auto Found = PrimitiveInfosById.find(PrimitiveId); Found != PrimitiveInfosById.end())
+			{
+				DetachPrimitive(*Found->second);
+				PrimitiveInfosById.erase(Found);
+			}
+			auto Info = std::make_unique<FPrimitiveSceneInfo>(*this, PrimitiveId, SharedProxy, Transform);
+			FPrimitiveSceneInfo* RawInfo = Info.get();
+			PrimitiveSceneInfos.push_back(RawInfo);
+			switch (RawInfo->GetKind())
+			{
+			case EPrimitiveSceneProxyKind::StaticMesh: StaticMeshSceneInfos.push_back(RawInfo); break;
+			case EPrimitiveSceneProxyKind::TextureCubePreview: TextureCubePreviewSceneInfos.push_back(RawInfo); break;
+			}
+			PrimitiveInfosById.emplace(PrimitiveId, std::move(Info));
 		});
 	}
 
 	auto FScene::RemovePrimitive(FPrimitiveSceneId PrimitiveId) -> void
 	{
 		if (PrimitiveId == InvalidPrimitiveSceneId) return;
-		ENQUEUE_RENDER_COMMAND(RemovePrimitive)([this, PrimitiveId](FRHICommandListImmediate& CommandList) {
+		ENQUEUE_RENDER_COMMAND(RemovePrimitive)([this, PrimitiveId](FRHICommandListImmediate&) {
 			CheckRenderingThread();
-			const auto FoundIt = PrimitiveToProxy.find(PrimitiveId);
-			if (FoundIt == PrimitiveToProxy.end()) return;
-			std::erase(PrimitiveSceneProxies, FoundIt->second.get());
-			PrimitiveToProxy.erase(FoundIt);
+			const auto Found = PrimitiveInfosById.find(PrimitiveId);
+			if (Found == PrimitiveInfosById.end()) return;
+			DetachPrimitive(*Found->second);
+			PrimitiveInfosById.erase(Found);
 		});
 	}
 
 	auto FScene::UpdatePrimitiveTransform(FPrimitiveSceneId PrimitiveId, const FMatrix& Transform) -> void
 	{
-		if (PrimitiveId == InvalidPrimitiveSceneId) return;
-		ENQUEUE_RENDER_COMMAND(UpdatePrimitiveTransform)([this, PrimitiveId, Transform](FRHICommandListImmediate& CommandList) {
+		if (PrimitiveId == InvalidPrimitiveSceneId || !Math::IsFinite(Transform)) return;
+		ENQUEUE_RENDER_COMMAND(UpdatePrimitiveTransform)([this, PrimitiveId, Transform](FRHICommandListImmediate&) {
 			CheckRenderingThread();
-			const auto FoundIt = PrimitiveToProxy.find(PrimitiveId);
-			if (FoundIt == PrimitiveToProxy.end()) return;
-			FoundIt->second->SetTransform(CommandList, Transform, FVector3(0.0));
+			if (const auto Found = PrimitiveInfosById.find(PrimitiveId); Found != PrimitiveInfosById.end()) Found->second->SetTransform(Transform);
 		});
 	}
 
-	auto FScene::UpdatePrimitiveMaterialBinding(
-		FPrimitiveSceneId PrimitiveId,
-		const FMaterialRenderProxyBindingUpdate& Update) -> void
+	auto FScene::UpdatePrimitiveMaterialBinding(FPrimitiveSceneId PrimitiveId, const FMaterialRenderProxyBindingUpdate& Update) -> void
 	{
 		if (PrimitiveId == InvalidPrimitiveSceneId) return;
-		ENQUEUE_RENDER_COMMAND(UpdatePrimitiveMaterialBinding)([this, PrimitiveId, Update](FRHICommandListImmediate& CommandList) {
+		ENQUEUE_RENDER_COMMAND(UpdatePrimitiveMaterialBinding)([this, PrimitiveId, Update](FRHICommandListImmediate&) {
 			CheckRenderingThread();
-			const auto FoundIt = PrimitiveToProxy.find(PrimitiveId);
-			if (FoundIt == PrimitiveToProxy.end()) return;
-			if (auto* StaticMeshProxy = dynamic_cast<FStaticMeshSceneProxy*>(FoundIt->second.get()))
-			{
-				StaticMeshProxy->UpdateMaterialRenderProxyBinding(Update);
-			}
+			if (const auto Found = PrimitiveInfosById.find(PrimitiveId); Found != PrimitiveInfosById.end()) Found->second->UpdateMaterialBinding(Update);
 		});
 	}
 
 	auto FScene::Release() -> void
 	{
-		ENQUEUE_RENDER_COMMAND(ReleaseScene)([this](FRHICommandListImmediate& CommandList) {
+		ENQUEUE_RENDER_COMMAND(ReleaseScene)([this](FRHICommandListImmediate&) {
 			CheckRenderingThread();
-			PrimitiveSceneProxies.clear();
-			PrimitiveToProxy.clear();
-			SkyBoxes.clear();
-			SkyBoxRevisions.clear();
+			PrimitiveSceneInfos.clear(); StaticMeshSceneInfos.clear(); TextureCubePreviewSceneInfos.clear(); PrimitiveInfosById.clear();
+			DirectionalLightSceneInfos.clear(); LightInfosById.clear();
+			SkyBoxSceneInfos.clear(); SkyBoxInfosById.clear();
 		});
 	}
 
-	auto FScene::AddDirectionalLight(DDirectionalLightComponent* Light) -> void
+	auto FScene::AddOrReplaceDirectionalLight(FLightSceneId LightId, std::unique_ptr<FDirectionalLightSceneProxy> Proxy) -> void
 	{
-		if (Light != nullptr && std::ranges::find(DirectionalLights, Light) == DirectionalLights.end()) DirectionalLights.push_back(Light);
+		if (LightId == InvalidLightSceneId || Proxy == nullptr) return;
+		std::shared_ptr<FDirectionalLightSceneProxy> SharedProxy(std::move(Proxy));
+		ENQUEUE_RENDER_COMMAND(AddOrReplaceDirectionalLight)([this, LightId, SharedProxy = std::move(SharedProxy)](FRHICommandListImmediate&) {
+			CheckRenderingThread();
+			if (const auto Found = LightInfosById.find(LightId); Found != LightInfosById.end())
+			{
+				FLightSceneInfo* Previous = Found->second.get();
+				const auto Membership = std::ranges::find(DirectionalLightSceneInfos, Previous);
+				check(Membership != DirectionalLightSceneInfos.end());
+				auto Replacement = std::make_unique<FLightSceneInfo>(*this, LightId, SharedProxy);
+				*Membership = Replacement.get();
+				Found->second = std::move(Replacement);
+				return;
+			}
+			auto Info = std::make_unique<FLightSceneInfo>(*this, LightId, SharedProxy);
+			DirectionalLightSceneInfos.push_back(Info.get());
+			LightInfosById.emplace(LightId, std::move(Info));
+		});
 	}
 
-	auto FScene::RemoveDirectionalLight(DDirectionalLightComponent* Light) -> void
+	auto FScene::RemoveDirectionalLight(FLightSceneId LightId) -> void
 	{
-		std::erase(DirectionalLights, Light);
+		if (LightId == InvalidLightSceneId) return;
+		ENQUEUE_RENDER_COMMAND(RemoveDirectionalLight)([this, LightId](FRHICommandListImmediate&) {
+			CheckRenderingThread();
+			const auto Found = LightInfosById.find(LightId);
+			if (Found == LightInfosById.end()) return;
+			std::erase(DirectionalLightSceneInfos, Found->second.get());
+			LightInfosById.erase(Found);
+		});
 	}
 
 	auto FScene::GetDirectionalLight(FDirectionalLightSceneData& OutLight) const -> bool
 	{
-		if (DirectionalLights.empty() || DirectionalLights.front() == nullptr) return false;
-		OutLight = DirectionalLights.front()->GetSceneData();
+		CheckRenderingThread();
+		if (DirectionalLightSceneInfos.empty()) return false;
+		OutLight = DirectionalLightSceneInfos.front()->GetProxy().GetData();
 		return true;
 	}
 
-	auto FScene::AddOrReplaceSkyBox(FSkyBoxSceneData Data) -> void
+	auto FScene::AddOrReplaceSkyBox(FSkyBoxSceneId SkyBoxId, FGuid PersistentId, std::string SelectionKey, std::unique_ptr<FSkyBoxSceneProxy> Proxy) -> void
 	{
-		if (!Data.SceneId.IsValid() || Data.InstanceId == 0) return;
-		ENQUEUE_RENDER_COMMAND(AddOrReplaceSkyBox)([this, Data = std::move(Data)](FRHICommandListImmediate&) mutable {
+		if (SkyBoxId == InvalidSkyBoxSceneId || !PersistentId.IsValid() || Proxy == nullptr) return;
+		std::shared_ptr<FSkyBoxSceneProxy> SharedProxy(std::move(Proxy));
+		ENQUEUE_RENDER_COMMAND(AddOrReplaceSkyBox)([this, SkyBoxId, PersistentId, SelectionKey = std::move(SelectionKey), SharedProxy = std::move(SharedProxy)](FRHICommandListImmediate&) mutable {
 			CheckRenderingThread();
-			uint64& LatestRevision = SkyBoxRevisions[Data.InstanceId];
-			if (Data.Revision < LatestRevision) return;
-			LatestRevision = Data.Revision;
-			SkyBoxes.insert_or_assign(Data.InstanceId, std::move(Data));
+			if (const auto Found = SkyBoxInfosById.find(SkyBoxId); Found != SkyBoxInfosById.end())
+			{
+				std::erase(SkyBoxSceneInfos, Found->second.get());
+				SkyBoxInfosById.erase(Found);
+			}
+			auto Info = std::make_unique<FSkyBoxSceneInfo>(*this, SkyBoxId, PersistentId, std::move(SelectionKey), SharedProxy);
+			SkyBoxSceneInfos.push_back(Info.get());
+			SkyBoxInfosById.emplace(SkyBoxId, std::move(Info));
 		});
 	}
 
-	auto FScene::RemoveSkyBox(uint64 InstanceId, uint64 Revision) -> void
+	auto FScene::RemoveSkyBox(FSkyBoxSceneId SkyBoxId) -> void
 	{
-		if (InstanceId == 0) return;
-		ENQUEUE_RENDER_COMMAND(RemoveSkyBox)([this, InstanceId, Revision](FRHICommandListImmediate&) {
+		if (SkyBoxId == InvalidSkyBoxSceneId) return;
+		ENQUEUE_RENDER_COMMAND(RemoveSkyBox)([this, SkyBoxId](FRHICommandListImmediate&) {
 			CheckRenderingThread();
-			uint64& LatestRevision = SkyBoxRevisions[InstanceId];
-			if (Revision < LatestRevision) return;
-			LatestRevision = Revision;
-			SkyBoxes.erase(InstanceId);
+			const auto Found = SkyBoxInfosById.find(SkyBoxId);
+			if (Found == SkyBoxInfosById.end()) return;
+			std::erase(SkyBoxSceneInfos, Found->second.get());
+			SkyBoxInfosById.erase(Found);
+		});
+	}
+
+	auto FScene::GetActiveSkyBoxSceneInfo_RenderThread() const -> const FSkyBoxSceneInfo*
+	{
+		CheckRenderingThread();
+		if (SkyBoxSceneInfos.empty()) return nullptr;
+		return *std::ranges::min_element(SkyBoxSceneInfos, [](const FSkyBoxSceneInfo* A, const FSkyBoxSceneInfo* B) {
+			return std::tuple(A->GetPersistentId(), A->GetSelectionKey(), A->GetId())
+				< std::tuple(B->GetPersistentId(), B->GetSelectionKey(), B->GetId());
 		});
 	}
 
 	auto FScene::GetActiveSkyBox_RenderThread(FSkyBoxSceneData& OutSkyBox) const -> bool
 	{
-		CheckRenderingThread();
-		if (SkyBoxes.empty()) return false;
-		const auto Active = std::ranges::min_element(SkyBoxes,
-			[](const auto& Left, const auto& Right) {
-				const FSkyBoxSceneData& A = Left.second;
-				const FSkyBoxSceneData& B = Right.second;
-				return std::tie(A.SceneId, A.SelectionKey, A.InstanceId)
-					< std::tie(B.SceneId, B.SelectionKey, B.InstanceId);
-			});
-		OutSkyBox = Active->second;
+		const FSkyBoxSceneInfo* Info = GetActiveSkyBoxSceneInfo_RenderThread();
+		if (Info == nullptr) return false;
+		OutSkyBox = Info->GetProxy().GetData();
+		OutSkyBox.SceneId = Info->GetPersistentId();
+		OutSkyBox.SelectionKey = Info->GetSelectionKey();
+		OutSkyBox.InstanceId = Info->GetId().Value;
 		return true;
 	}
 
 	auto FScene::GetSkyBoxCount_RenderThread() const -> size_t
 	{
 		CheckRenderingThread();
-		return SkyBoxes.size();
+		return SkyBoxSceneInfos.size();
 	}
 }

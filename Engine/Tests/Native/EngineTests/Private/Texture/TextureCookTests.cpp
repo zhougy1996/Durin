@@ -346,7 +346,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "CookedTextureSampleMesh");
 	SampleComponent->SetStaticMesh(SampleMesh);
 	SampleComponent->SetMaterial(SampleMaterial);
-	auto SampleProxy = std::make_shared<std::unique_ptr<Durin::PrimitiveSceneProxy>>(
+	auto SampleProxy = std::make_shared<std::unique_ptr<Durin::FPrimitiveSceneProxy>>(
 		SampleComponent->CreateSceneProxy());
 	ASSERT_NE(*SampleProxy, nullptr);
 	struct FEndCookedTextureUploadFrame

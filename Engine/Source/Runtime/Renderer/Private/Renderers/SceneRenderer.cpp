@@ -9,6 +9,7 @@
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
+#include "Scene.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "SceneView.h"
 
@@ -315,8 +316,12 @@ namespace Durin
 			static_cast<float>(Height));
 
 		FSkyBoxSceneData SkyBox;
-		if (Scene->GetActiveSkyBox_RenderThread(SkyBox))
+		const auto* RendererScene = dynamic_cast<FScene*>(Scene);
+		const FSkyBoxSceneInfo* SkyBoxInfo = RendererScene != nullptr
+			? RendererScene->GetActiveSkyBoxSceneInfo_RenderThread() : nullptr;
+		if (SkyBoxInfo != nullptr)
 		{
+			SkyBox = SkyBoxInfo->GetProxy().GetData();
 			SkyBoxRenderer.Draw_RenderThread(CommandList, View, SkyBox);
 		}
 

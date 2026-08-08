@@ -8,7 +8,7 @@
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 
 #include "Components/StaticMeshComponent.h"
-#include "Engine/PrimitiveSceneProxy.h"
+#include "Engine/FPrimitiveSceneProxy.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "RenderingThread.h"
@@ -197,11 +197,11 @@ TEST(FMaterialAssetThumbnailTests, PreviewComponentResolvesInstanceInheritanceAn
 		nullptr, "MaterialThumbnailPreviewComponent");
 	Component->SetStaticMesh(Mesh);
 	Component->SetMaterial(Fixtures.Material);
-	std::unique_ptr<Durin::PrimitiveSceneProxy> MaterialPrimitive =
+	std::unique_ptr<Durin::FPrimitiveSceneProxy> MaterialPrimitive =
 		Component->CreateSceneProxy();
 	ASSERT_NE(MaterialPrimitive, nullptr) << Error;
 	Component->SetMaterial(Fixtures.MaterialInstance);
-	std::unique_ptr<Durin::PrimitiveSceneProxy> InstancePrimitive =
+	std::unique_ptr<Durin::FPrimitiveSceneProxy> InstancePrimitive =
 		Component->CreateSceneProxy();
 	ASSERT_NE(InstancePrimitive, nullptr) << Error;
 	auto* MaterialProxy =

@@ -43,7 +43,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	auto* OcclusionComponent = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "SkyBoxOcclusionMesh");
 	OcclusionComponent->SetStaticMesh(OcclusionMesh);
 	OcclusionComponent->SetMaterial(OcclusionMaterial);
-	auto OcclusionProxy = std::make_shared<std::unique_ptr<Durin::PrimitiveSceneProxy>>(
+	auto OcclusionProxy = std::make_shared<std::unique_ptr<Durin::FPrimitiveSceneProxy>>(
 		OcclusionComponent->CreateSceneProxy());
 	ASSERT_NE(*OcclusionProxy, nullptr);
 
@@ -52,8 +52,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	SkyBox.SelectionKey = "VulkanSky";
 	SkyBox.InstanceId = 1;
 	SkyBox.TextureReference = CubeReference;
-	SkyBox.Revision = 1;
-	Scene.AddOrReplaceSkyBox(SkyBox);
+	PublishSkyBox(Scene, SkyBox);
 
 	struct FEndSkyBoxValidationSetupFrame
 	{
@@ -247,14 +246,12 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			RotatedSky.InstanceId = 1;
 			RotatedSky.TextureReference = CubeReference;
 			RotatedSky.Rotation = glm::angleAxis(glm::half_pi<double>(), Durin::FVectorConstants::Up);
-			RotatedSky.Revision = 2;
-			Scene.AddOrReplaceSkyBox(RotatedSky);
+			PublishSkyBox(Scene, RotatedSky);
 			if (!Render(MakePrincipalAxisView(Directions[0], {}, 17, 17), Result->ComponentRotated)) return;
 
 			RotatedSky.TextureReference = HdrCubeReference;
 			RotatedSky.Rotation = glm::identity<Durin::FQuat>();
-			RotatedSky.Revision = 3;
-			Scene.AddOrReplaceSkyBox(RotatedSky);
+			PublishSkyBox(Scene, RotatedSky);
 			for (size_t FaceIndex = 0; FaceIndex < Directions.size(); ++FaceIndex)
 			{
 				if (!Render(MakePrincipalAxisView(
@@ -262,20 +259,18 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			}
 
 			RotatedSky.TextureReference = CubeReference;
-			RotatedSky.Revision = 4;
-			Scene.AddOrReplaceSkyBox(RotatedSky);
+			PublishSkyBox(Scene, RotatedSky);
 			Durin::FSceneView LetterboxView = MakePrincipalAxisView(Directions[0], {}, 17, 17);
 			LetterboxView.AspectRatioConstraint = 0.5f;
 			if (!Render(LetterboxView, Result->Letterboxed)) return;
 
 			RotatedSky.Rotation = glm::identity<Durin::FQuat>();
-			RotatedSky.Revision = 5;
-			Scene.AddOrReplaceSkyBox(RotatedSky);
+			PublishSkyBox(Scene, RotatedSky);
 			Durin::FMatrix OccluderTransform = glm::translate(
 				Durin::FMatrix(1.0), Durin::FVector3(0.0, 0.0, 0.5));
 			OccluderTransform = glm::rotate(
 				OccluderTransform, glm::pi<double>(), Durin::FVectorConstants::Right);
-			Scene.AddOrReplacePrimitive(1, std::move(*OcclusionProxy), OccluderTransform);
+			Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(1), std::move(*OcclusionProxy), OccluderTransform);
 			Render(MakePrincipalAxisView(Directions[4], {}, 17, 17), Result->Occluded);
 		});
 	Durin::FlushRenderingCommands();

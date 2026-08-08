@@ -39,7 +39,6 @@ namespace Durin
 		auto GetIntensity() const -> float { return Intensity; }
 		auto GetSkyBoxSceneId() const -> const FGuid& { return SkyBoxSceneId; }
 		auto GetSkyBoxInstanceId() const -> uint64 { return SkyBoxInstanceId; }
-		auto GetSkyBoxRevision() const -> uint64 { return SkyBoxRevision; }
 
 		ENGINE_API auto SetTextureCube(DTextureCube* InTextureCube) -> void;
 		ENGINE_API auto SetTint(const FLinearColor& InTint) -> void;
@@ -64,7 +63,6 @@ namespace Durin
 		DPROPERTY()
 		FGuid SkyBoxSceneId;
 
-		uint64 SkyBoxRevision = 0;
 		// Nonserialized identity separates duplicates that intentionally share persistent state.
 		uint64 SkyBoxInstanceId = 0;
 	};

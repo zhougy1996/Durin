@@ -1,6 +1,6 @@
 #include "Preview/TextureCubePreviewComponent.h"
 
-#include "Engine/PrimitiveSceneProxy.h"
+#include "Engine/FPrimitiveSceneProxy.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "Texture/TextureCube.h"
@@ -21,7 +21,7 @@ namespace Durin
 	}
 
 	auto DTextureCubePreviewComponent::CreateSceneProxy()
-		-> std::unique_ptr<PrimitiveSceneProxy>
+		-> std::unique_ptr<FPrimitiveSceneProxy>
 	{
 		DStaticMesh* Mesh = GetStaticMesh();
 		if (Mesh == nullptr || TextureCube == nullptr)

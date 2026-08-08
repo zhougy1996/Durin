@@ -2,6 +2,7 @@
 
 #include "DObject/Property.h"
 #include "Engine/Actor.h"
+#include "Engine/SkyBoxSceneProxy.h"
 #include "IScene.h"
 #include "Texture/TextureCube.h"
 
@@ -31,7 +32,7 @@ namespace Durin
 	auto DSkyBoxComponent::OnUnregister() -> void
 	{
 		if (IScene* Scene = GetRenderScene())
-			Scene->RemoveSkyBox(SkyBoxInstanceId, ++SkyBoxRevision);
+			Scene->RemoveSkyBox(FSkyBoxSceneId(SkyBoxInstanceId));
 		Super::OnUnregister();
 	}
 
@@ -98,23 +99,22 @@ namespace Durin
 		IScene* Scene = GetRenderScene();
 		if (Scene == nullptr) return;
 
-		const uint64 Revision = ++SkyBoxRevision;
 		if (const AActor* Owner = GetOwner(); Owner && Owner->IsHidden())
 		{
-			Scene->RemoveSkyBox(SkyBoxInstanceId, Revision);
+			Scene->RemoveSkyBox(FSkyBoxSceneId(SkyBoxInstanceId));
 			return;
 		}
 
 		FSkyBoxSceneData Data;
-		Data.SceneId = SkyBoxSceneId;
-		Data.InstanceId = SkyBoxInstanceId;
-		Data.SelectionKey = GetObjectPath();
 		Data.Rotation = GetWorldRotation();
 		Data.Tint = FVector3f(Tint.R, Tint.G, Tint.B);
 		Data.Intensity = FMath::Max(0.0f, Intensity);
-		Data.Revision = Revision;
 		if (DTextureCube* Cube = TextureCube.Get())
 			Data.TextureReference = Cube->GetTextureReferenceRHI();
-		Scene->AddOrReplaceSkyBox(std::move(Data));
+		Scene->AddOrReplaceSkyBox(
+			FSkyBoxSceneId(SkyBoxInstanceId),
+			SkyBoxSceneId,
+			GetObjectPath(),
+			std::make_unique<FSkyBoxSceneProxy>(std::move(Data)));
 	}
 }

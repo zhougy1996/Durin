@@ -267,6 +267,12 @@ durin_add_engine_functional_test(EnvironmentLightingTests
 	SOURCES Private/EnvironmentLightingTests.cpp
 )
 
+durin_add_engine_functional_test(RendererSceneContractTests
+	RUNTIME_STACK_RATIONALE "Exercises renderer-owned SceneProxy and SceneInfo lifetime contracts."
+	SOURCES Private/RendererSceneContractTests.cpp
+	LIBRARIES RenderCore Renderer
+)
+
 durin_add_engine_functional_test(SceneImportVulkanTests
 	GPU
 	TIMEOUT 900
@@ -274,7 +280,7 @@ durin_add_engine_functional_test(SceneImportVulkanTests
 	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this Vulkan-backed test."
 	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/Texture/SceneImportVulkanTests.cpp
-	LIBRARIES ApplicationCore AssetImportCore StandardAssetImport RenderCore Renderer DurinEd bc7enc_rdo::bc7enc_rdo
+	LIBRARIES ApplicationCore AssetImportCore StandardAssetImport RenderCore Renderer DurinEd TextureEditor bc7enc_rdo::bc7enc_rdo
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data

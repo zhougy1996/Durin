@@ -12,6 +12,7 @@
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
+#include "Engine/SkyBoxSceneProxy.h"
 #include "Materials/Material.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
@@ -32,6 +33,15 @@
 
 namespace
 {
+	auto PublishSkyBox(Durin::FScene& Scene, Durin::FSkyBoxSceneData Data) -> void
+	{
+		const Durin::FSkyBoxSceneId Id(Data.InstanceId);
+		const Durin::FGuid PersistentId = Data.SceneId;
+		std::string SelectionKey = Data.SelectionKey;
+		Scene.AddOrReplaceSkyBox(Id, PersistentId, std::move(SelectionKey),
+			std::make_unique<Durin::FSkyBoxSceneProxy>(std::move(Data)));
+	}
+
 	struct FObserveSkyBoxCommand
 	{
 		static constexpr auto GetName() -> const char* { return "ObserveSkyBox"; }

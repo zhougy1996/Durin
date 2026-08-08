@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include "Math/Box.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "RHIResources.h"
 
@@ -10,22 +11,24 @@ namespace Durin
 	struct FStaticMeshRenderData;
 
 	// Stores renderer-owned state detached from the game-thread primitive component.
-	class PrimitiveSceneProxy
+	enum class EPrimitiveSceneProxyKind : uint8
+	{
+		StaticMesh,
+		TextureCubePreview
+	};
+
+	class FPrimitiveSceneProxy
 	{
 	public:
-		ENGINE_API virtual ~PrimitiveSceneProxy() = default;
-
-		ENGINE_API auto SetTransform(FRHICommandListBase& RHICmdList, const FMatrix& InLocalToWorld, FVector3 InActorPosition) -> void;
-		ENGINE_API auto GetLocalToWorld() const -> const FMatrix&;
-
-	protected:
-		FMatrix LocalToWorld_{1.0};
-
-		FVector3 ActorPosition_;
+		ENGINE_API virtual ~FPrimitiveSceneProxy() = default;
+		virtual auto GetKind() const -> EPrimitiveSceneProxyKind = 0;
+		virtual auto GetLocalBounds() const -> FBox = 0;
+		virtual auto UpdateMaterialBinding_RenderThread(
+			const FMaterialRenderProxyBindingUpdate&) -> bool { return false; }
 	};
 
 	// Couples static-mesh render resources with revisioned per-slot material bindings.
-	class FStaticMeshSceneProxy : public PrimitiveSceneProxy
+	class FStaticMeshSceneProxy : public FPrimitiveSceneProxy
 	{
 	public:
 		ENGINE_API explicit FStaticMeshSceneProxy(
@@ -34,6 +37,8 @@ namespace Durin
 			uint64 InMaterialComponentRevision);
 
 		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
+		auto GetKind() const -> EPrimitiveSceneProxyKind override { return EPrimitiveSceneProxyKind::StaticMesh; }
+		ENGINE_API auto GetLocalBounds() const -> FBox override;
 		ENGINE_API auto ResolveMaterialRenderData_RenderThread(
 			uint32 SlotIndex) const -> const FMaterialRenderData&;
 		auto GetNumMaterials() const -> uint32 { return static_cast<uint32>(Materials.size()); }
@@ -47,6 +52,8 @@ namespace Durin
 			-> const FMaterialRenderProxyRef&;
 		ENGINE_API auto UpdateMaterialRenderProxyBinding(
 			const FMaterialRenderProxyBindingUpdate& Update) -> void;
+		ENGINE_API auto UpdateMaterialBinding_RenderThread(
+			const FMaterialRenderProxyBindingUpdate& Update) -> bool override;
 
 	private:
 		// Non-owning borrow bounded by the component render-state lifetime. The
@@ -57,7 +64,7 @@ namespace Durin
 	};
 
 	// Couples the shared preview sphere with one retained cube resource for editor previews.
-	class FTextureCubePreviewSceneProxy final : public PrimitiveSceneProxy
+	class FTextureCubePreviewSceneProxy final : public FPrimitiveSceneProxy
 	{
 	public:
 		ENGINE_API FTextureCubePreviewSceneProxy(
@@ -65,6 +72,8 @@ namespace Durin
 			FRHITextureReferenceRef InTextureReference);
 
 		auto GetRenderData() const -> const FStaticMeshRenderData* { return RenderData; }
+		auto GetKind() const -> EPrimitiveSceneProxyKind override { return EPrimitiveSceneProxyKind::TextureCubePreview; }
+		ENGINE_API auto GetLocalBounds() const -> FBox override;
 		auto GetTextureReference() const -> const FRHITextureReferenceRef&
 		{
 			return TextureReference;

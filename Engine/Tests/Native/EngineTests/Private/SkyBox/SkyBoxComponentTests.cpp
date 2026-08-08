@@ -18,7 +18,7 @@ TEST(FSkyBoxTests, ClassDefaultSkipsRuntimeIdentityAllocation)
 	Durin::CollectGarbage();
 }
 
-TEST(FSkyBoxTests, SceneSelectsSmallestStableIdAndRejectsStaleUpdates)
+TEST(FSkyBoxTests, SceneSelectsSmallestStableIdAndAppliesFifoMutation)
 {
 	InitializeDObjectSystem();
 	Durin::InitRenderingThread();
@@ -31,17 +31,16 @@ TEST(FSkyBoxTests, SceneSelectsSmallestStableIdAndRejectsStaleUpdates)
 	Larger.InstanceId = 2;
 	Larger.SelectionKey = "Larger";
 	Larger.Intensity = 2.0f;
-	Larger.Revision = 3;
-	Scene.AddOrReplaceSkyBox(Larger);
-	Scene.RemoveSkyBox(Larger.InstanceId, 2);
+	PublishSkyBox(Scene, Larger);
+	Scene.RemoveSkyBox(Durin::FSkyBoxSceneId(Larger.InstanceId));
+	PublishSkyBox(Scene, Larger);
 
 	Durin::FSkyBoxSceneData Smaller;
 	Smaller.SceneId = SmallerId;
 	Smaller.InstanceId = 1;
 	Smaller.SelectionKey = "Smaller";
 	Smaller.Intensity = 4.0f;
-	Smaller.Revision = 1;
-	Scene.AddOrReplaceSkyBox(Smaller);
+	PublishSkyBox(Scene, Smaller);
 
 	FSkyBoxObservation Observation = ObserveSkyBoxes(Scene);
 	ASSERT_TRUE(Observation.bHasActive);
@@ -53,15 +52,15 @@ TEST(FSkyBoxTests, SceneSelectsSmallestStableIdAndRejectsStaleUpdates)
 	DuplicateGuid.InstanceId = 3;
 	DuplicateGuid.SelectionKey = "A";
 	DuplicateGuid.Intensity = 6.0f;
-	Scene.AddOrReplaceSkyBox(DuplicateGuid);
+	PublishSkyBox(Scene, DuplicateGuid);
 	Observation = ObserveSkyBoxes(Scene);
 	ASSERT_TRUE(Observation.bHasActive);
 	EXPECT_EQ(Observation.Count, 3u);
 	EXPECT_EQ(Observation.Active.InstanceId, DuplicateGuid.InstanceId);
 	EXPECT_EQ(Observation.Active.Intensity, 6.0f);
-	Scene.RemoveSkyBox(DuplicateGuid.InstanceId, 2);
+	Scene.RemoveSkyBox(Durin::FSkyBoxSceneId(DuplicateGuid.InstanceId));
 
-	Scene.RemoveSkyBox(Smaller.InstanceId, 2);
+	Scene.RemoveSkyBox(Durin::FSkyBoxSceneId(Smaller.InstanceId));
 	Observation = ObserveSkyBoxes(Scene);
 	ASSERT_TRUE(Observation.bHasActive);
 	EXPECT_EQ(Observation.Count, 1u);
@@ -149,7 +148,6 @@ TEST(FSkyBoxTests, ComponentSynchronizesRegistrationVisibilityTransformAndProper
 	EXPECT_EQ(Observation.Active.Rotation, Rotation);
 	EXPECT_EQ(Observation.Active.Tint, Durin::FVector3f(0.2f, 0.4f, 0.6f));
 	EXPECT_EQ(Observation.Active.Intensity, 3.0f);
-	EXPECT_EQ(Observation.Active.Revision, Component->GetSkyBoxRevision());
 
 	Actor->SetHidden(true);
 	EXPECT_FALSE(ObserveSkyBoxes(*Scene).bHasActive);

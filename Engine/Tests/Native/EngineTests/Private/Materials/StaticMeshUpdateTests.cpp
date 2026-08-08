@@ -52,7 +52,7 @@ namespace
 		};
 		Durin::EnqueueRenderCommand<FCapturePrimitiveCountCommand>(
 			[Scene, &Count](Durin::FRHICommandListImmediate&) {
-				Count = Scene->GetPrimitiveSceneProxies().size();
+				Count = Scene->GetPrimitiveSceneInfos().size();
 			});
 		WaitForRenderingThread();
 		return Count;

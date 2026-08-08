@@ -12,6 +12,7 @@ namespace Durin
 	class FRHICommandListImmediate;
 	class IScene;
 	class FStaticMeshSceneProxy;
+	class FPrimitiveSceneInfo;
 	enum class ERasterMode : uint8;
 	enum class ERenderMode : uint8;
 	struct FDirectionalLightSceneData;
@@ -48,7 +49,7 @@ namespace Durin
 			const FDirectionalLightSceneData& Light,
 			ERenderMode RenderMode,
 			ERasterMode RasterMode,
-			const FStaticMeshSceneProxy& Proxy) -> void;
+			const FPrimitiveSceneInfo& SceneInfo) -> void;
 		struct FState;
 
 		FRendererResourceCoordinator& Coordinator;

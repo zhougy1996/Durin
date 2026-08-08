@@ -30,7 +30,7 @@ namespace Durin
 		ENGINE_API auto HasMaterialOverride(uint32 SlotIndex) const -> bool;
 		auto GetOverrideMaterials() const -> std::span<const TObjectPtr<DMaterialInterface>> { return OverrideMaterials; }
 		ENGINE_API auto GetNumMaterials() const -> uint32;
-		ENGINE_API auto CreateSceneProxy() -> std::unique_ptr<PrimitiveSceneProxy> override;
+		ENGINE_API auto CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy> override;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;

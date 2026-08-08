@@ -7,7 +7,7 @@
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 
 #include "AssetSystem.h"
-#include "Engine/PrimitiveSceneProxy.h"
+#include "Engine/FPrimitiveSceneProxy.h"
 #include "Preview/TextureCubePreviewComponent.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/TextureCube.h"
@@ -158,7 +158,7 @@ TEST(FTextureCubeAssetThumbnailTests, PreviewComponentCreatesStableCubeReference
 		nullptr, "TextureCubeThumbnailPreviewComponent");
 	Component->SetStaticMesh(Mesh);
 	Component->SetTextureCube(Fixtures.DirectionalCube);
-	std::unique_ptr<Durin::PrimitiveSceneProxy> Primitive =
+	std::unique_ptr<Durin::FPrimitiveSceneProxy> Primitive =
 		Component->CreateSceneProxy();
 	ASSERT_NE(Primitive, nullptr) << Error;
 	auto* CubeProxy =

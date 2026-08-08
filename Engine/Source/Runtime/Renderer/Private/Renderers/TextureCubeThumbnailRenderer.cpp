@@ -1,7 +1,7 @@
 #include "Renderers/TextureCubeThumbnailRenderer.h"
 
 #include "Renderers/SkyBoxRenderer.h"
-#include "Engine/PrimitiveSceneProxy.h"
+#include "Engine/FPrimitiveSceneProxy.h"
 #include "IScene.h"
 #include "Math/Operations.h"
 #include "RHICommandList.h"
@@ -23,18 +23,11 @@ namespace Durin
 		{
 			return;
 		}
-		for (PrimitiveSceneProxy* Proxy :
-			RendererScene->GetPrimitiveSceneProxies())
+		for (const FPrimitiveSceneInfo* SceneInfo :
+			RendererScene->GetTextureCubePreviewSceneInfos())
 		{
-			if (auto* TextureCubeProxy =
-					dynamic_cast<FTextureCubePreviewSceneProxy*>(Proxy))
-			{
-				DrawProxy_RenderThread(
-					CommandList,
-					View,
-					*TextureCubeProxy,
-					SkyBoxRenderer);
-			}
+			DrawProxy_RenderThread(CommandList, View,
+				SceneInfo->GetTextureCubePreviewProxy(), SkyBoxRenderer);
 		}
 	}
 

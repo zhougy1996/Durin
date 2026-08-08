@@ -11,7 +11,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
 #include "EngineTestSupport.h"
-#include "Engine/PrimitiveSceneProxy.h"
+#include "Engine/FPrimitiveSceneProxy.h"
 #include "Engine/Actor.h"
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
@@ -256,13 +256,14 @@ namespace
 			static constexpr const char* GetName() { return "CaptureMaterialTestScene"; }
 		};
 		Durin::EnqueueRenderCommand<FCaptureMaterialTestSceneCommand>([Scene, &Snapshot](Durin::FRHICommandListImmediate& CommandList) {
-			Snapshot.ProxyCount = Scene->GetPrimitiveSceneProxies().size();
-			if (Scene->GetPrimitiveSceneProxies().empty()) return;
-			Snapshot.Proxy = dynamic_cast<Durin::FStaticMeshSceneProxy*>(Scene->GetPrimitiveSceneProxies().front());
+			Snapshot.ProxyCount = Scene->GetPrimitiveSceneInfos().size();
+			if (Scene->GetStaticMeshSceneInfos().empty()) return;
+			const Durin::FPrimitiveSceneInfo* Info = Scene->GetStaticMeshSceneInfos().front();
+			Snapshot.Proxy = &Info->GetStaticMeshProxy();
 			if (Snapshot.Proxy == nullptr) return;
 			Snapshot.Material =
 				Snapshot.Proxy->ResolveMaterialRenderData_RenderThread();
-			Snapshot.Transform = Snapshot.Proxy->GetLocalToWorld();
+			Snapshot.Transform = Info->GetTransform();
 			Snapshot.ComponentRevision = Snapshot.Proxy->GetMaterialComponentRevision();
 		});
 		WaitForRenderingThread();
@@ -277,8 +278,8 @@ namespace
 			static constexpr const char* GetName() { return "CaptureMaterialSlots"; }
 		};
 		Durin::EnqueueRenderCommand<FCaptureMaterialSlotsCommand>([Scene, &Snapshot](Durin::FRHICommandListImmediate&) {
-			if (Scene->GetPrimitiveSceneProxies().empty()) return;
-			Snapshot.Proxy = dynamic_cast<Durin::FStaticMeshSceneProxy*>(Scene->GetPrimitiveSceneProxies().front());
+			if (Scene->GetStaticMeshSceneInfos().empty()) return;
+			Snapshot.Proxy = &Scene->GetStaticMeshSceneInfos().front()->GetStaticMeshProxy();
 			if (Snapshot.Proxy == nullptr) return;
 			Snapshot.RenderData = Snapshot.Proxy->GetRenderData();
 			Snapshot.ComponentRevision = Snapshot.Proxy->GetMaterialComponentRevision();

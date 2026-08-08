@@ -1,7 +1,7 @@
 #include "Components/StaticMeshComponent.h"
 
 #include "DObject/DurinPropertyTypes.h"
-#include "Engine/PrimitiveSceneProxy.h"
+#include "Engine/FPrimitiveSceneProxy.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/DefaultMaterialService.h"
 #include "StaticMesh/StaticMesh.h"
@@ -209,7 +209,7 @@ namespace Durin
 		MarkRenderStateDirty();
 	}
 
-	auto DStaticMeshComponent::CreateSceneProxy() -> std::unique_ptr<PrimitiveSceneProxy>
+	auto DStaticMeshComponent::CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy>
 	{
 		if (StaticMesh == nullptr)
 		{

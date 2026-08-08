@@ -6,7 +6,7 @@
 #include "Resources/EnvironmentLightingResources.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
-#include "Engine/PrimitiveSceneProxy.h"
+#include "Engine/FPrimitiveSceneProxy.h"
 #include "IScene.h"
 #include "Math/Operations.h"
 #include "RHI.h"
@@ -274,20 +274,11 @@ namespace Durin
 		{
 			return;
 		}
-		for (PrimitiveSceneProxy* Proxy :
-			RendererScene->GetPrimitiveSceneProxies())
+		for (const FPrimitiveSceneInfo* SceneInfo :
+			RendererScene->GetStaticMeshSceneInfos())
 		{
-			if (auto* StaticMeshProxy =
-					dynamic_cast<FStaticMeshSceneProxy*>(Proxy))
-			{
-				DrawProxy_RenderThread(
-					CommandList,
-					View,
-					Light,
-					RenderMode,
-					RasterMode,
-					*StaticMeshProxy);
-			}
+			DrawProxy_RenderThread(CommandList, View, Light, RenderMode,
+				RasterMode, *SceneInfo);
 		}
 	}
 
@@ -297,9 +288,11 @@ namespace Durin
 		const FDirectionalLightSceneData& Light,
 		ERenderMode RenderMode,
 		ERasterMode RasterMode,
-		const FStaticMeshSceneProxy& Proxy) -> void
+		const FPrimitiveSceneInfo& SceneInfo) -> void
 	{
 		check(IsInRenderingThread());
+		const FStaticMeshSceneProxy& Proxy = SceneInfo.GetStaticMeshProxy();
+		const FMatrix& LocalToWorld = SceneInfo.GetTransform();
 		const FStaticMeshRenderData* RenderData = Proxy.GetRenderData();
 		if (RenderData == nullptr || RenderData->LODResources.empty()
 			|| !RenderData->IsReadyForRendering())
@@ -312,13 +305,13 @@ namespace Durin
 			RenderData->LODVertexFactories[0].VertexFactory;
 		FStaticMeshTransformUniform TransformUniform;
 		TransformUniform.LocalToClip = ToShaderMatrix(
-			View.ViewProjectionMatrix * Proxy.GetLocalToWorld());
+			View.ViewProjectionMatrix * LocalToWorld);
 		TransformUniform.LocalToWorld =
-			ToShaderMatrix(Proxy.GetLocalToWorld());
+			ToShaderMatrix(LocalToWorld);
 		TransformUniform.NormalToWorld = ToShaderMatrix(
-			Math::Transpose(Math::Inverse(Proxy.GetLocalToWorld())));
+			Math::Transpose(Math::Inverse(LocalToWorld)));
 		const float TransformDeterminant = glm::determinant(
-			glm::mat3(FMatrix4f(Proxy.GetLocalToWorld())));
+			glm::mat3(FMatrix4f(LocalToWorld)));
 		TransformUniform.TransformParams.x =
 			TransformDeterminant < 0.0f ? -1.0f : 1.0f;
 		const FRHIUniformBufferRange TransformUniformBuffer =

@@ -6,10 +6,35 @@
 
 namespace Durin
 {
-	class PrimitiveSceneProxy;
-	class DDirectionalLightComponent;
-	using FPrimitiveSceneId = uint64;
-	inline constexpr FPrimitiveSceneId InvalidPrimitiveSceneId = 0;
+	class FPrimitiveSceneProxy;
+	class FDirectionalLightSceneProxy;
+	class FSkyBoxSceneProxy;
+	template<typename TTag>
+	struct TSceneId
+	{
+		uint64 Value = 0;
+		explicit constexpr TSceneId(uint64 InValue = 0) : Value(InValue) {}
+		auto operator<=>(const TSceneId&) const = default;
+	};
+
+	struct FPrimitiveSceneIdTag;
+	struct FLightSceneIdTag;
+	struct FSkyBoxSceneIdTag;
+	using FPrimitiveSceneId = TSceneId<FPrimitiveSceneIdTag>;
+	using FLightSceneId = TSceneId<FLightSceneIdTag>;
+	using FSkyBoxSceneId = TSceneId<FSkyBoxSceneIdTag>;
+	inline constexpr FPrimitiveSceneId InvalidPrimitiveSceneId;
+	inline constexpr FLightSceneId InvalidLightSceneId;
+	inline constexpr FSkyBoxSceneId InvalidSkyBoxSceneId;
+
+	struct FSceneIdHash
+	{
+		template<typename TTag>
+		auto operator()(TSceneId<TTag> Id) const -> size_t
+		{
+			return std::hash<uint64>{}(Id.Value);
+		}
+	};
 
 	// Captures the renderer-facing directional light state without retaining a component.
 	struct FDirectionalLightSceneData
@@ -37,7 +62,6 @@ namespace Durin
 		FQuat Rotation{1.0, 0.0, 0.0, 0.0};
 		FVector3f Tint{1.0f, 1.0f, 1.0f};
 		float Intensity = 1.0f;
-		uint64 Revision = 0;
 	};
 
 	// Defines the game-thread mutation boundary of a renderer-owned scene.
@@ -49,7 +73,7 @@ namespace Durin
 
 		virtual auto AddOrReplacePrimitive(
 			FPrimitiveSceneId PrimitiveId,
-			std::unique_ptr<PrimitiveSceneProxy> Proxy,
+			std::unique_ptr<FPrimitiveSceneProxy> Proxy,
 			const FMatrix& Transform
 		) -> void = 0;
 
@@ -63,12 +87,18 @@ namespace Durin
 
 		virtual auto Release() -> void = 0;
 
-		virtual auto AddDirectionalLight(DDirectionalLightComponent* Light) -> void = 0;
-		virtual auto RemoveDirectionalLight(DDirectionalLightComponent* Light) -> void = 0;
+		virtual auto AddOrReplaceDirectionalLight(
+			FLightSceneId LightId,
+			std::unique_ptr<FDirectionalLightSceneProxy> Proxy) -> void = 0;
+		virtual auto RemoveDirectionalLight(FLightSceneId LightId) -> void = 0;
 		virtual auto GetDirectionalLight(FDirectionalLightSceneData& OutLight) const -> bool = 0;
 
-		virtual auto AddOrReplaceSkyBox(FSkyBoxSceneData Data) -> void = 0;
-		virtual auto RemoveSkyBox(uint64 InstanceId, uint64 Revision) -> void = 0;
+		virtual auto AddOrReplaceSkyBox(
+			FSkyBoxSceneId SkyBoxId,
+			FGuid PersistentId,
+			std::string SelectionKey,
+			std::unique_ptr<FSkyBoxSceneProxy> Proxy) -> void = 0;
+		virtual auto RemoveSkyBox(FSkyBoxSceneId SkyBoxId) -> void = 0;
 		virtual auto GetActiveSkyBox_RenderThread(FSkyBoxSceneData& OutSkyBox) const -> bool = 0;
 		virtual auto GetSkyBoxCount_RenderThread() const -> size_t = 0;
 	};

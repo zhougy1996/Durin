@@ -1,20 +1,10 @@
-#include "Engine/PrimitiveSceneProxy.h"
+#include "Engine/FPrimitiveSceneProxy.h"
 
+#include "StaticMesh/StaticMeshResources.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
 {
-	auto PrimitiveSceneProxy::SetTransform(FRHICommandListBase& RHICmdList, const FMatrix& InLocalToWorld, FVector3 InActorPosition) -> void
-	{
-		LocalToWorld_ = InLocalToWorld;
-		ActorPosition_ = InActorPosition;
-	}
-
-	auto PrimitiveSceneProxy::GetLocalToWorld() const -> const FMatrix&
-	{
-		return LocalToWorld_;
-	}
-
 	FStaticMeshSceneProxy::FStaticMeshSceneProxy(
 		const FStaticMeshRenderData* InRenderData,
 		std::vector<FMaterialRenderProxyRef> InMaterialProxies,
@@ -28,6 +18,11 @@ namespace Durin
 	auto FStaticMeshSceneProxy::GetRenderData() const -> const FStaticMeshRenderData*
 	{
 		return RenderData;
+	}
+
+	auto FStaticMeshSceneProxy::GetLocalBounds() const -> FBox
+	{
+		return RenderData != nullptr ? RenderData->LocalBounds : FBox{};
 	}
 
 	auto FStaticMeshSceneProxy::ResolveMaterialRenderData_RenderThread(
@@ -59,11 +54,23 @@ namespace Durin
 		RecordMaterialBindingUpdate();
 	}
 
+	auto FStaticMeshSceneProxy::UpdateMaterialBinding_RenderThread(
+		const FMaterialRenderProxyBindingUpdate& Update) -> bool
+	{
+		UpdateMaterialRenderProxyBinding(Update);
+		return true;
+	}
+
 	FTextureCubePreviewSceneProxy::FTextureCubePreviewSceneProxy(
 		const FStaticMeshRenderData* InRenderData,
 		FRHITextureReferenceRef InTextureReference)
 		: RenderData(InRenderData)
 		, TextureReference(std::move(InTextureReference))
 	{
+	}
+
+	auto FTextureCubePreviewSceneProxy::GetLocalBounds() const -> FBox
+	{
+		return RenderData != nullptr ? RenderData->LocalBounds : FBox{};
 	}
 }

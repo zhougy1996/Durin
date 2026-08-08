@@ -6,7 +6,7 @@
 #include "AssetSystem.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/ObjectLifecycle.h"
-#include "Engine/PrimitiveSceneProxy.h"
+#include "Engine/FPrimitiveSceneProxy.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialTypes.h"
 #include "Misc/Paths.h"
@@ -77,7 +77,7 @@ namespace Durin
 		Component->SetStaticMesh(MeshImport.Asset);
 		Component->SetMaterial(Material);
 
-		std::unique_ptr<PrimitiveSceneProxy> PrimitiveProxy = Component->CreateSceneProxy();
+		std::unique_ptr<FPrimitiveSceneProxy> PrimitiveProxy = Component->CreateSceneProxy();
 		auto* StaticMeshProxy = dynamic_cast<FStaticMeshSceneProxy*>(PrimitiveProxy.get());
 		ASSERT_NE(StaticMeshProxy, nullptr);
 		ASSERT_NE(StaticMeshProxy->GetRenderData(), nullptr);

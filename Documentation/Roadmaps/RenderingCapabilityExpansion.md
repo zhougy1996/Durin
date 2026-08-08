@@ -5,7 +5,7 @@ Summary: Expand the current static-mesh forward renderer into a pass-classified,
 Last reviewed: 2026-08-08
 
 Status: Active
-Completed:
+Completed: M1
 
 ## Current Status
 
@@ -31,22 +31,19 @@ is disabled, depth test and write are enabled, and back-face culling is
 disabled for every StaticMesh pipeline. The shader carries Opacity and
 OpacityMask but performs neither blending nor coverage rejection.
 
-The scene mutation boundary is only partially proxy-based. Primitive proxies
-cross to the rendering thread without paired Renderer-private SceneInfo
-objects, SkyBox state is stored as direct snapshots, and directional lights
-remain game-thread component pointers. The render thread selects the first
-light pointer and calls `GetSceneData()` during view rendering. StaticMesh and
-TextureCube preview renderers rediscover their entries by scanning one untyped
-primitive array with `dynamic_cast`.
+The scene mutation boundary now uses paired SceneProxy and SceneInfo ownership
+for StaticMesh, TextureCube preview, SkyBox, and directional lights. Strong
+family identities and FIFO render commands address entries without component
+pointers or a universal revision. Primitive transforms, bounds, visibility,
+classification, and typed membership live in `FPrimitiveSceneInfo`; feature
+renderers consume authoritative typed views without whole-scene RTTI scans.
 
-M1 is active through the
+M1 is complete through the
 [Renderer Scene Proxy and Info Contract Plan](../Plans/RendererSceneProxyAndInfoContract.md).
-It aligns StaticMesh, TextureCube preview, SkyBox, and directional light on an
-Engine-facing SceneProxy plus Renderer-private SceneInfo model, detached value
-publication, strong typed identity, FIFO scene mutation, and authoritative
-typed storage without introducing a public renderer registry. The second plan
-will implement the material render-pass policies already prepared by the
-Material System roadmap.
+The lasting contract is recorded in
+[Renderer Scene Representation](../Runtime/Rendering/SceneRepresentation.md).
+The next plan will implement the material render-pass policies already
+prepared by the Material System roadmap.
 
 ## Outcome
 
@@ -211,17 +208,17 @@ cross-product enum and lets a new primitive reuse existing pass semantics.
 
 | Area | Existing foundation | Expansion gap | Owning milestone |
 | --- | --- | --- | --- |
-| Feature ownership | `FSceneRenderer` explicitly composes private StaticMesh, SkyBox, TextureCube preview, post-process, and editor-assistance owners with coordinated invalidation. | Adding a feature requires hand-editing orchestration, which is acceptable for now; repeated primitive discovery and mutation are not. | M1 |
-| Primitive scene state | Stable `FPrimitiveSceneId`, render-command mutation, proxy transform, and asset-bounded render-data borrow exist. | No `FPrimitiveSceneInfo` exists; one untyped vector is scanned with `dynamic_cast`; proxies have no kind, bounds, or visibility facts and material mutation hard-codes StaticMesh. | M1 |
-| Light scene state | `FDirectionalLightSceneData` defines the intended copied values. | No `FLightSceneProxy` or `FLightSceneInfo` exists; `FScene` retains component pointers, mutates them on the game thread, and reads the first component from the rendering thread. Point and spot lights remain M5 work. | M1, M5 |
-| SkyBox scene state | Stable instance identity, copied values, retained texture references, ordered commands, selection, and validation exist. | Direct snapshot storage and a separate revision map bypass the selected SceneProxy/SceneInfo ownership model. | M1 |
+| Feature ownership | `FSceneRenderer` explicitly composes private StaticMesh, SkyBox, TextureCube preview, post-process, and editor-assistance owners with coordinated invalidation and typed scene inputs. | Adding a feature still requires hand-editing orchestration, which remains acceptable until a named external module requires registration. | Conditional public registration |
+| Primitive scene state | `FPrimitiveSceneInfo` owns strong identity, transform, finite local/world bounds, visibility, explicit kind, and authoritative typed membership; proxies retain family resources. | Per-view culling, LOD selection, and prepared draw lists remain M3 work. | M3 |
+| Light scene state | `FDirectionalLightSceneProxy` and `FLightSceneInfo` detach copied values from components and mutate through FIFO render commands. | Point/spot families, bounded GPU payloads, and multi-light selection remain M5 work. | M5 |
+| SkyBox scene state | `FSkyBoxSceneProxy` and `FSkyBoxSceneInfo` own retained texture state, strong identity, deterministic selection, and typed membership without a duplicate revision map. | No M1 ownership gap remains. | Complete |
 | Materials | Versioned immutable v3 representation, stable proxy publication, PBR roles, sampler state, and static shader/pipeline identities exist. | Opaque, masked, translucent, two-sided, depth-write, and mask-threshold identities do not produce distinct visible pass behavior. | M2 |
 | Graphics state | RHI supports render-target layouts, fill/line topology, depth toggles, one alpha-blend toggle, and back-face-culling toggle. | Blend factors/ops, full cull selection, depth compare, color mask, depth bias, and stencil are not value contracts; Vulkan fixes several policies internally. | M2, M6 |
 | StaticMesh geometry | Validated per-LOD resources, a local vertex factory, section/material slots, and robust render-resource lifecycle exist. | Draw code always selects LOD 0, visits every proxy, allocates per-proxy uniforms, and has no bounds, instancing, or draw-list preparation. | M3 |
 | Scene passes | Scene Color/depth, post-process, and preserved-depth editor assistance work for present and offscreen outputs. | Sky and all scene geometry share one pass; there are no depth-only, shadow, translucent, GBuffer, or debug-view pass contracts. | M2, M6 |
 | Scene targets | Size-keyed cache is capped at eight entries and supports sequential multi-view rendering. | Scene Color is LDR `SRGBA8_UNORM`; D32 lacks shader-resource usage; allocation is entry-count rather than byte-budget based; no view history identity exists. | Conditional architecture branch |
 | View policy | Per-view Lit/Unlit, Solid/Wireframe, FXAA, fitted content rect, and editor assistance are immutable snapshots. | No exposure, debug buffer mode, temporal matrices/history, visibility mask, or per-view performance result exists. | M3 and conditional branches |
-| Validation | Material, viewport layout, resource failure/reload, StaticMesh lifecycle, SkyBox, thumbnail, and Vulkan rendering coverage exists. | No Proxy/SceneInfo membership, detached-light retirement, pass classification/order, masking, blending, culling, LOD choice, second vertex factory, multi-light ordering, or shadow image baseline is validated. | M1-M6 |
+| Validation | Proxy/SceneInfo membership, bounds, complete insertion, FIFO recreation, detached-light retirement, StaticMesh lifecycle, SkyBox, thumbnail, and Vulkan rendering coverage exists. | Pass classification/order, masking, blending, culling, LOD choice, second vertex factory, multi-light ordering, and shadow image baselines remain. | M2-M6 |
 
 ## Milestone Map
 
@@ -426,7 +423,7 @@ visibility should not be one child plan. Activate bounded plans independently:
 - `Engine/Source/Runtime/RenderCore/Public/IRendererModule.h`
 - `Engine/Source/Runtime/RenderCore/Public/SceneView.h`
 - `Engine/Source/Runtime/Engine/Public/IScene.h`
-- `Engine/Source/Runtime/Engine/Public/Engine/PrimitiveSceneProxy.h`
+- `Engine/Source/Runtime/Engine/Public/Engine/FPrimitiveSceneProxy.h`
 - `Engine/Source/Runtime/Engine/Public/Components/PrimitiveComponent.h`
 - `Engine/Source/Runtime/Engine/Public/Materials/MaterialTypes.h`
 - `Engine/Source/Runtime/Renderer/Public/Scene.h`

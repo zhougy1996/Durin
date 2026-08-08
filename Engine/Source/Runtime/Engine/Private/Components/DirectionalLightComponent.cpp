@@ -1,32 +1,33 @@
 #include "Components/DirectionalLightComponent.h"
 
 #include "Engine/Actor.h"
+#include "Engine/LightSceneProxy.h"
 #include "IScene.h"
 #include "Math/Operations.h"
 
 namespace Durin
 {
+	namespace
+	{
+		std::atomic<uint64> GNextLightSceneId = 1;
+	}
+
 	auto DDirectionalLightComponent::OnRegister() -> void
 	{
 		Super::OnRegister();
-		if (IScene* Scene = GetRenderScene(); Scene && (!GetOwner() || !GetOwner()->IsHidden())) Scene->AddDirectionalLight(this);
+		EnsureLightSceneId();
+		MarkLightRenderStateDirty();
 	}
 
 	auto DDirectionalLightComponent::OnUnregister() -> void
 	{
-		if (IScene* Scene = GetRenderScene()) Scene->RemoveDirectionalLight(this);
+		if (IScene* Scene = GetRenderScene()) Scene->RemoveDirectionalLight(LightSceneId);
 		Super::OnUnregister();
 	}
 
 	auto DDirectionalLightComponent::OnOwnerVisibilityChanged() -> void
 	{
-		if (!IsRegistered()) return;
-		IScene* Scene = GetRenderScene();
-		if (Scene == nullptr) return;
-		if (GetOwner() && GetOwner()->IsHidden())
-			Scene->RemoveDirectionalLight(this);
-		else
-			Scene->AddDirectionalLight(this);
+		MarkLightRenderStateDirty();
 	}
 
 	auto DDirectionalLightComponent::GetSceneData() const -> FDirectionalLightSceneData
@@ -46,15 +47,55 @@ namespace Durin
 	auto DDirectionalLightComponent::SetIntensity(float InIntensity) -> void
 	{
 		Intensity = FMath::Max(0.0f, InIntensity);
+		MarkLightRenderStateDirty();
 	}
 
 	auto DDirectionalLightComponent::SetAmbientIntensity(float InIntensity) -> void
 	{
 		AmbientIntensity = FMath::Max(0.0f, InIntensity);
+		MarkLightRenderStateDirty();
 	}
 
 	auto DDirectionalLightComponent::SetRimLightIntensity(float InIntensity) -> void
 	{
 		RimLightIntensity = FMath::Max(0.0f, InIntensity);
+		MarkLightRenderStateDirty();
+	}
+
+	auto DDirectionalLightComponent::OnUpdateTransform() -> void
+	{
+		Super::OnUpdateTransform();
+		MarkLightRenderStateDirty();
+	}
+
+	auto DDirectionalLightComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
+	{
+		Super::PostEditChangeProperty(Event);
+		if (!Event.MemberProperty || (Event.Phase == EPropertyChangePhase::Committed
+			&& Event.Origin == EPropertyChangeOrigin::Edit)) return;
+		MarkLightRenderStateDirty();
+	}
+
+	auto DDirectionalLightComponent::EnsureLightSceneId() -> FLightSceneId
+	{
+		if (LightSceneId == InvalidLightSceneId)
+			LightSceneId = FLightSceneId(GNextLightSceneId.fetch_add(1, std::memory_order_relaxed));
+		return LightSceneId;
+	}
+
+	auto DDirectionalLightComponent::MarkLightRenderStateDirty() -> void
+	{
+		if (!IsRegistered()) return;
+		IScene* Scene = GetRenderScene();
+		if (Scene == nullptr) return;
+		const FLightSceneId SceneId = EnsureLightSceneId();
+		if (const AActor* Owner = GetOwner(); Owner && Owner->IsHidden())
+		{
+			Scene->RemoveDirectionalLight(SceneId);
+			return;
+		}
+		Scene->AddOrReplaceDirectionalLight(
+			SceneId,
+			std::make_unique<FDirectionalLightSceneProxy>(GetSceneData()));
 	}
 }

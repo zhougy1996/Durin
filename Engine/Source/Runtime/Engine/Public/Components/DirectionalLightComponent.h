@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Components/SceneComponent.h"
+#include "IScene.h"
 
 #ifdef _DHT_PARSER
 namespace Durin
@@ -35,8 +36,17 @@ namespace Durin
 		ENGINE_API auto SetIntensity(float InIntensity) -> void;
 		ENGINE_API auto SetAmbientIntensity(float InIntensity) -> void;
 		ENGINE_API auto SetRimLightIntensity(float InIntensity) -> void;
+		auto GetLightSceneId() const -> FLightSceneId { return LightSceneId; }
+
+	protected:
+		ENGINE_API auto OnUpdateTransform() -> void override;
+		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 	private:
+		auto EnsureLightSceneId() -> FLightSceneId;
+		auto MarkLightRenderStateDirty() -> void;
+
+		FLightSceneId LightSceneId;
 		DPROPERTY(Edit, MetaData="HideAlpha")
 		FLinearColor Color{1.0f, 1.0f, 1.0f, 1.0f};
 

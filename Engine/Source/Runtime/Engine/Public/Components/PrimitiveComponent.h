@@ -1,6 +1,6 @@
 #pragma once
 #include "Components/SceneComponent.h"
-#include "Engine/PrimitiveSceneProxy.h"
+#include "Engine/FPrimitiveSceneProxy.h"
 #include "IScene.h"
 
 #include "PrimitiveComponent.gen.h"
@@ -27,7 +27,7 @@ namespace Durin
 		ENGINE_API auto OnUnregister() -> void override;
 		ENGINE_API auto OnOwnerVisibilityChanged() -> void override;
 
-		ENGINE_API virtual auto CreateSceneProxy() -> std::unique_ptr<PrimitiveSceneProxy>;
+		ENGINE_API virtual auto CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy>;
 		ENGINE_API auto GetRenderMatrix() const -> FMatrix;
 		ENGINE_API auto GetPrimitiveSceneId() const -> FPrimitiveSceneId { return PrimitiveSceneId; }
 		ENGINE_API auto DestroyRenderState() -> void;

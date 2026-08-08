@@ -19,7 +19,7 @@ namespace Durin
 
 		TEXTUREEDITOR_API auto SetTextureCube(DTextureCube* InTextureCube) -> void;
 		auto GetTextureCube() const -> DTextureCube* { return TextureCube.Get(); }
-		TEXTUREEDITOR_API auto CreateSceneProxy() -> std::unique_ptr<PrimitiveSceneProxy> override;
+		TEXTUREEDITOR_API auto CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy> override;
 
 	private:
 		DPROPERTY(Transient)

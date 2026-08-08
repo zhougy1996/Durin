@@ -748,7 +748,7 @@ TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndD
 			FCaptureMaterialStressPrimitiveCountCommand>(
 			[&Count, Scene = Harness.Scene](
 				Durin::FRHICommandListImmediate&) {
-				Count = Scene->GetPrimitiveSceneProxies().size();
+				Count = Scene->GetPrimitiveSceneInfos().size();
 			});
 		WaitForRenderingThread();
 		return Count;

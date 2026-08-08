@@ -7,7 +7,7 @@ namespace Durin
 {
 	namespace
 	{
-		std::atomic<FPrimitiveSceneId> GNextPrimitiveSceneId = 1;
+		std::atomic<uint64> GNextPrimitiveSceneId = 1;
 	}
 
 	auto DPrimitiveComponent::OnRegister() -> void
@@ -28,7 +28,7 @@ namespace Durin
 		MarkRenderStateDirty();
 	}
 
-	auto DPrimitiveComponent::CreateSceneProxy() -> std::unique_ptr<PrimitiveSceneProxy>
+	auto DPrimitiveComponent::CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy>
 	{
 		return nullptr;
 	}
@@ -65,7 +65,7 @@ namespace Durin
 		}
 		if (EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Proxy))
 		{
-			std::unique_ptr<PrimitiveSceneProxy> Proxy = CreateSceneProxy();
+			std::unique_ptr<FPrimitiveSceneProxy> Proxy = CreateSceneProxy();
 			if (Proxy != nullptr)
 			{
 				Scene->AddOrReplacePrimitive(SceneId, std::move(Proxy), GetRenderMatrix());
@@ -101,7 +101,7 @@ namespace Durin
 	{
 		if (PrimitiveSceneId == InvalidPrimitiveSceneId)
 		{
-			PrimitiveSceneId = GNextPrimitiveSceneId.fetch_add(1, std::memory_order_relaxed);
+			PrimitiveSceneId = FPrimitiveSceneId(GNextPrimitiveSceneId.fetch_add(1, std::memory_order_relaxed));
 		}
 		return PrimitiveSceneId;
 	}

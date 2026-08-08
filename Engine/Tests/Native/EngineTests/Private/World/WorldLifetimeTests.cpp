@@ -1,4 +1,6 @@
 #include "WorldTestSupport.h"
+#include "Engine/LightSceneProxy.h"
+#include "Engine/SkyBoxSceneProxy.h"
 
 namespace
 {
@@ -7,7 +9,7 @@ namespace
 	public:
 		auto AddOrReplacePrimitive(
 			Durin::FPrimitiveSceneId,
-			std::unique_ptr<Durin::PrimitiveSceneProxy>,
+			std::unique_ptr<Durin::FPrimitiveSceneProxy>,
 			const Durin::FMatrix&) -> void override
 		{
 		}
@@ -31,11 +33,11 @@ namespace
 		{
 		}
 
-		auto AddDirectionalLight(Durin::DDirectionalLightComponent*) -> void override
+		auto AddOrReplaceDirectionalLight(Durin::FLightSceneId, std::unique_ptr<Durin::FDirectionalLightSceneProxy>) -> void override
 		{
 		}
 
-		auto RemoveDirectionalLight(Durin::DDirectionalLightComponent*) -> void override
+		auto RemoveDirectionalLight(Durin::FLightSceneId) -> void override
 		{
 		}
 
@@ -44,11 +46,11 @@ namespace
 			return false;
 		}
 
-		auto AddOrReplaceSkyBox(Durin::FSkyBoxSceneData) -> void override
+		auto AddOrReplaceSkyBox(Durin::FSkyBoxSceneId, Durin::FGuid, std::string, std::unique_ptr<Durin::FSkyBoxSceneProxy>) -> void override
 		{
 		}
 
-		auto RemoveSkyBox(Durin::uint64, Durin::uint64) -> void override
+		auto RemoveSkyBox(Durin::FSkyBoxSceneId) -> void override
 		{
 		}
 
