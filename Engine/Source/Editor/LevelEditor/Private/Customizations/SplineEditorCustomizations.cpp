@@ -50,7 +50,6 @@ namespace Durin
 			}
 			auto GetDescription() const -> std::string_view override { return Description; }
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return Packages; }
-			auto MutatesContent() const -> bool override { return true; }
 			auto Undo() -> bool override { return Apply(Before, bBeforeClosed); }
 			auto Redo() -> bool override { return Apply(After, bAfterClosed); }
 		private:

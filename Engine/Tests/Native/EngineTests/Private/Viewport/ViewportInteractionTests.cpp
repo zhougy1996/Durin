@@ -124,6 +124,8 @@ TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowle
 	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, InitialLocation, CenterScreen));
 	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, HandlePoint, HandleScreen));
 	Durin::FEditorTransactionManager Transactions;
+	const Durin::uint64 MountedContentRevision =
+		Transactions.GetMountedContentMutationRevision();
 	Input.bFocused = true;
 	Input.bHovered = true;
 	Input.bLeftMousePressed = true;
@@ -138,8 +140,14 @@ TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowle
 	Input.bLeftMouseDown = false;
 	Gizmo.Update(Targets, View, Input, &Transactions);
 	ASSERT_TRUE(Transactions.CanUndo());
+	EXPECT_EQ(
+		Transactions.GetMountedContentMutationRevision(),
+		MountedContentRevision);
 	EXPECT_EQ(Transactions.GetUndoDescription(), "Translate 'Probe'");
 	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_EQ(
+		Transactions.GetMountedContentMutationRevision(),
+		MountedContentRevision);
 	ExpectVectorNear(Target->Transform.Translation, InitialLocation);
 	Target->Capabilities = Durin::ETransformGizmoCapability::Translate;
 	Gizmo.SetMode(Durin::ETransformGizmoMode::Rotate);

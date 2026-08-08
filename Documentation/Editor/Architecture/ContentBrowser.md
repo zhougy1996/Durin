@@ -128,13 +128,34 @@ history, and retains its marked operation directory. Otherwise, staged data is
 owned for exactly the lifetime of the reachable history entry and cleanup
 validates the exact marked, unmounted root without traversing reparse points.
 
-Successful relocation, Fix Up, Delete, Undo, and Redo advance editor mutation
-or registry revisions. Every Content Browser panel observes both revisions
-without being retained by history, cancels obsolete thumbnail work, rescans and
-refreshes, repairs selection, and preserves the current directory when it
-survives. If the current directory was deleted, the panel navigates to its
-nearest surviving parent; unrelated global history commands do not steal
-Content Browser focus.
+Successful relocation and Delete transitions declare that they mutate mounted
+content discovery. Execute, Undo, and Redo therefore advance the transaction
+manager's monotonic mounted-content mutation revision. Direct Content Browser
+filesystem operations and import completion publish the same invalidation
+explicitly. Ordinary object, component, reflected-property, Spline, and
+transform-gizmo transactions never publish it; their package revision and dirty
+state transitions are independent of filesystem discovery.
+
+Every Content Browser panel observes the mounted-content revision separately
+from the live asset-registry revision. A new mounted-content revision performs
+one incremental reconciliation, then refreshes mount and item snapshots and
+repairs selection. Reconciliation acknowledgement and failure suppression are
+shared across open panels, so later observers refresh their local snapshots but
+do not repeat the scan. A registry-only revision refreshes those derived
+snapshots without scanning, because AssetCore has already published the
+metadata change.
+The initiating panel acknowledges a successful self-originating reconciliation,
+so the next draw cannot repeat it. Manual Refresh remains an explicit scan of
+all auto-scan mounts and is also the retry path for external filesystem changes.
+
+Failed automatic reconciliation reports the AssetCore error and retains the
+unacknowledged mounted-content revision. That exact failed revision is
+suppressed on later frames to avoid a scan loop; manual Refresh or a later
+mounted-content revision retries it. Snapshot refresh happens only after a
+successful reconciliation. Surviving directories and selections are preserved;
+if the current directory was deleted, the panel navigates to its nearest
+surviving parent. Panels and transaction objects do not retain one another, and
+unrelated global history commands do not steal Content Browser focus.
 
 ## Related Documentation
 

@@ -160,12 +160,17 @@ namespace Durin
 			.ReportError =
 				[this](std::string Message) { SetError(std::move(Message)); },
 			.Imported = [this](std::string AssetPath) {
-				Asset::GetAssetRegistry().ScanMountedContent(Asset::EAssetRegistryScanMode::Incremental);
+				if (ContentBrowserPanel)
+					ContentBrowserPanel->NotifyMountedContentChanged();
+				else if (GEditor)
+					GEditor->GetTransactionManager().NotifyMountedContentMutation();
 				if (ContentBrowserPanel) ContentBrowserPanel->RevealAsset(AssetPath);
 			},
 			.ImportedDirectory = [this](std::string DirectoryPath) {
-				Asset::GetAssetRegistry().ScanMountedContent(
-					Asset::EAssetRegistryScanMode::Incremental);
+				if (ContentBrowserPanel)
+					ContentBrowserPanel->NotifyMountedContentChanged();
+				else if (GEditor)
+					GEditor->GetTransactionManager().NotifyMountedContentMutation();
 				if (ContentBrowserPanel)
 					ContentBrowserPanel->RevealDirectory(DirectoryPath);
 			},
@@ -182,6 +187,9 @@ namespace Durin
 
 	auto MLevelEditor::CreateContentBrowser() -> void
 	{
+		if (!MountedContentReconciliationState)
+			MountedContentReconciliationState =
+				std::make_shared<FMountedContentReconciliationState>();
 		auto ContentBrowser = std::make_unique<FContentBrowserPanel>(
 			SessionSettings,
 			[this](const std::string& Path, const std::string& AssetClassName) {
@@ -213,9 +221,14 @@ namespace Durin
 			[] {
 				return GEditor
 					? GEditor->GetTransactionManager()
-						.GetContentMutationRevision()
+						.GetMountedContentMutationRevision()
 					: uint64{0};
-			}
+			},
+			[] {
+				if (GEditor)
+					GEditor->GetTransactionManager().NotifyMountedContentMutation();
+			},
+			MountedContentReconciliationState
 		);
 		ContentBrowserPanel = ContentBrowser.get();
 		Panels.emplace_back(std::move(ContentBrowser));

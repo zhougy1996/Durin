@@ -22,6 +22,7 @@ namespace Durin
 	class FTextureImportDialog;
 	class FTextureCubeImportDialog;
 	class FContentBrowserPanel;
+	struct FMountedContentReconciliationState;
 	class FDetailsPanel;
 	class FEditorNotificationOverlay;
 	struct FLevelEditorContext;
@@ -86,6 +87,8 @@ namespace Durin
 		std::unique_ptr<FStaticMeshImportDialog> StaticMeshImportDialog;
 		std::unique_ptr<FTextureImportDialog> TextureImportDialog;
 		std::unique_ptr<FTextureCubeImportDialog> TextureCubeImportDialog;
+		std::shared_ptr<FMountedContentReconciliationState>
+			MountedContentReconciliationState;
 		FEditorNotificationOverlay* NotificationOverlay = nullptr;
 		std::vector<std::unique_ptr<ILevelEditorPanel>> Panels;
 		// Panel pointers are non-owning aliases into the Panels collection.

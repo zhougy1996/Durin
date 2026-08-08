@@ -44,7 +44,9 @@ namespace Durin
 		DURINED_API virtual auto GetDescription() const -> std::string_view = 0;
 		virtual auto GetDetails(EEditorTransactionOperation Operation) const -> std::string { (void)Operation; return {}; }
 		virtual auto GetAffectedPackages() const -> std::span<DPackage* const> { return {}; }
-		virtual auto MutatesContent() const -> bool { return false; }
+		// True only when a successful transition changes files or discovery
+		// identities beneath automatically scanned mounted content.
+		virtual auto MutatesMountedContent() const -> bool { return false; }
 		DURINED_API virtual auto Undo() -> bool = 0;
 		DURINED_API virtual auto Redo() -> bool = 0;
 	};
@@ -79,7 +81,11 @@ namespace Durin
 		DURINED_API auto GetRedoDescription() const -> std::string_view;
 		DURINED_API auto GetUndoId() const -> FEditorTransactionId;
 		DURINED_API auto GetRedoId() const -> FEditorTransactionId;
-		auto GetContentMutationRevision() const -> uint64 { return ContentMutationRevision; }
+		auto GetMountedContentMutationRevision() const -> uint64
+		{
+			return MountedContentMutationRevision;
+		}
+		DURINED_API auto NotifyMountedContentMutation() -> void;
 		DURINED_API auto ConsumeEvents() -> std::vector<FEditorTransactionEvent>;
 		DURINED_API auto EstablishSavedState(DPackage& Package) -> void;
 		DURINED_API auto MarkSaved(DPackage& Package) -> void;
@@ -121,7 +127,7 @@ namespace Durin
 		static constexpr size_t MaxHistory = 256;
 		FEditorTransactionId NextId = 1;
 		FEditorRevisionId NextRevision = 1;
-		uint64 ContentMutationRevision = 1;
+		uint64 MountedContentMutationRevision = 1;
 		std::vector<FEntry> UndoStack;
 		std::vector<FEntry> RedoStack;
 		std::vector<FEditorTransactionEvent> PendingEvents;

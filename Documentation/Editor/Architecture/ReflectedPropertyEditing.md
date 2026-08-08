@@ -260,6 +260,12 @@ create no transaction or revision and retain their pre-interaction dirty state.
 Revision metadata belongs to the editor transaction manager, is not serialized
 into `DPackage`, and is forgotten with the document/history lifecycle.
 
+Package revision and dirty-state tracking does not imply mounted-content
+discovery invalidation. Reflected edits, including component transforms and
+Spline control-point edits, mutate in-memory package state and do not advance
+the transaction manager's mounted-content mutation revision. Consequently their
+Execute, Undo, and Redo transitions never request an asset-registry scan.
+
 ## Container Transactions
 
 Arrays distinguish element assignment, add, remove, and resize. Maps distinguish

@@ -145,6 +145,7 @@ durin_add_engine_functional_test(EditorAssetWorkflowTests
 		Private/Editor/ImportDialogStateTests.cpp
 		Private/Editor/ContentBrowserItemViewTests.cpp
 		Private/Editor/ContentBrowserModelTests.cpp
+		Private/Editor/ContentBrowserRefreshCoordinatorTests.cpp
 		Private/SourceLibraryReferenceContractTests.cpp
 		Private/SourceReferenceIndexTests.cpp
 	PRIVATE_SOURCES
@@ -155,6 +156,7 @@ durin_add_engine_functional_test(EditorAssetWorkflowTests
 		${_durin_level_editor_private}/Panels/ContentBrowserItemView.cpp
 		${_durin_level_editor_private}/Panels/ContentBrowserModel.cpp
 		${_durin_level_editor_private}/Panels/ContentBrowserOperations.cpp
+		${_durin_level_editor_private}/Panels/ContentBrowserRefreshCoordinator.cpp
 		${_durin_level_editor_private}/Panels/ContentDeletionTransaction.cpp
 	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd
 	DATA_DIRECTORIES

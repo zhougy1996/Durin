@@ -15,7 +15,7 @@ namespace Durin
 		auto GetDescription() const -> std::string_view override;
 		auto GetDetails(EEditorTransactionOperation Operation) const
 			-> std::string override;
-		auto MutatesContent() const -> bool override { return true; }
+		auto MutatesMountedContent() const -> bool override { return true; }
 		auto Undo() -> bool override;
 		auto Redo() -> bool override;
 

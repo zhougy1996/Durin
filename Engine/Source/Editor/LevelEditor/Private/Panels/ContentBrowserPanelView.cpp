@@ -91,7 +91,7 @@ namespace Durin
 	auto FContentBrowserPanel::Draw(FLevelEditorContext& Context) -> void
 	{
 		(void)Context;
-		SynchronizeContentMutation();
+		SynchronizeMountedContentMutation();
 		RefreshMountSnapshot();
 		if (!EditorWorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "Content Browser", "ContentBrowser", GetOpenPtr()))
 		{
@@ -809,7 +809,7 @@ namespace Durin
 								AssetImport::DetachImportRecordOutput(
 									*Record, Identity, AssetImport::GetImportRecordIndex());
 							if (!Result) { SetError(Result.Message); return; }
-							Refresh(true);
+							PublishMountedContentMutation();
 							RevealAsset(Result.RevealPath.ToString());
 						};
 				}
@@ -822,7 +822,7 @@ namespace Durin
 							AssetImport::RepairDuplicatedImportRecord(
 								*Record, AssetImport::GetImportRecordIndex());
 						if (!Result) { SetError(Result.Message); return; }
-						Refresh(true);
+						PublishMountedContentMutation();
 						RevealAsset(Result.RevealPath.ToString());
 					};
 				ImGui::Separator();
@@ -1047,7 +1047,7 @@ namespace Durin
 					if (!Result)
 						SetError(Result.Message);
 					else
-						Refresh(true);
+						PublishMountedContentMutation();
 				}
 			}
 		}

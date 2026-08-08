@@ -21,12 +21,23 @@ namespace Durin
 		FRequestImport InRequestImport,
 		FMoveAssets InMoveAssets,
 		FExecuteTransaction InExecuteTransaction,
-		FGetContentMutationRevision InGetContentMutationRevision)
+		FGetMountedContentMutationRevision InGetMountedContentMutationRevision,
+		FNotifyMountedContentMutation InNotifyMountedContentMutation,
+		std::shared_ptr<FMountedContentReconciliationState>
+			InMountedContentReconciliationState)
 		: SessionSettings(InSessionSettings)
 		, OpenAsset(std::move(InOpenAsset))
 		, RequestImport(std::move(InRequestImport))
 		, ExecuteTransaction(std::move(InExecuteTransaction))
-		, GetContentMutationRevision(std::move(InGetContentMutationRevision))
+		, GetMountedContentMutationRevision(
+			std::move(InGetMountedContentMutationRevision))
+		, NotifyMountedContentMutation(std::move(InNotifyMountedContentMutation))
+		, RefreshCoordinator(
+			GetMountedContentMutationRevision
+				? GetMountedContentMutationRevision()
+				: uint64{0},
+			Asset::GetAssetRegistry().GetRevision(),
+			std::move(InMountedContentReconciliationState))
 		, Model()
 		, Operations(Model, std::move(InMoveAssets))
 		, IconSize(InSessionSettings.GetContentBrowserIconSize())
@@ -39,10 +50,6 @@ namespace Durin
 		bIconSizeLocked = SessionSettings.IsContentBrowserIconSizeLocked();
 		Model.SetShowHiddenFiles(
 			SessionSettings.GetContentBrowserShowHiddenFiles());
-		ObservedAssetRegistryRevision =
-			Asset::GetAssetRegistry().GetRevision();
-		if (GetContentMutationRevision)
-			ObservedContentMutationRevision = GetContentMutationRevision();
 		if (!SessionSettings.GetContentBrowserLastDirectory().empty())
 			NavigateToPhysical(
 				SessionSettings.GetContentBrowserLastDirectory());
@@ -57,6 +64,11 @@ namespace Durin
 	}
 
 	FContentBrowserPanel::~FContentBrowserPanel() = default;
+
+	auto FContentBrowserPanel::NotifyMountedContentChanged() -> void
+	{
+		PublishMountedContentMutation();
+	}
 
 	auto FContentBrowserPanel::RevealDirectory(
 		std::string_view DirectoryPath) -> void
@@ -109,12 +121,40 @@ namespace Durin
 
 	auto FContentBrowserPanel::Refresh(bool bRescanRegistry) -> void
 	{
-		Model.RefreshMountSnapshot();
 		if (bRescanRegistry)
 		{
-			const Asset::FAssetResult Result = Model.RescanRegistry();
+			const uint64 MountedContentRevision = GetMountedContentMutationRevision
+				? GetMountedContentMutationRevision()
+				: RefreshCoordinator.GetObservedMountedContentRevision();
+			const Asset::FAssetResult Result =
+				RefreshCoordinator.ReconcileExplicitly(
+					MountedContentRevision,
+					[this] { return Model.RescanRegistry(); },
+					[this] { RefreshPublishedContent(); },
+					[] { return Asset::GetAssetRegistry().GetRevision(); });
 			if (!Result) SetError(Result.Message);
+			return;
 		}
+		RefreshCoordinator.RefreshRegistryView(
+			Asset::GetAssetRegistry().GetRevision(),
+			[this] { RefreshPublishedContent(); });
+	}
+
+	auto FContentBrowserPanel::RefreshPublishedContent() -> void
+	{
+		ThumbnailCache->CancelPendingRequests();
+		std::filesystem::path Directory = Model.GetCurrentPhysicalPath();
+		while (!Directory.empty() && !std::filesystem::is_directory(Directory))
+		{
+			const std::filesystem::path Parent = Directory.parent_path();
+			if (Parent == Directory) break;
+			Directory = Parent;
+		}
+		Model.RefreshMountSnapshot();
+		if (!Directory.empty()
+			&& Directory.generic_string() != Model.GetCurrentPhysicalPath()
+			&& NavigateToPhysical(Directory.generic_string()))
+			return;
 		if (Model.GetCurrentPhysicalPath().empty()
 			|| !std::filesystem::is_directory(Model.GetCurrentPhysicalPath())
 			|| !Model.ResolveMountPath(Model.GetCurrentPhysicalPath()))
@@ -124,6 +164,12 @@ namespace Durin
 				if (NavigateToPhysical(Mount.PhysicalRoot)) return;
 		}
 		RefreshItemsSnapshot();
+	}
+
+	auto FContentBrowserPanel::PublishMountedContentMutation() -> void
+	{
+		if (NotifyMountedContentMutation) NotifyMountedContentMutation();
+		SynchronizeMountedContentMutation();
 	}
 
 	auto FContentBrowserPanel::RefreshItemsSnapshot() -> void
@@ -265,7 +311,7 @@ namespace Durin
 		Selection.clear();
 		if (!Result.FocusPhysicalPath.empty())
 			Selection.insert(Result.FocusPhysicalPath);
-		Refresh(true);
+		PublishMountedContentMutation();
 		return true;
 	}
 
@@ -280,6 +326,7 @@ namespace Durin
 			SetError(Result.Status.Message);
 			return;
 		}
+		PublishMountedContentMutation();
 		const std::string NormalizedDirectory =
 			std::filesystem::path(Result.FocusPhysicalPath)
 				.parent_path()
@@ -308,7 +355,7 @@ namespace Durin
 			SetError(Result.Status.Message);
 			return;
 		}
-		Refresh(true);
+		PublishMountedContentMutation();
 		RevealAsset(Result.RevealAssetPath);
 	}
 
@@ -323,7 +370,7 @@ namespace Durin
 			SetError(Result.Status.Message);
 			return;
 		}
-		Refresh(true);
+		PublishMountedContentMutation();
 		RevealAsset(Result.RevealAssetPath);
 		if (OpenAsset
 			&& !OpenAsset(Result.RevealAssetPath, Result.OpenAssetClassName))
@@ -365,7 +412,7 @@ namespace Durin
 					AssetImport::GetImportRecordHandlerRegistry());
 			if (!Executed) { SetError(Executed.Message); return; }
 			LastReimportOrphans = Executed.Orphans;
-			Refresh(true);
+			PublishMountedContentMutation();
 			RevealAsset(Path.ToString());
 			return;
 		}
@@ -394,7 +441,7 @@ namespace Durin
 				return;
 			}
 			LastReimportOrphans.clear();
-			Refresh(true);
+			PublishMountedContentMutation();
 			RevealAsset(Path.ToString());
 			return;
 		}
@@ -440,7 +487,7 @@ namespace Durin
 			SetError(Result.Message);
 			return;
 		}
-		SynchronizeContentMutation();
+		PublishMountedContentMutation();
 	}
 
 	auto FContentBrowserPanel::FixUpFolder(
@@ -453,7 +500,7 @@ namespace Durin
 			SetError(Result.Message);
 			return;
 		}
-		SynchronizeContentMutation();
+		PublishMountedContentMutation();
 	}
 
 	auto FContentBrowserPanel::FixUpProject() -> void
@@ -464,7 +511,7 @@ namespace Durin
 			SetError(Result.Message);
 			return;
 		}
-		SynchronizeContentMutation();
+		PublishMountedContentMutation();
 	}
 
 	auto FContentBrowserPanel::FocusFolderInParent(
@@ -532,45 +579,21 @@ namespace Durin
 		SelectionAnchor.clear();
 		PendingDeletionPlan.reset();
 		bDeletionPlanRefreshed = false;
-		SynchronizeContentMutation();
+		SynchronizeMountedContentMutation();
 	}
 
-	auto FContentBrowserPanel::SynchronizeContentMutation() -> void
+	auto FContentBrowserPanel::SynchronizeMountedContentMutation() -> void
 	{
-		const uint64 ContentRevision = GetContentMutationRevision
-			? GetContentMutationRevision()
-			: ObservedContentMutationRevision;
-		const uint64 RegistryRevision =
-			Asset::GetAssetRegistry().GetRevision();
-		if (ContentRevision == ObservedContentMutationRevision
-			&& RegistryRevision == ObservedAssetRegistryRevision)
-			return;
-		ObservedContentMutationRevision = ContentRevision;
-		ObservedAssetRegistryRevision = RegistryRevision;
-
-		ThumbnailCache->CancelPendingRequests();
-		std::filesystem::path Directory = Model.GetCurrentPhysicalPath();
-		while (!Directory.empty() && !std::filesystem::is_directory(Directory))
-		{
-			const std::filesystem::path Parent = Directory.parent_path();
-			if (Parent == Directory) break;
-			Directory = Parent;
-		}
-		Model.RefreshMountSnapshot();
-		if (!Directory.empty()
-			&& Directory.generic_string() != Model.GetCurrentPhysicalPath()
-			&& NavigateToPhysical(Directory.generic_string()))
-		{
-			const Asset::FAssetResult Result = Model.RescanRegistry();
-			if (!Result) SetError(Result.Message);
-			RefreshItemsSnapshot();
-			ObservedAssetRegistryRevision =
-				Asset::GetAssetRegistry().GetRevision();
-			return;
-		}
-		Refresh(true);
-		ObservedAssetRegistryRevision =
-			Asset::GetAssetRegistry().GetRevision();
+		const uint64 MountedContentRevision = GetMountedContentMutationRevision
+			? GetMountedContentMutationRevision()
+			: RefreshCoordinator.GetObservedMountedContentRevision();
+		const Asset::FAssetResult Result = RefreshCoordinator.Synchronize(
+			MountedContentRevision,
+			Asset::GetAssetRegistry().GetRevision(),
+			[this] { return Model.RescanRegistry(); },
+			[this] { RefreshPublishedContent(); },
+			[] { return Asset::GetAssetRegistry().GetRevision(); });
+		if (!Result) SetError(Result.Message);
 	}
 
 	auto FContentBrowserPanel::RevealAsset(std::string_view AssetPath) -> void

@@ -1271,12 +1271,12 @@ TEST_F(FContentBrowserModelTests, DeletionTransactionPreservesRegistryWithoutRes
 
 	FEditorTransactionManager Transactions;
 	const uint64 InitialContentRevision =
-		Transactions.GetContentMutationRevision();
+		Transactions.GetMountedContentMutationRevision();
 	auto Transaction = std::make_unique<FContentDeletionTransaction>(Plan);
 	FContentDeletionTransaction* TransactionView = Transaction.get();
 	ASSERT_TRUE(Transactions.Execute(std::move(Transaction)));
 	EXPECT_EQ(
-		Transactions.GetContentMutationRevision(), InitialContentRevision + 1);
+		Transactions.GetMountedContentMutationRevision(), InitialContentRevision + 1);
 	EXPECT_FALSE(std::filesystem::exists(PackagePath));
 	EXPECT_EQ(Asset::GetAssetRegistry().FindAssetExact(AssetPath), nullptr);
 	EXPECT_EQ(Asset::FindLoadedPackage(AssetPath), nullptr);
@@ -1284,18 +1284,18 @@ TEST_F(FContentBrowserModelTests, DeletionTransactionPreservesRegistryWithoutRes
 
 	ASSERT_TRUE(Transactions.Undo());
 	EXPECT_EQ(
-		Transactions.GetContentMutationRevision(), InitialContentRevision + 2);
+		Transactions.GetMountedContentMutationRevision(), InitialContentRevision + 2);
 	EXPECT_TRUE(std::filesystem::is_regular_file(PackagePath));
 	EXPECT_NE(Asset::GetAssetRegistry().FindAssetExact(AssetPath), nullptr);
 	EXPECT_EQ(Asset::FindLoadedPackage(AssetPath), nullptr);
 	ASSERT_TRUE(Transactions.Redo());
 	EXPECT_EQ(
-		Transactions.GetContentMutationRevision(), InitialContentRevision + 3);
+		Transactions.GetMountedContentMutationRevision(), InitialContentRevision + 3);
 	EXPECT_FALSE(std::filesystem::exists(PackagePath));
 	EXPECT_EQ(Asset::GetAssetRegistry().FindAssetExact(AssetPath), nullptr);
 	ASSERT_TRUE(Transactions.Undo());
 	EXPECT_EQ(
-		Transactions.GetContentMutationRevision(), InitialContentRevision + 4);
+		Transactions.GetMountedContentMutationRevision(), InitialContentRevision + 4);
 	const std::filesystem::path StagingRoot = TransactionView->GetStagingRoot();
 	Transactions.Clear();
 	EXPECT_FALSE(std::filesystem::exists(StagingRoot));
@@ -1419,21 +1419,21 @@ TEST_F(FContentBrowserModelTests, DeletionTransactionRejectsDestinationAndModifi
 	FContentDeletionTransaction* View = Transaction.get();
 	FEditorTransactionManager Transactions;
 	const uint64 InitialContentRevision =
-		Transactions.GetContentMutationRevision();
+		Transactions.GetMountedContentMutationRevision();
 	ASSERT_TRUE(Transactions.Execute(std::move(Transaction)));
 	EXPECT_EQ(
-		Transactions.GetContentMutationRevision(), InitialContentRevision + 1);
+		Transactions.GetMountedContentMutationRevision(), InitialContentRevision + 1);
 
 	std::filesystem::create_directories(Folder);
 	EXPECT_FALSE(Transactions.Undo());
 	EXPECT_EQ(
-		Transactions.GetContentMutationRevision(), InitialContentRevision + 1);
+		Transactions.GetMountedContentMutationRevision(), InitialContentRevision + 1);
 	EXPECT_EQ(View->GetState(), EContentDeletionTransactionState::Applied);
 	std::error_code Ec;
 	std::filesystem::remove(Folder, Ec);
 	ASSERT_TRUE(Transactions.Undo());
 	EXPECT_EQ(
-		Transactions.GetContentMutationRevision(), InitialContentRevision + 2);
+		Transactions.GetMountedContentMutationRevision(), InitialContentRevision + 2);
 	{
 		std::ofstream File(SourceFile, std::ios::trunc);
 		File << "change";
@@ -1441,7 +1441,7 @@ TEST_F(FContentBrowserModelTests, DeletionTransactionRejectsDestinationAndModifi
 	std::filesystem::last_write_time(SourceFile, ConfirmedWriteTime);
 	EXPECT_FALSE(Transactions.Redo());
 	EXPECT_EQ(
-		Transactions.GetContentMutationRevision(), InitialContentRevision + 2);
+		Transactions.GetMountedContentMutationRevision(), InitialContentRevision + 2);
 	EXPECT_EQ(View->GetState(), EContentDeletionTransactionState::Restored);
 }
 

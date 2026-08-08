@@ -4,6 +4,7 @@
 #include "Panels/ContentBrowserModel.h"
 #include "Panels/ContentBrowserOperations.h"
 #include "Panels/ContentBrowserItemView.h"
+#include "Panels/ContentBrowserRefreshCoordinator.h"
 
 #include <array>
 #include <unordered_set>
@@ -40,7 +41,8 @@ namespace Durin
 		using FMoveAssets = std::function<Asset::FAssetResult(std::span<const FEditorAssetMove>)>;
 		using FExecuteTransaction =
 			std::function<bool(std::unique_ptr<IEditorTransaction>)>;
-		using FGetContentMutationRevision = std::function<uint64()>;
+		using FGetMountedContentMutationRevision = std::function<uint64()>;
+		using FNotifyMountedContentMutation = std::function<void()>;
 
 		FContentBrowserPanel(
 			FLevelEditorSessionSettings& InSessionSettings,
@@ -48,16 +50,22 @@ namespace Durin
 			FRequestImport InRequestImport,
 			FMoveAssets InMoveAssets,
 			FExecuteTransaction InExecuteTransaction,
-			FGetContentMutationRevision InGetContentMutationRevision);
+			FGetMountedContentMutationRevision InGetMountedContentMutationRevision,
+			FNotifyMountedContentMutation InNotifyMountedContentMutation,
+			std::shared_ptr<FMountedContentReconciliationState>
+				InMountedContentReconciliationState);
 		~FContentBrowserPanel() override;
 
 		auto GetWindowName() const -> const char* override { return "Content Browser"; }
 		auto Draw(FLevelEditorContext& Context) -> void override;
 		auto RevealAsset(std::string_view AssetPath) -> void;
 		auto RevealDirectory(std::string_view DirectoryPath) -> void;
+		auto NotifyMountedContentChanged() -> void;
 
 	private:
 		auto Refresh(bool bRescanRegistry) -> void;
+		auto RefreshPublishedContent() -> void;
+		auto PublishMountedContentMutation() -> void;
 		auto RefreshItemsSnapshot() -> void;
 		auto RebuildItems() -> void;
 		auto NavigateToPhysical(std::string_view PhysicalPath, bool bAddHistory = true) -> bool;
@@ -100,7 +108,7 @@ namespace Durin
 		auto FocusFolderInParent(std::string_view PhysicalDirectory) -> const FContentBrowserItem*;
 		auto RequestDeleteSelection() -> void;
 		auto DeleteSelection() -> void;
-		auto SynchronizeContentMutation() -> void;
+		auto SynchronizeMountedContentMutation() -> void;
 		auto ShowInExplorer(std::string_view PhysicalPath) const -> void;
 		auto CopyToClipboard(std::string_view Text) const -> void;
 
@@ -115,7 +123,9 @@ namespace Durin
 		FOpenAsset OpenAsset;
 		FRequestImport RequestImport;
 		FExecuteTransaction ExecuteTransaction;
-		FGetContentMutationRevision GetContentMutationRevision;
+		FGetMountedContentMutationRevision GetMountedContentMutationRevision;
+		FNotifyMountedContentMutation NotifyMountedContentMutation;
+		FContentBrowserRefreshCoordinator RefreshCoordinator;
 		FContentBrowserModel Model;
 		FContentBrowserOperations Operations;
 		std::unordered_set<std::string> Selection;
@@ -135,8 +145,6 @@ namespace Durin
 		bool bDeletePopupRequested = false;
 		bool bDeletionPlanRefreshed = false;
 		FContentDeletionPlanPtr PendingDeletionPlan;
-		uint64 ObservedContentMutationRevision = 0;
-		uint64 ObservedAssetRegistryRevision = 0;
 		std::function<void()> DeferredContentAction;
 		std::string ErrorMessage;
 		std::vector<FAssetPath> LastReimportOrphans;

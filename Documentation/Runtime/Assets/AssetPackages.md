@@ -356,9 +356,9 @@ With a missing or invalid reference cache, reconciliation attempts one payload
 read for each discovered source; an unchanged warm incremental scan attempts
 none, a single metadata-visible source change attempts one, and
 `FullValidation` attempts one per source. Failed opens count as attempts but add
-no bytes. Content Browser refresh still reconciles every registered auto-scan
-mount through this incremental path; its current-folder scope applies only to
-the visible item snapshot, not to registry discovery.
+no bytes. Explicit Content Browser Refresh still reconciles every registered
+auto-scan mount through this incremental path; its current-folder scope applies
+only to the visible item snapshot, not to registry discovery.
 
 Extraction reads package fields and reflection metadata without constructing
 owner objects, invoking `PostLoad`, resolving targets, or changing residency.
