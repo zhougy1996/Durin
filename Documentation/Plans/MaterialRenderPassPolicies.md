@@ -25,9 +25,11 @@ enables depth test/write, disables culling, and uses the same draw loop.
 masked fragments, while Vulkan expands four Boolean pipeline fields into fixed
 backend policy.
 
-Stage 0 must freeze the effective pass, state, winding, sorting, and validation
-contracts against current view and section semantics before the first RHI or
-shader migration.
+Stage 0 is complete against baseline `7af1a55c`. The effective pass, state,
+winding, sorting, preparation, migration, and validation contracts are frozen
+below, and all selected focused baselines pass. Stage 1 is next: introduce the
+value-based public-RHI graphics state and migrate every existing caller without
+changing visible behavior.
 
 ## Goal
 
@@ -211,23 +213,23 @@ bucket or later view.
 
 ### Stage 0: Freeze effective policy and baseline
 
-- [ ] Record every material identity resolution, StaticMesh section iteration,
+- [x] Record every material identity resolution, StaticMesh section iteration,
   shader macro, pipeline-cache, public-RHI initializer, Vulkan mapping, and
   rendered-output call site affected by M2.
-- [ ] Record current Scene Color/depth formats, load/store order, viewport and
+- [x] Record current Scene Color/depth formats, load/store order, viewport and
   scissor behavior, output alpha expectations, and present/offscreen paths.
-- [ ] Freeze the prepared-item fields, three bucket owners, item validity
+- [x] Freeze the prepared-item fields, three bucket owners, item validity
   checks, fallback timing, and per-view lifetime.
-- [ ] Freeze the blend table, depth override table, mask expression and edge
+- [x] Freeze the blend table, depth override table, mask expression and edge
   comparison, cull/winding mapping, and Solid/Wireframe composition.
-- [ ] Freeze the translucent metric, invalid-bounds fallback, stable tie-break,
+- [x] Freeze the translucent metric, invalid-bounds fallback, stable tie-break,
   and accepted center-sorting limitation with representative fixtures.
-- [ ] Enumerate the minimal RHI enum/descriptor values and every initializer,
+- [x] Enumerate the minimal RHI enum/descriptor values and every initializer,
   equality/hash, diagnostic, failure-injection, backend, and test migration.
-- [ ] Identify focused baselines for opaque output, material fallback,
+- [x] Identify focused baselines for opaque output, material fallback,
   multi-section binding, mirrored transforms, main/auxiliary views,
   fixed-aspect output, resource retry, and Vulkan validation.
-- [ ] Record baseline commit, working set, symbols, decisions, open questions,
+- [x] Record baseline commit, working set, symbols, decisions, open questions,
   and validation outcome in the stage handoff.
 
 #### Acceptance Gate
@@ -238,6 +240,94 @@ bucket or later view.
   M2/M3/M6 boundary choice remains before RHI changes begin.
 - Baseline focused tests pass or pre-existing failures are recorded without
   attribution to M2.
+
+#### Stage 0 Handoff
+
+Baseline commit: `7af1a55c` (`docs(renderer): define material render pass
+policies`). The completed M1 parent is `b130d7a5`.
+
+The Stage 1 working set is `RHIResources.h`, every
+`FGraphicsPipelineStateInitializer` caller, `VulkanPipeline.cpp`, public-RHI
+tests, Vulkan failure-injection tests, and Renderer pipeline-key diagnostics.
+Stage 2 begins from `StaticMeshRenderer.h/.cpp`, `Scene.h`, StaticMesh render
+data, and focused Renderer/Engine tests. Stage 3 adds
+`StaticMeshBasePass.slang`; Stage 4 extends the same prepared-item execution and
+rendered-output fixtures.
+
+Key baseline symbols are `FMaterialShaderMapIdentity`,
+`FMaterialPipelineIdentity`, `FStaticMeshRenderer::DrawScene_RenderThread`,
+`FStaticMeshRenderer::DrawProxy_RenderThread`,
+`FScene::GetStaticMeshSceneInfos`, `FGraphicsPipelineStateInitializer`,
+`FVulkanGraphicsPipelineState`, `RenderTargetLayouts::MakeSceneTargets`, and
+`FSceneRenderer::RenderView_RenderThread`.
+
+The resolved policy matrix is:
+
+| Input | Effective result |
+| --- | --- |
+| Opaque | Opaque bucket; no blend; depth test `Less`; Automatic writes depth; no coverage discard. |
+| Masked | Masked bucket; no blend; depth test `Less`; Automatic writes depth; discard only when `saturate(mask constant * mask texture) < saturated static threshold`. Equality survives. |
+| Translucent | Translucent bucket after Opaque and Masked; straight-alpha color `SrcAlpha/OneMinusSrcAlpha/Add`; alpha `One/OneMinusSrcAlpha/Add`; depth test `Less`; Automatic does not write depth. |
+| Depth override | `Enabled` and `Disabled` replace the blend-mode Automatic result without changing pass or blend identity. |
+| One-sided | Back-face cull; front face is Clockwise for non-mirrored local-to-world and CounterClockwise for negative determinant parity. |
+| Two-sided | No cull; winding remains a deterministic pipeline value but cannot remove either face. |
+| Lit/Unlit | Shader-map dimension only; pass, depth, blend, cull, and sort rules are unchanged. |
+| Solid/Wireframe | Fill/Line rasterizer dimension only; every authored material policy still applies. |
+
+The Renderer-private prepared item will contain primitive id, section index,
+SceneInfo/proxy and LOD 0 render-data borrows, local-to-world and finite bounds
+facts, the complete resolved `FMaterialRenderData`, pass kind, effective RHI
+state, shader-map key, effective pipeline key, and translucent distance. One
+stack-local preparation object owned by a single `DrawScene_RenderThread` call
+contains three vectors in Opaque, Masked, Translucent execution order. A section
+is accepted only when its SceneInfo/proxy, LOD 0 resources, index range, and
+resolved material are complete. ErrorMaterial replacement occurs before pass
+classification. The item retains no component, asset, or reflected object and
+cannot escape the render command.
+
+Translucent fixtures freeze far-before-near ordering, ascending primitive id
+then section index for equal squared distances, independent recomputation after
+camera motion, and the fallback chain section-bounds center, primitive
+world-bounds center, transformed local origin. Non-finite candidates advance to
+the next fallback; failure to obtain a finite value rejects only that item.
+Center sorting is knowingly insufficient for intersecting translucent
+triangles and remains outside M2.
+
+The minimal public-RHI vocabulary is rasterizer `Fill/Line`, `None/Back` cull,
+and `Clockwise/CounterClockwise` front face; depth test/write enables plus
+`Less`; and one RGBA attachment with blend enable, factors `Zero`, `One`,
+`SrcAlpha`, `OneMinusSrcAlpha`, operation `Add`, and a complete RGBA write mask.
+The value descriptors provide defaulted equality; every field enters the
+Renderer effective pipeline key and identity text. Vulkan has no graphics-PSO
+cache today beyond descriptor-layout reuse, so it validates and translates the
+complete initializer on each creation while preserving complete-or-null
+failure. Unsupported enum values, a missing shader/layout, or an invalid render
+target layout fail before publication.
+
+The atomic Stage 1 caller migration includes StaticMesh, SkyBox, post-process,
+editor grid/gizmo/icon/line assistance, Mona ImGui, TexturePreview,
+RendererResourceReload Vulkan tests, Vulkan failure-injection tests, and RHI
+test doubles. The existing Renderer cache currently keys StaticMesh pipelines
+only by `FMaterialPipelineIdentity`; Stage 2 replaces that with an effective key
+covering view raster mode and mirrored winding as well as the resolved material
+policy.
+
+Scene Color is `SRGBA8_UNORM` and depth is `D32`. The Scene Color pass clears
+both, preserves depth for editor assistance, and transitions color to shader
+read. Post-process clears the output and ends in Present or ShaderReadOnly;
+when assistance exists it first leaves color writable, then assistance loads
+both output color and preserved depth. Fixed-aspect fitting centers a view-local
+viewport and identical scissor before SkyBox then StaticMesh execution. The
+shader currently returns material opacity as Scene Color alpha for both Lit and
+Unlit; Opaque and Masked retain that alpha with blending disabled, while
+Translucent uses the frozen alpha equation.
+
+Validation on 2026-08-08 with the `Win64-Debug-DurinEditor-Tests` Agent Build
+Profile passed: `FMaterialTests.*` 45/45, `FStaticMeshMaterialTests.*` 11/11,
+`FRendererSceneContractTests.*` 2/2, `RHICommandListTests` 40/40, and
+`FVulkanCreateFailureInjectionTests.*` 7/7. No pre-existing focused failure was
+observed. Open questions: none; later milestones retain the documented M3 and
+M6 boundaries.
 
 ### Stage 1: Introduce value-based graphics state
 
