@@ -11,12 +11,12 @@ Completed:
 
 This plan is the active S1 child of the
 [Skeletal Mesh and Animation Roadmap](../Roadmaps/SkeletalMeshAndAnimation.md).
-Stage 0 is complete at baseline `ca6eed295a1d67a1ed3035a04cea4c40a1c9068c`.
+Stage 0 is complete in `201ddf0d7a3888e729167e6eca427b974e0605d6`.
 The repository-owned skeletal fixture corpus now freezes the source subset,
 output graph, coordinate conversion, compatibility encoding, limits, payload
 split, malformed diagnostic categories, and current static projection baseline.
-Stage 1 is current and introduces the source-independent runtime asset schemas
-against that contract.
+Stage 1 is complete. Stage 2 is current and adds the bounded, format-owned glTF
+normalization path against the frozen runtime and fixture contracts.
 
 The current normalized Scene result contains images, materials, material
 slots, and static mesh arrays only. `AssimpSceneGeometry.cpp` traverses nodes,
@@ -370,22 +370,22 @@ parsing, payload persistence, playback, or rendering.
 Dependencies: Stage 0's hierarchy, compatibility, authored/payload split,
 limits, and version identities.
 
-- [ ] Add reflected `DSkeleton`, `DSkeletalMesh`, and `DAnimationClip` classes
+- [x] Add reflected `DSkeleton`, `DSkeletalMesh`, and `DAnimationClip` classes
   and module registration without adding editor/import dependencies to Engine.
-- [ ] Implement canonical bone, hierarchy, Skeleton compatibility, material
+- [x] Implement canonical bone, hierarchy, Skeleton compatibility, material
   slot, clip summary, source-independent payload descriptor, and runtime asset
   reference value types selected in Stage 0.
-- [ ] Add detached validated CPU representations for skeletal mesh and clip
+- [x] Add detached validated CPU representations for skeletal mesh and clip
   payload data. Keep RHI resources, mutable playback state, and source schema
   out of these types.
-- [ ] Enforce complete graph invariants: parent order, unique/canonical names,
+- [x] Enforce complete graph invariants: parent order, unique/canonical names,
   finite transforms, structural compatibility, valid palette indices, material
   sections, finite bounds, valid track targets, increasing times, explicit
   interpolation, and bounded allocation.
-- [ ] Implement symmetric, prepared, no-fail imported-state exchange for each
+- [x] Implement symmetric, prepared, no-fail imported-state exchange for each
   asset whose Scene reimport can replace authored state. Reverse restores the
   exact pre-publication state and Finalize retires only detached old state.
-- [ ] Add authored save/load, duplicate, object-reference, unknown-field,
+- [x] Add authored save/load, duplicate, object-reference, unknown-field,
   compatibility, and failed-validation tests. Loading invalid relationships or
   state publishes no partial live asset.
 
@@ -404,6 +404,55 @@ limits, and version identities.
   their established behavior.
 - The stage handoff records baseline commit, working set, symbols, decisions,
   open questions, and validation outcome.
+
+#### Stage 1 Handoff
+
+- Baseline commit: `201ddf0d7a3888e729167e6eca427b974e0605d6`
+  (`test(skeletal): freeze import contract fixtures`).
+- Completed working set:
+  `Engine/Source/Runtime/Engine/Public/SkeletalMesh/Skeleton.h`,
+  `Engine/Source/Runtime/Engine/Private/SkeletalMesh/Skeleton.cpp`,
+  `Engine/Source/Runtime/Engine/Public/SkeletalMesh/SkeletalMesh.h`,
+  `Engine/Source/Runtime/Engine/Private/SkeletalMesh/SkeletalMesh.cpp`,
+  `Engine/Source/Runtime/Engine/Public/Animation/AnimationClip.h`,
+  `Engine/Source/Runtime/Engine/Private/Animation/AnimationClip.cpp`,
+  `Engine/Source/Runtime/Engine/Engine.dmodule`,
+  `Engine/Tests/Native/EngineTests/Private/SkeletalAssetTests.cpp`,
+  `Engine/Tests/Native/EngineTests/Private/Materials/MaterialSchemaAndEditingTests.cpp`,
+  `Engine/Tests/Native/EngineTests/CMakeLists.txt`, and this plan.
+- Key symbols and ownership: Engine owns reflected `DSkeleton`,
+  `DSkeletalMesh`, and `DAnimationClip`; canonical `FSkeletonBone` and exact
+  float32-row `FSkeletonTransform`; authored summaries and hard Skeleton
+  references; detached `FSkeletalMeshPayloadData` and
+  `FAnimationClipPayloadData`; complete validation; and prepared symmetric
+  `FSkeletonImportedStateExchange`, `FSkeletalMeshImportedStateExchange`, and
+  `FAnimationClipImportedStateExchange` transactions. No source, parser,
+  provider, DDC, playback, or RHI state enters these runtime schemas.
+- Decisions: Skeleton compatibility uses the Stage 0 `DSKC` version-1 bytes
+  exactly. Reference transforms persist four canonical matrix rows because the
+  frozen independently quantized float32 matrix cannot be reconstructed
+  losslessly from TRS. Initialization canonicalizes every matrix component to
+  float32 before validation and hashing. SkeletalMesh/clip payloads are
+  immutable shared CPU values and remain deliberately absent after authored
+  package load or ordinary duplication; authored summaries, descriptors,
+  material metadata, compatibility, and hard references persist. Exchange
+  preparation validates both complete states; Commit/Reverse only swap
+  prepared fields and cannot fail. DHT's hermetic scanner currently treats an
+  unmatched C++ digit separator before a reflection macro as a character
+  literal, so reflected headers use equivalent undecorated limit literals.
+- Open questions for Stage 2: none block implementation. The format-owned glTF
+  decoder must construct exact canonical float32 matrices rather than a lossy
+  TRS round trip, and must retain the frozen diagnostic/limit categories while
+  leaving the Assimp static projection untouched.
+- Validation: `SkeletalAssetTests` passed 6/6, covering the compatibility
+  golden, invalid-state non-mutation, all three exchange types, hard-reference
+  authored package round trips, exact descriptor/metadata/ordering
+  persistence, duplication, and source-independent reflection. Regression
+  targets passed: `AssetPackageTests` 105/105, `CoreObjectTests` 79/79,
+  `StaticMeshTests` 49/49, `TextureTests` 62/62, and `MaterialTests` 78/78.
+  Runtime source/dependency inspection found no `AssetImportCore`,
+  `StandardAssetImport`, Assimp, glTF, editor decoder, or source-schema edge in
+  the new Engine-owned files. `git diff --check` passed.
 
 ### Stage 2: Normalize the supported glTF skeletal subset
 

@@ -714,8 +714,8 @@ TEST(FMaterialTests, ProductionClassDefaultsMatchFreshOrdinaryObjectGraphs)
 			<< QualifiedName << " reason=" << static_cast<int>(Class->GetDefaultObjectReason());
 		if (Class->GetDefaultObjectState() == Durin::EClassDefaultObjectState::Ready) Classes.push_back(Class);
 	}
-	EXPECT_EQ(ProductionClassCount, 38u);
-	EXPECT_EQ(Classes.size(), 25u);
+	EXPECT_EQ(ProductionClassCount, 41u);
+	EXPECT_EQ(Classes.size(), 28u);
 	std::ranges::sort(Classes, [](const Durin::DClass* Left, const Durin::DClass* Right) {
 		return Left->GetQualifiedName().ToString() > Right->GetQualifiedName().ToString();
 	});

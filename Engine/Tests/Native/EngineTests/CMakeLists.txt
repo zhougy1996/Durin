@@ -240,6 +240,11 @@ durin_add_engine_functional_test(StaticMeshTests
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
+durin_add_engine_functional_test(SkeletalAssetTests
+	SOURCES
+		Private/SkeletalAssetTests.cpp
+)
+
 durin_add_engine_functional_test(TextureTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises renderer-backed texture import, build, and cache behavior."
