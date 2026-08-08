@@ -22,3 +22,6 @@ plan link when implementation work begins.
   pass-classified surfaces, visibility and LOD, another production primitive
   family, renderer-owned lights, and directional shadows before activating
   evidence-gated frame-architecture work.
+- [Skeletal Mesh and Animation](SkeletalMeshAndAnimation.md) — establish
+  skeletal assets and glTF ingestion, runtime pose playback, shared-renderer GPU
+  skinning, and production editor workflows through just-in-time child plans.
