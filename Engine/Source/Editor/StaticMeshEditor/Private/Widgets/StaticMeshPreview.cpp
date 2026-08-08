@@ -224,8 +224,13 @@ namespace Durin
 				return;
 			}
 
-			const FStaticMeshRenderResourceStatus Status = Mesh ? Mesh->GetRenderResourceStatus() : FStaticMeshRenderResourceStatus{};
+			FStaticMeshRenderResourceStatus Status = Mesh ? Mesh->GetRenderResourceStatus() : FStaticMeshRenderResourceStatus{};
 			const std::optional<FBox> Bounds = Mesh ? Mesh->GetLOD0LocalBounds() : std::nullopt;
+			if (Mesh && Bounds && Status.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)
+			{
+				Mesh->InitResources();
+				Status = Mesh->GetRenderResourceStatus();
+			}
 			if (!Mesh || !Status.IsReady() || !Bounds)
 			{
 				if (PreviewMesh != nullptr && CurrentMesh != nullptr) PreviewMesh->SetStaticMesh(nullptr);
