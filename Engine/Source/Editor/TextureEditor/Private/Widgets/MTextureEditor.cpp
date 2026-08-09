@@ -727,9 +727,12 @@ namespace Durin
 			ImportCapabilities.Find(
 				AssetImport::ESingleAssetImportCapability::ReimportCurrentSource);
 		const bool bCanReimport = ReimportCapability && ReimportCapability->bAvailable;
+		const char* ReimportLabel = ReimportCapability
+			&& !ReimportCapability->Label.empty()
+			? ReimportCapability->Label.c_str()
+			: "Reimport from Current Source";
 		if (!bCanReimport) ImGui::BeginDisabled();
-		if (ImGui::Button(ReimportCapability
-			? ReimportCapability->Label.c_str() : "Reimport from Current Source"))
+		if (ImGui::Button(ReimportLabel))
 			ReimportSource(Texture);
 		if (!bCanReimport) ImGui::EndDisabled();
 		if (ImGui::IsItemHovered() && ReimportCapability)

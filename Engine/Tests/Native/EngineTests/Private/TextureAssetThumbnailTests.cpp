@@ -98,7 +98,8 @@ TEST(FTextureAssetThumbnailTests, ProviderConflictRollsBackWholeIntegration)
 		Durin::FEditorWorkspaceTypeId("TextureEditor")), nullptr);
 }
 
-TEST(FTextureAssetThumbnailTests, Texture2DWorkspaceDrawsFirstFrame)
+TEST(FTextureAssetThumbnailTests,
+	Texture2DWorkspaceDrawsWideFirstFrameWithoutImportHandler)
 {
 	Durin::Tests::FRenderedAssetThumbnailFixtureSet Fixtures;
 	std::string Error;
@@ -122,6 +123,7 @@ TEST(FTextureAssetThumbnailTests, Texture2DWorkspaceDrawsFirstFrame)
 	auto Workspace = Manager.FindWorkspace(
 		Durin::FEditorWorkspaceTypeId("TextureEditor"));
 	ASSERT_NE(Workspace, nullptr);
+	ImGui::SetNextWindowSize(ImVec2(1280.0f, 720.0f), ImGuiCond_Always);
 	EXPECT_NO_FATAL_FAILURE(Workspace->DrawWorkspace(true));
 	ImGui::EndFrame();
 	ImGui::DestroyContext(Context);
