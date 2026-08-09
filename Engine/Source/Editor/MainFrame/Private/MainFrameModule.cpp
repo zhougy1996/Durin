@@ -451,15 +451,18 @@ namespace Durin
 		auto AssetCompatibilityWindow = std::make_shared<FAssetCompatibilityWindow>();
 		const std::weak_ptr<MWindow> WeakRootWindow = RootWindow;
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::WorkspaceRegistrationBegin);
-		if (HasCurrentProject())
 		{
-			*bWorkspaceReady = RegisterEditorWorkspaces(
-				*WorkspaceManager, LevelEditorModule, MaterialEditorModule,
-				TextureEditorModule, StaticMeshEditorModule, ThumbnailService);
-			if (!*bWorkspaceReady) ProjectBrowser->SetError("Could not initialize the editor workspaces.");
-			else
+			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.WorkspaceRegistration");
+			if (HasCurrentProject())
 			{
-				ProjectBrowser->RecordCurrentProject();
+				*bWorkspaceReady = RegisterEditorWorkspaces(
+					*WorkspaceManager, LevelEditorModule, MaterialEditorModule,
+					TextureEditorModule, StaticMeshEditorModule, ThumbnailService);
+				if (!*bWorkspaceReady) ProjectBrowser->SetError("Could not initialize the editor workspaces.");
+				else
+				{
+					ProjectBrowser->RecordCurrentProject();
+				}
 			}
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::WorkspaceRegistrationComplete);

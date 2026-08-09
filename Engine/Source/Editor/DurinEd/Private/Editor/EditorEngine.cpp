@@ -47,7 +47,10 @@ namespace Durin
 		IMainFrameModule& MainFrameModule = FModuleManager::LoadModuleChecked<IMainFrameModule>("MainFrame");
 		Profiling::SetStartupProjectMode(HasCurrentProject());
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellBegin);
-		MainFrameModule.CreateDefaultMainFrame();
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.EditorShell");
+			MainFrameModule.CreateDefaultMainFrame();
+		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellComplete);
 		Profiling::TryLogStartupTimingSummary();
 
