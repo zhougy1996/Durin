@@ -1,6 +1,6 @@
 # Build And Run
 
-This is the operational guide for configuring, building, testing, and debugging Durin locally.
+This is the operational guide for configuring, building, testing, and debugging Durin locally. For symptom-first fixes to common environment and command failures, see [Troubleshooting Setup, Builds, And Runs](Troubleshooting.md).
 
 ## Setup
 

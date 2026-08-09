@@ -7,6 +7,7 @@ not open the other rows or scan an entire directory.
 | Task trigger | Read first |
 | --- | --- |
 | Repository-owned C++ change | [C++ coding standards](Development/Standards/CodingStandards.md) |
+| Setup, build, test, worktree, or runtime problem | [Troubleshooting](Development/Build/Troubleshooting.md) |
 | Configure, build, run, output layout, or interrupted-build recovery | [Build and run](Development/Build/BuildAndRun.md) |
 | CMake metadata, target generation, or module binaries | [Build system](Development/Build/BuildSystem.md) |
 | Runtime variants or build presets | [Runtime variants](Development/Build/RuntimeVariants.md) |
