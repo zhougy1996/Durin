@@ -37,9 +37,16 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
   `Documentation/Development/Build/BuildAndRun.md` only when changing those
   workflows, selecting non-routine validation, or diagnosing a build, test, or
   runtime-operation problem.
-- Use the default target granularity for full native-test validation:
-  `.\DevTool.bat test --target all`. Do not run the unfiltered combination
-  `--target all --granularity case`; diagnose aggregate failures with
+- For routine changes, validate with the smallest affected native test target
+  or targets: `.\DevTool.bat test --target <target>`. Do not run
+  `.\DevTool.bat test --target all` by default. Full native-test validation is
+  reserved for an explicit user or plan gate, changes that cross test targets
+  or alter shared runtime/test infrastructure, or concrete evidence that the
+  affected scope cannot be covered reliably by targeted validation; state the
+  reason before starting it.
+- When full native-test validation is required, use the default target
+  granularity: `.\DevTool.bat test --target all`. Do not run the unfiltered
+  combination `--target all --granularity case`; diagnose aggregate failures with
   `--target <failed-target> --filter <suite.case>`. Case granularity is only for
   a narrow case-name `--ctest-regex` or an explicit isolation-qualification
   gate. After diagnosis, return to default target granularity for the final
