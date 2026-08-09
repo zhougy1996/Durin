@@ -40,7 +40,7 @@ has presented successfully and the default workspace is ready. Debug and
 Release Profiling `all` builds and the focused profiling adapter tests pass;
 the default-document boundary is additionally split into asset-load,
 compatibility-policy, and activation sub-operations for the Stage 3 decision;
-the pre-commit Sandbox launch was a smoke test and is not part of the
+the earlier pre-commit Sandbox launch was a smoke test and is not part of the
 authoritative baseline matrix.
 
 The Stage 0 cache protocol is locked as follows. A cold Sandbox sample is the
@@ -52,6 +52,43 @@ processes may not share mutable cache state. The protocol never deletes authored
 content, generated asset payloads, or individual cache entries. Project Browser
 controls use the same serial priming and five-run rule without selecting a
 project.
+
+The authoritative warm baseline uses commit
+`ad63f013d132fd7668f0d4a7a2866e9f6ad4a8fc`, preset
+`Win64-Debug-DurinEditor-Tests`, Sandbox project `Sandbox/Sandbox.dproject`, and
+eight normal engine ticks followed by a clean automated exit. One priming run
+was discarded before each five-run set. Sandbox first present measured median
+1,592.591 ms, minimum 1,513.960 ms, and maximum 1,631.003 ms; default-workspace
+readiness measured median 1,323.566 ms, minimum 1,248.015 ms, and maximum
+1,365.352 ms. Project Browser first present measured median 878.517 ms, minimum
+860.215 ms, and maximum 932.402 ms; its no-project workspace-completion control
+measured median 670.962 ms, minimum 656.495 ms, and maximum 709.582 ms.
+
+Within the Sandbox set, default-document work measured median 577.723 ms
+(564.628--590.611 ms). Asset load accounted for median 576.264 ms
+(563.246--589.142 ms), while compatibility policy measured 0.013 ms and level
+activation 1.385 ms. Registry scan measured median 24.868 ms and default
+material 276.887 ms. A matching Release Profiling capture at
+`Build/Profiling/Tracy/DurinEditor-startup-sandbox-baseline-20260810-012807.tracy`
+contains the stable RHI-through-first-present zones; its default-document asset
+load was 51.658 ms of the 52.539 ms default-document zone. Tracy's on-demand
+client cannot record the already-ended process-entry and PreInit zones before
+the client starts listening, but their source zones and Debug monotonic
+milestones remain present and owned.
+
+Stage 3 is locked to `DefaultDocument.AssetLoad`. The capture observed 33
+recursive `Asset.LoadPackage` calls, and code inspection found that each
+nonresident package first loads its complete bytes and then calls
+`ReadAssetPackageHeader(PhysicalPath)`, reopening and rereading the same file
+before codec load. The selected optimization will reuse the already loaded byte
+buffer and resolved codec for header validation and registry metadata. It will
+not change game-thread package skeleton creation, `DObject` publication,
+compatibility reporting, dependency order, or rollback. No competing startup
+leaf will be implemented in Stage 3.
+
+The documented cold Debug Sandbox launch remains pending because the locked
+protocol requires a machine restart. Stage 0 cannot pass its acceptance gate
+until that sample is captured from the same commit and preset.
 
 ## Goal
 
@@ -162,9 +199,9 @@ project.
 - [ ] Capture at least five warm Debug Sandbox launches, five warm Debug Project
   Browser launches, one documented cold Debug Sandbox launch, and one Release
   Profiling capture.
-- [ ] Record median, minimum, maximum, and first-present/default-workspace
+- [x] Record median, minimum, maximum, and first-present/default-workspace
   milestones in this plan's Current Status.
-- [ ] Inspect the selected top leaf beneath default-material load,
+- [x] Inspect the selected top leaf beneath default-material load,
   default-document load, or native viewport creation. Update the Stage 3 tasks
   with one evidence-backed implementation path before Stage 3 begins; do not
   implement competing speculative paths.
@@ -242,8 +279,13 @@ project.
 
 ### Stage 3: Reduce the selected synchronous hot leaf
 
-- [ ] Replace this checklist item during Stage 0 with the selected leaf, its
-  measured sub-operations, and the chosen ownership-preserving optimization.
+- [ ] Optimize `DefaultDocument.AssetLoad` by removing the redundant physical
+  package/header reread from each nonresident `Asset.LoadPackage`: reuse the
+  already loaded bytes and resolved codec for header validation and registry
+  metadata. The Debug baseline is 576.264 ms across the default-level dependency
+  closure versus 0.013 ms compatibility and 1.385 ms activation; preserve
+  game-thread package and `DObject` publication, dependency order, compatibility
+  reporting, and rollback.
 - [ ] Add focused regression coverage for the selected cache, load, batching,
   or submission behavior.
 - [ ] Demonstrate that the optimization removes or overlaps measured work; a
