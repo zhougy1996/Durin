@@ -1,6 +1,8 @@
 # Native C++ Tests
 
-This document covers running native tests and adding test targets. Native tests are enabled by the Agent driver's `Win64-Debug-DurinEditor-Tests` preset.
+This document covers running native tests and adding test targets. Native tests
+are available from every registered build preset; the default is
+`Win64-Debug-DurinEditor`.
 
 ## Source Layout
 
@@ -70,20 +72,21 @@ DurinDevTool clears build recovery state before launching the test executable. A
 In the interactive shell, use the equivalent commands:
 
 ```text
-DurinDevTool> preset Win64-Debug-DurinEditor-Tests
+DurinDevTool> preset Win64-Debug-DurinEditor
 DurinDevTool> test --target CoreUtilityTests
 DurinDevTool> test --target CoreUtilityTests --filter FJsonDocumentTests.ParseObjectFromString
 DurinDevTool> test all
 ```
 
-DurinDevTool rejects `test` when the selected preset does not enable `BUILD_TESTING`.
+DurinDevTool rejects `test` for an IDE-only or custom preset that does not
+enable `BUILD_TESTING`.
 
 For diagnosis, the corresponding executable is under
 `Engine/Binaries/Win64/Debug/Tests/DurinEditor/Bin/` and may be run directly
 with normal GoogleTest arguments. Direct and filtered runs use the same
 process-isolation harness as CTest. Add `--durin-keep-test-work`, or set
 `DURIN_TEST_KEEP_WORK=1`, to retain a successful run's files. CTest discovery
-state is in `Build/Win64-Debug-DurinEditor-Tests`.
+state is in `Build/Win64-Debug-DurinEditor`.
 
 ## Output Layout
 

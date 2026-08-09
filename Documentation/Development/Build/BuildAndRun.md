@@ -220,21 +220,13 @@ open until the user exits it.
 
 On Windows, the first toolchain-backed command captures and validates the Visual Studio environment. DurinDevTool caches that environment delta under `Build/.agent-state/` so later invocations avoid rerunning `VsDevCmd.bat` and the compiler language probe. The cache refreshes automatically when the setup script, its arguments, or `cl.exe` changes, while caller-provided environment values and `PATH` changes remain live.
 
-The registered Windows build environment defaults to `Win64-Debug-DurinEditor-Tests`, allowing the same output set to run the editor and native tests. Before launching the editor for a smoke test or final validation, build the complete runtime:
-
-`Win64-Release-DurinEditor-Tests` and `Win64-Shipping-DurinGame-Tests`
-provide opt-in configuration-parity native-test entrypoints. They are not part
-of normal human or Agent validation. Use them only when a user or plan requires
-cross-configuration qualification, or when a change directly affects contracts
-whose evaluation, diagnostics, build definitions, or conditional compilation
-differ across Debug, Release, and Shipping. They do not replace the ordinary
-runtime presets for full editor or game validation.
-
-Each test preset owns a separate build and install tree and can consume
-substantial time and disk space. In a multi-worktree workspace, select one
-checkout for required parity validation rather than preparing the same preset
-in several worktrees. After the evidence is recorded, use `DevTool purge` for
-that preset when its generated artifacts are no longer needed.
+The registered Windows build environment defaults to
+`Win64-Debug-DurinEditor`. Every registered runtime and profiling preset enables
+native-test configuration, while test executables remain excluded from the
+default `all` build target. The same preset and build tree therefore support
+ordinary runtime builds and on-demand `test` commands. Use the corresponding
+Release or Shipping runtime preset when configuration-parity qualification is
+required; no separate test preset is needed.
 
 ```powershell
 .\DevTool.bat build --target all
@@ -402,15 +394,14 @@ The selected preset is session-local and does not modify `.agents/DevTool.user.j
 
 ```text
 DurinDevTool> presets
-   1  Win64-Debug-DurinEditor-Tests [default, current]
-   2  Win64-Debug-DurinEditor
-   3  Win64-Release-DurinEditor
-   4  Win64-Release-DurinEditor-Profiling
-   5  Win64-Debug-DurinGame
-   6  Win64-Release-DurinGame
-   7  Win64-Release-DurinGame-Profiling
-   8  Win64-Shipping-DurinGame
-DurinDevTool> preset 3
+   1  Win64-Debug-DurinEditor [default, current]
+   2  Win64-Release-DurinEditor
+   3  Win64-Release-DurinEditor-Profiling
+   4  Win64-Debug-DurinGame
+   5  Win64-Release-DurinGame
+   6  Win64-Release-DurinGame-Profiling
+   7  Win64-Shipping-DurinGame
+DurinDevTool> preset 2
 DurinDevTool> preset
 CMake preset: "Win64-Release-DurinEditor"
 DurinDevTool> preset Win64-Debug-DurinGame

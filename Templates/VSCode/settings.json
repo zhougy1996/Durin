@@ -1,6 +1,6 @@
 {
   "clangd.arguments": [
-    "--compile-commands-dir=${workspaceFolder}/Build/Win64-Debug-DurinEditor-Tests",
+    "--compile-commands-dir=${workspaceFolder}/Build/Win64-Debug-DurinEditor",
     "--background-index"
   ],
   "json.schemas": [

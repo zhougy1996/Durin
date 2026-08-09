@@ -32,9 +32,10 @@ Runtime-variant definitions live in
 - a dedicated CMake build directory
 
 Testing and PCH options are preset behavior, not runtime-variant semantics.
-Multiple presets can map to the same runtime variant and final-output
-directories; their operational roles are documented in
-`Documentation/Development/Build/BuildAndRun.md`.
+Every registered build preset enables native-test configuration, and tests are
+built on demand rather than by the default `all` target. Multiple presets can
+map to the same runtime variant and final-output directories; their operational
+roles are documented in `Documentation/Development/Build/BuildAndRun.md`.
 
 Profiling is also preset behavior rather than a runtime variant. The dedicated
 Release profiling presets keep `DurinEditor` or `DurinGame` as the runtime

@@ -61,8 +61,11 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
 
 ## Agent Handoff
 
-- Agents may stage and commit changes directly. If Codex `workspace-write`
-  blocks Git metadata updates, request elevated permission and retry.
+- After successful validation, stage and commit the task's changes unless the
+  user explicitly requests an uncommitted handoff or the commit cannot be
+  isolated safely from pre-existing worktree changes. If Codex
+  `workspace-write` blocks Git metadata updates, request elevated permission
+  and retry.
 - For active-plan work, update required status/checklists in the same commit and
   end the body with the exact `Plan: Documentation/Plans/<Plan>.md` and
   `Stage: Stage <N>: <stage title>` provenance (one Stage line per stage). Do not

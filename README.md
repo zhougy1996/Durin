@@ -68,7 +68,7 @@ Useful commands include:
 .\DevTool.bat clean
 .\DevTool.bat recover
 .\DevTool.bat rebuild --target all
-.\DevTool.bat purge --preset Win64-Debug-DurinEditor-Tests
+.\DevTool.bat purge --preset Win64-Debug-DurinEditor
 .\DevTool.bat build --preset Win64-Release-DurinEditor --target all
 ```
 

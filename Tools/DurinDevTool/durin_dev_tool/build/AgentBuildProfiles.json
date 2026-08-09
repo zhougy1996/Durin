@@ -4,18 +4,15 @@
     "windows-msvc-x64": {
       "host": "windows",
       "default": true,
-      "defaultPreset": "Win64-Debug-DurinEditor-Tests",
+      "defaultPreset": "Win64-Debug-DurinEditor",
       "presets": [
-        "Win64-Debug-DurinEditor-Tests",
         "Win64-Debug-DurinEditor",
         "Win64-Release-DurinEditor",
-        "Win64-Release-DurinEditor-Tests",
         "Win64-Release-DurinEditor-Profiling",
         "Win64-Debug-DurinGame",
         "Win64-Release-DurinGame",
         "Win64-Release-DurinGame-Profiling",
-        "Win64-Shipping-DurinGame",
-        "Win64-Shipping-DurinGame-Tests"
+        "Win64-Shipping-DurinGame"
       ],
       "platform": "Win64",
       "environmentProvider": "visual-studio",

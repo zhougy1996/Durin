@@ -31,10 +31,10 @@ The editor executable is
 ## Visual Studio Code
 
 Visual Studio Code does not need CMake Tools to provide the C++ code model.
-DurinDevTool's default `Win64-Debug-DurinEditor-Tests` preset generates:
+DurinDevTool's default `Win64-Debug-DurinEditor` preset generates:
 
 ```text
-Build/Win64-Debug-DurinEditor-Tests/compile_commands.json
+Build/Win64-Debug-DurinEditor/compile_commands.json
 ```
 
 `DevTool setup` copies the tracked `settings.json` and `extensions.json`
@@ -127,7 +127,7 @@ does not make concurrent IDE configuration or IDE builds safe.
 
 If clangd reports missing project includes or widespread incorrect macros,
 confirm that its output names
-`Build/Win64-Debug-DurinEditor-Tests/compile_commands.json`, rerun
+`Build/Win64-Debug-DurinEditor/compile_commands.json`, rerun
 `DurinDevTool configure`, and restart the language server. A newly prepared checkout
 may also need one successful DurinDevTool build to create generated DHT files.
 
