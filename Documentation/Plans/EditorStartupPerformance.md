@@ -133,6 +133,26 @@ document admission skipped the document load and completed reverse-order
 shutdown with zero deferred objects. All 29 `EditorShellTests` and the complete
 79-case `EditorAssetWorkflowTests` target passed (one existing skipped case).
 
+Stage 3 removes the second package-file read from every nonresident
+`Asset.LoadPackage`: the already resolved codec now reads the header from the
+same byte buffer later supplied to live loading. `FAssetLoadReport` publishes a
+bounded `PackageFileReadCount`; the dependency-closure regression proves that
+an owner plus one external dependency performs exactly two package reads while
+preserving dependency residency and unload protection.
+
+The equivalent five-run warm Sandbox sample reduced the selected asset-load
+median from the Stage 2 value of 538.908 ms to 523.821 ms (519.435--549.808 ms),
+a 2.80 percent wall-clock improvement. Default-document work fell from 540.271
+ms to 525.215 ms. First-present measured median 989.306 ms
+(983.593--1,114.951 ms), still 37.88 percent faster than Stage 0, and workspace
+readiness measured median 1,036.114 ms (1,029.761--1,160.559 ms), 21.72 percent
+faster than Stage 0. The matching Project Browser control measured
+first-present median 1,117.198 ms and shell-completion median 1,117.767 ms; all
+five runs retained `-1` registry/default-document fields and exited normally.
+Its completion milestone now intentionally follows first present under the
+Stage 1 state machine, so it is not directly comparable to the pre-Stage-1
+completion boundary.
+
 ## Goal
 
 - Make the native editor shell visible and responsive before project workspace
@@ -365,19 +385,19 @@ shutdown with zero deferred objects. All 29 `EditorShellTests` and the complete
 
 ### Stage 3: Reduce the selected synchronous hot leaf
 
-- [ ] Optimize `DefaultDocument.AssetLoad` by removing the redundant physical
+- [x] Optimize `DefaultDocument.AssetLoad` by removing the redundant physical
   package/header reread from each nonresident `Asset.LoadPackage`: reuse the
   already loaded bytes and resolved codec for header validation and registry
   metadata. The Debug baseline is 576.264 ms across the default-level dependency
   closure versus 0.013 ms compatibility and 1.385 ms activation; preserve
   game-thread package and `DObject` publication, dependency order, compatibility
   reporting, and rollback.
-- [ ] Add focused regression coverage for the selected cache, load, batching,
+- [x] Add focused regression coverage for the selected cache, load, batching,
   or submission behavior.
-- [ ] Demonstrate that the optimization removes or overlaps measured work; a
+- [x] Demonstrate that the optimization removes or overlaps measured work; a
   moved log boundary or deferred cost alone does not count as a wall-clock
   reduction.
-- [ ] Re-run the Stage 0 matrix and record before/after medians for both first
+- [x] Re-run the Stage 0 matrix and record before/after medians for both first
   present and default-workspace readiness.
 
 #### Acceptance Gate
@@ -388,6 +408,26 @@ shutdown with zero deferred objects. All 29 `EditorShellTests` and the complete
   cold-start regression greater than 10 percent.
 - No new unbounded log, profiling label, cache key, or startup thread affinity
   is introduced.
+
+#### Stage 3 Handoff
+
+- Baseline commit: `62ffa40c`.
+- Working set: `FAssetManager::LoadPackageInternal`, structured asset-load
+  reporting, and the package dependency/rollback regression target.
+- Key symbols: `FAssetLoadReport::PackageFileReadCount`,
+  `GActivePackageFileReadCount`, and
+  `Private::FAssetPackageCodec::ReadHeader`.
+- Decisions: reuse the already loaded bytes and already resolved codec; retain
+  header validation before skeleton publication; count successful physical
+  package reads across the root dependency closure without adding logs, cache
+  state, or thread-affinity changes.
+- Open question: the required cold Sandbox sample remains deferred until the
+  user permits a machine restart; Stage 4 must not mark that gate passed from a
+  warm launch.
+- Validation: Debug `all` build; focused dependency-count and truncated-package
+  cases; complete 97-case `AssetPackageTests`; one priming plus five measured
+  Sandbox launches; one priming plus five measured Project Browser launches;
+  clean normal shutdown for every run.
 
 ### Stage 4: Integration validation and lasting documentation
 

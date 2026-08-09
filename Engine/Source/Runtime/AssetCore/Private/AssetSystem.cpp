@@ -24,6 +24,7 @@ namespace Durin::Asset
 	namespace
 	{
 		thread_local FAssetLoadReport* GActiveAssetLoadReport = nullptr;
+		thread_local uint64 GActivePackageFileReadCount = 0;
 		thread_local uint32 GAssetMigrationLoadDepth = 0;
 
 		auto CheckSoftObjectThread() -> void
@@ -6392,6 +6393,7 @@ namespace Durin::Asset
 		}
 		if (OutReport) *OutReport = {.PackagePath = Path};
 		const bool bRootLoad = LoadDepth++ == 0;
+		if (bRootLoad) GActivePackageFileReadCount = 0;
 		FAssetLoadReport FailureReport;
 		if (bRootLoad)
 		{
@@ -6456,10 +6458,13 @@ namespace Durin::Asset
 			OutPackage = It->second;
 			return {};
 		}
+		FAssetLoadReport LocalReport{.PackagePath = Path};
+		FAssetLoadReport* CodecReport = OutReport ? OutReport : &LocalReport;
 		std::vector<uint8> Bytes;
 		const std::string PhysicalPath = GetPhysicalPath(Path);
 		if (PhysicalPath.empty()) return Error(EAssetError::InvalidPath, "Asset path cannot be resolved in the selected package mode.");
 		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath)) return Error(EAssetError::NotFound, std::format("Asset {} was not found.", Path.ToString()));
+		++GActivePackageFileReadCount;
 		const Private::FAssetPackageCodec* Codec = nullptr;
 		Private::FAssetPackagePreamble Preamble;
 		if (FAssetResult Result = Private::ResolveAssetPackageReader(
@@ -6467,7 +6472,7 @@ namespace Durin::Asset
 			return Result;
 		{
 			FAssetPackageHeader Header;
-			FAssetResult Result = ReadAssetPackageHeader(PhysicalPath, Header);
+			FAssetResult Result = Codec->ReadHeader(Bytes, Header);
 			if (!Result) return Result;
 			FPackageFile HeaderFile{
 				.FormatVersion = Header.FormatVersion,
@@ -6478,8 +6483,6 @@ namespace Durin::Asset
 			Result = ValidateRedirectorHeader(HeaderFile, Header.ObjectCount, &Path);
 			if (!Result) return Result;
 
-			FAssetLoadReport LocalReport{.PackagePath = Path};
-			FAssetLoadReport* CodecReport = OutReport ? OutReport : &LocalReport;
 			DPackage* Package = nullptr;
 			Result = Codec->Load(
 				Bytes, Path, Package, CodecReport,
@@ -6497,6 +6500,7 @@ namespace Durin::Asset
 					LoadedPackages.erase(Path);
 					CompatibilityRiskPackages.erase(LoadedPackage);
 				});
+			CodecReport->PackageFileReadCount = GActivePackageFileReadCount;
 			if (!Result) return Result;
 			LoadingPackages.erase(Path);
 			if (std::ranges::any_of(

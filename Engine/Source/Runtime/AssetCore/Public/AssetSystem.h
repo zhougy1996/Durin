@@ -145,6 +145,8 @@ namespace Durin::Asset
 	struct FAssetLoadReport
 	{
 		FAssetPath PackagePath;
+		// Counts package-file reads across the root load and its dependency closure.
+		uint64 PackageFileReadCount = 0;
 		std::vector<FAssetCompatibilityIssue> CompatibilityIssues;
 		std::vector<FAssetLoadMutation> Mutations;
 
