@@ -618,8 +618,13 @@ namespace Durin
 				const ImVec2 ImageMin = ImGui::GetCursorScreenPos();
 				if (PreviewState.bShowCheckerboard)
 					DrawTransparencyGrid(*ImGui::GetWindowDrawList(), ImageMin, ImageSize);
+				bool bDrewPreview = false;
+				ImGui::PushID("TexturePreviewImage");
 				if (Mona::GActiveUIBackend)
-					Mona::GActiveUIBackend->DrawImage(Preview.GetTexture(), FVector2f(ImageSize.x, ImageSize.y));
+					bDrewPreview = Mona::GActiveUIBackend->DrawImage(
+						Preview.GetTexture(), FVector2f(ImageSize.x, ImageSize.y));
+				ImGui::PopID();
+				if (!bDrewPreview) ImGui::Dummy(ImageSize);
 
 				const std::string Overlay = std::format(
 					"{}  |  {}%",

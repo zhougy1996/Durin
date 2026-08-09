@@ -12,6 +12,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/TextureCube.h"
 #include "Texture/Texture2D.h"
+#include "ThirdParty/ImGui/imgui.h"
 
 #include <gtest/gtest.h>
 
@@ -95,6 +96,36 @@ TEST(FTextureAssetThumbnailTests, ProviderConflictRollsBackWholeIntegration)
 		Durin::DTextureCube::StaticClass()->GetQualifiedName().ToString()));
 	EXPECT_EQ(Manager.FindWorkspace(
 		Durin::FEditorWorkspaceTypeId("TextureEditor")), nullptr);
+}
+
+TEST(FTextureAssetThumbnailTests, Texture2DWorkspaceDrawsFirstFrame)
+{
+	Durin::Tests::FRenderedAssetThumbnailFixtureSet Fixtures;
+	std::string Error;
+	ASSERT_TRUE(Durin::Tests::CreateRenderedAssetThumbnailFixtures(Fixtures, Error))
+		<< Error;
+	Durin::FEditorWorkspaceManager Manager;
+	Durin::FRenderedAssetThumbnailService Service;
+	Durin::FTextureEditorModule Module;
+	ASSERT_TRUE(Module.RegisterTextureEditor(Manager, Service));
+	ASSERT_TRUE(Manager.OpenAsset(
+		std::string(Durin::Tests::FRenderedAssetThumbnailFixtureSet::ParentTexturePath),
+		Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString()));
+
+	ImGuiContext* Context = ImGui::CreateContext();
+	ASSERT_NE(Context, nullptr);
+	ImGui::GetIO().IniFilename = nullptr;
+	ImGui::GetIO().DisplaySize = ImVec2(1280.0f, 720.0f);
+	ImGui::GetIO().DeltaTime = 1.0f / 60.0f;
+	ImGui::GetIO().Fonts->Build();
+	ImGui::NewFrame();
+	auto Workspace = Manager.FindWorkspace(
+		Durin::FEditorWorkspaceTypeId("TextureEditor"));
+	ASSERT_NE(Workspace, nullptr);
+	EXPECT_NO_FATAL_FAILURE(Workspace->DrawWorkspace(true));
+	ImGui::EndFrame();
+	ImGui::DestroyContext(Context);
+	Module.UnregisterTextureEditor();
 }
 
 TEST(FTextureCubeAssetThumbnailTests, ProviderCapturesPackageAndCubeVisualContract)
