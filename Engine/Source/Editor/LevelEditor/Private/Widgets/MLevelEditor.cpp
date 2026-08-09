@@ -74,7 +74,7 @@ namespace Durin
 		CreateImportDialogs();
 		CreateContentBrowser();
 		CreateNotificationOverlay();
-		FinalizeConstruction();
+		FinalizeSessionConstruction();
 	}
 
 	auto MLevelEditor::InitializeContext() -> void
@@ -254,21 +254,21 @@ namespace Durin
 		Panels.emplace_back(std::move(ActivityHistory));
 	}
 
-	auto MLevelEditor::FinalizeConstruction() -> void
+	auto MLevelEditor::FinalizeSessionConstruction() -> void
 	{
 		Context->Synchronize(GEditor != nullptr ? GEditor->GetEditorWorld() : (GEngine != nullptr ? GEngine->GetWorld() : nullptr));
+	}
+
+	auto MLevelEditor::OpenDefaultDocument() -> bool
+	{
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentBegin);
+		bool bOpened = false;
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.DefaultDocument");
-			DocumentController->OpenDefaultLevel();
+			bOpened = DocumentController->OpenDefaultLevel();
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentComplete);
-		if (!EditorError.empty())
-		{
-			DURIN_WARN("Could not open project default level {}: {}",
-				DefaultLevel.GetSoftObjectPath().ToString(), EditorError);
-			EditorError.clear();
-		}
+		return bOpened;
 	}
 
 	auto MLevelEditor::LoadProjectSettings() -> bool

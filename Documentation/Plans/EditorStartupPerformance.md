@@ -92,11 +92,10 @@ deferring that restart so implementation could continue; the cold sample remains
 an open final-validation requirement and is not treated as passed evidence.
 
 Stage 1 now presents the persisted, styled native shell before loading concrete
-editor modules. `DEditorEngine::Tick()` owns the forward-only
-`ConstructingShell -> WaitingForFirstPresent -> LoadingWorkspace -> Ready|Failed`
-sequence; Project Browser takes the direct `WaitingForFirstPresent -> Ready`
-path and does not load project workspaces. Maximized state is applied while the
-window is hidden and before viewport creation, eliminating the previous
+editor modules. `DEditorEngine::Tick()` owns the forward-only bootstrap;
+Project Browser takes the direct `WaitingForFirstPresent -> Ready` path and does
+not load project workspaces. Maximized state is applied while the window is
+hidden and before viewport creation, eliminating the previous
 1600x1000-to-3840x2019 startup swapchain recreation.
 
 Against the Stage 0 Sandbox baseline, the final five-run warm first-present
@@ -109,6 +108,30 @@ must recover that margin while separating workspace and document readiness.
 Five measured launches, a Project Browser control, and a one-tick close while
 waiting for workspace activation all exited cleanly. `EditorShellTests` passed
 all 29 cases, including the new transition matrix coverage.
+
+Stage 2 extends the project path through `LoadingWorkspace -> WorkspaceReady ->
+LoadingDefaultDocument -> Ready`. LevelEditor session and panel construction no
+longer opens the configured default level; the MainFrame bootstrap admits that
+operation independently after a workspace-ready frame. Default-document state
+is published separately as `Pending`, `Loading`, `Ready`, or `Failed`, while
+document-dependent commands retain their existing `Context.Level` readiness
+checks.
+
+The Stage 2 five-run warm Sandbox sample measured first-present median 951.916
+ms (937.439--1,040.410 ms), default-workspace-ready median 1,037.261 ms
+(976.300--1,165.421 ms), and default-document-ready median 1,617.901 ms
+(1,573.675--1,760.696 ms). Workspace readiness is 21.63 percent faster than the
+Stage 0 baseline and comfortably passes the baseline-plus-10-percent gate.
+Missing and incompatible default-level controls each retained the registered
+Level workspace, emitted exactly one actionable error, and exited normally.
+A focused truncated-package regression passed, and the existing cross-world
+level-ownership assertion continues to cover activation rejection; a standalone
+invocation of that World test reached the 10-minute process timeout before
+producing test output, so it is not counted as passed runtime evidence here.
+A six-tick close after module registration and registry scan but before default
+document admission skipped the document load and completed reverse-order
+shutdown with zero deferred objects. All 29 `EditorShellTests` and the complete
+79-case `EditorAssetWorkflowTests` target passed (one existing skipped case).
 
 ## Goal
 
@@ -287,20 +310,20 @@ all 29 cases, including the new transition matrix coverage.
 
 ### Stage 2: Deferred workspace and default-document activation
 
-- [ ] Move concrete editor-module registration and default-workspace opening
+- [x] Move concrete editor-module registration and default-workspace opening
   behind the successful first-present boundary.
-- [ ] Preserve Level, Material, Texture, and StaticMesh registration order and
+- [x] Preserve Level, Material, Texture, and StaticMesh registration order and
   reverse-order rollback.
-- [ ] Separate LevelEditor session construction from default-document open so
+- [x] Separate LevelEditor session construction from default-document open so
   the workspace host can become usable before a heavy default level is fully
   activated.
-- [ ] Publish workspace readiness and default-document readiness as distinct
+- [x] Publish workspace readiness and default-document readiness as distinct
   states; commands that require a document remain disabled until activation
   succeeds.
-- [ ] Preserve compatibility rejection, package-release, and error-reporting
+- [x] Preserve compatibility rejection, package-release, and error-reporting
   behavior when the configured default level is missing, incompatible, corrupt,
   or fails activation.
-- [ ] Ensure close or shutdown during deferred startup cancels future admission,
+- [x] Ensure close or shutdown during deferred startup cancels future admission,
   drains accepted work, and releases partial ownership in normal shutdown
   order.
 
@@ -315,6 +338,30 @@ all 29 cases, including the new transition matrix coverage.
   one actionable diagnostic without partial document activation.
 - Median default-workspace readiness is no worse than 10 percent above the
   Stage 0 baseline.
+
+#### Stage 2 Handoff
+
+- Baseline commit: `cc5473661f6a67523155774c258fa535dfd7a1c0`.
+- Working set: MainFrame bootstrap state/API, LevelEditor module and workspace
+  construction, default-document controller result, startup timing summary, and
+  bootstrap transition tests.
+- Key symbols: `EEditorDefaultDocumentState`,
+  `FLevelEditorModule::OpenDefaultDocument`,
+  `MLevelEditor::FinalizeSessionConstruction`,
+  `MLevelEditor::OpenDefaultDocument`, and
+  `FLevelDocumentController::OpenDefaultLevel`.
+- Decisions: workspace registration and singleton tab opening publish workspace
+  readiness; default-level load/compatibility/activation is a later game-thread
+  admission; document failure terminates the document state but leaves the
+  workspace bootstrap `Ready`.
+- Open question: Stage 3 must reduce the 540.271 ms median default-document leaf
+  without changing game-thread publication or failure rollback.
+- Validation: Debug `all` build; 29 `EditorShellTests`; complete
+  `EditorAssetWorkflowTests`; five-run Sandbox metrics; missing and incompatible
+  default-level controls; focused truncated-package regression; inspected
+  cross-world activation-rejection coverage (standalone invocation timed out
+  before test output); close after workspace readiness and before document
+  admission; normal repeated shutdown audits.
 
 ### Stage 3: Reduce the selected synchronous hot leaf
 

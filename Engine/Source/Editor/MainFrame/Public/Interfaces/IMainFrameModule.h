@@ -8,6 +8,18 @@ namespace Durin
 		ConstructingShell,
 		WaitingForFirstPresent,
 		LoadingWorkspace,
+		WorkspaceReady,
+		LoadingDefaultDocument,
+		Ready,
+		Failed,
+	};
+
+	// Publishes default-document readiness separately from workspace readiness.
+	enum class EEditorDefaultDocumentState : uint8
+	{
+		NotApplicable,
+		Pending,
+		Loading,
 		Ready,
 		Failed,
 	};
@@ -24,8 +36,12 @@ namespace Durin
 			return To == EEditorBootstrapState::LoadingWorkspace
 				|| To == EEditorBootstrapState::Ready;
 		case EEditorBootstrapState::LoadingWorkspace:
-			return To == EEditorBootstrapState::Ready
+			return To == EEditorBootstrapState::WorkspaceReady
 				|| To == EEditorBootstrapState::Failed;
+		case EEditorBootstrapState::WorkspaceReady:
+			return To == EEditorBootstrapState::LoadingDefaultDocument;
+		case EEditorBootstrapState::LoadingDefaultDocument:
+			return To == EEditorBootstrapState::Ready;
 		case EEditorBootstrapState::Ready:
 		case EEditorBootstrapState::Failed:
 			return false;
@@ -42,5 +58,7 @@ namespace Durin
 		virtual auto TickDefaultMainFrameBootstrap() -> void = 0;
 		virtual auto GetDefaultMainFrameBootstrapState() const
 			-> EEditorBootstrapState = 0;
+		virtual auto GetDefaultDocumentState() const
+			-> EEditorDefaultDocumentState = 0;
 	};
 }

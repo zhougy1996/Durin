@@ -28,6 +28,8 @@ namespace Durin
 	struct FMainFrameBootstrapContext
 	{
 		EEditorBootstrapState State = EEditorBootstrapState::ConstructingShell;
+		EEditorDefaultDocumentState DefaultDocumentState =
+			EEditorDefaultDocumentState::NotApplicable;
 		bool bHasProject = false;
 		bool bWorkspaceActivationStarted = false;
 		std::shared_ptr<FEditorHostSettings> HostSettings;
@@ -520,6 +522,9 @@ namespace Durin
 		BootstrapContext = std::make_shared<FMainFrameBootstrapContext>();
 		FMainFrameBootstrapContext& Context = *BootstrapContext;
 		Context.bHasProject = HasCurrentProject();
+		Context.DefaultDocumentState = Context.bHasProject
+			? EEditorDefaultDocumentState::Pending
+			: EEditorDefaultDocumentState::NotApplicable;
 		Context.HostSettings = std::make_shared<FEditorHostSettings>();
 		Context.HostSettings->Load();
 		MonaImGui::SetColorTheme(Context.HostSettings->GetColorTheme());
@@ -559,7 +564,9 @@ namespace Durin
 			if (!Context) return;
 			ObserveEditorHostWindowState(
 				*Context->HostSettings, *Context->RootWindow);
-			if (Context->State == EEditorBootstrapState::Ready
+			if ((Context->State == EEditorBootstrapState::WorkspaceReady
+					|| Context->State == EEditorBootstrapState::LoadingDefaultDocument
+					|| Context->State == EEditorBootstrapState::Ready)
 				&& Context->bHasProject && Context->LevelEditorModule)
 			{
 				DrawWorkspaceHost(
@@ -636,16 +643,33 @@ namespace Durin
 				Context, EEditorBootstrapState::LoadingWorkspace);
 			return;
 		}
-		if (Context.State != EEditorBootstrapState::LoadingWorkspace
-			|| Context.bWorkspaceActivationStarted)
+		if (Context.State == EEditorBootstrapState::LoadingWorkspace)
+		{
+			if (Context.bWorkspaceActivationStarted) return;
+			Context.bWorkspaceActivationStarted = true;
+			TransitionEditorBootstrap(
+				Context,
+				ActivateEditorWorkspaces(Context)
+					? EEditorBootstrapState::WorkspaceReady
+					: EEditorBootstrapState::Failed);
+			return;
+		}
+		if (Context.State == EEditorBootstrapState::WorkspaceReady)
+		{
+			Context.DefaultDocumentState =
+				EEditorDefaultDocumentState::Loading;
+			TransitionEditorBootstrap(
+				Context, EEditorBootstrapState::LoadingDefaultDocument);
+			return;
+		}
+		if (Context.State != EEditorBootstrapState::LoadingDefaultDocument)
 			return;
 
-		Context.bWorkspaceActivationStarted = true;
-		TransitionEditorBootstrap(
-			Context,
-			ActivateEditorWorkspaces(Context)
-				? EEditorBootstrapState::Ready
-				: EEditorBootstrapState::Failed);
+		Context.DefaultDocumentState = Context.LevelEditorModule
+			&& Context.LevelEditorModule->OpenDefaultDocument()
+			? EEditorDefaultDocumentState::Ready
+			: EEditorDefaultDocumentState::Failed;
+		TransitionEditorBootstrap(Context, EEditorBootstrapState::Ready);
 		Profiling::TryLogStartupTimingSummary();
 	}
 
@@ -655,5 +679,13 @@ namespace Durin
 		return BootstrapContext
 			? BootstrapContext->State
 			: EEditorBootstrapState::ConstructingShell;
+	}
+
+	auto FMainFrameModule::GetDefaultDocumentState() const
+		-> EEditorDefaultDocumentState
+	{
+		return BootstrapContext
+			? BootstrapContext->DefaultDocumentState
+			: EEditorDefaultDocumentState::NotApplicable;
 	}
 } // namespace Durin

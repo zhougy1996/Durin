@@ -26,6 +26,7 @@ namespace Durin
 		LEVELEDITOR_API auto ShutdownModule() -> void override;
 		LEVELEDITOR_API auto RegisterLevelEditorWorkspace(FEditorWorkspaceManager& WorkspaceManager) -> bool;
 		LEVELEDITOR_API auto UnregisterLevelEditorWorkspace() -> void;
+		LEVELEDITOR_API auto OpenDefaultDocument() -> bool;
 		LEVELEDITOR_API auto RevealAssetInContentBrowser(const FAssetPath& AssetPath) -> bool;
 	private:
 		std::unique_ptr<FEditorWorkspaceRegistrationHandle> WorkspaceRegistration;

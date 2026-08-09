@@ -45,7 +45,7 @@ namespace Durin
 		auto RequestAction(ELevelDocumentAction Action) -> void;
 		auto RequestOpenLevel(std::string Path) -> ELevelDocumentOpenResult;
 		auto DrawDialogs() -> void;
-		auto OpenDefaultLevel() -> void;
+		auto OpenDefaultLevel() -> bool;
 		auto SaveCurrentLevel() -> bool;
 		auto RenameCurrentLevel(std::string_view NewName) -> bool;
 

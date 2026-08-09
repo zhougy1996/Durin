@@ -20,6 +20,8 @@ namespace Durin
 		auto TickDefaultMainFrameBootstrap() -> void override;
 		auto GetDefaultMainFrameBootstrapState() const
 			-> EEditorBootstrapState override;
+		auto GetDefaultDocumentState() const
+			-> EEditorDefaultDocumentState override;
 
 	private:
 		std::shared_ptr<FMainFrameBootstrapContext> BootstrapContext;

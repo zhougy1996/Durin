@@ -17,6 +17,12 @@ namespace Durin
 			EEditorBootstrapState::Ready));
 		EXPECT_TRUE(IsValidEditorBootstrapTransition(
 			EEditorBootstrapState::LoadingWorkspace,
+			EEditorBootstrapState::WorkspaceReady));
+		EXPECT_TRUE(IsValidEditorBootstrapTransition(
+			EEditorBootstrapState::WorkspaceReady,
+			EEditorBootstrapState::LoadingDefaultDocument));
+		EXPECT_TRUE(IsValidEditorBootstrapTransition(
+			EEditorBootstrapState::LoadingDefaultDocument,
 			EEditorBootstrapState::Ready));
 		EXPECT_TRUE(IsValidEditorBootstrapTransition(
 			EEditorBootstrapState::LoadingWorkspace,
@@ -29,6 +35,8 @@ namespace Durin
 			EEditorBootstrapState::ConstructingShell,
 			EEditorBootstrapState::WaitingForFirstPresent,
 			EEditorBootstrapState::LoadingWorkspace,
+			EEditorBootstrapState::WorkspaceReady,
+			EEditorBootstrapState::LoadingDefaultDocument,
 			EEditorBootstrapState::Ready,
 			EEditorBootstrapState::Failed,
 		};
@@ -43,8 +51,12 @@ namespace Durin
 						&& (To == EEditorBootstrapState::LoadingWorkspace
 							|| To == EEditorBootstrapState::Ready))
 					|| (From == EEditorBootstrapState::LoadingWorkspace
-						&& (To == EEditorBootstrapState::Ready
-							|| To == EEditorBootstrapState::Failed));
+						&& (To == EEditorBootstrapState::WorkspaceReady
+							|| To == EEditorBootstrapState::Failed))
+					|| (From == EEditorBootstrapState::WorkspaceReady
+						&& To == EEditorBootstrapState::LoadingDefaultDocument)
+					|| (From == EEditorBootstrapState::LoadingDefaultDocument
+						&& To == EEditorBootstrapState::Ready);
 				EXPECT_EQ(IsValidEditorBootstrapTransition(From, To), bExpected);
 			}
 		}

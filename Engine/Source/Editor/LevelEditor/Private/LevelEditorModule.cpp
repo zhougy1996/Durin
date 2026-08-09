@@ -111,6 +111,12 @@ namespace Durin
 		LevelEditorWorkspace.reset();
 	}
 
+	LEVELEDITOR_API auto FLevelEditorModule::OpenDefaultDocument() -> bool
+	{
+		const std::shared_ptr<MLevelEditor> Workspace = LevelEditorWorkspace.lock();
+		return Workspace && Workspace->OpenDefaultDocument();
+	}
+
 	auto FLevelEditorModule::RevealAssetInContentBrowser(const FAssetPath& AssetPath) -> bool
 	{
 		const std::shared_ptr<MLevelEditor> Workspace = LevelEditorWorkspace.lock();

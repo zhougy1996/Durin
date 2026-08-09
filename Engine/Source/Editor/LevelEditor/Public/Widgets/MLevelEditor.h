@@ -34,6 +34,7 @@ namespace Durin
 		MLevelEditor(FLevelEditorSessionSettings& InSessionSettings, FEditorWorkspaceManager& InWorkspaceManager);
 		LEVELEDITOR_API ~MLevelEditor() override;
 		LEVELEDITOR_API auto Construct() -> void;
+		LEVELEDITOR_API auto OpenDefaultDocument() -> bool;
 		LEVELEDITOR_API auto GetWorkspaceType() const -> const FEditorWorkspaceTypeId& override;
 		LEVELEDITOR_API auto OpenDocument(const FEditorDocumentTab& Document) -> EEditorDocumentOpenResult override;
 		LEVELEDITOR_API auto ActivateDocument(const FEditorDocumentTab& Document) -> void override;
@@ -67,7 +68,7 @@ namespace Durin
 		auto CreateImportDialogs() -> void;
 		auto CreateContentBrowser() -> void;
 		auto CreateNotificationOverlay() -> void;
-		auto FinalizeConstruction() -> void;
+		auto FinalizeSessionConstruction() -> void;
 		auto DrawProjectSettings() -> void;
 		auto LoadProjectSettings() -> bool;
 		auto SaveProjectSettings() -> bool;

@@ -150,12 +150,12 @@ namespace Durin
 		return true;
 	}
 
-	auto FLevelDocumentController::OpenDefaultLevel() -> void
+	auto FLevelDocumentController::OpenDefaultLevel() -> bool
 	{
 		const FProjectInfo* Project = GetCurrentProject();
 		if (!Project || DefaultLevel.IsNull()
 			|| !DefaultLevel.GetSoftObjectPath().GetView().starts_with(Project->MountRoot))
-			return;
+			return true;
 		if (ClearError) ClearError();
 		const FAssetPath& Path = DefaultLevel.GetSoftObjectPath().GetAssetPath();
 		FWorkspaceAssetOpenCompatibility CompatibilityPolicy(Path);
@@ -172,7 +172,7 @@ namespace Durin
 		if (!Result)
 		{
 			SetError(Result.Message);
-			return;
+			return false;
 		}
 		std::string CompatibilityDiagnostic;
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentCompatibilityBegin);
@@ -186,7 +186,7 @@ namespace Durin
 		if (bRejectedAsIncompatible)
 		{
 			SetError(std::move(CompatibilityDiagnostic));
-			return;
+			return false;
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationBegin);
 		bool bActivated = false;
@@ -203,7 +203,9 @@ namespace Durin
 				DURIN_WARN(
 					"Failed to release packages after default-level activation failed: {}",
 					ReleaseResult.Message);
+			return false;
 		}
+		return true;
 	}
 
 	auto FLevelDocumentController::OpenLevel(std::string_view PathString) -> ELevelDocumentOpenResult
