@@ -35,9 +35,13 @@ The remaining startup boundary is not yet a coherent capability contract:
 - render-pass creation catches native failure, retains a null handle, and
   inserts the incomplete object into the structural cache.
 
-Stage 0 freezes the supported platform/topology contract, the smallest useful
-public capability vocabulary, and the exact structural-cache working set
-before implementation changes begin. No implementation stage is complete yet.
+Stage 0 completed its contract freeze against baseline commit
+`9a13a105aacc08fef1baa86d20814da3875d5df8`. The supported profiles, public
+capability vocabulary, exact texture boundary, Vulkan requirement classes,
+Win64 queue/WSI rule, structural-cache working set, and validation additions
+are recorded below. The existing focused suites, full Debug Editor build, and
+hidden-window startup/shutdown baseline passed on 2026-08-09. Stage 1 is now
+the current implementation stage.
 
 ## Goal
 
@@ -198,29 +202,229 @@ retry.
 | Textures | Public descriptions cover multiple dimensions; 2D/cube validation, Vulkan format features, failure-atomic image/view creation, mip upload, and readback exist. | Dimension validation is incomplete, support ignores full image properties, and native image type is fixed to 2D. |
 | Structural caches | Render-pass, framebuffer, descriptor, and pipeline owners have immutable inputs and established call sites. | Render-pass failure can publish a null handle; the directly dependent caches lack one audited complete-candidate rule. |
 
+## Stage 0 Frozen Contract
+
+### Supported platform and runtime profiles
+
+| Platform/profile | Required use in this plan | Diagnostic default | WSI qualification |
+| --- | --- | --- | --- |
+| Win64 `Win64-Debug-DurinEditor-Tests` | Primary implementation, focused native tests, full `all` build, and Editor smoke | `auto` requests optional validation diagnostics | Hidden main window plus visible main-window and ImGui detached-viewport create, replace, and teardown |
+| Win64 `Win64-Release-DurinEditor-Tests` | Normal Editor startup and configuration-parity tests | `auto` disables validation diagnostics | Main window and ImGui detached viewports |
+| Win64 `Win64-Shipping-DurinGame-Tests` | Shipping contract and Game runtime qualification | Validation diagnostics are disabled | Main game window only; the Editor-only detached-viewport path is not linked into this profile |
+| Apple source branches | Deferred; they are neither compile-qualified nor runtime-qualified by this plan | Not applicable | Existing portability-enumeration, MoltenVK surface, and portability-subset branches remain source-only compatibility intent and do not advertise platform parity |
+
+Only the three named Win64 profiles expand the supported runtime matrix. A
+future platform must add its own API floor, loader, required extension, queue,
+surface, texture-format, diagnostic, build, test, and runtime evidence before
+becoming supported.
+
+`FVulkanDynamicRHI` owns diagnostic-policy resolution. The new
+`DURIN_VULKAN_VALIDATION` process setting has the exact values `auto`, `on`,
+and `off`; an unset or invalid value resolves to `auto`, with an invalid value
+logged once. `auto` requests validation only in Debug. `on` requests it in
+Debug or Release, while Shipping always disables it. `off` never requests it.
+Requesting diagnostics makes the Khronos validation layer and debug-utils
+extension optional requests, not runtime requirements. Either may be absent
+independently; startup continues and reports the disabled diagnostic once.
+
+### Consumer inventory and public query surface
+
+| Area | Current or next consumer | Selected contract | Fallback or rejection |
+| --- | --- | --- | --- |
+| Feature level | No current Renderer branch; later graphics-state work needs a coarse baseline | Publish only `ERHIFeatureLevel::ES3_1` for M0 and narrow its comment to a portable graphics baseline; it does not promise compute, typed views, cube arrays, tessellation, or SM5 features | Reject startup if the selected Vulkan device cannot meet the independently listed M0 hard requirements; never infer optional features from the tier |
+| 2D and cube textures | Texture2D/TextureCube assets, default textures, environment lighting, render targets, previews, thumbnails, and post process | Publish the supported-dimension mask and 2D/cube limits; use the exact-description support query before native creation | Asset resources retain their typed unsupported diagnostic and Renderer candidate owners retain the last complete payload or fail without publication |
+| 2D arrays, 3D textures, and cube arrays | No current production consumer; M2 may select one after typed-view requirements are known | Structurally validate them, but leave their M0 dimension bits clear and return unsupported before `vkCreateImage` | No implicit flattening to 2D; creation returns null with an owned unsupported diagnostic |
+| Texture samples | Render-target layout, current MSAA pipeline coverage, and later Renderer quality selection | Publish conservative color and depth sample masks; the exact texture query remains authoritative for format and usage | Select the greatest common requested count supported by every attachment, falling back to one, or reject an immutable caller-selected description |
+| Queue flags | Vulkan immediate graphics work and the existing compute-backed texture validation; asynchronous scheduling is deferred | Require one provisioned queue family with graphics and compute flags; transfer support is implicit for that family. Publish no async-compute or async-transfer field | Reject the physical-device candidate; do not create or advertise a separate queue path |
+| Presentation topology | Main `MWindow` output and ImGui detached windows | Keep topology backend-private and require the same provisioned graphics/present family for every Win64 surface | A later incompatible surface fails only its viewport transaction; it cannot replace a queue or disturb an existing viewport |
+| Synchronization choice | M1 `GPUResourceTransitions` | Publish `bSupportsSynchronization2` only when the core/extension feature is supported and activated | M1 uses the existing legacy barrier path when false |
+| Optional diagnostics | M0 startup logs and M5 diagnostics/conformance | Keep activation state backend-private in M0; no public capability field exists without a rendering-path consumer | Missing layer/debug-utils disables that diagnostic and never blocks startup |
+
+Stage 1 adds `FRHICapabilities` and
+`FDynamicRHI::RHIGetCapabilities() const -> const FRHICapabilities*`.
+`FDynamicRHI` owns one optional snapshot, exposes only a const pointer, returns
+null until a backend publishes one complete value, and clears it during
+shutdown. `GDynamicRHI` remains unpublished until `Init()` succeeds. The
+Vulkan backend constructs the snapshot in the selected device candidate and
+publishes it once after device initialization; the fake backend uses the same
+protected publication path.
+
+| Public field | Exact domain and source | Consumer/fallback |
+| --- | --- | --- |
+| `FeatureLevel` | `ERHIFeatureLevel`; exactly `ES3_1` in M0 after all hard requirements pass | Coarse later Renderer selection; every optional path still checks its own field |
+| `SupportedTextureDimensions` | `ERHITextureDimensionFlags`; M0 publishes exactly `Texture2D | TextureCube` | Coarse asset/Renderer selection; the exact description query decides final support |
+| `MaxTextureDimension2D` | Positive `uint32` from `maxImageDimension2D` | Validate 2D extents; oversized valid descriptions are unsupported |
+| `MaxTextureDimensionCube` | Positive `uint32` from `maxImageDimensionCube` | Validate cube extents; oversized valid descriptions are unsupported |
+| `MaxTextureArrayLayers` | Positive `uint32` from `maxImageArrayLayers`, with six layers required by the M0 baseline | Bound cube layers now and future array descriptions without implying array-dimension support |
+| `ColorSampleCounts` | Nonempty `ERHISampleCountFlags` over `{1,2,4,8,16}`, conservatively intersecting framebuffer-color and sampled-color device masks | Renderer sample fallback; exact format/usage support may further reduce it |
+| `DepthSampleCounts` | Nonempty `ERHISampleCountFlags` over `{1,2,4,8,16}`, conservatively intersecting framebuffer-depth and sampled-depth device masks | Depth/color attachment intersection; exact support may further reduce it |
+| `bSupportsSynchronization2` | `bool`; true only for activated Vulkan 1.3 core functionality or activated `VK_KHR_synchronization2` plus its feature bit | M1 selects synchronization2 when true and legacy barriers when false |
+
+No public API version, Vulkan extension name, native queue flag, driver limit
+without a consumer, presentation-family index, validation state, or native
+handle is part of the snapshot. Maximum mip count is derived from the exact
+dimension and extent rather than published as a misleading device-wide value.
+
+The existing format-named query becomes
+`RHIIsTextureSupported(const FRHITextureCreateDesc&)`. Both it and
+`RHICreateTexture` require a structurally valid description. The query returns
+only device support; creation asserts an invalid programmer description, logs
+one owned diagnostic for a valid unsupported description, returns null, and
+does not enter the native allocator.
+
+### Texture validity and exact Vulkan support
+
+`ValidateTextureCreateDesc` applies these backend-neutral rules in a stable
+order so each rejected input has one deterministic first diagnostic:
+
+- extent, depth, array size, mip count, sample count, and format must be
+  nonzero/specified; sample count must be one of `1, 2, 4, 8, 16`;
+- 2D requires depth one and array size one; 2D array requires depth one and at
+  least one layer; 3D requires array size one; cube requires square extent,
+  depth one, exactly six layers, and one sample; cube array requires square
+  extent, depth one, a positive layer count divisible by six, and one sample;
+- mip count cannot exceed
+  `floor(log2(max(width, height, depth-for-3D))) + 1`; multisampled textures
+  have exactly one mip, and 3D/cube/cube-array textures are single-sampled;
+- depth/stencil target usage is mutually exclusive with color-render-target,
+  resolve-target, and storage usage; storage and CPU-readback textures are
+  single-sampled; resolve targets are single-sampled; and checked arithmetic
+  is used for mip/layer/subresource counts; and
+- structural validity does not apply device limits. In M0, 2D array, 3D, and
+  cube array descriptions can be structurally valid but are deliberately
+  unsupported by the Vulkan backend.
+
+For a structurally valid and M0-enabled dimension, Vulkan builds the exact
+`vk::ImageCreateInfo` mapping and queries image-format properties with its
+format, image type, optimal tiling, usage, and create flags. Support requires
+the requested extent, mip levels, array layers, sample count, and resource size
+to fit the returned properties. Image and default-view mapping is 2D/e2D for
+2D, and 2D plus cube-compatible/eCube for cube. The other dimensions are
+rejected before the image failure-injection point, which proves they never
+reach `vkCreateImage` until a later plan deliberately enables and samples them.
+
+### Vulkan requirement classification
+
+The negotiated instance API version is the highest version no greater than
+Vulkan 1.3 reported by the loader. Loader or selected-device API below Vulkan
+1.1 is a required-runtime failure. A promoted-core requirement is satisfied by
+that core version and its extension name is not redundantly requested.
+
+| Scope and requirement | Class | Request/activation rule | Missing behavior |
+| --- | --- | --- | --- |
+| Loader and device API >= Vulkan 1.1 | Required runtime | Enumerate before instance/device commitment; request at most 1.3 | Fail the boundary or reject the device candidate with the reported version |
+| `VK_KHR_surface` | Platform-required on supported Win64 profiles | Required by GLFW WSI and deduplicated with application requirements | Fail before `vkCreateInstance` with the exact name/class |
+| `VK_KHR_win32_surface` | Platform-required on supported Win64 profiles | Supplied by GLFW and needed for the pre-device Win32 present query | Fail before `vkCreateInstance` with the exact name/class |
+| `VK_KHR_get_surface_capabilities2` | Optional feature | Activate only as a dependency of surface/swapchain maintenance | Disable swapchain maintenance |
+| `VK_EXT_surface_maintenance1` | Optional feature | Activate only with its supported dependency chain | Disable swapchain maintenance |
+| `VK_EXT_debug_utils` | Optional diagnostic | Request only when the resolved validation policy requests diagnostics | Log disabled diagnostic once and continue |
+| `VK_KHR_get_physical_device_properties2` | Promoted core in Vulkan 1.1 | Use core functionality; do not request the extension name | Covered by the Vulkan 1.1 floor |
+| `VK_KHR_portability_enumeration` and `VK_MVK_macos_surface` | Deferred Apple platform requirements | Not requested by a supported profile | No Win64 effect and no Apple support claim |
+| `VK_LAYER_KHRONOS_validation` | Optional diagnostic | Request only under the resolved diagnostic policy and activate only when enumerated | Log disabled diagnostic once and continue |
+| `VK_KHR_swapchain` | Platform-required device extension | Every supported Win64 Editor/Game candidate must support and activate it | Reject that physical-device candidate |
+| `VK_EXT_swapchain_maintenance1` plus feature bit | Optional feature | Activate only when both instance dependencies, device extension, and feature bit are present | Use the existing queue-idle recreation/teardown fallback |
+| `VK_KHR_get_memory_requirements2`, `VK_KHR_dedicated_allocation`, and `VK_KHR_bind_memory2` | Promoted core in Vulkan 1.1 | Use core functionality; do not request extension names | Covered by the Vulkan 1.1 floor |
+| `VK_KHR_synchronization2` plus feature bit | Optional feature; promoted core in Vulkan 1.3 | Prefer core 1.3; otherwise activate the extension only when its feature bit is present | Publish false and retain legacy barriers |
+| `VK_KHR_portability_subset` | Deferred Apple platform requirement | Not requested by a supported profile | No Win64 effect and no Apple support claim |
+| `fillModeNonSolid` | Required physical-device feature | Require and activate for current Renderer wireframe paths | Reject that candidate |
+| `shaderDrawParameters` | Required physical-device feature; core Vulkan 1.1 | Require and activate for the established shader/draw baseline | Reject that candidate |
+| `swapchainMaintenance1` | Optional physical-device feature | Activate only with the complete extension dependency chain | Use the queue-idle fallback |
+| `synchronization2` | Optional physical-device feature | Activate only with core 1.3 or the activated extension | Publish false and use legacy barriers |
+| `geometryShader` | Unconsumed legacy suitability check | Remove from hard requirements and do not activate or publish it | No effect on suitability |
+
+Support enumeration, policy request, extension-name activation, feature-bit
+activation, and public capability publication are distinct states stored in
+candidate-owned memory. Required-name lists are deduplicated before native
+calls, and no pointer in a Vulkan create-info chain refers to temporary storage.
+
+### Device, queue, and Win64 WSI rule
+
+Each physical device is first evaluated into a local candidate. Hard
+requirements include the API floor, required device extensions/features,
+baseline 2D/cube limits including at least six array layers, one queue family
+with graphics and compute flags, and
+`vkGetPhysicalDeviceWin32PresentationSupportKHR` returning true for that same
+family. The lowest-index family satisfying all three queue/WSI requirements is
+selected. Only queue zero from that family is provisioned; graphics, current
+compute commands, transfer commands, and presentation use that one synchronous
+queue topology. Dedicated compute/transfer families may be recorded in backend
+diagnostics but are not created, wrapped, published, or scheduled by M0.
+
+Hard-rejected candidates are never ranked. Passing candidates are ordered by
+device type (discrete, integrated, virtual, other, CPU), then descending
+`maxImageDimension2D`, then descending API version, then ascending vendor ID,
+device ID, and device name for a stable tie break. Total failure reports up to
+16 devices, up to eight reasons per device, and truncates each owned reason to
+256 bytes; an overflow count preserves how much evidence was omitted.
+
+Every later Win64 surface is checked only against the already selected family.
+`SetupPresentQueue` becomes a validation operation and may not enumerate or
+construct another queue wrapper. A surface that fails this check aborts the
+new viewport/swapchain candidate before publication. Main-window and ImGui
+detached viewports use the identical rule, while an existing complete viewport
+continues unaffected by another surface's rejection.
+
+### Structural-cache transactional working set
+
+| Candidate/cache | Immutable identity and current publication | Frozen Stage 4 work |
+| --- | --- | --- |
+| Render pass | `FVulkanRenderPassKey` copies `FRHIRenderTargetLayout`; `RenderPasses` is keyed structurally | Replace catch-and-continue with propagated failure, add `RenderPass` injection, and prove failure leaves map size/lookup unchanged and same-key retry inserts one complete handle |
+| Framebuffer | Linear cache identity is the complete render-pass object plus color/resolve/depth image identities; insertion happens after construction | Build attachment views and framebuffer in local RAII storage because a constructor throw currently leaks earlier views; add distinct framebuffer-view and framebuffer injection, cleanup, unchanged-cache, and retry tests |
+| Descriptor-set layout | Sorted binding descriptions plus hash/memcmp key; native handle is created before map insertion | Preserve the complete-entry rule, replace `operator[]` publication with explicit complete-candidate insertion, add descriptor-layout injection and same-key/cache-size proof; complete earlier per-set entries may be reused after a later set fails |
+| Pipeline descriptor-layout owner | `LayoutMap` is keyed by complete `FVulkanDescriptorSetsLayoutInfo` and inserts only after every referenced descriptor-set layout exists | Audit and test that no null `FVulkanLayout*` entry remains after dependency failure; debug names are not identity |
+| Graphics pipeline layout and pipeline | Not structurally cached; each public PSO owns a candidate pipeline layout and pipeline and publishes both only after success | Retain existing pipeline-layout/graphics-pipeline injection and rollback tests, add render-pass/descriptor dependency failure propagation, and keep same debug names producing independent PSOs |
+
+No descriptor pools, per-frame descriptor sets, swapchains, textures, buffers,
+or deferred-deletion queues are added to this bounded structural-cache stage;
+their publication rules are already covered by existing contracts or another
+plan.
+
+### Baseline and required validation additions
+
+The Stage 0 baseline used the primary Debug Editor test profile and the root
+[build and run](../Development/Build/BuildAndRun.md) workflow:
+
+| Baseline boundary | Evidence on 2026-08-09 | Existing coverage retained |
+| --- | --- | --- |
+| RHI initialization rollback | `RHIInitializationTests`, 4/4 passed | Thread-launch failure, backend-init rollback on the RHI thread, and inline/threaded policy resolution |
+| Texture and render-target structure | `RenderContractTests` filters `FRHITextureTests.*:FRenderTargetLayoutTests.*`, 10/10 passed | Cube shape/layers/samples, mip upload bounds/block alignment, and render-target identity/resolve constraints |
+| Vulkan startup, factory failure, texture sampling, and swapchain retry | `VulkanRHIIntegrationTests`, 9/9 passed | Instance/device/allocator rollback then success, inline/threaded nullable factories, image/view/pipeline rollback, all current sampled formats/mips, and transactional viewport output retry |
+| Complete runtime build | Full `all` target passed | Current Debug Editor runtime and modules link from the same profile |
+| Runtime startup/shutdown | `DurinEditor` hidden window with Sandbox and 30 ticks exited normally | Application, Vulkan RHI, Renderer, frame ticks, and ordered shutdown |
+
+Later stages add these exact boundaries rather than replacing the baseline:
+
+| Stage | Required new tests |
+| --- | --- |
+| Stage 1 | Fake-RHI snapshot unavailable/publish/failure tests; table-driven validity for every dimension, usage conflict, mip, sample, and checked bound; Vulkan snapshot property checks; exact support/create agreement; 2D/cube native success; and proof that deferred dimensions and unsupported limit/format/usage combinations do not consume the image-create failure point |
+| Stage 2 | Pure instance-negotiation tests for loader floor, required-missing, promoted-core deduplication, optional-missing, diagnostic off, diagnostic requested/present, diagnostic requested/layer absent, debug-utils absent, invalid policy, and failure followed by success with no retained candidate state |
+| Stage 3 | Pure device-candidate tests for each hard rejection, deterministic ties, bounded all-device diagnostics, graphics/compute/Win32-present family selection, and optional synchronization/maintenance publication; hardware main and detached surfaces; incompatible-surface viewport rollback; and failed-candidate capability isolation |
+| Stage 4 | Failure-injection, cleanup counters, cache-size/lookup invariants, and same-key retry for render pass, framebuffer views/framebuffer, descriptor-set layout, pipeline descriptor-layout dependency, pipeline layout, and graphics pipeline; identity tests prove debug names and reusable native handles are not keys |
+| Stage 5 | All focused targets above in inline and threaded modes where applicable, Release Editor diagnostic-off startup, Shipping Game diagnostic-off startup, optional-unavailable simulation, visible main/detached WSI qualification, native aggregate, full `all` build, and repeated hidden Editor/Game normal shutdown smoke |
+
 ## Implementation Stages
 
 ### Stage 0: Freeze the startup and capability contract
 
-- [ ] Record the required Win64 Editor/Game runtime profiles and explicitly
+- [x] Record the required Win64 Editor/Game runtime profiles and explicitly
   disposition the existing Apple portability branches as qualified, compile-
   only, or deferred rather than implying untested parity.
-- [ ] Inventory current Renderer and next-milestone consumers of feature level,
+- [x] Inventory current Renderer and next-milestone consumers of feature level,
   texture limits/dimensions/samples, queue flags, presentation topology,
   synchronization feature choice, and optional diagnostics.
-- [ ] Define the minimal public capability fields, exact value domains,
+- [x] Define the minimal public capability fields, exact value domains,
   fallback/rejection behavior, and owning query surface.
-- [ ] Classify every currently requested instance layer, instance/device
+- [x] Classify every currently requested instance layer, instance/device
   extension, promoted feature, and physical-device feature as required,
   platform-required, optional feature, or optional diagnostic.
-- [ ] Select the validation enablement/configuration owner and prove that an
+- [x] Select the validation enablement/configuration owner and prove that an
   unavailable validation layer does not block the normal mode.
-- [ ] Select the Win64 presentation-family discovery/provisioning rule before
+- [x] Select the Win64 presentation-family discovery/provisioning rule before
   logical-device creation and define behavior for a later incompatible surface.
-- [ ] Inventory render-pass, framebuffer, descriptor-layout, pipeline-layout,
+- [x] Inventory render-pass, framebuffer, descriptor-layout, pipeline-layout,
   and pipeline candidate construction/publication paths and freeze the bounded
   transactional working set.
-- [ ] Record baseline initialization, texture-validation, swapchain, and
+- [x] Record baseline initialization, texture-validation, swapchain, and
   failure-injection coverage and the exact new tests required by later stages.
 
 #### Acceptance Gate
@@ -230,6 +434,8 @@ retry.
   recorded in this plan with no simultaneous alternative presented as an
   implementation decision. The current initialization rollback and supported
   Win64 hidden-window baseline pass before Stage 1 changes begin.
+- Passed on 2026-08-09 with the focused counts and Debug Editor build/runtime
+  evidence recorded in the Stage 0 baseline table.
 
 ### Stage 1: Publish portable capabilities and truthful texture support
 
