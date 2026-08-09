@@ -37,6 +37,13 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
   `Documentation/Development/Build/BuildAndRun.md` only when changing those
   workflows, selecting non-routine validation, or diagnosing a build, test, or
   runtime-operation problem.
+- Use the default target granularity for full native-test validation:
+  `.\DevTool.bat test --target all`. Do not run the unfiltered combination
+  `--target all --granularity case`; diagnose aggregate failures with
+  `--target <failed-target> --filter <suite.case>`. Case granularity is only for
+  a narrow case-name `--ctest-regex` or an explicit isolation-qualification
+  gate. After diagnosis, return to default target granularity for the final
+  full-suite validation unless the task specifically changes case isolation.
 - Treat configure, build, rebuild, and test operations as long-running tasks,
   including DurinDevTool actions, scripts, wrappers, and other commands that may
   invoke them transitively. Set the execution tool's timeout explicitly to at

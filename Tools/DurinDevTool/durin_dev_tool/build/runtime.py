@@ -241,8 +241,9 @@ def run_all_native_tests(context: BuildContext, output: BuildOutput) -> None:
     except BuildToolError:
         if granularity is not TestGranularity.CASE:
             output.warning(
-                "Batched native-test failure. Diagnose without masking the failure: "
-                ".\\DevTool.bat test --target all --granularity case"
+                "Batched native-test failure. Diagnose a reported case without "
+                "launching the full case matrix: .\\DevTool.bat test "
+                "--target <failed-target> --filter <suite.case>"
             )
         raise
     if not request.test_include_direct:

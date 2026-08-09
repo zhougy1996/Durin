@@ -126,7 +126,6 @@ Use the root wrapper for configuration, builds, and tests:
 .\DevTool.bat run
 .\DevTool.bat test --target CoreConcurrencyTests --filter FTaskSchedulerTests.*
 .\DevTool.bat test --target all
-.\DevTool.bat test --target all --granularity case
 .\DevTool.bat clean
 .\DevTool.bat recover
 .\DevTool.bat rebuild --target all
@@ -455,9 +454,11 @@ group without a selected safe default displays its group help and returns to the
 interactive prompt.
 
 `test --target all` defaults to one process per ordinary native-test target.
-Pass `--granularity case` for complete one-process-per-case isolation or a
-case-name `--ctest-regex`; `--granularity hybrid` is retained for rollout
-compatibility and currently matches target mode. `--schedule-random` also
+Do not run unfiltered `--target all --granularity case`; use a focused target
+and GoogleTest filter for ordinary failure diagnosis. Case granularity remains
+available with a narrow case-name `--ctest-regex` or for explicit isolation
+qualification. `--granularity hybrid` is retained for rollout compatibility
+and currently matches target mode. `--schedule-random` also
 shuffles cases inside batched target processes and prints the reproducible
 GoogleTest seed. A focused `test --target <Target> --filter <Filter>` always
 launches one filtered target process. See

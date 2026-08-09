@@ -405,7 +405,7 @@ class TestCore:
         assert run.call_count == 1
         assert 'selected no additional registrations' in stdout.getvalue()
 
-    def test_batched_failure_prints_case_mode_diagnostic(self) -> None:
+    def test_batched_failure_prints_focused_target_diagnostic(self) -> None:
         preset = self.make_preset()
         request = build_config.CommandRequest(build_config.Action.TEST, options=build_config.TestActionOptions(target='all', granularity=build_config.TestGranularity.TARGET))
         context = build_config.BuildContext(request, build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=4, environment={})
@@ -413,7 +413,9 @@ class TestCore:
         output = BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO())
         with mock.patch.object(build_runtime, 'run_command', side_effect=build_config.BuildToolError('failed')), pytest.raises(build_config.BuildToolError, match='failed'):
             build_core.run_all_native_tests(context, output)
-        assert '--granularity case' in stdout.getvalue()
+        diagnostic = stdout.getvalue()
+        assert '--target <failed-target> --filter <suite.case>' in diagnostic
+        assert '--granularity case' not in diagnostic
 
     def test_empty_case_regex_reports_actionable_rerun(self) -> None:
         preset = self.make_preset()

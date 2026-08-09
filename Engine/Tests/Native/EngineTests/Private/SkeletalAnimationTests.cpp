@@ -7,6 +7,7 @@
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
+#include "EngineTestSupport.h"
 #include "Math/Operations.h"
 
 namespace
@@ -608,6 +609,7 @@ TEST(DSkeletalMeshComponentTests, DestroyDetachesProducerButNotRetainedCandidate
 
 TEST(DSkeletalMeshComponentTests, ReflectsFrozenPropertiesAndRejectsInvalidEditDrafts)
 {
+	InitializeDObjectSystem();
 	Durin::DClass* Class = Durin::DSkeletalMeshComponent::StaticClass();
 	ASSERT_NE(Class, nullptr);
 	EXPECT_TRUE(Class->IsChildOf(Durin::DPrimitiveComponent::StaticClass()));

@@ -21,7 +21,6 @@ Build and run a test executable through the root wrapper:
 .\DevTool.bat test --target CoreUtilityTests --filter FJsonDocumentTests.ParseObjectFromString
 .\DevTool.bat test --target CoreUtilityTests --timeout 60
 .\DevTool.bat test --target all
-.\DevTool.bat test --target all --granularity case
 .\DevTool.bat test --target all --granularity hybrid
 .\DevTool.bat test --target all --schedule-random --output-junit Build\NativeTestResults.xml
 .\DevTool.bat test --target all --granularity case --ctest-regex "^FJsonDocumentTests.ParseObjectFromString$"
@@ -32,7 +31,12 @@ The first command runs the target's discovered tests. The second passes a Google
 `--target all` builds the `DurinNativeTests` aggregate and then runs every
 ordinary target once through CTest. This `target` granularity is the default.
 Use `--granularity case` to run every discovered GoogleTest case in a separate
-process for isolation diagnosis and independence qualification. `hybrid` is a
+process for isolation diagnosis and independence qualification. Do not run
+unfiltered `--target all --granularity case`; diagnose an ordinary aggregate
+failure with `--target <failed-target> --filter <suite.case>`, or use a narrow
+case-name `--ctest-regex` when CTest-level isolation is required. After
+diagnosis, use default target granularity for the final full-suite validation
+unless the change specifically targets case isolation. `hybrid` is a
 transition-compatible spelling which currently selects the same registrations
 as `target` because every ordinary target has migrated. Native-test executables and GoogleTest are excluded from CMake's
 default `all` target, so routine `build` and `rebuild` commands do not compile

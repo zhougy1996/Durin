@@ -3385,6 +3385,7 @@ TEST(FPackageAssetTests, SyntheticMigrationFailurePhasesRollbackAndRecoverComple
 
 TEST(FPackageAssetTests, SyntheticMigrationPlanningRejectsOmittedDependencyClosure)
 {
+	InitializeAssetTests();
 	using namespace Durin::Asset;
 	FScopedSyntheticAssetPackageCodecForTesting SyntheticCodec;
 	Durin::FAssetPath OwnerPath;
