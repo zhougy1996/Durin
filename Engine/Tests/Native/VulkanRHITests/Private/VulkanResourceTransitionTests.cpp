@@ -14,11 +14,8 @@ namespace Durin::VulkanRHI
 	TEST(FVulkanResourceTransitionMappingTests, SeparatesGraphicsAndComputeShaderIntent)
 	{
 		const auto Graphics = MapVulkanResourceState(ERHIAccess::GraphicsShaderRead);
-		EXPECT_TRUE(Graphics.StageMask2 & vk::PipelineStageFlagBits2::eVertexShader);
-		EXPECT_TRUE(Graphics.StageMask2 & vk::PipelineStageFlagBits2::eFragmentShader);
-		EXPECT_FALSE(Graphics.StageMask2 & vk::PipelineStageFlagBits2::eComputeShader);
-		EXPECT_TRUE(Graphics.LegacyStageMask & vk::PipelineStageFlagBits::eVertexShader);
-		EXPECT_FALSE(Graphics.LegacyStageMask & vk::PipelineStageFlagBits::eComputeShader);
+		EXPECT_EQ(Graphics.StageMask2, vk::PipelineStageFlagBits2::eAllGraphics);
+		EXPECT_EQ(Graphics.LegacyStageMask, vk::PipelineStageFlagBits::eAllGraphics);
 
 		const auto Compute = MapVulkanResourceState(ERHIAccess::ComputeShaderReadWrite);
 		EXPECT_EQ(Compute.StageMask2, vk::PipelineStageFlagBits2::eComputeShader);

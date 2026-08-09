@@ -48,10 +48,8 @@ namespace Durin::VulkanRHI
 		if (EnumHasAnyFlags(Access, ERHIAccess::IndexBufferRead))
 			Add(vk::PipelineStageFlagBits2::eVertexInput, vk::AccessFlagBits2::eIndexRead,
 				vk::PipelineStageFlagBits::eVertexInput, vk::AccessFlagBits::eIndexRead);
-		constexpr vk::PipelineStageFlags2 GraphicsStages2 = vk::PipelineStageFlagBits2::eVertexShader
-			| vk::PipelineStageFlagBits2::eFragmentShader | vk::PipelineStageFlagBits2::eGeometryShader;
-		constexpr vk::PipelineStageFlags GraphicsStages = vk::PipelineStageFlagBits::eVertexShader
-			| vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eGeometryShader;
+		constexpr vk::PipelineStageFlags2 GraphicsStages2 = vk::PipelineStageFlagBits2::eAllGraphics;
+		constexpr vk::PipelineStageFlags GraphicsStages = vk::PipelineStageFlagBits::eAllGraphics;
 		if (EnumHasAnyFlags(Access, ERHIAccess::GraphicsUniformRead))
 		{
 			Result.StageMask2 |= GraphicsStages2;
