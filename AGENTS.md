@@ -61,8 +61,12 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
 
 ## Agent Handoff
 
-- In Codex `workspace-write`, never write `.git` (`git add`, `git commit`, or
-  `.git/index.lock`); validate and leave changes for an external terminal.
+- A user request to commit directly authorizes the agent to stage and commit the
+  requested changes. In Codex `workspace-write`, if Git cannot write
+  `.git/index.lock` or other repository metadata, request elevated permission
+  and retry the Git operation instead of handing the commit off to an external
+  terminal. Hand off exact commands only when elevation is unavailable or
+  denied.
 - For active-plan work, update required status/checklists in the same commit and
   end the body with the exact `Plan: Documentation/Plans/<Plan>.md` and
   `Stage: Stage <N>: <stage title>` provenance (one Stage line per stage). Do not
