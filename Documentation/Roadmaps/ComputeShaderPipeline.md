@@ -29,7 +29,7 @@ No compute child implementation plan is active yet. The first compute plan
 should establish a general resource-transition contract so the compute vertical
 slice does not introduce a one-off synchronization mechanism that must
 immediately be replaced. Its entry gate is now satisfied, but the active
-[RHI Capability and Vulkan Startup](../Plans/RHICapabilityAndVulkanStartup.md)
+[RHI Capability and Vulkan Startup](../Plans/Archive/2026-08/RHICapabilityAndVulkanStartup.md)
 plan is the current foundation priority; transition planning must consume its
 selected synchronization capability fields rather than defining a parallel
 device-capability surface.

@@ -4,13 +4,13 @@ Summary: Establish a renderer-owned per-view preparation boundary with conservat
 
 Last reviewed: 2026-08-09
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-09
 
 ## Current Status
 
 This plan completed M3 for the
-[Rendering Capability Expansion Roadmap](../Roadmaps/RenderingCapabilityExpansion.md).
+[Rendering Capability Expansion Roadmap](../../../Roadmaps/RenderingCapabilityExpansion.md).
 All stages are complete. Stage 6 started from
 `8027ccf99bc0e8241e5ca564cd9656129041c856`. M1 supplies
 detached primitive identity, transform, bounds, visibility, and typed scene
@@ -35,7 +35,7 @@ culling-disabled and forced-LOD-0 comparison settings remain qualified without
 process-global policy. Visibility classification is discarded after typed
 family preparation and before the first scene pass; execution consumes only
 complete selected-LOD prepared draws. The lasting contract is recorded in
-[Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md), and the
+[Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md), and the
 roadmap records M3 complete with its M4/M6 preparation dependency open.
 
 ## Goal
@@ -1020,15 +1020,15 @@ submission, and authored threshold UX already listed below.
 
 ## Related Documentation
 
-- [Rendering Capability Expansion Roadmap](../Roadmaps/RenderingCapabilityExpansion.md)
-- [Renderer Scene Representation](../Runtime/Rendering/SceneRepresentation.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md)
-- [Renderer Scene Proxy and Info Contract Plan](Archive/2026-08/RendererSceneProxyAndInfoContract.md)
-- [Material Render Pass Policies Plan](Archive/2026-08/MaterialRenderPassPolicies.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Rendering Capability Expansion Roadmap](../../../Roadmaps/RenderingCapabilityExpansion.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [Renderer Scene Proxy and Info Contract Plan](RendererSceneProxyAndInfoContract.md)
+- [Material Render Pass Policies Plan](MaterialRenderPassPolicies.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

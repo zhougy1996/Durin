@@ -4,7 +4,7 @@ Summary: Harden DAST codec dispatch and explicit migration execution so future p
 
 Last reviewed: 2026-08-10
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-10
 
 ## Current Status
@@ -361,12 +361,12 @@ The implementation gaps are concrete:
 
 ## Related Documentation
 
-- [Versioning](../Runtime/Assets/Versioning.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [DAST V4 Mixed-Version Migration](Archive/2026-08/DASTV4MixedVersionMigration.md)
-- [DAST V4 Qualification and Rollout](Archive/2026-08/DASTV4QualificationAndRollout.md)
-- [Compact Asset Serialization Roadmap](../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
+- [Versioning](../../../Runtime/Assets/Versioning.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [DAST V4 Mixed-Version Migration](DASTV4MixedVersionMigration.md)
+- [DAST V4 Qualification and Rollout](DASTV4QualificationAndRollout.md)
+- [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
 
 ## Related Code
 

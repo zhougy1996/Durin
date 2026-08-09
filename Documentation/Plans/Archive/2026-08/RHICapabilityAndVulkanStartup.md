@@ -4,13 +4,13 @@ Summary: Publish a portable immutable RHI capability contract and make Vulkan in
 
 Last reviewed: 2026-08-10
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-10
 
 ## Current Status
 
 This plan executes M0 of the
-[RHI and Vulkan Backend Evolution Roadmap](../Roadmaps/RHIAndVulkanEvolution.md).
+[RHI and Vulkan Backend Evolution Roadmap](../../../Roadmaps/RHIAndVulkanEvolution.md).
 It was activated after a roadmap and code audit at baseline commit
 `bf8697ecf44f38f1a01cdae4344e6113567a1a2a` confirmed that command transport,
 thread ownership, exact CPU serial waits, initialization rollback, and public
@@ -117,7 +117,7 @@ did the native aggregate, Debug full `all` build, three Debug hidden-editor
 startup/shutdown runs, explicit diagnostic-off Debug/Release/Shipping startup,
 and the plan-gated Release Editor and Shipping Game full builds. The lasting
 contract is now
-[RHI Capabilities and Vulkan Startup](../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md),
+[RHI Capabilities and Vulkan Startup](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md),
 and downstream M1/M2 work can consume the immutable snapshot and exact texture
 support boundary without reopening M0 startup policy.
 
@@ -460,7 +460,7 @@ plan.
 ### Baseline and required validation additions
 
 The Stage 0 baseline used the primary Debug Editor test profile and the root
-[build and run](../Development/Build/BuildAndRun.md) workflow:
+[build and run](../../../Development/Build/BuildAndRun.md) workflow:
 
 | Baseline boundary | Evidence on 2026-08-09 | Existing coverage retained |
 | --- | --- | --- |
@@ -726,14 +726,14 @@ Later stages add these exact boundaries rather than replacing the baseline:
 
 ## Related Documentation
 
-- [RHI and Vulkan Backend Evolution Roadmap](../Roadmaps/RHIAndVulkanEvolution.md)
-- [Compute Shader Pipeline Roadmap](../Roadmaps/ComputeShaderPipeline.md)
-- [RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Texture System](../Runtime/Rendering/TextureSystem.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Dedicated RHI Thread](Archive/2026-08/DedicatedRHIThread.md)
-- [Recorded RHI Command List](Archive/2026-08/RecordedRHICommandList.md)
+- [RHI and Vulkan Backend Evolution Roadmap](../../../Roadmaps/RHIAndVulkanEvolution.md)
+- [Compute Shader Pipeline Roadmap](../../../Roadmaps/ComputeShaderPipeline.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Dedicated RHI Thread](DedicatedRHIThread.md)
+- [Recorded RHI Command List](RecordedRHICommandList.md)
 
 ## Related Code
 

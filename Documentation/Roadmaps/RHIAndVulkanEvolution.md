@@ -65,7 +65,7 @@ Vulkan foundations and shares its resource-transition milestone; it does not
 create a second compute program.
 
 The first child plan is now active:
-[RHI Capability and Vulkan Startup](../Plans/RHICapabilityAndVulkanStartup.md).
+[RHI Capability and Vulkan Startup](../Plans/Archive/2026-08/RHICapabilityAndVulkanStartup.md).
 Its entry audit confirmed the roadmap's startup correctness gaps in the current
 code: validation-layer activation is unconditional, unsuitable zero-score
 devices remain selectable, public texture support is broader than native image
@@ -218,7 +218,7 @@ flowchart LR
 
 | Milestone | Requirement | Proposed child plan | Dependencies | Deliverable | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- | --- | --- |
-| M0: Capability and startup contract | Required; completed | [RHICapabilityAndVulkanStartup](../Plans/RHICapabilityAndVulkanStartup.md) and [lasting contract](../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md) | Recorded command and initialization rollback contracts | Immutable public capabilities/limits; explicit Vulkan layer, extension, feature, device, queue, format, and WSI negotiation; transactional internal structural creation | Met: initialization rollback, the Win64 profile matrix, and the frozen capability/topology contract established implementation scope. | Met on 2026-08-10: optional diagnostics remain optional; only suitable device/queue candidates publish; exact unsupported textures reject before native creation; structural-cache retry is complete; focused/native/full-build/runtime qualification is recorded in the child plan. |
+| M0: Capability and startup contract | Required; completed | [RHICapabilityAndVulkanStartup](../Plans/Archive/2026-08/RHICapabilityAndVulkanStartup.md) and [lasting contract](../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md) | Recorded command and initialization rollback contracts | Immutable public capabilities/limits; explicit Vulkan layer, extension, feature, device, queue, format, and WSI negotiation; transactional internal structural creation | Met: initialization rollback, the Win64 profile matrix, and the frozen capability/topology contract established implementation scope. | Met on 2026-08-10: optional diagnostics remain optional; only suitable device/queue candidates publish; exact unsupported textures reject before native creation; structural-cache retry is complete; focused/native/full-build/runtime qualification is recorded in the child plan. |
 | M1: Unified resource transitions | Required, shared | `GPUResourceTransitions` from the [Compute Shader Pipeline](ComputeShaderPipeline.md) roadmap | Established recorded-command replay; coordinate access-relevant capability fields with M0 | Portable buffer/image range transitions and one authoritative Vulkan state tracker shared by pass, upload, readback, copy, compute, and present paths | The recorded command-list contract is stable and the current state-mutating paths have a bounded inventory | Graphics, compute, copy, readback, and presentation handoffs pass focused tests without global idle waits or divergent layout state |
 | M2: Resource views and transfers | Required | `RHIResourceViewsAndTransfers` | M1 transition contract | Texture mip/layer/aspect views, buffer range/format views, default-view policy, and explicit buffer/texture copy, resolve, blit, and upload/readback operations required by current consumers | M1 subresource and byte-range semantics are stable; concrete texture-array/volume or copy consumers are selected | Views validate against parent resources and remain alive through replay/GPU use; required transfer combinations work through public RHI commands and unsupported combinations fail before Vulkan recording |
 | M3: Graphics state and bindings | Required | `RHIGraphicsStateAndBindings` | M0 limits and M2 view contract | Complete baseline raster/depth/stencil/blend/color-mask/vertex-instance state, non-indexed and instanced draw variants, explicit binding-set semantics, descriptor arrays, bounded descriptor/pipeline caches, and persistent driver cache policy | Current renderer pipeline identities and reflected binding layouts have a bounded inventory; M2 defines resources bound into descriptors | Representative opaque, blended, depth/stencil, MRT, instanced, and array-binding draws pass; binding mismatches fail at the RHI boundary; caches expose bounds/hits/misses and publish no partial candidate |
@@ -236,7 +236,7 @@ reviewed evidence.
 
 ## Child Plan Boundaries
 
-### [RHICapabilityAndVulkanStartup](../Plans/RHICapabilityAndVulkanStartup.md)
+### [RHICapabilityAndVulkanStartup](../Plans/Archive/2026-08/RHICapabilityAndVulkanStartup.md)
 
 Owns the public capability/limit snapshot and Vulkan startup selection. It also
 closes present-family negotiation and the known mismatch between public texture

@@ -1,7 +1,7 @@
 # Native Test Execution Granularity Stage 0 Evidence
 
 This document is the Stage 0 handoff for
-`Documentation/Plans/NativeTestExecutionGranularity.md`. It records topology,
+`Documentation/Plans/Archive/2026-08/NativeTestExecutionGranularity.md`. It records topology,
 classification, and bounded repair work. Raw counts and timings are owned by
 the machine-readable
 [`NativeTestExecutionGranularityStage0Baseline.json`](../../Plans/NativeTestExecutionGranularityStage0Baseline.json)

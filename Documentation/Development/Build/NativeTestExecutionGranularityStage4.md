@@ -1,7 +1,7 @@
 # Native Test Execution Granularity Stage 4 Evidence
 
 This document is the final handoff for
-`Documentation/Plans/NativeTestExecutionGranularity.md`.
+`Documentation/Plans/Archive/2026-08/NativeTestExecutionGranularity.md`.
 
 Baseline commit: `055e05b6`
 
