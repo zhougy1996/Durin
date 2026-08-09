@@ -25,8 +25,30 @@
 
 namespace Durin
 {
+	struct FMainFrameBootstrapContext
+	{
+		EEditorBootstrapState State = EEditorBootstrapState::ConstructingShell;
+		bool bHasProject = false;
+		bool bWorkspaceActivationStarted = false;
+		std::shared_ptr<FEditorHostSettings> HostSettings;
+		std::shared_ptr<MWindow> RootWindow;
+		std::shared_ptr<FEditorWorkspaceManager> WorkspaceManager;
+		std::shared_ptr<FProjectBrowser> ProjectBrowser;
+		std::shared_ptr<FProfilingToolService> ProfilingTools;
+		std::shared_ptr<FAssetCompatibilityWindow> AssetCompatibilityWindow;
+		FLevelEditorModule* LevelEditorModule = nullptr;
+	};
+
 	namespace
 	{
+		auto TransitionEditorBootstrap(
+			FMainFrameBootstrapContext& Context,
+			EEditorBootstrapState NextState) -> void
+		{
+			check(IsValidEditorBootstrapTransition(Context.State, NextState));
+			Context.State = NextState;
+		}
+
 		auto RegisterEditorWorkspaces(
 			FEditorWorkspaceManager& WorkspaceManager,
 			FLevelEditorModule& LevelEditorModule,
@@ -67,6 +89,71 @@ namespace Durin
 			MaterialEditorModule.UnregisterMaterialEditor();
 			LevelEditorModule.UnregisterLevelEditorWorkspace();
 			return false;
+		}
+
+		auto ActivateEditorWorkspaces(
+			FMainFrameBootstrapContext& Context) -> bool
+		{
+			Profiling::RecordStartupMilestone(
+				Profiling::EStartupMilestone::WorkspaceRegistrationBegin);
+			bool bWorkspaceReady = false;
+			{
+				DURIN_PROFILE_CPU_ZONE_NAMED("Startup.WorkspaceRegistration");
+				FRenderedAssetThumbnailService& ThumbnailService =
+					GetDefaultRenderedAssetThumbnailService();
+				FLevelEditorModule& LevelEditorModule =
+					FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
+				FMaterialEditorModule& MaterialEditorModule =
+					FModuleManager::LoadModuleChecked<FMaterialEditorModule>("MaterialEditor");
+				FTextureEditorModule& TextureEditorModule =
+					FModuleManager::LoadModuleChecked<FTextureEditorModule>("TextureEditor");
+				FStaticMeshEditorModule& StaticMeshEditorModule =
+					FModuleManager::LoadModuleChecked<FStaticMeshEditorModule>("StaticMeshEditor");
+				Context.LevelEditorModule = &LevelEditorModule;
+				bWorkspaceReady = RegisterEditorWorkspaces(
+					*Context.WorkspaceManager,
+					LevelEditorModule,
+					MaterialEditorModule,
+					TextureEditorModule,
+					StaticMeshEditorModule,
+					ThumbnailService);
+			}
+			Profiling::RecordStartupMilestone(
+				Profiling::EStartupMilestone::WorkspaceRegistrationComplete);
+			if (!bWorkspaceReady)
+			{
+				Context.ProjectBrowser->SetError(
+					"Could not initialize the editor workspaces.");
+				return false;
+			}
+			Context.ProjectBrowser->RecordCurrentProject();
+			Profiling::RecordStartupMilestone(
+				Profiling::EStartupMilestone::DefaultWorkspaceReady);
+			return true;
+		}
+
+		auto DrawEditorLoadingState(EEditorBootstrapState State) -> void
+		{
+			ImGuiViewport* Viewport = ImGui::GetMainViewport();
+			ImGui::SetNextWindowPos(Viewport->WorkPos);
+			ImGui::SetNextWindowSize(Viewport->WorkSize);
+			ImGui::SetNextWindowViewport(Viewport->ID);
+			const ImGuiWindowFlags Flags = ImGuiWindowFlags_NoDocking
+				| ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar
+				| ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize
+				| ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus
+				| ImGuiWindowFlags_NoNavFocus;
+			ImGui::Begin("###Durin.Editor.LoadingHost", nullptr, Flags);
+			const char* Message = State == EEditorBootstrapState::WaitingForFirstPresent
+				? "Preparing editor..."
+				: "Loading project workspace...";
+			const ImVec2 MessageSize = ImGui::CalcTextSize(Message);
+			const ImVec2 Available = ImGui::GetContentRegionAvail();
+			ImGui::SetCursorPos({
+				FMath::Max(0.0f, (Available.x - MessageSize.x) * 0.5f),
+				FMath::Max(0.0f, (Available.y - MessageSize.y) * 0.5f)});
+			ImGui::TextUnformatted(Message);
+			ImGui::End();
 		}
 
 		auto BuildDefaultEditorHostLayout(
@@ -424,102 +511,149 @@ namespace Durin
 
 	auto FMainFrameModule::ShutdownModule() -> void
 	{
+		DestroyDefaultMainFrame();
 	}
 
 	auto FMainFrameModule::CreateDefaultMainFrame() -> void
 	{
-		auto HostSettings = std::make_shared<FEditorHostSettings>();
-		HostSettings->Load();
-		MonaImGui::SetColorTheme(HostSettings->GetColorTheme());
-		MonaImGui::SetGlobalUIScale(HostSettings->GetUIScale());
-		FRenderedAssetThumbnailService& ThumbnailService =
-			GetDefaultRenderedAssetThumbnailService();
-		FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
-		FMaterialEditorModule& MaterialEditorModule = FModuleManager::LoadModuleChecked<FMaterialEditorModule>("MaterialEditor");
-		FTextureEditorModule& TextureEditorModule = FModuleManager::LoadModuleChecked<FTextureEditorModule>("TextureEditor");
-		FStaticMeshEditorModule& StaticMeshEditorModule = FModuleManager::LoadModuleChecked<FStaticMeshEditorModule>("StaticMeshEditor");
-		const FIntPoint WindowSize{HostSettings->GetWindowWidth(), HostSettings->GetWindowHeight()};
-		FLevelEditorModule* LevelEditorModulePtr = &LevelEditorModule;
-		auto RootWindow = std::make_shared<MWindow>();
-		MonaImGui::BindMainViewportToWindow(RootWindow);
+		check(BootstrapContext == nullptr);
+		BootstrapContext = std::make_shared<FMainFrameBootstrapContext>();
+		FMainFrameBootstrapContext& Context = *BootstrapContext;
+		Context.bHasProject = HasCurrentProject();
+		Context.HostSettings = std::make_shared<FEditorHostSettings>();
+		Context.HostSettings->Load();
+		MonaImGui::SetColorTheme(Context.HostSettings->GetColorTheme());
+		MonaImGui::SetGlobalUIScale(Context.HostSettings->GetUIScale());
+		Context.RootWindow = std::make_shared<MWindow>();
+		MonaImGui::BindMainViewportToWindow(Context.RootWindow);
+		Context.WorkspaceManager = std::make_shared<FEditorWorkspaceManager>();
+		Context.ProjectBrowser = std::make_shared<FProjectBrowser>();
+		Context.ProfilingTools =
+			std::make_shared<FProfilingToolService>(FPaths::RootDir());
+		Context.AssetCompatibilityWindow =
+			std::make_shared<FAssetCompatibilityWindow>();
 
-		auto EditorRootWidget = std::make_shared<MFunctionWidget>();
-		auto WorkspaceManager = std::make_shared<FEditorWorkspaceManager>();
-		auto bWorkspaceReady = std::make_shared<bool>(false);
-		auto ProjectBrowser = std::make_shared<FProjectBrowser>();
-		auto ProfilingTools = std::make_shared<FProfilingToolService>(FPaths::RootDir());
-		auto AssetCompatibilityWindow = std::make_shared<FAssetCompatibilityWindow>();
-		const std::weak_ptr<MWindow> WeakRootWindow = RootWindow;
-		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::WorkspaceRegistrationBegin);
-		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.WorkspaceRegistration");
-			if (HasCurrentProject())
-			{
-				*bWorkspaceReady = RegisterEditorWorkspaces(
-					*WorkspaceManager, LevelEditorModule, MaterialEditorModule,
-					TextureEditorModule, StaticMeshEditorModule, ThumbnailService);
-				if (!*bWorkspaceReady) ProjectBrowser->SetError("Could not initialize the editor workspaces.");
-				else
-				{
-					ProjectBrowser->RecordCurrentProject();
-				}
-			}
-		}
-		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::WorkspaceRegistrationComplete);
-		if (!HasCurrentProject() || *bWorkspaceReady)
-			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultWorkspaceReady);
+		const FIntPoint WindowSize{
+			Context.HostSettings->GetWindowWidth(),
+			Context.HostSettings->GetWindowHeight()};
+		Context.RootWindow->SetTitle(GetCurrentProject()
+			? std::format("Durin Editor - {}", GetCurrentProject()->Name)
+			: "Durin Editor - Project Browser");
+		Context.RootWindow->ReshapeWindow(
+			{100.0f, 100.0f},
+			{static_cast<float>(WindowSize.x), static_cast<float>(WindowSize.y)});
 
-		RootWindow->SetTitle(GetCurrentProject() ? std::format("Durin Editor - {}", GetCurrentProject()->Name) : "Durin Editor - Project Browser");
-		RootWindow->ReshapeWindow({100.0f, 100.0f}, {static_cast<float>(WindowSize.x), static_cast<float>(WindowSize.y)});
-
-		ProjectBrowser->SetOpenProject([](std::string_view ProjectFile, std::string& OutError) {
+		Context.ProjectBrowser->SetOpenProject([](
+			std::string_view ProjectFile, std::string& OutError) {
 			return RelaunchEditorForProject(ProjectFile, &OutError);
 		});
 
-		EditorRootWidget->Construct([WorkspaceManager, bWorkspaceReady, ProjectBrowser, ProfilingTools, AssetCompatibilityWindow, HostSettings, WeakRootWindow, LevelEditorModulePtr,
+		auto EditorRootWidget = std::make_shared<MFunctionWidget>();
+		const std::weak_ptr<FMainFrameBootstrapContext> WeakContext =
+			BootstrapContext;
+		EditorRootWidget->Construct([WeakContext,
 			bAboutDialogOpen = false, bEditorPreferencesOpen = false, ProfilingStatusMessage = std::string{},
 			bProfilingStatusOpen = false, bAssetCompatibilityOpen = false]() mutable {
-			const std::shared_ptr<MWindow> RootWindow = WeakRootWindow.lock();
-			if (RootWindow) ObserveEditorHostWindowState(*HostSettings, *RootWindow);
-			if (*bWorkspaceReady)
+			const std::shared_ptr<FMainFrameBootstrapContext> Context =
+				WeakContext.lock();
+			if (!Context) return;
+			ObserveEditorHostWindowState(
+				*Context->HostSettings, *Context->RootWindow);
+			if (Context->State == EEditorBootstrapState::Ready
+				&& Context->bHasProject && Context->LevelEditorModule)
 			{
-				if (RootWindow)
-				{
-					DrawWorkspaceHost(
-						*WorkspaceManager,
-						*HostSettings,
-						*RootWindow,
-						*ProfilingTools,
-						bAboutDialogOpen,
-						bEditorPreferencesOpen,
-						ProfilingStatusMessage,
-						bProfilingStatusOpen,
-						*AssetCompatibilityWindow,
-						bAssetCompatibilityOpen,
-						*LevelEditorModulePtr
-					);
-				}
+				DrawWorkspaceHost(
+					*Context->WorkspaceManager,
+					*Context->HostSettings,
+					*Context->RootWindow,
+					*Context->ProfilingTools,
+					bAboutDialogOpen,
+					bEditorPreferencesOpen,
+					ProfilingStatusMessage,
+					bProfilingStatusOpen,
+					*Context->AssetCompatibilityWindow,
+					bAssetCompatibilityOpen,
+					*Context->LevelEditorModule);
 				return;
 			}
-			ProjectBrowser->Draw();
+			if (!Context->bHasProject
+				|| Context->State == EEditorBootstrapState::Failed)
+			{
+				Context->ProjectBrowser->Draw();
+				return;
+			}
+			DrawEditorLoadingState(Context->State);
 		});
-		RootWindow->SetContent(EditorRootWidget);
+		Context.RootWindow->SetContent(EditorRootWidget);
 
 		// Keep the native window hidden until its persisted display state has been
 		// applied. Showing it before maximizing causes a visible normal-size frame
 		// during editor startup.
-		Mona::FMonaApplication::Get().AddWindow(RootWindow, false);
+		Mona::FMonaApplication::Get().AddWindow(Context.RootWindow, false);
+		if (Context.HostSettings->IsWindowMaximized())
+		{
+			Context.RootWindow->MaximizeWindow();
+		}
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.NativeViewport");
-			Mona::FMonaApplication::Get().GetRenderer()->CreateViewport(RootWindow);
+			Mona::FMonaApplication::Get().GetRenderer()->CreateViewport(
+				Context.RootWindow);
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::NativeViewportReady);
 		Profiling::ArmEditorShellFirstPresent();
+		Context.RootWindow->ShowWindow();
+		TransitionEditorBootstrap(
+			Context, EEditorBootstrapState::WaitingForFirstPresent);
+	}
 
-		if (HostSettings->IsWindowMaximized())
+	auto FMainFrameModule::DestroyDefaultMainFrame() -> void
+	{
+		BootstrapContext.reset();
+	}
+
+	auto FMainFrameModule::TickDefaultMainFrameBootstrap() -> void
+	{
+		if (!BootstrapContext) return;
+		FMainFrameBootstrapContext& Context = *BootstrapContext;
+		if (Context.State == EEditorBootstrapState::WaitingForFirstPresent)
 		{
-			RootWindow->MaximizeWindow();
+			if (Profiling::GetStartupMilestoneMilliseconds(
+					Profiling::EStartupMilestone::FirstPresent) < 0.0)
+				return;
+			if (!Context.bHasProject)
+			{
+				Profiling::RecordStartupMilestone(
+					Profiling::EStartupMilestone::WorkspaceRegistrationBegin);
+				Profiling::RecordStartupMilestone(
+					Profiling::EStartupMilestone::WorkspaceRegistrationComplete);
+				Profiling::RecordStartupMilestone(
+					Profiling::EStartupMilestone::DefaultWorkspaceReady);
+				TransitionEditorBootstrap(Context, EEditorBootstrapState::Ready);
+				Profiling::TryLogStartupTimingSummary();
+				return;
+			}
+			TransitionEditorBootstrap(
+				Context, EEditorBootstrapState::LoadingWorkspace);
+			return;
 		}
-		RootWindow->ShowWindow();
+		if (Context.State != EEditorBootstrapState::LoadingWorkspace
+			|| Context.bWorkspaceActivationStarted)
+			return;
+
+		Context.bWorkspaceActivationStarted = true;
+		TransitionEditorBootstrap(
+			Context,
+			ActivateEditorWorkspaces(Context)
+				? EEditorBootstrapState::Ready
+				: EEditorBootstrapState::Failed);
+		Profiling::TryLogStartupTimingSummary();
+	}
+
+	auto FMainFrameModule::GetDefaultMainFrameBootstrapState() const
+		-> EEditorBootstrapState
+	{
+		return BootstrapContext
+			? BootstrapContext->State
+			: EEditorBootstrapState::ConstructingShell;
 	}
 } // namespace Durin

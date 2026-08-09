@@ -479,6 +479,7 @@ durin_add_engine_functional_test(EditorRenderingTests
 durin_add_engine_functional_test(EditorShellTests
 	RUNTIME_STACK_RATIONALE "Exercises DurinEd and Mona editor-shell models."
 	SOURCES
+		Private/EditorBootstrapStateTests.cpp
 		Private/EditorNotificationTests.cpp
 		Private/EditorWorkspaceTests.cpp
 		Private/UIStyleTests.cpp

@@ -15,6 +15,7 @@ namespace Durin
 	class DObject;
 	class FSceneViewport;
 	class FRenderCommandFence;
+	class IMainFrameModule;
 	class MWindow;
 
 	// Tracks the lifecycle transition of a play-in-editor session.
@@ -115,6 +116,7 @@ namespace Durin
 		std::shared_ptr<MWindow> PlayWindow;
 		std::vector<std::unique_ptr<FRenderCommandFence>> RetiredPlayFences;
 		std::vector<uint64> ConsoleCommandHandles;
+		IMainFrameModule* MainFrameModule = nullptr;
 	};
 
 	extern DURINED_API DEditorEngine* GEditor;

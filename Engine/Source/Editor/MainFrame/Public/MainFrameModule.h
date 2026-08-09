@@ -4,6 +4,8 @@
 
 namespace Durin
 {
+	struct FMainFrameBootstrapContext;
+
 	// Owns the editor host window and workspace manager for the process.
 	class FMainFrameModule : public IMainFrameModule
 	{
@@ -14,5 +16,12 @@ namespace Durin
 		auto StartupModule() -> void override;
 		auto ShutdownModule() -> void override;
 		auto CreateDefaultMainFrame() -> void override;
+		auto DestroyDefaultMainFrame() -> void override;
+		auto TickDefaultMainFrameBootstrap() -> void override;
+		auto GetDefaultMainFrameBootstrapState() const
+			-> EEditorBootstrapState override;
+
+	private:
+		std::shared_ptr<FMainFrameBootstrapContext> BootstrapContext;
 	};
 }

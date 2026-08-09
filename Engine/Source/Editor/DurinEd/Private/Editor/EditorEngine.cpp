@@ -44,12 +44,13 @@ namespace Durin
 		EditorWorld = GetWorld();
 		EditorWorld->SetWorldType(EWorldType::Editor);
 
-		IMainFrameModule& MainFrameModule = FModuleManager::LoadModuleChecked<IMainFrameModule>("MainFrame");
+		MainFrameModule =
+			&FModuleManager::LoadModuleChecked<IMainFrameModule>("MainFrame");
 		Profiling::SetStartupProjectMode(HasCurrentProject());
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellBegin);
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.EditorShell");
-			MainFrameModule.CreateDefaultMainFrame();
+			MainFrameModule->CreateDefaultMainFrame();
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellComplete);
 		Profiling::TryLogStartupTimingSummary();
@@ -139,6 +140,8 @@ namespace Durin
 
 	auto DEditorEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
 	{
+		if (MainFrameModule)
+			MainFrameModule->TickDefaultMainFrameBootstrap();
 		ReleaseRetiredPlaySessions();
 		if (IsPlayingInNewWindow() && PlayWindow)
 		{
@@ -151,10 +154,13 @@ namespace Durin
 
 	auto DEditorEngine::BeginDestroy() -> void
 	{
+		if (MainFrameModule)
+			MainFrameModule->DestroyDefaultMainFrame();
 		TeardownPlaySession();
 		TransactionManager->Clear();
 		for (const uint64 Handle : ConsoleCommandHandles) FConsoleCommandRegistry::Get().UnregisterCommand(Handle);
 		ConsoleCommandHandles.clear();
+		MainFrameModule = nullptr;
 		EditorLevel = nullptr;
 		EditorWorld = nullptr;
 		DEngine::BeginDestroy();

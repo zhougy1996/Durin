@@ -87,8 +87,28 @@ compatibility reporting, dependency order, or rollback. No competing startup
 leaf will be implemented in Stage 3.
 
 The documented cold Debug Sandbox launch remains pending because the locked
-protocol requires a machine restart. Stage 0 cannot pass its acceptance gate
-until that sample is captured from the same commit and preset.
+protocol requires a machine restart. On 2026-08-10 the user explicitly approved
+deferring that restart so implementation could continue; the cold sample remains
+an open final-validation requirement and is not treated as passed evidence.
+
+Stage 1 now presents the persisted, styled native shell before loading concrete
+editor modules. `DEditorEngine::Tick()` owns the forward-only
+`ConstructingShell -> WaitingForFirstPresent -> LoadingWorkspace -> Ready|Failed`
+sequence; Project Browser takes the direct `WaitingForFirstPresent -> Ready`
+path and does not load project workspaces. Maximized state is applied while the
+window is hidden and before viewport creation, eliminating the previous
+1600x1000-to-3840x2019 startup swapchain recreation.
+
+Against the Stage 0 Sandbox baseline, the final five-run warm first-present
+sample measured median 852.200 ms, minimum 847.327 ms, and maximum 892.320 ms,
+a 46.49 percent median improvement. Workspace admission began 3.128--8.580 ms
+after successful present. Default-workspace readiness measured median 1,472.576
+ms, minimum 1,440.319 ms, and maximum 1,488.136 ms. That is 11.26 percent above
+the Stage 0 median and 16.653 ms above the eventual 10-percent limit, so Stage 2
+must recover that margin while separating workspace and document readiness.
+Five measured launches, a Project Browser control, and a one-tick close while
+waiting for workspace activation all exited cleanly. `EditorShellTests` passed
+all 29 cases, including the new transition matrix coverage.
 
 ## Goal
 
@@ -218,21 +238,21 @@ until that sample is captured from the same commit and preset.
 
 ### Stage 1: Presentable shell before workspace loading
 
-- [ ] Split MainFrame startup into shell construction and project-workspace
+- [x] Split MainFrame startup into shell construction and project-workspace
   activation phases without changing MainFrame ownership.
-- [ ] Construct the root window, apply host settings, install lightweight root
+- [x] Construct the root window, apply host settings, install lightweight root
   content, create its native viewport, and show it before project workspace
   registration begins.
-- [ ] Add explicit `ConstructingShell`, `WaitingForFirstPresent`, `LoadingWorkspace`,
+- [x] Add explicit `ConstructingShell`, `WaitingForFirstPresent`, `LoadingWorkspace`,
   `Ready`, and `Failed` bootstrap states with valid forward-only transitions.
-- [ ] Advance post-present startup from `DEditorEngine::Tick()` on the game
+- [x] Advance post-present startup from `DEditorEngine::Tick()` on the game
   thread; keep root-widget drawing observational.
-- [ ] Render a minimal loading state through the existing editor UI system until
+- [x] Render a minimal loading state through the existing editor UI system until
   the workspace host is ready, then replace shell content without recreating
   the native window or swapchain.
-- [ ] Preserve persisted maximize behavior without displaying a transient
+- [x] Preserve persisted maximize behavior without displaying a transient
   normal-size frame.
-- [ ] Keep Project Browser startup on the shell-only path and preserve project
+- [x] Keep Project Browser startup on the shell-only path and preserve project
   selection relaunch behavior.
 
 #### Acceptance Gate
@@ -245,6 +265,25 @@ until that sample is captured from the same commit and preset.
   Browser relaunch behavior remain unchanged.
 - Repeated startup and clean exit produce no leaked window, viewport, render
   resource, module registration, or deferred object.
+
+#### Stage 1 Handoff
+
+- Baseline commit: `746580975e10e9c2c986c4c4b3464f36f2b31175`.
+- Working set: `EditorEngine`, `IMainFrameModule`, `MainFrameModule`, and
+  `EditorBootstrapStateTests`.
+- Key symbols: `EEditorBootstrapState`,
+  `IsValidEditorBootstrapTransition`,
+  `FMainFrameModule::CreateDefaultMainFrame`,
+  `FMainFrameModule::TickDefaultMainFrameBootstrap`, and
+  `FMainFrameModule::DestroyDefaultMainFrame`.
+- Decisions: MainFrame retains root-window and workspace ownership; drawing is
+  observational; the game thread admits workspace work only after a successful
+  present; maximize is applied before viewport creation while hidden.
+- Open question: Stage 2 must reduce or overlap at least 16.653 ms of readiness
+  latency to meet the baseline-plus-10-percent gate.
+- Validation: Debug `all` build; 29 `EditorShellTests`; five-run Sandbox warm
+  measurement; Project Browser shell-only startup; one-tick close-before-load;
+  repeated normal shutdown with reverse module unload and zero deferred objects.
 
 ### Stage 2: Deferred workspace and default-document activation
 
