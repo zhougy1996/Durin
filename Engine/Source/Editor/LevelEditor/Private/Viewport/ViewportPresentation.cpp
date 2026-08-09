@@ -54,6 +54,13 @@ namespace Durin
 		auto Add(const ImVec2& A, const ImVec2& B) -> ImVec2 { return ImVec2(A.x + B.x, A.y + B.y); }
 		auto Mul(const ImVec2& Value, float Scale) -> ImVec2 { return ImVec2(Value.x * Scale, Value.y * Scale); }
 
+		auto SetNextToolbarPopupPosition(const ImVec2& ButtonPosition, const ImVec2& ButtonSize) -> void
+		{
+			ImGui::SetNextWindowPos(
+				ImVec2(ButtonPosition.x, ButtonPosition.y + ButtonSize.y + MonaImGui::ScaleUI(4.0f)),
+				ImGuiCond_Appearing);
+		}
+
 		// Identifies semantic toolbar icons independent of the active font glyphs.
 		enum class EViewportToolbarIcon : uint8
 		{
@@ -380,41 +387,27 @@ namespace Durin
 			return Result;
 		}
 
-		auto DrawSnapSplitButton(const ImVec2& Position, float PrimaryWidth, float SecondaryWidth, float Height, bool bEnabled, bool bPopupOpen) -> FSplitButtonResult
+		auto DrawSnapButton(const ImVec2& Position, float Width, float Height, bool bEnabled, bool bPopupOpen) -> FSplitButtonResult
 		{
 			ImDrawList* DrawList = ImGui::GetWindowDrawList();
-			const ImVec2 Max(Position.x + PrimaryWidth + SecondaryWidth, Position.y + Height);
+			const ImVec2 Max(Position.x + Width, Position.y + Height);
 
 			ImGui::SetCursorScreenPos(Position);
-			const bool bPrimaryPressed = ImGui::InvisibleButton("##SnapToggle", ImVec2(PrimaryWidth, Height));
-			const bool bPrimaryHovered = ImGui::IsItemHovered();
-			const bool bPrimaryHeld = ImGui::IsItemActive();
-			const ImVec2 PrimaryMax(Position.x + PrimaryWidth, Max.y);
+			const bool bPrimaryPressed = ImGui::InvisibleButton("##SnapToggle", ImVec2(Width, Height));
+			const bool bSecondaryPressed = ImGui::IsItemClicked(ImGuiMouseButton_Right);
+			const bool bHovered = ImGui::IsItemHovered();
+			const bool bHeld = ImGui::IsItemActive();
+			DrawToolbarButtonBackground(DrawList, Position, Max, bEnabled || bPopupOpen, false, bHovered, bHeld);
 
-			const ImVec2 SecondaryPosition(Position.x + PrimaryWidth, Position.y);
-			ImGui::SetCursorScreenPos(SecondaryPosition);
-			const bool bSecondaryPressed = ImGui::InvisibleButton("##SnapSettingsButton", ImVec2(SecondaryWidth, Height));
-			const bool bSecondaryHovered = ImGui::IsItemHovered();
-			const bool bSecondaryHeld = ImGui::IsItemActive();
-			DrawToolbarButtonBackground(DrawList, Position, PrimaryMax, bEnabled, false, bPrimaryHovered, bPrimaryHeld, ImDrawFlags_RoundCornersLeft);
-			DrawToolbarButtonBackground(DrawList, SecondaryPosition, Max, bPopupOpen, false, bSecondaryHovered, bSecondaryHeld, ImDrawFlags_RoundCornersRight);
-
-			DrawList->AddLine(ImVec2(SecondaryPosition.x, Position.y + MonaImGui::ScaleUI(5.0f)), ImVec2(SecondaryPosition.x, Max.y - MonaImGui::ScaleUI(5.0f)), ImGui::GetColorU32(ImGuiCol_Border));
-			const ImU32 TextColor = ImGui::GetColorU32(bEnabled || bPopupOpen || bPrimaryHovered || bSecondaryHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+			const ImU32 TextColor = ImGui::GetColorU32(bEnabled || bPopupOpen || bHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
 			const float IconScale = ImGui::GetFontSize() / 15.0f;
 			const ImU32 SnapIconColor = bEnabled ? ImGui::GetColorU32(ImGuiCol_CheckMark) : TextColor;
-			DrawToolbarIcon(DrawList, EViewportToolbarIcon::SnapGrid, ImVec2(Position.x + PrimaryWidth * 0.5f, Position.y + Height * 0.5f), SnapIconColor, IconScale);
-			DrawToolbarIcon(DrawList, EViewportToolbarIcon::ChevronDown, ImVec2(SecondaryPosition.x + SecondaryWidth * 0.5f, Position.y + Height * 0.5f), TextColor, IconScale);
-			if (bPrimaryHovered)
+			DrawToolbarIcon(DrawList, EViewportToolbarIcon::SnapGrid, ImVec2(Position.x + Width * 0.5f, Position.y + Height * 0.5f), SnapIconColor, IconScale);
+			if (bHovered)
 			{
 				ImGui::BeginTooltip();
-				ImGui::TextUnformatted("Toggle transform snapping");
-				ImGui::EndTooltip();
-			}
-			else if (bSecondaryHovered)
-			{
-				ImGui::BeginTooltip();
-				ImGui::TextUnformatted("Snapping settings");
+				ImGui::TextUnformatted("Left-click: toggle snapping");
+				ImGui::TextUnformatted("Right-click: snapping settings");
 				ImGui::EndTooltip();
 			}
 			return {bPrimaryPressed, bSecondaryPressed};
@@ -485,7 +478,7 @@ namespace Durin
 		Layout.DropDownWidth = FMath::Max(MonaImGui::ScaleUI(24.0f), Layout.Height * 0.8f);
 		Layout.ViewModeButtonPosition = ImVec2(ViewportMin.x + MonaImGui::ScaleUI(10.0f), ViewportMin.y + MonaImGui::ScaleUI(8.0f));
 		Layout.ViewModeButtonSize = ImVec2(ImGui::CalcTextSize(Layout.ViewModeLabel.c_str()).x + ContentGap + ChevronWidth + ContentPadding * 2.0f, Layout.Height);
-		const float SecondaryWidth = Layout.bOverflow ? Layout.DropDownWidth : Layout.SpaceButtonWidth + Layout.SnapButtonWidth + Layout.DropDownWidth;
+		const float SecondaryWidth = Layout.bOverflow ? Layout.DropDownWidth : Layout.SpaceButtonWidth + Layout.SnapButtonWidth;
 		const float ToolbarWidth = Layout.ViewModeButtonSize.x + Layout.Gap + Layout.EditModeButtonWidth + Layout.Gap + Layout.ModeButtonWidth * 3.0f + Layout.ToolButtonGap * 2.0f + Layout.Gap + SecondaryWidth + MonaImGui::ScaleUI(3.0f);
 		Layout.BackgroundMin = ImVec2(Layout.ViewModeButtonPosition.x - MonaImGui::ScaleUI(3.0f), Layout.ViewModeButtonPosition.y - MonaImGui::ScaleUI(3.0f));
 		Layout.BackgroundMax = ImVec2(FMath::Min(ViewportMax.x - MonaImGui::ScaleUI(6.0f), Layout.ViewModeButtonPosition.x + ToolbarWidth), Layout.ViewModeButtonPosition.y + Layout.Height + MonaImGui::ScaleUI(3.0f));
@@ -535,6 +528,7 @@ namespace Durin
 			ImGui::OpenPopup("ViewModePopup");
 		}
 
+		SetNextToolbarPopupPosition(Layout.ViewModeButtonPosition, Layout.ViewModeButtonSize);
 		if (ImGui::BeginPopup("ViewModePopup"))
 		{
 			ImGui::TextDisabled("Shading");
@@ -589,12 +583,13 @@ namespace Durin
 		};
 		if (DrawToolbarButton("##EditModeButton", ImVec2(X, Y), ImVec2(Layout.EditModeButtonWidth, Layout.Height), Layout.EditModeLabel.c_str(), EViewportToolbarIcon::ChevronDown, true, "Viewport editing mode"))
 			ImGui::OpenPopup("ViewportEditModePopup");
+		SetNextToolbarPopupPosition(ImVec2(X, Y), ImVec2(Layout.EditModeButtonWidth, Layout.Height));
 		if (ImGui::BeginPopup("ViewportEditModePopup"))
 		{
 			if (EditModeManager)
 			{
 				for (const FLevelViewportEditModeDescriptor* Descriptor : FLevelViewportEditModeRegistry::Get().GetAvailable(Context))
-					if (ImGui::MenuItem(Descriptor->DisplayName.c_str(), nullptr, EditModeManager->GetActiveModeId() == Descriptor->Id)) EditModeManager->Activate(Descriptor->Id, Context);
+					if (ImGui::RadioButton(Descriptor->DisplayName.c_str(), EditModeManager->GetActiveModeId() == Descriptor->Id)) EditModeManager->Activate(Descriptor->Id, Context);
 			}
 			ImGui::EndPopup();
 		}
@@ -610,7 +605,7 @@ namespace Durin
 		auto DrawTransformSpaceOptions = [&] {
 			for (const ETransformGizmoSpace Space : {ETransformGizmoSpace::World, ETransformGizmoSpace::Local, ETransformGizmoSpace::Parent})
 			{
-				if (ImGui::MenuItem(SpaceLabel(Space), nullptr, Gizmo.GetSpace() == Space)) Gizmo.SetSpace(Space);
+				if (ImGui::RadioButton(SpaceLabel(Space), Gizmo.GetSpace() == Space)) Gizmo.SetSpace(Space);
 			}
 			ImGui::Separator();
 			ImGui::TextDisabled("Scale always uses Local space");
@@ -621,9 +616,13 @@ namespace Durin
 		X += Layout.ToolButtonGap;
 		ToolbarButton("##ScaleMode", nullptr, EViewportToolbarIcon::Scale, Layout.ModeButtonWidth, Gizmo.GetMode() == ETransformGizmoMode::Scale, "Scale tool (R)", [&] { Gizmo.SetMode(ETransformGizmoMode::Scale); });
 		X += Layout.Gap;
+		ImVec2 SnapPopupPosition(X, Y);
 		if (Layout.bOverflow)
 		{
+			const ImVec2 OverflowPosition(X, Y);
+			SnapPopupPosition = OverflowPosition;
 			ToolbarButton("##ViewportOverflow", "...", EViewportToolbarIcon::None, Layout.DropDownWidth, false, "More viewport tools", [&] { ImGui::OpenPopup("ViewportToolsOverflow"); });
+			SetNextToolbarPopupPosition(OverflowPosition, ImVec2(Layout.DropDownWidth, Layout.Height));
 			if (ImGui::BeginPopup("ViewportToolsOverflow"))
 			{
 				if (ImGui::BeginMenu("Transform Space"))
@@ -638,17 +637,21 @@ namespace Durin
 		}
 		else
 		{
+			const ImVec2 TransformSpacePosition(X, Y);
 			ToolbarButton("##TransformSpace", SpaceLabel(Gizmo.GetSpace()), EViewportToolbarIcon::ChevronDown, Layout.SpaceButtonWidth, false, "Choose transform space; scale always uses Local", [&] { ImGui::OpenPopup("TransformSpacePopup"); });
+			SetNextToolbarPopupPosition(TransformSpacePosition, ImVec2(Layout.SpaceButtonWidth, Layout.Height));
 			if (ImGui::BeginPopup("TransformSpacePopup"))
 			{
 				DrawTransformSpaceOptions();
 				ImGui::EndPopup();
 			}
-			const FSplitButtonResult SnapResult = DrawSnapSplitButton(ImVec2(X, Y), Layout.SnapButtonWidth, Layout.DropDownWidth, Layout.Height, Gizmo.GetSnapSettings().bEnabled, ImGui::IsPopupOpen("GizmoSnapSettings"));
+			SnapPopupPosition = ImVec2(X, Y);
+			const FSplitButtonResult SnapResult = DrawSnapButton(ImVec2(X, Y), Layout.SnapButtonWidth, Layout.Height, Gizmo.GetSnapSettings().bEnabled, ImGui::IsPopupOpen("GizmoSnapSettings"));
 			if (SnapResult.bPrimaryPressed) Gizmo.GetSnapSettings().bEnabled = !Gizmo.GetSnapSettings().bEnabled;
 			if (SnapResult.bSecondaryPressed) bOpenSnapSettings = true;
 		}
 		if (bOpenSnapSettings) ImGui::OpenPopup("GizmoSnapSettings");
+		SetNextToolbarPopupPosition(SnapPopupPosition, ImVec2(Layout.SnapButtonWidth, Layout.Height));
 		ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(270.0f), 0.0f), ImGuiCond_Appearing);
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(MonaImGui::ScaleUI(12.0f), MonaImGui::ScaleUI(12.0f)));
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(MonaImGui::ScaleUI(8.0f), MonaImGui::ScaleUI(7.0f)));
@@ -692,6 +695,7 @@ namespace Durin
 				Context.StartPlay(PreferredPlayStartLocation, PreferredPlayDestination);
 			if (PlayResult.bSecondaryPressed)
 				ImGui::OpenPopup("ViewportPlayOptionsPopup");
+			SetNextToolbarPopupPosition(ImVec2(PlayX, PlayY), ImVec2(Layout.PlayButtonWidth + Layout.DropDownWidth, Layout.Height));
 			if (ImGui::BeginPopup("ViewportPlayOptionsPopup"))
 			{
 				ImGui::TextDisabled("Start Location");
@@ -723,6 +727,7 @@ namespace Durin
 				if (RuntimeResult.bStepPressed) GEditor->StepPlaySession();
 				if (RuntimeResult.bOptionsPressed) ImGui::OpenPopup("ViewportRuntimeOptionsPopup");
 			}
+			SetNextToolbarPopupPosition(ImVec2(PlayX, PlayY), ImVec2(Layout.RuntimeButtonWidth * 3.0f + Layout.DropDownWidth, Layout.Height));
 			if (ImGui::BeginPopup("ViewportRuntimeOptionsPopup"))
 			{
 				const bool bHasSelection = !Context.GetSelectedActors().empty();
