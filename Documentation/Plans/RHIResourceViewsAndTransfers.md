@@ -10,7 +10,7 @@ Completed:
 ## Current Status
 
 The M1 transition prerequisite completed at baseline `99c82b01` through
-[GPU Resource Transitions](GPUResourceTransitions.md). Buffer byte ranges and
+[GPU Resource Transitions](Archive/2026-08/GPUResourceTransitions.md). Buffer byte ranges and
 texture aspect/mip/layer ranges now have checked portable state, recorded
 inline/threaded replay, and one Vulkan authority. M2 can consume those ranges
 without defining another synchronization system.

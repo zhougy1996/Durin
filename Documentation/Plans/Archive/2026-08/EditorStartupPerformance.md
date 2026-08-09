@@ -4,7 +4,7 @@ Summary: Reduce DurinEditor time to a usable shell while preserving startup owne
 
 Last reviewed: 2026-08-10
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-10
 
 ## Current Status

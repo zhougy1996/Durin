@@ -4,7 +4,7 @@ Summary: Add deterministic clip sampling, one skeletal-mesh component playback o
 
 Last reviewed: 2026-08-10
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-10
 
 ## Current Status
@@ -19,7 +19,7 @@ data and atomically publishes complete immutable palette candidates.
 Sampling, hierarchy and palette math, loop/clamp time, controls, revisions,
 prospective rebinding, candidate lifetime, component/world lifecycle, cooked
 runtime-only ownership, and glTF/GLB equivalence are implemented and qualified.
-The lasting contract is [Skeletal Animation Playback](../Runtime/Animation/SkeletalAnimationPlayback.md).
+The lasting contract is [Skeletal Animation Playback](../../../Runtime/Animation/SkeletalAnimationPlayback.md).
 
 S2 adds no scene proxy, render resource, shader, RHI binding, renderer path, or
 GPU synchronization. S1-S2 and Rendering M1-M3 now provide readiness evidence
@@ -519,7 +519,7 @@ used for track lookup. Reference-only bindings remain paused at time zero.
 | Qualification | Focused EngineTests and asset regressions, runtime-only playback coverage, full Debug Editor `all` build, and clean native-test shutdown. |
 
 All build and test commands follow
-[Build and Run](../Development/Build/BuildAndRun.md). The implementation handoff
+[Build and Run](../../../Development/Build/BuildAndRun.md). The implementation handoff
 must record the exact profile, test filters, commands, and outcomes actually
 used.
 
@@ -553,14 +553,14 @@ used.
 
 ## Related Documentation
 
-- [Skeletal Mesh and Animation Roadmap](../Roadmaps/SkeletalMeshAndAnimation.md)
-- [Skeletal Asset and Import Foundation](Archive/2026-08/SkeletalAssetAndImportFoundation.md)
-- [Rendering Capability Expansion Roadmap](../Roadmaps/RenderingCapabilityExpansion.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
-- [Core Math](../Runtime/Core/Math.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Skeletal Mesh and Animation Roadmap](../../../Roadmaps/SkeletalMeshAndAnimation.md)
+- [Skeletal Asset and Import Foundation](SkeletalAssetAndImportFoundation.md)
+- [Rendering Capability Expansion Roadmap](../../../Roadmaps/RenderingCapabilityExpansion.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Core Math](../../../Runtime/Core/Math.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

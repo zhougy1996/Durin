@@ -4,7 +4,7 @@ Summary: Establish one backend-neutral buffer and texture transition contract an
 
 Last reviewed: 2026-08-10
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-10
 
 ## Current Status
@@ -15,7 +15,7 @@ lifetimes and inline/threaded replay parity. Vulkan maps the portable access
 contract through synchronization2 or its legacy fallback and keeps one range
 authority across explicit transitions, render passes, buffer writes, texture
 upload/readback, and presentation. The lasting contract is published in
-[RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md).
+[RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md).
 
 Qualification used Agent Build Profile `windows-msvc-x64`, preset
 `Win64-Debug-DurinEditor-Tests`. Focused RHI transition validation passed 6/6,
@@ -583,7 +583,7 @@ with clean shutdown.
 | Qualification | Selected native tests, full Debug Editor `all` build, validation-clean hidden-window editor smoke, and clean shutdown. |
 
 All build, test, and runtime commands follow
-[Build and Run](../Development/Build/BuildAndRun.md). The implementation handoff
+[Build and Run](../../../Development/Build/BuildAndRun.md). The implementation handoff
 must record the exact profile, commands, test filters, and outcomes actually
 used.
 
@@ -616,14 +616,14 @@ used.
 
 ## Related Documentation
 
-- [Compute Shader Pipeline Roadmap](../Roadmaps/ComputeShaderPipeline.md)
-- [RHI and Vulkan Backend Evolution Roadmap](../Roadmaps/RHIAndVulkanEvolution.md)
-- [RHI Capabilities and Vulkan Startup](../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
-- [RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md)
-- [RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Texture System](../Runtime/Rendering/TextureSystem.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Compute Shader Pipeline Roadmap](../../../Roadmaps/ComputeShaderPipeline.md)
+- [RHI and Vulkan Backend Evolution Roadmap](../../../Roadmaps/RHIAndVulkanEvolution.md)
+- [RHI Capabilities and Vulkan Startup](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

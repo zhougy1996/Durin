@@ -18,7 +18,7 @@ loading; and failure-atomic import/reimport coverage. StaticMesh source behavior
 remains unchanged.
 
 S2 completed on 2026-08-10 through
-[Skeletal Runtime Pose and Playback](../Plans/SkeletalRuntimePoseAndPlayback.md).
+[Skeletal Runtime Pose and Playback](../Plans/Archive/2026-08/SkeletalRuntimePoseAndPlayback.md).
 `DSkeletalMeshComponent` is now the long-lived owner of a detached value-only
 animation instance. It samples Step/Linear clips, evaluates parent-before-child
 poses, controls deterministic loop/clamp playback, and atomically publishes
@@ -204,7 +204,7 @@ flowchart LR
 | Milestone | Requirement | Child-plan policy | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- |
 | S1: Asset and import foundation | Completed 2026-08-08 | [Skeletal Asset and Import Foundation](../Plans/Archive/2026-08/SkeletalAssetAndImportFoundation.md) | Existing import, package, DDC, cook, math, and static-model behavior was recorded; the selected glTF fixture corpus did not change StaticMesh outputs. | Met: stable peer assets, deterministic bounded authored/DDC/cooked paths, runtime-only loading, and transactional structured failures are implemented and qualified below. |
-| S2: Runtime pose and clip playback | Completed 2026-08-10 | [Skeletal Runtime Pose and Playback](../Plans/SkeletalRuntimePoseAndPlayback.md) | Met on 2026-08-10: S1 schemas, compatibility, detached payload access, transform convention, fixture corpus, component lifecycle, and runtime ownership seams were re-inspected. | Met: one component/runtime owner samples supported clips deterministically, evaluates local-to-component poses, handles time/looping, rejects incompatible clips, and atomically publishes bounded immutable palette candidates without rendering-thread object reads. |
+| S2: Runtime pose and clip playback | Completed 2026-08-10 | [Skeletal Runtime Pose and Playback](../Plans/Archive/2026-08/SkeletalRuntimePoseAndPlayback.md) | Met on 2026-08-10: S1 schemas, compatibility, detached payload access, transform convention, fixture corpus, component lifecycle, and runtime ownership seams were re-inspected. | Met: one component/runtime owner samples supported clips deterministically, evaluates local-to-component poses, handles time/looping, rejects incompatible clips, and atomically publishes bounded immutable palette candidates without rendering-thread object reads. |
 | S3: Skeletal rendering vertical slice | Required; shared with Rendering M4; plan authored at entry | No plan yet | S1-S2 are stable; Rendering Capability Expansion M1-M3 have completed; the current RHI binding limits and shared pass/visibility APIs are measured; SkeletalMesh remains the selected second primitive family. | GPU-skinned SkeletalMesh shares scene mutation, materials, passes, visibility, viewport, invalidation, and applicable shadow behavior with StaticMesh; palette and bounds updates are deterministic and lifecycle-safe; Vulkan validation and animated image coverage pass. |
 | S4: Editor workflow and production qualification | Required; plan authored at entry | No plan yet | S3 renders a representative animated asset and exposes stable inspection/playback seams; current Content Browser and inspector extension contracts are re-inspected. | Users can import/reimport, identify, inspect, preview, diagnose, cook, and run supported skeletal assets through documented workflows; representative engine/project fixtures pass full editor and runtime qualification. |
 

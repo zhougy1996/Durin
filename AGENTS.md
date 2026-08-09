@@ -4,30 +4,14 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
 
 ## Task Routing
 
-- Start from the task and affected code. When an unnamed repository contract,
-  workflow, plan, or investigation is needed, route through
-  `Documentation/README.md`; open only the matching topic and required links.
-- When the affected module is unknown, read
-  `Documentation/Workspace/CodeModules.md`, select the smallest plausible module
-  set, then search only those roots. Use `Engine/Engine.dproject` for the
-  authoritative module-to-directory mapping and open only the selected
-  `.dmodule` files when dependency direction matters.
-- When asked to select or continue a bounded repository task, run
-  `.\DevTool.bat doc task list`, then open only the selected task. Task files
-  are live work items: complete their acceptance criteria, then delete the file
-  in the implementation commit instead of archiving it.
-- Read `Documentation/Development/Standards/CodingStandards.md` only when the
-  user explicitly requests refactoring repository-owned C++.
-- Follow the nearest `AGENTS.md` for authoring and lifecycle rules; do not infer
-  formats from unrelated documents.
-- Machine-local build overrides belong in optional `.agents/DevTool.user.json`;
-  create it with `.\DevTool.bat setup` when needed.
-
-## Plan Stage Continuation
-
-- Treat completed-stage handoffs and their baseline commits as established context. Start with the current stage, prior handoff, recorded working set, and relevant diff; do not rediscover completed-stage architecture.
-- Validate recorded symbols with targeted searches and initially inspect no more than five relevant code files. Expand only when code conflicts with the handoff, a required direct dependency is missing, or validation points outside the working set; state the gap and added scope first.
-- End each stage with a compact handoff recording the baseline commit, working set, key symbols and decisions, open questions, and validation outcome.
+- Start from the task and affected code; use `Documentation/README.md` only to
+  route to the matching repository guidance.
+- If module ownership is unclear, read `Documentation/Workspace/CodeModules.md`
+  and search only the smallest plausible module set.
+- For bounded tasks, run `.\DevTool.bat doc task list` and open only the
+  selected task. Follow the nearest `AGENTS.md` for authoring and lifecycle.
+- Use `.agents/DevTool.user.json` for machine-local overrides; create it with
+  `.\DevTool.bat setup` when needed.
 
 ## Repository Rules
 
@@ -57,12 +41,6 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
   least 10 minutes (`timeout_ms: 600000`), and use at least one hour
   (`timeout_ms: 3600000`) for a full `all` build or rebuild. Do not rely on the
   tool's default timeout or assume that an approved command prefix supplies one.
-- Do not run the `Win64-Release-DurinEditor-Tests` or
-  `Win64-Shipping-DurinGame-Tests` presets as routine Agent validation. They are
-  opt-in configuration-parity entrypoints for an explicit user or plan gate, or
-  for a change that directly modifies cross-configuration assertion, build, or
-  conditional-compilation behavior. When one is required, use a single selected
-  checkout; do not duplicate its build and install trees across worktrees.
 - If the execution tool explicitly yields a running process or cell ID, wait on
   that same invocation in intervals no longer than 60 seconds. Once it returns a
   final result, stop waiting and act on that result. DurinDevTool prints a
@@ -83,20 +61,8 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
 
 ## Agent Handoff
 
-- After validating a functional change or generating/updating documentation,
-  stage only the task files and create one local commit. An explicit user request
-  to implement or update repository files authorizes this bounded staging and
-  commit operation; do not request separate approval. Before committing, inspect
-  the status and diff, preserve unrelated changes, and stop for clarification if
-  task ownership is ambiguous or a task file contains overlapping user edits.
-  Do not commit when the user declines, asks to leave changes uncommitted, or the
-  task is inspection-only, advice-only, or unchanged.
-- Subject: `<type>(<scope>): <imperative summary>`. Use a short lowercase scope,
-  no trailing period, and preferably `feat`, `fix`, `refactor`, `perf`, `build`,
-  `test`, `docs`, or `chore`; describe the outcome, not file edits.
-- Add a brief body only for non-obvious motivation, constraints, or tradeoffs.
-  Mention validation only when incomplete, non-standard, limited, or historically
-  noteworthy.
+- In Codex `workspace-write`, never write `.git` (`git add`, `git commit`, or
+  `.git/index.lock`); validate and leave changes for an external terminal.
 - For active-plan work, update required status/checklists in the same commit and
   end the body with the exact `Plan: Documentation/Plans/<Plan>.md` and
   `Stage: Stage <N>: <stage title>` provenance (one Stage line per stage). Do not
