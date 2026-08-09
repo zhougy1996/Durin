@@ -1,5 +1,9 @@
 # Texture System
 
+Summary: Define texture assets, derived platform data, cooking, GPU upload, materials, and editor integration.
+
+Modules: Engine, TextureEditor, RenderCore, RHI
+
 Durin's Texture2D pipeline has explicit authored-source, derived platform,
 cooked-runtime, render-resource, editor, and material boundaries.
 

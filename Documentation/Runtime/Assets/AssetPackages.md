@@ -1,5 +1,9 @@
 # Asset Packages
 
+Summary: Define asset identity, registry, package serialization, loading, migration, derived data, and cooking.
+
+Modules: AssetCore, CoreDObject
+
 Durin object assets are stored as versioned `.dasset` packages. A package has one public main asset and may contain any number of `DObject` instances arranged through the ordinary Outer hierarchy. Outer defines structural containment and object paths, not a GC strong reference.
 
 ## Paths And Mounts

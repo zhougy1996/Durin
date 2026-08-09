@@ -17,6 +17,20 @@ def render_documents(
     *,
     output_format: str,
 ) -> str:
+    def markdown_cell(value: str) -> str:
+        return value.replace("\\", "\\\\").replace("|", "\\|")
+
+    def terminal_document(document: Document) -> str:
+        lines = [
+            f"[{document.kind.value}] {document.title}",
+            f"  {document.ref.as_posix()}",
+        ]
+        if document.summary:
+            lines.append(f"  {document.summary}")
+        if document.modules:
+            lines.append(f"  Modules: {', '.join(document.modules)}")
+        return "\n".join(lines)
+
     if output_format == "json":
         return json.dumps(
             {
@@ -26,6 +40,16 @@ def render_documents(
                         "path": document.ref.as_posix(),
                         "title": document.title,
                         "kind": document.kind.value,
+                        **(
+                            {"summary": document.summary}
+                            if document.summary
+                            else {}
+                        ),
+                        **(
+                            {"modules": list(document.modules)}
+                            if document.modules
+                            else {}
+                        ),
                     }
                     for document in documents
                 ],
@@ -33,18 +57,18 @@ def render_documents(
             indent=2,
         )
     if output_format == "markdown":
-        lines = ["| Document | Kind |", "| --- | --- |"]
+        lines = [
+            "| Document | Kind | Summary | Modules |",
+            "| --- | --- | --- | --- |",
+        ]
         lines.extend(
-            f"| [{document.title}]({document.ref.as_posix()}) | "
-            f"{document.kind.value} |"
+            f"| [{markdown_cell(document.title)}]({document.ref.as_posix()}) | "
+            f"{document.kind.value} | {markdown_cell(document.summary)} | "
+            f"{markdown_cell(', '.join(document.modules))} |"
             for document in documents
         )
         return "\n".join(lines)
-    return "\n\n".join(
-        f"[{document.kind.value}] {document.title}\n"
-        f"  {document.ref.as_posix()}"
-        for document in documents
-    )
+    return "\n\n".join(terminal_document(document) for document in documents)
 
 
 def render_tasks(

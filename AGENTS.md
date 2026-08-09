@@ -7,6 +7,11 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
 - Start from the task and affected code. When an unnamed repository contract,
   workflow, plan, or investigation is needed, route through
   `Documentation/README.md`; open only the matching topic and required links.
+- When the affected module is unknown, read
+  `Documentation/Workspace/CodeModules.md`, select the smallest plausible module
+  set, then search only those roots. Use `Engine/Engine.dproject` for the
+  authoritative module-to-directory mapping and open only the selected
+  `.dmodule` files when dependency direction matters.
 - When asked to select or continue a bounded repository task, run
   `.\DevTool.bat doc task list`, then open only the selected task. Task files
   are live work items: complete their acceptance criteria, then delete the file
@@ -15,7 +20,7 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
   user explicitly requests refactoring repository-owned C++.
 - Follow the nearest `AGENTS.md` for authoring and lifecycle rules; do not infer
   formats from unrelated documents.
-- Machine-local build overrides belong in optional `.agents/build-config.json`;
+- Machine-local build overrides belong in optional `.agents/DevTool.user.json`;
   create it with `.\DevTool.bat setup` when needed.
 
 ## Plan Stage Continuation
@@ -27,9 +32,11 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
 ## Repository Rules
 
 - Each checkout has one source/build writer; use separate worktrees for concurrency.
-- Before any configure, build, test, or runtime launch, read
-  `Documentation/Development/Build/BuildAndRun.md` and use the DurinDevTool
-  entrypoint described there.
+- Use DurinDevTool for routine configure, build, test, and runtime validation;
+  the execution rules below are sufficient for ordinary task validation. Read
+  `Documentation/Development/Build/BuildAndRun.md` only when changing those
+  workflows, selecting non-routine validation, or diagnosing a build, test, or
+  runtime-operation problem.
 - Treat configure, build, rebuild, and test operations as long-running tasks,
   including DurinDevTool actions, scripts, wrappers, and other commands that may
   invoke them transitively. Set the execution tool's timeout explicitly to at

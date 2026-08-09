@@ -1,5 +1,9 @@
 # Editor UI Style
 
+Summary: Define editor visual tokens, spacing, typography, colors, icons, and interaction styling.
+
+Modules: MonaImGui, DurinEd
+
 This document defines the implemented visual-style, design-token, layout, and
 theme conventions for the Durin editor UI.
 

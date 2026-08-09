@@ -1,5 +1,9 @@
 # RHI Command Execution
 
+Summary: Define recorded GPU command ownership, submission, synchronization, and RHI-thread execution.
+
+Modules: RHI
+
 Durin's renderer records backend-neutral RHI commands into owned command-list
 storage and replays them through one executor. The normal runtime uses one
 dedicated RHI thread; setting `DURIN_RHI_EXECUTION=inline` keeps the same

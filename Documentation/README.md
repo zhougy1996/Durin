@@ -7,6 +7,7 @@ not open the other rows or scan an entire directory.
 | Task trigger | Read first |
 | --- | --- |
 | Repository-owned C++ change | [C++ coding standards](Development/Standards/CodingStandards.md) |
+| Affected code module or ownership boundary is unknown | [Code modules](Workspace/CodeModules.md) |
 | Setup, build, test, worktree, or runtime problem | [Troubleshooting](Development/Build/Troubleshooting.md) |
 | Configure, build, run, output layout, or interrupted-build recovery | [Build and run](Development/Build/BuildAndRun.md) |
 | CMake metadata, target generation, or module binaries | [Build system](Development/Build/BuildSystem.md) |
@@ -32,9 +33,12 @@ not open the other rows or scan an entire directory.
 | Named historical plan or required provenance | Run `.\DevTool.bat doc plan list --scope archive --query "<title-or-filename>"`, then open only the selected archived plan |
 | Verified unresolved engineering problem | [Open investigations](Investigations/README.md) |
 
-If no row matches, use `rg --files Documentation` or a targeted `rg` content
-query. Open only the closest result and follow its direct references only when
-the task requires them. Never load `Documentation/` as one corpus or maintain a
-repository-wide file index.
+If no row matches, run
+`.\DevTool.bat doc find "<task terms>" --limit 5`; its ranked result includes
+available summaries and owning modules without printing document bodies. Fall
+back to `rg --files Documentation` or a targeted `rg` content query only when
+the compact search has no useful result. Open only the closest document and
+follow its direct references only when the task requires them. Never load
+`Documentation/` as one corpus or maintain a repository-wide file index.
 
 Authoring and lifecycle rules are in the nearest `AGENTS.md`.

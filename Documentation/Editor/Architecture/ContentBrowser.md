@@ -1,5 +1,9 @@
 # Content Browser
 
+Summary: Define asset presentation, operations, thumbnails, deletion, undo, and recovery in the Content Browser.
+
+Modules: LevelEditor, DurinEd, AssetCore
+
 The Content Browser presents the contents of automatically scanned mounted
 content roots. It combines registered engine assets and ordinary files in one
 directory-oriented view while preserving their different identities and

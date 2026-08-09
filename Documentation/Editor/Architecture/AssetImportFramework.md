@@ -1,5 +1,9 @@
 # Asset Import Framework
 
+Summary: Define format-neutral import admission, built-in importers, asset publication, and extension ownership.
+
+Modules: AssetImportCore, StandardAssetImport, AssetCore
+
 Durin editor imports use one provider-neutral framework for source capture,
 planning, preview, candidate construction, validation, publication, diagnostics,
 and cancellation. `AssetImportCore` owns the generic contracts;

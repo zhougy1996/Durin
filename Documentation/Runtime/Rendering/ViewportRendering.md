@@ -1,5 +1,9 @@
 # Viewport Rendering
 
+Summary: Define window-backed viewports, render targets, presentation, resize recovery, and editor assistance rendering.
+
+Modules: ApplicationCore, Mona, Renderer, RHI
+
 This document explains how Durin connects Mona widgets, scene viewports, and RHI render targets for both standalone game windows and editor viewport panels.
 
 ## Mental Model

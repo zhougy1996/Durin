@@ -1,5 +1,9 @@
 # Reflected Property Editing
 
+Summary: Define reflected property presentation, transactions, multi-object edits, validation, and undo.
+
+Modules: DurinEd, MonaImGui, CoreDObject
+
 This document defines the reflected-property editing system currently
 implemented by `CoreDObject` and `DurinEd`. It records adopted behavior only;
 unselected UI API extensions remain outside the repository until they become

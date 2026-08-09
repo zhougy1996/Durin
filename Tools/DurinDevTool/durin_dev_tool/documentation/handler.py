@@ -82,6 +82,9 @@ def _run_document_list(
             include_archive=namespace.include_archive,
         )
     )
+    limit = getattr(namespace, "document_limit", None)
+    if limit is not None:
+        documents = documents[:limit]
     if not documents:
         raise DevToolError("no documentation files matched the request")
     print(

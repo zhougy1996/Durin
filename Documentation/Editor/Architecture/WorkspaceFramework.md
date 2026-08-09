@@ -1,5 +1,9 @@
 # Editor Workspace Framework
 
+Summary: Define editor workspaces, documents, panels, commands, layout, and host integration.
+
+Modules: DurinEd, LevelEditor, MainFrame
+
 This document defines editor-host ownership, persistent settings, application
 commands, workspace registration, and document lifecycle contracts.
 

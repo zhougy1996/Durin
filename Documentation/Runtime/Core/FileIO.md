@@ -1,5 +1,9 @@
 # File I/O
 
+Summary: Define physical-path validation, byte I/O, and atomic file-publication behavior.
+
+Modules: Core
+
 This document defines the repository-owned runtime contract for physical file
 paths and atomic byte publication.
 

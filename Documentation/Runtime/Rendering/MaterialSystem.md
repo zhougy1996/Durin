@@ -1,5 +1,9 @@
 # Material System
 
+Summary: Define material assets, parameters, render proxies, invalidation, passes, and fallback behavior.
+
+Modules: Engine, Renderer, RenderCore
+
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
 

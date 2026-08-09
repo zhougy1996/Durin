@@ -1,5 +1,9 @@
 # Static Mesh Rendering
 
+Summary: Define static-mesh render data, scene proxies, materials, draw preparation, and pass participation.
+
+Modules: Engine, Renderer, RenderCore
+
 This document defines the implemented static-mesh render-resource ownership,
 per-LOD lifecycle, vertex-factory boundary, and shader input contract.
 

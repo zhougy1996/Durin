@@ -27,6 +27,10 @@ REFERENCE_LINK_PATTERN = re.compile(
     r"^\s*\[[^\]]+\]:\s*(?P<target>\S+)", re.MULTILINE
 )
 TITLE_PATTERN = re.compile(r"^# (?P<title>.+?)\s*$")
+SUMMARY_PATTERN = re.compile(r"^Summary:\s*(?P<value>.+?)\s*$", re.MULTILINE)
+MODULES_PATTERN = re.compile(r"^Modules:\s*(?P<value>.+?)\s*$", re.MULTILINE)
+KEYWORDS_PATTERN = re.compile(r"^Keywords:\s*(?P<value>.+?)\s*$", re.MULTILINE)
+SEARCH_TOKEN_PATTERN = re.compile(r"[^\W_]+", re.UNICODE)
 
 
 def _markdown_targets(text: str) -> Iterable[tuple[int, str]]:
@@ -120,15 +124,105 @@ def _parse_document(
             _resolve_link(repository_root, absolute_path, target)
         ]
     )
+    metadata_text = text.partition("\n## ")[0]
+    summary_match = SUMMARY_PATTERN.search(metadata_text)
+    modules_match = MODULES_PATTERN.search(metadata_text)
+    keywords_match = KEYWORDS_PATTERN.search(metadata_text)
     return (
         Document(
             ref=DocumentRef(relative_path),
             kind=infer_document_kind(relative_path),
             title=title,
             links=links,
+            summary=summary_match.group("value").strip() if summary_match else "",
+            modules=(
+                tuple(
+                    module.strip()
+                    for module in modules_match.group("value").split(",")
+                    if module.strip()
+                )
+                if modules_match
+                else ()
+            ),
+            keywords=(
+                tuple(SEARCH_TOKEN_PATTERN.findall(keywords_match.group("value")))
+                if keywords_match
+                else ()
+            ),
+            search_text=text,
         ),
         diagnostics,
     )
+
+
+def _search_tokens(value: str) -> tuple[str, ...]:
+    return tuple(SEARCH_TOKEN_PATTERN.findall(value.casefold()))
+
+
+def _token_matches(query: str, candidate: str) -> bool:
+    if query in candidate or (len(candidate) >= 3 and candidate in query):
+        return True
+    common = 0
+    for query_character, candidate_character in zip(query, candidate):
+        if query_character != candidate_character:
+            break
+        common += 1
+    return common >= 5
+
+
+def _all_tokens_match(query: Sequence[str], candidate_text: str) -> bool:
+    candidates = _search_tokens(candidate_text)
+    return all(
+        any(_token_matches(token, candidate) for candidate in candidates)
+        for token in query
+    )
+
+
+def _matched_token_count(query: Sequence[str], candidate_text: str) -> int:
+    candidates = _search_tokens(candidate_text)
+    return sum(
+        any(_token_matches(token, candidate) for candidate in candidates)
+        for token in query
+    )
+
+
+def _document_relevance(document: Document, query: str) -> int | None:
+    tokens = _search_tokens(query)
+    if not tokens:
+        return None
+    title_and_path = f"{document.title} {document.ref.as_posix()}"
+    metadata = " ".join(
+        (
+            title_and_path,
+            document.summary,
+            " ".join(document.modules),
+            " ".join(document.keywords),
+        )
+    )
+    if not _all_tokens_match(tokens, document.search_text):
+        return None
+    phrase = query.casefold().strip()
+    score = 20
+    if phrase and phrase in title_and_path.casefold():
+        score += 100
+    elif _all_tokens_match(tokens, metadata):
+        score += 60
+    score += 20 * _matched_token_count(tokens, document.title)
+    score += 10 * _matched_token_count(tokens, document.summary)
+    score += 8 * _matched_token_count(tokens, " ".join(document.modules))
+    score += 6 * _matched_token_count(tokens, " ".join(document.keywords))
+    kind_priority = {
+        DocumentKind.CONTRACT: 8,
+        DocumentKind.GUIDE: 7,
+        DocumentKind.ROUTER: 6,
+        DocumentKind.TASK: 5,
+        DocumentKind.PLAN: 4,
+        DocumentKind.ROADMAP: 3,
+        DocumentKind.INVESTIGATION: 2,
+        DocumentKind.POLICY: 1,
+        DocumentKind.GENERIC: 0,
+    }
+    return score + kind_priority[document.kind]
 
 
 def load_document_catalog(
@@ -200,12 +294,20 @@ def filter_documents(
             document for document in selected if document.kind in accepted
         ]
     if query:
-        needle = query.casefold()
+        ranked = [
+            (relevance, document)
+            for document in selected
+            if (relevance := _document_relevance(document, query)) is not None
+        ]
         selected = [
             document
-            for document in selected
-            if needle in document.title.casefold()
-            or needle in document.ref.as_posix().casefold()
+            for _, document in sorted(
+                ranked,
+                key=lambda item: (
+                    -item[0],
+                    item[1].ref.as_posix().casefold(),
+                ),
+            )
         ]
     return selected
 

@@ -1,5 +1,9 @@
 # Garbage Collection
 
+Summary: Define managed-object reachability, collection, rooting, and destruction contracts.
+
+Modules: CoreDObject
+
 Durin uses a synchronous, stop-the-world, non-moving mark-sweep collector for `DObject` instances. Collection runs on the game thread and does not scan the native stack. Object hierarchy and object lifetime are related in one direction only: a reachable child keeps its Outer chain alive, while a reachable Outer does not keep its children alive.
 
 ## Object Registry And Outer Index

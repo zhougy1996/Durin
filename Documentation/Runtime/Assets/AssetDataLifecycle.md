@@ -1,5 +1,9 @@
 # Asset Data Lifecycle and Storage
 
+Summary: Define authored, derived, cooked, and runtime asset-data ownership and transitions.
+
+Modules: AssetCore, Engine
+
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
 merely whether a file contains binary bytes.

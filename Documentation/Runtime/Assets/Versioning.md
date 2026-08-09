@@ -1,5 +1,9 @@
 # Versioning
 
+Summary: Define serialized type, object, package, and compatibility version contracts.
+
+Modules: AssetCore, CoreDObject
+
 Durin's engine release version is defined once in `Engine/Build/Build.version`. The current development version is `0.1.0-dev`. CMake validates that file, exposes the numeric core as the workspace project version, and generates the header consumed by Core's public version API.
 
 Runtime code should use `GetEngineVersion()` for numeric components and `GetEngineVersionString()` for display. Do not duplicate the engine version in module sources, window titles, API integration metadata, or packaging scripts.

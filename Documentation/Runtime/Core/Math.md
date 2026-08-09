@@ -1,5 +1,9 @@
 # Core Math
 
+Summary: Define Durin math types, operation semantics, and the GLM integration boundary.
+
+Modules: Core
+
 Last reviewed: 2026-08-05
 
 Durin owns math names and operation semantics in the Core module while GLM

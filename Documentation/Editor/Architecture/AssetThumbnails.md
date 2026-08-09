@@ -1,5 +1,9 @@
 # Asset Thumbnails
 
+Summary: Define thumbnail requests, providers, caches, rendering, invalidation, and Content Browser consumption.
+
+Modules: DurinEd, LevelEditor, Renderer
+
 Content Browser thumbnails are optional editor derivatives. They never replace
 authored packages or source files, and deleting the thumbnail cache cannot lose
 project content.

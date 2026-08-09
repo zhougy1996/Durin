@@ -11,6 +11,12 @@ These instructions apply under `Documentation/Plans/`.
   `.\DevTool.bat doc plan list --scope archive --query
   "<title-or-filename>"`, then open only the selected result. Do not scan,
   bulk-read, or sample unrelated plans; use the standard below.
+- For stage continuation, do not begin with a whole-file read. Locate
+  `Current Status`, stage, acceptance-gate, handoff, and `Related Code` headings
+  first; read the header, current status, current stage, immediately preceding
+  handoff, and related-code list. Expand to a named decision or earlier stage
+  only when the current stage references it or the code conflicts with the
+  recorded handoff.
 - Humans run `.\DevTool.bat` without arguments for an interactive
   shell whose `list` command defaults to readable terminal output with automatic
   ANSI color. Direct agent routing, generated Markdown, and piped output use the

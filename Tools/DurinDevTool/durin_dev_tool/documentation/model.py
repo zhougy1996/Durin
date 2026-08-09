@@ -60,6 +60,10 @@ class Document:
     kind: DocumentKind
     title: str
     links: tuple[DocumentLink, ...]
+    summary: str = ""
+    modules: tuple[str, ...] = ()
+    keywords: tuple[str, ...] = ()
+    search_text: str = ""
 
 
 @dataclass(frozen=True)

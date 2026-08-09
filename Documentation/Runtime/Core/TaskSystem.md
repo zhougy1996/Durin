@@ -1,5 +1,9 @@
 # CPU Task System
 
+Summary: Define task scheduling, dependencies, cancellation, waiting, and worker ownership.
+
+Modules: Core
+
 Last reviewed: 2026-08-08
 
 Durin's CPU task system provides process-wide bounded background execution for

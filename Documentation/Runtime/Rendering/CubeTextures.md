@@ -1,5 +1,9 @@
 # Cube Textures
 
+Summary: Define cube-texture assets, source ingestion, platform payloads, upload, and rendering use.
+
+Modules: Engine, Renderer, RHI
+
 This document defines the coordinate, face-order, and source-image orientation
 contract shared by cube-texture import, the RHI, VulkanRHI, and sky rendering.
 

@@ -44,4 +44,9 @@ research in ignored `Documentation/Local/` or outside the repository.
 - Prefer links to the authoritative topic document over duplicated guidance.
 - Update direct links when documents move. Keep indexes local; do not create a
   master file catalog.
+- Start implemented Runtime and Editor contract documents with a concise
+  `Summary:` line. Add a comma-separated `Modules:` line when source ownership
+  is bounded; use registered module names and omit the field for genuinely
+  code-agnostic or cross-repository guidance. These fields are routing metadata,
+  not substitutes for ownership details in the document body.
 - Add a `Last reviewed` date where required by the nearest authoring rules.

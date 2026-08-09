@@ -1,5 +1,9 @@
 # Runtime Lifecycle
 
+Summary: Define application startup, frame execution, project admission, and shutdown ownership.
+
+Modules: Launch, ApplicationCore, Engine
+
 This document defines Durin's process startup, runtime ownership, world tick
 lifecycle, logging guarantees, module loading, and validation expectations.
 

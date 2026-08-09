@@ -598,6 +598,59 @@ class TestOrdinaryDocumentation:
         )
         assert [document.kind for document in routers] == [DocumentKind.ROUTER]
 
+    def test_find_matches_natural_language_and_renders_routing_metadata(
+        self,
+    ) -> None:
+        content_browser = self.documentation / 'Runtime' / 'ContentBrowser.md'
+        content_browser.write_text(
+            '# Content Browser\n\n'
+            'Summary: Present assets and coordinate safe deletion.\n\n'
+            'Modules: LevelEditor, DurinEd, AssetCore\n\n'
+            'Deletion uses an AssetCore transaction.\n',
+            encoding='utf-8',
+        )
+        documents = self.workspace.list_documents(
+            ListDocumentsRequest(query='content browser delete')
+        )
+        assert [document.ref.as_posix() for document in documents] == [
+            'Documentation/Runtime/ContentBrowser.md'
+        ]
+        assert documents[0].summary == (
+            'Present assets and coordinate safe deletion.'
+        )
+        assert documents[0].modules == (
+            'LevelEditor',
+            'DurinEd',
+            'AssetCore',
+        )
+
+        output = io.StringIO()
+        assert cli.run(
+            ['doc', 'find', 'content browser delete'],
+            repository_root=self.repository,
+            stdout=output,
+            stderr=io.StringIO(),
+        ) == 0
+        rendered = output.getvalue()
+        assert 'Present assets and coordinate safe deletion.' in rendered
+        assert 'LevelEditor, DurinEd, AssetCore' in rendered
+
+    def test_find_limits_ranked_results(self) -> None:
+        runtime = self.documentation / 'Runtime'
+        for index in range(12):
+            (runtime / f'Asset{index}.md').write_text(
+                f'# Asset {index}\n\nAsset loading behavior.\n',
+                encoding='utf-8',
+            )
+        output = io.StringIO()
+        assert cli.run(
+            ['doc', 'find', 'asset loading', '--format', 'json'],
+            repository_root=self.repository,
+            stdout=output,
+            stderr=io.StringIO(),
+        ) == 0
+        assert output.getvalue().count('"path"') == 10
+
     def test_refs_reports_inbound_and_outbound_documents(self) -> None:
         references = self.workspace.references(
             DocumentRef.parse('Documentation/Runtime/Topic.md')

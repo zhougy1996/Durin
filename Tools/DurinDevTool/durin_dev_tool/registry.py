@@ -293,10 +293,19 @@ DOCUMENT_LIST = CommandSpec(
 )
 DOCUMENT_FIND = CommandSpec(
     "find",
-    "find documentation by title or path",
+    "find documentation by natural-language terms",
     DOCUMENTATION_HANDLER,
     arguments=(
         _argument("document_query", metavar="QUERY"),
+        _argument(
+            "--limit",
+            dest="document_limit",
+            type=int,
+            choices=range(1, 101),
+            default=10,
+            metavar="1..100",
+            help="maximum ranked results (default: 10)",
+        ),
         *DOCUMENT_FILTERS,
     ),
     defaults=(("document_action", "find"),),

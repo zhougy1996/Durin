@@ -1,5 +1,9 @@
 # Shader Cache
 
+Summary: Define shader compilation, cache identity, invalidation, persistence, and failure behavior.
+
+Modules: RenderCore, RHI
+
 This document defines the current Slang shader loading and cache contract owned by `RenderCore`.
 
 ## Ownership and Layers

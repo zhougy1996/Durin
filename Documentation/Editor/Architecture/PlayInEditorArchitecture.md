@@ -1,5 +1,9 @@
 # Play In Editor Architecture
 
+Summary: Define editor-to-runtime world duplication, session ownership, input, ticking, and teardown.
+
+Modules: LevelEditor, Engine, Launch
+
 This document defines the ownership, isolation, input, and restoration contracts
 for Play In Editor (PIE). User-facing controls are documented in
 `Documentation/Editor/Guides/PlayInEditor.md`.

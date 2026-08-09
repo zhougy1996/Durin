@@ -1,5 +1,9 @@
 # Shader Parameters
 
+Summary: Define reflected shader-parameter layouts, binding, validation, and RHI publication.
+
+Modules: RHI, RenderCore
+
 This document describes the current typed shader parameter path used by `RenderCore`, `RHI`, and `VulkanRHI`.
 
 ## Goals

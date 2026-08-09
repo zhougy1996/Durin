@@ -1,5 +1,9 @@
 # Renderer Scene Representation
 
+Summary: Define engine-to-renderer scene publication, proxies, infos, mutation, and frame visibility.
+
+Modules: Engine, Renderer
+
 Last reviewed: 2026-08-08
 
 Durin represents each renderable world resident with an Engine-facing

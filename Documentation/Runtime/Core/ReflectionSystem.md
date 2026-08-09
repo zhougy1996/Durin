@@ -1,5 +1,9 @@
 # Generated Reflection System
 
+Summary: Define reflected type registration, generated metadata, properties, and serialization integration.
+
+Modules: CoreDObject
+
 This document describes the reflection framework that is currently implemented in Durin. Object lifetime and collector semantics are documented separately in [Garbage Collection](GarbageCollection.md).
 
 ## Overview

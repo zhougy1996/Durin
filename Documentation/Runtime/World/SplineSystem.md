@@ -1,5 +1,9 @@
 # Spline System
 
+Summary: Define spline component data, evaluation, scene representation, and viewport editing behavior.
+
+Modules: Engine, LevelEditor
+
 Durin's spline foundation provides an editable, persistent spatial curve, an
 immutable query snapshot, and direct Level Editor point/tangent authoring. It
 does not provide a spline mesh, path follower, placement system, or another
