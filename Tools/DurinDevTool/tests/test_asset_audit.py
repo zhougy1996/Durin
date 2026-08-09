@@ -166,7 +166,7 @@ def test_migrate_apply_is_forwarded_only_by_explicit_apply(tmp_path: Path) -> No
     executable.touch()
     project = tmp_path / "Test.dproject"
     project.write_text("{}", encoding="utf-8")
-    apply_report = (FIXTURE_ROOT / "asset-migration-apply-v1.json").read_text(encoding="utf-8")
+    apply_report = (FIXTURE_ROOT / "asset-migration-apply-v2.json").read_text(encoding="utf-8")
     namespace = type("Namespace", (), {
         "asset_command": "migrate", "apply": True, "project_path": project,
         "format_name": "json", "mounts": [], "packages": [], "report_path": None,
@@ -189,7 +189,7 @@ def test_migrate_apply_is_forwarded_only_by_explicit_apply(tmp_path: Path) -> No
 
 def test_migrate_apply_maps_rollback_to_operational_failure() -> None:
     fixture = json.loads(
-        (FIXTURE_ROOT / "asset-migration-apply-v1.json").read_text(encoding="utf-8")
+        (FIXTURE_ROOT / "asset-migration-apply-v2.json").read_text(encoding="utf-8")
     )
     fixture["result"] = "RolledBack"
     fixture["packages"][0]["status"] = "RolledBack"
@@ -205,7 +205,7 @@ def test_migration_plan_forwards_filters_validates_and_writes_explicit_report(tm
     project = tmp_path / "Test.dproject"
     project.write_text("{}", encoding="utf-8")
     migration_report = json.loads(
-        (FIXTURE_ROOT / "asset-migration-plan-v1.json").read_text(encoding="utf-8")
+        (FIXTURE_ROOT / "asset-migration-plan-v2.json").read_text(encoding="utf-8")
     )
     namespace = type("Namespace", (), {
         "asset_command": "migrate",
@@ -242,14 +242,14 @@ def test_migration_plan_forwards_filters_validates_and_writes_explicit_report(tm
 
 def test_migration_plan_rejects_unstable_or_non_lossless_native_output(tmp_path: Path) -> None:
     fixture = json.loads(
-        (FIXTURE_ROOT / "asset-migration-plan-v1.json").read_text(encoding="utf-8")
+        (FIXTURE_ROOT / "asset-migration-plan-v2.json").read_text(encoding="utf-8")
     )
     fixture["packages"][0]["steps"][0]["risk"] = "Unknown"
-    with pytest.raises(DevToolError, match="lossless chain"):
+    with pytest.raises(DevToolError, match="lossless exact edge"):
         asset._validate_migration_report(fixture)
 
     fixture = json.loads(
-        (FIXTURE_ROOT / "asset-migration-plan-v1.json").read_text(encoding="utf-8")
+        (FIXTURE_ROOT / "asset-migration-plan-v2.json").read_text(encoding="utf-8")
     )
     fixture["changedPaths"] = ["C:/authored.dasset"]
     with pytest.raises(DevToolError, match="changed paths"):
@@ -293,12 +293,12 @@ def test_checked_in_report_fixtures_match_their_schemas() -> None:
         )
     )
     migration_schema = json.loads(
-        (REPOSITORY_ROOT / "Tools/DurinDevTool/schemas/asset-migration-v1.schema.json").read_text(
+        (REPOSITORY_ROOT / "Tools/DurinDevTool/schemas/asset-migration-v2.schema.json").read_text(
             encoding="utf-8"
         )
     )
     validate(json.loads((FIXTURE_ROOT / "asset-audit-v2.json").read_text(encoding="utf-8")), audit_schema)
-    for name in ("asset-migration-plan-v1.json", "asset-migration-apply-v1.json"):
+    for name in ("asset-migration-plan-v2.json", "asset-migration-apply-v2.json"):
         fixture = json.loads((FIXTURE_ROOT / name).read_text(encoding="utf-8"))
         validate(fixture, migration_schema)
         assert fixture["schemaVersion"] == asset.MIGRATION_SCHEMA_VERSION

@@ -43,17 +43,28 @@ publication.
 ## Authored Package Version Policy
 
 Supported readers, the ordinary writer, and explicit migration writers are
-separate policies. The repository currently supports only the bounded v4 reader
-and ordinary v4 writer; the built-in migration registry is empty. Header reads,
-discovery, inspection, compatibility probes, reference extraction, registry
-reconciliation, and live loading dispatch only after the bounded preamble
-identifies v4; none of these read paths may write or dirty authored content.
+separate policies backed by one private, statically composed codec table. Each
+codec has an immutable string identity, wire version, and complete reader,
+writer, and mutation capability set. Shared code parses the magic/version
+preamble once, resolves a codec, and fails closed before codec parsing when no
+reader exists. Header reads, validation, inspection, compatibility probes,
+reference projection, live loading, serialization, relocation, reference
+rewrite, redirector creation, and cook canonicalization do not branch on a
+version enum. The repository currently registers only the bounded production
+v4 codec; read-only entrypoints never select a writer or dirty authored content.
+
+A frozen writer constructs its Archive context from its own codec identity.
+The v4 writer therefore always reports DAST v4 to serializers and emits v4,
+independently of the selected ordinary or migration writer policy. The
+reader-policy cache identity is an explicit generation, not a wire-version
+alias; changing the supported-reader contract requires changing that identity.
 
 Registry and reference-cache fingerprints include the source DAST version.
 Changing package bytes or versions invalidates the corresponding projection;
 full validation bypasses cheap timestamp/size reuse. When a future exact
 migration edge is registered, a migration plan records the source version and
-fingerprint, resolves an exact registered chain to its target writer, and fails
+fingerprint, policy identity, codec identities, and one exact registered edge
+to its target writer, and fails
 closed on stale input, missing dependency closure, compatibility findings, or
 retained-data risk. Publication is bundle-atomic and journal-compensated.
 

@@ -1769,4 +1769,154 @@ namespace Durin::Asset::DastV4
 		if (OutDiagnostic) OutDiagnostic->Reset();
 		return {};
 	}
+
+	auto RewriteReferences(
+		std::span<const uint8> Bytes,
+		std::span<const FAssetRedirectorFixupMapping> Mappings,
+		uint64 ExpectedRewriteCount,
+		std::vector<uint8>& OutBytes) -> FAssetResult
+	{
+		auto FindDestination = [&](const FAssetPath& Source) -> const FAssetPath* {
+			const auto It = std::ranges::find(
+				Mappings, Source, &FAssetRedirectorFixupMapping::RedirectorPath);
+			return It == Mappings.end() ? nullptr : &It->FinalPath;
+		};
+		FDecodedPackage Package;
+		FReaderDiagnostic Diagnostic;
+		if (!DecodePackage(Bytes, Package, {}, &Diagnostic))
+			return {EAssetError::CorruptFile, Diagnostic.Message};
+
+		std::vector<std::string> RewrittenDependencies = Package.Header.Dependencies;
+		for (std::string& Dependency : RewrittenDependencies)
+		{
+			FAssetPath Path;
+			if (!FAssetPath::TryCreate(Dependency, Path))
+				return {EAssetError::CorruptFile, "Invalid dependency path."};
+			if (const FAssetPath* Destination = FindDestination(Path))
+				Dependency = Destination->ToString();
+		}
+		std::vector<std::string> CanonicalDependencies = RewrittenDependencies;
+		std::ranges::sort(CanonicalDependencies);
+		CanonicalDependencies.erase(
+			std::unique(CanonicalDependencies.begin(), CanonicalDependencies.end()),
+			CanonicalDependencies.end());
+		std::vector<uint64> DependencyIds(RewrittenDependencies.size());
+		for (size_t Index = 0; Index < RewrittenDependencies.size(); ++Index)
+			DependencyIds[Index] = static_cast<uint64>(
+				std::ranges::lower_bound(CanonicalDependencies, RewrittenDependencies[Index])
+				- CanonicalDependencies.begin() + 1);
+
+		uint64 RewriteCount = 0;
+		std::function<FAssetResult(uint64, FValue&)> RewriteValue;
+		RewriteValue = [&](uint64 TypeId, FValue& Value) -> FAssetResult {
+			if (TypeId == 0 || TypeId > Package.Types.size())
+				return {EAssetError::CorruptFile, "Asset reference type id is invalid."};
+			const FDecodedType& Type = Package.Types[static_cast<size_t>(TypeId - 1)];
+			if (Type.Opcode == ETypeOpcode::HardRef && Value.ReferenceTag == 2)
+			{
+				if (Value.ReferenceId == 0 || Value.ReferenceId > DependencyIds.size())
+					return {EAssetError::CorruptFile, "Hard reference dependency id is invalid."};
+				const size_t ReferenceIndex = static_cast<size_t>(Value.ReferenceId - 1);
+				if (DependencyIds[ReferenceIndex] != Value.ReferenceId
+					|| RewrittenDependencies[ReferenceIndex]
+						!= Package.Header.Dependencies[ReferenceIndex])
+					++RewriteCount;
+				Value.ReferenceId = DependencyIds[ReferenceIndex];
+				return {};
+			}
+			if (Type.Opcode == ETypeOpcode::SoftRef && Value.ReferenceTag == 1)
+			{
+				FAssetPath Path;
+				if (!FAssetPath::TryCreate(Value.Text, Path))
+					return {EAssetError::CorruptFile, "Soft reference path is invalid."};
+				if (const FAssetPath* Destination = FindDestination(Path))
+				{
+					Value.Text = Destination->ToString();
+					Package.Names.push_back(Value.Text);
+					++RewriteCount;
+				}
+				return {};
+			}
+			if (Type.Opcode == ETypeOpcode::Struct)
+			{
+				const auto Schema = std::ranges::find(
+					Package.Schemas, Type.QualifiedName, &FDecodedSchema::QualifiedName);
+				if (Schema == Package.Schemas.end()
+					|| Value.Elements.size() != Schema->Fields.size())
+					return {EAssetError::CorruptFile, "Struct reference schema is invalid."};
+				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
+					if (FAssetResult Result = RewriteValue(
+						Schema->Fields[Index].TypeId, Value.Elements[Index]); !Result)
+						return Result;
+				return {};
+			}
+			if (Type.ChildTypeIds.empty()) return {};
+			for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
+			{
+				const size_t ChildIndex = Type.ChildTypeIds.size() == 1
+					? 0 : Index % Type.ChildTypeIds.size();
+				if (FAssetResult Result = RewriteValue(
+					Type.ChildTypeIds[ChildIndex], Value.Elements[Index]); !Result)
+					return Result;
+			}
+			return {};
+		};
+		for (FDecodedObjectValues& Object : Package.ObjectValues)
+			for (FDecodedOverride& Override : Object.Overrides)
+			{
+				if (Override.SchemaId == 0 || Override.SchemaId > Package.Schemas.size())
+					return {EAssetError::CorruptFile, "Override schema id is invalid."};
+				const auto& Schema = Package.Schemas[static_cast<size_t>(Override.SchemaId - 1)];
+				if (Override.FieldId == 0 || Override.FieldId > Schema.Fields.size())
+					return {EAssetError::CorruptFile, "Override field id is invalid."};
+				if (FAssetResult Result = RewriteValue(
+					Schema.Fields[static_cast<size_t>(Override.FieldId - 1)].TypeId,
+					Override.Value); !Result)
+					return Result;
+			}
+		Package.Header.Dependencies = std::move(CanonicalDependencies);
+		if (Package.Header.EntryKind == EAssetRegistryEntryKind::Redirector)
+		{
+			FAssetPath Redirect;
+			if (!FAssetPath::TryCreate(Package.Header.RedirectDestination, Redirect))
+				return {EAssetError::CorruptFile, "Redirect destination is invalid."};
+			if (const FAssetPath* Destination = FindDestination(Redirect))
+				Package.Header.RedirectDestination = Destination->ToString();
+		}
+		if (ExpectedRewriteCount != std::numeric_limits<uint64>::max()
+			&& RewriteCount != ExpectedRewriteCount)
+			return {EAssetError::InUse, std::format(
+				"AssetReferenceFixupStaleIndex: expected {} occurrence(s), parsed {}.",
+				ExpectedRewriteCount, RewriteCount)};
+		if (!ReencodePackage(Package, OutBytes, &Diagnostic))
+			return {EAssetError::CorruptFile, Diagnostic.Message};
+		return {};
+	}
+
+	auto RelocatePackage(
+		std::span<const uint8> Bytes,
+		const FAssetPath& DestinationPath,
+		std::vector<uint8>& OutBytes) -> FAssetResult
+	{
+		FDecodedPackage Package;
+		FReaderDiagnostic Diagnostic;
+		if (!DecodePackage(Bytes, Package, {}, &Diagnostic))
+			return {EAssetError::CorruptFile, Diagnostic.Message};
+		if (Package.Header.EntryKind != EAssetRegistryEntryKind::Asset)
+			return {EAssetError::InvalidPackageType,
+				"Only a real asset package can be relocated."};
+		const auto Root = std::ranges::find(Package.Objects, uint64{0}, &FDecodedObject::OuterId);
+		if (Root == Package.Objects.end())
+			return {EAssetError::InvalidObjectGraph,
+				"The relocation source has no valid main object."};
+		const std::string OldRootPath = Root->Path;
+		const std::string NewRootPath(DestinationPath.GetAssetName());
+		for (FDecodedObject& Object : Package.Objects)
+			if (Object.Path == OldRootPath || Object.Path.starts_with(OldRootPath + "/"))
+				Object.Path.replace(0, OldRootPath.size(), NewRootPath);
+		Root->ObjectName = NewRootPath;
+		if (!ReencodePackage(Package, OutBytes, &Diagnostic))
+			return {EAssetError::CorruptFile, Diagnostic.Message};
+		return {};
+	}
 }

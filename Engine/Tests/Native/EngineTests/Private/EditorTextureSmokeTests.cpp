@@ -125,12 +125,19 @@ namespace Durin
 			Asset::FReflectionCompatibilityCatalog::Capture();
 		Asset::FAssetMigrationPlan Plan = PlanMountMigration("/EditorMixedV4/");
 		ASSERT_EQ(Plan.Packages.size(), 3u)
-			<< Asset::SerializeAssetMigrationPlanReportV1(Plan);
+			<< Asset::SerializeAssetMigrationPlanReportV2(Plan);
 		ASSERT_TRUE(std::ranges::all_of(Plan.Packages, [](const auto& Package) {
 			return Package.Status == Asset::EAssetMigrationPackageStatus::Skipped;
-		})) << Asset::SerializeAssetMigrationPlanReportV1(Plan);
+		})) << Asset::SerializeAssetMigrationPlanReportV2(Plan);
 		const Asset::FAssetMigrationApplyResult Applied =
-			Asset::ApplyAssetPackageMigrations(std::move(Plan), Catalog);
+			[&] {
+				Asset::FAssetMigrationRegistry Registry;
+				std::string Error;
+				EXPECT_TRUE(Asset::RegisterBuiltInAssetMigrations(Registry, Error))
+					<< Error;
+				return Asset::ApplyAssetPackageMigrations(
+					std::move(Plan), Registry, Catalog);
+			}();
 		ASSERT_EQ(Applied.Status, Asset::EAssetMigrationApplyStatus::Succeeded)
 			<< Applied.Diagnostic;
 		ASSERT_TRUE(Applied.ChangedPaths.empty());

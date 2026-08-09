@@ -175,11 +175,11 @@ int main(int ArgC, char** ArgV)
 	if (Options.bApply)
 	{
 		auto ApplyResult = Durin::Asset::ApplyAssetPackageMigrations(
-			Plan, Catalog, {}, [] { return GCancelled.load(std::memory_order_relaxed); });
+			Plan, Registry, Catalog, {}, [] { return GCancelled.load(std::memory_order_relaxed); });
 		if (ApplyResult.Status == Durin::Asset::EAssetMigrationApplyStatus::Cancelled) return 130;
-		std::cout << Durin::Asset::SerializeAssetMigrationApplyReportV1(ApplyResult) << '\n';
+		std::cout << Durin::Asset::SerializeAssetMigrationApplyReportV2(ApplyResult) << '\n';
 		return 0;
 	}
-	std::cout << Durin::Asset::SerializeAssetMigrationPlanReportV1(Plan) << '\n';
+	std::cout << Durin::Asset::SerializeAssetMigrationPlanReportV2(Plan) << '\n';
 	return 0;
 }

@@ -15,27 +15,29 @@ namespace Durin::Asset
 	inline constexpr uint32 LatestAssetPackageWriterVersion = AssetPackageV4FormatVersion;
 	inline constexpr uint32 OrdinaryAssetPackageWriterVersion = LatestAssetPackageWriterVersion;
 	inline constexpr uint32 AssetPackageMigrationWriterVersion = LatestAssetPackageWriterVersion;
-	// Persisted read-only caches use this identity so changing the supported
-	// reader set invalidates entries even when package timestamps and sizes match.
-	inline constexpr uint32 AssetPackageReaderPolicyFingerprint = AssetPackageV4FormatVersion;
-
-	enum class EAssetPackageReaderKind : uint8
-	{
-		Unsupported,
-		DastV4,
-	};
-
-	constexpr auto SelectAssetPackageReader(uint32 Version) -> EAssetPackageReaderKind
-	{
-		switch (Version)
-		{
-		case AssetPackageV4FormatVersion: return EAssetPackageReaderKind::DastV4;
-		default: return EAssetPackageReaderKind::Unsupported;
-		}
-	}
+	// Persisted read-only caches use an explicit policy generation rather than a
+	// wire version so different supported-reader sets cannot alias.
+	inline constexpr uint32 AssetPackageReaderPolicyFingerprint = 0x41504301;
+	inline constexpr uint32 SyntheticAssetPackageFormatVersionForTesting = 0xffff0004;
 
 	constexpr auto IsSupportedAssetPackageReaderVersion(uint32 Version) -> bool
 	{
-		return SelectAssetPackageReader(Version) != EAssetPackageReaderKind::Unsupported;
+		return std::ranges::find(SupportedAssetPackageReaderVersions, Version)
+			!= SupportedAssetPackageReaderVersions.end();
 	}
+
+	ASSETCORE_API auto ValidateAssetPackageVersionPolicy(std::string& OutError) -> bool;
+	ASSETCORE_API auto GetAssetPackageReaderPolicyIdentity() -> uint32;
+
+	// Installs the permanent synthetic reader used to qualify shared dispatch and migration.
+	class FScopedSyntheticAssetPackageCodecForTesting
+	{
+	public:
+		ASSETCORE_API FScopedSyntheticAssetPackageCodecForTesting();
+		ASSETCORE_API ~FScopedSyntheticAssetPackageCodecForTesting();
+		FScopedSyntheticAssetPackageCodecForTesting(
+			const FScopedSyntheticAssetPackageCodecForTesting&) = delete;
+		auto operator=(const FScopedSyntheticAssetPackageCodecForTesting&)
+			-> FScopedSyntheticAssetPackageCodecForTesting& = delete;
+	};
 }

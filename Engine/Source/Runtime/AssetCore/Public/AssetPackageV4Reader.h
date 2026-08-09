@@ -199,12 +199,13 @@ namespace Durin::Asset::DastV4
 		auto operator=(FLoadedAssetPackage&& Other) noexcept -> FLoadedAssetPackage&;
 
 		auto GetPackage() const -> DPackage* { return Package; }
+		// Transfers the fully validated graph to version-neutral AssetCore ownership.
+		auto Release() -> DPackage* { return std::exchange(Package, nullptr); }
 		explicit operator bool() const { return Package != nullptr; }
 		auto Reset() -> void;
 
 	private:
 		DPackage* Package = nullptr;
-		auto Release() -> DPackage* { return std::exchange(Package, nullptr); }
 		explicit FLoadedAssetPackage(DPackage* InPackage) : Package(InPackage) {}
 		friend class ::Durin::Asset::FAssetManager;
 		friend ASSETCORE_API auto LoadAssetPackage(
@@ -238,6 +239,17 @@ namespace Durin::Asset::DastV4
 		std::vector<FAssetReferenceEdge>& OutReferences,
 		const FReaderLimits& Limits = {},
 		FReaderDiagnostic* OutDiagnostic = nullptr) -> FAssetResult;
+
+	ASSETCORE_API auto RewriteReferences(
+		std::span<const uint8> Bytes,
+		std::span<const FAssetRedirectorFixupMapping> Mappings,
+		uint64 ExpectedRewriteCount,
+		std::vector<uint8>& OutBytes) -> FAssetResult;
+
+	ASSETCORE_API auto RelocatePackage(
+		std::span<const uint8> Bytes,
+		const FAssetPath& DestinationPath,
+		std::vector<uint8>& OutBytes) -> FAssetResult;
 
 	ASSETCORE_API auto ProbeCompatibility(
 		std::span<const uint8> Bytes,

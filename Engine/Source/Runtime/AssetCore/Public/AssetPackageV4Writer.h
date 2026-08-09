@@ -183,4 +183,9 @@ namespace Durin::Asset::DastV4
 		std::vector<uint8>& OutBytes,
 		const FAssetPackageWriteOptions& Options = {},
 		FWriterDiagnostic* OutDiagnostic = nullptr) -> FAssetResult;
+
+	ASSETCORE_API auto WriteRedirectorPackage(
+		const FAssetPath& SourcePath,
+		const FAssetPath& DestinationPath,
+		std::vector<uint8>& OutBytes) -> FAssetResult;
 }

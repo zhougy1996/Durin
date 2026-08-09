@@ -1,5 +1,6 @@
 #include "AssetSystem.h"
 #include "AssetPackageV4Reader.h"
+#include "AssetPackageCodec.h"
 #include "AssetPackageVersionPolicy.h"
 #include "AssetRedirector.h"
 #include "AssetPackageArchive.h"
@@ -368,7 +369,7 @@ namespace Durin::Asset
 			uint32 ArrayIndex,
 			FByteReader& Reader,
 			const std::vector<DObject*>& Objects,
-			uint32 SourceVersion = AssetPackageV4FormatVersion) -> FAssetResult
+			uint32 SourceVersion = LatestAssetPackageWriterVersion) -> FAssetResult
 		{
 			switch (Property->GetKind())
 			{
@@ -1503,136 +1504,30 @@ namespace Durin::Asset
 			uint64 ExpectedRewriteCount,
 			std::vector<uint8>& OutBytes) -> FAssetResult
 		{
-			DastV4::FDecodedPackage Package;
-			DastV4::FReaderDiagnostic Diagnostic;
-			if (!DastV4::DecodePackage(Bytes, Package, {}, &Diagnostic))
-				return Error(EAssetError::CorruptFile, Diagnostic.Message);
-
-			std::vector<std::string> RewrittenDependencies = Package.Header.Dependencies;
-			for (std::string& Dependency : RewrittenDependencies)
-			{
-				FAssetPath Path;
-				if (!FAssetPath::TryCreate(Dependency, Path))
-					return Error(EAssetError::CorruptFile, "Invalid dependency path.");
-				if (const FAssetPath* Destination = FindFixupDestination(Path, Mappings))
-					Dependency = Destination->ToString();
-			}
-			std::vector<std::string> CanonicalDependencies = RewrittenDependencies;
-			std::ranges::sort(CanonicalDependencies);
-			CanonicalDependencies.erase(
-				std::unique(CanonicalDependencies.begin(), CanonicalDependencies.end()),
-				CanonicalDependencies.end());
-			std::vector<uint64> DependencyIds(RewrittenDependencies.size());
-			for (size_t Index = 0; Index < RewrittenDependencies.size(); ++Index)
-				DependencyIds[Index] = static_cast<uint64>(
-					std::ranges::lower_bound(CanonicalDependencies, RewrittenDependencies[Index])
-					- CanonicalDependencies.begin() + 1);
-
-			uint64 RewriteCount = 0;
-			std::function<FAssetResult(uint64, DastV4::FValue&)> RewriteValue;
-			RewriteValue = [&](uint64 TypeId, DastV4::FValue& Value) -> FAssetResult {
-				if (TypeId == 0 || TypeId > Package.Types.size())
-					return Error(EAssetError::CorruptFile, "Asset reference type id is invalid.");
-				const DastV4::FDecodedType& Type = Package.Types[static_cast<size_t>(TypeId - 1)];
-				if (Type.Opcode == DastV4::ETypeOpcode::HardRef && Value.ReferenceTag == 2)
-				{
-					if (Value.ReferenceId == 0 || Value.ReferenceId > DependencyIds.size())
-						return Error(EAssetError::CorruptFile, "Hard reference dependency id is invalid.");
-					if (DependencyIds[static_cast<size_t>(Value.ReferenceId - 1)] != Value.ReferenceId)
-						++RewriteCount;
-					else if (RewrittenDependencies[static_cast<size_t>(Value.ReferenceId - 1)]
-						!= Package.Header.Dependencies[static_cast<size_t>(Value.ReferenceId - 1)])
-						++RewriteCount;
-					Value.ReferenceId = DependencyIds[static_cast<size_t>(Value.ReferenceId - 1)];
-					return {};
-				}
-				if (Type.Opcode == DastV4::ETypeOpcode::SoftRef && Value.ReferenceTag == 1)
-				{
-					FAssetPath Path;
-					if (!FAssetPath::TryCreate(Value.Text, Path))
-						return Error(EAssetError::CorruptFile, "Soft reference path is invalid.");
-					if (const FAssetPath* Destination = FindFixupDestination(Path, Mappings))
-					{
-						Value.Text = Destination->ToString();
-						Package.Names.push_back(Value.Text);
-						++RewriteCount;
-					}
-					return {};
-				}
-				if (Type.Opcode == DastV4::ETypeOpcode::Struct)
-				{
-					const auto Schema = std::ranges::find(Package.Schemas, Type.QualifiedName,
-						&DastV4::FDecodedSchema::QualifiedName);
-					if (Schema == Package.Schemas.end() || Value.Elements.size() != Schema->Fields.size())
-						return Error(EAssetError::CorruptFile, "Struct reference schema is invalid.");
-					for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
-					{
-						FAssetResult Result = RewriteValue(Schema->Fields[Index].TypeId, Value.Elements[Index]);
-						if (!Result) return Result;
-					}
-					return {};
-				}
-				if (Type.ChildTypeIds.empty()) return {};
-				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
-				{
-					const size_t ChildIndex = Type.ChildTypeIds.size() == 1 ? 0 : Index % Type.ChildTypeIds.size();
-					FAssetResult Result = RewriteValue(Type.ChildTypeIds[ChildIndex], Value.Elements[Index]);
-					if (!Result) return Result;
-				}
-				return {};
-			};
-			for (DastV4::FDecodedObjectValues& Object : Package.ObjectValues)
-				for (DastV4::FDecodedOverride& Override : Object.Overrides)
-				{
-					if (Override.SchemaId == 0 || Override.SchemaId > Package.Schemas.size())
-						return Error(EAssetError::CorruptFile, "Override schema id is invalid.");
-					const auto& Schema = Package.Schemas[static_cast<size_t>(Override.SchemaId - 1)];
-					if (Override.FieldId == 0 || Override.FieldId > Schema.Fields.size())
-						return Error(EAssetError::CorruptFile, "Override field id is invalid.");
-					FAssetResult Result = RewriteValue(
-						Schema.Fields[static_cast<size_t>(Override.FieldId - 1)].TypeId, Override.Value);
-					if (!Result) return Result;
-				}
-			Package.Header.Dependencies = std::move(CanonicalDependencies);
-			if (Package.Header.EntryKind == EAssetRegistryEntryKind::Redirector)
-			{
-				FAssetPath Redirect;
-				if (!FAssetPath::TryCreate(Package.Header.RedirectDestination, Redirect))
-					return Error(EAssetError::CorruptFile, "Redirect destination is invalid.");
-				if (const FAssetPath* Destination = FindFixupDestination(Redirect, Mappings))
-					Package.Header.RedirectDestination = Destination->ToString();
-			}
-			if (ExpectedRewriteCount != std::numeric_limits<uint64>::max()
-				&& RewriteCount != ExpectedRewriteCount)
-				return Error(EAssetError::InUse, std::format(
-					"AssetReferenceFixupStaleIndex: expected {} occurrence(s), parsed {}.",
-					ExpectedRewriteCount, RewriteCount));
-			if (!DastV4::ReencodePackage(Package, OutBytes, &Diagnostic))
-				return Error(EAssetError::CorruptFile, Diagnostic.Message);
-			return {};
+			const Private::FAssetPackageCodec* Codec = nullptr;
+			if (FAssetResult Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
+				return Result;
+			if (!Codec->bCanMutate || Codec->FormatVersion != OrdinaryAssetPackageWriterVersion)
+				return Error(EAssetError::UnsupportedVersion,
+					"Reference rewrite requires the ordinary-format mutation capability.");
+			return Codec->RewriteReferences(Bytes, Mappings, ExpectedRewriteCount, OutBytes);
 		}
 
-		auto ReadV4PackageMetadata(
+		auto ReadPackageMetadata(
 			std::span<const uint8> Bytes, FPackageFile& OutFile) -> FAssetResult
 		{
-			DastV4::FValidatedHeader Header;
-			DastV4::FReaderDiagnostic Diagnostic;
-			if (!DastV4::ReadHeader(Bytes, Header, {}, &Diagnostic))
-				return Error(EAssetError::CorruptFile, Diagnostic.Message);
+			const Private::FAssetPackageCodec* Codec = nullptr;
+			if (FAssetResult Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
+				return Result;
+			FAssetPackageHeader Header;
+			if (FAssetResult Result = Codec->ReadHeader(Bytes, Header); !Result)
+				return Result;
 			FPackageFile File{
-				.FormatVersion = AssetPackageV4FormatVersion,
-				.AssetClassName = std::move(Header.AssetClass),
+				.FormatVersion = Header.FormatVersion,
+				.AssetClassName = std::move(Header.AssetClassName),
 				.EntryKind = Header.EntryKind};
-			if (!Header.RedirectDestination.empty()
-				&& !FAssetPath::TryCreate(Header.RedirectDestination, File.RedirectDestination))
-				return Error(EAssetError::CorruptFile, "Redirect destination is invalid.");
-			for (const std::string& DependencyString : Header.Dependencies)
-			{
-				FAssetPath Dependency;
-				if (!FAssetPath::TryCreate(DependencyString, Dependency))
-					return Error(EAssetError::CorruptFile, "Dependency path is invalid.");
-				File.Dependencies.push_back(std::move(Dependency));
-			}
+			File.RedirectDestination = std::move(Header.RedirectDestination);
+			File.Dependencies = std::move(Header.Dependencies);
 			OutFile = std::move(File);
 			return {};
 		}
@@ -2125,33 +2020,24 @@ namespace Durin::Asset
 			FPackageFile* OutFile = nullptr,
 			const FAssetPackageSerializationOptions& Options = {}) -> FAssetResult
 		{
-			DastV4::FWriterDiagnostic Diagnostic;
-			FAssetResult Result = DastV4::WriteAssetPackage(
-				Package, OutBytes, {
-					.DeltaMode = EDefaultDeltaMode::NoDelta,
-					.Serialization = Options}, &Diagnostic);
+			const Private::FAssetPackageCodec* Codec =
+				Private::FindAssetPackageWriter(OrdinaryAssetPackageWriterVersion);
+			if (!Codec)
+				return Error(EAssetError::UnsupportedVersion,
+					"The selected ordinary asset package writer is unavailable.");
+			FAssetResult Result = Codec->Write(
+				Package, OutBytes, EDefaultDeltaMode::NoDelta, Options);
 			if (!Result) return Result;
 			if (OutFile)
 			{
-				DastV4::FValidatedHeader Header;
-				DastV4::FReaderDiagnostic ReaderDiagnostic;
-				if (!DastV4::ReadHeader(OutBytes, Header, {}, &ReaderDiagnostic))
-					return Error(EAssetError::CorruptFile, ReaderDiagnostic.Message);
-				OutFile->FormatVersion = AssetPackageV4FormatVersion;
-				OutFile->AssetClassName = std::move(Header.AssetClass);
+				FAssetPackageHeader Header;
+				if (FAssetResult HeaderResult = Codec->ReadHeader(OutBytes, Header); !HeaderResult)
+					return HeaderResult;
+				OutFile->FormatVersion = Header.FormatVersion;
+				OutFile->AssetClassName = std::move(Header.AssetClassName);
 				OutFile->EntryKind = Header.EntryKind;
-				if (!Header.RedirectDestination.empty()
-					&& !FAssetPath::TryCreate(Header.RedirectDestination, OutFile->RedirectDestination))
-					return CorruptRedirector("the redirect destination path is invalid.");
-				OutFile->Dependencies.clear();
-				OutFile->Dependencies.reserve(Header.Dependencies.size());
-				for (const std::string& DependencyString : Header.Dependencies)
-				{
-					FAssetPath Dependency;
-					if (!FAssetPath::TryCreate(DependencyString, Dependency))
-						return Error(EAssetError::CorruptFile, "Invalid dependency path.");
-					OutFile->Dependencies.push_back(std::move(Dependency));
-				}
+				OutFile->RedirectDestination = std::move(Header.RedirectDestination);
+				OutFile->Dependencies = std::move(Header.Dependencies);
 			}
 			return Result;
 		}
@@ -2176,65 +2062,22 @@ namespace Durin::Asset
 	auto ReadAssetPackageHeader(std::string_view PhysicalPath, FAssetPackageHeader& OutHeader) -> FAssetResult
 	{
 		OutHeader = {};
-		FFileByteReader Reader(PhysicalPath);
-		if (!Reader.IsOpen()) return Error(EAssetError::IoError, std::format("Failed to open asset package {}.", PhysicalPath));
-		uint32 Magic = 0;
-		uint32 Version = 0;
-		if (!Reader.Read(Magic) || !Reader.Read(Version))
-			return Error(EAssetError::CorruptFile, "Truncated asset header.");
-		if (Magic != DastPackageMagic)
-			return Error(EAssetError::CorruptFile, "Invalid asset magic.");
-		const EAssetPackageReaderKind ReaderKind = SelectAssetPackageReader(Version);
-		if (ReaderKind == EAssetPackageReaderKind::Unsupported)
-			return Error(EAssetError::UnsupportedVersion, std::format("Unsupported asset version {}.", Version));
-		if (ReaderKind == EAssetPackageReaderKind::DastV4)
-		{
-			std::vector<uint8> Bytes;
-			if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath))
-				return Error(EAssetError::IoError, std::format("Failed to open asset package {}.", PhysicalPath));
-			DastV4::FValidatedHeader Header;
-			DastV4::FReaderDiagnostic Diagnostic;
-			if (!DastV4::ReadHeader(Bytes, Header, {}, &Diagnostic))
-				return Error(EAssetError::CorruptFile, Diagnostic.Message);
-			OutHeader.AssetClassName = std::move(Header.AssetClass);
-			OutHeader.EntryKind = Header.EntryKind;
-			if (!Header.RedirectDestination.empty()
-				&& !FAssetPath::TryCreate(Header.RedirectDestination, OutHeader.RedirectDestination))
-				return CorruptRedirector("the redirect destination path is invalid.");
-			OutHeader.FormatVersion = Version;
-			for (std::string& DependencyString : Header.Dependencies)
-			{
-				FAssetPath Dependency;
-				if (!FAssetPath::TryCreate(DependencyString, Dependency))
-					return Error(EAssetError::CorruptFile, "Invalid dependency path.");
-				OutHeader.Dependencies.push_back(std::move(Dependency));
-			}
-			OutHeader.ObjectCount = Header.ObjectCount;
-			OutHeader.BytesRead = Header.BytesRead;
-			return {};
-		}
-		return Error(EAssetError::UnsupportedVersion,
-			std::format("Unsupported asset version {}.", Version));
+		std::vector<uint8> Bytes;
+		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath))
+			return Error(EAssetError::IoError,
+				std::format("Failed to open asset package {}.", PhysicalPath));
+		const Private::FAssetPackageCodec* Codec = nullptr;
+		if (FAssetResult Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
+			return Result;
+		return Codec->ReadHeader(Bytes, OutHeader);
 	}
 
 	auto ValidateAssetPackageBytes(std::span<const uint8> Bytes) -> FAssetResult
 	{
-		if (Bytes.size() < sizeof(uint32) * 2)
-			return Error(EAssetError::CorruptFile, "Truncated asset header.");
-		uint32 Magic = 0;
-		uint32 Version = 0;
-		std::memcpy(&Magic, Bytes.data(), sizeof(Magic));
-		std::memcpy(&Version, Bytes.data() + sizeof(Magic), sizeof(Version));
-		if (Magic != DastPackageMagic)
-			return Error(EAssetError::CorruptFile, "Invalid asset magic.");
-		if (SelectAssetPackageReader(Version) == EAssetPackageReaderKind::Unsupported)
-			return Error(EAssetError::UnsupportedVersion,
-				std::format("Unsupported asset version {}.", Version));
-		DastV4::FDecodedPackage Package;
-		DastV4::FReaderDiagnostic Diagnostic;
-		if (!DastV4::DecodePackage(Bytes, Package, {}, &Diagnostic))
-			return Error(EAssetError::CorruptFile, Diagnostic.Message);
-		return {};
+		const Private::FAssetPackageCodec* Codec = nullptr;
+		if (FAssetResult Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
+			return Result;
+		return Codec->Validate(Bytes);
 	}
 
 	auto SerializeAssetPackageBytes(
@@ -2243,6 +2086,19 @@ namespace Durin::Asset
 		const FAssetPackageSerializationOptions& Options) -> FAssetResult
 	{
 		return BuildPackageBytes(Package, OutBytes, nullptr, Options);
+	}
+
+	auto SerializeAssetPackageBytesForFormatForTesting(
+		DPackage* Package,
+		uint32 FormatVersion,
+		std::vector<uint8>& OutBytes) -> FAssetResult
+	{
+		const Private::FAssetPackageCodec* Codec =
+			Private::FindAssetPackageWriter(FormatVersion);
+		if (!Codec)
+			return Error(EAssetError::UnsupportedVersion,
+				"The requested test writer codec is unavailable.");
+		return Codec->Write(Package, OutBytes, EDefaultDeltaMode::NoDelta, {});
 	}
 
 	auto SavePackagesAtomically(
@@ -2570,7 +2426,7 @@ namespace Durin::Asset
 		FByteReader Reader{Payload};
 		return DecodeByteToolValue(
 			&RootProperty, OutValue, 0, Reader, {},
-			SourceFormatVersion == 0 ? AssetPackageV4FormatVersion : SourceFormatVersion)
+			SourceFormatVersion == 0 ? LatestAssetPackageWriterVersion : SourceFormatVersion)
 			&& Reader.Offset == Payload.size();
 	}
 
@@ -2584,32 +2440,15 @@ namespace Durin::Asset
 			OutInspection = {};
 			FAssetResult Result = MakePackageFingerprint(PhysicalPath, Bytes, OutInspection.Fingerprint);
 			if (!Result) return Result;
-			uint32 Magic = 0;
-			uint32 Version = 0;
-			if (Bytes.size() < sizeof(Magic) + sizeof(Version))
-				return Error(EAssetError::CorruptFile, "Truncated asset header.");
-			std::memcpy(&Magic, Bytes.data(), sizeof(Magic));
-			std::memcpy(&Version, Bytes.data() + sizeof(Magic), sizeof(Version));
-			if (Magic != DastPackageMagic)
-				return Error(EAssetError::CorruptFile, "Invalid asset magic.");
-			switch (SelectAssetPackageReader(Version))
-			{
-			case EAssetPackageReaderKind::DastV4:
-			{
-				FAssetPackageInspection Inspection;
-				DastV4::FReaderDiagnostic Diagnostic;
-				Result = DastV4::InspectPackage(Bytes, Inspection, {}, &Diagnostic);
-				if (!Result) return Result;
-				Inspection.Fingerprint = OutInspection.Fingerprint;
-				OutInspection = std::move(Inspection);
-				return {};
-			}
-			case EAssetPackageReaderKind::Unsupported:
-				return Error(EAssetError::UnsupportedVersion,
-					std::format("Unsupported asset version {}.", Version));
-			}
-			return Error(EAssetError::UnsupportedVersion,
-				std::format("Unsupported asset version {}.", Version));
+			const Private::FAssetPackageCodec* Codec = nullptr;
+			if (Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
+				return Result;
+			FAssetPackageInspection Inspection;
+			Result = Codec->Inspect(Bytes, Inspection);
+			if (!Result) return Result;
+			Inspection.Fingerprint = OutInspection.Fingerprint;
+			OutInspection = std::move(Inspection);
+			return {};
 		}
 	}
 
@@ -2714,21 +2553,24 @@ namespace Durin::Asset
 		std::vector<uint8>& OutBytes) -> FAssetResult
 	{
 		OutBytes.clear();
-		FAssetPackageInspection V4Inspection;
-		DastV4::FReaderDiagnostic V4Diagnostic;
-		FAssetResult V4Result = DastV4::InspectPackage(
-			Bytes, V4Inspection, {}, &V4Diagnostic);
-		if (!V4Result) return V4Result;
-		if (V4Inspection.Header.EntryKind != EAssetRegistryEntryKind::Asset)
+		const Private::FAssetPackageCodec* Codec = nullptr;
+		if (FAssetResult Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
+			return Result;
+		if (!Codec->bCanMutate || Codec->FormatVersion != OrdinaryAssetPackageWriterVersion)
+			return Error(EAssetError::UnsupportedVersion,
+				"Cook canonicalization requires the ordinary-format mutation capability.");
+		FAssetPackageInspection Inspection;
+		FAssetResult Result = Codec->Inspect(Bytes, Inspection);
+		if (!Result) return Result;
+		if (Inspection.Header.EntryKind != EAssetRegistryEntryKind::Asset)
 			return Error(EAssetError::InvalidPackageType,
 				"CookCanonicalizationRedirectorPackage: redirector packages are authoring-only.");
-		std::vector<FAssetReferenceEdge> V4References;
-		V4Result = ExtractAssetReferencesInternal(
-			{}, V4Inspection, V4References, false);
-		if (!V4Result) return V4Result;
-		const FAssetRegistry& V4Registry = GetAssetRegistry();
-		std::vector<FAssetRedirectorFixupMapping> V4Mappings;
-		auto ResolveV4Reference = [&](const FAssetPath& Path,
+		std::vector<FAssetReferenceEdge> References;
+		Result = ExtractAssetReferencesInternal({}, Inspection, References, false);
+		if (!Result) return Result;
+		const FAssetRegistry& Registry = GetAssetRegistry();
+		std::vector<FAssetRedirectorFixupMapping> Mappings;
+		auto ResolveReference = [&](const FAssetPath& Path,
 			std::string_view ExpectedClassName, std::string_view Route) -> FAssetResult {
 			DClass* ExpectedClass = nullptr;
 			if (!ExpectedClassName.empty())
@@ -2739,7 +2581,7 @@ namespace Durin::Asset
 						"CookCanonicalizationUnknownExpectedClass: {} expects unavailable class {}.",
 						Route, ExpectedClassName));
 			}
-			const FAssetPathResolveResult Resolution = V4Registry.ResolveAssetPath(
+			const FAssetPathResolveResult Resolution = Registry.ResolveAssetPath(
 				Path, {.ExpectedClass = ExpectedClass});
 			if (!Resolution)
 			{
@@ -2755,32 +2597,32 @@ namespace Durin::Asset
 					"Cook canonicalization resolved a reference to a non-asset package.");
 			if (Resolution.FinalPath == Path) return {};
 			const auto Existing = std::ranges::find(
-				V4Mappings, Path, &FAssetRedirectorFixupMapping::RedirectorPath);
-			if (Existing == V4Mappings.end())
-				V4Mappings.push_back({.RedirectorPath = Path, .FinalPath = Resolution.FinalPath});
+				Mappings, Path, &FAssetRedirectorFixupMapping::RedirectorPath);
+			if (Existing == Mappings.end())
+				Mappings.push_back({.RedirectorPath = Path, .FinalPath = Resolution.FinalPath});
 			else if (Existing->FinalPath != Resolution.FinalPath)
 				return Error(EAssetError::StaleData,
 					"Cook canonicalization observed inconsistent redirect resolution.");
 			return {};
 		};
-		for (const FAssetPath& Dependency : V4Inspection.Header.Dependencies)
+		for (const FAssetPath& Dependency : Inspection.Header.Dependencies)
 		{
-			V4Result = ResolveV4Reference(Dependency, {}, "package dependency table");
-			if (!V4Result) return V4Result;
+			Result = ResolveReference(Dependency, {}, "package dependency table");
+			if (!Result) return Result;
 		}
-		for (const FAssetReferenceEdge& Reference : V4References)
+		for (const FAssetReferenceEdge& Reference : References)
 		{
-			V4Result = ResolveV4Reference(Reference.TargetPath, Reference.ExpectedClass,
+			Result = ResolveReference(Reference.TargetPath, Reference.ExpectedClass,
 				Reference.DisplayRoute);
-			if (!V4Result) return V4Result;
+			if (!Result) return Result;
 		}
-		if (V4Mappings.empty())
+		if (Mappings.empty())
 		{
 			OutBytes.assign(Bytes.begin(), Bytes.end());
 			return {};
 		}
 		return RewritePackageReferences(
-			Bytes, V4Mappings, std::numeric_limits<uint64>::max(), OutBytes);
+			Bytes, Mappings, std::numeric_limits<uint64>::max(), OutBytes);
 
 	}
 
@@ -4023,26 +3865,16 @@ namespace Durin::Asset
 			const FAssetPath& DestinationPath,
 			std::vector<uint8>& OutBytes) -> FAssetResult
 		{
-			DastV4::FDecodedPackage Package;
-			DastV4::FReaderDiagnostic Diagnostic;
-			if (!DastV4::DecodePackage(SourceBytes, Package, {}, &Diagnostic))
-				return Error(EAssetError::CorruptFile, Diagnostic.Message);
-			if (Package.Header.EntryKind != EAssetRegistryEntryKind::Asset)
-				return Error(EAssetError::InvalidPackageType,
-					"Only a real asset package can be relocated.");
-			const auto Root = std::ranges::find(Package.Objects, uint64{0}, &DastV4::FDecodedObject::OuterId);
-			if (Root == Package.Objects.end())
-				return Error(EAssetError::InvalidObjectGraph,
-					"The relocation source has no valid main object.");
-			const std::string OldRootPath = Root->Path;
-			const std::string NewRootPath(DestinationPath.GetAssetName());
-			for (DastV4::FDecodedObject& Object : Package.Objects)
-				if (Object.Path == OldRootPath || Object.Path.starts_with(OldRootPath + "/"))
-					Object.Path.replace(0, OldRootPath.size(), NewRootPath);
-			Root->ObjectName = NewRootPath;
-			if (!DastV4::ReencodePackage(Package, OutBytes, &Diagnostic))
-				return Error(EAssetError::CorruptFile, Diagnostic.Message);
-			return ValidateAssetPackageBytes(OutBytes);
+			const Private::FAssetPackageCodec* Codec = nullptr;
+			if (FAssetResult Result = Private::ResolveAssetPackageReader(SourceBytes, Codec); !Result)
+				return Result;
+			if (!Codec->bCanMutate || Codec->FormatVersion != OrdinaryAssetPackageWriterVersion)
+				return Error(EAssetError::UnsupportedVersion,
+					"Relocation requires the ordinary-format mutation capability.");
+			if (FAssetResult Result = Codec->Relocate(
+				SourceBytes, DestinationPath, OutBytes); !Result)
+				return Result;
+			return Codec->Validate(OutBytes);
 		}
 
 		auto BuildRedirectorPackageBytes(
@@ -4050,24 +3882,12 @@ namespace Durin::Asset
 			const FAssetPath& DestinationPath,
 			std::vector<uint8>& OutBytes) -> FAssetResult
 		{
-			auto DestinationType = DastV4::MakeType(
-				DastV4::ETypeOpcode::HardRef, "Durin::DObject");
-			DastV4::FPackageInput Input{
-				.AssetClass = std::string(RedirectorClassName),
-				.EntryKind = EAssetRegistryEntryKind::Redirector,
-				.RedirectDestination = DestinationPath.ToString(),
-				.Dependencies = {DestinationPath.ToString()},
-				.Types = {DestinationType},
-				.Schemas = {{std::string(RedirectorClassName), {{"DestinationObject", DestinationType, 0}}}},
-				.Objects = {{std::string(SourcePath.GetAssetName()), {}, std::string(RedirectorClassName), std::string(SourcePath.GetAssetName())}},
-				.ObjectValues = {{std::string(SourcePath.GetAssetName()), {{
-					.SchemaName = std::string(RedirectorClassName),
-					.FieldName = "DestinationObject",
-					.Value = {.ReferenceTag = 2, .ReferenceId = 1}}}}}};
-			DastV4::FWriterDiagnostic Diagnostic;
-			if (!DastV4::WritePackage(Input, OutBytes, &Diagnostic))
-				return Error(EAssetError::CorruptFile, Diagnostic.Message);
-			return {};
+			const Private::FAssetPackageCodec* Codec =
+				Private::FindAssetPackageWriter(OrdinaryAssetPackageWriterVersion);
+			if (!Codec || !Codec->bCanMutate)
+				return Error(EAssetError::UnsupportedVersion,
+					"Redirector creation requires the ordinary-format mutation capability.");
+			return Codec->WriteRedirector(SourcePath, DestinationPath, OutBytes);
 		}
 
 		auto WriteMutationJournalState(FAssetMutationJournal& Journal) -> void
@@ -5388,7 +5208,7 @@ namespace Durin::Asset
 			State->Packages.push_back({SourcePath, JournalEntry, Loaded});
 
 			FPackageFile PostFile;
-			Result = ReadV4PackageMetadata(PostBytes, PostFile);
+			Result = ReadPackageMetadata(PostBytes, PostFile);
 			if (!Result) return Result;
 			FAssetData& PostData = State->PostAssets.at(SourcePath);
 			PostData.AssetClassName = PostFile.AssetClassName;
@@ -5514,7 +5334,7 @@ namespace Durin::Asset
 						PackageRewrite.PackagePath, JournalEntry, Loaded});
 
 					FPackageFile PostFile;
-					Result = ReadV4PackageMetadata(
+					Result = ReadPackageMetadata(
 						PackageRewrite.PostBytes, PostFile);
 					if (!Result) return Result;
 					FAssetData& PostData = State->PostAssets.at(
@@ -6640,19 +6460,11 @@ namespace Durin::Asset
 		const std::string PhysicalPath = GetPhysicalPath(Path);
 		if (PhysicalPath.empty()) return Error(EAssetError::InvalidPath, "Asset path cannot be resolved in the selected package mode.");
 		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath)) return Error(EAssetError::NotFound, std::format("Asset {} was not found.", Path.ToString()));
-		uint32 Magic = 0;
-		uint32 Version = 0;
-		if (Bytes.size() < sizeof(Magic) + sizeof(Version))
-			return Error(EAssetError::CorruptFile, "Truncated asset header.");
-		std::memcpy(&Magic, Bytes.data(), sizeof(Magic));
-		std::memcpy(&Version, Bytes.data() + sizeof(Magic), sizeof(Version));
-		if (Magic != DastPackageMagic)
-			return Error(EAssetError::CorruptFile, "Invalid asset magic.");
-		const EAssetPackageReaderKind ReaderKind = SelectAssetPackageReader(Version);
-		if (ReaderKind == EAssetPackageReaderKind::Unsupported)
-			return Error(EAssetError::UnsupportedVersion,
-				std::format("Unsupported asset version {}.", Version));
-		if (ReaderKind == EAssetPackageReaderKind::DastV4)
+		const Private::FAssetPackageCodec* Codec = nullptr;
+		Private::FAssetPackagePreamble Preamble;
+		if (FAssetResult Result = Private::ResolveAssetPackageReader(
+			Bytes, Codec, &Preamble); !Result)
+			return Result;
 		{
 			FAssetPackageHeader Header;
 			FAssetResult Result = ReadAssetPackageHeader(PhysicalPath, Header);
@@ -6666,32 +6478,29 @@ namespace Durin::Asset
 			Result = ValidateRedirectorHeader(HeaderFile, Header.ObjectCount, &Path);
 			if (!Result) return Result;
 
-			DastV4::FLoadedAssetPackage Loaded;
-			DastV4::FReaderDiagnostic Diagnostic;
 			FAssetLoadReport LocalReport{.PackagePath = Path};
-			FAssetLoadReport* V4Report = OutReport ? OutReport : &LocalReport;
-			DastV4::FLiveLoadOptions Options{
-				.OnSkeletonReady = [&](DPackage* Package) -> FAssetResult {
-					if (!Package || LoadedPackages.contains(Path))
+			FAssetLoadReport* CodecReport = OutReport ? OutReport : &LocalReport;
+			DPackage* Package = nullptr;
+			Result = Codec->Load(
+				Bytes, Path, Package, CodecReport,
+				[&](DPackage* LoadedPackage) -> FAssetResult {
+					if (!LoadedPackage || LoadedPackages.contains(Path))
 						return Error(EAssetError::AlreadyExists,
 							"The package skeleton is already resident.");
-					LoadedPackages.emplace(Path, Package);
+					LoadedPackages.emplace(Path, LoadedPackage);
 					LoadingPackages.insert(Path);
 					if (LoadDepth > 0) TransactionPackages.push_back(Path);
 					return {};
 				},
-				.OnSkeletonRollback = [&](DPackage* Package) {
+				[&](DPackage* LoadedPackage) {
 					LoadingPackages.erase(Path);
 					LoadedPackages.erase(Path);
-					CompatibilityRiskPackages.erase(Package);
-				}};
-			Result = DastV4::LoadAssetPackage(
-				Bytes, Path, Loaded, V4Report, Options, {}, &Diagnostic);
+					CompatibilityRiskPackages.erase(LoadedPackage);
+				});
 			if (!Result) return Result;
-			DPackage* Package = Loaded.Release();
 			LoadingPackages.erase(Path);
 			if (std::ranges::any_of(
-				V4Report->CompatibilityIssues,
+				CodecReport->CompatibilityIssues,
 				[](const FAssetCompatibilityIssue& Issue) {
 					return Issue.Risk != EAssetCompatibilityRisk::None;
 				}))
@@ -6704,15 +6513,13 @@ namespace Durin::Asset
 				.AssetClassName = Header.AssetClassName,
 				.EntryKind = Header.EntryKind,
 				.RedirectDestination = Header.RedirectDestination,
-				.FormatVersion = Header.FormatVersion,
+				.FormatVersion = Preamble.FormatVersion,
 				.Dependencies = Header.Dependencies,
 				.FileSize = std::filesystem::file_size(PhysicalPath),
 				.LastWriteTime = LastWriteTime,
 				.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime)});
 			return {};
 		}
-		return Error(EAssetError::UnsupportedVersion,
-			std::format("Unsupported asset version {}.", Version));
 	}
 
 	auto FAssetManager::FindLoadedPackage(const FAssetPath& Path) const -> DPackage*

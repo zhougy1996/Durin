@@ -21,7 +21,7 @@ from .errors import DevToolError
 
 POLICY_EXIT_CODE = 3
 SCHEMA_VERSION = 2
-MIGRATION_SCHEMA_VERSION = 1
+MIGRATION_SCHEMA_VERSION = 2
 CURRENT_ASSET_FORMAT_VERSION = 4
 INSPECTION_NAMES = {"NotChecked", "Ready", "Failed"}
 COMPATIBILITY_NAMES = {"Compatible", "Incompatible", "Unsupported"}
@@ -35,8 +35,9 @@ FINDING_CODES = {
     "CorruptPackage",
     "IoFailure",
 }
-MIGRATION_KINDS = {"PackageFormat", "AssetSchema"}
+MIGRATION_KINDS = {"PackageFormat"}
 MIGRATION_RISKS = {"Lossless", "DataLoss", "Unknown"}
+MIGRATION_STRATEGIES = {"LoadTransformWrite"}
 SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
@@ -127,7 +128,8 @@ def _validate_migration_report(value: Any) -> dict[str, Any]:
             raise DevToolError("Asset migration report contains an invalid package record.")
         if set(package) != {
             "packagePath", "physicalPath", "status", "fingerprint",
-            "sourceFormatVersion", "targetFormatVersion", "steps", "diagnostics",
+            "sourceFormatVersion", "targetFormatVersion", "readerPolicyFingerprint",
+            "steps", "diagnostics",
         }:
             raise DevToolError("Asset migration returned unknown or missing package fields.")
         path = package.get("packagePath")
@@ -157,6 +159,9 @@ def _validate_migration_report(value: Any) -> dict[str, Any]:
             or not isinstance(package.get("targetFormatVersion"), int)
             or isinstance(package["targetFormatVersion"], bool)
             or package["targetFormatVersion"] < 0
+            or not isinstance(package.get("readerPolicyFingerprint"), int)
+            or isinstance(package["readerPolicyFingerprint"], bool)
+            or package["readerPolicyFingerprint"] < 0
         ):
             raise DevToolError("Asset migration returned invalid package identity or versions.")
         if (
@@ -172,11 +177,19 @@ def _validate_migration_report(value: Any) -> dict[str, Any]:
             raise DevToolError("Asset migration returned an invalid content fingerprint.")
         if not isinstance(steps, list) or any(
             not isinstance(step, dict)
-            or set(step) != {"handlerId", "kind", "sourceVersion", "targetVersion", "risk"}
+            or set(step) != {
+                "handlerId", "kind", "sourceVersion", "targetVersion",
+                "sourceCodecId", "targetCodecId", "strategy", "risk",
+            }
             or not isinstance(step.get("handlerId"), str)
             or not step["handlerId"]
             or step.get("kind") not in MIGRATION_KINDS
             or step.get("risk") not in MIGRATION_RISKS
+            or step.get("strategy") not in MIGRATION_STRATEGIES
+            or not isinstance(step.get("sourceCodecId"), str)
+            or not step["sourceCodecId"]
+            or not isinstance(step.get("targetCodecId"), str)
+            or not step["targetCodecId"]
             or not isinstance(step.get("sourceVersion"), int)
             or isinstance(step["sourceVersion"], bool)
             or step["sourceVersion"] < 0
@@ -191,7 +204,7 @@ def _validate_migration_report(value: Any) -> dict[str, Any]:
         if status == "Planned" and (
             not steps or any(step["risk"] != "Lossless" for step in steps)
         ):
-            raise DevToolError("Asset migration planned a package without a lossless chain.")
+            raise DevToolError("Asset migration planned a package without one lossless exact edge.")
     changed_paths = value.get("changedPaths")
     if not isinstance(changed_paths, list) or any(not isinstance(path, str) or not path for path in changed_paths):
         raise DevToolError("Asset migration returned invalid changed paths.")

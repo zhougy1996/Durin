@@ -2,29 +2,32 @@
 
 Summary: Harden DAST codec dispatch and explicit migration execution so future package-format upgrades add isolated codecs and exact edges without reopening every AssetCore path.
 
-Last reviewed: 2026-08-09
+Last reviewed: 2026-08-10
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-10
 
 ## Current Status
 
-Planning baseline `9a13a105`. The DAST v4 rollout is complete: v4 is the sole
-authored reader, ordinary writer, migration writer target, and tracked-content
-baseline. The built-in migration registry is empty and no authored package
-change is authorized by this plan.
+Completed from planning baseline `9a13a105`. AssetCore now owns a private static
+codec registry with fail-closed reader/writer lookup, explicit policy identity,
+codec-owned Archive versions, version-neutral shared dispatch, and
+capability-gated mutations. V4 remains the sole production format and all
+tracked authored packages remain unchanged.
 
-The post-rollout architecture review found that the bounded v4 codec,
-construct-free inspection, compatibility audit, deterministic writer, and
-journal-compensated publication boundaries are strong foundations. The next
-format upgrade would nevertheless require broad edits because shared
-orchestration still names `DastV4` directly, the migration descriptors do not
-carry executable semantics, and the permanent test suite no longer exercises
-the dormant apply/rollback path after v3 retirement.
+Package migration now authorizes one exact executable source-to-target edge.
+Planning records codec and policy identities; apply revalidates the source,
+fingerprint, policy, lossless edge, and target writer under the existing lock
+before staging. The unused unkeyed `AssetSchema` path was removed. A scoped
+synthetic codec keeps dispatch, deterministic migration, dependency closure,
+phase failure, rollback, recovery, post-audit, and registry publication covered
+without retaining a production legacy format.
 
-No implementation stage has started. Stage 0 first freezes the internal codec
-capability contract and the intentionally narrow early-development migration
-model before production code moves.
+Final validation passed: `AssetPackageTests` 97/97, `CoreObjectTests` 73/73,
+`AssetCookTests` 12/12, `AssetDerivedDataTests` 3/3, the focused editor texture
+round-trip test 1/1, DurinDevTool migration schema tests 23/23, the full `all`
+build, and a Sandbox baseline of 17 current DAST v4 packages. Runtime codec and
+migration contracts are recorded in `AssetPackages.md` and `Versioning.md`.
 
 ## Goal
 
@@ -177,19 +180,19 @@ The implementation gaps are concrete:
 
 ### Stage 0: Freeze codec ownership and exact-edge semantics
 
-- [ ] Inventory every shared package operation and classify it as preamble,
+- [x] Inventory every shared package operation and classify it as preamble,
   supported-reader, ordinary-writer, current-format mutation, migration, or
   version-neutral publication.
-- [ ] Freeze the private codec capability signatures needed by header,
+- [x] Freeze the private codec capability signatures needed by header,
   validation, inspection, compatibility, reference projection, live load,
   deterministic serialization, and current-format byte mutation.
-- [ ] Freeze the exact-edge execution contract, including generic load/write,
+- [x] Freeze the exact-edge execution contract, including generic load/write,
   optional edge-owned transformation, lossless risk, source/target validation,
   cancellation, diagnostics, and plan/apply revalidation.
-- [ ] Decide the narrow disposition of the unused `AssetSchema` kind: remove it
+- [x] Decide the narrow disposition of the unused `AssetSchema` kind: remove it
   in this plan or replace it only if a concrete schema-keyed owner and fixture
   is identified.
-- [ ] Record the allowed direct version references and an upgrade change-budget
+- [x] Record the allowed direct version references and an upgrade change-budget
   check: a synthetic next codec may require new codec/adapter files, policy
   registration, an exact edge, tests, and docs, but not new shared orchestration
   branches.
@@ -202,17 +205,17 @@ The implementation gaps are concrete:
 
 ### Stage 1: Pin codec identity and centralize policy
 
-- [ ] Pass an explicit target format version through Archive discovery and
+- [x] Pass an explicit target format version through Archive discovery and
   emission; make the v4 writer pass `DastV4::Version` rather than the ordinary
   writer policy.
-- [ ] Introduce the private static codec table and a single preamble-to-reader
+- [x] Introduce the private static codec table and a single preamble-to-reader
   lookup. Derive or validate the supported-reader list against registered
   capabilities.
-- [ ] Add writer lookup for ordinary and migration targets and reject startup or
+- [x] Add writer lookup for ordinary and migration targets and reject startup or
   tool initialization when selected writer capabilities are incomplete.
-- [ ] Replace the wire-number cache fingerprint alias with an explicit reader
+- [x] Replace the wire-number cache fingerprint alias with an explicit reader
   policy generation or deterministic supported-set identity.
-- [ ] Add focused tests proving v4 Archive-visible identity remains v4,
+- [x] Add focused tests proving v4 Archive-visible identity remains v4,
   registered policies are complete and unique, and missing capabilities fail
   closed without invoking another codec.
 
@@ -224,14 +227,14 @@ The implementation gaps are concrete:
 
 ### Stage 2: Route read-only and live-load boundaries through codecs
 
-- [ ] Route header reads, whole-package validation, inspection, compatibility
+- [x] Route header reads, whole-package validation, inspection, compatibility
   probes, reference extraction, and live loading through the codec table.
-- [ ] Remove the unreachable compatibility fallback and all shared
+- [x] Remove the unreachable compatibility fallback and all shared
   `EAssetPackageReaderKind::DastV4` conditionals from these entrypoints.
-- [ ] Preserve shared fingerprint, freshness, cancellation, residency,
+- [x] Preserve shared fingerprint, freshness, cancellation, residency,
   dependency-cycle, report, and transaction publication behavior around codec
   calls.
-- [ ] Parameterize reader contract tests over all registered test/production
+- [x] Parameterize reader contract tests over all registered test/production
   codecs and add synthetic unsupported/truncated inputs to every shared read
   entrypoint.
 
@@ -244,17 +247,17 @@ The implementation gaps are concrete:
 
 ### Stage 3: Isolate writer and current-format mutation paths
 
-- [ ] Route ordinary serialization, single save, atomic bundle save, and
+- [x] Route ordinary serialization, single save, atomic bundle save, and
   migration-target serialization through selected writer capabilities.
-- [ ] Move v4-specific Archive-to-wire adaptation out of generically named
+- [x] Move v4-specific Archive-to-wire adaptation out of generically named
   orchestration into a frozen v4 adapter, retaining only genuinely
   version-neutral capture/load support in common code.
-- [ ] Route reference fixup, relocation, redirector creation, cook
+- [x] Route reference fixup, relocation, redirector creation, cook
   canonicalization, and other decoded-byte rewrites through explicit codec
   mutation capabilities and enforce the ordinary-format precondition.
-- [ ] Remove shared v4 decoded types and diagnostics from `AssetSystem.cpp` and
+- [x] Remove shared v4 decoded types and diagnostics from `AssetSystem.cpp` and
   the migration transaction layer.
-- [ ] Qualify byte-identical repeated v4 serialization, redirector/fixup,
+- [x] Qualify byte-identical repeated v4 serialization, redirector/fixup,
   relocation, and cook output plus fail-before-mutation behavior for a supported
   non-ordinary test codec.
 
@@ -267,17 +270,17 @@ The implementation gaps are concrete:
 
 ### Stage 4: Make migration authorization executable and permanent
 
-- [ ] Replace or narrow the metadata-only migration graph with registered exact
+- [x] Replace or narrow the metadata-only migration graph with registered exact
   executable edges and stable report descriptors.
-- [ ] Make planning record the source codec, target codec, exact edge identity,
+- [x] Make planning record the source codec, target codec, exact edge identity,
   risk, input fingerprint, and policy/registry identity.
-- [ ] Make apply re-read and verify the source version, re-resolve the exact
+- [x] Make apply re-read and verify the source version, re-resolve the exact
   edge under lock, reject changed/tampered plans, and execute the registered
   strategy through codec capabilities rather than naming v4.
-- [ ] Preserve deterministic double-write validation, dependency closure,
+- [x] Preserve deterministic double-write validation, dependency closure,
   compatibility/retained-data gates, journal staging, bundle publication,
   post-audit, registry commit, rollback, and interrupted-operation recovery.
-- [ ] Add a permanent test-only source/target codec pair or equivalent injected
+- [x] Add a permanent test-only source/target codec pair or equivalent injected
   harness. Keep successful migration, missing edge, non-lossless edge, stale
   input, tampered plan, dependency omission, cancellation, every injected
   apply phase, rollback failure, recovery, post-audit, and registry publication
@@ -293,17 +296,17 @@ The implementation gaps are concrete:
 
 ### Stage 5: Rehearse the next-version change budget and qualify
 
-- [ ] Add a synthetic next-format adapter in tests and demonstrate that all
+- [x] Add a synthetic next-format adapter in tests and demonstrate that all
   shared reader, writer, mutation, and migration contract suites discover it
   through registration without new shared version branches.
-- [ ] Review direct `DastV4` and `AssetPackageV4FormatVersion` references;
+- [x] Review direct `DastV4` and `AssetPackageV4FormatVersion` references;
   retain only v4 codec/fixture ownership and deliberate central policy entries.
-- [ ] Run focused AssetCore, Core object, compatibility, migration, cache, cook,
+- [x] Run focused AssetCore, Core object, compatibility, migration, cache, cook,
   and tool tests through the repository build/test entrypoint.
-- [ ] Run the asset baseline and tracked-package hash checks and prove this plan
+- [x] Run the asset baseline and tracked-package hash checks and prove this plan
   changed no authored `.dasset` bytes.
-- [ ] Run the required full `all` build and documentation validation.
-- [ ] Move lasting format-registry, codec-identity, mutation-policy, and exact
+- [x] Run the required full `all` build and documentation validation.
+- [x] Move lasting format-registry, codec-identity, mutation-policy, and exact
   migration contracts into Runtime documentation and complete this plan.
 
 #### Acceptance Gate
@@ -371,7 +374,7 @@ The implementation gaps are concrete:
 - `Engine/Source/Runtime/AssetCore/Public/AssetPackageV4Reader.h`
 - `Engine/Source/Runtime/AssetCore/Public/AssetPackageV4Writer.h`
 - `Engine/Source/Runtime/AssetCore/Public/AssetMigration.h`
-- `Engine/Source/Runtime/AssetCore/Private/AssetPackageArchive.cpp`
+- `Engine/Source/Runtime/AssetCore/Private/AssetPackageV4ArchiveAdapter.cpp`
 - `Engine/Source/Runtime/AssetCore/Private/AssetSystem.cpp`
 - `Engine/Source/Runtime/AssetCore/Private/AssetCompatibility.cpp`
 - `Engine/Source/Runtime/AssetCore/Private/AssetMigration.cpp`

@@ -365,6 +365,14 @@ publication, registry publication, or dirty-state clearing. New packages use
 the same ordinary writer. Format transitions belong only to an explicit
 migration transaction.
 
+Current-format byte mutations resolve the source codec before decoding and
+require its declared mutation capability plus an exact match with the ordinary
+writer format. Reference fixup, relocation, redirector creation, and cook
+canonicalization therefore reject a supported non-ordinary format before
+changing output bytes. Version-specific decoded packages remain inside their
+codec adapter; shared transactions consume neutral headers, inspections,
+reference edges, load handles, and byte results.
+
 ### Explicit Package Migration
 
 `DevTool asset migrate` is the only package-format migration boundary. The
@@ -373,11 +381,21 @@ path for older packages. A future format transition must explicitly register
 its exact source-to-target edge before this workflow can select it.
 Planning is read-only, requires explicit package or mount selection (or an
 explicit whole-corpus invocation), closes dependencies that also require
-migration, and records content hashes, sizes, and stable timestamps. Apply
-revalidates every fingerprint before load and again before publication, rejects
-compatibility or retained-data risk without consent, and writes through the
-selected deterministic migration writer. Ordinary saves and the repository
-baseline remain independent of migration-writer policy.
+migration, and records content hashes, sizes, stable timestamps, source and
+target codec identities, the exact edge identity and risk, and the reader-policy
+identity. Major-zero migration intentionally supports one exact source-to-
+migration-target edge rather than a multi-hop graph. The edge executes a
+load-transform-write strategy: source-aware load and schema upgrade, an optional
+edge-owned transform callback, then the selected target codec writer. The unused
+identity-free asset-schema migration kind is not part of this contract.
+
+Apply acquires the migration writer lock, rereads the source preamble and
+fingerprint, resolves the exact edge again from the live registry, and compares
+all recorded authorization fields before staging. Missing, changed, fabricated,
+lossy, or codec-mismatched authorization is blocked. Successful serialization
+is validated by the target codec and repeated byte-for-byte before publication.
+Ordinary saves and the repository baseline remain independent of migration-
+writer policy.
 
 The existing package-bundle sidecar journal stages every selected destination
 before publication. The tool validates bounded target-format decode,
@@ -387,6 +405,12 @@ publication, post-audit, cache, or registry failure compensates the complete
 bundle and restores authored bytes plus runtime state. Registry entries are
 published only after every package has passed post-audit; discovery, audit,
 inspection, ordinary loading, and dry-run planning never rewrite content.
+
+A permanent scoped test codec exposes the qualified v4 logical package through
+an independent format identity and writer. It keeps shared dispatch, non-
+ordinary mutation rejection, exact-edge execution, stale/tampered authorization,
+cancellation, every apply failure phase, rollback failure, recovery, post-audit,
+and registry publication covered without retaining a production legacy codec.
 
 ## Structure Compatibility
 

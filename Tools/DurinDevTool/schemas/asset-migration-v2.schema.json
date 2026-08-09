@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "asset-migration-v1.schema.json",
-  "title": "Durin asset migration report v1",
+  "$id": "asset-migration-v2.schema.json",
+  "title": "Durin asset migration report v2",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "operation", "result", "packages", "summary", "changedPaths"],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "operation": { "enum": ["Plan", "Apply"] },
     "result": { "enum": ["Ready", "Succeeded", "Blocked", "Failed", "Cancelled", "RolledBack"] },
     "packages": { "type": "array", "items": { "$ref": "#/$defs/package" } },
@@ -30,19 +30,22 @@
     "step": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["handlerId", "kind", "sourceVersion", "targetVersion", "risk"],
+      "required": ["handlerId", "kind", "sourceVersion", "targetVersion", "sourceCodecId", "targetCodecId", "strategy", "risk"],
       "properties": {
         "handlerId": { "type": "string", "minLength": 1 },
-        "kind": { "enum": ["PackageFormat", "AssetSchema"] },
+        "kind": { "const": "PackageFormat" },
         "sourceVersion": { "type": "integer", "minimum": 0 },
         "targetVersion": { "type": "integer", "minimum": 0 },
+        "sourceCodecId": { "type": "string", "minLength": 1 },
+        "targetCodecId": { "type": "string", "minLength": 1 },
+        "strategy": { "const": "LoadTransformWrite" },
         "risk": { "enum": ["Lossless", "DataLoss", "Unknown"] }
       }
     },
     "package": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["packagePath", "physicalPath", "status", "fingerprint", "sourceFormatVersion", "targetFormatVersion", "steps", "diagnostics"],
+      "required": ["packagePath", "physicalPath", "status", "fingerprint", "sourceFormatVersion", "targetFormatVersion", "readerPolicyFingerprint", "steps", "diagnostics"],
       "properties": {
         "packagePath": { "type": "string", "minLength": 1 },
         "physicalPath": { "type": "string", "minLength": 1 },
@@ -50,6 +53,7 @@
         "fingerprint": { "$ref": "#/$defs/fingerprint" },
         "sourceFormatVersion": { "type": "integer", "minimum": 0 },
         "targetFormatVersion": { "type": "integer", "minimum": 0 },
+        "readerPolicyFingerprint": { "type": "integer", "minimum": 0 },
         "steps": { "type": "array", "items": { "$ref": "#/$defs/step" } },
         "diagnostics": { "type": "array", "items": { "type": "string" } }
       }

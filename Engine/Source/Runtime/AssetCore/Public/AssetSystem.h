@@ -325,6 +325,10 @@ namespace Durin::Asset
 		DPackage* Package,
 		std::vector<uint8>& OutBytes,
 		const FAssetPackageSerializationOptions& Options = {}) -> FAssetResult;
+	ASSETCORE_API auto SerializeAssetPackageBytesForFormatForTesting(
+		DPackage* Package,
+		uint32 FormatVersion,
+		std::vector<uint8>& OutBytes) -> FAssetResult;
 
 	// Serializes and stages every package before making any package or registry
 	// entry visible. Any publication failure restores prior files and leaves

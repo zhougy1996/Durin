@@ -1,6 +1,5 @@
 #include "AssetMigration.h"
-#include "AssetPackageV4Reader.h"
-#include "AssetPackageV4Writer.h"
+#include "AssetPackageCodec.h"
 #include "AssetSystem.h"
 
 #include "Misc/DerivedDataCache.h"
@@ -44,7 +43,7 @@ namespace Durin::Asset
 
 		auto KindName(EAssetMigrationKind Kind) -> std::string_view
 		{
-			return Kind == EAssetMigrationKind::PackageFormat ? "PackageFormat" : "AssetSchema";
+			return Kind == EAssetMigrationKind::PackageFormat ? "PackageFormat" : "Unknown";
 		}
 
 		auto RiskName(EAssetMigrationRisk Risk) -> std::string_view
@@ -99,6 +98,13 @@ namespace Durin::Asset
 			OutError = std::format("MigrationHandlerInvalid: handler {} has a self edge at version {}.", Handler.HandlerId, Handler.SourceVersion);
 			return false;
 		}
+		if (Handler.SourceCodecId.empty() || Handler.TargetCodecId.empty())
+		{
+			OutError = std::format(
+				"MigrationHandlerInvalid: handler {} has no exact codec identity.",
+				Handler.HandlerId);
+			return false;
+		}
 		if (std::ranges::find(Handlers, Handler.HandlerId, &FAssetMigrationHandlerDescriptor::HandlerId) != Handlers.end())
 		{
 			OutError = std::format("MigrationHandlerDuplicateId: handler id {} is already registered.", Handler.HandlerId);
@@ -118,76 +124,52 @@ namespace Durin::Asset
 		{
 			const auto& Previous = Handlers[Index - 1];
 			const auto& Current = Handlers[Index];
-			if (Previous.Kind == Current.Kind && Previous.SourceVersion == Current.SourceVersion)
+			if (Previous.Kind == Current.Kind
+				&& Previous.SourceVersion == Current.SourceVersion
+				&& Previous.TargetVersion == Current.TargetVersion)
 			{
-				OutError = std::format("MigrationChainAmbiguous: {} version {} has handlers {} and {}.",
-					KindName(Current.Kind), Current.SourceVersion, Previous.HandlerId, Current.HandlerId);
-				return false;
-			}
-		}
-		for (const EAssetMigrationKind Kind : {EAssetMigrationKind::PackageFormat, EAssetMigrationKind::AssetSchema})
-		{
-			std::set<uint32> Visiting;
-			std::set<uint32> Visited;
-			std::function<bool(uint32)> Visit = [&](uint32 Version) {
-				if (Visiting.contains(Version)) return false;
-				if (Visited.contains(Version)) return true;
-				Visiting.insert(Version);
-				for (const auto& Handler : Handlers)
-					if (Handler.Kind == Kind && Handler.SourceVersion == Version && !Visit(Handler.TargetVersion)) return false;
-				Visiting.erase(Version);
-				Visited.insert(Version);
-				return true;
-			};
-			for (const auto& Handler : Handlers)
-			{
-				if (Handler.Kind != Kind || Visit(Handler.SourceVersion)) continue;
-				OutError = std::format("MigrationChainCycle: {} migration graph contains a cycle at version {}.", KindName(Kind), Handler.SourceVersion);
+				OutError = std::format("MigrationEdgeAmbiguous: {} exact edge {} to {} has handlers {} and {}.",
+					KindName(Current.Kind), Current.SourceVersion, Current.TargetVersion,
+					Previous.HandlerId, Current.HandlerId);
 				return false;
 			}
 		}
 		return true;
 	}
 
-	auto FAssetMigrationRegistry::ResolveChain(
+	auto FAssetMigrationRegistry::ResolveExactEdge(
 		EAssetMigrationKind Kind,
 		uint32 SourceVersion,
 		uint32 TargetVersion,
 		const FAssetCompatibilityCancellationCheck& IsCancellationRequested) const
-		-> FAssetMigrationChainResolution
+		-> FAssetMigrationEdgeResolution
 	{
 		if (SourceVersion == TargetVersion) return {.Status = EAssetMigrationResolutionStatus::Resolved};
 		std::string ValidationError;
 		if (!Validate(ValidationError))
 		{
-			const bool bCycle = ValidationError.starts_with("MigrationChainCycle:");
 			return {
-				.Status = bCycle ? EAssetMigrationResolutionStatus::CyclicChain : EAssetMigrationResolutionStatus::AmbiguousChain,
+				.Status = EAssetMigrationResolutionStatus::AmbiguousEdge,
 				.Diagnostic = std::move(ValidationError)};
 		}
-		std::vector<FAssetMigrationHandlerDescriptor> Steps;
-		std::set<uint32> Visited;
-		uint32 Current = SourceVersion;
-		while (Current != TargetVersion)
-		{
-			if (IsCancellationRequested && IsCancellationRequested())
-				return {.Status = EAssetMigrationResolutionStatus::Cancelled, .Diagnostic = "MigrationCancelled: chain resolution was cancelled."};
-			if (!Visited.insert(Current).second)
-				return {.Status = EAssetMigrationResolutionStatus::CyclicChain, .Diagnostic = std::format("MigrationChainCycle: {} chain repeats version {}.", KindName(Kind), Current)};
-			const auto It = std::ranges::find_if(Handlers, [&](const auto& Handler) {
-				return Handler.Kind == Kind && Handler.SourceVersion == Current;
-			});
-			if (It == Handlers.end())
-				return {.Status = EAssetMigrationResolutionStatus::MissingChain, .Diagnostic = std::format("MigrationChainMissing: no {} handler advances version {} toward {}.", KindName(Kind), Current, TargetVersion)};
-			Steps.push_back(*It);
-			Current = It->TargetVersion;
-		}
-		return {.Status = EAssetMigrationResolutionStatus::Resolved, .Steps = std::move(Steps)};
+		if (IsCancellationRequested && IsCancellationRequested())
+			return {.Status = EAssetMigrationResolutionStatus::Cancelled,
+				.Diagnostic = "MigrationCancelled: exact-edge resolution was cancelled."};
+		const auto It = std::ranges::find_if(Handlers, [&](const auto& Handler) {
+			return Handler.Kind == Kind && Handler.SourceVersion == SourceVersion
+				&& Handler.TargetVersion == TargetVersion;
+		});
+		if (It == Handlers.end())
+			return {.Status = EAssetMigrationResolutionStatus::MissingEdge,
+				.Diagnostic = std::format(
+					"MigrationEdgeMissing: no exact {} handler migrates version {} to {}.",
+					KindName(Kind), SourceVersion, TargetVersion)};
+		return {.Status = EAssetMigrationResolutionStatus::Resolved, .Steps = {*It}};
 	}
 
 	auto RegisterBuiltInAssetMigrations(FAssetMigrationRegistry& Registry, std::string& OutError) -> bool
 	{
-		return Registry.Validate(OutError);
+		return ValidateAssetPackageVersionPolicy(OutError) && Registry.Validate(OutError);
 	}
 
 	auto PlanAssetPackageMigrations(
@@ -213,7 +195,8 @@ namespace Durin::Asset
 				.PhysicalPath = Record->PhysicalPath,
 				.Fingerprint = Record->Fingerprint,
 				.ReportContentHash = Record->ReportContentHash,
-				.SourceFormatVersion = Record->FormatVersion};
+				.SourceFormatVersion = Record->FormatVersion,
+				.ReaderPolicyFingerprint = GetAssetPackageReaderPolicyIdentity()};
 			if (Record->Inspection == EAssetCompatibilityInspection::Failed)
 			{
 				Package.Status = EAssetMigrationPackageStatus::Failed;
@@ -242,7 +225,7 @@ namespace Durin::Asset
 			}
 			else
 			{
-				auto Chain = Registry.ResolveChain(EAssetMigrationKind::PackageFormat, Record->FormatVersion,
+				auto Chain = Registry.ResolveExactEdge(EAssetMigrationKind::PackageFormat, Record->FormatVersion,
 					AssetPackageMigrationWriterVersion, IsCancellationRequested);
 				if (Chain.Status == EAssetMigrationResolutionStatus::Cancelled)
 				{
@@ -258,12 +241,27 @@ namespace Durin::Asset
 				else if (std::ranges::any_of(Chain.Steps, [](const auto& Step) { return Step.Risk != EAssetMigrationRisk::Lossless; }))
 				{
 					Package.Status = EAssetMigrationPackageStatus::Blocked;
-					Package.Diagnostics.push_back("MigrationNotLossless: resolved chain contains a data-loss or unknown-risk step.");
+					Package.Diagnostics.push_back("MigrationNotLossless: the exact edge has data-loss or unknown risk.");
 				}
 				else
 				{
-					Package.Status = EAssetMigrationPackageStatus::Planned;
-					Package.Steps = std::move(Chain.Steps);
+					const Private::FAssetPackageCodec* SourceCodec =
+						Private::FindAssetPackageReader(Record->FormatVersion);
+					const Private::FAssetPackageCodec* TargetCodec =
+						Private::FindAssetPackageWriter(AssetPackageMigrationWriterVersion);
+					if (!SourceCodec || !TargetCodec || Chain.Steps.size() != 1
+						|| Chain.Steps.front().SourceCodecId != SourceCodec->CodecId
+						|| Chain.Steps.front().TargetCodecId != TargetCodec->CodecId)
+					{
+						Package.Status = EAssetMigrationPackageStatus::Blocked;
+						Package.Diagnostics.push_back(
+							"MigrationCodecMismatch: exact edge codec identities do not match policy.");
+					}
+					else
+					{
+						Package.Status = EAssetMigrationPackageStatus::Planned;
+						Package.Steps = std::move(Chain.Steps);
+					}
 				}
 			}
 			Result.Packages.push_back(std::move(Package));
@@ -298,7 +296,7 @@ namespace Durin::Asset
 		return Result;
 	}
 
-	auto SerializeAssetMigrationPlanReportV1(const FAssetMigrationPlan& Plan) -> std::string
+	auto SerializeAssetMigrationPlanReportV2(const FAssetMigrationPlan& Plan) -> std::string
 	{
 		uint64 Planned = 0, Skipped = 0, Blocked = 0, Failed = 0;
 		for (const auto& Package : Plan.Packages)
@@ -314,16 +312,19 @@ namespace Durin::Asset
 		{
 			if (Index != 0) Json += ',';
 			const auto& Package = Plan.Packages[Index];
-			Json += std::format("{{\"packagePath\":\"{}\",\"physicalPath\":\"{}\",\"status\":\"{}\",\"fingerprint\":{{\"fileSize\":{},\"lastWriteTimeTicks\":{},\"contentHash\":\"{}\"}},\"sourceFormatVersion\":{},\"targetFormatVersion\":{},\"steps\":[",
+			Json += std::format("{{\"packagePath\":\"{}\",\"physicalPath\":\"{}\",\"status\":\"{}\",\"fingerprint\":{{\"fileSize\":{},\"lastWriteTimeTicks\":{},\"contentHash\":\"{}\"}},\"sourceFormatVersion\":{},\"targetFormatVersion\":{},\"readerPolicyFingerprint\":{},\"steps\":[",
 				JsonEscape(Package.PackagePath.GetView()), JsonEscape(Package.PhysicalPath), StatusName(Package.Status),
 				Package.Fingerprint.FileSize, Package.Fingerprint.LastWriteTimeTicks, JsonEscape(Package.ReportContentHash),
-				Package.SourceFormatVersion, Package.TargetFormatVersion);
+				Package.SourceFormatVersion, Package.TargetFormatVersion,
+				Package.ReaderPolicyFingerprint);
 			for (size_t StepIndex = 0; StepIndex < Package.Steps.size(); ++StepIndex)
 			{
 				if (StepIndex != 0) Json += ',';
 				const auto& Step = Package.Steps[StepIndex];
-				Json += std::format("{{\"handlerId\":\"{}\",\"kind\":\"{}\",\"sourceVersion\":{},\"targetVersion\":{},\"risk\":\"{}\"}}",
-					JsonEscape(Step.HandlerId), KindName(Step.Kind), Step.SourceVersion, Step.TargetVersion, RiskName(Step.Risk));
+				Json += std::format("{{\"handlerId\":\"{}\",\"kind\":\"{}\",\"sourceVersion\":{},\"targetVersion\":{},\"sourceCodecId\":\"{}\",\"targetCodecId\":\"{}\",\"strategy\":\"LoadTransformWrite\",\"risk\":\"{}\"}}",
+					JsonEscape(Step.HandlerId), KindName(Step.Kind), Step.SourceVersion,
+					Step.TargetVersion, JsonEscape(Step.SourceCodecId),
+					JsonEscape(Step.TargetCodecId), RiskName(Step.Risk));
 			}
 			Json += "],\"diagnostics\":[";
 			for (size_t DiagnosticIndex = 0; DiagnosticIndex < Package.Diagnostics.size(); ++DiagnosticIndex)
@@ -598,6 +599,7 @@ namespace Durin::Asset
 
 	auto ApplyAssetPackageMigrations(
 		FAssetMigrationPlan Plan,
+		const FAssetMigrationRegistry& Registry,
 		const FReflectionCompatibilityCatalog& Catalog,
 		const FAssetMigrationApplyOptions& Options,
 		const FAssetCompatibilityCancellationCheck& IsCancellationRequested)
@@ -657,25 +659,54 @@ namespace Durin::Asset
 			if (!LoadMigrationBytes(Entry.Destination, Entry.PreBytes) || !IsCurrentFingerprint(PackagePlan, Entry.PreBytes))
 				return FailBeforePublish(EAssetMigrationApplyStatus::Failed,
 					std::format("StaleFingerprint: {} changed after planning.", PackagePlan.PackagePath.ToString()));
+			if (PackagePlan.ReaderPolicyFingerprint != GetAssetPackageReaderPolicyIdentity())
+				return FailBeforePublish(EAssetMigrationApplyStatus::Blocked,
+					"MigrationAuthorizationChanged: the reader policy changed after planning.");
+			const Private::FAssetPackageCodec* SourceCodec = nullptr;
+			Private::FAssetPackagePreamble SourcePreamble;
+			if (FAssetResult ResolveResult = Private::ResolveAssetPackageReader(
+				Entry.PreBytes, SourceCodec, &SourcePreamble); !ResolveResult)
+				return FailBeforePublish(EAssetMigrationApplyStatus::Blocked,
+					std::format("MigrationSourceRejected: {}", ResolveResult.Message));
+			if (SourcePreamble.FormatVersion != PackagePlan.SourceFormatVersion)
+				return FailBeforePublish(EAssetMigrationApplyStatus::Blocked,
+					"MigrationAuthorizationChanged: the source version no longer matches the plan.");
+			auto Edge = Registry.ResolveExactEdge(
+				EAssetMigrationKind::PackageFormat, SourcePreamble.FormatVersion,
+				PackagePlan.TargetFormatVersion, IsCancellationRequested);
+			if (Edge.Status != EAssetMigrationResolutionStatus::Resolved
+				|| Edge.Steps.size() != 1 || PackagePlan.Steps.size() != 1
+				|| !(Edge.Steps.front() == PackagePlan.Steps.front())
+				|| Edge.Steps.front().Risk != EAssetMigrationRisk::Lossless
+				|| Edge.Steps.front().SourceCodecId != SourceCodec->CodecId)
+				return FailBeforePublish(EAssetMigrationApplyStatus::Blocked,
+					"MigrationAuthorizationChanged: the exact lossless edge no longer matches the plan.");
+			const Private::FAssetPackageCodec* TargetCodec =
+				Private::FindAssetPackageWriter(PackagePlan.TargetFormatVersion);
+			if (!TargetCodec || Edge.Steps.front().TargetCodecId != TargetCodec->CodecId)
+				return FailBeforePublish(EAssetMigrationApplyStatus::Blocked,
+					"MigrationTargetRejected: the exact edge does not name the selected writer codec.");
 			FAssetLoadReport LoadReport;
 			FAssetResult LoadResult = LoadPackageForMigration(PackagePlan.PackagePath, Entry.Package, &LoadReport);
 			if (!LoadResult || !Entry.Package || LoadReport.HasRiskItems() || LoadReport.HasNonUpgradeMutations())
 				return FailBeforePublish(EAssetMigrationApplyStatus::Failed,
 					std::format("MigrationLoadRejected: {}", LoadResult ? "unplanned compatibility or mutation risk" : LoadResult.Message));
+			if (Edge.Steps.front().Transform)
+			{
+				FAssetResult TransformResult = Edge.Steps.front().Transform(
+					Entry.Package, IsCancellationRequested);
+				if (!TransformResult)
+					return FailBeforePublish(EAssetMigrationApplyStatus::Failed,
+						std::format("MigrationTransformRejected: {}", TransformResult.Message));
+			}
 			if (Options.ShouldFail && Options.ShouldFail(EAssetMigrationApplyPhase::SerializePackage, Entries.size()))
 				return FailBeforePublish(EAssetMigrationApplyStatus::Failed, "Injected migration serialization failure.");
-			DastV4::FWriterDiagnostic WriterDiagnostic;
-			const DastV4::FAssetPackageWriteOptions WriteOptions{
-				.DeltaMode = EDefaultDeltaMode::NoDelta};
-			FAssetResult SerializeResult = DastV4::WriteAssetPackage(
-				Entry.Package, Entry.PostBytes, WriteOptions, &WriterDiagnostic);
+			FAssetResult SerializeResult = TargetCodec->Write(
+				Entry.Package, Entry.PostBytes, EDefaultDeltaMode::NoDelta, {});
 			std::vector<uint8> DeterminismBytes;
-			DastV4::FDecodedPackage Decoded;
-			DastV4::FReaderDiagnostic ReaderDiagnostic;
-			if (!SerializeResult || !DastV4::DecodePackage(
-					Entry.PostBytes, Decoded, {}, &ReaderDiagnostic)
-				|| !(SerializeResult = DastV4::WriteAssetPackage(
-					Entry.Package, DeterminismBytes, WriteOptions, &WriterDiagnostic))
+			if (!SerializeResult || !TargetCodec->Validate(Entry.PostBytes)
+				|| !(SerializeResult = TargetCodec->Write(
+					Entry.Package, DeterminismBytes, EDefaultDeltaMode::NoDelta, {}))
 				|| Entry.PostBytes != DeterminismBytes || !IsCurrentPackageBytes(Entry.PostBytes))
 				return FailBeforePublish(EAssetMigrationApplyStatus::Failed,
 					std::format("MigrationSerializationRejected: {}", SerializeResult ? "current writer output was not deterministic" : SerializeResult.Message));
@@ -770,6 +801,8 @@ namespace Durin::Asset
 		if (FAssetResult ReleaseResult = ReleaseLoaded(); !ReleaseResult)
 			return Rollback(std::format("MigrationUnloadFailed: {}", ReleaseResult.Message));
 
+		if (Options.ShouldFail && Options.ShouldFail(EAssetMigrationApplyPhase::PostAudit, 0))
+			return Rollback("Injected migration post-audit failure.");
 		const FAssetPackageDiscoverySnapshot Snapshot = CaptureMountedAssetPackageSnapshot();
 		if (Snapshot.Status != EAssetPackageSnapshotStatus::Completed)
 			return Rollback("MigrationPostAuditFailed: fresh discovery did not complete.");
@@ -808,6 +841,8 @@ namespace Durin::Asset
 				.LastWriteTime = LastWriteTime,
 				.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime)});
 		}
+		if (Options.ShouldFail && Options.ShouldFail(EAssetMigrationApplyPhase::PublishRegistry, 0))
+			return Rollback("Injected migration registry-publication failure.");
 		FAssetManager::Get().PublishMigratedPackageRegistryEntries(RegistryEntries);
 
 		for (const auto& Entry : Entries)
@@ -821,7 +856,7 @@ namespace Durin::Asset
 		return Result;
 	}
 
-	auto SerializeAssetMigrationApplyReportV1(const FAssetMigrationApplyResult& Result) -> std::string
+	auto SerializeAssetMigrationApplyReportV2(const FAssetMigrationApplyResult& Result) -> std::string
 	{
 		std::string_view ResultName = "Failed";
 		switch (Result.Status)

@@ -576,11 +576,12 @@ namespace Durin::Asset::Private
 			FAuthoredCaptureArchive(
 				const std::unordered_map<DObject*, uint64>& InObjectIds,
 				const FAssetPackageSerializationOptions& InOptions,
-				bool bInCapturePayload)
+				bool bInCapturePayload,
+				uint32 TargetFormatVersion)
 				: FArchive({EArchiveDirection::Save,
 					bInCapturePayload ? EArchivePurpose::AuthoredPackage : EArchivePurpose::Discovery,
 					EArchiveCapability::None}, FArchiveVersionContext{
-						std::vector<FArchiveFormatVersion>{FArchiveFormatVersion{FName("DAST"), OrdinaryAssetPackageWriterVersion}}, {}})
+						std::vector<FArchiveFormatVersion>{FArchiveFormatVersion{FName("DAST"), TargetFormatVersion}}, {}})
 				, ObjectIds(InObjectIds), Options(InOptions), bCapturePayload(bInCapturePayload)
 			{
 				EnableCapabilities(EArchiveCapability::StructuredFields | EArchiveCapability::RawBytes
@@ -829,14 +830,16 @@ namespace Durin::Asset::Private
 			return std::ranges::equal(Current, Frozen);
 		}
 
-		auto CapturePackage(
+			auto CapturePackage(
 			std::span<DObject* const> Objects,
 			const std::unordered_map<DObject*, uint64>& ObjectIds,
 			const FAssetPackageSerializationOptions& Options,
 			bool bCapturePayload,
+			uint32 TargetFormatVersion,
 			FCapturedPackage& OutPackage) -> FAssetResult
 		{
-			FAuthoredCaptureArchive Archive(ObjectIds, Options, bCapturePayload);
+			FAuthoredCaptureArchive Archive(
+				ObjectIds, Options, bCapturePayload, TargetFormatVersion);
 			for (DObject* Object : Objects)
 			{
 				Archive.SetCurrentObject(Object);
@@ -1183,6 +1186,32 @@ namespace Durin::Asset::Private
 
 namespace Durin::Asset::DastV4
 {
+	auto WriteRedirectorPackage(
+		const FAssetPath& SourcePath,
+		const FAssetPath& DestinationPath,
+		std::vector<uint8>& OutBytes) -> FAssetResult
+	{
+		constexpr std::string_view RedirectorClass = "Durin::Asset::DAssetRedirector";
+		auto DestinationType = MakeType(ETypeOpcode::HardRef, "Durin::DObject");
+		FPackageInput Input{
+			.AssetClass = std::string(RedirectorClass),
+			.EntryKind = EAssetRegistryEntryKind::Redirector,
+			.RedirectDestination = DestinationPath.ToString(),
+			.Dependencies = {DestinationPath.ToString()},
+			.Types = {DestinationType},
+			.Schemas = {{std::string(RedirectorClass), {{"DestinationObject", DestinationType, 0}}}},
+			.Objects = {{std::string(SourcePath.GetAssetName()), {},
+				std::string(RedirectorClass), std::string(SourcePath.GetAssetName())}},
+			.ObjectValues = {{std::string(SourcePath.GetAssetName()), {{
+				.SchemaName = std::string(RedirectorClass),
+				.FieldName = "DestinationObject",
+				.Value = {.ReferenceTag = 2, .ReferenceId = 1}}}}}};
+		FWriterDiagnostic Diagnostic;
+		if (!WritePackage(Input, OutBytes, &Diagnostic))
+			return {EAssetError::CorruptFile, Diagnostic.Message};
+		return {};
+	}
+
 	auto WriteAssetPackage(DPackage* Package, std::vector<uint8>& OutBytes,
 		const FAssetPackageWriteOptions& Options, FWriterDiagnostic* OutDiagnostic) -> FAssetResult
 	{
@@ -1213,7 +1242,8 @@ namespace Durin::Asset::DastV4
 		std::unordered_map<DObject*, uint64> ObjectIds;
 		for (size_t Index = 0; Index < Objects.size(); ++Index) ObjectIds.emplace(Objects[Index], Index + 1);
 		Private::FCapturedPackage Discovery;
-		FAssetResult Result = Private::CapturePackage(Objects, ObjectIds, Options.Serialization, false, Discovery);
+		FAssetResult Result = Private::CapturePackage(
+			Objects, ObjectIds, Options.Serialization, false, Version, Discovery);
 		if (!Result)
 		{
 			Diagnostic = {EWriterFailure::ArchiveFailure, {}, Result.Message}; return Finish(Result);
@@ -1224,7 +1254,8 @@ namespace Durin::Asset::DastV4
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
 		}
 		Private::FCapturedPackage Captured;
-		Result = Private::CapturePackage(Objects, ObjectIds, Options.Serialization, true, Captured);
+		Result = Private::CapturePackage(
+			Objects, ObjectIds, Options.Serialization, true, Version, Captured);
 		if (!Result)
 		{
 			Diagnostic = {EWriterFailure::ArchiveFailure, {}, Result.Message}; return Finish(Result);

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "operation": "Plan",
   "result": "Ready",
   "packages": [
@@ -14,12 +14,16 @@
       },
       "sourceFormatVersion": 7,
       "targetFormatVersion": 8,
+      "readerPolicyFingerprint": 1095783169,
       "steps": [
         {
           "handlerId": "test.asset.package.synthetic.7-to-8",
           "kind": "PackageFormat",
           "sourceVersion": 7,
           "targetVersion": 8,
+          "sourceCodecId": "test-dast-v7",
+          "targetCodecId": "test-dast-v8",
+          "strategy": "LoadTransformWrite",
           "risk": "Lossless"
         }
       ],

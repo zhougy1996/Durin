@@ -1,5 +1,6 @@
 #include "AssetCompatibility.h"
 #include "AssetPackageV4Reader.h"
+#include "AssetPackageCodec.h"
 #include "AssetPackageVersionPolicy.h"
 
 #include "DObject/Class.h"
@@ -14,9 +15,6 @@ namespace Durin::Asset
 	namespace
 	{
 		constexpr uint64 MaximumPackageStringBytes = 1024 * 1024;
-		constexpr uint64 MaximumPackageDependencies = 100000;
-		constexpr uint64 MaximumPackageObjects = 1000000;
-		constexpr uint64 MaximumObjectFields = 100000;
 		constexpr size_t FingerprintBufferSize = 64 * 1024;
 
 		class FSha256
@@ -210,28 +208,6 @@ namespace Durin::Asset
 				|| Kind == DurinCodeGen::EPropertyGenFlags::Guid)
 				return std::format("{}:v1", static_cast<uint32>(Kind));
 			return std::format("{}:{}", static_cast<uint32>(Kind), Property->GetElementSize());
-		}
-
-		auto NormalizeLegacyLogicalSignatures(std::string_view Signature) -> std::string
-		{
-			std::string Result;
-			for (size_t Index = 0; Index < Signature.size();)
-			{
-				bool bNormalized = false;
-				for (const std::string_view Prefix : {std::string_view("12:"), std::string_view("18:"), std::string_view("19:")})
-				{
-					if (!Signature.substr(Index).starts_with(Prefix)) continue;
-					size_t End = Index + Prefix.size();
-					while (End < Signature.size() && Signature[End] >= '0' && Signature[End] <= '9') ++End;
-					if (End == Index + Prefix.size()) continue;
-					Result.append(Prefix).append("v1");
-					Index = End;
-					bNormalized = true;
-					break;
-				}
-				if (!bNormalized) Result.push_back(Signature[Index++]);
-			}
-			return Result;
 		}
 
 		struct FStreamingReader
@@ -562,18 +538,19 @@ namespace Durin::Asset
 		}
 		Record.Fingerprint.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(InitialTime);
 		Record.Fingerprint.ContentHash = Input.ExpectedContentHash;
-		bool bUsedV4Reader = false;
+		bool bUsedCodec = false;
 		Record.ReportContentHash = Input.ExpectedReportContentHash;
 
 		uint32 Magic = 0, Version = 0;
 		if (!Reader.Read(Magic) || !Reader.Read(Version) || Magic != DastPackageMagic)
 			AddTerminalFailure(Record, EAssetCompatibilityFindingCode::CorruptPackage, "Invalid or truncated asset package header.");
-		else if (SelectAssetPackageReader(Version) == EAssetPackageReaderKind::Unsupported)
+		else if (!Private::FindAssetPackageReader(Version))
 			AddTerminalFailure(Record, EAssetCompatibilityFindingCode::UnsupportedPackageFormat,
 				std::format("Unsupported asset package format version {}.", Version));
-		else if (SelectAssetPackageReader(Version) == EAssetPackageReaderKind::DastV4)
+		else if (const Private::FAssetPackageCodec* Codec =
+			Private::FindAssetPackageReader(Version))
 		{
-			bUsedV4Reader = true;
+			bUsedCodec = true;
 			std::vector<uint8> Bytes;
 			if (!FFileHelper::LoadFileToArray(Bytes, Input.PhysicalPath))
 				AddTerminalFailure(Record, EAssetCompatibilityFindingCode::IoFailure,
@@ -585,132 +562,25 @@ namespace Durin::Asset
 			}
 			else
 			{
-				FAssetPackageCompatibilityRecord V4Record;
-				DastV4::FReaderDiagnostic Diagnostic;
-				FAssetResult ProbeResult = DastV4::ProbeCompatibility(
-					Bytes, Input.PackagePath, Catalog, V4Record, &Result.Stats, {}, &Diagnostic);
+				FAssetPackageCompatibilityRecord CodecRecord;
+				FAssetResult ProbeResult = Codec->ProbeCompatibility(
+					Bytes, Input.PackagePath, Catalog, CodecRecord, &Result.Stats);
 				if (!ProbeResult)
 					AddTerminalFailure(Record, EAssetCompatibilityFindingCode::CorruptPackage,
 						ProbeResult.Message);
 				else
 				{
-					V4Record.PhysicalPath = Input.PhysicalPath;
-					V4Record.Fingerprint.LastWriteTimeTicks = Record.Fingerprint.LastWriteTimeTicks;
-					V4Record.Fingerprint.ReaderVersion = Version;
-					V4Record.ReportContentHash = Input.ExpectedReportContentHash;
-					Record = std::move(V4Record);
+					CodecRecord.PhysicalPath = Input.PhysicalPath;
+					CodecRecord.Fingerprint.FileSize = Record.Fingerprint.FileSize;
+					CodecRecord.Fingerprint.LastWriteTimeTicks = Record.Fingerprint.LastWriteTimeTicks;
+					CodecRecord.Fingerprint.ContentHash = Record.Fingerprint.ContentHash;
+					CodecRecord.Fingerprint.ReaderVersion = Version;
+					CodecRecord.ReportContentHash = Input.ExpectedReportContentHash;
+					Record = std::move(CodecRecord);
 				}
 			}
 		}
-		else
-		{
-			Record.FormatVersion = Version;
-			Record.Fingerprint.ReaderVersion = Version;
-			std::string AssetClass;
-			uint8 EntryKind = 0;
-			std::string RedirectDestination;
-			uint64 DependencyCount = 0, ObjectCount = 0;
-			bool bValidHeader = Reader.ReadString(AssetClass);
-			if (bValidHeader)
-				bValidHeader = Reader.Read(EntryKind) && EntryKind <= 1
-					&& Reader.ReadString(RedirectDestination);
-			bValidHeader = bValidHeader && Reader.Read(DependencyCount)
-				&& DependencyCount <= MaximumPackageDependencies;
-			for (uint64 Index = 0; bValidHeader && Index < DependencyCount; ++Index)
-			{
-				std::string Dependency;
-				bValidHeader = Reader.ReadString(Dependency);
-				FAssetPath DependencyPath;
-				if (bValidHeader && !FAssetPath::TryCreate(Dependency, DependencyPath)) bValidHeader = false;
-				if (bValidHeader) Record.Dependencies.push_back(std::move(DependencyPath));
-			}
-			bValidHeader = bValidHeader && Reader.Read(ObjectCount) && ObjectCount > 0 && ObjectCount <= MaximumPackageObjects;
-			if (!bValidHeader)
-				AddTerminalFailure(Record, EAssetCompatibilityFindingCode::CorruptPackage, "Invalid asset package header metadata.");
-			else
-			{
-				std::vector<std::string> ObjectPaths(static_cast<size_t>(ObjectCount));
-				for (uint64 ObjectIndex = 0; ObjectIndex < ObjectCount && Record.Inspection == EAssetCompatibilityInspection::Ready; ++ObjectIndex)
-				{
-					if (IsCancelled()) { Result.Status = EAssetCompatibilityProbeStatus::Cancelled; return Result; }
-					uint64 Id = 0, OuterId = 0, FieldCount = 0;
-					std::string ClassName, ObjectName;
-					if (!Reader.Read(Id) || !Reader.Read(OuterId) || !Reader.ReadString(ClassName)
-						|| !Reader.ReadString(ObjectName) || !Reader.Read(FieldCount) || FieldCount > MaximumObjectFields)
-					{
-						AddTerminalFailure(Record, EAssetCompatibilityFindingCode::CorruptPackage, "Invalid or truncated object descriptor.");
-						break;
-					}
-					if (Id != ObjectIndex + 1 || (Id == 1 ? OuterId != 0 : (OuterId == 0 || OuterId >= Id)))
-					{
-						AddTerminalFailure(Record, EAssetCompatibilityFindingCode::InvalidObjectGraph, "Invalid object identifiers or outer ordering.");
-						break;
-					}
-					ObjectPaths[static_cast<size_t>(ObjectIndex)] = Id == 1
-						? Input.PackagePath.ToString()
-						: std::format("{}{}{}", ObjectPaths[static_cast<size_t>(OuterId - 1)], OuterId == 1 ? ":" : ".", ObjectName);
-					const FReflectionCompatibilityClass* Class = Catalog.FindClass(ClassName);
-					if (!Class || !Class->bConstructible)
-					{
-						Record.Compatibility = EAssetPackageCompatibility::Unsupported;
-						Record.Findings.push_back({
-							.Code = EAssetCompatibilityFindingCode::UnavailableClass,
-							.ObjectPath = ObjectPaths[static_cast<size_t>(ObjectIndex)],
-							.ClassIdentity = ClassName,
-							.Diagnostic = std::format("Serialized class {} is unavailable.", ClassName)});
-						Class = nullptr;
-					}
-					for (uint64 FieldIndex = 0; FieldIndex < FieldCount; ++FieldIndex)
-					{
-						if (IsCancelled()) { Result.Status = EAssetCompatibilityProbeStatus::Cancelled; return Result; }
-						std::string DeclaringType, FieldName, StoredSignature;
-						uint8 StoredKindByte = 0;
-						uint64 PayloadSize = 0;
-						if (!Reader.ReadString(DeclaringType) || !Reader.ReadString(FieldName) || !Reader.Read(StoredKindByte)
-							|| !Reader.ReadString(StoredSignature) || !Reader.Read(PayloadSize))
-						{
-							AddTerminalFailure(Record, EAssetCompatibilityFindingCode::CorruptPackage, "Invalid or truncated field descriptor.");
-							break;
-						}
-						const uint64 PayloadOffset = Reader.Offset;
-						if (!Reader.Skip(PayloadSize))
-						{
-							AddTerminalFailure(Record, EAssetCompatibilityFindingCode::CorruptPackage, "Field payload extends beyond the package bounds.");
-							break;
-						}
-						Result.Stats.PayloadBytesSkipped += PayloadSize;
-						if (!Class) continue;
-						const auto StoredKind = static_cast<DurinCodeGen::EPropertyGenFlags>(StoredKindByte);
-						const FReflectionCompatibilityField* Field = Catalog.FindField(*Class, DeclaringType, FieldName);
-						if (!Field)
-						{
-							if (Record.Compatibility == EAssetPackageCompatibility::Compatible) Record.Compatibility = EAssetPackageCompatibility::Incompatible;
-							Record.Findings.push_back({
-								.Code = EAssetCompatibilityFindingCode::UnknownField,
-								.ObjectPath = ObjectPaths[static_cast<size_t>(ObjectIndex)], .ClassIdentity = ClassName,
-								.DeclaringType = DeclaringType, .FieldName = FieldName, .StoredKind = StoredKind,
-								.StoredTypeSignature = StoredSignature, .PayloadSize = PayloadSize, .PayloadOffset = PayloadOffset,
-								.Diagnostic = std::format("Serialized field {}::{} is unknown or retired.", DeclaringType, FieldName)});
-						}
-						else if (Field->Kind != StoredKind || Field->TypeSignature != NormalizeLegacyLogicalSignatures(StoredSignature))
-						{
-							if (Record.Compatibility == EAssetPackageCompatibility::Compatible) Record.Compatibility = EAssetPackageCompatibility::Incompatible;
-							Record.Findings.push_back({
-								.Code = EAssetCompatibilityFindingCode::IncompatibleFieldSignature,
-								.ObjectPath = ObjectPaths[static_cast<size_t>(ObjectIndex)], .ClassIdentity = ClassName,
-								.DeclaringType = DeclaringType, .FieldName = FieldName, .StoredKind = StoredKind,
-								.StoredTypeSignature = StoredSignature, .ExpectedKind = Field->Kind,
-								.ExpectedTypeSignature = Field->TypeSignature, .PayloadSize = PayloadSize, .PayloadOffset = PayloadOffset,
-								.Diagnostic = std::format("Serialized field {}::{} has an incompatible type signature.", DeclaringType, FieldName)});
-						}
-					}
-				}
-				if (Record.Inspection == EAssetCompatibilityInspection::Ready && Reader.Offset != Reader.FileSize)
-					AddTerminalFailure(Record, EAssetCompatibilityFindingCode::CorruptPackage, "Trailing bytes after asset package data.");
-			}
-		}
-
-		if (!bUsedV4Reader)
+		if (!bUsedCodec)
 		{
 			Result.Stats.MetadataBytesRead = Reader.MetadataBytesRead;
 			Result.Stats.PeakMetadataBytes = EstimateMetadataBytes(Record);
