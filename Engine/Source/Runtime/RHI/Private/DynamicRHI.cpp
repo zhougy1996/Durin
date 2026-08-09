@@ -6,6 +6,28 @@ namespace Durin
 {
 	FDynamicRHI* GDynamicRHI = nullptr;
 
+	auto FDynamicRHI::RHIGetCapabilities() const -> const FRHICapabilities*
+	{
+		return Capabilities ? &*Capabilities : nullptr;
+	}
+
+	auto FDynamicRHI::PublishCapabilities(FRHICapabilities InCapabilities) -> void
+	{
+		check(!Capabilities.has_value());
+		check(InCapabilities.SupportedTextureDimensions != ERHITextureDimensionFlags::None);
+		check(InCapabilities.MaxTextureDimension2D > 0);
+		check(InCapabilities.MaxTextureDimensionCube > 0);
+		check(InCapabilities.MaxTextureArrayLayers >= TextureCubeFaceCount);
+		check(InCapabilities.ColorSampleCounts != ERHISampleCountFlags::None);
+		check(InCapabilities.DepthSampleCounts != ERHISampleCountFlags::None);
+		Capabilities.emplace(std::move(InCapabilities));
+	}
+
+	auto FDynamicRHI::ClearCapabilities() -> void
+	{
+		Capabilities.reset();
+	}
+
 	auto FDynamicRHI::RHIUpdateTextureReference(
 		FRHITextureReference* TextureReference,
 		FRHITexture* NewTexture) -> void

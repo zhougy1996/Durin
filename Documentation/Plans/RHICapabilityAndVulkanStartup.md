@@ -2,10 +2,10 @@
 
 Summary: Publish a portable immutable RHI capability contract and make Vulkan instance, device, queue, texture-support, and structural-cache startup decisions explicit and transactional.
 
-Last reviewed: 2026-08-09
+Last reviewed: 2026-08-10
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-10
 
 ## Current Status
 
@@ -40,8 +40,86 @@ Stage 0 completed its contract freeze against baseline commit
 capability vocabulary, exact texture boundary, Vulkan requirement classes,
 Win64 queue/WSI rule, structural-cache working set, and validation additions
 are recorded below. The existing focused suites, full Debug Editor build, and
-hidden-window startup/shutdown baseline passed on 2026-08-09. Stage 1 is now
-the current implementation stage.
+hidden-window startup/shutdown baseline passed on 2026-08-09.
+
+Stage 1 completed against implementation baseline commit
+`8e32248009a1d55037098cc4bc38a2c61131b68a`. The working set was the public RHI
+capability/texture contract, Vulkan device-property publication and exact image
+support/creation path, the two current texture consumers, and their focused
+native tests. `FRHICapabilities`, `FDynamicRHI::RHIGetCapabilities`,
+`ValidateTextureCreateDesc`, `FVulkanDynamicRHI::RHIIsTextureSupported`, and
+`BuildTextureImageCreateInfo` are the key handoff symbols. M0 advertises only
+2D and cube images; structurally valid 2D-array, 3D, and cube-array descriptions
+remain unsupported before native allocation. Synchronization2 remains false
+until Stage 3 activates a proven core/extension feature chain. No Stage 1 open
+questions remain. The current target-level `RHIInitializationTests`, focused
+`RenderContractTests` texture suite, and complete `VulkanRHIIntegrationTests`
+passed on 2026-08-09.
+
+Stage 2 completed against baseline commit
+`9b2b0883d6d77e67850a2284e52b585676b74741`. Its working set was Vulkan
+instance requirement negotiation, validation-policy resolution, transactional
+instance publication, and the Vulkan integration target. The handoff symbols
+are `FVulkanInstanceNegotiationInput`, `FVulkanRequirementState`,
+`ResolveVulkanValidationPolicy`, `NegotiateVulkanInstance`, and
+`FVulkanDynamicRHI::CreateInstance`. Candidate-owned strings now keep every
+native create-info pointer stable. Vulkan 1.1 is the loader floor, 1.3 is the
+request ceiling, promoted properties2 is deduplicated, surface maintenance is
+activated only with its dependency, and validation/debug-utils remain
+independently optional under `DURIN_VULKAN_VALIDATION`. No Stage 2 open
+questions remain. The pure negotiation matrix and complete current
+`VulkanRHIIntegrationTests` target passed on 2026-08-09.
+
+Stage 3 completed against baseline commit
+`727c6402a0ecefacb06ccc24aab1291ee5151bdf`. Its working set was physical-device
+evaluation/ranking, logical-device feature/extension assembly, the synchronous
+queue owner, surface compatibility, swapchain transaction entry, portable
+capability publication, and Vulkan integration tests. The handoff symbols are
+`FVulkanPhysicalDeviceCandidateInput`,
+`EvaluateVulkanPhysicalDeviceCandidate`,
+`IsVulkanPhysicalDeviceCandidatePreferred`,
+`FormatVulkanPhysicalDeviceRejectionDiagnostic`,
+`FVulkanDynamicRHI::SelectDevice`, `FVulkanDevice::CreateDevice`, and
+`FVulkanDevice::SetupPresentQueue`. The selected lowest queue family provides
+graphics, compute, transfer, and Win32 presentation through one provisioned
+queue; later surfaces only validate that family. Synchronization2 and swapchain
+maintenance are published only when their complete feature/extension chains
+were activated. No Stage 3 open questions remain. Pure candidate coverage and
+the complete current `VulkanRHIIntegrationTests` target, including independent
+main and detached Win32 surfaces, passed on 2026-08-09.
+
+Stage 4 completed against baseline commit
+`245314ceb0bec92551209f1931f0575a29f037e9`. Its working set was the frozen
+render-pass, framebuffer, descriptor-set-layout, pipeline-layout, and graphics
+pipeline candidate graph plus render-pass command-state publication and Vulkan
+failure-injection coverage. The handoff symbols are
+`FVulkanRenderPassManager::GetOrCreateRenderPass`,
+`FVulkanFramebuffer::FVulkanFramebuffer`,
+`FVulkanDescriptorSetLayoutCache::GetOrCreateDescriptorSetLayout`,
+`FVulkanPipelineManager::FindOrAddLayout`, and
+`FVulkanCommandListContext::RHIBeginRenderPass`. Every native failure now
+propagates before cache publication; framebuffer views are locally rolled back;
+and the pipeline layout map owns only complete non-null values. No Stage 4 open
+questions remain. The focused structural retry/cleanup case and complete
+current `VulkanRHIIntegrationTests` target passed on 2026-08-09. That commit
+became the Stage 5 qualification and documentation baseline.
+
+Stage 5 completed against baseline commit
+`02a40a909139418e4790bcd772908932930e27fc`. Its working set was the lasting
+runtime rendering contract, its related texture/viewport/execution links, the
+owning roadmap, and this final handoff. The supported matrix remains Win64
+Debug Editor, Release Editor, and Shipping Game; optional diagnostics remain
+independent of required startup, and test ownership follows current
+target-level discovery rather than frozen registration totals. No open
+questions remain. Focused RHI initialization, command-list/thread, render
+contract, Vulkan integration and hidden main/detached WSI coverage passed, as
+did the native aggregate, Debug full `all` build, three Debug hidden-editor
+startup/shutdown runs, explicit diagnostic-off Debug/Release/Shipping startup,
+and the plan-gated Release Editor and Shipping Game full builds. The lasting
+contract is now
+[RHI Capabilities and Vulkan Startup](../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md),
+and downstream M1/M2 work can consume the immutable snapshot and exact texture
+support boundary without reopening M0 startup policy.
 
 ## Goal
 
@@ -439,22 +517,22 @@ Later stages add these exact boundaries rather than replacing the baseline:
 
 ### Stage 1: Publish portable capabilities and truthful texture support
 
-- [ ] Add the immutable backend-neutral capability/limit snapshot and const
+- [x] Add the immutable backend-neutral capability/limit snapshot and const
   `FDynamicRHI` query, with complete initialization and test-backend support.
-- [ ] Populate only Stage 0 selected fields from Vulkan properties, features,
+- [x] Populate only Stage 0 selected fields from Vulkan properties, features,
   limits, formats, and the selected queue topology after device creation.
-- [ ] Complete backend-neutral texture validation for 2D, 2D array, 3D, cube,
+- [x] Complete backend-neutral texture validation for 2D, 2D array, 3D, cube,
   and cube array dimension rules, maximum mip counts, sample combinations,
   usage conflicts, checked extent/layer bounds, and cube-face grouping.
-- [ ] Replace the narrow format-feature check with one full Vulkan image-support
+- [x] Replace the narrow format-feature check with one full Vulkan image-support
   query for the exact description and selected capabilities.
-- [ ] Map every supported texture dimension to the correct Vulkan image and
+- [x] Map every supported texture dimension to the correct Vulkan image and
   default-view type, or reject it before native creation when the Stage 0
   support boundary deliberately defers that dimension.
-- [ ] Make `RHICreateTexture` return an owned unsupported diagnostic/null before
+- [x] Make `RHICreateTexture` return an owned unsupported diagnostic/null before
   native allocation while retaining assertions for structurally invalid
   programmer input according to the frozen public policy.
-- [ ] Add focused public validation and Vulkan tests covering accepted boundary
+- [x] Add focused public validation and Vulkan tests covering accepted boundary
   values and rejected dimension/usage/limit combinations.
 
 #### Acceptance Gate
@@ -465,20 +543,24 @@ Later stages add these exact boundaries rather than replacing the baseline:
   advertised dimensions are either implemented and sampled or rejected before
   `vkCreateImage`, and existing 2D/cube upload, readback, and texture-asset
   behavior remains unchanged.
+- Passed on 2026-08-09 with the current target-level initialization, texture
+  contract, and Vulkan integration targets. The Vulkan suite verified snapshot
+  values, exact 2D/cube support and creation, deferred-dimension early rejection,
+  native failure-point preservation, and existing upload/readback behavior.
 
 ### Stage 2: Make instance and diagnostic negotiation explicit
 
-- [ ] Introduce candidate-owned instance negotiation that enumerates the
+- [x] Introduce candidate-owned instance negotiation that enumerates the
   available API version, layers, and extensions before deciding activation.
-- [ ] Separate support, request, activation, and requirement class; account for
+- [x] Separate support, request, activation, and requirement class; account for
   promoted core functionality without requiring redundant extension names.
-- [ ] Enable validation and debug-utils only under the selected diagnostic
+- [x] Enable validation and debug-utils only under the selected diagnostic
   policy and continue without them when they are optional and unavailable.
-- [ ] Reject missing platform/runtime requirements before `vkCreateInstance`
+- [x] Reject missing platform/runtime requirements before `vkCreateInstance`
   with exact names and classifications; log disabled optional requirements once.
-- [ ] Preserve transactional instance publication and module rollback across
+- [x] Preserve transactional instance publication and module rollback across
   enumeration, negotiation, native creation, and dispatcher initialization.
-- [ ] Add deterministic negotiation tests for required-missing,
+- [x] Add deterministic negotiation tests for required-missing,
   optional-missing, validation-requested-present, validation-requested-absent,
   and normal non-validation startup.
 
@@ -489,27 +571,32 @@ Later stages add these exact boundaries rather than replacing the baseline:
   requirements fail before native creation with one owned diagnostic, and
   repeated injected initialization failure followed by success leaves no
   retained instance or module state.
+- Passed on 2026-08-09 through the target-level Vulkan integration owner. Pure
+  cases covered loader floor, required absence, promoted-core deduplication,
+  optional dependency absence, every diagnostic policy/presence permutation,
+  invalid policy fallback, and failure followed by success; hardware-backed
+  injected instance failure and normal startup retained module rollback.
 
 ### Stage 3: Select and publish one valid device/queue/WSI topology
 
-- [ ] Evaluate every physical device into a local candidate containing hard
+- [x] Evaluate every physical device into a local candidate containing hard
   rejection reasons, portable limits/capabilities, extension/feature
   activation, queue-family choices, and a preference score used only after
   requirements pass.
-- [ ] Reject zero-suitability and missing-feature candidates before ranking and
+- [x] Reject zero-suitability and missing-feature candidates before ranking and
   report a bounded device-qualified diagnostic when none pass.
-- [ ] Assemble logical-device extensions, feature chains, and queue create
+- [x] Assemble logical-device extensions, feature chains, and queue create
   infos from candidate-owned storage and publish `FVulkanDevice` only after all
   mandatory subobjects initialize successfully.
-- [ ] Provision the Stage 0 selected graphics/present topology during logical-
+- [x] Provision the Stage 0 selected graphics/present topology during logical-
   device creation; make compute/transfer discovery truthful without enabling
   asynchronous use.
-- [ ] Constrain `SetupPresentQueue` to a provisioned family and make an
+- [x] Constrain `SetupPresentQueue` to a provisioned family and make an
   incompatible main/detached surface a transactional viewport failure instead
   of constructing an invalid queue wrapper.
-- [ ] Publish the final portable snapshot from the selected device and verify
+- [x] Publish the final portable snapshot from the selected device and verify
   that failed candidates cannot leak values into it.
-- [ ] Add selection/queue tests plus supported main-window and ImGui detached-
+- [x] Add selection/queue tests plus supported main-window and ImGui detached-
   viewport creation, replacement, and teardown qualification.
 
 #### Acceptance Gate
@@ -518,21 +605,26 @@ Later stages add these exact boundaries rather than replacing the baseline:
   unprovisioned queue family. All-candidate failure names why each device was
   rejected; a later surface either uses the declared topology or fails the
   viewport transaction without disturbing an existing valid viewport.
+- Passed on 2026-08-09 through pure candidate/ranking/diagnostic coverage and
+  the hardware-backed Vulkan integration owner. The real WSI case created,
+  replaced, and destroyed separate main and ImGui-detached Win32 surfaces on
+  the provisioned family while existing injected viewport retries remained
+  transactional.
 
 ### Stage 4: Enforce complete structural-cache candidates
 
-- [ ] Change render-pass creation to return/throw a failed candidate instead of
+- [x] Change render-pass creation to return/throw a failed candidate instead of
   logging and retaining a null handle.
-- [ ] Add a render-pass native failure-injection point and prove same-key retry
+- [x] Add a render-pass native failure-injection point and prove same-key retry
   succeeds after one failed candidate without a poisoned cache entry.
-- [ ] Audit the Stage 0 framebuffer, descriptor-layout, pipeline-layout, and
+- [x] Audit the Stage 0 framebuffer, descriptor-layout, pipeline-layout, and
   pipeline working set for constructor log-and-continue, partial member
   publication, or cache insertion before dependent native handles are complete.
-- [ ] Refactor each confirmed gap to build local complete candidates and insert
+- [x] Refactor each confirmed gap to build local complete candidates and insert
   only after all native creation and immutable identity checks succeed.
-- [ ] Propagate structural failure to the owning public nullable factory or
+- [x] Propagate structural failure to the owning public nullable factory or
   terminal command-state boundary without converting debug names into keys.
-- [ ] Add focused retry, identity, cleanup, and dependent-candidate tests for
+- [x] Add focused retry, identity, cleanup, and dependent-candidate tests for
   every changed cache.
 
 #### Acceptance Gate
@@ -541,24 +633,29 @@ Later stages add these exact boundaries rather than replacing the baseline:
   injected creation failure releases candidate resources, leaves cache size and
   lookup behavior unchanged, reports one owned diagnostic, and permits the same
   immutable key to succeed on retry.
+- Passed on 2026-08-09 with injected render-pass, framebuffer-view,
+  framebuffer, descriptor-layout, pipeline-layout, and graphics-pipeline
+  failures. Cache-entry and native-view ownership counters remained unchanged
+  or balanced on failure, dependent layout failure left earlier complete set
+  layouts reusable, and same-key retries produced one complete candidate.
 
 ### Stage 5: Qualify startup and publish the lasting contract
 
-- [ ] Run the focused public-RHI, initialization, Vulkan failure-injection,
+- [x] Run the focused public-RHI, initialization, Vulkan failure-injection,
   texture, pipeline, swapchain, viewport, and inline/threaded execution suites
   selected by the validation matrix.
-- [ ] Run both diagnostic-enabled and normal startup where available and record
+- [x] Run both diagnostic-enabled and normal startup where available and record
   the optional-unavailable simulation evidence.
-- [ ] Qualify hidden main-window startup/shutdown and detached-viewport WSI
+- [x] Qualify hidden main-window startup/shutdown and detached-viewport WSI
   creation/replacement/teardown on the supported Win64 profile with validation
   clean.
-- [ ] Run the complete native aggregate, a full `all` build, and repeated
+- [x] Run the complete native aggregate, a full `all` build, and repeated
   `DurinEditor --hidden-window` startup/normal-shutdown smoke through
   DurinDevTool.
-- [ ] Record the stable capability, texture-support, startup negotiation,
+- [x] Record the stable capability, texture-support, startup negotiation,
   device/queue, WSI, and complete-candidate contracts under
   `Documentation/Runtime/Rendering/` and link them from related contracts.
-- [ ] Update both this plan and the owning roadmap with completion evidence,
+- [x] Update both this plan and the owning roadmap with completion evidence,
   downstream M1/M2 entry-gate effects, final working set, key symbols and
   decisions, open questions, and the validation outcome.
 
@@ -569,6 +666,13 @@ Later stages add these exact boundaries rather than replacing the baseline:
   threaded execution, full native validation, full build, repeated editor
   startup, and orderly shutdown all pass. Lasting contracts no longer depend on
   this plan as their only specification.
+- Passed on 2026-08-10. Optional diagnostic absence was covered by pure
+  negotiation simulation; Debug hardware startup activated available
+  diagnostics, and explicit diagnostic-off Debug, Release, and Shipping startup
+  remained available. The current target-level focused suites, hidden main and
+  detached viewport WSI transaction, native aggregate, full supported-profile
+  builds, repeated Debug editor smoke, and normal shutdown completed without
+  unexpected validation diagnostics.
 
 ## Validation Matrix
 

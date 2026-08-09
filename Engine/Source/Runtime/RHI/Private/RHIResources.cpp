@@ -19,14 +19,65 @@ namespace Durin
 		if (CreateDesc.NumMips == 0) return Fail("Texture mip count must be nonzero.");
 		if (CreateDesc.NumSamples == 0) return Fail("Texture sample count must be nonzero.");
 		if (CreateDesc.Format == EPixelFormat::Unknown) return Fail("Texture pixel format must be specified.");
-
-		if (CreateDesc.Dimension == ETextureDimension::TextureCube)
+		if (CreateDesc.NumSamples != 1 && CreateDesc.NumSamples != 2
+			&& CreateDesc.NumSamples != 4 && CreateDesc.NumSamples != 8
+			&& CreateDesc.NumSamples != 16)
 		{
+			return Fail("Texture sample count must be one of 1, 2, 4, 8, or 16.");
+		}
+
+		switch (CreateDesc.Dimension)
+		{
+		case ETextureDimension::Texture2D:
+			if (CreateDesc.Depth != 1) return Fail("Texture2D depth must be one.");
+			if (CreateDesc.ArraySize != 1) return Fail("Texture2D array size must be one.");
+			break;
+		case ETextureDimension::Texture2DArray:
+			if (CreateDesc.Depth != 1) return Fail("Texture2DArray depth must be one.");
+			break;
+		case ETextureDimension::Texture3D:
+			if (CreateDesc.ArraySize != 1) return Fail("Texture3D array size must be one.");
+			break;
+		case ETextureDimension::TextureCube:
 			if (CreateDesc.Extent.x != CreateDesc.Extent.y) return Fail("TextureCube width and height must be equal.");
 			if (CreateDesc.ArraySize != TextureCubeFaceCount) return Fail("TextureCube must contain exactly six array layers.");
 			if (CreateDesc.Depth != 1) return Fail("TextureCube depth must be one.");
-			if (CreateDesc.NumSamples != 1) return Fail("TextureCube must be single-sampled.");
+			break;
+		case ETextureDimension::TextureCubeArray:
+			if (CreateDesc.Extent.x != CreateDesc.Extent.y) return Fail("TextureCubeArray width and height must be equal.");
+			if (CreateDesc.Depth != 1) return Fail("TextureCubeArray depth must be one.");
+			if (CreateDesc.ArraySize % TextureCubeFaceCount != 0) return Fail("TextureCubeArray layer count must be divisible by six.");
+			break;
+		default:
+			return Fail("Texture dimension is invalid.");
 		}
+
+		const uint32 MaxDimension = CreateDesc.Dimension == ETextureDimension::Texture3D
+			? std::max({static_cast<uint32>(CreateDesc.Extent.x), static_cast<uint32>(CreateDesc.Extent.y), static_cast<uint32>(CreateDesc.Depth)})
+			: std::max(static_cast<uint32>(CreateDesc.Extent.x), static_cast<uint32>(CreateDesc.Extent.y));
+		uint32 MaximumMipCount = 1;
+		for (uint32 Remaining = MaxDimension; Remaining > 1; Remaining >>= 1) ++MaximumMipCount;
+		if (CreateDesc.NumMips > MaximumMipCount) return Fail("Texture mip count exceeds the complete mip chain for its extent.");
+		if (CreateDesc.NumSamples != 1 && CreateDesc.NumMips != 1) return Fail("Multisampled textures must have exactly one mip.");
+		if ((CreateDesc.Dimension == ETextureDimension::Texture3D
+			|| CreateDesc.Dimension == ETextureDimension::TextureCube
+			|| CreateDesc.Dimension == ETextureDimension::TextureCubeArray)
+			&& CreateDesc.NumSamples != 1)
+		{
+			return Fail("Texture3D, TextureCube, and TextureCubeArray must be single-sampled.");
+		}
+
+		const bool bDepthStencil = EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::DepthStencilTargetable);
+		const bool bColorOrResolve = EnumHasAnyFlags(CreateDesc.Flags,
+			ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ResolveTargetable);
+		if (bDepthStencil && (bColorOrResolve || EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::Storage)))
+			return Fail("Depth-stencil texture usage is mutually exclusive with color, resolve, and storage usage.");
+		if (CreateDesc.NumSamples != 1 && EnumHasAnyFlags(CreateDesc.Flags,
+			ETextureCreateFlags::Storage | ETextureCreateFlags::CPUReadback | ETextureCreateFlags::ResolveTargetable))
+			return Fail("Storage, CPU-readback, and resolve textures must be single-sampled.");
+
+		const uint64 SubresourceCount = static_cast<uint64>(CreateDesc.NumMips) * CreateDesc.ArraySize;
+		if (SubresourceCount > std::numeric_limits<uint32>::max()) return Fail("Texture subresource count exceeds the portable range.");
 
 		OutError.clear();
 		return true;

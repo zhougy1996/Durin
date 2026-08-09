@@ -5,6 +5,7 @@
 #include "Misc/ViewportPresentModePolicy.h"
 #include "PixelFormat.h"
 #include "RHIResources.h"
+#include "RHICapabilities.h"
 
 namespace Durin
 {
@@ -18,6 +19,7 @@ namespace Durin
 
 		virtual auto Init() -> void = 0;
 		virtual auto Shutdown() -> void = 0;
+		RHI_API auto RHIGetCapabilities() const -> const FRHICapabilities*;
 
 		virtual auto RHIBeginFrame(const FRHIBeginFrameArgs& Args) -> void = 0;
 		RHI_API virtual auto RHIBeginFrame_RenderThread(
@@ -36,7 +38,7 @@ namespace Durin
 
 		virtual auto RHICreateVertexDeclaration(const FVertexDeclarationElementList& Elements) -> TRefCountPtr<FRHIVertexDeclaration> = 0;
 		// Checks the exact format and usage contract without allocating a resource.
-		virtual auto RHIIsTextureFormatSupported(const FRHITextureCreateDesc& CreateDesc) const -> bool = 0;
+		virtual auto RHIIsTextureSupported(const FRHITextureCreateDesc& CreateDesc) const -> bool = 0;
 		virtual auto RHICreateTexture(FRHICommandListBase& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture> = 0;
 		// Updates a stable texture identity. Backends may override this to update
 		// descriptor or bindless state together with the referenced allocation.
@@ -60,6 +62,13 @@ namespace Durin
 		) -> bool;
 
 		RHI_API auto RHIBlockUntilGPUIdle() -> void;
+
+	protected:
+		RHI_API auto PublishCapabilities(FRHICapabilities InCapabilities) -> void;
+		RHI_API auto ClearCapabilities() -> void;
+
+	private:
+		std::optional<FRHICapabilities> Capabilities;
 	};
 
 	extern RHI_API FDynamicRHI* GDynamicRHI;

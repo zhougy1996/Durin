@@ -175,10 +175,13 @@ permanently. At shutdown, RenderCore reports these fields for any live registry
 or deferred-cleanup entry before RHI teardown.
 
 Before creating a texture, the render resource asks the active RHI whether the
-selected format supports the requested optimal-tiling usage. Vulkan derives this
-answer from physical-device format features. An unsupported format is rejected
-before image creation and remains distinguishable from a general creation or
-upload failure in the asset's persistent editor diagnostics.
+complete structurally valid description is supported. Vulkan queries the exact
+format, image type, tiling, usage, flags, extent, mip, layer, and sample
+combination. An unsupported description is rejected before image creation and
+remains distinguishable from a general creation or upload failure in the
+asset's persistent editor diagnostics. The public capability and support
+contract is documented in
+[RHI Capabilities and Vulkan Startup](RHICapabilitiesAndVulkanStartup.md).
 
 RHI pixel-format metadata also owns the tightly packed block layout calculation.
 Platform-data validation and Vulkan uploads use the same block count, row pitch,

@@ -39,7 +39,7 @@ namespace Durin
 					PlatformData->Faces[0].Mips.size()))
 				.SetFlags(ETextureCreateFlags::ShaderResource
 					| ETextureCreateFlags::CPUReadback);
-		if (!GDynamicRHI->RHIIsTextureFormatSupported(Desc))
+		if (!GDynamicRHI->RHIIsTextureSupported(Desc))
 		{
 			Completion->MarkFailed(
 				Revision, ETextureRenderFailure::UnsupportedFormat);

@@ -126,6 +126,30 @@ namespace Durin
 		TextureCubeArray
 	};
 
+	// Advertises the texture shapes implemented by the active backend.
+	enum class ERHITextureDimensionFlags : uint8
+	{
+		None = 0,
+		Texture2D = 1 << 0,
+		Texture2DArray = 1 << 1,
+		Texture3D = 1 << 2,
+		TextureCube = 1 << 3,
+		TextureCubeArray = 1 << 4,
+	};
+	ENUM_CLASS_FLAGS(ERHITextureDimensionFlags);
+
+	// Advertises portable texture sample counts without exposing backend flags.
+	enum class ERHISampleCountFlags : uint8
+	{
+		None = 0,
+		Samples1 = 1 << 0,
+		Samples2 = 1 << 1,
+		Samples4 = 1 << 2,
+		Samples8 = 1 << 3,
+		Samples16 = 1 << 4,
+	};
+	ENUM_CLASS_FLAGS(ERHISampleCountFlags);
+
 	// Identifies one cubemap face and its physical array-layer index.
 	enum class ETextureCubeFace : uint8
 	{

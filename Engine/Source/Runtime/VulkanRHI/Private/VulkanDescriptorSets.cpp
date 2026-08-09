@@ -36,6 +36,9 @@ namespace Durin::VulkanRHI
 		{
 			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::DescriptorSetLayout, Entry.Handle);
 		}
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		GVulkanDescriptorSetLayoutEntryCount.fetch_sub(DLayoutMap.size(), std::memory_order_release);
+#endif
 	}
 
 	auto FVulkanDescriptorSetLayoutCache::GetOrCreateDescriptorSetLayout(const FVulkanDescriptorSetsLayoutInfo::FSetLayout& Layout) -> vk::DescriptorSetLayout
@@ -52,11 +55,19 @@ namespace Durin::VulkanRHI
 		CreateInfo.setBindings(Layout.LayoutBindings);
 
 		FVulkanDescriptorSetLayoutEntry NewEntry;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		ThrowIfVulkanNativeCreateFailureIsArmed(
+			EVulkanCreateFailurePoint::DescriptorSetLayout);
+#endif
 		NewEntry.Handle = Device.GetHandle().createDescriptorSetLayout(CreateInfo);
 		NewEntry.HandleId = ++GVulkanDSetLayoutHandleIdCounter;
-		DLayoutMap[Layout] = NewEntry;
+		const auto [InsertedIt, bInserted] = DLayoutMap.emplace(Layout, NewEntry);
+		check(bInserted);
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		GVulkanDescriptorSetLayoutEntryCount.fetch_add(1, std::memory_order_release);
+#endif
 
-		return NewEntry.Handle;
+		return InsertedIt->second.Handle;
 	}
 
 	void FVulkanDescriptorSetsLayoutInfo::GenerateHash()

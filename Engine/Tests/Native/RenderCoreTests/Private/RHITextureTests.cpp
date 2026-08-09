@@ -49,6 +49,45 @@ namespace Durin
 		EXPECT_NE(Error.find("single-sampled"), std::string::npos);
 	}
 
+	TEST(FRHITextureTests, ValidatesEveryTextureDimensionBoundary)
+	{
+		struct FCase
+		{
+			FRHITextureCreateDesc Desc;
+			bool bValid;
+			std::string_view Diagnostic;
+		};
+		const std::array Cases{
+			FCase{FRHITextureCreateDesc::Create2D("2D").SetFormat(EPixelFormat::RGBA8_UNORM), true, ""},
+			FCase{FRHITextureCreateDesc::Create2D("2DDepth").SetDepth(2).SetFormat(EPixelFormat::RGBA8_UNORM), false, "depth"},
+			FCase{FRHITextureCreateDesc::Create2DArray("Array").SetArraySize(4).SetFormat(EPixelFormat::RGBA8_UNORM), true, ""},
+			FCase{FRHITextureCreateDesc::Create3D("3D").SetDepth(8).SetExtent(8).SetNumMips(4).SetFormat(EPixelFormat::RGBA8_UNORM), true, ""},
+			FCase{FRHITextureCreateDesc::CreateCube("Cube").SetExtent(8).SetFormat(EPixelFormat::RGBA8_UNORM), true, ""},
+			FCase{FRHITextureCreateDesc::CreateCubeArray("CubeArray").SetArraySize(12).SetExtent(8).SetFormat(EPixelFormat::RGBA8_UNORM), true, ""},
+			FCase{FRHITextureCreateDesc::CreateCubeArray("BadCubeArray").SetArraySize(7).SetExtent(8).SetFormat(EPixelFormat::RGBA8_UNORM), false, "divisible"},
+		};
+		for (const FCase& Case : Cases)
+		{
+			std::string Error;
+			EXPECT_EQ(ValidateTextureCreateDesc(Case.Desc, Error), Case.bValid);
+			if (!Case.bValid) EXPECT_NE(Error.find(Case.Diagnostic), std::string::npos) << Error;
+		}
+	}
+
+	TEST(FRHITextureTests, RejectsInvalidMipSampleAndUsageContracts)
+	{
+		auto ExpectRejected = [](const FRHITextureCreateDesc& Desc, std::string_view Expected) {
+			std::string Error;
+			EXPECT_FALSE(ValidateTextureCreateDesc(Desc, Error));
+			EXPECT_NE(Error.find(Expected), std::string::npos) << Error;
+		};
+		ExpectRejected(FRHITextureCreateDesc::Create2D("Samples").SetNumSamples(3).SetFormat(EPixelFormat::RGBA8_UNORM), "sample count");
+		ExpectRejected(FRHITextureCreateDesc::Create2D("Mips").SetExtent(4).SetNumMips(4).SetFormat(EPixelFormat::RGBA8_UNORM), "mip count");
+		ExpectRejected(FRHITextureCreateDesc::Create2D("MSAAMips").SetExtent(4).SetNumMips(2).SetNumSamples(4).SetFormat(EPixelFormat::RGBA8_UNORM), "exactly one mip");
+		ExpectRejected(FRHITextureCreateDesc::Create2D("DepthColor").SetFlags(ETextureCreateFlags::DepthStencilTargetable | ETextureCreateFlags::RenderTargetable).SetFormat(EPixelFormat::D32), "mutually exclusive");
+		ExpectRejected(FRHITextureCreateDesc::Create2D("StorageMSAA").SetFlags(ETextureCreateFlags::Storage).SetNumSamples(4).SetFormat(EPixelFormat::RGBA8_UNORM), "single-sampled");
+	}
+
 	TEST(FRHITextureTests, ValidatesMipSliceRegionAndSourcePitch)
 	{
 		const FRHITextureCreateDesc Desc = FRHITextureCreateDesc::CreateCube("TestCube")

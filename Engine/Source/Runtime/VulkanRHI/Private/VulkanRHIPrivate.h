@@ -25,6 +25,10 @@ namespace Durin::VulkanRHI
 		Allocator,
 		Image,
 		ImageView,
+		RenderPass,
+		FramebufferImageView,
+		Framebuffer,
+		DescriptorSetLayout,
 		Buffer,
 		ShaderModule,
 		PipelineLayout,
@@ -49,6 +53,29 @@ namespace Durin::VulkanRHI
 
 	VULKANRHI_API auto GetVulkanGraphicsPipelineTestStats()
 		-> FVulkanGraphicsPipelineTestStats;
+
+	struct FVulkanStructuralCacheTestStats
+	{
+		uint64 RenderPassEntryCount = 0;
+		uint64 FramebufferEntryCount = 0;
+		uint64 DescriptorSetLayoutEntryCount = 0;
+		uint64 PipelineLayoutEntryCount = 0;
+		uint64 CreatedFramebufferViewCount = 0;
+		uint64 ReleasedFramebufferViewCount = 0;
+		uint64 CreatedFramebufferCount = 0;
+		uint64 ReleasedFramebufferCount = 0;
+	};
+
+	extern std::atomic<uint64> GVulkanRenderPassEntryCount;
+	extern std::atomic<uint64> GVulkanFramebufferEntryCount;
+	extern std::atomic<uint64> GVulkanDescriptorSetLayoutEntryCount;
+	extern std::atomic<uint64> GVulkanPipelineLayoutEntryCount;
+	extern std::atomic<uint64> GVulkanCreatedFramebufferViewCount;
+	extern std::atomic<uint64> GVulkanReleasedFramebufferViewCount;
+	extern std::atomic<uint64> GVulkanCreatedFramebufferCount;
+	extern std::atomic<uint64> GVulkanReleasedFramebufferCount;
+	VULKANRHI_API auto GetVulkanStructuralCacheTestStats()
+		-> FVulkanStructuralCacheTestStats;
 #endif
 
 	class FVulkanDevice;

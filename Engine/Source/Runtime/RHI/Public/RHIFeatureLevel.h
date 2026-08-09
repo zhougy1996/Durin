@@ -2,10 +2,10 @@
 
 namespace Durin
 {
-	// Groups rendering capabilities into feature tiers used by portable render code.
+	// Groups proven portable rendering baselines into coarse feature tiers.
 	enum class ERHIFeatureLevel : uint8
 	{
-		/** Feature level defined by the core capabilities of OpenGL ES3.1 & Metal/Vulkan. */
+		/** Portable M0 graphics baseline; optional capabilities require independent queries. */
 		ES3_1,
 
 		/**

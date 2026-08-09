@@ -109,6 +109,11 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		bOutNativeSwapchainCreated = false;
+		if (!Device.SetupPresentQueue(Surface))
+		{
+			throw std::runtime_error(
+				"Vulkan swapchain creation rejected an incompatible surface before native creation.");
+		}
 		// Get Swap chain support details
 		vk::PhysicalDevice Gpu = Device.GetGpu();
 		vk::SurfaceCapabilitiesKHR Capabilities = Gpu.getSurfaceCapabilitiesKHR(Surface);
@@ -153,7 +158,6 @@ namespace Durin::VulkanRHI
 
 		try
 		{
-			Device.SetupPresentQueue(Surface);
 			SwapchainImages = Device.GetHandle().getSwapchainImagesKHR(Swapchain);
 		}
 		catch (...)

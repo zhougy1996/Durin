@@ -1,58 +1,59 @@
 #pragma once
 
+#include "VulkanRHIAPI.h"
+
 namespace Durin::VulkanRHI
 {
-	class FVulkanDevice;
-	class FVulkanInstanceExtension;
-	class FVulkanDeviceExtension;
-
-	// Describes an optional Vulkan extension and hooks for feature negotiation.
-	class FVulkanExtensionBase
+	// Classifies why a Vulkan requirement may be activated or rejected.
+	enum class EVulkanRequirementClass : uint8
 	{
-	public:
-		FVulkanExtensionBase(const char* InExtensionName)
-			: ExtensionName(InExtensionName)
-		{
-		}
+		RequiredRuntime,
+		PlatformRequired,
+		OptionalFeature,
+		OptionalDiagnostic,
+		PromotedCore,
+	};
 
-		auto SetSupported() -> void { bSupported = true; }
-		auto SetActivated() -> void { bActivated = true; }
-
-		auto IsSupported() const -> bool { return bSupported; }
-		auto GetExtensionName() const -> const char* { return ExtensionName; }
-
-		auto InUse() const -> bool;
-
-	protected:
-		const char* ExtensionName;
-
+	struct FVulkanRequirementState
+	{
+		std::string Name;
+		EVulkanRequirementClass Class = EVulkanRequirementClass::OptionalFeature;
 		bool bSupported = false;
-
+		bool bRequested = false;
 		bool bActivated = false;
 	};
 
-	inline auto FVulkanExtensionBase::InUse() const -> bool
+	struct FVulkanInstanceNegotiationInput
 	{
-		return bSupported && bActivated;
-	}
-
-	using FVulkanInstanceExtensionArray = std::vector<std::unique_ptr<FVulkanInstanceExtension>>;
-	using FVulkanDeviceExtensionArray = std::vector<std::unique_ptr<FVulkanDeviceExtension>>;
-
-	// Specializes extension negotiation for Vulkan instance creation.
-	class FVulkanInstanceExtension : public FVulkanExtensionBase
-	{
-	public:
-		static auto GetDurinSupportedInstanceExtensions() -> FVulkanInstanceExtensionArray;
+		uint32 LoaderApiVersion = 0;
+		std::vector<std::string> AvailableExtensions;
+		std::vector<std::string> AvailableLayers;
+		std::vector<std::string> PlatformRequiredExtensions;
+		bool bRequestDiagnostics = false;
 	};
 
-	// Specializes extension negotiation for logical-device creation.
-	class FVulkanDeviceExtension : public FVulkanExtensionBase
+	struct FVulkanInstanceNegotiationResult
 	{
-	public:
-		static auto GetDurinSupportedDeviceExtensions(FVulkanDevice* InDevice) -> FVulkanDeviceExtensionArray;
-		static auto GetDriverSupportedDeviceExtensions(vk::PhysicalDevice Gpu, const char* LayerName = nullptr) -> std::vector<vk::ExtensionProperties>;
+		uint32 ApiVersion = 0;
+		std::vector<FVulkanRequirementState> Requirements;
+		std::vector<std::string> EnabledExtensions;
+		std::vector<std::string> EnabledLayers;
+		std::string Diagnostic;
 
-	protected:
+		auto IsSuccess() const -> bool { return Diagnostic.empty(); }
 	};
+
+	struct FVulkanValidationPolicy
+	{
+		bool bRequestDiagnostics = false;
+		bool bInvalidSetting = false;
+	};
+
+	VULKANRHI_API auto ResolveVulkanValidationPolicy(
+		const char* ConfiguredMode,
+		bool bDebugBuild,
+		bool bShippingBuild) -> FVulkanValidationPolicy;
+	VULKANRHI_API auto NegotiateVulkanInstance(const FVulkanInstanceNegotiationInput& Input)
+		-> FVulkanInstanceNegotiationResult;
+
 }

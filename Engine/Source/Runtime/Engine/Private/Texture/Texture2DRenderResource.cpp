@@ -34,7 +34,7 @@ namespace Durin
 			PlatformData->PixelFormat)
 			.SetNumMips(static_cast<uint8>(PlatformData->Mips.size()))
 			.SetFlags(ETextureCreateFlags::ShaderResource);
-		if (!GDynamicRHI->RHIIsTextureFormatSupported(Desc))
+		if (!GDynamicRHI->RHIIsTextureSupported(Desc))
 		{
 			Completion->MarkFailed(
 				Revision, ETextureRenderFailure::UnsupportedFormat);

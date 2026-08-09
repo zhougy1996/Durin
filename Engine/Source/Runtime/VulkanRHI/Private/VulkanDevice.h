@@ -6,6 +6,54 @@
 
 namespace Durin::VulkanRHI
 {
+	struct FVulkanQueueFamilyCandidate
+	{
+		vk::QueueFlags Flags;
+		uint32 QueueCount = 0;
+		bool bSupportsWin32Presentation = false;
+	};
+
+	struct FVulkanPhysicalDeviceCandidateInput
+	{
+		std::string DeviceName;
+		vk::PhysicalDeviceType DeviceType = vk::PhysicalDeviceType::eOther;
+		uint32 ApiVersion = 0;
+		uint32 VendorId = 0;
+		uint32 DeviceId = 0;
+		uint32 MaxImageDimension2D = 0;
+		uint32 MaxImageDimensionCube = 0;
+		uint32 MaxImageArrayLayers = 0;
+		bool bFillModeNonSolid = false;
+		bool bShaderDrawParameters = false;
+		bool bSynchronization2Feature = false;
+		bool bSwapchainMaintenanceFeature = false;
+		bool bHasSwapchainMaintenanceInstanceDependencies = false;
+		std::vector<std::string> AvailableExtensions;
+		std::vector<FVulkanQueueFamilyCandidate> QueueFamilies;
+	};
+
+	struct FVulkanPhysicalDeviceCandidateEvaluation
+	{
+		std::vector<std::string> RejectionReasons;
+		std::vector<std::string> EnabledExtensions;
+		int32 GraphicsPresentQueueFamilyIndex = -1;
+		bool bEnableSynchronization2 = false;
+		bool bEnableSwapchainMaintenance1 = false;
+
+		auto IsSuitable() const -> bool { return RejectionReasons.empty(); }
+	};
+
+	VULKANRHI_API auto EvaluateVulkanPhysicalDeviceCandidate(
+		const FVulkanPhysicalDeviceCandidateInput& Input)
+		-> FVulkanPhysicalDeviceCandidateEvaluation;
+	VULKANRHI_API auto IsVulkanPhysicalDeviceCandidatePreferred(
+		const FVulkanPhysicalDeviceCandidateInput& Left,
+		const FVulkanPhysicalDeviceCandidateInput& Right) -> bool;
+	VULKANRHI_API auto FormatVulkanPhysicalDeviceRejectionDiagnostic(
+		std::span<const FVulkanPhysicalDeviceCandidateInput> Inputs,
+		std::span<const FVulkanPhysicalDeviceCandidateEvaluation> Evaluations)
+		-> std::string;
+
 	class FVulkanDevice;
 	class FVulkanDynamicRHI;
 	class FVulkanQueue;
@@ -101,15 +149,18 @@ namespace Durin::VulkanRHI
 	class FVulkanDevice
 	{
 	public:
-		FVulkanDevice(FVulkanDynamicRHI* InRHI, vk::PhysicalDevice InGpu);
+		FVulkanDevice(
+			FVulkanDynamicRHI* InRHI,
+			vk::PhysicalDevice InGpu,
+			FVulkanPhysicalDeviceCandidateEvaluation InEvaluation);
 
 		~FVulkanDevice();
 
 		auto InitGpu(uint32 EnabledInstanceExtensionCount) -> void;
 
-		auto CreateDevice(const FVulkanDeviceExtensionArray& InDeviceExtensions) -> void;
+		auto CreateDevice() -> void;
 
-		auto SetupPresentQueue(vk::SurfaceKHR InSurface) -> void;
+		auto SetupPresentQueue(vk::SurfaceKHR InSurface) -> bool;
 
 		auto WaitUtilIdle() const -> void;
 
@@ -130,6 +181,7 @@ namespace Durin::VulkanRHI
 		auto GetPresentQueue() const -> FVulkanQueue* { return PresentQueue; }
 
 		auto SupportsSwapchainMaintenance1() const -> bool { return bSupportsSwapchainMaintenance1; }
+		auto SupportsSynchronization2() const -> bool { return bSupportsSynchronization2; }
 
 		auto GetGraphicsQueue() const -> FVulkanQueue* { return GraphicsQueue; }
 
@@ -193,9 +245,10 @@ namespace Durin::VulkanRHI
 
 		FVulkanQueue* PresentQueue = nullptr;
 
-		std::vector<const char*> DeviceExtensions;
+		std::vector<std::string> DeviceExtensions;
 
 		bool bSupportsSwapchainMaintenance1 = false;
+		bool bSupportsSynchronization2 = false;
 
 		int32 GraphicsQueueFamilyIndex = -1;
 

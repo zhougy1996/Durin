@@ -370,6 +370,10 @@ immediate deletion-queue drain.
 - Use `MonaUI::DrawTexture(...)` only for render-target-backed UI display.
 - Window-backed game rendering should continue to present through the native RHI viewport.
 
+The provisioned Win64 graphics/presentation family and later-surface rejection
+rule are documented in
+[RHI Capabilities and Vulkan Startup](RHICapabilitiesAndVulkanStartup.md).
+
 ## Related Code
 
 - `Engine/Source/Runtime/MonaCore/Public/Widgets/MWindow.h`

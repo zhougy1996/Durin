@@ -56,7 +56,7 @@ namespace Durin::VulkanRHI
 	private:
 		FVulkanDevice& Device;
 
-		std::unordered_map<FVulkanDescriptorSetsLayoutInfo, FVulkanLayout*> LayoutMap;
+		std::unordered_map<FVulkanDescriptorSetsLayoutInfo, std::unique_ptr<FVulkanLayout>> LayoutMap;
 	};
 
 	// Owns the driver pipeline cache used to accelerate Vulkan pipeline creation.

@@ -15,13 +15,17 @@ namespace Durin
 			uint32 DestructionCount = 0;
 			bool bInitOnRHIThread = false;
 			bool bShutdownOnRHIThread = false;
+			bool bCapabilitiesClearedAtShutdown = false;
 		};
 
 		class FFailingDynamicRHI final : public FDynamicRHI
 		{
 		public:
-			explicit FFailingDynamicRHI(FInitializationObservation& InObservation)
+			explicit FFailingDynamicRHI(
+				FInitializationObservation& InObservation,
+				bool bInFailInit = true)
 				: Observation(InObservation)
+				, bFailInit(bInFailInit)
 			{
 			}
 
@@ -34,13 +38,27 @@ namespace Durin
 			{
 				++Observation.InitCount;
 				Observation.bInitOnRHIThread = IsInRHIThread();
-				throw std::runtime_error("intentional backend init failure");
+				if (bFailInit)
+				{
+					throw std::runtime_error("intentional backend init failure");
+				}
+				FRHICapabilities Capabilities;
+				Capabilities.SupportedTextureDimensions =
+					ERHITextureDimensionFlags::Texture2D | ERHITextureDimensionFlags::TextureCube;
+				Capabilities.MaxTextureDimension2D = 4096;
+				Capabilities.MaxTextureDimensionCube = 2048;
+				Capabilities.MaxTextureArrayLayers = 256;
+				Capabilities.ColorSampleCounts = ERHISampleCountFlags::Samples1 | ERHISampleCountFlags::Samples4;
+				Capabilities.DepthSampleCounts = ERHISampleCountFlags::Samples1;
+				PublishCapabilities(Capabilities);
 			}
 
 			auto Shutdown() -> void override
 			{
 				++Observation.ShutdownCount;
 				Observation.bShutdownOnRHIThread = IsInRHIThread();
+				ClearCapabilities();
+				Observation.bCapabilitiesClearedAtShutdown = RHIGetCapabilities() == nullptr;
 			}
 
 			auto RHIBeginFrame(const FRHIBeginFrameArgs&) -> void override {}
@@ -62,7 +80,7 @@ namespace Durin
 				-> TRefCountPtr<FRHITexture> override { return {}; }
 			auto RHICreateVertexDeclaration(const FVertexDeclarationElementList&)
 				-> TRefCountPtr<FRHIVertexDeclaration> override { return {}; }
-			auto RHIIsTextureFormatSupported(
+			auto RHIIsTextureSupported(
 				const FRHITextureCreateDesc&) const -> bool override { return false; }
 			auto RHICreateTexture(
 				FRHICommandListBase&, const FRHITextureCreateDesc&)
@@ -77,6 +95,7 @@ namespace Durin
 
 		private:
 			FInitializationObservation& Observation;
+			bool bFailInit = true;
 		};
 	}
 
@@ -118,6 +137,26 @@ namespace Durin
 		EXPECT_EQ(ResolveRHIExecutionMode("inline"), ERHIExecutionMode::Inline);
 		EXPECT_EQ(ResolveRHIExecutionMode("threaded"),
 			ERHIExecutionMode::Threaded);
+	}
+
+	TEST(FRHIInitializationTests, CapabilitySnapshotPublishesOnlyAfterSuccessfulInit)
+	{
+		FInitializationObservation Observation;
+		auto* Backend = new FFailingDynamicRHI(Observation, false);
+		EXPECT_EQ(Backend->RHIGetCapabilities(), nullptr);
+		Backend->Init();
+		const FRHICapabilities* Capabilities = Backend->RHIGetCapabilities();
+		ASSERT_NE(Capabilities, nullptr);
+		EXPECT_EQ(Capabilities->FeatureLevel, ERHIFeatureLevel::ES3_1);
+		EXPECT_EQ(Capabilities->SupportedTextureDimensions,
+			ERHITextureDimensionFlags::Texture2D | ERHITextureDimensionFlags::TextureCube);
+		EXPECT_EQ(Capabilities->MaxTextureDimension2D, 4096u);
+		EXPECT_FALSE(Capabilities->bSupportsSynchronization2);
+
+		Backend->Shutdown();
+		EXPECT_TRUE(Observation.bCapabilitiesClearedAtShutdown);
+		delete Backend;
+		EXPECT_EQ(Observation.DestructionCount, 1u);
 	}
 
 	TEST(FRHIInitializationTests, InvalidExecutionModeFallsBackThreaded)

@@ -15,6 +15,118 @@
 
 namespace Durin::VulkanRHI
 {
+	namespace
+	{
+		auto HasExtension(const std::vector<std::string>& Extensions, std::string_view Name) -> bool
+		{
+			return std::ranges::any_of(Extensions,
+				[Name](const std::string& Extension) { return Extension == Name; });
+		}
+
+		auto DeviceTypePreference(vk::PhysicalDeviceType Type) -> uint32
+		{
+			switch (Type)
+			{
+			case vk::PhysicalDeviceType::eDiscreteGpu: return 0;
+			case vk::PhysicalDeviceType::eIntegratedGpu: return 1;
+			case vk::PhysicalDeviceType::eVirtualGpu: return 2;
+			case vk::PhysicalDeviceType::eOther: return 3;
+			case vk::PhysicalDeviceType::eCpu: return 4;
+			default: return 5;
+			}
+		}
+	}
+
+	auto EvaluateVulkanPhysicalDeviceCandidate(
+		const FVulkanPhysicalDeviceCandidateInput& Input)
+		-> FVulkanPhysicalDeviceCandidateEvaluation
+	{
+		FVulkanPhysicalDeviceCandidateEvaluation Result;
+		if (Input.ApiVersion < VK_API_VERSION_1_1)
+			Result.RejectionReasons.emplace_back("device API version is below Vulkan 1.1");
+		if (!HasExtension(Input.AvailableExtensions, VK_KHR_SWAPCHAIN_EXTENSION_NAME))
+			Result.RejectionReasons.emplace_back("missing platform required extension VK_KHR_swapchain");
+		if (!Input.bFillModeNonSolid)
+			Result.RejectionReasons.emplace_back("missing required fillModeNonSolid feature");
+		if (!Input.bShaderDrawParameters)
+			Result.RejectionReasons.emplace_back("missing required shaderDrawParameters feature");
+		if (Input.MaxImageDimension2D == 0)
+			Result.RejectionReasons.emplace_back("maxImageDimension2D is zero");
+		if (Input.MaxImageDimensionCube == 0)
+			Result.RejectionReasons.emplace_back("maxImageDimensionCube is zero");
+		if (Input.MaxImageArrayLayers < TextureCubeFaceCount)
+			Result.RejectionReasons.emplace_back("maxImageArrayLayers is below six");
+		for (uint32 Index = 0; Index < Input.QueueFamilies.size(); ++Index)
+		{
+			const FVulkanQueueFamilyCandidate& Queue = Input.QueueFamilies[Index];
+			const vk::QueueFlags Required = vk::QueueFlagBits::eGraphics | vk::QueueFlagBits::eCompute;
+			if (Queue.QueueCount > 0 && (Queue.Flags & Required) == Required
+				&& Queue.bSupportsWin32Presentation)
+			{
+				Result.GraphicsPresentQueueFamilyIndex = static_cast<int32>(Index);
+				break;
+			}
+		}
+		if (Result.GraphicsPresentQueueFamilyIndex < 0)
+			Result.RejectionReasons.emplace_back(
+				"no queue family provides graphics, compute, and Win32 presentation");
+		if (!Result.IsSuitable()) return Result;
+
+		Result.EnabledExtensions.emplace_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+		const bool bSynchronization2Extension = HasExtension(
+			Input.AvailableExtensions, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
+		Result.bEnableSynchronization2 = Input.bSynchronization2Feature
+			&& (Input.ApiVersion >= VK_API_VERSION_1_3 || bSynchronization2Extension);
+		if (Result.bEnableSynchronization2 && Input.ApiVersion < VK_API_VERSION_1_3)
+			Result.EnabledExtensions.emplace_back(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
+		Result.bEnableSwapchainMaintenance1 = Input.bHasSwapchainMaintenanceInstanceDependencies
+			&& Input.bSwapchainMaintenanceFeature
+			&& HasExtension(Input.AvailableExtensions, VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
+		if (Result.bEnableSwapchainMaintenance1)
+			Result.EnabledExtensions.emplace_back(VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
+		return Result;
+	}
+
+	auto IsVulkanPhysicalDeviceCandidatePreferred(
+		const FVulkanPhysicalDeviceCandidateInput& Left,
+		const FVulkanPhysicalDeviceCandidateInput& Right) -> bool
+	{
+		return std::tuple{
+			DeviceTypePreference(Left.DeviceType),
+			std::numeric_limits<uint32>::max() - Left.MaxImageDimension2D,
+			std::numeric_limits<uint32>::max() - Left.ApiVersion,
+			Left.VendorId, Left.DeviceId, Left.DeviceName}
+			< std::tuple{
+				DeviceTypePreference(Right.DeviceType),
+				std::numeric_limits<uint32>::max() - Right.MaxImageDimension2D,
+				std::numeric_limits<uint32>::max() - Right.ApiVersion,
+				Right.VendorId, Right.DeviceId, Right.DeviceName};
+	}
+
+	auto FormatVulkanPhysicalDeviceRejectionDiagnostic(
+		std::span<const FVulkanPhysicalDeviceCandidateInput> Inputs,
+		std::span<const FVulkanPhysicalDeviceCandidateEvaluation> Evaluations)
+		-> std::string
+	{
+		check(Inputs.size() == Evaluations.size());
+		std::string Diagnostic = "Vulkan physical-device selection failed:";
+		const size_t DeviceCount = std::min<size_t>(Inputs.size(), 16);
+		for (size_t DeviceIndex = 0; DeviceIndex < DeviceCount; ++DeviceIndex)
+		{
+			Diagnostic += std::format(" [{}] {}:", DeviceIndex,
+				Inputs[DeviceIndex].DeviceName.substr(0, 256));
+			const auto& Reasons = Evaluations[DeviceIndex].RejectionReasons;
+			const size_t ReasonCount = std::min<size_t>(Reasons.size(), 8);
+			for (size_t ReasonIndex = 0; ReasonIndex < ReasonCount; ++ReasonIndex)
+				Diagnostic += std::format(" {}", Reasons[ReasonIndex].substr(0, 256));
+			if (Reasons.size() > ReasonCount)
+				Diagnostic += std::format(" (+{} reasons)", Reasons.size() - ReasonCount);
+		}
+		if (Inputs.size() > DeviceCount)
+			Diagnostic += std::format(" (+{} devices)", Inputs.size() - DeviceCount);
+		return Diagnostic;
+	}
+
 	uint64 GVulkanRHIDeletionFrameNumber = 0;
 
 	constexpr uint64 GVulkanNumFramesToWaitForResourceDelete = kFrameInFlight;
@@ -132,12 +244,22 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	FVulkanDevice::FVulkanDevice(FVulkanDynamicRHI* InRHI, vk::PhysicalDevice InGpu)
+	FVulkanDevice::FVulkanDevice(
+		FVulkanDynamicRHI* InRHI,
+		vk::PhysicalDevice InGpu,
+		FVulkanPhysicalDeviceCandidateEvaluation InEvaluation)
 		: RHI(InRHI)
 		, Gpu(InGpu)
 		, FenceManager({*this})
 		, DeferredDeletionQueue(this)
 	{
+		check(InEvaluation.IsSuitable());
+		GraphicsQueueFamilyIndex = InEvaluation.GraphicsPresentQueueFamilyIndex;
+		ComputeQueueFamilyIndex = GraphicsQueueFamilyIndex;
+		TransferQueueFamilyIndex = GraphicsQueueFamilyIndex;
+		DeviceExtensions = std::move(InEvaluation.EnabledExtensions);
+		bSupportsSwapchainMaintenance1 = InEvaluation.bEnableSwapchainMaintenance1;
+		bSupportsSynchronization2 = InEvaluation.bEnableSynchronization2;
 	}
 
 	FVulkanDevice::~FVulkanDevice()
@@ -154,24 +276,7 @@ namespace Durin::VulkanRHI
 			vk::apiVersionMajor(GpuProps.apiVersion), vk::apiVersionMinor(GpuProps.apiVersion), vk::apiVersionPatch(GpuProps.apiVersion), GpuProps.driverVersion);
 
 		QueueFamilyProps = Gpu.getQueueFamilyProperties();
-
-		const FVulkanDeviceExtensionArray SupportedDeviceExtensions = FVulkanDeviceExtension::GetDurinSupportedDeviceExtensions(this);
-		const auto SwapchainMaintenanceExtension = std::ranges::find_if(SupportedDeviceExtensions, [](const std::unique_ptr<FVulkanDeviceExtension>& Extension) {
-			return strcmp(Extension->GetExtensionName(), VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME) == 0;
-		});
-		const bool bHasSwapchainMaintenanceInstanceDependencies =
-			RHI->IsInstanceExtensionEnabled(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME) &&
-			RHI->IsInstanceExtensionEnabled(VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
-		if (bHasSwapchainMaintenanceInstanceDependencies && SwapchainMaintenanceExtension != SupportedDeviceExtensions.end() && (*SwapchainMaintenanceExtension)->InUse())
-		{
-			vk::PhysicalDeviceSwapchainMaintenance1FeaturesEXT MaintenanceFeatures;
-			vk::PhysicalDeviceFeatures2 Features;
-			Features.setPNext(&MaintenanceFeatures);
-			Gpu.getFeatures2(&Features);
-			bSupportsSwapchainMaintenance1 = MaintenanceFeatures.swapchainMaintenance1 == vk::True;
-		}
-
-		CreateDevice(SupportedDeviceExtensions);
+		CreateDevice();
 		DURIN_INFO("Vulkan initialized: GPU=\"{}\", type={}, API={}.{}.{}, driver=0x{:x}, extensions(instance={}, device={}), queues(graphics={}, compute={} {}, transfer={} {}).",
 			GpuProps.deviceName.data(), vk::to_string(GpuProps.deviceType), vk::apiVersionMajor(GpuProps.apiVersion), vk::apiVersionMinor(GpuProps.apiVersion),
 			vk::apiVersionPatch(GpuProps.apiVersion), GpuProps.driverVersion, EnabledInstanceExtensionCount, DeviceExtensions.size(), GraphicsQueueFamilyIndex,
@@ -193,95 +298,53 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto FVulkanDevice::CreateDevice(const FVulkanDeviceExtensionArray& InDeviceExtensions) -> void
+	auto FVulkanDevice::CreateDevice() -> void
 	{
 		assert(Device == VK_NULL_HANDLE);
-
-		for (const std::unique_ptr<FVulkanDeviceExtension>& Extension : InDeviceExtensions)
-		{
-			const bool bIsSwapchainMaintenance = strcmp(Extension->GetExtensionName(), VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME) == 0;
-			if (Extension->InUse() && (!bIsSwapchainMaintenance || bSupportsSwapchainMaintenance1))
-			{
-				DeviceExtensions.push_back(Extension->GetExtensionName());
-			}
-		}
-
-		std::vector<vk::DeviceQueueCreateInfo> QueueCreateInfos;
-		const std::vector<float> QueuePriorities = {1.0f};
-
-		for (int32 FamilyIndex = 0; FamilyIndex < QueueFamilyProps.size(); ++FamilyIndex)
-		{
-			const vk::QueueFamilyProperties& QueueFamilyProp = QueueFamilyProps[FamilyIndex];
-
-			bool bIsValidQueue = false;
-
-			DURIN_TRACE("Vulkan queue family {}: count={}, flags={}, timestampBits={}, transferGranularity={}x{}x{}.", FamilyIndex,
-				QueueFamilyProp.queueCount, vk::to_string(QueueFamilyProp.queueFlags), QueueFamilyProp.timestampValidBits,
-				QueueFamilyProp.minImageTransferGranularity.width, QueueFamilyProp.minImageTransferGranularity.height, QueueFamilyProp.minImageTransferGranularity.depth);
-
-			if (QueueFamilyProp.queueFlags & vk::QueueFlagBits::eGraphics)
-			{
-				GraphicsQueueFamilyIndex = FamilyIndex;
-				bIsValidQueue = true;
-			}
-
-			if (QueueFamilyProp.queueFlags & vk::QueueFlagBits::eCompute)
-			{
-				if (ComputeQueueFamilyIndex == -1 && FamilyIndex != GraphicsQueueFamilyIndex)
-				{
-					ComputeQueueFamilyIndex = FamilyIndex;
-					bIsValidQueue = true;
-				}
-			}
-
-			if (QueueFamilyProp.queueFlags & vk::QueueFlagBits::eTransfer)
-			{
-				// Prefer a specialized transfer queue
-				if (TransferQueueFamilyIndex == -1 && !(QueueFamilyProp.queueFlags & vk::QueueFlagBits::eGraphics) && !(QueueFamilyProp.queueFlags & vk::QueueFlagBits::eCompute))
-				{
-					TransferQueueFamilyIndex = FamilyIndex;
-					bIsValidQueue = true;
-				}
-			}
-
-			if (!bIsValidQueue)
-			{
-				continue;
-			}
-
-			QueueCreateInfos.emplace_back();
-			vk::DeviceQueueCreateInfo& CurrQueueCreateInfo = QueueCreateInfos.back();
-			CurrQueueCreateInfo.queueFamilyIndex = FamilyIndex;
-			CurrQueueCreateInfo.queueCount = 1;
-			CurrQueueCreateInfo.pQueuePriorities = &(QueuePriorities[0]);
-		}
+		const float QueuePriority = 1.0f;
+		vk::DeviceQueueCreateInfo QueueCreateInfo;
+		QueueCreateInfo.setQueueFamilyIndex(GraphicsQueueFamilyIndex)
+			.setQueueCount(1)
+			.setPQueuePriorities(&QueuePriority);
 
 		vk::PhysicalDeviceFeatures DeviceFeatures;
 		DeviceFeatures.fillModeNonSolid = vk::True;
-		vk::PhysicalDeviceVulkan11Features SupportedVulkan11Features;
-		vk::PhysicalDeviceFeatures2 SupportedFeatures;
-		SupportedFeatures.setPNext(&SupportedVulkan11Features);
-		Gpu.getFeatures2(&SupportedFeatures);
-		if (SupportedVulkan11Features.shaderDrawParameters != vk::True)
-		{
-			throw std::runtime_error(
-				"Vulkan physical device does not support the required "
-				"shaderDrawParameters feature.");
-		}
-
 		vk::DeviceCreateInfo DeviceInfo;
 		vk::PhysicalDeviceVulkan11Features Vulkan11Features;
+		vk::PhysicalDeviceVulkan13Features Vulkan13Features;
+		vk::PhysicalDeviceSynchronization2FeaturesKHR Synchronization2Features;
 		vk::PhysicalDeviceSwapchainMaintenance1FeaturesEXT SwapchainMaintenanceFeatures;
-		DeviceInfo.setQueueCreateInfos(QueueCreateInfos);
+		std::vector<const char*> DeviceExtensionNames;
+		for (const std::string& Extension : DeviceExtensions)
+			DeviceExtensionNames.push_back(Extension.c_str());
+		DeviceInfo.setQueueCreateInfos(QueueCreateInfo);
 		DeviceInfo.setPEnabledFeatures(&DeviceFeatures);
-		DeviceInfo.setEnabledExtensionCount(static_cast<uint32>(DeviceExtensions.size()));
-		DeviceInfo.setPpEnabledExtensionNames(DeviceExtensions.data());
+		DeviceInfo.setEnabledExtensionCount(static_cast<uint32>(DeviceExtensionNames.size()));
+		DeviceInfo.setPpEnabledExtensionNames(DeviceExtensionNames.data());
 		Vulkan11Features.shaderDrawParameters = vk::True;
 		DeviceInfo.setPNext(&Vulkan11Features);
+		void* FeatureTail = &Vulkan11Features;
+		if (bSupportsSynchronization2)
+		{
+			if (GpuProps.apiVersion >= VK_API_VERSION_1_3)
+			{
+				Vulkan13Features.synchronization2 = vk::True;
+				Vulkan11Features.setPNext(&Vulkan13Features);
+				FeatureTail = &Vulkan13Features;
+			}
+			else
+			{
+				Synchronization2Features.synchronization2 = vk::True;
+				Vulkan11Features.setPNext(&Synchronization2Features);
+				FeatureTail = &Synchronization2Features;
+			}
+		}
 		if (bSupportsSwapchainMaintenance1)
 		{
 			SwapchainMaintenanceFeatures.swapchainMaintenance1 = vk::True;
-			Vulkan11Features.setPNext(&SwapchainMaintenanceFeatures);
+			if (FeatureTail == &Vulkan13Features) Vulkan13Features.setPNext(&SwapchainMaintenanceFeatures);
+			else if (FeatureTail == &Synchronization2Features) Synchronization2Features.setPNext(&SwapchainMaintenanceFeatures);
+			else Vulkan11Features.setPNext(&SwapchainMaintenanceFeatures);
 		}
 
 		try
@@ -296,63 +359,32 @@ namespace Durin::VulkanRHI
 			throw std::runtime_error(std::format(
 				"Vulkan logical-device creation failed: result={}, queueFamilies={}, extensions={}, error={}",
 				vk::to_string(static_cast<vk::Result>(err.code().value())),
-				QueueCreateInfos.size(), DeviceExtensions.size(), err.what()));
+				1, DeviceExtensions.size(), err.what()));
 		}
 		catch (const std::runtime_error& err)
 		{
 			throw std::runtime_error(std::format(
 				"Vulkan logical-device creation failed: result=unavailable, queueFamilies={}, extensions={}, error={}",
-				QueueCreateInfos.size(), DeviceExtensions.size(), err.what()));
+				1, DeviceExtensions.size(), err.what()));
 		}
 
 		GraphicsQueue = new FVulkanQueue(this, GraphicsQueueFamilyIndex);
-
-		if (ComputeQueueFamilyIndex == -1)
-		{
-			ComputeQueueFamilyIndex = GraphicsQueueFamilyIndex;
-		}
-		ComputeQueue = new FVulkanQueue(this, ComputeQueueFamilyIndex);
-
-		if (TransferQueueFamilyIndex == -1)
-		{
-			TransferQueueFamilyIndex = ComputeQueueFamilyIndex;
-		}
-		TransferQueue = new FVulkanQueue(this, TransferQueueFamilyIndex);
-		DURIN_DEBUG("Vulkan queue selection: graphics={}, compute={} ({}), transfer={} ({}).", GraphicsQueueFamilyIndex,
-			ComputeQueueFamilyIndex, ComputeQueueFamilyIndex == GraphicsQueueFamilyIndex ? "shared with graphics" : "separate family",
-			TransferQueueFamilyIndex, TransferQueueFamilyIndex == GraphicsQueueFamilyIndex ? "shared with graphics" :
-				TransferQueueFamilyIndex == ComputeQueueFamilyIndex ? "shared with compute" : "separate family");
+		ComputeQueue = GraphicsQueue;
+		TransferQueue = GraphicsQueue;
+		PresentQueue = GraphicsQueue;
+		DURIN_DEBUG("Vulkan queue selection: family={} shared by graphics, compute, transfer, and presentation.",
+			GraphicsQueueFamilyIndex);
 	}
 
-	auto FVulkanDevice::SetupPresentQueue(vk::SurfaceKHR InSurface) -> void
+	auto FVulkanDevice::SetupPresentQueue(vk::SurfaceKHR InSurface) -> bool
 	{
-		uint32 QueueFamilyIndex = INDEX_NONE_U32;
-		for (uint32 FamilyIndex = 0; FamilyIndex < QueueFamilyProps.size(); ++FamilyIndex)
+		if (!Gpu.getSurfaceSupportKHR(GraphicsQueueFamilyIndex, InSurface))
 		{
-			if (Gpu.getSurfaceSupportKHR(FamilyIndex, InSurface))
-			{
-				QueueFamilyIndex = FamilyIndex;
-				break;
-			}
+			DURIN_ERROR("Vulkan surface is incompatible with the provisioned graphics/presentation queue family {}.",
+				GraphicsQueueFamilyIndex);
+			return false;
 		}
-
-		if (QueueFamilyIndex == INDEX_NONE_U32)
-		{
-			DURIN_ERROR("Failed to select a Vulkan presentation queue: no queue family supports the surface.");
-			return;
-		}
-
-		if (PresentQueue != nullptr)
-		{
-			if (PresentQueue->GetFamilyIndex() == QueueFamilyIndex)
-			{
-				return;
-			}
-			delete PresentQueue;
-			PresentQueue = nullptr;
-		}
-
-		PresentQueue = new FVulkanQueue(this, QueueFamilyIndex);
+		return true;
 	}
 
 	auto FVulkanDevice::WaitUtilIdle() const -> void
@@ -488,11 +520,8 @@ namespace Durin::VulkanRHI
 
 		delete GraphicsQueue;
 		GraphicsQueue = nullptr;
-		delete ComputeQueue;
 		ComputeQueue = nullptr;
-		delete TransferQueue;
 		TransferQueue = nullptr;
-		delete PresentQueue;
 		PresentQueue = nullptr;
 
 		delete RenderPassManager;

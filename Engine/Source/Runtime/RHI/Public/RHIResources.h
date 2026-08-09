@@ -415,7 +415,8 @@ namespace Durin
 
 		static auto CreateCubeArray(const char* InDebugName) -> FRHITextureCreateDesc
 		{
-			return {InDebugName, ETextureDimension::TextureCubeArray};
+			return FRHITextureCreateDesc(InDebugName, ETextureDimension::TextureCubeArray)
+				.SetArraySize(TextureCubeFaceCount);
 		}
 
 		static auto Create2D(const char* InDebugName, uint32 InWidth, uint32 InHeight, EPixelFormat InFormat) -> FRHITextureCreateDesc

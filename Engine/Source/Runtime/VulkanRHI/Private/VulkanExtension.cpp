@@ -1,152 +1,139 @@
 #include "VulkanExtensions.h"
 
-#include "CoreGlobals.h"
-
-#include "VulkanDevice.h"
-
-#ifdef __APPLE__
-	#define VKB_ENABLE_PORTABILITY
-#endif
-
 namespace Durin::VulkanRHI
 {
 	namespace
 	{
-		template<typename ExtensionType>
-		auto JoinExtensionNames(const std::vector<std::unique_ptr<ExtensionType>>& Extensions, const bool bInUse) -> std::string
+		auto ContainsName(const std::vector<std::string>& Names, std::string_view Name) -> bool
 		{
-			std::string Result;
-			for (const auto& Extension : Extensions)
-			{
-				if (Extension->InUse() != bInUse) continue;
-				if (!Result.empty()) Result += ", ";
-				Result += Extension->GetExtensionName();
-			}
-			return Result.empty() ? "none" : Result;
+			return std::ranges::any_of(Names,
+				[Name](const std::string& Candidate) { return Candidate == Name; });
 		}
 
-		template<typename ExtensionType>
-		auto LogExtensionSupport(std::string_view Scope, const std::vector<std::unique_ptr<ExtensionType>>& Extensions) -> void
+		auto AddUnique(std::vector<std::string>& Names, std::string_view Name) -> void
 		{
-			const size_t EnabledCount = std::ranges::count_if(Extensions, [](const auto& Extension) { return Extension->InUse(); });
-			DURIN_TRACE("Vulkan {} extensions: requested={}, enabled={} [{}], missing={} [{}].", Scope, Extensions.size(),
-				EnabledCount, JoinExtensionNames(Extensions, true), Extensions.size() - EnabledCount, JoinExtensionNames(Extensions, false));
+			if (!ContainsName(Names, Name)) Names.emplace_back(Name);
 		}
-	}
 
-	inline constexpr const char* DurinSupportedInstanceExtensionNames[] = {
-		VK_KHR_SURFACE_EXTENSION_NAME,
-		VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
-		VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME,
-		VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
-		VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
-	#ifdef VKB_ENABLE_PORTABILITY
-		VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
-		VK_MVK_MACOS_SURFACE_EXTENSION_NAME,
-	#endif
-	};
-
-	inline constexpr const char* DurinSupportedDeviceExtensionNames[] = {
-		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-		VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME,
-		VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
-		VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME,
-		VK_KHR_BIND_MEMORY_2_EXTENSION_NAME,
-	#ifdef VKB_ENABLE_PORTABILITY
-		"VK_KHR_portability_subset",
-	#endif
-	};
-
-	template<typename ExtensionType>
-	static auto FindExtension(const std::vector<std::unique_ptr<ExtensionType>>& InExtensions, const char* InExtensionName) -> int32
-	{
-		for (int32 Index = 0; Index < InExtensions.size(); ++Index)
+		auto RequirementClassName(EVulkanRequirementClass Class) -> std::string_view
 		{
-			if (strcmp(InExtensionName, InExtensions[Index]->GetExtensionName()) == 0)
+			switch (Class)
 			{
-				return Index;
+			case EVulkanRequirementClass::RequiredRuntime: return "required runtime";
+			case EVulkanRequirementClass::PlatformRequired: return "platform required";
+			case EVulkanRequirementClass::OptionalFeature: return "optional feature";
+			case EVulkanRequirementClass::OptionalDiagnostic: return "optional diagnostic";
+			case EVulkanRequirementClass::PromotedCore: return "promoted core";
+			default: return "unknown";
 			}
 		}
-		return INDEX_NONE;
+
 	}
 
-	template<typename ExtensionType>
-	static auto AddRequiredExtensions(std::vector<std::unique_ptr<ExtensionType>>& Extensions, const std::vector<const char*>& RequiredExtensionNames)
+	auto ResolveVulkanValidationPolicy(
+		const char* ConfiguredMode,
+		bool bDebugBuild,
+		bool bShippingBuild) -> FVulkanValidationPolicy
 	{
-		for (const char* ExtensionName : RequiredExtensionNames)
+		FVulkanValidationPolicy Result;
+		if (bShippingBuild) return Result;
+		const std::string_view Mode = ConfiguredMode ? ConfiguredMode : "auto";
+		if (Mode == "off") return Result;
+		if (Mode == "on")
 		{
-			auto it = std::find_if(Extensions.begin(), Extensions.end(), [ExtensionName](const std::unique_ptr<ExtensionType>& Extension) {
-				return strcmp(Extension->GetExtensionName(), ExtensionName) == 0;
-			});
+			Result.bRequestDiagnostics = true;
+			return Result;
+		}
+		if (Mode != "auto") Result.bInvalidSetting = true;
+		Result.bRequestDiagnostics = bDebugBuild;
+		return Result;
+	}
 
-			if (it == Extensions.end())
+	auto NegotiateVulkanInstance(const FVulkanInstanceNegotiationInput& Input)
+		-> FVulkanInstanceNegotiationResult
+	{
+		FVulkanInstanceNegotiationResult Result;
+		constexpr uint32 MinimumApiVersion = VK_API_VERSION_1_1;
+		constexpr uint32 MaximumApiVersion = VK_API_VERSION_1_3;
+		Result.ApiVersion = std::min(Input.LoaderApiVersion, MaximumApiVersion);
+		if (Input.LoaderApiVersion < MinimumApiVersion)
+		{
+			Result.Diagnostic = std::format(
+				"Vulkan loader API {}.{}.{} is below required runtime Vulkan 1.1.",
+				vk::apiVersionMajor(Input.LoaderApiVersion),
+				vk::apiVersionMinor(Input.LoaderApiVersion),
+				vk::apiVersionPatch(Input.LoaderApiVersion));
+			return Result;
+		}
+
+		auto AddRequirement = [&](std::string_view Name, EVulkanRequirementClass Class,
+			bool bRequested, bool bActivateWhenSupported) -> FVulkanRequirementState& {
+			const auto Existing = std::ranges::find_if(Result.Requirements,
+				[Name](const FVulkanRequirementState& Requirement) { return Requirement.Name == Name; });
+			if (Existing != Result.Requirements.end())
 			{
-				Extensions.push_back(std::make_unique<ExtensionType>(ExtensionName));
+				if (Class == EVulkanRequirementClass::PlatformRequired)
+					Existing->Class = Class;
+				Existing->bRequested |= bRequested;
+				Existing->bActivated |= bActivateWhenSupported && Existing->bSupported;
+				return *Existing;
+			}
+			FVulkanRequirementState& Requirement = Result.Requirements.emplace_back();
+			Requirement.Name = Name;
+			Requirement.Class = Class;
+			Requirement.bSupported = ContainsName(Input.AvailableExtensions, Name);
+			Requirement.bRequested = bRequested;
+			Requirement.bActivated = bActivateWhenSupported && Requirement.bSupported;
+			return Requirement;
+		};
+
+		for (const std::string& Name : Input.PlatformRequiredExtensions)
+		{
+			FVulkanRequirementState& Requirement = AddRequirement(
+				Name, EVulkanRequirementClass::PlatformRequired, true, true);
+			if (!Requirement.bSupported)
+			{
+				if (!Result.Diagnostic.empty()) Result.Diagnostic += " ";
+				Result.Diagnostic += std::format("Missing {} Vulkan instance extension '{}'.",
+					RequirementClassName(Requirement.Class), Requirement.Name);
 			}
 		}
+		if (!Result.Diagnostic.empty()) return Result;
+
+		const bool bHasSurfaceCapabilities2 = ContainsName(
+			Input.AvailableExtensions, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
+		const bool bHasSurfaceMaintenance = ContainsName(
+			Input.AvailableExtensions, VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
+		const bool bEnableSurfaceMaintenance = bHasSurfaceCapabilities2 && bHasSurfaceMaintenance;
+		AddRequirement(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
+			EVulkanRequirementClass::OptionalFeature, true, bEnableSurfaceMaintenance);
+		AddRequirement(VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME,
+			EVulkanRequirementClass::OptionalFeature, true, bEnableSurfaceMaintenance);
+		AddRequirement(VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+			EVulkanRequirementClass::OptionalDiagnostic,
+			Input.bRequestDiagnostics, Input.bRequestDiagnostics);
+
+		FVulkanRequirementState& Promoted = Result.Requirements.emplace_back();
+		Promoted.Name = VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME;
+		Promoted.Class = EVulkanRequirementClass::PromotedCore;
+		Promoted.bSupported = true;
+		Promoted.bRequested = true;
+		Promoted.bActivated = true;
+
+		for (const FVulkanRequirementState& Requirement : Result.Requirements)
+		{
+			if (Requirement.bActivated && Requirement.Class != EVulkanRequirementClass::PromotedCore)
+				AddUnique(Result.EnabledExtensions, Requirement.Name);
+		}
+
+		FVulkanRequirementState& ValidationLayer = Result.Requirements.emplace_back();
+		ValidationLayer.Name = "VK_LAYER_KHRONOS_validation";
+		ValidationLayer.Class = EVulkanRequirementClass::OptionalDiagnostic;
+		ValidationLayer.bSupported = ContainsName(Input.AvailableLayers, ValidationLayer.Name);
+		ValidationLayer.bRequested = Input.bRequestDiagnostics;
+		ValidationLayer.bActivated = ValidationLayer.bRequested && ValidationLayer.bSupported;
+		if (ValidationLayer.bActivated) Result.EnabledLayers.push_back(ValidationLayer.Name);
+		return Result;
 	}
 
-	auto FVulkanInstanceExtension::GetDurinSupportedInstanceExtensions() -> FVulkanInstanceExtensionArray
-	{
-		FVulkanInstanceExtensionArray OutDurinInstanceExtensions;
-
-		for (const char* ExtensionName : DurinSupportedInstanceExtensionNames)
-		{
-			OutDurinInstanceExtensions.push_back(std::make_unique<FVulkanInstanceExtension>(ExtensionName));
-		}
-		AddRequiredExtensions(OutDurinInstanceExtensions, GMonaRequiredVulkanInstanceExtensions);
-
-		const std::vector<vk::ExtensionProperties> DriverSupportedInstanceExtensions = vk::enumerateInstanceExtensionProperties();
-		for (const vk::ExtensionProperties& Extension : DriverSupportedInstanceExtensions)
-		{
-			const int32 ExtensionIndex = FindExtension(OutDurinInstanceExtensions, Extension.extensionName);
-			const bool bFound = (ExtensionIndex != INDEX_NONE);
-			if (bFound)
-			{
-				// Set the extension as supported and activated temporarily.
-				// TODO: some extensions may not be activated by default.
-				OutDurinInstanceExtensions[ExtensionIndex]->SetSupported();
-				OutDurinInstanceExtensions[ExtensionIndex]->SetActivated();
-			}
-		}
-		LogExtensionSupport("instance", OutDurinInstanceExtensions);
-
-		return OutDurinInstanceExtensions;
-	}
-
-	auto FVulkanDeviceExtension::GetDurinSupportedDeviceExtensions(FVulkanDevice* InDevice) -> FVulkanDeviceExtensionArray
-	{
-		FVulkanDeviceExtensionArray OutDeviceExtensions;
-
-		for (const char* ExtensionName : DurinSupportedDeviceExtensionNames)
-		{
-			OutDeviceExtensions.push_back(std::make_unique<FVulkanDeviceExtension>(ExtensionName));
-		}
-
-		std::vector<vk::ExtensionProperties> DriverSupportedDeviceExtensions = GetDriverSupportedDeviceExtensions(InDevice->GetGpu());
-		for (const vk::ExtensionProperties& Extension : DriverSupportedDeviceExtensions)
-		{
-			const int32 ExtensionIndex = FindExtension(OutDeviceExtensions, Extension.extensionName);
-			const bool bFound = (ExtensionIndex != INDEX_NONE);
-			if (bFound)
-			{
-				// Set the extension as supported and activated temporarily.
-				// TODO: some extensions may not be activated by default.
-				OutDeviceExtensions[ExtensionIndex]->SetSupported();
-				OutDeviceExtensions[ExtensionIndex]->SetActivated();
-			}
-		}
-		LogExtensionSupport("device", OutDeviceExtensions);
-
-		return OutDeviceExtensions;
-	}
-
-	auto FVulkanDeviceExtension::GetDriverSupportedDeviceExtensions(vk::PhysicalDevice Gpu, const char* LayerName) -> std::vector<vk::ExtensionProperties>
-	{
-		if (LayerName == nullptr)
-		{
-			return Gpu.enumerateDeviceExtensionProperties(nullptr);
-		}
-		return Gpu.enumerateDeviceExtensionProperties(std::string(LayerName));
-	}
 }

@@ -202,14 +202,18 @@ namespace Durin::VulkanRHI
 
 		vk::RenderPassCreateInfo CreateInfo;
 		CreateInfo.setAttachments(Attachments).setSubpasses(Subpass).setDependencies(Dependencies);
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::RenderPass);
+#endif
 		try
 		{
 			RenderPass = Device.GetHandle().createRenderPass(CreateInfo);
 		}
 		catch (const std::exception& Error)
 		{
-			DURIN_ERROR("Failed to create a Vulkan render pass: colorAttachments={}, totalAttachments={}, error={}",
-				Key.Layout.NumColorRenderTargets, Attachments.size(), Error.what());
+			throw std::runtime_error(std::format(
+				"Vulkan render-pass creation failed: colorAttachments={}, totalAttachments={}, error={}",
+				Key.Layout.NumColorRenderTargets, Attachments.size(), Error.what()));
 		}
 	}
 
@@ -228,6 +232,10 @@ namespace Durin::VulkanRHI
 
 	FVulkanRenderPassManager::~FVulkanRenderPassManager()
 	{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		GVulkanRenderPassEntryCount.fetch_sub(RenderPasses.size(), std::memory_order_release);
+		GVulkanFramebufferEntryCount.fetch_sub(FrameBuffers.size(), std::memory_order_release);
+#endif
 		FrameBuffers.clear();
 	}
 
@@ -240,8 +248,12 @@ namespace Durin::VulkanRHI
 			return It->second.get();
 		}
 
-		auto [It, bInserted] = RenderPasses.emplace(Key, std::make_unique<FVulkanRenderPass>(Device, Key));
+		auto Candidate = std::make_unique<FVulkanRenderPass>(Device, Key);
+		auto [It, bInserted] = RenderPasses.emplace(Key, std::move(Candidate));
 		check(bInserted);
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		GVulkanRenderPassEntryCount.fetch_add(1, std::memory_order_release);
+#endif
 		return It->second.get();
 	}
 
@@ -254,7 +266,11 @@ namespace Durin::VulkanRHI
 				return Framebuffer.get();
 			}
 		}
-		FrameBuffers.push_back(std::make_unique<FVulkanFramebuffer>(Device, RPInfo, RenderPass));
+		auto Candidate = std::make_unique<FVulkanFramebuffer>(Device, RPInfo, RenderPass);
+		FrameBuffers.push_back(std::move(Candidate));
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		GVulkanFramebufferEntryCount.fetch_add(1, std::memory_order_release);
+#endif
 		return FrameBuffers.back().get();
 	}
 
@@ -289,9 +305,14 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanRenderPassManager::NotifyDeleted_Image(vk::Image Image) -> void
 	{
+		const size_t PreviousSize = FrameBuffers.size();
 		auto ToErase = std::ranges::remove_if(FrameBuffers, [Image](const std::unique_ptr<FVulkanFramebuffer>& Framebuffer) {
 			return Framebuffer->ContainsRenderTarget(Image);
 		});
 		FrameBuffers.erase(ToErase.begin(), ToErase.end());
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		GVulkanFramebufferEntryCount.fetch_sub(
+			PreviousSize - FrameBuffers.size(), std::memory_order_release);
+#endif
 	}
 } // namespace Durin::VulkanRHI

@@ -31,6 +31,49 @@ namespace Durin::VulkanRHI
 		}
 	}
 
+	static auto BuildTextureImageCreateInfo(const FRHITextureCreateDesc& CreateDesc)
+		-> vk::ImageCreateInfo
+	{
+		check(CreateDesc.Dimension == ETextureDimension::Texture2D
+			|| CreateDesc.Dimension == ETextureDimension::TextureCube);
+		vk::ImageUsageFlags Usage = vk::ImageUsageFlagBits::eSampled
+			| vk::ImageUsageFlagBits::eTransferDst;
+		if (EnumHasAnyFlags(CreateDesc.Flags,
+			ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ResolveTargetable))
+		{
+			Usage |= vk::ImageUsageFlagBits::eColorAttachment;
+		}
+		if (EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::DepthStencilTargetable))
+		{
+			Usage |= vk::ImageUsageFlagBits::eDepthStencilAttachment;
+		}
+		if (EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::Storage))
+		{
+			Usage |= vk::ImageUsageFlagBits::eStorage;
+		}
+		if (EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::CPUReadback))
+		{
+			Usage |= vk::ImageUsageFlagBits::eTransferSrc;
+		}
+
+		vk::ImageCreateInfo Result;
+		Result.setImageType(vk::ImageType::e2D)
+			.setFormat(ToVulkan_PixelFormat(CreateDesc.Format))
+			.setExtent(ToVulkan_Extent3D(CreateDesc.GetSize()))
+			.setArrayLayers(CreateDesc.ArraySize)
+			.setMipLevels(CreateDesc.NumMips)
+			.setSamples(PickSampleCount(CreateDesc))
+			.setTiling(vk::ImageTiling::eOptimal)
+			.setUsage(Usage)
+			.setSharingMode(vk::SharingMode::eExclusive)
+			.setInitialLayout(vk::ImageLayout::eUndefined);
+		if (CreateDesc.Dimension == ETextureDimension::TextureCube)
+		{
+			Result.setFlags(vk::ImageCreateFlagBits::eCubeCompatible);
+		}
+		return Result;
+	}
+
 	FVulkanTexture::FVulkanTexture(FVulkanDevice& InDevice, const FRHITextureCreateDesc& InCreateDesc)
 		: FRHITexture(InCreateDesc)
 		, Device(InDevice)
@@ -40,49 +83,17 @@ namespace Durin::VulkanRHI
 		, SubresourceLayouts(static_cast<size_t>(InCreateDesc.NumMips) * InCreateDesc.ArraySize, vk::ImageLayout::eUndefined)
 	{
 		CheckVulkanRHIThread();
-		vk::Extent3D ImageExtent = ToVulkan_Extent3D(InCreateDesc.GetSize());
+		const vk::Extent3D ImageExtent = ToVulkan_Extent3D(InCreateDesc.GetSize());
 
 		const bool bDepthStencil = EnumHasAnyFlags(InCreateDesc.Flags, ETextureCreateFlags::DepthStencilTargetable);
 		const bool bStorage = EnumHasAnyFlags(InCreateDesc.Flags, ETextureCreateFlags::Storage);
-		const bool bCube = InCreateDesc.Dimension == ETextureDimension::TextureCube
-			|| InCreateDesc.Dimension == ETextureDimension::TextureCubeArray;
 		checkf(!bStorage || !bDepthStencil, "Vulkan storage images do not support depth/stencil textures in this RHI");
 		checkf(!bStorage || InCreateDesc.NumSamples == 1, "Vulkan storage images must be single-sampled");
-		vk::ImageUsageFlags ImageUsage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst;
-		if (EnumHasAnyFlags(InCreateDesc.Flags, ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ResolveTargetable))
-		{
-			ImageUsage |= vk::ImageUsageFlagBits::eColorAttachment;
-		}
-		if (bDepthStencil)
-		{
-			ImageUsage |= vk::ImageUsageFlagBits::eDepthStencilAttachment;
-		}
-		if (bStorage)
-		{
-			ImageUsage |= vk::ImageUsageFlagBits::eStorage;
-		}
-		if (EnumHasAnyFlags(InCreateDesc.Flags, ETextureCreateFlags::CPUReadback))
-		{
-			ImageUsage |= vk::ImageUsageFlagBits::eTransferSrc;
-		}
-
-		vk::ImageCreateInfo imageInfo{};
-		imageInfo
-			.setImageType(vk::ImageType::e2D)
-			.setFormat(Format)
-			.setExtent(ImageExtent)
-			.setArrayLayers(InCreateDesc.ArraySize)
-			.setMipLevels(InCreateDesc.NumMips)
-			.setSamples(PickSampleCount(InCreateDesc))
-			.setTiling(vk::ImageTiling::eOptimal)
-			.setUsage(ImageUsage)
-			.setSharingMode(vk::SharingMode::eExclusive)
-			.setInitialLayout(vk::ImageLayout::eUndefined);
-		if (bCube) imageInfo.setFlags(vk::ImageCreateFlagBits::eCubeCompatible);
+		const vk::ImageCreateInfo ImageInfo = BuildTextureImageCreateInfo(InCreateDesc);
 
 		FVulkanMemoryManager& MemoryManager = InDevice.GetMemoryManager();
 		const vk::Result ImageResult =
-			MemoryManager.CreateImage(Allocation, Image, imageInfo);
+			MemoryManager.CreateImage(Allocation, Image, ImageInfo);
 		if (ImageResult != vk::Result::eSuccess)
 		{
 			throw std::runtime_error(std::format(
@@ -213,6 +224,12 @@ namespace Durin::VulkanRHI
 	{
 		std::string ValidationError;
 		checkf(ValidateTextureCreateDesc(CreateDesc, ValidationError), "Invalid RHI texture create description: {}", ValidationError);
+		if (!RHIIsTextureSupported(CreateDesc))
+		{
+			DURIN_ERROR("Failed to create Vulkan RHI texture '{}': the exact texture description is unsupported.",
+				CreateDesc.DebugName ? CreateDesc.DebugName : "<unnamed>");
+			return nullptr;
+		}
 		TRefCountPtr<FVulkanTexture> Texture;
 		const FRHIFallibleOperationResult CreationResult =
 			ExecuteFallibleVulkanCreationOperation(
@@ -269,24 +286,62 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto FVulkanDynamicRHI::RHIIsTextureFormatSupported(const FRHITextureCreateDesc& CreateDesc) const -> bool
+	auto FVulkanDynamicRHI::RHIIsTextureSupported(const FRHITextureCreateDesc& CreateDesc) const -> bool
 	{
-		const vk::Format Format = ToVulkan_PixelFormat(CreateDesc.Format);
-		if (Format == vk::Format::eUndefined) return false;
+		std::string ValidationError;
+		checkf(ValidateTextureCreateDesc(CreateDesc, ValidationError),
+			"Invalid RHI texture create description: {}", ValidationError);
+		const FRHICapabilities* Capabilities = RHIGetCapabilities();
+		if (Capabilities == nullptr) return false;
+		const bool bTexture2D = CreateDesc.Dimension == ETextureDimension::Texture2D;
+		const bool bTextureCube = CreateDesc.Dimension == ETextureDimension::TextureCube;
+		if ((!bTexture2D && !bTextureCube)
+			|| (bTexture2D && !EnumHasAnyFlags(Capabilities->SupportedTextureDimensions,
+				ERHITextureDimensionFlags::Texture2D))
+			|| (bTextureCube && !EnumHasAnyFlags(Capabilities->SupportedTextureDimensions,
+				ERHITextureDimensionFlags::TextureCube)))
+		{
+			return false;
+		}
+		const uint32 DimensionLimit = bTextureCube
+			? Capabilities->MaxTextureDimensionCube : Capabilities->MaxTextureDimension2D;
+		if (static_cast<uint32>(CreateDesc.Extent.x) > DimensionLimit
+			|| static_cast<uint32>(CreateDesc.Extent.y) > DimensionLimit
+			|| CreateDesc.ArraySize > Capabilities->MaxTextureArrayLayers)
+		{
+			return false;
+		}
 
-		vk::FormatFeatureFlags RequiredFeatures = vk::FormatFeatureFlagBits::eSampledImage
-			| vk::FormatFeatureFlagBits::eTransferDst;
-		if (EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ResolveTargetable))
-			RequiredFeatures |= vk::FormatFeatureFlagBits::eColorAttachment;
-		if (EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::DepthStencilTargetable))
-			RequiredFeatures |= vk::FormatFeatureFlagBits::eDepthStencilAttachment;
-		if (EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::Storage))
-			RequiredFeatures |= vk::FormatFeatureFlagBits::eStorageImage;
-		if (EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::CPUReadback))
-			RequiredFeatures |= vk::FormatFeatureFlagBits::eTransferSrc;
-
-		const vk::FormatProperties Properties = Device->GetGpu().getFormatProperties(Format);
-		return (Properties.optimalTilingFeatures & RequiredFeatures) == RequiredFeatures;
+		const vk::ImageCreateInfo ImageInfo = BuildTextureImageCreateInfo(CreateDesc);
+		try
+		{
+			const vk::ImageFormatProperties Properties = Device->GetGpu().getImageFormatProperties(
+				ImageInfo.format, ImageInfo.imageType, ImageInfo.tiling, ImageInfo.usage, ImageInfo.flags);
+			if (ImageInfo.extent.width > Properties.maxExtent.width
+				|| ImageInfo.extent.height > Properties.maxExtent.height
+				|| ImageInfo.extent.depth > Properties.maxExtent.depth
+				|| ImageInfo.mipLevels > Properties.maxMipLevels
+				|| ImageInfo.arrayLayers > Properties.maxArrayLayers
+				|| !(Properties.sampleCounts & ImageInfo.samples))
+			{
+				return false;
+			}
+			uint64 PayloadSize = 0;
+			for (uint32 MipIndex = 0; MipIndex < CreateDesc.NumMips; ++MipIndex)
+			{
+				const uint32 Width = std::max(1u, static_cast<uint32>(CreateDesc.Extent.x) >> MipIndex);
+				const uint32 Height = std::max(1u, static_cast<uint32>(CreateDesc.Extent.y) >> MipIndex);
+				const uint64 MipSize = GetPixelFormatLayout(CreateDesc.Format, Width, Height).DataSize;
+				if (MipSize > std::numeric_limits<uint64>::max() - PayloadSize) return false;
+				PayloadSize += MipSize;
+			}
+			if (PayloadSize > std::numeric_limits<uint64>::max() / CreateDesc.ArraySize) return false;
+			return PayloadSize * CreateDesc.ArraySize <= Properties.maxResourceSize;
+		}
+		catch (const vk::SystemError&)
+		{
+			return false;
+		}
 	}
 
 	auto FVulkanDynamicRHI::RHICreateSampler(const FRHISamplerDesc& CreateDesc) -> TRefCountPtr<FRHISampler>

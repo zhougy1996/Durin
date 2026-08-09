@@ -57,7 +57,7 @@ namespace Durin::VulkanRHI
 		auto RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> FTextureRHIRef override;
 
 		auto RHICreateVertexDeclaration(const FVertexDeclarationElementList& Elements) -> TRefCountPtr<FRHIVertexDeclaration> override;
-		auto RHIIsTextureFormatSupported(const FRHITextureCreateDesc& CreateDesc) const -> bool override;
+		auto RHIIsTextureSupported(const FRHITextureCreateDesc& CreateDesc) const -> bool override;
 		auto RHICreateTexture(FRHICommandListBase& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> FTextureRHIRef override;
 		auto RHICreateSampler(const FRHISamplerDesc& CreateDesc) -> TRefCountPtr<FRHISampler> override;
 		auto RHICreateBuffer(FRHICommandListImmediate& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> FBufferRHIRef override;
@@ -88,12 +88,10 @@ namespace Durin::VulkanRHI
 		auto CreateInstance() -> void;
 		auto SelectDevice() -> void;
 
-		auto SetupInstanceLayers(const FVulkanInstanceExtensionArray& DurinExtensions) -> void;
-
 	private:
 		vk::Instance Instance;
-		std::vector<const char*> InstanceExtensions;
-		std::vector<const char*> InstanceLayers;
+		std::vector<std::string> InstanceExtensions;
+		std::vector<std::string> InstanceLayers;
 
 		FVulkanDevice* Device = nullptr;
 	};

@@ -147,23 +147,24 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		ValidateRenderPassInfo(RenderPassInfo);
 		check(PendingAttachmentFinalLayouts.empty());
+		std::vector<std::pair<FVulkanTexture*, vk::ImageLayout>> CandidateFinalLayouts;
 		for (uint32 Index = 0; Index < RenderPassInfo.RenderTargetLayout.NumColorRenderTargets; ++Index)
 		{
 			const FRHIColorAttachmentLayout& Attachment =
 				RenderPassInfo.RenderTargetLayout.ColorAttachments[Index];
-			PendingAttachmentFinalLayouts.emplace_back(
+			CandidateFinalLayouts.emplace_back(
 				static_cast<FVulkanTexture*>(RenderPassInfo.ColorRenderTargets[Index]),
 				ToVulkanLayout(Attachment.RenderTarget.FinalLayout));
 			if (Attachment.bHasResolveTarget)
 			{
-				PendingAttachmentFinalLayouts.emplace_back(
+				CandidateFinalLayouts.emplace_back(
 					static_cast<FVulkanTexture*>(RenderPassInfo.ColorResolveTargets[Index]),
 					ToVulkanLayout(Attachment.ResolveTarget.FinalLayout));
 			}
 		}
 		if (RenderPassInfo.RenderTargetLayout.bHasDepthStencil)
 		{
-			PendingAttachmentFinalLayouts.emplace_back(
+			CandidateFinalLayouts.emplace_back(
 				static_cast<FVulkanTexture*>(RenderPassInfo.DepthStencilRenderTarget),
 				ToVulkanLayout(RenderPassInfo.RenderTargetLayout.DepthStencilAttachment.FinalLayout));
 		}
@@ -172,6 +173,7 @@ namespace Durin::VulkanRHI
 		FVulkanRenderPass* RenderPass = RenderPassManager.GetOrCreateRenderPass(RenderPassInfo.RenderTargetLayout);
 		FVulkanFramebuffer* Framebuffer = RenderPassManager.GetOrCreateFrameBuffer(RenderPassInfo, *RenderPass);
 		RenderPassManager.BeginRenderPass(*this, Device, GetCommandBuffer(), RenderPassInfo, RenderPass, Framebuffer, DebugName);
+		PendingAttachmentFinalLayouts = std::move(CandidateFinalLayouts);
 	}
 
 	auto FVulkanCommandListContext::RHIEndRenderPass() -> void

@@ -475,13 +475,9 @@ namespace Durin::VulkanRHI
 
 	FVulkanPipelineManager::~FVulkanPipelineManager()
 	{
-		for (const auto& Layout : LayoutMap | std::views::values)
-		{
-			// LayoutMap owns the FVulkanLayout objects; clean them up.
-			// The layouts' descriptor set handles will be released by the
-			// DescriptorSetLayoutCache (owned by FVulkanDevice) which outlives us.
-			delete Layout;
-		}
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		GVulkanPipelineLayoutEntryCount.fetch_sub(LayoutMap.size(), std::memory_order_release);
+#endif
 		LayoutMap.clear();
 	}
 
@@ -496,16 +492,18 @@ namespace Durin::VulkanRHI
 		const auto It = LayoutMap.find(LayoutInfo);
 		if (It != LayoutMap.end())
 		{
-			return It->second;
+			return It->second.get();
 		}
 
 		auto NewLayout = std::make_unique<FVulkanLayout>(Device);
 		NewLayout->DSetsLayout = FVulkanDescriptorSetsLayout(Device, LayoutInfo);
 		const auto [InsertedIt, bInserted] =
-			LayoutMap.emplace(LayoutInfo, nullptr);
+			LayoutMap.emplace(LayoutInfo, std::move(NewLayout));
 		check(bInserted);
-		InsertedIt->second = NewLayout.release();
-		return InsertedIt->second;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		GVulkanPipelineLayoutEntryCount.fetch_add(1, std::memory_order_release);
+#endif
+		return InsertedIt->second.get();
 	}
 
 	auto FVulkanDynamicRHI::RHICreateGraphicsPipelineState(FName DebugName, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState>

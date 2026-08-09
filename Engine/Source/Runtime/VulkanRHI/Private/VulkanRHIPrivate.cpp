@@ -39,6 +39,29 @@ namespace Durin::VulkanRHI
 	}
 
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
+	std::atomic<uint64> GVulkanRenderPassEntryCount = 0;
+	std::atomic<uint64> GVulkanFramebufferEntryCount = 0;
+	std::atomic<uint64> GVulkanDescriptorSetLayoutEntryCount = 0;
+	std::atomic<uint64> GVulkanPipelineLayoutEntryCount = 0;
+	std::atomic<uint64> GVulkanCreatedFramebufferViewCount = 0;
+	std::atomic<uint64> GVulkanReleasedFramebufferViewCount = 0;
+	std::atomic<uint64> GVulkanCreatedFramebufferCount = 0;
+	std::atomic<uint64> GVulkanReleasedFramebufferCount = 0;
+
+	auto GetVulkanStructuralCacheTestStats() -> FVulkanStructuralCacheTestStats
+	{
+		return {
+			.RenderPassEntryCount = GVulkanRenderPassEntryCount.load(std::memory_order_acquire),
+			.FramebufferEntryCount = GVulkanFramebufferEntryCount.load(std::memory_order_acquire),
+			.DescriptorSetLayoutEntryCount = GVulkanDescriptorSetLayoutEntryCount.load(std::memory_order_acquire),
+			.PipelineLayoutEntryCount = GVulkanPipelineLayoutEntryCount.load(std::memory_order_acquire),
+			.CreatedFramebufferViewCount = GVulkanCreatedFramebufferViewCount.load(std::memory_order_acquire),
+			.ReleasedFramebufferViewCount = GVulkanReleasedFramebufferViewCount.load(std::memory_order_acquire),
+			.CreatedFramebufferCount = GVulkanCreatedFramebufferCount.load(std::memory_order_acquire),
+			.ReleasedFramebufferCount = GVulkanReleasedFramebufferCount.load(std::memory_order_acquire),
+		};
+	}
+
 	namespace
 	{
 		std::array<std::atomic<bool>, static_cast<size_t>(EVulkanCreateFailurePoint::Count)>
