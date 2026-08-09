@@ -223,10 +223,18 @@ On Windows, the first toolchain-backed command captures and validates the Visual
 The registered Windows build environment defaults to `Win64-Debug-DurinEditor-Tests`, allowing the same output set to run the editor and native tests. Before launching the editor for a smoke test or final validation, build the complete runtime:
 
 `Win64-Release-DurinEditor-Tests` and `Win64-Shipping-DurinGame-Tests`
-provide configuration-parity native-test entrypoints. Use them for contracts
-whose evaluation or diagnostics intentionally differ across Debug, Release,
-and Shipping; they do not replace the ordinary runtime presets for full editor
-or game validation.
+provide opt-in configuration-parity native-test entrypoints. They are not part
+of normal human or Agent validation. Use them only when a user or plan requires
+cross-configuration qualification, or when a change directly affects contracts
+whose evaluation, diagnostics, build definitions, or conditional compilation
+differ across Debug, Release, and Shipping. They do not replace the ordinary
+runtime presets for full editor or game validation.
+
+Each test preset owns a separate build and install tree and can consume
+substantial time and disk space. In a multi-worktree workspace, select one
+checkout for required parity validation rather than preparing the same preset
+in several worktrees. After the evidence is recorded, use `DevTool purge` for
+that preset when its generated artifacts are no longer needed.
 
 ```powershell
 .\DevTool.bat build --target all

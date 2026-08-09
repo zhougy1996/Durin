@@ -36,6 +36,12 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
   least 10 minutes (`timeout_ms: 600000`), and use at least one hour
   (`timeout_ms: 3600000`) for a full `all` build or rebuild. Do not rely on the
   tool's default timeout or assume that an approved command prefix supplies one.
+- Do not run the `Win64-Release-DurinEditor-Tests` or
+  `Win64-Shipping-DurinGame-Tests` presets as routine Agent validation. They are
+  opt-in configuration-parity entrypoints for an explicit user or plan gate, or
+  for a change that directly modifies cross-configuration assertion, build, or
+  conditional-compilation behavior. When one is required, use a single selected
+  checkout; do not duplicate its build and install trees across worktrees.
 - If the execution tool explicitly yields a running process or cell ID, wait on
   that same invocation in intervals no longer than 60 seconds. Once it returns a
   final result, stop waiting and act on that result. DurinDevTool prints a
