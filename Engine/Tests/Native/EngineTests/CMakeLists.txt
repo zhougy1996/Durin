@@ -244,6 +244,7 @@ durin_add_engine_functional_test(StaticMeshTests
 durin_add_engine_functional_test(SkeletalAssetTests
 	SOURCES
 		Private/SkeletalAssetTests.cpp
+		Private/SkeletalAnimationTests.cpp
 )
 
 durin_add_engine_functional_test(SkeletalSceneLifecycleTests

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Animation/AnimationClip.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "AssetSystem.h"
 #include "EngineTestSupport.h"
 #include "Materials/Material.h"
@@ -285,6 +286,8 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 				.Dependencies = {"/Engine/"}}}};
 		Durin::PathUtilities::FScopedMountRegistryFixture Mounts(MountDefinitions);
 		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
+		std::vector<Durin::DSkeletalMesh*> RuntimeMeshes;
+		RuntimeMeshes.reserve(MeshPaths.size());
 		for (size_t Index = 0; Index < MeshPaths.size(); ++Index)
 		{
 			Durin::DSkeletalMesh* Mesh = nullptr;
@@ -294,7 +297,10 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 			ASSERT_NE(Mesh->GetPayloadData(), nullptr);
 			EXPECT_EQ(*Mesh->GetPayloadData(), ExpectedMeshes[Index]);
 			EXPECT_TRUE(Mesh->GetDerivedDataKey().empty());
+			RuntimeMeshes.push_back(Mesh);
 		}
+		std::vector<Durin::DAnimationClip*> RuntimeClips;
+		RuntimeClips.reserve(ClipPaths.size());
 		for (size_t Index = 0; Index < ClipPaths.size(); ++Index)
 		{
 			Durin::DAnimationClip* Clip = nullptr;
@@ -304,6 +310,54 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 			ASSERT_NE(Clip->GetPayloadData(), nullptr);
 			EXPECT_EQ(*Clip->GetPayloadData(), ExpectedClips[Index]);
 			EXPECT_TRUE(Clip->GetDerivedDataKey().empty());
+			RuntimeClips.push_back(Clip);
+		}
+
+		std::vector<std::shared_ptr<const Durin::FSkeletalPosePalette>> RuntimePoses;
+		for (size_t MeshIndex = 0; MeshIndex < RuntimeMeshes.size(); ++MeshIndex)
+		{
+			Durin::DSkeletalMesh* Mesh = RuntimeMeshes[MeshIndex];
+			const auto CaseClipBegin = RuntimeClips.begin() + static_cast<std::ptrdiff_t>(MeshIndex / 2 * 4);
+			const auto CaseClipEnd = CaseClipBegin + 4;
+			const auto ClipIt = std::find_if(CaseClipBegin, CaseClipEnd, [Mesh](const Durin::DAnimationClip* Clip) {
+				return Clip->GetSkeletonCompatibilityIdentity()
+					== Mesh->GetSkeletonCompatibilityIdentity();
+			});
+			ASSERT_NE(ClipIt, CaseClipEnd);
+			auto* Component = Durin::NewObject<Durin::DSkeletalMeshComponent>(
+				nullptr, Durin::FName(std::format("RuntimeSkeletalComponent{}", MeshIndex)));
+			std::string Error;
+			ASSERT_TRUE(Component->SetSkeletalMesh(Mesh, Error)) << Error;
+			ASSERT_TRUE(Component->SetAnimationClip(*ClipIt, Error)) << Error;
+			Component->RegisterComponent();
+			Component->DispatchBeginPlay();
+			ASSERT_TRUE(Component->Seek(1.0f, Error)) << Error;
+			const auto Pose = Component->GetLatestPosePalette();
+			ASSERT_NE(Pose, nullptr);
+			EXPECT_FLOAT_EQ(Pose->SampleTimeSeconds, 1.0f);
+			EXPECT_EQ(Pose->SkeletonCompatibilityIdentity,
+				Mesh->GetSkeletonCompatibilityIdentity());
+			EXPECT_EQ(Pose->Matrices.size(), Mesh->GetPayloadData()->PaletteBoneIndices.size());
+			for (const Durin::FMatrix4f& Matrix : Pose->Matrices)
+				for (Durin::uint32 Column = 0; Column < 4; ++Column)
+					for (Durin::uint32 Row = 0; Row < 4; ++Row)
+						EXPECT_TRUE(std::isfinite(Matrix[Column][Row]));
+			RuntimePoses.push_back(Pose);
+			Component->UnregisterComponent();
+			EXPECT_EQ(Component->GetLatestPosePalette(), nullptr);
+		}
+		ASSERT_EQ(RuntimePoses.size(), 4u);
+		for (size_t MeshWithinContainer = 0; MeshWithinContainer < 2; ++MeshWithinContainer)
+		{
+			const auto& GltfPose = RuntimePoses[MeshWithinContainer];
+			const auto& GlbPose = RuntimePoses[MeshWithinContainer + 2];
+			ASSERT_EQ(GltfPose->Matrices.size(), GlbPose->Matrices.size());
+			for (size_t MatrixIndex = 0; MatrixIndex < GltfPose->Matrices.size(); ++MatrixIndex)
+				for (Durin::uint32 Column = 0; Column < 4; ++Column)
+					for (Durin::uint32 Row = 0; Row < 4; ++Row)
+						EXPECT_NEAR(
+							GltfPose->Matrices[MatrixIndex][Column][Row],
+							GlbPose->Matrices[MatrixIndex][Column][Row], 1.0e-5f);
 		}
 		ShutdownAssetManager();
 	}

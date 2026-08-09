@@ -22,6 +22,7 @@ namespace Durin
 	class DPhysicsComponent;
 	class DSplineComponent;
 	class DStaticMeshComponent;
+	class DSkeletalMeshComponent;
 	class DSkyBoxComponent;
 
 	class DMaterial;

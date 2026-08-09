@@ -35,6 +35,7 @@
         "Public/Components/MeshComponent.h",
         "Public/Components/PhysicsComponent.h",
         "Public/Components/StaticMeshComponent.h",
+		"Public/Components/SkeletalMeshComponent.h",
         "Public/SkeletalMesh/Skeleton.h",
         "Public/SkeletalMesh/SkeletalMesh.h",
         "Public/Animation/AnimationClip.h",
