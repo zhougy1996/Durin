@@ -4,15 +4,20 @@
 
 namespace
 {
-	TEST(FGuidTests, DefaultsToInvalid)
+	TEST(FGuidTests, InvalidStateAndInvalidationUseTheZeroIdentity)
 	{
 		Durin::FGuid Guid;
 
 		EXPECT_FALSE(Guid.IsValid());
 		EXPECT_EQ(Guid.ToString(), "00000000-0000-0000-0000-000000000000");
+
+		Guid = Durin::FGuid(1, 2, 3, 4);
+		Guid.Invalidate();
+		EXPECT_FALSE(Guid.IsValid());
+		EXPECT_EQ(Guid, Durin::FGuid());
 	}
 
-	TEST(FGuidTests, FormatsAndParsesCanonicalRepresentation)
+	TEST(FGuidTests, CanonicalTextRoundTripsAndRejectsMalformedInputTransactionally)
 	{
 		const Durin::FGuid Expected(0x00112233, 0x44556677, 0x8899aabb, 0xccddeeff);
 		Durin::FGuid Parsed;
@@ -20,18 +25,10 @@ namespace
 		EXPECT_EQ(Expected.ToString(), "00112233-4455-6677-8899-aabbccddeeff");
 		EXPECT_TRUE(Durin::FGuid::Parse("00112233-4455-6677-8899-aabbccddeeff", Parsed));
 		EXPECT_EQ(Parsed, Expected);
-	}
 
-	TEST(FGuidTests, AcceptsUppercaseHexAndFormatsAsLowercase)
-	{
-		Durin::FGuid Guid;
+		ASSERT_TRUE(Durin::FGuid::Parse("00112233-4455-6677-8899-AABBCCDDEEFF", Parsed));
+		EXPECT_EQ(Parsed.ToString(), "00112233-4455-6677-8899-aabbccddeeff");
 
-		ASSERT_TRUE(Durin::FGuid::Parse("00112233-4455-6677-8899-AABBCCDDEEFF", Guid));
-		EXPECT_EQ(Guid.ToString(), "00112233-4455-6677-8899-aabbccddeeff");
-	}
-
-	TEST(FGuidTests, StrictParsingRejectsMalformedInputWithoutChangingOutput)
-	{
 		const Durin::FGuid Sentinel(1, 2, 3, 4);
 		const std::array<std::string_view, 5> InvalidValues{
 			"00112233445566778899aabbccddeeff",
@@ -49,17 +46,7 @@ namespace
 		}
 	}
 
-	TEST(FGuidTests, InvalidatesExistingValue)
-	{
-		Durin::FGuid Guid(1, 2, 3, 4);
-
-		Guid.Invalidate();
-
-		EXPECT_FALSE(Guid.IsValid());
-		EXPECT_EQ(Guid, Durin::FGuid());
-	}
-
-	TEST(FGuidTests, SupportsOrderingAndHashContainers)
+	TEST(FGuidTests, GeneratedIdentitiesAreOrderedHashableUniqueVersionFourValues)
 	{
 		const Durin::FGuid First(1, 2, 3, 4);
 		const Durin::FGuid Second(1, 2, 3, 5);
@@ -68,11 +55,8 @@ namespace
 		EXPECT_LT(First, Second);
 		EXPECT_EQ(Values.size(), 2);
 		EXPECT_TRUE(Values.contains(First));
-	}
 
-	TEST(FGuidTests, GeneratesUniqueVersionFourGuids)
-	{
-		std::unordered_set<Durin::FGuid> Values;
+		Values.clear();
 		for (size_t Index = 0; Index < 128; ++Index)
 		{
 			const Durin::FGuid Guid = Durin::FGuid::NewGuid();

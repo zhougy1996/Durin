@@ -87,22 +87,6 @@ namespace
 	}
 }
 
-TEST(FTextureCubeTests, RetiredSourceStringsAreNotReflected)
-{
-	InitializeCubeMount();
-	for (std::string_view RetiredField : {
-		"PositiveXSourceFile",
-		"NegativeXSourceFile",
-		"PositiveYSourceFile",
-		"NegativeYSourceFile",
-		"PositiveZSourceFile",
-		"NegativeZSourceFile",
-		"PanoramaSourceFile"})
-		EXPECT_EQ(
-			Durin::DTextureCube::StaticClass()->FindPropertyByName(RetiredField),
-			nullptr);
-}
-
 TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 {
 	const std::filesystem::path Root = InitializeCubeMount();

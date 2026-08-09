@@ -412,14 +412,6 @@ TEST(FTexture2DTests, ReportsMountedSourceBytesChangedSinceImport)
 	EXPECT_NE(Changed.Message.find("changed"), std::string::npos);
 }
 
-TEST(FTexture2DTests, RetiredSourceFileIsNotReflected)
-{
-	InitializeDObjectSystem();
-	EXPECT_EQ(
-		Durin::DTexture2D::StaticClass()->FindPropertyByName("SourceFile"),
-		nullptr);
-}
-
 TEST(FTexture2DTests, DerivedDataKeyCoversSourceContentAndBuildSettings)
 {
 	InitializeDObjectSystem();

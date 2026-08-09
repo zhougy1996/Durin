@@ -42,7 +42,6 @@ endfunction()
 durin_add_asset_functional_test(AssetPackageTests
 	LIBRARIES Engine
 	SOURCES
-		Private/AssetPackageVersionPolicyTests.cpp
 		Private/PackageTests.cpp
 		Private/PackageV4WireContract.cpp
 		Private/PackageV4WireContractTests.cpp

@@ -4,14 +4,10 @@
 
 namespace
 {
-	TEST(FStringHelperTests, FindsSubstringIgnoringCase)
+	TEST(FStringHelperTests, CaseInsensitiveFilteringHandlesMatchesAndEmptyInputs)
 	{
 		EXPECT_TRUE(Durin::StringUtils::ContainsInsensitive("Transform Location", "location"));
 		EXPECT_TRUE(Durin::StringUtils::ContainsInsensitive("StaticMeshComponent", "MESH"));
-	}
-
-	TEST(FStringHelperTests, HandlesEmptyAndMissingFilters)
-	{
 		EXPECT_TRUE(Durin::StringUtils::ContainsInsensitive("Actor", ""));
 		EXPECT_TRUE(Durin::StringUtils::ContainsInsensitive("", ""));
 		EXPECT_FALSE(Durin::StringUtils::ContainsInsensitive("Actor", "Component"));

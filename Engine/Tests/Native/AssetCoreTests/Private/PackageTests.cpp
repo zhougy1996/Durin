@@ -3,6 +3,7 @@
 #include "Asset/SourcePath.h"
 #include "AssetCompatibility.h"
 #include "AssetMigration.h"
+#include "AssetPackageVersionPolicy.h"
 #include "AssetPackageV4Reader.h"
 #include "AssetPackageV4Writer.h"
 #include "AssetRedirector.h"
@@ -83,6 +84,25 @@ namespace Durin
 
 namespace
 {
+	static_assert(Durin::Asset::LatestAssetPackageWriterVersion ==
+		Durin::Asset::AssetPackageV4FormatVersion);
+	static_assert(Durin::Asset::OrdinaryAssetPackageWriterVersion ==
+		Durin::Asset::AssetPackageV4FormatVersion);
+	static_assert(Durin::Asset::AssetPackageMigrationWriterVersion ==
+		Durin::Asset::LatestAssetPackageWriterVersion);
+	static_assert(Durin::Asset::SupportedAssetPackageReaderVersions ==
+		decltype(Durin::Asset::SupportedAssetPackageReaderVersions){
+			Durin::Asset::AssetPackageV4FormatVersion});
+	static_assert(Durin::Asset::SelectAssetPackageReader(
+		Durin::Asset::AssetPackageV4FormatVersion) ==
+		Durin::Asset::EAssetPackageReaderKind::DastV4);
+	static_assert(Durin::Asset::SelectAssetPackageReader(
+		Durin::Asset::AssetPackageV4FormatVersion - 1) ==
+		Durin::Asset::EAssetPackageReaderKind::Unsupported);
+	static_assert(Durin::Asset::SelectAssetPackageReader(
+		Durin::Asset::AssetPackageV4FormatVersion + 1) ==
+		Durin::Asset::EAssetPackageReaderKind::Unsupported);
+
 	auto RelocateAssetsForTest(
 		std::span<const Durin::Asset::FAssetRelocationMapping> Mappings,
 		Durin::Asset::FAssetRelocationBatchToken* OutToken = nullptr

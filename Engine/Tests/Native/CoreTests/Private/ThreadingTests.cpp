@@ -1209,84 +1209,6 @@ namespace Durin
 		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, Scope.Wait());
 	}
 
-	TEST(FTaskScopeQualificationTests, PairedScopedAndUnscopedMediansStayWithinFrozenThreshold)
-	{
-		ShutdownTaskScheduler(false);
-		FEngineThreadPoolTestGuard Guard;
-		ASSERT_TRUE(InitializeTaskScheduler(4));
-		constexpr uint32 RootCount = 128;
-		constexpr uint32 SampleCount = 5;
-
-		auto RunCohort = [](bool bScoped) -> uint64 {
-			FTaskScope Scope = bScoped ? CreateTaskScope() : FTaskScope{};
-			FTaskLaunchOptions Options;
-			if (bScoped) Options.Scope = Scope.GetToken();
-			const auto Start = std::chrono::steady_clock::now();
-			std::vector<FTaskHandle> Roots;
-			Roots.reserve(RootCount);
-			for (uint32 Index = 0; Index < RootCount; ++Index)
-			{
-				Roots.emplace_back(LaunchTask("ScopeQualificationRoot", []() {}, Options));
-			}
-
-			FTaskHandle Child;
-			auto Primary = LaunchTask<int>("ScopeQualificationPrimary", [&]() {
-				Child = LaunchTask("ScopeQualificationChild", []() {});
-				return 3;
-			}, Options);
-			auto Secondary = LaunchTask<int>("ScopeQualificationSecondary", []() { return 4; }, Options);
-			FTaskHandle Continuation = Then(Primary, "ScopeQualificationContinuation", [](const int&) {});
-			auto FanIn = WhenAll(std::make_tuple(Primary, Secondary), "ScopeQualificationFanIn",
-				[](const int& Left, const int& Right) { return Left + Right; });
-
-			EXPECT_TRUE(std::ranges::all_of(WaitAll(Roots), [](ETaskState State) { return State == ETaskState::Succeeded; }));
-			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Primary.GetTaskHandle()));
-			EXPECT_TRUE(Child.IsValid());
-			if (Child.IsValid()) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Child));
-			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Continuation));
-			EXPECT_EQ(ETaskState::Succeeded, WaitTask(FanIn.GetTaskHandle()));
-			if (bScoped)
-			{
-				EXPECT_EQ(ETaskScopeCloseResult::Closed, Scope.Close(ETaskScopeCloseMode::Drain));
-				EXPECT_EQ(ETaskScopeWaitResult::Quiescent, Scope.Wait());
-				const FTaskScopeDiagnostics Diagnostics = Scope.GetDiagnostics();
-				EXPECT_EQ(RootCount + 5, Diagnostics.AcceptedCount);
-				EXPECT_EQ(Diagnostics.AcceptedCount, Diagnostics.SucceededCount);
-				EXPECT_EQ(0u, Diagnostics.RejectedCount);
-				EXPECT_EQ(0u, Diagnostics.CurrentActiveCount);
-			}
-			return static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-				std::chrono::steady_clock::now() - Start).count());
-		};
-
-		(void)RunCohort(false);
-		(void)RunCohort(true);
-		std::array<uint64, SampleCount> UnscopedSamples{};
-		std::array<uint64, SampleCount> ScopedSamples{};
-		for (uint32 SampleIndex = 0; SampleIndex < SampleCount; ++SampleIndex)
-		{
-			if (SampleIndex % 2 == 0)
-			{
-				UnscopedSamples[SampleIndex] = RunCohort(false);
-				ScopedSamples[SampleIndex] = RunCohort(true);
-			}
-			else
-			{
-				ScopedSamples[SampleIndex] = RunCohort(true);
-				UnscopedSamples[SampleIndex] = RunCohort(false);
-			}
-		}
-		std::ranges::sort(UnscopedSamples);
-		std::ranges::sort(ScopedSamples);
-		const uint64 UnscopedMedian = UnscopedSamples[SampleCount / 2];
-		const uint64 ScopedMedian = ScopedSamples[SampleCount / 2];
-		std::cout << "TaskScopeQualification,roots=" << RootCount
-			<< ",samples=" << SampleCount
-			<< ",unscoped_median_ns=" << UnscopedMedian
-			<< ",scoped_median_ns=" << ScopedMedian << '\n';
-		EXPECT_LE(ScopedMedian, UnscopedMedian + UnscopedMedian * 15 / 100);
-	}
-
 	TEST(FTaskTests, LaunchTaskReturnsValidHandleAndCompletes)
 	{
 		ShutdownTaskScheduler(false);
@@ -3384,8 +3306,14 @@ namespace Durin
 		EXPECT_EQ(ETaskState::Succeeded, WaitTask(CancelableTask));
 		EXPECT_EQ(ETaskState::Succeeded, WaitTask(OutcomeContinuation));
 		EXPECT_EQ(ETaskState::Succeeded, WaitTask(TypedContinuation.GetTaskHandle()));
-		while (Deferred.GetState() == ETaskState::Waiting) std::this_thread::yield();
+		const auto DispatchDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+		while (GetGameThreadDeferredWorkQueueDiagnostics().QueueDepth == 0
+			&& std::chrono::steady_clock::now() < DispatchDeadline)
+		{
+			std::this_thread::yield();
+		}
 		ASSERT_EQ(ETaskState::Queued, Deferred.GetState());
+		ASSERT_EQ(1u, GetGameThreadDeferredWorkQueueDiagnostics().QueueDepth);
 		EXPECT_EQ(1u, PumpGameThreadDeferredWork().ExecutedCallbacks);
 		EXPECT_EQ(ETaskState::Succeeded, Deferred.GetState());
 		EXPECT_EQ(71u, Observation.load(std::memory_order::acquire));

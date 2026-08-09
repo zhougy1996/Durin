@@ -65,7 +65,7 @@ namespace
 		}
 	}
 
-	TEST(FNameTests, ReservesEntryZeroForNone)
+	TEST(FNameTests, CanonicalizesNoneAndExplicitOrDetectedNumbers)
 	{
 		const Durin::FName DefaultName;
 		const Durin::FName LiteralNone("None");
@@ -75,33 +75,21 @@ namespace
 		EXPECT_EQ(DefaultName.ToString(), "None");
 		EXPECT_TRUE(LiteralNone.IsNone());
 		EXPECT_FALSE(FirstOrdinaryName.IsNone());
-	}
 
-	TEST(FNameTests, ConstructsExplicitNumberFromCString)
-	{
-		const Durin::FName Name("Foo", 3);
-
-		EXPECT_EQ(Name.ToString(), "Foo_3");
-		EXPECT_EQ(Name.GetNumber(), 4U);
-	}
-
-	TEST(FNameTests, ExplicitNumberConstructorsAreEquivalent)
-	{
 		const Durin::FName CStringName("Foo", 3);
 		const Durin::FName StringViewName(std::string_view("Foo"), 3);
-
+		EXPECT_EQ(CStringName.ToString(), "Foo_3");
+		EXPECT_EQ(CStringName.GetNumber(), 4U);
 		EXPECT_EQ(CStringName, StringViewName);
 		EXPECT_EQ(CStringName.ToString(), StringViewName.ToString());
-	}
-
-	TEST(FNameTests, DetectedAndExplicitNumbersAreEquivalent)
-	{
 		const Durin::FName DetectedName("Foo_3");
-		const Durin::FName ExplicitName("Foo", 3);
+		EXPECT_EQ(DetectedName, CStringName);
+		EXPECT_EQ(DetectedName.GetNumber(), CStringName.GetNumber());
+		EXPECT_EQ(DetectedName.ToString(), CStringName.ToString());
 
-		EXPECT_EQ(DetectedName, ExplicitName);
-		EXPECT_EQ(DetectedName.GetNumber(), ExplicitName.GetNumber());
-		EXPECT_EQ(DetectedName.ToString(), ExplicitName.ToString());
+		const Durin::FName UnnumberedName("Foo", -1);
+		EXPECT_EQ(UnnumberedName.ToString(), "Foo");
+		EXPECT_EQ(UnnumberedName.GetNumber(), 0U);
 	}
 
 	TEST(FNameTests, PreservesOutOfRangeNumericSuffixesAsPlainNames)
@@ -119,7 +107,7 @@ namespace
 		EXPECT_EQ(Durin::FName("Bone_12345678901").ToString(), "Bone_12345678901");
 	}
 
-	TEST(FNameTests, TruncatesLongNamesToTheStoredLimit)
+	TEST(FNameTests, TruncatesLongNamesAtStoredAndUtf8Boundaries)
 	{
 		const std::string AtLimit(Durin::FName::MaxSize - 1, 'a');
 		const std::string OnePastLimit(Durin::FName::MaxSize, 'b');
@@ -130,17 +118,13 @@ namespace
 		EXPECT_EQ(Durin::FName(OnePastLimit).ToString(), OnePastLimit.substr(0, Durin::FName::MaxSize - 1));
 		EXPECT_EQ(Durin::FName(TwoPastLimit).ToString(), TwoPastLimit.substr(0, Durin::FName::MaxSize - 1));
 		EXPECT_EQ(Durin::FName(FarPastLimit).ToString(), FarPastLimit.substr(0, Durin::FName::MaxSize - 1));
-	}
-
-	TEST(FNameTests, TruncatesLongNamesAtUtf8Boundaries)
-	{
 		const std::string Prefix(Durin::FName::MaxSize - 2, 'a');
 		const std::string Name = Prefix + "\xe4\xb8\xad";
 
 		EXPECT_EQ(Durin::FName(Name).ToString(), Prefix);
 	}
 
-	TEST(FNameTests, IgnoresAsciiCaseAndPreservesUtf8Bytes)
+	TEST(FNameTests, CaseComparisonIncludesNumbersAndPreservesUtf8Bytes)
 	{
 		const Durin::FName UpperName("MIXED_\xe4\xb8\xad\xe6\x96\x87");
 		const Durin::FName LowerName("mixed_\xe4\xb8\xad\xe6\x96\x87");
@@ -151,23 +135,12 @@ namespace
 		EXPECT_FALSE(UpperName.Equals(LowerName, Durin::ENameCase::CaseSensitive));
 		EXPECT_FALSE(UpperAccented.Equals(LowerAccented));
 		EXPECT_EQ(UpperName.ToString(), "MIXED_\xe4\xb8\xad\xe6\x96\x87");
-	}
 
-	TEST(FNameTests, MinusOneMeansNoNumber)
-	{
-		const Durin::FName Name("Foo", -1);
+		const Durin::FName UpperNumberedName("Foo", 3);
+		const Durin::FName LowerNumberedName("foo", 3);
 
-		EXPECT_EQ(Name.ToString(), "Foo");
-		EXPECT_EQ(Name.GetNumber(), 0U);
-	}
-
-	TEST(FNameTests, ExplicitNumberComparisonIgnoresCaseByDefault)
-	{
-		const Durin::FName UpperName("Foo", 3);
-		const Durin::FName LowerName("foo", 3);
-
-		EXPECT_TRUE(UpperName.Equals(LowerName));
-		EXPECT_FALSE(UpperName.Equals(LowerName, Durin::ENameCase::CaseSensitive));
+		EXPECT_TRUE(UpperNumberedName.Equals(LowerNumberedName));
+		EXPECT_FALSE(UpperNumberedName.Equals(LowerNumberedName, Durin::ENameCase::CaseSensitive));
 	}
 
 	TEST(FNameTests, RoutesDisplayEntriesAcrossTheirHashedShards)

@@ -4,16 +4,12 @@
 
 namespace Durin
 {
-	TEST(FProfilingTests, FormatsProgramIdentity)
+	TEST(FProfilingTests, FormatsExplicitAndFallbackProgramIdentities)
 	{
 		EXPECT_EQ(
 			Profiling::FormatProgramIdentity("DurinEditor", "Sandbox", 1234),
 			"DurinEditor | Sandbox | PID 1234"
 		);
-	}
-
-	TEST(FProfilingTests, FormatsFallbackProgramIdentity)
-	{
 		EXPECT_EQ(Profiling::FormatProgramIdentity({}, {}, 7), "Durin | No Project | PID 7");
 	}
 
