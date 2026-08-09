@@ -4,8 +4,8 @@ Summary: Reduce DurinEditor time to a usable shell while preserving startup owne
 
 Last reviewed: 2026-08-10
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-10
 
 ## Current Status
 
@@ -86,10 +86,17 @@ not change game-thread package skeleton creation, `DObject` publication,
 compatibility reporting, dependency order, or rollback. No competing startup
 leaf will be implemented in Stage 3.
 
-The documented cold Debug Sandbox launch remains pending because the locked
-protocol requires a machine restart. On 2026-08-10 the user explicitly approved
-deferring that restart so implementation could continue; the cold sample remains
-an open final-validation requirement and is not treated as passed evidence.
+The final cold Debug Sandbox launch used runtime code state `91703d74` after a
+user-confirmed machine restart and before another Durin process ran; subsequent
+pre-capture changes were documentation-only. The ignored log is
+`Build/.agent-state/logs/20260810-023119-615950-8584-DurinEditor.log`.
+First present measured 1,511.390 ms, default-workspace readiness 1,549.580 ms,
+and default-document completion 2,205.696 ms. The registry reused all 17 cached
+entries in 12.544 ms; threaded RHI drained with zero backpressure and zero
+rejections, and the process exited normally. The Stage 0 cold baseline had been
+deferred and was never captured. On 2026-08-10 the user explicitly waived that
+historical comparison and accepted the current restarted sample as the plan's
+cold evidence; no warm result is represented as a cold baseline.
 
 Stage 1 now presents the persisted, styled native shell before loading concrete
 editor modules. `DEditorEngine::Tick()` owns the forward-only bootstrap;
@@ -124,10 +131,9 @@ ms (937.439--1,040.410 ms), default-workspace-ready median 1,037.261 ms
 Stage 0 baseline and comfortably passes the baseline-plus-10-percent gate.
 Missing and incompatible default-level controls each retained the registered
 Level workspace, emitted exactly one actionable error, and exited normally.
-A focused truncated-package regression passed, and the existing cross-world
-level-ownership assertion continues to cover activation rejection; a standalone
-invocation of that World test reached the 10-minute process timeout before
-producing test output, so it is not counted as passed runtime evidence here.
+A focused truncated-package regression passed, and the dedicated `WorldTests`
+cross-world ownership case passed, covering activation rejection when a level
+has not been reparented to the destination world.
 A six-tick close after module registration and registry scan but before default
 document admission skipped the document load and completed reverse-order
 shutdown with zero deferred objects. All 29 `EditorShellTests` and the complete
@@ -152,6 +158,30 @@ five runs retained `-1` registry/default-document fields and exited normally.
 Its completion milestone now intentionally follows first present under the
 Stage 1 state machine, so it is not directly comparable to the pre-Stage-1
 completion boundary.
+
+Stage 4 integration evidence is complete. The final Debug profile passed 29
+`EditorShellTests`, 97 `AssetPackageTests`, and 78 of 79
+`EditorAssetWorkflowTests`; the remaining
+Content Browser reparse-point case was skipped because this Windows session
+lacks symbolic-link privilege. Repeated threaded Sandbox and Project Browser
+runs, close during deferred bootstrap, and one inline-RHI Sandbox diagnostic
+all exited normally. The threaded and inline executor drains reported zero
+backpressure events and zero rejected submissions.
+
+The final Release Profiling `all` build passed. Its ignored capture at
+`Build/Profiling/Tracy/DurinEditor-startup-sandbox-optimized-20260810-021704.tracy`
+contains 31 `Asset.LoadPackage` zones and measured the default-document asset
+load at 56.471 ms, compatibility at 0.00083 ms, and activation at 1.037 ms.
+Lasting MainFrame bootstrap ownership now lives in
+`Documentation/Editor/Architecture/WorkspaceFramework.md`; the one-read package
+load and bounded report counter contract lives in
+`Documentation/Runtime/Assets/AssetPackages.md`.
+
+The final window matrix also exercised both persisted display modes. With no
+host-settings file, maximized startup created exactly one 3,840x2,019 swapchain.
+A temporary 1,280x720, non-maximized, Light-theme, 1.25-scale configuration
+round-tripped unchanged, created exactly one 1,280x720 swapchain, and shut down
+cleanly; the temporary file was then removed to restore the original state.
 
 ## Goal
 
@@ -225,22 +255,23 @@ completion boundary.
 - Startup zones use stable bounded names and never encode project names, asset
   paths, object names, or process-specific identifiers.
 
-## Current Foundations and Gaps
+## Stage 0 Foundations and Gaps
 
-- `FEngineLoop` already exposes stable lifecycle entry points and initializes
+- At the Stage 0 baseline, `FEngineLoop` already exposed stable lifecycle entry
+  points and initialized
   RHI, rendering, Mona, and the concrete engine in a fixed order.
-- `DEngine::Init()` synchronously initializes the default material before
+- `DEngine::Init()` synchronously initialized the default material before
   loading Renderer and creating the main scene.
-- `DEditorEngine::Init()` currently constructs MainFrame synchronously before
+- `DEditorEngine::Init()` constructed MainFrame synchronously before
   the normal tick loop begins.
-- `FMainFrameModule::CreateDefaultMainFrame()` currently registers every editor
+- `FMainFrameModule::CreateDefaultMainFrame()` registered every editor
   workspace, opens default workspaces, creates the native viewport, restores
   maximized state, and shows the root window as one blocking call.
-- LevelEditor performs mounted-content reconciliation and opens the configured
+- LevelEditor performed mounted-content reconciliation and opened the configured
   default level during singleton workspace construction.
-- Tracy covers runtime CPU work but lacks stable startup zones for the intervals
+- Tracy covered runtime CPU work but lacked stable startup zones for the intervals
   under investigation.
-- There is no explicit editor-shell-ready, default-workspace-ready, or
+- There was no explicit editor-shell-ready, default-workspace-ready, or
   first-present milestone, and retained logs predate the current-source build.
 
 ## Implementation Stages
@@ -259,7 +290,7 @@ completion boundary.
 - [x] Define cold-cache preparation and warm-cache repetition rules that do not
   delete authored content or share mutable cache state between simultaneous
   processes.
-- [ ] Capture at least five warm Debug Sandbox launches, five warm Debug Project
+- [x] Capture at least five warm Debug Sandbox launches, five warm Debug Project
   Browser launches, one documented cold Debug Sandbox launch, and one Release
   Profiling capture.
 - [x] Record median, minimum, maximum, and first-present/default-workspace
@@ -378,10 +409,9 @@ completion boundary.
   without changing game-thread publication or failure rollback.
 - Validation: Debug `all` build; 29 `EditorShellTests`; complete
   `EditorAssetWorkflowTests`; five-run Sandbox metrics; missing and incompatible
-  default-level controls; focused truncated-package regression; inspected
-  cross-world activation-rejection coverage (standalone invocation timed out
-  before test output); close after workspace readiness and before document
-  admission; normal repeated shutdown audits.
+  default-level controls; focused truncated-package regression; dedicated
+  cross-world activation-rejection test; close after workspace readiness and
+  before document admission; normal repeated shutdown audits.
 
 ### Stage 3: Reduce the selected synchronous hot leaf
 
@@ -404,8 +434,9 @@ completion boundary.
 
 - The selected leaf has a smaller median duration in an equivalent five-run
   sample and preserves its documented ownership and failure behavior.
-- First-present and default-workspace metrics satisfy the plan goals without a
-  cold-start regression greater than 10 percent.
+- First-present and default-workspace metrics satisfy the plan goals. The final
+  restarted cold sample is recorded; the user explicitly waived the unavailable
+  historical cold-baseline regression comparison.
 - No new unbounded log, profiling label, cache key, or startup thread affinity
   is introduced.
 
@@ -421,9 +452,8 @@ completion boundary.
   header validation before skeleton publication; count successful physical
   package reads across the root dependency closure without adding logs, cache
   state, or thread-affinity changes.
-- Open question: the required cold Sandbox sample remains deferred until the
-  user permits a machine restart; Stage 4 must not mark that gate passed from a
-  warm launch.
+- Open question: none. The final restarted cold sample is recorded under the
+  explicit historical-baseline waiver documented in Current Status.
 - Validation: Debug `all` build; focused dependency-count and truncated-package
   cases; complete 97-case `AssetPackageTests`; one priming plus five measured
   Sandbox launches; one priming plus five measured Project Browser launches;
@@ -431,18 +461,18 @@ completion boundary.
 
 ### Stage 4: Integration validation and lasting documentation
 
-- [ ] Add or update focused native tests for bootstrap state transitions,
+- [x] Add or update focused native tests for bootstrap state transitions,
   rollback, close-during-load, and command readiness.
-- [ ] Validate threaded RHI execution and the documented inline RHI diagnostic
+- [x] Validate threaded RHI execution and the documented inline RHI diagnostic
   mode.
-- [ ] Complete a successful full `all` build and normal DurinEditor runtime
+- [x] Complete a successful full `all` build and normal DurinEditor runtime
   validation from the same Agent Build Profile.
-- [ ] Run repeated Sandbox and Project Browser startup/exit cycles and verify
+- [x] Run repeated Sandbox and Project Browser startup/exit cycles and verify
   the final render-resource, RHI, module, task, and object-lifecycle audits.
-- [ ] Move lasting editor startup ownership and state-machine rules into the
+- [x] Move lasting editor startup ownership and state-machine rules into the
   owning Editor architecture document, and update Runtime documentation only
   if a runtime contract changed.
-- [ ] Record final evidence, complete every passed checklist, and mark this plan
+- [x] Record final evidence, complete every passed checklist, and mark this plan
   completed only after all required gates pass.
 
 #### Acceptance Gate
@@ -454,11 +484,33 @@ completion boundary.
 - Long-lived behavior is documented outside the plan, and no implementation
   rule relies only on historical plan text.
 
+#### Stage 4 Final Handoff
+
+- Baseline commit: `91703d74`.
+- Working set: Editor workspace architecture, AssetCore package contract, and
+  this plan's final validation evidence.
+- Key contracts: MainFrame owns shell and deferred bootstrap state;
+  `DEditorEngine::Tick()` is the only admission driver; workspace and document
+  readiness remain distinct; package header and payload loading share one byte
+  buffer and resolved codec.
+- Decisions: warm evidence retains the locked serial protocol; the final cold
+  sample is the first Durin process after the user-confirmed restart. Because no
+  Stage 0 cold sample exists, the user explicitly waived that historical
+  comparison rather than substituting warm evidence.
+- Open question: none.
+- Validation: Debug and Release Profiling `all` builds; 29/29 shell tests;
+  5/5 profiling-adapter tests; 97/97 package tests; 78 passed plus one
+  privilege-skipped asset-workflow test; dedicated cross-world activation
+  rejection; five-run Sandbox and Project Browser sets; maximized and configured
+  normal-window startup; deferred-close controls; threaded and inline RHI
+  drains; optimized Tracy capture; final restarted cold Sandbox launch; normal
+  repeated shutdown; repository documentation validation.
+
 ## Validation Matrix
 
 | Area | Required validation |
 | --- | --- |
-| Debug Sandbox baseline | One documented cold launch and at least five warm launches with shell-present and default-workspace milestones. |
+| Debug Sandbox baseline | At least five warm baseline launches plus one documented final cold launch; the unavailable historical cold comparison is explicitly user-waived. |
 | Debug Project Browser control | At least five warm launches with no project workspace or default-document activation. |
 | Release Profiling | One matching Tracy capture showing stable startup zones and the selected hot leaf. |
 | Window behavior | Normal and maximized startup, UI scale/theme restoration, close during shell load, and no transient normal-size frame. |
@@ -469,11 +521,13 @@ completion boundary.
 
 ## Definition of Done
 
-- Current-source baseline and final evidence are recorded against named commits
-  using the same machine, preset, project, and cache protocol.
+- Current-source warm baseline and final evidence are recorded against named
+  commits using the same machine, preset, project, and cache protocol. The final
+  restarted cold sample is recorded separately under the explicit waiver above.
 - The warm Debug Sandbox first-present median improves by at least 30 percent.
-- Default-workspace readiness is no worse than 10 percent above baseline and
-  cold startup is no worse than 10 percent above baseline.
+- Default-workspace readiness is no worse than 10 percent above the warm
+  baseline; the unavailable historical cold-baseline comparison is explicitly
+  waived and not inferred from warm data.
 - The shell is visible, responsive, correctly styled, and safely closable while
   project work is pending.
 - Default workspace, default level, compatibility policy, rollback, shutdown,

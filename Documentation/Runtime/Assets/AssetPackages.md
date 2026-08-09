@@ -358,6 +358,14 @@ dependencies queue their entries until the root commits. Any decode, dependency,
 field, ledger, callback, or `PostLoad` failure destroys the complete new graph
 and restores prior residency, registry, cache, report, and dirty state.
 
+Each nonresident package is read from its physical file once. The package policy
+resolves the codec from that byte buffer, reads and validates the neutral header
+through the same codec and bytes, then supplies the unchanged bytes to live
+loading. Header validation still precedes skeleton publication. The root
+`FAssetLoadReport::PackageFileReadCount` records successful package-file reads
+across the complete dependency closure; it is structured bounded telemetry, not
+a cache or a per-package log.
+
 An ordinary single-package or atomic-bundle save may update an existing package
 only when its registered format equals the ordinary v4 writer. A stale or
 unsupported registry version is rejected before serialization, staging, file

@@ -20,6 +20,37 @@ Level workspace state such as viewport cameras, gizmo preferences, Content
 Browser state, and Details layout. The two settings files have no compatibility
 or migration coupling.
 
+## Startup Bootstrap
+
+`MainFrame` constructs and owns a lightweight native shell before loading
+concrete editor modules. Persisted maximized state is applied while the window
+is hidden and before native viewport creation; after the viewport presents
+successfully, `DEditorEngine::Tick()` advances the game-thread bootstrap. Widget
+drawing observes state but never admits startup work.
+
+Project startup follows the forward-only sequence
+`ConstructingShell -> WaitingForFirstPresent -> LoadingWorkspace ->
+WorkspaceReady -> LoadingDefaultDocument -> Ready`. Workspace registration or
+opening failure enters terminal `Failed`. Project Browser uses the shell-only
+`WaitingForFirstPresent -> Ready` path and does not register project workspaces
+or load a default document.
+
+Workspace readiness and default-document readiness are separate contracts.
+After Level, Material, Texture, and StaticMesh registration and default
+workspace opening succeed, MainFrame publishes `WorkspaceReady` for one frame
+before asking LevelEditor to load the configured default level. The document
+state advances independently through `Pending -> Loading -> Ready|Failed`.
+Missing, incompatible, corrupt, or unactivatable default levels leave the Level
+workspace usable, publish document `Failed`, report one actionable error, and
+allow the overall host bootstrap to reach `Ready`. Commands that need a level
+continue to depend on the active LevelEditor context rather than host readiness.
+
+Destroying the default frame removes the bootstrap context, so no later tick
+can admit deferred work. MainFrame then stops request admission and unwinds
+workspace integrations in the reverse order described below. Partially loaded
+default documents use the normal request-scoped package snapshot and release
+only ownership introduced by that request.
+
 ## Application Commands
 
 `MainFrame` owns the stable application menu structure. The shell keeps File,
