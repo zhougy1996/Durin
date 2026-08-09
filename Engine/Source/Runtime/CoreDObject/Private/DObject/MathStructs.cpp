@@ -16,6 +16,15 @@ namespace Durin
 		}
 	};
 
+	template<>
+	struct TDStructOpsTraits<FLinearColor> : TDStructOpsTraitsBase<FLinearColor>
+	{
+		static auto DefaultConstruct(void* Destination) -> void
+		{
+			std::construct_at(static_cast<FLinearColor*>(Destination), ForceInitToZero);
+		}
+	};
+
 	namespace
 	{
 		template<typename T, auto Member>
