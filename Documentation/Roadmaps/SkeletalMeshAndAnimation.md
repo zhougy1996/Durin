@@ -2,7 +2,7 @@
 
 Summary: Establish skeletal assets, deterministic source ingestion, runtime pose evaluation, GPU skinning, and production editor workflows through just-in-time implementation plans.
 
-Last reviewed: 2026-08-08
+Last reviewed: 2026-08-09
 
 Status: Active
 Completed:
@@ -28,12 +28,15 @@ material-slot, render-data, resource-invalidation, SceneProxy, and component
 lifecycle patterns that a skeletal path can reuse without inheriting its
 static-geometry assumptions.
 
-The active first child is the
+The first child completed on 2026-08-08 through the
 [Skeletal Asset and Import Foundation Plan](../Plans/Archive/2026-08/SkeletalAssetAndImportFoundation.md).
 It owns the initial asset graph, glTF skeletal normalization, provider outputs,
-derived/cooked payloads, and non-rendering validation. Later child plans will
-be authored only when their entry gates are reached and the then-current
-runtime and renderer contracts can be inspected.
+derived/cooked payloads, and non-rendering validation. The S2 entry gate is
+satisfied for planning, but no skeletal child plan is active; S2 remains the
+next ready skeletal child when that program is selected. Later child plans will
+be authored only when their entry gates are reached, they are selected as
+active work, and the then-current runtime and renderer contracts can be
+inspected.
 
 Skeletal rendering is also the default second production primitive in the
 [Rendering Capability Expansion Roadmap](RenderingCapabilityExpansion.md).

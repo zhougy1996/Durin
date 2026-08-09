@@ -2,7 +2,7 @@
 
 Summary: Establish production-ready compute shader execution through a sequence of bounded synchronization, pipeline, integration, and optional asynchronous-compute plans.
 
-Last reviewed: 2026-08-07
+Last reviewed: 2026-08-09
 
 Status: Active
 Completed:
@@ -16,7 +16,7 @@ creation and draw submission, the command list rejects the compute pipeline,
 and synchronization is limited to render-pass and resource upload/readback
 paths.
 
-Two upstream RHI submission plans are now active:
+Two upstream RHI submission plans are complete:
 [Recorded RHI Command List](../Plans/Archive/2026-08/RecordedRHICommandList.md) establishes the
 record/replay and payload-lifetime boundary required by new compute commands,
 and [Dedicated RHI Thread](../Plans/Archive/2026-08/DedicatedRHIThread.md) moves replay onto its
@@ -28,7 +28,11 @@ the evidence-gated asynchronous-compute milestone.
 No compute child implementation plan is active yet. The first compute plan
 should establish a general resource-transition contract so the compute vertical
 slice does not introduce a one-off synchronization mechanism that must
-immediately be replaced.
+immediately be replaced. Its entry gate is now satisfied, but the active
+[RHI Capability and Vulkan Startup](../Plans/RHICapabilityAndVulkanStartup.md)
+plan is the current foundation priority; transition planning must consume its
+selected synchronization capability fields rather than defining a parallel
+device-capability surface.
 
 ## Outcome
 

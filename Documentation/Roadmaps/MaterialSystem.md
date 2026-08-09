@@ -2,7 +2,7 @@
 
 Summary: Long-term sequencing for material authoring, surface models, render passes, compilation, and runtime scalability.
 
-Last reviewed: 2026-08-08
+Last reviewed: 2026-08-09
 
 Status: Active
 Completed:
@@ -33,7 +33,7 @@ plans. Later milestones receive their own plans only after their dependencies
 are complete and the current implementation can supply an evidence-backed
 baseline.
 
-## Active Plans
+## Milestone Plan Status
 
 | Roadmap milestone | Execution plan | State |
 | --- | --- | --- |
