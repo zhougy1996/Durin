@@ -10,11 +10,11 @@ Completed:
 ## Current Status
 
 The repository has compute-aware shader compilation, reflection, storage
-resources, Vulkan descriptor mappings, queue-family discovery, and a raw Vulkan
-compute dispatch test. The backend-neutral RHI still exposes only graphics PSO
-creation and draw submission, the command list rejects the compute pipeline,
-and synchronization is limited to render-pass and resource upload/readback
-paths.
+resources, Vulkan descriptor mappings, queue-family discovery, a raw Vulkan
+compute dispatch test, and a completed portable resource-transition
+foundation. The backend-neutral RHI still exposes only graphics PSO creation
+and draw submission, and the command list rejects the compute pipeline; direct
+compute creation, binding, and dispatch remain the next vertical slice.
 
 Two upstream RHI submission plans are complete:
 [Recorded RHI Command List](../Plans/Archive/2026-08/RecordedRHICommandList.md) establishes the
@@ -25,15 +25,20 @@ resource-transition and synchronous-compute implementations. The dedicated RHI
 thread is not a prerequisite for synchronous compute, but is required before
 the evidence-gated asynchronous-compute milestone.
 
-The first compute child is now active:
-[GPU Resource Transitions](../Plans/GPUResourceTransitions.md). It establishes a
-general transition contract before the compute vertical slice so dispatch does
-not introduce a one-off synchronization mechanism. The completed
-[RHI Capability and Vulkan Startup](../Plans/Archive/2026-08/RHICapabilityAndVulkanStartup.md)
-plan supplies immutable synchronization2 availability; the transition plan
-consumes that field and preserves a legacy-barrier fallback instead of defining
-a parallel device-capability surface. This M1 is shared with the RHI and Vulkan
-Backend Evolution roadmap and has one implementation and completion gate.
+M1 completed on 2026-08-10 through
+[GPU Resource Transitions](../Plans/GPUResourceTransitions.md), shared with the
+RHI and Vulkan Backend Evolution roadmap. Public buffer and texture transitions
+now record exact ranges, preserve lifetimes through inline or threaded replay,
+and map through one Vulkan state authority using published synchronization2
+availability or the legacy fallback. Focused RHI, RenderCore, and Vulkan tests,
+the native aggregate, full Debug Editor build, and hidden-window runtime smoke
+passed. The lasting contract is recorded in
+[RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md).
+
+The `SynchronousComputePipeline` M2 entry gate is now met: compute uniform,
+shader-read, and shader-read/write intent have frozen public semantics and
+tested Vulkan mappings. M2 remains proposed rather than active and must own
+compute PSO creation, binding, dispatch, and storage-result validation.
 
 ## Outcome
 
@@ -162,8 +167,8 @@ flowchart LR
 
 | Milestone | Requirement | Proposed child plan | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- |
-| M1: Resource transitions | Required; active | [GPUResourceTransitions](../Plans/GPUResourceTransitions.md) | Met on 2026-08-10: recorded replay is stable, synchronization2 availability is published, and render-pass/upload/readback/subresource mutation paths have a bounded audit. | Public buffer/image transitions pass focused Vulkan tests without breaking current render-pass or transfer behavior. |
-| M2: Synchronous compute core | Required | `SynchronousComputePipeline` | M1 access-state and barrier contracts are stable enough for compute mappings. | Public RHI creates a complete compute PSO, binds reflected resources/push constants, dispatches outside a render pass, and validates storage buffer and image results. |
+| M1: Resource transitions | Required; completed | [GPUResourceTransitions](../Plans/GPUResourceTransitions.md) and [lasting contract](../Runtime/Rendering/RHIResourceTransitions.md) | Met on 2026-08-10: recorded replay is stable, synchronization2 availability is published, and render-pass/upload/readback/subresource mutation paths have a bounded audit. | Met on 2026-08-10: exact buffer/image transitions, inline/threaded replay, Vulkan mappings, implicit-path reconciliation, focused/native/full-build qualification, and runtime smoke passed without divergent state or new global idle waits. |
+| M2: Synchronous compute core | Required | `SynchronousComputePipeline` | Met on 2026-08-10: M1 access-state and barrier contracts are documented, qualified, and include tested compute-intent mappings. | Public RHI creates a complete compute PSO, binds reflected resources/push constants, dispatches outside a render pass, and validates storage buffer and image results. |
 | M3: Renderer integration | Required | `ComputeRendererIntegration` | M2 vertical slice and interop validation pass; a consumer is selected with an explicit fallback and measurable benefit. | The selected renderer path consumes compute output without Vulkan escape hatches, survives resource refresh/lifetime scenarios, and passes its runtime validation. |
 | M4: Indirect dispatch | Conditional | `ComputeDispatchExtensions` | A concrete GPU-driven workload requires indirect dispatch and M2 is complete. | Indirect argument creation, transitions, bounds validation, and `DispatchIndirect` pass focused and runtime tests. |
 | M5: Async compute | Evidence-gated | `AsyncComputeExecution` | M1-M3 and the dedicated RHI thread plan are complete; profiling identifies overlap opportunity that exceeds scheduling and ownership costs on target hardware. | Separate compute submission, cross-queue synchronization, ownership transfer, resource lifetime, fallback, and frame shutdown are validated without global idle waits. |

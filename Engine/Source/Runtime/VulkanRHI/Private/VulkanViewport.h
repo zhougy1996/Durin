@@ -41,9 +41,11 @@ namespace Durin::VulkanRHI
 		auto AcquireBackBufferImage(FVulkanCommandListContext& Context) -> bool;
 		auto UpdateSwapchain() -> void;
 		auto InvalidateSwapchain() -> void;
+		auto CommitPresentedImageState() -> void;
 
 	private:
 		FVulkanViewport* Viewport;
+		std::vector<std::pair<vk::Image, ERHIAccess>> ImageStates;
 	};
 
 	// Coordinates swapchain recreation, image acquisition, and presentation for a window.

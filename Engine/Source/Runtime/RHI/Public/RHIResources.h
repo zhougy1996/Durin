@@ -534,6 +534,7 @@ namespace Durin
 			, ArraySize(InDesc.ArraySize)
 			, NumMips(InDesc.NumMips)
 			, NumSamples(InDesc.NumSamples)
+			, Flags(InDesc.Flags)
 		{
 		}
 
@@ -544,6 +545,7 @@ namespace Durin
 		auto GetArraySize() const -> uint16 { return ArraySize; }
 		auto GetNumMips() const -> uint8 { return NumMips; }
 		auto GetNumSamples() const -> uint8 { return NumSamples; }
+		auto GetFlags() const -> ETextureCreateFlags { return Flags; }
 
 	protected:
 		explicit FRHITexture(ERHIResourceType InResourceType)
@@ -560,6 +562,7 @@ namespace Durin
 		uint16 ArraySize = 1;
 		uint8 NumMips = 1;
 		uint8 NumSamples = 1;
+		ETextureCreateFlags Flags = ETextureCreateFlags::None;
 	};
 
 	// Provides stable counted indirection to a concrete texture allocation.
@@ -628,20 +631,90 @@ namespace Durin
 		ColorAttachment,
 		DepthStencilAttachment,
 		ShaderReadOnly,
+		TransferSource,
+		TransferDestination,
 		General,
 		Present,
 	};
 
-	// Describes the backend-neutral access state expected for an attachment.
-	enum class ERHIAccess : uint8
+	// Describes backend-neutral resource access intent for transitions and pass boundaries.
+	enum class ERHIAccess : uint32
 	{
-		None,
-		ColorAttachmentWrite,
-		DepthStencilReadWrite,
-		ShaderRead,
-		ShaderReadWrite,
-		Present,
+		None = 0,
+		VertexBufferRead = 1u << 0,
+		IndexBufferRead = 1u << 1,
+		GraphicsUniformRead = 1u << 2,
+		ComputeUniformRead = 1u << 3,
+		GraphicsShaderRead = 1u << 4,
+		ComputeShaderRead = 1u << 5,
+		TransferRead = 1u << 6,
+		HostRead = 1u << 7,
+		ColorAttachmentReadWrite = 1u << 8,
+		DepthStencilReadWrite = 1u << 9,
+		GraphicsShaderReadWrite = 1u << 10,
+		ComputeShaderReadWrite = 1u << 11,
+		TransferWrite = 1u << 12,
+		HostWrite = 1u << 13,
+		Present = 1u << 14,
+		Discard = 1u << 31,
 	};
+	ENUM_CLASS_FLAGS(ERHIAccess);
+
+	// Selects independently tracked planes of a texture subresource range.
+	enum class ERHITextureAspect : uint8
+	{
+		None = 0,
+		Color = 1u << 0,
+		Depth = 1u << 1,
+		Stencil = 1u << 2,
+	};
+	ENUM_CLASS_FLAGS(ERHITextureAspect);
+
+	// Names an exact, nonempty texture subresource range.
+	struct FRHITextureSubresourceRange
+	{
+		ERHITextureAspect Aspects = ERHITextureAspect::None;
+		uint32 FirstMip = 0;
+		uint32 NumMips = 0;
+		uint32 FirstArrayLayer = 0;
+		uint32 NumArrayLayers = 0;
+
+		auto operator==(const FRHITextureSubresourceRange&) const -> bool = default;
+	};
+
+	// Describes one exact buffer byte-range handoff.
+	struct FRHIBufferTransition
+	{
+		FRHIBuffer* Buffer = nullptr;
+		uint64 Offset = 0;
+		uint64 Size = 0;
+		ERHIAccess ExpectedBefore = ERHIAccess::None;
+		ERHIAccess RequiredAfter = ERHIAccess::None;
+
+		RHI_API static auto Whole(FRHIBuffer* Buffer, ERHIAccess ExpectedBefore,
+			ERHIAccess RequiredAfter) -> FRHIBufferTransition;
+		auto operator==(const FRHIBufferTransition&) const -> bool = default;
+	};
+
+	// Describes one exact texture aspect/mip/layer handoff.
+	struct FRHITextureTransition
+	{
+		FRHITexture* Texture = nullptr;
+		FRHITextureSubresourceRange Range{};
+		ERHIAccess ExpectedBefore = ERHIAccess::None;
+		ERHIAccess RequiredAfter = ERHIAccess::None;
+
+		RHI_API static auto Whole(FRHITexture* Texture, ERHIAccess ExpectedBefore,
+			ERHIAccess RequiredAfter) -> FRHITextureTransition;
+		auto operator==(const FRHITextureTransition&) const -> bool = default;
+	};
+
+	RHI_API auto GetTextureAspects(EPixelFormat Format) -> ERHITextureAspect;
+	RHI_API auto GetTextureLayoutForAccess(ERHIAccess Access, ERHITextureLayout& OutLayout) -> bool;
+	RHI_API auto ValidateBufferTransition(const FRHIBufferTransition& Transition, std::string& OutError) -> bool;
+	RHI_API auto ValidateTextureTransition(const FRHITextureTransition& Transition, std::string& OutError) -> bool;
+	RHI_API auto ValidateBufferTransitions(std::span<const FRHIBufferTransition> Transitions, std::string& OutError) -> bool;
+	RHI_API auto ValidateTextureTransitions(std::span<const FRHITextureTransition> Transitions, std::string& OutError) -> bool;
 
 	// Describes one render-pass attachment's format and load/store transitions.
 	struct FRHIAttachmentLayout
@@ -655,7 +728,7 @@ namespace Durin
 		ERHITextureLayout InitialLayout = ERHITextureLayout::Undefined;
 		ERHITextureLayout FinalLayout = ERHITextureLayout::ColorAttachment;
 		ERHIAccess InitialAccess = ERHIAccess::None;
-		ERHIAccess FinalAccess = ERHIAccess::ColorAttachmentWrite;
+		ERHIAccess FinalAccess = ERHIAccess::ColorAttachmentReadWrite;
 
 		auto operator==(const FRHIAttachmentLayout&) const -> bool = default;
 	};
@@ -693,10 +766,12 @@ namespace Durin
 					switch (Layout)
 					{
 					case ERHITextureLayout::Undefined: return Access == ERHIAccess::None;
-					case ERHITextureLayout::ColorAttachment: return Access == ERHIAccess::ColorAttachmentWrite;
+					case ERHITextureLayout::ColorAttachment: return Access == ERHIAccess::ColorAttachmentReadWrite;
 					case ERHITextureLayout::DepthStencilAttachment: return Access == ERHIAccess::DepthStencilReadWrite;
-					case ERHITextureLayout::ShaderReadOnly: return Access == ERHIAccess::ShaderRead;
-					case ERHITextureLayout::General: return Access == ERHIAccess::ShaderReadWrite;
+					case ERHITextureLayout::ShaderReadOnly: return Access == ERHIAccess::GraphicsShaderRead;
+					case ERHITextureLayout::TransferSource: return Access == ERHIAccess::TransferRead;
+					case ERHITextureLayout::TransferDestination: return Access == ERHIAccess::TransferWrite;
+					case ERHITextureLayout::General: return Access == ERHIAccess::GraphicsShaderReadWrite;
 					case ERHITextureLayout::Present: return Access == ERHIAccess::Present;
 					}
 					return false;

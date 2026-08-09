@@ -2,6 +2,7 @@
 
 #include "RHIResources.h"
 #include "VulkanMemory.h"
+#include "VulkanResourceState.h"
 
 namespace Durin::VulkanRHI
 {
@@ -27,9 +28,8 @@ namespace Durin::VulkanRHI
 
 		~FVulkanTexture() override;
 
-		auto GetSubresourceLayout(uint32 MipIndex, uint32 ArrayLayer) const -> vk::ImageLayout;
-
-		auto SetSubresourceLayout(uint32 MipIndex, uint32 ArrayLayer, vk::ImageLayout Layout) -> void;
+		auto GetStateTracker() -> FVulkanTextureStateTracker& { return StateTracker; }
+		auto GetStateTracker() const -> const FVulkanTextureStateTracker& { return StateTracker; }
 
 		vk::Image Image{};
 
@@ -46,8 +46,7 @@ namespace Durin::VulkanRHI
 
 		EImageOwnerType OwnerType = EImageOwnerType::None;
 
-		// Layout state follows command recording order so later uploads preserve existing texels.
-		std::vector<vk::ImageLayout> SubresourceLayouts;
+		FVulkanTextureStateTracker StateTracker;
 	};
 
 	// Owns immutable Vulkan sampler state derived from an RHI sampler descriptor.

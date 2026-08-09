@@ -9,9 +9,27 @@
 
 namespace Durin::VulkanRHI
 {
+	namespace
+	{
+		auto GetCanonicalBufferAccess(EBufferUsageFlags Usage) -> ERHIAccess
+		{
+			if (EnumHasAnyFlags(Usage, EBufferUsageFlags::UnorderedAccess))
+				return ERHIAccess::GraphicsShaderReadWrite;
+			ERHIAccess Access = ERHIAccess::None;
+			if (EnumHasAnyFlags(Usage, EBufferUsageFlags::VertexBuffer)) Access |= ERHIAccess::VertexBufferRead;
+			if (EnumHasAnyFlags(Usage, EBufferUsageFlags::IndexBuffer)) Access |= ERHIAccess::IndexBufferRead;
+			if (EnumHasAnyFlags(Usage, EBufferUsageFlags::UniformBuffer)) Access |= ERHIAccess::GraphicsUniformRead;
+			if (EnumHasAnyFlags(Usage, EBufferUsageFlags::ShaderResource | EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::ByteAddressBuffer))
+				Access |= ERHIAccess::GraphicsShaderRead;
+			if (EnumHasAnyFlags(Usage, EBufferUsageFlags::SourceCopy)) Access |= ERHIAccess::TransferRead;
+			return Access;
+		}
+	}
+
 	FVulkanBuffer::FVulkanBuffer(FVulkanDevice& InDevice, const FRHIBufferCreateDesc& InCreateDesc)
 		: FRHIBuffer(InCreateDesc)
 		, Device(InDevice)
+		, StateTracker(InCreateDesc.Size)
 	{
 		CheckVulkanRHIThread();
 		vk::BufferCreateInfo BufferInfo;
@@ -58,6 +76,14 @@ namespace Durin::VulkanRHI
 		{
 			std::memcpy(static_cast<uint8*>(MappedData) + Offset, Data.data(), Data.size());
 			FlushMappedMemory(Offset, static_cast<uint32>(Data.size()));
+			StateTracker.Apply(Offset, Data.size(), ERHIAccess::HostWrite);
+			const ERHIAccess FinalAccess = GetCanonicalBufferAccess(GetUsage());
+			if (FinalAccess != ERHIAccess::None)
+			{
+				const std::array Transition{FRHIBufferTransition{
+					this, Offset, Data.size(), ERHIAccess::HostWrite, FinalAccess}};
+				Context.RHITransitionBuffers(Transition);
+			}
 			return;
 		}
 
@@ -65,21 +91,20 @@ namespace Durin::VulkanRHI
 		std::memcpy(StagingBuffer.GetMappedPointer(), Data.data(), Data.size());
 		StagingBuffer.FlushMappedMemory();
 		vk::CommandBuffer CmdBuffer = Context.GetCommandBuffer()->GetHandle();
+		const std::array PreCopyTransition{FRHIBufferTransition{
+			this, Offset, Data.size(), ERHIAccess::Discard, ERHIAccess::TransferWrite}};
+		Context.RHITransitionBuffers(PreCopyTransition);
 		CmdBuffer.copyBuffer(
 			StagingBuffer.GetHandle(), Buffer,
 			vk::BufferCopy(0, Offset, Data.size()));
 
-		vk::BufferMemoryBarrier Barrier;
-		Barrier.setBuffer(Buffer)
-			.setOffset(Offset)
-			.setSize(Data.size())
-			.setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
-			.setDstAccessMask(
-				vk::AccessFlagBits::eMemoryRead | vk::AccessFlagBits::eMemoryWrite);
-		CmdBuffer.pipelineBarrier(
-			vk::PipelineStageFlagBits::eTransfer,
-			vk::PipelineStageFlagBits::eAllCommands,
-			{}, {}, Barrier, {});
+		const ERHIAccess FinalAccess = GetCanonicalBufferAccess(GetUsage());
+		if (FinalAccess != ERHIAccess::None)
+		{
+			const std::array PostCopyTransition{FRHIBufferTransition{
+				this, Offset, Data.size(), ERHIAccess::TransferWrite, FinalAccess}};
+			Context.RHITransitionBuffers(PostCopyTransition);
+		}
 	}
 
 	auto FVulkanBuffer::IsDynamic() const -> bool

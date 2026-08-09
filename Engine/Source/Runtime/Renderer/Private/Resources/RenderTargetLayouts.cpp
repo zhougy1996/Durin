@@ -46,7 +46,7 @@ namespace Durin::RenderTargetLayouts
 			ERHITextureLayout::Undefined,
 			ERHIAccess::None,
 			ERHITextureLayout::ShaderReadOnly,
-			ERHIAccess::ShaderRead
+			ERHIAccess::GraphicsShaderRead
 		);
 		Layout.bHasDepthStencil = true;
 		Layout.DepthStencilAttachment = MakePreservedDepthAttachment(ERHIRenderTargetLoadAction::Clear);
@@ -62,7 +62,7 @@ namespace Durin::RenderTargetLayouts
 			ERHITextureLayout::Undefined,
 			ERHIAccess::None,
 			ERHITextureLayout::ColorAttachment,
-			ERHIAccess::ColorAttachmentWrite
+			ERHIAccess::ColorAttachmentReadWrite
 		);
 		return Layout;
 	}
@@ -78,7 +78,7 @@ namespace Durin::RenderTargetLayouts
 			ERHITextureLayout::Undefined,
 			ERHIAccess::None,
 			bPresent ? ERHITextureLayout::Present : ERHITextureLayout::ShaderReadOnly,
-			bPresent ? ERHIAccess::Present : ERHIAccess::ShaderRead
+			bPresent ? ERHIAccess::Present : ERHIAccess::GraphicsShaderRead
 		);
 		return Layout;
 	}
@@ -91,9 +91,9 @@ namespace Durin::RenderTargetLayouts
 		Layout.ColorAttachments[0].RenderTarget = MakeColorAttachment(
 			ERHIRenderTargetLoadAction::Load,
 			ERHITextureLayout::ColorAttachment,
-			ERHIAccess::ColorAttachmentWrite,
+			ERHIAccess::ColorAttachmentReadWrite,
 			bPresent ? ERHITextureLayout::Present : ERHITextureLayout::ShaderReadOnly,
-			bPresent ? ERHIAccess::Present : ERHIAccess::ShaderRead
+			bPresent ? ERHIAccess::Present : ERHIAccess::GraphicsShaderRead
 		);
 		Layout.bHasDepthStencil = true;
 		Layout.DepthStencilAttachment = MakePreservedDepthAttachment(ERHIRenderTargetLoadAction::Load);

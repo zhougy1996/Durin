@@ -2,6 +2,7 @@
 
 #include "RHIResources.h"
 #include "VulkanMemory.h"
+#include "VulkanResourceState.h"
 
 namespace Durin::VulkanRHI
 {
@@ -28,12 +29,17 @@ namespace Durin::VulkanRHI
 
 		auto Write(FVulkanCommandListContext& Context, uint32 Offset, std::span<const uint8> Data) -> void;
 
+		auto GetStateTracker() -> FVulkanBufferStateTracker& { return StateTracker; }
+		auto GetStateTracker() const -> const FVulkanBufferStateTracker& { return StateTracker; }
+
 	protected:
 		FVulkanDevice& Device;
 
 		vk::Buffer Buffer{};
 
 		FVulkanAllocation Allocation{};
+
+		FVulkanBufferStateTracker StateTracker;
 
 	};
 

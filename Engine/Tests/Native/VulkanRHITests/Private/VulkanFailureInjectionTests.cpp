@@ -513,7 +513,7 @@ namespace Durin::VulkanRHI
 		ColorAttachment.InitialLayout = ERHITextureLayout::Undefined;
 		ColorAttachment.InitialAccess = ERHIAccess::None;
 		ColorAttachment.FinalLayout = ERHITextureLayout::ShaderReadOnly;
-		ColorAttachment.FinalAccess = ERHIAccess::ShaderRead;
+		ColorAttachment.FinalAccess = ERHIAccess::GraphicsShaderRead;
 		FGraphicsPipelineStateInitializer Initializer;
 		Initializer.RenderTargetLayout = RenderTargetLayout;
 		Initializer.BoundShaders.VertexShader = VertexShader;

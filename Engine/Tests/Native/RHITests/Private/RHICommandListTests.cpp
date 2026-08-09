@@ -118,6 +118,20 @@ namespace Durin
 			{
 				Operations.emplace_back("IndexBuffer");
 			}
+			auto RHITransitionBuffers(
+				std::span<const FRHIBufferTransition> Transitions) -> void override
+			{
+				Operations.emplace_back("TransitionBuffers");
+				OperationThreadRoles.emplace_back(IsInRHIThread());
+				ObservedBufferTransitions.assign(Transitions.begin(), Transitions.end());
+			}
+			auto RHITransitionTextures(
+				std::span<const FRHITextureTransition> Transitions) -> void override
+			{
+				Operations.emplace_back("TransitionTextures");
+				OperationThreadRoles.emplace_back(IsInRHIThread());
+				ObservedTextureTransitions.assign(Transitions.begin(), Transitions.end());
+			}
 			auto RHIWriteBuffer(
 				FRHIBuffer* Buffer,
 				uint32 Offset,
@@ -197,6 +211,8 @@ namespace Durin
 			uint32 ObservedBufferOffset = 0;
 			std::vector<uint8> ObservedBufferData;
 			std::vector<uint8> ObservedTextureData;
+			std::vector<FRHIBufferTransition> ObservedBufferTransitions;
+			std::vector<FRHITextureTransition> ObservedTextureTransitions;
 			bool* ResourceDestroyed = nullptr;
 			bool ObservedResourceAliveAtSubmit = false;
 			bool ObservedResourceAliveAtEndFrame = false;
@@ -1086,6 +1102,135 @@ namespace Durin
 #endif
 	}
 
+	TEST(FRHICommandListTests, TransitionBatchesOwnDescriptorsAndResourcesUntilReplay)
+	{
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		TRefCountPtr<FTestBuffer> Buffer = MakeRefCount<FTestBuffer>(64);
+		FRHITextureCreateDesc TextureDesc = FRHITextureCreateDesc::Create2D(
+			"TransitionTexture", 16, 16, EPixelFormat::RGBA8_UNORM)
+			.SetFlags(ETextureCreateFlags::ShaderResource);
+		TRefCountPtr<FRHITexture> Texture = MakeRefCount<FRHITexture>(TextureDesc);
+		std::array BufferTransitions{
+			FRHIBufferTransition{Buffer.GetReference(), 8, 24,
+				ERHIAccess::Discard, ERHIAccess::VertexBufferRead}};
+		std::array TextureTransitions{
+			FRHITextureTransition{Texture.GetReference(),
+				{ERHITextureAspect::Color, 0, 1, 0, 1},
+				ERHIAccess::Discard, ERHIAccess::GraphicsShaderRead}};
+		const auto ExpectedBufferTransitions = BufferTransitions;
+		const auto ExpectedTextureTransitions = TextureTransitions;
+
+		FRHICommandList Commands;
+		Commands.TransitionBuffers(BufferTransitions);
+		Commands.TransitionTextures(TextureTransitions);
+		Commands.FinishRecording();
+		BufferTransitions[0].Offset = 40;
+		TextureTransitions[0].RequiredAfter = ERHIAccess::TransferWrite;
+		EXPECT_EQ(Buffer->GetRefCount(), 2u);
+		EXPECT_EQ(Texture->GetRefCount(), 2u);
+
+		Executor.Submit({&Commands}, ERHISubmitFlags::None);
+
+		EXPECT_EQ(Context.Operations,
+			(std::vector<std::string>{"TransitionBuffers", "TransitionTextures"}));
+		EXPECT_EQ(Context.ObservedBufferTransitions,
+			(std::vector<FRHIBufferTransition>(ExpectedBufferTransitions.begin(), ExpectedBufferTransitions.end())));
+		EXPECT_EQ(Context.ObservedTextureTransitions,
+			(std::vector<FRHITextureTransition>(ExpectedTextureTransitions.begin(), ExpectedTextureTransitions.end())));
+		EXPECT_GE(Executor.GetStats().RecordedPayloadBytes,
+			sizeof(FRHIBufferTransition) + sizeof(FRHITextureTransition)
+				+ sizeof(TRefCountPtr<FRHIBuffer>) + sizeof(TRefCountPtr<FRHITexture>));
+		EXPECT_EQ(Buffer->GetRefCount(), 1u);
+		EXPECT_EQ(Texture->GetRefCount(), 1u);
+	}
+
+	TEST(FRHICommandListTests, DestroyingRecorderReleasesTransitionResources)
+	{
+		TRefCountPtr<FTestBuffer> Buffer = MakeRefCount<FTestBuffer>(32);
+		{
+			FRHICommandList Commands;
+			const std::array Transitions{
+				FRHIBufferTransition::Whole(Buffer.GetReference(),
+					ERHIAccess::Discard, ERHIAccess::VertexBufferRead)};
+			Commands.TransitionBuffers(Transitions);
+			EXPECT_EQ(Buffer->GetRefCount(), 2u);
+		}
+		EXPECT_EQ(Buffer->GetRefCount(), 1u);
+	}
+
+	TEST(FRHICommandListTests, TransitionCommandsWorkWithoutAnActivePipeline)
+	{
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		TRefCountPtr<FTestBuffer> Buffer = MakeRefCount<FTestBuffer>(32);
+		const std::array Transitions{
+			FRHIBufferTransition::Whole(Buffer.GetReference(),
+				ERHIAccess::Discard, ERHIAccess::VertexBufferRead)};
+
+		Executor.GetImmediateCommandList().TransitionBuffers(Transitions);
+		Executor.Submit({}, ERHISubmitFlags::None);
+
+		EXPECT_EQ(Context.Operations,
+			(std::vector<std::string>{"TransitionBuffers"}));
+		ASSERT_EQ(Context.OperationThreadRoles.size(), 1u);
+		EXPECT_FALSE(Context.OperationThreadRoles[0]);
+	}
+
+	TEST(FRHICommandListTests, ThreadedTransitionReplayMatchesInlineOrder)
+	{
+		TRefCountPtr<FTestBuffer> Buffer = MakeRefCount<FTestBuffer>(32);
+		const std::array Transitions{
+			FRHIBufferTransition::Whole(Buffer.GetReference(),
+				ERHIAccess::Discard, ERHIAccess::VertexBufferRead)};
+
+		FRecordingCommandContext InlineContext;
+		FRHICommandListExecutor InlineExecutor(InlineContext);
+		InlineExecutor.GetImmediateCommandList().TransitionBuffers(Transitions);
+		InlineExecutor.GetImmediateCommandList().EnqueueLambda(
+			[&InlineContext]() { InlineContext.Operations.emplace_back("AfterTransition"); });
+		InlineExecutor.Submit({}, ERHISubmitFlags::None);
+
+		FRecordingCommandContext ThreadedContext;
+		FRHIThread RHIThread;
+		ASSERT_TRUE(RHIThread.Start());
+		FRHICommandListExecutor ThreadedExecutor(ThreadedContext, RHIThread);
+		ThreadedExecutor.GetImmediateCommandList().TransitionBuffers(Transitions);
+		ThreadedExecutor.GetImmediateCommandList().EnqueueLambda(
+			[&ThreadedContext]() { ThreadedContext.Operations.emplace_back("AfterTransition"); });
+		ThreadedExecutor.Submit({}, ERHISubmitFlags::None);
+		ThreadedExecutor.CreateFence().Wait();
+
+		EXPECT_EQ(InlineContext.Operations, ThreadedContext.Operations);
+		ASSERT_EQ(ThreadedContext.OperationThreadRoles.size(), 1u);
+		EXPECT_TRUE(ThreadedContext.OperationThreadRoles[0]);
+		ThreadedExecutor.SetInlineMode();
+		RHIThread.Stop();
+	}
+
+	TEST(FRHICommandListTests, RejectsMalformedAndInPassTransitionBatches)
+	{
+#if DO_CHECK
+		TRefCountPtr<FTestBuffer> Buffer = MakeRefCount<FTestBuffer>(32);
+		const std::array ValidTransitions{
+			FRHIBufferTransition::Whole(Buffer.GetReference(),
+				ERHIAccess::Discard, ERHIAccess::VertexBufferRead)};
+		const std::array InvalidTransitions{
+			FRHIBufferTransition{nullptr, 0, 16,
+				ERHIAccess::Discard, ERHIAccess::VertexBufferRead}};
+		EXPECT_DEATH(FRHICommandList().TransitionBuffers(InvalidTransitions), "");
+
+		FRHICommandList InPass;
+		InPass.SwitchPipeline(ERHIPipeline::Graphics);
+		InPass.BeginRenderPass(FRHIRenderPassInfo{}, "TransitionOrdering");
+		EXPECT_DEATH(InPass.TransitionBuffers(ValidTransitions), "");
+		InPass.TransitionBuffers(std::span<const FRHIBufferTransition>{});
+		InPass.EndRenderPass();
+#else
+		GTEST_SKIP() << "Ordinary check contracts are disabled in Shipping.";
+#endif
+	}
+
 	TEST(FRHICommandListTests, BufferUploadsOwnSourceBytesUntilReplay)
 	{
 		FRecordingCommandContext Context;
@@ -1216,7 +1361,7 @@ namespace Durin
 		Attachment.InitialLayout = ERHITextureLayout::Undefined;
 		Attachment.InitialAccess = ERHIAccess::None;
 		Attachment.FinalLayout = ERHITextureLayout::ShaderReadOnly;
-		Attachment.FinalAccess = ERHIAccess::ShaderRead;
+		Attachment.FinalAccess = ERHIAccess::GraphicsShaderRead;
 		ASSERT_TRUE(Initializer.IsValid());
 
 		Initializer.RasterizerState.CullMode = ERHICullMode::Count;

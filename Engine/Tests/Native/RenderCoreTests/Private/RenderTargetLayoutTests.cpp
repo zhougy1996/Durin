@@ -12,7 +12,7 @@ namespace Durin
 			Attachment.Format = Format;
 			Attachment.NumSamples = NumSamples;
 			Attachment.FinalLayout = ERHITextureLayout::ShaderReadOnly;
-			Attachment.FinalAccess = ERHIAccess::ShaderRead;
+			Attachment.FinalAccess = ERHIAccess::GraphicsShaderRead;
 			return Attachment;
 		}
 
@@ -99,7 +99,7 @@ namespace Durin
 		EXPECT_FALSE(Layout.IsValid());
 		Layout = MakeLayout();
 		Layout.ColorAttachments[1].RenderTarget.FinalLayout = ERHITextureLayout::General;
-		Layout.ColorAttachments[1].RenderTarget.FinalAccess = ERHIAccess::ShaderReadWrite;
+		Layout.ColorAttachments[1].RenderTarget.FinalAccess = ERHIAccess::GraphicsShaderReadWrite;
 		EXPECT_TRUE(Layout.IsValid());
 		Layout = {};
 		EXPECT_FALSE(Layout.IsValid());

@@ -6,6 +6,265 @@
 
 namespace Durin
 {
+	namespace
+	{
+		constexpr ERHIAccess ReadAccessMask = ERHIAccess::VertexBufferRead
+			| ERHIAccess::IndexBufferRead
+			| ERHIAccess::GraphicsUniformRead
+			| ERHIAccess::ComputeUniformRead
+			| ERHIAccess::GraphicsShaderRead
+			| ERHIAccess::ComputeShaderRead
+			| ERHIAccess::TransferRead
+			| ERHIAccess::HostRead;
+
+		constexpr ERHIAccess ExclusiveAccessMask = ERHIAccess::ColorAttachmentReadWrite
+			| ERHIAccess::DepthStencilReadWrite
+			| ERHIAccess::GraphicsShaderReadWrite
+			| ERHIAccess::ComputeShaderReadWrite
+			| ERHIAccess::TransferWrite
+			| ERHIAccess::HostWrite
+			| ERHIAccess::Present;
+
+		auto IsSingleBit(ERHIAccess Access) -> bool
+		{
+			const uint32 Value = static_cast<uint32>(Access);
+			return Value != 0 && (Value & (Value - 1)) == 0;
+		}
+
+		auto IsValidAccessShape(ERHIAccess Access, bool bExpected, std::string& OutError) -> bool
+		{
+			auto Fail = [&OutError](const char* Message) {
+				OutError = Message;
+				return false;
+			};
+			if (Access == ERHIAccess::Discard)
+			{
+				return bExpected || Fail("Discard access is valid only as expected-before state.");
+			}
+			if (Access == ERHIAccess::None)
+			{
+				return bExpected || Fail("Required-after access must not be None.");
+			}
+			if (EnumHasAnyFlags(Access, ERHIAccess::Discard))
+			{
+				return Fail("Discard access must not be combined with another state.");
+			}
+			const ERHIAccess KnownMask = ReadAccessMask | ExclusiveAccessMask;
+			if ((static_cast<uint32>(Access) & ~static_cast<uint32>(KnownMask)) != 0)
+			{
+				return Fail("Access contains an unknown state bit.");
+			}
+			if (EnumHasAnyFlags(Access, ExclusiveAccessMask) && !IsSingleBit(Access))
+			{
+				return Fail("Write-capable and presentation access states are exclusive.");
+			}
+			return true;
+		}
+
+		auto BufferUsageAdmits(EBufferUsageFlags Usage, ERHIAccess Access) -> bool
+		{
+			if (Access == ERHIAccess::None || Access == ERHIAccess::Discard) return true;
+			if (EnumHasAnyFlags(Access, ERHIAccess::VertexBufferRead)
+				&& !EnumHasAnyFlags(Usage, EBufferUsageFlags::VertexBuffer)) return false;
+			if (EnumHasAnyFlags(Access, ERHIAccess::IndexBufferRead)
+				&& !EnumHasAnyFlags(Usage, EBufferUsageFlags::IndexBuffer)) return false;
+			if (EnumHasAnyFlags(Access, ERHIAccess::GraphicsUniformRead | ERHIAccess::ComputeUniformRead)
+				&& !EnumHasAnyFlags(Usage, EBufferUsageFlags::UniformBuffer)) return false;
+			if (EnumHasAnyFlags(Access, ERHIAccess::GraphicsShaderRead | ERHIAccess::ComputeShaderRead)
+				&& !EnumHasAnyFlags(Usage, EBufferUsageFlags::ShaderResource | EBufferUsageFlags::StructuredBuffer
+					| EBufferUsageFlags::ByteAddressBuffer | EBufferUsageFlags::UnorderedAccess)) return false;
+			if (EnumHasAnyFlags(Access, ERHIAccess::TransferRead)
+				&& !EnumHasAnyFlags(Usage, EBufferUsageFlags::SourceCopy)) return false;
+			if (EnumHasAnyFlags(Access, ERHIAccess::HostRead)
+				&& !EnumHasAnyFlags(Usage, EBufferUsageFlags::KeepCPUAccessible)) return false;
+			if (EnumHasAnyFlags(Access, ERHIAccess::GraphicsShaderReadWrite | ERHIAccess::ComputeShaderReadWrite)
+				&& !EnumHasAnyFlags(Usage, EBufferUsageFlags::UnorderedAccess)) return false;
+			if (EnumHasAnyFlags(Access, ERHIAccess::TransferWrite)
+				&& !EnumHasAnyFlags(Usage, EBufferUsageFlags::Static | EBufferUsageFlags::Dynamic)) return false;
+			if (EnumHasAnyFlags(Access, ERHIAccess::HostWrite)
+				&& !EnumHasAnyFlags(Usage, EBufferUsageFlags::Dynamic | EBufferUsageFlags::KeepCPUAccessible)) return false;
+			return !EnumHasAnyFlags(Access, ERHIAccess::ColorAttachmentReadWrite
+				| ERHIAccess::DepthStencilReadWrite | ERHIAccess::Present);
+		}
+
+		auto TextureUsageAdmits(const FRHITexture& Texture, ERHIAccess Access) -> bool
+		{
+			if (Access == ERHIAccess::None || Access == ERHIAccess::Discard) return true;
+			const ETextureCreateFlags Usage = Texture.GetFlags();
+			constexpr ERHIAccess TextureReadMask = ERHIAccess::GraphicsShaderRead
+				| ERHIAccess::ComputeShaderRead;
+			if (EnumHasAnyFlags(Access, ReadAccessMask & ~TextureReadMask)
+				&& Access != ERHIAccess::TransferRead && Access != ERHIAccess::HostRead) return false;
+			if (EnumHasAnyFlags(Access, TextureReadMask)
+				&& !EnumHasAnyFlags(Usage, ETextureCreateFlags::ShaderResource | ETextureCreateFlags::Storage)) return false;
+			if (Access == ERHIAccess::TransferRead || Access == ERHIAccess::HostRead)
+				return EnumHasAnyFlags(Usage, ETextureCreateFlags::CPUReadback);
+			if (Access == ERHIAccess::ColorAttachmentReadWrite)
+				return EnumHasAnyFlags(Usage, ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ResolveTargetable);
+			if (Access == ERHIAccess::DepthStencilReadWrite)
+				return EnumHasAnyFlags(Usage, ETextureCreateFlags::DepthStencilTargetable);
+			if (Access == ERHIAccess::GraphicsShaderReadWrite || Access == ERHIAccess::ComputeShaderReadWrite)
+				return EnumHasAnyFlags(Usage, ETextureCreateFlags::Storage);
+			if (Access == ERHIAccess::TransferWrite) return true;
+			if (Access == ERHIAccess::HostWrite) return false;
+			if (Access == ERHIAccess::Present)
+				return EnumHasAnyFlags(Usage, ETextureCreateFlags::RenderTargetable);
+			return true;
+		}
+
+		auto RangesOverlap(uint64 FirstOffset, uint64 FirstSize, uint64 SecondOffset, uint64 SecondSize) -> bool
+		{
+			return FirstOffset < SecondOffset + SecondSize && SecondOffset < FirstOffset + FirstSize;
+		}
+
+		auto TextureAspectsAdmit(ERHITextureAspect Aspects, ERHIAccess Access) -> bool
+		{
+			if (EnumHasAnyFlags(Aspects, ERHITextureAspect::Color)
+				&& Access == ERHIAccess::DepthStencilReadWrite) return false;
+			if (EnumHasAnyFlags(Aspects, ERHITextureAspect::Depth | ERHITextureAspect::Stencil)
+				&& (Access == ERHIAccess::ColorAttachmentReadWrite || Access == ERHIAccess::Present)) return false;
+			return true;
+		}
+	}
+
+	auto GetTextureAspects(EPixelFormat Format) -> ERHITextureAspect
+	{
+		const FPixelFormatInfo& Info = GetPixelFormatInfo(Format);
+		ERHITextureAspect Result = ERHITextureAspect::None;
+		if (Info.bHasDepth) Result |= ERHITextureAspect::Depth;
+		if (Info.bHasStencil) Result |= ERHITextureAspect::Stencil;
+		return Result == ERHITextureAspect::None ? ERHITextureAspect::Color : Result;
+	}
+
+	auto GetTextureLayoutForAccess(ERHIAccess Access, ERHITextureLayout& OutLayout) -> bool
+	{
+		if (Access == ERHIAccess::None || Access == ERHIAccess::Discard) OutLayout = ERHITextureLayout::Undefined;
+		else if (Access == ERHIAccess::ColorAttachmentReadWrite) OutLayout = ERHITextureLayout::ColorAttachment;
+		else if (Access == ERHIAccess::DepthStencilReadWrite) OutLayout = ERHITextureLayout::DepthStencilAttachment;
+		else if (Access == ERHIAccess::GraphicsShaderRead || Access == ERHIAccess::ComputeShaderRead
+			|| Access == (ERHIAccess::GraphicsShaderRead | ERHIAccess::ComputeShaderRead)) OutLayout = ERHITextureLayout::ShaderReadOnly;
+		else if (Access == ERHIAccess::TransferRead) OutLayout = ERHITextureLayout::TransferSource;
+		else if (Access == ERHIAccess::TransferWrite) OutLayout = ERHITextureLayout::TransferDestination;
+		else if (Access == ERHIAccess::HostRead || Access == ERHIAccess::HostWrite
+			|| Access == ERHIAccess::GraphicsShaderReadWrite || Access == ERHIAccess::ComputeShaderReadWrite) OutLayout = ERHITextureLayout::General;
+		else if (Access == ERHIAccess::Present) OutLayout = ERHITextureLayout::Present;
+		else return false;
+		return true;
+	}
+
+	auto FRHIBufferTransition::Whole(FRHIBuffer* Buffer, ERHIAccess ExpectedBefore,
+		ERHIAccess RequiredAfter) -> FRHIBufferTransition
+	{
+		return {.Buffer = Buffer, .Offset = 0, .Size = Buffer ? Buffer->GetSize() : 0,
+			.ExpectedBefore = ExpectedBefore, .RequiredAfter = RequiredAfter};
+	}
+
+	auto FRHITextureTransition::Whole(FRHITexture* Texture, ERHIAccess ExpectedBefore,
+		ERHIAccess RequiredAfter) -> FRHITextureTransition
+	{
+		return {.Texture = Texture,
+			.Range = {.Aspects = Texture ? GetTextureAspects(Texture->GetFormat()) : ERHITextureAspect::None,
+				.FirstMip = 0, .NumMips = Texture ? static_cast<uint32>(Texture->GetNumMips()) : 0u,
+				.FirstArrayLayer = 0, .NumArrayLayers = Texture ? static_cast<uint32>(Texture->GetArraySize()) : 0u},
+			.ExpectedBefore = ExpectedBefore, .RequiredAfter = RequiredAfter};
+	}
+
+	auto ValidateBufferTransition(const FRHIBufferTransition& Transition, std::string& OutError) -> bool
+	{
+		auto Fail = [&OutError](const char* Message) { OutError = Message; return false; };
+		if (Transition.Buffer == nullptr) return Fail("Buffer transition resource is null.");
+		if (Transition.Buffer->GetResourceType() != ERHIResourceType::Buffer) return Fail("Buffer transition resource type is invalid.");
+		if (Transition.Size == 0) return Fail("Buffer transition size must be nonzero.");
+		const uint64 ResourceSize = Transition.Buffer->GetSize();
+		if (Transition.Offset > ResourceSize || Transition.Size > ResourceSize - Transition.Offset)
+			return Fail("Buffer transition range exceeds the resource size.");
+		if (!IsValidAccessShape(Transition.ExpectedBefore, true, OutError)
+			|| !IsValidAccessShape(Transition.RequiredAfter, false, OutError)) return false;
+		if (!BufferUsageAdmits(Transition.Buffer->GetUsage(), Transition.ExpectedBefore)
+			|| !BufferUsageAdmits(Transition.Buffer->GetUsage(), Transition.RequiredAfter))
+			return Fail("Buffer transition access is incompatible with resource usage.");
+		OutError.clear();
+		return true;
+	}
+
+	auto ValidateTextureTransition(const FRHITextureTransition& Transition, std::string& OutError) -> bool
+	{
+		auto Fail = [&OutError](const char* Message) { OutError = Message; return false; };
+		if (Transition.Texture == nullptr) return Fail("Texture transition resource is null.");
+		if (Transition.Texture->GetResourceType() != ERHIResourceType::Texture) return Fail("Texture transition resource type is invalid.");
+		if (Transition.Range.Aspects == ERHITextureAspect::None) return Fail("Texture transition aspects must be nonempty.");
+		constexpr ERHITextureAspect KnownAspects = ERHITextureAspect::Color | ERHITextureAspect::Depth | ERHITextureAspect::Stencil;
+		if ((static_cast<uint8>(Transition.Range.Aspects) & ~static_cast<uint8>(KnownAspects)) != 0
+			|| !EnumHasAllFlags(GetTextureAspects(Transition.Texture->GetFormat()), Transition.Range.Aspects))
+			return Fail("Texture transition aspects are unsupported by the pixel format.");
+		if (Transition.Range.NumMips == 0 || Transition.Range.NumArrayLayers == 0)
+			return Fail("Texture transition mip and layer counts must be nonzero.");
+		if (Transition.Range.FirstMip > Transition.Texture->GetNumMips()
+			|| Transition.Range.NumMips > Transition.Texture->GetNumMips() - Transition.Range.FirstMip)
+			return Fail("Texture transition mip range exceeds the resource.");
+		if (Transition.Range.FirstArrayLayer > Transition.Texture->GetArraySize()
+			|| Transition.Range.NumArrayLayers > Transition.Texture->GetArraySize() - Transition.Range.FirstArrayLayer)
+			return Fail("Texture transition layer range exceeds the resource.");
+		if (!IsValidAccessShape(Transition.ExpectedBefore, true, OutError)
+			|| !IsValidAccessShape(Transition.RequiredAfter, false, OutError)) return false;
+		ERHITextureLayout IgnoredLayout;
+		if (!GetTextureLayoutForAccess(Transition.ExpectedBefore, IgnoredLayout)
+			|| !GetTextureLayoutForAccess(Transition.RequiredAfter, IgnoredLayout))
+			return Fail("Texture transition access has no deterministic texture layout.");
+		if (!TextureUsageAdmits(*Transition.Texture, Transition.ExpectedBefore)
+			|| !TextureUsageAdmits(*Transition.Texture, Transition.RequiredAfter))
+			return Fail("Texture transition access is incompatible with resource usage.");
+		if (!TextureAspectsAdmit(Transition.Range.Aspects, Transition.ExpectedBefore)
+			|| !TextureAspectsAdmit(Transition.Range.Aspects, Transition.RequiredAfter))
+			return Fail("Texture transition access is incompatible with the selected aspects.");
+		OutError.clear();
+		return true;
+	}
+
+	auto ValidateBufferTransitions(std::span<const FRHIBufferTransition> Transitions, std::string& OutError) -> bool
+	{
+		for (size_t Index = 0; Index < Transitions.size(); ++Index)
+		{
+			if (!ValidateBufferTransition(Transitions[Index], OutError)) return false;
+			for (size_t OtherIndex = 0; OtherIndex < Index; ++OtherIndex)
+			{
+				if (Transitions[Index].Buffer == Transitions[OtherIndex].Buffer
+					&& RangesOverlap(Transitions[Index].Offset, Transitions[Index].Size,
+						Transitions[OtherIndex].Offset, Transitions[OtherIndex].Size))
+				{
+					OutError = "Buffer transition batch contains overlapping ranges.";
+					return false;
+				}
+			}
+		}
+		OutError.clear();
+		return true;
+	}
+
+	auto ValidateTextureTransitions(std::span<const FRHITextureTransition> Transitions, std::string& OutError) -> bool
+	{
+		for (size_t Index = 0; Index < Transitions.size(); ++Index)
+		{
+			if (!ValidateTextureTransition(Transitions[Index], OutError)) return false;
+			for (size_t OtherIndex = 0; OtherIndex < Index; ++OtherIndex)
+			{
+				const auto& A = Transitions[Index];
+				const auto& B = Transitions[OtherIndex];
+				const bool bAspectOverlap = EnumHasAnyFlags(A.Range.Aspects, B.Range.Aspects);
+				const bool bMipOverlap = RangesOverlap(A.Range.FirstMip, A.Range.NumMips, B.Range.FirstMip, B.Range.NumMips);
+				const bool bLayerOverlap = RangesOverlap(A.Range.FirstArrayLayer, A.Range.NumArrayLayers,
+					B.Range.FirstArrayLayer, B.Range.NumArrayLayers);
+				if (A.Texture == B.Texture && bAspectOverlap && bMipOverlap && bLayerOverlap)
+				{
+					OutError = "Texture transition batch contains overlapping subresource ranges.";
+					return false;
+				}
+			}
+		}
+		OutError.clear();
+		return true;
+	}
+
 	auto ValidateTextureCreateDesc(const FRHITextureCreateDesc& CreateDesc, std::string& OutError) -> bool
 	{
 		auto Fail = [&OutError](std::string Message) {

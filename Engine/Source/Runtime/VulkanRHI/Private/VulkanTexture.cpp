@@ -80,7 +80,7 @@ namespace Durin::VulkanRHI
 		, OwnerType(EImageOwnerType::LocalOwner)
 		, Format(ToVulkan_PixelFormat(InCreateDesc.Format))
 		, CreateFlags(InCreateDesc.Flags)
-		, SubresourceLayouts(static_cast<size_t>(InCreateDesc.NumMips) * InCreateDesc.ArraySize, vk::ImageLayout::eUndefined)
+		, StateTracker(InCreateDesc.NumMips, InCreateDesc.ArraySize)
 	{
 		CheckVulkanRHIThread();
 		const vk::Extent3D ImageExtent = ToVulkan_Extent3D(InCreateDesc.GetSize());
@@ -137,8 +137,9 @@ namespace Durin::VulkanRHI
 		, Device(InDevice)
 		, OwnerType(EImageOwnerType::ExternalOwner)
 		, CreateFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource)
-		, SubresourceLayouts(1, vk::ImageLayout::eUndefined)
+		, StateTracker(1, 1)
 	{
+		Flags = CreateFlags;
 	}
 
 	FVulkanTexture::~FVulkanTexture()
@@ -165,19 +166,6 @@ namespace Durin::VulkanRHI
 					FDeferredDeletionQueue::EType::Image, Image, Allocation);
 			}
 		}
-	}
-
-	auto FVulkanTexture::GetSubresourceLayout(uint32 MipIndex, uint32 ArrayLayer) const -> vk::ImageLayout
-	{
-		check(MipIndex < NumMips && ArrayLayer < ArraySize);
-		return SubresourceLayouts[static_cast<size_t>(ArrayLayer) * NumMips + MipIndex];
-	}
-
-	auto FVulkanTexture::SetSubresourceLayout(uint32 MipIndex, uint32 ArrayLayer, vk::ImageLayout Layout) -> void
-	{
-		CheckVulkanRHIThread();
-		check(MipIndex < NumMips && ArrayLayer < ArraySize);
-		SubresourceLayouts[static_cast<size_t>(ArrayLayer) * NumMips + MipIndex] = Layout;
 	}
 
 	FVulkanSampler::FVulkanSampler(FVulkanDevice& InDevice, const FRHISamplerDesc& InDesc)
@@ -261,29 +249,9 @@ namespace Durin::VulkanRHI
 		{
 			return;
 		}
-		vk::ImageMemoryBarrier Barrier;
-		Barrier.setSrcAccessMask(vk::AccessFlagBits::eNone)
-			.setDstAccessMask(vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite)
-			.setOldLayout(vk::ImageLayout::eUndefined)
-			.setNewLayout(vk::ImageLayout::eGeneral)
-			.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-			.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-			.setImage(VulkanTexture->Image)
-			.setSubresourceRange(vk::ImageSubresourceRange(
-				vk::ImageAspectFlagBits::eColor, 0,
-				VulkanTexture->GetNumMips(), 0, VulkanTexture->GetArraySize()));
-		Context.GetCommandBuffer()->GetHandle().pipelineBarrier(
-			vk::PipelineStageFlagBits::eTopOfPipe,
-			vk::PipelineStageFlagBits::eAllGraphics,
-			vk::DependencyFlags{}, {}, {}, Barrier);
-		for (uint32 ArrayLayer = 0; ArrayLayer < VulkanTexture->GetArraySize(); ++ArrayLayer)
-		{
-			for (uint32 MipIndex = 0; MipIndex < VulkanTexture->GetNumMips(); ++MipIndex)
-			{
-				VulkanTexture->SetSubresourceLayout(
-					MipIndex, ArrayLayer, vk::ImageLayout::eGeneral);
-			}
-		}
+		const std::array Transition{FRHITextureTransition::Whole(
+			VulkanTexture, ERHIAccess::Discard, ERHIAccess::GraphicsShaderReadWrite)};
+		Context.RHITransitionTextures(Transition);
 	}
 
 	auto FVulkanDynamicRHI::RHIIsTextureSupported(const FRHITextureCreateDesc& CreateDesc) const -> bool
@@ -409,25 +377,14 @@ namespace Durin::VulkanRHI
 		}
 		StagingBuffer.FlushMappedMemory();
 
-		const vk::ImageLayout OldLayout = VulkanTexture->GetSubresourceLayout(MipIndex, ArraySlice);
-		const bool bHasPreviousContents = OldLayout != vk::ImageLayout::eUndefined;
-
-		vk::ImageMemoryBarrier PreCopyBarrier;
 		const bool bStorage = EnumHasAnyFlags(VulkanTexture->CreateFlags, ETextureCreateFlags::Storage);
-		const vk::AccessFlags PreviousAccess = bStorage
-			? vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite
-			: vk::AccessFlagBits::eShaderRead;
-		PreCopyBarrier.setSrcAccessMask(bHasPreviousContents ? PreviousAccess : vk::AccessFlags{})
-			.setDstAccessMask(vk::AccessFlagBits::eTransferWrite)
-			.setOldLayout(OldLayout)
-			.setNewLayout(vk::ImageLayout::eTransferDstOptimal)
-			.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-			.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-			.setImage(VulkanTexture->Image)
-			.setSubresourceRange(vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, MipIndex, 1, ArraySlice, 1));
-
-		const vk::PipelineStageFlags SourceStage = bHasPreviousContents ? vk::PipelineStageFlagBits::eAllGraphics : vk::PipelineStageFlagBits::eTopOfPipe;
-		CmdBuffer.pipelineBarrier(SourceStage, vk::PipelineStageFlagBits::eTransfer, vk::DependencyFlags{}, {}, {}, PreCopyBarrier);
+		const FRHITextureSubresourceRange TransitionRange{
+			ERHITextureAspect::Color, MipIndex, 1, ArraySlice, 1};
+		const ERHIAccess PreviousAccess = VulkanTexture->GetStateTracker().Get(
+			ERHITextureAspect::Color, MipIndex, ArraySlice);
+		const std::array PreCopyTransition{FRHITextureTransition{
+			VulkanTexture, TransitionRange, PreviousAccess, ERHIAccess::TransferWrite}};
+		Context.RHITransitionTextures(PreCopyTransition);
 
 		// Copy buffer to image
 		vk::BufferImageCopy CopyRegion;
@@ -440,24 +397,11 @@ namespace Durin::VulkanRHI
 
 		CmdBuffer.copyBufferToImage(StagingBuffer.GetHandle(), VulkanTexture->Image, vk::ImageLayout::eTransferDstOptimal, CopyRegion);
 
-		// Storage-capable images remain GENERAL so sampled and storage descriptors
-		// agree on one tracked layout after uploads.
-		const vk::ImageLayout FinalLayout = bStorage ? vk::ImageLayout::eGeneral : vk::ImageLayout::eShaderReadOnlyOptimal;
-		const vk::AccessFlags FinalAccess = bStorage
-			? vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite
-			: vk::AccessFlagBits::eShaderRead;
-		vk::ImageMemoryBarrier PostCopyBarrier;
-		PostCopyBarrier.setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
-			.setDstAccessMask(FinalAccess)
-			.setOldLayout(vk::ImageLayout::eTransferDstOptimal)
-			.setNewLayout(FinalLayout)
-			.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-			.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-			.setImage(VulkanTexture->Image)
-			.setSubresourceRange(vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, MipIndex, 1, ArraySlice, 1));
-
-		CmdBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eAllGraphics, vk::DependencyFlags{}, {}, {}, PostCopyBarrier);
-		VulkanTexture->SetSubresourceLayout(MipIndex, ArraySlice, FinalLayout);
+		const ERHIAccess FinalAccess = bStorage
+			? ERHIAccess::GraphicsShaderReadWrite : ERHIAccess::GraphicsShaderRead;
+		const std::array PostCopyTransition{FRHITextureTransition{
+			VulkanTexture, TransitionRange, ERHIAccess::TransferWrite, FinalAccess}};
+		Context.RHITransitionTextures(PostCopyTransition);
 	}
 
 	auto FVulkanDynamicRHI::ReadTexture2D(
@@ -521,36 +465,21 @@ namespace Durin::VulkanRHI
 			return false;
 		}
 
-		const vk::ImageLayout OldLayout = VulkanTexture->GetSubresourceLayout(MipIndex, ArraySlice);
-		if (OldLayout == vk::ImageLayout::eUndefined)
+		const ERHIAccess OldAccess = VulkanTexture->GetStateTracker().Get(
+			ERHITextureAspect::Color, MipIndex, ArraySlice);
+		if (OldAccess == ERHIAccess::None)
 		{
 			DURIN_ERROR("Failed to read Vulkan texture: subresource contents are undefined.");
 			MemoryManager.DestroyBuffer(ReadbackAllocation, ReadbackBuffer);
 			return false;
 		}
 
-		const bool bStorage = OldLayout == vk::ImageLayout::eGeneral;
-		const bool bColorAttachment = OldLayout == vk::ImageLayout::eColorAttachmentOptimal;
-		const vk::AccessFlags OldAccess = bStorage
-			? vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite
-			: bColorAttachment ? vk::AccessFlagBits::eColorAttachmentWrite : vk::AccessFlagBits::eShaderRead;
-		const vk::PipelineStageFlags OldStage = bColorAttachment
-			? vk::PipelineStageFlagBits::eColorAttachmentOutput : vk::PipelineStageFlagBits::eAllGraphics;
-		const vk::ImageSubresourceRange SubresourceRange(
-			vk::ImageAspectFlagBits::eColor, MipIndex, 1, ArraySlice, 1);
-		vk::ImageMemoryBarrier PreCopyBarrier;
-		PreCopyBarrier.setSrcAccessMask(OldAccess)
-			.setDstAccessMask(vk::AccessFlagBits::eTransferRead)
-			.setOldLayout(OldLayout)
-			.setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
-			.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-			.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-			.setImage(VulkanTexture->Image)
-			.setSubresourceRange(SubresourceRange);
-
 		const vk::CommandBuffer CmdBuffer = Context.GetCommandBuffer()->GetHandle();
-		CmdBuffer.pipelineBarrier(
-			OldStage, vk::PipelineStageFlagBits::eTransfer, vk::DependencyFlags{}, {}, {}, PreCopyBarrier);
+		const FRHITextureSubresourceRange TransitionRange{
+			ERHITextureAspect::Color, MipIndex, 1, ArraySlice, 1};
+		const std::array PreCopyTransition{FRHITextureTransition{
+			VulkanTexture, TransitionRange, OldAccess, ERHIAccess::TransferRead}};
+		Context.RHITransitionTextures(PreCopyTransition);
 		vk::BufferImageCopy CopyRegion;
 		CopyRegion.setBufferOffset(0)
 			.setBufferRowLength(0)
@@ -562,17 +491,9 @@ namespace Durin::VulkanRHI
 		CmdBuffer.copyImageToBuffer(
 			VulkanTexture->Image, vk::ImageLayout::eTransferSrcOptimal, ReadbackBuffer, CopyRegion);
 
-		vk::ImageMemoryBarrier PostCopyBarrier;
-		PostCopyBarrier.setSrcAccessMask(vk::AccessFlagBits::eTransferRead)
-			.setDstAccessMask(OldAccess)
-			.setOldLayout(vk::ImageLayout::eTransferSrcOptimal)
-			.setNewLayout(OldLayout)
-			.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-			.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-			.setImage(VulkanTexture->Image)
-			.setSubresourceRange(SubresourceRange);
-		CmdBuffer.pipelineBarrier(
-			vk::PipelineStageFlagBits::eTransfer, OldStage, vk::DependencyFlags{}, {}, {}, PostCopyBarrier);
+		const std::array PostCopyTransition{FRHITextureTransition{
+			VulkanTexture, TransitionRange, ERHIAccess::TransferRead, OldAccess}};
+		Context.RHITransitionTextures(PostCopyTransition);
 
 		Context.Finalize();
 		Device->WaitUtilIdle();

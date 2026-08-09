@@ -96,7 +96,7 @@ namespace Durin
 			ColorAttachment.InitialLayout = ERHITextureLayout::Undefined;
 			ColorAttachment.InitialAccess = ERHIAccess::None;
 			ColorAttachment.FinalLayout = ERHITextureLayout::ShaderReadOnly;
-			ColorAttachment.FinalAccess = ERHIAccess::ShaderRead;
+			ColorAttachment.FinalAccess = ERHIAccess::GraphicsShaderRead;
 			return Layout;
 		}
 

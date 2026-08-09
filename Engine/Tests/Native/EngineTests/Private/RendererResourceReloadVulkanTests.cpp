@@ -93,7 +93,7 @@ float4 FragmentMain() : SV_Target
 			Color.InitialLayout = ERHITextureLayout::Undefined;
 			Color.InitialAccess = ERHIAccess::None;
 			Color.FinalLayout = ERHITextureLayout::ShaderReadOnly;
-			Color.FinalAccess = ERHIAccess::ShaderRead;
+			Color.FinalAccess = ERHIAccess::GraphicsShaderRead;
 			return Layout;
 		}
 

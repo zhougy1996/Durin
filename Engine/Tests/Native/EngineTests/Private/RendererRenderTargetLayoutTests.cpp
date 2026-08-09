@@ -27,7 +27,7 @@ namespace Durin
 		ASSERT_EQ(Layout.NumColorRenderTargets, 1);
 		EXPECT_FALSE(Layout.bHasDepthStencil);
 		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.FinalLayout, ERHITextureLayout::ColorAttachment);
-		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.FinalAccess, ERHIAccess::ColorAttachmentWrite);
+		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.FinalAccess, ERHIAccess::ColorAttachmentReadWrite);
 	}
 
 	TEST(FRendererRenderTargetLayoutTests, FinalScenePostProcessOwnsOutputTransition)
@@ -40,7 +40,7 @@ namespace Durin
 		EXPECT_EQ(Offscreen.ColorAttachments[0].RenderTarget.FinalLayout,
 			ERHITextureLayout::ShaderReadOnly);
 		EXPECT_EQ(Offscreen.ColorAttachments[0].RenderTarget.FinalAccess,
-			ERHIAccess::ShaderRead);
+			ERHIAccess::GraphicsShaderRead);
 		EXPECT_EQ(Present.ColorAttachments[0].RenderTarget.FinalLayout,
 			ERHITextureLayout::Present);
 		EXPECT_EQ(Present.ColorAttachments[0].RenderTarget.FinalAccess,
@@ -58,7 +58,7 @@ namespace Durin
 			ASSERT_TRUE(Layout.bHasDepthStencil);
 			EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.LoadAction, ERHIRenderTargetLoadAction::Load);
 			EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.InitialLayout, ERHITextureLayout::ColorAttachment);
-			EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.InitialAccess, ERHIAccess::ColorAttachmentWrite);
+			EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.InitialAccess, ERHIAccess::ColorAttachmentReadWrite);
 			EXPECT_EQ(Layout.DepthStencilAttachment.Format, EPixelFormat::D32);
 			EXPECT_EQ(Layout.DepthStencilAttachment.LoadAction, ERHIRenderTargetLoadAction::Load);
 			EXPECT_EQ(Layout.DepthStencilAttachment.StoreAction, ERHIRenderTargetStoreAction::DontCare);
@@ -73,7 +73,7 @@ namespace Durin
 		const FRHIRenderTargetLayout Present = MakeEditorAssistanceOutput(EViewportOutput::Present);
 
 		EXPECT_EQ(Offscreen.ColorAttachments[0].RenderTarget.FinalLayout, ERHITextureLayout::ShaderReadOnly);
-		EXPECT_EQ(Offscreen.ColorAttachments[0].RenderTarget.FinalAccess, ERHIAccess::ShaderRead);
+		EXPECT_EQ(Offscreen.ColorAttachments[0].RenderTarget.FinalAccess, ERHIAccess::GraphicsShaderRead);
 		EXPECT_EQ(Present.ColorAttachments[0].RenderTarget.FinalLayout, ERHITextureLayout::Present);
 		EXPECT_EQ(Present.ColorAttachments[0].RenderTarget.FinalAccess, ERHIAccess::Present);
 		EXPECT_EQ(Offscreen.DepthStencilAttachment, Present.DepthStencilAttachment);

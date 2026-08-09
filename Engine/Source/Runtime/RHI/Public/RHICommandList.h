@@ -76,6 +76,8 @@ namespace Durin
 		RHI_API auto SetGraphicsPipelineState(FRHIGraphicsPipelineState& State) -> void;
 		RHI_API auto BindVertexBuffer(uint32 StreamIndex, FRHIBuffer* VertexBuffer, uint32 Offset) -> void;
 		RHI_API auto BindIndexBuffer(FRHIBuffer* Buffer, uint32 Offset) -> void;
+		RHI_API auto TransitionBuffers(std::span<const FRHIBufferTransition> Transitions) -> void;
+		RHI_API auto TransitionTextures(std::span<const FRHITextureTransition> Transitions) -> void;
 		RHI_API auto DrawIndexed(uint32 IndexCount, uint32 StartIndexLocation, int32 VertexOffset) -> void;
 		RHI_API auto SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;
 		RHI_API auto SetScissor(float MinX, float MinY, float Width, float Height) -> void;

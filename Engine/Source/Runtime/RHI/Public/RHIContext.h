@@ -27,6 +27,8 @@ namespace Durin
 		virtual auto RHISetGraphicsPipelineState(FRHIGraphicsPipelineState& InGraphicsPipelineState) -> void = 0;
 		virtual auto RHIBindVertexBuffer(uint32 StreamIndex, FRHIBuffer* VertexBuffer, uint32 Offset) -> void = 0;
 		virtual auto RHIBindIndexBuffer(FRHIBuffer* IndexBuffer, uint32 Offset) -> void = 0;
+		virtual auto RHITransitionBuffers(std::span<const FRHIBufferTransition> Transitions) -> void = 0;
+		virtual auto RHITransitionTextures(std::span<const FRHITextureTransition> Transitions) -> void = 0;
 		virtual auto RHIWriteBuffer(FRHIBuffer* Buffer, uint32 Offset, std::span<const uint8> Data) -> void = 0;
 		virtual auto RHIInitializeTexture(FRHITexture* Texture) -> void = 0;
 		virtual auto RHIUpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, std::span<const uint8> SourceData) -> void = 0;

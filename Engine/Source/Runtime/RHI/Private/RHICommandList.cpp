@@ -485,6 +485,68 @@ namespace Durin
 			uint32 Offset;
 		};
 
+		struct FBufferTransitionCommand
+		{
+			explicit FBufferTransitionCommand(
+				std::span<const FRHIBufferTransition> InTransitions)
+				: Transitions(InTransitions.begin(), InTransitions.end())
+			{
+				Resources.reserve(Transitions.size());
+				for (const FRHIBufferTransition& Transition : Transitions)
+				{
+					Resources.emplace_back(Transition.Buffer);
+				}
+			}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetOperationContext("TransitionBuffers")
+					.RHITransitionBuffers(Transitions);
+			}
+
+			auto GetOwnedPayloadBytes() const -> size_t
+			{
+				return CheckedAddPayloadBytes(
+					Transitions.capacity() * sizeof(Transitions.front()),
+					Resources.capacity() * sizeof(Resources.front()));
+			}
+
+			std::vector<FRHIBufferTransition> Transitions;
+			std::vector<TRefCountPtr<FRHIBuffer>> Resources;
+		};
+
+		struct FTextureTransitionCommand
+		{
+			explicit FTextureTransitionCommand(
+				std::span<const FRHITextureTransition> InTransitions)
+				: Transitions(InTransitions.begin(), InTransitions.end())
+			{
+				Resources.reserve(Transitions.size());
+				for (const FRHITextureTransition& Transition : Transitions)
+				{
+					Resources.emplace_back(Transition.Texture);
+				}
+			}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetOperationContext("TransitionTextures")
+					.RHITransitionTextures(Transitions);
+			}
+
+			auto GetOwnedPayloadBytes() const -> size_t
+			{
+				return CheckedAddPayloadBytes(
+					Transitions.capacity() * sizeof(Transitions.front()),
+					Resources.capacity() * sizeof(Resources.front()));
+			}
+
+			std::vector<FRHITextureTransition> Transitions;
+			std::vector<TRefCountPtr<FRHITexture>> Resources;
+		};
+
 		struct FDrawIndexedCommand
 		{
 			FDrawIndexedCommand(
@@ -1103,6 +1165,30 @@ namespace Durin
 		checkf(ActivePipeline == ERHIPipeline::Graphics,
 			"BindIndexBuffer requires an active graphics pipeline while recording.");
 		RecordCommand<FBindIndexBufferCommand>(Buffer, Offset);
+	}
+
+	auto FRHICommandListBase::TransitionBuffers(
+		std::span<const FRHIBufferTransition> Transitions) -> void
+	{
+		if (Transitions.empty()) return;
+		checkf(!bInsideRenderPass,
+			"Buffer transitions cannot be recorded inside a render pass.");
+		std::string Error;
+		checkf(ValidateBufferTransitions(Transitions, Error),
+			"Invalid RHI buffer transition batch: {}", Error);
+		RecordCommand<FBufferTransitionCommand>(Transitions);
+	}
+
+	auto FRHICommandListBase::TransitionTextures(
+		std::span<const FRHITextureTransition> Transitions) -> void
+	{
+		if (Transitions.empty()) return;
+		checkf(!bInsideRenderPass,
+			"Texture transitions cannot be recorded inside a render pass.");
+		std::string Error;
+		checkf(ValidateTextureTransitions(Transitions, Error),
+			"Invalid RHI texture transition batch: {}", Error);
+		RecordCommand<FTextureTransitionCommand>(Transitions);
 	}
 
 	auto FRHICommandListBase::DrawIndexed(uint32 IndexCount, uint32 StartIndexLocation, int32 VertexOffset) -> void

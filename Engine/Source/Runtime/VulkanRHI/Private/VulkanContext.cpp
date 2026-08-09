@@ -14,26 +14,12 @@
 #include "VulkanBuffer.h"
 #include "VulkanTexture.h"
 #include "VulkanRHIPrivate.h"
+#include "VulkanResourceState.h"
 
 namespace Durin::VulkanRHI
 {
 	namespace
 	{
-		auto ToVulkanLayout(ERHITextureLayout Layout) -> vk::ImageLayout
-		{
-			switch (Layout)
-			{
-			case ERHITextureLayout::Undefined: return vk::ImageLayout::eUndefined;
-			case ERHITextureLayout::ColorAttachment: return vk::ImageLayout::eColorAttachmentOptimal;
-			case ERHITextureLayout::DepthStencilAttachment: return vk::ImageLayout::eDepthStencilAttachmentOptimal;
-			case ERHITextureLayout::ShaderReadOnly: return vk::ImageLayout::eShaderReadOnlyOptimal;
-			case ERHITextureLayout::General: return vk::ImageLayout::eGeneral;
-			case ERHITextureLayout::Present: return vk::ImageLayout::ePresentSrcKHR;
-			}
-			checkf(false, "Unsupported RHI texture layout.");
-			return vk::ImageLayout::eUndefined;
-		}
-
 		auto ValidateAttachment(const FRHIAttachmentLayout& Layout, const FRHITexture* Texture, uint32 Width, uint32 Height, const char* Label) -> void
 		{
 			checkf(Texture != nullptr, "{} attachment texture is null.", Label);
@@ -146,45 +132,54 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		ValidateRenderPassInfo(RenderPassInfo);
-		check(PendingAttachmentFinalLayouts.empty());
-		std::vector<std::pair<FVulkanTexture*, vk::ImageLayout>> CandidateFinalLayouts;
+		check(PendingAttachmentStates.empty());
+		std::vector<FPendingAttachmentState> CandidateStates;
+		auto ValidateAndQueue = [&CandidateStates](FRHITexture* TextureRHI,
+			const FRHIAttachmentLayout& Attachment) {
+			auto* Texture = static_cast<FVulkanTexture*>(TextureRHI);
+			const FRHITextureSubresourceRange Range{
+				GetTextureAspects(Texture->GetFormat()), 0, 1, 0, 1};
+			const ERHIAccess Expected = Attachment.InitialLayout == ERHITextureLayout::Undefined
+				? ERHIAccess::Discard : Attachment.InitialAccess;
+			ERHIAccess Tracked = ERHIAccess::None;
+			checkf(Texture->GetStateTracker().Validate(Range, Expected, Tracked),
+				"Vulkan render-pass attachment state mismatch: resource={}, expected={}, tracked={}, requested={}.",
+				static_cast<const void*>(Texture), static_cast<uint32>(Expected),
+				static_cast<uint32>(Tracked), static_cast<uint32>(Attachment.FinalAccess));
+			CandidateStates.push_back({Texture, Range, Attachment.FinalAccess});
+		};
 		for (uint32 Index = 0; Index < RenderPassInfo.RenderTargetLayout.NumColorRenderTargets; ++Index)
 		{
 			const FRHIColorAttachmentLayout& Attachment =
 				RenderPassInfo.RenderTargetLayout.ColorAttachments[Index];
-			CandidateFinalLayouts.emplace_back(
-				static_cast<FVulkanTexture*>(RenderPassInfo.ColorRenderTargets[Index]),
-				ToVulkanLayout(Attachment.RenderTarget.FinalLayout));
+			ValidateAndQueue(RenderPassInfo.ColorRenderTargets[Index], Attachment.RenderTarget);
 			if (Attachment.bHasResolveTarget)
 			{
-				CandidateFinalLayouts.emplace_back(
-					static_cast<FVulkanTexture*>(RenderPassInfo.ColorResolveTargets[Index]),
-					ToVulkanLayout(Attachment.ResolveTarget.FinalLayout));
+				ValidateAndQueue(RenderPassInfo.ColorResolveTargets[Index], Attachment.ResolveTarget);
 			}
 		}
 		if (RenderPassInfo.RenderTargetLayout.bHasDepthStencil)
 		{
-			CandidateFinalLayouts.emplace_back(
-				static_cast<FVulkanTexture*>(RenderPassInfo.DepthStencilRenderTarget),
-				ToVulkanLayout(RenderPassInfo.RenderTargetLayout.DepthStencilAttachment.FinalLayout));
+			ValidateAndQueue(RenderPassInfo.DepthStencilRenderTarget,
+				RenderPassInfo.RenderTargetLayout.DepthStencilAttachment);
 		}
 		// Pass names are deliberately excluded from render-pass identity and only annotate GPU work.
 		FVulkanRenderPassManager& RenderPassManager = Device.GetRenderPassManager();
 		FVulkanRenderPass* RenderPass = RenderPassManager.GetOrCreateRenderPass(RenderPassInfo.RenderTargetLayout);
 		FVulkanFramebuffer* Framebuffer = RenderPassManager.GetOrCreateFrameBuffer(RenderPassInfo, *RenderPass);
 		RenderPassManager.BeginRenderPass(*this, Device, GetCommandBuffer(), RenderPassInfo, RenderPass, Framebuffer, DebugName);
-		PendingAttachmentFinalLayouts = std::move(CandidateFinalLayouts);
+		PendingAttachmentStates = std::move(CandidateStates);
 	}
 
 	auto FVulkanCommandListContext::RHIEndRenderPass() -> void
 	{
 		CheckVulkanRHIThread();
 		Device.GetRenderPassManager().EndRenderPass(GetCommandBuffer());
-		for (const auto& [Texture, FinalLayout] : PendingAttachmentFinalLayouts)
+		for (const FPendingAttachmentState& State : PendingAttachmentStates)
 		{
-			Texture->SetSubresourceLayout(0, 0, FinalLayout);
+			State.Texture->GetStateTracker().Apply(State.Range, State.FinalAccess);
 		}
-		PendingAttachmentFinalLayouts.clear();
+		PendingAttachmentStates.clear();
 	}
 
 	auto FVulkanCommandListContext::RHIBeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetRHI) -> void
@@ -242,6 +237,122 @@ namespace Durin::VulkanRHI
 		}
 	}
 
+	auto FVulkanCommandListContext::RHITransitionBuffers(
+		std::span<const FRHIBufferTransition> Transitions) -> void
+	{
+		CheckVulkanRHIThread();
+		std::vector<vk::BufferMemoryBarrier2> Barriers2;
+		std::vector<vk::BufferMemoryBarrier> LegacyBarriers;
+		vk::PipelineStageFlags LegacySourceStages;
+		vk::PipelineStageFlags LegacyDestinationStages;
+		Barriers2.reserve(Transitions.size());
+		LegacyBarriers.reserve(Transitions.size());
+		for (const FRHIBufferTransition& Transition : Transitions)
+		{
+			auto* Buffer = static_cast<FVulkanBuffer*>(Transition.Buffer);
+			ERHIAccess Tracked = ERHIAccess::None;
+			checkf(Buffer->GetStateTracker().Validate(
+				Transition.Offset, Transition.Size, Transition.ExpectedBefore, Tracked),
+				"Vulkan buffer transition state mismatch: resource={}, offset={}, size={}, expected={}, tracked={}, requested={}.",
+				static_cast<const void*>(Buffer), Transition.Offset, Transition.Size,
+				static_cast<uint32>(Transition.ExpectedBefore), static_cast<uint32>(Tracked),
+				static_cast<uint32>(Transition.RequiredAfter));
+			const ERHIAccess SourceAccess = Transition.ExpectedBefore == ERHIAccess::Discard
+				? ERHIAccess::None : Tracked;
+			const FVulkanResourceStateMapping Source = MapVulkanResourceState(SourceAccess);
+			const FVulkanResourceStateMapping Destination = MapVulkanResourceState(Transition.RequiredAfter);
+			Barriers2.push_back(vk::BufferMemoryBarrier2()
+				.setSrcStageMask(Source.StageMask2).setSrcAccessMask(Source.AccessMask2)
+				.setDstStageMask(Destination.StageMask2).setDstAccessMask(Destination.AccessMask2)
+				.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED).setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+				.setBuffer(Buffer->GetHandle()).setOffset(Transition.Offset).setSize(Transition.Size));
+			LegacyBarriers.push_back(vk::BufferMemoryBarrier()
+				.setSrcAccessMask(Source.LegacyAccessMask).setDstAccessMask(Destination.LegacyAccessMask)
+				.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED).setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+				.setBuffer(Buffer->GetHandle()).setOffset(Transition.Offset).setSize(Transition.Size));
+			LegacySourceStages |= Source.LegacyStageMask;
+			LegacyDestinationStages |= Destination.LegacyStageMask;
+		}
+		vk::CommandBuffer CommandBuffer = GetCommandBuffer()->GetHandle();
+		const FRHICapabilities* Capabilities = RHI->RHIGetCapabilities();
+		check(Capabilities);
+		if (Capabilities->bSupportsSynchronization2)
+		{
+			CommandBuffer.pipelineBarrier2(vk::DependencyInfo().setBufferMemoryBarriers(Barriers2));
+		}
+		else
+		{
+			CommandBuffer.pipelineBarrier(LegacySourceStages, LegacyDestinationStages,
+				vk::DependencyFlags{}, {}, LegacyBarriers, {});
+		}
+		for (const FRHIBufferTransition& Transition : Transitions)
+		{
+			static_cast<FVulkanBuffer*>(Transition.Buffer)->GetStateTracker().Apply(
+				Transition.Offset, Transition.Size, Transition.RequiredAfter);
+		}
+	}
+
+	auto FVulkanCommandListContext::RHITransitionTextures(
+		std::span<const FRHITextureTransition> Transitions) -> void
+	{
+		CheckVulkanRHIThread();
+		std::vector<vk::ImageMemoryBarrier2> Barriers2;
+		std::vector<vk::ImageMemoryBarrier> LegacyBarriers;
+		vk::PipelineStageFlags LegacySourceStages;
+		vk::PipelineStageFlags LegacyDestinationStages;
+		Barriers2.reserve(Transitions.size());
+		LegacyBarriers.reserve(Transitions.size());
+		for (const FRHITextureTransition& Transition : Transitions)
+		{
+			auto* Texture = static_cast<FVulkanTexture*>(Transition.Texture);
+			ERHIAccess Tracked = ERHIAccess::None;
+			checkf(Texture->GetStateTracker().Validate(Transition.Range, Transition.ExpectedBefore, Tracked),
+				"Vulkan texture transition state mismatch: resource={}, aspects={}, mip={}+{}, layer={}+{}, expected={}, tracked={}, requested={}.",
+				static_cast<const void*>(Texture), static_cast<uint32>(Transition.Range.Aspects),
+				Transition.Range.FirstMip, Transition.Range.NumMips,
+				Transition.Range.FirstArrayLayer, Transition.Range.NumArrayLayers,
+				static_cast<uint32>(Transition.ExpectedBefore), static_cast<uint32>(Tracked),
+				static_cast<uint32>(Transition.RequiredAfter));
+			const ERHIAccess SourceAccess = Transition.ExpectedBefore == ERHIAccess::Discard
+				? ERHIAccess::None : Tracked;
+			const FVulkanResourceStateMapping Source = MapVulkanResourceState(SourceAccess);
+			const FVulkanResourceStateMapping Destination = MapVulkanResourceState(Transition.RequiredAfter);
+			const vk::ImageSubresourceRange Range(ToVulkanAspectFlags(Transition.Range.Aspects),
+				Transition.Range.FirstMip, Transition.Range.NumMips,
+				Transition.Range.FirstArrayLayer, Transition.Range.NumArrayLayers);
+			Barriers2.push_back(vk::ImageMemoryBarrier2()
+				.setSrcStageMask(Source.StageMask2).setSrcAccessMask(Source.AccessMask2)
+				.setDstStageMask(Destination.StageMask2).setDstAccessMask(Destination.AccessMask2)
+				.setOldLayout(Source.Layout).setNewLayout(Destination.Layout)
+				.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED).setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+				.setImage(Texture->Image).setSubresourceRange(Range));
+			LegacyBarriers.push_back(vk::ImageMemoryBarrier()
+				.setSrcAccessMask(Source.LegacyAccessMask).setDstAccessMask(Destination.LegacyAccessMask)
+				.setOldLayout(Source.Layout).setNewLayout(Destination.Layout)
+				.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED).setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+				.setImage(Texture->Image).setSubresourceRange(Range));
+			LegacySourceStages |= Source.LegacyStageMask;
+			LegacyDestinationStages |= Destination.LegacyStageMask;
+		}
+		vk::CommandBuffer CommandBuffer = GetCommandBuffer()->GetHandle();
+		const FRHICapabilities* Capabilities = RHI->RHIGetCapabilities();
+		check(Capabilities);
+		if (Capabilities->bSupportsSynchronization2)
+		{
+			CommandBuffer.pipelineBarrier2(vk::DependencyInfo().setImageMemoryBarriers(Barriers2));
+		}
+		else
+		{
+			CommandBuffer.pipelineBarrier(LegacySourceStages, LegacyDestinationStages,
+				vk::DependencyFlags{}, {}, {}, LegacyBarriers);
+		}
+		for (const FRHITextureTransition& Transition : Transitions)
+		{
+			static_cast<FVulkanTexture*>(Transition.Texture)->GetStateTracker().Apply(
+				Transition.Range, Transition.RequiredAfter);
+		}
+	}
+
 	auto FVulkanCommandListContext::RHIWriteBuffer(
 		FRHIBuffer* Buffer,
 		uint32 Offset,
@@ -293,6 +404,11 @@ namespace Durin::VulkanRHI
 		const uint32 FrameIndex = Device.GetCurrentFrameIndex();
 		requiref(Device.GetDynamicUniformBufferAllocator().TryAllocate(FrameIndex, Data, Size, Result),
 			"Direct context allocation requires a prepared dynamic-uniform page.");
+		auto* Buffer = static_cast<FVulkanBuffer*>(Result.Buffer);
+		Buffer->GetStateTracker().Apply(Result.Offset, Result.Size, ERHIAccess::HostWrite);
+		const std::array Transition{FRHIBufferTransition{
+			Buffer, Result.Offset, Result.Size, ERHIAccess::HostWrite, ERHIAccess::GraphicsUniformRead}};
+		RHITransitionBuffers(Transition);
 		return Result;
 	}
 

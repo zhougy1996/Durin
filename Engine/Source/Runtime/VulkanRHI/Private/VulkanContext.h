@@ -49,6 +49,10 @@ namespace Durin::VulkanRHI
 
 		auto RHIBindIndexBuffer(FRHIBuffer* InIndexBuffer, uint32 Offset) -> void override;
 
+		auto RHITransitionBuffers(std::span<const FRHIBufferTransition> Transitions) -> void override;
+
+		auto RHITransitionTextures(std::span<const FRHITextureTransition> Transitions) -> void override;
+
 		auto RHIWriteBuffer(FRHIBuffer* Buffer, uint32 Offset, std::span<const uint8> Data) -> void override;
 
 		auto RHIInitializeTexture(FRHITexture* Texture) -> void override;
@@ -108,7 +112,13 @@ namespace Durin::VulkanRHI
 
 		std::vector<FVulkanPayload*> Payloads;
 
-		// Render-pass implicit transitions become the starting point for later explicit copies.
-		std::vector<std::pair<FVulkanTexture*, vk::ImageLayout>> PendingAttachmentFinalLayouts;
+		struct FPendingAttachmentState
+		{
+			FVulkanTexture* Texture = nullptr;
+			FRHITextureSubresourceRange Range{};
+			ERHIAccess FinalAccess = ERHIAccess::None;
+		};
+
+		std::vector<FPendingAttachmentState> PendingAttachmentStates;
 	};
 }

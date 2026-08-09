@@ -42,3 +42,16 @@ set_target_properties(RHIInitializationTests PROPERTIES
 )
 durin_set_rhi_test_migration(RHIInitializationTests)
 durin_discover_tests(RHIInitializationTests)
+
+add_durin_test(RHIResourceTransitionValidationTests
+	Private/RHIResourceTransitionValidationTests.cpp
+)
+target_link_libraries(RHIResourceTransitionValidationTests PRIVATE
+	Core
+	RHI
+)
+set_target_properties(RHIResourceTransitionValidationTests PROPERTIES
+	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+)
+durin_set_rhi_test_migration(RHIResourceTransitionValidationTests)
+durin_discover_tests(RHIResourceTransitionValidationTests)

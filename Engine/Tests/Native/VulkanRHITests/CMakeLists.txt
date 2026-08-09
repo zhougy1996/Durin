@@ -3,6 +3,7 @@ include(GoogleTest)
 add_durin_test(VulkanRHIIntegrationTests
 	Private/VulkanFailureInjectionTests.cpp
 	Private/VulkanTextureSamplingTests.cpp
+	Private/VulkanResourceTransitionTests.cpp
 	${DURIN_PROJECT_SOURCE_DIR}/Runtime/RenderCore/Private/Shader/SlangShaderCompiler.cpp
 	${DURIN_PROJECT_SOURCE_DIR}/Runtime/RenderCore/Private/Shader/ShaderCompileUtilities.cpp
 )

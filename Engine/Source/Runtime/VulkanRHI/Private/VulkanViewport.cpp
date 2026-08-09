@@ -36,6 +36,7 @@ namespace Durin::VulkanRHI
 		Format = Viewport->GetSwapchainImageFormat();
 		PixelFormat = Viewport->GetFormat();
 		NumSamples = 1;
+		ImageStates.clear();
 	}
 
 	auto FVulkanBackBuffer::InvalidateSwapchain() -> void
@@ -55,11 +56,25 @@ namespace Durin::VulkanRHI
 			return false;
 		}
 		Image = View->Image;
+		const auto Found = std::ranges::find(ImageStates, Image, &std::pair<vk::Image, ERHIAccess>::first);
+		const ERHIAccess Access = Found == ImageStates.end() ? ERHIAccess::None : Found->second;
+		StateTracker.Apply({ERHITextureAspect::Color, 0, 1, 0, 1}, Access);
 		if (Viewport->AcquiredSemaphore != nullptr)
 		{
 			Context.AddWaitSemaphore(vk::PipelineStageFlagBits::eColorAttachmentOutput, Viewport->AcquiredSemaphore);
 		}
 		return true;
+	}
+
+	auto FVulkanBackBuffer::CommitPresentedImageState() -> void
+	{
+		check(Image);
+		const ERHIAccess Access = StateTracker.Get(ERHITextureAspect::Color, 0, 0);
+		checkf(Access == ERHIAccess::Present,
+			"Swapchain presentation requires the acquired image to be in Present state.");
+		const auto Found = std::ranges::find(ImageStates, Image, &std::pair<vk::Image, ERHIAccess>::first);
+		if (Found == ImageStates.end()) ImageStates.emplace_back(Image, Access);
+		else Found->second = Access;
 	}
 
 	FVulkanViewport::FVulkanViewport(FVulkanDevice& InDevice, void* InWindowHandle, uint32 InSizeX, uint32 InSizeY, bool bInIsFullScreen, EPixelFormat InPreferredPixelFormat, EViewportPresentModePolicy InPresentModePolicy)
@@ -242,6 +257,8 @@ namespace Durin::VulkanRHI
 		}
 
 		FVulkanViewportFrameResources& FrameResource = FrameResources[AcquiredBackBufferIndex];
+		check(RHIBackBuffer);
+		RHIBackBuffer->CommitPresentedImageState();
 		WaitForFrameResource(FrameResource);
 		FVulkanSemaphore* RenderingDoneSemaphore = FrameResource.RenderingDoneSemaphore;
 		check(RenderingDoneSemaphore != nullptr);
