@@ -15,6 +15,7 @@
 #include "RHIGlobals.h"
 #include "RenderingThread.h"
 #include "RendererModule.h"
+#include "Renderers/SceneVisibility.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "StaticMeshTestAccess.h"
@@ -25,6 +26,8 @@
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 #include "Texture/Texture2D.h"
 #include "TextureTestSupport.h"
+#include <vulkan/vulkan.hpp>
+#include "VulkanRHIPrivate.h"
 
 #include <gtest/gtest.h>
 
@@ -33,6 +36,34 @@
 
 namespace
 {
+	std::vector<Durin::FViewRenderCounters>* GSceneImportCounterSnapshots = nullptr;
+
+	auto CaptureSceneImportCounterSnapshot(
+		const Durin::FViewRenderCounters& Counters) -> void
+	{
+		if (GSceneImportCounterSnapshots != nullptr)
+		{
+			GSceneImportCounterSnapshots->push_back(Counters);
+		}
+	}
+
+	class FScopedSceneImportCounterSink final
+	{
+	public:
+		explicit FScopedSceneImportCounterSink(
+			std::vector<Durin::FViewRenderCounters>& Snapshots)
+		{
+			GSceneImportCounterSnapshots = &Snapshots;
+			Durin::SetViewRenderCounterSink(CaptureSceneImportCounterSnapshot);
+		}
+
+		~FScopedSceneImportCounterSink()
+		{
+			Durin::SetViewRenderCounterSink(nullptr);
+			GSceneImportCounterSnapshots = nullptr;
+		}
+	};
+
 	class FSceneImportRenderEngine final : public Durin::DEngine
 	{
 	public:
@@ -208,6 +239,19 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		[](const Durin::FVector4f& Color) {
 			return Color != Durin::FVector4f(1.0f);
 		}));
+	Durin::FStaticMeshRenderData* MutableLODContractRenderData =
+		Durin::FStaticMeshTestAccess::GetMutableRenderData(LODContractMesh);
+	MutableLODContractRenderData->LODResources.push_back(
+		MutableLODContractRenderData->LODResources[0]);
+	MutableLODContractRenderData->LODResources[0].ScreenSize = 1.0f;
+	Durin::FStaticMeshLODResources& ReducedLOD =
+		MutableLODContractRenderData->LODResources[1];
+	ReducedLOD.ScreenSize = 0.0f;
+	ReducedLOD.Sections.resize(1);
+	ReducedLOD.Sections[0].FirstIndex = 0;
+	ReducedLOD.Sections[0].IndexCount = 3;
+	MutableLODContractRenderData->LODVertexFactories.resize(2);
+	MutableLODContractRenderData->RecalculateBounds();
 
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
@@ -380,6 +424,9 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 				->LODResources[0]);
 	Durin::FStaticMeshTestAccess::GetMutableRenderData(
 		FailedReplacementCandidate)
+		->LODResources[0].ScreenSize = 0.5f;
+	Durin::FStaticMeshTestAccess::GetMutableRenderData(
+		FailedReplacementCandidate)
 		->LODResources[1].Sections[0].MaterialSlotIndex = 99;
 	const Durin::FStaticMeshRenderResourceStatus TargetStatusBeforeFailure =
 		LifecycleMesh->GetRenderResourceStatus();
@@ -407,7 +454,9 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Durin::AddToRoot(InvalidMesh);
 	Durin::FStaticMeshTestAccess::GetMutableRenderData(InvalidMesh)
 		->LODResources.push_back(
-		InvalidMesh->GetRenderData()->LODResources[0]);
+			InvalidMesh->GetRenderData()->LODResources[0]);
+	Durin::FStaticMeshTestAccess::GetMutableRenderData(InvalidMesh)
+		->LODResources[0].ScreenSize = 0.5f;
 	Durin::FStaticMeshTestAccess::GetMutableRenderData(InvalidMesh)
 		->LODResources[1].Sections[0].MaterialSlotIndex = 99;
 	const Durin::FStaticMeshRenderResourceStatus InvalidInitialStatus =
@@ -539,6 +588,9 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		Durin::NewObject<Durin::DMaterialInstance>(nullptr, "TextureOnlyControl");
 	Durin::DMaterialInstance* FactorOnly =
 		Durin::NewObject<Durin::DMaterialInstance>(nullptr, "FactorOnlyControl");
+	Durin::DMaterialInstance* FailedResourceMaterial =
+		Durin::NewObject<Durin::DMaterialInstance>(
+			nullptr, "FailedResourceControl");
 	ASSERT_TRUE(TextureOnly->SetParent(ReloadedMaterial->GetParent()));
 	ASSERT_TRUE(TextureOnly->SetTextureParameterValue(
 		Durin::MaterialParameters::BaseColorTextureName(), ReloadedTexture));
@@ -547,6 +599,16 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(FactorOnly->SetParent(ReloadedMaterial->GetParent()));
 	ASSERT_TRUE(FactorOnly->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), ImportedFactor));
+	ASSERT_TRUE(FailedResourceMaterial->SetParent(
+		ReloadedMaterial->GetParent()));
+	Durin::FMaterialSamplerState FailedSampler;
+	FailedSampler.AddressU =
+		Durin::EMaterialSamplerAddressMode::ClampToEdge;
+	FailedSampler.AddressV =
+		Durin::EMaterialSamplerAddressMode::ClampToEdge;
+	ASSERT_TRUE(FailedResourceMaterial->SetScalarParameterValue(
+		Durin::FName("BaseColorSamplerState"),
+		Durin::EncodeMaterialSamplerState(FailedSampler)));
 	Durin::FlushRenderingCommands();
 
 	Durin::FRenderedAssetThumbnailVisualContract Contract;
@@ -555,10 +617,14 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	{
 		Durin::Tests::FRenderedAssetThumbnailTestPool Pool(Contract);
 		ASSERT_TRUE(Pool.IsAvailable()) << Pool.GetDiagnostic();
+		std::vector<Durin::FViewRenderCounters> CounterSnapshots;
+		FScopedSceneImportCounterSink CounterSink(CounterSnapshots);
 		auto Capture = [&](
 			Durin::DStaticMesh* Mesh,
-			Durin::DMaterialInterface* Material) {
+			Durin::DMaterialInterface* Material,
+			bool bForceLOD0 = false) {
 			std::vector<Durin::uint8> Pixels;
+			Pool.SetForceLOD0(bForceLOD0);
 			EXPECT_TRUE(Pool.SetMaterial(
 				Mesh, Material, Durin::FTransform(), Error)) << Error;
 			EXPECT_TRUE(Pool.BeginCapture(Error, false)) << Error;
@@ -576,8 +642,10 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			Capture(ReloadedMesh, TextureOnly);
 		const std::vector<Durin::uint8> FactorOnlyPixels =
 			Capture(ReloadedMesh, FactorOnly);
-		const std::vector<Durin::uint8> LODContractPixels =
+		const std::vector<Durin::uint8> AutomaticLODPixels =
 			Capture(LODContractMesh, ReloadedMaterial);
+		const std::vector<Durin::uint8> ForcedLOD0Pixels =
+			Capture(LODContractMesh, ReloadedMaterial, true);
 		ASSERT_EQ(ImportedPixels.size(), 64u * 64u * 4u);
 		ASSERT_EQ(TextureOnlyPixels.size(), ImportedPixels.size());
 		ASSERT_EQ(FactorOnlyPixels.size(), ImportedPixels.size());
@@ -588,12 +656,60 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		EXPECT_NE(ImportedPixels, TextureOnlyPixels);
 		EXPECT_NE(ImportedPixels, FactorOnlyPixels);
 		ASSERT_EQ(
-			LODContractPixels.size(),
+			AutomaticLODPixels.size(),
 			ImportedPixels.size());
+		ASSERT_EQ(ForcedLOD0Pixels.size(), ImportedPixels.size());
+		EXPECT_NE(AutomaticLODPixels, ImportedPixels);
+		EXPECT_NE(AutomaticLODPixels, ForcedLOD0Pixels);
 		EXPECT_EQ(
 			Durin::FXxHash128::HashBuffer(
-				LODContractPixels).ToString(),
+				AutomaticLODPixels).ToString(),
+			"36ff62c3dd2df3cd3cf45db46e9e4198");
+		EXPECT_EQ(
+			Durin::FXxHash128::HashBuffer(
+				ForcedLOD0Pixels).ToString(),
 			"bdd34099da4b080de210ad2d9af122a9");
+		Durin::VulkanRHI::ArmVulkanCreateFailure(
+			Durin::VulkanRHI::EVulkanCreateFailurePoint::Sampler);
+		const std::vector<Durin::uint8> FailedResourcePixels =
+			Capture(ReloadedMesh, FailedResourceMaterial);
+		ASSERT_EQ(FailedResourcePixels.size(), ImportedPixels.size());
+		ASSERT_EQ(CounterSnapshots.size(), 6u);
+		const std::array<size_t, 5> ExpectedSections{1u, 1u, 1u, 1u, 4u};
+		for (size_t Index = 0; Index < ExpectedSections.size(); ++Index)
+		{
+			const Durin::FViewRenderCounters& Counters =
+				CounterSnapshots[Index];
+			EXPECT_EQ(Counters.VisibleStaticMeshCandidates, 1u);
+			EXPECT_EQ(Counters.PreparedStaticMeshPrimitives, 1u);
+			EXPECT_EQ(
+				Counters.PreparedStaticMeshSections, ExpectedSections[Index]);
+			EXPECT_EQ(
+				Counters.OpaqueStaticMeshSections, ExpectedSections[Index]);
+			EXPECT_EQ(Counters.OpaqueStaticMeshStateGroups, 1u);
+			EXPECT_EQ(Counters.StaticMeshResourceAttemptedDraws,
+				ExpectedSections[Index]);
+			EXPECT_EQ(Counters.StaticMeshResourceSuccessfulDraws,
+				ExpectedSections[Index]);
+			EXPECT_EQ(Counters.StaticMeshResourceRejectedDraws, 0u);
+			EXPECT_EQ(
+				Counters.StaticMeshAttemptedDraws, ExpectedSections[Index]);
+			EXPECT_EQ(
+				Counters.StaticMeshSuccessfulDraws, ExpectedSections[Index]);
+			EXPECT_EQ(Counters.StaticMeshRejectedDraws, 0u);
+		}
+		const Durin::FViewRenderCounters& FailedResourceCounters =
+			CounterSnapshots.back();
+		EXPECT_EQ(FailedResourceCounters.PreparedStaticMeshSections, 1u);
+		EXPECT_EQ(
+			FailedResourceCounters.StaticMeshResourceAttemptedDraws, 1u);
+		EXPECT_EQ(
+			FailedResourceCounters.StaticMeshResourceSuccessfulDraws, 0u);
+		EXPECT_EQ(
+			FailedResourceCounters.StaticMeshResourceRejectedDraws, 1u);
+		EXPECT_EQ(FailedResourceCounters.StaticMeshAttemptedDraws, 1u);
+		EXPECT_EQ(FailedResourceCounters.StaticMeshSuccessfulDraws, 0u);
+		EXPECT_EQ(FailedResourceCounters.StaticMeshRejectedDraws, 1u);
 
 		struct FEndSceneImportFrame
 		{
@@ -618,6 +734,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	EXPECT_EQ(Sphere->GetRenderData()->GetNumInitializedResources(), 0u);
 	Durin::MarkAsGarbage(FactorOnly);
 	Durin::MarkAsGarbage(TextureOnly);
+	Durin::MarkAsGarbage(FailedResourceMaterial);
 	PreloadedSphere = {};
 	Durin::CollectGarbage();
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));

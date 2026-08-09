@@ -16,7 +16,7 @@ namespace Durin
 	class FConsoleCommandRegistry;
 	class FRHICommandListImmediate;
 	class FRHITexture;
-	class IScene;
+	class FScene;
 	struct FSceneView;
 
 	// Owns renderer resources and concrete feature renderers while preserving
@@ -41,7 +41,7 @@ namespace Durin
 			uint32 Height) -> FSceneView;
 		auto RenderView_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			IScene* Scene,
+			FScene* Scene,
 			const FSceneView& View,
 			FRHITexture* OutputTarget,
 			bool bPresentOutput) -> void;
@@ -64,8 +64,7 @@ namespace Durin
 			ERendererResourceInvalidationCause Cause) -> void;
 		auto RenderScene_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			IScene* Scene,
-			const FSceneView& View,
+			struct FPreparedSceneView& PreparedView,
 			FRHITexture* RenderTarget) -> void;
 
 		FRendererResourceCoordinator Coordinator;

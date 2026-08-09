@@ -30,6 +30,7 @@ namespace Durin
 		auto GetStaticMeshProxy() const -> FStaticMeshSceneProxy&;
 		auto GetTextureCubePreviewProxy() const -> FTextureCubePreviewSceneProxy&;
 		auto SetTransform(const FMatrix& InTransform) -> void;
+		auto SetVisible(bool bInVisible) -> void { bVisible = bInVisible; }
 		auto UpdateMaterialBinding(const FMaterialRenderProxyBindingUpdate& Update) -> bool;
 
 	private:
@@ -84,9 +85,10 @@ namespace Durin
 	class FScene : public IScene
 	{
 	public:
-		RENDERER_API auto AddOrReplacePrimitive(FPrimitiveSceneId PrimitiveId, std::unique_ptr<FPrimitiveSceneProxy> Proxy, const FMatrix& Transform) -> void override;
+		RENDERER_API auto AddOrReplacePrimitive(FPrimitiveSceneId PrimitiveId, std::unique_ptr<FPrimitiveSceneProxy> Proxy, const FMatrix& Transform, bool bVisible = true) -> void override;
 		RENDERER_API auto RemovePrimitive(FPrimitiveSceneId PrimitiveId) -> void override;
 		RENDERER_API auto UpdatePrimitiveTransform(FPrimitiveSceneId PrimitiveId, const FMatrix& Transform) -> void override;
+		RENDERER_API auto UpdatePrimitiveVisibility(FPrimitiveSceneId PrimitiveId, bool bVisible) -> void override;
 		RENDERER_API auto UpdatePrimitiveMaterialBinding(FPrimitiveSceneId PrimitiveId, const FMaterialRenderProxyBindingUpdate& Update) -> void override;
 		RENDERER_API auto Release() -> void override;
 		RENDERER_API auto AddOrReplaceDirectionalLight(FLightSceneId LightId, std::unique_ptr<FDirectionalLightSceneProxy> Proxy) -> void override;

@@ -2,7 +2,7 @@
 
 Summary: Expand the current static-mesh forward renderer into a pass-classified, visibility-aware platform for additional primitive, lighting, and effect families.
 
-Last reviewed: 2026-08-08
+Last reviewed: 2026-08-09
 
 Status: Active
 Completed:
@@ -19,10 +19,11 @@ concentrated in the module adapter.
 
 The frame remains a fixed forward sequence. Sky, StaticMesh, and TextureCube
 preview draws share one LDR Scene Color plus depth pass, followed by copy or
-FXAA and an optional editor-assistance pass. StaticMesh prepares LOD 0 sections
-once per view into Opaque, Masked, and deterministically sorted Translucent
-buckets, then executes their effective mask/blend/depth/cull/winding state.
-Frustum culling and LOD selection remain M3.
+FXAA and an optional editor-assistance pass. StaticMesh now consumes one
+centralized visible-family list, selects a validated LOD once per primitive,
+groups Opaque and Masked work by complete value keys, and retains deterministic
+distance-first Translucent ordering. Resource preparation finishes before Scene
+Color; execution consumes only complete prepared draws.
 
 Material render snapshots identify Opaque, Masked, and Translucent blend modes,
 Lit and Unlit shading, two-sided state, depth-write policy, and a mask threshold.
@@ -46,12 +47,15 @@ with lasting contracts recorded in
 [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md) and
 [Material System](../Runtime/Rendering/MaterialSystem.md).
 
-M3 is active through the
-[Per-View Visibility and LOD Plan](../Plans/PerViewVisibilityAndLOD.md). It
-intentionally begins by moving scene and StaticMesh preparation ahead of the
-first render pass, then adds centralized conservative primitive visibility,
-explicit StaticMesh LOD policy data, selected-LOD prepared work, deterministic
-state grouping, and per-view conservation counters.
+M3 is complete through the
+[Per-View Visibility and LOD Plan](../Plans/PerViewVisibilityAndLOD.md), with
+lasting contracts recorded in
+[Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md).
+Production views now default to authored visibility, conservative frustum
+culling, and deterministic projected-size LOD selection while retaining an
+immutable culling-disabled/forced-LOD-0 comparison seam. This opens the shared
+visibility/preparation dependency for M4 and M6; their remaining entry gates
+still apply.
 
 The [Skeletal Mesh and Animation Roadmap](SkeletalMeshAndAnimation.md) owns the
 asset, source-ingestion, pose, playback, and product prerequisites for the
@@ -224,16 +228,16 @@ cross-product enum and lets a new primitive reuse existing pass semantics.
 | Area | Existing foundation | Expansion gap | Owning milestone |
 | --- | --- | --- | --- |
 | Feature ownership | `FSceneRenderer` explicitly composes private StaticMesh, SkyBox, TextureCube preview, post-process, and editor-assistance owners with coordinated invalidation and typed scene inputs. | Adding a feature still requires hand-editing orchestration, which remains acceptable until a named external module requires registration. | Conditional public registration |
-| Primitive scene state | `FPrimitiveSceneInfo` owns strong identity, transform, finite local/world bounds, visibility, explicit kind, and authoritative typed membership; proxies retain family resources. | Per-view culling, LOD selection, and prepared draw lists remain M3 work. | M3 |
+| Primitive scene state | `FPrimitiveSceneInfo` owns strong identity, transform, finite local/world bounds, visibility, explicit kind, and authoritative typed membership; one command-local classifier produces typed visible lists and conserved outcomes. | Additional families extend the private kind switch and consume the same visibility result. | Complete for M3; M4 extension |
 | Light scene state | `FDirectionalLightSceneProxy` and `FLightSceneInfo` detach copied values from components and mutate through FIFO render commands. | Point/spot families, bounded GPU payloads, and multi-light selection remain M5 work. | M5 |
 | SkyBox scene state | `FSkyBoxSceneProxy` and `FSkyBoxSceneInfo` own retained texture state, strong identity, deterministic selection, and typed membership without a duplicate revision map. | No M1 ownership gap remains. | Complete |
 | Materials | Versioned immutable v3 representation drives visible Opaque, Masked, and Translucent behavior with authored cull/depth policy. | Material graph compilation and additional authored blend modes remain later Material System work. | Complete for M2 |
 | Graphics state | RHI value descriptors and Vulkan mapping cover selected polygon/cull/winding, depth, blend factors/ops, and RGBA write mask. | Depth bias and stencil remain unselected until M6 or another concrete consumer. | Complete for M2; M6 extension |
-| StaticMesh geometry | Validated per-LOD resources, a local vertex factory, section/material slots, and robust render-resource lifecycle exist. | Draw code always selects LOD 0, visits every proxy, allocates per-proxy uniforms, and has no bounds, instancing, or draw-list preparation. | M3 |
+| StaticMesh geometry | Validated per-LOD resources, deterministic transition thresholds, selected-LOD vertex/index binding, two-level prepared primitives/draws, stable state ordering, and robust render-resource lifecycle exist. | Instancing and a second vertex factory remain unproven; M4 decides which prepared fields genuinely generalize. | Complete for M3; M4 extension |
 | Scene passes | Scene Color/depth executes explicit Opaque, Masked, and Translucent StaticMesh buckets before post-process and preserved-depth assistance for present/offscreen outputs. | There are no depth-only, shadow, GBuffer, or debug-view pass contracts. | Complete for M2; M6 extension |
 | Scene targets | Size-keyed cache is capped at eight entries and supports sequential multi-view rendering. | Scene Color is LDR `SRGBA8_UNORM`; D32 lacks shader-resource usage; allocation is entry-count rather than byte-budget based; no view history identity exists. | Conditional architecture branch |
-| View policy | Per-view Lit/Unlit, Solid/Wireframe, FXAA, fitted content rect, and editor assistance are immutable snapshots. | No exposure, debug buffer mode, temporal matrices/history, visibility mask, or per-view performance result exists. | M3 and conditional branches |
-| Validation | Pass classification/order, mask edges, straight-alpha output, effective state, lifecycle, and Vulkan readback extend the existing scene/StaticMesh coverage. | LOD choice, second vertex factory, multi-light ordering, and shadow image baselines remain. | M3-M6 |
+| View policy | Per-view Lit/Unlit, Solid/Wireframe, FXAA, fitted content rect, editor assistance, visibility mode, and LOD mode are immutable snapshots; one value counter snapshot explains each invocation. | Exposure, debug buffers, temporal matrices/history, and persistent performance history remain conditional work. | Complete for M3; conditional branches |
+| Validation | Pass classification/order, mask edges, straight-alpha output, effective state, lifecycle, deterministic LOD choice, visibility fallbacks, counters, and Vulkan readback cover the StaticMesh path. | A second vertex factory, multi-light ordering, and shadow image baselines remain. | Complete through M3; M4-M6 |
 
 ## Milestone Map
 
@@ -258,7 +262,7 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- | --- |
 | M1: Scene Proxy/Info ownership and primitive classification | Required | [RendererSceneProxyAndInfoContract](../Plans/Archive/2026-08/RendererSceneProxyAndInfoContract.md) | Current primitive, SkyBox, and rendering-thread contracts | Paired SceneProxy/SceneInfo ownership for StaticMesh, TextureCube preview, SkyBox, and directional light; stable primitive kind/bounds/visibility facts; strong typed identities; internal typed lookup; mutation no longer hard-codes StaticMesh in `FScene`. | Current call sites, thread ownership, proxy lifetimes, mutation ordering, and any genuine asynchronous revision boundary are recorded with focused tests. | Rendering reads no component pointer; each live scene entry has exactly one Proxy/SceneInfo pair; ordered lifecycle mutations cannot affect a retired entry; existing features use typed classification with unchanged images and lifecycle behavior. |
 | M2: Material render-pass policies | Required; also executes Material System milestone 4 | [MaterialRenderPassPolicies](../Plans/Archive/2026-08/MaterialRenderPassPolicies.md) | M1 classification contract; current material v3 identity | Opaque, masked, and translucent buckets; visible mask/blend/cull/depth policy; minimal required RHI state descriptors; deterministic translucent sorting. | M1 is stable and the exact RHI state gaps for three surface policies are enumerated. | All static properties have tested on-screen meaning across Lit/Unlit, Solid/Wireframe, main/auxiliary, present/offscreen, and fixed-aspect views; Vulkan validation is clean. |
-| M3: Per-view visibility and LOD | Required; active | [PerViewVisibilityAndLOD](../Plans/PerViewVisibilityAndLOD.md) | M1 proxy bounds; M2 pass buckets | Frustum culling, deterministic LOD selection, prepared draw lists, sort/state keys, and counters. | Met for architecture: bounds semantics and pass-classification inputs are stable. Stage 0 freezes projection/LOD policy and supplies representative multi-LOD assets and cameras before behavior changes. | Invisible primitives issue no base-pass draw, LOD thresholds are deterministic, pass ordering remains correct, and counters explain submitted/culled/selected work in every viewport path. |
+| M3: Per-view visibility and LOD | Required; complete | [PerViewVisibilityAndLOD](../Plans/PerViewVisibilityAndLOD.md) | M1 proxy bounds; M2 pass buckets | Frustum culling, deterministic LOD selection, prepared draw lists, sort/state keys, and counters. | Met: bounds semantics, pass inputs, projection/LOD policy, representative assets, and comparison views were frozen before production defaults. | Passed: invisible primitives issue no base-pass draw, LOD thresholds and ordering are deterministic, and counters reconcile submitted, culled, selected, prepared, resource, and execution work across qualified viewport paths. |
 | M4: Second production primitive family | Required capability proof | `SkeletalMeshRendering` by default; replace only through the entry-gate decision | M2-M3 shared pass and visibility contracts | A second vertex factory, proxy type, component/render-data lifecycle, material binding, base/depth/shadow participation where applicable, and editor/runtime validation. | Product need chooses SkeletalMesh, instanced mesh, or another production family; its asset/render-data prerequisites and non-rendering owner are explicit. If SkeletalMesh is selected, the Skeletal Mesh and Animation Roadmap S1-S2 gates are complete. | The selected family reuses scene mutation, visibility, pass, material, invalidation, and viewport contracts without adding a parallel frame renderer or whole-scene RTTI scan. |
 | M5: Renderer-owned multi-light scene | Required | `RendererLightSceneContract` | M1 detached light mutation | Directional, point, and spot Proxy/SceneInfo types, typed collections, visibility inputs, bounded GPU-facing light data, and explicit versions only for independently reordered work. | M1 has removed component reads and the intended initial light-count budget is documented. | Add/update/remove order is deterministic; any retained asynchronous version rejects stale work; no render-thread object read occurs; multiple view renders consume identical scene state; point/spot falloff has focused and image coverage. |
 | M6: Directional shadow pipeline | Required | `DirectionalShadowPipeline` | M2 pass state, M3 visibility/draw lists, M4 second-family participation, M5 light snapshots | Shadow-depth target/layout, caster classification, masked caster behavior, directional shadow matrices, bias/filtering, lifetime, diagnostics, and lighting sampling. | M2-M5 contracts are stable; one directional shadow quality/budget target is selected. | StaticMesh and the selected M4 family cast and receive deterministic shadows; masked coverage, camera/light motion, multi-view reuse, invalidation, and Vulkan validation pass without whole-device idle waits. |
@@ -306,7 +310,7 @@ three surface modes cannot be expressed correctly without them.
 
 ### [PerViewVisibilityAndLOD](../Plans/PerViewVisibilityAndLOD.md)
 
-This plan owns the command-local prepared-view boundary before the first scene
+This completed plan owns the command-local prepared-view boundary before the first scene
 pass, centralized CPU primitive visibility, the first deterministic projected-
 screen-size LOD policy and required StaticMesh policy data, two-level prepared
 StaticMesh work, stable sort/state keys, and conservation diagnostics. It may

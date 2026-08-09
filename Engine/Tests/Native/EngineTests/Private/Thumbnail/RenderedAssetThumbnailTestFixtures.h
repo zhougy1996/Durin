@@ -68,6 +68,10 @@ namespace Durin::Tests
 
 		auto IsAvailable() const -> bool { return Pool.IsAvailable(); }
 		auto GetDiagnostic() const -> std::string { return Pool.GetDiagnostic(); }
+		auto SetForceLOD0(bool bForceLOD0) -> void
+		{
+			View.bForceLOD0 = bForceLOD0;
+		}
 
 		auto GetSphereMesh() -> DStaticMesh*
 		{

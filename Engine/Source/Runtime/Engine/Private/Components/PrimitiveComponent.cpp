@@ -25,7 +25,7 @@ namespace Durin
 
 	auto DPrimitiveComponent::OnOwnerVisibilityChanged() -> void
 	{
-		MarkRenderStateDirty();
+		MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::Visibility);
 	}
 
 	auto DPrimitiveComponent::CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy>
@@ -56,25 +56,25 @@ namespace Durin
 		if (Scene == nullptr) return;
 
 		const FPrimitiveSceneId SceneId = EnsurePrimitiveSceneId();
-		// Hidden actors keep their component registration and scene identity so showing
-		// them again only needs to recreate the render proxy.
-		if (const AActor* Owner = GetOwner(); Owner && Owner->IsHidden())
-		{
-			Scene->RemovePrimitive(SceneId);
-			return;
-		}
+		const AActor* Owner = GetOwner();
+		const bool bVisible = Owner == nullptr || !Owner->IsHidden();
 		if (EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Proxy))
 		{
 			std::unique_ptr<FPrimitiveSceneProxy> Proxy = CreateSceneProxy();
 			if (Proxy != nullptr)
 			{
-				Scene->AddOrReplacePrimitive(SceneId, std::move(Proxy), GetRenderMatrix());
+				Scene->AddOrReplacePrimitive(
+					SceneId, std::move(Proxy), GetRenderMatrix(), bVisible);
 			}
 			else
 			{
 				Scene->RemovePrimitive(SceneId);
 			}
 			return;
+		}
+		if (EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Visibility))
+		{
+			Scene->UpdatePrimitiveVisibility(SceneId, bVisible);
 		}
 
 		if (EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Transform))

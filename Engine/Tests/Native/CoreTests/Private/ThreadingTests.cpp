@@ -885,6 +885,11 @@ namespace Durin
 		auto UniqueProducer = LaunchUniqueTask<int>("ScopedUniqueProducer", []() { return 11; }, RootAOptions, sizeof(int));
 		FTaskHandle UniqueSink = ConsumeThen(std::move(UniqueProducer), "ScopedUniqueSink", [](int&&) {});
 
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(NestedParent));
+		ASSERT_TRUE(InheritedChild.IsValid());
+		ASSERT_TRUE(MatchingExplicitChild.IsValid());
+		EXPECT_FALSE(ReparentedChild.IsValid());
+		EXPECT_FALSE(ReparentedContinuation.IsValid());
 		const uint64 AcceptedBeforeParallelFor = ScopeA.GetDiagnostics().AcceptedCount;
 		FParallelForOptions ParallelOptions;
 		ParallelOptions.MinBatchSize = 1;
@@ -893,11 +898,6 @@ namespace Durin
 		ASSERT_EQ(ETaskState::Succeeded, ParallelResult.State);
 		EXPECT_EQ(ParallelResult.ChunkCount - 1, ScopeA.GetDiagnostics().AcceptedCount - AcceptedBeforeParallelFor);
 
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(NestedParent));
-		ASSERT_TRUE(InheritedChild.IsValid());
-		ASSERT_TRUE(MatchingExplicitChild.IsValid());
-		EXPECT_FALSE(ReparentedChild.IsValid());
-		EXPECT_FALSE(ReparentedContinuation.IsValid());
 		for (const FTaskHandle& Task : std::array{
 			RootA.GetTaskHandle(), RootB.GetTaskHandle(), InheritedChild, MatchingExplicitChild,
 			Continuation, CrossScopePrerequisite, FanIn.GetTaskHandle(), UniqueSink})
@@ -2529,7 +2529,19 @@ namespace Durin
 
 		Producer = {};
 		Dependent = {};
-		Retained = GetTaskSchedulerDiagnostics();
+		const auto RetentionDeadline =
+			std::chrono::steady_clock::now() + std::chrono::seconds(1);
+		do
+		{
+			Retained = GetTaskSchedulerDiagnostics();
+			if (Retained.RetainedTerminalHandleCount == 0
+				&& Retained.RetainedTerminalResultCount == 0)
+			{
+				break;
+			}
+			std::this_thread::yield();
+		}
+		while (std::chrono::steady_clock::now() < RetentionDeadline);
 		EXPECT_EQ(0u, Retained.RetainedTerminalHandleCount);
 		EXPECT_EQ(0u, Retained.RetainedTerminalResultCount);
 	}

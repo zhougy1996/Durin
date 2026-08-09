@@ -1,4 +1,5 @@
 #include "Renderers/SceneRenderer.h"
+#include "Renderers/PreparedSceneView.h"
 
 #include "Profiling/Profiling.h"
 
@@ -23,6 +24,55 @@ namespace Durin
 			return bPresent
 				? RenderTargetLayouts::EViewportOutput::Present
 				: RenderTargetLayouts::EViewportOutput::Offscreen;
+		}
+
+		auto CopyStaticMeshCounters(
+			const FPreparedStaticMeshView& StaticMeshes,
+			FViewRenderCounters& Counters) -> void
+		{
+			Counters.VisibleStaticMeshCandidates = StaticMeshes.VisibleCandidates;
+			Counters.PreparedStaticMeshPrimitives = StaticMeshes.Primitives.size();
+			Counters.RejectedStaticMeshPrimitives = StaticMeshes.RejectedPrimitives;
+			Counters.PreparedStaticMeshSections = StaticMeshes.SelectedSections;
+			Counters.PreparedStaticMeshTriangles = StaticMeshes.SelectedTriangles;
+			Counters.StaticMeshProjectedSizeFallbacks =
+				StaticMeshes.ProjectedSizeFallbacks;
+			Counters.StaticMeshResourceFallbacks = StaticMeshes.ResourceFallbacks;
+			Counters.RequestedStaticMeshLODHistogram =
+				StaticMeshes.RequestedLODHistogram;
+			Counters.SelectedStaticMeshLODHistogram =
+				StaticMeshes.SelectedLODHistogram;
+			Counters.OpaqueStaticMeshSections = StaticMeshes.OpaqueSections;
+			Counters.MaskedStaticMeshSections = StaticMeshes.MaskedSections;
+			Counters.TranslucentStaticMeshSections =
+				StaticMeshes.TranslucentSections;
+			Counters.OpaqueStaticMeshTriangles = StaticMeshes.OpaqueTriangles;
+			Counters.MaskedStaticMeshTriangles = StaticMeshes.MaskedTriangles;
+			Counters.TranslucentStaticMeshTriangles =
+				StaticMeshes.TranslucentTriangles;
+			Counters.OpaqueStaticMeshStateGroups = StaticMeshes.OpaqueStateGroups;
+			Counters.MaskedStaticMeshStateGroups = StaticMeshes.MaskedStateGroups;
+			Counters.OpaqueStaticMeshInputStateGroups =
+				StaticMeshes.OpaqueInputStateGroups;
+			Counters.MaskedStaticMeshInputStateGroups =
+				StaticMeshes.MaskedInputStateGroups;
+			Counters.StaticMeshPipelineTransitions =
+				StaticMeshes.PipelineTransitions;
+			Counters.StaticMeshMaterialTransitions =
+				StaticMeshes.MaterialTransitions;
+			Counters.StaticMeshVertexFactoryTransitions =
+				StaticMeshes.VertexFactoryTransitions;
+			Counters.StaticMeshGeometryTransitions =
+				StaticMeshes.GeometryTransitions;
+			Counters.StaticMeshResourceAttemptedDraws =
+				StaticMeshes.ResourcePreparationAttemptedDraws;
+			Counters.StaticMeshResourceSuccessfulDraws =
+				StaticMeshes.ResourcePreparationSuccessfulDraws;
+			Counters.StaticMeshResourceRejectedDraws =
+				StaticMeshes.ResourcePreparationRejectedDraws;
+			Counters.StaticMeshAttemptedDraws = StaticMeshes.AttemptedDraws;
+			Counters.StaticMeshSuccessfulDraws = StaticMeshes.SuccessfulDraws;
+			Counters.StaticMeshRejectedDraws = StaticMeshes.RejectedDraws;
 		}
 	} // namespace
 
@@ -170,13 +220,22 @@ namespace Durin
 
 	auto FSceneRenderer::RenderView_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		IScene* Scene,
+		FScene* Scene,
 		const FSceneView& View,
 		FRHITexture* OutputTarget,
 		bool bPresentOutput) -> void
 	{
 		check(IsInRenderingThread());
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.RenderView");
+		FPreparedSceneView PreparedView;
+		struct FCounterSnapshotScope
+		{
+			const FViewRenderCounters& Counters;
+			~FCounterSnapshotScope()
+			{
+				EmitViewRenderCounterSnapshot(Counters);
+			}
+		} CounterSnapshotScope{PreparedView.Counters};
 		const uint32 Width =
 			OutputTarget != nullptr ? OutputTarget->GetSizeX() : 0;
 		const uint32 Height =
@@ -208,6 +267,38 @@ namespace Durin
 		FRHITexture* SceneColor = SceneTargets->Color;
 
 		const FSceneView RenderView = FitViewToOutput(View, Width, Height);
+		PreparedView.View = RenderView;
+		if (Scene != nullptr)
+		{
+			const FSceneVisibilityResult Visibility = PrepareSceneVisibility(
+				*Scene, RenderView, PreparedView.Counters);
+			const FSkyBoxSceneInfo* SkyBoxInfo =
+				Scene->GetActiveSkyBoxSceneInfo_RenderThread();
+			if (SkyBoxInfo != nullptr)
+			{
+				PreparedView.SkyBox = SkyBoxInfo->GetProxy().GetData();
+				PreparedView.bHasSkyBox = true;
+			}
+			Scene->GetDirectionalLight(PreparedView.DirectionalLight);
+			PreparedView.StaticMeshes = PrepareStaticMeshView_RenderThread(
+				CommandList,
+				Visibility.StaticMeshSceneInfos,
+				RenderView,
+				RenderView.Settings.RasterMode);
+			for (const FPrimitiveSceneInfo* SceneInfo :
+				 Visibility.TextureCubePreviewSceneInfos)
+			{
+				if (SceneInfo != nullptr)
+				{
+					PreparedView.TextureCubePreviews.push_back(
+						&SceneInfo->GetTextureCubePreviewProxy());
+				}
+			}
+		}
+		StaticMeshRenderer.PrepareResources_RenderThread(
+			CommandList, PreparedView.StaticMeshes);
+		CopyStaticMeshCounters(
+			PreparedView.StaticMeshes, PreparedView.Counters);
 
 		FRHIRenderPassInfo ScenePassInfo{};
 		ScenePassInfo.RenderTargetLayout =
@@ -223,8 +314,10 @@ namespace Durin
 		CommandList.BeginRenderPass(
 			ScenePassInfo,
 			"SceneColorRenderPass");
-		RenderScene_RenderThread(CommandList, Scene, RenderView, SceneColor);
+		RenderScene_RenderThread(CommandList, PreparedView, SceneColor);
 		CommandList.EndRenderPass();
+		CopyStaticMeshCounters(
+			PreparedView.StaticMeshes, PreparedView.Counters);
 
 		RendererEditorAssistance::FPrepared PreparedEditorAssistance;
 		if (!EditorAssistanceRequest.IsEmpty())
@@ -288,16 +381,16 @@ namespace Durin
 
 	auto FSceneRenderer::RenderScene_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		IScene* Scene,
-		const FSceneView& View,
+		FPreparedSceneView& PreparedView,
 		FRHITexture* RenderTarget) -> void
 	{
 		check(IsInRenderingThread());
+		check(CommandList.IsInsideRenderPass());
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.RenderScene");
+		const FSceneView& View = PreparedView.View;
 		const uint32 Width = View.ViewportWidth;
 		const uint32 Height = View.ViewportHeight;
-		if (Scene == nullptr || RenderTarget == nullptr
-			|| Width == 0 || Height == 0)
+		if (RenderTarget == nullptr || Width == 0 || Height == 0)
 		{
 			return;
 		}
@@ -315,35 +408,22 @@ namespace Durin
 			static_cast<float>(Width),
 			static_cast<float>(Height));
 
-		FSkyBoxSceneData SkyBox;
-		const auto* RendererScene = dynamic_cast<FScene*>(Scene);
-		const FSkyBoxSceneInfo* SkyBoxInfo = RendererScene != nullptr
-			? RendererScene->GetActiveSkyBoxSceneInfo_RenderThread() : nullptr;
-		if (SkyBoxInfo != nullptr)
+		if (PreparedView.bHasSkyBox)
 		{
-			SkyBox = SkyBoxInfo->GetProxy().GetData();
-			SkyBoxRenderer.Draw_RenderThread(CommandList, View, SkyBox);
+			SkyBoxRenderer.Draw_RenderThread(
+				CommandList, View, PreparedView.SkyBox);
 		}
 
-		if (!StaticMeshRenderer.EnsureResources_RenderThread())
-		{
-			return;
-		}
-		const ERenderMode RenderMode = View.Settings.RenderMode;
-		const ERasterMode RasterMode = View.Settings.RasterMode;
-		FDirectionalLightSceneData Light;
-		Scene->GetDirectionalLight(Light);
-		StaticMeshRenderer.DrawScene_RenderThread(
+		StaticMeshRenderer.Execute_RenderThread(
 			CommandList,
-			Scene,
 			View,
-			Light,
-			RenderMode,
-			RasterMode);
-		TextureCubeThumbnailRenderer.DrawScene_RenderThread(
+			PreparedView.DirectionalLight,
+			View.Settings.RenderMode,
+			PreparedView.StaticMeshes);
+		TextureCubeThumbnailRenderer.DrawPrepared_RenderThread(
 			CommandList,
-			Scene,
 			View,
+			PreparedView.TextureCubePreviews,
 			SkyBoxRenderer);
 	}
 } // namespace Durin

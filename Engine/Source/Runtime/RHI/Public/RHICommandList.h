@@ -64,6 +64,7 @@ namespace Durin
 
 		RHI_API auto IsRecording() const -> bool;
 		RHI_API auto GetNumRecordedCommands() const -> size_t;
+		auto IsInsideRenderPass() const -> bool { return bInsideRenderPass; }
 
 		// Call this function to switch between graphics and compute pipelines.
 		RHI_API auto SwitchPipeline(ERHIPipeline Pipeline) -> void;

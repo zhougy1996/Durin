@@ -9,8 +9,8 @@
 namespace Durin
 {
 	inline constexpr uint32 StaticMeshPayloadMagic = 0x48534D44; // DMSH
-	inline constexpr uint32 StaticMeshPayloadSchemaVersion = 3;
-	inline constexpr uint32 StaticMeshBuilderVersion = 2;
+	inline constexpr uint32 StaticMeshPayloadSchemaVersion = 4;
+	inline constexpr uint32 StaticMeshBuilderVersion = 3;
 	inline constexpr uint32 StaticMeshDerivedDataKeySchemaVersion = 1;
 	inline constexpr uint32 StaticMeshPayloadAlignment = 16;
 	inline constexpr uint32 StaticMeshPayloadHeaderSize = 64;
@@ -72,6 +72,7 @@ namespace Durin
 		std::vector<uint32> Indices;
 		std::vector<FStaticMeshPayloadSection> Sections;
 		FBox LocalBounds;
+		float ScreenSize = 0.0f;
 		uint8 NumTexCoords = 0;
 		bool bHasVertexColors = false;
 	};
@@ -104,7 +105,7 @@ namespace Durin
 	ENGINE_API auto BuildStaticMeshDerivedDataKey(
 		const FStaticMeshDerivedDataKeyInput& Input) -> std::string;
 
-	// Encodes a validated logical mesh into deterministic DMSH schema-version-three bytes.
+	// Encodes a validated logical mesh into deterministic DMSH schema-version-four bytes.
 	ENGINE_API auto EncodeStaticMeshPayload(
 		const FStaticMeshPayloadData& Payload,
 		EStaticMeshTargetPlatform TargetPlatform,

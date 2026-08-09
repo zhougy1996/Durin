@@ -13,7 +13,8 @@ namespace Durin
 		None = 0,
 		Proxy = 1 << 0,
 		Transform = 1 << 1,
-		MaterialBinding = 1 << 2
+		MaterialBinding = 1 << 2,
+		Visibility = 1 << 3
 	};
 	ENUM_CLASS_FLAGS(EPrimitiveRenderStateDirtyFlags);
 

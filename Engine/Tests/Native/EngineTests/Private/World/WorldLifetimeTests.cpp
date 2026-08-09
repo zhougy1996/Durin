@@ -10,7 +10,8 @@ namespace
 		auto AddOrReplacePrimitive(
 			Durin::FPrimitiveSceneId,
 			std::unique_ptr<Durin::FPrimitiveSceneProxy>,
-			const Durin::FMatrix&) -> void override
+			const Durin::FMatrix&,
+			bool) -> void override
 		{
 		}
 
@@ -20,6 +21,10 @@ namespace
 		}
 
 		auto UpdatePrimitiveTransform(Durin::FPrimitiveSceneId, const Durin::FMatrix&) -> void override
+		{
+		}
+
+		auto UpdatePrimitiveVisibility(Durin::FPrimitiveSceneId, bool) -> void override
 		{
 		}
 

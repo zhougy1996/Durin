@@ -83,6 +83,8 @@ namespace Durin
 			View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
 			View.ViewportWidth = Output.Width;
 			View.ViewportHeight = Output.Height;
+			View.Settings.LODMode = Preview.bForceLOD0
+				? EViewLODMode::ForceLOD0 : EViewLODMode::Automatic;
 			View.ClearColor = {
 				Preview.ClearRed,
 				Preview.ClearGreen,

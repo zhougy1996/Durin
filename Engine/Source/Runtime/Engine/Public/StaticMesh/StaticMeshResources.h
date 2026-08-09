@@ -335,6 +335,7 @@ namespace Durin
 		FRawStaticIndexBuffer IndexBuffer;
 		std::vector<FStaticMeshSection> Sections;
 		FBox LocalBounds;
+		float ScreenSize = 0.0f;
 		uint8 NumTexCoords = 0;
 		bool bHasColorVertexData = false;
 
@@ -373,4 +374,13 @@ namespace Durin
 		ENGINE_API auto IsReadyForRendering(uint32 LODIndex = 0) const -> bool;
 		ENGINE_API auto RecalculateBounds() -> void;
 	};
+
+	// Produces the deterministic policy used by builders without authored thresholds.
+	ENGINE_API auto GenerateDefaultStaticMeshLODScreenSizes(
+		uint32 LODCount) -> std::vector<float>;
+
+	// Validates the published policy: finite, [0, 1], strictly descending, and final zero.
+	ENGINE_API auto ValidateStaticMeshLODScreenSizes(
+		std::span<const FStaticMeshLODResources> LODResources,
+		std::string& OutError) -> bool;
 }

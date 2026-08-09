@@ -10,10 +10,9 @@ namespace Durin
 	class FEnvironmentLightingResources;
 	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
-	class IScene;
-	class FStaticMeshSceneProxy;
-	class FPrimitiveSceneInfo;
-	struct FPreparedStaticMeshSection;
+	struct FPreparedStaticMeshView;
+	struct FPreparedStaticMeshDraw;
+	struct FPreparedStaticMeshPrimitive;
 	enum class ERasterMode : uint8;
 	enum class ERenderMode : uint8;
 	struct FDirectionalLightSceneData;
@@ -34,14 +33,15 @@ namespace Durin
 		auto operator=(const FStaticMeshRenderer&)
 			-> FStaticMeshRenderer& = delete;
 
-		auto EnsureResources_RenderThread() -> bool;
-		auto DrawScene_RenderThread(
+		auto PrepareResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			IScene* Scene,
+			FPreparedStaticMeshView& PreparedView) -> bool;
+		auto Execute_RenderThread(
+			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
 			const FDirectionalLightSceneData& Light,
 			ERenderMode RenderMode,
-			ERasterMode RasterMode
+			FPreparedStaticMeshView& PreparedView
 		) -> void;
 		auto ReleaseResources_RenderThread() -> void;
 
@@ -51,8 +51,13 @@ namespace Durin
 			const FSceneView& View,
 			const FDirectionalLightSceneData& Light,
 			ERenderMode RenderMode,
-			const FPreparedStaticMeshSection& Item
-		) -> void;
+			const FPreparedStaticMeshPrimitive& Primitive,
+			const FPreparedStaticMeshDraw& Item
+		) -> bool;
+		auto EnsureBaseResources_RenderThread() -> bool;
+		auto EnsureSectionResources_RenderThread(
+			const FPreparedStaticMeshPrimitive& Primitive,
+			const FPreparedStaticMeshDraw& Item) -> bool;
 		struct FState;
 
 		FRendererResourceCoordinator& Coordinator;

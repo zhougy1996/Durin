@@ -16,9 +16,17 @@ FStaticMeshRenderData
 ```
 
 `FStaticMeshLODResources` owns `FStaticMeshVertexBuffers`,
-`FRawStaticIndexBuffer`, `Sections`, `LocalBounds`, `NumTexCoords`, and
+`FRawStaticIndexBuffer`, `Sections`, `LocalBounds`, `ScreenSize`, `NumTexCoords`, and
 `bHasColorVertexData`. It exposes no raw RHI references and no writable legacy
 vector fields.
+
+Each renderable LOD set owns one validated transition policy. `ScreenSize` is
+finite and normalized to `[0, 1]`; values are strictly descending from LOD 0,
+and the final LOD is exactly zero. The first threshold satisfying
+`projectedSize >= ScreenSize` wins, so equality selects the higher-detail LOD.
+Builders without authored values generate `2^-(LODIndex + 1)` and force the
+final value to zero; a single-LOD mesh therefore uses `[0]`. Invalid policies
+are rejected before render-data publication rather than clamped per view.
 
 The UE-named buffer resources have these responsibilities:
 
@@ -101,11 +109,13 @@ its Material sphere and TextureCube assignments.
 Framing is derived deterministically from finite, non-degenerate LOD 0 bounds,
 the frozen camera direction and field of view, output aspect ratio, and image
 margin. The preview transform centers the local bounds; the returned camera and
-clip planes contain every projected corner. Rendering uses LOD 0 and the normal
-positional default-material resolution described below, including the shared
-default and ErrorMaterial fallbacks. The clear region remains transparent while
-rendered mesh pixels retain their coverage, allowing the card background to
-show through without a fixed-color square.
+clip planes contain every projected corner. Rendering normally uses the same
+automatic per-view LOD policy as other scene views; test and comparison previews
+can request forced LOD 0 explicitly. Material resolution uses the normal
+positional default described below, including the shared default and
+ErrorMaterial fallbacks. The clear region remains transparent while rendered
+mesh pixels retain their coverage, allowing the card background to show through
+without a fixed-color square.
 
 The cache revalidates the captured render-resource revision immediately before
 capture, after readback, and after PNG encoding before atomic publication. A
@@ -172,19 +182,66 @@ change invalidates every dependent shader artifact.
 
 ## View-Local Base-Pass Preparation
 
-For each `FSceneView`, `FStaticMeshRenderer` walks the authoritative typed
-StaticMesh SceneInfo collection and LOD 0 sections once. Every valid section
-resolves its material snapshot and ErrorMaterial fallback before entering
-exactly one stack-local Opaque, Masked, or Translucent bucket. The prepared item
-copies the transform, resolved material/binding, pass, shader-map identity,
-complete effective graphics state, and finite sort facts while borrowing only
-SceneInfo, proxy, and render-data storage for the owning render command.
-Execution consumes these items without rescanning scene membership or resolving
-material identity again.
+`FSceneViewSettings` defaults to authored visibility plus conservative frustum
+culling and automatic projected-size LOD selection. The explicit
+`FrustumCullingDisabled` and `ForceLOD0` settings remain comparison and
+diagnostic policies carried by the immutable submitted view; disabling frustum
+culling never overrides an authored-hidden primitive.
 
-Opaque and Masked execute first in scene/section order with blending disabled,
-depth test `Less`, and automatic depth writes enabled. Translucent executes last
-with straight-alpha color factors `SrcAlpha`/`OneMinusSrcAlpha`, alpha factors
+`FSceneRenderer` fits the view to the output before one centralized visibility
+walk. Every live primitive receives exactly one hidden, outside, inside,
+intersecting, invalid-bounds fallback, invalid-view fallback, or
+culling-disabled classification. Only typed visible family lists feed feature
+preparation. Invalid bounds or frustum inputs stay conservatively visible and
+increment their named fallback counters; finite fully outside bounds never
+reach StaticMesh preparation or a base-pass draw.
+
+The visibility result is preparation-local and is destroyed before resource
+preparation and the first scene render pass. `FPreparedSceneView` retains only
+the fitted immutable view, copied lighting/sky facts, family-prepared work, and
+value counters needed by execution. Sequential main, auxiliary, present,
+offscreen, fixed-aspect, thumbnail, and preview invocations construct distinct
+prepared values; no SceneInfo list, prepared result, target-size semantic
+cache, or temporal state is shared between views.
+
+For each `FSceneView`, `FStaticMeshRenderer` walks the authoritative visible
+StaticMesh SceneInfo list once. It projects all eight authoritative world-AABB
+corners into the fitted content viewport, selects the first transition threshold
+satisfied by the normalized diameter, and validates readiness independently for
+the requested LOD. A missing requested LOD searches toward lower detail first,
+then higher detail; invalid projection or bounds math conservatively requests
+LOD 0. `FSceneViewSettings::LODMode` selects automatic behavior or the qualified
+forced-LOD-0 comparison path without process-global state.
+
+Preparation stores transform, requested/selected indices, and the selected LOD
+and vertex factory once in `FPreparedStaticMeshPrimitive`. Opaque, Masked, and
+Translucent draw records reference that stable primitive by vector index, then
+store only section-local geometry, resolved material/binding, pass, shader-map,
+graphics-state, and sort facts. Execution resolves the index and binds the
+selected vertex factory, index buffer, and section without rescanning scene
+membership, resolving material identity, or reading an implicit LOD 0.
+
+View-local counters conserve visible candidates against prepared plus rejected
+primitives. Requested and selected LOD histograms each sum to prepared
+primitives, while selected section and triangle totals reconcile with their
+Opaque, Masked, and Translucent pass totals. Resource preparation and execution
+separately conserve attempted draws against successful plus rejected draws, so a
+failed shader, pipeline, sampler, or incomplete command remains attributable to
+its rejection phase. Opaque/Masked input and final state-group counts plus
+pipeline, material, vertex-factory, and geometry transitions describe the effective
+ordering. Renderer emits one immutable `FViewRenderCounters` value through the
+development counter-snapshot sink for every `RenderView` invocation; it retains
+no view, target-size, or temporal counter cache.
+
+Opaque and Masked execute first after deterministic value-based grouping. Their
+keys compare effective pass and pipeline state, material/shader identity and
+validated uniform bytes, vertex-factory declaration facts, section geometry,
+then primitive id, selected LOD, and section index. Pointer addresses and
+unordered-container iteration
+never break ties. Grouping may reduce or preserve state groups but cannot move a
+draw across pass order. Both passes use blending disabled, depth test `Less`,
+and automatic depth writes enabled. Translucent executes last with straight-alpha
+color factors `SrcAlpha`/`OneMinusSrcAlpha`, alpha factors
 `One`/`OneMinusSrcAlpha`, and automatic depth writes disabled. Explicit Enabled
 or Disabled depth-write policy overrides the blend-mode default.
 
@@ -199,8 +256,9 @@ pipeline/shader choices.
 Translucent items sort independently per view by descending squared distance
 from the camera to the transformed section-bounds center. Invalid section bounds
 fall back to primitive world bounds and then transformed local origin. Equal
-distance uses ascending primitive id and section index. This deterministic
-center metric does not provide per-triangle ordering for intersecting geometry.
+distance uses the same complete value key, including selected LOD and section
+facts, without weakening distance-first order. This deterministic center metric
+does not provide per-triangle ordering for intersecting geometry.
 
 ## Material Binding Contract
 
@@ -238,13 +296,18 @@ validated as another fallback, so no partial payload can reach a draw.
 
 ## Payload Compatibility
 
-DMSH schema 3 stores a bounded material-slot count rather than slot GUIDs.
+DMSH schema 4 stores each LOD's `ScreenSize` beside its geometry and retains
+the schema-3 bounded material-slot count rather than slot GUIDs.
 Every decoded section index is validated against that count; package metadata
 then restores editor/runtime slot names and imported source indices by stable
-position. Schema 2 is incompatible, and builder version 2 invalidates prior
-derived data. Encode reads semantic data back from the named buffer resources;
+position. Schema 3 and older payloads are incompatible, and builder version 3
+invalidates prior derived data while the derived-data key schema remains 1
+because it already encodes both version values. Source-backed assets and stale
+DDC entries rebuild; cooked/runtime-only schema-3 content must be recooked and
+is never silently reinterpreted. Encode reads semantic data back from the named buffer resources;
 decode constructs them from the payload's position, normal, tangent, UV,
-color, and index arrays.
+color, index, and LOD-policy data. Decode and render-data reconstruction publish
+only after the complete policy and geometry validate.
 
 CPU storage is retained while editor and test consumers inspect LOD data.
 `NeedsCPUAccess` is the explicit policy for a future discard path; this

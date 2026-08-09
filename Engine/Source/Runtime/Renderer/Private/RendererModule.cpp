@@ -75,9 +75,10 @@ namespace Durin
 		FRHITexture* OutputTarget,
 		bool bPresentOutput) -> void
 	{
+		auto* RendererScene = dynamic_cast<FScene*>(Scene);
 		SceneRenderer->RenderView_RenderThread(
 			CommandList,
-			Scene,
+			RendererScene,
 			View,
 			OutputTarget,
 			bPresentOutput);

@@ -121,6 +121,28 @@ namespace
 		return Payload;
 	}
 
+	auto MakeMultiLODFixture(uint32 LODCount) -> FStaticMeshPayloadData
+	{
+		check(LODCount == 2 || LODCount == 3);
+		FStaticMeshPayloadData Payload = MakeMultiMaterialFixture();
+		FStaticMeshPayloadLOD Middle = MakeSingleSectionFixture().LODs.front();
+		FStaticMeshPayloadLOD Lowest = Middle;
+		for (FVector3f& Position : Lowest.Positions) Position *= 0.5f;
+		Lowest.LocalBounds = MakeBounds(
+			FVector3(0.0, 0.0, 0.0), FVector3(0.5, 0.5, 0.0));
+		Lowest.Sections.front().LocalBounds = Lowest.LocalBounds;
+
+		Payload.LODs.front().ScreenSize = 0.5f;
+		if (LODCount == 3)
+		{
+			Middle.ScreenSize = 0.25f;
+			Payload.LODs.push_back(std::move(Middle));
+		}
+		Lowest.ScreenSize = 0.0f;
+		Payload.LODs.push_back(std::move(Lowest));
+		return Payload;
+	}
+
 	auto Encode(const FStaticMeshPayloadData& Payload) -> std::vector<uint8>
 	{
 		std::vector<uint8> Bytes;
@@ -151,6 +173,11 @@ namespace
 	auto WriteU64(std::vector<uint8>& Bytes, size_t Offset, uint64 Value) -> void
 	{
 		for (uint32 Byte = 0; Byte < 8; ++Byte) Bytes[Offset + Byte] = static_cast<uint8>(Value >> (Byte * 8));
+	}
+
+	auto WriteFloat(std::vector<uint8>& Bytes, size_t Offset, float Value) -> void
+	{
+		WriteU32(Bytes, Offset, std::bit_cast<uint32>(Value));
 	}
 
 	auto MakeTestBuffer(
@@ -210,6 +237,7 @@ namespace
 		{
 			const FStaticMeshPayloadLOD& ActualLOD = Actual.LODs[LODIndex];
 			const FStaticMeshPayloadLOD& ExpectedLOD = Expected.LODs[LODIndex];
+			EXPECT_EQ(ActualLOD.ScreenSize, ExpectedLOD.ScreenSize);
 			ASSERT_EQ(ActualLOD.Positions.size(), ExpectedLOD.Positions.size());
 			for (size_t Index = 0; Index < ExpectedLOD.Positions.size(); ++Index)
 			{
@@ -269,8 +297,8 @@ TEST(FStaticMeshPayloadCodecTests, CanonicalFixturesRoundTripDeterministically)
 {
 	const std::array Fixtures{MakeSingleSectionFixture(), MakeMultiMaterialFixture()};
 	const std::array<std::string_view, 2> ExpectedPayloadHashes{
-		"231781c69f7a022f13c45b6a8ba321e7",
-		"73f8ed0892431939da35d0fc71a9ea5d"};
+		"f8a1b99877a1dd9fd070e498ba1ca9b2",
+		"fc478ee22fb777e44d793448c41be804"};
 	const std::array<size_t, 2> ExpectedPayloadSizes{556, 824};
 	for (size_t FixtureIndex = 0; FixtureIndex < Fixtures.size(); ++FixtureIndex)
 	{
@@ -296,6 +324,54 @@ TEST(FStaticMeshPayloadCodecTests, CanonicalFixturesRoundTripDeterministically)
 		ASSERT_TRUE(MakeStaticMeshPayloadData(*RenderData, ConvertedBack, Error)) << Error;
 		ExpectEquivalent(ConvertedBack, Fixture);
 	}
+}
+
+TEST(FStaticMeshPayloadCodecTests,
+	MultiLODPoliciesAndDistinctGeometryRoundTripDeterministically)
+{
+	for (uint32 LODCount : {2u, 3u})
+	{
+		const FStaticMeshPayloadData Fixture = MakeMultiLODFixture(LODCount);
+		const std::vector<uint8> First = Encode(Fixture);
+		const std::vector<uint8> Second = Encode(Fixture);
+		EXPECT_EQ(First, Second);
+
+		FStaticMeshPayloadData Decoded;
+		const FPayloadDecodeResult Result = DecodeStaticMeshPayload(
+			First, EStaticMeshTargetPlatform::Win64, Decoded);
+		ASSERT_TRUE(Result) << Result.Message;
+		ExpectEquivalent(Decoded, Fixture);
+		ASSERT_EQ(Decoded.LODs.size(), LODCount);
+		EXPECT_GT(Decoded.LODs.front().Indices.size(),
+			Decoded.LODs.back().Indices.size());
+	}
+}
+
+TEST(FStaticMeshPayloadCodecTests,
+	DefaultLODPolicyIsExactFiniteAndHasLowestDetailFallback)
+{
+	EXPECT_EQ(GenerateDefaultStaticMeshLODScreenSizes(0),
+		(std::vector<float>{}));
+	EXPECT_EQ(GenerateDefaultStaticMeshLODScreenSizes(1),
+		(std::vector<float>{0.0f}));
+	EXPECT_EQ(GenerateDefaultStaticMeshLODScreenSizes(4),
+		(std::vector<float>{0.5f, 0.25f, 0.125f, 0.0f}));
+
+	std::vector<FStaticMeshLODResources> LODs(3);
+	const std::vector<float> Defaults =
+		GenerateDefaultStaticMeshLODScreenSizes(3);
+	for (size_t Index = 0; Index < LODs.size(); ++Index)
+		LODs[Index].ScreenSize = Defaults[Index];
+	std::string Error;
+	EXPECT_TRUE(ValidateStaticMeshLODScreenSizes(LODs, Error)) << Error;
+	LODs[1].ScreenSize = std::numeric_limits<float>::quiet_NaN();
+	EXPECT_FALSE(ValidateStaticMeshLODScreenSizes(LODs, Error));
+	EXPECT_FALSE(Error.empty());
+	LODs = std::vector<FStaticMeshLODResources>(1);
+	LODs.front().ScreenSize = -0.0f;
+	EXPECT_FALSE(ValidateStaticMeshLODScreenSizes(LODs, Error));
+	LODs.clear();
+	EXPECT_FALSE(ValidateStaticMeshLODScreenSizes(LODs, Error));
 }
 
 TEST(FStaticMeshPayloadCodecTests, SupportsMeshWithoutUVChannels)
@@ -619,7 +695,7 @@ TEST(FStaticMeshPayloadCodecTests, RejectsInvalidEnvelopeAndChunkRanges)
 	Mutate([](auto& Bytes) { WriteU64(Bytes, 64 + 8, ReadU64(Bytes, 64 + 8) + 1); });
 
 	std::vector<uint8> PreviousSchema = Valid;
-	WriteU32(PreviousSchema, 4, 2);
+	WriteU32(PreviousSchema, 4, StaticMeshPayloadSchemaVersion - 1);
 	Rehash(PreviousSchema);
 	ExpectDecodeFailure(PreviousSchema, EPayloadDecodeError::Incompatible);
 	std::vector<uint8> FutureSchema = Valid;
@@ -674,6 +750,42 @@ TEST(FStaticMeshPayloadCodecTests, RejectsInvalidGeometryAndNonFiniteValues)
 	Mutate([&](auto& Bytes) { WriteU32(Bytes, static_cast<size_t>(SectionChunkOffset + 20), 1); });
 	Mutate([&](auto& Bytes) { WriteU32(Bytes, static_cast<size_t>(VertexChunkOffset), 0x7fc00000u); });
 	Mutate([&](auto& Bytes) { WriteU32(Bytes, static_cast<size_t>(ReadU64(Bytes, 64 + 8)), 0x7f800000u); });
+}
+
+TEST(FStaticMeshPayloadCodecTests,
+	RejectsMalformedLODPoliciesTransactionally)
+{
+	const std::vector<uint8> Valid = Encode(MakeMultiLODFixture(3));
+	const uint64 LODChunkOffset = ReadU64(Valid, 64 + 2 * 32 + 8);
+	auto Mutate = [&](auto Callback)
+	{
+		std::vector<uint8> Bytes = Valid;
+		Callback(Bytes);
+		Rehash(Bytes);
+		ExpectDecodeFailure(Bytes);
+	};
+
+	Mutate([&](auto& Bytes) {
+		WriteFloat(Bytes, static_cast<size_t>(LODChunkOffset + 20),
+			std::numeric_limits<float>::quiet_NaN());
+	});
+	Mutate([&](auto& Bytes) {
+		WriteFloat(Bytes, static_cast<size_t>(LODChunkOffset + 4 + 44 + 16), 0.75f);
+	});
+	Mutate([&](auto& Bytes) {
+		WriteFloat(Bytes, static_cast<size_t>(LODChunkOffset + 4 + 2 * 44 + 16), 0.125f);
+	});
+	Mutate([&](auto& Bytes) {
+		WriteFloat(Bytes, static_cast<size_t>(LODChunkOffset + 4 + 2 * 44 + 16), -0.0f);
+	});
+
+	FStaticMeshPayloadData Invalid = MakeMultiLODFixture(2);
+	Invalid.LODs[0].ScreenSize = 1.25f;
+	std::vector<uint8> Sentinel{1, 2, 3};
+	std::string Error;
+	EXPECT_FALSE(EncodeStaticMeshPayload(
+		Invalid, EStaticMeshTargetPlatform::Win64, Sentinel, Error));
+	EXPECT_EQ(Sentinel, (std::vector<uint8>{1, 2, 3}));
 }
 
 TEST(FStaticMeshPayloadCodecTests, SkipsUnknownOptionalChunksAndRejectsUnknownRequiredChunks)

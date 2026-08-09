@@ -34,6 +34,7 @@ namespace Durin
 		double VerticalFieldOfViewDegrees = 42.0;
 		double NearClipDistance = 0.1;
 		double FarClipDistance = 100.0;
+		bool bForceLOD0 = false;
 		float ClearRed = 0.0f;
 		float ClearGreen = 0.0f;
 		float ClearBlue = 0.0f;

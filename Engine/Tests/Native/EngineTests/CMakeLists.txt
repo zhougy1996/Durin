@@ -301,7 +301,11 @@ durin_add_engine_functional_test(SceneImportVulkanTests
 )
 if(TARGET SceneImportVulkanTests)
 	target_include_directories(SceneImportVulkanTests PRIVATE
-		${DURIN_PROJECT_ROOT_DIR}/Source/Editor/StandardAssetImport/Private)
+		${DURIN_PROJECT_ROOT_DIR}/Source/Editor/StandardAssetImport/Private
+		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private)
+	target_compile_definitions(SceneImportVulkanTests PRIVATE
+		DURIN_VULKAN_TEST_FAILURE_INJECTION=1)
+	target_link_libraries(SceneImportVulkanTests PRIVATE VulkanRHI Vulkan::Vulkan)
 endif()
 
 durin_add_engine_functional_test(ThumbnailTests

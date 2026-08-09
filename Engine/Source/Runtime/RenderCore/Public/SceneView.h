@@ -18,12 +18,28 @@ namespace Durin
 		Wireframe
 	};
 
+	// Selects conservative CPU frustum classification for one submitted view.
+	enum class EViewVisibilityMode : uint8
+	{
+		Normal,
+		FrustumCullingDisabled
+	};
+
+	// Selects automatic projected-size LODs or the qualified LOD-0 comparison path.
+	enum class EViewLODMode : uint8
+	{
+		Automatic,
+		ForceLOD0
+	};
+
 	// Captures rendering behavior with the view submitted to the render thread.
 	struct FSceneViewSettings
 	{
 		bool bEnableFXAA = true;
 		ERenderMode RenderMode = ERenderMode::Lit;
 		ERasterMode RasterMode = ERasterMode::Solid;
+		EViewVisibilityMode VisibilityMode = EViewVisibilityMode::Normal;
+		EViewLODMode LODMode = EViewLODMode::Automatic;
 	};
 
 	// Identifies a procedural editor-assistance shape rendered over a scene view.

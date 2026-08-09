@@ -1,7 +1,12 @@
 #include <gtest/gtest.h>
 
 #include "CookedAsset.h"
+#include "AssetPackageV4Writer.h"
 #include "AssetSystem.h"
+#include "CoreGlobals.h"
+#include "DObject/DObjectArray.h"
+#include "DObject/Object.h"
+#include "HAL/PlatformLTS.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
 #include "NativeTestSupport.h"
@@ -28,27 +33,31 @@ namespace
 
 	auto MakePackageBytes() -> std::vector<uint8>
 	{
+		static const bool bInitialized = [] {
+			if (!GIsGameThreadIdInitialized)
+			{
+				GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+				GIsGameThreadIdInitialized = true;
+			}
+			if (!IsFNameInitialized())
+			{
+				FNameInit();
+			}
+			DObjectInit();
+			return true;
+		}();
+		(void)bInitialized;
+		const std::string ClassName =
+			DObject::StaticClass()->GetQualifiedName().ToString();
+		Asset::DastV4::FPackageInput Input{
+			.AssetClass = ClassName,
+			.Objects = {{"Root", {}, ClassName, "Root"}},
+			.ObjectValues = {{"Root", {}}},
+		};
 		std::vector<uint8> Bytes;
-		auto Write = [&]<typename T>(T Value) {
-			const auto* Data = reinterpret_cast<const uint8*>(&Value);
-			Bytes.insert(Bytes.end(), Data, Data + sizeof(T));
-		};
-		auto WriteString = [&](std::string_view Value) {
-			Write(static_cast<uint64>(Value.size()));
-			Bytes.insert(Bytes.end(), Value.begin(), Value.end());
-		};
-		Write(uint32{0x54534144});
-		Write(uint32{3});
-		WriteString("TestClass");
-		Write(uint8{0});
-		WriteString("");
-		Write(uint64{0});
-		Write(uint64{1});
-		Write(uint64{1});
-		Write(uint64{0});
-		WriteString("TestClass");
-		WriteString("TestAsset");
-		Write(uint64{0});
+		Asset::DastV4::FWriterDiagnostic Diagnostic;
+		EXPECT_TRUE(Asset::DastV4::WritePackage(Input, Bytes, &Diagnostic))
+			<< Diagnostic.Message;
 		return Bytes;
 	}
 
@@ -196,8 +205,9 @@ TEST(FCookContextTests, PublishesRelocatesAndCleansOnlyManifestOwnedStaleOutputs
 		Durin::Testing::GetTestWorkDirectory() / "CookPublication");
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	FCookContext First(Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	std::string Error;
 	ASSERT_TRUE(First.AddPackage("/Game/Old", MakePackageBytes(), {Payload(FGuid(1, 0, 0, 0), {3, 4})}));
-	ASSERT_TRUE(First.Publish());
+	ASSERT_TRUE(First.Publish(&Error)) << Error;
 	ASSERT_TRUE(std::filesystem::exists(Root / "Game/Old.dasset"));
 	ASSERT_TRUE(std::filesystem::exists(Root / "Game/Old.dbulk"));
 	const std::filesystem::path Unowned = Root / "keep.txt";
@@ -207,7 +217,7 @@ TEST(FCookContextTests, PublishesRelocatesAndCleansOnlyManifestOwnedStaleOutputs
 
 	FCookContext Second(Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	ASSERT_TRUE(Second.AddPackage("/Game/New", MakePackageBytes(), {Payload(FGuid(2, 0, 0, 0), {7, 8})}));
-	ASSERT_TRUE(Second.Publish());
+	ASSERT_TRUE(Second.Publish(&Error)) << Error;
 	EXPECT_FALSE(std::filesystem::exists(Root / "Game/Old.dasset"));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Game/Old.dbulk"));
 	EXPECT_TRUE(std::filesystem::exists(Unowned));
@@ -228,8 +238,9 @@ TEST(FCookContextTests, PublishesPackageWithoutBulkCompanion)
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	FCookContext Context(
 		Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	std::string Error;
 	ASSERT_TRUE(Context.AddPackage("/Engine/Plain", MakePackageBytes(), {}));
-	ASSERT_TRUE(Context.Publish());
+	ASSERT_TRUE(Context.Publish(&Error)) << Error;
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		Root / "Engine/Plain.dasset"));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Engine/Plain.dbulk"));
@@ -252,6 +263,7 @@ TEST(FCookContextTests, DescriptorAwarePackageBuilderReceivesExactPublishedEntri
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	FCookContext Context(Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	FCookedPayloadDescriptor Captured;
+	std::string Error;
 	ASSERT_TRUE(Context.AddPackage(
 		"/Game/DescriptorAware",
 		{Payload(FGuid(4, 3, 2, 1), {7, 6, 5}, 64)},
@@ -261,7 +273,7 @@ TEST(FCookContextTests, DescriptorAwarePackageBuilderReceivesExactPublishedEntri
 			OutBytes = MakePackageBytes();
 			return true;
 		}));
-	ASSERT_TRUE(Context.Publish());
+	ASSERT_TRUE(Context.Publish(&Error)) << Error;
 
 	FCookedBulkContainer Container;
 	ASSERT_TRUE(LoadCookedBulkFile(

@@ -1,10 +1,11 @@
 #pragma once
 
+#include <span>
+
 namespace Durin
 {
 	class FRHICommandListImmediate;
 	class FSkyBoxRenderer;
-	class IScene;
 	class FTextureCubePreviewSceneProxy;
 	struct FSceneView;
 
@@ -12,10 +13,10 @@ namespace Durin
 	class FTextureCubeThumbnailRenderer final
 	{
 	public:
-		auto DrawScene_RenderThread(
+		auto DrawPrepared_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			IScene* Scene,
 			const FSceneView& View,
+			std::span<const FTextureCubePreviewSceneProxy* const> Proxies,
 			FSkyBoxRenderer& SkyBoxRenderer) -> void;
 
 	private:

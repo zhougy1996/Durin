@@ -375,6 +375,9 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 	ASSERT_FALSE(
 		CookedMesh->GetRenderData()->LODResources.front()
 			.IndexBuffer.GetIndices().empty());
+	EXPECT_EQ(
+		CookedMesh->GetRenderData()->LODResources.front().ScreenSize,
+		0.0f);
 	ASSERT_EQ(
 		CookedMesh->GetRenderData()->MaterialSlots.size(),
 		CookedMesh->GetNumMaterialSlots());

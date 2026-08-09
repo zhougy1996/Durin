@@ -74,12 +74,16 @@ namespace Durin
 		virtual auto AddOrReplacePrimitive(
 			FPrimitiveSceneId PrimitiveId,
 			std::unique_ptr<FPrimitiveSceneProxy> Proxy,
-			const FMatrix& Transform
+			const FMatrix& Transform,
+			bool bVisible = true
 		) -> void = 0;
 
 		virtual auto RemovePrimitive(FPrimitiveSceneId PrimitiveId) -> void = 0;
 
 		virtual auto UpdatePrimitiveTransform(FPrimitiveSceneId PrimitiveId, const FMatrix& Transform) -> void = 0;
+		virtual auto UpdatePrimitiveVisibility(
+			FPrimitiveSceneId PrimitiveId,
+			bool bVisible) -> void = 0;
 
 		virtual auto UpdatePrimitiveMaterialBinding(
 			FPrimitiveSceneId PrimitiveId,

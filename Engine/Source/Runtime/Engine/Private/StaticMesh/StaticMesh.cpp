@@ -782,6 +782,11 @@ namespace Durin
 			OutError = "Static-mesh publication requires render data.";
 			return false;
 		}
+		if (!ValidateStaticMeshLODScreenSizes(
+			InRenderData->LODResources, OutError))
+		{
+			return false;
+		}
 
 #if DURIN_BUILD_DEBUG
 		const FName DebugOwner = GetPackage()
@@ -873,6 +878,7 @@ namespace Durin
 		auto RenderData = std::make_unique<FStaticMeshRenderData>();
 		RenderData->MaterialSlots.push_back({"Default", 0});
 		FStaticMeshLODResources& LOD = RenderData->LODResources.emplace_back();
+		LOD.ScreenSize = GenerateDefaultStaticMeshLODScreenSizes(1).front();
 		LOD.VertexBuffers.PositionVertexBuffer.Init({
 			FVector3f(-0.65f, -0.45f, 0.0f),
 			FVector3f(0.65f, -0.45f, 0.0f),
@@ -1116,6 +1122,7 @@ namespace Durin
 		}
 
 		FStaticMeshLODResources& LOD = RenderData->LODResources.emplace_back();
+		LOD.ScreenSize = GenerateDefaultStaticMeshLODScreenSizes(1).front();
 		auto& Positions =
 			LOD.VertexBuffers.PositionVertexBuffer.GetMutablePositions();
 		auto& Normals =
@@ -2515,6 +2522,13 @@ namespace Durin
 			ReleaseResources();
 			return false;
 		}
+		std::string LODPolicyError;
+		if (!ValidateStaticMeshLODScreenSizes(
+			LODResources, LODPolicyError))
+		{
+			ReleaseResources();
+			return false;
+		}
 
 		for (FStaticMeshLODResources& LOD : LODResources)
 		{
@@ -2701,5 +2715,54 @@ namespace Durin
 				LocalBounds.AddPoint(FVector3(Position));
 			}
 		}
+	}
+
+	auto GenerateDefaultStaticMeshLODScreenSizes(
+		uint32 LODCount) -> std::vector<float>
+	{
+		std::vector<float> Result(LODCount, 0.0f);
+		for (uint32 LODIndex = 0; LODIndex + 1 < LODCount; ++LODIndex)
+		{
+			Result[LODIndex] = std::ldexp(
+				1.0f, -static_cast<int>(LODIndex + 1));
+		}
+		return Result;
+	}
+
+	auto ValidateStaticMeshLODScreenSizes(
+		std::span<const FStaticMeshLODResources> LODResources,
+		std::string& OutError) -> bool
+	{
+		if (LODResources.empty())
+		{
+			OutError = "Static-mesh LOD policy requires at least one LOD.";
+			return false;
+		}
+		for (size_t LODIndex = 0; LODIndex < LODResources.size(); ++LODIndex)
+		{
+			const float ScreenSize = LODResources[LODIndex].ScreenSize;
+			if (!std::isfinite(ScreenSize)
+				|| ScreenSize < 0.0f || ScreenSize > 1.0f
+				|| (ScreenSize == 0.0f && std::signbit(ScreenSize)))
+			{
+				OutError = std::format(
+					"Static-mesh LOD {} screen size must be finite and in [0, 1].",
+					LODIndex);
+				return false;
+			}
+			if (LODIndex > 0
+				&& ScreenSize >= LODResources[LODIndex - 1].ScreenSize)
+			{
+				OutError = "Static-mesh LOD screen sizes must be strictly descending.";
+				return false;
+			}
+		}
+		if (LODResources.back().ScreenSize != 0.0f)
+		{
+			OutError = "Static-mesh lowest-detail LOD screen size must be exactly zero.";
+			return false;
+		}
+		OutError.clear();
+		return true;
 	}
 }

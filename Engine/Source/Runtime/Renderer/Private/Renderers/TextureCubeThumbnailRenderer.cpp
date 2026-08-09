@@ -6,28 +6,25 @@
 #include "Math/Operations.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
-#include "Scene.h"
 #include "SceneView.h"
 
 namespace Durin
 {
-	auto FTextureCubeThumbnailRenderer::DrawScene_RenderThread(
+	auto FTextureCubeThumbnailRenderer::DrawPrepared_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		IScene* Scene,
 		const FSceneView& View,
+		std::span<const FTextureCubePreviewSceneProxy* const> Proxies,
 		FSkyBoxRenderer& SkyBoxRenderer) -> void
 	{
 		check(IsInRenderingThread());
-		auto* RendererScene = dynamic_cast<FScene*>(Scene);
-		if (RendererScene == nullptr)
+		check(CommandList.IsInsideRenderPass());
+		for (const FTextureCubePreviewSceneProxy* Proxy : Proxies)
 		{
-			return;
-		}
-		for (const FPrimitiveSceneInfo* SceneInfo :
-			RendererScene->GetTextureCubePreviewSceneInfos())
-		{
-			DrawProxy_RenderThread(CommandList, View,
-				SceneInfo->GetTextureCubePreviewProxy(), SkyBoxRenderer);
+			if (Proxy != nullptr)
+			{
+				DrawProxy_RenderThread(
+					CommandList, View, *Proxy, SkyBoxRenderer);
+			}
 		}
 	}
 

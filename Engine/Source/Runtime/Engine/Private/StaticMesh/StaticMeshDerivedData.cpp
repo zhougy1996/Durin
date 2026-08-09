@@ -157,10 +157,25 @@ namespace Durin
 				+ StaticMeshPayloadRequiredChunkCount * (StaticMeshPayloadAlignment - 1)
 				+ 24ull
 				+ 4ull
-				+ 4ull + static_cast<uint64>(Payload.LODs.size()) * 40ull;
+				+ 4ull + static_cast<uint64>(Payload.LODs.size()) * 44ull;
 			for (size_t LODIndex = 0; LODIndex < Payload.LODs.size(); ++LODIndex)
 			{
 				const FStaticMeshPayloadLOD& LOD = Payload.LODs[LODIndex];
+				if (!std::isfinite(LOD.ScreenSize)
+					|| LOD.ScreenSize < 0.0f || LOD.ScreenSize > 1.0f
+					|| (LOD.ScreenSize == 0.0f
+						&& std::signbit(LOD.ScreenSize)))
+				{
+					return Fail(OutError, std::format(
+						"Static-mesh payload LOD {} screen size must be finite and in [0, 1].",
+						LODIndex));
+				}
+				if (LODIndex > 0
+					&& LOD.ScreenSize >= Payload.LODs[LODIndex - 1].ScreenSize)
+				{
+					return Fail(OutError,
+						"Static-mesh payload LOD screen sizes must be strictly descending.");
+				}
 				const size_t VertexCount = LOD.Positions.size();
 				const size_t IndexCount = LOD.Indices.size();
 				if (VertexCount == 0 || VertexCount > MaximumStaticMeshVerticesPerLOD)
@@ -232,6 +247,8 @@ namespace Durin
 				if (CoveredIndices != IndexCount)
 					return Fail(OutError, std::format("Static-mesh payload LOD {} sections do not cover its complete index buffer.", LODIndex));
 			}
+			if (Payload.LODs.back().ScreenSize != 0.0f)
+				return Fail(OutError, "Static-mesh payload lowest-detail LOD screen size must be exactly zero.");
 			return true;
 		}
 
@@ -278,6 +295,7 @@ namespace Durin
 				LODs.WriteU8(LOD.NumTexCoords);
 				LODs.WriteU8(LOD.bHasVertexColors ? 1 : 0);
 				LODs.WriteU16(0);
+				LODs.WriteFloat(LOD.ScreenSize);
 				WriteBounds(LODs, LOD.LocalBounds);
 			}
 			Chunks[2] = LODs.TakeBytes();
@@ -346,7 +364,7 @@ namespace Durin
 			uint32 LODCount = 0;
 			if (!LODs.ReadU32(LODCount) || LODCount == 0 || LODCount > MaximumStaticMeshLODs)
 				return Fail(OutError, "Static-mesh LOD chunk has an invalid count.");
-			if (Chunks[2].size() != 4ull + static_cast<uint64>(LODCount) * 40ull)
+			if (Chunks[2].size() != 4ull + static_cast<uint64>(LODCount) * 44ull)
 				return Fail(OutError, "Static-mesh LOD chunk has an invalid size.");
 			Payload.LODs.resize(LODCount);
 			std::vector<uint32> VertexCounts(LODCount);
@@ -365,6 +383,7 @@ namespace Durin
 				uint16 Reserved = 0;
 				if (!LODs.ReadU32(VertexCount) || !LODs.ReadU32(IndexCount) || !LODs.ReadU32(SectionCount)
 					|| !LODs.ReadU8(LOD.NumTexCoords) || !LODs.ReadU8(Flags) || !LODs.ReadU16(Reserved)
+					|| !LODs.ReadFloat(LOD.ScreenSize)
 					|| !ReadBounds(LODs, LOD.LocalBounds))
 					return Fail(OutError, "Static-mesh LOD chunk is truncated.");
 				if (VertexCount == 0 || VertexCount > MaximumStaticMeshVerticesPerLOD
@@ -751,6 +770,7 @@ namespace Durin
 					.TangentsVertexBuffer.GetTangents();
 			LOD.Indices = SourceLOD.IndexBuffer.GetIndices();
 			LOD.LocalBounds = SourceLOD.LocalBounds;
+			LOD.ScreenSize = SourceLOD.ScreenSize;
 			LOD.NumTexCoords = SourceLOD.NumTexCoords;
 			LOD.bHasVertexColors =
 				SourceLOD.bHasColorVertexData;
@@ -815,6 +835,7 @@ namespace Durin
 					SourceLOD.NumTexCoords);
 			LOD.IndexBuffer.Init(SourceLOD.Indices);
 			LOD.LocalBounds = SourceLOD.LocalBounds;
+			LOD.ScreenSize = SourceLOD.ScreenSize;
 			LOD.NumTexCoords = SourceLOD.NumTexCoords;
 			LOD.bHasColorVertexData =
 				SourceLOD.bHasVertexColors;

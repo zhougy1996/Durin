@@ -65,11 +65,11 @@ namespace Durin
 		}
 	}
 
-	auto FScene::AddOrReplacePrimitive(FPrimitiveSceneId PrimitiveId, std::unique_ptr<FPrimitiveSceneProxy> Proxy, const FMatrix& Transform) -> void
+	auto FScene::AddOrReplacePrimitive(FPrimitiveSceneId PrimitiveId, std::unique_ptr<FPrimitiveSceneProxy> Proxy, const FMatrix& Transform, bool bVisible) -> void
 	{
 		if (PrimitiveId == InvalidPrimitiveSceneId || Proxy == nullptr || !Math::IsFinite(Transform)) return;
 		std::shared_ptr<FPrimitiveSceneProxy> SharedProxy(std::move(Proxy));
-		ENQUEUE_RENDER_COMMAND(AddOrReplacePrimitive)([this, PrimitiveId, SharedProxy = std::move(SharedProxy), Transform](FRHICommandListImmediate&) {
+		ENQUEUE_RENDER_COMMAND(AddOrReplacePrimitive)([this, PrimitiveId, SharedProxy = std::move(SharedProxy), Transform, bVisible](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			if (const auto Found = PrimitiveInfosById.find(PrimitiveId); Found != PrimitiveInfosById.end())
 			{
@@ -77,6 +77,7 @@ namespace Durin
 				PrimitiveInfosById.erase(Found);
 			}
 			auto Info = std::make_unique<FPrimitiveSceneInfo>(*this, PrimitiveId, SharedProxy, Transform);
+			Info->SetVisible(bVisible);
 			FPrimitiveSceneInfo* RawInfo = Info.get();
 			PrimitiveSceneInfos.push_back(RawInfo);
 			switch (RawInfo->GetKind())
@@ -86,6 +87,22 @@ namespace Durin
 			}
 			PrimitiveInfosById.emplace(PrimitiveId, std::move(Info));
 		});
+	}
+
+	auto FScene::UpdatePrimitiveVisibility(
+		FPrimitiveSceneId PrimitiveId,
+		bool bVisible) -> void
+	{
+		if (PrimitiveId == InvalidPrimitiveSceneId) return;
+		ENQUEUE_RENDER_COMMAND(UpdatePrimitiveVisibility)(
+			[this, PrimitiveId, bVisible](FRHICommandListImmediate&) {
+				CheckRenderingThread();
+				if (const auto Found = PrimitiveInfosById.find(PrimitiveId);
+					Found != PrimitiveInfosById.end())
+				{
+					Found->second->SetVisible(bVisible);
+				}
+			});
 	}
 
 	auto FScene::RemovePrimitive(FPrimitiveSceneId PrimitiveId) -> void

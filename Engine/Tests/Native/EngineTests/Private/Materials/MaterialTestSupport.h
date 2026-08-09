@@ -3,6 +3,7 @@
 #include "StaticMeshTestAccess.h"
 
 #include "AssetSystem.h"
+#include "AssetPackageV4Reader.h"
 #include "Asset/EditorAssetRetention.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -55,57 +56,66 @@ namespace
 		std::string_view LegacyName
 	) -> bool
 	{
-		const Durin::uint64 CurrentNameSize = CurrentName.size();
-		size_t NameLengthOffset = std::string::npos;
-		for (size_t Offset = 0; Offset + sizeof(CurrentNameSize) + CurrentName.size() <= Bytes.size(); ++Offset)
+		Durin::Asset::DastV4::FDecodedPackage Package;
+		if (!Durin::Asset::DastV4::DecodePackage(Bytes, Package)) return false;
+
+		size_t SchemaIndex = std::string::npos;
+		size_t FieldIndex = std::string::npos;
+		for (size_t CandidateSchemaIndex = 0;
+			CandidateSchemaIndex < Package.Schemas.size();
+			++CandidateSchemaIndex)
 		{
-			Durin::uint64 CandidateSize = 0;
-			std::memcpy(&CandidateSize, Bytes.data() + Offset, sizeof(CandidateSize));
-			if (CandidateSize == CurrentNameSize
-				&& std::memcmp(Bytes.data() + Offset + sizeof(CandidateSize), CurrentName.data(), CurrentName.size()) == 0)
+			auto& Fields = Package.Schemas[CandidateSchemaIndex].Fields;
+			for (size_t CandidateFieldIndex = 0;
+				CandidateFieldIndex < Fields.size();
+				++CandidateFieldIndex)
 			{
-				if (NameLengthOffset != std::string::npos) return false;
-				NameLengthOffset = Offset;
+				if (Fields[CandidateFieldIndex].Name != CurrentName) continue;
+				if (SchemaIndex != std::string::npos) return false;
+				SchemaIndex = CandidateSchemaIndex;
+				FieldIndex = CandidateFieldIndex;
 			}
 		}
-		if (NameLengthOffset == std::string::npos) return false;
+		if (SchemaIndex == std::string::npos) return false;
 
-		const size_t NameOffset = NameLengthOffset + sizeof(Durin::uint64);
-		Bytes.erase(Bytes.begin() + NameOffset, Bytes.begin() + NameOffset + CurrentName.size());
-		Bytes.insert(Bytes.begin() + NameOffset, LegacyName.begin(), LegacyName.end());
-		const Durin::uint64 LegacyNameSize = LegacyName.size();
-		std::memcpy(Bytes.data() + NameLengthOffset, &LegacyNameSize, sizeof(LegacyNameSize));
+		using Durin::Asset::DastV4::ETypeOpcode;
+		const Durin::uint64 KeyTypeId = Package.Types.size() + 1;
+		Package.Types.push_back({.Opcode = ETypeOpcode::String});
+		const Durin::uint64 ValueTypeId = Package.Types.size() + 1;
+		Package.Types.push_back({.Opcode = ETypeOpcode::String});
+		const Durin::uint64 MapTypeId = Package.Types.size() + 1;
+		Package.Types.push_back({
+			.Opcode = ETypeOpcode::Map,
+			.ChildTypeIds = {KeyTypeId, ValueTypeId}});
+		auto& Field = Package.Schemas[SchemaIndex].Fields[FieldIndex];
+		Field.Name = LegacyName;
+		Field.TypeId = MapTypeId;
 
-		const size_t KindOffset = NameOffset + LegacyName.size();
-		if (KindOffset + 1 + sizeof(Durin::uint64) > Bytes.size()) return false;
-		Bytes[KindOffset] = static_cast<Durin::uint8>(Durin::DurinCodeGen::EPropertyGenFlags::Map);
-
-		const size_t SignatureLengthOffset = KindOffset + 1;
-		Durin::uint64 CurrentSignatureSize = 0;
-		std::memcpy(&CurrentSignatureSize, Bytes.data() + SignatureLengthOffset, sizeof(CurrentSignatureSize));
-		const size_t SignatureOffset = SignatureLengthOffset + sizeof(CurrentSignatureSize);
-		if (CurrentSignatureSize > Bytes.size() - SignatureOffset) return false;
-
-		constexpr std::string_view LegacySignature = "Map<legacy-string,legacy-value>";
-		Bytes.erase(Bytes.begin() + SignatureOffset, Bytes.begin() + SignatureOffset + CurrentSignatureSize);
-		Bytes.insert(Bytes.begin() + SignatureOffset, LegacySignature.begin(), LegacySignature.end());
-		const Durin::uint64 LegacySignatureSize = LegacySignature.size();
-		std::memcpy(Bytes.data() + SignatureLengthOffset, &LegacySignatureSize, sizeof(LegacySignatureSize));
-		return true;
+		size_t RewrittenOverrides = 0;
+		for (auto& ObjectValues : Package.ObjectValues)
+		{
+			for (auto& Override : ObjectValues.Overrides)
+			{
+				if (Override.SchemaId != SchemaIndex + 1
+					|| Override.FieldId != FieldIndex + 1) continue;
+				if (Override.Provenance == 2) return false;
+				Override.Value = {};
+				++RewrittenOverrides;
+			}
+		}
+		return RewrittenOverrides > 0
+			&& Durin::Asset::DastV4::ReencodePackage(Package, Bytes);
 	}
 
 	auto ContainsSerializedField(std::span<const Durin::uint8> Bytes, std::string_view Name) -> bool
 	{
-		const Durin::uint64 NameSize = Name.size();
-		for (size_t Offset = 0; Offset + sizeof(NameSize) + Name.size() <= Bytes.size(); ++Offset)
+		Durin::Asset::DastV4::FDecodedPackage Package;
+		if (!Durin::Asset::DastV4::DecodePackage(Bytes, Package)) return false;
+		for (const auto& Schema : Package.Schemas)
 		{
-			Durin::uint64 CandidateSize = 0;
-			std::memcpy(&CandidateSize, Bytes.data() + Offset, sizeof(CandidateSize));
-			if (CandidateSize == NameSize
-				&& std::memcmp(Bytes.data() + Offset + sizeof(CandidateSize), Name.data(), Name.size()) == 0)
-			{
-				return true;
-			}
+			if (std::ranges::any_of(
+				Schema.Fields,
+				[Name](const auto& Field) { return Field.Name == Name; })) return true;
 		}
 		return false;
 	}
