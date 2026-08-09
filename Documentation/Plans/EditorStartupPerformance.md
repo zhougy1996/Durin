@@ -38,6 +38,8 @@ stable profiling boundaries and first-observation monotonic milestones. One
 fixed-field `StartupTiming` summary is emitted only after both the native shell
 has presented successfully and the default workspace is ready. Debug and
 Release Profiling `all` builds and the focused profiling adapter tests pass;
+the default-document boundary is additionally split into asset-load,
+compatibility-policy, and activation sub-operations for the Stage 3 decision;
 the pre-commit Sandbox launch was a smoke test and is not part of the
 authoritative baseline matrix.
 

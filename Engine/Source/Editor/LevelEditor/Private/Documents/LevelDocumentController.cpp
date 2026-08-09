@@ -12,6 +12,7 @@
 #include "Workspace/LevelEditorContext.h"
 #include "Misc/Project.h"
 #include "Panels/SceneViewportPanel.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin
 {
@@ -160,21 +161,41 @@ namespace Durin
 		FWorkspaceAssetOpenCompatibility CompatibilityPolicy(Path);
 		DLevel* Level = nullptr;
 		Asset::FAssetLoadReport LoadReport;
-		Asset::FAssetResult Result = Asset::LoadSoftObject(
-			DefaultLevel, Level, Asset::ESoftObjectNullPolicy::Reject, &LoadReport);
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadBegin);
+		Asset::FAssetResult Result;
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.DefaultDocument.AssetLoad");
+			Result = Asset::LoadSoftObject(
+				DefaultLevel, Level, Asset::ESoftObjectNullPolicy::Reject, &LoadReport);
+		}
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadComplete);
 		if (!Result)
 		{
 			SetError(Result.Message);
 			return;
 		}
 		std::string CompatibilityDiagnostic;
-		if (CompatibilityPolicy.RejectIfIncompatible(
-				LoadReport, CompatibilityDiagnostic))
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentCompatibilityBegin);
+		bool bRejectedAsIncompatible = false;
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.DefaultDocument.Compatibility");
+			bRejectedAsIncompatible = CompatibilityPolicy.RejectIfIncompatible(
+				LoadReport, CompatibilityDiagnostic);
+		}
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentCompatibilityComplete);
+		if (bRejectedAsIncompatible)
 		{
 			SetError(std::move(CompatibilityDiagnostic));
 			return;
 		}
-		if (!ActivateLevel(Level))
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationBegin);
+		bool bActivated = false;
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.DefaultDocument.Activation");
+			bActivated = ActivateLevel(Level);
+		}
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationComplete);
+		if (!bActivated)
 		{
 			const Asset::FAssetResult ReleaseResult =
 				CompatibilityPolicy.ReleaseIntroducedPackages();
