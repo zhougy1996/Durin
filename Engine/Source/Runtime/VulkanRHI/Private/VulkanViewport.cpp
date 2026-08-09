@@ -12,6 +12,7 @@
 #include "VulkanRHIPrivate.h"
 #include "Threading/RunnableThread.h"
 #include "RenderingThread.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin::VulkanRHI
 {
@@ -233,6 +234,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanViewport::Present(FVulkanCommandListContext& InContext, FVulkanCommandBuffer& InCmdBuffer, FVulkanQueue& InPresentQueue, bool bInLockToVsync) -> bool
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("VulkanViewport.Present");
 		CheckVulkanRHIThread();
 		if (AcquiredBackBufferIndex < 0 || AcquiredBackBufferIndex >= static_cast<int32>(FrameResources.size()))
 		{
@@ -261,6 +263,8 @@ namespace Durin::VulkanRHI
 		}
 		AcquiredBackBufferIndex = -1;
 		AcquiredSemaphore = nullptr;
+		if (PresentOutcome.bPresented && Profiling::RecordEditorShellFirstPresent())
+			DURIN_PROFILE_STARTUP_FIRST_PRESENT();
 		return PresentOutcome.bPresented;
 	}
 

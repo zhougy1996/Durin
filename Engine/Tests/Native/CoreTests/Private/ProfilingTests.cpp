@@ -47,6 +47,7 @@ namespace Durin
 		int EvaluationCount = 0;
 
 		DURIN_PROFILE_CPU_ZONE_NAMED((++EvaluationCount, "Unexpected"));
+		DURIN_PROFILE_STARTUP_FIRST_PRESENT();
 		DURIN_PROFILE_THREAD((++EvaluationCount, "Unexpected"));
 		DURIN_PROFILE_PROGRAM_IDENTITY(
 			(++EvaluationCount, "Unexpected"),
@@ -55,5 +56,22 @@ namespace Durin
 		);
 
 		EXPECT_EQ(EvaluationCount, 0);
+	}
+
+	TEST(FProfilingTests, StartupMilestonesRetainTheFirstObservation)
+	{
+		EXPECT_TRUE(Profiling::RecordStartupMilestone(
+			Profiling::EStartupMilestone::DefaultDocumentBegin));
+		const double FirstObservation = Profiling::GetStartupMilestoneMilliseconds(
+			Profiling::EStartupMilestone::DefaultDocumentBegin);
+
+		EXPECT_FALSE(Profiling::RecordStartupMilestone(
+			Profiling::EStartupMilestone::DefaultDocumentBegin));
+		EXPECT_DOUBLE_EQ(
+			Profiling::GetStartupMilestoneMilliseconds(
+				Profiling::EStartupMilestone::DefaultDocumentBegin),
+			FirstObservation);
+		EXPECT_GE(FirstObservation, 0.0);
+		EXPECT_FALSE(Profiling::TryLogStartupTimingSummary());
 	}
 }

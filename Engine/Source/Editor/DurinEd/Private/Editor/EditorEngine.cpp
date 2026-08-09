@@ -13,6 +13,8 @@
 #include "Engine/World.h"
 #include "Interfaces/IMainFrameModule.h"
 #include "Modules/ModuleManager.h"
+#include "Misc/Project.h"
+#include "Profiling/Profiling.h"
 #include "RenderingThread.h"
 #include "Mona.h"
 #include "Mona/SceneViewport.h"
@@ -43,7 +45,11 @@ namespace Durin
 		EditorWorld->SetWorldType(EWorldType::Editor);
 
 		IMainFrameModule& MainFrameModule = FModuleManager::LoadModuleChecked<IMainFrameModule>("MainFrame");
+		Profiling::SetStartupProjectMode(HasCurrentProject());
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellBegin);
 		MainFrameModule.CreateDefaultMainFrame();
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellComplete);
+		Profiling::TryLogStartupTimingSummary();
 
 		auto RegisterCommand = [this](FConsoleCommandDesc Desc) {
 			if (const FConsoleCommandHandle Handle = FConsoleCommandRegistry::Get().RegisterCommand(std::move(Desc))) ConsoleCommandHandles.push_back(Handle);

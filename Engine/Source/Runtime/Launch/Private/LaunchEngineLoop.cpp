@@ -294,6 +294,7 @@ namespace Durin
 
 	auto FEngineLoop::PreInit(const FEngineStartupParams& Params) -> bool
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Startup.PreInit");
 		DURIN_PROFILE_THREAD("GameThread");
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		GIsGameThreadIdInitialized = true;
@@ -348,6 +349,7 @@ namespace Durin
 		FModuleManager::Get().LoadModule("RenderCore");
 		DObjectInit();
 		InitializeEngineAssetServices();
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::PreInitComplete);
 		return true;
 	}
 
@@ -361,21 +363,25 @@ namespace Durin
 		AddToRoot(GEngine);
 
 		InitializeApplicationCore();
-		if (!RHIInit())
 		{
-			DURIN_ERROR(
-				"Engine initialization stopped because the dynamic RHI could not start.");
-			ShutdownTaskSystem(ETaskShutdownMode::Drain);
-			RemoveFromRoot(GEngine);
-			MarkObjectHierarchyAsGarbage(GEngine);
-			GEngine = nullptr;
-			ReleaseClassDefaultObjects();
-			ReleaseDStructDefaults();
-			CollectGarbage();
-			FModuleManager::Get().UnloadModulesAtShutdown();
-			ShutdownApplicationCore();
-			return false;
+			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.RHIInitialization");
+			if (!RHIInit())
+			{
+				DURIN_ERROR(
+					"Engine initialization stopped because the dynamic RHI could not start.");
+				ShutdownTaskSystem(ETaskShutdownMode::Drain);
+				RemoveFromRoot(GEngine);
+				MarkObjectHierarchyAsGarbage(GEngine);
+				GEngine = nullptr;
+				ReleaseClassDefaultObjects();
+				ReleaseDStructDefaults();
+				CollectGarbage();
+				FModuleManager::Get().UnloadModulesAtShutdown();
+				ShutdownApplicationCore();
+				return false;
+			}
 		}
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RHIReady);
 		// Command admission must be running before Mona, the renderer, or editor
 		// modules can publish their first render-thread work.
 		InitRenderingThread();

@@ -3,11 +3,14 @@
 #include "HAL/PlatformProcess.h"
 #include "LaunchEngineLoop.h"
 #include "Misc/Project.h"
+#include "Profiling/Profiling.h"
 
 using namespace Durin;
 
 int LAUNCH_API main(int argc, char** argv)
 {
+	DURIN_PROFILE_CPU_ZONE_NAMED("Startup.Process");
+	Durin::Profiling::RecordStartupMilestone(Durin::Profiling::EStartupMilestone::ProcessEntry);
 	constexpr std::string_view WaitForProcessPrefix = "--wait-for-process=";
 	constexpr std::string_view ExitAfterTicksPrefix = "--exit-after-ticks=";
 	constexpr std::string_view ProjectPrefix = "--project=";

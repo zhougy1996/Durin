@@ -11,6 +11,7 @@
 #include "Mona/SceneViewport.h"
 #include "Modules/ModuleManager.h"
 #include "Materials/DefaultMaterialService.h"
+#include "Profiling/Profiling.h"
 #include "Application/MonaApplication.h"
 #include "Application/MonaEventHandler.h"
 
@@ -102,9 +103,19 @@ namespace Durin
 
 	auto DEngine::Init() -> void
 	{
-		InitializeDefaultMaterialService();
-		RendererModule = &FModuleManager::LoadModuleChecked<IRendererModule>("Renderer");
-		MainScene = RendererModule->CreateScene();
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultMaterialBegin);
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.DefaultMaterial");
+			InitializeDefaultMaterialService();
+		}
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultMaterialReady);
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RendererBegin);
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.RendererInitialization");
+			RendererModule = &FModuleManager::LoadModuleChecked<IRendererModule>("Renderer");
+			MainScene = RendererModule->CreateScene();
+		}
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RendererReady);
 		SetWorld(NewObject<DWorld>(this, "MainWorld"));
 		Mona::FMonaApplication::Get().SetGameEventHandler(std::make_unique<FEngineInputEventHandler>());
 	}

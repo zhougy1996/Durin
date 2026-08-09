@@ -2,6 +2,7 @@
 
 #include "CoreAPI.h"
 
+#include <array>
 #include <string>
 #include <string_view>
 
@@ -11,6 +12,36 @@
 
 namespace Durin::Profiling
 {
+	enum class EStartupMilestone : uint8
+	{
+		ProcessEntry,
+		PreInitComplete,
+		RHIReady,
+		DefaultMaterialBegin,
+		DefaultMaterialReady,
+		RendererBegin,
+		RendererReady,
+		EditorShellBegin,
+		EditorShellComplete,
+		WorkspaceRegistrationBegin,
+		WorkspaceRegistrationComplete,
+		RegistryScanBegin,
+		RegistryScanComplete,
+		DefaultDocumentBegin,
+		DefaultDocumentComplete,
+		NativeViewportReady,
+		FirstPresent,
+		DefaultWorkspaceReady,
+		Count,
+	};
+
+	CORE_API auto RecordStartupMilestone(EStartupMilestone Milestone) noexcept -> bool;
+	CORE_API auto SetStartupProjectMode(bool bHasProject) noexcept -> void;
+	CORE_API auto ArmEditorShellFirstPresent() noexcept -> void;
+	CORE_API auto RecordEditorShellFirstPresent() noexcept -> bool;
+	CORE_API auto TryLogStartupTimingSummary() -> bool;
+	CORE_API auto GetStartupMilestoneMilliseconds(EStartupMilestone Milestone) noexcept -> double;
+
 	CORE_API auto FormatProgramIdentity(
 		std::string_view RuntimeVariant,
 		std::string_view ProjectName,
@@ -185,6 +216,7 @@ namespace Durin::Profiling
 			"execute", TaskId, ScopeId, OwnerId, CategoryId, Target, 0, DebugName); \
 		ZoneText(DurinTaskProfilerExecutionMessage.Bytes.data(), DurinTaskProfilerExecutionMessage.Length)
 	#define DURIN_PROFILE_FRAME_MARK() FrameMark
+	#define DURIN_PROFILE_STARTUP_FIRST_PRESENT() TracyMessageL("Startup.FirstPresent")
 	#define DURIN_PROFILE_THREAD(Name) tracy::SetThreadName(Name)
 	#define DURIN_PROFILE_PROGRAM_IDENTITY(RuntimeVariant, ProjectName, ProcessId) \
 		::Durin::Profiling::SetProgramIdentity(RuntimeVariant, ProjectName, ProcessId)
@@ -202,6 +234,7 @@ namespace Durin::Profiling
 	#define DURIN_PROFILE_TASK_EXECUTION_ZONE(DebugName, TaskId, ScopeId, OwnerId, CategoryId, Target) \
 		::Durin::Profiling::TaskExecution(TaskId, ScopeId, OwnerId, CategoryId, Target)
 	#define DURIN_PROFILE_FRAME_MARK() ((void)0)
+	#define DURIN_PROFILE_STARTUP_FIRST_PRESENT() ((void)0)
 	#define DURIN_PROFILE_THREAD(Name) ((void)0)
 	#define DURIN_PROFILE_PROGRAM_IDENTITY(RuntimeVariant, ProjectName, ProcessId) ((void)0)
 #endif

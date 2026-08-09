@@ -31,7 +31,25 @@ editor shell, default-workspace readiness, and the first successfully presented
 frame. Stage 0 therefore rebuilds current source, adds stable boundaries, and
 records a reproducible baseline before startup ordering changes begin.
 
-No startup optimization has been implemented yet.
+Stage 0 startup instrumentation is now implemented. The process, PreInit, RHI,
+default-material, Renderer, editor-shell, workspace-registration, registry-scan,
+default-document, native-viewport, and first-successful-present owners publish
+stable profiling boundaries and first-observation monotonic milestones. One
+fixed-field `StartupTiming` summary is emitted only after both the native shell
+has presented successfully and the default workspace is ready. Debug and
+Release Profiling `all` builds and the focused profiling adapter tests pass;
+the pre-commit Sandbox launch was a smoke test and is not part of the
+authoritative baseline matrix.
+
+The Stage 0 cache protocol is locked as follows. A cold Sandbox sample is the
+first launch after a machine restart, before another Durin process touches the
+workspace content or runtime caches. Warm samples use one unrecorded priming
+launch followed by five recorded, serial launches of the same committed binary
+and project. Every launch exits cleanly before the next begins; simultaneous
+processes may not share mutable cache state. The protocol never deletes authored
+content, generated asset payloads, or individual cache entries. Project Browser
+controls use the same serial priming and five-run rule without selecting a
+project.
 
 ## Goal
 
@@ -127,16 +145,16 @@ No startup optimization has been implemented yet.
 
 ### Stage 0: Current-source baseline and decision lock
 
-- [ ] Build the complete current-source Debug DurinEditor runtime before taking
+- [x] Build the complete current-source Debug DurinEditor runtime before taking
   the authoritative baseline.
-- [ ] Add stable profiling zones and monotonic timing boundaries for process
+- [x] Add stable profiling zones and monotonic timing boundaries for process
   entry, PreInit, RHI readiness, default-material load, Renderer readiness,
   editor-shell construction, workspace registration, registry scan,
   default-document load, native viewport readiness, and first successful shell
   present.
-- [ ] Emit one bounded startup timing summary after default-workspace readiness;
+- [x] Emit one bounded startup timing summary after default-workspace readiness;
   do not add per-frame timing logs.
-- [ ] Define cold-cache preparation and warm-cache repetition rules that do not
+- [x] Define cold-cache preparation and warm-cache repetition rules that do not
   delete authored content or share mutable cache state between simultaneous
   processes.
 - [ ] Capture at least five warm Debug Sandbox launches, five warm Debug Project

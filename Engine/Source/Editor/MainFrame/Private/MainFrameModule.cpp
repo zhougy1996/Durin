@@ -17,6 +17,7 @@
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "Misc/Version.h"
+#include "Profiling/Profiling.h"
 #include "Settings/EditorHostSettings.h"
 
 #include "Widgets/MFunctionWidget.h"
@@ -449,6 +450,7 @@ namespace Durin
 		auto ProfilingTools = std::make_shared<FProfilingToolService>(FPaths::RootDir());
 		auto AssetCompatibilityWindow = std::make_shared<FAssetCompatibilityWindow>();
 		const std::weak_ptr<MWindow> WeakRootWindow = RootWindow;
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::WorkspaceRegistrationBegin);
 		if (HasCurrentProject())
 		{
 			*bWorkspaceReady = RegisterEditorWorkspaces(
@@ -460,6 +462,9 @@ namespace Durin
 				ProjectBrowser->RecordCurrentProject();
 			}
 		}
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::WorkspaceRegistrationComplete);
+		if (!HasCurrentProject() || *bWorkspaceReady)
+			Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultWorkspaceReady);
 
 		RootWindow->SetTitle(GetCurrentProject() ? std::format("Durin Editor - {}", GetCurrentProject()->Name) : "Durin Editor - Project Browser");
 		RootWindow->ReshapeWindow({100.0f, 100.0f}, {static_cast<float>(WindowSize.x), static_cast<float>(WindowSize.y)});
@@ -501,7 +506,12 @@ namespace Durin
 		// applied. Showing it before maximizing causes a visible normal-size frame
 		// during editor startup.
 		Mona::FMonaApplication::Get().AddWindow(RootWindow, false);
-		Mona::FMonaApplication::Get().GetRenderer()->CreateViewport(RootWindow);
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.NativeViewport");
+			Mona::FMonaApplication::Get().GetRenderer()->CreateViewport(RootWindow);
+		}
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::NativeViewportReady);
+		Profiling::ArmEditorShellFirstPresent();
 
 		if (HostSettings->IsWindowMaximized())
 		{

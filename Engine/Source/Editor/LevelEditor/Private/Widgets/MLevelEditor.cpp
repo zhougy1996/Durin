@@ -26,6 +26,7 @@
 #include "Panels/LevelEditorPanel.h"
 #include "Panels/SceneViewportPanel.h"
 #include "Panels/WorldOutlinerPanel.h"
+#include "Profiling/Profiling.h"
 #include "Assets/SceneImportDialog.h"
 #include "Assets/StaticMeshImportDialog.h"
 #include "Assets/TextureImportDialog.h"
@@ -105,7 +106,12 @@ namespace Durin
 
 	auto MLevelEditor::InitializeSession() -> void
 	{
-		Asset::GetAssetRegistry().ScanMountedContent(Asset::EAssetRegistryScanMode::Incremental);
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RegistryScanBegin);
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.RegistryScan");
+			Asset::GetAssetRegistry().ScanMountedContent(Asset::EAssetRegistryScanMode::Incremental);
+		}
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RegistryScanComplete);
 		SessionSettings.PruneInvalidViewportStates();
 		LoadProjectSettings();
 		SessionSettings.Save(nullptr);
@@ -251,7 +257,12 @@ namespace Durin
 	auto MLevelEditor::FinalizeConstruction() -> void
 	{
 		Context->Synchronize(GEditor != nullptr ? GEditor->GetEditorWorld() : (GEngine != nullptr ? GEngine->GetWorld() : nullptr));
-		DocumentController->OpenDefaultLevel();
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentBegin);
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.DefaultDocument");
+			DocumentController->OpenDefaultLevel();
+		}
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentComplete);
 		if (!EditorError.empty())
 		{
 			DURIN_WARN("Could not open project default level {}: {}",
