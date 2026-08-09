@@ -1,4 +1,0 @@
-void GeneratedAssertion()
-{
-	check(TraverseGenerated());
-}

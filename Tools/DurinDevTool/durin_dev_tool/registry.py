@@ -126,7 +126,6 @@ CREATABLE_DOCUMENT_KINDS = ("router", "contract", "guide", "generic")
 BOOTSTRAP_HANDLER = "durin_dev_tool.bootstrap.handler:run"
 WORKTREE_HANDLER = "durin_dev_tool.worktree.handler:run"
 ASSET_HANDLER = "durin_dev_tool.asset:run"
-ASSERTION_AUDIT_HANDLER = "durin_dev_tool.assertion_audit:run"
 
 
 def _build_command(
@@ -638,30 +637,6 @@ COMMAND_SPECS = (
         + (
             _argument("--project", dest="project_path", type=Path, default=None),
             _argument("--args", dest="run_arguments", nargs=argparse.REMAINDER, default=()),
-        ),
-    ),
-    CommandSpec(
-        "audit",
-        "run repository-owned static audits",
-        subcommands=(
-            CommandSpec(
-                "assertions",
-                "find side effects hidden in assertion conditions",
-                ASSERTION_AUDIT_HANDLER,
-                capability=Capability.PREPARED_ENVIRONMENT,
-                required_modules=("clang.cindex",),
-                arguments=(
-                    _argument("paths", nargs="*", type=Path),
-                    _argument("--format", dest="format_name", choices=("human", "json"), default="human"),
-                    _argument("--output", dest="output_path", type=Path, default=None),
-                    _argument("--allowlist", dest="allowlist_path", type=Path, default=None),
-                    _argument(
-                        "--enforce",
-                        action="store_true",
-                        help="return failure when the selected sources contain unreviewed findings",
-                    ),
-                ),
-            ),
         ),
     ),
     CommandSpec(

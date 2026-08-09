@@ -147,18 +147,6 @@ Run each Python test suite explicitly through pytest:
 .\.venv\Scripts\python.exe -m pytest Engine\Source\Programs\DurinHeaderTool\tests
 ```
 
-Run the repository assertion side-effect presubmit through DurinDevTool:
-
-```powershell
-.\DevTool.bat audit assertions
-```
-
-The full-repository form is enforcing: it loads the versioned allowlist at
-`Tools/DurinDevTool/config/assertion-side-effect-allowlist.json`, rejects stale
-entries, and returns failure for every unreviewed finding. Supplying source
-paths produces a focused report by default; add `--enforce` when that focused
-scan is itself a gate.
-
 Commands are case-insensitive for compatibility, but lowercase is canonical.
 `build` and `test` configure automatically when needed, so an explicit first
 `configure` is optional. Omit `--jobs` to use automatic parallelism; pass

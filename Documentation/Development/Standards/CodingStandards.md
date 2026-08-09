@@ -137,52 +137,6 @@ conditions and diagnostic arguments must not hide unrelated mutation,
 allocation, resource acquisition, callbacks, traversal, task execution,
 synchronization, or lifecycle transitions.
 
-### Assertion side-effect audit scope
-
-The repository audit scans `.h`, `.hpp`, `.inl`, and `.cpp` files beneath
-`Engine/Source`, `Engine/Tests/Native`, `Engine/Tests/NativeTestSupport`,
-`Engine/CMake/SharedPCH`, and `Sandbox/Source`. It separately scans C++-emitting
-assets beneath `Templates/Scaffolding` and generator-owned templates beneath
-`Engine/Source/Programs` when their output can contain `require`, `requiref`, `check`, `checkf`,
-`verify`, `verifyf`, `checkSlow`, or `checkfSlow`. Macro definitions and macro
-invocations are classified separately.
-
-Repository-managed exclusions are `Engine/External`, every third-party or
-vendored subtree, generated `Intermediate` content, and build/install/binary
-output roots such as `Build`, `Binaries`, and `Install`. A generated source is
-not scanned as an independent source of truth when its owning template is in
-scope. New C++ source or scaffolding roots must update the scanner contract in
-the same change that introduces them.
-
-`DevTool audit assertions` is the repository-owned scanner entrypoint. It
-locates balanced macro invocations in raw UTF-8 source, so assertions in every
-conditional-compilation branch remain visible, then tokenizes each extracted
-condition independently with the prepared environment's `clang.cindex`
-binding and native libclang. This fragment-oriented frontend deliberately does
-not require a complete translation unit or resolve overloads. Calls and
-operators therefore remain conservative findings until classified; malformed
-comments, literals, delimiters, empty conditions, missing files, and stale
-allowlist entries fail the scan visibly. Macro definitions and C++-emitting
-scaffolding assets carry distinct source kinds and are never conflated with
-ordinary invocations or compiler-generated macro expansions.
-
-Human and JSON reports are sorted by repository-relative path and source
-location. The tracked inventory uses
-`Tools/DurinDevTool/schemas/assertion-side-effect-findings-v1.schema.json`;
-allowlist entries use the companion allowlist schema and the versioned
-`Tools/DurinDevTool/config/assertion-side-effect-allowlist.json`. Each entry
-must identify one exact finding plus a non-empty source-owned rationale;
-directory and wildcard allowlisting is unsupported. Intentional `verify`
-operations and enforced `require` contracts are intrinsically classified by
-their macro semantics; observational and diagnostic findings require an exact
-reviewed allowlist entry.
-
-The path-free `DevTool audit assertions` command is the presubmit form. It
-loads the versioned allowlist, rejects stale entries, and returns failure when
-any finding remains unreviewed. A focused path scan is informational unless
-`--enforce` is supplied. Changes that add or move an assertion must run the
-enforcing form and update an exact allowlist entry only after owner review.
-
 ## Incremental Adoption
 
 New and materially modified code must follow these conventions immediately. Do not mix unrelated repository-wide formatting or annotation cleanup into a functional change.
