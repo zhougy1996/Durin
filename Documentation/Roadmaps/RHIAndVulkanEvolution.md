@@ -2,7 +2,7 @@
 
 Summary: Evolve Durin's RHI and Vulkan backend from a reliable graphics execution core into a capability-driven, synchronization-correct, observable, and scalable rendering platform.
 
-Last reviewed: 2026-08-09
+Last reviewed: 2026-08-10
 
 Status: Active
 Completed:
@@ -12,68 +12,40 @@ Completed:
 The RHI has a strong CPU execution and lifetime foundation. Backend-neutral
 commands are recorded into owned storage, replayed by one executor on a
 dedicated RHI thread by default, bounded by serial fences and backpressure, and
-drained through an audited shutdown path. Vulkan resource factories publish
-complete resources or null, swapchain replacement is transactional, and
-Renderer resource owners already isolate and retry expected creation failures.
+drained through an audited shutdown path. Vulkan resource factories and
+structural caches publish complete candidates or failure, swapchain replacement
+is transactional, and Renderer resource owners isolate and retry expected
+creation failures.
 
-The next constraints are no longer command transport or basic indexed drawing.
-The public RHI advertises more concepts than the Vulkan backend can execute
-consistently, while the backend still makes several policy choices implicitly:
-
-- `ERHIFeatureLevel` is not connected to an immutable runtime capability set;
-  texture-format support is the only narrow public capability query.
-- Vulkan validation is requested unconditionally, required and optional
-  extensions share one activation path, and physical-device selection can
-  retain a device whose suitability score is zero.
-- Public texture dimensions include arrays, cube arrays, and 3D textures, but
-  Vulkan image creation currently fixes `imageType` to 2D and public descriptor
-  validation does not reject the unsupported combinations.
-- Attachment layouts, upload barriers, and readback barriers each carry part of
-  resource state. `ERHIAccess` is attachment-oriented and shader access maps to
-  graphics stages, so it cannot yet describe compute, copy, or general
-  subresource handoff.
-- `FRHIBindingSet` exists without a creation or binding contract. Descriptor
-  layouts advertise arrays, while materialization writes one descriptor at
-  array element zero and uses a per-frame, PSO-address-keyed cache.
-- Graphics pipeline state covers only a narrow fixed-state subset, and Vulkan
-  pipelines remain coupled to cached legacy render passes. The declared draw,
-  view, and pipeline vocabulary is not yet broad enough for production feature
-  growth.
-- VMA buffer allocation applies a host-access hint to every buffer, uploads
-  allocate one staging buffer per operation, native destruction is aged by CPU
-  frame number, and no backend-neutral GPU-memory or descriptor-pressure
-  telemetry is published.
-- Presentation-family compatibility is resolved only after logical-device
-  creation; cross-family presentation ownership is not a declared contract.
-  Current WSI coverage proves the primary hidden-window path, not a device and
-  multi-viewport portability matrix.
-- Debug labels exist for render passes, but there is no owned debug messenger,
-  systematic native object naming, GPU timestamp/query surface, or persistent
-  pipeline cache. Vulkan integration tests emphasize failure recovery and
-  texture sampling rather than conformance across the whole public RHI.
-
-One internal correctness gap belongs in the first milestone rather than a later
-optimization program: render-pass creation logs and retains a null native
-handle instead of failing the structural-cache candidate transaction. Similar
-internal caches must follow the complete-or-null publication rule already
-enforced for public factories.
-
-The active [Compute Shader Pipeline](ComputeShaderPipeline.md) roadmap owns
-compute transitions, pipeline creation, direct dispatch, renderer integration,
-and optional asynchronous compute. This roadmap supplies the wider RHI and
-Vulkan foundations and shares its resource-transition milestone; it does not
-create a second compute program.
-
-The first child plan is now active:
+M0 completed on 2026-08-10 through
 [RHI Capability and Vulkan Startup](../Plans/Archive/2026-08/RHICapabilityAndVulkanStartup.md).
-Its entry audit confirmed the roadmap's startup correctness gaps in the current
-code: validation-layer activation is unconditional, unsuitable zero-score
-devices remain selectable, public texture support is broader than native image
-creation, present-family provisioning is deferred until after device creation,
-and render-pass failure can poison the structural cache with a null handle.
-M0 therefore precedes new feature-family work as the current foundation
-priority. M1 remains independently ready for just-in-time activation, but it
-must consume rather than duplicate capability fields selected by M0.
+The runtime now publishes immutable feature level, texture dimensions/limits,
+sample counts, and synchronization2 support; startup explicitly negotiates
+diagnostics, extensions, features, suitable devices, graphics/present queue
+topology, texture descriptors, and structural-cache failure. The lasting
+contract is recorded in
+[RHI Capabilities and Vulkan Startup](../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md).
+
+The next foundation constraint is resource state. Attachment descriptions,
+Vulkan per-subresource layouts, upload barriers, and readback barriers each own
+part of the answer. `ERHIAccess` remains attachment-oriented, upload/readback
+infer access from layout or creation flags, and shader restoration assumes
+graphics stages. This cannot safely carry compute, copy, host, or general range
+handoffs.
+
+The shared M1 plan is now active:
+[GPU Resource Transitions](../Plans/GPUResourceTransitions.md). It owns one
+portable buffer/image range contract and one authoritative Vulkan state tracker
+for render passes, transfers, readback, presentation, and future compute. It
+consumes M0's published synchronization2 capability and retains a legacy
+barrier fallback rather than adding another feature query.
+
+The active [Compute Shader Pipeline](ComputeShaderPipeline.md) roadmap owns this
+same M1 child plus later compute pipeline, dispatch, renderer integration, and
+optional asynchronous execution. There is one transition implementation, not
+parallel graphics and compute state systems. Remaining roadmap gaps after M1
+are resource views/transfers, complete graphics state and binding semantics,
+memory/completion policy, diagnostics, and broad conformance.
 
 ## Outcome
 
@@ -187,14 +159,14 @@ product-gated extensions.
 | Area | Existing foundation | Roadmap gap |
 | --- | --- | --- |
 | CPU execution | Owned typed command batches, regular/immediate lists, exact serial fences, bounded dedicated-thread queue, inline diagnostic mode, and audited drain. | Preserve this contract while extending commands; add GPU-side timing and completion visibility rather than another CPU executor. |
-| Resource lifetime | Intrusive counted resources, irreversible deferred deletion, complete-or-null public factories, transactional swapchain replacement, and Renderer retry generations. | Make internal structural caches transactional and retire native objects by GPU completion instead of only frame age. |
-| Capabilities | Vulkan device properties, queue families, extension enumeration, and per-format feature queries are locally available. | Publish portable features/limits, classify requirements, reject unsuitable devices, and make consumer fallback explicit. |
-| Resource descriptions | Texture formats, mips, arrays, cubes, storage flags, buffer usages, and sampler descriptions exist. | Validate all dimension/usage/sample combinations, retain the full immutable resource description, and add typed views. |
+| Resource lifetime | Intrusive counted resources, irreversible deferred deletion, complete-or-null public/structural factories, transactional swapchain replacement, and Renderer retry generations. | Retire native objects by GPU completion instead of only frame age and preserve complete-candidate publication as later caches expand. |
+| Capabilities | Startup publishes immutable portable feature level, texture dimensions/limits, sample counts, synchronization2 support, and per-format support after explicit device/topology negotiation. | Add only the limits or optional features consumed by selected later paths and keep every fallback explicit. |
+| Resource descriptions | Supported texture dimensions, usages, samples, mips/layers, formats, buffer usages, and samplers validate before native creation. | Retain the interpretation/range contracts required by typed views and add selected general transfer combinations. |
 | Synchronization | Render-pass dependencies and targeted upload/readback barriers work for current graphics paths; per-subresource Vulkan layouts are tracked. | Establish portable access/range transitions and one state owner spanning graphics, compute, copy, and presentation. |
 | Graphics pipelines | Shaders, reflected layouts, push constants, vertex declarations, indexed draws, MRT, depth, alpha blend, wireframe, MSAA resolve, and render-pass compatibility exist. | Complete fixed-state and draw variants, descriptor arrays/views, cache bounds, and driver cache persistence without name-based ownership. |
 | Memory and transfers | VMA-backed resources, mapped dynamic uniforms, staging uploads, texture readback, two frame slots, and pooled command buffers/fences exist. | Separate device-local and host-visible policy, reuse staging/readback storage, expose budgets/pressure, and tie recycling to GPU completion. |
-| Presentation | Transactional swapchain candidates, unavailable-output handling, resize recovery, present fences when supported, and per-viewport teardown exist. | Negotiate present-compatible queues and surface usage before commitment, cover cross-family rules, and validate the supported multi-window topology. |
-| Diagnostics and tests | CPU executor statistics, render-pass labels, validation-clean smoke evidence, failure injection, texture sampling, and fake-context RHI tests exist. | Add owned Vulkan diagnostics, object names, GPU queries, cache/memory statistics, and public-RHI conformance across resources, bindings, transfers, WSI, and shutdown. |
+| Presentation | Startup provisions a present-compatible queue topology before logical-device publication; transactional swapchain candidates, unavailable-output handling, resize recovery, present fences, and per-viewport teardown exist. | Cover any selected cross-family ownership policy and validate the supported multi-window/device portability matrix. |
+| Diagnostics and tests | Diagnostic layers are optional, startup failures are owned, and CPU executor statistics, render-pass labels, validation-clean smoke evidence, failure injection, texture sampling, and fake-context RHI tests exist. | Add an owned debug messenger, object names, GPU queries, cache/memory statistics, and public-RHI conformance across resources, bindings, transfers, WSI, and shutdown. |
 
 ## Milestone Map
 
@@ -219,7 +191,7 @@ flowchart LR
 | Milestone | Requirement | Proposed child plan | Dependencies | Deliverable | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- | --- | --- |
 | M0: Capability and startup contract | Required; completed | [RHICapabilityAndVulkanStartup](../Plans/Archive/2026-08/RHICapabilityAndVulkanStartup.md) and [lasting contract](../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md) | Recorded command and initialization rollback contracts | Immutable public capabilities/limits; explicit Vulkan layer, extension, feature, device, queue, format, and WSI negotiation; transactional internal structural creation | Met: initialization rollback, the Win64 profile matrix, and the frozen capability/topology contract established implementation scope. | Met on 2026-08-10: optional diagnostics remain optional; only suitable device/queue candidates publish; exact unsupported textures reject before native creation; structural-cache retry is complete; focused/native/full-build/runtime qualification is recorded in the child plan. |
-| M1: Unified resource transitions | Required, shared | `GPUResourceTransitions` from the [Compute Shader Pipeline](ComputeShaderPipeline.md) roadmap | Established recorded-command replay; coordinate access-relevant capability fields with M0 | Portable buffer/image range transitions and one authoritative Vulkan state tracker shared by pass, upload, readback, copy, compute, and present paths | The recorded command-list contract is stable and the current state-mutating paths have a bounded inventory | Graphics, compute, copy, readback, and presentation handoffs pass focused tests without global idle waits or divergent layout state |
+| M1: Unified resource transitions | Required, shared; active | [GPUResourceTransitions](../Plans/GPUResourceTransitions.md) from the [Compute Shader Pipeline](ComputeShaderPipeline.md) roadmap | Established recorded-command replay and completed M0 capability contract | Portable buffer/image range transitions and one authoritative Vulkan state tracker shared by pass, upload, readback, copy, compute, and present paths | Met on 2026-08-10: the recorded command contract, immutable synchronization2 capability, and bounded mutation-path audit are stable. | Graphics, transfer, readback, and presentation handoffs pass focused tests without global idle waits or divergent layout state; compute intent has a frozen tested mapping ready for M2 dispatch validation. |
 | M2: Resource views and transfers | Required | `RHIResourceViewsAndTransfers` | M1 transition contract | Texture mip/layer/aspect views, buffer range/format views, default-view policy, and explicit buffer/texture copy, resolve, blit, and upload/readback operations required by current consumers | M1 subresource and byte-range semantics are stable; concrete texture-array/volume or copy consumers are selected | Views validate against parent resources and remain alive through replay/GPU use; required transfer combinations work through public RHI commands and unsupported combinations fail before Vulkan recording |
 | M3: Graphics state and bindings | Required | `RHIGraphicsStateAndBindings` | M0 limits and M2 view contract | Complete baseline raster/depth/stencil/blend/color-mask/vertex-instance state, non-indexed and instanced draw variants, explicit binding-set semantics, descriptor arrays, bounded descriptor/pipeline caches, and persistent driver cache policy | Current renderer pipeline identities and reflected binding layouts have a bounded inventory; M2 defines resources bound into descriptors | Representative opaque, blended, depth/stencil, MRT, instanced, and array-binding draws pass; binding mismatches fail at the RHI boundary; caches expose bounds/hits/misses and publish no partial candidate |
 | M4: Memory and GPU completion | Required | `VulkanMemoryTransferAndRetirement` | M0 memory limits and M1 state/completion vocabulary | Allocation classes, reusable staging/readback arenas, memory-budget and pressure statistics, descriptor/allocation telemetry, and GPU-completion-aware recycling/deletion | Workload captures identify current allocation sizes, upload/readback volume, frame waits, and deferred-delete depth | Static resources prefer device-local memory, dynamic resources retain correct mapping, repeated uploads avoid per-operation native allocation, pressure is attributable, and destruction/reuse is proven safe under irregular submission and frame cadence |
@@ -244,7 +216,7 @@ descriptors and native image creation. It may repair internal creation caches
 needed to guarantee that initialization publishes no partial backend state. It
 does not redesign renderer features or add new draw commands.
 
-### `GPUResourceTransitions`
+### [GPUResourceTransitions](../Plans/GPUResourceTransitions.md)
 
 Remains owned by the Compute Shader Pipeline roadmap. This roadmap treats its
 public transition and state-tracking contract as a shared platform milestone.

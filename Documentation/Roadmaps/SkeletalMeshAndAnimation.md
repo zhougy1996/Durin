@@ -2,41 +2,33 @@
 
 Summary: Establish skeletal assets, deterministic source ingestion, runtime pose evaluation, GPU skinning, and production editor workflows through just-in-time implementation plans.
 
-Last reviewed: 2026-08-09
+Last reviewed: 2026-08-10
 
 Status: Active
 Completed:
 
 ## Current Status
 
-Durin has no skeletal runtime asset, animation clip asset, pose evaluator,
-skinned vertex factory, skeletal component, or skeletal scene proxy. The
-current Scene source workflow imports glTF and FBX as static geometry,
-materials, and textures. Its shared geometry adapter recursively accumulates
-node transforms and bakes them into vertex data; the normalized scene result
-does not retain nodes, skins, joint weights, inverse-bind matrices, or animation
-channels.
-
-The surrounding infrastructure is suitable for a bounded skeletal program.
-The provider-neutral import framework already owns immutable source capture,
-asynchronous value-only preparation, candidate validation, failure-atomic
-publication, import records, and reimport reconciliation. AssetCore and Engine
-already provide authored packages, disposable DDC objects, cooked bulk
-payloads, transactional runtime decode, and runtime-only dependency closure.
-Core math supplies transforms, matrices, and quaternions. StaticMesh proves the
-material-slot, render-data, resource-invalidation, SceneProxy, and component
-lifecycle patterns that a skeletal path can reuse without inheriting its
-static-geometry assumptions.
-
 The first child completed on 2026-08-08 through the
 [Skeletal Asset and Import Foundation Plan](../Plans/Archive/2026-08/SkeletalAssetAndImportFoundation.md).
-It owns the initial asset graph, glTF skeletal normalization, provider outputs,
-derived/cooked payloads, and non-rendering validation. The S2 entry gate is
-satisfied for planning, but no skeletal child plan is active; S2 remains the
-next ready skeletal child when that program is selected. Later child plans will
-be authored only when their entry gates are reached, they are selected as
-active work, and the then-current runtime and renderer contracts can be
-inspected.
+Durin now has bounded `DSkeleton`, `DSkeletalMesh`, and `DAnimationClip` assets;
+deterministic glTF/GLB skeletal normalization; stable provider peer outputs;
+mesh palettes and inverse binds; versioned DDC/cooked payloads; runtime-only
+loading; and failure-atomic import/reimport coverage. StaticMesh source behavior
+remains unchanged.
+
+The next missing foundation is runtime pose and playback. Animation payloads
+already provide compatible, immutable, validated tracks, while Skeleton bones
+are parent-before-child and SkeletalMesh payloads carry palette-aligned inverse
+binds. There is still no pose sampler, playback clock, skeletal component,
+runtime compatibility binding, or immutable palette candidate.
+
+S2 is now active through
+[Skeletal Runtime Pose and Playback](../Plans/SkeletalRuntimePoseAndPlayback.md).
+It selects `DSkeletalMeshComponent` as the long-lived owner, evaluates through
+a detached value-only animation instance, and stops before scene proxies,
+Renderer, shaders, RHI resources, or GPU skinning. Later child plans remain
+just-in-time and require their then-current entry gates to be re-inspected.
 
 Skeletal rendering is also the default second production primitive in the
 [Rendering Capability Expansion Roadmap](RenderingCapabilityExpansion.md).
@@ -208,7 +200,7 @@ flowchart LR
 | Milestone | Requirement | Child-plan policy | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- |
 | S1: Asset and import foundation | Completed 2026-08-08 | [Skeletal Asset and Import Foundation](../Plans/Archive/2026-08/SkeletalAssetAndImportFoundation.md) | Existing import, package, DDC, cook, math, and static-model behavior was recorded; the selected glTF fixture corpus did not change StaticMesh outputs. | Met: stable peer assets, deterministic bounded authored/DDC/cooked paths, runtime-only loading, and transactional structured failures are implemented and qualified below. |
-| S2: Runtime pose and clip playback | Required; entry gate satisfied, plan authored when implementation starts | No plan yet | Met for planning: S1 schemas, compatibility, immutable payload access, transform convention, and fixture corpus are stable. Component/animation-instance ownership remains a required just-in-time decision. | One component/runtime owner samples supported clips deterministically, evaluates local-to-component poses, handles time/looping, rejects incompatible clips, and publishes a bounded immutable palette candidate without rendering-thread object reads. |
+| S2: Runtime pose and clip playback | Required; active | [Skeletal Runtime Pose and Playback](../Plans/SkeletalRuntimePoseAndPlayback.md) | Met on 2026-08-10: S1 schemas, compatibility, detached payload access, transform convention, fixture corpus, component lifecycle, and runtime ownership seams were re-inspected. | One component/runtime owner samples supported clips deterministically, evaluates local-to-component poses, handles time/looping, rejects incompatible clips, and publishes a bounded immutable palette candidate without rendering-thread object reads. |
 | S3: Skeletal rendering vertical slice | Required; shared with Rendering M4; plan authored at entry | No plan yet | S1-S2 are stable; Rendering Capability Expansion M1-M3 have completed; the current RHI binding limits and shared pass/visibility APIs are measured; SkeletalMesh remains the selected second primitive family. | GPU-skinned SkeletalMesh shares scene mutation, materials, passes, visibility, viewport, invalidation, and applicable shadow behavior with StaticMesh; palette and bounds updates are deterministic and lifecycle-safe; Vulkan validation and animated image coverage pass. |
 | S4: Editor workflow and production qualification | Required; plan authored at entry | No plan yet | S3 renders a representative animated asset and exposes stable inspection/playback seams; current Content Browser and inspector extension contracts are re-inspected. | Users can import/reimport, identify, inspect, preview, diagnose, cook, and run supported skeletal assets through documented workflows; representative engine/project fixtures pass full editor and runtime qualification. |
 
@@ -229,14 +221,15 @@ malformed fixtures supply reproducible source evidence. Lasting contracts now
 live in [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
 and [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md).
 
-The S2 entry gate is satisfied for planning, but this does not authorize or
-pre-design playback. Current world ticking traverses actor-owned components,
-while render publication accepts detached candidates and forbids render-thread
-reads of reflected objects. When S2 implementation actually starts, its new
-plan must re-inspect those seams and choose one explicit owner for clip time,
-loop/rate state, compatibility binding, local pose evaluation, and immutable
-palette publication. It must also freeze sampling edge cases and pose goldens.
-No S2 plan is created as part of S1 completion.
+The S2 entry gate was re-inspected on 2026-08-10. Current world ticking
+traverses actor-owned components, Core provides checked transform decomposition,
+and render publication requires detached candidates without render-thread reads
+of reflected objects. The active S2 plan therefore selects
+`DSkeletalMeshComponent` as the public owner and a value-only
+`FSkeletalAnimationInstance` as the mutable evaluator. Stage 0 must freeze
+sampling/time edge cases, mesh-bind and inverse-bind order, pose goldens, and
+the complete-or-null candidate shape before implementation changes public
+storage.
 
 Final S1 qualification passed `CoreObjectTests`, AssetCore package/DDC/cook,
 `AssetImportCoreTests`, the complete StandardAssetImport fixture corpus,
