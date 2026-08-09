@@ -18,6 +18,7 @@
 #include "Misc/Paths.h"
 #include "Math/Color.h"
 #include "NativeTestSupport.h"
+#include "NativeDObjectTestSupport.h"
 #include "Threading/RunnableThread.h"
 
 #include <gtest/gtest.h>
@@ -1684,14 +1685,7 @@ namespace
 
 	void EnsureDObjectInitialized()
 	{
-		static const bool bInitialized = []() {
-			Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
-			Durin::GIsGameThreadIdInitialized = true;
-			Durin::FNameInit();
-			Durin::DObjectInit();
-			return true;
-		}();
-		(void)bInitialized;
+		Durin::Testing::InitializeDObjectSystemForTests();
 	}
 
 	struct FTypedStructPropertyOwnerForTest
@@ -2117,7 +2111,7 @@ namespace
 		EXPECT_EQ(Class->GetDefaultObject(), DefaultObject);
 
 		DLifecycleTestObject::ResetLifecycleCounts();
-		Durin::ReleaseClassDefaultObjects();
+		Durin::Private::ReleaseClassDefaultObjectForTests(Class);
 		EXPECT_EQ(Class->GetDefaultObject(), nullptr);
 		Durin::CollectGarbage();
 		EXPECT_FALSE(Durin::GDObjectArray.Contains(DefaultObject));
@@ -2129,6 +2123,7 @@ namespace
 	TEST(FCoreDObjectReflectionTests, RecursiveDefaultObjectConstructionRollsBackTheWholeObject)
 	{
 		EnsureDObjectInitialized();
+		Durin::CollectGarbage();
 		Durin::DClass* Class = DRecursiveDefaultObjectForTest::StaticClass();
 		(void)DLifecycleTestObject::StaticClass();
 		const Durin::uint64 ObjectCountBeforeCreation = Durin::GDObjectArray.GetNum();
@@ -2217,7 +2212,6 @@ namespace
 
 		Durin::MarkAsGarbage(ExtraChild);
 		Durin::MarkObjectHierarchyAsGarbage(Instance);
-		Durin::ReleaseClassDefaultObjects();
 		Durin::CollectGarbage();
 	}
 
@@ -2354,7 +2348,6 @@ namespace
 		EXPECT_TRUE(FailedPlan.Objects.empty());
 
 		Durin::MarkObjectHierarchyAsGarbage(Instance);
-		Durin::ReleaseClassDefaultObjects();
 		Durin::CollectGarbage();
 	}
 
@@ -2391,7 +2384,6 @@ namespace
 			Durin::EDefaultDeltaDisposition::Emitted);
 
 		Durin::MarkAsGarbage(Instance);
-		Durin::ReleaseClassDefaultObjects();
 		Durin::CollectGarbage();
 	}
 
@@ -2524,7 +2516,6 @@ namespace
 
 		Durin::MarkObjectHierarchyAsGarbage(Instance);
 		Durin::MarkObjectHierarchyAsGarbage(NewOuter);
-		Durin::ReleaseClassDefaultObjects();
 		Durin::CollectGarbage();
 	}
 
@@ -2621,7 +2612,6 @@ namespace
 
 		Durin::MarkAsGarbage(Instance);
 		Durin::MarkObjectHierarchyAsGarbage(Native);
-		Durin::ReleaseClassDefaultObjects();
 		Durin::CollectGarbage();
 	}
 
@@ -2634,7 +2624,6 @@ namespace
 		auto* Instance = Durin::NewObject<DDefaultGraphOwnerForTest>(
 			nullptr, Durin::FName("NoDeltaInstance"));
 		Instance->NativeOnlyStructValue = 99;
-		Durin::ReleaseClassDefaultObjects();
 		Durin::FDefaultDeltaPlan Plan;
 		Durin::FDefaultDeltaDiagnostic Diagnostic;
 		ASSERT_TRUE(Durin::BuildDefaultDeltaPlan(
@@ -2683,7 +2672,6 @@ namespace
 		EXPECT_TRUE(Plan.Objects.empty());
 
 		Durin::MarkObjectHierarchyAsGarbage(Instance);
-		Durin::ReleaseClassDefaultObjects();
 		Durin::CollectGarbage();
 	}
 
@@ -2716,7 +2704,6 @@ namespace
 		EXPECT_EQ(DefaultObject->SerializedNativeReference, Instance->SerializedNativeReference);
 
 		Durin::MarkAsGarbage(Instance);
-		Durin::ReleaseClassDefaultObjects();
 		Durin::CollectGarbage();
 	}
 
@@ -2994,6 +2981,7 @@ namespace
 	TEST(FCoreDObjectReflectionTests, GarbageCollectionWaitsForFinishReadinessWithoutRepeatingCallbacks)
 	{
 		EnsureDObjectInitialized();
+		Durin::CollectGarbage();
 		DLifecycleTestObject::ResetLifecycleCounts();
 		auto* Object = Durin::NewObject<DLifecycleTestObject>(nullptr, Durin::FName("DeferredFinishTestObject"));
 		Object->bReadyForFinishDestroy = false;
@@ -3325,6 +3313,7 @@ namespace
 	TEST(FCoreDObjectReflectionTests, AutomaticGarbageCollectionFindsReferenceRemovalAtMaximumInterval)
 	{
 		EnsureDObjectInitialized();
+		Durin::CollectGarbage();
 		Durin::FGarbageCollectionSettings Settings;
 		Settings.IntervalSeconds = 60.0;
 		Settings.MaxIntervalSeconds = 600.0;
@@ -3854,6 +3843,7 @@ namespace
 	TEST(FCoreDObjectReflectionTests, WeakObjectPtrUsesGenerationToRejectReusedSlot)
 	{
 		EnsureDObjectInitialized();
+		Durin::CollectGarbage();
 
 		Durin::DObject* First = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("WeakObjectPtrFirst"));
 		Durin::TWeakObjectPtr<Durin::DObject> WeakFirst = First;
@@ -4167,6 +4157,7 @@ namespace
 	TEST(FCoreDObjectReflectionTests, ReusedObjectSlotInvalidatesOldHandleGeneration)
 	{
 		EnsureDObjectInitialized();
+		Durin::CollectGarbage();
 		Durin::DObject* First = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("ObjectHandleFirst"));
 		const Durin::FObjectHandle FirstHandle = Durin::MakeObjectHandle(First);
 		Durin::MarkAsGarbage(First);

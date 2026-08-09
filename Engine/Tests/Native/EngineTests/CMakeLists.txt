@@ -71,6 +71,7 @@ function(durin_add_engine_functional_test target_name)
 	set_target_properties(${target_name} PROPERTIES
 		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 	)
+	durin_set_native_test_target_execution(${target_name})
 	if(DURIN_ENGINE_TEST_RUNTIME_STACK_RATIONALE)
 		set_target_properties(${target_name} PROPERTIES
 			DURIN_TEST_HEAVY_RUNTIME_RATIONALE

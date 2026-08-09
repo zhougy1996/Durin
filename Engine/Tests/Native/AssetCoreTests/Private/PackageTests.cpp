@@ -18,6 +18,7 @@
 #include "Misc/Paths.h"
 #include "Misc/FileHelper.h"
 #include "NativeTestSupport.h"
+#include "NativeDObjectTestSupport.h"
 #include "Threading/RunnableThread.h"
 
 #include <chrono>
@@ -820,25 +821,40 @@ namespace
 	auto InitializeAssetTests() -> void
 	{
 		static const bool Initialized = [] {
-			Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
-			Durin::GIsGameThreadIdInitialized = true;
-			Durin::FNameInit();
-			Durin::DObjectInit();
+			Durin::Testing::InitializeDObjectSystemForTests();
 			(void)DPackageAssetForTest::StaticClass();
 			(void)DAuthoredArchiveAssetForTest::StaticClass();
 			(void)DSoftPackageAssetForTest::StaticClass();
 			(void)DCodecSourceAsset::StaticClass();
 			(void)DCodecTargetAsset::StaticClass();
 			(void)DMathStructAssetForTest::StaticClass();
-			const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "Assets";
-			Durin::Testing::RemoveTestWorkDirectory(Root);
-			Durin::FPaths::SetDerivedDataCacheDirForTests(
-				(Durin::Testing::GetTestWorkDirectory() / "DerivedDataCache").generic_string()
-			);
-			Durin::PathUtilities::RegisterMountPointForTests("/TestAssets/", Root.generic_string() + "/");
 			return true;
 		}();
 		(void)Initialized;
+
+		Durin::Asset::ShutdownAssetManager();
+		Durin::CollectGarbage();
+		const std::filesystem::path Root =
+			Durin::Testing::GetTestWorkDirectory() / "Assets";
+		Durin::Testing::RemoveTestWorkDirectory(Root);
+		const std::filesystem::path DerivedDataRoot =
+			Durin::Testing::GetTestWorkDirectory() / "DerivedDataCache";
+		Durin::Testing::RemoveTestWorkDirectory(DerivedDataRoot);
+		Durin::FPaths::SetDerivedDataCacheDirForTests(
+			DerivedDataRoot.generic_string());
+		Durin::PathUtilities::RegisterMountPointForTests(
+			"/TestAssets/", Root.generic_string() + "/");
+		Durin::Asset::SetAssetRelocationFailurePointForTesting(
+			Durin::Asset::EAssetRelocationFailurePoint::None);
+		Durin::Asset::SetAssetRedirectorFixupFailurePointForTesting(
+			Durin::Asset::EAssetRedirectorFixupFailurePoint::None);
+		Durin::Asset::FAssetManager::Get().Initialize();
+		if (!Durin::Asset::GetAssetRegistry().ScanMountedContent(
+			Durin::Asset::EAssetRegistryScanMode::FullValidation))
+		{
+			throw std::runtime_error(
+				"Failed to establish a complete empty asset registry for the test fixture.");
+		}
 	}
 
 	class FMemoryAssetReferenceStore final
@@ -2516,6 +2532,8 @@ namespace
 										  ->PhysicalPath;
 		ASSERT_TRUE(Durin::Asset::UnloadPackage(OwnerPath));
 		ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
+		ASSERT_TRUE(Durin::Asset::GetAssetRegistry().ScanMountedContent(
+			Durin::Asset::EAssetRegistryScanMode::FullValidation));
 		std::vector<Durin::uint8> BeforeBytes;
 		ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BeforeBytes, OwnerFile));
 

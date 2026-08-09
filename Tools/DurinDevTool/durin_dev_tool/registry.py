@@ -623,9 +623,15 @@ COMMAND_SPECS = (
                 help="run CTest names matching a regex for --target all",
             ),
             _argument(
+                "--granularity",
+                choices=("target", "case", "hybrid"),
+                default=None,
+                help="aggregate execution granularity (default: target)",
+            ),
+            _argument(
                 "--include-direct",
                 action="store_true",
-                help="after case tests, run whole-target lifecycle tests for --target all",
+                help="compatibility qualification for direct targets not already selected",
             ),
         ),
     ),

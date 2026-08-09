@@ -31,6 +31,7 @@ function(durin_add_asset_functional_test target_name)
 	set_target_properties(${target_name} PROPERTIES
 		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 	)
+	durin_set_native_test_target_execution(${target_name})
 	if(DURIN_ASSET_TEST_TIMEOUT)
 		set_target_properties(${target_name} PROPERTIES
 			DURIN_TEST_TIMEOUT "${DURIN_ASSET_TEST_TIMEOUT}"

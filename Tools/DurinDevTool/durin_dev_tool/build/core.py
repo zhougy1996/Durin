@@ -29,6 +29,7 @@ from .config import (
     ConfigurePreset,
     EnvironmentProvider,
     EnvironmentSetup,
+    TestGranularity,
     host_name,
     load_configure_presets,
     load_local_config,
@@ -487,11 +488,22 @@ def validate_request(request: CommandRequest, preset: ConfigurePreset) -> None:
             or request.test_output_junit is not None
             or request.test_ctest_regex
             or request.test_include_direct
+            or request.test_granularity_explicit
         )
     ):
         raise BuildToolError(
-            "--schedule-random, --output-junit, --ctest-regex, and --include-direct "
-            "require --target all."
+            "--schedule-random, --output-junit, --ctest-regex, --include-direct, "
+            "and --granularity require --target all."
+        )
+    if (
+        request.action is Action.TEST
+        and request.target.casefold() == "all"
+        and request.test_ctest_regex
+        and request.test_granularity is not TestGranularity.CASE
+    ):
+        raise BuildToolError(
+            "--ctest-regex requires --granularity case because a case-name regex "
+            "is ambiguous for batched target processes."
         )
     if request.action is Action.TEST and not preset_cache_bool(preset, "BUILD_TESTING"):
         raise BuildToolError(f'Preset "{preset.name}" does not enable BUILD_TESTING.')

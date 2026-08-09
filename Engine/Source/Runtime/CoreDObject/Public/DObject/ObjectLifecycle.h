@@ -63,5 +63,7 @@ namespace Durin
 	namespace Private
 	{
 		COREDOBJECT_API auto MarkTemplateObjectHierarchyAsGarbage(DObject* RootObject) -> void;
+		// Native-test seam for validating one class-default teardown without releasing unrelated modules.
+		COREDOBJECT_API auto ReleaseClassDefaultObjectForTests(DClass* Class) -> void;
 	}
 }

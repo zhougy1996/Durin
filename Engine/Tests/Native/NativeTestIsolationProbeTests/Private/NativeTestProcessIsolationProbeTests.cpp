@@ -4,9 +4,11 @@
 #include "NativeTestSupportInternal.h"
 
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <regex>
+#include <string_view>
 
 namespace
 {
@@ -23,6 +25,23 @@ TEST(FNativeTestProcessSandboxTests, ProvidesCanonicalUniqueRunDirectory)
 		WorkDirectory.filename().string(),
 		std::regex("run-p[0-9]+-[0-9a-f]{32}")));
 	EXPECT_EQ(&WorkDirectory, &Durin::Testing::GetTestWorkDirectory());
+}
+
+TEST(FNativeTestProcessSandboxTests, ReportsControlledBatchedFailureWithRetainedWork)
+{
+	const char* FailureProbe = std::getenv("DURIN_TEST_BATCH_FAILURE_PROBE");
+	if (FailureProbe == nullptr || std::string_view(FailureProbe) != "1")
+	{
+		SUCCEED();
+		return;
+	}
+
+	const std::filesystem::path Marker =
+		Durin::Testing::GetTestWorkDirectory() / "controlled-batch-failure.txt";
+	std::ofstream(Marker) << "retained diagnostic from controlled batch failure\n";
+	ADD_FAILURE()
+		<< "Controlled batched assertion failure; retained-work marker: "
+		<< Marker.string();
 }
 
 TEST(FNativeTestProcessSandboxTests, CreatesContainedUnicodeAndLongSubdirectories)

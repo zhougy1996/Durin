@@ -2583,6 +2583,13 @@ namespace Durin
 				std::this_thread::yield();
 			}
 			Handles.clear();
+			const auto HandleReleaseDeadline =
+				std::chrono::steady_clock::now() + std::chrono::seconds(1);
+			while (GetTaskSchedulerDiagnostics().RetainedTerminalHandleCount != 0
+				&& std::chrono::steady_clock::now() < HandleReleaseDeadline)
+			{
+				std::this_thread::yield();
+			}
 			EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedTerminalHandleCount);
 			ShutdownTaskScheduler(true);
 			return SnapshotNanoseconds;
@@ -3055,6 +3062,15 @@ namespace Durin
 	TEST(FTaskAttributionTests, RegistersBoundedIdentityAndPropagatesAcrossTaskForms)
 	{
 		ShutdownTaskScheduler(false);
+		Private::ResetTaskAttributionRegistryForTests();
+		struct FAttributionRegistryResetGuard
+		{
+			~FAttributionRegistryResetGuard()
+			{
+				ShutdownTaskScheduler(false);
+				Private::ResetTaskAttributionRegistryForTests();
+			}
+		} AttributionRegistryResetGuard;
 		FEngineThreadPoolTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(2));
 
@@ -3770,6 +3786,13 @@ namespace Durin
 		EXPECT_EQ(CallableCount * 2, CallableRuns.load(std::memory_order::acquire));
 		EXPECT_EQ(static_cast<uint64>(ResultCount) * ResultBytes * 2,
 			ResultBytesObserved.load(std::memory_order::acquire));
+		const auto ResultReleaseDeadline =
+			std::chrono::steady_clock::now() + std::chrono::seconds(1);
+		while (GetTaskSchedulerDiagnostics().RetainedUniqueResultBytes != 0
+			&& std::chrono::steady_clock::now() < ResultReleaseDeadline)
+		{
+			std::this_thread::yield();
+		}
 		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedUniqueResultBytes);
 		std::cout << "TaskOwnershipQualification,callables=" << CallableCount
 			<< ",results=" << ResultCount << ",result_bytes=" << ResultBytes
@@ -4142,9 +4165,10 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		FThreadEvent DiscardStarted;
 		FThreadEvent ReleaseDiscard;
-		auto DiscardRoot = LaunchTask<int>("DiscardTypedRoot", [&]() {
+		auto DiscardRoot = LaunchCancelableTask<int>("DiscardTypedRoot", [&](const FTaskCancellationToken& Token) {
 			DiscardStarted.Trigger();
 			ReleaseDiscard.Wait();
+			while (!Token.IsCancellationRequested()) std::this_thread::yield();
 			return 10;
 		});
 		auto DiscardTail = Then(DiscardRoot, "DiscardTypedTail", [](const int& Value) { return Value + 1; });

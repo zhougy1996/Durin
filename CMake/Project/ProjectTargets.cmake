@@ -596,6 +596,115 @@ function(durin_resolve_native_test_discovery_policy
 	set(${out_labels} "${_durin_labels}" PARENT_SCOPE)
 endfunction()
 
+function(durin_set_native_test_case_migration
+	target_name
+	repair_stage
+	rationale)
+	if(NOT TARGET ${target_name})
+		message(FATAL_ERROR
+			"Cannot set native-test execution policy for missing target ${target_name}.")
+	endif()
+	set_target_properties(${target_name} PROPERTIES
+		DURIN_TEST_DEFAULT_GRANULARITY CASE
+		DURIN_TEST_CASE_REPAIR_STAGE "${repair_stage}"
+		DURIN_TEST_CASE_MIGRATION_RATIONALE "${rationale}"
+	)
+endfunction()
+
+function(durin_set_native_test_target_execution target_name)
+	if(NOT TARGET ${target_name})
+		message(FATAL_ERROR
+			"Cannot set native-test execution policy for missing target ${target_name}.")
+	endif()
+	set_target_properties(${target_name} PROPERTIES
+		DURIN_TEST_DEFAULT_GRANULARITY TARGET
+		DURIN_TEST_CASE_REPAIR_STAGE ""
+		DURIN_TEST_CASE_MIGRATION_RATIONALE ""
+	)
+endfunction()
+
+function(durin_resolve_native_test_execution_policy
+	out_case_labels
+	out_target_labels
+	target_name
+	direct_lifecycle
+	default_granularity
+	case_rationale
+	case_repair_stage)
+	set(options)
+	set(one_value_args)
+	set(multi_value_args LABELS)
+	cmake_parse_arguments(
+		DURIN_EXECUTION
+		"${options}"
+		"${one_value_args}"
+		"${multi_value_args}"
+		${ARGN}
+	)
+	if(DURIN_EXECUTION_UNPARSED_ARGUMENTS)
+		message(FATAL_ERROR
+			"Unknown native-test execution policy arguments for ${target_name}: "
+			"${DURIN_EXECUTION_UNPARSED_ARGUMENTS}")
+	endif()
+
+	set(_durin_case_labels ${DURIN_EXECUTION_LABELS} native-test-case)
+	list(REMOVE_DUPLICATES _durin_case_labels)
+	set(_durin_target_labels)
+	if(native-test-characterization IN_LIST DURIN_EXECUTION_LABELS)
+		if(direct_lifecycle)
+			message(FATAL_ERROR
+				"${target_name} characterization tests cannot register a direct lifecycle.")
+		endif()
+		if(default_granularity OR case_rationale OR case_repair_stage)
+			message(FATAL_ERROR
+				"${target_name} characterization tests cannot declare ordinary default execution policy.")
+		endif()
+		set(${out_case_labels} "${_durin_case_labels}" PARENT_SCOPE)
+		set(${out_target_labels} "" PARENT_SCOPE)
+		return()
+	endif()
+
+	if(NOT direct_lifecycle)
+		message(FATAL_ERROR
+			"${target_name} ordinary native tests require a direct lifecycle registration.")
+	endif()
+	if(NOT default_granularity)
+		set(default_granularity TARGET)
+	endif()
+	if(NOT default_granularity STREQUAL "CASE"
+		AND NOT default_granularity STREQUAL "TARGET")
+		message(FATAL_ERROR
+			"${target_name} DURIN_TEST_DEFAULT_GRANULARITY must be CASE or TARGET.")
+	endif()
+
+	set(_durin_target_labels
+		${DURIN_EXECUTION_LABELS}
+		native-test-target
+		native-test-direct
+	)
+	if(default_granularity STREQUAL "CASE")
+		if(NOT case_rationale)
+			message(FATAL_ERROR
+				"${target_name} CASE execution requires DURIN_TEST_CASE_MIGRATION_RATIONALE.")
+		endif()
+		if(NOT case_repair_stage MATCHES "^Stage [1-9][0-9]*$")
+			message(FATAL_ERROR
+				"${target_name} CASE execution requires DURIN_TEST_CASE_REPAIR_STAGE in 'Stage N' form.")
+		endif()
+		list(APPEND _durin_case_labels native-test-default)
+	else()
+		if(case_rationale OR case_repair_stage)
+			message(FATAL_ERROR
+				"${target_name} TARGET execution cannot retain CASE migration metadata.")
+		endif()
+		list(APPEND _durin_target_labels native-test-default)
+	endif()
+	list(REMOVE_DUPLICATES _durin_case_labels)
+	list(REMOVE_DUPLICATES _durin_target_labels)
+	set(${out_case_labels} "${_durin_case_labels}" PARENT_SCOPE)
+	set(${out_target_labels} "${_durin_target_labels}" PARENT_SCOPE)
+endfunction()
+
 function(durin_discover_tests target_name)
 	if(NOT TARGET ${target_name})
 		message(FATAL_ERROR "Cannot discover tests for missing target ${target_name}.")
@@ -649,6 +758,21 @@ function(durin_discover_tests target_name)
 		message(FATAL_ERROR
 			"${target_name} DURIN_TEST_DIRECT_LIFECYCLE must be TRUE or FALSE.")
 	endif()
+	get_target_property(_durin_default_granularity
+		${target_name} DURIN_TEST_DEFAULT_GRANULARITY)
+	if(_durin_default_granularity MATCHES "-NOTFOUND$")
+		set(_durin_default_granularity)
+	endif()
+	get_target_property(_durin_case_migration_rationale
+		${target_name} DURIN_TEST_CASE_MIGRATION_RATIONALE)
+	if(_durin_case_migration_rationale MATCHES "-NOTFOUND$")
+		set(_durin_case_migration_rationale)
+	endif()
+	get_target_property(_durin_case_repair_stage
+		${target_name} DURIN_TEST_CASE_REPAIR_STAGE)
+	if(_durin_case_repair_stage MATCHES "-NOTFOUND$")
+		set(_durin_case_repair_stage)
+	endif()
 	get_target_property(_durin_target_lock_rationale ${target_name}
 		DURIN_TEST_TARGET_LOCK_RATIONALE)
 	if(_durin_target_lock_rationale MATCHES "-NOTFOUND$")
@@ -669,10 +793,20 @@ function(durin_discover_tests target_name)
 		LABELS ${_durin_extra_labels}
 		TARGET_LOCK_RATIONALE "${_durin_target_lock_rationale}"
 	)
+	durin_resolve_native_test_execution_policy(
+		_durin_case_labels
+		_durin_target_labels
+		"${target_name}"
+		"${_durin_direct_lifecycle}"
+		"${_durin_default_granularity}"
+		"${_durin_case_migration_rationale}"
+		"${_durin_case_repair_stage}"
+		LABELS ${_durin_labels}
+	)
 
 	set_target_properties(${target_name} PROPERTIES
 		DURIN_TEST_DISCOVERY_RESOURCE_LOCKS "${_durin_resource_locks}"
-		DURIN_TEST_DISCOVERY_LABELS "${_durin_labels}"
+		DURIN_TEST_DISCOVERY_LABELS "${_durin_case_labels}"
 	)
 
 	gtest_discover_tests(${target_name}
@@ -689,7 +823,7 @@ function(durin_discover_tests target_name)
 	string(CONCAT _durin_policy_content
 		"foreach(_durin_discovered_test IN LISTS ${target_name}_TESTS)\n"
 		"  set_tests_properties(\"\${_durin_discovered_test}\" PROPERTIES\n"
-		"    LABELS \"${_durin_labels}\"\n")
+		"    LABELS \"${_durin_case_labels}\"\n")
 	if(_durin_resource_locks)
 		string(APPEND _durin_policy_content
 			"    RESOURCE_LOCK \"${_durin_resource_locks}\"\n")
@@ -710,15 +844,11 @@ function(durin_discover_tests target_name)
 			COMMAND "$<TARGET_FILE:${target_name}>" --gtest_brief=1
 			WORKING_DIRECTORY "${_durin_work_dir}"
 		)
-		set(_durin_direct_labels
-			${_durin_labels}
-			native-test-direct
-		)
 		set_tests_properties(
 			"Durin.NativeTestDirect.${target_name}"
 			PROPERTIES
 				TIMEOUT "${_durin_timeout}"
-				LABELS "${_durin_direct_labels}"
+				LABELS "${_durin_target_labels}"
 		)
 		if(_durin_resource_locks)
 			set_tests_properties(

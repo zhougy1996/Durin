@@ -270,6 +270,15 @@ namespace Durin
 		(void)ReleaseMatchingClassDefaultObjects([](const DClass*) { return true; });
 	}
 
+	void Private::ReleaseClassDefaultObjectForTests(DClass* Class)
+	{
+		CheckObjectThread();
+		if (DObject* Object = Private::ReleaseClassDefaultObjectOwnership(Class))
+		{
+			Private::MarkTemplateObjectHierarchyAsGarbage(Object);
+		}
+	}
+
 	auto ReleaseClassDefaultObjectsForModule(FName ModuleName) -> bool
 	{
 		CheckObjectThread();

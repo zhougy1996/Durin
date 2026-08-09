@@ -134,6 +134,14 @@ TEST(FDefaultMaterialServiceTests, LoadsAndRetainsOneNeutralAuthoredProxy)
 TEST(FDefaultMaterialServiceTests, MissingEngineContentSelectsErrorTerminal)
 {
 	InitializeDObjectSystem();
+	Durin::ShutdownDefaultMaterialService();
+	Durin::FAssetPath DefaultPath;
+	if (Durin::FAssetPath::TryCreate(
+			Durin::DefaultMaterialAssetPath, DefaultPath))
+	{
+		Durin::Asset::UnloadPackage(DefaultPath);
+	}
+	Durin::CollectGarbage();
 	Durin::ResetMaterialFallbackDiagnosticsForTests();
 	const std::filesystem::path Root =
 		Durin::Testing::CreateTestFixtureDirectory("MissingDefaultMaterial");

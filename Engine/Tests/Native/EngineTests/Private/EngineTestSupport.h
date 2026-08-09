@@ -5,14 +5,12 @@
 #include "DObject/DObjectGlobals.h"
 #include "EngineAssetServices.h"
 #include "Misc/Name.h"
+#include "NativeDObjectTestSupport.h"
 
 inline auto InitializeDObjectSystem() -> void
 {
 	static const bool bInitialized = []() {
-		Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
-		Durin::GIsGameThreadIdInitialized = true;
-		if (!Durin::IsFNameInitialized()) Durin::FNameInit();
-		Durin::DObjectInit();
+		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::InitializeEngineAssetServices();
 		return true;
 	}();

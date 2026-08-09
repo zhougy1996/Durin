@@ -9,6 +9,7 @@
 #include "DObject/ObjectPtr.h"
 #include "CoreGlobals.h"
 #include "Threading/RunnableThread.h"
+#include "NativeDObjectTestSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -165,14 +166,9 @@ namespace
 {
 	void EnsureSnapshotTestsInitialized()
 	{
-		static const bool bInitialized = [] {
-			Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
-			Durin::GIsGameThreadIdInitialized = true;
-			if (!Durin::IsFNameInitialized()) Durin::FNameInit();
-			if (!Durin::FindClassByQualifiedName("Durin::DObject")) Durin::DObjectInit();
-			return true;
-		}();
-		(void)bInitialized;
+		Durin::Testing::InitializeDObjectSystemForTests();
+		(void)Durin::Z_Construct_DStruct_Durin_FVector3();
+		(void)Durin::Z_Construct_DStruct_Durin_FTransform();
 	}
 
 	template<typename T>

@@ -126,6 +126,7 @@ Use the root wrapper for configuration, builds, and tests:
 .\DevTool.bat run
 .\DevTool.bat test --target CoreConcurrencyTests --filter FTaskSchedulerTests.*
 .\DevTool.bat test --target all
+.\DevTool.bat test --target all --granularity case
 .\DevTool.bat clean
 .\DevTool.bat recover
 .\DevTool.bat rebuild --target all
@@ -452,6 +453,15 @@ Use `help` for the complete command list, `help <command>` for a command, and
 leading slash remains accepted for compatibility but is not required. A bare
 group without a selected safe default displays its group help and returns to the
 interactive prompt.
+
+`test --target all` defaults to one process per ordinary native-test target.
+Pass `--granularity case` for complete one-process-per-case isolation or a
+case-name `--ctest-regex`; `--granularity hybrid` is retained for rollout
+compatibility and currently matches target mode. `--schedule-random` also
+shuffles cases inside batched target processes and prints the reproducible
+GoogleTest seed. A focused `test --target <Target> --filter <Filter>` always
+launches one filtered target process. See
+[Native C++ Tests](NativeTests.md) for lifecycle, sandbox, and authoring rules.
 
 ## Repository Locations
 

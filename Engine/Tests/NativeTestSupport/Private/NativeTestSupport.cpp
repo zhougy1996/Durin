@@ -76,6 +76,37 @@ namespace Durin::Testing
 		}
 
 		constexpr std::string_view SuccessfulRunMarker = ".durin-success";
+		constexpr std::string_view DeathTestParentWorkEnvironment =
+			"DURIN_TEST_DEATH_PARENT_WORK";
+
+		auto IsGoogleTestDeathChild(int ArgumentCount, char** Arguments) -> bool
+		{
+			constexpr std::string_view Prefix = "--gtest_internal_run_death_test=";
+			for (int Index = 1; Index < ArgumentCount; ++Index)
+			{
+				if (Arguments[Index] != nullptr
+					&& std::string_view(Arguments[Index]).starts_with(Prefix))
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+
+		auto PublishDeathTestParentWork(
+			const std::filesystem::path& WorkDirectory) -> void
+		{
+			const std::string Value = WorkDirectory.string();
+#if defined(_WIN32)
+			if (_putenv_s(DeathTestParentWorkEnvironment.data(), Value.c_str()) != 0)
+#else
+			if (setenv(DeathTestParentWorkEnvironment.data(), Value.c_str(), 1) != 0)
+#endif
+			{
+				throw std::runtime_error(
+					"Failed to publish the native-test parent sandbox for death-test children.");
+			}
+		}
 
 		auto IsProcessRunning(const std::uint32_t ProcessId) -> bool
 		{
@@ -336,6 +367,8 @@ namespace Durin::Testing
 		char** Arguments,
 		const std::filesystem::path& WorkRoot) -> int
 	{
+		const bool DeathTestChild =
+			IsGoogleTestDeathChild(ArgumentCount, Arguments);
 		const bool KeepWorkArgument =
 			ConsumeFlag(ArgumentCount, Arguments, "--durin-keep-test-work");
 		const bool CrashProbe =
@@ -353,20 +386,36 @@ namespace Durin::Testing
 			{
 				const std::uint32_t ProcessId =
 					FPlatformProcess::CurrentProcessId();
-				Private::CleanupAbandonedSuccessfulRunDirectories(
-					WorkRoot,
-					ProcessId,
-					std::filesystem::file_time_type::clock::now(),
-					std::chrono::hours(24),
-					IsProcessRunning);
-				State.WorkDirectory = Private::CreateUniqueRunDirectory(
-					WorkRoot,
-					ProcessId,
-					MakeNonce);
+				const char* DeathTestParentWork =
+					std::getenv(DeathTestParentWorkEnvironment.data());
+				if (DeathTestChild && DeathTestParentWork != nullptr)
+				{
+					State.WorkDirectory = Private::CreateUniqueRunDirectory(
+						std::filesystem::path(DeathTestParentWork) / "DeathChildren",
+						ProcessId,
+						MakeNonce);
+				}
+				else
+				{
+					Private::CleanupAbandonedSuccessfulRunDirectories(
+						WorkRoot,
+						ProcessId,
+						std::filesystem::file_time_type::clock::now(),
+						std::chrono::hours(24),
+						IsProcessRunning);
+					State.WorkDirectory = Private::CreateUniqueRunDirectory(
+						WorkRoot,
+						ProcessId,
+						MakeNonce);
+				}
 				State.KeepWork = KeepWork;
 				State.Initialized = true;
 			}
 			WorkDirectory = State.WorkDirectory;
+		}
+		if (!DeathTestChild)
+		{
+			PublishDeathTestParentWork(WorkDirectory);
 		}
 
 		std::cout << "[ DURIN   ] Test work directory: "

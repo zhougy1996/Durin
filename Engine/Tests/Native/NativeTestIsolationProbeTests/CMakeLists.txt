@@ -13,6 +13,8 @@ set_target_properties(NativeTestIsolationCharacterizationTests PROPERTIES
 	DURIN_TEST_DIRECT_LIFECYCLE FALSE
 )
 
+durin_set_native_test_target_execution(NativeTestIsolationProbeTests)
+
 target_include_directories(NativeTestIsolationProbeTests PRIVATE
 	"${CMAKE_CURRENT_LIST_DIR}/../../NativeTestSupport/Private"
 )

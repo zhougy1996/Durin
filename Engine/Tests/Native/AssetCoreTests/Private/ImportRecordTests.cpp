@@ -10,6 +10,7 @@
 #include "Misc/Paths.h"
 #include "MultiOutputImport.h"
 #include "NativeTestSupport.h"
+#include "NativeDObjectTestSupport.h"
 #include "Threading/RunnableThread.h"
 
 namespace
@@ -148,10 +149,7 @@ namespace
 	auto InitializeImportRecordTests() -> void
 	{
 		static const bool Initialized = [] {
-			Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
-			Durin::GIsGameThreadIdInitialized = true;
-			Durin::FNameInit();
-			Durin::DObjectInit();
+			Durin::Testing::InitializeDObjectSystemForTests();
 			Durin::FPaths::SetDerivedDataCacheDirForTests(
 				(Durin::Testing::GetTestWorkDirectory() / "ImportRecordDDC").generic_string()
 			);

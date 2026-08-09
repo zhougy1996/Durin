@@ -19,6 +19,7 @@ from .config import (
     RequestContext,
     RunActionOptions,
     TestActionOptions,
+    TestGranularity,
 )
 from .operations import execute_request
 
@@ -73,6 +74,11 @@ def request_from_namespace(namespace: argparse.Namespace) -> CommandRequest:
             ctest_regex=str(namespace_value(namespace, "ctest_regex", "")),
             include_direct=bool(
                 namespace_value(namespace, "include_direct", False)
+            ),
+            granularity=(
+                TestGranularity(str(namespace_value(namespace, "granularity", "")))
+                if namespace_value(namespace, "granularity", None) is not None
+                else None
             ),
         )
     elif action is Action.RUN:

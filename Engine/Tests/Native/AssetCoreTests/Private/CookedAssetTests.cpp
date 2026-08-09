@@ -10,6 +10,7 @@
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
 #include "NativeTestSupport.h"
+#include "NativeDObjectTestSupport.h"
 
 namespace
 {
@@ -34,16 +35,7 @@ namespace
 	auto MakePackageBytes() -> std::vector<uint8>
 	{
 		static const bool bInitialized = [] {
-			if (!GIsGameThreadIdInitialized)
-			{
-				GGameThreadId = FPlatformLTS::GetCurrentThreadId();
-				GIsGameThreadIdInitialized = true;
-			}
-			if (!IsFNameInitialized())
-			{
-				FNameInit();
-			}
-			DObjectInit();
+			Testing::InitializeDObjectSystemForTests();
 			return true;
 		}();
 		(void)bInitialized;

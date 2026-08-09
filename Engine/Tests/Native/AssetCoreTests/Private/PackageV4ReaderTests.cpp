@@ -6,6 +6,7 @@
 #include "DObject/DObjectArray.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
+#include "NativeDObjectTestSupport.h"
 #include "PackageV4ReferenceModel.h"
 #include "HAL/PlatformLTS.h"
 
@@ -59,13 +60,7 @@ namespace
 	auto InitializeLiveReaderTest() -> Durin::FAssetPath
 	{
 		static const bool Initialized = [] {
-			if (!Durin::GIsGameThreadIdInitialized)
-			{
-				Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
-				Durin::GIsGameThreadIdInitialized = true;
-				Durin::FNameInit();
-				Durin::DObjectInit();
-			}
+			Durin::Testing::InitializeDObjectSystemForTests();
 			(void)Durin::Asset::DAssetRedirector::StaticClass();
 			const auto Root = Durin::Testing::GetTestWorkDirectory() / "V4ReaderAssets";
 			Durin::PathUtilities::RegisterMountPointForTests("/V4Reader/", Root.generic_string() + "/");

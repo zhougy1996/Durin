@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-09",
+  "sourceCommit": "dd7c3472",
+  "profile": "windows-msvc-x64",
+  "preset": "Win64-Debug-DurinEditor-Tests",
+  "jobs": 18,
+  "registration": {
+    "ordinaryCaseProcesses": 1244,
+    "ordinaryTargetProcesses": 46,
+    "disabledCases": 2,
+    "skippedCases": 2,
+    "characterizationCaseProcesses": 2
+  },
+  "initialCaseRuns": [
+    {
+      "junit": "Build/NativeTestExecutionGranularityEvidence/stage0-case-random-1.xml",
+      "wallSeconds": 30.15,
+      "processSeconds": 317.317,
+      "failures": []
+    },
+    {
+      "junit": "Build/NativeTestExecutionGranularityEvidence/stage0-case-random-2.xml",
+      "wallSeconds": 30.46,
+      "processSeconds": 305.386,
+      "failures": [
+        "FTaskContinuationTests.DrainAndDiscardShutdownTerminalizeContinuationChains"
+      ]
+    },
+    {
+      "junit": "Build/NativeTestExecutionGranularityEvidence/stage0-case-random-3.xml",
+      "wallSeconds": 31.31,
+      "processSeconds": 305.510,
+      "failures": []
+    }
+  ],
+  "qualifiedRuns": [
+    {
+      "caseJunit": "Build/NativeTestExecutionGranularityEvidence/stage0-qualified-1.xml",
+      "caseWallSeconds": 29.95,
+      "caseProcessSeconds": 315.490,
+      "directJunit": "Build/NativeTestExecutionGranularityEvidence/stage0-qualified-1.direct.xml",
+      "directWallSeconds": 21.21,
+      "directProcessSeconds": 112.530
+    },
+    {
+      "caseJunit": "Build/NativeTestExecutionGranularityEvidence/stage0-qualified-2.xml",
+      "caseWallSeconds": 30.00,
+      "caseProcessSeconds": 304.050,
+      "directJunit": "Build/NativeTestExecutionGranularityEvidence/stage0-qualified-2.direct.xml",
+      "directWallSeconds": 20.43,
+      "directProcessSeconds": 110.900
+    },
+    {
+      "caseJunit": "Build/NativeTestExecutionGranularityEvidence/stage0-qualified-3.xml",
+      "caseWallSeconds": 31.44,
+      "caseProcessSeconds": 304.180,
+      "directJunit": "Build/NativeTestExecutionGranularityEvidence/stage0-qualified-3.direct.xml",
+      "directWallSeconds": 21.38,
+      "directProcessSeconds": 112.450
+    }
+  ],
+  "slowestCaseDomains": [
+    {"name": "CoreConcurrencyTests", "processSeconds": 33.99},
+    {"name": "TextureTests", "processSeconds": 42.59},
+    {"name": "AssetPackageTests", "processSeconds": 21.90},
+    {"name": "MaterialTests", "processSeconds": 18.78},
+    {"name": "EditorAssetWorkflowTests", "processSeconds": 14.94}
+  ],
+  "slowestDirectTargets": [
+    {"name": "TextureTests", "seconds": 20.8165},
+    {"name": "SkeletalSceneLifecycleTests", "seconds": 10.2288},
+    {"name": "AssetPackageTests", "seconds": 9.29013},
+    {"name": "EditorAssetWorkflowTests", "seconds": 8.34228},
+    {"name": "CoreConcurrencyTests", "seconds": 7.21671}
+  ],
+  "stageZeroFindings": [
+    {
+      "target": "CoreConcurrencyTests",
+      "kind": "terminal-publication-race",
+      "status": "repaired",
+      "cases": [
+        "FTaskContinuationTests.DrainAndDiscardShutdownTerminalizeContinuationChains",
+        "FTaskQualificationTests.MeasuresCopyableMoveOnlyAndSharedUniqueTransfer",
+        "FTaskDiagnosticsTests.FirstSnapshotAfterObservationFreeLifetimeIsNotHistoryLinear"
+      ]
+    },
+    {
+      "target": "CoreConcurrencyTests",
+      "kind": "order-dependent-attribution-registration",
+      "status": "migration-repair-required",
+      "seed": 40811
+    },
+    {
+      "target": "CoreObjectTests",
+      "kind": "duplicate-object-system-initialization",
+      "status": "migration-repair-required",
+      "seed": 40811
+    },
+    {
+      "target": "AssetPackageTests",
+      "kind": "duplicate-object-system-initialization",
+      "status": "migration-repair-required",
+      "seed": 40811
+    },
+    {
+      "target": "death-test-targets",
+      "kind": "expected-child-crash-retains-sandbox",
+      "status": "migration-repair-required"
+    }
+  ]
+}

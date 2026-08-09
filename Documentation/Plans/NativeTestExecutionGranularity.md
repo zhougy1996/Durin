@@ -1,11 +1,11 @@
 # Native Test Execution Granularity Plan
 
-Summary: Replace universal per-case native-test execution with an explicit hybrid policy that batches proven-safe targets while retaining case isolation for lifecycle and shared-resource risks.
+Summary: Make one-process-per-target execution the ordinary native-test default while retaining full case isolation as an explicit diagnostic and qualification mode.
 
 Last reviewed: 2026-08-09
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-09
 
 ## Current Status
 
@@ -17,25 +17,80 @@ assertion-scale case. The existing direct registrations demonstrate the
 opposite execution granularity, but they are qualification-only and do not
 participate in the default aggregate.
 
-This plan selects a hybrid default rather than a repository-wide switch. No
-target changes granularity until its same-process lifecycle and order
-independence are measured and qualified. Implementation has not started.
+This plan selects target-level execution as the final routine default. Hybrid
+selection is a migration mechanism while targets prove same-process lifecycle
+and order independence; it is not the intended steady state. Tests that cannot
+share a process must first repair teardown or move into a dedicated execution
+target. Only infrastructure probes whose purpose requires multiple processes,
+intentional crashes, or abrupt exits remain exceptional. Stage 0 froze the
+`windows-msvc-x64` baseline, qualified a low-risk pilot, and recorded the
+remaining lifecycle repairs. Stage 1 added validated `CASE`/`TARGET` policy,
+stable case/target/default labels, explicit migration metadata on every
+ordinary target, and configuration probes for all rejection paths. Stage 2
+added typed `target`, `case`, and `hybrid` aggregate selection, made hybrid the
+rollout default, propagated reproducible GoogleTest shuffle seeds into batched
+processes, and added actionable batched-failure diagnostics. Stage 3 migrated
+21 qualified targets, reduced hybrid launches by 26.7 percent, and verified
+retained batched-failure diagnosis. Stage 4 migrated every remaining ordinary
+target, repaired shared process state and writable-data isolation, and made
+target execution the repository default. The final 48-process aggregate cuts
+launches by 96.1 percent from the Stage 0 case baseline and passes the timing,
+case-compatibility, and diagnostic gates.
+
+The Stage 0 handoff is
+[Native Test Execution Granularity Stage 0 Evidence](../Development/Build/NativeTestExecutionGranularityStage0.md).
+
+Stage 1 baseline commit: `63be6552`. Its working set was
+`CMake/Project/ProjectTargets.cmake`, the native-test policy probes, and native
+target `CMakeLists.txt` declarations. The migration fallback remains `CASE`;
+all ordinary targets require direct lifecycle registration, while the process
+isolation characterization target has no default family. Configure, policy
+probes, registration-label/timeout/resource auditing, and a complete randomized
+case aggregate passed. No Stage 1 questions remain open.
+
+Stage 2 baseline commit: `0cb71947`. Its working set was the DurinDevTool build
+request, parser, runtime, and their command tests. Aggregate modes select only
+the declarative CTest labels; a case-name regex is accepted only in case mode,
+and `--include-direct` runs only direct registrations absent from the hybrid
+default. All 306 DurinDevTool tests passed. Root-wrapper integration passed for
+case (1,242 registrations), hybrid (1,242), target (46), and hybrid plus the
+46-registration compatibility phase, with no failures or duplicate work. No
+Stage 2 questions remain open.
+
+Stage 3 baseline commit: `d587e708`. Its working set was the declarative native
+test policies, the ordinary isolation probe, and Stage 3 evidence. The 21
+target-default registrations own their existing process sandbox and scoped
+fixture lifecycle; no production lifecycle change was required. Three
+randomized hybrid runs and two randomized case runs passed. Two randomized
+all-target diagnostics left only the Stage 4 repair queue failing. The detailed
+handoff is [Native Test Execution Granularity Stage 3 Evidence](../Development/Build/NativeTestExecutionGranularityStage3.md).
+
+Stage 4 baseline commit: `055e05b6`. Its working set was the final native-test
+declarations, shared object/death-child support, bounded object and task test
+seams, asset/material fixtures, DurinDevTool defaults, and authoritative build
+documentation. Three consecutive randomized target aggregates, a complete
+case aggregate, hybrid compatibility, focused lifecycle qualification, CMake
+policy configuration, and all 306 DurinDevTool tests passed. There are no
+temporary ordinary `CASE` exceptions or open questions. The detailed handoff
+is [Native Test Execution Granularity Stage 4 Evidence](../Development/Build/NativeTestExecutionGranularityStage4.md).
 
 ## Goal
 
-Make the routine native-test aggregate use target-level processes for proven
-batch-safe execution domains and case-level processes for tests whose failure,
-lifecycle, concurrency, or shared-resource behavior still requires isolation.
-The result must materially reduce process creation without weakening focused
-diagnosis, resource locking, failure reporting, or the ability to run the
-complete suite with case isolation.
+Make the routine native-test aggregate launch every ordinary test target once,
+allowing targets to run concurrently under their existing resource policy.
+Retain complete case-isolated execution as an explicit diagnosis and
+independence-qualification mode. The result must reduce routine process creation
+to approximately the number of functional targets without weakening focused
+filters, resource locking, failure reporting, or exceptional crash probes.
 
 ## Scope
 
 - Native-test discovery metadata and registration in
   `CMake/Project/ProjectTargets.cmake`.
-- Per-target declaration of the default execution granularity.
-- DurinDevTool selection of hybrid, case, and target native-test aggregates.
+- Explicit classification of ordinary targets and exceptional multi-process
+  characterization runners.
+- DurinDevTool selection of target, case, and transitional hybrid native-test
+  aggregates.
 - Policy validation and unit coverage for CMake and DurinDevTool.
 - Evidence-driven migration of existing native-test targets.
 - Native-test workflow documentation and qualification evidence.
@@ -45,7 +100,8 @@ complete suite with case isolation.
 - Deleting functional coverage merely to reduce process count.
 - Removing per-process sandboxes or allowing shared writes below a target's
   `Work` container.
-- Making every target run in one process by default.
+- Forcing intentional crash, abrupt-exit, or concurrent-sandbox
+  characterization into an ordinary same-process target.
 - Combining native-test executables that have different dependency, runtime,
   fixture, timeout, or resource-lock ownership.
 - Changing focused `test --target <Target> --filter <Filter>` behavior.
@@ -57,25 +113,35 @@ complete suite with case isolation.
 
 ### Execution modes
 
-- `hybrid` is the eventual default for `test --target all`. Each target runs at
-  its declared default granularity.
+- `target` is the eventual default for `test --target all`. Every ordinary
+  native-test executable runs once, and different targets remain eligible for
+  CTest parallelism under their existing resource locks.
 - `case` runs all discovered GoogleTest cases independently and preserves the
-  current aggregate as the isolation and diagnosis fallback.
-- `target` runs each eligible native-test executable once. It is an explicit
-  qualification mode and does not include characterization-only targets.
+  current aggregate as an explicit state-leak diagnosis and independence
+  qualification mode. It is not a routine acceleration mode.
+- `hybrid` exists only during migration. It runs qualified targets once and
+  retains case execution for targets whose teardown or topology is still being
+  repaired. It is removed or demoted to an internal compatibility mode after
+  every ordinary target migrates.
+- Random scheduling in target or hybrid mode randomizes both CTest target order
+  and GoogleTest case order inside each selected target. Case mode retains CTest
+  process-order randomization.
 - A focused single-target run continues to launch that executable once and
   forwards an optional GoogleTest filter; aggregate granularity does not alter
   this path.
 
 ### Target policy
 
-- The safe configuration fallback is case execution. A new or undeclared
-  target never becomes batched implicitly.
-- A target may opt into target-level default execution only with an explicit
-  CMake property and a non-empty rationale naming its owned initialization,
+- Every ordinary target must support target-level execution. New ordinary
+  targets receive target execution by default and must own their initialization,
   teardown, mutable state, and fixture-reset boundary.
-- Target-level default execution requires a direct lifecycle registration and
-  is invalid for characterization-only targets.
+- A temporary case-default declaration requires a non-empty migration rationale
+  naming the unresolved teardown or topology defect and the stage that removes
+  the exception. It is not a permanent risk classification.
+- Intentional crash, abrupt-exit, and concurrent-process characterization uses
+  a dedicated target or custom runner and is excluded from routine aggregates.
+- Target-level execution requires a direct lifecycle registration and is the
+  configuration fallback after migration completes.
 - Case parallel safety and default execution granularity remain separate
   properties. Case parallel safety proves independent processes may overlap;
   target batching proves cases may share one process in one execution domain.
@@ -89,13 +155,13 @@ complete suite with case isolation.
 - Every direct whole-target registration carries a stable
   `native-test-target` label.
 - Exactly one registration family for each ordinary target also carries
-  `native-test-default`: discovered cases for case-default targets, or the
-  direct registration for target-default targets.
+  `native-test-default`. During migration this may be discovered cases for a
+  temporary exception; at completion it is the direct target registration.
 - `hybrid`, `case`, and `target` select these labels instead of reconstructing
   target lists in DurinDevTool.
 - Existing `native-test-direct` remains a compatibility label during the
-  migration. `--include-direct` runs only direct registrations not already
-  executed by the hybrid phase, preventing duplicate work.
+  migration. Once target execution is default, `--include-direct` is removed or
+  retained only as a no-op compatibility alias; it never duplicates work.
 - Characterization labels remain authoritative and are excluded from every
   routine aggregate mode.
 
@@ -105,24 +171,28 @@ complete suite with case isolation.
   that process and preserves its process sandbox through the existing harness.
 - DurinDevTool prints the exact case-mode rerun form after a batched aggregate
   failure. It does not automatically convert a failed run into a passing run.
-- Crashes, intentional abrupt exits, death-style behavior, process-global
-  lifecycle probes, and tests that cannot reliably identify the failing case
-  remain case-default or move to a dedicated target.
+- Intentional process crashes and abrupt exits move to a dedicated target or
+  custom runner. GoogleTest death tests are not case-default merely because
+  they spawn their own controlled child process.
 - Case mode remains the required confirmation when investigating order
   dependence, state leakage, or a failure seen only in a batched target.
 
 ### Qualification policy
 
-- Batch eligibility is based on repeated evidence, not test names or target
-  size. Qualification includes normal order, randomized order, repeated direct
-  execution, case-mode execution, and retained-sandbox inspection on injected
-  failure.
-- A target is ineligible while any case relies on another case's initialization,
-  leaves process-global state unreconciled, consumes an irreversible singleton,
-  changes runtime mode, intentionally terminates, or owns a shared resource not
-  covered by its declared lock.
-- A migrated target reverts to case-default immediately if later evidence finds
-  order dependence or same-process state leakage.
+- Target readiness is based on repeated evidence, not test names, target size,
+  use of GPU APIs, or use of process-global subsystems. Qualification includes
+  normal order, randomized order, repeated target execution, case-mode
+  execution, and retained-sandbox inspection on injected failure.
+- If a case relies on another case's initialization, leaves global state
+  unreconciled, consumes an irreversible singleton, or changes runtime mode,
+  repair its lifecycle or split it into a cohesive dedicated target. Do not use
+  permanent routine case isolation to conceal the defect.
+- Resource locks control overlap between target processes; they do not imply
+  case execution. GPU, renderer, object-system, GC, scheduler, and external-tool
+  targets may use target execution when their owned teardown is deterministic.
+- A target that later exposes order dependence or state leakage temporarily
+  returns to hybrid case execution with a tracked repair requirement; case mode
+  remains available immediately for diagnosis.
 
 ## Current Foundations and Gaps
 
@@ -141,94 +211,109 @@ complete suite with case isolation.
 
 ### Gaps
 
-- Discovery policy has no property expressing which registration family is the
-  routine default.
+- Discovery policy does not yet make whole-target registration the ordinary
+  default or distinguish temporary migration exceptions from characterization.
 - The default aggregate excludes every direct registration and therefore
   launches one process per discovered case.
-- Direct lifecycle success is not yet a sufficient batch-eligibility audit;
-  targets lack explicit rationale and repeated randomized same-process gates.
+- Direct lifecycle success is not yet a sufficient target-readiness audit;
+  targets lack repeated randomized same-process gates and tracked repair paths
+  for lifecycle defects.
 - DurinDevTool has no named granularity option and no diagnostic guidance from
   a failed batched target to a case-isolated rerun.
 - CMake policy tests do not verify mutually exclusive default labels or reject
   invalid batching declarations.
 - Current documentation describes case-level execution as the universal
-  default rather than one selectable risk tier.
+  default rather than a diagnostic and independence-qualification mode.
 
 ## Implementation Stages
 
-### Stage 0: Freeze the baseline and classify execution risks
+### Stage 0: Freeze the baseline and classify exceptional process requirements
 
 Dependencies: none.
 
-- [ ] Capture machine-readable baseline results for the current case aggregate:
+- [x] Capture machine-readable baseline results for the current case aggregate:
   process launches, wall-clock duration, accumulated process time, skipped and
   disabled cases, failures, and the slowest execution domains.
-- [ ] Run repeated randomized case aggregates and repeated whole-target direct
+- [x] Run repeated randomized case aggregates and repeated whole-target direct
   qualification without changing registration policy.
-- [ ] Inventory every ordinary native-test target against initialization,
-  teardown, mutable global state, fixture writes, process termination, timeout,
-  and registered resource locks.
-- [ ] Select a small pilot set containing only low-cost CPU targets with
-  deterministic direct runs and no renderer, GPU, external-process, or runtime
-  variant lifecycle.
-- [ ] Record case-default reasons for every non-pilot target; an unknown reason
-  remains case-default rather than becoming an open-ended exception.
-- [ ] Store raw counts and timings in test/JUnit evidence rather than copying a
+- [x] Inventory every native-test target against initialization, teardown,
+  mutable global state, fixture writes, process termination, timeout, and
+  registered resource locks.
+- [x] Classify intentional crash, abrupt-exit, and concurrent-process probes as
+  exceptional runners. Verify that GoogleTest death tests and ordinary
+  `RHIExit` teardown do not incorrectly enter this category.
+- [x] Select a small pilot set of deterministic low-cost targets, then order the
+  remaining ordinary targets into migration groups. Renderer, GPU,
+  external-process, object-system, and concurrency usage affects ordering but
+  does not create a permanent case-default category.
+- [x] Record a concrete teardown repair or target split for every ordinary
+  target that fails direct qualification. Unknown behavior is a Stage 0 gap,
+  not an accepted long-term exception.
+- [x] Store raw counts and timings in test/JUnit evidence rather than copying a
   current suite total into long-lived documentation.
 
 #### Acceptance Gate
 
 - The baseline can be reproduced through documented DurinDevTool entrypoints.
-- Every target has a selected pilot or case-default classification with an
-  evidence-backed rationale.
+- Every target is classified as an ordinary migration candidate or a narrowly
+  justified exceptional runner.
 - The pilot set passes normal, randomized, and repeated direct execution with
   clean teardown and no retained successful sandboxes.
+- Every ordinary target that does not pass direct qualification has a bounded
+  repair or target-split action.
 
 ### Stage 1: Add declarative CMake execution policy
 
 Dependencies: Stage 0.
 
-- [ ] Add a validated target property for default execution granularity with
-  `CASE` as the fallback and `TARGET` as the only opt-in value.
-- [ ] Require an explicit batching rationale and a valid direct lifecycle for
-  every `TARGET` declaration.
-- [ ] Generate `native-test-case`, `native-test-target`, and exactly one
+- [x] Add a validated migration property for default execution granularity.
+  Begin with explicit `CASE` and `TARGET` values, then make `TARGET` the
+  fallback after all ordinary targets migrate.
+- [x] Require a valid direct lifecycle for every ordinary target and a temporary
+  rationale plus repair stage for every `CASE` exception.
+- [x] Generate `native-test-case`, `native-test-target`, and exactly one
   `native-test-default` registration family per ordinary target.
-- [ ] Preserve timeouts, resource locks, existing target labels, working
+- [x] Preserve timeouts, resource locks, existing target labels, working
   directories, and process-sandbox behavior on both registration families.
-- [ ] Reject target batching for characterization registrations and reject
-  missing, contradictory, or unsupported property values during configure.
-- [ ] Extend CMake policy probes to cover label selection, compatibility labels,
+- [x] Keep characterization registrations outside ordinary default selection
+  and reject missing repair metadata, contradictory declarations, or
+  unsupported property values during configure.
+- [x] Extend CMake policy probes to cover label selection, compatibility labels,
   resource propagation, and every rejection path.
 
 #### Acceptance Gate
 
 - Configuration tests prove that every ordinary target contributes one and
   only one default registration family.
-- With no target opt-ins, the hybrid selection is behaviorally identical to the
-  current case aggregate.
+- Before the first migration, hybrid selection is behaviorally identical to the
+  current case aggregate; after the final migration, hybrid and target select
+  the same ordinary registrations.
 - Case and target registrations retain identical resource locks and timeout
   policy for the same execution domain.
 
-### Stage 2: Expose hybrid, case, and target aggregate modes
+### Stage 2: Expose target, case, and transitional hybrid aggregate modes
 
 Dependencies: Stage 1.
 
-- [ ] Add a typed DurinDevTool aggregate granularity option with
-  `hybrid`, `case`, and `target` values; reject it for a focused target where it
-  has no meaning.
-- [ ] Make hybrid the selected default only after the compatibility and command
-  tests in this stage pass.
-- [ ] Select aggregate registrations by CTest labels while preserving timeout,
+- [x] Add a typed DurinDevTool aggregate granularity option with `target`,
+  `case`, and transitional `hybrid` values; reject it for a focused target where
+  it has no meaning.
+- [x] Use hybrid as the temporary rollout default, then switch the default to
+  target in Stage 4. Case is always explicit.
+- [x] Select aggregate registrations by CTest labels while preserving timeout,
   random scheduling, regex, job count, compact output, and JUnit behavior.
-- [ ] Define regex behavior explicitly: a case-name regex against a batched
+- [x] In target and hybrid modes, propagate random scheduling into each test
+  process through GoogleTest shuffle configuration as well as CTest
+  `--schedule-random`; record or print the seed needed for reproduction.
+- [x] Define regex behavior explicitly: a case-name regex against a batched
   target requires case mode; reject an ambiguous empty selection with an
   actionable command rather than silently running nothing.
-- [ ] Update `--include-direct` so the second phase runs only direct lifecycle
-  registrations not already executed by hybrid mode.
-- [ ] On batched failure, print a deterministic case-mode rerun command and the
+- [x] Deprecate `--include-direct`: during migration it runs only direct
+  registrations not already selected by hybrid mode; after target becomes the
+  default it is removed or accepted as a no-op compatibility alias.
+- [x] On batched failure, print a deterministic case-mode rerun command and the
   preserved sandbox location already emitted by the harness.
-- [ ] Extend DurinDevTool parser, configuration, runtime-command, interruption,
+- [x] Extend DurinDevTool parser, configuration, runtime-command, interruption,
   JUnit, and error-message tests for all modes.
 
 #### Acceptance Gate
@@ -236,25 +321,27 @@ Dependencies: Stage 1.
 - Command tests prove the exact CTest label expressions for all modes and option
   combinations.
 - Hybrid with no batched targets matches the current aggregate registration set.
-- Case mode runs every discovered ordinary case, target mode runs every eligible
+- Case mode runs every discovered ordinary case, target mode runs every
   ordinary direct registration, and neither includes characterization tests.
 - `--include-direct` introduces no duplicate target process after hybrid mode.
 
-### Stage 3: Pilot target-level defaults
+### Stage 3: Pilot target-level execution and repair lifecycle defects
 
 Dependencies: Stage 2.
 
-- [ ] Opt only the Stage 0 pilot targets into target-default execution and add
-  their reviewed batching rationales beside their target declarations.
-- [ ] Add or repair explicit reset/teardown in test support when pilot evidence
+- [x] Opt the Stage 0 pilot targets into target-default execution and record
+  their owned initialization, reset, and teardown boundaries.
+- [x] Add or repair explicit reset/teardown in test support when pilot evidence
   exposes state leakage; do not change production behavior to accommodate test
   batching.
-- [ ] Run repeated hybrid, case, and target aggregates with randomized order and
+- [x] Run repeated hybrid, case, and target aggregates with randomized order and
   retain JUnit evidence for process count, duration, and failures.
-- [ ] Inject one controlled assertion failure and one retained-work diagnostic
+- [x] Inject one controlled assertion failure and one retained-work diagnostic
   in a probe target to verify batched reporting and case-mode rerun guidance.
-- [ ] Compare pilot failures and skips across all three modes; any semantic
+- [x] Compare pilot failures and skips across all three modes; any semantic
   difference blocks migration of that target.
+- [x] Confirm that single-target runs remain one process and do not introduce
+  per-case execution as an acceleration path.
 
 #### Acceptance Gate
 
@@ -266,35 +353,40 @@ Dependencies: Stage 2.
 - Failure output identifies the owning target and failing GoogleTest case, keeps
   the failed sandbox, and gives a working case-mode rerun command.
 
-### Stage 4: Expand by risk tier and qualify the default
+### Stage 4: Migrate every ordinary target and qualify the target default
 
 Dependencies: Stage 3.
 
-- [ ] Migrate additional CPU-only targets in bounded groups, repeating the
+- [x] Migrate all remaining ordinary targets in bounded groups, repeating the
   pilot gate for each group.
-- [ ] Review object-system, asset, renderer, GPU, external-tool, and dedicated
-  lifecycle targets separately; keep case-default unless same-process evidence
-  closes every recorded risk.
-- [ ] Keep intentional crash/exit probes and characterization targets outside
-  routine batching.
-- [ ] Run consecutive randomized hybrid aggregates, a complete case aggregate,
-  the target qualification aggregate, and direct lifecycle qualification on
-  the selected Agent Build Profile.
-- [ ] Compare process launches, median and worst wall-clock duration, aggregate
+- [x] Repair teardown or split cohesive execution domains when object-system,
+  asset, renderer, GPU, external-tool, concurrency, or runtime lifecycle tests
+  fail same-process qualification. Do not accept permanent routine case
+  execution as the fix.
+- [x] Keep only intentional crash/exit and concurrent-process characterization
+  probes outside ordinary target execution.
+- [x] Run consecutive randomized target aggregates, a complete case aggregate,
+  and focused repeated target qualification on the selected Agent Build
+  Profile.
+- [x] Compare process launches, median and worst wall-clock duration, aggregate
   process time, failure diagnostics, and retained artifacts with Stage 0.
-- [ ] Update the native-test and build/run documentation with the implemented
-  modes, authoring rules, fallback workflow, and final risk-tier policy.
+- [x] Make target mode the default, make the CMake fallback `TARGET`, and remove
+  every temporary ordinary `CASE` exception.
+- [x] Update the native-test and build/run documentation with the implemented
+  modes, authoring rules, focused workflow, and case-diagnostic fallback.
 
 #### Acceptance Gate
 
-- The hybrid default reduces process launches by at least 70 percent from the
-  Stage 0 baseline.
-- Hybrid median wall-clock time does not regress from baseline, and its worst
-  qualified run is no more than 10 percent slower than the baseline worst run.
-- Consecutive randomized hybrid aggregates and the complete case aggregate pass
+- The target default reduces process launches by at least 90 percent from the
+  Stage 0 baseline and routine launch count is bounded by ordinary target and
+  infrastructure registration count rather than GoogleTest case count.
+- Target-default median wall-clock time does not regress from baseline, and its
+  worst qualified run is no more than 10 percent slower than the baseline worst
+  run.
+- Consecutive randomized target aggregates and the complete case aggregate pass
   with the same expected skips and disabled tests.
-- Every target-default declaration has a current rationale and qualification
-  evidence; every remaining case-default target has a concrete retained risk.
+- Every ordinary target runs at target granularity; remaining multi-process
+  registrations are characterization infrastructure with a concrete reason.
 - The authoritative native-test documentation, CMake policy tests, and
   DurinDevTool command tests agree on the final behavior.
 
@@ -304,10 +396,10 @@ Dependencies: Stage 3.
 | --- | --- | --- | --- |
 | CMake policy | Discovery policy and failure probes | Configure the ordinary test preset | Default-family uniqueness, invalid declarations rejected, locks/timeouts preserved |
 | DurinDevTool | Parser, request, command construction, JUnit, and failure-message tests | Exercise each aggregate mode through the root wrapper | Exact labels, no characterization leakage, no duplicate direct phase |
-| Pilot targets | Normal, shuffled, repeated direct, and case-isolated runs | Randomized hybrid and case aggregates | Same pass/skip set, clean teardown, no retained successful work |
+| Pilot targets | Normal, shuffled, repeated target, and case-isolated runs | Randomized hybrid and case aggregates | Same pass/skip set, clean teardown, no retained successful work |
 | Failure path | Controlled assertion and retained-work probe | Failed batched aggregate followed by case rerun | Case name, target, sandbox, and actionable rerun are visible |
-| Shared resources | Selected lock-bearing targets in case mode | Hybrid under normal parallelism | GPU and legacy renderer locks remain serialized |
-| Performance | Stage 0 and per-stage JUnit/timing capture | Consecutive final hybrid and case aggregates | Relative launch reduction and wall-clock gates pass |
+| Shared resources | Selected lock-bearing targets in target and case modes | Target aggregate under normal parallelism | GPU and legacy renderer locks remain serialized without requiring case execution |
+| Performance | Stage 0 and per-stage JUnit/timing capture | Consecutive final target and case aggregates | Relative launch reduction and wall-clock gates pass |
 
 All configure, build, and test execution follows
 [Build And Run](../Development/Build/BuildAndRun.md). Native-test authoring and
@@ -316,22 +408,24 @@ runtime sandbox rules remain owned by
 
 ## Definition of Done
 
-- Hybrid is the documented default aggregate and retains explicit case and
-  target modes.
+- Target is the documented default aggregate; case remains an explicit complete
+  diagnostic and independence-qualification mode.
 - Process launch and wall-clock acceptance gates pass on one recorded Agent
   Build Profile.
 - Case isolation remains available for the complete ordinary suite and for
   focused diagnosis.
-- Batch declarations are explicit, validated, evidence-backed, and preserve
-  resource policy.
+- Every ordinary target owns deterministic reset and teardown, while exceptional
+  multi-process characterization remains separately registered and documented.
 - Failed batches remain diagnosable without automatic success masking.
 - Lasting behavior is moved into the authoritative build/test documentation,
   all affected automated tests pass, and the plan is marked completed.
 
 ## Deferred Follow-ups
 
-- Automatic sharding inside one large target; add it only if a qualified target
-  becomes the hybrid critical path.
+- Bounded sharding inside one large target; consider it only when repeated
+  measurement shows that target is the aggregate critical path and a small
+  fixed shard count improves wall time by at least 20 percent. One process per
+  case is not an acceleration strategy.
 - Historical timing dashboards or CI trend storage beyond the JUnit artifacts
   needed for this migration.
 - Automatic failed-case reruns. A later plan may add explicitly reported flaky
@@ -343,6 +437,9 @@ runtime sandbox rules remain owned by
 
 - [Native C++ Tests](../Development/Build/NativeTests.md)
 - [Build And Run](../Development/Build/BuildAndRun.md)
+- [Native Test Execution Granularity Stage 0 Evidence](../Development/Build/NativeTestExecutionGranularityStage0.md)
+- [Native Test Execution Granularity Stage 3 Evidence](../Development/Build/NativeTestExecutionGranularityStage3.md)
+- [Native Test Execution Granularity Stage 4 Evidence](../Development/Build/NativeTestExecutionGranularityStage4.md)
 - [Native Test Process Isolation](Archive/2026-07/NativeTestProcessIsolation.md)
 - [Native Test Process Isolation Stage 0 Evidence](../Development/Build/NativeTestProcessIsolationStage0.md)
 - [Native Test Process Isolation Stage 2 Evidence](../Development/Build/NativeTestProcessIsolationStage2.md)

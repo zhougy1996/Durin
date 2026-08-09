@@ -21,31 +21,37 @@ Build and run a test executable through the root wrapper:
 .\DevTool.bat test --target CoreUtilityTests --filter FJsonDocumentTests.ParseObjectFromString
 .\DevTool.bat test --target CoreUtilityTests --timeout 60
 .\DevTool.bat test --target all
+.\DevTool.bat test --target all --granularity case
+.\DevTool.bat test --target all --granularity hybrid
 .\DevTool.bat test --target all --schedule-random --output-junit Build\NativeTestResults.xml
-.\DevTool.bat test --target all --ctest-regex "^FJsonDocumentTests.ParseObjectFromString$"
-.\DevTool.bat test --target all --include-direct
+.\DevTool.bat test --target all --granularity case --ctest-regex "^FJsonDocumentTests.ParseObjectFromString$"
 ```
 
 The first command runs the target's discovered tests. The second passes a GoogleTest filter. The test executable has a 300-second timeout by default; `--timeout <seconds>` changes it, and `--timeout 0` disables it for an intentionally long diagnostic run. The timeout starts after the target has finished building.
 
-`--target all` builds the `DurinNativeTests` aggregate and then runs every test
-registered in that build directory through CTest, excluding qualification-only
-registrations. Native-test executables and GoogleTest are excluded from CMake's
+`--target all` builds the `DurinNativeTests` aggregate and then runs every
+ordinary target once through CTest. This `target` granularity is the default.
+Use `--granularity case` to run every discovered GoogleTest case in a separate
+process for isolation diagnosis and independence qualification. `hybrid` is a
+transition-compatible spelling which currently selects the same registrations
+as `target` because every ordinary target has migrated. Native-test executables and GoogleTest are excluded from CMake's
 default `all` target, so routine `build` and `rebuild` commands do not compile
 tests even when the selected preset enables `BUILD_TESTING`.
 Its timeout applies to each CTest-registered test. GoogleTest `--filter` syntax
 is executable-specific and therefore cannot be combined with `--target all`.
 Use `--schedule-random` to randomize the CTest launch order and
-`--output-junit <path>` to retain machine-readable aggregate results. Use
-`--ctest-regex <regex>` for an isolated rerun of matching CTest-registered
-names. Add `--include-direct` to also run each target as one whole-executable
-lifecycle test in a second phase after all case registrations pass. The two
-phases never overlap. These options require `--target all`. When combined with
-`--output-junit`, direct-lifecycle results use a sibling `.direct.xml` file.
+`--output-junit <path>` to retain machine-readable aggregate results. In target
+and hybrid modes the command also prints and forwards a GoogleTest shuffle seed
+so order failures can be reproduced with `GTEST_RANDOM_SEED`. Use
+`--ctest-regex <regex>` only with case granularity for an isolated rerun of a
+matching case registration. `--include-direct` remains an accepted no-op
+compatibility alias in target mode and never duplicates a process. These
+options require `--target all`.
 
-The default aggregate excludes `native-test-direct` because those registrations
-repeat the same functional cases in one process. Run them for qualification,
-process-state leakage investigations, and changes to test-target lifecycle.
+Use a focused `--target <Target> --filter <GoogleTestFilter>` command for the
+fastest failing-case iteration. It launches one target process with the filter;
+aggregate granularity does not change focused execution.
+
 `native-test-characterization` is always excluded from the aggregate and runs
 only through its owning custom target. Such a dedicated target sets
 `DURIN_TEST_DIRECT_LIFECYCLE FALSE` because its custom runner, rather than a
@@ -110,6 +116,10 @@ after 24 hours, but skips the current process and every PID that may still be
 alive. Crash directories and intentionally retained directories have no
 success marker and are never removed by this periodic cleanup.
 
+GoogleTest death-test children allocate a unique nested directory below their
+parent run. A successful parent removes those child directories; a failed
+parent retains the complete tree with the ordinary diagnostic sandbox.
+
 Create a clean named fixture and perform recursive cleanup through the support
 library:
 
@@ -153,6 +163,7 @@ set_target_properties(PackageRoundTripTests PROPERTIES
     DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 )
 
+durin_set_native_test_target_execution(PackageRoundTripTests)
 durin_discover_tests(PackageRoundTripTests)
 ```
 
@@ -206,7 +217,17 @@ point, and provides `DURIN_TEST_DATA_DIR` for input lookup. Use
 through `durin_discover_tests(...)`; direct `gtest_discover_tests(...)`
 boilerplate bypasses repository policy and is rejected.
 
-Case-level parallelism is the default pattern. If a target cannot use
+Every ordinary target uses `durin_set_native_test_target_execution(...)` and
+must reset mutable process-global state between tests and release owned
+resources at its target boundary. If suites cannot safely share those
+lifecycles, split them into cohesive targets instead of selecting routine case
+execution. Checked-in data is read-only; generated assets, caches, databases,
+and external-tool outputs must resolve below the current process sandbox.
+Intentional multi-process, crash, and abrupt-exit characterization belongs in
+a separately registered characterization target with a concrete rationale.
+
+Case-level parallel safety remains required for the explicit case diagnostic
+mode. If a target cannot use
 `DURIN_TEST_CASE_PARALLEL_SAFE TRUE`, set
 `DURIN_TEST_TARGET_LOCK_RATIONALE` to a concrete reviewed reason. Broad
 `durin-test-target-*` locks without that rationale are rejected. Explicit

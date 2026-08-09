@@ -99,6 +99,12 @@ class OutputMode(str, Enum):
     FULL = "full"
 
 
+class TestGranularity(str, Enum):
+    TARGET = "target"
+    CASE = "case"
+    HYBRID = "hybrid"
+
+
 @dataclass(frozen=True)
 class EnvironmentSetup:
     script: str = ""
@@ -169,6 +175,7 @@ class TestActionOptions:
     output_junit: Path | None = None
     ctest_regex: str = ""
     include_direct: bool = False
+    granularity: TestGranularity | None = None
 
 
 @dataclass(frozen=True)
@@ -375,6 +382,19 @@ class CommandRequest:
             self.options.include_direct
             if isinstance(self.options, TestActionOptions)
             else False
+        )
+
+    @property
+    def test_granularity(self) -> TestGranularity:
+        if isinstance(self.options, TestActionOptions):
+            return self.options.granularity or TestGranularity.TARGET
+        return TestGranularity.TARGET
+
+    @property
+    def test_granularity_explicit(self) -> bool:
+        return (
+            isinstance(self.options, TestActionOptions)
+            and self.options.granularity is not None
         )
 
     @property

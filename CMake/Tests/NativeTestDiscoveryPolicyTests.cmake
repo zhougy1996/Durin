@@ -100,8 +100,99 @@ assert_list_equals(
 	"documented legacy resource registry"
 )
 
+durin_resolve_native_test_execution_policy(
+	case_default_case_labels
+	case_default_target_labels
+	PilotTests
+	TRUE
+	CASE
+	"Stage 3 completes pilot qualification."
+	"Stage 3"
+	LABELS native-test PilotTests fast
+)
+assert_list_equals(
+	"${case_default_case_labels}"
+	"native-test;PilotTests;fast;native-test-case;native-test-default"
+	"case-default discovered labels"
+)
+assert_list_equals(
+	"${case_default_target_labels}"
+	"native-test;PilotTests;fast;native-test-target;native-test-direct"
+	"case-default direct labels"
+)
+
+durin_resolve_native_test_execution_policy(
+	fallback_case_labels
+	fallback_target_labels
+	FallbackTests
+	TRUE
+	""
+	""
+	""
+	LABELS native-test FallbackTests
+)
+assert_list_equals(
+	"${fallback_case_labels}"
+	"native-test;FallbackTests;native-test-case"
+	"target fallback case labels"
+)
+assert_list_equals(
+	"${fallback_target_labels}"
+	"native-test;FallbackTests;native-test-target;native-test-direct;native-test-default"
+	"target fallback direct labels"
+)
+
+durin_resolve_native_test_execution_policy(
+	target_default_case_labels
+	target_default_target_labels
+	QualifiedTests
+	TRUE
+	TARGET
+	""
+	""
+	LABELS native-test QualifiedTests integration
+)
+assert_list_equals(
+	"${target_default_case_labels}"
+	"native-test;QualifiedTests;integration;native-test-case"
+	"target-default discovered labels"
+)
+assert_list_equals(
+	"${target_default_target_labels}"
+	"native-test;QualifiedTests;integration;native-test-target;native-test-direct;native-test-default"
+	"target-default direct labels"
+)
+
+durin_resolve_native_test_execution_policy(
+	characterization_case_labels
+	characterization_target_labels
+	CharacterizationTests
+	FALSE
+	""
+	""
+	""
+	LABELS native-test CharacterizationTests native-test-characterization
+)
+assert_list_equals(
+	"${characterization_case_labels}"
+	"native-test;CharacterizationTests;native-test-characterization;native-test-case"
+	"characterization discovered labels"
+)
+assert_list_equals(
+	"${characterization_target_labels}"
+	""
+	"characterization direct labels"
+)
+
 assert_policy_rejected("unknown-resource" "unregistered native-test resource")
 assert_policy_rejected("broad-lock-without-rationale" "TARGET_LOCK_RATIONALE")
+assert_policy_rejected("execution-unknown-granularity" "must be CASE or TARGET")
+assert_policy_rejected("execution-case-missing-rationale" "CASE_MIGRATION_RATIONALE")
+assert_policy_rejected("execution-case-missing-stage" "CASE_REPAIR_STAGE")
+assert_policy_rejected("execution-case-invalid-stage" "CASE_REPAIR_STAGE")
+assert_policy_rejected("execution-target-with-case-metadata" "cannot retain CASE migration metadata")
+assert_policy_rejected("execution-ordinary-without-direct" "require a direct lifecycle")
+assert_policy_rejected("execution-characterization-with-default" "cannot declare ordinary default")
 assert_policy_rejected("repository-retired-work" "retired DURIN_TEST_WORK_DIR")
 assert_policy_rejected("repository-direct-remove-all" "RemoveTestWorkDirectory")
 assert_policy_rejected("repository-data-write" "mutate checked-in test Data")

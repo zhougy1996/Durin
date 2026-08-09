@@ -171,6 +171,8 @@ namespace Durin
 		CORE_API auto SetTaskTerminalPublicationTestHook(std::function<void(uint64)>&& Hook) -> void;
 		// Native-test seam for pausing after the active cohort is pinned and scheduler locks are released.
 		CORE_API auto SetTaskSchedulerSnapshotTestHook(std::function<void()>&& Hook) -> void;
+		// Native-test seam for restoring the process-scoped attribution registry after capacity qualification.
+		CORE_API auto ResetTaskAttributionRegistryForTests() -> void;
 		CORE_API auto RecordDuplicateUniqueConsumerClaim() -> void;
 		CORE_API auto RecordRejectedUniqueTask(const char* Name, const char* Diagnostic, FTaskAttribution Attribution = {}) -> void;
 	}

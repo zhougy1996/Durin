@@ -37,5 +37,6 @@ set_target_properties(VulkanRHIIntegrationTests PROPERTIES
 	DURIN_TEST_HEAVY_RUNTIME_RATIONALE
 		"Failure-injection tests must share the test-only state compiled into VulkanRHI."
 )
+durin_set_native_test_target_execution(VulkanRHIIntegrationTests)
 
 durin_discover_tests(VulkanRHIIntegrationTests)

@@ -8,6 +8,7 @@
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "NativeTestSupport.h"
+#include "NativeDObjectTestSupport.h"
 #include "Settings/ProjectDefaultLevelReferenceStore.h"
 #include "Yaml/Yaml.h"
 
@@ -62,10 +63,7 @@ namespace
 	auto BuildScenario(std::string_view Name) -> FDefaultLevelScenario
 	{
 		static const bool Initialized = [] {
-			Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
-			Durin::GIsGameThreadIdInitialized = true;
-			Durin::FNameInit();
-			Durin::DObjectInit();
+			Durin::Testing::InitializeDObjectSystemForTests();
 			(void)Durin::DLevel::StaticClass();
 			return true;
 		}();

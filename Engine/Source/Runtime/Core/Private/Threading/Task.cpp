@@ -102,10 +102,7 @@ namespace Durin
 		public:
 			FTaskAttributionRegistry()
 			{
-				Owners[UnattributedAttributionId] = CopyTaskAttributionLabel("Unattributed");
-				Owners[OverflowAttributionId] = CopyTaskAttributionLabel("Overflow");
-				Pairs[UnattributedAttributionId] = {UnattributedAttributionId, CopyTaskAttributionLabel("Unattributed")};
-				Pairs[OverflowAttributionId] = {OverflowAttributionId, CopyTaskAttributionLabel("Overflow")};
+				InitializeReservedAttributions();
 #if DURIN_WITH_TRACY
 				Profiling::RegisterTaskProfilerAttribution(UnattributedAttributionId, UnattributedAttributionId, "Unattributed", "Unattributed");
 				Profiling::RegisterTaskProfilerAttribution(OverflowAttributionId, OverflowAttributionId, "Overflow", "Overflow");
@@ -188,7 +185,26 @@ namespace Durin
 
 			auto GetOverflowCount() const -> uint64 { return OverflowCount.load(std::memory_order::acquire); }
 
+			void ResetForTests()
+			{
+				std::lock_guard Lock(Mutex);
+				Owners = {};
+				Pairs = {};
+				OwnerCount = 2;
+				PairCount = 2;
+				OverflowCount.store(0, std::memory_order::release);
+				InitializeReservedAttributions();
+			}
+
 		private:
+			void InitializeReservedAttributions()
+			{
+				Owners[UnattributedAttributionId] = CopyTaskAttributionLabel("Unattributed");
+				Owners[OverflowAttributionId] = CopyTaskAttributionLabel("Overflow");
+				Pairs[UnattributedAttributionId] = {UnattributedAttributionId, CopyTaskAttributionLabel("Unattributed")};
+				Pairs[OverflowAttributionId] = {OverflowAttributionId, CopyTaskAttributionLabel("Overflow")};
+			}
+
 			mutable std::mutex Mutex;
 			std::array<FTaskAttributionLabel, MaxTaskAttributionOwners> Owners{};
 			std::array<FTaskAttributionPair, MaxTaskAttributionPairs> Pairs{};
@@ -417,6 +433,15 @@ namespace Durin
 	auto RegisterTaskAttribution(std::string_view Owner, std::string_view Category) -> FTaskAttribution
 	{
 		return GTaskAttributionRegistry.Register(Owner, Category);
+	}
+
+	void Private::ResetTaskAttributionRegistryForTests()
+	{
+		{
+			std::lock_guard Lock(GTaskSchedulerMutex);
+			check(GTaskSchedulerLifetime == ETaskSchedulerLifetime::Stopped);
+		}
+		GTaskAttributionRegistry.ResetForTests();
 	}
 
 	struct FTaskScopeSchedulerAccounting
