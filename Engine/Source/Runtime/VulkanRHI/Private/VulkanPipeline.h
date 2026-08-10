@@ -20,7 +20,7 @@ namespace Durin::VulkanRHI
 	public:
 		FVulkanGraphicsPipelineState(FVulkanDevice& InDevice,
 			const FGraphicsPipelineStateInitializer& Initializer,
-			FGraphicsPipelineStateKey InKey);
+			FGraphicsPipelineStateKey InKey, std::string_view DebugName);
 
 		~FVulkanGraphicsPipelineState() override;
 
@@ -56,7 +56,8 @@ namespace Durin::VulkanRHI
 		~FVulkanPipelineManager();
 
 		auto CreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer,
-			FGraphicsPipelineStateKey Key) -> TRefCountPtr<FVulkanGraphicsPipelineState>;
+			FGraphicsPipelineStateKey Key, std::string_view DebugName)
+			-> TRefCountPtr<FVulkanGraphicsPipelineState>;
 
 		auto FindOrAddLayout(const FVulkanDescriptorSetsLayoutInfo& LayoutInfo) -> std::shared_ptr<FVulkanLayout>;
 		auto GetDriverPipelineCache() const -> vk::PipelineCache { return DriverPipelineCache; }

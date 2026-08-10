@@ -1,6 +1,7 @@
 #include "VulkanSwapchain.h"
 
 #include "VulkanDevice.h"
+#include "VulkanDynamicRHI.h"
 #include "VulkanQueue.h"
 #include "VulkanRHIPrivate.h"
 
@@ -154,6 +155,8 @@ namespace Durin::VulkanRHI
 		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::Swapchain);
 #endif
 		Swapchain = Device.GetHandle().createSwapchainKHR(SwapchainInfo);
+		Device.GetRHI().GetDebugUtils().NameObject(Swapchain,
+			Device.GetRHI().GetDebugUtils().MakeInternalName("Swapchain"));
 		bOutNativeSwapchainCreated = true;
 
 		try

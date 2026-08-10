@@ -9,6 +9,7 @@ namespace Durin
 	class FRHIGraphicsPipelineState;
 	class FRHIViewport;
 	class FRHITexture;
+	class FRHIGPUTimingQuery;
 
 	// Defines the backend command-recording operations consumed by RHI command lists.
 	class IRHICommandContext
@@ -18,6 +19,10 @@ namespace Durin
 		virtual auto RHIBeginFrame(const FRHIBeginFrameArgs& Args) -> void = 0;
 		virtual auto RHISubmitCommands() -> void = 0;
 		virtual auto RHIEndFrame() -> void = 0;
+		virtual auto RHIBeginDiagnosticRegion(std::string_view Name) -> void = 0;
+		virtual auto RHIEndDiagnosticRegion() -> void = 0;
+		virtual auto RHIBeginGPUTimingQuery(FRHIGPUTimingQuery*) -> void {}
+		virtual auto RHIEndGPUTimingQuery(FRHIGPUTimingQuery*) -> void {}
 		virtual auto RHIBeginRenderPass(const FRHIRenderPassInfo& InInfo, FName InName) -> void = 0;
 		virtual auto RHIEndRenderPass() -> void = 0;
 		virtual auto RHIBeginDrawingViewport(FRHIViewport* InViewport, FRHITexture* InRenderTargetRHI) -> void = 0;

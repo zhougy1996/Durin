@@ -9,6 +9,33 @@
 
 namespace Durin
 {
+	enum class ERHICommandListExecutorMode : uint8
+	{
+		Inline,
+		Threaded,
+	};
+
+	struct FRHICommandListExecutorStats
+	{
+		ERHICommandListExecutorMode Mode = ERHICommandListExecutorMode::Inline;
+		uint64 RecordedCommandCount = 0;
+		uint64 RecordedPayloadBytes = 0;
+		uint64 SubmittedBatchCount = 0;
+		uint64 SubmissionGroupCount = 0;
+		uint64 ReplayDurationNanoseconds = 0;
+		uint64 WaitCount = 0;
+		uint64 SynchronousOperationCount = 0;
+		uint64 RejectedSubmissionCount = 0;
+		uint64 PendingBatchCount = 0;
+		uint64 PendingPayloadBytes = 0;
+		uint64 LastSubmittedSerial = 0;
+		uint64 CompletedSerial = 0;
+		uint64 WaitDurationNanoseconds = 0;
+		uint64 BackpressureWaitCount = 0;
+		uint64 PeakQueueEntryCount = 0;
+		uint64 PeakQueueBatchCount = 0;
+		uint64 PeakQueuePayloadBytes = 0;
+	};
 	// Reports one bounded cache's current occupancy and lifetime counters.
 	struct FRHICacheStatistics
 	{
@@ -96,6 +123,66 @@ namespace Durin
 		uint64 RetirementMaxTokenLag = 0;
 	};
 
+	struct FRHIDiagnosticAvailability
+	{
+		bool bRequested = false;
+		bool bDebugUtilsSupported = false;
+		bool bDebugUtilsActive = false;
+		bool bValidationLayerSupported = false;
+		bool bValidationLayerActive = false;
+		bool bMessengerActive = false;
+	};
+
+	struct FRHIDiagnosticMessageStatistics
+	{
+		uint64 Total = 0, Error = 0, Warning = 0, Information = 0, Verbose = 0;
+		uint64 General = 0, Validation = 0, Performance = 0;
+		uint64 Truncation = 0, RecursionDrop = 0;
+	};
+
+	struct FRHIDiagnosticNamingStatistics
+	{
+		uint64 NamingAttempts = 0, NamingFailures = 0, NamingUnavailableSkips = 0;
+		uint64 LabelBegins = 0, LabelEnds = 0, LabelUnavailableSkips = 0;
+		uint64 InvalidRegionCount = 0, ActiveRegionDepth = 0, RegionHighWater = 0;
+	};
+
+	struct FRHICompletionDiagnosticStatistics
+	{
+		uint64 LastSubmittedToken = 0;
+		uint64 CompletedToken = 0;
+		uint64 PendingSubmissions = 0;
+		uint64 RetirementPendingCount = 0;
+		uint64 RetirementHighWater = 0;
+		uint64 RetirementReleasedCount = 0;
+		uint64 RetirementMaxTokenLag = 0;
+	};
+
+	struct FRHIGPUTimingStatistics
+	{
+		uint64 IntervalCapacity = 0, AllocatedPages = 0, LiveIntervals = 0;
+		uint64 PendingIntervals = 0, ReadyIntervals = 0, IntervalHighWater = 0;
+		uint64 ExhaustionCount = 0, AllocationFailureCount = 0;
+		uint64 ReuseCount = 0, InvalidRecordingCount = 0;
+		uint64 ResultPollCount = 0, ReadyResultCount = 0;
+		uint64 ConversionOverflowCount = 0;
+	};
+
+	struct FRHIDiagnosticSnapshot
+	{
+		FRHIDiagnosticAvailability Availability;
+		FRHICommandListExecutorStats Executor;
+		FRHIGraphicsCacheStatistics GraphicsCache;
+		FRHIMemoryStatistics Memory;
+		FRHICompletionDiagnosticStatistics Completion;
+		FRHIDiagnosticMessageStatistics Messages;
+		FRHIDiagnosticNamingStatistics Naming;
+		FRHIGPUTimingStatistics Timing;
+	};
+
+	RHI_API auto FormatRHIDiagnosticSnapshot(
+		const FRHIDiagnosticSnapshot& Snapshot) -> std::string;
+
 	// Defines the backend-neutral device interface used to create resources and submit frame work.
 	class FDynamicRHI
 	{
@@ -113,6 +200,15 @@ namespace Durin
 		RHI_API virtual auto RHIResetGraphicsCacheStatistics() -> void;
 		RHI_API virtual auto RHIGetMemoryStatistics() const -> FRHIMemoryStatistics;
 		RHI_API virtual auto RHIResetMemoryStatistics() -> void;
+		// Owner-thread snapshot; bounded and never waits for GPU completion.
+		RHI_API virtual auto RHIGetDiagnosticSnapshot() const
+			-> FRHIDiagnosticSnapshot;
+		// Owner-thread reset preserving capabilities, capacities, and live state.
+		RHI_API virtual auto RHIResetDiagnosticStatistics() -> void;
+		RHI_API virtual auto RHICreateGPUTimingQuery()
+			-> TRefCountPtr<FRHIGPUTimingQuery>;
+		RHI_API virtual auto RHIGetGPUTimingResult(
+			const FRHIGPUTimingQuery* Query) const -> FRHIGPUTimingResult;
 
 		virtual auto RHIBeginFrame(const FRHIBeginFrameArgs& Args) -> void = 0;
 		RHI_API virtual auto RHIBeginFrame_RenderThread(

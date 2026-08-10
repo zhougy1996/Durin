@@ -52,6 +52,79 @@ namespace Durin::VulkanRHI
 	std::atomic<uint64> GVulkanReleasedFramebufferViewCount = 0;
 	std::atomic<uint64> GVulkanCreatedFramebufferCount = 0;
 	std::atomic<uint64> GVulkanReleasedFramebufferCount = 0;
+	std::atomic<uint64> GVulkanDebugMessengerCreatedCount = 0;
+	std::atomic<uint64> GVulkanDebugMessengerDestroyedCount = 0;
+	std::atomic<uint64> GVulkanDebugMessengerActiveCount = 0;
+	std::atomic<uint64> GVulkanDebugLifecycleSequence = 0;
+	std::atomic<uint64> GVulkanLastMessengerDestroySequence = 0;
+	std::atomic<uint64> GVulkanLastInstanceDestroySequence = 0;
+	std::mutex GVulkanDebugUtilsTestEventMutex;
+	std::vector<FVulkanDebugUtilsTestEvent> GVulkanDebugUtilsTestEvents;
+
+	auto ResetVulkanDebugUtilsEventsForTest() -> void
+	{
+		std::lock_guard Lock(GVulkanDebugUtilsTestEventMutex);
+		GVulkanDebugUtilsTestEvents.clear();
+	}
+
+	auto RecordVulkanDebugUtilsEventForTest(
+		EVulkanDebugUtilsTestEventType Type, vk::ObjectType ObjectType,
+		std::string_view Name) -> void
+	{
+		std::lock_guard Lock(GVulkanDebugUtilsTestEventMutex);
+		GVulkanDebugUtilsTestEvents.push_back({Type, ObjectType, std::string(Name)});
+	}
+
+	auto GetVulkanDebugUtilsEventsForTest()
+		-> std::vector<FVulkanDebugUtilsTestEvent>
+	{
+		std::lock_guard Lock(GVulkanDebugUtilsTestEventMutex);
+		return GVulkanDebugUtilsTestEvents;
+	}
+
+	auto ResetVulkanDebugMessengerTestStats() -> void
+	{
+		check(GVulkanDebugMessengerActiveCount.load(std::memory_order_acquire) == 0);
+		GVulkanDebugMessengerCreatedCount.store(0, std::memory_order_release);
+		GVulkanDebugMessengerDestroyedCount.store(0, std::memory_order_release);
+		GVulkanDebugLifecycleSequence.store(0, std::memory_order_release);
+		GVulkanLastMessengerDestroySequence.store(0, std::memory_order_release);
+		GVulkanLastInstanceDestroySequence.store(0, std::memory_order_release);
+	}
+
+	auto RecordVulkanDebugMessengerCreatedForTest() -> void
+	{
+		GVulkanDebugMessengerCreatedCount.fetch_add(1, std::memory_order_relaxed);
+		GVulkanDebugMessengerActiveCount.fetch_add(1, std::memory_order_relaxed);
+	}
+
+	auto RecordVulkanDebugMessengerDestroyedForTest() -> void
+	{
+		GVulkanDebugMessengerDestroyedCount.fetch_add(1, std::memory_order_relaxed);
+		GVulkanDebugMessengerActiveCount.fetch_sub(1, std::memory_order_relaxed);
+		GVulkanLastMessengerDestroySequence.store(
+			GVulkanDebugLifecycleSequence.fetch_add(1, std::memory_order_relaxed) + 1,
+			std::memory_order_release);
+	}
+
+	auto RecordVulkanInstanceDestroyedForTest() -> void
+	{
+		GVulkanLastInstanceDestroySequence.store(
+			GVulkanDebugLifecycleSequence.fetch_add(1, std::memory_order_relaxed) + 1,
+			std::memory_order_release);
+	}
+
+	auto GetVulkanDebugMessengerTestStats()
+		-> FVulkanDebugMessengerTestStats
+	{
+		return {
+			.CreatedCount = GVulkanDebugMessengerCreatedCount.load(std::memory_order_acquire),
+			.DestroyedCount = GVulkanDebugMessengerDestroyedCount.load(std::memory_order_acquire),
+			.ActiveCount = GVulkanDebugMessengerActiveCount.load(std::memory_order_acquire),
+			.LastMessengerDestroySequence = GVulkanLastMessengerDestroySequence.load(std::memory_order_acquire),
+			.LastInstanceDestroySequence = GVulkanLastInstanceDestroySequence.load(std::memory_order_acquire),
+		};
+	}
 
 	auto GetVulkanStructuralCacheTestStats() -> FVulkanStructuralCacheTestStats
 	{

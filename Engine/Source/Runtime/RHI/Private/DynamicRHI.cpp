@@ -4,6 +4,73 @@
 
 namespace Durin
 {
+	auto FormatRHIDiagnosticSnapshot(
+		const FRHIDiagnosticSnapshot& S) -> std::string
+	{
+		return std::format(
+			"availability(requested={},debugUtils={},validation={},messenger={}) "
+			"executor(commands={},pendingBatches={},pendingBytes={}) "
+			"completion(submitted={},completed={},pending={},retirement={}/{}/{}/{}) "
+			"messages(total={},warning={},error={}) "
+			"naming(attempts={},failures={},labels={}/{},active={}) "
+			"timing(pages={},live={},pending={},ready={},exhaustion={},failures={})",
+			S.Availability.bRequested, S.Availability.bDebugUtilsActive,
+			S.Availability.bValidationLayerActive, S.Availability.bMessengerActive,
+			S.Executor.RecordedCommandCount, S.Executor.PendingBatchCount,
+			S.Executor.PendingPayloadBytes, S.Completion.LastSubmittedToken,
+			S.Completion.CompletedToken, S.Completion.PendingSubmissions,
+			S.Completion.RetirementPendingCount,
+			S.Completion.RetirementHighWater,
+			S.Completion.RetirementReleasedCount,
+			S.Completion.RetirementMaxTokenLag,
+			S.Messages.Total, S.Messages.Warning, S.Messages.Error,
+			S.Naming.NamingAttempts, S.Naming.NamingFailures,
+			S.Naming.LabelBegins, S.Naming.LabelEnds,
+			S.Naming.ActiveRegionDepth, S.Timing.AllocatedPages,
+			S.Timing.LiveIntervals, S.Timing.PendingIntervals,
+			S.Timing.ReadyIntervals, S.Timing.ExhaustionCount,
+			S.Timing.AllocationFailureCount);
+	}
+
+	auto FDynamicRHI::RHICreateGPUTimingQuery()
+		-> TRefCountPtr<FRHIGPUTimingQuery>
+	{
+		return nullptr;
+	}
+
+	auto FDynamicRHI::RHIGetGPUTimingResult(
+		const FRHIGPUTimingQuery* Query) const -> FRHIGPUTimingResult
+	{
+		return Query ? Query->GetResult() : FRHIGPUTimingResult{};
+	}
+
+	auto FDynamicRHI::RHIGetDiagnosticSnapshot() const
+		-> FRHIDiagnosticSnapshot
+	{
+		FRHIDiagnosticSnapshot Result;
+		Result.Executor = GCommandListExecutor.GetStats();
+		Result.GraphicsCache = RHIGetGraphicsCacheStatistics();
+		Result.Memory = RHIGetMemoryStatistics();
+		Result.Completion.RetirementPendingCount =
+			Result.Memory.RetirementPendingCount;
+		Result.Completion.RetirementHighWater =
+			Result.Memory.RetirementHighWater;
+		Result.Completion.RetirementReleasedCount =
+			Result.Memory.RetirementReleasedCount;
+		Result.Completion.RetirementMaxTokenLag =
+			Result.Memory.RetirementMaxTokenLag;
+		Result.Naming.InvalidRegionCount =
+			FRHICommandListBase::GetInvalidDiagnosticRegionCount();
+		return Result;
+	}
+
+	auto FDynamicRHI::RHIResetDiagnosticStatistics() -> void
+	{
+		RHIResetGraphicsCacheStatistics();
+		RHIResetMemoryStatistics();
+		FRHICommandListBase::ResetInvalidDiagnosticRegionCount();
+	}
+
 	auto FDynamicRHI::RHICreateBufferView(
 		FRHIBuffer* Buffer,
 		const FRHIBufferViewDesc& Desc) -> TRefCountPtr<FRHIBufferView>

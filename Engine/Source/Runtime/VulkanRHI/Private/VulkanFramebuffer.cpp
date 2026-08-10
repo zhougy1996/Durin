@@ -2,6 +2,7 @@
 
 #include "RHIResources.h"
 #include "VulkanDevice.h"
+#include "VulkanDynamicRHI.h"
 #include "VulkanRenderPass.h"
 #include "VulkanRHIPrivate.h"
 #include "VulkanTexture.h"
@@ -80,6 +81,8 @@ namespace Durin::VulkanRHI
 			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::Framebuffer);
 		#endif
 			CandidateFramebuffer = Device.GetHandle().createFramebuffer(CreateInfo);
+			Device.GetRHI().GetDebugUtils().NameObject(CandidateFramebuffer,
+				Device.GetRHI().GetDebugUtils().MakeInternalName("Framebuffer"));
 		#if DURIN_VULKAN_TEST_FAILURE_INJECTION
 			GVulkanCreatedFramebufferCount.fetch_add(1, std::memory_order_release);
 		#endif

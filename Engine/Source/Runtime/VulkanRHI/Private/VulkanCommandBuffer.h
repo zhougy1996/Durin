@@ -28,6 +28,8 @@ namespace Durin::VulkanRHI
 		auto SetSubmitted() -> void;
 
 		auto BeginRenderPass(FVulkanRenderPass* InRenderPass, FVulkanFramebuffer* InFramebuffer, std::span<const vk::ClearValue> InClearValues, FName DebugName) -> void;
+		auto BeginDiagnosticRegion(std::string_view Name) -> void;
+		auto EndDiagnosticRegion() -> void;
 
 		auto EndRenderPass() -> void;
 
@@ -64,6 +66,7 @@ namespace Durin::VulkanRHI
 
 		vk::CommandBuffer Handle;
 		bool bRenderPassDebugLabelOpen = false;
+		uint32 DiagnosticRegionDepth = 0;
 
 		friend class FVulkanQueue;
 		friend class FVulkanCommandBufferPool;

@@ -111,6 +111,12 @@ or freeing resources. It preserves live allocation gauges, arena capacity/live
 bytes, descriptor live occupancy, retirement pending depth, and the current
 heap snapshot. Reset peaks restart from their corresponding live value.
 
+The consolidated `FRHIDiagnosticSnapshot` composes this value unchanged and
+mirrors its retirement fields into the Completion section for attribution. Its
+single reset boundary delegates back to this authority; it does not maintain a
+second memory counter store. See
+[RHI Diagnostics and Conformance](RHIDiagnosticsAndConformance.md).
+
 ## Shutdown and Failure
 
 Shutdown stops new work through the existing executor contract, drains CPU
@@ -131,6 +137,7 @@ terminal behavior.
 - [RHI resource views and transfers](RHIResourceViewsAndTransfers.md)
 - [Graphics state and bindings](GraphicsStateAndBindings.md)
 - [Viewport rendering](ViewportRendering.md)
+- [RHI diagnostics and conformance](RHIDiagnosticsAndConformance.md)
 - [RHI and Vulkan backend evolution roadmap](../../Roadmaps/RHIAndVulkanEvolution.md)
 
 ## Related Code

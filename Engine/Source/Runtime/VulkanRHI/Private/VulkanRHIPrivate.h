@@ -17,6 +17,7 @@ namespace Durin::VulkanRHI
 	enum class EVulkanCreateFailurePoint : uint8
 	{
 		Instance,
+		DebugMessenger,
 		Device,
 		Swapchain,
 		SwapchainImageView,
@@ -37,6 +38,7 @@ namespace Durin::VulkanRHI
 		GraphicsPipeline,
 		Sampler,
 		VertexDeclaration,
+		QueryPool,
 		Count
 	};
 
@@ -44,6 +46,44 @@ namespace Durin::VulkanRHI
 	VULKANRHI_API auto ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint FailurePoint) -> bool;
 	VULKANRHI_API auto ResetVulkanCreateFailures() -> void;
 	VULKANRHI_API auto ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint FailurePoint) -> void;
+
+	struct FVulkanDebugMessengerTestStats
+	{
+		uint64 CreatedCount = 0;
+		uint64 DestroyedCount = 0;
+		uint64 ActiveCount = 0;
+		uint64 LastMessengerDestroySequence = 0;
+		uint64 LastInstanceDestroySequence = 0;
+	};
+
+	VULKANRHI_API auto ResetVulkanDebugMessengerTestStats() -> void;
+	VULKANRHI_API auto RecordVulkanDebugMessengerCreatedForTest() -> void;
+	VULKANRHI_API auto RecordVulkanDebugMessengerDestroyedForTest() -> void;
+	VULKANRHI_API auto RecordVulkanInstanceDestroyedForTest() -> void;
+	VULKANRHI_API auto GetVulkanDebugMessengerTestStats()
+		-> FVulkanDebugMessengerTestStats;
+
+	enum class EVulkanDebugUtilsTestEventType : uint8
+	{
+		ObjectName,
+		LabelBegin,
+		LabelEnd,
+	};
+
+	struct FVulkanDebugUtilsTestEvent
+	{
+		EVulkanDebugUtilsTestEventType Type =
+			EVulkanDebugUtilsTestEventType::ObjectName;
+		vk::ObjectType ObjectType = vk::ObjectType::eUnknown;
+		std::string Name;
+	};
+
+	VULKANRHI_API auto ResetVulkanDebugUtilsEventsForTest() -> void;
+	VULKANRHI_API auto RecordVulkanDebugUtilsEventForTest(
+		EVulkanDebugUtilsTestEventType Type, vk::ObjectType ObjectType,
+		std::string_view Name) -> void;
+	VULKANRHI_API auto GetVulkanDebugUtilsEventsForTest()
+		-> std::vector<FVulkanDebugUtilsTestEvent>;
 
 	struct FVulkanGraphicsPipelineTestStats
 	{

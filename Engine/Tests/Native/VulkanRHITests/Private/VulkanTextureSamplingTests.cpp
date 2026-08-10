@@ -716,6 +716,26 @@ namespace Durin
 		Sampler = nullptr;
 		RHICmdList.ImmediateFlush(
 			EImmediateFlushType::FlushRHIThreadFlushResources);
+		FRHIDiagnosticSnapshot ChurnSnapshot;
+		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
+			ChurnSnapshot = GDynamicRHI->RHIGetDiagnosticSnapshot();
+		});
+		EXPECT_EQ(ChurnSnapshot.Executor.PendingBatchCount, 0u);
+		EXPECT_EQ(ChurnSnapshot.Completion.RetirementPendingCount,
+			ChurnSnapshot.Memory.RetirementPendingCount);
+		EXPECT_LE(ChurnSnapshot.Memory.RetirementPendingCount, 64u);
+		EXPECT_LE(ChurnSnapshot.Memory.RetirementPendingCount,
+			ChurnSnapshot.Memory.RetirementHighWater);
+		EXPECT_GE(ChurnSnapshot.Memory.UploadOperationCount, 18u);
+		EXPECT_GE(ChurnSnapshot.Memory.ReadbackOperationCount, 17u);
+		EXPECT_LE(ChurnSnapshot.Timing.LiveIntervals,
+			ChurnSnapshot.Timing.IntervalCapacity);
+		for (const FRHIMemoryClassStatistics& Class :
+			ChurnSnapshot.Memory.Classes)
+		{
+			if (Class.ArenaCapacityBytes != 0)
+				EXPECT_LE(Class.ArenaLiveBytes, Class.ArenaCapacityBytes);
+		}
 
 		const VulkanRHI::FVulkanMemoryBaselineStatistics Baseline =
 			VulkanRHI::GetVulkanMemoryBaselineStatistics();

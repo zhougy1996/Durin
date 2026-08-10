@@ -16,6 +16,23 @@
 
 namespace Durin::VulkanRHI
 {
+	namespace
+	{
+		auto ToRHISwapchainPixelFormat(vk::Format Format) -> EPixelFormat
+		{
+			switch (Format)
+			{
+			case vk::Format::eR8G8B8A8Unorm: return EPixelFormat::RGBA8_UNORM;
+			case vk::Format::eB8G8R8A8Unorm: return EPixelFormat::BGRA8_UNORM;
+			case vk::Format::eR8G8B8A8Srgb: return EPixelFormat::SRGBA8_UNORM;
+			case vk::Format::eB8G8R8A8Srgb: return EPixelFormat::SBGRA8_UNORM;
+			default:
+				checkf(false, "Vulkan selected an unsupported swapchain format.");
+				return EPixelFormat::Unknown;
+			}
+		}
+	}
+
 	FVulkanBackBuffer::FVulkanBackBuffer(FVulkanDevice& InDevice, FVulkanViewport* InViewport)
 		: FVulkanTexture(InDevice, nullptr)
 		, Viewport(InViewport)
@@ -34,7 +51,7 @@ namespace Durin::VulkanRHI
 		SizeX = Extent.width;
 		SizeY = Extent.height;
 		Format = Viewport->GetSwapchainImageFormat();
-		PixelFormat = Viewport->GetFormat();
+		PixelFormat = ToRHISwapchainPixelFormat(Format);
 		NumSamples = 1;
 		ImageStates.clear();
 	}
@@ -88,6 +105,8 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		Surface = FVulkanGenericPlatform::CreateSurface(InWindowHandle, FVulkanDynamicRHI::Get().RHIGetVkInstance());
+		Device.GetRHI().GetDebugUtils().NameObject(Surface,
+			Device.GetRHI().GetDebugUtils().MakeInternalName("Surface"));
 		bSwapchainNeedsRecreate = true;
 		bSwapchainRetryEligible = true;
 		PrepareSwapchain();
@@ -342,19 +361,27 @@ namespace Durin::VulkanRHI
 				PresentModePolicy, OldSwapchain, bNativeSwapchainCreated);
 			CandidateSwapchain->InitializeSynchronizationResources();
 			CandidateImages = CandidateSwapchain->GetImages();
+			for (uint32 ImageIndex = 0; ImageIndex < CandidateImages.size(); ++ImageIndex)
+			{
+				Device.GetRHI().GetDebugUtils().NameObject(CandidateImages[ImageIndex],
+					std::format("Durin.SwapchainImage.{}", ImageIndex));
+			}
 
 			vk::ImageViewCreateInfo ImageViewCreateInfo;
 			ImageViewCreateInfo.setViewType(vk::ImageViewType::e2D);
 			ImageViewCreateInfo.setFormat(CandidateSwapchain->GetFormat());
 			ImageViewCreateInfo.setComponents({vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG, vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA});
 			ImageViewCreateInfo.setSubresourceRange({vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
-			for (const vk::Image Image : CandidateImages)
+			for (uint32 ImageIndex = 0; ImageIndex < CandidateImages.size(); ++ImageIndex)
 			{
+				const vk::Image Image = CandidateImages[ImageIndex];
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 				ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::SwapchainImageView);
 #endif
 				ImageViewCreateInfo.setImage(Image);
 				CandidateViews.emplace_back(Image, Device.GetHandle().createImageView(ImageViewCreateInfo));
+				Device.GetRHI().GetDebugUtils().NameObject(CandidateViews.back().ImageView,
+					std::format("Durin.SwapchainImageView.{}", ImageIndex));
 			}
 
 			CandidateFrameResources.resize(CandidateImages.size());
@@ -370,6 +397,8 @@ namespace Durin::VulkanRHI
 					ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::SwapchainFence);
 #endif
 					FrameResource.PresentFence = Device.GetHandle().createFence(vk::FenceCreateInfo());
+					Device.GetRHI().GetDebugUtils().NameObject(FrameResource.PresentFence,
+						Device.GetRHI().GetDebugUtils().MakeInternalName("PresentFence"));
 				}
 			}
 		}

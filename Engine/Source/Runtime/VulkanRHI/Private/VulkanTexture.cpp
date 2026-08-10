@@ -105,6 +105,8 @@ namespace Durin::VulkanRHI
 		, Format(ToVulkan_PixelFormat(InCreateDesc.Format))
 		, CreateFlags(InCreateDesc.Flags)
 		, StateTracker(InCreateDesc.NumMips, InCreateDesc.ArraySize)
+		, DebugName(InCreateDesc.DebugName ? InCreateDesc.DebugName :
+			Device.GetRHI().GetDebugUtils().MakeInternalName("Image"))
 	{
 		CheckVulkanRHIThread();
 		const vk::Extent3D ImageExtent = ToVulkan_Extent3D(InCreateDesc.GetSize());
@@ -118,7 +120,8 @@ namespace Durin::VulkanRHI
 		FVulkanMemoryManager& MemoryManager = InDevice.GetMemoryManager();
 		const vk::Result ImageResult =
 			MemoryManager.CreateImage(Allocation, Image,
-				EVulkanAllocationClassCandidate::DeviceLocal, ImageInfo);
+				EVulkanAllocationClassCandidate::DeviceLocal, ImageInfo,
+				DebugName.c_str());
 		if (ImageResult != vk::Result::eSuccess)
 		{
 			throw std::runtime_error(std::format(
@@ -126,7 +129,7 @@ namespace Durin::VulkanRHI
 				vk::to_string(ImageResult), ImageExtent.width, ImageExtent.height,
 				ImageExtent.depth, vk::to_string(Format)));
 		}
-
+		Device.GetRHI().GetDebugUtils().NameObject(Image, DebugName);
 	}
 
 	FVulkanTexture::FVulkanTexture(FVulkanDevice& InDevice, vk::Image InImage)
@@ -135,8 +138,10 @@ namespace Durin::VulkanRHI
 		, OwnerType(EImageOwnerType::ExternalOwner)
 		, CreateFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource)
 		, StateTracker(1, 1)
+		, DebugName(Device.GetRHI().GetDebugUtils().MakeInternalName("SwapchainImage"))
 	{
 		Flags = CreateFlags;
+		Device.GetRHI().GetDebugUtils().NameObject(Image, DebugName);
 	}
 
 	FVulkanTexture::~FVulkanTexture()
@@ -194,6 +199,8 @@ namespace Durin::VulkanRHI
 			EVulkanCreateFailurePoint::Sampler);
 #endif
 		Sampler = Device.GetHandle().createSampler(SamplerInfo);
+		Device.GetRHI().GetDebugUtils().NameObject(Sampler,
+			Device.GetRHI().GetDebugUtils().MakeInternalName("Sampler"));
 	}
 
 	FVulkanSampler::~FVulkanSampler()

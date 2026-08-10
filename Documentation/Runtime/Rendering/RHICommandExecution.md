@@ -44,6 +44,13 @@ buffer. Only executor replay resolves the active context and invokes it. This
 keeps an immutable batch movable to another CPU thread without changing its
 payload or resource-lifetime contract.
 
+Recorded diagnostic regions and GPU timing begin/end commands follow the same
+ownership and replay rules. Region names and timing queries are retained by the
+command batch; unbalanced/crossed regions or timing intervals invalidate
+admission before replay. Timing result reads are nonblocking observations, not
+synchronous-result operations. See
+[RHI Diagnostics and Conformance](RHIDiagnosticsAndConformance.md).
+
 Regular recorder states are `Recording -> Finished -> Admitted`. Recording
 after finish, admission before finish, double admission, an unbalanced render
 pass, or an open buffer lock fails at the closest CPU boundary. Moving a list
@@ -214,6 +221,7 @@ queue sizing; they are not GPU timing measurements.
 - [Viewport rendering](ViewportRendering.md)
 - [RHI capabilities and Vulkan startup](RHICapabilitiesAndVulkanStartup.md)
 - [Vulkan memory and GPU completion](VulkanMemoryAndGPUCompletion.md)
+- [RHI diagnostics and conformance](RHIDiagnosticsAndConformance.md)
 - [Dedicated RHI Thread plan](../../Plans/Archive/2026-08/DedicatedRHIThread.md)
 - [Build and run](../../Development/Build/BuildAndRun.md)
 

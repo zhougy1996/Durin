@@ -58,6 +58,12 @@ namespace Durin
 			}
 		};
 
+		class FTestGPUTimingQuery final : public FRHIGPUTimingQuery
+		{
+		public:
+			~FTestGPUTimingQuery() override = default;
+		};
+
 		class FTestVertexDeclaration final : public FRHIVertexDeclaration
 		{
 		public:
@@ -106,6 +112,24 @@ namespace Durin
 				{
 					ObservedResourceAliveAtEndFrame = !*ResourceDestroyed;
 				}
+			}
+			auto RHIBeginDiagnosticRegion(std::string_view Name) -> void override
+			{
+				Operations.emplace_back("BeginRegion:" + std::string(Name));
+			}
+			auto RHIEndDiagnosticRegion() -> void override
+			{
+				Operations.emplace_back("EndRegion");
+			}
+			auto RHIBeginGPUTimingQuery(FRHIGPUTimingQuery* Query) -> void override
+			{
+				Operations.emplace_back("BeginTiming");
+				ObservedTimingQuery = Query;
+			}
+			auto RHIEndGPUTimingQuery(FRHIGPUTimingQuery* Query) -> void override
+			{
+				Operations.emplace_back("EndTiming");
+				ObservedTimingQuery = Query;
 			}
 			auto RHIBeginRenderPass(const FRHIRenderPassInfo& Info, FName) -> void override
 			{
@@ -271,6 +295,7 @@ namespace Durin
 			}
 
 			std::vector<std::string> Operations;
+			FRHIGPUTimingQuery* ObservedTimingQuery = nullptr;
 			std::optional<uint64> ObservedBeginFrameNumber;
 			std::vector<bool> OperationThreadRoles;
 			FRHITexture* ObservedColorTarget = nullptr;
@@ -649,6 +674,80 @@ namespace Durin
 		EXPECT_EQ(ThreadedContext.Operations, (std::vector<std::string>{
 			"BeginFrame", "Replay", "BeginDrawingViewport", "EndDrawingViewport",
 			"Additional", "SubmitToGPU", "EndFrame"}));
+	}
+
+	TEST(FRHICommandListTests,
+		DiagnosticRegionsOwnNamesNestAndReplayEquallyInlineAndThreaded)
+	{
+		auto RecordRegions = [](FRHICommandListImmediate& Immediate) {
+			std::string OuterName = "Outer";
+			Immediate.BeginDiagnosticRegion(OuterName);
+			OuterName = "Mutated";
+			Immediate.BeginDiagnosticRegion("Inner");
+			Immediate.EndDiagnosticRegion();
+			Immediate.EndDiagnosticRegion();
+		};
+
+		FRecordingCommandContext InlineContext;
+		FRHICommandListExecutor InlineExecutor(InlineContext);
+		RecordRegions(InlineExecutor.GetImmediateCommandList());
+		InlineExecutor.Submit({}, ERHISubmitFlags::None);
+
+		FRecordingCommandContext ThreadedContext;
+		FRHIThread RHIThread;
+		ASSERT_TRUE(RHIThread.Start());
+		FRHICommandListExecutor ThreadedExecutor(ThreadedContext, RHIThread);
+		RecordRegions(ThreadedExecutor.GetImmediateCommandList());
+		const uint64 Serial = ThreadedExecutor.Submit({}, ERHISubmitFlags::None);
+		ThreadedExecutor.CreateFence().Wait();
+
+		const std::vector<std::string> Expected{
+			"BeginRegion:Outer", "BeginRegion:Inner", "EndRegion", "EndRegion"};
+		EXPECT_EQ(InlineContext.Operations, Expected);
+		EXPECT_EQ(ThreadedContext.Operations, Expected);
+		EXPECT_EQ(ThreadedExecutor.GetCompletedSerial(), Serial);
+	}
+
+	TEST(FRHICommandListTests,
+		GPUTimingQueriesRetainOwnershipAndReplayEquallyInlineAndThreaded)
+	{
+		auto RecordTiming = [](FRHICommandListImmediate& Immediate,
+			FRHIGPUTimingQuery* Query) {
+			Immediate.BeginGPUTimingQuery(Query);
+			Immediate.EnqueueLambda([]() {});
+			Immediate.EndGPUTimingQuery(Query);
+		};
+
+		TRefCountPtr<FTestGPUTimingQuery> InlineQuery =
+			MakeRefCount<FTestGPUTimingQuery>();
+		FRecordingCommandContext InlineContext;
+		FRHICommandListExecutor InlineExecutor(InlineContext);
+		RecordTiming(InlineExecutor.GetImmediateCommandList(), InlineQuery);
+		InlineExecutor.Submit({}, ERHISubmitFlags::None);
+
+		TRefCountPtr<FTestGPUTimingQuery> ThreadedQuery =
+			MakeRefCount<FTestGPUTimingQuery>();
+		FRecordingCommandContext ThreadedContext;
+		FRHIThread RHIThread;
+		ASSERT_TRUE(RHIThread.Start());
+		FRHICommandListExecutor ThreadedExecutor(ThreadedContext, RHIThread);
+		RecordTiming(ThreadedExecutor.GetImmediateCommandList(), ThreadedQuery);
+		const uint64 Serial = ThreadedExecutor.Submit({}, ERHISubmitFlags::None);
+		ThreadedExecutor.CreateFence().Wait();
+
+		const std::vector<std::string> Expected{"BeginTiming", "EndTiming"};
+		EXPECT_EQ(InlineContext.Operations, Expected);
+		EXPECT_EQ(ThreadedContext.Operations, Expected);
+		EXPECT_EQ(InlineContext.ObservedTimingQuery, InlineQuery.GetReference());
+		EXPECT_EQ(ThreadedContext.ObservedTimingQuery, ThreadedQuery.GetReference());
+		EXPECT_EQ(ThreadedExecutor.GetCompletedSerial(), Serial);
+		EXPECT_EQ(InlineQuery->GetResult().State,
+			ERHIGPUTimingResultState::Invalid);
+		EXPECT_EQ(ThreadedQuery->GetResult().State,
+			ERHIGPUTimingResultState::Invalid);
+
+		RecordTiming(InlineExecutor.GetImmediateCommandList(), InlineQuery);
+		InlineExecutor.Submit({}, ERHISubmitFlags::None);
 	}
 
 	TEST(FRHICommandListTests, ThreadedImmediateOperationsStayOnRHIThread)
@@ -1209,9 +1308,56 @@ namespace Durin
 		Unbalanced.SwitchPipeline(ERHIPipeline::Graphics);
 		Unbalanced.BeginRenderPass(PassInfo, "Unbalanced");
 		EXPECT_DEATH(Unbalanced.FinishRecording(), "");
+
+		FRHICommandList UnbalancedRegion;
+		UnbalancedRegion.BeginDiagnosticRegion("Open");
+		EXPECT_DEATH(UnbalancedRegion.FinishRecording(), "");
+		EXPECT_DEATH(FRHICommandList().EndDiagnosticRegion(), "");
+
+		TRefCountPtr<FTestGPUTimingQuery> TimingQuery =
+			MakeRefCount<FTestGPUTimingQuery>();
+		FRHICommandList UnbalancedTiming;
+		UnbalancedTiming.BeginGPUTimingQuery(TimingQuery);
+		EXPECT_DEATH(UnbalancedTiming.FinishRecording(), "");
+		EXPECT_DEATH(FRHICommandList().EndGPUTimingQuery(TimingQuery), "");
+		EXPECT_DEATH(UnbalancedTiming.BeginGPUTimingQuery(TimingQuery), "");
+		TRefCountPtr<FTestGPUTimingQuery> OtherTimingQuery =
+			MakeRefCount<FTestGPUTimingQuery>();
+		EXPECT_DEATH(UnbalancedTiming.EndGPUTimingQuery(OtherTimingQuery), "");
+		EXPECT_DEATH(FRHICommandList().BeginGPUTimingQuery(TimingQuery), "");
+		TRefCountPtr<FTestGPUTimingQuery> PendingTimingQuery =
+			MakeRefCount<FTestGPUTimingQuery>();
+		ASSERT_TRUE(PendingTimingQuery->TryReserveRecording());
+		EXPECT_DEATH(FRHICommandList().BeginGPUTimingQuery(PendingTimingQuery), "");
+		PendingTimingQuery->CancelRecording();
+
+		FRHICommandList CrossedRegion;
+		CrossedRegion.SwitchPipeline(ERHIPipeline::Graphics);
+		CrossedRegion.BeginDiagnosticRegion("Outer");
+		CrossedRegion.BeginRenderPass(PassInfo, "Pass");
+		CrossedRegion.EndDiagnosticRegion();
+		EXPECT_DEATH(CrossedRegion.EndRenderPass(), "");
 #else
 		GTEST_SKIP() << "Ordinary check contracts are disabled in Shipping.";
 #endif
+	}
+
+	TEST(FRHICommandListTests,
+		UnclosedDiagnosticRegionSubmissionIsCountedAndRecoverable)
+	{
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		FRHICommandListBase::ResetInvalidDiagnosticRegionCount();
+		FRHICommandListImmediate& Immediate = Executor.GetImmediateCommandList();
+		Immediate.BeginDiagnosticRegion("Open");
+		const FRHICommandListSubmission Rejected =
+			Executor.TrySubmit({}, ERHISubmitFlags::None);
+		EXPECT_EQ(Rejected.Result,
+			ERHICommandListSubmitResult::InvalidCommandList);
+		EXPECT_EQ(FRHICommandListBase::GetInvalidDiagnosticRegionCount(), 1u);
+		Immediate.EndDiagnosticRegion();
+		EXPECT_TRUE(Executor.TrySubmit({}, ERHISubmitFlags::None).IsAccepted());
+		FRHICommandListBase::ResetInvalidDiagnosticRegionCount();
 	}
 
 	TEST(FRHICommandListTests, TransitionBatchesOwnDescriptorsAndResourcesUntilReplay)

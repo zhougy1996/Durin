@@ -2,6 +2,7 @@
 
 #include "VulkanBuffer.h"
 #include "VulkanDevice.h"
+#include "VulkanDynamicRHI.h"
 #include "VulkanResourceState.h"
 #include "VulkanRHIPrivate.h"
 #include "VulkanTexture.h"
@@ -26,6 +27,8 @@ namespace Durin::VulkanRHI
 		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::BufferView);
 #endif
 		BufferView = Device.GetHandle().createBufferView(CreateInfo);
+		Device.GetRHI().GetDebugUtils().NameObject(BufferView,
+			std::format("{}.BufferView", Buffer->GetDebugName()));
 	}
 
 	FVulkanBufferView::~FVulkanBufferView()
@@ -59,6 +62,8 @@ namespace Durin::VulkanRHI
 		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::ImageView);
 #endif
 		ImageView = Device.GetHandle().createImageView(CreateInfo);
+		Device.GetRHI().GetDebugUtils().NameObject(ImageView,
+			std::format("{}.ImageView", Texture->GetDebugName()));
 		DebugIdentity = GVulkanImageViewHandleIdCounter.fetch_add(
 			1, std::memory_order_relaxed) + 1;
 	}

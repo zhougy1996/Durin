@@ -22,6 +22,7 @@ namespace Durin::VulkanRHI
 		auto IsStatic() const -> bool;
 
 		auto GetHandle() const -> vk::Buffer { return Buffer; }
+		auto GetDebugName() const -> std::string_view { return DebugName; }
 
 		VULKANRHI_API auto GetMappedPointer() const -> void*;
 		auto GetAllocationClass() const -> EVulkanAllocationClassCandidate
@@ -46,6 +47,7 @@ namespace Durin::VulkanRHI
 		FVulkanAllocation Allocation{};
 
 		FVulkanBufferStateTracker StateTracker;
+		std::string DebugName;
 
 	};
 

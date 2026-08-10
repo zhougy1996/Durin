@@ -24,6 +24,7 @@ namespace Durin::VulkanRHI
 		uint32 MaxImageDimensionCube = 0;
 		uint32 MaxImageArrayLayers = 0;
 		bool bFillModeNonSolid = false;
+		bool bIndependentBlend = false;
 		bool bShaderDrawParameters = false;
 		bool bSynchronization2Feature = false;
 		bool bSwapchainMaintenanceFeature = false;
@@ -68,6 +69,7 @@ namespace Durin::VulkanRHI
 	class FVulkanDynamicStorageBufferAllocator;
 	class FVulkanCompletionTracker;
 	class FVulkanTransferArena;
+	class FVulkanGPUTimingManager;
 
 	// Defers destruction of Vulkan handles until their queue completion token retires.
 	class FDeferredDeletionQueue
@@ -166,10 +168,17 @@ namespace Durin::VulkanRHI
 		auto WaitUtilIdle() const -> void;
 
 		auto GetHandle() const -> vk::Device;
+		auto GetRHI() const -> FVulkanDynamicRHI& { return *RHI; }
 
 		auto GetGpu() const -> vk::PhysicalDevice;
 
 		auto GetGpuProperties() const -> const vk::PhysicalDeviceProperties& { return GpuProps; }
+		auto GetQueueFamilyProperties(uint32 FamilyIndex) const
+			-> const vk::QueueFamilyProperties&
+		{
+			check(FamilyIndex < QueueFamilyProps.size());
+			return QueueFamilyProps[FamilyIndex];
+		}
 
 		auto GetRenderPassManager() const -> FVulkanRenderPassManager&;
 
@@ -195,6 +204,7 @@ namespace Durin::VulkanRHI
 		}
 		auto GetUploadArena() -> FVulkanTransferArena& { return *UploadArena; }
 		auto GetReadbackArena() -> FVulkanTransferArena& { return *ReadbackArena; }
+		auto GetGPUTimingManager() -> FVulkanGPUTimingManager& { return *GPUTimingManager; }
 
 		auto GetPipelineManager() const -> FVulkanPipelineManager& { return *PipelineManager; }
 
@@ -237,6 +247,7 @@ namespace Durin::VulkanRHI
 		FVulkanCompletionTracker* CompletionTracker = nullptr;
 		FVulkanTransferArena* UploadArena = nullptr;
 		FVulkanTransferArena* ReadbackArena = nullptr;
+		FVulkanGPUTimingManager* GPUTimingManager = nullptr;
 
 		FVulkanRenderPassManager* RenderPassManager = nullptr;
 

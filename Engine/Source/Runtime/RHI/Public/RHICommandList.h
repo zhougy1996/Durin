@@ -65,9 +65,16 @@ namespace Durin
 		RHI_API auto IsRecording() const -> bool;
 		RHI_API auto GetNumRecordedCommands() const -> size_t;
 		auto IsInsideRenderPass() const -> bool { return bInsideRenderPass; }
+		auto GetDiagnosticRegionDepth() const -> uint32 { return DiagnosticRegionDepth; }
+		RHI_API static auto GetInvalidDiagnosticRegionCount() -> uint64;
+		RHI_API static auto ResetInvalidDiagnosticRegionCount() -> void;
 
 		// Call this function to switch between graphics and compute pipelines.
 		RHI_API auto SwitchPipeline(ERHIPipeline Pipeline) -> void;
+		RHI_API auto BeginDiagnosticRegion(std::string_view Name) -> void;
+		RHI_API auto EndDiagnosticRegion() -> void;
+		RHI_API auto BeginGPUTimingQuery(FRHIGPUTimingQuery* Query) -> void;
+		RHI_API auto EndGPUTimingQuery(FRHIGPUTimingQuery* Query) -> void;
 
 		RHI_API auto BeginRenderPass(const FRHIRenderPassInfo& Info, FName Name) -> void;
 		RHI_API auto EndRenderPass() -> void;
@@ -156,6 +163,7 @@ namespace Durin
 			CommitCommand(Allocation.Node, OwnedPayloadBytes);
 		}
 		RHI_API auto CommitCommand(void* Node, size_t OwnedPayloadBytes) -> void;
+		static auto RecordInvalidDiagnosticRegion() -> void;
 		auto DetachStorage() -> std::unique_ptr<FRHICommandStorage>;
 		auto IsFinished() const -> bool;
 		auto MarkAdmitted() -> void;
@@ -164,6 +172,10 @@ namespace Durin
 		ERecordingState RecordingState = ERecordingState::Recording;
 		ERHIPipeline ActivePipeline = ERHIPipeline::None;
 		bool bInsideRenderPass = false;
+		uint32 DiagnosticRegionDepth = 0;
+		uint32 RenderPassDiagnosticRegionDepth = 0;
+		FRHIGPUTimingQuery* ActiveGPUTimingQuery = nullptr;
+		std::shared_ptr<void> ActiveGPUTimingReservation;
 
 		friend class FRHICommandList;
 		friend class FRHICommandListExecutor;
@@ -210,12 +222,6 @@ namespace Durin
 
 	ENUM_CLASS_FLAGS(ERHISubmitFlags)
 
-	enum class ERHICommandListExecutorMode : uint8
-	{
-		Inline,
-		Threaded,
-	};
-
 	enum class ERHICommandListSubmitResult : uint8
 	{
 		Accepted,
@@ -246,28 +252,6 @@ namespace Durin
 		std::string Diagnostic;
 
 		auto IsSuccess() const -> bool { return bSucceeded; }
-	};
-
-	struct FRHICommandListExecutorStats
-	{
-		ERHICommandListExecutorMode Mode = ERHICommandListExecutorMode::Inline;
-		uint64 RecordedCommandCount = 0;
-		uint64 RecordedPayloadBytes = 0;
-		uint64 SubmittedBatchCount = 0;
-		uint64 SubmissionGroupCount = 0;
-		uint64 ReplayDurationNanoseconds = 0;
-		uint64 WaitCount = 0;
-		uint64 SynchronousOperationCount = 0;
-		uint64 RejectedSubmissionCount = 0;
-		uint64 PendingBatchCount = 0;
-		uint64 PendingPayloadBytes = 0;
-		uint64 LastSubmittedSerial = 0;
-		uint64 CompletedSerial = 0;
-		uint64 WaitDurationNanoseconds = 0;
-		uint64 BackpressureWaitCount = 0;
-		uint64 PeakQueueEntryCount = 0;
-		uint64 PeakQueueBatchCount = 0;
-		uint64 PeakQueuePayloadBytes = 0;
 	};
 
 	// Owns the primary timeline and immediate-only coordination operations.

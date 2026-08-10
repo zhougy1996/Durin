@@ -9,6 +9,87 @@
 
 namespace Durin
 {
+	std::atomic<uint64> FRHIGPUTimingQuery::InvalidRecordingCount = 0;
+
+	FRHIGPUTimingQuery::FRHIGPUTimingQuery()
+		: FRHIResource(ERHIResourceType::GPUTimingQuery)
+	{
+	}
+
+	auto FRHIGPUTimingQuery::GetResult() const -> FRHIGPUTimingResult
+	{
+		const ERHIGPUTimingResultState State =
+			ResultState.load(std::memory_order_acquire);
+		return {State, State == ERHIGPUTimingResultState::Ready
+			? DurationNanoseconds.load(std::memory_order_relaxed) : 0};
+	}
+
+	auto FRHIGPUTimingQuery::TryReserveRecording() -> bool
+	{
+		ERecordingState Expected = ERecordingState::Idle;
+		if (!RecordingState.compare_exchange_strong(Expected,
+			ERecordingState::Recorded, std::memory_order_acq_rel))
+		{
+			RecordInvalidRecording();
+			return false;
+		}
+		DurationNanoseconds.store(0, std::memory_order_relaxed);
+		ResultState.store(ERHIGPUTimingResultState::Pending,
+			std::memory_order_release);
+		return true;
+	}
+
+	auto FRHIGPUTimingQuery::RecordInvalidRecording() -> void
+	{
+		uint64 Current = InvalidRecordingCount.load(std::memory_order_relaxed);
+		while (Current != std::numeric_limits<uint64>::max()
+			&& !InvalidRecordingCount.compare_exchange_weak(Current, Current + 1,
+				std::memory_order_relaxed, std::memory_order_relaxed)) {}
+	}
+
+	auto FRHIGPUTimingQuery::GetInvalidRecordingCount() -> uint64
+	{
+		return InvalidRecordingCount.load(std::memory_order_relaxed);
+	}
+
+	auto FRHIGPUTimingQuery::ResetInvalidRecordingCount() -> void
+	{
+		InvalidRecordingCount.store(0, std::memory_order_relaxed);
+	}
+
+	auto FRHIGPUTimingQuery::CommitRecording() -> bool
+	{
+		ERecordingState Expected = ERecordingState::Recorded;
+		return RecordingState.compare_exchange_strong(Expected,
+			ERecordingState::Committed, std::memory_order_acq_rel);
+	}
+
+	auto FRHIGPUTimingQuery::CancelRecording() -> void
+	{
+		ERecordingState Expected = ERecordingState::Recorded;
+		if (RecordingState.compare_exchange_strong(Expected,
+			ERecordingState::Idle, std::memory_order_acq_rel))
+			ResultState.store(ERHIGPUTimingResultState::Invalid,
+				std::memory_order_release);
+	}
+
+	auto FRHIGPUTimingQuery::PublishReady(uint64 InDurationNanoseconds) -> void
+	{
+		DurationNanoseconds.store(InDurationNanoseconds,
+			std::memory_order_relaxed);
+		RecordingState.store(ERecordingState::Idle, std::memory_order_release);
+		ResultState.store(ERHIGPUTimingResultState::Ready,
+			std::memory_order_release);
+	}
+
+	auto FRHIGPUTimingQuery::PublishInvalid() -> void
+	{
+		DurationNanoseconds.store(0, std::memory_order_relaxed);
+		RecordingState.store(ERecordingState::Idle, std::memory_order_release);
+		ResultState.store(ERHIGPUTimingResultState::Invalid,
+			std::memory_order_release);
+	}
+
 	namespace
 	{
 		auto IsValidSampleCount(uint8 Samples) -> bool

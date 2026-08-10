@@ -31,6 +31,8 @@ namespace Durin::VulkanRHI
 		: FRHIBuffer(InCreateDesc)
 		, Device(InDevice)
 		, StateTracker(InCreateDesc.Size)
+		, DebugName(InCreateDesc.DebugName ? InCreateDesc.DebugName :
+			Device.GetRHI().GetDebugUtils().MakeInternalName("Buffer"))
 	{
 		CheckVulkanRHIThread();
 		vk::BufferCreateInfo BufferInfo;
@@ -59,7 +61,7 @@ namespace Durin::VulkanRHI
 
 		const FVulkanMemoryManager& MemoryManager = Device.GetMemoryManager();
 		const vk::Result Result = MemoryManager.CreateBuffer(
-			Allocation, Buffer, AllocationCandidate, BufferInfo);
+			Allocation, Buffer, AllocationCandidate, BufferInfo, DebugName.c_str());
 		if (Result != vk::Result::eSuccess)
 		{
 			throw std::runtime_error(std::format(
@@ -67,6 +69,7 @@ namespace Durin::VulkanRHI
 				vk::to_string(Result), BufferInfo.size,
 				vk::to_string(BufferInfo.usage), static_cast<uint32>(AllocationCandidate)));
 		}
+		Device.GetRHI().GetDebugUtils().NameObject(Buffer, DebugName);
 	}
 
 	FVulkanBuffer::~FVulkanBuffer()

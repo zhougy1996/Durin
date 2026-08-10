@@ -344,6 +344,12 @@ swapchain creation may retain the old complete output when Vulkan still permits
 its use. Failure after native replacement has retired that old output exposes an
 explicitly unavailable viewport with no backbuffer.
 
+The published backbuffer format is derived from the actual selected swapchain
+image format, which may differ from the caller's preferred format. Render-pass
+and framebuffer views must use that published actual format. Main and detached
+viewport qualification records public clear/present work in addition to
+candidate failure, unavailable output, resize, recovery, and teardown.
+
 Backbuffer acquisition resolves synchronously before drawing is recorded. An
 unavailable result skips only that viewport for the frame; other window-backed,
 render-target-backed, and auxiliary viewports continue. Identical creation
@@ -358,6 +364,9 @@ destroys that viewport's image views, rendering-done and acquire semaphores,
 fences, swapchain, and surface on the RHI thread. It never forces a device-wide
 deferred-deletion sweep. Device shutdown remains the only owner of a complete
 immediate deletion-queue drain.
+
+The lasting diagnostic, timing, snapshot, and cross-viewport conformance rules
+are defined by [RHI Diagnostics and Conformance](RHIDiagnosticsAndConformance.md).
 
 ## Design Rules
 

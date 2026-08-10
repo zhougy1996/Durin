@@ -5,6 +5,150 @@
 
 namespace Durin::VulkanRHI
 {
+	enum class EVulkanDebugMessageSeverity : uint8
+	{
+		Verbose,
+		Information,
+		Warning,
+		Error,
+	};
+
+	struct FVulkanDebugMessageStatistics
+	{
+		uint64 TotalCount = 0;
+		uint64 VerboseCount = 0;
+		uint64 InformationCount = 0;
+		uint64 WarningCount = 0;
+		uint64 ErrorCount = 0;
+		uint64 GeneralCount = 0;
+		uint64 ValidationCount = 0;
+		uint64 PerformanceCount = 0;
+		uint64 TruncatedCount = 0;
+		uint64 RecursionDropCount = 0;
+	};
+
+	struct FVulkanDiagnosticAvailability
+	{
+		bool bRequested = false;
+		bool bDebugUtilsSupported = false;
+		bool bDebugUtilsActive = false;
+		bool bValidationLayerSupported = false;
+		bool bValidationLayerActive = false;
+		bool bMessengerActive = false;
+	};
+
+	struct FVulkanDebugUtilsStatistics
+	{
+		uint64 NamingAttemptCount = 0;
+		uint64 NamingFailureCount = 0;
+		uint64 NamingUnavailableSkipCount = 0;
+		uint64 LabelBeginCount = 0;
+		uint64 LabelEndCount = 0;
+		uint64 LabelUnavailableSkipCount = 0;
+		uint64 ActiveLabelDepth = 0;
+		uint64 LabelHighWater = 0;
+	};
+
+	// Centralizes optional VK_EXT_debug_utils device dispatch and accounting.
+	class VULKANRHI_API FVulkanDebugUtils
+	{
+	public:
+		auto SetExtensionActive(bool bActive) -> void;
+		auto InitializeDevice(vk::Device Device) -> void;
+		auto ResetDevice() -> void;
+
+		template<typename HandleType>
+		auto NameObject(HandleType Handle, std::string_view Name) -> void
+		{
+			if (!Handle || Name.empty()) return;
+			using NativeType = typename HandleType::NativeType;
+			const NativeType NativeHandle = static_cast<NativeType>(Handle);
+			uint64 Value = 0;
+			if constexpr (std::is_pointer_v<NativeType>)
+				Value = reinterpret_cast<uint64>(NativeHandle);
+			else
+				Value = static_cast<uint64>(NativeHandle);
+			NameObjectRaw(HandleType::objectType, Value, Name);
+		}
+
+		auto BeginLabel(vk::CommandBuffer CommandBuffer,
+			std::string_view Name) -> bool;
+		auto EndLabel(vk::CommandBuffer CommandBuffer) -> void;
+		auto MakeInternalName(std::string_view Role) -> std::string;
+		auto Snapshot() const -> FVulkanDebugUtilsStatistics;
+		auto ResetStatistics() -> void;
+
+	private:
+		static auto Increment(std::atomic<uint64>& Counter) -> void;
+		auto NameObjectRaw(vk::ObjectType Type, uint64 Handle,
+			std::string_view Name) -> void;
+
+		vk::Device Device;
+		PFN_vkSetDebugUtilsObjectNameEXT SetObjectName = nullptr;
+		PFN_vkCmdBeginDebugUtilsLabelEXT BeginCommandLabel = nullptr;
+		PFN_vkCmdEndDebugUtilsLabelEXT EndCommandLabel = nullptr;
+		bool bExtensionActive = false;
+		std::atomic<uint64> NextInternalNameIndex = 0;
+		std::atomic<uint64> NamingAttemptCount = 0;
+		std::atomic<uint64> NamingFailureCount = 0;
+		std::atomic<uint64> NamingUnavailableSkipCount = 0;
+		std::atomic<uint64> LabelBeginCount = 0;
+		std::atomic<uint64> LabelEndCount = 0;
+		std::atomic<uint64> LabelUnavailableSkipCount = 0;
+		std::atomic<uint64> ActiveLabelDepth = 0;
+		std::atomic<uint64> LabelHighWater = 0;
+	};
+
+	struct FVulkanClassifiedDebugMessage
+	{
+		static constexpr size_t MaximumMessageBytes = 4096;
+
+		EVulkanDebugMessageSeverity Severity =
+			EVulkanDebugMessageSeverity::Information;
+		bool bGeneral = false;
+		bool bValidation = false;
+		bool bPerformance = false;
+		bool bTruncated = false;
+		std::string_view Message;
+	};
+
+	using FVulkanDebugMessageSink = void (*)(
+		const FVulkanClassifiedDebugMessage&, void*);
+
+	// Owns bounded atomics used by the arbitrary-thread Vulkan callback.
+	class VULKANRHI_API FVulkanDebugCallbackState
+	{
+	public:
+		auto HandleMessage(
+			vk::DebugUtilsMessageSeverityFlagBitsEXT Severity,
+			vk::DebugUtilsMessageTypeFlagsEXT Types,
+			const char* Message,
+			FVulkanDebugMessageSink Sink = nullptr,
+			void* SinkUserData = nullptr) -> void;
+		auto Snapshot() const -> FVulkanDebugMessageStatistics;
+		auto Reset() -> void;
+
+	public:
+		static auto SaturatingIncrement(std::atomic<uint64>& Counter) -> void;
+	private:
+		std::atomic<uint64> TotalCount = 0;
+		std::atomic<uint64> VerboseCount = 0;
+		std::atomic<uint64> InformationCount = 0;
+		std::atomic<uint64> WarningCount = 0;
+		std::atomic<uint64> ErrorCount = 0;
+		std::atomic<uint64> GeneralCount = 0;
+		std::atomic<uint64> ValidationCount = 0;
+		std::atomic<uint64> PerformanceCount = 0;
+		std::atomic<uint64> TruncatedCount = 0;
+		std::atomic<uint64> RecursionDropCount = 0;
+	};
+
+	VULKANRHI_API VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugUtilsCallback(
+		VkDebugUtilsMessageSeverityFlagBitsEXT Severity,
+		VkDebugUtilsMessageTypeFlagsEXT Types,
+		const VkDebugUtilsMessengerCallbackDataEXT* CallbackData,
+		void* UserData);
+
 	// Selects the backend-private VMA placement and CPU access policy.
 	enum class EVulkanAllocationClassCandidate : uint8
 	{

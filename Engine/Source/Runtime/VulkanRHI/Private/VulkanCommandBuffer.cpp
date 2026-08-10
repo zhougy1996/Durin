@@ -1,6 +1,7 @@
 #include "VulkanCommandBuffer.h"
 
 #include "VulkanDevice.h"
+#include "VulkanDynamicRHI.h"
 #include "VulkanDiagnostics.h"
 #include "VulkanMemory.h"
 #include "VulkanRenderPass.h"
@@ -43,6 +44,7 @@ namespace Durin::VulkanRHI
 			return;
 		}
 		check(State == EState::IsInsideBegin || State == EState::IsInsideRenderPass);
+		check(DiagnosticRegionDepth == 0);
 		Handle.end();
 		State = EState::HasEnded;
 	}
@@ -59,6 +61,8 @@ namespace Durin::VulkanRHI
 			.setLevel(vk::CommandBufferLevel::ePrimary);
 
 		Handle = Device.GetHandle().allocateCommandBuffers(AllocInfo)[0];
+		Device.GetRHI().GetDebugUtils().NameObject(Handle,
+			Device.GetRHI().GetDebugUtils().MakeInternalName("CommandBuffer"));
 
 		State = EState::ReadyForBegin;
 	}
@@ -83,6 +87,7 @@ namespace Durin::VulkanRHI
 		check(Handle != nullptr);
 		vk::CommandBufferResetFlags ResetFlags = vk::CommandBufferResetFlagBits::eReleaseResources;
 		Handle.reset(ResetFlags);
+		DiagnosticRegionDepth = 0;
 		State = EState::ReadyForBegin;
 	}
 
@@ -97,13 +102,11 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		check(State == EState::IsInsideBegin);
-		if (!DebugName.IsNone() && VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdBeginDebugUtilsLabelEXT != nullptr)
+		if (!DebugName.IsNone())
 		{
 			const std::string LabelName = DebugName.ToString();
-			vk::DebugUtilsLabelEXT Label;
-			Label.setPLabelName(LabelName.c_str());
-			Handle.beginDebugUtilsLabelEXT(Label);
-			bRenderPassDebugLabelOpen = true;
+			bRenderPassDebugLabelOpen =
+				Device.GetRHI().GetDebugUtils().BeginLabel(Handle, LabelName);
 		}
 		vk::RenderPassBeginInfo BeginInfo;
 
@@ -125,10 +128,27 @@ namespace Durin::VulkanRHI
 		Handle.endRenderPass();
 		if (bRenderPassDebugLabelOpen)
 		{
-			Handle.endDebugUtilsLabelEXT();
+			Device.GetRHI().GetDebugUtils().EndLabel(Handle);
 			bRenderPassDebugLabelOpen = false;
 		}
 		State = EState::IsInsideBegin;
+	}
+
+	auto FVulkanCommandBuffer::BeginDiagnosticRegion(std::string_view Name) -> void
+	{
+		CheckVulkanRHIThread();
+		check(State == EState::IsInsideBegin || State == EState::IsInsideRenderPass);
+		if (Device.GetRHI().GetDebugUtils().BeginLabel(Handle, Name))
+			++DiagnosticRegionDepth;
+	}
+
+	auto FVulkanCommandBuffer::EndDiagnosticRegion() -> void
+	{
+		CheckVulkanRHIThread();
+		check(State == EState::IsInsideBegin || State == EState::IsInsideRenderPass);
+		if (DiagnosticRegionDepth == 0) return;
+		Device.GetRHI().GetDebugUtils().EndLabel(Handle);
+		--DiagnosticRegionDepth;
 	}
 
 	auto FVulkanCommandBuffer::IsSubmitted() const -> bool
@@ -166,6 +186,8 @@ namespace Durin::VulkanRHI
 			.setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer);
 
 		Handle = Device.GetHandle().createCommandPool(CmdPoolInfo);
+		Device.GetRHI().GetDebugUtils().NameObject(Handle,
+			Device.GetRHI().GetDebugUtils().MakeInternalName("CommandPool"));
 	}
 
 	auto FVulkanCommandBufferPool::Create() -> FVulkanCommandBuffer*

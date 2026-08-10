@@ -154,6 +154,17 @@ namespace Durin
 			ERHITextureDimensionFlags::Texture2D | ERHITextureDimensionFlags::TextureCube);
 		EXPECT_EQ(Capabilities->MaxTextureDimension2D, 4096u);
 		EXPECT_FALSE(Capabilities->bSupportsSynchronization2);
+		EXPECT_FALSE(Capabilities->bSupportsGPUTimestamps);
+		EXPECT_EQ(Capabilities->GPUTimestampNanosecondsPerTick, 0.0);
+		EXPECT_FALSE(Backend->RHICreateGPUTimingQuery());
+		EXPECT_EQ(Backend->RHIGetGPUTimingResult(nullptr).State,
+			ERHIGPUTimingResultState::Unsupported);
+		const FRHIDiagnosticSnapshot Snapshot = Backend->RHIGetDiagnosticSnapshot();
+		EXPECT_FALSE(Snapshot.Availability.bRequested);
+		EXPECT_EQ(Snapshot.Timing.IntervalCapacity, 0u);
+		EXPECT_NE(FormatRHIDiagnosticSnapshot(Snapshot).find("availability("),
+			std::string::npos);
+		Backend->RHIResetDiagnosticStatistics();
 
 		Backend->Shutdown();
 		EXPECT_TRUE(Observation.bCapabilitiesClearedAtShutdown);

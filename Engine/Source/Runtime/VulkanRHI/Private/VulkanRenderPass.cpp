@@ -2,6 +2,7 @@
 
 #include "VulkanCommandBuffer.h"
 #include "VulkanDevice.h"
+#include "VulkanDynamicRHI.h"
 #include "VulkanFramebuffer.h"
 #include "VulkanRHIPrivate.h"
 #include "VulkanTexture.h"
@@ -210,6 +211,8 @@ namespace Durin::VulkanRHI
 		try
 		{
 			RenderPass = Device.GetHandle().createRenderPass(CreateInfo);
+			Device.GetRHI().GetDebugUtils().NameObject(RenderPass,
+				Device.GetRHI().GetDebugUtils().MakeInternalName("RenderPass"));
 		}
 		catch (const std::exception& Error)
 		{

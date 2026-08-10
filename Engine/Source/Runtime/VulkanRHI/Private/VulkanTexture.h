@@ -30,6 +30,7 @@ namespace Durin::VulkanRHI
 
 		auto GetStateTracker() -> FVulkanTextureStateTracker& { return StateTracker; }
 		auto GetStateTracker() const -> const FVulkanTextureStateTracker& { return StateTracker; }
+		auto GetDebugName() const -> std::string_view { return DebugName; }
 		auto GetAllocationClass() const -> EVulkanAllocationClassCandidate
 		{
 			return Allocation.Class;
@@ -50,6 +51,7 @@ namespace Durin::VulkanRHI
 		EImageOwnerType OwnerType = EImageOwnerType::None;
 
 		FVulkanTextureStateTracker StateTracker;
+		std::string DebugName;
 	};
 
 	// Owns immutable Vulkan sampler state derived from an RHI sampler descriptor.

@@ -247,7 +247,11 @@ namespace Durin::VulkanRHI
 		}
 		LayoutInfo.setBindings(Bindings);
 
-		return Device.GetHandle().createDescriptorSetLayout(LayoutInfo);
+		const vk::DescriptorSetLayout Result =
+			Device.GetHandle().createDescriptorSetLayout(LayoutInfo);
+		Device.GetRHI().GetDebugUtils().NameObject(Result,
+			Device.GetRHI().GetDebugUtils().MakeInternalName("DescriptorSetLayout"));
+		return Result;
 	}
 
 	static auto CreatePushConstantRanges(const FPipelineLayoutDesc Desc) -> std::vector<vk::PushConstantRange>
@@ -268,7 +272,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanGraphicsPipelineState::FVulkanGraphicsPipelineState(FVulkanDevice& InDevice,
 		const FGraphicsPipelineStateInitializer& Initializer,
-		FGraphicsPipelineStateKey InKey)
+		FGraphicsPipelineStateKey InKey, std::string_view DebugName)
 		: Device(InDevice), Key(std::move(InKey))
 	{
 		CheckVulkanRHIThread();
@@ -503,6 +507,12 @@ namespace Durin::VulkanRHI
 		Layout = std::move(CandidateLayout);
 		PipelineLayout = CandidatePipelineLayout;
 		Pipeline = CandidatePipeline;
+		const std::string BaseName = DebugName.empty()
+			? Device.GetRHI().GetDebugUtils().MakeInternalName("GraphicsPipeline")
+			: std::string(DebugName);
+		Device.GetRHI().GetDebugUtils().NameObject(Pipeline, BaseName);
+		Device.GetRHI().GetDebugUtils().NameObject(PipelineLayout,
+			std::format("{}.PipelineLayout", BaseName));
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		GCommittedGraphicsPipelineCount.fetch_add(1, std::memory_order_release);
 #endif
@@ -565,7 +575,8 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanPipelineManager::CreateGraphicsPipelineState(
 		const FGraphicsPipelineStateInitializer& Initializer,
-		FGraphicsPipelineStateKey Key) -> TRefCountPtr<FVulkanGraphicsPipelineState>
+		FGraphicsPipelineStateKey Key, std::string_view DebugName)
+		-> TRefCountPtr<FVulkanGraphicsPipelineState>
 	{
 		CheckVulkanRHIThread();
 		auto& Stats = Device.GetGraphicsCacheStatisticsMutable().GraphicsPipelines;
@@ -587,7 +598,8 @@ namespace Durin::VulkanRHI
 		TRefCountPtr<FVulkanGraphicsPipelineState> Candidate;
 		try
 		{
-			Candidate = MakeRefCount<FVulkanGraphicsPipelineState>(Device, Initializer, Key);
+			Candidate = MakeRefCount<FVulkanGraphicsPipelineState>(
+				Device, Initializer, Key, DebugName);
 		}
 		catch (...)
 		{
@@ -746,6 +758,8 @@ namespace Durin::VulkanRHI
 		try
 		{
 			DriverPipelineCache = Device.GetHandle().createPipelineCache(CreateInfo);
+			Device.GetRHI().GetDebugUtils().NameObject(
+				DriverPipelineCache, "Durin.DriverPipelineCache");
 			if (!InitialData.empty())
 			{
 				++Stats.PersistentLoads;
@@ -757,6 +771,8 @@ namespace Durin::VulkanRHI
 			++Stats.PersistentRejects;
 			DURIN_WARN("Vulkan rejected persisted pipeline cache '{}': {}. Using an empty cache.", Path.generic_string(), Error.what());
 			DriverPipelineCache = Device.GetHandle().createPipelineCache({});
+			Device.GetRHI().GetDebugUtils().NameObject(
+				DriverPipelineCache, "Durin.DriverPipelineCache");
 		}
 	}
 
@@ -814,9 +830,11 @@ namespace Durin::VulkanRHI
 		TRefCountPtr<FRHIGraphicsPipelineState> Result;
 		const FRHIFallibleOperationResult CreationResult =
 			ExecuteFallibleVulkanCreationOperation(
-				[this, Initializer, Key = std::move(Key), &Result]() mutable {
+				[this, Initializer, Key = std::move(Key),
+				 DebugName = DebugName.ToString(), &Result]() mutable {
 					Result = Device->GetPipelineManager()
-						.CreateGraphicsPipelineState(Initializer, std::move(Key));
+						.CreateGraphicsPipelineState(
+							Initializer, std::move(Key), DebugName);
 				},
 				GetPipelineInitializerPayloadBytes(Initializer));
 		if (!CreationResult.IsSuccess())

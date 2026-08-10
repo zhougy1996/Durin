@@ -18,6 +18,7 @@ namespace Durin::VulkanRHI
 	class FVulkanPayload;
 	class FVulkanPendingGraphicsState;
 	class FVulkanTexture;
+	class FVulkanGPUTimingQuery;
 
 	// Translates backend-neutral command-list operations into Vulkan command recording.
 	class FVulkanCommandListContext : public IRHICommandContext
@@ -36,6 +37,10 @@ namespace Durin::VulkanRHI
 		auto RHISubmitCommands() -> void override;
 
 		auto RHIEndFrame() -> void override;
+		auto RHIBeginDiagnosticRegion(std::string_view Name) -> void override;
+		auto RHIEndDiagnosticRegion() -> void override;
+		auto RHIBeginGPUTimingQuery(FRHIGPUTimingQuery* Query) -> void override;
+		auto RHIEndGPUTimingQuery(FRHIGPUTimingQuery* Query) -> void override;
 
 		auto RHIBeginRenderPass(const FRHIRenderPassInfo& RenderPassInfo, FName Name) -> void override;
 
@@ -138,6 +143,7 @@ namespace Durin::VulkanRHI
 		uint32 BoundIndexBufferOffset = 0;
 
 		std::vector<FVulkanPayload*> Payloads;
+		std::vector<FVulkanGPUTimingQuery*> PendingTimingQueries;
 
 		struct FPendingAttachmentState
 		{

@@ -29,6 +29,7 @@ namespace Durin
 		Shader,
 		VertexDeclaration,
 		PipelineState,
+		GPUTimingQuery,
 	};
 
 	// Identifies the descriptor category expected by a shader resource binding.
@@ -191,6 +192,47 @@ namespace Durin
 		mutable FAtomicFlags AtomicFlags;
 
 		ERHIResourceType ResourceType;
+	};
+
+	enum class ERHIGPUTimingResultState : uint8
+	{
+		Unsupported,
+		Pending,
+		Ready,
+		Invalid,
+	};
+
+	struct FRHIGPUTimingResult
+	{
+		ERHIGPUTimingResultState State = ERHIGPUTimingResultState::Unsupported;
+		uint64 DurationNanoseconds = 0;
+	};
+
+	// Represents one reusable begin/end GPU timestamp interval.
+	class FRHIGPUTimingQuery : public FRHIResource
+	{
+	public:
+		RHI_API FRHIGPUTimingQuery();
+		RHI_API auto GetResult() const -> FRHIGPUTimingResult;
+		RHI_API auto TryReserveRecording() -> bool;
+		RHI_API auto CommitRecording() -> bool;
+		RHI_API auto CancelRecording() -> void;
+		RHI_API static auto RecordInvalidRecording() -> void;
+		RHI_API static auto GetInvalidRecordingCount() -> uint64;
+		RHI_API static auto ResetInvalidRecordingCount() -> void;
+
+	protected:
+		RHI_API ~FRHIGPUTimingQuery() override = default;
+		RHI_API auto PublishReady(uint64 InDurationNanoseconds) -> void;
+		RHI_API auto PublishInvalid() -> void;
+
+	private:
+		enum class ERecordingState : uint8 { Idle, Recorded, Committed };
+		std::atomic<ERecordingState> RecordingState = ERecordingState::Idle;
+		std::atomic<ERHIGPUTimingResultState> ResultState =
+			ERHIGPUTimingResultState::Invalid;
+		std::atomic<uint64> DurationNanoseconds = 0;
+		static std::atomic<uint64> InvalidRecordingCount;
 	};
 
 	// Supplies the stable stage and content identity shared by shader instances.
@@ -1703,4 +1745,5 @@ namespace Durin
 	using FBufferViewRHIRef = TRefCountPtr<FRHIBufferView>;
 	using FShaderRHIRef = TRefCountPtr<FRHIShader>;
 	using FGraphicsPipelineStateRHIRef = TRefCountPtr<FRHIGraphicsPipelineState>;
+	using FGPUTimingQueryRHIRef = TRefCountPtr<FRHIGPUTimingQuery>;
 } // namespace Durin

@@ -3,6 +3,7 @@
 #include "VulkanDevice.h"
 #include "VulkanCompletion.h"
 #include "VulkanDiagnostics.h"
+#include "VulkanDynamicRHI.h"
 #include "VulkanRHIPrivate.h"
 
 namespace Durin::VulkanRHI
@@ -62,6 +63,8 @@ namespace Durin::VulkanRHI
 			EVulkanCreateFailurePoint::DescriptorSetLayout);
 #endif
 		NewEntry.Handle = Device.GetHandle().createDescriptorSetLayout(CreateInfo);
+		Device.GetRHI().GetDebugUtils().NameObject(NewEntry.Handle,
+			Device.GetRHI().GetDebugUtils().MakeInternalName("DescriptorSetLayout"));
 		NewEntry.HandleId = ++GVulkanDSetLayoutHandleIdCounter;
 		const auto [InsertedIt, bInserted] = DLayoutMap.emplace(Layout, NewEntry);
 		check(bInserted);
@@ -138,6 +141,8 @@ namespace Durin::VulkanRHI
 			EVulkanCreateFailurePoint::DescriptorPool);
 #endif
 		DescriptorPool = Device->GetHandle().createDescriptorPool(CreateInfo);
+		Device->GetRHI().GetDebugUtils().NameObject(DescriptorPool,
+			Device->GetRHI().GetDebugUtils().MakeInternalName("DescriptorPool"));
 		GVulkanMemoryBaselineTracker.RecordDescriptorPoolCreated(MaxDescriptorSets);
 	}
 

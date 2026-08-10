@@ -1,4 +1,5 @@
 #include "VulkanDiagnostics.h"
+#include "VulkanRHIPrivate.h"
 
 namespace Durin::VulkanRHI
 {
@@ -6,6 +7,40 @@ namespace Durin::VulkanRHI
 
 	namespace
 	{
+		thread_local bool GInsideVulkanDebugCallback = false;
+
+		auto BoundUtf8(std::string_view Text, size_t MaximumBytes) -> std::string
+		{
+			if (Text.size() <= MaximumBytes) return std::string(Text);
+			size_t End = MaximumBytes;
+			while (End > 0
+				&& (static_cast<unsigned char>(Text[End]) & 0xc0u) == 0x80u)
+			{
+				--End;
+			}
+			return std::string(Text.substr(0, End));
+		}
+
+		auto LogVulkanDebugMessage(
+			const FVulkanClassifiedDebugMessage& Message, void*) -> void
+		{
+			switch (Message.Severity)
+			{
+			case EVulkanDebugMessageSeverity::Verbose:
+				DURIN_TRACE("Vulkan diagnostic: {}", Message.Message);
+				break;
+			case EVulkanDebugMessageSeverity::Information:
+				DURIN_DEBUG("Vulkan diagnostic: {}", Message.Message);
+				break;
+			case EVulkanDebugMessageSeverity::Warning:
+				DURIN_WARN("Vulkan diagnostic: {}", Message.Message);
+				break;
+			case EVulkanDebugMessageSeverity::Error:
+				DURIN_ERROR("Vulkan diagnostic: {}", Message.Message);
+				break;
+			}
+		}
+
 		auto GetAllocationSizeBucket(uint64 Size) -> uint32
 		{
 			uint32 Bucket = 0;
@@ -19,6 +54,272 @@ namespace Durin::VulkanRHI
 			}
 			return Bucket;
 		}
+	}
+
+	auto FVulkanDebugCallbackState::SaturatingIncrement(
+		std::atomic<uint64>& Counter) -> void
+	{
+		uint64 Current = Counter.load(std::memory_order_relaxed);
+		while (Current != std::numeric_limits<uint64>::max()
+			&& !Counter.compare_exchange_weak(Current, Current + 1,
+				std::memory_order_relaxed, std::memory_order_relaxed))
+		{
+		}
+	}
+
+	auto FVulkanDebugUtils::Increment(std::atomic<uint64>& Counter) -> void
+	{
+		FVulkanDebugCallbackState::SaturatingIncrement(Counter);
+	}
+
+	auto FVulkanDebugUtils::SetExtensionActive(bool bActive) -> void
+	{
+		bExtensionActive = bActive;
+	}
+
+	auto FVulkanDebugUtils::InitializeDevice(vk::Device InDevice) -> void
+	{
+		Device = InDevice;
+		if (!Device || !bExtensionActive) return;
+		const VkDevice NativeDevice = static_cast<VkDevice>(Device);
+		SetObjectName = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(
+			vkGetDeviceProcAddr(NativeDevice, "vkSetDebugUtilsObjectNameEXT"));
+		BeginCommandLabel = reinterpret_cast<PFN_vkCmdBeginDebugUtilsLabelEXT>(
+			vkGetDeviceProcAddr(NativeDevice, "vkCmdBeginDebugUtilsLabelEXT"));
+		EndCommandLabel = reinterpret_cast<PFN_vkCmdEndDebugUtilsLabelEXT>(
+			vkGetDeviceProcAddr(NativeDevice, "vkCmdEndDebugUtilsLabelEXT"));
+	}
+
+	auto FVulkanDebugUtils::ResetDevice() -> void
+	{
+		Device = nullptr;
+		SetObjectName = nullptr;
+		BeginCommandLabel = nullptr;
+		EndCommandLabel = nullptr;
+	}
+
+	auto FVulkanDebugUtils::NameObjectRaw(
+		vk::ObjectType Type, uint64 Handle, std::string_view Name) -> void
+	{
+		Increment(NamingAttemptCount);
+		if (!Device || !SetObjectName)
+		{
+			Increment(NamingUnavailableSkipCount);
+			return;
+		}
+		const std::string BoundedName = BoundUtf8(Name, 255);
+		VkDebugUtilsObjectNameInfoEXT Info{
+			VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT, nullptr,
+			static_cast<VkObjectType>(Type), Handle, BoundedName.c_str()};
+		const VkResult Result = SetObjectName(
+			static_cast<VkDevice>(Device), &Info);
+		if (Result != VK_SUCCESS) Increment(NamingFailureCount);
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		else RecordVulkanDebugUtilsEventForTest(
+			EVulkanDebugUtilsTestEventType::ObjectName, Type, BoundedName);
+#endif
+	}
+
+	auto FVulkanDebugUtils::BeginLabel(
+		vk::CommandBuffer CommandBuffer, std::string_view Name) -> bool
+	{
+		if (!CommandBuffer || Name.empty()) return false;
+		if (!BeginCommandLabel)
+		{
+			Increment(LabelUnavailableSkipCount);
+			return false;
+		}
+		const std::string BoundedName = BoundUtf8(Name, 255);
+		VkDebugUtilsLabelEXT Label{VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
+			nullptr, BoundedName.c_str(), {0.18f, 0.55f, 0.95f, 1.0f}};
+		BeginCommandLabel(static_cast<VkCommandBuffer>(CommandBuffer), &Label);
+		Increment(LabelBeginCount);
+		const uint64 Depth = ActiveLabelDepth.fetch_add(
+			1, std::memory_order_relaxed) + 1;
+		uint64 HighWater = LabelHighWater.load(std::memory_order_relaxed);
+		while (HighWater < Depth && !LabelHighWater.compare_exchange_weak(
+			HighWater, Depth, std::memory_order_relaxed,
+			std::memory_order_relaxed)) {}
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		RecordVulkanDebugUtilsEventForTest(
+			EVulkanDebugUtilsTestEventType::LabelBegin,
+			vk::ObjectType::eCommandBuffer, BoundedName);
+#endif
+		return true;
+	}
+
+	auto FVulkanDebugUtils::EndLabel(vk::CommandBuffer CommandBuffer) -> void
+	{
+		if (!CommandBuffer || !EndCommandLabel)
+		{
+			Increment(LabelUnavailableSkipCount);
+			return;
+		}
+		EndCommandLabel(static_cast<VkCommandBuffer>(CommandBuffer));
+		Increment(LabelEndCount);
+		const uint64 PreviousDepth = ActiveLabelDepth.fetch_sub(
+			1, std::memory_order_relaxed);
+		check(PreviousDepth != 0);
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		RecordVulkanDebugUtilsEventForTest(
+			EVulkanDebugUtilsTestEventType::LabelEnd,
+			vk::ObjectType::eCommandBuffer, {});
+#endif
+	}
+
+	auto FVulkanDebugUtils::MakeInternalName(std::string_view Role) -> std::string
+	{
+		const uint64 Index = NextInternalNameIndex.fetch_add(
+			1, std::memory_order_relaxed) + 1;
+		return std::format("Durin.{}.{}", Role, Index);
+	}
+
+	auto FVulkanDebugUtils::Snapshot() const -> FVulkanDebugUtilsStatistics
+	{
+		return {
+			.NamingAttemptCount = NamingAttemptCount.load(std::memory_order_relaxed),
+			.NamingFailureCount = NamingFailureCount.load(std::memory_order_relaxed),
+			.NamingUnavailableSkipCount = NamingUnavailableSkipCount.load(std::memory_order_relaxed),
+			.LabelBeginCount = LabelBeginCount.load(std::memory_order_relaxed),
+			.LabelEndCount = LabelEndCount.load(std::memory_order_relaxed),
+			.LabelUnavailableSkipCount = LabelUnavailableSkipCount.load(std::memory_order_relaxed),
+			.ActiveLabelDepth = ActiveLabelDepth.load(std::memory_order_relaxed),
+			.LabelHighWater = LabelHighWater.load(std::memory_order_relaxed),
+		};
+	}
+
+	auto FVulkanDebugUtils::ResetStatistics() -> void
+	{
+		NamingAttemptCount.store(0, std::memory_order_relaxed);
+		NamingFailureCount.store(0, std::memory_order_relaxed);
+		NamingUnavailableSkipCount.store(0, std::memory_order_relaxed);
+		LabelBeginCount.store(0, std::memory_order_relaxed);
+		LabelEndCount.store(0, std::memory_order_relaxed);
+		LabelUnavailableSkipCount.store(0, std::memory_order_relaxed);
+		LabelHighWater.store(
+			ActiveLabelDepth.load(std::memory_order_relaxed),
+			std::memory_order_relaxed);
+	}
+
+	auto FVulkanDebugCallbackState::HandleMessage(
+		vk::DebugUtilsMessageSeverityFlagBitsEXT Severity,
+		vk::DebugUtilsMessageTypeFlagsEXT Types,
+		const char* Message,
+		FVulkanDebugMessageSink Sink,
+		void* SinkUserData) -> void
+	{
+		if (GInsideVulkanDebugCallback)
+		{
+			SaturatingIncrement(RecursionDropCount);
+			return;
+		}
+		struct FRecursionScope
+		{
+			FRecursionScope() { GInsideVulkanDebugCallback = true; }
+			~FRecursionScope() { GInsideVulkanDebugCallback = false; }
+		} RecursionScope;
+
+		FVulkanClassifiedDebugMessage Classified;
+		switch (Severity)
+		{
+		case vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose:
+			Classified.Severity = EVulkanDebugMessageSeverity::Verbose;
+			SaturatingIncrement(VerboseCount);
+			break;
+		case vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning:
+			Classified.Severity = EVulkanDebugMessageSeverity::Warning;
+			SaturatingIncrement(WarningCount);
+			break;
+		case vk::DebugUtilsMessageSeverityFlagBitsEXT::eError:
+			Classified.Severity = EVulkanDebugMessageSeverity::Error;
+			SaturatingIncrement(ErrorCount);
+			break;
+		case vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo:
+		default:
+			Classified.Severity = EVulkanDebugMessageSeverity::Information;
+			SaturatingIncrement(InformationCount);
+			break;
+		}
+		SaturatingIncrement(TotalCount);
+
+		Classified.bGeneral = static_cast<bool>(
+			Types & vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral);
+		Classified.bValidation = static_cast<bool>(
+			Types & vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation);
+		Classified.bPerformance = static_cast<bool>(
+			Types & vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance);
+		if (!Classified.bGeneral && !Classified.bValidation
+			&& !Classified.bPerformance)
+		{
+			Classified.bGeneral = true;
+		}
+		if (Classified.bGeneral) SaturatingIncrement(GeneralCount);
+		if (Classified.bValidation) SaturatingIncrement(ValidationCount);
+		if (Classified.bPerformance) SaturatingIncrement(PerformanceCount);
+
+		const char* SafeMessage = Message ? Message : "<no message>";
+		size_t MessageLength = 0;
+		while (MessageLength <= FVulkanClassifiedDebugMessage::MaximumMessageBytes
+			&& SafeMessage[MessageLength] != '\0')
+		{
+			++MessageLength;
+		}
+		if (MessageLength > FVulkanClassifiedDebugMessage::MaximumMessageBytes)
+		{
+			MessageLength = FVulkanClassifiedDebugMessage::MaximumMessageBytes;
+			Classified.bTruncated = true;
+			SaturatingIncrement(TruncatedCount);
+		}
+		Classified.Message = std::string_view(SafeMessage, MessageLength);
+		if (Sink) Sink(Classified, SinkUserData);
+	}
+
+	auto FVulkanDebugCallbackState::Snapshot() const
+		-> FVulkanDebugMessageStatistics
+	{
+		return {
+			.TotalCount = TotalCount.load(std::memory_order_relaxed),
+			.VerboseCount = VerboseCount.load(std::memory_order_relaxed),
+			.InformationCount = InformationCount.load(std::memory_order_relaxed),
+			.WarningCount = WarningCount.load(std::memory_order_relaxed),
+			.ErrorCount = ErrorCount.load(std::memory_order_relaxed),
+			.GeneralCount = GeneralCount.load(std::memory_order_relaxed),
+			.ValidationCount = ValidationCount.load(std::memory_order_relaxed),
+			.PerformanceCount = PerformanceCount.load(std::memory_order_relaxed),
+			.TruncatedCount = TruncatedCount.load(std::memory_order_relaxed),
+			.RecursionDropCount = RecursionDropCount.load(std::memory_order_relaxed),
+		};
+	}
+
+	auto FVulkanDebugCallbackState::Reset() -> void
+	{
+		TotalCount.store(0, std::memory_order_relaxed);
+		VerboseCount.store(0, std::memory_order_relaxed);
+		InformationCount.store(0, std::memory_order_relaxed);
+		WarningCount.store(0, std::memory_order_relaxed);
+		ErrorCount.store(0, std::memory_order_relaxed);
+		GeneralCount.store(0, std::memory_order_relaxed);
+		ValidationCount.store(0, std::memory_order_relaxed);
+		PerformanceCount.store(0, std::memory_order_relaxed);
+		TruncatedCount.store(0, std::memory_order_relaxed);
+		RecursionDropCount.store(0, std::memory_order_relaxed);
+	}
+
+	VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugUtilsCallback(
+		VkDebugUtilsMessageSeverityFlagBitsEXT Severity,
+		VkDebugUtilsMessageTypeFlagsEXT Types,
+		const VkDebugUtilsMessengerCallbackDataEXT* CallbackData,
+		void* UserData)
+	{
+		if (auto* State = static_cast<FVulkanDebugCallbackState*>(UserData))
+		{
+			State->HandleMessage(
+				static_cast<vk::DebugUtilsMessageSeverityFlagBitsEXT>(Severity),
+				static_cast<vk::DebugUtilsMessageTypeFlagsEXT>(Types),
+				CallbackData ? CallbackData->pMessage : nullptr,
+				&LogVulkanDebugMessage);
+		}
+		return VK_FALSE;
 	}
 
 	auto FVulkanMemoryBaselineTracker::SaturatingAdd(

@@ -5,6 +5,7 @@
 
 #include "VulkanDevice.h"
 #include "VulkanDynamicRHI.h"
+#include "VulkanDynamicRHI.h"
 #include "VulkanDiagnostics.h"
 #include "VulkanRHIPrivate.h"
 
@@ -355,6 +356,8 @@ namespace Durin::VulkanRHI
 		}
 
 		Handle = Device.GetHandle().createFence(fenceInfo);
+		Device.GetRHI().GetDebugUtils().NameObject(Handle,
+			Device.GetRHI().GetDebugUtils().MakeInternalName("Fence"));
 	}
 
 	FVulkanFence::~FVulkanFence()
@@ -488,6 +491,8 @@ namespace Durin::VulkanRHI
 		: Device(InDevice)
 	{
 		Semaphore = Device.GetHandle().createSemaphore(vk::SemaphoreCreateInfo());
+		Device.GetRHI().GetDebugUtils().NameObject(Semaphore,
+			Device.GetRHI().GetDebugUtils().MakeInternalName("Semaphore"));
 	}
 
 	FVulkanSemaphore::~FVulkanSemaphore()

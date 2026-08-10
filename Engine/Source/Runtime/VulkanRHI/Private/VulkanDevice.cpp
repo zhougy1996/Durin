@@ -12,6 +12,7 @@
 #include "VulkanQueue.h"
 #include "VulkanSubmission.h"
 #include "VulkanTransferArena.h"
+#include "VulkanGPUTiming.h"
 #include "VulkanDescriptorSets.h"
 #include "VulkanBuffer.h"
 #include "VulkanRHIPrivate.h"
@@ -51,6 +52,8 @@ namespace Durin::VulkanRHI
 			Result.RejectionReasons.emplace_back("missing platform required extension VK_KHR_swapchain");
 		if (!Input.bFillModeNonSolid)
 			Result.RejectionReasons.emplace_back("missing required fillModeNonSolid feature");
+		if (!Input.bIndependentBlend)
+			Result.RejectionReasons.emplace_back("missing required independentBlend feature");
 		if (!Input.bShaderDrawParameters)
 			Result.RejectionReasons.emplace_back("missing required shaderDrawParameters feature");
 		if (Input.MaxImageDimension2D == 0)
@@ -309,6 +312,7 @@ namespace Durin::VulkanRHI
 			TransferQueueFamilyIndex == GraphicsQueueFamilyIndex || TransferQueueFamilyIndex == ComputeQueueFamilyIndex ? "shared" : "separate");
 		MemoryManager.Init(this);
 		CompletionTracker = new FVulkanCompletionTracker(*this);
+		GPUTimingManager = new FVulkanGPUTimingManager(*this);
 		UploadArena = new FVulkanTransferArena(*this, {
 			.AllocationClass = EVulkanAllocationClassCandidate::TransferUpload,
 			.PageSize = 8ull * 1024 * 1024,
@@ -368,6 +372,7 @@ namespace Durin::VulkanRHI
 		vk::PhysicalDeviceFeatures DeviceFeatures;
 		const vk::PhysicalDeviceFeatures AvailableFeatures = Gpu.getFeatures();
 		DeviceFeatures.fillModeNonSolid = AvailableFeatures.fillModeNonSolid;
+		DeviceFeatures.independentBlend = AvailableFeatures.independentBlend;
 		DeviceFeatures.depthClamp = AvailableFeatures.depthClamp;
 		DeviceFeatures.wideLines = AvailableFeatures.wideLines;
 		vk::DeviceCreateInfo DeviceInfo;
@@ -414,6 +419,9 @@ namespace Durin::VulkanRHI
 			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::Device);
 #endif
 			Device = Gpu.createDevice(DeviceInfo);
+			RHI->GetDebugUtils().InitializeDevice(Device);
+			RHI->GetDebugUtils().NameObject(Device, "Durin.LogicalDevice");
+			RHI->GetDebugUtils().NameObject(Gpu, "Durin.PhysicalDevice");
 		}
 		catch (const vk::SystemError& err)
 		{
@@ -430,6 +438,8 @@ namespace Durin::VulkanRHI
 		}
 
 		GraphicsQueue = new FVulkanQueue(this, GraphicsQueueFamilyIndex);
+		RHI->GetDebugUtils().NameObject(
+			GraphicsQueue->GetHandle(), "Durin.Queue.GraphicsPresent");
 		ComputeQueue = GraphicsQueue;
 		TransferQueue = GraphicsQueue;
 		PresentQueue = GraphicsQueue;
@@ -540,6 +550,7 @@ namespace Durin::VulkanRHI
 		if (CompletionTracker)
 		{
 			CompletionTracker->WaitForAll();
+			GPUTimingManager->Poll();
 		}
 
 		delete ImmediateContext;
@@ -587,6 +598,8 @@ namespace Durin::VulkanRHI
 			GCommandListExecutor.GetImmediateCommandList().ImmediateFlush(
 				EImmediateFlushType::FlushRHIThreadFlushResources);
 		}
+		delete GPUTimingManager;
+		GPUTimingManager = nullptr;
 		delete RenderPassManager;
 		RenderPassManager = nullptr;
 		DeferredDeletionQueue.Clear();

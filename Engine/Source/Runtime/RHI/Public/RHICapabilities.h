@@ -22,5 +22,7 @@ namespace Durin
 		bool bSupportsDepthClamp = false;
 		bool bSupportsWideLines = false;
 		bool bSupportsSynchronization2 = false;
+		bool bSupportsGPUTimestamps = false;
+		double GPUTimestampNanosecondsPerTick = 0.0;
 	};
 }

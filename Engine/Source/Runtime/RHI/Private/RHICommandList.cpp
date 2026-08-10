@@ -9,6 +9,8 @@ namespace Durin
 {
 	namespace
 	{
+		std::atomic<uint64> GInvalidDiagnosticRegionCount = 0;
+
 		[[noreturn]] auto FatalPayloadSizeOverflow() -> void
 		{
 			DURIN_FATAL("Recorded RHI command payload byte count overflowed.");
@@ -495,6 +497,74 @@ namespace Durin
 			std::array<FTextureViewRHIRef, MaxSimultaneousRenderTargets> ColorRenderTargetViews;
 			std::array<FTextureViewRHIRef, MaxSimultaneousRenderTargets> ColorResolveTargetViews;
 			FTextureViewRHIRef DepthStencilRenderTargetView;
+		};
+
+		struct FBeginDiagnosticRegionCommand
+		{
+			explicit FBeginDiagnosticRegionCommand(std::string_view InName)
+				: Name(InName)
+			{
+			}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetOperationContext("BeginDiagnosticRegion")
+					.RHIBeginDiagnosticRegion(Name);
+			}
+
+			auto GetOwnedPayloadBytes() const -> size_t { return Name.size(); }
+
+			std::string Name;
+		};
+
+		struct FEndDiagnosticRegionCommand
+		{
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetOperationContext("EndDiagnosticRegion")
+					.RHIEndDiagnosticRegion();
+			}
+		};
+
+		struct FGPUTimingRecordingReservation
+		{
+			explicit FGPUTimingRecordingReservation(FRHIGPUTimingQuery* InQuery)
+				: Query(InQuery) {}
+			~FGPUTimingRecordingReservation()
+			{
+				if (Query) Query->CancelRecording();
+			}
+			TRefCountPtr<FRHIGPUTimingQuery> Query;
+		};
+
+		struct FBeginGPUTimingQueryCommand
+		{
+			explicit FBeginGPUTimingQueryCommand(
+				std::shared_ptr<FGPUTimingRecordingReservation> InReservation)
+				: Reservation(std::move(InReservation)) {}
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetOperationContext("BeginGPUTimingQuery")
+					.RHIBeginGPUTimingQuery(Reservation->Query.GetReference());
+			}
+			std::shared_ptr<FGPUTimingRecordingReservation> Reservation;
+		};
+
+		struct FEndGPUTimingQueryCommand
+		{
+			explicit FEndGPUTimingQueryCommand(
+				std::shared_ptr<FGPUTimingRecordingReservation> InReservation)
+				: Reservation(std::move(InReservation)) {}
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetOperationContext("EndGPUTimingQuery")
+					.RHIEndGPUTimingQuery(Reservation->Query.GetReference());
+			}
+			std::shared_ptr<FGPUTimingRecordingReservation> Reservation;
 		};
 
 		struct FEndRenderPassCommand
@@ -1198,10 +1268,17 @@ namespace Durin
 		, RecordingState(Other.RecordingState)
 		, ActivePipeline(Other.ActivePipeline)
 		, bInsideRenderPass(Other.bInsideRenderPass)
+		, DiagnosticRegionDepth(Other.DiagnosticRegionDepth)
+		, RenderPassDiagnosticRegionDepth(Other.RenderPassDiagnosticRegionDepth)
+		, ActiveGPUTimingQuery(Other.ActiveGPUTimingQuery)
+		, ActiveGPUTimingReservation(std::move(Other.ActiveGPUTimingReservation))
 	{
 		Other.RecordingState = ERecordingState::MovedFrom;
 		Other.ActivePipeline = ERHIPipeline::None;
 		Other.bInsideRenderPass = false;
+		Other.DiagnosticRegionDepth = 0;
+		Other.RenderPassDiagnosticRegionDepth = 0;
+		Other.ActiveGPUTimingQuery = nullptr;
 	}
 
 	auto FRHICommandListBase::operator=(FRHICommandListBase&& Other) noexcept
@@ -1216,9 +1293,16 @@ namespace Durin
 			RecordingState = Other.RecordingState;
 			ActivePipeline = Other.ActivePipeline;
 			bInsideRenderPass = Other.bInsideRenderPass;
+			DiagnosticRegionDepth = Other.DiagnosticRegionDepth;
+			RenderPassDiagnosticRegionDepth = Other.RenderPassDiagnosticRegionDepth;
+			ActiveGPUTimingQuery = Other.ActiveGPUTimingQuery;
+			ActiveGPUTimingReservation = std::move(Other.ActiveGPUTimingReservation);
 			Other.RecordingState = ERecordingState::MovedFrom;
 			Other.ActivePipeline = ERHIPipeline::None;
 			Other.bInsideRenderPass = false;
+			Other.DiagnosticRegionDepth = 0;
+			Other.RenderPassDiagnosticRegionDepth = 0;
+			Other.ActiveGPUTimingQuery = nullptr;
 		}
 		return *this;
 	}
@@ -1281,6 +1365,26 @@ namespace Durin
 		return Storage ? Storage->GetCommandCount() : 0;
 	}
 
+	auto FRHICommandListBase::RecordInvalidDiagnosticRegion() -> void
+	{
+		uint64 Current = GInvalidDiagnosticRegionCount.load(
+			std::memory_order_relaxed);
+		while (Current != std::numeric_limits<uint64>::max()
+			&& !GInvalidDiagnosticRegionCount.compare_exchange_weak(
+				Current, Current + 1, std::memory_order_relaxed,
+				std::memory_order_relaxed)) {}
+	}
+
+	auto FRHICommandListBase::GetInvalidDiagnosticRegionCount() -> uint64
+	{
+		return GInvalidDiagnosticRegionCount.load(std::memory_order_relaxed);
+	}
+
+	auto FRHICommandListBase::ResetInvalidDiagnosticRegionCount() -> void
+	{
+		GInvalidDiagnosticRegionCount.store(0, std::memory_order_relaxed);
+	}
+
 	FRHICommandList::FRHICommandList() = default;
 	FRHICommandList::FRHICommandList(bool bImmediate)
 	{
@@ -1297,6 +1401,11 @@ namespace Durin
 			"FinishRecording requires a recording regular command list.");
 		checkf(!bInsideRenderPass,
 			"FinishRecording cannot seal a command list inside a render pass.");
+		if (DiagnosticRegionDepth != 0) RecordInvalidDiagnosticRegion();
+		checkf(DiagnosticRegionDepth == 0,
+			"FinishRecording cannot seal a command list with open diagnostic regions.");
+		checkf(ActiveGPUTimingQuery == nullptr,
+			"FinishRecording cannot seal a command list with an open GPU timing query.");
 		RecordingState = ERecordingState::Finished;
 	}
 
@@ -1317,6 +1426,58 @@ namespace Durin
 		ActivePipeline = Pipeline;
 	}
 
+	auto FRHICommandListBase::BeginDiagnosticRegion(std::string_view Name) -> void
+	{
+		if (Name.empty() || Name.size() > 255 || DiagnosticRegionDepth >= 64)
+			RecordInvalidDiagnosticRegion();
+		checkf(!Name.empty(), "Diagnostic region names cannot be empty.");
+		checkf(Name.size() <= 255,
+			"Diagnostic region names cannot exceed 255 bytes.");
+		checkf(DiagnosticRegionDepth < 64,
+			"Diagnostic region nesting cannot exceed 64 levels.");
+		RecordCommand<FBeginDiagnosticRegionCommand>(Name);
+		++DiagnosticRegionDepth;
+	}
+
+	auto FRHICommandListBase::EndDiagnosticRegion() -> void
+	{
+		if (DiagnosticRegionDepth == 0) RecordInvalidDiagnosticRegion();
+		checkf(DiagnosticRegionDepth != 0,
+			"EndDiagnosticRegion requires a matching begin.");
+		RecordCommand<FEndDiagnosticRegionCommand>();
+		--DiagnosticRegionDepth;
+	}
+
+	auto FRHICommandListBase::BeginGPUTimingQuery(
+		FRHIGPUTimingQuery* Query) -> void
+	{
+		checkf(Query, "BeginGPUTimingQuery requires a query.");
+		if (ActiveGPUTimingQuery != nullptr)
+			FRHIGPUTimingQuery::RecordInvalidRecording();
+		checkf(ActiveGPUTimingQuery == nullptr,
+			"GPU timing queries cannot overlap on one command list.");
+		checkf(Query->TryReserveRecording(),
+			"GPU timing query is already recording or pending.");
+		auto Reservation = std::make_shared<FGPUTimingRecordingReservation>(Query);
+		RecordCommand<FBeginGPUTimingQueryCommand>(Reservation);
+		ActiveGPUTimingQuery = Query;
+		ActiveGPUTimingReservation = std::move(Reservation);
+	}
+
+	auto FRHICommandListBase::EndGPUTimingQuery(
+		FRHIGPUTimingQuery* Query) -> void
+	{
+		if (!Query || ActiveGPUTimingQuery != Query)
+			FRHIGPUTimingQuery::RecordInvalidRecording();
+		checkf(Query && ActiveGPUTimingQuery == Query,
+			"EndGPUTimingQuery requires the active query on this command list.");
+		auto Reservation = std::static_pointer_cast<FGPUTimingRecordingReservation>(
+			ActiveGPUTimingReservation);
+		RecordCommand<FEndGPUTimingQueryCommand>(std::move(Reservation));
+		ActiveGPUTimingQuery = nullptr;
+		ActiveGPUTimingReservation.reset();
+	}
+
 	auto FRHICommandListBase::BeginRenderPass(const FRHIRenderPassInfo& Info, FName Name) -> void
 	{
 		checkf(ActivePipeline == ERHIPipeline::Graphics,
@@ -1325,14 +1486,20 @@ namespace Durin
 			"BeginRenderPass cannot be nested while recording.");
 		RecordCommand<FBeginRenderPassCommand>(Info, Name);
 		bInsideRenderPass = true;
+		RenderPassDiagnosticRegionDepth = DiagnosticRegionDepth;
 	}
 
 	auto FRHICommandListBase::EndRenderPass() -> void
 	{
 		checkf(bInsideRenderPass,
 			"EndRenderPass requires a matching BeginRenderPass while recording.");
+		if (DiagnosticRegionDepth != RenderPassDiagnosticRegionDepth)
+			RecordInvalidDiagnosticRegion();
+		checkf(DiagnosticRegionDepth == RenderPassDiagnosticRegionDepth,
+			"Diagnostic regions cannot cross a render-pass boundary.");
 		RecordCommand<FEndRenderPassCommand>();
 		bInsideRenderPass = false;
+		RenderPassDiagnosticRegionDepth = 0;
 	}
 
 	auto FRHICommandListBase::BeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetTexture) -> void
@@ -1765,6 +1932,10 @@ namespace Durin
 	{
 		checkf(!CommandListImmediate.bInsideRenderPass,
 			"QueueCommandList cannot split an active immediate render pass.");
+		checkf(CommandListImmediate.DiagnosticRegionDepth == 0,
+			"QueueCommandList cannot split active immediate diagnostic regions.");
+		checkf(CommandListImmediate.ActiveGPUTimingQuery == nullptr,
+			"QueueCommandList cannot split an active immediate GPU timing query.");
 		if (!CommandList.IsFinished())
 		{
 			State->RejectedSubmissionCount.fetch_add(1, std::memory_order_relaxed);
@@ -1802,8 +1973,12 @@ namespace Durin
 		ERHISubmitFlags SubmitFlags)
 		-> FRHICommandListSubmission
 	{
+		if (CommandListImmediate.DiagnosticRegionDepth != 0)
+			FRHICommandListBase::RecordInvalidDiagnosticRegion();
 		if (CommandListImmediate.HasOpenBufferLocks()
-			|| CommandListImmediate.bInsideRenderPass)
+			|| CommandListImmediate.bInsideRenderPass
+			|| CommandListImmediate.DiagnosticRegionDepth != 0
+			|| CommandListImmediate.ActiveGPUTimingQuery != nullptr)
 		{
 			State->RejectedSubmissionCount.fetch_add(1, std::memory_order_relaxed);
 			return {.Result = ERHICommandListSubmitResult::InvalidCommandList};

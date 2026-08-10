@@ -26,6 +26,9 @@ namespace Durin::VulkanRHI
 			EVulkanCreateFailurePoint::ShaderModule);
 #endif
 		ShaderModule = Device.GetHandle().createShaderModule(createInfo);
+		Device.GetRHI().GetDebugUtils().NameObject(ShaderModule,
+			InCreateDesc.DebugName ? InCreateDesc.DebugName
+				: Device.GetRHI().GetDebugUtils().MakeInternalName("ShaderModule"));
 	}
 
 	FVulkanShader::~FVulkanShader()

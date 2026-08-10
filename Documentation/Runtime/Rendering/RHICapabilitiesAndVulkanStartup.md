@@ -20,7 +20,10 @@ Reads require no RHI-thread round trip. The active public fields are:
 - positive `MinStorageBufferOffsetAlignment` and `MaxStorageBufferRange`
   limits for exact dynamic storage-range admission; and
 - `bSupportsSynchronization2`, true only when the selected device activated the
-  core Vulkan 1.3 feature or the Vulkan 1.1/1.2 extension feature chain.
+  core Vulkan 1.3 feature or the Vulkan 1.1/1.2 extension feature chain; and
+- `bSupportsGPUTimestamps` plus `GPUTimestampNanosecondsPerTick`, published only
+  when the selected immediate queue has nonzero valid timestamp bits and a
+  finite positive timestamp period.
 
 Feature level does not imply optional features. Consumers use the exact limit or
 capability field for their path and retain their documented fallback. Vulkan
@@ -131,6 +134,7 @@ the current native-test framework and are not part of this contract.
 ## Related Documentation
 
 - [RHI command execution](RHICommandExecution.md)
+- [RHI diagnostics and conformance](RHIDiagnosticsAndConformance.md)
 - [Viewport rendering](ViewportRendering.md)
 - [Texture system](TextureSystem.md)
 - [RHI and Vulkan backend evolution](../../Roadmaps/RHIAndVulkanEvolution.md)

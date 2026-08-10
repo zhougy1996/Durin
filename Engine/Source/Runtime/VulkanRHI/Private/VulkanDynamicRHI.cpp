@@ -4,6 +4,7 @@
 #include "VulkanCompletion.h"
 #include "VulkanExtensions.h"
 #include "VulkanDevice.h"
+#include "VulkanGPUTiming.h"
 #include "VulkanDiagnostics.h"
 #include "VulkanSubmission.h"
 #include "VulkanCommandBuffer.h"
@@ -40,7 +41,11 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		CreateInstance();
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(Instance);
+		CreateDebugMessenger();
+		DebugUtils.SetExtensionActive(
+			DiagnosticAvailability.bDebugUtilsActive);
 		SelectDevice();
+		DebugUtils.NameObject(Instance, "Durin.Instance");
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(Device->GetHandle());
 
 		auto ToRHISampleCounts = [](vk::SampleCountFlags Flags) {
@@ -73,6 +78,15 @@ namespace Durin::VulkanRHI
 		CapabilityCandidate.bSupportsDepthClamp = Features.depthClamp == vk::True;
 		CapabilityCandidate.bSupportsWideLines = Features.wideLines == vk::True;
 		CapabilityCandidate.bSupportsSynchronization2 = Device->SupportsSynchronization2();
+		const uint32 GraphicsFamily =
+			Device->GetGraphicsQueue()->GetFamilyIndex();
+		const uint32 TimestampValidBits =
+			Device->GetQueueFamilyProperties(GraphicsFamily).timestampValidBits;
+		const double TimestampPeriod = static_cast<double>(Limits.timestampPeriod);
+		CapabilityCandidate.bSupportsGPUTimestamps = TimestampValidBits != 0
+			&& std::isfinite(TimestampPeriod) && TimestampPeriod > 0.0;
+		CapabilityCandidate.GPUTimestampNanosecondsPerTick =
+			CapabilityCandidate.bSupportsGPUTimestamps ? TimestampPeriod : 0.0;
 		PublishCapabilities(std::move(CapabilityCandidate));
 	}
 
@@ -98,13 +112,19 @@ namespace Durin::VulkanRHI
 		// Render thread should already be stopped at this point.
 		delete Device;
 		Device = nullptr;
+		DebugUtils.ResetDevice();
+		DestroyDebugMessenger();
 		if (Instance)
 		{
 			Instance.destroy();
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			RecordVulkanInstanceDestroyedForTest();
+#endif
 			Instance = nullptr;
 		}
 		InstanceExtensions.clear();
 		InstanceLayers.clear();
+		DiagnosticAvailability = {};
 	}
 
 	auto FVulkanDynamicRHI::RHIBeginFrame(
@@ -115,11 +135,31 @@ namespace Durin::VulkanRHI
 			Args.FrameNumber % kFrameInFlight);
 		GVulkanMemoryBaselineTracker.BeginFrame();
 		Device->GetCompletionTracker().Poll();
+		Device->GetGPUTimingManager().Poll();
 		Device->SetCurrentFrameIndex(FrameIndex);
 		FVulkanFrame& Frame = Device->GetCurrentFrame();
 		Frame.Prepare();
 		Device->GetGlobalDescriptorPool().PrepareForUse();
 		Device->GetImmediateContext()->RHIBeginFrame(Args);
+	}
+
+	auto FVulkanDynamicRHI::RHICreateGPUTimingQuery()
+		-> TRefCountPtr<FRHIGPUTimingQuery>
+	{
+		if (!RHIGetCapabilities()->bSupportsGPUTimestamps) return nullptr;
+		TRefCountPtr<FRHIGPUTimingQuery> Result;
+		if (IsInRHIThread())
+			return Device->GetGPUTimingManager().CreateQuery();
+		GCommandListExecutor.ExecuteSynchronousOperation(false, [this, &Result]() {
+			Result = Device->GetGPUTimingManager().CreateQuery();
+		});
+		return Result;
+	}
+
+	auto FVulkanDynamicRHI::RHIGetGPUTimingResult(
+		const FRHIGPUTimingQuery* Query) const -> FRHIGPUTimingResult
+	{
+		return Query ? Query->GetResult() : FRHIGPUTimingResult{};
 	}
 
 	auto FVulkanDynamicRHI::RHIBeginFrame_RenderThread(
@@ -161,6 +201,94 @@ namespace Durin::VulkanRHI
 	auto FVulkanDynamicRHI::RHIResetMemoryStatistics() -> void
 	{
 		ResetVulkanMemoryBaselineStatistics();
+	}
+
+	auto FVulkanDynamicRHI::RHIGetDiagnosticSnapshot() const
+		-> FRHIDiagnosticSnapshot
+	{
+		CheckVulkanRHIThread();
+		FRHIDiagnosticSnapshot Result;
+		Result.Executor = GCommandListExecutor.GetStats();
+		Result.Availability = {
+				.bRequested = DiagnosticAvailability.bRequested,
+				.bDebugUtilsSupported = DiagnosticAvailability.bDebugUtilsSupported,
+				.bDebugUtilsActive = DiagnosticAvailability.bDebugUtilsActive,
+				.bValidationLayerSupported = DiagnosticAvailability.bValidationLayerSupported,
+				.bValidationLayerActive = DiagnosticAvailability.bValidationLayerActive,
+				.bMessengerActive = DiagnosticAvailability.bMessengerActive,
+		};
+		if (!Device) return Result;
+		Result.GraphicsCache = Device->GetGraphicsCacheStatistics();
+		Result.Memory = GetRHIMemoryStatistics();
+		const auto& Completion = Device->GetCompletionTracker();
+		Result.Completion = {
+				.LastSubmittedToken = Completion.GetLastSubmittedToken(),
+				.CompletedToken = Completion.GetCompletedToken(),
+				.PendingSubmissions = Completion.GetPendingSubmissionCount(),
+				.RetirementPendingCount = Result.Memory.RetirementPendingCount,
+				.RetirementHighWater = Result.Memory.RetirementHighWater,
+				.RetirementReleasedCount = Result.Memory.RetirementReleasedCount,
+				.RetirementMaxTokenLag = Result.Memory.RetirementMaxTokenLag,
+		};
+		const FVulkanDebugMessageStatistics Messages =
+			DebugCallbackState.Snapshot();
+		Result.Messages = {
+				.Total = Messages.TotalCount,
+				.Error = Messages.ErrorCount,
+				.Warning = Messages.WarningCount,
+				.Information = Messages.InformationCount,
+				.Verbose = Messages.VerboseCount,
+				.General = Messages.GeneralCount,
+				.Validation = Messages.ValidationCount,
+				.Performance = Messages.PerformanceCount,
+				.Truncation = Messages.TruncatedCount,
+				.RecursionDrop = Messages.RecursionDropCount,
+		};
+		const FVulkanDebugUtilsStatistics Naming = DebugUtils.Snapshot();
+		Result.Naming = {
+				.NamingAttempts = Naming.NamingAttemptCount,
+				.NamingFailures = Naming.NamingFailureCount,
+				.NamingUnavailableSkips = Naming.NamingUnavailableSkipCount,
+				.LabelBegins = Naming.LabelBeginCount,
+				.LabelEnds = Naming.LabelEndCount,
+				.LabelUnavailableSkips = Naming.LabelUnavailableSkipCount,
+				.InvalidRegionCount =
+					FRHICommandListBase::GetInvalidDiagnosticRegionCount(),
+				.ActiveRegionDepth = Naming.ActiveLabelDepth,
+				.RegionHighWater = Naming.LabelHighWater,
+		};
+		const FVulkanGPUTimingStatistics Timing =
+			Device->GetGPUTimingManager().Snapshot();
+		Result.Timing = {
+				.IntervalCapacity = Timing.IntervalCapacity,
+				.AllocatedPages = Timing.AllocatedPages,
+				.LiveIntervals = Timing.LiveIntervals,
+				.PendingIntervals = Timing.PendingIntervals,
+				.ReadyIntervals = Timing.ReadyIntervals,
+				.IntervalHighWater = Timing.IntervalHighWater,
+				.ExhaustionCount = Timing.ExhaustionCount,
+				.AllocationFailureCount = Timing.AllocationFailureCount,
+				.ReuseCount = Timing.ReuseCount,
+				.InvalidRecordingCount = Timing.InvalidRecordingCount,
+				.ResultPollCount = Timing.ResultPollCount,
+				.ReadyResultCount = Timing.ReadyResultCount,
+				.ConversionOverflowCount = Timing.ConversionOverflowCount,
+		};
+		return Result;
+	}
+
+	auto FVulkanDynamicRHI::RHIResetDiagnosticStatistics() -> void
+	{
+		CheckVulkanRHIThread();
+		if (Device)
+		{
+			Device->ResetGraphicsCacheStatistics();
+			ResetVulkanMemoryBaselineStatistics();
+			Device->GetGPUTimingManager().ResetStatistics();
+		}
+		DebugCallbackState.Reset();
+		DebugUtils.ResetStatistics();
+		FRHICommandListBase::ResetInvalidDiagnosticRegionCount();
 	}
 
 	auto FVulkanDynamicRHI::RHIGetVkDevice() const -> vk::Device
@@ -311,6 +439,20 @@ namespace Durin::VulkanRHI
 #ifdef __APPLE__
 		InstanceInfo.flags |= vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR;
 #endif
+		FVulkanDiagnosticAvailability AvailabilityCandidate;
+		AvailabilityCandidate.bRequested = ValidationPolicy.bRequestDiagnostics;
+		AvailabilityCandidate.bDebugUtilsSupported = std::ranges::find(
+			NegotiationInput.AvailableExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME)
+			!= NegotiationInput.AvailableExtensions.end();
+		AvailabilityCandidate.bDebugUtilsActive = std::ranges::find(
+			Negotiation.EnabledExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME)
+			!= Negotiation.EnabledExtensions.end();
+		AvailabilityCandidate.bValidationLayerSupported = std::ranges::find(
+			NegotiationInput.AvailableLayers, "VK_LAYER_KHRONOS_validation")
+			!= NegotiationInput.AvailableLayers.end();
+		AvailabilityCandidate.bValidationLayerActive = std::ranges::find(
+			Negotiation.EnabledLayers, "VK_LAYER_KHRONOS_validation")
+			!= Negotiation.EnabledLayers.end();
 		try
 		{
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
@@ -319,6 +461,7 @@ namespace Durin::VulkanRHI
 			vk::Instance InstanceCandidate = vk::createInstance(InstanceInfo);
 			InstanceExtensions = std::move(Negotiation.EnabledExtensions);
 			InstanceLayers = std::move(Negotiation.EnabledLayers);
+			DiagnosticAvailability = AvailabilityCandidate;
 			Instance = InstanceCandidate;
 		}
 		catch (const vk::SystemError& err)
@@ -328,6 +471,53 @@ namespace Durin::VulkanRHI
 				vk::to_string(static_cast<vk::Result>(err.code().value())),
 				ExtensionNames.size(), LayerNames.size(), err.what()));
 		}
+	}
+
+	auto FVulkanDynamicRHI::CreateDebugMessenger() -> void
+	{
+		check(!DebugMessenger);
+		if (!DiagnosticAvailability.bDebugUtilsActive) return;
+
+		vk::DebugUtilsMessengerCreateInfoEXT CreateInfo;
+		CreateInfo.setMessageSeverity(
+			vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose
+			| vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo
+			| vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning
+			| vk::DebugUtilsMessageSeverityFlagBitsEXT::eError)
+			.setMessageType(vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral
+				| vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation
+				| vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance)
+			.setPfnUserCallback(&VulkanDebugUtilsCallback)
+			.setPUserData(&DebugCallbackState);
+		try
+		{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			ThrowIfVulkanNativeCreateFailureIsArmed(
+				EVulkanCreateFailurePoint::DebugMessenger);
+#endif
+			DebugMessenger = Instance.createDebugUtilsMessengerEXT(CreateInfo);
+			DiagnosticAvailability.bMessengerActive = true;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			RecordVulkanDebugMessengerCreatedForTest();
+#endif
+		}
+		catch (const std::exception& Exception)
+		{
+			DURIN_WARN(
+				"Optional Vulkan debug messenger creation failed; startup continues without callback diagnostics: {}",
+				Exception.what());
+		}
+	}
+
+	auto FVulkanDynamicRHI::DestroyDebugMessenger() -> void
+	{
+		if (!DebugMessenger) return;
+		Instance.destroyDebugUtilsMessengerEXT(DebugMessenger);
+		DebugMessenger = nullptr;
+		DiagnosticAvailability.bMessengerActive = false;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		RecordVulkanDebugMessengerDestroyedForTest();
+#endif
 	}
 
 	auto FVulkanDynamicRHI::SelectDevice() -> void
@@ -364,6 +554,7 @@ namespace Durin::VulkanRHI
 			Candidate.Input.MaxImageDimensionCube = Properties.limits.maxImageDimensionCube;
 			Candidate.Input.MaxImageArrayLayers = Properties.limits.maxImageArrayLayers;
 			Candidate.Input.bFillModeNonSolid = Features.fillModeNonSolid == vk::True;
+			Candidate.Input.bIndependentBlend = Features.independentBlend == vk::True;
 			for (const vk::ExtensionProperties& Extension : Gpu.enumerateDeviceExtensionProperties())
 				Candidate.Input.AvailableExtensions.emplace_back(Extension.extensionName.data());
 

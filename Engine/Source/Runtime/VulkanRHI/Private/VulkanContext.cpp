@@ -6,6 +6,7 @@
 #include "VulkanDevice.h"
 #include "VulkanCommandBuffer.h"
 #include "VulkanCompletion.h"
+#include "VulkanGPUTiming.h"
 #include "VulkanPipeline.h"
 #include "VulkanPendingState.h"
 #include "VulkanRenderPass.h"
@@ -128,6 +129,34 @@ namespace Durin::VulkanRHI
 		Pool->FreeUnusedCommandBuffers(Queue);
 	}
 
+	auto FVulkanCommandListContext::RHIBeginDiagnosticRegion(
+		std::string_view Name) -> void
+	{
+		CheckVulkanRHIThread();
+		GetCommandBuffer()->BeginDiagnosticRegion(Name);
+	}
+
+	auto FVulkanCommandListContext::RHIEndDiagnosticRegion() -> void
+	{
+		CheckVulkanRHIThread();
+		GetCommandBuffer()->EndDiagnosticRegion();
+	}
+
+	auto FVulkanCommandListContext::RHIBeginGPUTimingQuery(
+		FRHIGPUTimingQuery* Query) -> void
+	{
+		Device.GetGPUTimingManager().Begin(*GetCommandBuffer(),
+			*static_cast<FVulkanGPUTimingQuery*>(Query));
+	}
+
+	auto FVulkanCommandListContext::RHIEndGPUTimingQuery(
+		FRHIGPUTimingQuery* Query) -> void
+	{
+		auto* VulkanQuery = static_cast<FVulkanGPUTimingQuery*>(Query);
+		Device.GetGPUTimingManager().End(*GetCommandBuffer(), *VulkanQuery);
+		PendingTimingQueries.push_back(VulkanQuery);
+	}
+
 	auto FVulkanCommandListContext::RHIBeginRenderPass(const FRHIRenderPassInfo& InRenderPassInfo, FName DebugName) -> void
 	{
 		CheckVulkanRHIThread();
@@ -234,8 +263,11 @@ namespace Durin::VulkanRHI
 				ERHIAccess::TransferWrite, Tracked), "Vulkan buffer copy destination is not in TransferWrite.");
 			NativeRegions.emplace_back(Region.SourceOffset, Region.DestinationOffset, Region.Size);
 		}
-		GetCommandBuffer()->GetHandle().copyBuffer(
+		auto* CommandBuffer = GetCommandBuffer();
+		CommandBuffer->BeginDiagnosticRegion("Durin.Transfer.BufferCopy");
+		CommandBuffer->GetHandle().copyBuffer(
 			Source->GetHandle(), Destination->GetHandle(), NativeRegions);
+		CommandBuffer->EndDiagnosticRegion();
 	}
 
 	auto FVulkanCommandListContext::RHICopyBufferToTexture(FRHIBuffer* SourceRHI, FRHITexture* DestinationRHI,
@@ -267,8 +299,11 @@ namespace Durin::VulkanRHI
 				vk::Offset3D(Region.TextureOffset.X, Region.TextureOffset.Y, Region.TextureOffset.Z),
 				vk::Extent3D(Region.TextureExtent.Width, Region.TextureExtent.Height, Region.TextureExtent.Depth));
 		}
-		GetCommandBuffer()->GetHandle().copyBufferToImage(Source->GetHandle(), Destination->Image,
+		auto* CommandBuffer = GetCommandBuffer();
+		CommandBuffer->BeginDiagnosticRegion("Durin.Transfer.BufferToTexture");
+		CommandBuffer->GetHandle().copyBufferToImage(Source->GetHandle(), Destination->Image,
 			vk::ImageLayout::eTransferDstOptimal, NativeRegions);
+		CommandBuffer->EndDiagnosticRegion();
 	}
 
 	auto FVulkanCommandListContext::RHICopyTextureToBuffer(FRHITexture* SourceRHI, FRHIBuffer* DestinationRHI,
@@ -300,8 +335,11 @@ namespace Durin::VulkanRHI
 				vk::Offset3D(Region.TextureOffset.X, Region.TextureOffset.Y, Region.TextureOffset.Z),
 				vk::Extent3D(Region.TextureExtent.Width, Region.TextureExtent.Height, Region.TextureExtent.Depth));
 		}
-		GetCommandBuffer()->GetHandle().copyImageToBuffer(Source->Image,
+		auto* CommandBuffer = GetCommandBuffer();
+		CommandBuffer->BeginDiagnosticRegion("Durin.Readback.TextureToBuffer");
+		CommandBuffer->GetHandle().copyImageToBuffer(Source->Image,
 			vk::ImageLayout::eTransferSrcOptimal, Destination->GetHandle(), NativeRegions);
+		CommandBuffer->EndDiagnosticRegion();
 	}
 
 	auto FVulkanCommandListContext::RHICopyTexture(FRHITexture* SourceRHI, FRHITexture* DestinationRHI,
@@ -335,8 +373,11 @@ namespace Durin::VulkanRHI
 				vk::Offset3D(Region.DestinationOffset.X, Region.DestinationOffset.Y, Region.DestinationOffset.Z),
 				vk::Extent3D(Region.Extent.Width, Region.Extent.Height, Region.Extent.Depth));
 		}
-		GetCommandBuffer()->GetHandle().copyImage(Source->Image, vk::ImageLayout::eTransferSrcOptimal,
+		auto* CommandBuffer = GetCommandBuffer();
+		CommandBuffer->BeginDiagnosticRegion("Durin.Transfer.TextureCopy");
+		CommandBuffer->GetHandle().copyImage(Source->Image, vk::ImageLayout::eTransferSrcOptimal,
 			Destination->Image, vk::ImageLayout::eTransferDstOptimal, NativeRegions);
+		CommandBuffer->EndDiagnosticRegion();
 	}
 
 	auto FVulkanCommandListContext::RHIBeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetRHI) -> void
@@ -790,6 +831,8 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		GetCommandBuffer()->End();
 		const FVulkanCompletionToken Token = Queue->SubmitPayloads(Payloads);
+		Device.GetGPUTimingManager().MarkSubmitted(Token, PendingTimingQueries);
+		PendingTimingQueries.clear();
 		Payloads.clear();
 		return Token;
 	}

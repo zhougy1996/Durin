@@ -3,6 +3,7 @@
 #include "RHI.h"
 
 #include "VulkanExtensions.h"
+#include "VulkanDiagnostics.h"
 
 namespace Durin::VulkanRHI
 {
@@ -48,14 +49,24 @@ namespace Durin::VulkanRHI
 		auto RHIExecuteCommandBufferForBackendIntegration(
 			std::function<void(vk::CommandBuffer)> Operation) -> void override;
 		auto IsInstanceExtensionEnabled(const char* ExtensionName) const -> bool;
+		auto GetDiagnosticAvailability() const
+			-> const FVulkanDiagnosticAvailability& { return DiagnosticAvailability; }
+		auto GetDebugMessageStatistics() const
+			-> FVulkanDebugMessageStatistics { return DebugCallbackState.Snapshot(); }
+		auto GetDebugUtils() -> FVulkanDebugUtils& { return DebugUtils; }
 
 		auto RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat, EViewportPresentModePolicy InPresentModePolicy) const -> FViewportRHIRef override;
 		auto RHIResizeViewport(FRHIViewport* InViewport, uint32 InSizeX, uint32 InSizeY, bool bInIsFullscreen) -> void override;
 		auto RHICreateGraphicsPipelineState(FName DebugName, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState> override;
+		auto RHICreateGPUTimingQuery() -> TRefCountPtr<FRHIGPUTimingQuery> override;
+		auto RHIGetGPUTimingResult(const FRHIGPUTimingQuery* Query) const
+			-> FRHIGPUTimingResult override;
 		auto RHIGetGraphicsCacheStatistics() const -> FRHIGraphicsCacheStatistics override;
 		auto RHIResetGraphicsCacheStatistics() -> void override;
 		auto RHIGetMemoryStatistics() const -> FRHIMemoryStatistics override;
 		auto RHIResetMemoryStatistics() -> void override;
+		auto RHIGetDiagnosticSnapshot() const -> FRHIDiagnosticSnapshot override;
+		auto RHIResetDiagnosticStatistics() -> void override;
 		auto RHIGetDefaultContext() -> IRHICommandContext* override;
 		auto RHIGetCommandContext(ERHIPipeline Pipeline) const -> IRHICommandContext*;
 		auto RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> FTextureRHIRef override;
@@ -102,12 +113,18 @@ namespace Durin::VulkanRHI
 
 	protected:
 		auto CreateInstance() -> void;
+		auto CreateDebugMessenger() -> void;
+		auto DestroyDebugMessenger() -> void;
 		auto SelectDevice() -> void;
 
 	private:
 		vk::Instance Instance;
+		vk::DebugUtilsMessengerEXT DebugMessenger;
 		std::vector<std::string> InstanceExtensions;
 		std::vector<std::string> InstanceLayers;
+		FVulkanDiagnosticAvailability DiagnosticAvailability;
+		FVulkanDebugCallbackState DebugCallbackState;
+		FVulkanDebugUtils DebugUtils;
 
 		FVulkanDevice* Device = nullptr;
 	};
