@@ -89,6 +89,20 @@ namespace Durin
 		return new FRHITextureView(Texture, Desc);
 	}
 
+	auto FDynamicRHI::RHIGetOrCreateBufferView(
+		FRHIBuffer* Buffer,
+		const FRHIBufferViewDesc& Desc) -> TRefCountPtr<FRHIBufferView>
+	{
+		return RHICreateBufferView(Buffer, Desc);
+	}
+
+	auto FDynamicRHI::RHIGetOrCreateTextureView(
+		FRHITexture* Texture,
+		const FRHITextureViewDesc& Desc) -> TRefCountPtr<FRHITextureView>
+	{
+		return RHICreateTextureView(Texture, Desc);
+	}
+
 	FDynamicRHI* GDynamicRHI = nullptr;
 
 	auto FDynamicRHI::RHIGetCapabilities() const -> const FRHICapabilities*

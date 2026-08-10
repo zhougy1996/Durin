@@ -31,6 +31,10 @@ namespace Durin::VulkanRHI
 		auto GetStateTracker() -> FVulkanTextureStateTracker& { return StateTracker; }
 		auto GetStateTracker() const -> const FVulkanTextureStateTracker& { return StateTracker; }
 		auto GetDebugName() const -> std::string_view { return DebugName; }
+		auto GetViewBackingGeneration() const -> uint64
+		{
+			return ViewBackingGeneration;
+		}
 		auto GetAllocationClass() const -> EVulkanAllocationClassCandidate
 		{
 			return Allocation.Class;
@@ -44,6 +48,15 @@ namespace Durin::VulkanRHI
 		ETextureCreateFlags CreateFlags = ETextureCreateFlags::None;
 
 	protected:
+		// Selects one image from the current external backing set. The image is
+		// part of the automatic-view identity, so cycling swapchain images can
+		// reuse one view per image.
+		auto SetExternalImage(vk::Image InImage) -> void
+		{
+			Image = InImage;
+		}
+		auto AdvanceExternalImageBacking() -> void { ++ViewBackingGeneration; }
+
 		FVulkanDevice& Device;
 
 		FVulkanAllocation Allocation{};
@@ -52,6 +65,7 @@ namespace Durin::VulkanRHI
 
 		FVulkanTextureStateTracker StateTracker;
 		std::string DebugName;
+		uint64 ViewBackingGeneration = 1;
 	};
 
 	// Owns immutable Vulkan sampler state derived from an RHI sampler descriptor.

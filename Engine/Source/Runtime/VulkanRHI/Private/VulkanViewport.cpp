@@ -47,6 +47,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanBackBuffer::UpdateSwapchain() -> void
 	{
 		CheckVulkanRHIThread();
+		AdvanceExternalImageBacking();
 		const vk::Extent2D Extent = Viewport->GetSwapchain()->GetExtent();
 		SizeX = Extent.width;
 		SizeY = Extent.height;
@@ -59,7 +60,8 @@ namespace Durin::VulkanRHI
 	auto FVulkanBackBuffer::InvalidateSwapchain() -> void
 	{
 		CheckVulkanRHIThread();
-		Image = VK_NULL_HANDLE;
+		AdvanceExternalImageBacking();
+		SetExternalImage(VK_NULL_HANDLE);
 	}
 
 	auto FVulkanBackBuffer::AcquireBackBufferImage(
@@ -69,10 +71,10 @@ namespace Durin::VulkanRHI
 		const FVulkanView* View = Viewport->AcquireBackBufferImage();
 		if (View == nullptr)
 		{
-			Image = VK_NULL_HANDLE;
+			SetExternalImage(VK_NULL_HANDLE);
 			return false;
 		}
-		Image = View->Image;
+		SetExternalImage(View->Image);
 		const auto Found = std::ranges::find(ImageStates, Image, &std::pair<vk::Image, ERHIAccess>::first);
 		const ERHIAccess Access = Found == ImageStates.end() ? ERHIAccess::None : Found->second;
 		StateTracker.Apply({ERHITextureAspect::Color, 0, 1, 0, 1}, Access);

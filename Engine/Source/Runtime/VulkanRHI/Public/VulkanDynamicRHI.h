@@ -10,6 +10,7 @@ namespace Durin::VulkanRHI
 	class FVulkanDevice;
 	class FVulkanViewport;
 	class FVulkanCommandListContext;
+	class FVulkanViewCache;
 
 	// Extends the portable RHI with native Vulkan handles needed by Vulkan-aware integrations.
 	class IVulkanDynamicRHI : public FDynamicRHI
@@ -80,6 +81,10 @@ namespace Durin::VulkanRHI
 			const FRHIBufferViewDesc& Desc) -> FBufferViewRHIRef override;
 		auto RHICreateTextureView(FRHITexture* Texture,
 			const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef override;
+		auto RHIGetOrCreateBufferView(FRHIBuffer* Buffer,
+			const FRHIBufferViewDesc& Desc) -> FBufferViewRHIRef override;
+		auto RHIGetOrCreateTextureView(FRHITexture* Texture,
+			const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef override;
 		auto RHICreateShader(const FRHIShaderCreateDesc& InCreateDesc) -> FShaderRHIRef override;
 		auto RHIAllocateDynamicUniformBuffer(
 			FRHICommandListImmediate& RHICmdList,
@@ -127,6 +132,7 @@ namespace Durin::VulkanRHI
 		FVulkanDebugUtils DebugUtils;
 
 		FVulkanDevice* Device = nullptr;
+		std::unique_ptr<FVulkanViewCache> ViewCache;
 	};
 
 	extern FVulkanDynamicRHI* GVulkanRHI;

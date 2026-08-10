@@ -30,7 +30,7 @@ namespace Durin
 			FRHIBuffer* Buffer,
 			const FRHIBufferViewDesc& Desc) -> FBufferViewRHIRef
 		{
-			if (GDynamicRHI) return GDynamicRHI->RHICreateBufferView(Buffer, Desc);
+			if (GDynamicRHI) return GDynamicRHI->RHIGetOrCreateBufferView(Buffer, Desc);
 			std::string Error;
 			return ValidateBufferViewDesc(Buffer, Desc, Error)
 				? FBufferViewRHIRef(new FRHIBufferView(Buffer, Desc)) : nullptr;
@@ -40,7 +40,7 @@ namespace Durin
 			FRHITexture* Texture,
 			const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef
 		{
-			if (GDynamicRHI) return GDynamicRHI->RHICreateTextureView(Texture, Desc);
+			if (GDynamicRHI) return GDynamicRHI->RHIGetOrCreateTextureView(Texture, Desc);
 			std::string Error;
 			return ValidateTextureViewDesc(Texture, Desc, Error)
 				? FTextureViewRHIRef(new FRHITextureView(Texture, Desc)) : nullptr;

@@ -245,6 +245,14 @@ namespace Durin
 		RHI_API virtual auto RHICreateTextureView(
 			FRHITexture* Texture,
 			const FRHITextureViewDesc& Desc) -> TRefCountPtr<FRHITextureView>;
+		// Reuses an immutable view identity when the backend supports automatic-view
+		// caching. Explicit RHICreate*View calls remain creation-only factories.
+		RHI_API virtual auto RHIGetOrCreateBufferView(
+			FRHIBuffer* Buffer,
+			const FRHIBufferViewDesc& Desc) -> TRefCountPtr<FRHIBufferView>;
+		RHI_API virtual auto RHIGetOrCreateTextureView(
+			FRHITexture* Texture,
+			const FRHITextureViewDesc& Desc) -> TRefCountPtr<FRHITextureView>;
 		RHI_API virtual auto RHIAllocateDynamicUniformBuffer(FRHICommandListImmediate& RHICmdList, const void* Data, uint32 Size) -> FRHIUniformBufferRange;
 		RHI_API virtual auto RHIAllocateDynamicStorageBuffer(
 			FRHICommandListImmediate& RHICmdList, const void* Data, uint32 Size)

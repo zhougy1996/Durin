@@ -114,6 +114,21 @@ on the RHI thread. The normal `ExecuteSynchronousOperation` surface is terminal:
 a waiter always targets the exact accepted serial, and operation failure or
 admission rejection never falls back to producer-thread backend work.
 
+Command recording canonicalizes raw buffer and texture shader parameters and
+implicit render-pass attachments into immutable views. That path uses
+`RHIGetOrCreateBufferView` and `RHIGetOrCreateTextureView`: a backend may reuse
+an exact resource-plus-description identity, while explicit `RHICreate*View`
+calls remain creation-only factories. Vulkan retains a thread-safe bounded
+working set of these automatic views, refreshes entries on use, and removes
+entries after 120 unused frames or capacity pressure. A cache miss remains one
+fallible synchronous native creation; a hit performs no RHI-thread round trip.
+Texture identity includes the native backing image and its backing-set
+generation. Stable swapchain back-buffer wrappers therefore reuse one view per
+image while swapchain recreation cannot expose a stale view.
+Recorded commands retain their returned view references independently of cache
+eviction, and backend shutdown clears the cache before device teardown so view
+destruction continues through ordinary ordered and GPU-safe retirement.
+
 ### Fallible Resource Creation
 
 `ExecuteFallibleSynchronousOperation` is the narrow exception for expected

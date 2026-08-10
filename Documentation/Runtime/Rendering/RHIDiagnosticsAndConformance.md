@@ -36,6 +36,14 @@ addresses, frame numbers, CPU serials, or completion tokens. Names are bounded
 to 255 UTF-8 bytes at a code-point boundary. Unavailable debug utils is a
 counted no-op.
 
+Automatically synthesized buffer and texture views are keyed by their parent
+resource, backend allocation identity, and complete portable view description.
+Diagnostic names therefore cannot split that cache or turn repeated parameter
+binding into native view creation. Mutable wrappers such as swapchain back
+buffers must change backend allocation identity when their backing set is
+recreated. Explicit view factories remain uncached for callers that request
+distinct logical view objects.
+
 `FRHICommandListBase::BeginDiagnosticRegion` and `EndDiagnosticRegion` record
 owned names and replay identically inline or on the RHI thread. Regions nest to
 64 levels. Empty/oversized names, underflow, overflow, an unclosed list, or a

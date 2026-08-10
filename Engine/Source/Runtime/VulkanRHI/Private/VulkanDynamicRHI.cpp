@@ -10,6 +10,7 @@
 #include "VulkanCommandBuffer.h"
 #include "VulkanBuffer.h"
 #include "VulkanRHIPrivate.h"
+#include "VulkanViewCache.h"
 
 #include "VulkanDescriptorSets.h"
 #include "Misc/Version.h"
@@ -24,6 +25,7 @@ namespace Durin::VulkanRHI
 	IMPLEMENT_MODULE(FVulkanDynamicRHIModule, VulkanRHI)
 
 	FVulkanDynamicRHI::FVulkanDynamicRHI()
+		: ViewCache(std::make_unique<FVulkanViewCache>())
 	{
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(::vkGetInstanceProcAddr);
 	}
@@ -101,6 +103,7 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		ClearCapabilities();
+		ViewCache->Clear();
 		if (const char* CaptureBaseline =
 			std::getenv("DURIN_VULKAN_MEMORY_BASELINE");
 			CaptureBaseline && std::string_view(CaptureBaseline) == "1")
@@ -131,6 +134,7 @@ namespace Durin::VulkanRHI
 		const FRHIBeginFrameArgs& Args) -> void
 	{
 		CheckVulkanRHIThread();
+		ViewCache->Trim(Args.FrameNumber);
 		const uint32 FrameIndex = static_cast<uint32>(
 			Args.FrameNumber % kFrameInFlight);
 		GVulkanMemoryBaselineTracker.BeginFrame();

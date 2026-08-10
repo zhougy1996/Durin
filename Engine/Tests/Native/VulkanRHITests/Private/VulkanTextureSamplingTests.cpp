@@ -826,6 +826,68 @@ namespace Durin
 			FaceView.GetReference())->GetHandle());
 	}
 
+	TEST(FVulkanTextureSamplingTests, ReusesAutomaticViewsWithoutRepeatedSynchronousCreation)
+	{
+		struct FInlineRHIScope
+		{
+			FInlineRHIScope() { _putenv_s("DURIN_RHI_EXECUTION", "inline"); }
+			~FInlineRHIScope()
+			{
+				if (GDynamicRHI) RHIExit();
+				_putenv_s("DURIN_RHI_EXECUTION", "");
+			}
+		} Scope;
+
+		ASSERT_TRUE(RHIInit());
+		FRHICommandListImmediate& RHICmdList = FRHICommandListImmediate::Get();
+		FTextureRHIRef Texture = GDynamicRHI->RHICreateTexture(
+			RHICmdList,
+			FRHITextureCreateDesc::Create2D(
+				"AutomaticViewReuse", 16, 16, EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::ShaderResource
+					| ETextureCreateFlags::RenderTargetable));
+		ASSERT_TRUE(Texture);
+		const FRHITextureViewDesc SampledDesc = MakeDefaultTextureViewDesc(
+			*Texture, ERHITextureViewUsage::Sampled);
+
+		const uint64 Before = GCommandListExecutor.GetStats().SynchronousOperationCount;
+		FTextureViewRHIRef First = GDynamicRHI->RHIGetOrCreateTextureView(
+			Texture, SampledDesc);
+		FTextureViewRHIRef Second = GDynamicRHI->RHIGetOrCreateTextureView(
+			Texture, SampledDesc);
+		ASSERT_TRUE(First);
+		EXPECT_EQ(Second.GetReference(), First.GetReference());
+		EXPECT_EQ(GCommandListExecutor.GetStats().SynchronousOperationCount,
+			Before + 1);
+
+		FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(
+			RHICmdList,
+			FRHIBufferCreateDesc::Create(
+				"AutomaticBufferViewReuse", 256, 0,
+				EBufferUsageFlags::UniformBuffer | EBufferUsageFlags::Dynamic));
+		ASSERT_TRUE(Buffer);
+		const FRHIBufferViewDesc BufferDesc = MakeDefaultBufferViewDesc(
+			*Buffer, ERHIBufferViewType::Uniform);
+		const uint64 BeforeBuffer =
+			GCommandListExecutor.GetStats().SynchronousOperationCount;
+		FBufferViewRHIRef FirstBufferView =
+			GDynamicRHI->RHIGetOrCreateBufferView(Buffer, BufferDesc);
+		FBufferViewRHIRef SecondBufferView =
+			GDynamicRHI->RHIGetOrCreateBufferView(Buffer, BufferDesc);
+		ASSERT_TRUE(FirstBufferView);
+		EXPECT_EQ(SecondBufferView.GetReference(), FirstBufferView.GetReference());
+		EXPECT_EQ(GCommandListExecutor.GetStats().SynchronousOperationCount,
+			BeforeBuffer + 1);
+
+		FTextureViewRHIRef ExplicitFirst = GDynamicRHI->RHICreateTextureView(
+			Texture, SampledDesc);
+		FTextureViewRHIRef ExplicitSecond = GDynamicRHI->RHICreateTextureView(
+			Texture, SampledDesc);
+		ASSERT_TRUE(ExplicitFirst);
+		ASSERT_TRUE(ExplicitSecond);
+		EXPECT_NE(ExplicitFirst.GetReference(), ExplicitSecond.GetReference());
+	}
+
 	TEST(FVulkanTextureSamplingTests, PublicCopyMatrixPreservesExactBytesInlineAndThreaded)
 	{
 		for (const char* Mode : {"inline", "threaded"})

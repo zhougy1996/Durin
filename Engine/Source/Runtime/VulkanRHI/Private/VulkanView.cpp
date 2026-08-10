@@ -49,8 +49,10 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		const auto* Texture = static_cast<const FVulkanTexture*>(InTexture);
+		SourceImage = Texture->Image;
+		TextureViewBackingGeneration = Texture->GetViewBackingGeneration();
 		vk::ImageViewCreateInfo CreateInfo;
-		CreateInfo.setImage(Texture->Image)
+		CreateInfo.setImage(SourceImage)
 			.setViewType(InDesc.Dimension == ERHITextureViewDimension::TextureCube
 				? vk::ImageViewType::eCube : vk::ImageViewType::e2D)
 			.setFormat(ToVulkan_PixelFormat(InDesc.Format))

@@ -10,6 +10,7 @@
 #include "VulkanContext.h"
 #include "VulkanCommandBuffer.h"
 #include "VulkanView.h"
+#include "VulkanViewCache.h"
 
 namespace Durin::VulkanRHI
 {
@@ -391,6 +392,38 @@ namespace Durin::VulkanRHI
 			return nullptr;
 		}
 		return Result;
+	}
+
+	auto FVulkanDynamicRHI::RHIGetOrCreateBufferView(
+		FRHIBuffer* Buffer,
+		const FRHIBufferViewDesc& Desc) -> FBufferViewRHIRef
+	{
+		const uint64 FrameNumber = GCommandListExecutor.GetFrameNumber();
+		if (FBufferViewRHIRef Cached = ViewCache->FindBufferView(
+			Buffer, Desc, FrameNumber))
+		{
+			return Cached;
+		}
+		FBufferViewRHIRef Candidate = RHICreateBufferView(Buffer, Desc);
+		return Candidate
+			? ViewCache->PublishBufferView(std::move(Candidate), FrameNumber)
+			: nullptr;
+	}
+
+	auto FVulkanDynamicRHI::RHIGetOrCreateTextureView(
+		FRHITexture* Texture,
+		const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef
+	{
+		const uint64 FrameNumber = GCommandListExecutor.GetFrameNumber();
+		if (FTextureViewRHIRef Cached = ViewCache->FindTextureView(
+			Texture, Desc, FrameNumber))
+		{
+			return Cached;
+		}
+		FTextureViewRHIRef Candidate = RHICreateTextureView(Texture, Desc);
+		return Candidate
+			? ViewCache->PublishTextureView(std::move(Candidate), FrameNumber)
+			: nullptr;
 	}
 
 	auto FVulkanDynamicRHI::UpdateTexture2D(
