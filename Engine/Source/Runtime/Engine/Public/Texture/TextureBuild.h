@@ -5,8 +5,23 @@
 
 namespace Durin::TextureBuild
 {
+	struct FBuildMipChainMetrics
+	{
+		uint64 MipGenerationNanoseconds = 0;
+		uint64 CompressionNanoseconds = 0;
+		uint64 PeakIntermediateBytes = 0;
+	};
+
+	struct FBuildExecutionControl
+	{
+		std::function<bool()> ShouldCancel;
+		FBuildMipChainMetrics* Metrics = nullptr;
+	};
+
 	inline constexpr uint32 ChannelCount = 4;
 	inline constexpr uint32 MaxDimension = 16384;
+	inline constexpr uint32 CancellationBlockInterval = 64;
+	inline constexpr uint32 CancellationScanlineInterval = 8;
 
 	ENGINE_API auto IsValidUsage(ETextureUsage Usage) -> bool;
 	ENGINE_API auto GetDefaultSRGB(ETextureUsage Usage) -> bool;
@@ -27,5 +42,6 @@ namespace Durin::TextureBuild
 		FTexturePlatformData& OutPlatformData, std::string& OutError, uint32 MaxResolution = 0,
 		ETextureCompressionQuality CompressionQuality = ETextureCompressionQuality::Normal,
 		ETextureAlphaMipMode AlphaMipMode = ETextureAlphaMipMode::Average,
-		float AlphaCoverageThreshold = 0.5f) -> bool;
+		float AlphaCoverageThreshold = 0.5f,
+		const FBuildExecutionControl* ExecutionControl = nullptr) -> bool;
 }

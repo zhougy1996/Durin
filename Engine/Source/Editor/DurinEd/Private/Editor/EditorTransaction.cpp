@@ -32,7 +32,7 @@ namespace Durin
 
 	auto FEditorTransactionManager::Execute(std::unique_ptr<IEditorTransaction> Transaction) -> bool
 	{
-		if (!Transaction) return false;
+		if (!Transaction || PendingTransactionId != 0) return false;
 		FEntry Entry = PrepareEntry(std::move(Transaction));
 		IEditorTransaction& Operation = *Entry.Transaction;
 		const std::string Description(Operation.GetDescription());
@@ -55,7 +55,7 @@ namespace Durin
 
 	auto FEditorTransactionManager::CommitApplied(std::unique_ptr<IEditorTransaction> Transaction) -> bool
 	{
-		if (!Transaction) return false;
+		if (!Transaction || PendingTransactionId != 0) return false;
 		FEntry Entry = PrepareEntry(std::move(Transaction));
 		Entry.Id = NextId++;
 		const FEditorTransactionId Id = Entry.Id;
@@ -77,21 +77,27 @@ namespace Durin
 
 	auto FEditorTransactionManager::Undo(FEditorTransactionId ExpectedId) -> bool
 	{
-		if (!IsUndoHead(ExpectedId)) return false;
+		if (PendingTransactionId != 0 || !IsUndoHead(ExpectedId)) return false;
 		FEntry& Entry = UndoStack.back();
 		const std::string Description(Entry.Transaction->GetDescription());
+		Entry.Transaction->SetDeferredOperationCompletion(
+			[this, ExpectedId](bool bSucceeded) {
+				CompleteDeferredOperation(EEditorTransactionOperation::Undo, ExpectedId, bSucceeded);
+			});
 		if (!Entry.Transaction->Undo())
 		{
+			Entry.Transaction->SetDeferredOperationCompletion({});
 			RecordFailure(EEditorTransactionOperation::Undo, Entry.Id, Description, Entry.Transaction->GetDetails(EEditorTransactionOperation::Undo));
 			return false;
 		}
-		const std::string Details(Entry.Transaction->GetDetails(EEditorTransactionOperation::Undo));
-		ApplyPackageTransitions(Entry, false);
-		if (Entry.Transaction->MutatesMountedContent()) NotifyMountedContentMutation();
-		FEntry Applied = std::move(Entry);
-		UndoStack.pop_back();
-		RedoStack.emplace_back(std::move(Applied));
-		PendingEvents.push_back({EEditorTransactionEventType::Undone, EEditorTransactionOperation::Undo, ExpectedId, Description, Details});
+		if (Entry.Transaction->IsDeferredOperationPending())
+		{
+			PendingOperation = EEditorTransactionOperation::Undo;
+			PendingTransactionId = ExpectedId;
+			return true;
+		}
+		Entry.Transaction->SetDeferredOperationCompletion({});
+		FinalizeUndo(ExpectedId);
 		return true;
 	}
 
@@ -102,22 +108,76 @@ namespace Durin
 
 	auto FEditorTransactionManager::Redo(FEditorTransactionId ExpectedId) -> bool
 	{
-		if (!IsRedoHead(ExpectedId)) return false;
+		if (PendingTransactionId != 0 || !IsRedoHead(ExpectedId)) return false;
 		FEntry& Entry = RedoStack.back();
 		const std::string Description(Entry.Transaction->GetDescription());
+		Entry.Transaction->SetDeferredOperationCompletion(
+			[this, ExpectedId](bool bSucceeded) {
+				CompleteDeferredOperation(EEditorTransactionOperation::Redo, ExpectedId, bSucceeded);
+			});
 		if (!Entry.Transaction->Redo())
 		{
+			Entry.Transaction->SetDeferredOperationCompletion({});
 			RecordFailure(EEditorTransactionOperation::Redo, Entry.Id, Description, Entry.Transaction->GetDetails(EEditorTransactionOperation::Redo));
 			return false;
 		}
+		if (Entry.Transaction->IsDeferredOperationPending())
+		{
+			PendingOperation = EEditorTransactionOperation::Redo;
+			PendingTransactionId = ExpectedId;
+			return true;
+		}
+		Entry.Transaction->SetDeferredOperationCompletion({});
+		FinalizeRedo(ExpectedId);
+		return true;
+	}
+
+	auto FEditorTransactionManager::FinalizeUndo(FEditorTransactionId Id) -> void
+	{
+		check(IsUndoHead(Id));
+		FEntry& Entry = UndoStack.back();
+		const std::string Description(Entry.Transaction->GetDescription());
+		const std::string Details(Entry.Transaction->GetDetails(EEditorTransactionOperation::Undo));
+		ApplyPackageTransitions(Entry, false);
+		if (Entry.Transaction->MutatesMountedContent()) NotifyMountedContentMutation();
+		FEntry Applied = std::move(Entry);
+		UndoStack.pop_back();
+		RedoStack.emplace_back(std::move(Applied));
+		PendingEvents.push_back({EEditorTransactionEventType::Undone, EEditorTransactionOperation::Undo, Id, Description, Details});
+	}
+
+	auto FEditorTransactionManager::FinalizeRedo(FEditorTransactionId Id) -> void
+	{
+		check(IsRedoHead(Id));
+		FEntry& Entry = RedoStack.back();
+		const std::string Description(Entry.Transaction->GetDescription());
 		const std::string Details(Entry.Transaction->GetDetails(EEditorTransactionOperation::Redo));
 		ApplyPackageTransitions(Entry, true);
 		if (Entry.Transaction->MutatesMountedContent()) NotifyMountedContentMutation();
 		FEntry Applied = std::move(Entry);
 		RedoStack.pop_back();
 		UndoStack.emplace_back(std::move(Applied));
-		PendingEvents.push_back({EEditorTransactionEventType::Redone, EEditorTransactionOperation::Redo, ExpectedId, Description, Details});
-		return true;
+		PendingEvents.push_back({EEditorTransactionEventType::Redone, EEditorTransactionOperation::Redo, Id, Description, Details});
+	}
+
+	auto FEditorTransactionManager::CompleteDeferredOperation(
+		EEditorTransactionOperation Operation,
+		FEditorTransactionId Id,
+		bool bSucceeded) -> void
+	{
+		if (PendingTransactionId != Id || PendingOperation != Operation) return;
+		FEntry& Entry = Operation == EEditorTransactionOperation::Undo
+			? UndoStack.back() : RedoStack.back();
+		Entry.Transaction->SetDeferredOperationCompletion({});
+		PendingTransactionId = 0;
+		PendingOperation = EEditorTransactionOperation::Execute;
+		if (!bSucceeded)
+		{
+			RecordFailure(Operation, Id, Entry.Transaction->GetDescription(), Entry.Transaction->GetDetails(Operation));
+			return;
+		}
+		if (Operation == EEditorTransactionOperation::Undo) FinalizeUndo(Id);
+		else FinalizeRedo(Id);
 	}
 
 	auto FEditorTransactionManager::IsUndoHead(FEditorTransactionId Id) const -> bool
@@ -207,6 +267,14 @@ namespace Durin
 
 	auto FEditorTransactionManager::Clear() -> void
 	{
+		if (PendingTransactionId != 0)
+		{
+			FEntry& Entry = PendingOperation == EEditorTransactionOperation::Undo
+				? UndoStack.back() : RedoStack.back();
+			Entry.Transaction->SetDeferredOperationCompletion({});
+		}
+		PendingTransactionId = 0;
+		PendingOperation = EEditorTransactionOperation::Execute;
 		UndoStack.clear();
 		RedoStack.clear();
 		PendingEvents.clear();

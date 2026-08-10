@@ -19,8 +19,8 @@ cooked-runtime, render-resource, editor, and material boundaries.
   pixels resident.
 - `FTextureSourceData` is decoded RGBA8 edit data. It records source dimensions,
   original channel count, and whether transparency is present. A warm derived-
-  data load leaves it non-resident; changing a build setting decodes it on demand
-  before validating the candidate build.
+  data load leaves it non-resident; an editor build-setting proposal snapshots
+  encoded source bytes and decodes them on a worker before publishing the edit.
 - `FTexturePlatformData` is rebuilt from source data. It contains a complete,
   tightly packed desktop BC mip chain selected from usage, transparency, and
   color space.
@@ -76,6 +76,13 @@ object without invoking the decoder. Missing, incompatible, corrupt, truncated,
 oversized, or invalid cache data is a non-fatal miss and rebuilds from source.
 Atomic cache persistence failure does not discard valid in-memory platform data.
 
+An editor DDC miss no longer decodes or compresses in `PostLoad`. It submits an
+immutable request and returns with the asset in a queued or running readiness
+phase. A warm validated DDC hit and cooked-runtime loading remain synchronous
+and behaviorally unchanged. Save and cook can only observe committed asset
+state; the Texture Editor requires an explicit Wait for Build or Cancel Build
+decision instead of serializing a pending candidate.
+
 The DDC path is derived entirely from the key; `.dasset` never stores a cache
 file path or byte offset. Texture payloads use TXPL schema 1, an 80-byte header,
 40-byte records, 16-byte aligned non-overlapping ranges, explicit BC format,
@@ -98,19 +105,75 @@ limit before replacing live platform data. Missing or malformed bulk is a hard,
 asset-qualified load failure with no source decoder, DDC, or offline compressor
 fallback.
 
+## Asynchronous Editor Build Coordination
+
+`FTexture2DBuildCoordinator` is initialized with Engine asset services after the
+process task system and is shut down before task-system admission closes. It
+owns two worker admissions and a conservative 1 GiB estimated in-flight byte
+budget. Requests are FIFO within background and interactive classes. At most
+four interactive requests are admitted consecutively while background work is
+waiting; an already admitted job is never preempted. A single valid request
+larger than the budget runs alone so maximum-dimension textures cannot deadlock
+the queue.
+
+Each request carries object/package identity, mounted source identity, source
+content hash, all build settings, Win64/Game target identity, and a monotonic
+per-object generation. Workers only receive value snapshots. They decode,
+generate mips, compress, validate, and atomically persist DDC data, then place a
+move-only result in the coordinator mailbox. The GameThread pump commits only a
+result whose request id, generation, object identity, source path, and complete
+settings still match. Cancellation is cooperative; this commit comparison is
+the correctness boundary.
+
+Cancellation is checked every eight generated or alpha-processing scanlines,
+between mips, and every 64 compression blocks. New requests cancel the older
+generation. Unload, destruction, document close, failed startup unwind, and
+normal shutdown cancel outstanding work. Shutdown stops admission, cancels the
+queued and running set, waits for worker quiescence, drains GameThread
+completions, and then destroys the coordinator. Completion history is bounded
+to 256 diagnostics and encoded request bytes are released as soon as worker
+use ends.
+
+Readiness is separate from the persistent build result and from render
+revision. Its phases are Queued, Decoding, Building, Persisting, Upload Pending,
+Ready, Failed, and Cancelled. Diagnostics retain request/generation identity,
+queue and worker time, estimated bytes, decoded bytes, peak intermediate bytes,
+result bytes, DDC key, and the latest matching failure with its originating
+decode, build, or persistence phase. Ready requires both a
+committed CPU result and completion of the matching revisioned render upload.
+
+The scheduling constants were selected from the
+`Win64-Debug-DurinEditor` characterization gate on 2026-08-10. Times below are
+synchronous baseline stalls; moving them to the coordinator removes the same
+compression-scale interval from the GameThread.
+
+| Square source | Color Low / Normal / High | Normal Low / Normal / High | Data Low / Normal / High | Decoded | Peak uncompressed mip chain | BC result |
+| --- | --- | --- | --- | ---: | ---: | ---: |
+| 1K measured | 0.36 / 0.83 / 10.64 s | 1.31 / 5.47 / 11.96 s | 1.71 / 2.40 / 5.08 s | 4 MiB | 5.33 MiB | 0.67-1.33 MiB |
+| 4K measured | 7.50 / 24.18 / 187.26 s | 23.16 / 86.52 / 197.36 s | 26.96 / 37.49 / 77.08 s | 64 MiB | 85.33 MiB | 10.67-21.33 MiB |
+| 16K supported bound | Compression cost scales with the 16x 4K block count; the full high-quality matrix is intentionally not a routine gate. | Same bound. | Same bound. | 1 GiB | 1.33 GiB | 170.67-341.33 MiB |
+
+The 16K row is the exact allocation bound from the same mip/layout functions,
+not a claimed wall-clock measurement. Its 2.50-2.67 GiB source/intermediate/
+result working set is admitted alone. Two typical 4K builds remain below the
+1 GiB admission budget, while larger requests naturally serialize.
+
 ## Transactional Build-Setting Edits
 
 The Texture Editor changes `Usage`, `bSRGB`, `MaxResolution`,
 `CompressionQuality`, `AlphaMipMode`, and `AlphaCoverageThreshold` through
 reflected-property transactions.
-`DTexture2D::PreEditChangeProperty` builds complete candidate platform data
-from detached proposal storage before the live setting changes. An invalid
-usage or quality value, or any failed build, rejects the proposal without
-changing the asset.
+`DTexture2D::PreEditChangeProperty` captures complete candidate settings from
+detached proposal storage and defers publication through the reflected-edit
+protocol. The worker result remains private until it succeeds. Invalid values,
+decode/build/DDC failures, cancellation, supersession, and document close leave
+the reflected values, package Dirty state, undo history, platform data, and
+stable texture target unchanged.
 
-After a successful write, `PostEditChangeProperty` atomically installs the
-validated candidate and queues a new render-resource revision. Cancel, Undo,
-and Redo use the same hooks and therefore rebuild the matching platform data.
+After a successful worker result, the GameThread publishes the reflected value
+once, `PostEditChangeProperty` installs that exact persisted candidate without
+rebuilding it, and the edit session registers one transaction and one Dirty
+transition. Cancel, Undo, and Redo use the same asynchronous proposal path.
 Changing usage resets sRGB to that preset's default; editing sRGB afterward is
 an explicit override. Committed edits dirty the package through the shared
 reflected transaction path. Direct build-setting setters follow the same
@@ -218,7 +281,9 @@ so simultaneously visible documents cannot reuse or overwrite one another's
 image. Missing or invalid platform data falls back to decoded source data when
 available; otherwise the preview is released.
 Persistent source, decode, build, upload, and format status is shown with retry
-and explicit repair controls. Reference Existing Source performs no copy;
+and explicit repair controls. Pending diagnostics show phase, request,
+generation, elapsed queue/worker time, and memory estimates, with Cancel Build
+and Wait for Build controls. Reference Existing Source performs no copy;
 Ingest External Source requires a writable destination. Reimport is read-only.
 Changing one reference and replacing or relocating shared source are distinct
 commands, and shared mutation previews every known affected asset. Content
@@ -227,8 +292,11 @@ directory from Content.
 
 ## Current Limitations
 
-- Build work is synchronous, every mip is fully resident, and there is no memory
-  accounting or streaming.
+- Every mip remains fully resident and there is no texture streaming, sparse
+  residency, partial upload, or eviction policy. Initial asset creation and
+  scene-import candidate construction remain synchronous; the asynchronous
+  contract owns ordinary editor DDC misses, retries, direct reimports, and
+  build-setting changes.
 - The shipped material shader consumes eight explicit roles: BaseColor and
   Emissive require Color/sRGB textures; Normal requires Normal/linear;
   Metallic, Roughness, AmbientOcclusion, Opacity, and OpacityMask require

@@ -17,6 +17,7 @@
 #include "Source/MountedSourceRelocation.h"
 #include "Source/SourcePath.h"
 #include "Texture/Texture2D.h"
+#include "Texture/Texture2DBuildCoordinator.h"
 #include "Texture/Texture2DRenderResource.h"
 #include "Widgets/TexturePreview.h"
 #include "Workspace/TextureEditorWorkspace.h"
@@ -66,6 +67,22 @@ namespace Durin
 			return std::format("{} bytes", Bytes);
 		}
 
+		auto DescribeBuildPhase(ETexture2DBuildPhase Phase) -> const char*
+		{
+			switch (Phase)
+			{
+			case ETexture2DBuildPhase::Queued: return "Queued";
+			case ETexture2DBuildPhase::Decoding: return "Decoding";
+			case ETexture2DBuildPhase::Building: return "Building";
+			case ETexture2DBuildPhase::Persisting: return "Persisting";
+			case ETexture2DBuildPhase::UploadPending: return "Upload Pending";
+			case ETexture2DBuildPhase::Ready: return "Ready";
+			case ETexture2DBuildPhase::Failed: return "Failed";
+			case ETexture2DBuildPhase::Cancelled: return "Cancelled";
+			default: return "Not Submitted";
+			}
+		}
+
 		auto DrawInfoRow(const char* Label, std::string_view Value) -> void
 		{
 			MonaImGui::PropertyEdit::BeginRow(Label, true);
@@ -111,6 +128,11 @@ namespace Durin
 	MTextureEditor::~MTextureEditor()
 	{
 		FinishActivePropertyEdit(true);
+		for (auto& [ResourceId, Texture] : OpenTextures)
+		{
+			(void)ResourceId;
+			if (Texture) Texture->CancelPendingBuild();
+		}
 	}
 
 	auto MTextureEditor::GetWorkspaceType() const -> const FEditorWorkspaceTypeId&
@@ -167,6 +189,8 @@ namespace Durin
 		if (PropertyView.IsEditingObject(FindOpenTexture(Document.ResourceId)) && !FinishActivePropertyEdit(true))
 			return EEditorDocumentCloseResult::Rejected;
 		if (IsDocumentDirty(Document)) return EEditorDocumentCloseResult::PendingConfirmation;
+		if (DTexture2D* Texture = FindOpenTexture(Document.ResourceId))
+			Texture->CancelPendingBuild();
 		OpenTextures.erase(Document.ResourceId);
 		PreviewStates.erase(Document.ResourceId);
 		if (ActiveResourceId == Document.ResourceId) ActiveResourceId.clear();
@@ -182,6 +206,7 @@ namespace Durin
 	{
 		DTexture2D* Texture = FindOpenTexture(Document.ResourceId);
 		if (!Texture || !Texture->GetPackage()) return false;
+		Texture->CancelPendingBuild();
 		Texture->GetPackage()->ClearDirty();
 		return true;
 	}
@@ -275,6 +300,13 @@ namespace Durin
 	auto MTextureEditor::SaveTexture(DTexture2D* Texture) -> bool
 	{
 		if (!Texture || !Texture->GetPackage()) return false;
+		if (Texture->HasPendingBuild())
+		{
+			SetError(
+				"This texture has an uncommitted asynchronous build. "
+				"Choose Wait for Build to commit it, or Cancel Build to save the last successful state.");
+			return false;
+		}
 		const Asset::FAssetResult Result = Asset::SavePackage(Texture->GetPackage());
 		if (!Result)
 		{
@@ -381,6 +413,7 @@ namespace Durin
 		{
 			ImGui::TextDisabled("TEXTURE DETAILS");
 			ImGui::Separator();
+			DrawBuildReadiness(Texture);
 			DrawFailureState(Texture);
 			if (ImGui::CollapsingHeader("Build Settings", ImGuiTreeNodeFlags_DefaultOpen))
 				DrawBuildSettings(Texture);
@@ -388,6 +421,60 @@ namespace Durin
 				DrawSourceData(Texture);
 		}
 		ImGui::EndChild();
+	}
+
+	auto MTextureEditor::DrawBuildReadiness(DTexture2D* Texture) -> void
+	{
+		const FTexture2DBuildDiagnostic Diagnostic =
+			Texture->GetBuildReadinessDiagnostic();
+		if (Diagnostic.Phase == ETexture2DBuildPhase::None
+			|| Diagnostic.Phase == ETexture2DBuildPhase::Ready) return;
+		const bool bPending = Texture->HasPendingBuild();
+		const ImVec4 PhaseColor = Diagnostic.Phase == ETexture2DBuildPhase::Failed
+			? ImVec4(1.0f, 0.42f, 0.32f, 1.0f)
+			: Diagnostic.Phase == ETexture2DBuildPhase::Cancelled
+				? ImVec4(0.75f, 0.75f, 0.75f, 1.0f)
+				: ImVec4(0.42f, 0.72f, 1.0f, 1.0f);
+		ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.07f, 0.11f, 0.16f, 0.65f));
+		ImGui::BeginChild(
+			"TextureBuildReadiness",
+			ImVec2(0, 0),
+			ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_Borders);
+		ImGui::TextColored(PhaseColor, "%s", DescribeBuildPhase(Diagnostic.Phase));
+		ImGui::TextDisabled(
+			"Request %llu  Generation %llu",
+			static_cast<unsigned long long>(Diagnostic.RequestId),
+			static_cast<unsigned long long>(Diagnostic.Generation));
+		if (Diagnostic.QueuedNanoseconds > 0)
+			ImGui::Text("Queue: %.2f ms", Diagnostic.QueuedNanoseconds / 1'000'000.0);
+		if (Diagnostic.WorkerNanoseconds > 0)
+			ImGui::Text("Worker: %.2f ms", Diagnostic.WorkerNanoseconds / 1'000'000.0);
+		ImGui::Text(
+			"Estimated: %s  Decoded: %s  Peak intermediate: %s  Result: %s",
+			FormatByteCount(Diagnostic.Metrics.EstimatedBytes).c_str(),
+			FormatByteCount(Diagnostic.Metrics.DecodedBytes).c_str(),
+			FormatByteCount(Diagnostic.Metrics.PeakIntermediateBytes).c_str(),
+			FormatByteCount(Diagnostic.Metrics.ResultBytes).c_str());
+		if (!Diagnostic.Message.empty())
+			ImGui::TextWrapped("%s", Diagnostic.Message.c_str());
+		if (Diagnostic.Phase == ETexture2DBuildPhase::Failed
+			&& Diagnostic.FailurePhase != ETexture2DBuildPhase::None)
+			ImGui::TextDisabled(
+				"Failure stage: %s", DescribeBuildPhase(Diagnostic.FailurePhase));
+		if (bPending)
+		{
+			if (ImGui::Button("Cancel Build")) Texture->CancelPendingBuild();
+			ImGui::SameLine();
+			if (ImGui::Button("Wait for Build"))
+			{
+				if (!Texture->WaitForPendingBuild())
+					SetError(Texture->GetLastBuildError().empty()
+						? "The texture build did not complete." : Texture->GetLastBuildError());
+			}
+		}
+		ImGui::EndChild();
+		ImGui::PopStyleColor();
+		ImGui::Spacing();
 	}
 
 	auto MTextureEditor::DrawFailureState(DTexture2D* Texture) -> void
@@ -776,18 +863,8 @@ namespace Durin
 	auto MTextureEditor::ReimportSource(DTexture2D* Texture) -> void
 	{
 		if (!Texture) return;
-		const AssetImport::FSingleAssetPlanResult Planned =
-			AssetImport::CreateSingleAssetReimportPlan(
-				{.Asset = Texture}, AssetImport::GetProviderRegistry(),
-				AssetImport::GetSingleAssetHandlerRegistry());
-		if (!Planned)
-		{
-			SetError(Planned.Message);
-			return;
-		}
-		const AssetImport::FSingleAssetExecutionResult Executed =
-			AssetImport::ExecuteSingleAssetImport(Planned.Plan);
-		if (!Executed) SetError(Executed.Message);
+		std::string Error;
+		if (!Texture->ReimportSource({}, Error)) SetError(std::move(Error));
 	}
 
 	auto MTextureEditor::ChangeSourceReference(DTexture2D* Texture) -> void

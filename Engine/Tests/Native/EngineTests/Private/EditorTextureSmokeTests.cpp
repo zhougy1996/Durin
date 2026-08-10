@@ -341,6 +341,8 @@ namespace Durin
 		std::string RebuildError;
 		ASSERT_TRUE(TextureImport.Asset->SetSRGB(
 			!TextureImport.Asset->IsSRGB(), RebuildError)) << RebuildError;
+		ASSERT_TRUE(TextureImport.Asset->WaitForPendingBuild(10.0))
+			<< TextureImport.Asset->GetLastBuildError();
 		FlushRenderingCommands();
 		EXPECT_EQ(
 			TextureImport.Asset->GetTextureReferenceRHI().GetReference(),

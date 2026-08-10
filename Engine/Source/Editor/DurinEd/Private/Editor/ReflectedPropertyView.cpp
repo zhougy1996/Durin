@@ -1169,6 +1169,7 @@ namespace Durin
 			FinishActiveEdit(&Context, true);
 			return false;
 		}
+		if (Result == EReflectedPropertyEditResult::Pending) return true;
 		if (!bContinuous) FinishActiveEdit(&Context, false);
 		return Result == EReflectedPropertyEditResult::Changed;
 	}

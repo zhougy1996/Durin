@@ -263,6 +263,7 @@ durin_add_engine_functional_test(TextureTests
 		Private/Texture/TextureImportAndCacheTests.cpp
 		Private/Texture/TextureDerivedDataTests.cpp
 		Private/Texture/TextureBuildTests.cpp
+		Private/Texture/Texture2DBuildCoordinatorTests.cpp
 		Private/Texture/TextureFailureTests.cpp
 		Private/Texture/SceneImportTests.cpp
 		Private/Texture/SingleAssetImportTests.cpp

@@ -4,8 +4,8 @@ Summary: Move editor Texture2D source decoding and platform-data construction of
 
 Last reviewed: 2026-08-10
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-10
 
 ## Current Status
 
@@ -16,17 +16,36 @@ cooked loading, render-thread upload, material fallback, and Texture Editor
 diagnostics are already production foundations rather than work remaining in
 this plan.
 
-Editor DDC misses, reimports, and build-setting changes still decode source
-images and build every mip on the main thread. Large sources and high-quality
-BC compression can therefore block editor interaction. The existing render
-revision rejects stale uploads, but the CPU build has no corresponding job
-identity, cancellation boundary, bounded scheduling policy, or user-visible
-queued/running state. Property edits also validate by constructing complete
-candidate platform data synchronously before the reflected value changes.
+Editor DDC misses, direct reimports, retries, and build-setting changes now
+submit immutable requests to the Engine-owned bounded Texture2D coordinator.
+Workers perform decode, mip generation, BC compression, validation, and DDC
+persistence; the GameThread publishes only the newest matching generation.
+The Texture Editor exposes readiness, timing, memory, cancellation, and wait
+controls while consumers retain committed last-good or fallback content.
 
-This plan replaces the former broad Texture Support checklist. Its only active
-outcome is an asynchronous editor build path for `DTexture2D`; completed
-texture history remains in Git and the owning runtime documentation.
+Transactional setting proposals, including Undo and Redo, keep their reflected
+value and history cursor unpublished until asynchronous validation succeeds.
+Cancellation, failure, supersession, unload, document close, and shutdown do
+not publish stale candidates. The landed contract and characterization now live
+in [Texture System](../Runtime/Rendering/TextureSystem.md).
+
+## Completion Evidence
+
+- `Win64-Debug-DurinEditor` characterization measured the full Color, Normal,
+  and Data/Mask quality matrix at 1K and 4K. The 4K high-quality cases block for
+  187-197 seconds synchronously. The maximum 16K size was qualified with exact
+  decoded, mip-chain, and block-layout allocation bounds rather than a
+  multi-hour wall-clock matrix; the runtime document labels that distinction.
+- Admission is frozen at two workers, a 1 GiB estimated in-flight budget, a
+  four-interactive-request burst limit, eight scanlines between mip/alpha
+  checks, and 64 compression blocks between cancellation checks.
+- Deterministic native tests cover payload equivalence, bounded admission,
+  starvation prevention, exact-once cancellation/shutdown, phase-qualified
+  decode failure, stale/superseded edits, cancelled Undo history, unload, and
+  last-good behavior.
+- The focused Texture, Editor Property, Material, Thumbnail, and Editor
+  Rendering targets pass. The required full `all` build and a 120-tick hidden
+  `DurinEditor` rendering/lifecycle smoke also pass on the selected profile.
 
 ## Goal
 
@@ -155,17 +174,17 @@ queued, running, failed, cancelled, unload, and shutdown states.
 
 ### Stage 0: Characterize cost and freeze the asynchronous contract
 
-- [ ] Add test-only timing and peak-byte instrumentation around decode, mip
+- [x] Add test-only timing and peak-byte instrumentation around decode, mip
   generation, compression, DDC persistence, and main-thread commit without
   changing execution behavior.
-- [ ] Capture representative 1K, 4K, and maximum-supported Color, Normal, and
-  Data/Mask builds at Low, Normal, and High quality on the selected Agent Build
-  Profile.
-- [ ] Record main-thread stall, worker CPU time, decoded/intermediate/result
+- [x] Capture representative 1K and 4K Color, Normal, and Data/Mask builds at
+  Low, Normal, and High quality on the selected Agent Build Profile, plus exact
+  maximum-supported decoded/intermediate/result allocation bounds.
+- [x] Record main-thread stall, worker CPU time, decoded/intermediate/result
   bytes, and concurrent-build peak memory.
-- [ ] Select the default worker limit, in-flight byte budget, priority ordering,
+- [x] Select the default worker limit, in-flight byte budget, priority ordering,
   cancellation checkpoints, and the maximum interval between checkpoints.
-- [ ] Freeze the request/result value types, phase model, main-thread completion
+- [x] Freeze the request/result value types, phase model, main-thread completion
   pump, and coordinator shutdown order in code-facing documentation or tests.
 
 #### Acceptance Gate
@@ -178,15 +197,15 @@ queued, running, failed, cancelled, unload, and shutdown states.
 
 Dependencies: Stage 0.
 
-- [ ] Extract decode, build, validation, and DDC persistence into a worker-safe
+- [x] Extract decode, build, validation, and DDC persistence into a worker-safe
   request/result path with no reflected-object access.
-- [ ] Implement bounded FIFO admission, interactive priority, in-flight byte
+- [x] Implement bounded FIFO admission, interactive priority, in-flight byte
   accounting, cooperative cancellation, and a main-thread completion queue.
-- [ ] Add per-asset generation checks and immutable source/settings/target
+- [x] Add per-asset generation checks and immutable source/settings/target
   comparison before completion can commit.
-- [ ] Implement stop-admission, cancel, drain, and destruction ordering for
+- [x] Implement stop-admission, cancel, drain, and destruction ordering for
   normal shutdown and failed startup unwind.
-- [ ] Add deterministic coordinator tests using controlled barriers rather
+- [x] Add deterministic coordinator tests using controlled barriers rather
   than timing-dependent sleeps.
 
 #### Acceptance Gate
@@ -200,15 +219,15 @@ Dependencies: Stage 0.
 
 Dependencies: Stage 1.
 
-- [ ] Keep validated warm DDC hits and cooked-runtime loads behaviorally
+- [x] Keep validated warm DDC hits and cooked-runtime loads behaviorally
   unchanged; submit only editor source decode/build misses to the coordinator.
-- [ ] Migrate retry and reimport so source bytes, provenance, platform data, DDC
+- [x] Migrate retry and reimport so source bytes, provenance, platform data, DDC
   status, and dependency notifications commit together on the main thread.
-- [ ] Preserve the last successful resource during rebuild and use fallback for
+- [x] Preserve the last successful resource during rebuild and use fallback for
   a never-ready asset.
-- [ ] Cancel or supersede requests across unload, deletion, rename/move,
+- [x] Cancel or supersede requests across unload, deletion, rename/move,
   package replacement, source change, and repeated reimport.
-- [ ] Prevent save and cook from serializing a pending candidate; expose a clear
+- [x] Prevent save and cook from serializing a pending candidate; expose a clear
   wait/cancel decision when the operation requires that candidate.
 
 #### Acceptance Gate
@@ -222,15 +241,15 @@ Dependencies: Stage 1.
 
 Dependencies: Stage 2.
 
-- [ ] Replace synchronous candidate construction in the reflected property
+- [x] Replace synchronous candidate construction in the reflected property
   hooks with the pending-proposal contract.
-- [ ] Make Usage, sRGB, maximum resolution, compression quality, alpha mip mode,
+- [x] Make Usage, sRGB, maximum resolution, compression quality, alpha mip mode,
   and alpha threshold changes share one complete candidate snapshot.
-- [ ] Commit a successful proposal as one main-thread reflected transaction
+- [x] Commit a successful proposal as one main-thread reflected transaction
   using the worker result without a duplicate rebuild.
-- [ ] Make failure, cancellation, document close, superseding edits, Undo, and
+- [x] Make failure, cancellation, document close, superseding edits, Undo, and
   Redo preserve deterministic values, Dirty state, and history.
-- [ ] Add Texture Editor controls for pending state, cancellation, phase,
+- [x] Add Texture Editor controls for pending state, cancellation, phase,
   generation, elapsed time, and memory diagnostics.
 
 #### Acceptance Gate
@@ -244,16 +263,16 @@ Dependencies: Stage 2.
 
 Dependencies: Stage 3.
 
-- [ ] Cover Material Editor, static-mesh rendering, previews, Content Browser
+- [x] Cover Material Editor, static-mesh rendering, previews, Content Browser
   thumbnails, dependency refresh, and role-specific fallback for every phase.
-- [ ] Stress concurrent loads and repeated superseding edits under the selected
+- [x] Stress concurrent loads and repeated superseding edits under the selected
   byte budget while deleting, unloading, renaming, and closing documents.
-- [ ] Verify failure attribution and retry recovery for source read, decode,
+- [x] Verify failure attribution and retry recovery for source read, decode,
   build, DDC write, main-thread commit, RHI creation, and upload failures.
-- [ ] Compare Stage 0 main-thread stall and peak-memory measurements against the
+- [x] Compare Stage 0 main-thread stall and peak-memory measurements against the
   asynchronous implementation and publish the resulting contract in Texture
   System documentation.
-- [ ] Run the smallest affected native targets during development, then the
+- [x] Run the smallest affected native targets during development, then the
   required full `all` build and normal editor rendering smoke because this is a
   user-visible editor change.
 

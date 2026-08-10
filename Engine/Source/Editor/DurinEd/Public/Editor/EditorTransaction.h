@@ -6,6 +6,7 @@ namespace Durin
 {
 	using FEditorTransactionId = uint64;
 	using FEditorRevisionId = uint64;
+	using FEditorTransactionDeferredCompletion = std::function<void(bool)>;
 
 	class DPackage;
 
@@ -49,6 +50,9 @@ namespace Durin
 		virtual auto MutatesMountedContent() const -> bool { return false; }
 		DURINED_API virtual auto Undo() -> bool = 0;
 		DURINED_API virtual auto Redo() -> bool = 0;
+		virtual auto IsDeferredOperationPending() const -> bool { return false; }
+		virtual auto SetDeferredOperationCompletion(
+			FEditorTransactionDeferredCompletion Completion) -> void { (void)Completion; }
 	};
 
 	// Describes one package's editor-session revision state.
@@ -73,8 +77,9 @@ namespace Durin
 		DURINED_API auto Undo(FEditorTransactionId ExpectedId) -> bool;
 		DURINED_API auto Redo() -> bool;
 		DURINED_API auto Redo(FEditorTransactionId ExpectedId) -> bool;
-		auto CanUndo() const -> bool { return !UndoStack.empty(); }
-		auto CanRedo() const -> bool { return !RedoStack.empty(); }
+		auto CanUndo() const -> bool { return PendingTransactionId == 0 && !UndoStack.empty(); }
+		auto CanRedo() const -> bool { return PendingTransactionId == 0 && !RedoStack.empty(); }
+		auto HasPendingOperation() const -> bool { return PendingTransactionId != 0; }
 		DURINED_API auto IsUndoHead(FEditorTransactionId Id) const -> bool;
 		DURINED_API auto IsRedoHead(FEditorTransactionId Id) const -> bool;
 		DURINED_API auto GetUndoDescription() const -> std::string_view;
@@ -120,6 +125,12 @@ namespace Durin
 		auto FindPackageState(const DPackage& Package) const -> const FTrackedPackageState*;
 		auto EnsurePackageState(DPackage& Package) -> FTrackedPackageState&;
 		auto ApplyPackageTransitions(const FEntry& Entry, bool bForward) -> void;
+		auto FinalizeUndo(FEditorTransactionId Id) -> void;
+		auto FinalizeRedo(FEditorTransactionId Id) -> void;
+		auto CompleteDeferredOperation(
+			EEditorTransactionOperation Operation,
+			FEditorTransactionId Id,
+			bool bSucceeded) -> void;
 		auto SynchronizeDirtyState(FTrackedPackageState& State) -> void;
 		auto RemovePackageHistory(const DPackage& Package) -> void;
 		auto RecordFailure(EEditorTransactionOperation Operation, FEditorTransactionId Id, std::string_view Description, std::string_view Details) -> void;
@@ -128,6 +139,8 @@ namespace Durin
 		FEditorTransactionId NextId = 1;
 		FEditorRevisionId NextRevision = 1;
 		uint64 MountedContentMutationRevision = 1;
+		EEditorTransactionOperation PendingOperation = EEditorTransactionOperation::Execute;
+		FEditorTransactionId PendingTransactionId = 0;
 		std::vector<FEntry> UndoStack;
 		std::vector<FEntry> RedoStack;
 		std::vector<FEditorTransactionEvent> PendingEvents;

@@ -7,6 +7,7 @@
 #include "DObject/Object.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Property.h"
+#include "DObject/WeakObjectPtr.h"
 #include "Logging/LogMacros.h"
 #include "Misc/AssertionMacros.h"
 
@@ -95,12 +96,19 @@ namespace Durin
 			const FReflectedPropertyEditTarget* Target;
 		};
 
+		struct FDeferredMutation
+		{
+			FPropertyValueSnapshot ProposedValue;
+			FPropertyEditDeferredAction Action;
+		};
+
 		auto ApplyGenericMutation(
 			const FReflectedPropertyEditTarget& Target,
 			const FPropertyValueSnapshot& ProposedValue,
 			EPropertyChangePhase Phase,
 			EPropertyChangeOrigin Origin,
 			FPropertyValueSnapshot* OutAppliedValue,
+			FDeferredMutation* OutDeferred,
 			std::string* OutError
 		) -> bool
 		{
@@ -142,6 +150,15 @@ namespace Durin
 
 			FPropertyValueSnapshot Normalized;
 			if (!Draft.Capture(Normalized, OutError)) return false;
+			if (Proposal.DeferredAction)
+			{
+				if (!OutDeferred)
+					return Fail(OutError, "The reflected-property caller cannot retain deferred validation.");
+				OutDeferred->ProposedValue = std::move(Normalized);
+				OutDeferred->Action = std::move(Proposal.DeferredAction);
+				if (OutAppliedValue) *OutAppliedValue = std::move(Before);
+				return true;
+			}
 			std::string ApplyError;
 			if (!RestoreTargetValue(Target, Normalized, &ApplyError))
 			{
@@ -210,8 +227,10 @@ namespace Durin
 		struct FMutationExecutionResult
 		{
 			FPropertyValueSnapshot AppliedValue;
+			FDeferredMutation Deferred;
 			bool bSucceeded = false;
 			bool bChanged = false;
+			bool bDeferred = false;
 		};
 
 		auto NotifyMutation(
@@ -229,6 +248,22 @@ namespace Durin
 				Target.Kind,
 				Origin
 			});
+		}
+
+		auto ApplyDeferredMutation(
+			const FReflectedPropertyEditTarget& Target,
+			const FPropertyValueSnapshot& ProposedValue,
+			EPropertyChangePhase Phase,
+			EPropertyChangeOrigin Origin,
+			std::string* OutError) -> FMutationExecutionResult
+		{
+			FMutationExecutionResult Result;
+			if (!RestoreTargetValue(Target, ProposedValue, OutError)) return Result;
+			if (!CaptureTargetValue(Target, Result.AppliedValue, OutError)) return Result;
+			Result.bSucceeded = true;
+			Result.bChanged = true;
+			NotifyMutation(Target, Phase, Origin);
+			return Result;
 		}
 
 		auto ExecuteMutation(
@@ -254,14 +289,27 @@ namespace Durin
 				return Result;
 			}
 
-			if (!ApplyGenericMutation(Target, *Value, Phase, Origin, &Result.AppliedValue, OutError)) return Result;
+			if (!ApplyGenericMutation(
+				Target, *Value, Phase, Origin, &Result.AppliedValue, &Result.Deferred, OutError))
+				return Result;
 
 			Result.bSucceeded = true;
+			if (Result.Deferred.Action)
+			{
+				Result.bDeferred = true;
+				return Result;
+			}
 			Result.bChanged = !PreviousValue || !(Result.AppliedValue == *PreviousValue);
 			if (Phase != EPropertyChangePhase::Interactive || Result.bChanged) NotifyMutation(Target, Phase, Origin);
 			return Result;
 		}
 	}
+
+	struct FReflectedPropertyEditSession::FDeferredOwnerState
+	{
+		std::mutex Mutex;
+		FReflectedPropertyEditSession* Owner = nullptr;
+	};
 
 	auto ResolveReflectedPropertyValue(
 		const FReflectedPropertyEditTarget& Target,
@@ -405,6 +453,12 @@ namespace Durin
 		return Target;
 	}
 
+	struct FReflectedPropertyTransaction::FDeferredRestoreOwnerState
+	{
+		std::mutex Mutex;
+		FReflectedPropertyTransaction* Owner = nullptr;
+	};
+
 	FReflectedPropertyTransaction::FReflectedPropertyTransaction(
 		FReflectedPropertyEditTarget InTarget,
 		FPropertyValueSnapshot InBefore,
@@ -428,6 +482,12 @@ namespace Durin
 
 	FReflectedPropertyTransaction::~FReflectedPropertyTransaction()
 	{
+		if (DeferredRestoreOwnerState)
+		{
+			std::lock_guard Lock(DeferredRestoreOwnerState->Mutex);
+			DeferredRestoreOwnerState->Owner = nullptr;
+		}
+		if (CancelDeferredRestore) CancelDeferredRestore();
 		if (bObjectRooted && GDObjectArray.Contains(Target.Object)) RemoveFromRoot(Target.Object);
 	}
 
@@ -451,6 +511,11 @@ namespace Durin
 	auto FReflectedPropertyTransaction::Restore(const FPropertyValueSnapshot& Snapshot, EPropertyChangeOrigin Origin) -> bool
 	{
 		LastError.clear();
+		if (bDeferredRestorePending)
+		{
+			LastError = "The reflected-property transaction already has a pending restore.";
+			return false;
+		}
 		if (!Target.Object)
 		{
 			LastError = "The reflected-property transaction target is unavailable.";
@@ -465,8 +530,88 @@ namespace Durin
 			if (LastError.empty()) LastError = "The reflected-property transaction could not restore its value.";
 			return false;
 		}
+		if (Result.bDeferred)
+		{
+			const FReflectedPropertyEditTarget DeferredTarget = Target;
+			const FWeakObjectPtr WeakObject(Target.Object);
+			FPropertyValueSnapshot ProposedValue = std::move(Result.Deferred.ProposedValue);
+			bDeferredRestorePending = true;
+			bStartingDeferredRestore = true;
+			ImmediateDeferredRestoreResult.reset();
+			DeferredRestoreOwnerState = std::make_shared<FDeferredRestoreOwnerState>();
+			DeferredRestoreOwnerState->Owner = this;
+			const std::shared_ptr<FDeferredRestoreOwnerState> OwnerState = DeferredRestoreOwnerState;
+			CancelDeferredRestore = Result.Deferred.Action(
+				[OwnerState, DeferredTarget, WeakObject, ProposedValue = std::move(ProposedValue), Origin](
+					bool bSucceeded, std::string Error) mutable {
+					FReflectedPropertyTransaction* Owner = nullptr;
+					{
+						std::lock_guard Lock(OwnerState->Mutex);
+						Owner = OwnerState->Owner;
+					}
+					if (!Owner) return;
+					if (WeakObject.Get() != DeferredTarget.Object)
+					{
+						bSucceeded = false;
+						Error = "The reflected-property transaction target was destroyed while validation was pending.";
+					}
+					Owner->CompleteDeferredRestore(
+						bSucceeded,
+						std::move(Error),
+						DeferredTarget,
+						std::move(ProposedValue),
+						Origin);
+				});
+			bStartingDeferredRestore = false;
+			if (ImmediateDeferredRestoreResult.has_value())
+			{
+				const bool bSucceeded = *ImmediateDeferredRestoreResult;
+				ImmediateDeferredRestoreResult.reset();
+				CancelDeferredRestore = {};
+				return bSucceeded;
+			}
+			return true;
+		}
 		Target.Object->MarkPackageDirty();
 		return true;
+	}
+
+	auto FReflectedPropertyTransaction::CompleteDeferredRestore(
+		bool bSucceeded,
+		std::string Error,
+		FReflectedPropertyEditTarget DeferredTarget,
+		FPropertyValueSnapshot ProposedValue,
+		EPropertyChangeOrigin Origin) -> void
+	{
+		if (!bDeferredRestorePending) return;
+		if (bSucceeded)
+		{
+			FMutationExecutionResult Applied = ApplyDeferredMutation(
+				DeferredTarget,
+				ProposedValue,
+				EPropertyChangePhase::Committed,
+				Origin,
+				&Error);
+			bSucceeded = Applied.bSucceeded;
+		}
+		if (!bSucceeded)
+			LastError = Error.empty()
+				? "Deferred reflected-property transaction restore failed." : std::move(Error);
+		bDeferredRestorePending = false;
+		CancelDeferredRestore = {};
+		if (DeferredRestoreOwnerState)
+		{
+			std::lock_guard Lock(DeferredRestoreOwnerState->Mutex);
+			DeferredRestoreOwnerState->Owner = nullptr;
+		}
+		DeferredRestoreOwnerState.reset();
+		if (bStartingDeferredRestore)
+		{
+			ImmediateDeferredRestoreResult = bSucceeded;
+			return;
+		}
+		FEditorTransactionDeferredCompletion Completion = DeferredRestoreCompletion;
+		if (Completion) Completion(bSucceeded);
 	}
 
 	FReflectedPropertyEditSession::~FReflectedPropertyEditSession()
@@ -523,6 +668,18 @@ namespace Durin
 	auto FReflectedPropertyEditSession::Apply(const FPropertyValueSnapshot& ProposedValue, std::string* OutError) -> EReflectedPropertyEditResult
 	{
 		if (!bActive) { Fail(OutError, "No reflected-property edit session is active."); return EReflectedPropertyEditResult::Failed; }
+		if (bDeferredPending)
+		{
+			if (DeferredOwnerState)
+			{
+				std::lock_guard Lock(DeferredOwnerState->Mutex);
+				DeferredOwnerState->Owner = nullptr;
+			}
+			if (CancelDeferredEdit) CancelDeferredEdit();
+			CancelDeferredEdit = {};
+			DeferredOwnerState.reset();
+			bDeferredPending = false;
+		}
 		if (ProposedValue == CurrentValue) return EReflectedPropertyEditResult::NoChange;
 		FMutationExecutionResult Result = ExecuteMutation(
 			Target, &ProposedValue, &CurrentValue, EMutationOperation::Apply,
@@ -532,8 +689,68 @@ namespace Durin
 			if (Result.AppliedValue.IsValid()) CurrentValue = std::move(Result.AppliedValue);
 			return EReflectedPropertyEditResult::Failed;
 		}
+		if (Result.bDeferred)
+		{
+			bDeferredPending = true;
+			DeferredOwnerState = std::make_shared<FDeferredOwnerState>();
+			DeferredOwnerState->Owner = this;
+			const std::shared_ptr<FDeferredOwnerState> OwnerState = DeferredOwnerState;
+			FPropertyValueSnapshot DeferredValue = std::move(Result.Deferred.ProposedValue);
+			FPropertyEditDeferredCancel Cancel = Result.Deferred.Action(
+				[OwnerState, DeferredValue = std::move(DeferredValue)](
+					bool bSucceeded, std::string Error) mutable {
+					FReflectedPropertyEditSession* Owner = nullptr;
+					{
+						std::lock_guard Lock(OwnerState->Mutex);
+						Owner = OwnerState->Owner;
+					}
+					if (Owner)
+						Owner->CompleteDeferredEdit(
+							bSucceeded, std::move(Error), std::move(DeferredValue));
+				});
+			if (bDeferredPending && DeferredOwnerState == OwnerState)
+				CancelDeferredEdit = std::move(Cancel);
+			return EReflectedPropertyEditResult::Pending;
+		}
 		CurrentValue = std::move(Result.AppliedValue);
 		return Result.bChanged ? EReflectedPropertyEditResult::Changed : EReflectedPropertyEditResult::NoChange;
+	}
+
+	auto FReflectedPropertyEditSession::CompleteDeferredEdit(
+		bool bSucceeded,
+		std::string Error,
+		FPropertyValueSnapshot ProposedValue) -> void
+	{
+		if (!bActive || !bDeferredPending) return;
+		if (DeferredOwnerState)
+		{
+			std::lock_guard Lock(DeferredOwnerState->Mutex);
+			DeferredOwnerState->Owner = nullptr;
+		}
+		CancelDeferredEdit = {};
+		DeferredOwnerState.reset();
+		bDeferredPending = false;
+		if (!bSucceeded)
+		{
+			if (!Error.empty()) DURIN_ERROR("Deferred reflected-property edit failed: {}", Error);
+			Reset();
+			return;
+		}
+		FMutationExecutionResult Result = ApplyDeferredMutation(
+			Target,
+			ProposedValue,
+			EPropertyChangePhase::Interactive,
+			EPropertyChangeOrigin::Edit,
+			&Error);
+		if (!Result.bSucceeded)
+		{
+			DURIN_ERROR("Deferred reflected-property publication failed: {}", Error);
+			Reset();
+			return;
+		}
+		CurrentValue = std::move(Result.AppliedValue);
+		if (Commit(&Error) == EReflectedPropertyEditResult::Failed)
+			DURIN_ERROR("Deferred reflected-property transaction failed: {}", Error);
 	}
 
 	auto FReflectedPropertyEditSession::MatchesTarget(const FReflectedPropertyEditTarget& Other) const -> bool
@@ -600,6 +817,15 @@ namespace Durin
 
 	auto FReflectedPropertyEditSession::Reset() -> void
 	{
+		if (DeferredOwnerState)
+		{
+			std::lock_guard Lock(DeferredOwnerState->Mutex);
+			DeferredOwnerState->Owner = nullptr;
+		}
+		if (CancelDeferredEdit) CancelDeferredEdit();
+		CancelDeferredEdit = {};
+		DeferredOwnerState.reset();
+		bDeferredPending = false;
 		if (bObjectRooted && GDObjectArray.Contains(Target.Object)) RemoveFromRoot(Target.Object);
 		bObjectRooted = false;
 		bActive = false;

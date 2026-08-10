@@ -838,6 +838,8 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		ASSERT_TRUE(DataTextureResult) << DataTextureResult.Message;
 		ASSERT_TRUE(DataTextureResult.Asset->SetUsage(
 			Durin::ETextureUsage::DataMask, Error)) << Error;
+		ASSERT_TRUE(DataTextureResult.Asset->WaitForPendingBuild(10.0))
+			<< DataTextureResult.Asset->GetLastBuildError();
 		ASSERT_NE(DataTextureResult.Asset->GetPlatformData(), nullptr);
 		EXPECT_FALSE(DataTextureResult.Asset->IsSRGB());
 		EXPECT_EQ(
@@ -852,6 +854,8 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		ASSERT_TRUE(NormalTextureResult) << NormalTextureResult.Message;
 		ASSERT_TRUE(NormalTextureResult.Asset->SetUsage(
 			Durin::ETextureUsage::Normal, Error)) << Error;
+		ASSERT_TRUE(NormalTextureResult.Asset->WaitForPendingBuild(10.0))
+			<< NormalTextureResult.Asset->GetLastBuildError();
 		ASSERT_NE(NormalTextureResult.Asset->GetPlatformData(), nullptr);
 		EXPECT_FALSE(NormalTextureResult.Asset->IsSRGB());
 		EXPECT_EQ(

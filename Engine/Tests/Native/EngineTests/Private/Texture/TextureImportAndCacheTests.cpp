@@ -251,6 +251,7 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 		Stream.write(reinterpret_cast<const char*>(CorruptBytes.data()), CorruptBytes.size());
 	}
 	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
+	ASSERT_TRUE(Loaded->WaitForPendingBuild()) << Loaded->GetLastBuildError();
 	EXPECT_FALSE(Loaded->WasLoadedFromDerivedDataCache());
 	EXPECT_TRUE(Loaded->GetDerivedDataDiagnostic().bSourceDecoderInvoked);
 	ASSERT_NE(Loaded->GetSourceData(), nullptr);
@@ -271,6 +272,7 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	std::filesystem::last_write_time(CopiedSource,
 		std::filesystem::last_write_time(CopiedSource) + std::chrono::seconds(1));
 	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
+	ASSERT_TRUE(Loaded->WaitForPendingBuild()) << Loaded->GetLastBuildError();
 	EXPECT_FALSE(Loaded->WasLoadedFromDerivedDataCache());
 	EXPECT_NE(Loaded->GetDerivedDataKey(), OriginalKey);
 	EXPECT_EQ(Loaded->GetSourceWidth(), 5u);
@@ -375,6 +377,8 @@ TEST(FTexture2DTests, PortableSourceCanBeRepairedAndRejectsEscapingMetadata)
 	ASSERT_TRUE(Result.Asset->IngestAndChangeSource(
 		Replacement.generic_string(),
 		"/TextureImportTests/Textures/Texture.tga", Error)) << Error;
+	ASSERT_TRUE(Result.Asset->WaitForPendingBuild(10.0))
+		<< Result.Asset->GetLastBuildError();
 	EXPECT_EQ(Result.Asset->GetSourceImportData().Source.SourcePath.Path,
 		"/TextureImportTests/Textures/Texture.tga");
 	EXPECT_EQ(Result.Asset->InspectSource().Status, Durin::ETextureSourceStatus::Available);
@@ -445,6 +449,7 @@ TEST(FTexture2DTests, DerivedDataKeyCoversSourceContentAndBuildSettings)
 	const std::string OriginalKey = Loaded->GetDerivedDataKey();
 	std::string Error;
 	ASSERT_TRUE(Loaded->SetMaxResolution(1, Error)) << Error;
+	ASSERT_TRUE(Loaded->WaitForPendingBuild(10.0)) << Loaded->GetLastBuildError();
 	EXPECT_NE(Loaded->GetSourceData(), nullptr);
 	EXPECT_NE(Loaded->GetDerivedDataKey(), OriginalKey);
 	EXPECT_TRUE(std::filesystem::is_regular_file(GetTextureCachePath(*Loaded)));

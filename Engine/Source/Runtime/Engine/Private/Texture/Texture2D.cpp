@@ -13,8 +13,10 @@
 #include "Source/SourcePath.h"
 #include "DynamicRHI.h"
 #include "Texture/Texture2DRenderResource.h"
+#include "Texture/Texture2DBuildCoordinator.h"
 #include "Texture/TextureBuild.h"
 #include "Texture/TextureDerivedData.h"
+#include "Threading/RunnableThread.h"
 
 namespace Durin
 {
@@ -303,6 +305,403 @@ namespace Durin
 
 	DTexture2D::~DTexture2D() = default;
 
+	auto DTexture2D::BeginDestroy() -> void
+	{
+		if (FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator())
+		{
+			if (ActiveBuildRequestId != 0) Coordinator->Cancel(ActiveBuildRequestId);
+		}
+		++BuildRequestGeneration;
+		ActiveBuildRequestId = 0;
+		Super::BeginDestroy();
+	}
+
+	auto DTexture2D::GetBuildReadinessDiagnostic() const -> FTexture2DBuildDiagnostic
+	{
+		FTexture2DBuildDiagnostic Diagnostic;
+		const uint64 RequestId = ActiveBuildRequestId != 0
+			? ActiveBuildRequestId : LastBuildRequestId;
+		if (RequestId != 0)
+		{
+			if (FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator())
+				Diagnostic = Coordinator->GetDiagnostic(RequestId);
+		}
+		if (ActiveBuildRequestId == 0
+			&& BuildStatus == ETextureBuildStatus::Ready
+			&& GetRenderResourceState() == ERenderResourceState::Ready)
+		{
+			Diagnostic.Phase = ETexture2DBuildPhase::Ready;
+		}
+		else if (ActiveBuildRequestId == 0
+			&& BuildStatus == ETextureBuildStatus::Ready
+			&& Diagnostic.Phase != ETexture2DBuildPhase::Failed
+			&& Diagnostic.Phase != ETexture2DBuildPhase::Cancelled)
+		{
+			Diagnostic.Phase = ETexture2DBuildPhase::UploadPending;
+		}
+		return Diagnostic;
+	}
+
+	auto DTexture2D::CancelPendingBuild() -> bool
+	{
+		if (ActiveBuildRequestId == 0) return false;
+		FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator();
+		return Coordinator && Coordinator->Cancel(ActiveBuildRequestId);
+	}
+
+	auto DTexture2D::WaitForPendingBuild(double TimeoutSeconds) -> bool
+	{
+		if (ActiveBuildRequestId == 0) return true;
+		FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator();
+		if (!Coordinator) return false;
+		const uint64 RequestId = ActiveBuildRequestId;
+		if (!Coordinator->WaitForRequest(RequestId, TimeoutSeconds)) return false;
+		Coordinator->PumpCompletions(std::numeric_limits<uint32>::max());
+		return ActiveBuildRequestId == 0 && BuildStatus == ETextureBuildStatus::Ready;
+	}
+
+	auto DTexture2D::SubmitAsyncBuild(
+		std::vector<uint8> EncodedSource,
+		const FSourcePath& SourcePath,
+		const FTexture2DImportSettings& Settings,
+		ETexture2DBuildPriority Priority,
+		bool bMarkDirtyOnCommit,
+		bool bReportLoadMutationOnCommit,
+		uint64 SourceFileSizeSnapshot,
+		int64 SourceLastWriteTimeSnapshot,
+		std::string& OutError) -> bool
+	{
+		FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator();
+		if (!Coordinator)
+		{
+			OutError = "The Texture2D build coordinator is unavailable.";
+			return false;
+		}
+		if (EncodedSource.empty() || SourcePath.IsEmpty())
+		{
+			OutError = "An asynchronous Texture2D build requires source bytes and mounted provenance.";
+			return false;
+		}
+		if (!TextureBuild::IsValidUsage(Settings.Usage)
+			|| !TextureBuild::IsValidCompressionQuality(Settings.CompressionQuality)
+			|| !TextureBuild::IsValidAlphaMipMode(Settings.AlphaMipMode)
+			|| !TextureBuild::IsValidAlphaCoverageThreshold(Settings.AlphaCoverageThreshold))
+		{
+			OutError = "Texture2D asynchronous build settings are invalid.";
+			return false;
+		}
+
+		if (ActiveBuildRequestId != 0) Coordinator->Cancel(ActiveBuildRequestId);
+		const uint64 Generation = ++BuildRequestGeneration;
+		const std::string AssetIdentity = GetObjectPath();
+		const FXxHash128 SourceHash = FXxHash128::HashBuffer(EncodedSource);
+		const bool bResolvedSRGB = Settings.bSRGB.value_or(
+			TextureBuild::GetDefaultSRGB(Settings.Usage));
+		FTexture2DBuildRequest Request{
+			.AssetIdentity = AssetIdentity,
+			.SourcePath = SourcePath,
+			.EncodedSource = std::move(EncodedSource),
+			.ExpectedSourceHash = SourceHash,
+			.Settings = {
+				.Usage = Settings.Usage,
+				.bSRGB = bResolvedSRGB,
+				.MaxResolution = Settings.MaxResolution,
+				.CompressionQuality = Settings.CompressionQuality,
+				.AlphaMipMode = Settings.AlphaMipMode,
+				.AlphaCoverageThreshold = Settings.AlphaCoverageThreshold},
+			.Generation = Generation,
+			.EstimatedWidth = SourceWidth,
+			.EstimatedHeight = SourceHeight,
+			.Priority = Priority,
+			.bHasExpectedSourceHash = true};
+		const TWeakObjectPtr<DTexture2D> WeakThis(this);
+		const uint64 RequestId = Coordinator->Submit(
+			std::move(Request),
+			[WeakThis](FTexture2DBuildResult&& Result) {
+				if (DTexture2D* Texture = WeakThis.Get())
+					Texture->ApplyAsyncBuildResult(std::move(Result));
+			});
+		if (RequestId == 0)
+		{
+			OutError = "The Texture2D build coordinator rejected the request.";
+			return false;
+		}
+
+		ActiveBuildRequestId = RequestId;
+		LastBuildRequestId = RequestId;
+		PendingBuildAssetIdentity = AssetIdentity;
+		PendingBuildSourcePath = SourcePath;
+		PendingBuildSettings = Settings;
+		PendingBuildSettings.bSRGB = bResolvedSRGB;
+		PendingBuildSourceFileSize = SourceFileSizeSnapshot;
+		PendingBuildSourceLastWriteTime = SourceLastWriteTimeSnapshot;
+		bPendingBuildMarksDirty = bMarkDirtyOnCommit;
+		bPendingBuildReportsLoadMutation = bReportLoadMutationOnCommit;
+		OutError.clear();
+		return true;
+	}
+
+	auto DTexture2D::ApplyAsyncBuildResult(FTexture2DBuildResult&& Result) -> void
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		if (Result.RequestId != ActiveBuildRequestId
+			|| Result.Generation != BuildRequestGeneration
+			|| Result.AssetIdentity != PendingBuildAssetIdentity
+			|| GetObjectPath() != PendingBuildAssetIdentity
+			|| Result.SourcePath != PendingBuildSourcePath)
+		{
+			return;
+		}
+		ActiveBuildRequestId = 0;
+		if (Result.Phase == ETexture2DBuildPhase::Cancelled)
+		{
+			return;
+		}
+		if (Result.Phase != ETexture2DBuildPhase::UploadPending
+			|| !Result.SourceData || !Result.SourceData->IsValid()
+			|| !Result.PlatformData || !Result.PlatformData->IsValid())
+		{
+			LastBuildError = Result.Error.empty()
+				? "The asynchronous Texture2D build failed." : std::move(Result.Error);
+			if (!PlatformData)
+				BuildStatus = ETextureBuildStatus::BuildFailure;
+			return;
+		}
+		const FTexture2DBuildSettingsSnapshot ExpectedSettings{
+			.Usage = PendingBuildSettings.Usage,
+			.bSRGB = PendingBuildSettings.bSRGB.value_or(
+				TextureBuild::GetDefaultSRGB(PendingBuildSettings.Usage)),
+			.MaxResolution = PendingBuildSettings.MaxResolution,
+			.CompressionQuality = PendingBuildSettings.CompressionQuality,
+			.AlphaMipMode = PendingBuildSettings.AlphaMipMode,
+			.AlphaCoverageThreshold = PendingBuildSettings.AlphaCoverageThreshold};
+		if (Result.Settings != ExpectedSettings) return;
+
+		SourceImportData = {
+			.Source = {
+				.SourcePath = Result.SourcePath,
+				.SourceContentHashLow = Result.SourceHash.HashLow,
+				.SourceContentHashHigh = Result.SourceHash.HashHigh},
+			.DecoderId = std::string(TextureDecoderId),
+			.DecoderVersion = TextureDecoderVersion};
+		SourceContentHash = Result.SourceHash.ToString();
+		SourceFileSize = PendingBuildSourceFileSize;
+		SourceLastWriteTime = PendingBuildSourceLastWriteTime;
+		SourceWidth = Result.SourceData->Width;
+		SourceHeight = Result.SourceData->Height;
+		SourceChannelCount = Result.SourceData->SourceChannelCount;
+		bSourceHasTransparency = Result.SourceData->bHasTransparency;
+		Usage = Result.Settings.Usage;
+		bSRGB = Result.Settings.bSRGB;
+		MaxResolution = Result.Settings.MaxResolution;
+		CompressionQuality = Result.Settings.CompressionQuality;
+		AlphaMipMode = Result.Settings.AlphaMipMode;
+		AlphaCoverageThreshold = Result.Settings.AlphaCoverageThreshold;
+		SourceData = std::move(Result.SourceData);
+		PlatformData = std::move(Result.PlatformData);
+		DerivedDataKey = std::move(Result.DerivedDataKey);
+		bLoadedFromDerivedDataCache = false;
+		DerivedDataDiagnostic = {
+			.Status = ETextureDerivedDataStatus::Rebuilt,
+			.Key = DerivedDataKey,
+			.Message = std::format(
+				"Asynchronously rebuilt Texture2D and stored DDC key {}.", DerivedDataKey),
+			.bSourceDecoderInvoked = true};
+		BuildStatus = ETextureBuildStatus::Ready;
+		LastBuildError.clear();
+		std::filesystem::path CommittedSourcePath;
+		std::string ResolveError;
+		if (ResolveTextureSource(*this, CommittedSourcePath, ResolveError))
+		{
+			Asset::StoreSourceFingerprint(CommittedSourcePath, {
+				.FileSize = SourceFileSize,
+				.LastWriteTimeTicks = SourceLastWriteTime,
+				.ContentHash = SourceContentHash});
+		}
+		QueueRenderResourceBuild();
+		if (bPendingBuildMarksDirty) MarkPackageDirty();
+		if (bPendingBuildReportsLoadMutation)
+		{
+			Asset::ReportAssetLoadMutation(
+				this,
+				"Engine.Texture2D.SourceIdentity",
+				"Texture source identity metadata was reconciled by an asynchronous load build.");
+		}
+	}
+
+	auto DTexture2D::SubmitAsyncPropertyBuild(
+		const FTexture2DImportSettings& Settings,
+		FPropertyEditDeferredCompletion Completion) -> FPropertyEditDeferredCancel
+	{
+		FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator();
+		std::filesystem::path PhysicalPath;
+		std::string Error;
+		if (!Coordinator || !Completion
+			|| !ResolveTextureSource(*this, PhysicalPath, Error)
+			|| !std::filesystem::is_regular_file(PhysicalPath))
+		{
+			if (Error.empty()) Error = "Texture source or asynchronous build coordinator is unavailable.";
+			if (Completion) Completion(false, std::move(Error));
+			return {};
+		}
+		std::vector<uint8> EncodedSource;
+		if (!FFileHelper::LoadFileToArray(EncodedSource, PhysicalPath.generic_string()))
+		{
+			Completion(false, std::format(
+				"Failed to read texture source file: {}", PhysicalPath.generic_string()));
+			return {};
+		}
+		std::error_code FingerprintError;
+		const uint64 FileSize = std::filesystem::file_size(PhysicalPath, FingerprintError);
+		const std::filesystem::file_time_type LastWriteTime =
+			std::filesystem::last_write_time(PhysicalPath, FingerprintError);
+		if (FingerprintError)
+		{
+			Completion(false, std::format(
+				"Failed to inspect texture source file: {}", FingerprintError.message()));
+			return {};
+		}
+
+		if (ActiveBuildRequestId != 0) Coordinator->Cancel(ActiveBuildRequestId);
+		const uint64 Generation = ++BuildRequestGeneration;
+		const std::string AssetIdentity = GetObjectPath();
+		const FXxHash128 SourceHash = FXxHash128::HashBuffer(EncodedSource);
+		const bool bResolvedSRGB = Settings.bSRGB.value_or(
+			TextureBuild::GetDefaultSRGB(Settings.Usage));
+		FTexture2DBuildRequest Request{
+			.AssetIdentity = AssetIdentity,
+			.SourcePath = SourceImportData.Source.SourcePath,
+			.EncodedSource = std::move(EncodedSource),
+			.ExpectedSourceHash = SourceHash,
+			.Settings = {
+				.Usage = Settings.Usage,
+				.bSRGB = bResolvedSRGB,
+				.MaxResolution = Settings.MaxResolution,
+				.CompressionQuality = Settings.CompressionQuality,
+				.AlphaMipMode = Settings.AlphaMipMode,
+				.AlphaCoverageThreshold = Settings.AlphaCoverageThreshold},
+			.Generation = Generation,
+			.EstimatedWidth = SourceWidth,
+			.EstimatedHeight = SourceHeight,
+			.Priority = ETexture2DBuildPriority::Interactive,
+			.bHasExpectedSourceHash = true};
+		const TWeakObjectPtr<DTexture2D> WeakThis(this);
+		const uint64 RequestId = Coordinator->Submit(
+			std::move(Request),
+			[WeakThis](FTexture2DBuildResult&& Result) {
+				if (DTexture2D* Texture = WeakThis.Get())
+					Texture->ApplyAsyncPropertyBuildResult(std::move(Result));
+			});
+		if (RequestId == 0)
+		{
+			Completion(false, "The Texture2D build coordinator rejected the property proposal.");
+			return {};
+		}
+		ActiveBuildRequestId = RequestId;
+		LastBuildRequestId = RequestId;
+		PendingBuildAssetIdentity = AssetIdentity;
+		PendingBuildSourcePath = SourceImportData.Source.SourcePath;
+		PendingBuildSettings = Settings;
+		PendingBuildSettings.bSRGB = bResolvedSRGB;
+		PendingBuildSourceFileSize = FileSize;
+		PendingBuildSourceLastWriteTime =
+			DerivedDataCache::FileTimeToStableTicks(LastWriteTime);
+		PendingPropertyEditCompletion = std::move(Completion);
+		return [WeakThis, RequestId] {
+			if (DTexture2D* Texture = WeakThis.Get())
+			{
+				if (Texture->ActiveBuildRequestId == RequestId)
+					Texture->CancelPendingBuild();
+			}
+		};
+	}
+
+	auto DTexture2D::SubmitBuildSettingsAsync(
+		const FTexture2DImportSettings& Settings,
+		std::string& OutError) -> bool
+	{
+		std::filesystem::path PhysicalPath;
+		if (!ResolveTextureSource(*this, PhysicalPath, OutError)
+			|| !std::filesystem::is_regular_file(PhysicalPath))
+		{
+			if (OutError.empty())
+				OutError = std::format("Texture source file does not exist: {}", GetSourceFile());
+			return false;
+		}
+		std::vector<uint8> EncodedSource;
+		if (!FFileHelper::LoadFileToArray(EncodedSource, PhysicalPath.generic_string()))
+		{
+			OutError = std::format(
+				"Failed to read texture source file: {}", PhysicalPath.generic_string());
+			return false;
+		}
+		std::error_code FingerprintError;
+		const uint64 FileSize = std::filesystem::file_size(PhysicalPath, FingerprintError);
+		const std::filesystem::file_time_type LastWriteTime =
+			std::filesystem::last_write_time(PhysicalPath, FingerprintError);
+		if (FingerprintError)
+		{
+			OutError = std::format(
+				"Failed to inspect texture source file: {}", FingerprintError.message());
+			return false;
+		}
+		return SubmitAsyncBuild(
+			std::move(EncodedSource),
+			SourceImportData.Source.SourcePath,
+			Settings,
+			ETexture2DBuildPriority::Interactive,
+			true,
+			false,
+			FileSize,
+			DerivedDataCache::FileTimeToStableTicks(LastWriteTime),
+			OutError);
+	}
+
+	auto DTexture2D::ApplyAsyncPropertyBuildResult(FTexture2DBuildResult&& Result) -> void
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		if (Result.RequestId != ActiveBuildRequestId
+			|| Result.Generation != BuildRequestGeneration
+			|| Result.AssetIdentity != PendingBuildAssetIdentity
+			|| GetObjectPath() != PendingBuildAssetIdentity
+			|| Result.SourcePath != PendingBuildSourcePath) return;
+		ActiveBuildRequestId = 0;
+		FPropertyEditDeferredCompletion Completion =
+			std::move(PendingPropertyEditCompletion);
+		if (Result.Phase != ETexture2DBuildPhase::UploadPending
+			|| !Result.SourceData || !Result.SourceData->IsValid()
+			|| !Result.PlatformData || !Result.PlatformData->IsValid())
+		{
+			LastBuildError = Result.Error.empty()
+				? "The asynchronous Texture2D property proposal failed." : std::move(Result.Error);
+			if (Completion) Completion(false, LastBuildError);
+			return;
+		}
+		const FTexture2DBuildSettingsSnapshot ExpectedSettings{
+			.Usage = PendingBuildSettings.Usage,
+			.bSRGB = PendingBuildSettings.bSRGB.value_or(
+				TextureBuild::GetDefaultSRGB(PendingBuildSettings.Usage)),
+			.MaxResolution = PendingBuildSettings.MaxResolution,
+			.CompressionQuality = PendingBuildSettings.CompressionQuality,
+			.AlphaMipMode = PendingBuildSettings.AlphaMipMode,
+			.AlphaCoverageThreshold = PendingBuildSettings.AlphaCoverageThreshold};
+		if (Result.Settings != ExpectedSettings)
+		{
+			if (Completion) Completion(false, "Texture2D property proposal settings became stale.");
+			return;
+		}
+		PendingEditUsage = Result.Settings.Usage;
+		bPendingEditSRGB = Result.Settings.bSRGB;
+		PendingEditMaxResolution = Result.Settings.MaxResolution;
+		PendingEditCompressionQuality = Result.Settings.CompressionQuality;
+		PendingEditAlphaMipMode = Result.Settings.AlphaMipMode;
+		PendingEditAlphaCoverageThreshold = Result.Settings.AlphaCoverageThreshold;
+		PendingEditSourceData = std::move(Result.SourceData);
+		PendingEditPlatformData = std::move(Result.PlatformData);
+		PendingEditDerivedDataKey = std::move(Result.DerivedDataKey);
+		if (Completion) Completion(true, {});
+	}
+
 	auto DTexture2D::InvalidatePlatformData() -> void
 	{
 		PlatformData.reset();
@@ -482,57 +881,39 @@ namespace Durin
 			return false;
 		}
 		if (Usage == InUsage) return true;
-		if (!EnsureSourceData(OutError)) return false;
-		const ETextureUsage PreviousUsage = Usage;
-		const bool bPreviousSRGB = bSRGB;
-		Usage = InUsage;
-		bSRGB = TextureBuild::GetDefaultSRGB(Usage);
-		if (RebuildPlatformData(OutError))
-		{
-			MarkPackageDirty();
-			return true;
-		}
-		Usage = PreviousUsage;
-		bSRGB = bPreviousSRGB;
-		std::string RestoreError;
-		RebuildPlatformData(RestoreError);
-		return false;
+		return SubmitBuildSettingsAsync({
+			.Usage = InUsage,
+			.CompressionQuality = CompressionQuality,
+			.AlphaMipMode = AlphaMipMode,
+			.AlphaCoverageThreshold = AlphaCoverageThreshold,
+			.MaxResolution = MaxResolution,
+			.bSRGB = TextureBuild::GetDefaultSRGB(InUsage)}, OutError);
 	}
 
 	auto DTexture2D::SetSRGB(bool bInSRGB, std::string& OutError) -> bool
 	{
 		OutError.clear();
 		if (bSRGB == bInSRGB) return true;
-		if (!EnsureSourceData(OutError)) return false;
-		const bool bPreviousSRGB = bSRGB;
-		bSRGB = bInSRGB;
-		if (RebuildPlatformData(OutError))
-		{
-			MarkPackageDirty();
-			return true;
-		}
-		bSRGB = bPreviousSRGB;
-		std::string RestoreError;
-		RebuildPlatformData(RestoreError);
-		return false;
+		return SubmitBuildSettingsAsync({
+			.Usage = Usage,
+			.CompressionQuality = CompressionQuality,
+			.AlphaMipMode = AlphaMipMode,
+			.AlphaCoverageThreshold = AlphaCoverageThreshold,
+			.MaxResolution = MaxResolution,
+			.bSRGB = bInSRGB}, OutError);
 	}
 
 	auto DTexture2D::SetMaxResolution(uint32 InMaxResolution, std::string& OutError) -> bool
 	{
 		OutError.clear();
 		if (MaxResolution == InMaxResolution) return true;
-		if (!EnsureSourceData(OutError)) return false;
-		const uint32 PreviousMaxResolution = MaxResolution;
-		MaxResolution = InMaxResolution;
-		if (RebuildPlatformData(OutError))
-		{
-			MarkPackageDirty();
-			return true;
-		}
-		MaxResolution = PreviousMaxResolution;
-		std::string RestoreError;
-		RebuildPlatformData(RestoreError);
-		return false;
+		return SubmitBuildSettingsAsync({
+			.Usage = Usage,
+			.CompressionQuality = CompressionQuality,
+			.AlphaMipMode = AlphaMipMode,
+			.AlphaCoverageThreshold = AlphaCoverageThreshold,
+			.MaxResolution = InMaxResolution,
+			.bSRGB = bSRGB}, OutError);
 	}
 
 	auto DTexture2D::SetCompressionQuality(ETextureCompressionQuality InQuality, std::string& OutError) -> bool
@@ -544,18 +925,13 @@ namespace Durin
 			return false;
 		}
 		if (CompressionQuality == InQuality) return true;
-		if (!EnsureSourceData(OutError)) return false;
-		const ETextureCompressionQuality PreviousQuality = CompressionQuality;
-		CompressionQuality = InQuality;
-		if (RebuildPlatformData(OutError))
-		{
-			MarkPackageDirty();
-			return true;
-		}
-		CompressionQuality = PreviousQuality;
-		std::string RestoreError;
-		RebuildPlatformData(RestoreError);
-		return false;
+		return SubmitBuildSettingsAsync({
+			.Usage = Usage,
+			.CompressionQuality = InQuality,
+			.AlphaMipMode = AlphaMipMode,
+			.AlphaCoverageThreshold = AlphaCoverageThreshold,
+			.MaxResolution = MaxResolution,
+			.bSRGB = bSRGB}, OutError);
 	}
 
 	auto DTexture2D::SetAlphaMipMode(ETextureAlphaMipMode InMode, std::string& OutError) -> bool
@@ -567,18 +943,13 @@ namespace Durin
 			return false;
 		}
 		if (AlphaMipMode == InMode) return true;
-		if (!EnsureSourceData(OutError)) return false;
-		const ETextureAlphaMipMode PreviousMode = AlphaMipMode;
-		AlphaMipMode = InMode;
-		if (RebuildPlatformData(OutError))
-		{
-			MarkPackageDirty();
-			return true;
-		}
-		AlphaMipMode = PreviousMode;
-		std::string RestoreError;
-		RebuildPlatformData(RestoreError);
-		return false;
+		return SubmitBuildSettingsAsync({
+			.Usage = Usage,
+			.CompressionQuality = CompressionQuality,
+			.AlphaMipMode = InMode,
+			.AlphaCoverageThreshold = AlphaCoverageThreshold,
+			.MaxResolution = MaxResolution,
+			.bSRGB = bSRGB}, OutError);
 	}
 
 	auto DTexture2D::SetAlphaCoverageThreshold(float InThreshold, std::string& OutError) -> bool
@@ -590,18 +961,13 @@ namespace Durin
 			return false;
 		}
 		if (AlphaCoverageThreshold == InThreshold) return true;
-		if (!EnsureSourceData(OutError)) return false;
-		const float PreviousThreshold = AlphaCoverageThreshold;
-		AlphaCoverageThreshold = InThreshold;
-		if (RebuildPlatformData(OutError))
-		{
-			MarkPackageDirty();
-			return true;
-		}
-		AlphaCoverageThreshold = PreviousThreshold;
-		std::string RestoreError;
-		RebuildPlatformData(RestoreError);
-		return false;
+		return SubmitBuildSettingsAsync({
+			.Usage = Usage,
+			.CompressionQuality = CompressionQuality,
+			.AlphaMipMode = AlphaMipMode,
+			.AlphaCoverageThreshold = InThreshold,
+			.MaxResolution = MaxResolution,
+			.bSRGB = bSRGB}, OutError);
 	}
 
 	auto DTexture2D::InspectSource() const -> FTextureSourceDiagnostic
@@ -675,59 +1041,40 @@ namespace Durin
 			return false;
 		}
 
-		FAssetPath AssetPath;
-		if (!FAssetPath::TryCreate(GetPackage()->GetPackagePath(), AssetPath, &OutError)) return false;
-		const std::filesystem::path Destination = MountedSource.PhysicalPath;
-		std::string StoredPath = MountedSource.SourcePath.Path;
-
-		FXxHash128 SourceHash;
-		if (!HashTextureSource(Input, SourceHash, OutError)) return false;
-		FTextureSourceData CandidateSourceData;
-		if (!TextureBuild::DecodeRGBA8(Input.generic_string(), CandidateSourceData, OutError)) return false;
-		auto CandidatePlatformData = std::make_unique<FTexturePlatformData>();
-		if (!TextureBuild::BuildMipChain(
-			CandidateSourceData, Usage, bSRGB, *CandidatePlatformData, OutError,
-			MaxResolution, CompressionQuality, AlphaMipMode, AlphaCoverageThreshold)) return false;
-		const std::string NewKey = BuildTexture2DDerivedDataKey({
-			.SourceContentHash = SourceHash,
+		std::vector<uint8> EncodedSource;
+		if (!FFileHelper::LoadFileToArray(EncodedSource, Input.generic_string()))
+		{
+			OutError = std::format("Failed to read texture source file: {}", Input.generic_string());
+			return false;
+		}
+		std::error_code FingerprintError;
+		const uint64 FileSize = std::filesystem::file_size(Input, FingerprintError);
+		const std::filesystem::file_time_type LastWriteTime =
+			std::filesystem::last_write_time(Input, FingerprintError);
+		if (FingerprintError)
+		{
+			OutError = std::format(
+				"Failed to inspect texture source file {}: {}",
+				Input.generic_string(), FingerprintError.message());
+			return false;
+		}
+		const FTexture2DImportSettings Settings{
 			.Usage = Usage,
-			.bSRGB = bSRGB,
 			.CompressionQuality = CompressionQuality,
 			.AlphaMipMode = AlphaMipMode,
-			.MaximumResolution = MaxResolution,
 			.AlphaCoverageThreshold = AlphaCoverageThreshold,
-			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-			.TargetProfile = Asset::ECookTargetProfile::Game});
-		if (!StoreTextureDerivedData(NewKey, *CandidatePlatformData, OutError)) return false;
-
-		SourceImportData = {
-			.Source = {
-				.SourcePath = {.Path = std::move(StoredPath)},
-				.SourceContentHashLow = SourceHash.HashLow,
-				.SourceContentHashHigh = SourceHash.HashHigh},
-			.DecoderId = std::string(TextureDecoderId),
-			.DecoderVersion = TextureDecoderVersion};
-		SourceContentHash = SourceHash.ToString();
-		UpdateSourceFingerprint(Destination);
-		SourceWidth = CandidateSourceData.Width;
-		SourceHeight = CandidateSourceData.Height;
-		SourceChannelCount = CandidateSourceData.SourceChannelCount;
-		bSourceHasTransparency = CandidateSourceData.bHasTransparency;
-		SourceData = std::make_unique<FTextureSourceData>(std::move(CandidateSourceData));
-		PlatformData = std::move(CandidatePlatformData);
-		DerivedDataKey = NewKey;
-		bLoadedFromDerivedDataCache = false;
-		DerivedDataDiagnostic = {
-			.Status = ETextureDerivedDataStatus::Rebuilt,
-			.Key = DerivedDataKey,
-			.Message = "Reimported Texture2D source and populated the DDC.",
-			.bSourceDecoderInvoked = true};
-		BuildStatus = ETextureBuildStatus::Ready;
-		LastBuildError.clear();
-		QueueRenderResourceBuild();
-		MarkPackageDirty();
-		OutError.clear();
-		return true;
+			.MaxResolution = MaxResolution,
+			.bSRGB = bSRGB};
+		return SubmitAsyncBuild(
+			std::move(EncodedSource),
+			MountedSource.SourcePath,
+			Settings,
+			ETexture2DBuildPriority::Interactive,
+			true,
+			false,
+			FileSize,
+			DerivedDataCache::FileTimeToStableTicks(LastWriteTime),
+			OutError);
 	}
 
 	auto DTexture2D::RepairSourcePath(std::string_view FilePath, std::string& OutError) -> bool
@@ -759,12 +1106,9 @@ namespace Durin
 			return false;
 		const FTexture2DSourceImportData Previous = SourceImportData;
 		SourceImportData.Source.SourcePath = Source.SourcePath;
-		if (!ReimportSource(Source.PhysicalPath.generic_string(), OutError))
-		{
-			SourceImportData = Previous;
-			return false;
-		}
-		return true;
+		const bool bSubmitted = ReimportSource(Source.PhysicalPath.generic_string(), OutError);
+		SourceImportData = Previous;
+		return bSubmitted;
 	}
 
 	auto DTexture2D::IngestAndChangeSource(
@@ -995,20 +1339,32 @@ namespace Durin
 		}
 		const bool bMetadataChanged = !bHasPersistedIdentity
 			|| !bSourceContentMatches;
-		if (!BuildSourceData(PhysicalPath.generic_string(), OutError)) return false;
-		Asset::StoreSourceFingerprint(PhysicalPath, {
-			.FileSize = SourceFileSize,
-			.LastWriteTimeTicks = SourceLastWriteTime,
-			.ContentHash = SourceContentHash});
-		if (bMetadataChanged)
+		std::vector<uint8> EncodedSource;
+		if (!FFileHelper::LoadFileToArray(EncodedSource, PhysicalPath.generic_string()))
 		{
-			MarkPackageDirty();
-			Asset::ReportAssetLoadMutation(
-				this,
-				"Engine.Texture2D.SourceIdentity",
-				"Texture source identity metadata was reconciled during load.");
+			OutError = std::format(
+				"Failed to read texture source file: {}", PhysicalPath.generic_string());
+			BuildStatus = ETextureBuildStatus::MissingSource;
+			LastBuildError = OutError;
+			return false;
 		}
-		return true;
+		const FTexture2DImportSettings Settings{
+			.Usage = Usage,
+			.CompressionQuality = CompressionQuality,
+			.AlphaMipMode = AlphaMipMode,
+			.AlphaCoverageThreshold = AlphaCoverageThreshold,
+			.MaxResolution = MaxResolution,
+			.bSRGB = bSRGB};
+		return SubmitAsyncBuild(
+			std::move(EncodedSource),
+			SourceImportData.Source.SourcePath,
+			Settings,
+			ETexture2DBuildPriority::Background,
+			bMetadataChanged,
+			bMetadataChanged,
+			CurrentFileSize,
+			CurrentLastWriteTimeTicks,
+			OutError);
 	}
 
 	auto DTexture2D::LoadCookedPlatformData(std::string& OutError) -> bool
@@ -1300,18 +1656,34 @@ namespace Durin
 		}
 		else return true;
 
-		if (!EnsureSourceData(OutError)) return false;
-		std::unique_ptr<FTexturePlatformData> CandidatePlatformData;
-		if (!BuildPlatformData(CandidateUsage, bCandidateSRGB, CandidateMaxResolution,
-			CandidateCompressionQuality, CandidateAlphaMipMode, CandidateAlphaCoverageThreshold,
-			CandidatePlatformData, OutError)) return false;
-		PendingEditUsage = CandidateUsage;
-		bPendingEditSRGB = bCandidateSRGB;
-		PendingEditMaxResolution = CandidateMaxResolution;
-		PendingEditCompressionQuality = CandidateCompressionQuality;
-		PendingEditAlphaMipMode = CandidateAlphaMipMode;
-		PendingEditAlphaCoverageThreshold = CandidateAlphaCoverageThreshold;
-		PendingEditPlatformData = std::move(CandidatePlatformData);
+		if (!TextureBuild::IsValidUsage(CandidateUsage)
+			|| !TextureBuild::IsValidCompressionQuality(CandidateCompressionQuality)
+			|| !TextureBuild::IsValidAlphaMipMode(CandidateAlphaMipMode)
+			|| !TextureBuild::IsValidAlphaCoverageThreshold(CandidateAlphaCoverageThreshold))
+		{
+			OutError = "Texture2D property proposal contains invalid build settings.";
+			return false;
+		}
+		const FTexture2DImportSettings Settings{
+			.Usage = CandidateUsage,
+			.CompressionQuality = CandidateCompressionQuality,
+			.AlphaMipMode = CandidateAlphaMipMode,
+			.AlphaCoverageThreshold = CandidateAlphaCoverageThreshold,
+			.MaxResolution = CandidateMaxResolution,
+			.bSRGB = bCandidateSRGB};
+		const TWeakObjectPtr<DTexture2D> WeakThis(this);
+		if (!Proposal.Defer(
+			[WeakThis, Settings](FPropertyEditDeferredCompletion Completion) {
+				if (DTexture2D* Texture = WeakThis.Get())
+					return Texture->SubmitAsyncPropertyBuild(
+						Settings, std::move(Completion));
+				Completion(false, "The Texture2D property proposal target is unavailable.");
+				return FPropertyEditDeferredCancel{};
+			}))
+		{
+			OutError = "Texture2D property proposal could not retain asynchronous validation.";
+			return false;
+		}
 		return true;
 	}
 
@@ -1330,24 +1702,25 @@ namespace Durin
 			|| PendingEditAlphaMipMode != AlphaMipMode
 			|| PendingEditAlphaCoverageThreshold != AlphaCoverageThreshold) return;
 
-		std::string NewKey;
-		std::string Error;
-		const bool bPreviousSRGB = bSRGB;
-		bSRGB = bPendingEditSRGB;
-		if (!MakeTextureDerivedDataKey(*this, NewKey, Error)
-			|| !StoreTextureDerivedData(NewKey, *PendingEditPlatformData, Error))
+		if (PendingEditDerivedDataKey.empty() || !PendingEditSourceData)
 		{
-			bSRGB = bPreviousSRGB;
 			DerivedDataDiagnostic = {
 				.Status = ETextureDerivedDataStatus::WriteFailure,
-				.Key = NewKey,
-				.Message = std::format("Texture2D DDC write failed after property edit: {}", Error)};
+				.Message = "Texture2D asynchronous property result was incomplete."};
 			DURIN_ERROR("{}: {}", GetObjectPath(), DerivedDataDiagnostic.Message);
 			PendingEditPlatformData.reset();
+			PendingEditSourceData.reset();
+			PendingEditDerivedDataKey.clear();
 			return;
 		}
+		bSRGB = bPendingEditSRGB;
+		SourceWidth = PendingEditSourceData->Width;
+		SourceHeight = PendingEditSourceData->Height;
+		SourceChannelCount = PendingEditSourceData->SourceChannelCount;
+		bSourceHasTransparency = PendingEditSourceData->bHasTransparency;
+		SourceData = std::move(PendingEditSourceData);
 		PlatformData = std::move(PendingEditPlatformData);
-		DerivedDataKey = std::move(NewKey);
+		DerivedDataKey = std::move(PendingEditDerivedDataKey);
 		bLoadedFromDerivedDataCache = false;
 		DerivedDataDiagnostic = {
 			.Status = ETextureDerivedDataStatus::Rebuilt,

@@ -1,5 +1,6 @@
 #include "TextureTestSupport.h"
 #include "Texture/Texture2DRenderResource.h"
+#include "Texture/Texture2DBuildCoordinator.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "Texture/TextureRenderResource.h"
 
@@ -234,6 +235,7 @@ TEST(FTexture2DTests, MissingSourceUsesPersistedIdentityAndCanRecover)
 
 	WriteTextureFixture(CopiedSource);
 	ASSERT_TRUE(Texture->PostLoad(Error)) << Error;
+	ASSERT_TRUE(Texture->WaitForPendingBuild()) << Texture->GetLastBuildError();
 	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
 	EXPECT_NE(Texture->GetSourceData(), nullptr);
 	EXPECT_NE(Texture->GetPlatformData(), nullptr);
@@ -267,4 +269,72 @@ TEST(FTexture2DTests, StatusEnumsExposeSharedDisplayMetadata)
 	EXPECT_EQ(MissingSource->DisplayName, "Missing Source");
 	EXPECT_EQ(Building->DisplayName, "Building");
 	EXPECT_EQ(BuildStatusEnum->FindValueRecordByValue(255), nullptr);
+}
+
+TEST(FTexture2DTests, PendingReimportPreservesLastGoodAndCannotCommitAfterUnload)
+{
+	InitializeDObjectSystem();
+	FScopedDerivedDataCacheRoot CacheRoot(
+		Durin::Testing::GetTestWorkDirectory() / "TextureAsyncUnloadCache");
+	const std::filesystem::path Source =
+		Durin::Testing::GetTestWorkDirectory() / "TextureAsyncUnload.png";
+	WriteTextureFixture(Source);
+	const Durin::FTexture2DImportResult Imported = Durin::DTexture2D::ImportAsset(
+		Source.generic_string(), "/TextureImportTests/AsyncUnload");
+	ASSERT_TRUE(Imported) << Imported.Message;
+	Durin::DTexture2D* Texture = Imported.Asset;
+	ASSERT_NE(Texture, nullptr);
+	const Durin::FTexturePlatformData LastGood = *Texture->GetPlatformData();
+	const Durin::uint64 LastGoodRevision = Texture->GetBuildRevision();
+
+	Durin::FTexture2DBuildCoordinator* Coordinator =
+		Durin::GetTexture2DBuildCoordinator();
+	ASSERT_NE(Coordinator, nullptr);
+	std::mutex Mutex;
+	std::condition_variable Condition;
+	bool bEntered = false;
+	bool bRelease = false;
+	Coordinator->SetPhaseHookForTests(
+		[&](Durin::uint64, Durin::ETexture2DBuildPhase Phase) {
+			if (Phase != Durin::ETexture2DBuildPhase::Decoding) return;
+			std::unique_lock Lock(Mutex);
+			if (bEntered) return;
+			bEntered = true;
+			Condition.notify_all();
+			Condition.wait(Lock, [&] { return bRelease; });
+		});
+	const Durin::FTextureSourceDiagnostic SourceDiagnostic = Texture->InspectSource();
+	ASSERT_EQ(SourceDiagnostic.Status, Durin::ETextureSourceStatus::Available);
+	WriteNpotTextureFixture(SourceDiagnostic.PhysicalPath);
+	std::string Error;
+	ASSERT_TRUE(Texture->ReimportSource({}, Error)) << Error;
+	{
+		std::unique_lock Lock(Mutex);
+		ASSERT_TRUE(Condition.wait_for(Lock, std::chrono::seconds(10), [&] {
+			return bEntered;
+		}));
+	}
+	const Durin::uint64 RequestId =
+		Texture->GetBuildReadinessDiagnostic().RequestId;
+	ASSERT_NE(RequestId, 0u);
+	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
+	EXPECT_EQ(Texture->GetBuildRevision(), LastGoodRevision);
+	ExpectPlatformDataEqual(*Texture->GetPlatformData(), LastGood);
+
+	Durin::FAssetPath AssetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TextureImportTests/AsyncUnload", AssetPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	{
+		std::lock_guard Lock(Mutex);
+		bRelease = true;
+		Condition.notify_all();
+	}
+	Coordinator->SetPhaseHookForTests({});
+	ASSERT_TRUE(Coordinator->WaitForRequest(RequestId, 10.0));
+	Coordinator->PumpCompletions();
+	EXPECT_EQ(
+		Coordinator->GetDiagnostic(RequestId).Phase,
+		Durin::ETexture2DBuildPhase::Cancelled);
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
 }

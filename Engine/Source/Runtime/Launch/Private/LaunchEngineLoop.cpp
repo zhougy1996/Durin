@@ -26,6 +26,7 @@
 #include "Shader/ShaderPaths.h"
 #include "EngineGlobals.h"
 #include "EngineAssetServices.h"
+#include "Texture/Texture2DBuildCoordinator.h"
 
 #if DURIN_WITH_EDITOR
 	#include "Editor/EditorEngine.h"
@@ -369,6 +370,7 @@ namespace Durin
 			{
 				DURIN_ERROR(
 					"Engine initialization stopped because the dynamic RHI could not start.");
+				ShutdownEngineAssetServices();
 				ShutdownTaskSystem(ETaskShutdownMode::Drain);
 				RemoveFromRoot(GEngine);
 				MarkObjectHierarchyAsGarbage(GEngine);
@@ -459,6 +461,7 @@ namespace Durin
 			GEngine->Tick(DeltaSeconds, false);
 		}
 		PumpGameThreadDeferredWork();
+		PumpTexture2DBuildCompletions();
 		GFrameCounter++;
 
 		// Process application events, and paint UI.
@@ -505,6 +508,7 @@ namespace Durin
 
 		FModuleManager::Get().ShutdownModule("Mona");
 
+		ShutdownEngineAssetServices();
 		ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		if (TaskSchedulerSmoke)
 		{

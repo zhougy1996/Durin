@@ -6,10 +6,12 @@
 #include "EngineAssetServices.h"
 #include "Misc/Name.h"
 #include "NativeDObjectTestSupport.h"
+#include "Threading/Task.h"
 
 inline auto InitializeDObjectSystem() -> void
 {
 	static const bool bInitialized = []() {
+		Durin::InitializeTaskScheduler();
 		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::InitializeEngineAssetServices();
 		return true;

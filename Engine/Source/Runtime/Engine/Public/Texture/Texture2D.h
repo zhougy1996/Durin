@@ -13,6 +13,8 @@
 namespace Durin
 {
 	struct FTextureBuildOperations;
+	struct FTexture2DBuildDiagnostic;
+	enum class ETexture2DBuildPriority : uint8;
 
 	// Identifies the decoded pixel layout retained as editable texture source data.
 	enum class ETextureSourceFormat : uint8
@@ -160,6 +162,7 @@ namespace Durin
 	public:
 		ENGINE_API explicit DTexture2D(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DTexture2D() override;
+		ENGINE_API auto BeginDestroy() -> void override;
 
 		auto GetSourceFile() const -> const std::string&
 		{
@@ -185,6 +188,10 @@ namespace Durin
 		auto GetAlphaCoverageThreshold() const -> float { return AlphaCoverageThreshold; }
 		auto GetBuildStatus() const -> ETextureBuildStatus { return BuildStatus; }
 		auto GetLastBuildError() const -> const std::string& { return LastBuildError; }
+		ENGINE_API auto GetBuildReadinessDiagnostic() const -> FTexture2DBuildDiagnostic;
+		auto HasPendingBuild() const -> bool { return ActiveBuildRequestId != 0; }
+		ENGINE_API auto CancelPendingBuild() -> bool;
+		ENGINE_API auto WaitForPendingBuild(double TimeoutSeconds = 300.0) -> bool;
 		ENGINE_API auto SetUsage(ETextureUsage InUsage, std::string& OutError) -> bool;
 		ENGINE_API auto SetSRGB(bool bInSRGB, std::string& OutError) -> bool;
 		ENGINE_API auto SetMaxResolution(uint32 InMaxResolution, std::string& OutError) -> bool;
@@ -268,6 +275,24 @@ namespace Durin
 			std::unique_ptr<FTexturePlatformData>& OutPlatformData, std::string& OutError) const -> bool;
 		auto InvalidatePlatformData() -> void;
 		auto LoadCookedPlatformData(std::string& OutError) -> bool;
+		auto SubmitAsyncBuild(
+			std::vector<uint8> EncodedSource,
+			const FSourcePath& SourcePath,
+			const FTexture2DImportSettings& Settings,
+			ETexture2DBuildPriority Priority,
+			bool bMarkDirtyOnCommit,
+			bool bReportLoadMutationOnCommit,
+			uint64 SourceFileSizeSnapshot,
+			int64 SourceLastWriteTimeSnapshot,
+			std::string& OutError) -> bool;
+		auto ApplyAsyncBuildResult(struct FTexture2DBuildResult&& Result) -> void;
+		auto SubmitAsyncPropertyBuild(
+			const FTexture2DImportSettings& Settings,
+			FPropertyEditDeferredCompletion Completion) -> FPropertyEditDeferredCancel;
+		auto ApplyAsyncPropertyBuildResult(struct FTexture2DBuildResult&& Result) -> void;
+		auto SubmitBuildSettingsAsync(
+			const FTexture2DImportSettings& Settings,
+			std::string& OutError) -> bool;
 
 		DPROPERTY()
 		FTexture2DSourceImportData SourceImportData;
@@ -336,11 +361,25 @@ namespace Durin
 		// Reflected edits validate and build detached settings before live storage
 		// changes. PostEditChangeProperty consumes this exact candidate atomically.
 		std::unique_ptr<FTexturePlatformData> PendingEditPlatformData;
+		std::unique_ptr<FTextureSourceData> PendingEditSourceData;
+		std::string PendingEditDerivedDataKey;
 		ETextureUsage PendingEditUsage = ETextureUsage::Color;
 		bool bPendingEditSRGB = true;
 		uint32 PendingEditMaxResolution = 0;
 		ETextureCompressionQuality PendingEditCompressionQuality = ETextureCompressionQuality::Normal;
 		ETextureAlphaMipMode PendingEditAlphaMipMode = ETextureAlphaMipMode::Average;
 		float PendingEditAlphaCoverageThreshold = 0.5f;
+
+		uint64 BuildRequestGeneration = 0;
+		uint64 ActiveBuildRequestId = 0;
+		uint64 LastBuildRequestId = 0;
+		std::string PendingBuildAssetIdentity;
+		FSourcePath PendingBuildSourcePath;
+		FTexture2DImportSettings PendingBuildSettings;
+		uint64 PendingBuildSourceFileSize = 0;
+		int64 PendingBuildSourceLastWriteTime = 0;
+		bool bPendingBuildMarksDirty = false;
+		bool bPendingBuildReportsLoadMutation = false;
+		FPropertyEditDeferredCompletion PendingPropertyEditCompletion;
 	};
 }

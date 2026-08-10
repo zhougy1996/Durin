@@ -3,6 +3,7 @@
 #include "AssetSystem.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
+#include "Texture/Texture2DBuildCoordinator.h"
 #include "Texture/TextureCube.h"
 
 namespace Durin
@@ -24,5 +25,11 @@ namespace Durin
 			return true;
 		}();
 		(void)bInitialized;
+		InitializeTexture2DBuildCoordinator();
+	}
+
+	auto ShutdownEngineAssetServices() -> void
+	{
+		ShutdownTexture2DBuildCoordinator();
 	}
 }

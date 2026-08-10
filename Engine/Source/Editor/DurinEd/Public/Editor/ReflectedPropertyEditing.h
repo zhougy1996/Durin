@@ -64,9 +64,22 @@ namespace Durin
 		auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
 		DURINED_API auto Undo() -> bool override;
 		DURINED_API auto Redo() -> bool override;
+		auto IsDeferredOperationPending() const -> bool override { return bDeferredRestorePending; }
+		auto SetDeferredOperationCompletion(
+			FEditorTransactionDeferredCompletion Completion) -> void override
+		{
+			DeferredRestoreCompletion = std::move(Completion);
+		}
 
 	private:
+		struct FDeferredRestoreOwnerState;
 		auto Restore(const FPropertyValueSnapshot& Snapshot, EPropertyChangeOrigin Origin) -> bool;
+		auto CompleteDeferredRestore(
+			bool bSucceeded,
+			std::string Error,
+			FReflectedPropertyEditTarget DeferredTarget,
+			FPropertyValueSnapshot ProposedValue,
+			EPropertyChangeOrigin Origin) -> void;
 
 		FReflectedPropertyEditTarget Target;
 		FPropertyValueSnapshot Before;
@@ -75,6 +88,12 @@ namespace Durin
 		std::string LastError;
 		std::array<DPackage*, 1> AffectedPackages{};
 		bool bObjectRooted = false;
+		bool bDeferredRestorePending = false;
+		bool bStartingDeferredRestore = false;
+		std::optional<bool> ImmediateDeferredRestoreResult;
+		std::shared_ptr<FDeferredRestoreOwnerState> DeferredRestoreOwnerState;
+		FPropertyEditDeferredCancel CancelDeferredRestore;
+		FEditorTransactionDeferredCompletion DeferredRestoreCompletion;
 	};
 
 	// Reports whether a reflected edit failed, changed nothing, or changed value.
@@ -83,6 +102,7 @@ namespace Durin
 		Failed,
 		NoChange,
 		Changed,
+		Pending,
 	};
 
 	// Coalesces continuous widget changes into one reflected-property transaction.
@@ -108,11 +128,17 @@ namespace Durin
 		auto IsActive() const -> bool { return bActive; }
 		DURINED_API auto MatchesTarget(const FReflectedPropertyEditTarget& Other) const -> bool;
 		auto HasChanges() const -> bool { return bActive && !(OriginalValue == CurrentValue); }
+		auto HasPendingDeferredEdit() const -> bool { return bDeferredPending; }
 		auto GetDescription() const -> std::string_view { return Description; }
 		auto GetOriginalValue() const -> const FPropertyValueSnapshot& { return OriginalValue; }
 		auto GetCurrentValue() const -> const FPropertyValueSnapshot& { return CurrentValue; }
 
 	private:
+		struct FDeferredOwnerState;
+		auto CompleteDeferredEdit(
+			bool bSucceeded,
+			std::string Error,
+			FPropertyValueSnapshot ProposedValue) -> void;
 		auto Reset() -> void;
 
 		FReflectedPropertyEditTarget Target;
@@ -122,5 +148,8 @@ namespace Durin
 		FEditorTransactionManager* TransactionManager = nullptr;
 		bool bActive = false;
 		bool bObjectRooted = false;
+		bool bDeferredPending = false;
+		std::shared_ptr<FDeferredOwnerState> DeferredOwnerState;
+		FPropertyEditDeferredCancel CancelDeferredEdit;
 	};
 }
