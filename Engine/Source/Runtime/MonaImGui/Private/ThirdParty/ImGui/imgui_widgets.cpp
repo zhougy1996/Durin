@@ -3768,6 +3768,12 @@ bool ImGui::TempInputScalar(const ImRect& bb, ImGuiID id, const char* label, ImG
     ImStrTrimBlanks(data_buf);
 
     ImGuiInputTextFlags flags = ImGuiInputTextFlags_AutoSelectAll | (ImGuiInputTextFlags)ImGuiInputTextFlags_LocalizeDecimalPoint;
+    // Numeric drag fields should not accept arbitrary text while temporarily
+    // presented as an input box. Keep exponent notation for floating-point
+    // values and the arithmetic operators supported by DataTypeApplyFromText().
+    flags |= (data_type == ImGuiDataType_Float || data_type == ImGuiDataType_Double)
+        ? ImGuiInputTextFlags_CharsScientific
+        : ImGuiInputTextFlags_CharsDecimal;
     g.LastItemData.ItemFlags |= ImGuiItemFlags_NoMarkEdited; // Because TempInputText() uses ImGuiInputTextFlags_MergedItem it doesn't submit a new item, so we poke LastItemData.
     if (!TempInputText(bb, id, label, data_buf, IM_COUNTOF(data_buf), flags))
         return false;
