@@ -8,8 +8,6 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
   route to the matching repository guidance.
 - If module ownership is unclear, read `Documentation/Workspace/CodeModules.md`
   and search only the smallest plausible module set.
-- For bounded tasks, run `.\DevTool.bat doc task list` and open only the
-  selected task. Follow the nearest `AGENTS.md` for authoring and lifecycle.
 - Use `.agents/DevTool.user.json` for machine-local overrides; create it with
   `.\DevTool.bat setup` when needed.
 
