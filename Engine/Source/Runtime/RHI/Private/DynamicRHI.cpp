@@ -38,6 +38,15 @@ namespace Durin
 	{
 	}
 
+	auto FDynamicRHI::RHIGetMemoryStatistics() const -> FRHIMemoryStatistics
+	{
+		return {};
+	}
+
+	auto FDynamicRHI::RHIResetMemoryStatistics() -> void
+	{
+	}
+
 	auto FDynamicRHI::PublishCapabilities(FRHICapabilities InCapabilities) -> void
 	{
 		check(!Capabilities.has_value());

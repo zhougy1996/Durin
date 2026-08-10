@@ -2,6 +2,7 @@
 
 #include "VulkanDevice.h"
 #include "VulkanCommandBuffer.h"
+#include "VulkanCompletion.h"
 #include "VulkanMemory.h"
 #include "VulkanSubmission.h"
 #include "VulkanRHIPrivate.h"
@@ -25,12 +26,13 @@ namespace Durin::VulkanRHI
 		std::vector<vk::Semaphore> SignalSemaphores;
 	};
 
-	auto FVulkanQueue::SubmitPayloads(std::vector<FVulkanPayload*>& Payloads) -> void
+	auto FVulkanQueue::SubmitPayloads(std::vector<FVulkanPayload*>& Payloads)
+		-> FVulkanCompletionToken
 	{
 		CheckVulkanRHIThread();
+		check(!Payloads.empty());
 		std::vector<FVulkanSubmitInfoStorage> SubmitInfoStorages;
 		SubmitInfoStorages.reserve(Payloads.size());
-		vk::Fence Fence = VK_NULL_HANDLE;
 
 		std::vector<vk::SubmitInfo> SubmitInfos;
 		SubmitInfos.reserve(Payloads.size());
@@ -55,20 +57,22 @@ namespace Durin::VulkanRHI
 			std::ranges::transform(Payload->SignalSemaphores, std::back_inserter(SignalSemaphores), &FVulkanSemaphore::GetHandle);
 			SubmitInfo.setSignalSemaphores(SignalSemaphores);
 
-			if (Payload->Fence)
-			{
-				check(Fence == VK_NULL_HANDLE); // Only one fence per submit.
-				Fence = Payload->Fence->GetHandle();
-				check(!Payload->Fence->IsSignaled());
-			}
 			SubmitInfos.push_back(SubmitInfo);
 		}
 
-		Queue.submit(SubmitInfos, Fence);
-
-		auto& FrameContext = Device->GetCurrentFrame();
-
-		FrameContext.TrackInFlightPayload(Payloads);
+		FVulkanFence* Fence = Device->GetFenceManager().AllocateFence(false);
+		try
+		{
+			Queue.submit(SubmitInfos, Fence->GetHandle());
+		}
+		catch (...)
+		{
+			Device->GetFenceManager().ReleaseFence(Fence);
+			throw;
+		}
+		check(Payloads.size() == 1);
+		return Device->GetCompletionTracker().TrackSubmitted(
+			Payloads.front()->Token, Fence, Payloads);
 	}
 
 	auto FVulkanQueue::GetHandle() const -> vk::Queue

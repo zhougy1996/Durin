@@ -29,6 +29,7 @@ namespace Durin::VulkanRHI
 		RenderPass,
 		FramebufferImageView,
 		Framebuffer,
+		DescriptorPool,
 		DescriptorSetLayout,
 		Buffer,
 		ShaderModule,
@@ -77,6 +78,27 @@ namespace Durin::VulkanRHI
 	extern std::atomic<uint64> GVulkanReleasedFramebufferCount;
 	VULKANRHI_API auto GetVulkanStructuralCacheTestStats()
 		-> FVulkanStructuralCacheTestStats;
+
+	struct FVulkanCompletionTestStats
+	{
+		uint64 LastReservedToken = 0;
+		uint64 LastSubmittedToken = 0;
+		uint64 CompletedToken = 0;
+		uint64 PendingSubmissionCount = 0;
+	};
+
+	VULKANRHI_API auto GetVulkanCompletionTestStats()
+		-> FVulkanCompletionTestStats;
+	struct FVulkanBackendPoolTestStats
+	{
+		std::array<uint64, kFrameInFlight> DynamicUniformTokens = {};
+		std::array<uint64, kFrameInFlight> DescriptorPoolTokens = {};
+	};
+	VULKANRHI_API auto GetVulkanBackendPoolTestStats()
+		-> FVulkanBackendPoolTestStats;
+	VULKANRHI_API auto SubmitAndRetireDescriptorPoolsForTesting() -> uint64;
+	VULKANRHI_API auto WaitForAllVulkanSubmissionsForTesting() -> void;
+	VULKANRHI_API auto ReleaseCompletedVulkanResourcesForTesting() -> void;
 #endif
 
 	class FVulkanDevice;

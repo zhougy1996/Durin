@@ -1,6 +1,7 @@
 #include "VulkanCommandBuffer.h"
 
 #include "VulkanDevice.h"
+#include "VulkanDiagnostics.h"
 #include "VulkanMemory.h"
 #include "VulkanRenderPass.h"
 #include "VulkanFramebuffer.h"
@@ -177,12 +178,14 @@ namespace Durin::VulkanRHI
 			CmdBuffer = FreeCmdBuffers.back();
 			FreeCmdBuffers.pop_back();
 			CmdBuffers.push_back(CmdBuffer);
+			GVulkanMemoryBaselineTracker.RecordCommandBufferReuse();
 
 			return CmdBuffer;
 		}
 
 		CmdBuffer = new FVulkanCommandBuffer(Device, this);
 		CmdBuffers.push_back(CmdBuffer);
+		GVulkanMemoryBaselineTracker.RecordCommandBufferAllocation();
 		return CmdBuffer;
 	}
 

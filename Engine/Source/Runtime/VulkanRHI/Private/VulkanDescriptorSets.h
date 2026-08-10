@@ -4,6 +4,7 @@ namespace Durin::VulkanRHI
 {
 	class FVulkanDevice;
 	class FVulkanLayout;
+	using FVulkanCompletionToken = uint64;
 
 	// Accumulates descriptor counts required to allocate a compatible Vulkan pool.
 	struct FVulkanDescriptorRequirements
@@ -213,7 +214,12 @@ namespace Durin::VulkanRHI
 		auto GetDescriptorCapacity(vk::DescriptorType Type) const -> uint32;
 		auto CanAllocate(const FVulkanDescriptorRequirements& Requirements) const -> bool;
 		auto CommitAllocation(const FVulkanDescriptorRequirements& Requirements) -> void;
-		auto Reset() -> void;
+		auto MarkUsed(FVulkanCompletionToken Token) -> void;
+		auto Reset(FVulkanCompletionToken CompletedToken) -> void;
+		auto GetLastUseToken() const -> FVulkanCompletionToken
+		{
+			return LastUseToken;
+		}
 
 	private:
 		FVulkanDevice* Device;
@@ -225,6 +231,7 @@ namespace Durin::VulkanRHI
 		uint32 PeakAllocatedDescriptorSets;
 		std::unordered_map<vk::DescriptorType, uint32> DescriptorCapacities;
 		std::unordered_map<vk::DescriptorType, uint32> NumAllocatedDescriptors;
+		FVulkanCompletionToken LastUseToken = 0;
 	};
 
 	// Reuses descriptor sets whose bound-resource identity remains unchanged.
@@ -250,16 +257,25 @@ namespace Durin::VulkanRHI
 			const FVulkanDescriptorRequirements& Requirements
 		) -> std::vector<vk::DescriptorSet>;
 
-		auto ResetPoolsForCurrentFrame() -> void;
+		auto PrepareForUse() -> void;
+		auto RetireUsedPools(FVulkanCompletionToken Token) -> void;
+		auto GetBatchTokensForTesting() const
+			-> std::array<FVulkanCompletionToken, kFrameInFlight>;
 
 	private:
-		auto CreatePool(uint32 FrameIndex, const FVulkanDescriptorRequirements& Requirements, uint32 GrowthMaxSets) -> FVulkanDescriptorPool&;
-		auto GetCurrentPools() -> std::vector<std::unique_ptr<FVulkanDescriptorPool>>&;
+		struct FPoolBatch
+		{
+			std::vector<std::unique_ptr<FVulkanDescriptorPool>> Pools;
+			FVulkanCompletionToken LastUseToken = 0;
+			uint32 ExpansionCount = 0;
+		};
+		auto CreatePool(const FVulkanDescriptorRequirements& Requirements,
+			uint32 GrowthMaxSets) -> FVulkanDescriptorPool&;
+		auto GetActiveBatch() -> FPoolBatch&;
 
 		FVulkanDevice& Device;
-
-		std::array<std::vector<std::unique_ptr<FVulkanDescriptorPool>>, kFrameInFlight> Pools;
-		std::array<uint32, kFrameInFlight> PoolExpansions = {};
+		std::vector<FPoolBatch> Batches;
+		uint32 ActiveBatchIndex = std::numeric_limits<uint32>::max();
 	};
 } // namespace Durin::VulkanRHI
 

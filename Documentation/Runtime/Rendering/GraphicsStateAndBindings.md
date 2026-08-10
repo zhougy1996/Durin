@@ -71,7 +71,8 @@ frame-pool generation. Hash lookup is a fast reject and complete resource
 equality confirms a hit. Each context is bounded to 512 snapshots and 8192
 descriptor values. Deterministic least-recently-used eviction releases retained
 resources; beginning the corresponding frame generation clears snapshots
-before its descriptor pools are reset.
+before another generation uses them. Native descriptor pools belong to bounded
+completion-token batches and reset only after their maximum use token completes.
 
 Each device also owns bounded structural-layout and graphics-PSO caches:
 
@@ -108,10 +109,9 @@ shutdown ordering.
 
 Pipeline, descriptor allocation/update, and driver-cache mutation stay on the
 RHI thread in threaded and inline execution modes. Descriptor snapshots own
-their resources until eviction or frame-pool reset. Native pipeline and
-descriptor safety continues to use existing deferred/frame ownership; future
-GPU-completion-token work may replace the generation mechanism without
-changing public graphics or binding semantics.
+their resources until eviction or frame-generation reset. Native pipelines,
+descriptor pools, and their dependencies retire or reuse only after their exact
+GPU completion token; clearing the CPU snapshot cache is not lifetime evidence.
 
 ## Related Documentation
 
@@ -120,3 +120,4 @@ changing public graphics or binding semantics.
 - [RHI Resource Views and Transfers](RHIResourceViewsAndTransfers.md)
 - [RHI Capabilities and Vulkan Startup](RHICapabilitiesAndVulkanStartup.md)
 - [Viewport Rendering](ViewportRendering.md)
+- [Vulkan Memory and GPU Completion](VulkanMemoryAndGPUCompletion.md)

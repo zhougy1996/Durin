@@ -14,10 +14,12 @@ namespace Durin::VulkanRHI
 		friend class FVulkanQueue;
 		friend class FVulkanCommandListContext;
 		friend class FVulkanFrame;
+		friend class FVulkanCompletionTracker;
 
 	public:
-		FVulkanPayload(FVulkanQueue& InQueue)
+		FVulkanPayload(FVulkanQueue& InQueue, uint64 InToken)
 			: Queue(InQueue)
+			, Token(InToken)
 		{
 		}
 
@@ -25,6 +27,7 @@ namespace Durin::VulkanRHI
 
 	private:
 		FVulkanQueue& Queue;
+		uint64 Token = 0;
 
 		std::vector<vk::PipelineStageFlags> WaitFlags; // Pipeline stages to wait on for each wait semaphore. Must match 1:1 with WaitSemaphores.
 		std::vector<FVulkanSemaphore*> WaitSemaphores;
@@ -33,30 +36,21 @@ namespace Durin::VulkanRHI
 
 		std::vector<FVulkanSemaphore*> SignalSemaphores;
 
-		// Fence for this payload, will be signaled when the GPU finishes executing the command buffer associated with this payload
-		FVulkanFence* Fence = nullptr;
 	};
 
 	// Retains submitted payloads until their GPU work completes and resources can recycle.
 	class FVulkanFrame
 	{
 	public:
-		explicit FVulkanFrame(FVulkanDevice& device);
-		~FVulkanFrame();
-
-		auto TrackInFlightPayload(std::vector<FVulkanPayload*>& Payload) -> void;
+		explicit FVulkanFrame(FVulkanDevice& Device);
+		~FVulkanFrame() = default;
 
 		auto Prepare() -> void;
 
-		auto ReleaseInFlightPayloadsAfterDeviceIdle() -> void;
-
-		auto GetFrameFence() const -> FVulkanFence* { return FrameFence; }
+		auto SetLastSubmittedToken(uint64 Token) -> void;
 
 	private:
-		auto Reset() -> void;
-
 		FVulkanDevice& Device;
-		FVulkanFence* FrameFence = nullptr;
-		std::vector<FVulkanPayload*> InFlightPayloads;
+		uint64 LastSubmittedToken = 0;
 	};
 }

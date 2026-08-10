@@ -11,6 +11,7 @@
 #include "Shader/SlangShaderCompiler.h"
 #include "Texture/TextureBuild.h"
 #include "VulkanDynamicRHI.h"
+#include "VulkanDiagnostics.h"
 #include "VulkanRHIPrivate.h"
 #include "VulkanTexture.h"
 #include "VulkanView.h"
@@ -519,6 +520,7 @@ namespace Durin
 		} Scope;
 
 		ASSERT_TRUE(RHIInit());
+		VulkanRHI::ResetVulkanMemoryBaselineStatistics();
 		ASSERT_NE(GRHIThread, nullptr);
 		if (!GIsGameThreadIdInitialized)
 		{
@@ -616,6 +618,16 @@ namespace Durin
 		EndFrame();
 		EXPECT_EQ(
 			GCommandListExecutor.GetFrameNumber(), InitialFrameNumber + 1);
+		VulkanRHI::FVulkanBackendPoolTestStats FirstFramePoolStats;
+		VulkanRHI::FVulkanCompletionTestStats FirstFrameCompletionStats;
+		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
+			FirstFramePoolStats = VulkanRHI::GetVulkanBackendPoolTestStats();
+			FirstFrameCompletionStats = VulkanRHI::GetVulkanCompletionTestStats();
+		});
+		EXPECT_NE(std::ranges::find(
+			FirstFramePoolStats.DynamicUniformTokens,
+			FirstFrameCompletionStats.LastSubmittedToken),
+			FirstFramePoolStats.DynamicUniformTokens.end());
 
 		BeginFrame();
 		const FRHIUniformBufferRange SecondSlotUniformRange =
@@ -704,6 +716,45 @@ namespace Durin
 		Sampler = nullptr;
 		RHICmdList.ImmediateFlush(
 			EImmediateFlushType::FlushRHIThreadFlushResources);
+
+		const VulkanRHI::FVulkanMemoryBaselineStatistics Baseline =
+			VulkanRHI::GetVulkanMemoryBaselineStatistics();
+		const auto ClassStats = [&Baseline](
+			VulkanRHI::EVulkanAllocationClassCandidate Candidate)
+			-> const VulkanRHI::FVulkanAllocationCandidateStatistics& {
+			return Baseline.AllocationClasses[static_cast<uint32>(Candidate)];
+		};
+		EXPECT_GE(Baseline.UploadOperationCount, 18u);
+		EXPECT_GE(Baseline.UploadBytes, 16u + 17u * 64u);
+		EXPECT_GE(Baseline.ReadbackOperationCount, 17u);
+		EXPECT_GE(Baseline.ReadbackBytes, 17u * 64u);
+		EXPECT_GT(ClassStats(
+			VulkanRHI::EVulkanAllocationClassCandidate::DeviceLocal)
+			.AllocationCount, 0u);
+		EXPECT_EQ(ClassStats(
+			VulkanRHI::EVulkanAllocationClassCandidate::TransferUpload)
+			.AllocationCount, 1u);
+		EXPECT_EQ(ClassStats(
+			VulkanRHI::EVulkanAllocationClassCandidate::TransferReadback)
+			.AllocationCount, 1u);
+		EXPECT_EQ(ClassStats(
+			VulkanRHI::EVulkanAllocationClassCandidate::TransferUpload)
+			.ArenaCapacityBytes, 8ull * 1024 * 1024);
+		EXPECT_EQ(ClassStats(
+			VulkanRHI::EVulkanAllocationClassCandidate::TransferReadback)
+			.ArenaCapacityBytes, 4ull * 1024 * 1024);
+		EXPECT_GE(ClassStats(
+			VulkanRHI::EVulkanAllocationClassCandidate::TransferUpload)
+			.ArenaReuseCount, 17u);
+		EXPECT_GE(ClassStats(
+			VulkanRHI::EVulkanAllocationClassCandidate::TransferReadback)
+			.ArenaReuseCount, 16u);
+		EXPECT_GT(Baseline.DeferredDeleteHighWater, 0u);
+		EXPECT_GT(Baseline.HeapCount, 0u);
+		for (uint32 HeapIndex = 0; HeapIndex < Baseline.HeapCount; ++HeapIndex)
+		{
+			EXPECT_GT(Baseline.HeapBudgetBytes[HeapIndex], 0u);
+		}
 	}
 
 	TEST(FVulkanTextureSamplingTests, CreatesExactCountedBufferAndTextureViews)

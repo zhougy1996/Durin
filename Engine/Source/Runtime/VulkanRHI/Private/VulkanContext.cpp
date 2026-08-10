@@ -5,6 +5,7 @@
 #include "VulkanDynamicRHI.h"
 #include "VulkanDevice.h"
 #include "VulkanCommandBuffer.h"
+#include "VulkanCompletion.h"
 #include "VulkanPipeline.h"
 #include "VulkanPendingState.h"
 #include "VulkanRenderPass.h"
@@ -122,9 +123,7 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		FVulkanFrame& Frame = Device.GetCurrentFrame();
-		FVulkanPayload& Payload = GetPayload();
-		Payload.Fence = Frame.GetFrameFence();
-		Finalize();
+		Frame.SetLastSubmittedToken(Finalize());
 
 		Pool->FreeUnusedCommandBuffers(Queue);
 	}
@@ -578,8 +577,7 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		FRHIUniformBufferRange Result;
-		const uint32 FrameIndex = Device.GetCurrentFrameIndex();
-		requiref(Device.GetDynamicUniformBufferAllocator().TryAllocate(FrameIndex, Data, Size, Result),
+		requiref(Device.GetDynamicUniformBufferAllocator().TryAllocate(Data, Size, Result),
 			"Direct context allocation requires a prepared dynamic-uniform page.");
 		auto* Buffer = static_cast<FVulkanBuffer*>(Result.Buffer);
 		Buffer->GetStateTracker().Apply(Result.Offset, Result.Size, ERHIAccess::HostWrite);
@@ -787,12 +785,55 @@ namespace Durin::VulkanRHI
 		PendingGfxState->NotifyDeletedPipeline(PipelineState);
 	}
 
-	auto FVulkanCommandListContext::Finalize() -> void
+	auto FVulkanCommandListContext::Finalize() -> FVulkanCompletionToken
 	{
 		CheckVulkanRHIThread();
 		GetCommandBuffer()->End();
-		Queue->SubmitPayloads(Payloads);
+		const FVulkanCompletionToken Token = Queue->SubmitPayloads(Payloads);
 		Payloads.clear();
+		return Token;
+	}
+
+	auto FVulkanCommandListContext::AcquireTransferRange(
+		EVulkanAllocationClassCandidate AllocationClass, uint64 Size,
+		uint64 Alignment) -> FVulkanTransferRange
+	{
+		CheckVulkanRHIThread();
+		check(AllocationClass == EVulkanAllocationClassCandidate::TransferUpload
+			|| AllocationClass
+				== EVulkanAllocationClassCandidate::TransferReadback);
+		FVulkanTransferArena& Arena = AllocationClass
+			== EVulkanAllocationClassCandidate::TransferUpload
+			? Device.GetUploadArena() : Device.GetReadbackArena();
+		for (;;)
+		{
+			const FVulkanCompletionToken Token = GetPayload().Token;
+			FVulkanTransferAcquireResult Result =
+				Arena.Acquire(Size, Alignment, Token);
+			if (Result.Range)
+			{
+				return std::move(Result.Range);
+			}
+			if (Result.bAllocationFailed)
+			{
+				throw std::runtime_error(std::format(
+					"Vulkan transfer arena allocation failed: class={}, bytes={}.",
+					static_cast<uint32>(AllocationClass), Size));
+			}
+			requiref(Result.WaitToken != 0,
+				"Vulkan transfer arena exhausted without a retireable range: class={}, bytes={}.",
+				static_cast<uint32>(AllocationClass), Size);
+			if (Result.WaitToken
+				> Device.GetCompletionTracker().GetLastSubmittedToken())
+			{
+				const FVulkanCompletionToken Submitted = Finalize();
+				requiref(Submitted >= Result.WaitToken,
+					"Transfer arena range token {} was not submitted by flush token {}.",
+					Result.WaitToken, Submitted);
+			}
+			GVulkanMemoryBaselineTracker.RecordArenaWait(AllocationClass);
+			Device.GetCompletionTracker().WaitForToken(Result.WaitToken);
+		}
 	}
 
 	auto FVulkanCommandListContext::PrepareNewCommandBuffer(FVulkanPayload& InPayload) -> void
@@ -810,7 +851,8 @@ namespace Durin::VulkanRHI
 		// Currently only support one payload per submit.
 		if (Payloads.empty())
 		{
-			Payloads.push_back(new FVulkanPayload(*Queue));
+			Payloads.push_back(new FVulkanPayload(
+				*Queue, Device.GetCompletionTracker().ReserveToken()));
 		}
 		return *Payloads.back();
 	}

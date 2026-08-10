@@ -1,4 +1,6 @@
 #include "VulkanDevice.h"
+#include "VulkanCompletion.h"
+#include "VulkanDiagnostics.h"
 
 #include "RHICommandList.h"
 #include "Threading/RunnableThread.h"
@@ -9,6 +11,7 @@
 #include "VulkanPipeline.h"
 #include "VulkanQueue.h"
 #include "VulkanSubmission.h"
+#include "VulkanTransferArena.h"
 #include "VulkanDescriptorSets.h"
 #include "VulkanBuffer.h"
 #include "VulkanRHIPrivate.h"
@@ -127,10 +130,6 @@ namespace Durin::VulkanRHI
 		return Diagnostic;
 	}
 
-	uint64 GVulkanRHIDeletionFrameNumber = 0;
-
-	constexpr uint64 GVulkanNumFramesToWaitForResourceDelete = kFrameInFlight;
-
 	FDeferredDeletionQueue::FDeferredDeletionQueue(FVulkanDevice* InDevice)
 		: Device(InDevice)
 	{
@@ -142,6 +141,16 @@ namespace Durin::VulkanRHI
 		if (bDeleteImmediately)
 		{
 			std::lock_guard<std::mutex> Lock(Mutex);
+			uint64 MaxTokenLag = 0;
+			for (const FEntry& Entry : Entries)
+			{
+				MaxTokenLag = std::max(MaxTokenLag,
+					Device->GetCompletionTracker().GetLastSubmittedToken()
+						- std::min(Entry.CompletionToken,
+							Device->GetCompletionTracker().GetLastSubmittedToken()));
+			}
+			GVulkanMemoryBaselineTracker.RecordDeferredDeletesReleased(
+				Entries.size(), MaxTokenLag);
 			ReleaseResourceImmediately(Entries);
 			Entries.clear();
 		}
@@ -151,9 +160,10 @@ namespace Durin::VulkanRHI
 			{
 				std::lock_guard<std::mutex> Lock(Mutex);
 
+				const uint64 CompletedToken =
+					Device->GetCompletionTracker().GetCompletedToken();
 				auto DeleteSubRange = std::ranges::partition(Entries, [&](const FEntry& Entry) {
-					// Return true for elements we want to KEEP this Frame
-					return GVulkanRHIDeletionFrameNumber <= Entry.FrameNumber + GVulkanNumFramesToWaitForResourceDelete;
+					return Entry.CompletionToken > CompletedToken;
 				});
 
 				if (DeleteSubRange.begin() != Entries.end())
@@ -165,6 +175,15 @@ namespace Durin::VulkanRHI
 
 			if (!EntriesToDelete.empty())
 			{
+				uint64 MaxTokenLag = 0;
+				for (const FEntry& Entry : EntriesToDelete)
+				{
+					MaxTokenLag = std::max(MaxTokenLag,
+						Device->GetCompletionTracker().GetCompletedToken()
+							- Entry.CompletionToken);
+				}
+				GVulkanMemoryBaselineTracker.RecordDeferredDeletesReleased(
+					EntriesToDelete.size(), MaxTokenLag);
 				ReleaseResourceImmediately(EntriesToDelete);
 			}
 		}
@@ -177,14 +196,20 @@ namespace Durin::VulkanRHI
 
 	auto FDeferredDeletionQueue::EnqueueGenericResource(EType Type, uint64 Handle) -> void
 	{
+		const uint64 CompletionToken =
+			Device->GetCompletionTracker().GetLastReservedToken();
 		std::lock_guard<std::mutex> Lock(Mutex);
-		Entries.emplace_back(Type, GVulkanRHIDeletionFrameNumber, Handle);
+		Entries.emplace_back(Type, CompletionToken, Handle);
+		GVulkanMemoryBaselineTracker.RecordDeferredDeleteEnqueued();
 	}
 
 	auto FDeferredDeletionQueue::EnqueueAllocatedResource(EType Type, uint64 Handle, const FVulkanAllocation& Allocation) -> void
 	{
+		const uint64 CompletionToken =
+			Device->GetCompletionTracker().GetLastReservedToken();
 		std::lock_guard<std::mutex> Lock(Mutex);
-		Entries.emplace_back(Type, GVulkanRHIDeletionFrameNumber, Handle, Allocation); // Copy allocation here
+		Entries.emplace_back(Type, CompletionToken, Handle, Allocation); // Copy allocation here
+		GVulkanMemoryBaselineTracker.RecordDeferredDeleteEnqueued();
 	}
 
 #define DURIN_VK_DESTROY_CASE(Type, ...)                                                 \
@@ -283,6 +308,17 @@ namespace Durin::VulkanRHI
 			ComputeQueueFamilyIndex, ComputeQueueFamilyIndex == GraphicsQueueFamilyIndex ? "shared" : "separate", TransferQueueFamilyIndex,
 			TransferQueueFamilyIndex == GraphicsQueueFamilyIndex || TransferQueueFamilyIndex == ComputeQueueFamilyIndex ? "shared" : "separate");
 		MemoryManager.Init(this);
+		CompletionTracker = new FVulkanCompletionTracker(*this);
+		UploadArena = new FVulkanTransferArena(*this, {
+			.AllocationClass = EVulkanAllocationClassCandidate::TransferUpload,
+			.PageSize = 8ull * 1024 * 1024,
+			.MaxPageCount = 4,
+			.DebugName = "VulkanUploadArena"});
+		ReadbackArena = new FVulkanTransferArena(*this, {
+			.AllocationClass = EVulkanAllocationClassCandidate::TransferReadback,
+			.PageSize = 4ull * 1024 * 1024,
+			.MaxPageCount = 2,
+			.DebugName = "VulkanReadbackArena"});
 
 		ImmediateContext = new FVulkanCommandListContext(RHI, *this, GraphicsQueue);
 
@@ -416,6 +452,10 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		Device.waitIdle();
+		if (CompletionTracker)
+		{
+			CompletionTracker->Poll();
+		}
 	}
 
 	vk::Device FVulkanDevice::GetHandle() const
@@ -497,13 +537,9 @@ namespace Durin::VulkanRHI
 			return;
 		}
 		WaitUtilIdle();
-
-		for (auto*& Frame : Frames)
+		if (CompletionTracker)
 		{
-			if (Frame)
-			{
-				Frame->ReleaseInFlightPayloadsAfterDeviceIdle();
-			}
+			CompletionTracker->WaitForAll();
 		}
 
 		delete ImmediateContext;
@@ -520,6 +556,10 @@ namespace Durin::VulkanRHI
 			delete Frame;
 			Frame = nullptr;
 		}
+		delete ReadbackArena;
+		ReadbackArena = nullptr;
+		delete UploadArena;
+		UploadArena = nullptr;
 		delete GlobalDescriptorPool;
 		GlobalDescriptorPool = nullptr;
 
@@ -557,6 +597,9 @@ namespace Durin::VulkanRHI
 		ComputeQueue = nullptr;
 		TransferQueue = nullptr;
 		PresentQueue = nullptr;
+
+		delete CompletionTracker;
+		CompletionTracker = nullptr;
 
 		FenceManager.Deinit();
 

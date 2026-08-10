@@ -54,6 +54,8 @@ namespace Durin::VulkanRHI
 		auto RHICreateGraphicsPipelineState(FName DebugName, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState> override;
 		auto RHIGetGraphicsCacheStatistics() const -> FRHIGraphicsCacheStatistics override;
 		auto RHIResetGraphicsCacheStatistics() -> void override;
+		auto RHIGetMemoryStatistics() const -> FRHIMemoryStatistics override;
+		auto RHIResetMemoryStatistics() -> void override;
 		auto RHIGetDefaultContext() -> IRHICommandContext* override;
 		auto RHIGetCommandContext(ERHIPipeline Pipeline) const -> IRHICommandContext*;
 		auto RHIGetViewportBackBuffer(FRHIViewport* ViewportRHI) -> FTextureRHIRef override;
@@ -76,6 +78,10 @@ namespace Durin::VulkanRHI
 			FRHICommandListImmediate& RHICmdList,
 			const void* Data,
 			uint32 Size) -> FRHIStorageBufferRange override;
+
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		auto GetDeviceForTesting() const -> FVulkanDevice* { return Device; }
+#endif
 
 		auto InitializeTexture(FVulkanCommandListContext& Context, FRHITexture* Texture) -> void;
 		auto UpdateTexture2D(

@@ -23,7 +23,12 @@ namespace Durin::VulkanRHI
 
 		auto GetHandle() const -> vk::Buffer { return Buffer; }
 
-		auto GetMappedPointer() const -> void*;
+		VULKANRHI_API auto GetMappedPointer() const -> void*;
+		auto GetAllocationClass() const -> EVulkanAllocationClassCandidate
+		{
+			return Allocation.Class;
+		}
+		VULKANRHI_API auto GetMemoryPropertyFlags() const -> vk::MemoryPropertyFlags;
 
 		auto FlushMappedMemory(uint32 Offset = 0, uint32 Size = 0) -> void;
 		auto InvalidateMappedMemory(uint32 Offset = 0, uint32 Size = 0) -> void;
@@ -52,19 +57,20 @@ namespace Durin::VulkanRHI
 
 		~FVulkanDynamicUniformBufferAllocator();
 
-		// The rendering thread resets the producer-owned cursor only after the
-		// previous RHI serial for this frame slot has completed.
-		auto BeginFrameProducer(uint32 FrameIndex) -> void;
+		// Selects a producer state only after every used page token has completed.
+		auto PrepareForProducer() -> void;
+		auto RetireProducer(FVulkanCompletionToken Token) -> void;
 
 		auto TryAllocate(
-			uint32 FrameIndex,
 			const void* Data,
 			uint32 Size,
 			FRHIUniformBufferRange& OutRange) -> bool;
 
 		// Device allocation remains RHI-owned. The producer calls this only via
 		// an ordered synchronous operation when its prepared pages overflow.
-		auto ReservePage(uint32 FrameIndex, uint32 MinSize) -> void;
+		auto ReservePage(uint32 MinSize) -> void;
+		auto GetProducerTokensForTesting() const
+			-> std::array<FVulkanCompletionToken, kFrameInFlight>;
 
 	private:
 		// Owns one persistently mapped backing buffer used for uniform suballocation.
@@ -72,13 +78,18 @@ namespace Durin::VulkanRHI
 		{
 			TRefCountPtr<FVulkanBuffer> Buffer;
 			uint32 Offset = 0;
+			FVulkanCompletionToken LastUseToken = 0;
+			bool bUsed = false;
+			bool bHasServedAllocation = false;
+			uint64 LiveRequestedBytes = 0;
 		};
 
 		// Tracks the active chunk and write offset independently for each frame in flight.
-		struct FFrameState
+		struct FProducerState
 		{
 			std::vector<FChunk> Chunks;
 			uint32 CurrentChunkIndex = 0;
+			auto GetLastUseToken() const -> FVulkanCompletionToken;
 		};
 
 		auto CreateChunk(uint32 MinSize) -> FChunk;
@@ -89,7 +100,9 @@ namespace Durin::VulkanRHI
 
 		FVulkanDevice& Device;
 
-		std::array<FFrameState, kFrameInFlight> Frames;
+		std::array<FProducerState, kFrameInFlight> ProducerStates;
+		uint32 ActiveProducerIndex = std::numeric_limits<uint32>::max();
+		uint32 NextProducerIndex = 0;
 
 	};
 

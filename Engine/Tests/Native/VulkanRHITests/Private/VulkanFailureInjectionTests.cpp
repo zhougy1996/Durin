@@ -13,6 +13,7 @@
 #include "VulkanRHIPrivate.h"
 #include "VulkanExtensions.h"
 #include "VulkanDevice.h"
+#include "VulkanDiagnostics.h"
 #include "VulkanContext.h"
 #include "VulkanSwapchain.h"
 #include "VulkanViewport.h"
@@ -333,6 +334,9 @@ namespace Durin::VulkanRHI
 			EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::Static);
 		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Buffer);
 		EXPECT_FALSE(GDynamicRHI->RHICreateBuffer(RHICmdList, BufferDesc));
+		EXPECT_EQ(GDynamicRHI->RHIGetMemoryStatistics().Classes[
+			static_cast<uint32>(ERHIMemoryAllocationClass::DeviceLocal)]
+			.AllocationFailureCount, 1u);
 		FBufferRHIRef Buffer =
 			GDynamicRHI->RHICreateBuffer(RHICmdList, BufferDesc);
 		ASSERT_TRUE(Buffer);
@@ -407,6 +411,7 @@ namespace Durin::VulkanRHI
 		RuntimeFactoriesReturnNullThenRecoverOnTheSameRHIThread)
 	{
 		ASSERT_TRUE(RHIInit());
+		ResetVulkanMemoryBaselineStatistics();
 		ASSERT_NE(GRHIThread, nullptr);
 		if (!GIsGameThreadIdInitialized)
 		{
@@ -436,6 +441,9 @@ namespace Durin::VulkanRHI
 		TextureDesc.Flags = ETextureCreateFlags::ShaderResource;
 		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Image);
 		EXPECT_FALSE(GDynamicRHI->RHICreateTexture(RHICmdList, TextureDesc));
+		EXPECT_EQ(GDynamicRHI->RHIGetMemoryStatistics().Classes[
+			static_cast<uint32>(ERHIMemoryAllocationClass::DeviceLocal)]
+			.AllocationFailureCount, 2u);
 		FTextureRHIRef Texture =
 			GDynamicRHI->RHICreateTexture(RHICmdList, TextureDesc);
 		ASSERT_TRUE(Texture);
@@ -736,6 +744,7 @@ namespace Durin::VulkanRHI
 				- StatsBeforeFramebuffer.CreatedFramebufferViewCount,
 			StatsAfterFramebufferFailure.ReleasedFramebufferViewCount
 				- StatsBeforeFramebuffer.ReleasedFramebufferViewCount);
+		uint64 DescriptorSubmissionToken = 0;
 		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
 			auto* Context = static_cast<FVulkanCommandListContext*>(
 				GDynamicRHI->RHIGetDefaultContext());
@@ -744,34 +753,69 @@ namespace Durin::VulkanRHI
 		});
 		EXPECT_EQ(GetVulkanStructuralCacheTestStats().FramebufferEntryCount,
 			StatsBeforeFramebuffer.FramebufferEntryCount + 1);
+		auto DrawDescriptorArray = [&](bool& bFailed) {
+			GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
+				auto* Context = static_cast<FVulkanCommandListContext*>(
+					GDynamicRHI->RHIGetDefaultContext());
+				Context->RHIBeginRenderPass(PassInfo, "DescriptorArrayDraw");
+				Context->RHISetGraphicsPipelineState(*Pipeline);
+				Context->RHISetViewport(0.0f, 0.0f, 0.0f, 8.0f, 8.0f, 1.0f);
+				FTextureViewRHIRef TransientTextureView =
+					GDynamicRHI->RHICreateTextureView(Texture,
+						MakeDefaultTextureViewDesc(*Texture,
+							ERHITextureViewUsage::Sampled));
+				check(TransientTextureView);
+				std::array<FRHIShaderParameterResource, 1> TextureParameters{
+					FRHIShaderParameterResource{.Resource = TransientTextureView.GetReference(),
+						.SetIndex = 0, .BindingIndex = 0, .ArrayElement = 0,
+						.Type = ERHIBindingType::Texture}};
+				Context->RHISetShaderParameters(VertexShader, TextureParameters);
+				TransientTextureView = nullptr;
+				std::array<FRHIShaderParameterResource, 2> SamplerParameters{
+					FRHIShaderParameterResource{.Resource = Sampler.GetReference(),
+						.SetIndex = 0, .BindingIndex = 1, .ArrayElement = 0,
+						.Type = ERHIBindingType::Sampler},
+					FRHIShaderParameterResource{.Resource = Sampler.GetReference(),
+						.SetIndex = 0, .BindingIndex = 1, .ArrayElement = 1,
+						.Type = ERHIBindingType::Sampler}};
+				Context->RHISetShaderParameters(FragmentShader, SamplerParameters);
+				try
+				{
+					Context->RHIDraw({.VertexCount = 3});
+				}
+				catch (...)
+				{
+					Context->RHIEndRenderPass();
+					bFailed = true;
+					return;
+				}
+				Context->RHIEndRenderPass();
+			});
+		};
+		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::DescriptorPool);
+		bool bDescriptorPoolFailed = false;
+		DrawDescriptorArray(bDescriptorPoolFailed);
+		EXPECT_TRUE(bDescriptorPoolFailed);
+		EXPECT_EQ(GetVulkanMemoryBaselineStatistics().DescriptorPoolCount, 0u);
+		bool bDescriptorPoolRecoveryFailed = false;
+		DrawDescriptorArray(bDescriptorPoolRecoveryFailed);
+		EXPECT_FALSE(bDescriptorPoolRecoveryFailed);
 		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
-			auto* Context = static_cast<FVulkanCommandListContext*>(
-				GDynamicRHI->RHIGetDefaultContext());
-			Context->RHIBeginRenderPass(PassInfo, "DescriptorArrayDraw");
-			Context->RHISetGraphicsPipelineState(*Pipeline);
-			Context->RHISetViewport(0.0f, 0.0f, 0.0f, 8.0f, 8.0f, 1.0f);
-			FTextureViewRHIRef TransientTextureView =
-				GDynamicRHI->RHICreateTextureView(Texture,
-					MakeDefaultTextureViewDesc(*Texture,
-						ERHITextureViewUsage::Sampled));
-			ASSERT_TRUE(TransientTextureView);
-			std::array<FRHIShaderParameterResource, 1> TextureParameters{
-				FRHIShaderParameterResource{.Resource = TransientTextureView.GetReference(),
-					.SetIndex = 0, .BindingIndex = 0, .ArrayElement = 0,
-					.Type = ERHIBindingType::Texture}};
-			Context->RHISetShaderParameters(VertexShader, TextureParameters);
-			TransientTextureView = nullptr;
-			std::array<FRHIShaderParameterResource, 2> SamplerParameters{
-				FRHIShaderParameterResource{.Resource = Sampler.GetReference(),
-					.SetIndex = 0, .BindingIndex = 1, .ArrayElement = 0,
-					.Type = ERHIBindingType::Sampler},
-				FRHIShaderParameterResource{.Resource = Sampler.GetReference(),
-					.SetIndex = 0, .BindingIndex = 1, .ArrayElement = 1,
-					.Type = ERHIBindingType::Sampler}};
-			Context->RHISetShaderParameters(FragmentShader, SamplerParameters);
-			Context->RHIDraw({.VertexCount = 3});
-			Context->RHIEndRenderPass();
+			DescriptorSubmissionToken =
+				SubmitAndRetireDescriptorPoolsForTesting();
 		});
+		const FVulkanMemoryBaselineStatistics DescriptorBaseline =
+			GetVulkanMemoryBaselineStatistics();
+		EXPECT_GT(DescriptorBaseline.DescriptorPoolCount, 0u);
+		EXPECT_GT(DescriptorBaseline.DescriptorPoolSetCapacity, 0u);
+		EXPECT_GT(DescriptorBaseline.DescriptorPeakAllocatedSetCount, 0u);
+		FVulkanBackendPoolTestStats DescriptorPoolStats;
+		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
+			DescriptorPoolStats = GetVulkanBackendPoolTestStats();
+		});
+		EXPECT_NE(std::ranges::find(DescriptorPoolStats.DescriptorPoolTokens,
+			DescriptorSubmissionToken),
+			DescriptorPoolStats.DescriptorPoolTokens.end());
 		FRHITextureCreateDesc MrtColorDesc = FRHITextureCreateDesc::Create2D(
 			"MrtStencilValidationColor", 8, 8, EPixelFormat::RGBA8_UNORM)
 			.SetFlags(ETextureCreateFlags::RenderTargetable

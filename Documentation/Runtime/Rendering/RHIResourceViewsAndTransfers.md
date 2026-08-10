@@ -82,13 +82,14 @@ maps portable regions directly to `vk::BufferCopy`, `vk::BufferImageCopy`, or
 methods are the only backend-private native copy-recording authority.
 
 Static device-local buffer writes, `RHIUpdateTexture2D`, and
-`RHIReadTexture2D` use temporary RHI buffers, selected transitions, and the
-same public copy semantics. Upload restores the resource's canonical graphics
-or storage access. Readback restores the exact prior texture state, transitions
-the temporary buffer for host read, performs only its scoped completion wait,
-invalidates noncoherent mapped memory, and publishes tightly packed CPU bytes.
-These paths do not introduce a whole-device idle wait or a second layout
-tracker.
+`RHIReadTexture2D` use bounded persistently mapped upload/readback arena ranges,
+selected transitions, and the same public copy semantics. Upload restores the
+resource's canonical graphics or storage access. Readback restores the exact
+prior texture state, transitions its range for host read, waits the producing
+submission token, invalidates noncoherent mapped memory, and publishes tightly
+packed CPU bytes before returning the range. These paths do not introduce a
+whole-device idle wait or a second layout tracker. Arena ownership, bounds, and
+reuse are defined by [Vulkan memory and GPU completion](VulkanMemoryAndGPUCompletion.md).
 
 Legacy static-buffer uploads, shader-resource or storage texture uploads, and
 CPU-readback textures receive compatibility copy usage during Vulkan creation.
@@ -99,10 +100,9 @@ when transfer is part of their public resource contract.
 
 Render-pass MSAA resolve remains owned by the render-pass contract. Standalone
 resolve, scaled blit, queue-family transfer, asynchronous transfer scheduling,
-staging/readback reuse, and GPU-completion-aware retirement are outside this
-contract. M3 may build descriptor arrays and complete graphics binding state on
-counted views. M4 may replace per-operation temporary allocation with safe
-completion-token-owned arenas without changing public copy semantics.
+and multi-queue ownership are outside this contract. Descriptor arrays consume
+the counted views defined here. Completion-token-owned transfer arenas replace
+per-operation temporary allocation without changing public copy semantics.
 
 ## Related Documentation
 
@@ -111,6 +111,7 @@ completion-token-owned arenas without changing public copy semantics.
 - [Shader parameters](ShaderParameters.md)
 - [RHI capabilities and Vulkan startup](RHICapabilitiesAndVulkanStartup.md)
 - [RHI and Vulkan backend evolution roadmap](../../Roadmaps/RHIAndVulkanEvolution.md)
+- [Vulkan memory and GPU completion](VulkanMemoryAndGPUCompletion.md)
 
 ## Related Code
 

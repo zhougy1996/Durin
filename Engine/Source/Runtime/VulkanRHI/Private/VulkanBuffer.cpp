@@ -5,6 +5,7 @@
 #include "VulkanRHIPrivate.h"
 #include "VulkanCommandBuffer.h"
 #include "VulkanDevice.h"
+#include "VulkanDiagnostics.h"
 #include "VulkanContext.h"
 
 namespace Durin::VulkanRHI
@@ -37,21 +38,34 @@ namespace Durin::VulkanRHI
 		BufferInfo.setUsage(ToVulkan_BufferUsageFlags(InCreateDesc.Usage));
 		BufferInfo.setSharingMode(vk::SharingMode::eExclusive);
 
-		EVulkanAllocationFlags AllocFlags{};
+		EVulkanAllocationClassCandidate AllocationCandidate =
+			EVulkanAllocationClassCandidate::DeviceLocal;
 		if (EnumHasAnyFlags(InCreateDesc.Usage, EBufferUsageFlags::Dynamic))
 		{
-			AllocFlags |= EVulkanAllocationFlags::HostVisible | EVulkanAllocationFlags::PersistentMapped;
+			AllocationCandidate = EVulkanAllocationClassCandidate::DynamicUpload;
+			if (EnumHasAllFlags(InCreateDesc.Usage,
+				EBufferUsageFlags::DestinationCopy | EBufferUsageFlags::KeepCPUAccessible))
+			{
+				AllocationCandidate = EVulkanAllocationClassCandidate::TransferReadback;
+			}
+			else if (EnumHasAnyFlags(InCreateDesc.Usage, EBufferUsageFlags::SourceCopy)
+				&& !EnumHasAnyFlags(InCreateDesc.Usage,
+					EBufferUsageFlags::UniformBuffer | EBufferUsageFlags::VertexBuffer
+						| EBufferUsageFlags::IndexBuffer))
+			{
+				AllocationCandidate = EVulkanAllocationClassCandidate::TransferUpload;
+			}
 		}
 
 		const FVulkanMemoryManager& MemoryManager = Device.GetMemoryManager();
 		const vk::Result Result = MemoryManager.CreateBuffer(
-			Allocation, Buffer, AllocFlags, BufferInfo);
+			Allocation, Buffer, AllocationCandidate, BufferInfo);
 		if (Result != vk::Result::eSuccess)
 		{
 			throw std::runtime_error(std::format(
-				"Vulkan buffer allocation failed: result={}, size={}, usage={}, allocationFlags={}",
+				"Vulkan buffer allocation failed: result={}, size={}, usage={}, allocationClass={}",
 				vk::to_string(Result), BufferInfo.size,
-				vk::to_string(BufferInfo.usage), static_cast<uint32>(AllocFlags)));
+				vk::to_string(BufferInfo.usage), static_cast<uint32>(AllocationCandidate)));
 		}
 	}
 
@@ -87,21 +101,26 @@ namespace Durin::VulkanRHI
 			return;
 		}
 
-		FRHIBufferCreateDesc StagingDesc = FRHIBufferCreateDesc::Create(
-			"BufferWriteStaging", static_cast<uint32>(Data.size()), 0,
-			EBufferUsageFlags::Dynamic | EBufferUsageFlags::SourceCopy);
-		TRefCountPtr<FVulkanBuffer> StagingBuffer = new FVulkanBuffer(Device, StagingDesc);
-		std::memcpy(StagingBuffer->GetMappedPointer(), Data.data(), Data.size());
-		StagingBuffer->FlushMappedMemory();
-		StagingBuffer->GetStateTracker().Apply(0, Data.size(), ERHIAccess::HostWrite);
+		const uint64 Alignment = std::max<uint64>(16,
+			Device.GetGpuProperties().limits.nonCoherentAtomSize);
+		FVulkanTransferRange Staging = Context.AcquireTransferRange(
+			EVulkanAllocationClassCandidate::TransferUpload, Data.size(), Alignment);
+		FVulkanBuffer* StagingBuffer = Staging.GetBuffer();
+		GVulkanMemoryBaselineTracker.RecordUpload(Data.size());
+		std::memcpy(Staging.GetMappedPointer(), Data.data(), Data.size());
+		Staging.Flush();
+		StagingBuffer->GetStateTracker().Apply(
+			Staging.GetOffset(), Data.size(), ERHIAccess::HostWrite);
 		const std::array StagingTransition{FRHIBufferTransition{
-			StagingBuffer.GetReference(), 0, Data.size(), ERHIAccess::HostWrite, ERHIAccess::TransferRead}};
+			StagingBuffer, Staging.GetOffset(), Data.size(),
+			ERHIAccess::HostWrite, ERHIAccess::TransferRead}};
 		Context.RHITransitionBuffers(StagingTransition);
 		const std::array PreCopyTransition{FRHIBufferTransition{
 			this, Offset, Data.size(), ERHIAccess::Discard, ERHIAccess::TransferWrite}};
 		Context.RHITransitionBuffers(PreCopyTransition);
-		const std::array CopyRegions{FRHIBufferCopyRegion{0, Offset, Data.size()}};
-		Context.RHICopyBuffer(StagingBuffer.GetReference(), this, CopyRegions);
+		const std::array CopyRegions{FRHIBufferCopyRegion{
+			Staging.GetOffset(), Offset, Data.size()}};
+		Context.RHICopyBuffer(StagingBuffer, this, CopyRegions);
 
 		const ERHIAccess FinalAccess = GetCanonicalBufferAccess(GetUsage());
 		if (FinalAccess != ERHIAccess::None)
@@ -110,6 +129,7 @@ namespace Durin::VulkanRHI
 				this, Offset, Data.size(), ERHIAccess::TransferWrite, FinalAccess}};
 			Context.RHITransitionBuffers(PostCopyTransition);
 		}
+		Staging.Retire();
 	}
 
 	auto FVulkanBuffer::IsDynamic() const -> bool
@@ -125,6 +145,12 @@ namespace Durin::VulkanRHI
 	auto FVulkanBuffer::GetMappedPointer() const -> void*
 	{
 		return Allocation.GetMappedData();
+	}
+
+	auto FVulkanBuffer::GetMemoryPropertyFlags() const
+		-> vk::MemoryPropertyFlags
+	{
+		return Device.GetMemoryManager().GetMemoryType(Allocation).propertyFlags;
 	}
 
 	auto FVulkanBuffer::FlushMappedMemory(uint32 Offset, uint32 Size) -> void
@@ -143,29 +169,107 @@ namespace Durin::VulkanRHI
 		: Device(InDevice)
 	{
 		CheckVulkanRHIThread();
-		for (uint32 FrameIndex = 0; FrameIndex < Frames.size(); ++FrameIndex)
+		for (FProducerState& State : ProducerStates)
 		{
-			ReservePage(FrameIndex, 4 * 1024 * 1024);
+			State.Chunks.push_back(CreateChunk(4 * 1024 * 1024));
 		}
 	}
 
-	FVulkanDynamicUniformBufferAllocator::~FVulkanDynamicUniformBufferAllocator() = default;
-
-	auto FVulkanDynamicUniformBufferAllocator::BeginFrameProducer(
-		uint32 FrameIndex) -> void
+	FVulkanDynamicUniformBufferAllocator::~FVulkanDynamicUniformBufferAllocator()
 	{
-		FrameIndex %= kFrameInFlight;
-		FFrameState& FrameState = Frames[FrameIndex];
-		check(!FrameState.Chunks.empty());
-		FrameState.CurrentChunkIndex = 0;
-		for (FChunk& Chunk : FrameState.Chunks)
+		for (FProducerState& State : ProducerStates)
 		{
-			Chunk.Offset = 0;
+			for (FChunk& Chunk : State.Chunks)
+			{
+				GVulkanMemoryBaselineTracker.RecordArenaPageFreed(
+					EVulkanAllocationClassCandidate::DynamicUpload,
+					Chunk.Buffer->GetSize());
+			}
 		}
+	}
+
+	auto FVulkanDynamicUniformBufferAllocator::FProducerState::GetLastUseToken()
+		const -> FVulkanCompletionToken
+	{
+		FVulkanCompletionToken Result = 0;
+		for (const FChunk& Chunk : Chunks)
+		{
+			Result = std::max(Result, Chunk.LastUseToken);
+		}
+		return Result;
+	}
+
+	auto FVulkanDynamicUniformBufferAllocator::PrepareForProducer() -> void
+	{
+		CheckVulkanRHIThread();
+		check(ActiveProducerIndex == std::numeric_limits<uint32>::max());
+		auto& Tracker = Device.GetCompletionTracker();
+		Tracker.Poll();
+		FVulkanCompletionToken Completed = Tracker.GetCompletedToken();
+		for (uint32 Offset = 0; Offset < ProducerStates.size(); ++Offset)
+		{
+			const uint32 Index = (NextProducerIndex + Offset)
+				% static_cast<uint32>(ProducerStates.size());
+			if (ProducerStates[Index].GetLastUseToken() <= Completed)
+			{
+				ActiveProducerIndex = Index;
+				break;
+			}
+		}
+		if (ActiveProducerIndex == std::numeric_limits<uint32>::max())
+		{
+			auto Oldest = std::ranges::min_element(ProducerStates, {},
+				&FProducerState::GetLastUseToken);
+			check(Oldest != ProducerStates.end()
+				&& Oldest->GetLastUseToken() > 0);
+			GVulkanMemoryBaselineTracker.RecordArenaWait(
+				EVulkanAllocationClassCandidate::DynamicUpload);
+			Tracker.WaitForToken(Oldest->GetLastUseToken());
+			Completed = Tracker.GetCompletedToken();
+			ActiveProducerIndex = static_cast<uint32>(
+				std::distance(ProducerStates.begin(), Oldest));
+		}
+		FProducerState& State = ProducerStates[ActiveProducerIndex];
+		check(State.GetLastUseToken() <= Completed && !State.Chunks.empty());
+		State.CurrentChunkIndex = 0;
+		for (FChunk& Chunk : State.Chunks)
+		{
+			check(!Chunk.bUsed && Chunk.LastUseToken <= Completed);
+			if (Chunk.LiveRequestedBytes > 0)
+			{
+				GVulkanMemoryBaselineTracker.RecordArenaRangeReclaimed(
+					EVulkanAllocationClassCandidate::DynamicUpload,
+					Chunk.LiveRequestedBytes);
+			}
+			Chunk.Offset = 0;
+			Chunk.LastUseToken = 0;
+			Chunk.LiveRequestedBytes = 0;
+		}
+		NextProducerIndex = (ActiveProducerIndex + 1)
+			% static_cast<uint32>(ProducerStates.size());
+	}
+
+	auto FVulkanDynamicUniformBufferAllocator::RetireProducer(
+		FVulkanCompletionToken Token) -> void
+	{
+		CheckVulkanRHIThread();
+		check(Token > 0);
+		if (ActiveProducerIndex >= ProducerStates.size())
+		{
+			return;
+		}
+		for (FChunk& Chunk : ProducerStates[ActiveProducerIndex].Chunks)
+		{
+			if (Chunk.bUsed)
+			{
+				Chunk.LastUseToken = std::max(Chunk.LastUseToken, Token);
+				Chunk.bUsed = false;
+			}
+		}
+		ActiveProducerIndex = std::numeric_limits<uint32>::max();
 	}
 
 	auto FVulkanDynamicUniformBufferAllocator::TryAllocate(
-		uint32 FrameIndex,
 		const void* Data,
 		uint32 Size,
 		FRHIUniformBufferRange& OutRange) -> bool
@@ -175,20 +279,21 @@ namespace Durin::VulkanRHI
 
 		const uint32 Alignment = GetAlignment();
 		const uint32 AllocationSize = AlignUp(Size, Alignment);
-		FrameIndex %= kFrameInFlight;
-		FFrameState& FrameState = Frames[FrameIndex];
-		check(!FrameState.Chunks.empty());
+		check(ActiveProducerIndex < ProducerStates.size());
+		FProducerState& State = ProducerStates[ActiveProducerIndex];
+		check(!State.Chunks.empty());
 
-		FChunk* Chunk = &FrameState.Chunks[FrameState.CurrentChunkIndex];
+		FChunk* Chunk = &State.Chunks[State.CurrentChunkIndex];
 		if (Chunk->Offset + AllocationSize > Chunk->Buffer->GetSize())
 		{
 			bool bFoundReusableChunk = false;
-			for (uint32 ChunkIndex = FrameState.CurrentChunkIndex + 1; ChunkIndex < FrameState.Chunks.size(); ++ChunkIndex)
+			for (uint32 ChunkIndex = State.CurrentChunkIndex + 1;
+				ChunkIndex < State.Chunks.size(); ++ChunkIndex)
 			{
-				if (FrameState.Chunks[ChunkIndex].Buffer->GetSize() >= AllocationSize)
+				if (State.Chunks[ChunkIndex].Buffer->GetSize() >= AllocationSize)
 				{
-					FrameState.CurrentChunkIndex = ChunkIndex;
-					Chunk = &FrameState.Chunks[ChunkIndex];
+					State.CurrentChunkIndex = ChunkIndex;
+					Chunk = &State.Chunks[ChunkIndex];
 					bFoundReusableChunk = true;
 					break;
 				}
@@ -207,6 +312,14 @@ namespace Durin::VulkanRHI
 		std::memcpy(static_cast<uint8*>(MappedPointer) + AllocationOffset, Data, Size);
 		Chunk->Buffer->FlushMappedMemory(AllocationOffset, Size);
 		Chunk->Offset = AllocationOffset + AllocationSize;
+		Chunk->bUsed = true;
+		Chunk->LiveRequestedBytes = FVulkanMemoryBaselineTracker::SaturatingAdd(
+			Chunk->LiveRequestedBytes, Size);
+		GVulkanMemoryBaselineTracker.RecordArenaRangeAllocated(
+			EVulkanAllocationClassCandidate::DynamicUpload, Size,
+			Chunk->bHasServedAllocation,
+			Chunk->Buffer->GetSize() > 4 * 1024 * 1024);
+		Chunk->bHasServedAllocation = true;
 
 		OutRange = FRHIUniformBufferRange{
 			.Buffer = Chunk->Buffer.GetReference(),
@@ -216,13 +329,29 @@ namespace Durin::VulkanRHI
 		return true;
 	}
 
-	auto FVulkanDynamicUniformBufferAllocator::ReservePage(
-		uint32 FrameIndex,
-		uint32 MinSize) -> void
+	auto FVulkanDynamicUniformBufferAllocator::ReservePage(uint32 MinSize) -> void
 	{
 		CheckVulkanRHIThread();
-		FrameIndex %= kFrameInFlight;
-		Frames[FrameIndex].Chunks.push_back(CreateChunk(MinSize));
+		check(ActiveProducerIndex < ProducerStates.size());
+		constexpr uint32 MaxChunksPerProducer = 8;
+		auto& Chunks = ProducerStates[ActiveProducerIndex].Chunks;
+		checkf(Chunks.size() < MaxChunksPerProducer,
+			"Vulkan dynamic-uniform page bound reached: producer={}, pages={}, requestedBytes={}.",
+			ActiveProducerIndex, Chunks.size(), MinSize);
+		GVulkanMemoryBaselineTracker.RecordArenaOverflow(
+			EVulkanAllocationClassCandidate::DynamicUpload);
+		Chunks.push_back(CreateChunk(MinSize));
+	}
+
+	auto FVulkanDynamicUniformBufferAllocator::GetProducerTokensForTesting()
+		const -> std::array<FVulkanCompletionToken, kFrameInFlight>
+	{
+		std::array<FVulkanCompletionToken, kFrameInFlight> Result{};
+		for (uint32 Index = 0; Index < ProducerStates.size(); ++Index)
+		{
+			Result[Index] = ProducerStates[Index].GetLastUseToken();
+		}
+		return Result;
 	}
 
 	auto FVulkanDynamicUniformBufferAllocator::CreateChunk(uint32 MinSize) -> FChunk
@@ -238,6 +367,8 @@ namespace Durin::VulkanRHI
 		);
 		FChunk Chunk;
 		Chunk.Buffer = new FVulkanBuffer(Device, CreateDesc);
+		GVulkanMemoryBaselineTracker.RecordArenaPageAllocated(
+			EVulkanAllocationClassCandidate::DynamicUpload, ChunkSize);
 		return Chunk;
 	}
 

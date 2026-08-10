@@ -1,8 +1,10 @@
 #include "VulkanDynamicRHI.h"
 
 #include "VulkanContext.h"
+#include "VulkanCompletion.h"
 #include "VulkanExtensions.h"
 #include "VulkanDevice.h"
+#include "VulkanDiagnostics.h"
 #include "VulkanSubmission.h"
 #include "VulkanCommandBuffer.h"
 #include "VulkanBuffer.h"
@@ -85,6 +87,14 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		ClearCapabilities();
+		if (const char* CaptureBaseline =
+			std::getenv("DURIN_VULKAN_MEMORY_BASELINE");
+			CaptureBaseline && std::string_view(CaptureBaseline) == "1")
+		{
+			DURIN_INFO("Vulkan M4 baseline: {}",
+				FormatVulkanMemoryBaselineStatistics(
+					GetVulkanMemoryBaselineStatistics()));
+		}
 		// Render thread should already be stopped at this point.
 		delete Device;
 		Device = nullptr;
@@ -103,10 +113,12 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		const uint32 FrameIndex = static_cast<uint32>(
 			Args.FrameNumber % kFrameInFlight);
+		GVulkanMemoryBaselineTracker.BeginFrame();
+		Device->GetCompletionTracker().Poll();
 		Device->SetCurrentFrameIndex(FrameIndex);
 		FVulkanFrame& Frame = Device->GetCurrentFrame();
 		Frame.Prepare();
-		Device->GetGlobalDescriptorPool().ResetPoolsForCurrentFrame();
+		Device->GetGlobalDescriptorPool().PrepareForUse();
 		Device->GetImmediateContext()->RHIBeginFrame(Args);
 	}
 
@@ -115,9 +127,9 @@ namespace Durin::VulkanRHI
 	{
 		check(!GRHIThread || IsInRenderingThread());
 		FDynamicRHI::RHIBeginFrame_RenderThread(RHICmdList);
-		Device->GetDynamicUniformBufferAllocator().BeginFrameProducer(
-			static_cast<uint32>(
-				GCommandListExecutor.GetFrameNumber() % kFrameInFlight));
+		auto& Allocator = Device->GetDynamicUniformBufferAllocator();
+		GCommandListExecutor.ExecuteSynchronousOperation(true,
+			[&Allocator]() { Allocator.PrepareForProducer(); });
 		Device->GetDynamicStorageBufferAllocator().BeginFrameProducer(
 			static_cast<uint32>(
 				GCommandListExecutor.GetFrameNumber() % kFrameInFlight));
@@ -127,13 +139,28 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		Device->GetImmediateContext()->RHIEndFrame();
-		GVulkanRHIDeletionFrameNumber++;
+		const FVulkanCompletionToken Token =
+			Device->GetCompletionTracker().GetLastSubmittedToken();
+		Device->GetGlobalDescriptorPool().RetireUsedPools(Token);
+		Device->GetDynamicUniformBufferAllocator().RetireProducer(Token);
+		Device->GetCompletionTracker().Poll();
 		Device->GetDeferredDeletionQueue().ReleaseResources();
 	}
 
 	auto FVulkanDynamicRHI::RHIEndFrame_RenderThread(FRHICommandListImmediate& RHICmdList) -> void
 	{
 		FDynamicRHI::RHIEndFrame_RenderThread(RHICmdList);
+	}
+
+	auto FVulkanDynamicRHI::RHIGetMemoryStatistics() const
+		-> FRHIMemoryStatistics
+	{
+		return GetRHIMemoryStatistics();
+	}
+
+	auto FVulkanDynamicRHI::RHIResetMemoryStatistics() -> void
+	{
+		ResetVulkanMemoryBaselineStatistics();
 	}
 
 	auto FVulkanDynamicRHI::RHIGetVkDevice() const -> vk::Device
@@ -172,20 +199,18 @@ namespace Durin::VulkanRHI
 		uint32 Size) -> FRHIUniformBufferRange
 	{
 		check(Data && Size != 0);
-		const uint32 FrameIndex = static_cast<uint32>(
-			GCommandListExecutor.GetFrameNumber() % kFrameInFlight);
 		auto& Allocator = Device->GetDynamicUniformBufferAllocator();
 		FRHIUniformBufferRange Result;
-		if (Allocator.TryAllocate(FrameIndex, Data, Size, Result))
+		if (Allocator.TryAllocate(Data, Size, Result))
 		{
 			return Result;
 		}
 
 		GCommandListExecutor.ExecuteSynchronousOperation(true,
-			[&Allocator, FrameIndex, Size]() {
-				Allocator.ReservePage(FrameIndex, Size);
+			[&Allocator, Size]() {
+				Allocator.ReservePage(Size);
 			});
-		requiref(Allocator.TryAllocate(FrameIndex, Data, Size, Result),
+		requiref(Allocator.TryAllocate(Data, Size, Result),
 			"A prepared dynamic-uniform overflow page must satisfy the pending allocation.");
 		return Result;
 	}

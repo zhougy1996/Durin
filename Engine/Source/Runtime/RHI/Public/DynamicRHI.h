@@ -37,6 +37,65 @@ namespace Durin
 		uint64 PersistentBytes = 0;
 	};
 
+	enum class ERHIMemoryAllocationClass : uint8
+	{
+		DeviceLocal,
+		DynamicUpload,
+		TransferUpload,
+		TransferReadback,
+		Count
+	};
+
+	// Reports live pressure and resettable lifetime counters for one memory intent.
+	struct FRHIMemoryClassStatistics
+	{
+		uint64 LiveAllocationCount = 0;
+		uint64 LiveBytes = 0;
+		uint64 PeakLiveBytes = 0;
+		uint64 AllocationCount = 0;
+		uint64 AllocationBytes = 0;
+		uint64 AllocationFailureCount = 0;
+		uint64 DedicatedAllocationCount = 0;
+		uint64 PeakAllocationBytes = 0;
+		uint64 ArenaCapacityBytes = 0;
+		uint64 ArenaLiveBytes = 0;
+		uint64 ArenaHighWaterBytes = 0;
+		uint64 ArenaReuseCount = 0;
+		uint64 ArenaOverflowCount = 0;
+		uint64 ArenaOversizeCount = 0;
+		uint64 ArenaWaitCount = 0;
+	};
+
+	struct FRHIMemoryHeapStatistics
+	{
+		uint64 UsageBytes = 0;
+		uint64 BudgetBytes = 0;
+	};
+
+	// Snapshots backend memory, transfer, wait, and retirement pressure without waiting.
+	struct FRHIMemoryStatistics
+	{
+		static constexpr uint32 AllocationClassCount =
+			static_cast<uint32>(ERHIMemoryAllocationClass::Count);
+		static constexpr uint32 MaxHeapCount = 16;
+
+		std::array<FRHIMemoryClassStatistics, AllocationClassCount> Classes = {};
+		std::array<FRHIMemoryHeapStatistics, MaxHeapCount> Heaps = {};
+		uint32 HeapCount = 0;
+		uint64 UploadOperationCount = 0;
+		uint64 UploadBytes = 0;
+		uint64 PeakUploadBytesPerFrame = 0;
+		uint64 ReadbackOperationCount = 0;
+		uint64 ReadbackBytes = 0;
+		uint64 PeakReadbackBytesPerFrame = 0;
+		uint64 GPUWaitCount = 0;
+		uint64 GPUWaitNanoseconds = 0;
+		uint64 RetirementPendingCount = 0;
+		uint64 RetirementHighWater = 0;
+		uint64 RetirementReleasedCount = 0;
+		uint64 RetirementMaxTokenLag = 0;
+	};
+
 	// Defines the backend-neutral device interface used to create resources and submit frame work.
 	class FDynamicRHI
 	{
@@ -52,6 +111,8 @@ namespace Durin
 		RHI_API virtual auto RHIGetGraphicsCacheStatistics() const -> FRHIGraphicsCacheStatistics;
 		// Clears accumulated counters while preserving capacities and live occupancy.
 		RHI_API virtual auto RHIResetGraphicsCacheStatistics() -> void;
+		RHI_API virtual auto RHIGetMemoryStatistics() const -> FRHIMemoryStatistics;
+		RHI_API virtual auto RHIResetMemoryStatistics() -> void;
 
 		virtual auto RHIBeginFrame(const FRHIBeginFrameArgs& Args) -> void = 0;
 		RHI_API virtual auto RHIBeginFrame_RenderThread(

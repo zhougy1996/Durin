@@ -78,15 +78,14 @@ Ordered events execute in this sequence:
 
 An executor fence targets one exact accepted serial. CPU completion means replay
 and the ordered executor events above have finished; it does not imply GPU idle.
-Vulkan queue and frame fences continue to represent GPU completion.
+Vulkan submission tokens and their pooled fences represent queue completion.
 
 The executor `FrameNumber` starts at zero and advances only after a successful
 replayed `RHIEndFrame`; callers do not supply it. Ordered `BeginFrame` passes the
-current number to the backend, and Vulkan derives both its GPU frame slot and
-the rendering thread's matching dynamic-uniform page lease from it. Present
-uses the ordered active-frame state and has no independent frame-counter
-argument. Vulkan's deferred-deletion aging counter remains a separate backend
-counter.
+current number to the backend. Present uses the ordered active-frame state and
+has no independent frame-counter argument. Vulkan frame pacing, dynamic-uniform
+producer selection, descriptor-pool reuse, and native retirement use exact GPU
+completion tokens rather than deriving safety from that frame number.
 
 ## Flush And Synchronous Operations
 
@@ -142,10 +141,13 @@ initialization diagnostic. Frame-critical staging, upload, readback, submission,
 presentation, and dynamic-uniform overflow remain terminal unless their own
 public contract explicitly permits failure.
 
-At `BeginFrame`, Vulkan waits the selected GPU frame-slot fence and publishes
-one preallocated 4 MiB mapped dynamic-uniform page lease to the rendering
-thread. Ordinary aligned suballocation then needs no RHI round trip; only page
-overflow synchronously reserves an additional RHI-owned page.
+At `BeginFrame`, Vulkan polls its contiguous completion watermark, waits only
+the exact token required by the selected pacing slot, and selects a descriptor-
+pool batch whose maximum use token is complete. The rendering-thread boundary
+then selects one of two completion-eligible dynamic-uniform producer states.
+Each has a preallocated 4 MiB mapped base page; ordinary aligned suballocation
+needs no additional RHI round trip, while bounded page overflow synchronously
+reserves an RHI-owned chunk.
 
 Dynamic storage ranges use the same frame-slot lease principle but remain a
 separate allocation class. `AllocateDynamicStorageBuffer` copies an exact
@@ -165,6 +167,12 @@ RHI-thread execution have identical lifetime and range semantics.
 Ordinary end-of-frame dispatch is not a GPU-idle boundary. `SubmitToGPU`,
 `EndFrame`, present-related context work, and `DeleteResources` remain ordered
 relative to recorded commands without adding a device-wide wait.
+
+Vulkan reserves a queue token while recording and publishes it only after
+successful submission. CPU replay completion can release command-list storage,
+but submitted payloads, command buffers, fences, native dependencies, transfer
+ranges, uniform pages, and descriptor pools remain retained until their exact
+token completes. See [Vulkan memory and GPU completion](VulkanMemoryAndGPUCompletion.md).
 
 ## Runtime Drain And Diagnostics
 
@@ -205,6 +213,7 @@ queue sizing; they are not GPU timing measurements.
 - [Runtime lifecycle](../Core/RuntimeLifecycle.md)
 - [Viewport rendering](ViewportRendering.md)
 - [RHI capabilities and Vulkan startup](RHICapabilitiesAndVulkanStartup.md)
+- [Vulkan memory and GPU completion](VulkanMemoryAndGPUCompletion.md)
 - [Dedicated RHI Thread plan](../../Plans/Archive/2026-08/DedicatedRHIThread.md)
 - [Build and run](../../Development/Build/BuildAndRun.md)
 

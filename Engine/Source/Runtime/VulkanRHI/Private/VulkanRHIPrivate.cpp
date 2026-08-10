@@ -4,8 +4,13 @@
 #include "Vulkan/utility/vk_format_utils.h"
 
 #include "VulkanDevice.h"
+#include "VulkanBuffer.h"
+#include "VulkanDescriptorSets.h"
 #include "VulkanSubmission.h"
 #include "VulkanCommandBuffer.h"
+#include "VulkanCompletion.h"
+#include "VulkanContext.h"
+#include "VulkanDynamicRHI.h"
 
 namespace Durin::VulkanRHI
 {
@@ -95,6 +100,61 @@ namespace Durin::VulkanRHI
 				vk::make_error_code(vk::Result::eErrorOutOfDeviceMemory),
 				"Injected Vulkan native creation failure");
 		}
+	}
+
+	auto GetVulkanCompletionTestStats() -> FVulkanCompletionTestStats
+	{
+		CheckVulkanRHIThread();
+		FVulkanDevice* Device = FVulkanDynamicRHI::Get().GetDeviceForTesting();
+		if (!Device)
+		{
+			return {};
+		}
+		FVulkanCompletionTracker& Tracker = Device->GetCompletionTracker();
+		return {
+			.LastReservedToken = Tracker.GetLastReservedToken(),
+			.LastSubmittedToken = Tracker.GetLastSubmittedToken(),
+			.CompletedToken = Tracker.GetCompletedToken(),
+			.PendingSubmissionCount = Tracker.GetPendingSubmissionCount()};
+	}
+
+	auto GetVulkanBackendPoolTestStats() -> FVulkanBackendPoolTestStats
+	{
+		CheckVulkanRHIThread();
+		FVulkanDevice* Device = FVulkanDynamicRHI::Get().GetDeviceForTesting();
+		if (!Device)
+		{
+			return {};
+		}
+		return {
+			.DynamicUniformTokens = Device->GetDynamicUniformBufferAllocator()
+				.GetProducerTokensForTesting(),
+			.DescriptorPoolTokens = Device->GetGlobalDescriptorPool()
+				.GetBatchTokensForTesting()};
+	}
+
+	auto SubmitAndRetireDescriptorPoolsForTesting() -> uint64
+	{
+		CheckVulkanRHIThread();
+		FVulkanDevice* Device = FVulkanDynamicRHI::Get().GetDeviceForTesting();
+		const FVulkanCompletionToken Token =
+			Device->GetImmediateContext()->Finalize();
+		Device->GetGlobalDescriptorPool().RetireUsedPools(Token);
+		return Token;
+	}
+
+	auto WaitForAllVulkanSubmissionsForTesting() -> void
+	{
+		CheckVulkanRHIThread();
+		FVulkanDynamicRHI::Get().GetDeviceForTesting()
+			->GetCompletionTracker().WaitForAll();
+	}
+
+	auto ReleaseCompletedVulkanResourcesForTesting() -> void
+	{
+		CheckVulkanRHIThread();
+		FVulkanDynamicRHI::Get().GetDeviceForTesting()
+			->GetDeferredDeletionQueue().ReleaseResources();
 	}
 #endif
 

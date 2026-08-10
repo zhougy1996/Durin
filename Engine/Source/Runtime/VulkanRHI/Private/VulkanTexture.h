@@ -30,6 +30,11 @@ namespace Durin::VulkanRHI
 
 		auto GetStateTracker() -> FVulkanTextureStateTracker& { return StateTracker; }
 		auto GetStateTracker() const -> const FVulkanTextureStateTracker& { return StateTracker; }
+		auto GetAllocationClass() const -> EVulkanAllocationClassCandidate
+		{
+			return Allocation.Class;
+		}
+		VULKANRHI_API auto GetMemoryPropertyFlags() const -> vk::MemoryPropertyFlags;
 
 		vk::Image Image{};
 

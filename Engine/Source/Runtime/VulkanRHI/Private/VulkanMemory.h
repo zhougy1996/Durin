@@ -1,28 +1,32 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "VulkanRHIAPI.h"
 #include "VulkanQueue.h"
 
 namespace Durin::VulkanRHI
 {
 	class FVulkanDevice;
 	class FVulkanFenceManager;
+	enum class EVulkanAllocationClassCandidate : uint8;
 
-	// Records mapping and ownership properties required to free a Vulkan allocation safely.
-	enum class EVulkanAllocationFlags
+	struct FVulkanMappedRange
 	{
-		None = 0,
-
-		HostVisible = 1 << 0,
-		PersistentMapped = 1 << 1,
+		vk::DeviceSize Offset = 0;
+		vk::DeviceSize Size = 0;
 	};
-	ENUM_CLASS_FLAGS(EVulkanAllocationFlags)
+
+	VULKANRHI_API auto NormalizeVulkanMappedRange(vk::DeviceSize Offset,
+		vk::DeviceSize Size, vk::DeviceSize AllocationSize,
+		vk::DeviceSize NonCoherentAtomSize) -> FVulkanMappedRange;
 
 	// Carries a VMA allocation handle and the memory properties visible to its owner.
 	struct FVulkanAllocation
 	{
 		VmaAllocation Handle = nullptr;
 		VmaAllocationInfo Info;
+		EVulkanAllocationClassCandidate Class;
+		bool bDedicated = false;
 
 		template<typename T = void>
 		auto GetMappedData() const -> T* { return static_cast<T*>(Info.pMappedData); }
@@ -50,9 +54,15 @@ namespace Durin::VulkanRHI
 
 		auto Deinit() -> void;
 
-		auto CreateImage(FVulkanAllocation& OutAllocation, vk::Image& OutImage, const vk::ImageCreateInfo& ImageCreateInfo, const char* DebugName = nullptr) const -> vk::Result;
+		auto CreateImage(FVulkanAllocation& OutAllocation, vk::Image& OutImage,
+			EVulkanAllocationClassCandidate Candidate,
+			const vk::ImageCreateInfo& ImageCreateInfo,
+			const char* DebugName = nullptr) const -> vk::Result;
 
-		auto CreateBuffer(FVulkanAllocation& OutAllocation, vk::Buffer& OutBuffer, EVulkanAllocationFlags AllocFlags, const vk::BufferCreateInfo& BufferCreateInfo, const char* DebugName = nullptr) const -> vk::Result;
+		auto CreateBuffer(FVulkanAllocation& OutAllocation, vk::Buffer& OutBuffer,
+			EVulkanAllocationClassCandidate Candidate,
+			const vk::BufferCreateInfo& BufferCreateInfo,
+			const char* DebugName = nullptr) const -> vk::Result;
 
 		auto DestroyImage(FVulkanAllocation& InAllocation, vk::Image InImage) const -> void;
 
@@ -71,6 +81,8 @@ namespace Durin::VulkanRHI
 		auto GetMemoryType(const FVulkanAllocation& Allocation) const -> vk::MemoryType;
 
 		auto GetMemoryHeap(uint32 MemoryHeapIndex) const -> vk::MemoryHeap;
+
+		auto RefreshBaselineHeapBudgets() const -> void;
 
 		DURIN_NONCOPYABLE(FVulkanMemoryManager)
 	private:

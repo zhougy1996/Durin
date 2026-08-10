@@ -6,6 +6,7 @@ namespace Durin::VulkanRHI
 	class FVulkanCommandBuffer;
 	class FVulkanSemaphore;
 	class FVulkanPayload;
+	using FVulkanCompletionToken = uint64;
 
 	// Serializes submissions to one Vulkan queue and tracks its family capabilities.
 	class FVulkanQueue
@@ -14,7 +15,8 @@ namespace Durin::VulkanRHI
 		FVulkanQueue(FVulkanDevice* InDevice, uint32 InFamilyIndex);
 		~FVulkanQueue();
 
-		auto SubmitPayloads(std::vector<FVulkanPayload*>& Payloads) -> void;
+		auto SubmitPayloads(std::vector<FVulkanPayload*>& Payloads)
+			-> FVulkanCompletionToken;
 
 		auto GetHandle() const -> vk::Queue;
 

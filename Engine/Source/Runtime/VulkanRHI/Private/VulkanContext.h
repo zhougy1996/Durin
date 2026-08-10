@@ -2,6 +2,7 @@
 
 #include "RHIContext.h"
 #include "VulkanMemory.h"
+#include "VulkanTransferArena.h"
 
 namespace Durin::VulkanRHI
 {
@@ -12,6 +13,7 @@ namespace Durin::VulkanRHI
 	class FVulkanCommandBufferManager;
 	class FVulkanCommandBuffer;
 	class FVulkanCommandBufferPool;
+	using FVulkanCompletionToken = uint64;
 	class FVulkanSemaphore;
 	class FVulkanPayload;
 	class FVulkanPendingGraphicsState;
@@ -105,7 +107,9 @@ namespace Durin::VulkanRHI
 			FVulkanGraphicsPipelineState* PipelineState) -> void;
 
 		// Submit and reset context
-		auto Finalize() -> void;
+		auto Finalize() -> FVulkanCompletionToken;
+		auto AcquireTransferRange(EVulkanAllocationClassCandidate AllocationClass,
+			uint64 Size, uint64 Alignment) -> FVulkanTransferRange;
 
 	protected:
 		auto ValidateDrawBindings(uint32 VertexCount, uint32 InstanceCount,

@@ -1,6 +1,8 @@
 #include "VulkanDescriptorSets.h"
 
 #include "VulkanDevice.h"
+#include "VulkanCompletion.h"
+#include "VulkanDiagnostics.h"
 #include "VulkanRHIPrivate.h"
 
 namespace Durin::VulkanRHI
@@ -131,13 +133,20 @@ namespace Durin::VulkanRHI
 		CreateInfo
 			.setPoolSizes(PoolSizes)
 			.setMaxSets(MaxDescriptorSets);
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		ThrowIfVulkanNativeCreateFailureIsArmed(
+			EVulkanCreateFailurePoint::DescriptorPool);
+#endif
 		DescriptorPool = Device->GetHandle().createDescriptorPool(CreateInfo);
+		GVulkanMemoryBaselineTracker.RecordDescriptorPoolCreated(MaxDescriptorSets);
 	}
 
 	FVulkanDescriptorPool::~FVulkanDescriptorPool()
 	{
 		if (DescriptorPool)
 		{
+			GVulkanMemoryBaselineTracker.RecordDescriptorPoolDestroyed(
+				MaxDescriptorSets, NumAllocatedDescriptorSets);
 			Device->GetHandle().destroyDescriptorPool(DescriptorPool);
 		}
 	}
@@ -172,6 +181,8 @@ namespace Durin::VulkanRHI
 	auto FVulkanDescriptorPool::CommitAllocation(const FVulkanDescriptorRequirements& Requirements) -> void
 	{
 		NumAllocatedDescriptorSets += Requirements.MaxSets;
+		GVulkanMemoryBaselineTracker.RecordDescriptorSetsAllocated(
+			Requirements.MaxSets);
 		PeakAllocatedDescriptorSets = std::max(PeakAllocatedDescriptorSets, NumAllocatedDescriptorSets);
 		for (const auto& [Type, Count] : Requirements.DescriptorCounts)
 		{
@@ -179,22 +190,36 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto FVulkanDescriptorPool::Reset() -> void
+	auto FVulkanDescriptorPool::MarkUsed(FVulkanCompletionToken Token) -> void
 	{
+		check(Token > 0 && NumAllocatedDescriptorSets > 0);
+		LastUseToken = std::max(LastUseToken, Token);
+	}
+
+	auto FVulkanDescriptorPool::Reset(
+		FVulkanCompletionToken CompletedToken) -> void
+	{
+		check(LastUseToken <= CompletedToken);
 		Device->GetHandle().resetDescriptorPool(DescriptorPool);
+		GVulkanMemoryBaselineTracker.RecordDescriptorPoolReset(
+			NumAllocatedDescriptorSets);
 		NumAllocatedDescriptorSets = 0;
 		NumAllocatedDescriptors.clear();
+		LastUseToken = 0;
 	}
 
-	auto FVulkanGlobalDescriptorPool::GetCurrentPools() -> std::vector<std::unique_ptr<FVulkanDescriptorPool>>&
+	auto FVulkanGlobalDescriptorPool::GetActiveBatch() -> FPoolBatch&
 	{
 		CheckVulkanRHIThread();
-		return Pools[Device.GetCurrentFrameIndex()];
+		check(ActiveBatchIndex < Batches.size());
+		return Batches[ActiveBatchIndex];
 	}
 
-	auto FVulkanGlobalDescriptorPool::CreatePool(uint32 FrameIndex, const FVulkanDescriptorRequirements& Requirements, uint32 GrowthMaxSets) -> FVulkanDescriptorPool&
+	auto FVulkanGlobalDescriptorPool::CreatePool(
+		const FVulkanDescriptorRequirements& Requirements,
+		uint32 GrowthMaxSets) -> FVulkanDescriptorPool&
 	{
-		constexpr uint32 MaxPoolsPerFrame = 32;
+		constexpr uint32 MaxPoolsPerBatch = 32;
 		FVulkanDescriptorRequirements PoolRequirements = Requirements;
 		PoolRequirements.MaxSets = std::max(PoolRequirements.MaxSets, GrowthMaxSets);
 		for (auto& [Type, Count] : PoolRequirements.DescriptorCounts)
@@ -202,20 +227,22 @@ namespace Durin::VulkanRHI
 			Count = std::max(Count, 128u);
 		}
 
-		auto& FramePools = Pools[FrameIndex];
-		checkf(FramePools.size() < MaxPoolsPerFrame,
-			"Vulkan descriptor pool expansion limit reached: frame={}, poolCount={}, requestedSets={}",
-			FrameIndex, FramePools.size(), Requirements.MaxSets);
-		const bool bIsExpansion = !FramePools.empty();
-		FramePools.push_back(std::make_unique<FVulkanDescriptorPool>(&Device, PoolRequirements));
+		FPoolBatch& Batch = GetActiveBatch();
+		auto& Pools = Batch.Pools;
+		checkf(Pools.size() < MaxPoolsPerBatch,
+			"Vulkan descriptor pool expansion limit reached: batch={}, poolCount={}, requestedSets={}",
+			ActiveBatchIndex, Pools.size(), Requirements.MaxSets);
+		const bool bIsExpansion = !Pools.empty();
+		Pools.push_back(std::make_unique<FVulkanDescriptorPool>(&Device, PoolRequirements));
 		if (bIsExpansion)
 		{
-			++PoolExpansions[FrameIndex];
+			++Batch.ExpansionCount;
 			++Device.GetGraphicsCacheStatisticsMutable().DescriptorPoolExpansions;
 		}
-		DURIN_DEBUG("Created Vulkan descriptor pool: frame={}, poolCount={}, maxSets={}, expansions={}",
-			FrameIndex, FramePools.size(), FramePools.back()->GetMaxSets(), PoolExpansions[FrameIndex]);
-		return *FramePools.back();
+		DURIN_DEBUG("Created Vulkan descriptor pool: batch={}, poolCount={}, maxSets={}, expansions={}",
+			ActiveBatchIndex, Pools.size(), Pools.back()->GetMaxSets(),
+			Batch.ExpansionCount);
+		return *Pools.back();
 	}
 
 	auto FVulkanGlobalDescriptorPool::AllocateDescriptorSets(
@@ -227,9 +254,13 @@ namespace Durin::VulkanRHI
 		{
 			return {};
 		}
+		if (ActiveBatchIndex == std::numeric_limits<uint32>::max())
+		{
+			PrepareForUse();
+		}
 
-		auto& FramePools = GetCurrentPools();
-		for (const auto& Pool : FramePools)
+		auto& Pools = GetActiveBatch().Pools;
+		for (const auto& Pool : Pools)
 		{
 			if (!Pool->CanAllocate(Requirements))
 			{
@@ -256,13 +287,12 @@ namespace Durin::VulkanRHI
 			}
 		}
 
-		const uint32 FrameIndex = Device.GetCurrentFrameIndex();
 		uint32 GrowthMaxSets = 256;
-		if (!FramePools.empty())
+		if (!Pools.empty())
 		{
-			GrowthMaxSets = FramePools.back()->GetMaxSets() * 2u;
+			GrowthMaxSets = Pools.back()->GetMaxSets() * 2u;
 		}
-		FVulkanDescriptorPool& NewPool = CreatePool(FrameIndex, Requirements, GrowthMaxSets);
+		FVulkanDescriptorPool& NewPool = CreatePool(Requirements, GrowthMaxSets);
 		vk::DescriptorSetAllocateInfo AllocateInfo;
 		AllocateInfo
 			.setDescriptorPool(NewPool.GetHandle())
@@ -281,11 +311,76 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto FVulkanGlobalDescriptorPool::ResetPoolsForCurrentFrame() -> void
+	auto FVulkanGlobalDescriptorPool::PrepareForUse() -> void
 	{
-		for (const auto& Pool : GetCurrentPools())
+		CheckVulkanRHIThread();
+		check(ActiveBatchIndex == std::numeric_limits<uint32>::max());
+		auto& Tracker = Device.GetCompletionTracker();
+		Tracker.Poll();
+		FVulkanCompletionToken Completed = Tracker.GetCompletedToken();
+		for (uint32 Index = 0; Index < Batches.size(); ++Index)
 		{
-			Pool->Reset();
+			if (Batches[Index].LastUseToken <= Completed)
+			{
+				ActiveBatchIndex = Index;
+				break;
+			}
 		}
+		if (ActiveBatchIndex == std::numeric_limits<uint32>::max()
+			&& Batches.size() < kFrameInFlight)
+		{
+			ActiveBatchIndex = static_cast<uint32>(Batches.size());
+			Batches.emplace_back();
+		}
+		if (ActiveBatchIndex == std::numeric_limits<uint32>::max())
+		{
+			const auto Oldest = std::ranges::min_element(
+				Batches, {}, &FPoolBatch::LastUseToken);
+			check(Oldest != Batches.end() && Oldest->LastUseToken > 0);
+			Tracker.WaitForToken(Oldest->LastUseToken);
+			Completed = Tracker.GetCompletedToken();
+			ActiveBatchIndex = static_cast<uint32>(
+				std::distance(Batches.begin(), Oldest));
+		}
+		FPoolBatch& Batch = GetActiveBatch();
+		check(Batch.LastUseToken <= Completed);
+		for (const auto& Pool : Batch.Pools)
+		{
+			Pool->Reset(Completed);
+		}
+		Batch.LastUseToken = 0;
+	}
+
+	auto FVulkanGlobalDescriptorPool::RetireUsedPools(
+		FVulkanCompletionToken Token) -> void
+	{
+		CheckVulkanRHIThread();
+		if (ActiveBatchIndex == std::numeric_limits<uint32>::max())
+		{
+			return;
+		}
+		FPoolBatch& Batch = GetActiveBatch();
+		bool bUsed = false;
+		for (const auto& Pool : Batch.Pools)
+		{
+			if (Pool->GetAllocatedSets() > 0)
+			{
+				Pool->MarkUsed(Token);
+				bUsed = true;
+			}
+		}
+		Batch.LastUseToken = bUsed ? Token : 0;
+		ActiveBatchIndex = std::numeric_limits<uint32>::max();
+	}
+
+	auto FVulkanGlobalDescriptorPool::GetBatchTokensForTesting() const
+		-> std::array<FVulkanCompletionToken, kFrameInFlight>
+	{
+		std::array<FVulkanCompletionToken, kFrameInFlight> Result{};
+		for (uint32 Index = 0; Index < Batches.size(); ++Index)
+		{
+			Result[Index] = Batches[Index].LastUseToken;
+		}
+		return Result;
 	}
 } // namespace Durin::VulkanRHI

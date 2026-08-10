@@ -66,10 +66,10 @@ namespace Durin::VulkanRHI
 	class FVulkanDescriptorSetLayoutCache;
 	class FVulkanDynamicUniformBufferAllocator;
 	class FVulkanDynamicStorageBufferAllocator;
+	class FVulkanCompletionTracker;
+	class FVulkanTransferArena;
 
-	extern uint64 GVulkanRHIDeletionFrameNumber;
-
-	// Defers destruction of Vulkan handles until all potentially referencing frames retire.
+	// Defers destruction of Vulkan handles until their queue completion token retires.
 	class FDeferredDeletionQueue
 	{
 	public:
@@ -125,11 +125,11 @@ namespace Durin::VulkanRHI
 		auto Clear() -> void;
 
 	private:
-		// Records one handle and the frame after which destroying it is safe.
+		// Records one handle and the exact queue token required for destruction.
 		struct FEntry
 		{
 			EType Type;
-			uint64 FrameNumber;
+			uint64 CompletionToken;
 			uint64 Handle;
 			FVulkanAllocation Allocation;
 		};
@@ -189,6 +189,12 @@ namespace Durin::VulkanRHI
 		auto GetMemoryManager() -> FVulkanMemoryManager& { return MemoryManager; }
 
 		auto GetFenceManager() -> FVulkanFenceManager& { return FenceManager; }
+		auto GetCompletionTracker() -> FVulkanCompletionTracker&
+		{
+			return *CompletionTracker;
+		}
+		auto GetUploadArena() -> FVulkanTransferArena& { return *UploadArena; }
+		auto GetReadbackArena() -> FVulkanTransferArena& { return *ReadbackArena; }
 
 		auto GetPipelineManager() const -> FVulkanPipelineManager& { return *PipelineManager; }
 
@@ -228,6 +234,9 @@ namespace Durin::VulkanRHI
 		FVulkanMemoryManager MemoryManager;
 
 		FVulkanFenceManager FenceManager;
+		FVulkanCompletionTracker* CompletionTracker = nullptr;
+		FVulkanTransferArena* UploadArena = nullptr;
+		FVulkanTransferArena* ReadbackArena = nullptr;
 
 		FVulkanRenderPassManager* RenderPassManager = nullptr;
 

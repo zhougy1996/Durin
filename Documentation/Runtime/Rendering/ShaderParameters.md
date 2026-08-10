@@ -166,7 +166,8 @@ At this layer, bindings are already resolved. RHI no longer has a byte-blob para
 
 ## Vulkan Responsibilities
 
-Vulkan owns draw-time descriptor materialization and frame-local caching.
+Vulkan owns draw-time descriptor materialization and frame-local snapshot
+caching. Native descriptor-pool reuse is independently gated by GPU completion.
 
 ### Why Mutable Descriptor State Moved Out Of PSO
 
@@ -208,7 +209,8 @@ The command context stores a frame-generation-local indexed cache:
 6. allocate descriptor sets and write descriptors on miss
 
 The cache lifetime is intentionally tied to the frame-pool generation.
-`RHIBeginFrame()` clears it before the corresponding descriptor pool is reset.
+`RHIBeginFrame()` clears it before selecting a completion-eligible descriptor
+pool batch; a native pool resets only after its maximum use token completes.
 One command context is bounded to 512 entries and 8192 descriptor values;
 least-recently-used eviction releases retained resources when either bound is
 reached.
@@ -308,7 +310,8 @@ This remains a staged design rather than the final compute/bindless end-state.
 - compute pipeline support has not been wired into this submission model
 - bindless and partially-bound arrays are not supported
 - compute pipelines have not yet consumed the shared reflected snapshot model
-- GPU-completion-token retirement may replace frame-generation invalidation later
+- descriptor snapshot invalidation remains frame-local while native pool reuse
+  follows the completed-token contract
 
 ## Practical Guidance
 

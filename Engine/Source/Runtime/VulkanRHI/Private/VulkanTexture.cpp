@@ -5,6 +5,7 @@
 #include "VulkanDynamicRHI.h"
 #include "VulkanRHIPrivate.h"
 #include "VulkanDevice.h"
+#include "VulkanDiagnostics.h"
 #include "VulkanMemory.h"
 #include "VulkanContext.h"
 #include "VulkanCommandBuffer.h"
@@ -116,7 +117,8 @@ namespace Durin::VulkanRHI
 
 		FVulkanMemoryManager& MemoryManager = InDevice.GetMemoryManager();
 		const vk::Result ImageResult =
-			MemoryManager.CreateImage(Allocation, Image, ImageInfo);
+			MemoryManager.CreateImage(Allocation, Image,
+				EVulkanAllocationClassCandidate::DeviceLocal, ImageInfo);
 		if (ImageResult != vk::Result::eSuccess)
 		{
 			throw std::runtime_error(std::format(
@@ -156,6 +158,12 @@ namespace Durin::VulkanRHI
 					FDeferredDeletionQueue::EType::Image, Image, Allocation);
 			}
 		}
+	}
+
+	auto FVulkanTexture::GetMemoryPropertyFlags() const
+		-> vk::MemoryPropertyFlags
+	{
+		return Device.GetMemoryManager().GetMemoryType(Allocation).propertyFlags;
 	}
 
 	FVulkanSampler::FVulkanSampler(FVulkanDevice& InDevice, const FRHISamplerDesc& InDesc)
@@ -416,20 +424,24 @@ namespace Durin::VulkanRHI
 		check(PackedLayout.DataSize <= std::numeric_limits<uint32>::max());
 		const uint32 PackedRowPitch = static_cast<uint32>(PackedLayout.RowPitch);
 		const uint32 DataSize = static_cast<uint32>(PackedLayout.DataSize);
-		FRHIBufferCreateDesc StagingDesc = FRHIBufferCreateDesc::Create(
-			"TextureUploadStaging", DataSize, 0,
-			EBufferUsageFlags::Dynamic | EBufferUsageFlags::SourceCopy);
-		TRefCountPtr<FVulkanBuffer> StagingBuffer = new FVulkanBuffer(*Device, StagingDesc);
-		auto* Mapped = static_cast<uint8*>(StagingBuffer->GetMappedPointer());
+		const uint64 Alignment = std::max<uint64>({16, BytesPerBlock,
+			Device->GetGpuProperties().limits.nonCoherentAtomSize,
+			Device->GetGpuProperties().limits.optimalBufferCopyOffsetAlignment});
+		FVulkanTransferRange Staging = Context.AcquireTransferRange(
+			EVulkanAllocationClassCandidate::TransferUpload, DataSize, Alignment);
+		FVulkanBuffer* StagingBuffer = Staging.GetBuffer();
+		GVulkanMemoryBaselineTracker.RecordUpload(DataSize);
+		auto* Mapped = Staging.GetMappedPointer();
 		const auto* SourceRegion = SourceData.data() + SourceBlockY * SourcePitch + SourceBlockX * BytesPerBlock;
 		for (uint64 BlockRow = 0; BlockRow < PackedLayout.BlocksHigh; ++BlockRow)
 		{
 			std::memcpy(Mapped + BlockRow * PackedRowPitch, SourceRegion + BlockRow * SourcePitch, PackedRowPitch);
 		}
-		StagingBuffer->FlushMappedMemory();
-		StagingBuffer->GetStateTracker().Apply(0, DataSize, ERHIAccess::HostWrite);
+		Staging.Flush();
+		StagingBuffer->GetStateTracker().Apply(
+			Staging.GetOffset(), DataSize, ERHIAccess::HostWrite);
 		const std::array StagingTransition{FRHIBufferTransition{
-			StagingBuffer.GetReference(), 0, DataSize,
+			StagingBuffer, Staging.GetOffset(), DataSize,
 			ERHIAccess::HostWrite, ERHIAccess::TransferRead}};
 		Context.RHITransitionBuffers(StagingTransition);
 
@@ -443,7 +455,7 @@ namespace Durin::VulkanRHI
 		Context.RHITransitionTextures(PreCopyTransition);
 
 		const std::array CopyRegions{FRHIBufferTextureCopyRegion{
-			.BufferOffset = 0,
+			.BufferOffset = Staging.GetOffset(),
 			.TextureAspect = ERHITextureAspect::Color,
 			.TextureMip = MipIndex,
 			.TextureFirstArrayLayer = ArraySlice,
@@ -451,13 +463,14 @@ namespace Durin::VulkanRHI
 			.TextureOffset = {static_cast<int32>(UpdateRegion.DestX),
 				static_cast<int32>(UpdateRegion.DestY), 0},
 			.TextureExtent = {UpdateRegion.Width, UpdateRegion.Height, 1}}};
-		Context.RHICopyBufferToTexture(StagingBuffer.GetReference(), VulkanTexture, CopyRegions);
+		Context.RHICopyBufferToTexture(StagingBuffer, VulkanTexture, CopyRegions);
 
 		const ERHIAccess FinalAccess = bStorage
 			? ERHIAccess::GraphicsShaderReadWrite : ERHIAccess::GraphicsShaderRead;
 		const std::array PostCopyTransition{FRHITextureTransition{
 			VulkanTexture, TransitionRange, ERHIAccess::TransferWrite, FinalAccess}};
 		Context.RHITransitionTextures(PostCopyTransition);
+		Staging.Retire();
 	}
 
 	auto FVulkanDynamicRHI::ReadTexture2D(
@@ -508,11 +521,14 @@ namespace Durin::VulkanRHI
 			DURIN_ERROR("Failed to read Vulkan texture: subresource contents are undefined.");
 			return false;
 		}
-		FRHIBufferCreateDesc ReadbackDesc = FRHIBufferCreateDesc::Create(
-			"TextureReadback", static_cast<uint32>(Layout.DataSize), 0,
-			EBufferUsageFlags::Dynamic | EBufferUsageFlags::KeepCPUAccessible
-				| EBufferUsageFlags::DestinationCopy);
-		TRefCountPtr<FVulkanBuffer> ReadbackBuffer = new FVulkanBuffer(*Device, ReadbackDesc);
+		const uint64 Alignment = std::max<uint64>({16, FormatInfo.BytesPerBlock,
+			Device->GetGpuProperties().limits.nonCoherentAtomSize,
+			Device->GetGpuProperties().limits.optimalBufferCopyOffsetAlignment});
+		FVulkanTransferRange Readback = Context.AcquireTransferRange(
+			EVulkanAllocationClassCandidate::TransferReadback,
+			Layout.DataSize, Alignment);
+		FVulkanBuffer* ReadbackBuffer = Readback.GetBuffer();
+		GVulkanMemoryBaselineTracker.RecordReadback(Layout.DataSize);
 
 		const FRHITextureSubresourceRange TransitionRange{
 			ERHITextureAspect::Color, MipIndex, 1, ArraySlice, 1};
@@ -520,36 +536,39 @@ namespace Durin::VulkanRHI
 			VulkanTexture, TransitionRange, OldAccess, ERHIAccess::TransferRead}};
 		Context.RHITransitionTextures(PreCopyTransition);
 		const std::array ReadbackTransition{FRHIBufferTransition{
-			ReadbackBuffer.GetReference(), 0, Layout.DataSize,
+			ReadbackBuffer, Readback.GetOffset(), Layout.DataSize,
 			ERHIAccess::Discard, ERHIAccess::TransferWrite}};
 		Context.RHITransitionBuffers(ReadbackTransition);
 		const std::array CopyRegions{FRHIBufferTextureCopyRegion{
-			.BufferOffset = 0,
+			.BufferOffset = Readback.GetOffset(),
 			.TextureAspect = ERHITextureAspect::Color,
 			.TextureMip = MipIndex,
 			.TextureFirstArrayLayer = ArraySlice,
 			.TextureNumArrayLayers = 1,
 			.TextureExtent = {Width, Height, 1}}};
-		Context.RHICopyTextureToBuffer(VulkanTexture, ReadbackBuffer.GetReference(), CopyRegions);
+		Context.RHICopyTextureToBuffer(VulkanTexture, ReadbackBuffer, CopyRegions);
 
 		const std::array PostCopyTransition{FRHITextureTransition{
 			VulkanTexture, TransitionRange, ERHIAccess::TransferRead, OldAccess}};
 		Context.RHITransitionTextures(PostCopyTransition);
 		const std::array HostTransition{FRHIBufferTransition{
-			ReadbackBuffer.GetReference(), 0, Layout.DataSize,
+			ReadbackBuffer, Readback.GetOffset(), Layout.DataSize,
 			ERHIAccess::TransferWrite, ERHIAccess::HostRead}};
 		Context.RHITransitionBuffers(HostTransition);
 
-		Context.Finalize();
-		Device->WaitUtilIdle();
-		ReadbackBuffer->InvalidateMappedMemory(0, static_cast<uint32>(Layout.DataSize));
-		const auto* MappedData = static_cast<const uint8*>(ReadbackBuffer->GetMappedPointer());
+		const FVulkanCompletionToken ProducingToken = Context.Finalize();
+		check(ProducingToken == Readback.GetToken());
+		Device->GetCompletionTracker().WaitForToken(ProducingToken);
+		Readback.Invalidate();
+		const auto* MappedData = Readback.GetMappedPointer();
 		if (MappedData == nullptr)
 		{
 			DURIN_ERROR("Failed to read Vulkan texture: readback allocation is not mapped.");
 			return false;
 		}
 		OutData.assign(MappedData, MappedData + Layout.DataSize);
+		Readback.Retire();
+		Device->GetReadbackArena().ReclaimCompleted();
 		return true;
 	}
 } // namespace Durin::VulkanRHI
