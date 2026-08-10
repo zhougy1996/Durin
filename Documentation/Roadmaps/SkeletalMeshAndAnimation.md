@@ -27,18 +27,19 @@ finite glTF/GLB pose goldens without source, import modules, or DDC fallback.
 The component still has no scene proxy, render resource, shader, RHI object, or
 GPU skinning path.
 
-S1-S2 and Rendering Capability Expansion M1-M3 are now complete. This is
-readiness evidence for the shared S3/M4 skeletal-rendering entry gate, not an
-automatic activation. Before selecting that child plan, re-inspect the current
-RHI binding/resource-transition limits, shared prepared-primitive/material/pass
-interfaces, dynamic-bounds policy, representative animated fixture, and the
-product decision that SkeletalMesh remains the second production primitive.
+S1-S2 and Rendering Capability Expansion M1-M3 are now complete. The 2026-08-10
+entry audit retained SkeletalMesh as the second production primitive and
+activated the shared
+[Skeletal Mesh Rendering Plan](../Plans/SkeletalMeshRendering.md). Stage 0 may
+audit contracts while the active RHI graphics plan proceeds; source
+implementation waits for that plan's stable completion handoff and consumes its
+final vertex-input, binding, validation, and cache contracts.
 
 Skeletal rendering is also the default second production primitive in the
 [Rendering Capability Expansion Roadmap](RenderingCapabilityExpansion.md).
 That roadmap owns the shared scene, pass, visibility, material, and shadow
 contracts. This roadmap owns skeletal data, pose, playback, and product
-behavior. The eventual skeletal-rendering plan is one shared child of both
+behavior. The active skeletal-rendering plan is one shared child of both
 roadmaps rather than two competing implementations.
 
 ## Outcome
@@ -205,12 +206,13 @@ flowchart LR
 | --- | --- | --- | --- | --- |
 | S1: Asset and import foundation | Completed 2026-08-08 | [Skeletal Asset and Import Foundation](../Plans/Archive/2026-08/SkeletalAssetAndImportFoundation.md) | Existing import, package, DDC, cook, math, and static-model behavior was recorded; the selected glTF fixture corpus did not change StaticMesh outputs. | Met: stable peer assets, deterministic bounded authored/DDC/cooked paths, runtime-only loading, and transactional structured failures are implemented and qualified below. |
 | S2: Runtime pose and clip playback | Completed 2026-08-10 | [Skeletal Runtime Pose and Playback](../Plans/Archive/2026-08/SkeletalRuntimePoseAndPlayback.md) | Met on 2026-08-10: S1 schemas, compatibility, detached payload access, transform convention, fixture corpus, component lifecycle, and runtime ownership seams were re-inspected. | Met: one component/runtime owner samples supported clips deterministically, evaluates local-to-component poses, handles time/looping, rejects incompatible clips, and atomically publishes bounded immutable palette candidates without rendering-thread object reads. |
-| S3: Skeletal rendering vertical slice | Required; shared with Rendering M4; plan authored at entry | No plan yet | S1-S2 are stable; Rendering Capability Expansion M1-M3 have completed; the current RHI binding limits and shared pass/visibility APIs are measured; SkeletalMesh remains the selected second primitive family. | GPU-skinned SkeletalMesh shares scene mutation, materials, passes, visibility, viewport, invalidation, and applicable shadow behavior with StaticMesh; palette and bounds updates are deterministic and lifecycle-safe; Vulkan validation and animated image coverage pass. |
+| S3: Skeletal rendering vertical slice | Required; shared with Rendering M4; active plan, implementation queued behind RHI graphics M3 | [Skeletal Mesh Rendering](../Plans/SkeletalMeshRendering.md) | Met on 2026-08-10: S1-S2 and Rendering M1-M3 are stable, SkeletalMesh remains selected, and current RHI, pass/visibility, palette, bounds, fixture, and validation gaps are recorded. Source work waits for the RHI Graphics State and Bindings completion handoff. | GPU-skinned SkeletalMesh shares scene mutation, materials, passes, visibility, viewport, invalidation, and applicable shadow behavior with StaticMesh; palette and bounds updates are deterministic and lifecycle-safe; Vulkan validation and animated image coverage pass. |
 | S4: Editor workflow and production qualification | Required; plan authored at entry | No plan yet | S3 renders a representative animated asset and exposes stable inspection/playback seams; current Content Browser and inspector extension contracts are re-inspected. | Users can import/reimport, identify, inspect, preview, diagnose, cook, and run supported skeletal assets through documented workflows; representative engine/project fixtures pass full editor and runtime qualification. |
 
-S3 is intentionally represented once. When its entry gate is reached, the new
-child plan must be linked from both this roadmap and Rendering Capability
-Expansion M4, with one plan status and one set of acceptance gates.
+S3 is intentionally represented once through the active
+[Skeletal Mesh Rendering Plan](../Plans/SkeletalMeshRendering.md), linked from
+both this roadmap and Rendering Capability Expansion M4 with one plan status
+and one set of acceptance gates.
 
 ## S1-S2 Completion Evidence and S3 Entry Handoff
 
@@ -256,12 +258,15 @@ successfully. A plan-gated focused `Win64-Shipping-DurinGame-Tests`
 editor or import modules. The verified editor executable is
 `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`.
 
-The shared S3/M4 entry dependencies are now present: S1-S2 and Rendering M1-M3
-are complete, and immutable candidates can cross into rendering without object
-reads. Selection still requires a fresh audit of the current Renderer prepared-
-primitive boundary, material/pass/visibility reuse, RHI binding and transition
-capabilities, palette upload budget/lifetime, bounds policy, representative
-fixture, and Vulkan validation scope. No S3 plan is activated by S2 completion.
+The shared S3/M4 entry dependencies are present: S1-S2 and Rendering M1-M3 are
+complete, and immutable candidates can cross into rendering without object
+reads. The 2026-08-10 audit activated the shared plan and bounded the current
+prepared-primitive boundary, material/pass/visibility reuse, RHI storage
+binding and transition work, palette upload lifetime, conservative influence-
+bound policy, fixture, and Vulkan validation. Activation does not authorize
+parallel evolution of the active RHI plan's sources: skeletal source work waits
+for its completion handoff and then adds only consumer-proven missing storage
+upload capability.
 
 ## Evidence-Gated Follow-Ups
 
@@ -313,6 +318,7 @@ fixture, and Vulkan validation scope. No S3 plan is activated by S2 completion.
 ## Related Documentation
 
 - [Skeletal Asset and Import Foundation Plan](../Plans/Archive/2026-08/SkeletalAssetAndImportFoundation.md)
+- [Skeletal Mesh Rendering Plan](../Plans/SkeletalMeshRendering.md)
 - [Rendering Capability Expansion Roadmap](RenderingCapabilityExpansion.md)
 - [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
 - [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
