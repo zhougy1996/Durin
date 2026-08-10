@@ -20,6 +20,7 @@
         "MaterialEditor": "Source/Editor/MaterialEditor",
         "TextureEditor": "Source/Editor/TextureEditor",
         "StaticMeshEditor": "Source/Editor/StaticMeshEditor",
+        "SkeletalMeshEditor": "Source/Editor/SkeletalMeshEditor",
         "DurinLauncher": "Source/Editor/DurinLauncher",
         "StandardAssetImport": "Source/Editor/StandardAssetImport",
         "AssetImportCore": "Source/Editor/AssetImportCore"
@@ -38,6 +39,7 @@
                 "MaterialEditor",
                 "TextureEditor",
                 "StaticMeshEditor",
+                "SkeletalMeshEditor",
                 "StandardAssetImport",
                 "AssetImportCore"
             ]

@@ -240,8 +240,30 @@ namespace Durin
 				"Initialized SkeletalMesh render data must be replaced through imported-state exchange.");
 		RenderData = std::move(Candidate);
 		RenderResourceState.store(ERenderResourceState::Uninitialized, std::memory_order_release);
+		RenderResourceRevision.fetch_add(1, std::memory_order_acq_rel);
 		OutError.clear();
 		return true;
+	}
+
+	auto DSkeletalMesh::GetRenderResourceStatus() const
+		-> FSkeletalMeshRenderResourceStatus
+	{
+		ESkeletalMeshRenderResourceReadiness Readiness =
+			ESkeletalMeshRenderResourceReadiness::Unavailable;
+		switch (RenderResourceState.load(std::memory_order_acquire))
+		{
+		case ERenderResourceState::InitializationQueued:
+			Readiness = ESkeletalMeshRenderResourceReadiness::Queued; break;
+		case ERenderResourceState::Ready:
+			Readiness = ESkeletalMeshRenderResourceReadiness::Ready; break;
+		case ERenderResourceState::Failed:
+			Readiness = ESkeletalMeshRenderResourceReadiness::Failed; break;
+		case ERenderResourceState::Uninitialized:
+		case ERenderResourceState::ReleaseQueued:
+		case ERenderResourceState::Released: break;
+		}
+		return {.Readiness = Readiness,
+			.Revision = RenderResourceRevision.load(std::memory_order_acquire)};
 	}
 
 	auto DSkeletalMesh::InitResources() -> void
@@ -256,6 +278,7 @@ namespace Durin
 			if (!RenderResourceState.compare_exchange_strong(
 				Expected, ERenderResourceState::InitializationQueued, std::memory_order_acq_rel)) return;
 		}
+		RenderResourceRevision.fetch_add(1, std::memory_order_acq_rel);
 #if DURIN_BUILD_DEBUG
 		RenderData->SetResourceDebugOwner(GetPackage()
 			? FName(GetPackage()->GetPackagePath())
@@ -267,6 +290,7 @@ namespace Durin
 				RenderResourceState.store(Data->InitResources(CommandList)
 					? ERenderResourceState::Ready : ERenderResourceState::Failed,
 					std::memory_order_release);
+				RenderResourceRevision.fetch_add(1, std::memory_order_acq_rel);
 			});
 	}
 
@@ -279,14 +303,17 @@ namespace Durin
 		if (!RenderData || State == ERenderResourceState::Uninitialized)
 		{
 			RenderResourceState.store(ERenderResourceState::Released, std::memory_order_release);
+			RenderResourceRevision.fetch_add(1, std::memory_order_acq_rel);
 			return;
 		}
 		RenderResourceState.store(ERenderResourceState::ReleaseQueued, std::memory_order_release);
+		RenderResourceRevision.fetch_add(1, std::memory_order_acq_rel);
 		FSkeletalMeshRenderData* Data = RenderData.get();
 		ENQUEUE_RENDER_COMMAND(ReleaseSkeletalMeshResources)(
 			[this, Data](FRHICommandListImmediate&) {
 				Data->ReleaseResources();
 				RenderResourceState.store(ERenderResourceState::Released, std::memory_order_release);
+				RenderResourceRevision.fetch_add(1, std::memory_order_acq_rel);
 			});
 	}
 
@@ -683,6 +710,8 @@ namespace Durin
 			Candidate->RenderResourceState.load(std::memory_order_acquire);
 		Target->RenderResourceState.store(CandidateState, std::memory_order_release);
 		Candidate->RenderResourceState.store(TargetState, std::memory_order_release);
+		Target->RenderResourceRevision.fetch_add(1, std::memory_order_acq_rel);
+		Candidate->RenderResourceRevision.fetch_add(1, std::memory_order_acq_rel);
 		std::swap(Target->bLoadedFromDerivedDataCache, Candidate->bLoadedFromDerivedDataCache);
 		std::swap(Target->PayloadStorageDiagnostic, Candidate->PayloadStorageDiagnostic);
 		Target->MarkPackageDirty();

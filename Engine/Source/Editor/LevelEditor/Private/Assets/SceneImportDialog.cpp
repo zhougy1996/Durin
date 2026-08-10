@@ -182,7 +182,7 @@ namespace Durin
 				ImVec2(0.0f, MonaImGui::ScaleUI(190.0f)), ImGuiChildFlags_Borders);
 			const AssetImport::FImportPreview& ImportPreview =
 				Preview->Plan.GetMultiOutputPlan().GetPreview();
-			ImGui::TextDisabled("Outputs and management actions");
+			ImGui::TextDisabled("Peer outputs (role, action, destination, estimated CPU/GPU/Disk)");
 			for (const AssetImport::FImportPreviewOutput& Asset : ImportPreview.Outputs)
 			{
 				const char* Action = "Create";
@@ -196,7 +196,12 @@ namespace Durin
 				case AssetImport::EImportPreviewAction::Collision: Action = "Collision"; break;
 				case AssetImport::EImportPreviewAction::Orphan: Action = "Orphan"; break;
 				}
-				ImGui::BulletText("[%s] %s", Action, Asset.Output.AssetPath.ToString().c_str());
+				ImGui::BulletText("%s  [%s]  %s  (%.2f / %.2f / %.2f MiB)",
+					Asset.Output.Role.c_str(), Action,
+					Asset.Output.AssetPath.ToString().c_str(),
+					static_cast<double>(Asset.Output.EstimatedCpuBytes) / (1024.0 * 1024.0),
+					static_cast<double>(Asset.Output.EstimatedGpuBytes) / (1024.0 * 1024.0),
+					static_cast<double>(Asset.Output.EstimatedDiskBytes) / (1024.0 * 1024.0));
 			}
 			ImGui::Spacing();
 			ImGui::TextDisabled("Captured sources");

@@ -12,6 +12,7 @@
 #include "MaterialEditorModule.h"
 #include "TextureEditorModule.h"
 #include "StaticMeshEditorModule.h"
+#include "SkeletalMeshEditorModule.h"
 #include "Thumbnail/RenderedAssetThumbnailCache.h"
 #include "MonaImGui.h"
 #include "Misc/Paths.h"
@@ -57,6 +58,7 @@ namespace Durin
 			FMaterialEditorModule& MaterialEditorModule,
 			FTextureEditorModule& TextureEditorModule,
 			FStaticMeshEditorModule& StaticMeshEditorModule,
+			FSkeletalMeshEditorModule& SkeletalMeshEditorModule,
 			FRenderedAssetThumbnailService& ThumbnailService
 		) -> bool
 		{
@@ -82,10 +84,20 @@ namespace Durin
 				LevelEditorModule.UnregisterLevelEditorWorkspace();
 				return false;
 			}
+			if (!SkeletalMeshEditorModule.RegisterSkeletalMeshEditor(
+				WorkspaceManager, ThumbnailService))
+			{
+				StaticMeshEditorModule.UnregisterStaticMeshEditor();
+				TextureEditorModule.UnregisterTextureEditor();
+				MaterialEditorModule.UnregisterMaterialEditor();
+				LevelEditorModule.UnregisterLevelEditorWorkspace();
+				return false;
+			}
 			if (WorkspaceManager.OpenDefaultWorkspaces()) return true;
 
 			// Feature modules own their handles, but the host coordinates this multi-module
 			// startup so a failed default document cannot leave a partial editor behind.
+			SkeletalMeshEditorModule.UnregisterSkeletalMeshEditor();
 			StaticMeshEditorModule.UnregisterStaticMeshEditor();
 			TextureEditorModule.UnregisterTextureEditor();
 			MaterialEditorModule.UnregisterMaterialEditor();
@@ -111,6 +123,8 @@ namespace Durin
 					FModuleManager::LoadModuleChecked<FTextureEditorModule>("TextureEditor");
 				FStaticMeshEditorModule& StaticMeshEditorModule =
 					FModuleManager::LoadModuleChecked<FStaticMeshEditorModule>("StaticMeshEditor");
+				FSkeletalMeshEditorModule& SkeletalMeshEditorModule =
+					FModuleManager::LoadModuleChecked<FSkeletalMeshEditorModule>("SkeletalMeshEditor");
 				Context.LevelEditorModule = &LevelEditorModule;
 				bWorkspaceReady = RegisterEditorWorkspaces(
 					*Context.WorkspaceManager,
@@ -118,6 +132,7 @@ namespace Durin
 					MaterialEditorModule,
 					TextureEditorModule,
 					StaticMeshEditorModule,
+					SkeletalMeshEditorModule,
 					ThumbnailService);
 			}
 			Profiling::RecordStartupMilestone(

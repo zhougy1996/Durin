@@ -441,6 +441,28 @@ TEST_F(FContentBrowserModelTests, FiltersFilesSeparatelyAndKeepsHiddenContentOpt
 	EXPECT_EQ(Model.GetItems().front().Name, "notes.txt");
 }
 
+TEST_F(FContentBrowserModelTests, GroupsExactSkeletalAssetTypes)
+{
+	const std::string RootPath =
+		std::filesystem::absolute(Root / "Content").lexically_normal().generic_string();
+	FContentBrowserModel Model;
+	Model.SetSnapshotForTesting(RootPath, {
+		{.Kind = EContentBrowserItemKind::Asset, .Name = "Rig",
+			.PhysicalPath = RootPath + "/Rig.dasset", .AssetClassName = "Durin::DSkeleton"},
+		{.Kind = EContentBrowserItemKind::Asset, .Name = "Body",
+			.PhysicalPath = RootPath + "/Body.dasset", .AssetClassName = "Durin::DSkeletalMesh"},
+		{.Kind = EContentBrowserItemKind::Asset, .Name = "Walk",
+			.PhysicalPath = RootPath + "/Walk.dasset", .AssetClassName = "Durin::DAnimationClip"},
+		{.Kind = EContentBrowserItemKind::Asset, .Name = "Prop",
+			.PhysicalPath = RootPath + "/Prop.dasset", .AssetClassName = "Durin::DStaticMesh"}});
+	Model.SetTypeFilter(EContentBrowserTypeFilter::SkeletalAssets);
+	ASSERT_EQ(Model.GetItems().size(), 3u);
+	EXPECT_TRUE(std::ranges::all_of(Model.GetItems(), [](const FContentBrowserItem& Item) {
+		const std::string Type = ContentBrowserModel::TypeLabel(Item);
+		return Type == "Skeleton" || Type == "Skeletal Mesh" || Type == "Animation Clip";
+	}));
+}
+
 TEST_F(FContentBrowserModelTests, HidesRedirectorsButPreservesFoldersAndSupportsExplicitFilter)
 {
 	const std::string RootPath =

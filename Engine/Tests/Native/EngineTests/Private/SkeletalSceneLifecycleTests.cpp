@@ -14,6 +14,8 @@
 #include "SkeletalMesh/SkeletalMeshResources.h"
 #include "SkeletalMesh/Skeleton.h"
 #include "StandardAssetImportProviders.h"
+#include "Thumbnail/SkeletalMeshAssetThumbnail.h"
+#include "Thumbnail/RenderedAssetThumbnailCache.h"
 
 namespace
 {
@@ -151,6 +153,36 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 			ASSERT_EQ(Initial.AnimationClips.size(), 4u);
 			ASSERT_EQ(Initial.Materials.size(), 2u);
 			EXPECT_TRUE(Initial.Textures.empty());
+			for (Durin::DSkeletalMesh* Mesh : Initial.SkeletalMeshes)
+			{
+				const Durin::FAssetPath MeshPath =
+					MakeAssetPath(Mesh->GetPackage()->GetPackagePath());
+				const Durin::Asset::FAssetData* MeshData =
+					Durin::Asset::GetAssetRegistry().FindAssetExact(MeshPath);
+				ASSERT_NE(MeshData, nullptr);
+				Durin::FSkeletalMeshAssetThumbnailProvider Provider;
+				Durin::FAssetThumbnailGenerationRequest ThumbnailRequest;
+				const Durin::FAssetThumbnailPackageFingerprint Fingerprint{
+					.VirtualPath = MeshData->PackagePath,
+					.AssetClassName = MeshData->AssetClassName,
+					.PackageFormatVersion = MeshData->FormatVersion,
+					.FileSize = static_cast<Durin::uint64>(MeshData->FileSize),
+					.LastWriteTimeTicks = MeshData->LastWriteTimeTicks};
+				ASSERT_TRUE(Provider.CaptureGenerationRequest({
+					.Asset = Fingerprint,
+					.Priority = Durin::EAssetThumbnailPriority::Visible,
+					.RequestSerial = 1}, 7, ThumbnailRequest, Error)) << Error;
+				EXPECT_TRUE(std::ranges::any_of(
+					ThumbnailRequest.KeyInput.Dependencies,
+					[Mesh](const Durin::FAssetThumbnailPackageFingerprint& Dependency) {
+						return Mesh->GetSkeleton()
+							&& Dependency.VirtualPath.GetView()
+								== Mesh->GetSkeleton()->GetPackage()->GetPackagePath();
+					}));
+				EXPECT_FALSE(std::static_pointer_cast<const
+					Durin::FSkeletalMeshAssetThumbnailGenerationInput>(
+						ThumbnailRequest.Input)->Visual.bOutputOpaque);
+			}
 
 			std::vector<std::vector<Durin::FSkeletonBone>> Skeletons;
 			std::vector<Durin::FSkeletalMeshPayloadData> Meshes;

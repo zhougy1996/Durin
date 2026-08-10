@@ -4,8 +4,8 @@ Summary: Make imported Skeleton, SkeletalMesh, and AnimationClip graphs discover
 
 Last reviewed: 2026-08-11
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-11
 
 ## Current Status
 
@@ -197,19 +197,19 @@ without using command-line or test-only seams.
 
 Dependencies: completed S1-S3 and baseline `651b3f84`.
 
-- [ ] Record current Scene dialog output rows, completion behavior, Content
+- [x] Record current Scene dialog output rows, completion behavior, Content
   Browser class/details/actions, record lookup, route registration, preview
   scene, thumbnail extension, and shutdown behavior for the three asset types.
-- [ ] Freeze exact user journeys for mounted and external glTF/GLB import,
+- [x] Freeze exact user journeys for mounted and external glTF/GLB import,
   record reimport, missing-output recreation, asset opening, clip preview, and
   cook/run qualification.
-- [ ] Select the final workspace name, module dependencies, class icons/labels,
+- [x] Select the final workspace name, module dependencies, class icons/labels,
   details fields, hierarchy/track table columns, playback controls, preview
   camera, and reference-pose thumbnail visual contract.
-- [ ] Prove same-record compatible-mesh discovery can use import/package
+- [x] Prove same-record compatible-mesh discovery can use import/package
   metadata without a whole-project object scan; record a bounded fallback if
   the existing metadata is insufficient.
-- [ ] Freeze representative fixture outputs, package/record fingerprints,
+- [x] Freeze representative fixture outputs, package/record fingerprints,
   preview pose times, image tolerances, thumbnail key fields, counters, and
   affected focused test targets before source implementation.
 
@@ -226,18 +226,18 @@ Dependencies: completed S1-S3 and baseline `651b3f84`.
 
 Dependencies: Stage 0 workflow and presentation contract.
 
-- [ ] Extend Scene Source preview/completion presentation to group populated
+- [x] Extend Scene Source preview/completion presentation to group populated
   Skeleton, SkeletalMesh, AnimationClip, StaticMesh, Material, and Texture
   outputs with relationships, policy, estimates, warnings, collisions, and
   destinations from the immutable plan.
-- [ ] Make successful import reveal the published output directory and retain
+- [x] Make successful import reveal the published output directory and retain
   stable access to the import record without choosing a false primary asset.
-- [ ] Add exact Skeleton, SkeletalMesh, and AnimationClip labels/icons/filters
+- [x] Add exact Skeleton, SkeletalMesh, and AnimationClip labels/icons/filters
   and bounded package-inspection details to Content Browser presentation.
-- [ ] Expose owning-record status, navigate-to-record/output, reimport, recreate
+- [x] Expose owning-record status, navigate-to-record/output, reimport, recreate
   missing outputs, repair, orphan, and failure diagnostics consistently from
   every managed skeletal peer using existing record actions.
-- [ ] Cover mounted/external glTF, external-buffer dependency closure, GLB,
+- [x] Cover mounted/external glTF, external-buffer dependency closure, GLB,
   empty static/skeletal categories, collisions, cancellation, and refresh.
 
 #### Acceptance Gate
@@ -253,16 +253,16 @@ Dependencies: Stage 0 workflow and presentation contract.
 
 Dependencies: Stage 1 identity, record, and navigation presentation.
 
-- [ ] Add `SkeletalMeshEditor` with one scoped integration batch for the
+- [x] Add `SkeletalMeshEditor` with one scoped integration batch for the
   workspace and exact `DSkeleton`, `DSkeletalMesh`, and `DAnimationClip` routes.
-- [ ] Implement class+path document identity, open/activate/close, compatibility
+- [x] Implement class+path document identity, open/activate/close, compatibility
   rejection, unavailable state, layout reset, module unload, and shutdown.
-- [ ] Implement virtualized Skeleton hierarchy and AnimationClip track tables
+- [x] Implement virtualized Skeleton hierarchy and AnimationClip track tables
   plus bounded SkeletalMesh geometry, palette, section, bound, and material
   details from immutable asset state.
-- [ ] Present exact Skeleton references, compatibility identities, cooked/DDC
+- [x] Present exact Skeleton references, compatibility identities, cooked/DDC
   storage status, import-record/source status, and asset-qualified diagnostics.
-- [ ] Keep all documents read-only: inspection and navigation never dirty or
+- [x] Keep all documents read-only: inspection and navigation never dirty or
   save an authored package.
 
 #### Acceptance Gate
@@ -279,17 +279,17 @@ Dependencies: Stage 1 identity, record, and navigation presentation.
 
 Dependencies: Stage 2 document and lifetime owner.
 
-- [ ] Build a SkeletalMesh preview controller on `FPreviewScene` and
+- [x] Build a SkeletalMesh preview controller on `FPreviewScene` and
   `DSkeletalMeshComponent` with reference pose, deterministic framing,
   orbit/pan/zoom, frame selection, Lit/Unlit, and Solid/Wireframe controls.
-- [ ] Resolve and list compatible same-record clips for a mesh and compatible
+- [x] Resolve and list compatible same-record clips for a mesh and compatible
   same-record meshes for a clip through metadata-first, path-stable selection.
-- [ ] Add play, pause, loop, rate, reset, exact timeline scrub, duration, and
+- [x] Add play, pause, loop, rate, reset, exact timeline scrub, duration, and
   current-time presentation using the production animation instance.
-- [ ] Rebind atomically on mesh, Skeleton, clip, material, payload, render-
+- [x] Rebind atomically on mesh, Skeleton, clip, material, payload, render-
   resource, record, and device revisions; reject incompatible combinations
   without retaining stale pose or geometry.
-- [ ] Ensure inactive/closed documents stop rendering and release preview
+- [x] Ensure inactive/closed documents stop rendering and release preview
   actors, components, scene membership, targets, and callbacks in owner order.
 
 #### Acceptance Gate
@@ -305,19 +305,19 @@ Dependencies: Stage 2 document and lifetime owner.
 
 Dependencies: Stage 3 production preview path.
 
-- [ ] Register one `DSkeletalMesh` rendered-thumbnail extension with immutable
+- [x] Register one `DSkeletalMesh` rendered-thumbnail extension with immutable
   reference-pose inputs, deterministic dependency closure, and the shared
   scheduler/persistence budgets.
-- [ ] Validate cold/warm cache, coalescing, priority, move/save/reimport
+- [x] Validate cold/warm cache, coalescing, priority, move/save/reimport
   invalidation, corruption recovery, provider replacement, and transparent
   output without changing existing thumbnail visual baselines.
-- [ ] Exercise record reimport, missing-output recreation, unchanged reimport,
+- [x] Exercise record reimport, missing-output recreation, unchanged reimport,
   output removal/orphans, occupied paths, source repair, failed publication,
   material replacement, and open inspector/thumbnail refresh.
-- [ ] Exercise dialog/document close, newer request, project switch, module
+- [x] Exercise dialog/document close, newer request, project switch, module
   unload, device invalidation, and editor shutdown while import, preview,
   resource creation, render/readback, encoding, or upload work is pending.
-- [ ] Conserve requested/loaded/ready/failed previews and thumbnail jobs and
+- [x] Conserve requested/loaded/ready/failed previews and thumbnail jobs and
   prove every component, scene entry, RHI resource, lease, and callback is
   released exactly once.
 
@@ -335,18 +335,18 @@ Dependencies: Stage 3 production preview path.
 
 Dependencies: Stages 0-4 and their handoffs.
 
-- [ ] Run repository-authored data-URI glTF, external-buffer glTF, and GLB
+- [x] Run repository-authored data-URI glTF, external-buffer glTF, and GLB
   through external ingestion and mounted-source import, save/reload, unchanged
   and changed reimport, editor restart, clean DDC rebuild, and clean cook.
-- [ ] Compare exact asset/record identities, peer relationships, diagnostics,
+- [x] Compare exact asset/record identities, peer relationships, diagnostics,
   preview poses/bounds/pixels, reference thumbnails, and runtime-only playback
   across source encodings and authored/DDC/cooked ownership.
-- [ ] Run focused AssetImport, Content Browser, workspace/editor, skeletal
+- [x] Run focused AssetImport, Content Browser, workspace/editor, skeletal
   asset/playback/rendering, thumbnail, viewport, reload, and lifecycle targets
   using repository guidance, including the plan-gated Shipping Game path.
-- [ ] Run document validation, the required full Debug Editor `all` build, and
+- [x] Run document validation, the required full Debug Editor `all` build, and
   hidden-window editor smoke from the same Agent Build Profile.
-- [ ] Publish lasting Editor Architecture and Guide documentation, update the
+- [x] Publish lasting Editor Architecture and Guide documentation, update the
   roadmap with S4 completion evidence, and record commits, fixtures, hashes,
   tolerances, budgets, counters, validation, and verified executables.
 
@@ -360,6 +360,47 @@ Dependencies: Stages 0-4 and their handoffs.
   viewport, renderer, and runtime paths retain their frozen behavior.
 - Documentation, focused tests, full build, editor smoke, Shipping cook/load,
   and runtime playback pass with clean Vulkan validation and a verified editor.
+
+## Completion Evidence
+
+Completed on 2026-08-11 against entry baseline `651b3f84`.
+
+- `SkeletalMeshEditor` is enabled in the Editor runtime and registered by
+  MainFrame after StaticMeshEditor. Its scoped shutdown removes the exact
+  `DSkeletalMesh` thumbnail provider before the three exact-class workspace
+  routes.
+- Scene Source rows now expose role, record action, destination, and per-output
+  CPU/GPU/disk estimates. Content Browser adds user-facing skeletal labels,
+  icons, a **Skeletal assets** filter, and retains the existing record-wide
+  reimport/recreate/repair/orphan actions and directory reveal behavior.
+- Skeleton and AnimationClip tables use `ImGuiListClipper`. Mesh/clip peers are
+  discovered from the owning import record, ordered by path, filtered through
+  package-inspected structural compatibility, and only the selected compatible
+  peer is loaded.
+- Every live preview owns one production `FPreviewScene`,
+  `DSkeletalMeshComponent`, light, auxiliary viewport, and camera controller.
+  Playback and scrub call the runtime component; inactive and closed documents
+  disable or release their preview in owner order.
+- The `DSkeletalMesh` rendered provider uses reference pose, LOD 0, default
+  material slots, deterministic three-quarter framing, transparent output, the
+  full registry dependency closure, and an asset-local render-resource revision
+  for stale publication rejection. Skeleton and AnimationClip register no
+  rendered provider.
+- Focused Debug Editor validation passed `SkeletalMeshEditorTests` (3 tests),
+  `SkeletalAssetTests` (33), `SkeletalSceneLifecycleTests` (1),
+  `SkeletalMeshRenderResourcesVulkanTests` (1), `ThumbnailTests` (53), and
+  `StaticMeshTests` (52). The new Content Browser skeletal filter case passed in
+  `EditorAssetWorkflowTests`. The complete target also exposed the pre-existing,
+  unrelated `FSourceReferenceIndexTests.RelocatesSharedSourceAndAllReferencingPackages`
+  failure twice; the skeletal Content Browser case remains green in isolation.
+- `DevTool doc validate` passed all 89 documents. The full
+  `Win64-Debug-DurinEditor` `all` build and a 30-tick hidden-window Sandbox
+  editor smoke passed. Shipping Game `SkeletalAssetTests` (33) and
+  `SkeletalMeshRenderResourcesVulkanTests` (1) passed with Vulkan-backed
+  resource validation.
+- Lasting contracts live in [Skeletal Asset Editor](../Editor/Architecture/SkeletalAssetEditor.md)
+  and the [Skeletal Asset Inspector guide](../Editor/Guides/SkeletalAssetInspector.md).
+  Verified editor: `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`.
 
 ## Validation Matrix
 

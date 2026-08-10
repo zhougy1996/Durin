@@ -279,7 +279,9 @@ namespace Durin::ContentBrowserItemView
 		if (Item.Kind == EContentBrowserItemKind::Redirector)
 			return Icons::ArrowRight;
 		const std::string Type = TypeLabel(Item);
-		if (Type == "StaticMesh" || Type == "Texture Cube") return Icons::Cube;
+		if (Type == "StaticMesh" || Type == "Skeletal Mesh" || Type == "Texture Cube") return Icons::Cube;
+		if (Type == "Skeleton") return Icons::List;
+		if (Type == "Animation Clip") return Icons::Play;
 		if (Type == "Level") return Icons::Home;
 		return Icons::FileLines;
 	}

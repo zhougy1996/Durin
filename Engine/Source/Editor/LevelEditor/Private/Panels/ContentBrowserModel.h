@@ -24,6 +24,7 @@ namespace Durin
 		Files,
 		Levels,
 		StaticMeshes,
+		SkeletalAssets,
 		Materials,
 		Textures,
 		OtherAssets,

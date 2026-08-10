@@ -40,7 +40,10 @@ namespace Durin
 		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
 			const std::string ClassName = ClassLeaf(Item.AssetClassName);
-			return ClassName == "TextureCube" ? "Texture Cube" : ClassName;
+			if (ClassName == "TextureCube") return "Texture Cube";
+			if (ClassName == "SkeletalMesh") return "Skeletal Mesh";
+			if (ClassName == "AnimationClip") return "Animation Clip";
+			return ClassName;
 		}
 		return Item.Extension.empty()
 			? "File"
@@ -359,11 +362,15 @@ namespace Durin
 			return Type == "Level";
 		if (TypeFilter == EContentBrowserTypeFilter::StaticMeshes)
 			return Type == "StaticMesh";
+		if (TypeFilter == EContentBrowserTypeFilter::SkeletalAssets)
+			return Type == "Skeleton" || Type == "Skeletal Mesh"
+				|| Type == "Animation Clip";
 		if (TypeFilter == EContentBrowserTypeFilter::Materials)
 			return Type.find("Material") != std::string::npos;
 		if (TypeFilter == EContentBrowserTypeFilter::Textures)
 			return Type == "Texture2D" || Type == "Texture Cube";
-		return Type != "Level" && Type != "StaticMesh"
+		return Type != "Level" && Type != "StaticMesh" && Type != "Skeleton"
+			&& Type != "Skeletal Mesh" && Type != "Animation Clip"
 			&& Type.find("Material") == std::string::npos
 			&& Type != "Texture2D" && Type != "Texture Cube";
 	}

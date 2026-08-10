@@ -14,6 +14,28 @@ namespace Durin
 	class DMaterialInterface;
 	struct FSkeletalMeshRenderData;
 
+	// Reports the semantic skeletal render-resource state to nonblocking consumers.
+	enum class ESkeletalMeshRenderResourceReadiness : uint8
+	{
+		Unavailable,
+		Queued,
+		Ready,
+		Failed
+	};
+
+	// Pairs readiness with an asset-local revision used to reject stale preview work.
+	struct FSkeletalMeshRenderResourceStatus
+	{
+		ESkeletalMeshRenderResourceReadiness Readiness =
+			ESkeletalMeshRenderResourceReadiness::Unavailable;
+		uint64 Revision = 0;
+		auto IsReady() const -> bool
+		{
+			return Readiness == ESkeletalMeshRenderResourceReadiness::Ready
+				&& Revision != 0;
+		}
+	};
+
 	inline constexpr uint32 MaximumSkeletalMeshMaterialSlots = 4'096;
 	inline constexpr uint32 MaximumSkeletalMeshSections = 65'536;
 	inline constexpr uint32 MaximumSkeletalMeshVertices = 100'000'000;
@@ -187,6 +209,8 @@ namespace Durin
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
 		auto GetPayloadStorageDiagnostic() const -> const std::string& { return PayloadStorageDiagnostic; }
 		ENGINE_API auto GetRenderData() const -> const FSkeletalMeshRenderData*;
+		ENGINE_API auto GetRenderResourceStatus() const
+			-> FSkeletalMeshRenderResourceStatus;
 		ENGINE_API auto InitResources() -> void;
 
 		ENGINE_API auto InitializeFromImportedData(
@@ -251,6 +275,7 @@ namespace Durin
 		};
 		std::atomic<ERenderResourceState> RenderResourceState{
 			ERenderResourceState::Uninitialized};
+		std::atomic<uint64> RenderResourceRevision{1};
 		FRenderCommandFence ReleaseResourcesFence;
 
 		auto LoadDerivedDataPayload(std::string& OutError) -> bool;

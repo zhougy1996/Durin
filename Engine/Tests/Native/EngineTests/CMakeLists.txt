@@ -6,6 +6,8 @@ set(_durin_material_editor_private
 	"${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Private")
 set(_durin_static_mesh_editor_private
 	"${CMAKE_SOURCE_DIR}/Engine/Source/Editor/StaticMeshEditor/Private")
+set(_durin_skeletal_mesh_editor_private
+	"${CMAKE_SOURCE_DIR}/Engine/Source/Editor/SkeletalMeshEditor/Private")
 set(_durin_main_frame_private
 	"${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MainFrame/Private")
 set(_durin_editor_test_modules
@@ -86,6 +88,8 @@ function(durin_add_engine_functional_test target_name)
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Public
 		${_durin_static_mesh_editor_private}
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/StaticMeshEditor/Public
+		${_durin_skeletal_mesh_editor_private}
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/SkeletalMeshEditor/Public
 		${_durin_main_frame_private}
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source
@@ -247,12 +251,18 @@ durin_add_engine_functional_test(SkeletalAssetTests
 		Private/SkeletalAnimationTests.cpp
 )
 
+durin_add_engine_functional_test(SkeletalMeshEditorTests
+	RUNTIME_STACK_RATIONALE "Exercises exact skeletal asset editor registration and read-only ownership."
+	SOURCES Private/SkeletalMeshEditorTests.cpp
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd SkeletalMeshEditor
+)
+
 durin_add_engine_functional_test(SkeletalSceneLifecycleTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises editor skeletal Scene import through cook and runtime-only load."
 	SOURCES
 		Private/SkeletalSceneLifecycleTests.cpp
-	LIBRARIES AssetImportCore StandardAssetImport RenderCore
+	LIBRARIES AssetImportCore StandardAssetImport RenderCore DurinEd SkeletalMeshEditor
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 

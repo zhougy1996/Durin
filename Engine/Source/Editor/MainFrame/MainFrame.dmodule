@@ -15,6 +15,7 @@
         "MaterialEditor",
         "TextureEditor",
         "StaticMeshEditor",
+        "SkeletalMeshEditor",
         "DurinEd"
     ]
 }

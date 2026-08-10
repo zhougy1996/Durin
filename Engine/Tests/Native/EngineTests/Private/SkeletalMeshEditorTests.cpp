@@ -1,0 +1,87 @@
+#include "Animation/AnimationClip.h"
+#include "Editor/EditorWorkspace.h"
+#include "EngineTestSupport.h"
+#include "Materials/MaterialTestSupport.h"
+#include "NativeTestSupport.h"
+#include "SkeletalMesh/SkeletalMesh.h"
+#include "SkeletalMesh/Skeleton.h"
+#include "SkeletalMeshEditorModule.h"
+#include "Thumbnail/RenderedAssetThumbnailCache.h"
+#include "Widgets/SkeletalAssetPreview.h"
+
+#include <gtest/gtest.h>
+
+TEST(FSkeletalMeshEditorTests, PreviewControllerFramesAndNavigatesDeterministically)
+{
+	Durin::FSkeletalAssetPreviewController Controller;
+	const Durin::FBox Bounds(
+		Durin::FVector3(-2.0, -1.0, 3.0), Durin::FVector3(6.0, 5.0, 11.0));
+	Controller.FrameBounds(Bounds);
+	const Durin::FVector3 InitialTarget = Controller.GetTarget();
+	const double InitialDistance = Controller.GetDistance();
+	EXPECT_EQ(InitialTarget, Durin::FVector3(2.0, 2.0, 7.0));
+	Controller.Orbit(20.0f, 10.0f);
+	EXPECT_DOUBLE_EQ(Controller.GetYawDegrees(), -40.0);
+	EXPECT_DOUBLE_EQ(Controller.GetPitchDegrees(), 27.5);
+	Controller.Zoom(1.0f);
+	EXPECT_LT(Controller.GetDistance(), InitialDistance);
+	Controller.Pan(12.0f, -8.0f);
+	EXPECT_NE(Controller.GetTarget(), InitialTarget);
+	Controller.Reset();
+	EXPECT_EQ(Controller.GetTarget(), InitialTarget);
+	EXPECT_DOUBLE_EQ(Controller.GetDistance(), InitialDistance);
+}
+
+TEST(FSkeletalMeshEditorTests, RegistrationIsExactReadOnlyAndScoped)
+{
+	Durin::FEditorWorkspaceManager Manager;
+	Durin::FRenderedAssetThumbnailService ThumbnailService;
+	Durin::FSkeletalMeshEditorModule Module;
+	ASSERT_TRUE(Module.RegisterSkeletalMeshEditor(Manager, ThumbnailService));
+	EXPECT_FALSE(Module.RegisterSkeletalMeshEditor(Manager, ThumbnailService));
+	auto Workspace = Manager.FindWorkspace(Durin::FEditorWorkspaceTypeId("SkeletalMeshEditor"));
+	ASSERT_NE(Workspace, nullptr);
+	EXPECT_FALSE(Workspace->CanSaveActiveDocument());
+	EXPECT_FALSE(Workspace->SaveActiveDocument());
+	EXPECT_EQ(Manager.GetWorkspaceDescriptors().front().DisplayName, "Skeletal Asset Inspector");
+	EXPECT_TRUE(ThumbnailService.Find(
+		Durin::DSkeletalMesh::StaticClass()->GetQualifiedName().ToString()));
+	EXPECT_FALSE(ThumbnailService.Find(
+		Durin::DSkeleton::StaticClass()->GetQualifiedName().ToString()));
+
+	const std::array Classes{
+		Durin::DSkeleton::StaticClass()->GetQualifiedName().ToString(),
+		Durin::DSkeletalMesh::StaticClass()->GetQualifiedName().ToString(),
+		Durin::DAnimationClip::StaticClass()->GetQualifiedName().ToString()};
+	for (const std::string& ClassName : Classes)
+		EXPECT_FALSE(Manager.OpenAsset("/Missing/SkeletalAsset", ClassName));
+
+	Module.UnregisterSkeletalMeshEditor();
+	EXPECT_EQ(Manager.FindWorkspace(Durin::FEditorWorkspaceTypeId("SkeletalMeshEditor")), nullptr);
+	EXPECT_FALSE(ThumbnailService.Find(
+		Durin::DSkeletalMesh::StaticClass()->GetQualifiedName().ToString()));
+	EXPECT_TRUE(Module.RegisterSkeletalMeshEditor(Manager, ThumbnailService));
+}
+
+TEST(FSkeletalMeshEditorTests, PreviewSceneOwnsAndReleasesProductionComponents)
+{
+	FMaterialPreviewHarness Harness;
+	constexpr Durin::uint64 PreviewId = 97531;
+	const std::string ActorName = std::format("SkeletalAssetPreviewActor_{}", PreviewId);
+	const std::string LightName = std::format("SkeletalAssetPreviewLightActor_{}", PreviewId);
+	{
+		Durin::FSkeletalAssetPreview Preview(PreviewId);
+		EXPECT_NE(FindObjectByName(ActorName), nullptr);
+		EXPECT_NE(FindObjectByName(LightName), nullptr);
+		EXPECT_TRUE(Preview.IsLit());
+		EXPECT_FALSE(Preview.IsWireframe());
+		Preview.SetLit(false);
+		Preview.SetWireframe(true);
+		EXPECT_FALSE(Preview.IsLit());
+		EXPECT_TRUE(Preview.IsWireframe());
+		Preview.SetVisible(false);
+	}
+	Durin::CollectGarbage();
+	EXPECT_EQ(FindObjectByName(ActorName), nullptr);
+	EXPECT_EQ(FindObjectByName(LightName), nullptr);
+}
