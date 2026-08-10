@@ -71,12 +71,12 @@ namespace Durin
 
 	auto FPreviewScene::BeginPlay() -> void
 	{
-		if (World) World->BeginPlay();
+		if (World) World->BeginPlay({});
 	}
 
 	auto FPreviewScene::Tick(float DeltaSeconds) -> void
 	{
-		if (World) World->Tick(DeltaSeconds);
+		if (World) World->Tick({.DeltaSeconds = DeltaSeconds});
 	}
 
 	auto FPreviewScene::EndPlay() -> void

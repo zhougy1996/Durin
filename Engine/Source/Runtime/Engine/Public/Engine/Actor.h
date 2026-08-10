@@ -137,6 +137,9 @@ namespace Durin
 		auto MakeUniqueComponentName(FName RequestedName, const DActorComponent* IgnoredComponent = nullptr) const -> FName;
 
 	protected:
+		// Called exactly once after Level accepts destruction and before EndPlay or component teardown.
+		ENGINE_API virtual auto OnActorDestroyed() -> void;
+
 		template<typename T>
 		auto CreateDefaultComponent(const FName& InComponentName = FName()) -> T*
 		{

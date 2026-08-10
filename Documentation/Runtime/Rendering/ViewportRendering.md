@@ -97,6 +97,14 @@ Solid/Wireframe, and FXAA choices, and a later UI change cannot alter an
 already-enqueued view. Renderer-global state remains limited to shared GPU
 resources and size-keyed intermediate caches rather than semantic view policy.
 
+For the main scene viewport, a valid view supplied by its `FViewportClient`
+still has first priority. If it supplies none, Engine resolves the active
+World's local `APlayerController` view target and uses that Actor's live
+`DCameraComponent`. A missing, foreign, pending-destroy, destroyed, or
+camera-less target is ignored. Engine then falls back to the active Level's
+primary `ACameraActor`, followed by the existing identity/no-camera behavior.
+Auxiliary editor viewports remain explicit and never inherit this fallback.
+
 For each valid non-zero output, `FSceneRenderer` preserves this order:
 
 1. Resolve size-keyed Scene Color and depth targets and fit the view to the

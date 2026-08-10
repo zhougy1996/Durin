@@ -177,6 +177,7 @@ durin_add_engine_functional_test(AssetReferenceStoreTests
 	RUNTIME_STACK_RATIONALE "Exercises production external asset-reference stores."
 	SOURCES
 		Private/Editor/ProjectDefaultLevelReferenceStoreTests.cpp
+		Private/Editor/ProjectGameSettingsTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Settings/ProjectDefaultLevelReferenceStore.cpp
 )
@@ -401,6 +402,7 @@ durin_add_engine_functional_test(WorldTests
 		Private/World/WorldActorTests.cpp
 		Private/World/WorldComponentTests.cpp
 		Private/World/WorldLifetimeTests.cpp
+		Private/World/NativeGameplayCoreTests.cpp
 	LIBRARIES DurinEd StandardAssetImport
 )
 

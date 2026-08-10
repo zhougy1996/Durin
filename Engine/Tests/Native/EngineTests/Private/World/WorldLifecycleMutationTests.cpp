@@ -190,7 +190,7 @@ TEST(FWorldLifecycleMutationTests, BeginPlaySpawnUsesTheSpawnPathExactlyOnce)
 			}
 		};
 
-	World->BeginPlay();
+	World->BeginPlay({});
 
 	ASSERT_NE(Spawned, nullptr);
 	EXPECT_TRUE(Spawned->HasBegunPlay());
@@ -220,7 +220,7 @@ TEST(FWorldLifecycleMutationTests, BeginPlaySkipsAnActorDestroyedBeforeItsTurn)
 			}
 		};
 
-	World->BeginPlay();
+	World->BeginPlay({});
 
 	EXPECT_EQ(std::ranges::count(Events, "Target.BeginEnter"), 0);
 	EXPECT_FALSE(World->ContainsActor(Target));
@@ -245,7 +245,7 @@ TEST(FWorldLifecycleMutationTests, BeginPlaySelfDestructionCompletesAfterTheCall
 			}
 		};
 
-	World->BeginPlay();
+	World->BeginPlay({});
 
 	EXPECT_EQ(Events, (std::vector<std::string>{
 		"Self.BeginEnter",
@@ -266,7 +266,7 @@ TEST(FWorldLifecycleMutationTests, EndPlayRejectsSpawnBeforeAllocation)
 	Durin::DWorld* World = CreateWorld();
 	FActorLifecycleMutationTestActor* Actor = SpawnMutationActor(World, "Actor");
 	ASSERT_NE(Actor, nullptr);
-	World->BeginPlay();
+	World->BeginPlay({});
 	const size_t ActorCountBeforeEndPlay = World->GetActors().size();
 	FActorLifecycleMutationTestActor* SpawnResult = Actor;
 	FActorLifecycleMutationTestActor::Callback =
@@ -293,7 +293,7 @@ TEST(FWorldLifecycleMutationTests, EndPlayNeverBeginsAnActorRequestedByACallback
 	Durin::DWorld* World = CreateWorld();
 	FActorLifecycleMutationTestActor* Actor = SpawnMutationActor(World, "Actor");
 	ASSERT_NE(Actor, nullptr);
-	World->BeginPlay();
+	World->BeginPlay({});
 	bool bObservedWorldPlaying = true;
 	FActorLifecycleMutationTestActor* SpawnResult = nullptr;
 	FActorLifecycleMutationTestActor::Callback =
@@ -323,7 +323,7 @@ TEST(FWorldLifecycleMutationTests, EndPlaySkipsASiblingDestroyedBeforeItsTurn)
 	ASSERT_NE(Target, nullptr);
 	ASSERT_NE(Destroyer, nullptr);
 	RetainActorCapacity(World);
-	World->BeginPlay();
+	World->BeginPlay({});
 	std::vector<std::string> Events;
 	Durin::uint32 DestroyRequests = 0;
 	bool bDestroyResult = false;
@@ -354,7 +354,7 @@ TEST(FWorldLifecycleMutationTests, EndPlaySelfDestructionIsIdempotent)
 	Durin::DWorld* World = CreateWorld();
 	FActorLifecycleMutationTestActor* Actor = SpawnMutationActor(World, "Self");
 	ASSERT_NE(Actor, nullptr);
-	World->BeginPlay();
+	World->BeginPlay({});
 	std::vector<std::string> Events;
 	FActorLifecycleMutationTestActor::Callback =
 		[&](FActorLifecycleMutationTestActor& Candidate, ETestLifecycleEvent Event)
@@ -385,12 +385,12 @@ TEST(FWorldLifecycleMutationTests, RepeatedWorldLifecycleCallsAreIdempotent)
 		[&](FActorLifecycleMutationTestActor& Actor, ETestLifecycleEvent Event)
 		{
 			Events.push_back(EventName(Actor, Event));
-			if (Event == ETestLifecycleEvent::BeginMutation) World->BeginPlay();
+			if (Event == ETestLifecycleEvent::BeginMutation) World->BeginPlay({});
 			if (Event == ETestLifecycleEvent::EndMutation) World->EndPlay();
 		};
 
-	World->BeginPlay();
-	World->BeginPlay();
+	World->BeginPlay({});
+	World->BeginPlay({});
 	World->EndPlay();
 	World->EndPlay();
 
@@ -410,7 +410,7 @@ TEST(FWorldLifecycleMutationTests, EndPlayStopsWhenTheCurrentLevelIsReplaced)
 	ASSERT_NE(Stale, nullptr);
 	ASSERT_NE(Switcher, nullptr);
 	ASSERT_NE(Replacement, nullptr);
-	World->BeginPlay();
+	World->BeginPlay({});
 	std::vector<std::string> Events;
 	FActorLifecycleMutationTestActor::Callback =
 		[&](FActorLifecycleMutationTestActor& Actor, ETestLifecycleEvent Event)
@@ -449,7 +449,7 @@ TEST(FWorldLifecycleMutationTests, DestroyActorIsIdempotentBeforeAndAfterPlay)
 	EXPECT_TRUE(World->DestroyActor(NotBegun));
 	EXPECT_EQ(std::ranges::count(Events, "NotBegun.EndEnter"), 0);
 
-	World->BeginPlay();
+	World->BeginPlay({});
 	EXPECT_TRUE(World->DestroyActor(Playing));
 	EXPECT_TRUE(World->DestroyActor(Playing));
 	EXPECT_EQ(std::ranges::count(Events, "Playing.EndEnter"), 1);
@@ -480,7 +480,7 @@ TEST(FWorldLifecycleMutationTests, BeginPlayStopsWhenTheCurrentLevelIsReplaced)
 			}
 		};
 
-	World->BeginPlay();
+	World->BeginPlay({});
 
 	EXPECT_EQ(World->GetCurrentLevel(), Replacement);
 	EXPECT_EQ(std::ranges::count(Events, "Stale.BeginEnter"), 0);
@@ -509,7 +509,7 @@ TEST(FComponentLifecycleMutationTests, BeginPlayAdditionUsesTheAddPathExactlyOnc
 			}
 		};
 
-	World->BeginPlay();
+	World->BeginPlay({});
 
 	ASSERT_NE(Added, nullptr);
 	EXPECT_TRUE(Added->HasBegunPlay());
@@ -540,7 +540,7 @@ TEST(FComponentLifecycleMutationTests, BeginPlaySkipsAComponentDestroyedBeforeIt
 			}
 		};
 
-	World->BeginPlay();
+	World->BeginPlay({});
 
 	EXPECT_EQ(std::ranges::count(Events, "Target.BeginEnter"), 0);
 	EXPECT_FALSE(Actor->IsInstanceComponent(Target));
@@ -567,7 +567,7 @@ TEST(FComponentLifecycleMutationTests, BeginPlaySelfDestructionCompletesAfterThe
 			}
 		};
 
-	World->BeginPlay();
+	World->BeginPlay({});
 
 	EXPECT_EQ(Events, (std::vector<std::string>{
 		"Self.BeginEnter",
@@ -590,7 +590,7 @@ TEST(FComponentLifecycleMutationTests, EndPlayAdditionDoesNotBegin)
 	FActorLifecycleMutationTestComponent* Adder = AddMutationComponent(Actor, "Adder");
 	ASSERT_NE(Actor, nullptr);
 	ASSERT_NE(Adder, nullptr);
-	World->BeginPlay();
+	World->BeginPlay({});
 	FActorLifecycleMutationTestComponent* Added = nullptr;
 	FActorLifecycleMutationTestComponent::Callback =
 		[&](FActorLifecycleMutationTestComponent& Component, ETestLifecycleEvent Event)
@@ -620,7 +620,7 @@ TEST(FComponentLifecycleMutationTests, EndPlaySiblingDestructionIsExactlyOnce)
 	ASSERT_NE(Target, nullptr);
 	ASSERT_NE(Destroyer, nullptr);
 	RetainComponentCapacity(Actor);
-	World->BeginPlay();
+	World->BeginPlay({});
 	std::vector<std::string> Events;
 	FActorLifecycleMutationTestComponent::Callback =
 		[&](FActorLifecycleMutationTestComponent& Component, ETestLifecycleEvent Event)
@@ -648,7 +648,7 @@ TEST(FComponentLifecycleMutationTests, EndPlaySelfDestructionIsIdempotent)
 	FActorLifecycleMutationTestComponent* Component = AddMutationComponent(Actor, "Self");
 	ASSERT_NE(Actor, nullptr);
 	ASSERT_NE(Component, nullptr);
-	World->BeginPlay();
+	World->BeginPlay({});
 	std::vector<std::string> Events;
 	FActorLifecycleMutationTestComponent::Callback =
 		[&](FActorLifecycleMutationTestComponent& Candidate, ETestLifecycleEvent Event)

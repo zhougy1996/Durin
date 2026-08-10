@@ -1,4 +1,6 @@
 #include "ViewportTestSupport.h"
+#include "Actors/GameMode.h"
+#include "Actors/PlayerStart.h"
 #include "LevelEditorViewportEditing.h"
 #include "Math/Operations.h"
 
@@ -438,7 +440,7 @@ TEST(FLevelEditorViewportClientTests, PicksClosestTriangleAndRejectsBoundsOnlyHi
 	EXPECT_EQ(Client.PickActor(Level, {799.0f, 300.0f}, {800.0f, 600.0f}), nullptr);
 }
 
-TEST(FViewportSelectionTests, PrefersViewportClientAndFallsBackToPrimaryCamera)
+TEST(FViewportSelectionTests, PrefersViewportClientThenControllerTargetThenPrimaryCamera)
 {
 	InitializeDObjectSystem();
 	FTestEngine Engine;
@@ -468,9 +470,19 @@ TEST(FViewportSelectionTests, PrefersViewportClientAndFallsBackToPrimaryCamera)
 	Durin::ACameraActor* CameraActor = Level->SpawnActor<Durin::ACameraActor>("Camera");
 	ASSERT_NE(CameraActor, nullptr);
 	CameraActor->GetCameraComponent()->SetWorldLocation({7.0, 8.0, 9.0});
+	Durin::ACameraActor* ControllerCamera = Level->SpawnActor<Durin::ACameraActor>("ControllerCamera");
+	ASSERT_NE(ControllerCamera, nullptr);
+	ControllerCamera->GetCameraComponent()->SetWorldLocation({21.0, 22.0, 23.0});
+	ASSERT_NE(Level->SpawnActor<Durin::APlayerStart>("Start"), nullptr);
+	ASSERT_TRUE(World->BeginPlay({
+		.GameModeClass = Durin::AGameMode::StaticClass(),
+		.ViewTargetOverride = ControllerCamera}));
 	Engine.SetTestWorld(World);
 	Engine.SetTestViewport(nullptr);
+	ExpectVectorNear(Engine.BuildMainSceneView(640, 480).ViewLocation, {21.0, 22.0, 23.0});
+	ASSERT_TRUE(World->DestroyActor(ControllerCamera));
 	ExpectVectorNear(Engine.BuildMainSceneView(640, 480).ViewLocation, {7.0, 8.0, 9.0});
+	World->EndPlay();
 }
 
 TEST(FViewportSelectionTests, ConstrainedCameraBuildsCenteredContentRect)

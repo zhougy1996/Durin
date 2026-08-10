@@ -16,6 +16,16 @@ namespace Durin
 
 	auto DLevel::SpawnActor(DClass* ActorClass, FName InName) -> AActor*
 	{
+		return SpawnActorInternal(ActorClass, InName, true);
+	}
+
+	auto DLevel::SpawnActorDeferredPlay(DClass* ActorClass, FName InName) -> AActor*
+	{
+		return SpawnActorInternal(ActorClass, InName, false);
+	}
+
+	auto DLevel::SpawnActorInternal(DClass* ActorClass, FName InName, bool bDispatchBeginPlay) -> AActor*
+	{
 		if (OwningWorld && OwningWorld->IsEndingPlay()) return nullptr;
 		if (!CanConstructObjectOfClass(ActorClass, AActor::StaticClass())) return nullptr;
 		const FName RequestedName = InName.IsNone() ? FName(ActorClass->GetDefaultObjectName()) : InName;
@@ -26,7 +36,7 @@ namespace Durin
 		NotifyEditorActorHierarchyChanged();
 #endif
 		OnActorAdded(Actor);
-		if (OwningWorld && OwningWorld->HasBegunPlay()) Actor->DispatchBeginPlay();
+		if (bDispatchBeginPlay && OwningWorld && OwningWorld->HasBegunPlay()) Actor->DispatchBeginPlay();
 		if (!PrimaryCameraActor)
 		{
 			if (auto* Camera = Cast<ACameraActor>(Actor)) PrimaryCameraActor = Camera;
@@ -52,6 +62,8 @@ namespace Durin
 			return true;
 		}
 		Actor->DestructionState = EActorDestructionState::Destroying;
+		Actor->OnActorDestroyed();
+		if (OwningWorld) OwningWorld->OnActorDestroyed(Actor);
 		Actor->RouteEndPlay();
 		const bool bWasPrimaryCamera = PrimaryCameraActor.Get() == Actor;
 		const std::vector<TObjectPtr<DActorComponent>> Components = Actor->GetOwnedComponents();

@@ -145,6 +145,34 @@ committed descriptors.
 
 Modules are the compilation and runtime loading units. They belong to a project, but their dependencies can cross project boundaries.
 
+## Project Game Settings
+
+Engine owns the gameplay projection of `<project>/Configs/Project.yaml` under
+one `Game` section:
+
+```yaml
+Game:
+  DefaultLevel: /Game/Levels/NewLevel
+  NativeModule: Sandbox
+  GameModeClass: Durin::Sandbox::ADefaultGameMode
+```
+
+`FProjectGameSettingsStore` is the shared reader and default-level writer for
+standalone startup, PIE, the Level Editor, and external asset-reference
+contribution. `DefaultLevel` is optional. `NativeModule` and `GameModeClass`
+must either both be absent/empty for lifecycle-only play or both be non-empty
+scalars. Updates to the default level preserve the native pair and unrelated
+YAML settings; the obsolete `Editor.DefaultLevel` route is not read as an
+alias.
+
+`NativeModule` is the logical name passed to `FModuleManager` after reflected
+object initialization. `GameModeClass` must be the exact fully qualified
+reflection identity of a constructible `AGameMode` derived class registered by
+that module. Resolution never searches short names, loads every project module,
+or falls back after a configured error. PIE and standalone surface the same
+module/class/settings-route diagnostic and leave the World stopped if
+resolution or gameplay bootstrap fails.
+
 Most new gameplay or editor work should start as a module, not a new project.
 
 Use `DurinDevTool create module` to create and register one. By default the command

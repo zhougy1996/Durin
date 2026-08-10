@@ -3,12 +3,12 @@
 #include "AssetSystem.h"
 #include "CoreGlobals.h"
 #include "Engine/Level.h"
+#include "Engine/ProjectGameSettings.h"
 #include "Engine/World.h"
 #include "Misc/Project.h"
 #include "Mona.h"
 #include "Mona/SceneViewport.h"
 #include "Widgets/MWindow.h"
-#include "Yaml/Yaml.h"
 
 namespace Durin
 {
@@ -20,6 +20,7 @@ namespace Durin
 	auto DGameEngine::Init() -> void
 	{
 		DEngine::Init();
+		StartupError.clear();
 
 		std::shared_ptr<MWindow> GameWindow = std::make_shared<MWindow>();
 		const FProjectInfo* Project = GetCurrentProject();
@@ -36,25 +37,52 @@ namespace Durin
 
 		if (const FProjectInfo* CurrentProject = GetCurrentProject())
 		{
-			FYamlDocument ProjectSettings;
-			const std::string SettingsPath = CurrentProject->ProjectDir + "Configs/Project.yaml";
-			if (ProjectSettings.LoadFromFile(SettingsPath))
+			const FProjectGameSettingsStore SettingsStore = FProjectGameSettingsStore::ForProject(*CurrentProject);
+			FProjectGameSettings Settings;
+			const FProjectGameSettingsResult SettingsResult = SettingsStore.Load(Settings);
+			if (!SettingsResult)
 			{
-				const std::string DefaultLevelPath = ProjectSettings.GetRootView()
-					.GetView("Editor").GetView("DefaultLevel").GetString();
+				StartupError = SettingsResult.Message;
+				DURIN_ERROR("Could not load project game settings: {}", StartupError);
+				return;
+			}
+			const FNativeGameModeResolution GameMode = ResolveNativeGameMode(Settings);
+			if (!GameMode)
+			{
+				StartupError = GameMode.Result.Message;
+				DURIN_ERROR("Could not resolve native gameplay bootstrap: {}", StartupError);
+				return;
+			}
+			if (!Settings.DefaultLevel.empty())
+			{
 				FSoftObjectPath SoftPath;
 				TSoftObjectPtr<DLevel> DefaultLevel;
 				DLevel* Level = nullptr;
 				Asset::GetAssetRegistry().ScanMountedContent(Asset::EAssetRegistryScanMode::Incremental);
-				if (!DefaultLevelPath.empty()
-					&& FSoftObjectPath::TryCreate(DefaultLevelPath, SoftPath))
+				if (FSoftObjectPath::TryCreate(Settings.DefaultLevel, SoftPath))
 				{
 					DefaultLevel.SetPath(std::move(SoftPath));
 					const Asset::FAssetResult Result =
 						Asset::LoadSoftObject(DefaultLevel, Level);
-					if (Result && GetWorld()->SetCurrentLevel(Level)) GetWorld()->BeginPlay();
-					else DURIN_WARN("Could not start default level '{}': {}",
-						DefaultLevelPath, Result.Message);
+					if (Result && GetWorld()->SetCurrentLevel(Level))
+					{
+						const FWorldPlayResult PlayResult = GetWorld()->BeginPlay({.GameModeClass = GameMode.GameModeClass});
+						if (!PlayResult)
+						{
+							StartupError = PlayResult.Message;
+							DURIN_ERROR("Could not start default level '{}' with native gameplay: {}", Settings.DefaultLevel, StartupError);
+						}
+					}
+					else
+					{
+						StartupError = Result.Message.empty() ? "Could not activate the default level." : Result.Message;
+						DURIN_WARN("Could not start default level '{}': {}", Settings.DefaultLevel, StartupError);
+					}
+				}
+				else
+				{
+					StartupError = std::format("Project Game.DefaultLevel '{}' is not a valid soft object path.", Settings.DefaultLevel);
+					DURIN_WARN("{}", StartupError);
 				}
 			}
 		}

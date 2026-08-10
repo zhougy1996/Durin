@@ -276,6 +276,10 @@ namespace Durin
 		}
 	}
 
+	auto AActor::OnActorDestroyed() -> void
+	{
+	}
+
 	auto AActor::BeginDestroy() -> void
 	{
 		RouteEndPlay();

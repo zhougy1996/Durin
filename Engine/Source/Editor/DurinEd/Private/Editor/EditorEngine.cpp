@@ -10,6 +10,7 @@
 #include "Components/SceneComponent.h"
 #include "Console/ConsoleCommand.h"
 #include "Engine/Level.h"
+#include "Engine/ProjectGameSettings.h"
 #include "Engine/World.h"
 #include "Interfaces/IMainFrameModule.h"
 #include "Modules/ModuleManager.h"
@@ -177,6 +178,14 @@ namespace Durin
 
 	auto DEditorEngine::StartPlaySession(const FEditorPlayRequest& Request, std::string* OutError) -> bool
 	{
+		return StartPlaySessionInternal(Request, std::nullopt, OutError);
+	}
+
+	auto DEditorEngine::StartPlaySessionInternal(
+		const FEditorPlayRequest& Request,
+		std::optional<DClass*> GameModeOverride,
+		std::string* OutError) -> bool
+	{
 		DLevel* SourceLevel = Request.SourceLevel;
 		if (OutError) OutError->clear();
 		if (PlayState != EEditorPlayState::Stopped)
@@ -203,6 +212,34 @@ namespace Durin
 			if (OutError) *OutError = DuplicateError.empty() ? "Could not duplicate the level for Play." : std::move(DuplicateError);
 			return false;
 		}
+		DClass* GameModeClass = GameModeOverride.value_or(nullptr);
+		if (!GameModeOverride)
+		{
+			if (const FProjectInfo* Project = GetCurrentProject())
+			{
+				FProjectGameSettings Settings;
+				const FProjectGameSettingsResult SettingsResult =
+					FProjectGameSettingsStore::ForProject(*Project).Load(Settings);
+				if (!SettingsResult)
+				{
+					EditorToPlayObjects.clear();
+					MarkObjectHierarchyAsGarbage(NewPlayWorld);
+					PlayState = EEditorPlayState::Stopped;
+					if (OutError) *OutError = SettingsResult.Message;
+					return false;
+				}
+				const FNativeGameModeResolution Resolution = ResolveNativeGameMode(Settings);
+				if (!Resolution)
+				{
+					EditorToPlayObjects.clear();
+					MarkObjectHierarchyAsGarbage(NewPlayWorld);
+					PlayState = EEditorPlayState::Stopped;
+					if (OutError) *OutError = Resolution.Result.Message;
+					return false;
+				}
+				GameModeClass = Resolution.GameModeClass;
+			}
+		}
 
 		EditorLevel = SourceLevel;
 		PlayWorld = NewPlayWorld;
@@ -225,6 +262,7 @@ namespace Durin
 			return false;
 		}
 		NewPlayWorld->SetPhysicsSimulationEnabled(Request.bSimulatePhysics);
+		AActor* ViewTargetOverride = nullptr;
 		if (Request.StartLocation == EEditorPlayStartLocation::EditorCamera)
 		{
 			ACameraActor* Camera = PlayLevel->SpawnActor<ACameraActor>("PIE_EditorCamera");
@@ -236,6 +274,7 @@ namespace Durin
 			}
 			Camera->GetCameraComponent()->SetLookAt(Request.CameraLocation, Request.CameraTarget);
 			PlayLevel->SetPrimaryCameraActor(Camera);
+			ViewTargetOverride = Camera;
 		}
 
 		if (Request.Destination == EEditorPlayDestination::NewWindow)
@@ -252,7 +291,15 @@ namespace Durin
 		}
 
 		TransactionManager->Clear();
-		NewPlayWorld->BeginPlay();
+		const FWorldPlayResult PlayResult = NewPlayWorld->BeginPlay({
+			.GameModeClass = GameModeClass,
+			.ViewTargetOverride = ViewTargetOverride});
+		if (!PlayResult)
+		{
+			StopPlaySession();
+			if (OutError) *OutError = PlayResult.Message;
+			return false;
+		}
 		PlayState = EEditorPlayState::Playing;
 		return true;
 	}

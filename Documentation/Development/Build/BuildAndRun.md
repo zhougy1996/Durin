@@ -277,6 +277,19 @@ Engine asset-service completion phase. It submits one asynchronous invalid
 Texture2D result during initialization and requires the bounded Engine frame
 pump to discard it exactly once on the GameThread before normal shutdown.
 
+Append `--editor-pie-lifecycle-smoke` to a DurinEditor hidden-window run when
+qualifying PIE host restoration. After editor initialization and default-level
+activation, the diagnostic exercises embedded and new-window destinations with
+both Level Start and Play From Camera. Each combination starts, pauses,
+single-steps, stops, and verifies restoration before the process continues to
+the normal `--exit-after-ticks` boundary. It is ignored by DurinGame.
+
+Append `--native-gameplay-lifecycle-smoke` to either runtime variant to qualify
+the generic native session inside a fully initialized process. The diagnostic
+temporarily activates an isolated World with one `APlayerStart`, starts the
+base `AGameMode`, ticks, pauses and single-steps, restarts the pawn, stops, and
+restores the host's original World before normal process exit.
+
 Do not repeat `--project` or `--project=...` after `--args` when the typed
 `--project` option is present; DurinDevTool rejects the two project selectors as
 ambiguous. Raw project selection after `--args` remains accepted for backwards

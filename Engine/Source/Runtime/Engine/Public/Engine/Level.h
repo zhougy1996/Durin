@@ -46,6 +46,8 @@ namespace Durin
 #endif
 
 	private:
+		auto SpawnActorInternal(DClass* ActorClass, FName InName, bool bDispatchBeginPlay) -> AActor*;
+		auto SpawnActorDeferredPlay(DClass* ActorClass, FName InName) -> AActor*;
 		auto MakeUniqueActorName(FName RequestedName, const AActor* IgnoredActor = nullptr) const -> FName;
 		auto OnActorAdded(AActor* Actor) -> void;
 		auto SetOwningWorld(DWorld* World) -> void { OwningWorld = World; }

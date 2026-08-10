@@ -4,6 +4,7 @@
 #include "CoreGlobals.h"
 
 #include "Actors/CameraActor.h"
+#include "Actors/PlayerController.h"
 #include "Components/CameraComponent.h"
 #include "Client/ViewportClient.h"
 #include "DObject/DObjectGlobals.h"
@@ -156,7 +157,7 @@ namespace Durin
 	auto DEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
 	{
 		(void)bIdleMode;
-		if (MainWorld) MainWorld->Tick(DeltaSeconds);
+		if (MainWorld) MainWorld->Tick({.DeltaSeconds = DeltaSeconds, .GameInput = &GameInputState});
 		GameInputState.FinishGameTick();
 	}
 
@@ -273,6 +274,18 @@ namespace Durin
 	{
 		if (MainWorld && MainWorld->GetCurrentLevel())
 		{
+			if (APlayerController* Controller = MainWorld->GetLocalPlayerController(); Controller
+				&& MainWorld->ContainsActor(Controller))
+			{
+				AActor* Target = Controller->GetViewTarget();
+				if (Target
+					&& !Target->IsPendingKill()
+					&& !Target->IsBeingDestroyed()
+					&& MainWorld->ContainsActor(Target))
+				{
+					if (DCameraComponent* Camera = Target->FindComponentByClass<DCameraComponent>()) return Camera;
+				}
+			}
 			if (ACameraActor* Camera = MainWorld->GetCurrentLevel()->GetPrimaryCameraActor()) return Camera->GetCameraComponent();
 		}
 		return nullptr;

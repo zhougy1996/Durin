@@ -4,52 +4,43 @@ Summary: Add the minimal native pawn, controller, possession, game-mode bootstra
 
 Last reviewed: 2026-08-11
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-11
 
 ## Current Status
 
-The G1 entry audit is complete and implementation has not started. G0's
-namespace-aware DHT handoff is stable, so the new root-namespace reflected
-types can use their intended short and relative spellings without temporary
-qualification workarounds.
+G1 completed on 2026-08-11. Engine now publishes the exact root gameplay
+types, symmetric possession, bounded semantic intent, one abstract movement
+authority, controller view targets, explicit World play/tick/restart results,
+transactional native bootstrap, and one shared `Game` project-settings owner.
+PIE and standalone use the same exact module/class resolver. Sandbox contains
+only a nested reflected qualification fixture; concrete control, movement,
+camera, and visual policy remains in G2.
 
-The audit selected one explicit native bootstrap seam. Project game settings
-move to one Engine-owned `Game` section in `Configs/Project.yaml`: the existing
-default level becomes `Game.DefaultLevel`, and the optional scalar pair
-`Game.NativeModule` plus `Game.GameModeClass` selects native gameplay. Engine
-loads that one module through the existing module manager after CoreDObject
-initialization, resolves the fully qualified class, and validates that it is a
-constructible `AGameMode`. PIE and standalone consume the same settings store
-and resolver.
+The recorded pre-change revision was
+`fdad9a1c3d57a7a6a6ba6f6d9836bb85090f4a81`. Focused baseline results were
+WorldTests 62/62, ViewportTests 57/57, CoreFileSystemTests 32 passed with one
+intentional skip from 33 cases, and AssetReferenceStoreTests 3/3. The baseline
+also exposed one stale `IScene` mock; the fixture now implements
+`UpdateSkeletalMeshDynamicData` and all ordinary World coverage remains green.
 
-This is an architecture-first plan for an early codebase. Existing public
-function signatures, YAML routes, and internal file boundaries are migration
-inputs, not compatibility constraints. World play and tick become explicit
-request/result protocols, project game settings gain one owner, and Actor
-destruction gains the narrow notification needed for association cleanup. The
-plan still preserves useful observable behavior when it does not compromise
-the new ownership model: a project with no native module/class pair can run a
-lifecycle-only level, while a partial or invalid configured pair is an
-actionable bootstrap failure and never starts a partial game session.
+Final focused evidence is WorldTests 75/75 across 16 suites, ViewportTests
+57/57, AssetReferenceStoreTests 7/7, SkeletalAssetTests 33/33, and the isolated
+Sandbox cross-project module/reflection case. The final target-granularity
+native suite passed all 55 registered target processes. Changed-document and
+all-plan validation passed. Full `all` builds passed for both
+`Win64-Debug-DurinEditor` and `Win64-Debug-DurinGame`.
 
-The existing seams are otherwise narrow and reusable:
+Bounded process qualification passed with clean exit in threaded and inline
+RHI modes. DurinEditor exercised embedded/new-window destinations with both
+Level Start and Play From Camera, including pause, single-step, stop, and
+editor-World restoration. DurinGame exercised an isolated native
+start/tick/pause-step/restart/stop sequence and restored the host World. Both
+diagnostics are explicit opt-ins and ordinary startup is unchanged.
 
-- `DWorld` owns one active level, stable actor ordering, play state, pause,
-  single-step, and teardown, but has no gameplay-session state or rollback;
-- `DLevel` is the only actor membership and destruction owner;
-- `DEngine::Tick()` ticks the world before clearing one-frame
-  `FGameInputState` transitions;
-- `DEngine` currently resolves only the level's primary `ACameraActor` as its
-  camera fallback;
-- `DGameEngine` and `DEditorEngine` begin level play through separate host
-  paths, and neither loads a project gameplay module or selects a game mode;
-- the current World tests cover lifecycle mutation, pause, single-step, level
-  duplication, and primary-camera behavior, but not possession, native
-  bootstrap rollback, or repeated gameplay PIE sessions; and
-- Sandbox is a loadable runtime module shell with no gameplay types, so this
-  plan can keep every concrete key binding, movement rule, camera tune, and
-  visual in G2.
+The handoff commit uses subject
+`feat(gameplay): add native local-player core` and records this plan plus
+Stages 0 through 5 in its provenance lines.
 
 ## Goal
 
@@ -307,22 +298,22 @@ changing ordinary Actor-only world behavior.
 Dependencies: completed Gameplay Foundation G0 and the audited Engine/World/PIE
 seams recorded above.
 
-- [ ] Record the source revision and focused baseline results for World
+- [x] Record the source revision and focused baseline results for World
   lifecycle, World mutation, viewport fallback, project loading, and PIE input
   focus behavior.
-- [ ] Add compile-time and reflection fixtures for the exact root gameplay
+- [x] Add compile-time and reflection fixtures for the exact root gameplay
   identities, inheritance graph, abstract movement class, transient
   associations, and cross-module derived game-mode lookup.
-- [ ] Add failing focused tests that state the possession, bootstrap rollback,
+- [x] Add failing focused tests that state the possession, bootstrap rollback,
   stable player-start, restart, semantic input, pause/single-step, view-target,
   and teardown expectations before production behavior changes.
-- [ ] Freeze the `FWorldPlayRequest`, `FWorldPlayResult`, and
+- [x] Freeze the `FWorldPlayRequest`, `FWorldPlayResult`, and
   `FWorldTickContext` shapes, lifecycle-only request semantics, private session
   publication point, and the `Game` project-settings schema.
-- [ ] Add explicit regression cases proving lifecycle-only requests create no
+- [x] Add explicit regression cases proving lifecycle-only requests create no
   gameplay actors and a missing native module/class pair preserves editor and
   standalone level play.
-- [ ] Freeze public result/error surfaces for configured bootstrap, possession,
+- [x] Freeze public result/error surfaces for configured bootstrap, possession,
   restart, and view-target rejection; every failure needed by tests must be
   observable without log scraping.
 
@@ -336,17 +327,17 @@ seams recorded above.
 
 Dependencies: Stage 0.
 
-- [ ] Add reflected `APawn`, `AController`, and `APlayerController` headers and
+- [x] Add reflected `APawn`, `AController`, and `APlayerController` headers and
   implementations, Engine reflection metadata, exports, and forward
   declarations.
-- [ ] Give `APawn` its default root scene component and add transient reciprocal
+- [x] Give `APawn` its default root scene component and add transient reciprocal
   pawn/controller associations.
-- [ ] Implement the single validate-detach-attach possession operation,
+- [x] Implement the single validate-detach-attach possession operation,
   idempotent unpossess, valid transfer, and rejection without partial mutation.
-- [ ] Add the exactly-once Actor destruction notification and route Actor
+- [x] Add the exactly-once Actor destruction notification and route Actor
   EndPlay, Level destruction, World teardown, and level replacement through the
   same detach primitive, including never-begun Actors.
-- [ ] Prove ordinary Actor spawn, destruction, component lifecycle, attachment,
+- [x] Prove ordinary Actor spawn, destruction, component lifecycle, attachment,
   serialization, and iteration remain unchanged.
 
 #### Acceptance Gate
@@ -360,19 +351,19 @@ Dependencies: Stage 0.
 
 Dependencies: Stage 1.
 
-- [ ] Add `FPawnControlIntent` with finite/clamped axes and explicit jump held,
+- [x] Add `FPawnControlIntent` with finite/clamped axes and explicit jump held,
   press, and release state.
-- [ ] Add source-neutral controller submission, player-controller raw input
+- [x] Add source-neutral controller submission, player-controller raw input
   production, pawn admission, and exactly-once consumption.
-- [ ] Replace World tick call sites with `FWorldTickContext` and process local
+- [x] Replace World tick call sites with `FWorldTickContext` and process local
   player raw state before the ordinary Actor tick snapshot only when the World
   advances.
-- [ ] Add abstract `DPawnMovementComponent`, single-authority pawn association,
+- [x] Add abstract `DPawnMovementComponent`, single-authority pawn association,
   velocity state, and semantic movement-update dispatch.
-- [ ] Clear pending semantic state on unpossess, possession transfer, pause
+- [x] Clear pending semantic state on unpossess, possession transfer, pause
   boundaries as applicable, restart, EndPlay, destruction, and failed
   bootstrap.
-- [ ] Keep raw key/mouse identities out of Pawn and movement headers, generated
+- [x] Keep raw key/mouse identities out of Pawn and movement headers, generated
   reflection data, and tests below the player-controller boundary.
 
 #### Acceptance Gate
@@ -387,22 +378,22 @@ Dependencies: Stage 1.
 
 Dependencies: Stages 1-2.
 
-- [ ] Add reflected `AGameMode` and `APlayerStart`, including native controller
+- [x] Add reflected `AGameMode` and `APlayerStart`, including native controller
   and pawn class selection and stable player-start choice.
-- [ ] Replace World play call sites with the explicit request/result/stop
+- [x] Replace World play call sites with the explicit request/result/stop
   protocol and add the private gameplay-session value plus local-player restart.
-- [ ] Validate all configured and game-mode-selected classes before publication,
+- [x] Validate all configured and game-mode-selected classes before publication,
   spawn game mode/controller/pawn through the Level path, place the pawn at the
   chosen start, possess, and then enter ordinary BeginPlay.
-- [ ] Implement reverse rollback for missing start, invalid class, spawn,
+- [x] Implement reverse rollback for missing start, invalid class, spawn,
   transform, and possession failures, preserving every pre-existing Actor.
-- [ ] Remove only runtime-created gameplay actors after the reverse EndPlay
+- [x] Remove only runtime-created gameplay actors after the reverse EndPlay
   pass and make a second start on the same level produce one fresh session.
-- [ ] Add the Engine-owned `Project.yaml` game-settings store; migrate
+- [x] Add the Engine-owned `Project.yaml` game-settings store; migrate
   `Editor.DefaultLevel` to `Game.DefaultLevel`; route standalone, Level Editor,
   and the external reference contributor through it; and remove duplicate
   parsing/caching.
-- [ ] Resolve the exact native module/class pair with module readiness, fully
+- [x] Resolve the exact native module/class pair with module readiness, fully
   qualified class lookup, derived-class and constructibility validation, and a
   lifecycle-only result when the pair is absent.
 
@@ -418,19 +409,19 @@ Dependencies: Stages 1-2.
 
 Dependencies: Stage 3.
 
-- [ ] Route `DGameEngine` default-level startup through the shared settings and
+- [x] Route `DGameEngine` default-level startup through the shared settings and
   explicit World play request; a configured failure propagates an actionable
   result to the highest practical startup owner and leaves the World stopped.
-- [ ] Route `DEditorEngine::StartPlaySession()` through the same resolver after
+- [x] Route `DEditorEngine::StartPlaySession()` through the same resolver after
   level duplication and before publishing Playing; on failure, restore the
   editor world, viewport, input, object maps, and transient world ownership.
-- [ ] Add controller view-target assignment and Engine camera resolution before
+- [x] Add controller view-target assignment and Engine camera resolution before
   the existing level primary-camera fallback.
-- [ ] Preserve Level Start pawn targeting and apply the existing transient
+- [x] Preserve Level Start pawn targeting and apply the existing transient
   editor camera as the explicit Play From Camera override.
-- [ ] Preserve embedded and new-window focus gating, raw transition reset,
+- [x] Preserve embedded and new-window focus gating, raw transition reset,
   pause, single-step, stop, retired render fences, and editor-world restoration.
-- [ ] Add repeated PIE coverage for start, pause, step, stop, restart, configured
+- [x] Add repeated PIE coverage for start, pause, step, stop, restart, configured
   failure, destroyed pawn/view target, fallback camera, and re-entry without
   stale input or gameplay pointers.
 
@@ -446,22 +437,22 @@ Dependencies: Stage 3.
 
 Dependencies: Stages 1-4.
 
-- [ ] Publish lasting possession, explicit World play/tick, bootstrap, semantic
+- [x] Publish lasting possession, explicit World play/tick, bootstrap, semantic
   input, movement ownership, view-target, Actor destruction, project-setting,
   and failure contracts in their
   Runtime, Level, PIE, viewport, and workspace documentation owners.
-- [ ] Verify generated reflection output uses the intended qualified identities
+- [x] Verify generated reflection output uses the intended qualified identities
   and Sandbox or another nested consumer can derive from the root framework
   types without spelling workarounds.
-- [ ] Run the smallest affected native targets during development, then the
+- [x] Run the smallest affected native targets during development, then the
   final full native-test suite because shared World/Engine lifecycle and
   multiple test targets are crossed.
-- [ ] Complete a full `all` build because PIE behavior is user-visible and the
+- [x] Complete a full `all` build because PIE behavior is user-visible and the
   change crosses Engine, DurinEd, Launch, and a late-loaded project module.
-- [ ] Run bounded editor PIE smokes for embedded/new-window and Level Start/Play
+- [x] Run bounded editor PIE smokes for embedded/new-window and Level Start/Play
   From Camera, plus a standalone native-bootstrap start/tick/stop smoke in the
   normal and inline-RHI diagnostic modes.
-- [ ] Record final validation and commit provenance in Current Status, close the
+- [x] Record final validation and commit provenance in Current Status, close the
   G1 roadmap milestone, and open G2 only after every G1 acceptance gate passes.
 
 #### Acceptance Gate

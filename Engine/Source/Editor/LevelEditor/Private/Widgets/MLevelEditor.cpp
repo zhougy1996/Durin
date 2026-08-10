@@ -11,13 +11,13 @@
 #include "Engine/Engine.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
+#include "Engine/ProjectGameSettings.h"
 #include "Engine/World.h"
 #include "Documents/LevelDocumentController.h"
 #include "Documents/LevelDocumentRevisionState.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "Misc/Project.h"
-#include "Misc/FileHelper.h"
 #include "Math/Operations.h"
 #include "MonaImGui.h"
 #include "Panels/ConsolePanel.h"
@@ -32,7 +32,6 @@
 #include "Assets/TextureImportDialog.h"
 #include "Assets/TextureCubeImportDialog.h"
 #include "Widgets/EditorNotificationOverlay.h"
-#include "Yaml/Yaml.h"
 
 namespace Durin
 {
@@ -276,24 +275,21 @@ namespace Durin
 		DefaultLevel.Reset();
 		const FProjectInfo* Project = GetCurrentProject();
 		if (!Project) return false;
-		const std::string File = Project->ProjectDir + "Configs/Project.yaml";
-		if (!std::filesystem::exists(File)) return true;
-		FYamlDocument Document;
-		FYamlParseError Error;
-		if (!Document.LoadFromFile(File, &Error))
+		FProjectGameSettings Settings;
+		const FProjectGameSettingsResult Result =
+			FProjectGameSettingsStore::ForProject(*Project).Load(Settings);
+		if (!Result)
 		{
-			DURIN_WARN("Failed to load project settings: {}", Error.Message);
+			DURIN_WARN("Failed to load project game settings: {}", Result.Message);
 			return false;
 		}
-		const std::string StoredPath =
-			Document.GetRootView().GetView("Editor").GetView("DefaultLevel").GetString();
-		if (!StoredPath.empty())
+		if (!Settings.DefaultLevel.empty())
 		{
 			FSoftObjectPath Path;
 			std::string PathError;
-			if (!FSoftObjectPath::TryCreate(StoredPath, Path, &PathError))
+			if (!FSoftObjectPath::TryCreate(Settings.DefaultLevel, Path, &PathError))
 			{
-				DURIN_WARN("Project default level '{}' is invalid: {}", StoredPath, PathError);
+				DURIN_WARN("Project default level '{}' is invalid: {}", Settings.DefaultLevel, PathError);
 				return false;
 			}
 			DefaultLevel.SetPath(std::move(Path));
@@ -326,53 +322,12 @@ namespace Durin
 			SetError("The default level does not resolve to a registered Level asset.");
 			return false;
 		}
-		std::error_code Error;
-		std::filesystem::create_directories(std::filesystem::path(Project->ProjectDir) / "Configs", Error);
-		if (Error)
+		const FProjectGameSettingsResult SaveResult =
+			FProjectGameSettingsStore::ForProject(*Project).SaveDefaultLevel(
+				DefaultLevel.GetSoftObjectPath().ToString());
+		if (!SaveResult)
 		{
-			SetError("Could not create the project Configs directory.");
-			return false;
-		}
-		FYamlDocument Document;
-		const std::string SettingsFile = Project->ProjectDir + "Configs/Project.yaml";
-		if (std::filesystem::exists(SettingsFile))
-		{
-			FYamlParseError ParseError;
-			if (!Document.LoadFromFile(SettingsFile, &ParseError))
-			{
-				SetError(std::format("Could not load existing project settings: {}", ParseError.Message));
-				return false;
-			}
-			if (!Document.GetRootView().IsMap())
-			{
-				SetError("Project settings must contain a YAML map at the root.");
-				return false;
-			}
-		}
-		FYamlNodeRef Root = Document.GetMutableRoot();
-		Root.EnsureMap();
-		FYamlNodeRef Editor = Root.GetRef("Editor");
-		if (!Editor.IsValid()) Editor = Root.AddMap("Editor");
-		else if (!Editor.IsMap())
-		{
-			SetError("The Editor project setting must be a YAML map.");
-			return false;
-		}
-		Editor.SetChildValue(
-			"DefaultLevel", DefaultLevel.GetSoftObjectPath().ToString());
-		const std::string SettingsBytes = Document.ToString();
-		FFileHelper::FAtomicFileError PublicationError;
-		if (SettingsBytes.empty()
-			|| !FFileHelper::SaveArrayToFileAtomically(
-				std::span{reinterpret_cast<const std::byte*>(SettingsBytes.data()),
-					SettingsBytes.size()},
-				SettingsFile,
-				&PublicationError))
-		{
-			SetError(SettingsBytes.empty()
-				? "Could not serialize project settings."
-				: std::format("Could not save project settings: {}",
-					PublicationError.ToString()));
+			SetError(SaveResult.Message);
 			return false;
 		}
 		return true;

@@ -2,9 +2,9 @@
 
 #include "Hash/XxHash.h"
 #include "Engine/Level.h"
+#include "Engine/ProjectGameSettings.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Project.h"
-#include "Yaml/Yaml.h"
 
 namespace Durin
 {
@@ -12,8 +12,8 @@ namespace Durin
 	{
 		constexpr std::string_view ProviderId =
 			"Durin.LevelEditor.ProjectDefaultLevel";
-		constexpr std::string_view StableId = "Editor.DefaultLevel";
-		constexpr uint64 ProviderVersion = 1;
+		constexpr std::string_view StableId = "Game.DefaultLevel";
+		constexpr uint64 ProviderVersion = 2;
 
 		struct FCapturedProjectDefaultLevel
 		{
@@ -79,20 +79,17 @@ namespace Durin
 				return StoreError(
 					Asset::EAssetError::IoError,
 					"Could not read project settings for redirector Fix Up.");
-			FYamlDocument Document;
-			FYamlParseError ParseError;
-			if (!Document.LoadFromFile(
-					OutState.SettingsFile.generic_string(), &ParseError))
+			FProjectGameSettings Settings;
+			const FProjectGameSettingsResult SettingsResult =
+				FProjectGameSettingsStore(OutState.SettingsFile).Load(Settings);
+			if (!SettingsResult)
 				return StoreError(
 					Asset::EAssetError::CorruptFile,
-					std::format("Project settings are malformed: {}",
-						ParseError.Message));
-			const std::string StoredPath = Document.GetRootView()
-				.GetView("Editor").GetView("DefaultLevel").GetString();
-			if (!StoredPath.empty())
+					SettingsResult.Message);
+			if (!Settings.DefaultLevel.empty())
 			{
 				std::string PathError;
-				if (!FAssetPath::TryCreate(StoredPath, OutState.Path, &PathError))
+				if (!FAssetPath::TryCreate(Settings.DefaultLevel, OutState.Path, &PathError))
 					return StoreError(
 						Asset::EAssetError::InvalidPath,
 						std::format("Project default level is invalid: {}",
@@ -149,7 +146,7 @@ namespace Durin
 				.ProviderId = std::string(ProviderId),
 				.StableId = std::string(StableId),
 				.TargetPath = State.Path,
-				.DisplayRoute = "Configs/Project.yaml:Editor.DefaultLevel",
+				.DisplayRoute = "Configs/Project.yaml:Game.DefaultLevel",
 				.ExpectedClass = DLevel::StaticClass()->GetQualifiedName().ToString(),
 				.bCookRoot = true});
 		return {};
@@ -187,35 +184,16 @@ namespace Durin
 				Asset::EAssetError::ReadOnlyMode,
 				"Project settings are read-only and cannot be fixed up.");
 
-		FYamlDocument Document;
-		FYamlParseError ParseError;
-		if (!Document.LoadFromFile(
-				PreState.SettingsFile.generic_string(), &ParseError))
+		std::vector<uint8> UpdatedBytes;
+		const FProjectGameSettingsResult UpdateResult =
+			FProjectGameSettingsStore(PreState.SettingsFile).BuildDefaultLevelUpdate(
+				Rewrites.front().DestinationPath.ToString(), UpdatedBytes);
+		if (!UpdateResult)
 			return StoreError(
 				Asset::EAssetError::CorruptFile,
-				std::format("Project settings are malformed: {}",
-					ParseError.Message));
-		if (!Document.GetRootView().IsMap())
-			return StoreError(
-				Asset::EAssetError::CorruptFile,
-				"Project settings must contain a YAML map at the root.");
-		FYamlNodeRef Root = Document.GetMutableRoot();
-		FYamlNodeRef Editor = Root.GetRef("Editor");
-		if (!Editor.IsValid()) Editor = Root.AddMap("Editor");
-		else if (!Editor.IsMap())
-			return StoreError(
-				Asset::EAssetError::CorruptFile,
-				"The Editor project setting must be a YAML map.");
-		Editor.SetChildValue(
-			"DefaultLevel", Rewrites.front().DestinationPath.ToString());
-		const std::string Serialized = Document.ToString();
-		if (Serialized.empty())
-			return StoreError(
-				Asset::EAssetError::IoError,
-				"Could not serialize project settings for Fix Up.");
+				UpdateResult.Message);
 		auto PostBytes = std::make_shared<std::vector<uint8>>(
-			reinterpret_cast<const uint8*>(Serialized.data()),
-			reinterpret_cast<const uint8*>(Serialized.data()) + Serialized.size());
+			std::move(UpdatedBytes));
 		auto PreBytes = std::make_shared<std::vector<uint8>>(
 			std::move(PreState.Bytes));
 		const FAssetPath PrePath = PreState.Path;

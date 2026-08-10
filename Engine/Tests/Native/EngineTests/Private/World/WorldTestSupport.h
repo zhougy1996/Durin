@@ -1,7 +1,12 @@
 #pragma once
 
 #include "Actors/CameraActor.h"
+#include "Actors/Controller.h"
 #include "Actors/DirectionalLightActor.h"
+#include "Actors/GameMode.h"
+#include "Actors/Pawn.h"
+#include "Actors/PlayerController.h"
+#include "Actors/PlayerStart.h"
 #include "AssetSystem.h"
 #include "Actors/StaticMeshActor.h"
 #include "Actors/SkeletalMeshActor.h"
@@ -9,6 +14,7 @@
 #include "Components/CameraComponent.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/PhysicsComponent.h"
+#include "Components/PawnMovementComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/SkeletalMeshComponent.h"

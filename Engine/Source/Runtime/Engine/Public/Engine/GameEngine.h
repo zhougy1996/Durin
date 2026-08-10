@@ -14,5 +14,9 @@ namespace Durin
 	public:
 		ENGINE_API explicit DGameEngine(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API auto Init() -> void override;
+		auto GetStartupError() const -> const std::string& { return StartupError; }
+
+	private:
+		std::string StartupError;
 	};
 }

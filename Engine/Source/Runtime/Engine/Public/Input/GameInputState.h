@@ -6,6 +6,8 @@
 
 namespace Durin
 {
+	struct FGameInputStateTestAccess;
+
 	// Accumulates enabled-window input and exposes current plus one-tick transition state.
 	class FGameInputState
 	{
@@ -24,13 +26,13 @@ namespace Durin
 
 	private:
 		static auto ToKeyIndex(EKey Key) -> size_t { return std::min(static_cast<size_t>(Key), KeyCapacity - 1); }
-		auto SetEnabled(bool bInEnabled) -> void;
-		auto SetFocused(bool bInFocused) -> void;
-		auto SetKey(EKey Key, bool bDown) -> void;
+		ENGINE_API auto SetEnabled(bool bInEnabled) -> void;
+		ENGINE_API auto SetFocused(bool bInFocused) -> void;
+		ENGINE_API auto SetKey(EKey Key, bool bDown) -> void;
 		auto SetMouseButton(EMouseButton Button, bool bDown) -> void;
 		auto SetMousePosition(FVector2d Position) -> void;
 		auto AddMouseWheel(double Delta) -> void;
-		auto FinishGameTick() -> void;
+		ENGINE_API auto FinishGameTick() -> void;
 		auto Reset() -> void;
 
 		inline static constexpr size_t KeyCapacity = 256;
@@ -49,5 +51,6 @@ namespace Durin
 
 		friend class DEngine;
 		friend class FEngineInputEventHandler;
+		friend struct FGameInputStateTestAccess;
 	};
 }

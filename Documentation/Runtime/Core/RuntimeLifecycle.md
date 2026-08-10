@@ -54,14 +54,23 @@ synchronous game-thread load of `/Engine/Materials/DefaultMaterial`; failure is
 non-fatal and leaves the code-constructed ErrorMaterial available without a
 second asset lookup.
 
-`DGameEngine` loads the project's configured default level and begins play after
-creating its window and scene viewport.
+`DGameEngine` loads the project's `Game` settings and configured default level
+after creating its window and scene viewport. It resolves the optional exact
+`Game.NativeModule` and fully qualified `Game.GameModeClass` pair, then begins
+play with an explicit World request. A missing pair selects lifecycle-only
+play. A partial or invalid configured pair, or a native bootstrap failure,
+produces an actionable startup error and leaves the World stopped.
 
 ## Frame And World Lifecycle
 
 `FEngineLoop::Tick()` measures and clamps real frame delta time before calling
-`DEngine::Tick()`. Active game worlds route that tick through actors and their
-tick-enabled components.
+`DEngine::Tick()`. Active game worlds receive an `FWorldTickContext` containing
+delta time and the Engine-owned raw input snapshot, then route an admitted tick
+through Actors and their tick-enabled components. The local player controller
+is the only gameplay boundary that translates raw device identities into a
+bounded pawn-control intent. Raw one-frame transitions are cleared only after
+the World call, so one advancing tick or single-step can observe each edge at
+most once.
 
 Immediately after `DEngine::Tick()`, the engine pumps low-priority
 `GameThreadDeferred` continuations using the configured item and time budgets.
@@ -87,7 +96,7 @@ profiler-neutral surface in `Profiling/Profiling.h`.
 The runtime lifecycle is:
 
 - component registration and initialization
-- `DWorld::BeginPlay()`
+- `DWorld::BeginPlay(const FWorldPlayRequest&)`
 - actor and component `BeginPlay()`
 - actor and component `Tick()` while enabled
 - actor and component `EndPlay()`
@@ -107,6 +116,26 @@ playing Actor. Spawn is accepted while stopped, beginning, or playing. A Spawn
 while beginning or playing dispatches Actor BeginPlay exactly once through the
 Spawn path. Spawn is rejected before allocation while the World is ending.
 Repeated or recursive World BeginPlay and EndPlay calls are idempotent.
+
+`FWorldPlayRequest` explicitly distinguishes lifecycle-only play from one
+native local-player session. A null game-mode class performs only the Actor and
+Component lifecycle. A non-null class transactionally creates the World-owned
+gameplay roles through the active Level, validates and publishes them before
+Actor BeginPlay, and returns a categorized `FWorldPlayResult`. Failure rolls
+back every partial runtime Actor and never publishes a playing session.
+
+The World's private gameplay session caches its game mode, local player
+controller, default pawn, and runtime-created Actor set; Level membership and
+Outer ownership remain authoritative. `RestartPlayer` replaces only the pawn
+while preserving the controller. World EndPlay routes the normal reverse Actor
+snapshot before destroying the session-created Actors and clearing role state.
+Replacing a Level first ends play and detaches any remaining controller/pawn
+pair, including Actors that never began play.
+
+The opt-in `--native-gameplay-lifecycle-smoke` process diagnostic exercises
+this generic native start/tick/pause-step/restart/stop sequence in an isolated
+temporary World after full host initialization, then restores the original
+World. Ordinary startup never enables it.
 
 World BeginPlay owns a forward-ordered snapshot of the Actors present at entry;
 World EndPlay owns a reverse-ordered snapshot. A callback may Spawn, Destroy,

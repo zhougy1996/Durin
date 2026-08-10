@@ -588,20 +588,20 @@ TEST(DSkeletalMeshComponentTests, FollowsWorldPauseSingleStepAndReplacementLifec
 	std::string Error;
 	ASSERT_TRUE(Component->SetSkeletalMesh(Mesh, Error)) << Error;
 	ASSERT_TRUE(Component->SetAnimationClip(Clip, Error)) << Error;
-	World->BeginPlay();
+	World->BeginPlay({});
 	ASSERT_TRUE(Component->IsPlaying());
-	World->Tick(0.25f);
+	World->Tick({.DeltaSeconds = 0.25f});
 	EXPECT_FLOAT_EQ(Component->GetPlaybackTimeSeconds(), 0.25f);
 
 	World->SetPaused(true);
-	World->Tick(0.5f);
+	World->Tick({.DeltaSeconds = 0.5f});
 	EXPECT_FLOAT_EQ(Component->GetPlaybackTimeSeconds(), 0.25f);
 	World->RequestSingleStep();
-	World->Tick(0.5f);
+	World->Tick({.DeltaSeconds = 0.5f});
 	EXPECT_FLOAT_EQ(Component->GetPlaybackTimeSeconds(), 0.75f);
 	Component->SetComponentTickEnabled(false);
 	World->RequestSingleStep();
-	World->Tick(0.5f);
+	World->Tick({.DeltaSeconds = 0.5f});
 	EXPECT_FLOAT_EQ(Component->GetPlaybackTimeSeconds(), 0.75f);
 
 	const auto Retained = Component->GetLatestPosePalette();

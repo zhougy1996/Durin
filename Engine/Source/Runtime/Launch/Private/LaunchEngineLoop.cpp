@@ -25,6 +25,7 @@
 #include "EngineAssetServices.h"
 
 #include "LaunchFrame.h"
+#include "LaunchGameplayValidation.h"
 #include "LaunchRuntimeStorage.h"
 #include "LaunchTaskSchedulerValidation.h"
 
@@ -50,6 +51,8 @@ namespace Durin
 			Params.bRunTaskSchedulerLifecycleSmoke;
 		bRunEngineAssetServiceLifecycleSmoke =
 			Params.bRunEngineAssetServiceLifecycleSmoke;
+		bRunEditorPIELifecycleSmoke = Params.bRunEditorPIELifecycleSmoke;
+		bRunNativeGameplayLifecycleSmoke = Params.bRunNativeGameplayLifecycleSmoke;
 
 		FPlatformMisc::EnableUserBinaryDirectoriesSearch();
 		FPlatformMisc::AddRuntimeBinaryDirectory(FPaths::EngineThirdPartyRuntimeBinariesDir().c_str());
@@ -157,6 +160,20 @@ namespace Durin
 			DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.GameLogic");
 			GEngine->Tick(DeltaSeconds, false);
 		}
+#if DURIN_WITH_EDITOR
+		if (bRunEditorPIELifecycleSmoke
+			&& !bEditorPIELifecycleSmokeCompleted
+			&& GEditor)
+		{
+			bEditorPIELifecycleSmokeCompleted = TryRunEditorPIELifecycleSmoke();
+		}
+#endif
+		if (bRunNativeGameplayLifecycleSmoke
+			&& !bNativeGameplayLifecycleSmokeCompleted)
+		{
+			RunNativeGameplayLifecycleSmoke();
+			bNativeGameplayLifecycleSmokeCompleted = true;
+		}
 		PumpGameThreadDeferredWork();
 		PumpEngineAssetServiceCompletions();
 		GFrameCounter++;
@@ -194,6 +211,13 @@ namespace Durin
 
 	auto FEngineLoop::Exit() -> void
 	{
+#if DURIN_WITH_EDITOR
+		checkf(!bRunEditorPIELifecycleSmoke || bEditorPIELifecycleSmokeCompleted,
+			"Editor PIE lifecycle smoke never observed an active source Level.");
+#endif
+		checkf(!bRunNativeGameplayLifecycleSmoke
+			|| bNativeGameplayLifecycleSmokeCompleted,
+			"Native gameplay lifecycle smoke did not execute.");
 		std::shared_ptr<FLaunchTaskSchedulerValidationState> TaskSchedulerValidation;
 		if (bRunTaskSchedulerLifecycleSmoke)
 		{

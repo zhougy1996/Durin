@@ -17,6 +17,7 @@ namespace Durin
 	class FRenderCommandFence;
 	class IMainFrameModule;
 	class MWindow;
+	struct FEditorEngineTestAccess;
 
 	// Tracks the lifecycle transition of a play-in-editor session.
 	enum class EEditorPlayState : uint8
@@ -81,6 +82,10 @@ namespace Durin
 		auto IsPlayingInNewWindow() const -> bool { return IsPlaying() && PlayDestination == EEditorPlayDestination::NewWindow; }
 
 	private:
+		DURINED_API auto StartPlaySessionInternal(
+			const FEditorPlayRequest& Request,
+			std::optional<DClass*> GameModeOverride,
+			std::string* OutError) -> bool;
 		auto TeardownPlaySession() -> void;
 		auto ReleaseRetiredPlaySessions(bool bReleaseAll = false) -> void;
 
@@ -117,6 +122,8 @@ namespace Durin
 		std::vector<std::unique_ptr<FRenderCommandFence>> RetiredPlayFences;
 		std::vector<uint64> ConsoleCommandHandles;
 		IMainFrameModule* MainFrameModule = nullptr;
+
+		friend struct FEditorEngineTestAccess;
 	};
 
 	extern DURINED_API DEditorEngine* GEditor;

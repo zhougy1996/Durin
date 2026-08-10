@@ -115,14 +115,14 @@ TEST(FWorldTests, SimulatesPhysicsComponentsAndHonorsTheWorldToggle)
 	auto* Physics = Durin::Cast<Durin::DPhysicsComponent>(Actor->AddInstanceComponent(Durin::DPhysicsComponent::StaticClass(), "Physics"));
 	ASSERT_NE(Physics, nullptr);
 	Actor->GetRootComponent()->SetWorldLocation({0.0, 0.0, 10.0});
-	World->BeginPlay();
-	World->Tick(0.5f);
+	World->BeginPlay({});
+	World->Tick({.DeltaSeconds = 0.5f});
 	EXPECT_LT(Actor->GetActorTransform().Translation.z, 10.0);
 	EXPECT_LT(Physics->GetLinearVelocity().z, 0.0);
 
 	World->SetPhysicsSimulationEnabled(false);
 	const Durin::FVector3 PausedLocation = Actor->GetActorTransform().Translation;
-	World->Tick(0.5f);
+	World->Tick({.DeltaSeconds = 0.5f});
 	ExpectVectorNear(Actor->GetActorTransform().Translation, PausedLocation);
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
@@ -136,13 +136,13 @@ TEST(FWorldTests, RoutesPlayLifecycleThroughActorsAndComponents)
 	ASSERT_FALSE(Actor->HasBegunPlay());
 	ASSERT_FALSE(Actor->GetCameraComponent()->HasBegunPlay());
 
-	World->BeginPlay();
+	World->BeginPlay({});
 	EXPECT_TRUE(World->HasBegunPlay());
 	EXPECT_TRUE(Actor->HasBegunPlay());
 	EXPECT_TRUE(Actor->GetCameraComponent()->HasBegunPlay());
 	World->SetPaused(true);
 	World->RequestSingleStep();
-	World->Tick(1.0f / 60.0f);
+	World->Tick({.DeltaSeconds = 1.0f / 60.0f});
 
 	World->EndPlay();
 	EXPECT_FALSE(World->HasBegunPlay());

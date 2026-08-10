@@ -105,7 +105,7 @@ namespace
 		Scenario.NewPath = MakePath("/DefaultLevelTests/Levels/New");
 		std::ofstream Settings(Scenario.Root / "Configs" / "Project.yaml");
 		EXPECT_TRUE(Settings.is_open());
-		Settings << "Editor:\n"
+		Settings << "Game:\n"
 			<< "  DefaultLevel: " << Scenario.OldPath.ToString() << "\n"
 			<< "  Preserve: Keep\n"
 			<< "RootValue: 17\n";
@@ -145,9 +145,9 @@ TEST(FProjectDefaultLevelReferenceStoreTests, FixUpRewritesYamlAndPreservesOther
 	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(
 		Scenario.OldPath), nullptr);
 	const Durin::FYamlDocument Settings = LoadSettings(Scenario);
-	EXPECT_EQ(Settings.GetRootView().GetView("Editor")
+	EXPECT_EQ(Settings.GetRootView().GetView("Game")
 		.GetView("DefaultLevel").GetString(), Scenario.NewPath.ToString());
-	EXPECT_EQ(Settings.GetRootView().GetView("Editor")
+	EXPECT_EQ(Settings.GetRootView().GetView("Game")
 		.GetView("Preserve").GetString(), "Keep");
 	EXPECT_EQ(Settings.GetRootView().GetView("RootValue").GetInt(), 17);
 }
@@ -175,7 +175,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, VerificationFailureRestoresYamlAnd
 	EXPECT_EQ(Alias->EntryKind,
 		Durin::Asset::EAssetRegistryEntryKind::Redirector);
 	const Durin::FYamlDocument Settings = LoadSettings(Scenario);
-	EXPECT_EQ(Settings.GetRootView().GetView("Editor")
+	EXPECT_EQ(Settings.GetRootView().GetView("Game")
 		.GetView("DefaultLevel").GetString(), Scenario.OldPath.ToString());
 }
 
@@ -200,6 +200,6 @@ TEST(FProjectDefaultLevelReferenceStoreTests, CookContributesCanonicalRootWithou
 		{}, Reachable));
 	EXPECT_EQ(Reachable, (std::vector{Scenario.NewPath}));
 	const Durin::FYamlDocument Settings = LoadSettings(Scenario);
-	EXPECT_EQ(Settings.GetRootView().GetView("Editor")
+	EXPECT_EQ(Settings.GetRootView().GetView("Game")
 		.GetView("DefaultLevel").GetString(), Scenario.OldPath.ToString());
 }

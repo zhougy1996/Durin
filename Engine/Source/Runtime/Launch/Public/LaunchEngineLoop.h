@@ -11,6 +11,8 @@ namespace Durin
 		bool bSuppressWindowDisplay = false;
 		bool bRunTaskSchedulerLifecycleSmoke = false;
 		bool bRunEngineAssetServiceLifecycleSmoke = false;
+		bool bRunEditorPIELifecycleSmoke = false;
+		bool bRunNativeGameplayLifecycleSmoke = false;
 		FProjectInitializationParams Project;
 	};
 
@@ -30,6 +32,10 @@ namespace Durin
 		double LastTickTime = 0.0;
 		bool bRunTaskSchedulerLifecycleSmoke = false;
 		bool bRunEngineAssetServiceLifecycleSmoke = false;
+		bool bRunEditorPIELifecycleSmoke = false;
+		bool bEditorPIELifecycleSmokeCompleted = false;
+		bool bRunNativeGameplayLifecycleSmoke = false;
+		bool bNativeGameplayLifecycleSmokeCompleted = false;
 	};
 
 	extern FEngineLoop GEngineLoop;

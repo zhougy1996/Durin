@@ -7,6 +7,11 @@ namespace Durin
 	class DWorld;
 	class DLevel;
 	class AActor;
+	class APawn;
+	class AController;
+	class APlayerController;
+	class AGameMode;
+	class APlayerStart;
 
 	class ACameraActor;
 	class ADirectionalLightActor;
@@ -21,6 +26,7 @@ namespace Durin
 	class DCameraComponent;
 	class DDirectionalLightComponent;
 	class DPhysicsComponent;
+	class DPawnMovementComponent;
 	class DSplineComponent;
 	class DStaticMeshComponent;
 	class DSkeletalMeshComponent;
@@ -40,4 +46,5 @@ namespace Durin
 	class FTexture2DResource;
 	class FTextureCubeResource;
 	class IScene;
+	struct FPawnControlIntent;
 } // namespace Durin

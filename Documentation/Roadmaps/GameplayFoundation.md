@@ -10,25 +10,23 @@ Completed:
 ## Current Status
 
 The Actor/Component, World/Level, PIE, raw game-input, camera, static-mesh, and
-limited ground-plane physics foundations already exist. `Sandbox` is currently
-only a runtime module shell and has no gameplay types or playable loop.
+limited ground-plane physics foundations exist. `Sandbox` currently contains
+only its runtime shell and a cross-module qualification fixture; it has no
+gameplay policy or playable loop.
 
-Milestone G0 is complete: DurinHeaderTool now resolves reflected bases and
-property types through deterministic lexical namespace lookup, including
-relative/global spellings and nested containers, while preserving qualified
-runtime identities. G1's entry audit is complete and the
-[Native Gameplay Core](../Plans/NativeGameplayCore.md) plan is active. The plan
-uses architecture-first World play/tick protocols, one Engine-owned project
-game-settings model, and a private World gameplay session; existing signatures
-and YAML routes may be refactored where that produces a cleaner ownership
-boundary. No script runtime, Actor template system, skeletal rendering
-dependency, or speculative general gameplay framework is activated.
+Milestones G0 and G1 are complete. The native core now provides exact reflected
+gameplay roots, possession, semantic control, movement and view-target
+boundaries, transactional bootstrap/restart, shared project settings, and
+qualified PIE/standalone hosts. G2 is active through the
+[Sandbox Gameplay Vertical Slice](../Plans/SandboxGameplayVerticalSlice.md)
+plan. It owns the first concrete keys, movement tune, camera composition,
+graybox visual, and authored start entirely inside Sandbox.
 
 | Milestone | Status | Child plan |
 | --- | --- | --- |
 | G0: Namespace-safe reflected type resolution | Complete | [DHT Namespace-Aware Type Resolution](../Plans/DHTNamespaceAwareTypeResolution.md) |
-| G1: Native possession and player bootstrap | Active | [Native Gameplay Core](../Plans/NativeGameplayCore.md) |
-| G2: Sandbox graybox playable slice | Proposed | `SandboxGameplayVerticalSlice.md` after G1 |
+| G1: Native possession and player bootstrap | Complete | [Native Gameplay Core](../Plans/NativeGameplayCore.md) |
+| G2: Sandbox graybox playable slice | Active | [Sandbox Gameplay Vertical Slice](../Plans/SandboxGameplayVerticalSlice.md) |
 | G3: Evidence-gated framework extraction | Conditional | Create only after a second concrete consumer exists |
 
 ## Outcome
@@ -210,12 +208,14 @@ points were audited. The selected configuration boundary is one
 `Game.NativeModule` plus one fully qualified `Game.GameModeClass`, owned beside
 the migrated `Game.DefaultLevel` setting and shared by PIE and standalone.
 
-Exit gate: focused Engine tests prove possession symmetry, invalid transition
-rejection, spawn/restart/teardown, input edge consumption, pause/single-step,
-camera fallback, and unchanged ordinary Actor behavior. Long-lived contracts
-are ready for Runtime documentation.
+Exit gate: satisfied 2026-08-11. Focused and full native tests, full Editor/Game
+builds, and threaded/inline runtime diagnostics prove possession symmetry,
+rollback, restart, semantic input, camera fallback, repeated PIE restoration,
+standalone native lifecycle, and unchanged ordinary Actor behavior. Long-lived
+contracts are published in their Runtime, Level, PIE, viewport, and workspace
+owners.
 
-Active child plan: [Native Gameplay Core](../Plans/NativeGameplayCore.md).
+Completed child plan: [Native Gameplay Core](../Plans/NativeGameplayCore.md).
 
 ### G2: Sandbox graybox playable slice
 
@@ -228,16 +228,15 @@ Deliverable: Sandbox enters PIE and standalone play with one default controller
 possessing one graybox pawn at a player start; move, look, jump, landing, camera
 follow, pause/single-step, stop, and restart produce deterministic state.
 
-Entry gate: G1 types and lifecycle tests are complete; the selected graybox
-level and placeholder visual require no skeletal asset or production collision
-backend.
+Entry gate: satisfied 2026-08-11. G1 types, host integration, lifecycle tests,
+and process diagnostics are complete; the selected graybox level and
+placeholder visual require no skeletal asset or production collision backend.
 
 Exit gate: a focused automated matrix plus editor and standalone smoke proves
 the complete start-to-stop loop, repeated PIE sessions leak no control or input
 state, and game-specific tuning remains outside Engine.
 
-Proposed child plan: `Documentation/Plans/SandboxGameplayVerticalSlice.md`.
-Create it only after G1 completes.
+Active child plan: [Sandbox Gameplay Vertical Slice](../Plans/SandboxGameplayVerticalSlice.md).
 
 ### G3: Evidence-gated framework extraction
 

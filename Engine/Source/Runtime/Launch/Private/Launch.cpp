@@ -50,6 +50,14 @@ int LAUNCH_API main(int argc, char** argv)
 		{
 			StartupParams.bRunEngineAssetServiceLifecycleSmoke = true;
 		}
+		else if (Argument == "--editor-pie-lifecycle-smoke")
+		{
+			StartupParams.bRunEditorPIELifecycleSmoke = true;
+		}
+		else if (Argument == "--native-gameplay-lifecycle-smoke")
+		{
+			StartupParams.bRunNativeGameplayLifecycleSmoke = true;
+		}
 		else if (Argument == "--project-browser")
 		{
 			StartupParams.Project.bOpenProjectBrowser = true;
