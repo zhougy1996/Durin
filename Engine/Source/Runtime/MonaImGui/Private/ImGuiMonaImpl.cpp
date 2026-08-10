@@ -661,6 +661,11 @@ namespace Durin::MonaImGui
 		IO.ConfigViewportsNoDefaultParent = false;
 		IO.ConfigViewportsNoTaskBarIcon = true;
 		IO.ConfigViewportsNoDecoration = true;
+		// Preserve drag-to-adjust while allowing a click without dragging to enter
+		// precise text input. This is especially important for compact vector
+		// component fields, where double-click activation is easy to lose between
+		// adjacent controls.
+		IO.ConfigDragClickToInputText = true;
 
 		ImGuiStyle& Style = ImGui::GetStyle();
 		if ((IO.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) != 0)
