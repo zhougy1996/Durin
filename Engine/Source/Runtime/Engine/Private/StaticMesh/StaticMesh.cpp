@@ -1441,13 +1441,7 @@ namespace Durin
 			: FName(std::format(
 				"<transient DStaticMesh:{}>", GetName()));
 #endif
-		if (bCandidateAlreadyReady)
-		{
-#if DURIN_BUILD_DEBUG
-			Other.RenderData->SetResourceDebugOwner(DebugOwner);
-#endif
-		}
-		else
+		if (!bCandidateAlreadyReady)
 		{
 #if DURIN_BUILD_DEBUG
 			Other.RenderData->SetResourceDebugOwner(DebugOwner);
@@ -1458,6 +1452,9 @@ namespace Durin
 				return false;
 			}
 		}
+		// An already initialized render resource keeps the debug owner it had
+		// when initialization was queued. Relabeling it violates the render-
+		// resource lifecycle and is not needed for transferring ownership.
 
 		const EStaticMeshRenderResourceState IncomingState =
 			bCandidateAlreadyReady || GDynamicRHI != nullptr
@@ -1507,8 +1504,17 @@ namespace Durin
 		{
 			if ((CandidateState != EStaticMeshRenderResourceState::Uninitialized
 					&& CandidateState != EStaticMeshRenderResourceState::Released)
-				|| Candidate.RenderData->GetNumInitializedResources() != 0
-				|| !InitializeStaticMeshCandidate(*Candidate.RenderData, OutError))
+				|| Candidate.RenderData->GetNumInitializedResources() != 0)
+			{
+				OutError = "Static-mesh candidate cannot be prepared for imported-state exchange.";
+				return nullptr;
+			}
+#if DURIN_BUILD_DEBUG
+			Candidate.RenderData->SetResourceDebugOwner(GetPackage()
+				? FName(GetPackage()->GetPackagePath())
+				: FName("<transient-static-mesh>"));
+#endif
+			if (!InitializeStaticMeshCandidate(*Candidate.RenderData, OutError))
 			{
 				if (OutError.empty())
 					OutError = "Static-mesh candidate cannot be prepared for imported-state exchange.";
@@ -1547,14 +1553,9 @@ namespace Durin
 			Candidate->LoadRenderResourceState();
 		Target->PublishRenderResourceState(CandidateState);
 		Candidate->PublishRenderResourceState(TargetState);
-#if DURIN_BUILD_DEBUG
-		if (Target->RenderData)
-			Target->RenderData->SetResourceDebugOwner(Target->GetPackage()
-				? FName(Target->GetPackage()->GetPackagePath()) : FName("<transient-static-mesh>"));
-		if (Candidate->RenderData)
-			Candidate->RenderData->SetResourceDebugOwner(Candidate->GetPackage()
-				? FName(Candidate->GetPackage()->GetPackagePath()) : FName("<static-mesh-candidate>"));
-#endif
+		// Both render-data sets may already be initialized. Their debug owner
+		// describes the initialization site and must not be changed after the
+		// ownership exchange.
 		Target->MarkPackageDirty();
 	}
 

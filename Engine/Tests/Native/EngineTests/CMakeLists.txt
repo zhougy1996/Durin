@@ -259,8 +259,11 @@ durin_add_engine_functional_test(SkeletalMeshEditorTests
 )
 
 durin_add_engine_functional_test(SkeletalSceneLifecycleTests
+	GPU
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises editor skeletal Scene import through cook and runtime-only load."
+	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for cold-DDC skeletal reimport resource validation."
+	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES
 		Private/SkeletalSceneLifecycleTests.cpp
 	LIBRARIES AssetImportCore StandardAssetImport RenderCore DurinEd SkeletalMeshEditor

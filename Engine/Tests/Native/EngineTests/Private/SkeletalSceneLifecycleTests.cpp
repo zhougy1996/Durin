@@ -8,7 +8,11 @@
 #include "Materials/MaterialInstance.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
+#include "RHICommandList.h"
+#include "RHIGlobals.h"
+#include "RenderingThread.h"
 #include "SceneImport.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
@@ -304,6 +308,10 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 
 	Durin::Testing::RemoveTestWorkDirectory(CacheRoot);
 	InitializeAssetManager();
+	Durin::FModuleManager::Get().LoadModule("RenderCore");
+	Durin::RHIInit();
+	ASSERT_NE(Durin::GDynamicRHI, nullptr);
+	Durin::InitRenderingThread();
 	{
 		const std::array<Durin::PathUtilities::FMountPoint, 2> MountDefinitions{{
 			{
@@ -340,7 +348,12 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 		EXPECT_TRUE(std::filesystem::exists(CacheRoot / "SkeletalMesh/Objects"));
 		EXPECT_TRUE(std::filesystem::exists(CacheRoot / "AnimationClip/Objects"));
 		ShutdownAssetManager();
+		Durin::FlushRenderingCommands();
+		Durin::CollectGarbage();
 	}
+	Durin::ShutdownRenderingThread();
+	Durin::FRHICommandListImmediate::Get().SwitchPipeline(Durin::ERHIPipeline::None);
+	Durin::RHIExit();
 
 	Durin::Testing::RemoveTestWorkDirectory(EngineContent);
 	Durin::Testing::RemoveTestWorkDirectory(GameContent);
