@@ -34,6 +34,13 @@ selection pass, or non-blocking region-readback abstraction. The current public
 texture readback is synchronous and reads a complete subresource, so it is not
 an acceptable viewport-interaction path.
 
+M1 is active through the
+[Viewport Picking Contract Plan](../Plans/ViewportPickingContract.md). Its
+Stage 0 freezes the public semantic request/result shape, private per-viewport
+service boundary, request-local identity snapshot, coordinate convention,
+winner ordering, and immediate/deferred ticket lifecycle before implementation
+begins. M2 remains proposed until M1 passes its exit gate.
+
 ## Outcome
 
 Editor viewports resolve one semantic picking request into one ordered hit
@@ -231,7 +238,7 @@ flowchart LR
 
 | Milestone | Requirement | Proposed child plan | Dependencies | Deliverable | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- | --- | --- |
-| M1: Semantic picking contract | Required | `ViewportPickingContract` | Current viewport editing and StaticMesh picking behavior | Per-viewport request/result/service boundary, exact primitive/component identity, generation and cancellation rules, explicit hit arbitration, and a CPU reference backend preserving current StaticMesh behavior | Actor/component/visualizer/gizmo selection semantics, fitted-view coordinates, layer priorities, and immediate-versus-pending API shape are recorded before implementation | Select and contextual modes consume semantic hits without knowing the backend; geometry and visualizer hits resolve once; current transformed closest-triangle behavior and selection workflows pass; world/component/view retirement cannot apply a stale result |
+| M1: Semantic picking contract | Required; active | [Viewport Picking Contract](../Plans/ViewportPickingContract.md) | Current viewport editing and StaticMesh picking behavior | Per-viewport request/result/service boundary, exact primitive/component identity, generation and cancellation rules, explicit hit arbitration, and a CPU reference backend preserving current StaticMesh behavior | Actor/component/visualizer/gizmo selection semantics, fitted-view coordinates, layer priorities, and immediate-versus-pending API shape are recorded before implementation | Select and contextual modes consume semantic hits without knowing the backend; geometry and visualizer hits resolve once; current transformed closest-triangle behavior and selection workflows pass; world/component/view retirement cannot apply a stale result |
 | M2: Current-pose skeletal picking | Required | `SkeletalViewportPicking` | M1 contract; skeletal render data and pose publication | Correct CPU reference picking for `DSkeletalMeshComponent` using current pose bounds and deformation, with Actor/component results and deterministic failure fallback | Exact supported precision, missing/incomplete pose behavior, LOD policy, backface policy, and maximum reference-query budget are selected | Static and skeletal primitives compete by one world-space distance rule; animation can move a hit into and out of the ray; bind-pose-only hits are rejected; transforms, non-uniform scale, invalid poses, hidden Actors, and multiple components pass focused tests |
 | M3: CPU spatial acceleration | Required | `ViewportPickingSpatialAcceleration` | M1-M2 reference behavior and representative scene/mesh fixtures | Incremental scene bounds index, immutable per-LOD StaticMesh triangle acceleration, bounded skeletal candidate reduction where justified, diagnostics, and selectable brute-force comparison | Reference results are stable; update rates, representative object/triangle counts, memory budget, rebuild/refit policy, and ownership boundary are recorded | Accelerated and reference backends produce identical ordered results across randomized and adversarial fixtures; add/remove/transform/visibility/pose-bound updates remain correct; counters and profiling demonstrate bounded candidate reduction without unbounded retained data |
 | M4: Asynchronous bounded-region readback | Conditional prerequisite | `AsynchronousTextureRegionReadback` | M1 request lifetime; selected GPU consumer and accepted latency/buffer budgets | Backend-independent RHI region-copy/readback handle, bounded staging ring, polling/completion, cancellation/retirement, diagnostics, and Vulkan implementation | M5 or another approved consumer defines format, region size, maximum concurrent requests, latency target, thread ownership, and failure fallback; synchronous readback is measured or known to be unacceptable | Subresource regions round-trip correctly without full-texture copy or caller-visible GPU wait; multiple in-flight requests, resize/invalidation, overflow, shutdown, and device/resource failure pass RHI and Vulkan coverage |
@@ -245,7 +252,7 @@ product constraints.
 
 ## Child Plan Boundaries
 
-### `ViewportPickingContract`
+### [Viewport Picking Contract](../Plans/ViewportPickingContract.md)
 
 This plan owns the LevelEditor-facing request/result/service seam, per-viewport
 pending state, identity resolution, invalidation generations, hit layers,
