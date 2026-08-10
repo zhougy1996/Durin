@@ -4,6 +4,25 @@
 
 namespace Durin
 {
+	thread_local uint32 GSkeletalDerivedDataRepairLoadDepth = 0;
+
+	FScopedSkeletalDerivedDataRepairLoad::FScopedSkeletalDerivedDataRepairLoad()
+	{
+		check(GSkeletalDerivedDataRepairLoadDepth < std::numeric_limits<uint32>::max());
+		++GSkeletalDerivedDataRepairLoadDepth;
+	}
+
+	FScopedSkeletalDerivedDataRepairLoad::~FScopedSkeletalDerivedDataRepairLoad()
+	{
+		check(GSkeletalDerivedDataRepairLoadDepth > 0);
+		--GSkeletalDerivedDataRepairLoadDepth;
+	}
+
+	auto IsSkeletalDerivedDataRepairLoadActive() -> bool
+	{
+		return GSkeletalDerivedDataRepairLoadDepth > 0;
+	}
+
 	namespace
 	{
 		inline constexpr uint32 ChunkRequired = 1;

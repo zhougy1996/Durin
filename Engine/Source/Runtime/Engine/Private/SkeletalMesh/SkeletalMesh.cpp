@@ -458,7 +458,11 @@ namespace Durin
 			{
 				if (!LoadCookedPayload(OutError)) return false;
 			}
-			else if (!DerivedDataKey.empty() && !LoadDerivedDataPayload(OutError)) return false;
+			else if (!DerivedDataKey.empty() && !LoadDerivedDataPayload(OutError))
+			{
+				if (!IsSkeletalDerivedDataRepairLoadActive()) return false;
+				OutError.clear();
+			}
 		}
 		return !PayloadData || BuildRenderData(OutError);
 	}

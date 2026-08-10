@@ -219,7 +219,11 @@ namespace Durin
 		if (PayloadData) return true;
 		if (Asset::GetPackageLoadContext().Mode == Asset::EPackageLoadMode::CookedRuntime)
 			return LoadCookedPayload(OutError);
-		if (!DerivedDataKey.empty()) return LoadDerivedDataPayload(OutError);
+		if (!DerivedDataKey.empty() && !LoadDerivedDataPayload(OutError))
+		{
+			if (!IsSkeletalDerivedDataRepairLoadActive()) return false;
+			OutError.clear();
+		}
 		return true;
 	}
 

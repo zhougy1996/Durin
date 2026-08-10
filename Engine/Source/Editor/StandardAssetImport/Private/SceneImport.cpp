@@ -1183,6 +1183,7 @@ namespace Durin
 			}
 			if (!bOutNew)
 			{
+				const FScopedSkeletalDerivedDataRepairLoad RepairLoad;
 				const Asset::FAssetResult Load = Asset::LoadAsset(Entry.ResolvedAssetPath, OutTarget);
 				if (!Load) { OutError = Load.Message; return false; }
 			}
@@ -1540,6 +1541,7 @@ namespace Durin
 				Record.GetSettings().ContentHashHigh}};
 		if (Root == Record.GetSources().end()
 			|| !DecodeSceneSettings(Payload, Settings, Result.Message)) return Result;
+		const FScopedSkeletalDerivedDataRepairLoad RepairLoad;
 		return PlanSceneImport({
 			.RootSource = Root->SourcePath,
 			.DestinationDirectory = Settings.DestinationDirectory,

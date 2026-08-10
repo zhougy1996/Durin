@@ -97,6 +97,7 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 	std::vector<Durin::FSkeletalMeshPayloadData> ExpectedMeshes;
 	std::vector<Durin::FAssetPath> ClipPaths;
 	std::vector<Durin::FAnimationClipPayloadData> ExpectedClips;
+	std::vector<Durin::FAssetPath> RecordPaths;
 	{
 		const std::array<Durin::PathUtilities::FMountPoint, 2> MountDefinitions{{
 			{
@@ -285,6 +286,8 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 		EXPECT_EQ(FirstTree, SecondTree);
 		for (const Durin::FSceneImportExecutionResult& Result : Results)
 		{
+			RecordPaths.push_back(MakeAssetPath(
+				Result.Record->GetPackage()->GetPackagePath()));
 			for (Durin::DSkeletalMesh* Mesh : Result.SkeletalMeshes)
 			{
 				MeshPaths.push_back(MakeAssetPath(Mesh->GetPackage()->GetPackagePath()));
@@ -296,6 +299,46 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 				ExpectedClips.push_back(*Clip->GetPayloadData());
 			}
 		}
+		ShutdownAssetManager();
+	}
+
+	Durin::Testing::RemoveTestWorkDirectory(CacheRoot);
+	InitializeAssetManager();
+	{
+		const std::array<Durin::PathUtilities::FMountPoint, 2> MountDefinitions{{
+			{
+				.VirtualRoot = "/Engine/",
+				.Owner = Durin::PathUtilities::EMountOwner::Test,
+				.Root = EngineContent,
+				.bAutoScan = true,
+				.bAuthoringWritable = true},
+			{
+				.VirtualRoot = "/Game/",
+				.Owner = Durin::PathUtilities::EMountOwner::Test,
+				.Root = GameContent,
+				.bAutoScan = true,
+				.bAuthoringWritable = true,
+				.Dependencies = {"/Engine/"}}}};
+		Durin::PathUtilities::FScopedMountRegistryFixture Mounts(MountDefinitions);
+		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
+		for (const Durin::FAssetPath& RecordPath : RecordPaths)
+		{
+			Durin::AssetImport::DImportRecord* Record = nullptr;
+			ASSERT_TRUE(Durin::Asset::LoadAsset(RecordPath, Record));
+			ASSERT_NE(Record, nullptr);
+			const Durin::FSceneImportPlanResult ReimportPlan =
+				Durin::PlanSceneReimport(*Record);
+			ASSERT_TRUE(ReimportPlan) << ReimportPlan.Message;
+			const Durin::FSceneImportExecutionResult Reimported =
+				Durin::ExecuteSceneImport(ReimportPlan.Plan);
+			ASSERT_TRUE(Reimported) << Reimported.Message;
+			for (Durin::DSkeletalMesh* Mesh : Reimported.SkeletalMeshes)
+				EXPECT_NE(Mesh->GetPayloadData(), nullptr);
+			for (Durin::DAnimationClip* Clip : Reimported.AnimationClips)
+				EXPECT_NE(Clip->GetPayloadData(), nullptr);
+		}
+		EXPECT_TRUE(std::filesystem::exists(CacheRoot / "SkeletalMesh/Objects"));
+		EXPECT_TRUE(std::filesystem::exists(CacheRoot / "AnimationClip/Objects"));
 		ShutdownAssetManager();
 	}
 

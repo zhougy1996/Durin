@@ -55,6 +55,21 @@ namespace Durin
 		ESkeletalPayloadTargetProfile TargetProfile = ESkeletalPayloadTargetProfile::Unknown;
 	};
 
+	// Allows authoritative reimport transactions to materialize authored skeletal
+	// metadata before replacing payloads whose disposable DDC objects are absent.
+	class ENGINE_API FScopedSkeletalDerivedDataRepairLoad
+	{
+	public:
+		FScopedSkeletalDerivedDataRepairLoad();
+		~FScopedSkeletalDerivedDataRepairLoad();
+		FScopedSkeletalDerivedDataRepairLoad(
+			const FScopedSkeletalDerivedDataRepairLoad&) = delete;
+		auto operator=(const FScopedSkeletalDerivedDataRepairLoad&)
+			-> FScopedSkeletalDerivedDataRepairLoad& = delete;
+	};
+
+	ENGINE_API auto IsSkeletalDerivedDataRepairLoadActive() -> bool;
+
 	ENGINE_API auto BuildSkeletalMeshDerivedDataKeyBytes(
 		const FSkeletalDerivedDataKeyInput& Input) -> std::vector<uint8>;
 	ENGINE_API auto BuildSkeletalMeshDerivedDataKey(
