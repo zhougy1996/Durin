@@ -19,7 +19,11 @@ from durin_header_tool.model.reflection_info import (
     make_generated_struct_helper_name,
 )
 from durin_header_tool.parser.cpp_source_scanner import CppSourceScanner
-from durin_header_tool.resolver.reflection_resolver import resolve_symbol_name
+from durin_header_tool.resolver.reflection_resolver import (
+    resolve_symbol,
+    resolve_symbol_name,
+    symbol_resolution_diagnostic,
+)
 
 ExportedSymbols: TypeAlias = dict[str, ExportedSymbolInfo]
 MAX_CONTAINER_PROPERTY_DEPTH = 4
@@ -34,7 +38,7 @@ _DPROPERTY_PATTERN = re.compile(r"\bDPROPERTY\s*\(")
 _GENERATED_BODY_PATTERN = re.compile(r"\bGENERATED_BODY\s*\(")
 _INCLUDE_PATTERN = re.compile(r'^\s*#\s*include\b[^\r\n]*$', re.MULTILINE)
 _TYPE_DECLARATION_PATTERN = re.compile(r"\b(?:class|struct|enum(?:\s+class)?)\s+([A-Za-z_]\w*)")
-PARSER_CONTEXT_VERSION = "hermetic-v1"
+PARSER_CONTEXT_VERSION = "hermetic-namespace-lookup-v2"
 
 _PROPERTY_KIND_BY_TYPE = {
     "int8": "Int8",
@@ -485,6 +489,7 @@ def _make_property_from_source_decl(
     source_line: str,
     annotation: str,
     exported_symbols: ExportedSymbols | None,
+    declaring_namespace: str = "",
 ) -> ReflectedPropertyInfo | None:
     line = source_line.rstrip(";").strip()
     match = re.match(r"(.+?)\s+(\w+)(?:\s*\[(\d+)\])?(?:\s*(?:=.*|\{.*\}))?$", line)
@@ -497,6 +502,7 @@ def _make_property_from_source_decl(
         name,
         type_spelling,
         exported_symbols,
+        declaring_namespace=declaring_namespace,
         flags=_property_flags_from_annotation(annotation),
         array_dim=array_dim,
     ), annotation)
@@ -508,6 +514,7 @@ def _scan_source_properties_for_class(
     exported_symbols: ExportedSymbols | None,
     known_property_names: set[str] | None = None,
     reject_unsupported: bool = True,
+    declaring_namespace: str = "",
 ) -> list[ReflectedPropertyInfo]:
     properties: list[ReflectedPropertyInfo] = []
     start_line, end_line = _cursor_source_line_range(source, class_cursor)
@@ -562,7 +569,9 @@ def _scan_source_properties_for_class(
             if not stripped or stripped in ("public:", "private:", "protected:"):
                 continue
             if scanner.find_next_code_position(";", line_start, line_end) is not None:
-                prop = _make_property_from_source_decl(stripped, pending_annotation, exported_symbols)
+                prop = _make_property_from_source_decl(
+                    stripped, pending_annotation, exported_symbols, declaring_namespace
+                )
                 if prop:
                     properties.append(prop)
                 else:
@@ -574,6 +583,18 @@ def _scan_source_properties_for_class(
                     if reject_unsupported and (
                         not property_name or property_name not in (known_property_names or set())
                     ):
+                        if exported_symbols:
+                            for reference_spelling in _reflected_reference_spellings(type_spelling):
+                                resolution = resolve_symbol(
+                                    reference_spelling, exported_symbols,
+                                    declaring_namespace=declaring_namespace,
+                                )
+                                if resolution.candidates and not resolution.resolved:
+                                    raise ValueError(symbol_resolution_diagnostic(
+                                        resolution,
+                                        str(class_cursor.location.file or "<unknown>"),
+                                        f"DPROPERTY '{property_name or '<unknown>'}' at line {line_number}",
+                                    ))
                         raise ValueError(
                             f"DPROPERTY at line {line_number}: unsupported non-hermetic type "
                             f"spelling '{type_spelling}'"
@@ -581,6 +602,35 @@ def _scan_source_properties_for_class(
                 pending_annotation = ""
 
     return properties
+
+
+def _reflected_reference_spellings(type_spelling: str) -> tuple[str, ...]:
+    normalized = _normalize_type_spelling(type_spelling)
+    if normalized.endswith("*"):
+        return _reflected_reference_spellings(normalized[:-1])
+    for predicate, argument_getter in (
+        (_is_tobject_ptr, _tobject_ptr_arg),
+        (_is_tsoft_object_ptr, _tsoft_object_ptr_arg),
+    ):
+        if predicate(normalized):
+            argument = argument_getter(normalized)
+            return _reflected_reference_spellings(argument) if argument else ()
+    if _is_std_vector(normalized):
+        arguments = _source_template_args(normalized.removeprefix("::"), "std::vector")
+        return _reflected_reference_spellings(arguments[0]) if arguments else ()
+    if _is_std_unordered_map(normalized):
+        arguments = _source_template_args(normalized.removeprefix("::"), "std::unordered_map")
+        return tuple(
+            spelling
+            for argument in arguments[:2]
+            for spelling in _reflected_reference_spellings(argument)
+        )
+    if normalized in _PROPERTY_KIND_BY_TYPE or normalized in (
+        "bool", "float", "double", "std::string", "FName", "Durin::FName",
+        "FGuid", "Durin::FGuid",
+    ):
+        return ()
+    return (normalized,)
 
 
 def _is_std_vector(type_spelling: str) -> bool:
@@ -685,6 +735,7 @@ def _validate_soft_object_spelling(
     property_name: str,
     line_number: int,
     exported_symbols: ExportedSymbols | None,
+    declaring_namespace: str = "",
 ) -> None:
     location = f"DPROPERTY '{property_name}' at line {line_number}"
     source_compact = type_spelling.strip().replace(" ", "").removeprefix("::")
@@ -725,10 +776,14 @@ def _validate_soft_object_spelling(
                 f"[DHT-SOFT003] {location}: soft object target '{target}' must be an unqualified object class"
             )
         if exported_symbols:
-            resolved_class = _resolved_symbol_name((target,), exported_symbols, kinds=("class",))
+            resolved_class = _resolved_symbol_name(
+                (target,), exported_symbols, kinds=("class",),
+                declaring_namespace=declaring_namespace,
+            )
             if not resolved_class:
                 resolved_non_object = _resolved_symbol_name(
-                    (target,), exported_symbols, kinds=("struct", "enum")
+                    (target,), exported_symbols, kinds=("struct", "enum"),
+                    declaring_namespace=declaring_namespace,
                 )
                 code = "DHT-SOFT004" if resolved_non_object else "DHT-SOFT005"
                 reason = "is not an object class" if resolved_non_object else "could not be resolved"
@@ -739,7 +794,9 @@ def _validate_soft_object_spelling(
     if _is_std_vector(normalized):
         args = _source_template_args(normalized.removeprefix("::"), "std::vector")
         if args:
-            _validate_soft_object_spelling(args[0], property_name, line_number, exported_symbols)
+            _validate_soft_object_spelling(
+                args[0], property_name, line_number, exported_symbols, declaring_namespace
+            )
         return
     if _is_std_unordered_map(normalized):
         args = _source_template_args(normalized.removeprefix("::"), "std::unordered_map")
@@ -748,7 +805,9 @@ def _validate_soft_object_spelling(
                 raise ValueError(
                     f"[DHT-SOFT006] {location}: soft object references are unsupported as Map keys"
                 )
-            _validate_soft_object_spelling(args[1], property_name, line_number, exported_symbols)
+            _validate_soft_object_spelling(
+                args[1], property_name, line_number, exported_symbols, declaring_namespace
+            )
         return
     if "TSoftObjectPtr" in compact:
         raise ValueError(
@@ -782,6 +841,7 @@ def _resolved_symbol_name(
     exported_symbols: ExportedSymbols | None,
     *,
     kinds: tuple[str, ...],
+    declaring_namespace: str = "",
 ) -> str | None:
     if not exported_symbols:
         return None
@@ -790,12 +850,19 @@ def _resolved_symbol_name(
         *(spelling for spelling in spellings if "::" not in spelling),
     )
     for spelling in dict.fromkeys(ordered_spellings):
-        if resolved := resolve_symbol_name(spelling, exported_symbols, kinds=kinds):
+        if resolved := resolve_symbol_name(
+            spelling, exported_symbols,
+            declaring_namespace=declaring_namespace, kinds=kinds,
+        ):
             return resolved
     return None
 
 
-def _cpp_type_spelling(type_spelling: str, exported_symbols: ExportedSymbols | None) -> str:
+def _cpp_type_spelling(
+    type_spelling: str,
+    exported_symbols: ExportedSymbols | None,
+    declaring_namespace: str = "",
+) -> str:
     type_spelling = _normalize_type_spelling(type_spelling)
     primitive_types = {
         "int8": "Durin::int8",
@@ -818,23 +885,24 @@ def _cpp_type_spelling(type_spelling: str, exported_symbols: ExportedSymbols | N
     if _is_std_vector(type_spelling):
         args = _source_template_args(type_spelling, "std::vector")
         if len(args) == 1:
-            return f"std::vector<{_cpp_type_spelling(args[0], exported_symbols)}>"
+            return f"std::vector<{_cpp_type_spelling(args[0], exported_symbols, declaring_namespace)}>"
     if _is_std_unordered_map(type_spelling):
         args = _source_template_args(type_spelling, "std::unordered_map")
         if len(args) >= 2:
-            return f"std::unordered_map<{_cpp_type_spelling(args[0], exported_symbols)}, {_cpp_type_spelling(args[1], exported_symbols)}>"
+            return f"std::unordered_map<{_cpp_type_spelling(args[0], exported_symbols, declaring_namespace)}, {_cpp_type_spelling(args[1], exported_symbols, declaring_namespace)}>"
     if _is_tobject_ptr(type_spelling):
         arg = _tobject_ptr_arg(type_spelling)
         if arg:
-            return f"Durin::TObjectPtr<{_cpp_type_spelling(arg, exported_symbols)}>"
+            return f"Durin::TObjectPtr<{_cpp_type_spelling(arg, exported_symbols, declaring_namespace)}>"
     if _is_tsoft_object_ptr(type_spelling):
         arg = _tsoft_object_ptr_arg(type_spelling)
         if arg:
-            return f"Durin::TSoftObjectPtr<{_cpp_type_spelling(arg, exported_symbols)}>"
+            return f"Durin::TSoftObjectPtr<{_cpp_type_spelling(arg, exported_symbols, declaring_namespace)}>"
     if resolved := _resolved_symbol_name(
         (type_spelling,),
         exported_symbols,
         kinds=("enum", "class", "struct"),
+        declaring_namespace=declaring_namespace,
     ):
         return resolved
     if type_spelling.endswith("*"):
@@ -845,6 +913,7 @@ def _cpp_type_spelling(type_spelling: str, exported_symbols: ExportedSymbols | N
             (pointee,),
             exported_symbols,
             kinds=("class",),
+            declaring_namespace=declaring_namespace,
         ):
             return f"{resolved}*"
     return type_spelling
@@ -865,6 +934,7 @@ def _make_property_from_spelling(
     element_size: str = "",
     enum_qualified_name: str = "",
     enum_short_name: str = "",
+    declaring_namespace: str = "",
 ) -> ReflectedPropertyInfo | None:
     type_spelling = _normalize_type_spelling(type_spelling)
     canonical_spelling = _normalize_type_spelling(canonical_spelling)
@@ -908,6 +978,7 @@ def _make_property_from_spelling(
         (type_spelling, canonical_spelling),
         exported_symbols,
         kinds=("struct",),
+        declaring_namespace=declaring_namespace,
     ):
         return ReflectedPropertyInfo(
             name=name,
@@ -915,7 +986,7 @@ def _make_property_from_spelling(
             kind="Struct",
             referenced_struct_type=referenced_struct_type,
             array_dim=array_dim,
-            element_size=element_size or f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols)})",
+            element_size=element_size or f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols, declaring_namespace)})",
             flags=flags,
         )
 
@@ -930,6 +1001,7 @@ def _make_property_from_spelling(
             enum_spellings,
             exported_symbols,
             kinds=("enum",),
+            declaring_namespace=declaring_namespace,
         )
         if not exported_symbols and enum_qualified_name:
             referenced_enum_type = enum_qualified_name
@@ -945,7 +1017,7 @@ def _make_property_from_spelling(
                 element_size=element_size or (
                     str(underlying_size)
                     if underlying_size
-                    else f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols)})"
+                    else f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols, declaring_namespace)})"
                 ),
                 flags=flags,
             )
@@ -968,6 +1040,7 @@ def _make_property_from_spelling(
             allow_enum=True,
             depth=depth + 1,
             max_depth=max_depth,
+            declaring_namespace=declaring_namespace,
         )
         if not inner:
             return None
@@ -976,7 +1049,7 @@ def _make_property_from_spelling(
             type_name=type_spelling,
             kind="Array",
             array_dim=array_dim,
-            element_size=element_size or f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols)})",
+            element_size=element_size or f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols, declaring_namespace)})",
             flags=flags,
             inner=inner,
         )
@@ -997,6 +1070,7 @@ def _make_property_from_spelling(
             allow_enum=True,
             depth=depth + 1,
             max_depth=max_depth,
+            declaring_namespace=declaring_namespace,
         )
         value = _make_property_from_spelling(
             f"{name}_Value",
@@ -1007,6 +1081,7 @@ def _make_property_from_spelling(
             allow_enum=True,
             depth=depth + 1,
             max_depth=max_depth,
+            declaring_namespace=declaring_namespace,
         )
         if not key or not value:
             return None
@@ -1015,7 +1090,7 @@ def _make_property_from_spelling(
             type_name=type_spelling,
             kind="Map",
             array_dim=array_dim,
-            element_size=element_size or f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols)})",
+            element_size=element_size or f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols, declaring_namespace)})",
             flags=flags,
             key=key,
             value=value,
@@ -1026,7 +1101,10 @@ def _make_property_from_spelling(
         referenced_type = (
             pointee
             if not exported_symbols
-            else _resolved_symbol_name((pointee,), exported_symbols, kinds=("class",))
+            else _resolved_symbol_name(
+                (pointee,), exported_symbols, kinds=("class",),
+                declaring_namespace=declaring_namespace,
+            )
         )
         if referenced_type:
             return ReflectedPropertyInfo(
@@ -1045,7 +1123,10 @@ def _make_property_from_spelling(
         referenced_type = (
             pointee
             if not exported_symbols
-            else _resolved_symbol_name((pointee,), exported_symbols, kinds=("class",))
+            else _resolved_symbol_name(
+                (pointee,), exported_symbols, kinds=("class",),
+                declaring_namespace=declaring_namespace,
+            )
         )
         if referenced_type:
             return ReflectedPropertyInfo(
@@ -1054,7 +1135,7 @@ def _make_property_from_spelling(
                 kind="Object",
                 referenced_type=referenced_type,
                 array_dim=array_dim,
-                element_size=f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols)})",
+                element_size=f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols, declaring_namespace)})",
                 flags=flags,
                 is_object_ptr_wrapper=True,
             )
@@ -1065,7 +1146,10 @@ def _make_property_from_spelling(
         referenced_type = (
             pointee
             if not exported_symbols
-            else _resolved_symbol_name((pointee,), exported_symbols, kinds=("class",))
+            else _resolved_symbol_name(
+                (pointee,), exported_symbols, kinds=("class",),
+                declaring_namespace=declaring_namespace,
+            )
         )
         if referenced_type:
             return ReflectedPropertyInfo(
@@ -1074,7 +1158,7 @@ def _make_property_from_spelling(
                 kind="SoftObject",
                 referenced_type=referenced_type,
                 array_dim=array_dim,
-                element_size=element_size or f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols)})",
+                element_size=element_size or f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols, declaring_namespace)})",
                 flags=flags,
             )
     return None
@@ -1181,6 +1265,7 @@ def _make_property_from_type(
     allow_enum: bool = True,
     depth: int = 0,
     max_depth: int = MAX_CONTAINER_PROPERTY_DEPTH,
+    declaring_namespace: str = "",
 ) -> ReflectedPropertyInfo | None:
     type_spelling = _normalize_type_spelling(type_info.spelling)
     canonical = _normalize_type_spelling(type_info.get_canonical().spelling)
@@ -1205,10 +1290,44 @@ def _make_property_from_type(
         element_size=_field_size(type_info),
         enum_qualified_name=enum_qualified_name,
         enum_short_name=enum_short_name,
+        declaring_namespace=declaring_namespace,
     )
 
 
-def _make_property(field_cursor: clang.cindex.Cursor, exported_symbols: ExportedSymbols | None, source: str) -> ReflectedPropertyInfo | None:
+def _property_reflected_identity(prop: ReflectedPropertyInfo) -> tuple | None:
+    if not prop:
+        return None
+    return (
+        prop.kind,
+        prop.referenced_type,
+        prop.referenced_enum_type,
+        prop.referenced_struct_type,
+        _property_reflected_identity(prop.inner),
+        _property_reflected_identity(prop.key),
+        _property_reflected_identity(prop.value),
+    )
+
+
+def _require_ast_source_agreement(
+    field_cursor: clang.cindex.Cursor,
+    source_prop: ReflectedPropertyInfo | None,
+    ast_prop: ReflectedPropertyInfo | None,
+) -> None:
+    source_identity = _property_reflected_identity(source_prop)
+    ast_identity = _property_reflected_identity(ast_prop)
+    if source_identity and ast_identity and source_identity != ast_identity:
+        raise ValueError(
+            f"DPROPERTY '{field_cursor.spelling}' at line {field_cursor.location.line}: "
+            f"AST/source reflected type disagreement: source={source_identity}, AST={ast_identity}"
+        )
+
+
+def _make_property(
+    field_cursor: clang.cindex.Cursor,
+    exported_symbols: ExportedSymbols | None,
+    source: str,
+    declaring_namespace: str = "",
+) -> ReflectedPropertyInfo | None:
     annotation = _get_annotation(field_cursor)
     if not annotation.startswith("DPROPERTY"):
         return None
@@ -1225,18 +1344,28 @@ def _make_property(field_cursor: clang.cindex.Cursor, exported_symbols: Exported
                 "spell the template directly"
             )
         _validate_soft_object_spelling(
-            source_type, field_cursor.spelling, field_cursor.location.line, exported_symbols
+            source_type, field_cursor.spelling, field_cursor.location.line,
+            exported_symbols, declaring_namespace
         )
     if source_type and (_is_std_vector(source_type) or _is_std_unordered_map(source_type)):
         _validate_explicit_container_spelling(source_type, field_cursor.spelling, field_cursor.location.line)
-        return _apply_property_annotation(_make_property_from_spelling(
+        source_prop = _make_property_from_spelling(
             field_cursor.spelling,
             source_type,
             exported_symbols,
             flags=_property_flags_from_annotation(annotation),
             array_dim=_array_dim(field_cursor),
-        ), annotation)
+            declaring_namespace=declaring_namespace,
+        )
+        ast_prop = _make_property_from_type(
+            field_cursor.spelling, _element_type(field_cursor), exported_symbols,
+            flags=_property_flags_from_annotation(annotation),
+            array_dim=_array_dim(field_cursor), declaring_namespace=declaring_namespace,
+        )
+        _require_ast_source_agreement(field_cursor, source_prop, ast_prop)
+        return _apply_property_annotation(source_prop, annotation)
 
+    source_prop = None
     if source_type:
         source_prop = _make_property_from_spelling(
             field_cursor.spelling,
@@ -1244,8 +1373,15 @@ def _make_property(field_cursor: clang.cindex.Cursor, exported_symbols: Exported
             exported_symbols,
             flags=_property_flags_from_annotation(annotation),
             array_dim=_array_dim(field_cursor),
+            declaring_namespace=declaring_namespace,
         )
         if source_prop and source_prop.kind in ("Struct", "String", "Name", "Guid"):
+            ast_prop = _make_property_from_type(
+                field_cursor.spelling, _element_type(field_cursor), exported_symbols,
+                flags=_property_flags_from_annotation(annotation),
+                array_dim=_array_dim(field_cursor), declaring_namespace=declaring_namespace,
+            )
+            _require_ast_source_agreement(field_cursor, source_prop, ast_prop)
             # Non-fundamental layout belongs to the target compiler, not the
             # synthetic libclang context. Keep it as a C++ sizeof expression.
             return _apply_property_annotation(source_prop, annotation)
@@ -1256,8 +1392,10 @@ def _make_property(field_cursor: clang.cindex.Cursor, exported_symbols: Exported
         exported_symbols,
         flags=_property_flags_from_annotation(annotation),
         array_dim=_array_dim(field_cursor),
+        declaring_namespace=declaring_namespace,
     )
     if prop:
+        _require_ast_source_agreement(field_cursor, source_prop, prop)
         if prop.kind == "SoftObject" and source_type and not _is_tsoft_object_ptr(source_type):
             raise ValueError(
                 f"[DHT-SOFT002] DPROPERTY '{field_cursor.spelling}' at line "
@@ -1273,6 +1411,7 @@ def _make_property(field_cursor: clang.cindex.Cursor, exported_symbols: Exported
             exported_symbols,
             flags=_property_flags_from_annotation(annotation),
             array_dim=_array_dim(field_cursor),
+            declaring_namespace=declaring_namespace,
         ), annotation)
     return None
 
@@ -1474,9 +1613,10 @@ def parse_reflection_header(
 
             if pending_dstruct and child.kind == clang.cindex.CursorKind.STRUCT_DECL and child.spelling:
                 qualified_name = _qualified_name(child)
+                declaring_namespace = _semantic_namespace(child)
                 reflected_struct = ReflectedStructInfo(
                     short_name=child.spelling,
-                    namespace=_semantic_namespace(child),
+                    namespace=declaring_namespace,
                     qualified_name=qualified_name,
                     generated_helper_name=make_generated_struct_helper_name(qualified_name),
                     header=header,
@@ -1485,7 +1625,9 @@ def parse_reflection_header(
                 )
                 for member in child.get_children():
                     if member.kind == clang.cindex.CursorKind.FIELD_DECL:
-                        prop = _make_property(member, exported_symbols, source)
+                        prop = _make_property(
+                            member, exported_symbols, source, declaring_namespace
+                        )
                         if prop:
                             reflected_struct.properties.append(prop)
                 existing_property_names = {prop.name for prop in reflected_struct.properties}
@@ -1495,6 +1637,7 @@ def parse_reflection_header(
                     exported_symbols,
                     existing_property_names,
                     reject_unsupported=not export_mode,
+                    declaring_namespace=declaring_namespace,
                 ):
                     if prop.name not in existing_property_names:
                         reflected_struct.properties.append(prop)
@@ -1505,19 +1648,42 @@ def parse_reflection_header(
 
             if pending_dclass_annotation and child.kind in (clang.cindex.CursorKind.CLASS_DECL, clang.cindex.CursorKind.STRUCT_DECL) and child.spelling:
                 qualified_name = _qualified_name(child)
+                declaring_namespace = _semantic_namespace(child)
                 helper_name = make_generated_helper_name(qualified_name)
                 class_payload = pending_dclass_annotation.split(",", 1)[1] if "," in pending_dclass_annotation else ""
                 is_abstract, no_class_default_object, display_name, default_object_name = _class_specifiers_from_payload(
                     class_payload, child.location.line, child.location.column
                 )
+                source_base_name = _source_base_name(source, child)
+                ast_base_name = _base_qualified_name(child)
+                base_qualified_name = source_base_name or ast_base_name
+                if exported_symbols and source_base_name and ast_base_name:
+                    source_base_identity = resolve_symbol_name(
+                        source_base_name, exported_symbols,
+                        declaring_namespace=declaring_namespace, kinds=("class",),
+                    )
+                    ast_base_identity = resolve_symbol_name(
+                        ast_base_name, exported_symbols,
+                        declaring_namespace=declaring_namespace, kinds=("class",),
+                    )
+                    if (
+                        source_base_identity and ast_base_identity
+                        and source_base_identity != ast_base_identity
+                    ):
+                        raise ValueError(
+                            f"{header}: reflected class '{qualified_name}' base AST/source "
+                            f"identity disagreement: source={source_base_identity}, "
+                            f"AST={ast_base_identity}"
+                        )
+                    base_qualified_name = ast_base_identity or source_base_identity or base_qualified_name
                 reflected_class = ReflectedClassInfo(
                     short_name=child.spelling,
-                    namespace=_semantic_namespace(child),
+                    namespace=declaring_namespace,
                     qualified_name=qualified_name,
                     generated_helper_name=helper_name,
                     header=header,
                     api=module_config.api_macro,
-                    base_qualified_name=_source_base_name(source, child) or _base_qualified_name(child),
+                    base_qualified_name=base_qualified_name,
                     generated_body_line=_scan_generated_body_line(source, child),
                     is_abstract=is_abstract,
                     no_class_default_object=no_class_default_object,
@@ -1532,7 +1698,9 @@ def parse_reflection_header(
                     elif member.kind == clang.cindex.CursorKind.DESTRUCTOR:
                         reflected_class.has_destructor = True
                     elif member.kind == clang.cindex.CursorKind.FIELD_DECL:
-                        prop = _make_property(member, exported_symbols, source)
+                        prop = _make_property(
+                            member, exported_symbols, source, declaring_namespace
+                        )
                         if prop:
                             reflected_class.properties.append(prop)
                 existing_property_names = {prop.name for prop in reflected_class.properties}
@@ -1542,6 +1710,7 @@ def parse_reflection_header(
                     exported_symbols,
                     existing_property_names,
                     reject_unsupported=not export_mode,
+                    declaring_namespace=declaring_namespace,
                 ):
                     if prop.name not in existing_property_names:
                         reflected_class.properties.append(prop)

@@ -13,18 +13,17 @@ The Actor/Component, World/Level, PIE, raw game-input, camera, static-mesh, and
 limited ground-plane physics foundations already exist. `Sandbox` is currently
 only a runtime module shell and has no gameplay types or playable loop.
 
-The entry audit found that DurinHeaderTool records fully qualified reflected
-identities but does not yet resolve every unqualified or relatively qualified
-type reference according to lexical C++ namespace scope. The required
-[DHT Namespace-Aware Type Resolution Plan](../Plans/DHTNamespaceAwareTypeResolution.md)
-is active as milestone G0. Gameplay implementation plans remain proposed until
-that prerequisite closes; no script runtime, Actor template system, skeletal
-rendering dependency, or speculative general gameplay framework is activated.
+Milestone G0 is complete: DurinHeaderTool now resolves reflected bases and
+property types through deterministic lexical namespace lookup, including
+relative/global spellings and nested containers, while preserving qualified
+runtime identities. G1 is open for its required entry audit and child-plan
+creation; no script runtime, Actor template system, skeletal rendering
+dependency, or speculative general gameplay framework is activated.
 
 | Milestone | Status | Child plan |
 | --- | --- | --- |
-| G0: Namespace-safe reflected type resolution | Active | [DHT Namespace-Aware Type Resolution](../Plans/DHTNamespaceAwareTypeResolution.md) |
-| G1: Native possession and player bootstrap | Proposed | `NativeGameplayCore.md` after G0 |
+| G0: Namespace-safe reflected type resolution | Complete | [DHT Namespace-Aware Type Resolution](../Plans/DHTNamespaceAwareTypeResolution.md) |
+| G1: Native possession and player bootstrap | Open | `NativeGameplayCore.md` after its entry audit |
 | G2: Sandbox graybox playable slice | Proposed | `SandboxGameplayVerticalSlice.md` after G1 |
 | G3: Evidence-gated framework extraction | Conditional | Create only after a second concrete consumer exists |
 

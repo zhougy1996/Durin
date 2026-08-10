@@ -5,7 +5,11 @@ from dataclasses import replace
 from durin_header_tool import config as configs
 from durin_header_tool.model.export_info import ExportedSymbolInfo, ModuleExportInfo
 from durin_header_tool.parser.reflection_parser import parse_reflection_header
-from durin_header_tool.resolver.reflection_resolver import load_dependency_symbols, resolve_symbol_name
+from durin_header_tool.resolver.reflection_resolver import (
+    load_dependency_symbols,
+    resolve_symbol,
+    symbol_resolution_diagnostic,
+)
 
 
 def _extract_header_export_symbols_impl(
@@ -82,13 +86,11 @@ def _resolve_base_name(
     base_name = symbol.BaseQualifiedName
     if not base_name:
         return ""
-    if base_name in available_symbols:
-        return base_name
-    if "::" not in base_name and symbol.Namespace:
-        local_name = f"{symbol.Namespace}::{base_name}"
-        if local_name in available_symbols:
-            return local_name
-    return resolve_symbol_name(base_name, available_symbols, kinds=("class",))
+    resolution = resolve_symbol(
+        base_name, available_symbols,
+        declaring_namespace=symbol.Namespace, kinds=("class",),
+    )
+    return resolution.qualified_name or None
 
 
 def resolve_module_export_info(
@@ -109,10 +111,14 @@ def resolve_module_export_info(
         resolved_base = _resolve_base_name(raw_symbol, available_symbols)
         if raw_symbol.BaseQualifiedName and resolved_base is None:
             if strict:
-                raise ValueError(
-                    f"{raw_symbol.Header}: reflected class '{qualified_name}' has unsupported "
-                    f"non-hermetic base type '{raw_symbol.BaseQualifiedName}'"
+                resolution = resolve_symbol(
+                    raw_symbol.BaseQualifiedName, available_symbols,
+                    declaring_namespace=raw_symbol.Namespace, kinds=("class",),
                 )
+                raise ValueError(symbol_resolution_diagnostic(
+                    resolution, raw_symbol.Header,
+                    f"reflected class '{qualified_name}' base",
+                ))
             resolved_base = raw_symbol.BaseQualifiedName
         export_info.Symbols[qualified_name] = replace(
             raw_symbol,

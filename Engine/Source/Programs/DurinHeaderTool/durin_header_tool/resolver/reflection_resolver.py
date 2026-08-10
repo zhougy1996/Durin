@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass
 
 from durin_header_tool import config as configs
 from durin_header_tool import io as utils
@@ -7,6 +8,31 @@ from durin_header_tool.model.reflection_info import ReflectedHeaderInfo
 
 
 ExportedSymbols = dict[str, ExportedSymbolInfo]
+
+
+@dataclass(frozen=True)
+class SymbolResolution:
+    spelling: str
+    declaring_namespace: str
+    kinds: tuple[str, ...]
+    qualified_name: str = ""
+    attempted_names: tuple[str, ...] = ()
+    candidates: tuple[str, ...] = ()
+
+    @property
+    def resolved(self) -> bool:
+        return bool(self.qualified_name)
+
+    @property
+    def ambiguous(self) -> bool:
+        # A context-free spelling with several exported matches is genuinely
+        # ambiguous. In a declaring namespace those unrelated matches are
+        # diagnostic suggestions, not lexically viable candidates.
+        return (
+            not self.resolved
+            and not self.declaring_namespace
+            and len(self.candidates) > 1
+        )
 
 
 def _add_builtin_symbols(symbols: ExportedSymbols) -> None:
@@ -56,17 +82,22 @@ def load_available_symbols(module_name: str) -> ExportedSymbols:
 
 def resolve_header_symbols(header: ReflectedHeaderInfo, symbols: ExportedSymbols) -> None:
     for class_info in header.classes:
-        class_info.base_qualified_name = _resolve_short_symbol(class_info.base_qualified_name, symbols)
-        if class_info.base_qualified_name and class_info.base_qualified_name not in symbols:
-            raise ValueError(
-                f"{header.header}: reflected class '{class_info.qualified_name}' has unsupported "
-                f"non-hermetic base type '{class_info.base_qualified_name}'"
+        if class_info.base_qualified_name:
+            resolution = resolve_symbol(
+                class_info.base_qualified_name, symbols,
+                declaring_namespace=class_info.namespace, kinds=("class",),
             )
+            if not resolution.resolved:
+                raise ValueError(symbol_resolution_diagnostic(
+                    resolution, header.header,
+                    f"reflected class '{class_info.qualified_name}' base",
+                ))
+            class_info.base_qualified_name = resolution.qualified_name
         for prop in class_info.properties:
-            _resolve_property_symbols(prop, symbols)
+            _resolve_property_symbols(prop, symbols, class_info.namespace, header.header, class_info.qualified_name)
     for struct_info in header.structs:
         for prop in struct_info.properties:
-            _resolve_property_symbols(prop, symbols)
+            _resolve_property_symbols(prop, symbols, struct_info.namespace, header.header, struct_info.qualified_name)
 
 
 def resolved_symbol_dependencies_for_header(header_info: ReflectedHeaderInfo, symbols: ExportedSymbols) -> dict[str, dict[str, str]]:
@@ -97,39 +128,95 @@ def resolve_symbol_name(
     short_or_qualified_name: str,
     symbols: ExportedSymbols,
     *,
+    declaring_namespace: str = "",
     kinds: tuple[str, ...] = ("class", "enum", "struct"),
 ) -> str | None:
-    if "::" in short_or_qualified_name:
-        symbol = symbols.get(short_or_qualified_name)
-        return (
-            short_or_qualified_name
-            if symbol is not None and symbol.Kind in kinds
-            else None
-        )
-    matches = [
-        qualified_name
-        for qualified_name, candidate in symbols.items()
-        if candidate.Kind in kinds and candidate.ShortName == short_or_qualified_name
-    ]
-    return matches[0] if len(matches) == 1 else None
+    resolution = resolve_symbol(
+        short_or_qualified_name, symbols,
+        declaring_namespace=declaring_namespace, kinds=kinds,
+    )
+    return resolution.qualified_name or None
 
 
-def _resolve_short_symbol(short_or_qualified_name: str, symbols: ExportedSymbols) -> str:
-    if not short_or_qualified_name or "::" in short_or_qualified_name:
-        return short_or_qualified_name
-    return resolve_symbol_name(short_or_qualified_name, symbols) or short_or_qualified_name
+def resolve_symbol(
+    spelling: str,
+    symbols: ExportedSymbols,
+    *,
+    declaring_namespace: str = "",
+    kinds: tuple[str, ...] = ("class", "enum", "struct"),
+) -> SymbolResolution:
+    normalized = spelling.strip()
+    globally_qualified = normalized.startswith("::")
+    normalized = normalized[2:] if globally_qualified else normalized
+    namespace_parts = [part for part in declaring_namespace.split("::") if part]
+
+    if not normalized:
+        attempted: tuple[str, ...] = ()
+    elif globally_qualified:
+        attempted = (normalized,)
+    else:
+        names: list[str] = []
+        # An already fully qualified exported identity is authoritative.
+        if "::" in normalized and normalized in symbols:
+            names.append(normalized)
+        for length in range(len(namespace_parts), -1, -1):
+            candidate = "::".join((*namespace_parts[:length], normalized))
+            if candidate not in names:
+                names.append(candidate)
+        attempted = tuple(names)
+
+    for candidate_name in attempted:
+        candidate = symbols.get(candidate_name)
+        if candidate is not None and candidate.Kind in kinds:
+            return SymbolResolution(
+                spelling, declaring_namespace, kinds,
+                qualified_name=candidate_name, attempted_names=attempted,
+            )
+
+    short_name = normalized.rsplit("::", 1)[-1]
+    candidates = tuple(sorted(
+        qualified_name for qualified_name, candidate in symbols.items()
+        if candidate.Kind in kinds and candidate.ShortName == short_name
+    ))
+    return SymbolResolution(
+        spelling, declaring_namespace, kinds,
+        attempted_names=attempted, candidates=candidates,
+    )
 
 
-def _resolve_property_symbols(prop, symbols: ExportedSymbols) -> None:
-    prop.referenced_type = _resolve_short_symbol(prop.referenced_type, symbols)
-    prop.referenced_enum_type = _resolve_short_symbol(prop.referenced_enum_type, symbols)
-    prop.referenced_struct_type = _resolve_short_symbol(prop.referenced_struct_type, symbols)
+def symbol_resolution_diagnostic(resolution: SymbolResolution, header: str, subject: str) -> str:
+    allowed = ", ".join(sorted(resolution.kinds))
+    attempted = ", ".join(resolution.attempted_names) or "<none>"
+    candidates = ", ".join(resolution.candidates) or "<none>"
+    category = "ambiguous" if resolution.ambiguous else "unresolved"
+    return (
+        f"{header}: {subject} has {category} reflected type spelling '{resolution.spelling}' "
+        f"from namespace '{resolution.declaring_namespace or '::'}' (allowed kinds: {allowed}); "
+        f"lexical lookup: {attempted}; candidates: {candidates}"
+    )
+
+
+def _resolve_property_symbols(prop, symbols: ExportedSymbols, namespace: str, header: str, owner: str) -> None:
+    for attribute, kinds in (
+        ("referenced_type", ("class",)),
+        ("referenced_enum_type", ("enum",)),
+        ("referenced_struct_type", ("struct",)),
+    ):
+        spelling = getattr(prop, attribute)
+        if not spelling:
+            continue
+        resolution = resolve_symbol(spelling, symbols, declaring_namespace=namespace, kinds=kinds)
+        if not resolution.resolved:
+            raise ValueError(symbol_resolution_diagnostic(
+                resolution, header, f"'{owner}::{prop.name}' property",
+            ))
+        setattr(prop, attribute, resolution.qualified_name)
     if prop.inner:
-        _resolve_property_symbols(prop.inner, symbols)
+        _resolve_property_symbols(prop.inner, symbols, namespace, header, owner)
     if prop.key:
-        _resolve_property_symbols(prop.key, symbols)
+        _resolve_property_symbols(prop.key, symbols, namespace, header, owner)
     if prop.value:
-        _resolve_property_symbols(prop.value, symbols)
+        _resolve_property_symbols(prop.value, symbols, namespace, header, owner)
 
 
 def _collect_property_dependencies(prop, symbols: ExportedSymbols, dependencies: dict[str, dict[str, str]]) -> None:

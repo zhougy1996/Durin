@@ -4,38 +4,24 @@ Summary: Make DurinHeaderTool resolve reflected base and property type spellings
 
 Last reviewed: 2026-08-11
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-11
 
 ## Current Status
 
-Stage 0 is active. The 2026-08-11 entry audit confirmed that DHT correctly
-records fully qualified reflected identities and refuses to select ambiguous
-short names by insertion order, but its shared resolver accepts an unqualified
-name only when that short name is globally unique. Module export resolution
-adds an exact current-namespace candidate for base classes, but does not walk
-outward through enclosing namespaces or resolve relatively qualified spellings.
+All stages are complete. DHT now uses one kind-filtered, scope-aware resolver
+for base exports and reflection properties. It supports unqualified,
+relatively qualified, fully qualified, and leading-global spellings; propagates
+the declaring namespace through nested container shapes; produces deterministic
+lookup-chain/candidate diagnostics; and invalidates old persistent results with
+`hermetic-namespace-lookup-v2`.
 
-Focused existing tests passed 4 of 4 selected cases covering insertion-order
-ambiguity rejection, AST/source qualified-policy agreement, cold same-module
-base resolution, and same-short-name class source association. A direct
-resolver probe established the missing cases:
-
-- `APawn` from `Durin::Gameplay` resolves to
-  `Durin::Gameplay::APawn` when that exact local candidate exists;
-- `AActor` from `Durin::Gameplay` does not select enclosing
-  `Durin::AActor` when another namespace also exports `AActor`;
-- `Gameplay::APawn` from `Durin::Sandbox` does not select
-  `Durin::Gameplay::APawn`;
-- fully qualified `Durin::Gameplay::APawn` resolves correctly; and
-- `std::vector<FData>` cannot resolve its element from lexical scope when both
-  `Alpha::FData` and `Beta::FData` are available.
-
-The current DurinEditor export set contains 85 reflected symbols and no
-duplicate short names, so the defect is latent in production sources rather
-than an existing generated-output collision. The Gameplay Foundation roadmap
-will introduce nested game namespaces and therefore treats this plan as a
-required implementation prerequisite.
+The compatibility audit found no production header requiring the removed
+global-unique-short-name fallback. DHT pytest passed 198/198, warm and fresh
+configuration succeeded, the required full `all` build succeeded, and focused
+runtime qualification passed `CoreObjectTests` 73/73 and `AssetPackageTests`
+97/97. Existing generated qualified identities remained unchanged. Gameplay
+Foundation G0 is closed and G1 is open for its entry audit.
 
 ## Goal
 
@@ -195,22 +181,22 @@ AActor
 
 Dependencies: current qualified symbol/export model and hermetic parser policy.
 
-- [ ] Add focused resolver fixtures for unqualified, relatively qualified,
+- [x] Add focused resolver fixtures for unqualified, relatively qualified,
   fully qualified, and leading-global spellings from root, nested, sibling, and
   unrelated namespaces.
-- [ ] Add deliberate same-short-name class, struct, and enum collisions across
+- [x] Add deliberate same-short-name class, struct, and enum collisions across
   same-module and dependency-module exports.
-- [ ] Record nearest-scope shadowing, enclosing-scope fallback, unrelated-
+- [x] Record nearest-scope shadowing, enclosing-scope fallback, unrelated-
   namespace rejection, kind filtering, and sorted ambiguity expectations.
-- [ ] Cover base classes, raw object pointers, `TObjectPtr`, `TSoftObjectPtr`,
+- [x] Cover base classes, raw object pointers, `TObjectPtr`, `TSoftObjectPtr`,
   structs, enums, fixed arrays, Vector/Map, and recursively nested containers.
-- [ ] Inventory current production/reflection-test callers that rely on global
+- [x] Inventory current production/reflection-test callers that rely on global
   unique short-name fallback, header-local `using`, aliases, canonical Durin
   math spellings, or source-only parsing.
-- [ ] Select the exact compatibility disposition for every discovered legacy
+- [x] Select the exact compatibility disposition for every discovered legacy
   caller and record any required source qualification before resolver behavior
   changes.
-- [ ] Identify all persistent/export/reflection cache identities that retain
+- [x] Identify all persistent/export/reflection cache identities that retain
   resolved names and select the minimum deterministic invalidation bump.
 
 #### Acceptance Gate
@@ -227,19 +213,19 @@ Dependencies: current qualified symbol/export model and hermetic parser policy.
 
 Dependencies: Stage 0 lookup matrix.
 
-- [ ] Extend the shared resolver API with declaring namespace and source-
+- [x] Extend the shared resolver API with declaring namespace and source-
   spelling context while retaining explicit allowed-kind filtering.
-- [ ] Normalize leading global qualification and generate the nearest-to-
+- [x] Normalize leading global qualification and generate the nearest-to-
   outermost candidate chain for unqualified and relatively qualified names.
-- [ ] Return structured success, unresolved, and ambiguity information suitable
+- [x] Return structured success, unresolved, and ambiguity information suitable
   for deterministic diagnostics rather than collapsing every failure to
   `None`.
-- [ ] Make candidate selection independent of dictionary/export/module order.
-- [ ] Replace export base resolution's separate local-name heuristic with the
+- [x] Make candidate selection independent of dictionary/export/module order.
+- [x] Replace export base resolution's separate local-name heuristic with the
   shared resolver and the exported symbol's declaring namespace.
-- [ ] Resolve cold same-module and dependency-module bases from the complete
+- [x] Resolve cold same-module and dependency-module bases from the complete
   available symbol set and publish only qualified base identities.
-- [ ] Add unit coverage for exact, lexical, relative, shadowed, wrong-kind,
+- [x] Add unit coverage for exact, lexical, relative, shadowed, wrong-kind,
   unresolved, ambiguous, and order-permuted cases.
 
 #### Acceptance Gate
@@ -254,20 +240,20 @@ Dependencies: Stage 0 lookup matrix.
 
 Dependencies: Stage 1 resolver and parser AST/source inventory.
 
-- [ ] Pass each reflected class/struct namespace into field parsing and
+- [x] Pass each reflected class/struct namespace into field parsing and
   post-parse symbol resolution.
-- [ ] Prefer verified libclang declaration identity for simple base, class,
+- [x] Prefer verified libclang declaration identity for simple base, class,
   struct, and enum references when available.
-- [ ] Preserve source spellings for layout and hermetic validation while
+- [x] Preserve source spellings for layout and hermetic validation while
   checking AST/source identity agreement.
-- [ ] Thread namespace context recursively through raw object, `TObjectPtr`,
+- [x] Thread namespace context recursively through raw object, `TObjectPtr`,
   `TSoftObjectPtr`, fixed-array, Vector inner, Map key/value, and nested
   container parsing.
-- [ ] Preserve Durin math aliases, primitive aliases, explicit container limits,
+- [x] Preserve Durin math aliases, primitive aliases, explicit container limits,
   soft-reference restrictions, and target-compiler `sizeof` generation.
-- [ ] Cover explicit header-local using declarations that libclang resolves and
+- [x] Cover explicit header-local using declarations that libclang resolves and
   retain deterministic rejection for include-only aliases.
-- [ ] Remove context-free `_resolve_short_symbol` calls or make their scope and
+- [x] Remove context-free `_resolve_short_symbol` calls or make their scope and
   intended exact behavior explicit.
 
 #### Acceptance Gate
@@ -283,18 +269,18 @@ Dependencies: Stage 1 resolver and parser AST/source inventory.
 
 Dependencies: Stages 1-2.
 
-- [ ] Emit source/header/property-or-base-qualified unresolved diagnostics with
+- [x] Emit source/header/property-or-base-qualified unresolved diagnostics with
   the attempted spelling, lookup namespace, allowed kinds, and lexical chain.
-- [ ] Emit ambiguity diagnostics with deterministically sorted viable qualified
+- [x] Emit ambiguity diagnostics with deterministically sorted viable qualified
   candidates and no recommended winner.
-- [ ] Ensure resolved-symbol dependency snapshots contain the selected
+- [x] Ensure resolved-symbol dependency snapshots contain the selected
   qualified identity and invalidate when that symbol's relevant export changes.
-- [ ] Bump the selected parser/resolver/tool cache context so clean, rebuild,
+- [x] Bump the selected parser/resolver/tool cache context so clean, rebuild,
   incremental, persistent-cache, and stale-output paths cannot reuse old
   resolution semantics.
-- [ ] Verify failed resolution publishes no partial export, generated header,
+- [x] Verify failed resolution publishes no partial export, generated header,
   generated source, manifest, or cache entry.
-- [ ] Add cold/warm, cache hit/miss/corruption, changed dependency export, and
+- [x] Add cold/warm, cache hit/miss/corruption, changed dependency export, and
   failed-regeneration recovery coverage around colliding names.
 
 #### Acceptance Gate
@@ -309,20 +295,20 @@ Dependencies: Stages 1-2.
 
 Dependencies: Stages 1-3 and all focused acceptance gates.
 
-- [ ] Run the complete DurinHeaderTool Python suite, including the new namespace
+- [x] Run the complete DurinHeaderTool Python suite, including the new namespace
   collision and cache matrix, under repository guidance.
-- [ ] Run root configure and generation from both warm incremental and clean-
+- [x] Run root configure and generation from both warm incremental and clean-
   output states and compare the selected qualified identities.
-- [ ] Run the required shared-infrastructure full `all` build because DHT
+- [x] Run the required shared-infrastructure full `all` build because DHT
   generation affects every reflected module.
-- [ ] Confirm representative Runtime/Editor asset serialization and reflected
+- [x] Confirm representative Runtime/Editor asset serialization and reflected
   registration tests retain their existing qualified identities.
-- [ ] Update the Generated Reflection System documentation with supported
+- [x] Update the Generated Reflection System documentation with supported
   lexical lookup, ambiguity, global qualification, hermetic using/alias, and
   diagnostic rules.
-- [ ] Record final tests, generation/build evidence, cache/version changes, and
+- [x] Record final tests, generation/build evidence, cache/version changes, and
   Gameplay Foundation G0 handoff; update the roadmap to open G1.
-- [ ] Run plan, roadmap, and repository documentation validation.
+- [x] Run plan, roadmap, and repository documentation validation.
 
 #### Acceptance Gate
 

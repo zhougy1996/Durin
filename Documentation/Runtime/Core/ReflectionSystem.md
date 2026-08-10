@@ -70,6 +70,31 @@ meaning exists only in an ordinary included header is rejected with a stable
 non-hermetic-dependency diagnostic. Meanings declared directly in the current
 header remain valid.
 
+Reflected base and property type lookup follows a deterministic subset of C++
+namespace lookup. An unqualified spelling is tried in the declaring namespace,
+then each enclosing namespace, and finally the global namespace. A relatively
+qualified spelling follows the same outward walk; an exact exported identity is
+also accepted. A spelling beginning with `::` removes that marker and performs
+one exact global lookup. Lookup is filtered by the required reflected kind, so
+a struct cannot satisfy an object-class reference. DHT never selects an
+otherwise unrelated namespace merely because its short name is globally unique.
+
+The declaring namespace is retained recursively for raw object pointers,
+`TObjectPtr`, `TSoftObjectPtr`, fixed arrays, `std::vector`, and
+`std::unordered_map` key/value properties. Successful lookup is immediately
+stored as the fully qualified reflected identity. Failed lookup reports the
+source spelling, declaring namespace, allowed kinds, complete lexical candidate
+chain, and sorted exported candidates; export-map insertion and worker order do
+not affect the result.
+
+When libclang provides a declaration identity, DHT verifies it against the
+available reflected exports and required kind. Source spelling remains
+authoritative for explicit container shape, intrinsic Durin math aliases, and
+target-compiler `sizeof(...)` expressions. A `using` declaration written in the
+reflected header can therefore participate through libclang, while an alias or
+namespace import supplied only by a stripped ordinary include remains outside
+the hermetic boundary and is rejected.
+
 Clang translation units are parsed without function bodies. Reflection consumes
 declaration signatures, fields, constructor and destructor declarations, enum
 constants, and annotation attributes; inline implementation bodies are outside

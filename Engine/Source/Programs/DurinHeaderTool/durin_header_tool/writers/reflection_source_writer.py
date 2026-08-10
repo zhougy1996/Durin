@@ -539,7 +539,11 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
     inner = f"&{class_info.generated_statics_name}::NewProp_{prop.inner.name}" if prop.inner else "nullptr"
     key = f"&{class_info.generated_statics_name}::NewProp_{prop.key.name}" if prop.key else "nullptr"
     value = f"&{class_info.generated_statics_name}::NewProp_{prop.value.name}" if prop.value else "nullptr"
-    value_type = _cpp_type_spelling(prop.type_name, symbols) if nested else f"std::remove_extent_t<decltype((({class_info.qualified_name}*)0)->{prop.name})>"
+    value_type = (
+        _cpp_type_spelling(prop.type_name, symbols, class_info.namespace)
+        if nested
+        else f"std::remove_extent_t<decltype((({class_info.qualified_name}*)0)->{prop.name})>"
+    )
     if prop.kind == "Array":
         metadata_arguments = f", {metadata_ref}, {metadata_count}" if prop.metadata else ""
         content += (

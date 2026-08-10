@@ -50,6 +50,8 @@ from durin_header_tool.parser.reflection_parser import (
 from durin_header_tool.parser import reflection_parser
 from durin_header_tool.resolver.reflection_resolver import (
     load_available_symbols,
+    resolve_header_symbols,
+    resolve_symbol,
     resolved_symbol_dependencies_for_header,
 )
 from durin_header_tool.resolver import reflection_resolver
@@ -100,6 +102,100 @@ class TestReflectionSourceWriter:
         assert r'"Editor \"Mode\"",' in content
         assert r'{ "Path", static_cast<Durin::uint64>(1), "C:\\Mode" },' in content
         assert '{ "DefaultValue", static_cast<Durin::uint64>(2), nullptr },' in content
+
+
+class TestNamespaceAwareResolution:
+    @staticmethod
+    def _symbol(qualified_name: str, kind: str = "class") -> ExportedSymbolInfo:
+        namespace, short_name = qualified_name.rsplit("::", 1) if "::" in qualified_name else ("", qualified_name)
+        return ExportedSymbolInfo(
+            Kind=kind, ShortName=short_name, Namespace=namespace,
+            QualifiedName=qualified_name,
+            GeneratedHelperName=f"Z_Construct_{kind}_{qualified_name.replace('::', '_')}",
+            Header=f"{short_name}.h", API="FIXTURE_API",
+        )
+
+    @pytest.fixture
+    def symbols(self):
+        values = (
+            self._symbol("Durin::AActor"), self._symbol("Other::AActor"),
+            self._symbol("Durin::Gameplay::APawn"),
+            self._symbol("Durin::Gameplay::FData", "struct"),
+            self._symbol("Other::FData", "struct"),
+            self._symbol("Durin::Gameplay::EMode", "enum"),
+            self._symbol("Other::EMode", "enum"),
+        )
+        return {symbol.QualifiedName: symbol for symbol in values}
+
+    @pytest.mark.parametrize(
+        ("spelling", "namespace", "expected"),
+        [
+            ("AActor", "Durin::Gameplay", "Durin::AActor"),
+            ("APawn", "Durin::Gameplay", "Durin::Gameplay::APawn"),
+            ("Gameplay::APawn", "Durin::Sandbox", "Durin::Gameplay::APawn"),
+            ("Durin::Gameplay::APawn", "Durin::Sandbox", "Durin::Gameplay::APawn"),
+            ("::Durin::Gameplay::APawn", "Other", "Durin::Gameplay::APawn"),
+        ],
+    )
+    def test_lexical_candidate_chain(self, symbols, spelling, namespace, expected):
+        assert resolve_symbol(
+            spelling, symbols, declaring_namespace=namespace, kinds=("class",)
+        ).qualified_name == expected
+
+    def test_unrelated_unique_name_is_not_visible(self, symbols):
+        symbol = self._symbol("Unrelated::AUnique")
+        symbols[symbol.QualifiedName] = symbol
+        resolution = resolve_symbol(
+            "AUnique", symbols, declaring_namespace="Durin::Gameplay", kinds=("class",)
+        )
+        assert not resolution.resolved
+        assert resolution.attempted_names == (
+            "Durin::Gameplay::AUnique", "Durin::AUnique", "AUnique"
+        )
+        assert resolution.candidates == ("Unrelated::AUnique",)
+
+    def test_kind_filtering_and_order_independence(self, symbols):
+        wrong_kind = self._symbol("Durin::Gameplay::AActor", "struct")
+        symbols[wrong_kind.QualifiedName] = wrong_kind
+        expected = resolve_symbol(
+            "AActor", symbols, declaring_namespace="Durin::Gameplay", kinds=("class",)
+        )
+        actual = resolve_symbol(
+            "AActor", dict(reversed(tuple(symbols.items()))),
+            declaring_namespace="Durin::Gameplay", kinds=("class",),
+        )
+        assert actual == expected
+        assert actual.qualified_name == "Durin::AActor"
+
+    def test_nested_container_inherits_declaring_namespace(self, symbols):
+        prop = _make_property_from_spelling(
+            "Values", "std::unordered_map<EMode, std::vector<FData>>", symbols,
+            declaring_namespace="Durin::Gameplay",
+        )
+        assert prop.key.referenced_enum_type == "Durin::Gameplay::EMode"
+        assert prop.value.inner.referenced_struct_type == "Durin::Gameplay::FData"
+
+    def test_unresolved_diagnostic_is_source_qualified_and_sorted(self, symbols):
+        from durin_header_tool.model.reflection_info import ReflectedClassInfo, ReflectedHeaderInfo
+
+        class_info = ReflectedClassInfo(
+            short_name="ADerived", namespace="Durin::Gameplay",
+            qualified_name="Durin::Gameplay::ADerived",
+            generated_helper_name="Z_Construct_DClass_Durin_Gameplay_ADerived",
+            header="Derived.h", api="FIXTURE_API", base_qualified_name="AMissing",
+        )
+        header = ReflectedHeaderInfo(
+            "Fixture", "Derived.h", Path("Derived.h"), "Derived.h", "FID",
+            classes=[class_info],
+        )
+        with pytest.raises(ValueError) as raised:
+            resolve_header_symbols(header, symbols)
+        assert str(raised.value) == (
+            "Derived.h: reflected class 'Durin::Gameplay::ADerived' base has unresolved "
+            "reflected type spelling 'AMissing' from namespace 'Durin::Gameplay' "
+            "(allowed kinds: class); lexical lookup: Durin::Gameplay::AMissing, "
+            "Durin::AMissing, AMissing; candidates: <none>"
+        )
 
 
 @pytest.fixture(scope="class")
