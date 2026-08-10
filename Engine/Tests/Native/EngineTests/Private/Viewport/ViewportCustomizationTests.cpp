@@ -468,7 +468,10 @@ TEST(FLevelEditorViewportClientTests, ReusesOneVisualizationSnapshotAcrossInputA
 	Durin::FSceneView InteractionView;
 	ASSERT_TRUE(Client.BuildViewMatrices(800, 600, InteractionView));
 	Client.UpdateHoveredVisualizationWithView(Level, InteractionView, {400.0f, 300.0f});
-	EXPECT_EQ(Client.PickActorWithView(Level, InteractionView, {400.0f, 300.0f}), Actor);
+	const Durin::FViewportPickSubmission Pick = Client.SubmitViewportPick(Level, InteractionView, {400.0f, 300.0f});
+	ASSERT_EQ(Pick.Completion.Status, Durin::EViewportPickStatus::Completed);
+	ASSERT_TRUE(Pick.Completion.Hit);
+	EXPECT_EQ(Pick.Completion.Hit->Actor.Get(), Actor);
 	EXPECT_EQ(DrawCount, 1);
 
 	Client.PrepareSceneView(Level, 800, 600);

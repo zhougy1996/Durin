@@ -4,29 +4,29 @@ Summary: Replace Actor-only viewport picking with one per-viewport semantic requ
 
 Last reviewed: 2026-08-11
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-11
 
 ## Current Status
 
-This plan is ready for Stage 0. No implementation work has started and no
-checklist item is complete.
+All stages and acceptance gates are complete. The public value contract,
+per-viewport service, StaticMesh CPU oracle, single visualization arbitration
+path, Select-mode completion application, deferred fake backend,
+registration-cycle validation, cancellation, stale-target rejection, and
+multi-viewport isolation are in place. No legacy Actor-only picking call site
+remains.
 
-The parent roadmap's M1 entry gate is only partially satisfied. The roadmap
-already fixes the program-level ownership, identity, asynchronous, and
-backend-independence invariants. Stage 0 must convert those invariants into one
-header-level contract and confirm the exact coordinate, hit-ordering,
-request-local identity, and compatibility decisions against all current call
-sites before production code changes begin.
-
-The current reference behavior is understood: Select mode gives the transform
-gizmo first ownership, asks `FLevelEditorViewportClient` separately for an
-Actor and a visualization hit, and then mutates `FLevelEditorContext`.
-`PickActorWithView` scans the Level, recognizes only
-`DStaticMeshComponent`, performs double-sided LOD0 bounds and triangle tests,
-retains the nearest world-space hit, and then folds in the visualization hit.
-Geometry returns only `AActor*`; visualization hits preserve Actor, component,
-typed sub-element, depth policy, distance, and priority.
+Qualification used the `Win64-Debug-DurinEditor` Agent Build Profile. The
+focused `ViewportTests` and `SplineTests` targets passed 64 and 18 tests
+respectively, the full `all` build succeeded,
+and the built editor completed a hidden-window Sandbox startup/Level lifecycle
+smoke through its normal exit path. Interaction-focused native coverage
+qualifies StaticMesh nearest selection, visualization identity/arbitration,
+Ctrl snapshot behavior, blank completion, gizmo precedence, independent
+viewports, Level reset, target retirement, and prepared snapshot reuse.
+Changed-document validation and whitespace checks also pass. Viewport Editing
+Architecture publishes the lasting contract and the parent roadmap records M1
+completion with M2 ready next.
 
 ## Goal
 
@@ -266,27 +266,27 @@ call sites are assigned to a migration stage.
 Dependencies: parent Viewport Picking Roadmap M1 entry gate and the current
 Viewport Editing Architecture contract.
 
-- [ ] Inventory every production and native-test call to `PickActor`,
+- [x] Inventory every production and native-test call to `PickActor`,
   `PickActorWithView`, `PickVisualizationWithView`, picking-ray helpers, and
   prepared visualization snapshots; record any call site not covered by this
   plan.
-- [ ] Write the proposed public value-type signatures for request, ticket,
+- [x] Write the proposed public value-type signatures for request, ticket,
   status, completion, hit kind, layers, precision, purpose, and hit result
   before implementing storage or providers.
-- [ ] Write the private service/backend/provider signatures, including
+- [x] Write the private service/backend/provider signatures, including
   immediate completion, polling, cancellation, generation invalidation,
   request-local target lookup, and test injection.
-- [ ] Confirm the service owner is one `FLevelEditorViewportClient`, while the
+- [x] Confirm the service owner is one `FLevelEditorViewportClient`, while the
   selection intent/ticket is owned by the requesting Select mode instance.
-- [ ] Confirm viewport-position normalization against the exact `FSceneView`
+- [x] Confirm viewport-position normalization against the exact `FSceneView`
   rectangle used by prepared input/render paths, including outside-rect
   rejection.
-- [ ] Freeze the cross-family winner comparator, epsilon, stable tie key, and
+- [x] Freeze the cross-family winner comparator, epsilon, stable tie key, and
   current geometry-versus-visualization behavior with table-driven examples.
-- [ ] Freeze request invalidation events and prove how current
+- [x] Freeze request invalidation events and prove how current
   `InitializeForLevel`, mode exit, viewport destruction, and newer-click paths
   advance/cancel the relevant generation or ticket.
-- [ ] Select the temporary compatibility-wrapper lifetime and enumerate the
+- [x] Select the temporary compatibility-wrapper lifetime and enumerate the
   exact tests/call sites that must migrate before wrappers are removed.
 
 #### Acceptance Gate
@@ -309,23 +309,23 @@ primitive/component identity.
 
 Dependencies: Stage 0 acceptance gate.
 
-- [ ] Add the focused public semantic picking header and private
+- [x] Add the focused public semantic picking header and private
   service/provider implementation using the selected complete-or-pending
   contract.
-- [ ] Move ray-box and ray-triangle helpers out of
+- [x] Move ray-box and ray-triangle helpers out of
   `FLevelEditorViewportClient.cpp` into the reference geometry implementation
   without changing their finite/epsilon behavior.
-- [ ] Implement request-local Level enumeration and target-table capture for
+- [x] Implement request-local Level enumeration and target-table capture for
   registered visible primitive components with stable `FPrimitiveSceneId`.
-- [ ] Implement the private StaticMesh provider with the frozen LOD0,
+- [x] Implement the private StaticMesh provider with the frozen LOD0,
   double-sided, bounds-then-triangle, world-distance, invalid-data, and stable
   tie policies.
-- [ ] Implement ticket sequencing, immediate completion storage, polling,
+- [x] Implement ticket sequencing, immediate completion storage, polling,
   cancellation, client/Level generation, and semantic target validation.
-- [ ] Add focused value/comparator tests for empty completion, invalid request,
+- [x] Add focused value/comparator tests for empty completion, invalid request,
   outside-view request, cancellation, finite distance, exact component
   identity, primitive ID preservation, and deterministic ties.
-- [ ] Migrate the existing closest-triangle and bounds-only tests to assert the
+- [x] Migrate the existing closest-triangle and bounds-only tests to assert the
   semantic result while preserving their original transformed-near/far
   behavior.
 
@@ -352,21 +352,21 @@ rules.
 Dependencies: Stage 1 acceptance gate and existing visualization snapshot
 reuse.
 
-- [ ] Adapt the prepared collector's single visualization hit into a semantic
+- [x] Adapt the prepared collector's single visualization hit into a semantic
   candidate without losing weak Actor/component/element identity, distance,
   priority, or depth-independent policy.
-- [ ] Submit the geometry and prepared-visualization inputs through one service
+- [x] Submit the geometry and prepared-visualization inputs through one service
   call and implement the frozen cross-family comparator.
-- [ ] Replace Select mode's separate Actor/visualization queries with one
+- [x] Replace Select mode's separate Actor/visualization queries with one
   request ticket and one completion-application helper.
-- [ ] Preserve ordinary geometry Actor select/toggle, visualization
+- [x] Preserve ordinary geometry Actor select/toggle, visualization
   component/sub-element selection, Ctrl snapshot, blank-click clearing, and
   gizmo consumption exactly.
-- [ ] Ensure a prepared visualization collector is hit-tested once per click
+- [x] Ensure a prepared visualization collector is hit-tested once per click
   and is neither regenerated nor retained by a pending request.
-- [ ] Remove migrated production compatibility wrappers and update remaining
+- [x] Remove migrated production compatibility wrappers and update remaining
   focused tests to semantic requests/results.
-- [ ] Add integration tests for depth-independent overlays, depth-tested
+- [x] Add integration tests for depth-independent overlays, depth-tested
   overlay versus nearer/farther geometry, epsilon ties, component/sub-element
   identity, Ctrl selection, blank selection, and gizmo preemption.
 
@@ -389,22 +389,22 @@ proven safe for future delayed completion through a deterministic fake backend.
 
 Dependencies: Stage 2 acceptance gate.
 
-- [ ] Add a controllable fake backend that can hold, complete, fail, or reorder
+- [x] Add a controllable fake backend that can hold, complete, fail, or reorder
   requests without tasks, sleeping, renderer commands, or GPU resources.
-- [ ] Prove a delayed completion applies the Ctrl/replace intent captured at
+- [x] Prove a delayed completion applies the Ctrl/replace intent captured at
   submission rather than current input state.
-- [ ] Prove newer click supersession, explicit cancellation, Select-mode exit,
+- [x] Prove newer click supersession, explicit cancellation, Select-mode exit,
   forced mode exit, viewport-client reinitialization, Level/world replacement,
   component unregister/destruction/reparent, Actor hiding, and viewport
   destruction discard the old completion.
-- [ ] Prove camera movement alone does not reinterpret or invalidate a valid
+- [x] Prove camera movement alone does not reinterpret or invalidate a valid
   delayed result captured against the clicked view.
-- [ ] Prove two viewport clients have independent request sequences,
+- [x] Prove two viewport clients have independent request sequences,
   generations, fake backends, prepared visualizations, and completion queues.
-- [ ] Add diagnostics sufficient to distinguish submitted, immediately
+- [x] Add diagnostics sufficient to distinguish submitted, immediately
   completed, pending, empty, cancelled, invalidated, and failed requests in
   tests without per-frame logging.
-- [ ] Exercise repeated request/cancel/complete cycles under object collection
+- [x] Exercise repeated request/cancel/complete cycles under object collection
   and confirm no raw object or collector reference survives in pending state.
 
 #### Acceptance Gate
@@ -426,21 +426,21 @@ serve as the unchanged entry boundary for skeletal picking.
 
 Dependencies: Stages 1-3 acceptance gates.
 
-- [ ] Update Viewport Editing Architecture with semantic request/result,
+- [x] Update Viewport Editing Architecture with semantic request/result,
   per-viewport service, exact identity, comparator, immediate/deferred
   lifecycle, and selection-application ownership.
-- [ ] Update this plan's Current Status, Last reviewed date, checklists, and
+- [x] Update this plan's Current Status, Last reviewed date, checklists, and
   evidence for every completed gate; record any selected deviation before
   qualification.
-- [ ] Run formatting/static checks and the smallest affected native
+- [x] Run formatting/static checks and the smallest affected native
   `EngineTests` target following repository build/test guidance.
-- [ ] Run the required full `all` build because this is a user-visible editor
+- [x] Run the required full `all` build because this is a user-visible editor
   interaction change.
-- [ ] Launch the editor from the same Agent Build Profile and smoke-test
+- [x] Launch the editor from the same Agent Build Profile and smoke-test
   StaticMesh nearest selection, camera/light visualization selection, Ctrl
   toggling, blank clearing, gizmo manipulation, two viewports, and Level
   replacement without stale selection.
-- [ ] Review M2 `SkeletalViewportPicking` entry evidence and update the parent
+- [x] Review M2 `SkeletalViewportPicking` entry evidence and update the parent
   roadmap M1 status, link, and next milestone only after every M1 gate passes.
 
 #### Acceptance Gate

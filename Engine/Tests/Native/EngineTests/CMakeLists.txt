@@ -414,12 +414,14 @@ durin_add_engine_functional_test(ViewportTests
 		Private/Viewport/ViewportProjectionTests.cpp
 		Private/Viewport/ViewportCustomizationTests.cpp
 		Private/Viewport/ViewportInteractionTests.cpp
+		Private/Viewport/ViewportPickingContractTests.cpp
 		Private/Viewport/DetailsSelectionTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Panels/DetailsPanelTargeting.cpp
 		${_durin_level_editor_private}/Viewport/ViewportCameraTransform.cpp
 		${_durin_level_editor_private}/Viewport/CameraPreviewViewportClient.cpp
 		${_durin_level_editor_private}/Viewport/LevelEditorViewportClient.cpp
+		${_durin_level_editor_private}/Viewport/ViewportPickingService.cpp
 		${_durin_level_editor_private}/Viewport/LevelEditorViewportEditing.cpp
 		${_durin_level_editor_private}/Viewport/TransformGizmo.cpp
 		${_durin_level_editor_private}/Customizations/CameraEditorCustomizations.cpp
@@ -441,6 +443,7 @@ durin_add_engine_functional_test(SplineTests
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
 		${_durin_level_editor_private}/Viewport/ViewportCameraTransform.cpp
 		${_durin_level_editor_private}/Viewport/LevelEditorViewportClient.cpp
+		${_durin_level_editor_private}/Viewport/ViewportPickingService.cpp
 		${_durin_level_editor_private}/Viewport/LevelEditorViewportEditing.cpp
 		${_durin_level_editor_private}/Viewport/TransformGizmo.cpp
 		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp

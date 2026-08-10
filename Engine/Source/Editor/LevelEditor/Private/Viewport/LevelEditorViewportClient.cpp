@@ -1,4 +1,5 @@
 #include "Viewport/LevelEditorViewportClient.h"
+#include "Viewport/ViewportPickingService.h"
 #include "MonaImGui.h"
 
 #include "Editor/EditorEngine.h"
@@ -28,7 +29,6 @@ namespace Durin
 		constexpr float kMaxNavigationDeltaSeconds = 1.0f / 30.0f;
 		constexpr float kLookSmoothingRate = 30.0f;
 		constexpr float kMovementSmoothingRate = 24.0f;
-		constexpr double kIntersectionEpsilon = 1.e-8;
 
 		template <typename T>
 		auto SmoothVelocityAndIntegrate(T& Velocity, const T& TargetVelocity, float SmoothingRate, float DeltaSeconds) -> T
@@ -45,46 +45,14 @@ namespace Durin
 			return Integrated;
 		}
 
-		auto IntersectRayBox(const FVector3& Origin, const FVector3& Direction, const FBox& Box) -> bool
-		{
-			if (!Box.bIsValid) return false;
-			double TMin = 0.0;
-			double TMax = std::numeric_limits<double>::max();
-			for (uint32 Axis = 0; Axis < 3; ++Axis)
-			{
-				if (std::abs(Direction[Axis]) <= kIntersectionEpsilon)
-				{
-					if (Origin[Axis] < Box.Min[Axis] || Origin[Axis] > Box.Max[Axis]) return false;
-					continue;
-				}
-				double Near = (Box.Min[Axis] - Origin[Axis]) / Direction[Axis];
-				double Far = (Box.Max[Axis] - Origin[Axis]) / Direction[Axis];
-				if (Near > Far) std::swap(Near, Far);
-				TMin = std::max(TMin, Near);
-				TMax = std::min(TMax, Far);
-				if (TMin > TMax) return false;
-			}
-			return TMax >= 0.0;
-		}
-
-		auto IntersectRayTriangle(const FVector3& Origin, const FVector3& Direction, const FVector3& A, const FVector3& B, const FVector3& C, double& OutDistance) -> bool
-		{
-			const FVector3 Edge1 = B - A;
-			const FVector3 Edge2 = C - A;
-			const FVector3 P = Math::Cross(Direction, Edge2);
-			const double Determinant = Math::Dot(Edge1, P);
-			if (std::abs(Determinant) <= kIntersectionEpsilon) return false;
-			const double InvDeterminant = 1.0 / Determinant;
-			const FVector3 T = Origin - A;
-			const double U = Math::Dot(T, P) * InvDeterminant;
-			if (U < -kIntersectionEpsilon || U > 1.0 + kIntersectionEpsilon) return false;
-			const FVector3 Q = Math::Cross(T, Edge1);
-			const double V = Math::Dot(Direction, Q) * InvDeterminant;
-			if (V < -kIntersectionEpsilon || U + V > 1.0 + kIntersectionEpsilon) return false;
-			OutDistance = Math::Dot(Edge2, Q) * InvDeterminant;
-			return OutDistance >= 0.0;
-		}
 	} // namespace
+
+	FLevelEditorViewportClient::FLevelEditorViewportClient()
+		: PickingService(std::make_unique<FViewportPickingService>())
+	{
+	}
+
+	FLevelEditorViewportClient::~FLevelEditorViewportClient() = default;
 
 	auto FLevelEditorViewportClient::CalcSceneView(uint32 Width, uint32 Height, FSceneView& OutView) const -> bool
 	{
@@ -345,88 +313,54 @@ namespace Durin
 		return SceneViewProjection::BuildViewportRay(View, ViewportPosition, OutOrigin, OutDirection);
 	}
 
-	auto FLevelEditorViewportClient::PickActor(DLevel* Level, const FVector2f& ViewportPosition, const FVector2f& ViewportSize) const -> AActor*
+	auto FLevelEditorViewportClient::SubmitViewportPick(DLevel* Level, const FSceneView& View,
+		const FVector2f& ViewportPosition, EViewportPickLayer Layers) -> FViewportPickSubmission
 	{
-		uint32 Width = 0;
-		uint32 Height = 0;
-		if (Level == nullptr || !ResolveViewportExtent(ViewportSize, Width, Height)) return nullptr;
-		FSceneView View;
-		if (!BuildViewMatrices(Width, Height, View)) return nullptr;
-		return PickActorWithView(Level, View, ViewportPosition);
-	}
-
-	auto FLevelEditorViewportClient::PickActorWithView(DLevel* Level, const FSceneView& View, const FVector2f& ViewportPosition) const -> AActor*
-	{
-		if (Level == nullptr) return nullptr;
-		FVector3 RayOrigin;
-		FVector3 RayDirection;
-		if (!SceneViewProjection::BuildViewportRay(View, ViewportPosition, RayOrigin, RayDirection)) return nullptr;
-		AActor* ClosestActor = nullptr;
-		double ClosestDistance = std::numeric_limits<double>::max();
-		for (const TObjectPtr<AActor>& ActorPtr : Level->GetActors())
+		if (Level != CurrentLevel) InitializeForLevel(Level);
+		std::optional<FViewportPickHit> Visualization;
+		if (Level && EnumHasAnyFlags(Layers, EViewportPickLayer::EditorVisualization))
 		{
-			AActor* Actor = ActorPtr.Get();
-			if (Actor == nullptr || Actor->IsHidden()) continue;
-			for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetOwnedComponents())
+			FEditorVisualizationCollector ColdVisualizations;
+			const FEditorVisualizationCollector* Visualizations = &PreparedSceneView.Visualizations;
+			if (PreparedSceneView.Level.Get() != Level)
 			{
-				auto* Component = Cast<DStaticMeshComponent>(ComponentPtr.Get());
-				const DStaticMesh* Mesh = Component != nullptr ? Component->GetStaticMesh() : nullptr;
-				const FStaticMeshRenderData* Data = Mesh != nullptr ? Mesh->GetRenderData() : nullptr;
-				if (Data == nullptr || !Data->LocalBounds.bIsValid || Data->LODResources.empty()) continue;
-				const FStaticMeshLODResources& LOD = Data->LODResources[0];
-				const auto& Positions =
-					LOD.VertexBuffers.PositionVertexBuffer.GetPositions();
-				const auto& Indices = LOD.IndexBuffer.GetIndices();
-				if (Indices.size() < 3) continue;
-				const FMatrix LocalToWorld = Component->GetRenderMatrix();
-				const double Determinant = Math::Determinant(LocalToWorld);
-				if (!std::isfinite(Determinant) || std::abs(Determinant) <= kIntersectionEpsilon) continue;
-				const FMatrix WorldToLocal = Math::Inverse(LocalToWorld);
-				const FVector3 LocalOrigin = FVector3(WorldToLocal * FVector4(RayOrigin, 1.0));
-				const FVector3 LocalDirection = FVector3(WorldToLocal * FVector4(RayDirection, 0.0));
-				if (!IntersectRayBox(LocalOrigin, LocalDirection, Data->LocalBounds)) continue;
-				for (size_t Index = 0; Index + 2 < Indices.size(); Index += 3)
-				{
-					const uint32 I0 = Indices[Index];
-					const uint32 I1 = Indices[Index + 1];
-					const uint32 I2 = Indices[Index + 2];
-					if (I0 >= Positions.size() || I1 >= Positions.size() || I2 >= Positions.size()) continue;
-					double LocalDistance = 0.0;
-					if (!IntersectRayTriangle(LocalOrigin, LocalDirection, FVector3(Positions[I0]), FVector3(Positions[I1]), FVector3(Positions[I2]), LocalDistance)) continue;
-					const FVector3 LocalHit = LocalOrigin + LocalDirection * LocalDistance;
-					const FVector3 WorldHit = FVector3(LocalToWorld * FVector4(LocalHit, 1.0));
-					const double WorldDistance = Math::Length(WorldHit - RayOrigin);
-					if (std::isfinite(WorldDistance) && WorldDistance < ClosestDistance)
-					{
-						ClosestDistance = WorldDistance;
-						ClosestActor = Actor;
-					}
-				}
+				PopulateEditorOverlays(Level, View, ColdVisualizations);
+				Visualizations = &ColdVisualizations;
+			}
+			const FEditorVisualizationHit Hit = Visualizations->HitTest(View, ViewportPosition);
+			if (Hit.Actor && Hit.Component)
+			{
+				const FObjectHandle Handle = TWeakObjectPtr<DActorComponent>(Hit.Component).GetHandle();
+				Visualization = FViewportPickHit{
+					.Kind = EViewportPickHitKind::EditorVisualization,
+					.Actor = Hit.Actor,
+					.Component = Hit.Component,
+					.Element = Hit.Element,
+					.Distance = Hit.Distance,
+					.Priority = Hit.Priority,
+					.StableTieKey = (static_cast<uint64>(Handle.Generation) << 32) | Handle.Index,
+					.bDepthIndependent = Hit.bDepthIndependent,
+				};
 			}
 		}
-		FEditorVisualizationCollector ColdVisualizations;
-		const FEditorVisualizationCollector* Visualizations = &PreparedSceneView.Visualizations;
-		if (PreparedSceneView.Level.Get() != Level)
-		{
-			PopulateEditorOverlays(Level, View, ColdVisualizations);
-			Visualizations = &ColdVisualizations;
-		}
-		const FEditorVisualizationHit VisualizationHit = Visualizations->HitTest(View, ViewportPosition);
-		if (VisualizationHit.Actor && (VisualizationHit.bDepthIndependent || VisualizationHit.Distance < ClosestDistance)) ClosestActor = VisualizationHit.Actor;
-		return ClosestActor;
+		return PickingService->Submit({
+			.Level = Level,
+			.View = View,
+			.ViewportPosition = ViewportPosition,
+			.Layers = Layers,
+		}, std::move(Visualization));
 	}
 
-	auto FLevelEditorViewportClient::PickVisualizationWithView(DLevel* Level, const FSceneView& View, const FVector2f& ViewportPosition) const -> FEditorVisualizationHit
+	auto FLevelEditorViewportClient::PollViewportPick(FViewportPickTicket Ticket) -> FViewportPickCompletion
 	{
-		if (!Level) return {};
-		FEditorVisualizationCollector ColdVisualizations;
-		const FEditorVisualizationCollector* Visualizations = &PreparedSceneView.Visualizations;
-		if (PreparedSceneView.Level.Get() != Level)
-		{
-			PopulateEditorOverlays(Level, View, ColdVisualizations);
-			Visualizations = &ColdVisualizations;
-		}
-		return Visualizations->HitTest(View, ViewportPosition);
+		return PickingService->Poll(Ticket);
+	}
+
+	auto FLevelEditorViewportClient::CancelViewportPick(FViewportPickTicket Ticket) -> void { PickingService->Cancel(Ticket); }
+	auto FLevelEditorViewportClient::ReleaseViewportPick(FViewportPickTicket Ticket) -> void { PickingService->Release(Ticket); }
+	auto FLevelEditorViewportClient::SetPickingBackendForTesting(std::unique_ptr<IViewportPickingBackend> Backend) -> void
+	{
+		PickingService->SetBackendForTesting(std::move(Backend));
 	}
 
 	auto FLevelEditorViewportClient::UpdateHoveredVisualization(DLevel* Level, const FVector2f& ViewportPosition, const FVector2f& ViewportSize) -> void
@@ -478,6 +412,7 @@ namespace Durin
 	auto FLevelEditorViewportClient::InitializeForLevel(DLevel* Level, const FLevelViewportCameraState* SavedState) -> void
 	{
 		CurrentLevel = Level;
+		PickingService->SetLevel(Level);
 		ResetNavigation();
 		HoveredVisualization = {};
 		InvalidatePreparedSceneView(true);

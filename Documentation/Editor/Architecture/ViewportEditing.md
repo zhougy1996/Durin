@@ -18,6 +18,7 @@ FLevelViewportEditModeRegistry
 FSceneViewportPanel (one workspace viewport)
   owns FLevelViewportEditModeManager
   owns FLevelEditorViewportClient and FTransformGizmo
+  owns FViewportPickingService through its viewport client
             |
             +--> active ILevelViewportEditMode instance
             +--> shared FLevelEditorContext selection
@@ -51,6 +52,41 @@ component invalidation clear descendants. Component changes clear sub-elements.
 Modes additionally repair domain identity—for example, Spline mode discards
 handles whose point GUID no longer exists. No panel keeps a competing private
 component or point selection.
+
+## Semantic Picking Contract
+
+Each `FLevelEditorViewportClient` owns one `FViewportPickingService`. A mode
+submits an immutable `FViewportPickRequest` in the prepared `FSceneView` output
+pixel rectangle and receives a non-zero per-viewport ticket plus an immediate
+or pending completion. Empty space is `Completed` with no hit; invalid input,
+cancellation, stale ownership, and backend failure remain distinct statuses.
+Modes poll rather than receiving callbacks, so a mode can cancel its ticket on
+exit without leaving a callback into a retired instance.
+
+The public result is semantic and backend-independent. It retains hit kind,
+weak Actor and exact component identity, optional typed sub-element,
+non-negative world distance, semantic priority/depth policy, stable tie key,
+and `FPrimitiveSceneId` for scene primitives. Ordinary geometry clicks still
+select the Actor; visualization clicks select their exact component or
+sub-element. `FLevelEditorContext`, not the service or backend, performs those
+mutations.
+
+For each scene-geometry request, the service captures a request-local table
+from a non-zero numeric token to `FPrimitiveSceneId`, weak component/Actor, and
+the component registration generation. The M1 StaticMesh backend performs the
+LOD0 double-sided bounds-then-triangle query and returns only a token and world
+distance. Before exposing a completion, the service verifies client/Level
+generation, weak identity, Level membership, ownership, registration cycle,
+visibility, and primitive identity. World or Level replacement, client reset or
+destruction, mode exit, cancellation, and a newer click retire old work;
+camera movement alone does not reinterpret the immutable clicked view.
+
+Geometry and the prepared visualization candidate enter one resolver. A
+depth-independent visualization wins first. Otherwise the nearest finite world
+distance wins; within `1e-8`, scene geometry wins over a depth-tested
+visualization, then higher semantic priority and the lowest stable key break
+remaining ties. The prepared collector is hit-tested once at submission and is
+never retained by pending state.
 
 ## Visualization And Hit Identity
 
@@ -157,7 +193,9 @@ unregistration, document/PIE transitions, and shutdown.
 Engine/Source/Editor/LevelEditor/Public/LevelEditorSelection.h
 Engine/Source/Editor/LevelEditor/Public/LevelEditorViewportEditing.h
 Engine/Source/Editor/LevelEditor/Public/LevelEditorTransformTargets.h
+Engine/Source/Editor/LevelEditor/Public/LevelEditorViewportPicking.h
 Engine/Source/Editor/LevelEditor/Private/Viewport/LevelEditorViewportEditing.cpp
+Engine/Source/Editor/LevelEditor/Private/Viewport/ViewportPickingService.cpp
 Engine/Source/Editor/LevelEditor/Private/Viewport/TransformGizmo.cpp
 Engine/Source/Editor/LevelEditor/Private/Workspace/LevelEditorContext.h
 Engine/Source/Editor/LevelEditor/Private/Panels/SceneViewportPanel.cpp

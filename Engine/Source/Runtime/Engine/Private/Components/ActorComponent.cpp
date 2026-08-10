@@ -176,6 +176,7 @@ namespace Durin
 		{
 			OnRegister();
 			check(bRegistered && "Failed to route OnRegister()");
+			++RegistrationGeneration;
 		}
 	}
 
@@ -185,6 +186,7 @@ namespace Durin
 		{
 			OnUnregister();
 			check(!bRegistered && "Failed to route OnUnregister()");
+			++RegistrationGeneration;
 		}
 	}
 }

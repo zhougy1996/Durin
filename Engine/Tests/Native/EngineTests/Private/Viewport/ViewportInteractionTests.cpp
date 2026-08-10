@@ -224,7 +224,12 @@ TEST(FLevelEditorViewportClientTests, PicksVisualizerForActorWithoutStaticMesh)
 	Durin::ACameraActor* Camera = Level->SpawnActor<Durin::ACameraActor>("Camera");
 	ASSERT_NE(Camera, nullptr);
 	Camera->GetCameraComponent()->SetWorldLocation(Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0);
-	EXPECT_EQ(Client.PickActor(Level, {400.0f, 300.0f}, {800.0f, 600.0f}), Camera);
+	Durin::FSceneView PickView;
+	ASSERT_TRUE(Client.BuildViewMatrices(800, 600, PickView));
+	const Durin::FViewportPickSubmission Pick = Client.SubmitViewportPick(Level, PickView, {400.0f, 300.0f});
+	ASSERT_EQ(Pick.Completion.Status, Durin::EViewportPickStatus::Completed);
+	ASSERT_TRUE(Pick.Completion.Hit);
+	EXPECT_EQ(Pick.Completion.Hit->Actor.Get(), Camera);
 }
 
 TEST(FLevelEditorViewportClientTests, ResetsIndependentViewUnlessSavedStateExists)
@@ -436,8 +441,17 @@ TEST(FLevelEditorViewportClientTests, PicksClosestTriangleAndRejectsBoundsOnlyHi
 	NearActor->GetStaticMeshComponent()->SetWorldRotation(
 		Durin::Math::MakeQuaternionFromAxisAngleDegrees(20.0, Forward));
 	NearActor->GetStaticMeshComponent()->SetWorldScale3D({2.0, 0.5, 1.5});
-	EXPECT_EQ(Client.PickActor(Level, {400.0f, 300.0f}, {800.0f, 600.0f}), NearActor);
-	EXPECT_EQ(Client.PickActor(Level, {799.0f, 300.0f}, {800.0f, 600.0f}), nullptr);
+	Durin::FSceneView PickView;
+	ASSERT_TRUE(Client.BuildViewMatrices(800, 600, PickView));
+	const Durin::FViewportPickSubmission CenterPick = Client.SubmitViewportPick(Level, PickView, {400.0f, 300.0f});
+	ASSERT_EQ(CenterPick.Completion.Status, Durin::EViewportPickStatus::Completed);
+	ASSERT_TRUE(CenterPick.Completion.Hit);
+	EXPECT_EQ(CenterPick.Completion.Hit->Actor.Get(), NearActor);
+	EXPECT_EQ(CenterPick.Completion.Hit->Component.Get(), NearActor->GetStaticMeshComponent());
+	EXPECT_EQ(CenterPick.Completion.Hit->PrimitiveId, NearActor->GetStaticMeshComponent()->GetPrimitiveSceneId());
+	const Durin::FViewportPickSubmission EdgePick = Client.SubmitViewportPick(Level, PickView, {799.0f, 300.0f});
+	EXPECT_EQ(EdgePick.Completion.Status, Durin::EViewportPickStatus::Completed);
+	EXPECT_FALSE(EdgePick.Completion.Hit);
 }
 
 TEST(FViewportSelectionTests, PrefersViewportClientThenControllerTargetThenPrimaryCamera)

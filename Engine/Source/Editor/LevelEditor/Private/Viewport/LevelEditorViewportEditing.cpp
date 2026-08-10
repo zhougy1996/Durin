@@ -12,35 +12,91 @@ namespace Durin
 		class FSelectViewportEditMode final : public ILevelViewportEditMode
 		{
 		public:
+			auto Exit(FLevelEditorContext&, bool) -> void override
+			{
+				if (LastClient && PendingTicket)
+				{
+					LastClient->CancelViewportPick(PendingTicket);
+					LastClient->ReleaseViewportPick(PendingTicket);
+				}
+				PendingTicket = {};
+				LastClient = nullptr;
+			}
+
 			auto Tick(FLevelEditorContext& Context, FLevelEditorViewportClient& Client, const FSceneView& View,
 				FLevelEditorViewportInput& Input, FEditorTransactionManager* Transactions) -> bool override
 			{
+				LastClient = &Client;
 				const FTransformGizmoTargetSet Targets = GetGizmoTargets(Context);
 				Client.GetTransformGizmo().Update(Targets, View, Input, Transactions);
-				if (Client.GetTransformGizmo().IsHovered() || Client.GetTransformGizmo().IsDragging()) return true;
-				if (!Input.bRequestSelection) return false;
-				AActor* Actor = Client.PickActorWithView(Context.Level, View, Input.MousePosition);
-				const FEditorVisualizationHit Visualization = Client.PickVisualizationWithView(Context.Level, View, Input.MousePosition);
-				if (Actor && Visualization.Actor == Actor && Visualization.Component)
+				if (Client.GetTransformGizmo().IsHovered() || Client.GetTransformGizmo().IsDragging())
 				{
-					if (!Context.IsActorSelected(Visualization.Actor)) Context.SelectActor(Visualization.Actor);
-					if (Visualization.Element.IsValid()) Context.SelectSubElement(Visualization.Component, Visualization.Element);
-					else Context.SelectComponent(Visualization.Component);
+					if (Input.bRequestSelection) CancelPending(Client);
 					return true;
 				}
-				if (Actor)
+				if (Input.bRequestSelection)
 				{
-					if (Input.bCtrl) Context.ToggleActorSelection(Actor);
-					else Context.SelectActor(Actor);
+					CancelPending(Client);
+					const FViewportPickSubmission Submission = Client.SubmitViewportPick(Context.Level, View, Input.MousePosition);
+					if (Submission.Completion.Status == EViewportPickStatus::Pending)
+					{
+						PendingTicket = Submission.Ticket;
+						bPendingCtrl = Input.bCtrl;
+						return true;
+					}
+					ApplyCompletion(Context, Submission.Completion, Input.bCtrl);
+					Client.ReleaseViewportPick(Submission.Ticket);
+					return true;
 				}
-				else Context.ClearSelection();
-				return true;
+				if (!PendingTicket) return false;
+				const FViewportPickCompletion Completion = Client.PollViewportPick(PendingTicket);
+				if (Completion.Status == EViewportPickStatus::Pending) return false;
+				const bool bApplied = ApplyCompletion(Context, Completion, bPendingCtrl);
+				Client.ReleaseViewportPick(PendingTicket);
+				PendingTicket = {};
+				return bApplied;
 			}
 
 			auto GetGizmoTargets(const FLevelEditorContext& Context) const -> FTransformGizmoTargetSet override
 			{
 				return MakeActorTransformGizmoTargets(Context);
 			}
+
+		private:
+			auto CancelPending(FLevelEditorViewportClient& Client) -> void
+			{
+				if (!PendingTicket) return;
+				Client.CancelViewportPick(PendingTicket);
+				Client.ReleaseViewportPick(PendingTicket);
+				PendingTicket = {};
+			}
+
+			static auto ApplyCompletion(FLevelEditorContext& Context, const FViewportPickCompletion& Completion, bool bCtrl) -> bool
+			{
+				if (Completion.Status != EViewportPickStatus::Completed) return false;
+				if (!Completion.Hit)
+				{
+					Context.ClearSelection();
+					return true;
+				}
+				AActor* Actor = Completion.Hit->Actor.Get();
+				DActorComponent* Component = Completion.Hit->Component.Get();
+				if (!Actor || !Component) return false;
+				if (Completion.Hit->Kind == EViewportPickHitKind::SceneGeometry)
+				{
+					if (bCtrl) Context.ToggleActorSelection(Actor);
+					else Context.SelectActor(Actor);
+					return true;
+				}
+				if (!Context.IsActorSelected(Actor)) Context.SelectActor(Actor);
+				if (Completion.Hit->Element.IsValid()) Context.SelectSubElement(Component, Completion.Hit->Element);
+				else Context.SelectComponent(Component);
+				return true;
+			}
+
+			FLevelEditorViewportClient* LastClient = nullptr;
+			FViewportPickTicket PendingTicket;
+			bool bPendingCtrl = false;
 		};
 
 		auto EnsureSelectModeRegistered() -> void

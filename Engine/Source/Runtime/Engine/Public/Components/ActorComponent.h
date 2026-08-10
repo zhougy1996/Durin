@@ -50,6 +50,8 @@ namespace Durin
 		ENGINE_API auto BeginDestroy() -> void override;
 
 		auto IsRegistered() const -> bool { return bRegistered; }
+		// Advances after every successful registration or unregistration transition.
+		auto GetRegistrationGeneration() const -> uint64 { return RegistrationGeneration; }
 		auto HasBegunPlay() const -> bool { return PlayState != EComponentPlayState::NotBegun; }
 		auto IsBeingDestroyed() const -> bool { return DestructionState != EComponentDestructionState::Alive; }
 		auto IsComponentTickEnabled() const -> bool { return bTickEnabled; }
@@ -95,6 +97,7 @@ namespace Durin
 
 		EComponentPlayState PlayState = EComponentPlayState::NotBegun;
 		EComponentDestructionState DestructionState = EComponentDestructionState::Alive;
+		uint64 RegistrationGeneration = 0;
 		bool bEndPlayRequested = false;
 
 		uint8 bTickEnabled : 1 = false;

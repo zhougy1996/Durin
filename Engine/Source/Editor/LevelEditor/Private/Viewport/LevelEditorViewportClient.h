@@ -4,12 +4,15 @@
 #include "Viewport/TransformGizmo.h"
 #include "Viewport/ViewportCameraTransform.h"
 #include "LevelEditorCustomizations.h"
+#include "LevelEditorViewportPicking.h"
 
 namespace Durin
 {
 	class AActor;
 	class DActorComponent;
 	class DLevel;
+	class IViewportPickingBackend;
+	class FViewportPickingService;
 
 	// Captures one frame of normalized viewport navigation and gizmo input.
 	struct FLevelEditorViewportInput
@@ -53,6 +56,8 @@ namespace Durin
 	class FLevelEditorViewportClient final : public FViewportClient
 	{
 	public:
+		FLevelEditorViewportClient();
+		~FLevelEditorViewportClient() override;
 		auto CalcSceneView(uint32 Width, uint32 Height, FSceneView& OutView) const -> bool override;
 		// Builds projection state without traversing the level or appending editor overlays.
 		auto BuildViewMatrices(uint32 Width, uint32 Height, FSceneView& OutView) const -> bool;
@@ -67,9 +72,12 @@ namespace Durin
 		auto GetCameraTransform() const -> const FViewportCameraTransform& { return CameraTransform; }
 		auto GetCurrentLevel() const -> DLevel* { return CurrentLevel; }
 		auto BuildPickingRay(const FVector2f& ViewportPosition, const FVector2f& ViewportSize, FVector3& OutOrigin, FVector3& OutDirection) const -> bool;
-		auto PickActor(DLevel* Level, const FVector2f& ViewportPosition, const FVector2f& ViewportSize) const -> AActor*;
-		auto PickActorWithView(DLevel* Level, const FSceneView& View, const FVector2f& ViewportPosition) const -> AActor*;
-		auto PickVisualizationWithView(DLevel* Level, const FSceneView& View, const FVector2f& ViewportPosition) const -> FEditorVisualizationHit;
+		auto SubmitViewportPick(DLevel* Level, const FSceneView& View, const FVector2f& ViewportPosition,
+			EViewportPickLayer Layers = EViewportPickLayer::SceneGeometry | EViewportPickLayer::EditorVisualization) -> FViewportPickSubmission;
+		auto PollViewportPick(FViewportPickTicket Ticket) -> FViewportPickCompletion;
+		auto CancelViewportPick(FViewportPickTicket Ticket) -> void;
+		auto ReleaseViewportPick(FViewportPickTicket Ticket) -> void;
+		auto SetPickingBackendForTesting(std::unique_ptr<IViewportPickingBackend> Backend) -> void;
 		auto UpdateHoveredVisualization(DLevel* Level, const FVector2f& ViewportPosition, const FVector2f& ViewportSize) -> void;
 		auto UpdateHoveredVisualizationWithView(DLevel* Level, const FSceneView& View, const FVector2f& ViewportPosition) -> void;
 		auto ProjectWorldToViewport(const FVector3& WorldPosition, const FVector2f& ViewportSize, FVector2f& OutPosition) const -> bool;
@@ -121,5 +129,6 @@ namespace Durin
 		bool bPanNavigation = false;
 		mutable FTransformGizmo TransformGizmo;
 		mutable FPreparedSceneView PreparedSceneView;
+		std::unique_ptr<FViewportPickingService> PickingService;
 	};
 }

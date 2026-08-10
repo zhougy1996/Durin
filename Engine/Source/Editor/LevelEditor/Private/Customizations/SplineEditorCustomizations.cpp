@@ -317,18 +317,23 @@ namespace Durin
 				if (Input.bDuplicate) return DuplicateSelected(Context, *Spline, Transactions);
 				if (Input.bAppend) return AppendPoint(Context, *Spline, Transactions);
 				if (!Input.bRequestSelection) return false;
-				const FEditorVisualizationHit Hit = Client.PickVisualizationWithView(Context.Level, View, Input.MousePosition);
-				if (Hit.Component != Spline || !Hit.Element.IsValid()) { Context.ClearSubElementSelection(); return true; }
-				if (Input.bLeftMouseDoubleClicked && Hit.Element.Kind == EEditorSubElementKind::Segment)
+				const FViewportPickSubmission Submission = Client.SubmitViewportPick(
+					Context.Level, View, Input.MousePosition, EViewportPickLayer::EditorVisualization);
+				const std::optional<FViewportPickHit> Hit = Submission.Completion.Status == EViewportPickStatus::Completed
+					? Submission.Completion.Hit : std::nullopt;
+				if (Submission.Completion.Status == EViewportPickStatus::Pending) Client.CancelViewportPick(Submission.Ticket);
+				Client.ReleaseViewportPick(Submission.Ticket);
+				if (!Hit || Hit->Component.Get() != Spline || !Hit->Element.IsValid()) { Context.ClearSubElementSelection(); return true; }
+				if (Input.bLeftMouseDoubleClicked && Hit->Element.Kind == EEditorSubElementKind::Segment)
 				{
 					FGuid NewId;
-					const uint32 Segment = static_cast<uint32>(Hit.Element.SecondaryIndex);
+					const uint32 Segment = static_cast<uint32>(Hit->Element.SecondaryIndex);
 					if (CommitSplineEdit(*Spline, Transactions, "Insert Spline Point", [&] { return SplitSplineSegment(*Spline, Segment, FindSegmentT(*Spline, Segment, View, Input.MousePosition), &NewId); }))
 						Context.SelectSubElement(Spline, {EEditorSubElementKind::Point, NewId});
 					return true;
 				}
-				if (Input.bCtrl && Hit.Element.Kind == EEditorSubElementKind::Point) Context.ToggleSubElement(Spline, Hit.Element);
-				else Context.SelectSubElement(Spline, Hit.Element);
+				if (Input.bCtrl && Hit->Element.Kind == EEditorSubElementKind::Point) Context.ToggleSubElement(Spline, Hit->Element);
+				else Context.SelectSubElement(Spline, Hit->Element);
 				return true;
 			}
 
