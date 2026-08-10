@@ -64,6 +64,12 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
   isolated safely from pre-existing worktree changes. If Codex
   `workspace-write` blocks Git metadata updates, request elevated permission
   and retry.
+- Subject: `<type>(<scope>): <imperative summary>`. Use a short lowercase scope,
+  no trailing period, and preferably `feat`, `fix`, `refactor`, `perf`, `build`,
+  `test`, `docs`, or `chore`; describe the outcome, not file edits.
+- Add a brief body only for non-obvious motivation, constraints, or tradeoffs.
+  Mention validation only when incomplete, non-standard, limited, or historically
+  noteworthy.
 - For active-plan work, update required status/checklists in the same commit and
   end the body with the exact `Plan: Documentation/Plans/<Plan>.md` and
   `Stage: Stage <N>: <stage title>` provenance (one Stage line per stage). Do not
