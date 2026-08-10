@@ -16,14 +16,18 @@ only a runtime module shell and has no gameplay types or playable loop.
 Milestone G0 is complete: DurinHeaderTool now resolves reflected bases and
 property types through deterministic lexical namespace lookup, including
 relative/global spellings and nested containers, while preserving qualified
-runtime identities. G1 is open for its required entry audit and child-plan
-creation; no script runtime, Actor template system, skeletal rendering
+runtime identities. G1's entry audit is complete and the
+[Native Gameplay Core](../Plans/NativeGameplayCore.md) plan is active. The plan
+uses architecture-first World play/tick protocols, one Engine-owned project
+game-settings model, and a private World gameplay session; existing signatures
+and YAML routes may be refactored where that produces a cleaner ownership
+boundary. No script runtime, Actor template system, skeletal rendering
 dependency, or speculative general gameplay framework is activated.
 
 | Milestone | Status | Child plan |
 | --- | --- | --- |
 | G0: Namespace-safe reflected type resolution | Complete | [DHT Namespace-Aware Type Resolution](../Plans/DHTNamespaceAwareTypeResolution.md) |
-| G1: Native possession and player bootstrap | Open | `NativeGameplayCore.md` after its entry audit |
+| G1: Native possession and player bootstrap | Active | [Native Gameplay Core](../Plans/NativeGameplayCore.md) |
 | G2: Sandbox graybox playable slice | Proposed | `SandboxGameplayVerticalSlice.md` after G1 |
 | G3: Evidence-gated framework extraction | Conditional | Create only after a second concrete consumer exists |
 
@@ -200,17 +204,18 @@ local player, game-mode startup, player-start selection, default-pawn spawn,
 restart, semantic control transfer, movement abstraction, and view-target
 selection without game-specific tuning.
 
-Entry gate: G0 handoff is stable; an entry audit confirms the exact Engine,
-World, Level, PIE, input, and camera integration points and selects the smallest
-bootstrap configuration boundary.
+Entry gate: satisfied 2026-08-11. G0's handoff is stable; the Engine, World,
+Level, PIE, input, camera, module-loading, project-setting, and test entry
+points were audited. The selected configuration boundary is one
+`Game.NativeModule` plus one fully qualified `Game.GameModeClass`, owned beside
+the migrated `Game.DefaultLevel` setting and shared by PIE and standalone.
 
 Exit gate: focused Engine tests prove possession symmetry, invalid transition
 rejection, spawn/restart/teardown, input edge consumption, pause/single-step,
 camera fallback, and unchanged ordinary Actor behavior. Long-lived contracts
 are ready for Runtime documentation.
 
-Proposed child plan: `Documentation/Plans/NativeGameplayCore.md`. Create it only
-after G0 completes and the entry audit is current.
+Active child plan: [Native Gameplay Core](../Plans/NativeGameplayCore.md).
 
 ### G2: Sandbox graybox playable slice
 
