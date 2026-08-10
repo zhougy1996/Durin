@@ -58,35 +58,39 @@ namespace Durin
 			[](const PathUtilities::FMountPoint& Mount) {
 				return Mount.bAutoScan;
 			});
-		const bool bUnchanged = ContentMountCount == MountSnapshot.size()
-			&& std::ranges::equal(
-				RegisteredMounts
-					| std::views::filter([](const PathUtilities::FMountPoint& Mount) {
-						  return Mount.bAutoScan;
-					  }),
-				MountSnapshot,
-				[](const PathUtilities::FMountPoint& Registered,
-					const FMountSnapshot& Cached) {
-					return Registered.VirtualRoot == Cached.VirtualRoot
-						&& Registered.GetContentDir().generic_string()
-							== Cached.SourcePhysicalRoot
-						&& Registered.bAuthoringWritable
-							== Cached.bAuthoringWritable;
-				});
-		if (bUnchanged) return;
-
-		MountSnapshot.clear();
-		MountSnapshot.reserve(ContentMountCount);
+		std::vector<FMountSnapshot> NextMountSnapshot;
+		NextMountSnapshot.reserve(ContentMountCount);
 		for (const PathUtilities::FMountPoint& Mount : RegisteredMounts)
 		{
 			if (!Mount.bAutoScan) continue;
 			const std::string ContentRoot = Mount.GetContentDir().generic_string();
-			MountSnapshot.push_back({
+			NextMountSnapshot.push_back({
 				Mount.VirtualRoot,
 				ContentRoot,
 				NormalizePath(ContentRoot),
 				Mount.bAuthoringWritable});
 		}
+		const auto GameMount = std::ranges::find(
+			NextMountSnapshot, std::string_view{"/Game/"}, &FMountSnapshot::VirtualRoot);
+		const auto EngineMount = std::ranges::find(
+			NextMountSnapshot, std::string_view{"/Engine/"}, &FMountSnapshot::VirtualRoot);
+		if (GameMount != NextMountSnapshot.end()
+			&& EngineMount != NextMountSnapshot.end()
+			&& EngineMount < GameMount)
+			std::rotate(EngineMount, GameMount, std::next(GameMount));
+
+		const bool bUnchanged = std::ranges::equal(
+			NextMountSnapshot,
+			MountSnapshot,
+			[](const FMountSnapshot& A, const FMountSnapshot& B) {
+				return A.VirtualRoot == B.VirtualRoot
+					&& A.SourcePhysicalRoot == B.SourcePhysicalRoot
+					&& A.PhysicalRoot == B.PhysicalRoot
+					&& A.bAuthoringWritable == B.bAuthoringWritable;
+			});
+		if (bUnchanged) return;
+
+		MountSnapshot = std::move(NextMountSnapshot);
 		DirectoryChildrenCache.clear();
 		if (!CurrentPhysicalPath.empty() && !ResolveMountPath(CurrentPhysicalPath))
 		{

@@ -257,6 +257,33 @@ TEST_F(FContentBrowserModelTests, RejectsExcludedMountsAndClearsStaleCurrentDire
 	EXPECT_TRUE(Model.NavigateToPhysical((Root / "Replacement").generic_string()));
 }
 
+TEST_F(FContentBrowserModelTests, ListsGameMountBeforeEngineMount)
+{
+	Registry.reset();
+	std::filesystem::create_directories(Root / "EngineContent");
+	std::filesystem::create_directories(Root / "GameContent");
+	const std::array Definitions{
+		PathUtilities::FMountPoint{
+			.VirtualRoot = "/Engine/",
+			.Owner = PathUtilities::EMountOwner::Engine,
+			.Root = Root / "EngineContent",
+			.bAutoScan = true},
+		PathUtilities::FMountPoint{
+			.VirtualRoot = "/Game/",
+			.Owner = PathUtilities::EMountOwner::ActiveProject,
+			.Root = Root / "GameContent",
+			.bAutoScan = true}};
+	Registry = std::make_unique<PathUtilities::FScopedMountRegistryFixture>(
+		Definitions);
+	ASSERT_TRUE(Registry->IsValid()) << Registry->GetError();
+
+	FContentBrowserModel Model;
+	Model.RefreshMountSnapshot();
+	ASSERT_EQ(Model.GetMounts().size(), 2u);
+	EXPECT_EQ(Model.GetMounts()[0].VirtualRoot, "/Game/");
+	EXPECT_EQ(Model.GetMounts()[1].VirtualRoot, "/Engine/");
+}
+
 TEST_F(FContentBrowserModelTests, RelocationUsesOneSharedUndoRedoTransaction)
 {
 	InitializeDObjectSystem();
