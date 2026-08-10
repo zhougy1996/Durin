@@ -8,6 +8,7 @@
 #include "VulkanMemory.h"
 #include "VulkanContext.h"
 #include "VulkanCommandBuffer.h"
+#include "VulkanView.h"
 
 namespace Durin::VulkanRHI
 {
@@ -36,8 +37,15 @@ namespace Durin::VulkanRHI
 	{
 		check(CreateDesc.Dimension == ETextureDimension::Texture2D
 			|| CreateDesc.Dimension == ETextureDimension::TextureCube);
-		vk::ImageUsageFlags Usage = vk::ImageUsageFlagBits::eSampled
-			| vk::ImageUsageFlagBits::eTransferDst;
+		vk::ImageUsageFlags Usage{};
+		if (EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::ShaderResource))
+		{
+			Usage |= vk::ImageUsageFlagBits::eSampled;
+		}
+		if (EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::DestinationCopy))
+		{
+			Usage |= vk::ImageUsageFlagBits::eTransferDst;
+		}
 		if (EnumHasAnyFlags(CreateDesc.Flags,
 			ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ResolveTargetable))
 		{
@@ -51,7 +59,8 @@ namespace Durin::VulkanRHI
 		{
 			Usage |= vk::ImageUsageFlagBits::eStorage;
 		}
-		if (EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::CPUReadback))
+		if (EnumHasAnyFlags(CreateDesc.Flags,
+			ETextureCreateFlags::SourceCopy | ETextureCreateFlags::CPUReadback))
 		{
 			Usage |= vk::ImageUsageFlagBits::eTransferSrc;
 		}
@@ -72,6 +81,20 @@ namespace Durin::VulkanRHI
 			Result.setFlags(vk::ImageCreateFlagBits::eCubeCompatible);
 		}
 		return Result;
+	}
+
+	static auto NormalizeTextureCreateDesc(FRHITextureCreateDesc Desc) -> FRHITextureCreateDesc
+	{
+		if (EnumHasAnyFlags(Desc.Flags,
+			ETextureCreateFlags::ShaderResource | ETextureCreateFlags::Storage))
+		{
+			Desc.Flags |= ETextureCreateFlags::DestinationCopy;
+		}
+		if (EnumHasAnyFlags(Desc.Flags, ETextureCreateFlags::CPUReadback))
+		{
+			Desc.Flags |= ETextureCreateFlags::SourceCopy;
+		}
+		return Desc;
 	}
 
 	FVulkanTexture::FVulkanTexture(FVulkanDevice& InDevice, const FRHITextureCreateDesc& InCreateDesc)
@@ -102,34 +125,6 @@ namespace Durin::VulkanRHI
 				ImageExtent.depth, vk::to_string(Format)));
 		}
 
-		// Create default image view
-		vk::ImageViewCreateInfo ViewInfo;
-		ViewInfo.setImage(Image)
-			.setViewType(ToVulkan_TextureDimension(InCreateDesc.Dimension))
-			.setFormat(Format)
-			.setSubresourceRange(vk::ImageSubresourceRange(bDepthStencil ? vk::ImageAspectFlagBits::eDepth : vk::ImageAspectFlagBits::eColor, 0, InCreateDesc.NumMips, 0, InCreateDesc.ArraySize));
-
-		try
-		{
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			ThrowIfVulkanNativeCreateFailureIsArmed(
-				EVulkanCreateFailurePoint::ImageView);
-#endif
-			ImageView = InDevice.GetHandle().createImageView(ViewInfo);
-		}
-		catch (const std::exception& Exception)
-		{
-			MemoryManager.DestroyImage(Allocation, Image);
-			Image = nullptr;
-			throw std::runtime_error(std::format(
-				"Vulkan texture image-view creation failed: {}", Exception.what()));
-		}
-		catch (...)
-		{
-			MemoryManager.DestroyImage(Allocation, Image);
-			Image = nullptr;
-			throw;
-		}
 	}
 
 	FVulkanTexture::FVulkanTexture(FVulkanDevice& InDevice, vk::Image InImage)
@@ -154,11 +149,6 @@ namespace Durin::VulkanRHI
 			if (Image && EnumHasAnyFlags(CreateFlags, FramebufferAttachmentFlags))
 			{
 				Device.NotifyDeleted_Image(Image);
-			}
-			if (ImageView)
-			{
-				Device.GetDeferredDeletionQueue().EnqueueResource(
-					FDeferredDeletionQueue::EType::ImageView, ImageView);
 			}
 			if (Image && Allocation.IsValid())
 			{
@@ -212,7 +202,8 @@ namespace Durin::VulkanRHI
 	{
 		std::string ValidationError;
 		checkf(ValidateTextureCreateDesc(CreateDesc, ValidationError), "Invalid RHI texture create description: {}", ValidationError);
-		if (!RHIIsTextureSupported(CreateDesc))
+		const FRHITextureCreateDesc NormalizedDesc = NormalizeTextureCreateDesc(CreateDesc);
+		if (!RHIIsTextureSupported(NormalizedDesc))
 		{
 			DURIN_ERROR("Failed to create Vulkan RHI texture '{}': the exact texture description is unsupported.",
 				CreateDesc.DebugName ? CreateDesc.DebugName : "<unnamed>");
@@ -221,8 +212,8 @@ namespace Durin::VulkanRHI
 		TRefCountPtr<FVulkanTexture> Texture;
 		const FRHIFallibleOperationResult CreationResult =
 			ExecuteFallibleVulkanCreationOperation(
-				[this, CreateDesc, &Texture]() {
-					Texture = new FVulkanTexture(*Device, CreateDesc);
+				[this, NormalizedDesc, &Texture]() {
+					Texture = new FVulkanTexture(*Device, NormalizedDesc);
 				});
 		if (!CreationResult.IsSuccess())
 		{
@@ -231,7 +222,7 @@ namespace Durin::VulkanRHI
 				CreationResult.Diagnostic);
 			return nullptr;
 		}
-		if (EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::Storage))
+		if (EnumHasAnyFlags(NormalizedDesc.Flags, ETextureCreateFlags::Storage))
 		{
 			RHICmdList.InitializeTexture(Texture.GetReference());
 		}
@@ -280,7 +271,8 @@ namespace Durin::VulkanRHI
 			return false;
 		}
 
-		const vk::ImageCreateInfo ImageInfo = BuildTextureImageCreateInfo(CreateDesc);
+		const vk::ImageCreateInfo ImageInfo = BuildTextureImageCreateInfo(
+			NormalizeTextureCreateDesc(CreateDesc));
 		try
 		{
 			const vk::ImageFormatProperties Properties = Device->GetGpu().getImageFormatProperties(
@@ -329,6 +321,63 @@ namespace Durin::VulkanRHI
 		return Result;
 	}
 
+	auto FVulkanDynamicRHI::RHICreateBufferView(
+		FRHIBuffer* Buffer,
+		const FRHIBufferViewDesc& Desc) -> FBufferViewRHIRef
+	{
+		std::string Error;
+		if (!ValidateBufferViewDesc(Buffer, Desc, Error))
+		{
+			DURIN_ERROR("Failed to create Vulkan buffer view: {}", Error);
+			return nullptr;
+		}
+		if (Desc.Type == ERHIBufferViewType::Formatted)
+		{
+			const vk::FormatProperties Properties = Device->GetGpu().getFormatProperties(
+				ToVulkan_PixelFormat(Desc.Format));
+			if (!(Properties.bufferFeatures & (vk::FormatFeatureFlagBits::eUniformTexelBuffer
+				| vk::FormatFeatureFlagBits::eStorageTexelBuffer)))
+			{
+				DURIN_ERROR("Failed to create Vulkan formatted buffer view: format has no texel-buffer support.");
+				return nullptr;
+			}
+		}
+		FBufferViewRHIRef Result;
+		const FRHIFallibleOperationResult CreationResult = ExecuteFallibleVulkanCreationOperation(
+			[this, Buffer, Desc, &Result]() {
+				Result = new FVulkanBufferView(*Device, Buffer, Desc);
+			});
+		if (!CreationResult.IsSuccess())
+		{
+			DURIN_ERROR("Failed to create Vulkan buffer view: {}", CreationResult.Diagnostic);
+			return nullptr;
+		}
+		return Result;
+	}
+
+	auto FVulkanDynamicRHI::RHICreateTextureView(
+		FRHITexture* Texture,
+		const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef
+	{
+		std::string Error;
+		if (!ValidateTextureViewDesc(Texture, Desc, Error))
+		{
+			DURIN_ERROR("Failed to create Vulkan texture view: {}", Error);
+			return nullptr;
+		}
+		FTextureViewRHIRef Result;
+		const FRHIFallibleOperationResult CreationResult = ExecuteFallibleVulkanCreationOperation(
+			[this, Texture, Desc, &Result]() {
+				Result = new FVulkanTextureView(*Device, Texture, Desc);
+			});
+		if (!CreationResult.IsSuccess())
+		{
+			DURIN_ERROR("Failed to create Vulkan texture view: {}", CreationResult.Diagnostic);
+			return nullptr;
+		}
+		return Result;
+	}
+
 	auto FVulkanDynamicRHI::UpdateTexture2D(
 		FVulkanCommandListContext& Context,
 		FRHITexture* Texture,
@@ -356,7 +405,6 @@ namespace Durin::VulkanRHI
 		);
 
 		auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture);
-		const auto CmdBuffer = Context.GetCommandBuffer()->GetHandle();
 		const FPixelFormatInfo& FormatInfo = GetPixelFormatInfo(VulkanTexture->GetFormat());
 		const uint32 BlockSize = FormatInfo.BlockSize;
 		const uint32 BytesPerBlock = FormatInfo.BytesPerBlock;
@@ -368,14 +416,22 @@ namespace Durin::VulkanRHI
 		check(PackedLayout.DataSize <= std::numeric_limits<uint32>::max());
 		const uint32 PackedRowPitch = static_cast<uint32>(PackedLayout.RowPitch);
 		const uint32 DataSize = static_cast<uint32>(PackedLayout.DataSize);
-		FStagingBuffer StagingBuffer(*Device, DataSize);
-		auto* Mapped = static_cast<uint8*>(StagingBuffer.GetMappedPointer());
+		FRHIBufferCreateDesc StagingDesc = FRHIBufferCreateDesc::Create(
+			"TextureUploadStaging", DataSize, 0,
+			EBufferUsageFlags::Dynamic | EBufferUsageFlags::SourceCopy);
+		TRefCountPtr<FVulkanBuffer> StagingBuffer = new FVulkanBuffer(*Device, StagingDesc);
+		auto* Mapped = static_cast<uint8*>(StagingBuffer->GetMappedPointer());
 		const auto* SourceRegion = SourceData.data() + SourceBlockY * SourcePitch + SourceBlockX * BytesPerBlock;
 		for (uint64 BlockRow = 0; BlockRow < PackedLayout.BlocksHigh; ++BlockRow)
 		{
 			std::memcpy(Mapped + BlockRow * PackedRowPitch, SourceRegion + BlockRow * SourcePitch, PackedRowPitch);
 		}
-		StagingBuffer.FlushMappedMemory();
+		StagingBuffer->FlushMappedMemory();
+		StagingBuffer->GetStateTracker().Apply(0, DataSize, ERHIAccess::HostWrite);
+		const std::array StagingTransition{FRHIBufferTransition{
+			StagingBuffer.GetReference(), 0, DataSize,
+			ERHIAccess::HostWrite, ERHIAccess::TransferRead}};
+		Context.RHITransitionBuffers(StagingTransition);
 
 		const bool bStorage = EnumHasAnyFlags(VulkanTexture->CreateFlags, ETextureCreateFlags::Storage);
 		const FRHITextureSubresourceRange TransitionRange{
@@ -386,16 +442,16 @@ namespace Durin::VulkanRHI
 			VulkanTexture, TransitionRange, PreviousAccess, ERHIAccess::TransferWrite}};
 		Context.RHITransitionTextures(PreCopyTransition);
 
-		// Copy buffer to image
-		vk::BufferImageCopy CopyRegion;
-		CopyRegion.setBufferOffset(0)
-			.setBufferRowLength(0)
-			.setBufferImageHeight(0)
-			.setImageSubresource(vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor, MipIndex, ArraySlice, 1))
-			.setImageOffset(vk::Offset3D{static_cast<int32>(UpdateRegion.DestX), static_cast<int32>(UpdateRegion.DestY), 0})
-			.setImageExtent(vk::Extent3D{UpdateRegion.Width, UpdateRegion.Height, 1});
-
-		CmdBuffer.copyBufferToImage(StagingBuffer.GetHandle(), VulkanTexture->Image, vk::ImageLayout::eTransferDstOptimal, CopyRegion);
+		const std::array CopyRegions{FRHIBufferTextureCopyRegion{
+			.BufferOffset = 0,
+			.TextureAspect = ERHITextureAspect::Color,
+			.TextureMip = MipIndex,
+			.TextureFirstArrayLayer = ArraySlice,
+			.TextureNumArrayLayers = 1,
+			.TextureOffset = {static_cast<int32>(UpdateRegion.DestX),
+				static_cast<int32>(UpdateRegion.DestY), 0},
+			.TextureExtent = {UpdateRegion.Width, UpdateRegion.Height, 1}}};
+		Context.RHICopyBufferToTexture(StagingBuffer.GetReference(), VulkanTexture, CopyRegions);
 
 		const ERHIAccess FinalAccess = bStorage
 			? ERHIAccess::GraphicsShaderReadWrite : ERHIAccess::GraphicsShaderRead;
@@ -445,68 +501,55 @@ namespace Durin::VulkanRHI
 			return false;
 		}
 
-		FVulkanMemoryManager& MemoryManager = Device->GetMemoryManager();
-		FVulkanAllocation ReadbackAllocation;
-		vk::Buffer ReadbackBuffer;
-		vk::BufferCreateInfo BufferInfo;
-		BufferInfo.setSize(Layout.DataSize)
-			.setUsage(vk::BufferUsageFlagBits::eTransferDst)
-			.setSharingMode(vk::SharingMode::eExclusive);
-		const vk::Result ReadbackResult = MemoryManager.CreateBuffer(
-			ReadbackAllocation,
-			ReadbackBuffer,
-			EVulkanAllocationFlags::HostVisible | EVulkanAllocationFlags::PersistentMapped,
-			BufferInfo,
-			"TextureReadback");
-		if (ReadbackResult != vk::Result::eSuccess)
-		{
-			DURIN_ERROR("Failed to allocate Vulkan texture readback buffer: result={}",
-				vk::to_string(ReadbackResult));
-			return false;
-		}
-
 		const ERHIAccess OldAccess = VulkanTexture->GetStateTracker().Get(
 			ERHITextureAspect::Color, MipIndex, ArraySlice);
 		if (OldAccess == ERHIAccess::None)
 		{
 			DURIN_ERROR("Failed to read Vulkan texture: subresource contents are undefined.");
-			MemoryManager.DestroyBuffer(ReadbackAllocation, ReadbackBuffer);
 			return false;
 		}
+		FRHIBufferCreateDesc ReadbackDesc = FRHIBufferCreateDesc::Create(
+			"TextureReadback", static_cast<uint32>(Layout.DataSize), 0,
+			EBufferUsageFlags::Dynamic | EBufferUsageFlags::KeepCPUAccessible
+				| EBufferUsageFlags::DestinationCopy);
+		TRefCountPtr<FVulkanBuffer> ReadbackBuffer = new FVulkanBuffer(*Device, ReadbackDesc);
 
-		const vk::CommandBuffer CmdBuffer = Context.GetCommandBuffer()->GetHandle();
 		const FRHITextureSubresourceRange TransitionRange{
 			ERHITextureAspect::Color, MipIndex, 1, ArraySlice, 1};
 		const std::array PreCopyTransition{FRHITextureTransition{
 			VulkanTexture, TransitionRange, OldAccess, ERHIAccess::TransferRead}};
 		Context.RHITransitionTextures(PreCopyTransition);
-		vk::BufferImageCopy CopyRegion;
-		CopyRegion.setBufferOffset(0)
-			.setBufferRowLength(0)
-			.setBufferImageHeight(0)
-			.setImageSubresource(vk::ImageSubresourceLayers(
-				vk::ImageAspectFlagBits::eColor, MipIndex, ArraySlice, 1))
-			.setImageOffset(vk::Offset3D{0, 0, 0})
-			.setImageExtent(vk::Extent3D{Width, Height, 1});
-		CmdBuffer.copyImageToBuffer(
-			VulkanTexture->Image, vk::ImageLayout::eTransferSrcOptimal, ReadbackBuffer, CopyRegion);
+		const std::array ReadbackTransition{FRHIBufferTransition{
+			ReadbackBuffer.GetReference(), 0, Layout.DataSize,
+			ERHIAccess::Discard, ERHIAccess::TransferWrite}};
+		Context.RHITransitionBuffers(ReadbackTransition);
+		const std::array CopyRegions{FRHIBufferTextureCopyRegion{
+			.BufferOffset = 0,
+			.TextureAspect = ERHITextureAspect::Color,
+			.TextureMip = MipIndex,
+			.TextureFirstArrayLayer = ArraySlice,
+			.TextureNumArrayLayers = 1,
+			.TextureExtent = {Width, Height, 1}}};
+		Context.RHICopyTextureToBuffer(VulkanTexture, ReadbackBuffer.GetReference(), CopyRegions);
 
 		const std::array PostCopyTransition{FRHITextureTransition{
 			VulkanTexture, TransitionRange, ERHIAccess::TransferRead, OldAccess}};
 		Context.RHITransitionTextures(PostCopyTransition);
+		const std::array HostTransition{FRHIBufferTransition{
+			ReadbackBuffer.GetReference(), 0, Layout.DataSize,
+			ERHIAccess::TransferWrite, ERHIAccess::HostRead}};
+		Context.RHITransitionBuffers(HostTransition);
 
 		Context.Finalize();
 		Device->WaitUtilIdle();
-		MemoryManager.Invalidate(ReadbackAllocation, 0, Layout.DataSize);
-		const auto* MappedData = static_cast<const uint8*>(ReadbackAllocation.GetMappedData());
+		ReadbackBuffer->InvalidateMappedMemory(0, static_cast<uint32>(Layout.DataSize));
+		const auto* MappedData = static_cast<const uint8*>(ReadbackBuffer->GetMappedPointer());
 		if (MappedData == nullptr)
 		{
 			DURIN_ERROR("Failed to read Vulkan texture: readback allocation is not mapped.");
-			MemoryManager.DestroyBuffer(ReadbackAllocation, ReadbackBuffer);
 			return false;
 		}
 		OutData.assign(MappedData, MappedData + Layout.DataSize);
-		MemoryManager.DestroyBuffer(ReadbackAllocation, ReadbackBuffer);
 		return true;
 	}
 } // namespace Durin::VulkanRHI

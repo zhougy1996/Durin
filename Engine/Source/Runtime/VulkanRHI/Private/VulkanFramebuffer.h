@@ -32,7 +32,7 @@ namespace Durin::VulkanRHI
 
 		vk::Extent2D Extent;
 
-		std::vector<FVulkanView> AttachmentTextureViews;
+		std::vector<TRefCountPtr<FVulkanTextureView>> AttachmentTextureViews;
 
 		// How many logical color outputs the pass has
 		uint32 NumColorRenderTargets = 0;
@@ -43,6 +43,7 @@ namespace Durin::VulkanRHI
 		vk::Image ColorRenderTargetImages[MaxSimultaneousRenderTargets];
 		vk::Image ColorResolveTargetImages[MaxSimultaneousRenderTargets];
 		vk::Image DepthStencilRenderTargetImage;
+		std::vector<const FRHITextureView*> AttachmentIdentities;
 
 		friend class FVulkanRenderPassManager;
 	};

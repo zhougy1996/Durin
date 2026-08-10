@@ -61,6 +61,10 @@ namespace Durin::VulkanRHI
 		auto RHICreateTexture(FRHICommandListBase& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> FTextureRHIRef override;
 		auto RHICreateSampler(const FRHISamplerDesc& CreateDesc) -> TRefCountPtr<FRHISampler> override;
 		auto RHICreateBuffer(FRHICommandListImmediate& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> FBufferRHIRef override;
+		auto RHICreateBufferView(FRHIBuffer* Buffer,
+			const FRHIBufferViewDesc& Desc) -> FBufferViewRHIRef override;
+		auto RHICreateTextureView(FRHITexture* Texture,
+			const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef override;
 		auto RHICreateShader(const FRHIShaderCreateDesc& InCreateDesc) -> FShaderRHIRef override;
 		auto RHIAllocateDynamicUniformBuffer(
 			FRHICommandListImmediate& RHICmdList,

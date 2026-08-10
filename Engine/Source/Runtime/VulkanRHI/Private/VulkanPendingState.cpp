@@ -8,6 +8,7 @@
 #include "VulkanPipeline.h"
 #include "VulkanRHIPrivate.h"
 #include "VulkanTexture.h"
+#include "VulkanView.h"
 
 namespace Durin::VulkanRHI
 {
@@ -287,33 +288,30 @@ namespace Durin::VulkanRHI
 			case ERHIBindingType::UniformBufferDynamic:
 			case ERHIBindingType::StorageBuffer:
 				{
-					const FVulkanBuffer* Buffer = static_cast<const FVulkanBuffer*>(Resource.Resource);
+					const auto* View = static_cast<const FVulkanBufferView*>(Resource.Resource);
+					const auto* Buffer = static_cast<const FVulkanBuffer*>(View->GetBuffer());
+					const FRHIBufferViewDesc& ViewDesc = View->GetDesc();
 					if (Resource.Type == ERHIBindingType::StorageBuffer)
 					{
 						checkf(
 							EnumHasAnyFlags(Buffer->GetUsage(), EBufferUsageFlags::UnorderedAccess | EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::ByteAddressBuffer | EBufferUsageFlags::ShaderResource),
 							"A storage buffer descriptor requires a buffer created with shader-storage usage");
 					}
-					const bool bDynamicUniform = Resource.Type == ERHIBindingType::UniformBufferDynamic;
-					const uint32 DescriptorOffset = bDynamicUniform ? 0 : Resource.Offset;
-					checkf(DescriptorOffset <= Buffer->GetSize(), "Descriptor buffer offset exceeds the buffer size");
 					vk::DescriptorBufferInfo& BufferInfo = BufferInfos.emplace_back();
-					const uint32 Range = Resource.Size != 0 ? Resource.Size : Buffer->GetSize() - DescriptorOffset;
-					const uint32 EffectiveOffset = bDynamicUniform ? Resource.Offset : DescriptorOffset;
-					checkf(EffectiveOffset <= Buffer->GetSize() && Range > 0 && Range <= Buffer->GetSize() - EffectiveOffset, "Descriptor buffer range exceeds the buffer size");
 					BufferInfo
 						.setBuffer(Buffer->GetHandle())
-						.setOffset(DescriptorOffset)
-						.setRange(Range);
+						.setOffset(ViewDesc.Offset)
+						.setRange(ViewDesc.Size);
 					DescriptorWrite.setBufferInfo(BufferInfo);
 					break;
 				}
 			case ERHIBindingType::Texture:
 				{
-					const FVulkanTexture* Texture = static_cast<const FVulkanTexture*>(Resource.Resource);
+					const auto* View = static_cast<const FVulkanTextureView*>(Resource.Resource);
+					const auto* Texture = static_cast<const FVulkanTexture*>(View->GetTexture());
 					vk::DescriptorImageInfo& ImageInfo = ImageInfos.emplace_back();
 					ImageInfo
-						.setImageView(Texture->ImageView)
+						.setImageView(View->GetHandle())
 						.setImageLayout(EnumHasAnyFlags(Texture->CreateFlags, ETextureCreateFlags::Storage)
 							? vk::ImageLayout::eGeneral
 							: vk::ImageLayout::eShaderReadOnlyOptimal);
@@ -322,11 +320,12 @@ namespace Durin::VulkanRHI
 				}
 			case ERHIBindingType::StorageImage:
 				{
-					const FVulkanTexture* Texture = static_cast<const FVulkanTexture*>(Resource.Resource);
+					const auto* View = static_cast<const FVulkanTextureView*>(Resource.Resource);
+					const auto* Texture = static_cast<const FVulkanTexture*>(View->GetTexture());
 					checkf(EnumHasAnyFlags(Texture->CreateFlags, ETextureCreateFlags::Storage), "A storage image descriptor requires a texture created with ETextureCreateFlags::Storage");
 					vk::DescriptorImageInfo& ImageInfo = ImageInfos.emplace_back();
 					ImageInfo
-						.setImageView(Texture->ImageView)
+						.setImageView(View->GetHandle())
 						.setImageLayout(vk::ImageLayout::eGeneral);
 					DescriptorWrite.setImageInfo(ImageInfo);
 					break;

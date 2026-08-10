@@ -506,6 +506,11 @@ namespace Durin::VulkanRHI
 
 		delete PipelineManager;
 		PipelineManager = nullptr;
+
+		if (RenderPassManager)
+		{
+			RenderPassManager->ReleaseFramebuffers();
+		}
 		if (IsInRHIThread())
 		{
 			RHIFlushDeferredResources();
@@ -515,6 +520,8 @@ namespace Durin::VulkanRHI
 			GCommandListExecutor.GetImmediateCommandList().ImmediateFlush(
 				EImmediateFlushType::FlushRHIThreadFlushResources);
 		}
+		delete RenderPassManager;
+		RenderPassManager = nullptr;
 		DeferredDeletionQueue.Clear();
 		MemoryManager.Deinit();
 
@@ -523,9 +530,6 @@ namespace Durin::VulkanRHI
 		ComputeQueue = nullptr;
 		TransferQueue = nullptr;
 		PresentQueue = nullptr;
-
-		delete RenderPassManager;
-		RenderPassManager = nullptr;
 
 		FenceManager.Deinit();
 

@@ -48,6 +48,14 @@ namespace Durin
 		virtual auto RHICreateSampler(const FRHISamplerDesc& CreateDesc) -> TRefCountPtr<FRHISampler> = 0;
 		virtual auto RHICreateShader(const FRHIShaderCreateDesc& CreateDesc) -> TRefCountPtr<FRHIShader> = 0;
 		virtual auto RHICreateBuffer(FRHICommandListImmediate& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> TRefCountPtr<FRHIBuffer> = 0;
+		// Creates one complete immutable view or returns null after a recoverable diagnostic.
+		RHI_API virtual auto RHICreateBufferView(
+			FRHIBuffer* Buffer,
+			const FRHIBufferViewDesc& Desc) -> TRefCountPtr<FRHIBufferView>;
+		// Creates one complete immutable view or returns null after a recoverable diagnostic.
+		RHI_API virtual auto RHICreateTextureView(
+			FRHITexture* Texture,
+			const FRHITextureViewDesc& Desc) -> TRefCountPtr<FRHITextureView>;
 		RHI_API virtual auto RHIAllocateDynamicUniformBuffer(FRHICommandListImmediate& RHICmdList, const void* Data, uint32 Size) -> FRHIUniformBufferRange;
 		RHI_API auto RHILockBuffer(FRHICommandListImmediate& RHICmdList, FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*;
 		RHI_API auto RHIUnlockBuffer(FRHICommandListImmediate& RHICmdList, FRHIBuffer* Buffer) -> void;

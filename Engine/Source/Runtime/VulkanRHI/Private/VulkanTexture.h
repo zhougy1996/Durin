@@ -18,7 +18,7 @@ namespace Durin::VulkanRHI
 	};
 
 
-	// Owns or references a Vulkan image and its default image view.
+	// Owns or references a Vulkan image; counted view objects own all image views.
 	class FVulkanTexture : public FRHITexture
 	{
 	public:
@@ -32,8 +32,6 @@ namespace Durin::VulkanRHI
 		auto GetStateTracker() const -> const FVulkanTextureStateTracker& { return StateTracker; }
 
 		vk::Image Image{};
-
-		vk::ImageView ImageView{};
 
 		vk::Format Format{};
 

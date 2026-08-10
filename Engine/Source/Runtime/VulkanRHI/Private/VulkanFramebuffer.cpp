@@ -16,15 +16,6 @@ namespace Durin::VulkanRHI
 			return Texture != nullptr ? static_cast<const FVulkanTexture*>(Texture)->Image : vk::Image{};
 		}
 
-		auto DepthAspect(vk::Format Format) -> vk::ImageAspectFlags
-		{
-			vk::ImageAspectFlags Flags = vk::ImageAspectFlagBits::eDepth;
-			if (Format == vk::Format::eD24UnormS8Uint || Format == vk::Format::eD32SfloatS8Uint)
-			{
-				Flags |= vk::ImageAspectFlagBits::eStencil;
-			}
-			return Flags;
-		}
 	}
 
 	FVulkanFramebuffer::FVulkanFramebuffer(FVulkanDevice& InDevice, const FRHIRenderPassInfo& RPInfo, const FVulkanRenderPass& InRenderPass)
@@ -40,41 +31,33 @@ namespace Durin::VulkanRHI
 		check(ExtentSource != nullptr);
 		Extent = vk::Extent2D(ExtentSource->GetSizeX(), ExtentSource->GetSizeY());
 
-		std::vector<FVulkanView> CandidateTextureViews;
 		std::vector<vk::ImageView> AttachmentViews;
-		CandidateTextureViews.reserve(InRenderPass.GetAttachmentCount());
+		AttachmentTextureViews.reserve(InRenderPass.GetAttachmentCount());
+		AttachmentIdentities.reserve(InRenderPass.GetAttachmentCount());
 		AttachmentViews.reserve(InRenderPass.GetAttachmentCount());
-		auto AddView = [this, &CandidateTextureViews, &AttachmentViews](FRHITexture* RHITexture, vk::ImageAspectFlags Aspect) {
-			auto* Texture = static_cast<FVulkanTexture*>(RHITexture);
-			vk::ImageViewCreateInfo CreateInfo;
-			CreateInfo.setImage(Texture->Image)
-				.setViewType(vk::ImageViewType::e2D)
-				.setFormat(Texture->Format)
-				.setComponents(vk::ComponentMapping())
-				.setSubresourceRange(vk::ImageSubresourceRange(Aspect, 0, 1, 0, 1));
-		#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			ThrowIfVulkanNativeCreateFailureIsArmed(
-				EVulkanCreateFailurePoint::FramebufferImageView);
-		#endif
-			vk::ImageView ImageView = Device.GetHandle().createImageView(CreateInfo);
-		#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			GVulkanCreatedFramebufferViewCount.fetch_add(1, std::memory_order_release);
-		#endif
-			CandidateTextureViews.emplace_back(Texture->Image, ImageView);
-			AttachmentViews.push_back(ImageView);
+		auto AddView = [this, &AttachmentViews](FRHITextureView* RHIView) {
+			check(RHIView);
+			auto* View = static_cast<FVulkanTextureView*>(RHIView);
+			AttachmentTextureViews.emplace_back(View);
+			AttachmentIdentities.push_back(View);
+			AttachmentViews.push_back(View->GetHandle());
 		};
 
 		vk::Framebuffer CandidateFramebuffer;
 		try
 		{
+		#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			ThrowIfVulkanNativeCreateFailureIsArmed(
+				EVulkanCreateFailurePoint::FramebufferImageView);
+		#endif
 			for (uint32 Index = 0; Index < NumColorRenderTargets; ++Index)
 			{
 				ColorRenderTargetImages[Index] = GetImage(RPInfo.ColorRenderTargets[Index]);
-				AddView(RPInfo.ColorRenderTargets[Index], vk::ImageAspectFlagBits::eColor);
+				AddView(RPInfo.ColorRenderTargetViews[Index]);
 				if (RPInfo.RenderTargetLayout.ColorAttachments[Index].bHasResolveTarget)
 				{
 					ColorResolveTargetImages[Index] = GetImage(RPInfo.ColorResolveTargets[Index]);
-					AddView(RPInfo.ColorResolveTargets[Index], vk::ImageAspectFlagBits::eColor);
+					AddView(RPInfo.ColorResolveTargetViews[Index]);
 					++NumColorAttachments;
 				}
 				++NumColorAttachments;
@@ -84,7 +67,7 @@ namespace Durin::VulkanRHI
 			{
 				auto* Texture = static_cast<FVulkanTexture*>(RPInfo.DepthStencilRenderTarget);
 				DepthStencilRenderTargetImage = Texture->Image;
-				AddView(Texture, DepthAspect(Texture->Format));
+				AddView(RPInfo.DepthStencilRenderTargetView);
 			}
 
 			vk::FramebufferCreateInfo CreateInfo;
@@ -110,28 +93,13 @@ namespace Durin::VulkanRHI
 				GVulkanReleasedFramebufferCount.fetch_add(1, std::memory_order_release);
 			#endif
 			}
-			for (const FVulkanView& View : CandidateTextureViews)
-			{
-				Device.GetHandle().destroyImageView(View.ImageView);
-			#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-				GVulkanReleasedFramebufferViewCount.fetch_add(1, std::memory_order_release);
-			#endif
-			}
 			throw;
 		}
-		AttachmentTextureViews = std::move(CandidateTextureViews);
 		Framebuffer = CandidateFramebuffer;
 	}
 
 	FVulkanFramebuffer::~FVulkanFramebuffer()
 	{
-		for (FVulkanView& View : AttachmentTextureViews)
-		{
-			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::ImageView, View.ImageView);
-		#if DURIN_VULKAN_TEST_FAILURE_INJECTION
-			GVulkanReleasedFramebufferViewCount.fetch_add(1, std::memory_order_release);
-		#endif
-		}
 		if (Framebuffer)
 		{
 			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Framebuffer, Framebuffer);
@@ -167,6 +135,16 @@ namespace Durin::VulkanRHI
 				return false;
 			}
 		}
-		return DepthStencilRenderTargetImage == GetImage(RPInfo.DepthStencilRenderTarget);
+		if (DepthStencilRenderTargetImage != GetImage(RPInfo.DepthStencilRenderTarget)) return false;
+		std::vector<const FRHITextureView*> Current;
+		for (uint32 Index = 0; Index < NumColorRenderTargets; ++Index)
+		{
+			Current.push_back(RPInfo.ColorRenderTargetViews[Index]);
+			if (RPInfo.RenderTargetLayout.ColorAttachments[Index].bHasResolveTarget)
+				Current.push_back(RPInfo.ColorResolveTargetViews[Index]);
+		}
+		if (RPInfo.RenderTargetLayout.bHasDepthStencil)
+			Current.push_back(RPInfo.DepthStencilRenderTargetView);
+		return Current == AttachmentIdentities;
 	}
 } // namespace Durin::VulkanRHI

@@ -236,6 +236,13 @@ namespace Durin::VulkanRHI
 	{
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		GVulkanRenderPassEntryCount.fetch_sub(RenderPasses.size(), std::memory_order_release);
+#endif
+		ReleaseFramebuffers();
+	}
+
+	auto FVulkanRenderPassManager::ReleaseFramebuffers() -> void
+	{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		GVulkanFramebufferEntryCount.fetch_sub(FrameBuffers.size(), std::memory_order_release);
 #endif
 		FrameBuffers.clear();

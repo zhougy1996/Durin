@@ -11,6 +11,7 @@ namespace Durin
 {
 	class FRHICommandListImmediate;
 	class FRHIBuffer;
+	class FRHITextureView;
 	class FDynamicRHI;
 	class FTextureReference;
 
@@ -19,7 +20,9 @@ namespace Durin
 	{
 		Viewport,
 		Buffer,
+		BufferView,
 		Texture,
+		TextureView,
 		TextureReference,
 		Sampler,
 		Shader,
@@ -858,6 +861,9 @@ namespace Durin
 		FRHITexture* ColorRenderTargets[MaxSimultaneousRenderTargets]{};
 		FRHITexture* ColorResolveTargets[MaxSimultaneousRenderTargets]{};
 		FRHITexture* DepthStencilRenderTarget = nullptr;
+		FRHITextureView* ColorRenderTargetViews[MaxSimultaneousRenderTargets]{};
+		FRHITextureView* ColorResolveTargetViews[MaxSimultaneousRenderTargets]{};
+		FRHITextureView* DepthStencilRenderTargetView = nullptr;
 		FClearValueBinding ColorClearValues[MaxSimultaneousRenderTargets]{};
 		FClearValueBinding DepthStencilClearValue{1.0f, 0u};
 	};
@@ -1389,6 +1395,180 @@ namespace Durin
 		FRHIBufferDesc Desc;
 	};
 
+	// Selects the shader-visible interpretation of one immutable buffer range.
+	enum class ERHIBufferViewType : uint8
+	{
+		Uniform,
+		StructuredStorage,
+		ByteAddressStorage,
+		Formatted
+	};
+
+	// Names one exact nonempty byte range and its immutable shader interpretation.
+	struct FRHIBufferViewDesc
+	{
+		uint64 Offset = 0;
+		uint64 Size = 0;
+		ERHIBufferViewType Type = ERHIBufferViewType::Uniform;
+		EPixelFormat Format = EPixelFormat::Unknown;
+
+		auto operator==(const FRHIBufferViewDesc&) const -> bool = default;
+	};
+
+	// Selects how one texture subresource range may be consumed.
+	enum class ERHITextureViewUsage : uint8
+	{
+		Sampled,
+		Storage,
+		ColorAttachment,
+		DepthStencilAttachment,
+		TransferSource,
+		TransferDestination
+	};
+
+	// Selects the initial portable image-view shapes supported by the RHI.
+	enum class ERHITextureViewDimension : uint8
+	{
+		Texture2D,
+		TextureCube
+	};
+
+	// Names one exact immutable texture subresource interpretation.
+	struct FRHITextureViewDesc
+	{
+		ERHITextureViewUsage Usage = ERHITextureViewUsage::Sampled;
+		ERHITextureViewDimension Dimension = ERHITextureViewDimension::Texture2D;
+		EPixelFormat Format = EPixelFormat::Unknown;
+		FRHITextureSubresourceRange Range{};
+
+		auto operator==(const FRHITextureViewDesc&) const -> bool = default;
+	};
+
+	// Retains a buffer allocation together with one validated immutable range identity.
+	class FRHIBufferView : public FRHIResource
+	{
+	public:
+		FRHIBufferView(FRHIBuffer* InBuffer, const FRHIBufferViewDesc& InDesc)
+			: FRHIResource(ERHIResourceType::BufferView), Buffer(InBuffer), Desc(InDesc)
+		{
+		}
+
+		auto GetBuffer() const -> FRHIBuffer* { return Buffer.GetReference(); }
+		auto GetDesc() const -> const FRHIBufferViewDesc& { return Desc; }
+
+	protected:
+		TRefCountPtr<FRHIBuffer> Buffer;
+		FRHIBufferViewDesc Desc;
+	};
+
+	// Retains a texture allocation together with one validated immutable subresource identity.
+	class FRHITextureView : public FRHIResource
+	{
+	public:
+		FRHITextureView(FRHITexture* InTexture, const FRHITextureViewDesc& InDesc)
+			: FRHIResource(ERHIResourceType::TextureView), Texture(InTexture), Desc(InDesc)
+		{
+		}
+
+		auto GetTexture() const -> FRHITexture* { return Texture.GetReference(); }
+		auto GetDesc() const -> const FRHITextureViewDesc& { return Desc; }
+
+	protected:
+		TRefCountPtr<FRHITexture> Texture;
+		FRHITextureViewDesc Desc;
+	};
+
+	RHI_API auto MakeDefaultBufferViewDesc(
+		const FRHIBuffer& Buffer,
+		ERHIBufferViewType Type,
+		EPixelFormat Format = EPixelFormat::Unknown) -> FRHIBufferViewDesc;
+	RHI_API auto MakeDefaultTextureViewDesc(
+		const FRHITexture& Texture,
+		ERHITextureViewUsage Usage) -> FRHITextureViewDesc;
+	RHI_API auto ValidateBufferViewDesc(
+		const FRHIBuffer* Buffer,
+		const FRHIBufferViewDesc& Desc,
+		std::string& OutError) -> bool;
+	RHI_API auto ValidateTextureViewDesc(
+		const FRHITexture* Texture,
+		const FRHITextureViewDesc& Desc,
+		std::string& OutError) -> bool;
+
+	// Names one exact nonempty byte range copied between two buffers.
+	struct FRHIBufferCopyRegion
+	{
+		uint64 SourceOffset = 0;
+		uint64 DestinationOffset = 0;
+		uint64 Size = 0;
+
+		auto operator==(const FRHIBufferCopyRegion&) const -> bool = default;
+	};
+
+	// Defines a backend-neutral three-dimensional texel offset.
+	struct FRHITextureOffset3D
+	{
+		int32 X = 0;
+		int32 Y = 0;
+		int32 Z = 0;
+
+		auto operator==(const FRHITextureOffset3D&) const -> bool = default;
+	};
+
+	// Defines a nonempty backend-neutral three-dimensional texel extent.
+	struct FRHITextureExtent3D
+	{
+		uint32 Width = 0;
+		uint32 Height = 0;
+		uint32 Depth = 0;
+
+		auto operator==(const FRHITextureExtent3D&) const -> bool = default;
+	};
+
+	// Names one buffer layout and one exact texture region for a directional copy.
+	struct FRHIBufferTextureCopyRegion
+	{
+		uint64 BufferOffset = 0;
+		uint32 BufferRowLength = 0;
+		uint32 BufferImageHeight = 0;
+		ERHITextureAspect TextureAspect = ERHITextureAspect::Color;
+		uint32 TextureMip = 0;
+		uint32 TextureFirstArrayLayer = 0;
+		uint32 TextureNumArrayLayers = 1;
+		FRHITextureOffset3D TextureOffset{};
+		FRHITextureExtent3D TextureExtent{};
+
+		auto operator==(const FRHIBufferTextureCopyRegion&) const -> bool = default;
+	};
+
+	// Names equal source and destination texture regions for an exact copy.
+	struct FRHITextureCopyRegion
+	{
+		ERHITextureAspect SourceAspect = ERHITextureAspect::Color;
+		uint32 SourceMip = 0;
+		uint32 SourceFirstArrayLayer = 0;
+		ERHITextureAspect DestinationAspect = ERHITextureAspect::Color;
+		uint32 DestinationMip = 0;
+		uint32 DestinationFirstArrayLayer = 0;
+		uint32 NumArrayLayers = 1;
+		FRHITextureOffset3D SourceOffset{};
+		FRHITextureOffset3D DestinationOffset{};
+		FRHITextureExtent3D Extent{};
+
+		auto operator==(const FRHITextureCopyRegion&) const -> bool = default;
+	};
+
+	RHI_API auto ValidateBufferCopies(FRHIBuffer* Source, FRHIBuffer* Destination,
+		std::span<const FRHIBufferCopyRegion> Regions, std::string& OutError) -> bool;
+	RHI_API auto ValidateBufferToTextureCopies(FRHIBuffer* Source, FRHITexture* Destination,
+		std::span<const FRHIBufferTextureCopyRegion> Regions, std::string& OutError) -> bool;
+	RHI_API auto ValidateTextureToBufferCopies(FRHITexture* Source, FRHIBuffer* Destination,
+		std::span<const FRHIBufferTextureCopyRegion> Regions, std::string& OutError) -> bool;
+	RHI_API auto ValidateTextureCopies(FRHITexture* Source, FRHITexture* Destination,
+		std::span<const FRHITextureCopyRegion> Regions, std::string& OutError) -> bool;
+	RHI_API auto GetBufferTextureCopyFootprint(const FRHITexture& Texture,
+		const FRHIBufferTextureCopyRegion& Region, uint64& OutSize,
+		std::string& OutError) -> bool;
+
 	// Represents a backend graphics pipeline compatible with a fixed render-target layout.
 	class FRHIGraphicsPipelineState : public FRHIResource
 	{
@@ -1403,9 +1583,11 @@ namespace Durin
 	using FVertexDeclarationRHIRef = TRefCountPtr<FRHIVertexDeclaration>;
 	using FViewportRHIRef = TRefCountPtr<FRHIViewport>;
 	using FTextureRHIRef = TRefCountPtr<FRHITexture>;
+	using FTextureViewRHIRef = TRefCountPtr<FRHITextureView>;
 	using FRHITextureReferenceRef = TRefCountPtr<FRHITextureReference>;
 	using FSamplerRHIRef = TRefCountPtr<FRHISampler>;
 	using FBufferRHIRef = TRefCountPtr<FRHIBuffer>;
+	using FBufferViewRHIRef = TRefCountPtr<FRHIBufferView>;
 	using FShaderRHIRef = TRefCountPtr<FRHIShader>;
 	using FGraphicsPipelineStateRHIRef = TRefCountPtr<FRHIGraphicsPipelineState>;
 } // namespace Durin

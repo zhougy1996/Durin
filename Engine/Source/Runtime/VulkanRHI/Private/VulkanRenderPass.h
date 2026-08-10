@@ -62,6 +62,8 @@ namespace Durin::VulkanRHI
 		auto EndRenderPass(FVulkanCommandBuffer* InCmdBuffer) -> void;
 
 		auto NotifyDeleted_Image(vk::Image Image) -> void;
+		// Releases framebuffer-held RHI views before shutdown drains resource deletion.
+		auto ReleaseFramebuffers() -> void;
 
 	private:
 		FVulkanDevice& Device;

@@ -4,6 +4,24 @@
 
 namespace Durin
 {
+	auto FDynamicRHI::RHICreateBufferView(
+		FRHIBuffer* Buffer,
+		const FRHIBufferViewDesc& Desc) -> TRefCountPtr<FRHIBufferView>
+	{
+		std::string Error;
+		if (!ValidateBufferViewDesc(Buffer, Desc, Error)) return nullptr;
+		return new FRHIBufferView(Buffer, Desc);
+	}
+
+	auto FDynamicRHI::RHICreateTextureView(
+		FRHITexture* Texture,
+		const FRHITextureViewDesc& Desc) -> TRefCountPtr<FRHITextureView>
+	{
+		std::string Error;
+		if (!ValidateTextureViewDesc(Texture, Desc, Error)) return nullptr;
+		return new FRHITextureView(Texture, Desc);
+	}
+
 	FDynamicRHI* GDynamicRHI = nullptr;
 
 	auto FDynamicRHI::RHIGetCapabilities() const -> const FRHICapabilities*

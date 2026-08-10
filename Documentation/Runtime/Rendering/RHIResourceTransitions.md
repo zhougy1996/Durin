@@ -88,7 +88,9 @@ acquire and present do not imply queue-family ownership transfer.
 
 The current contract is single-queue and does not provide queue-family
 ownership transfer, asynchronous scheduling, render-graph barrier synthesis,
-resource views, or GPU-completion retirement. Compute access intent and Vulkan
+or GPU-completion retirement. Counted resource views and recorded transfers
+consume these exact ranges through the separate
+[RHI resource views and transfers](RHIResourceViewsAndTransfers.md) contract. Compute access intent and Vulkan
 mapping are available for the synchronous compute pipeline, but compute PSO
 creation and dispatch remain a separate milestone. New transfer commands and
 views consume these exact range semantics rather than defining another state
@@ -103,6 +105,7 @@ transition.
 ## Related Documentation
 
 - [RHI command execution](RHICommandExecution.md)
+- [RHI resource views and transfers](RHIResourceViewsAndTransfers.md)
 - [RHI capabilities and Vulkan startup](RHICapabilitiesAndVulkanStartup.md)
 - [Texture system](TextureSystem.md)
 - [Viewport rendering](ViewportRendering.md)

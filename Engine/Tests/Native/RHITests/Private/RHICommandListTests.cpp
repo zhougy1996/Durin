@@ -132,6 +132,34 @@ namespace Durin
 				OperationThreadRoles.emplace_back(IsInRHIThread());
 				ObservedTextureTransitions.assign(Transitions.begin(), Transitions.end());
 			}
+			auto RHICopyBuffer(FRHIBuffer*, FRHIBuffer*,
+				std::span<const FRHIBufferCopyRegion> Regions) -> void override
+			{
+				Operations.emplace_back("CopyBuffer");
+				OperationThreadRoles.emplace_back(IsInRHIThread());
+				ObservedBufferCopyRegions.assign(Regions.begin(), Regions.end());
+			}
+			auto RHICopyBufferToTexture(FRHIBuffer*, FRHITexture*,
+				std::span<const FRHIBufferTextureCopyRegion> Regions) -> void override
+			{
+				Operations.emplace_back("CopyBufferToTexture");
+				OperationThreadRoles.emplace_back(IsInRHIThread());
+				ObservedBufferTextureCopyRegions.assign(Regions.begin(), Regions.end());
+			}
+			auto RHICopyTextureToBuffer(FRHITexture*, FRHIBuffer*,
+				std::span<const FRHIBufferTextureCopyRegion> Regions) -> void override
+			{
+				Operations.emplace_back("CopyTextureToBuffer");
+				OperationThreadRoles.emplace_back(IsInRHIThread());
+				ObservedBufferTextureCopyRegions.assign(Regions.begin(), Regions.end());
+			}
+			auto RHICopyTexture(FRHITexture*, FRHITexture*,
+				std::span<const FRHITextureCopyRegion> Regions) -> void override
+			{
+				Operations.emplace_back("CopyTexture");
+				OperationThreadRoles.emplace_back(IsInRHIThread());
+				ObservedTextureCopyRegions.assign(Regions.begin(), Regions.end());
+			}
 			auto RHIWriteBuffer(
 				FRHIBuffer* Buffer,
 				uint32 Offset,
@@ -213,6 +241,9 @@ namespace Durin
 			std::vector<uint8> ObservedTextureData;
 			std::vector<FRHIBufferTransition> ObservedBufferTransitions;
 			std::vector<FRHITextureTransition> ObservedTextureTransitions;
+			std::vector<FRHIBufferCopyRegion> ObservedBufferCopyRegions;
+			std::vector<FRHIBufferTextureCopyRegion> ObservedBufferTextureCopyRegions;
+			std::vector<FRHITextureCopyRegion> ObservedTextureCopyRegions;
 			bool* ResourceDestroyed = nullptr;
 			bool ObservedResourceAliveAtSubmit = false;
 			bool ObservedResourceAliveAtEndFrame = false;
@@ -1039,9 +1070,12 @@ namespace Durin
 		FRecordingCommandContext Context;
 		FRHICommandListExecutor Executor(Context);
 		FRHICommandListImmediate& Immediate = Executor.GetImmediateCommandList();
-		TRefCountPtr<FRHITexture> Texture = MakeRefCount<FRHITexture>();
+		TRefCountPtr<FRHITexture> Texture = MakeRefCount<FRHITexture>(
+			FRHITextureCreateDesc::Create2D("RecordedTexture", 1, 1, EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::RenderTargetable));
 		TRefCountPtr<FRHIBuffer> Buffer = MakeRefCount<FRHIBuffer>(
-			FRHIBufferCreateDesc::CreateVertex("RecordedBuffer", 64));
+			FRHIBufferCreateDesc::Create(
+				"RecordedBuffer", 64, 16, EBufferUsageFlags::UniformBuffer));
 		TRefCountPtr<FRHIShader> Shader = MakeRefCount<FRHIShader>(
 			FRHIShaderDesc(EShaderFrequency::Vertex, FXxHash128{}));
 		FGraphicsPipelineStateRHIRef PipelineState =
@@ -1079,8 +1113,10 @@ namespace Durin
 		EXPECT_EQ(Context.ObservedPushConstants, (std::vector<uint8>{1, 2, 3, 4}));
 		ASSERT_EQ(Context.ObservedShaderParameters.size(), 1u);
 		EXPECT_EQ(Context.ObservedShader, Shader.GetReference());
-		EXPECT_EQ(Context.ObservedShaderParameters[0].Resource, Buffer.GetReference());
+		ASSERT_EQ(Context.ObservedShaderParameters[0].Resource->GetResourceType(), ERHIResourceType::BufferView);
+		EXPECT_EQ(static_cast<FRHIBufferView*>(Context.ObservedShaderParameters[0].Resource)->GetBuffer(), Buffer.GetReference());
 		EXPECT_EQ(Context.ObservedShaderParameters[0].BindingIndex, 2u);
+		RHIFlushDeferredResources();
 		EXPECT_EQ(Texture->GetRefCount(), 1u);
 		EXPECT_EQ(Buffer->GetRefCount(), 1u);
 		EXPECT_EQ(Shader->GetRefCount(), 1u);
@@ -1208,6 +1244,79 @@ namespace Durin
 		RHIThread.Stop();
 	}
 
+	TEST(FRHICommandListTests, CopyCommandsOwnBatchesAndReplayAllDirections)
+	{
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		FBufferRHIRef SourceBuffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
+			"CopySource", 256, 4, EBufferUsageFlags::SourceCopy));
+		FBufferRHIRef DestinationBuffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
+			"CopyDestination", 256, 4, EBufferUsageFlags::DestinationCopy));
+		FTextureRHIRef SourceTexture = MakeRefCount<FRHITexture>(
+			FRHITextureCreateDesc::Create2D("TextureSource", 4, 4, EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::SourceCopy));
+		FTextureRHIRef DestinationTexture = MakeRefCount<FRHITexture>(
+			FRHITextureCreateDesc::Create2D("TextureDestination", 4, 4, EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::DestinationCopy));
+		std::array BufferRegions{FRHIBufferCopyRegion{0, 32, 32}};
+		std::array BufferTextureRegions{FRHIBufferTextureCopyRegion{
+			.BufferOffset = 0,
+			.TextureExtent = {4, 4, 1}}};
+		std::array TextureRegions{FRHITextureCopyRegion{.Extent = {4, 4, 1}}};
+
+		FRHICommandList Commands;
+		Commands.CopyBuffer(SourceBuffer, DestinationBuffer, BufferRegions);
+		Commands.CopyBufferToTexture(SourceBuffer, DestinationTexture, BufferTextureRegions);
+		Commands.CopyTextureToBuffer(SourceTexture, DestinationBuffer, BufferTextureRegions);
+		Commands.CopyTexture(SourceTexture, DestinationTexture, TextureRegions);
+		Commands.FinishRecording();
+		BufferRegions[0].Size = 1;
+		BufferTextureRegions[0].TextureExtent.Width = 1;
+		TextureRegions[0].Extent.Width = 1;
+		EXPECT_GT(SourceBuffer->GetRefCount(), 1u);
+		EXPECT_GT(DestinationTexture->GetRefCount(), 1u);
+
+		Executor.Submit({&Commands}, ERHISubmitFlags::None);
+		EXPECT_EQ(Context.Operations, (std::vector<std::string>{
+			"CopyBuffer", "CopyBufferToTexture", "CopyTextureToBuffer", "CopyTexture"}));
+		EXPECT_EQ(Context.ObservedBufferCopyRegions,
+			(std::vector<FRHIBufferCopyRegion>{{0, 32, 32}}));
+		ASSERT_EQ(Context.ObservedBufferTextureCopyRegions.size(), 1u);
+		EXPECT_EQ(Context.ObservedBufferTextureCopyRegions[0].TextureExtent.Width, 4u);
+		ASSERT_EQ(Context.ObservedTextureCopyRegions.size(), 1u);
+		EXPECT_EQ(Context.ObservedTextureCopyRegions[0].Extent.Width, 4u);
+		EXPECT_GE(Executor.GetStats().RecordedPayloadBytes,
+			sizeof(FRHIBufferCopyRegion) + 2 * sizeof(FRHIBufferTextureCopyRegion)
+				+ sizeof(FRHITextureCopyRegion));
+	}
+
+	TEST(FRHICommandListTests, ThreadedCopyReplayMatchesInlineOrder)
+	{
+		FBufferRHIRef Source = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
+			"Source", 64, 4, EBufferUsageFlags::SourceCopy));
+		FBufferRHIRef Destination = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
+			"Destination", 64, 4, EBufferUsageFlags::DestinationCopy));
+		const std::array Regions{FRHIBufferCopyRegion{0, 16, 16}};
+
+		FRecordingCommandContext InlineContext;
+		FRHICommandListExecutor InlineExecutor(InlineContext);
+		InlineExecutor.GetImmediateCommandList().CopyBuffer(Source, Destination, Regions);
+		InlineExecutor.Submit({}, ERHISubmitFlags::None);
+
+		FRecordingCommandContext ThreadedContext;
+		FRHIThread RHIThread;
+		ASSERT_TRUE(RHIThread.Start());
+		FRHICommandListExecutor ThreadedExecutor(ThreadedContext, RHIThread);
+		ThreadedExecutor.GetImmediateCommandList().CopyBuffer(Source, Destination, Regions);
+		ThreadedExecutor.Submit({}, ERHISubmitFlags::None);
+		ThreadedExecutor.CreateFence().Wait();
+		EXPECT_EQ(InlineContext.Operations, ThreadedContext.Operations);
+		ASSERT_EQ(ThreadedContext.OperationThreadRoles.size(), 1u);
+		EXPECT_TRUE(ThreadedContext.OperationThreadRoles[0]);
+		ThreadedExecutor.SetInlineMode();
+		RHIThread.Stop();
+	}
+
 	TEST(FRHICommandListTests, RejectsMalformedAndInPassTransitionBatches)
 	{
 #if DO_CHECK
@@ -1228,6 +1337,26 @@ namespace Durin
 		InPass.EndRenderPass();
 #else
 		GTEST_SKIP() << "Ordinary check contracts are disabled in Shipping.";
+#endif
+	}
+
+	TEST(FRHICommandListTests, RejectsInPassCopiesAndIgnoresEmptyBatches)
+	{
+		FBufferRHIRef Source = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
+			"Source", 32, 4, EBufferUsageFlags::SourceCopy));
+		FBufferRHIRef Destination = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
+			"Destination", 32, 4, EBufferUsageFlags::DestinationCopy));
+		FRHICommandList Empty;
+		Empty.CopyBuffer(nullptr, nullptr, {});
+		EXPECT_EQ(Empty.GetNumRecordedCommands(), 0u);
+#if DO_CHECK
+		FRHICommandList InPass;
+		InPass.SwitchPipeline(ERHIPipeline::Graphics);
+		InPass.BeginRenderPass(FRHIRenderPassInfo{}, "CopyOrdering");
+		const std::array Regions{FRHIBufferCopyRegion{0, 16, 16}};
+		EXPECT_DEATH(InPass.CopyBuffer(Source, Destination, Regions), "");
+		InPass.CopyBuffer(nullptr, nullptr, {});
+		InPass.EndRenderPass();
 #endif
 	}
 

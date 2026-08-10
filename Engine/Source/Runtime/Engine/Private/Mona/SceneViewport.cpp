@@ -55,7 +55,8 @@ namespace Durin
 		{
 			UnregisterDisplayTexture();
 			FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D("SceneViewportRenderTarget", Width, Height, EPixelFormat::SRGBA8_UNORM);
-			Desc.AddFlags(ETextureCreateFlags::RenderTargetable);
+			Desc.AddFlags(ETextureCreateFlags::RenderTargetable |
+				ETextureCreateFlags::ShaderResource);
 			RenderTargetRHI = RHICreateTexture(Desc);
 			if (Mona::GActiveUIBackend != nullptr)
 			{

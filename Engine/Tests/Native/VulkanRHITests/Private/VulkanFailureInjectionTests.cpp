@@ -434,16 +434,18 @@ namespace Durin::VulkanRHI
 		FRHITextureCreateDesc TextureDesc = FRHITextureCreateDesc::Create2D(
 			"RecoverableTexture", 4, 4, EPixelFormat::RGBA8_UNORM);
 		TextureDesc.Flags = ETextureCreateFlags::ShaderResource;
-		for (const EVulkanCreateFailurePoint FailurePoint : {
-			EVulkanCreateFailurePoint::Image,
-			EVulkanCreateFailurePoint::ImageView})
-		{
-			ArmVulkanCreateFailure(FailurePoint);
-			EXPECT_FALSE(GDynamicRHI->RHICreateTexture(RHICmdList, TextureDesc));
-		}
+		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Image);
+		EXPECT_FALSE(GDynamicRHI->RHICreateTexture(RHICmdList, TextureDesc));
 		FTextureRHIRef Texture =
 			GDynamicRHI->RHICreateTexture(RHICmdList, TextureDesc);
 		ASSERT_TRUE(Texture);
+		const FRHITextureViewDesc TextureViewDesc = MakeDefaultTextureViewDesc(
+			*Texture, ERHITextureViewUsage::Sampled);
+		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::ImageView);
+		EXPECT_FALSE(GDynamicRHI->RHICreateTextureView(Texture, TextureViewDesc));
+		FTextureViewRHIRef TextureView = GDynamicRHI->RHICreateTextureView(
+			Texture, TextureViewDesc);
+		ASSERT_TRUE(TextureView);
 
 		FRHISamplerDesc SamplerDesc;
 		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Sampler);
@@ -700,6 +702,7 @@ namespace Durin::VulkanRHI
 		RHIThreadLocalVertexDeclaration = nullptr;
 		VertexDeclaration = nullptr;
 		Sampler = nullptr;
+		TextureView = nullptr;
 		Texture = nullptr;
 		RenderTarget = nullptr;
 		Buffer = nullptr;

@@ -25,6 +25,7 @@ namespace Durin::VulkanRHI
 		Allocator,
 		Image,
 		ImageView,
+		BufferView,
 		RenderPass,
 		FramebufferImageView,
 		Framebuffer,

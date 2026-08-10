@@ -246,6 +246,10 @@ namespace Durin::VulkanRHI
 			check(!EnumHasAllFlags(InUsage, EBufferUsageFlags::Static | EBufferUsageFlags::Dynamic)); // A buffer cannot be both static and dynamic
 			UsageFlags |= vk::BufferUsageFlagBits::eTransferDst;
 		}
+		if (EnumHasAnyFlags(InUsage, EBufferUsageFlags::DestinationCopy))
+		{
+			UsageFlags |= vk::BufferUsageFlagBits::eTransferDst;
+		}
 
 		if (EnumHasAnyFlags(InUsage, EBufferUsageFlags::VertexBuffer))
 		{
@@ -270,6 +274,11 @@ namespace Durin::VulkanRHI
 		if (EnumHasAnyFlags(InUsage, EBufferUsageFlags::SourceCopy))
 		{
 			UsageFlags |= vk::BufferUsageFlagBits::eTransferSrc;
+		}
+		if (EnumHasAnyFlags(InUsage, EBufferUsageFlags::FormattedBuffer))
+		{
+			UsageFlags |= vk::BufferUsageFlagBits::eUniformTexelBuffer
+				| vk::BufferUsageFlagBits::eStorageTexelBuffer;
 		}
 
 		if (EnumHasAnyFlags(InUsage, EBufferUsageFlags::UnorderedAccess | EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::ByteAddressBuffer | EBufferUsageFlags::ShaderResource))

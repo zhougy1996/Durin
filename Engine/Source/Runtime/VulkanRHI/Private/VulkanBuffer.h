@@ -26,6 +26,7 @@ namespace Durin::VulkanRHI
 		auto GetMappedPointer() const -> void*;
 
 		auto FlushMappedMemory(uint32 Offset = 0, uint32 Size = 0) -> void;
+		auto InvalidateMappedMemory(uint32 Offset = 0, uint32 Size = 0) -> void;
 
 		auto Write(FVulkanCommandListContext& Context, uint32 Offset, std::span<const uint8> Data) -> void;
 
@@ -92,30 +93,4 @@ namespace Durin::VulkanRHI
 
 	};
 
-	// Owns a host-visible temporary buffer used to transfer data to device-local resources.
-	class FStagingBuffer
-	{
-	public:
-		FStagingBuffer(FVulkanDevice& InDevice, uint32 InBufferSize);
-
-		~FStagingBuffer();
-
-		auto GetHandle() const -> vk::Buffer { return Buffer; }
-
-		auto GetSize() const -> uint32 { return BufferSize; }
-
-		auto GetMappedPointer() const -> void*;
-
-		auto FlushMappedMemory() -> void;
-
-	private:
-		FVulkanDevice& Device;
-
-		vk::Buffer Buffer{};
-
-		// The size of the staging buffer in bytes.
-		uint32 BufferSize{};
-
-		FVulkanAllocation Allocation{};
-	};
 } // namespace Durin::VulkanRHI

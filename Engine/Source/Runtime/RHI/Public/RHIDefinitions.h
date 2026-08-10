@@ -178,7 +178,11 @@ namespace Durin
 		// Texture can be bound as a storage image for shader read/write access.
 		Storage = 1ull << 4,
 		// Texture contents may be copied back to CPU memory for validation or tooling.
-		CPUReadback = 1ull << 5
+		CPUReadback = 1ull << 5,
+		// Texture may be the source of an explicit GPU copy.
+		SourceCopy = 1ull << 6,
+		// Texture may be the destination of an explicit GPU copy.
+		DestinationCopy = 1ull << 7
 	};
 	ENUM_CLASS_FLAGS(ETextureCreateFlags);
 
@@ -262,6 +266,12 @@ namespace Durin
 		 * May not be used with Dynamic and other buffer flags that prevent the resource from being allocated in local GPU memory.
 		 */
 		ReservedResource = 1 << 22,
+
+		/** Buffer can be the destination of an explicit GPU copy. */
+		DestinationCopy = 1 << 23,
+
+		/** Buffer can be exposed through a formatted texel view. */
+		FormattedBuffer = 1 << 24,
 
 		// Helper bit-masks
 		AnyDynamic = (Dynamic | Volatile),

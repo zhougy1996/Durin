@@ -17,6 +17,8 @@ namespace Durin
 	class FRHICommandListFence;
 	class FRHITexture;
 	class FRHIBuffer;
+	class FRHITextureView;
+	class FRHIBufferView;
 	class FVertexShader;
 	class FFragmentShader;
 }

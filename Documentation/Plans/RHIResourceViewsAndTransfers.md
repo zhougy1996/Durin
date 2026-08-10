@@ -4,8 +4,8 @@ Summary: Add counted buffer and texture views plus explicit recorded copy operat
 
 Last reviewed: 2026-08-10
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-10
 
 ## Current Status
 
@@ -32,6 +32,73 @@ blit command, so those operations remain deferred rather than entering M2 as
 untested API surface. Texture2DArray, Texture3D, and TextureCubeArray creation
 also remain unsupported until an asset or renderer consumer selects their full
 sampling and attachment contract.
+
+Stage 0 completed on 2026-08-10 against baseline `1f6e7b8c`. The selected
+binding lowering point is `RenderCore/Private/Shader/Shader.cpp`, with Vulkan
+descriptor consumption in `VulkanPendingState.cpp`. Render-pass attachment
+selection flows from `FRHIRenderPassInfo` through `VulkanContext.cpp` into
+`VulkanFramebuffer.cpp`. Recorded writes originate in `RHICommandList.cpp` and
+currently lower to `VulkanBuffer.cpp` or `VulkanTexture.cpp`; these are the
+only convenience paths M2 migrates. Transfer-source and transfer-destination
+intent are explicit flags, while legacy static-buffer uploads, shader-resource
+texture uploads, and CPU-readback textures receive documented compatibility
+lowering during their migration.
+
+Stage 1 now publishes immutable buffer and texture view descriptors, counted
+parent-retaining resources, canonical default descriptors, explicit copy/view
+usage flags, and backend-neutral validation. Validation evidence:
+`Win64-Debug-DurinEditor`,
+`.\DevTool.bat test --target RHIResourceViewValidationTests` (3 passed).
+
+Stage 2 completed on 2026-08-10. Vulkan buffer views create native texel views
+only for formatted ranges; Vulkan texture views map exact aspect/mip/layer and
+2D/cube identity. Shader recording canonicalizes legacy scalar resources into
+counted views before replay, descriptor writes consume only Vulkan view
+objects, and render-pass commands retain exact attachment views which the
+framebuffer cache also owns. The texture object no longer publishes a backend
+default image view. Shutdown releases framebuffer-held views before the RHI
+resource and VMA drains. Evidence on `Win64-Debug-DurinEditor`:
+`RHICommandListTests` (47 passed), `RenderShaderContractTests` (26 passed),
+`RenderContractTests` (39 passed), and `VulkanRHIIntegrationTests` (25 passed),
+including formatted-buffer, cube-face, injected image-view failure, attachment
+replacement, and deferred-destruction coverage.
+
+Stage 3 completed on 2026-08-10. The RHI now owns explicit buffer, packed
+buffer/texture, and exact texture copy regions with checked bounds, footprint,
+compressed-edge, sample, format, aspect, usage, alias, and destination-overlap
+validation. Regular and immediate lists record owned batches and retain both
+resources; empty batches are no-ops and in-pass copies reject before replay.
+Inline and threaded fake-context replay produced identical ordering and owned
+payloads. Evidence on `Win64-Debug-DurinEditor`:
+`RHITransferValidationTests` (4 passed), `RHICommandListTests` (50 passed), and
+the compatibility `VulkanRHIIntegrationTests` suite (25 passed).
+
+Stage 4 completed on 2026-08-10. Vulkan replay maps the four portable copy
+region types directly to native copy commands after full-batch validation and
+exact `TransferRead`/`TransferWrite` state checks. Static-buffer staging,
+texture updates, and scoped texture readback now use those shared copy and
+transition paths; the obsolete backend-private staging copy helper was
+removed. Hardware coverage verifies exact bytes inline and threaded across all
+four directions, disjoint regions, compressed blocks, cube face/mip selection,
+graphics/compute post-copy intent, and repeated upload/readback. Evidence on
+`Win64-Debug-DurinEditor`: `RHITransferValidationTests` (4 passed),
+`RHICommandListTests` (50 passed), and `VulkanRHIIntegrationTests` (26 passed).
+
+Stage 5 completed on 2026-08-10. The focused final matrix passed on
+`Win64-Debug-DurinEditor`: `RHIResourceViewValidationTests` (3),
+`RHITransferValidationTests` (4), `RHICommandListTests` (50),
+`RenderShaderContractTests` (26), `RenderContractTests` (39),
+`RendererResourceReloadVulkanTests` (1),
+`StaticMeshRenderPreparationVulkanTests` (1), `EditorRenderingTests` (38),
+`ViewportTests` (57), and `VulkanRHIIntegrationTests` (26). The final
+`test --target all` native aggregate passed at default target granularity, and
+`build --target all` completed successfully. A hidden-window Sandbox editor
+run completed 10 ticks and normal shutdown in 3.04 seconds with no Vulkan
+validation error. The smoke audit also made ImGui upload and scene-viewport
+sampling usage explicit, removing their dependency on the backend's former
+implicit sampled image usage. Lasting behavior now lives in
+[RHI Resource Views and Transfers](../Runtime/Rendering/RHIResourceViewsAndTransfers.md),
+and the RHI/Vulkan roadmap records M2 complete without activating M3 or M4.
 
 ## Goal
 
@@ -205,16 +272,16 @@ transition contract.
 
 ### Stage 0: Freeze selected view and copy contracts
 
-- [ ] Record the selected shader, attachment, staged-write, texture-upload, and
+- [x] Record the selected shader, attachment, staged-write, texture-upload, and
   texture-readback consumers with exact current call sites and resource flags.
-- [ ] Freeze buffer/texture view descriptor shapes, default-view lowering,
+- [x] Freeze buffer/texture view descriptor shapes, default-view lowering,
   counted parent ownership, identity, and failure behavior.
-- [ ] Freeze the buffer/buffer-texture/texture copy descriptors, compressed
+- [x] Freeze the buffer/buffer-texture/texture copy descriptors, compressed
   layout arithmetic, overlap rules, and source/destination usage admission.
-- [ ] Freeze the initial supported matrix for formats, aspects, dimensions,
+- [x] Freeze the initial supported matrix for formats, aspects, dimensions,
   samples, view usages, and copy directions; list deterministic rejection
   diagnostics for every deferred combination.
-- [ ] Confirm the file-level boundary with `RHIGraphicsStateAndBindings`,
+- [x] Confirm the file-level boundary with `RHIGraphicsStateAndBindings`,
   `VulkanMemoryTransferAndRetirement`, and the synchronous compute plan.
 
 #### Acceptance Gate
@@ -226,13 +293,13 @@ transition contract.
 
 ### Stage 1: Add portable counted views and validation
 
-- [ ] Add buffer/texture view resource types, descriptors, aliases, canonical
+- [x] Add buffer/texture view resource types, descriptors, aliases, canonical
   default-view helpers, and complete backend-neutral validation.
-- [ ] Publish complete-or-null view factories through `FDynamicRHI` with
+- [x] Publish complete-or-null view factories through `FDynamicRHI` with
   synchronous creation on the established RHI execution boundary.
-- [ ] Retain parent resources from views without introducing parent/child
+- [x] Retain parent resources from views without introducing parent/child
   cycles or raw-handle identity.
-- [ ] Add unit coverage for bounds, overflow, alignment, format/aspect,
+- [x] Add unit coverage for bounds, overflow, alignment, format/aspect,
   dimension, samples, usage flags, default descriptors, and parent lifetime.
 
 #### Acceptance Gate
@@ -243,16 +310,16 @@ transition contract.
 
 ### Stage 2: Implement Vulkan views and migrate current consumers
 
-- [ ] Add Vulkan buffer/image view objects with exact descriptor mapping,
+- [x] Add Vulkan buffer/image view objects with exact descriptor mapping,
   failure injection, deferred native destruction, and debug identity.
-- [ ] Add transfer/texel usage admission to Vulkan resource creation only for
+- [x] Add transfer/texel usage admission to Vulkan resource creation only for
   the portable flags selected in Stage 0.
-- [ ] Migrate sampled/storage texture and storage/uniform/formatted buffer
+- [x] Migrate sampled/storage texture and storage/uniform/formatted buffer
   shader parameters to counted views while preserving scalar binding behavior.
-- [ ] Migrate attachment selection and framebuffer construction to exact
+- [x] Migrate attachment selection and framebuffer construction to exact
   texture views, including color, resolve, depth, stencil, cube face, mip, and
   layer validation used by current render passes.
-- [ ] Migrate renderer resource publication and texture-reference replacement
+- [x] Migrate renderer resource publication and texture-reference replacement
   so parent and default views publish transactionally.
 
 #### Acceptance Gate
@@ -264,16 +331,16 @@ transition contract.
 
 ### Stage 3: Record explicit copy commands
 
-- [ ] Add public copy descriptors and deterministic backend-neutral validation
+- [x] Add public copy descriptors and deterministic backend-neutral validation
   for all selected directions and batches.
-- [ ] Add `IRHICommandContext` and regular/immediate command-list APIs for
+- [x] Add `IRHICommandContext` and regular/immediate command-list APIs for
   buffer, buffer-to-texture, texture-to-buffer, and texture copies.
-- [ ] Record typed commands with owned region arrays, exact payload accounting,
+- [x] Record typed commands with owned region arrays, exact payload accounting,
   and retained source/destination lifetimes.
-- [ ] Reject copies inside render passes, overlapping or aliased invalid
+- [x] Reject copies inside render passes, overlapping or aliased invalid
   regions, undefined layouts, unsupported formats/samples, and missing usage
   before backend replay.
-- [ ] Add fake-context tests for ordering, batching, lifetime, empty commands,
+- [x] Add fake-context tests for ordering, batching, lifetime, empty commands,
   regular/immediate lists, and inline/threaded replay parity.
 
 #### Acceptance Gate
@@ -284,16 +351,16 @@ transition contract.
 
 ### Stage 4: Implement Vulkan copies and migrate convenience paths
 
-- [ ] Map each portable copy region to exact Vulkan copy structures with
+- [x] Map each portable copy region to exact Vulkan copy structures with
   checked narrowing and no format or subresource inference.
-- [ ] Require M1 `TransferRead`/`TransferWrite` state for exact source and
+- [x] Require M1 `TransferRead`/`TransferWrite` state for exact source and
   destination ranges and preserve tracker state on rejected batches.
-- [ ] Lower staged static buffer writes and `RHIUpdateTexture2D` through shared
+- [x] Lower staged static buffer writes and `RHIUpdateTexture2D` through shared
   explicit copy commands and selected transitions.
-- [ ] Lower `RHIReadTexture2D` through texture-to-buffer copy while preserving
+- [x] Lower `RHIReadTexture2D` through texture-to-buffer copy while preserving
   tight CPU output, exact prior-state restoration, and its scoped completion
   wait.
-- [ ] Add hardware-backed tests for every copy direction, disjoint regions,
+- [x] Add hardware-backed tests for every copy direction, disjoint regions,
   compressed blocks, cube faces/mips, alias rejection, visibility to graphics
   and compute intent, and repeated upload/readback.
 
@@ -305,15 +372,15 @@ transition contract.
 
 ### Stage 5: Qualify M2 and publish lasting contracts
 
-- [ ] Run focused RHI, RenderCore, Renderer, and Vulkan view/transfer suites in
+- [x] Run focused RHI, RenderCore, Renderer, and Vulkan view/transfer suites in
   inline and threaded modes where supported.
-- [ ] Run existing texture sampling/compression, cube, MRT/MSAA/depth,
+- [x] Run existing texture sampling/compression, cube, MRT/MSAA/depth,
   failure-injection, viewport, resource replacement, and shutdown regressions.
-- [ ] Run the selected native suite, normal Debug Editor full `all` build, and
+- [x] Run the selected native suite, normal Debug Editor full `all` build, and
   hidden-window runtime smoke through DurinDevTool.
-- [ ] Publish lasting view and transfer behavior under
+- [x] Publish lasting view and transfer behavior under
   `Documentation/Runtime/Rendering/` and update related rendering contracts.
-- [ ] Update the RHI/Vulkan roadmap with M2 completion evidence and the stable
+- [x] Update the RHI/Vulkan roadmap with M2 completion evidence and the stable
   M3/M4 handoff; do not activate either downstream plan here.
 
 #### Acceptance Gate

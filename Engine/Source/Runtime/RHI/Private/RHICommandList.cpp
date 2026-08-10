@@ -23,6 +23,94 @@ namespace Durin
 			}
 			return Left + Right;
 		}
+
+		auto CreateBufferViewForRecording(
+			FRHIBuffer* Buffer,
+			const FRHIBufferViewDesc& Desc) -> FBufferViewRHIRef
+		{
+			if (GDynamicRHI) return GDynamicRHI->RHICreateBufferView(Buffer, Desc);
+			std::string Error;
+			return ValidateBufferViewDesc(Buffer, Desc, Error)
+				? FBufferViewRHIRef(new FRHIBufferView(Buffer, Desc)) : nullptr;
+		}
+
+		auto CreateTextureViewForRecording(
+			FRHITexture* Texture,
+			const FRHITextureViewDesc& Desc) -> FTextureViewRHIRef
+		{
+			if (GDynamicRHI) return GDynamicRHI->RHICreateTextureView(Texture, Desc);
+			std::string Error;
+			return ValidateTextureViewDesc(Texture, Desc, Error)
+				? FTextureViewRHIRef(new FRHITextureView(Texture, Desc)) : nullptr;
+		}
+
+		auto CanonicalizeShaderParameters(
+			std::span<const FRHIShaderParameterResource> Input,
+			std::vector<FRHIShaderParameterResource>& Output,
+			std::vector<TRefCountPtr<FRHIResource>>& CreatedViews) -> void
+		{
+			Output.assign(Input.begin(), Input.end());
+			CreatedViews.reserve(Output.size());
+			for (FRHIShaderParameterResource& Parameter : Output)
+			{
+				if (Parameter.Resource == nullptr || Parameter.Type == ERHIBindingType::Sampler) continue;
+				if (Parameter.Type == ERHIBindingType::Texture || Parameter.Type == ERHIBindingType::StorageImage)
+				{
+					if (Parameter.Resource->GetResourceType() == ERHIResourceType::TextureView) continue;
+					auto* Texture = static_cast<FRHITexture*>(Parameter.Resource);
+					if (Texture->GetResourceType() == ERHIResourceType::TextureReference)
+					{
+						Texture = static_cast<FRHITextureReference*>(Texture)->GetReferencedTexture_RenderThread();
+					}
+					checkf(Texture && Texture->GetResourceType() == ERHIResourceType::Texture,
+						"Shader texture binding requires a texture or texture view.");
+					FRHITextureViewDesc Desc = MakeDefaultTextureViewDesc(*Texture,
+						Parameter.Type == ERHIBindingType::StorageImage
+							? ERHITextureViewUsage::Storage : ERHITextureViewUsage::Sampled);
+					FTextureViewRHIRef View = CreateTextureViewForRecording(Texture, Desc);
+					checkf(View, "Shader texture binding could not create its canonical view.");
+					Parameter.Resource = View.GetReference();
+					CreatedViews.emplace_back(View.GetReference());
+					continue;
+				}
+
+				if (Parameter.Type == ERHIBindingType::UniformBuffer
+					|| Parameter.Type == ERHIBindingType::UniformBufferDynamic
+					|| Parameter.Type == ERHIBindingType::StorageBuffer)
+				{
+					if (Parameter.Resource->GetResourceType() == ERHIResourceType::BufferView) continue;
+					checkf(Parameter.Resource->GetResourceType() == ERHIResourceType::Buffer,
+						"Shader buffer binding requires a buffer or buffer view.");
+					auto* Buffer = static_cast<FRHIBuffer*>(Parameter.Resource);
+					const bool bDynamic = Parameter.Type == ERHIBindingType::UniformBufferDynamic;
+					const uint64 ViewOffset = bDynamic ? 0 : Parameter.Offset;
+					const uint64 ViewSize = Parameter.Size != 0
+						? Parameter.Size : Buffer->GetSize() - Parameter.Offset;
+					if (bDynamic)
+					{
+						checkf(Parameter.Offset <= Buffer->GetSize()
+							&& ViewSize <= Buffer->GetSize() - Parameter.Offset,
+							"Dynamic uniform range exceeds its parent buffer.");
+					}
+					ERHIBufferViewType ViewType = ERHIBufferViewType::Uniform;
+					if (Parameter.Type == ERHIBindingType::StorageBuffer)
+					{
+						ViewType = EnumHasAnyFlags(Buffer->GetUsage(), EBufferUsageFlags::ByteAddressBuffer)
+							? ERHIBufferViewType::ByteAddressStorage
+							: ERHIBufferViewType::StructuredStorage;
+					}
+					const FRHIBufferViewDesc Desc{ViewOffset, ViewSize, ViewType, EPixelFormat::Unknown};
+					FBufferViewRHIRef View = CreateBufferViewForRecording(Buffer, Desc);
+					checkf(View, "Shader buffer binding could not create its canonical view.");
+					Parameter.Resource = View.GetReference();
+					Parameter.Size = 0;
+					if (!bDynamic) Parameter.Offset = 0;
+					CreatedViews.emplace_back(View.GetReference());
+					continue;
+				}
+				checkf(false, "Unsupported shader parameter binding type.");
+			}
+		}
 	}
 
 	class FRHICommandReplayContext
@@ -349,9 +437,45 @@ namespace Durin
 					ColorResolveTargets[Index] = Info.ColorResolveTargets[Index];
 					Info.ColorRenderTargets[Index] = ColorRenderTargets[Index].GetReference();
 					Info.ColorResolveTargets[Index] = ColorResolveTargets[Index].GetReference();
+					if (Info.ColorRenderTargets[Index])
+					{
+						ColorRenderTargetViews[Index] = Info.ColorRenderTargetViews[Index];
+						if (!ColorRenderTargetViews[Index])
+						{
+							ColorRenderTargetViews[Index] = CreateTextureViewForRecording(
+								Info.ColorRenderTargets[Index], MakeDefaultTextureViewDesc(
+									*Info.ColorRenderTargets[Index], ERHITextureViewUsage::ColorAttachment));
+						}
+						checkf(ColorRenderTargetViews[Index], "Render target could not create its attachment view.");
+						Info.ColorRenderTargetViews[Index] = ColorRenderTargetViews[Index].GetReference();
+					}
+					if (Info.ColorResolveTargets[Index])
+					{
+						ColorResolveTargetViews[Index] = Info.ColorResolveTargetViews[Index];
+						if (!ColorResolveTargetViews[Index])
+						{
+							ColorResolveTargetViews[Index] = CreateTextureViewForRecording(
+								Info.ColorResolveTargets[Index], MakeDefaultTextureViewDesc(
+									*Info.ColorResolveTargets[Index], ERHITextureViewUsage::ColorAttachment));
+						}
+						checkf(ColorResolveTargetViews[Index], "Resolve target could not create its attachment view.");
+						Info.ColorResolveTargetViews[Index] = ColorResolveTargetViews[Index].GetReference();
+					}
 				}
 				DepthStencilRenderTarget = Info.DepthStencilRenderTarget;
 				Info.DepthStencilRenderTarget = DepthStencilRenderTarget.GetReference();
+				if (Info.DepthStencilRenderTarget)
+				{
+					DepthStencilRenderTargetView = Info.DepthStencilRenderTargetView;
+					if (!DepthStencilRenderTargetView)
+					{
+						DepthStencilRenderTargetView = CreateTextureViewForRecording(
+							Info.DepthStencilRenderTarget, MakeDefaultTextureViewDesc(
+								*Info.DepthStencilRenderTarget, ERHITextureViewUsage::DepthStencilAttachment));
+					}
+					checkf(DepthStencilRenderTargetView, "Depth/stencil target could not create its attachment view.");
+					Info.DepthStencilRenderTargetView = DepthStencilRenderTargetView.GetReference();
+				}
 			}
 
 			auto Execute(void* ReplayContext) -> void
@@ -368,6 +492,9 @@ namespace Durin
 			std::array<TRefCountPtr<FRHITexture>, MaxSimultaneousRenderTargets>
 				ColorResolveTargets;
 			TRefCountPtr<FRHITexture> DepthStencilRenderTarget;
+			std::array<FTextureViewRHIRef, MaxSimultaneousRenderTargets> ColorRenderTargetViews;
+			std::array<FTextureViewRHIRef, MaxSimultaneousRenderTargets> ColorResolveTargetViews;
+			FTextureViewRHIRef DepthStencilRenderTargetView;
 		};
 
 		struct FEndRenderPassCommand
@@ -545,6 +672,76 @@ namespace Durin
 
 			std::vector<FRHITextureTransition> Transitions;
 			std::vector<TRefCountPtr<FRHITexture>> Resources;
+		};
+
+		template<typename RegionType>
+		auto GetRegionPayloadBytes(const std::vector<RegionType>& Regions) -> size_t
+		{
+			return Regions.capacity() * sizeof(Regions.front());
+		}
+
+		struct FCopyBufferCommand
+		{
+			FCopyBufferCommand(FRHIBuffer* InSource, FRHIBuffer* InDestination,
+				std::span<const FRHIBufferCopyRegion> InRegions)
+				: Source(InSource), Destination(InDestination), Regions(InRegions.begin(), InRegions.end()) {}
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext).GetOperationContext("CopyBuffer")
+					.RHICopyBuffer(Source.GetReference(), Destination.GetReference(), Regions);
+			}
+			auto GetOwnedPayloadBytes() const -> size_t { return GetRegionPayloadBytes(Regions); }
+			TRefCountPtr<FRHIBuffer> Source;
+			TRefCountPtr<FRHIBuffer> Destination;
+			std::vector<FRHIBufferCopyRegion> Regions;
+		};
+
+		struct FCopyBufferToTextureCommand
+		{
+			FCopyBufferToTextureCommand(FRHIBuffer* InSource, FRHITexture* InDestination,
+				std::span<const FRHIBufferTextureCopyRegion> InRegions)
+				: Source(InSource), Destination(InDestination), Regions(InRegions.begin(), InRegions.end()) {}
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext).GetOperationContext("CopyBufferToTexture")
+					.RHICopyBufferToTexture(Source.GetReference(), Destination.GetReference(), Regions);
+			}
+			auto GetOwnedPayloadBytes() const -> size_t { return GetRegionPayloadBytes(Regions); }
+			TRefCountPtr<FRHIBuffer> Source;
+			TRefCountPtr<FRHITexture> Destination;
+			std::vector<FRHIBufferTextureCopyRegion> Regions;
+		};
+
+		struct FCopyTextureToBufferCommand
+		{
+			FCopyTextureToBufferCommand(FRHITexture* InSource, FRHIBuffer* InDestination,
+				std::span<const FRHIBufferTextureCopyRegion> InRegions)
+				: Source(InSource), Destination(InDestination), Regions(InRegions.begin(), InRegions.end()) {}
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext).GetOperationContext("CopyTextureToBuffer")
+					.RHICopyTextureToBuffer(Source.GetReference(), Destination.GetReference(), Regions);
+			}
+			auto GetOwnedPayloadBytes() const -> size_t { return GetRegionPayloadBytes(Regions); }
+			TRefCountPtr<FRHITexture> Source;
+			TRefCountPtr<FRHIBuffer> Destination;
+			std::vector<FRHIBufferTextureCopyRegion> Regions;
+		};
+
+		struct FCopyTextureCommand
+		{
+			FCopyTextureCommand(FRHITexture* InSource, FRHITexture* InDestination,
+				std::span<const FRHITextureCopyRegion> InRegions)
+				: Source(InSource), Destination(InDestination), Regions(InRegions.begin(), InRegions.end()) {}
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext).GetOperationContext("CopyTexture")
+					.RHICopyTexture(Source.GetReference(), Destination.GetReference(), Regions);
+			}
+			auto GetOwnedPayloadBytes() const -> size_t { return GetRegionPayloadBytes(Regions); }
+			TRefCountPtr<FRHITexture> Source;
+			TRefCountPtr<FRHITexture> Destination;
+			std::vector<FRHITextureCopyRegion> Regions;
 		};
 
 		struct FDrawIndexedCommand
@@ -1191,6 +1388,50 @@ namespace Durin
 		RecordCommand<FTextureTransitionCommand>(Transitions);
 	}
 
+	auto FRHICommandListBase::CopyBuffer(FRHIBuffer* Source, FRHIBuffer* Destination,
+		std::span<const FRHIBufferCopyRegion> Regions) -> void
+	{
+		if (Regions.empty()) return;
+		checkf(!bInsideRenderPass, "Buffer copies cannot be recorded inside a render pass.");
+		std::string Error;
+		checkf(ValidateBufferCopies(Source, Destination, Regions, Error),
+			"Invalid RHI buffer copy batch: {}", Error);
+		RecordCommand<FCopyBufferCommand>(Source, Destination, Regions);
+	}
+
+	auto FRHICommandListBase::CopyBufferToTexture(FRHIBuffer* Source, FRHITexture* Destination,
+		std::span<const FRHIBufferTextureCopyRegion> Regions) -> void
+	{
+		if (Regions.empty()) return;
+		checkf(!bInsideRenderPass, "Buffer-to-texture copies cannot be recorded inside a render pass.");
+		std::string Error;
+		checkf(ValidateBufferToTextureCopies(Source, Destination, Regions, Error),
+			"Invalid RHI buffer-to-texture copy batch: {}", Error);
+		RecordCommand<FCopyBufferToTextureCommand>(Source, Destination, Regions);
+	}
+
+	auto FRHICommandListBase::CopyTextureToBuffer(FRHITexture* Source, FRHIBuffer* Destination,
+		std::span<const FRHIBufferTextureCopyRegion> Regions) -> void
+	{
+		if (Regions.empty()) return;
+		checkf(!bInsideRenderPass, "Texture-to-buffer copies cannot be recorded inside a render pass.");
+		std::string Error;
+		checkf(ValidateTextureToBufferCopies(Source, Destination, Regions, Error),
+			"Invalid RHI texture-to-buffer copy batch: {}", Error);
+		RecordCommand<FCopyTextureToBufferCommand>(Source, Destination, Regions);
+	}
+
+	auto FRHICommandListBase::CopyTexture(FRHITexture* Source, FRHITexture* Destination,
+		std::span<const FRHITextureCopyRegion> Regions) -> void
+	{
+		if (Regions.empty()) return;
+		checkf(!bInsideRenderPass, "Texture copies cannot be recorded inside a render pass.");
+		std::string Error;
+		checkf(ValidateTextureCopies(Source, Destination, Regions, Error),
+			"Invalid RHI texture copy batch: {}", Error);
+		RecordCommand<FCopyTextureCommand>(Source, Destination, Regions);
+	}
+
 	auto FRHICommandListBase::DrawIndexed(uint32 IndexCount, uint32 StartIndexLocation, int32 VertexOffset) -> void
 	{
 		checkf(ActivePipeline == ERHIPipeline::Graphics,
@@ -1259,7 +1500,10 @@ namespace Durin
 	{
 		checkf(ActivePipeline == ERHIPipeline::Graphics,
 			"SetShaderParameters requires an active graphics pipeline while recording.");
-		RecordCommand<FSetShaderParametersCommand>(InShader, InResourceParameters);
+		std::vector<FRHIShaderParameterResource> CanonicalParameters;
+		std::vector<TRefCountPtr<FRHIResource>> CreatedViews;
+		CanonicalizeShaderParameters(InResourceParameters, CanonicalParameters, CreatedViews);
+		RecordCommand<FSetShaderParametersCommand>(InShader, CanonicalParameters);
 	}
 
 	FRHICommandListImmediate::FRHICommandListImmediate(

@@ -15,6 +15,7 @@
 #include "VulkanTexture.h"
 #include "VulkanRHIPrivate.h"
 #include "VulkanResourceState.h"
+#include "VulkanView.h"
 
 namespace Durin::VulkanRHI
 {
@@ -128,17 +129,49 @@ namespace Durin::VulkanRHI
 		Pool->FreeUnusedCommandBuffers(Queue);
 	}
 
-	auto FVulkanCommandListContext::RHIBeginRenderPass(const FRHIRenderPassInfo& RenderPassInfo, FName DebugName) -> void
+	auto FVulkanCommandListContext::RHIBeginRenderPass(const FRHIRenderPassInfo& InRenderPassInfo, FName DebugName) -> void
 	{
 		CheckVulkanRHIThread();
+		FRHIRenderPassInfo CanonicalInfo = InRenderPassInfo;
+		std::array<FTextureViewRHIRef, MaxSimultaneousRenderTargets> ColorViews;
+		std::array<FTextureViewRHIRef, MaxSimultaneousRenderTargets> ResolveViews;
+		FTextureViewRHIRef DepthView;
+		for (uint32 Index = 0; Index < CanonicalInfo.RenderTargetLayout.NumColorRenderTargets; ++Index)
+		{
+			if (!CanonicalInfo.ColorRenderTargetViews[Index] && CanonicalInfo.ColorRenderTargets[Index])
+			{
+				ColorViews[Index] = RHI->RHICreateTextureView(
+					CanonicalInfo.ColorRenderTargets[Index], MakeDefaultTextureViewDesc(
+						*CanonicalInfo.ColorRenderTargets[Index], ERHITextureViewUsage::ColorAttachment));
+				CanonicalInfo.ColorRenderTargetViews[Index] = ColorViews[Index].GetReference();
+			}
+			if (CanonicalInfo.RenderTargetLayout.ColorAttachments[Index].bHasResolveTarget
+				&& !CanonicalInfo.ColorResolveTargetViews[Index] && CanonicalInfo.ColorResolveTargets[Index])
+			{
+				ResolveViews[Index] = RHI->RHICreateTextureView(
+					CanonicalInfo.ColorResolveTargets[Index], MakeDefaultTextureViewDesc(
+						*CanonicalInfo.ColorResolveTargets[Index], ERHITextureViewUsage::ColorAttachment));
+				CanonicalInfo.ColorResolveTargetViews[Index] = ResolveViews[Index].GetReference();
+			}
+		}
+		if (CanonicalInfo.RenderTargetLayout.bHasDepthStencil
+			&& !CanonicalInfo.DepthStencilRenderTargetView && CanonicalInfo.DepthStencilRenderTarget)
+		{
+			DepthView = RHI->RHICreateTextureView(
+				CanonicalInfo.DepthStencilRenderTarget, MakeDefaultTextureViewDesc(
+					*CanonicalInfo.DepthStencilRenderTarget, ERHITextureViewUsage::DepthStencilAttachment));
+			CanonicalInfo.DepthStencilRenderTargetView = DepthView.GetReference();
+		}
+		const FRHIRenderPassInfo& RenderPassInfo = CanonicalInfo;
 		ValidateRenderPassInfo(RenderPassInfo);
 		check(PendingAttachmentStates.empty());
 		std::vector<FPendingAttachmentState> CandidateStates;
-		auto ValidateAndQueue = [&CandidateStates](FRHITexture* TextureRHI,
+		auto ValidateAndQueue = [&CandidateStates](FRHITextureView* TextureViewRHI,
 			const FRHIAttachmentLayout& Attachment) {
-			auto* Texture = static_cast<FVulkanTexture*>(TextureRHI);
-			const FRHITextureSubresourceRange Range{
-				GetTextureAspects(Texture->GetFormat()), 0, 1, 0, 1};
+			check(TextureViewRHI);
+			auto* TextureView = static_cast<FVulkanTextureView*>(TextureViewRHI);
+			auto* Texture = static_cast<FVulkanTexture*>(TextureView->GetTexture());
+			const FRHITextureSubresourceRange Range = TextureView->GetDesc().Range;
 			const ERHIAccess Expected = Attachment.InitialLayout == ERHITextureLayout::Undefined
 				? ERHIAccess::Discard : Attachment.InitialAccess;
 			ERHIAccess Tracked = ERHIAccess::None;
@@ -152,15 +185,15 @@ namespace Durin::VulkanRHI
 		{
 			const FRHIColorAttachmentLayout& Attachment =
 				RenderPassInfo.RenderTargetLayout.ColorAttachments[Index];
-			ValidateAndQueue(RenderPassInfo.ColorRenderTargets[Index], Attachment.RenderTarget);
+			ValidateAndQueue(RenderPassInfo.ColorRenderTargetViews[Index], Attachment.RenderTarget);
 			if (Attachment.bHasResolveTarget)
 			{
-				ValidateAndQueue(RenderPassInfo.ColorResolveTargets[Index], Attachment.ResolveTarget);
+				ValidateAndQueue(RenderPassInfo.ColorResolveTargetViews[Index], Attachment.ResolveTarget);
 			}
 		}
 		if (RenderPassInfo.RenderTargetLayout.bHasDepthStencil)
 		{
-			ValidateAndQueue(RenderPassInfo.DepthStencilRenderTarget,
+			ValidateAndQueue(RenderPassInfo.DepthStencilRenderTargetView,
 				RenderPassInfo.RenderTargetLayout.DepthStencilAttachment);
 		}
 		// Pass names are deliberately excluded from render-pass identity and only annotate GPU work.
@@ -180,6 +213,131 @@ namespace Durin::VulkanRHI
 			State.Texture->GetStateTracker().Apply(State.Range, State.FinalAccess);
 		}
 		PendingAttachmentStates.clear();
+	}
+
+	auto FVulkanCommandListContext::RHICopyBuffer(FRHIBuffer* SourceRHI, FRHIBuffer* DestinationRHI,
+		std::span<const FRHIBufferCopyRegion> Regions) -> void
+	{
+		CheckVulkanRHIThread();
+		std::string Error;
+		checkf(ValidateBufferCopies(SourceRHI, DestinationRHI, Regions, Error),
+			"Invalid Vulkan buffer copy replay: {}", Error);
+		auto* Source = static_cast<FVulkanBuffer*>(SourceRHI);
+		auto* Destination = static_cast<FVulkanBuffer*>(DestinationRHI);
+		std::vector<vk::BufferCopy> NativeRegions;
+		NativeRegions.reserve(Regions.size());
+		for (const auto& Region : Regions)
+		{
+			ERHIAccess Tracked = ERHIAccess::None;
+			checkf(Source->GetStateTracker().Validate(Region.SourceOffset, Region.Size,
+				ERHIAccess::TransferRead, Tracked), "Vulkan buffer copy source is not in TransferRead.");
+			checkf(Destination->GetStateTracker().Validate(Region.DestinationOffset, Region.Size,
+				ERHIAccess::TransferWrite, Tracked), "Vulkan buffer copy destination is not in TransferWrite.");
+			NativeRegions.emplace_back(Region.SourceOffset, Region.DestinationOffset, Region.Size);
+		}
+		GetCommandBuffer()->GetHandle().copyBuffer(
+			Source->GetHandle(), Destination->GetHandle(), NativeRegions);
+	}
+
+	auto FVulkanCommandListContext::RHICopyBufferToTexture(FRHIBuffer* SourceRHI, FRHITexture* DestinationRHI,
+		std::span<const FRHIBufferTextureCopyRegion> Regions) -> void
+	{
+		CheckVulkanRHIThread();
+		std::string Error;
+		checkf(ValidateBufferToTextureCopies(SourceRHI, DestinationRHI, Regions, Error),
+			"Invalid Vulkan buffer-to-texture replay: {}", Error);
+		auto* Source = static_cast<FVulkanBuffer*>(SourceRHI);
+		auto* Destination = static_cast<FVulkanTexture*>(DestinationRHI);
+		std::vector<vk::BufferImageCopy> NativeRegions;
+		NativeRegions.reserve(Regions.size());
+		for (const auto& Region : Regions)
+		{
+			uint64 Footprint = 0;
+			check(GetBufferTextureCopyFootprint(*Destination, Region, Footprint, Error));
+			ERHIAccess Tracked = ERHIAccess::None;
+			checkf(Source->GetStateTracker().Validate(Region.BufferOffset, Footprint,
+				ERHIAccess::TransferRead, Tracked), "Vulkan buffer-to-texture source is not in TransferRead.");
+			const FRHITextureSubresourceRange Range{Region.TextureAspect, Region.TextureMip, 1,
+				Region.TextureFirstArrayLayer, Region.TextureNumArrayLayers};
+			checkf(Destination->GetStateTracker().Validate(Range, ERHIAccess::TransferWrite, Tracked),
+				"Vulkan buffer-to-texture destination is not in TransferWrite.");
+			NativeRegions.emplace_back(
+				Region.BufferOffset, Region.BufferRowLength, Region.BufferImageHeight,
+				vk::ImageSubresourceLayers(ToVulkanAspectFlags(Region.TextureAspect),
+					Region.TextureMip, Region.TextureFirstArrayLayer, Region.TextureNumArrayLayers),
+				vk::Offset3D(Region.TextureOffset.X, Region.TextureOffset.Y, Region.TextureOffset.Z),
+				vk::Extent3D(Region.TextureExtent.Width, Region.TextureExtent.Height, Region.TextureExtent.Depth));
+		}
+		GetCommandBuffer()->GetHandle().copyBufferToImage(Source->GetHandle(), Destination->Image,
+			vk::ImageLayout::eTransferDstOptimal, NativeRegions);
+	}
+
+	auto FVulkanCommandListContext::RHICopyTextureToBuffer(FRHITexture* SourceRHI, FRHIBuffer* DestinationRHI,
+		std::span<const FRHIBufferTextureCopyRegion> Regions) -> void
+	{
+		CheckVulkanRHIThread();
+		std::string Error;
+		checkf(ValidateTextureToBufferCopies(SourceRHI, DestinationRHI, Regions, Error),
+			"Invalid Vulkan texture-to-buffer replay: {}", Error);
+		auto* Source = static_cast<FVulkanTexture*>(SourceRHI);
+		auto* Destination = static_cast<FVulkanBuffer*>(DestinationRHI);
+		std::vector<vk::BufferImageCopy> NativeRegions;
+		NativeRegions.reserve(Regions.size());
+		for (const auto& Region : Regions)
+		{
+			uint64 Footprint = 0;
+			check(GetBufferTextureCopyFootprint(*Source, Region, Footprint, Error));
+			ERHIAccess Tracked = ERHIAccess::None;
+			const FRHITextureSubresourceRange Range{Region.TextureAspect, Region.TextureMip, 1,
+				Region.TextureFirstArrayLayer, Region.TextureNumArrayLayers};
+			checkf(Source->GetStateTracker().Validate(Range, ERHIAccess::TransferRead, Tracked),
+				"Vulkan texture-to-buffer source is not in TransferRead.");
+			checkf(Destination->GetStateTracker().Validate(Region.BufferOffset, Footprint,
+				ERHIAccess::TransferWrite, Tracked), "Vulkan texture-to-buffer destination is not in TransferWrite.");
+			NativeRegions.emplace_back(
+				Region.BufferOffset, Region.BufferRowLength, Region.BufferImageHeight,
+				vk::ImageSubresourceLayers(ToVulkanAspectFlags(Region.TextureAspect),
+					Region.TextureMip, Region.TextureFirstArrayLayer, Region.TextureNumArrayLayers),
+				vk::Offset3D(Region.TextureOffset.X, Region.TextureOffset.Y, Region.TextureOffset.Z),
+				vk::Extent3D(Region.TextureExtent.Width, Region.TextureExtent.Height, Region.TextureExtent.Depth));
+		}
+		GetCommandBuffer()->GetHandle().copyImageToBuffer(Source->Image,
+			vk::ImageLayout::eTransferSrcOptimal, Destination->GetHandle(), NativeRegions);
+	}
+
+	auto FVulkanCommandListContext::RHICopyTexture(FRHITexture* SourceRHI, FRHITexture* DestinationRHI,
+		std::span<const FRHITextureCopyRegion> Regions) -> void
+	{
+		CheckVulkanRHIThread();
+		std::string Error;
+		checkf(ValidateTextureCopies(SourceRHI, DestinationRHI, Regions, Error),
+			"Invalid Vulkan texture copy replay: {}", Error);
+		auto* Source = static_cast<FVulkanTexture*>(SourceRHI);
+		auto* Destination = static_cast<FVulkanTexture*>(DestinationRHI);
+		std::vector<vk::ImageCopy> NativeRegions;
+		NativeRegions.reserve(Regions.size());
+		for (const auto& Region : Regions)
+		{
+			ERHIAccess Tracked = ERHIAccess::None;
+			const FRHITextureSubresourceRange SourceRange{Region.SourceAspect, Region.SourceMip, 1,
+				Region.SourceFirstArrayLayer, Region.NumArrayLayers};
+			const FRHITextureSubresourceRange DestinationRange{Region.DestinationAspect,
+				Region.DestinationMip, 1, Region.DestinationFirstArrayLayer, Region.NumArrayLayers};
+			checkf(Source->GetStateTracker().Validate(SourceRange, ERHIAccess::TransferRead, Tracked),
+				"Vulkan texture copy source is not in TransferRead.");
+			checkf(Destination->GetStateTracker().Validate(DestinationRange, ERHIAccess::TransferWrite, Tracked),
+				"Vulkan texture copy destination is not in TransferWrite.");
+			NativeRegions.emplace_back(
+				vk::ImageSubresourceLayers(ToVulkanAspectFlags(Region.SourceAspect),
+					Region.SourceMip, Region.SourceFirstArrayLayer, Region.NumArrayLayers),
+				vk::Offset3D(Region.SourceOffset.X, Region.SourceOffset.Y, Region.SourceOffset.Z),
+				vk::ImageSubresourceLayers(ToVulkanAspectFlags(Region.DestinationAspect),
+					Region.DestinationMip, Region.DestinationFirstArrayLayer, Region.NumArrayLayers),
+				vk::Offset3D(Region.DestinationOffset.X, Region.DestinationOffset.Y, Region.DestinationOffset.Z),
+				vk::Extent3D(Region.Extent.Width, Region.Extent.Height, Region.Extent.Depth));
+		}
+		GetCommandBuffer()->GetHandle().copyImage(Source->Image, vk::ImageLayout::eTransferSrcOptimal,
+			Destination->Image, vk::ImageLayout::eTransferDstOptimal, NativeRegions);
 	}
 
 	auto FVulkanCommandListContext::RHIBeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetRHI) -> void

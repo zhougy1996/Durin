@@ -87,16 +87,21 @@ namespace Durin::VulkanRHI
 			return;
 		}
 
-		FStagingBuffer StagingBuffer(Device, static_cast<uint32>(Data.size()));
-		std::memcpy(StagingBuffer.GetMappedPointer(), Data.data(), Data.size());
-		StagingBuffer.FlushMappedMemory();
-		vk::CommandBuffer CmdBuffer = Context.GetCommandBuffer()->GetHandle();
+		FRHIBufferCreateDesc StagingDesc = FRHIBufferCreateDesc::Create(
+			"BufferWriteStaging", static_cast<uint32>(Data.size()), 0,
+			EBufferUsageFlags::Dynamic | EBufferUsageFlags::SourceCopy);
+		TRefCountPtr<FVulkanBuffer> StagingBuffer = new FVulkanBuffer(Device, StagingDesc);
+		std::memcpy(StagingBuffer->GetMappedPointer(), Data.data(), Data.size());
+		StagingBuffer->FlushMappedMemory();
+		StagingBuffer->GetStateTracker().Apply(0, Data.size(), ERHIAccess::HostWrite);
+		const std::array StagingTransition{FRHIBufferTransition{
+			StagingBuffer.GetReference(), 0, Data.size(), ERHIAccess::HostWrite, ERHIAccess::TransferRead}};
+		Context.RHITransitionBuffers(StagingTransition);
 		const std::array PreCopyTransition{FRHIBufferTransition{
 			this, Offset, Data.size(), ERHIAccess::Discard, ERHIAccess::TransferWrite}};
 		Context.RHITransitionBuffers(PreCopyTransition);
-		CmdBuffer.copyBuffer(
-			StagingBuffer.GetHandle(), Buffer,
-			vk::BufferCopy(0, Offset, Data.size()));
+		const std::array CopyRegions{FRHIBufferCopyRegion{0, Offset, Data.size()}};
+		Context.RHICopyBuffer(StagingBuffer.GetReference(), this, CopyRegions);
 
 		const ERHIAccess FinalAccess = GetCanonicalBufferAccess(GetUsage());
 		if (FinalAccess != ERHIAccess::None)
@@ -126,6 +131,12 @@ namespace Durin::VulkanRHI
 	{
 		const vk::DeviceSize FlushSize = Size != 0 ? Size : VK_WHOLE_SIZE;
 		Device.GetMemoryManager().Flush(Allocation, Offset, FlushSize);
+	}
+
+	auto FVulkanBuffer::InvalidateMappedMemory(uint32 Offset, uint32 Size) -> void
+	{
+		const vk::DeviceSize InvalidateSize = Size != 0 ? Size : VK_WHOLE_SIZE;
+		Device.GetMemoryManager().Invalidate(Allocation, Offset, InvalidateSize);
 	}
 
 	FVulkanDynamicUniformBufferAllocator::FVulkanDynamicUniformBufferAllocator(FVulkanDevice& InDevice)
@@ -242,54 +253,19 @@ namespace Durin::VulkanRHI
 		return (Value + Alignment - 1) / Alignment * Alignment;
 	}
 
-	FStagingBuffer::FStagingBuffer(FVulkanDevice& InDevice, uint32 InBufferSize)
-		: Device(InDevice)
-		, BufferSize(InBufferSize)
-	{
-		vk::BufferCreateInfo BufferInfo;
-		BufferInfo.setSize(InBufferSize);
-		BufferInfo.setUsage(vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferSrc);
-		BufferInfo.setSharingMode(vk::SharingMode::eExclusive);
-
-		EVulkanAllocationFlags AllocFlags = EVulkanAllocationFlags::HostVisible | EVulkanAllocationFlags::PersistentMapped;
-
-		const FVulkanMemoryManager& MemoryManager = Device.GetMemoryManager();
-		const vk::Result Result = MemoryManager.CreateBuffer(
-			Allocation, Buffer, AllocFlags, BufferInfo);
-		if (Result != vk::Result::eSuccess)
-		{
-			throw std::runtime_error(std::format(
-				"Vulkan staging-buffer allocation failed: result={}, size={}",
-				vk::to_string(Result), BufferInfo.size));
-		}
-	}
-
-	FStagingBuffer::~FStagingBuffer()
-	{
-		if (Buffer && Allocation.IsValid())
-		{
-			Device.GetDeferredDeletionQueue().EnqueueResource(
-				FDeferredDeletionQueue::EType::Buffer, Buffer, Allocation);
-		}
-	}
-
-	auto FStagingBuffer::GetMappedPointer() const -> void*
-	{
-		return Allocation.GetMappedData();
-	}
-
-	auto FStagingBuffer::FlushMappedMemory() -> void
-	{
-		Allocation.FlushMappedMemory(&Device);
-	}
-
 	auto FVulkanDynamicRHI::RHICreateBuffer(FRHICommandListImmediate& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> TRefCountPtr<FRHIBuffer>
 	{
+		FRHIBufferCreateDesc NormalizedDesc = CreateDesc;
+		if (EnumHasAnyFlags(NormalizedDesc.Usage, EBufferUsageFlags::Static)
+			|| NormalizedDesc.InitialData.Data != nullptr)
+		{
+			NormalizedDesc.Usage |= EBufferUsageFlags::DestinationCopy;
+		}
 		TRefCountPtr<FRHIBuffer> Result;
 		const FRHIFallibleOperationResult CreationResult =
 			ExecuteFallibleVulkanCreationOperation(
-				[this, CreateDesc, &Result]() {
-					Result = new FVulkanBuffer(*Device, CreateDesc);
+				[this, NormalizedDesc, &Result]() {
+					Result = new FVulkanBuffer(*Device, NormalizedDesc);
 				});
 		if (!CreationResult.IsSuccess())
 		{

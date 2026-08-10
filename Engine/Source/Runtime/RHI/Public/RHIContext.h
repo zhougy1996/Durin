@@ -29,6 +29,14 @@ namespace Durin
 		virtual auto RHIBindIndexBuffer(FRHIBuffer* IndexBuffer, uint32 Offset) -> void = 0;
 		virtual auto RHITransitionBuffers(std::span<const FRHIBufferTransition> Transitions) -> void = 0;
 		virtual auto RHITransitionTextures(std::span<const FRHITextureTransition> Transitions) -> void = 0;
+		virtual auto RHICopyBuffer(FRHIBuffer* Source, FRHIBuffer* Destination,
+			std::span<const FRHIBufferCopyRegion> Regions) -> void = 0;
+		virtual auto RHICopyBufferToTexture(FRHIBuffer* Source, FRHITexture* Destination,
+			std::span<const FRHIBufferTextureCopyRegion> Regions) -> void = 0;
+		virtual auto RHICopyTextureToBuffer(FRHITexture* Source, FRHIBuffer* Destination,
+			std::span<const FRHIBufferTextureCopyRegion> Regions) -> void = 0;
+		virtual auto RHICopyTexture(FRHITexture* Source, FRHITexture* Destination,
+			std::span<const FRHITextureCopyRegion> Regions) -> void = 0;
 		virtual auto RHIWriteBuffer(FRHIBuffer* Buffer, uint32 Offset, std::span<const uint8> Data) -> void = 0;
 		virtual auto RHIInitializeTexture(FRHITexture* Texture) -> void = 0;
 		virtual auto RHIUpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, std::span<const uint8> SourceData) -> void = 0;

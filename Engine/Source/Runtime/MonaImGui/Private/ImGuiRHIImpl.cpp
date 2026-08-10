@@ -500,6 +500,8 @@ namespace Durin::MonaImGui
 			const EPixelFormat TextureFormat = (InTex->Format == ImTextureFormat_Alpha8) ? EPixelFormat::R8_UNORM : EPixelFormat::RGBA8_UNORM;
 			ENQUEUE_RENDER_COMMAND(ImGuiImpl_CreateTexture)([BackendTexture, Width = InTex->Width, Height = InTex->Height, TextureFormat](FRHICommandListImmediate& CommandList) {
 				FRHITextureCreateDesc TextureCreateDesc = FRHITextureCreateDesc::Create2D("ImGuiCreatedTexture", Width, Height, TextureFormat);
+				TextureCreateDesc.Flags = ETextureCreateFlags::ShaderResource |
+					ETextureCreateFlags::DestinationCopy;
 				BackendTexture->Texture = RHICreateTexture(TextureCreateDesc);
 			});
 			InTex->BackendUserData = BackendTexture;

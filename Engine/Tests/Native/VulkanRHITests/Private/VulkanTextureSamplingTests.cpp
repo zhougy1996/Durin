@@ -11,7 +11,9 @@
 #include "Shader/SlangShaderCompiler.h"
 #include "Texture/TextureBuild.h"
 #include "VulkanDynamicRHI.h"
+#include "VulkanRHIPrivate.h"
 #include "VulkanTexture.h"
+#include "VulkanView.h"
 
 namespace Durin
 {
@@ -132,7 +134,8 @@ namespace Durin
 			const FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D("VulkanSamplingTest")
 				.SetExtent(FIntPoint(4, 4))
 				.SetNumMips(TestMipCount)
-				.SetFormat(Format);
+				.SetFormat(Format)
+				.SetFlags(ETextureCreateFlags::ShaderResource | ETextureCreateFlags::DestinationCopy);
 			FTextureRHIRef Texture = RHICreateTexture(Desc);
 			if (!Texture)
 			{
@@ -209,7 +212,8 @@ namespace Durin
 			const FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D("VulkanCompressedSamplingTest")
 				.SetExtent(FIntPoint(BaseMip.Width, BaseMip.Height))
 				.SetNumMips(static_cast<uint32>(PlatformData.Mips.size()))
-				.SetFormat(PlatformData.PixelFormat);
+				.SetFormat(PlatformData.PixelFormat)
+				.SetFlags(ETextureCreateFlags::ShaderResource | ETextureCreateFlags::DestinationCopy);
 			FTextureRHIRef Texture = RHICreateTexture(Desc);
 			for (uint32 MipIndex = 0; Texture && MipIndex < PlatformData.Mips.size(); ++MipIndex)
 			{
@@ -401,20 +405,21 @@ namespace Durin
 		VkSampler Sampler = VK_NULL_HANDLE;
 		ASSERT_EQ(vkCreateSampler(Device, &SamplerInfo, nullptr, &Sampler), VK_SUCCESS);
 
-		const auto* VulkanLinearTexture = static_cast<VulkanRHI::FVulkanTexture*>(LinearTexture.GetReference());
-		const auto* VulkanSrgbTexture = static_cast<VulkanRHI::FVulkanTexture*>(SrgbTexture.GetReference());
-		const auto* VulkanBc1Texture = static_cast<VulkanRHI::FVulkanTexture*>(Bc1Texture.GetReference());
-		const auto* VulkanBc3Texture = static_cast<VulkanRHI::FVulkanTexture*>(Bc3Texture.GetReference());
-		const auto* VulkanBc5Texture = static_cast<VulkanRHI::FVulkanTexture*>(Bc5Texture.GetReference());
-		const auto* VulkanBc7Texture = static_cast<VulkanRHI::FVulkanTexture*>(Bc7Texture.GetReference());
-		const std::array<VkDescriptorImageInfo, TestTextureCount> ImageInfos{{
-			{VK_NULL_HANDLE, VulkanLinearTexture->ImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-			{VK_NULL_HANDLE, VulkanSrgbTexture->ImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-			{VK_NULL_HANDLE, VulkanBc1Texture->ImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-			{VK_NULL_HANDLE, VulkanBc3Texture->ImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-			{VK_NULL_HANDLE, VulkanBc5Texture->ImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-			{VK_NULL_HANDLE, VulkanBc7Texture->ImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}
-		}};
+		const std::array<FRHITexture*, TestTextureCount> Textures{
+			LinearTexture.GetReference(), SrgbTexture.GetReference(), Bc1Texture.GetReference(),
+			Bc3Texture.GetReference(), Bc5Texture.GetReference(), Bc7Texture.GetReference()};
+		std::array<FTextureViewRHIRef, TestTextureCount> TextureViews;
+		std::array<VkDescriptorImageInfo, TestTextureCount> ImageInfos{};
+		for (uint32 TextureIndex = 0; TextureIndex < TestTextureCount; ++TextureIndex)
+		{
+			TextureViews[TextureIndex] = GDynamicRHI->RHICreateTextureView(
+				Textures[TextureIndex], MakeDefaultTextureViewDesc(
+					*Textures[TextureIndex], ERHITextureViewUsage::Sampled));
+			ASSERT_TRUE(TextureViews[TextureIndex]);
+			ImageInfos[TextureIndex] = {VK_NULL_HANDLE,
+				static_cast<VulkanRHI::FVulkanTextureView*>(TextureViews[TextureIndex].GetReference())->GetHandle(),
+				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+		}
 		const VkDescriptorImageInfo SamplerDescriptorInfo{.sampler = Sampler};
 		const VkDescriptorBufferInfo BufferInfo{Readback.Buffer, 0, ResultBytes};
 		std::array<VkWriteDescriptorSet, 8> Writes{};
@@ -482,6 +487,7 @@ namespace Durin
 		vkUnmapMemory(Device, Readback.Memory);
 		vkDestroyBuffer(Device, Readback.Buffer, nullptr);
 		vkFreeMemory(Device, Readback.Memory, nullptr);
+		TextureViews = {};
 		LinearTexture = nullptr;
 		SrgbTexture = nullptr;
 		Bc1Texture = nullptr;
@@ -698,5 +704,217 @@ namespace Durin
 		Sampler = nullptr;
 		RHICmdList.ImmediateFlush(
 			EImmediateFlushType::FlushRHIThreadFlushResources);
+	}
+
+	TEST(FVulkanTextureSamplingTests, CreatesExactCountedBufferAndTextureViews)
+	{
+		struct FInlineRHIScope
+		{
+			FInlineRHIScope() { _putenv_s("DURIN_RHI_EXECUTION", "inline"); }
+			~FInlineRHIScope()
+			{
+				if (GDynamicRHI) RHIExit();
+				_putenv_s("DURIN_RHI_EXECUTION", "");
+			}
+		} Scope;
+
+		ASSERT_TRUE(RHIInit());
+		FRHICommandListImmediate& RHICmdList = FRHICommandListImmediate::Get();
+		FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(RHICmdList,
+			FRHIBufferCreateDesc::Create("FormattedView", 64, 0,
+				EBufferUsageFlags::FormattedBuffer));
+		ASSERT_TRUE(Buffer);
+		const FRHIBufferViewDesc BufferViewDesc{
+			4, 16, ERHIBufferViewType::Formatted, EPixelFormat::R32_FLOAT};
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		VulkanRHI::ArmVulkanCreateFailure(VulkanRHI::EVulkanCreateFailurePoint::BufferView);
+		EXPECT_FALSE(GDynamicRHI->RHICreateBufferView(Buffer, BufferViewDesc));
+#endif
+		FBufferViewRHIRef BufferView = GDynamicRHI->RHICreateBufferView(
+			Buffer, BufferViewDesc);
+		ASSERT_TRUE(BufferView);
+		EXPECT_TRUE(static_cast<VulkanRHI::FVulkanBufferView*>(
+			BufferView.GetReference())->GetHandle());
+
+		FTextureRHIRef Cube = GDynamicRHI->RHICreateTexture(RHICmdList,
+			FRHITextureCreateDesc::CreateCube("FaceView")
+				.SetExtent(16)
+				.SetFormat(EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::ShaderResource));
+		ASSERT_TRUE(Cube);
+		FRHITextureViewDesc FaceDesc = MakeDefaultTextureViewDesc(
+			*Cube, ERHITextureViewUsage::Sampled);
+		FaceDesc.Dimension = ERHITextureViewDimension::Texture2D;
+		FaceDesc.Range.FirstArrayLayer = 3;
+		FaceDesc.Range.NumArrayLayers = 1;
+		FTextureViewRHIRef FaceView = GDynamicRHI->RHICreateTextureView(
+			Cube, FaceDesc);
+		ASSERT_TRUE(FaceView);
+		EXPECT_EQ(FaceView->GetDesc(), FaceDesc);
+		EXPECT_TRUE(static_cast<VulkanRHI::FVulkanTextureView*>(
+			FaceView.GetReference())->GetHandle());
+	}
+
+	TEST(FVulkanTextureSamplingTests, PublicCopyMatrixPreservesExactBytesInlineAndThreaded)
+	{
+		for (const char* Mode : {"inline", "threaded"})
+		{
+			struct FRHIScope
+			{
+				explicit FRHIScope(const char* InMode) { _putenv_s("DURIN_RHI_EXECUTION", InMode); }
+				~FRHIScope()
+				{
+					if (GDynamicRHI) RHIExit();
+					_putenv_s("DURIN_RHI_EXECUTION", "");
+				}
+			} Scope(Mode);
+			ASSERT_TRUE(RHIInit()) << Mode;
+			FRHICommandListImmediate& RHICmdList = FRHICommandListImmediate::Get();
+
+			const FRHITextureCreateDesc SourceDesc = FRHITextureCreateDesc::Create2D(
+				"CopySource", 4, 4, EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy);
+			const FRHITextureCreateDesc MiddleDesc = FRHITextureCreateDesc::Create2D(
+				"CopyMiddle", 4, 4, EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::SourceCopy | ETextureCreateFlags::DestinationCopy);
+			const FRHITextureCreateDesc FinalDesc = FRHITextureCreateDesc::Create2D(
+				"CopyFinal", 4, 4, EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::DestinationCopy | ETextureCreateFlags::CPUReadback |
+					ETextureCreateFlags::ShaderResource);
+			FTextureRHIRef SourceTexture = GDynamicRHI->RHICreateTexture(RHICmdList, SourceDesc);
+			FTextureRHIRef MiddleTexture = GDynamicRHI->RHICreateTexture(RHICmdList, MiddleDesc);
+			FTextureRHIRef FinalTexture = GDynamicRHI->RHICreateTexture(RHICmdList, FinalDesc);
+			FBufferRHIRef FirstBuffer = GDynamicRHI->RHICreateBuffer(RHICmdList,
+				FRHIBufferCreateDesc::Create("FirstCopyBuffer", 64, 4,
+					EBufferUsageFlags::SourceCopy | EBufferUsageFlags::DestinationCopy));
+			FBufferRHIRef SecondBuffer = GDynamicRHI->RHICreateBuffer(RHICmdList,
+				FRHIBufferCreateDesc::Create("SecondCopyBuffer", 64, 4,
+					EBufferUsageFlags::SourceCopy | EBufferUsageFlags::DestinationCopy));
+			ASSERT_TRUE(SourceTexture && MiddleTexture && FinalTexture && FirstBuffer && SecondBuffer);
+
+			std::array<uint8, 64> Expected{};
+			for (uint32 Index = 0; Index < Expected.size(); ++Index)
+				Expected[Index] = static_cast<uint8>(Index * 3 + 1);
+			GDynamicRHI->RHIUpdateTexture2D(RHICmdList, SourceTexture, 0, 0,
+				FUpdateTextureRegion2D(0, 0, 0, 0, 4, 4), 16, Expected.data());
+
+			const FRHITextureSubresourceRange WholeColor{ERHITextureAspect::Color, 0, 1, 0, 1};
+			RHICmdList.TransitionTextures(std::array{
+				FRHITextureTransition{SourceTexture, WholeColor,
+					ERHIAccess::GraphicsShaderRead, ERHIAccess::TransferRead},
+				FRHITextureTransition{MiddleTexture, WholeColor,
+					ERHIAccess::Discard, ERHIAccess::TransferWrite}});
+			const std::array TextureRegions{
+				FRHITextureCopyRegion{.Extent = {2, 4, 1}},
+				FRHITextureCopyRegion{
+					.SourceOffset = {2, 0, 0},
+					.DestinationOffset = {2, 0, 0},
+					.Extent = {2, 4, 1}}};
+			RHICmdList.CopyTexture(SourceTexture, MiddleTexture, TextureRegions);
+			RHICmdList.TransitionTextures(std::array{FRHITextureTransition{
+				MiddleTexture, WholeColor, ERHIAccess::TransferWrite, ERHIAccess::TransferRead}});
+			RHICmdList.TransitionBuffers(std::array{FRHIBufferTransition{
+				FirstBuffer, 0, 64, ERHIAccess::Discard, ERHIAccess::TransferWrite}});
+			const std::array BufferTextureRegion{FRHIBufferTextureCopyRegion{
+				.TextureExtent = {4, 4, 1}}};
+			RHICmdList.CopyTextureToBuffer(MiddleTexture, FirstBuffer, BufferTextureRegion);
+			RHICmdList.TransitionBuffers(std::array{
+				FRHIBufferTransition{FirstBuffer, 0, 64,
+					ERHIAccess::TransferWrite, ERHIAccess::TransferRead},
+				FRHIBufferTransition{SecondBuffer, 0, 64,
+					ERHIAccess::Discard, ERHIAccess::TransferWrite}});
+			RHICmdList.CopyBuffer(FirstBuffer, SecondBuffer,
+				std::array{FRHIBufferCopyRegion{0, 0, 32},
+					FRHIBufferCopyRegion{32, 32, 32}});
+			RHICmdList.TransitionBuffers(std::array{FRHIBufferTransition{
+				SecondBuffer, 0, 64, ERHIAccess::TransferWrite, ERHIAccess::TransferRead}});
+			RHICmdList.TransitionTextures(std::array{FRHITextureTransition{
+				FinalTexture, WholeColor, ERHIAccess::Discard, ERHIAccess::TransferWrite}});
+			RHICmdList.CopyBufferToTexture(SecondBuffer, FinalTexture, BufferTextureRegion);
+			RHICmdList.TransitionTextures(std::array{FRHITextureTransition{
+				FinalTexture, WholeColor, ERHIAccess::TransferWrite, ERHIAccess::GraphicsShaderRead}});
+
+			std::vector<uint8> Actual;
+			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
+				RHICmdList, FinalTexture, 0, 0, Actual)) << Mode;
+			EXPECT_EQ(Actual, (std::vector<uint8>(Expected.begin(), Expected.end()))) << Mode;
+
+			const FRHITextureCreateDesc CubeDesc = FRHITextureCreateDesc::CreateCube("CopyCube")
+				.SetExtent(4)
+				.SetNumMips(2)
+				.SetFormat(EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy |
+					ETextureCreateFlags::DestinationCopy | ETextureCreateFlags::CPUReadback);
+			FTextureRHIRef SourceCube = GDynamicRHI->RHICreateTexture(RHICmdList, CubeDesc);
+			FTextureRHIRef DestinationCube = GDynamicRHI->RHICreateTexture(RHICmdList, CubeDesc);
+			ASSERT_TRUE(SourceCube && DestinationCube) << Mode;
+			std::array<uint8, 16> CubeMipBytes{};
+			for (uint32 Index = 0; Index < CubeMipBytes.size(); ++Index)
+				CubeMipBytes[Index] = static_cast<uint8>(0xa0 + Index);
+			GDynamicRHI->RHIUpdateTexture2D(RHICmdList, SourceCube, 1, 2,
+				FUpdateTextureRegion2D(0, 0, 0, 0, 2, 2), 8, CubeMipBytes.data());
+			const FRHITextureSubresourceRange SourceCubeRange{
+				ERHITextureAspect::Color, 1, 1, 2, 1};
+			const FRHITextureSubresourceRange DestinationCubeRange{
+				ERHITextureAspect::Color, 1, 1, 4, 1};
+			RHICmdList.TransitionTextures(std::array{
+				FRHITextureTransition{SourceCube, SourceCubeRange,
+					ERHIAccess::GraphicsShaderRead, ERHIAccess::TransferRead},
+				FRHITextureTransition{DestinationCube, DestinationCubeRange,
+					ERHIAccess::Discard, ERHIAccess::TransferWrite}});
+			const std::array CubeCopyRegion{FRHITextureCopyRegion{
+				.SourceMip = 1,
+				.SourceFirstArrayLayer = 2,
+				.DestinationMip = 1,
+				.DestinationFirstArrayLayer = 4,
+				.Extent = {2, 2, 1}}};
+			RHICmdList.CopyTexture(SourceCube, DestinationCube, CubeCopyRegion);
+			RHICmdList.TransitionTextures(std::array{FRHITextureTransition{
+				DestinationCube, DestinationCubeRange,
+				ERHIAccess::TransferWrite, ERHIAccess::ComputeShaderRead}});
+			std::vector<uint8> CubeActual;
+			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
+				RHICmdList, DestinationCube, 1, 4, CubeActual)) << Mode;
+			EXPECT_EQ(CubeActual,
+				(std::vector<uint8>(CubeMipBytes.begin(), CubeMipBytes.end()))) << Mode;
+
+			const FRHITextureCreateDesc CompressedDesc = FRHITextureCreateDesc::Create2D(
+				"CompressedCopy", 8, 8, EPixelFormat::BC1_UNORM)
+				.SetFlags(ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy |
+					ETextureCreateFlags::DestinationCopy | ETextureCreateFlags::CPUReadback);
+			FTextureRHIRef CompressedSource = GDynamicRHI->RHICreateTexture(RHICmdList, CompressedDesc);
+			FTextureRHIRef CompressedDestination = GDynamicRHI->RHICreateTexture(RHICmdList, CompressedDesc);
+			ASSERT_TRUE(CompressedSource && CompressedDestination) << Mode;
+			std::array<uint8, 32> CompressedBytes{};
+			for (uint32 Index = 0; Index < CompressedBytes.size(); ++Index)
+				CompressedBytes[Index] = static_cast<uint8>(Index * 7 + 3);
+			GDynamicRHI->RHIUpdateTexture2D(RHICmdList, CompressedSource, 0, 0,
+				FUpdateTextureRegion2D(0, 0, 0, 0, 8, 8), 16, CompressedBytes.data());
+			RHICmdList.TransitionTextures(std::array{
+				FRHITextureTransition{CompressedSource, WholeColor,
+					ERHIAccess::GraphicsShaderRead, ERHIAccess::TransferRead},
+				FRHITextureTransition{CompressedDestination, WholeColor,
+					ERHIAccess::Discard, ERHIAccess::TransferWrite}});
+			RHICmdList.CopyTexture(CompressedSource, CompressedDestination,
+				std::array{FRHITextureCopyRegion{.Extent = {8, 8, 1}}});
+			RHICmdList.TransitionTextures(std::array{FRHITextureTransition{
+				CompressedDestination, WholeColor,
+				ERHIAccess::TransferWrite, ERHIAccess::GraphicsShaderRead}});
+			std::vector<uint8> CompressedActual;
+			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
+				RHICmdList, CompressedDestination, 0, 0, CompressedActual)) << Mode;
+			EXPECT_EQ(CompressedActual,
+				(std::vector<uint8>(CompressedBytes.begin(), CompressedBytes.end()))) << Mode;
+			SourceTexture = nullptr;
+			MiddleTexture = nullptr;
+			FinalTexture = nullptr;
+			FirstBuffer = nullptr;
+			SecondBuffer = nullptr;
+			SourceCube = nullptr;
+			DestinationCube = nullptr;
+			CompressedSource = nullptr;
+			CompressedDestination = nullptr;
+			RHICmdList.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
+		}
 	}
 }

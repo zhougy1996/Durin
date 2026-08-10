@@ -69,8 +69,16 @@ This is now an internal-style resolved submission record rather than a user-auth
 - `SetIndex`
 - `BindingIndex`
 - `Type`
+- `Offset` and `Size` for compatibility buffer-range submissions
 
 Callers are not expected to fill this by hand in the normal path.
+
+Resource submission is canonicalized while the RHI command is recorded.
+Buffer and texture entries become counted `FRHIBufferView` or
+`FRHITextureView` objects, including canonical whole-resource views when the
+compatibility scalar form is used. The recorded command retains those views,
+and Vulkan descriptor writes consume their exact native interpretation. See
+[RHI resource views and transfers](RHIResourceViewsAndTransfers.md).
 
 ## RenderCore Responsibilities
 
