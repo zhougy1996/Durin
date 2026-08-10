@@ -41,7 +41,9 @@ M1 completed through the
 public request/result shape, private per-viewport service boundary,
 request-local identity snapshot, coordinate convention, winner ordering, and
 immediate/deferred ticket lifecycle are now the M2 entry contract. M2
-`SkeletalViewportPicking` is the next ready milestone.
+[Skeletal Viewport Picking](../Plans/SkeletalViewportPicking.md) is now active;
+Stage 0 freezes its current-pose deformation, validity, and bounded reference
+query contract before implementation.
 
 ## Outcome
 
@@ -241,7 +243,7 @@ flowchart LR
 | Milestone | Requirement | Proposed child plan | Dependencies | Deliverable | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- | --- | --- |
 | M1: Semantic picking contract | Required; completed | [Viewport Picking Contract](../Plans/ViewportPickingContract.md) | Current viewport editing and StaticMesh picking behavior | Per-viewport request/result/service boundary, exact primitive/component identity, generation and cancellation rules, explicit hit arbitration, and a CPU reference backend preserving current StaticMesh behavior | Actor/component/visualizer/gizmo selection semantics, fitted-view coordinates, layer priorities, and immediate-versus-pending API shape are recorded before implementation | Passed: semantic mode integration, single arbitration, transformed closest-triangle behavior, and deterministic lifecycle/multi-viewport tests |
-| M2: Current-pose skeletal picking | Required | `SkeletalViewportPicking` | M1 contract; skeletal render data and pose publication | Correct CPU reference picking for `DSkeletalMeshComponent` using current pose bounds and deformation, with Actor/component results and deterministic failure fallback | Exact supported precision, missing/incomplete pose behavior, LOD policy, backface policy, and maximum reference-query budget are selected | Static and skeletal primitives compete by one world-space distance rule; animation can move a hit into and out of the ray; bind-pose-only hits are rejected; transforms, non-uniform scale, invalid poses, hidden Actors, and multiple components pass focused tests |
+| M2: Current-pose skeletal picking | Required; active | [Skeletal Viewport Picking](../Plans/SkeletalViewportPicking.md) | M1 contract; skeletal render data and pose publication | Correct CPU reference picking for `DSkeletalMeshComponent` using current pose bounds and deformation, with Actor/component results and deterministic failure fallback | Exact supported precision, missing/incomplete pose behavior, LOD policy, backface policy, and maximum reference-query budget are selected | Static and skeletal primitives compete by one world-space distance rule; animation can move a hit into and out of the ray; bind-pose-only hits are rejected; transforms, non-uniform scale, invalid poses, hidden Actors, and multiple components pass focused tests |
 | M3: CPU spatial acceleration | Required | `ViewportPickingSpatialAcceleration` | M1-M2 reference behavior and representative scene/mesh fixtures | Incremental scene bounds index, immutable per-LOD StaticMesh triangle acceleration, bounded skeletal candidate reduction where justified, diagnostics, and selectable brute-force comparison | Reference results are stable; update rates, representative object/triangle counts, memory budget, rebuild/refit policy, and ownership boundary are recorded | Accelerated and reference backends produce identical ordered results across randomized and adversarial fixtures; add/remove/transform/visibility/pose-bound updates remain correct; counters and profiling demonstrate bounded candidate reduction without unbounded retained data |
 | M4: Asynchronous bounded-region readback | Conditional prerequisite | `AsynchronousTextureRegionReadback` | M1 request lifetime; selected GPU consumer and accepted latency/buffer budgets | Backend-independent RHI region-copy/readback handle, bounded staging ring, polling/completion, cancellation/retirement, diagnostics, and Vulkan implementation | M5 or another approved consumer defines format, region size, maximum concurrent requests, latency target, thread ownership, and failure fallback; synchronous readback is measured or known to be unacceptable | Subresource regions round-trip correctly without full-texture copy or caller-visible GPU wait; multiple in-flight requests, resize/invalidation, overflow, shutdown, and device/resource failure pass RHI and Vulkan coverage |
 | M5: GPU picking and hybrid arbitration | Conditional | `GPUViewportPicking` | M1-M3; M4; Renderer prepared-view and skeletal paths | On-demand scissored integer-ID pass, immutable dense token table, current-pose StaticMesh/SkeletalMesh output, asynchronous result integration, and backend policy/fallback | CPU measurements or unsupported generated/deformed/instanced geometry demonstrate need; translucent policy, MSAA policy, pick-region winner rule, target format, shader/PSO identity, and latency UX are selected | Opaque/Masked visible-surface results match CPU/reference expectations and rendered pose across main and auxiliary viewports; no reflected object reaches the render thread; no interaction path uses synchronous full readback; stale requests are rejected; headless/unsupported RHI falls back deterministically |
@@ -268,7 +270,7 @@ selection ownership, or introduce RHI resources. It must decide whether the
 service is synchronous-with-optional-pending-result or always request-based;
 either form must permit a later GPU result without changing mode APIs.
 
-### `SkeletalViewportPicking`
+### [Skeletal Viewport Picking](../Plans/SkeletalViewportPicking.md)
 
 This plan owns the first correct current-pose CPU query for skeletal components
 and its bounded fallback policy. It may share value-only skinning math with the
