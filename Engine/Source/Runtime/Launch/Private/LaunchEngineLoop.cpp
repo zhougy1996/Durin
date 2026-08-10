@@ -432,6 +432,10 @@ namespace Durin
 			BeginFrameRenderThread(CommandList, LogicFrameCounter, RenderFrameCounter);
 		});
 
+		// UI drawing may enqueue offscreen preview work that allocates frame-local
+		// uniform ranges, so admit it only after the frame-begin boundary.
+		Mona::NewFrame();
+
 		if (GEngine != nullptr)
 		{
 			GEngine->RedrawViewports();
@@ -477,7 +481,6 @@ namespace Durin
 		if (!bAllWindowsMinimized)
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.Rendering");
-			Mona::NewFrame();
 			RenderFrame();
 		}
 		{
