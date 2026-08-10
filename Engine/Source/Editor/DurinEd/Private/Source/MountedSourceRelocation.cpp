@@ -43,7 +43,14 @@ namespace Durin
 			std::string& OutError) -> bool
 		{
 			if (DTexture2D* Texture = Cast<DTexture2D>(Asset))
-				return Texture->ChangeSourceReference(To, OutError);
+			{
+				if (!Texture->ChangeSourceReference(To, OutError)) return false;
+				if (Texture->WaitForPendingBuild()) return true;
+				OutError = Texture->GetLastBuildError().empty()
+					? "Texture2D source relocation build did not complete."
+					: Texture->GetLastBuildError();
+				return false;
+			}
 			if (DStaticMesh* Mesh = Cast<DStaticMesh>(Asset))
 				return Mesh->ChangeSourceReference(To, OutError);
 			if (DTextureCube* Cube = Cast<DTextureCube>(Asset))
