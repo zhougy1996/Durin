@@ -38,6 +38,18 @@ namespace Durin
 			DURIN_DECLARE_SHADER(FStorageFragmentShader, FShader, "/Unit/StorageShader", EShaderFrequency::Fragment, "fragmentMain");
 		};
 
+		class FArrayFragmentShader : public FShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FArrayFragmentShader)
+				DURIN_SHADER_PARAMETER_TEXTURE_ARRAY(Textures, 2);
+				DURIN_SHADER_PARAMETER_SAMPLER_ARRAY(Samplers, 2);
+			DURIN_END_SHADER_PARAMETERS();
+
+			DURIN_DECLARE_SHADER(FArrayFragmentShader, FShader,
+				"/Unit/ArrayShader", EShaderFrequency::Fragment, "fragmentMain");
+		};
+
 		class FIntermediateShader : public FShader
 		{
 		public:
@@ -496,6 +508,34 @@ namespace Durin
 		EXPECT_EQ(Bindings[1].SetIndex, 2u);
 		EXPECT_EQ(Bindings[1].BindingIndex, 5u);
 		EXPECT_EQ(Bindings[1].Type, ERHIBindingType::Sampler);
+	}
+
+	TEST(FShaderFoundationTests, FixedResourceArraysPreserveMetadataAndReflectionCount)
+	{
+		const FShaderParametersMetadata* Metadata =
+			FArrayFragmentShader::GetOwnParametersMetadata();
+		ASSERT_NE(Metadata, nullptr);
+		ASSERT_EQ(Metadata->Members.size(), 2u);
+		EXPECT_EQ(Metadata->Members[0].ArraySize, 2u);
+		EXPECT_EQ(Metadata->Members[0].Size, sizeof(std::array<FRHITexture*, 2>));
+		EXPECT_EQ(Metadata->Members[1].ArraySize, 2u);
+
+		FShaderReflectionData Reflection;
+		Reflection.ResourceBindings.push_back({
+			.Name = "Textures", .StageFlags = EShaderStageFlags::Fragment,
+			.SetIndex = 0, .BindingIndex = 1, .Type = ERHIBindingType::Texture,
+			.ArraySize = 2});
+		Reflection.ResourceBindings.push_back({
+			.Name = "Samplers", .StageFlags = EShaderStageFlags::Fragment,
+			.SetIndex = 0, .BindingIndex = 2, .Type = ERHIBindingType::Sampler,
+			.ArraySize = 2});
+		std::vector<FShaderParameterBinding> Bindings;
+		std::string Error;
+		ASSERT_TRUE(BuildShaderParameterBindings(Metadata, Reflection, Bindings,
+			Error)) << Error;
+		ASSERT_EQ(Bindings.size(), 2u);
+		EXPECT_EQ(Bindings[0].ArraySize, 2u);
+		EXPECT_EQ(Bindings[1].ArraySize, 2u);
 	}
 
 	TEST(FShaderFoundationTests, BuildShaderParameterBindingsResolvesStorageResources)

@@ -521,15 +521,20 @@ namespace Durin::VulkanRHI
 		Initializer.BoundShaders.VertexShader = VertexShader;
 		Initializer.BoundShaders.FragmentShader = FragmentShader;
 		Initializer.VertexDeclaration = VertexDeclaration;
-		Initializer.PipelineLayout.BindingLayouts.emplace_back()
-			.BindingLayouts.emplace_back(
-				EShaderStageFlags::Vertex, 0, ERHIBindingType::UniformBuffer);
+		auto& PipelineBindings =
+			Initializer.PipelineLayout.BindingLayouts.emplace_back().BindingLayouts;
+		PipelineBindings.emplace_back(
+			EShaderStageFlags::Vertex, 0, ERHIBindingType::Texture);
+		PipelineBindings.emplace_back(
+			EShaderStageFlags::Fragment, 1, ERHIBindingType::Sampler, 2);
 
 		const FName PipelineName("RecoverableGraphicsPipeline");
 		const FVulkanGraphicsPipelineTestStats PipelineStatsBefore =
 			GetVulkanGraphicsPipelineTestStats();
 		const FVulkanStructuralCacheTestStats StructuralStatsBefore =
 			GetVulkanStructuralCacheTestStats();
+		const FRHIGraphicsCacheStatistics CacheStatsBefore =
+			GDynamicRHI->RHIGetGraphicsCacheStatistics();
 		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::RenderPass);
 		EXPECT_FALSE(GDynamicRHI->RHICreateGraphicsPipelineState(
 			PipelineName, Initializer));
@@ -560,9 +565,9 @@ namespace Durin::VulkanRHI
 			GDynamicRHI->RHICreateGraphicsPipelineState(
 				PipelineName, Initializer);
 		ASSERT_TRUE(SameNamePipeline);
-		EXPECT_NE(Pipeline.GetReference(), SameNamePipeline.GetReference());
-		EXPECT_EQ(Pipeline->GetRefCount(), 1u);
-		EXPECT_EQ(SameNamePipeline->GetRefCount(), 1u);
+		EXPECT_EQ(Pipeline.GetReference(), SameNamePipeline.GetReference());
+		EXPECT_EQ(Pipeline->GetRefCount(), 3u);
+		EXPECT_EQ(SameNamePipeline->GetRefCount(), 3u);
 
 		FGraphicsPipelineStateInitializer ChangedInitializer = Initializer;
 		ChangedInitializer.RasterizerState.CullMode = ERHICullMode::None;
@@ -571,7 +576,7 @@ namespace Durin::VulkanRHI
 				PipelineName, ChangedInitializer);
 		ASSERT_TRUE(ChangedSameNamePipeline);
 		EXPECT_NE(Pipeline.GetReference(), ChangedSameNamePipeline.GetReference());
-		EXPECT_EQ(ChangedSameNamePipeline->GetRefCount(), 1u);
+		EXPECT_EQ(ChangedSameNamePipeline->GetRefCount(), 2u);
 
 		std::vector<FGraphicsPipelineStateRHIRef> StatePipelines;
 		auto CreateStatePipeline = [&](FGraphicsPipelineStateInitializer State,
@@ -592,12 +597,46 @@ namespace Durin::VulkanRHI
 			ERHIFrontFace::CounterClockwise;
 		CreateStatePipeline(CounterClockwiseInitializer, "CounterClockwise");
 		FGraphicsPipelineStateInitializer DepthInitializer = Initializer;
-		DepthInitializer.DepthState.bEnableTest = true;
-		DepthInitializer.DepthState.bEnableWrite = true;
+		DepthInitializer.RenderTargetLayout.bHasDepthStencil = true;
+		auto& DepthAttachment =
+			DepthInitializer.RenderTargetLayout.DepthStencilAttachment;
+		DepthAttachment.Format = EPixelFormat::D32;
+		DepthAttachment.InitialLayout = ERHITextureLayout::Undefined;
+		DepthAttachment.InitialAccess = ERHIAccess::None;
+		DepthAttachment.FinalLayout = ERHITextureLayout::DepthStencilAttachment;
+		DepthAttachment.FinalAccess = ERHIAccess::DepthStencilReadWrite;
+		DepthInitializer.DepthStencilState.bEnableTest = true;
+		DepthInitializer.DepthStencilState.bEnableWrite = true;
 		CreateStatePipeline(DepthInitializer, "Depth");
 		FGraphicsPipelineStateInitializer BlendInitializer = Initializer;
-		BlendInitializer.ColorBlendState = FRHIColorBlendState::StraightAlpha();
+		BlendInitializer.ColorBlendStates[0] = FRHIColorBlendState::StraightAlpha();
 		CreateStatePipeline(BlendInitializer, "StraightAlpha");
+		FGraphicsPipelineStateInitializer MrtStencilInitializer = Initializer;
+		MrtStencilInitializer.RenderTargetLayout.NumColorRenderTargets = 2;
+		MrtStencilInitializer.RenderTargetLayout.ColorAttachments[1] =
+			MrtStencilInitializer.RenderTargetLayout.ColorAttachments[0];
+		MrtStencilInitializer.RenderTargetLayout.bHasDepthStencil = true;
+		auto& MrtDepthAttachment =
+			MrtStencilInitializer.RenderTargetLayout.DepthStencilAttachment;
+		MrtDepthAttachment.Format = EPixelFormat::D24S8;
+		MrtDepthAttachment.LoadAction = ERHIRenderTargetLoadAction::Clear;
+		MrtDepthAttachment.StoreAction = ERHIRenderTargetStoreAction::Store;
+		MrtDepthAttachment.StencilLoadAction = ERHIRenderTargetLoadAction::Clear;
+		MrtDepthAttachment.StencilStoreAction = ERHIRenderTargetStoreAction::Store;
+		MrtDepthAttachment.InitialLayout = ERHITextureLayout::Undefined;
+		MrtDepthAttachment.InitialAccess = ERHIAccess::None;
+		MrtDepthAttachment.FinalLayout = ERHITextureLayout::DepthStencilAttachment;
+		MrtDepthAttachment.FinalAccess = ERHIAccess::DepthStencilReadWrite;
+		MrtStencilInitializer.DepthStencilState.bEnableTest = true;
+		MrtStencilInitializer.DepthStencilState.bEnableWrite = true;
+		MrtStencilInitializer.DepthStencilState.bEnableStencil = true;
+		MrtStencilInitializer.ColorBlendStates[1] =
+			FRHIColorBlendState::StraightAlpha();
+		FGraphicsPipelineStateRHIRef MrtStencilPipeline =
+			GDynamicRHI->RHICreateGraphicsPipelineState(
+				"RecoverableGraphicsPipeline_MrtStencil", MrtStencilInitializer);
+		ASSERT_TRUE(MrtStencilPipeline);
+		StatePipelines.push_back(MrtStencilPipeline);
 
 		FGraphicsPipelineStateInitializer TwoSetInitializer = Initializer;
 		TwoSetInitializer.PipelineLayout.BindingLayouts.emplace_back()
@@ -640,6 +679,20 @@ namespace Durin::VulkanRHI
 			StructuralStatsBefore.DescriptorSetLayoutEntryCount + 2);
 		EXPECT_EQ(StatsAfterPipelineCreation.PipelineLayoutEntryCount,
 			StructuralStatsBefore.PipelineLayoutEntryCount + 2);
+		const FRHIGraphicsCacheStatistics CacheStatsAfterCreation =
+			GDynamicRHI->RHIGetGraphicsCacheStatistics();
+		EXPECT_GE(CacheStatsAfterCreation.GraphicsPipelines.Hits,
+			CacheStatsBefore.GraphicsPipelines.Hits + 1);
+		EXPECT_EQ(CacheStatsAfterCreation.GraphicsPipelines.NativeCreations,
+			CacheStatsBefore.GraphicsPipelines.NativeCreations + 8);
+		EXPECT_EQ(CacheStatsAfterCreation.GraphicsPipelines.Occupancy,
+			CacheStatsBefore.GraphicsPipelines.Occupancy + 8);
+		EXPECT_GE(CacheStatsAfterCreation.GraphicsPipelines.FailedCandidates,
+			CacheStatsBefore.GraphicsPipelines.FailedCandidates + 4);
+		EXPECT_EQ(CacheStatsAfterCreation.GraphicsPipelines.Capacity, 2048u);
+		EXPECT_EQ(CacheStatsAfterCreation.StructuralLayouts.Capacity, 256u);
+		EXPECT_EQ(CacheStatsAfterCreation.DescriptorSnapshots.Capacity, 512u);
+		EXPECT_EQ(CacheStatsAfterCreation.DescriptorValueCapacity, 8192u);
 
 		FRHITextureCreateDesc RenderTargetDesc = FRHITextureCreateDesc::Create2D(
 			"RecoverableFramebufferTexture", 8, 8, EPixelFormat::RGBA8_UNORM);
@@ -691,6 +744,84 @@ namespace Durin::VulkanRHI
 		});
 		EXPECT_EQ(GetVulkanStructuralCacheTestStats().FramebufferEntryCount,
 			StatsBeforeFramebuffer.FramebufferEntryCount + 1);
+		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
+			auto* Context = static_cast<FVulkanCommandListContext*>(
+				GDynamicRHI->RHIGetDefaultContext());
+			Context->RHIBeginRenderPass(PassInfo, "DescriptorArrayDraw");
+			Context->RHISetGraphicsPipelineState(*Pipeline);
+			Context->RHISetViewport(0.0f, 0.0f, 0.0f, 8.0f, 8.0f, 1.0f);
+			FTextureViewRHIRef TransientTextureView =
+				GDynamicRHI->RHICreateTextureView(Texture,
+					MakeDefaultTextureViewDesc(*Texture,
+						ERHITextureViewUsage::Sampled));
+			ASSERT_TRUE(TransientTextureView);
+			std::array<FRHIShaderParameterResource, 1> TextureParameters{
+				FRHIShaderParameterResource{.Resource = TransientTextureView.GetReference(),
+					.SetIndex = 0, .BindingIndex = 0, .ArrayElement = 0,
+					.Type = ERHIBindingType::Texture}};
+			Context->RHISetShaderParameters(VertexShader, TextureParameters);
+			TransientTextureView = nullptr;
+			std::array<FRHIShaderParameterResource, 2> SamplerParameters{
+				FRHIShaderParameterResource{.Resource = Sampler.GetReference(),
+					.SetIndex = 0, .BindingIndex = 1, .ArrayElement = 0,
+					.Type = ERHIBindingType::Sampler},
+				FRHIShaderParameterResource{.Resource = Sampler.GetReference(),
+					.SetIndex = 0, .BindingIndex = 1, .ArrayElement = 1,
+					.Type = ERHIBindingType::Sampler}};
+			Context->RHISetShaderParameters(FragmentShader, SamplerParameters);
+			Context->RHIDraw({.VertexCount = 3});
+			Context->RHIEndRenderPass();
+		});
+		FRHITextureCreateDesc MrtColorDesc = FRHITextureCreateDesc::Create2D(
+			"MrtStencilValidationColor", 8, 8, EPixelFormat::RGBA8_UNORM)
+			.SetFlags(ETextureCreateFlags::RenderTargetable
+				| ETextureCreateFlags::ShaderResource
+				| ETextureCreateFlags::CPUReadback);
+		FTextureRHIRef MrtColor0 =
+			GDynamicRHI->RHICreateTexture(RHICmdList, MrtColorDesc);
+		MrtColorDesc.DebugName = "MrtStencilValidationColor1";
+		FTextureRHIRef MrtColor1 =
+			GDynamicRHI->RHICreateTexture(RHICmdList, MrtColorDesc);
+		FRHITextureCreateDesc MrtDepthDesc = FRHITextureCreateDesc::Create2D(
+			"MrtStencilValidationDepth", 8, 8, EPixelFormat::D24S8)
+			.SetFlags(ETextureCreateFlags::DepthStencilTargetable);
+		FTextureRHIRef MrtDepth =
+			GDynamicRHI->RHICreateTexture(RHICmdList, MrtDepthDesc);
+		ASSERT_TRUE(MrtColor0 && MrtColor1 && MrtDepth);
+		FRHIRenderPassInfo MrtPassInfo;
+		MrtPassInfo.RenderTargetLayout = MrtStencilInitializer.RenderTargetLayout;
+		MrtPassInfo.ColorRenderTargets[0] = MrtColor0;
+		MrtPassInfo.ColorRenderTargets[1] = MrtColor1;
+		MrtPassInfo.DepthStencilRenderTarget = MrtDepth;
+		MrtPassInfo.ColorClearValues[0] = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
+		MrtPassInfo.ColorClearValues[1] = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
+		std::vector<uint8> MrtPixels;
+		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
+			auto* Context = static_cast<FVulkanCommandListContext*>(
+				GDynamicRHI->RHIGetDefaultContext());
+			Context->RHIBeginRenderPass(MrtPassInfo, "MrtStencilDraw");
+			Context->RHISetViewport(0.0f, 0.0f, 0.0f, 8.0f, 8.0f, 1.0f);
+			Context->RHISetGraphicsPipelineState(*MrtStencilPipeline);
+			std::array<FRHIShaderParameterResource, 3> Parameters{
+				FRHIShaderParameterResource{.Resource = TextureView.GetReference(),
+					.SetIndex = 0, .BindingIndex = 0, .ArrayElement = 0,
+					.Type = ERHIBindingType::Texture},
+				FRHIShaderParameterResource{.Resource = Sampler.GetReference(),
+					.SetIndex = 0, .BindingIndex = 1, .ArrayElement = 0,
+					.Type = ERHIBindingType::Sampler},
+				FRHIShaderParameterResource{.Resource = Sampler.GetReference(),
+					.SetIndex = 0, .BindingIndex = 1, .ArrayElement = 1,
+					.Type = ERHIBindingType::Sampler}};
+			Context->RHISetShaderParameters(VertexShader,
+				std::span(Parameters).first(1));
+			Context->RHISetShaderParameters(FragmentShader,
+				std::span(Parameters).subspan(1));
+			Context->RHIDraw({.VertexCount = 3});
+			Context->RHIEndRenderPass();
+		});
+		ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
+			RHICmdList, MrtColor0, 0, 0, MrtPixels));
+		EXPECT_EQ(MrtPixels.size(), 8u * 8u * 4u);
 
 		StatePipelines.clear();
 		TwoSetPipeline = nullptr;
@@ -705,13 +836,23 @@ namespace Durin::VulkanRHI
 		TextureView = nullptr;
 		Texture = nullptr;
 		RenderTarget = nullptr;
+		MrtDepth = nullptr;
+		MrtColor1 = nullptr;
+		MrtColor0 = nullptr;
 		Buffer = nullptr;
 		RHICmdList.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
+		GDynamicRHI->RHIResetGraphicsCacheStatistics();
+		const FRHIGraphicsCacheStatistics ResetCacheStats =
+			GDynamicRHI->RHIGetGraphicsCacheStatistics();
+		EXPECT_EQ(ResetCacheStats.GraphicsPipelines.Hits, 0u);
+		EXPECT_EQ(ResetCacheStats.GraphicsPipelines.NativeCreations, 0u);
+		EXPECT_EQ(ResetCacheStats.GraphicsPipelines.Occupancy,
+			CacheStatsAfterCreation.GraphicsPipelines.Occupancy);
 		const FVulkanGraphicsPipelineTestStats PipelineStatsAfterRelease =
 			GetVulkanGraphicsPipelineTestStats();
 		EXPECT_EQ(
 			PipelineStatsAfterRelease.DestroyedPipelineCount,
-			PipelineStatsBefore.DestroyedPipelineCount + 8);
+			PipelineStatsBefore.DestroyedPipelineCount);
 	}
 
 	TEST_F(FVulkanCreateFailureInjectionTests,

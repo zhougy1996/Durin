@@ -291,11 +291,32 @@ namespace Durin::VulkanRHI
 		DescriptorSetCache = new FVulkanDescriptorSetLayoutCache(*this);
 		GlobalDescriptorPool = new FVulkanGlobalDescriptorPool(*this);
 		DynamicUniformBufferAllocator = new FVulkanDynamicUniformBufferAllocator(*this);
+		GraphicsCacheStatistics.DescriptorSnapshots.Capacity = 512;
+		GraphicsCacheStatistics.DescriptorValueCapacity = 8192;
+		GraphicsCacheStatistics.StructuralLayouts.Capacity = 256;
+		GraphicsCacheStatistics.GraphicsPipelines.Capacity = 2048;
 
 		for (auto& Frame : Frames)
 		{
 			Frame = new FVulkanFrame(*this);
 		}
+	}
+
+	auto FVulkanDevice::ResetGraphicsCacheStatistics() -> void
+	{
+		const uint64 DescriptorOccupancy = GraphicsCacheStatistics.DescriptorSnapshots.Occupancy;
+		const uint64 DescriptorValueOccupancy = GraphicsCacheStatistics.DescriptorValueOccupancy;
+		const uint64 LayoutOccupancy = GraphicsCacheStatistics.StructuralLayouts.Occupancy;
+		const uint64 PipelineOccupancy = GraphicsCacheStatistics.GraphicsPipelines.Occupancy;
+		GraphicsCacheStatistics = {};
+		GraphicsCacheStatistics.DescriptorSnapshots.Capacity = 512;
+		GraphicsCacheStatistics.DescriptorSnapshots.Occupancy = DescriptorOccupancy;
+		GraphicsCacheStatistics.DescriptorValueCapacity = 8192;
+		GraphicsCacheStatistics.DescriptorValueOccupancy = DescriptorValueOccupancy;
+		GraphicsCacheStatistics.StructuralLayouts.Capacity = 256;
+		GraphicsCacheStatistics.StructuralLayouts.Occupancy = LayoutOccupancy;
+		GraphicsCacheStatistics.GraphicsPipelines.Capacity = 2048;
+		GraphicsCacheStatistics.GraphicsPipelines.Occupancy = PipelineOccupancy;
 	}
 
 	auto FVulkanDevice::CreateDevice() -> void
@@ -308,7 +329,10 @@ namespace Durin::VulkanRHI
 			.setPQueuePriorities(&QueuePriority);
 
 		vk::PhysicalDeviceFeatures DeviceFeatures;
-		DeviceFeatures.fillModeNonSolid = vk::True;
+		const vk::PhysicalDeviceFeatures AvailableFeatures = Gpu.getFeatures();
+		DeviceFeatures.fillModeNonSolid = AvailableFeatures.fillModeNonSolid;
+		DeviceFeatures.depthClamp = AvailableFeatures.depthClamp;
+		DeviceFeatures.wideLines = AvailableFeatures.wideLines;
 		vk::DeviceCreateInfo DeviceInfo;
 		vk::PhysicalDeviceVulkan11Features Vulkan11Features;
 		vk::PhysicalDeviceVulkan13Features Vulkan13Features;

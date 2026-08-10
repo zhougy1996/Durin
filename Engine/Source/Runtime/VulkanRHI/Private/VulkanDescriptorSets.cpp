@@ -211,6 +211,7 @@ namespace Durin::VulkanRHI
 		if (bIsExpansion)
 		{
 			++PoolExpansions[FrameIndex];
+			++Device.GetGraphicsCacheStatisticsMutable().DescriptorPoolExpansions;
 		}
 		DURIN_DEBUG("Created Vulkan descriptor pool: frame={}, poolCount={}, maxSets={}, expansions={}",
 			FrameIndex, FramePools.size(), FramePools.back()->GetMaxSets(), PoolExpansions[FrameIndex]);

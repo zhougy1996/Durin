@@ -18,7 +18,9 @@ namespace Durin::VulkanRHI
 	class FVulkanGraphicsPipelineState : public FRHIGraphicsPipelineState
 	{
 	public:
-		FVulkanGraphicsPipelineState(FVulkanDevice& InDevice, const FGraphicsPipelineStateInitializer& Initializer);
+		FVulkanGraphicsPipelineState(FVulkanDevice& InDevice,
+			const FGraphicsPipelineStateInitializer& Initializer,
+			FGraphicsPipelineStateKey InKey);
 
 		~FVulkanGraphicsPipelineState() override;
 
@@ -27,6 +29,7 @@ namespace Durin::VulkanRHI
 		auto GetPipelineLayout() const -> vk::PipelineLayout { return PipelineLayout; }
 
 		auto GetDescriptorSetsLayout() const -> const FVulkanDescriptorSetsLayout&;
+		auto GetKey() const -> const FGraphicsPipelineStateKey& { return Key; }
 		auto PushConstants(FVulkanCommandListContext& InContext, EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* pValues) const -> void;
 
 	protected:
@@ -34,11 +37,13 @@ namespace Durin::VulkanRHI
 
 		FVulkanDevice& Device;
 
-		FVulkanLayout* Layout = nullptr;
+		std::shared_ptr<FVulkanLayout> Layout;
 
 		vk::PipelineLayout PipelineLayout{};
 
 		vk::Pipeline Pipeline{};
+
+		FGraphicsPipelineStateKey Key;
 
 		friend class FVulkanPipelineManager;
 	};
@@ -50,13 +55,34 @@ namespace Durin::VulkanRHI
 		FVulkanPipelineManager(FVulkanDevice& InDevice);
 		~FVulkanPipelineManager();
 
-		auto CreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FVulkanGraphicsPipelineState>;
+		auto CreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer,
+			FGraphicsPipelineStateKey Key) -> TRefCountPtr<FVulkanGraphicsPipelineState>;
 
-		auto FindOrAddLayout(const FVulkanDescriptorSetsLayoutInfo& LayoutInfo) -> FVulkanLayout*;
+		auto FindOrAddLayout(const FVulkanDescriptorSetsLayoutInfo& LayoutInfo) -> std::shared_ptr<FVulkanLayout>;
+		auto GetDriverPipelineCache() const -> vk::PipelineCache { return DriverPipelineCache; }
 	private:
+		struct FLayoutCacheEntry
+		{
+			std::shared_ptr<FVulkanLayout> Layout;
+			uint64 LastUsed = 0;
+		};
+		struct FPipelineCacheEntry
+		{
+			TRefCountPtr<FVulkanGraphicsPipelineState> Pipeline;
+			uint64 LastUsed = 0;
+		};
+
+		auto InitializeDriverPipelineCache() -> void;
+		auto SaveDriverPipelineCache() -> void;
+		auto EvictLayoutIfNeeded() -> bool;
+		auto EvictPipelineIfNeeded() -> bool;
+
 		FVulkanDevice& Device;
 
-		std::unordered_map<FVulkanDescriptorSetsLayoutInfo, std::unique_ptr<FVulkanLayout>> LayoutMap;
+		std::unordered_map<FVulkanDescriptorSetsLayoutInfo, FLayoutCacheEntry> LayoutMap;
+		std::unordered_map<FGraphicsPipelineStateKey, FPipelineCacheEntry, FGraphicsPipelineStateKeyHasher> GraphicsPipelineMap;
+		vk::PipelineCache DriverPipelineCache{};
+		uint64 AccessSerial = 0;
 	};
 
 	// Owns the driver pipeline cache used to accelerate Vulkan pipeline creation.

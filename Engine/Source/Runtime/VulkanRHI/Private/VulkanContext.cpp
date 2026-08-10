@@ -370,11 +370,18 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIBindVertexBuffer(uint32 StreamIndex, FRHIBuffer* InVertexBuffer, uint32 Offset) -> void
 	{
 		CheckVulkanRHIThread();
-		if (InVertexBuffer != nullptr)
+		if (!InVertexBuffer)
 		{
-			vk::Buffer BufferHandle = static_cast<FVulkanBuffer*>(InVertexBuffer)->GetHandle();
-			GetCommandBuffer()->GetHandle().bindVertexBuffers(StreamIndex, BufferHandle, {Offset});
+			BoundVertexBuffers.erase(StreamIndex);
+			return;
 		}
+		checkf(EnumHasAnyFlags(InVertexBuffer->GetUsage(), EBufferUsageFlags::VertexBuffer),
+			"Bound vertex buffer requires VertexBuffer usage.");
+		checkf(Offset <= InVertexBuffer->GetSize(),
+			"Bound vertex buffer offset exceeds the resource.");
+		BoundVertexBuffers[StreamIndex] = {InVertexBuffer, Offset};
+		vk::Buffer BufferHandle = static_cast<FVulkanBuffer*>(InVertexBuffer)->GetHandle();
+		GetCommandBuffer()->GetHandle().bindVertexBuffers(StreamIndex, BufferHandle, {Offset});
 	}
 
 	static constexpr auto DeduceIndexType(uint32 Stride) -> vk::IndexType
@@ -388,11 +395,23 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIBindIndexBuffer(FRHIBuffer* InIndexBuffer, uint32 Offset) -> void
 	{
 		CheckVulkanRHIThread();
-		if (InIndexBuffer != nullptr)
+		if (!InIndexBuffer)
 		{
-			const FVulkanBuffer* IndexBuffer = static_cast<FVulkanBuffer*>(InIndexBuffer);
-			GetCommandBuffer()->GetHandle().bindIndexBuffer(IndexBuffer->GetHandle(), Offset, DeduceIndexType(IndexBuffer->GetStride()));
+			BoundIndexBuffer = nullptr;
+			BoundIndexBufferOffset = 0;
+			return;
 		}
+		checkf(EnumHasAnyFlags(InIndexBuffer->GetUsage(), EBufferUsageFlags::IndexBuffer),
+			"Bound index buffer requires IndexBuffer usage.");
+		checkf((InIndexBuffer->GetStride() == 2 || InIndexBuffer->GetStride() == 4)
+			&& Offset <= InIndexBuffer->GetSize()
+			&& (Offset % InIndexBuffer->GetStride()) == 0,
+			"Bound index buffer requires an aligned uint16 or uint32 format.");
+		BoundIndexBuffer = InIndexBuffer;
+		BoundIndexBufferOffset = Offset;
+		const FVulkanBuffer* IndexBuffer = static_cast<FVulkanBuffer*>(InIndexBuffer);
+		GetCommandBuffer()->GetHandle().bindIndexBuffer(IndexBuffer->GetHandle(), Offset,
+			DeduceIndexType(IndexBuffer->GetStride()));
 	}
 
 	auto FVulkanCommandListContext::RHITransitionBuffers(
@@ -599,11 +618,89 @@ namespace Durin::VulkanRHI
 		PendingGfxState->SetShaderParameters(InShader, InResourceParameters);
 	}
 
-	auto FVulkanCommandListContext::RHIDrawIndexed(uint32 IndexCount, uint32 StartIndexLocation, int32 VertexOffset) -> void
+	auto FVulkanCommandListContext::ValidateDrawBindings(uint32 VertexCount,
+		uint32 InstanceCount, uint32 FirstVertex, uint32 FirstInstance,
+		bool bIndexed) const -> void
+	{
+		const FVulkanGraphicsPipelineState* PipelineState =
+			PendingGfxState->GetPipelineState();
+		checkf(PipelineState, "Draw requires an active graphics pipeline.");
+		std::unordered_set<uint32> ValidatedStreams;
+		for (const FRHIVertexElementIdentity& Element :
+			PipelineState->GetKey().VertexElements)
+		{
+			if (!ValidatedStreams.insert(Element.StreamIndex).second) continue;
+			const auto It = BoundVertexBuffers.find(Element.StreamIndex);
+			checkf(It != BoundVertexBuffers.end() && It->second.Buffer,
+				"Draw is missing required vertex stream {}.", Element.StreamIndex);
+			FRHIBuffer* Buffer = It->second.Buffer;
+			checkf(EnumHasAnyFlags(Buffer->GetUsage(), EBufferUsageFlags::VertexBuffer)
+				&& (Buffer->GetStride() == 0 || Buffer->GetStride() == Element.Stride)
+				&& (It->second.Offset % Element.Stride) == 0,
+				"Draw vertex stream {} is incompatible with the declaration.",
+				Element.StreamIndex);
+			uint64 ElementCount = 1;
+			uint64 FirstElement = 0;
+			if (Element.InputRate == FRHIVertexElementIdentity::EInputRate::Instance)
+			{
+				ElementCount = InstanceCount;
+				FirstElement = FirstInstance;
+			}
+			else if (!bIndexed)
+			{
+				ElementCount = VertexCount;
+				FirstElement = FirstVertex;
+			}
+			const uint64 RequiredElements = FirstElement + ElementCount;
+			checkf(RequiredElements <= (Buffer->GetSize() - It->second.Offset)
+				/ Element.Stride,
+				"Draw vertex stream {} range exceeds the bound buffer.",
+				Element.StreamIndex);
+			const auto* VulkanBuffer = static_cast<const FVulkanBuffer*>(Buffer);
+			ERHIAccess Tracked = ERHIAccess::None;
+			checkf(VulkanBuffer->GetStateTracker().Validate(It->second.Offset,
+				Buffer->GetSize() - It->second.Offset,
+				ERHIAccess::VertexBufferRead, Tracked),
+				"Draw vertex stream is not in VertexBufferRead access.");
+		}
+	}
+
+	auto FVulkanCommandListContext::RHIDraw(const FRHIDrawArguments& Arguments) -> void
 	{
 		CheckVulkanRHIThread();
+		if (Arguments.VertexCount == 0 || Arguments.InstanceCount == 0) return;
+		ValidateDrawBindings(Arguments.VertexCount, Arguments.InstanceCount,
+			Arguments.FirstVertex, Arguments.FirstInstance, false);
 		PendingGfxState->PrepareForDraw(*this);
-		GetCommandBuffer()->GetHandle().drawIndexed(IndexCount, 1, StartIndexLocation, VertexOffset, 0);
+		GetCommandBuffer()->GetHandle().draw(Arguments.VertexCount,
+			Arguments.InstanceCount, Arguments.FirstVertex, Arguments.FirstInstance);
+	}
+
+	auto FVulkanCommandListContext::RHIDrawIndexed(
+		const FRHIDrawIndexedArguments& Arguments) -> void
+	{
+		CheckVulkanRHIThread();
+		if (Arguments.IndexCount == 0 || Arguments.InstanceCount == 0) return;
+		checkf(BoundIndexBuffer, "Indexed draw requires a bound index buffer.");
+		const uint64 AvailableIndices =
+			(BoundIndexBuffer->GetSize() - BoundIndexBufferOffset)
+			/ BoundIndexBuffer->GetStride();
+		checkf(static_cast<uint64>(Arguments.FirstIndex) + Arguments.IndexCount
+			<= AvailableIndices, "Indexed draw range exceeds the bound index buffer.");
+		const auto* VulkanIndexBuffer =
+			static_cast<const FVulkanBuffer*>(BoundIndexBuffer);
+		ERHIAccess Tracked = ERHIAccess::None;
+		checkf(VulkanIndexBuffer->GetStateTracker().Validate(
+			BoundIndexBufferOffset,
+			BoundIndexBuffer->GetSize() - BoundIndexBufferOffset,
+			ERHIAccess::IndexBufferRead, Tracked),
+			"Indexed draw buffer is not in IndexBufferRead access.");
+		ValidateDrawBindings(Arguments.IndexCount, Arguments.InstanceCount, 0,
+			Arguments.FirstInstance, true);
+		PendingGfxState->PrepareForDraw(*this);
+		GetCommandBuffer()->GetHandle().drawIndexed(Arguments.IndexCount,
+			Arguments.InstanceCount, Arguments.FirstIndex, Arguments.VertexOffset,
+			Arguments.FirstInstance);
 	}
 
 	auto FVulkanCommandListContext::GetCommandBuffer() -> FVulkanCommandBuffer*

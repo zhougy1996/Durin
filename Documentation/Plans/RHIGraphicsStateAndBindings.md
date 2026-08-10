@@ -4,8 +4,8 @@ Summary: Complete the portable graphics pipeline, draw, vertex-instancing, and r
 
 Last reviewed: 2026-08-10
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-10
 
 ## Current Status
 
@@ -43,9 +43,105 @@ structural but unbounded, graphics pipelines are created per request without a
 driver cache, and per-pipeline descriptor snapshots use a linear, frame-cleared
 cache with no public bounds or hit/miss/creation statistics.
 
-Stage 0 is active. It freezes the portable fixed-state and binding vocabulary,
-the full immutable PSO identity, deterministic validation order, cache budgets,
-and persistent driver-cache compatibility key before public APIs change.
+Stage 5 is complete. Stage 3 removed the unused binding-set surface, added fixed
+C++ resource-array metadata and element-wise lowering, and made the active PSO
+layout authoritative for update and pre-draw completeness validation. Pending
+and cached snapshots retain canonical views/resources, and Vulkan writes exact
+array elements. `RHICommandListTests` passed 54/54,
+`RenderShaderContractTests` passed 27/27, and
+`VulkanRHIIntegrationTests` passed 26/26 including a two-element hardware
+descriptor-array draw on the windows-msvc-x64 Debug Editor profile. Stage 4
+added collision-checked indexed descriptor snapshots with per-context
+512-entry/8192-value LRU bounds, 256 structural-layout and 2048 graphics-PSO
+cache bounds, cache-only eviction, one device-owned persisted Vulkan driver
+cache, and resettable public cache statistics. `RHICommandListTests` passed
+54/54, `RenderShaderContractTests` passed 27/27,
+`VulkanRHIIntegrationTests` passed 26/26, and
+`RendererResourceReloadVulkanTests` passed 1/1 on the same profile. Stage 5
+audited the nine consumer families: every PSO request reaches canonical RHI
+key construction and every resource-bearing draw uses reflected
+`SetShaderParameters`; no renderer-local descriptor path remains. The hardware
+consumer pass found and fixed raw vertex buffers whose stride is intentionally
+owned by the vertex declaration. `SkyBoxVulkanIntegrationTests` passed 1/1,
+`StaticMeshRenderPreparationVulkanTests` passed 1/1, `EditorRenderingTests`
+passed 38/38, and `MaterialTests` passed 78/78. The reload workload also proved
+an identical forced shader rebuild hits the PSO cache without another native
+creation; graphics PSO and structural-layout occupancy stayed below capacity
+with zero eviction. `VulkanRHIIntegrationTests` passed 26/26 with a combined
+two-color-attachment, D24S8 depth/stencil draw and color readback in addition
+to the descriptor-array, blend, wireframe, non-indexed, indexed, and instanced
+coverage.
+
+Stage 6 published the lasting
+[Graphics State and Bindings](../Runtime/Rendering/GraphicsStateAndBindings.md)
+contract and recorded the M3 handoff in the RHI/Vulkan roadmap. Final
+qualification passed the complete native aggregate and full
+`Win64-Debug-DurinEditor` `all` build. The Sandbox hidden-window runtime ran
+three ticks and completed orderly shutdown with no assertion, error, or Vulkan
+validation diagnostic. That smoke initially exposed a partial stage-update
+lifetime gap for transient canonical texture views; Vulkan pending state now
+constructs the replacement owner set before releasing the previous one, and
+the Vulkan hardware test reproduces this update ordering explicitly.
+
+## Frozen M3 Contract
+
+Stage 0 selected the following exact public vocabulary. Rasterizer state carries
+polygon mode, none/front/back culling, front face, depth-clamp enable, depth-bias
+enable plus constant/clamp/slope factors, and line width. Multisample state
+carries raster samples and alpha-to-coverage. Depth/stencil state carries depth
+test/write and the standard eight compare operations, stencil enable, independent
+front/back compare and fail/pass/depth-fail operations, compare/write masks, and
+reference. Blend state is an eight-entry color-attachment array; every entry has
+independent enable, color/alpha factors and operations, and RGBA write mask.
+Vertex elements carry stream stride and `Vertex` or unit-divisor `Instance`
+input rate. Draw submission uses `FRHIDrawArguments` and
+`FRHIDrawIndexedArguments`, including count, instance count, first location,
+signed base vertex where applicable, and first instance.
+
+Canonical graphics identity contains shader content hashes and frequencies,
+render-target compatibility, structural vertex elements, merged reflected
+layout, topology, rasterizer, multisample, depth/stencil, and exactly the active
+blend entries. Inactive attachments and disabled depth, stencil, blend, bias,
+and non-line fields canonicalize to their published defaults before hashing.
+Hash equality is never sufficient for reuse; structural equality confirms every
+hit. Validation order is structural enums/counts, shader stages and reflected
+interfaces, render-target/sample compatibility, vertex streams and attributes,
+then capability/limit admission. Backend creation is attempted only after all
+five classes pass.
+
+One resolved descriptor value is identified by set, binding, array element, and
+type. Fixed C++ arrays flatten in element order; scalars use element zero.
+Updates are last-write-wins for the same complete location. Before draw, the
+active layout is walked in set/binding/element order and every declared element
+must have one non-null, type-compatible value. Dynamic offsets are validated and
+ordered by that same walk but excluded from immutable descriptor identity.
+Changing layouts selects a distinct snapshot and cannot inherit values from an
+incompatible layout.
+
+The unused `FRHIBindingSet`, `BindingSetDesc`, `FBindingSetItem`, resource-type
+enumerator, and reference alias have no source, test, or documentation consumers
+and are selected for removal. Compute will reuse the stage-neutral reflected
+location and cache-statistics vocabulary; M4 may replace frame generations with
+completion evidence without changing binding identity.
+
+M3 uses conservative bounds above the inventoried nine-family baseline: 512
+descriptor snapshots and 8,192 descriptor values per command context and frame
+pool generation, 256 structural layouts per device, and 2,048 graphics PSOs per
+device. All use deterministic LRU eviction, with monotonically increasing access
+serial and canonical-key order as the tie-breaker; an entry with external owners
+is skipped. Statistics accumulate for the device lifetime and can be explicitly
+reset without clearing caches. The snapshot exposes capacity, occupancy, hits,
+misses, native creations, evictions, pool expansions/allocations, and failed
+candidates. These bounds provide more than 4x headroom over the audited fixed
+consumer families and expected material/state variants; Stage 5 captures must
+remain below 75% occupancy without sustained eviction.
+
+The optional driver cache uses schema version 1 at
+`Saved/Vulkan/PipelineCache-v1.bin`, capped at 16 MiB. Compatibility requires the
+Vulkan header version, vendor ID, device ID, pipeline-cache UUID, and the M3 key
+schema. Missing, stale, corrupt, oversized, read-only, or driver-rejected data is
+one nonfatal diagnostic per load/save boundary. Publication uses the repository
+atomic byte-file replacement contract; failure preserves the previous file.
 
 ## Goal
 
@@ -241,14 +337,14 @@ bounded, observable, failure-atomic, and independent of raw-handle identity.
 
 - [x] Inventory all graphics PSO consumers, their state dimensions, reflected
   layouts, draw forms, and renderer ownership boundaries.
-- [ ] Freeze the exact enum/descriptor shapes for rasterizer, multisample,
+- [x] Freeze the exact enum/descriptor shapes for rasterizer, multisample,
   depth/stencil, per-attachment blend, vertex input rate, and draw arguments.
-- [ ] Freeze canonical PSO and descriptor-snapshot identity, shader-interface
+- [x] Freeze canonical PSO and descriptor-snapshot identity, shader-interface
   validation, required-binding completeness, array lowering, and rejection
   order.
-- [ ] Confirm removal of the unused counted binding-set placeholder at all
+- [x] Confirm removal of the unused counted binding-set placeholder at all
   source, test, and documentation call sites.
-- [ ] Select concrete cache entry/byte budgets, eviction rules, statistics
+- [x] Select concrete cache entry/byte budgets, eviction rules, statistics
   reset semantics, persistent-cache path/key/version, and corruption/oversize
   behavior from representative workload captures.
 
@@ -261,14 +357,14 @@ bounded, observable, failure-atomic, and independent of raw-handle identity.
 
 ### Stage 1: Complete portable graphics state and PSO validation
 
-- [ ] Expand public fixed-state descriptors and canonical defaults, including
+- [x] Expand public fixed-state descriptors and canonical defaults, including
   front/back stencil and per-active-attachment blend/write state.
-- [ ] Add structural equality/hash helpers and full immutable PSO key creation
+- [x] Add structural equality/hash helpers and full immutable PSO key creation
   without raw native-handle identity.
-- [ ] Validate shader stages/interfaces, render-target compatibility, samples,
+- [x] Validate shader stages/interfaces, render-target compatibility, samples,
   vertex declarations, state enums, feature/limit admission, and inactive
   canonical fields before backend creation.
-- [ ] Add focused RHI unit tests for valid identity differences, canonical
+- [x] Add focused RHI unit tests for valid identity differences, canonical
   equivalence, overflow/limit rejection, attachment mismatches, and stable
   diagnostic order.
 
@@ -280,15 +376,15 @@ bounded, observable, failure-atomic, and independent of raw-handle identity.
 
 ### Stage 2: Add vertex instancing and complete draw commands
 
-- [ ] Add vertex/instance input-rate semantics and validate stream stride,
+- [x] Add vertex/instance input-rate semantics and validate stream stride,
   rate, divisor, attributes, formats, and shader interface.
-- [ ] Add recorded non-indexed and complete indexed draw arguments, including
+- [x] Add recorded non-indexed and complete indexed draw arguments, including
   instance count and first instance, to context and regular/immediate lists.
-- [ ] Retain bound vertex/index buffers and validate usage, alignment, checked
+- [x] Retain bound vertex/index buffers and validate usage, alignment, checked
   ranges, required streams, and render-pass/PSO ordering before replay.
-- [ ] Implement Vulkan vertex-input rates and exact `draw`/`drawIndexed`
+- [x] Implement Vulkan vertex-input rates and exact `draw`/`drawIndexed`
   lowering with no hidden state or synchronization.
-- [ ] Add fake-context inline/threaded parity tests and hardware-backed output
+- [x] Add fake-context inline/threaded parity tests and hardware-backed output
   coverage for non-indexed, indexed, base-vertex, and instanced draws.
 
 #### Acceptance Gate
@@ -299,16 +395,16 @@ bounded, observable, failure-atomic, and independent of raw-handle identity.
 
 ### Stage 3: Make reflected bindings and descriptor arrays complete
 
-- [ ] Remove the unused `FRHIBindingSet` surface and extend resolved parameter
+- [x] Remove the unused `FRHIBindingSet` surface and extend resolved parameter
   payloads with explicit array elements and counted ownership.
-- [ ] Flatten fixed-size C++ resource arrays from metadata, preserve reflection
+- [x] Flatten fixed-size C++ resource arrays from metadata, preserve reflection
   count/type, and record deterministic full-location updates.
-- [ ] Add active-layout validation for set/binding/element/type, required
+- [x] Add active-layout validation for set/binding/element/type, required
   completeness, dynamic-offset order/alignment, view usage, and cross-stage
   overlap before draw.
-- [ ] Implement Vulkan descriptor-array writes with stable backing storage and
+- [x] Implement Vulkan descriptor-array writes with stable backing storage and
   exact destination array elements/counts.
-- [ ] Add tests for full and partial updates, replacement, missing/null/wrong
+- [x] Add tests for full and partial updates, replacement, missing/null/wrong
   resources, out-of-range elements, layout switches, cross-stage overlap,
   retained lifetime, and inline/threaded parity.
 
@@ -321,17 +417,17 @@ bounded, observable, failure-atomic, and independent of raw-handle identity.
 
 ### Stage 4: Bound Vulkan descriptor and pipeline caching
 
-- [ ] Replace linear descriptor-snapshot lookup with the selected bounded key,
+- [x] Replace linear descriptor-snapshot lookup with the selected bounded key,
   collision equality, deterministic eviction, retained-resource ownership, and
   pool-generation invalidation.
-- [ ] Bound structural layout and graphics-PSO caches using canonical keys and
+- [x] Bound structural layout and graphics-PSO caches using canonical keys and
   safe eviction of cache-only entries.
-- [ ] Route all graphics pipeline creation through one device-owned Vulkan
+- [x] Route all graphics pipeline creation through one device-owned Vulkan
   driver cache; validate/load compatible blobs and atomically publish bounded
   data at the selected lifecycle boundary.
-- [ ] Expose the selected cache, pool, allocation, hit/miss, creation, eviction,
+- [x] Expose the selected cache, pool, allocation, hit/miss, creation, eviction,
   failure, and persistence counters without a GPU wait.
-- [ ] Add failure injection and stress tests for hash collisions, capacity,
+- [x] Add failure injection and stress tests for hash collisions, capacity,
   eviction/recreation, pool expansion, resource replacement, corrupt/stale/
   oversized blobs, unwritable storage, and shutdown.
 
@@ -344,14 +440,14 @@ bounded, observable, failure-atomic, and independent of raw-handle identity.
 
 ### Stage 5: Migrate representative consumers and prove the baseline
 
-- [ ] Migrate all nine inventoried families to canonical PSO creation and
+- [x] Migrate all nine inventoried families to canonical PSO creation and
   complete binding validation without renderer-local descriptor escape hatches.
-- [ ] Add representative opaque, masked, translucent/blended, depth-only or
+- [x] Add representative opaque, masked, translucent/blended, depth-only or
   depth/stencil, MRT, wireframe/line, non-indexed, indexed, instanced, and
   descriptor-array render cases.
-- [ ] Verify current static mesh, sky box, post process, editor assistance,
+- [x] Verify current static mesh, sky box, post process, editor assistance,
   ImGui, and Texture Preview resource replacement/failure behavior.
-- [ ] Capture cache occupancy/hit/miss/creation evidence from representative
+- [x] Capture cache occupancy/hit/miss/creation evidence from representative
   editor frames and confirm the Stage 0 budgets do not churn normal workloads.
 
 #### Acceptance Gate
@@ -363,16 +459,16 @@ bounded, observable, failure-atomic, and independent of raw-handle identity.
 
 ### Stage 6: Qualify M3 and publish lasting contracts
 
-- [ ] Run focused RHI, RenderCore, Renderer, editor-rendering, and Vulkan suites
+- [x] Run focused RHI, RenderCore, Renderer, editor-rendering, and Vulkan suites
   in inline and threaded modes where supported.
-- [ ] Run graphics, material, texture, MRT/MSAA/depth, viewport, failure,
+- [x] Run graphics, material, texture, MRT/MSAA/depth, viewport, failure,
   replacement, and shutdown regressions through DurinDevTool.
-- [ ] Run the required native aggregate, full Debug Editor `all` build, and
+- [x] Run the required native aggregate, full Debug Editor `all` build, and
   validation-clean hidden-window runtime smoke because M3 is user-visible
   editor rendering work spanning multiple native targets.
-- [ ] Publish lasting graphics pipeline, draw, binding, and cache behavior under
+- [x] Publish lasting graphics pipeline, draw, binding, and cache behavior under
   `Documentation/Runtime/Rendering/` and update direct related contracts.
-- [ ] Update the RHI/Vulkan roadmap with M3 completion evidence and the stable
+- [x] Update the RHI/Vulkan roadmap with M3 completion evidence and the stable
   M5 handoff; do not activate M4 or M5 from this stage without its entry gate.
 
 #### Acceptance Gate

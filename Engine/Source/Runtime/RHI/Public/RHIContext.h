@@ -46,6 +46,7 @@ namespace Durin
 		virtual auto RHIBlockUntilGPUIdle() -> void = 0;
 		virtual auto RHIPushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void = 0;
 		virtual auto RHISetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void = 0;
-		virtual auto RHIDrawIndexed(uint32 IndexCount, uint32 StartIndexLocation, int32 VertexOffset) -> void = 0;
+		virtual auto RHIDraw(const FRHIDrawArguments& Arguments) -> void = 0;
+		virtual auto RHIDrawIndexed(const FRHIDrawIndexedArguments& Arguments) -> void = 0;
 	};
 }

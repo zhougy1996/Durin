@@ -86,7 +86,10 @@ namespace Durin
 			std::span<const FRHIBufferTextureCopyRegion> Regions) -> void;
 		RHI_API auto CopyTexture(FRHITexture* Source, FRHITexture* Destination,
 			std::span<const FRHITextureCopyRegion> Regions) -> void;
-		RHI_API auto DrawIndexed(uint32 IndexCount, uint32 StartIndexLocation, int32 VertexOffset) -> void;
+		RHI_API auto Draw(const FRHIDrawArguments& Arguments) -> void;
+		RHI_API auto DrawIndexed(const FRHIDrawIndexedArguments& Arguments) -> void;
+		RHI_API auto DrawIndexed(uint32 IndexCount, uint32 StartIndexLocation,
+			int32 VertexOffset) -> void;
 		RHI_API auto SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;
 		RHI_API auto SetScissor(float MinX, float MinY, float Width, float Height) -> void;
 		RHI_API auto WriteBuffer(FRHIBuffer* Buffer, const void* Data, uint32 Size, uint32 OffsetBytes) -> void;

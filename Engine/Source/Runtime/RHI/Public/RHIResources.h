@@ -13,6 +13,7 @@ namespace Durin
 	class FRHIBuffer;
 	class FRHITextureView;
 	class FDynamicRHI;
+	struct FRHICapabilities;
 	class FTextureReference;
 
 	// Identifies the concrete resource category tracked by the RHI lifetime system.
@@ -27,7 +28,6 @@ namespace Durin
 		Sampler,
 		Shader,
 		VertexDeclaration,
-		BindingSet,
 		PipelineState,
 	};
 
@@ -60,6 +60,9 @@ namespace Durin
 	public:
 		FORCEINLINE auto AddRef() const -> uint32
 		{
+			checkf(AtomicFlags.CanAddRef(std::memory_order_relaxed),
+				"Cannot add a reference after deferred deletion begins: resource={}, type={}.",
+				static_cast<const void*>(this), static_cast<uint32>(ResourceType));
 			return AtomicFlags.AddRef();
 		}
 
@@ -160,6 +163,12 @@ namespace Durin
 			auto IsUnpublished(std::memory_order MemoryOrder) const -> bool
 			{
 				return Packed.load(MemoryOrder) == 0;
+			}
+
+			auto CanAddRef(std::memory_order MemoryOrder) const -> bool
+			{
+				return (Packed.load(MemoryOrder)
+					& (MarkedForDeleteBit | DeletingBit)) == 0;
 			}
 
 			auto BeginDelete() -> bool
@@ -895,6 +904,8 @@ namespace Durin
 		EShaderStageFlags StageFlags;
 		uint32 Offset;
 		uint32 Size;
+
+		auto operator==(const FPushConstantRange&) const -> bool = default;
 	};
 
 	// Describes one resource slot within a descriptor-set layout.
@@ -912,12 +923,16 @@ namespace Durin
 			, ArraySize(InArraySize)
 		{
 		}
+
+		auto operator==(const FBindingLayoutItem&) const -> bool = default;
 	};
 
 	// Defines all resource bindings belonging to one descriptor set.
 	struct FBindingLayout
 	{
 		std::vector<FBindingLayoutItem> BindingLayouts;
+
+		auto operator==(const FBindingLayout&) const -> bool = default;
 	};
 
 	// Describes descriptor sets and push constants shared by a graphics pipeline.
@@ -925,13 +940,8 @@ namespace Durin
 	{
 		std::vector<FBindingLayout> BindingLayouts;
 		std::vector<FPushConstantRange> PushConstantRanges;
-	};
 
-	// Associates an RHI resource with one binding slot in a descriptor set.
-	struct FBindingSetItem
-	{
-		FRHIResource* Resource;
-		uint32 BindingSlot;
+		auto operator==(const FPipelineLayoutDesc&) const -> bool = default;
 	};
 
 	// References a byte range within a uniform buffer, including dynamic allocations.
@@ -948,22 +958,6 @@ namespace Durin
 		FRHIBuffer* Buffer = nullptr;
 		uint32 Offset = 0;
 		uint32 Size = 0;
-	};
-
-	// Collects the concrete resources used to create or resolve a binding set.
-	struct BindingSetDesc
-	{
-		std::vector<FBindingSetItem> Bindings;
-	};
-
-	// Represents a backend descriptor set containing concrete shader resources.
-	class FRHIBindingSet : public FRHIResource
-	{
-	public:
-		FRHIBindingSet()
-			: FRHIResource(ERHIResourceType::BindingSet)
-		{
-		}
 	};
 
 	// Selects texel reconstruction filtering for a sampler.
@@ -1118,6 +1112,7 @@ namespace Durin
 	enum class ERHICullMode : uint8
 	{
 		None,
+		Front,
 		Back,
 		Count,
 	};
@@ -1134,37 +1129,105 @@ namespace Durin
 		ERHIPolygonMode PolygonMode = ERHIPolygonMode::Fill;
 		ERHICullMode CullMode = ERHICullMode::Back;
 		ERHIFrontFace FrontFace = ERHIFrontFace::Clockwise;
+		bool bEnableDepthClamp = false;
+		bool bEnableDepthBias = false;
+		float DepthBiasConstantFactor = 0.0f;
+		float DepthBiasClamp = 0.0f;
+		float DepthBiasSlopeFactor = 0.0f;
+		float LineWidth = 1.0f;
 
 		auto operator==(const FRHIRasterizerState&) const -> bool = default;
 	};
 
 	enum class ERHIDepthCompareOp : uint8
 	{
+		Never,
 		Less,
+		Equal,
+		LessOrEqual,
+		Greater,
+		NotEqual,
+		GreaterOrEqual,
+		Always,
 		Count,
 	};
 
-	struct FRHIDepthState
+	enum class ERHIStencilOp : uint8
+	{
+		Keep,
+		Zero,
+		Replace,
+		IncrementClamp,
+		DecrementClamp,
+		Invert,
+		IncrementWrap,
+		DecrementWrap,
+		Count,
+	};
+
+	// Defines one independently configured face of stencil testing.
+	struct FRHIStencilFaceState
+	{
+		ERHIDepthCompareOp CompareOp = ERHIDepthCompareOp::Always;
+		ERHIStencilOp FailOp = ERHIStencilOp::Keep;
+		ERHIStencilOp PassOp = ERHIStencilOp::Keep;
+		ERHIStencilOp DepthFailOp = ERHIStencilOp::Keep;
+
+		auto operator==(const FRHIStencilFaceState&) const -> bool = default;
+	};
+
+	// Defines immutable depth and independent front/back stencil behavior.
+	struct FRHIDepthStencilState
 	{
 		bool bEnableTest = false;
 		bool bEnableWrite = false;
 		ERHIDepthCompareOp CompareOp = ERHIDepthCompareOp::Less;
+		bool bEnableStencil = false;
+		FRHIStencilFaceState FrontFace;
+		FRHIStencilFaceState BackFace;
+		uint32 StencilCompareMask = 0xff;
+		uint32 StencilWriteMask = 0xff;
+		uint32 StencilReference = 0;
 
-		auto operator==(const FRHIDepthState&) const -> bool = default;
+		auto operator==(const FRHIDepthStencilState&) const -> bool = default;
+	};
+
+	// Defines immutable multisample behavior and must match the pass layout.
+	struct FRHIMultisampleState
+	{
+		uint8 RasterSamples = 1;
+		bool bEnableAlphaToCoverage = false;
+
+		auto operator==(const FRHIMultisampleState&) const -> bool = default;
 	};
 
 	enum class ERHIBlendFactor : uint8
 	{
 		Zero,
 		One,
+		SrcColor,
+		OneMinusSrcColor,
+		DstColor,
+		OneMinusDstColor,
 		SrcAlpha,
 		OneMinusSrcAlpha,
+		DstAlpha,
+		OneMinusDstAlpha,
+		ConstantColor,
+		OneMinusConstantColor,
+		ConstantAlpha,
+		OneMinusConstantAlpha,
+		SrcAlphaSaturate,
 		Count,
 	};
 
 	enum class ERHIBlendOp : uint8
 	{
 		Add,
+		Subtract,
+		ReverseSubtract,
+		Min,
+		Max,
 		Count,
 	};
 
@@ -1221,9 +1284,12 @@ namespace Durin
 
 		FRHIRasterizerState RasterizerState;
 
-		FRHIDepthState DepthState;
+		FRHIMultisampleState MultisampleState;
 
-		FRHIColorBlendState ColorBlendState;
+		FRHIDepthStencilState DepthStencilState;
+
+		std::array<FRHIColorBlendState, MaxSimultaneousRenderTargets>
+			ColorBlendStates{};
 
 		// Defines how submitted vertices are assembled into primitives.
 		enum class EPrimitiveTopology : uint8
@@ -1235,32 +1301,80 @@ namespace Durin
 
 		EPrimitiveTopology PrimitiveTopology = EPrimitiveTopology::TriangleList;
 
-		auto IsValid() const -> bool
-		{
-			const auto IsBlendFactorValid = [](ERHIBlendFactor Factor) {
-				return Factor < ERHIBlendFactor::Count;
-			};
-			const uint8 ColorWriteMaskValue =
-				static_cast<uint8>(ColorBlendState.ColorWriteMask);
-			return BoundShaders.VertexShader != nullptr
-				&& BoundShaders.FragmentShader != nullptr
-				&& VertexDeclaration != nullptr
-				&& RenderTargetLayout.IsValid()
-				&& RasterizerState.PolygonMode < ERHIPolygonMode::Count
-				&& RasterizerState.CullMode < ERHICullMode::Count
-				&& RasterizerState.FrontFace < ERHIFrontFace::Count
-				&& DepthState.CompareOp < ERHIDepthCompareOp::Count
-				&& IsBlendFactorValid(ColorBlendState.SrcColorFactor)
-				&& IsBlendFactorValid(ColorBlendState.DstColorFactor)
-				&& ColorBlendState.ColorOp < ERHIBlendOp::Count
-				&& IsBlendFactorValid(ColorBlendState.SrcAlphaFactor)
-				&& IsBlendFactorValid(ColorBlendState.DstAlphaFactor)
-				&& ColorBlendState.AlphaOp < ERHIBlendOp::Count
-				&& (ColorWriteMaskValue
-					& ~static_cast<uint8>(ERHIColorWriteMask::All)) == 0
-				&& PrimitiveTopology < EPrimitiveTopology::Count;
-		}
+		RHI_API auto IsValid() const -> bool;
 	};
+
+	// Stores one canonical vertex element without backend object identity.
+	struct FRHIVertexElementIdentity
+	{
+		uint8 StreamIndex = 0;
+		uint8 Offset = 0;
+		EVertexElementType Type = EVertexElementType::None;
+		uint8 AttributeIndex = 0;
+		uint16 Stride = 0;
+		enum class EInputRate : uint8
+		{
+			Vertex,
+			Instance,
+			Count,
+		};
+		EInputRate InputRate = EInputRate::Vertex;
+
+		auto operator==(const FRHIVertexElementIdentity&) const -> bool = default;
+	};
+
+	// Describes one non-indexed direct draw, including instancing.
+	struct FRHIDrawArguments
+	{
+		uint32 VertexCount = 0;
+		uint32 InstanceCount = 1;
+		uint32 FirstVertex = 0;
+		uint32 FirstInstance = 0;
+
+		auto operator==(const FRHIDrawArguments&) const -> bool = default;
+	};
+
+	// Describes one indexed direct draw, including base vertex and instancing.
+	struct FRHIDrawIndexedArguments
+	{
+		uint32 IndexCount = 0;
+		uint32 InstanceCount = 1;
+		uint32 FirstIndex = 0;
+		int32 VertexOffset = 0;
+		uint32 FirstInstance = 0;
+
+		auto operator==(const FRHIDrawIndexedArguments&) const -> bool = default;
+	};
+
+	// Canonical immutable identity used by graphics-pipeline caches.
+	struct FGraphicsPipelineStateKey
+	{
+		FXxHash128 VertexShaderHash;
+		FXxHash128 FragmentShaderHash;
+		FRHIRenderTargetLayout RenderTargetLayout;
+		std::vector<FRHIVertexElementIdentity> VertexElements;
+		FPipelineLayoutDesc PipelineLayout;
+		FRHIRasterizerState RasterizerState;
+		FRHIMultisampleState MultisampleState;
+		FRHIDepthStencilState DepthStencilState;
+		std::vector<FRHIColorBlendState> ColorBlendStates;
+		FGraphicsPipelineStateInitializer::EPrimitiveTopology PrimitiveTopology =
+			FGraphicsPipelineStateInitializer::EPrimitiveTopology::TriangleList;
+
+		auto operator==(const FGraphicsPipelineStateKey&) const -> bool = default;
+	};
+
+	struct FGraphicsPipelineStateKeyHasher
+	{
+		RHI_API auto operator()(const FGraphicsPipelineStateKey& Key) const -> size_t;
+	};
+
+	// Validates and canonicalizes one complete graphics initializer.
+	RHI_API auto BuildGraphicsPipelineStateKey(
+		const FGraphicsPipelineStateInitializer& Initializer,
+		const FRHICapabilities* Capabilities,
+		FGraphicsPipelineStateKey& OutKey,
+		std::string& OutError) -> bool;
 
 	// Describes the byte size, element stride, and allowed usages of a buffer.
 	struct FRHIBufferDesc
@@ -1579,7 +1693,6 @@ namespace Durin
 		}
 	};
 
-	using FBindingSetRHIRef = TRefCountPtr<FRHIBindingSet>;
 	using FVertexDeclarationRHIRef = TRefCountPtr<FRHIVertexDeclaration>;
 	using FViewportRHIRef = TRefCountPtr<FRHIViewport>;
 	using FTextureRHIRef = TRefCountPtr<FRHITexture>;

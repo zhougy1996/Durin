@@ -9,6 +9,34 @@
 
 namespace Durin
 {
+	// Reports one bounded cache's current occupancy and lifetime counters.
+	struct FRHICacheStatistics
+	{
+		uint64 Capacity = 0;
+		uint64 Occupancy = 0;
+		uint64 Hits = 0;
+		uint64 Misses = 0;
+		uint64 NativeCreations = 0;
+		uint64 Evictions = 0;
+		uint64 FailedCandidates = 0;
+	};
+
+	// Snapshots graphics cache, descriptor-pool, and persistence behavior without a GPU wait.
+	struct FRHIGraphicsCacheStatistics
+	{
+		FRHICacheStatistics DescriptorSnapshots;
+		FRHICacheStatistics StructuralLayouts;
+		FRHICacheStatistics GraphicsPipelines;
+		uint64 DescriptorValueCapacity = 0;
+		uint64 DescriptorValueOccupancy = 0;
+		uint64 DescriptorAllocations = 0;
+		uint64 DescriptorPoolExpansions = 0;
+		uint64 PersistentLoads = 0;
+		uint64 PersistentSaves = 0;
+		uint64 PersistentRejects = 0;
+		uint64 PersistentBytes = 0;
+	};
+
 	// Defines the backend-neutral device interface used to create resources and submit frame work.
 	class FDynamicRHI
 	{
@@ -20,6 +48,10 @@ namespace Durin
 		virtual auto Init() -> void = 0;
 		virtual auto Shutdown() -> void = 0;
 		RHI_API auto RHIGetCapabilities() const -> const FRHICapabilities*;
+		// Counters accumulate for the device lifetime until explicitly reset.
+		RHI_API virtual auto RHIGetGraphicsCacheStatistics() const -> FRHIGraphicsCacheStatistics;
+		// Clears accumulated counters while preserving capacities and live occupancy.
+		RHI_API virtual auto RHIResetGraphicsCacheStatistics() -> void;
 
 		virtual auto RHIBeginFrame(const FRHIBeginFrameArgs& Args) -> void = 0;
 		RHI_API virtual auto RHIBeginFrame_RenderThread(

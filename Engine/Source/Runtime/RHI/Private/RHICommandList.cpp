@@ -744,28 +744,34 @@ namespace Durin
 			std::vector<FRHITextureCopyRegion> Regions;
 		};
 
+		struct FDrawCommand
+		{
+			explicit FDrawCommand(FRHIDrawArguments InArguments)
+				: Arguments(InArguments) {}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetGraphicsContext("Draw")
+					.RHIDraw(Arguments);
+			}
+
+			FRHIDrawArguments Arguments;
+		};
+
 		struct FDrawIndexedCommand
 		{
-			FDrawIndexedCommand(
-				uint32 InIndexCount,
-				uint32 InStartIndexLocation,
-				int32 InVertexOffset)
-				: IndexCount(InIndexCount)
-				, StartIndexLocation(InStartIndexLocation)
-				, VertexOffset(InVertexOffset)
-			{
-			}
+			explicit FDrawIndexedCommand(FRHIDrawIndexedArguments InArguments)
+				: Arguments(InArguments) {}
 
 			auto Execute(void* ReplayContext) -> void
 			{
 				GetReplayContext(ReplayContext)
 					.GetGraphicsContext("DrawIndexed")
-					.RHIDrawIndexed(IndexCount, StartIndexLocation, VertexOffset);
+					.RHIDrawIndexed(Arguments);
 			}
 
-			uint32 IndexCount;
-			uint32 StartIndexLocation;
-			int32 VertexOffset;
+			FRHIDrawIndexedArguments Arguments;
 		};
 
 		struct FSetViewportCommand
@@ -1432,11 +1438,28 @@ namespace Durin
 		RecordCommand<FCopyTextureCommand>(Source, Destination, Regions);
 	}
 
-	auto FRHICommandListBase::DrawIndexed(uint32 IndexCount, uint32 StartIndexLocation, int32 VertexOffset) -> void
+	auto FRHICommandListBase::Draw(const FRHIDrawArguments& Arguments) -> void
+	{
+		checkf(ActivePipeline == ERHIPipeline::Graphics,
+			"Draw requires an active graphics pipeline while recording.");
+		if (Arguments.VertexCount == 0 || Arguments.InstanceCount == 0) return;
+		RecordCommand<FDrawCommand>(Arguments);
+	}
+
+	auto FRHICommandListBase::DrawIndexed(
+		const FRHIDrawIndexedArguments& Arguments) -> void
 	{
 		checkf(ActivePipeline == ERHIPipeline::Graphics,
 			"DrawIndexed requires an active graphics pipeline while recording.");
-		RecordCommand<FDrawIndexedCommand>(IndexCount, StartIndexLocation, VertexOffset);
+		if (Arguments.IndexCount == 0 || Arguments.InstanceCount == 0) return;
+		RecordCommand<FDrawIndexedCommand>(Arguments);
+	}
+
+	auto FRHICommandListBase::DrawIndexed(uint32 IndexCount,
+		uint32 StartIndexLocation, int32 VertexOffset) -> void
+	{
+		DrawIndexed({.IndexCount = IndexCount, .FirstIndex = StartIndexLocation,
+			.VertexOffset = VertexOffset});
 	}
 
 	auto FRHICommandListBase::SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void

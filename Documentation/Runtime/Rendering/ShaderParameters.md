@@ -30,7 +30,7 @@ The current design moves those responsibilities into the shader system:
 4. Callers build a typed `FParameters` struct and call the typed `SetShaderParameters(...)` helper.
 5. The helper converts the typed struct into compact resolved `FRHIShaderParameterResource` entries.
 6. `FVulkanCommandListContext` merges those entries into pending draw-state bindings.
-7. `RHIDrawIndexed()` asks Vulkan to find or create descriptor sets for the current pending bindings and current pipeline layout.
+7. `Draw()` or `DrawIndexed()` asks Vulkan to find or create descriptor sets for the current pending bindings and current pipeline layout.
 8. Vulkan binds the descriptor sets and submits the draw.
 
 ## Public Types
@@ -56,6 +56,7 @@ Describes a resolved runtime binding:
 - `Offset`
 - `SetIndex`
 - `BindingIndex`
+- `ArrayElement`
 - `Type`
 - `ArraySize`
 
@@ -182,34 +183,39 @@ The new design keeps:
 
 Merge rule:
 
-- if a `(SetIndex, BindingIndex)` pair is not present, append it
-- if the pair already exists, overwrite the existing record
+- if a `(SetIndex, BindingIndex, ArrayElement)` location is not present, append it
+- if the location already exists, overwrite the existing record
 
 This allows multiple `SetShaderParameters(...)` calls before a draw. Later calls replace only the exact binding they touch; unrelated bindings remain live.
 
 ### Descriptor Set Cache
 
-The command context stores a frame-local linear cache:
+The command context stores a frame-generation-local indexed cache:
 
-- layout hash
 - resource hash
 - sorted resource records
 - allocated descriptor sets
+- retained resource owners
+- least-recently-used serial
 
 `GetOrCreateDescriptorSetsForDraw()` performs:
 
-1. read the current pipeline layout hash
-2. sort pending resource records by `(SetIndex, BindingIndex)`
-3. compute a hash from layout hash + binding coordinates + binding type + resource pointer identity
-4. search the per-frame cache for an exact match
+1. validate complete occupancy against the active PSO layout
+2. sort pending resource records by `(SetIndex, BindingIndex, ArrayElement)`
+3. compute a hash from binding coordinates, binding type, view/resource identity, and immutable range data
+4. search the indexed hash candidates and confirm complete equality
 5. reuse descriptor sets on hit
 6. allocate descriptor sets and write descriptors on miss
 
-The cache lifetime is intentionally frame-local. `RHIBeginFrame()` clears it, and the descriptor pool is also reset per frame.
+The cache lifetime is intentionally tied to the frame-pool generation.
+`RHIBeginFrame()` clears it before the corresponding descriptor pool is reset.
+One command context is bounded to 512 entries and 8192 descriptor values;
+least-recently-used eviction releases retained resources when either bound is
+reached.
 
 ### Draw-Time Materialization
 
-`RHIDrawIndexed()` does three things in order:
+`Draw()` and `DrawIndexed()` do three things in order:
 
 1. prepare non-descriptor pipeline state such as viewport and scissor
 2. fetch cached or newly-built descriptor sets for the current pending bindings
@@ -294,15 +300,15 @@ These tests live in:
 
 ## Current Limitations
 
-This is still a staged design, not the final end-state.
+This remains a staged design rather than the final compute/bindless end-state.
 
 - parameter structs currently model resource bindings only
 - uniform bytes are not yet modeled as a typed parameter block
 - push constants remain a separate manual path
 - compute pipeline support has not been wired into this submission model
-- array bindings beyond the existing reflection validation path are not yet expanded into higher-level typed helpers
-- descriptor cache eviction is frame-local and linear, which is simple but not yet optimized for very large descriptor churn
-- caching uses resource pointer identity; it assumes stable object identity for the bound RHI resources during a frame
+- bindless and partially-bound arrays are not supported
+- compute pipelines have not yet consumed the shared reflected snapshot model
+- GPU-completion-token retirement may replace frame-generation invalidation later
 
 ## Practical Guidance
 

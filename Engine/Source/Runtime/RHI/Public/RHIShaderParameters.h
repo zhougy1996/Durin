@@ -59,8 +59,17 @@ namespace Durin
 		FRHIResource* Resource = nullptr;
 		uint32 SetIndex = 0;
 		uint32 BindingIndex = 0;
+		uint32 ArrayElement = 0;
 		ERHIBindingType Type = ERHIBindingType::UniformBuffer;
 		uint32 Offset = 0;
 		uint32 Size = 0;
 	};
+
+	RHI_API auto ValidateShaderParameterUpdate(const FPipelineLayoutDesc& Layout,
+		EShaderStageFlags ShaderStage,
+		std::span<const FRHIShaderParameterResource> Resources,
+		std::string& OutError) -> bool;
+	RHI_API auto ValidateShaderBindingCompleteness(const FPipelineLayoutDesc& Layout,
+		std::span<const FRHIShaderParameterResource> Resources,
+		std::string& OutError) -> bool;
 } // namespace Durin

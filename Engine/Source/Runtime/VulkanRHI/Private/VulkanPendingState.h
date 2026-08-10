@@ -7,11 +7,13 @@ namespace Durin::VulkanRHI
 	class FVulkanCommandListContext;
 	class FVulkanDevice;
 	class FVulkanGraphicsPipelineState;
+	class FVulkanPendingGraphicsState;
 
 	// Descriptor state owned by one graphics PSO within a command context.
 	class FVulkanGraphicsPipelineDescriptorState
 	{
 	public:
+		explicit FVulkanGraphicsPipelineDescriptorState(FVulkanPendingGraphicsState& InOwner) : Owner(InOwner) {}
 		// Retains resolved descriptor sets and dynamic offsets for one draw submission.
 		struct FDescriptorSetsForDraw
 		{
@@ -35,10 +37,13 @@ namespace Durin::VulkanRHI
 		{
 			uint64 Hash = 0;
 			std::vector<FRHIShaderParameterResource> Resources;
+			std::vector<TRefCountPtr<FRHIResource>> ResourceOwners;
 			std::vector<vk::DescriptorSet> DescriptorSets;
+			uint64 LastUsed = 0;
 		};
 
 		auto CalculatePendingDescriptorHash() const -> uint64;
+		auto RebuildCacheIndex() -> void;
 
 		static auto AreDescriptorResourcesEqual(
 			const std::vector<FRHIShaderParameterResource>& A,
@@ -46,8 +51,13 @@ namespace Durin::VulkanRHI
 		) -> bool;
 
 		std::vector<FRHIShaderParameterResource> PendingShaderResources;
+		std::vector<TRefCountPtr<FRHIResource>> PendingResourceOwners;
 
 		std::vector<FVulkanDescriptorSetCacheEntry> DescriptorSetCache;
+		std::unordered_multimap<uint64, size_t> DescriptorSetCacheIndex;
+		FVulkanPendingGraphicsState& Owner;
+
+		friend class FVulkanPendingGraphicsState;
 	};
 
 	// Accumulates graphics bindings and applies only dirty state before a draw.
@@ -81,9 +91,13 @@ namespace Durin::VulkanRHI
 		auto GetPipelineState() const -> FVulkanGraphicsPipelineState* { return CurrentPipelineState; }
 
 	private:
+		friend class FVulkanGraphicsPipelineDescriptorState;
 		auto SetScissorRect(uint32 MinX, uint32 MinY, uint32 Width, uint32 Height) -> void;
 
 		auto FindOrAddDescriptorState(FVulkanGraphicsPipelineState& InPipelineState) -> FVulkanGraphicsPipelineDescriptorState&;
+		auto TouchDescriptorCacheEntry(FVulkanGraphicsPipelineDescriptorState::FVulkanDescriptorSetCacheEntry& Entry) -> void;
+		auto EnforceDescriptorCacheBudget() -> void;
+		auto RefreshDescriptorCacheOccupancy() -> void;
 
 		FVulkanDevice& Device;
 
@@ -97,5 +111,6 @@ namespace Durin::VulkanRHI
 
 		// Owns descriptor states by raw pointer; Reset deletes every value.
 		std::unordered_map<FVulkanGraphicsPipelineState*, FVulkanGraphicsPipelineDescriptorState*> PipelineStates;
+		uint64 DescriptorAccessSerial = 0;
 	};
 } // namespace Durin::VulkanRHI

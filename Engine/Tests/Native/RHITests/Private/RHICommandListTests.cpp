@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "RHICommandList.h"
+#include "RHI.h"
 #include "RHIContext.h"
 #include "RHIThread.h"
 #include "Threading/ThreadEvent.h"
@@ -47,6 +47,36 @@ namespace Durin
 					"TestBuffer", Size, 1, EBufferUsageFlags::VertexBuffer))
 			{
 			}
+		};
+
+		class FTestShader final : public FRHIShader
+		{
+		public:
+			FTestShader(EShaderFrequency Frequency, uint64 Hash)
+				: FRHIShader(FRHIShaderDesc(Frequency, FXxHash128{Hash, 0}))
+			{
+			}
+		};
+
+		class FTestVertexDeclaration final : public FRHIVertexDeclaration
+		{
+		public:
+			FTestVertexDeclaration()
+			{
+				Elements[0] = FVertexElement(0, 0, EVertexElementType::Float3, 0, 12);
+			}
+			explicit FTestVertexDeclaration(FVertexDeclarationElementList InElements)
+				: Elements(std::move(InElements))
+			{
+			}
+
+			auto GetElements() const -> const FVertexDeclarationElementList& override
+			{
+				return Elements;
+			}
+
+		private:
+			FVertexDeclarationElementList Elements{};
 		};
 
 		class FRecordingCommandContext final : public IRHICommandContext
@@ -222,9 +252,15 @@ namespace Durin
 				ObservedShader = InShader;
 				ObservedShaderParameters.assign(InParameters.begin(), InParameters.end());
 			}
-			auto RHIDrawIndexed(uint32 IndexCount, uint32, int32) -> void override
+			auto RHIDraw(const FRHIDrawArguments& Arguments) -> void override
 			{
-				Operations.emplace_back("Draw" + std::to_string(IndexCount));
+				Operations.emplace_back("Draw" + std::to_string(Arguments.VertexCount));
+				ObservedDrawArguments = Arguments;
+			}
+			auto RHIDrawIndexed(const FRHIDrawIndexedArguments& Arguments) -> void override
+			{
+				Operations.emplace_back("Draw" + std::to_string(Arguments.IndexCount));
+				ObservedDrawIndexedArguments = Arguments;
 			}
 
 			std::vector<std::string> Operations;
@@ -235,6 +271,8 @@ namespace Durin
 			std::vector<uint8> ObservedPushConstants;
 			FRHIShader* ObservedShader = nullptr;
 			std::vector<FRHIShaderParameterResource> ObservedShaderParameters;
+			std::optional<FRHIDrawArguments> ObservedDrawArguments;
+			std::optional<FRHIDrawIndexedArguments> ObservedDrawIndexedArguments;
 			FRHIBuffer* ObservedBuffer = nullptr;
 			uint32 ObservedBufferOffset = 0;
 			std::vector<uint8> ObservedBufferData;
@@ -1065,6 +1103,27 @@ namespace Durin
 			(std::vector<std::string>{"Viewport0", "Scissor1", "Draw2"}));
 	}
 
+	TEST(FRHICommandListTests, CompleteDrawArgumentsReplayWithoutLoss)
+	{
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		FRHICommandListImmediate& Immediate = Executor.GetImmediateCommandList();
+		Immediate.SwitchPipeline(ERHIPipeline::Graphics);
+		const size_t BeforeNoOps = Immediate.GetNumRecordedCommands();
+		Immediate.Draw({.VertexCount = 0, .InstanceCount = 4});
+		Immediate.DrawIndexed({.IndexCount = 4, .InstanceCount = 0});
+		EXPECT_EQ(Immediate.GetNumRecordedCommands(), BeforeNoOps);
+
+		const FRHIDrawArguments DrawArguments{7, 3, 2, 5};
+		const FRHIDrawIndexedArguments IndexedArguments{9, 4, 6, -2, 8};
+		Immediate.Draw(DrawArguments);
+		Immediate.DrawIndexed(IndexedArguments);
+		Executor.Submit({}, ERHISubmitFlags::None);
+
+		EXPECT_EQ(Context.ObservedDrawArguments, DrawArguments);
+		EXPECT_EQ(Context.ObservedDrawIndexedArguments, IndexedArguments);
+	}
+
 	TEST(FRHICommandListTests, GraphicsPayloadsAreOwnedUntilReplay)
 	{
 		FRecordingCommandContext Context;
@@ -1085,8 +1144,13 @@ namespace Durin
 		PassInfo.ColorRenderTargets[0] = Texture.GetReference();
 		PassInfo.ColorClearValues[0] = FClearValueBinding(1, 2, 3, 4);
 		std::vector<uint8> PushBytes{1, 2, 3, 4};
-		std::vector<FRHIShaderParameterResource> Parameters{{
-			Buffer.GetReference(), 1, 2, ERHIBindingType::UniformBuffer, 16, 32}};
+		std::vector<FRHIShaderParameterResource> Parameters{
+			{.Resource = Buffer.GetReference(), .SetIndex = 1, .BindingIndex = 2,
+				.ArrayElement = 0, .Type = ERHIBindingType::UniformBuffer,
+				.Offset = 16, .Size = 32},
+			{.Resource = Buffer.GetReference(), .SetIndex = 1, .BindingIndex = 2,
+				.ArrayElement = 1, .Type = ERHIBindingType::UniformBuffer,
+				.Offset = 16, .Size = 32}};
 
 		Immediate.SwitchPipeline(ERHIPipeline::Graphics);
 		Immediate.SetGraphicsPipelineState(*PipelineState);
@@ -1111,11 +1175,13 @@ namespace Durin
 		EXPECT_EQ(Context.ObservedColorTarget, Texture.GetReference());
 		EXPECT_EQ(Context.ObservedClearValue, (std::array<float, 4>{1, 2, 3, 4}));
 		EXPECT_EQ(Context.ObservedPushConstants, (std::vector<uint8>{1, 2, 3, 4}));
-		ASSERT_EQ(Context.ObservedShaderParameters.size(), 1u);
+		ASSERT_EQ(Context.ObservedShaderParameters.size(), 2u);
 		EXPECT_EQ(Context.ObservedShader, Shader.GetReference());
 		ASSERT_EQ(Context.ObservedShaderParameters[0].Resource->GetResourceType(), ERHIResourceType::BufferView);
 		EXPECT_EQ(static_cast<FRHIBufferView*>(Context.ObservedShaderParameters[0].Resource)->GetBuffer(), Buffer.GetReference());
 		EXPECT_EQ(Context.ObservedShaderParameters[0].BindingIndex, 2u);
+		EXPECT_EQ(Context.ObservedShaderParameters[0].ArrayElement, 0u);
+		EXPECT_EQ(Context.ObservedShaderParameters[1].ArrayElement, 1u);
 		RHIFlushDeferredResources();
 		EXPECT_EQ(Texture->GetRefCount(), 1u);
 		EXPECT_EQ(Buffer->GetRefCount(), 1u);
@@ -1447,40 +1513,41 @@ namespace Durin
 		FGraphicsPipelineStateInitializer Second;
 
 		EXPECT_EQ(First.RasterizerState, Second.RasterizerState);
-		EXPECT_EQ(First.DepthState, Second.DepthState);
-		EXPECT_EQ(First.ColorBlendState, Second.ColorBlendState);
+		EXPECT_EQ(First.MultisampleState, Second.MultisampleState);
+		EXPECT_EQ(First.DepthStencilState, Second.DepthStencilState);
+		EXPECT_EQ(First.ColorBlendStates, Second.ColorBlendStates);
 		EXPECT_EQ(First.RasterizerState.PolygonMode, ERHIPolygonMode::Fill);
 		EXPECT_EQ(First.RasterizerState.CullMode, ERHICullMode::Back);
 		EXPECT_EQ(First.RasterizerState.FrontFace, ERHIFrontFace::Clockwise);
-		EXPECT_FALSE(First.DepthState.bEnableTest);
-		EXPECT_FALSE(First.DepthState.bEnableWrite);
-		EXPECT_EQ(First.DepthState.CompareOp, ERHIDepthCompareOp::Less);
-		EXPECT_FALSE(First.ColorBlendState.bEnable);
-		EXPECT_EQ(First.ColorBlendState.ColorWriteMask,
+		EXPECT_FALSE(First.DepthStencilState.bEnableTest);
+		EXPECT_FALSE(First.DepthStencilState.bEnableWrite);
+		EXPECT_EQ(First.DepthStencilState.CompareOp, ERHIDepthCompareOp::Less);
+		EXPECT_FALSE(First.ColorBlendStates[0].bEnable);
+		EXPECT_EQ(First.ColorBlendStates[0].ColorWriteMask,
 			ERHIColorWriteMask::All);
 
-		Second.ColorBlendState = FRHIColorBlendState::StraightAlpha();
-		EXPECT_NE(First.ColorBlendState, Second.ColorBlendState);
-		EXPECT_TRUE(Second.ColorBlendState.bEnable);
-		EXPECT_EQ(Second.ColorBlendState.SrcColorFactor,
+		Second.ColorBlendStates[0] = FRHIColorBlendState::StraightAlpha();
+		EXPECT_NE(First.ColorBlendStates, Second.ColorBlendStates);
+		EXPECT_TRUE(Second.ColorBlendStates[0].bEnable);
+		EXPECT_EQ(Second.ColorBlendStates[0].SrcColorFactor,
 			ERHIBlendFactor::SrcAlpha);
-		EXPECT_EQ(Second.ColorBlendState.DstColorFactor,
+		EXPECT_EQ(Second.ColorBlendStates[0].DstColorFactor,
 			ERHIBlendFactor::OneMinusSrcAlpha);
-		EXPECT_EQ(Second.ColorBlendState.SrcAlphaFactor,
+		EXPECT_EQ(Second.ColorBlendStates[0].SrcAlphaFactor,
 			ERHIBlendFactor::One);
-		EXPECT_EQ(Second.ColorBlendState.DstAlphaFactor,
+		EXPECT_EQ(Second.ColorBlendStates[0].DstAlphaFactor,
 			ERHIBlendFactor::OneMinusSrcAlpha);
 	}
 
 	TEST(FRHICommandListTests, GraphicsPipelineInitializerRejectsUnsupportedState)
 	{
 		FGraphicsPipelineStateInitializer Initializer;
-		Initializer.BoundShaders.VertexShader =
-			reinterpret_cast<FRHIShader*>(uintptr_t{1});
-		Initializer.BoundShaders.FragmentShader =
-			reinterpret_cast<FRHIShader*>(uintptr_t{2});
-		Initializer.VertexDeclaration =
-			reinterpret_cast<FRHIVertexDeclaration*>(uintptr_t{3});
+		FTestShader VertexShader(EShaderFrequency::Vertex, 1);
+		FTestShader FragmentShader(EShaderFrequency::Fragment, 2);
+		FTestVertexDeclaration VertexDeclaration;
+		Initializer.BoundShaders.VertexShader = &VertexShader;
+		Initializer.BoundShaders.FragmentShader = &FragmentShader;
+		Initializer.VertexDeclaration = &VertexDeclaration;
 		Initializer.RenderTargetLayout.NumColorRenderTargets = 1;
 		auto& Attachment = Initializer.RenderTargetLayout
 			.ColorAttachments[0].RenderTarget;
@@ -1496,11 +1563,101 @@ namespace Durin
 		Initializer.RasterizerState.CullMode = ERHICullMode::Count;
 		EXPECT_FALSE(Initializer.IsValid());
 		Initializer.RasterizerState.CullMode = ERHICullMode::None;
-		Initializer.ColorBlendState.SrcColorFactor = ERHIBlendFactor::Count;
+		Initializer.ColorBlendStates[0].SrcColorFactor = ERHIBlendFactor::Count;
 		EXPECT_FALSE(Initializer.IsValid());
-		Initializer.ColorBlendState.SrcColorFactor = ERHIBlendFactor::One;
+		Initializer.ColorBlendStates[0].SrcColorFactor = ERHIBlendFactor::One;
 		Initializer.PrimitiveTopology =
 			FGraphicsPipelineStateInitializer::EPrimitiveTopology::Count;
 		EXPECT_FALSE(Initializer.IsValid());
+	}
+
+	TEST(FRHICommandListTests, GraphicsPipelineKeyCanonicalizesInactiveState)
+	{
+		FTestShader VertexShader(EShaderFrequency::Vertex, 11);
+		FTestShader FragmentShader(EShaderFrequency::Fragment, 12);
+		FTestVertexDeclaration VertexDeclaration;
+		FGraphicsPipelineStateInitializer First;
+		First.BoundShaders = {&VertexShader, &FragmentShader};
+		First.VertexDeclaration = &VertexDeclaration;
+		First.RenderTargetLayout.NumColorRenderTargets = 1;
+		auto& Attachment = First.RenderTargetLayout.ColorAttachments[0].RenderTarget;
+		Attachment.Format = EPixelFormat::RGBA8_UNORM;
+		Attachment.FinalLayout = ERHITextureLayout::ShaderReadOnly;
+		Attachment.FinalAccess = ERHIAccess::GraphicsShaderRead;
+		FGraphicsPipelineStateInitializer Second = First;
+		Second.RasterizerState.DepthBiasConstantFactor = 9.0f;
+		Second.ColorBlendStates[0].SrcColorFactor = ERHIBlendFactor::DstColor;
+		Second.ColorBlendStates[1] = FRHIColorBlendState::StraightAlpha();
+		Second.RenderTargetLayout.ColorAttachments[1].RenderTarget.Format =
+			EPixelFormat::BGRA8_UNORM;
+
+		FGraphicsPipelineStateKey FirstKey;
+		FGraphicsPipelineStateKey SecondKey;
+		std::string Error;
+		ASSERT_TRUE(BuildGraphicsPipelineStateKey(First, nullptr, FirstKey, Error)) << Error;
+		ASSERT_TRUE(BuildGraphicsPipelineStateKey(Second, nullptr, SecondKey, Error)) << Error;
+		EXPECT_EQ(FirstKey, SecondKey);
+		EXPECT_EQ(FGraphicsPipelineStateKeyHasher{}(FirstKey),
+			FGraphicsPipelineStateKeyHasher{}(SecondKey));
+
+		Second.ColorBlendStates[0].ColorWriteMask = ERHIColorWriteMask::Red;
+		ASSERT_TRUE(BuildGraphicsPipelineStateKey(Second, nullptr, SecondKey, Error)) << Error;
+		EXPECT_NE(FirstKey, SecondKey);
+	}
+
+	TEST(FRHICommandListTests, GraphicsPipelineKeyValidatesVertexStreamRates)
+	{
+		FTestShader VertexShader(EShaderFrequency::Vertex, 21);
+		FTestShader FragmentShader(EShaderFrequency::Fragment, 22);
+		FVertexDeclarationElementList Elements{};
+		Elements[0] = FVertexElement(0, 0, EVertexElementType::Float3, 0, 24,
+			FRHIVertexElementIdentity::EInputRate::Vertex);
+		Elements[1] = FVertexElement(0, 12, EVertexElementType::Float3, 1, 24,
+			FRHIVertexElementIdentity::EInputRate::Instance);
+		FTestVertexDeclaration VertexDeclaration(std::move(Elements));
+		FGraphicsPipelineStateInitializer Initializer;
+		Initializer.BoundShaders = {&VertexShader, &FragmentShader};
+		Initializer.VertexDeclaration = &VertexDeclaration;
+		Initializer.RenderTargetLayout.NumColorRenderTargets = 1;
+		auto& Attachment = Initializer.RenderTargetLayout.ColorAttachments[0].RenderTarget;
+		Attachment.Format = EPixelFormat::RGBA8_UNORM;
+		Attachment.FinalLayout = ERHITextureLayout::ShaderReadOnly;
+		Attachment.FinalAccess = ERHIAccess::GraphicsShaderRead;
+		FGraphicsPipelineStateKey Key;
+		std::string Error;
+		EXPECT_FALSE(BuildGraphicsPipelineStateKey(Initializer, nullptr, Key, Error));
+		EXPECT_EQ(Error,
+			"Graphics pipeline vertex stream stride or input rate is inconsistent.");
+	}
+
+	TEST(FRHICommandListTests, ReflectedBindingArraysValidateUpdateAndCompleteness)
+	{
+		FPipelineLayoutDesc Layout;
+		Layout.BindingLayouts.emplace_back().BindingLayouts.emplace_back(
+			EShaderStageFlags::Fragment, 3, ERHIBindingType::Sampler, 2);
+		std::array<FRHIShaderParameterResource, 2> Resources{
+			FRHIShaderParameterResource{
+				.Resource = reinterpret_cast<FRHIResource*>(uintptr_t{1}),
+				.SetIndex = 0, .BindingIndex = 3, .ArrayElement = 0,
+				.Type = ERHIBindingType::Sampler},
+			FRHIShaderParameterResource{
+				.Resource = reinterpret_cast<FRHIResource*>(uintptr_t{2}),
+				.SetIndex = 0, .BindingIndex = 3, .ArrayElement = 1,
+				.Type = ERHIBindingType::Sampler}};
+		std::string Error;
+		EXPECT_TRUE(ValidateShaderParameterUpdate(Layout,
+			EShaderStageFlags::Fragment, Resources, Error)) << Error;
+		EXPECT_TRUE(ValidateShaderBindingCompleteness(Layout, Resources, Error))
+			<< Error;
+
+		Resources[1].ArrayElement = 2;
+		EXPECT_FALSE(ValidateShaderParameterUpdate(Layout,
+			EShaderStageFlags::Fragment, Resources, Error));
+		Resources[1].ArrayElement = 0;
+		EXPECT_FALSE(ValidateShaderBindingCompleteness(Layout, Resources, Error));
+		Resources[1].ArrayElement = 1;
+		Resources[1].Type = ERHIBindingType::Texture;
+		EXPECT_FALSE(ValidateShaderParameterUpdate(Layout,
+			EShaderStageFlags::Fragment, Resources, Error));
 	}
 } // namespace Durin

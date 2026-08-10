@@ -578,55 +578,60 @@ namespace Durin
 			);
 		}
 
-		constexpr size_t InlineParameterCapacity = 8;
-		std::array<FRHIShaderParameterResource, InlineParameterCapacity> InlineParameters;
-		std::vector<FRHIShaderParameterResource> OverflowParameters;
-
-		FRHIShaderParameterResource* ResourceParameters = nullptr;
-		if (ParameterBindings.size() <= InlineParameterCapacity)
-		{
-			ResourceParameters = InlineParameters.data();
-		}
-		else
-		{
-			OverflowParameters.resize(ParameterBindings.size());
-			ResourceParameters = OverflowParameters.data();
-		}
+		size_t ResolvedCount = 0;
+		for (const FShaderParameterBinding& Binding : ParameterBindings)
+			ResolvedCount += Binding.ArraySize;
+		std::vector<FRHIShaderParameterResource> ResourceParameters;
+		ResourceParameters.reserve(ResolvedCount);
 
 		const auto* ParameterBytes = reinterpret_cast<const uint8*>(ParameterData);
 		for (size_t BindingIndex = 0; BindingIndex < ParameterBindings.size(); ++BindingIndex)
 		{
 			const FShaderParameterBinding& Binding = ParameterBindings[BindingIndex];
-			checkf(Binding.Offset < ParametersMetadata.StructSize, "Shader parameter binding offset is out of bounds");
-			FRHIShaderParameterResource& ResourceParameter = ResourceParameters[BindingIndex];
-			ResourceParameter.SetIndex = Binding.SetIndex;
-			ResourceParameter.BindingIndex = Binding.BindingIndex;
-			ResourceParameter.Type = Binding.Type;
-
-			if (Binding.Type == ERHIBindingType::UniformBuffer || Binding.Type == ERHIBindingType::UniformBufferDynamic)
+			const size_t ElementSize = Binding.Type == ERHIBindingType::UniformBuffer
+				|| Binding.Type == ERHIBindingType::UniformBufferDynamic
+					? sizeof(FRHIUniformBufferRange)
+					: Binding.Type == ERHIBindingType::StorageBuffer
+						? sizeof(FRHIStorageBufferRange) : sizeof(FRHIResource*);
+			checkf(Binding.ArraySize > 0 && Binding.Offset <= ParametersMetadata.StructSize
+				&& static_cast<size_t>(Binding.ArraySize) * ElementSize
+					<= ParametersMetadata.StructSize - Binding.Offset,
+				"Shader parameter binding array is out of bounds");
+			for (uint32 ArrayElement = 0; ArrayElement < Binding.ArraySize;
+				++ArrayElement)
 			{
-				const auto* UniformBufferRange = reinterpret_cast<const FRHIUniformBufferRange*>(ParameterBytes + Binding.Offset);
-				ResourceParameter.Resource = UniformBufferRange->Buffer;
-				ResourceParameter.Offset = UniformBufferRange->Offset;
-				ResourceParameter.Size = UniformBufferRange->Size;
-			}
-			else if (Binding.Type == ERHIBindingType::StorageBuffer)
-			{
-				const auto* StorageBufferRange = reinterpret_cast<const FRHIStorageBufferRange*>(ParameterBytes + Binding.Offset);
-				ResourceParameter.Resource = StorageBufferRange->Buffer;
-				ResourceParameter.Offset = StorageBufferRange->Offset;
-				ResourceParameter.Size = StorageBufferRange->Size;
-			}
-			else
-			{
-				const auto* ResourceField = reinterpret_cast<FRHIResource* const*>(ParameterBytes + Binding.Offset);
-				ResourceParameter.Resource = *ResourceField;
-				ResourceParameter.Offset = 0;
-				ResourceParameter.Size = 0;
+				FRHIShaderParameterResource& ResourceParameter =
+					ResourceParameters.emplace_back();
+				ResourceParameter.SetIndex = Binding.SetIndex;
+				ResourceParameter.BindingIndex = Binding.BindingIndex;
+				ResourceParameter.ArrayElement = ArrayElement;
+				ResourceParameter.Type = Binding.Type;
+				const uint8* ElementBytes = ParameterBytes + Binding.Offset
+					+ static_cast<size_t>(ArrayElement) * ElementSize;
+				if (Binding.Type == ERHIBindingType::UniformBuffer
+					|| Binding.Type == ERHIBindingType::UniformBufferDynamic)
+				{
+					const auto* Range = reinterpret_cast<const FRHIUniformBufferRange*>(ElementBytes);
+					ResourceParameter.Resource = Range->Buffer;
+					ResourceParameter.Offset = Range->Offset;
+					ResourceParameter.Size = Range->Size;
+				}
+				else if (Binding.Type == ERHIBindingType::StorageBuffer)
+				{
+					const auto* Range = reinterpret_cast<const FRHIStorageBufferRange*>(ElementBytes);
+					ResourceParameter.Resource = Range->Buffer;
+					ResourceParameter.Offset = Range->Offset;
+					ResourceParameter.Size = Range->Size;
+				}
+				else
+				{
+					ResourceParameter.Resource =
+						*reinterpret_cast<FRHIResource* const*>(ElementBytes);
+				}
 			}
 		}
 
-		RHICmdList.SetShaderParameters(RHIShader, std::span(ResourceParameters, ParameterBindings.size()));
+		RHICmdList.SetShaderParameters(RHIShader, ResourceParameters);
 	}
 
 	auto MakeShaderCreateDesc(const FCompiledShader& CompiledShader) -> FRHIShaderCreateDesc

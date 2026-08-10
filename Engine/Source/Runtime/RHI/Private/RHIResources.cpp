@@ -1,5 +1,8 @@
 #include "RHIResources.h"
 
+#include "RHI.h"
+#include "RHICapabilities.h"
+
 #include "Math/Operations.h"
 
 #include "Math/Vector.h"
@@ -8,6 +11,74 @@ namespace Durin
 {
 	namespace
 	{
+		auto IsValidSampleCount(uint8 Samples) -> bool
+		{
+			return Samples == 1 || Samples == 2 || Samples == 4
+				|| Samples == 8 || Samples == 16;
+		}
+
+		auto SampleCountFlag(uint8 Samples) -> ERHISampleCountFlags
+		{
+			switch (Samples)
+			{
+			case 1: return ERHISampleCountFlags::Samples1;
+			case 2: return ERHISampleCountFlags::Samples2;
+			case 4: return ERHISampleCountFlags::Samples4;
+			case 8: return ERHISampleCountFlags::Samples8;
+			case 16: return ERHISampleCountFlags::Samples16;
+			default: return ERHISampleCountFlags::None;
+			}
+		}
+
+		auto GetVertexElementSize(EVertexElementType Type) -> uint32
+		{
+			switch (Type)
+			{
+			case EVertexElementType::Float1:
+			case EVertexElementType::PackedNormal:
+			case EVertexElementType::UByte4:
+			case EVertexElementType::UByte4N:
+			case EVertexElementType::Color:
+			case EVertexElementType::Short2:
+			case EVertexElementType::Short2N:
+			case EVertexElementType::Half2:
+			case EVertexElementType::UShort2:
+			case EVertexElementType::UShort2N:
+			case EVertexElementType::URGB10A2N:
+			case EVertexElementType::UInt: return 4;
+			case EVertexElementType::Float2:
+			case EVertexElementType::Short4:
+			case EVertexElementType::Short4N:
+			case EVertexElementType::Half4:
+			case EVertexElementType::UShort4:
+			case EVertexElementType::UShort4N: return 8;
+			case EVertexElementType::Float3: return 12;
+			case EVertexElementType::Float4: return 16;
+			default: return 0;
+			}
+		}
+
+		template<typename TValue>
+		auto HashValue(FXxHash64Builder& Builder, const TValue& Value) -> void
+		{
+			Builder.UpdateValue(Value);
+		}
+
+		auto HashAttachment(FXxHash64Builder& Builder,
+			const FRHIAttachmentLayout& Attachment) -> void
+		{
+			HashValue(Builder, Attachment.Format);
+			HashValue(Builder, Attachment.NumSamples);
+			HashValue(Builder, Attachment.LoadAction);
+			HashValue(Builder, Attachment.StoreAction);
+			HashValue(Builder, Attachment.StencilLoadAction);
+			HashValue(Builder, Attachment.StencilStoreAction);
+			HashValue(Builder, Attachment.InitialLayout);
+			HashValue(Builder, Attachment.FinalLayout);
+			HashValue(Builder, Attachment.InitialAccess);
+			HashValue(Builder, Attachment.FinalAccess);
+		}
+
 		constexpr ERHIAccess ReadAccessMask = ERHIAccess::VertexBufferRead
 			| ERHIAccess::IndexBufferRead
 			| ERHIAccess::GraphicsUniformRead
@@ -130,6 +201,368 @@ namespace Durin
 				&& (Access == ERHIAccess::ColorAttachmentReadWrite || Access == ERHIAccess::Present)) return false;
 			return true;
 		}
+	}
+
+	auto FGraphicsPipelineStateInitializer::IsValid() const -> bool
+	{
+		FGraphicsPipelineStateKey IgnoredKey;
+		std::string IgnoredError;
+		return BuildGraphicsPipelineStateKey(*this, nullptr, IgnoredKey,
+			IgnoredError);
+	}
+
+	auto ValidateShaderParameterUpdate(const FPipelineLayoutDesc& Layout,
+		EShaderStageFlags ShaderStage,
+		std::span<const FRHIShaderParameterResource> Resources,
+		std::string& OutError) -> bool
+	{
+		auto Fail = [&OutError](const char* Message) {
+			OutError = Message;
+			return false;
+		};
+		if (ShaderStage != EShaderStageFlags::Vertex
+			&& ShaderStage != EShaderStageFlags::Fragment)
+			return Fail("Shader parameter update stage is invalid.");
+		for (const FRHIShaderParameterResource& Resource : Resources)
+		{
+			if (Resource.SetIndex >= Layout.BindingLayouts.size())
+				return Fail("Shader parameter set is outside the active pipeline layout.");
+			const FBindingLayout& Set = Layout.BindingLayouts[Resource.SetIndex];
+			const auto BindingIt = std::ranges::find(Set.BindingLayouts,
+				Resource.BindingIndex, &FBindingLayoutItem::Slot);
+			if (BindingIt == Set.BindingLayouts.end()
+				|| BindingIt->Type != Resource.Type
+				|| Resource.ArrayElement >= BindingIt->ArraySize
+				|| !EnumHasAnyFlags(BindingIt->StageFlags, ShaderStage))
+				return Fail("Shader parameter location, element, type, or stage is incompatible with the active pipeline layout.");
+		}
+		OutError.clear();
+		return true;
+	}
+
+	auto ValidateShaderBindingCompleteness(const FPipelineLayoutDesc& Layout,
+		std::span<const FRHIShaderParameterResource> Resources,
+		std::string& OutError) -> bool
+	{
+		for (uint32 SetIndex = 0; SetIndex < Layout.BindingLayouts.size(); ++SetIndex)
+		{
+			for (const FBindingLayoutItem& Binding :
+				Layout.BindingLayouts[SetIndex].BindingLayouts)
+			{
+				for (uint32 ArrayElement = 0; ArrayElement < Binding.ArraySize;
+					++ArrayElement)
+				{
+					const auto It = std::ranges::find_if(Resources,
+						[=](const FRHIShaderParameterResource& Resource) {
+							return Resource.SetIndex == SetIndex
+								&& Resource.BindingIndex == Binding.Slot
+								&& Resource.ArrayElement == ArrayElement;
+						});
+					if (It == Resources.end() || !It->Resource
+						|| It->Type != Binding.Type)
+					{
+						OutError = "Draw is missing a required shader binding element.";
+						return false;
+					}
+				}
+			}
+		}
+		OutError.clear();
+		return true;
+	}
+
+	auto BuildGraphicsPipelineStateKey(
+		const FGraphicsPipelineStateInitializer& Initializer,
+		const FRHICapabilities* Capabilities,
+		FGraphicsPipelineStateKey& OutKey,
+		std::string& OutError) -> bool
+	{
+		auto Fail = [&OutError](const char* Message) {
+			OutError = Message;
+			return false;
+		};
+		const auto IsCompareValid = [](ERHIDepthCompareOp Op) {
+			return Op < ERHIDepthCompareOp::Count;
+		};
+		const auto IsStencilFaceValid = [&](const FRHIStencilFaceState& Face) {
+			return IsCompareValid(Face.CompareOp)
+				&& Face.FailOp < ERHIStencilOp::Count
+				&& Face.PassOp < ERHIStencilOp::Count
+				&& Face.DepthFailOp < ERHIStencilOp::Count;
+		};
+		const auto IsBlendValid = [](const FRHIColorBlendState& Blend) {
+			const uint8 Mask = static_cast<uint8>(Blend.ColorWriteMask);
+			return Blend.SrcColorFactor < ERHIBlendFactor::Count
+				&& Blend.DstColorFactor < ERHIBlendFactor::Count
+				&& Blend.ColorOp < ERHIBlendOp::Count
+				&& Blend.SrcAlphaFactor < ERHIBlendFactor::Count
+				&& Blend.DstAlphaFactor < ERHIBlendFactor::Count
+				&& Blend.AlphaOp < ERHIBlendOp::Count
+				&& (Mask & ~static_cast<uint8>(ERHIColorWriteMask::All)) == 0;
+		};
+
+		if (Initializer.RasterizerState.PolygonMode >= ERHIPolygonMode::Count
+			|| Initializer.RasterizerState.CullMode >= ERHICullMode::Count
+			|| Initializer.RasterizerState.FrontFace >= ERHIFrontFace::Count
+			|| !std::isfinite(Initializer.RasterizerState.DepthBiasConstantFactor)
+			|| !std::isfinite(Initializer.RasterizerState.DepthBiasClamp)
+			|| !std::isfinite(Initializer.RasterizerState.DepthBiasSlopeFactor)
+			|| !std::isfinite(Initializer.RasterizerState.LineWidth)
+			|| Initializer.RasterizerState.LineWidth <= 0.0f
+			|| Initializer.PrimitiveTopology >= FGraphicsPipelineStateInitializer::EPrimitiveTopology::Count
+			|| !IsValidSampleCount(Initializer.MultisampleState.RasterSamples)
+			|| !IsCompareValid(Initializer.DepthStencilState.CompareOp)
+			|| !IsStencilFaceValid(Initializer.DepthStencilState.FrontFace)
+			|| !IsStencilFaceValid(Initializer.DepthStencilState.BackFace))
+			return Fail("Graphics pipeline contains an invalid fixed-state value.");
+		for (const FRHIColorBlendState& Blend : Initializer.ColorBlendStates)
+			if (!IsBlendValid(Blend))
+				return Fail("Graphics pipeline contains an invalid blend-state value.");
+
+		if (!Initializer.BoundShaders.VertexShader
+			|| !Initializer.BoundShaders.FragmentShader)
+			return Fail("Graphics pipeline requires vertex and fragment shaders.");
+		if (Initializer.BoundShaders.VertexShader->GetFrequency() != EShaderFrequency::Vertex
+			|| Initializer.BoundShaders.FragmentShader->GetFrequency() != EShaderFrequency::Fragment)
+			return Fail("Graphics pipeline shader stages do not match their slots.");
+		for (const FBindingLayout& Set : Initializer.PipelineLayout.BindingLayouts)
+		{
+			std::unordered_set<uint32> Slots;
+			for (const FBindingLayoutItem& Binding : Set.BindingLayouts)
+			{
+				const auto KnownStages = EShaderStageFlags::Vertex | EShaderStageFlags::Fragment;
+				if (Binding.StageFlags == EShaderStageFlags::None
+					|| (static_cast<uint32>(Binding.StageFlags)
+						& ~static_cast<uint32>(KnownStages)) != 0
+					|| Binding.Type > ERHIBindingType::StorageImage
+					|| Binding.ArraySize == 0 || !Slots.insert(Binding.Slot).second)
+					return Fail("Graphics pipeline reflected layout is structurally invalid.");
+			}
+		}
+		for (const FPushConstantRange& Range : Initializer.PipelineLayout.PushConstantRanges)
+		{
+			const auto KnownStages = EShaderStageFlags::Vertex | EShaderStageFlags::Fragment;
+			if (Range.StageFlags == EShaderStageFlags::None || Range.Size == 0
+				|| (Range.Offset % 4) != 0 || (Range.Size % 4) != 0
+				|| (static_cast<uint32>(Range.StageFlags)
+					& ~static_cast<uint32>(KnownStages)) != 0)
+				return Fail("Graphics pipeline push-constant layout is structurally invalid.");
+		}
+
+		if (!Initializer.RenderTargetLayout.IsValid())
+			return Fail("Graphics pipeline render-target layout is invalid.");
+		const uint8 RasterSamples = Initializer.RenderTargetLayout.NumColorRenderTargets > 0
+			? Initializer.RenderTargetLayout.ColorAttachments[0].RenderTarget.NumSamples
+			: Initializer.RenderTargetLayout.DepthStencilAttachment.NumSamples;
+		if (Initializer.MultisampleState.RasterSamples != RasterSamples)
+			return Fail("Graphics pipeline raster samples do not match the render-target layout.");
+		if ((Initializer.DepthStencilState.bEnableTest
+			|| Initializer.DepthStencilState.bEnableWrite
+			|| Initializer.DepthStencilState.bEnableStencil)
+			&& !Initializer.RenderTargetLayout.bHasDepthStencil)
+			return Fail("Graphics pipeline depth/stencil state requires a depth attachment.");
+		if (Initializer.DepthStencilState.bEnableStencil
+			&& !GetPixelFormatInfo(Initializer.RenderTargetLayout.DepthStencilAttachment.Format).bHasStencil)
+			return Fail("Graphics pipeline stencil state requires a stencil-capable attachment.");
+
+		if (!Initializer.VertexDeclaration)
+			return Fail("Graphics pipeline requires a vertex declaration.");
+		std::vector<FRHIVertexElementIdentity> VertexElements;
+		std::unordered_set<uint32> Attributes;
+		std::unordered_map<uint8, std::pair<uint16,
+			FRHIVertexElementIdentity::EInputRate>> Streams;
+		for (const FVertexElement& Element : Initializer.VertexDeclaration->GetElements())
+		{
+			if (Element.Type == EVertexElementType::None) break;
+			const uint32 ElementSize = GetVertexElementSize(Element.Type);
+			if (Element.Type >= EVertexElementType::Count || Element.Stride == 0
+				|| Element.InputRate >= FRHIVertexElementIdentity::EInputRate::Count
+				|| ElementSize == 0
+				|| static_cast<uint32>(Element.Offset) + ElementSize > Element.Stride
+				|| !Attributes.insert(Element.AttributeIndex).second)
+				return Fail("Graphics pipeline vertex declaration is structurally invalid.");
+			const auto [StreamIt, bInserted] = Streams.emplace(Element.StreamIndex,
+				std::pair{Element.Stride, Element.InputRate});
+			if (!bInserted && StreamIt->second != std::pair{Element.Stride, Element.InputRate})
+				return Fail("Graphics pipeline vertex stream stride or input rate is inconsistent.");
+			for (const FRHIVertexElementIdentity& Existing : VertexElements)
+			{
+				const uint32 ExistingSize = GetVertexElementSize(Existing.Type);
+				if (Existing.StreamIndex == Element.StreamIndex
+					&& Element.Offset < Existing.Offset + ExistingSize
+					&& Existing.Offset < Element.Offset + ElementSize)
+					return Fail("Graphics pipeline vertex elements overlap within a stream.");
+			}
+			VertexElements.push_back({Element.StreamIndex, Element.Offset,
+				Element.Type, Element.AttributeIndex, Element.Stride,
+				Element.InputRate});
+		}
+
+		if (Capabilities)
+		{
+			if (Initializer.RenderTargetLayout.NumColorRenderTargets > Capabilities->MaxColorAttachments)
+				return Fail("Graphics pipeline color attachment count exceeds the device limit.");
+			const ERHISampleCountFlags SampleFlag = SampleCountFlag(RasterSamples);
+			if (!EnumHasAllFlags(Capabilities->ColorSampleCounts, SampleFlag)
+				|| (Initializer.RenderTargetLayout.bHasDepthStencil
+					&& !EnumHasAllFlags(Capabilities->DepthSampleCounts, SampleFlag)))
+				return Fail("Graphics pipeline sample count is unsupported by the device.");
+			if (Initializer.RasterizerState.PolygonMode != ERHIPolygonMode::Fill
+				&& !Capabilities->bSupportsNonSolidFill)
+				return Fail("Graphics pipeline non-solid fill is unsupported by the device.");
+			if (Initializer.RasterizerState.bEnableDepthClamp
+				&& !Capabilities->bSupportsDepthClamp)
+				return Fail("Graphics pipeline depth clamp is unsupported by the device.");
+			if (Initializer.RasterizerState.LineWidth != 1.0f
+				&& !Capabilities->bSupportsWideLines)
+				return Fail("Graphics pipeline wide lines are unsupported by the device.");
+		}
+
+		FGraphicsPipelineStateKey Key;
+		Key.VertexShaderHash = Initializer.BoundShaders.VertexShader->GetHash();
+		Key.FragmentShaderHash = Initializer.BoundShaders.FragmentShader->GetHash();
+		Key.RenderTargetLayout.NumColorRenderTargets =
+			Initializer.RenderTargetLayout.NumColorRenderTargets;
+		for (uint32 Index = 0;
+			Index < Initializer.RenderTargetLayout.NumColorRenderTargets; ++Index)
+			Key.RenderTargetLayout.ColorAttachments[Index] =
+				Initializer.RenderTargetLayout.ColorAttachments[Index];
+		Key.RenderTargetLayout.bHasDepthStencil =
+			Initializer.RenderTargetLayout.bHasDepthStencil;
+		if (Key.RenderTargetLayout.bHasDepthStencil)
+			Key.RenderTargetLayout.DepthStencilAttachment =
+				Initializer.RenderTargetLayout.DepthStencilAttachment;
+		Key.VertexElements = std::move(VertexElements);
+		Key.PipelineLayout = Initializer.PipelineLayout;
+		for (FBindingLayout& Set : Key.PipelineLayout.BindingLayouts)
+			std::ranges::sort(Set.BindingLayouts, {}, &FBindingLayoutItem::Slot);
+		std::ranges::sort(Key.PipelineLayout.PushConstantRanges,
+			[](const FPushConstantRange& A, const FPushConstantRange& B) {
+				return std::tie(A.Offset, A.Size, A.StageFlags)
+					< std::tie(B.Offset, B.Size, B.StageFlags);
+			});
+		Key.RasterizerState = Initializer.RasterizerState;
+		if (!Key.RasterizerState.bEnableDepthBias)
+		{
+			Key.RasterizerState.DepthBiasConstantFactor = 0.0f;
+			Key.RasterizerState.DepthBiasClamp = 0.0f;
+			Key.RasterizerState.DepthBiasSlopeFactor = 0.0f;
+		}
+		if (Key.RasterizerState.PolygonMode != ERHIPolygonMode::Line)
+			Key.RasterizerState.LineWidth = 1.0f;
+		Key.MultisampleState = Initializer.MultisampleState;
+		Key.DepthStencilState = Initializer.DepthStencilState;
+		if (!Key.DepthStencilState.bEnableTest)
+			Key.DepthStencilState.CompareOp = ERHIDepthCompareOp::Less;
+		if (!Key.DepthStencilState.bEnableStencil)
+		{
+			Key.DepthStencilState.FrontFace = {};
+			Key.DepthStencilState.BackFace = {};
+			Key.DepthStencilState.StencilCompareMask = 0xff;
+			Key.DepthStencilState.StencilWriteMask = 0xff;
+			Key.DepthStencilState.StencilReference = 0;
+		}
+		Key.ColorBlendStates.assign(Initializer.ColorBlendStates.begin(),
+			Initializer.ColorBlendStates.begin()
+				+ Initializer.RenderTargetLayout.NumColorRenderTargets);
+		for (FRHIColorBlendState& Blend : Key.ColorBlendStates)
+			if (!Blend.bEnable)
+			{
+				const ERHIColorWriteMask Mask = Blend.ColorWriteMask;
+				Blend = {};
+				Blend.ColorWriteMask = Mask;
+			}
+		Key.PrimitiveTopology = Initializer.PrimitiveTopology;
+		OutKey = std::move(Key);
+		OutError.clear();
+		return true;
+	}
+
+	auto FGraphicsPipelineStateKeyHasher::operator()(
+		const FGraphicsPipelineStateKey& Key) const -> size_t
+	{
+		FXxHash64Builder Builder;
+		HashValue(Builder, Key.VertexShaderHash);
+		HashValue(Builder, Key.FragmentShaderHash);
+		HashValue(Builder, Key.RenderTargetLayout.NumColorRenderTargets);
+		for (uint32 Index = 0; Index < Key.RenderTargetLayout.NumColorRenderTargets; ++Index)
+		{
+			const FRHIColorAttachmentLayout& Color = Key.RenderTargetLayout.ColorAttachments[Index];
+			HashAttachment(Builder, Color.RenderTarget);
+			HashValue(Builder, Color.bHasResolveTarget);
+			if (Color.bHasResolveTarget) HashAttachment(Builder, Color.ResolveTarget);
+		}
+		HashValue(Builder, Key.RenderTargetLayout.bHasDepthStencil);
+		if (Key.RenderTargetLayout.bHasDepthStencil)
+			HashAttachment(Builder, Key.RenderTargetLayout.DepthStencilAttachment);
+		for (const FRHIVertexElementIdentity& Element : Key.VertexElements)
+		{
+			HashValue(Builder, Element.StreamIndex);
+			HashValue(Builder, Element.Offset);
+			HashValue(Builder, Element.Type);
+			HashValue(Builder, Element.AttributeIndex);
+			HashValue(Builder, Element.Stride);
+			HashValue(Builder, Element.InputRate);
+		}
+		HashValue(Builder, Key.VertexElements.size());
+		HashValue(Builder, Key.PipelineLayout.BindingLayouts.size());
+		for (const FBindingLayout& Set : Key.PipelineLayout.BindingLayouts)
+		{
+			HashValue(Builder, Set.BindingLayouts.size());
+			for (const FBindingLayoutItem& Binding : Set.BindingLayouts)
+			{
+				HashValue(Builder, Binding.StageFlags);
+				HashValue(Builder, Binding.Slot);
+				HashValue(Builder, Binding.Type);
+				HashValue(Builder, Binding.ArraySize);
+			}
+		}
+		HashValue(Builder, Key.PipelineLayout.PushConstantRanges.size());
+		for (const FPushConstantRange& Range : Key.PipelineLayout.PushConstantRanges)
+		{
+			HashValue(Builder, Range.StageFlags);
+			HashValue(Builder, Range.Offset);
+			HashValue(Builder, Range.Size);
+		}
+		HashValue(Builder, Key.RasterizerState.PolygonMode);
+		HashValue(Builder, Key.RasterizerState.CullMode);
+		HashValue(Builder, Key.RasterizerState.FrontFace);
+		HashValue(Builder, Key.RasterizerState.bEnableDepthClamp);
+		HashValue(Builder, Key.RasterizerState.bEnableDepthBias);
+		HashValue(Builder, Key.RasterizerState.DepthBiasConstantFactor);
+		HashValue(Builder, Key.RasterizerState.DepthBiasClamp);
+		HashValue(Builder, Key.RasterizerState.DepthBiasSlopeFactor);
+		HashValue(Builder, Key.RasterizerState.LineWidth);
+		HashValue(Builder, Key.MultisampleState.RasterSamples);
+		HashValue(Builder, Key.MultisampleState.bEnableAlphaToCoverage);
+		HashValue(Builder, Key.DepthStencilState.bEnableTest);
+		HashValue(Builder, Key.DepthStencilState.bEnableWrite);
+		HashValue(Builder, Key.DepthStencilState.CompareOp);
+		HashValue(Builder, Key.DepthStencilState.bEnableStencil);
+		const auto HashStencilFace = [&Builder](const FRHIStencilFaceState& Face) {
+			HashValue(Builder, Face.CompareOp);
+			HashValue(Builder, Face.FailOp);
+			HashValue(Builder, Face.PassOp);
+			HashValue(Builder, Face.DepthFailOp);
+		};
+		HashStencilFace(Key.DepthStencilState.FrontFace);
+		HashStencilFace(Key.DepthStencilState.BackFace);
+		HashValue(Builder, Key.DepthStencilState.StencilCompareMask);
+		HashValue(Builder, Key.DepthStencilState.StencilWriteMask);
+		HashValue(Builder, Key.DepthStencilState.StencilReference);
+		for (const FRHIColorBlendState& Blend : Key.ColorBlendStates)
+		{
+			HashValue(Builder, Blend.bEnable);
+			HashValue(Builder, Blend.SrcColorFactor);
+			HashValue(Builder, Blend.DstColorFactor);
+			HashValue(Builder, Blend.ColorOp);
+			HashValue(Builder, Blend.SrcAlphaFactor);
+			HashValue(Builder, Blend.DstAlphaFactor);
+			HashValue(Builder, Blend.AlphaOp);
+			HashValue(Builder, Blend.ColorWriteMask);
+		}
+		HashValue(Builder, Key.PrimitiveTopology);
+		return static_cast<size_t>(Builder.Finalize().HashValue);
 	}
 
 	auto GetTextureAspects(EPixelFormat Format) -> ERHITextureAspect

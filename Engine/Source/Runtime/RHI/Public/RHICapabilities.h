@@ -15,6 +15,10 @@ namespace Durin
 		uint32 MaxTextureArrayLayers = 0;
 		ERHISampleCountFlags ColorSampleCounts = ERHISampleCountFlags::None;
 		ERHISampleCountFlags DepthSampleCounts = ERHISampleCountFlags::None;
+		uint32 MaxColorAttachments = 0;
+		bool bSupportsNonSolidFill = false;
+		bool bSupportsDepthClamp = false;
+		bool bSupportsWideLines = false;
 		bool bSupportsSynchronization2 = false;
 	};
 }

@@ -25,7 +25,7 @@ namespace Durin
 	{
 		FMaterialPipelineIdentity Material;
 		FRHIRasterizerState Rasterizer;
-		FRHIDepthState Depth;
+		FRHIDepthStencilState Depth;
 		FRHIColorBlendState ColorBlend;
 
 		auto operator==(const FEffectiveStaticMeshPipelineKey&) const

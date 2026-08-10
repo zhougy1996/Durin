@@ -320,6 +320,9 @@ float4 FragmentMain() : SV_Target
 									FragmentShader,
 									Candidate.ShaderMap.get());
 							FVertexDeclarationElementList Elements{};
+							Elements[0] = FVertexElement(
+								0, 0, EVertexElementType::Float1, 0, sizeof(float),
+								FRHIVertexElementIdentity::EInputRate::Instance);
 							Candidate.VertexDeclaration =
 								GDynamicRHI->RHICreateVertexDeclaration(
 									Elements);
@@ -408,6 +411,18 @@ float4 FragmentMain() : SV_Target
 								CommandList,
 								IndexDesc);
 						ASSERT_NE(IndexBuffer, nullptr);
+						const std::array<float, 2> Instances = {0.0f, 1.0f};
+						FRHIBufferCreateDesc InstanceDesc =
+							FRHIBufferCreateDesc::Create(
+								"RendererReloadValidationInstances",
+								sizeof(Instances), sizeof(float),
+								EBufferUsageFlags::VertexBuffer);
+						InstanceDesc.Usage |= EBufferUsageFlags::Static;
+						InstanceDesc.InitialData = {
+							Instances.data(), sizeof(Instances)};
+						FBufferRHIRef InstanceBuffer =
+							GDynamicRHI->RHICreateBuffer(CommandList, InstanceDesc);
+						ASSERT_NE(InstanceBuffer, nullptr);
 						FRHIRenderPassInfo PassInfo{};
 						PassInfo.RenderTargetLayout =
 							MakeReloadRenderTargetLayout();
@@ -431,10 +446,15 @@ float4 FragmentMain() : SV_Target
 							17.0f);
 						CommandList.SetGraphicsPipelineState(
 							*PipelineState);
+						CommandList.BindVertexBuffer(0, InstanceBuffer, 0);
 						CommandList.BindIndexBuffer(
 							IndexBuffer,
 							0);
-						CommandList.DrawIndexed(3, 0, 0);
+						CommandList.Draw({.VertexCount = 3, .InstanceCount = 2});
+						CommandList.DrawIndexed({
+							.IndexCount = 3,
+							.InstanceCount = 2,
+						});
 						CommandList.EndRenderPass();
 						ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
 							CommandList,
@@ -520,6 +540,8 @@ float4 FragmentMain() : SV_Target
 			*RenderPipeline(Recovered->Payload->PipelineState),
 			0,
 			255);
+		const FRHIGraphicsCacheStatistics CacheBeforeForcedReload =
+			GDynamicRHI->RHIGetGraphicsCacheStatistics();
 
 		const FConsoleCommandResult ForcedAll =
 			FConsoleCommandRegistry::Get().Execute(
@@ -529,9 +551,23 @@ float4 FragmentMain() : SV_Target
 		const auto Forced = Resolve();
 		ASSERT_NE(Forced->Payload, nullptr);
 		EXPECT_TRUE(Forced->Snapshot.bForceShaderRecompile);
+		EXPECT_EQ(Forced->Payload->PipelineState.GetReference(),
+			Recovered->Payload->PipelineState.GetReference());
 		EXPECT_EQ(Attempts, 4);
 		ASSERT_EQ(ForceFlags.size(), 4);
 		EXPECT_TRUE(ForceFlags.back());
+		const FRHIGraphicsCacheStatistics CacheAfterForcedReload =
+			GDynamicRHI->RHIGetGraphicsCacheStatistics();
+		EXPECT_EQ(CacheAfterForcedReload.GraphicsPipelines.Hits,
+			CacheBeforeForcedReload.GraphicsPipelines.Hits + 1);
+		EXPECT_EQ(CacheAfterForcedReload.GraphicsPipelines.NativeCreations,
+			CacheBeforeForcedReload.GraphicsPipelines.NativeCreations);
+		EXPECT_LT(CacheAfterForcedReload.GraphicsPipelines.Occupancy,
+			CacheAfterForcedReload.GraphicsPipelines.Capacity);
+		EXPECT_EQ(CacheAfterForcedReload.GraphicsPipelines.Evictions, 0u);
+		EXPECT_LT(CacheAfterForcedReload.StructuralLayouts.Occupancy,
+			CacheAfterForcedReload.StructuralLayouts.Capacity);
+		EXPECT_EQ(CacheAfterForcedReload.StructuralLayouts.Evictions, 0u);
 
 		struct FReleaseReloadValidationResource
 		{

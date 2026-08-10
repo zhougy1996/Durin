@@ -196,15 +196,36 @@ namespace Durin
 		using Type = FRHITexture*;
 	};
 
+	template<typename MemberType, typename ExpectedType>
+	struct TShaderParameterArrayInfo
+	{
+		static constexpr bool IsValid = false;
+		static constexpr uint32 Size = 1;
+	};
+
+	template<typename ElementType, size_t ArraySize, typename ExpectedType>
+	struct TShaderParameterArrayInfo<std::array<ElementType, ArraySize>, ExpectedType>
+	{
+		static constexpr bool IsValid = std::same_as<ElementType, ExpectedType>;
+		static constexpr uint32 Size = static_cast<uint32>(ArraySize);
+	};
+
 	template<ERHIBindingType BindingType, typename MemberType>
 	consteval auto MakeShaderParameterMemberMetadata(const char* Name, uint32 Offset) -> FShaderParameterMemberMetadata
 	{
-		static_assert(std::same_as<MemberType, typename TShaderParameterCppType<BindingType>::Type>, "Shader parameter member type does not match binding type");
+		using FExpectedType = typename TShaderParameterCppType<BindingType>::Type;
+		constexpr bool bScalar = std::same_as<MemberType, FExpectedType>;
+		constexpr bool bArray =
+			TShaderParameterArrayInfo<MemberType, FExpectedType>::IsValid;
+		static_assert(bScalar || bArray,
+			"Shader parameter member type does not match binding type");
+		constexpr uint32 ArraySize = bScalar ? 1u
+			: TShaderParameterArrayInfo<MemberType, FExpectedType>::Size;
 		return FShaderParameterMemberMetadata{
 			.Name = Name,
 			.Offset = Offset,
 			.Size = static_cast<uint32>(sizeof(MemberType)),
-			.ArraySize = 1,
+			.ArraySize = ArraySize,
 			.Type = BindingType,
 			.Kind = EShaderParameterMemberKind::Resource
 		};
@@ -278,6 +299,16 @@ namespace Durin
 			); \
 		}
 
+	#define DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(MemberType, MemberName, ArrayCount, BindingTypeValue) \
+		std::array<MemberType, ArrayCount> MemberName{}; \
+		static auto GetShaderParameterMemberMetadata(TShaderParameterTag<__COUNTER__>) -> FShaderParameterMemberMetadata \
+		{ \
+			return MakeShaderParameterMemberMetadata<BindingTypeValue, decltype(FParameters::MemberName)>( \
+				#MemberName, \
+				static_cast<uint32>(offsetof(FParameters, MemberName)) \
+			); \
+		}
+
 	#define DURIN_BEGIN_SHADER_PARAMETERS(ShaderClass) \
 	private: \
 		using FShaderParametersOwner = ShaderClass; \
@@ -289,11 +320,20 @@ namespace Durin
 	#define DURIN_SHADER_PARAMETER_TEXTURE(MemberName) \
 		DURIN_PRIVATE_SHADER_PARAMETER(FRHITexture*, MemberName, ERHIBindingType::Texture)
 
+	#define DURIN_SHADER_PARAMETER_TEXTURE_ARRAY(MemberName, ArrayCount) \
+		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHITexture*, MemberName, ArrayCount, ERHIBindingType::Texture)
+
 	#define DURIN_SHADER_PARAMETER_SAMPLER(MemberName) \
 		DURIN_PRIVATE_SHADER_PARAMETER(FRHISampler*, MemberName, ERHIBindingType::Sampler)
 
+	#define DURIN_SHADER_PARAMETER_SAMPLER_ARRAY(MemberName, ArrayCount) \
+		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHISampler*, MemberName, ArrayCount, ERHIBindingType::Sampler)
+
 	#define DURIN_SHADER_PARAMETER_STORAGE_IMAGE(MemberName) \
 		DURIN_PRIVATE_SHADER_PARAMETER(FRHITexture*, MemberName, ERHIBindingType::StorageImage)
+
+	#define DURIN_SHADER_PARAMETER_STORAGE_IMAGE_ARRAY(MemberName, ArrayCount) \
+		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHITexture*, MemberName, ArrayCount, ERHIBindingType::StorageImage)
 
 	#define DURIN_SHADER_PARAMETER_UNIFORM_BUFFER(MemberName) \
 		FRHIUniformBufferRange MemberName; \
@@ -305,6 +345,9 @@ namespace Durin
 			); \
 		}
 
+	#define DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_ARRAY(MemberName, ArrayCount) \
+		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHIUniformBufferRange, MemberName, ArrayCount, ERHIBindingType::UniformBuffer)
+
 	#define DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(MemberName) \
 		FRHIUniformBufferRange MemberName; \
 		static auto GetShaderParameterMemberMetadata(TShaderParameterTag<__COUNTER__>) -> FShaderParameterMemberMetadata \
@@ -315,6 +358,9 @@ namespace Durin
 			); \
 		}
 
+	#define DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_ARRAY(MemberName, ArrayCount) \
+		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHIUniformBufferRange, MemberName, ArrayCount, ERHIBindingType::UniformBufferDynamic)
+
 	#define DURIN_SHADER_PARAMETER_STORAGE_BUFFER(MemberName) \
 		FRHIStorageBufferRange MemberName; \
 		static auto GetShaderParameterMemberMetadata(TShaderParameterTag<__COUNTER__>) -> FShaderParameterMemberMetadata \
@@ -324,6 +370,9 @@ namespace Durin
 				static_cast<uint32>(offsetof(FParameters, MemberName)) \
 			); \
 		}
+
+	#define DURIN_SHADER_PARAMETER_STORAGE_BUFFER_ARRAY(MemberName, ArrayCount) \
+		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHIStorageBufferRange, MemberName, ArrayCount, ERHIBindingType::StorageBuffer)
 
 	#define DURIN_END_SHADER_PARAMETERS() \
 		}; \

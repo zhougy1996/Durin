@@ -215,10 +215,10 @@ namespace Durin
 				Initializer.BoundShaders.FragmentShader =
 					Base->FragmentShader.GetRHIShader();
 				Initializer.VertexDeclaration = Base->VertexDeclaration;
-				Initializer.ColorBlendState =
+				Initializer.ColorBlendStates[0] =
 					FRHIColorBlendState::StraightAlpha();
 				Initializer.RasterizerState.CullMode = ERHICullMode::None;
-				Initializer.DepthState.bEnableTest = true;
+				Initializer.DepthStencilState.bEnableTest = true;
 				Initializer.PipelineLayout =
 					Base->ShaderMap->GetMergedPipelineLayout();
 				const std::string PipelineName = std::format(

@@ -24,14 +24,20 @@ namespace Durin
 		uint8 AttributeIndex;
 
 		uint16 Stride;
+		FRHIVertexElementIdentity::EInputRate InputRate =
+			FRHIVertexElementIdentity::EInputRate::Vertex;
 
 		FVertexElement() = default;
-		FVertexElement(uint8 InStreamIndex, uint8 InOffset, EVertexElementType InType, uint8 InAttributeIndex, uint16 InStride)
+		FVertexElement(uint8 InStreamIndex, uint8 InOffset, EVertexElementType InType,
+			uint8 InAttributeIndex, uint16 InStride,
+			FRHIVertexElementIdentity::EInputRate InInputRate =
+				FRHIVertexElementIdentity::EInputRate::Vertex)
 			: StreamIndex(InStreamIndex)
 			, Offset(InOffset)
 			, Type(InType)
 			, AttributeIndex(InAttributeIndex)
 			, Stride(InStride)
+			, InputRate(InInputRate)
 		{
 		}
 
@@ -41,7 +47,8 @@ namespace Durin
 				   && Offset == Other.Offset
 				   && Type == Other.Type
 				   && AttributeIndex == Other.AttributeIndex
-				   && Stride == Other.Stride;
+				   && Stride == Other.Stride
+				   && InputRate == Other.InputRate;
 		}
 	};
 } // namespace Durin

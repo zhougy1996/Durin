@@ -29,6 +29,15 @@ namespace Durin
 		return Capabilities ? &*Capabilities : nullptr;
 	}
 
+	auto FDynamicRHI::RHIGetGraphicsCacheStatistics() const -> FRHIGraphicsCacheStatistics
+	{
+		return {};
+	}
+
+	auto FDynamicRHI::RHIResetGraphicsCacheStatistics() -> void
+	{
+	}
+
 	auto FDynamicRHI::PublishCapabilities(FRHICapabilities InCapabilities) -> void
 	{
 		check(!Capabilities.has_value());

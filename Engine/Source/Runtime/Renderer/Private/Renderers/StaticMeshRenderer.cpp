@@ -957,8 +957,8 @@ namespace Durin
 					Candidate.FragmentShader.GetRHIShader();
 				Initializer.VertexDeclaration = VertexFactory.GetDeclaration();
 				Initializer.RasterizerState = Identity.Rasterizer;
-				Initializer.DepthState = Identity.Depth;
-				Initializer.ColorBlendState = Identity.ColorBlend;
+				Initializer.DepthStencilState = Identity.Depth;
+				Initializer.ColorBlendStates[0] = Identity.ColorBlend;
 				Initializer.PipelineLayout =
 					Candidate.ShaderMap->GetMergedPipelineLayout();
 				Candidate.PipelineState =

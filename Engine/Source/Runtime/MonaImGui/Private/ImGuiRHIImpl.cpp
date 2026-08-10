@@ -302,7 +302,7 @@ namespace Durin::MonaImGui
 			Initializer.BoundShaders.FragmentShader = FragmentShaderRef.GetRHIShader();
 			Initializer.VertexDeclaration = GBackendState.VertexDeclaration;
 
-			Initializer.ColorBlendState =
+			Initializer.ColorBlendStates[0] =
 				FRHIColorBlendState::StraightAlpha();
 			Initializer.RasterizerState.CullMode = ERHICullMode::None;
 			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();

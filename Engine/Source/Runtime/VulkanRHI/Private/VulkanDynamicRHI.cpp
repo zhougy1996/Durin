@@ -62,6 +62,11 @@ namespace Durin::VulkanRHI
 			Limits.framebufferColorSampleCounts & Limits.sampledImageColorSampleCounts);
 		CapabilityCandidate.DepthSampleCounts = ToRHISampleCounts(
 			Limits.framebufferDepthSampleCounts & Limits.sampledImageDepthSampleCounts);
+		CapabilityCandidate.MaxColorAttachments = Limits.maxColorAttachments;
+		const vk::PhysicalDeviceFeatures Features = Device->GetGpu().getFeatures();
+		CapabilityCandidate.bSupportsNonSolidFill = Features.fillModeNonSolid == vk::True;
+		CapabilityCandidate.bSupportsDepthClamp = Features.depthClamp == vk::True;
+		CapabilityCandidate.bSupportsWideLines = Features.wideLines == vk::True;
 		CapabilityCandidate.bSupportsSynchronization2 = Device->SupportsSynchronization2();
 		PublishCapabilities(std::move(CapabilityCandidate));
 	}

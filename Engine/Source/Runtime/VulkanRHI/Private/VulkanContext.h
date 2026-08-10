@@ -79,7 +79,9 @@ namespace Durin::VulkanRHI
 
 		auto RHISetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void override;
 
-		auto RHIDrawIndexed(uint32 IndexCount, uint32 StartIndexLocation, int32 VertexOffset) -> void override;
+		auto RHIDraw(const FRHIDrawArguments& Arguments) -> void override;
+
+		auto RHIDrawIndexed(const FRHIDrawIndexedArguments& Arguments) -> void override;
 
 		auto GetCommandBuffer() -> FVulkanCommandBuffer*;
 
@@ -104,6 +106,8 @@ namespace Durin::VulkanRHI
 		auto Finalize() -> void;
 
 	protected:
+		auto ValidateDrawBindings(uint32 VertexCount, uint32 InstanceCount,
+			uint32 FirstVertex, uint32 FirstInstance, bool bIndexed) const -> void;
 		auto PrepareNewCommandBuffer(FVulkanPayload& InPayload) -> void;
 
 		auto GetPayload() -> FVulkanPayload&;
@@ -117,6 +121,15 @@ namespace Durin::VulkanRHI
 		FVulkanCommandBufferPool* Pool = nullptr;
 
 		std::unique_ptr<FVulkanPendingGraphicsState> PendingGfxState;
+
+		struct FBoundVertexBuffer
+		{
+			FRHIBuffer* Buffer = nullptr;
+			uint32 Offset = 0;
+		};
+		std::unordered_map<uint32, FBoundVertexBuffer> BoundVertexBuffers;
+		FRHIBuffer* BoundIndexBuffer = nullptr;
+		uint32 BoundIndexBufferOffset = 0;
 
 		std::vector<FVulkanPayload*> Payloads;
 

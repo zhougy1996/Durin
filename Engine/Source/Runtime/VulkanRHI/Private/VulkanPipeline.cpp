@@ -1,5 +1,8 @@
 #include "VulkanPipeline.h"
 
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+
 #include "RHICommandList.h"
 #include "VulkanBuffer.h"
 #include "VulkanCommandBuffer.h"
@@ -100,8 +103,13 @@ namespace Durin::VulkanRHI
 
 	static auto ToVulkan_CullMode(ERHICullMode Mode) -> vk::CullModeFlags
 	{
-		return Mode == ERHICullMode::Back
-			? vk::CullModeFlagBits::eBack : vk::CullModeFlagBits::eNone;
+		switch (Mode)
+		{
+		case ERHICullMode::None: return vk::CullModeFlagBits::eNone;
+		case ERHICullMode::Front: return vk::CullModeFlagBits::eFront;
+		case ERHICullMode::Back: return vk::CullModeFlagBits::eBack;
+		default: return vk::CullModeFlagBits::eNone;
+		}
 	}
 
 	static auto ToVulkan_FrontFace(ERHIFrontFace FrontFace) -> vk::FrontFace
@@ -112,8 +120,47 @@ namespace Durin::VulkanRHI
 
 	static auto ToVulkan_DepthCompareOp(ERHIDepthCompareOp CompareOp) -> vk::CompareOp
 	{
-		return CompareOp == ERHIDepthCompareOp::Less
-			? vk::CompareOp::eLess : vk::CompareOp::eNever;
+		switch (CompareOp)
+		{
+		case ERHIDepthCompareOp::Never: return vk::CompareOp::eNever;
+		case ERHIDepthCompareOp::Less: return vk::CompareOp::eLess;
+		case ERHIDepthCompareOp::Equal: return vk::CompareOp::eEqual;
+		case ERHIDepthCompareOp::LessOrEqual: return vk::CompareOp::eLessOrEqual;
+		case ERHIDepthCompareOp::Greater: return vk::CompareOp::eGreater;
+		case ERHIDepthCompareOp::NotEqual: return vk::CompareOp::eNotEqual;
+		case ERHIDepthCompareOp::GreaterOrEqual: return vk::CompareOp::eGreaterOrEqual;
+		case ERHIDepthCompareOp::Always: return vk::CompareOp::eAlways;
+		default: return vk::CompareOp::eNever;
+		}
+	}
+
+	static auto ToVulkan_StencilOp(ERHIStencilOp Op) -> vk::StencilOp
+	{
+		switch (Op)
+		{
+		case ERHIStencilOp::Keep: return vk::StencilOp::eKeep;
+		case ERHIStencilOp::Zero: return vk::StencilOp::eZero;
+		case ERHIStencilOp::Replace: return vk::StencilOp::eReplace;
+		case ERHIStencilOp::IncrementClamp: return vk::StencilOp::eIncrementAndClamp;
+		case ERHIStencilOp::DecrementClamp: return vk::StencilOp::eDecrementAndClamp;
+		case ERHIStencilOp::Invert: return vk::StencilOp::eInvert;
+		case ERHIStencilOp::IncrementWrap: return vk::StencilOp::eIncrementAndWrap;
+		case ERHIStencilOp::DecrementWrap: return vk::StencilOp::eDecrementAndWrap;
+		default: return vk::StencilOp::eKeep;
+		}
+	}
+
+	static auto ToVulkan_StencilFace(const FRHIStencilFaceState& Face,
+		const FRHIDepthStencilState& State) -> vk::StencilOpState
+	{
+		return vk::StencilOpState{}
+			.setFailOp(ToVulkan_StencilOp(Face.FailOp))
+			.setPassOp(ToVulkan_StencilOp(Face.PassOp))
+			.setDepthFailOp(ToVulkan_StencilOp(Face.DepthFailOp))
+			.setCompareOp(ToVulkan_DepthCompareOp(Face.CompareOp))
+			.setCompareMask(State.StencilCompareMask)
+			.setWriteMask(State.StencilWriteMask)
+			.setReference(State.StencilReference);
 	}
 
 	static auto ToVulkan_BlendFactor(ERHIBlendFactor Factor) -> vk::BlendFactor
@@ -122,16 +169,35 @@ namespace Durin::VulkanRHI
 		{
 		case ERHIBlendFactor::Zero: return vk::BlendFactor::eZero;
 		case ERHIBlendFactor::One: return vk::BlendFactor::eOne;
+		case ERHIBlendFactor::SrcColor: return vk::BlendFactor::eSrcColor;
+		case ERHIBlendFactor::OneMinusSrcColor: return vk::BlendFactor::eOneMinusSrcColor;
+		case ERHIBlendFactor::DstColor: return vk::BlendFactor::eDstColor;
+		case ERHIBlendFactor::OneMinusDstColor: return vk::BlendFactor::eOneMinusDstColor;
 		case ERHIBlendFactor::SrcAlpha: return vk::BlendFactor::eSrcAlpha;
 		case ERHIBlendFactor::OneMinusSrcAlpha:
 			return vk::BlendFactor::eOneMinusSrcAlpha;
+		case ERHIBlendFactor::DstAlpha: return vk::BlendFactor::eDstAlpha;
+		case ERHIBlendFactor::OneMinusDstAlpha: return vk::BlendFactor::eOneMinusDstAlpha;
+		case ERHIBlendFactor::ConstantColor: return vk::BlendFactor::eConstantColor;
+		case ERHIBlendFactor::OneMinusConstantColor: return vk::BlendFactor::eOneMinusConstantColor;
+		case ERHIBlendFactor::ConstantAlpha: return vk::BlendFactor::eConstantAlpha;
+		case ERHIBlendFactor::OneMinusConstantAlpha: return vk::BlendFactor::eOneMinusConstantAlpha;
+		case ERHIBlendFactor::SrcAlphaSaturate: return vk::BlendFactor::eSrcAlphaSaturate;
 		default: return vk::BlendFactor::eZero;
 		}
 	}
 
 	static auto ToVulkan_BlendOp(ERHIBlendOp BlendOp) -> vk::BlendOp
 	{
-		return BlendOp == ERHIBlendOp::Add ? vk::BlendOp::eAdd : vk::BlendOp::eAdd;
+		switch (BlendOp)
+		{
+		case ERHIBlendOp::Add: return vk::BlendOp::eAdd;
+		case ERHIBlendOp::Subtract: return vk::BlendOp::eSubtract;
+		case ERHIBlendOp::ReverseSubtract: return vk::BlendOp::eReverseSubtract;
+		case ERHIBlendOp::Min: return vk::BlendOp::eMin;
+		case ERHIBlendOp::Max: return vk::BlendOp::eMax;
+		default: return vk::BlendOp::eAdd;
+		}
 	}
 
 	static auto ToVulkan_ColorWriteMask(ERHIColorWriteMask Mask)
@@ -200,8 +266,10 @@ namespace Durin::VulkanRHI
 		return Ranges;
 	}
 
-	FVulkanGraphicsPipelineState::FVulkanGraphicsPipelineState(FVulkanDevice& InDevice, const FGraphicsPipelineStateInitializer& Initializer)
-		: Device(InDevice)
+	FVulkanGraphicsPipelineState::FVulkanGraphicsPipelineState(FVulkanDevice& InDevice,
+		const FGraphicsPipelineStateInitializer& Initializer,
+		FGraphicsPipelineStateKey InKey)
+		: Device(InDevice), Key(std::move(InKey))
 	{
 		CheckVulkanRHIThread();
 		checkf(Initializer.RenderTargetLayout.IsValid(), "Graphics pipeline render target layout is invalid.");
@@ -251,7 +319,10 @@ namespace Durin::VulkanRHI
 				BindingDescription
 					.setBinding(Element.StreamIndex)
 					.setStride(Element.Stride)
-					.setInputRate(vk::VertexInputRate::eVertex);
+					.setInputRate(Element.InputRate ==
+						FRHIVertexElementIdentity::EInputRate::Instance
+							? vk::VertexInputRate::eInstance
+							: vk::VertexInputRate::eVertex);
 				BindingDescriptions.push_back(BindingDescription);
 			}
 
@@ -281,52 +352,54 @@ namespace Durin::VulkanRHI
 
 		vk::PipelineRasterizationStateCreateInfo RasterizerInfo;
 		RasterizerInfo
-			.setDepthClampEnable(vk::False)
-			.setLineWidth(1.0f)
+			.setDepthClampEnable(Initializer.RasterizerState.bEnableDepthClamp)
+			.setLineWidth(Initializer.RasterizerState.LineWidth)
 			.setRasterizerDiscardEnable(vk::False)
 			.setPolygonMode(ToVulkan_PolygonMode(
 				Initializer.RasterizerState.PolygonMode))
 			.setCullMode(ToVulkan_CullMode(Initializer.RasterizerState.CullMode))
 			.setFrontFace(ToVulkan_FrontFace(
 				Initializer.RasterizerState.FrontFace))
-			.setDepthBiasEnable(vk::False)
-			.setDepthBiasConstantFactor(0.0f)
-			.setDepthBiasClamp(0.0f)
-			.setDepthBiasSlopeFactor(0.0f);
+			.setDepthBiasEnable(Initializer.RasterizerState.bEnableDepthBias)
+			.setDepthBiasConstantFactor(Initializer.RasterizerState.DepthBiasConstantFactor)
+			.setDepthBiasClamp(Initializer.RasterizerState.DepthBiasClamp)
+			.setDepthBiasSlopeFactor(Initializer.RasterizerState.DepthBiasSlopeFactor);
 
 		vk::PipelineMultisampleStateCreateInfo MultiSamplingInfo;
-		const uint8 RasterSamples = Initializer.RenderTargetLayout.NumColorRenderTargets > 0
-			? Initializer.RenderTargetLayout.ColorAttachments[0].RenderTarget.NumSamples
-			: Initializer.RenderTargetLayout.DepthStencilAttachment.NumSamples;
 		MultiSamplingInfo
 			.setSampleShadingEnable(vk::False)
-			.setRasterizationSamples(ToVulkan_SampleCount(RasterSamples))
+			.setRasterizationSamples(ToVulkan_SampleCount(Initializer.MultisampleState.RasterSamples))
 			.setMinSampleShading(1.0f)
 			.setPSampleMask(nullptr)
-			.setAlphaToCoverageEnable(vk::False)
+			.setAlphaToCoverageEnable(Initializer.MultisampleState.bEnableAlphaToCoverage)
 			.setAlphaToOneEnable(vk::False);
 
 		vk::PipelineDepthStencilStateCreateInfo DepthStencilInfo;
-		DepthStencilInfo.setDepthTestEnable(Initializer.DepthState.bEnableTest)
-			.setDepthWriteEnable(Initializer.DepthState.bEnableWrite)
+		const FRHIDepthStencilState& DepthStencilState = Initializer.DepthStencilState;
+		DepthStencilInfo.setDepthTestEnable(DepthStencilState.bEnableTest)
+			.setDepthWriteEnable(DepthStencilState.bEnableWrite)
 			.setDepthCompareOp(ToVulkan_DepthCompareOp(
-				Initializer.DepthState.CompareOp))
+				DepthStencilState.CompareOp))
 			.setDepthBoundsTestEnable(false)
-			.setStencilTestEnable(false);
+			.setStencilTestEnable(DepthStencilState.bEnableStencil)
+			.setFront(ToVulkan_StencilFace(DepthStencilState.FrontFace, DepthStencilState))
+			.setBack(ToVulkan_StencilFace(DepthStencilState.BackFace, DepthStencilState));
 
-		vk::PipelineColorBlendAttachmentState ColorBlendAttachment;
-		const FRHIColorBlendState& BlendState = Initializer.ColorBlendState;
-		ColorBlendAttachment
-			.setColorWriteMask(ToVulkan_ColorWriteMask(BlendState.ColorWriteMask))
-			.setBlendEnable(BlendState.bEnable ? vk::True : vk::False)
-			.setSrcColorBlendFactor(ToVulkan_BlendFactor(BlendState.SrcColorFactor))
-			.setDstColorBlendFactor(ToVulkan_BlendFactor(BlendState.DstColorFactor))
-			.setColorBlendOp(ToVulkan_BlendOp(BlendState.ColorOp))
-			.setSrcAlphaBlendFactor(ToVulkan_BlendFactor(BlendState.SrcAlphaFactor))
-			.setDstAlphaBlendFactor(ToVulkan_BlendFactor(BlendState.DstAlphaFactor))
-			.setAlphaBlendOp(ToVulkan_BlendOp(BlendState.AlphaOp));
-
-		std::vector<vk::PipelineColorBlendAttachmentState> ColorBlendAttachments(Initializer.RenderTargetLayout.NumColorRenderTargets, ColorBlendAttachment);
+		std::vector<vk::PipelineColorBlendAttachmentState> ColorBlendAttachments;
+		ColorBlendAttachments.reserve(Initializer.RenderTargetLayout.NumColorRenderTargets);
+		for (uint32 Index = 0; Index < Initializer.RenderTargetLayout.NumColorRenderTargets; ++Index)
+		{
+			const FRHIColorBlendState& BlendState = Initializer.ColorBlendStates[Index];
+			ColorBlendAttachments.emplace_back()
+				.setColorWriteMask(ToVulkan_ColorWriteMask(BlendState.ColorWriteMask))
+				.setBlendEnable(BlendState.bEnable ? vk::True : vk::False)
+				.setSrcColorBlendFactor(ToVulkan_BlendFactor(BlendState.SrcColorFactor))
+				.setDstColorBlendFactor(ToVulkan_BlendFactor(BlendState.DstColorFactor))
+				.setColorBlendOp(ToVulkan_BlendOp(BlendState.ColorOp))
+				.setSrcAlphaBlendFactor(ToVulkan_BlendFactor(BlendState.SrcAlphaFactor))
+				.setDstAlphaBlendFactor(ToVulkan_BlendFactor(BlendState.DstAlphaFactor))
+				.setAlphaBlendOp(ToVulkan_BlendOp(BlendState.AlphaOp));
+		}
 		vk::PipelineColorBlendStateCreateInfo ColorBlending;
 		ColorBlending
 			.setLogicOpEnable(vk::False)
@@ -336,7 +409,7 @@ namespace Durin::VulkanRHI
 
 		// Create pipeline layout
 		FVulkanDescriptorSetsLayoutInfo DescriptorSetsLayoutInfo(Initializer.PipelineLayout.BindingLayouts);
-		FVulkanLayout* CandidateLayout =
+		std::shared_ptr<FVulkanLayout> CandidateLayout =
 			Device.GetPipelineManager().FindOrAddLayout(DescriptorSetsLayoutInfo);
 		std::vector<vk::PushConstantRange> PushConstantRanges = CreatePushConstantRanges(Initializer.PipelineLayout);
 
@@ -381,7 +454,8 @@ namespace Durin::VulkanRHI
 				EVulkanCreateFailurePoint::GraphicsPipeline);
 #endif
 			const vk::ResultValue<vk::Pipeline> PipelineCreationResult =
-				Device.GetHandle().createGraphicsPipeline(nullptr, pipelineInfo);
+				Device.GetHandle().createGraphicsPipeline(
+					Device.GetPipelineManager().GetDriverPipelineCache(), pipelineInfo);
 			if (PipelineCreationResult.result != vk::Result::eSuccess)
 			{
 				throw std::runtime_error(std::format(
@@ -426,7 +500,7 @@ namespace Durin::VulkanRHI
 			throw;
 		}
 
-		Layout = CandidateLayout;
+		Layout = std::move(CandidateLayout);
 		PipelineLayout = CandidatePipelineLayout;
 		Pipeline = CandidatePipeline;
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
@@ -471,55 +545,278 @@ namespace Durin::VulkanRHI
 	FVulkanPipelineManager::FVulkanPipelineManager(FVulkanDevice& InDevice)
 		: Device(InDevice)
 	{
+		InitializeDriverPipelineCache();
 	}
 
 	FVulkanPipelineManager::~FVulkanPipelineManager()
 	{
+		SaveDriverPipelineCache();
+		GraphicsPipelineMap.clear();
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		GVulkanPipelineLayoutEntryCount.fetch_sub(LayoutMap.size(), std::memory_order_release);
 #endif
 		LayoutMap.clear();
+		if (DriverPipelineCache)
+		{
+			Device.GetHandle().destroyPipelineCache(DriverPipelineCache);
+			DriverPipelineCache = nullptr;
+		}
 	}
 
-	auto FVulkanPipelineManager::CreateGraphicsPipelineState(const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FVulkanGraphicsPipelineState>
+	auto FVulkanPipelineManager::CreateGraphicsPipelineState(
+		const FGraphicsPipelineStateInitializer& Initializer,
+		FGraphicsPipelineStateKey Key) -> TRefCountPtr<FVulkanGraphicsPipelineState>
 	{
 		CheckVulkanRHIThread();
-		return MakeRefCount<FVulkanGraphicsPipelineState>(Device, Initializer);
+		auto& Stats = Device.GetGraphicsCacheStatisticsMutable().GraphicsPipelines;
+		if (const auto It = GraphicsPipelineMap.find(Key); It != GraphicsPipelineMap.end())
+		{
+			++Stats.Hits;
+			It->second.LastUsed = ++AccessSerial;
+			return It->second.Pipeline;
+		}
+		++Stats.Misses;
+		const bool bNeedsEviction = GraphicsPipelineMap.size() >= Stats.Capacity;
+		if (bNeedsEviction && std::ranges::none_of(GraphicsPipelineMap, [](const auto& Entry) {
+			return Entry.second.Pipeline->GetRefCount() == 1;
+		}))
+		{
+			++Stats.FailedCandidates;
+			throw std::runtime_error("Vulkan graphics pipeline cache is full and has no cache-only entry.");
+		}
+		TRefCountPtr<FVulkanGraphicsPipelineState> Candidate;
+		try
+		{
+			Candidate = MakeRefCount<FVulkanGraphicsPipelineState>(Device, Initializer, Key);
+		}
+		catch (...)
+		{
+			++Stats.FailedCandidates;
+			throw;
+		}
+		++Stats.NativeCreations;
+		if (bNeedsEviction && !EvictPipelineIfNeeded())
+			throw std::runtime_error("Vulkan graphics pipeline cache lost its selected eviction candidate.");
+		const auto [It, Inserted] = GraphicsPipelineMap.emplace(std::move(Key),
+			FPipelineCacheEntry{Candidate, ++AccessSerial});
+		check(Inserted);
+		Stats.Occupancy = GraphicsPipelineMap.size();
+		return It->second.Pipeline;
 	}
 
-	auto FVulkanPipelineManager::FindOrAddLayout(const FVulkanDescriptorSetsLayoutInfo& LayoutInfo) -> FVulkanLayout*
+	auto FVulkanPipelineManager::FindOrAddLayout(const FVulkanDescriptorSetsLayoutInfo& LayoutInfo) -> std::shared_ptr<FVulkanLayout>
 	{
+		auto& Stats = Device.GetGraphicsCacheStatisticsMutable().StructuralLayouts;
 		const auto It = LayoutMap.find(LayoutInfo);
 		if (It != LayoutMap.end())
 		{
-			return It->second.get();
+			++Stats.Hits;
+			It->second.LastUsed = ++AccessSerial;
+			return It->second.Layout;
+		}
+		++Stats.Misses;
+		const bool bNeedsEviction = LayoutMap.size() >= Stats.Capacity;
+		if (bNeedsEviction && std::ranges::none_of(LayoutMap, [](const auto& Entry) {
+			return Entry.second.Layout.use_count() == 1;
+		}))
+		{
+			++Stats.FailedCandidates;
+			throw std::runtime_error("Vulkan structural layout cache is full and has no cache-only entry.");
 		}
 
-		auto NewLayout = std::make_unique<FVulkanLayout>(Device);
-		NewLayout->DSetsLayout = FVulkanDescriptorSetsLayout(Device, LayoutInfo);
+		auto NewLayout = std::make_shared<FVulkanLayout>(Device);
+		try
+		{
+			NewLayout->DSetsLayout = FVulkanDescriptorSetsLayout(Device, LayoutInfo);
+		}
+		catch (...)
+		{
+			++Stats.FailedCandidates;
+			throw;
+		}
+		if (bNeedsEviction && !EvictLayoutIfNeeded())
+			throw std::runtime_error("Vulkan structural layout cache lost its selected eviction candidate.");
 		const auto [InsertedIt, bInserted] =
-			LayoutMap.emplace(LayoutInfo, std::move(NewLayout));
+			LayoutMap.emplace(LayoutInfo, FLayoutCacheEntry{NewLayout, ++AccessSerial});
 		check(bInserted);
+		++Stats.NativeCreations;
+		Stats.Occupancy = LayoutMap.size();
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		GVulkanPipelineLayoutEntryCount.fetch_add(1, std::memory_order_release);
 #endif
-		return InsertedIt->second.get();
+		return InsertedIt->second.Layout;
+	}
+
+	auto FVulkanPipelineManager::EvictLayoutIfNeeded() -> bool
+	{
+		auto Victim = LayoutMap.end();
+		for (auto It = LayoutMap.begin(); It != LayoutMap.end(); ++It)
+		{
+			if (It->second.Layout.use_count() != 1) continue;
+			if (Victim == LayoutMap.end() || It->second.LastUsed < Victim->second.LastUsed)
+				Victim = It;
+		}
+		if (Victim == LayoutMap.end()) return false;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		GVulkanPipelineLayoutEntryCount.fetch_sub(1, std::memory_order_release);
+#endif
+		LayoutMap.erase(Victim);
+		auto& Stats = Device.GetGraphicsCacheStatisticsMutable().StructuralLayouts;
+		++Stats.Evictions;
+		Stats.Occupancy = LayoutMap.size();
+		return true;
+	}
+
+	auto FVulkanPipelineManager::EvictPipelineIfNeeded() -> bool
+	{
+		auto Victim = GraphicsPipelineMap.end();
+		for (auto It = GraphicsPipelineMap.begin(); It != GraphicsPipelineMap.end(); ++It)
+		{
+			if (It->second.Pipeline->GetRefCount() != 1) continue;
+			if (Victim == GraphicsPipelineMap.end() || It->second.LastUsed < Victim->second.LastUsed)
+				Victim = It;
+		}
+		if (Victim == GraphicsPipelineMap.end()) return false;
+		GraphicsPipelineMap.erase(Victim);
+		auto& Stats = Device.GetGraphicsCacheStatisticsMutable().GraphicsPipelines;
+		++Stats.Evictions;
+		Stats.Occupancy = GraphicsPipelineMap.size();
+		return true;
+	}
+
+	namespace
+	{
+		constexpr uint32 PipelineCacheMagic = 0x43505544; // DUPC
+		constexpr uint32 PipelineCacheSchema = 1;
+		constexpr size_t PipelineCachePrefixBytes = 5 * sizeof(uint32) + VK_UUID_SIZE;
+		constexpr size_t PipelineCacheMaximumBytes = 16 * 1024 * 1024;
+
+		auto PipelineCachePath() -> std::filesystem::path
+		{
+			return std::filesystem::path(FPaths::LaunchSavedDir()) / "Vulkan" / "PipelineCache-v1.bin";
+		}
+
+		auto ReadU32(const std::span<const uint8> Bytes, const size_t Offset) -> uint32
+		{
+			uint32 Value = 0;
+			if (Offset + sizeof(Value) <= Bytes.size()) std::memcpy(&Value, Bytes.data() + Offset, sizeof(Value));
+			return Value;
+		}
+	}
+
+	auto FVulkanPipelineManager::InitializeDriverPipelineCache() -> void
+	{
+		std::vector<uint8> FileBytes;
+		std::span<const uint8> InitialData;
+		auto& Stats = Device.GetGraphicsCacheStatisticsMutable();
+		const auto& Properties = Device.GetGpuProperties();
+		const std::filesystem::path Path = PipelineCachePath();
+		if (FFileHelper::FileExists(Path.generic_string()))
+		{
+			const bool bLoaded = FFileHelper::LoadFileToArray(FileBytes, Path.generic_string());
+			bool bCompatible = bLoaded && FileBytes.size() >= PipelineCachePrefixBytes
+				&& FileBytes.size() <= PipelineCacheMaximumBytes
+				&& ReadU32(FileBytes, 0) == PipelineCacheMagic
+				&& ReadU32(FileBytes, 4) == PipelineCacheSchema
+				&& ReadU32(FileBytes, 8) == Properties.vendorID
+				&& ReadU32(FileBytes, 12) == Properties.deviceID;
+			const uint32 PayloadSize = ReadU32(FileBytes, 16);
+			bCompatible = bCompatible && PayloadSize == FileBytes.size() - PipelineCachePrefixBytes
+				&& std::memcmp(FileBytes.data() + 20, Properties.pipelineCacheUUID.data(), VK_UUID_SIZE) == 0;
+			if (bCompatible)
+			{
+				InitialData = std::span<const uint8>(FileBytes).subspan(PipelineCachePrefixBytes);
+				bCompatible = InitialData.size() >= 32
+					&& ReadU32(InitialData, 0) >= 32
+					&& ReadU32(InitialData, 4) == VK_PIPELINE_CACHE_HEADER_VERSION_ONE
+					&& ReadU32(InitialData, 8) == Properties.vendorID
+					&& ReadU32(InitialData, 12) == Properties.deviceID
+					&& std::memcmp(InitialData.data() + 16, Properties.pipelineCacheUUID.data(), VK_UUID_SIZE) == 0;
+			}
+			if (!bCompatible)
+			{
+				++Stats.PersistentRejects;
+				InitialData = {};
+				DURIN_WARN("Ignoring incompatible Vulkan pipeline cache '{}'.", Path.generic_string());
+			}
+		}
+
+		vk::PipelineCacheCreateInfo CreateInfo;
+		CreateInfo.setInitialDataSize(InitialData.size()).setPInitialData(InitialData.data());
+		try
+		{
+			DriverPipelineCache = Device.GetHandle().createPipelineCache(CreateInfo);
+			if (!InitialData.empty())
+			{
+				++Stats.PersistentLoads;
+				Stats.PersistentBytes = InitialData.size();
+			}
+		}
+		catch (const std::exception& Error)
+		{
+			++Stats.PersistentRejects;
+			DURIN_WARN("Vulkan rejected persisted pipeline cache '{}': {}. Using an empty cache.", Path.generic_string(), Error.what());
+			DriverPipelineCache = Device.GetHandle().createPipelineCache({});
+		}
+	}
+
+	auto FVulkanPipelineManager::SaveDriverPipelineCache() -> void
+	{
+		if (!DriverPipelineCache) return;
+		auto& Stats = Device.GetGraphicsCacheStatisticsMutable();
+		try
+		{
+			const std::vector<uint8_t> Payload = Device.GetHandle().getPipelineCacheData(DriverPipelineCache);
+			if (Payload.empty() || Payload.size() + PipelineCachePrefixBytes > PipelineCacheMaximumBytes)
+			{
+				++Stats.PersistentRejects;
+				DURIN_WARN("Not saving Vulkan pipeline cache because its payload is empty or exceeds {} bytes.", PipelineCacheMaximumBytes);
+				return;
+			}
+			std::vector<std::byte> Bytes(PipelineCachePrefixBytes + Payload.size());
+			const auto WriteU32 = [&Bytes](size_t Offset, uint32 Value) { std::memcpy(Bytes.data() + Offset, &Value, sizeof(Value)); };
+			const auto& Properties = Device.GetGpuProperties();
+			WriteU32(0, PipelineCacheMagic);
+			WriteU32(4, PipelineCacheSchema);
+			WriteU32(8, Properties.vendorID);
+			WriteU32(12, Properties.deviceID);
+			WriteU32(16, static_cast<uint32>(Payload.size()));
+			std::memcpy(Bytes.data() + 20, Properties.pipelineCacheUUID.data(), VK_UUID_SIZE);
+			std::memcpy(Bytes.data() + PipelineCachePrefixBytes, Payload.data(), Payload.size());
+			FFileHelper::FAtomicFileError Error;
+			if (!FFileHelper::SaveArrayToFileAtomically(Bytes, PipelineCachePath(), &Error))
+			{
+				++Stats.PersistentRejects;
+				DURIN_WARN("Could not save Vulkan pipeline cache: {}", Error.ToString());
+				return;
+			}
+			++Stats.PersistentSaves;
+			Stats.PersistentBytes = Payload.size();
+		}
+		catch (const std::exception& Error)
+		{
+			++Stats.PersistentRejects;
+			DURIN_WARN("Could not query Vulkan pipeline cache for persistence: {}", Error.what());
+		}
 	}
 
 	auto FVulkanDynamicRHI::RHICreateGraphicsPipelineState(FName DebugName, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState>
 	{
-		if (!Initializer.IsValid())
+		FGraphicsPipelineStateKey Key;
+		std::string ValidationError;
+		if (!BuildGraphicsPipelineStateKey(Initializer, RHIGetCapabilities(), Key,
+			ValidationError))
 		{
-			DURIN_ERROR("Failed to create Vulkan RHI graphics pipeline '{}': initializer is invalid or unsupported.",
-				DebugName.ToString());
+			DURIN_ERROR("Failed to create Vulkan RHI graphics pipeline '{}': {}",
+				DebugName.ToString(), ValidationError);
 			return nullptr;
 		}
 		TRefCountPtr<FRHIGraphicsPipelineState> Result;
 		const FRHIFallibleOperationResult CreationResult =
 			ExecuteFallibleVulkanCreationOperation(
-				[this, Initializer, &Result]() {
+				[this, Initializer, Key = std::move(Key), &Result]() mutable {
 					Result = Device->GetPipelineManager()
-						.CreateGraphicsPipelineState(Initializer);
+						.CreateGraphicsPipelineState(Initializer, std::move(Key));
 				},
 				GetPipelineInitializerPayloadBytes(Initializer));
 		if (!CreationResult.IsSuccess())
@@ -529,5 +826,15 @@ namespace Durin::VulkanRHI
 			return nullptr;
 		}
 		return Result;
+	}
+
+	auto FVulkanDynamicRHI::RHIGetGraphicsCacheStatistics() const -> FRHIGraphicsCacheStatistics
+	{
+		return Device ? Device->GetGraphicsCacheStatistics() : FRHIGraphicsCacheStatistics{};
+	}
+
+	auto FVulkanDynamicRHI::RHIResetGraphicsCacheStatistics() -> void
+	{
+		if (Device) Device->ResetGraphicsCacheStatistics();
 	}
 } // namespace Durin::VulkanRHI

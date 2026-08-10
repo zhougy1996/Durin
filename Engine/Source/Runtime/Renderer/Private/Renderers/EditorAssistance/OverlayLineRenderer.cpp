@@ -427,10 +427,10 @@ namespace Durin
 						Base->FragmentShader.GetRHIShader();
 					Initializer.VertexDeclaration =
 						Base->VertexDeclaration;
-					Initializer.ColorBlendState =
+					Initializer.ColorBlendStates[0] =
 						FRHIColorBlendState::StraightAlpha();
 					Initializer.RasterizerState.CullMode = ERHICullMode::None;
-					Initializer.DepthState.bEnableTest =
+					Initializer.DepthStencilState.bEnableTest =
 						Key.DepthMode == EDepthMode::Visible;
 					Initializer.PipelineLayout =
 						Base->ShaderMap->GetMergedPipelineLayout();
