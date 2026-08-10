@@ -146,9 +146,11 @@ namespace Durin
 				| ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus
 				| ImGuiWindowFlags_NoNavFocus;
 			ImGui::Begin("###Durin.Editor.LoadingHost", nullptr, Flags);
-			const char* Message = State == EEditorBootstrapState::WaitingForFirstPresent
-				? "Preparing editor..."
-				: "Loading project workspace...";
+			const char* Message = "Loading project workspace...";
+			if (State == EEditorBootstrapState::WaitingForFirstPresent)
+				Message = "Preparing editor...";
+			else if (State == EEditorBootstrapState::LoadingDefaultDocument)
+				Message = "Opening default level...";
 			const ImVec2 MessageSize = ImGui::CalcTextSize(Message);
 			const ImVec2 Available = ImGui::GetContentRegionAvail();
 			ImGui::SetCursorPos({
@@ -564,9 +566,7 @@ namespace Durin
 			if (!Context) return;
 			ObserveEditorHostWindowState(
 				*Context->HostSettings, *Context->RootWindow);
-			if ((Context->State == EEditorBootstrapState::WorkspaceReady
-					|| Context->State == EEditorBootstrapState::LoadingDefaultDocument
-					|| Context->State == EEditorBootstrapState::Ready)
+			if (Context->State == EEditorBootstrapState::Ready
 				&& Context->bHasProject && Context->LevelEditorModule)
 			{
 				DrawWorkspaceHost(
