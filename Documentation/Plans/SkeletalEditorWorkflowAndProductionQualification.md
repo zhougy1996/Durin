@@ -364,6 +364,7 @@ Dependencies: Stages 0-4 and their handoffs.
 ## Completion Evidence
 
 Completed on 2026-08-11 against entry baseline `651b3f84`.
+Implementation commit: `e17ea057` (`feat(skeletal-editor): add production asset workflow`).
 
 - `SkeletalMeshEditor` is enabled in the Editor runtime and registered by
   MainFrame after StaticMeshEditor. Its scoped shutdown removes the exact
