@@ -25,7 +25,10 @@ Process entry is `Engine/Source/Runtime/Launch/Private/Launch.cpp`.
 
 `FEngineLoop::PreInit()` handles early process setup, DLL search paths, config
 loading, path mount points, `RenderCore` loading, and reflected object
-initialization.
+initialization. Its private runtime-storage component creates Saved directories,
+migrates legacy configuration and log files, and returns the selected app-config
+path plus pass-local warnings. `PreInit()` loads that path before logger startup
+and emits the returned warnings only after the logger is ready.
 
 After worker-scheduler startup, `PreInit()` installs the bounded
 `GameThreadDeferred` executor. Failure to install either executor aborts
@@ -62,9 +65,20 @@ tick-enabled components.
 
 Immediately after `DEngine::Tick()`, the engine pumps low-priority
 `GameThreadDeferred` continuations using the configured item and time budgets.
-This is the sole normal-frame safe point. Deferred callbacks are not
+It then calls the Engine-owned asset-service completion pump before incrementing
+the logic-frame counter. Together these are the sole normal-frame GameThread
+completion safe point, in this fixed order. Deferred callbacks are not
 frame-critical synchronization, do not run inline at submission, and may be
-carried into a later frame when the budget is exhausted.
+carried into a later frame when the budget is exhausted. Asset-service mailboxes
+retain their own admission, payload, frame-budget, explicit-wait, and shutdown
+drain policies rather than storing large results in the deferred executor.
+
+Launch keeps the frame render decision visible in `FEngineLoop::Tick()`, while
+its private frame component owns begin/end render-thread callbacks, UI and
+viewport submission, end-frame synchronization, and the render counter. A
+separate private validation component owns the opt-in task-scheduler lifecycle
+workload across `ShutdownTaskSystem()`. These components do not change
+`FEngineLoop::Exit()` ownership of explicit process shutdown ordering.
 
 The same function owns the CPU-profiler frame mark and stable top-level zones.
 Core forwards engine-owned thread names and queued-task execution through the

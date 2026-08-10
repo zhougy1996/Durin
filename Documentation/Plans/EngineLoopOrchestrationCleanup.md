@@ -4,31 +4,41 @@ Summary: Reduce `FEngineLoop` to explicit process and frame orchestration while 
 
 Last reviewed: 2026-08-11
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-11
 
 ## Current Status
 
-Design is complete and implementation has not started. The current
-`LaunchEngineLoop.cpp` is 539 lines and combines four distinct concerns:
+Implementation and qualification completed on 2026-08-11. The baseline was
+revision `06919fbba4ad3d74d6bbda752b2dc85a2332b512`:
+`LaunchEngineLoop.cpp` was 539 lines with 26 direct includes. Runtime storage
+occupied lines 40-107, task qualification 109-287, process startup/shutdown
+289-539, and render-frame helpers 385-441 inside that protocol.
 
-- process startup, frame sequencing, and ordered shutdown;
-- runtime saved-directory preparation and legacy-file migration;
-- a task-scheduler lifecycle qualification workload;
-- render-frame helpers and an Engine-specific Texture2D completion pump.
+The final `LaunchEngineLoop.cpp` is 232 lines with 25 direct includes. It has no
+Texture2D coordinator symbol, migration implementation, task handles/workload,
+or render-thread callbacks. Private Launch components now own runtime storage,
+task-scheduler validation, and frame submission; `FEngineLoop::Exit()` still
+shows the complete process shutdown order.
 
-The Texture2D coordinator currently places move-only build results in its own
-mailbox and relies on `FEngineLoop::Tick()` to call
-`PumpTexture2DBuildCompletions()` immediately after the bounded
-`GameThreadDeferred` pump. That direct Texture dependency is the first boundary
-to remove. The mailbox itself remains intentional: results may retain 4K and
-16K platform payloads far beyond the deferred executor's default 1 MiB
-per-entry and 8 MiB total payload bounds.
+Engine owns the reliable asset-service frame pump after
+`GameThreadDeferred`. Texture2D retains its move-only mailbox, 64-item normal
+frame budget, unbounded explicit-wait pump, and shutdown drain. Debug Agent
+Build Profile characterization measured representative 1K/4K success, stale,
+failed, and cancelled callbacks at 0.5-16.9 microseconds, so the 64-item budget
+was retained without adding a separate time constant.
 
-The selected design does not use a best-effort deferred continuation as the
-mailbox's sole wakeup. Deferred admission can reject work when bounded capacity
-is exhausted or shutdown has begun; without a separate reliable poll, one
-rejected wakeup can leave the last completion unpublished indefinitely.
+Focused `LaunchStorageTests` (5 tests) and `TextureTests` (76 registered, 74
+passed and 2 opt-in characterizations skipped) passed. The callback
+characterization passed separately with its opt-in environment flag. Changed
+documentation validation and the final `all` build passed. Five-tick hidden
+runtime smokes passed in threaded and inline RHI modes; both discarded one
+asynchronous Engine asset-service result exactly once, and the threaded run
+also passed the task-scheduler lifecycle qualification. An additional
+`test --target all` attempt stopped while compiling the unrelated `WorldTests`
+target because its existing `FWorldSceneLifecycleTestScene` mock does not
+implement `IScene::UpdateSkeletalMeshDynamicData`; no aggregate tests ran, and
+the failure is outside this plan's affected targets and non-goals.
 
 ## Goal
 
@@ -149,18 +159,18 @@ rejected wakeup can leave the last completion unpublished indefinitely.
 
 ### Stage 0: Freeze frame-completion behavior and baseline
 
-- [ ] Record the baseline source revision and current `LaunchEngineLoop.cpp`
+- [x] Record the baseline source revision and current `LaunchEngineLoop.cpp`
   line count, includes, and responsibility ranges.
-- [ ] Add or extend deterministic Engine tests for normal-frame bounded
+- [x] Add or extend deterministic Engine tests for normal-frame bounded
   Texture2D completion, queued cancellation, stale generation rejection,
   explicit wait, and shutdown drain.
-- [ ] Verify whether any completion callback depends on running after rather
+- [x] Verify whether any completion callback depends on running after rather
   than before other `GameThreadDeferred` callbacks; preserve the current order
   unless evidence requires a documented change.
-- [ ] Measure GameThread completion callback time for representative 1K and 4K
+- [x] Measure GameThread completion callback time for representative 1K and 4K
   successful, failed, cancelled, and stale results using the existing Agent
   Build Profile.
-- [ ] Freeze the normal-frame item/time budget decision in this plan and in the
+- [x] Freeze the normal-frame item/time budget decision in this plan and in the
   owning Texture System documentation.
 
 #### Acceptance Gate
@@ -173,16 +183,16 @@ rejected wakeup can leave the last completion unpublished indefinitely.
 
 Dependencies: Stage 0.
 
-- [ ] Add `PumpEngineAssetServiceCompletions()` beside Engine asset-service
+- [x] Add `PumpEngineAssetServiceCompletions()` beside Engine asset-service
   initialization and shutdown, with an explicit GameThread contract and the
   frozen normal-frame budget.
-- [ ] Route Texture2D completion pumping through that Engine-owned function.
-- [ ] Replace the direct Texture2D pump in `FEngineLoop::Tick()` without changing
+- [x] Route Texture2D completion pumping through that Engine-owned function.
+- [x] Replace the direct Texture2D pump in `FEngineLoop::Tick()` without changing
   its position relative to engine tick, deferred work, frame counting,
   application events, rendering, or GC.
-- [ ] Remove `Texture2DBuildCoordinator.h` from Launch and verify Launch has no
+- [x] Remove `Texture2DBuildCoordinator.h` from Launch and verify Launch has no
   remaining Texture2D-specific symbols.
-- [ ] Keep explicit wait and shutdown paths directly drainable and independent
+- [x] Keep explicit wait and shutdown paths directly drainable and independent
   of deferred queue admission.
 
 #### Acceptance Gate
@@ -196,13 +206,13 @@ Dependencies: Stage 0.
 
 Dependencies: Stage 1.
 
-- [ ] Add private Launch runtime-storage files that own directory creation,
+- [x] Add private Launch runtime-storage files that own directory creation,
   legacy log/config migration, app-config path selection, and warning capture.
-- [ ] Return warnings and the selected app-config path explicitly to
+- [x] Return warnings and the selected app-config path explicitly to
   `FEngineLoop::PreInit()`.
-- [ ] Remove the namespace-global migration warning vector and preserve the
+- [x] Remove the namespace-global migration warning vector and preserve the
   rule that warnings are logged only after logger initialization.
-- [ ] Add focused tests for no-op migration, rename success, copy/remove
+- [x] Add focused tests for no-op migration, rename success, copy/remove
   fallback, existing destination, and filesystem errors where the current test
   seams permit deterministic coverage.
 
@@ -216,13 +226,13 @@ Dependencies: Stage 1.
 
 Dependencies: Stage 2.
 
-- [ ] Move the task graph, cancellation probe, deferred callback, diagnostics,
+- [x] Move the task graph, cancellation probe, deferred callback, diagnostics,
   and post-shutdown validation into private Launch validation files.
-- [ ] Expose only the minimum begin/validate lifetime seam required around
+- [x] Expose only the minimum begin/validate lifetime seam required around
   `ShutdownTaskSystem()`.
-- [ ] Keep workload state alive across task-system shutdown without placing
+- [x] Keep workload state alive across task-system shutdown without placing
   task handles or ThreadEvent types in `LaunchEngineLoop.h`.
-- [ ] Preserve every existing workload assertion, diagnostic threshold, and
+- [x] Preserve every existing workload assertion, diagnostic threshold, and
   command-line opt-in behavior.
 
 #### Acceptance Gate
@@ -236,13 +246,13 @@ Dependencies: Stage 2.
 
 Dependencies: Stage 3.
 
-- [ ] Move render-thread begin/end callbacks and frame render submission into a
+- [x] Move render-thread begin/end callbacks and frame render submission into a
   private Launch frame component.
-- [ ] Preserve the order `BeginFrame -> Mona::NewFrame -> viewport redraw ->
+- [x] Preserve the order `BeginFrame -> Mona::NewFrame -> viewport redraw ->
   Mona::Render -> EndFrame -> FFrameSync -> render counter`.
-- [ ] Keep window-minimized policy, application tick, GC, FPS timings, profiler
+- [x] Keep window-minimized policy, application tick, GC, FPS timings, profiler
   plots, and frame mark in `FEngineLoop::Tick()`.
-- [ ] Reduce includes in `LaunchEngineLoop.cpp` only where ownership moved; do
+- [x] Reduce includes in `LaunchEngineLoop.cpp` only where ownership moved; do
   not perform unrelated include normalization.
 
 #### Acceptance Gate
@@ -255,16 +265,16 @@ Dependencies: Stage 3.
 
 Dependencies: Stages 1-4.
 
-- [ ] Update Runtime Lifecycle with the Engine asset-service completion phase
+- [x] Update Runtime Lifecycle with the Engine asset-service completion phase
   and the final Launch component boundaries.
-- [ ] Update Texture System with mailbox ownership, frame budget, explicit wait,
+- [x] Update Texture System with mailbox ownership, frame budget, explicit wait,
   and shutdown drain behavior.
-- [ ] Update Task System only if implementation changes the documented
+- [x] Update Task System only if implementation changes the documented
   relationship between subsystem mailboxes and deferred execution.
-- [ ] Run changed-document validation, the smallest affected native test
+- [x] Run changed-document validation, the smallest affected native test
   targets during development, a final full `all` build for the Engine/Launch
   export boundary, and normal plus inline-RHI bounded runtime shutdown smokes.
-- [ ] Record final file line counts and validation evidence in Current Status,
+- [x] Record final file line counts and validation evidence in Current Status,
   then complete the plan only after every acceptance gate passes.
 
 #### Acceptance Gate

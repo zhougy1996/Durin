@@ -125,6 +125,16 @@ result whose request id, generation, object identity, source path, and complete
 settings still match. Cancellation is cooperative; this commit comparison is
 the correctness boundary.
 
+Launch has no Texture2D coordinator dependency. After each bounded
+`GameThreadDeferred` pump, it calls the Engine asset-service completion phase;
+Engine routes that phase to Texture2D with a 64-item normal-frame budget. The
+coordinator mailbox remains the durable owner of large move-only results and
+does not depend on deferred-executor admission for wakeup. `WaitForPendingBuild`
+waits until its request reaches the mailbox and then pumps without the
+normal-frame item budget. Shutdown likewise drains all callbacks before the
+process task scheduler closes. Every callback is GameThread-only and the
+request/generation/identity/settings comparison prevents stale publication.
+
 Cancellation is checked every eight generated or alpha-processing scanlines,
 between mips, and every 64 compression blocks. New requests cancel the older
 generation. Unload, destruction, document close, failed startup unwind, and
@@ -138,9 +148,16 @@ Readiness is separate from the persistent build result and from render
 revision. Its phases are Queued, Decoding, Building, Persisting, Upload Pending,
 Ready, Failed, and Cancelled. Diagnostics retain request/generation identity,
 queue and worker time, estimated bytes, decoded bytes, peak intermediate bytes,
-result bytes, DDC key, and the latest matching failure with its originating
+result bytes, completion callback time, DDC key, and the latest matching failure with its originating
 decode, build, or persistence phase. Ready requires both a
 committed CPU result and completion of the matching revisioned render upload.
+
+The 2026-08-11 `Win64-Debug-DurinEditor` completion characterization measured
+representative 1K and 4K success, failed, cancelled, and stale callbacks at
+0.5-16.9 microseconds. Sixty-four callbacks at the slowest observed sample are
+about 1.08 ms. The normal-frame policy therefore retains the established
+64-item cap without adding a separate unmeasured time constant; callback time
+remains diagnostic evidence and the item cap is the contract.
 
 The scheduling constants were selected from the
 `Win64-Debug-DurinEditor` characterization gate on 2026-08-10. Times below are

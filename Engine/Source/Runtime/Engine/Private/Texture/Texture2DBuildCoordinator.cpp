@@ -485,8 +485,17 @@ namespace Durin
 					Entry = std::move(Completions.front());
 					Completions.pop_front();
 				}
+				const auto CompletionStart = std::chrono::steady_clock::now();
 				if (Entry.Job->Completion) Entry.Job->Completion(std::move(Entry.Result));
+				const uint64 CompletionNanoseconds = static_cast<uint64>(
+					std::chrono::duration_cast<std::chrono::nanoseconds>(
+						std::chrono::steady_clock::now() - CompletionStart).count());
 				Entry.Job->Completion = {};
+				{
+					std::lock_guard JobLock(Entry.Job->Mutex);
+					Entry.Job->Diagnostic.Metrics.CompletionNanoseconds =
+						CompletionNanoseconds;
+				}
 				{
 					std::lock_guard Lock(Mutex);
 					CompletedOrder.push_back(Entry.Job->Diagnostic.RequestId);

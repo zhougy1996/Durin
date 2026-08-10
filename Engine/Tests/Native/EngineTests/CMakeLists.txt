@@ -299,6 +299,13 @@ if(TARGET TextureTests)
 		${DURIN_PROJECT_ROOT_DIR}/Source/Editor/StandardAssetImport/Private)
 endif()
 
+durin_add_engine_functional_test(LaunchStorageTests
+	RUNTIME_STACK_RATIONALE "Exercises Launch-private runtime storage selection and migration policy."
+	SOURCES Private/Launch/LaunchRuntimeStorageTests.cpp
+	PRIVATE_SOURCES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Launch/Private/LaunchRuntimeStorage.cpp
+)
+
 durin_add_engine_functional_test(EnvironmentLightingTests
 	RUNTIME_STACK_RATIONALE "Exercises built-in environment payload and direct cook behavior."
 	SOURCES Private/EnvironmentLightingTests.cpp

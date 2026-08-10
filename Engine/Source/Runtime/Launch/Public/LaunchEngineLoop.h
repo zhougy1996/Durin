@@ -10,6 +10,7 @@ namespace Durin
 	{
 		bool bSuppressWindowDisplay = false;
 		bool bRunTaskSchedulerLifecycleSmoke = false;
+		bool bRunEngineAssetServiceLifecycleSmoke = false;
 		FProjectInitializationParams Project;
 	};
 
@@ -28,6 +29,7 @@ namespace Durin
 		// Previous tick timestamp in the platform clock's seconds domain.
 		double LastTickTime = 0.0;
 		bool bRunTaskSchedulerLifecycleSmoke = false;
+		bool bRunEngineAssetServiceLifecycleSmoke = false;
 	};
 
 	extern FEngineLoop GEngineLoop;

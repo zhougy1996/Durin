@@ -272,6 +272,11 @@ short, long, dependent, failed, canceled, waiting, and parallel CPU tasks at
 exit, then audits admission close, drain outcomes, and final scheduler
 diagnostics before rendering shutdown continues.
 
+Append `--engine-asset-service-lifecycle-smoke` when qualifying the normal-frame
+Engine asset-service completion phase. It submits one asynchronous invalid
+Texture2D result during initialization and requires the bounded Engine frame
+pump to discard it exactly once on the GameThread before normal shutdown.
+
 Do not repeat `--project` or `--project=...` after `--args` when the typed
 `--project` option is present; DurinDevTool rejects the two project selectors as
 ambiguous. Raw project selection after `--args` remains accepted for backwards

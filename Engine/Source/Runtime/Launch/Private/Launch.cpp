@@ -46,6 +46,10 @@ int LAUNCH_API main(int argc, char** argv)
 		{
 			StartupParams.bRunTaskSchedulerLifecycleSmoke = true;
 		}
+		else if (Argument == "--engine-asset-service-lifecycle-smoke")
+		{
+			StartupParams.bRunEngineAssetServiceLifecycleSmoke = true;
+		}
 		else if (Argument == "--project-browser")
 		{
 			StartupParams.Project.bOpenProjectBrowser = true;

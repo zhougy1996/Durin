@@ -64,6 +64,7 @@ namespace Durin
 		uint64 CompressionNanoseconds = 0;
 		uint64 PersistenceNanoseconds = 0;
 		uint64 WorkerNanoseconds = 0;
+		uint64 CompletionNanoseconds = 0;
 		uint64 EstimatedBytes = 0;
 		uint64 DecodedBytes = 0;
 		uint64 PeakIntermediateBytes = 0;

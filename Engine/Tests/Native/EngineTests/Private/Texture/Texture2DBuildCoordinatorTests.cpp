@@ -1,7 +1,9 @@
 #include "TextureTestSupport.h"
 
+#include "EngineAssetServices.h"
 #include "Misc/FileHelper.h"
 #include "Texture/Texture2DBuildCoordinator.h"
+#include "Threading/RunnableThread.h"
 #include "Threading/Task.h"
 
 namespace
@@ -44,6 +46,28 @@ namespace
 		return Condition.wait_for(Lock, std::chrono::seconds(10), [&] {
 			return TerminalCount >= Expected;
 		});
+	}
+
+	auto MakeTgaBytes(Durin::uint16 Dimension) -> std::vector<Durin::uint8>
+	{
+		std::vector<Durin::uint8> Bytes(
+			18 + static_cast<size_t>(Dimension) * Dimension * 4, 0);
+		Bytes[2] = 2;
+		Bytes[12] = static_cast<Durin::uint8>(Dimension & 0xff);
+		Bytes[13] = static_cast<Durin::uint8>(Dimension >> 8);
+		Bytes[14] = static_cast<Durin::uint8>(Dimension & 0xff);
+		Bytes[15] = static_cast<Durin::uint8>(Dimension >> 8);
+		Bytes[16] = 32;
+		Bytes[17] = 0x28;
+		for (size_t Offset = 18; Offset < Bytes.size(); Offset += 4)
+		{
+			const Durin::uint8 Value = static_cast<Durin::uint8>((Offset / 4) * 37u);
+			Bytes[Offset] = Value;
+			Bytes[Offset + 1] = static_cast<Durin::uint8>(255u - Value);
+			Bytes[Offset + 2] = static_cast<Durin::uint8>(Value ^ 0x5a);
+			Bytes[Offset + 3] = 255;
+		}
+		return Bytes;
 	}
 }
 
@@ -266,6 +290,68 @@ TEST(FTexture2DBuildCoordinatorTests, CancelsRunningAndQueuedWorkExactlyOnceDuri
 	EXPECT_EQ(Coordinator.GetQueuedCount(), 0u);
 }
 
+TEST(FTexture2DBuildCoordinatorTests, EngineAssetServiceFramePumpAppliesAtMostSixtyFourExactlyOnce)
+{
+	InitializeDObjectSystem();
+	Durin::FTexture2DBuildCoordinator* Coordinator =
+		Durin::GetTexture2DBuildCoordinator();
+	ASSERT_NE(Coordinator, nullptr);
+	const std::array<Durin::uint8, 8> InvalidBytes{0, 1, 2, 3, 4, 5, 6, 7};
+	std::mutex Mutex;
+	std::condition_variable Condition;
+	Durin::uint32 TerminalCount = 0;
+	Durin::uint32 CompletionCount = 0;
+	Coordinator->SetPhaseHookForTests(
+		[&](Durin::uint64, Durin::ETexture2DBuildPhase Phase) {
+			if (!IsTerminal(Phase)) return;
+			std::lock_guard Lock(Mutex);
+			++TerminalCount;
+			Condition.notify_all();
+		});
+	for (Durin::uint32 Index = 0; Index < 65; ++Index)
+	{
+		ASSERT_NE(Coordinator->Submit(
+			MakeCoordinatorRequest(
+				InvalidBytes, std::format("/Coordinator/FrameBudget{}", Index)),
+			[&](Durin::FTexture2DBuildResult&&) {
+				EXPECT_TRUE(Durin::IsInGameThread());
+				++CompletionCount;
+			}), 0u);
+	}
+	ASSERT_TRUE(WaitForTerminalCount(Mutex, Condition, TerminalCount, 65));
+	Durin::PumpEngineAssetServiceCompletions();
+	EXPECT_EQ(CompletionCount, 64u);
+	Durin::PumpEngineAssetServiceCompletions();
+	EXPECT_EQ(CompletionCount, 65u);
+	Durin::PumpEngineAssetServiceCompletions();
+	EXPECT_EQ(CompletionCount, 65u);
+	Coordinator->SetPhaseHookForTests({});
+}
+
+TEST(FTexture2DBuildCoordinatorTests, ExplicitWaitLeavesCompletionForAnUnboundedPump)
+{
+	InitializeDObjectSystem();
+	const std::array<Durin::uint8, 8> InvalidBytes{0, 1, 2, 3, 4, 5, 6, 7};
+	Durin::FTexture2DBuildCoordinator Coordinator({.MaxWorkers = 2});
+	Durin::uint32 CompletionCount = 0;
+	std::vector<Durin::uint64> RequestIds;
+	for (Durin::uint32 Index = 0; Index < 70; ++Index)
+	{
+		RequestIds.push_back(Coordinator.Submit(
+			MakeCoordinatorRequest(
+				InvalidBytes, std::format("/Coordinator/ExplicitWait{}", Index)),
+			[&](Durin::FTexture2DBuildResult&&) { ++CompletionCount; }));
+		ASSERT_NE(RequestIds.back(), 0u);
+	}
+	for (const Durin::uint64 RequestId : RequestIds)
+		ASSERT_TRUE(Coordinator.WaitForRequest(RequestId, 10.0));
+	EXPECT_EQ(CompletionCount, 0u);
+	EXPECT_EQ(
+		Coordinator.PumpCompletions(std::numeric_limits<Durin::uint32>::max()),
+		70u);
+	EXPECT_EQ(CompletionCount, 70u);
+}
+
 TEST(FTexture2DBuildCharacterization, ReportsBuildCostForRequestedDimensions)
 {
 	const char* RequestedDimensions = std::getenv(
@@ -348,5 +434,52 @@ TEST(FTexture2DBuildCharacterization, ReportsBuildCostForRequestedDimensions)
 					<< ResultBytes << '\n';
 			}
 		}
+	}
+}
+
+TEST(FTexture2DBuildCharacterization, ReportsCompletionCallbackCost)
+{
+	if (const char* Enabled = std::getenv("DURIN_TEXTURE_COMPLETION_CHARACTERIZATION");
+		!Enabled || std::string_view(Enabled) != "1")
+	{
+		GTEST_SKIP() << "Set DURIN_TEXTURE_COMPLETION_CHARACTERIZATION=1 to measure representative callbacks.";
+	}
+	InitializeDObjectSystem();
+	std::cout
+		<< "TEXTURE_COMPLETION_CHARACTERIZATION profile=Win64-Debug-DurinEditor\n"
+		<< "dimension,outcome,completion_us\n";
+	for (const Durin::uint16 Dimension : {Durin::uint16{1024}, Durin::uint16{4096}})
+	{
+		Durin::FTexture2DBuildCoordinator Coordinator({.MaxWorkers = 1});
+		auto Run = [&](std::string_view Outcome, std::vector<Durin::uint8> Bytes,
+			bool bCancel, bool bStale) {
+			std::unique_ptr<Durin::FTexturePlatformData> AcceptedPlatformData;
+			Durin::FTexture2DBuildRequest Request = MakeCoordinatorRequest(
+				Bytes, std::format("/Coordinator/Characterization/{}/{}", Dimension, Outcome));
+			Request.EstimatedWidth = Dimension;
+			Request.EstimatedHeight = Dimension;
+			Request.Generation = bStale ? 2 : 1;
+			const Durin::uint64 ExpectedGeneration = 1;
+			const Durin::uint64 RequestId = Coordinator.Submit(
+				std::move(Request),
+				[&](Durin::FTexture2DBuildResult&& Result) {
+					if (Result.Generation != ExpectedGeneration) return;
+					if (Result.Phase == Durin::ETexture2DBuildPhase::UploadPending)
+						AcceptedPlatformData = std::move(Result.PlatformData);
+				});
+			ASSERT_NE(RequestId, 0u);
+			if (bCancel) ASSERT_TRUE(Coordinator.Cancel(RequestId));
+			ASSERT_TRUE(Coordinator.WaitForRequest(RequestId, 60.0));
+			ASSERT_EQ(Coordinator.PumpCompletions(1), 1u);
+			const Durin::FTexture2DBuildDiagnostic Diagnostic =
+				Coordinator.GetDiagnostic(RequestId);
+			std::cout << Dimension << ',' << Outcome << ','
+				<< Diagnostic.Metrics.CompletionNanoseconds / 1000.0 << '\n';
+		};
+		const std::vector<Durin::uint8> ValidBytes = MakeTgaBytes(Dimension);
+		Run("success", ValidBytes, false, false);
+		Run("stale", ValidBytes, false, true);
+		Run("failed", {0, 1, 2, 3, 4, 5, 6, 7}, false, false);
+		Run("cancelled", ValidBytes, true, false);
 	}
 }

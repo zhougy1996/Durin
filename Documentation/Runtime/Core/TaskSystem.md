@@ -365,6 +365,14 @@ terminal model state only after rechecking request serial, generation, and weak
 model lifetime. No package object or mutable editor state crosses into the
 worker task.
 
+Texture2D CPU builds also retain a subsystem mailbox because their move-only 4K
+and 16K payloads exceed the deferred executor's per-entry and total payload
+bounds. Engine owns a reliable, explicitly ordered GameThread frame pump for
+that mailbox after the bounded `GameThreadDeferred` pump. A deferred
+continuation is not its durable wakeup: bounded admission or shutdown rejection
+must never strand the last completion. Explicit waits and Engine asset-service
+shutdown drain the mailbox directly.
+
 Choose the execution primitive by ownership requirement:
 
 | Need | Primitive | Owner |
