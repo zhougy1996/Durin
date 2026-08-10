@@ -113,6 +113,7 @@ namespace Durin
 			bool bWorkspaceReady = false;
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("Startup.WorkspaceRegistration");
+				FModuleManager::Get().LoadModuleChecked("StandardAssetImport");
 				FRenderedAssetThumbnailService& ThumbnailService =
 					GetDefaultRenderedAssetThumbnailService();
 				FLevelEditorModule& LevelEditorModule =

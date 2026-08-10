@@ -11,6 +11,7 @@
         "Mona",
         "MonaImGui",
 		"AssetImportCore",
+		"StandardAssetImport",
         "LevelEditor",
         "MaterialEditor",
         "TextureEditor",
