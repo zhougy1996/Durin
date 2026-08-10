@@ -1,5 +1,6 @@
 #include "Animation/AnimationClip.h"
 #include "Editor/EditorWorkspace.h"
+#include "Engine/Actor.h"
 #include "EngineTestSupport.h"
 #include "Materials/MaterialTestSupport.h"
 #include "NativeTestSupport.h"
@@ -71,7 +72,9 @@ TEST(FSkeletalMeshEditorTests, PreviewSceneOwnsAndReleasesProductionComponents)
 	const std::string LightName = std::format("SkeletalAssetPreviewLightActor_{}", PreviewId);
 	{
 		Durin::FSkeletalAssetPreview Preview(PreviewId);
-		EXPECT_NE(FindObjectByName(ActorName), nullptr);
+		auto* PreviewActor = Durin::Cast<Durin::AActor>(FindObjectByName(ActorName));
+		ASSERT_NE(PreviewActor, nullptr);
+		EXPECT_TRUE(PreviewActor->IsActorTickEnabled());
 		EXPECT_NE(FindObjectByName(LightName), nullptr);
 		EXPECT_TRUE(Preview.IsLit());
 		EXPECT_FALSE(Preview.IsWireframe());

@@ -125,6 +125,7 @@ namespace Durin
 			PreviewScene = std::make_unique<FPreviewScene>(FName(std::format("SkeletalAssetPreview_{}", PreviewId)));
 			if (!PreviewScene->IsAvailable()) { Error = PreviewScene->GetDiagnostic(); return; }
 			AActor* Actor = PreviewScene->GetWorld()->SpawnActor<AActor>(FName(std::format("SkeletalAssetPreviewActor_{}", PreviewId)));
+			if (Actor) Actor->SetActorTickEnabled(true);
 			Component = Actor ? Cast<DSkeletalMeshComponent>(Actor->AddInstanceComponent(
 				DSkeletalMeshComponent::StaticClass(), "PreviewMesh")) : nullptr;
 			AActor* LightActor = PreviewScene->GetWorld()->SpawnActor<AActor>(FName(std::format("SkeletalAssetPreviewLightActor_{}", PreviewId)));
