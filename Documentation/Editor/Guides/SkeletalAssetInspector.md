@@ -38,6 +38,12 @@ meshes by stable path. Use **Frame Selection**, **Lit**, **Wireframe**, orbit,
 pan, zoom, **Play/Pause**, **Loop**, **Rate**, **Reset**, and the timeline. These
 controls belong to the open document and do not dirty the asset.
 
+Drag a SkeletalMesh asset from the Content Browser into an editable Scene
+Viewport to create a Skeletal Mesh Actor at the drop location. The actor starts
+in reference pose. Assign a compatible AnimationClip and playback settings on
+its SkeletalMeshComponent when the level needs animated playback; Skeleton,
+AnimationClip, and import-record assets are not directly placeable.
+
 If no compatible same-record peer exists, metadata remains inspectable and the
 preview reports that it is unavailable. Missing packages, incompatible peers,
 payload failures, and render-resource failures likewise do not retain stale

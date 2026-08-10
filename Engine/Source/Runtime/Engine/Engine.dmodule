@@ -24,6 +24,7 @@
         "Public/Actors/CameraActor.h",
         "Public/Actors/DirectionalLightActor.h",
         "Public/Actors/StaticMeshActor.h",
+        "Public/Actors/SkeletalMeshActor.h",
         "Public/Actors/SkyBoxActor.h",
         "Public/Components/ActorComponent.h",
         "Public/Components/CameraComponent.h",

@@ -12,6 +12,8 @@
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "Actors/StaticMeshActor.h"
+#include "Actors/SkeletalMeshActor.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "Math/Vector.h"
@@ -162,14 +164,40 @@ namespace Durin
 					{
 						const auto* AssetPayload = static_cast<const FContentBrowserAssetPayload*>(Payload->Data);
 						FAssetPath AssetPath;
-						DStaticMesh* Mesh = nullptr;
+						DObject* Asset = nullptr;
+						AActor* Actor = nullptr;
 						if (!FAssetPath::TryCreate(AssetPayload->AssetPath.data(), AssetPath))
 							Context.SetError("Dropped asset path is invalid.");
-						else if (const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Mesh); !Result)
+						else if (const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Asset); !Result)
 							Context.SetError(Result.Message);
-						else if (AStaticMeshActor* Actor = Context.Level->SpawnActor<AStaticMeshActor>(FName(AssetPath.GetAssetName())))
+						else if (DStaticMesh* StaticMesh = Cast<DStaticMesh>(Asset))
 						{
-							Actor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
+							auto* StaticMeshActor = Context.Level->SpawnActor<AStaticMeshActor>(FName(AssetPath.GetAssetName()));
+							if (StaticMeshActor)
+							{
+								StaticMeshActor->GetStaticMeshComponent()->SetStaticMesh(StaticMesh);
+								Actor = StaticMeshActor;
+							}
+						}
+						else if (DSkeletalMesh* SkeletalMesh = Cast<DSkeletalMesh>(Asset))
+						{
+							auto* SkeletalMeshActor = Context.Level->SpawnActor<ASkeletalMeshActor>(FName(AssetPath.GetAssetName()));
+							if (SkeletalMeshActor)
+							{
+								std::string BindError;
+								if (SkeletalMeshActor->GetSkeletalMeshComponent()->SetSkeletalMesh(SkeletalMesh, BindError))
+									Actor = SkeletalMeshActor;
+								else
+								{
+									Context.Level->DestroyActor(SkeletalMeshActor);
+									Context.SetError(std::move(BindError));
+								}
+							}
+						}
+						else
+							Context.SetError("Only StaticMesh and SkeletalMesh assets can be placed in the scene viewport.");
+						if (Actor)
+						{
 							FSceneView View;
 							uint32 Width = 0;
 							uint32 Height = 0;
