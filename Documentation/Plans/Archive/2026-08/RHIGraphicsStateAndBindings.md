@@ -4,7 +4,7 @@ Summary: Complete the portable graphics pipeline, draw, vertex-instancing, and r
 
 Last reviewed: 2026-08-10
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-10
 
 ## Current Status
@@ -73,7 +73,7 @@ to the descriptor-array, blend, wireframe, non-indexed, indexed, and instanced
 coverage.
 
 Stage 6 published the lasting
-[Graphics State and Bindings](../Runtime/Rendering/GraphicsStateAndBindings.md)
+[Graphics State and Bindings](../../../Runtime/Rendering/GraphicsStateAndBindings.md)
 contract and recorded the M3 handoff in the RHI/Vulkan roadmap. Final
 qualification passed the complete native aggregate and full
 `Win64-Debug-DurinEditor` `all` build. The Sandbox hidden-window runtime ran
@@ -491,8 +491,8 @@ bounded, observable, failure-atomic, and independent of raw-handle identity.
 | Qualification | Focused suites, full native aggregate, full Debug Editor build, hidden-window runtime smoke, stable representative cache statistics, and orderly shutdown. |
 
 All build, test, and runtime commands follow
-[Build and Run](../Development/Build/BuildAndRun.md) and
-[Native Tests](../Development/Build/NativeTests.md). Each stage handoff records
+[Build and Run](../../../Development/Build/BuildAndRun.md) and
+[Native Tests](../../../Development/Build/NativeTests.md). Each stage handoff records
 the exact profile, targets, filters, hardware/driver identity where relevant,
 and observed outcomes.
 
@@ -538,17 +538,17 @@ and observed outcomes.
 
 ## Related Documentation
 
-- [RHI and Vulkan Backend Evolution Roadmap](../Roadmaps/RHIAndVulkanEvolution.md)
-- [RHI Capabilities and Vulkan Startup](../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
-- [RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md)
-- [RHI Resource Views and Transfers](../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
-- [RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Shader Cache](../Runtime/Rendering/ShaderCache.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Compute Shader Pipeline Roadmap](../Roadmaps/ComputeShaderPipeline.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Native Tests](../Development/Build/NativeTests.md)
+- [RHI and Vulkan Backend Evolution Roadmap](../../../Roadmaps/RHIAndVulkanEvolution.md)
+- [RHI Capabilities and Vulkan Startup](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
+- [RHI Resource Views and Transfers](../../../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Compute Shader Pipeline Roadmap](../../../Roadmaps/ComputeShaderPipeline.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code
 

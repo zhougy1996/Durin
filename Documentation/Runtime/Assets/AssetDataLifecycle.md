@@ -421,5 +421,5 @@ packaging workflow or as import-time cooking.
 - [Asset Packages](AssetPackages.md)
 - [Texture System](../Rendering/TextureSystem.md)
 - [Content Version Control](../../Development/VersionControl/ContentVersionControl.md)
-- [Asynchronous Texture2D Build and Readiness Plan](../../Plans/AsynchronousTexture2DBuildAndReadiness.md)
+- [Asynchronous Texture2D Build and Readiness Plan](../../Plans/Archive/2026-08/AsynchronousTexture2DBuildAndReadiness.md)
 - [Asset Derived Data and Cooking Plan](../../Plans/Archive/2026-07/AssetDerivedDataAndCooking.md)

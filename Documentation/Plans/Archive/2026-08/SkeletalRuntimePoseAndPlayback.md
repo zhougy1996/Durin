@@ -553,7 +553,7 @@ used.
 
 ## Related Documentation
 
-- [Skeletal Mesh and Animation Roadmap](../../../Roadmaps/SkeletalMeshAndAnimation.md)
+- [Skeletal Mesh and Animation Roadmap](../../../Roadmaps/Archive/2026-08/SkeletalMeshAndAnimation.md)
 - [Skeletal Asset and Import Foundation](SkeletalAssetAndImportFoundation.md)
 - [Rendering Capability Expansion Roadmap](../../../Roadmaps/RenderingCapabilityExpansion.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)

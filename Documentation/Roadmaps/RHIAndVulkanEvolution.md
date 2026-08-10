@@ -39,7 +39,7 @@ lasting contract is recorded in
 [RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md).
 
 M2 completed on 2026-08-10 through
-[RHI Resource Views and Transfers](../Plans/RHIResourceViewsAndTransfers.md).
+[RHI Resource Views and Transfers](../Plans/Archive/2026-08/RHIResourceViewsAndTransfers.md).
 The RHI now publishes counted exact buffer and texture views, canonicalizes
 shader and attachment consumers before replay, and records validated copies for
 the selected buffer/texture matrix. Vulkan consumes one retained view identity
@@ -52,7 +52,7 @@ Current render-pass resolve remains in place; standalone resolve and scaled
 blit remain deferred until they have selected consumers.
 
 M3 completed on 2026-08-10 through
-[RHI Graphics State and Bindings](../Plans/RHIGraphicsStateAndBindings.md).
+[RHI Graphics State and Bindings](../Plans/Archive/2026-08/RHIGraphicsStateAndBindings.md).
 The RHI now owns complete fixed graphics state, canonical PSO identity,
 per-vertex and per-instance streams, exact non-indexed/indexed draw arguments,
 and required scalar/array reflected binding validation. Vulkan uses bounded
@@ -66,7 +66,7 @@ is recorded in
 [Graphics State and Bindings](../Runtime/Rendering/GraphicsStateAndBindings.md).
 
 M4 completed on 2026-08-11 through
-[Vulkan Memory, Transfer, and Retirement](../Plans/VulkanMemoryTransferAndRetirement.md).
+[Vulkan Memory, Transfer, and Retirement](../Plans/Archive/2026-08/VulkanMemoryTransferAndRetirement.md).
 Static and host-visible placement are distinct and observable; bounded upload,
 readback, dynamic-uniform, descriptor, command-buffer, and fence reuse follows
 exact queue completion; native destruction no longer uses frame age. Focused
@@ -229,9 +229,9 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- | --- |
 | M0: Capability and startup contract | Required; completed | [RHICapabilityAndVulkanStartup](../Plans/Archive/2026-08/RHICapabilityAndVulkanStartup.md) and [lasting contract](../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md) | Recorded command and initialization rollback contracts | Immutable public capabilities/limits; explicit Vulkan layer, extension, feature, device, queue, format, and WSI negotiation; transactional internal structural creation | Met: initialization rollback, the Win64 profile matrix, and the frozen capability/topology contract established implementation scope. | Met on 2026-08-10: optional diagnostics remain optional; only suitable device/queue candidates publish; exact unsupported textures reject before native creation; structural-cache retry is complete; focused/native/full-build/runtime qualification is recorded in the child plan. |
 | M1: Unified resource transitions | Required, shared; completed | [GPUResourceTransitions](../Plans/Archive/2026-08/GPUResourceTransitions.md) from the [Compute Shader Pipeline](ComputeShaderPipeline.md) roadmap and [lasting contract](../Runtime/Rendering/RHIResourceTransitions.md) | Established recorded-command replay and completed M0 capability contract | Portable buffer/image range transitions and one authoritative Vulkan state tracker shared by pass, upload, readback, copy, compute, and present paths | Met on 2026-08-10: the recorded command contract, immutable synchronization2 capability, and bounded mutation-path audit are stable. | Met on 2026-08-10: graphics, transfer, readback, presentation, and compute-intent mappings passed focused/native/full-build qualification and runtime smoke without divergent state or new global idle waits. |
-| M2: Resource views and transfers | Required; completed | [RHIResourceViewsAndTransfers](../Plans/RHIResourceViewsAndTransfers.md) and [lasting contract](../Runtime/Rendering/RHIResourceViewsAndTransfers.md) | M1 transition contract | Counted texture mip/layer/aspect and buffer range/format views, canonical default views, and explicit buffer/texture copies required by current bindings, staged writes, uploads, and readbacks; current render-pass resolve remains, while standalone resolve/blit await consumers | Met on 2026-08-10: M1 range semantics are stable and the entry audit selected current shader/attachment views, staged writes, texture upload/readback, and exact copies as concrete consumers. | Met on 2026-08-10: views validate and retain parents through descriptor/framebuffer use; the four public copy directions, convenience paths, rejection, inline/threaded replay, full native/build qualification, and runtime smoke passed without a second state or native-copy authority. |
-| M3: Graphics state and bindings | Required; complete | [RHIGraphicsStateAndBindings](../Plans/RHIGraphicsStateAndBindings.md) | M0 limits and M2 view contract | Complete baseline raster/depth/stencil/blend/color-mask/vertex-instance state, non-indexed and instanced draw variants, one reflected binding snapshot model, descriptor arrays, bounded descriptor/pipeline caches, and persistent driver cache policy | Met on 2026-08-10: nine graphics PSO consumer families use canonical PSO identity and merged reflection; counted scalar/array bindings validate before descriptor mutation; caches publish bounds, occupancy, hits, misses, creations, eviction/failure, allocation, pool, and persistence statistics. | Passed on 2026-08-10: opaque, masked, translucent/blended, depth/stencil, MRT, wireframe, non-indexed, indexed, instanced, and array-binding paths; cache reuse and failed-candidate behavior are observable and bounded. |
-| M4: Memory and GPU completion | Required; completed | [VulkanMemoryTransferAndRetirement](../Plans/VulkanMemoryTransferAndRetirement.md) and [lasting contract](../Runtime/Rendering/VulkanMemoryAndGPUCompletion.md) | M0 memory limits and M1 state/completion vocabulary | Allocation classes, reusable staging/readback arenas, memory-budget and pressure statistics, descriptor/allocation telemetry, and GPU-completion-aware recycling/deletion | Met: Stage 0 captured allocation sizes, transfer volume, waits, descriptor pressure, and deferred-delete depth before policy changes. | Met on 2026-08-11: explicit placement, bounded arena/pool reuse, exact-token destruction, stable statistics, allocation/pool failure recovery, focused RHI/Vulkan qualification, full build, and validation-clean runtime passed under irregular inline/threaded work; the repository aggregate recorded one unchanged out-of-scope Editor asset-source failure among 1,386 targets. |
+| M2: Resource views and transfers | Required; completed | [RHIResourceViewsAndTransfers](../Plans/Archive/2026-08/RHIResourceViewsAndTransfers.md) and [lasting contract](../Runtime/Rendering/RHIResourceViewsAndTransfers.md) | M1 transition contract | Counted texture mip/layer/aspect and buffer range/format views, canonical default views, and explicit buffer/texture copies required by current bindings, staged writes, uploads, and readbacks; current render-pass resolve remains, while standalone resolve/blit await consumers | Met on 2026-08-10: M1 range semantics are stable and the entry audit selected current shader/attachment views, staged writes, texture upload/readback, and exact copies as concrete consumers. | Met on 2026-08-10: views validate and retain parents through descriptor/framebuffer use; the four public copy directions, convenience paths, rejection, inline/threaded replay, full native/build qualification, and runtime smoke passed without a second state or native-copy authority. |
+| M3: Graphics state and bindings | Required; complete | [RHIGraphicsStateAndBindings](../Plans/Archive/2026-08/RHIGraphicsStateAndBindings.md) | M0 limits and M2 view contract | Complete baseline raster/depth/stencil/blend/color-mask/vertex-instance state, non-indexed and instanced draw variants, one reflected binding snapshot model, descriptor arrays, bounded descriptor/pipeline caches, and persistent driver cache policy | Met on 2026-08-10: nine graphics PSO consumer families use canonical PSO identity and merged reflection; counted scalar/array bindings validate before descriptor mutation; caches publish bounds, occupancy, hits, misses, creations, eviction/failure, allocation, pool, and persistence statistics. | Passed on 2026-08-10: opaque, masked, translucent/blended, depth/stencil, MRT, wireframe, non-indexed, indexed, instanced, and array-binding paths; cache reuse and failed-candidate behavior are observable and bounded. |
+| M4: Memory and GPU completion | Required; completed | [VulkanMemoryTransferAndRetirement](../Plans/Archive/2026-08/VulkanMemoryTransferAndRetirement.md) and [lasting contract](../Runtime/Rendering/VulkanMemoryAndGPUCompletion.md) | M0 memory limits and M1 state/completion vocabulary | Allocation classes, reusable staging/readback arenas, memory-budget and pressure statistics, descriptor/allocation telemetry, and GPU-completion-aware recycling/deletion | Met: Stage 0 captured allocation sizes, transfer volume, waits, descriptor pressure, and deferred-delete depth before policy changes. | Met on 2026-08-11: explicit placement, bounded arena/pool reuse, exact-token destruction, stable statistics, allocation/pool failure recovery, focused RHI/Vulkan qualification, full build, and validation-clean runtime passed under irregular inline/threaded work; the repository aggregate recorded one unchanged out-of-scope Editor asset-source failure among 1,386 targets. |
 | M5: Diagnostics and conformance | Required; ready | `RHIDiagnosticsAndConformance` | M0-M4 public contracts | Configurable debug messenger, systematic object names and command regions, timestamp/query support, consolidated RHI/Vulkan stats, and a public-RHI conformance matrix for inline/threaded execution and supported WSI topology | Met on 2026-08-11: M0-M4 public and lasting contracts are stable, memory/cache pressure is queryable, and tests can assert behavior rather than temporary Vulkan details. | Debug and non-debug startup both work; captures identify resources/passes; GPU timings and memory/cache pressure are queryable; validation-clean conformance covers creation, transitions, views, bindings, draws, transfers, presentation, failure, and shutdown. |
 | C1: Render graph and transient resources | Evidence-gated | `RenderGraphAndTransientResources` | M1, M2, M4 | Pass/resource dependency compilation, transient lifetime/alias policy, and barrier generation for selected renderer consumers | Manual transition complexity, transient memory, or pass scheduling cost is measured and exceeds an accepted threshold | Selected consumers move without changing visible output; generated barriers match the public state contract; transient allocation saves measured memory or CPU work |
 | C2: Bindless descriptors | Evidence-gated | `BindlessResourceBinding` | M0, M2, M3, M5 | Descriptor-indexing capability/fallback, stable handle lifetime, update/reuse rules, and bounded migration of one pressured consumer | Descriptor allocation/update captures identify a concrete bottleneck and supported target hardware has an acceptable capability floor | Selected consumer reduces measured descriptor cost; handle reuse and fallback are validated across resource replacement and shutdown |
@@ -260,7 +260,7 @@ public transition and state-tracking contract as a shared platform milestone.
 There must be one child plan and one implementation, not parallel graphics and
 compute transition systems.
 
-### [RHIResourceViewsAndTransfers](../Plans/RHIResourceViewsAndTransfers.md)
+### [RHIResourceViewsAndTransfers](../Plans/Archive/2026-08/RHIResourceViewsAndTransfers.md)
 
 Owns typed view descriptions, parent-resource lifetime, default views, transfer
 commands, and their validation. It does not introduce a frame graph, transient
@@ -268,7 +268,7 @@ aliasing, streaming policy, or bindless handles. Advanced texture asset types
 remain in their asset/renderer plans; this plan supplies only the RHI mechanics
 required by selected consumers.
 
-### [RHIGraphicsStateAndBindings](../Plans/RHIGraphicsStateAndBindings.md)
+### [RHIGraphicsStateAndBindings](../Plans/Archive/2026-08/RHIGraphicsStateAndBindings.md)
 
 Owns the portable graphics state and draw baseline, the decision to implement
 or remove the unused `FRHIBindingSet` abstraction, descriptor-array semantics,
@@ -278,7 +278,7 @@ transition invariants. It does not own compute PSOs or bindless migration.
 The completed behavior is maintained by
 [Graphics State and Bindings](../Runtime/Rendering/GraphicsStateAndBindings.md).
 
-### [VulkanMemoryTransferAndRetirement](../Plans/VulkanMemoryTransferAndRetirement.md)
+### [VulkanMemoryTransferAndRetirement](../Plans/Archive/2026-08/VulkanMemoryTransferAndRetirement.md)
 
 Owns VMA allocation classes, staging/readback reuse, budget reporting, GPU
 completion tokens, and safe native-object retirement. It does not change asset
@@ -377,7 +377,7 @@ The required roadmap is complete when:
 - [Viewport rendering](../Runtime/Rendering/ViewportRendering.md)
 - [Vulkan memory and GPU completion](../Runtime/Rendering/VulkanMemoryAndGPUCompletion.md)
 - [Compute Shader Pipeline roadmap](ComputeShaderPipeline.md)
-- [Asynchronous Texture2D Build and Readiness plan](../Plans/AsynchronousTexture2DBuildAndReadiness.md)
+- [Asynchronous Texture2D Build and Readiness plan](../Plans/Archive/2026-08/AsynchronousTexture2DBuildAndReadiness.md)
 - [Recorded RHI Command List plan](../Plans/Archive/2026-08/RecordedRHICommandList.md)
 - [Dedicated RHI Thread plan](../Plans/Archive/2026-08/DedicatedRHIThread.md)
 - [Recoverable RHI Creation Failures plan](../Plans/Archive/2026-08/RecoverableRHICreationFailures.md)

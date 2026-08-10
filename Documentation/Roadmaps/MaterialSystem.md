@@ -167,7 +167,7 @@ owned by the texture roadmap and plans rather than this milestone.
 - Landed texture usage, color-space, mip, compression, platform-data, and
   failure-state contracts are owned by [Texture System](../Runtime/Rendering/TextureSystem.md).
   Non-blocking editor build work is owned by
-  [Asynchronous Texture2D Build and Readiness](../Plans/AsynchronousTexture2DBuildAndReadiness.md);
+  [Asynchronous Texture2D Build and Readiness](../Plans/Archive/2026-08/AsynchronousTexture2DBuildAndReadiness.md);
   streaming and broader residency still require a separate measured plan.
 - StaticMesh stream layout, UV availability, tangent handedness, section
   topology, and vertex-factory ownership are defined by

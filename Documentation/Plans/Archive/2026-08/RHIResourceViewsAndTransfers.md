@@ -4,13 +4,13 @@ Summary: Add counted buffer and texture views plus explicit recorded copy operat
 
 Last reviewed: 2026-08-10
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-10
 
 ## Current Status
 
 The M1 transition prerequisite completed at baseline `99c82b01` through
-[GPU Resource Transitions](Archive/2026-08/GPUResourceTransitions.md). Buffer byte ranges and
+[GPU Resource Transitions](GPUResourceTransitions.md). Buffer byte ranges and
 texture aspect/mip/layer ranges now have checked portable state, recorded
 inline/threaded replay, and one Vulkan authority. M2 can consume those ranges
 without defining another synchronization system.
@@ -97,7 +97,7 @@ run completed 10 ticks and normal shutdown in 3.04 seconds with no Vulkan
 validation error. The smoke audit also made ImGui upload and scene-viewport
 sampling usage explicit, removing their dependency on the backend's former
 implicit sampled image usage. Lasting behavior now lives in
-[RHI Resource Views and Transfers](../Runtime/Rendering/RHIResourceViewsAndTransfers.md),
+[RHI Resource Views and Transfers](../../../Runtime/Rendering/RHIResourceViewsAndTransfers.md),
 and the RHI/Vulkan roadmap records M2 complete without activating M3 or M4.
 
 ## Goal
@@ -402,8 +402,8 @@ transition contract.
 | Qualification | Selected native tests, full Debug Editor `all` build, validation-clean hidden-window runtime smoke, and clean shutdown. |
 
 All build, test, and runtime commands follow
-[Build and Run](../Development/Build/BuildAndRun.md) and
-[Native Tests](../Development/Build/NativeTests.md). Each stage handoff records
+[Build and Run](../../../Development/Build/BuildAndRun.md) and
+[Native Tests](../../../Development/Build/NativeTests.md). Each stage handoff records
 the exact profile, commands, filters, and observed outcomes.
 
 ## Definition of Done
@@ -442,14 +442,14 @@ the exact profile, commands, filters, and observed outcomes.
 
 ## Related Documentation
 
-- [RHI and Vulkan Backend Evolution Roadmap](../Roadmaps/RHIAndVulkanEvolution.md)
-- [RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md)
-- [RHI Capabilities and Vulkan Startup](../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
-- [RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md)
-- [Texture System](../Runtime/Rendering/TextureSystem.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Native Tests](../Development/Build/NativeTests.md)
+- [RHI and Vulkan Backend Evolution Roadmap](../../../Roadmaps/RHIAndVulkanEvolution.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
+- [RHI Capabilities and Vulkan Startup](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code
 

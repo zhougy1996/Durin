@@ -4,7 +4,7 @@ Summary: Make imported Skeleton, SkeletalMesh, and AnimationClip graphs discover
 
 Last reviewed: 2026-08-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-11
 
 ## Current Status
@@ -399,8 +399,8 @@ Implementation commit: `e17ea057` (`feat(skeletal-editor): add production asset 
   editor smoke passed. Shipping Game `SkeletalAssetTests` (33) and
   `SkeletalMeshRenderResourcesVulkanTests` (1) passed with Vulkan-backed
   resource validation.
-- Lasting contracts live in [Skeletal Asset Editor](../Editor/Architecture/SkeletalAssetEditor.md)
-  and the [Skeletal Asset Inspector guide](../Editor/Guides/SkeletalAssetInspector.md).
+- Lasting contracts live in [Skeletal Asset Editor](../../../Editor/Architecture/SkeletalAssetEditor.md)
+  and the [Skeletal Asset Inspector guide](../../../Editor/Guides/SkeletalAssetInspector.md).
   Verified editor: `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`.
 
 ## Validation Matrix
@@ -448,16 +448,16 @@ Implementation commit: `e17ea057` (`feat(skeletal-editor): add production asset 
 
 ## Related Documentation
 
-- [Skeletal Mesh and Animation Roadmap](../Roadmaps/SkeletalMeshAndAnimation.md)
-- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
-- [Content Browser](../Editor/Architecture/ContentBrowser.md)
-- [Asset Thumbnails](../Editor/Architecture/AssetThumbnails.md)
-- [Mounted Source Workflows](../Editor/Guides/MountedSourceWorkflows.md)
-- [StaticMesh Inspector](../Editor/Guides/StaticMeshInspector.md)
-- [Skeletal Animation Playback](../Runtime/Animation/SkeletalAnimationPlayback.md)
-- [Skeletal Mesh Rendering](../Runtime/Rendering/SkeletalMeshRendering.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Skeletal Mesh and Animation Roadmap](../../../Roadmaps/Archive/2026-08/SkeletalMeshAndAnimation.md)
+- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
+- [Mounted Source Workflows](../../../Editor/Guides/MountedSourceWorkflows.md)
+- [StaticMesh Inspector](../../../Editor/Guides/StaticMeshInspector.md)
+- [Skeletal Animation Playback](../../../Runtime/Animation/SkeletalAnimationPlayback.md)
+- [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

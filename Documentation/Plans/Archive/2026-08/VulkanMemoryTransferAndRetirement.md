@@ -4,7 +4,7 @@ Summary: Establish explicit Vulkan allocation classes, reusable upload/readback 
 
 Last reviewed: 2026-08-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-11
 
 ## Current Status
@@ -578,7 +578,7 @@ any cap change with a new like-for-like capture before changing these values.
   Its final log contained no error, Vulkan validation/VUID, or assertion match.
 - The verified editor executable is
   `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`.
-- [Vulkan Memory and GPU Completion](../Runtime/Rendering/VulkanMemoryAndGPUCompletion.md)
+- [Vulkan Memory and GPU Completion](../../../Runtime/Rendering/VulkanMemoryAndGPUCompletion.md)
   owns the lasting contract, and the roadmap records M4 complete with M5 ready.
 
 ## Validation Matrix
@@ -597,8 +597,8 @@ any cap change with a new like-for-like capture before changing these values.
 | WSI/shutdown -> retirement | Resize/minimize/viewport teardown preserves separate present completion; shutdown drains outstanding work without unrelated device-idle sweeps, use-after-free, or leak. |
 | Inline -> threaded execution | The same transfer and lifetime scenarios pass; threaded mode additionally proves CPU replay can finish while GPU owners remain retained. |
 
-Validation follows [Native Tests](../Development/Build/NativeTests.md) and
-[Build and Run](../Development/Build/BuildAndRun.md). Start with the smallest
+Validation follows [Native Tests](../../../Development/Build/NativeTests.md) and
+[Build and Run](../../../Development/Build/BuildAndRun.md). Start with the smallest
 affected targets, including `RHICommandListTests`,
 `VulkanRHIIntegrationTests`, and renderer/Vulkan reload or viewport targets
 touched by a stage. Hardware-backed cases declare the repository GPU resource
@@ -641,16 +641,16 @@ lock; token-order and failure paths retain headless coverage where possible.
 
 ## Related Documentation
 
-- [RHI and Vulkan Backend Evolution roadmap](../Roadmaps/RHIAndVulkanEvolution.md)
-- [RHI Capabilities and Vulkan Startup](../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
-- [RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md)
-- [RHI Resource Views and Transfers](../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
-- [Graphics State and Bindings](../Runtime/Rendering/GraphicsStateAndBindings.md)
-- [RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
+- [RHI and Vulkan Backend Evolution roadmap](../../../Roadmaps/RHIAndVulkanEvolution.md)
+- [RHI Capabilities and Vulkan Startup](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
+- [RHI Resource Views and Transfers](../../../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
+- [Graphics State and Bindings](../../../Runtime/Rendering/GraphicsStateAndBindings.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
 - [Asynchronous Texture2D Build and Readiness](AsynchronousTexture2DBuildAndReadiness.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Native Tests](../Development/Build/NativeTests.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code
 

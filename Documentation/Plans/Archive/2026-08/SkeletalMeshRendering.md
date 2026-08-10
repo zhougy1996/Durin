@@ -4,7 +4,7 @@ Summary: Render GPU-skinned SkeletalMesh primitives through the shared scene, vi
 
 Last reviewed: 2026-08-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-11
 
 ## Current Status
@@ -642,20 +642,20 @@ Dependencies: Stages 0-5 and their handoffs.
 
 ## Related Documentation
 
-- [Rendering Capability Expansion Roadmap](../Roadmaps/RenderingCapabilityExpansion.md)
-- [Skeletal Mesh and Animation Roadmap](../Roadmaps/SkeletalMeshAndAnimation.md)
-- [Skeletal Asset and Import Foundation](Archive/2026-08/SkeletalAssetAndImportFoundation.md)
-- [Skeletal Runtime Pose and Playback](Archive/2026-08/SkeletalRuntimePoseAndPlayback.md)
-- [Per-View Visibility and LOD](Archive/2026-08/PerViewVisibilityAndLOD.md)
-- [Material Render Pass Policies](Archive/2026-08/MaterialRenderPassPolicies.md)
+- [Rendering Capability Expansion Roadmap](../../../Roadmaps/RenderingCapabilityExpansion.md)
+- [Skeletal Mesh and Animation Roadmap](../../../Roadmaps/Archive/2026-08/SkeletalMeshAndAnimation.md)
+- [Skeletal Asset and Import Foundation](SkeletalAssetAndImportFoundation.md)
+- [Skeletal Runtime Pose and Playback](SkeletalRuntimePoseAndPlayback.md)
+- [Per-View Visibility and LOD](PerViewVisibilityAndLOD.md)
+- [Material Render Pass Policies](MaterialRenderPassPolicies.md)
 - [RHI Graphics State and Bindings](RHIGraphicsStateAndBindings.md)
-- [Renderer Scene Representation](../Runtime/Rendering/SceneRepresentation.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [Skeletal Animation Playback](../Runtime/Animation/SkeletalAnimationPlayback.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Skeletal Animation Playback](../../../Runtime/Animation/SkeletalAnimationPlayback.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 
