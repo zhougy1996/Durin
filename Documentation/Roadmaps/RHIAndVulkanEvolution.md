@@ -254,8 +254,9 @@ transition invariants. It does not own compute PSOs or bindless migration.
 
 Owns VMA allocation classes, staging/readback reuse, budget reporting, GPU
 completion tokens, and safe native-object retirement. It does not change asset
-streaming or Renderer residency policy; the existing Texture Support plan may
-consume its accounting and decide whether streaming is justified.
+streaming or Renderer residency policy; a future measured texture-residency
+plan may consume its accounting. The active asynchronous Texture2D build plan
+is limited to editor CPU-build scheduling and memory admission.
 
 ### `RHIDiagnosticsAndConformance`
 
@@ -345,7 +346,7 @@ The required roadmap is complete when:
 - [RHI resource views and transfers](../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
 - [Viewport rendering](../Runtime/Rendering/ViewportRendering.md)
 - [Compute Shader Pipeline roadmap](ComputeShaderPipeline.md)
-- [Texture Support plan](../Plans/TextureSupport.md)
+- [Asynchronous Texture2D Build and Readiness plan](../Plans/AsynchronousTexture2DBuildAndReadiness.md)
 - [Recorded RHI Command List plan](../Plans/Archive/2026-08/RecordedRHICommandList.md)
 - [Dedicated RHI Thread plan](../Plans/Archive/2026-08/DedicatedRHIThread.md)
 - [Recoverable RHI Creation Failures plan](../Plans/Archive/2026-08/RecoverableRHICreationFailures.md)

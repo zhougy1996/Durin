@@ -511,8 +511,6 @@ command lines or profile selection.
 - Reuse the hierarchy for texture arrays, volumes, render targets, virtual
   textures, or runtime-writable textures only when each type has a defined
   source, cook, residency, and sampling contract.
-- Coordinate asynchronous build and residency work with
-  `TextureSupport.md`.
 
 ## Related Documentation
 
@@ -520,7 +518,6 @@ command lines or profile selection.
 - `Documentation/Runtime/Rendering/CubeTextures.md`
 - `Documentation/Runtime/Assets/AssetDataLifecycle.md`
 - `Documentation/Development/Build/BuildAndRun.md`
-- `Documentation/Plans/TextureSupport.md`
 - `Documentation/Roadmaps/MaterialSystem.md`
 
 ## Related Code

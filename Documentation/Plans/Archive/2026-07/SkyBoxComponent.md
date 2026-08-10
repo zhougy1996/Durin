@@ -231,7 +231,6 @@ Depends on all preceding stages. This stage does not expand the effect; it close
 - [x] With Vulkan Validation enabled, verify six layers, multiple mips, descriptor binding, layout transitions, and module destruction.
 - [x] Complete a full `all` build with one preset, then launch `DurinEditor` from the same preset for the hidden-window runtime smoke test.
 - [x] Update this plan's checkboxes, Current Status, and `Last reviewed`, and move long-lived contracts into the appropriate runtime documentation.
-- [x] Update the Cube Map entry under Later Scope in `Documentation/Plans/TextureSupport.md` so the two plans do not contradict the implemented feature.
 
 #### Acceptance Gate
 
@@ -282,7 +281,6 @@ The following items require separate design and scheduling after this plan is co
 ## Related Documentation
 
 - [Implementation Plan Documentation Guide](../../AGENTS.md)
-- [Texture Support Plan](../../TextureSupport.md)
 - [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
 - [Cube Textures](../../../Runtime/Rendering/CubeTextures.md)
 - [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)

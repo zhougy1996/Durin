@@ -229,7 +229,6 @@ feature-local string transformations.
 - `Documentation/Runtime/Core/ReflectionSystem.md`
 - `Documentation/Development/Build/BuildAndRun.md`
 - `Documentation/Development/Build/NativeTests.md`
-- `Documentation/Plans/TextureSupport.md`
 
 ## Related Code
 

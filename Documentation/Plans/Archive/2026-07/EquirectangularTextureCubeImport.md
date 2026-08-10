@@ -388,7 +388,6 @@ expanding into native HDR or IBL.
 ## Related Documentation
 
 - [Documentation Guide](../../../README.md)
-- [Texture Support Plan](../../TextureSupport.md)
 - [Cube Textures](../../../Runtime/Rendering/CubeTextures.md)
 - [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)

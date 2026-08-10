@@ -470,7 +470,6 @@ and interactive preview features are listed under Deferred Follow-ups.
 
 - [Documentation](../../../README.md)
 - [Material System](../../../Roadmaps/MaterialSystem.md)
-- [Texture Support](../../TextureSupport.md)
 - [Asset Derived Data and Cooking](AssetDerivedDataAndCooking.md)
 - [Resource Dependency Updates](ResourceDependencyUpdates.md)
 - [Material System Runtime Contract](../../../Runtime/Rendering/MaterialSystem.md)

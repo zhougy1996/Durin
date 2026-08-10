@@ -1,5 +1,9 @@
 # Engineering Investigations
 
+- [Editor icon atlas activation](EditorIconAtlas.md) —
+  the current two-icon procedural viewport atlas is deterministic and adequate;
+  an offline source-art and packing pipeline needs a larger scheduled icon set
+  or an explicit visual-design requirement before implementation is justified.
 - [DurinDevTool Windows lock recovery boundary](DurinDevToolWindowsLockRecovery.md) —
   Windows ACL recovery currently leaks Windows-only guidance through the
   cross-platform lock-opening path and lacks an automated live-lock integration

@@ -912,7 +912,6 @@ Validation commands and profile selection follow
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
-- [Texture Support Plan](../../TextureSupport.md)
 
 ## Related Code
 

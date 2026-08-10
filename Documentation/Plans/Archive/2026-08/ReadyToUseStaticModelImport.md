@@ -1121,7 +1121,6 @@ subset.
 
 - `Documentation/Runtime/Rendering/MaterialSystem.md`
 - `Documentation/Roadmaps/MaterialSystem.md`
-- `Documentation/Plans/TextureSupport.md`
 - `Documentation/Plans/Archive/2026-07/StaticModelImportStage3Preparation.md`
 - `Documentation/Plans/Archive/2026-07/SourceLibraryReferences.md`
 - `Documentation/Plans/Archive/2026-08/MultithreadingV1.md`

@@ -2,10 +2,10 @@
 
 This document is the Stage 0 handoff for
 `Documentation/Plans/Archive/2026-08/NativeTestExecutionGranularity.md`. It records topology,
-classification, and bounded repair work. Raw counts and timings are owned by
-the machine-readable
-[`NativeTestExecutionGranularityStage0Baseline.json`](../../Plans/NativeTestExecutionGranularityStage0Baseline.json)
-and its referenced JUnit artifacts.
+classification, bounded repair work, and the lasting conclusions from the
+one-time qualification runs. The transient machine-readable baseline and its
+Build-directory JUnit paths were used during that stage and are not retained as
+repository inputs.
 
 Baseline source commit: `dd7c3472`
 
@@ -112,5 +112,6 @@ GPU, renderer, external-process, or expected-crash ownership.
 Three consecutive randomized case aggregates and their direct lifecycle
 phases passed after the Stage 0 synchronization repair. Expected skip and
 disabled sets were identical. The pilot passed both shuffled seeds with no
-retained successful work. The raw baseline also retains every pre-repair
-failure instead of presenting the final pass as the original result.
+retained successful work. The bounded repair queue above records the
+pre-repair failures instead of presenting the final pass as the original
+result.

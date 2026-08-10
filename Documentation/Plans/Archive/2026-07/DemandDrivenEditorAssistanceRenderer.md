@@ -559,7 +559,7 @@ each `FSceneView`:
 ## Related Documentation
 
 - `Documentation/Runtime/Rendering/ViewportRendering.md`
-- `Documentation/Plans/EditorIconAtlas.md`
+- `Documentation/Investigations/EditorIconAtlas.md`
 - `Documentation/Plans/Archive/2026-07/RecoverableRendererResourceCreation.md`
 - `Documentation/Plans/Archive/2026-07/ScenePostProcessEditorAssistanceBoundary.md`
 - `Documentation/Plans/Archive/2026-07/EditorWorldGridV2.md`

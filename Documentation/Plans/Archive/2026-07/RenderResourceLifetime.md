@@ -624,7 +624,6 @@ resource replacement independent of consumer binding:
 - `Documentation/Runtime/Core/RuntimeLifecycle.md`
 - `Documentation/Runtime/Rendering/TextureSystem.md`
 - `Documentation/Runtime/Rendering/CubeTextures.md`
-- `Documentation/Plans/TextureSupport.md`
 
 ## Related Code
 

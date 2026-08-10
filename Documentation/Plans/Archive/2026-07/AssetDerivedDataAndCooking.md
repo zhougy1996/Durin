@@ -1216,7 +1216,6 @@ material-preview, and final-handoff stages are superseded by integrated Stages
 - `Documentation/Runtime/Rendering/TextureSystem.md`
 - `Documentation/Runtime/Rendering/CubeTextures.md`
 - `Documentation/Development/VersionControl/ContentVersionControl.md`
-- `Documentation/Plans/TextureSupport.md`
 - `Documentation/Development/Build/BuildAndRun.md`
 - `Documentation/Development/Build/NativeTests.md`
 
