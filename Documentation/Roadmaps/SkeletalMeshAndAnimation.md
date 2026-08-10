@@ -30,7 +30,13 @@ S3 completed on 2026-08-11 through the shared
 complete pose, publishes coherent palette/revision/conservative-bound updates,
 and renders GPU-skinned geometry through typed visibility and the shared
 material, pass, viewport, invalidation, and resource-lifecycle contracts.
-This opens the S4 editor workflow and production-qualification entry gate.
+This opened the S4 editor workflow and production-qualification entry gate.
+The 2026-08-11 entry audit activated the
+[Skeletal Editor Workflow and Production Qualification Plan](../Plans/SkeletalEditorWorkflowAndProductionQualification.md)
+against baseline `651b3f84`. The plan reuses the existing Scene Source importer
+and record graph, then adds first-class Content Browser identity, read-only
+inspection, production preview/playback, thumbnails, and end-to-end
+qualification.
 
 Skeletal rendering is also the default second production primitive in the
 [Rendering Capability Expansion Roadmap](RenderingCapabilityExpansion.md).
@@ -204,7 +210,7 @@ flowchart LR
 | S1: Asset and import foundation | Completed 2026-08-08 | [Skeletal Asset and Import Foundation](../Plans/Archive/2026-08/SkeletalAssetAndImportFoundation.md) | Existing import, package, DDC, cook, math, and static-model behavior was recorded; the selected glTF fixture corpus did not change StaticMesh outputs. | Met: stable peer assets, deterministic bounded authored/DDC/cooked paths, runtime-only loading, and transactional structured failures are implemented and qualified below. |
 | S2: Runtime pose and clip playback | Completed 2026-08-10 | [Skeletal Runtime Pose and Playback](../Plans/Archive/2026-08/SkeletalRuntimePoseAndPlayback.md) | Met on 2026-08-10: S1 schemas, compatibility, detached payload access, transform convention, fixture corpus, component lifecycle, and runtime ownership seams were re-inspected. | Met: one component/runtime owner samples supported clips deterministically, evaluates local-to-component poses, handles time/looping, rejects incompatible clips, and atomically publishes bounded immutable palette candidates without rendering-thread object reads. |
 | S3: Skeletal rendering vertical slice | Completed 2026-08-11; shared with Rendering M4 | [Skeletal Mesh Rendering](../Plans/SkeletalMeshRendering.md) | Met on 2026-08-10: S1-S2, Rendering M1-M3, RHI bindings, fixtures, limits, and validation gaps were stable and frozen. | Passed: GPU-skinned SkeletalMesh shares scene mutation, materials, passes, visibility, viewport, invalidation, and caster facts with StaticMesh; coherent palette/bounds updates, Vulkan images, runtime-only paths, full build, and editor smoke pass. |
-| S4: Editor workflow and production qualification | Required; entry gate open, plan authored at entry | No plan yet | Met on 2026-08-11: S3 renders representative animated assets and exposes stable component, proxy, playback, material, resource, and diagnostics seams. Re-inspect Content Browser, inspector, and preview contracts before authoring the child plan. | Users can import/reimport, identify, inspect, preview, diagnose, cook, and run supported skeletal assets through documented workflows; representative engine/project fixtures pass full editor and runtime qualification. |
+| S4: Editor workflow and production qualification | Required; active plan | [Skeletal Editor Workflow and Production Qualification](../Plans/SkeletalEditorWorkflowAndProductionQualification.md) | Met and activated on 2026-08-11: S3 renders representative animated assets; the existing Scene Source/record workflow and Content Browser/workspace/preview/thumbnail seams were re-inspected against `651b3f84`. | Users can import/reimport, identify, inspect, preview, diagnose, cook, and run supported skeletal assets through documented workflows; representative engine/project fixtures pass full editor and runtime qualification. |
 
 S3 is intentionally represented once through the completed
 [Skeletal Mesh Rendering Plan](../Plans/SkeletalMeshRendering.md), linked from
@@ -316,6 +322,7 @@ contract.
 
 - [Skeletal Asset and Import Foundation Plan](../Plans/Archive/2026-08/SkeletalAssetAndImportFoundation.md)
 - [Skeletal Mesh Rendering Plan](../Plans/SkeletalMeshRendering.md)
+- [Skeletal Editor Workflow and Production Qualification Plan](../Plans/SkeletalEditorWorkflowAndProductionQualification.md)
 - [Rendering Capability Expansion Roadmap](RenderingCapabilityExpansion.md)
 - [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
 - [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
