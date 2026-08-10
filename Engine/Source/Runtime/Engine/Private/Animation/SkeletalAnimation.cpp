@@ -2,6 +2,7 @@
 
 #include "Math/Operations.h"
 #include "Math/TransformDecomposition.h"
+#include "SkeletalMesh/SkeletalMeshResources.h"
 
 namespace Durin
 {
@@ -152,6 +153,7 @@ namespace Durin
 				return Fail(OutError, "Skeletal animation binding has invalid reference-pose counts.");
 			if (Binding.PaletteBoneIndices.empty()
 				|| Binding.PaletteBoneIndices.size() != Binding.InverseBindMatrices.size()
+				|| Binding.PaletteBoneIndices.size() != Binding.InfluenceBounds.size()
 				|| Binding.PaletteBoneIndices.size() > BoneCount
 				|| static_cast<uint64>(Binding.PaletteBoneIndices.size()) * sizeof(FMatrix4f)
 					> MaximumSkeletalPosePaletteBytes)
@@ -214,6 +216,10 @@ namespace Durin
 			return Fail(OutError, "Skeletal mesh bind transform is singular or non-finite.");
 		Candidate.PaletteBoneIndices = MeshPayload->PaletteBoneIndices;
 		Candidate.InverseBindMatrices = MeshPayload->InverseBindMatrices;
+		const FSkeletalMeshRenderData* RenderData = Mesh.GetRenderData();
+		if (!RenderData)
+			return Fail(OutError, "Skeletal mesh has no render data for animated bounds.");
+		Candidate.InfluenceBounds = RenderData->InfluenceBounds;
 		if (!ValidateBindingShape(Candidate, OutError)) return false;
 
 		OutBinding = std::move(Candidate);
@@ -286,7 +292,22 @@ namespace Durin
 				* ToDoubleMatrix(Binding.InverseBindMatrices[PaletteIndex]);
 			if (!TryToFloatMatrix(PaletteMatrix, Candidate->Matrices[PaletteIndex]))
 				return Fail(OutError, "Skeletal pose palette contains a non-finite matrix.");
+			const FBox& InfluenceBound = Binding.InfluenceBounds[PaletteIndex];
+			if (!InfluenceBound.bIsValid) continue;
+			for (uint32 Corner = 0; Corner < 8; ++Corner)
+			{
+				const FVector3 Point(
+					(Corner & 1u) ? InfluenceBound.Max.x : InfluenceBound.Min.x,
+					(Corner & 2u) ? InfluenceBound.Max.y : InfluenceBound.Min.y,
+					(Corner & 4u) ? InfluenceBound.Max.z : InfluenceBound.Min.z);
+				const FVector3 Transformed(PaletteMatrix * FVector4(Point, 1.0));
+				if (!Math::IsFinite(Transformed))
+					return Fail(OutError, "Skeletal pose bound contains a non-finite point.");
+				Candidate->LocalBounds.AddPoint(Transformed);
+			}
 		}
+		if (!Candidate->LocalBounds.bIsValid)
+			return Fail(OutError, "Skeletal pose has no influenced local bound.");
 
 		OutCandidate = std::move(Candidate);
 		OutError.clear();

@@ -6,6 +6,7 @@
 #include "RenderingThread.h"
 #include "Renderers/SceneVisibility.h"
 #include "Scene.h"
+#include "SkeletalMesh/SkeletalMeshResources.h"
 #include "StaticMesh/StaticMeshResources.h"
 
 #include <gtest/gtest.h>
@@ -318,6 +319,47 @@ TEST(FRendererSceneContractTests, DirectionalLightProxyOutlivesPublisherAndUsesF
 	Observed = ObserveLight(Scene);
 	ASSERT_TRUE(Observed.bPresent);
 	EXPECT_EQ(Observed.Data.Intensity, 5.0f);
+	Scene.Release();
+	Durin::FlushRenderingCommands();
+}
+
+TEST(FRendererSceneContractTests, SkeletalPoseAndBoundsUpdateAtomicallyInTypedMembership)
+{
+	FRenderingThreadScope RenderingThread;
+	Durin::FScene Scene;
+	Durin::FSkeletalMeshRenderData RenderData;
+	auto FirstPose = std::make_shared<Durin::FSkeletalPosePalette>();
+	FirstPose->Revision = 1;
+	FirstPose->Matrices = {Durin::FMatrix4f(1.0f)};
+	FirstPose->LocalBounds = Durin::FBox({0.0, 0.0, 0.0}, {1.0, 1.0, 1.0});
+	const Durin::FPrimitiveSceneId Id(91);
+	Scene.AddOrReplacePrimitive(Id,
+		std::make_unique<Durin::FSkeletalMeshSceneProxy>(
+			&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}, 1, FirstPose),
+		glm::translate(Durin::FMatrix(1.0), Durin::FVector3(2.0, 0.0, 0.0)));
+	Durin::FlushRenderingCommands();
+	ASSERT_EQ(Scene.GetSkeletalMeshSceneInfos().size(), 1u);
+	const Durin::FPrimitiveSceneInfo* Info = Scene.GetSkeletalMeshSceneInfos().front();
+	EXPECT_EQ(Info->GetSkeletalMeshProxy().GetPose()->Revision, 1u);
+	EXPECT_EQ(Info->GetWorldBounds().Min.x, 2.0);
+
+	auto SecondPose = std::make_shared<Durin::FSkeletalPosePalette>(*FirstPose);
+	SecondPose->Revision = 2;
+	SecondPose->LocalBounds = Durin::FBox({-2.0, -1.0, -1.0}, {3.0, 1.0, 1.0});
+	Scene.UpdateSkeletalMeshDynamicData(Id, SecondPose);
+	Durin::FlushRenderingCommands();
+	Info = Scene.GetSkeletalMeshSceneInfos().front();
+	EXPECT_EQ(Info->GetSkeletalMeshProxy().GetPose()->Revision, 2u);
+	EXPECT_EQ(Info->GetLocalBounds().Min.x, -2.0);
+	EXPECT_EQ(Info->GetWorldBounds().Min.x, 0.0);
+
+	Durin::FViewRenderCounters Counters;
+	Durin::FSceneView View;
+	View.Settings.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
+	const Durin::FSceneVisibilityResult Visibility =
+		Durin::PrepareSceneVisibility(Scene, View, Counters);
+	EXPECT_EQ(Visibility.SkeletalMeshSceneInfos.size(), 1u);
+	EXPECT_EQ(Counters.VisibleSkeletalMeshCandidates, 1u);
 	Scene.Release();
 	Durin::FlushRenderingCommands();
 }

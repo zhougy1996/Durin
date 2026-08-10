@@ -89,6 +89,9 @@ namespace Durin
 			FRHITexture* Texture,
 			const FRHITextureViewDesc& Desc) -> TRefCountPtr<FRHITextureView>;
 		RHI_API virtual auto RHIAllocateDynamicUniformBuffer(FRHICommandListImmediate& RHICmdList, const void* Data, uint32 Size) -> FRHIUniformBufferRange;
+		RHI_API virtual auto RHIAllocateDynamicStorageBuffer(
+			FRHICommandListImmediate& RHICmdList, const void* Data, uint32 Size)
+			-> FRHIStorageBufferRange;
 		RHI_API auto RHILockBuffer(FRHICommandListImmediate& RHICmdList, FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*;
 		RHI_API auto RHIUnlockBuffer(FRHICommandListImmediate& RHICmdList, FRHIBuffer* Buffer) -> void;
 		RHI_API auto RHIUpdateTexture2D(FRHICommandListBase& RHICmdList, FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, const uint8* SourceData) -> void;

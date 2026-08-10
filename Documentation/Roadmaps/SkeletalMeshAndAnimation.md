@@ -2,7 +2,7 @@
 
 Summary: Establish skeletal assets, deterministic source ingestion, runtime pose evaluation, GPU skinning, and production editor workflows through just-in-time implementation plans.
 
-Last reviewed: 2026-08-10
+Last reviewed: 2026-08-11
 
 Status: Active
 Completed:
@@ -24,22 +24,19 @@ animation instance. It samples Step/Linear clips, evaluates parent-before-child
 poses, controls deterministic loop/clamp playback, and atomically publishes
 bounded immutable mesh palettes. Cooked runtime-only assets produce the same
 finite glTF/GLB pose goldens without source, import modules, or DDC fallback.
-The component still has no scene proxy, render resource, shader, RHI object, or
-GPU skinning path.
-
-S1-S2 and Rendering Capability Expansion M1-M3 are now complete. The 2026-08-10
-entry audit retained SkeletalMesh as the second production primitive and
-activated the shared
-[Skeletal Mesh Rendering Plan](../Plans/SkeletalMeshRendering.md). Stage 0 may
-audit contracts while the active RHI graphics plan proceeds; source
-implementation waits for that plan's stable completion handoff and consumes its
-final vertex-input, binding, validation, and cache contracts.
+S3 completed on 2026-08-11 through the shared
+[Skeletal Mesh Rendering Plan](../Plans/SkeletalMeshRendering.md).
+`DSkeletalMeshComponent` now creates a detached production scene proxy from a
+complete pose, publishes coherent palette/revision/conservative-bound updates,
+and renders GPU-skinned geometry through typed visibility and the shared
+material, pass, viewport, invalidation, and resource-lifecycle contracts.
+This opens the S4 editor workflow and production-qualification entry gate.
 
 Skeletal rendering is also the default second production primitive in the
 [Rendering Capability Expansion Roadmap](RenderingCapabilityExpansion.md).
 That roadmap owns the shared scene, pass, visibility, material, and shadow
 contracts. This roadmap owns skeletal data, pose, playback, and product
-behavior. The active skeletal-rendering plan is one shared child of both
+behavior. The completed skeletal-rendering plan is one shared child of both
 roadmaps rather than two competing implementations.
 
 ## Outcome
@@ -185,11 +182,11 @@ import, playback, and rendering baseline is measured.
 | --- | --- | --- |
 | Import framework | Immutable snapshots, provider discovery, async CPU preparation, candidates, records, reconciliation, atomic publication, and stable skeletal peer graphs | Runtime playback consumes detached peer assets; editor inspection/preview remains S4 work |
 | Source adapters | Direct bounded glTF/GLB skeletal decoding plus the unchanged Assimp-backed static Scene workflow | FBX skeletal import remains evidence-gated; S2 consumes runtime assets and does not extend source formats |
-| Assets and storage | Validated Skeleton, SkeletalMesh, and AnimationClip packages, hard compatibility relationships, DSKM/DANM DDC objects, DBLK cook, runtime-only load, and detached playback binding | Rendering resources and editor inspection remain later milestones |
-| Math | Frozen glTF-to-Durin basis conversion, canonical reference transforms, compatibility encoding, deterministic Step/Linear sampling, hierarchy composition, and mesh-palette goldens | GPU/shader matrix transport remains S3 work |
-| Components and scene | `DSkeletalMeshComponent`, deterministic single-clip instance, atomic immutable palette publication, primitive registration, and no-proxy lifecycle | Skeletal proxy, render resources, dynamic bounds, and scene participation remain S3 work |
-| Rendering | Static vertex factory, PBR material slots, resource coordination, viewport paths | No joint/weight streams, skinning shader, palette binding, pass participation, or shadow participation |
-| Validation | Repository-authored skeletal `.gltf`/`.glb` corpus, normalized and sampled-pose goldens, asset/payload/DDC/cook/runtime-only playback, palette lifetime, component/world lifecycle, and existing static rendering coverage | Animated skeletal image and Vulkan skinning baselines remain S3 work |
+| Assets and storage | Validated Skeleton, SkeletalMesh, and AnimationClip packages, hard compatibility relationships, DSKM/DANM DDC objects, DBLK cook, runtime-only load, detached playback binding, and fenced render resources | Editor inspection remains S4 work |
+| Math | Frozen glTF-to-Durin basis conversion, canonical reference transforms, compatibility encoding, deterministic Step/Linear sampling, hierarchy composition, mesh-palette goldens, shader matrix transport, and CPU/GPU deformation agreement | Advanced blending/retargeting remain evidence-gated |
+| Components and scene | `DSkeletalMeshComponent`, deterministic single-clip instance, atomic coherent palette/bound publication, detached skeletal proxy, typed scene membership, and FIFO lifecycle | Editor inspection and preview remain S4 work |
+| Rendering | Static and skeletal vertex factories, PBR material slots, all surface modes, bounded palette transport, shared visibility/passes/viewports, and explicit future caster facts | Directional shadow execution remains Rendering M6 work |
+| Validation | Repository-authored skeletal `.gltf`/`.glb` corpus, pose/deformation/bounds goldens, asset/DDC/cook/runtime-only paths, Debug/Shipping Vulkan skinning, multi-view, failure/reload/shutdown, full build, and editor smoke | Editor import/preview workflow qualification remains S4 work |
 
 ## Milestone Map
 
@@ -206,15 +203,15 @@ flowchart LR
 | --- | --- | --- | --- | --- |
 | S1: Asset and import foundation | Completed 2026-08-08 | [Skeletal Asset and Import Foundation](../Plans/Archive/2026-08/SkeletalAssetAndImportFoundation.md) | Existing import, package, DDC, cook, math, and static-model behavior was recorded; the selected glTF fixture corpus did not change StaticMesh outputs. | Met: stable peer assets, deterministic bounded authored/DDC/cooked paths, runtime-only loading, and transactional structured failures are implemented and qualified below. |
 | S2: Runtime pose and clip playback | Completed 2026-08-10 | [Skeletal Runtime Pose and Playback](../Plans/Archive/2026-08/SkeletalRuntimePoseAndPlayback.md) | Met on 2026-08-10: S1 schemas, compatibility, detached payload access, transform convention, fixture corpus, component lifecycle, and runtime ownership seams were re-inspected. | Met: one component/runtime owner samples supported clips deterministically, evaluates local-to-component poses, handles time/looping, rejects incompatible clips, and atomically publishes bounded immutable palette candidates without rendering-thread object reads. |
-| S3: Skeletal rendering vertical slice | Required; shared with Rendering M4; active plan, implementation queued behind RHI graphics M3 | [Skeletal Mesh Rendering](../Plans/SkeletalMeshRendering.md) | Met on 2026-08-10: S1-S2 and Rendering M1-M3 are stable, SkeletalMesh remains selected, and current RHI, pass/visibility, palette, bounds, fixture, and validation gaps are recorded. Source work waits for the RHI Graphics State and Bindings completion handoff. | GPU-skinned SkeletalMesh shares scene mutation, materials, passes, visibility, viewport, invalidation, and applicable shadow behavior with StaticMesh; palette and bounds updates are deterministic and lifecycle-safe; Vulkan validation and animated image coverage pass. |
-| S4: Editor workflow and production qualification | Required; plan authored at entry | No plan yet | S3 renders a representative animated asset and exposes stable inspection/playback seams; current Content Browser and inspector extension contracts are re-inspected. | Users can import/reimport, identify, inspect, preview, diagnose, cook, and run supported skeletal assets through documented workflows; representative engine/project fixtures pass full editor and runtime qualification. |
+| S3: Skeletal rendering vertical slice | Completed 2026-08-11; shared with Rendering M4 | [Skeletal Mesh Rendering](../Plans/SkeletalMeshRendering.md) | Met on 2026-08-10: S1-S2, Rendering M1-M3, RHI bindings, fixtures, limits, and validation gaps were stable and frozen. | Passed: GPU-skinned SkeletalMesh shares scene mutation, materials, passes, visibility, viewport, invalidation, and caster facts with StaticMesh; coherent palette/bounds updates, Vulkan images, runtime-only paths, full build, and editor smoke pass. |
+| S4: Editor workflow and production qualification | Required; entry gate open, plan authored at entry | No plan yet | Met on 2026-08-11: S3 renders representative animated assets and exposes stable component, proxy, playback, material, resource, and diagnostics seams. Re-inspect Content Browser, inspector, and preview contracts before authoring the child plan. | Users can import/reimport, identify, inspect, preview, diagnose, cook, and run supported skeletal assets through documented workflows; representative engine/project fixtures pass full editor and runtime qualification. |
 
-S3 is intentionally represented once through the active
+S3 is intentionally represented once through the completed
 [Skeletal Mesh Rendering Plan](../Plans/SkeletalMeshRendering.md), linked from
 both this roadmap and Rendering Capability Expansion M4 with one plan status
 and one set of acceptance gates.
 
-## S1-S2 Completion Evidence and S3 Entry Handoff
+## S1-S3 Completion Evidence and S4 Entry Handoff
 
 S1 completed through the six staged commits recorded by the
 [foundation plan](../Plans/Archive/2026-08/SkeletalAssetAndImportFoundation.md). The shipped
@@ -258,15 +255,15 @@ successfully. A plan-gated focused `Win64-Shipping-DurinGame-Tests`
 editor or import modules. The verified editor executable is
 `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`.
 
-The shared S3/M4 entry dependencies are present: S1-S2 and Rendering M1-M3 are
-complete, and immutable candidates can cross into rendering without object
-reads. The 2026-08-10 audit activated the shared plan and bounded the current
-prepared-primitive boundary, material/pass/visibility reuse, RHI storage
-binding and transition work, palette upload lifetime, conservative influence-
-bound policy, fixture, and Vulkan validation. Activation does not authorize
-parallel evolution of the active RHI plan's sources: skeletal source work waits
-for its completion handoff and then adds only consumer-proven missing storage
-upload capability.
+Final S3 qualification passed the focused skeletal asset, scene lifecycle,
+material, renderer reload, viewport, thumbnail, StaticMesh preparation, scene
+contract, editor rendering, and Vulkan render-resource targets. The same Vulkan
+skeletal target passed in Shipping Game. A full `Win64-Debug-DurinEditor` `all`
+build and 30-tick hidden-window Sandbox editor smoke completed on 2026-08-11.
+The lasting rendering rules are recorded in
+[Skeletal Mesh Rendering](../Runtime/Rendering/SkeletalMeshRendering.md); S4 may
+now plan the editor-facing workflow without reopening the GPU rendering
+contract.
 
 ## Evidence-Gated Follow-Ups
 

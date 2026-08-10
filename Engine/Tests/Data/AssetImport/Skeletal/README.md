@@ -11,6 +11,14 @@ same source graph using a data URI, an external buffer, and a GLB BIN chunk.
 attributes from the same geometry/material/node graph and freezes the existing
 static importer baseline.
 
+The `rendering` object in `ExpectedContract.json` is the independent CPU
+skinning golden for the production rendering slice. It records both mesh
+instances at reference, interpolated, key, exact-loop, and clamped times,
+including palette matrices, skinned positions/normals/tangents, exact skinned
+bounds, and conservative per-palette-influence bounds. It also freezes the
+fixture counts and palette budgets consumed by renderer admission tests. The
+generator deliberately computes these values without Engine or Renderer code.
+
 The success graph contains two material primitives instanced by two mesh nodes,
 two skins over the same four joints, non-identity mesh and joint transforms,
 nontrivial inverse binds, an omitted inverse-bind accessor, four influences,

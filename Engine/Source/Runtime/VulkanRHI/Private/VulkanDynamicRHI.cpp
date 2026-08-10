@@ -63,6 +63,9 @@ namespace Durin::VulkanRHI
 		CapabilityCandidate.DepthSampleCounts = ToRHISampleCounts(
 			Limits.framebufferDepthSampleCounts & Limits.sampledImageDepthSampleCounts);
 		CapabilityCandidate.MaxColorAttachments = Limits.maxColorAttachments;
+		CapabilityCandidate.MinStorageBufferOffsetAlignment = static_cast<uint32>(
+			std::max<vk::DeviceSize>(16, Limits.minStorageBufferOffsetAlignment));
+		CapabilityCandidate.MaxStorageBufferRange = Limits.maxStorageBufferRange;
 		const vk::PhysicalDeviceFeatures Features = Device->GetGpu().getFeatures();
 		CapabilityCandidate.bSupportsNonSolidFill = Features.fillModeNonSolid == vk::True;
 		CapabilityCandidate.bSupportsDepthClamp = Features.depthClamp == vk::True;
@@ -113,6 +116,9 @@ namespace Durin::VulkanRHI
 		check(!GRHIThread || IsInRenderingThread());
 		FDynamicRHI::RHIBeginFrame_RenderThread(RHICmdList);
 		Device->GetDynamicUniformBufferAllocator().BeginFrameProducer(
+			static_cast<uint32>(
+				GCommandListExecutor.GetFrameNumber() % kFrameInFlight));
+		Device->GetDynamicStorageBufferAllocator().BeginFrameProducer(
 			static_cast<uint32>(
 				GCommandListExecutor.GetFrameNumber() % kFrameInFlight));
 	}
@@ -181,6 +187,26 @@ namespace Durin::VulkanRHI
 			});
 		requiref(Allocator.TryAllocate(FrameIndex, Data, Size, Result),
 			"A prepared dynamic-uniform overflow page must satisfy the pending allocation.");
+		return Result;
+	}
+
+	auto FVulkanDynamicRHI::RHIAllocateDynamicStorageBuffer(
+		FRHICommandListImmediate&,
+		const void* Data,
+		uint32 Size) -> FRHIStorageBufferRange
+	{
+		if (!Data || Size == 0
+			|| Size > Device->GetGpuProperties().limits.maxStorageBufferRange
+			|| Size > FVulkanDynamicStorageBufferAllocator::MaximumBytesPerFrame)
+			return {};
+		const uint32 FrameIndex = static_cast<uint32>(
+			GCommandListExecutor.GetFrameNumber() % kFrameInFlight);
+		auto& Allocator = Device->GetDynamicStorageBufferAllocator();
+		FRHIStorageBufferRange Result;
+		if (Allocator.TryAllocate(FrameIndex, Data, Size, Result)) return Result;
+		GCommandListExecutor.ExecuteSynchronousOperation(true,
+			[&Allocator, FrameIndex, Size]() { Allocator.ReservePage(FrameIndex, Size); });
+		if (!Allocator.TryAllocate(FrameIndex, Data, Size, Result)) return {};
 		return Result;
 	}
 

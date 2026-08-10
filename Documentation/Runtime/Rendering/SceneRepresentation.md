@@ -15,7 +15,7 @@ component, actor, reflected asset, or other game-thread object.
 
 | Family | Detached proxy | Renderer scene entry |
 | --- | --- | --- |
-| Primitive | `FPrimitiveSceneProxy`, specialized by `FStaticMeshSceneProxy` and `FTextureCubePreviewSceneProxy` | `FPrimitiveSceneInfo` |
+| Primitive | `FPrimitiveSceneProxy`, specialized by `FStaticMeshSceneProxy`, `FSkeletalMeshSceneProxy`, and `FTextureCubePreviewSceneProxy` | `FPrimitiveSceneInfo` |
 | Light | `FLightSceneProxy`, specialized by `FDirectionalLightSceneProxy` | `FLightSceneInfo` |
 | SkyBox | `FSkyBoxSceneProxy` | `FSkyBoxSceneInfo` |
 
@@ -29,7 +29,8 @@ invalid candidates publish nothing and cannot replace a complete entry.
 Removal erases every typed membership reference before destroying the
 SceneInfo and proxy on the rendering thread. Scene release clears typed views
 before their owning maps. StaticMesh render data remains a non-owning borrow
-bounded by the component render-state and asset-release fence protocol;
+bounded by the component render-state and asset-release fence protocol.
+SkeletalMesh pose matrices and animated bounds are retained immutable values;
 material proxies and SkyBox texture references remain counted references.
 
 ## Proxy and SceneInfo Responsibilities
@@ -39,7 +40,9 @@ visibility, transform, local bounds, derived world bounds, and typed-list
 membership. StaticMesh and TextureCube preview proxies own family-specific
 render data and bindings. World bounds are rebuilt from the eight local AABB
 corners whenever a finite transform is attached or updated; an invalid local
-box remains invalid and is not used for culling.
+box remains invalid and is not used for culling. A skeletal dynamic update
+replaces the immutable pose and local bound together and recomputes this world
+bound before later FIFO visibility work.
 
 `FLightSceneInfo` owns light identity and typed membership.
 `FDirectionalLightSceneProxy` owns copied direction, color, intensity,
@@ -63,7 +66,7 @@ Owner-specific material and resource revisions remain at their actual
 asynchronous or independently ordered boundaries.
 
 `FScene` maintains one owning map per family and authoritative typed pointer
-views for StaticMesh, TextureCube preview, directional light, and SkyBox.
+views for StaticMesh, SkeletalMesh, TextureCube preview, directional light, and SkyBox.
 Attach, replacement, detach, and release update ownership and every relevant
 view in one render command. Feature renderers iterate only their typed
 SceneInfo view; they do not scan a shared primitive array or use RTTI to

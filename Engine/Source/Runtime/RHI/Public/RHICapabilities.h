@@ -16,6 +16,8 @@ namespace Durin
 		ERHISampleCountFlags ColorSampleCounts = ERHISampleCountFlags::None;
 		ERHISampleCountFlags DepthSampleCounts = ERHISampleCountFlags::None;
 		uint32 MaxColorAttachments = 0;
+		uint32 MinStorageBufferOffsetAlignment = 0;
+		uint32 MaxStorageBufferRange = 0;
 		bool bSupportsNonSolidFill = false;
 		bool bSupportsDepthClamp = false;
 		bool bSupportsWideLines = false;

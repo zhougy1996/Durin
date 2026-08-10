@@ -589,6 +589,23 @@ namespace Durin::VulkanRHI
 		return Result;
 	}
 
+	auto FVulkanCommandListContext::RHIAllocateDynamicStorageBuffer(
+		const void* Data, uint32 Size) -> FRHIStorageBufferRange
+	{
+		CheckVulkanRHIThread();
+		FRHIStorageBufferRange Result;
+		const uint32 FrameIndex = Device.GetCurrentFrameIndex();
+		if (!Device.GetDynamicStorageBufferAllocator().TryAllocate(
+			FrameIndex, Data, Size, Result)) return {};
+		auto* Buffer = static_cast<FVulkanBuffer*>(Result.Buffer);
+		Buffer->GetStateTracker().Apply(Result.Offset, Result.Size, ERHIAccess::HostWrite);
+		const std::array Transition{FRHIBufferTransition{
+			Buffer, Result.Offset, Result.Size,
+			ERHIAccess::HostWrite, ERHIAccess::GraphicsShaderRead}};
+		RHITransitionBuffers(Transition);
+		return Result;
+	}
+
 	auto FVulkanCommandListContext::RHIAcquireBackBuffer(
 		FRHITexture* BackBuffer) -> void
 	{

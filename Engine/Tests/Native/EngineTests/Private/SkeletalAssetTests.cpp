@@ -8,6 +8,7 @@
 #include "NativeTestSupport.h"
 #include "SkeletalMesh/SkeletalDerivedData.h"
 #include "SkeletalMesh/SkeletalMesh.h"
+#include "SkeletalMesh/SkeletalMeshResources.h"
 
 namespace
 {
@@ -230,6 +231,63 @@ namespace
 		Durin::CollectGarbage();
 		Durin::Asset::FAssetManager::Get().Initialize();
 	}
+}
+
+TEST(FSkeletalRenderDataTests, ConvertsPayloadAndBuildsDedicatedVertexFactoryContract)
+{
+	InitializeDObjectSystem();
+	auto* Skeleton = Durin::NewObject<Durin::DSkeleton>(nullptr, "RenderDataSkeleton");
+	InitializeSkeleton(*Skeleton);
+	auto* Mesh = Durin::NewObject<Durin::DSkeletalMesh>(nullptr, "RenderDataMesh");
+	InitializeMesh(*Mesh, *Skeleton);
+	const Durin::FSkeletalMeshRenderData* RenderData = Mesh->GetRenderData();
+	ASSERT_NE(RenderData, nullptr);
+	EXPECT_EQ(RenderData->LODIndex, 0u);
+	EXPECT_EQ(RenderData->VertexBuffers.Geometry.PositionVertexBuffer.GetPositions(),
+		Mesh->GetPayloadData()->Positions);
+	EXPECT_EQ(RenderData->VertexBuffers.InfluenceVertexBuffer.GetInfluences(),
+		Mesh->GetPayloadData()->Influences);
+	EXPECT_EQ(RenderData->IndexBuffer.GetIndices(), Mesh->GetPayloadData()->Indices);
+	ASSERT_EQ(RenderData->Sections.size(), 1u);
+	EXPECT_EQ(RenderData->Sections[0].MaterialSlotIndex, 0u);
+	ASSERT_EQ(RenderData->InfluenceBounds.size(), 1u);
+	EXPECT_TRUE(RenderData->InfluenceBounds[0].bIsValid);
+	EXPECT_EQ(RenderData->InfluenceBounds[0].Min, Durin::FVector3(0.0));
+	EXPECT_EQ(RenderData->InfluenceBounds[0].Max, Durin::FVector3(1.0, 1.0, 0.0));
+
+	Durin::FSkeletalMeshVertexFactory VertexFactory;
+	ASSERT_TRUE(VertexFactory.SetData(RenderData->VertexBuffers));
+	const Durin::FVertexDeclarationElementList Elements =
+		VertexFactory.GetDeclarationElements();
+	EXPECT_EQ(Elements[8].AttributeIndex, 8u);
+	EXPECT_EQ(Elements[8].Type, Durin::EVertexElementType::UShort4);
+	EXPECT_EQ(Elements[9].AttributeIndex, 9u);
+	EXPECT_EQ(Elements[9].Type, Durin::EVertexElementType::Float4);
+	EXPECT_EQ(Elements[8].StreamIndex, Elements[9].StreamIndex);
+	EXPECT_EQ(VertexFactory.GetTypeName(), "FSkeletalMeshVertexFactory");
+}
+
+TEST(FSkeletalRenderDataTests, FailedReplacementKeepsCompleteRenderData)
+{
+	InitializeDObjectSystem();
+	auto* Skeleton = Durin::NewObject<Durin::DSkeleton>(nullptr, "RenderFailureSkeleton");
+	InitializeSkeleton(*Skeleton);
+	auto* Mesh = Durin::NewObject<Durin::DSkeletalMesh>(nullptr, "RenderFailureMesh");
+	InitializeMesh(*Mesh, *Skeleton);
+	const Durin::FSkeletalMeshRenderData* Previous = Mesh->GetRenderData();
+	ASSERT_NE(Previous, nullptr);
+	auto InvalidPayload = std::make_shared<Durin::FSkeletalMeshPayloadData>(*MakeMeshPayload());
+	InvalidPayload->Influences[0].Weights[0] = 0.5f;
+	std::string Error;
+	EXPECT_FALSE(Mesh->InitializeFromImportedData({
+		.Skeleton = Skeleton,
+		.SkeletonCompatibilityIdentity = Skeleton->GetCompatibilityIdentity(),
+		.MeshNodeBindTransform = MakeTransform(),
+		.MaterialSlots = {{.Name = Durin::FName("Body"), .SourceMaterialIndex = 0}},
+		.Payload = std::move(InvalidPayload)}, Error));
+	EXPECT_EQ(Mesh->GetRenderData(), Previous);
+	EXPECT_EQ(Mesh->GetRenderData()->IndexBuffer.GetIndices(),
+		std::vector<Durin::uint32>({0, 1, 2}));
 }
 
 TEST(FSkeletalAssetTests, SkeletonCompatibilityMatchesFixtureEncoding)

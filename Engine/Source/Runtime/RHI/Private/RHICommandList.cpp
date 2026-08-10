@@ -1634,6 +1634,31 @@ namespace Durin
 		return Result;
 	}
 
+	auto FRHICommandListImmediate::AllocateDynamicStorageBuffer(
+		const void* Data, uint32 Size) -> FRHIStorageBufferRange
+	{
+		check(Data && Size != 0);
+		const FRHICapabilities* Capabilities = GDynamicRHI
+			? GDynamicRHI->RHIGetCapabilities() : nullptr;
+		if (Capabilities && (Size > Capabilities->MaxStorageBufferRange
+			|| Capabilities->MinStorageBufferOffsetAlignment == 0)) return {};
+		if (GDynamicRHI)
+			return GDynamicRHI->RHIAllocateDynamicStorageBuffer(*this, Data, Size);
+		return AllocateDynamicStorageBufferSynchronous(Data, Size);
+	}
+
+	auto FRHICommandListImmediate::AllocateDynamicStorageBufferSynchronous(
+		const void* Data, uint32 Size) -> FRHIStorageBufferRange
+	{
+		check(Data && Size != 0);
+		FRHIStorageBufferRange Result;
+		Executor->ExecuteSynchronousContextOperation(false,
+			[Data, Size, &Result](IRHICommandContext& Context) {
+				Result = Context.RHIAllocateDynamicStorageBuffer(Data, Size);
+			});
+		return Result;
+	}
+
 	auto FRHICommandListImmediate::ReadTexture2D(
 		FRHITexture* Texture,
 		uint32 MipIndex,

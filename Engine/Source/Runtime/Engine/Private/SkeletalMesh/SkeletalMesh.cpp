@@ -1,9 +1,13 @@
 #include "SkeletalMesh/SkeletalMesh.h"
 
 #include "AssetSystem.h"
+#include "CoreGlobals.h"
 #include "DObject/Property.h"
+#include "DynamicRHI.h"
 #include "Math/Operations.h"
+#include "RenderingThread.h"
 #include "SkeletalMesh/SkeletalDerivedData.h"
+#include "SkeletalMesh/SkeletalMeshResources.h"
 
 namespace Durin
 {
@@ -203,6 +207,89 @@ namespace Durin
 	DSkeletalMesh::DSkeletalMesh(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer) {}
 
+	DSkeletalMesh::~DSkeletalMesh() = default;
+
+	auto DSkeletalMesh::GetRenderData() const -> const FSkeletalMeshRenderData*
+	{
+		return RenderData.get();
+	}
+
+	auto DSkeletalMesh::GetMaterialSlot(uint32 SlotIndex) const
+		-> const FSkeletalMeshMaterialSlotDefinition*
+	{
+		return SlotIndex < MaterialSlots.size() ? &MaterialSlots[SlotIndex] : nullptr;
+	}
+
+	auto DSkeletalMesh::FindMaterialSlot(FName Name) const
+		-> const FSkeletalMeshMaterialSlotDefinition*
+	{
+		const auto It = std::ranges::find(MaterialSlots, Name,
+			&FSkeletalMeshMaterialSlotDefinition::Name);
+		return It != MaterialSlots.end() ? &*It : nullptr;
+	}
+
+	auto DSkeletalMesh::BuildRenderData(std::string& OutError) -> bool
+	{
+		if (!Skeleton || !PayloadData)
+			return Fail(&OutError, "SkeletalMesh render data requires a Skeleton and payload.");
+		std::unique_ptr<FSkeletalMeshRenderData> Candidate;
+		if (!BuildSkeletalMeshRenderData(*PayloadData, *Skeleton, MeshNodeBindTransform,
+			MaterialSlots, Candidate, OutError)) return false;
+		if (RenderData && RenderData->GetNumInitializedResources() != 0)
+			return Fail(&OutError,
+				"Initialized SkeletalMesh render data must be replaced through imported-state exchange.");
+		RenderData = std::move(Candidate);
+		RenderResourceState.store(ERenderResourceState::Uninitialized, std::memory_order_release);
+		OutError.clear();
+		return true;
+	}
+
+	auto DSkeletalMesh::InitResources() -> void
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		if (!RenderData || GDynamicRHI == nullptr) return;
+		ERenderResourceState Expected = ERenderResourceState::Uninitialized;
+		if (!RenderResourceState.compare_exchange_strong(
+			Expected, ERenderResourceState::InitializationQueued, std::memory_order_acq_rel))
+		{
+			Expected = ERenderResourceState::Failed;
+			if (!RenderResourceState.compare_exchange_strong(
+				Expected, ERenderResourceState::InitializationQueued, std::memory_order_acq_rel)) return;
+		}
+#if DURIN_BUILD_DEBUG
+		RenderData->SetResourceDebugOwner(GetPackage()
+			? FName(GetPackage()->GetPackagePath())
+			: FName(std::format("<transient DSkeletalMesh:{}>", GetName())));
+#endif
+		FSkeletalMeshRenderData* Data = RenderData.get();
+		ENQUEUE_RENDER_COMMAND(InitSkeletalMeshResources)(
+			[this, Data](FRHICommandListImmediate& CommandList) {
+				RenderResourceState.store(Data->InitResources(CommandList)
+					? ERenderResourceState::Ready : ERenderResourceState::Failed,
+					std::memory_order_release);
+			});
+	}
+
+	auto DSkeletalMesh::ReleaseResources() -> void
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		const ERenderResourceState State = RenderResourceState.load(std::memory_order_acquire);
+		if (State == ERenderResourceState::Released || State == ERenderResourceState::ReleaseQueued)
+			return;
+		if (!RenderData || State == ERenderResourceState::Uninitialized)
+		{
+			RenderResourceState.store(ERenderResourceState::Released, std::memory_order_release);
+			return;
+		}
+		RenderResourceState.store(ERenderResourceState::ReleaseQueued, std::memory_order_release);
+		FSkeletalMeshRenderData* Data = RenderData.get();
+		ENQUEUE_RENDER_COMMAND(ReleaseSkeletalMeshResources)(
+			[this, Data](FRHICommandListImmediate&) {
+				Data->ReleaseResources();
+				RenderResourceState.store(ERenderResourceState::Released, std::memory_order_release);
+			});
+	}
+
 	auto DSkeletalMesh::InitializeFromImportedData(
 		FSkeletalMeshImportedData InData,
 		std::string& OutError) -> bool
@@ -230,6 +317,14 @@ namespace Durin
 			*InData.Payload, *ValidationSkeleton,
 			static_cast<uint32>(InData.MaterialSlots.size()), OutError)) return false;
 
+		std::unique_ptr<FSkeletalMeshRenderData> RenderDataCandidate;
+		if (!BuildSkeletalMeshRenderData(*InData.Payload, *ValidationSkeleton,
+			InData.MeshNodeBindTransform, InData.MaterialSlots,
+			RenderDataCandidate, OutError)) return false;
+		if (RenderData && RenderData->GetNumInitializedResources() != 0)
+			return Fail(&OutError,
+				"Initialized SkeletalMesh state must be replaced through imported-state exchange.");
+
 		Skeleton = InData.Skeleton;
 		SkeletonCompatibilityIdentity = std::move(InData.SkeletonCompatibilityIdentity);
 		MeshNodeBindTransform = InData.MeshNodeBindTransform;
@@ -242,6 +337,8 @@ namespace Durin
 		CookedPayload = InData.CookedPayload;
 		DerivedDataKey = std::move(InData.DerivedDataKey);
 		PayloadData = std::move(InData.Payload);
+		RenderData = std::move(RenderDataCandidate);
+		RenderResourceState.store(ERenderResourceState::Uninitialized, std::memory_order_release);
 		bLoadedFromDerivedDataCache = false;
 		PayloadStorageDiagnostic.clear();
 		if (!DerivedDataKey.empty())
@@ -328,11 +425,15 @@ namespace Durin
 			OutError = std::format("{}: {}", GetName(), OutError);
 			return false;
 		}
-		if (PayloadData) return true;
-		if (Asset::GetPackageLoadContext().Mode == Asset::EPackageLoadMode::CookedRuntime)
-			return LoadCookedPayload(OutError);
-		if (!DerivedDataKey.empty()) return LoadDerivedDataPayload(OutError);
-		return true;
+		if (!PayloadData)
+		{
+			if (Asset::GetPackageLoadContext().Mode == Asset::EPackageLoadMode::CookedRuntime)
+			{
+				if (!LoadCookedPayload(OutError)) return false;
+			}
+			else if (!DerivedDataKey.empty() && !LoadDerivedDataPayload(OutError)) return false;
+		}
+		return !PayloadData || BuildRenderData(OutError);
 	}
 
 	auto DSkeletalMesh::LoadDerivedDataPayload(std::string& OutError) -> bool
@@ -522,6 +623,36 @@ namespace Durin
 			OutError = std::format("Candidate SkeletalMesh is invalid: {}", OutError);
 			return nullptr;
 		}
+		if (!RenderData && PayloadData && !BuildRenderData(OutError)) return nullptr;
+		if (!Candidate.RenderData && Candidate.PayloadData
+			&& !Candidate.BuildRenderData(OutError)) return nullptr;
+		if (GDynamicRHI != nullptr && Candidate.RenderData
+			&& Candidate.RenderResourceState.load(std::memory_order_acquire)
+				!= ERenderResourceState::Ready)
+		{
+			Candidate.RenderResourceState.store(
+				ERenderResourceState::InitializationQueued, std::memory_order_release);
+			FSkeletalMeshRenderData* CandidateData = Candidate.RenderData.get();
+			ENQUEUE_RENDER_COMMAND(InitSkeletalMeshExchangeCandidate)(
+				[&Candidate, CandidateData](FRHICommandListImmediate& CommandList) {
+					Candidate.RenderResourceState.store(
+						CandidateData->InitResources(CommandList)
+							? ERenderResourceState::Ready : ERenderResourceState::Failed,
+						std::memory_order_release);
+				});
+			FRenderCommandFence CandidateFence;
+			CandidateFence.BeginFence();
+			CandidateFence.Wait();
+			if (Candidate.RenderResourceState.load(std::memory_order_acquire)
+				!= ERenderResourceState::Ready)
+			{
+				OutError = "SkeletalMesh replacement render-resource initialization failed.";
+				return nullptr;
+			}
+		}
+		FRenderCommandFence PriorResourceCommands;
+		PriorResourceCommands.BeginFence();
+		PriorResourceCommands.Wait();
 		OutError.clear();
 		return std::unique_ptr<FSkeletalMeshImportedStateExchange>(
 			new FSkeletalMeshImportedStateExchange(*this, Candidate));
@@ -545,6 +676,13 @@ namespace Durin
 		std::swap(Target->CookedPayload, Candidate->CookedPayload);
 		std::swap(Target->DerivedDataKey, Candidate->DerivedDataKey);
 		std::swap(Target->PayloadData, Candidate->PayloadData);
+		std::swap(Target->RenderData, Candidate->RenderData);
+		const DSkeletalMesh::ERenderResourceState TargetState =
+			Target->RenderResourceState.load(std::memory_order_acquire);
+		const DSkeletalMesh::ERenderResourceState CandidateState =
+			Candidate->RenderResourceState.load(std::memory_order_acquire);
+		Target->RenderResourceState.store(CandidateState, std::memory_order_release);
+		Candidate->RenderResourceState.store(TargetState, std::memory_order_release);
 		std::swap(Target->bLoadedFromDerivedDataCache, Candidate->bLoadedFromDerivedDataCache);
 		std::swap(Target->PayloadStorageDiagnostic, Candidate->PayloadStorageDiagnostic);
 		Target->MarkPackageDirty();
@@ -568,5 +706,30 @@ namespace Durin
 	{
 		Target = nullptr;
 		Candidate = nullptr;
+	}
+
+	auto DSkeletalMesh::BeginDestroy() -> void
+	{
+		const ERenderResourceState State = RenderResourceState.load(std::memory_order_acquire);
+		const bool bHasQueuedWork = State != ERenderResourceState::Uninitialized
+			&& State != ERenderResourceState::Released;
+		ReleaseResources();
+		if (bHasQueuedWork) ReleaseResourcesFence.BeginFence();
+		Super::BeginDestroy();
+	}
+
+	auto DSkeletalMesh::IsReadyForFinishDestroy() -> bool
+	{
+		return ReleaseResourcesFence.IsFenceComplete() && Super::IsReadyForFinishDestroy();
+	}
+
+	auto DSkeletalMesh::FinishDestroy() -> void
+	{
+		check(ReleaseResourcesFence.IsFenceComplete());
+		check(RenderResourceState.load(std::memory_order_acquire)
+			== ERenderResourceState::Released);
+		check(!RenderData || RenderData->GetNumInitializedResources() == 0);
+		RenderData.reset();
+		Super::FinishDestroy();
 	}
 }

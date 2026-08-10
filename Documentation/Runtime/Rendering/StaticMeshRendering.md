@@ -4,6 +4,10 @@ Summary: Define static-mesh render data, scene proxies, materials, draw preparat
 
 Modules: Engine, Renderer, RenderCore
 
+SkeletalMesh uses the same material/pass policy and combined Translucent order
+through its dedicated geometry, vertex-factory, palette, and renderer owner; see
+[Skeletal Mesh Rendering](SkeletalMeshRendering.md).
+
 This document defines the implemented static-mesh render-resource ownership,
 per-LOD lifecycle, vertex-factory boundary, and shader input contract.
 

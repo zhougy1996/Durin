@@ -50,6 +50,8 @@ namespace Durin
 				Capabilities.MaxTextureArrayLayers = 256;
 				Capabilities.ColorSampleCounts = ERHISampleCountFlags::Samples1 | ERHISampleCountFlags::Samples4;
 				Capabilities.DepthSampleCounts = ERHISampleCountFlags::Samples1;
+				Capabilities.MinStorageBufferOffsetAlignment = 16;
+				Capabilities.MaxStorageBufferRange = 128 * 1024 * 1024;
 				PublishCapabilities(Capabilities);
 			}
 

@@ -256,6 +256,16 @@ durin_add_engine_functional_test(SkeletalSceneLifecycleTests
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
+durin_add_engine_functional_test(SkeletalMeshRenderResourcesVulkanTests
+	GPU
+	TIMEOUT 900
+	RUNTIME_STACK_RATIONALE "Exercises Vulkan-backed skeletal render-resource initialization and retry."
+	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for skeletal render-resource validation."
+	RUNTIME_ONLY_TARGETS VulkanRHI
+	SOURCES Private/SkeletalMeshRenderResourcesVulkanTests.cpp
+	LIBRARIES ApplicationCore RenderCore Renderer
+)
+
 durin_add_engine_functional_test(TextureTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises renderer-backed texture import, build, and cache behavior."

@@ -40,6 +40,7 @@ namespace Durin
 		const auto& SceneInfos = Scene.GetPrimitiveSceneInfos();
 		Result.PrimitiveRecords.reserve(SceneInfos.size());
 		Result.StaticMeshSceneInfos.reserve(SceneInfos.size());
+		Result.SkeletalMeshSceneInfos.reserve(SceneInfos.size());
 		Result.TextureCubePreviewSceneInfos.reserve(SceneInfos.size());
 
 		FViewFrustum Frustum;
@@ -124,6 +125,10 @@ namespace Durin
 			{
 			case EPrimitiveSceneProxyKind::StaticMesh:
 				Result.StaticMeshSceneInfos.push_back(SceneInfo);
+				break;
+			case EPrimitiveSceneProxyKind::SkeletalMesh:
+				Result.SkeletalMeshSceneInfos.push_back(SceneInfo);
+				++Counters.VisibleSkeletalMeshCandidates;
 				break;
 			case EPrimitiveSceneProxyKind::TextureCubePreview:
 				Result.TextureCubePreviewSceneInfos.push_back(SceneInfo);

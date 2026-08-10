@@ -42,6 +42,8 @@ namespace Durin
 		virtual auto RHIUpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, std::span<const uint8> SourceData) -> void = 0;
 		virtual auto RHIReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, std::vector<uint8>& OutData) -> bool = 0;
 		virtual auto RHIAllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange = 0;
+		virtual auto RHIAllocateDynamicStorageBuffer(const void* Data, uint32 Size)
+			-> FRHIStorageBufferRange = 0;
 		virtual auto RHIAcquireBackBuffer(FRHITexture* BackBuffer) -> void = 0;
 		virtual auto RHIBlockUntilGPUIdle() -> void = 0;
 		virtual auto RHIPushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void = 0;

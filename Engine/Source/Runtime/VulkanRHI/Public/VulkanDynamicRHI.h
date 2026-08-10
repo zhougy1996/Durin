@@ -72,6 +72,10 @@ namespace Durin::VulkanRHI
 			FRHICommandListImmediate& RHICmdList,
 			const void* Data,
 			uint32 Size) -> FRHIUniformBufferRange override;
+		auto RHIAllocateDynamicStorageBuffer(
+			FRHICommandListImmediate& RHICmdList,
+			const void* Data,
+			uint32 Size) -> FRHIStorageBufferRange override;
 
 		auto InitializeTexture(FVulkanCommandListContext& Context, FRHITexture* Texture) -> void;
 		auto UpdateTexture2D(

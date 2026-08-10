@@ -84,6 +84,14 @@ namespace Durin
 		return RHICmdList.AllocateDynamicUniformBufferSynchronous(Data, Size);
 	}
 
+	auto FDynamicRHI::RHIAllocateDynamicStorageBuffer(
+		FRHICommandListImmediate& RHICmdList,
+		const void* Data,
+		uint32 Size) -> FRHIStorageBufferRange
+	{
+		return RHICmdList.AllocateDynamicStorageBufferSynchronous(Data, Size);
+	}
+
 	auto FDynamicRHI::RHILockBuffer(
 		FRHICommandListImmediate& RHICmdList,
 		FRHIBuffer* Buffer,

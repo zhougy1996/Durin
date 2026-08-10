@@ -9,6 +9,7 @@ namespace Durin
 	class FPrimitiveSceneProxy;
 	class FDirectionalLightSceneProxy;
 	class FSkyBoxSceneProxy;
+	struct FSkeletalPosePalette;
 	template<typename TTag>
 	struct TSceneId
 	{
@@ -88,6 +89,9 @@ namespace Durin
 		virtual auto UpdatePrimitiveMaterialBinding(
 			FPrimitiveSceneId PrimitiveId,
 			const FMaterialRenderProxyBindingUpdate& Update) -> void = 0;
+		virtual auto UpdateSkeletalMeshDynamicData(
+			FPrimitiveSceneId PrimitiveId,
+			std::shared_ptr<const FSkeletalPosePalette> Pose) -> void = 0;
 
 		virtual auto Release() -> void = 0;
 

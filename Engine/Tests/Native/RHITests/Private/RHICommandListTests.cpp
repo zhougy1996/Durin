@@ -228,6 +228,13 @@ namespace Durin
 				OperationThreadRoles.emplace_back(IsInRHIThread());
 				return {};
 			}
+			auto RHIAllocateDynamicStorageBuffer(
+				const void*, uint32) -> FRHIStorageBufferRange override
+			{
+				Operations.emplace_back("AllocateDynamicStorageBuffer");
+				OperationThreadRoles.emplace_back(IsInRHIThread());
+				return {};
+			}
 			auto RHIAcquireBackBuffer(FRHITexture*) -> void override
 			{
 				Operations.emplace_back("AcquireBackBuffer");
@@ -658,16 +665,19 @@ namespace Durin
 		Immediate.AcquireBackBuffer(Texture.GetReference());
 		Immediate.AllocateDynamicUniformBuffer(
 			UniformData.data(), static_cast<uint32>(UniformData.size()));
+		Immediate.AllocateDynamicStorageBuffer(
+			UniformData.data(), static_cast<uint32>(UniformData.size()));
 		EXPECT_TRUE(Immediate.ReadTexture2D(
 			Texture.GetReference(), 0, 0, Readback));
 		Immediate.BlockUntilGPUIdle();
 
 		EXPECT_EQ(Readback, (std::vector<uint8>{7, 8, 9}));
 		EXPECT_EQ(Context.Operations, (std::vector<std::string>{
-			"AllocateDynamicUniformBuffer", "AcquireBackBuffer",
+			"AllocateDynamicUniformBuffer", "AllocateDynamicStorageBuffer",
+			"AcquireBackBuffer",
 			"ReadTexture2D", "BlockUntilGPUIdle"}));
 		EXPECT_EQ(Context.OperationThreadRoles,
-			(std::vector<bool>{true, true, true, true}));
+			(std::vector<bool>{true, true, true, true, true}));
 	}
 
 	TEST(FRHICommandListTests, EmptySubmitFlushFlagWaitsForOutstandingSerial)
@@ -1505,6 +1515,27 @@ namespace Durin
 		Executor.Submit({}, ERHISubmitFlags::None);
 		EXPECT_EQ(Context.Operations, (std::vector<std::string>{
 			"AllocateDynamicUniformBuffer", "RecordedBeforeSync"}));
+	}
+
+	TEST(FRHICommandListTests, DynamicStorageAllocationDoesNotSplitRecordedWork)
+	{
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		FRHICommandListImmediate& Immediate = Executor.GetImmediateCommandList();
+		Immediate.EnqueueLambda([&Context]() {
+			Context.Operations.emplace_back("RecordedBeforeSync");
+		});
+		std::array<uint8, 64> StorageData{};
+
+		Immediate.AllocateDynamicStorageBuffer(
+			StorageData.data(), static_cast<uint32>(StorageData.size()));
+
+		EXPECT_EQ(Context.Operations, (std::vector<std::string>{
+			"AllocateDynamicStorageBuffer"}));
+		EXPECT_EQ(Executor.GetCompletedSerial(), 0u);
+		Executor.Submit({}, ERHISubmitFlags::None);
+		EXPECT_EQ(Context.Operations, (std::vector<std::string>{
+			"AllocateDynamicStorageBuffer", "RecordedBeforeSync"}));
 	}
 
 	TEST(FRHICommandListTests, GraphicsPipelineValueStateIsCohesiveAndComparable)

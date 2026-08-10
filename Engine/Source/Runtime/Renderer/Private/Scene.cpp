@@ -38,6 +38,12 @@ namespace Durin
 		return static_cast<FStaticMeshSceneProxy&>(*Proxy);
 	}
 
+	auto FPrimitiveSceneInfo::GetSkeletalMeshProxy() const -> FSkeletalMeshSceneProxy&
+	{
+		check(Kind == EPrimitiveSceneProxyKind::SkeletalMesh);
+		return static_cast<FSkeletalMeshSceneProxy&>(*Proxy);
+	}
+
 	auto FPrimitiveSceneInfo::GetTextureCubePreviewProxy() const -> FTextureCubePreviewSceneProxy&
 	{
 		check(Kind == EPrimitiveSceneProxyKind::TextureCubePreview);
@@ -55,12 +61,23 @@ namespace Durin
 		return Proxy->UpdateMaterialBinding_RenderThread(Update);
 	}
 
+	auto FPrimitiveSceneInfo::UpdateSkeletalMeshDynamicData(
+		std::shared_ptr<const FSkeletalPosePalette> Pose) -> bool
+	{
+		if (Kind != EPrimitiveSceneProxyKind::SkeletalMesh
+			|| !GetSkeletalMeshProxy().UpdateDynamicData_RenderThread(std::move(Pose))) return false;
+		LocalBounds = GetSkeletalMeshProxy().GetLocalBounds();
+		WorldBounds = TransformBounds(LocalBounds, Transform);
+		return true;
+	}
+
 	auto FScene::DetachPrimitive(FPrimitiveSceneInfo& Info) -> void
 	{
 		std::erase(PrimitiveSceneInfos, &Info);
 		switch (Info.GetKind())
 		{
 		case EPrimitiveSceneProxyKind::StaticMesh: std::erase(StaticMeshSceneInfos, &Info); break;
+		case EPrimitiveSceneProxyKind::SkeletalMesh: std::erase(SkeletalMeshSceneInfos, &Info); break;
 		case EPrimitiveSceneProxyKind::TextureCubePreview: std::erase(TextureCubePreviewSceneInfos, &Info); break;
 		}
 	}
@@ -83,6 +100,7 @@ namespace Durin
 			switch (RawInfo->GetKind())
 			{
 			case EPrimitiveSceneProxyKind::StaticMesh: StaticMeshSceneInfos.push_back(RawInfo); break;
+			case EPrimitiveSceneProxyKind::SkeletalMesh: SkeletalMeshSceneInfos.push_back(RawInfo); break;
 			case EPrimitiveSceneProxyKind::TextureCubePreview: TextureCubePreviewSceneInfos.push_back(RawInfo); break;
 			}
 			PrimitiveInfosById.emplace(PrimitiveId, std::move(Info));
@@ -135,11 +153,25 @@ namespace Durin
 		});
 	}
 
+	auto FScene::UpdateSkeletalMeshDynamicData(
+		FPrimitiveSceneId PrimitiveId,
+		std::shared_ptr<const FSkeletalPosePalette> Pose) -> void
+	{
+		if (PrimitiveId == InvalidPrimitiveSceneId || !Pose) return;
+		ENQUEUE_RENDER_COMMAND(UpdateSkeletalMeshDynamicData)(
+			[this, PrimitiveId, Pose = std::move(Pose)](FRHICommandListImmediate&) mutable {
+				CheckRenderingThread();
+				if (const auto Found = PrimitiveInfosById.find(PrimitiveId);
+					Found != PrimitiveInfosById.end())
+					Found->second->UpdateSkeletalMeshDynamicData(std::move(Pose));
+			});
+	}
+
 	auto FScene::Release() -> void
 	{
 		ENQUEUE_RENDER_COMMAND(ReleaseScene)([this](FRHICommandListImmediate&) {
 			CheckRenderingThread();
-			PrimitiveSceneInfos.clear(); StaticMeshSceneInfos.clear(); TextureCubePreviewSceneInfos.clear(); PrimitiveInfosById.clear();
+			PrimitiveSceneInfos.clear(); StaticMeshSceneInfos.clear(); SkeletalMeshSceneInfos.clear(); TextureCubePreviewSceneInfos.clear(); PrimitiveInfosById.clear();
 			DirectionalLightSceneInfos.clear(); LightInfosById.clear();
 			SkyBoxSceneInfos.clear(); SkyBoxInfosById.clear();
 		});

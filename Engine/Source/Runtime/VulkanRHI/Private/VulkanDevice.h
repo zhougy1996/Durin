@@ -65,6 +65,7 @@ namespace Durin::VulkanRHI
 	class FVulkanGlobalDescriptorPool;
 	class FVulkanDescriptorSetLayoutCache;
 	class FVulkanDynamicUniformBufferAllocator;
+	class FVulkanDynamicStorageBufferAllocator;
 
 	extern uint64 GVulkanRHIDeletionFrameNumber;
 
@@ -198,6 +199,7 @@ namespace Durin::VulkanRHI
 		auto GetDeferredDeletionQueue() -> FDeferredDeletionQueue& { return DeferredDeletionQueue; }
 
 		auto GetDynamicUniformBufferAllocator() -> FVulkanDynamicUniformBufferAllocator& { return *DynamicUniformBufferAllocator; }
+		auto GetDynamicStorageBufferAllocator() -> FVulkanDynamicStorageBufferAllocator& { return *DynamicStorageBufferAllocator; }
 
 		auto GetCurrentFrame() -> FVulkanFrame&;
 		auto SetCurrentFrameIndex(uint32 FrameIndex) -> void;
@@ -236,6 +238,7 @@ namespace Durin::VulkanRHI
 		FVulkanDescriptorSetLayoutCache* DescriptorSetCache = nullptr;
 
 		FVulkanDynamicUniformBufferAllocator* DynamicUniformBufferAllocator = nullptr;
+		FVulkanDynamicStorageBufferAllocator* DynamicStorageBufferAllocator = nullptr;
 
 		std::array<FVulkanFrame*, kFrameInFlight> Frames = {};
 		uint32 CurrentFrameIndex = 0;

@@ -93,4 +93,35 @@ namespace Durin::VulkanRHI
 
 	};
 
+	class FVulkanDynamicStorageBufferAllocator
+	{
+	public:
+		static constexpr uint32 MaximumChunksPerFrame = 16;
+		static constexpr uint64 MaximumBytesPerFrame = 64ull * 1024ull * 1024ull;
+		explicit FVulkanDynamicStorageBufferAllocator(FVulkanDevice& InDevice);
+		~FVulkanDynamicStorageBufferAllocator();
+		auto BeginFrameProducer(uint32 FrameIndex) -> void;
+		auto TryAllocate(uint32 FrameIndex, const void* Data, uint32 Size,
+			FRHIStorageBufferRange& OutRange) -> bool;
+		auto ReservePage(uint32 FrameIndex, uint32 MinSize) -> void;
+
+	private:
+		struct FChunk
+		{
+			TRefCountPtr<FVulkanBuffer> Buffer;
+			uint32 Offset = 0;
+		};
+		struct FFrameState
+		{
+			std::vector<FChunk> Chunks;
+			uint32 CurrentChunkIndex = 0;
+			uint64 RequestedBytes = 0;
+		};
+		auto CreateChunk(uint32 MinSize) -> FChunk;
+		auto GetAlignment() const -> uint32;
+		static auto AlignUp(uint32 Value, uint32 Alignment) -> uint32;
+		FVulkanDevice& Device;
+		std::array<FFrameState, kFrameInFlight> Frames;
+	};
+
 } // namespace Durin::VulkanRHI

@@ -1,6 +1,9 @@
 #include "Components/SkeletalMeshComponent.h"
 
 #include "DObject/DurinPropertyTypes.h"
+#include "Materials/DefaultMaterialService.h"
+#include "Materials/MaterialInterface.h"
+#include "SkeletalMesh/SkeletalMeshResources.h"
 
 namespace Durin
 {
@@ -17,6 +20,79 @@ namespace Durin
 		: Super(ObjectInitializer)
 	{
 		SetComponentTickEnabled(true);
+	}
+
+	auto DSkeletalMeshComponent::SetMaterial(
+		uint32 SlotIndex, DMaterialInterface* InMaterial) -> bool
+	{
+		if (!SkeletalMesh || !SkeletalMesh->GetMaterialSlot(SlotIndex)) return false;
+		if (!InMaterial) return ResetMaterial(SlotIndex);
+		if (SlotIndex >= OverrideMaterials.size()) OverrideMaterials.resize(SlotIndex + 1);
+		if (OverrideMaterials[SlotIndex] == InMaterial) return true;
+		OverrideMaterials[SlotIndex] = InMaterial;
+		++MaterialComponentRevision;
+		PendingMaterialSlotIndex = SlotIndex;
+		MarkPackageDirty();
+		MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::MaterialBinding);
+		return true;
+	}
+
+	auto DSkeletalMeshComponent::GetMaterial(uint32 SlotIndex) const
+		-> DMaterialInterface*
+	{
+		const FSkeletalMeshMaterialSlotDefinition* Slot = SkeletalMesh
+			? SkeletalMesh->GetMaterialSlot(SlotIndex) : nullptr;
+		if (!Slot) return nullptr;
+		if (SlotIndex < OverrideMaterials.size() && OverrideMaterials[SlotIndex])
+			return OverrideMaterials[SlotIndex].Get();
+		return Slot->DefaultMaterial.Get();
+	}
+
+	auto DSkeletalMeshComponent::SetMaterialByName(
+		FName SlotName, DMaterialInterface* InMaterial) -> bool
+	{
+		if (!SkeletalMesh) return false;
+		const auto* Slot = SkeletalMesh->FindMaterialSlot(SlotName);
+		return Slot && SetMaterial(static_cast<uint32>(
+			Slot - SkeletalMesh->GetMaterialSlots().data()), InMaterial);
+	}
+
+	auto DSkeletalMeshComponent::GetMaterialByName(FName SlotName) const
+		-> DMaterialInterface*
+	{
+		if (!SkeletalMesh) return nullptr;
+		const auto* Slot = SkeletalMesh->FindMaterialSlot(SlotName);
+		return Slot ? GetMaterial(static_cast<uint32>(
+			Slot - SkeletalMesh->GetMaterialSlots().data())) : nullptr;
+	}
+
+	auto DSkeletalMeshComponent::ResetMaterial(uint32 SlotIndex) -> bool
+	{
+		if (!SkeletalMesh || !SkeletalMesh->GetMaterialSlot(SlotIndex)
+			|| SlotIndex >= OverrideMaterials.size() || !OverrideMaterials[SlotIndex]) return false;
+		OverrideMaterials[SlotIndex] = nullptr;
+		TrimTrailingNullOverrides();
+		++MaterialComponentRevision;
+		PendingMaterialSlotIndex = SlotIndex;
+		MarkPackageDirty();
+		MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::MaterialBinding);
+		return true;
+	}
+
+	auto DSkeletalMeshComponent::ClearMaterialOverrides() -> bool
+	{
+		if (OverrideMaterials.empty()) return false;
+		OverrideMaterials.clear();
+		++MaterialComponentRevision;
+		MarkPackageDirty();
+		MarkRenderStateDirty();
+		return true;
+	}
+
+	auto DSkeletalMeshComponent::TrimTrailingNullOverrides() -> void
+	{
+		while (!OverrideMaterials.empty() && !OverrideMaterials.back())
+			OverrideMaterials.pop_back();
 	}
 
 	auto DSkeletalMeshComponent::ValidateProspectiveBinding(
@@ -76,6 +152,16 @@ namespace Durin
 		return RebindInstance(SkeletalMesh.Get(), AnimationClip.Get(), OutError);
 	}
 
+	auto DSkeletalMeshComponent::PublishPoseDynamicData() -> void
+	{
+		const std::shared_ptr<const FSkeletalPosePalette> Pose = GetLatestPosePalette();
+		if (!Pose || Pose->Revision == LastPublishedPoseRevision) return;
+		if (IsRegistered())
+			if (IScene* Scene = GetRenderScene())
+				Scene->UpdateSkeletalMeshDynamicData(GetPrimitiveSceneId(), Pose);
+		LastPublishedPoseRevision = Pose->Revision;
+	}
+
 	auto DSkeletalMeshComponent::SetSkeletalMesh(
 		DSkeletalMesh* InMesh,
 		std::string& OutError) -> bool
@@ -87,7 +173,10 @@ namespace Durin
 		}
 		if (!RebindInstance(InMesh, AnimationClip.Get(), OutError)) return false;
 		SkeletalMesh = InMesh;
+		++MaterialComponentRevision;
+		LastPublishedPoseRevision = 0;
 		MarkPackageDirty();
+		MarkRenderStateDirty();
 		return true;
 	}
 
@@ -102,7 +191,9 @@ namespace Durin
 		}
 		if (!RebindInstance(SkeletalMesh.Get(), InClip, OutError)) return false;
 		AnimationClip = InClip;
+		LastPublishedPoseRevision = 0;
 		MarkPackageDirty();
+		MarkRenderStateDirty();
 		return true;
 	}
 
@@ -118,12 +209,16 @@ namespace Durin
 
 	auto DSkeletalMeshComponent::Stop(std::string& OutError) -> bool
 	{
-		return AnimationInstance.Stop(OutError);
+		if (!AnimationInstance.Stop(OutError)) return false;
+		PublishPoseDynamicData();
+		return true;
 	}
 
 	auto DSkeletalMeshComponent::Seek(float TimeSeconds, std::string& OutError) -> bool
 	{
-		return AnimationInstance.Seek(TimeSeconds, OutError);
+		if (!AnimationInstance.Seek(TimeSeconds, OutError)) return false;
+		PublishPoseDynamicData();
+		return true;
 	}
 
 	auto DSkeletalMeshComponent::SetLooping(bool bInLooping) -> void
@@ -146,6 +241,12 @@ namespace Durin
 	auto DSkeletalMeshComponent::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
+		if (OverrideMaterials.size() > MaximumSkeletalMeshMaterialSlots)
+		{
+			OutError = "Skeletal-mesh component material override count exceeds the supported limit.";
+			return false;
+		}
+		TrimTrailingNullOverrides();
 		if (!std::isfinite(PlayRate) || PlayRate < 0.0f)
 		{
 			OutError = "Skeletal-mesh component play rate must be finite and non-negative.";
@@ -223,6 +324,8 @@ namespace Durin
 		if (!RebindCurrent(Error))
 			DURIN_WARN("Skeletal-mesh component failed to apply edited binding. (component: {}, reason: {})",
 				GetObjectPath(), Error);
+		LastPublishedPoseRevision = 0;
+		MarkRenderStateDirty();
 	}
 
 	auto DSkeletalMeshComponent::OnRegister() -> void
@@ -232,11 +335,17 @@ namespace Durin
 		if (!RebindCurrent(Error))
 			DURIN_WARN("Skeletal-mesh component registration could not prepare playback. (component: {}, reason: {})",
 				GetObjectPath(), Error);
+		else
+		{
+			LastPublishedPoseRevision = 0;
+			MarkRenderStateDirty();
+		}
 	}
 
 	auto DSkeletalMeshComponent::OnUnregister() -> void
 	{
 		AnimationInstance.Unbind();
+		LastPublishedPoseRevision = 0;
 		Super::OnUnregister();
 	}
 
@@ -264,6 +373,7 @@ namespace Durin
 		if (!AnimationInstance.Tick(DeltaSeconds, Error))
 			DURIN_WARN("Skeletal-mesh component playback tick failed. (component: {}, reason: {})",
 				GetObjectPath(), Error);
+		else PublishPoseDynamicData();
 	}
 
 	auto DSkeletalMeshComponent::EndPlay() -> void
@@ -274,6 +384,36 @@ namespace Durin
 
 	auto DSkeletalMeshComponent::CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy>
 	{
-		return nullptr;
+		if (!SkeletalMesh) return nullptr;
+		const std::shared_ptr<const FSkeletalPosePalette> Pose = GetLatestPosePalette();
+		if (!Pose || !Pose->LocalBounds.bIsValid) return nullptr;
+		SkeletalMesh->InitResources();
+		const FSkeletalMeshRenderData* RenderData = SkeletalMesh->GetRenderData();
+		if (!RenderData || RenderData->Sections.empty()) return nullptr;
+		std::vector<FMaterialRenderProxyRef> Materials;
+		Materials.reserve(SkeletalMesh->GetMaterialSlots().size());
+		for (uint32 SlotIndex = 0; SlotIndex < SkeletalMesh->GetNumMaterialSlots(); ++SlotIndex)
+		{
+			DMaterialInterface* Material = GetMaterial(SlotIndex);
+			if (!Material) RecordMaterialFallbackReason(EMaterialFallbackReason::UnassignedDefault);
+			Materials.push_back(Material ? Material->GetMaterialRenderProxy()
+				: GetDefaultMaterialRenderProxy());
+		}
+		LastPublishedPoseRevision = Pose->Revision;
+		return std::make_unique<FSkeletalMeshSceneProxy>(
+			RenderData, std::move(Materials), MaterialComponentRevision, Pose);
+	}
+
+	auto DSkeletalMeshComponent::BuildMaterialRenderProxyBindingUpdate(
+		FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool
+	{
+		if (!SkeletalMesh || !SkeletalMesh->GetMaterialSlot(PendingMaterialSlotIndex)) return false;
+		DMaterialInterface* Material = GetMaterial(PendingMaterialSlotIndex);
+		if (!Material) RecordMaterialFallbackReason(EMaterialFallbackReason::UnassignedDefault);
+		OutUpdate.SlotIndex = PendingMaterialSlotIndex;
+		OutUpdate.MaterialProxy = Material ? Material->GetMaterialRenderProxy()
+			: GetDefaultMaterialRenderProxy();
+		OutUpdate.ComponentRevision = MaterialComponentRevision;
+		return true;
 	}
 }

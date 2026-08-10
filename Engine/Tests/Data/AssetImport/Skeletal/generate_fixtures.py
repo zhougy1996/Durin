@@ -109,6 +109,186 @@ def clean_matrix(value: list[list[float]]) -> list[list[float]]:
     return [[clean_number(entry) for entry in row] for row in value]
 
 
+def transform_vector(matrix: list[list[float]], value: list[float], w: float) -> list[float]:
+    return [sum(matrix[row][column] * component
+                for column, component in enumerate([*value, w]))
+            for row in range(3)]
+
+
+def normalize_vector(value: list[float]) -> list[float]:
+    length = math.sqrt(sum(component * component for component in value))
+    if length <= 1.0e-12:
+        raise ValueError("fixture produced a zero-length direction")
+    return [component / length for component in value]
+
+
+def matrix_trs_parts(value: list[list[float]]) -> tuple[list[float], list[list[float]], list[float]]:
+    translation = [value[row][3] for row in range(3)]
+    scale = [math.sqrt(sum(value[row][column] ** 2 for row in range(3)))
+             for column in range(3)]
+    rotation = [[value[row][column] / scale[column] for column in range(3)]
+                for row in range(3)]
+    return translation, rotation, scale
+
+
+def compose_trs(translation: list[float], rotation: list[list[float]],
+                scale: list[float]) -> list[list[float]]:
+    result = [[0.0] * 4 for _ in range(4)]
+    for row in range(3):
+        for column in range(3):
+            result[row][column] = rotation[row][column] * scale[column]
+        result[row][3] = translation[row]
+    result[3][3] = 1.0
+    return result
+
+
+def bounds_for_points(points: list[list[float]]) -> dict:
+    return {
+        "min": [clean_number(min(point[axis] for point in points)) for axis in range(3)],
+        "max": [clean_number(max(point[axis] for point in points)) for axis in range(3)],
+    }
+
+
+def bounds_corners(bounds: dict) -> list[list[float]]:
+    return [[bounds["max"][axis] if mask & (1 << axis) else bounds["min"][axis]
+             for axis in range(3)] for mask in range(8)]
+
+
+def build_rendering_goldens(expected: dict) -> dict:
+    positions = expected["mesh"]["durinPositionsByPrimitive"]
+    influences = expected["mesh"]["normalizedInfluencesByPrimitive"]
+    palette_bones = expected["mesh"]["paletteBoneIndices"]
+    reference_locals = [bone["localMatrix"] for bone in expected["skeleton"]["canonicalBones"]]
+    parents = [bone["parent"] for bone in expected["skeleton"]["canonicalBones"]]
+    walk_tracks = expected["animations"][0]["tracks"]
+
+    influence_points: dict[int, list[list[float]]] = {bone: [] for bone in palette_bones}
+    for primitive_positions, primitive_influences in zip(positions, influences):
+        for position, vertex_influences in zip(primitive_positions, primitive_influences):
+            for bone, weight in vertex_influences:
+                if weight > 0.0:
+                    influence_points[bone].append(position)
+    influence_bounds = [bounds_for_points(influence_points[bone]) for bone in palette_bones]
+
+    def evaluate_locals(sample_time: float | None) -> list[list[list[float]]]:
+        locals_at_time = copy.deepcopy(reference_locals)
+        if sample_time is None:
+            return locals_at_time
+        for track in walk_tracks:
+            times = track["times"]
+            right = next((index for index, time in enumerate(times) if time > sample_time), len(times))
+            left = max(0, right - 1)
+            if right == len(times) or times[left] == sample_time or track["interpolation"] == "STEP":
+                value = track["values"][left]
+            else:
+                alpha = (sample_time - times[left]) / (times[right] - times[left])
+                value = [track["values"][left][axis] * (1.0 - alpha)
+                         + track["values"][right][axis] * alpha for axis in range(len(track["values"][left]))]
+            translation, rotation, scale = matrix_trs_parts(locals_at_time[track["bone"]])
+            if track["path"] == "translation":
+                translation = value
+            elif track["path"] == "rotation":
+                rotation4 = quaternion_matrix(value)
+                rotation = [row[:3] for row in rotation4[:3]]
+            elif track["path"] == "scale":
+                scale = value
+            locals_at_time[track["bone"]] = compose_trs(translation, rotation, scale)
+        return locals_at_time
+
+    def palette_for(mesh_index: int, sample_time: float | None) -> list[list[list[float]]]:
+        locals_at_time = evaluate_locals(sample_time)
+        component: list[list[list[float]]] = []
+        for bone, local in enumerate(locals_at_time):
+            component.append(matrix_multiply(component[parents[bone]], local)
+                             if parents[bone] >= 0 else local)
+        inverse_mesh = matrix_inverse(expected["mesh"]["meshNodeBindMatrices"][mesh_index])
+        inverse_binds = (expected["mesh"]["inverseBindMatrices"] if mesh_index == 0
+                         else expected["mesh"]["defaultInverseBindMatrices"])
+        return [matrix_multiply(matrix_multiply(inverse_mesh, component[bone]), inverse_bind)
+                for bone, inverse_bind in zip(palette_bones, inverse_binds)]
+
+    def skinned_sample(name: str, raw_time: float, sample_time: float | None,
+                       playback: str) -> dict:
+        meshes = []
+        for mesh_index in range(2):
+            palette = palette_for(mesh_index, sample_time)
+            skinned_positions: list[list[list[float]]] = []
+            skinned_normals: list[list[list[float]]] = []
+            skinned_tangents: list[list[list[float]]] = []
+            all_positions: list[list[float]] = []
+            for primitive_positions, primitive_influences in zip(positions, influences):
+                primitive_skinned_positions = []
+                primitive_skinned_normals = []
+                primitive_skinned_tangents = []
+                for position, vertex_influences in zip(primitive_positions, primitive_influences):
+                    position_result = [0.0, 0.0, 0.0]
+                    normal_result = [0.0, 0.0, 0.0]
+                    tangent_result = [0.0, 0.0, 0.0]
+                    for bone, weight in vertex_influences:
+                        matrix = palette[palette_bones.index(bone)]
+                        for axis, component in enumerate(transform_vector(matrix, position, 1.0)):
+                            position_result[axis] += weight * component
+                        for axis, component in enumerate(transform_vector(matrix, [-1.0, 0.0, 0.0], 0.0)):
+                            normal_result[axis] += weight * component
+                        for axis, component in enumerate(transform_vector(matrix, [0.0, 1.0, 0.0], 0.0)):
+                            tangent_result[axis] += weight * component
+                    primitive_skinned_positions.append([clean_number(value) for value in position_result])
+                    primitive_skinned_normals.append([clean_number(value) for value in normalize_vector(normal_result)])
+                    primitive_skinned_tangents.append(
+                        [clean_number(value) for value in normalize_vector(tangent_result)])
+                    all_positions.append(position_result)
+                skinned_positions.append(primitive_skinned_positions)
+                skinned_normals.append(primitive_skinned_normals)
+                skinned_tangents.append(primitive_skinned_tangents)
+
+            conservative_points = []
+            for matrix, influence_bound in zip(palette, influence_bounds):
+                conservative_points.extend(transform_vector(matrix, corner, 1.0)
+                                           for corner in bounds_corners(influence_bound))
+            meshes.append({
+                "meshIndex": mesh_index,
+                "paletteMatrices": [clean_matrix(matrix) for matrix in palette],
+                "positionsByPrimitive": skinned_positions,
+                "normalsByPrimitive": skinned_normals,
+                "tangentsByPrimitive": skinned_tangents,
+                "tangentHandedness": -1.0,
+                "exactBounds": bounds_for_points(all_positions),
+                "conservativeBounds": bounds_for_points(conservative_points),
+            })
+        return {"name": name, "playback": playback, "rawTime": raw_time,
+                "sampleTime": 0.0 if sample_time is None else sample_time, "meshes": meshes}
+
+    samples = [
+        skinned_sample("reference", 0.0, None, "reference-pose binding"),
+        skinned_sample("interpolated", 0.5, 0.5, "looping Walk"),
+        skinned_sample("key", 1.0, 1.0, "looping Walk"),
+        skinned_sample("loop", 2.0, 0.0, "looping Walk"),
+        skinned_sample("clamp", 2.0, 2.0, "non-looping Walk"),
+    ]
+    bind_bounds = bounds_for_points([point for primitive in positions for point in primitive])
+    return {
+        "matrixConvention": "column vectors; CPU FMatrix[col][row]; JSON and shader rows; palette = inverse(mesh bind) * joint component * inverse bind",
+        "directionConvention": "weighted palette upper-3x3 followed by normalize; tangent handedness preserved",
+        "tolerance": 1.0e-5,
+        "lodIndex": 0,
+        "counts": {"vertices": 6, "indices": 6, "triangles": 2, "sections": 2,
+                   "materialSlots": 2, "paletteMatrices": 4},
+        "paletteBytesPerPrimitiveView": 4 * 16 * 4,
+        "maximumPaletteBytesPerPrimitiveView": 65_535 * 16 * 4,
+        "perViewPaletteUploadBudgetBytes": 64 * 1024 * 1024,
+        "requiredStorageOffsetAlignment": "device minStorageBufferOffsetAlignment",
+        "requiredStorageRange": "device maxStorageBufferRange >= exact palette byte count",
+        "minimumVulkanMaxStorageBufferRangeBytes": 128 * 1024 * 1024,
+        "bindGeometryBounds": bind_bounds,
+        "influenceBoundsByPaletteEntry": influence_bounds,
+        "deformationLeavesBindGeometryBounds": any(
+            mesh["exactBounds"]["min"][axis] < bind_bounds["min"][axis] - 1.0e-5
+            or mesh["exactBounds"]["max"][axis] > bind_bounds["max"][axis] + 1.0e-5
+            for sample in samples[1:] for mesh in sample["meshes"] for axis in range(3)),
+        "samples": samples,
+    }
+
+
 class BufferBuilder:
     def __init__(self) -> None:
         self.bytes = bytearray()
@@ -369,6 +549,7 @@ def build_contract() -> tuple[dict, bytes, dict[str, int], dict]:
             ],
         },
     }
+    expected["rendering"] = build_rendering_goldens(expected)
     return document, bytes(builder.bytes), builder.accessor_offsets, expected
 
 

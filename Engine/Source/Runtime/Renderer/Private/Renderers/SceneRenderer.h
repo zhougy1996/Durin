@@ -3,6 +3,7 @@
 #include "Renderers/EditorAssistance/EditorAssistanceRenderer.h"
 #include "Renderers/PostProcessRenderer.h"
 #include "Renderers/SkyBoxRenderer.h"
+#include "Renderers/SkeletalMeshRenderer.h"
 #include "Renderers/StaticMeshRenderer.h"
 #include "Renderers/TextureCubeThumbnailRenderer.h"
 #include "Resources/DefaultTextureResources.h"
@@ -72,6 +73,7 @@ namespace Durin
 		FEnvironmentLightingResources EnvironmentLighting;
 		FFullscreenGeometryResources FullscreenGeometry;
 		FStaticMeshRenderer StaticMeshRenderer;
+		FSkeletalMeshRenderer SkeletalMeshRenderer;
 		FSkyBoxRenderer SkyBoxRenderer;
 		FTextureCubeThumbnailRenderer TextureCubeThumbnailRenderer;
 		FPostProcessRenderer PostProcessRenderer;

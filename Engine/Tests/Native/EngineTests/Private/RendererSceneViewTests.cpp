@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Renderers/SceneRenderer.h"
+#include "Renderers/PreparedSceneView.h"
 #include "Renderers/ViewPreparationMath.h"
 
 namespace Durin
@@ -79,6 +80,40 @@ namespace Durin
 		EXPECT_EQ(View.ViewportY, 13u);
 		EXPECT_EQ(View.ViewportWidth, 17u);
 		EXPECT_EQ(View.ViewportHeight, 19u);
+	}
+
+	TEST(FRendererSceneViewTests,
+		CombinedTranslucencyOrdersDistanceThenCompleteStableTies)
+	{
+		FPreparedSceneView Prepared;
+		FPreparedStaticMeshDraw StaticNear;
+		StaticNear.TranslucentDistanceSquared = 10.0;
+		StaticNear.SortKey.PrimitiveId = 20;
+		Prepared.StaticMeshes.Translucent.push_back(StaticNear);
+		FPreparedSkeletalMeshDraw SkeletalFar;
+		SkeletalFar.TranslucentDistanceSquared = 20.0;
+		SkeletalFar.SortKey.PrimitiveId = 30;
+		Prepared.SkeletalMeshes.Translucent.push_back(SkeletalFar);
+		FPreparedSkeletalMeshDraw SkeletalNear;
+		SkeletalNear.TranslucentDistanceSquared = 10.0;
+		SkeletalNear.SortKey.PrimitiveId = 10;
+		Prepared.SkeletalMeshes.Translucent.push_back(SkeletalNear);
+		FPreparedSkeletalMeshDraw ExactTie;
+		ExactTie.TranslucentDistanceSquared = 10.0;
+		ExactTie.SortKey.PrimitiveId = 20;
+		Prepared.SkeletalMeshes.Translucent.push_back(ExactTie);
+
+		PrepareCombinedTranslucentGeometry(Prepared);
+
+		ASSERT_EQ(Prepared.TranslucentGeometry.size(), 4u);
+		EXPECT_EQ(Prepared.TranslucentGeometry[0].Family,
+			EPreparedTranslucentGeometryFamily::SkeletalMesh);
+		EXPECT_EQ(Prepared.TranslucentGeometry[0].SortKey.PrimitiveId, 30u);
+		EXPECT_EQ(Prepared.TranslucentGeometry[1].SortKey.PrimitiveId, 10u);
+		EXPECT_EQ(Prepared.TranslucentGeometry[2].Family,
+			EPreparedTranslucentGeometryFamily::StaticMesh);
+		EXPECT_EQ(Prepared.TranslucentGeometry[3].Family,
+			EPreparedTranslucentGeometryFamily::SkeletalMesh);
 	}
 
 	TEST(FRendererSceneViewTests, FixedAspectViewsAreCenteredPerOutput)

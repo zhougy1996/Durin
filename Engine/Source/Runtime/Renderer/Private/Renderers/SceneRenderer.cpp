@@ -74,12 +74,51 @@ namespace Durin
 			Counters.StaticMeshSuccessfulDraws = StaticMeshes.SuccessfulDraws;
 			Counters.StaticMeshRejectedDraws = StaticMeshes.RejectedDraws;
 		}
+
+		auto CopySkeletalMeshCounters(
+			const FPreparedSkeletalMeshView& Meshes,
+			FViewRenderCounters& Counters) -> void
+		{
+			Counters.PreparedSkeletalMeshPrimitives = Meshes.Primitives.size();
+			Counters.RejectedSkeletalMeshPrimitives = Meshes.RejectedPrimitives;
+			Counters.PreparedSkeletalMeshSections = Meshes.SelectedSections;
+			Counters.PreparedSkeletalMeshTriangles = Meshes.SelectedTriangles;
+			Counters.OpaqueSkeletalMeshSections = Meshes.OpaqueSections;
+			Counters.MaskedSkeletalMeshSections = Meshes.MaskedSections;
+			Counters.TranslucentSkeletalMeshSections = Meshes.TranslucentSections;
+			Counters.OpaqueSkeletalMeshTriangles = Meshes.OpaqueTriangles;
+			Counters.MaskedSkeletalMeshTriangles = Meshes.MaskedTriangles;
+			Counters.TranslucentSkeletalMeshTriangles = Meshes.TranslucentTriangles;
+			Counters.OpaqueSkeletalMeshStateGroups = Meshes.OpaqueStateGroups;
+			Counters.MaskedSkeletalMeshStateGroups = Meshes.MaskedStateGroups;
+			Counters.SkeletalMeshPipelineTransitions = Meshes.PipelineTransitions;
+			Counters.SkeletalMeshMaterialTransitions = Meshes.MaterialTransitions;
+			Counters.SkeletalMeshVertexFactoryTransitions =
+				Meshes.VertexFactoryTransitions;
+			Counters.SkeletalMeshGeometryTransitions = Meshes.GeometryTransitions;
+			Counters.SkeletalMeshResourceAttemptedDraws =
+				Meshes.ResourcePreparationAttemptedDraws;
+			Counters.SkeletalMeshResourceSuccessfulDraws =
+				Meshes.ResourcePreparationSuccessfulDraws;
+			Counters.SkeletalMeshResourceRejectedDraws =
+				Meshes.ResourcePreparationRejectedDraws;
+			Counters.SkeletalMeshAttemptedDraws = Meshes.AttemptedDraws;
+			Counters.SkeletalMeshSuccessfulDraws = Meshes.SuccessfulDraws;
+			Counters.SkeletalMeshRejectedDraws = Meshes.RejectedDraws;
+			Counters.RequestedSkeletalPaletteUploads = Meshes.RequestedPaletteUploads;
+			Counters.UploadedSkeletalPalettes = Meshes.UploadedPalettes;
+			Counters.ReusedSkeletalPalettes = Meshes.ReusedPalettes;
+			Counters.RejectedSkeletalPalettes = Meshes.RejectedPalettes;
+			Counters.UploadedSkeletalPaletteMatrices = Meshes.UploadedPaletteMatrices;
+			Counters.UploadedSkeletalPaletteBytes = Meshes.UploadedPaletteBytes;
+		}
 	} // namespace
 
 	FSceneRenderer::FSceneRenderer()
 		: DefaultTextures(Coordinator)
 		, EnvironmentLighting(Coordinator)
 		, StaticMeshRenderer(Coordinator, DefaultTextures, EnvironmentLighting)
+		, SkeletalMeshRenderer(Coordinator, DefaultTextures, EnvironmentLighting)
 		, SkyBoxRenderer(Coordinator, DefaultTextures)
 		, PostProcessRenderer(Coordinator, FullscreenGeometry)
 		, EditorAssistanceRenderer(Coordinator, FullscreenGeometry)
@@ -135,6 +174,7 @@ namespace Durin
 		DefaultTextures.ReleaseResources_RenderThread();
 		EnvironmentLighting.ReleaseResources_RenderThread();
 		StaticMeshRenderer.ReleaseResources_RenderThread();
+		SkeletalMeshRenderer.ReleaseResources_RenderThread();
 		Coordinator.ReleaseResources_RenderThread();
 		SkyBoxRenderer.ReleaseResources_RenderThread();
 		EditorAssistanceRenderer.ReleaseResources_RenderThread();
@@ -198,6 +238,7 @@ namespace Durin
 						DefaultTextures.ReleaseResources_RenderThread();
 						EnvironmentLighting.ReleaseResources_RenderThread();
 						StaticMeshRenderer.ReleaseResources_RenderThread();
+						SkeletalMeshRenderer.ReleaseResources_RenderThread();
 						SkyBoxRenderer.ReleaseResources_RenderThread();
 						PostProcessRenderer.ReleaseResources_RenderThread();
 						EditorAssistanceRenderer.
@@ -285,6 +326,9 @@ namespace Durin
 				Visibility.StaticMeshSceneInfos,
 				RenderView,
 				RenderView.Settings.RasterMode);
+			PreparedView.SkeletalMeshes = PrepareSkeletalMeshView_RenderThread(
+				CommandList, Visibility.SkeletalMeshSceneInfos, RenderView,
+				RenderView.Settings.RasterMode);
 			for (const FPrimitiveSceneInfo* SceneInfo :
 				 Visibility.TextureCubePreviewSceneInfos)
 			{
@@ -297,8 +341,15 @@ namespace Durin
 		}
 		StaticMeshRenderer.PrepareResources_RenderThread(
 			CommandList, PreparedView.StaticMeshes);
+		SkeletalMeshRenderer.PrepareResources_RenderThread(
+			CommandList, PreparedView.SkeletalMeshes);
+		PrepareCombinedTranslucentGeometry(PreparedView);
+		PreparedView.Counters.CombinedTranslucentGeometryDraws =
+			PreparedView.TranslucentGeometry.size();
 		CopyStaticMeshCounters(
 			PreparedView.StaticMeshes, PreparedView.Counters);
+		CopySkeletalMeshCounters(
+			PreparedView.SkeletalMeshes, PreparedView.Counters);
 
 		FRHIRenderPassInfo ScenePassInfo{};
 		ScenePassInfo.RenderTargetLayout =
@@ -318,6 +369,8 @@ namespace Durin
 		CommandList.EndRenderPass();
 		CopyStaticMeshCounters(
 			PreparedView.StaticMeshes, PreparedView.Counters);
+		CopySkeletalMeshCounters(
+			PreparedView.SkeletalMeshes, PreparedView.Counters);
 
 		RendererEditorAssistance::FPrepared PreparedEditorAssistance;
 		if (!EditorAssistanceRequest.IsEmpty())
@@ -414,12 +467,36 @@ namespace Durin
 				CommandList, View, PreparedView.SkyBox);
 		}
 
-		StaticMeshRenderer.Execute_RenderThread(
-			CommandList,
-			View,
-			PreparedView.DirectionalLight,
-			View.Settings.RenderMode,
+		for (const EStaticMeshBasePass Pass : {
+			EStaticMeshBasePass::Opaque, EStaticMeshBasePass::Masked})
+		{
+			StaticMeshRenderer.ExecutePass_RenderThread(
+				CommandList, View, PreparedView.DirectionalLight,
+				View.Settings.RenderMode, Pass, PreparedView.StaticMeshes);
+			SkeletalMeshRenderer.ExecutePass_RenderThread(
+				CommandList, View, PreparedView.DirectionalLight,
+				View.Settings.RenderMode, Pass, PreparedView.SkeletalMeshes);
+		}
+		for (const FPreparedTranslucentSceneDraw& Draw :
+			 PreparedView.TranslucentGeometry)
+		{
+			if (Draw.Family == EPreparedTranslucentGeometryFamily::StaticMesh)
+				StaticMeshRenderer.ExecutePreparedDraw_RenderThread(
+					CommandList, View, PreparedView.DirectionalLight,
+					View.Settings.RenderMode, EStaticMeshBasePass::Translucent,
+					PreparedView.StaticMeshes.Translucent[Draw.DrawIndex],
+					PreparedView.StaticMeshes);
+			else
+				SkeletalMeshRenderer.ExecutePreparedDraw_RenderThread(
+					CommandList, View, PreparedView.DirectionalLight,
+					View.Settings.RenderMode, EStaticMeshBasePass::Translucent,
+					PreparedView.SkeletalMeshes.Translucent[Draw.DrawIndex],
+					PreparedView.SkeletalMeshes);
+		}
+		StaticMeshRenderer.FinalizeExecution_RenderThread(
 			PreparedView.StaticMeshes);
+		SkeletalMeshRenderer.FinalizeExecution_RenderThread(
+			PreparedView.SkeletalMeshes);
 		TextureCubeThumbnailRenderer.DrawPrepared_RenderThread(
 			CommandList,
 			View,

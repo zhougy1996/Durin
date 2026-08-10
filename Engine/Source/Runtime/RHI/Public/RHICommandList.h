@@ -291,6 +291,8 @@ namespace Durin
 		RHI_API auto LockBuffer(FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*;
 		RHI_API auto UnlockBuffer(FRHIBuffer* Buffer) -> void;
 		RHI_API auto AllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange;
+		RHI_API auto AllocateDynamicStorageBuffer(const void* Data, uint32 Size)
+			-> FRHIStorageBufferRange;
 		RHI_API auto ReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, std::vector<uint8>& OutData) -> bool;
 		RHI_API auto AcquireBackBuffer(FRHITexture* BackBuffer) -> void;
 		RHI_API auto AcquireBackBufferSynchronously(FRHITexture* BackBuffer) -> void;
@@ -306,6 +308,8 @@ namespace Durin
 		auto AllocateDynamicUniformBufferSynchronous(
 			const void* Data,
 			uint32 Size) -> FRHIUniformBufferRange;
+		auto AllocateDynamicStorageBufferSynchronous(
+			const void* Data, uint32 Size) -> FRHIStorageBufferRange;
 
 		FRHICommandListExecutor* Executor = nullptr;
 		std::unique_ptr<FLockState> LockState;

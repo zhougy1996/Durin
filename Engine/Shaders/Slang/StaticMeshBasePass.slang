@@ -1,6 +1,9 @@
 module StaticMeshBasePass;
 
 import VertexFactory.LocalVertexFactory;
+#if DURIN_SKELETAL_MESH
+import VertexFactory.SkeletalMeshVertexFactory;
+#endif
 import Lighting.PBRLighting;
 
 // Static mesh material foundation shader.
@@ -76,12 +79,24 @@ struct MaterialUniform
 [[vk::binding(20, 0)]] TextureCube<float4> EnvironmentPrefiltered;
 [[vk::binding(21, 0)]] Texture2D<float4> EnvironmentBrdfLut;
 [[vk::binding(22, 0)]] SamplerState EnvironmentSampler;
+#if DURIN_SKELETAL_MESH
+[[vk::binding(23, 0)]] StructuredBuffer<float4x4> SkinPalette;
+#endif
 
 [shader("vertex")]
+#if DURIN_SKELETAL_MESH
+VSOutput VertexMain(FSkeletalMeshVertexFactoryInput input)
+#else
 VSOutput VertexMain(FLocalVertexFactoryInput input)
+#endif
 {
+#if DURIN_SKELETAL_MESH
+    FSkeletalMeshVertexFactoryIntermediates vertex =
+        GetSkeletalMeshVertexFactoryIntermediates(input, SkinPalette);
+#else
     FLocalVertexFactoryIntermediates vertex =
         GetLocalVertexFactoryIntermediates(input);
+#endif
     VSOutput output;
     output.pos = mul(Transform.LocalToClip, float4(vertex.localPosition, 1.0));
     output.color = vertex.color;

@@ -40,6 +40,7 @@ namespace Durin
 		size_t InvalidBoundsFallbacks = 0;
 		size_t InvalidViewFallbacks = 0;
 		size_t VisibleStaticMeshCandidates = 0;
+		size_t VisibleSkeletalMeshCandidates = 0;
 		size_t PreparedStaticMeshPrimitives = 0;
 		size_t RejectedStaticMeshPrimitives = 0;
 		size_t PreparedStaticMeshSections = 0;
@@ -68,6 +69,35 @@ namespace Durin
 		size_t StaticMeshAttemptedDraws = 0;
 		size_t StaticMeshSuccessfulDraws = 0;
 		size_t StaticMeshRejectedDraws = 0;
+		size_t PreparedSkeletalMeshPrimitives = 0;
+		size_t RejectedSkeletalMeshPrimitives = 0;
+		size_t PreparedSkeletalMeshSections = 0;
+		size_t PreparedSkeletalMeshTriangles = 0;
+		size_t OpaqueSkeletalMeshSections = 0;
+		size_t MaskedSkeletalMeshSections = 0;
+		size_t TranslucentSkeletalMeshSections = 0;
+		size_t OpaqueSkeletalMeshTriangles = 0;
+		size_t MaskedSkeletalMeshTriangles = 0;
+		size_t TranslucentSkeletalMeshTriangles = 0;
+		size_t OpaqueSkeletalMeshStateGroups = 0;
+		size_t MaskedSkeletalMeshStateGroups = 0;
+		size_t SkeletalMeshPipelineTransitions = 0;
+		size_t SkeletalMeshMaterialTransitions = 0;
+		size_t SkeletalMeshVertexFactoryTransitions = 0;
+		size_t SkeletalMeshGeometryTransitions = 0;
+		size_t CombinedTranslucentGeometryDraws = 0;
+		size_t SkeletalMeshResourceAttemptedDraws = 0;
+		size_t SkeletalMeshResourceSuccessfulDraws = 0;
+		size_t SkeletalMeshResourceRejectedDraws = 0;
+		size_t SkeletalMeshAttemptedDraws = 0;
+		size_t SkeletalMeshSuccessfulDraws = 0;
+		size_t SkeletalMeshRejectedDraws = 0;
+		size_t RequestedSkeletalPaletteUploads = 0;
+		size_t UploadedSkeletalPalettes = 0;
+		size_t ReusedSkeletalPalettes = 0;
+		size_t RejectedSkeletalPalettes = 0;
+		size_t UploadedSkeletalPaletteMatrices = 0;
+		size_t UploadedSkeletalPaletteBytes = 0;
 	};
 
 	using FViewRenderCounterSink = void (*)(const FViewRenderCounters&);
@@ -82,6 +112,7 @@ namespace Durin
 	{
 		std::vector<FPrimitiveVisibilityRecord> PrimitiveRecords;
 		std::vector<const FPrimitiveSceneInfo*> StaticMeshSceneInfos;
+		std::vector<const FPrimitiveSceneInfo*> SkeletalMeshSceneInfos;
 		std::vector<const FPrimitiveSceneInfo*> TextureCubePreviewSceneInfos;
 	};
 

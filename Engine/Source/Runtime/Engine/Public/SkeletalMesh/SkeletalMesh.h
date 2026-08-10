@@ -4,6 +4,7 @@
 #include "EngineAPI.h"
 #include "DObject/CoreDObject.h"
 #include "Math/Box.h"
+#include "RenderingThread.h"
 #include "SkeletalMesh/Skeleton.h"
 
 #include "SkeletalMesh.gen.h"
@@ -11,6 +12,7 @@
 namespace Durin
 {
 	class DMaterialInterface;
+	struct FSkeletalMeshRenderData;
 
 	inline constexpr uint32 MaximumSkeletalMeshMaterialSlots = 4'096;
 	inline constexpr uint32 MaximumSkeletalMeshSections = 65'536;
@@ -167,17 +169,25 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		ENGINE_API explicit DSkeletalMesh(const FObjectInitializer& ObjectInitializer);
+		ENGINE_API ~DSkeletalMesh() override;
 
 		auto GetSkeleton() const -> DSkeleton* { return Skeleton.Get(); }
 		auto GetSkeletonCompatibilityIdentity() const -> const std::string& { return SkeletonCompatibilityIdentity; }
 		auto GetMeshNodeBindTransform() const -> const FSkeletonTransform& { return MeshNodeBindTransform; }
 		auto GetMaterialSlots() const -> std::span<const FSkeletalMeshMaterialSlotDefinition> { return MaterialSlots; }
+		auto GetNumMaterialSlots() const -> uint32 { return static_cast<uint32>(MaterialSlots.size()); }
+		ENGINE_API auto GetMaterialSlot(uint32 SlotIndex) const
+			-> const FSkeletalMeshMaterialSlotDefinition*;
+		ENGINE_API auto FindMaterialSlot(FName Name) const
+			-> const FSkeletalMeshMaterialSlotDefinition*;
 		auto GetSummary() const -> const FSkeletalMeshSummary& { return Summary; }
 		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
 		auto GetPayloadData() const -> std::shared_ptr<const FSkeletalMeshPayloadData> { return PayloadData; }
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
 		auto GetPayloadStorageDiagnostic() const -> const std::string& { return PayloadStorageDiagnostic; }
+		ENGINE_API auto GetRenderData() const -> const FSkeletalMeshRenderData*;
+		ENGINE_API auto InitResources() -> void;
 
 		ENGINE_API auto InitializeFromImportedData(
 			FSkeletalMeshImportedData InData,
@@ -199,6 +209,9 @@ namespace Durin
 			DSkeletalMesh& Candidate,
 			const DSkeleton& ProspectiveSkeleton,
 			std::string& OutError) -> std::unique_ptr<FSkeletalMeshImportedStateExchange>;
+		ENGINE_API auto BeginDestroy() -> void override;
+		ENGINE_API auto IsReadyForFinishDestroy() -> bool override;
+		ENGINE_API auto FinishDestroy() -> void override;
 
 	private:
 		DPROPERTY()
@@ -223,11 +236,27 @@ namespace Durin
 		std::string DerivedDataKey;
 
 		std::shared_ptr<const FSkeletalMeshPayloadData> PayloadData;
+		std::unique_ptr<FSkeletalMeshRenderData> RenderData;
 		bool bLoadedFromDerivedDataCache = false;
 		std::string PayloadStorageDiagnostic;
 
+		enum class ERenderResourceState : uint8
+		{
+			Uninitialized,
+			InitializationQueued,
+			Ready,
+			Failed,
+			ReleaseQueued,
+			Released
+		};
+		std::atomic<ERenderResourceState> RenderResourceState{
+			ERenderResourceState::Uninitialized};
+		FRenderCommandFence ReleaseResourcesFence;
+
 		auto LoadDerivedDataPayload(std::string& OutError) -> bool;
 		auto LoadCookedPayload(std::string& OutError) -> bool;
+		auto BuildRenderData(std::string& OutError) -> bool;
+		auto ReleaseResources() -> void;
 
 		friend class FSkeletalMeshImportedStateExchange;
 	};

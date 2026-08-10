@@ -253,6 +253,95 @@ namespace Durin::VulkanRHI
 		return (Value + Alignment - 1) / Alignment * Alignment;
 	}
 
+	FVulkanDynamicStorageBufferAllocator::FVulkanDynamicStorageBufferAllocator(
+		FVulkanDevice& InDevice) : Device(InDevice)
+	{
+		CheckVulkanRHIThread();
+		for (uint32 FrameIndex = 0; FrameIndex < Frames.size(); ++FrameIndex)
+			ReservePage(FrameIndex, 4 * 1024 * 1024);
+	}
+
+	FVulkanDynamicStorageBufferAllocator::~FVulkanDynamicStorageBufferAllocator() = default;
+
+	auto FVulkanDynamicStorageBufferAllocator::BeginFrameProducer(uint32 FrameIndex) -> void
+	{
+		FFrameState& Frame = Frames[FrameIndex % kFrameInFlight];
+		Frame.CurrentChunkIndex = 0;
+		Frame.RequestedBytes = 0;
+		for (FChunk& Chunk : Frame.Chunks) Chunk.Offset = 0;
+	}
+
+	auto FVulkanDynamicStorageBufferAllocator::TryAllocate(
+		uint32 FrameIndex, const void* Data, uint32 Size,
+		FRHIStorageBufferRange& OutRange) -> bool
+	{
+		if (!Data || Size == 0
+			|| Size > Device.GetGpuProperties().limits.maxStorageBufferRange
+			|| Size > MaximumBytesPerFrame) return false;
+		const uint32 Alignment = GetAlignment();
+		const uint32 AllocationSize = AlignUp(Size, Alignment);
+		FFrameState& Frame = Frames[FrameIndex % kFrameInFlight];
+		if (Frame.RequestedBytes + AllocationSize > MaximumBytesPerFrame
+			|| Frame.Chunks.empty()) return false;
+		FChunk* Chunk = &Frame.Chunks[Frame.CurrentChunkIndex];
+		if (AlignUp(Chunk->Offset, Alignment) + Size > Chunk->Buffer->GetSize())
+		{
+			bool bFound = false;
+			for (uint32 Index = Frame.CurrentChunkIndex + 1; Index < Frame.Chunks.size(); ++Index)
+				if (Frame.Chunks[Index].Buffer->GetSize() >= AllocationSize)
+				{
+					Frame.CurrentChunkIndex = Index;
+					Chunk = &Frame.Chunks[Index];
+					bFound = true;
+					break;
+				}
+			if (!bFound) return false;
+		}
+		const uint32 Offset = AlignUp(Chunk->Offset, Alignment);
+		std::memcpy(static_cast<uint8*>(Chunk->Buffer->GetMappedPointer()) + Offset, Data, Size);
+		Chunk->Buffer->FlushMappedMemory(Offset, Size);
+		Chunk->Buffer->GetStateTracker().Apply(
+			Offset, Size, ERHIAccess::HostWrite);
+		Chunk->Offset = Offset + AllocationSize;
+		Frame.RequestedBytes += AllocationSize;
+		OutRange = {Chunk->Buffer.GetReference(), Offset, Size};
+		return true;
+	}
+
+	auto FVulkanDynamicStorageBufferAllocator::ReservePage(
+		uint32 FrameIndex, uint32 MinSize) -> void
+	{
+		CheckVulkanRHIThread();
+		FFrameState& Frame = Frames[FrameIndex % kFrameInFlight];
+		if (MinSize == 0 || MinSize > MaximumBytesPerFrame
+			|| Frame.Chunks.size() >= MaximumChunksPerFrame) return;
+		Frame.Chunks.push_back(CreateChunk(MinSize));
+	}
+
+	auto FVulkanDynamicStorageBufferAllocator::CreateChunk(uint32 MinSize) -> FChunk
+	{
+		const uint32 ChunkSize = std::max(4u * 1024u * 1024u,
+			AlignUp(MinSize, GetAlignment()));
+		FRHIBufferCreateDesc Desc = FRHIBufferCreateDesc::Create(
+			"DynamicStorageBufferArena", ChunkSize, sizeof(float) * 16,
+			EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::ShaderResource
+				| EBufferUsageFlags::Dynamic
+				| EBufferUsageFlags::Volatile);
+		return {TRefCountPtr<FVulkanBuffer>(new FVulkanBuffer(Device, Desc)), 0};
+	}
+
+	auto FVulkanDynamicStorageBufferAllocator::GetAlignment() const -> uint32
+	{
+		return std::max(16u, static_cast<uint32>(
+			Device.GetGpuProperties().limits.minStorageBufferOffsetAlignment));
+	}
+
+	auto FVulkanDynamicStorageBufferAllocator::AlignUp(uint32 Value, uint32 Alignment) -> uint32
+	{
+		check(Alignment > 0 && Value <= std::numeric_limits<uint32>::max() - Alignment + 1);
+		return (Value + Alignment - 1) / Alignment * Alignment;
+	}
+
 	auto FVulkanDynamicRHI::RHICreateBuffer(FRHICommandListImmediate& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> TRefCountPtr<FRHIBuffer>
 	{
 		FRHIBufferCreateDesc NormalizedDesc = CreateDesc;

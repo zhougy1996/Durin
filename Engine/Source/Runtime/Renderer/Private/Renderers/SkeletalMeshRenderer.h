@@ -10,66 +10,60 @@ namespace Durin
 	class FEnvironmentLightingResources;
 	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
-	struct FPreparedStaticMeshView;
-	struct FPreparedStaticMeshDraw;
-	struct FPreparedStaticMeshPrimitive;
-	enum class ERasterMode : uint8;
+	struct FPreparedSkeletalMeshView;
+	struct FPreparedSkeletalMeshDraw;
+	struct FPreparedSkeletalMeshPrimitive;
 	enum class ERenderMode : uint8;
 	struct FDirectionalLightSceneData;
 	struct FSceneView;
 	enum class EStaticMeshBasePass : uint8;
 
-	// Owns StaticMesh shaders, material pipelines, and proxy draw submission.
-	class FStaticMeshRenderer final
+	class FSkeletalMeshRenderer final
 	{
 	public:
-		FStaticMeshRenderer(
+		FSkeletalMeshRenderer(
 			FRendererResourceCoordinator& InCoordinator,
 			FDefaultTextureResources& InDefaultTextures,
-			FEnvironmentLightingResources& InEnvironmentLighting
-		);
-		~FStaticMeshRenderer();
-
-		FStaticMeshRenderer(const FStaticMeshRenderer&) = delete;
-		auto operator=(const FStaticMeshRenderer&)
-			-> FStaticMeshRenderer& = delete;
+			FEnvironmentLightingResources& InEnvironmentLighting);
+		~FSkeletalMeshRenderer();
+		FSkeletalMeshRenderer(const FSkeletalMeshRenderer&) = delete;
+		auto operator=(const FSkeletalMeshRenderer&)
+			-> FSkeletalMeshRenderer& = delete;
 
 		auto PrepareResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			FPreparedStaticMeshView& PreparedView) -> bool;
+			FPreparedSkeletalMeshView& PreparedView) -> bool;
 		auto Execute_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
 			const FDirectionalLightSceneData& Light,
 			ERenderMode RenderMode,
-			FPreparedStaticMeshView& PreparedView
-		) -> void;
+			FPreparedSkeletalMeshView& PreparedView) -> void;
 		auto ExecutePass_RenderThread(
 			FRHICommandListImmediate& CommandList, const FSceneView& View,
 			const FDirectionalLightSceneData& Light, ERenderMode RenderMode,
-			EStaticMeshBasePass Pass, FPreparedStaticMeshView& PreparedView) -> void;
+			EStaticMeshBasePass Pass, FPreparedSkeletalMeshView& PreparedView) -> void;
 		auto ExecutePreparedDraw_RenderThread(
 			FRHICommandListImmediate& CommandList, const FSceneView& View,
 			const FDirectionalLightSceneData& Light, ERenderMode RenderMode,
-			EStaticMeshBasePass Pass, const FPreparedStaticMeshDraw& Draw,
-			FPreparedStaticMeshView& PreparedView) -> void;
-		auto FinalizeExecution_RenderThread(FPreparedStaticMeshView& PreparedView)
+			EStaticMeshBasePass Pass, const FPreparedSkeletalMeshDraw& Draw,
+			FPreparedSkeletalMeshView& PreparedView) -> void;
+		auto FinalizeExecution_RenderThread(FPreparedSkeletalMeshView& PreparedView)
 			-> void;
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:
+		auto EnsureBaseResources_RenderThread() -> bool;
+		auto EnsureSectionResources_RenderThread(
+			const FPreparedSkeletalMeshPrimitive& Primitive,
+			const FPreparedSkeletalMeshDraw& Item) -> bool;
 		auto DrawSection_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
 			const FDirectionalLightSceneData& Light,
 			ERenderMode RenderMode,
-			const FPreparedStaticMeshPrimitive& Primitive,
-			const FPreparedStaticMeshDraw& Item
-		) -> bool;
-		auto EnsureBaseResources_RenderThread() -> bool;
-		auto EnsureSectionResources_RenderThread(
-			const FPreparedStaticMeshPrimitive& Primitive,
-			const FPreparedStaticMeshDraw& Item) -> bool;
+			const FPreparedSkeletalMeshPrimitive& Primitive,
+			const FPreparedSkeletalMeshDraw& Item) -> bool;
 		struct FState;
 
 		FRendererResourceCoordinator& Coordinator;
@@ -77,4 +71,4 @@ namespace Durin
 		FEnvironmentLightingResources& EnvironmentLighting;
 		std::unique_ptr<FState> State;
 	};
-} // namespace Durin
+}

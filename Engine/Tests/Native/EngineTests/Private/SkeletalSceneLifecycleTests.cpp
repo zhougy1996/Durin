@@ -11,6 +11,7 @@
 #include "NativeTestSupport.h"
 #include "SceneImport.h"
 #include "SkeletalMesh/SkeletalMesh.h"
+#include "SkeletalMesh/SkeletalMeshResources.h"
 #include "SkeletalMesh/Skeleton.h"
 #include "StandardAssetImportProviders.h"
 
@@ -162,6 +163,10 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 			for (Durin::DSkeletalMesh* Mesh : Initial.SkeletalMeshes)
 			{
 				ASSERT_NE(Mesh->GetPayloadData(), nullptr);
+				ASSERT_NE(Mesh->GetRenderData(), nullptr);
+				EXPECT_EQ(Mesh->GetRenderData()->LODIndex, 0u);
+				EXPECT_EQ(Mesh->GetRenderData()->IndexBuffer.GetIndices(),
+					Mesh->GetPayloadData()->Indices);
 				Meshes.push_back(*Mesh->GetPayloadData());
 			}
 			for (Durin::DAnimationClip* Clip : Initial.AnimationClips)
@@ -295,6 +300,9 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 			ASSERT_NE(Mesh, nullptr);
 			ASSERT_NE(Mesh->GetSkeleton(), nullptr);
 			ASSERT_NE(Mesh->GetPayloadData(), nullptr);
+			ASSERT_NE(Mesh->GetRenderData(), nullptr);
+			EXPECT_EQ(Mesh->GetRenderData()->IndexBuffer.GetIndices(),
+				Mesh->GetPayloadData()->Indices);
 			EXPECT_EQ(*Mesh->GetPayloadData(), ExpectedMeshes[Index]);
 			EXPECT_TRUE(Mesh->GetDerivedDataKey().empty());
 			RuntimeMeshes.push_back(Mesh);

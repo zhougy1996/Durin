@@ -147,6 +147,21 @@ one preallocated 4 MiB mapped dynamic-uniform page lease to the rendering
 thread. Ordinary aligned suballocation then needs no RHI round trip; only page
 overflow synchronously reserves an additional RHI-owned page.
 
+Dynamic storage ranges use the same frame-slot lease principle but remain a
+separate allocation class. `AllocateDynamicStorageBuffer` copies an exact
+nonzero byte range into mapped frame-local storage and returns a retained
+`FRHIStorageBufferRange`; admission requires the published storage alignment
+and maximum range. Vulkan aligns offsets to
+`MinStorageBufferOffsetAlignment`, caps each frame at 64 MiB and 16 chunks, and
+reclaims a slot only after its frame fence completes. Exhaustion or an invalid
+range returns an empty value without changing earlier allocations.
+
+A returned range begins in `HostWrite`. Its owner must record an exact
+`HostWrite -> GraphicsShaderRead` transition before a draw consumes it and bind
+the same offset and size through reflected storage-buffer parameters. Command
+records retain the underlying buffer through replay, so inline and dedicated
+RHI-thread execution have identical lifetime and range semantics.
+
 Ordinary end-of-frame dispatch is not a GPU-idle boundary. `SubmitToGPU`,
 `EndFrame`, present-related context work, and `DeleteResources` remain ordered
 relative to recorded commands without adding a device-wide wait.

@@ -23,6 +23,7 @@ namespace Durin
 		FMatrix InverseMeshNodeBindTransform{1.0};
 		std::vector<uint16> PaletteBoneIndices;
 		std::vector<FMatrix4f> InverseBindMatrices;
+		std::vector<FBox> InfluenceBounds;
 	};
 
 	// Complete mesh-palette-aligned publication that can outlive its producer.
@@ -32,6 +33,7 @@ namespace Durin
 		float SampleTimeSeconds = 0.0f;
 		std::string SkeletonCompatibilityIdentity;
 		std::vector<FMatrix4f> Matrices;
+		FBox LocalBounds;
 	};
 
 	// Reads reflected assets only while prospectively preparing detached inputs.

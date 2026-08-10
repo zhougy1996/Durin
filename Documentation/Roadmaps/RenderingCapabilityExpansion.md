@@ -2,15 +2,17 @@
 
 Summary: Expand the current static-mesh forward renderer into a pass-classified, visibility-aware platform for additional primitive, lighting, and effect families.
 
-Last reviewed: 2026-08-10
+Last reviewed: 2026-08-11
 
 Status: Active
 Completed:
 
 ## Current Status
 
-Durin has one production scene-geometry path: PBR StaticMesh rendering through
-`FStaticMeshSceneProxy`, `FLocalVertexFactory`, and `FStaticMeshRenderer`.
+Durin has two production scene-geometry paths: StaticMesh through
+`FStaticMeshSceneProxy`/`FLocalVertexFactory` and SkeletalMesh through
+`FSkeletalMeshSceneProxy`/`FSkeletalMeshVertexFactory`. Both are prepared and
+executed by the shared scene renderer and family-owned renderer resources.
 SkyBox, TextureCube preview, post-process, and editor-assistance rendering are
 separate Renderer-private feature owners composed explicitly by
 `FSceneRenderer`. This is a sound ownership baseline: shader maps, pipelines,
@@ -57,15 +59,15 @@ immutable culling-disabled/forced-LOD-0 comparison seam. This opens the shared
 visibility/preparation dependency for M4 and M6; their remaining entry gates
 still apply.
 
-The [Skeletal Mesh and Animation Roadmap](SkeletalMeshAndAnimation.md) owns the
-asset, source-ingestion, pose, playback, and product prerequisites for the
-default M4 SkeletalMesh choice. The 2026-08-10 entry audit retained that choice
-and activated the shared
-[Skeletal Mesh Rendering Plan](../Plans/SkeletalMeshRendering.md). Its Stage 0
-may audit contracts while the active RHI graphics plan proceeds, but source
-implementation begins only after that RHI plan's stable completion handoff.
-This roadmap continues to own shared scene, pass, visibility, material, and
-shadow acceptance gates.
+M4 completed on 2026-08-11 through the shared
+[Skeletal Mesh Rendering Plan](../Plans/SkeletalMeshRendering.md). SkeletalMesh
+now reuses typed scene mutation, centralized visibility, all three surface
+modes, combined translucent ordering, viewport variants, invalidation, and
+resource lifetime while adding bounded frame-local palette storage and a
+second production vertex factory. The lasting contract is recorded in
+[Skeletal Mesh Rendering](../Runtime/Rendering/SkeletalMeshRendering.md). M4's
+dependency gate for M6 is open; M6 still waits for the M5 light snapshot and
+selected shadow quality/budget entry gates.
 
 ## Outcome
 
@@ -231,16 +233,16 @@ cross-product enum and lets a new primitive reuse existing pass semantics.
 | Area | Existing foundation | Expansion gap | Owning milestone |
 | --- | --- | --- | --- |
 | Feature ownership | `FSceneRenderer` explicitly composes private StaticMesh, SkyBox, TextureCube preview, post-process, and editor-assistance owners with coordinated invalidation and typed scene inputs. | Adding a feature still requires hand-editing orchestration, which remains acceptable until a named external module requires registration. | Conditional public registration |
-| Primitive scene state | `FPrimitiveSceneInfo` owns strong identity, transform, finite local/world bounds, visibility, explicit kind, and authoritative typed membership; one command-local classifier produces typed visible lists and conserved outcomes. | Additional families extend the private kind switch and consume the same visibility result. | Complete for M3; M4 extension |
+| Primitive scene state | `FPrimitiveSceneInfo` owns strong identity, transform, finite local/world bounds, visibility, explicit kind, and authoritative StaticMesh/SkeletalMesh membership; one command-local classifier produces typed visible lists and conserved outcomes. | Additional families extend the private kind switch and consume the same visibility result. | Complete through M4 |
 | Light scene state | `FDirectionalLightSceneProxy` and `FLightSceneInfo` detach copied values from components and mutate through FIFO render commands. | Point/spot families, bounded GPU payloads, and multi-light selection remain M5 work. | M5 |
 | SkyBox scene state | `FSkyBoxSceneProxy` and `FSkyBoxSceneInfo` own retained texture state, strong identity, deterministic selection, and typed membership without a duplicate revision map. | No M1 ownership gap remains. | Complete |
 | Materials | Versioned immutable v3 representation drives visible Opaque, Masked, and Translucent behavior with authored cull/depth policy. | Material graph compilation and additional authored blend modes remain later Material System work. | Complete for M2 |
 | Graphics state | RHI value descriptors and Vulkan mapping cover selected polygon/cull/winding, depth, blend factors/ops, and RGBA write mask. | Depth bias and stencil remain unselected until M6 or another concrete consumer. | Complete for M2; M6 extension |
-| StaticMesh geometry | Validated per-LOD resources, deterministic transition thresholds, selected-LOD vertex/index binding, two-level prepared primitives/draws, stable state ordering, and robust render-resource lifecycle exist. | Instancing and a second vertex factory remain unproven; M4 decides which prepared fields genuinely generalize. | Complete for M3; M4 extension |
-| Scene passes | Scene Color/depth executes explicit Opaque, Masked, and Translucent StaticMesh buckets before post-process and preserved-depth assistance for present/offscreen outputs. | There are no depth-only, shadow, GBuffer, or debug-view pass contracts. | Complete for M2; M6 extension |
+| Geometry families | StaticMesh owns validated multi-LOD resources; SkeletalMesh owns validated LOD0 resources, animated conservative bounds, a distinct vertex factory, and bounded palette ranges. Both use immutable prepared primitives/draws, common surface sort facts, and fenced lifecycle. | Instancing and additional skeletal LODs remain evidence-gated. | Complete through M4 |
+| Scene passes | Scene Color/depth executes family-grouped Opaque/Masked work and one globally ordered StaticMesh/SkeletalMesh Translucent stream before post-process and preserved-depth assistance. | There are no depth-only, shadow, GBuffer, or debug-view pass contracts. | Complete through M4; M6 extension |
 | Scene targets | Size-keyed cache is capped at eight entries and supports sequential multi-view rendering. | Scene Color is LDR `SRGBA8_UNORM`; D32 lacks shader-resource usage; allocation is entry-count rather than byte-budget based; no view history identity exists. | Conditional architecture branch |
 | View policy | Per-view Lit/Unlit, Solid/Wireframe, FXAA, fitted content rect, editor assistance, visibility mode, and LOD mode are immutable snapshots; one value counter snapshot explains each invocation. | Exposure, debug buffers, temporal matrices/history, and persistent performance history remain conditional work. | Complete for M3; conditional branches |
-| Validation | Pass classification/order, mask edges, straight-alpha output, effective state, lifecycle, deterministic LOD choice, visibility fallbacks, counters, and Vulkan readback cover the StaticMesh path. | A second vertex factory, multi-light ordering, and shadow image baselines remain. | Complete through M3; M4-M6 |
+| Validation | Pass classification/order, effective state, lifecycle, visibility, counters, palette transport, CPU/GPU deformation, sequential views, and Vulkan readback cover both geometry families. | Multi-light ordering and shadow image baselines remain. | Complete through M4; M5-M6 |
 
 ## Milestone Map
 
@@ -266,7 +268,7 @@ flowchart LR
 | M1: Scene Proxy/Info ownership and primitive classification | Required | [RendererSceneProxyAndInfoContract](../Plans/Archive/2026-08/RendererSceneProxyAndInfoContract.md) | Current primitive, SkyBox, and rendering-thread contracts | Paired SceneProxy/SceneInfo ownership for StaticMesh, TextureCube preview, SkyBox, and directional light; stable primitive kind/bounds/visibility facts; strong typed identities; internal typed lookup; mutation no longer hard-codes StaticMesh in `FScene`. | Current call sites, thread ownership, proxy lifetimes, mutation ordering, and any genuine asynchronous revision boundary are recorded with focused tests. | Rendering reads no component pointer; each live scene entry has exactly one Proxy/SceneInfo pair; ordered lifecycle mutations cannot affect a retired entry; existing features use typed classification with unchanged images and lifecycle behavior. |
 | M2: Material render-pass policies | Required; also executes Material System milestone 4 | [MaterialRenderPassPolicies](../Plans/Archive/2026-08/MaterialRenderPassPolicies.md) | M1 classification contract; current material v3 identity | Opaque, masked, and translucent buckets; visible mask/blend/cull/depth policy; minimal required RHI state descriptors; deterministic translucent sorting. | M1 is stable and the exact RHI state gaps for three surface policies are enumerated. | All static properties have tested on-screen meaning across Lit/Unlit, Solid/Wireframe, main/auxiliary, present/offscreen, and fixed-aspect views; Vulkan validation is clean. |
 | M3: Per-view visibility and LOD | Required; complete | [PerViewVisibilityAndLOD](../Plans/Archive/2026-08/PerViewVisibilityAndLOD.md) | M1 proxy bounds; M2 pass buckets | Frustum culling, deterministic LOD selection, prepared draw lists, sort/state keys, and counters. | Met: bounds semantics, pass inputs, projection/LOD policy, representative assets, and comparison views were frozen before production defaults. | Passed: invisible primitives issue no base-pass draw, LOD thresholds and ordering are deterministic, and counters reconcile submitted, culled, selected, prepared, resource, and execution work across qualified viewport paths. |
-| M4: Second production primitive family | Required capability proof; active plan, implementation queued behind RHI graphics M3 | [Skeletal Mesh Rendering](../Plans/SkeletalMeshRendering.md) | M2-M3 shared pass and visibility contracts; Skeletal S1-S2; stable RHI Graphics State and Bindings completion handoff before source work | Met on 2026-08-10: SkeletalMesh remains selected, S1-S2 and Rendering M1-M3 are complete, and current prepared-view, RHI, palette, bounds, fixture, and validation gaps are recorded. | The selected family reuses scene mutation, visibility, pass, material, invalidation, and viewport contracts without adding a parallel frame renderer or whole-scene RTTI scan. |
+| M4: Second production primitive family | Completed 2026-08-11 | [Skeletal Mesh Rendering](../Plans/SkeletalMeshRendering.md) | M2-M3 shared pass and visibility contracts; Skeletal S1-S2; completed RHI Graphics State and Bindings handoff | GPU-skinned SkeletalMesh with coherent pose/bounds snapshots, bounded palette transport, a second vertex factory, and shared material/pass/viewport participation. | Met on 2026-08-10: prerequisites, selected family, budgets, fixtures, and gaps were frozen before implementation. | Passed: SkeletalMesh reuses scene mutation, visibility, pass, material, invalidation, and viewport contracts without a parallel frame renderer or whole-scene RTTI scan; Debug/Shipping Vulkan, full build, and editor smoke are green. |
 | M5: Renderer-owned multi-light scene | Required | `RendererLightSceneContract` | M1 detached light mutation | Directional, point, and spot Proxy/SceneInfo types, typed collections, visibility inputs, bounded GPU-facing light data, and explicit versions only for independently reordered work. | M1 has removed component reads and the intended initial light-count budget is documented. | Add/update/remove order is deterministic; any retained asynchronous version rejects stale work; no render-thread object read occurs; multiple view renders consume identical scene state; point/spot falloff has focused and image coverage. |
 | M6: Directional shadow pipeline | Required | `DirectionalShadowPipeline` | M2 pass state, M3 visibility/draw lists, M4 second-family participation, M5 light snapshots | Shadow-depth target/layout, caster classification, masked caster behavior, directional shadow matrices, bias/filtering, lifetime, diagnostics, and lighting sampling. | M2-M5 contracts are stable; one directional shadow quality/budget target is selected. | StaticMesh and the selected M4 family cast and receive deterministic shadows; masked coverage, camera/light motion, multi-view reuse, invalidation, and Vulkan validation pass without whole-device idle waits. |
 
@@ -324,15 +326,12 @@ after the CPU baseline exposes draw, triangle, state-change, and culling counts.
 
 ### Selected M4 primitive plan
 
-The [Skeletal Mesh Rendering Plan](../Plans/SkeletalMeshRendering.md) is the
-selected M4/S3 child. It owns only the renderer-facing vertical slice and the
-minimum asset, component, and render-resource lifecycle needed to feed it. The
-Skeletal Mesh and Animation Roadmap S1-S2 entry gates are met. The shared plan
-owns palette integration, the skinning vertex factory, conservative animated
-bounds, and material/pass participation; animation graphs and editor animation
-authoring remain outside the rendering slice. Source implementation is queued
-behind the active RHI Graphics State and Bindings Plan so general vertex-input,
-binding, validation, and cache contracts have one owner at a time.
+The completed
+[Skeletal Mesh Rendering Plan](../Plans/SkeletalMeshRendering.md) is the shared
+M4/S3 child. It owns the renderer-facing vertical slice, palette integration,
+skinning vertex factory, conservative animated bounds, and material/pass
+participation. Animation graphs and editor animation authoring remain outside
+the rendering slice and move forward only through their own evidence gates.
 
 The plan must not copy `FSceneRenderer`, post-process, viewport output, default
 textures, environment lighting, material layout decoding, or invalidation

@@ -2,31 +2,20 @@
 
 Summary: Render GPU-skinned SkeletalMesh primitives through the shared scene, visibility, material, pass, viewport, and resource-lifecycle contracts.
 
-Last reviewed: 2026-08-10
+Last reviewed: 2026-08-11
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-11
 
 ## Current Status
 
-This plan is the shared child for Rendering Capability Expansion M4 and
-Skeletal Mesh and Animation S3. The entry audit completed on 2026-08-10 against
-baseline `1dfc264f`. SkeletalMesh remains the selected second production
-primitive: S1 provides deterministic runtime mesh payloads, S2 provides
-immutable mesh-palette-aligned poses, and Rendering M1-M3 provide detached scene
-ownership, visible surface policies, per-view visibility, and a complete
-preparation-before-execution boundary.
-
-The current component deliberately returns no scene proxy. `DSkeletalMesh`
-owns validated CPU payloads but no render data or RHI lifecycle;
-`FSkeletalPosePalette` publishes finite matrices and a monotonic producer
-revision but no conservative animated bound. Renderer classification knows
-only StaticMesh and TextureCubePreview, and `FPreparedSceneView` owns only a
-StaticMesh geometry family. The RHI can bind scalar storage-buffer ranges and
-transition shader-readable buffers, but has no frame-local dynamic storage
-allocation contract or published maximum storage-buffer range. The dynamic
-uniform allocator is not accepted for palettes because the asset limit can
-reach roughly 4 MiB and therefore cannot rely on Vulkan uniform-buffer limits.
+This plan completed the shared Rendering Capability Expansion M4 and Skeletal
+Mesh and Animation S3 milestone on 2026-08-11. SkeletalMesh is now the second
+production geometry family: detached proxies publish coherent pose and
+conservative-bound state, typed visibility feeds immutable prepared views, and
+the shared material, pass, viewport, invalidation, and frame orchestration
+contracts execute GPU-skinned sections without a parallel renderer or scene
+RTTI scan.
 
 The selected slice uses vertex-shader linear-blend skinning with four normalized
 influences, one immutable palette snapshot per prepared primitive, and one
@@ -37,17 +26,77 @@ then pose evaluation transforms and unions those bounds. This avoids per-frame
 CPU vertex skinning while preventing deformation from escaping the culling
 bound.
 
-Stage 0 is active. It freezes matrix semantics, GPU budgets, single-LOD policy,
-fixture goldens, the shared extraction boundary, and coordination with the
-active RHI plan before production APIs change.
+Stage 0 completed on 2026-08-10 against baseline `bf0613f8`. The repository
+fixture now publishes independent CPU skinning and conservative-bound goldens
+for both mesh instances at reference, interpolated, key, loop, and clamp
+samples. The completed RHI plan handoff was re-inspected at `c50a7b2a`, plus
+the drawn-range validation fix at `bf0613f8`.
 
-The RHI Graphics State and Bindings Plan has implementation priority for every
-shared RHI, RenderCore vertex-input, reflected-binding, Vulkan pending-state,
-and graphics-pipeline file. This plan may complete its Stage 0 audit while that
-work proceeds, but Stage 1 implementation does not start until the RHI plan is
-completed with a stable handoff. Skeletal rendering then consumes the finished
-contract and adds only a still-missing, consumer-proven transient storage range
-capability. The plans never evolve the same general RHI contract concurrently.
+Stage 1 completed on 2026-08-10. `FSkeletalMeshRenderData` now owns the exact
+LOD0 geometry, material sections, palette metadata, per-entry influence bounds,
+and seven-resource RHI lifecycle. `FSkeletalMeshVertexFactory` publishes a
+ten-attribute/five-stream declaration with exact `UShort4` joint indices and
+`Float4` weights. Asset initialization, DDC/cooked load, imported-state
+exchange, retry, failure retention, fence-backed destruction, and Vulkan
+release/reinitialize behavior are covered by `SkeletalAssetTests`,
+`SkeletalSceneLifecycleTests`, and
+`SkeletalMeshRenderResourcesVulkanTests`.
+
+Stage 2 completed on 2026-08-10. Pose publications now contain matrices and a
+finite conservative local bound computed from the render-data influence boxes.
+The component resolves positional/name material overrides, creates a detached
+skeletal proxy only from a complete pose, and publishes FIFO pose+bound
+updates. Scene membership has a dedicated kind, typed collection/accessor,
+atomic local/world-bound refresh, centralized visibility classification, and
+skeletal candidate counters. `SkeletalAssetTests` and
+`RendererSceneContractTests` cover component, material, typed membership,
+visibility, transform, and revision/bound coherence.
+
+Stage 3 completed on 2026-08-11. RHI now publishes exact storage alignment and
+range limits and provides a bounded frame-local dynamic storage allocator in
+inline and RHI-thread modes. Vulkan retains aligned per-frame arenas, rejects
+range/frame/chunk overflow deterministically, records host-write state, and
+requires the prepared palette range to transition to graphics shader read.
+The skeletal vertex factory Slang module skins position, normal, and tangent
+from one reflected scalar storage range. The production base-pass variant and
+Vulkan validation cover shader reflection, PSO creation, exact range binding,
+multiple influences, nonuniform deformation, pose replacement, readback, and
+resource retry/release.
+
+Stage 4 completed on 2026-08-11. `FPreparedSkeletalMeshView` freezes LOD0
+geometry, transform, pose, palette range, materials, pass state, caster facts,
+and complete sort keys before Scene Color. `FSkeletalMeshRenderer` owns its
+shader/PSO/sampler retry slots and executes only resource-complete records.
+Opaque and Masked remain family-grouped; a command-local combined translucent
+list is prepared before the pass and orders both geometry families by distance
+and complete stable ties. View counters conserve skeletal candidates, sections,
+triangles, state changes, palette uploads/bytes, resource attempts, and draws.
+Vulkan coverage renders Opaque, Masked, and Translucent skeletal sections and
+keeps the StaticMesh preparation baseline unchanged.
+
+Stage 5 completed on 2026-08-11. Focused qualification covers FIFO pose/bound,
+transform, visibility, material, reimport, DDC, cook/runtime-only load,
+remove/re-add, shader reload, device invalidation, shutdown, and exact resource
+release. One Vulkan frame now renders sequential solid/unlit and fixed-aspect
+wireframe/lit views with independent targets while retaining one immutable pose
+per prepared view. The glTF, GLB, authored, DDC, cooked runtime, debug editor,
+and Shipping game paths agree through the deterministic fixture/cook tests and
+the shared Vulkan deformation/readback target. Material, viewport, thumbnail,
+StaticMesh, reload, and assistance regressions remain green; measured palette
+and draw counters stay within the frozen 64 MiB view budget.
+
+Stage 6 completed on 2026-08-11. The shared draw-sort-key assembly was reduced
+to one value helper, production proxy creation has no temporary no-proxy seam,
+and lasting contracts are published in Runtime Rendering documentation. Final
+qualification passed changed-document, active-plan, and roadmap validators;
+the focused Debug Editor native targets recorded below; the Shipping Game
+skeletal Vulkan target; a full `Win64-Debug-DurinEditor` `all` build; and a
+30-tick hidden-window Sandbox editor smoke. The verified executable is
+`Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`.
+
+The prerequisite RHI Graphics State and Bindings Plan completed before source
+implementation began. Skeletal rendering consumed that stable contract and
+added only the consumer-proven transient storage-range capability.
 
 ## Goal
 
@@ -222,6 +271,91 @@ skeletal-only frame renderer.
 | Renderer | Explicit private feature owners with isolated retry/invalidation/release | No skeletal owner, shaders, pipelines, preparation, or execution |
 | Validation | Skeletal fixtures, CPU pose goldens, runtime-only playback, StaticMesh Vulkan baselines | No CPU/GPU skinning, animated-bound visibility, lifecycle, or images |
 
+## Frozen Stage 0 Contract
+
+### Numeric and fixture contract
+
+- Matrix composition uses column vectors. CPU `FMatrix` is indexed
+  `[column][row]`; fixture JSON and shader-facing matrices are written as rows.
+  A palette entry is exactly `inverse(mesh bind) * joint component * inverse
+  bind`. Position uses the weighted affine result. Normal and tangent use the
+  weighted upper 3x3 followed by normalization, and tangent handedness is
+  preserved. CPU/GPU comparisons use absolute tolerance `1e-5`.
+- `Engine/Tests/Data/AssetImport/Skeletal/ExpectedContract.json` owns the
+  independent rendering golden. Its `rendering.samples` cover reference,
+  interpolated `0.5`, key `1.0`, exact-duration looping `2.0 -> 0.0`, and
+  non-looping clamp `2.0`. Each sample contains palette matrices, skinned
+  positions/normals/tangents, exact bounds, and conservative bounds for both
+  glTF mesh/skin associations. The generated deformation leaves the bind
+  geometry bound and the glTF/data-URI/external/GLB fixture graph remains
+  byte-deterministic.
+- The fixture is LOD 0 only: 6 vertices, 6 uint32 render indices, 2 triangles,
+  2 sections, 2 material slots, and 4 palette matrices. One palette upload is
+  256 bytes. The asset maximum is 65,535 matrices or 4,194,240 bytes. The
+  per-view palette upload budget is 64 MiB. Every allocation uses the device's
+  `minStorageBufferOffsetAlignment`, and admission requires the exact range to
+  be no greater than the published `maxStorageBufferRange`. Vulkan's portable
+  minimum range (128 MiB) exceeds the asset maximum but the runtime still
+  validates the reported device value.
+
+### Renderer and behavior boundary
+
+- The value-only extraction candidates are material pass/effective-state
+  resolution, material sampler description/key construction, material and
+  pipeline identity text, lexicographic value comparison, common surface sort
+  facts, distance-first translucent comparison, and counter-conservation
+  helpers. Existing anchors include `GetMaterialSamplerKey`,
+  `MakeMaterialSamplerDesc`, `GetIdentityText`, `CompareArray`, and the
+  material/pass portions of `MakeStaticMeshDrawSortKey`.
+- StaticMesh-owned fields remain concrete: `FLocalVertexFactory`, selected LOD
+  resources and LOD histograms, StaticMesh section pointers, geometry sort
+  fields, resource retry slots, shader/PSO owners, and draw execution. Skeletal
+  equivalents remain concrete too: its vertex factory, LOD 0 render data,
+  palette/revision/bounds, upload state, shader/PSO owners, and execution.
+- Missing or incompatible pose rejects proxy creation. Reference pose is an
+  explicitly evaluated complete palette, never an identity substitution.
+  Caster eligibility is captured as a prepared fact but no shadow command is
+  emitted. Opaque/Masked state grouping remains family-local; Translucent uses
+  distance descending across both families, then the complete state/material/
+  vertex-factory/geometry/primitive/LOD/section key. Preparation and execution
+  counters conserve every visible candidate, section, triangle, palette byte,
+  resource attempt, and draw outcome.
+- Frozen unchanged baselines are the fixture's four StaticProjection mesh
+  instances/two materials/no diagnostics; existing StaticMesh authored
+  visibility and fallback behavior; Opaque, Masked, then Translucent pass
+  order; Lit/Unlit and Solid/Wireframe effective state; and current main,
+  auxiliary, offscreen, fixed-aspect, and sequential-view behavior.
+
+### Ownership and FIFO sequences
+
+- Replacement/reimport: game thread validates a complete asset candidate,
+  removes proxies, enqueues fenced render-resource retirement, exchanges the
+  candidate only when the established asset transaction permits it, recreates
+  proxies, and lets the RHI owner release resources after the fence. Failure
+  keeps the prior complete candidate.
+- Pose/transform/material: game thread captures detached counted/value state
+  and enqueues FIFO commands. The render thread applies one palette+revision+
+  local-bound update and recomputes world bounds atomically; transform and
+  material updates ordered before/after it observe their FIFO position. No
+  command reads a component, actor, asset, Skeleton, or AnimationClip.
+- Remove/re-add: removal retires the exact primitive identity before any later
+  add publishes a new identity; queued updates address only their captured
+  identity. Invalidation clears family-owned retry/resources after prepared
+  views retire. Shutdown removes scene membership, drains render commands,
+  crosses the resource fence, releases RHI resources exactly once, then
+  destroys reflected owners.
+
+### RHI coordination baseline
+
+The RHI Graphics State and Bindings plan completed at `c50a7b2a`; current entry
+baseline `bf0613f8` also validates only ranges consumed by a draw. Skeletal work
+reuses the final structural vertex input, typed draw arguments, reflected
+scalar storage binding, pre-draw completeness validation, retained binding
+snapshot, canonical PSO identity, and bounded Vulkan caches. It adds only the
+consumer-proven published storage range/alignment capabilities and frame-local
+dynamic storage allocation; it does not add binding sets, descriptor-array
+alternatives, raw handles, or a second PSO/cache contract.
+
 ## Implementation Stages
 
 ### Stage 0: Freeze the rendering contract and entry baselines
@@ -229,23 +363,23 @@ skeletal-only frame renderer.
 Dependencies: completed Skeletal S1-S2, Rendering M1-M3, and the active RHI
 binding contract.
 
-- [ ] Record exact S2 matrix layout and CPU-skinned position, normal, tangent,
+- [x] Record exact S2 matrix layout and CPU-skinned position, normal, tangent,
   and bound goldens at reference, key, interpolated, loop, and clamp times.
-- [ ] Select a repository-authored glTF/GLB fixture with at least two joints,
+- [x] Select a repository-authored glTF/GLB fixture with at least two joints,
   multiple influences, deformation outside bind bounds, multiple sections and
   materials, and deterministic framing; extend the fixture generator.
-- [ ] Measure and freeze vertex/index/section/palette counts, palette bytes per
+- [x] Measure and freeze vertex/index/section/palette counts, palette bytes per
   primitive/view, upload budget, storage alignment, and Vulkan range limits.
-- [ ] Inventory exact StaticMesh helpers eligible for value-only extraction and
+- [x] Inventory exact StaticMesh helpers eligible for value-only extraction and
   the family-owned fields that must remain concrete.
-- [ ] Freeze single-LOD, reference-pose, missing-pose, caster-eligibility,
+- [x] Freeze single-LOD, reference-pose, missing-pose, caster-eligibility,
   cross-family translucency, and conservation semantics.
-- [ ] Record ownership/FIFO sequences for replacement, reimport, material, pose,
+- [x] Record ownership/FIFO sequences for replacement, reimport, material, pose,
   proxy retirement, invalidation, and shutdown.
-- [ ] Reconcile minimal storage allocation/limit work with the active RHI plan.
-- [ ] Record the completed RHI plan baseline and confirm no skeletal task
+- [x] Reconcile minimal storage allocation/limit work with the active RHI plan.
+- [x] Record the completed RHI plan baseline and confirm no skeletal task
   duplicates its final vertex-input, draw, binding, validation, or cache APIs.
-- [ ] Capture unchanged StaticMesh material/pass/visibility baselines.
+- [x] Capture unchanged StaticMesh material/pass/visibility baselines.
 
 #### Acceptance Gate
 
@@ -263,18 +397,18 @@ binding contract.
 Dependencies: Stage 0 contracts and fixture goldens; the RHI Graphics State and
 Bindings Plan is completed and its final handoff has been re-inspected.
 
-- [ ] Add deterministic geometry, influence, index, section, material-slot, and
+- [x] Add deterministic geometry, influence, index, section, material-slot, and
   influence-bound render-data types from the existing payload.
-- [ ] Validate per-palette bounds and their reference-pose containment.
-- [ ] Implement `FSkeletalMeshVertexFactory` with exact joint/weight semantics,
+- [x] Validate per-palette bounds and their reference-pose containment.
+- [x] Implement `FSkeletalMeshVertexFactory` with exact joint/weight semantics,
   structural identity, stream readiness, and no StaticMesh cast.
-- [ ] Add complete-or-null initialization, diagnostics, retry, release, and
+- [x] Add complete-or-null initialization, diagnostics, retry, release, and
   invalidation for all skeletal render resources.
-- [ ] Add asset render-data construction, lazy init, recreate context,
+- [x] Add asset render-data construction, lazy init, recreate context,
   replacement handoff, release fence, destruction, and shutdown behavior.
-- [ ] Preserve the lifecycle through import exchange, authored/DDC/cooked load,
+- [x] Preserve the lifecycle through import exchange, authored/DDC/cooked load,
   runtime-only load, reimport, and failed replacement.
-- [ ] Test conversion, formats, ranges, materials, bounds, malformed candidates,
+- [x] Test conversion, formats, ranges, materials, bounds, malformed candidates,
   partial RHI failure, retry, replacement, and exact releases.
 
 #### Acceptance Gate
@@ -290,19 +424,19 @@ Bindings Plan is completed and its final handoff has been re-inspected.
 
 Dependencies: Stage 1 render data and the M1 scene contract.
 
-- [ ] Extend binding/evaluation with influence bounds and one finite conservative
+- [x] Extend binding/evaluation with influence bounds and one finite conservative
   `LocalBounds` in every complete pose.
-- [ ] Validate bounds against exact CPU-skinned vertices, mirrored/nonuniform
+- [x] Validate bounds against exact CPU-skinned vertices, mirrored/nonuniform
   transforms, and empty palette entries.
-- [ ] Add component material defaults/overrides, name lookup, fallback,
+- [x] Add component material defaults/overrides, name lookup, fallback,
   revisioned updates, and failure-atomic edits.
-- [ ] Add the skeletal proxy, primitive kind, typed accessor/collection, and
+- [x] Add the skeletal proxy, primitive kind, typed accessor/collection, and
   centralized classification without RTTI or component retention.
-- [ ] Add one FIFO dynamic update for palette, revision, and bound; update proxy
+- [x] Add one FIFO dynamic update for palette, revision, and bound; update proxy
   state and SceneInfo world bounds atomically.
-- [ ] Cover registration, pose controls, mesh/clip/material replacement,
+- [x] Cover registration, pose controls, mesh/clip/material replacement,
   visibility, transform, unregister, and remove/re-add ordering.
-- [ ] Extend scene/visibility conservation counters and focused tests.
+- [x] Extend scene/visibility conservation counters and focused tests.
 
 #### Acceptance Gate
 
@@ -318,19 +452,19 @@ Dependencies: Stage 1 render data and the M1 scene contract.
 
 Dependencies: Stage 2 snapshots and Stage 0 budgets.
 
-- [ ] Publish RHI storage range/alignment capabilities and early rejection.
-- [ ] Add a frame-local dynamic storage range API with recorded/immediate parity,
+- [x] Publish RHI storage range/alignment capabilities and early rejection.
+- [x] Add a frame-local dynamic storage range API with recorded/immediate parity,
   retention, alignment, bounded chunks/bytes, deterministic failure, frame
   reuse, and Vulkan lowering.
-- [ ] Validate range usage/transitions through the reflected scalar binding path
+- [x] Validate range usage/transitions through the reflected scalar binding path
   without a binding-set alternative.
-- [ ] Add skeletal base-pass vertex shaders and palette parameter metadata while
+- [x] Add skeletal base-pass vertex shaders and palette parameter metadata while
   preserving PBR fragment policy.
-- [ ] Skin position, normal, and tangent using Stage 0 semantics and reject
+- [x] Skin position, normal, and tangent using Stage 0 semantics and reject
   palette/interface mismatch before draw.
-- [ ] Compare Vulkan results with CPU goldens for reference/key/interpolated/
+- [x] Compare Vulkan results with CPU goldens for reference/key/interpolated/
   loop/clamp, nonuniform, multiple-influence, and glTF/GLB-equivalent poses.
-- [ ] Cover allocation/range/transition/binding/PSO failure, retry, validation,
+- [x] Cover allocation/range/transition/binding/PSO failure, retry, validation,
   inline, recorded, and RHI-thread execution.
 
 #### Acceptance Gate
@@ -348,18 +482,18 @@ Dependencies: Stage 2 snapshots and Stage 0 budgets.
 
 Dependencies: Stage 3 GPU path and M2-M3 preparation contracts.
 
-- [ ] Add prepared skeletal primitive/draw records, pass buckets, complete value
+- [x] Add prepared skeletal primitive/draw records, pass buckets, complete value
   sort keys, and exactly-once prepare/resources/execute phases.
-- [ ] Capture only authoritative visible inputs: transform, bound, render data,
+- [x] Capture only authoritative visible inputs: transform, bound, render data,
   LOD 0, palette/revision, material, pass, section, and sort facts.
-- [ ] Extract bounded shared value helpers only where both mesh families match.
-- [ ] Implement `FSkeletalMeshRenderer` resource slots, pipelines, palette
+- [x] Extract bounded shared value helpers only where both mesh families match.
+- [x] Implement `FSkeletalMeshRenderer` resource slots, pipelines, palette
   upload/reuse, execution, invalidation, retry, release, and explicit composition.
-- [ ] Preserve pass order and state grouping, and establish global cross-family
+- [x] Preserve pass order and state grouping, and establish global cross-family
   distance-first translucency with stable ties.
-- [ ] Add skeletal/combined visibility, section/triangle, state, palette byte,
+- [x] Add skeletal/combined visibility, section/triangle, state, palette byte,
   resource, and execution counters with conservation assertions.
-- [ ] Record base-pass and future caster eligibility without a shadow pass.
+- [x] Record base-pass and future caster eligibility without a shadow pass.
 
 #### Acceptance Gate
 
@@ -375,20 +509,20 @@ Dependencies: Stage 3 GPU path and M2-M3 preparation contracts.
 
 Dependencies: Stage 4 production pass integration.
 
-- [ ] Exercise asset/material/pose/transform/visibility replacement and
+- [x] Exercise asset/material/pose/transform/visibility replacement and
   component/actor/world retirement with queued render work.
-- [ ] Validate geometry/palette/shader/PSO failure, retry, shader reload, device
+- [x] Validate geometry/palette/shader/PSO failure, retry, shader reload, device
   invalidation, resource reload, shutdown, and exact release evidence.
-- [ ] Validate sequential main/auxiliary views with different cameras,
+- [x] Validate sequential main/auxiliary views with different cameras,
   dimensions, settings, and revisions without shared prepared lifetimes.
-- [ ] Cover present/offscreen, fixed aspect, perspective/orthographic,
+- [x] Cover present/offscreen, fixed aspect, perspective/orthographic,
   Lit/Unlit, Solid/Wireframe, all surface modes, post-process, assistance, and
   unchanged thumbnail/preview consumers.
-- [ ] Run focused skeletal, scene, material, RHI, renderer, viewport, and Vulkan
+- [x] Run focused skeletal, scene, material, RHI, renderer, viewport, and Vulkan
   targets using repository guidance.
-- [ ] Compare frozen animated images for glTF/GLB, authored/DDC, cooked runtime,
+- [x] Compare frozen animated images for glTF/GLB, authored/DDC, cooked runtime,
   debug editor, and the plan-gated shipping game profile.
-- [ ] Measure palette bytes/reuse, draws, triangles, groups, and transitions to
+- [x] Measure palette bytes/reuse, draws, triangles, groups, and transitions to
   inform rather than activate deferred compute skinning.
 
 #### Acceptance Gate
@@ -407,16 +541,16 @@ Dependencies: Stage 4 production pass integration.
 
 Dependencies: Stages 0-5 and their handoffs.
 
-- [ ] Enable proxy creation by default and remove the S2 no-proxy comment and
+- [x] Enable proxy creation by default and remove the S2 no-proxy comment and
   temporary migration seams.
-- [ ] Remove duplicate helpers, bind-pose-only bounds, identity-palette
+- [x] Remove duplicate helpers, bind-pose-only bounds, identity-palette
   fallbacks, RTTI scans, incomplete shapes, and diagnostic bypasses.
-- [ ] Publish lasting GPU skinning, bounds, scene, material/pass, palette budget,
+- [x] Publish lasting GPU skinning, bounds, scene, material/pass, palette budget,
   counter, failure, and viewport rules in Runtime documentation.
-- [ ] Update both roadmaps with completion evidence and opened M6/S4 gates.
-- [ ] Run document validation, focused native targets, the required full `all`
+- [x] Update both roadmaps with completion evidence and opened M6/S4 gates.
+- [x] Run document validation, focused native targets, the required full `all`
   build, and editor smoke using repository guidance.
-- [ ] Record final baselines, commits, symbols, fixture hashes/tolerances,
+- [x] Record final baselines, commits, symbols, fixture hashes/tolerances,
   budgets, counters, validation, limits, and verified editor executable.
 
 #### Acceptance Gate
@@ -431,6 +565,39 @@ Dependencies: Stages 0-5 and their handoffs.
   facts.
 - Documentation, focused tests, full build, and editor smoke pass with a verified
   executable.
+
+### Final Completion Evidence
+
+- Stages 0-6 and their completion evidence are compressed into the single
+  plan-closing commit containing this completed plan; its commit body retains
+  one exact provenance line for every stage.
+- The authoritative rendering golden
+  `ExpectedContract.json` has SHA-256
+  `1c4f8f007ee029cadc246d63205470d3fd1af9bf2f00837a9fec9a580633e109`.
+  The equivalent source fixtures hash to
+  `0d833590ea4e6aec80a7e114dd20c234280f0a17ba6dc7bddb6aeb5780625f6e`
+  (`Contract.gltf`),
+  `80535e9424b0d1dd4f3b99f616e7082108727d38f01a7790e163c53eb76034ce`
+  (`ContractExternal.gltf`), and
+  `03a7aca83a834c1f43ed5da25c034fdc959c0874847ff9f51b8bff0338936845`
+  (`Contract.glb`). CPU/GPU numeric comparisons retain absolute tolerance
+  `1e-5`.
+- `FSkeletalMeshRenderData`, `FSkeletalMeshVertexFactory`,
+  `FSkeletalMeshSceneProxy`, `FPreparedSkeletalMeshView`,
+  `FSkeletalMeshRenderer`, `FRHIStorageBufferRange`, and
+  `AllocateDynamicStorageBuffer` are the lasting implementation anchors.
+- One fixture palette is 4 matrices/256 bytes; one asset admits at most 65,535
+  matrices/4,194,240 bytes; one view admits at most 64 MiB of unique palette
+  bytes. Vulkan additionally caps a frame slot at 16 allocator chunks and the
+  device-published storage range/alignment limits.
+- Final focused qualification covered `SkeletalAssetTests`,
+  `SkeletalSceneLifecycleTests`, `MaterialTests`,
+  `RendererResourceReloadVulkanTests`, `ViewportTests`, `ThumbnailTests`,
+  `StaticMeshRenderPreparationTests`, `RendererSceneContractTests`,
+  `EditorRenderingTests`, and
+  `SkeletalMeshRenderResourcesVulkanTests`, including the Shipping Game
+  skeletal target. The final full Debug Editor build and editor smoke passed on
+  2026-08-11.
 
 ## Validation Matrix
 

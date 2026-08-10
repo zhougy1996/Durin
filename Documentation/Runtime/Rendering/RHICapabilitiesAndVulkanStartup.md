@@ -17,6 +17,8 @@ Reads require no RHI-thread round trip. The active public fields are:
 - `SupportedTextureDimensions`, currently exactly 2D and cube;
 - positive 2D/cube dimension and array-layer limits;
 - conservative color and depth sample-count masks; and
+- positive `MinStorageBufferOffsetAlignment` and `MaxStorageBufferRange`
+  limits for exact dynamic storage-range admission; and
 - `bSupportsSynchronization2`, true only when the selected device activated the
   core Vulkan 1.3 feature or the Vulkan 1.1/1.2 extension feature chain.
 
@@ -72,9 +74,10 @@ and debug-utils extension are independent optional diagnostics.
 
 Every physical device is evaluated locally before ranking. Hard requirements
 are Vulkan 1.1, `VK_KHR_swapchain`, `fillModeNonSolid`,
-`shaderDrawParameters`, nonzero 2D/cube limits, at least six array layers, and
-one queue family with queue zero, graphics and compute flags, and Win32
-presentation support. Rejected devices never receive a ranking position.
+`shaderDrawParameters`, nonzero 2D/cube limits, at least six array layers,
+positive storage-buffer alignment/range limits, and one queue family with queue
+zero, graphics and compute flags, and Win32 presentation support. Rejected
+devices never receive a ranking position.
 
 Suitable devices rank deterministically by device type, descending 2D limit,
 descending API version, then ascending vendor ID, device ID, and name. Complete

@@ -70,6 +70,8 @@ namespace Durin::VulkanRHI
 		auto RHIReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, std::vector<uint8>& OutData) -> bool override;
 
 		auto RHIAllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange override;
+		auto RHIAllocateDynamicStorageBuffer(const void* Data, uint32 Size)
+			-> FRHIStorageBufferRange override;
 
 		auto RHIAcquireBackBuffer(FRHITexture* BackBuffer) -> void override;
 

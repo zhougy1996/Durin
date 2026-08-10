@@ -9,6 +9,7 @@
 #include "Engine/World.h"
 #include "EngineTestSupport.h"
 #include "Math/Operations.h"
+#include "Materials/Material.h"
 
 namespace
 {
@@ -464,7 +465,7 @@ TEST(FSkeletalAnimationInstanceTests, DetachedBindingSurvivesSourcePayloadReplac
 	EXPECT_NEAR(Instance.GetLatestPosePalette()->Matrices[0][3][0], 1.0f, 1.0e-5f);
 }
 
-TEST(DSkeletalMeshComponentTests, RoutesRegistrationPlayTickAndTeardownWithoutProxy)
+TEST(DSkeletalMeshComponentTests, RoutesRegistrationPlayTickProxyAndTeardown)
 {
 	auto* Skeleton = MakeSkeleton({{
 		.Name = Durin::FName("Root"), .ParentIndex = -1,
@@ -483,7 +484,12 @@ TEST(DSkeletalMeshComponentTests, RoutesRegistrationPlayTickAndTeardownWithoutPr
 	ASSERT_TRUE(Component->IsRegistered());
 	ASSERT_NE(Component->GetLatestPosePalette(), nullptr);
 	EXPECT_EQ(Component->GetPlaybackRevision(), 1u);
-	EXPECT_EQ(Component->CreateSceneProxy(), nullptr);
+	std::unique_ptr<Durin::FPrimitiveSceneProxy> Proxy = Component->CreateSceneProxy();
+	ASSERT_NE(Proxy, nullptr);
+	EXPECT_EQ(Proxy->GetKind(), Durin::EPrimitiveSceneProxyKind::SkeletalMesh);
+	auto& SkeletalProxy = static_cast<Durin::FSkeletalMeshSceneProxy&>(*Proxy);
+	EXPECT_EQ(SkeletalProxy.GetPose()->Revision, 1u);
+	EXPECT_TRUE(SkeletalProxy.GetLocalBounds().bIsValid);
 	Component->DispatchBeginPlay();
 	EXPECT_TRUE(Component->IsPlaying());
 	Component->TickComponent(0.5f);
@@ -502,6 +508,28 @@ TEST(DSkeletalMeshComponentTests, RoutesRegistrationPlayTickAndTeardownWithoutPr
 	Component->UnregisterComponent();
 	EXPECT_FALSE(Component->IsRegistered());
 	EXPECT_EQ(Component->GetLatestPosePalette(), nullptr);
+}
+
+TEST(DSkeletalMeshComponentTests, ResolvesMaterialOverridesByIndexAndName)
+{
+	auto* Skeleton = MakeSkeleton({{
+		.Name = Durin::FName("Root"), .ParentIndex = -1,
+		.ReferenceTransform = MatrixTransform(Durin::FMatrix(1.0))}});
+	auto* Mesh = MakeMesh(*Skeleton, {0}, {Durin::FMatrix4f(1.0f)});
+	auto* Component = Durin::NewObject<Durin::DSkeletalMeshComponent>(
+		nullptr, NextObjectName("MaterialSkeletalComponent"));
+	auto* Material = Durin::NewObject<Durin::DMaterial>(
+		nullptr, NextObjectName("SkeletalMaterial"));
+	std::string Error;
+	ASSERT_TRUE(Component->SetSkeletalMesh(Mesh, Error)) << Error;
+	EXPECT_EQ(Component->GetNumMaterials(), 1u);
+	EXPECT_TRUE(Component->SetMaterial(0, Material));
+	EXPECT_EQ(Component->GetMaterial(0), Material);
+	EXPECT_EQ(Component->GetMaterialByName(Durin::FName("Body")), Material);
+	EXPECT_TRUE(Component->SetMaterialByName(Durin::FName("Body"), Material));
+	EXPECT_FALSE(Component->SetMaterialByName(Durin::FName("Missing"), Material));
+	EXPECT_TRUE(Component->ResetMaterial(0));
+	EXPECT_EQ(Component->GetMaterial(0), nullptr);
 }
 
 TEST(DSkeletalMeshComponentTests, RejectsProspectiveChangesWithoutDestroyingPlayback)

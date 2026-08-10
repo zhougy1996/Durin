@@ -291,6 +291,7 @@ namespace Durin::VulkanRHI
 		DescriptorSetCache = new FVulkanDescriptorSetLayoutCache(*this);
 		GlobalDescriptorPool = new FVulkanGlobalDescriptorPool(*this);
 		DynamicUniformBufferAllocator = new FVulkanDynamicUniformBufferAllocator(*this);
+		DynamicStorageBufferAllocator = new FVulkanDynamicStorageBufferAllocator(*this);
 		GraphicsCacheStatistics.DescriptorSnapshots.Capacity = 512;
 		GraphicsCacheStatistics.DescriptorValueCapacity = 8192;
 		GraphicsCacheStatistics.StructuralLayouts.Capacity = 256;
@@ -524,6 +525,8 @@ namespace Durin::VulkanRHI
 
 		delete DynamicUniformBufferAllocator;
 		DynamicUniformBufferAllocator = nullptr;
+		delete DynamicStorageBufferAllocator;
+		DynamicStorageBufferAllocator = nullptr;
 
 		delete DescriptorSetCache;
 		DescriptorSetCache = nullptr;
