@@ -69,6 +69,17 @@ namespace Durin::VulkanRHI
 			{0, 64, ERHIAccess::VertexBufferRead}}));
 	}
 
+	TEST(FVulkanResourceTransitionTests, DrawAccessValidationIgnoresUnusedBufferCapacity)
+	{
+		FVulkanBufferStateTracker Tracker(64);
+		Tracker.Apply(0, 48, ERHIAccess::IndexBufferRead);
+
+		ERHIAccess Tracked = ERHIAccess::None;
+		EXPECT_TRUE(Tracker.Validate(0, 48, ERHIAccess::IndexBufferRead, Tracked));
+		EXPECT_EQ(Tracked, ERHIAccess::IndexBufferRead);
+		EXPECT_FALSE(Tracker.Validate(0, 64, ERHIAccess::IndexBufferRead, Tracked));
+	}
+
 	TEST(FVulkanResourceTransitionTests, TextureStateDoesNotBleedAcrossPlanesMipsOrLayers)
 	{
 		FVulkanTextureStateTracker Tracker(3, 2);

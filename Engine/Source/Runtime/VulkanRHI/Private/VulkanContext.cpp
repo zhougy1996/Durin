@@ -657,11 +657,16 @@ namespace Durin::VulkanRHI
 				"Draw vertex stream {} range exceeds the bound buffer.",
 				Element.StreamIndex);
 			const auto* VulkanBuffer = static_cast<const FVulkanBuffer*>(Buffer);
+			const uint64 ValidationOffset = It->second.Offset
+				+ FirstElement * Element.Stride;
+			const uint64 ValidationSize = ElementCount * Element.Stride;
 			ERHIAccess Tracked = ERHIAccess::None;
-			checkf(VulkanBuffer->GetStateTracker().Validate(It->second.Offset,
-				Buffer->GetSize() - It->second.Offset,
+			checkf(VulkanBuffer->GetStateTracker().Validate(ValidationOffset,
+				ValidationSize,
 				ERHIAccess::VertexBufferRead, Tracked),
-				"Draw vertex stream is not in VertexBufferRead access.");
+				"Draw vertex stream {} range [{}, {}) is not in VertexBufferRead access.",
+				Element.StreamIndex, ValidationOffset,
+				ValidationOffset + ValidationSize);
 		}
 	}
 
@@ -689,12 +694,19 @@ namespace Durin::VulkanRHI
 			<= AvailableIndices, "Indexed draw range exceeds the bound index buffer.");
 		const auto* VulkanIndexBuffer =
 			static_cast<const FVulkanBuffer*>(BoundIndexBuffer);
+		const uint64 IndexValidationOffset = BoundIndexBufferOffset
+			+ static_cast<uint64>(Arguments.FirstIndex)
+				* BoundIndexBuffer->GetStride();
+		const uint64 IndexValidationSize =
+			static_cast<uint64>(Arguments.IndexCount)
+				* BoundIndexBuffer->GetStride();
 		ERHIAccess Tracked = ERHIAccess::None;
 		checkf(VulkanIndexBuffer->GetStateTracker().Validate(
-			BoundIndexBufferOffset,
-			BoundIndexBuffer->GetSize() - BoundIndexBufferOffset,
+			IndexValidationOffset,
+			IndexValidationSize,
 			ERHIAccess::IndexBufferRead, Tracked),
-			"Indexed draw buffer is not in IndexBufferRead access.");
+			"Indexed draw range [{}, {}) is not in IndexBufferRead access.",
+			IndexValidationOffset, IndexValidationOffset + IndexValidationSize);
 		ValidateDrawBindings(Arguments.IndexCount, Arguments.InstanceCount, 0,
 			Arguments.FirstInstance, true);
 		PendingGfxState->PrepareForDraw(*this);
