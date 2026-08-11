@@ -45,6 +45,16 @@ removes destroyed selections after Undo, and Redo does not overwrite whatever
 the user selected after the original operation. This avoids retaining a panel
 or workspace-context pointer in long-lived transaction history.
 
+The next selected increment is Stage 1.5: an initial repository-native
+`graybox-build` command. It generates a new open-air Box arena at one explicit
+unused Level path and exits; it does not inspect or patch an existing Level,
+accept JSON, or expose the later general recipe workflow. Existing output paths
+are rejected. Initial publication can reuse AssetCore's tokenized relocation
+to move a verified temporary candidate into an absent destination, but
+destructive replacement remains deferred until replacement of an occupied
+package has its own qualified publication operation. Clearing a live Level and
+hoping the later save succeeds is not an accepted replacement strategy.
+
 This plan selects an entirely repository-native solution. It does not use Echo
 SceneBox, MCP, a remote service, a network listener, or code from another
 project. The first slice combines a LevelEditor-owned mutation service, a
@@ -66,6 +76,9 @@ command wrapped by DurinDevTool.
 
 - A game-thread-only level-authoring service in `LevelEditor` for preflighting
   and transactionally mutating supported static-mesh Actors.
+- An initial fixed-contract `DevTool scene graybox-build` command that creates
+  one new open-air Box Level through a bounded non-interactive DurinEditor
+  process before the general recipe workflow is available.
 - Create, update, rename, and remove operations needed by manual graybox
   placement and recipe reconciliation.
 - Box and triangular-prism built-in graybox assets, with a rotated Box preset
@@ -99,6 +112,9 @@ command wrapped by DurinDevTool.
   those runtime capabilities receive their own plan.
 - Silent background saving or concurrent mutation of a Level already owned by
   another Editor process.
+- Initial `graybox-build` replacement of an existing Level. The first command
+  is create-only and rejects an occupied output path; `--replace` requires a
+  separately qualified atomic candidate-package publication boundary.
 
 ## Design Decisions and Invariants
 
@@ -223,6 +239,53 @@ command wrapped by DurinDevTool.
   output. DurinDevTool forwards paths and diagnostics without interpreting
   binary asset contents.
 
+### Initial graybox-build boundary
+
+- Stage 1.5 adds one narrower command before the recipe system: `DevTool scene
+  graybox-build --project <project> --output <mounted-level-path>`. DevTool
+  starts the selected DurinEditor profile with its window suppressed and one
+  bounded `graybox-build` startup request.
+- The initial command supports one generic `open-arena` preset using
+  `/Engine/Models/Box`. Parameters are width, depth, floor thickness, wall
+  height, wall thickness, and an explicit ceiling switch. Dimensions are
+  finite positive values with documented bounds. Ceiling defaults to false.
+- Width and depth mean clear walkable distance between opposing inner wall
+  faces. The floor spans the complete outer wall footprint with its top at
+  `Z=0`; wall height is measured above that plane. North/south walls cover the
+  outer width, east/west walls cover the clear depth, and every wall penetrates
+  the floor by one small derived seam overlap bounded by both floor and wall
+  thickness. An explicit ceiling reuses floor thickness and caps the outer
+  footprint at wall height. This convention prevents floor, edge, and corner
+  gaps without relying on assumed unit-cube scale.
+- The startup command handler owns no placement math. A LevelEditor-owned
+  preset builder resolves Box bounds, lowers the complete arena to one Stage 1
+  mutation request, and names every generated Actor deterministically. The
+  generic preset also describes one centered `APlayerStart` and one standard
+  `ADirectionalLightActor` so a newly published Sandbox Level can enter native
+  third-person play and render without manual baseline setup. These two
+  non-StaticMesh Actors are created only inside the disposable unpublished
+  candidate; they do not expand Stage 1's interactive transaction boundary.
+  Sandbox-specific topology and coordinates are not compiled into Engine or
+  LevelEditor.
+- Initial publication is create-only. The command proves that the exact output
+  path is absent from both the registry and loaded packages, creates a
+  command-owned temporary `DLevel` below the same writable project mount,
+  applies the complete batch, saves once, unloads and reloads the candidate,
+  and verifies its Actor states. It then analyzes, revalidates, and applies one
+  AssetCore relocation token into the still-absent output path and reloads the
+  published Level. Pre-publication failure deletes only the exact temporary
+  candidate; post-publication verification failure restores the relocation
+  token before cleanup and reports cleanup failure separately.
+- The process refuses an occupied output path, an incompatible project, an
+  unavailable or invalid Box asset, invalid dimensions, another active project
+  authoring owner, prompts, PIE, extra commands, or save/reload verification
+  failure. One process handles one project, one output Level, and one build
+  request.
+- Stage 1.5 produces concise human diagnostics and stable exit codes. It does
+  not add scene JSON, YAML parsing, arbitrary Actor operations, inspection,
+  incremental reconciliation, pruning, or replacement. Stage 4 may add a
+  machine-readable summary while extending the same startup-command shell.
+
 ## Current Foundations and Gaps
 
 | Area | Current foundation | Required gap closure |
@@ -235,6 +298,7 @@ command wrapped by DurinDevTool.
 | Assets | Engine supplies `/Engine/Models/Box` | No qualified triangular-prism built-in or primitive catalog |
 | Repeatability | Ordinary Level serialization preserves generated Actors | No source recipe, preview, deterministic identity, or reconciliation |
 | Automation | DurinDevTool selects profiles and captures child output | No permanent scene command or bounded Editor command mode |
+| Initial generation | Content Browser can create an empty Level and Stage 1 can populate supported Actors | No permanent create-only open-arena command, startup request, or verified post-save reload |
 
 ## Implementation Stages
 
@@ -287,9 +351,59 @@ Dependencies: Stage 0.
   atomic, undoable, selection-correct, and saved-revision-correct; unsupported
   Actor edits cannot be mistaken for transaction-backed support.
 
+### Stage 1.5: Add an initial create-only graybox-build command
+
+Dependencies: Stage 1, existing project initialization, asset creation/save,
+and DurinDevTool profile selection. This stage does not depend on the Graybox
+panel, triangular-prism asset, or recipe parser.
+
+- [ ] Freeze the `scene graybox-build` CLI, bounded numeric ranges, mounted
+  output-path policy, deterministic Actor names, human diagnostics, and stable
+  exit codes. Do not expose `--replace` in the initial contract.
+- [ ] Add a generic Launch-to-Editor startup-command envelope that preserves
+  opaque command arguments through ordinary initialization, admits exactly one
+  handler after module startup, requests exit on completion, and returns its
+  result code without embedding Graybox policy in Launch.
+- [ ] Add the LevelEditor-owned `open-arena` preset builder. Qualify actual Box
+  local bounds, derive floor and four-wall transforms from requested dimensions,
+  add a ceiling only when explicitly requested, lower the geometry to one
+  Stage 1 create batch, and add deterministic centered PlayerStart plus standard
+  DirectionalLight descriptors for the unpublished candidate.
+- [ ] Add create-only command publication: reject registry or loaded-package
+  collisions, create a command-owned temporary `DLevel` in the same project
+  mount, execute the batch, save once, unload and reload the candidate, compare
+  its Actor snapshots, and publish it to the absent output using AssetCore's
+  analyze/revalidate/apply relocation token. Restore a failed published
+  verification and delete only the exact command-owned candidate during cleanup.
+- [ ] Add project-authoring ownership exclusion and reject concurrent command
+  execution, a visible Editor authoring the same project, prompts, PIE, extra
+  commands, invalid project/output/asset state, and cancellation before save.
+- [ ] Add `DevTool scene graybox-build` argument validation, profile and editor
+  executable selection, hidden child lifecycle, heartbeat, cancellation,
+  timeout, concise output forwarding, and exit-code mapping. DevTool must not
+  create or edit `.dasset` files itself.
+- [ ] Add focused native and Python coverage for preset geometry, open-top
+  default, explicit ceiling, bounds conversion, invalid dimensions, occupied
+  output, missing Box, ownership conflict, injected mutation/save/reload
+  failures, cleanup, deterministic re-run refusal, and command shutdown.
+- [ ] Document the create-only workflow and validate one Sandbox command smoke
+  that publishes a new Level, passes asset audit, opens in DurinEditor, contains
+  floor plus four connected walls, and has no ceiling by default.
+
+#### Acceptance Gate
+
+- A user or agent can create and verify a new open-air Box arena at an unused
+  Sandbox Level path with one permanent DevTool command. The workflow creates
+  no temporary target, emits no scene JSON, never overwrites an existing Level,
+  leaves no partial published asset after a reported failure, and exits its
+  non-interactive DurinEditor process deterministically. The published Level
+  contains floor, four connected walls, PlayerStart, DirectionalLight, and no
+  ceiling by default, and can enter the Sandbox native third-person play path.
+
 ### Stage 2: Add native Graybox assets and interactive tools
 
-Dependencies: Stage 1.
+Dependencies: Stages 1 and 1.5. Stage 2 reuses the qualified Box convention and
+open-arena lowering but does not depend on the command for interactive edits.
 
 - [ ] Add and audit the Engine triangular-prism source and StaticMesh asset;
   expose Box and prism through a fixed Graybox primitive catalog.
@@ -341,7 +455,8 @@ Dependencies: Stages 1-2.
 
 ### Stage 4: Add permanent local automation and qualify the workflow
 
-Dependencies: Stage 3.
+Dependencies: Stages 1.5 and 3. Stage 4 extends the startup-command shell and
+DevTool scene group instead of creating a second automation path.
 
 - [ ] Add bounded non-interactive DurinEditor scene-plan and scene-apply command
   handling that reuses the same recipe and mutation services.
@@ -368,6 +483,7 @@ Dependencies: Stage 3.
 | --- | --- |
 | Planning | Parse and reconciliation are mutation-free, deterministic, bounded, and stale-aware |
 | Structural mutation | Create/update/rename/remove success plus injected failure at every live step |
+| Initial command | New-path success, occupied-path refusal, open-top default, explicit ceiling, ownership exclusion, save/reload verification, failure cleanup, bounded exit |
 | Transactions | One history entry, exact Undo/Redo, collision refusal, no-op suppression, saved-revision correctness |
 | Selection and UI | Shared selection, Outliner/Details refresh, gizmo editing, read-only and document transition behavior |
 | Assets | Box bounds, prism geometry/normals/UVs, asset compatibility, save/reload references |
@@ -407,6 +523,11 @@ Dependencies: Stage 3.
 - Live inter-process control of an already running Editor. Any future proposal
   requires a separate security and ownership plan and may not assume MCP or a
   company-internal service.
+- Destructive `graybox-build --replace`. Existing relocation safely publishes
+  a verified candidate only to an absent path; replacement stays deferred until
+  a separate change qualifies occupied-destination publication that preserves
+  the previous Level on mutation, save, audit, cancellation, crash, or
+  process-exit failure.
 
 ## Related Documentation
 
@@ -434,6 +555,10 @@ Dependencies: Stage 3.
 - `Engine/Source/Editor/LevelEditor/Private/Panels/WorldOutlinerPanel.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Documents/LevelDocumentController.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Widgets/MLevelEditor.cpp`
+- `Engine/Source/Runtime/Launch/Private/Launch.cpp`
+- `Engine/Source/Runtime/Launch/Public/LaunchEngineLoop.h`
+- `Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserOperations.cpp`
 - `Tools/DurinDevTool/durin_dev_tool/registry.py`
+- `Tools/DurinDevTool/durin_dev_tool/build/handler.py`
 - `Sandbox/Content/Levels/ThirdPersonTest.dasset`
 - `Sandbox/Configs/Project.yaml`
