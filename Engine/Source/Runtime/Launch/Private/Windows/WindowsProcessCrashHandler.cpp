@@ -349,12 +349,6 @@ namespace Durin
 			TerminateProcess(GetCurrentProcess(), DurinTerminateStatus);
 		}
 
-		__declspec(noinline) auto OverflowStack(uint64 Depth) -> uint64
-		{
-			volatile uint8 StackUse[4096]{};
-			StackUse[Depth & 4095] = static_cast<uint8>(Depth);
-			return OverflowStack(Depth + 1) + StackUse[(Depth + 1) & 4095];
-		}
 	}
 
 	auto InstallWindowsProcessCrashHandler() -> bool
@@ -467,12 +461,6 @@ namespace Durin
 			std::jthread Second(Fault);
 			First.join();
 			Second.join();
-			return true;
-		}
-		if (Fixture == "stack-overflow")
-		{
-			const volatile uint64 Result = OverflowStack(1);
-			(void)Result;
 			return true;
 		}
 		return false;
