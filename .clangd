@@ -1,0 +1,7 @@
+If:
+  PathMatch:
+    - '(.*/)?[Tt]ests?/.*'
+    - '(.*/)?[Tt]esting/.*'
+    - 'Engine/External/Source/googletest/.*'
+Index:
+  Background: Skip
