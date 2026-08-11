@@ -607,7 +607,8 @@ TEST(DSkeletalMeshComponentTests, FollowsWorldPauseSingleStepAndReplacementLifec
 	const auto Retained = Component->GetLatestPosePalette();
 	auto* Replacement = Durin::NewObject<Durin::DLevel>(
 		World, NextObjectName("ReplacementLevel"));
-	ASSERT_TRUE(World->SetCurrentLevel(Replacement));
+	ASSERT_TRUE(World->RequestLevelTransition(Replacement));
+	World->Tick({});
 	EXPECT_FALSE(Component->IsRegistered());
 	EXPECT_FALSE(Component->HasBegunPlay());
 	EXPECT_EQ(Component->GetLatestPosePalette(), nullptr);

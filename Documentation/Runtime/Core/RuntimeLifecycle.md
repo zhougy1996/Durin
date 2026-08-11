@@ -192,12 +192,22 @@ temporary World after full host initialization, then restores the original
 World. Ordinary startup never enables it.
 
 World BeginPlay owns a forward-ordered snapshot of the Actors present at entry;
-World EndPlay owns a reverse-ordered snapshot. A callback may Spawn, Destroy,
-clear, or replace the current Level without invalidating the active traversal.
+World EndPlay owns a reverse-ordered snapshot. A callback may Spawn or Destroy
+without invalidating the active traversal. Gameplay code requests Level replacement
+through the deferred World transition boundary; direct Level activation is limited
+to a stopped World so an active lifecycle callback cannot invalidate its caller.
 Before every callback, the World verifies the captured Level, structural
 membership, retirement state, and Actor play state. A candidate destroyed
 before its turn is skipped. A batch stops when its captured Level ceases to be
 current.
+
+`SetCurrentLevel` is an immediate stopped-World operation. `RequestLevelTransition`
+retains the requested Level and, when applicable, the active native game-mode
+class. The next World tick ends the old play session, activates the requested
+Level, and resumes play. Only one pending transition is applied per tick, so a
+transition requested by EndPlay or BeginPlay remains deferred to a later safe
+point. A pending transition suppresses the remainder of the current gameplay
+tick.
 
 ### Actor And Component Dispatch
 

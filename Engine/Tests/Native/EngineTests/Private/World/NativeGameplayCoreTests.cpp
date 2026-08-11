@@ -153,6 +153,7 @@ namespace
 		}
 		auto WasPossessedAtBeginPlay() const -> bool { return bWasPossessedAtBeginPlay; }
 		auto GetBeginPlayTransform() const -> const Durin::FTransform& { return BeginPlayTransform; }
+		inline static std::function<void(FIntentPawn&)> BeginPlayCallback;
 
 	protected:
 		auto BeginPlay() -> void override
@@ -160,6 +161,7 @@ namespace
 			bWasPossessedAtBeginPlay = GetController() != nullptr;
 			BeginPlayTransform = GetActorTransform();
 			Durin::APawn::BeginPlay();
+			if (BeginPlayCallback) BeginPlayCallback(*this);
 		}
 
 	private:
@@ -187,7 +189,7 @@ namespace
 			++BuildCount;
 			if (Durin::DWorld* World = std::exchange(WorldToClearDuringBuild, nullptr))
 			{
-				World->SetCurrentLevel(nullptr);
+				World->RequestLevelTransition(nullptr);
 				return {};
 			}
 			if (bUseRawMapping)
@@ -223,6 +225,11 @@ namespace
 	{
 		return GetTestClass<FIntentMovementComponent, Durin::DPawnMovementComponent>("Durin::Tests::FIntentMovementComponent");
 	}
+
+	struct FIntentPawnCallbackScope
+	{
+		~FIntentPawnCallbackScope() { FIntentPawn::BeginPlayCallback = {}; }
+	};
 
 	class FIntentGameMode final : public Durin::AGameMode
 	{
@@ -594,6 +601,83 @@ TEST(FNativeGameplayBootstrapTests, RestartsPawnAndLeavesControllerUnpossessedOn
 	Durin::CollectGarbage();
 }
 
+TEST(FNativeGameplayBootstrapTests, RestartDefersLevelReplacementRequestedByPawnBeginPlay)
+{
+	FIntentPawnCallbackScope CallbackScope;
+	Durin::DWorld* World = CreateWorld();
+	SpawnPlayerStart(*World, "Start", {0.0, 0.0, 0.0});
+	ASSERT_TRUE(World->BeginPlay({.GameModeClass = IntentGameModeClass()}));
+	Durin::DLevel* OriginalLevel = World->GetCurrentLevel();
+	Durin::DLevel* Replacement = Durin::NewObject<Durin::DLevel>(World, "ReplacementLevel");
+	ASSERT_NE(Replacement, nullptr);
+	ASSERT_NE(Replacement->SpawnActor<Durin::APlayerStart>("ReplacementStart"), nullptr);
+	FIntentPawn::BeginPlayCallback = [World, Replacement](FIntentPawn&)
+	{
+		EXPECT_TRUE(World->RequestLevelTransition(Replacement));
+	};
+
+	const Durin::FPlayerRestartResult Restart = World->RestartPlayer();
+
+	EXPECT_EQ(Restart.Error, Durin::EPlayerRestartError::RestartAborted);
+	EXPECT_EQ(World->GetCurrentLevel(), OriginalLevel);
+	FIntentPawn::BeginPlayCallback = {};
+	World->Tick({});
+	EXPECT_EQ(World->GetCurrentLevel(), Replacement);
+	EXPECT_TRUE(World->HasBegunPlay());
+	EXPECT_NE(World->GetDefaultPawn(), nullptr);
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
+TEST(FNativeGameplayBootstrapTests, RestartDefersLevelClearRequestedByPawnBeginPlay)
+{
+	FIntentPawnCallbackScope CallbackScope;
+	Durin::DWorld* World = CreateWorld();
+	SpawnPlayerStart(*World, "Start", {0.0, 0.0, 0.0});
+	ASSERT_TRUE(World->BeginPlay({.GameModeClass = IntentGameModeClass()}));
+	Durin::DLevel* OriginalLevel = World->GetCurrentLevel();
+	FIntentPawn::BeginPlayCallback = [World](FIntentPawn&)
+	{
+		EXPECT_TRUE(World->RequestLevelTransition(nullptr));
+	};
+
+	const Durin::FPlayerRestartResult Restart = World->RestartPlayer();
+
+	EXPECT_EQ(Restart.Error, Durin::EPlayerRestartError::RestartAborted);
+	EXPECT_EQ(World->GetCurrentLevel(), OriginalLevel);
+	FIntentPawn::BeginPlayCallback = {};
+	World->Tick({});
+	EXPECT_EQ(World->GetCurrentLevel(), nullptr);
+	EXPECT_FALSE(World->HasBegunPlay());
+	EXPECT_EQ(World->GetDefaultPawn(), nullptr);
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
+TEST(FNativeGameplayBootstrapTests, RestartRejectsSynchronousLevelClearFromPawnBeginPlay)
+{
+	FIntentPawnCallbackScope CallbackScope;
+	Durin::DWorld* World = CreateWorld();
+	SpawnPlayerStart(*World, "Start", {0.0, 0.0, 0.0});
+	ASSERT_TRUE(World->BeginPlay({.GameModeClass = IntentGameModeClass()}));
+	Durin::DLevel* OriginalLevel = World->GetCurrentLevel();
+	bool bClearRejected = false;
+	FIntentPawn::BeginPlayCallback = [World, &bClearRejected](FIntentPawn&)
+	{
+		bClearRejected = !World->SetCurrentLevel(nullptr);
+	};
+
+	const Durin::FPlayerRestartResult Restart = World->RestartPlayer();
+
+	EXPECT_TRUE(bClearRejected);
+	ASSERT_TRUE(Restart);
+	EXPECT_EQ(World->GetCurrentLevel(), OriginalLevel);
+	EXPECT_EQ(World->GetDefaultPawn(), Restart.Pawn);
+	EXPECT_EQ(World->GetLocalPlayerController()->GetPawn(), Restart.Pawn);
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
 TEST(FNativeGameplayControlTests, ClampsConsumesAndSuppressesIntentAcrossPause)
 {
 	Durin::DWorld* World = CreateWorld();
@@ -702,7 +786,7 @@ TEST(FNativeGameplayControlTests, RawTransitionsBecomeOneUseIntentAndFocusLossRe
 	Durin::CollectGarbage();
 }
 
-TEST(FNativeGameplayControlTests, StopsTickSafelyWhenInputMappingReplacesTheLevel)
+TEST(FNativeGameplayControlTests, DefersLevelReplacementRequestedByInputMapping)
 {
 	Durin::DWorld* World = CreateWorld();
 	SpawnPlayerStart(*World, "Start", {0.0, 0.0, 0.0});
@@ -711,6 +795,9 @@ TEST(FNativeGameplayControlTests, StopsTickSafelyWhenInputMappingReplacesTheLeve
 	ASSERT_NE(Controller, nullptr);
 	Controller->SetWorldToClearDuringBuild(World);
 	Durin::FGameInputState Input;
+	World->Tick({.DeltaSeconds = 1.0f / 60.0f, .GameInput = &Input});
+	EXPECT_NE(World->GetCurrentLevel(), nullptr);
+	EXPECT_TRUE(World->HasBegunPlay());
 	World->Tick({.DeltaSeconds = 1.0f / 60.0f, .GameInput = &Input});
 	EXPECT_EQ(World->GetCurrentLevel(), nullptr);
 	EXPECT_FALSE(World->HasBegunPlay());

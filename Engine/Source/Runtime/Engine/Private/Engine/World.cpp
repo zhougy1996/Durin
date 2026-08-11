@@ -115,6 +115,7 @@ namespace Durin
 	auto DWorld::SetCurrentLevel(DLevel* Level, bool bDestroyPreviousOwnedLevel) -> bool
 	{
 		if (Level == CurrentLevel.Get()) return true;
+		if (PlayState != EWorldPlayState::Stopped) return false;
 		if (Level && Level->GetWorld() && Level->GetWorld() != this) return false;
 		if (Level && Cast<DWorld>(Level->GetOuter()) && Level->GetOuter() != this) return false;
 		EndPlay();
@@ -161,6 +162,20 @@ namespace Durin
 		return true;
 	}
 
+	auto DWorld::RequestLevelTransition(DLevel* Level, bool bDestroyPreviousOwnedLevel) -> bool
+	{
+		if (Level && Level->GetWorld() && Level->GetWorld() != this) return false;
+		if (Level && Cast<DWorld>(Level->GetOuter()) && Level->GetOuter() != this) return false;
+		PendingLevelTransition = FPendingLevelTransition{
+			.Level = Level,
+			.GameModeClass = GameplaySession && GameplaySession->GameMode
+				? GameplaySession->GameMode->GetClass()
+				: nullptr,
+			.bDestroyPreviousOwnedLevel = bDestroyPreviousOwnedLevel,
+			.bResumePlay = HasBegunPlay()};
+		return true;
+	}
+
 	auto DWorld::SetRenderScene(IScene* InRenderScene) -> void
 	{
 		if (RenderScene == InRenderScene) return;
@@ -196,6 +211,9 @@ namespace Durin
 		if (!CurrentLevel)
 			return PlayFailure(EWorldPlayError::MissingLevel, "The World has no active level.");
 
+		AGameMode* ExpectedGameMode = nullptr;
+		APlayerController* ExpectedController = nullptr;
+		APawn* ExpectedPawn = nullptr;
 		if (Request.GameModeClass)
 		{
 			if (!CanConstructObjectOfClass(Request.GameModeClass, AGameMode::StaticClass()))
@@ -274,6 +292,9 @@ namespace Durin
 				.LocalPlayerController = Controller,
 				.DefaultPawn = Pawn,
 				.RuntimeActors = CreatedActors};
+			ExpectedGameMode = GameMode;
+			ExpectedController = Controller;
+			ExpectedPawn = Pawn;
 		}
 
 		DLevel* CapturedLevel = CurrentLevel.Get();
@@ -291,13 +312,30 @@ namespace Durin
 				Actor->DispatchBeginPlay();
 			}
 		}
-		if (PlayState == EWorldPlayState::BeginningPlay) PlayState = EWorldPlayState::Playing;
+		if (PlayState != EWorldPlayState::BeginningPlay || CurrentLevel.Get() != CapturedLevel)
+			return PlayFailure(EWorldPlayError::PlayAborted, "Play was interrupted by a gameplay callback.");
+		if (Request.GameModeClass
+			&& (!GameplaySession
+				|| GameplaySession->GameMode.Get() != ExpectedGameMode
+				|| GameplaySession->LocalPlayerController.Get() != ExpectedController
+				|| GameplaySession->DefaultPawn.Get() != ExpectedPawn
+				|| !CapturedLevel->ContainsActor(ExpectedGameMode)
+				|| !CapturedLevel->ContainsActor(ExpectedController)
+				|| !CapturedLevel->ContainsActor(ExpectedPawn)
+				|| ExpectedController->GetPawn() != ExpectedPawn
+				|| ExpectedPawn->GetController() != ExpectedController))
+		{
+			EndPlay();
+			return PlayFailure(EWorldPlayError::PlayAborted, "Native gameplay bootstrap was invalidated by a BeginPlay callback.");
+		}
+		PlayState = EWorldPlayState::Playing;
 		return {};
 	}
 
 	auto DWorld::Tick(const FWorldTickContext& Context) -> void
 	{
-		if (!HasBegunPlay() || !CurrentLevel) return;
+		ProcessPendingLevelTransition();
+		if (!HasBegunPlay() || !CurrentLevel || PendingLevelTransition) return;
 		DLevel* CapturedLevel = CurrentLevel.Get();
 		if (bPaused && !std::exchange(bSingleStepRequested, false))
 		{
@@ -308,11 +346,11 @@ namespace Durin
 		{
 			GameplaySession->LocalPlayerController->PreparePlayerInput(*Context.GameInput);
 		}
-		if (!HasBegunPlay() || CurrentLevel.Get() != CapturedLevel) return;
+		if (!HasBegunPlay() || CurrentLevel.Get() != CapturedLevel || PendingLevelTransition) return;
 		const std::vector<TObjectPtr<AActor>> Actors = CapturedLevel->GetActors();
 		for (const TObjectPtr<AActor>& Actor : Actors)
 		{
-			if (!HasBegunPlay() || CurrentLevel.Get() != CapturedLevel) break;
+			if (!HasBegunPlay() || CurrentLevel.Get() != CapturedLevel || PendingLevelTransition) break;
 			if (Actor
 				&& !Actor->IsPendingKill()
 				&& Actor->GetOuter() == CapturedLevel
@@ -362,11 +400,12 @@ namespace Durin
 	{
 		if (!GameplaySession || PlayState != EWorldPlayState::Playing || !CurrentLevel)
 			return RestartFailure(EPlayerRestartError::NoGameplaySession, "The World has no active native gameplay session.");
+		DLevel* Level = CurrentLevel.Get();
 		APlayerController* Controller = GameplaySession->LocalPlayerController.Get();
 		AGameMode* GameMode = GameplaySession->GameMode.Get();
-		if (!Controller || !CurrentLevel->ContainsActor(Controller))
+		if (!Controller || !Level->ContainsActor(Controller))
 			return RestartFailure(EPlayerRestartError::ControllerUnavailable, "The local player controller is unavailable.");
-		if (!GameMode || !CurrentLevel->ContainsActor(GameMode))
+		if (!GameMode || !Level->ContainsActor(GameMode))
 			return RestartFailure(EPlayerRestartError::GameModeUnavailable, "The active game mode is unavailable.");
 
 		Controller->UnPossess();
@@ -406,9 +445,31 @@ namespace Durin
 		}
 		GameplaySession->DefaultPawn = Pawn;
 		Pawn->DispatchBeginPlay();
-		if (!CurrentLevel->ContainsActor(Pawn))
+		if (PlayState != EWorldPlayState::Playing
+			|| CurrentLevel.Get() != Level
+			|| !GameplaySession
+			|| GameplaySession->GameMode.Get() != GameMode
+			|| GameplaySession->LocalPlayerController.Get() != Controller
+			|| PendingLevelTransition)
+		{
+			return RestartFailure(EPlayerRestartError::RestartAborted, "Player restart was superseded by a gameplay lifecycle transition.");
+		}
+		if (GameplaySession->DefaultPawn.Get() != Pawn || !Level->ContainsActor(Pawn))
 			return RestartFailure(EPlayerRestartError::PawnSpawnFailed, "The replacement pawn was destroyed during BeginPlay.");
+		if (!Pawn->HasBegunPlay() || Controller->GetPawn() != Pawn || Pawn->GetController() != Controller)
+			return RestartFailure(EPlayerRestartError::RestartAborted, "Player restart relationships were invalidated during BeginPlay.");
 		return {EPlayerRestartError::None, {}, Pawn};
+	}
+
+	auto DWorld::ProcessPendingLevelTransition() -> void
+	{
+		if (!PendingLevelTransition) return;
+		const FPendingLevelTransition Transition = *PendingLevelTransition;
+		PendingLevelTransition.reset();
+		EndPlay();
+		if (!SetCurrentLevel(Transition.Level.Get(), Transition.bDestroyPreviousOwnedLevel)) return;
+		if (Transition.Level && Transition.bResumePlay)
+			(void)BeginPlay({.GameModeClass = Transition.GameModeClass});
 	}
 
 	auto DWorld::SetPaused(bool bInPaused) -> void

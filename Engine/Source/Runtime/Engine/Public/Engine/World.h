@@ -49,7 +49,8 @@ namespace Durin
 		PawnSpawnFailed,
 		PawnPlacementFailed,
 		PossessionFailed,
-		ViewTargetRejected
+		ViewTargetRejected,
+		PlayAborted
 	};
 
 	// Requests either lifecycle-only play or one native local-player gameplay session.
@@ -85,7 +86,8 @@ namespace Durin
 		PawnSpawnFailed,
 		PawnPlacementFailed,
 		PossessionFailed,
-		ViewTargetRejected
+		ViewTargetRejected,
+		RestartAborted
 	};
 
 	struct FPlayerRestartRequest
@@ -124,7 +126,10 @@ namespace Durin
 		ENGINE_API auto ContainsActor(const AActor* Actor) const -> bool;
 		ENGINE_API auto FindActorByName(FName Name) const -> AActor*;
 		ENGINE_API auto GetActors() const -> const std::vector<TObjectPtr<AActor>>&;
+		// Immediately changes the active Level while stopped. Gameplay code must request a deferred transition instead.
 		ENGINE_API auto SetCurrentLevel(DLevel* Level, bool bDestroyPreviousOwnedLevel = true) -> bool;
+		// Queues one Level change for the next World tick so callbacks cannot invalidate their active lifecycle stack.
+		ENGINE_API auto RequestLevelTransition(DLevel* Level, bool bDestroyPreviousOwnedLevel = true) -> bool;
 		ENGINE_API auto BeginPlay(const FWorldPlayRequest& Request) -> FWorldPlayResult;
 		ENGINE_API auto Tick(const FWorldTickContext& Context) -> void;
 		ENGINE_API auto EndPlay() -> void;
@@ -182,8 +187,17 @@ namespace Durin
 			std::vector<TObjectPtr<AActor>> RuntimeActors;
 		};
 
+		struct FPendingLevelTransition
+		{
+			TObjectPtr<DLevel> Level;
+			DClass* GameModeClass = nullptr;
+			bool bDestroyPreviousOwnedLevel = true;
+			bool bResumePlay = false;
+		};
+
 		auto OnActorDestroyed(AActor* Actor) -> void;
 		auto ClearPendingGameplayIntent() -> void;
+		auto ProcessPendingLevelTransition() -> void;
 
 		// A world may intentionally have no active level during project transitions.
 		DPROPERTY(Transient)
@@ -198,6 +212,7 @@ namespace Durin
 		bool bSingleStepRequested = false;
 		bool bPhysicsSimulationEnabled = true;
 		std::optional<FNativeGameplaySession> GameplaySession;
+		std::optional<FPendingLevelTransition> PendingLevelTransition;
 		FPhysicsScene PhysicsScene;
 		bool bCollisionDebugDrawEnabled = false;
 		mutable std::optional<FHitResult> LastCollisionDebugHit;

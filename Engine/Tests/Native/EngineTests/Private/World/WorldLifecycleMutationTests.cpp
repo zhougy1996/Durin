@@ -400,7 +400,7 @@ TEST(FWorldLifecycleMutationTests, RepeatedWorldLifecycleCallsAreIdempotent)
 	Durin::CollectGarbage();
 }
 
-TEST(FWorldLifecycleMutationTests, EndPlayStopsWhenTheCurrentLevelIsReplaced)
+TEST(FWorldLifecycleMutationTests, EndPlayQueuesLevelReplacementUntilTheNextTick)
 {
 	FMutationCallbackScope CallbackScope;
 	Durin::DWorld* World = CreateWorld();
@@ -418,14 +418,16 @@ TEST(FWorldLifecycleMutationTests, EndPlayStopsWhenTheCurrentLevelIsReplaced)
 			Events.push_back(EventName(Actor, Event));
 			if (&Actor == Switcher && Event == ETestLifecycleEvent::EndMutation)
 			{
-				EXPECT_TRUE(World->SetCurrentLevel(Replacement));
+				EXPECT_TRUE(World->RequestLevelTransition(Replacement));
 			}
 		};
 
 	World->EndPlay();
+	EXPECT_NE(World->GetCurrentLevel(), Replacement);
+	World->Tick({});
 
 	EXPECT_EQ(World->GetCurrentLevel(), Replacement);
-	EXPECT_EQ(std::ranges::count(Events, "Stale.EndEnter"), 0);
+	EXPECT_EQ(std::ranges::count(Events, "Stale.EndEnter"), 1);
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
 }
@@ -459,7 +461,7 @@ TEST(FWorldLifecycleMutationTests, DestroyActorIsIdempotentBeforeAndAfterPlay)
 	Durin::CollectGarbage();
 }
 
-TEST(FWorldLifecycleMutationTests, BeginPlayStopsWhenTheCurrentLevelIsReplaced)
+TEST(FWorldLifecycleMutationTests, BeginPlayQueuesLevelReplacementUntilTheNextTick)
 {
 	FMutationCallbackScope CallbackScope;
 	Durin::DWorld* World = CreateWorld();
@@ -476,14 +478,57 @@ TEST(FWorldLifecycleMutationTests, BeginPlayStopsWhenTheCurrentLevelIsReplaced)
 			Events.push_back(EventName(Actor, Event));
 			if (&Actor == Switcher && Event == ETestLifecycleEvent::BeginMutation)
 			{
-				EXPECT_TRUE(World->SetCurrentLevel(Replacement));
+				EXPECT_TRUE(World->RequestLevelTransition(Replacement));
 			}
 		};
 
-	World->BeginPlay({});
+	ASSERT_TRUE(World->BeginPlay({}));
+	EXPECT_NE(World->GetCurrentLevel(), Replacement);
+	World->Tick({});
 
 	EXPECT_EQ(World->GetCurrentLevel(), Replacement);
-	EXPECT_EQ(std::ranges::count(Events, "Stale.BeginEnter"), 0);
+	EXPECT_EQ(std::ranges::count(Events, "Stale.BeginEnter"), 1);
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
+TEST(FWorldLifecycleMutationTests, BeginPlayReportsAbortedWhenACallbackEndsTheWorld)
+{
+	FMutationCallbackScope CallbackScope;
+	Durin::DWorld* World = CreateWorld();
+	FActorLifecycleMutationTestActor* Stopper = SpawnMutationActor(World, "Stopper");
+	FActorLifecycleMutationTestActor* Stale = SpawnMutationActor(World, "Stale");
+	ASSERT_NE(Stopper, nullptr);
+	ASSERT_NE(Stale, nullptr);
+	FActorLifecycleMutationTestActor::Callback =
+		[&](FActorLifecycleMutationTestActor& Actor, ETestLifecycleEvent Event)
+		{
+			if (&Actor == Stopper && Event == ETestLifecycleEvent::BeginMutation) World->EndPlay();
+		};
+
+	const Durin::FWorldPlayResult Result = World->BeginPlay({});
+
+	EXPECT_EQ(Result.Error, Durin::EWorldPlayError::PlayAborted);
+	EXPECT_FALSE(World->HasBegunPlay());
+	EXPECT_EQ(std::ranges::count_if(
+		World->GetActors(),
+		[](const Durin::TObjectPtr<Durin::AActor>& Actor) { return Actor && Actor->HasBegunPlay(); }), 0);
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
+TEST(FWorldLifecycleMutationTests, DirectLevelReplacementIsRejectedWhilePlaying)
+{
+	Durin::DWorld* World = CreateWorld();
+	Durin::DLevel* Original = World->GetCurrentLevel();
+	Durin::DLevel* Replacement = Durin::NewObject<Durin::DLevel>(World, "Replacement");
+	ASSERT_NE(Replacement, nullptr);
+	ASSERT_TRUE(World->BeginPlay({}));
+
+	EXPECT_FALSE(World->SetCurrentLevel(Replacement));
+	EXPECT_EQ(World->GetCurrentLevel(), Original);
+	EXPECT_TRUE(World->HasBegunPlay());
+	World->EndPlay();
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
 }
