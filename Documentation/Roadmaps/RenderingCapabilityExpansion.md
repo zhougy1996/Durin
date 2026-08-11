@@ -2,7 +2,7 @@
 
 Summary: Expand the current static-mesh forward renderer into a pass-classified, visibility-aware platform for additional primitive, lighting, and effect families.
 
-Last reviewed: 2026-08-11
+Last reviewed: 2026-08-12
 
 Status: Active
 Completed:
@@ -68,6 +68,15 @@ second production vertex factory. The lasting contract is recorded in
 [Skeletal Mesh Rendering](../Runtime/Rendering/SkeletalMeshRendering.md). M4's
 dependency gate for M6 is open; M6 still waits for the M5 light snapshot and
 selected shadow quality/budget entry gates.
+
+M5 is active through the
+[Renderer Light Scene Contract Plan](../Plans/RendererLightSceneContract.md).
+Its initial forward budget is selected as four directional lights and thirty-two
+combined point/spot lights per view. The plan adds renderer-owned point and spot
+snapshots, deterministic view preparation, one shared bounded light payload,
+and visible local-light falloff without waiting for compute or clustered
+lighting. Stage 0 is ready; M6 remains closed until M5 completes and a separate
+directional-shadow quality and memory budget is selected.
 
 ## Outcome
 
@@ -269,7 +278,7 @@ flowchart LR
 | M2: Material render-pass policies | Required; also executes Material System milestone 4 | [MaterialRenderPassPolicies](../Plans/Archive/2026-08/MaterialRenderPassPolicies.md) | M1 classification contract; current material v3 identity | Opaque, masked, and translucent buckets; visible mask/blend/cull/depth policy; minimal required RHI state descriptors; deterministic translucent sorting. | M1 is stable and the exact RHI state gaps for three surface policies are enumerated. | All static properties have tested on-screen meaning across Lit/Unlit, Solid/Wireframe, main/auxiliary, present/offscreen, and fixed-aspect views; Vulkan validation is clean. |
 | M3: Per-view visibility and LOD | Required; complete | [PerViewVisibilityAndLOD](../Plans/Archive/2026-08/PerViewVisibilityAndLOD.md) | M1 proxy bounds; M2 pass buckets | Frustum culling, deterministic LOD selection, prepared draw lists, sort/state keys, and counters. | Met: bounds semantics, pass inputs, projection/LOD policy, representative assets, and comparison views were frozen before production defaults. | Passed: invisible primitives issue no base-pass draw, LOD thresholds and ordering are deterministic, and counters reconcile submitted, culled, selected, prepared, resource, and execution work across qualified viewport paths. |
 | M4: Second production primitive family | Completed 2026-08-11 | [Skeletal Mesh Rendering](../Plans/Archive/2026-08/SkeletalMeshRendering.md) | M2-M3 shared pass and visibility contracts; Skeletal S1-S2; completed RHI Graphics State and Bindings handoff | GPU-skinned SkeletalMesh with coherent pose/bounds snapshots, bounded palette transport, a second vertex factory, and shared material/pass/viewport participation. | Met on 2026-08-10: prerequisites, selected family, budgets, fixtures, and gaps were frozen before implementation. | Passed: SkeletalMesh reuses scene mutation, visibility, pass, material, invalidation, and viewport contracts without a parallel frame renderer or whole-scene RTTI scan; Debug/Shipping Vulkan, full build, and editor smoke are green. |
-| M5: Renderer-owned multi-light scene | Required | `RendererLightSceneContract` | M1 detached light mutation | Directional, point, and spot Proxy/SceneInfo types, typed collections, visibility inputs, bounded GPU-facing light data, and explicit versions only for independently reordered work. | M1 has removed component reads and the intended initial light-count budget is documented. | Add/update/remove order is deterministic; any retained asynchronous version rejects stale work; no render-thread object read occurs; multiple view renders consume identical scene state; point/spot falloff has focused and image coverage. |
+| M5: Renderer-owned multi-light scene | Required; active | [RendererLightSceneContract](../Plans/RendererLightSceneContract.md) | M1 detached light mutation | Directional, point, and spot Proxy/SceneInfo types, typed collections, visibility inputs, bounded GPU-facing light data, and explicit versions only for independently reordered work. | Met on 2026-08-12: M1 removed component reads and the initial budget is frozen at four directional plus thirty-two combined local lights per view. | Add/update/remove order is deterministic; any retained asynchronous version rejects stale work; no render-thread object read occurs; multiple view renders consume identical scene state; point/spot falloff has focused and image coverage. |
 | M6: Directional shadow pipeline | Required | `DirectionalShadowPipeline` | M2 pass state, M3 visibility/draw lists, M4 second-family participation, M5 light snapshots | Shadow-depth target/layout, caster classification, masked caster behavior, directional shadow matrices, bias/filtering, lifetime, diagnostics, and lighting sampling. | M2-M5 contracts are stable; one directional shadow quality/budget target is selected. | StaticMesh and the selected M4 family cast and receive deterministic shadows; masked coverage, camera/light motion, multi-view reuse, invalidation, and Vulkan validation pass without whole-device idle waits. |
 
 M1 through M6 define the required roadmap. M4 intentionally requires one
@@ -337,7 +346,7 @@ The plan must not copy `FSceneRenderer`, post-process, viewport output, default
 textures, environment lighting, material layout decoding, or invalidation
 coordination into a parallel system.
 
-### `RendererLightSceneContract`
+### [RendererLightSceneContract](../Plans/RendererLightSceneContract.md)
 
 This plan owns renderer-facing light types, Proxy/SceneInfo extensions,
 identities, typed collections, any versions required by independently reordered
@@ -441,6 +450,7 @@ visibility should not be one child plan. Activate bounded plans independently:
 - [Compute Shader Pipeline Roadmap](ComputeShaderPipeline.md)
 - [Skeletal Mesh and Animation Roadmap](Archive/2026-08/SkeletalMeshAndAnimation.md)
 - [Skeletal Mesh Rendering Plan](../Plans/Archive/2026-08/SkeletalMeshRendering.md)
+- [Renderer Light Scene Contract Plan](../Plans/RendererLightSceneContract.md)
 - [Texture System](../Runtime/Rendering/TextureSystem.md)
 - [RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md)
 - [Build and Run](../Development/Build/BuildAndRun.md)
