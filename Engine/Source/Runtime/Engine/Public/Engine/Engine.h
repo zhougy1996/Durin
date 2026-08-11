@@ -8,6 +8,41 @@
 
 namespace Durin
 {
+	enum class EEngineInitializationStatus : uint8
+	{
+		Succeeded,
+		Cancelled,
+		Failed,
+	};
+
+	struct FEngineInitializationResult
+	{
+		EEngineInitializationStatus Status = EEngineInitializationStatus::Succeeded;
+		std::string Message;
+
+		explicit operator bool() const
+		{
+			return Status == EEngineInitializationStatus::Succeeded;
+		}
+
+		static auto Success() -> FEngineInitializationResult { return {}; }
+		static auto Cancelled(std::string InMessage = {}) -> FEngineInitializationResult
+		{
+			return {EEngineInitializationStatus::Cancelled, std::move(InMessage)};
+		}
+		static auto Failure(std::string InMessage) -> FEngineInitializationResult
+		{
+			return {EEngineInitializationStatus::Failed, std::move(InMessage)};
+		}
+	};
+
+	// Narrow Launch-owned capability available while a concrete engine initializes.
+	struct FEngineInitContext
+	{
+		std::function<bool()> PumpStartupFrame;
+		bool bHeadless = false;
+	};
+
 	class DCameraComponent;
 	class FSceneViewport;
 	class IRendererModule;
@@ -27,7 +62,8 @@ namespace Durin
 		ENGINE_API explicit DEngine(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DEngine() override;
 
-		ENGINE_API virtual auto Init() -> void;
+		ENGINE_API virtual auto Init(const FEngineInitContext& Context)
+			-> FEngineInitializationResult;
 
 		ENGINE_API virtual auto Tick(float DeltaSeconds, bool bIdleMode) -> void;
 

@@ -24,9 +24,10 @@ or migration coupling.
 
 `MainFrame` constructs and owns a lightweight native shell before loading
 concrete editor modules. Persisted maximized state is applied while the window
-is hidden and before native viewport creation; after the viewport presents
-successfully, `DEditorEngine::Tick()` advances the game-thread bootstrap. Widget
-drawing observes state but never admits startup work.
+is hidden and before native viewport creation. `DEditorEngine::Init()` then
+advances the game-thread bootstrap to completion through a narrow Launch-owned
+startup pump. Widget drawing observes state but never admits startup work, and
+ordinary `DEditorEngine::Tick()` performs no bootstrap transition.
 
 Project startup follows the forward-only sequence
 `ConstructingShell -> WaitingForFirstPresent -> LoadingWorkspace ->
@@ -35,18 +36,33 @@ opening failure enters terminal `Failed`. Project Browser uses the shell-only
 `WaitingForFirstPresent -> Ready` path and does not register project workspaces
 or load a default document.
 
+For a visible host, `WaitingForFirstPresent` advances only after the production
+RHI presentation path publishes a real FirstPresent milestone. Before each
+blocking workspace or default-document operation, the pump processes events and
+submits the current loading phase through the existing Mona/ImGui root window.
+Hidden hosts bypass the presentation gate and run the same semantic phases
+without requiring an active native window. A close request is initialization
+cancellation and never enters the normal main loop.
+
 Workspace readiness and default-document readiness are separate contracts.
 After Level, Material, Texture, and StaticMesh registration and default
 workspace opening succeed, MainFrame publishes `WorkspaceReady` for one frame
 before asking LevelEditor to load the configured default level. The document
 state advances independently through `Pending -> Loading -> Ready|Failed`.
-Missing, incompatible, corrupt, or unactivatable default levels leave the Level
-workspace usable, publish document `Failed`, report one actionable error, and
-allow the overall host bootstrap to reach `Ready`. Commands that need a level
-continue to depend on the active LevelEditor context rather than host readiness.
+Missing, incompatible, corrupt, or unactivatable default levels publish document
+`Failed`, force the overall bootstrap to terminal `Failed`, preserve one
+actionable owning diagnostic, and fail engine initialization. Successful
+`FEngineLoop::Init()` is therefore authoritative evidence that a project editor
+has an active default Level and is ready for ordinary ticking.
 
-Destroying the default frame removes the bootstrap context, so no later tick
-can admit deferred work. MainFrame then stops request admission and unwinds
+Loading progress is phase-based rather than time- or byte-based. The compact
+themed view reports shell presentation, workspace activation, and default-Level
+opening with a stable phase index and progress bar. Because the underlying
+loads remain synchronous, it does not promise animation or fabricate
+intra-operation percentages while one phase blocks the game thread.
+
+Destroying the default frame removes the bootstrap context, so no later startup
+callback can admit work. MainFrame then stops request admission and unwinds
 workspace integrations in the reverse order described below. Partially loaded
 default documents use the normal request-scoped package snapshot and release
 only ownership introduced by that request.

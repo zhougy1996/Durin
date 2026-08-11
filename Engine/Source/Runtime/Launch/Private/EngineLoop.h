@@ -38,6 +38,10 @@ namespace Durin
 		auto Tick() -> void;
 		auto Exit() -> void;
 		auto HasLoggerStarted() const -> bool { return bLoggerStarted; }
+		auto WasInitializationCancelled() const -> bool
+		{
+			return bInitializationCancelled;
+		}
 		auto GetState() const -> EEngineLoopState { return State; }
 
 	private:
@@ -52,5 +56,6 @@ namespace Durin
 		bool bProjectAuthoringOwnershipAcquired = false;
 		bool bTaskSchedulerStarted = false;
 		bool bGameThreadDeferredExecutorStarted = false;
+		bool bInitializationCancelled = false;
 	};
 }

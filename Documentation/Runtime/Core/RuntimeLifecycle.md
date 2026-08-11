@@ -71,6 +71,14 @@ Current engine selection is semantic:
 
 Host-specific startup then lives in the concrete engine overrides.
 
+Concrete engine initialization returns an owning
+`FEngineInitializationResult` that distinguishes success, user cancellation,
+and failure. Launch supplies an `FEngineInitContext` with only a startup-frame
+pump and the headless policy; editor modules do not depend on Launch internals.
+A failed result enters the partial-startup unwind before the normal main loop.
+A close request while the editor is initializing is cancellation, uses the same
+exact-once unwind, and maps to a clean process result.
+
 `DEngine::Init()` initializes the default-material service after Engine Content
 mounts, AssetCore availability, RHI, and render-command admission, but before
 the renderer scene and world can create scene proxies. The service performs one
@@ -84,6 +92,23 @@ after creating its window and scene viewport. It resolves the optional exact
 play with an explicit World request. A missing pair selects lifecycle-only
 play. A partial or invalid configured pair, or a native bootstrap failure,
 produces an actionable startup error and leaves the World stopped.
+
+`DEditorEngine::Init()` constructs the production MainFrame shell and drives
+workspace activation plus default-Level opening to a terminal result before it
+returns. Visible startup first pumps a real Mona/ImGui frame and waits for the
+Vulkan presentation path to publish `FirstPresent`; hidden startup skips that
+presentation gate. Project Browser initialization completes after its visible
+host frame, or immediately after shell construction in headless mode, without
+loading project workspaces.
+
+The startup pump processes application events and submits a loading-only frame
+through the existing RHI begin/end, Mona render, frame synchronization, and
+render-counter protocol. It does not call `DEngine::Tick()`, redraw engine
+viewports, pump ordinary deferred or asset-completion budgets, collect garbage,
+tick diagnostics or PIE, publish FPS/profiler frames, or increment the logic
+frame counter. The editor loading view reports named phase progress; synchronous
+workspace and Level operations may keep the last submitted frame static until
+the operation returns.
 
 ## Frame And World Lifecycle
 
@@ -109,6 +134,9 @@ drain policies rather than storing large results in the deferred executor.
 Launch keeps the frame render decision visible in `FEngineLoop::Tick()`, while
 its private `EngineFrame` component owns begin/end render-thread callbacks, UI
 and viewport submission, end-frame synchronization, and the render counter.
+The same component has a startup mode that shares those frame mechanics while
+submitting only Mona/ImGui. Startup mode is callable only through the narrow
+engine-init context and ends before `FEngineLoop` publishes `Running`.
 Responsibility-specific diagnostics own editor PIE, native gameplay, and
 task-scheduler retained state. Typed native-crash phases are resolved at the
 argument boundary rather than compared as arbitrary strings by the loop. These

@@ -39,9 +39,11 @@ namespace Durin
 		if (GEditor == this) GEditor = nullptr;
 	}
 
-	auto DEditorEngine::Init() -> void
+	auto DEditorEngine::Init(const FEngineInitContext& InitContext)
+		-> FEngineInitializationResult
 	{
-		DEngine::Init();
+		if (FEngineInitializationResult Result = DEngine::Init(InitContext); !Result)
+			return Result;
 		EditorWorld = GetWorld();
 		EditorWorld->SetWorldType(EWorldType::Editor);
 
@@ -54,6 +56,29 @@ namespace Durin
 			MainFrameModule->CreateDefaultMainFrame();
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellComplete);
+
+		if (!InitContext.PumpStartupFrame)
+			return FEngineInitializationResult::Failure(
+				"Editor initialization requires a startup-frame pump.");
+		while (true)
+		{
+			if (!InitContext.PumpStartupFrame())
+				return FEngineInitializationResult::Cancelled(
+					"Editor initialization was cancelled by a close request.");
+			const bool bFirstPresentAvailable = InitContext.bHeadless
+				|| Profiling::GetStartupMilestoneMilliseconds(
+					Profiling::EStartupMilestone::FirstPresent) >= 0.0;
+			const FEditorBootstrapProgress Progress =
+				MainFrameModule->AdvanceDefaultMainFrameBootstrap(
+					bFirstPresentAvailable);
+			if (Progress.Status == EEditorBootstrapStepStatus::Ready) break;
+			if (Progress.Status == EEditorBootstrapStepStatus::Failed)
+			{
+				// Keep the actionable failure visible for one final safe frame.
+				InitContext.PumpStartupFrame();
+				return FEngineInitializationResult::Failure(Progress.Message);
+			}
+		}
 		Profiling::TryLogStartupTimingSummary();
 
 		auto RegisterCommand = [this](FConsoleCommandDesc Desc) {
@@ -135,14 +160,13 @@ namespace Durin
 						Mode == Asset::EAssetRedirectorFixupMode::RewriteOnly
 							? "rewrite-only" : "rewrite-and-delete"))
 					: FConsoleCommandResult::Failure(Result.Message);
-			}});
+		}});
 		DURIN_DEBUG("Editor initialized successfully");
+		return FEngineInitializationResult::Success();
 	}
 
 	auto DEditorEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
 	{
-		if (MainFrameModule)
-			MainFrameModule->TickDefaultMainFrameBootstrap();
 		ReleaseRetiredPlaySessions();
 		if (IsPlayingInNewWindow() && PlayWindow)
 		{

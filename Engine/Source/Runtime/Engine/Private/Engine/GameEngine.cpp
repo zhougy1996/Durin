@@ -17,9 +17,11 @@ namespace Durin
 	{
 	}
 
-	auto DGameEngine::Init() -> void
+	auto DGameEngine::Init(const FEngineInitContext& Context)
+		-> FEngineInitializationResult
 	{
-		DEngine::Init();
+		if (FEngineInitializationResult Result = DEngine::Init(Context); !Result)
+			return Result;
 		StartupError.clear();
 
 		std::shared_ptr<MWindow> GameWindow = std::make_shared<MWindow>();
@@ -45,14 +47,14 @@ namespace Durin
 			{
 				StartupError = SettingsResult.Message;
 				DURIN_ERROR("Could not load project game settings: {}", StartupError);
-				return;
+				return FEngineInitializationResult::Success();
 			}
 			const FNativeGameModeResolution GameMode = ResolveNativeGameMode(Settings);
 			if (!GameMode)
 			{
 				StartupError = GameMode.Result.Message;
 				DURIN_ERROR("Could not resolve native gameplay bootstrap: {}", StartupError);
-				return;
+				return FEngineInitializationResult::Success();
 			}
 			if (!Settings.DefaultLevel.empty())
 			{
@@ -87,5 +89,6 @@ namespace Durin
 				}
 			}
 		}
+		return FEngineInitializationResult::Success();
 	}
 }

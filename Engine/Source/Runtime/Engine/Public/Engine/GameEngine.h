@@ -13,7 +13,8 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		ENGINE_API explicit DGameEngine(const FObjectInitializer& ObjectInitializer);
-		ENGINE_API auto Init() -> void override;
+		ENGINE_API auto Init(const FEngineInitContext& Context)
+			-> FEngineInitializationResult override;
 		auto GetStartupError() const -> const std::string& { return StartupError; }
 
 	private:

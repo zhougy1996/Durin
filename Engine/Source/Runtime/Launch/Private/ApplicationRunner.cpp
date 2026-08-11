@@ -106,9 +106,10 @@ namespace Durin
 		const FEngineStartupParams StartupParams = MakeStartupParams(Request.Host);
 		if (!EngineLoop.PreInit(StartupParams) || !EngineLoop.Init())
 		{
+			const int InitResult = EngineLoop.WasInitializationCancelled() ? 0 : 1;
 			EngineLoop.Exit();
 			if (EngineLoop.HasLoggerStarted()) LoggerShutdown();
-			return 1;
+			return InitResult;
 		}
 
 		int ProcessResult = 0;

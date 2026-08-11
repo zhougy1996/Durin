@@ -148,10 +148,15 @@ namespace Durin
 		RemoveFromRoot(GEngine);
 		MarkObjectHierarchyAsGarbage(GEngine);
 		GEngine = nullptr;
+		Asset::ShutdownAssetManager();
 		ReleaseClassDefaultObjects();
 		ReleaseDStructDefaults();
 		CollectGarbage();
+		if (GRenderingThread) FlushRenderingCommands();
+		CollectGarbage();
 		FModuleManager::Get().UnloadModulesAtShutdown();
+		ShutdownRenderingThread();
+		RHIExit();
 		ShutdownApplicationCore();
 		if (bProjectAuthoringOwnershipAcquired)
 		{
@@ -190,7 +195,35 @@ namespace Durin
 		InitRenderingThread();
 		FModuleManager::Get().LoadModuleChecked("Mona");
 
-		GEngine->Init();
+		FEngineInitContext EngineInitContext;
+		EngineInitContext.bHeadless = GIsWindowDisplaySuppressed;
+		EngineInitContext.PumpStartupFrame = []() {
+			constexpr double StartupWaitSeconds = 1.0 / 60.0;
+			auto& Application = Mona::FMonaApplication::Get();
+			Application.Tick();
+			if (IsEngineExitRequested()) return false;
+			if (GIsWindowDisplaySuppressed) return true;
+			if (Application.AreAllWindowsMinimized())
+			{
+				Application.WaitForEvents(StartupWaitSeconds);
+				return !IsEngineExitRequested();
+			}
+			RenderEngineStartupFrame();
+			return !IsEngineExitRequested();
+		};
+		const FEngineInitializationResult EngineInitResult =
+			GEngine->Init(EngineInitContext);
+		if (!EngineInitResult)
+		{
+			bInitializationCancelled = EngineInitResult.Status
+				== EEngineInitializationStatus::Cancelled;
+			if (bInitializationCancelled)
+				DURIN_INFO("{}", EngineInitResult.Message.empty()
+					? "Engine initialization was cancelled." : EngineInitResult.Message);
+			else
+				DURIN_ERROR("Engine initialization failed: {}", EngineInitResult.Message);
+			return FailInitializationAfterRHI();
+		}
 		LastTickTime = FTime::Seconds();
 
 		DURIN_INFO(STR("Durin engine initialized."));

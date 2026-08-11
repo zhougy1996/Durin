@@ -33,6 +33,7 @@ namespace Durin
 			EEditorDefaultDocumentState::NotApplicable;
 		bool bHasProject = false;
 		bool bWorkspaceActivationStarted = false;
+		std::string FailureMessage;
 		std::shared_ptr<FEditorHostSettings> HostSettings;
 		std::shared_ptr<MWindow> RootWindow;
 		std::shared_ptr<FEditorWorkspaceManager> WorkspaceManager;
@@ -150,7 +151,19 @@ namespace Durin
 			return true;
 		}
 
-		auto DrawEditorLoadingState(EEditorBootstrapState State) -> void
+		auto MakeEditorBootstrapProgress(const FMainFrameBootstrapContext& Context)
+			-> FEditorBootstrapProgress
+		{
+			FEditorBootstrapProgress Progress;
+			Progress.State = Context.State;
+			Progress.DefaultDocumentState = Context.DefaultDocumentState;
+			Progress.Status = GetEditorBootstrapStepStatus(Context.State);
+			Progress.PhaseIndex = GetEditorBootstrapPhaseIndex(Context.State);
+			Progress.Message = Context.FailureMessage;
+			return Progress;
+		}
+
+		auto DrawEditorLoadingState(const FMainFrameBootstrapContext& Context) -> void
 		{
 			ImGuiViewport* Viewport = ImGui::GetMainViewport();
 			ImGui::SetNextWindowPos(Viewport->WorkPos);
@@ -163,16 +176,28 @@ namespace Durin
 				| ImGuiWindowFlags_NoNavFocus;
 			ImGui::Begin("###Durin.Editor.LoadingHost", nullptr, Flags);
 			const char* Message = "Loading project workspace...";
-			if (State == EEditorBootstrapState::WaitingForFirstPresent)
+			if (Context.State == EEditorBootstrapState::WaitingForFirstPresent)
 				Message = "Preparing editor...";
-			else if (State == EEditorBootstrapState::LoadingDefaultDocument)
+			else if (Context.State == EEditorBootstrapState::LoadingDefaultDocument)
 				Message = "Opening default level...";
+			const FEditorBootstrapProgress Progress = MakeEditorBootstrapProgress(Context);
 			const ImVec2 MessageSize = ImGui::CalcTextSize(Message);
 			const ImVec2 Available = ImGui::GetContentRegionAvail();
+			const float ContentWidth = MonaImGui::ScaleUI(360.0f);
+			const float ContentHeight = MonaImGui::ScaleUI(72.0f);
 			ImGui::SetCursorPos({
-				FMath::Max(0.0f, (Available.x - MessageSize.x) * 0.5f),
-				FMath::Max(0.0f, (Available.y - MessageSize.y) * 0.5f)});
+				FMath::Max(0.0f, (Available.x - ContentWidth) * 0.5f),
+				FMath::Max(0.0f, (Available.y - ContentHeight) * 0.5f)});
+			ImGui::SetCursorPosX(ImGui::GetCursorPosX()
+				+ FMath::Max(0.0f, (ContentWidth - MessageSize.x) * 0.5f));
 			ImGui::TextUnformatted(Message);
+			ImGui::Spacing();
+			ImGui::ProgressBar(
+				static_cast<float>(Progress.PhaseIndex) / Progress.PhaseCount,
+				{ContentWidth, MonaImGui::ScaleUI(8.0f)}, "");
+			ImGui::SetCursorPosX(ImGui::GetCursorPosX()
+				+ ContentWidth - MonaImGui::ScaleUI(70.0f));
+			ImGui::TextDisabled("Phase %u/%u", Progress.PhaseIndex, Progress.PhaseCount);
 			ImGui::End();
 		}
 
@@ -605,7 +630,7 @@ namespace Durin
 				Context->ProjectBrowser->Draw();
 				return;
 			}
-			DrawEditorLoadingState(Context->State);
+			DrawEditorLoadingState(*Context);
 		});
 		Context.RootWindow->SetContent(EditorRootWidget);
 
@@ -634,15 +659,20 @@ namespace Durin
 		BootstrapContext.reset();
 	}
 
-	auto FMainFrameModule::TickDefaultMainFrameBootstrap() -> void
+	auto FMainFrameModule::AdvanceDefaultMainFrameBootstrap(
+		bool bFirstPresentAvailable) -> FEditorBootstrapProgress
 	{
-		if (!BootstrapContext) return;
+		if (!BootstrapContext)
+			return {.Status = EEditorBootstrapStepStatus::Failed,
+				.Message = "The editor main frame is unavailable."};
 		FMainFrameBootstrapContext& Context = *BootstrapContext;
+		if (Context.State == EEditorBootstrapState::Ready
+			|| Context.State == EEditorBootstrapState::Failed)
+			return MakeEditorBootstrapProgress(Context);
 		if (Context.State == EEditorBootstrapState::WaitingForFirstPresent)
 		{
-			if (Profiling::GetStartupMilestoneMilliseconds(
-					Profiling::EStartupMilestone::FirstPresent) < 0.0)
-				return;
+			if (!bFirstPresentAvailable)
+				return MakeEditorBootstrapProgress(Context);
 			if (!Context.bHasProject)
 			{
 				Profiling::RecordStartupMilestone(
@@ -653,22 +683,25 @@ namespace Durin
 					Profiling::EStartupMilestone::DefaultWorkspaceReady);
 				TransitionEditorBootstrap(Context, EEditorBootstrapState::Ready);
 				Profiling::TryLogStartupTimingSummary();
-				return;
+				return MakeEditorBootstrapProgress(Context);
 			}
 			TransitionEditorBootstrap(
 				Context, EEditorBootstrapState::LoadingWorkspace);
-			return;
+			return MakeEditorBootstrapProgress(Context);
 		}
 		if (Context.State == EEditorBootstrapState::LoadingWorkspace)
 		{
-			if (Context.bWorkspaceActivationStarted) return;
+			if (Context.bWorkspaceActivationStarted)
+				return MakeEditorBootstrapProgress(Context);
 			Context.bWorkspaceActivationStarted = true;
 			TransitionEditorBootstrap(
 				Context,
 				ActivateEditorWorkspaces(Context)
 					? EEditorBootstrapState::WorkspaceReady
 					: EEditorBootstrapState::Failed);
-			return;
+			if (Context.State == EEditorBootstrapState::Failed)
+				Context.FailureMessage = "Could not initialize the editor workspaces.";
+			return MakeEditorBootstrapProgress(Context);
 		}
 		if (Context.State == EEditorBootstrapState::WorkspaceReady)
 		{
@@ -676,17 +709,33 @@ namespace Durin
 				EEditorDefaultDocumentState::Loading;
 			TransitionEditorBootstrap(
 				Context, EEditorBootstrapState::LoadingDefaultDocument);
-			return;
+			return MakeEditorBootstrapProgress(Context);
 		}
 		if (Context.State != EEditorBootstrapState::LoadingDefaultDocument)
-			return;
+			return MakeEditorBootstrapProgress(Context);
 
 		Context.DefaultDocumentState = Context.LevelEditorModule
 			&& Context.LevelEditorModule->OpenDefaultDocument()
 			? EEditorDefaultDocumentState::Ready
 			: EEditorDefaultDocumentState::Failed;
-		TransitionEditorBootstrap(Context, EEditorBootstrapState::Ready);
+		if (Context.DefaultDocumentState == EEditorDefaultDocumentState::Ready)
+			TransitionEditorBootstrap(Context, EEditorBootstrapState::Ready);
+		else
+		{
+			Context.FailureMessage = "Could not open the configured default Level document.";
+			Context.ProjectBrowser->SetError(Context.FailureMessage);
+			TransitionEditorBootstrap(Context, EEditorBootstrapState::Failed);
+		}
 		Profiling::TryLogStartupTimingSummary();
+		return MakeEditorBootstrapProgress(Context);
+	}
+
+	auto FMainFrameModule::GetDefaultMainFrameBootstrapProgress() const
+		-> FEditorBootstrapProgress
+	{
+		return BootstrapContext
+			? MakeEditorBootstrapProgress(*BootstrapContext)
+			: FEditorBootstrapProgress{};
 	}
 
 	auto FMainFrameModule::GetDefaultMainFrameBootstrapState() const

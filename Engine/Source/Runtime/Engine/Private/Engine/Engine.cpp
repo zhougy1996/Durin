@@ -117,7 +117,7 @@ namespace Durin
 
 	DEngine::~DEngine() = default;
 
-	auto DEngine::Init() -> void
+	auto DEngine::Init(const FEngineInitContext&) -> FEngineInitializationResult
 	{
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultMaterialBegin);
 		{
@@ -134,6 +134,7 @@ namespace Durin
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RendererReady);
 		SetWorld(NewObject<DWorld>(this, "MainWorld"));
 		Mona::FMonaApplication::Get().SetGameEventHandler(std::make_unique<FEngineInputEventHandler>());
+		return FEngineInitializationResult::Success();
 	}
 
 	auto DEngine::BeginDestroy() -> void

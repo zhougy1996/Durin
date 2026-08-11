@@ -38,29 +38,41 @@ namespace Durin
 		}
 	}
 
+	namespace
+	{
+		auto RenderFrame(EEngineFrameMode Mode) -> void
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.RenderFrame");
+			if (GDynamicRHI == nullptr) return;
+
+			const uint64 LogicFrameCounter = GFrameCounter;
+			const uint64 RenderFrameCounter = GRenderFrameCounter;
+			ENQUEUE_RENDER_COMMAND(BeginFrame)(
+				[LogicFrameCounter, RenderFrameCounter](FRHICommandListImmediate& CommandList) {
+					BeginFrameRenderThread(CommandList, LogicFrameCounter, RenderFrameCounter);
+				});
+
+			Mona::NewFrame();
+			if (ShouldRedrawEngineViewports(Mode) && GEngine != nullptr)
+				GEngine->RedrawViewports();
+			Mona::Render();
+
+			ENQUEUE_RENDER_COMMAND(EndFrame)(
+				[LogicFrameCounter, RenderFrameCounter](FRHICommandListImmediate& RHICmdList) {
+					EndFrameRenderThread(RHICmdList, LogicFrameCounter, RenderFrameCounter);
+				});
+			FFrameSync::Sync(FFrameSync::EFlushMode::EndFrame);
+			GRenderFrameCounter++;
+		}
+	}
+
 	auto RenderEngineFrame() -> void
 	{
-		DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.RenderFrame");
-		if (GDynamicRHI == nullptr) return;
+		RenderFrame(EEngineFrameMode::Running);
+	}
 
-		const uint64 LogicFrameCounter = GFrameCounter;
-		const uint64 RenderFrameCounter = GRenderFrameCounter;
-		ENQUEUE_RENDER_COMMAND(BeginFrame)(
-			[LogicFrameCounter, RenderFrameCounter](FRHICommandListImmediate& CommandList) {
-				BeginFrameRenderThread(CommandList, LogicFrameCounter, RenderFrameCounter);
-			});
-
-		// UI drawing may enqueue offscreen preview work that allocates frame-local
-		// uniform ranges, so admit it only after the frame-begin boundary.
-		Mona::NewFrame();
-		if (GEngine != nullptr) GEngine->RedrawViewports();
-		Mona::Render();
-
-		ENQUEUE_RENDER_COMMAND(EndFrame)(
-			[LogicFrameCounter, RenderFrameCounter](FRHICommandListImmediate& RHICmdList) {
-				EndFrameRenderThread(RHICmdList, LogicFrameCounter, RenderFrameCounter);
-			});
-		FFrameSync::Sync(FFrameSync::EFlushMode::EndFrame);
-		GRenderFrameCounter++;
+	auto RenderEngineStartupFrame() -> void
+	{
+		RenderFrame(EEngineFrameMode::Startup);
 	}
 }

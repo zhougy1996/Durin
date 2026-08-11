@@ -17,7 +17,10 @@ namespace Durin
 		auto ShutdownModule() -> void override;
 		auto CreateDefaultMainFrame() -> void override;
 		auto DestroyDefaultMainFrame() -> void override;
-		auto TickDefaultMainFrameBootstrap() -> void override;
+		auto AdvanceDefaultMainFrameBootstrap(bool bFirstPresentAvailable)
+			-> FEditorBootstrapProgress override;
+		auto GetDefaultMainFrameBootstrapProgress() const
+			-> FEditorBootstrapProgress override;
 		auto GetDefaultMainFrameBootstrapState() const
 			-> EEditorBootstrapState override;
 		auto GetDefaultDocumentState() const

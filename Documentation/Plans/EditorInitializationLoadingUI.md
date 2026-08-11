@@ -4,36 +4,38 @@ Summary: Move editor workspace and default-level loading back into `DEditorEngin
 
 Last reviewed: 2026-08-11
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-11
 
 ## Current Status
 
-The editor currently creates its main window during `DEditorEngine::Init()` but
-does not activate workspaces or open the default Level document there. Instead,
-`DEditorEngine::Tick()` calls `IMainFrameModule::TickDefaultMainFrameBootstrap()`
-at the beginning of ordinary engine ticks. The MainFrame state machine advances
-through `ConstructingShell -> WaitingForFirstPresent -> LoadingWorkspace ->
-WorkspaceReady -> LoadingDefaultDocument -> Ready`.
+Stages 0-4 are implemented. `DEditorEngine::Init()` now drives the MainFrame
+bootstrap to `Ready` or `Failed`, and ordinary `DEditorEngine::Tick()` performs
+no startup transition. Launch supplies a narrow startup-frame callback that
+processes events and submits a Mona/ImGui-only frame through the production RHI
+begin/end and synchronization path. Visible startup waits for a real
+FirstPresent; hidden startup bypasses the presentation gate.
 
-This arrangement successfully makes the real editor window visible before the
-default Level load. A visible `--editor-pie-lifecycle-smoke` run from the final
-`Win64-Debug-DurinEditor` build on 2026-08-11 loaded the default document and
-passed all four PIE host/start combinations. The remaining design problem is
-lifecycle ownership: `FEngineLoop::Init()` can return success before the editor
-workspace and default Level are ready, initialization failure is discovered by
-normal ticking, and tick-count automation has to infer readiness indirectly.
+The production loading host presents a themed three-phase label and progress
+bar before workspace activation and default-Level opening. Default-document
+failure remains terminal `Failed` and returns an owning engine-init diagnostic.
+A real `WM_CLOSE` during initialization returned process code 0 and completed
+the partial-startup unwind. The invalid-default-Level fixture returned process
+code 1 and shut down MainFrame, modules, rendering, RHI, and workers cleanly.
 
-MainFrame already owns `DrawEditorLoadingState()`, the root window is backed by
-Mona/ImGui, and RHI plus the rendering thread are running before
-`GEngine->Init()` is called. The existing stack is therefore sufficient to show
-a small loading host before the normal main loop. A second native splash window
-is not required for the current post-RHI workspace and Level load.
+The final `Win64-Debug-DurinEditor` `all` build passed together with focused
+EditorShell and Launch process tests, visible/hidden project and Project Browser
+startup, inline-RHI startup, and the visible PIE lifecycle diagnostic. Visible
+timings preserved `FirstPresent` before workspace/default-document readiness.
 
-The selected implementation keeps default-document loading synchronous for this
-plan. The UI reports truthful phase progress and presents the phase before each
-potentially blocking operation; it does not promise continuous animation or
-byte-level progress while a synchronous asset operation is executing.
+The matching DurinGame preset also completed an `all` build and a hidden
+two-tick startup/ordinary-exit run. A prior launcher-only build left the Sandbox
+project module stale and produced a misleading shutdown timeout; that run is
+superseded by the complete game build and 1.95-second successful qualification.
+The final visible editor timing recorded shell=255.539 ms,
+FirstPresent=1274.793 ms, workspace-ready=1333.852 ms, and
+default-document-ready=1532.982 ms, preserving the intended presentation-first
+ordering while making engine initialization the readiness boundary.
 
 ## Goal
 
@@ -227,15 +229,15 @@ byte-level progress while a synchronous asset operation is executing.
 
 ### Stage 0: Characterize startup and freeze the bootstrap contract
 
-- [ ] Record the current visible project, project-browser, hidden project, close-
+- [x] Record the current visible project, project-browser, hidden project, close-
   during-startup, workspace failure, and default-document failure behavior.
-- [ ] Inventory every caller and implementation affected by changing the engine
+- [x] Inventory every caller and implementation affected by changing the engine
   initialization result/context contract, including editor and game variants.
-- [ ] Capture current startup milestone ordering and verify that FirstPresent is
+- [x] Capture current startup milestone ordering and verify that FirstPresent is
   emitted from production frame presentation rather than inferred from a tick.
-- [ ] Define the exact terminal result and process-exit mapping for success,
+- [x] Define the exact terminal result and process-exit mapping for success,
   user cancellation, workspace failure, and default-document failure.
-- [ ] Freeze which operations are admitted in the bootstrap pump and identify
+- [x] Freeze which operations are admitted in the bootstrap pump and identify
   any startup step that currently relies on a normal Tick-side completion pump.
 
 #### Acceptance Gate
@@ -248,17 +250,17 @@ byte-level progress while a synchronous asset operation is executing.
 
 Dependencies: Stage 0.
 
-- [ ] Introduce a structured engine initialization result that distinguishes
+- [x] Introduce a structured engine initialization result that distinguishes
   success, cancellation, and failure and owns its diagnostic text.
-- [ ] Introduce the narrow startup-pump context/callback without exposing Launch
+- [x] Introduce the narrow startup-pump context/callback without exposing Launch
   internals or making Editor modules depend on Launch.
-- [ ] Adapt `DEngine`, `DGameEngine`, `DEditorEngine`, and `FEngineLoop` to the
+- [x] Adapt `DEngine`, `DGameEngine`, `DEditorEngine`, and `FEngineLoop` to the
   result contract while preserving non-editor startup behavior.
-- [ ] Replace `TickDefaultMainFrameBootstrap()` with a step/run contract whose
+- [x] Replace `TickDefaultMainFrameBootstrap()` with a step/run contract whose
   result contains terminal state, phase progress, and failure text.
-- [ ] Correct bootstrap transition invariants so document failure cannot publish
+- [x] Correct bootstrap transition invariants so document failure cannot publish
   overall `Ready`.
-- [ ] Add focused pure tests for every legal/illegal transition, progress phase,
+- [x] Add focused pure tests for every legal/illegal transition, progress phase,
   result mapping, repeated terminal call, and failure propagation path.
 
 #### Acceptance Gate
@@ -271,15 +273,15 @@ Dependencies: Stage 0.
 
 Dependencies: Stage 1.
 
-- [ ] Refactor `EngineFrame` so startup and running modes share RHI begin/end,
+- [x] Refactor `EngineFrame` so startup and running modes share RHI begin/end,
   Mona submission, synchronization, and render-counter updates.
-- [ ] Implement startup mode without `GEngine->RedrawViewports()` or any normal
+- [x] Implement startup mode without `GEngine->RedrawViewports()` or any normal
   game/frame lifecycle work.
-- [ ] Add application event processing, exit observation, minimized pacing, and
+- [x] Add application event processing, exit observation, minimized pacing, and
   presentation-availability handling to the narrow startup pump.
-- [ ] Preserve real FirstPresent profiling for visible startup and provide an
+- [x] Preserve real FirstPresent profiling for visible startup and provide an
   explicit headless path that does not wait for it.
-- [ ] Add focused frame tests or the smallest deterministic seam for proving
+- [x] Add focused frame tests or the smallest deterministic seam for proving
   startup mode draws UI only, maintains begin/end balance, and stops on exit.
 
 #### Acceptance Gate
@@ -292,19 +294,19 @@ Dependencies: Stage 1.
 
 Dependencies: Stages 1-2.
 
-- [ ] Make `DEditorEngine::Init()` create the root host, present the initial
+- [x] Make `DEditorEngine::Init()` create the root host, present the initial
   loading frame, and run MainFrame bootstrap steps to a terminal result.
-- [ ] Preserve the visible FirstPresent gate before workspace/default-document
+- [x] Preserve the visible FirstPresent gate before workspace/default-document
   blocking work and skip that gate for hidden-window startup.
-- [ ] Present the workspace and default-document phases before invoking their
+- [x] Present the workspace and default-document phases before invoking their
   synchronous operations.
-- [ ] Make project-browser mode complete initialization after its visible first
+- [x] Make project-browser mode complete initialization after its visible first
   frame or immediately in headless mode.
-- [ ] Remove bootstrap advancement from `DEditorEngine::Tick()` and remove any
+- [x] Remove bootstrap advancement from `DEditorEngine::Tick()` and remove any
   obsolete early-tick state or comments.
-- [ ] Route workspace/default-document error text and user close cancellation
+- [x] Route workspace/default-document error text and user close cancellation
   through the typed result into `FEngineLoop` cleanup.
-- [ ] Update readiness consumers and lifecycle diagnostics to use the explicit
+- [x] Update readiness consumers and lifecycle diagnostics to use the explicit
   initialization result rather than polling globals or waiting arbitrary ticks.
 
 #### Acceptance Gate
@@ -318,16 +320,16 @@ Dependencies: Stages 1-2.
 
 Dependencies: Stage 3.
 
-- [ ] Finalize the MainFrame loading presentation with themed phase text, a
+- [x] Finalize the MainFrame loading presentation with themed phase text, a
   truthful phase progress bar, and DPI-aware compact layout.
-- [ ] Render actionable failure text for one safe final frame where possible,
+- [x] Render actionable failure text for one safe final frame where possible,
   while preserving the same error in logs and the engine-init result.
-- [ ] Add deterministic MainFrame tests for project/project-browser, visible/
+- [x] Add deterministic MainFrame tests for project/project-browser, visible/
   hidden, success/failure, close, and repeated cleanup cases.
-- [ ] Add a diagnostic or test seam that proves no World tick, PIE tick,
+- [x] Add a diagnostic or test seam that proves no World tick, PIE tick,
   diagnostics tick, garbage collection, or normal completion-budget pump occurs
   during bootstrap.
-- [ ] Qualify visible PIE lifecycle smoke separately from hidden/headless
+- [x] Qualify visible PIE lifecycle smoke separately from hidden/headless
   readiness automation and remove any documentation that combines hidden mode
   with active-window mouse-capture requirements.
 
@@ -341,23 +343,23 @@ Dependencies: Stage 3.
 
 Dependencies: Stages 1-4.
 
-- [ ] Update Runtime Lifecycle with the initialization result, bounded bootstrap
+- [x] Update Runtime Lifecycle with the initialization result, bounded bootstrap
   pump, loading-only render path, readiness boundary, and rollback behavior.
-- [ ] Update Workspace Framework with the initialization-owned state machine,
+- [x] Update Workspace Framework with the initialization-owned state machine,
   progress semantics, project-browser exception, and document failure rule.
-- [ ] Update build/run diagnostic examples so visible-window tests and headless
+- [x] Update build/run diagnostic examples so visible-window tests and headless
   tests use compatible expectations.
-- [ ] Run changed-document validation and the all-plan validator.
-- [ ] Run the smallest affected native test targets during implementation.
-- [ ] Complete a full `all` build because the change is user-visible and crosses
+- [x] Run changed-document validation and the all-plan validator.
+- [x] Run the smallest affected native test targets during implementation.
+- [x] Complete a full `all` build because the change is user-visible and crosses
   Launch, Engine, Mona/RHI frame submission, DurinEd, MainFrame, and LevelEditor.
-- [ ] From the same final editor build, qualify visible project startup, visible
+- [x] From the same final editor build, qualify visible project startup, visible
   project-browser startup, hidden project startup, bounded ordinary exit,
   inline-RHI startup, visible PIE lifecycle smoke, and failure/cancellation
   cleanup.
-- [ ] Build and run the matching game variant to prove the shared initialization
+- [x] Build and run the matching game variant to prove the shared initialization
   result/context did not alter game startup.
-- [ ] Record startup timings for shell, FirstPresent, workspace, and default
+- [x] Record startup timings for shell, FirstPresent, workspace, and default
   document and compare them with the Stage 0 characterization.
 
 #### Acceptance Gate
