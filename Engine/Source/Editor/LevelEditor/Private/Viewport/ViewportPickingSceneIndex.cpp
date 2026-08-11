@@ -76,8 +76,13 @@ namespace Durin
 		Retire();
 		Level = InLevel;
 		if (!InLevel) return;
+		const std::weak_ptr<FViewportPickingSceneIndex> WeakThis = weak_from_this();
 		Subscription = InLevel->SubscribeEditorPickingPrimitives(
-			[this](const FEditorPickingPrimitiveMutationBatch& Batch) { ReceiveBatch(Batch); });
+			[WeakThis](const FEditorPickingPrimitiveMutationBatch& Batch)
+			{
+				if (const std::shared_ptr<FViewportPickingSceneIndex> Index = WeakThis.lock())
+					Index->ReceiveBatch(Batch);
+			});
 		if (!Subscription) Retire();
 	}
 

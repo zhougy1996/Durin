@@ -729,6 +729,19 @@ TEST(FViewportPickingContractTests, SceneIndexTracksOrderedPrimitiveMutationsAnd
 	EXPECT_LE(Index->GetDiagnostics().CandidatePrimitives, 5u);
 }
 
+TEST(FViewportPickingContractTests, SceneIndexObserverDoesNotOutliveIndexWhenLevelIsPendingKill)
+{
+	FPickingFixture Fixture;
+	auto Index = std::make_shared<Durin::FViewportPickingSceneIndex>();
+	Index->SetLevel(Fixture.Level);
+
+	Durin::MarkObjectHierarchyAsGarbage(Fixture.Level);
+	Index.reset();
+
+	Fixture.Actor->GetStaticMeshComponent()->UnregisterComponent();
+	SUCCEED();
+}
+
 TEST(FViewportPickingContractTests, StaticAccelerationReusesAssetDataAndMatchesReferenceAndComparePolicies)
 {
 	FPickingFixture Fixture;

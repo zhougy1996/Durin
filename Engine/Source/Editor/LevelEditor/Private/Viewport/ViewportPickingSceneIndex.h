@@ -34,6 +34,7 @@ namespace Durin
 
 	// Maintains one deterministic game-thread broad phase for all viewports of a level context.
 	class FViewportPickingSceneIndex final
+		: public std::enable_shared_from_this<FViewportPickingSceneIndex>
 	{
 	public:
 		FViewportPickingSceneIndex();
