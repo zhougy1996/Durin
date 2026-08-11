@@ -14,6 +14,7 @@
 #include "Input/InputCoreTypes.h"
 #include "NativeDObjectTestSupport.h"
 #include "PlayerPawn.h"
+#include "Physics/PhysicsScene.h"
 #include "SandboxGameplayTuning.h"
 #include "SimpleGroundMovementComponent.h"
 
@@ -116,9 +117,14 @@ namespace
 		Durin::CollectGarbage();
 	}
 
-	auto SimulateForward(double FrameRate, double Seconds) -> Durin::FVector3
+	auto SimulateForward(
+		double FrameRate,
+		double Seconds,
+		Durin::EPhysicsSceneQueryExecutionPolicy Policy = Durin::EPhysicsSceneQueryExecutionPolicy::Production)
+		-> Durin::FVector3
 	{
 		Durin::DWorld* World = CreateGameplayWorld();
+		EXPECT_TRUE(World->GetPhysicsScene().SetQueryExecutionPolicy(Policy));
 		Durin::Sandbox::APlayerPawn* Pawn = BeginGameplay(*World);
 		Durin::FGameInputState Input;
 		Durin::FGameInputStateTestAccess::EnableAndFocus(Input);
@@ -132,6 +138,119 @@ namespace
 		const Durin::FVector3 Location = Pawn->GetActorTransform().Translation;
 		DestroyWorld(World);
 		return Location;
+	}
+
+	struct FSandboxMeasurementResult
+	{
+		Durin::FPhysicsSceneQueryDiagnostics Diagnostics;
+		Durin::FVector3 Location{0.0};
+		bool bGrounded = false;
+		Durin::uint64 ElapsedNanoseconds = 0;
+	};
+
+	template <typename Setup, typename Prepare, typename Run>
+	auto ExecuteSandboxMeasurement(
+		bool bAddFloor,
+		Setup&& SetupWorld,
+		Prepare&& PrepareRun,
+		Run&& RunSequence) -> FSandboxMeasurementResult
+	{
+		Durin::DWorld* World = CreateGameplayWorld(bAddFloor);
+		SetupWorld(*World);
+		Durin::Sandbox::APlayerPawn* Pawn = BeginGameplay(*World);
+		EXPECT_NE(Pawn, nullptr);
+		Durin::FGameInputState Input;
+		Durin::FGameInputStateTestAccess::EnableAndFocus(Input);
+		PrepareRun(*World, *Pawn, Input);
+		EXPECT_TRUE(World->GetPhysicsScene().SetDetailedQueryDiagnosticsEnabled(false));
+		EXPECT_TRUE(World->GetPhysicsScene().ResetQueryDiagnostics());
+		const auto Start = std::chrono::steady_clock::now();
+		RunSequence(*World, *Pawn, Input);
+		const Durin::uint64 Elapsed = static_cast<Durin::uint64>(
+			std::chrono::duration_cast<std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - Start).count());
+		FSandboxMeasurementResult Result{
+			.Diagnostics = World->GetPhysicsScene().CaptureQueryDiagnostics(),
+			.Location = Pawn->GetActorTransform().Translation,
+			.bGrounded = Pawn->GetGroundMovementComponent()->IsGrounded(),
+			.ElapsedNanoseconds = Elapsed};
+		DestroyWorld(World);
+		return Result;
+	}
+
+	template <typename Setup, typename Prepare, typename Run, typename Verify>
+	auto MeasureSandboxCase(
+		std::string_view CaseName,
+		bool bAddFloor,
+		Setup&& SetupWorld,
+		Prepare&& PrepareRun,
+		Run&& RunSequence,
+		Verify&& VerifyResult) -> void
+	{
+		constexpr Durin::uint32 WarmupCount = 3;
+		constexpr Durin::uint32 SampleCount = 11;
+		for (Durin::uint32 Warmup = 0; Warmup < WarmupCount; ++Warmup)
+		{
+			const FSandboxMeasurementResult Result = ExecuteSandboxMeasurement(
+				bAddFloor, SetupWorld, PrepareRun, RunSequence);
+			VerifyResult(Result);
+		}
+
+		std::vector<Durin::uint64> Samples;
+		Samples.reserve(SampleCount);
+		FSandboxMeasurementResult LastResult;
+		Durin::uint64 Checksum = 0;
+		for (Durin::uint32 Sample = 0; Sample < SampleCount; ++Sample)
+		{
+			LastResult = ExecuteSandboxMeasurement(bAddFloor, SetupWorld, PrepareRun, RunSequence);
+			VerifyResult(LastResult);
+			Samples.push_back(LastResult.ElapsedNanoseconds);
+			Checksum += static_cast<Durin::uint64>(
+				std::abs(LastResult.Location.x) * 1'000.0
+				+ std::abs(LastResult.Location.y) * 1'000.0
+				+ std::abs(LastResult.Location.z) * 1'000.0)
+				+ (LastResult.bGrounded ? 7u : 3u);
+		}
+		std::ranges::sort(Samples);
+		const auto& Query = LastResult.Diagnostics.Queries;
+		const Durin::FPhysicsSceneQueryCounters& Line =
+			Query[static_cast<size_t>(Durin::EPhysicsSceneQueryKind::LineTraceSingle)];
+		const Durin::FPhysicsSceneQueryCounters& Sweep =
+			Query[static_cast<size_t>(Durin::EPhysicsSceneQueryKind::SweepSingle)];
+		const Durin::FPhysicsSceneQueryCounters& Overlap =
+			Query[static_cast<size_t>(Durin::EPhysicsSceneQueryKind::OverlapMulti)];
+		auto Sum = [&](auto Member) {
+			return Line.*Member + Sweep.*Member + Overlap.*Member;
+		};
+		std::cout << "SandboxAetherBaseline"
+			<< ",case=" << CaseName
+			<< ",warmups=" << WarmupCount
+			<< ",samples=" << SampleCount
+			<< ",median_ns=" << Samples[SampleCount / 2]
+			<< ",p95_ns=" << Samples[SampleCount - 1]
+			<< ",line_queries=" << Line.SubmittedQueries
+			<< ",sweep_queries=" << Sweep.SubmittedQueries
+			<< ",overlap_queries=" << Overlap.SubmittedQueries
+			<< ",body_visits=" << Sum(&Durin::FPhysicsSceneQueryCounters::BodyVisits)
+			<< ",filter_rejected=" << Sum(&Durin::FPhysicsSceneQueryCounters::FilterRejectedBodies)
+			<< ",pair_tests=" << Sum(&Durin::FPhysicsSceneQueryCounters::NarrowPhasePairTests)
+			<< ",distance_evaluations=" << Sum(&Durin::FPhysicsSceneQueryCounters::GeometryDistanceEvaluations)
+			<< ",search_iterations=" << Sum(&Durin::FPhysicsSceneQueryCounters::GeometrySearchIterations)
+			<< ",returned=" << Sum(&Durin::FPhysicsSceneQueryCounters::ReturnedResults)
+			<< ",checksum=" << Checksum << '\n';
+		EXPECT_GT(Checksum, 0u);
+	}
+
+	auto TickMeasurementFrames(
+		Durin::DWorld& World,
+		Durin::FGameInputState& Input,
+		int FrameCount) -> void
+	{
+		for (int Frame = 0; Frame < FrameCount; ++Frame)
+		{
+			World.Tick({.DeltaSeconds = 1.0f / 60.0f, .GameInput = &Input});
+			Durin::FGameInputStateTestAccess::FinishTick(Input);
+		}
 	}
 }
 
@@ -244,6 +363,22 @@ TEST(FSandboxGameplayMovementTests, MatchesTheFocusedFrameRateMatrix)
 	EXPECT_NEAR(ThirtyHz.z, 0.0, 0.01);
 }
 
+TEST(FSandboxGameplayMovementTests, ReferenceProductionAndComparePreserveTheMovementOutcome)
+{
+	const Durin::FVector3 Reference = SimulateForward(
+		60.0, 2.0, Durin::EPhysicsSceneQueryExecutionPolicy::Reference);
+	const Durin::FVector3 Production = SimulateForward(
+		60.0, 2.0, Durin::EPhysicsSceneQueryExecutionPolicy::Production);
+	const Durin::FVector3 Compare = SimulateForward(
+		60.0, 2.0, Durin::EPhysicsSceneQueryExecutionPolicy::Compare);
+	EXPECT_NEAR(Reference.x, Production.x, 1.0e-8);
+	EXPECT_NEAR(Reference.y, Production.y, 1.0e-8);
+	EXPECT_NEAR(Reference.z, Production.z, 1.0e-8);
+	EXPECT_NEAR(Reference.x, Compare.x, 1.0e-8);
+	EXPECT_NEAR(Reference.y, Compare.y, 1.0e-8);
+	EXPECT_NEAR(Reference.z, Compare.z, 1.0e-8);
+}
+
 TEST(FSandboxGameplayCollisionTests, FallsWithoutCollisionAndRejectsAirborneJump)
 {
 	Durin::DWorld* World = CreateGameplayWorld(false);
@@ -350,4 +485,98 @@ TEST(FSandboxGameplayCollisionTests, RejectsCeilingsAndStepsAcrossSupportedHeigh
 	EXPECT_GT(HighestZ, 0.25);
 	EXPECT_GT(Pawn->GetActorTransform().Translation.x, 3.0);
 	DestroyWorld(World);
+}
+
+TEST(DISABLED_FSandboxGameplayMeasurementBenchmarks, RecordsRealMovementQueryMixAndTiming)
+{
+	auto NoSetup = [](Durin::DWorld&) {};
+	auto EmptyPrepare = [](Durin::DWorld&, Durin::Sandbox::APlayerPawn&, Durin::FGameInputState&) {};
+	auto ForwardPrepare = [](Durin::DWorld&, Durin::Sandbox::APlayerPawn&, Durin::FGameInputState& Input) {
+		Durin::FGameInputStateTestAccess::SetKey(Input, Durin::EKey::W, true);
+	};
+
+	MeasureSandboxCase(
+		"grounded_forward", true, NoSetup, ForwardPrepare,
+		[](Durin::DWorld& World, Durin::Sandbox::APlayerPawn&, Durin::FGameInputState& Input) {
+			TickMeasurementFrames(World, Input, 120);
+		},
+		[](const FSandboxMeasurementResult& Result) {
+			EXPECT_GT(Result.Location.x, 1.0);
+			EXPECT_TRUE(Result.bGrounded);
+		});
+
+	MeasureSandboxCase(
+		"wall_stop", true,
+		[](Durin::DWorld& World) {
+			AddCollisionBox(World, "Wall", {3.0, 0.0, 1.5}, {0.25, 4.0, 1.5});
+		},
+		ForwardPrepare,
+		[](Durin::DWorld& World, Durin::Sandbox::APlayerPawn&, Durin::FGameInputState& Input) {
+			TickMeasurementFrames(World, Input, 120);
+		},
+		[](const FSandboxMeasurementResult& Result) { EXPECT_LT(Result.Location.x, 2.37); });
+
+	MeasureSandboxCase(
+		"rotated_ramp", true,
+		[](Durin::DWorld& World) {
+			AddCollisionBox(World, "Ramp", {3.0, 0.0, 0.75}, {3.0, 2.0, 0.25},
+				Durin::Math::MakeQuaternionFromAxisAngleDegrees(-12.0, Durin::FVectorConstants::Right));
+		},
+		ForwardPrepare,
+		[](Durin::DWorld& World, Durin::Sandbox::APlayerPawn&, Durin::FGameInputState& Input) {
+			TickMeasurementFrames(World, Input, 90);
+		},
+		[](const FSandboxMeasurementResult& Result) { EXPECT_GT(Result.Location.z, 0.2); });
+
+	MeasureSandboxCase(
+		"supported_step", true,
+		[](Durin::DWorld& World) {
+			AddCollisionBox(World, "Step", {2.0, 0.0, 0.2}, {0.5, 2.0, 0.2});
+		},
+		ForwardPrepare,
+		[](Durin::DWorld& World, Durin::Sandbox::APlayerPawn&, Durin::FGameInputState& Input) {
+			TickMeasurementFrames(World, Input, 90);
+		},
+		[](const FSandboxMeasurementResult& Result) { EXPECT_GT(Result.Location.x, 3.0); });
+
+	MeasureSandboxCase(
+		"jump_ceiling_land", true,
+		[](Durin::DWorld& World) {
+			AddCollisionBox(World, "Ceiling", {0.0, 0.0, 3.0}, {2.0, 2.0, 0.5});
+		},
+		[](Durin::DWorld&, Durin::Sandbox::APlayerPawn&, Durin::FGameInputState& Input) {
+			Durin::FGameInputStateTestAccess::SetKey(Input, Durin::EKey::Space, true);
+		},
+		[](Durin::DWorld& World, Durin::Sandbox::APlayerPawn&, Durin::FGameInputState& Input) {
+			TickMeasurementFrames(World, Input, 120);
+		},
+		[](const FSandboxMeasurementResult& Result) { EXPECT_TRUE(Result.bGrounded); });
+
+	MeasureSandboxCase(
+		"raised_platform_land", false,
+		[](Durin::DWorld& World) {
+			AddCollisionBox(World, "Platform", {0.0, 0.0, 1.0}, {3.0, 3.0, 0.5});
+		},
+		[](Durin::DWorld&, Durin::Sandbox::APlayerPawn& Pawn, Durin::FGameInputState&) {
+			Durin::FTransform Start = Pawn.GetActorTransform();
+			Start.Translation.z = 4.0;
+			EXPECT_TRUE(Pawn.SetActorTransform(Start));
+		},
+		[](Durin::DWorld& World, Durin::Sandbox::APlayerPawn&, Durin::FGameInputState& Input) {
+			TickMeasurementFrames(World, Input, 120);
+		},
+		[](const FSandboxMeasurementResult& Result) {
+			EXPECT_NEAR(Result.Location.z, 1.5, 0.02);
+			EXPECT_TRUE(Result.bGrounded);
+		});
+
+	MeasureSandboxCase(
+		"empty_world_fall", false, NoSetup, EmptyPrepare,
+		[](Durin::DWorld& World, Durin::Sandbox::APlayerPawn&, Durin::FGameInputState& Input) {
+			TickMeasurementFrames(World, Input, 30);
+		},
+		[](const FSandboxMeasurementResult& Result) {
+			EXPECT_LT(Result.Location.z, -1.0);
+			EXPECT_FALSE(Result.bGrounded);
+		});
 }

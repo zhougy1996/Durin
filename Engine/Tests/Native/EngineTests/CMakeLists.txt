@@ -462,7 +462,9 @@ durin_add_engine_functional_test(WorldTests
 )
 
 durin_add_engine_functional_test(PhysicsSceneTests
-	SOURCES Private/Physics/PhysicsSceneTests.cpp
+	SOURCES
+		Private/Physics/PhysicsSceneTests.cpp
+		Private/Physics/PhysicsQueryObservabilityTests.cpp
 	LIBRARIES AetherCore Aether
 )
 

@@ -14,6 +14,27 @@ namespace Durin::CollisionGeometry
 			FVector3 BoxPoint{0.0};
 		};
 
+		auto AddCounter(uint64& Counter, uint64 Delta, bool& bOverflowed) -> void
+		{
+			if (Counter > std::numeric_limits<uint64>::max() - Delta)
+			{
+				Counter = std::numeric_limits<uint64>::max();
+				bOverflowed = true;
+				return;
+			}
+			Counter += Delta;
+		}
+
+		auto RecordGeometryWork(
+			FCollisionGeometryCounters* Counters,
+			uint64 DistanceEvaluations,
+			uint64 SearchIterations) -> void
+		{
+			if (!Counters) return;
+			AddCounter(Counters->DistanceEvaluations, DistanceEvaluations, Counters->bOverflowed);
+			AddCounter(Counters->SearchIterations, SearchIterations, Counters->bOverflowed);
+		}
+
 		auto NormalizedRotation(const FQuat& Rotation) -> FQuat
 		{
 			FQuat Result;
@@ -40,7 +61,8 @@ namespace Durin::CollisionGeometry
 		auto SegmentBoxDistance(
 			const FVector3& SegmentStart,
 			const FVector3& SegmentEnd,
-			const FVector3& Extent) -> FCapsuleBoxDistance
+			const FVector3& Extent,
+			FCollisionGeometryCounters* Counters) -> FCapsuleBoxDistance
 		{
 			auto Evaluate = [&](double Alpha) {
 				const FVector3 SegmentPoint = SegmentStart + (SegmentEnd - SegmentStart) * Alpha;
@@ -64,6 +86,7 @@ namespace Durin::CollisionGeometry
 			const FCapsuleBoxDistance EndResult = Evaluate(1.0);
 			if (StartResult.SquaredDistance < Result.SquaredDistance) Result = StartResult;
 			if (EndResult.SquaredDistance < Result.SquaredDistance) Result = EndResult;
+			RecordGeometryWork(Counters, SearchIterations * 2u + 3u, SearchIterations);
 			return Result;
 		}
 
@@ -119,7 +142,8 @@ namespace Durin::CollisionGeometry
 		const FVector3& End,
 		const FCollisionShape& Box,
 		const FTransform& BoxTransform,
-		FPhysicsQueryHit& OutHit) -> bool
+		FPhysicsQueryHit& OutHit,
+		FCollisionGeometryCounters*) -> bool
 	{
 		OutHit = {};
 		if (Box.GetType() != ECollisionShapeType::Box || !Box.IsValid()
@@ -188,7 +212,8 @@ namespace Durin::CollisionGeometry
 		const FTransform& CapsuleTransform,
 		const FCollisionShape& Box,
 		const FTransform& BoxTransform,
-		FPhysicsQueryHit& OutHit) -> bool
+		FPhysicsQueryHit& OutHit,
+		FCollisionGeometryCounters* Counters) -> bool
 	{
 		OutHit = {};
 		if (Box.GetType() != ECollisionShapeType::Box || !Box.IsValid()
@@ -199,7 +224,7 @@ namespace Durin::CollisionGeometry
 		if (!GetCapsuleSegment(Capsule, CapsuleTransform, SegmentStart, SegmentEnd, Radius)) return false;
 		const FVector3 Extent = Box.GetBoxHalfExtent() * BoxTransform.Scale3D;
 		const FCapsuleBoxDistance Distance = SegmentBoxDistance(
-			ToBoxSpace(SegmentStart, BoxTransform), ToBoxSpace(SegmentEnd, BoxTransform), Extent);
+			ToBoxSpace(SegmentStart, BoxTransform), ToBoxSpace(SegmentEnd, BoxTransform), Extent, Counters);
 		if (Distance.SquaredDistance >= Radius * Radius - ContactTolerance) return false;
 		OutHit.Time = 0.0;
 		OutHit.Location = CapsuleTransform.Translation;
@@ -214,11 +239,12 @@ namespace Durin::CollisionGeometry
 		const FVector3& Delta,
 		const FCollisionShape& Box,
 		const FTransform& BoxTransform,
-		FPhysicsQueryHit& OutHit) -> bool
+		FPhysicsQueryHit& OutHit,
+		FCollisionGeometryCounters* Counters) -> bool
 	{
 		OutHit = {};
 		if (!Math::IsFinite(Delta)) return false;
-		if (OverlapCapsuleBox(Capsule, CapsuleTransform, Box, BoxTransform, OutHit)) return true;
+		if (OverlapCapsuleBox(Capsule, CapsuleTransform, Box, BoxTransform, OutHit, Counters)) return true;
 		FVector3 SegmentStart;
 		FVector3 SegmentEnd;
 		double Radius = 0.0;
@@ -231,7 +257,8 @@ namespace Durin::CollisionGeometry
 			Math::Inverse(NormalizedRotation(BoxTransform.Rotation)), Delta);
 		const FVector3 Extent = Box.GetBoxHalfExtent() * BoxTransform.Scale3D;
 		auto Evaluate = [&](double Time) {
-			return SegmentBoxDistance(LocalStart + LocalDelta * Time, LocalEnd + LocalDelta * Time, Extent);
+			return SegmentBoxDistance(
+				LocalStart + LocalDelta * Time, LocalEnd + LocalDelta * Time, Extent, Counters);
 		};
 		double Low = 0.0;
 		double High = 1.0;
@@ -242,6 +269,7 @@ namespace Durin::CollisionGeometry
 			if (Evaluate(First).SquaredDistance <= Evaluate(Second).SquaredDistance) High = Second;
 			else Low = First;
 		}
+		RecordGeometryWork(Counters, 0, SearchIterations);
 		const double MinimumTime = (Low + High) * 0.5;
 		if (Evaluate(MinimumTime).SquaredDistance > Radius * Radius + ContactTolerance) return false;
 		Low = 0.0;
@@ -252,6 +280,7 @@ namespace Durin::CollisionGeometry
 			if (Evaluate(Middle).SquaredDistance <= Radius * Radius + ContactTolerance) High = Middle;
 			else Low = Middle;
 		}
+		RecordGeometryWork(Counters, 0, SearchIterations);
 		OutHit.Time = std::clamp(High, 0.0, 1.0);
 		OutHit.Location = CapsuleTransform.Translation + Delta * OutHit.Time;
 		MakeCapsuleContact(Evaluate(OutHit.Time), Radius, BoxTransform, Delta, OutHit);

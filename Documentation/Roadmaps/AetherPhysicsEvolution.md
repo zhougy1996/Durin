@@ -19,14 +19,13 @@ synchronization, collision profiles, and the `DWorld` query facade. Sandbox
 movement now uses capsule sweeps against authored geometry rather than a fixed
 ground plane.
 
-The current scene is intentionally a correctness-first reference
-implementation. Bodies are stored in one `std::vector`; add is amortized
-constant time, but lookup, update, removal, and every query walk the body set.
+The current scene now separates a retained flat Reference oracle from the
+default staged Production pipeline. Production still draws candidates from the
+same body vector, so lookup, update, removal, and every query remain linear.
 Line traces support Box targets, while sweeps and overlaps support the
-Capsule/Box pair. Capsule/Box distance and sweep use bounded nested iterative
-searches, so one broad-phase false positive is still expensive. A query has no
-scene AABB index, candidate counters, narrow-phase counters, scratch allocator,
-or accelerated/reference comparison mode.
+Capsule/Box pair. Optional geometry counters expose the bounded nested searches:
+one sparse sweep miss costs 3,422 distance evaluations and 1,652 search
+iterations per tested pair.
 
 This roadmap treats that implementation as the semantic oracle rather than as
 the storage layout to extend. M0-M3 are the required query-scalability program.
@@ -34,11 +33,16 @@ Rigid-body simulation, parallel execution, and alternate backends are
 conditional tracks activated by concrete consumers and measurements; they are
 not prerequisites for fixing current collision-query cost.
 
-M0 is now selected through the
+M0 completed through the
 [Aether Physics Query Observability Plan](../Plans/AetherPhysicsQueryObservability.md).
-No implementation stage has begun; the plan first freezes current query
-semantics, counter reconciliation, representative workloads, and baseline
-methodology before extracting the reference and production pipelines.
+Reference, Production, and Compare preserve complete query semantics; bounded
+query/mutation diagnostics reconcile; fixed-seed and 0/32/1,000/10,000 parity
+qualification has zero mismatch; and real Sandbox movement plus controlled
+Release baselines separate traversal from pair cost. M1 has not selected a data
+structure. Its proposed entry budgets require at most 32/100 sparse candidates
+at 1,000/10,000 bodies, no more than 64 bytes per body plus 64 KiB fixed index
+memory, bounded mutation/small-scene regression, and at least 4x 10,000-body
+sparse LineTrace/Sweep improvement.
 
 ## Outcome
 
@@ -135,9 +139,10 @@ consumer and validation matrix exist.
   construction, broad-phase candidate enumeration, two-sided filtering,
   narrow-phase dispatch, winner or result accumulation, and deterministic
   final ordering. No stage reaches into another stage's private storage.
-- A test/development execution policy supports `Reference`, `Accelerated`, and
-  `Compare`. Compare executes both paths against the same immutable query input
-  and records semantic mismatches; it is not a shipping per-query default.
+- A test/development execution policy supports `Reference`, `Production`, and
+  `Compare`. Production is the slot M1 accelerates. Compare executes both paths
+  against the same immutable query input and records semantic mismatches; it is
+  not a shipping per-query default.
 - Closest-hit traversal may prune nodes using the current best time, but final
   winner selection always uses `(Time, stable body handle)` and never tree
   insertion or traversal order. Multi-hit results have one documented stable
@@ -231,8 +236,8 @@ consumer and validation matrix exist.
 
 | Area | Existing foundation | Gap | Owning milestone |
 | --- | --- | --- | --- |
-| Public scene boundary | One `FPhysicsScene` per World; UE-shaped World query facade; no Engine pointers below Engine | Scene implementation and diagnostic policy are not replaceable/testable independently | M0 |
-| Correctness oracle | Deterministic flat scan, stable handle tie-break, validation and focused query tests | No Reference/Accelerated/Compare policy or randomized parity corpus | M0 |
+| Public scene boundary | One `FPhysicsScene` per World; unchanged World queries; private staged pipeline; value-only diagnostics | Production candidate source remains a flat body walk | M0 complete; M1 |
+| Correctness oracle | Retained flat Reference, Production/Compare policy, complete-output comparator, fixed-seed and scale parity | Future accelerated traversal must qualify against the oracle | M0 complete; M1-M3 |
 | Body storage | Opaque monotonically assigned handles and one body vector | Lookup/update/removal are linear; generation is not reused through a slot map | M1 |
 | Broad phase | None; every valid body reaches filtering and pair dispatch | No world AABB, static/moving partition, candidate pruning, early-out, or update diagnostics | M1 |
 | Narrow phase | Ray/Box and Capsule/Box reference math, including penetration and rotated positive-scale boxes | Pair support is hard-coded; Sphere is not a complete query target; Capsule/Box sweep has high bounded iterative cost | M2 |
@@ -263,8 +268,8 @@ flowchart LR
 
 | Milestone | Requirement | Proposed child plan | Dependencies | Deliverable | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- | --- | --- |
-| M0: Query observability and reference oracle | Required; active | [Aether Physics Query Observability](../Plans/AetherPhysicsQueryObservability.md) | Completed first-slice collision plan and current focused fixtures | Explicit query pipeline seam, Reference/Accelerated/Compare policy, diagnostics snapshot, representative fixtures, randomized/adversarial parity corpus, and recorded baselines | Current World query semantics, hit fields, tolerances, ordering, scene sizes, query mixes, and measurement method are frozen before acceleration changes | Reference results remain unchanged; counters reconcile every candidate and pair test; small, sparse, dense, churn, and Sandbox baselines are recorded with bounded diagnostic overhead |
-| M1: Body storage and hybrid broad phase | Required | `AetherSceneQueryAcceleration` | M0 oracle, counters, fixtures, and budgets | Generation-checked dense body storage; explicit motion type; conservative AABBs; static BVH plus moving-body dynamic AABB tree or an equivalently qualified hybrid; incremental mutation; closest-hit pruning; bounded scratch | M0 compare mode can detect false negatives, result/order changes, stale handles, and incomplete overflow | Zero reference mismatches; stale handles reject; ordinary moving updates never rebuild the static partition; broad-phase candidates track local occupancy; memory/update/query targets beat recorded flat-scan baselines at qualified scale without regressing accepted small-scene bounds |
+| M0: Query observability and reference oracle | Required; completed 2026-08-11 | [Aether Physics Query Observability](../Plans/AetherPhysicsQueryObservability.md) | Completed first-slice collision plan and current focused fixtures | Explicit query pipeline seam, Reference/Production/Compare policy, diagnostics snapshot, representative fixtures, randomized/adversarial parity corpus, and recorded baselines | Frozen World semantics, result tolerances, ordering, counter equations, scene scales, Sandbox mixes, and measurement method | Zero qualified mismatch; reconciled structural/geometry/mutation work; bounded diagnostic overhead; controlled small, sparse, dense, churn, and Sandbox evidence plus M1 budget proposals |
+| M1: Body storage and hybrid broad phase | Required; not selected | `AetherSceneQueryAcceleration` | Completed M0 oracle, counters, fixtures, and accepted entry budgets | Generation-checked dense body storage; explicit motion type; conservative AABBs; selected static/moving broad phases; incremental mutation; closest-hit pruning; bounded scratch | Accept or revise M0's candidate, memory, mutation, small-scene, and 4x large-scene proposals before selecting the data structure | Zero reference mismatches; stale handles reject; ordinary moving updates never rebuild the static partition; broad-phase candidates track local occupancy; memory/update/query targets beat recorded flat-scan baselines at qualified scale without regressing accepted small-scene bounds |
 | M2: Geometry and narrow-phase architecture | Required | `AetherGeometryAndNarrowphase` | M1 body/index ownership and query pipeline | Immutable shared geometry references, compound simple shapes, operation/pair dispatch, complete primitive query matrix, analytic common fast paths, generic convex fallback, bounded penetration and shape casts, and pair/iteration diagnostics | Shape transform/scale semantics, tolerance policy, contact fields, non-convergence behavior, and geometry-resource lifetime are frozen against the reference oracle | Qualified primitive and compound pairs match reference/goldens; Capsule movement removes pathological nested search from the production path; pair dispatch adds a new geometry type without editing scene traversal; shared geometry is not copied per body |
 | M3: Cooked world collision | Required | `AetherCookedCollisionGeometry` | M2 immutable geometry and dispatch; AssetCore derived-data contracts | Versioned BodySetup cook input/output, convex and triangle-mesh payloads, asset-level BVH, simple-versus-complex query policy, bounded cook/runtime memory, serialization/DDC integration, and collision inspection | Representative imported assets, cook ownership, source-change invalidation, precision, degenerate/oversized failure, platform versioning, and editor authoring scope are selected | Instances share one cooked payload; ray/sweep/overlap parity and nearest-feature ordering pass against reference fixtures; asset and scene acceleration counters reconcile; reimport/cook/load/PIE/standalone preserve collision without render-data dependency |
 | M4: Rigid-body simulation kernel | Conditional; deferred | `AetherRigidBodySimulation` | M1-M2; concrete Dynamic-body gameplay requirement and accepted stability budget | Fixed-step scene state, mass/inertia, forces/impulses, broad-phase pair generation, persistent manifolds, islands, iterative constraint solver, sleeping, kinematic targets, and bounded CCD policy | Not met: no selected dynamic-body consumer, stack/joint scale, timestep, determinism, CCD, failure, or performance budget | Selected dynamic scenarios remain stable within frozen tolerances; query and simulation body identity agree; pause/step/restart/teardown are deterministic; solver/island/contact work and energy/error bounds are observable |

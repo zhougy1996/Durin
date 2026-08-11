@@ -4,23 +4,62 @@ Summary: Establish an instrumented reference/production query pipeline, determin
 
 Last reviewed: 2026-08-11
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-11
 
 ## Current Status
 
 Selected as M0 of the
 [Aether Physics Evolution Roadmap](../Roadmaps/AetherPhysicsEvolution.md).
-Implementation has not begun. The baseline source revision is
+All stages completed on 2026-08-11. The baseline source revision is
 `cca78dbc30e0cc70a6d64e7a9d12d990c725fa2a`, where the completed first-slice
 physics scene stores bodies in one flat vector and executes deterministic
 LineTrace, Capsule Sweep, and Capsule Overlap queries by walking every body.
 
-The existing implementation is the semantic oracle for this plan. M0 will
-separate reference execution from the future production query pipeline, add
-bounded counters and comparison diagnostics, and record small, sparse, dense,
-mutation-heavy, and Sandbox movement baselines. It will not implement a scene
-index, replace current geometry algorithms, or claim production speedup.
+Pre-refactor characterization added six semantic/fixture tests without changing
+the query implementation. `PhysicsSceneTests` passed in both
+`Win64-Debug-DurinEditor` and `Win64-Release-DurinEditor`, and the unchanged
+Sandbox consumer passed `SandboxGameplayTests`. The disabled Release baseline
+entry recorded the flat-query timings below.
+
+Stage 1 retained the original flat loops as Reference executors, made
+Production the default explicit validation/candidate/filter/pair/accumulation
+pipeline, and added synchronous Compare with complete-output comparison and
+Reference fallback. Candidate and result fault injection is private to the
+test friend. Focused `PhysicsSceneTests` and `SandboxGameplayTests`
+qualification passed: candidate reversal preserved parity, while
+candidate omission, result reversal, and field corruption were detected and
+returned the Reference result.
+
+Stage 2 added saturating per-kind query work, O(1) scene mutation/capture/reset
+values, optional detailed timing/mismatch capture, zero-allocation AetherCore
+distance/search counters, and disabled-safe query/pair profiling zones.
+`PhysicsSceneTests` passed in Debug and Release and `SandboxGameplayTests`
+passed. Exact counter tests cover invalid,
+off-thread, hit, ignored, filtered, penetration, Compare, mismatch, saturation,
+and mutation paths. The controlled overhead evidence below accepts the revised
+20% non-empty structural-instrumentation bound.
+
+Stage 3 passed fixed-seed randomized/adversarial Compare qualification over 16
+churned 32-body scenes and fixed-scale LineTrace, Sweep, and Overlap Compare at
+0, 32, 1,000, and 10,000 bodies with zero mismatch. `PhysicsSceneTests` passed
+in Debug and Release and `SandboxGameplayTests` passed. The explicit Release
+qualification entries recorded the structural, timing, mutation,
+retained-memory, and real Sandbox evidence below.
+
+Stage 4 published the lasting execution-policy, comparison, diagnostics,
+measurement, current-limit, and M1-entry contracts in Runtime Physics and
+updated the Aether roadmap to mark M0 complete while leaving M1 unselected.
+Focused PhysicsScene/Sandbox targets, the required Debug native `--target all`
+aggregate, changed/all documentation validation, and all-plan/all-roadmap
+validation passed under the recorded build profile. No editor-visible surface
+or gameplay behavior was introduced, so no full editor build gate applied.
+
+The original implementation remains the semantic oracle. M0 separated it from
+the Production pipeline, added bounded counters and comparison diagnostics,
+and recorded small, sparse, dense, mutation-heavy, and Sandbox movement
+baselines. It did not implement a scene index, replace current geometry
+algorithms, or claim production speedup.
 
 ## Goal
 
@@ -226,6 +265,276 @@ math before M1 selects a broad phase.
 | Gameplay | `SandboxGameplayTests` cover authored scene movement and bounded sweeps | Real movement query mix and structural work are not recorded |
 | Profiling | Core provides optional Tracy CPU-zone macros and native tests support recorded properties | Aether query zones, controlled warm timing, and baseline evidence are absent |
 
+## Stage 0 Frozen Contract
+
+### Result comparison matrix
+
+Reference/Production comparison uses the following fixed field rules. These
+tolerances compare complete semantic output; they do not change closest-hit
+selection, whose `Time` comparison remains exact before the handle tie-break.
+
+| Output | Rule |
+| --- | --- |
+| Query return status, result count, result order | Exact |
+| Actor handle, response, user token, initial-penetration flag | Exact |
+| Normalized time | Absolute tolerance `1.0e-12` |
+| Distance | Absolute tolerance `1.0e-8` |
+| Location and impact point, component by component | Absolute tolerance `1.0e-8` |
+| Impact normal, component by component | Absolute tolerance `1.0e-8` |
+| Penetration depth | Absolute tolerance `1.0e-8` |
+
+The spatial tolerances are no wider than the existing `1.0e-8` contact
+tolerance. Non-finite compared values never compare equal. The first bounded
+mismatch records query kind, both return statuses, both counts, first differing
+result index, reference/production winner handles, and a mask containing
+Status, Count, Order, Handle, Response, Time, Distance, Location, ImpactPoint,
+ImpactNormal, PenetrationDepth, UserToken, or StartPenetrating. It stores no
+strings, body arrays, or Engine values.
+
+### Query policy lifecycle
+
+- `Production` is the default for every new scene. `Reference` and `Compare`
+  are explicit owning-thread selections; an invalid enum or off-thread change
+  returns false and preserves the prior selection.
+- Validation and output clearing occur before executor dispatch. If a call is
+  both off-thread and otherwise invalid, it is classified as off-thread because
+  owning-thread validation has priority.
+- `Compare` reuses one immutable value input and unmutated owning-thread scene,
+  runs Reference then Production synchronously, compares the complete output,
+  and returns Production only on equality. A mismatch increments mismatch and
+  fallback counters and returns the complete Reference output.
+- Structural mismatch/fallback counts are always retained. The fixed mismatch
+  payload and steady-clock sampling are captured only when detailed diagnostics
+  are explicitly enabled. Enabling, disabling, capture, and reset are
+  owning-thread operations and cannot alter bodies or query output.
+
+### Counter schema and reconciliation
+
+Each query kind (`LineTraceSingle`, `SweepSingle`, and `OverlapMulti`) owns
+saturating cumulative values named `SubmittedQueries`, `InvalidQueries`,
+`OffThreadQueries`, `ReferenceExecutions`, `ProductionExecutions`,
+`CompareExecutions`, `BodyVisits`, `Candidates`, `IgnoredBodies`,
+`FilterRejectedBodies`, `NarrowPhasePairTests`,
+`GeometryDistanceEvaluations`, `GeometrySearchIterations`, `RawHits`,
+`ReturnedResults`, `Fallbacks`, `CompareMismatches`, `ScratchHighWater`,
+`CaptureHighWater`, `DetailedTimingSamples`, and
+`DetailedTimingNanoseconds`. A bounded last-query value carries the same work
+terms plus kind, policy, validity, and return status.
+
+Scene mutation values are `AddCalls`, `AddSuccesses`, `AddRejected`,
+`UpdateCalls`, `UpdateSuccesses`, `UpdateRejected`, `RemoveCalls`,
+`RemoveSuccesses`, `RemoveRejected`, `FailedLookups`, `BodiesAtReset`, and
+`BodiesPresent`. Reset zeros cumulative values in O(1), sets both body values
+to the current vector size, and clears the last query/mismatch without walking
+bodies. Capture is one value copy. Every addition that would overflow clamps to
+the unsigned integer maximum and sets `bOverflowed`; no counter wraps.
+
+The following equations and inequalities must hold cumulatively and for each
+last-query execution where the terms apply:
+
+```text
+ValidSubmissions = SubmittedQueries - InvalidQueries - OffThreadQueries
+ReferenceExecutions + ProductionExecutions
+    = ValidSubmissions + CompareExecutions
+Candidates = IgnoredBodies + FilterRejectedBodies + NarrowPhasePairTests
+RawHits <= NarrowPhasePairTests
+ReturnedResults <= RawHits
+Fallbacks = CompareMismatches
+
+AddCalls = AddSuccesses + AddRejected
+UpdateCalls = UpdateSuccesses + UpdateRejected
+RemoveCalls = RemoveSuccesses + RemoveRejected
+BodiesPresent = BodiesAtReset + AddSuccesses - RemoveSuccesses
+```
+
+During M0 the flat candidate source also requires `BodyVisits = Candidates`.
+M1 may reduce Production candidates but must preserve the remaining equations.
+Compare work counts both internal executions while returned results count the
+single public result, so `ReturnedResults <= RawHits` is intentionally not an
+equality in Compare mode. Geometry evaluation/iteration values count only work
+reported by the optional AetherCore sink.
+
+### Fixtures and measurement method
+
+Synthetic fixtures use seed `0xA37E202608110001` and body counts 0, 32, 1,000,
+and 10,000. Sparse bodies use a deterministic four-unit grid outside the query
+corridor; sparse-hit fixtures replace body zero with one corridor hit; dense
+bodies use the recorded LCG to place rotated, positive non-uniformly scaled
+boxes inside a 0.4-unit cube. Filter cohorts alternate two-sided Ignore,
+Overlap, and Block responses; ignored cohorts select every third stable handle;
+churn removes every third body, attempts the same removal again, updates the
+next cohort, and adds replacements. Adversarial fixtures cover zero-length and
+axis-parallel traces, inside starts, initial capsule penetration, strict tangent
+non-overlap, coincident bodies, equal-time ties, invalid handles, invalid
+channels/transforms, non-finite values, and insertion permutations. Any added
+randomized cohort must print its seed and distribution parameters on failure.
+
+Sandbox measurement cases are frozen to grounded forward movement, wall stop
+and slide, rotated ramp plus supported step traversal, jump/ceiling/landing,
+raised-platform landing, and empty-World fall. They use the real
+`DSimpleGroundMovementComponent` fixture at its existing 60 Hz sequence (plus
+the existing 30/60/120 Hz comparison), not an Aether-owned surrogate.
+
+Timing uses the `windows-msvc-x64` Agent Build Profile,
+`Win64-Release-DurinEditor`, MSVC 14.44.35207, Ninja, Tracy disabled, fixture
+construction outside the measured loop, three warm-ups, eleven samples,
+steady-clock nanoseconds, median and P95 (the maximum of eleven), and a consumed
+checksum. The recording machine was an Intel Core i5-13400F with 16 logical
+processors on Windows 10.0.26200. Timings are evidence, not an absolute gate.
+
+### Pre-refactor flat-query timing evidence
+
+These nanoseconds-per-query values came from the disabled
+`FAetherQueryBaselineBenchmarks.RecordsPrePipelineFlatQueryBaseline` entry at
+baseline code revision `cca78dbc30e0cc70a6d64e7a9d12d990c725fa2a`.
+
+| Fixture | Bodies | Median ns | P95 ns |
+| --- | ---: | ---: | ---: |
+| Line sparse miss | 0 | 36 | 44 |
+| Line sparse closest hit | 0 | 37 | 41 |
+| Sweep sparse miss | 0 | 107 | 112 |
+| Sweep dense penetration | 0 | 106 | 201 |
+| Overlap dense | 0 | 93 | 111 |
+| Line sparse miss | 32 | 7,440 | 7,982 |
+| Line sparse closest hit | 32 | 7,492 | 7,894 |
+| Sweep sparse miss | 32 | 695,200 | 708,912 |
+| Sweep dense penetration | 32 | 30,916 | 38,248 |
+| Overlap dense | 32 | 29,535 | 31,238 |
+| Line sparse miss | 1,000 | 236,265 | 239,096 |
+| Line sparse closest hit | 1,000 | 236,528 | 239,831 |
+| Sweep sparse miss | 1,000 | 22,091,500 | 22,785,100 |
+| Sweep dense penetration | 1,000 | 1,005,800 | 1,397,800 |
+| Overlap dense | 1,000 | 1,028,400 | 1,208,800 |
+| Line sparse miss | 10,000 | 2,357,775 | 2,556,085 |
+| Line sparse closest hit | 10,000 | 2,344,590 | 2,462,940 |
+| Sweep sparse miss | 10,000 | 218,800,400 | 221,459,800 |
+| Sweep dense penetration | 10,000 | 10,545,400 | 11,339,100 |
+| Overlap dense | 10,000 | 10,127,300 | 10,466,000 |
+
+The near-linear body-count growth and the roughly 20x sparse-sweep versus dense
+initial-penetration cost at 10,000 bodies establish separate traversal and
+geometry-work questions for later instrumentation; they do not select or set a
+target for M1.
+
+### Stage 2 instrumentation qualification
+
+The same Release profile measured the always-on structural path with detailed
+diagnostics disabled. The empty-scene change is a fixed 33 ns. At representative
+non-empty scales the median increase is 15.9%-17.7%, so the accepted Stage 2
+bound is at most 20% over the pre-refactor sparse-miss LineTrace median for
+32, 1,000, and 10,000 bodies. This bound records M0 observability cost; it is
+not an M1 small-scene or acceleration target.
+
+| Bodies | Stage 0 median ns | Stage 2 detailed-off median ns | Change |
+| ---: | ---: | ---: | ---: |
+| 0 | 36 | 69 | +33 ns |
+| 32 | 7,440 | 8,743 | +17.5% |
+| 1,000 | 236,265 | 278,142 | +17.7% |
+| 10,000 | 2,357,775 | 2,732,815 | +15.9% |
+
+Detailed timing added 42 ns to the empty query (111 ns versus 69 ns) and no
+positive median increase at 32, 1,000, or 10,000 bodies in this eleven-sample
+run. The accepted detailed-timing bound is therefore an additive 75 ns for an
+empty query and at most 5% for the non-empty cohorts; Stage 3 repeats the
+measurement before proposing M1 budgets.
+
+Diagnostic capture measured 24-25 ns P95 and reset measured 37-46 ns P95 at
+all four body counts. Their medians were exactly 24 ns and 36 ns respectively
+for 0, 32, 1,000, and 10,000 bodies, demonstrating body-count-independent
+observation in the controlled harness.
+
+### Stage 3 qualification evidence
+
+The randomized parity base seed was `0xA37E504154590001`; all 16 derived seeds
+are printed with their scenario on failure. The corpus permuted insertion and
+candidate order, varied positive non-uniform scale, rotation, channels,
+two-sided responses and ignored handles, exercised zero-length/axis-parallel
+traces, capsule sweeps/overlaps, invalid/non-finite inputs, then removed,
+updated, and re-added bodies. The separate scale run compared all three query
+kinds at 0, 32, 1,000, and 10,000 bodies. Both corpora recorded zero mismatch.
+
+Retained values measured 888 bytes for `FPhysicsScene`, including one 840-byte
+diagnostic snapshot; one flat body record is 176 bytes. The fixed last-mismatch
+payload is 56 bytes with capacity one. Production query scratch high water is
+zero for single queries and equals the returned result count for OverlapMulti;
+the dense 10,000-body overlap therefore recorded 10,000 result elements without
+an additional hidden body capture.
+
+Structural work remained exactly linear in the flat source. The representative
+10,000-body facts are:
+
+| Fixture | Visits/candidates | Ignored | Filter rejects | Pair tests | Distance evaluations | Search iterations | Raw/returned |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Line sparse miss | 10,000 | 0 | 0 | 10,000 | 0 | 0 | 0 / 0 |
+| Line sparse closest hit | 10,000 | 0 | 0 | 10,000 | 0 | 0 | 1 / 1 |
+| Line dense crossing | 10,000 | 0 | 0 | 10,000 | 0 | 0 | 10,000 / 1 |
+| Line filter mix | 10,000 | 0 | 6,667 | 3,333 | 0 | 0 | 0 / 0 |
+| Line ignored thirds | 10,000 | 3,334 | 0 | 6,666 | 0 | 0 | 0 / 0 |
+| Sweep sparse miss | 10,000 | 0 | 0 | 10,000 | 34,220,000 | 16,520,000 | 0 / 0 |
+| Overlap dense | 10,000 | 0 | 0 | 10,000 | 590,000 | 280,000 | 10,000 / 10,000 |
+
+One sparse-miss capsule pair costs 3,422 distance evaluations and 1,652 search
+iterations, while one penetrating overlap pair costs 59 and 28. Those constants
+also reconciled at 32 and 1,000 bodies. The distinction is the evidence for
+separating M1 candidate reduction from later M2 geometry replacement.
+
+The following controlled Release times are median / P95 microseconds per
+operation. Mutation measurements target the last flat-vector handle; churn
+removes that handle and adds one replacement while keeping body count stable.
+
+| Bodies | Line miss | Line hit | Line dense | Filter mix | Ignored thirds | Sweep miss | Dense overlap | Update last | Remove/add last |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 0.069 / 0.070 | 0.069 / 0.077 | 0.065 / 0.068 | 0.069 / 0.070 | 0.064 / 0.066 | 0.132 / 0.137 | 0.118 / 0.118 | n/a | n/a |
+| 32 | 7.836 / 8.080 | 7.900 / 7.980 | 11.290 / 11.981 | 2.800 / 2.872 | 5.826 / 6.069 | 700.167 / 1,006.548 | 29.896 / 33.022 | 0.130 / 0.133 | 0.146 / 0.187 |
+| 1,000 | 248.768 / 266.597 | 247.595 / 262.318 | 351.879 / 359.527 | 86.642 / 89.575 | 316.039 / 326.604 | 21,573.200 / 22,788.000 | 974.600 / 1,056.800 | 0.641 / 0.642 | 0.657 / 0.834 |
+| 10,000 | 2,532.995 / 2,730.765 | 2,426.535 / 2,562.180 | 3,605.845 / 3,922.575 | 896.160 / 1,001.645 | 14,357.305 / 15,881.275 | 217,592.600 / 222,754.800 | 10,109.600 / 11,487.200 | 5.350 / 6.300 | 5.380 / 5.390 |
+
+The 10,000-body churn cohort removed 3,334 bodies, updated 3,333, and added
+3,334 replacements, ending at 10,000 with zero failed lookup. The 32- and
+1,000-body cohorts used the same every-third distribution and also reconciled.
+
+The real Sandbox fixture produced only SweepSingle calls in these movement
+sequences. Times are median / P95 milliseconds for the complete 60 Hz tick
+sequence; setup, teardown, and garbage collection are outside the timed region.
+
+| Case | Sweep queries | Body visits | Pair tests | Distance evaluations | Search iterations | Returned | Sequence ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Grounded forward | 360 | 720 | 720 | 1,644,271 | 797,160 | 240 | 10.958 / 11.967 |
+| Wall stop | 626 | 1,878 | 1,878 | 5,637,450 | 2,733,248 | 507 | 36.982 / 38.467 |
+| Rotated ramp | 342 | 1,026 | 1,026 | 2,712,053 | 1,312,360 | 221 | 18.038 / 18.374 |
+| Supported step | 280 | 840 | 840 | 2,212,323 | 1,070,440 | 171 | 14.684 / 15.690 |
+| Jump, ceiling, landing | 250 | 750 | 750 | 2,065,177 | 999,880 | 207 | 13.845 / 15.133 |
+| Raised-platform landing | 270 | 540 | 540 | 1,228,557 | 595,616 | 181 | 8.297 / 8.506 |
+| Empty-World fall | 90 | 90 | 90 | 0 | 0 | 0 | 0.120 / 0.133 |
+
+Gameplay outcomes retained the existing grounded, wall, ramp, step, ceiling,
+platform, and fall assertions. The empty-World pairs perform no geometry work,
+which exposes dispatch/filter overhead separately from Box narrow phase.
+
+### Proposed M1 entry budgets
+
+These are evidence-backed proposal gates for selecting and qualifying M1, not
+a data-structure choice:
+
+- A 1,000-body sparse miss should emit at most 32 Production candidates, and a
+  10,000-body sparse miss at most 100. Dense overlap must still return all
+  10,000 actual results; candidate reduction may not be an arbitrary cap.
+- Incremental broad-phase retained memory should fit within 64 bytes per body
+  plus 64 KiB fixed scene state, in addition to the current 176-byte body
+  record and fixed 840-byte diagnostics.
+- At 32 bodies, median query time should regress no more than 10% from the M0
+  Production medians above. The 32-body update P95 proposal is 0.160 us (20%
+  over 0.133 us).
+- At 10,000 bodies, moving-update P95 should be at most 12.600 us and
+  remove/add P95 at most 10.780 us (2x the M0 values) while preserving the
+  stable body count and handle semantics.
+- At 10,000 bodies, sparse LineTrace and Sweep should improve by at least 4x:
+  median ceilings of 0.633 ms and 54.398 ms respectively, alongside the
+  candidate budgets. Timing alone cannot pass if structural candidates do not
+  fall.
+- M1 must preserve zero Compare mismatch, all counter equations, O(1)
+  diagnostic capture/reset, fixed mismatch capacity, and the Sandbox outcomes.
+
 ## Implementation Stages
 
 ### Stage 0: Freeze query semantics, metrics, and workloads
@@ -234,23 +543,23 @@ Dependencies: Completed first-slice collision plan, current Runtime Collision
 contract, PhysicsScene tests, Sandbox movement tests, and baseline revision
 recorded in Current Status.
 
-- [ ] Characterize current LineTraceSingle, SweepSingle, and OverlapMulti input
+- [x] Characterize current LineTraceSingle, SweepSingle, and OverlapMulti input
   validation, filtering, result clearing, hit fields, penetration, and stable
   ordering without changing implementation.
-- [ ] Freeze the exact/tolerant field comparison matrix and add failing
+- [x] Freeze the exact/tolerant field comparison matrix and add failing
   fixtures for any current semantic ambiguity before pipeline extraction.
-- [ ] Freeze query-kind and scene-mutation counter names, reconciliation
+- [x] Freeze query-kind and scene-mutation counter names, reconciliation
   equations, saturation behavior, optional timing behavior, reset/capture cost,
   and bounded mismatch fields.
-- [ ] Freeze the Reference, Production, and Compare policy lifecycle,
+- [x] Freeze the Reference, Production, and Compare policy lifecycle,
   owning-thread mutation rule, normal runtime default, and reference-on-mismatch
   behavior.
-- [ ] Define deterministic builders and recorded seeds for 0, 32, 1,000, and
+- [x] Define deterministic builders and recorded seeds for 0, 32, 1,000, and
   10,000-body sparse/dense/filter/churn/adversarial workloads.
-- [ ] Freeze the Sandbox movement measurement cases and the controlled timing
+- [x] Freeze the Sandbox movement measurement cases and the controlled timing
   method, build profile, warm-up, samples, result consumption, and reported
   statistics.
-- [ ] Record pre-refactor focused correctness and timing baselines from the
+- [x] Record pre-refactor focused correctness and timing baselines from the
   source revision in Current Status before Stage 1 changes query structure.
 
 #### Acceptance Gate
@@ -265,21 +574,21 @@ recorded in Current Status.
 Dependencies: Stage 0 semantic matrix, policy contract, and characterization
 fixtures.
 
-- [ ] Preserve the current flat implementation as a named private Reference
+- [x] Preserve the current flat implementation as a named private Reference
   executor with no acceleration, behavior cleanup, or geometry change.
-- [ ] Introduce the private Production pipeline stages for validation, flat
+- [x] Introduce the private Production pipeline stages for validation, flat
   candidate enumeration, filtering, narrow-phase dispatch, accumulation, and
   deterministic final ordering.
-- [ ] Centralize stable closest-hit and multi-result comparison semantics so
+- [x] Centralize stable closest-hit and multi-result comparison semantics so
   neither executor depends on traversal order while retaining independent
   candidate discovery.
-- [ ] Add owning-thread Reference, Production, and Compare policy selection;
+- [x] Add owning-thread Reference, Production, and Compare policy selection;
   keep Production as the normal default and reject invalid/off-thread changes
   without mutation.
-- [ ] Implement Compare against one immutable scene/query input, bounded
+- [x] Implement Compare against one immutable scene/query input, bounded
   complete-output comparison, mismatch recording, and Reference-result return
   on mismatch.
-- [ ] Prove existing DWorld, BodyInstance, component, and Sandbox callers remain
+- [x] Prove existing DWorld, BodyInstance, component, and Sandbox callers remain
   unchanged and cannot observe the selected internal execution policy.
 
 #### Acceptance Gate
@@ -294,20 +603,20 @@ fixtures.
 
 Dependencies: Stage 1 query stages and Compare lifecycle.
 
-- [ ] Add cumulative per-kind and bounded last-query diagnostics with the Stage
+- [x] Add cumulative per-kind and bounded last-query diagnostics with the Stage
   0 counter schema, saturation, overflow, reset, and value snapshot behavior.
-- [ ] Instrument validation, body/candidate enumeration, ignore and filter
+- [x] Instrument validation, body/candidate enumeration, ignore and filter
   rejection, narrow-phase dispatch, raw hits, result accumulation, compare,
   and fallback paths so reconciliation equations hold for every return path.
-- [ ] Add optional zero-allocation AetherCore geometry counters for reference
+- [x] Add optional zero-allocation AetherCore geometry counters for reference
   iteration/evaluation work without changing contact results.
-- [ ] Add scene mutation/body-presence counters that expose current flat-store
+- [x] Add scene mutation/body-presence counters that expose current flat-store
   behavior without inventing future broad-phase terms.
-- [ ] Ensure normal structural instrumentation uses no atomics, locks, logging,
+- [x] Ensure normal structural instrumentation uses no atomics, locks, logging,
   or allocation; detailed timing/mismatch capture remains explicit and bounded.
-- [ ] Add optional profiling zones only at stable query/pair boundaries and
+- [x] Add optional profiling zones only at stable query/pair boundaries and
   verify builds with profiling disabled retain valid behavior.
-- [ ] Prove capture/reset is O(1) in body count and disabled detailed
+- [x] Prove capture/reset is O(1) in body count and disabled detailed
   diagnostics do not walk bodies or allocate.
 
 #### Acceptance Gate
@@ -322,21 +631,21 @@ Dependencies: Stage 1 query stages and Compare lifecycle.
 
 Dependencies: Stage 2 complete diagnostics and Stage 0 workload definitions.
 
-- [ ] Run deterministic randomized and adversarial Reference-versus-Production
+- [x] Run deterministic randomized and adversarial Reference-versus-Production
   parity across query kinds, body insertion permutations, transforms, filters,
   ignored sets, equal-time ties, penetration, invalid inputs, and scene churn.
-- [ ] Record structural counters and warm timing for 0, 32, 1,000, and
+- [x] Record structural counters and warm timing for 0, 32, 1,000, and
   10,000-body sparse miss/hit, dense, filter, ignored, overlap, and mutation
   workloads.
-- [ ] Record current Capsule/Box distance/sweep iterations separately from body
+- [x] Record current Capsule/Box distance/sweep iterations separately from body
   visits so the roadmap can distinguish M1 broad-phase cost from M2 narrow-phase
   cost.
-- [ ] Exercise the real Sandbox movement cases and record per-case query mix,
+- [x] Exercise the real Sandbox movement cases and record per-case query mix,
   body visits, filter rejects, pair tests, iterations, results, and timing with
   unchanged gameplay outcomes.
-- [ ] Record retained diagnostic memory, last-mismatch capacity, scratch/capture
+- [x] Record retained diagnostic memory, last-mismatch capacity, scratch/capture
   high-water marks, and detailed-diagnostics disabled/enabled overhead.
-- [ ] Derive evidence-backed proposed M1 entry budgets for candidate reduction,
+- [x] Derive evidence-backed proposed M1 entry budgets for candidate reduction,
   memory per body, moving update behavior, small-scene regression, and
   large-scene improvement without selecting the M1 data structure in this plan.
 
@@ -352,21 +661,21 @@ Dependencies: Stage 2 complete diagnostics and Stage 0 workload definitions.
 
 Dependencies: Stages 0-3 and complete recorded qualification evidence.
 
-- [ ] Move lasting query policy, diagnostics, comparison, measurement, and
+- [x] Move lasting query policy, diagnostics, comparison, measurement, and
   current performance-limit contracts into Runtime Physics documentation.
-- [ ] Update the Aether Physics Evolution Roadmap Current Status and M0 row with
+- [x] Update the Aether Physics Evolution Roadmap Current Status and M0 row with
   completion evidence, link this plan, and leave M1 unselected until its entry
   budgets are accepted.
-- [ ] Run focused `PhysicsSceneTests` throughout implementation and focused
+- [x] Run focused `PhysicsSceneTests` throughout implementation and focused
   `SandboxGameplayTests` when the consumer measurement is added, following the
   root native-test guidance.
-- [ ] Run final native `--target all` because the completed work changes shared
+- [x] Run final native `--target all` because the completed work changes shared
   AetherCore/Aether query infrastructure and crosses Engine and Sandbox test
   targets; diagnose any aggregate failure with focused target/case reruns.
-- [ ] Run changed and all-plan documentation validation, record evidence in
+- [x] Run changed and all-plan documentation validation, record evidence in
   Current Status, close only passed checklists, and set this plan Completed only
   after every acceptance gate passes.
-- [ ] Confirm no user-visible editor surface was introduced. If that scope
+- [x] Confirm no user-visible editor surface was introduced. If that scope
   changed, revise the plan and complete the root-required full `all` build
   before handoff.
 

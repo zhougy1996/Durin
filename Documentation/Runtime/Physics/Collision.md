@@ -68,6 +68,86 @@ copied values. Query parameters can ignore Actors or components; pawn movement
 always ignores the moving pawn to avoid self-collision. Invalid or off-thread
 queries return no result and do not alter scene state.
 
+## Query execution and observability
+
+`FPhysicsScene` keeps three owning-thread execution policies behind the same
+public query methods. `Production` is the normal default and runs explicit
+validation, flat candidate enumeration, filtering, narrow phase, accumulation,
+and stable final ordering. `Reference` retains the original flat loops as the
+semantic oracle. `Compare` copies one immutable query input, runs Reference and
+Production synchronously against the unmutated scene, compares the complete
+output, and returns the Reference output on any mismatch. Policy changes reject
+invalid values and off-thread calls without changing the prior policy. `DWorld`
+and component code never select or interpret a policy.
+
+Closest hits remain ordered by exact normalized time followed by stable body
+handle. Overlap results remain ordered by body handle. Compare treats status,
+count, ordering, handle, response, user token, and initial-penetration state as
+exact. It uses absolute tolerance `1.0e-12` for normalized time and `1.0e-8`
+for distance, location, impact point, impact normal, and penetration depth.
+Non-finite compared values never compare equal.
+
+`CaptureQueryDiagnostics` returns one O(1), value-only
+`FPhysicsSceneQueryDiagnostics` snapshot. Each query kind reports submitted,
+invalid/off-thread, Reference/Production/Compare execution, body visit,
+candidate, ignored, filter-rejected, pair-test, geometry evaluation/iteration,
+raw-hit, returned-result, fallback/mismatch, high-water, and optional timing
+values. Scene mutation values report add/update/remove calls, successes,
+rejections, failed lookups, the reset body baseline, and current body count.
+All additions saturate at the unsigned maximum and set `bOverflowed` instead of
+wrapping.
+
+The current flat source obeys these reconciliation rules:
+
+```text
+ValidSubmissions = SubmittedQueries - InvalidQueries - OffThreadQueries
+ReferenceExecutions + ProductionExecutions
+    = ValidSubmissions + CompareExecutions
+BodyVisits = Candidates
+Candidates = IgnoredBodies + FilterRejectedBodies + NarrowPhasePairTests
+RawHits <= NarrowPhasePairTests
+ReturnedResults <= RawHits
+Fallbacks = CompareMismatches
+
+AddCalls = AddSuccesses + AddRejected
+UpdateCalls = UpdateSuccesses + UpdateRejected
+RemoveCalls = RemoveSuccesses + RemoveRejected
+BodiesPresent = BodiesAtReset + AddSuccesses - RemoveSuccesses
+```
+
+Structural counters are ordinary integers with no atomics, locks, logging, or
+diagnostic allocation. Detailed steady-clock timing and the one fixed-size
+last-mismatch payload are explicit opt-in behavior. Diagnostic reset preserves
+the current body count and detailed-enabled state without walking bodies.
+Off-thread diagnostic capture returns a default snapshot.
+
+AetherCore Capsule/Box reference functions accept an optional
+`FCollisionGeometryCounters` pointer. A null pointer preserves ordinary behavior
+without allocating or invoking callbacks. A penetrating Capsule/Box overlap
+currently performs 59 distance evaluations and 28 search iterations. A sparse
+Capsule/Box sweep miss performs 3,422 and 1,652 per tested pair. These values are
+reference cost facts, not convergence targets for future production geometry.
+
+## Current query cost and acceleration entry
+
+Production still enumerates every body. On the qualified Release profile, a
+10,000-body sparse LineTrace miss visited/tested all 10,000 bodies and took
+2.533 ms median; a sparse Capsule sweep miss tested all 10,000 pairs, performed
+34.22 million distance evaluations plus 16.52 million search iterations, and
+took 217.593 ms median. A dense 10,000-result overlap took 10.110 ms median.
+The same scene's last-handle update and remove/add medians were 5.350 us and
+5.380 us. One body record is 176 bytes; fixed scene diagnostics retain 840
+bytes and one 56-byte mismatch slot.
+
+The accepted M1 proposal requires at most 32 candidates for a 1,000-body sparse
+miss and 100 for a 10,000-body sparse miss, while dense overlap still returns
+all real results. Proposed incremental index memory is at most 64 bytes per body
+plus 64 KiB fixed. A 32-body query may regress at most 10%; 10,000-body sparse
+LineTrace and Sweep medians must improve by at least 4x while satisfying the
+candidate limits. Update/remove-add P95 proposals at 10,000 bodies are
+12.600 us and 10.780 us. These budgets select and qualify a future M1; they do
+not imply a chosen spatial data structure.
+
 ## Debugging and current limits
 
 Collision debugging is disabled by default. When enabled,
@@ -78,7 +158,8 @@ The Level Editor viewport's **View mode > Overlays > Collision** toggle consumes
 the renderer-independent snapshot to draw Box, Sphere, and Capsule wire shapes
 plus the latest blocking impact normal without exposing mutable scene storage.
 
-The implementation is synchronous and query-only. Dynamic rigid bodies,
+The implementation is synchronous, query-only, and uses a flat Production
+candidate source. Dynamic rigid bodies,
 forces, constraints, asynchronous stepping, moving platforms, triangle meshes,
 heightfields, overlap events, and project-defined profiles remain future work.
 The cross-plan sequencing for scalable queries, geometry, cooked collision,
