@@ -8,6 +8,12 @@ Modules: Engine
 
 `DWorld` is a runtime or editor session container. It activates at most one level, forwards actor APIs to that level, and registers or unregisters the level's components when switching. Replacing a transient level structurally owned by the world marks that complete level hierarchy as garbage. A persistent packaged level is structurally owned by its package instead, so switching worlds does not destroy it; an object that must survive a transient world must likewise be explicitly reparented before world retirement.
 
+Each World also owns one synchronous `FPhysicsScene`. Primitive components
+publish and retire their query bodies with the same registration lifecycle as
+their World membership, independently from render-scene presence. Gameplay
+uses the World trace, sweep, and overlap facade rather than enumerating
+components or borrowing scene storage. See [Runtime Collision](../Physics/Collision.md).
+
 A world starts without an active level. Actor operations safely return empty or fail until a level is activated. The editor supports this empty state: scene panels remain available, while level-dependent editing actions are disabled.
 
 Scene persistence stores the actor list, primary camera, component relative transforms, attachment parents, and camera projection settings. Attachment children and world transforms are derived. After package fields are applied, `DLevel::PostLoad` validates ownership and attachment cycles, rebuilds child lists, and recalculates world transforms before the package load is published.

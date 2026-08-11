@@ -2,11 +2,13 @@
 #include "Components/SceneComponent.h"
 #include "Engine/FPrimitiveSceneProxy.h"
 #include "IScene.h"
+#include "Physics/BodyInstance.h"
 
 #include "PrimitiveComponent.gen.h"
 
 namespace Durin
 {
+	class DWorld;
 	enum class EEditorPickingPrimitiveFamily : uint8;
 	// Selects the renderer-side state that must be synchronized for a primitive.
 	enum class EPrimitiveRenderStateDirtyFlags : uint8
@@ -25,9 +27,11 @@ namespace Durin
 	{
 		GENERATED_BODY()
 	public:
+		ENGINE_API explicit DPrimitiveComponent(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API auto OnRegister() -> void override;
 		ENGINE_API auto OnUnregister() -> void override;
 		ENGINE_API auto OnOwnerVisibilityChanged() -> void override;
+		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 		ENGINE_API virtual auto CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy>;
 		ENGINE_API auto GetRenderMatrix() const -> FMatrix;
@@ -35,6 +39,16 @@ namespace Durin
 		ENGINE_API auto DestroyRenderState() -> void;
 		ENGINE_API auto RecreateRenderState() -> void;
 		ENGINE_API auto MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags DirtyFlags = EPrimitiveRenderStateDirtyFlags::Proxy) -> void;
+		ENGINE_API auto SetCollisionProfileName(FName ProfileName) -> bool;
+		ENGINE_API auto SetCollisionEnabled(ECollisionEnabled Enabled) -> void;
+		ENGINE_API auto SetCollisionObjectType(ECollisionChannel Channel) -> void;
+		ENGINE_API auto SetCollisionResponseToChannel(ECollisionChannel Channel, ECollisionResponse Response) -> void;
+		auto GetCollisionProfileName() const -> FName { return BodyInstance.ProfileName; }
+		auto GetCollisionEnabled() const -> ECollisionEnabled { return BodyInstance.CollisionEnabled; }
+		auto GetCollisionObjectType() const -> ECollisionChannel { return BodyInstance.ObjectChannel; }
+		auto GetPhysicsActorHandle() const -> FPhysicsActorHandle { return BodyInstance.ActorHandle; }
+		ENGINE_API virtual auto BuildCollisionShape(FCollisionShape& OutShape, FTransform& OutWorldTransform) const -> bool;
+		ENGINE_API auto RecreatePhysicsState() -> void;
 
 #if DURIN_WITH_EDITOR
 		// Produces finite local bounds and a supported picking family for the editor scene index.
@@ -51,7 +65,12 @@ namespace Durin
 
 	private:
 		auto EnsurePrimitiveSceneId() -> FPrimitiveSceneId;
+		auto DestroyPhysicsState() -> void;
+		auto UpdatePhysicsState() -> void;
+		auto GetPhysicsWorld() const -> DWorld*;
 
 		FPrimitiveSceneId PrimitiveSceneId = InvalidPrimitiveSceneId;
+		DPROPERTY(Edit)
+		FBodyInstance BodyInstance;
 	};
 }

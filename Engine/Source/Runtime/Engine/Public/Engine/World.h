@@ -3,6 +3,8 @@
 #include "EngineAPI.h"
 #include "DObject/CoreDObject.h"
 #include "Engine/Level.h"
+#include "Collision/CollisionTypes.h"
+#include "Physics/PhysicsScene.h"
 
 #include "World.gen.h"
 
@@ -143,6 +145,33 @@ namespace Durin
 		ENGINE_API auto GetGameMode() const -> AGameMode*;
 		ENGINE_API auto GetLocalPlayerController() const -> APlayerController*;
 		ENGINE_API auto GetDefaultPawn() const -> APawn*;
+		auto GetPhysicsScene() -> FPhysicsScene& { return PhysicsScene; }
+		auto GetPhysicsScene() const -> const FPhysicsScene& { return PhysicsScene; }
+		auto IsCollisionDebugDrawEnabled() const -> bool { return bCollisionDebugDrawEnabled; }
+		ENGINE_API auto SetCollisionDebugDrawEnabled(bool bEnabled) -> void;
+		ENGINE_API auto CaptureCollisionDebugSnapshot() const -> FCollisionDebugSnapshot;
+		ENGINE_API auto LineTraceSingleByChannel(
+			FHitResult& OutHit,
+			const FVector3& Start,
+			const FVector3& End,
+			ECollisionChannel TraceChannel,
+			const FCollisionQueryParams& QueryParams = {},
+			const FCollisionResponseParams& ResponseParams = {}) const -> bool;
+		ENGINE_API auto SweepSingleByChannel(
+			FHitResult& OutHit,
+			const FCollisionShape& Shape,
+			const FTransform& StartTransform,
+			const FVector3& Delta,
+			ECollisionChannel TraceChannel,
+			const FCollisionQueryParams& QueryParams = {},
+			const FCollisionResponseParams& ResponseParams = {}) const -> bool;
+		ENGINE_API auto OverlapMultiByChannel(
+			std::vector<FOverlapResult>& OutOverlaps,
+			const FCollisionShape& Shape,
+			const FTransform& Transform,
+			ECollisionChannel TraceChannel,
+			const FCollisionQueryParams& QueryParams = {},
+			const FCollisionResponseParams& ResponseParams = {}) const -> bool;
 
 	private:
 		struct FNativeGameplaySession
@@ -169,6 +198,9 @@ namespace Durin
 		bool bSingleStepRequested = false;
 		bool bPhysicsSimulationEnabled = true;
 		std::optional<FNativeGameplaySession> GameplaySession;
+		FPhysicsScene PhysicsScene;
+		bool bCollisionDebugDrawEnabled = false;
+		mutable std::optional<FHitResult> LastCollisionDebugHit;
 
 		friend class DLevel;
 	};

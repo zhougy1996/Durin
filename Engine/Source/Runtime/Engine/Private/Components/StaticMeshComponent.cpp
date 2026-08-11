@@ -5,6 +5,7 @@
 #include "Engine/FPrimitiveSceneProxy.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/DefaultMaterialService.h"
+#include "Physics/BodySetup.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -26,11 +27,27 @@ namespace Durin
 		++MaterialComponentRevision;
 		MarkPackageDirty();
 		MarkRenderStateDirty();
+		RecreatePhysicsState();
 	}
 
 	auto DStaticMeshComponent::GetStaticMesh() const -> DStaticMesh*
 	{
 		return StaticMesh.Get();
+	}
+
+	auto DStaticMeshComponent::GetBodySetup() const -> DBodySetup*
+	{
+		return StaticMesh ? StaticMesh->EnsureQualifiedBoxBodySetup() : nullptr;
+	}
+
+	auto DStaticMeshComponent::BuildCollisionShape(
+		FCollisionShape& OutShape, FTransform& OutWorldTransform) const -> bool
+	{
+		DBodySetup* Setup = GetBodySetup();
+		FTransform LocalTransform;
+		if (!Setup || !Setup->BuildShape(OutShape, LocalTransform)) return false;
+		OutWorldTransform = FTransform::Combine(GetWorldTransform(), LocalTransform);
+		return IsValidPhysicsTransform(OutWorldTransform);
 	}
 
 	auto DStaticMeshComponent::SetMaterial(DMaterialInterface* InMaterial) -> bool
@@ -202,12 +219,14 @@ namespace Durin
 		{
 			++MaterialComponentRevision;
 			MarkRenderStateDirty();
+			RecreatePhysicsState();
 			return;
 		}
 		if (Name != FName("OverrideMaterials")) return;
 		TrimTrailingNullOverrides();
 		++MaterialComponentRevision;
 		MarkRenderStateDirty();
+		RecreatePhysicsState();
 	}
 
 	auto DStaticMeshComponent::CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy>
@@ -264,6 +283,7 @@ namespace Durin
 		if (ChangedMesh == nullptr || ChangedMesh != StaticMesh.Get()) return;
 		++MaterialComponentRevision;
 		MarkRenderStateDirty();
+		RecreatePhysicsState();
 	}
 
 	auto DStaticMeshComponent::BuildMaterialRenderProxyBindingUpdate(

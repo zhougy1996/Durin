@@ -1,0 +1,9 @@
+{
+    "ModuleName": "Aether",
+    "LinkType": "Shared",
+    "PCH": "SharedPCH_Core",
+    "PublicDependencies": [
+        "Core",
+        "AetherCore"
+    ]
+}

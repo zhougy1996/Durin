@@ -8,6 +8,7 @@ namespace Durin
 {
 	class DStaticMesh;
 	class DMaterialInterface;
+	class DBodySetup;
 
 	// Binds a static mesh and per-slot materials to a render-scene primitive.
 	DCLASS()
@@ -18,6 +19,8 @@ namespace Durin
 		ENGINE_API explicit DStaticMeshComponent(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API auto SetStaticMesh(DStaticMesh* InStaticMesh) -> void;
 		ENGINE_API auto GetStaticMesh() const -> DStaticMesh*;
+		ENGINE_API auto GetBodySetup() const -> DBodySetup*;
+		ENGINE_API auto BuildCollisionShape(FCollisionShape& OutShape, FTransform& OutWorldTransform) const -> bool override;
 		ENGINE_API auto SetMaterial(DMaterialInterface* InMaterial) -> bool;
 		ENGINE_API auto GetMaterial() const -> DMaterialInterface*;
 		ENGINE_API auto SetMaterial(uint32 SlotIndex, DMaterialInterface* InMaterial) -> bool;

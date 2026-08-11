@@ -95,9 +95,9 @@ namespace Durin::VulkanRHI
 			const void* Data,
 			uint32 Size) -> FRHIStorageBufferRange override;
 
-#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		// Internal Vulkan helpers use the device for diagnostics in every runtime variant;
+		// failure-injection tests share the same non-owning access.
 		auto GetDeviceForTesting() const -> FVulkanDevice* { return Device; }
-#endif
 
 		auto InitializeTexture(FVulkanCommandListContext& Context, FRHITexture* Texture) -> void;
 		auto UpdateTexture2D(

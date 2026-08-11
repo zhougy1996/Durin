@@ -1,7 +1,9 @@
 #include "Components/PrimitiveComponent.h"
 
 #include "Engine/Actor.h"
+#include "DObject/Property.h"
 #include "Engine/Level.h"
+#include "Engine/World.h"
 #include "IScene.h"
 
 namespace Durin
@@ -11,15 +13,22 @@ namespace Durin
 		std::atomic<uint64> GNextPrimitiveSceneId = 1;
 	}
 
+	DPrimitiveComponent::DPrimitiveComponent(const FObjectInitializer& ObjectInitializer)
+		: Super(ObjectInitializer)
+	{
+	}
+
 	auto DPrimitiveComponent::OnRegister() -> void
 	{
 		Super::OnRegister();
 		EnsurePrimitiveSceneId();
 		MarkRenderStateDirty();
+		RecreatePhysicsState();
 	}
 
 	auto DPrimitiveComponent::OnUnregister() -> void
 	{
+		DestroyPhysicsState();
 		DestroyRenderState();
 #if DURIN_WITH_EDITOR
 		NotifyEditorPickingMutation(true);
@@ -27,9 +36,128 @@ namespace Durin
 		Super::OnUnregister();
 	}
 
+	auto DPrimitiveComponent::SetCollisionProfileName(FName ProfileName) -> bool
+	{
+		CollisionProfile::FProfile Profile;
+		if (!CollisionProfile::Resolve(ProfileName, Profile)) return false;
+		BodyInstance.ProfileName = ProfileName;
+		BodyInstance.CollisionEnabled = Profile.Enabled;
+		BodyInstance.ObjectChannel = Profile.ObjectChannel;
+		BodyInstance.Responses = Profile.Responses;
+		MarkPackageDirty();
+		RecreatePhysicsState();
+		return true;
+	}
+
+	auto DPrimitiveComponent::SetCollisionEnabled(ECollisionEnabled Enabled) -> void
+	{
+		if (BodyInstance.CollisionEnabled == Enabled) return;
+		BodyInstance.CollisionEnabled = Enabled;
+		BodyInstance.ProfileName = FName();
+		MarkPackageDirty();
+		RecreatePhysicsState();
+	}
+
+	auto DPrimitiveComponent::SetCollisionObjectType(ECollisionChannel Channel) -> void
+	{
+		BodyInstance.ObjectChannel = Channel;
+		BodyInstance.ProfileName = FName();
+		MarkPackageDirty();
+		RecreatePhysicsState();
+	}
+
+	auto DPrimitiveComponent::SetCollisionResponseToChannel(
+		ECollisionChannel Channel, ECollisionResponse Response) -> void
+	{
+		BodyInstance.Responses.SetResponse(Channel, Response);
+		BodyInstance.ProfileName = FName();
+		MarkPackageDirty();
+		RecreatePhysicsState();
+	}
+
+	auto DPrimitiveComponent::BuildCollisionShape(FCollisionShape&, FTransform&) const -> bool
+	{
+		return false;
+	}
+
+	auto DPrimitiveComponent::RecreatePhysicsState() -> void
+	{
+		DestroyPhysicsState();
+		if (!IsRegistered() || BodyInstance.CollisionEnabled == ECollisionEnabled::NoCollision) return;
+		DWorld* World = GetPhysicsWorld();
+		FCollisionShape Shape;
+		FTransform Transform;
+		if (!World || !BuildCollisionShape(Shape, Transform)) return;
+		FPhysicsBodyDesc Desc;
+		Desc.Shape = Shape;
+		Desc.Transform = Transform;
+		Desc.Filter.ObjectChannel = static_cast<uint8>(BodyInstance.ObjectChannel);
+		for (uint8 Index = 0; Index < MaximumPhysicsChannels; ++Index)
+			Desc.Filter.Responses[Index] = ToPhysicsResponse(BodyInstance.Responses.Responses[Index]);
+		Desc.UserToken = reinterpret_cast<uint64>(this);
+		BodyInstance.ActorHandle = World->GetPhysicsScene().AddBody(Desc);
+	}
+
+	auto DPrimitiveComponent::DestroyPhysicsState() -> void
+	{
+		if (!BodyInstance.ActorHandle.IsValid()) return;
+		if (DWorld* World = GetPhysicsWorld()) World->GetPhysicsScene().RemoveBody(BodyInstance.ActorHandle);
+		BodyInstance.ActorHandle = {};
+		BodyInstance.PublishedBodySetupRevision = 0;
+	}
+
+	auto DPrimitiveComponent::UpdatePhysicsState() -> void
+	{
+		if (!BodyInstance.ActorHandle.IsValid())
+		{
+			RecreatePhysicsState();
+			return;
+		}
+		DWorld* World = GetPhysicsWorld();
+		FCollisionShape Shape;
+		FTransform Transform;
+		if (!World || !BuildCollisionShape(Shape, Transform))
+		{
+			DestroyPhysicsState();
+			return;
+		}
+		FPhysicsBodyDesc Desc;
+		Desc.Shape = Shape;
+		Desc.Transform = Transform;
+		Desc.Filter.ObjectChannel = static_cast<uint8>(BodyInstance.ObjectChannel);
+		for (uint8 Index = 0; Index < MaximumPhysicsChannels; ++Index)
+			Desc.Filter.Responses[Index] = ToPhysicsResponse(BodyInstance.Responses.Responses[Index]);
+		Desc.UserToken = reinterpret_cast<uint64>(this);
+		if (!World->GetPhysicsScene().UpdateBody(BodyInstance.ActorHandle, Desc)) RecreatePhysicsState();
+	}
+
+	auto DPrimitiveComponent::GetPhysicsWorld() const -> DWorld*
+	{
+		const AActor* Owner = GetOwner();
+		auto* Level = Owner ? Cast<DLevel>(Owner->GetOuter()) : nullptr;
+		return Level ? Level->GetWorld() : nullptr;
+	}
+
 	auto DPrimitiveComponent::OnOwnerVisibilityChanged() -> void
 	{
 		MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::Visibility);
+	}
+
+	auto DPrimitiveComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
+	{
+		Super::PostEditChangeProperty(Event);
+		if (!Event.MemberProperty || Event.MemberProperty->NamePrivate != FName("BodyInstance")) return;
+		if (!BodyInstance.ProfileName.IsNone())
+		{
+			CollisionProfile::FProfile Profile;
+			if (CollisionProfile::Resolve(BodyInstance.ProfileName, Profile))
+			{
+				BodyInstance.CollisionEnabled = Profile.Enabled;
+				BodyInstance.ObjectChannel = Profile.ObjectChannel;
+				BodyInstance.Responses = Profile.Responses;
+			}
+		}
+		RecreatePhysicsState();
 	}
 
 	auto DPrimitiveComponent::CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy>
@@ -120,6 +248,7 @@ namespace Durin
 	{
 		Super::OnUpdateTransform();
 		MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::Transform);
+		UpdatePhysicsState();
 	}
 
 #if DURIN_WITH_EDITOR

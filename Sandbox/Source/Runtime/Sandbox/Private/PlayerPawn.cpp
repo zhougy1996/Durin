@@ -2,6 +2,7 @@
 
 #include "AssetSystem.h"
 #include "Components/CameraComponent.h"
+#include "Components/ShapeComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Logging/LogMacros.h"
 #include "Math/Operations.h"
@@ -17,7 +18,15 @@ namespace Durin::Sandbox
 		GroundMovementComponent = CreateDefaultComponent<DSimpleGroundMovementComponent>("GroundMovement");
 		verify(SetMovementComponent(GroundMovementComponent.Get()));
 
+		CapsuleComponent = CreateDefaultComponent<DCapsuleComponent>("CollisionCapsule");
+		verify(CapsuleComponent->SetupAttachment(GetRootComponent()));
+		verify(CapsuleComponent->SetCapsuleSize(
+			GameplayTuning::CapsuleRadius, GameplayTuning::CapsuleHalfHeight));
+		CapsuleComponent->SetRelativeLocation(FVector3(0.0, 0.0, GameplayTuning::CapsuleHalfHeight));
+		verify(CapsuleComponent->SetCollisionProfileName(CollisionProfile::Pawn));
+
 		VisualComponent = CreateDefaultComponent<DStaticMeshComponent>("GrayboxVisual");
+		verify(VisualComponent->SetCollisionProfileName(CollisionProfile::NoCollision));
 		verify(VisualComponent->SetupAttachment(GetRootComponent()));
 		FTransform VisualTransform;
 		VisualTransform.Translation = GameplayTuning::VisualOffset;

@@ -7,7 +7,7 @@
 
 namespace Durin::Sandbox
 {
-	// Moves the Sandbox pawn against a fixed world-space ground plane without general collision.
+	// Moves the Sandbox pawn through bounded World capsule sweeps with one velocity authority.
 	DCLASS()
 	class DSimpleGroundMovementComponent final : public DPawnMovementComponent
 	{

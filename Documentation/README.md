@@ -21,6 +21,7 @@ not open the other rows or scan an entire directory.
 | Runtime startup, shutdown, or frame lifecycle | [Runtime lifecycle](Runtime/Core/RuntimeLifecycle.md) |
 | Sandbox gameplay controls, tuning, camera, or ground-plane limits | [Sandbox gameplay](Runtime/Gameplay/SandboxGameplay.md) |
 | Core math aliases, operation semantics, or the GLM boundary | [Core math](Runtime/Core/Math.md) |
+| Collision shapes, body setup/instance, physics scene, traces, sweeps, or overlaps | [Runtime collision](Runtime/Physics/Collision.md) |
 | CPU tasks, dependencies, cancellation, waiting, or worker-thread ownership | [CPU task system](Runtime/Core/TaskSystem.md) |
 | Scene viewport or window-backed rendering | [Viewport rendering](Runtime/Rendering/ViewportRendering.md) |
 | Editor architecture, design, or user workflow | Use a targeted search under `Editor/Architecture/`, `Editor/Design/`, or `Editor/Guides/` |

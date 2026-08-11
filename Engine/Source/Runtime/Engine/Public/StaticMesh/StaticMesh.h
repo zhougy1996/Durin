@@ -11,6 +11,7 @@
 namespace Durin
 {
 	class DMaterialInterface;
+	class DBodySetup;
 
 	// Reports only the semantic render-resource states required by nonblocking consumers.
 	enum class EStaticMeshRenderResourceReadiness : uint8
@@ -226,6 +227,10 @@ namespace Durin
 			-> FStaticMeshRenderResourceStatus;
 		// Returns a read-only copy only when CPU LOD 0 data has finite, non-degenerate bounds.
 		ENGINE_API auto GetLOD0LocalBounds() const -> std::optional<FBox>;
+		ENGINE_API auto GetBodySetup() const -> DBodySetup*;
+		ENGINE_API auto SetBodySetup(DBodySetup* InBodySetup) -> bool;
+		// Creates the qualified built-in Box setup from verified CPU bounds; arbitrary meshes remain collision-free.
+		ENGINE_API auto EnsureQualifiedBoxBodySetup() -> DBodySetup*;
 		ENGINE_API auto InitResources() -> void;
 		auto GetSourceFile() const -> const std::string& { return SourceImportData.SourcePath.Path; }
 		auto GetImportSettings() const -> const FStaticMeshImportSettings& { return SourceImportData.ImportSettings; }
@@ -365,6 +370,7 @@ namespace Durin
 				InMaterialSlots,
 			std::string& OutError) -> bool;
 		auto LoadCookedRenderData(std::string& OutError) -> bool;
+		auto RefreshQualifiedBoxBodySetup() -> void;
 
 		DPROPERTY()
 		FStaticMeshSourceImportData SourceImportData;
@@ -377,6 +383,9 @@ namespace Durin
 
 		DPROPERTY()
 		Asset::FCookedPayloadDescriptor CookedPayload;
+
+		DPROPERTY()
+		TObjectPtr<DBodySetup> BodySetup;
 
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
 		FStaticMeshDerivedDataDiagnostic DerivedDataDiagnostic;

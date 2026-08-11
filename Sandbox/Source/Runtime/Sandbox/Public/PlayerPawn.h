@@ -9,6 +9,7 @@ namespace Durin
 {
 	class DCameraComponent;
 	class DStaticMeshComponent;
+	class DCapsuleComponent;
 }
 
 namespace Durin::Sandbox
@@ -26,6 +27,7 @@ namespace Durin::Sandbox
 
 		auto GetGroundMovementComponent() const -> DSimpleGroundMovementComponent* { return GroundMovementComponent.Get(); }
 		auto GetVisualComponent() const -> DStaticMeshComponent* { return VisualComponent.Get(); }
+		auto GetCapsuleComponent() const -> DCapsuleComponent* { return CapsuleComponent.Get(); }
 		auto GetCameraComponent() const -> DCameraComponent* { return CameraComponent.Get(); }
 		auto GetYawDegrees() const -> double { return YawDegrees; }
 		auto GetPitchDegrees() const -> double { return PitchDegrees; }
@@ -36,6 +38,9 @@ namespace Durin::Sandbox
 	private:
 		DPROPERTY()
 		TObjectPtr<DSimpleGroundMovementComponent> GroundMovementComponent;
+
+		DPROPERTY()
+		TObjectPtr<DCapsuleComponent> CapsuleComponent;
 
 		DPROPERTY()
 		TObjectPtr<DStaticMeshComponent> VisualComponent;

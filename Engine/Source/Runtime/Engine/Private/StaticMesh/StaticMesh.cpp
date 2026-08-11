@@ -11,6 +11,7 @@
 #include "Math/Operations.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Physics/BodySetup.h"
 #include "Source/SourcePath.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshRenderStateRecreateContext.h"
@@ -668,6 +669,43 @@ namespace Durin
 		return RenderData.get();
 	}
 
+	auto DStaticMesh::GetBodySetup() const -> DBodySetup*
+	{
+		return BodySetup.Get();
+	}
+
+	auto DStaticMesh::SetBodySetup(DBodySetup* InBodySetup) -> bool
+	{
+		if (InBodySetup && InBodySetup->GetOuter() != this) return false;
+		if (BodySetup == InBodySetup) return true;
+		FStaticMeshRenderStateRecreateContext RecreateContext(this);
+		BodySetup = InBodySetup;
+		MarkPackageDirty();
+		return true;
+	}
+
+	auto DStaticMesh::EnsureQualifiedBoxBodySetup() -> DBodySetup*
+	{
+		if (BodySetup) return BodySetup.Get();
+		const std::string ObjectPath = GetObjectPath();
+		if (!ObjectPath.starts_with("/Engine/Models/Box")) return nullptr;
+		const std::optional<FBox> Bounds = GetLOD0LocalBounds();
+		if (!Bounds || !Bounds->bIsValid || !Math::IsFinite(Bounds->Min) || !Math::IsFinite(Bounds->Max)) return nullptr;
+		const FVector3 HalfExtent = Bounds->GetExtent();
+		if (!FCollisionShape::MakeBox(HalfExtent).IsValid()) return nullptr;
+		auto* Setup = NewObject<DBodySetup>(this, "BodySetup", GetConstructionPurpose());
+		if (!Setup || !Setup->SetBox(HalfExtent, Bounds->GetCenter())) return nullptr;
+		BodySetup = Setup;
+		return BodySetup.Get();
+	}
+
+	auto DStaticMesh::RefreshQualifiedBoxBodySetup() -> void
+	{
+		if (!BodySetup || !GetObjectPath().starts_with("/Engine/Models/Box")) return;
+		const std::optional<FBox> Bounds = GetLOD0LocalBounds();
+		if (Bounds && Bounds->bIsValid) BodySetup->SetBox(Bounds->GetExtent(), Bounds->GetCenter());
+	}
+
 	auto DStaticMesh::GetRenderResourceStatus() const
 		-> FStaticMeshRenderResourceStatus
 	{
@@ -922,6 +960,7 @@ namespace Durin
 				MaterialSlots = std::move(*InMaterialSlots);
 			}
 			RenderData = std::move(InRenderData);
+			RefreshQualifiedBoxBodySetup();
 			PublishRenderResourceState(
 				EStaticMeshRenderResourceState::Uninitialized);
 			OutError.clear();
@@ -948,6 +987,7 @@ namespace Durin
 				MaterialSlots = std::move(*InMaterialSlots);
 			}
 			RenderData = std::move(InRenderData);
+			RefreshQualifiedBoxBodySetup();
 			PublishRenderResourceState(CandidateState);
 			RetireStaticMeshRenderData(OldRenderData);
 		}
@@ -1664,6 +1704,8 @@ namespace Durin
 		std::swap(Target->CookedPayload, Candidate->CookedPayload);
 		std::swap(Target->DerivedDataDiagnostic, Candidate->DerivedDataDiagnostic);
 		std::swap(Target->RenderData, Candidate->RenderData);
+		Target->RefreshQualifiedBoxBodySetup();
+		Candidate->RefreshQualifiedBoxBodySetup();
 		const DStaticMesh::EStaticMeshRenderResourceState TargetState =
 			Target->LoadRenderResourceState();
 		const DStaticMesh::EStaticMeshRenderResourceState CandidateState =

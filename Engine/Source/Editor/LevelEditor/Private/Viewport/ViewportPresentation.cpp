@@ -564,6 +564,12 @@ namespace Durin
 			{
 				bool bShowGrid = ViewportClient->IsGridVisible();
 				if (ImGui::Checkbox("World Grid", &bShowGrid)) ViewportClient->SetGridVisible(bShowGrid);
+				if (Context.World)
+				{
+					bool bShowCollision = Context.World->IsCollisionDebugDrawEnabled();
+					if (ImGui::Checkbox("Collision", &bShowCollision))
+						Context.World->SetCollisionDebugDrawEnabled(bShowCollision);
+				}
 			}
 			ImGui::EndPopup();
 		}

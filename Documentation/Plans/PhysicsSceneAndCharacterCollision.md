@@ -4,40 +4,36 @@ Summary: Add layered AetherCore/Aether physics modules, a UE-shaped World query 
 
 Last reviewed: 2026-08-11
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-11
 
 ## Current Status
 
-The Sandbox gameplay slice has one deterministic transform-authority component,
-`DSimpleGroundMovementComponent`. It integrates horizontal acceleration,
-gravity, jump, and landing, but treats world-space `Z = 0` as the only floor.
-It performs no scene query or sweep, so the raised platform, rotated ramp,
-stairs, cover, walls, and other authored geometry in the graybox levels are
-visual only during player movement.
+Stages 0-5 are complete. `AetherCore` now owns Engine-independent shapes,
+filters, handles, validation, and reference query geometry; `Aether` owns the
+deterministic `FPhysicsScene`; Engine exposes reflected collision profiles,
+body setup/instance/component types, one scene per World, and UE-shaped trace,
+sweep, and overlap entry points. Qualified `/Engine/Models/Box` assets publish
+shared Box collision while instances retain distinct handles and render-only
+components remain `NoCollision`.
 
-Engine has no runtime collision scene, body setup, body instance, collision
-shape, hit result, channel response, or World trace/sweep/overlap API.
-`DPrimitiveComponent` already owns component registration, unregistration, and
-transform-update hooks, while `DStaticMesh` retains CPU LOD0 positions,
-indices, bounds, and an immutable ray-query hierarchy used by editor picking.
-Those are useful foundations, but render data and editor picking are not an
-accepted collision authority.
+The Sandbox pawn now owns a Pawn-profile Capsule and moves through bounded
+World sweeps with penetration recovery, sliding, walkable-floor state, landing,
+ceiling response, ramp traversal, and step solving. The fixed `Z = 0` fallback
+and `GameplayTuning::GroundHeight` were removed; an empty World therefore lets
+the pawn fall. Collision inspection is opt-in, captures at most 4096 bodies
+with no snapshot work while disabled, and the Level Editor Collision overlay
+draws Box/Sphere/Capsule wire shapes plus the latest impact normal.
 
-The active Native Graybox Scene Authoring plan explicitly excludes production
-collision, character sweeps, walkable slopes, and step solving and defers them
-to a separate plan. This plan owns that runtime boundary. It deliberately uses
-the complete name `FPhysicsScene` instead of UE's abbreviated `FPhysScene`,
-while retaining familiar UE-shaped names for the remaining public concepts.
-
-The selected module topology distinguishes `AetherCore` from `Aether`.
-`AetherCore` is the Engine-independent physics foundation; `Aether` owns the
-runtime scene and built-in query implementation; `Engine` maps those low-level
-results to Worlds, objects, assets, components, and gameplay-facing hit types.
-Neither module name is an alias for the other, and no `PhysicsCore` module is
-introduced.
-
-The first selected increment is Stage 0. No implementation stage has begun.
+Baseline revision: `0488efb68101a0476d68a9b87b5c24ab7bb895a2`.
+Focused validation passed: PhysicsSceneTests 9/9, WorldTests 79/79,
+StaticMeshTests 52/52, and SandboxGameplayTests 9/9. Final native
+`DevTool.bat test --target all` passed after a focused rerun confirmed an
+existing concurrency-soak fluctuation. Full Win64-Debug-DurinEditor and
+Win64-Debug-DurinGame `all` builds passed, as did editor PIE and standalone
+native-gameplay lifecycle smokes against `Sandbox/Sandbox.dproject`. The asset
+compatibility baseline found 26 supported DAST v4 packages, and changed/all
+documentation validation passed across 106 documents.
 
 ## Goal
 
@@ -317,28 +313,28 @@ The first selected increment is Stage 0. No implementation stage has begun.
 Dependencies: existing World/component lifecycle, StaticMesh asset pipeline,
 Sandbox gameplay tests, and the authored graybox Box convention.
 
-- [ ] Record the source revision and focused baseline for World lifecycle,
+- [x] Record the source revision and focused baseline for World lifecycle,
   component registration, StaticMesh save/load/derived data, Sandbox gameplay,
   PIE, and the current graybox level package.
-- [ ] Freeze the exact `AetherCore` and `Aether` module identities, source
+- [x] Freeze the exact `AetherCore` and `Aether` module identities, source
   roots, export macros, public/private dependency edges, header ownership, and
   Engine-facing conversion boundary in module-graph fixtures.
-- [ ] Add compile-time and reflection fixtures for the exact
+- [x] Add compile-time and reflection fixtures for the exact
   `FPhysicsScene`, `DBodySetup`, `FBodyInstance`, collision value types,
   component types, enums, and `DWorld` method names selected by this plan.
-- [ ] Freeze coordinate, dimension, Capsule half-height, Box extent, normal,
+- [x] Freeze coordinate, dimension, Capsule half-height, Box extent, normal,
   contact offset, skin width, minimum movement, penetration-recovery,
   walkable-floor, and maximum-step conventions in executable tests.
-- [ ] Characterize `/Engine/Models/Box` source and cooked bounds, current
+- [x] Characterize `/Engine/Models/Box` source and cooked bounds, current
   positive non-uniform transforms, the rotated ramp, stairs, platform seams,
   PlayerStart foot origin, and pawn visual dimensions.
-- [ ] Freeze `DBodySetup` ownership, serialization/cook versioning, StaticMesh
+- [x] Freeze `DBodySetup` ownership, serialization/cook versioning, StaticMesh
   mutation invalidation, default-profile migration, and failure diagnostics
   before changing an asset schema.
-- [ ] Add failing reference fixtures for ray/Box, Capsule/Box overlap,
+- [x] Add failing reference fixtures for ray/Box, Capsule/Box overlap,
   Capsule/Box sweep, initial penetration, stable equal-time selection, channel
   filtering, ignored owner, and invalid input.
-- [ ] Add failing Sandbox movement fixtures for raised landing, perimeter wall,
+- [x] Add failing Sandbox movement fixtures for raised landing, perimeter wall,
   ceiling, rotated ramp, stair limit, airborne jump rejection, and absence of a
   fallback `Z = 0` floor when no collidable body exists.
 
@@ -353,27 +349,27 @@ Sandbox gameplay tests, and the authored graybox Box convention.
 
 Dependencies: Stage 0 module graph, public names, and query reference fixtures.
 
-- [ ] Register `AetherCore` and `Aether` in the Engine project/module graph,
+- [x] Register `AetherCore` and `Aether` in the Engine project/module graph,
   add their module descriptors and CMake targets, and prove the exact
   `Core -> AetherCore -> Aether -> Engine` dependency order in generated and
   native module metadata.
-- [ ] Add AetherCore collision shapes, opaque stable actor handles, low-level
+- [x] Add AetherCore collision shapes, opaque stable actor handles, low-level
   filter values, physics query hits, validation, and reference geometry math
   without an Engine, DObject, AssetCore, or rendering dependency.
-- [ ] Add Aether `FPhysicsScene`, immutable body descriptors, deterministic
+- [x] Add Aether `FPhysicsScene`, immutable body descriptors, deterministic
   body storage, and atomic register, unregister, transform, shape, and filter
   operations with idempotent stale-handle refusal, without an Engine pointer
   or gameplay-object result.
-- [ ] Implement exact first-slice Ray/Box, Capsule/Box, and overlap reference
+- [x] Implement exact first-slice Ray/Box, Capsule/Box, and overlap reference
   paths, including arbitrarily rotated positive-scale Box bodies and bounded
   initial-penetration reporting.
-- [ ] Add `DWorld::GetPhysicsScene()`, `LineTraceSingleByChannel`,
+- [x] Add `DWorld::GetPhysicsScene()`, `LineTraceSingleByChannel`,
   `SweepSingleByChannel`, and `OverlapMultiByChannel`; add Engine-owned query
   parameters/results and convert them to AetherCore filters, handles, and hits
   without exposing scene storage or narrowphase helpers.
-- [ ] Implement two-sided channel responses, ignored Actor/component filters,
+- [x] Implement two-sided channel responses, ignored Actor/component filters,
   closest-blocking selection, overlap collection, and stable tie-breaking.
-- [ ] Prove queries remain available while simulation is disabled or the World
+- [x] Prove queries remain available while simulation is disabled or the World
   is paused and reject off-thread or non-finite mutation/query input without
   corrupting the scene.
 
@@ -390,30 +386,30 @@ Dependencies: Stage 0 module graph, public names, and query reference fixtures.
 Dependencies: Stage 1 Aether scene registration and Engine query APIs;
 qualified StaticMesh save/load and mutation baselines from Stage 0.
 
-- [ ] Add reflected `DBodySetup` with simple aggregate geometry, revision,
+- [x] Add reflected `DBodySetup` with simple aggregate geometry, revision,
   validation, save/load, derived-data/cook participation, and immutable
   published shape access.
-- [ ] Add `FBodyInstance` to `DPrimitiveComponent` with collision-enabled,
+- [x] Add `FBodyInstance` to `DPrimitiveComponent` with collision-enabled,
   profile, object-channel, response, owner, and transient scene-handle state.
-- [ ] Add `GetBodySetup()`, collision-shape construction, body creation,
+- [x] Add `GetBodySetup()`, collision-shape construction, body creation,
   destruction, and update hooks across register, unregister, transform,
   property edit, and owner destruction.
-- [ ] Add reflected `DShapeComponent`, `DBoxComponent`, and
+- [x] Add reflected `DShapeComponent`, `DBoxComponent`, and
   `DCapsuleComponent`; reserve `DSphereComponent` in the public hierarchy and
   implement it if required by the frozen query matrix.
-- [ ] Add `DStaticMesh::BodySetup`,
+- [x] Add `DStaticMesh::BodySetup`,
   `DStaticMeshComponent::GetBodySetup()`, and body recreation after mesh/body
   revision changes without coupling the collision lifetime to render readiness.
-- [ ] Author and audit one exact local Box body setup for
+- [x] Author and audit one exact local Box body setup for
   `/Engine/Models/Box`; prove every transformed graybox Box instance shares
   the setup while owning a distinct `FBodyInstance`.
-- [ ] Give `AStaticMeshActor` the `WorldStatic` default and retain
+- [x] Give `AStaticMeshActor` the `WorldStatic` default and retain
   `NoCollision` for independently created StaticMesh components, previews,
   thumbnails, and the player's visual.
-- [ ] Add reflected Details editing and collision wire visualization for the
+- [x] Add reflected Details editing and collision wire visualization for the
   supported body shapes without changing visibility, selection, or viewport
   picking semantics.
-- [ ] Prove save/reload, old-package defaults, reimport/exchange rollback,
+- [x] Prove save/reload, old-package defaults, reimport/exchange rollback,
   Level replacement, render-scene replacement, PIE duplication, undoable
   property edits, component destruction, and World teardown leave no stale or
   duplicated body.
@@ -430,26 +426,26 @@ qualified StaticMesh save/load and mutation baselines from Stage 0.
 Dependencies: Stage 2 Box and Capsule bodies, channel profiles, and current
 graybox-level collision registration.
 
-- [ ] Add a pawn-owned `DCapsuleComponent` using the `Pawn` profile, attach the
+- [x] Add a pawn-owned `DCapsuleComponent` using the `Pawn` profile, attach the
   visual and camera under the existing root convention, and keep the visual
   StaticMesh collision disabled.
-- [ ] Replace `DSimpleGroundMovementComponent` fixed-height tests and clamps
+- [x] Replace `DSimpleGroundMovementComponent` fixed-height tests and clamps
   with World Capsule sweeps while preserving its one-authority and bounded-delta
   contracts.
-- [ ] Implement bounded initial-overlap recovery, swept horizontal/vertical
+- [x] Implement bounded initial-overlap recovery, swept horizontal/vertical
   movement, remaining-delta consumption, surface sliding, landing, ceiling
   rejection, and stable velocity updates.
-- [ ] Implement downward floor query, walkable-normal classification,
+- [x] Implement downward floor query, walkable-normal classification,
   grounded-state caching valid for one movement update, floor snap, and jump
   admission from collision state.
-- [ ] Implement bounded step-up/move/step-down and rotated-ramp traversal using
+- [x] Implement bounded step-up/move/step-down and rotated-ramp traversal using
   the frozen maximum step and walkable-slope policies.
-- [ ] Preserve yaw-relative input, acceleration/deceleration, gravity, jump,
+- [x] Preserve yaw-relative input, acceleration/deceleration, gravity, jump,
   mouse look, camera composition, pause/single-step, restart, and focused
   30/60/120 Hz expectations where collision-free motion is equivalent.
-- [ ] Remove `GameplayTuning::GroundHeight` and every player-movement fallback
+- [x] Remove `GameplayTuning::GroundHeight` and every player-movement fallback
   to a global horizontal plane; no collidable floor means the pawn falls.
-- [ ] Add focused movement tests for floor, wall, corner slide, ceiling,
+- [x] Add focused movement tests for floor, wall, corner slide, ceiling,
   platform edge/fall, raised landing, ramp thresholds, stair thresholds,
   penetration recovery, high-delta tunneling resistance, and self-ignore.
 
@@ -464,23 +460,23 @@ graybox-level collision registration.
 
 Dependencies: Stage 3 playable movement and Stage 2 persisted collision.
 
-- [ ] Add one deterministic native integration fixture that constructs the
+- [x] Add one deterministic native integration fixture that constructs the
   representative graybox floor, walls, raised platform, rotated ramp, stairs,
   and PlayerStart from ordinary Actors and validates the playable route.
-- [ ] Add debug display for body shape, bounds, profile/channel, blocking hit,
+- [x] Add debug display for body shape, bounds, profile/channel, blocking hit,
   impact normal, floor result, and penetration recovery with zero work when
   disabled.
-- [ ] Verify collision Details edits are transaction-safe and update PIE only
+- [x] Verify collision Details edits are transaction-safe and update PIE only
   through existing source/runtime rules; stopping PIE restores the editor World
   body scene unchanged.
-- [ ] Exercise embedded and new-window PIE pause, single-step, restart, stop,
+- [x] Exercise embedded and new-window PIE pause, single-step, restart, stop,
   Level Start, and repeated re-entry with no stale body handles or grounded
   state.
-- [ ] Exercise standalone start, bounded movement, restart, stop, World/Level
+- [x] Exercise standalone start, bounded movement, restart, stop, World/Level
   replacement, object drain, and clean exit.
-- [ ] Measure query/body counts and worst-case first-slice sweep work in the
+- [x] Measure query/body counts and worst-case first-slice sweep work in the
   representative level; record evidence before selecting a non-flat broadphase.
-- [ ] Publish lasting collision/body/World-query contracts under Runtime and
+- [x] Publish lasting collision/body/World-query contracts under Runtime and
   update Sandbox gameplay documentation to remove the ground-plane limitation.
 
 #### Acceptance Gate
@@ -494,19 +490,19 @@ Dependencies: Stage 3 playable movement and Stage 2 persisted collision.
 
 Dependencies: Stages 1-4 and lasting documentation updates.
 
-- [ ] Run the smallest affected Engine and Sandbox native test targets during
+- [x] Run the smallest affected Engine and Sandbox native test targets during
   development, following the root native-test guidance.
-- [ ] Run final `--target all` native validation because the completed change
+- [x] Run final `--target all` native validation because the completed change
   adds two foundational runtime modules and crosses shared World/component/
   asset infrastructure plus the separate Sandbox gameplay target, so it
   cannot be covered by one native target.
-- [ ] Complete a full `all` build because collision Details/debug behavior and
+- [x] Complete a full `all` build because collision Details/debug behavior and
   playable PIE movement are user-visible editor changes.
-- [ ] Run bounded editor PIE and standalone smokes against the saved Sandbox
+- [x] Run bounded editor PIE and standalone smokes against the saved Sandbox
   graybox Level from the same Agent Build Profile used for the full build.
-- [ ] Run StaticMesh/package compatibility audit and verify old supported
+- [x] Run StaticMesh/package compatibility audit and verify old supported
   assets and Levels load without unintended blocking collision.
-- [ ] Record validation and commit provenance in Current Status, close every
+- [x] Record validation and commit provenance in Current Status, close every
   passed checklist, move lasting contracts to owning documents, and set this
   plan Completed only after every acceptance gate passes.
 

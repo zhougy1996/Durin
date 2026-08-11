@@ -122,6 +122,12 @@ component render-state creation and removal. The renderer does not lazily
 initialize StaticMesh resources during scene preparation; components request
 asset initialization before proxy creation.
 
+Simple runtime collision is separate from this render lifecycle.
+`DStaticMesh::BodySetup` owns reusable authored geometry, while each colliding
+component owns its own `FBodyInstance`; render visibility, proxy readiness, LOD
+selection, and editor picking never enable collision or become its geometry
+authority. See [Runtime Collision](../Physics/Collision.md).
+
 `BeginDestroy()` queues release for initialized resources and starts the
 asset's one destruction fence. `IsReadyForFinishDestroy()` remains false until
 that fence and the normal `DObject` lifecycle are complete; `FinishDestroy()`

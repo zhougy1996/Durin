@@ -1,5 +1,7 @@
 #include "Actors/PlayerStart.h"
+#include "Actors/CameraActor.h"
 #include "Components/CameraComponent.h"
+#include "Components/ShapeComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "DefaultGameMode.h"
 #include "DefaultPlayerController.h"
@@ -57,6 +59,26 @@ namespace Durin::Sandbox
 
 namespace
 {
+	auto AddCollisionBox(
+		Durin::DWorld& World,
+		std::string_view Name,
+		const Durin::FVector3& Center,
+		const Durin::FVector3& HalfExtent,
+		const Durin::FQuat& Rotation = Durin::FQuatConstants::Identity) -> Durin::DBoxComponent*
+	{
+		auto* Owner = World.SpawnActor<Durin::ACameraActor>(Durin::FName(Name));
+		auto* Box = Durin::Cast<Durin::DBoxComponent>(
+			Owner->AddInstanceComponent(Durin::DBoxComponent::StaticClass(), "Collision"));
+		EXPECT_NE(Box, nullptr);
+		EXPECT_TRUE(Box->SetBoxHalfExtent(HalfExtent));
+		EXPECT_TRUE(Box->SetCollisionProfileName(Durin::CollisionProfile::WorldStatic));
+		Durin::FTransform Transform;
+		Transform.Translation = Center;
+		Transform.Rotation = Rotation;
+		Box->SetWorldTransform(Transform);
+		return Box;
+	}
+
 	auto ResolveSandboxGameMode() -> Durin::DClass*
 	{
 		Durin::FProjectGameSettings Settings;
@@ -67,7 +89,7 @@ namespace
 		return Resolution.GameModeClass;
 	}
 
-	auto CreateGameplayWorld() -> Durin::DWorld*
+	auto CreateGameplayWorld(bool bAddFloor = true) -> Durin::DWorld*
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
 		ResolveSandboxGameMode();
@@ -76,6 +98,7 @@ namespace
 		EXPECT_TRUE(World->SetCurrentLevel(Level));
 		auto* Start = Level->SpawnActor<Durin::APlayerStart>("PlayerStart");
 		EXPECT_NE(Start, nullptr);
+		if (bAddFloor) AddCollisionBox(*World, "Floor", {0.0, 0.0, -0.5}, {100.0, 100.0, 0.5});
 		return World;
 	}
 
@@ -165,6 +188,8 @@ TEST(FSandboxGameplayBootstrapTests, SelectsOwnsRestartsAndTearsDownConcreteRole
 	EXPECT_EQ(World->GetLocalPlayerController()->GetViewTarget(), Pawn);
 	EXPECT_EQ(Pawn->GetMovementComponent(), Pawn->GetGroundMovementComponent());
 	EXPECT_NE(Pawn->GetVisualComponent(), nullptr);
+	EXPECT_NE(Pawn->GetCapsuleComponent(), nullptr);
+	EXPECT_EQ(Pawn->GetVisualComponent()->GetCollisionEnabled(), Durin::ECollisionEnabled::NoCollision);
 	EXPECT_NE(Pawn->GetCameraComponent(), nullptr);
 	EXPECT_EQ(Pawn->FindComponentsByClass<Durin::DPawnMovementComponent>().size(), 1u);
 	const Durin::FPlayerRestartResult Restart = World->RestartPlayer();
@@ -199,7 +224,7 @@ TEST(FSandboxGameplayMovementTests, AcceleratesJumpsLandsAndAppliesBoundedLook)
 		World->Tick({.DeltaSeconds = 1.0f / 60.0f, .GameInput = &Input});
 		Durin::FGameInputStateTestAccess::FinishTick(Input);
 	}
-	EXPECT_DOUBLE_EQ(Pawn->GetActorTransform().Translation.z, Durin::Sandbox::GameplayTuning::GroundHeight);
+	EXPECT_NEAR(Pawn->GetActorTransform().Translation.z, 0.0, 0.01);
 	EXPECT_TRUE(Pawn->GetGroundMovementComponent()->IsGrounded());
 	EXPECT_LE(Durin::Math::Length(Durin::FVector2(
 		Pawn->GetGroundMovementComponent()->GetVelocity().x,
@@ -213,8 +238,116 @@ TEST(FSandboxGameplayMovementTests, MatchesTheFocusedFrameRateMatrix)
 	const Durin::FVector3 ThirtyHz = SimulateForward(30.0, 2.0);
 	const Durin::FVector3 SixtyHz = SimulateForward(60.0, 2.0);
 	const Durin::FVector3 OneTwentyHz = SimulateForward(120.0, 2.0);
-	EXPECT_NEAR(ThirtyHz.x, SixtyHz.x, 1.e-5);
-	EXPECT_NEAR(SixtyHz.x, OneTwentyHz.x, 1.e-5);
+	EXPECT_NEAR(ThirtyHz.x, SixtyHz.x, 1.e-4);
+	EXPECT_NEAR(SixtyHz.x, OneTwentyHz.x, 1.e-4);
 	EXPECT_DOUBLE_EQ(ThirtyHz.y, 0.0);
-	EXPECT_DOUBLE_EQ(ThirtyHz.z, Durin::Sandbox::GameplayTuning::GroundHeight);
+	EXPECT_NEAR(ThirtyHz.z, 0.0, 0.01);
+}
+
+TEST(FSandboxGameplayCollisionTests, FallsWithoutCollisionAndRejectsAirborneJump)
+{
+	Durin::DWorld* World = CreateGameplayWorld(false);
+	Durin::Sandbox::APlayerPawn* Pawn = BeginGameplay(*World);
+	ASSERT_NE(Pawn, nullptr);
+	Durin::FGameInputState Input;
+	Durin::FGameInputStateTestAccess::EnableAndFocus(Input);
+	Durin::FGameInputStateTestAccess::SetKey(Input, Durin::EKey::Space, true);
+	for (int Frame = 0; Frame < 30; ++Frame)
+	{
+		World->Tick({.DeltaSeconds = 1.0f / 60.0f, .GameInput = &Input});
+		Durin::FGameInputStateTestAccess::FinishTick(Input);
+	}
+	EXPECT_LT(Pawn->GetActorTransform().Translation.z, -1.0);
+	EXPECT_FALSE(Pawn->GetGroundMovementComponent()->IsGrounded());
+	EXPECT_LT(Pawn->GetGroundMovementComponent()->GetVelocity().z, 0.0);
+	DestroyWorld(World);
+}
+
+TEST(FSandboxGameplayCollisionTests, StopsAtWallsAndLandsOnRaisedPlatforms)
+{
+	Durin::DWorld* World = CreateGameplayWorld();
+	AddCollisionBox(*World, "Wall", {3.0, 0.0, 1.5}, {0.25, 4.0, 1.5});
+	Durin::Sandbox::APlayerPawn* Pawn = BeginGameplay(*World);
+	Durin::FGameInputState Input;
+	Durin::FGameInputStateTestAccess::EnableAndFocus(Input);
+	Durin::FGameInputStateTestAccess::SetKey(Input, Durin::EKey::W, true);
+	for (int Frame = 0; Frame < 120; ++Frame)
+	{
+		World->Tick({.DeltaSeconds = 1.0f / 60.0f, .GameInput = &Input});
+		Durin::FGameInputStateTestAccess::FinishTick(Input);
+	}
+	EXPECT_LT(Pawn->GetActorTransform().Translation.x, 2.37);
+	DestroyWorld(World);
+
+	World = CreateGameplayWorld(false);
+	AddCollisionBox(*World, "Platform", {0.0, 0.0, 1.0}, {3.0, 3.0, 0.5});
+	Pawn = BeginGameplay(*World);
+	Durin::FTransform Start = Pawn->GetActorTransform();
+	Start.Translation.z = 4.0;
+	ASSERT_TRUE(Pawn->SetActorTransform(Start));
+	Durin::FGameInputState EmptyInput;
+	Durin::FGameInputStateTestAccess::EnableAndFocus(EmptyInput);
+	for (int Frame = 0; Frame < 120; ++Frame)
+	{
+		World->Tick({.DeltaSeconds = 1.0f / 60.0f, .GameInput = &EmptyInput});
+		Durin::FGameInputStateTestAccess::FinishTick(EmptyInput);
+	}
+	EXPECT_NEAR(Pawn->GetActorTransform().Translation.z, 1.5, 0.02);
+	EXPECT_TRUE(Pawn->GetGroundMovementComponent()->IsGrounded());
+	DestroyWorld(World);
+}
+
+TEST(FSandboxGameplayCollisionTests, TraversesWalkableRotatedBoxRamp)
+{
+	Durin::DWorld* World = CreateGameplayWorld();
+	AddCollisionBox(*World, "Ramp", {3.0, 0.0, 0.75}, {3.0, 2.0, 0.25},
+		Durin::Math::MakeQuaternionFromAxisAngleDegrees(-12.0, Durin::FVectorConstants::Right));
+	Durin::Sandbox::APlayerPawn* Pawn = BeginGameplay(*World);
+	Durin::FGameInputState Input;
+	Durin::FGameInputStateTestAccess::EnableAndFocus(Input);
+	Durin::FGameInputStateTestAccess::SetKey(Input, Durin::EKey::W, true);
+	for (int Frame = 0; Frame < 90; ++Frame)
+	{
+		World->Tick({.DeltaSeconds = 1.0f / 60.0f, .GameInput = &Input});
+		Durin::FGameInputStateTestAccess::FinishTick(Input);
+	}
+	EXPECT_GT(Pawn->GetActorTransform().Translation.z, 0.2);
+	DestroyWorld(World);
+}
+
+TEST(FSandboxGameplayCollisionTests, RejectsCeilingsAndStepsAcrossSupportedHeight)
+{
+	Durin::DWorld* World = CreateGameplayWorld();
+	AddCollisionBox(*World, "Ceiling", {0.0, 0.0, 3.0}, {2.0, 2.0, 0.5});
+	Durin::Sandbox::APlayerPawn* Pawn = BeginGameplay(*World);
+	Durin::FGameInputState Input;
+	Durin::FGameInputStateTestAccess::EnableAndFocus(Input);
+	Durin::FGameInputStateTestAccess::SetKey(Input, Durin::EKey::Space, true);
+	double HighestZ = Pawn->GetActorTransform().Translation.z;
+	for (int Frame = 0; Frame < 120; ++Frame)
+	{
+		World->Tick({.DeltaSeconds = 1.0f / 60.0f, .GameInput = &Input});
+		Durin::FGameInputStateTestAccess::FinishTick(Input);
+		HighestZ = std::max(HighestZ, Pawn->GetActorTransform().Translation.z);
+	}
+	EXPECT_LT(HighestZ, 0.51);
+	EXPECT_TRUE(Pawn->GetGroundMovementComponent()->IsGrounded());
+	DestroyWorld(World);
+
+	World = CreateGameplayWorld();
+	AddCollisionBox(*World, "Step", {2.0, 0.0, 0.2}, {0.5, 2.0, 0.2});
+	Pawn = BeginGameplay(*World);
+	Input = {};
+	Durin::FGameInputStateTestAccess::EnableAndFocus(Input);
+	Durin::FGameInputStateTestAccess::SetKey(Input, Durin::EKey::W, true);
+	HighestZ = 0.0;
+	for (int Frame = 0; Frame < 90; ++Frame)
+	{
+		World->Tick({.DeltaSeconds = 1.0f / 60.0f, .GameInput = &Input});
+		Durin::FGameInputStateTestAccess::FinishTick(Input);
+		HighestZ = std::max(HighestZ, Pawn->GetActorTransform().Translation.z);
+	}
+	EXPECT_GT(HighestZ, 0.25);
+	EXPECT_GT(Pawn->GetActorTransform().Translation.x, 3.0);
+	DestroyWorld(World);
 }

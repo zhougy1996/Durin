@@ -14,8 +14,9 @@ spawns and possesses them at the first authored `APlayerStart` in stable Actor
 order. `ThirdPersonTest` contains one intentional start at world location
 `(-14, 0, 0)`.
 
-The pawn owns exactly one `DSimpleGroundMovementComponent`, one
-`DStaticMeshComponent`, and one `DCameraComponent`. Restart retains the player
+The pawn owns exactly one `DSimpleGroundMovementComponent`, one independent
+`DCapsuleComponent`, one collision-free `DStaticMeshComponent`, and one
+`DCameraComponent`. Restart retains the player
 controller and replaces the pawn through `DWorld`. Stop removes only the
 runtime game mode, controller, and pawn, leaving authored level Actors intact.
 
@@ -50,13 +51,15 @@ The fixed first-slice tune is:
 
 | Setting | Value |
 | --- | ---: |
-| Ground height | `Z = 0` |
+| Capsule radius / half height | `0.4 / 1.0 units` |
 | Maximum horizontal speed | `6 units/s` |
 | Horizontal acceleration | `24 units/s²` |
 | Horizontal deceleration | `32 units/s²` |
 | Gravity | `-20 units/s²` |
 | Jump impulse | `8 units/s` |
 | Maximum simulated delta | `0.05 s` |
+| Maximum step height | `0.45 units` |
+| Walkable floor normal Z | `0.7` |
 | Look scale | `4°` per intent unit |
 | Camera pitch range | `-80°` to `80°` |
 | Camera offset | `(-6, 0, 3)` |
@@ -64,9 +67,11 @@ The fixed first-slice tune is:
 Movement input is interpreted in pawn-yaw space. Horizontal acceleration uses
 an analytic constant-rate step so the focused 30/60/120 Hz matrix reaches the
 same result. Gravity and jump use one vertical velocity; a press edge can jump
-only while grounded and is consumed once. Non-finite, zero, or negative delta
-does not advance the solver, and positive delta is capped at the documented
-maximum.
+only while a downward Capsule query finds a walkable floor and is consumed
+once. Movement uses a bounded set of Capsule sweeps, initial-overlap recovery,
+surface sliding, floor snapping, and step-up/move/step-down attempts.
+Non-finite, zero, or negative delta does not advance the solver, and positive
+delta is capped at the documented maximum.
 
 The pawn applies yaw to its root and pitch to its camera. Level Start therefore
 uses the possessed pawn's discoverable camera through the generic controller
@@ -85,10 +90,15 @@ The pawn loads Sandbox-owned `/Game/Models/GrayboxPawn`, imported from
 `/Game/Sources/Models/GrayboxPawn.obj`. The unit box is scaled to
 `(0.5, 0.5, 1.0)` and offset to `(0, 0, 1)` so its base rests on the ground
 plane. If the asset cannot load, the pawn logs the exact path and asset error;
-possession, transform-only movement, and camera operation remain valid.
+possession, Capsule movement, and camera operation remain valid.
 
-`DSimpleGroundMovementComponent` clamps only to the fixed world-space ground
-height. It performs no sweep and does not support arbitrary mesh collision,
-capsules, slopes, steps, moving platforms, rigid bodies, or a production
-physics backend. `DPhysicsComponent` is intentionally absent so the pawn has
-one velocity and transform authority.
+`DSimpleGroundMovementComponent` collides only against supported simple World
+bodies. The current Box-authored arena therefore supplies its floor, walls,
+platform, rotated ramp, and stairs through `/Engine/Models/Box` collision.
+Without collidable floor geometry the pawn falls; there is no global `Z = 0`
+fallback. Moving platforms, dynamic rigid bodies, arbitrary triangle meshes,
+and a production rigid-body backend remain unsupported. `DPhysicsComponent`
+is intentionally absent so the pawn has one velocity and transform authority.
+
+See [Runtime Collision](../Physics/Collision.md) for body, query, filtering,
+and debug contracts.

@@ -440,6 +440,11 @@ durin_add_engine_functional_test(WorldTests
 	LIBRARIES DurinEd StandardAssetImport
 )
 
+durin_add_engine_functional_test(PhysicsSceneTests
+	SOURCES Private/Physics/PhysicsSceneTests.cpp
+	LIBRARIES AetherCore Aether
+)
+
 durin_add_engine_functional_test(ViewportTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises DurinEd and Mona viewport interaction behavior."

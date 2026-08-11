@@ -3,11 +3,13 @@
 #include "MonaImGui.h"
 
 #include "Editor/EditorEngine.h"
+#include "Collision/CollisionTypes.h"
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
+#include "Engine/World.h"
 #include "Math/Operations.h"
 #include "SceneView.h"
 #include "SceneViewProjection.h"
@@ -29,6 +31,9 @@ namespace Durin
 		constexpr float kMaxNavigationDeltaSeconds = 1.0f / 30.0f;
 		constexpr float kLookSmoothingRate = 30.0f;
 		constexpr float kMovementSmoothingRate = 24.0f;
+		constexpr uint32 kCollisionCircleSegments = 24;
+		constexpr FVector4f kCollisionBodyColor{0.1f, 0.85f, 0.35f, 0.9f};
+		constexpr FVector4f kCollisionHitColor{1.0f, 0.25f, 0.1f, 1.0f};
 
 		template <typename T>
 		auto SmoothVelocityAndIntegrate(T& Velocity, const T& TargetVelocity, float SmoothingRate, float DeltaSeconds) -> T
@@ -43,6 +48,81 @@ namespace Durin
 			const T Integrated = TargetVelocity * TypedDeltaSeconds + Difference * IntegrationScale;
 			Velocity = TargetVelocity + Difference * TypedDecay;
 			return Integrated;
+		}
+
+		auto TransformCollisionPoint(const FMatrix& Transform, const FVector3& Point) -> FVector3
+		{
+			return FVector3(Transform * FVector4(Point, 1.0));
+		}
+
+		auto AddCollisionLine(FSceneView& View, const FMatrix& Transform, const FVector3& Start, const FVector3& End) -> void
+		{
+			View.OverlayLines.push_back({
+				TransformCollisionPoint(Transform, Start),
+				TransformCollisionPoint(Transform, End),
+				kCollisionBodyColor,
+				1.5f});
+		}
+
+		template<typename PointFactory>
+		auto AddCollisionLoop(FSceneView& View, const FMatrix& Transform, PointFactory&& MakePoint) -> void
+		{
+			for (uint32 Segment = 0; Segment < kCollisionCircleSegments; ++Segment)
+			{
+				const double StartAngle = Math::TwoPi<double>() * static_cast<double>(Segment) / kCollisionCircleSegments;
+				const double EndAngle = Math::TwoPi<double>() * static_cast<double>(Segment + 1) / kCollisionCircleSegments;
+				AddCollisionLine(View, Transform, MakePoint(StartAngle), MakePoint(EndAngle));
+			}
+		}
+
+		auto AppendCollisionDebug(FSceneView& View, DLevel* Level) -> void
+		{
+			DWorld* World = Level ? Level->GetWorld() : nullptr;
+			if (!World || !World->IsCollisionDebugDrawEnabled()) return;
+			const FCollisionDebugSnapshot Snapshot = World->CaptureCollisionDebugSnapshot();
+			for (const FCollisionDebugBody& Body : Snapshot.Bodies)
+			{
+				const FMatrix Transform = Body.Transform.ToMatrix();
+				switch (Body.Shape.GetType())
+				{
+				case ECollisionShapeType::Box:
+					View.OverlayPrimitives.push_back({
+						EViewOverlayShape::WireBox,
+						Transform * Math::ScaleMatrix(Body.Shape.GetBoxHalfExtent() * 2.0),
+						kCollisionBodyColor});
+					break;
+				case ECollisionShapeType::Sphere:
+				{
+					const double Radius = Body.Shape.GetSphereRadius();
+					AddCollisionLoop(View, Transform, [Radius](double Angle) { return FVector3(std::cos(Angle) * Radius, std::sin(Angle) * Radius, 0.0); });
+					AddCollisionLoop(View, Transform, [Radius](double Angle) { return FVector3(std::cos(Angle) * Radius, 0.0, std::sin(Angle) * Radius); });
+					AddCollisionLoop(View, Transform, [Radius](double Angle) { return FVector3(0.0, std::cos(Angle) * Radius, std::sin(Angle) * Radius); });
+					break;
+				}
+				case ECollisionShapeType::Capsule:
+				{
+					const double Radius = Body.Shape.GetCapsuleRadius();
+					const double CylinderHalfHeight = Body.Shape.GetCapsuleHalfHeight() - Radius;
+					for (double Z : {-CylinderHalfHeight, CylinderHalfHeight})
+						AddCollisionLoop(View, Transform, [Radius, Z](double Angle) { return FVector3(std::cos(Angle) * Radius, std::sin(Angle) * Radius, Z); });
+					for (uint32 Axis = 0; Axis < 2; ++Axis)
+					{
+						AddCollisionLoop(View, Transform, [=](double Angle) {
+							const double Horizontal = std::cos(Angle) * Radius;
+							const double SinAngle = std::sin(Angle);
+							const double Z = SinAngle * Radius + (SinAngle >= 0.0 ? CylinderHalfHeight : -CylinderHalfHeight);
+							return Axis == 0 ? FVector3(Horizontal, 0.0, Z) : FVector3(0.0, Horizontal, Z);
+						});
+					}
+					break;
+				}
+				}
+			}
+			if (Snapshot.LastBlockingHit)
+			{
+				const FHitResult& Hit = *Snapshot.LastBlockingHit;
+				View.OverlayLines.push_back({Hit.ImpactPoint, Hit.ImpactPoint + Hit.ImpactNormal, kCollisionHitColor, 3.0f});
+			}
 		}
 
 	} // namespace
@@ -120,6 +200,7 @@ namespace Durin
 		if (!BuildViewMatrices(Width, Height, View)) return false;
 		FEditorVisualizationCollector Visualizations;
 		PopulateEditorOverlays(Level, View, Visualizations);
+		AppendCollisionDebug(View, Level);
 		AppendSelectionBounds(View);
 		Visualizations.AppendToView(View, HoveredVisualization.Actor ? &HoveredVisualization : nullptr);
 		TransformGizmo.AppendOverlayPrimitives(View);
