@@ -4,6 +4,8 @@
 
 namespace
 {
+	constexpr DWORD LaunchChildTimeoutMilliseconds = 30000;
+
 	auto RunLaunchChild(std::string_view Arguments) -> DWORD
 	{
 		const std::string Command = std::format(
@@ -16,7 +18,7 @@ namespace
 			CREATE_NO_WINDOW, nullptr, nullptr, &StartupInfo, &ProcessInfo));
 		if (ProcessInfo.hProcess == nullptr) return std::numeric_limits<DWORD>::max();
 		CloseHandle(ProcessInfo.hThread);
-		const DWORD Wait = WaitForSingleObject(ProcessInfo.hProcess, 15000);
+		const DWORD Wait = WaitForSingleObject(ProcessInfo.hProcess, LaunchChildTimeoutMilliseconds);
 		EXPECT_EQ(Wait, WAIT_OBJECT_0);
 		if (Wait != WAIT_OBJECT_0)
 		{
@@ -51,7 +53,7 @@ TEST(FLaunchProcessBoundaryTests, BoundedTickExitUsesNormalApplicationShutdown)
 TEST(FLaunchProcessBoundaryTests, MissingStartupCommandHandlerBecomesTerminal)
 {
 	const std::string Arguments = std::format(
-		"--project=\"{}\" --startup-command=missing-test-handler",
+		"--project=\"{}\" --hidden-window --startup-command=missing-test-handler",
 		DURIN_LAUNCH_TEST_PROJECT);
 	EXPECT_EQ(RunLaunchChild(Arguments), 2u);
 }

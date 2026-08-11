@@ -332,6 +332,7 @@ durin_add_engine_functional_test(LaunchArgumentTests
 )
 
 durin_add_engine_functional_test(LaunchProcessBoundaryTests
+	GPU
 	TIMEOUT 90
 	RUNTIME_STACK_RATIONALE "Launches isolated runtime children to characterize process exit and cleanup policy."
 	SOURCES Private/Launch/LaunchProcessBoundaryTests.cpp
