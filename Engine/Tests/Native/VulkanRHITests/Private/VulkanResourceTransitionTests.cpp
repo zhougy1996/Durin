@@ -95,6 +95,32 @@ namespace Durin::VulkanRHI
 			ERHIAccess::None, Tracked));
 	}
 
+	TEST(FVulkanResourceTransitionTests,
+		DualUseTextureDescriptorLayoutFollowsBindingAndExactTrackedRange)
+	{
+		FVulkanTextureStateTracker Tracker(2, 2);
+		const FRHITextureSubresourceRange Range{
+			ERHITextureAspect::Color, 1, 1, 1, 1};
+		ERHIAccess Tracked = ERHIAccess::None;
+
+		Tracker.Apply(Range, ERHIAccess::GraphicsShaderReadWrite);
+		EXPECT_TRUE(ValidateVulkanTextureDescriptorState(
+			Tracker, Range, ERHIBindingType::StorageImage, Tracked));
+		EXPECT_FALSE(ValidateVulkanTextureDescriptorState(
+			Tracker, Range, ERHIBindingType::Texture, Tracked));
+		EXPECT_EQ(GetVulkanDescriptorImageLayout(ERHIBindingType::StorageImage),
+			vk::ImageLayout::eGeneral);
+
+		Tracker.Apply(Range, ERHIAccess::GraphicsShaderRead);
+		EXPECT_TRUE(ValidateVulkanTextureDescriptorState(
+			Tracker, Range, ERHIBindingType::Texture, Tracked));
+		EXPECT_FALSE(ValidateVulkanTextureDescriptorState(
+			Tracker, {ERHITextureAspect::Color, 0, 2, 1, 1},
+			ERHIBindingType::Texture, Tracked));
+		EXPECT_EQ(GetVulkanDescriptorImageLayout(ERHIBindingType::Texture),
+			vk::ImageLayout::eShaderReadOnlyOptimal);
+	}
+
 	TEST(FVulkanResourceTransitionTests, HardwareRecordsBufferAndDisjointTextureTransitions)
 	{
 		struct FInlineRHIScope

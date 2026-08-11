@@ -136,6 +136,16 @@ namespace Durin::VulkanRHI
 		return Result;
 	}
 
+	auto GetVulkanDescriptorImageLayout(ERHIBindingType BindingType)
+		-> vk::ImageLayout
+	{
+		check(BindingType == ERHIBindingType::Texture
+			|| BindingType == ERHIBindingType::StorageImage);
+		return BindingType == ERHIBindingType::Texture
+			? vk::ImageLayout::eShaderReadOnlyOptimal
+			: vk::ImageLayout::eGeneral;
+	}
+
 	FVulkanBufferStateTracker::FVulkanBufferStateTracker(uint64 Size)
 		: Intervals{{0, Size, ERHIAccess::None}}
 	{
@@ -218,5 +228,17 @@ namespace Durin::VulkanRHI
 				for (uint32 Mip = Range.FirstMip; Mip < Range.FirstMip + Range.NumMips; ++Mip)
 					States[GetIndex(Aspect, Mip, Layer)] = Access;
 		});
+	}
+
+	auto ValidateVulkanTextureDescriptorState(
+		const FVulkanTextureStateTracker& Tracker,
+		const FRHITextureSubresourceRange& Range,
+		ERHIBindingType BindingType, ERHIAccess& OutTracked) -> bool
+	{
+		if (BindingType == ERHIBindingType::Texture)
+			return Tracker.Validate(Range, ERHIAccess::GraphicsShaderRead, OutTracked);
+		if (BindingType == ERHIBindingType::StorageImage)
+			return Tracker.Validate(Range, ERHIAccess::GraphicsShaderReadWrite, OutTracked);
+		return false;
 	}
 } // namespace Durin::VulkanRHI

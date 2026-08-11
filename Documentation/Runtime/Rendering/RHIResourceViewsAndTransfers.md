@@ -39,6 +39,11 @@ command is retained. Explicit caller ranges become exact buffer views; scalar
 textures and whole-buffer bindings use canonical default descriptions.
 Vulkan descriptor writes consume the retained Vulkan view object rather than
 reconstructing a native range from a raw resource.
+Sampled and storage descriptors validate that exact retained range against the
+authoritative texture state tracker before either cache reuse or a native
+descriptor write. A dual-use sampled/storage texture remains legal, but it
+must explicitly transition between graphics shader read and graphics shader
+read/write access; creation flags do not stand in for current state.
 
 Render-pass descriptions carry attachment resources and their selected counted
 views together. Recording canonicalizes missing attachment views, retains the

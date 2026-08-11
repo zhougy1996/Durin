@@ -358,6 +358,11 @@ namespace Durin
 		FGraphicsPipelineStateKey& OutKey,
 		std::string& OutError) -> bool
 	{
+		const auto CanonicalizeNumericFloat = [](float Value) {
+			// Accepted key floats use numeric equality. Collapse both signed-zero
+			// representations so their byte-wise hash has the same identity.
+			return Value == 0.0f ? 0.0f : Value;
+		};
 		auto Fail = [&OutError](const char* Message) {
 			OutError = Message;
 			return false;
@@ -531,6 +536,14 @@ namespace Durin
 		}
 		if (Key.RasterizerState.PolygonMode != ERHIPolygonMode::Line)
 			Key.RasterizerState.LineWidth = 1.0f;
+		Key.RasterizerState.DepthBiasConstantFactor = CanonicalizeNumericFloat(
+			Key.RasterizerState.DepthBiasConstantFactor);
+		Key.RasterizerState.DepthBiasClamp = CanonicalizeNumericFloat(
+			Key.RasterizerState.DepthBiasClamp);
+		Key.RasterizerState.DepthBiasSlopeFactor = CanonicalizeNumericFloat(
+			Key.RasterizerState.DepthBiasSlopeFactor);
+		Key.RasterizerState.LineWidth = CanonicalizeNumericFloat(
+			Key.RasterizerState.LineWidth);
 		Key.MultisampleState = Initializer.MultisampleState;
 		Key.DepthStencilState = Initializer.DepthStencilState;
 		if (!Key.DepthStencilState.bEnableTest)

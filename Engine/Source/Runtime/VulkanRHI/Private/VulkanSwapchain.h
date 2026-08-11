@@ -1,11 +1,43 @@
 #pragma once
 
+#include "VulkanRHIAPI.h"
+
 namespace Durin::VulkanRHI
 {
 	class FVulkanDevice;
 	class FVulkanFence;
 	class FVulkanQueue;
 	class FVulkanSemaphore;
+
+	inline constexpr vk::ImageUsageFlags RequiredSwapchainImageUsage =
+		vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled
+		| vk::ImageUsageFlagBits::eTransferDst;
+
+	struct FVulkanSwapchainSelectionInput
+	{
+		vk::SurfaceCapabilitiesKHR Capabilities{};
+		std::vector<vk::SurfaceFormatKHR> Formats;
+		std::vector<vk::PresentModeKHR> PresentModes;
+		uint32 RequestedWidth = 0;
+		uint32 RequestedHeight = 0;
+		EViewportPresentModePolicy PresentModePolicy = EViewportPresentModePolicy::MainWindow;
+	};
+
+	struct FVulkanSwapchainConfiguration
+	{
+		vk::SurfaceFormatKHR SurfaceFormat{};
+		vk::PresentModeKHR PresentMode = vk::PresentModeKHR::eFifo;
+		vk::Extent2D Extent{};
+		uint32 ImageCount = 0;
+		vk::ImageUsageFlags ImageUsage{};
+		vk::SurfaceTransformFlagBitsKHR PreTransform = vk::SurfaceTransformFlagBitsKHR::eIdentity;
+		vk::CompositeAlphaFlagBitsKHR CompositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque;
+	};
+
+	VULKANRHI_API auto SelectVulkanSwapchainConfiguration(
+		const FVulkanSwapchainSelectionInput& Input,
+		FVulkanSwapchainConfiguration& OutConfiguration,
+		std::string& OutError) -> bool;
 
 	// Reports whether presentation succeeded and whether the swapchain must be recreated.
 	struct FVulkanPresentOutcome

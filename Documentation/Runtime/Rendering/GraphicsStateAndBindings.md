@@ -15,6 +15,12 @@ state before backend creation. Disabled features and inactive attachments are
 reduced to canonical defaults, so equivalent behavior has equal identity and
 different behavior cannot alias.
 
+Accepted floating-point key fields use ordinary finite numeric equality.
+Key construction therefore canonicalizes either signed-zero representation to
+positive zero after inactive-state reduction; equal keys always have equal
+hashes. This normalization remains private to graphics-key construction and
+does not define serialization or general-purpose floating-point identity.
+
 Rasterizer state includes polygon mode, front/back/none culling, winding,
 depth clamp, depth bias, and line width. Multisample state includes sample
 count and alpha-to-coverage. Depth/stencil state includes the standard compare
@@ -60,6 +66,13 @@ uniform alignment. Dynamic offsets are ordered submission data and do not
 participate in immutable descriptor identity. Binding a different PSO selects
 state for that complete PSO identity, so an incompatible layout cannot inherit
 stale values.
+
+For texture descriptors, sampled bindings require the exact view range to be
+in `GraphicsShaderRead` and declare `ShaderReadOnlyOptimal`; storage-image
+bindings require `GraphicsShaderReadWrite` and declare `General`. Binding usage
+and the common texture state tracker, never the parent texture's complete
+creation flags, select this layout. Validation runs before descriptor-cache
+reuse.
 
 `FRHIBindingSet` is not part of the public model. Graphics and future compute
 work share this reflected location and snapshot vocabulary.

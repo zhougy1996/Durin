@@ -1782,6 +1782,42 @@ namespace Durin
 		EXPECT_NE(FirstKey, SecondKey);
 	}
 
+	TEST(FRHICommandListTests, GraphicsPipelineKeyCanonicalizesSignedZero)
+	{
+		FTestShader VertexShader(EShaderFrequency::Vertex, 13);
+		FTestShader FragmentShader(EShaderFrequency::Fragment, 14);
+		FTestVertexDeclaration VertexDeclaration;
+		FGraphicsPipelineStateInitializer Positive;
+		Positive.BoundShaders = {&VertexShader, &FragmentShader};
+		Positive.VertexDeclaration = &VertexDeclaration;
+		Positive.RenderTargetLayout.NumColorRenderTargets = 1;
+		auto& Attachment = Positive.RenderTargetLayout.ColorAttachments[0].RenderTarget;
+		Attachment.Format = EPixelFormat::RGBA8_UNORM;
+		Attachment.FinalLayout = ERHITextureLayout::ShaderReadOnly;
+		Attachment.FinalAccess = ERHIAccess::GraphicsShaderRead;
+		Positive.RasterizerState.bEnableDepthBias = true;
+		Positive.RasterizerState.DepthBiasConstantFactor = 0.0f;
+		Positive.RasterizerState.DepthBiasClamp = 0.0f;
+		Positive.RasterizerState.DepthBiasSlopeFactor = 0.0f;
+		FGraphicsPipelineStateInitializer Negative = Positive;
+		Negative.RasterizerState.DepthBiasConstantFactor = -0.0f;
+		Negative.RasterizerState.DepthBiasClamp = -0.0f;
+		Negative.RasterizerState.DepthBiasSlopeFactor = -0.0f;
+
+		FGraphicsPipelineStateKey PositiveKey;
+		FGraphicsPipelineStateKey NegativeKey;
+		std::string Error;
+		ASSERT_TRUE(BuildGraphicsPipelineStateKey(Positive, nullptr, PositiveKey, Error)) << Error;
+		ASSERT_TRUE(BuildGraphicsPipelineStateKey(Negative, nullptr, NegativeKey, Error)) << Error;
+		EXPECT_EQ(PositiveKey, NegativeKey);
+		EXPECT_EQ(FGraphicsPipelineStateKeyHasher{}(PositiveKey),
+			FGraphicsPipelineStateKeyHasher{}(NegativeKey));
+
+		Negative.RasterizerState.DepthBiasSlopeFactor = -1.0f;
+		ASSERT_TRUE(BuildGraphicsPipelineStateKey(Negative, nullptr, NegativeKey, Error)) << Error;
+		EXPECT_NE(PositiveKey, NegativeKey);
+	}
+
 	TEST(FRHICommandListTests, GraphicsPipelineKeyValidatesVertexStreamRates)
 	{
 		FTestShader VertexShader(EShaderFrequency::Vertex, 21);

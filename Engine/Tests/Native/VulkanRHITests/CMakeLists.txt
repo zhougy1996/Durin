@@ -5,6 +5,7 @@ add_durin_test(VulkanRHIIntegrationTests
 	Private/VulkanMemoryPolicyTests.cpp
 	Private/VulkanTextureSamplingTests.cpp
 	Private/VulkanResourceTransitionTests.cpp
+	Private/VulkanSwapchainSelectionTests.cpp
 	${DURIN_PROJECT_SOURCE_DIR}/Runtime/RenderCore/Private/Shader/SlangShaderCompiler.cpp
 	${DURIN_PROJECT_SOURCE_DIR}/Runtime/RenderCore/Private/Shader/ShaderCompileUtilities.cpp
 )

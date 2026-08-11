@@ -97,6 +97,12 @@ a wrapper for an unprovisioned family. An incompatible surface fails its new
 swapchain/viewport candidate before native swapchain creation and cannot disturb
 an existing complete viewport.
 
+Surface capabilities, formats, and present modes are not startup capabilities.
+They belong to one concrete surface snapshot and are queried for every
+transactional main or detached swapchain create/recreate candidate. The
+candidate validates them without mutating Vulkan state; dynamic WSI values are
+never published in the immutable `FRHICapabilities` snapshot.
+
 ## Complete Structural Candidates
 
 Render-pass, framebuffer, descriptor-set-layout, pipeline descriptor-layout,

@@ -54,6 +54,10 @@ Flush and invalidate use one mapped-range normalizer. It aligns the start down
 and end up to `nonCoherentAtomSize`, clamps the tail to the allocation, and
 preserves the requested observable byte range. Readback always waits before
 invalidate and copies into caller-owned CPU storage before releasing its range.
+The VMA result from each flush or invalidate is checked at this memory-manager
+boundary. Failure reports the allocation class, requested and normalized
+ranges, and native result, then terminates the current execution path; upload
+or readback cannot continue with stale mapped data.
 
 ## Transfer Arenas
 

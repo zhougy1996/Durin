@@ -18,6 +18,8 @@ namespace Durin::VulkanRHI
 
 	VULKANRHI_API auto MapVulkanResourceState(ERHIAccess Access) -> FVulkanResourceStateMapping;
 	VULKANRHI_API auto ToVulkanAspectFlags(ERHITextureAspect Aspects) -> vk::ImageAspectFlags;
+	VULKANRHI_API auto GetVulkanDescriptorImageLayout(ERHIBindingType BindingType)
+		-> vk::ImageLayout;
 
 	class VULKANRHI_API FVulkanBufferStateTracker
 	{
@@ -58,4 +60,9 @@ namespace Durin::VulkanRHI
 		uint32 LayerCount = 0;
 		std::vector<ERHIAccess> States;
 	};
+
+	VULKANRHI_API auto ValidateVulkanTextureDescriptorState(
+		const FVulkanTextureStateTracker& Tracker,
+		const FRHITextureSubresourceRange& Range,
+		ERHIBindingType BindingType, ERHIAccess& OutTracked) -> bool;
 } // namespace Durin::VulkanRHI

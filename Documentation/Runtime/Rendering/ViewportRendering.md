@@ -352,6 +352,16 @@ swapchain creation may retain the old complete output when Vulkan still permits
 its use. Failure after native replacement has retired that old output exposes an
 explicitly unavailable viewport with no backbuffer.
 
+Each candidate first revalidates the startup-provisioned queue family against
+its concrete surface, then queries one fresh capabilities/formats/present-modes
+snapshot. A value-only selector chooses the format, policy-compatible present
+mode, extent, image count, current transform, and a supported composite-alpha
+mode (opaque, pre-multiplied, post-multiplied, then inherit). Color-attachment,
+sampled, and transfer-destination image usages are all required by the existing
+backbuffer contract. Empty query sets, unsupported required usage, invalid
+extent/count ranges, or no supported alpha choice reject the candidate before
+`vkCreateSwapchainKHR`; required usages are never silently dropped.
+
 The published backbuffer format is derived from the actual selected swapchain
 image format, which may differ from the caller's preferred format. Render-pass
 and framebuffer views must use that published actual format. Main and detached

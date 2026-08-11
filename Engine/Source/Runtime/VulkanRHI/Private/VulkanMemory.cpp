@@ -5,7 +5,6 @@
 
 #include "VulkanDevice.h"
 #include "VulkanDynamicRHI.h"
-#include "VulkanDynamicRHI.h"
 #include "VulkanDiagnostics.h"
 #include "VulkanRHIPrivate.h"
 
@@ -298,7 +297,17 @@ namespace Durin::VulkanRHI
 		const FVulkanMappedRange Range = NormalizeVulkanMappedRange(
 			Offset, Size, Allocation.GetSize(),
 			Device->GetGpuProperties().limits.nonCoherentAtomSize);
-		vmaFlushAllocation(Allocator, Allocation.Handle, Range.Offset, Range.Size);
+		const VkResult Result =
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint::MappedMemoryFlush)
+				? VK_ERROR_MEMORY_MAP_FAILED :
+#endif
+			vmaFlushAllocation(Allocator, Allocation.Handle, Range.Offset, Range.Size);
+		if (Result != VK_SUCCESS)
+			throw std::runtime_error(std::format(
+				"Vulkan mapped-memory flush failed: class={}, requestedOffset={}, requestedSize={}, normalizedOffset={}, normalizedSize={}, result={}",
+				static_cast<uint32>(Allocation.Class), Offset, Size, Range.Offset, Range.Size,
+				vk::to_string(static_cast<vk::Result>(Result))));
 	}
 
 	auto FVulkanMemoryManager::Invalidate(const FVulkanAllocation& Allocation, vk::DeviceSize Offset, vk::DeviceSize Size) const -> void
@@ -306,7 +315,17 @@ namespace Durin::VulkanRHI
 		const FVulkanMappedRange Range = NormalizeVulkanMappedRange(
 			Offset, Size, Allocation.GetSize(),
 			Device->GetGpuProperties().limits.nonCoherentAtomSize);
-		vmaInvalidateAllocation(Allocator, Allocation.Handle, Range.Offset, Range.Size);
+		const VkResult Result =
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint::MappedMemoryInvalidate)
+				? VK_ERROR_MEMORY_MAP_FAILED :
+#endif
+			vmaInvalidateAllocation(Allocator, Allocation.Handle, Range.Offset, Range.Size);
+		if (Result != VK_SUCCESS)
+			throw std::runtime_error(std::format(
+				"Vulkan mapped-memory invalidate failed: class={}, requestedOffset={}, requestedSize={}, normalizedOffset={}, normalizedSize={}, result={}",
+				static_cast<uint32>(Allocation.Class), Offset, Size, Range.Offset, Range.Size,
+				vk::to_string(static_cast<vk::Result>(Result))));
 	}
 
 	auto FVulkanMemoryManager::GetMemoryType(uint32 MemoryTypeIndex) const -> vk::MemoryType

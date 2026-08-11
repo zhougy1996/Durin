@@ -101,6 +101,33 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(Whole.Size, 872u);
 	}
 
+	TEST(FVulkanMappedRangeTests, FlushAndInvalidateFailuresAreNotIgnored)
+	{
+		struct FInlineRHIScope
+		{
+			FInlineRHIScope() { _putenv_s("DURIN_RHI_EXECUTION", "inline"); }
+			~FInlineRHIScope()
+			{
+				ResetVulkanCreateFailures();
+				if (GDynamicRHI) RHIExit();
+				_putenv_s("DURIN_RHI_EXECUTION", "");
+			}
+		} Scope;
+		ASSERT_TRUE(RHIInit());
+		FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
+		FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(Commands,
+			FRHIBufferCreateDesc::Create("MappedFailureBuffer", 256, 16,
+				EBufferUsageFlags::Dynamic | EBufferUsageFlags::DestinationCopy
+					| EBufferUsageFlags::KeepCPUAccessible));
+		ASSERT_TRUE(Buffer);
+		auto* VulkanBuffer = static_cast<FVulkanBuffer*>(Buffer.GetReference());
+
+		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::MappedMemoryFlush);
+		EXPECT_THROW(VulkanBuffer->FlushMappedMemory(17, 1), std::runtime_error);
+		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::MappedMemoryInvalidate);
+		EXPECT_THROW(VulkanBuffer->InvalidateMappedMemory(17, 1), std::runtime_error);
+	}
+
 	TEST(FVulkanAllocationClassIntegrationTests,
 		SelectsExplicitPropertiesAndPreservesLiveStatisticsAcrossReset)
 	{

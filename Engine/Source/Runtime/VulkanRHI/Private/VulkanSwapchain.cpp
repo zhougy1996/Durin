@@ -103,6 +103,67 @@ namespace Durin::VulkanRHI
 		}
 	}
 
+	auto SelectVulkanSwapchainConfiguration(
+		const FVulkanSwapchainSelectionInput& Input,
+		FVulkanSwapchainConfiguration& OutConfiguration,
+		std::string& OutError) -> bool
+	{
+		auto Fail = [&OutError](const char* Error) {
+			OutError = Error;
+			return false;
+		};
+		if (Input.Formats.empty())
+			return Fail("Vulkan swapchain selection failed: the surface reported no formats.");
+		if (Input.PresentModes.empty())
+			return Fail("Vulkan swapchain selection failed: the surface reported no present modes.");
+		if ((Input.Capabilities.supportedUsageFlags & RequiredSwapchainImageUsage)
+			!= RequiredSwapchainImageUsage)
+			return Fail("Vulkan swapchain selection failed: required backbuffer image usage is unsupported.");
+		if (Input.Capabilities.minImageExtent.width > Input.Capabilities.maxImageExtent.width
+			|| Input.Capabilities.minImageExtent.height > Input.Capabilities.maxImageExtent.height)
+			return Fail("Vulkan swapchain selection failed: the surface extent range is invalid.");
+		if (Input.Capabilities.maxImageCount > 0
+			&& Input.Capabilities.maxImageCount < Input.Capabilities.minImageCount)
+			return Fail("Vulkan swapchain selection failed: the surface image-count range is invalid.");
+
+		FVulkanSwapchainConfiguration Configuration;
+		Configuration.SurfaceFormat = ChooseSwapSurfaceFormat(Input.Formats);
+		Configuration.PresentMode = ChooseSwapPresentMode(
+			Input.PresentModes, Input.PresentModePolicy);
+		if (std::ranges::find(Input.PresentModes, Configuration.PresentMode)
+			== Input.PresentModes.end())
+			return Fail("Vulkan swapchain selection failed: no policy-compatible present mode is supported.");
+		Configuration.Extent = ChooseSwapExtent(Input.Capabilities,
+			Input.RequestedWidth, Input.RequestedHeight);
+		if (Configuration.Extent.width == 0 || Configuration.Extent.height == 0)
+			return Fail("Vulkan swapchain selection failed: the selected extent is empty.");
+		Configuration.ImageCount = FMath::Max(
+			GetMinImageCountForPresentMode(Configuration.PresentMode),
+			Input.Capabilities.minImageCount);
+		if (Input.Capabilities.maxImageCount > 0)
+			Configuration.ImageCount = FMath::Min(
+				Configuration.ImageCount, Input.Capabilities.maxImageCount);
+		if (Configuration.ImageCount < kFrameInFlight)
+			return Fail("Vulkan swapchain selection failed: the supported image count is below the frames-in-flight requirement.");
+		Configuration.ImageUsage = RequiredSwapchainImageUsage;
+		Configuration.PreTransform = Input.Capabilities.currentTransform;
+		for (const vk::CompositeAlphaFlagBitsKHR Candidate : {
+			vk::CompositeAlphaFlagBitsKHR::eOpaque,
+			vk::CompositeAlphaFlagBitsKHR::ePreMultiplied,
+			vk::CompositeAlphaFlagBitsKHR::ePostMultiplied,
+			vk::CompositeAlphaFlagBitsKHR::eInherit})
+		{
+			if (Input.Capabilities.supportedCompositeAlpha & Candidate)
+			{
+				Configuration.CompositeAlpha = Candidate;
+				OutConfiguration = Configuration;
+				OutError.clear();
+				return true;
+			}
+		}
+		return Fail("Vulkan swapchain selection failed: the surface reported no supported composite-alpha mode.");
+	}
+
 	FVulkanSwapchain::FVulkanSwapchain(FVulkanDevice& InDevice, vk::SurfaceKHR InSurface, uint32 Width, uint32 Height, bool bIsFullScreen, EViewportPresentModePolicy InPresentModePolicy, vk::SwapchainKHR InOldSwapchain, bool& bOutNativeSwapchainCreated)
 		: Device(InDevice)
 		, Surface(InSurface)
@@ -121,35 +182,33 @@ namespace Durin::VulkanRHI
 		std::vector<vk::SurfaceFormatKHR> Formats = Gpu.getSurfaceFormatsKHR(Surface);
 		std::vector<vk::PresentModeKHR> PresentModes = Gpu.getSurfacePresentModesKHR(Surface);
 
-		vk::SurfaceFormatKHR CurrFormat = ChooseSwapSurfaceFormat(Formats);
-		vk::PresentModeKHR PresentMode = ChooseSwapPresentMode(PresentModes, PresentModePolicy);
-		Extent = ChooseSwapExtent(Capabilities, Width, Height);
-
-		ImageFormat = CurrFormat.format;
-
-		uint32 MinImageCount = GetMinImageCountForPresentMode(PresentMode);
-		MinImageCount = FMath::Max(MinImageCount, Capabilities.minImageCount);
-		if (Capabilities.maxImageCount > 0 && MinImageCount > Capabilities.maxImageCount)
-		{
-			MinImageCount = Capabilities.maxImageCount;
-		}
-
-		check(MinImageCount >= kFrameInFlight);
+		FVulkanSwapchainConfiguration Configuration;
+		std::string SelectionError;
+		if (!SelectVulkanSwapchainConfiguration({
+				.Capabilities = Capabilities,
+				.Formats = std::move(Formats),
+				.PresentModes = std::move(PresentModes),
+				.RequestedWidth = Width,
+				.RequestedHeight = Height,
+				.PresentModePolicy = PresentModePolicy}, Configuration, SelectionError))
+			throw std::runtime_error(SelectionError);
+		Extent = Configuration.Extent;
+		ImageFormat = Configuration.SurfaceFormat.format;
 
 		vk::SwapchainCreateInfoKHR SwapchainInfo;
 		SwapchainInfo
 			.setSurface(Surface)
-			.setMinImageCount(MinImageCount)
-			.setImageFormat(CurrFormat.format)
-			.setImageColorSpace(CurrFormat.colorSpace)
+			.setMinImageCount(Configuration.ImageCount)
+			.setImageFormat(Configuration.SurfaceFormat.format)
+			.setImageColorSpace(Configuration.SurfaceFormat.colorSpace)
 			.setImageExtent(Extent)
 			.setImageArrayLayers(1)
-			.setImageUsage(vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst)
-			.setPreTransform(Capabilities.currentTransform)
+			.setImageUsage(Configuration.ImageUsage)
+			.setPreTransform(Configuration.PreTransform)
 			.setImageSharingMode(vk::SharingMode::eExclusive)
-			.setPresentMode(PresentMode)
+			.setPresentMode(Configuration.PresentMode)
 			.setClipped(vk::True)
-			.setCompositeAlpha(vk::CompositeAlphaFlagBitsKHR::eOpaque)
+			.setCompositeAlpha(Configuration.CompositeAlpha)
 			.setOldSwapchain(InOldSwapchain);
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::Swapchain);
@@ -169,8 +228,11 @@ namespace Durin::VulkanRHI
 			throw;
 		}
 		DURIN_DEBUG("Vulkan swapchain {}: extent={}x{}, format={}, colorSpace={}, presentMode={}, images={}, policy={}, windowMode={}.",
-			InOldSwapchain ? "recreated" : "created", Extent.width, Extent.height, vk::to_string(CurrFormat.format), vk::to_string(CurrFormat.colorSpace),
-			vk::to_string(PresentMode), SwapchainImages.size(), PresentModePolicyName(PresentModePolicy), bIsFullScreen ? "fullscreen" : "windowed");
+			InOldSwapchain ? "recreated" : "created", Extent.width, Extent.height,
+			vk::to_string(Configuration.SurfaceFormat.format),
+			vk::to_string(Configuration.SurfaceFormat.colorSpace),
+			vk::to_string(Configuration.PresentMode), SwapchainImages.size(),
+			PresentModePolicyName(PresentModePolicy), bIsFullScreen ? "fullscreen" : "windowed");
 
 	}
 

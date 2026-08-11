@@ -4,29 +4,25 @@ Summary: Close audited PSO identity, Vulkan descriptor-layout, mapped-memory, an
 
 Last reviewed: 2026-08-11
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-11
 
 ## Current Status
 
-The completed RHI and Vulkan roadmap established recorded command ownership,
-explicit resource transitions and views, bounded graphics caches, exact GPU
-completion, transactional swapchain replacement, and hardware-backed
-conformance coverage. A focused source audit on 2026-08-11 found four narrower
-correctness gaps that do not require a new public rendering feature:
+All stages are complete. Graphics-key construction canonicalizes accepted
+signed zero privately; Vulkan image descriptors derive layout from binding
+usage and validate their exact view range against the common state tracker;
+mapped-memory flush/invalidate failures are terminal and diagnostic; and every
+swapchain candidate is selected from a fresh, complete surface snapshot before
+native creation. Startup capabilities remain immutable device/topology facts,
+and the existing swapchain-maintenance-unavailable queue-idle fallback is
+unchanged.
 
-- sampled descriptors derive image layout from a texture's creation flags
-  instead of the binding/view usage and authoritative tracked access;
-- mapped-memory flush and invalidate results are discarded;
-- swapchain creation assumes nonempty formats and hard-codes image usage and
-  composite alpha without validating the current surface capabilities; and
-- PSO key equality treats signed zero numerically while its hash preserves the
-  different float bit patterns.
-
-The pre-change baseline passes 58 `RHICommandListTests` cases and 45
-`VulkanRHIIntegrationTests` cases. Those suites do not yet cover the audited
-dual-use sampled/storage texture, mapped-memory failure, limited surface
-capability, or signed-zero key scenarios.
+Final evidence passed 59/59 `RHICommandListTests`, 54/54
+`VulkanRHIIntegrationTests`, repository plan validation, the full Debug Editor
+`all` build, and a validation-enabled 30-tick hidden Editor run. The Vulkan WSI
+integration coverage created, presented, resized, and tore down both main and
+detached viewport outputs while exercising transactional failure and recovery.
 
 This plan keeps startup negotiation and per-surface negotiation distinct.
 Instance version, extensions, device features, and the provisioned queue family
@@ -171,23 +167,23 @@ are executable as pure or injected tests before production paths change.
 Dependencies: completed RHI capability, transition, view, graphics-binding,
 memory-completion, and diagnostics contracts.
 
-- [ ] Inventory every current backbuffer consumer that requires color-
+- [x] Inventory every current backbuffer consumer that requires color-
   attachment, sampled, and transfer-destination usage; confirm all three remain
   required rather than silently selecting a reduced native usage.
-- [ ] Freeze the deterministic composite-alpha preference order and the owned
+- [x] Freeze the deterministic composite-alpha preference order and the owned
   diagnostics for empty formats, empty present modes, missing required usage,
   and missing supported alpha modes.
-- [ ] Define one value-only swapchain selection input/output that contains no
+- [x] Define one value-only swapchain selection input/output that contains no
   borrowed Vulkan query pointers and can represent main/detached policy.
-- [ ] Add table-driven selection fixtures for fixed/variable extent, image
+- [x] Add table-driven selection fixtures for fixed/variable extent, image
   count clamps, preferred/fallback format and present mode, each alpha fallback,
   empty query results, and missing required usage bits.
-- [ ] Add a legal dual-use texture fixture that transitions between graphics
+- [x] Add a legal dual-use texture fixture that transitions between graphics
   shader read/write and graphics shader read before storage and sampled binds.
-- [ ] Select narrow test-only failure injection for VMA flush and invalidate
+- [x] Select narrow test-only failure injection for VMA flush and invalidate
   result handling without changing normal allocator behavior or making the
   public operation recoverable.
-- [ ] Add RHI graphics-key fixtures proving `+0.0f` and `-0.0f` accepted state
+- [x] Add RHI graphics-key fixtures proving `+0.0f` and `-0.0f` accepted state
   produces equal keys and equal hashes while distinct nonzero finite state
   remains distinct.
 
@@ -211,16 +207,16 @@ representation consistent with its equality operator and cache hasher.
 Dependencies: Stage 0 signed-zero fixtures and existing graphics-state
 canonicalization.
 
-- [ ] Add a private graphics-key float canonicalization helper or equivalent
+- [x] Add a private graphics-key float canonicalization helper or equivalent
   explicit assignments in `BuildGraphicsPipelineStateKey`; normalize signed
   zero without changing nonzero finite values.
-- [ ] Apply it to every active rasterizer float field after disabled-state
+- [x] Apply it to every active rasterizer float field after disabled-state
   canonicalization and before publishing `OutKey`.
-- [ ] Keep hashing centralized in `FGraphicsPipelineStateKeyHasher` and avoid a
+- [x] Keep hashing centralized in `FGraphicsPipelineStateKeyHasher` and avoid a
   second bitwise or public hash identity.
-- [ ] Cover equality/hash parity and Vulkan PSO cache reuse for signed-zero
+- [x] Cover equality/hash parity and Vulkan PSO cache reuse for signed-zero
   depth-bias variants where hardware-backed coverage is useful.
-- [ ] Run the smallest affected RHI graphics-state test target and focused
+- [x] Run the smallest affected RHI graphics-state test target and focused
   Vulkan pipeline/cache coverage under repository guidance.
 
 #### Acceptance Gate
@@ -240,21 +236,21 @@ mapped-memory synchronization cannot fail silently.
 
 Dependencies: Stage 0 dual-use texture and VMA failure fixtures.
 
-- [ ] Select sampled versus storage descriptor image layout exclusively from
+- [x] Select sampled versus storage descriptor image layout exclusively from
   `ERHIBindingType` or the already validated texture-view usage.
-- [ ] Validate every texture descriptor's exact view subresource range against
+- [x] Validate every texture descriptor's exact view subresource range against
   `FVulkanTextureStateTracker` before descriptor cache hit reuse or draw
   emission, with binding-qualified diagnostics.
-- [ ] Preserve descriptor cache ownership, bounds, dynamic offsets, and exact
+- [x] Preserve descriptor cache ownership, bounds, dynamic offsets, and exact
   resource/view identity; do not add a parallel layout cache.
-- [ ] Cover one dual-use texture across storage write, explicit transition,
+- [x] Cover one dual-use texture across storage write, explicit transition,
   sampled read, reverse transition, descriptor cache miss/hit, and both inline
   and threaded RHI execution.
-- [ ] Check and classify VMA flush/invalidate results at the memory-manager
+- [x] Check and classify VMA flush/invalidate results at the memory-manager
   boundary and propagate failure through the existing terminal executor path.
-- [ ] Add injected upload/dynamic-data flush and readback invalidate failures,
+- [x] Add injected upload/dynamic-data flush and readback invalidate failures,
   proving no later copy, draw, result publication, or resource leak occurs.
-- [ ] Run the smallest affected RHI transition/view and Vulkan integration test
+- [x] Run the smallest affected RHI transition/view and Vulkan integration test
   targets under repository guidance.
 
 #### Acceptance Gate
@@ -278,23 +274,23 @@ recovery behavior remain transactional.
 Dependencies: Stage 0 selection contract and current startup-provisioned queue
 family.
 
-- [ ] Extract or introduce the pure swapchain configuration selector and make
+- [x] Extract or introduce the pure swapchain configuration selector and make
   the native constructor consume only its complete result.
-- [ ] Query capabilities, formats, and present modes for every create/recreate
+- [x] Query capabilities, formats, and present modes for every create/recreate
   attempt after validating the provisioned queue family's support for that
   concrete surface.
-- [ ] Reject empty query results, missing required image usage, unsupported
+- [x] Reject empty query results, missing required image usage, unsupported
   extent/image-count combinations, and absent composite-alpha choices with one
   candidate-owned diagnostic before native swapchain creation.
-- [ ] Select and publish actual format, present mode, extent, image count,
+- [x] Select and publish actual format, present mode, extent, image count,
   transform, image usage, and composite alpha from the same immutable candidate
   value used to fill `vk::SwapchainCreateInfoKHR`.
-- [ ] Preserve old-swapchain handoff, candidate cleanup, retry eligibility,
+- [x] Preserve old-swapchain handoff, candidate cleanup, retry eligibility,
   stable backbuffer wrapper/generation, and main/detached viewport isolation.
-- [ ] Extend failure and WSI coverage for limited capability inputs, initial
+- [x] Extend failure and WSI coverage for limited capability inputs, initial
   failure, recreation failure before/after native creation, recovery, resize,
   detached viewport teardown, and validation-clean presentation.
-- [ ] Do not change the existing queue-idle fallback when swapchain maintenance
+- [x] Do not change the existing queue-idle fallback when swapchain maintenance
   is unavailable; record it only as an unchanged non-goal.
 
 #### Acceptance Gate
@@ -317,19 +313,19 @@ plan.
 
 Dependencies: Stages 1-3 acceptance gates.
 
-- [ ] Update the RHI graphics-state/binding, Vulkan memory/completion, startup
+- [x] Update the RHI graphics-state/binding, Vulkan memory/completion, startup
   capability, and viewport/presentation lasting documents with only the new
   invariants owned by each domain.
-- [ ] Update this plan's Current Status, Last reviewed date, checklists, and
+- [x] Update this plan's Current Status, Last reviewed date, checklists, and
   evidence as each stage lands; record any design deviation before continuing.
-- [ ] Run documentation validation and the smallest affected RHI and Vulkan
+- [x] Run documentation validation and the smallest affected RHI and Vulkan
   native targets under repository guidance.
-- [ ] Run the successful full `all` build required for the user-visible
+- [x] Run the successful full `all` build required for the user-visible
   swapchain change.
-- [ ] Launch the editor from the same Agent Build Profile and qualify normal
+- [x] Launch the editor from the same Agent Build Profile and qualify normal
   main-window plus detached-viewport creation, drawing, resize, and shutdown
   with Vulkan validation enabled.
-- [ ] Review implementation, tests, lasting documentation, and plan evidence
+- [x] Review implementation, tests, lasting documentation, and plan evidence
   before marking the plan Completed.
 
 #### Acceptance Gate

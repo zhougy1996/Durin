@@ -1050,4 +1050,156 @@ namespace Durin
 			RHICmdList.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
 		}
 	}
+
+	TEST(FVulkanTextureSamplingTests, DualUseTextureBindsStorageThenSampledInlineAndThreaded)
+	{
+		FShaderCompileOptions Options;
+		Options.EntryPoints = {"VertexMain", "StorageMain", "SampleMain"};
+		Options.Frequencies = {EShaderFrequency::Vertex,
+			EShaderFrequency::Fragment, EShaderFrequency::Fragment};
+		const FShaderCompilerOutput Compiled = FSlangShaderCompiler().Compile(
+			(std::filesystem::path(DURIN_TEST_DATA_DIR) / "DualUseTexture.slang").string(),
+			Options);
+		ASSERT_TRUE(Compiled) << Compiled.ErrorMessage;
+		ASSERT_EQ(Compiled.CompiledShaders.size(), 3u);
+
+		for (const char* Mode : {"inline", "threaded"})
+		{
+			SCOPED_TRACE(Mode);
+			struct FRHIScope
+			{
+				explicit FRHIScope(const char* Value)
+				{
+					_putenv_s("DURIN_RHI_EXECUTION", Value);
+				}
+				~FRHIScope()
+				{
+					if (GDynamicRHI) RHIExit();
+					_putenv_s("DURIN_RHI_EXECUTION", "");
+				}
+			} Scope(Mode);
+			ASSERT_TRUE(RHIInit());
+			FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
+			auto MakeShader = [&](uint32 Index) {
+				const FCompiledShader& Shader = Compiled.CompiledShaders[Index];
+				FRHIShaderCreateDesc Desc = FRHIShaderCreateDesc::Create(
+					Shader.DebugName.c_str(), Shader.Frequency, *Shader.Code, Shader.Hash);
+				Desc.SetEntryPoint(Shader.BinaryEntryPoint.c_str());
+				return GDynamicRHI->RHICreateShader(Desc);
+			};
+			FShaderRHIRef Vertex = MakeShader(0);
+			FShaderRHIRef StorageFragment = MakeShader(1);
+			FShaderRHIRef SampleFragment = MakeShader(2);
+			FVertexDeclarationRHIRef VertexDeclaration =
+				GDynamicRHI->RHICreateVertexDeclaration({});
+			ASSERT_TRUE(Vertex && StorageFragment && SampleFragment && VertexDeclaration);
+
+			FRHIRenderTargetLayout Layout;
+			Layout.NumColorRenderTargets = 1;
+			auto& Attachment = Layout.ColorAttachments[0].RenderTarget;
+			Attachment.Format = EPixelFormat::RGBA8_UNORM;
+			Attachment.LoadAction = ERHIRenderTargetLoadAction::Clear;
+			Attachment.StoreAction = ERHIRenderTargetStoreAction::Store;
+			Attachment.InitialLayout = ERHITextureLayout::Undefined;
+			Attachment.InitialAccess = ERHIAccess::None;
+			Attachment.FinalLayout = ERHITextureLayout::ShaderReadOnly;
+			Attachment.FinalAccess = ERHIAccess::GraphicsShaderRead;
+			auto MakePipeline = [&](FRHIShader* Fragment, ERHIBindingType Type,
+				const char* Name) {
+				FGraphicsPipelineStateInitializer Initializer;
+				Initializer.RenderTargetLayout = Layout;
+				Initializer.BoundShaders = {Vertex, Fragment};
+				Initializer.VertexDeclaration = VertexDeclaration;
+				auto& Bindings = Initializer.PipelineLayout.BindingLayouts
+					.emplace_back().BindingLayouts;
+				Bindings.emplace_back(EShaderStageFlags::Fragment, 0, Type);
+				if (Type == ERHIBindingType::Texture)
+					Bindings.emplace_back(EShaderStageFlags::Fragment, 1,
+						ERHIBindingType::Sampler);
+				return GDynamicRHI->RHICreateGraphicsPipelineState(Name, Initializer);
+			};
+			FGraphicsPipelineStateRHIRef StoragePipeline = MakePipeline(
+				StorageFragment, ERHIBindingType::StorageImage, "DualUseStoragePipeline");
+			FGraphicsPipelineStateRHIRef SamplePipeline = MakePipeline(
+				SampleFragment, ERHIBindingType::Texture, "DualUseSamplePipeline");
+			ASSERT_TRUE(StoragePipeline && SamplePipeline);
+
+			FTextureRHIRef DualUse = RHICreateTexture(
+				FRHITextureCreateDesc::Create2D("DualUseTexture", 4, 4,
+					EPixelFormat::RGBA8_UNORM).SetFlags(
+					ETextureCreateFlags::ShaderResource | ETextureCreateFlags::Storage));
+			ASSERT_TRUE(DualUse);
+			FTextureViewRHIRef StorageView = GDynamicRHI->RHICreateTextureView(
+				DualUse, MakeDefaultTextureViewDesc(*DualUse, ERHITextureViewUsage::Storage));
+			FTextureViewRHIRef SampleView = GDynamicRHI->RHICreateTextureView(
+				DualUse, MakeDefaultTextureViewDesc(*DualUse, ERHITextureViewUsage::Sampled));
+			TRefCountPtr<FRHISampler> Sampler =
+				GDynamicRHI->RHICreateSampler(FRHISamplerDesc{});
+			ASSERT_TRUE(StorageView && SampleView && Sampler);
+
+			auto MakeTarget = [&](const char* Name, bool bReadback) {
+				ETextureCreateFlags Flags = ETextureCreateFlags::RenderTargetable
+					| ETextureCreateFlags::ShaderResource;
+				if (bReadback) Flags |= ETextureCreateFlags::CPUReadback;
+				return RHICreateTexture(FRHITextureCreateDesc::Create2D(
+					Name, 4, 4, EPixelFormat::RGBA8_UNORM).SetFlags(Flags));
+			};
+			FTextureRHIRef StorageTarget0 = MakeTarget("DualUseStorageTarget0", false);
+			FTextureRHIRef SampleTarget = MakeTarget("DualUseSampleTarget", true);
+			FTextureRHIRef StorageTarget1 = MakeTarget("DualUseStorageTarget1", false);
+			ASSERT_TRUE(StorageTarget0 && SampleTarget && StorageTarget1);
+
+			auto Draw = [&](FRHITexture* Target, FRHIGraphicsPipelineState* Pipeline,
+				FRHIShader* Shader, FRHITextureView* View, ERHIBindingType Type) {
+				FRHIRenderPassInfo Pass;
+				Pass.RenderTargetLayout = Layout;
+				Pass.ColorRenderTargets[0] = Target;
+				Commands.BeginRenderPass(Pass, "DualUseDescriptorPass");
+				Commands.SetGraphicsPipelineState(*Pipeline);
+				Commands.SetViewport(0, 0, 0, 4, 4, 1);
+				std::array Image{FRHIShaderParameterResource{
+					.Resource = View, .SetIndex = 0, .BindingIndex = 0,
+					.ArrayElement = 0, .Type = Type}};
+				Commands.SetShaderParameters(Shader, Image);
+				if (Type == ERHIBindingType::Texture)
+				{
+					std::array SamplerParameter{FRHIShaderParameterResource{
+						.Resource = Sampler.GetReference(), .SetIndex = 0,
+						.BindingIndex = 1, .ArrayElement = 0,
+						.Type = ERHIBindingType::Sampler}};
+					Commands.SetShaderParameters(Shader, SamplerParameter);
+				}
+				Commands.Draw({.VertexCount = 3});
+				Commands.EndRenderPass();
+			};
+
+			const FRHITextureSubresourceRange Whole{
+				ERHITextureAspect::Color, 0, 1, 0, 1};
+			Commands.TransitionTextures(std::array{FRHITextureTransition{
+				DualUse, Whole, ERHIAccess::Discard,
+				ERHIAccess::GraphicsShaderReadWrite}});
+			Draw(StorageTarget0, StoragePipeline, StorageFragment, StorageView,
+				ERHIBindingType::StorageImage);
+			Commands.TransitionTextures(std::array{FRHITextureTransition{
+				DualUse, Whole, ERHIAccess::GraphicsShaderReadWrite,
+				ERHIAccess::GraphicsShaderRead}});
+			Draw(SampleTarget, SamplePipeline, SampleFragment, SampleView,
+				ERHIBindingType::Texture);
+			Commands.TransitionTextures(std::array{FRHITextureTransition{
+				DualUse, Whole, ERHIAccess::GraphicsShaderRead,
+				ERHIAccess::GraphicsShaderReadWrite}});
+			Draw(StorageTarget1, StoragePipeline, StorageFragment, StorageView,
+				ERHIBindingType::StorageImage);
+
+			std::vector<uint8> Pixels;
+			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
+				Commands, SampleTarget, 0, 0, Pixels));
+			ASSERT_EQ(Pixels.size(), 64u);
+			EXPECT_NEAR(Pixels[0], 64, 1);
+			EXPECT_NEAR(Pixels[1], 128, 1);
+			EXPECT_NEAR(Pixels[2], 191, 1);
+			EXPECT_EQ(Pixels[3], 255);
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
+		}
+	}
 }

@@ -317,6 +317,19 @@ namespace Durin::VulkanRHI
 								? View->GetDesc().Usage == ERHITextureViewUsage::Sampled
 								: View->GetDesc().Usage == ERHITextureViewUsage::Storage,
 							"Image descriptor view usage is incompatible with its binding type.");
+						const auto* VulkanTexture = static_cast<const FVulkanTexture*>(
+							View->GetTexture());
+						const ERHIAccess ExpectedAccess = Binding.Type == ERHIBindingType::Texture
+							? ERHIAccess::GraphicsShaderRead
+							: ERHIAccess::GraphicsShaderReadWrite;
+						ERHIAccess TrackedAccess = ERHIAccess::None;
+						checkf(ValidateVulkanTextureDescriptorState(
+							VulkanTexture->GetStateTracker(), View->GetDesc().Range,
+							Binding.Type, TrackedAccess),
+							"Image descriptor binding state mismatch: set={}, binding={}, element={}, type={}, expectedAccess={}, trackedAccess={}.",
+							SetIndex, Binding.Slot, ArrayElement,
+							static_cast<uint32>(Binding.Type), static_cast<uint32>(ExpectedAccess),
+							static_cast<uint32>(TrackedAccess));
 					}
 					else
 						checkf(Resource->GetResourceType() == ERHIResourceType::Sampler,
@@ -415,13 +428,10 @@ namespace Durin::VulkanRHI
 			case ERHIBindingType::Texture:
 				{
 					const auto* View = static_cast<const FVulkanTextureView*>(Resource.Resource);
-					const auto* Texture = static_cast<const FVulkanTexture*>(View->GetTexture());
 					vk::DescriptorImageInfo& ImageInfo = ImageInfos.emplace_back();
 					ImageInfo
 						.setImageView(View->GetHandle())
-						.setImageLayout(EnumHasAnyFlags(Texture->CreateFlags, ETextureCreateFlags::Storage)
-							? vk::ImageLayout::eGeneral
-							: vk::ImageLayout::eShaderReadOnlyOptimal);
+						.setImageLayout(GetVulkanDescriptorImageLayout(Resource.Type));
 					DescriptorWrite.setImageInfo(ImageInfo);
 					break;
 				}
@@ -433,7 +443,7 @@ namespace Durin::VulkanRHI
 					vk::DescriptorImageInfo& ImageInfo = ImageInfos.emplace_back();
 					ImageInfo
 						.setImageView(View->GetHandle())
-						.setImageLayout(vk::ImageLayout::eGeneral);
+						.setImageLayout(GetVulkanDescriptorImageLayout(Resource.Type));
 					DescriptorWrite.setImageInfo(ImageInfo);
 					break;
 				}

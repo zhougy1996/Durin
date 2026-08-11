@@ -39,6 +39,8 @@ namespace Durin::VulkanRHI
 		Sampler,
 		VertexDeclaration,
 		QueryPool,
+		MappedMemoryFlush,
+		MappedMemoryInvalidate,
 		Count
 	};
 

@@ -1221,6 +1221,11 @@ namespace Durin::VulkanRHI
 		FTextureViewRHIRef TextureView = GDynamicRHI->RHICreateTextureView(
 			Texture, TextureViewDesc);
 		ASSERT_TRUE(TextureView);
+		RHICmdList.TransitionTextures(std::array{FRHITextureTransition{
+			Texture, {ERHITextureAspect::Color, 0, 1, 0, 1},
+			ERHIAccess::Discard, ERHIAccess::GraphicsShaderRead}});
+		RHICmdList.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
+			ERHISubmitFlags::SubmitToGPU);
 
 		FRHISamplerDesc SamplerDesc;
 		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Sampler);
@@ -1360,6 +1365,26 @@ namespace Durin::VulkanRHI
 		EXPECT_NE(Pipeline.GetReference(), ChangedSameNamePipeline.GetReference());
 		EXPECT_EQ(ChangedSameNamePipeline->GetRefCount(), 2u);
 
+		FGraphicsPipelineStateInitializer PositiveZeroInitializer = Initializer;
+		PositiveZeroInitializer.RasterizerState.bEnableDepthBias = true;
+		PositiveZeroInitializer.RasterizerState.DepthBiasConstantFactor = 0.0f;
+		PositiveZeroInitializer.RasterizerState.DepthBiasClamp = 0.0f;
+		PositiveZeroInitializer.RasterizerState.DepthBiasSlopeFactor = 0.0f;
+		FGraphicsPipelineStateInitializer NegativeZeroInitializer =
+			PositiveZeroInitializer;
+		NegativeZeroInitializer.RasterizerState.DepthBiasConstantFactor = -0.0f;
+		NegativeZeroInitializer.RasterizerState.DepthBiasClamp = -0.0f;
+		NegativeZeroInitializer.RasterizerState.DepthBiasSlopeFactor = -0.0f;
+		FGraphicsPipelineStateRHIRef PositiveZeroPipeline =
+			GDynamicRHI->RHICreateGraphicsPipelineState(
+				"RecoverableGraphicsPipeline_PositiveZero", PositiveZeroInitializer);
+		FGraphicsPipelineStateRHIRef NegativeZeroPipeline =
+			GDynamicRHI->RHICreateGraphicsPipelineState(
+				"RecoverableGraphicsPipeline_NegativeZero", NegativeZeroInitializer);
+		ASSERT_TRUE(PositiveZeroPipeline && NegativeZeroPipeline);
+		EXPECT_EQ(PositiveZeroPipeline.GetReference(),
+			NegativeZeroPipeline.GetReference());
+
 		std::vector<FGraphicsPipelineStateRHIRef> StatePipelines;
 		auto CreateStatePipeline = [&](FGraphicsPipelineStateInitializer State,
 			std::string_view Suffix) {
@@ -1449,10 +1474,10 @@ namespace Durin::VulkanRHI
 			GetVulkanGraphicsPipelineTestStats();
 		EXPECT_EQ(
 			PipelineStatsAfterCreation.CommittedPipelineCount,
-			PipelineStatsBefore.CommittedPipelineCount + 8);
+			PipelineStatsBefore.CommittedPipelineCount + 9);
 		EXPECT_EQ(
 			PipelineStatsAfterCreation.CreatedPipelineLayoutCount,
-			PipelineStatsBefore.CreatedPipelineLayoutCount + 9);
+			PipelineStatsBefore.CreatedPipelineLayoutCount + 10);
 		EXPECT_EQ(
 			PipelineStatsAfterCreation.RolledBackPipelineLayoutCount,
 			PipelineStatsBefore.RolledBackPipelineLayoutCount + 1);
@@ -1467,9 +1492,9 @@ namespace Durin::VulkanRHI
 		EXPECT_GE(CacheStatsAfterCreation.GraphicsPipelines.Hits,
 			CacheStatsBefore.GraphicsPipelines.Hits + 1);
 		EXPECT_EQ(CacheStatsAfterCreation.GraphicsPipelines.NativeCreations,
-			CacheStatsBefore.GraphicsPipelines.NativeCreations + 8);
+			CacheStatsBefore.GraphicsPipelines.NativeCreations + 9);
 		EXPECT_EQ(CacheStatsAfterCreation.GraphicsPipelines.Occupancy,
-			CacheStatsBefore.GraphicsPipelines.Occupancy + 8);
+			CacheStatsBefore.GraphicsPipelines.Occupancy + 9);
 		EXPECT_GE(CacheStatsAfterCreation.GraphicsPipelines.FailedCandidates,
 			CacheStatsBefore.GraphicsPipelines.FailedCandidates + 4);
 		EXPECT_EQ(CacheStatsAfterCreation.GraphicsPipelines.Capacity, 2048u);
@@ -1643,6 +1668,8 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(MrtPixels.size(), 8u * 8u * 4u);
 
 		StatePipelines.clear();
+		PositiveZeroPipeline = nullptr;
+		NegativeZeroPipeline = nullptr;
 		TwoSetPipeline = nullptr;
 		ChangedSameNamePipeline = nullptr;
 		SameNamePipeline = nullptr;
