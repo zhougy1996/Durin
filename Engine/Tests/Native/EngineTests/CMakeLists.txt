@@ -196,6 +196,7 @@ durin_add_engine_functional_test(LevelAuthoringTests
 		Private/Editor/StaticMeshLevelAuthoringTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Authoring/StaticMeshLevelAuthoring.cpp
+		${_durin_level_editor_private}/Authoring/GrayboxSceneAuthoring.cpp
 	LIBRARIES DurinEd
 )
 if(TARGET LevelAuthoringTests)

@@ -56,6 +56,10 @@ or asset loading.
   Outliner uses the same service.
 - SkeletalMesh placement and unsupported Actor/component graphs retain their
   existing explicit non-structural-transaction behavior.
+- The create-only `scene graybox-build` startup command lowers its complete
+  open-arena geometry through the same service without publishing interactive
+  transaction history. PlayerStart and DirectionalLight remain command-owned
+  candidate setup outside the StaticMesh service boundary.
 
 ## Related code
 

@@ -5,6 +5,7 @@
 #include "LaunchEngineLoop.h"
 #include "Misc/Build.h"
 #include "Misc/Project.h"
+#include "Misc/StartupCommand.h"
 #include "Misc/Version.h"
 #include "Profiling/Profiling.h"
 #include "Windows/WindowsProcessCrashHandler.h"
@@ -23,6 +24,8 @@ int LAUNCH_API main(int argc, char** argv)
 	constexpr std::string_view CrashFixturePrefix = "--native-crash-fixture=";
 	constexpr std::string_view CrashSavedPrefix = "--native-crash-saved=";
 	constexpr std::string_view CrashPhasePrefix = "--native-crash-at=";
+	constexpr std::string_view StartupCommandPrefix = "--startup-command=";
+	constexpr std::string_view StartupCommandArgumentPrefix = "--startup-command-arg=";
 	std::optional<uint32> WaitForProcessId;
 	std::optional<uint64> ExitAfterTicks;
 	std::optional<std::string_view> ProjectEqualsArgument;
@@ -35,6 +38,9 @@ int LAUNCH_API main(int argc, char** argv)
 	bool bFillCrashLogGap = false;
 	bool bFaultCrashWriter = false;
 	FEngineStartupParams StartupParams;
+	std::optional<std::string> StartupCommand;
+	std::vector<std::string> StartupCommandArguments;
+	std::vector<std::string> UnrecognizedArguments;
 	for (int Index = 1; Index < argc; ++Index)
 	{
 		const std::string_view Argument = argv[Index];
@@ -86,13 +92,27 @@ int LAUNCH_API main(int argc, char** argv)
 		{
 			StartupParams.Project.bOpenProjectBrowser = true;
 		}
+		else if (Argument.starts_with(StartupCommandPrefix))
+		{
+			if (StartupCommand)
+			{
+				UninstallWindowsProcessCrashHandler();
+				return 2;
+			}
+			StartupCommand = std::string(Argument.substr(StartupCommandPrefix.size()));
+		}
+		else if (Argument.starts_with(StartupCommandArgumentPrefix))
+		{
+			StartupCommandArguments.emplace_back(
+				Argument.substr(StartupCommandArgumentPrefix.size()));
+		}
 		else if (Argument.starts_with(ProjectPrefix) && !ProjectEqualsArgument)
 		{
 			ProjectEqualsArgument = Argument.substr(ProjectPrefix.size());
 		}
 		else if (Argument == "--project" && Index + 1 < argc && !ProjectSeparateArgument)
 		{
-			ProjectSeparateArgument = argv[Index + 1];
+			ProjectSeparateArgument = argv[++Index];
 		}
 		else if (Argument.starts_with(CrashFixturePrefix))
 		{
@@ -122,6 +142,7 @@ int LAUNCH_API main(int argc, char** argv)
 		{
 			bFaultCrashWriter = true;
 		}
+		else UnrecognizedArguments.emplace_back(Argument);
 	}
 	ConfigureWindowsProcessCrashTestOptions(bDisableCrashDump, bForceCrashCollision, bFaultCrashWriter);
 
@@ -145,6 +166,32 @@ int LAUNCH_API main(int argc, char** argv)
 		UninstallWindowsProcessCrashHandler();
 		return 1;
 	}
+	if (!StartupCommand && !StartupCommandArguments.empty())
+	{
+		UninstallWindowsProcessCrashHandler();
+		return 2;
+	}
+	if (StartupCommand)
+	{
+		if (!UnrecognizedArguments.empty() || ExitAfterTicks
+			|| StartupParams.bRunTaskSchedulerLifecycleSmoke
+			|| StartupParams.bRunEngineAssetServiceLifecycleSmoke
+			|| StartupParams.bRunEditorPIELifecycleSmoke
+			|| StartupParams.bRunNativeGameplayLifecycleSmoke
+			|| StartupParams.Project.bOpenProjectBrowser)
+		{
+			UninstallWindowsProcessCrashHandler();
+			return 2;
+		}
+		std::string Error;
+		if (!ConfigureStartupCommand(
+				std::move(*StartupCommand), std::move(StartupCommandArguments), &Error))
+		{
+			UninstallWindowsProcessCrashHandler();
+			return 2;
+		}
+		StartupParams.bSuppressWindowDisplay = true;
+	}
 
 	if (ProjectEqualsArgument && !ProjectEqualsArgument->empty())
 		StartupParams.Project.RequestedProjectFile = *ProjectEqualsArgument;
@@ -165,12 +212,23 @@ int LAUNCH_API main(int argc, char** argv)
 		UninstallWindowsProcessCrashHandler();
 		return 1;
 	}
-
+	int ProcessResult = 0;
 	uint64 CompletedTicks = 0;
 	while (!IsEngineExitRequested())
 	{
 		GEngineLoop.Tick();
 		++CompletedTicks;
+		if (HasPendingStartupCommand())
+		{
+			std::string Error;
+			if (const std::optional<int> Result = DispatchStartupCommand(
+					&Error, CompletedTicks >= 120))
+			{
+				ProcessResult = *Result;
+				if (!Error.empty()) DURIN_ERROR("{}", Error);
+				RequestEngineExit();
+			}
+		}
 		if (!IsEngineExitRequested() && ExitAfterTicks && CompletedTicks >= *ExitAfterTicks)
 		{
 			DURIN_INFO("Requesting automated engine exit after {} ticks.", CompletedTicks);
@@ -183,5 +241,5 @@ int LAUNCH_API main(int argc, char** argv)
 	LoggerShutdown();
 	SetProcessCrashPhase(EProcessCrashPhase::Exited);
 	UninstallWindowsProcessCrashHandler();
-	return 0;
+	return ProcessResult;
 }

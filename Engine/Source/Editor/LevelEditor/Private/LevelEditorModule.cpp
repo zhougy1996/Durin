@@ -17,6 +17,8 @@
 #include "Components/StaticMeshComponent.h"
 #include "Components/SkyBoxComponent.h"
 #include "SkyBoxDetails.h"
+#include "GrayboxSceneAuthoring.h"
+#include "Misc/StartupCommand.h"
 
 namespace Durin
 {
@@ -48,11 +50,17 @@ namespace Durin
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DStaticMeshComponent::StaticClass(), CreateStaticMeshComponentDetailsCustomization()));
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DSkyBoxComponent::StaticClass(), CreateSkyBoxDetailsCustomization()));
 		checkf(std::ranges::all_of(CustomizationHandles, [](FLevelEditorCustomizationHandle Handle) { return static_cast<bool>(Handle); }), "LevelEditor built-in customizations must register exactly once");
+		GrayboxBuildStartupCommandHandle = RegisterStartupCommandHandler(
+			"graybox-build", RunGrayboxBuildStartupCommand);
+		checkf(GrayboxBuildStartupCommandHandle != 0,
+			"LevelEditor graybox-build startup command must register exactly once");
 	}
 
 	LEVELEDITOR_API auto FLevelEditorModule::ShutdownModule() -> void
 	{
 		UnregisterLevelEditorWorkspace();
+		UnregisterStartupCommandHandler(GrayboxBuildStartupCommandHandle);
+		GrayboxBuildStartupCommandHandle = 0;
 		Asset::UnregisterAssetReferenceStore(
 			ProjectDefaultLevelReferenceStoreHandle);
 		ProjectDefaultLevelReferenceStoreHandle = 0;

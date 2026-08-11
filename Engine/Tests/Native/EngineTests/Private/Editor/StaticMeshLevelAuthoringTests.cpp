@@ -13,6 +13,7 @@
 #include "NativeDObjectTestSupport.h"
 #include "NativeTestSupport.h"
 #include "StaticMeshLevelAuthoring.h"
+#include "GrayboxSceneAuthoring.h"
 #include "StaticMesh/StaticMesh.h"
 
 namespace
@@ -63,6 +64,67 @@ namespace
 			.Desired = {.Transform = Transform},
 		};
 	}
+}
+
+TEST(FGrayboxOpenArenaTests, BuildsConnectedOpenTopFromActualBoxBounds)
+{
+	Durin::FBox Bounds;
+	Bounds.AddPoint({-2.0, -3.0, -4.0});
+	Bounds.AddPoint({2.0, 5.0, 6.0});
+	Durin::FGrayboxOpenArenaLayout Layout;
+	std::string Error;
+	ASSERT_TRUE(Durin::BuildGrayboxOpenArenaLayout(
+		{.Width = 20.0, .Depth = 12.0, .FloorThickness = 0.5,
+		 .WallHeight = 4.0, .WallThickness = 0.5}, Bounds, Layout, Error))
+		<< Error;
+	ASSERT_EQ(Layout.Pieces.size(), 5);
+	EXPECT_EQ(Layout.Pieces[0].Name, Durin::FName("Graybox_Floor"));
+	EXPECT_EQ(Layout.Pieces[1].Name, Durin::FName("Graybox_WallNorth"));
+	EXPECT_TRUE(std::ranges::none_of(Layout.Pieces, [](const auto& Piece) {
+		return Piece.Name == Durin::FName("Graybox_Ceiling");
+	}));
+
+	const auto& Floor = Layout.Pieces[0].Transform;
+	const auto& North = Layout.Pieces[1].Transform;
+	const Durin::FVector3 LocalSize = Bounds.Max - Bounds.Min;
+	EXPECT_NEAR(Floor.Scale3D.x * LocalSize.x, 21.0, 1e-9);
+	EXPECT_NEAR(Floor.Scale3D.y * LocalSize.y, 13.0, 1e-9);
+	EXPECT_NEAR(Floor.Scale3D.z * LocalSize.z, 0.5, 1e-9);
+	EXPECT_NEAR(North.Scale3D.x * LocalSize.x, 21.0, 1e-9);
+	EXPECT_NEAR(North.Scale3D.y * LocalSize.y, 0.5, 1e-9);
+	EXPECT_NEAR(North.Scale3D.z * LocalSize.z, 4.05, 1e-9);
+}
+
+TEST(FGrayboxOpenArenaTests, AddsCeilingOnlyWhenExplicitlyRequested)
+{
+	Durin::FBox Bounds;
+	Bounds.AddPoint({-0.5, -0.5, -0.5});
+	Bounds.AddPoint({0.5, 0.5, 0.5});
+	Durin::FGrayboxOpenArenaLayout Layout;
+	std::string Error;
+	Durin::FGrayboxOpenArenaParams Params;
+	Params.bCeiling = true;
+	ASSERT_TRUE(Durin::BuildGrayboxOpenArenaLayout(Params, Bounds, Layout, Error));
+	ASSERT_EQ(Layout.Pieces.size(), 6);
+	EXPECT_EQ(Layout.Pieces.back().Name, Durin::FName("Graybox_Ceiling"));
+}
+
+TEST(FGrayboxOpenArenaTests, RejectsInvalidDimensionsAndDegenerateBounds)
+{
+	Durin::FBox Bounds;
+	Bounds.AddPoint({-0.5, -0.5, -0.5});
+	Bounds.AddPoint({0.5, 0.5, 0.5});
+	Durin::FGrayboxOpenArenaLayout Layout;
+	std::string Error;
+	Durin::FGrayboxOpenArenaParams Params;
+	Params.Width = 0.0;
+	EXPECT_FALSE(Durin::BuildGrayboxOpenArenaLayout(Params, Bounds, Layout, Error));
+	Params.Width = 20.0;
+	Durin::FBox Degenerate;
+	Degenerate.AddPoint({0.0, 0.0, 0.0});
+	Degenerate.AddPoint({0.0, 1.0, 1.0});
+	EXPECT_FALSE(Durin::BuildGrayboxOpenArenaLayout(
+		Params, Degenerate, Layout, Error));
 }
 
 TEST(FStaticMeshLevelAuthoringTests, AppliesOneAtomicBatchAndRestoresSavedRevision)

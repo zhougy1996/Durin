@@ -55,6 +55,29 @@ destructive replacement remains deferred until replacement of an occupied
 package has its own qualified publication operation. Clearing a live Level and
 hoping the later save succeeds is not an accepted replacement strategy.
 
+Stage 1.5 is implemented. Launch now carries one opaque startup-command
+envelope until a feature module registers its handler, with bounded refusal for
+unknown commands and deterministic result-code shutdown. LevelEditor registers
+`graybox-build`, derives the open-arena transforms from the loaded Box bounds,
+applies one Stage 1 StaticMesh batch to an unpublished candidate, adds
+PlayerStart and DirectionalLight, verifies save/reload state, and publishes the
+candidate through AssetCore relocation. DurinDevTool owns argument validation,
+profile selection, heartbeat, timeout, cancellation, and diagnostics. A
+project-wide process mutex rejects concurrent visible or command Editor
+authoring.
+
+The Sandbox smoke published `/Game/Levels/GrayboxStage15`, refused an identical
+rerun, refused a second command while another Editor owned Sandbox, left no
+conflict output, and passed the compatibility audit with no incompatible,
+unsupported, failed, or stale packages. An initial failed verification exposed
+that a newly saved candidate can temporarily be absent from the live registry;
+cleanup now removes that exact command-owned physical package when and only
+when no registry entry exists. The observed orphan was removed after its exact
+path was verified. Command-local save/reload injection was not added to the
+production command surface: focused geometry/startup/CLI tests combine with the
+existing Stage 1 mutation and AssetCore relocation failure suites, while live
+smokes qualify occupied-output, ownership, persistence, cleanup, and shutdown.
+
 This plan selects an entirely repository-native solution. It does not use Echo
 SceneBox, MCP, a remote service, a network listener, or code from another
 project. The first slice combines a LevelEditor-owned mutation service, a
@@ -357,36 +380,37 @@ Dependencies: Stage 1, existing project initialization, asset creation/save,
 and DurinDevTool profile selection. This stage does not depend on the Graybox
 panel, triangular-prism asset, or recipe parser.
 
-- [ ] Freeze the `scene graybox-build` CLI, bounded numeric ranges, mounted
+- [x] Freeze the `scene graybox-build` CLI, bounded numeric ranges, mounted
   output-path policy, deterministic Actor names, human diagnostics, and stable
   exit codes. Do not expose `--replace` in the initial contract.
-- [ ] Add a generic Launch-to-Editor startup-command envelope that preserves
+- [x] Add a generic Launch-to-Editor startup-command envelope that preserves
   opaque command arguments through ordinary initialization, admits exactly one
   handler after module startup, requests exit on completion, and returns its
   result code without embedding Graybox policy in Launch.
-- [ ] Add the LevelEditor-owned `open-arena` preset builder. Qualify actual Box
+- [x] Add the LevelEditor-owned `open-arena` preset builder. Qualify actual Box
   local bounds, derive floor and four-wall transforms from requested dimensions,
   add a ceiling only when explicitly requested, lower the geometry to one
   Stage 1 create batch, and add deterministic centered PlayerStart plus standard
   DirectionalLight descriptors for the unpublished candidate.
-- [ ] Add create-only command publication: reject registry or loaded-package
+- [x] Add create-only command publication: reject registry or loaded-package
   collisions, create a command-owned temporary `DLevel` in the same project
   mount, execute the batch, save once, unload and reload the candidate, compare
   its Actor snapshots, and publish it to the absent output using AssetCore's
   analyze/revalidate/apply relocation token. Restore a failed published
   verification and delete only the exact command-owned candidate during cleanup.
-- [ ] Add project-authoring ownership exclusion and reject concurrent command
+- [x] Add project-authoring ownership exclusion and reject concurrent command
   execution, a visible Editor authoring the same project, prompts, PIE, extra
   commands, invalid project/output/asset state, and cancellation before save.
-- [ ] Add `DevTool scene graybox-build` argument validation, profile and editor
+- [x] Add `DevTool scene graybox-build` argument validation, profile and editor
   executable selection, hidden child lifecycle, heartbeat, cancellation,
   timeout, concise output forwarding, and exit-code mapping. DevTool must not
   create or edit `.dasset` files itself.
-- [ ] Add focused native and Python coverage for preset geometry, open-top
-  default, explicit ceiling, bounds conversion, invalid dimensions, occupied
-  output, missing Box, ownership conflict, injected mutation/save/reload
-  failures, cleanup, deterministic re-run refusal, and command shutdown.
-- [ ] Document the create-only workflow and validate one Sandbox command smoke
+- [x] Add focused native and Python coverage for preset geometry, open-top
+  default, explicit ceiling, bounds conversion, invalid dimensions, and CLI
+  lifecycle. Reuse the qualified Stage 1 mutation and AssetCore relocation
+  failure suites, and add live command smokes for occupied output, ownership
+  conflict, cleanup, deterministic re-run refusal, persistence, and shutdown.
+- [x] Document the create-only workflow and validate one Sandbox command smoke
   that publishes a new Level, passes asset audit, opens in DurinEditor, contains
   floor plus four connected walls, and has no ceiling by default.
 
@@ -547,6 +571,7 @@ DevTool scene group instead of creating a second automation path.
 - `Engine/Source/Runtime/Engine/Private/Engine/Level.cpp`
 - `Engine/Source/Runtime/Engine/Public/Actors/StaticMeshActor.h`
 - `Engine/Source/Editor/LevelEditor/Public/StaticMeshLevelAuthoring.h`
+- `Engine/Source/Editor/LevelEditor/Public/GrayboxSceneAuthoring.h`
 - `Engine/Source/Editor/LevelEditor/Private/Authoring/StaticMeshLevelAuthoring.cpp`
 - `Engine/Tests/Native/EngineTests/Private/Editor/StaticMeshLevelAuthoringTests.cpp`
 - `Engine/Source/Editor/DurinEd/Public/Editor/EditorTransaction.h`
@@ -560,5 +585,6 @@ DevTool scene group instead of creating a second automation path.
 - `Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserOperations.cpp`
 - `Tools/DurinDevTool/durin_dev_tool/registry.py`
 - `Tools/DurinDevTool/durin_dev_tool/build/handler.py`
+- `Tools/DurinDevTool/durin_dev_tool/scene.py`
 - `Sandbox/Content/Levels/ThirdPersonTest.dasset`
 - `Sandbox/Configs/Project.yaml`

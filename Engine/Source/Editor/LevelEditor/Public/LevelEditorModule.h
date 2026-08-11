@@ -37,5 +37,6 @@ namespace Durin
 		std::unique_ptr<Asset::IAssetReferenceStore>
 			ProjectDefaultLevelReferenceStore;
 		uint64 ProjectDefaultLevelReferenceStoreHandle = 0;
+		uint64 GrayboxBuildStartupCommandHandle = 0;
 	};
 }

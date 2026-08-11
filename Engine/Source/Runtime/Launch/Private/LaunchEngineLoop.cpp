@@ -86,6 +86,14 @@ namespace Durin
 		DURIN_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());
 		std::string ProjectError;
 		if (!InitializeCurrentProject(Params.Project, &ProjectError) && !ProjectError.empty()) DURIN_WARN("{}", ProjectError);
+#if DURIN_WITH_EDITOR
+		if (HasCurrentProject()
+			&& !AcquireProjectAuthoringOwnership(&ProjectError))
+		{
+			DURIN_ERROR("Editor project ownership failed: {}", ProjectError);
+			return false;
+		}
+#endif
 		DURIN_PROFILE_PROGRAM_IDENTITY(
 			DURIN_RUNTIME_VARIANT,
 			GetCurrentProject() ? std::string_view{GetCurrentProject()->Name} : std::string_view{},
@@ -294,6 +302,7 @@ namespace Durin
 
 		SetProcessCrashPhase(EProcessCrashPhase::ApplicationShutdown);
 		ShutdownApplicationCore();
+		ReleaseProjectAuthoringOwnership();
 		DURIN_INFO(STR("Durin Engine exited."));
 	}
 } // namespace Durin

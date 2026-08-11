@@ -6,12 +6,19 @@
 #include "Misc/Paths.h"
 #include "Misc/ProjectHistory.h"
 
+#ifdef _WIN32
+	#include "Windows/WindowsPlatform.h"
+#endif
+
 namespace Durin
 {
 	namespace
 	{
 		std::optional<FProjectInfo> GCurrentProject;
 		std::optional<std::string> GPendingEditorRelaunchArguments;
+#ifdef _WIN32
+		HANDLE GProjectAuthoringMutex = nullptr;
+#endif
 
 		auto Normalize(const std::filesystem::path& Path) -> std::string
 		{
@@ -89,5 +96,50 @@ namespace Durin
 		);
 		GPendingEditorRelaunchArguments.reset();
 		return FPlatformProcess::LaunchProcess(FPlatformProcess::ExecutablePath(), Arguments, OutError);
+	}
+
+	auto AcquireProjectAuthoringOwnership(std::string* OutError) -> bool
+	{
+		if (OutError) OutError->clear();
+		if (!GCurrentProject) return true;
+#ifdef _WIN32
+		if (GProjectAuthoringMutex) return true;
+		uint64 Hash = 14695981039346656037ull;
+		for (unsigned char Character : GCurrentProject->ProjectFile)
+		{
+			Hash ^= static_cast<unsigned char>(std::tolower(Character));
+			Hash *= 1099511628211ull;
+		}
+		const std::wstring Name = std::format(
+			L"Local\\DurinProjectAuthoring_{:016x}", Hash);
+		HANDLE Mutex = CreateMutexW(nullptr, TRUE, Name.c_str());
+		if (!Mutex)
+		{
+			if (OutError) *OutError = std::format(
+				"Could not create project authoring ownership (Windows error {}).",
+				GetLastError());
+			return false;
+		}
+		if (GetLastError() == ERROR_ALREADY_EXISTS)
+		{
+			CloseHandle(Mutex);
+			if (OutError) *OutError = std::format(
+				"Another Editor process already owns project '{}'.",
+				GCurrentProject->Name);
+			return false;
+		}
+		GProjectAuthoringMutex = Mutex;
+#endif
+		return true;
+	}
+
+	auto ReleaseProjectAuthoringOwnership() -> void
+	{
+#ifdef _WIN32
+		if (!GProjectAuthoringMutex) return;
+		ReleaseMutex(GProjectAuthoringMutex);
+		CloseHandle(GProjectAuthoringMutex);
+		GProjectAuthoringMutex = nullptr;
+#endif
 	}
 }
