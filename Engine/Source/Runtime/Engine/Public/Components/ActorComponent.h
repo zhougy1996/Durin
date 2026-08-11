@@ -2,6 +2,7 @@
 
 #include "EngineAPI.h"
 #include "DObject/CoreDObject.h"
+#include "Engine/TickFunction.h"
 
 #include "ActorComponent.gen.h"
 
@@ -50,12 +51,18 @@ namespace Durin
 		ENGINE_API auto BeginDestroy() -> void override;
 
 		auto IsRegistered() const -> bool { return bRegistered; }
+		auto IsOwnedByActor() const -> bool { return bOwnedByActor; }
 		// Advances after every successful registration or unregistration transition.
 		auto GetRegistrationGeneration() const -> uint64 { return RegistrationGeneration; }
 		auto HasBegunPlay() const -> bool { return PlayState != EComponentPlayState::NotBegun; }
+		auto IsBeginningPlay() const -> bool { return PlayState == EComponentPlayState::BeginningPlay; }
+		auto IsEndingPlay() const -> bool { return PlayState == EComponentPlayState::EndingPlay; }
 		auto IsBeingDestroyed() const -> bool { return DestructionState != EComponentDestructionState::Alive; }
-		auto IsComponentTickEnabled() const -> bool { return bTickEnabled; }
-		auto SetComponentTickEnabled(bool bEnabled) -> void { bTickEnabled = bEnabled; }
+		auto IsComponentTickEnabled() const -> bool { return PrimaryComponentTick.IsTickFunctionEnabled(); }
+		auto SetComponentTickEnabled(bool bEnabled) -> void { PrimaryComponentTick.SetTickFunctionEnable(bEnabled); }
+		auto SetComponentTickGroup(ETickingGroup Group) -> bool { return PrimaryComponentTick.SetTickGroup(Group); }
+		auto GetPrimaryComponentTick() -> FActorComponentTickFunction& { return PrimaryComponentTick; }
+		auto GetPrimaryComponentTick() const -> const FActorComponentTickFunction& { return PrimaryComponentTick; }
 
 		ENGINE_API auto DispatchBeginPlay() -> void;
 		ENGINE_API auto RouteEndPlay() -> void;
@@ -85,6 +92,7 @@ namespace Durin
 
 		// Call OnUnregister();
 		auto ExecuteUnregisterEvents() -> void;
+		auto SetOwnedByActor(bool bOwned) -> void { bOwnedByActor = bOwned; }
 
 	private:
 		AActor* OwnerActorPrivate;
@@ -94,12 +102,15 @@ namespace Durin
 		uint8 bHasBeenCreated : 1 = false;
 
 		uint8 bHasBeenInitialized : 1 = false;
+		uint8 bOwnedByActor : 1 = false;
 
 		EComponentPlayState PlayState = EComponentPlayState::NotBegun;
 		EComponentDestructionState DestructionState = EComponentDestructionState::Alive;
 		uint64 RegistrationGeneration = 0;
 		bool bEndPlayRequested = false;
+		FActorComponentTickFunction PrimaryComponentTick;
 
-		uint8 bTickEnabled : 1 = false;
+		friend class AActor;
+		friend class DLevel;
 	};
 }

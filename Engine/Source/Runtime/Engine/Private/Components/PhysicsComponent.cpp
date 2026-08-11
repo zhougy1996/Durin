@@ -15,8 +15,8 @@ namespace Durin
 	DPhysicsComponent::DPhysicsComponent(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
+		SetComponentTickGroup(ETickingGroup::Physics);
 		SetComponentTickEnabled(true);
-		if (AActor* Owner = GetOwner()) Owner->SetActorTickEnabled(true);
 	}
 
 	auto DPhysicsComponent::TickComponent(float DeltaSeconds) -> void

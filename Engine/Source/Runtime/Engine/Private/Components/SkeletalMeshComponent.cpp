@@ -22,6 +22,7 @@ namespace Durin
 	DSkeletalMeshComponent::DSkeletalMeshComponent(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
+		SetComponentTickGroup(ETickingGroup::PostPhysics);
 		SetComponentTickEnabled(true);
 	}
 

@@ -139,6 +139,7 @@ namespace Durin
 			{
 				if (Component && Component->IsRegistered()) Component->UnregisterComponent();
 			}
+			Previous->TickRegistry.Reset();
 			Previous->SetOwningWorld(nullptr);
 		}
 		CurrentLevel = Level;
@@ -347,20 +348,19 @@ namespace Durin
 			GameplaySession->LocalPlayerController->PreparePlayerInput(*Context.GameInput);
 		}
 		if (!HasBegunPlay() || CurrentLevel.Get() != CapturedLevel || PendingLevelTransition) return;
-		const std::vector<TObjectPtr<AActor>> Actors = CapturedLevel->GetActors();
-		for (const TObjectPtr<AActor>& Actor : Actors)
+		CapturedLevel->TickRegistry.StartFrame(Context.DeltaSeconds);
+		for (const ETickingGroup Group : {ETickingGroup::PrePhysics, ETickingGroup::Physics, ETickingGroup::PostPhysics})
 		{
-			if (!HasBegunPlay() || CurrentLevel.Get() != CapturedLevel || PendingLevelTransition) break;
-			if (Actor
-				&& !Actor->IsPendingKill()
-				&& Actor->GetOuter() == CapturedLevel
-				&& !Actor->IsBeingDestroyed()
-				&& Actor->HasBegunPlay()
-				&& Actor->IsActorTickEnabled())
-			{
-				Actor->Tick(Context.DeltaSeconds);
-			}
+			if (!CanContinueTicking(CapturedLevel) || !CapturedLevel->TickRegistry.RunTickGroup(Group)) break;
 		}
+		CapturedLevel->TickRegistry.EndFrame();
+	}
+
+	auto DWorld::CanContinueTicking(const DLevel* Level) const -> bool
+	{
+		return HasBegunPlay()
+			&& CurrentLevel.Get() == Level
+			&& !PendingLevelTransition;
 	}
 
 	auto DWorld::EndPlay() -> void

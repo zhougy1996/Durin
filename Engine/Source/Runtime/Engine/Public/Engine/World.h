@@ -198,6 +198,7 @@ namespace Durin
 		auto OnActorDestroyed(AActor* Actor) -> void;
 		auto ClearPendingGameplayIntent() -> void;
 		auto ProcessPendingLevelTransition() -> void;
+		auto CanContinueTicking(const DLevel* Level) const -> bool;
 
 		// A world may intentionally have no active level during project transitions.
 		DPROPERTY(Transient)
@@ -218,5 +219,6 @@ namespace Durin
 		mutable std::optional<FHitResult> LastCollisionDebugHit;
 
 		friend class DLevel;
+		friend class FTickRegistry;
 	};
 } // namespace Durin

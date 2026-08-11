@@ -2,25 +2,25 @@
 
 Summary: Replace Actor-owned Component Tick traversal with stable registered Tick functions, deterministic Tick groups, and mutation-safe game-thread scheduling.
 
-Last reviewed: 2026-08-11
+Last reviewed: 2026-08-12
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-12
 
 ## Current Status
 
-Planning is complete and implementation has not started. The verified defect is
-the direct traversal of `AActor::OwnedComponents` from `AActor::Tick()` while a
-component callback may add, destroy, register, unregister, enable, or disable a
-component. The active iterator can therefore be invalidated, and the current
-ownership container is also carrying scheduling responsibility that does not
-belong to it.
+All six stages are complete. Actor and Component primary Tick functions now
+register stable nodes with the active Level, World executes serial PrePhysics,
+Physics, and PostPhysics groups, and `AActor::Tick()` no longer traverses
+`OwnedComponents`. Stable-node frame state owns cancellation and
+re-registration without a Component registration generation counter.
 
-The selected design follows Unreal Engine's separation between object ownership
-and `FTickFunction` scheduling, but limits the first Durin implementation to a
-single game thread and three serial Tick groups. A stable Tick-node state machine
-owns current-frame cancellation and re-registration semantics; the plan does not
-add a component registration generation counter to Tick dispatch.
+The complete `WorldTests` and `SkeletalAssetTests` targets pass, including the
+`FWorldTickSchedulingTests.*` mutation, ordering, transition, and large-set
+regressions. The default-target-granularity complete native test aggregate and
+the full `all` build pass under the `windows-msvc-x64`
+`Win64-Debug-DurinEditor` profile. Runtime Tick scheduling documentation,
+changed-document validation, and all-plan validation pass.
 
 This plan is the explicit follow-up deferred by the archived
 [Actor Lifecycle Mutation Safety](Archive/2026-07/ActorLifecycleMutationSafety.md)
@@ -246,16 +246,16 @@ Verified gaps:
 
 ### Stage 0: Lock Scheduling Semantics And Regression Coverage
 
-- [ ] Add focused test Actor and Component types that record Actor and
+- [x] Add focused test Actor and Component types that record Actor and
   Component Tick order and can mutate Tick state from callbacks.
-- [ ] Add deterministic regressions for Component self-destruction, sibling
+- [x] Add deterministic regressions for Component self-destruction, sibling
   destruction before its turn, addition during Tick, disable/enable,
   unregister/register, and owning-Actor destruction.
-- [ ] Add tests that distinguish registration before a future group is sealed
+- [x] Add tests that distinguish registration before a future group is sealed
   from registration after the selected group starts.
-- [ ] Record the compatibility baseline for Pawn movement, physics integration,
+- [x] Record the compatibility baseline for Pawn movement, physics integration,
   skeletal animation, pause, single-step, and pending Level transition.
-- [ ] Confirm tests detect state/order violations without requiring undefined
+- [x] Confirm tests detect state/order violations without requiring undefined
   behavior to crash.
 
 #### Acceptance Gate
@@ -270,15 +270,15 @@ Verified gaps:
 
 Dependencies: Stage 0.
 
-- [ ] Add `FTickFunction`, `FActorTickFunction`, and
+- [x] Add `FTickFunction`, `FActorTickFunction`, and
   `FActorComponentTickFunction` with stable-address and non-copyable contracts.
-- [ ] Add the Level-owned `FTickRegistry`, fixed group queues, monotonic
+- [x] Add the Level-owned `FTickRegistry`, fixed group queues, monotonic
   registration order, current-frame state, and game-thread assertions.
-- [ ] Implement register, unregister, enable, disable, queue, cancel, execute,
+- [x] Implement register, unregister, enable, disable, queue, cancel, execute,
   and end-frame transitions without registration generations.
-- [ ] Ensure queue growth and registry mutation never invalidate the queue slot
+- [x] Ensure queue growth and registry mutation never invalidate the queue slot
   currently being executed.
-- [ ] Add focused registry tests for at-most-once execution, stale-slot
+- [x] Add focused registry tests for at-most-once execution, stale-slot
   cancellation, re-registration, deterministic order, and frame reset.
 
 #### Acceptance Gate
@@ -293,18 +293,18 @@ Dependencies: Stage 0.
 
 Dependencies: Stage 1.
 
-- [ ] Embed and configure primary Tick functions in `AActor` and
+- [x] Embed and configure primary Tick functions in `AActor` and
   `DActorComponent`.
-- [ ] Route Actor admission/removal and Component registration/unregistration
+- [x] Route Actor admission/removal and Component registration/unregistration
   through the active Level registry.
-- [ ] Route Tick enable setters through the primary Tick-function state instead
+- [x] Route Tick enable setters through the primary Tick-function state instead
   of standalone booleans.
-- [ ] Make Actor and Component BeginPlay/EndPlay/destruction transitions update
+- [x] Make Actor and Component BeginPlay/EndPlay/destruction transitions update
   Tick eligibility before user callbacks can observe stale admission.
-- [ ] Replace the World Actor snapshot Tick loop with registry execution.
-- [ ] Remove Component traversal from `AActor::Tick()` and make the base Actor
+- [x] Replace the World Actor snapshot Tick loop with registry execution.
+- [x] Remove Component traversal from `AActor::Tick()` and make the base Actor
   Tick implementation empty.
-- [ ] Remove the `DPhysicsComponent` workaround that enables its owning Actor.
+- [x] Remove the `DPhysicsComponent` workaround that enables its owning Actor.
 
 #### Acceptance Gate
 
@@ -320,17 +320,17 @@ Dependencies: Stage 1.
 
 Dependencies: Stage 2.
 
-- [ ] Add the public `ETickingGroup` values `PrePhysics`, `Physics`, and
+- [x] Add the public `ETickingGroup` values `PrePhysics`, `Physics`, and
   `PostPhysics` and fixed serial World barriers.
-- [ ] Default Actor and ordinary Component Tick functions to `PrePhysics`.
-- [ ] Assign `DPhysicsComponent` to `Physics` and
+- [x] Default Actor and ordinary Component Tick functions to `PrePhysics`.
+- [x] Assign `DPhysicsComponent` to `Physics` and
   `DSkeletalMeshComponent` to `PostPhysics`.
-- [ ] Implement the engine-owned owner-Actor prerequisite for same-group
+- [x] Implement the engine-owned owner-Actor prerequisite for same-group
   Components and deterministic registration-order fallback.
-- [ ] Reject impossible later-group prerequisites with actionable diagnostics.
-- [ ] Stop all remaining groups when World play admission, captured-Level
+- [x] Reject impossible later-group prerequisites with actionable diagnostics.
+- [x] Stop all remaining groups when World play admission, captured-Level
   identity, or pending-transition state changes.
-- [ ] Add group-order, visibility, owner-before-Component, future-group
+- [x] Add group-order, visibility, owner-before-Component, future-group
   registration, and Level-transition regressions.
 
 #### Acceptance Gate
@@ -346,16 +346,16 @@ Dependencies: Stage 2.
 
 Dependencies: Stages 1 through 3.
 
-- [ ] Run the complete focused World/Actor/Component native test target through
+- [x] Run the complete focused World/Actor/Component native test target through
   DurinDevTool.
-- [ ] Run relevant physics, skeletal animation, native gameplay lifecycle, PIE,
+- [x] Run relevant physics, skeletal animation, native gameplay lifecycle, PIE,
   pause, single-step, and Level-transition regressions.
-- [ ] Measure registry traversal and per-frame queue construction against a
+- [x] Measure registry traversal and per-frame queue construction against a
   representative Actor/Component population; record counts and allocation
   behavior without making an unsupported optimization claim.
-- [ ] Confirm registration order does not depend on hash iteration or allocator
+- [x] Confirm registration order does not depend on hash iteration or allocator
   addresses.
-- [ ] Run the required affected-target build validation under the selected
+- [x] Run the required affected-target build validation under the selected
   Agent Build Profile.
 
 #### Acceptance Gate
@@ -371,12 +371,12 @@ Dependencies: Stages 1 through 3.
 
 Dependencies: Stage 4.
 
-- [ ] Update Runtime lifecycle documentation with Tick registration, group,
+- [x] Update Runtime lifecycle documentation with Tick registration, group,
   mutation, cancellation, ordering, and lifetime contracts.
-- [ ] Add a focused Runtime Tick-scheduling contract document if the resulting
+- [x] Add a focused Runtime Tick-scheduling contract document if the resulting
   API surface no longer fits concisely in Runtime lifecycle documentation.
-- [ ] Update direct links from the archived lifecycle plan where needed.
-- [ ] Record validation evidence, update plan lifecycle metadata, and run the
+- [x] Update direct links from the archived lifecycle plan where needed.
+- [x] Record validation evidence, update plan lifecycle metadata, and run the
   all-plan validator.
 
 #### Acceptance Gate

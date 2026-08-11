@@ -2,6 +2,7 @@
 
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/Actor.h"
+#include "Engine/Level.h"
 #include "Components/SceneComponent.h"
 
 namespace Durin
@@ -10,6 +11,7 @@ namespace Durin
 		: DObject(ObjectInitializer)
 	{
 		OwnerActorPrivate = Cast<AActor>(ObjectInitializer.Outer);
+		PrimaryComponentTick.SetTarget(this);
 	}
 	auto DActorComponent::RegisterComponent() -> void
 	{
@@ -23,10 +25,19 @@ namespace Durin
 		if (!bHasBeenCreated) OnComponentCreated();
 		ExecuteRegisterEvents();
 		if (!bHasBeenInitialized) InitializeComponent();
+		if (bRegistered && !IsBeingDestroyed())
+		{
+			if (DLevel* Level = OwnerActorPrivate ? Cast<DLevel>(OwnerActorPrivate->GetOuter()) : nullptr;
+				Level && Level->GetWorld())
+			{
+				PrimaryComponentTick.RegisterTickFunction(Level);
+			}
+		}
 	}
 
 	auto DActorComponent::UnregisterComponent() -> void
 	{
+		PrimaryComponentTick.UnregisterTickFunction();
 		RouteEndPlay();
 		if (bHasBeenInitialized) UninitializeComponent();
 		ExecuteUnregisterEvents();
@@ -35,6 +46,7 @@ namespace Durin
 	auto DActorComponent::DestroyComponent() -> void
 	{
 		if (DestructionState == EComponentDestructionState::Destroying) return;
+		PrimaryComponentTick.CancelPendingTick();
 		if (PlayState == EComponentPlayState::BeginningPlay
 			|| PlayState == EComponentPlayState::EndingPlay)
 		{
@@ -43,6 +55,7 @@ namespace Durin
 		}
 
 		DestructionState = EComponentDestructionState::Destroying;
+		PrimaryComponentTick.UnregisterTickFunction();
 		OnComponentPendingKill();
 
 		if (AActor* Owner = GetOwner())
@@ -61,6 +74,7 @@ namespace Durin
 
 	auto DActorComponent::BeginDestroy() -> void
 	{
+		PrimaryComponentTick.UnregisterTickFunction();
 		DestructionState = EComponentDestructionState::Destroying;
 		OnComponentPendingKill();
 		Super::BeginDestroy();
@@ -129,7 +143,11 @@ namespace Durin
 
 		PlayState = EComponentPlayState::BeginningPlay;
 		BeginPlay();
-		if (PlayState == EComponentPlayState::BeginningPlay) PlayState = EComponentPlayState::Playing;
+		if (PlayState == EComponentPlayState::BeginningPlay)
+		{
+			PlayState = EComponentPlayState::Playing;
+			PrimaryComponentTick.NotifyEligibilityChanged();
+		}
 
 		if (bEndPlayRequested)
 		{
@@ -149,6 +167,7 @@ namespace Durin
 			return;
 		}
 
+		PrimaryComponentTick.CancelPendingTick();
 		PlayState = EComponentPlayState::EndingPlay;
 		EndPlay();
 		if (PlayState == EComponentPlayState::EndingPlay) PlayState = EComponentPlayState::NotBegun;

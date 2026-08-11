@@ -114,8 +114,9 @@ the operation returns.
 
 `FEngineLoop::Tick()` measures and clamps real frame delta time before calling
 `DEngine::Tick()`. Active game worlds receive an `FWorldTickContext` containing
-delta time and the Engine-owned raw input snapshot, then route an admitted tick
-through Actors and their tick-enabled components. The local player controller
+delta time and the Engine-owned raw input snapshot, then route admitted stable
+Actor and Component Tick functions through serial PrePhysics, Physics, and
+PostPhysics groups. The local player controller
 is the only gameplay boundary that translates raw device identities into a
 bounded pawn-control intent. Raw one-frame transitions are cleared only after
 the World call, so one advancing tick or single-step can observe each edge at
@@ -235,9 +236,12 @@ not begin in that ending lifetime. Self-destruction during Component BeginPlay
 or EndPlay completes after the active callback returns and removes owned and
 instance membership exactly once.
 
-Actor-owned Component Tick remains a direct Actor traversal. Mutation safety,
-registration, ordering, dependencies, and scheduling for that high-frequency
-path are intentionally deferred to a dedicated Tick scheduling contract.
+Actor and Component Tick use stable primary Tick functions registered with the
+active Level. Component Tick is independent of Actor Tick enablement, and no
+Tick path traverses Actor or Component ownership arrays as an execution list.
+Serial groups, same-frame mutation, cancellation, ordering, World admission,
+and lifetime rules are defined by
+[Tick Scheduling](../World/TickScheduling.md).
 
 Editor-hosted runtime sessions follow the same world lifecycle but add isolation
 and restoration rules documented in

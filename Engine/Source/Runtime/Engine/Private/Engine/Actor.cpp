@@ -9,11 +9,13 @@ namespace Durin
 	AActor::AActor(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
+		PrimaryActorTick.SetTarget(this);
 		InitializeDefaults();
 	}
 
 	AActor::~AActor()
 	{
+		UnregisterTickFunction();
 		InstanceComponents.clear();
 		RootComponent = nullptr;
 		OwnedComponents.clear();
@@ -30,6 +32,7 @@ namespace Durin
 		);
 		if (It != OwnedComponents.end())
 		{
+			if (*It) (*It)->SetOwnedByActor(false);
 			OwnedComponents.erase(It);
 		}
 	}
@@ -77,6 +80,7 @@ namespace Durin
 		if (!Component) return nullptr;
 		OwnedComponents.emplace_back(Component);
 		InstanceComponents.emplace_back(Component);
+		Component->SetOwnedByActor(true);
 		Component->OnComponentCreated();
 		if (auto* SceneComponent = Cast<DSceneComponent>(Component))
 		{
@@ -200,7 +204,11 @@ namespace Durin
 
 		PlayState = EActorPlayState::BeginningPlay;
 		BeginPlay();
-		if (PlayState == EActorPlayState::BeginningPlay) PlayState = EActorPlayState::Playing;
+		if (PlayState == EActorPlayState::BeginningPlay)
+		{
+			PlayState = EActorPlayState::Playing;
+			PrimaryActorTick.NotifyEligibilityChanged();
+		}
 
 		if (bEndPlayRequested)
 		{
@@ -223,6 +231,7 @@ namespace Durin
 			return;
 		}
 
+		PrimaryActorTick.CancelPendingTick();
 		PlayState = EActorPlayState::EndingPlay;
 		EndPlay();
 		if (PlayState == EActorPlayState::EndingPlay) PlayState = EActorPlayState::NotBegun;
@@ -253,10 +262,7 @@ namespace Durin
 
 	auto AActor::Tick(float DeltaSeconds) -> void
 	{
-		for (const TObjectPtr<DActorComponent>& Component : OwnedComponents)
-		{
-			if (Component && Component->HasBegunPlay() && Component->IsComponentTickEnabled()) Component->TickComponent(DeltaSeconds);
-		}
+		(void)DeltaSeconds;
 	}
 
 	auto AActor::EndPlay() -> void
@@ -282,8 +288,19 @@ namespace Durin
 
 	auto AActor::BeginDestroy() -> void
 	{
+		UnregisterTickFunction();
 		RouteEndPlay();
 		Super::BeginDestroy();
+	}
+
+	auto AActor::RegisterTickFunction(DLevel* Level) -> void
+	{
+		PrimaryActorTick.RegisterTickFunction(Level);
+	}
+
+	auto AActor::UnregisterTickFunction() -> void
+	{
+		PrimaryActorTick.UnregisterTickFunction();
 	}
 
 	auto AActor::InitializeDefaults() -> void

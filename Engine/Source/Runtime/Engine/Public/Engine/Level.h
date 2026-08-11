@@ -2,6 +2,7 @@
 
 #include "EngineAPI.h"
 #include "DObject/CoreDObject.h"
+#include "Engine/TickFunction.h"
 #include "IScene.h"
 #include "Math/Box.h"
 
@@ -52,7 +53,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		ENGINE_API explicit DLevel(const FObjectInitializer& ObjectInitializer);
-		~DLevel() override = default;
+		ENGINE_API ~DLevel() override;
 		ENGINE_API auto SpawnActor(DClass* ActorClass, FName InName = FName()) -> AActor*;
 
 		template<typename T>
@@ -102,6 +103,7 @@ namespace Durin
 		TObjectPtr<ACameraActor> PrimaryCameraActor;
 
 		DWorld* OwningWorld = nullptr;
+		FTickRegistry TickRegistry;
 
 #if DURIN_WITH_EDITOR
 		uint64 EditorActorHierarchyRevision = 1;
@@ -115,5 +117,7 @@ namespace Durin
 		friend class DSceneComponent;
 		friend class DPrimitiveComponent;
 		friend class DWorld;
+		friend class FTickFunction;
+		friend class FTickRegistry;
 	};
 }

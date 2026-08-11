@@ -3,6 +3,7 @@
 #include "EngineAPI.h"
 #include "DObject/CoreDObject.h"
 #include "Components/SceneComponent.h"
+#include "Engine/TickFunction.h"
 
 #include "Actor.gen.h"
 
@@ -69,8 +70,10 @@ namespace Durin
 		auto IsBeginningPlay() const -> bool { return PlayState == EActorPlayState::BeginningPlay; }
 		auto IsEndingPlay() const -> bool { return PlayState == EActorPlayState::EndingPlay; }
 		auto IsBeingDestroyed() const -> bool { return DestructionState != EActorDestructionState::Alive; }
-		auto IsActorTickEnabled() const -> bool { return bTickEnabled; }
-		auto SetActorTickEnabled(bool bEnabled) -> void { bTickEnabled = bEnabled; }
+		auto IsActorTickEnabled() const -> bool { return PrimaryActorTick.IsTickFunctionEnabled(); }
+		auto SetActorTickEnabled(bool bEnabled) -> void { PrimaryActorTick.SetTickFunctionEnable(bEnabled); }
+		auto GetPrimaryActorTick() -> FActorTickFunction& { return PrimaryActorTick; }
+		auto GetPrimaryActorTick() const -> const FActorTickFunction& { return PrimaryActorTick; }
 		auto GetOwnedComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return OwnedComponents; }
 		auto GetInstanceComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return InstanceComponents; }
 
@@ -135,6 +138,8 @@ namespace Durin
 	private:
 		auto InitializeDefaults() -> void;
 		auto MakeUniqueComponentName(FName RequestedName, const DActorComponent* IgnoredComponent = nullptr) const -> FName;
+		auto RegisterTickFunction(DLevel* Level) -> void;
+		auto UnregisterTickFunction() -> void;
 
 	protected:
 		// Called exactly once after Level accepts destruction and before EndPlay or component teardown.
@@ -149,6 +154,7 @@ namespace Durin
 				: GetConstructionPurpose();
 			T* Component = NewObject<T>(this, InComponentName, ComponentPurpose);
 			OwnedComponents.push_back(Component);
+			Component->SetOwnedByActor(true);
 			return Component;
 		}
 
@@ -170,7 +176,7 @@ namespace Durin
 		EActorPlayState PlayState = EActorPlayState::NotBegun;
 		EActorDestructionState DestructionState = EActorDestructionState::Alive;
 		bool bEndPlayRequested = false;
-		uint8 bTickEnabled : 1 = false;
+		FActorTickFunction PrimaryActorTick;
 
 		friend class DLevel;
 	};

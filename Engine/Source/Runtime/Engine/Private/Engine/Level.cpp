@@ -43,8 +43,13 @@ namespace Durin
 #endif
 
 	DLevel::DLevel(const FObjectInitializer& ObjectInitializer)
-		: Super(ObjectInitializer)
+		: Super(ObjectInitializer), TickRegistry(this)
 	{
+	}
+
+	DLevel::~DLevel()
+	{
+		TickRegistry.Reset();
 	}
 
 	auto DLevel::SpawnActor(DClass* ActorClass, FName InName) -> AActor*
@@ -95,6 +100,7 @@ namespace Durin
 			return true;
 		}
 		Actor->DestructionState = EActorDestructionState::Destroying;
+		Actor->UnregisterTickFunction();
 		Actor->OnActorDestroyed();
 		if (OwningWorld) OwningWorld->OnActorDestroyed(Actor);
 		Actor->RouteEndPlay();
@@ -177,6 +183,7 @@ namespace Durin
 	auto DLevel::OnActorAdded(AActor* Actor) -> void
 	{
 		if (!Actor || !OwningWorld) return;
+		Actor->RegisterTickFunction(this);
 		const std::vector<TObjectPtr<DActorComponent>> Components = Actor->GetOwnedComponents();
 		for (const TObjectPtr<DActorComponent>& Component : Components)
 		{
@@ -211,6 +218,7 @@ namespace Durin
 					OutError = "Actor contains a component outside its object graph.";
 					return false;
 				}
+				Component->SetOwnedByActor(true);
 				if (auto* SceneComponent = Cast<DSceneComponent>(Component)) SceneComponents.push_back(SceneComponent);
 			}
 		}
