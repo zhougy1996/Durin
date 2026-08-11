@@ -38,6 +38,14 @@ namespace Durin
 		uint64 NarrowPhasePairTests = 0;
 		uint64 GeometryDistanceEvaluations = 0;
 		uint64 GeometrySearchIterations = 0;
+		uint64 NarrowPhaseLeafTests = 0;
+		uint64 CompoundChildrenTested = 0;
+		uint64 AnalyticDispatches = 0;
+		uint64 GenericDispatches = 0;
+		uint64 GeometrySupportEvaluations = 0;
+		uint64 UnsupportedPairs = 0;
+		uint64 NonConvergedPairs = 0;
+		uint64 ReferencePairFallbacks = 0;
 		uint64 RawHits = 0;
 		uint64 ReturnedResults = 0;
 		uint64 Fallbacks = 0;
@@ -111,6 +119,8 @@ namespace Durin
 		uint64 SpatialFallbacks = 0;
 		uint64 ScratchOverflows = 0;
 		uint64 RetainedSpatialBytes = 0;
+		uint64 UniqueGeometryResources = 0;
+		uint64 RetainedGeometryBytes = 0;
 	};
 
 	// Value-only snapshot of scene query, mismatch, and mutation diagnostics.
@@ -282,6 +292,9 @@ namespace Durin
 		auto MergeQueryCounters(
 			FPhysicsSceneQueryCounters& Target,
 			const FPhysicsSceneQueryCounters& Source) const -> void;
+		auto AccumulateGeometryCounters(
+			FPhysicsSceneQueryCounters& Target,
+			const CollisionGeometry::FCollisionGeometryCounters& Source) const -> void;
 		auto SaturatingAdd(uint64& Target, uint64 Delta) const -> void;
 		auto CountMutation(uint64& Counter) -> void;
 		auto BuildBodyBounds(const FPhysicsBodyDesc& Desc, std::array<float, 6>& OutBounds) const -> bool;
@@ -299,6 +312,8 @@ namespace Durin
 		auto GetHandle(const FBodyRecord& Body) const -> FPhysicsActorHandle;
 		auto GetBodyBySlot(uint32 Slot) const -> const FBodyRecord*;
 		auto GetBodyBySlot(uint32 Slot) -> FBodyRecord*;
+		auto RetainGeometry(const FCollisionGeometryRef& Geometry) -> void;
+		auto ReleaseGeometry(const FCollisionGeometryRef& Geometry) -> void;
 
 		template <typename Visitor>
 		auto TraverseProductionCandidates(const std::array<float, 6>& QueryBounds,
@@ -399,6 +414,7 @@ namespace Durin
 
 		std::thread::id OwningThread;
 		std::vector<FBodyRecord> Bodies;
+		std::unordered_map<uint64, std::pair<uint64, uint64>> GeometryResources;
 		std::vector<FSlot> Slots;
 		uint32 FreeSlot = std::numeric_limits<uint32>::max();
 		std::vector<FSpatialNode> MovingNodes;

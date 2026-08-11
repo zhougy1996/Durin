@@ -583,9 +583,11 @@ namespace Durin
 			if (Result.Bodies.size() >= MaximumDebugBodies) break;
 			auto* Component = reinterpret_cast<DPrimitiveComponent*>(Body.Desc.UserToken);
 			if (!Component) continue;
+			const FCollisionGeometryChild* Child = Body.Desc.Geometry.GetChild(0);
+			if (!Child) continue;
 			Result.Bodies.push_back({
 				.Handle = Body.Handle,
-				.Shape = Body.Desc.Shape,
+				.Shape = Child->Shape,
 				.Transform = Body.Desc.Transform,
 				.ObjectChannel = static_cast<ECollisionChannel>(Body.Desc.Filter.ObjectChannel),
 				.Actor = Component->GetOwner(),

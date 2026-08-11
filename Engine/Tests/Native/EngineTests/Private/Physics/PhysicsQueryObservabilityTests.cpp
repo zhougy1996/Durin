@@ -105,7 +105,8 @@ namespace
 		const Durin::FVector3& HalfExtent = Durin::FVector3(0.5)) -> Durin::FPhysicsBodyDesc
 	{
 		Durin::FPhysicsBodyDesc Desc;
-		Desc.Shape = Durin::FCollisionShape::MakeBox(HalfExtent);
+		Desc.Geometry = Durin::FCollisionGeometryRef::MakePrimitive(
+			Durin::FCollisionShape::MakeBox(HalfExtent));
 		Desc.Transform = Durin::FTransform();
 		Desc.Transform.Translation = Center;
 		Desc.UserToken = UserToken;
@@ -652,6 +653,24 @@ TEST(FAetherGeometryCounterTests, OptionalSinkCountsBoundedDistanceWorkAndSatura
 	EXPECT_TRUE(Counters.bOverflowed);
 }
 
+TEST(FAetherGeometryCounterTests, ProductionCapsuleBoxAvoidsNestedReferenceSearch)
+{
+	const Durin::FCollisionShape Capsule = Durin::FCollisionShape::MakeCapsule(0.4, 1.0);
+	const Durin::FCollisionShape Box = Durin::FCollisionShape::MakeBox({0.5, 3.0, 3.0});
+	const Durin::FCollisionGeometryRef Geometry = Durin::FCollisionGeometryRef::MakePrimitive(Box);
+	Durin::FTransform CapsuleTransform;
+	CapsuleTransform.Translation = {-3.0, 0.0, 0.0};
+	Durin::FPhysicsQueryHit Hit;
+	Durin::CollisionGeometry::FCollisionGeometryCounters Counters;
+	EXPECT_EQ(Durin::CollisionGeometry::Sweep(
+		Capsule, CapsuleTransform, {0.0, 0.0, 0.0}, Geometry, Durin::FTransform(),
+		Durin::CollisionGeometry::ECollisionQueryAlgorithm::Production, Hit, &Counters),
+		Durin::CollisionGeometry::ECollisionQueryStatus::Miss);
+	EXPECT_LE(Counters.DistanceEvaluations, 96u);
+	EXPECT_LE(Counters.SearchIterations, 64u);
+	EXPECT_EQ(Counters.ReferenceFallbacks, 0u);
+}
+
 TEST(FAetherQueryDiagnosticsTests, ReconcilesProductionReferenceAndCompareStructuralWork)
 {
 	Durin::FPhysicsScene Scene;
@@ -725,8 +744,8 @@ TEST(FAetherQueryDiagnosticsTests, ReconcilesProductionReferenceAndCompareStruct
 		GetQueryCounters(Snapshot, Durin::EPhysicsSceneQueryKind::SweepSingle);
 	ExpectQueryCountersReconcile(Sweep);
 	EXPECT_EQ(Sweep.NarrowPhasePairTests, 2u);
-	EXPECT_EQ(Sweep.GeometryDistanceEvaluations, 118u);
-	EXPECT_EQ(Sweep.GeometrySearchIterations, 56u);
+	EXPECT_LE(Sweep.GeometryDistanceEvaluations, 96u);
+	EXPECT_LE(Sweep.GeometrySearchIterations, 64u);
 	EXPECT_EQ(Sweep.RawHits, 2u);
 
 	ASSERT_TRUE(Scene.ResetQueryDiagnostics());
@@ -908,7 +927,8 @@ TEST(FAetherSceneAccelerationTests, BuildsConservativeBoundsForEveryShapeAndReje
 	EXPECT_GT(BoxBounds[4], 22.0f);
 
 	Durin::FPhysicsBodyDesc Sphere;
-	Sphere.Shape = Durin::FCollisionShape::MakeSphere(2.0);
+	Sphere.Geometry = Durin::FCollisionGeometryRef::MakePrimitive(
+		Durin::FCollisionShape::MakeSphere(2.0));
 	Sphere.Transform.Scale3D = {1.0, 2.0, 3.0};
 	const auto SphereHandle = Scene.AddBody(Sphere);
 	ASSERT_TRUE(SphereHandle.IsValid());
@@ -917,7 +937,8 @@ TEST(FAetherSceneAccelerationTests, BuildsConservativeBoundsForEveryShapeAndReje
 	EXPECT_GT(SphereBounds[3], 6.0f);
 
 	Durin::FPhysicsBodyDesc Capsule;
-	Capsule.Shape = Durin::FCollisionShape::MakeCapsule(1.0, 3.0);
+	Capsule.Geometry = Durin::FCollisionGeometryRef::MakePrimitive(
+		Durin::FCollisionShape::MakeCapsule(1.0, 3.0));
 	Capsule.Transform.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(90.0, Durin::FVectorConstants::Right);
 	const auto CapsuleHandle = Scene.AddBody(Capsule);
 	ASSERT_TRUE(CapsuleHandle.IsValid());
@@ -993,7 +1014,7 @@ TEST(FAetherSceneAccelerationTests, ScratchOverflowFallsBackToTheCompleteReferen
 TEST(FAetherSceneAccelerationTests, MeetsSparseDenseScratchAndRetainedMemoryGatesAtScale)
 {
 	constexpr size_t BodyCount = 10'000;
-	static_assert(Durin::FPhysicsSceneQueryTestAccess::GetBodyRecordSize() == 192);
+	static_assert(Durin::FPhysicsSceneQueryTestAccess::GetBodyRecordSize() == 176);
 	static_assert(Durin::FPhysicsSceneQueryTestAccess::GetSlotSize() == 12);
 	static_assert(Durin::FPhysicsSceneQueryTestAccess::GetSpatialNodeSize() == 36);
 	Durin::FPhysicsScene SparseScene;
@@ -1424,4 +1445,48 @@ TEST(DISABLED_FAetherQueryQualificationBenchmarks, RecordsStageThreeStructureTim
 			});
 		}
 	}
+}
+
+TEST(DISABLED_FAetherNarrowphaseBenchmarks, RecordsCapsuleBoxProductionSpeedup)
+{
+	constexpr Durin::uint32 SampleCount = 15;
+	constexpr Durin::uint32 IterationsPerSample = 200;
+	const Durin::FCollisionShape Capsule = Durin::FCollisionShape::MakeCapsule(0.4, 1.0);
+	const Durin::FCollisionShape Box = Durin::FCollisionShape::MakeBox({0.5, 3.0, 3.0});
+	const Durin::FCollisionGeometryRef Geometry = Durin::FCollisionGeometryRef::MakePrimitive(Box);
+	Durin::FTransform CapsuleTransform;
+	CapsuleTransform.Translation = {-3.0, 0.0, 0.0};
+	std::array<Durin::uint64, SampleCount> ReferenceSamples{};
+	std::array<Durin::uint64, SampleCount> ProductionSamples{};
+	for (Durin::uint32 Sample = 0; Sample < SampleCount; ++Sample)
+	{
+		auto Measure = [&](bool bReference) {
+			const auto Start = std::chrono::steady_clock::now();
+			for (Durin::uint32 Iteration = 0; Iteration < IterationsPerSample; ++Iteration)
+			{
+				Durin::FPhysicsQueryHit Hit;
+				if (bReference)
+					EXPECT_FALSE(Durin::CollisionGeometry::SweepCapsuleBox(
+						Capsule, CapsuleTransform, Durin::FVector3(0.0), Box, Durin::FTransform(), Hit));
+				else
+					EXPECT_EQ(Durin::CollisionGeometry::Sweep(
+						Capsule, CapsuleTransform, Durin::FVector3(0.0), Geometry, Durin::FTransform(),
+						Durin::CollisionGeometry::ECollisionQueryAlgorithm::Production, Hit),
+						Durin::CollisionGeometry::ECollisionQueryStatus::Miss);
+			}
+			return static_cast<Durin::uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - Start).count()) / IterationsPerSample;
+		};
+		ReferenceSamples[Sample] = Measure(true);
+		ProductionSamples[Sample] = Measure(false);
+	}
+	std::ranges::sort(ReferenceSamples);
+	std::ranges::sort(ProductionSamples);
+	const Durin::uint64 ReferenceMedian = ReferenceSamples[SampleCount / 2];
+	const Durin::uint64 ProductionMedian = ProductionSamples[SampleCount / 2];
+	std::cout << "AETHER_M2_CAPSULE_BOX reference_median_ns=" << ReferenceMedian
+		<< ",production_median_ns=" << ProductionMedian
+		<< ",speedup=" << static_cast<double>(ReferenceMedian) / std::max<Durin::uint64>(1, ProductionMedian)
+		<< '\n';
+	EXPECT_GT(ReferenceMedian, ProductionMedian * 4);
 }

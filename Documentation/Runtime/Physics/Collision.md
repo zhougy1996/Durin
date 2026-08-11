@@ -21,24 +21,40 @@ teardown therefore cannot leave a body visible in another World. Collision
 queries remain available while play is paused or physics simulation is
 disabled; that flag gates future simulation stepping, not query-only geometry.
 
-## Shapes and transforms
+## Geometry resources, shapes, and transforms
 
-The first slice supports Box, Sphere, and Z-axis Capsule values. Box dimensions
+`FCollisionShape` remains the compact query-side Box, Sphere, or Z-axis Capsule
+value. Bodies instead retain a copyable `FCollisionGeometryRef` to one
+validated immutable AetherCore payload. A primitive payload contains one
+shape. A compound contains 1 through 64 simple children in stable input order,
+each with one valid local transform; compounds do not nest. Every payload has
+a non-zero process-local identity, immutable local bounds, and retained-byte
+facts. Scene bodies copy the two-word reference and never copy child data.
+
+Box dimensions
 are positive local half extents. Capsule half height includes both hemispherical
 ends and must be at least its radius. Durin uses `+Z` as up. Physics transforms
 must be finite, use a normalizable rotation, and have strictly positive scale;
 mirrored, singular, or non-finite transforms are rejected without mutating the
 scene.
 
-Ray/Box and Capsule/Box reference paths support arbitrarily rotated Boxes and
-positive non-uniform Box scale. Capsule sweeps report normalized time,
+Child world transforms are `FTransform::Combine(Body, Child)`. Bounds and
+narrow phase both use Box component scale, Sphere maximum XYZ scale, and
+Capsule maximum XY radius scale with Z half-height scale clamped to the scaled
+radius.
+
+Ray, Sweep, and Overlap support every Box/Sphere/Capsule target pair. Sweeps report normalized time,
 distance, location, impact point and normal, and bounded initial penetration.
 Equal-time results use the monotonically assigned scene handle as their stable
-tie-break.
+tie-break. Compound closest hits first select `(Time, child index)`; Overlap
+selects the lowest overlapping child and still emits one result per body.
 
 ## Assets and components
 
-`DBodySetup` owns reusable simple geometry, a revision, and local shape offset.
+`DBodySetup` owns reusable simple geometry, a revision, a local shape offset,
+and one transient immutable-resource cache for that revision. Repeated
+publication returns the same identity; successful authored setters invalidate
+the cache.
 `DStaticMesh` retains its setup independently from render data. The qualified
 `/Engine/Models/Box` asset derives one Box setup from its verified LOD 0 bounds;
 arbitrary imported meshes do not silently use render bounds or triangles.
@@ -80,6 +96,20 @@ the complete output, and returns the Reference output on any mismatch. Policy
 changes reject invalid values and off-thread calls without changing the prior
 policy. `DWorld` and component code never select or interpret a policy.
 
+AetherCore owns operation/pair selection and compound iteration behind one
+facade. Scene traversal validates, filters, and accumulates bodies but contains
+no concrete pair algorithm calls. Internal outcomes distinguish Hit, Miss,
+Invalid, Unsupported, and NonConverged. Analytic and finite-feature paths cover
+the complete primitive matrix. Production Capsule/Box uses exact piecewise
+segment/box distance and bounded conservative advancement; the nested search
+is retained only as direct reference evidence and explicit recovery.
+
+Production casts use at most 32 advancement iterations. Unsupported or
+non-converged work is named and counted, and qualified recovery never becomes
+a silent miss. Tangency is a Ray/Sweep contact only when motion enters the
+target surface. Overlap requires penetration beyond `1.0e-8`; zero-delta Sweep
+returns only initial penetration.
+
 Closest hits remain ordered by exact normalized time followed by stable body
 handle. Overlap results remain ordered by body handle. Compare treats status,
 count, ordering, handle, response, user token, and initial-penetration state as
@@ -90,7 +120,9 @@ Non-finite compared values never compare equal.
 `CaptureQueryDiagnostics` returns one O(1), value-only
 `FPhysicsSceneQueryDiagnostics` snapshot. Each query kind reports submitted,
 invalid/off-thread, Reference/Production/Compare execution, body visit,
-candidate, ignored, filter-rejected, pair-test, geometry evaluation/iteration,
+candidate, ignored, filter-rejected, pair-test, leaf/compound work,
+analytic/generic selection, support/distance/iteration work,
+unsupported/non-convergence/reference fallback,
 raw-hit, returned-result, fallback/mismatch, high-water, and optional timing
 values. Scene mutation values report add/update/remove calls, successes,
 rejections, failed lookups, the reset body baseline, and current body count.
@@ -121,12 +153,14 @@ last-mismatch payload are explicit opt-in behavior. Diagnostic reset preserves
 the current body count and detailed-enabled state without walking bodies.
 Off-thread diagnostic capture returns a default snapshot.
 
-AetherCore Capsule/Box reference functions accept an optional
+AetherCore geometry functions accept an optional
 `FCollisionGeometryCounters` pointer. A null pointer preserves ordinary behavior
 without allocating or invoking callbacks. A penetrating Capsule/Box overlap
-currently performs 59 distance evaluations and 28 search iterations. A sparse
-Capsule/Box sweep miss performs 3,422 and 1,652 per tested pair. These values are
-reference cost facts, not convergence targets for future production geometry.
+performs 59 distance evaluations and 28 search iterations. Its sparse
+zero-delta Capsule/Box miss performs 3,422 and 1,652 per tested pair. Production
+qualified Capsule/Box casts stay within 96 feature evaluations and 64 total
+search/cast iterations and ordinary Sandbox movement never enters that nested
+search.
 
 ## Indexed storage and query cost
 
@@ -135,8 +169,9 @@ dense record directly; removal swap-removes the dense tail and repairs its
 owning slot. Retired generations reject before dense access, and reusable slots
 advance their generation before returning to the LIFO free list. A record owns
 one outward-rounded six-float exact AABB and its slot index. The qualified
-layout is 192 bytes per record, including 16 bytes above the M0 payload, plus a
-12-byte slot.
+record remains at or below the M1 192-byte gate and adds only the two-word
+shared reference, plus a 12-byte slot. Geometry diagnostics count unique
+payloads and retained bytes, so instance count does not multiply child memory.
 
 Motion is explicit and independent of filters. Low-level descriptions and
 component-driven bodies default to `Kinematic`; qualified `AStaticMeshActor`
@@ -167,6 +202,12 @@ microseconds. Actual all-static, all-moving, and mixed retained capacities at
 0/32/1,000/10,000 bodies fit `64 * live bodies + 64 KiB`; qualified queries had
 zero mismatch, scratch overflow, or spatial fallback.
 
+For M2 on `Win64-Release-DurinEditor`, the controlled sparse zero-delta
+Capsule/Box pair measured 11,000 ns reference median and 437 ns Production
+median, a 25.17x improvement. Focused Release PhysicsScene and Sandbox suites
+reported zero mismatch, unsupported, non-convergence, overflow, or unexpected
+pair fallback.
+
 ## Debugging and current limits
 
 Collision debugging is disabled by default. When enabled,
@@ -177,7 +218,8 @@ The Level Editor viewport's **View mode > Overlays > Collision** toggle consumes
 the renderer-independent snapshot to draw Box, Sphere, and Capsule wire shapes
 plus the latest blocking impact normal without exposing mutable scene storage.
 
-The implementation is synchronous and query-only. Dynamic rigid bodies,
+The implementation is synchronous and query-only. Programmatic low-level
+compounds are qualified; reflected compound authoring is deferred. Dynamic rigid bodies,
 forces, constraints, asynchronous stepping, moving platforms, triangle meshes,
 heightfields, overlap events, and project-defined profiles remain future work.
 The cross-plan sequencing for scalable queries, geometry, cooked collision,

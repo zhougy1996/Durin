@@ -21,6 +21,8 @@ namespace Durin
 		ENGINE_API auto GetStaticMesh() const -> DStaticMesh*;
 		ENGINE_API auto GetBodySetup() const -> DBodySetup*;
 		ENGINE_API auto BuildCollisionShape(FCollisionShape& OutShape, FTransform& OutWorldTransform) const -> bool override;
+		ENGINE_API auto BuildCollisionGeometry(
+			FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool override;
 		ENGINE_API auto SetMaterial(DMaterialInterface* InMaterial) -> bool;
 		ENGINE_API auto GetMaterial() const -> DMaterialInterface*;
 		ENGINE_API auto SetMaterial(uint32 SlotIndex, DMaterialInterface* InMaterial) -> bool;

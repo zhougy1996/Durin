@@ -22,7 +22,8 @@ namespace
 		const Durin::FQuat& Rotation = Durin::FQuatConstants::Identity) -> Durin::FPhysicsBodyDesc
 	{
 		Durin::FPhysicsBodyDesc Desc;
-		Desc.Shape = Durin::FCollisionShape::MakeBox(HalfExtent);
+		Desc.Geometry = Durin::FCollisionGeometryRef::MakePrimitive(
+			Durin::FCollisionShape::MakeBox(HalfExtent));
 		Desc.Transform = Durin::FTransform();
 		Desc.Transform.Translation = Center;
 		Desc.Transform.Rotation = Rotation;
@@ -229,6 +230,9 @@ TEST(FPhysicsBodySetupTests, SharesAssetGeometryWhileInstancesKeepDistinctHandle
 	EXPECT_NE(First->GetStaticMeshComponent()->GetPhysicsActorHandle(),
 		Second->GetStaticMeshComponent()->GetPhysicsActorHandle());
 	EXPECT_EQ(World->GetPhysicsScene().GetBodyCount(), 2u);
+	const std::vector<Durin::FPhysicsBodySnapshot> SharedBodies = World->GetPhysicsScene().CaptureBodies();
+	ASSERT_EQ(SharedBodies.size(), 2u);
+	EXPECT_EQ(SharedBodies[0].Desc.Geometry.GetIdentity(), SharedBodies[1].Desc.Geometry.GetIdentity());
 	auto* RenderOnlyOwner = World->SpawnActor<Durin::ACameraActor>("RenderOnlyOwner");
 	auto* RenderOnly = Durin::Cast<Durin::DStaticMeshComponent>(
 		RenderOnlyOwner->AddInstanceComponent(Durin::DStaticMeshComponent::StaticClass(), "RenderOnly"));
@@ -239,4 +243,139 @@ TEST(FPhysicsBodySetupTests, SharesAssetGeometryWhileInstancesKeepDistinctHandle
 	EXPECT_EQ(World->GetPhysicsScene().GetBodyCount(), 2u);
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
+}
+
+TEST(FAetherCollisionGeometryResourceTests, ValidatesIdentityBoundsChildrenAndRetainedBytes)
+{
+	static_assert(sizeof(Durin::FCollisionGeometryRef) == 16);
+	static_assert(sizeof(Durin::FCollisionGeometryChild) == 112);
+	EXPECT_FALSE(Durin::FCollisionGeometryRef::MakePrimitive({}).IsValid());
+	EXPECT_FALSE(Durin::FCollisionGeometryRef::MakeCompound({}).IsValid());
+	std::vector<Durin::FCollisionGeometryChild> Children(65);
+	for (Durin::FCollisionGeometryChild& Child : Children)
+		Child.Shape = Durin::FCollisionShape::MakeSphere(0.5);
+	EXPECT_FALSE(Durin::FCollisionGeometryRef::MakeCompound(Children).IsValid());
+
+	Children.resize(64);
+	for (Durin::uint32 Index = 0; Index < Children.size(); ++Index)
+	{
+		Children[Index].LocalTransform.Translation = {static_cast<double>(Index), 0.0, 0.0};
+	}
+	const Durin::FCollisionGeometryRef Compound = Durin::FCollisionGeometryRef::MakeCompound(Children);
+	ASSERT_TRUE(Compound.IsValid());
+	EXPECT_NE(Compound.GetIdentity(), 0u);
+	EXPECT_EQ(Compound.GetChildCount(), 64u);
+	EXPECT_EQ(Compound.GetRetainedBytes(), 7'264u);
+	Durin::FVector3 Min;
+	Durin::FVector3 Max;
+	ASSERT_TRUE(Compound.GetLocalBounds(Min, Max));
+	EXPECT_DOUBLE_EQ(Min.x, -0.5);
+	EXPECT_DOUBLE_EQ(Max.x, 63.5);
+	EXPECT_DOUBLE_EQ(Compound.GetChild(17)->LocalTransform.Translation.x, 17.0);
+
+	Children[4].LocalTransform.Scale3D.x = 0.0;
+	EXPECT_FALSE(Durin::FCollisionGeometryRef::MakeCompound(Children).IsValid());
+}
+
+TEST(FAetherCollisionGeometryResourceTests, TenThousandBodiesRetainOneSharedPayload)
+{
+	const Durin::FCollisionGeometryRef Geometry = Durin::FCollisionGeometryRef::MakePrimitive(
+		Durin::FCollisionShape::MakeBox({0.5, 0.5, 0.5}));
+	EXPECT_EQ(Geometry.GetRetainedBytes(), 208u);
+	Durin::FPhysicsScene Scene;
+	std::vector<Durin::FPhysicsActorHandle> Handles;
+	Handles.reserve(10'000);
+	for (Durin::uint32 Index = 0; Index < 10'000; ++Index)
+	{
+		Durin::FPhysicsBodyDesc Desc;
+		Desc.Geometry = Geometry;
+		Desc.Transform.Translation = {static_cast<double>(Index) * 2.0, 0.0, 0.0};
+		Handles.push_back(Scene.AddBody(Desc));
+		ASSERT_TRUE(Handles.back().IsValid());
+	}
+	Durin::FPhysicsSceneQueryDiagnostics Diagnostics = Scene.CaptureQueryDiagnostics();
+	EXPECT_EQ(Diagnostics.Mutations.UniqueGeometryResources, 1u);
+	EXPECT_EQ(Diagnostics.Mutations.RetainedGeometryBytes, Geometry.GetRetainedBytes());
+	ASSERT_TRUE(Scene.ResetQueryDiagnostics());
+	Diagnostics = Scene.CaptureQueryDiagnostics();
+	EXPECT_EQ(Diagnostics.Mutations.UniqueGeometryResources, 1u);
+	for (const Durin::FPhysicsActorHandle Handle : Handles) ASSERT_TRUE(Scene.RemoveBody(Handle));
+	Diagnostics = Scene.CaptureQueryDiagnostics();
+	EXPECT_EQ(Diagnostics.Mutations.UniqueGeometryResources, 0u);
+	EXPECT_EQ(Diagnostics.Mutations.RetainedGeometryBytes, 0u);
+}
+
+TEST(FPhysicsBodySetupTests, CachesOneGeometryIdentityPerAuthoredRevision)
+{
+	Durin::Testing::InitializeDObjectSystemForTests();
+	auto* Setup = Durin::NewObject<Durin::DBodySetup>(nullptr, "CachedGeometrySetup");
+	ASSERT_TRUE(Setup->SetCapsule(0.5, 1.5, {1.0, 2.0, 3.0}));
+	Durin::FCollisionGeometryRef First;
+	Durin::FCollisionGeometryRef Second;
+	Durin::FTransform FirstTransform;
+	Durin::FTransform SecondTransform;
+	ASSERT_TRUE(Setup->BuildGeometry(First, FirstTransform));
+	ASSERT_TRUE(Setup->BuildGeometry(Second, SecondTransform));
+	EXPECT_EQ(First.GetIdentity(), Second.GetIdentity());
+	EXPECT_EQ(FirstTransform.Translation, Durin::FVector3(1.0, 2.0, 3.0));
+	ASSERT_TRUE(Setup->SetSphere(2.0));
+	ASSERT_TRUE(Setup->BuildGeometry(Second, SecondTransform));
+	EXPECT_NE(First.GetIdentity(), Second.GetIdentity());
+	Durin::MarkObjectHierarchyAsGarbage(Setup);
+	Durin::CollectGarbage();
+}
+
+TEST(FAetherNarrowphaseMatrixTests, ReachesEveryPrimitiveRaySweepAndOverlapCell)
+{
+	const std::array<Durin::FCollisionShape, 3> Shapes{
+		Durin::FCollisionShape::MakeBox({0.75, 0.75, 0.75}),
+		Durin::FCollisionShape::MakeSphere(0.75),
+		Durin::FCollisionShape::MakeCapsule(0.5, 1.0)};
+	for (const Durin::FCollisionShape& TargetShape : Shapes)
+	{
+		const Durin::FCollisionGeometryRef Target =
+			Durin::FCollisionGeometryRef::MakePrimitive(TargetShape);
+		Durin::FPhysicsQueryHit Hit;
+		EXPECT_EQ(Durin::CollisionGeometry::Raycast(
+			{-5.0, 0.0, 0.0}, {5.0, 0.0, 0.0}, Target, Durin::FTransform(),
+			Durin::CollisionGeometry::ECollisionQueryAlgorithm::Production, Hit),
+			Durin::CollisionGeometry::ECollisionQueryStatus::Hit);
+		for (const Durin::FCollisionShape& QueryShape : Shapes)
+		{
+			Durin::FTransform OverlapTransform;
+			EXPECT_EQ(Durin::CollisionGeometry::Overlap(
+				QueryShape, OverlapTransform, Target, Durin::FTransform(),
+				Durin::CollisionGeometry::ECollisionQueryAlgorithm::Production, Hit),
+				Durin::CollisionGeometry::ECollisionQueryStatus::Hit);
+			Durin::FTransform SweepTransform;
+			SweepTransform.Translation = {-5.0, 0.0, 0.0};
+			EXPECT_EQ(Durin::CollisionGeometry::Sweep(
+				QueryShape, SweepTransform, {10.0, 0.0, 0.0}, Target, Durin::FTransform(),
+				Durin::CollisionGeometry::ECollisionQueryAlgorithm::Production, Hit),
+				Durin::CollisionGeometry::ECollisionQueryStatus::Hit);
+			EXPECT_GE(Hit.Time, 0.0);
+			EXPECT_LE(Hit.Time, 1.0);
+			EXPECT_NEAR(Durin::Math::Length(Hit.ImpactNormal), 1.0, 1.0e-8);
+		}
+	}
+}
+
+TEST(FAetherNarrowphaseMatrixTests, CompoundUsesStableChildOrderAndOneBodyResult)
+{
+	std::array<Durin::FCollisionGeometryChild, 2> Children{};
+	Children[0].Shape = Durin::FCollisionShape::MakeSphere(0.5);
+	Children[0].LocalTransform.Translation = {2.0, 0.0, 0.0};
+	Children[1].Shape = Durin::FCollisionShape::MakeBox({0.5, 0.5, 0.5});
+	Children[1].LocalTransform.Translation = {-2.0, 0.0, 0.0};
+	Durin::FPhysicsBodyDesc Body;
+	Body.Geometry = Durin::FCollisionGeometryRef::MakeCompound(Children);
+	Durin::FPhysicsScene Scene;
+	ASSERT_TRUE(Scene.AddBody(Body).IsValid());
+	Durin::FPhysicsQueryHit Hit;
+	ASSERT_TRUE(Scene.LineTraceSingle({-5.0, 0.0, 0.0}, {5.0, 0.0, 0.0}, {}, Hit));
+	EXPECT_NEAR(Hit.Time, 0.25, 1.0e-12);
+	std::vector<Durin::FPhysicsQueryHit> Hits;
+	ASSERT_TRUE(Scene.OverlapMulti(
+		Durin::FCollisionShape::MakeBox({3.0, 1.0, 1.0}), Durin::FTransform(), {}, Hits));
+	EXPECT_EQ(Hits.size(), 1u);
 }

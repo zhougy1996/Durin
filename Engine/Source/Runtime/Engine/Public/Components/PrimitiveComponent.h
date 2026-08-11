@@ -51,6 +51,8 @@ namespace Durin
 		// Migrates an existing scene body between spatial partitions without exposing index state.
 		ENGINE_API auto SetPhysicsBodyMotionType(EPhysicsBodyMotionType MotionType) -> void;
 		ENGINE_API virtual auto BuildCollisionShape(FCollisionShape& OutShape, FTransform& OutWorldTransform) const -> bool;
+		ENGINE_API virtual auto BuildCollisionGeometry(
+			FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool;
 		ENGINE_API auto RecreatePhysicsState() -> void;
 
 #if DURIN_WITH_EDITOR
@@ -73,6 +75,7 @@ namespace Durin
 		auto GetPhysicsWorld() const -> DWorld*;
 
 		FPrimitiveSceneId PrimitiveSceneId = InvalidPrimitiveSceneId;
+		mutable FCollisionGeometryRef CachedCollisionGeometry;
 		DPROPERTY(Edit)
 		FBodyInstance BodyInstance;
 	};

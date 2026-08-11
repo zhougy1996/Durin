@@ -18,17 +18,19 @@ zero-mismatch corpus; query and geometry work are independently counted; and
 the production boundary reaches narrow phase only after bounded traversal and
 filtering.
 
-The remaining boundary is explicit. `FPhysicsBodyDesc` embeds one
-`FCollisionShape`; all six Reference/Production executors name concrete
-Ray/Box or Capsule/Box functions; Sphere is not a complete target; and the
-production Capsule/Box sweep still uses the reference nested search. One
-sparse tested pair costs 3,422 distance evaluations and 1,652 iterations.
-`DBodySetup` is shared by asset instances but reconstructs a shape value for
-every published body rather than publishing one shared low-level resource.
+Stages 0 through 4 are implemented and qualified. Bodies now retain immutable
+primitive or 1-64 child compound resources; BodySetup publishes one identity
+per revision; AetherCore owns the complete primitive operation/pair facade;
+and Production Capsule/Box uses exact piecewise segment/box distance with
+bounded advancement. The Win64 layout is 176 bytes per body record, 16 bytes
+per reference, 112 bytes per child, and 208/7,264 retained bytes for 1/64
+children. Debug full native validation passes after a successful full `all`
+build. Focused Release PhysicsScene and Sandbox suites pass; the controlled
+sparse pair median is 437 ns Production versus 11,000 ns reference (25.17x).
+Stage 5 remains to publish the completed roadmap state and source revision.
 
-Stage 0 freezes the resource layout, complete pair matrix, contact rules,
-iteration caps, and measured budgets before production dispatch changes. M3
-cooking, simulation, and concurrency remain inactive.
+M3 cooking, simulation, and concurrency remain inactive until Stage 5 records
+the immutable resource and dispatch handoff.
 
 ## Goal
 
@@ -182,18 +184,48 @@ stable result ordering. At completion:
 
 ## Implementation Stages
 
+### Frozen M2 matrix and budgets
+
+The qualified production matrix is closed and complete:
+
+| Operation | Query | Box target | Sphere target | Capsule target |
+| --- | --- | --- | --- | --- |
+| Ray | finite segment | slab intersection | quadratic segment/sphere | cylinder plus cap intersections |
+| Sweep | Box | bounded feature advancement | bounded feature advancement | bounded feature advancement |
+| Sweep | Sphere | bounded analytic-feature advancement | bounded analytic-feature advancement | bounded analytic-feature advancement |
+| Sweep | Capsule | exact segment/box plus bounded advancement | bounded analytic-feature advancement | bounded analytic-feature advancement |
+| Overlap | Box | 15-axis SAT | point/box feature distance | exact segment/box feature distance |
+| Overlap | Sphere | point/box feature distance | center distance | point/segment distance |
+| Overlap | Capsule | exact segment/box feature distance | point/segment distance | segment/segment distance |
+
+Every cell is qualified by a directed matrix golden plus contact invariants;
+Capsule/Box additionally retains the old nested oracle as direct evidence.
+Ray/Sweep tangency, strict Overlap, zero delta, initial penetration, rotation,
+non-uniform scale, compound child order, and fixed-seed scene permutation are
+covered by focused tests.
+
+Production caps are 32 advancement iterations, 32 reserved generic-convex
+iterations, 32 reserved penetration iterations, 96 feature evaluations, and 64
+combined search/cast iterations. Unsupported and NonConverged are explicit;
+qualified Capsule/Box recovery records a reference fallback. The measured
+Win64 layout is a 16-byte reference, 112-byte child, 96-byte payload header,
+208 retained bytes for one primitive, 7,264 retained bytes for 64 children,
+176-byte body record, and 12-byte slot. Invalid/empty geometry allocates no
+payload; valid primitive and compound creation retain one shared header/control
+allocation and one exactly reserved child-array allocation.
+
 ### Stage 0: Freeze resources, pairs, contacts, and budgets
 
-- [ ] Map every directed Ray/Sweep/Overlap primitive cell to its production
+- [x] Map every directed Ray/Sweep/Overlap primitive cell to its production
   algorithm and independent oracle, golden, or invariant qualification.
-- [ ] Add goldens for miss, tangency, penetration, coincidence, zero motion,
+- [x] Add goldens for miss, tangency, penetration, coincidence, zero motion,
   rotation, non-uniform scale, large coordinates, and equal features.
-- [ ] Prototype exact segment/box and generic convex distance, penetration, and
+- [x] Prototype exact segment/box and generic convex distance, penetration, and
   cast paths outside scene dispatch; compare with the retained oracle.
-- [ ] Freeze caps, statuses, fallback, and Release work/timing gates.
-- [ ] Measure current layouts and 0/1/64-child allocation; freeze body-record,
+- [x] Freeze caps, statuses, fallback, and Release work/timing gates.
+- [x] Measure current layouts and 0/1/64-child allocation; freeze body-record,
   reference, header, child, and retained-memory budgets.
-- [ ] Freeze compound validation/precedence and adjust this plan before Stage 1
+- [x] Freeze compound validation/precedence and adjust this plan before Stage 1
   if evidence changes a selected algorithm or budget.
 
 #### Acceptance Gate
@@ -208,14 +240,14 @@ stable result ordering. At completion:
 
 ### Stage 1: Add shared primitive and compound resources
 
-- [ ] Implement the opaque reference and validated factories with identity,
+- [x] Implement the opaque reference and validated factories with identity,
   bounds, retained bytes, and test-only immutable inspection.
-- [ ] Replace body `Shape` with geometry; update validation, spatial-state
+- [x] Replace body `Shape` with geometry; update validation, spatial-state
   comparison, exact bounds, snapshots, lifecycle, and both indexes.
-- [ ] Union exact transformed child bounds for compound world bounds.
-- [ ] Add the revision-keyed transient `DBodySetup` cache without changing its
+- [x] Union exact transformed child bounds for compound world bounds.
+- [x] Add the revision-keyed transient `DBodySetup` cache without changing its
   authored shape setters.
-- [ ] Test sharing, revision replacement, teardown, invalid/oversized compounds,
+- [x] Test sharing, revision replacement, teardown, invalid/oversized compounds,
   child order, stale handles, and diagnostics.
 
 #### Acceptance Gate
@@ -230,14 +262,14 @@ stable result ordering. At completion:
 
 ### Stage 2: Centralize dispatch and analytic primitive queries
 
-- [ ] Add the operation/pair table, explicit status, facade, counters, and
+- [x] Add the operation/pair table, explicit status, facade, counters, and
   geometry-owned profiling names.
-- [ ] Implement analytic Ray against every primitive and the selected analytic
+- [x] Implement analytic Ray against every primitive and the selected analytic
   overlap/sweep cells with deliberate symmetry wrappers.
-- [ ] Move compound iteration and internal winner selection into the facade.
-- [ ] Replace all scene pair switches/calls with the facade while keeping
+- [x] Move compound iteration and internal winner selection into the facade.
+- [x] Replace all scene pair switches/calls with the facade while keeping
   distinct Reference and Production algorithm selection.
-- [ ] Add table-completeness, symmetry, contacts, compound ties, and fault tests.
+- [x] Add table-completeness, symmetry, contacts, compound ties, and fault tests.
 
 #### Acceptance Gate
 
@@ -250,16 +282,16 @@ stable result ordering. At completion:
 
 ### Stage 3: Add bounded convex and fast Capsule/Box production
 
-- [ ] Implement Box/Sphere/Capsule support mappings under frozen scale semantics.
-- [ ] Implement bounded convex distance/intersection, penetration, and
+- [x] Implement Box/Sphere/Capsule support mappings under frozen scale semantics.
+- [x] Implement bounded convex distance/intersection, penetration, and
   translational cast with deterministic simplex/feature precedence.
-- [ ] Implement dedicated exact-distance Capsule/Box overlap/cast and route the
+- [x] Implement dedicated exact-distance Capsule/Box overlap/cast and route the
   qualified directions to it.
-- [ ] Prefer analytic dispatch; invoke convex and Reference fallback only in
+- [x] Prefer analytic dispatch; invoke convex and Reference fallback only in
   their recorded roles.
-- [ ] Add fixed-seed randomized and adversarial permutation, scale, tangent,
+- [x] Add fixed-seed randomized and adversarial permutation, scale, tangent,
   deep-penetration, long/zero-delta, cap, and fault tests.
-- [ ] Reconcile leaf/algorithm/iteration/fallback counters.
+- [x] Reconcile leaf/algorithm/iteration/fallback counters.
 
 #### Acceptance Gate
 
@@ -272,15 +304,15 @@ stable result ordering. At completion:
 
 ### Stage 4: Qualify scene memory, lifecycle, and gameplay
 
-- [ ] Run 0/32/1,000/10,000 primitive/shared-compound scenes through all policies
+- [x] Run 0/32/1,000/10,000 primitive/shared-compound scenes through all policies
   under sparse, dense, clustered, adversarial, and mutation workloads.
-- [ ] Recheck M1 candidates, mutation isolation, memory, closest pruning, dense
+- [x] Recheck M1 candidates, mutation isolation, memory, closest pruning, dense
   overlap, scratch fallback, and aggregate-bound false negatives.
-- [ ] Record controlled Release matrix-family, Capsule/Box, and Sandbox timings,
+- [x] Record controlled Release matrix-family, Capsule/Box, and Sandbox timings,
   separating traversal, leaf, support, iteration, and fallback cost.
-- [ ] Verify BodySetup/BodyInstance/component publication, Level/World teardown,
+- [x] Verify BodySetup/BodyInstance/component publication, Level/World teardown,
   PIE/standalone, collision debug capture, and default Box content lifetime.
-- [ ] Use focused native targets during work. Since final scope crosses
+- [x] Use focused native targets during work. Since final scope crosses
   AetherCore, Aether, Engine publication, and Sandbox, run the root-required
   full native validation before handoff.
 
@@ -295,7 +327,7 @@ stable result ordering. At completion:
 
 ### Stage 5: Publish contracts and complete M2
 
-- [ ] Move shipped ownership, matrix, compound, dispatch, contact, convergence,
+- [x] Move shipped ownership, matrix, compound, dispatch, contact, convergence,
   fallback, and diagnostics rules into Runtime Collision documentation.
 - [ ] Update the roadmap with M2 evidence and M3 entry constraints without
   activating M3 prematurely.

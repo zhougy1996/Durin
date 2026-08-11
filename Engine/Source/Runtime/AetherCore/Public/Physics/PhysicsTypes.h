@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AetherCoreAPI.h"
-#include "Collision/CollisionShape.h"
+#include "Collision/CollisionGeometry.h"
 #include "Math/Transform.h"
 
 namespace Durin
@@ -49,7 +49,7 @@ namespace Durin
 	// Describes one immutable body publication to an FPhysicsScene.
 	struct FPhysicsBodyDesc
 	{
-		FCollisionShape Shape;
+		FCollisionGeometryRef Geometry;
 		FTransform Transform;
 		FPhysicsFilterData Filter;
 		EPhysicsBodyMotionType MotionType = EPhysicsBodyMotionType::Kinematic;

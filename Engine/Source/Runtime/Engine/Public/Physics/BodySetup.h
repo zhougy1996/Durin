@@ -29,6 +29,7 @@ namespace Durin
 		ENGINE_API auto SetSphere(double Radius, const FVector3& Center = FVector3(0.0)) -> bool;
 		ENGINE_API auto SetCapsule(double Radius, double HalfHeight, const FVector3& Center = FVector3(0.0)) -> bool;
 		ENGINE_API auto BuildShape(FCollisionShape& OutShape, FTransform& OutLocalTransform) const -> bool;
+		ENGINE_API auto BuildGeometry(FCollisionGeometryRef& OutGeometry, FTransform& OutLocalTransform) const -> bool;
 		ENGINE_API auto IsValid(std::string* OutDiagnostic = nullptr) const -> bool;
 		auto GetRevision() const -> uint64 { return Revision; }
 		auto GetShapeType() const -> EBodySetupShapeType { return ShapeType; }
@@ -46,5 +47,8 @@ namespace Durin
 
 		DPROPERTY()
 		uint64 Revision = 1;
+
+		mutable FCollisionGeometryRef CachedGeometry;
+		mutable uint64 CachedGeometryRevision = 0;
 	};
 }

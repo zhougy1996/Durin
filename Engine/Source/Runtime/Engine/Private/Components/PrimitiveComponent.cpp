@@ -87,16 +87,44 @@ namespace Durin
 		return false;
 	}
 
+	auto DPrimitiveComponent::BuildCollisionGeometry(
+		FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool
+	{
+		FCollisionShape Shape;
+		if (!BuildCollisionShape(Shape, OutWorldTransform)) return false;
+		const FCollisionGeometryChild* Existing = CachedCollisionGeometry.GetChild(0);
+		bool bSameShape = Existing && Existing->Shape.GetType() == Shape.GetType();
+		if (bSameShape)
+		{
+			switch (Shape.GetType())
+			{
+			case ECollisionShapeType::Box:
+				bSameShape = Existing->Shape.GetBoxHalfExtent() == Shape.GetBoxHalfExtent();
+				break;
+			case ECollisionShapeType::Sphere:
+				bSameShape = Existing->Shape.GetSphereRadius() == Shape.GetSphereRadius();
+				break;
+			case ECollisionShapeType::Capsule:
+				bSameShape = Existing->Shape.GetCapsuleRadius() == Shape.GetCapsuleRadius()
+					&& Existing->Shape.GetCapsuleHalfHeight() == Shape.GetCapsuleHalfHeight();
+				break;
+			}
+		}
+		if (!bSameShape) CachedCollisionGeometry = FCollisionGeometryRef::MakePrimitive(Shape);
+		OutGeometry = CachedCollisionGeometry;
+		return OutGeometry.IsValid();
+	}
+
 	auto DPrimitiveComponent::RecreatePhysicsState() -> void
 	{
 		DestroyPhysicsState();
 		if (!IsRegistered() || BodyInstance.CollisionEnabled == ECollisionEnabled::NoCollision) return;
 		DWorld* World = GetPhysicsWorld();
-		FCollisionShape Shape;
+		FCollisionGeometryRef Geometry;
 		FTransform Transform;
-		if (!World || !BuildCollisionShape(Shape, Transform)) return;
+		if (!World || !BuildCollisionGeometry(Geometry, Transform)) return;
 		FPhysicsBodyDesc Desc;
-		Desc.Shape = Shape;
+		Desc.Geometry = Geometry;
 		Desc.Transform = Transform;
 		Desc.Filter.ObjectChannel = static_cast<uint8>(BodyInstance.ObjectChannel);
 		for (uint8 Index = 0; Index < MaximumPhysicsChannels; ++Index)
@@ -122,15 +150,15 @@ namespace Durin
 			return;
 		}
 		DWorld* World = GetPhysicsWorld();
-		FCollisionShape Shape;
+		FCollisionGeometryRef Geometry;
 		FTransform Transform;
-		if (!World || !BuildCollisionShape(Shape, Transform))
+		if (!World || !BuildCollisionGeometry(Geometry, Transform))
 		{
 			DestroyPhysicsState();
 			return;
 		}
 		FPhysicsBodyDesc Desc;
-		Desc.Shape = Shape;
+		Desc.Geometry = Geometry;
 		Desc.Transform = Transform;
 		Desc.Filter.ObjectChannel = static_cast<uint8>(BodyInstance.ObjectChannel);
 		for (uint8 Index = 0; Index < MaximumPhysicsChannels; ++Index)

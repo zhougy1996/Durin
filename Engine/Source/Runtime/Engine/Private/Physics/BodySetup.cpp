@@ -7,7 +7,7 @@ namespace Durin
 	{
 	}
 
-	auto DBodySetup::SetBox(const FVector3& HalfExtent, const FVector3& InCenter) -> bool
+		auto DBodySetup::SetBox(const FVector3& HalfExtent, const FVector3& InCenter) -> bool
 	{
 		const FCollisionShape Candidate = FCollisionShape::MakeBox(HalfExtent);
 		if (!Candidate.IsValid() || !Math::IsFinite(InCenter)) return false;
@@ -15,6 +15,7 @@ namespace Durin
 		Dimensions = HalfExtent;
 		Center = InCenter;
 		++Revision;
+		CachedGeometry = {};
 		MarkPackageDirty();
 		return true;
 	}
@@ -27,6 +28,7 @@ namespace Durin
 		Dimensions = FVector3(Radius);
 		Center = InCenter;
 		++Revision;
+		CachedGeometry = {};
 		MarkPackageDirty();
 		return true;
 	}
@@ -39,6 +41,7 @@ namespace Durin
 		Dimensions = FVector3(Radius, Radius, HalfHeight);
 		Center = InCenter;
 		++Revision;
+		CachedGeometry = {};
 		MarkPackageDirty();
 		return true;
 	}
@@ -56,6 +59,20 @@ namespace Durin
 		OutLocalTransform = FTransform();
 		OutLocalTransform.Translation = Center;
 		return true;
+	}
+
+	auto DBodySetup::BuildGeometry(
+		FCollisionGeometryRef& OutGeometry, FTransform& OutLocalTransform) const -> bool
+	{
+		FCollisionShape Shape;
+		if (!BuildShape(Shape, OutLocalTransform)) return false;
+		if (!CachedGeometry.IsValid() || CachedGeometryRevision != Revision)
+		{
+			CachedGeometry = FCollisionGeometryRef::MakePrimitive(Shape);
+			CachedGeometryRevision = CachedGeometry.IsValid() ? Revision : 0;
+		}
+		OutGeometry = CachedGeometry;
+		return OutGeometry.IsValid();
 	}
 
 	auto DBodySetup::IsValid(std::string* OutDiagnostic) const -> bool

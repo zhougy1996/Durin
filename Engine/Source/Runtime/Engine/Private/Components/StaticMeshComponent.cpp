@@ -50,6 +50,16 @@ namespace Durin
 		return IsValidPhysicsTransform(OutWorldTransform);
 	}
 
+	auto DStaticMeshComponent::BuildCollisionGeometry(
+		FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool
+	{
+		DBodySetup* Setup = GetBodySetup();
+		FTransform LocalTransform;
+		if (!Setup || !Setup->BuildGeometry(OutGeometry, LocalTransform)) return false;
+		OutWorldTransform = FTransform::Combine(GetWorldTransform(), LocalTransform);
+		return IsValidPhysicsTransform(OutWorldTransform);
+	}
+
 	auto DStaticMeshComponent::SetMaterial(DMaterialInterface* InMaterial) -> bool
 	{
 		return SetMaterial(0, InMaterial);

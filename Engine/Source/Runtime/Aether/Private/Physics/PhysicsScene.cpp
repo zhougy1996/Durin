@@ -192,7 +192,8 @@ namespace Durin
 
 		auto HasSameSpatialState(const FPhysicsBodyDesc& Left, const FPhysicsBodyDesc& Right) -> bool
 		{
-			if (Left.MotionType != Right.MotionType || Left.Shape.GetType() != Right.Shape.GetType()) return false;
+			if (Left.MotionType != Right.MotionType
+				|| Left.Geometry.GetIdentity() != Right.Geometry.GetIdentity()) return false;
 			for (uint32 Index = 0; Index < 4; ++Index)
 				if (Left.Transform.Rotation[Index] != Right.Transform.Rotation[Index]) return false;
 			for (uint32 Index = 0; Index < 3; ++Index)
@@ -200,17 +201,7 @@ namespace Durin
 				if (Left.Transform.Translation[Index] != Right.Transform.Translation[Index]
 					|| Left.Transform.Scale3D[Index] != Right.Transform.Scale3D[Index]) return false;
 			}
-			switch (Left.Shape.GetType())
-			{
-			case ECollisionShapeType::Box:
-				return Left.Shape.GetBoxHalfExtent() == Right.Shape.GetBoxHalfExtent();
-			case ECollisionShapeType::Sphere:
-				return Left.Shape.GetSphereRadius() == Right.Shape.GetSphereRadius();
-			case ECollisionShapeType::Capsule:
-				return Left.Shape.GetCapsuleRadius() == Right.Shape.GetCapsuleRadius()
-					&& Left.Shape.GetCapsuleHalfHeight() == Right.Shape.GetCapsuleHalfHeight();
-			}
-			return false;
+			return true;
 		}
 
 	}
@@ -225,7 +216,7 @@ namespace Durin
 	auto FPhysicsScene::AddBody(const FPhysicsBodyDesc& Desc) -> FPhysicsActorHandle
 	{
 		CountMutation(Diagnostics.Mutations.AddCalls);
-		if (!IsOwningThread() || !Desc.Shape.IsValid() || !IsValidPhysicsTransform(Desc.Transform)
+		if (!IsOwningThread() || !Desc.Geometry.IsValid() || !IsValidPhysicsTransform(Desc.Transform)
 			|| Desc.Filter.ObjectChannel >= MaximumPhysicsChannels || !IsValidMotionType(Desc.MotionType))
 		{
 			CountMutation(Diagnostics.Mutations.AddRejected);
@@ -261,6 +252,7 @@ namespace Durin
 		Slot.DenseOrNext = static_cast<uint32>(Bodies.size());
 		Slot.ProxyParent = InvalidSpatialIndex;
 		Bodies.push_back({Desc, Bounds, SlotIndex});
+		RetainGeometry(Desc.Geometry);
 		if (Desc.MotionType == EPhysicsBodyMotionType::Static) bStaticTreeDirty = true;
 		else InsertMovingProxy(SlotIndex);
 		if (Desc.MotionType == EPhysicsBodyMotionType::Static) ++Diagnostics.Mutations.StaticBodies;
@@ -290,6 +282,7 @@ namespace Durin
 		}
 		const uint32 SlotIndex = Body->Slot;
 		const uint32 DenseIndex = Slots[SlotIndex].DenseOrNext;
+		const FCollisionGeometryRef RemovedGeometry = Body->Desc.Geometry;
 		if (Body->Desc.MotionType == EPhysicsBodyMotionType::Static) bStaticTreeDirty = true;
 		else RemoveMovingProxy(SlotIndex);
 		if (Body->Desc.MotionType == EPhysicsBodyMotionType::Static) --Diagnostics.Mutations.StaticBodies;
@@ -302,6 +295,7 @@ namespace Durin
 			CountMutation(Diagnostics.Mutations.DenseSwaps);
 		}
 		Bodies.pop_back();
+		ReleaseGeometry(RemovedGeometry);
 		FSlot& Slot = Slots[SlotIndex];
 		Slot.ProxyParent = InvalidSpatialIndex;
 		if (Slot.Generation != std::numeric_limits<uint32>::max())
@@ -340,7 +334,7 @@ namespace Durin
 			CountMutation(Diagnostics.Mutations.UpdateSuccesses);
 			return true;
 		}
-		if (!Desc.Shape.IsValid() || !IsValidPhysicsTransform(Desc.Transform))
+		if (!Desc.Geometry.IsValid() || !IsValidPhysicsTransform(Desc.Transform))
 		{
 			CountMutation(Diagnostics.Mutations.UpdateRejected);
 			return false;
@@ -353,6 +347,7 @@ namespace Durin
 		}
 		CountMutation(Diagnostics.Mutations.BoundBuilds);
 		const EPhysicsBodyMotionType OldMotion = Body->Desc.MotionType;
+		const FCollisionGeometryRef OldGeometry = Body->Desc.Geometry;
 		const bool bMigration = OldMotion != Desc.MotionType;
 		const bool bContainedMovingUpdate = !bMigration && OldMotion != EPhysicsBodyMotionType::Static
 			&& ContainsBounds(MovingProxyBounds(Body->Bounds), Bounds);
@@ -364,6 +359,11 @@ namespace Durin
 		}
 		else if (bContainedMovingUpdate) CountMutation(Diagnostics.Mutations.MovingContainedUpdates);
 		Body->Desc = Desc;
+		if (OldGeometry.GetIdentity() != Desc.Geometry.GetIdentity())
+		{
+			RetainGeometry(Desc.Geometry);
+			ReleaseGeometry(OldGeometry);
+		}
 		Body->Bounds = Bounds;
 		if (bMigration || bSpatialChange)
 		{
@@ -396,6 +396,28 @@ namespace Durin
 	auto FPhysicsScene::GetBodyCount() const -> size_t
 	{
 		return IsOwningThread() ? Bodies.size() : 0;
+	}
+
+	auto FPhysicsScene::RetainGeometry(const FCollisionGeometryRef& Geometry) -> void
+	{
+		auto [Entry, bInserted] = GeometryResources.try_emplace(
+			Geometry.GetIdentity(), std::pair<uint64, uint64>{0, Geometry.GetRetainedBytes()});
+		++Entry->second.first;
+		if (bInserted)
+		{
+			Diagnostics.Mutations.UniqueGeometryResources = static_cast<uint64>(GeometryResources.size());
+			SaturatingAdd(Diagnostics.Mutations.RetainedGeometryBytes, Entry->second.second);
+		}
+	}
+
+	auto FPhysicsScene::ReleaseGeometry(const FCollisionGeometryRef& Geometry) -> void
+	{
+		const auto Entry = GeometryResources.find(Geometry.GetIdentity());
+		if (Entry == GeometryResources.end()) return;
+		if (--Entry->second.first != 0) return;
+		Diagnostics.Mutations.RetainedGeometryBytes -= Entry->second.second;
+		GeometryResources.erase(Entry);
+		Diagnostics.Mutations.UniqueGeometryResources = static_cast<uint64>(GeometryResources.size());
 	}
 
 	auto FPhysicsScene::CaptureBodies() const -> std::vector<FPhysicsBodySnapshot>
@@ -434,6 +456,8 @@ namespace Durin
 		const uint64 KinematicBodies = Diagnostics.Mutations.KinematicBodies;
 		const uint64 DynamicBodies = Diagnostics.Mutations.DynamicBodies;
 		const uint64 RetainedSpatialBytes = Diagnostics.Mutations.RetainedSpatialBytes;
+		const uint64 UniqueGeometryResources = Diagnostics.Mutations.UniqueGeometryResources;
+		const uint64 RetainedGeometryBytes = Diagnostics.Mutations.RetainedGeometryBytes;
 		Diagnostics = {};
 		Diagnostics.bDetailedDiagnosticsEnabled = bDetailedDiagnosticsEnabled;
 		Diagnostics.Mutations.BodiesAtReset = static_cast<uint64>(Bodies.size());
@@ -442,6 +466,8 @@ namespace Durin
 		Diagnostics.Mutations.KinematicBodies = KinematicBodies;
 		Diagnostics.Mutations.DynamicBodies = DynamicBodies;
 		Diagnostics.Mutations.RetainedSpatialBytes = RetainedSpatialBytes;
+		Diagnostics.Mutations.UniqueGeometryResources = UniqueGeometryResources;
+		Diagnostics.Mutations.RetainedGeometryBytes = RetainedGeometryBytes;
 		return true;
 	}
 
@@ -752,16 +778,14 @@ namespace Durin
 			SaturatingAdd(Work.NarrowPhasePairTests, 1);
 			FPhysicsQueryHit Candidate;
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
-			bool bHit = false;
+			CollisionGeometry::ECollisionQueryStatus Status;
 			{
-				DURIN_PROFILE_CPU_ZONE_NAMED("Aether.Query.Pair.RaycastBox");
-				bHit = CollisionGeometry::RaycastBox(
-					Start, End, Body.Desc.Shape, Body.Desc.Transform, Candidate, &GeometryCounters);
+				DURIN_PROFILE_CPU_ZONE_NAMED("Aether.Query.Pair.Raycast");
+				Status = CollisionGeometry::Raycast(Start, End, Body.Desc.Geometry, Body.Desc.Transform,
+					CollisionGeometry::ECollisionQueryAlgorithm::Reference, Candidate, &GeometryCounters);
 			}
-			SaturatingAdd(Work.GeometryDistanceEvaluations, GeometryCounters.DistanceEvaluations);
-			SaturatingAdd(Work.GeometrySearchIterations, GeometryCounters.SearchIterations);
-			if (GeometryCounters.bOverflowed) Diagnostics.bOverflowed = true;
-			if (!bHit) continue;
+			AccumulateGeometryCounters(Work, GeometryCounters);
+			if (Status != CollisionGeometry::ECollisionQueryStatus::Hit) continue;
 			SaturatingAdd(Work.RawHits, 1);
 			Candidate.ActorHandle = GetHandle(Body);
 			Candidate.Response = Response;
@@ -799,16 +823,14 @@ namespace Durin
 			SaturatingAdd(Work.NarrowPhasePairTests, 1);
 			FPhysicsQueryHit Candidate;
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
-			bool bHit = false;
+			CollisionGeometry::ECollisionQueryStatus Status;
 			{
-				DURIN_PROFILE_CPU_ZONE_NAMED("Aether.Query.Pair.RaycastBox");
-				bHit = CollisionGeometry::RaycastBox(
-					Start, End, Body.Desc.Shape, Body.Desc.Transform, Candidate, &GeometryCounters);
+				DURIN_PROFILE_CPU_ZONE_NAMED("Aether.Query.Pair.Raycast");
+				Status = CollisionGeometry::Raycast(Start, End, Body.Desc.Geometry, Body.Desc.Transform,
+					CollisionGeometry::ECollisionQueryAlgorithm::Production, Candidate, &GeometryCounters);
 			}
-			SaturatingAdd(Work.GeometryDistanceEvaluations, GeometryCounters.DistanceEvaluations);
-			SaturatingAdd(Work.GeometrySearchIterations, GeometryCounters.SearchIterations);
-			if (GeometryCounters.bOverflowed) Diagnostics.bOverflowed = true;
-			if (!bHit) return;
+			AccumulateGeometryCounters(Work, GeometryCounters);
+			if (Status != CollisionGeometry::ECollisionQueryStatus::Hit) return;
 			SaturatingAdd(Work.RawHits, 1);
 			Candidate.ActorHandle = GetHandle(Body);
 			Candidate.Response = Response;
@@ -854,22 +876,21 @@ namespace Durin
 			SaturatingAdd(Work.NarrowPhasePairTests, 1);
 			FPhysicsQueryHit Candidate;
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
-			bool bHit = false;
+			CollisionGeometry::ECollisionQueryStatus Status;
 			{
-				DURIN_PROFILE_CPU_ZONE_NAMED("Aether.Query.Pair.SweepCapsuleBox");
-				bHit = CollisionGeometry::SweepCapsuleBox(
+				DURIN_PROFILE_CPU_ZONE_NAMED("Aether.Query.Pair.Sweep");
+				Status = CollisionGeometry::Sweep(
 					Shape,
 					StartTransform,
 					Delta,
-					Body.Desc.Shape,
+					Body.Desc.Geometry,
 					Body.Desc.Transform,
+					CollisionGeometry::ECollisionQueryAlgorithm::Reference,
 					Candidate,
 					&GeometryCounters);
 			}
-			SaturatingAdd(Work.GeometryDistanceEvaluations, GeometryCounters.DistanceEvaluations);
-			SaturatingAdd(Work.GeometrySearchIterations, GeometryCounters.SearchIterations);
-			if (GeometryCounters.bOverflowed) Diagnostics.bOverflowed = true;
-			if (!bHit) continue;
+			AccumulateGeometryCounters(Work, GeometryCounters);
+			if (Status != CollisionGeometry::ECollisionQueryStatus::Hit) continue;
 			SaturatingAdd(Work.RawHits, 1);
 			Candidate.ActorHandle = GetHandle(Body);
 			Candidate.Response = Response;
@@ -912,22 +933,21 @@ namespace Durin
 			SaturatingAdd(Work.NarrowPhasePairTests, 1);
 			FPhysicsQueryHit Candidate;
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
-			bool bHit = false;
+			CollisionGeometry::ECollisionQueryStatus Status;
 			{
-				DURIN_PROFILE_CPU_ZONE_NAMED("Aether.Query.Pair.SweepCapsuleBox");
-				bHit = CollisionGeometry::SweepCapsuleBox(
+				DURIN_PROFILE_CPU_ZONE_NAMED("Aether.Query.Pair.Sweep");
+				Status = CollisionGeometry::Sweep(
 					Shape,
 					StartTransform,
 					Delta,
-					Body.Desc.Shape,
+					Body.Desc.Geometry,
 					Body.Desc.Transform,
+					CollisionGeometry::ECollisionQueryAlgorithm::Production,
 					Candidate,
 					&GeometryCounters);
 			}
-			SaturatingAdd(Work.GeometryDistanceEvaluations, GeometryCounters.DistanceEvaluations);
-			SaturatingAdd(Work.GeometrySearchIterations, GeometryCounters.SearchIterations);
-			if (GeometryCounters.bOverflowed) Diagnostics.bOverflowed = true;
-			if (!bHit) return;
+			AccumulateGeometryCounters(Work, GeometryCounters);
+			if (Status != CollisionGeometry::ECollisionQueryStatus::Hit) return;
 			SaturatingAdd(Work.RawHits, 1);
 			Candidate.ActorHandle = GetHandle(Body);
 			Candidate.Response = Response;
@@ -972,16 +992,14 @@ namespace Durin
 			SaturatingAdd(Work.NarrowPhasePairTests, 1);
 			FPhysicsQueryHit Hit;
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
-			bool bHit = false;
+			CollisionGeometry::ECollisionQueryStatus Status;
 			{
-				DURIN_PROFILE_CPU_ZONE_NAMED("Aether.Query.Pair.OverlapCapsuleBox");
-				bHit = CollisionGeometry::OverlapCapsuleBox(
-					Shape, Transform, Body.Desc.Shape, Body.Desc.Transform, Hit, &GeometryCounters);
+				DURIN_PROFILE_CPU_ZONE_NAMED("Aether.Query.Pair.Overlap");
+				Status = CollisionGeometry::Overlap(Shape, Transform, Body.Desc.Geometry, Body.Desc.Transform,
+					CollisionGeometry::ECollisionQueryAlgorithm::Reference, Hit, &GeometryCounters);
 			}
-			SaturatingAdd(Work.GeometryDistanceEvaluations, GeometryCounters.DistanceEvaluations);
-			SaturatingAdd(Work.GeometrySearchIterations, GeometryCounters.SearchIterations);
-			if (GeometryCounters.bOverflowed) Diagnostics.bOverflowed = true;
-			if (!bHit) continue;
+			AccumulateGeometryCounters(Work, GeometryCounters);
+			if (Status != CollisionGeometry::ECollisionQueryStatus::Hit) continue;
 			SaturatingAdd(Work.RawHits, 1);
 			Hit.ActorHandle = GetHandle(Body);
 			Hit.Response = Response;
@@ -1020,16 +1038,14 @@ namespace Durin
 			SaturatingAdd(Work.NarrowPhasePairTests, 1);
 			FPhysicsQueryHit Hit;
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
-			bool bHit = false;
+			CollisionGeometry::ECollisionQueryStatus Status;
 			{
-				DURIN_PROFILE_CPU_ZONE_NAMED("Aether.Query.Pair.OverlapCapsuleBox");
-				bHit = CollisionGeometry::OverlapCapsuleBox(
-					Shape, Transform, Body.Desc.Shape, Body.Desc.Transform, Hit, &GeometryCounters);
+				DURIN_PROFILE_CPU_ZONE_NAMED("Aether.Query.Pair.Overlap");
+				Status = CollisionGeometry::Overlap(Shape, Transform, Body.Desc.Geometry, Body.Desc.Transform,
+					CollisionGeometry::ECollisionQueryAlgorithm::Production, Hit, &GeometryCounters);
 			}
-			SaturatingAdd(Work.GeometryDistanceEvaluations, GeometryCounters.DistanceEvaluations);
-			SaturatingAdd(Work.GeometrySearchIterations, GeometryCounters.SearchIterations);
-			if (GeometryCounters.bOverflowed) Diagnostics.bOverflowed = true;
-			if (!bHit) return;
+			AccumulateGeometryCounters(Work, GeometryCounters);
+			if (Status != CollisionGeometry::ECollisionQueryStatus::Hit) return;
 			SaturatingAdd(Work.RawHits, 1);
 			Hit.ActorHandle = GetHandle(Body);
 			Hit.Response = Response;
@@ -1169,6 +1185,14 @@ namespace Durin
 		SaturatingAdd(Target.NarrowPhasePairTests, Source.NarrowPhasePairTests);
 		SaturatingAdd(Target.GeometryDistanceEvaluations, Source.GeometryDistanceEvaluations);
 		SaturatingAdd(Target.GeometrySearchIterations, Source.GeometrySearchIterations);
+		SaturatingAdd(Target.NarrowPhaseLeafTests, Source.NarrowPhaseLeafTests);
+		SaturatingAdd(Target.CompoundChildrenTested, Source.CompoundChildrenTested);
+		SaturatingAdd(Target.AnalyticDispatches, Source.AnalyticDispatches);
+		SaturatingAdd(Target.GenericDispatches, Source.GenericDispatches);
+		SaturatingAdd(Target.GeometrySupportEvaluations, Source.GeometrySupportEvaluations);
+		SaturatingAdd(Target.UnsupportedPairs, Source.UnsupportedPairs);
+		SaturatingAdd(Target.NonConvergedPairs, Source.NonConvergedPairs);
+		SaturatingAdd(Target.ReferencePairFallbacks, Source.ReferencePairFallbacks);
 		SaturatingAdd(Target.RawHits, Source.RawHits);
 		SaturatingAdd(Target.ReturnedResults, Source.ReturnedResults);
 		SaturatingAdd(Target.Fallbacks, Source.Fallbacks);
@@ -1180,6 +1204,23 @@ namespace Durin
 		SaturatingAdd(Target.PrunedNodes, Source.PrunedNodes);
 		SaturatingAdd(Target.DetailedTimingSamples, Source.DetailedTimingSamples);
 		SaturatingAdd(Target.DetailedTimingNanoseconds, Source.DetailedTimingNanoseconds);
+	}
+
+	auto FPhysicsScene::AccumulateGeometryCounters(
+		FPhysicsSceneQueryCounters& Target,
+		const CollisionGeometry::FCollisionGeometryCounters& Source) const -> void
+	{
+		SaturatingAdd(Target.GeometryDistanceEvaluations, Source.DistanceEvaluations);
+		SaturatingAdd(Target.GeometrySearchIterations, Source.SearchIterations);
+		SaturatingAdd(Target.NarrowPhaseLeafTests, Source.LeafTests);
+		SaturatingAdd(Target.CompoundChildrenTested, Source.CompoundChildren);
+		SaturatingAdd(Target.AnalyticDispatches, Source.AnalyticDispatches);
+		SaturatingAdd(Target.GenericDispatches, Source.GenericDispatches);
+		SaturatingAdd(Target.GeometrySupportEvaluations, Source.SupportEvaluations);
+		SaturatingAdd(Target.UnsupportedPairs, Source.Unsupported);
+		SaturatingAdd(Target.NonConvergedPairs, Source.NonConverged);
+		SaturatingAdd(Target.ReferencePairFallbacks, Source.ReferenceFallbacks);
+		if (Source.bOverflowed) Diagnostics.bOverflowed = true;
 	}
 
 	auto FPhysicsScene::SaturatingAdd(uint64& Target, uint64 Delta) const -> void
@@ -1254,9 +1295,31 @@ namespace Durin
 	auto FPhysicsScene::BuildBodyBounds(
 		const FPhysicsBodyDesc& Desc, std::array<float, 6>& OutBounds) const -> bool
 	{
+		if (!Desc.Geometry.IsValid()) return false;
 		FVector3 Min;
 		FVector3 Max;
-		return BuildShapeBounds(Desc.Shape, Desc.Transform, Min, Max) && CompactBounds(Min, Max, OutBounds);
+		bool bHasBounds = false;
+		for (uint32 Index = 0; Index < Desc.Geometry.GetChildCount(); ++Index)
+		{
+			const FCollisionGeometryChild* Child = Desc.Geometry.GetChild(Index);
+			if (!Child) return false;
+			FVector3 ChildMin;
+			FVector3 ChildMax;
+			if (!BuildShapeBounds(Child->Shape, FTransform::Combine(Desc.Transform, Child->LocalTransform),
+				ChildMin, ChildMax)) return false;
+			if (!bHasBounds)
+			{
+				Min = ChildMin;
+				Max = ChildMax;
+				bHasBounds = true;
+			}
+			else
+			{
+				Min = Math::Min(Min, ChildMin);
+				Max = Math::Max(Max, ChildMax);
+			}
+		}
+		return bHasBounds && CompactBounds(Min, Max, OutBounds);
 	}
 
 	auto FPhysicsScene::BuildQueryBounds(const FCollisionShape& Shape, const FTransform& Transform,
