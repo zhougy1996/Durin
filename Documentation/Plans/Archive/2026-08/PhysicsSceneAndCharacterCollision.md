@@ -589,7 +589,7 @@ Dependencies: Stages 1-4 and lasting documentation updates.
 - [Play In Editor Architecture](../../../Editor/Architecture/PlayInEditorArchitecture.md)
 - [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
 - [Static Mesh Level Authoring](../../../Editor/Architecture/StaticMeshLevelAuthoring.md)
-- [Native Graybox Scene Authoring Plan](../../NativeGrayboxSceneAuthoring.md)
+- [Native Graybox Scene Authoring Investigation](../../../Investigations/NativeGrayboxSceneAuthoring.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)
 - [Build And Run](../../../Development/Build/BuildAndRun.md)
 

@@ -480,7 +480,7 @@ registry rather than duplicated here when ownership spans an aggregate target.
 - [Play In Editor Architecture](../../../Editor/Architecture/PlayInEditorArchitecture.md)
 - [Skeletal Asset Editor](../../../Editor/Architecture/SkeletalAssetEditor.md)
 - [Static Mesh Level Authoring](../../../Editor/Architecture/StaticMeshLevelAuthoring.md)
-- [Native Graybox Scene Authoring](../../NativeGrayboxSceneAuthoring.md)
+- [Native Graybox Scene Authoring Investigation](../../../Investigations/NativeGrayboxSceneAuthoring.md)
 - [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
 
 ## Related Code
