@@ -1,4 +1,5 @@
 #include "Logging/Logger.h"
+#include "Diagnostics/ProcessCrashContext.h"
 #include "Profiling/Profiling.h"
 
 #include "CoreGlobals.h"
@@ -173,6 +174,7 @@ namespace Durin
 			if (State == EState::Bootstrap)
 			{
 				Record.Sequence = NextSequence++;
+				PublishProcessCrashLogAccepted(Record.Sequence);
 				WriteFallback(Record);
 				if (BootstrapRecords.size() == DefaultHistoryCapacity)
 				{
@@ -216,6 +218,7 @@ namespace Durin
 			}
 			Record.Sequence = NextSequence++;
 			const uint64 Sequence = Record.Sequence;
+			PublishProcessCrashLogAccepted(Sequence);
 			LastQueuedSequence = Sequence;
 			Queue.push_back(std::move(Record));
 			WorkAvailable.notify_one();
@@ -259,6 +262,7 @@ namespace Durin
 				{
 					std::scoped_lock Lock(QueueMutex);
 					LastProcessedSequence = Record.Sequence;
+					PublishProcessCrashLogProcessed(Record.Sequence);
 					QueueDropSummaryLocked();
 				}
 				Processed.notify_all();
@@ -285,6 +289,7 @@ namespace Durin
 			if (Total == 0 || Queue.size() >= Settings.QueueCapacity) return;
 			FLogRecord Summary;
 			Summary.Sequence = NextSequence++;
+			PublishProcessCrashLogAccepted(Summary.Sequence);
 			LastQueuedSequence = Summary.Sequence;
 			Summary.Timestamp = std::chrono::system_clock::now();
 			Summary.Level = ELogLevel::Warn;
@@ -384,6 +389,7 @@ namespace Durin
 				{
 					std::scoped_lock Lock(QueueMutex);
 					LastDurableSequence = Record.Sequence;
+					PublishProcessCrashLogDurable(Record.Sequence);
 				}
 				Durable.notify_all();
 			}
@@ -526,7 +532,11 @@ namespace Durin
 
 		std::shared_ptr<spdlog::logger> ConsoleLogger;
 		std::shared_ptr<spdlog::logger> FileLogger;
+		std::string ActiveLogPath;
 		std::string FileFailure;
+		PublishProcessCrashLogAccepted(0);
+		PublishProcessCrashLogProcessed(0);
+		PublishProcessCrashLogDurable(0);
 		try
 		{
 			auto ConsoleSink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
@@ -547,8 +557,9 @@ namespace Durin
 			const std::string Prefix = "Durin-" + Settings.RuntimeVariant + "-";
 			CleanupOldSessions(Directory, Prefix, Settings.MaxSessions);
 			const std::string FileName = std::format("{}{}-{}.log", Prefix, SessionTimestamp(), FPlatformProcess::CurrentProcessId());
+			ActiveLogPath = (Directory / FileName).string();
 			auto FileSink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-				(Directory / FileName).string(), static_cast<size_t>(Settings.MaxFileSizeBytes), Settings.MaxFilesPerSession - 1, false);
+				ActiveLogPath, static_cast<size_t>(Settings.MaxFileSizeBytes), Settings.MaxFilesPerSession - 1, false);
 			FileSink->set_level(ToSpdLevel(Settings.FileLevel));
 			FileSink->set_pattern("[%Y-%m-%d %H:%M:%S.%e][%l][%s:%#] %v");
 			FileLogger = std::make_shared<spdlog::logger>("DurinFile", FileSink);
@@ -565,6 +576,7 @@ namespace Durin
 		};
 		if (ConsoleLogger) ConsoleLogger->set_error_handler(ErrorHandler);
 		if (FileLogger) FileLogger->set_error_handler(ErrorHandler);
+		PublishProcessCrashLogPath(ActiveLogPath);
 
 		{
 			std::scoped_lock Lock(Impl->QueueMutex);
@@ -594,6 +606,7 @@ namespace Durin
 					std::format("Discarded {} bootstrap log records because pre-initialization history exceeded {} records.",
 						Impl->EvictedBootstrapRecordCount, DefaultHistoryCapacity));
 				Warning.Sequence = Impl->NextSequence++;
+				PublishProcessCrashLogAccepted(Warning.Sequence);
 				Impl->LastQueuedSequence = Warning.Sequence;
 				Impl->Queue.push_back(std::move(Warning));
 				Impl->EvictedBootstrapRecordCount = 0;
@@ -603,6 +616,7 @@ namespace Durin
 				FLogRecord Warning = Impl->BuildRecord(ELogLevel::Warn, std::source_location::current(), "Core", "Logging",
 					std::format("File logging disabled: {}", FileFailure));
 				Warning.Sequence = Impl->NextSequence++;
+				PublishProcessCrashLogAccepted(Warning.Sequence);
 				Impl->LastQueuedSequence = Warning.Sequence;
 				Impl->Queue.push_back(std::move(Warning));
 			}

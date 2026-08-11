@@ -9,7 +9,7 @@ import signal
 import subprocess
 import threading
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter, sleep
 from typing import Any, Mapping, Sequence
@@ -256,6 +256,7 @@ def run_command(
     wait_for_descendants: bool = False,
     show_heartbeat: bool = False,
 ) -> None:
+    started_at_utc = datetime.now(timezone.utc)
     command_list = list(command)
     output.command(subprocess.list2cmdline(command_list))
     log_path = command_log_path(command_list)
@@ -415,6 +416,9 @@ def run_command(
             recovery="Inspect the output excerpt or full log, fix the reported error, and rerun the same command.",
             output_excerpt=transcript.excerpt() if output.compact else "",
             log_path=log_path,
+            process_id=process.pid,
+            started_at_utc=started_at_utc,
+            ended_at_utc=datetime.now(timezone.utc),
         )
     if output.compact:
         if summary := transcript.success_summary():

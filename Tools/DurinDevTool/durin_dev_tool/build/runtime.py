@@ -19,6 +19,7 @@ from .config import (
 from .locations import resolve_location
 from .output import BuildOutput
 from .process import run_command
+from .crash import analyze_crash, discover_current_crash, format_crash_summary, format_windows_status
 
 
 def runtime_executable_path(
@@ -276,12 +277,38 @@ def run_application(context: BuildContext, output: BuildOutput) -> None:
         arguments.append(f"--project={context.request.project_path}")
     arguments.extend(context.request.run_arguments)
     with output.stage("Run"):
-        run_command(
-            arguments,
-            environment=os.environ,
-            output=output,
-            colorize_log_levels=True,
-            recovery_required_on_interrupt=False,
-            wait_for_descendants=True,
-            show_heartbeat=False,
-        )
+        try:
+            run_command(
+                arguments,
+                environment=os.environ,
+                output=output,
+                colorize_log_levels=True,
+                recovery_required_on_interrupt=False,
+                wait_for_descendants=True,
+                show_heartbeat=False,
+            )
+        except BuildToolError as error:
+            runtime_variant = preset_cache_string(context.preset, "DURIN_RUNTIME_VARIANT")
+            artifact = discover_current_crash(
+                executable,
+                runtime_variant,
+                error.process_id,
+                error.started_at_utc,
+                error.ended_at_utc,
+            )
+            if artifact is None:
+                raise
+            analysis = analyze_crash(artifact, executable.parent)
+            summary = format_crash_summary(artifact, analysis)
+            excerpt = "\n".join(filter(None, (error.output_excerpt, summary)))
+            raise BuildToolError(
+                f"Runtime terminated with {format_windows_status(error.exit_code or 0)}.",
+                command=error.command,
+                exit_code=error.exit_code,
+                recovery="Inspect the crash context and analysis paths reported above.",
+                output_excerpt=excerpt,
+                log_path=error.log_path,
+                process_id=error.process_id,
+                started_at_utc=error.started_at_utc,
+                ended_at_utc=error.ended_at_utc,
+            ) from error

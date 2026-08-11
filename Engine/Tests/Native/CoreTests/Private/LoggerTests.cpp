@@ -1,4 +1,5 @@
 #include "Logging/Logger.h"
+#include "Diagnostics/ProcessCrashContext.h"
 #include "NativeTestSupport.h"
 
 #include <gtest/gtest.h>
@@ -66,6 +67,24 @@ TEST(FLoggerTests, EmptyHistoryPreservesTheRequestedCursor)
 	EXPECT_EQ(Read.NewestAvailableSequence, 0u);
 	EXPECT_EQ(Read.NextSequence, 37u);
 	EXPECT_EQ(Read.EvictedRecordCount, 0u);
+}
+
+TEST(FLoggerTests, PublishesCrashReadablePathAndAuthoritativeSequences)
+{
+	Durin::FLogger Logger;
+	const std::filesystem::path Directory = MakeTestDirectory("CrashSnapshot");
+	ASSERT_TRUE(Logger.Initialize(MakeSettings(Directory)));
+	Logger.Log(Durin::ELogLevel::Info, std::source_location::current(), "LoggerTests", "accepted record");
+	Logger.Flush();
+	Durin::FProcessCrashContextSnapshot Snapshot = Durin::ReadProcessCrashContext();
+	EXPECT_NE(std::string_view(Snapshot.ActiveLogPath.data()).find(Directory.string()), std::string_view::npos);
+	EXPECT_GE(Snapshot.LastAcceptedLogSequence, 1u);
+	EXPECT_EQ(Snapshot.LastProcessedLogSequence, Snapshot.LastAcceptedLogSequence);
+
+	Logger.Log(Durin::ELogLevel::Error, std::source_location::current(), "LoggerTests", "durable record");
+	Snapshot = Durin::ReadProcessCrashContext();
+	EXPECT_EQ(Snapshot.LastDurableLogSequence, Snapshot.LastAcceptedLogSequence);
+	Logger.Shutdown();
 }
 
 TEST(FLoggerTests, RetainsBootstrapAndRuntimeRecordsForLateReaders)

@@ -13,6 +13,8 @@ namespace Durin
 		bool bRunEngineAssetServiceLifecycleSmoke = false;
 		bool bRunEditorPIELifecycleSmoke = false;
 		bool bRunNativeGameplayLifecycleSmoke = false;
+		std::string_view NativeCrashFixture;
+		std::string_view NativeCrashPhase;
 		FProjectInitializationParams Project;
 	};
 
@@ -36,6 +38,8 @@ namespace Durin
 		bool bEditorPIELifecycleSmokeCompleted = false;
 		bool bRunNativeGameplayLifecycleSmoke = false;
 		bool bNativeGameplayLifecycleSmokeCompleted = false;
+		std::string_view NativeCrashFixture;
+		std::string_view NativeCrashPhase;
 	};
 
 	extern FEngineLoop GEngineLoop;

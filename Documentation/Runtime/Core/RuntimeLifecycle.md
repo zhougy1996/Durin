@@ -11,6 +11,13 @@ lifecycle, logging guarantees, module loading, and validation expectations.
 
 Process entry is `Engine/Source/Runtime/Launch/Private/Launch.cpp`.
 
+Before profiling or subsystem startup, Launch initializes Core's bounded crash
+state and installs the Windows process crash owner. Runtime storage preparation
+later publishes `Saved/Crashes` without leaving a partially visible path. A
+normal exit publishes the exited phase and restores the prior handlers. Native
+fault ownership, phase values, and artifact safety are defined by
+[Native Crash Diagnostics](NativeCrashDiagnostics.md).
+
 `main()` drives `FEngineLoop` through:
 
 - `PreInit()`
@@ -29,6 +36,13 @@ initialization. Its private runtime-storage component creates Saved directories,
 migrates legacy configuration and log files, and returns the selected app-config
 path plus pass-local warnings. `PreInit()` loads that path before logger startup
 and emits the returned warnings only after the logger is ready.
+
+The loop publishes coarse crash phases around pre-initialization, engine
+initialization, running, consumer detachment, service and task shutdown, asset
+manager shutdown, object collection, module/render/RHI shutdown, and
+application shutdown. Typed breadcrumbs distinguish the two shutdown
+collections and their adjacent drain boundaries without changing the direct
+shutdown protocol.
 
 After worker-scheduler startup, `PreInit()` installs the bounded
 `GameThreadDeferred` executor. Failure to install either executor aborts

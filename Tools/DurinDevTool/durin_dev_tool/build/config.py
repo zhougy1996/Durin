@@ -4,6 +4,7 @@ import json
 import os
 import platform
 import shutil
+from datetime import datetime
 from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
@@ -38,6 +39,9 @@ class BuildToolError(RuntimeError):
         recovery: str = "",
         output_excerpt: str = "",
         log_path: Path | None = None,
+        process_id: int | None = None,
+        started_at_utc: datetime | None = None,
+        ended_at_utc: datetime | None = None,
     ):
         super().__init__(message)
         self.command = command
@@ -45,6 +49,9 @@ class BuildToolError(RuntimeError):
         self.recovery = recovery
         self.output_excerpt = output_excerpt
         self.log_path = log_path
+        self.process_id = process_id
+        self.started_at_utc = started_at_utc
+        self.ended_at_utc = ended_at_utc
 
 
 class BuildToolInterruptedError(BuildToolError):

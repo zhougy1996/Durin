@@ -790,6 +790,8 @@ CMake, and Ninja have exited for the checkout.
 - Runtime launcher and modules: `Engine/Binaries/<Platform>/<Config>/Runtime/<RuntimeVariant>/`
 - Runtime configuration and writable state: `Engine/Binaries/<Platform>/<Config>/Runtime/<RuntimeVariant>/Saved/Configs/`
 - Runtime logs: `Engine/Binaries/<Platform>/<Config>/Runtime/<RuntimeVariant>/Saved/Logs/`
+- Complete native crash artifacts: `Engine/Binaries/<Platform>/<Config>/Runtime/<RuntimeVariant>/Saved/Crashes/<CrashId>/`
+- Pre-initialization fallback crash artifacts: `Engine/Binaries/<Platform>/<Config>/Runtime/<RuntimeVariant>/Crashes/<CrashId>/`
 - Third-party runtime DLLs: `Engine/Binaries/<Platform>/ThirdParty/<Config>/`
 - Native tests: `Engine/Binaries/<Platform>/<Config>/Tests/<RuntimeVariant>/Bin/`
 
@@ -798,6 +800,35 @@ active runtime variant. Runtime path discovery assumes the executable remains in
 this repository-relative layout. If editor startup reports a missing DLL, check
 the active runtime directory and the shared configuration-specific `ThirdParty`
 directory.
+
+## Native crash analysis
+
+On a recognized Windows native crash, `DevTool run` formats the unsigned status
+and stable exception name, then searches only the launched runtime variant,
+process id, and launch interval. It reports whether the matching directory is
+complete, plus the context, dump, process phase, and faulting thread. Older or
+unrelated directories are not attached to the run.
+
+If CDB exists at `DURIN_CDB_PATH` or in the x64 Windows SDK Debuggers directory,
+DurinDevTool analyzes the dump after the process exits. Its symbol path starts
+with only the exact runtime directory and adjacent PDBs; it does not silently
+contact a symbol server. Complete debugger output is stored in the DurinDevTool
+command-log directory and a bounded Durin stack excerpt appears in the failure
+summary. Missing CDB or a missing dump is non-fatal to context reporting and
+prints an equivalent manual command.
+
+Manual offline analysis uses the exact binaries and PDBs from the crashing
+build:
+
+```powershell
+& $env:DURIN_CDB_PATH -z <Crash.dmp> -y <RuntimeBinaryDirectory> -c ".lines -e; .ecxr; .exr -1; ln @rip; kpn 40; !analyze -v; q"
+```
+
+Do not replace adjacent PDBs with a later build. A module-offset-only trace is
+not a source-symbolized result. Crash directories are local sensitive data: a
+normal minidump can contain stack memory, project paths, identifiers, and
+project fragments. Retention keeps 16 complete directories for 30 days and
+eligible partial directories for 7 days, and runs only on later healthy startup.
 
 DHT intermediate paths are described in `Documentation/Development/Build/BuildSystem.md` and
 `Documentation/Development/Build/RuntimeVariants.md`.

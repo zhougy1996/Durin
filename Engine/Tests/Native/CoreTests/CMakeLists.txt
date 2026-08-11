@@ -81,5 +81,6 @@ durin_add_core_functional_test(CoreFileSystemTests
 
 durin_add_core_functional_test(CoreConcurrencyTests
 	Private/DelegateTests.cpp
+	Private/ProcessCrashContextTests.cpp
 	Private/ThreadingTests.cpp
 )

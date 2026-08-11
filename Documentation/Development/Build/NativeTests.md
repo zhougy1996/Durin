@@ -69,6 +69,18 @@ CTest discovery is the source of truth; use the command summary or
 
 DurinDevTool clears build recovery state before launching the test executable. A failed assertion, crash, timeout, or interrupted test should be diagnosed and rerun with `test`; it does not require `rebuild`. Build ownership, recovery, and parallelism rules are documented in `Documentation/Development/Build/BuildAndRun.md`.
 
+`NativeCrashCharacterizationTests` is the separately isolated native-crash
+target. Its parent process launches one runtime child per intentional fault,
+waits no more than 15 seconds, and validates the native exit status plus the
+context, dump, and completion marker before the retained sandbox can be
+cleaned. The target carries a runtime-stack rationale because a native fault
+cannot be characterized safely inside the GoogleTest process. Current
+supported fixtures cover read, write, and execute access violations,
+`std::terminate`, and a worker-thread access violation. Stack overflow and
+simultaneous/recursive faults remain best-effort and stack overflow remains
+deferred as documented in
+[Native Crash Diagnostics](../../Runtime/Core/NativeCrashDiagnostics.md).
+
 In the interactive shell, use the equivalent commands:
 
 ```text

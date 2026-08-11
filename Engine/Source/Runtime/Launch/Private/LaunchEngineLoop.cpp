@@ -11,6 +11,7 @@
 
 #include "RenderingThread.h"
 #include "CoreGlobals.h"
+#include "Diagnostics/ProcessCrashContext.h"
 #include "HAL/PlatformProcess.h"
 #include "Misc/AppConfig.h"
 #include "Misc/Paths.h"
@@ -28,6 +29,7 @@
 #include "LaunchGameplayValidation.h"
 #include "LaunchRuntimeStorage.h"
 #include "LaunchTaskSchedulerValidation.h"
+#include "Windows/WindowsProcessCrashHandler.h"
 
 #if DURIN_WITH_EDITOR
 	#include "Editor/EditorEngine.h"
@@ -42,6 +44,7 @@ namespace Durin
 
 	auto FEngineLoop::PreInit(const FEngineStartupParams& Params) -> bool
 	{
+		SetProcessCrashPhase(EProcessCrashPhase::PreInitialization);
 		DURIN_PROFILE_CPU_ZONE_NAMED("Startup.PreInit");
 		DURIN_PROFILE_THREAD("GameThread");
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
@@ -53,11 +56,15 @@ namespace Durin
 			Params.bRunEngineAssetServiceLifecycleSmoke;
 		bRunEditorPIELifecycleSmoke = Params.bRunEditorPIELifecycleSmoke;
 		bRunNativeGameplayLifecycleSmoke = Params.bRunNativeGameplayLifecycleSmoke;
+		NativeCrashFixture = Params.NativeCrashFixture;
+		NativeCrashPhase = Params.NativeCrashPhase;
 
 		FPlatformMisc::EnableUserBinaryDirectoriesSearch();
 		FPlatformMisc::AddRuntimeBinaryDirectory(FPaths::EngineThirdPartyRuntimeBinariesDir().c_str());
 
 		FLaunchRuntimeStorageResult RuntimeStorage = PrepareLaunchRuntimeStorage();
+		PublishWindowsProcessCrashRoot(FPaths::LaunchSavedDir());
+		if (NativeCrashPhase == "pre-initialization") RunWindowsProcessCrashFixture(NativeCrashFixture);
 		LoadAppConfig(RuntimeStorage.AppConfigPath.string());
 
 		FNameInit(); // Initialize FName system.
@@ -105,6 +112,7 @@ namespace Durin
 
 	auto FEngineLoop::Init() -> bool
 	{
+		SetProcessCrashPhase(EProcessCrashPhase::EngineInitialization);
 #if DURIN_WITH_EDITOR
 		GEngine = NewObject<DEditorEngine>(nullptr, "EditorEngine");
 #else
@@ -144,6 +152,8 @@ namespace Durin
 		LastTickTime = FTime::Seconds();
 
 		DURIN_INFO(STR("Durin engine initialized."));
+		SetProcessCrashPhase(EProcessCrashPhase::Running);
+		if (NativeCrashPhase == "running") RunWindowsProcessCrashFixture(NativeCrashFixture);
 		return true;
 	}
 
@@ -211,6 +221,7 @@ namespace Durin
 
 	auto FEngineLoop::Exit() -> void
 	{
+		SetProcessCrashPhase(EProcessCrashPhase::ConsumerDetachment);
 #if DURIN_WITH_EDITOR
 		checkf(!bRunEditorPIELifecycleSmoke || bEditorPIELifecycleSmokeCompleted,
 			"Editor PIE lifecycle smoke never observed an active source Level.");
@@ -228,7 +239,9 @@ namespace Durin
 
 		if (bRunEngineAssetServiceLifecycleSmoke)
 			ValidateEngineAssetServiceLifecycleSmoke();
+		SetProcessCrashPhase(EProcessCrashPhase::AssetServiceShutdown);
 		ShutdownEngineAssetServices();
+		SetProcessCrashPhase(EProcessCrashPhase::TaskSystemShutdown);
 		ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		if (TaskSchedulerValidation)
 		{
@@ -238,18 +251,36 @@ namespace Durin
 		RemoveFromRoot(GEngine);
 		MarkObjectHierarchyAsGarbage(GEngine);
 		GEngine = nullptr;
+		AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::EngineRootRetired);
+		SetProcessCrashPhase(EProcessCrashPhase::AssetManagerShutdown);
 		Asset::ShutdownAssetManager();
 		ReleaseClassDefaultObjects();
+		AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::ClassDefaultsReleased);
 		ReleaseDStructDefaults();
+		AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::StructDefaultsReleased);
+		SetProcessCrashPhase(EProcessCrashPhase::ObjectCollection);
+		AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::FirstObjectCollection);
+		if (NativeCrashPhase == "object-collection") RunWindowsProcessCrashFixture(NativeCrashFixture);
 		CollectGarbage();
 
-		if (GRenderingThread) FlushRenderingCommands();
+		if (GRenderingThread)
+		{
+			FlushRenderingCommands();
+			AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::RenderingCommandsFlushed);
+		}
+		AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::SecondObjectCollection);
 		CollectGarbage();
+		AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::DeferredDestroyAudit);
 		CheckNoDeferredDestroyObjects("shutdown object destruction");
+		SetProcessCrashPhase(EProcessCrashPhase::ModuleShutdown);
 		FModuleManager::Get().UnloadModulesAtShutdown();
+		AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::ModulesUnloaded);
+		SetProcessCrashPhase(EProcessCrashPhase::RenderingShutdown);
 		ShutdownRenderingThread();
+		SetProcessCrashPhase(EProcessCrashPhase::RHIShutdown);
 		RHIExit();
 
+		SetProcessCrashPhase(EProcessCrashPhase::ApplicationShutdown);
 		ShutdownApplicationCore();
 		DURIN_INFO(STR("Durin Engine exited."));
 	}

@@ -9,9 +9,9 @@ Completed:
 
 ## Current Status
 
-The selected baseline is revision `17833709`. Durin has an ordered asynchronous
+At the selected baseline revision `17833709`, Durin had an ordered asynchronous
 logger whose accepted Error and Fatal records wait for active sink attempts and
-flushes, and whose orderly shutdown drains accepted records. It does not have a
+flushes, and whose orderly shutdown drained accepted records. It did not have a
 process-level unhandled-exception owner, minidump writer, crash-context format,
 or post-crash symbolization workflow.
 
@@ -24,11 +24,43 @@ debugger launch and a second reproduction. The repaired failure and its focused
 regression test are outside this plan; this plan owns making a future equivalent
 failure diagnosable from the first crashed process.
 
+Implementation on 2026-08-11 added the Core fixed crash state, the Launch-owned
+Windows handler, lifecycle and logger publication, DurinDevTool attribution and
+CDB analysis, isolated crash characterization, and lasting documentation.
+Focused Debug Editor access-violation measurement on the current Windows 11
+x64 host produced a 462,461-byte normal minidump plus a 1,037-byte context in
+0.26 seconds. A later end-to-end `DevTool run` associated only its current PID,
+named `0xC0000005`, reported `ProcessEntry`, and resolved
+`Durin::RunWindowsProcessCrashFixture` from the adjacent Launch PDB.
+
+Supported isolated read/write/execute access violations, worker-thread access
+violation, and `std::terminate` each create one complete artifact set and
+terminate within 15 seconds. Injected dump failure preserves the original
+status and context. Simultaneous faults are best-effort and terminate without a
+duplicate set but may leave no artifact. Stack overflow remains deferred: the
+in-process writer can fault again on the exhausted stack, so neither a preserved
+`0xC00000FD` nor a readable dump is claimed.
+
+Final focused evidence: `CoreUtilityTests` passed 66/66,
+`CoreConcurrencyTests` passed 121/121, and
+`NativeCrashCharacterizationTests` passed 5/5 in Debug Editor, Debug Game, and
+Release Editor. The DurinDevTool suite passed 316/316 and documentation validation
+passed all 100 documents. The final Debug Editor `all` build succeeded. Hidden
+threaded and inline-RHI two-tick runs exited normally without increasing either
+crash-root directory count. The post-build threaded Running-phase qualification
+produced a 652,210-byte dump, a 1,318-byte context, and a 23-byte marker under
+`Saved/Crashes`; context reported `accepted=processed=74`, `durable=0`, and the
+active log path. CDB resolved the exact fault, `FEngineLoop::Init`, and `main`
+to repository source lines from adjacent PDBs. Release passed the same five
+isolated characterizations. Shipping DurinGame built successfully, rejected
+diagnostic injection/root-override arguments with exit code 1, and created no
+crash directory.
+
 The repository already emits PDBs for the Windows Debug Editor build, keeps the
 runtime executable and module PDBs together in the runtime output, captures
 child output through DurinDevTool, and has explicit process-isolation rules for
 intentional crash characterization. Windows SDK Debuggers, including CDB, may
-be installed locally but are not a runtime prerequisite. No current code uses
+be installed locally but are not a runtime prerequisite. At the baseline no code used
 `SetUnhandledExceptionFilter`, `MiniDumpWriteDump`, a vectored exception
 handler, `std::set_terminate`, or DbgHelp.
 
@@ -294,21 +326,21 @@ handler, `std::set_terminate`, or DbgHelp.
 
 ### Stage 0: Freeze formats, policies, and failure baseline
 
-- [ ] Record the baseline source revision, the current access-violation run
+- [x] Record the baseline source revision, the current access-violation run
   output, the manual CDB stack workflow, runtime/PDB output paths, and current
   logger accepted/processed/durable behavior.
-- [ ] Freeze `EProcessCrashPhase`, breadcrumb record layout and capacity,
+- [x] Freeze `EProcessCrashPhase`, breadcrumb record layout and capacity,
   `CrashContext-v1.txt` required keys, dump flags, crash directory retention
   count/age, partial-directory policy, and Shipping enablement policy.
-- [ ] Freeze unhandled-filter chaining, `std::terminate`, assertion, stack
+- [x] Freeze unhandled-filter chaining, `std::terminate`, assertion, stack
   overflow, and second-crashing-thread behavior with explicit supported,
   best-effort, or deferred labels.
-- [ ] Inventory the generated version/build identity and select one value that
+- [x] Inventory the generated version/build identity and select one value that
   can be embedded without invoking Git at runtime.
-- [ ] Measure normal dump size and capture latency for one Debug Editor access
+- [x] Measure normal dump size and capture latency for one Debug Editor access
   violation using the selected dump flags; record the host and values before
   setting any timeout or retention constant.
-- [ ] Define the platform-neutral interfaces and private Windows types so Core,
+- [x] Define the platform-neutral interfaces and private Windows types so Core,
   Launch, tests, and DurinDevTool do not form a circular dependency.
 
 #### Acceptance Gate
@@ -322,19 +354,19 @@ handler, `std::set_terminate`, or DbgHelp.
 
 Dependencies: Stage 0.
 
-- [ ] Add the process phase enum and atomic publication/read API without
+- [x] Add the process phase enum and atomic publication/read API without
   exposing platform exception types.
-- [ ] Add the fixed-capacity typed breadcrumb ring with generation-safe commit,
+- [x] Add the fixed-capacity typed breadcrumb ring with generation-safe commit,
   wraparound, torn-slot rejection, and bounded snapshot APIs.
-- [ ] Publish build/runtime identity and healthy-runtime start time into fixed
+- [x] Publish build/runtime identity and healthy-runtime start time into fixed
   storage before concurrent subsystem startup.
-- [ ] Add a crash-readable logger snapshot for active file path and accepted,
+- [x] Add a crash-readable logger snapshot for active file path and accepted,
   processed, and durable sequence counters without changing logger queue or
   sink ordering.
-- [ ] Instrument only the selected `FEngineLoop` startup/shutdown boundaries and
+- [x] Instrument only the selected `FEngineLoop` startup/shutdown boundaries and
   logger transitions; reject arbitrary string breadcrumbs and feature-specific
   expansion in this stage.
-- [ ] Add focused Core tests for phase transitions, concurrent ring publication,
+- [x] Add focused Core tests for phase transitions, concurrent ring publication,
   wraparound, incomplete slots, monotonic sequences, fixed storage, logger
   counter publication, and repeated inert snapshots.
 
@@ -349,23 +381,23 @@ Dependencies: Stage 0.
 
 Dependencies: Stage 1.
 
-- [ ] Add a private Windows Launch component that precomputes paths and fixed
+- [x] Add a private Windows Launch component that precomputes paths and fixed
   headers, installs/uninstalls the unhandled filter and terminate handler, owns
   the single-writer guard, and privately links DbgHelp.
-- [ ] Implement early-startup fallback path selection and later atomic
+- [x] Implement early-startup fallback path selection and later atomic
   publication of the final Saved crash root without exposing a partially
   written path.
-- [ ] Write `CrashContext-v1.txt`, the selected minidump, and final completion
+- [x] Write `CrashContext-v1.txt`, the selected minidump, and final completion
   marker in the fixed order; retain explicit result/error fields when directory,
   context, dump, flush, or marker creation fails.
-- [ ] Encode access-violation operation/address and the original exception
+- [x] Encode access-violation operation/address and the original exception
   status while preserving exact terminal process status.
-- [ ] Implement bounded collision handling, recursion/second-fault behavior,
+- [x] Implement bounded collision handling, recursion/second-fault behavior,
   no-dialog unattended behavior, and restoration on successful normal exit.
 - [ ] Add pure tests around synthetic exception records, context serialization,
   path validation, collision handling, incomplete artifacts, dump-callback
   policy, retention selection, and injected Win32/DbgHelp failures.
-- [ ] Verify normal startup and shutdown create no crash directory and do not
+- [x] Verify normal startup and shutdown create no crash directory and do not
   alter logger, window, debugger, or process-exit behavior.
 
 #### Acceptance Gate
@@ -380,21 +412,21 @@ Dependencies: Stage 1.
 
 Dependencies: Stage 2.
 
-- [ ] Publish the final Saved crash root after runtime storage initialization
+- [x] Publish the final Saved crash root after runtime storage initialization
   while preserving the early fallback for pre-initialization crashes.
-- [ ] Cover every selected `FEngineLoop` phase transition, including first and
+- [x] Cover every selected `FEngineLoop` phase transition, including first and
   second object collection as distinguishable breadcrumbs without obscuring the
   direct shutdown protocol.
-- [ ] Publish active log path and logger counters at their existing authority
+- [x] Publish active log path and logger counters at their existing authority
   points; prove crash capture never locks or flushes the logger.
-- [ ] Add selected object-drain breadcrumbs sufficient to distinguish CDO
+- [x] Add selected object-drain breadcrumbs sufficient to distinguish CDO
   release, root retirement, first collection, render flush, second collection,
   deferred-destroy audit, and module unload without recording object names or
   project data in the fixed ring.
 - [ ] Add tests that crash with accepted-but-unprocessed log records and verify
   context reports the sequence gap honestly while already durable log content
   remains readable.
-- [ ] Verify crashes on the GameThread and one non-GameThread identify the exact
+- [x] Verify crashes on the GameThread and one non-GameThread identify the exact
   faulting thread and retain a coherent process-phase snapshot.
 
 #### Acceptance Gate
@@ -408,22 +440,22 @@ Dependencies: Stage 2.
 
 Dependencies: Stages 2-3.
 
-- [ ] Extend runtime process results with unsigned Windows native status
+- [x] Extend runtime process results with unsigned Windows native status
   formatting and stable names for recognized terminal exception codes.
-- [ ] Discover only a crash directory matching the current launch interval,
+- [x] Discover only a crash directory matching the current launch interval,
   runtime variant, and process id where available; distinguish complete,
   partial, stale, and absent artifacts.
-- [ ] Parse the versioned context with forward-compatible unknown-key handling
+- [x] Parse the versioned context with forward-compatible unknown-key handling
   and actionable malformed/incomplete diagnostics.
-- [ ] Add local CDB discovery through explicit configuration and bounded Windows
+- [x] Add local CDB discovery through explicit configuration and bounded Windows
   SDK probing; absence remains non-fatal and prints a manual analysis command.
-- [ ] Run CDB after process termination with local runtime/PDB symbols, capture
+- [x] Run CDB after process termination with local runtime/PDB symbols, capture
   complete analysis output, extract a bounded exception-context stack excerpt,
   and diagnose missing/mismatched PDBs.
-- [ ] Keep ordinary nonzero exits, assertions without dumps, timeouts, user
+- [x] Keep ordinary nonzero exits, assertions without dumps, timeouts, user
   interruption, and successful runs on their existing paths; do not label every
   failure as a crash.
-- [ ] Add Python tests using fake runtime artifacts and a fake debugger for
+- [x] Add Python tests using fake runtime artifacts and a fake debugger for
   matching, stale rejection, partial artifacts, malformed versions, debugger
   absence/failure, PDB mismatch text, excerpt bounds, spaces/non-ASCII paths,
   and successful-run silence.
@@ -440,22 +472,22 @@ Dependencies: Stages 2-3.
 
 Dependencies: Stage 4.
 
-- [ ] Register a separately isolated characterization target with the required
+- [x] Register a separately isolated characterization target with the required
   runtime-stack rationale; its parent launches one child per intentional fault
   and owns cleanup only after artifacts are verified.
 - [ ] Qualify access violation for read, write, and execute metadata where the
   OS provides it; `std::terminate`; a faulting worker thread; two near-simultaneous
   faults; recursive artifact failure; unwritable primary crash root; name
   collision; missing DbgHelp; missing dump; and missing/mismatched PDBs.
-- [ ] Characterize stack overflow separately and label it supported only if it
+- [x] Characterize stack overflow separately and label it supported only if it
   repeatedly writes a valid context and debugger-readable dump without relying
   on undefined remaining stack space.
 - [ ] Verify dumps stay within the measured size/latency bounds, retention runs
   only on later healthy startup, partial directories follow the frozen policy,
   and no test follows or removes an unrecognized directory link.
-- [ ] Run repeated crash children to detect handler-state leakage, nondeterministic
+- [x] Run repeated crash children to detect handler-state leakage, nondeterministic
   artifact attribution, debugger hangs, and checkout-lock retention.
-- [ ] Verify Release behavior and the frozen Shipping policy without requiring
+- [x] Verify Release behavior and the frozen Shipping policy without requiring
   CDB or PDB availability at runtime.
 
 #### Acceptance Gate
@@ -470,23 +502,23 @@ Dependencies: Stage 4.
 
 Dependencies: Stages 1-5.
 
-- [ ] Publish the lasting native crash contract under Runtime/Core, including
+- [x] Publish the lasting native crash contract under Runtime/Core, including
   ownership, crash-time safety, artifact format, lifecycle phase, breadcrumb,
   logger relationship, privacy, and supported-platform matrix.
-- [ ] Update Runtime Lifecycle with handler installation/removal and phase
+- [x] Update Runtime Lifecycle with handler installation/removal and phase
   publication without duplicating the crash contract.
-- [ ] Update Build and Run with artifact discovery, CDB configuration/manual
+- [x] Update Build and Run with artifact discovery, CDB configuration/manual
   commands, PDB matching, retention, privacy, and DevTool output behavior.
-- [ ] Update Native Tests with the separately isolated intentional-crash target
+- [x] Update Native Tests with the separately isolated intentional-crash target
   and retained-sandbox expectations.
-- [ ] Run changed-document validation, focused Core/Launch tests, DurinDevTool
+- [x] Run changed-document validation, focused Core/Launch tests, DurinDevTool
   Python tests, the crash characterization target, and the smallest affected
   runtime targets during development.
-- [ ] Complete a final full Debug Editor `all` build, normal and inline-RHI
+- [x] Complete a final full Debug Editor `all` build, normal and inline-RHI
   bounded clean-exit smokes that create no artifacts, and one post-build
   threaded Editor crash qualification whose CDB stack resolves against the
   exact adjacent PDBs.
-- [ ] Record measured artifact sizes/latencies, supported crash matrix, focused
+- [x] Record measured artifact sizes/latencies, supported crash matrix, focused
   results, full-build result, clean-exit evidence, and symbolized crash evidence
   in Current Status before completing the plan.
 

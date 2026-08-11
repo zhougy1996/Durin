@@ -310,6 +310,19 @@ durin_add_engine_functional_test(LaunchStorageTests
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Launch/Private/LaunchRuntimeStorage.cpp
 )
 
+durin_add_engine_functional_test(NativeCrashCharacterizationTests
+	TIMEOUT 120
+	RUNTIME_STACK_RATIONALE "Launches isolated runtime children because native faults must preserve process exception state and cannot be characterized in-process."
+	SOURCES Private/Launch/NativeCrashCharacterizationTests.cpp
+)
+if(TARGET NativeCrashCharacterizationTests)
+	add_dependencies(NativeCrashCharacterizationTests DurinLauncher)
+	target_compile_definitions(NativeCrashCharacterizationTests PRIVATE
+		DURIN_CRASH_FIXTURE_EXECUTABLE="$<TARGET_FILE:DurinLauncher>")
+	set_target_properties(NativeCrashCharacterizationTests PROPERTIES
+		DURIN_TEST_CASE_PARALLEL_SAFE FALSE)
+endif()
+
 durin_add_engine_functional_test(EnvironmentLightingTests
 	RUNTIME_STACK_RATIONALE "Exercises built-in environment payload and direct cook behavior."
 	SOURCES Private/EnvironmentLightingTests.cpp
