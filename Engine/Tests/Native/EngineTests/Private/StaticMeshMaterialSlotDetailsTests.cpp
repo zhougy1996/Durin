@@ -5,7 +5,7 @@
 #include "DObject/Package.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
-#include "Editor/EditorAssetPicker.h"
+#include "Editor/AssetPicker.h"
 #include "EngineTestSupport.h"
 #include "LevelEditorCustomizations.h"
 #include "Materials/Material.h"

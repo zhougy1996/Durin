@@ -3,10 +3,14 @@
 #include "SceneView.h"
 #include "ThirdParty/ImGui/imgui.h"
 
+namespace Durin::Editor
+{
+	enum class EPlayStartLocation : uint8;
+	enum class EPlayDestination : uint8;
+}
+
 namespace Durin
 {
-	enum class EEditorPlayStartLocation : uint8;
-	enum class EEditorPlayDestination : uint8;
 	class FLevelEditorViewportClient;
 	class FLevelViewportEditModeManager;
 	struct FLevelEditorContext;
@@ -51,8 +55,8 @@ namespace Durin
 			FLevelEditorContext& Context,
 			FLevelEditorViewportClient* ViewportClient,
 			FLevelViewportEditModeManager* EditModeManager,
-			EEditorPlayStartLocation& PreferredPlayStartLocation,
-			EEditorPlayDestination& PreferredPlayDestination,
+			Editor::EPlayStartLocation& PreferredPlayStartLocation,
+			Editor::EPlayDestination& PreferredPlayDestination,
 			const FViewportToolbarLayout& Layout
 		) const -> void;
 	};

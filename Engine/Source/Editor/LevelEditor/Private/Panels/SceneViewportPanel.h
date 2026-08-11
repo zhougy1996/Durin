@@ -7,10 +7,14 @@
 
 struct ImVec2;
 
+namespace Durin::Editor
+{
+	enum class EPlayStartLocation : uint8;
+	enum class EPlayDestination : uint8;
+}
+
 namespace Durin
 {
-	enum class EEditorPlayStartLocation : uint8;
-	enum class EEditorPlayDestination : uint8;
 	class MViewport;
 	class FSceneViewport;
 	class FCameraPreviewViewportClient;
@@ -36,7 +40,7 @@ namespace Durin
 		auto CaptureCameraState(DLevel* Level, FLevelViewportCameraState& OutState) const -> bool;
 		auto RestoreCameraState(DLevel* Level, const FLevelViewportCameraState* State) -> void;
 		auto FinalizeViewportFrame(FLevelEditorContext& Context) -> void;
-		auto SetPreferredPlayMode(EEditorPlayStartLocation StartLocation, EEditorPlayDestination Destination) -> void;
+		auto SetPreferredPlayMode(Editor::EPlayStartLocation StartLocation, Editor::EPlayDestination Destination) -> void;
 		auto GetTransformGizmo() -> FTransformGizmo*;
 		auto GetTransformGizmo() const -> const FTransformGizmo*;
 		auto GetEditModeManager() -> FLevelViewportEditModeManager& { return EditModeManager; }
@@ -59,7 +63,7 @@ namespace Durin
 		FLevelViewportEditModeManager EditModeManager;
 		bool bViewportHovered = false;
 		bool bViewportFocused = false;
-		EEditorPlayStartLocation PreferredPlayStartLocation;
-		EEditorPlayDestination PreferredPlayDestination;
+		Editor::EPlayStartLocation PreferredPlayStartLocation;
+		Editor::EPlayDestination PreferredPlayDestination;
 	};
 } // namespace Durin

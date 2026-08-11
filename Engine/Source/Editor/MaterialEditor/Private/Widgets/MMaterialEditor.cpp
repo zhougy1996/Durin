@@ -6,7 +6,7 @@
 #include "AssetSystem.h"
 #include "DObject/Package.h"
 #include "DObject/DurinPropertyTypes.h"
-#include "Editor/EditorAssetPicker.h"
+#include "Editor/AssetPicker.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/WorkspaceManager.h"
 #include "Editor/WorkspaceUI.h"
@@ -452,12 +452,12 @@ namespace Durin
 		ImGui::PushID("MaterialParent");
 		MonaImGui::PropertyEdit::BeginRow("Parent");
 		DMaterialInterface* Current = Instance->GetParent();
-		const FEditorAssetPickerResult PickerResult = EditorAssetPicker::Draw({
+		const Editor::FAssetPickerResult PickerResult = Editor::AssetPicker::Draw({
 			.ComboId = "##Parent",
 			.SearchId = "##ParentSearch",
 			.SearchHint = "Search materials...",
 			.RequiredClass = DMaterialInterface::StaticClass(),
-			.ClassPolicy = EEditorAssetClassPolicy::Derived,
+			.ClassPolicy = Editor::EAssetClassPolicy::Derived,
 			.CurrentSelection = Current,
 			.SearchText = ParentSearchText,
 			.bAllowNone = true,
@@ -781,12 +781,12 @@ namespace Durin
 			}
 		}
 		if (!bOverride) ImGui::BeginDisabled();
-		const FEditorAssetPickerResult PickerResult = EditorAssetPicker::Draw({
+		const Editor::FAssetPickerResult PickerResult = Editor::AssetPicker::Draw({
 			.ComboId = "##Texture",
 			.SearchId = "##TextureSearch",
 			.SearchHint = "Search textures...",
 			.RequiredClass = DTexture2D::StaticClass(),
-			.ClassPolicy = EEditorAssetClassPolicy::Derived,
+			.ClassPolicy = Editor::EAssetClassPolicy::Derived,
 			.CurrentSelection = Texture,
 			.SearchText = TextureSearchText,
 			.bAllowNone = true,

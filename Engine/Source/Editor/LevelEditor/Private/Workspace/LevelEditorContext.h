@@ -3,10 +3,14 @@
 #include "DObject/ObjectPtr.h"
 #include "LevelEditorSelection.h"
 
+namespace Durin::Editor
+{
+	enum class EPlayStartLocation : uint8;
+	enum class EPlayDestination : uint8;
+}
+
 namespace Durin
 {
-	enum class EEditorPlayStartLocation : uint8;
-	enum class EEditorPlayDestination : uint8;
 	class AActor;
 	class DActorComponent;
 	class DWorld;
@@ -24,7 +28,7 @@ namespace Durin
 		std::function<void(std::string)> ReportError;
 		std::function<bool(std::string_view)> RenameLevel;
 		std::function<void(AActor*)> FocusActor;
-		std::function<void(EEditorPlayStartLocation, EEditorPlayDestination)> StartPlay;
+		std::function<void(Editor::EPlayStartLocation, Editor::EPlayDestination)> StartPlay;
 		std::function<void(bool)> ApplyPlayChanges;
 		std::function<bool(std::string_view)> ActivateViewportEditMode;
 		std::function<bool(const FAssetPath&, std::string&)> RevealAsset;

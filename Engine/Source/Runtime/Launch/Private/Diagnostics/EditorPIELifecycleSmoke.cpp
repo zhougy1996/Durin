@@ -25,15 +25,15 @@ namespace Durin
 		DLevel* SourceLevel = EditorWorld->GetCurrentLevel();
 		if (!SourceLevel) return false;
 
-		for (const EEditorPlayDestination Destination : {
-			EEditorPlayDestination::EmbeddedViewport,
-			EEditorPlayDestination::NewWindow})
+		for (const Editor::EPlayDestination Destination : {
+			Editor::EPlayDestination::EmbeddedViewport,
+			Editor::EPlayDestination::NewWindow})
 		{
-			for (const EEditorPlayStartLocation StartLocation : {
-				EEditorPlayStartLocation::LevelStart,
-				EEditorPlayStartLocation::EditorCamera})
+			for (const Editor::EPlayStartLocation StartLocation : {
+				Editor::EPlayStartLocation::LevelStart,
+				Editor::EPlayStartLocation::EditorCamera})
 			{
-				FEditorPlayRequest Request;
+				Editor::FPlayRequest Request;
 				Request.SourceLevel = SourceLevel;
 				Request.Destination = Destination;
 				Request.StartLocation = StartLocation;
@@ -43,12 +43,12 @@ namespace Durin
 				const bool bStarted = GEditor->StartPlaySession(Request, &Error);
 				checkf(bStarted, "PIE lifecycle smoke could not start: {}", Error);
 				if (!bStarted) return true;
-				checkf(GEditor->GetPlayState() == EEditorPlayState::Playing
+				checkf(GEditor->GetPlayState() == Editor::EPlayState::Playing
 					&& GEditor->GetPlayWorld()
 					&& GEditor->IsPlayingInNewWindow()
-						== (Destination == EEditorPlayDestination::NewWindow),
+						== (Destination == Editor::EPlayDestination::NewWindow),
 					"PIE lifecycle smoke published an incoherent host state.");
-				if (StartLocation == EEditorPlayStartLocation::EditorCamera)
+				if (StartLocation == Editor::EPlayStartLocation::EditorCamera)
 				{
 					checkf(GEditor->GetPlayWorld()->FindActorByName("PIE_EditorCamera"),
 						"Play From Camera did not publish its transient camera.");
@@ -59,7 +59,7 @@ namespace Durin
 				if (NativeWindow)
 				{
 					NativeWindow->Focus();
-					if (Destination == EEditorPlayDestination::EmbeddedViewport)
+					if (Destination == Editor::EPlayDestination::EmbeddedViewport)
 						GEditor->UpdateEmbeddedPlayMouseTarget(NativeWindow, true, false);
 					for (int32 Cycle = 0; Cycle < 10; ++Cycle)
 					{
@@ -78,7 +78,7 @@ namespace Durin
 				GEditor->StepPlaySession();
 				GEditor->Tick(1.0f / 60.0f, false);
 				GEditor->StopPlaySession();
-				checkf(GEditor->GetPlayState() == EEditorPlayState::Stopped
+				checkf(GEditor->GetPlayState() == Editor::EPlayState::Stopped
 					&& GEditor->GetWorld() == EditorWorld
 					&& EditorWorld->GetCurrentLevel() == SourceLevel,
 					"PIE lifecycle smoke did not restore the editor World.");

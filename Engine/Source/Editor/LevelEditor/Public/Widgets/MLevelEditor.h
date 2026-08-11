@@ -7,8 +7,6 @@
 
 namespace Durin
 {
-	enum class EEditorPlayStartLocation : uint8;
-	enum class EEditorPlayDestination : uint8;
 	class ILevelEditorPanel;
 	class FLevelEditorSessionSettings;
 	class DLevel;
@@ -16,6 +14,8 @@ namespace Durin
 	class FEditorAssetMoveCoordinator;
 	namespace Editor
 	{
+		enum class EPlayStartLocation : uint8;
+		enum class EPlayDestination : uint8;
 		class FWorkspaceManager;
 	}
 	class FLevelDocumentController;
@@ -77,7 +77,7 @@ namespace Durin
 		auto SaveProjectSettings() -> bool;
 		auto ApplyFixedUpDefaultLevelPath(const FAssetPath& Path) -> void;
 		auto SetError(std::string Message) -> void;
-		auto StartPlay(EEditorPlayStartLocation StartLocation, EEditorPlayDestination Destination) -> void;
+		auto StartPlay(Editor::EPlayStartLocation StartLocation, Editor::EPlayDestination Destination) -> void;
 		auto ApplyPlayChanges(bool bSelectedOnly) -> void;
 		auto BuildDefaultLayout(uint32 DockSpaceId, float DockSpaceWidth, float DockSpaceHeight) -> void;
 

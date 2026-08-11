@@ -1,9 +1,9 @@
 #include "Widgets/MLevelEditor.h"
 
 #include "AssetSystem.h"
-#include "Editor/EditorAssetPicker.h"
+#include "Editor/AssetPicker.h"
 #include "Editor/EditorEngine.h"
-#include "Editor/EditorNotification.h"
+#include "Editor/Notification.h"
 #include "Editor/Transaction.h"
 #include "Editor/WorkspaceManager.h"
 #include "Editor/WorkspaceUI.h"
@@ -85,7 +85,7 @@ namespace Durin
 		Context->RenameLevel = [this](std::string_view NewName) {
 			return DocumentController && DocumentController->RenameCurrentLevel(NewName);
 		};
-		Context->StartPlay = [this](EEditorPlayStartLocation StartLocation, EEditorPlayDestination Destination) {
+		Context->StartPlay = [this](Editor::EPlayStartLocation StartLocation, Editor::EPlayDestination Destination) {
 			StartPlay(StartLocation, Destination);
 		};
 		Context->ApplyPlayChanges = [this](bool bSelectedOnly) { ApplyPlayChanges(bSelectedOnly); };
@@ -470,7 +470,7 @@ namespace Durin
 				if (GEditor->IsPlaying()) GEditor->StopPlaySession();
 				else
 				{
-					StartPlay(EEditorPlayStartLocation::LevelStart, IO.KeyCtrl ? EEditorPlayDestination::NewWindow : EEditorPlayDestination::EmbeddedViewport);
+					StartPlay(Editor::EPlayStartLocation::LevelStart, IO.KeyCtrl ? Editor::EPlayDestination::NewWindow : Editor::EPlayDestination::EmbeddedViewport);
 				}
 			}
 			if (!IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F6, false) && GEditor && GEditor->IsPlaying()) GEditor->SetPlaySessionPaused(!GEditor->IsPlaySessionPaused());
@@ -653,13 +653,13 @@ namespace Durin
 				ImGui::SameLine(MonaImGui::ScaleUI(130.0f));
 				ImGui::SetNextItemWidth(-1.0f);
 				static std::array<char, 128> LevelSearchText{};
-				const FEditorAssetPickerResult PickerResult = EditorAssetPicker::Draw({
+				const Editor::FAssetPickerResult PickerResult = Editor::AssetPicker::Draw({
 					.ComboId = "##DefaultLevel",
 					.SearchId = "##DefaultLevelSearch",
 					.SearchHint = "Search levels...",
 					.RequiredClass = DLevel::StaticClass(),
-					.ClassPolicy = EEditorAssetClassPolicy::Exact,
-					.AssignmentMode = EEditorAssetAssignmentMode::AssetPath,
+					.ClassPolicy = Editor::EAssetClassPolicy::Exact,
+					.AssignmentMode = Editor::EAssetAssignmentMode::AssetPath,
 					.CurrentSelectionPath =
 						PendingDefaultLevel.GetSoftObjectPath().GetView(),
 					.SearchText = LevelSearchText,
@@ -711,17 +711,17 @@ namespace Durin
 		DURIN_ERROR("Level editor: {}", EditorError);
 	}
 
-	auto MLevelEditor::StartPlay(EEditorPlayStartLocation StartLocation, EEditorPlayDestination Destination) -> void
+	auto MLevelEditor::StartPlay(Editor::EPlayStartLocation StartLocation, Editor::EPlayDestination Destination) -> void
 	{
 		if (!GEditor || !Context || !Context->Level) return;
 		if (!RequestDeactivate()) return;
 		if (SceneViewportPanel) SceneViewportPanel->SetPreferredPlayMode(StartLocation, Destination);
-		FEditorPlayRequest Request;
+		Editor::FPlayRequest Request;
 		Request.SourceLevel = Context->Level;
 		Request.StartLocation = StartLocation;
 		Request.Destination = Destination;
 		Request.bSimulatePhysics = Context->bSimulatePhysics;
-		if (StartLocation == EEditorPlayStartLocation::EditorCamera && SceneViewportPanel)
+		if (StartLocation == Editor::EPlayStartLocation::EditorCamera && SceneViewportPanel)
 		{
 			FLevelViewportCameraState CameraState;
 			if (!SceneViewportPanel->CaptureCameraState(Context->Level, CameraState))

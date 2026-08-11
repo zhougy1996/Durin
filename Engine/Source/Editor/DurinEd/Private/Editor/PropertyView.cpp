@@ -8,7 +8,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/MathStructs.h"
 #include "DObject/Package.h"
-#include "Editor/EditorAssetPicker.h"
+#include "Editor/AssetPicker.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Math/Color.h"
 #include "Misc/StringHelper.h"
@@ -602,7 +602,7 @@ namespace Durin::Editor
 			const bool bHasCurrentAsset = Current && Current->GetPackage()
 				&& FAssetPath::TryCreate(Current->GetPackage()->GetPackagePath(), CurrentAssetPath)
 				&& Asset::GetAssetRegistry().FindAssetExact(CurrentAssetPath);
-			const FEditorAssetPickerAction RevealAction{
+			const FAssetPickerAction RevealAction{
 				.Icon = Icons::Crosshairs,
 				.ButtonId = "RevealObject",
 				.Tooltip = "Reveal the selected asset in the Content Browser.",
@@ -611,18 +611,18 @@ namespace Durin::Editor
 					return Context.RevealAsset && Context.RevealAsset(CurrentAssetPath, Error);
 				},
 			};
-			const FEditorAssetPickerResult PickerResult = EditorAssetPicker::Draw({
+			const FAssetPickerResult PickerResult = AssetPicker::Draw({
 				.ComboId = "##Value",
 				.SearchId = "##ObjectSearch",
 				.SearchHint = "Search assets...",
 				.RequiredClass = RequiredClass,
-				.ClassPolicy = EEditorAssetClassPolicy::Derived,
+				.ClassPolicy = EAssetClassPolicy::Derived,
 				.CurrentSelection = Current,
 				.SearchText = AssetSearchText,
 				.bAllowNone = true,
 				.AssignSelection = [&](DObject* Selection, std::string& OutError) {
 					if (Selection == Current) { SelectedObject = nullptr; return true; }
-					if (RequiredClass && Selection && !EditorAssetPicker::MatchesClass(Selection->GetClass(), RequiredClass, EEditorAssetClassPolicy::Derived))
+					if (RequiredClass && Selection && !AssetPicker::MatchesClass(Selection->GetClass(), RequiredClass, EAssetClassPolicy::Derived))
 					{
 						OutError = "The selected asset does not match the required class.";
 						return false;
@@ -652,7 +652,7 @@ namespace Durin::Editor
 			const bool bCanReveal = ViewState.Path.IsValid()
 				&& Asset::GetAssetRegistry().FindAssetExact(ViewState.Path) && Context.RevealAsset;
 
-			const FEditorAssetPickerAction LoadAction{
+			const FAssetPickerAction LoadAction{
 				.Icon = Icons::Play,
 				.ButtonId = "LoadSoftObject",
 				.Tooltip = bCanLoad ? "Load the referenced asset." : "The referenced asset is not loadable in its current state.",
@@ -663,7 +663,7 @@ namespace Durin::Editor
 					return LoadedObject != nullptr;
 				},
 			};
-			const std::array<FEditorAssetPickerAction, 1> AdditionalActions{{
+			const std::array<FAssetPickerAction, 1> AdditionalActions{{
 				{
 					.Icon = Icons::Crosshairs,
 					.ButtonId = "RevealSoftObject",
@@ -674,13 +674,13 @@ namespace Durin::Editor
 					},
 				},
 			}};
-			const FEditorAssetPickerResult PickerResult = EditorAssetPicker::Draw({
+			const FAssetPickerResult PickerResult = AssetPicker::Draw({
 				.ComboId = "##Value",
 				.SearchId = "##SoftObjectSearch",
 				.SearchHint = "Search assets...",
 				.RequiredClass = SoftProperty->GetExpectedClass(),
-				.ClassPolicy = EEditorAssetClassPolicy::Derived,
-				.AssignmentMode = EEditorAssetAssignmentMode::AssetPath,
+				.ClassPolicy = EAssetClassPolicy::Derived,
+				.AssignmentMode = EAssetAssignmentMode::AssetPath,
 				.CurrentSelection = ViewState.LoadedObject,
 				.CurrentSelectionPath = ViewState.Path.GetView(),
 				.CurrentSelectionStatus = StateLabel,

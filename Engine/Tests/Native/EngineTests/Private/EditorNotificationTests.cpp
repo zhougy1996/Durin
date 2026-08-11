@@ -1,22 +1,22 @@
-#include "Editor/EditorNotification.h"
+#include "Editor/Notification.h"
 
 #include <gtest/gtest.h>
 
 namespace
 {
-	const Durin::FEditorNotification* FindNotification(const Durin::FEditorNotificationManager& Manager, Durin::FEditorNotificationId Id)
+	const Durin::Editor::FNotification* FindNotification(const Durin::Editor::FNotificationManager& Manager, Durin::Editor::FNotificationId Id)
 	{
 		const auto& Notifications = Manager.GetNotifications();
-		const auto Iterator = std::ranges::find(Notifications, Id, &Durin::FEditorNotification::Id);
+		const auto Iterator = std::ranges::find(Notifications, Id, &Durin::Editor::FNotification::Id);
 		return Iterator == Notifications.end() ? nullptr : &*Iterator;
 	}
 }
 
-TEST(FEditorNotificationManagerTests, AppliesDefaultLifetimeAndPausesWhileHovered)
+TEST(FNotificationManagerTests, AppliesDefaultLifetimeAndPausesWhileHovered)
 {
-	Durin::FEditorNotificationManager Manager;
-	const Durin::FEditorNotificationId Id = Manager.Post({
-		.Type = Durin::EEditorNotificationType::Success,
+	Durin::Editor::FNotificationManager Manager;
+	const Durin::Editor::FNotificationId Id = Manager.Post({
+		.Type = Durin::Editor::ENotificationType::Success,
 		.Message = "Saved",
 		.Details = "Package '/Game/Example'",
 	});
@@ -34,35 +34,35 @@ TEST(FEditorNotificationManagerTests, AppliesDefaultLifetimeAndPausesWhileHovere
 	EXPECT_EQ(Manager.GetHistory().front().Details, "Package '/Game/Example'");
 }
 
-TEST(FEditorNotificationManagerTests, UpdatesCompletesAndFailsProgressNotifications)
+TEST(FNotificationManagerTests, UpdatesCompletesAndFailsProgressNotifications)
 {
-	Durin::FEditorNotificationManager Manager;
-	const Durin::FEditorNotificationId CompletedId = Manager.BeginProgress({.Message = "Importing"});
-	const Durin::FEditorNotificationId FailedId = Manager.BeginProgress({.Message = "Cooking", .Progress = 0.25f});
+	Durin::Editor::FNotificationManager Manager;
+	const Durin::Editor::FNotificationId CompletedId = Manager.BeginProgress({.Message = "Importing"});
+	const Durin::Editor::FNotificationId FailedId = Manager.BeginProgress({.Message = "Cooking", .Progress = 0.25f});
 	Manager.UpdateProgress(CompletedId, 1.5f, "Finalizing");
 	Manager.CompleteProgress(CompletedId, "Imported");
 	Manager.FailProgress(FailedId, "Cook failed");
 	Manager.Tick(0.0f);
 
-	const Durin::FEditorNotification* Completed = FindNotification(Manager, CompletedId);
+	const Durin::Editor::FNotification* Completed = FindNotification(Manager, CompletedId);
 	ASSERT_NE(Completed, nullptr);
-	EXPECT_EQ(Completed->Type, Durin::EEditorNotificationType::Success);
+	EXPECT_EQ(Completed->Type, Durin::Editor::ENotificationType::Success);
 	EXPECT_EQ(Completed->Message, "Imported");
 	EXPECT_FALSE(Completed->Progress.has_value());
 	EXPECT_TRUE(Completed->RemainingSeconds.has_value());
 
-	const Durin::FEditorNotification* Failed = FindNotification(Manager, FailedId);
+	const Durin::Editor::FNotification* Failed = FindNotification(Manager, FailedId);
 	ASSERT_NE(Failed, nullptr);
-	EXPECT_EQ(Failed->Type, Durin::EEditorNotificationType::Error);
+	EXPECT_EQ(Failed->Type, Durin::Editor::ENotificationType::Error);
 	EXPECT_EQ(Failed->Message, "Cook failed");
 	EXPECT_FALSE(Failed->RemainingSeconds.has_value());
 }
 
-TEST(FEditorNotificationManagerTests, RequestsCancellationOnlyOnce)
+TEST(FNotificationManagerTests, RequestsCancellationOnlyOnce)
 {
-	Durin::FEditorNotificationManager Manager;
+	Durin::Editor::FNotificationManager Manager;
 	int CancelCount = 0;
-	const Durin::FEditorNotificationId Id = Manager.BeginProgress({
+	const Durin::Editor::FNotificationId Id = Manager.BeginProgress({
 		.Message = "Loading",
 		.Cancel = [&CancelCount] { ++CancelCount; },
 	});
@@ -71,15 +71,15 @@ TEST(FEditorNotificationManagerTests, RequestsCancellationOnlyOnce)
 	EXPECT_TRUE(Manager.RequestCancel(Id));
 	EXPECT_FALSE(Manager.RequestCancel(Id));
 	EXPECT_EQ(CancelCount, 1);
-	const Durin::FEditorNotification* Notification = FindNotification(Manager, Id);
+	const Durin::Editor::FNotification* Notification = FindNotification(Manager, Id);
 	ASSERT_NE(Notification, nullptr);
 	EXPECT_TRUE(Notification->bCancelRequested);
 }
 
-TEST(FEditorNotificationManagerTests, AcceptsCommandsFromAnotherThread)
+TEST(FNotificationManagerTests, AcceptsCommandsFromAnotherThread)
 {
-	Durin::FEditorNotificationManager Manager;
-	Durin::FEditorNotificationId Id = 0;
+	Durin::Editor::FNotificationManager Manager;
+	Durin::Editor::FNotificationId Id = 0;
 	std::thread Producer([&] {
 		Id = Manager.BeginProgress({.Message = "Background"});
 		Manager.UpdateProgress(Id, 0.5f, "Halfway");
@@ -87,7 +87,7 @@ TEST(FEditorNotificationManagerTests, AcceptsCommandsFromAnotherThread)
 	Producer.join();
 	Manager.Tick(0.0f);
 
-	const Durin::FEditorNotification* Notification = FindNotification(Manager, Id);
+	const Durin::Editor::FNotification* Notification = FindNotification(Manager, Id);
 	ASSERT_NE(Notification, nullptr);
 	ASSERT_TRUE(Notification->Progress.has_value());
 	EXPECT_FLOAT_EQ(*Notification->Progress, 0.5f);
@@ -96,10 +96,10 @@ TEST(FEditorNotificationManagerTests, AcceptsCommandsFromAnotherThread)
 	EXPECT_EQ(Manager.GetHistory().front().Message, "Halfway");
 }
 
-TEST(FEditorNotificationManagerTests, DismissalPreservesHistoryUntilExplicitlyCleared)
+TEST(FNotificationManagerTests, DismissalPreservesHistoryUntilExplicitlyCleared)
 {
-	Durin::FEditorNotificationManager Manager;
-	const Durin::FEditorNotificationId Id = Manager.Post({.Message = "Moved Actor"});
+	Durin::Editor::FNotificationManager Manager;
+	const Durin::Editor::FNotificationId Id = Manager.Post({.Message = "Moved Actor"});
 	Manager.Tick(0.0f);
 	Manager.Dismiss(Id);
 	Manager.Tick(0.0f);

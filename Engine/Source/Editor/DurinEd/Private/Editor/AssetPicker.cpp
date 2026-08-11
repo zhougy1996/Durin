@@ -1,4 +1,4 @@
-#include "Editor/EditorAssetPicker.h"
+#include "Editor/AssetPicker.h"
 
 #include "AssetSystem.h"
 #include "DObject/Class.h"
@@ -6,7 +6,7 @@
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 
-namespace Durin::EditorAssetPicker
+namespace Durin::Editor::AssetPicker
 {
 	namespace
 	{
@@ -16,7 +16,7 @@ namespace Durin::EditorAssetPicker
 		struct FCandidateCacheKey
 		{
 			const DClass* RequiredClass = nullptr;
-			EEditorAssetClassPolicy ClassPolicy = EEditorAssetClassPolicy::Derived;
+			EAssetClassPolicy ClassPolicy = EAssetClassPolicy::Derived;
 			std::string PathPrefix;
 
 			auto operator==(const FCandidateCacheKey&) const -> bool = default;
@@ -150,10 +150,10 @@ namespace Durin::EditorAssetPicker
 		return PathPrefix.empty() || AssetPath.starts_with(PathPrefix);
 	}
 
-	auto MatchesClass(const DClass* Candidate, const DClass* Required, EEditorAssetClassPolicy Policy) -> bool
+	auto MatchesClass(const DClass* Candidate, const DClass* Required, EAssetClassPolicy Policy) -> bool
 	{
 		if (!Candidate || !Required) return false;
-		if (Policy == EEditorAssetClassPolicy::Exact) return Candidate == Required;
+		if (Policy == EAssetClassPolicy::Exact) return Candidate == Required;
 		// DClass::IsChildOf is intentionally not exported across runtime modules, so follow
 		// the public superclass chain here rather than coupling the picker to its implementation.
 		for (const DClass* Current = Candidate; Current != nullptr; Current = Current->GetSuperClass())
@@ -173,15 +173,15 @@ namespace Durin::EditorAssetPicker
 		return ObjectPath.empty() ? GetAssetPathOrNone(Object, NoneLabel) : std::string(ObjectPath);
 	}
 
-	auto Draw(const FEditorAssetPickerConfig& Config) -> FEditorAssetPickerResult
+	auto Draw(const FAssetPickerConfig& Config) -> FAssetPickerResult
 	{
-		FEditorAssetPickerResult PickerResult;
-		const bool bPathAssignment = Config.AssignmentMode == EEditorAssetAssignmentMode::AssetPath;
+		FAssetPickerResult PickerResult;
+		const bool bPathAssignment = Config.AssignmentMode == EAssetAssignmentMode::AssetPath;
 		const bool bInvalidAction = Config.TrailingAction &&
 			(!Config.TrailingAction->Icon || !Config.TrailingAction->ButtonId || !Config.TrailingAction->Execute);
 		const bool bInvalidAdditionalAction = std::ranges::any_of(
 			Config.AdditionalTrailingActions,
-			[](const FEditorAssetPickerAction& Action) {
+			[](const FAssetPickerAction& Action) {
 				return !Action.Icon || !Action.ButtonId || !Action.Execute;
 			});
 		if (!Config.RequiredClass || !Config.ComboId || !Config.SearchId || Config.SearchText.empty() ||
@@ -282,7 +282,7 @@ namespace Durin::EditorAssetPicker
 		}
 
 		bool bFirstAction = true;
-		const auto DrawAction = [&](const FEditorAssetPickerAction& Action)
+		const auto DrawAction = [&](const FAssetPickerAction& Action)
 		{
 			const float ItemSpacing = ImGui::GetStyle().ItemSpacing.x;
 			ImGui::SameLine(0.0f, bFirstAction ? ItemSpacing * 0.5f : ItemSpacing);
@@ -301,7 +301,7 @@ namespace Durin::EditorAssetPicker
 			}
 		};
 		if (Config.TrailingAction) DrawAction(*Config.TrailingAction);
-		for (const FEditorAssetPickerAction& Action : Config.AdditionalTrailingActions) DrawAction(Action);
+		for (const FAssetPickerAction& Action : Config.AdditionalTrailingActions) DrawAction(Action);
 		return PickerResult;
 	}
 }

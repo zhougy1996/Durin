@@ -1,4 +1,4 @@
-#include "Editor/EditorAssetPicker.h"
+#include "Editor/AssetPicker.h"
 #include "Editor/WorkspaceManager.h"
 #include "Editor/WorkspaceUI.h"
 #include "Materials/Material.h"
@@ -459,54 +459,54 @@ TEST(FEditorWorkspaceUITests, PreservesStableWorkspaceWindowAndDockIdentities)
 	EXPECT_EQ(WorkspaceUI::MakeDockSpaceId(WorkspaceType, 4), ImHashStr("Durin.DockSpace.LevelEditor.v4"));
 }
 
-TEST(FEditorAssetPickerTests, AppliesExactAndDerivedClassPolicies)
+TEST(FAssetPickerTests, AppliesExactAndDerivedClassPolicies)
 {
-	EXPECT_TRUE(Durin::EditorAssetPicker::MatchesClass(
+	EXPECT_TRUE(Durin::Editor::AssetPicker::MatchesClass(
 		Durin::DMaterialInstance::StaticClass(),
 		Durin::DMaterialInterface::StaticClass(),
-		Durin::EEditorAssetClassPolicy::Derived
+		Durin::Editor::EAssetClassPolicy::Derived
 	));
-	EXPECT_FALSE(Durin::EditorAssetPicker::MatchesClass(
+	EXPECT_FALSE(Durin::Editor::AssetPicker::MatchesClass(
 		Durin::DMaterialInstance::StaticClass(),
 		Durin::DMaterialInterface::StaticClass(),
-		Durin::EEditorAssetClassPolicy::Exact
+		Durin::Editor::EAssetClassPolicy::Exact
 	));
-	EXPECT_TRUE(Durin::EditorAssetPicker::MatchesClass(
+	EXPECT_TRUE(Durin::Editor::AssetPicker::MatchesClass(
 		Durin::DMaterialInterface::StaticClass(),
 		Durin::DMaterialInterface::StaticClass(),
-		Durin::EEditorAssetClassPolicy::Exact
+		Durin::Editor::EAssetClassPolicy::Exact
 	));
-	EXPECT_TRUE(Durin::EditorAssetPicker::MatchesClass(
+	EXPECT_TRUE(Durin::Editor::AssetPicker::MatchesClass(
 		Durin::DTexture2D::StaticClass(),
 		Durin::DTexture::StaticClass(),
-		Durin::EEditorAssetClassPolicy::Derived
+		Durin::Editor::EAssetClassPolicy::Derived
 	));
-	EXPECT_TRUE(Durin::EditorAssetPicker::MatchesClass(
+	EXPECT_TRUE(Durin::Editor::AssetPicker::MatchesClass(
 		Durin::DTextureCube::StaticClass(),
 		Durin::DTexture::StaticClass(),
-		Durin::EEditorAssetClassPolicy::Derived
+		Durin::Editor::EAssetClassPolicy::Derived
 	));
-	EXPECT_FALSE(Durin::EditorAssetPicker::MatchesClass(
+	EXPECT_FALSE(Durin::Editor::AssetPicker::MatchesClass(
 		Durin::DTexture::StaticClass(),
 		Durin::DTexture2D::StaticClass(),
-		Durin::EEditorAssetClassPolicy::Derived
+		Durin::Editor::EAssetClassPolicy::Derived
 	));
 }
 
-TEST(FEditorAssetPickerTests, UsesSoftPathForUnloadedCurrentSelection)
+TEST(FAssetPickerTests, UsesSoftPathForUnloadedCurrentSelection)
 {
 	EXPECT_EQ(
-		Durin::EditorAssetPicker::GetAssetPathOrNone(nullptr, "/Game/Levels/Default", "None"),
+		Durin::Editor::AssetPicker::GetAssetPathOrNone(nullptr, "/Game/Levels/Default", "None"),
 		"/Game/Levels/Default"
 	);
-	EXPECT_EQ(Durin::EditorAssetPicker::GetAssetPathOrNone(nullptr, {}, "None"), "None");
+	EXPECT_EQ(Durin::Editor::AssetPicker::GetAssetPathOrNone(nullptr, {}, "None"), "None");
 }
 
-TEST(FEditorAssetPickerTests, FiltersCandidatesByPathPrefix)
+TEST(FAssetPickerTests, FiltersCandidatesByPathPrefix)
 {
-	EXPECT_TRUE(Durin::EditorAssetPicker::MatchesPathPrefix("/Engine/Materials/Default", {}));
-	EXPECT_TRUE(Durin::EditorAssetPicker::MatchesPathPrefix("/Game/Levels/Default", "/Game/"));
-	EXPECT_TRUE(Durin::EditorAssetPicker::MatchesPathPrefix("/Game/Levels/Default", "/Game/Levels/"));
-	EXPECT_FALSE(Durin::EditorAssetPicker::MatchesPathPrefix("/Engine/Levels/Default", "/Game/"));
-	EXPECT_FALSE(Durin::EditorAssetPicker::MatchesPathPrefix("/Gameplay/Levels/Default", "/Game/"));
+	EXPECT_TRUE(Durin::Editor::AssetPicker::MatchesPathPrefix("/Engine/Materials/Default", {}));
+	EXPECT_TRUE(Durin::Editor::AssetPicker::MatchesPathPrefix("/Game/Levels/Default", "/Game/"));
+	EXPECT_TRUE(Durin::Editor::AssetPicker::MatchesPathPrefix("/Game/Levels/Default", "/Game/Levels/"));
+	EXPECT_FALSE(Durin::Editor::AssetPicker::MatchesPathPrefix("/Engine/Levels/Default", "/Game/"));
+	EXPECT_FALSE(Durin::Editor::AssetPicker::MatchesPathPrefix("/Gameplay/Levels/Default", "/Game/"));
 }

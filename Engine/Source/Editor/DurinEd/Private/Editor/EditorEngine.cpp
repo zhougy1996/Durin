@@ -1,5 +1,5 @@
 #include "Editor/EditorEngine.h"
-#include "Editor/EditorNotification.h"
+#include "Editor/Notification.h"
 #include "Editor/Transaction.h"
 
 #include "AssetSystem.h"
@@ -29,7 +29,7 @@ namespace Durin
 	DEditorEngine::DEditorEngine(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 		, TransactionManager(std::make_unique<Editor::FTransactionManager>())
-		, NotificationManager(std::make_unique<FEditorNotificationManager>())
+		, NotificationManager(std::make_unique<Editor::FNotificationManager>())
 	{
 		GEditor = this;
 	}
@@ -198,24 +198,24 @@ namespace Durin
 
 	auto DEditorEngine::StartPlaySession(DLevel* SourceLevel, std::string* OutError) -> bool
 	{
-		FEditorPlayRequest Request;
+		Editor::FPlayRequest Request;
 		Request.SourceLevel = SourceLevel;
 		return StartPlaySession(Request, OutError);
 	}
 
-	auto DEditorEngine::StartPlaySession(const FEditorPlayRequest& Request, std::string* OutError) -> bool
+	auto DEditorEngine::StartPlaySession(const Editor::FPlayRequest& Request, std::string* OutError) -> bool
 	{
 		return StartPlaySessionInternal(Request, std::nullopt, OutError);
 	}
 
 	auto DEditorEngine::StartPlaySessionInternal(
-		const FEditorPlayRequest& Request,
+		const Editor::FPlayRequest& Request,
 		std::optional<DClass*> GameModeOverride,
 		std::string* OutError) -> bool
 	{
 		DLevel* SourceLevel = Request.SourceLevel;
 		if (OutError) OutError->clear();
-		if (PlayState != EEditorPlayState::Stopped)
+		if (PlayState != Editor::EPlayState::Stopped)
 		{
 			if (OutError) *OutError = "A Play session is already active.";
 			return false;
@@ -226,7 +226,7 @@ namespace Durin
 			return false;
 		}
 
-		PlayState = EEditorPlayState::Starting;
+		PlayState = Editor::EPlayState::Starting;
 		ReleasePlayMouseCapture();
 		ClearGameInputWindow();
 		DWorld* NewPlayWorld = NewObject<DWorld>(this, "PlayWorld");
@@ -237,7 +237,7 @@ namespace Durin
 		if (!PlayLevel)
 		{
 			MarkObjectHierarchyAsGarbage(NewPlayWorld);
-			PlayState = EEditorPlayState::Stopped;
+			PlayState = Editor::EPlayState::Stopped;
 			if (OutError) *OutError = DuplicateError.empty() ? "Could not duplicate the level for Play." : std::move(DuplicateError);
 			return false;
 		}
@@ -253,7 +253,7 @@ namespace Durin
 				{
 					EditorToPlayObjects.clear();
 					MarkObjectHierarchyAsGarbage(NewPlayWorld);
-					PlayState = EEditorPlayState::Stopped;
+					PlayState = Editor::EPlayState::Stopped;
 					if (OutError) *OutError = SettingsResult.Message;
 					return false;
 				}
@@ -262,7 +262,7 @@ namespace Durin
 				{
 					EditorToPlayObjects.clear();
 					MarkObjectHierarchyAsGarbage(NewPlayWorld);
-					PlayState = EEditorPlayState::Stopped;
+					PlayState = Editor::EPlayState::Stopped;
 					if (OutError) *OutError = Resolution.Result.Message;
 					return false;
 				}
@@ -286,13 +286,13 @@ namespace Durin
 			EditorToPlayObjects.clear();
 			PlayToEditorObjects.clear();
 			MarkObjectHierarchyAsGarbage(NewPlayWorld);
-			PlayState = EEditorPlayState::Stopped;
+			PlayState = Editor::EPlayState::Stopped;
 			if (OutError) *OutError = "Could not activate the duplicated Play level.";
 			return false;
 		}
 		NewPlayWorld->SetPhysicsSimulationEnabled(Request.bSimulatePhysics);
 		AActor* ViewTargetOverride = nullptr;
-		if (Request.StartLocation == EEditorPlayStartLocation::EditorCamera)
+		if (Request.StartLocation == Editor::EPlayStartLocation::EditorCamera)
 		{
 			ACameraActor* Camera = PlayLevel->SpawnActor<ACameraActor>("PIE_EditorCamera");
 			if (!Camera || !Camera->GetCameraComponent())
@@ -306,7 +306,7 @@ namespace Durin
 			ViewTargetOverride = Camera;
 		}
 
-		if (Request.Destination == EEditorPlayDestination::NewWindow)
+		if (Request.Destination == Editor::EPlayDestination::NewWindow)
 		{
 			PreviousSceneViewport = GetMainSceneViewport();
 			PlayWindow = std::make_shared<MWindow>();
@@ -329,13 +329,13 @@ namespace Durin
 			if (OutError) *OutError = PlayResult.Message;
 			return false;
 		}
-		PlayState = EEditorPlayState::Playing;
+		PlayState = Editor::EPlayState::Playing;
 		return true;
 	}
 
 	auto DEditorEngine::StopPlaySession() -> void
 	{
-		if (PlayState == EEditorPlayState::Stopped) return;
+		if (PlayState == Editor::EPlayState::Stopped) return;
 		DWorld* WorldToRestore = EditorWorld.Get();
 		DLevel* LevelToRestore = EditorLevel.Get();
 		TeardownPlaySession();
@@ -346,8 +346,8 @@ namespace Durin
 
 	auto DEditorEngine::TeardownPlaySession() -> void
 	{
-		if (PlayState == EEditorPlayState::Stopped) return;
-		PlayState = EEditorPlayState::Stopping;
+		if (PlayState == Editor::EPlayState::Stopped) return;
+		PlayState = Editor::EPlayState::Stopping;
 		ReleasePlayMouseCapture();
 		ClearGameInputWindow();
 		DWorld* WorldToDestroy = PlayWorld.Get();
@@ -366,7 +366,7 @@ namespace Durin
 			RetirementFence->BeginFence();
 		}
 		SetWorld(nullptr);
-		if (PlayDestination == EEditorPlayDestination::NewWindow)
+		if (PlayDestination == Editor::EPlayDestination::NewWindow)
 		{
 			SetMainSceneViewport(PreviousSceneViewport);
 			if (PlayWindow)
@@ -389,8 +389,8 @@ namespace Durin
 			RetiredPlayFences.emplace_back(std::move(RetirementFence));
 		}
 		TransactionManager->Clear();
-		PlayState = EEditorPlayState::Stopped;
-		PlayDestination = EEditorPlayDestination::EmbeddedViewport;
+		PlayState = Editor::EPlayState::Stopped;
+		PlayDestination = Editor::EPlayDestination::EmbeddedViewport;
 		ReleaseRetiredPlaySessions();
 	}
 
@@ -411,15 +411,15 @@ namespace Durin
 
 	auto DEditorEngine::SetPlaySessionPaused(bool bPaused) -> void
 	{
-		if (PlayState != EEditorPlayState::Playing && PlayState != EEditorPlayState::Paused) return;
+		if (PlayState != Editor::EPlayState::Playing && PlayState != Editor::EPlayState::Paused) return;
 		if (bPaused) ReleasePlayMouseCapture();
 		if (PlayWorld) PlayWorld->SetPaused(bPaused);
-		PlayState = bPaused ? EEditorPlayState::Paused : EEditorPlayState::Playing;
+		PlayState = bPaused ? Editor::EPlayState::Paused : Editor::EPlayState::Playing;
 	}
 
 	auto DEditorEngine::StepPlaySession() -> void
 	{
-		if (PlayState != EEditorPlayState::Paused || !PlayWorld) return;
+		if (PlayState != Editor::EPlayState::Paused || !PlayWorld) return;
 		ReleasePlayMouseCapture();
 		PlayWorld->RequestSingleStep();
 	}
@@ -442,23 +442,23 @@ namespace Durin
 			SuspendPlayMouseCapture();
 			return;
 		}
-		if (MouseCaptureState == EEditorMouseCaptureState::Suspended)
-			MouseCaptureState = EEditorMouseCaptureState::Released;
+		if (MouseCaptureState == Editor::EMouseCaptureState::Suspended)
+			MouseCaptureState = Editor::EMouseCaptureState::Released;
 		if (bCaptureClicked) RequestPlayMouseCapture(Window);
 	}
 
 	auto DEditorEngine::RequestPlayMouseCapture(const std::shared_ptr<FGenericWindow>& Window) -> bool
 	{
-		if (!Window || PlayState != EEditorPlayState::Playing || !Window->IsFocused()) return false;
+		if (!Window || PlayState != Editor::EPlayState::Playing || !Window->IsFocused()) return false;
 		if (GameInputWindow.lock() != Window) SetGameInputWindow(Window);
-		if (MouseCaptureState == EEditorMouseCaptureState::Captured
+		if (MouseCaptureState == Editor::EMouseCaptureState::Captured
 			&& CapturedMouseWindow.lock() == Window) return true;
 		ReleasePlayMouseCapture();
 		CapturedMouseWindow = Window;
 		Window->SetCursorMode(ECursorMode::Captured);
 		ResetGameInputMouse();
 		SetGameInputEnabled(true);
-		MouseCaptureState = EEditorMouseCaptureState::Captured;
+		MouseCaptureState = Editor::EMouseCaptureState::Captured;
 		return true;
 	}
 
@@ -470,14 +470,14 @@ namespace Durin
 		}
 		CapturedMouseWindow.reset();
 		SetGameInputEnabled(false);
-		MouseCaptureState = EEditorMouseCaptureState::Released;
+		MouseCaptureState = Editor::EMouseCaptureState::Released;
 	}
 
 	auto DEditorEngine::SuspendPlayMouseCapture() -> void
 	{
-		const bool bWasCaptured = MouseCaptureState == EEditorMouseCaptureState::Captured;
+		const bool bWasCaptured = MouseCaptureState == Editor::EMouseCaptureState::Captured;
 		ReleasePlayMouseCapture();
-		if (bWasCaptured) MouseCaptureState = EEditorMouseCaptureState::Suspended;
+		if (bWasCaptured) MouseCaptureState = Editor::EMouseCaptureState::Suspended;
 	}
 
 	auto DEditorEngine::HandleGameInputWindowFocus(
@@ -485,8 +485,8 @@ namespace Durin
 		bool bFocused) -> void
 	{
 		if (!bFocused && GameInputWindow.lock() == Window) SuspendPlayMouseCapture();
-		else if (bFocused && MouseCaptureState == EEditorMouseCaptureState::Suspended)
-			MouseCaptureState = EEditorMouseCaptureState::Released;
+		else if (bFocused && MouseCaptureState == Editor::EMouseCaptureState::Suspended)
+			MouseCaptureState = Editor::EMouseCaptureState::Released;
 	}
 
 	auto DEditorEngine::HandleGameInputWindowClose(const std::shared_ptr<FGenericWindow>& Window) -> void
@@ -499,7 +499,7 @@ namespace Durin
 		EKey Key,
 		bool bRepeat) -> bool
 	{
-		if (Key != EKey::Escape || bRepeat || MouseCaptureState != EEditorMouseCaptureState::Captured) return false;
+		if (Key != EKey::Escape || bRepeat || MouseCaptureState != Editor::EMouseCaptureState::Captured) return false;
 		ReleasePlayMouseCapture();
 		return true;
 	}
@@ -509,7 +509,7 @@ namespace Durin
 		EMouseButton Button) -> bool
 	{
 		if (!IsPlayingInNewWindow() || Button != EMouseButton::Left
-			|| MouseCaptureState == EEditorMouseCaptureState::Captured) return false;
+			|| MouseCaptureState == Editor::EMouseCaptureState::Captured) return false;
 		return RequestPlayMouseCapture(Window);
 	}
 
@@ -586,7 +586,7 @@ namespace Durin
 		return *TransactionManager;
 	}
 
-	auto DEditorEngine::GetNotificationManager() -> FEditorNotificationManager&
+	auto DEditorEngine::GetNotificationManager() -> Editor::FNotificationManager&
 	{
 		return *NotificationManager;
 	}

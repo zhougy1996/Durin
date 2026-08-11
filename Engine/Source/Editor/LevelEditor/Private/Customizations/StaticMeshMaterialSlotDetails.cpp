@@ -5,7 +5,7 @@
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Package.h"
-#include "Editor/EditorAssetPicker.h"
+#include "Editor/AssetPicker.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "LevelEditorCustomizations.h"
 #include "Materials/MaterialInterface.h"
@@ -122,7 +122,7 @@ namespace Durin
 				const bool bHasMaterialAsset = Entry.Material && Entry.Material->GetPackage()
 					&& FAssetPath::TryCreate(Entry.Material->GetPackage()->GetPackagePath(), MaterialPath)
 					&& Asset::GetAssetRegistry().FindAssetExact(MaterialPath);
-				const std::array<FEditorAssetPickerAction, 2> AssetActions{{
+				const std::array<Editor::FAssetPickerAction, 2> AssetActions{{
 					{
 						.Icon = Icons::Crosshairs,
 						.ButtonId = "RevealMaterial",
@@ -146,9 +146,9 @@ namespace Durin
 				}};
 				ImGui::PushID(static_cast<int>(Entry.SlotIndex));
 				MonaImGui::PropertyEdit::BeginRow(Entry.Label.c_str(), Context.bReadOnly);
-				const FEditorAssetPickerResult Result = EditorAssetPicker::Draw({
+				const Editor::FAssetPickerResult Result = Editor::AssetPicker::Draw({
 					.ComboId = "##Material", .SearchId = "##MaterialSearch", .SearchHint = "Search materials...",
-					.RequiredClass = DMaterialInterface::StaticClass(), .ClassPolicy = EEditorAssetClassPolicy::Derived,
+					.RequiredClass = DMaterialInterface::StaticClass(), .ClassPolicy = Editor::EAssetClassPolicy::Derived,
 					.CurrentSelection = Entry.Material, .SearchText = AssetSearchText, .bAllowNone = false,
 					.AssignSelection = [&](DObject* Selection, std::string& Error) {
 						if (Context.bReadOnly) { Error = "Details are read-only."; return false; }
@@ -196,7 +196,7 @@ namespace Durin
 
 	auto FStaticMeshMaterialSlotDetailsModel::IsSupportedMaterialClass(const DClass* CandidateClass) -> bool
 	{
-		return EditorAssetPicker::MatchesClass(CandidateClass, DMaterialInterface::StaticClass(), EEditorAssetClassPolicy::Derived);
+		return Editor::AssetPicker::MatchesClass(CandidateClass, DMaterialInterface::StaticClass(), Editor::EAssetClassPolicy::Derived);
 	}
 
 	auto FStaticMeshMaterialSlotDetailsModel::GetSourceLabel(EStaticMeshMaterialSource Source) -> std::string_view

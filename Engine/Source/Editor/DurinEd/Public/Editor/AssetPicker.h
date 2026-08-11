@@ -6,23 +6,26 @@ namespace Durin
 {
 	class DClass;
 	class DObject;
+}
 
+namespace Durin::Editor
+{
 	// Selects exact-class or derived-class filtering for asset candidates.
-	enum class EEditorAssetClassPolicy : uint8
+	enum class EAssetClassPolicy : uint8
 	{
 		Exact,
 		Derived,
 	};
 
 	// Selects whether a picker commits a loaded object or only its canonical asset path.
-	enum class EEditorAssetAssignmentMode : uint8
+	enum class EAssetAssignmentMode : uint8
 	{
 		LoadedObject,
 		AssetPath,
 	};
 
 	// Defines an optional trailing action rendered beside the asset picker.
-	struct FEditorAssetPickerAction
+	struct FAssetPickerAction
 	{
 		const char* Icon = nullptr;
 		const char* ButtonId = nullptr;
@@ -32,14 +35,14 @@ namespace Durin
 	};
 
 	// Configures asset filtering, assignment, and retained search storage.
-	struct FEditorAssetPickerConfig
+	struct FAssetPickerConfig
 	{
 		const char* ComboId = "##Asset";
 		const char* SearchId = "##AssetSearch";
 		const char* SearchHint = "Search assets...";
 		const DClass* RequiredClass = nullptr;
-		EEditorAssetClassPolicy ClassPolicy = EEditorAssetClassPolicy::Derived;
-		EEditorAssetAssignmentMode AssignmentMode = EEditorAssetAssignmentMode::LoadedObject;
+		EAssetClassPolicy ClassPolicy = EAssetClassPolicy::Derived;
+		EAssetAssignmentMode AssignmentMode = EAssetAssignmentMode::LoadedObject;
 		DObject* CurrentSelection = nullptr;
 		// Supplies the current asset identity when the owner stores a soft path
 		// instead of keeping the asset loaded.
@@ -53,8 +56,8 @@ namespace Durin
 		std::function<bool(std::string_view, std::string&)> AssignPathSelection;
 		// When present, the picker reserves stable trailing width and always draws
 		// the action, including its disabled state.
-		std::optional<FEditorAssetPickerAction> TrailingAction;
-		std::span<const FEditorAssetPickerAction> AdditionalTrailingActions;
+		std::optional<FAssetPickerAction> TrailingAction;
+		std::span<const FAssetPickerAction> AdditionalTrailingActions;
 		// When non-empty, only paths that start with this prefix are shown.
 		std::string_view PathPrefixFilter;
 		// Bounds the cached matches for one search. ImGui virtualizes row submission,
@@ -63,21 +66,21 @@ namespace Durin
 	};
 
 	// Reports selection, trailing-action, and assignment-error outcomes.
-	struct FEditorAssetPickerResult
+	struct FAssetPickerResult
 	{
 		bool bSelectionChanged = false;
 		bool bTrailingActionTriggered = false;
 		std::string Error;
 	};
 
-	namespace EditorAssetPicker
+	namespace AssetPicker
 	{
 		// Returns whether an asset path passes an optional literal path-prefix filter.
 		DURINED_API auto MatchesPathPrefix(std::string_view AssetPath, std::string_view PathPrefix) -> bool;
 		DURINED_API auto MatchesClass(
 			const DClass* Candidate,
 			const DClass* Required,
-			EEditorAssetClassPolicy Policy
+			EAssetClassPolicy Policy
 		) -> bool;
 		DURINED_API auto GetAssetPathOrNone(const DObject* Object, std::string_view NoneLabel = "None") -> std::string;
 		DURINED_API auto GetAssetPathOrNone(
@@ -85,6 +88,6 @@ namespace Durin
 			std::string_view ObjectPath,
 			std::string_view NoneLabel
 		) -> std::string;
-		DURINED_API auto Draw(const FEditorAssetPickerConfig& Config) -> FEditorAssetPickerResult;
+		DURINED_API auto Draw(const FAssetPickerConfig& Config) -> FAssetPickerResult;
 	}
 }

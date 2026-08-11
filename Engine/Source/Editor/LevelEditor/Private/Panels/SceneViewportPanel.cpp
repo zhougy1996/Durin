@@ -53,8 +53,8 @@ namespace Durin
 
 
 	FSceneViewportPanel::FSceneViewportPanel()
-		: PreferredPlayStartLocation(EEditorPlayStartLocation::LevelStart)
-		, PreferredPlayDestination(EEditorPlayDestination::EmbeddedViewport)
+		: PreferredPlayStartLocation(Editor::EPlayStartLocation::LevelStart)
+		, PreferredPlayDestination(Editor::EPlayDestination::EmbeddedViewport)
 	{
 		ViewportClient = std::make_unique<FLevelEditorViewportClient>();
 		ViewportToolbar = std::make_unique<FViewportToolbar>();
@@ -102,7 +102,7 @@ namespace Durin
 		ViewportClient->PrepareSceneView(Context.Level, Width, Height);
 	}
 
-	auto FSceneViewportPanel::SetPreferredPlayMode(EEditorPlayStartLocation StartLocation, EEditorPlayDestination Destination) -> void
+	auto FSceneViewportPanel::SetPreferredPlayMode(Editor::EPlayStartLocation StartLocation, Editor::EPlayDestination Destination) -> void
 	{
 		PreferredPlayStartLocation = StartLocation;
 		PreferredPlayDestination = Destination;
