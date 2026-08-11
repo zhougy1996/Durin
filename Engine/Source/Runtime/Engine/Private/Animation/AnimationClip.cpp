@@ -222,6 +222,7 @@ namespace Durin
 		if (!DerivedDataKey.empty() && !LoadDerivedDataPayload(OutError))
 		{
 			if (!IsSkeletalDerivedDataRepairLoadActive()) return false;
+			ReportMissingSkeletalDerivedDataAsset(this);
 			OutError.clear();
 		}
 		return true;

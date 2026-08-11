@@ -1,7 +1,10 @@
 #include "Documents/LevelDocumentController.h"
 #include "Documents/LevelDocumentRevisionState.h"
 
+#include "Animation/AnimationClip.h"
 #include "Asset/WorkspaceAssetOpenCompatibility.h"
+#include "MultiOutputImport.h"
+#include "SceneImport.h"
 #include "AssetSystem.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorTransaction.h"
@@ -13,6 +16,8 @@
 #include "Misc/Project.h"
 #include "Panels/SceneViewportPanel.h"
 #include "Profiling/Profiling.h"
+#include "SkeletalMesh/SkeletalDerivedData.h"
+#include "SkeletalMesh/SkeletalMesh.h"
 
 namespace Durin
 {
@@ -21,6 +26,65 @@ namespace Durin
 		auto GetLevelTransactions() -> FEditorTransactionManager*
 		{
 			return GEditor ? &GEditor->GetTransactionManager() : nullptr;
+		}
+
+		auto RepairMissingSkeletalDerivedData(
+			std::span<DObject* const> MissingAssets,
+			std::string& OutError) -> bool
+		{
+			const std::vector<DObject*> Assets(MissingAssets.begin(), MissingAssets.end());
+			std::vector<AssetImport::DImportRecord*> Records;
+			for (DObject* Asset : Assets)
+			{
+				std::string RecordError;
+				AssetImport::DImportRecord* Record = FindSceneImportRecordForOutput(
+					*Asset, RecordError);
+				if (!Record)
+				{
+					OutError = std::format(
+						"Could not rebuild missing skeletal derived data for '{}': {}",
+						Asset->GetObjectPath(), RecordError);
+					return false;
+				}
+				if (std::ranges::find(Records, Record) == Records.end())
+					Records.push_back(Record);
+			}
+
+			for (AssetImport::DImportRecord* Record : Records)
+			{
+				const AssetImport::FImportRecordActionResult Result =
+					AssetImport::ExecuteImportRecordAction(
+						*Record,
+						AssetImport::EImportRecordAction::Reimport,
+						AssetImport::GetImportRecordHandlerRegistry());
+				if (!Result)
+				{
+					OutError = std::format(
+						"Could not rebuild skeletal derived data from its Scene import record: {}",
+						Result.Message);
+					return false;
+				}
+			}
+
+			for (DObject* Asset : Assets)
+			{
+				const DAnimationClip* Clip = Cast<DAnimationClip>(Asset);
+				const DSkeletalMesh* Mesh = Cast<DSkeletalMesh>(Asset);
+				const bool bReady = Clip ? Clip->GetPayloadData() != nullptr
+					: Mesh && Mesh->GetPayloadData() != nullptr;
+				if (!bReady)
+				{
+					OutError = std::format(
+						"Scene reimport did not restore skeletal derived data for '{}'.",
+						Asset->GetObjectPath());
+					return false;
+				}
+			}
+			if (!Assets.empty())
+				DURIN_INFO("Rebuilt missing skeletal derived data for {} asset(s) before opening the level.",
+					Assets.size());
+			OutError.clear();
+			return true;
 		}
 
 	}
@@ -163,10 +227,15 @@ namespace Durin
 		Asset::FAssetLoadReport LoadReport;
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadBegin);
 		Asset::FAssetResult Result;
+		std::string DerivedDataRepairError;
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.DefaultDocument.AssetLoad");
+			const FScopedSkeletalDerivedDataRepairLoad RepairLoad;
 			Result = Asset::LoadSoftObject(
 				DefaultLevel, Level, Asset::ESoftObjectNullPolicy::Reject, &LoadReport);
+			if (Result && !RepairMissingSkeletalDerivedData(
+				RepairLoad.GetMissingAssets(), DerivedDataRepairError))
+				Result = {Asset::EAssetError::InvalidObjectGraph, DerivedDataRepairError};
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadComplete);
 		if (!Result)
@@ -221,7 +290,15 @@ namespace Durin
 		FWorkspaceAssetOpenCompatibility CompatibilityPolicy(Path);
 		DLevel* Level = nullptr;
 		Asset::FAssetLoadReport LoadReport;
-		Asset::FAssetResult Result = Asset::LoadAsset(Path, Level, &LoadReport);
+		Asset::FAssetResult Result;
+		std::string DerivedDataRepairError;
+		{
+			const FScopedSkeletalDerivedDataRepairLoad RepairLoad;
+			Result = Asset::LoadAsset(Path, Level, &LoadReport);
+			if (Result && !RepairMissingSkeletalDerivedData(
+				RepairLoad.GetMissingAssets(), DerivedDataRepairError))
+				Result = {Asset::EAssetError::InvalidObjectGraph, DerivedDataRepairError};
+		}
 		if (!Result)
 		{
 			SetError(Result.Message);

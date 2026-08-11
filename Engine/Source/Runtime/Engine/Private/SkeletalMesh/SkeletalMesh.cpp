@@ -461,6 +461,7 @@ namespace Durin
 			else if (!DerivedDataKey.empty() && !LoadDerivedDataPayload(OutError))
 			{
 				if (!IsSkeletalDerivedDataRepairLoadActive()) return false;
+				ReportMissingSkeletalDerivedDataAsset(this);
 				OutError.clear();
 			}
 		}

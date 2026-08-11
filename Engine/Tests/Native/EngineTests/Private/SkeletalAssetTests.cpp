@@ -718,6 +718,19 @@ TEST(FSkeletalAssetTests, AuthoredReloadConsumesValidatedDerivedDataObjects)
 	EXPECT_EQ(Clip->GetDerivedDataKey(), ClipKey);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(ClipPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(SkeletonPath));
+	const std::filesystem::path ClipObject = CacheRoot / "AnimationClip/Objects"
+		/ ClipKey.substr(0, 2) / (ClipKey + ".bin");
+	ASSERT_TRUE(std::filesystem::remove(ClipObject));
+	{
+		const Durin::FScopedSkeletalDerivedDataRepairLoad RepairLoad;
+		ASSERT_TRUE(Durin::Asset::LoadAsset(ClipPath, Clip));
+		ASSERT_NE(Clip, nullptr);
+		EXPECT_EQ(Clip->GetPayloadData(), nullptr);
+		ASSERT_EQ(RepairLoad.GetMissingAssets().size(), 1);
+		EXPECT_EQ(RepairLoad.GetMissingAssets().front(), Clip);
+	}
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(ClipPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(SkeletonPath));
 
 	const std::filesystem::path MeshObject = CacheRoot / "SkeletalMesh/Objects"
 		/ MeshKey.substr(0, 2) / (MeshKey + ".bin");

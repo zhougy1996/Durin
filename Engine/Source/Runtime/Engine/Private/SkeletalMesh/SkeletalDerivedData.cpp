@@ -4,23 +4,31 @@
 
 namespace Durin
 {
-	thread_local uint32 GSkeletalDerivedDataRepairLoadDepth = 0;
+	thread_local std::vector<FScopedSkeletalDerivedDataRepairLoad*> GSkeletalDerivedDataRepairLoads;
 
 	FScopedSkeletalDerivedDataRepairLoad::FScopedSkeletalDerivedDataRepairLoad()
 	{
-		check(GSkeletalDerivedDataRepairLoadDepth < std::numeric_limits<uint32>::max());
-		++GSkeletalDerivedDataRepairLoadDepth;
+		GSkeletalDerivedDataRepairLoads.push_back(this);
 	}
 
 	FScopedSkeletalDerivedDataRepairLoad::~FScopedSkeletalDerivedDataRepairLoad()
 	{
-		check(GSkeletalDerivedDataRepairLoadDepth > 0);
-		--GSkeletalDerivedDataRepairLoadDepth;
+		check(!GSkeletalDerivedDataRepairLoads.empty()
+			&& GSkeletalDerivedDataRepairLoads.back() == this);
+		GSkeletalDerivedDataRepairLoads.pop_back();
 	}
 
 	auto IsSkeletalDerivedDataRepairLoadActive() -> bool
 	{
-		return GSkeletalDerivedDataRepairLoadDepth > 0;
+		return !GSkeletalDerivedDataRepairLoads.empty();
+	}
+
+	auto ReportMissingSkeletalDerivedDataAsset(DObject* Asset) -> void
+	{
+		if (!Asset) return;
+		for (FScopedSkeletalDerivedDataRepairLoad* Scope : GSkeletalDerivedDataRepairLoads)
+			if (std::ranges::find(Scope->MissingAssets, Asset) == Scope->MissingAssets.end())
+				Scope->MissingAssets.push_back(Asset);
 	}
 
 	namespace
