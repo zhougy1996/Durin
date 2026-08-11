@@ -9,16 +9,30 @@ Completed:
 
 ## Current Status
 
-Planning is complete and implementation has not started. The current editor
-enables gameplay input from viewport or top-level-window focus, but it has no
-explicit mouse-capture state. GLFW cursor hiding does not provide unbounded
-relative motion, ImGui may overwrite cursor visibility on a later frame, and
-the Engine input handler does not restrict events to one authoritative gameplay
-window.
+Stage 0 is complete. The focused pre-change baseline passed on 2026-08-11:
+`WorldTests` passed 76/76 and `ViewportTests` passed 81/81. The mutation
+inventory found no additional cursor or Play-session owner beyond the files
+listed below.
 
 The pre-change revision is
-`7bfd5122a072772841c48a1232c77b4c312d4dbc`. Stage 0 must record focused
-baseline results before changing public window or input contracts.
+`7bfd5122a072772841c48a1232c77b4c312d4dbc`.
+
+The frozen public names are `ECursorMode::{Free, Hidden, Captured}` plus
+`FGenericWindow::SetCursorMode`, `GetCursorMode`, `SetCursorPosition`, and the
+existing `SetCursor` shape selector. `DEngine` owns
+`SetGameInputWindow`, `ClearGameInputWindow`, and `ResetGameInputMouse`.
+`DEditorEngine` owns `EEditorMouseCaptureState::{Released, Captured,
+Suspended}`, capture requests, focus notification, and synchronous release.
+
+Inventory: MonaImGui is the only production caller of `SetCursor`; GLFW is the
+only platform implementation. Gameplay enablement is mutated by `DEngine`,
+standalone `DGameEngine`, `DEditorEngine`, and `FSceneViewportPanel`. Editor
+Play start, rollback, pause, step, stop, new-window loss, and teardown all
+converge on `DEditorEngine`; no second lifecycle owner or capture coordinator
+exists. Test seams will use a derived `FGenericWindow` without GLFW and the
+public coordinator requests without requiring an ImGui frame. Dependency
+direction remains `Core -> ApplicationCore -> MonaCore/Engine -> DurinEd ->
+LevelEditor`, while MonaImGui consumes only the generic window contract.
 
 ## Goal
 
@@ -168,14 +182,14 @@ the gameplay input snapshot.
 
 ### Stage 0: Freeze the cursor and input-ownership contracts
 
-- [ ] Record the focused `WorldTests` and `ViewportTests` baseline at the
+- [x] Record the focused `WorldTests` and `ViewportTests` baseline at the
   pre-change revision.
-- [ ] Inventory every repository call to `SetCursor`, every GameInput enable or
+- [x] Inventory every repository call to `SetCursor`, every GameInput enable or
   focus mutation, and every editor Play start, pause, stop, rollback, and
   window-close path; update this plan before Stage 1 if another owner exists.
-- [ ] Add test-facing platform-window and capture-coordinator seams that do not
+- [x] Add test-facing platform-window and capture-coordinator seams that do not
   require a live GLFW window or ImGui frame.
-- [ ] Pin the exact public enum and API names in this plan and confirm that
+- [x] Pin the exact public enum and API names in this plan and confirm that
   dependency direction remains `Core -> ApplicationCore -> MonaCore/Engine ->
   DurinEd -> LevelEditor`, with MonaImGui consuming only the window contract.
 
