@@ -41,25 +41,19 @@ namespace Durin::Editor::Level
 				if (!Context.bSelected) return;
 
 				const FQuat Rotation = Light->GetWorldRotation();
-				const FVector3 Forward = Math::Normalize(Rotation * FVectorConstants::Forward);
-				const FVector3 Right = Math::Normalize(Rotation * FVectorConstants::Right);
-				const FVector3 Up = Math::Normalize(Rotation * FVectorConstants::Up);
 				// Directional lights have no physical extent, so scale the cue with viewing distance
 				// while preserving the component's origin as the transform and picking anchor.
 				const double ViewDistance = Math::Length(Origin - Context.View.ViewLocation);
 				const double DirectionLength = std::max(1.0, ViewDistance * 0.2);
-				const double HeadLength = DirectionLength * 0.28;
-				const double HeadRadius = DirectionLength * 0.13;
-				const FVector3 Tip = Origin + Forward * DirectionLength;
-				const FVector3 HeadCenter = Tip - Forward * HeadLength;
-				auto AddLine = [&](const FVector3& Start, const FVector3& End, int32 Priority = 20) {
-					Collector.AddLine({Start, End, Color, 3.0f, 7.0f, Priority, Actor, Light});
-				};
-				AddLine(Origin, Tip);
-				AddLine(Tip, HeadCenter + Right * HeadRadius);
-				AddLine(Tip, HeadCenter - Right * HeadRadius);
-				AddLine(Tip, HeadCenter + Up * HeadRadius);
-				AddLine(Tip, HeadCenter - Up * HeadRadius);
+				Collector.AddPrimitive({
+					.Shape = EViewOverlayShape::Arrow,
+					.LocalToWorld = Math::TranslationMatrix(Origin)
+						* Math::RotationMatrix(Rotation)
+						* Math::ScaleMatrix(FVector3(DirectionLength)),
+					.Color = Color,
+					.Actor = Actor,
+					.Component = Light,
+				});
 			}
 		};
 	} // namespace

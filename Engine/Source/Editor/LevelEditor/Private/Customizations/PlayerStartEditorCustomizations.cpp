@@ -91,16 +91,17 @@ namespace Durin::Editor::Level
 					}
 				}
 
-				const float ArrowWidth = MonaImGui::ScaleUI(Context.bSelected ? 2.5f : 2.0f);
 				const FVector3 ArrowStart = Origin + Forward * Radius;
-				const FVector3 ArrowBase = Origin + Forward * 0.95;
-				const FVector3 ArrowTip = Origin + Forward * 1.35;
-				const FVector3 ArrowRight = ArrowBase + Right * 0.22;
-				const FVector3 ArrowLeft = ArrowBase - Right * 0.22;
-				AddLine(ArrowStart, ArrowTip, ArrowWidth, 90);
-				AddLine(ArrowTip, ArrowRight, ArrowWidth, 90);
-				AddLine(ArrowRight, ArrowLeft, ArrowWidth, 90);
-				AddLine(ArrowLeft, ArrowTip, ArrowWidth, 90);
+				constexpr double ArrowLength = 0.95;
+				Collector.AddPrimitive({
+					.Shape = EViewOverlayShape::Arrow,
+					.LocalToWorld = Math::TranslationMatrix(ArrowStart)
+						* Math::RotationMatrix(Rotation)
+						* Math::ScaleMatrix(FVector3(ArrowLength)),
+					.Color = Color,
+					.Actor = PlayerStart,
+					.Component = Root,
+				});
 			}
 		};
 	} // namespace

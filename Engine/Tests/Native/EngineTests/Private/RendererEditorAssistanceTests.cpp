@@ -2,6 +2,7 @@
 
 #include "RenderResourceCreation.h"
 #include "Renderers/EditorAssistance/EditorAssistanceRenderer.h"
+#include "Renderers/EditorAssistance/OverlayIconRenderer.h"
 
 namespace Durin
 {
@@ -31,6 +32,20 @@ namespace Durin
 		EXPECT_TRUE(Request.IsEmpty());
 		EXPECT_TRUE(FEditorAssistanceRenderer::GetRequiredPipelineKeys(Request).empty());
 		EXPECT_TRUE(FEditorAssistanceRenderer::BuildDrawableOperations(Request, {}).empty());
+	}
+
+	TEST(FOverlayIconAtlasLayoutTests, UploadCoversEveryPackedIconTile)
+	{
+		EXPECT_EQ(FOverlayIconAtlasLayout::Width, 192u);
+		EXPECT_EQ(FOverlayIconAtlasLayout::Height, 64u);
+		EXPECT_EQ(FOverlayIconAtlasLayout::RowPitchBytes, 192u * 4u);
+		EXPECT_EQ(FOverlayIconAtlasLayout::PixelByteCount,
+			static_cast<size_t>(FOverlayIconAtlasLayout::RowPitchBytes)
+				* FOverlayIconAtlasLayout::Height);
+		EXPECT_EQ(FOverlayIconAtlasLayout::GetTileX(EViewOverlayIcon::Camera), 0u);
+		EXPECT_EQ(FOverlayIconAtlasLayout::GetTileX(EViewOverlayIcon::DirectionalLight), 64u);
+		EXPECT_EQ(FOverlayIconAtlasLayout::GetTileX(EViewOverlayIcon::PlayerStart)
+			+ FOverlayIconAtlasLayout::IconExtent, FOverlayIconAtlasLayout::Width);
 	}
 
 	TEST(FRendererEditorAssistanceTests, GridOnlyRequestsCurrentOffscreenPipeline)

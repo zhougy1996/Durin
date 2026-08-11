@@ -129,6 +129,13 @@ namespace Durin::Editor::Level
 		Boxes.push_back(Box);
 	}
 
+	auto FEditorVisualizationCollector::AddPrimitive(const FEditorVisualizationPrimitive& Primitive) -> void
+	{
+		if (!Primitive.Actor.IsValid() || !Primitive.Component.IsValid()
+			|| !Math::IsFinite(Primitive.LocalToWorld)) return;
+		Primitives.push_back(Primitive);
+	}
+
 	auto FEditorVisualizationCollector::AppendToView(FSceneView& View, const FEditorVisualizationHit* Hovered) const -> void
 	{
 		View.OverlayLines.reserve(View.OverlayLines.size() + Lines.size());
@@ -149,7 +156,20 @@ namespace Durin::Editor::Level
 			const FVector4f& Color = bHovered && Icon.HoverColor ? *Icon.HoverColor : Icon.Color;
 			View.OverlayIcons.push_back({Icon.Icon, Icon.WorldPosition, Color, Icon.SizePixels});
 		}
-		View.OverlayPrimitives.reserve(View.OverlayPrimitives.size() + Boxes.size());
+		View.OverlayPrimitives.reserve(
+			View.OverlayPrimitives.size() + Primitives.size() + Boxes.size());
+		for (const FEditorVisualizationPrimitive& Primitive : Primitives)
+		{
+			const AActor* Actor = Primitive.Actor.Get();
+			if (!Actor || !Primitive.Component.IsValid()) continue;
+			const bool bHovered = Hovered && Actor == Hovered->Actor
+				&& Primitive.Component.Get() == Hovered->Component
+				&& Primitive.Element == Hovered->Element;
+			const FVector4f& Color = bHovered && Primitive.HoverColor
+				? *Primitive.HoverColor : Primitive.Color;
+			View.OverlayPrimitives.push_back({
+				Primitive.Shape, Primitive.LocalToWorld, Color});
+		}
 		for (const FEditorVisualizationBox& Box : Boxes)
 		{
 			const AActor* Actor = Box.Actor.Get();
@@ -182,7 +202,17 @@ namespace Durin::Editor::Level
 			const FVector4f& Color = Actor == Hit.Actor && Icon.HoverColor ? *Icon.HoverColor : Icon.Color;
 			View.OverlayIcons.push_back({Icon.Icon, Icon.WorldPosition, Color, Icon.SizePixels});
 		}
-		View.OverlayPrimitives.reserve(View.OverlayPrimitives.size() + Boxes.size());
+		View.OverlayPrimitives.reserve(
+			View.OverlayPrimitives.size() + Primitives.size() + Boxes.size());
+		for (const FEditorVisualizationPrimitive& Primitive : Primitives)
+		{
+			const AActor* Actor = Primitive.Actor.Get();
+			if (!Actor || !Primitive.Component.IsValid()) continue;
+			const FVector4f& Color = Actor == Hit.Actor && Primitive.HoverColor
+				? *Primitive.HoverColor : Primitive.Color;
+			View.OverlayPrimitives.push_back({
+				Primitive.Shape, Primitive.LocalToWorld, Color});
+		}
 		for (const FEditorVisualizationBox& Box : Boxes)
 		{
 			const AActor* Actor = Box.Actor.Get();

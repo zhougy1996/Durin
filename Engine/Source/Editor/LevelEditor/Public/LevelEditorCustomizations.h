@@ -81,6 +81,18 @@ namespace Durin::Editor::Level
 		FEditorSubElementSelection Element;
 	};
 
+	// Describes a transformed procedural shape whose object identity controls lifetime and hover color.
+	struct FEditorVisualizationPrimitive
+	{
+		EViewOverlayShape Shape = EViewOverlayShape::Box;
+		FMatrix LocalToWorld{1.0};
+		FVector4f Color{1.0f};
+		TWeakObjectPtr<AActor> Actor;
+		TWeakObjectPtr<DActorComponent> Component;
+		std::optional<FVector4f> HoverColor;
+		FEditorSubElementSelection Element;
+	};
+
 	// Reports the highest-priority visualization hit at one viewport position.
 	struct FEditorVisualizationHit
 	{
@@ -99,17 +111,20 @@ namespace Durin::Editor::Level
 		LEVELEDITOR_API auto AddLine(const FEditorVisualizationLine& Line) -> void;
 		LEVELEDITOR_API auto AddIcon(const FEditorVisualizationIcon& Icon) -> void;
 		LEVELEDITOR_API auto AddBox(const FEditorVisualizationBox& Box) -> void;
+		LEVELEDITOR_API auto AddPrimitive(const FEditorVisualizationPrimitive& Primitive) -> void;
 		LEVELEDITOR_API auto AppendToView(FSceneView& View, const FEditorVisualizationHit* Hovered = nullptr) const -> void;
 		LEVELEDITOR_API auto AppendToView(FSceneView& View, const AActor* HoveredActor) const -> void;
 		LEVELEDITOR_API auto HitTest(const FSceneView& View, const FVector2f& ViewportPosition) const -> FEditorVisualizationHit;
 		auto GetLines() const -> const std::vector<FEditorVisualizationLine>& { return Lines; }
 		auto GetIcons() const -> const std::vector<FEditorVisualizationIcon>& { return Icons; }
 		auto GetBoxes() const -> const std::vector<FEditorVisualizationBox>& { return Boxes; }
+		auto GetPrimitives() const -> const std::vector<FEditorVisualizationPrimitive>& { return Primitives; }
 
 	private:
 		std::vector<FEditorVisualizationLine> Lines;
 		std::vector<FEditorVisualizationIcon> Icons;
 		std::vector<FEditorVisualizationBox> Boxes;
+		std::vector<FEditorVisualizationPrimitive> Primitives;
 	};
 
 	// Defines a component-specific producer of editor viewport overlays.

@@ -57,12 +57,13 @@ namespace Durin
 			FVector4f Color{1.0f};
 		};
 
-		auto BuildAtlasPixels() -> std::array<uint8, 192 * 64 * 4>
+		auto BuildAtlasPixels()
+			-> std::array<uint8, FOverlayIconAtlasLayout::PixelByteCount>
 		{
-			constexpr uint32 Size = 64;
+			constexpr uint32 Size = FOverlayIconAtlasLayout::IconExtent;
 			constexpr uint32 SamplesPerAxis = 4;
-			constexpr uint32 AtlasWidth = Size * 3;
-			std::array<uint8, AtlasWidth * Size * 4> Pixels{};
+			constexpr uint32 AtlasWidth = FOverlayIconAtlasLayout::Width;
+			std::array<uint8, FOverlayIconAtlasLayout::PixelByteCount> Pixels{};
 			auto InsideCircle = [](
 				float X,
 				float Y,
@@ -209,8 +210,10 @@ namespace Durin
 			{
 				if (!std::isfinite(Icon.SizePixels) || Icon.SizePixels <= 0.0f)
 					continue;
-				const float MinU = static_cast<float>(Icon.Icon) / 3.0f;
-				const float MaxU = MinU + 1.0f / 3.0f;
+				const float MinU = FOverlayIconAtlasLayout::GetMinU(Icon.Icon);
+				const float MaxU = MinU
+					+ static_cast<float>(FOverlayIconAtlasLayout::IconExtent)
+						/ FOverlayIconAtlasLayout::Width;
 				const FVector4 Clip =
 					View.ViewProjectionMatrix
 					* FVector4(Icon.WorldPosition, 1.0);
@@ -430,8 +433,8 @@ namespace Durin
 				FRHITextureCreateDesc TextureDesc =
 					FRHITextureCreateDesc::Create2D(
 						"EditorOverlayIconAtlas",
-						192,
-						64,
+						FOverlayIconAtlasLayout::Width,
+						FOverlayIconAtlasLayout::Height,
 						EPixelFormat::RGBA8_UNORM)
 						.SetFlags(ETextureCreateFlags::ShaderResource);
 				Candidate.Atlas =
@@ -439,14 +442,16 @@ namespace Durin
 				if (Candidate.Atlas != nullptr)
 				{
 					const FUpdateTextureRegion2D Region(
-						0, 0, 0, 0, 128, 64);
+						0, 0, 0, 0,
+						FOverlayIconAtlasLayout::Width,
+						FOverlayIconAtlasLayout::Height);
 					GDynamicRHI->RHIUpdateTexture2D(
 						CommandList,
 						Candidate.Atlas,
 						0,
 						0,
 						Region,
-						128 * 4,
+						FOverlayIconAtlasLayout::RowPitchBytes,
 						Pixels.data());
 				}
 				Candidate.AtlasSampler =
