@@ -1,4 +1,4 @@
 Game:
-  DefaultLevel: /Game/Levels/ThirdPersonTest
+  DefaultLevel: /Game/Levels/GrayboxStage15
   NativeModule: Sandbox
   GameModeClass: Durin::Sandbox::ADefaultGameMode
