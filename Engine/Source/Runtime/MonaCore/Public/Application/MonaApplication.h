@@ -32,6 +32,12 @@ namespace Durin::Mona
 
 		MONACORE_API auto Tick() -> void override;
 
+		// Samples platform input before gameplay consumes the current frame.
+		MONACORE_API auto PumpPlatformEvents() -> void;
+
+		// Advances application time and widgets after gameplay has updated.
+		MONACORE_API auto TickUI() -> void;
+
 		MONACORE_API auto GetActiveTopLevelWindow() -> std::shared_ptr<MWindow>;
 
 		MONACORE_API auto AddWindow(std::shared_ptr<MWindow> InMonaWindow, bool bShowImmediately) -> std::shared_ptr<MWindow>;
@@ -50,7 +56,7 @@ namespace Durin::Mona
 
 		MONACORE_API auto OnWindowCloseRequested(const std::shared_ptr<FGenericWindow>& PlatformWindow) -> void;
 
-		MONACORE_API auto PollEvents();
+		MONACORE_API auto PollEvents() -> void;
 
 		MONACORE_API auto WaitForEvents(double TimeoutSeconds) const -> void;
 
@@ -108,8 +114,6 @@ namespace Durin::Mona
 		FMonaApplication();
 
 		auto MakeWindow(const std::shared_ptr<MWindow>& InMonaWindow, bool bInShowImmediately) -> std::shared_ptr<FGenericWindow>;
-
-		auto TickPlatform() -> void;
 
 		auto TickTime() -> void;
 

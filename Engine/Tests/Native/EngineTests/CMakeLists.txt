@@ -326,7 +326,9 @@ durin_add_engine_functional_test(LaunchStorageTests
 
 durin_add_engine_functional_test(LaunchArgumentTests
 	RUNTIME_STACK_RATIONALE "Exercises the pure Launch command-line grammar and semantic policy."
-	SOURCES Private/Launch/LaunchArgumentsTests.cpp
+	SOURCES
+		Private/Launch/LaunchArgumentsTests.cpp
+		Private/Launch/EngineFramePhaseTests.cpp
 	PRIVATE_SOURCES
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Launch/Private/LaunchArguments.cpp
 )

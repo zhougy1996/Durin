@@ -26,6 +26,7 @@
 #include "EngineAssetServices.h"
 
 #include "EngineFrame.h"
+#include "EngineFramePhases.h"
 #include "RuntimeStorage.h"
 #include "Windows/WindowsProcessCrashHandler.h"
 
@@ -238,28 +239,31 @@ namespace Durin
 		check(State == EEngineLoopState::Running);
 		DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.Tick");
 		constexpr double MinimizedTickIntervalSeconds = 1.0 / 20.0;
-
-		// Game logic.
-		const double CurrentTime = FTime::Seconds();
-		const float DeltaSeconds = static_cast<float>(std::clamp(CurrentTime - LastTickTime, 0.0, 0.1));
-		LastTickTime = CurrentTime;
-		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.GameLogic");
-			GEngine->Tick(DeltaSeconds, false);
-		}
-		Diagnostics.Tick();
-		PumpGameThreadDeferredWork();
-		PumpEngineAssetServiceCompletions();
-		GFrameCounter++;
-
-		// Process application events, and paint UI.
 		auto& Application = Mona::FMonaApplication::Get();
-		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.Application");
-			Application.Tick();
-		}
-
-		if (GIsRequestingExit) return;
+		const bool bContinueFrame = RunInteractiveFramePhases(
+			[&Application]() {
+				DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.PlatformInput");
+				Application.PumpPlatformEvents();
+			},
+			[this]() {
+				const double CurrentTime = FTime::Seconds();
+				const float DeltaSeconds = static_cast<float>(std::clamp(CurrentTime - LastTickTime, 0.0, 0.1));
+				LastTickTime = CurrentTime;
+				{
+					DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.GameLogic");
+					GEngine->Tick(DeltaSeconds, false);
+				}
+				Diagnostics.Tick();
+				PumpGameThreadDeferredWork();
+				PumpEngineAssetServiceCompletions();
+				GFrameCounter++;
+			},
+			[&Application]() {
+				DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.ApplicationUI");
+				Application.TickUI();
+			},
+			[]() { return GIsRequestingExit; });
+		if (!bContinueFrame) return;
 
 		const bool bAllWindowsMinimized = Application.AreAllWindowsMinimized();
 		if (!bAllWindowsMinimized)

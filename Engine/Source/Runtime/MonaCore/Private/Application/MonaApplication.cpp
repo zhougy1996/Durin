@@ -77,7 +77,18 @@ namespace Durin::Mona
 
 	auto FMonaApplication::Tick() -> void
 	{
-		TickPlatform();
+		PumpPlatformEvents();
+		TickUI();
+	}
+
+	auto FMonaApplication::PumpPlatformEvents() -> void
+	{
+		PollEvents();
+		ProcessDeferredEvents();
+	}
+
+	auto FMonaApplication::TickUI() -> void
+	{
 		TickTime();
 		TickAndDrawWidgets();
 	}
@@ -199,7 +210,7 @@ namespace Durin::Mona
 		DestroyWindowsImmediately();
 	}
 
-	auto FMonaApplication::PollEvents()
+	auto FMonaApplication::PollEvents() -> void
 	{
 		if (Windows.empty())
 		{
@@ -398,12 +409,6 @@ namespace Durin::Mona
 		}
 
 		return NewWindow;
-	}
-
-	auto FMonaApplication::TickPlatform() -> void
-	{
-		PollEvents();
-		ProcessDeferredEvents();
 	}
 
 	auto FMonaApplication::TickTime() -> void
