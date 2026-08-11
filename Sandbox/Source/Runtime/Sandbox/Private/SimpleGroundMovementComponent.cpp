@@ -122,7 +122,7 @@ namespace Durin::Sandbox
 		auto* Pawn = Cast<APlayerPawn>(GetPawnOwner());
 		if (!Pawn || !GetPawnWorld(*Pawn) || !std::isfinite(DeltaSeconds) || DeltaSeconds <= 0.0f) return;
 		const double StepSeconds = std::min(DeltaSeconds, GameplayTuning::MaximumDeltaSeconds);
-		Pawn->ApplyLookIntent(Intent.Look);
+		const bool bYawChanged = Pawn->ConsumeLookIntent(Intent.Look);
 
 		FVector2 MoveInput = Intent.Move;
 		const double InputLength = Math::Length(MoveInput);
@@ -218,7 +218,15 @@ namespace Durin::Sandbox
 
 		FTransform Transform = Pawn->GetActorTransform();
 		Transform.Translation += AcceptedOffset;
+		if (bYawChanged)
+		{
+			Transform.Rotation = Math::MakeQuaternionFromAxisAngleDegrees(
+				Pawn->GetYawDegrees(), FVectorConstants::Up);
+		}
 		SetVelocity(Velocity);
-		verify(Pawn->SetActorTransform(Transform));
+		if (bYawChanged || Math::LengthSquared(AcceptedOffset) > 0.0)
+		{
+			verify(Pawn->SetActorTransform(Transform));
+		}
 	}
 }

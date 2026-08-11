@@ -58,16 +58,21 @@ namespace Durin::Sandbox
 		Super::BeginPlay();
 	}
 
-	auto APlayerPawn::ApplyLookIntent(const FVector2& Look) -> void
+	auto APlayerPawn::ConsumeLookIntent(const FVector2& Look) -> bool
 	{
+		if (Look.x == 0.0 && Look.y == 0.0) return false;
+		const double PreviousYawDegrees = YawDegrees;
+		const double PreviousPitchDegrees = PitchDegrees;
 		YawDegrees += Look.x * GameplayTuning::LookDegreesPerIntent;
 		PitchDegrees = std::clamp(
 			PitchDegrees + Look.y * GameplayTuning::LookDegreesPerIntent,
 			GameplayTuning::MinimumPitchDegrees,
 			GameplayTuning::MaximumPitchDegrees);
-		GetRootComponent()->SetRelativeRotation(Math::MakeQuaternionFromAxisAngleDegrees(
-			YawDegrees, FVectorConstants::Up));
-		CameraComponent->SetRelativeRotation(Math::MakeQuaternionFromAxisAngleDegrees(
-			-PitchDegrees, FVectorConstants::Right));
+		if (PitchDegrees != PreviousPitchDegrees)
+		{
+			CameraComponent->SetRelativeRotation(Math::MakeQuaternionFromAxisAngleDegrees(
+				-PitchDegrees, FVectorConstants::Right));
+		}
+		return YawDegrees != PreviousYawDegrees;
 	}
 }

@@ -1,4 +1,5 @@
 #include "WorldTestSupport.h"
+#include "DObject/Package.h"
 #include "Math/Operations.h"
 
 TEST(FDirectionalLightTests, SceneDataRemainsDarkUntilPopulatedByAComponent)
@@ -125,6 +126,37 @@ TEST(FSceneComponentTests, ConvertsWorldAndRelativeTransformsAcrossHierarchy)
 	EXPECT_TRUE(Durin::Math::AreRotationsEquivalent(Reconstructed.Rotation, DesiredWorld.Rotation, 1.e-8));
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
+}
+
+TEST(FSceneComponentTests, EqualTransformSettersDoNotDirtyTheOwningPackage)
+{
+	InitializeDObjectSystem();
+	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "SceneComponentLevels";
+	static std::unordered_set<std::filesystem::path> InitializedRoots;
+	if (InitializedRoots.insert(Root).second)
+	{
+		Durin::Testing::RemoveTestWorkDirectory(Root);
+		Durin::PathUtilities::RegisterMountPointForTests("/SceneComponentTests/", Root.generic_string() + "/");
+	}
+
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SceneComponentTests/EqualTransformSetters", Path));
+	Durin::DLevel* Level = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Level));
+	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
+	ASSERT_NE(Actor, nullptr);
+	Durin::DSceneComponent* RootComponent = Actor->GetRootComponent();
+	ASSERT_NE(RootComponent, nullptr);
+	RootComponent->SetRelativeLocation(Durin::FVector3(1.0, 2.0, 3.0));
+	Durin::DPackage* Package = Level->GetPackage();
+	ASSERT_NE(Package, nullptr);
+	const Durin::uint64 Revision = Package->GetEditRevision();
+
+	RootComponent->SetRelativeTransform(RootComponent->GetRelativeTransform());
+	RootComponent->SetWorldTransform(RootComponent->GetWorldTransform());
+
+	EXPECT_EQ(Package->GetEditRevision(), Revision);
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
 }
 
 TEST(FSceneComponentTests, SupportsInstanceComponentTreesWithinOneActor)

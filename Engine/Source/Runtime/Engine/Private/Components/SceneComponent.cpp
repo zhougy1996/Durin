@@ -14,6 +14,13 @@ namespace Durin
 		{
 			return Event.Phase != EPropertyChangePhase::Committed || Event.Origin != EPropertyChangeOrigin::Edit;
 		}
+
+		auto AreTransformsEqual(const FTransform& Left, const FTransform& Right) -> bool
+		{
+			return Left.Translation == Right.Translation
+				&& Left.Rotation == Right.Rotation
+				&& Left.Scale3D == Right.Scale3D;
+		}
 	}
 
 	auto DSceneComponent::OnRegister() -> void
@@ -78,8 +85,10 @@ namespace Durin
 
 	auto DSceneComponent::SetRelativeTransform(const FTransform& InTransform) -> void
 	{
-		RelativeTransform = InTransform;
-		RelativeTransform.Rotation = Math::Normalize(RelativeTransform.Rotation);
+		FTransform NewRelativeTransform = InTransform;
+		NewRelativeTransform.Rotation = Math::Normalize(NewRelativeTransform.Rotation);
+		if (AreTransformsEqual(RelativeTransform, NewRelativeTransform)) return;
+		RelativeTransform = NewRelativeTransform;
 		UpdateComponentToWorld();
 		MarkPackageDirty();
 	}
@@ -91,15 +100,22 @@ namespace Durin
 
 	auto DSceneComponent::SetWorldTransform(const FTransform& InTransform) -> void
 	{
+		FTransform NewWorldTransform = InTransform;
+		NewWorldTransform.Rotation = Math::Normalize(NewWorldTransform.Rotation);
+		if (AreTransformsEqual(ComponentToWorld, NewWorldTransform)) return;
+
+		FTransform NewRelativeTransform;
 		if (DSceneComponent* Parent = AttachParent.Get())
 		{
-			RelativeTransform = FTransform::MakeRelative(InTransform, Parent->GetWorldTransform());
+			NewRelativeTransform = FTransform::MakeRelative(InTransform, Parent->GetWorldTransform());
 		}
 		else
 		{
-			RelativeTransform = InTransform;
+			NewRelativeTransform = InTransform;
 		}
-		RelativeTransform.Rotation = Math::Normalize(RelativeTransform.Rotation);
+		NewRelativeTransform.Rotation = Math::Normalize(NewRelativeTransform.Rotation);
+		if (AreTransformsEqual(RelativeTransform, NewRelativeTransform)) return;
+		RelativeTransform = NewRelativeTransform;
 		UpdateComponentToWorld();
 		MarkPackageDirty();
 	}

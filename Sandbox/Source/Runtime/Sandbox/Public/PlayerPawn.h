@@ -32,10 +32,10 @@ namespace Durin::Sandbox
 		auto GetYawDegrees() const -> double { return YawDegrees; }
 		auto GetPitchDegrees() const -> double { return PitchDegrees; }
 
-		// Applies one already-bounded semantic look sample to pawn yaw and camera pitch.
-		SANDBOX_API auto ApplyLookIntent(const FVector2& Look) -> void;
-
 	private:
+		// Updates look state and camera pitch, returning whether root yaw needs to be committed.
+		auto ConsumeLookIntent(const FVector2& Look) -> bool;
+
 		DPROPERTY()
 		TObjectPtr<DSimpleGroundMovementComponent> GroundMovementComponent;
 
@@ -50,5 +50,7 @@ namespace Durin::Sandbox
 
 		double YawDegrees = 0.0;
 		double PitchDegrees = 0.0;
+
+		friend class DSimpleGroundMovementComponent;
 	};
 }

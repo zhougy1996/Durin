@@ -381,6 +381,16 @@ TEST(FSandboxGameplayMovementTests, AcceleratesJumpsLandsAndAppliesBoundedLook)
 	EXPECT_GT(Pawn->GetGroundMovementComponent()->GetVelocity().z, 0.0);
 	EXPECT_DOUBLE_EQ(Pawn->GetYawDegrees(), Durin::Sandbox::GameplayTuning::LookDegreesPerIntent);
 	EXPECT_DOUBLE_EQ(Pawn->GetPitchDegrees(), Durin::Sandbox::GameplayTuning::LookDegreesPerIntent);
+	EXPECT_TRUE(Durin::Math::AreRotationsEquivalent(
+		Pawn->GetActorTransform().Rotation,
+		Durin::Math::MakeQuaternionFromAxisAngleDegrees(
+			Pawn->GetYawDegrees(), Durin::FVectorConstants::Up),
+		1.e-8));
+	EXPECT_TRUE(Durin::Math::AreRotationsEquivalent(
+		Pawn->GetCameraComponent()->GetRelativeRotation(),
+		Durin::Math::MakeQuaternionFromAxisAngleDegrees(
+			-Pawn->GetPitchDegrees(), Durin::FVectorConstants::Right),
+		1.e-8));
 	Durin::FGameInputStateTestAccess::FinishTick(Input);
 	for (int Frame = 0; Frame < 120; ++Frame)
 	{
