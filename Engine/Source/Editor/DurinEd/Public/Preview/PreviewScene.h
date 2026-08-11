@@ -8,7 +8,10 @@ namespace Durin
 	class DLevel;
 	class DWorld;
 	class IScene;
+}
 
+namespace Durin::Editor
+{
 	// Owns an editor-only renderer scene and the ordinary preview world that feeds it.
 	class FPreviewScene
 	{
@@ -35,4 +38,4 @@ namespace Durin
 		TObjectPtr<DLevel> Level;
 		std::string Error;
 	};
-} // namespace Durin
+} // namespace Durin::Editor

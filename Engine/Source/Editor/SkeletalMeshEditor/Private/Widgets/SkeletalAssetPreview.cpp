@@ -122,7 +122,7 @@ namespace Durin
 	public:
 		explicit FImpl(uint64 PreviewId)
 		{
-			PreviewScene = std::make_unique<FPreviewScene>(FName(std::format("SkeletalAssetPreview_{}", PreviewId)));
+			PreviewScene = std::make_unique<Editor::FPreviewScene>(FName(std::format("SkeletalAssetPreview_{}", PreviewId)));
 			if (!PreviewScene->IsAvailable()) { Error = PreviewScene->GetDiagnostic(); return; }
 			AActor* Actor = PreviewScene->GetWorld()->SpawnActor<AActor>(FName(std::format("SkeletalAssetPreviewActor_{}", PreviewId)));
 			if (Actor) Actor->SetActorTickEnabled(true);
@@ -201,7 +201,7 @@ namespace Durin
 
 		auto SetVisible(bool Visible) -> void { if (ViewportClient) ViewportClient->SetEnabled(Visible); }
 		auto ComponentOrNull() const -> DSkeletalMeshComponent* { return Component; }
-		std::unique_ptr<FPreviewScene> PreviewScene;
+		std::unique_ptr<Editor::FPreviewScene> PreviewScene;
 		std::unique_ptr<FSkeletalPreviewViewportClient> ViewportClient;
 		std::shared_ptr<MViewport> ViewportWidget; std::shared_ptr<FSceneViewport> SceneViewport;
 		TObjectPtr<DSkeletalMeshComponent> Component; TObjectPtr<DDirectionalLightComponent> Light;

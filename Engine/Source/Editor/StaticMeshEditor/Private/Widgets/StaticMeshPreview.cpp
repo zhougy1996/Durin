@@ -148,7 +148,7 @@ namespace Durin
 	public:
 		explicit FImpl(uint64 PreviewId)
 		{
-			PreviewScene = std::make_unique<FPreviewScene>(FName(std::format("StaticMeshPreview_{}", PreviewId)));
+			PreviewScene = std::make_unique<Editor::FPreviewScene>(FName(std::format("StaticMeshPreview_{}", PreviewId)));
 			if (!PreviewScene->IsAvailable())
 			{
 				Error = PreviewScene->GetDiagnostic();
@@ -275,7 +275,7 @@ namespace Durin
 			if (bHovered && IO.MouseWheel != 0.0f) ViewportClient->GetController().Zoom(IO.MouseWheel);
 		}
 
-		std::unique_ptr<FPreviewScene> PreviewScene;
+		std::unique_ptr<Editor::FPreviewScene> PreviewScene;
 		std::unique_ptr<FStaticMeshPreviewViewportClient> ViewportClient;
 		std::shared_ptr<MViewport> ViewportWidget;
 		std::shared_ptr<FSceneViewport> SceneViewport;

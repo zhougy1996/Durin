@@ -116,7 +116,7 @@ namespace Durin
 	public:
 		explicit FImpl(uint64 PreviewId)
 		{
-			PreviewScene = std::make_unique<FPreviewScene>(
+			PreviewScene = std::make_unique<Editor::FPreviewScene>(
 				FName(std::format("MaterialPreview_{}", PreviewId)));
 			if (!PreviewScene->IsAvailable())
 			{
@@ -275,7 +275,7 @@ namespace Durin
 			}
 		}
 
-		std::unique_ptr<FPreviewScene> PreviewScene;
+		std::unique_ptr<Editor::FPreviewScene> PreviewScene;
 		std::unique_ptr<FMaterialPreviewViewportClient> ViewportClient;
 		std::shared_ptr<MViewport> ViewportWidget;
 		std::shared_ptr<FSceneViewport> SceneViewport;

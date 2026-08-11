@@ -33,7 +33,7 @@ checked before a peer appears in the selector. No global object scan is used.
 
 ## Preview and playback
 
-Each preview document owns one `FPreviewScene`, actor,
+Each preview document owns one `Editor::FPreviewScene`, actor,
 `DSkeletalMeshComponent`, light, viewport, and camera controller. The component
 is the production runtime component and therefore owns binding validation,
 reference pose, animation evaluation, palette publication, bounds, materials,

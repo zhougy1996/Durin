@@ -9,7 +9,7 @@
 #include "IScene.h"
 #include "RenderingThread.h"
 
-namespace Durin
+namespace Durin::Editor
 {
 	FPreviewScene::FPreviewScene(FName Name)
 	{
@@ -83,4 +83,4 @@ namespace Durin
 	{
 		if (World) World->EndPlay();
 	}
-} // namespace Durin
+} // namespace Durin::Editor
