@@ -81,3 +81,6 @@ plus the latest blocking impact normal without exposing mutable scene storage.
 The implementation is synchronous and query-only. Dynamic rigid bodies,
 forces, constraints, asynchronous stepping, moving platforms, triangle meshes,
 heightfields, overlap events, and project-defined profiles remain future work.
+The cross-plan sequencing for scalable queries, geometry, cooked collision,
+and evidence-gated simulation or backend work is maintained in the
+[Aether Physics Evolution Roadmap](../../Roadmaps/AetherPhysicsEvolution.md).
