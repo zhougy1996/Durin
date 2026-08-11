@@ -2,6 +2,8 @@
 
 #include "EngineAPI.h"
 #include "DObject/CoreDObject.h"
+#include "IScene.h"
+#include "Math/Box.h"
 
 #include "Level.gen.h"
 
@@ -9,8 +11,39 @@ namespace Durin
 {
 	class AActor;
 	class ACameraActor;
+	class DPrimitiveComponent;
 	class DSceneComponent;
 	class DWorld;
+
+#if DURIN_WITH_EDITOR
+	enum class EEditorPickingPrimitiveFamily : uint8
+	{
+		Unsupported,
+		StaticMesh,
+		SkeletalMesh
+	};
+
+	// Describes one game-thread primitive mutation without retaining reflected objects.
+	struct FEditorPickingPrimitiveMutation
+	{
+		TWeakObjectPtr<AActor> Actor;
+		TWeakObjectPtr<DPrimitiveComponent> Component;
+		FPrimitiveSceneId PrimitiveId = InvalidPrimitiveSceneId;
+		uint64 RegistrationGeneration = 0;
+		EEditorPickingPrimitiveFamily Family = EEditorPickingPrimitiveFamily::Unsupported;
+		FBox WorldBounds;
+		bool bVisible = false;
+		bool bRetired = false;
+	};
+
+	// Carries either one ordered mutation or one complete initial/recovery snapshot.
+	struct FEditorPickingPrimitiveMutationBatch
+	{
+		uint64 Revision = 0;
+		bool bCompleteSnapshot = false;
+		std::vector<FEditorPickingPrimitiveMutation> Mutations;
+	};
+#endif
 
 	// Owns an actor set, stable actor names, and the level's primary camera selection.
 	DCLASS()
@@ -43,6 +76,11 @@ namespace Durin
 
 #if DURIN_WITH_EDITOR
 		auto GetEditorActorHierarchyRevision() const -> uint64 { return EditorActorHierarchyRevision; }
+		using FEditorPickingPrimitiveObserver = std::function<void(const FEditorPickingPrimitiveMutationBatch&)>;
+		// Registers a game-thread observer and synchronously supplies one complete snapshot.
+		ENGINE_API auto SubscribeEditorPickingPrimitives(FEditorPickingPrimitiveObserver Observer) -> uint64;
+		ENGINE_API auto UnsubscribeEditorPickingPrimitives(uint64 Subscription) -> void;
+		ENGINE_API auto CaptureEditorPickingPrimitiveSnapshot() const -> FEditorPickingPrimitiveMutationBatch;
 #endif
 
 	private:
@@ -54,6 +92,7 @@ namespace Durin
 
 #if DURIN_WITH_EDITOR
 		auto NotifyEditorActorHierarchyChanged() -> void { ++EditorActorHierarchyRevision; }
+		auto NotifyEditorPickingPrimitiveChanged(DPrimitiveComponent* Component, bool bRetired = false) -> void;
 #endif
 
 		DPROPERTY()
@@ -66,10 +105,15 @@ namespace Durin
 
 #if DURIN_WITH_EDITOR
 		uint64 EditorActorHierarchyRevision = 1;
+		uint64 EditorPickingPrimitiveRevision = 1;
+		uint64 NextEditorPickingObserverId = 1;
+		bool bDispatchingEditorPickingMutation = false;
+		std::unordered_map<uint64, FEditorPickingPrimitiveObserver> EditorPickingPrimitiveObservers;
 #endif
 
 		friend class AActor;
 		friend class DSceneComponent;
+		friend class DPrimitiveComponent;
 		friend class DWorld;
 	};
 }

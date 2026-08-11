@@ -5,7 +5,12 @@
 #include "LevelEditorViewportEditing.h"
 #include "SkeletalMesh/Skeleton.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
+#include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshResources.h"
+#include "Viewport/ViewportPickingSceneIndex.h"
 #include "Viewport/ViewportPickingService.h"
+
+#include <random>
 
 namespace
 {
@@ -177,6 +182,53 @@ namespace
 				Component->GetPrimitiveSceneId().Value, Component->GetRegistrationGeneration()}}};
 		}
 	};
+
+	auto MakeStaticRequest(Durin::AStaticMeshActor* Actor) -> Durin::FViewportPickingBackendRequest
+	{
+		auto* Component = Actor->GetStaticMeshComponent();
+		return {{1}, {0.1, 0.1, 0.0}, {0.0, 0.0, 1.0},
+			{{1, Component->GetPrimitiveSceneId(), Actor, Component,
+				Component->GetPrimitiveSceneId().Value, Component->GetRegistrationGeneration()}}};
+	}
+
+	auto CreateGridStaticMesh(Durin::DLevel* Level, Durin::uint32 TriangleCount) -> Durin::DStaticMesh*
+	{
+		const Durin::uint32 CellCount = (TriangleCount + 1) / 2;
+		const Durin::uint32 Width = std::max<Durin::uint32>(1,
+			static_cast<Durin::uint32>(std::ceil(std::sqrt(static_cast<double>(CellCount)))));
+		const Durin::uint32 Height = (CellCount + Width - 1) / Width;
+		Durin::FStaticMeshImportedData Imported;
+		Imported.MaterialSlots.push_back({.Name = "Default", .SourceMaterialIndex = 0, .SourceName = "Default"});
+		auto& Mesh = Imported.Meshes.emplace_back();
+		Mesh.Name = "PickingGrid";
+		Mesh.SourceMaterialIndex = 0;
+		Mesh.Positions.reserve(static_cast<size_t>(Width + 1) * (Height + 1));
+		for (Durin::uint32 Y = 0; Y <= Height; ++Y)
+			for (Durin::uint32 X = 0; X <= Width; ++X)
+				Mesh.Positions.emplace_back(static_cast<float>(X), static_cast<float>(Y), 0.0f);
+		Mesh.Indices.reserve(static_cast<size_t>(TriangleCount) * 3);
+		for (Durin::uint32 Cell = 0; Cell < CellCount && Mesh.Indices.size() / 3 < TriangleCount; ++Cell)
+		{
+			const Durin::uint32 X = Cell % Width;
+			const Durin::uint32 Y = Cell / Width;
+			const Durin::uint32 A = Y * (Width + 1) + X;
+			const Durin::uint32 B = A + 1;
+			const Durin::uint32 C = A + Width + 1;
+			const Durin::uint32 D = C + 1;
+			Mesh.Indices.insert(Mesh.Indices.end(), {A, B, D});
+			if (Mesh.Indices.size() / 3 < TriangleCount) Mesh.Indices.insert(Mesh.Indices.end(), {A, D, C});
+		}
+		auto* Result = Durin::NewObject<Durin::DStaticMesh>(Level,
+			std::format("PickingGrid{}", TriangleCount));
+		std::string Error;
+		if (!Result->InitializeFromImportedData(Imported,
+			{.SourcePath = {.Path = std::format("/Tests/PickingGrid{}.fixture", TriangleCount)},
+				.SourceContentHash = "0123456789abcdef0123456789abcdef",
+				.ImporterId = "ViewportPickingFixture", .ImporterVersion = 1,
+				.ImportSettings = Durin::FStaticMeshImportSettings::MakeDurin()},
+			"viewport picking grid", Error)) throw std::runtime_error(Error);
+		return Result;
+	}
 }
 
 TEST(FViewportPickingContractTests, AppliesFrozenCrossFamilyOrdering)
@@ -330,6 +382,10 @@ TEST(FViewportPickingContractTests, KeepsViewportTicketAndCompletionStateIndepen
 	FPickingFixture Fixture;
 	Durin::FLevelEditorViewportClient SecondClient;
 	SecondClient.InitializeForLevel(Fixture.Level);
+	auto SharedIndex = std::make_shared<Durin::FViewportPickingSceneIndex>();
+	SharedIndex->SetLevel(Fixture.Level);
+	Fixture.Client.SetPickingSceneIndex(SharedIndex);
+	SecondClient.SetPickingSceneIndex(SharedIndex);
 	auto FirstState = std::make_shared<FFakePickingState>();
 	auto SecondState = std::make_shared<FFakePickingState>();
 	Fixture.Client.SetPickingBackendForTesting(std::make_unique<FControlledPickingBackend>(FirstState));
@@ -341,6 +397,8 @@ TEST(FViewportPickingContractTests, KeepsViewportTicketAndCompletionStateIndepen
 	FirstState->CompleteFirst(FirstPick.Ticket);
 	EXPECT_EQ(Fixture.Client.PollViewportPick(FirstPick.Ticket).Status, Durin::EViewportPickStatus::Completed);
 	EXPECT_EQ(SecondClient.PollViewportPick(SecondPick.Ticket).Status, Durin::EViewportPickStatus::Pending);
+	EXPECT_EQ(SharedIndex->GetDiagnostics().SnapshotBuilds, 1u);
+	EXPECT_EQ(SharedIndex->GetDiagnostics().CandidatePrimitives, 2u);
 }
 
 TEST(FViewportPickingContractTests, PicksCurrentPoseWithNonContiguousPaletteAndMixedInfluences)
@@ -627,4 +685,270 @@ TEST(FViewportPickingContractTests, ResolvesExactIdentityAcrossMultipleSkeletalC
 	ASSERT_TRUE(Completion.Hit);
 	EXPECT_EQ(Completion.Hit->Token, 3u);
 	EXPECT_EQ(Completion.Diagnostics.ApplicableSkeletalTargets, 3u);
+}
+
+TEST(FViewportPickingContractTests, SceneIndexTracksOrderedPrimitiveMutationsAndReducesSparseCandidates)
+{
+	FPickingFixture Fixture;
+	auto Index = std::make_shared<Durin::FViewportPickingSceneIndex>();
+	Index->SetLevel(Fixture.Level);
+	Fixture.Client.SetPickingSceneIndex(Index);
+	auto State = std::make_shared<FFakePickingState>();
+	Fixture.Client.SetPickingBackendForTesting(std::make_unique<FControlledPickingBackend>(State));
+	auto* SharedMesh = Fixture.Actor->GetStaticMeshComponent()->GetStaticMesh();
+	for (Durin::uint32 ActorIndex = 0; ActorIndex < 100; ++ActorIndex)
+	{
+		auto* Actor = Fixture.Level->SpawnActor<Durin::AStaticMeshActor>(
+			Durin::FName(std::format("Sparse{}", ActorIndex)));
+		ASSERT_NE(Actor, nullptr);
+		Actor->GetStaticMeshComponent()->SetStaticMesh(SharedMesh);
+		Actor->GetStaticMeshComponent()->SetWorldLocation({100.0 + ActorIndex * 2.0, 100.0, 3.0});
+	}
+
+	const auto Submit = [&]
+	{
+		const auto Pick = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
+		return State->Requests.at(Pick.Ticket.Id).Targets.size();
+	};
+	EXPECT_EQ(Submit(), 1u);
+	const Durin::FVector3 Original = Fixture.Actor->GetStaticMeshComponent()->GetWorldLocation();
+	Fixture.Actor->GetStaticMeshComponent()->SetWorldLocation(Original + Durin::FVector3(1000.0, 0.0, 0.0));
+	EXPECT_EQ(Submit(), 0u);
+	Fixture.Actor->GetStaticMeshComponent()->SetWorldLocation(Original);
+	EXPECT_EQ(Submit(), 1u);
+	Fixture.Actor->SetHidden(true);
+	EXPECT_EQ(Submit(), 0u);
+	Fixture.Actor->SetHidden(false);
+	EXPECT_EQ(Submit(), 1u);
+	Fixture.Actor->GetStaticMeshComponent()->UnregisterComponent();
+	EXPECT_EQ(Submit(), 0u);
+	Fixture.Actor->GetStaticMeshComponent()->RegisterComponent();
+	EXPECT_EQ(Submit(), 1u);
+	EXPECT_GT(Index->GetDiagnostics().Mutations, 0u);
+	EXPECT_GT(Index->GetDiagnostics().Rebuilds, 0u);
+	EXPECT_LE(Index->GetDiagnostics().CandidatePrimitives, 5u);
+}
+
+TEST(FViewportPickingContractTests, StaticAccelerationReusesAssetDataAndMatchesReferenceAndComparePolicies)
+{
+	FPickingFixture Fixture;
+	Fixture.Actor->GetStaticMeshComponent()->SetWorldLocation({0.0, 0.0, 3.0});
+	const auto* Data = Fixture.Actor->GetStaticMeshComponent()->GetStaticMesh()->GetRenderData();
+	ASSERT_NE(Data, nullptr);
+	ASSERT_FALSE(Data->LODResources.empty());
+	ASSERT_TRUE(Data->LODResources[0].RayQueryAcceleration);
+	auto* Other = Fixture.Level->SpawnActor<Durin::AStaticMeshActor>("SharedAcceleration");
+	ASSERT_NE(Other, nullptr);
+	Other->GetStaticMeshComponent()->SetStaticMesh(Fixture.Actor->GetStaticMeshComponent()->GetStaticMesh());
+	EXPECT_EQ(Other->GetStaticMeshComponent()->GetStaticMesh()->GetRenderData()->LODResources[0].RayQueryAcceleration,
+		Data->LODResources[0].RayQueryAcceleration);
+
+	const Durin::FViewportPickingBackendRequest Request = MakeStaticRequest(Fixture.Actor);
+	const auto Reference = Durin::MakeViewportPickingBackend(
+		Durin::EViewportPickingBackendPolicy::Reference)->Submit(Request);
+	const auto Accelerated = Durin::MakeViewportPickingBackend(
+		Durin::EViewportPickingBackendPolicy::Accelerated)->Submit(Request);
+	const auto Compared = Durin::MakeViewportPickingBackend(
+		Durin::EViewportPickingBackendPolicy::Compare)->Submit(Request);
+	ASSERT_TRUE(Reference.Hit);
+	ASSERT_TRUE(Accelerated.Hit);
+	ASSERT_TRUE(Compared.Hit);
+	EXPECT_EQ(Reference.Hit->Token, Accelerated.Hit->Token);
+	EXPECT_DOUBLE_EQ(Reference.Hit->Distance, Accelerated.Hit->Distance);
+	EXPECT_EQ(Compared.Diagnostics.ParityMismatches, 0u);
+	EXPECT_EQ(Reference.Diagnostics.StaticTestedTriangles, 1u);
+	EXPECT_EQ(Accelerated.Diagnostics.StaticCandidateTriangles, 1u);
+	EXPECT_EQ(Accelerated.Diagnostics.StaticReferenceFallbacks, 0u);
+	auto& MutableAcceleration = const_cast<Durin::FStaticMeshLODResources&>(Data->LODResources[0]).RayQueryAcceleration;
+	const auto SavedAcceleration = MutableAcceleration;
+	MutableAcceleration.reset();
+	const auto Fallback = Durin::MakeViewportPickingBackend(
+		Durin::EViewportPickingBackendPolicy::Accelerated)->Submit(Request);
+	ASSERT_TRUE(Fallback.Hit);
+	EXPECT_EQ(Fallback.Hit->Token, Reference.Hit->Token);
+	EXPECT_DOUBLE_EQ(Fallback.Hit->Distance, Reference.Hit->Distance);
+	EXPECT_EQ(Fallback.Diagnostics.StaticReferenceFallbacks, 1u);
+	MutableAcceleration = SavedAcceleration;
+}
+
+TEST(FViewportPickingContractTests, RandomizedStaticCompareIsIndependentOfTargetOrder)
+{
+	FPickingFixture Fixture;
+	Durin::DStaticMesh* Mesh = Fixture.Actor->GetStaticMeshComponent()->GetStaticMesh();
+	std::mt19937 Generator(0x5A17C3u);
+	std::uniform_real_distribution<double> Position(-8.0, 8.0);
+	std::vector<Durin::AStaticMeshActor*> Actors{Fixture.Actor};
+	for (Durin::uint32 Index = 1; Index < 96; ++Index)
+	{
+		auto* Actor = Fixture.Level->SpawnActor<Durin::AStaticMeshActor>(Durin::FName(std::format("Random{}", Index)));
+		ASSERT_NE(Actor, nullptr);
+		Actor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
+		Actors.push_back(Actor);
+	}
+	for (Durin::uint32 Iteration = 0; Iteration < 32; ++Iteration)
+	{
+		Durin::FViewportPickingBackendRequest Request{{Iteration + 1}, {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}};
+		for (size_t Index = 0; Index < Actors.size(); ++Index)
+		{
+			auto* Component = Actors[Index]->GetStaticMeshComponent();
+			Component->SetWorldLocation({Position(Generator), Position(Generator), 1.0 + std::abs(Position(Generator))});
+			Component->SetWorldScale3D({Iteration % 3 == 0 ? -1.0 : 1.0, 0.5 + (Index % 4), 1.0});
+			Request.Targets.push_back({static_cast<Durin::uint32>(Index + 1), Component->GetPrimitiveSceneId(),
+				Actors[Index], Component, static_cast<Durin::uint64>(Index), Component->GetRegistrationGeneration()});
+		}
+		if ((Iteration & 1u) != 0) std::ranges::reverse(Request.Targets);
+		const auto Completion = Durin::MakeViewportPickingBackend(
+			Durin::EViewportPickingBackendPolicy::Compare)->Submit(std::move(Request));
+		EXPECT_EQ(Completion.Status, Durin::EViewportPickStatus::Completed);
+		EXPECT_EQ(Completion.Diagnostics.ParityMismatches, 0u);
+	}
+}
+
+TEST(FViewportPickingContractTests, RepresentativeStaticTriangleCountsBuildAndCompareDeterministically)
+{
+	FPickingFixture Fixture;
+	Fixture.Actor->GetStaticMeshComponent()->SetWorldLocation({0.0, 0.0, 3.0});
+	for (Durin::uint32 TriangleCount : {10'000u, 250'000u})
+	{
+		Durin::DStaticMesh* Mesh = CreateGridStaticMesh(Fixture.Level, TriangleCount);
+		Fixture.Actor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
+		const auto* Data = Mesh->GetRenderData();
+		ASSERT_NE(Data, nullptr);
+		ASSERT_TRUE(Data->LODResources[0].RayQueryAcceleration);
+		const auto Completion = Durin::MakeViewportPickingBackend(
+			Durin::EViewportPickingBackendPolicy::Compare)->Submit(MakeStaticRequest(Fixture.Actor));
+		ASSERT_TRUE(Completion.Hit);
+		EXPECT_EQ(Completion.Diagnostics.ParityMismatches, 0u);
+		EXPECT_LE(Completion.Diagnostics.StaticCandidateTriangles,
+			std::max<Durin::uint32>(1, TriangleCount / 100));
+		RecordProperty(std::format("triangles_{}_bytes", TriangleCount),
+			std::to_string(Data->LODResources[0].RayQueryAcceleration->RetainedBytes));
+		RecordProperty(std::format("triangles_{}_build_ns", TriangleCount),
+			std::to_string(Data->LODResources[0].RayQueryAcceleration->BuildNanoseconds));
+	}
+}
+
+TEST(FViewportPickingContractTests, MillionTriangleFixtureMeetsDeterministicCandidateAndMemoryGates)
+{
+	FPickingFixture Fixture;
+	constexpr Durin::uint32 TriangleCount = 1'000'000;
+	Durin::DStaticMesh* Mesh = CreateGridStaticMesh(Fixture.Level, TriangleCount);
+	ASSERT_NE(Mesh, nullptr);
+	Fixture.Actor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
+	Fixture.Actor->GetStaticMeshComponent()->SetWorldLocation({0.0, 0.0, 3.0});
+	const auto* Data = Mesh->GetRenderData();
+	ASSERT_NE(Data, nullptr);
+	ASSERT_TRUE(Data->LODResources[0].RayQueryAcceleration);
+	EXPECT_LE(Data->LODResources[0].RayQueryAcceleration->RetainedBytes,
+		Durin::MaximumStaticMeshRayQueryAccelerationBytes);
+	RecordProperty("static_acceleration_bytes",
+		std::to_string(Data->LODResources[0].RayQueryAcceleration->RetainedBytes));
+	RecordProperty("static_acceleration_build_ns",
+		std::to_string(Data->LODResources[0].RayQueryAcceleration->BuildNanoseconds));
+
+	const Durin::FViewportPickingBackendRequest Request = MakeStaticRequest(Fixture.Actor);
+	auto AcceleratedBackend = Durin::MakeViewportPickingBackend(Durin::EViewportPickingBackendPolicy::Accelerated);
+	const auto Warm = AcceleratedBackend->Submit(Request);
+	ASSERT_TRUE(Warm.Hit);
+	EXPECT_LE(Warm.Diagnostics.StaticCandidateTriangles, TriangleCount / 100);
+	EXPECT_LE(Warm.Diagnostics.StaticTestedTriangles, TriangleCount / 100);
+	RecordProperty("accelerated_candidate_triangles", std::to_string(Warm.Diagnostics.StaticCandidateTriangles));
+	const auto Measure = [&Request](Durin::EViewportPickingBackendPolicy Policy)
+	{
+		auto Backend = Durin::MakeViewportPickingBackend(Policy);
+		std::array<Durin::uint64, 3> Samples{};
+		for (Durin::uint64& Sample : Samples)
+		{
+			const auto Start = std::chrono::steady_clock::now();
+			const auto Completion = Backend->Submit(Request);
+			const auto End = std::chrono::steady_clock::now();
+			if (!Completion.Hit) throw std::runtime_error("timed picking query missed");
+			Sample = static_cast<Durin::uint64>(
+				std::chrono::duration_cast<std::chrono::nanoseconds>(End - Start).count());
+		}
+		std::ranges::sort(Samples);
+		return Samples[1];
+	};
+	const Durin::uint64 ReferenceNanoseconds = Measure(Durin::EViewportPickingBackendPolicy::Reference);
+	const Durin::uint64 AcceleratedNanoseconds = Measure(Durin::EViewportPickingBackendPolicy::Accelerated);
+	RecordProperty("reference_median_ns", std::to_string(ReferenceNanoseconds));
+	RecordProperty("accelerated_median_ns", std::to_string(AcceleratedNanoseconds));
+	EXPECT_LE(AcceleratedNanoseconds, ReferenceNanoseconds / 4);
+	const auto Compared = Durin::MakeViewportPickingBackend(
+		Durin::EViewportPickingBackendPolicy::Compare)->Submit(Request);
+	ASSERT_TRUE(Compared.Hit);
+	EXPECT_EQ(Compared.Diagnostics.ParityMismatches, 0u);
+}
+
+TEST(FViewportPickingContractTests, TenThousandPrimitiveSparseFixtureMeetsSceneCandidateAndMemoryGates)
+{
+	FPickingFixture Fixture;
+	Durin::DStaticMesh* Mesh = Fixture.Actor->GetStaticMeshComponent()->GetStaticMesh();
+	auto Index = std::make_shared<Durin::FViewportPickingSceneIndex>();
+	Index->SetLevel(Fixture.Level);
+	Fixture.Client.SetPickingSceneIndex(Index);
+	auto State = std::make_shared<FFakePickingState>();
+	Fixture.Client.SetPickingBackendForTesting(std::make_unique<FControlledPickingBackend>(State));
+	for (Durin::uint32 ActorIndex = 1; ActorIndex < 10'000; ++ActorIndex)
+	{
+		auto* Actor = Fixture.Level->SpawnActor<Durin::AStaticMeshActor>(Durin::FName(std::format("LargeSparse{}", ActorIndex)));
+		ASSERT_NE(Actor, nullptr);
+		Actor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
+		const Durin::uint32 X = ActorIndex % 100;
+		const Durin::uint32 Y = ActorIndex / 100;
+		Actor->GetStaticMeshComponent()->SetWorldLocation({100.0 + X * 2.0, 100.0 + Y * 2.0, 3.0});
+		const Durin::uint32 PrimitiveCount = ActorIndex + 1;
+		if (PrimitiveCount == 100 || PrimitiveCount == 2'000)
+		{
+			const auto Checkpoint = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
+			RecordProperty(std::format("scene_{}_candidates", PrimitiveCount),
+				std::to_string(State->Requests.at(Checkpoint.Ticket.Id).Targets.size()));
+			RecordProperty(std::format("scene_{}_retained_bytes", PrimitiveCount),
+				std::to_string(Index->GetDiagnostics().RetainedBytes));
+		}
+	}
+	Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
+	const Durin::uint64 NodeVisitsBefore = Index->GetDiagnostics().NodeVisits;
+	std::array<Durin::uint64, 5> AcceleratedSamples{};
+	Durin::FViewportPickSubmission Pick;
+	for (Durin::uint64& Sample : AcceleratedSamples)
+	{
+		const auto Start = std::chrono::steady_clock::now();
+		Pick = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
+		Sample = static_cast<Durin::uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+			std::chrono::steady_clock::now() - Start).count());
+	}
+	const size_t CandidateCount = State->Requests.at(Pick.Ticket.Id).Targets.size();
+	const Durin::uint64 WarmNodeVisits = Index->GetDiagnostics().NodeVisits - NodeVisitsBefore;
+	std::vector<Durin::FViewportPickingSceneCandidate> DenseCandidates;
+	ASSERT_TRUE(Index->QueryRay({99.0, 100.1, 3.0}, {1.0, 0.0, 0.0}, DenseCandidates));
+	EXPECT_GE(DenseCandidates.size(), 90u);
+	Durin::FLevelEditorViewportClient ReferenceClient;
+	ReferenceClient.InitializeForLevel(Fixture.Level);
+	auto ReferenceState = std::make_shared<FFakePickingState>();
+	ReferenceClient.SetPickingBackendForTesting(std::make_unique<FControlledPickingBackend>(ReferenceState));
+	ReferenceClient.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
+	std::array<Durin::uint64, 5> ReferenceSamples{};
+	Durin::FViewportPickSubmission ReferencePick;
+	for (Durin::uint64& Sample : ReferenceSamples)
+	{
+		const auto Start = std::chrono::steady_clock::now();
+		ReferencePick = ReferenceClient.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
+		Sample = static_cast<Durin::uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+			std::chrono::steady_clock::now() - Start).count());
+	}
+	ASSERT_EQ(ReferenceState->Requests.at(ReferencePick.Ticket.Id).Targets.size(), 10'000u);
+	std::ranges::sort(AcceleratedSamples);
+	std::ranges::sort(ReferenceSamples);
+	const Durin::uint64 AcceleratedNanoseconds = AcceleratedSamples[2];
+	const Durin::uint64 ReferenceNanoseconds = ReferenceSamples[2];
+	EXPECT_LE(CandidateCount, 500u);
+	EXPECT_LE(Index->GetDiagnostics().RetainedBytes, 64ull * 1024ull * 1024ull);
+	RecordProperty("scene_candidates", std::to_string(CandidateCount));
+	RecordProperty("scene_dense_candidates", std::to_string(DenseCandidates.size()));
+	RecordProperty("scene_retained_bytes", std::to_string(Index->GetDiagnostics().RetainedBytes));
+	RecordProperty("scene_build_ns", std::to_string(Index->GetDiagnostics().BuildNanoseconds));
+	RecordProperty("scene_accelerated_median_ns", std::to_string(AcceleratedNanoseconds));
+	RecordProperty("scene_reference_median_ns", std::to_string(ReferenceNanoseconds));
+	RecordProperty("scene_warm_node_visits", std::to_string(WarmNodeVisits));
 }

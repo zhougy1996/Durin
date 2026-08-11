@@ -363,6 +363,11 @@ namespace Durin
 		PickingService->SetBackendForTesting(std::move(Backend));
 	}
 
+	auto FLevelEditorViewportClient::SetPickingSceneIndex(std::shared_ptr<FViewportPickingSceneIndex> SceneIndex) -> void
+	{
+		PickingService->SetSceneIndex(std::move(SceneIndex));
+	}
+
 	auto FLevelEditorViewportClient::UpdateHoveredVisualization(DLevel* Level, const FVector2f& ViewportPosition, const FVector2f& ViewportSize) -> void
 	{
 		uint32 Width = 0;

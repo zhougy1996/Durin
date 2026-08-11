@@ -331,6 +331,25 @@ namespace Durin
 	// Owns named CPU and GPU buffer resources for one LOD.
 	struct FStaticMeshLODResources
 	{
+		struct FRayQueryNode
+		{
+			FBox Bounds;
+			uint32 First = 0;
+			uint32 CountOrSecond = 0;
+			bool bLeaf = false;
+		};
+
+		// Stores one immutable deterministic triangle hierarchy for the matching CPU LOD data.
+		struct FRayQueryAcceleration
+		{
+			std::vector<FRayQueryNode> Nodes;
+			std::vector<uint32> TriangleOrdinals;
+			uint64 RetainedBytes = 0;
+			uint64 BuildNanoseconds = 0;
+			uint32 SourceVertexCount = 0;
+			uint32 SourceIndexCount = 0;
+		};
+
 		FStaticMeshVertexBuffers VertexBuffers;
 		FRawStaticIndexBuffer IndexBuffer;
 		std::vector<FStaticMeshSection> Sections;
@@ -338,6 +357,7 @@ namespace Durin
 		float ScreenSize = 0.0f;
 		uint8 NumTexCoords = 0;
 		bool bHasColorVertexData = false;
+		std::shared_ptr<const FRayQueryAcceleration> RayQueryAcceleration;
 
 		auto GetNumVertices() const -> uint32
 		{
@@ -348,6 +368,12 @@ namespace Durin
 			return IndexBuffer.GetNumIndices();
 		}
 	};
+
+	inline constexpr uint64 MaximumStaticMeshRayQueryAccelerationBytes = 256ull * 1024ull * 1024ull;
+
+	// Builds a complete immutable hierarchy or returns null so callers can use exact reference traversal.
+	ENGINE_API auto BuildStaticMeshRayQueryAcceleration(const FStaticMeshLODResources& LOD)
+		-> std::shared_ptr<const FStaticMeshLODResources::FRayQueryAcceleration>;
 
 	class FRHICommandListImmediate;
 

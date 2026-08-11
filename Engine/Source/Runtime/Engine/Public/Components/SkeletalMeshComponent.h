@@ -55,6 +55,9 @@ namespace Durin
 		ENGINE_API auto TickComponent(float DeltaSeconds) -> void override;
 		ENGINE_API auto EndPlay() -> void override;
 		ENGINE_API auto CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy> override;
+#if DURIN_WITH_EDITOR
+		ENGINE_API auto GetEditorPickingLocalBounds(FBox& OutBounds, EEditorPickingPrimitiveFamily& OutFamily) const -> bool override;
+#endif
 
 	private:
 		auto ValidateProspectiveBinding(

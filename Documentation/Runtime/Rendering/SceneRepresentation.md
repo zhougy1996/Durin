@@ -73,6 +73,23 @@ SceneInfo view; they do not scan a shared primitive array or use RTTI to
 rediscover proxy families. Material binding updates dispatch through the base
 primitive-proxy contract rather than a StaticMesh branch in `FScene`.
 
+## Editor Primitive-Mutation Observation
+
+The renderer scene remains render-thread-only. Editor CPU picking instead uses
+a narrow Engine seam on `DLevel`: a game-thread subscriber first receives one
+complete primitive snapshot and then monotonically revised mutation batches.
+`DPrimitiveComponent` publishes registration, retirement, transform, owner
+visibility, and proxy/data replacement through its authoritative render-state
+paths; `DSkeletalMeshComponent` additionally publishes each complete current
+pose bound. Payloads contain weak Actor/component identity plus primitive ID,
+registration generation, family, visibility, and finite transformed bounds.
+
+The observer owns no LevelEditor types, does not retain reflected objects, and
+is removed when its owner detaches. Callbacks may not re-enter primitive
+mutation; this is an unrecoverable callback contract. Consumers recover from
+any non-consecutive externally supplied revision with a complete snapshot. This seam is separate from `IScene` and
+does not expose `FScene`, SceneInfo, prepared views, or render-thread state.
+
 ## Failure and Thread Contracts
 
 - Invalid identities, null proxies, and non-finite primitive transforms are

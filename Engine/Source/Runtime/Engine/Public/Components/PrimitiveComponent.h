@@ -7,6 +7,7 @@
 
 namespace Durin
 {
+	enum class EEditorPickingPrimitiveFamily : uint8;
 	// Selects the renderer-side state that must be synchronized for a primitive.
 	enum class EPrimitiveRenderStateDirtyFlags : uint8
 	{
@@ -35,10 +36,18 @@ namespace Durin
 		ENGINE_API auto RecreateRenderState() -> void;
 		ENGINE_API auto MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags DirtyFlags = EPrimitiveRenderStateDirtyFlags::Proxy) -> void;
 
+#if DURIN_WITH_EDITOR
+		// Produces finite local bounds and a supported picking family for the editor scene index.
+		ENGINE_API virtual auto GetEditorPickingLocalBounds(FBox& OutBounds, EEditorPickingPrimitiveFamily& OutFamily) const -> bool;
+#endif
+
 	protected:
 		ENGINE_API auto OnUpdateTransform() -> void override;
 		ENGINE_API virtual auto BuildMaterialRenderProxyBindingUpdate(
 			FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool;
+#if DURIN_WITH_EDITOR
+		auto NotifyEditorPickingMutation(bool bRetired = false) -> void;
+#endif
 
 	private:
 		auto EnsurePrimitiveSceneId() -> FPrimitiveSceneId;

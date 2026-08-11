@@ -4,27 +4,24 @@ Summary: Add a game-thread scene broad phase and immutable StaticMesh ray-query 
 
 Last reviewed: 2026-08-11
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-11
 
 ## Current Status
 
-M1 and M2 provide the stable semantic request, lifetime, ordering, StaticMesh
-LOD0 oracle, and current-pose SkeletalMesh oracle required to measure an
-accelerated implementation. M3 is now active at Stage 0.
+M3 is complete. `FLevelEditorContext` owns one Level-bound game-thread scene
+index, Engine publishes complete snapshots plus ordered primitive mutation
+batches, and normal geometry requests capture only ray candidates. StaticMesh
+render data owns immutable per-LOD triangle BVHs reused by every component and
+viewport. Reference, accelerated, and compare policies preserve the M1-M2
+winner, lifetime, failure, and budget semantics.
 
-The current reference backend discovers every registered primitive by scanning
-the Level for every geometry request. A bounds test rejects many mesh queries,
-but every surviving StaticMesh still tests every LOD0 triangle, and every
-bounds-surviving SkeletalMesh skins every referenced vertex and tests every
-triangle within the request-wide M2 budget. There is no reusable scene index,
-asset triangle hierarchy, mutation protocol, acceleration memory budget, or
-reference-versus-accelerated comparison mode.
-
-Stage 0 must record representative editor workloads and freeze the numeric
-budgets before implementation. The selected ownership, update, fallback, and
-parity rules below are already binding; Stage 0 may tune only the explicitly
-listed thresholds and must record the evidence for each change.
+Stage 0 measurements retained the 64 MiB scene and 256 MiB asset ceilings. The
+measured double-precision scene layout required raising the per-primitive
+allowance from 256 to 384 bytes; the measured StaticMesh layout uses a 96-byte
+per-triangle allowance with a 1 KiB small-asset floor. Skeletal triangle
+grouping was deferred because bounds-surviving representative work remained far
+below 25 percent of both M2 limits and accelerated-request CPU time.
 
 ## Goal
 
@@ -221,29 +218,60 @@ reduction.
 | Diagnostics | M2 private invalid/bounds/budget/skinned/tested counters | No scene/BVH build, mutation, memory, visit, candidate, fallback, timing, or mismatch counters |
 | Tests | Static/skeletal exact hits, transforms, animation, invalid data, budgets, lifetime, ordering, and selection behavior | No randomized parity, adversarial hierarchy, incremental update, shared-index, memory, or performance fixtures |
 
+## Recorded M3 Qualification
+
+Measurements use the `windows-msvc-x64` Agent Build Profile,
+`Win64-Debug-DurinEditor`, on 2026-08-11. Fixtures are generated in
+`ViewportPickingContractTests.cpp` from recorded seed `0x5A17C3`; they contain
+no checked-in binary mesh data.
+
+| Fixture | Reference / baseline | Accelerated result | Qualification |
+| --- | ---: | ---: | --- |
+| 100 / 2,000 / 10,000 primitive checkpoints | complete Level membership; ordered add, transform, visibility, registration-cycle mutations | deterministic snapshot/update rebuilds; 10,000 sparse ray: 1 candidate, 27 warm node visits | candidate ratio 0.01%; pass |
+| 10,000 primitive dense row ray | 10,000 admitted leaves | at least 90 exact-bound candidates in the crossed row | dense traversal coverage; pass |
+| 10,000 primitive retained layout | 64 MiB Level ceiling | 3,279,920 bytes (327.992 bytes/primitive) | 384-byte layout ceiling selected; pass |
+| 10,000 / 250,000 / 1,000,000 triangle generated grids | exact LOD0 double-sided reference | deterministic per-LOD BVH and zero compare mismatches | build/parity coverage; pass |
+| 1,000,000 triangle sparse ray | 1,000,000 exact triangle tests; median 665,568,700 ns | 16 candidate/tested triangles; median 44,400 ns | 0.0016% candidates and 0.0067% time; pass |
+| 1,000,000 triangle retained layout | 256 MiB asset ceiling | 22,874,384 bytes (22.875 bytes/triangle); 11,324,595,300 ns build | 96-byte layout allowance; pass |
+| transformed/equal/adversarial StaticMesh | reference traversal and stable-key oracle | recorded-seed compare, reversed targets, mirror/non-uniform/singular cases | zero mismatches; pass |
+| current-pose SkeletalMesh | 3 skinned vertices and 1 tested triangle for the representative surface; exact at/over-budget fixtures | scene broad phase plus unchanged M2 provider | below 25% activation formula; grouping deferred |
+
+Mutation synchronization uses a 10 percent fat-bound margin with a 0.01
+world-unit minimum. A transform inside that bound updates the exact leaf without
+rebuilding; the first escape, structural add, removal, visibility retirement,
+or asset-family change causes one deterministic rebuild at the next request.
+Balanced centroid construction is ordered by primitive identity and has a
+maximum expected height of `ceil(log2(N)) + 1`; incomplete revision sequences
+recover from a complete snapshot. Synchronous callbacks have no overflow queue
+and prohibit mutation re-entry as an unrecoverable callback contract.
+
+The final qualifying focused run completed 80 tests in 32.520 seconds. The generated
+large-fixture measurement properties are emitted to GoogleTest JSON when an
+auditable capture is requested. Final validation evidence is recorded below.
+
 ## Implementation Stages
 
 ### Stage 0: Freeze workloads, budgets, and mutation protocol
 
-- [ ] Add deterministic representative fixture builders for the primitive and
+- [x] Add deterministic representative fixture builders for the primitive and
   triangle counts listed in the budget contract without adding large binary
   test assets.
-- [ ] Capture reference counters and warm-run timings for sparse, dense,
+- [x] Capture reference counters and warm-run timings for sparse, dense,
   transformed-instance, equal-distance, and animated-pose queries under the
   active Agent Build Profile.
-- [ ] Record actual component add/remove, transform, visibility, StaticMesh
+- [x] Record actual component add/remove, transform, visibility, StaticMesh
   replacement, registration-cycle, and skeletal pose-bound update rates from
   representative editor actions.
-- [ ] Freeze the editor-only Level observer payload, revision sequence,
+- [x] Freeze the editor-only Level observer payload, revision sequence,
   subscription/retirement rules, initial snapshot, missed-revision recovery,
   and re-entrant mutation prohibition.
-- [ ] Freeze the dynamic hierarchy fat-bound margin, height/reinsertion rebuild
+- [x] Freeze the dynamic hierarchy fat-bound margin, height/reinsertion rebuild
   thresholds, synchronization point, and deterministic rebuild ordering.
-- [ ] Measure proposed scene-node and StaticMesh-BVH layouts; confirm or revise
+- [x] Measure proposed scene-node and StaticMesh-BVH layouts; confirm or revise
   the hard ceilings with exact byte accounting and reference fallback coverage.
-- [ ] Apply the skeletal activation formula and record whether Stage 3 will
+- [x] Apply the skeletal activation formula and record whether Stage 3 will
   implement candidate grouping or close with measured deferral.
-- [ ] Confirm the accelerated backend remains private to LevelEditor and that
+- [x] Confirm the accelerated backend remains private to LevelEditor and that
   no public semantic request/result field or Renderer/RHI dependency is needed.
 
 #### Acceptance Gate
@@ -259,22 +287,22 @@ reduction.
 
 ### Stage 1: Maintain the shared Level scene index
 
-- [ ] Add the editor-only Engine observer seam and value-described primitive
+- [x] Add the editor-only Engine observer seam and value-described primitive
   mutation events without adding a reverse dependency on LevelEditor.
-- [ ] Route registration, unregistration/destruction, transform, owner
+- [x] Route registration, unregistration/destruction, transform, owner
   visibility, mesh/proxy replacement, and skeletal pose-bound publication
   through the observer with monotonically ordered revisions.
-- [ ] Implement the deterministic dynamic AABB hierarchy, exact byte counters,
+- [x] Implement the deterministic dynamic AABB hierarchy, exact byte counters,
   mutation counters, rebuild policy, and complete-snapshot recovery.
-- [ ] Own one index in `FLevelEditorContext`, attach/detach it with the active
+- [x] Own one index in `FLevelEditorContext`, attach/detach it with the active
   Level, and share it with all viewport picking services without global mutable
   state.
-- [ ] Replace normal request-time Level scans with broad-phase candidate capture
+- [x] Replace normal request-time Level scans with broad-phase candidate capture
   while preserving M1 token-table contents, stable keys, and late validation.
-- [ ] Fall back to complete reference discovery when the index is unavailable,
+- [x] Fall back to complete reference discovery when the index is unavailable,
   stale, over budget, rebuilding unsuccessfully, or cannot prove a complete
   mutation sequence.
-- [ ] Cover initial population, empty Level, add/remove, hide/show, transform,
+- [x] Cover initial population, empty Level, add/remove, hide/show, transform,
   reparent, unregister/re-register, mesh replacement, pose-bound updates, Level
   switch, context shutdown, two viewports, and forced rebuild thresholds.
 
@@ -291,21 +319,21 @@ reduction.
 
 ### Stage 2: Add immutable StaticMesh BVHs and backend parity
 
-- [ ] Define the immutable per-LOD flat node/triangle layout and build it from
+- [x] Define the immutable per-LOD flat node/triangle layout and build it from
   the exact CPU geometry revision using deterministic stable partitioning.
-- [ ] Validate finite bounds, child/range coverage, triangle ordinals, node
+- [x] Validate finite bounds, child/range coverage, triangle ordinals, node
   containment, empty leaves, maximum depth, integer overflow, and exact retained
   bytes before publication.
-- [ ] Pair acceleration lifetime with StaticMesh CPU/render-data publication,
+- [x] Pair acceleration lifetime with StaticMesh CPU/render-data publication,
   replacement, release, reimport, and failure/retry behavior.
-- [ ] Add local-space near-first traversal with current-best pruning while
+- [x] Add local-space near-first traversal with current-best pruning while
   retaining the M1 double-sided triangle test and world-distance winner.
-- [ ] Keep the reference provider selectable and implement reference,
+- [x] Keep the reference provider selectable and implement reference,
   accelerated, and compare backend policies behind the existing private
   interface.
-- [ ] Fall back per component for absent, malformed, over-budget, mismatched, or
+- [x] Fall back per component for absent, malformed, over-budget, mismatched, or
   failed BVH data; prove fallback returns the exact reference result.
-- [ ] Add deterministic BVH builder/traversal tests plus randomized/adversarial
+- [x] Add deterministic BVH builder/traversal tests plus randomized/adversarial
   result parity for multiple assets, shared instances, all supported transforms,
   overlap, degenerates, equal hits, rebuild/reimport, and reversed enumeration.
 
@@ -323,22 +351,26 @@ reduction.
 
 ### Stage 3: Apply the measured skeletal disposition
 
-- [ ] Always route SkeletalMesh candidates through current-pose scene bounds and
+Stage 0 selected deferral. The three checklist items conditional on activation
+are closed as not applicable; no bind-data grouping or alternative deformation
+path was added.
+
+- [x] Always route SkeletalMesh candidates through current-pose scene bounds and
   preserve one immutable pose snapshot per candidate query.
-- [ ] If Stage 0 deferred triangle-level skeletal acceleration, add parity and
+- [x] If Stage 0 deferred triangle-level skeletal acceleration, add parity and
   candidate counters proving the scene broad phase integrates the unchanged M2
   provider, then record the deferral rationale.
-- [ ] If Stage 0 activated it, build deterministic bind-data triangle groups
+- [x] If Stage 0 activated it, build deterministic bind-data triangle groups
   from palette influence metadata, refit conservative group bounds from the
   current pose, and reject only groups whose refitted bounds miss the ray.
-- [ ] If activated, skin each referenced surviving vertex once, test candidate
+- [x] If activated, skin each referenced surviving vertex once, test candidate
   triangles in stable ordinal order, and charge actual work to the unchanged
   request-wide M2 limits.
-- [ ] If activated, compare every accelerated skeletal result against M2 across
+- [x] If activated, compare every accelerated skeletal result against M2 across
   reference/interpolated/extreme poses, mixed/non-contiguous influences,
   multiple sections/components, invalid palettes, transforms, budget edges,
   and animation into/out of the ray.
-- [ ] In either disposition, cover pose revision updates, invalid-to-valid
+- [x] In either disposition, cover pose revision updates, invalid-to-valid
   bounds recovery, shared Level index mutation, Static/Skeletal competition,
   and atomic no-selection-change behavior on M2 budget failure.
 
@@ -353,18 +385,18 @@ reduction.
 
 ### Stage 4: Qualify editor integration and performance
 
-- [ ] Run recorded-seed randomized and adversarial compare suites repeatedly
+- [x] Run recorded-seed randomized and adversarial compare suites repeatedly
   across scene-index rebuild, asset replacement, pose updates, and reversed
   target/tree construction order.
-- [ ] Prove selection replace/toggle/blank behavior, visualization priority,
+- [x] Prove selection replace/toggle/blank behavior, visualization priority,
   gizmo preemption, contextual-mode restrictions, request cancellation,
   supersession, client/Level invalidation, and two-viewport isolation remain
   backend-independent.
-- [ ] Capture final reference and accelerated counters, exact memory, build/refit
+- [x] Capture final reference and accelerated counters, exact memory, build/refit
   time, warm query distributions, and fallback counts for every Stage 0 workload.
-- [ ] Verify no request-time full Level scan occurs on the healthy accelerated
+- [x] Verify no request-time full Level scan occurs on the healthy accelerated
   path and no build/rebuild work is repeated per viewport or component instance.
-- [ ] Run the smallest affected native targets, documentation validation, the
+- [x] Run the smallest affected native targets, documentation validation, the
   required full `all` build for the editor-visible change, and editor startup
   under repository guidance.
 
@@ -380,17 +412,17 @@ reduction.
 
 ### Stage 5: Publish the M3 contract and disposition conditional GPU work
 
-- [ ] Move lasting scene-index ownership, mutation, bounds, BVH lifetime,
+- [x] Move lasting scene-index ownership, mutation, bounds, BVH lifetime,
   fallback, diagnostics, and ordering rules into Viewport Editing Architecture
   and the appropriate Engine/StaticMesh documentation.
-- [ ] Record the final fixture measurements, budgets, counters, and qualification
+- [x] Record the final fixture measurements, budgets, counters, and qualification
   evidence in this plan; close only evidence-backed checks.
-- [ ] Mark M3 complete in the parent roadmap and update its foundation/gap,
+- [x] Mark M3 complete in the parent roadmap and update its foundation/gap,
   milestone, validation, risk, and completion sections.
-- [ ] Review M4-M5 activation evidence using final CPU measurements and explicitly
+- [x] Review M4-M5 activation evidence using final CPU measurements and explicitly
   activate or defer asynchronous readback and GPU picking without creating a
   conditional plan that lacks its entry gate.
-- [ ] Run all-plan, roadmap, and changed-document validation required by the
+- [x] Run all-plan, roadmap, and changed-document validation required by the
   documentation lifecycle.
 
 #### Acceptance Gate
@@ -401,6 +433,16 @@ reduction.
   build, and runtime evidence.
 - M4-M5 are either activated with accepted consumer budgets or explicitly
   deferred with final CPU measurements and product constraints.
+
+### Final Validation Evidence
+
+- `ViewportTests`: 80/80 passed in 32.520 seconds, including the
+  100/2,000/10,000 primitive and 10,000/250,000/1,000,000 triangle checkpoints.
+- `StaticMeshTests`: 52/52 passed in 7.720 seconds.
+- `WorldTests`: 76/76 passed in 0.349 seconds.
+- changed-document, all-plan, and all-roadmap validation passed.
+- `build --target all` passed for `Win64-Debug-DurinEditor`; the resulting
+  `DurinEditor.exe` remained running through the eight-second startup gate.
 
 ## Validation Matrix
 

@@ -5,6 +5,7 @@
 namespace Durin
 {
 	class DPrimitiveComponent;
+	class FViewportPickingSceneIndex;
 
 	// Resolves a backend token through the request-local weak identity table.
 	struct FViewportPickingTarget
@@ -47,12 +48,27 @@ namespace Durin
 	// Reports private reference-backend work for deterministic qualification and diagnosis.
 	struct FViewportPickingBackendDiagnostics
 	{
+		uint64 ApplicableStaticTargets = 0;
+		uint64 StaticBoundsRejects = 0;
+		uint64 StaticBVHNodeVisits = 0;
+		uint64 StaticCandidateTriangles = 0;
+		uint64 StaticTestedTriangles = 0;
+		uint64 StaticReferenceFallbacks = 0;
+		uint64 StaticAccelerationBytes = 0;
+		uint64 ParityMismatches = 0;
 		uint64 ApplicableSkeletalTargets = 0;
 		uint64 InvalidSkeletalTargets = 0;
 		uint64 SkeletalBoundsRejects = 0;
 		uint64 SkeletalBudgetFailures = 0;
 		uint64 SkinnedVertices = 0;
 		uint64 TestedTriangles = 0;
+	};
+
+	enum class EViewportPickingBackendPolicy : uint8
+	{
+		Reference,
+		Accelerated,
+		Compare
 	};
 
 	struct FViewportPickingBackendCompletion
@@ -75,6 +91,9 @@ namespace Durin
 	// Creates the built-in immediate reference backend for focused private-contract tests.
 	auto MakeReferenceViewportPickingBackend(FViewportPickingWorkBudget WorkBudget = {})
 		-> std::unique_ptr<IViewportPickingBackend>;
+	// Creates a private selectable backend without changing the public picking contract.
+	auto MakeViewportPickingBackend(EViewportPickingBackendPolicy Policy,
+		FViewportPickingWorkBudget WorkBudget = {}) -> std::unique_ptr<IViewportPickingBackend>;
 
 	// Owns per-viewport ticket sequencing, weak target tables, validation, and arbitration.
 	class FViewportPickingService final
@@ -92,6 +111,7 @@ namespace Durin
 		auto Invalidate() -> void;
 		auto GetGeneration() const -> uint64 { return Generation; }
 		auto SetBackendForTesting(std::unique_ptr<IViewportPickingBackend> InBackend) -> void;
+		auto SetSceneIndex(std::shared_ptr<FViewportPickingSceneIndex> InSceneIndex) -> void;
 
 	private:
 		struct FRequestRecord
@@ -109,6 +129,7 @@ namespace Durin
 		auto MakeTerminal(EViewportPickStatus Status) const -> FViewportPickCompletion;
 
 		std::unique_ptr<IViewportPickingBackend> Backend;
+		std::shared_ptr<FViewportPickingSceneIndex> SceneIndex;
 		TWeakObjectPtr<DLevel> CurrentLevel;
 		uint64 Generation = 1;
 		uint64 NextTicketId = 1;

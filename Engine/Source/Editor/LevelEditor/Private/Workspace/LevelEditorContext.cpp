@@ -7,16 +7,19 @@
 #include "Engine/Level.h"
 #include "Components/ActorComponent.h"
 #include "Engine/Actor.h"
+#include "Viewport/ViewportPickingSceneIndex.h"
 
 namespace Durin
 {
 	auto FLevelEditorContext::Synchronize(DWorld* CurrentWorld) -> void
 	{
+		if (!PickingSceneIndex) PickingSceneIndex = std::make_shared<FViewportPickingSceneIndex>();
 		DLevel* CurrentLevel = CurrentWorld ? CurrentWorld->GetCurrentLevel() : nullptr;
 		if (World != CurrentWorld || Level != CurrentLevel)
 		{
 			World = CurrentWorld;
 			Level = CurrentLevel;
+			PickingSceneIndex->SetLevel(CurrentLevel);
 			ClearSelection();
 			return;
 		}

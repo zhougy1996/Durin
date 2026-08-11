@@ -22,6 +22,7 @@ FSceneViewportPanel (one workspace viewport)
             |
             +--> active ILevelViewportEditMode instance
             +--> shared FLevelEditorContext selection
+            +--> shared FLevelEditorContext picking scene index
 ```
 
 The registry is process-wide but contains no live document state. A descriptor
@@ -80,6 +81,40 @@ generation, weak identity, Level membership, ownership, registration cycle,
 visibility, and primitive identity. World or Level replacement, client reset or
 destruction, mode exit, cancellation, and a newer click retire old work;
 camera movement alone does not reinterpret the immutable clicked view.
+
+`FLevelEditorContext` owns one game-thread `FViewportPickingSceneIndex` for its
+active Level and shares it with every attached viewport service. Engine emits
+monotonic editor-only primitive mutation batches for registration, retirement,
+transform, owner visibility, mesh/proxy replacement, and skeletal pose-bound
+publication. Subscription begins with a complete snapshot. A missing revision,
+invalid batch, Level replacement, or an index build that cannot satisfy its
+64 MiB budget makes the complete request use reference discovery; a stale
+partial candidate table is never queried.
+
+The index admits only registered visible StaticMesh and SkeletalMesh primitives
+with non-zero identity and finite current world bounds. It uses deterministic
+centroid splits and 10 percent fat update bounds with a 0.01 world-unit minimum.
+An update inside its fat bound changes only the exact leaf; an escape, add, or
+remove triggers one deterministic synchronization rebuild ordered by primitive
+identity. The measured double-precision layout is bounded at 384 bytes per
+admitted primitive. Ray traversal returns candidates only; the established
+world-distance epsilon and stable key remain the semantic resolver.
+
+StaticMesh render data owns one immutable ray-query BVH per valid LOD, built
+from the matching CPU positions and uint32 triangle triplets. Nodes use
+deterministic longest-axis centroid partitioning, triangle ordinal as the final
+tie-break, and no more than eight triangles per leaf. Viewport picking queries
+LOD 0, transforms the ray into local space, traverses near-first, and converts
+hits back to world distance. Instances and viewports reuse the same asset-owned
+allocation. Missing, malformed, over-budget, or replaced data uses the exact
+reference triangle loop for that component.
+
+Private backend policy selects `Reference`, `Accelerated`, or `Compare`.
+Compare runs both against the same immutable request target table; a status,
+token, hit-presence, or distance mismatch increments the parity counter and
+returns the reference completion. Skeletal triangles retain the exact M2
+provider: only their current-pose world bounds are accelerated because measured
+skinning work did not meet the Stage 3 activation threshold.
 
 For a skeletal candidate, the backend acquires one immutable
 `FSkeletalPosePalette` from the component on the game thread. The pose must have

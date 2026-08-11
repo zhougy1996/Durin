@@ -1,6 +1,7 @@
 #include "Components/PrimitiveComponent.h"
 
 #include "Engine/Actor.h"
+#include "Engine/Level.h"
 #include "IScene.h"
 
 namespace Durin
@@ -20,6 +21,9 @@ namespace Durin
 	auto DPrimitiveComponent::OnUnregister() -> void
 	{
 		DestroyRenderState();
+#if DURIN_WITH_EDITOR
+		NotifyEditorPickingMutation(true);
+#endif
 		Super::OnUnregister();
 	}
 
@@ -52,6 +56,12 @@ namespace Durin
 	auto DPrimitiveComponent::MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags DirtyFlags) -> void
 	{
 		if (!IsRegistered()) return;
+#if DURIN_WITH_EDITOR
+		if (EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Proxy)
+			|| EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Transform)
+			|| EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Visibility))
+			NotifyEditorPickingMutation();
+#endif
 		IScene* Scene = GetRenderScene();
 		if (Scene == nullptr) return;
 
@@ -111,4 +121,19 @@ namespace Durin
 		Super::OnUpdateTransform();
 		MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::Transform);
 	}
+
+#if DURIN_WITH_EDITOR
+	auto DPrimitiveComponent::GetEditorPickingLocalBounds(
+		FBox&, EEditorPickingPrimitiveFamily&) const -> bool
+	{
+		return false;
+	}
+
+	auto DPrimitiveComponent::NotifyEditorPickingMutation(bool bRetired) -> void
+	{
+		AActor* Owner = GetOwner();
+		if (auto* Level = Owner ? Cast<DLevel>(Owner->GetOuter()) : nullptr)
+			Level->NotifyEditorPickingPrimitiveChanged(this, bRetired);
+	}
+#endif
 }

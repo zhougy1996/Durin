@@ -1,4 +1,5 @@
 #include "Viewport/ViewportPickingService.h"
+#include "Viewport/ViewportPickingSceneIndex.h"
 
 #include "Components/PrimitiveComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -71,6 +72,30 @@ namespace Durin
 			return TMax >= 0.0;
 		}
 
+		auto IntersectRayBoxNear(const FVector3& Origin, const FVector3& Direction,
+			const FBox& Box, double& OutNear) -> bool
+		{
+			if (!Box.bIsValid || !Math::IsFinite(Box.Min) || !Math::IsFinite(Box.Max)) return false;
+			double NearDistance = 0.0;
+			double FarDistance = std::numeric_limits<double>::max();
+			for (uint32 Axis = 0; Axis < 3; ++Axis)
+			{
+				if (std::abs(Direction[Axis]) <= kIntersectionEpsilon)
+				{
+					if (Origin[Axis] < Box.Min[Axis] || Origin[Axis] > Box.Max[Axis]) return false;
+					continue;
+				}
+				double A = (Box.Min[Axis] - Origin[Axis]) / Direction[Axis];
+				double B = (Box.Max[Axis] - Origin[Axis]) / Direction[Axis];
+				if (A > B) std::swap(A, B);
+				NearDistance = std::max(NearDistance, A);
+				FarDistance = std::min(FarDistance, B);
+				if (NearDistance > FarDistance) return false;
+			}
+			OutNear = NearDistance;
+			return FarDistance >= 0.0;
+		}
+
 		auto IntersectRayTriangle(const FVector3& Origin, const FVector3& Direction, const FVector3& A,
 			const FVector3& B, const FVector3& C, double& OutDistance) -> bool
 		{
@@ -105,12 +130,18 @@ namespace Durin
 		class FStaticMeshViewportGeometryProvider final : public IViewportGeometryProvider
 		{
 		public:
+			explicit FStaticMeshViewportGeometryProvider(bool bInAccelerated)
+				: bAccelerated(bInAccelerated)
+			{
+			}
+
 			auto Query(const FViewportPickingBackendRequest& Request,
 				const FViewportPickingTarget& Target,
-				FViewportGeometryQueryContext&) const -> FViewportGeometryQueryResult override
+				FViewportGeometryQueryContext& Context) const -> FViewportGeometryQueryResult override
 			{
 				auto* Component = Cast<DStaticMeshComponent>(Target.Component.Get());
 				if (!Component) return {};
+				++Context.Diagnostics.ApplicableStaticTargets;
 				const DStaticMesh* Mesh = Component ? Component->GetStaticMesh() : nullptr;
 				const FStaticMeshRenderData* Data = Mesh ? Mesh->GetRenderData() : nullptr;
 				if (!Component->IsRegistered() || !Data || !Data->LocalBounds.bIsValid || Data->LODResources.empty())
@@ -128,26 +159,99 @@ namespace Durin
 				const FVector3 LocalDirection = FVector3(WorldToLocal * FVector4(Request.RayDirection, 0.0));
 				if (!Math::IsFinite(LocalOrigin) || !Math::IsFinite(LocalDirection)
 					|| !IntersectRayBox(LocalOrigin, LocalDirection, Data->LocalBounds))
-					return {EViewportGeometryQueryStatus::Miss, std::nullopt};
-				std::optional<FViewportPickingBackendHit> Best;
-				for (size_t Index = 0; Index + 2 < Indices.size(); Index += 3)
 				{
+					++Context.Diagnostics.StaticBoundsRejects;
+					return {EViewportGeometryQueryStatus::Miss, std::nullopt};
+				}
+				std::optional<FViewportPickingBackendHit> Best;
+				const auto TestTriangle = [&](uint32 TriangleOrdinal)
+				{
+					++Context.Diagnostics.StaticTestedTriangles;
+					const size_t Index = static_cast<size_t>(TriangleOrdinal) * 3;
+					if (Index + 2 >= Indices.size()) return;
 					const uint32 I0 = Indices[Index];
 					const uint32 I1 = Indices[Index + 1];
 					const uint32 I2 = Indices[Index + 2];
-					if (I0 >= Positions.size() || I1 >= Positions.size() || I2 >= Positions.size()) continue;
+					if (I0 >= Positions.size() || I1 >= Positions.size() || I2 >= Positions.size()) return;
 					double LocalDistance = 0.0;
 					if (!IntersectRayTriangle(LocalOrigin, LocalDirection, FVector3(Positions[I0]),
-						FVector3(Positions[I1]), FVector3(Positions[I2]), LocalDistance)) continue;
+						FVector3(Positions[I1]), FVector3(Positions[I2]), LocalDistance)) return;
 					const FVector3 LocalHit = LocalOrigin + LocalDirection * LocalDistance;
 					const FVector3 WorldHit = FVector3(LocalToWorld * FVector4(LocalHit, 1.0));
 					const double WorldDistance = Math::Length(WorldHit - Request.RayOrigin);
-					if (!std::isfinite(WorldDistance) || WorldDistance < 0.0) continue;
+					if (!std::isfinite(WorldDistance) || WorldDistance < 0.0) return;
 					if (!Best || WorldDistance < Best->Distance)
 						Best = FViewportPickingBackendHit{Target.Token, WorldDistance, 0};
+				};
+				const auto& Acceleration = LOD.RayQueryAcceleration;
+				const bool bUsableAcceleration = bAccelerated && Acceleration
+					&& Acceleration->SourceVertexCount == Positions.size()
+					&& Acceleration->SourceIndexCount == Indices.size()
+					&& !Acceleration->Nodes.empty();
+				if (!bUsableAcceleration)
+				{
+					if (bAccelerated) ++Context.Diagnostics.StaticReferenceFallbacks;
+					for (uint32 Ordinal = 0; Ordinal < Indices.size() / 3; ++Ordinal) TestTriangle(Ordinal);
+				}
+				else
+				{
+					Context.Diagnostics.StaticAccelerationBytes += Acceleration->RetainedBytes;
+					const double WorldDirectionLength = Math::Length(Request.RayDirection);
+					struct FTraversalEntry { uint32 Node = 0; double Near = 0.0; };
+					std::vector<FTraversalEntry> Stack{{0, 0.0}};
+					while (!Stack.empty())
+					{
+						const FTraversalEntry Entry = Stack.back();
+						Stack.pop_back();
+						if (Best && Entry.Near * WorldDirectionLength > Best->Distance + kIntersectionEpsilon) continue;
+						if (Entry.Node >= Acceleration->Nodes.size())
+						{
+							++Context.Diagnostics.StaticReferenceFallbacks;
+							Best.reset();
+							for (uint32 Ordinal = 0; Ordinal < Indices.size() / 3; ++Ordinal) TestTriangle(Ordinal);
+							break;
+						}
+						const auto& Node = Acceleration->Nodes[Entry.Node];
+						++Context.Diagnostics.StaticBVHNodeVisits;
+						double Near = 0.0;
+						if (!IntersectRayBoxNear(LocalOrigin, LocalDirection, Node.Bounds, Near)) continue;
+						if (Node.bLeaf)
+						{
+							const uint64 End = static_cast<uint64>(Node.First) + Node.CountOrSecond;
+							if (End > Acceleration->TriangleOrdinals.size()) continue;
+							Context.Diagnostics.StaticCandidateTriangles += Node.CountOrSecond;
+							for (uint32 Offset = 0; Offset < Node.CountOrSecond; ++Offset)
+								TestTriangle(Acceleration->TriangleOrdinals[Node.First + Offset]);
+							continue;
+						}
+						double LeftNear = 0.0;
+						double RightNear = 0.0;
+						const bool bLeft = Node.First < Acceleration->Nodes.size()
+							&& IntersectRayBoxNear(LocalOrigin, LocalDirection, Acceleration->Nodes[Node.First].Bounds, LeftNear);
+						const bool bRight = Node.CountOrSecond < Acceleration->Nodes.size()
+							&& IntersectRayBoxNear(LocalOrigin, LocalDirection, Acceleration->Nodes[Node.CountOrSecond].Bounds, RightNear);
+						if (bLeft && bRight)
+						{
+							if (LeftNear <= RightNear)
+							{
+								Stack.push_back({Node.CountOrSecond, RightNear});
+								Stack.push_back({Node.First, LeftNear});
+							}
+							else
+							{
+								Stack.push_back({Node.First, LeftNear});
+								Stack.push_back({Node.CountOrSecond, RightNear});
+							}
+						}
+						else if (bLeft) Stack.push_back({Node.First, LeftNear});
+						else if (bRight) Stack.push_back({Node.CountOrSecond, RightNear});
+					}
 				}
 				return {Best ? EViewportGeometryQueryStatus::Hit : EViewportGeometryQueryStatus::Miss, Best};
 			}
+
+		private:
+			bool bAccelerated = false;
 		};
 
 		// Provides exact current-pose LOD0 double-sided skeletal surface intersection.
@@ -297,10 +401,10 @@ namespace Durin
 		class FReferenceViewportPickingBackend final : public IViewportPickingBackend
 		{
 		public:
-			explicit FReferenceViewportPickingBackend(FViewportPickingWorkBudget InWorkBudget)
+			explicit FReferenceViewportPickingBackend(FViewportPickingWorkBudget InWorkBudget, bool bAccelerated)
 				: WorkBudget(InWorkBudget)
 			{
-				Providers.push_back(std::make_unique<FStaticMeshViewportGeometryProvider>());
+				Providers.push_back(std::make_unique<FStaticMeshViewportGeometryProvider>(bAccelerated));
 				Providers.push_back(std::make_unique<FSkeletalMeshViewportGeometryProvider>());
 			}
 
@@ -338,12 +442,63 @@ namespace Durin
 			std::vector<std::unique_ptr<IViewportGeometryProvider>> Providers;
 			FViewportPickingWorkBudget WorkBudget;
 		};
+
+		class FCompareViewportPickingBackend final : public IViewportPickingBackend
+		{
+		public:
+			explicit FCompareViewportPickingBackend(FViewportPickingWorkBudget WorkBudget)
+				: Reference(std::make_unique<FReferenceViewportPickingBackend>(WorkBudget, false))
+				, Accelerated(std::make_unique<FReferenceViewportPickingBackend>(WorkBudget, true))
+			{
+			}
+
+			auto Submit(FViewportPickingBackendRequest Request) -> FViewportPickingBackendCompletion override
+			{
+				FViewportPickingBackendCompletion ReferenceCompletion = Reference->Submit(Request);
+				FViewportPickingBackendCompletion AcceleratedCompletion = Accelerated->Submit(std::move(Request));
+				const bool bSameHit = ReferenceCompletion.Hit.has_value() == AcceleratedCompletion.Hit.has_value()
+					&& (!ReferenceCompletion.Hit || (ReferenceCompletion.Hit->Token == AcceleratedCompletion.Hit->Token
+						&& std::abs(ReferenceCompletion.Hit->Distance - AcceleratedCompletion.Hit->Distance) <= kIntersectionEpsilon));
+				if (ReferenceCompletion.Status != AcceleratedCompletion.Status || !bSameHit)
+				{
+					++ReferenceCompletion.Diagnostics.ParityMismatches;
+					return ReferenceCompletion;
+				}
+				return AcceleratedCompletion;
+			}
+
+			auto Poll(FViewportPickTicket) -> FViewportPickingBackendCompletion override
+			{
+				return {EViewportPickStatus::Invalid, std::nullopt};
+			}
+
+			auto Cancel(FViewportPickTicket) -> void override {}
+
+		private:
+			std::unique_ptr<IViewportPickingBackend> Reference;
+			std::unique_ptr<IViewportPickingBackend> Accelerated;
+		};
 	} // namespace
 
 	auto MakeReferenceViewportPickingBackend(FViewportPickingWorkBudget WorkBudget)
 		-> std::unique_ptr<IViewportPickingBackend>
 	{
-		return std::make_unique<FReferenceViewportPickingBackend>(WorkBudget);
+		return MakeViewportPickingBackend(EViewportPickingBackendPolicy::Reference, WorkBudget);
+	}
+
+	auto MakeViewportPickingBackend(EViewportPickingBackendPolicy Policy,
+		FViewportPickingWorkBudget WorkBudget) -> std::unique_ptr<IViewportPickingBackend>
+	{
+		switch (Policy)
+		{
+		case EViewportPickingBackendPolicy::Reference:
+			return std::make_unique<FReferenceViewportPickingBackend>(WorkBudget, false);
+		case EViewportPickingBackendPolicy::Accelerated:
+			return std::make_unique<FReferenceViewportPickingBackend>(WorkBudget, true);
+		case EViewportPickingBackendPolicy::Compare:
+			return std::make_unique<FCompareViewportPickingBackend>(WorkBudget);
+		}
+		return std::make_unique<FReferenceViewportPickingBackend>(WorkBudget, false);
 	}
 
 	auto IsViewportPickHitPreferred(const FViewportPickHit& Candidate, const FViewportPickHit& Current) -> bool
@@ -357,12 +512,13 @@ namespace Durin
 	}
 
 	FViewportPickingService::FViewportPickingService()
-		: Backend(MakeReferenceViewportPickingBackend())
+		: Backend(MakeViewportPickingBackend(EViewportPickingBackendPolicy::Accelerated))
 	{
 	}
 
 	FViewportPickingService::FViewportPickingService(std::unique_ptr<IViewportPickingBackend> InBackend)
-		: Backend(InBackend ? std::move(InBackend) : MakeReferenceViewportPickingBackend())
+		: Backend(InBackend ? std::move(InBackend)
+			: MakeViewportPickingBackend(EViewportPickingBackendPolicy::Accelerated))
 	{
 	}
 
@@ -407,20 +563,32 @@ namespace Durin
 		if (EnumHasAnyFlags(Request.Layers, EViewportPickLayer::SceneGeometry))
 		{
 			DLevel* Level = Request.Level.Get();
-			for (const TObjectPtr<AActor>& ActorPtr : Level->GetActors())
+			std::vector<FViewportPickingSceneCandidate> Candidates;
+			const bool bUsedSceneIndex = SceneIndex && SceneIndex->GetLevel() == Level
+				&& SceneIndex->QueryRay(RayOrigin, RayDirection, Candidates);
+			if (bUsedSceneIndex)
 			{
-				AActor* Actor = ActorPtr.Get();
-				if (!Actor || Actor->IsHidden()) continue;
-				for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetOwnedComponents())
+				for (const FViewportPickingSceneCandidate& Candidate : Candidates)
 				{
-					auto* Component = Cast<DPrimitiveComponent>(ComponentPtr.Get());
-					if (!Component || !Component->IsRegistered()) continue;
-					const FPrimitiveSceneId PrimitiveId = Component->GetPrimitiveSceneId();
-					if (PrimitiveId == InvalidPrimitiveSceneId) continue;
-					Record.Targets.push_back({static_cast<uint32>(Record.Targets.size() + 1), PrimitiveId,
-						Actor, Component, PrimitiveId.Value, Component->GetRegistrationGeneration()});
+					Record.Targets.push_back({static_cast<uint32>(Record.Targets.size() + 1), Candidate.PrimitiveId,
+						Candidate.Actor, Candidate.Component, Candidate.StableTieKey, Candidate.RegistrationGeneration});
 				}
 			}
+			else
+				for (const TObjectPtr<AActor>& ActorPtr : Level->GetActors())
+				{
+					AActor* Actor = ActorPtr.Get();
+					if (!Actor || Actor->IsHidden()) continue;
+					for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetOwnedComponents())
+					{
+						auto* Component = Cast<DPrimitiveComponent>(ComponentPtr.Get());
+						if (!Component || !Component->IsRegistered()) continue;
+						const FPrimitiveSceneId PrimitiveId = Component->GetPrimitiveSceneId();
+						if (PrimitiveId == InvalidPrimitiveSceneId) continue;
+						Record.Targets.push_back({static_cast<uint32>(Record.Targets.size() + 1), PrimitiveId,
+							Actor, Component, PrimitiveId.Value, Component->GetRegistrationGeneration()});
+					}
+				}
 		}
 
 		FViewportPickingBackendCompletion BackendCompletion{EViewportPickStatus::Completed, std::nullopt};
@@ -479,7 +647,13 @@ namespace Durin
 	auto FViewportPickingService::SetBackendForTesting(std::unique_ptr<IViewportPickingBackend> InBackend) -> void
 	{
 		Invalidate();
-		Backend = InBackend ? std::move(InBackend) : MakeReferenceViewportPickingBackend();
+		Backend = InBackend ? std::move(InBackend)
+			: MakeViewportPickingBackend(EViewportPickingBackendPolicy::Accelerated);
+	}
+
+	auto FViewportPickingService::SetSceneIndex(std::shared_ptr<FViewportPickingSceneIndex> InSceneIndex) -> void
+	{
+		SceneIndex = std::move(InSceneIndex);
 	}
 
 	auto FViewportPickingService::Complete(FRequestRecord& Record,

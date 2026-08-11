@@ -4,8 +4,8 @@ Summary: Establish correct, extensible editor viewport picking that scales from 
 
 Last reviewed: 2026-08-11
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-11
 
 ## Current Status
 
@@ -15,7 +15,7 @@ per-viewport edit-mode managers arbitrate Select and contextual tools; component
 visualizers preserve Actor/component/element identity; and the transform gizmo
 owns its interaction before ordinary selection runs.
 
-M1 and M2 are complete. Each viewport client now owns a ticketed semantic picking
+M1 through M3 are complete. Each viewport client now owns a ticketed semantic picking
 service; Select and contextual modes consume exact Actor/component/element
 results without backend knowledge; and deterministic StaticMesh plus
 current-pose SkeletalMesh LOD0 CPU oracles live behind the service boundary. Request-local primitive identity,
@@ -25,14 +25,16 @@ coverage are established. Skeletal picking snapshots the immutable current pose,
 uses pose bounds, palette-mapped weighted deformation, exact double-sided
 triangles, world-distance ordering, and deterministic request-wide work caps.
 
-The runtime has useful foundations for a scalable replacement. Every live
+The runtime now has the required scalable CPU path. Every live
 `DPrimitiveComponent` owns a stable process-local `FPrimitiveSceneId`; the
 Renderer owns typed primitive scene entries with authoritative transform,
 visibility, and bounds; StaticMesh and SkeletalMesh have detached CPU geometry;
-and skeletal pose evaluation publishes complete palette-aligned matrices. The
-RHI supports `R32_UINT`, texture copies, CPU-readback allocations, and Vulkan
-completion tracking. However, there is no scene query index, mesh BVH, GPU
-selection pass, or non-blocking region-readback abstraction. The current public
+and skeletal pose evaluation publishes complete palette-aligned matrices.
+`FLevelEditorContext` shares one ordered game-thread scene index, StaticMesh LOD
+data owns immutable triangle BVHs, and private reference/accelerated/compare
+policies report parity, work, memory, and fallback counters. The RHI supports
+`R32_UINT`, texture copies, CPU-readback allocations, and Vulkan completion
+tracking. There is still no GPU selection pass or non-blocking region-readback abstraction. The current public
 texture readback is synchronous and reads a complete subresource, so it is not
 an acceptable viewport-interaction path.
 
@@ -42,10 +44,16 @@ public request/result shape, private per-viewport service boundary,
 request-local identity snapshot, coordinate convention, winner ordering, and
 immediate/deferred ticket lifecycle remain the backend contract. M2 completed
 through [Skeletal Viewport Picking](../Plans/SkeletalViewportPicking.md).
-M3 is active through the
+M3 completed through the
 [Viewport Picking Spatial Acceleration Plan](../Plans/ViewportPickingSpatialAcceleration.md).
-It must preserve parity with both retained reference providers while adding a
-shared game-thread scene index and immutable per-LOD StaticMesh BVHs.
+Its generated 10,000-primitive fixture reduced a sparse ray to one candidate;
+the 1,000,000-triangle fixture reduced exact tests to 16, retained 22,874,384
+bytes, and measured 44.4 microseconds accelerated versus 665.6 milliseconds
+reference with zero compare mismatches. Current-pose skeletal triangle grouping
+was measured and deferred; scene bounds feed the unchanged exact M2 provider.
+These CPU results do not activate M4-M5, so asynchronous readback and GPU
+picking are explicitly deferred pending a concrete unsupported-geometry,
+latency, or visible-surface consumer.
 
 ## Outcome
 
@@ -218,15 +226,15 @@ without requiring GPU infrastructure to restore skeletal selection.
 
 | Area | Existing foundation | Gap | Owning milestone |
 | --- | --- | --- | --- |
-| Selection and modes | Shared Actor/component/sub-element selection, per-viewport mode manager, Select safe default, contextual mode validation, generic gizmo targets, and one semantic completion path for StaticMesh and current-pose SkeletalMesh | Acceleration remains to be added behind the established service | M3 |
-| CPU geometry picking | Viewport ray construction plus a deterministic StaticMesh LOD0 bounds/triangle backend with exact component results | Whole-Level discovery and brute-force triangles remain the M1 oracle pending M3 acceleration | M3 |
-| Primitive identity | Stable process-local `FPrimitiveSceneId`, request-local weak resolver, registration generation, and viewport/Level request generation | Incremental resolver/index maintenance is deferred with acceleration | M3 |
-| Skeletal geometry | LOD0 current-pose CPU reference picking with palette mapping, mixed influences, pose bounds, exact triangles, world distance, bounded failure, and focused tests | Candidate reduction and reference/accelerated parity remain | M3 |
-| Scene bounds | Renderer SceneInfo maintains typed transform, visibility, local/world bounds and updates skeletal bounds with pose publication | Renderer state is render-thread-owned and there is no game-thread picking broad phase | M3 |
-| Spatial acceleration | Static and skeletal render data have validated bounds and CPU geometry | No scene AABB tree, mesh BVH, update policy, counters, or brute-force parity harness | M3 |
+| Selection and modes | Shared Actor/component/sub-element selection, per-viewport mode manager, Select safe default, contextual mode validation, generic gizmo targets, and one semantic completion path for StaticMesh and current-pose SkeletalMesh | Required CPU milestones complete; future backend work remains private | Complete |
+| CPU geometry picking | Viewport ray construction, shared Level broad phase, StaticMesh LOD0 BVH, and exact current-pose skeletal provider | GPU visible-surface policy remains conditional | Complete |
+| Primitive identity | Stable process-local `FPrimitiveSceneId`, request-local weak resolver, registration generation, ordered mutation sequence, and viewport/Level request generation | Dense GPU token tables remain conditional | Complete |
+| Skeletal geometry | LOD0 current-pose CPU reference picking plus scene-bound acceleration, exact budgets, and compare parity | Triangle grouping deferred by the measured activation formula | Complete |
+| Scene bounds | Renderer keeps render-thread SceneInfo; Engine separately publishes editor-only game-thread mutation snapshots | No required gap | Complete |
+| Spatial acceleration | Deterministic scene AABB tree, immutable per-LOD StaticMesh BVH, memory/build/query counters, fallback, and compare mode | Persisted BVHs and GPU work require separate consumers | Complete |
 | GPU identity rendering | Renderer has typed prepared StaticMesh/SkeletalMesh draws and stable primitive IDs; RHI/Vulkan support `R32_UINT` | No ID pass, dense token table, scissored request, masking/depth contract, or result queue | Conditional M5 |
 | GPU readback | Texture/buffer copies, CPU-readback allocations, transfer arenas, and completion tracking exist | Public texture readback is synchronous and full-subresource; no pollable bounded-region handle | Conditional M4 |
-| Validation | Static and skeletal reference picking, animation displacement, transforms, bounds/budget diagnostics, semantic lifetime, and selection behavior | Acceleration parity, multi-view asynchronous, and GPU selection coverage remain | M3-M5 |
+| Validation | Static/skeletal reference and accelerated parity, animation displacement, transforms, mutation/lifetime, memory, candidate, timing, and selection coverage | Async/GPU coverage activates only with M4-M5 | Complete / conditional |
 
 ## Milestone Map
 
@@ -246,9 +254,9 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- | --- |
 | M1: Semantic picking contract | Required; completed | [Viewport Picking Contract](../Plans/ViewportPickingContract.md) | Current viewport editing and StaticMesh picking behavior | Per-viewport request/result/service boundary, exact primitive/component identity, generation and cancellation rules, explicit hit arbitration, and a CPU reference backend preserving current StaticMesh behavior | Actor/component/visualizer/gizmo selection semantics, fitted-view coordinates, layer priorities, and immediate-versus-pending API shape are recorded before implementation | Passed: semantic mode integration, single arbitration, transformed closest-triangle behavior, and deterministic lifecycle/multi-viewport tests |
 | M2: Current-pose skeletal picking | Required; completed | [Skeletal Viewport Picking](../Plans/SkeletalViewportPicking.md) | M1 contract; skeletal render data and pose publication | Correct CPU reference picking for `DSkeletalMeshComponent` using current pose bounds and deformation, with Actor/component results and deterministic request failure | Passed: LOD0/current-pose-only, double-sided, invalid-component skip, world-distance, 250,000 vertex/500,000 triangle request limits, and private diagnostics are frozen | Passed: exact semantic identity, animation in/out sequence, non-contiguous palette, mixed influences, Static/Skeletal distance and stable ties, transforms, bounds rejection, and atomic over-budget failure |
-| M3: CPU spatial acceleration | Required; active | [Viewport Picking Spatial Acceleration](../Plans/ViewportPickingSpatialAcceleration.md) | M1-M2 reference behavior and representative scene/mesh fixtures | Incremental scene bounds index, immutable per-LOD StaticMesh triangle acceleration, bounded skeletal candidate reduction where justified, diagnostics, and selectable brute-force comparison | Passed for activation: M1-M2 reference results are stable and the child plan freezes ownership, workload, budget, update, rebuild/refit, and fallback decisions in Stage 0 before implementation | Accelerated and reference backends produce identical ordered results across randomized and adversarial fixtures; add/remove/transform/visibility/pose-bound updates remain correct; counters and profiling demonstrate bounded candidate reduction without unbounded retained data |
-| M4: Asynchronous bounded-region readback | Conditional prerequisite | `AsynchronousTextureRegionReadback` | M1 request lifetime; selected GPU consumer and accepted latency/buffer budgets | Backend-independent RHI region-copy/readback handle, bounded staging ring, polling/completion, cancellation/retirement, diagnostics, and Vulkan implementation | M5 or another approved consumer defines format, region size, maximum concurrent requests, latency target, thread ownership, and failure fallback; synchronous readback is measured or known to be unacceptable | Subresource regions round-trip correctly without full-texture copy or caller-visible GPU wait; multiple in-flight requests, resize/invalidation, overflow, shutdown, and device/resource failure pass RHI and Vulkan coverage |
-| M5: GPU picking and hybrid arbitration | Conditional | `GPUViewportPicking` | M1-M3; M4; Renderer prepared-view and skeletal paths | On-demand scissored integer-ID pass, immutable dense token table, current-pose StaticMesh/SkeletalMesh output, asynchronous result integration, and backend policy/fallback | CPU measurements or unsupported generated/deformed/instanced geometry demonstrate need; translucent policy, MSAA policy, pick-region winner rule, target format, shader/PSO identity, and latency UX are selected | Opaque/Masked visible-surface results match CPU/reference expectations and rendered pose across main and auxiliary viewports; no reflected object reaches the render thread; no interaction path uses synchronous full readback; stale requests are rejected; headless/unsupported RHI falls back deterministically |
+| M3: CPU spatial acceleration | Required; completed | [Viewport Picking Spatial Acceleration](../Plans/ViewportPickingSpatialAcceleration.md) | M1-M2 reference behavior and representative scene/mesh fixtures | Incremental scene bounds index, immutable per-LOD StaticMesh triangle acceleration, measured skeletal disposition, diagnostics, and selectable brute-force comparison | Passed | Passed: zero compare mismatches; ordered mutation coverage; 1/10,000 scene candidates; 16/1,000,000 triangle candidates; bounded memory and measured speedup |
+| M4: Asynchronous bounded-region readback | Conditional; deferred | `AsynchronousTextureRegionReadback` | M1 request lifetime; selected GPU consumer and accepted latency/buffer budgets | Backend-independent RHI region-copy/readback handle, bounded staging ring, polling/completion, cancellation/retirement, diagnostics, and Vulkan implementation | Not met: qualified CPU picking does not require readback; activate only when a consumer freezes format, region, concurrency, latency, ownership, and fallback budgets | Subresource regions round-trip correctly without full-texture copy or caller-visible GPU wait; multiple in-flight requests, resize/invalidation, overflow, shutdown, and device/resource failure pass RHI and Vulkan coverage |
+| M5: GPU picking and hybrid arbitration | Conditional; deferred | `GPUViewportPicking` | M1-M3; M4; Renderer prepared-view and skeletal paths | On-demand scissored integer-ID pass, immutable dense token table, current-pose StaticMesh/SkeletalMesh output, asynchronous result integration, and backend policy/fallback | Not met: CPU measurements pass; reconsider for unsupported generated/deformed/instanced geometry or a visible-surface requirement after M4 has an accepted contract | Opaque/Masked visible-surface results match CPU/reference expectations and rendered pose across main and auxiliary viewports; no reflected object reaches the render thread; no interaction path uses synchronous full readback; stale requests are rejected; headless/unsupported RHI falls back deterministically |
 
 M1 through M3 are the required correctness and CPU-scalability program. M4
 and M5 remain explicitly conditional: completing the roadmap does not require a

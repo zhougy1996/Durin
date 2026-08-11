@@ -2,6 +2,7 @@
 
 #include "Actors/CameraActor.h"
 #include "Components/ActorComponent.h"
+#include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/Actor.h"
@@ -9,6 +10,38 @@
 
 namespace Durin
 {
+#if DURIN_WITH_EDITOR
+	namespace
+	{
+		auto BuildEditorPickingMutation(DPrimitiveComponent* Component, bool bRetired)
+			-> FEditorPickingPrimitiveMutation
+		{
+			FEditorPickingPrimitiveMutation Mutation;
+			if (!Component) return Mutation;
+			AActor* Actor = Component->GetOwner();
+			Mutation.Actor = Actor;
+			Mutation.Component = Component;
+			Mutation.PrimitiveId = Component->GetPrimitiveSceneId();
+			Mutation.RegistrationGeneration = Component->GetRegistrationGeneration();
+			Mutation.bVisible = Actor && !Actor->IsHidden();
+			Mutation.bRetired = bRetired;
+			FBox LocalBounds;
+			if (bRetired || !Component->GetEditorPickingLocalBounds(LocalBounds, Mutation.Family)) return Mutation;
+			const FMatrix Transform = Component->GetRenderMatrix();
+			if (!Math::IsFinite(Transform)) return Mutation;
+			for (uint32 Corner = 0; Corner < 8; ++Corner)
+			{
+				const FVector3 Point(
+					(Corner & 1u) ? LocalBounds.Max.x : LocalBounds.Min.x,
+					(Corner & 2u) ? LocalBounds.Max.y : LocalBounds.Min.y,
+					(Corner & 4u) ? LocalBounds.Max.z : LocalBounds.Min.z);
+				Mutation.WorldBounds.AddPoint(FVector3(Transform * FVector4(Point, 1.0)));
+			}
+			return Mutation;
+		}
+	}
+#endif
+
 	DLevel::DLevel(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
@@ -222,4 +255,62 @@ namespace Durin
 #endif
 		return true;
 	}
+
+#if DURIN_WITH_EDITOR
+	auto DLevel::CaptureEditorPickingPrimitiveSnapshot() const
+		-> FEditorPickingPrimitiveMutationBatch
+	{
+		FEditorPickingPrimitiveMutationBatch Batch;
+		Batch.Revision = EditorPickingPrimitiveRevision;
+		Batch.bCompleteSnapshot = true;
+		for (const TObjectPtr<AActor>& ActorPtr : Actors)
+		{
+			AActor* Actor = ActorPtr.Get();
+			if (!Actor) continue;
+			for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetOwnedComponents())
+			{
+				auto* Primitive = Cast<DPrimitiveComponent>(ComponentPtr.Get());
+				if (Primitive && Primitive->IsRegistered())
+					Batch.Mutations.push_back(BuildEditorPickingMutation(Primitive, false));
+			}
+		}
+		return Batch;
+	}
+
+	auto DLevel::SubscribeEditorPickingPrimitives(FEditorPickingPrimitiveObserver Observer) -> uint64
+	{
+		if (!Observer || bDispatchingEditorPickingMutation) return 0;
+		const uint64 Subscription = NextEditorPickingObserverId++;
+		EditorPickingPrimitiveObservers.emplace(Subscription, std::move(Observer));
+		bDispatchingEditorPickingMutation = true;
+		EditorPickingPrimitiveObservers.at(Subscription)(CaptureEditorPickingPrimitiveSnapshot());
+		bDispatchingEditorPickingMutation = false;
+		return Subscription;
+	}
+
+	auto DLevel::UnsubscribeEditorPickingPrimitives(uint64 Subscription) -> void
+	{
+		if (!Subscription) return;
+		EditorPickingPrimitiveObservers.erase(Subscription);
+	}
+
+	auto DLevel::NotifyEditorPickingPrimitiveChanged(DPrimitiveComponent* Component, bool bRetired) -> void
+	{
+		if (!Component) return;
+		require(!bDispatchingEditorPickingMutation);
+		FEditorPickingPrimitiveMutationBatch Batch;
+		Batch.Revision = ++EditorPickingPrimitiveRevision;
+		Batch.Mutations.push_back(BuildEditorPickingMutation(Component, bRetired));
+		std::vector<FEditorPickingPrimitiveObserver> Observers;
+		Observers.reserve(EditorPickingPrimitiveObservers.size());
+		for (const auto& [Id, Observer] : EditorPickingPrimitiveObservers)
+		{
+			(void)Id;
+			Observers.push_back(Observer);
+		}
+		bDispatchingEditorPickingMutation = true;
+		for (const FEditorPickingPrimitiveObserver& Observer : Observers) Observer(Batch);
+		bDispatchingEditorPickingMutation = false;
+	}
+#endif
 }

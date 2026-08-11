@@ -2,6 +2,7 @@
 
 #include "AssetSystem.h"
 #include "DObject/DurinPropertyTypes.h"
+#include "Engine/Level.h"
 #include "Materials/DefaultMaterialService.h"
 #include "Materials/MaterialInterface.h"
 #include "SkeletalMesh/SkeletalDerivedData.h"
@@ -159,8 +160,13 @@ namespace Durin
 		const std::shared_ptr<const FSkeletalPosePalette> Pose = GetLatestPosePalette();
 		if (!Pose || Pose->Revision == LastPublishedPoseRevision) return;
 		if (IsRegistered())
+		{
 			if (IScene* Scene = GetRenderScene())
 				Scene->UpdateSkeletalMeshDynamicData(GetPrimitiveSceneId(), Pose);
+#if DURIN_WITH_EDITOR
+			NotifyEditorPickingMutation();
+#endif
+		}
 		LastPublishedPoseRevision = Pose->Revision;
 	}
 
@@ -425,6 +431,18 @@ namespace Durin
 		return std::make_unique<FSkeletalMeshSceneProxy>(
 			RenderData, std::move(Materials), MaterialComponentRevision, Pose);
 	}
+
+#if DURIN_WITH_EDITOR
+	auto DSkeletalMeshComponent::GetEditorPickingLocalBounds(
+		FBox& OutBounds, EEditorPickingPrimitiveFamily& OutFamily) const -> bool
+	{
+		const std::shared_ptr<const FSkeletalPosePalette> Pose = GetLatestPosePalette();
+		if (!SkeletalMesh || !Pose) return false;
+		OutBounds = Pose->LocalBounds;
+		OutFamily = EEditorPickingPrimitiveFamily::SkeletalMesh;
+		return OutBounds.bIsValid && Math::IsFinite(OutBounds.Min) && Math::IsFinite(OutBounds.Max);
+	}
+#endif
 
 	auto DSkeletalMeshComponent::BuildMaterialRenderProxyBindingUpdate(
 		FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool

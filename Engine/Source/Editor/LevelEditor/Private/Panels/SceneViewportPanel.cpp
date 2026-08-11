@@ -118,6 +118,7 @@ namespace Durin
 
 	auto FSceneViewportPanel::Draw(FLevelEditorContext& Context) -> void
 	{
+		if (ViewportClient) ViewportClient->SetPickingSceneIndex(Context.GetPickingSceneIndex());
 		Context.ActivateViewportEditMode = [this, &Context](std::string_view Id) { return EditModeManager.Activate(Id, Context); };
 		const bool bPlayingInNewWindow = GEditor && GEditor->IsPlayingInNewWindow();
 		if (!EditorWorkspaceUI::BeginDockablePanel(

@@ -66,6 +66,30 @@ index buffer and vertex buffers. Initialization is idempotent, and any partial
 failure releases all resources already initialized so a later retry starts
 clean.
 
+## Editor Ray-Query Acceleration
+
+In editor builds each published `FStaticMeshLODResources` may carry one
+immutable CPU ray-query acceleration allocation. It is built before render-data
+publication from the same finite CPU positions and uint32 index triplets, so it
+cannot outlive or mismatch the LOD generation that owns it. Replacement,
+reimport, exchange, release, and destruction retire it with that render data;
+component instances and editor viewports borrow the same allocation.
+
+The flat binary hierarchy uses longest-axis centroid partitioning, triangle
+ordinal as the deterministic split tie-break, and at most eight triangles per
+leaf. Nodes contain local-space bounds plus child or triangle ranges. Exact
+retained bytes and build nanoseconds are stored with the allocation. The asset
+ceiling is 256 MiB and the measured layout allowance is 96 bytes per indexed
+triangle with a 1 KiB small-asset floor. Invalid geometry, integer overflow, a
+failed allocation, or either ceiling leaves acceleration absent; consumers
+must use the complete reference geometry rather than a partial hierarchy.
+
+LevelEditor currently queries only LOD 0 to preserve its semantic picking
+contract. It transforms rays to local space, visits nearer child bounds first,
+prunes against the current world-distance winner, and retains the double-sided
+reference triangle test. This data is not serialized or added to derived data;
+non-editor builds do not construct it.
+
 `IsReadyForRendering()` requires the selected LOD's vertex buffers, index
 buffer, and vertex factory to be ready and the same geometry validation to
 pass. A populated RHI reference cannot make a malformed LOD renderable.

@@ -13,6 +13,7 @@ namespace Durin
 	class DLevel;
 	class DPackage;
 	class FAssetPath;
+	class FViewportPickingSceneIndex;
 	// Shares active world, selection, play, and viewport state across editor panels.
 	struct FLevelEditorContext
 	{
@@ -48,6 +49,7 @@ namespace Durin
 		auto IsSubElementSelected(const FEditorSubElementSelection& Element) const -> bool;
 		auto SetError(std::string Message) const -> void { if (ReportError) ReportError(std::move(Message)); }
 		auto InvalidatePackageSavedState(DPackage* Package = nullptr) const -> void;
+		auto GetPickingSceneIndex() const -> const std::shared_ptr<FViewportPickingSceneIndex>& { return PickingSceneIndex; }
 
 	private:
 		std::vector<TObjectPtr<AActor>> SelectedActors;
@@ -56,5 +58,6 @@ namespace Durin
 		TObjectPtr<DActorComponent> SelectedComponent;
 		FEditorSubElementSelection SelectedSubElement;
 		std::vector<FEditorSubElementSelection> SelectedSubElements;
+		std::shared_ptr<FViewportPickingSceneIndex> PickingSceneIndex;
 	};
 } // namespace Durin
