@@ -13,9 +13,12 @@
 #include "StaticMesh/StaticMesh.h"
 
 #include <gtest/gtest.h>
+#include <random>
 
 namespace
 {
+	inline constexpr Durin::uint64 ExpectedPrimitiveRetainedBytes =
+		DURIN_BUILD_DEBUG ? 208u : 200u;
 	auto MakeBoxBody(
 		const Durin::FVector3& Center,
 		const Durin::FVector3& HalfExtent = Durin::FVector3(0.5),
@@ -195,6 +198,29 @@ TEST(FPhysicsWorldTests, CollisionDebugSnapshotIsBoundedAndDisabledByDefault)
 	ASSERT_EQ(Snapshot.Bodies.size(), 1u);
 	EXPECT_EQ(Snapshot.Bodies.front().Component, Box);
 	EXPECT_TRUE(Snapshot.LastBlockingHit.has_value());
+	std::vector<Durin::FVector3> DebugVertices;
+	std::vector<Durin::uint32> DebugIndices;
+	for (Durin::uint32 Index = 0; Index < 300; ++Index)
+	{
+		const Durin::uint32 First = static_cast<Durin::uint32>(DebugVertices.size());
+		const double X = static_cast<double>(Index) * 2.0;
+		const double Z = static_cast<double>(Index & 1u);
+		DebugVertices.insert(DebugVertices.end(), {{X, 0.0, Z}, {X + 1.0, 0.0, Z}, {X, 1.0, Z}});
+		DebugIndices.insert(DebugIndices.end(), {First, First + 1, First + 2});
+	}
+	Durin::FPhysicsBodyDesc FeatureBody;
+	FeatureBody.Geometry = Durin::FCollisionGeometryRef::BuildTriangleMesh(DebugVertices, DebugIndices);
+	FeatureBody.Transform = Durin::FTransform();
+	FeatureBody.UserToken = reinterpret_cast<Durin::uint64>(Box);
+	ASSERT_TRUE(World->GetPhysicsScene().AddBody(FeatureBody).IsValid());
+	const Durin::FCollisionDebugSnapshot FeatureSnapshot = World->CaptureCollisionDebugSnapshot();
+	const auto Feature = std::ranges::find_if(FeatureSnapshot.Bodies, [](const Durin::FCollisionDebugBody& Body) {
+		return Body.GeometryKind == Durin::ECollisionGeometryKind::TriangleMesh;
+	});
+	ASSERT_NE(Feature, FeatureSnapshot.Bodies.end());
+	EXPECT_FALSE(Feature->bHasPrimitiveShape);
+	EXPECT_EQ(Feature->TotalTriangles, 300u);
+	EXPECT_EQ(Feature->TriangleSample.size(), 256u);
 	Durin::FPhysicsBodyDesc DebugBody = MakeBoxBody({10.0, 0.0, 0.0});
 	DebugBody.UserToken = static_cast<decltype(DebugBody.UserToken)>(reinterpret_cast<std::uintptr_t>(Box));
 	for (size_t Index = 0; Index < 4096; ++Index)
@@ -206,6 +232,75 @@ TEST(FPhysicsWorldTests, CollisionDebugSnapshotIsBoundedAndDisabledByDefault)
 	World->SetCollisionDebugDrawEnabled(false);
 	EXPECT_TRUE(World->CaptureCollisionDebugSnapshot().Bodies.empty());
 	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
+TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry)
+{
+	Durin::DWorld* FirstWorld = CreatePhysicsWorld();
+	Durin::DWorld* SecondWorld = CreatePhysicsWorld();
+	std::string Error;
+	Durin::DStaticMesh* Mesh = Durin::NewObject<Durin::DStaticMesh>(FirstWorld, "SceneCollisionMesh");
+	Durin::FStaticMeshImportedData Imported;
+	Imported.MaterialSlots.push_back({"Default", 0, "Default"});
+	Durin::FStaticMeshImportedMesh& ImportedMesh = Imported.Meshes.emplace_back();
+	ImportedMesh.Name = "Tetrahedron";
+	ImportedMesh.Positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+	ImportedMesh.Indices = {0, 2, 1, 0, 1, 3, 1, 2, 3, 2, 0, 3};
+	ImportedMesh.SourceMaterialIndex = 0;
+	Durin::FStaticMeshSourceImportData Provenance{
+		.SourcePath = {.Path = "/Tests/SceneCollisionFixture.gltf"},
+		.SourceContentHash = "0123456789abcdef0123456789abcdef",
+		.ImporterId = "PhysicsSceneFixture",
+		.ImporterVersion = 1,
+		.ImportSettings = Durin::FStaticMeshImportSettings::MakeDurin()};
+	ASSERT_TRUE(Mesh->InitializeFromImportedData(
+		Imported, Provenance, "Scene collision fixture", Error)) << Error;
+	ASSERT_TRUE(Mesh->SetCollisionSourceMode(
+		Durin::EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error)) << Error;
+	auto AddMesh = [&](Durin::DWorld& World, std::string_view Name) {
+		auto* Actor = World.SpawnActor<Durin::AStaticMeshActor>(Durin::FName(Name));
+		Actor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
+		return Actor->GetStaticMeshComponent();
+	};
+	Durin::DStaticMeshComponent* First = AddMesh(*FirstWorld, "FirstCollisionOwner");
+	Durin::DStaticMeshComponent* Second = AddMesh(*SecondWorld, "SecondCollisionOwner");
+	ASSERT_TRUE(First->GetPhysicsActorHandle().IsValid());
+	ASSERT_TRUE(Second->GetPhysicsActorHandle().IsValid());
+	EXPECT_EQ(First->GetCollisionProfileName(), Durin::CollisionProfile::WorldStatic);
+	EXPECT_EQ(First->GetPublishedBodySetupRevision(), Mesh->GetBodySetup()->GetRevision());
+	const auto FirstBodies = FirstWorld->GetPhysicsScene().CaptureBodies();
+	const auto SecondBodies = SecondWorld->GetPhysicsScene().CaptureBodies();
+	ASSERT_EQ(FirstBodies.size(), 1u);
+	ASSERT_EQ(SecondBodies.size(), 1u);
+	EXPECT_EQ(FirstBodies.front().Desc.Geometry.GetIdentity(), SecondBodies.front().Desc.Geometry.GetIdentity());
+	EXPECT_EQ(FirstWorld->GetPhysicsScene().CaptureQueryDiagnostics().Mutations.UniqueGeometryResources, 1u);
+	EXPECT_EQ(SecondWorld->GetPhysicsScene().CaptureQueryDiagnostics().Mutations.UniqueGeometryResources, 1u);
+	const std::optional<Durin::FBox> Bounds = Mesh->GetLOD0LocalBounds();
+	ASSERT_TRUE(Bounds.has_value());
+	const Durin::FVector3 Center = Bounds->GetCenter();
+	Durin::FHitResult Hit;
+	ASSERT_TRUE(FirstWorld->LineTraceSingleByChannel(
+		Hit, {Bounds->Min.x - 1.0, Center.y, Center.z},
+		{Bounds->Max.x + 1.0, Center.y, Center.z}, Durin::ECollisionChannel::Visibility));
+	EXPECT_EQ(Hit.Component, First);
+
+	ASSERT_TRUE(Mesh->SetCollisionQueryPolicy(
+		Durin::EBodySetupCollisionQueryPolicy::SimpleOnly, Error)) << Error;
+	EXPECT_FALSE(First->GetPhysicsActorHandle().IsValid());
+	EXPECT_FALSE(Second->GetPhysicsActorHandle().IsValid());
+	EXPECT_EQ(First->GetCollisionProfileName(), Durin::CollisionProfile::WorldStatic);
+	ASSERT_TRUE(Mesh->SetCollisionQueryPolicy(
+		Durin::EBodySetupCollisionQueryPolicy::ComplexOnly, Error)) << Error;
+	EXPECT_TRUE(First->GetPhysicsActorHandle().IsValid());
+	EXPECT_TRUE(Second->GetPhysicsActorHandle().IsValid());
+	EXPECT_EQ(First->GetPublishedBodySetupRevision(), Mesh->GetBodySetup()->GetRevision());
+
+	First->SetStaticMesh(nullptr);
+	EXPECT_FALSE(First->GetPhysicsActorHandle().IsValid());
+	EXPECT_TRUE(Second->GetPhysicsActorHandle().IsValid());
+	Durin::MarkObjectHierarchyAsGarbage(FirstWorld);
+	Durin::MarkObjectHierarchyAsGarbage(SecondWorld);
 	Durin::CollectGarbage();
 }
 
@@ -265,7 +360,7 @@ TEST(FAetherCollisionGeometryResourceTests, ValidatesIdentityBoundsChildrenAndRe
 	ASSERT_TRUE(Compound.IsValid());
 	EXPECT_NE(Compound.GetIdentity(), 0u);
 	EXPECT_EQ(Compound.GetChildCount(), 64u);
-	EXPECT_EQ(Compound.GetRetainedBytes(), 7'264u);
+	EXPECT_EQ(Compound.GetRetainedBytes(), DURIN_BUILD_DEBUG ? 7'264u : 7'256u);
 	Durin::FVector3 Min;
 	Durin::FVector3 Max;
 	ASSERT_TRUE(Compound.GetLocalBounds(Min, Max));
@@ -281,7 +376,7 @@ TEST(FAetherCollisionGeometryResourceTests, TenThousandBodiesRetainOneSharedPayl
 {
 	const Durin::FCollisionGeometryRef Geometry = Durin::FCollisionGeometryRef::MakePrimitive(
 		Durin::FCollisionShape::MakeBox({0.5, 0.5, 0.5}));
-	EXPECT_EQ(Geometry.GetRetainedBytes(), 208u);
+	EXPECT_EQ(Geometry.GetRetainedBytes(), ExpectedPrimitiveRetainedBytes);
 	Durin::FPhysicsScene Scene;
 	std::vector<Durin::FPhysicsActorHandle> Handles;
 	Handles.reserve(10'000);
@@ -378,4 +473,421 @@ TEST(FAetherNarrowphaseMatrixTests, CompoundUsesStableChildOrderAndOneBodyResult
 	ASSERT_TRUE(Scene.OverlapMulti(
 		Durin::FCollisionShape::MakeBox({3.0, 1.0, 1.0}), Durin::FTransform(), {}, Hits));
 	EXPECT_EQ(Hits.size(), 1u);
+}
+
+namespace
+{
+	auto MakeStage1CubeHull() -> Durin::FCollisionGeometryRef
+	{
+		const std::array<Durin::FVector3, 8> Vertices{
+			Durin::FVector3{-1.0, -1.0, -1.0}, Durin::FVector3{1.0, -1.0, -1.0},
+			Durin::FVector3{-1.0, 1.0, -1.0}, Durin::FVector3{1.0, 1.0, -1.0},
+			Durin::FVector3{-1.0, -1.0, 1.0}, Durin::FVector3{1.0, -1.0, 1.0},
+			Durin::FVector3{-1.0, 1.0, 1.0}, Durin::FVector3{1.0, 1.0, 1.0}};
+		const std::array<Durin::uint32, 36> Indices{
+			0, 4, 6, 0, 6, 2, 1, 3, 7, 1, 7, 5,
+			0, 2, 3, 0, 3, 1, 4, 5, 7, 4, 7, 6,
+			0, 1, 5, 0, 5, 4, 2, 6, 7, 2, 7, 3};
+		return Durin::FCollisionGeometryRef::MakeConvexHull(Vertices, Indices);
+	}
+
+	auto MakeStage1TrianglePlane() -> Durin::FCollisionGeometryRef
+	{
+		const std::array<Durin::FVector3, 4> Vertices{
+			Durin::FVector3{0.0, -3.0, -3.0}, Durin::FVector3{0.0, 3.0, -3.0},
+			Durin::FVector3{0.0, 3.0, 3.0}, Durin::FVector3{0.0, -3.0, 3.0}};
+		const std::array<Durin::uint32, 6> Indices{0, 1, 2, 0, 2, 3};
+		const std::array<Durin::uint32, 2> Ordinals{17, 42};
+		return Durin::FCollisionGeometryRef::MakeTriangleMesh(Vertices, Indices, Ordinals);
+	}
+}
+
+TEST(FAetherCollisionGeometryStage1Tests, ValidatesImmutableFeatureResourcesAndStableAccess)
+{
+	static_assert(sizeof(Durin::FCollisionGeometryRef) == 16);
+	static_assert(sizeof(Durin::FCollisionGeometryTriangle) == 16);
+	const Durin::FCollisionGeometryRef Hull = MakeStage1CubeHull();
+	ASSERT_TRUE(Hull.IsValid());
+	EXPECT_EQ(Hull.GetKind(), Durin::ECollisionGeometryKind::ConvexHull);
+	EXPECT_EQ(Hull.GetChildCount(), 0u);
+	EXPECT_EQ(Hull.GetVertexCount(), 8u);
+	EXPECT_EQ(Hull.GetTriangleCount(), 12u);
+	ASSERT_NE(Hull.GetTriangle(0), nullptr);
+	EXPECT_EQ(Hull.GetTriangle(0)->SourceOrdinal, 0u);
+	EXPECT_EQ(*Hull.GetVertex(7), Durin::FVector3(1.0));
+	EXPECT_EQ(Hull.GetVertex(8), nullptr);
+	EXPECT_EQ(Hull.GetTriangle(12), nullptr);
+	Durin::FVector3 Minimum;
+	Durin::FVector3 Maximum;
+	ASSERT_TRUE(Hull.GetLocalBounds(Minimum, Maximum));
+	EXPECT_EQ(Minimum, Durin::FVector3(-1.0));
+	EXPECT_EQ(Maximum, Durin::FVector3(1.0));
+	EXPECT_GT(Hull.GetIdentity(), 0u);
+	EXPECT_GE(Hull.GetRetainedBytes(), 8u * sizeof(Durin::FVector3)
+		+ 12u * sizeof(Durin::FCollisionGeometryTriangle));
+
+	const Durin::FCollisionGeometryRef Mesh = MakeStage1TrianglePlane();
+	ASSERT_TRUE(Mesh.IsValid());
+	EXPECT_EQ(Mesh.GetKind(), Durin::ECollisionGeometryKind::TriangleMesh);
+	ASSERT_NE(Mesh.GetTriangle(1), nullptr);
+	EXPECT_EQ(Mesh.GetTriangle(0)->SourceOrdinal, 17u);
+	EXPECT_EQ(Mesh.GetTriangle(1)->SourceOrdinal, 42u);
+	EXPECT_NE(Hull.GetIdentity(), Mesh.GetIdentity());
+
+	const Durin::FCollisionGeometryRef Primitive = Durin::FCollisionGeometryRef::MakePrimitive(
+		Durin::FCollisionShape::MakeBox({0.5, 0.5, 0.5}));
+	EXPECT_EQ(Primitive.GetKind(), Durin::ECollisionGeometryKind::Primitive);
+	EXPECT_EQ(Primitive.GetRetainedBytes(), ExpectedPrimitiveRetainedBytes);
+}
+
+TEST(FAetherCollisionGeometryStage1Tests, RejectsMalformedFeatureResourcesTransactionally)
+{
+	const std::array<Durin::FVector3, 4> Tetra{
+		Durin::FVector3{0.0, 0.0, 0.0}, Durin::FVector3{1.0, 0.0, 0.0},
+		Durin::FVector3{0.0, 1.0, 0.0}, Durin::FVector3{0.0, 0.0, 1.0}};
+	const std::array<Durin::uint32, 12> Closed{0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3};
+	EXPECT_TRUE(Durin::FCollisionGeometryRef::MakeConvexHull(Tetra, Closed).IsValid());
+	EXPECT_FALSE(Durin::FCollisionGeometryRef::MakeConvexHull(Tetra,
+		std::span(Closed).first(9)).IsValid());
+	std::array<Durin::uint32, 12> Inconsistent = Closed;
+	std::swap(Inconsistent[1], Inconsistent[2]);
+	EXPECT_FALSE(Durin::FCollisionGeometryRef::MakeConvexHull(Tetra, Inconsistent).IsValid());
+	std::array<Durin::FVector3, 257> Oversized{};
+	EXPECT_FALSE(Durin::FCollisionGeometryRef::MakeConvexHull(Oversized, Closed).IsValid());
+	std::array<Durin::FVector3, 3> Degenerate{
+		Durin::FVector3{0.0}, Durin::FVector3{1.0, 0.0, 0.0}, Durin::FVector3{2.0, 0.0, 0.0}};
+	const std::array<Durin::uint32, 3> Triangle{0, 1, 2};
+	EXPECT_FALSE(Durin::FCollisionGeometryRef::MakeTriangleMesh(Degenerate, Triangle).IsValid());
+	Degenerate[2] = {0.0, 1.0, 0.0};
+	const std::array<Durin::uint32, 1> WrongOrdinals{1};
+	const std::array<Durin::uint32, 2> TooManyOrdinals{1, 2};
+	EXPECT_TRUE(Durin::FCollisionGeometryRef::MakeTriangleMesh(
+		Degenerate, Triangle, WrongOrdinals).IsValid());
+	EXPECT_FALSE(Durin::FCollisionGeometryRef::MakeTriangleMesh(
+		Degenerate, Triangle, TooManyOrdinals).IsValid());
+	Degenerate[0].x = std::numeric_limits<double>::infinity();
+	EXPECT_FALSE(Durin::FCollisionGeometryRef::MakeTriangleMesh(Degenerate, Triangle).IsValid());
+}
+
+TEST(FAetherCollisionGeometryStage1Tests, ReferenceMatrixCoversHullAndTriangleTargets)
+{
+	const std::array<Durin::FCollisionGeometryRef, 2> Targets{
+		MakeStage1CubeHull(), MakeStage1TrianglePlane()};
+	const std::array<Durin::FCollisionShape, 3> Queries{
+		Durin::FCollisionShape::MakeBox({0.25, 0.25, 0.25}),
+		Durin::FCollisionShape::MakeSphere(0.25),
+		Durin::FCollisionShape::MakeCapsule(0.25, 0.5)};
+	for (Durin::uint32 TargetIndex = 0; TargetIndex < Targets.size(); ++TargetIndex)
+	{
+		ASSERT_TRUE(Targets[TargetIndex].IsValid());
+		for (const Durin::FCollisionShape& Query : Queries)
+		{
+			Durin::CollisionGeometry::FCollisionGeometryCounters Counters;
+			Durin::FPhysicsQueryHit Hit;
+			const Durin::FVector3 RayStart = TargetIndex == 0
+				? Durin::FVector3{-3.0, 0.0, 0.0} : Durin::FVector3{-2.0, 0.0, 0.0};
+			const Durin::FVector3 RayEnd = -RayStart;
+			EXPECT_EQ(Durin::CollisionGeometry::Raycast(
+				RayStart, RayEnd, Targets[TargetIndex], Durin::FTransform(),
+				Durin::CollisionGeometry::ECollisionQueryAlgorithm::Reference, Hit, &Counters),
+				Durin::CollisionGeometry::ECollisionQueryStatus::Hit);
+			EXPECT_NEAR(Hit.Time, TargetIndex == 0 ? 1.0 / 3.0 : 0.5, 1.0e-8);
+			EXPECT_TRUE(Durin::Math::IsFinite(Hit.ImpactNormal));
+
+			Durin::FTransform SweepTransform;
+			SweepTransform.Translation = RayStart;
+			EXPECT_EQ(Durin::CollisionGeometry::Sweep(
+				Query, SweepTransform, RayEnd - RayStart, Targets[TargetIndex], Durin::FTransform(),
+				Durin::CollisionGeometry::ECollisionQueryAlgorithm::Reference, Hit, &Counters),
+				Durin::CollisionGeometry::ECollisionQueryStatus::Hit);
+			EXPECT_GT(Hit.Time, 0.0);
+			EXPECT_LT(Hit.Time, 1.0);
+			EXPECT_NEAR(Durin::Math::Length(Hit.ImpactNormal), 1.0, 1.0e-8);
+
+			Durin::FTransform OverlapTransform;
+			OverlapTransform.Translation = TargetIndex == 0
+				? Durin::FVector3{-0.9, 0.0, 0.0} : Durin::FVector3{-0.1, 0.0, 0.0};
+			EXPECT_EQ(Durin::CollisionGeometry::Overlap(
+				Query, OverlapTransform, Targets[TargetIndex], Durin::FTransform(),
+				Durin::CollisionGeometry::ECollisionQueryAlgorithm::Reference, Hit, &Counters),
+				Durin::CollisionGeometry::ECollisionQueryStatus::Hit);
+			EXPECT_TRUE(Hit.bStartPenetrating);
+			EXPECT_GT(Hit.PenetrationDepth, 0.0);
+			EXPECT_GT(Counters.FeatureTests, 0u);
+			EXPECT_EQ(Counters.Unsupported, 0u);
+			EXPECT_EQ(Counters.NonConverged, 0u);
+			EXPECT_FALSE(Counters.bOverflowed);
+		}
+	}
+}
+
+TEST(FAetherCollisionGeometryStage1Tests, AppliesRandomizedPositiveTransformsWithStableReferenceProductionParity)
+{
+	const Durin::FCollisionGeometryRef Target = MakeStage1CubeHull();
+	std::mt19937_64 Random(0x5341474531ull);
+	std::uniform_real_distribution<double> Position(-20.0, 20.0);
+	std::uniform_real_distribution<double> Scale(0.25, 3.0);
+	std::uniform_real_distribution<double> Angle(-180.0, 180.0);
+	for (Durin::uint32 Iteration = 0; Iteration < 128; ++Iteration)
+	{
+		Durin::FTransform Transform;
+		Transform.Translation = {Position(Random), Position(Random), Position(Random)};
+		Transform.Scale3D = {Scale(Random), Scale(Random), Scale(Random)};
+		Transform.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(
+			Angle(Random), Durin::Math::NormalizeOr(
+				Durin::FVector3{Position(Random), Position(Random), Position(Random)},
+				Durin::FVectorConstants::Up));
+		const Durin::FVector3 Axis = Durin::Math::RotateVector(
+			Transform.Rotation, Durin::FVectorConstants::Forward);
+		const Durin::FVector3 Start = Transform.Translation - Axis * (Transform.Scale3D.x + 2.0);
+		const Durin::FVector3 End = Transform.Translation + Axis * (Transform.Scale3D.x + 2.0);
+		Durin::FPhysicsQueryHit Reference;
+		Durin::FPhysicsQueryHit Production;
+		ASSERT_EQ(Durin::CollisionGeometry::Raycast(Start, End, Target, Transform,
+			Durin::CollisionGeometry::ECollisionQueryAlgorithm::Reference, Reference),
+			Durin::CollisionGeometry::ECollisionQueryStatus::Hit);
+		ASSERT_EQ(Durin::CollisionGeometry::Raycast(Start, End, Target, Transform,
+			Durin::CollisionGeometry::ECollisionQueryAlgorithm::Production, Production),
+			Durin::CollisionGeometry::ECollisionQueryStatus::Hit);
+		EXPECT_DOUBLE_EQ(Reference.Time, Production.Time);
+		EXPECT_EQ(Reference.ImpactNormal, Production.ImpactNormal);
+		EXPECT_TRUE(Durin::Math::IsFinite(Reference.Location));
+	}
+}
+
+TEST(FAetherCollisionGeometryStage2Tests, BuildsDeterministicHullAndMeshTopology)
+{
+	static_assert(sizeof(Durin::FCollisionGeometryNode) == 32);
+	static_assert(sizeof(Durin::FCollisionHullPlane) == 16);
+	static_assert(sizeof(Durin::FCollisionHullHalfEdge) == 16);
+	static_assert(sizeof(Durin::FCollisionHullFace) == 16);
+	std::array<Durin::FVector3, 10> Points{
+		Durin::FVector3{-1.0, -1.0, -1.0}, Durin::FVector3{1.0, -1.0, -1.0},
+		Durin::FVector3{-1.0, 1.0, -1.0}, Durin::FVector3{1.0, 1.0, -1.0},
+		Durin::FVector3{-1.0, -1.0, 1.0}, Durin::FVector3{1.0, -1.0, 1.0},
+		Durin::FVector3{-1.0, 1.0, 1.0}, Durin::FVector3{1.0, 1.0, 1.0},
+		Durin::FVector3{0.0, 0.0, 0.0}, Durin::FVector3{1.0, 1.0, 1.0}};
+	Durin::FCollisionGeometryBuildDiagnostics FirstFacts;
+	const Durin::FCollisionGeometryRef First =
+		Durin::FCollisionGeometryRef::BuildConvexHull(Points, &FirstFacts);
+	ASSERT_TRUE(First.IsValid());
+	EXPECT_EQ(FirstFacts.Status, Durin::ECollisionGeometryBuildStatus::Success);
+	EXPECT_EQ(FirstFacts.RetainedVertices, 8u);
+	EXPECT_EQ(First.GetVertexCount(), 8u);
+	EXPECT_EQ(First.GetTriangleCount(), 12u);
+	EXPECT_EQ(First.GetHullPlaneCount(), 12u);
+	EXPECT_EQ(First.GetHullFaceCount(), 12u);
+	EXPECT_EQ(First.GetHullHalfEdgeCount(), 36u);
+	for (Durin::uint32 EdgeIndex = 0; EdgeIndex < First.GetHullHalfEdgeCount(); ++EdgeIndex)
+	{
+		const Durin::FCollisionHullHalfEdge* Edge = First.GetHullHalfEdge(EdgeIndex);
+		ASSERT_NE(Edge, nullptr);
+		ASSERT_LT(Edge->Twin, First.GetHullHalfEdgeCount());
+		EXPECT_EQ(First.GetHullHalfEdge(Edge->Twin)->Twin, EdgeIndex);
+		EXPECT_LT(Edge->Next, First.GetHullHalfEdgeCount());
+		EXPECT_LT(Edge->Face, First.GetHullFaceCount());
+	}
+	std::reverse(Points.begin(), Points.end());
+	Durin::FCollisionGeometryBuildDiagnostics SecondFacts;
+	const Durin::FCollisionGeometryRef Second =
+		Durin::FCollisionGeometryRef::BuildConvexHull(Points, &SecondFacts);
+	ASSERT_TRUE(Second.IsValid());
+	ASSERT_EQ(First.GetVertexCount(), Second.GetVertexCount());
+	ASSERT_EQ(First.GetTriangleCount(), Second.GetTriangleCount());
+	for (Durin::uint32 Index = 0; Index < First.GetVertexCount(); ++Index)
+		EXPECT_EQ(*First.GetVertex(Index), *Second.GetVertex(Index));
+	for (Durin::uint32 Index = 0; Index < First.GetTriangleCount(); ++Index)
+	{
+		ASSERT_NE(First.GetTriangle(Index), nullptr);
+		ASSERT_NE(Second.GetTriangle(Index), nullptr);
+		EXPECT_EQ(First.GetTriangle(Index)->First, Second.GetTriangle(Index)->First);
+		EXPECT_EQ(First.GetTriangle(Index)->Second, Second.GetTriangle(Index)->Second);
+		EXPECT_EQ(First.GetTriangle(Index)->Third, Second.GetTriangle(Index)->Third);
+	}
+
+	const std::array<Durin::FVector3, 4> MeshVertices{
+		Durin::FVector3{0.0, 0.0, 0.0}, Durin::FVector3{1.0, 0.0, 0.0},
+		Durin::FVector3{0.0, 1.0, 0.0}, Durin::FVector3{2.0, 0.0, 0.0}};
+	const std::array<Durin::uint32, 12> DirtyIndices{
+		0, 1, 2, 2, 1, 0, 0, 1, 3, 0, 0, 1};
+	Durin::FCollisionGeometryBuildDiagnostics MeshFacts;
+	const Durin::FCollisionGeometryRef Mesh = Durin::FCollisionGeometryRef::BuildTriangleMesh(
+		MeshVertices, DirtyIndices, &MeshFacts);
+	ASSERT_TRUE(Mesh.IsValid());
+	EXPECT_EQ(MeshFacts.SourceTriangles, 4u);
+	EXPECT_EQ(MeshFacts.RetainedTriangles, 1u);
+	EXPECT_EQ(MeshFacts.RemovedTriangles, 3u);
+	EXPECT_EQ(Mesh.GetTriangle(0)->SourceOrdinal, 0u);
+	EXPECT_EQ(Mesh.GetNodeCount(), 1u);
+	EXPECT_TRUE(Mesh.GetNode(0)->IsLeaf());
+	EXPECT_EQ(Mesh.GetNode(0)->GetLeafCount(), 1u);
+	EXPECT_GE(MeshFacts.EstimatedPeakBytes, MeshFacts.RetainedBytes);
+	Durin::FCollisionGeometryBuildDiagnostics RepeatFacts;
+	const Durin::FCollisionGeometryRef Repeat = Durin::FCollisionGeometryRef::BuildTriangleMesh(
+		MeshVertices, DirtyIndices, &RepeatFacts);
+	ASSERT_TRUE(Repeat.IsValid());
+	ASSERT_EQ(Mesh.GetNodeCount(), Repeat.GetNodeCount());
+	ASSERT_EQ(Mesh.GetLeafTriangleCount(), Repeat.GetLeafTriangleCount());
+	for (Durin::uint32 Index = 0; Index < Mesh.GetNodeCount(); ++Index)
+	{
+		EXPECT_EQ(Mesh.GetNode(Index)->Minimum, Repeat.GetNode(Index)->Minimum);
+		EXPECT_EQ(Mesh.GetNode(Index)->Maximum, Repeat.GetNode(Index)->Maximum);
+		EXPECT_EQ(Mesh.GetNode(Index)->First, Repeat.GetNode(Index)->First);
+		EXPECT_EQ(Mesh.GetNode(Index)->CountOrSecond, Repeat.GetNode(Index)->CountOrSecond);
+	}
+	for (Durin::uint32 Index = 0; Index < Mesh.GetLeafTriangleCount(); ++Index)
+		EXPECT_EQ(Mesh.GetLeafTriangle(Index), Repeat.GetLeafTriangle(Index));
+}
+
+TEST(FAetherCollisionGeometryStage2Tests, ReportsTransactionalBuilderFailures)
+{
+	Durin::FCollisionGeometryBuildDiagnostics Facts;
+	const std::array<Durin::FVector3, 3> Collinear{
+		Durin::FVector3{0.0}, Durin::FVector3{1.0, 0.0, 0.0}, Durin::FVector3{2.0, 0.0, 0.0}};
+	EXPECT_FALSE(Durin::FCollisionGeometryRef::BuildConvexHull(Collinear, &Facts).IsValid());
+	EXPECT_EQ(Facts.Status, Durin::ECollisionGeometryBuildStatus::InvalidInput);
+	std::array<Durin::FVector3, 257> Oversized{};
+	EXPECT_FALSE(Durin::FCollisionGeometryRef::BuildConvexHull(Oversized, &Facts).IsValid());
+	EXPECT_EQ(Facts.Status, Durin::ECollisionGeometryBuildStatus::LimitExceeded);
+	const std::array<Durin::uint32, 3> Triangle{0, 1, 2};
+	EXPECT_FALSE(Durin::FCollisionGeometryRef::BuildTriangleMesh(Collinear, Triangle, &Facts).IsValid());
+	EXPECT_EQ(Facts.Status, Durin::ECollisionGeometryBuildStatus::EmptyAfterCleanup);
+	const std::array<Durin::uint32, 3> Invalid{0, 1, 99};
+	EXPECT_FALSE(Durin::FCollisionGeometryRef::BuildTriangleMesh(Collinear, Invalid, &Facts).IsValid());
+	EXPECT_EQ(Facts.Status, Durin::ECollisionGeometryBuildStatus::InvalidInput);
+}
+
+TEST(FAetherCollisionGeometryStage2Tests, ProductionBvhMatchesReferenceAndKeepsSparseWorkLocal)
+{
+	constexpr Durin::uint32 GridSize = 224;
+	std::vector<Durin::FVector3> Vertices;
+	std::vector<Durin::uint32> Indices;
+	Vertices.reserve((GridSize + 1) * (GridSize + 1));
+	Indices.reserve(GridSize * GridSize * 6);
+	for (Durin::uint32 Y = 0; Y <= GridSize; ++Y)
+		for (Durin::uint32 X = 0; X <= GridSize; ++X)
+			Vertices.emplace_back(static_cast<double>(X), static_cast<double>(Y), 0.0);
+	for (Durin::uint32 Y = 0; Y < GridSize; ++Y)
+	{
+		for (Durin::uint32 X = 0; X < GridSize; ++X)
+		{
+			const Durin::uint32 A = Y * (GridSize + 1) + X;
+			const Durin::uint32 B = A + 1;
+			const Durin::uint32 C = A + GridSize + 1;
+			const Durin::uint32 D = C + 1;
+			Indices.insert(Indices.end(), {A, B, D, A, D, C});
+		}
+	}
+	Durin::FCollisionGeometryBuildDiagnostics Facts;
+	const Durin::FCollisionGeometryRef Mesh =
+		Durin::FCollisionGeometryRef::BuildTriangleMesh(Vertices, Indices, &Facts);
+	ASSERT_TRUE(Mesh.IsValid());
+	EXPECT_EQ(Facts.RetainedTriangles, 100'352u);
+	RecordProperty("grid_node_count", Facts.NodeCount);
+	RecordProperty("grid_maximum_depth", Facts.MaximumDepth);
+	RecordProperty("grid_retained_bytes", Facts.RetainedBytes);
+	RecordProperty("grid_estimated_peak_bytes", Facts.EstimatedPeakBytes);
+	EXPECT_LE(Facts.MaximumDepth, 64u);
+	EXPECT_EQ(Mesh.GetLeafTriangleCount(), Facts.RetainedTriangles);
+	for (Durin::uint32 Index = 0; Index < Mesh.GetNodeCount(); ++Index)
+	{
+		const Durin::FCollisionGeometryNode* Node = Mesh.GetNode(Index);
+		ASSERT_NE(Node, nullptr);
+		EXPECT_TRUE(Durin::Math::IsFinite(Node->Minimum));
+		EXPECT_TRUE(Durin::Math::IsFinite(Node->Maximum));
+		if (Node->IsLeaf()) EXPECT_LE(Node->GetLeafCount(), 8u);
+	}
+
+	Durin::FPhysicsQueryHit Reference;
+	Durin::FPhysicsQueryHit Production;
+	Durin::CollisionGeometry::FCollisionGeometryCounters ReferenceWork;
+	Durin::CollisionGeometry::FCollisionGeometryCounters ProductionWork;
+	EXPECT_EQ(Durin::CollisionGeometry::Raycast(
+		{1000.0, 1000.0, -1.0}, {1000.0, 1000.0, 1.0}, Mesh, Durin::FTransform(),
+		Durin::CollisionGeometry::ECollisionQueryAlgorithm::Reference, Reference, &ReferenceWork),
+		Durin::CollisionGeometry::ECollisionQueryStatus::Miss);
+	EXPECT_EQ(Durin::CollisionGeometry::Raycast(
+		{1000.0, 1000.0, -1.0}, {1000.0, 1000.0, 1.0}, Mesh, Durin::FTransform(),
+		Durin::CollisionGeometry::ECollisionQueryAlgorithm::Production, Production, &ProductionWork),
+		Durin::CollisionGeometry::ECollisionQueryStatus::Miss);
+	EXPECT_EQ(ReferenceWork.FeatureTests, 100'352u);
+	EXPECT_EQ(ProductionWork.AssetNodeTests, 1u);
+	EXPECT_EQ(ProductionWork.FeatureTests, 0u);
+	EXPECT_EQ(ProductionWork.ReferenceFallbacks, 0u);
+
+	ReferenceWork = {};
+	ProductionWork = {};
+	ASSERT_EQ(Durin::CollisionGeometry::Raycast(
+		{112.25, 112.25, -2.0}, {112.25, 112.25, 2.0}, Mesh, Durin::FTransform(),
+		Durin::CollisionGeometry::ECollisionQueryAlgorithm::Reference, Reference, &ReferenceWork),
+		Durin::CollisionGeometry::ECollisionQueryStatus::Hit);
+	ASSERT_EQ(Durin::CollisionGeometry::Raycast(
+		{112.25, 112.25, -2.0}, {112.25, 112.25, 2.0}, Mesh, Durin::FTransform(),
+		Durin::CollisionGeometry::ECollisionQueryAlgorithm::Production, Production, &ProductionWork),
+		Durin::CollisionGeometry::ECollisionQueryStatus::Hit);
+	EXPECT_DOUBLE_EQ(Reference.Time, Production.Time);
+	EXPECT_EQ(Reference.ImpactNormal, Production.ImpactNormal);
+	EXPECT_LT(ProductionWork.FeatureTests, 64u);
+	EXPECT_LT(ProductionWork.AssetNodeTests, 128u);
+	EXPECT_EQ(ProductionWork.ReferenceFallbacks, 0u);
+	std::mt19937_64 Random(0x42564832ull);
+	std::uniform_real_distribution<double> Coordinate(-10.0, GridSize + 10.0);
+	for (Durin::uint32 Iteration = 0; Iteration < 32; ++Iteration)
+	{
+		const double X = Coordinate(Random);
+		const double Y = Coordinate(Random);
+		ReferenceWork = {};
+		ProductionWork = {};
+		const auto ReferenceStatus = Durin::CollisionGeometry::Raycast(
+			{X, Y, -2.0}, {X, Y, 2.0}, Mesh, Durin::FTransform(),
+			Durin::CollisionGeometry::ECollisionQueryAlgorithm::Reference, Reference, &ReferenceWork);
+		const auto ProductionStatus = Durin::CollisionGeometry::Raycast(
+			{X, Y, -2.0}, {X, Y, 2.0}, Mesh, Durin::FTransform(),
+			Durin::CollisionGeometry::ECollisionQueryAlgorithm::Production, Production, &ProductionWork);
+		EXPECT_EQ(ReferenceStatus, ProductionStatus);
+		if (ReferenceStatus == Durin::CollisionGeometry::ECollisionQueryStatus::Hit)
+			EXPECT_DOUBLE_EQ(Reference.Time, Production.Time);
+		EXPECT_EQ(ProductionWork.ReferenceFallbacks, 0u);
+		EXPECT_FALSE(ProductionWork.bOverflowed);
+	}
+}
+
+TEST(FAetherCollisionGeometryStage2Tests, ProductionSweepAndOverlapMatchReferenceWithoutFallback)
+{
+	const std::array<Durin::FVector3, 4> Vertices{
+		Durin::FVector3{0.0, -3.0, -3.0}, Durin::FVector3{0.0, 3.0, -3.0},
+		Durin::FVector3{0.0, 3.0, 3.0}, Durin::FVector3{0.0, -3.0, 3.0}};
+	const std::array<Durin::uint32, 6> Indices{0, 1, 2, 0, 2, 3};
+	const Durin::FCollisionGeometryRef Mesh =
+		Durin::FCollisionGeometryRef::BuildTriangleMesh(Vertices, Indices);
+	ASSERT_TRUE(Mesh.IsValid());
+	const std::array<Durin::FCollisionShape, 3> Queries{
+		Durin::FCollisionShape::MakeBox({0.25, 0.25, 0.25}),
+		Durin::FCollisionShape::MakeSphere(0.25),
+		Durin::FCollisionShape::MakeCapsule(0.25, 0.5)};
+	for (const Durin::FCollisionShape& Query : Queries)
+	{
+		Durin::FTransform Start;
+		Start.Translation = {-2.0, 0.0, 0.0};
+		Durin::FPhysicsQueryHit Reference;
+		Durin::FPhysicsQueryHit Production;
+		Durin::CollisionGeometry::FCollisionGeometryCounters Work;
+		ASSERT_EQ(Durin::CollisionGeometry::Sweep(Query, Start, {4.0, 0.0, 0.0},
+			Mesh, Durin::FTransform(), Durin::CollisionGeometry::ECollisionQueryAlgorithm::Reference,
+			Reference), Durin::CollisionGeometry::ECollisionQueryStatus::Hit);
+		ASSERT_EQ(Durin::CollisionGeometry::Sweep(Query, Start, {4.0, 0.0, 0.0},
+			Mesh, Durin::FTransform(), Durin::CollisionGeometry::ECollisionQueryAlgorithm::Production,
+			Production, &Work), Durin::CollisionGeometry::ECollisionQueryStatus::Hit);
+		EXPECT_NEAR(Reference.Time, Production.Time, 1.0e-10);
+		EXPECT_EQ(Work.ReferenceFallbacks, 0u);
+		EXPECT_GT(Work.AssetNodeTests, 0u);
+		Start.Translation = {-0.1, 0.0, 0.0};
+		ASSERT_EQ(Durin::CollisionGeometry::Overlap(Query, Start, Mesh, Durin::FTransform(),
+			Durin::CollisionGeometry::ECollisionQueryAlgorithm::Reference, Reference),
+			Durin::CollisionGeometry::ECollisionQueryStatus::Hit);
+		ASSERT_EQ(Durin::CollisionGeometry::Overlap(Query, Start, Mesh, Durin::FTransform(),
+			Durin::CollisionGeometry::ECollisionQueryAlgorithm::Production, Production, &Work),
+			Durin::CollisionGeometry::ECollisionQueryStatus::Hit);
+		EXPECT_NEAR(Reference.PenetrationDepth, Production.PenetrationDepth, 1.0e-10);
+	}
 }

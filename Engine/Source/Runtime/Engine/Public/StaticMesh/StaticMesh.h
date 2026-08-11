@@ -12,6 +12,11 @@ namespace Durin
 {
 	class DMaterialInterface;
 	class DBodySetup;
+	class FCollisionGeometryRef;
+	enum class EBodySetupCollisionSourceMode : uint8;
+	enum class EBodySetupCollisionQueryPolicy : uint8;
+	enum class EBodySetupCollisionBuildStatus : uint8;
+	enum class ECollisionGeometryKind : uint8;
 
 	// Reports only the semantic render-resource states required by nonblocking consumers.
 	enum class EStaticMeshRenderResourceReadiness : uint8
@@ -193,6 +198,29 @@ namespace Durin
 		bool bSourceImporterInvoked = false;
 	};
 
+	// Bounded value-only collision facts for diagnostics and the read-only Inspector.
+	struct FStaticMeshCollisionInspection
+	{
+		EBodySetupCollisionSourceMode Mode;
+		EBodySetupCollisionQueryPolicy Policy;
+		EBodySetupCollisionBuildStatus BuildStatus;
+		ECollisionGeometryKind GeometryKind;
+		bool bHasGeometry = false;
+		uint32 SourceTriangles = 0;
+		uint32 RetainedTriangles = 0;
+		uint32 RemovedTriangles = 0;
+		uint32 Nodes = 0;
+		std::optional<FBox> Bounds;
+		uint64 PayloadBytes = 0;
+		uint64 RuntimeBytes = 0;
+		uint32 BuilderVersion = 0;
+		uint32 SchemaVersion = 0;
+		uint64 BuildRevision = 0;
+		bool bRevisionCoherent = false;
+		std::string CacheKey;
+		std::string Diagnostic;
+	};
+
 	// Preserves one stable positional material slot and its source-import provenance.
 	DSTRUCT()
 	struct FStaticMeshMaterialSlotDefinition
@@ -229,6 +257,13 @@ namespace Durin
 		ENGINE_API auto GetLOD0LocalBounds() const -> std::optional<FBox>;
 		ENGINE_API auto GetBodySetup() const -> DBodySetup*;
 		ENGINE_API auto SetBodySetup(DBodySetup* InBodySetup) -> bool;
+		ENGINE_API auto SetCollisionSourceMode(
+			EBodySetupCollisionSourceMode Mode,
+			std::string& OutError) -> bool;
+		ENGINE_API auto SetCollisionQueryPolicy(
+			EBodySetupCollisionQueryPolicy Policy,
+			std::string& OutError) -> bool;
+		ENGINE_API auto RebuildCollision(std::string& OutError) -> bool;
 		// Creates the qualified built-in Box setup from verified CPU bounds; arbitrary meshes remain collision-free.
 		ENGINE_API auto EnsureQualifiedBoxBodySetup() -> DBodySetup*;
 		ENGINE_API auto InitResources() -> void;
@@ -243,6 +278,7 @@ namespace Durin
 		ENGINE_API auto RenameMaterialSlot(uint32 SlotIndex, FName Name, std::string& OutError) -> bool;
 
 		ENGINE_API auto InspectSource() const -> FStaticMeshSourceDiagnostic;
+		ENGINE_API auto InspectCollision() const -> FStaticMeshCollisionInspection;
 		auto GetDerivedDataDiagnostic() const -> const FStaticMeshDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
 		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
 		ENGINE_API auto ChangeSourceReference(
@@ -368,9 +404,21 @@ namespace Durin
 			std::unique_ptr<FStaticMeshRenderData> InRenderData,
 			std::vector<FStaticMeshMaterialSlotDefinition>*
 				InMaterialSlots,
-			std::string& OutError) -> bool;
+			std::string& OutError,
+			bool bBuildAuthoredCollision = true) -> bool;
 		auto LoadCookedRenderData(std::string& OutError) -> bool;
 		auto RefreshQualifiedBoxBodySetup() -> void;
+		auto BuildCollisionCandidate(
+			const FStaticMeshRenderData& SourceRenderData,
+			EBodySetupCollisionSourceMode Mode,
+			EBodySetupCollisionQueryPolicy Policy,
+			FCollisionGeometryRef& OutSimple,
+			FCollisionGeometryRef& OutComplex,
+			EBodySetupCollisionBuildStatus& OutStatus,
+			std::string& OutKey,
+			std::string& OutDiagnostic,
+			uint64& OutPayloadBytes,
+			std::string& OutError) const -> bool;
 
 		DPROPERTY()
 		FStaticMeshSourceImportData SourceImportData;

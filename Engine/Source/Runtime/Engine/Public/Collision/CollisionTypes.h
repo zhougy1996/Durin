@@ -108,7 +108,13 @@ namespace Durin
 	{
 		FPhysicsActorHandle Handle;
 		FCollisionShape Shape;
+		bool bHasPrimitiveShape = false;
+		ECollisionGeometryKind GeometryKind = ECollisionGeometryKind::Primitive;
 		FTransform Transform;
+		FVector3 LocalBoundsMinimum{0.0};
+		FVector3 LocalBoundsMaximum{0.0};
+		uint32 TotalTriangles = 0;
+		std::vector<std::array<FVector3, 3>> TriangleSample;
 		ECollisionChannel ObjectChannel = ECollisionChannel::WorldDynamic;
 		AActor* Actor = nullptr;
 		DPrimitiveComponent* Component = nullptr;

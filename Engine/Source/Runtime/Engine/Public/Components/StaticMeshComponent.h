@@ -48,6 +48,7 @@ namespace Durin
 
 		ENGINE_API auto BuildMaterialRenderProxyBindingUpdate(
 			FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool override;
+		ENGINE_API auto GetCollisionStateRevision() const -> uint64 override;
 		auto HandleStaticMeshRenderDataChanged(DStaticMesh* ChangedMesh) -> void;
 		auto ValidateOverrideMaterials(std::span<const TObjectPtr<DMaterialInterface>> Overrides, std::string& OutError) const -> bool;
 		auto TrimTrailingNullOverrides() -> void;

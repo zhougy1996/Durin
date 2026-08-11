@@ -83,6 +83,13 @@ namespace Durin::Editor::Level
 			for (const FCollisionDebugBody& Body : Snapshot.Bodies)
 			{
 				const FMatrix Transform = Body.Transform.ToMatrix();
+				for (const std::array<FVector3, 3>& Triangle : Body.TriangleSample)
+				{
+					AddCollisionLine(View, Transform, Triangle[0], Triangle[1]);
+					AddCollisionLine(View, Transform, Triangle[1], Triangle[2]);
+					AddCollisionLine(View, Transform, Triangle[2], Triangle[0]);
+				}
+				if (!Body.bHasPrimitiveShape) continue;
 				switch (Body.Shape.GetType())
 				{
 				case ECollisionShapeType::Box:

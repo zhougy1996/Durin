@@ -48,6 +48,7 @@ namespace Durin
 		auto GetCollisionObjectType() const -> ECollisionChannel { return BodyInstance.ObjectChannel; }
 		auto GetPhysicsActorHandle() const -> FPhysicsActorHandle { return BodyInstance.ActorHandle; }
 		auto GetPhysicsBodyMotionType() const -> EPhysicsBodyMotionType { return BodyInstance.MotionType; }
+		auto GetPublishedBodySetupRevision() const -> uint64 { return BodyInstance.PublishedBodySetupRevision; }
 		// Migrates an existing scene body between spatial partitions without exposing index state.
 		ENGINE_API auto SetPhysicsBodyMotionType(EPhysicsBodyMotionType MotionType) -> void;
 		ENGINE_API virtual auto BuildCollisionShape(FCollisionShape& OutShape, FTransform& OutWorldTransform) const -> bool;
@@ -64,6 +65,7 @@ namespace Durin
 		ENGINE_API auto OnUpdateTransform() -> void override;
 		ENGINE_API virtual auto BuildMaterialRenderProxyBindingUpdate(
 			FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool;
+		ENGINE_API virtual auto GetCollisionStateRevision() const -> uint64 { return 0; }
 #if DURIN_WITH_EDITOR
 		auto NotifyEditorPickingMutation(bool bRetired = false) -> void;
 #endif

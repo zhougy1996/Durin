@@ -2,6 +2,9 @@
 
 #include "DObject/ObjectLifecycle.h"
 #include "Hash/XxHash.h"
+#include "Misc/Paths.h"
+#include "NativeTestSupport.h"
+#include "Physics/BodySetup.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -1019,4 +1022,180 @@ TEST(FAetherCookedCollisionStage0Tests, FreezesFeatureOrderingNormalsAndInspecti
 	EXPECT_EQ(MaximumCollisionDebugTriangles, 256u);
 	constexpr uint64 QualifiedSharedInstances = 10'000;
 	EXPECT_EQ(QualifiedSharedInstances, 10'000u);
+}
+
+TEST(FAetherCookedCollisionStage3Tests, ProductionKeyAndPayloadMatchFrozenGoldenBytes)
+{
+	const FStaticMeshCollisionDerivedDataKeyInput KeyInput{
+		.SourceContentHash = {0x0123456789abcdefull, 0xfedcba9876543210ull},
+		.GeometryHash = {0x1111222233334444ull, 0xaaaabbbbccccddddull},
+		.ImporterId = "Assimp",
+		.ImporterVersion = 602,
+		.ImportSettings = FStaticMeshImportSettings::MakeYUpNegativeZForward(),
+		.SourceMode = EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
+		.QueryPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex,
+		.WeldToleranceBits = std::bit_cast<uint32>(1.0e-5f),
+		.TargetPlatform = EStaticMeshTargetPlatform::Win64};
+	const std::vector<uint8> KeyBytes = BuildStaticMeshCollisionDerivedDataKeyBytes(KeyInput);
+	EXPECT_EQ(KeyBytes.size(), 75u);
+	EXPECT_EQ(FXxHash128::HashBuffer(KeyBytes).ToString(), "31049dc20de3b54a742c931cb587ce92");
+	EXPECT_EQ(BuildStaticMeshCollisionDerivedDataKey(KeyInput),
+		"31049dc20de3b54a742c931cb587ce92");
+
+	const FCollisionSourceFixture Tetra = MakeTetrahedron();
+	std::vector<FVector3> Positions;
+	for (const FVector3f& Position : Tetra.Positions) Positions.emplace_back(Position);
+	const FCollisionGeometryRef Geometry = FCollisionGeometryRef::BuildTriangleMesh(
+		Positions, Tetra.Indices);
+	ASSERT_TRUE(Geometry.IsValid());
+	FStaticMeshCollisionPayloadData Payload;
+	std::string Error;
+	ASSERT_TRUE(MakeStaticMeshCollisionPayloadData(Geometry,
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex, Payload, Error)) << Error;
+	std::vector<uint8> First;
+	std::vector<uint8> Second;
+	ASSERT_TRUE(EncodeStaticMeshCollisionPayload(
+		Payload, EStaticMeshTargetPlatform::Win64, First, Error)) << Error;
+	ASSERT_TRUE(EncodeStaticMeshCollisionPayload(
+		Payload, EStaticMeshTargetPlatform::Win64, Second, Error)) << Error;
+	EXPECT_EQ(First, Second);
+	EXPECT_EQ(First.size(), 336u);
+	EXPECT_EQ(FXxHash128::HashBuffer(First).ToString(), "e18caaa3799e0c65edea7a0af09edbf1");
+	FStaticMeshCollisionPayloadData Decoded;
+	ASSERT_TRUE(DecodeStaticMeshCollisionPayload(
+		First, EStaticMeshTargetPlatform::Win64, Decoded));
+	FCollisionGeometryRef RoundTrip;
+	ASSERT_TRUE(MakeStaticMeshCollisionGeometry(Decoded, RoundTrip, Error)) << Error;
+	EXPECT_EQ(RoundTrip.GetTriangleCount(), Geometry.GetTriangleCount());
+	EXPECT_EQ(RoundTrip.GetNodeCount(), Geometry.GetNodeCount());
+	std::vector<uint8> Corrupt = First;
+	Corrupt.back() ^= 0x80;
+	FStaticMeshCollisionPayloadData Preserved = Decoded;
+	EXPECT_FALSE(DecodeStaticMeshCollisionPayload(
+		Corrupt, EStaticMeshTargetPlatform::Win64, Preserved));
+	EXPECT_EQ(Preserved.Indices, Decoded.Indices);
+}
+
+TEST(FAetherCookedCollisionStage5Tests, InspectionReportsBoundedReadOnlyCollisionFacts)
+{
+	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
+	std::string Error;
+	DStaticMesh* Mesh = DStaticMesh::CreateTransientFromFile(
+		Source.generic_string(), nullptr, "M3CollisionInspectionFixture", Error);
+	ASSERT_NE(Mesh, nullptr) << Error;
+	ASSERT_TRUE(Mesh->SetCollisionSourceMode(
+		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error)) << Error;
+	const FStaticMeshCollisionInspection Inspection = Mesh->InspectCollision();
+	EXPECT_EQ(Inspection.Mode, EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
+	EXPECT_EQ(Inspection.Policy, EBodySetupCollisionQueryPolicy::SimpleAndComplex);
+	EXPECT_TRUE(Inspection.bHasGeometry);
+	EXPECT_EQ(Inspection.GeometryKind, ECollisionGeometryKind::TriangleMesh);
+	EXPECT_GT(Inspection.SourceTriangles, 0u);
+	EXPECT_GT(Inspection.RetainedTriangles, 0u);
+	EXPECT_EQ(Inspection.SourceTriangles,
+		Inspection.RetainedTriangles + Inspection.RemovedTriangles);
+	EXPECT_GT(Inspection.Nodes, 0u);
+	EXPECT_TRUE(Inspection.Bounds.has_value());
+	EXPECT_GT(Inspection.PayloadBytes, 0u);
+	EXPECT_GT(Inspection.RuntimeBytes, 0u);
+	EXPECT_EQ(Inspection.BuilderVersion, StaticMeshCollisionBuilderVersion);
+	EXPECT_EQ(Inspection.SchemaVersion, StaticMeshCollisionPayloadSchemaVersion);
+	EXPECT_GT(Inspection.BuildRevision, 0u);
+	EXPECT_TRUE(Inspection.bRevisionCoherent);
+	EXPECT_FALSE(Inspection.CacheKey.empty());
+	EXPECT_FALSE(Inspection.Diagnostic.empty());
+
+	const FStaticMeshCollisionInspection Frozen = Inspection;
+	EXPECT_EQ(Frozen.RetainedTriangles, Inspection.RetainedTriangles);
+	EXPECT_EQ(Frozen.RuntimeBytes, Inspection.RuntimeBytes);
+	MarkObjectHierarchyAsGarbage(Mesh);
+	CollectGarbage();
+}
+
+TEST(FAetherCookedCollisionStage3Tests, StaticMeshAuthorshipUsesIndependentDdcAndTransactionalFailure)
+{
+	const std::string PreviousCache = FPaths::DerivedDataCacheDir();
+	const std::filesystem::path Cache = Testing::GetTestWorkDirectory() / "CollisionDDC";
+	Testing::RemoveTestWorkDirectory(Cache);
+	FPaths::SetDerivedDataCacheDirForTests(Cache.generic_string());
+	DStaticMesh* Mesh = DStaticMesh::CreateDebugTriangle();
+	ASSERT_NE(Mesh, nullptr);
+	std::string Error;
+	ASSERT_TRUE(Mesh->SetCollisionSourceMode(
+		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error)) << Error;
+	DBodySetup* Setup = Mesh->GetBodySetup();
+	ASSERT_NE(Setup, nullptr);
+	EXPECT_EQ(Setup->GetCollisionSourceMode(),
+		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
+	EXPECT_EQ(Setup->GetCollisionBuildStatus(), EBodySetupCollisionBuildStatus::Rebuilt);
+	const std::string FirstKey = Setup->GetCollisionDerivedDataKey();
+	EXPECT_EQ(FirstKey.size(), 32u);
+	FCollisionGeometryRef FirstGeometry;
+	ASSERT_TRUE(Setup->BuildComplexGeometry(FirstGeometry));
+	const uint64 FirstIdentity = FirstGeometry.GetIdentity();
+	ASSERT_TRUE(Mesh->RebuildCollision(Error)) << Error;
+	EXPECT_EQ(Setup->GetCollisionBuildStatus(), EBodySetupCollisionBuildStatus::CacheHit);
+	EXPECT_EQ(Setup->GetCollisionDerivedDataKey(), FirstKey);
+	FCollisionGeometryRef CachedGeometry;
+	ASSERT_TRUE(Setup->BuildComplexGeometry(CachedGeometry));
+	EXPECT_NE(CachedGeometry.GetIdentity(), FirstIdentity);
+	EXPECT_EQ(CachedGeometry.GetTriangleCount(), FirstGeometry.GetTriangleCount());
+
+	EXPECT_FALSE(Mesh->SetCollisionSourceMode(
+		EBodySetupCollisionSourceMode::ConvexHullFromLOD0, Error));
+	EXPECT_EQ(Setup->GetCollisionSourceMode(),
+		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0);
+	FCollisionGeometryRef Preserved;
+	ASSERT_TRUE(Setup->BuildComplexGeometry(Preserved));
+	EXPECT_EQ(Preserved.GetIdentity(), CachedGeometry.GetIdentity());
+	ASSERT_TRUE(Mesh->SetCollisionQueryPolicy(
+		EBodySetupCollisionQueryPolicy::ComplexOnly, Error)) << Error;
+	EXPECT_EQ(Setup->GetCollisionQueryPolicy(), EBodySetupCollisionQueryPolicy::ComplexOnly);
+	EXPECT_NE(Setup->GetCollisionDerivedDataKey(), FirstKey);
+	EXPECT_EQ(Setup->GetCollisionBuildStatus(), EBodySetupCollisionBuildStatus::Rebuilt);
+	ASSERT_TRUE(Mesh->SetCollisionSourceMode(EBodySetupCollisionSourceMode::None, Error));
+	EXPECT_FALSE(Setup->BuildComplexGeometry(Preserved));
+	FPaths::SetDerivedDataCacheDirForTests(PreviousCache);
+	MarkObjectHierarchyAsGarbage(Mesh);
+	CollectGarbage();
+}
+
+TEST(FAetherCookedCollisionStage3Tests, ImportedStateExchangeMovesCollisionAsOneReversibleBundle)
+{
+	const std::string PreviousCache = FPaths::DerivedDataCacheDir();
+	const std::filesystem::path Cache = Testing::GetTestWorkDirectory() / "CollisionExchangeDDC";
+	Testing::RemoveTestWorkDirectory(Cache);
+	FPaths::SetDerivedDataCacheDirForTests(Cache.generic_string());
+	DStaticMesh* Target = DStaticMesh::CreateDebugTriangle();
+	DStaticMesh* Candidate = DStaticMesh::CreateDebugTriangle();
+	ASSERT_NE(Target, nullptr);
+	ASSERT_NE(Candidate, nullptr);
+	std::string Error;
+	ASSERT_TRUE(Target->SetCollisionSourceMode(
+		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error)) << Error;
+	ASSERT_TRUE(Candidate->SetCollisionSourceMode(
+		EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error)) << Error;
+	ASSERT_TRUE(Candidate->SetCollisionQueryPolicy(
+		EBodySetupCollisionQueryPolicy::ComplexOnly, Error)) << Error;
+	const uint64 TargetRevision = Target->GetBodySetup()->GetCollisionBuildRevision();
+	const uint64 CandidateRevision = Candidate->GetBodySetup()->GetCollisionBuildRevision();
+	const std::string TargetKey = Target->GetBodySetup()->GetCollisionDerivedDataKey();
+	const std::string CandidateKey = Candidate->GetBodySetup()->GetCollisionDerivedDataKey();
+	auto Exchange = Target->PrepareImportedStateExchange(*Candidate, Error);
+	ASSERT_NE(Exchange, nullptr) << Error;
+	Exchange->Commit();
+	EXPECT_EQ(Target->GetBodySetup()->GetCollisionQueryPolicy(),
+		EBodySetupCollisionQueryPolicy::ComplexOnly);
+	EXPECT_EQ(Target->GetBodySetup()->GetCollisionDerivedDataKey(), CandidateKey);
+	EXPECT_EQ(Target->GetBodySetup()->GetCollisionBuildRevision(), CandidateRevision);
+	Exchange->Reverse();
+	EXPECT_EQ(Target->GetBodySetup()->GetCollisionQueryPolicy(),
+		EBodySetupCollisionQueryPolicy::SimpleAndComplex);
+	EXPECT_EQ(Target->GetBodySetup()->GetCollisionDerivedDataKey(), TargetKey);
+	EXPECT_EQ(Target->GetBodySetup()->GetCollisionBuildRevision(), TargetRevision);
+	Exchange->Finalize();
+	FPaths::SetDerivedDataCacheDirForTests(PreviousCache);
+	MarkObjectHierarchyAsGarbage(Target);
+	MarkObjectHierarchyAsGarbage(Candidate);
+	CollectGarbage();
 }

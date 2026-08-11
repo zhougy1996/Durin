@@ -14,6 +14,82 @@ namespace Durin
 		FTransform LocalTransform;
 	};
 
+	// Identifies the immutable payload behind a geometry reference without exposing storage.
+	enum class ECollisionGeometryKind : uint8
+	{
+		Primitive,
+		Compound,
+		ConvexHull,
+		TriangleMesh
+	};
+
+	// Stable indexed triangle retained by hull and mesh resources.
+	struct FCollisionGeometryTriangle
+	{
+		uint32 First = 0;
+		uint32 Second = 0;
+		uint32 Third = 0;
+		uint32 SourceOrdinal = 0;
+	};
+
+	// Frozen 32-byte deterministic binary BVH node. Leaf counts carry the high-bit marker.
+	struct FCollisionGeometryNode
+	{
+		FVector3f Minimum{0.0f};
+		uint32 First = 0;
+		FVector3f Maximum{0.0f};
+		uint32 CountOrSecond = 0;
+
+		auto IsLeaf() const -> bool { return (CountOrSecond & 0x80000000u) != 0; }
+		auto GetLeafCount() const -> uint32 { return CountOrSecond & 0x7fffffffu; }
+	};
+
+	struct FCollisionHullPlane
+	{
+		FVector3f Normal{0.0f};
+		float Distance = 0.0f;
+	};
+
+	struct FCollisionHullHalfEdge
+	{
+		uint32 Origin = 0;
+		uint32 Twin = 0;
+		uint32 Next = 0;
+		uint32 Face = 0;
+	};
+
+	struct FCollisionHullFace
+	{
+		uint32 FirstEdge = 0;
+		uint32 EdgeCount = 0;
+		uint32 SourceOrdinal = 0;
+		uint32 Reserved = 0;
+	};
+
+	enum class ECollisionGeometryBuildStatus : uint8
+	{
+		Success,
+		InvalidInput,
+		EmptyAfterCleanup,
+		LimitExceeded,
+		DepthExceeded,
+		AllocationFailed
+	};
+
+	struct FCollisionGeometryBuildDiagnostics
+	{
+		ECollisionGeometryBuildStatus Status = ECollisionGeometryBuildStatus::InvalidInput;
+		uint32 SourceVertices = 0;
+		uint32 RetainedVertices = 0;
+		uint32 SourceTriangles = 0;
+		uint32 RetainedTriangles = 0;
+		uint32 RemovedTriangles = 0;
+		uint32 NodeCount = 0;
+		uint32 MaximumDepth = 0;
+		uint64 RetainedBytes = 0;
+		uint64 EstimatedPeakBytes = 0;
+	};
+
 	class FCollisionGeometry;
 
 	// Copyable owning reference to one validated immutable primitive or compound payload.
@@ -23,12 +99,47 @@ namespace Durin
 		FCollisionGeometryRef() = default;
 		AETHERCORE_API static auto MakePrimitive(const FCollisionShape& Shape) -> FCollisionGeometryRef;
 		AETHERCORE_API static auto MakeCompound(std::span<const FCollisionGeometryChild> Children) -> FCollisionGeometryRef;
+		AETHERCORE_API static auto MakeConvexHull(
+			std::span<const FVector3> Vertices,
+			std::span<const uint32> Indices) -> FCollisionGeometryRef;
+		AETHERCORE_API static auto MakeTriangleMesh(
+			std::span<const FVector3> Vertices,
+			std::span<const uint32> Indices,
+			std::span<const uint32> SourceOrdinals = {}) -> FCollisionGeometryRef;
+		AETHERCORE_API static auto MakeCookedTriangleMesh(
+			std::span<const FVector3> Vertices,
+			std::span<const uint32> Indices,
+			std::span<const uint32> SourceOrdinals,
+			std::span<const FCollisionGeometryNode> Nodes,
+			std::span<const uint32> LeafTriangles) -> FCollisionGeometryRef;
+		AETHERCORE_API static auto BuildConvexHull(
+			std::span<const FVector3> Points,
+			FCollisionGeometryBuildDiagnostics* Diagnostics = nullptr) -> FCollisionGeometryRef;
+		AETHERCORE_API static auto BuildTriangleMesh(
+			std::span<const FVector3> Vertices,
+			std::span<const uint32> Indices,
+			FCollisionGeometryBuildDiagnostics* Diagnostics = nullptr) -> FCollisionGeometryRef;
 
 		auto IsValid() const -> bool { return Payload != nullptr; }
 		explicit operator bool() const { return IsValid(); }
+		AETHERCORE_API auto GetKind() const -> ECollisionGeometryKind;
 		AETHERCORE_API auto GetIdentity() const -> uint64;
 		AETHERCORE_API auto GetChildCount() const -> uint32;
 		AETHERCORE_API auto GetChild(uint32 Index) const -> const FCollisionGeometryChild*;
+		AETHERCORE_API auto GetVertexCount() const -> uint32;
+		AETHERCORE_API auto GetVertex(uint32 Index) const -> const FVector3*;
+		AETHERCORE_API auto GetTriangleCount() const -> uint32;
+		AETHERCORE_API auto GetTriangle(uint32 Index) const -> const FCollisionGeometryTriangle*;
+		AETHERCORE_API auto GetNodeCount() const -> uint32;
+		AETHERCORE_API auto GetNode(uint32 Index) const -> const FCollisionGeometryNode*;
+		AETHERCORE_API auto GetLeafTriangleCount() const -> uint32;
+		AETHERCORE_API auto GetLeafTriangle(uint32 Index) const -> uint32;
+		AETHERCORE_API auto GetHullPlaneCount() const -> uint32;
+		AETHERCORE_API auto GetHullPlane(uint32 Index) const -> const FCollisionHullPlane*;
+		AETHERCORE_API auto GetHullHalfEdgeCount() const -> uint32;
+		AETHERCORE_API auto GetHullHalfEdge(uint32 Index) const -> const FCollisionHullHalfEdge*;
+		AETHERCORE_API auto GetHullFaceCount() const -> uint32;
+		AETHERCORE_API auto GetHullFace(uint32 Index) const -> const FCollisionHullFace*;
 		AETHERCORE_API auto GetLocalBounds(FVector3& OutMin, FVector3& OutMax) const -> bool;
 		AETHERCORE_API auto GetRetainedBytes() const -> uint64;
 
@@ -66,6 +177,9 @@ namespace Durin::CollisionGeometry
 		uint64 DistanceEvaluations = 0;
 		uint64 SearchIterations = 0;
 		uint64 LeafTests = 0;
+		uint64 FeatureTests = 0;
+		uint64 AssetNodeTests = 0;
+		uint64 AssetLeafTests = 0;
 		uint64 CompoundChildren = 0;
 		uint64 AnalyticDispatches = 0;
 		uint64 GenericDispatches = 0;

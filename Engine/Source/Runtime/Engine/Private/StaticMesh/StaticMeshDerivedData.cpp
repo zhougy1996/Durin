@@ -521,6 +521,36 @@ namespace Durin
 		return FXxHash128::HashBuffer(BuildStaticMeshDerivedDataKeyBytes(Input)).ToString();
 	}
 
+	auto BuildStaticMeshCollisionDerivedDataKeyBytes(
+		const FStaticMeshCollisionDerivedDataKeyInput& Input) -> std::vector<uint8>
+	{
+		DerivedDataCache::FWriter Writer;
+		Writer.WriteU32(StaticMeshCollisionKeySchemaVersion);
+		Writer.WriteU64(Input.SourceContentHash.HashLow);
+		Writer.WriteU64(Input.SourceContentHash.HashHigh);
+		Writer.WriteU64(Input.GeometryHash.HashLow);
+		Writer.WriteU64(Input.GeometryHash.HashHigh);
+		Writer.WriteString(Input.ImporterId);
+		Writer.WriteU32(Input.ImporterVersion);
+		Writer.WriteU8(static_cast<uint8>(Input.ImportSettings.ForwardAxis));
+		Writer.WriteU8(static_cast<uint8>(Input.ImportSettings.RightAxis));
+		Writer.WriteU8(static_cast<uint8>(Input.ImportSettings.UpAxis));
+		Writer.WriteU8(static_cast<uint8>(Input.SourceMode));
+		Writer.WriteU8(static_cast<uint8>(Input.QueryPolicy));
+		Writer.WriteU32(Input.WeldToleranceBits);
+		Writer.WriteU32(Input.BuilderVersion);
+		Writer.WriteU32(Input.PayloadSchemaVersion);
+		Writer.WriteU32(static_cast<uint32>(Input.TargetPlatform));
+		return Writer.TakeBytes();
+	}
+
+	auto BuildStaticMeshCollisionDerivedDataKey(
+		const FStaticMeshCollisionDerivedDataKeyInput& Input) -> std::string
+	{
+		return FXxHash128::HashBuffer(
+			BuildStaticMeshCollisionDerivedDataKeyBytes(Input)).ToString();
+	}
+
 	auto EncodeStaticMeshPayload(
 		const FStaticMeshPayloadData& Payload,
 		EStaticMeshTargetPlatform TargetPlatform,
@@ -856,5 +886,334 @@ namespace Durin
 		}
 		OutRenderData = std::move(RenderData);
 		return true;
+	}
+
+	namespace
+	{
+		auto WriteCollisionU32(std::vector<uint8>& Bytes, size_t Offset, uint32 Value) -> void
+		{
+			for (uint32 Byte = 0; Byte < 4; ++Byte)
+				Bytes[Offset + Byte] = static_cast<uint8>(Value >> (Byte * 8));
+		}
+
+		auto WriteCollisionU64(std::vector<uint8>& Bytes, size_t Offset, uint64 Value) -> void
+		{
+			for (uint32 Byte = 0; Byte < 8; ++Byte)
+				Bytes[Offset + Byte] = static_cast<uint8>(Value >> (Byte * 8));
+		}
+
+		auto AlignCollisionOffset(uint64 Offset) -> uint64
+		{
+			return (Offset + StaticMeshCollisionPayloadAlignment - 1)
+				& ~(static_cast<uint64>(StaticMeshCollisionPayloadAlignment) - 1);
+		}
+
+		auto CollisionDecodeFailure(EPayloadDecodeError Code, std::string Message)
+			-> FPayloadDecodeResult
+		{
+			return {Code, std::move(Message)};
+		}
+	}
+
+	auto MakeStaticMeshCollisionPayloadData(
+		const FCollisionGeometryRef& Geometry,
+		EBodySetupCollisionQueryPolicy QueryPolicy,
+		FStaticMeshCollisionPayloadData& OutPayload,
+		std::string& OutError) -> bool
+	{
+		if (!Geometry || (Geometry.GetKind() != ECollisionGeometryKind::ConvexHull
+			&& Geometry.GetKind() != ECollisionGeometryKind::TriangleMesh))
+			return Fail(OutError, "Collision payload requires one valid hull or triangle mesh.");
+		FStaticMeshCollisionPayloadData Candidate;
+		Candidate.SourceMode = Geometry.GetKind() == ECollisionGeometryKind::ConvexHull
+			? EBodySetupCollisionSourceMode::ConvexHullFromLOD0
+			: EBodySetupCollisionSourceMode::TriangleMeshFromLOD0;
+		Candidate.QueryPolicy = QueryPolicy;
+		Candidate.Positions.reserve(Geometry.GetVertexCount());
+		for (uint32 Index = 0; Index < Geometry.GetVertexCount(); ++Index)
+		{
+			const FVector3* Vertex = Geometry.GetVertex(Index);
+			if (!Vertex || !Math::IsFinite(*Vertex))
+				return Fail(OutError, "Collision geometry contains an invalid vertex.");
+			const FVector3f Stored(*Vertex);
+			if (!Math::IsFinite(Stored))
+				return Fail(OutError, "Collision vertex is outside finite float32 storage.");
+			Candidate.Positions.push_back(Stored);
+		}
+		Candidate.Indices.reserve(Geometry.GetTriangleCount() * 3);
+		Candidate.SourceOrdinals.reserve(Geometry.GetTriangleCount());
+		for (uint32 Index = 0; Index < Geometry.GetTriangleCount(); ++Index)
+		{
+			const FCollisionGeometryTriangle* Triangle = Geometry.GetTriangle(Index);
+			if (!Triangle) return Fail(OutError, "Collision geometry has an invalid triangle.");
+			Candidate.Indices.insert(Candidate.Indices.end(),
+				{Triangle->First, Triangle->Second, Triangle->Third});
+			Candidate.SourceOrdinals.push_back(Triangle->SourceOrdinal);
+		}
+		Candidate.Nodes.reserve(Geometry.GetNodeCount());
+		for (uint32 Index = 0; Index < Geometry.GetNodeCount(); ++Index)
+		{
+			const FCollisionGeometryNode* Node = Geometry.GetNode(Index);
+			if (!Node) return Fail(OutError, "Collision geometry has an invalid BVH node.");
+			Candidate.Nodes.push_back(*Node);
+		}
+		Candidate.LeafTriangles.reserve(Geometry.GetLeafTriangleCount());
+		for (uint32 Index = 0; Index < Geometry.GetLeafTriangleCount(); ++Index)
+		{
+			const uint32 TriangleIndex = Geometry.GetLeafTriangle(Index);
+			const FCollisionGeometryTriangle* Triangle = Geometry.GetTriangle(TriangleIndex);
+			if (!Triangle) return Fail(OutError, "Collision geometry has an invalid BVH membership.");
+			Candidate.LeafTriangles.push_back(Triangle->SourceOrdinal);
+		}
+		OutPayload = std::move(Candidate);
+		OutError.clear();
+		return true;
+	}
+
+	auto MakeStaticMeshCollisionGeometry(
+		const FStaticMeshCollisionPayloadData& Payload,
+		FCollisionGeometryRef& OutGeometry,
+		std::string& OutError) -> bool
+	{
+		if (Payload.Positions.empty() || Payload.Indices.empty()
+			|| Payload.Indices.size() % 3 != 0
+			|| Payload.SourceOrdinals.size() != Payload.Indices.size() / 3)
+			return Fail(OutError, "Collision payload counts are inconsistent.");
+		std::vector<FVector3> Vertices;
+		Vertices.reserve(Payload.Positions.size());
+		for (const FVector3f& Position : Payload.Positions)
+		{
+			if (!Math::IsFinite(Position)) return Fail(OutError, "Collision payload contains a non-finite position.");
+			Vertices.emplace_back(Position);
+		}
+		FCollisionGeometryRef Candidate;
+		if (Payload.SourceMode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0)
+		{
+			if (!Payload.Nodes.empty() || !Payload.LeafTriangles.empty())
+				return Fail(OutError, "Convex collision payload must not contain a BVH.");
+			Candidate = FCollisionGeometryRef::MakeConvexHull(Vertices, Payload.Indices);
+		}
+		else if (Payload.SourceMode == EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
+		{
+			std::map<uint32, uint32> OrdinalToTriangle;
+			for (uint32 Triangle = 0; Triangle < Payload.SourceOrdinals.size(); ++Triangle)
+				if (!OrdinalToTriangle.emplace(Payload.SourceOrdinals[Triangle], Triangle).second)
+					return Fail(OutError, "Collision payload source ordinals are not unique.");
+			std::vector<uint32> LeafTriangles;
+			LeafTriangles.reserve(Payload.LeafTriangles.size());
+			for (uint32 Ordinal : Payload.LeafTriangles)
+			{
+				const auto Found = OrdinalToTriangle.find(Ordinal);
+				if (Found == OrdinalToTriangle.end())
+					return Fail(OutError, "Collision BVH references an unknown source ordinal.");
+				LeafTriangles.push_back(Found->second);
+			}
+			Candidate = FCollisionGeometryRef::MakeCookedTriangleMesh(
+				Vertices, Payload.Indices, Payload.SourceOrdinals, Payload.Nodes, LeafTriangles);
+		}
+		else return Fail(OutError, "Collision payload source mode is invalid.");
+		if (!Candidate) return Fail(OutError, "Collision payload topology or BVH is invalid.");
+		OutGeometry = Candidate;
+		OutError.clear();
+		return true;
+	}
+
+	auto EncodeStaticMeshCollisionPayload(
+		const FStaticMeshCollisionPayloadData& Payload,
+		EStaticMeshTargetPlatform TargetPlatform,
+		std::vector<uint8>& OutBytes,
+		std::string& OutError) -> bool
+	{
+		if (TargetPlatform != EStaticMeshTargetPlatform::Win64)
+			return Fail(OutError, "A concrete target platform is required for DCOL encoding.");
+		FCollisionGeometryRef ValidationGeometry;
+		if (!MakeStaticMeshCollisionGeometry(Payload, ValidationGeometry, OutError)) return false;
+		std::vector<uint32> StoredIndices;
+		std::vector<uint32> StoredOrdinals;
+		if (Payload.SourceMode == EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
+		{
+			std::map<uint32, uint32> OrdinalToTriangle;
+			for (uint32 Triangle = 0; Triangle < Payload.SourceOrdinals.size(); ++Triangle)
+				OrdinalToTriangle.emplace(Payload.SourceOrdinals[Triangle], Triangle);
+			StoredIndices.reserve(Payload.Indices.size());
+			StoredOrdinals.reserve(Payload.LeafTriangles.size());
+			for (uint32 Ordinal : Payload.LeafTriangles)
+			{
+				const auto Found = OrdinalToTriangle.find(Ordinal);
+				if (Found == OrdinalToTriangle.end())
+					return Fail(OutError, "DCOL leaf ordering references an unknown source ordinal.");
+				const uint32 Triangle = Found->second;
+				StoredIndices.insert(StoredIndices.end(), Payload.Indices.begin() + Triangle * 3,
+					Payload.Indices.begin() + Triangle * 3 + 3);
+				StoredOrdinals.push_back(Ordinal);
+			}
+		}
+		else
+		{
+			StoredIndices = Payload.Indices;
+			StoredOrdinals = Payload.SourceOrdinals;
+		}
+		std::array<std::vector<uint8>, 4> Chunks;
+		FPayloadWriter Positions;
+		for (const FVector3f& Position : Payload.Positions)
+			for (uint32 Axis = 0; Axis < 3; ++Axis) Positions.WriteFloat(Position[Axis]);
+		Chunks[0] = Positions.TakeBytes();
+		FPayloadWriter Indices;
+		for (uint32 Index : StoredIndices) Indices.WriteU32(Index);
+		Chunks[1] = Indices.TakeBytes();
+		FPayloadWriter Ordinals;
+		for (uint32 Ordinal : StoredOrdinals) Ordinals.WriteU32(Ordinal);
+		Chunks[2] = Ordinals.TakeBytes();
+		FPayloadWriter Nodes;
+		for (const FCollisionGeometryNode& Node : Payload.Nodes)
+		{
+			for (uint32 Axis = 0; Axis < 3; ++Axis) Nodes.WriteFloat(Node.Minimum[Axis]);
+			Nodes.WriteU32(Node.First);
+			for (uint32 Axis = 0; Axis < 3; ++Axis) Nodes.WriteFloat(Node.Maximum[Axis]);
+			Nodes.WriteU32(Node.CountOrSecond);
+		}
+		Chunks[3] = Nodes.TakeBytes();
+		const std::array<uint64, 4> Counts{Payload.Positions.size(), StoredIndices.size(),
+			StoredOrdinals.size(), Payload.Nodes.size()};
+		std::vector<uint8> Bytes(StaticMeshCollisionPayloadHeaderSize
+			+ Chunks.size() * StaticMeshCollisionPayloadChunkEntrySize, 0);
+		for (uint32 Chunk = 0; Chunk < Chunks.size(); ++Chunk)
+		{
+			const uint64 Offset = AlignCollisionOffset(Bytes.size());
+			if (Offset > MaximumStaticMeshCollisionPayloadBytes
+				|| Chunks[Chunk].size() > MaximumStaticMeshCollisionPayloadBytes - Offset)
+				return Fail(OutError, "DCOL payload exceeds the runtime byte limit.");
+			Bytes.resize(static_cast<size_t>(Offset), 0);
+			const size_t Entry = StaticMeshCollisionPayloadHeaderSize
+				+ Chunk * StaticMeshCollisionPayloadChunkEntrySize;
+			WriteCollisionU32(Bytes, Entry, Chunk + 1);
+			WriteCollisionU32(Bytes, Entry + 4, 1);
+			WriteCollisionU64(Bytes, Entry + 8, Offset);
+			WriteCollisionU64(Bytes, Entry + 16, Chunks[Chunk].size());
+			WriteCollisionU64(Bytes, Entry + 24, Counts[Chunk]);
+			Bytes.insert(Bytes.end(), Chunks[Chunk].begin(), Chunks[Chunk].end());
+		}
+		const uint64 LogicalBytes = Payload.Positions.size() * sizeof(FVector3f)
+			+ Payload.Indices.size() * sizeof(uint32)
+			+ Payload.SourceOrdinals.size() * sizeof(uint32)
+			+ Payload.Nodes.size() * sizeof(FCollisionGeometryNode);
+		WriteCollisionU32(Bytes, 0, StaticMeshCollisionPayloadMagic);
+		WriteCollisionU32(Bytes, 4, StaticMeshCollisionPayloadSchemaVersion);
+		WriteCollisionU32(Bytes, 8, StaticMeshCollisionBuilderVersion);
+		WriteCollisionU32(Bytes, 12, static_cast<uint32>(TargetPlatform));
+		WriteCollisionU32(Bytes, 16, StaticMeshCollisionPayloadHeaderSize);
+		WriteCollisionU32(Bytes, 20, static_cast<uint32>(Chunks.size()));
+		WriteCollisionU32(Bytes, 24, StaticMeshCollisionPayloadAlignment);
+		WriteCollisionU32(Bytes, 28, 0);
+		WriteCollisionU64(Bytes, 32, Bytes.size());
+		WriteCollisionU64(Bytes, 40, LogicalBytes);
+		WriteCollisionU64(Bytes, 48, FXxHash64::HashBuffer(
+			std::span<const uint8>(Bytes).subspan(64)).HashValue);
+		WriteCollisionU32(Bytes, 56, 0);
+		WriteCollisionU32(Bytes, 60, 0);
+		OutBytes = std::move(Bytes);
+		OutError.clear();
+		return true;
+	}
+
+	auto DecodeStaticMeshCollisionPayload(
+		std::span<const uint8> Bytes,
+		EStaticMeshTargetPlatform ExpectedPlatform,
+		FStaticMeshCollisionPayloadData& OutPayload) -> FPayloadDecodeResult
+	{
+		uint32 Magic = 0, Schema = 0, Builder = 0, Platform = 0, Header = 0;
+		uint32 ChunkCount = 0, Alignment = 0, Mode = 0, Policy = 0, Reserved = 0;
+		uint64 StoredSize = 0, LogicalBytes = 0, Checksum = 0;
+		if (Bytes.size() < StaticMeshCollisionPayloadHeaderSize
+			|| !ReadU32At(Bytes, 0, Magic) || !ReadU32At(Bytes, 4, Schema)
+			|| !ReadU32At(Bytes, 8, Builder) || !ReadU32At(Bytes, 12, Platform)
+			|| !ReadU32At(Bytes, 16, Header) || !ReadU32At(Bytes, 20, ChunkCount)
+			|| !ReadU32At(Bytes, 24, Alignment) || !ReadU32At(Bytes, 28, Mode)
+			|| !ReadU64At(Bytes, 32, StoredSize) || !ReadU64At(Bytes, 40, LogicalBytes)
+			|| !ReadU64At(Bytes, 48, Checksum) || !ReadU32At(Bytes, 56, Policy)
+			|| !ReadU32At(Bytes, 60, Reserved))
+			return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL header is truncated.");
+		if (Magic != StaticMeshCollisionPayloadMagic || Schema != StaticMeshCollisionPayloadSchemaVersion
+			|| Builder != StaticMeshCollisionBuilderVersion
+			|| Platform != static_cast<uint32>(ExpectedPlatform))
+			return CollisionDecodeFailure(EPayloadDecodeError::Incompatible, "DCOL identity, version, or platform is incompatible.");
+		if (Header != StaticMeshCollisionPayloadHeaderSize || ChunkCount != 4
+			|| ChunkCount > MaximumStaticMeshCollisionPayloadChunks
+			|| Alignment != StaticMeshCollisionPayloadAlignment || Mode != 0 || Policy != 0 || Reserved != 0
+			|| StoredSize != Bytes.size() || StoredSize > MaximumStaticMeshCollisionPayloadBytes
+			|| Checksum != FXxHash64::HashBuffer(Bytes.subspan(64)).HashValue)
+			return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL header values or checksum are invalid.");
+		const std::array<uint64, 4> ElementSizes{12, 4, 4, 32};
+		std::array<std::span<const uint8>, 4> Chunks;
+		std::array<uint64, 4> Counts{};
+		uint64 PreviousEnd = StaticMeshCollisionPayloadHeaderSize
+			+ ChunkCount * StaticMeshCollisionPayloadChunkEntrySize;
+		for (uint32 Chunk = 0; Chunk < ChunkCount; ++Chunk)
+		{
+			const size_t Entry = StaticMeshCollisionPayloadHeaderSize
+				+ Chunk * StaticMeshCollisionPayloadChunkEntrySize;
+			uint32 Type = 0, Flags = 0;
+			uint64 Offset = 0, Size = 0, Count = 0;
+			if (!ReadU32At(Bytes, Entry, Type) || !ReadU32At(Bytes, Entry + 4, Flags)
+				|| !ReadU64At(Bytes, Entry + 8, Offset) || !ReadU64At(Bytes, Entry + 16, Size)
+				|| !ReadU64At(Bytes, Entry + 24, Count) || Type != Chunk + 1 || Flags != 1
+				|| Offset % Alignment != 0 || Offset < PreviousEnd || Offset > Bytes.size()
+				|| Size > Bytes.size() - Offset || Count > std::numeric_limits<uint64>::max() / ElementSizes[Chunk]
+				|| Count * ElementSizes[Chunk] != Size)
+				return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL chunk table is invalid.");
+			for (uint64 Padding = PreviousEnd; Padding < Offset; ++Padding)
+				if (Bytes[Padding] != 0)
+					return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL alignment padding is non-zero.");
+			Chunks[Chunk] = Bytes.subspan(static_cast<size_t>(Offset), static_cast<size_t>(Size));
+			Counts[Chunk] = Count;
+			PreviousEnd = Offset + Size;
+		}
+		if (PreviousEnd != Bytes.size() || Counts[0] == 0 || Counts[1] == 0
+			|| Counts[1] % 3 != 0 || Counts[2] != Counts[1] / 3
+			|| Counts[0] > MaximumStaticMeshVerticesPerLOD
+			|| Counts[2] > 2'000'000 || LogicalBytes != Counts[0] * 12 + Counts[1] * 4
+				+ Counts[2] * 4 + Counts[3] * 32)
+			return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL counts or logical byte total are invalid.");
+		FStaticMeshCollisionPayloadData Candidate;
+		Candidate.SourceMode = Counts[3] == 0
+			? EBodySetupCollisionSourceMode::ConvexHullFromLOD0
+			: EBodySetupCollisionSourceMode::TriangleMeshFromLOD0;
+		Candidate.QueryPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
+		FPayloadReader PositionReader(Chunks[0]);
+		Candidate.Positions.resize(static_cast<size_t>(Counts[0]));
+		for (FVector3f& Position : Candidate.Positions)
+			for (uint32 Axis = 0; Axis < 3; ++Axis)
+				if (!PositionReader.ReadFloat(Position[Axis]) || !std::isfinite(Position[Axis]))
+					return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL position data is invalid.");
+		auto ReadU32Chunk = [](std::span<const uint8> Bytes, uint64 Count, std::vector<uint32>& Out) {
+			FPayloadReader Reader(Bytes);
+			Out.resize(static_cast<size_t>(Count));
+			for (uint32& Value : Out) if (!Reader.ReadU32(Value)) return false;
+			return Reader.IsAtEnd();
+		};
+		if (!ReadU32Chunk(Chunks[1], Counts[1], Candidate.Indices)
+			|| !ReadU32Chunk(Chunks[2], Counts[2], Candidate.SourceOrdinals))
+			return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL index or ordinal data is invalid.");
+		FPayloadReader NodeReader(Chunks[3]);
+		Candidate.Nodes.resize(static_cast<size_t>(Counts[3]));
+		for (FCollisionGeometryNode& Node : Candidate.Nodes)
+		{
+			for (uint32 Axis = 0; Axis < 3; ++Axis) if (!NodeReader.ReadFloat(Node.Minimum[Axis]))
+				return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL node data is truncated.");
+			if (!NodeReader.ReadU32(Node.First))
+				return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL node data is truncated.");
+			for (uint32 Axis = 0; Axis < 3; ++Axis) if (!NodeReader.ReadFloat(Node.Maximum[Axis]))
+				return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL node data is truncated.");
+			if (!NodeReader.ReadU32(Node.CountOrSecond))
+				return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL node data is truncated.");
+		}
+		if (Candidate.SourceMode == EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
+			Candidate.LeafTriangles = Candidate.SourceOrdinals;
+		FCollisionGeometryRef Geometry;
+		std::string Error;
+		if (!MakeStaticMeshCollisionGeometry(Candidate, Geometry, Error))
+			return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, std::move(Error));
+		OutPayload = std::move(Candidate);
+		return {};
 	}
 }

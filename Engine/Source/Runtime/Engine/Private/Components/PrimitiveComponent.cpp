@@ -132,6 +132,8 @@ namespace Durin
 		Desc.UserToken = reinterpret_cast<uint64>(this);
 		Desc.MotionType = BodyInstance.MotionType;
 		BodyInstance.ActorHandle = World->GetPhysicsScene().AddBody(Desc);
+		BodyInstance.PublishedBodySetupRevision = BodyInstance.ActorHandle.IsValid()
+			? GetCollisionStateRevision() : 0;
 	}
 
 	auto DPrimitiveComponent::DestroyPhysicsState() -> void
@@ -165,7 +167,10 @@ namespace Durin
 			Desc.Filter.Responses[Index] = ToPhysicsResponse(BodyInstance.Responses.Responses[Index]);
 		Desc.UserToken = reinterpret_cast<uint64>(this);
 		Desc.MotionType = BodyInstance.MotionType;
-		if (!World->GetPhysicsScene().UpdateBody(BodyInstance.ActorHandle, Desc)) RecreatePhysicsState();
+		if (!World->GetPhysicsScene().UpdateBody(BodyInstance.ActorHandle, Desc))
+			RecreatePhysicsState();
+		else
+			BodyInstance.PublishedBodySetupRevision = GetCollisionStateRevision();
 	}
 
 	auto DPrimitiveComponent::GetPhysicsWorld() const -> DWorld*

@@ -91,7 +91,8 @@ namespace
 		Durin::DStaticMesh& Mesh,
 		const std::filesystem::path& PackagePath,
 		const Durin::Asset::FCookedPayloadDescriptor& Descriptor,
-		bool bAppendMaterialSlot = false) -> void
+		bool bAppendMaterialSlot = false,
+		const Durin::Asset::FCookedPayloadDescriptor* CollisionDescriptor = nullptr) -> void
 	{
 		auto* DescriptorProperty = Mesh.GetClass()->FindPropertyByName("CookedPayload");
 		auto* MaterialSlotsProperty = Mesh.GetClass()->FindPropertyByName("MaterialSlots");
@@ -102,8 +103,13 @@ namespace
 		auto* MaterialSlots = static_cast<std::vector<Durin::FStaticMeshMaterialSlotDefinition>*>(
 			MaterialSlotsProperty->GetValuePtr(&Mesh));
 		const Durin::Asset::FCookedPayloadDescriptor SavedDescriptor = *StoredDescriptor;
+		const Durin::Asset::FCookedPayloadDescriptor SavedCollisionDescriptor = Mesh.GetBodySetup()
+			? Mesh.GetBodySetup()->GetCookedCollisionPayloadDescriptor()
+			: Durin::Asset::FCookedPayloadDescriptor{};
 		const std::vector<Durin::FStaticMeshMaterialSlotDefinition> SavedSlots = *MaterialSlots;
 		*StoredDescriptor = Descriptor;
+		if (Mesh.GetBodySetup() && CollisionDescriptor)
+			Mesh.GetBodySetup()->SetCookedCollisionPayloadDescriptor(*CollisionDescriptor);
 		if (bAppendMaterialSlot)
 		{
 			MaterialSlots->push_back({
@@ -114,6 +120,8 @@ namespace
 		const Durin::Asset::FAssetResult Result =
 			Durin::Asset::SerializeAssetPackageBytes(Mesh.GetPackage(), PackageBytes);
 		*StoredDescriptor = SavedDescriptor;
+		if (Mesh.GetBodySetup())
+			Mesh.GetBodySetup()->SetCookedCollisionPayloadDescriptor(SavedCollisionDescriptor);
 		*MaterialSlots = SavedSlots;
 		ASSERT_TRUE(Result) << Result.Message;
 		ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
@@ -232,6 +240,159 @@ TEST(FStaticMeshDerivedDataCacheTests, CorruptionRebuildsAndWriteFailurePreserve
 
 	Durin::FPaths::SetDerivedDataCacheDirForTests(Fixture.CacheRoot.generic_string());
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Fixture.AssetPath));
+}
+
+TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAndRequiredAtRuntime)
+{
+	const FScopedDerivedDataCacheRestore CacheRestore;
+	FStaticMeshCacheFixture Fixture = ImportCacheFixture("StaticMeshCookedCollisionConsumer");
+	ASSERT_NE(Fixture.Mesh, nullptr);
+	std::string Error;
+	ASSERT_TRUE(Fixture.Mesh->SetCollisionSourceMode(
+		Durin::EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error)) << Error;
+	ASSERT_NE(Fixture.Mesh->GetBodySetup(), nullptr);
+	Durin::FCollisionGeometryRef AuthoredGeometry;
+	ASSERT_TRUE(Fixture.Mesh->GetBodySetup()->BuildComplexGeometry(AuthoredGeometry));
+	const Durin::uint32 AuthoredVertices = AuthoredGeometry.GetVertexCount();
+	const Durin::uint32 AuthoredTriangles = AuthoredGeometry.GetTriangleCount();
+	const Durin::uint32 AuthoredNodes = AuthoredGeometry.GetNodeCount();
+	const Durin::uint64 AuthoredBytes = AuthoredGeometry.GetRetainedBytes();
+
+	const std::filesystem::path CookRoot = std::filesystem::absolute(Fixture.Root / "CookCollision");
+	const std::filesystem::path SecondCookRoot = std::filesystem::absolute(Fixture.Root / "CookCollisionSecond");
+	for (const std::filesystem::path& Root : {CookRoot, SecondCookRoot})
+	{
+		Durin::Asset::FCookContext Context(
+			Root, Durin::Asset::ECookTargetPlatform::Win64,
+			Durin::Asset::ECookTargetProfile::Game);
+		ASSERT_TRUE(Fixture.Mesh->AddToCook(Context, "/Game/CookedCollisionMesh", Error)) << Error;
+		ASSERT_TRUE(Context.Publish(&Error)) << Error;
+	}
+	std::vector<Durin::uint8> FirstPackage, SecondPackage, FirstBulk, SecondBulk, FirstManifest, SecondManifest;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstPackage, (CookRoot / "Game/CookedCollisionMesh.dasset").generic_string()));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(SecondPackage, (SecondCookRoot / "Game/CookedCollisionMesh.dasset").generic_string()));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstBulk, (CookRoot / "Game/CookedCollisionMesh.dbulk").generic_string()));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(SecondBulk, (SecondCookRoot / "Game/CookedCollisionMesh.dbulk").generic_string()));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstManifest, (CookRoot / "CookManifest.bin").generic_string()));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(SecondManifest, (SecondCookRoot / "CookManifest.bin").generic_string()));
+	EXPECT_EQ(FirstPackage, SecondPackage);
+	EXPECT_EQ(FirstBulk, SecondBulk);
+	EXPECT_EQ(FirstManifest, SecondManifest);
+
+	Durin::Asset::FCookedBulkContainer Container;
+	ASSERT_TRUE(Durin::Asset::DecodeCookedBulk(
+		FirstBulk, Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game, Container, &Error)) << Error;
+	ASSERT_EQ(Container.Entries.size(), 2u);
+	const auto RenderEntry = std::ranges::find(
+		Container.Entries, Durin::StaticMeshPrimaryCookedPayloadId,
+		&Durin::Asset::FCookedPayloadDescriptor::PayloadId);
+	const auto CollisionEntry = std::ranges::find(
+		Container.Entries, Durin::StaticMeshCollisionCookedPayloadId,
+		&Durin::Asset::FCookedPayloadDescriptor::PayloadId);
+	ASSERT_NE(RenderEntry, Container.Entries.end());
+	ASSERT_NE(CollisionEntry, Container.Entries.end());
+
+	const std::filesystem::path InvalidRoot = std::filesystem::absolute(Fixture.Root / "CookCollisionInvalid");
+	std::filesystem::create_directories(InvalidRoot / "Game");
+	std::vector<Durin::Asset::FCookedBulkPayload> InvalidPayloads;
+	for (size_t Index = 0; Index < Container.Entries.size(); ++Index)
+	{
+		std::vector<Durin::uint8> Bytes = Container.Payloads[Index];
+		if (Container.Entries[Index].PayloadId == Durin::StaticMeshCollisionCookedPayloadId)
+			WriteU32(Bytes, 4, Durin::StaticMeshCollisionPayloadSchemaVersion + 1);
+		InvalidPayloads.push_back({
+			.PayloadId = Container.Entries[Index].PayloadId,
+			.Flags = 1,
+			.PayloadSchemaVersion = Container.Entries[Index].PayloadSchemaVersion,
+			.Compression = Durin::Asset::ECookedPayloadCompression::None,
+			.Alignment = Container.Entries[Index].Alignment,
+			.Bytes = std::move(Bytes)});
+	}
+	std::vector<Durin::uint8> InvalidBulk;
+	std::vector<Durin::Asset::FCookedPayloadDescriptor> InvalidDescriptors;
+	ASSERT_TRUE(Durin::Asset::EncodeCookedBulk(
+		InvalidPayloads, Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game, InvalidBulk, &InvalidDescriptors, &Error)) << Error;
+	const auto InvalidRender = std::ranges::find(
+		InvalidDescriptors, Durin::StaticMeshPrimaryCookedPayloadId,
+		&Durin::Asset::FCookedPayloadDescriptor::PayloadId);
+	const auto InvalidCollision = std::ranges::find(
+		InvalidDescriptors, Durin::StaticMeshCollisionCookedPayloadId,
+		&Durin::Asset::FCookedPayloadDescriptor::PayloadId);
+	ASSERT_NE(InvalidRender, InvalidDescriptors.end());
+	ASSERT_NE(InvalidCollision, InvalidDescriptors.end());
+	SaveVariantPackage(*Fixture.Mesh, InvalidRoot / "Game/CookedCollisionMesh.dasset",
+		*InvalidRender, false, &*InvalidCollision);
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
+		std::as_bytes(std::span(InvalidBulk)), InvalidRoot / "Game/CookedCollisionMesh.dbulk"));
+	const std::filesystem::path MissingRoot = std::filesystem::absolute(Fixture.Root / "CookCollisionMissing");
+	std::filesystem::create_directories(MissingRoot / "Game");
+	const size_t RenderIndex = static_cast<size_t>(RenderEntry - Container.Entries.begin());
+	std::vector<Durin::Asset::FCookedBulkPayload> RenderOnlyPayloads{{
+		.PayloadId = Durin::StaticMeshPrimaryCookedPayloadId,
+		.Flags = 1,
+		.PayloadSchemaVersion = Durin::StaticMeshPayloadSchemaVersion,
+		.Compression = Durin::Asset::ECookedPayloadCompression::None,
+		.Alignment = Durin::StaticMeshPayloadAlignment,
+		.Bytes = Container.Payloads[RenderIndex]}};
+	std::vector<Durin::uint8> RenderOnlyBulk;
+	std::vector<Durin::Asset::FCookedPayloadDescriptor> RenderOnlyDescriptors;
+	ASSERT_TRUE(Durin::Asset::EncodeCookedBulk(
+		RenderOnlyPayloads, Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game, RenderOnlyBulk, &RenderOnlyDescriptors, &Error)) << Error;
+	ASSERT_EQ(RenderOnlyDescriptors.size(), 1u);
+	SaveVariantPackage(*Fixture.Mesh, MissingRoot / "Game/CookedCollisionMesh.dasset",
+		RenderOnlyDescriptors.front(), false, &*CollisionEntry);
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
+		std::as_bytes(std::span(RenderOnlyBulk)), MissingRoot / "Game/CookedCollisionMesh.dbulk"));
+
+	Durin::Testing::RemoveTestWorkDirectory(Fixture.CacheRoot);
+	Durin::Testing::RemoveTestWorkDirectory(Fixture.Root / "Content" / "Models");
+	RestartAssetManager();
+	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
+		Durin::Asset::EPackageLoadMode::CookedRuntime, CookRoot}));
+	Durin::PathUtilities::RegisterMountPointForTests("/Game/", (CookRoot / "Game").generic_string() + "/");
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedCollisionMesh", Path));
+	Durin::DStaticMesh* CookedMesh = nullptr;
+	const Durin::Asset::FAssetResult Loaded = Durin::Asset::LoadAsset(Path, CookedMesh);
+	ASSERT_TRUE(Loaded) << Loaded.Message;
+	ASSERT_NE(CookedMesh, nullptr);
+	ASSERT_NE(CookedMesh->GetBodySetup(), nullptr);
+	EXPECT_EQ(CookedMesh->GetBodySetup()->GetCollisionBuildStatus(), Durin::EBodySetupCollisionBuildStatus::CookedLoaded);
+	EXPECT_EQ(CookedMesh->GetBodySetup()->GetCollisionBuildRevision(), 1u);
+	EXPECT_TRUE(CookedMesh->GetBodySetup()->GetCollisionDerivedDataKey().empty());
+	Durin::FCollisionGeometryRef Geometry;
+	ASSERT_TRUE(CookedMesh->GetBodySetup()->BuildComplexGeometry(Geometry));
+	EXPECT_EQ(Geometry.GetKind(), Durin::ECollisionGeometryKind::TriangleMesh);
+	EXPECT_EQ(Geometry.GetVertexCount(), AuthoredVertices);
+	EXPECT_EQ(Geometry.GetTriangleCount(), AuthoredTriangles);
+	EXPECT_EQ(Geometry.GetNodeCount(), AuthoredNodes);
+	EXPECT_EQ(Geometry.GetRetainedBytes(), AuthoredBytes);
+	EXPECT_EQ(CookedMesh->GetRenderData()->GetNumInitializedResources(), 0u);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+
+	RestartAssetManager();
+	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
+		Durin::Asset::EPackageLoadMode::CookedRuntime, InvalidRoot}));
+	Durin::PathUtilities::RegisterMountPointForTests("/Game/", (InvalidRoot / "Game").generic_string() + "/");
+	CookedMesh = nullptr;
+	const Durin::Asset::FAssetResult Invalid = Durin::Asset::LoadAsset(Path, CookedMesh);
+	EXPECT_FALSE(Invalid);
+	EXPECT_EQ(CookedMesh, nullptr);
+	EXPECT_NE(Invalid.Message.find("DCOL"), std::string::npos) << Invalid.Message;
+
+	RestartAssetManager();
+	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
+		Durin::Asset::EPackageLoadMode::CookedRuntime, MissingRoot}));
+	Durin::PathUtilities::RegisterMountPointForTests("/Game/", (MissingRoot / "Game").generic_string() + "/");
+	CookedMesh = nullptr;
+	const Durin::Asset::FAssetResult Missing = Durin::Asset::LoadAsset(Path, CookedMesh);
+	EXPECT_FALSE(Missing);
+	EXPECT_EQ(CookedMesh, nullptr);
+	EXPECT_NE(Missing.Message.find("descriptor"), std::string::npos) << Missing.Message;
+	RestartAssetManager();
 }
 
 TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedDataFallback)

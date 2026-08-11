@@ -1,6 +1,6 @@
 # Runtime Collision
 
-Summary: Define Aether module ownership, World query behavior, simple body geometry, filtering, component synchronization, and collision debugging.
+Summary: Define Aether module ownership, World query behavior, immutable primitive and cooked geometry, filtering, component synchronization, and collision debugging.
 
 Modules: AetherCore, Aether, Engine
 
@@ -43,7 +43,16 @@ narrow phase both use Box component scale, Sphere maximum XYZ scale, and
 Capsule maximum XY radius scale with Z half-height scale clamped to the scaled
 radius.
 
-Ray, Sweep, and Overlap support every Box/Sphere/Capsule target pair. Sweeps report normalized time,
+Ray, Sweep, and Overlap support every Box/Sphere/Capsule query against primitive,
+convex-hull, triangle-mesh, and compound targets. Hulls expose validated planes,
+vertices, and stable features. Triangle meshes retain cleaned source-order
+triangles plus a deterministic asset BVH with 32-byte nodes, at most eight
+triangles per leaf, depth at most 64, and a bounded 128-entry traversal stack.
+Mesh collision is double-sided; ties use source triangle ordinal. Production
+traversal falls back to the complete Reference path on structural overflow and
+records that exceptional path explicitly.
+
+Sweeps report normalized time,
 distance, location, impact point and normal, and bounded initial penetration.
 Equal-time results use the monotonically assigned scene handle as their stable
 tie-break. Compound closest hits first select `(Time, child index)`; Overlap
@@ -51,18 +60,40 @@ selects the lowest overlapping child and still emits one result per body.
 
 ## Assets and components
 
-`DBodySetup` owns reusable simple geometry, a revision, a local shape offset,
-and one transient immutable-resource cache for that revision. Repeated
-publication returns the same identity; successful authored setters invalidate
-the cache.
-`DStaticMesh` retains its setup independently from render data. The qualified
-`/Engine/Models/Box` asset derives one Box setup from its verified LOD 0 bounds;
-arbitrary imported meshes do not silently use render bounds or triangles.
+`DBodySetup` owns collision source mode, Simple/Complex query policy, build
+revision/status, a local shape offset, optional independent immutable-resource
+caches, and exact retained payload bytes. Repeated publication for one revision
+returns the same identity; successful collision-relevant setters invalidate
+geometry. Material, thumbnail, and render-readiness changes do not.
+
+`DStaticMesh` retains its setup and a detached canonical LOD 0 collision snapshot
+independently from render data. Collision is opt-in: `None`, `SimpleHull`, or
+`ComplexMesh`; imported meshes never silently use render bounds or triangles.
+`SimpleOnly`, `ComplexOnly`, and `SimpleAndComplex` select the published resource
+without changing component filters. The qualified `/Engine/Models/Box` asset
+continues to derive its authored Box setup from verified LOD 0 bounds.
+
+Editor derived data uses the separate `StaticMeshCollision/Objects` namespace
+and a key containing collision builder/schema/platform versions, exact source
+identity, import-space settings, mode/policy, and canonical bytes. Builds and
+reimports publish render data, BodySetup state, collision resources, revisions,
+and diagnostics transactionally. A cache miss or corruption is rebuildable only
+while detached source inputs exist.
+
+Cook writes independently versioned DMSH render and optional required DCOL
+collision companions in one `FCookContext` transaction. Cooked BodySetup state
+contains policy and the exact DCOL descriptor but no source snapshot or DDC key.
+Runtime validates both descriptors and payloads before publishing either, and
+reconstructs collision without source, DDC, importers, editor modules, or
+initialized render resources. Missing, corrupt, mismatched, or incompatible
+required collision rejects the asset; there is no cooked-runtime fallback.
 
 Every `DPrimitiveComponent` owns one reflected `FBodyInstance`. It contains the
 collision enable state, object channel, profile name, responses, and one
-transient physics handle. Register, unregister, transform, mesh, shape, and
-profile changes synchronize that handle. A no-collision component or a
+transient physics handle. StaticMesh body publication remembers the published
+BodySetup revision so policy, geometry, or reimport changes republish the body
+without altering its profile/filter state. Register, unregister, transform,
+mesh, shape, and profile changes synchronize that handle. A no-collision component or a
 component without valid body geometry has no scene entry and can recover after
 a later valid edit.
 
@@ -208,6 +239,15 @@ median, a 25.17x improvement. Focused Release PhysicsScene and Sandbox suites
 reported zero mismatch, unsupported, non-convergence, overflow, or unexpected
 pair fallback.
 
+For M3 on `Win64-Release-DurinEditor`, the 100,352-triangle deterministic grid
+contains 32,767 BVH nodes at depth 15, retains 4,270,912 bytes, and reports a
+23,147,864-byte estimated builder peak. A sparse outside ray performs one asset
+node test and zero feature tests instead of the Reference path's 100,352 feature
+tests; an interior ray stays below 128 node and 64 feature tests. Ten thousand
+bodies share one resource identity and retained-byte charge. The full Release
+PhysicsScene matrix passes with zero mismatch, false negative, unsupported,
+non-convergence, overflow, or ordinary fallback.
+
 ## Debugging and current limits
 
 Collision debugging is disabled by default. When enabled,
@@ -216,12 +256,18 @@ with transforms, channels, owners, and the last blocking hit/normal. When
 disabled, the capture path returns immediately without walking scene bodies.
 The Level Editor viewport's **View mode > Overlays > Collision** toggle consumes
 the renderer-independent snapshot to draw Box, Sphere, and Capsule wire shapes
-plus the latest blocking impact normal without exposing mutable scene storage.
+plus hull/mesh feature lines and the latest blocking impact normal without
+exposing mutable scene storage. Feature detail is globally capped at 256
+triangles per snapshot. StaticMesh Inspector reports mode/policy/status, source
+and retained counts, node/depth/bounds, payload/runtime bytes, versions,
+revision, key, and diagnostics without providing mutation controls.
 
 The implementation is synchronous and query-only. Programmatic low-level
-compounds are qualified; reflected compound authoring is deferred. Dynamic rigid bodies,
-forces, constraints, asynchronous stepping, moving platforms, triangle meshes,
-heightfields, overlap events, and project-defined profiles remain future work.
+compounds are qualified; reflected compound authoring is deferred. Writable
+collision editing, multiple hulls, convex decomposition, per-feature materials,
+public feature IDs, dynamic rigid bodies, forces, constraints, asynchronous
+stepping, moving platforms, heightfields, overlap events, and project-defined
+profiles remain future work.
 The cross-plan sequencing for scalable queries, geometry, cooked collision,
 and evidence-gated simulation or backend work is maintained in the
 [Aether Physics Evolution Roadmap](../../Roadmaps/AetherPhysicsEvolution.md).

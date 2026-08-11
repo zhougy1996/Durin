@@ -1186,6 +1186,9 @@ namespace Durin
 		SaturatingAdd(Target.GeometryDistanceEvaluations, Source.GeometryDistanceEvaluations);
 		SaturatingAdd(Target.GeometrySearchIterations, Source.GeometrySearchIterations);
 		SaturatingAdd(Target.NarrowPhaseLeafTests, Source.NarrowPhaseLeafTests);
+		SaturatingAdd(Target.GeometryFeatureTests, Source.GeometryFeatureTests);
+		SaturatingAdd(Target.AssetNodeTests, Source.AssetNodeTests);
+		SaturatingAdd(Target.AssetLeafTests, Source.AssetLeafTests);
 		SaturatingAdd(Target.CompoundChildrenTested, Source.CompoundChildrenTested);
 		SaturatingAdd(Target.AnalyticDispatches, Source.AnalyticDispatches);
 		SaturatingAdd(Target.GenericDispatches, Source.GenericDispatches);
@@ -1213,6 +1216,9 @@ namespace Durin
 		SaturatingAdd(Target.GeometryDistanceEvaluations, Source.DistanceEvaluations);
 		SaturatingAdd(Target.GeometrySearchIterations, Source.SearchIterations);
 		SaturatingAdd(Target.NarrowPhaseLeafTests, Source.LeafTests);
+		SaturatingAdd(Target.GeometryFeatureTests, Source.FeatureTests);
+		SaturatingAdd(Target.AssetNodeTests, Source.AssetNodeTests);
+		SaturatingAdd(Target.AssetLeafTests, Source.AssetLeafTests);
 		SaturatingAdd(Target.CompoundChildrenTested, Source.CompoundChildren);
 		SaturatingAdd(Target.AnalyticDispatches, Source.AnalyticDispatches);
 		SaturatingAdd(Target.GenericDispatches, Source.GenericDispatches);
@@ -1296,6 +1302,27 @@ namespace Durin
 		const FPhysicsBodyDesc& Desc, std::array<float, 6>& OutBounds) const -> bool
 	{
 		if (!Desc.Geometry.IsValid()) return false;
+		if (Desc.Geometry.GetKind() == ECollisionGeometryKind::ConvexHull
+			|| Desc.Geometry.GetKind() == ECollisionGeometryKind::TriangleMesh)
+		{
+			FVector3 LocalMinimum;
+			FVector3 LocalMaximum;
+			if (!Desc.Geometry.GetLocalBounds(LocalMinimum, LocalMaximum)) return false;
+			const FMatrix Matrix = Desc.Transform.ToMatrix();
+			FVector3 Minimum(std::numeric_limits<double>::infinity());
+			FVector3 Maximum(-std::numeric_limits<double>::infinity());
+			for (uint32 Corner = 0; Corner < 8; ++Corner)
+			{
+				const FVector3 Local(
+					(Corner & 1u) ? LocalMaximum.x : LocalMinimum.x,
+					(Corner & 2u) ? LocalMaximum.y : LocalMinimum.y,
+					(Corner & 4u) ? LocalMaximum.z : LocalMinimum.z);
+				const FVector3 World(Matrix * FVector4(Local, 1.0));
+				Minimum = Math::Min(Minimum, World);
+				Maximum = Math::Max(Maximum, World);
+			}
+			return CompactBounds(Minimum, Maximum, OutBounds);
+		}
 		FVector3 Min;
 		FVector3 Max;
 		bool bHasBounds = false;

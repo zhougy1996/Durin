@@ -576,22 +576,44 @@ namespace Durin
 	auto DWorld::CaptureCollisionDebugSnapshot() const -> FCollisionDebugSnapshot
 	{
 		constexpr size_t MaximumDebugBodies = 4096;
+		constexpr uint32 MaximumDebugTriangles = 256;
 		FCollisionDebugSnapshot Result;
+		uint32 RemainingDebugTriangles = MaximumDebugTriangles;
 		if (!bCollisionDebugDrawEnabled) return Result;
 		for (const FPhysicsBodySnapshot& Body : PhysicsScene.CaptureBodies())
 		{
 			if (Result.Bodies.size() >= MaximumDebugBodies) break;
 			auto* Component = reinterpret_cast<DPrimitiveComponent*>(Body.Desc.UserToken);
 			if (!Component) continue;
-			const FCollisionGeometryChild* Child = Body.Desc.Geometry.GetChild(0);
-			if (!Child) continue;
-			Result.Bodies.push_back({
-				.Handle = Body.Handle,
-				.Shape = Child->Shape,
-				.Transform = Body.Desc.Transform,
-				.ObjectChannel = static_cast<ECollisionChannel>(Body.Desc.Filter.ObjectChannel),
-				.Actor = Component->GetOwner(),
-				.Component = Component});
+			FCollisionDebugBody DebugBody;
+			DebugBody.Handle = Body.Handle;
+			DebugBody.GeometryKind = Body.Desc.Geometry.GetKind();
+			DebugBody.Transform = Body.Desc.Transform;
+			DebugBody.ObjectChannel = static_cast<ECollisionChannel>(Body.Desc.Filter.ObjectChannel);
+			DebugBody.Actor = Component->GetOwner();
+			DebugBody.Component = Component;
+			if (const FCollisionGeometryChild* Child = Body.Desc.Geometry.GetChild(0))
+			{
+				DebugBody.Shape = Child->Shape;
+				DebugBody.bHasPrimitiveShape = true;
+			}
+			Body.Desc.Geometry.GetLocalBounds(
+				DebugBody.LocalBoundsMinimum, DebugBody.LocalBoundsMaximum);
+			DebugBody.TotalTriangles = Body.Desc.Geometry.GetTriangleCount();
+			const uint32 SampleCount = std::min(DebugBody.TotalTriangles, RemainingDebugTriangles);
+			DebugBody.TriangleSample.reserve(SampleCount);
+			for (uint32 Index = 0; Index < SampleCount; ++Index)
+			{
+				const FCollisionGeometryTriangle* Triangle = Body.Desc.Geometry.GetTriangle(Index);
+				if (!Triangle) break;
+				const FVector3* First = Body.Desc.Geometry.GetVertex(Triangle->First);
+				const FVector3* Second = Body.Desc.Geometry.GetVertex(Triangle->Second);
+				const FVector3* Third = Body.Desc.Geometry.GetVertex(Triangle->Third);
+				if (!First || !Second || !Third) break;
+				DebugBody.TriangleSample.push_back({*First, *Second, *Third});
+			}
+			RemainingDebugTriangles -= static_cast<uint32>(DebugBody.TriangleSample.size());
+			Result.Bodies.push_back(std::move(DebugBody));
 		}
 		Result.LastBlockingHit = LastCollisionDebugHit;
 		return Result;

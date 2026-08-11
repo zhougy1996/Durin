@@ -216,6 +216,34 @@ namespace Durin
 				"StaticMesh/Objects", MaximumStaticMeshPayloadBytes);
 		}
 
+		auto GetStaticMeshCollisionObjectStore() -> Asset::FDerivedDataObjectStore
+		{
+			return Asset::FDerivedDataObjectStore(
+				"StaticMeshCollision/Objects", MaximumStaticMeshCollisionPayloadBytes);
+		}
+
+		auto BuildStaticMeshCollisionGeometryHash(
+			std::span<const FVector3f> Positions,
+			std::span<const uint32> Indices) -> FXxHash128
+		{
+			std::vector<uint8> Bytes;
+			Bytes.reserve(16 + Positions.size() * 12 + Indices.size() * 4);
+			auto AppendU32 = [&](uint32 Value) {
+				for (uint32 Byte = 0; Byte < 4; ++Byte)
+					Bytes.push_back(static_cast<uint8>(Value >> (Byte * 8)));
+			};
+			auto AppendU64 = [&](uint64 Value) {
+				for (uint32 Byte = 0; Byte < 8; ++Byte)
+					Bytes.push_back(static_cast<uint8>(Value >> (Byte * 8)));
+			};
+			AppendU64(Positions.size());
+			for (const FVector3f& Position : Positions)
+				for (uint32 Axis = 0; Axis < 3; ++Axis) AppendU32(std::bit_cast<uint32>(Position[Axis]));
+			AppendU64(Indices.size());
+			for (uint32 Index : Indices) AppendU32(Index);
+			return FXxHash128::HashBuffer(Bytes);
+		}
+
 		auto IsCanonicalStaticMeshHash(std::string_view Hash) -> bool
 		{
 			return Hash.size() == 32 && std::ranges::all_of(Hash, [](char Character) {
@@ -684,6 +712,218 @@ namespace Durin
 		return true;
 	}
 
+	auto DStaticMesh::BuildCollisionCandidate(
+		const FStaticMeshRenderData& SourceRenderData,
+		EBodySetupCollisionSourceMode Mode,
+		EBodySetupCollisionQueryPolicy Policy,
+		FCollisionGeometryRef& OutSimple,
+		FCollisionGeometryRef& OutComplex,
+		EBodySetupCollisionBuildStatus& OutStatus,
+		std::string& OutKey,
+		std::string& OutDiagnostic,
+		uint64& OutPayloadBytes,
+		std::string& OutError) const -> bool
+	{
+		OutSimple = {};
+		OutComplex = {};
+		OutKey.clear();
+		OutDiagnostic.clear();
+		OutPayloadBytes = 0;
+		if (Mode == EBodySetupCollisionSourceMode::None)
+		{
+			OutStatus = EBodySetupCollisionBuildStatus::None;
+			OutError.clear();
+			return true;
+		}
+		if (SourceRenderData.LODResources.empty())
+		{
+			OutError = "Static mesh has no LOD 0 collision source.";
+			return false;
+		}
+		const FStaticMeshLODResources& LOD = SourceRenderData.LODResources.front();
+		const auto& Positions = LOD.VertexBuffers.PositionVertexBuffer.GetPositions();
+		const auto& Indices = LOD.IndexBuffer.GetIndices();
+		if (Positions.empty() || Indices.empty() || Indices.size() % 3 != 0)
+		{
+			OutError = "Static mesh LOD 0 collision source is empty or malformed.";
+			return false;
+		}
+		const FXxHash128 GeometryHash = BuildStaticMeshCollisionGeometryHash(Positions, Indices);
+		const bool bHasSourceIdentity = IsCanonicalStaticMeshHash(SourceImportData.SourceContentHash);
+		const FXxHash128 SourceHash = bHasSourceIdentity
+			? FXxHash128::FromString(SourceImportData.SourceContentHash) : GeometryHash;
+		const std::string ImporterId = SourceImportData.ImporterId.empty()
+			? "CanonicalLOD0" : SourceImportData.ImporterId;
+		const uint32 ImporterVersion = SourceImportData.ImporterVersion == 0
+			? 1 : SourceImportData.ImporterVersion;
+		FStaticMeshImportSettings Settings = SourceImportData.ImportSettings;
+		if (!Settings.IsValid()) Settings = FStaticMeshImportSettings::MakeDurin();
+		OutKey = BuildStaticMeshCollisionDerivedDataKey({
+			.SourceContentHash = SourceHash,
+			.GeometryHash = GeometryHash,
+			.ImporterId = ImporterId,
+			.ImporterVersion = ImporterVersion,
+			.ImportSettings = Settings,
+			.SourceMode = Mode,
+			.QueryPolicy = Policy,
+			.WeldToleranceBits = 0,
+			.TargetPlatform = EStaticMeshTargetPlatform::Win64});
+
+		std::vector<uint8> CachedBytes;
+		const Asset::FDerivedDataObjectReadResult Read =
+			GetStaticMeshCollisionObjectStore().Read(OutKey, CachedBytes);
+		if (Read)
+		{
+			FStaticMeshCollisionPayloadData Payload;
+			const FPayloadDecodeResult Decode = DecodeStaticMeshCollisionPayload(
+				CachedBytes, EStaticMeshTargetPlatform::Win64, Payload);
+			FCollisionGeometryRef Geometry;
+			Payload.QueryPolicy = Policy;
+			if (Decode && Payload.SourceMode == Mode
+				&& MakeStaticMeshCollisionGeometry(Payload, Geometry, OutError))
+			{
+				if (Mode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0) OutSimple = Geometry;
+				else OutComplex = Geometry;
+				OutStatus = EBodySetupCollisionBuildStatus::CacheHit;
+				OutPayloadBytes = CachedBytes.size();
+				OutDiagnostic = std::format("Static-mesh collision DDC hit for key {}.", OutKey);
+				OutError.clear();
+				return true;
+			}
+		}
+
+		std::vector<FVector3> BuildPositions;
+		BuildPositions.reserve(Positions.size());
+		for (const FVector3f& Position : Positions) BuildPositions.emplace_back(Position);
+		FCollisionGeometryBuildDiagnostics BuildFacts;
+		FCollisionGeometryRef Geometry = Mode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0
+			? FCollisionGeometryRef::BuildConvexHull(BuildPositions, &BuildFacts)
+			: FCollisionGeometryRef::BuildTriangleMesh(BuildPositions, Indices, &BuildFacts);
+		if (!Geometry)
+		{
+			OutError = std::format(
+				"Static-mesh collision build failed with status {}.", static_cast<uint32>(BuildFacts.Status));
+			return false;
+		}
+		FStaticMeshCollisionPayloadData Payload;
+		std::vector<uint8> Bytes;
+		if (!MakeStaticMeshCollisionPayloadData(Geometry, Policy, Payload, OutError)
+			|| !EncodeStaticMeshCollisionPayload(
+				Payload, EStaticMeshTargetPlatform::Win64, Bytes, OutError)
+			|| !GetStaticMeshCollisionObjectStore().Write(OutKey, Bytes, &OutError)) return false;
+		if (Mode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0) OutSimple = Geometry;
+		else OutComplex = Geometry;
+		OutStatus = EBodySetupCollisionBuildStatus::Rebuilt;
+		OutPayloadBytes = Bytes.size();
+		OutDiagnostic = std::format(
+			"Rebuilt static-mesh collision key {} ({} triangles, {} bytes).",
+			OutKey, BuildFacts.RetainedTriangles, Geometry.GetRetainedBytes());
+		OutError.clear();
+		return true;
+	}
+
+	auto DStaticMesh::SetCollisionSourceMode(
+		EBodySetupCollisionSourceMode Mode,
+		std::string& OutError) -> bool
+	{
+		if (Mode != EBodySetupCollisionSourceMode::None
+			&& Mode != EBodySetupCollisionSourceMode::ConvexHullFromLOD0
+			&& Mode != EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
+		{
+			OutError = "Static-mesh collision source mode is invalid.";
+			return false;
+		}
+		if (Mode == EBodySetupCollisionSourceMode::None)
+		{
+			if (!BodySetup) { OutError.clear(); return true; }
+			FStaticMeshRenderStateRecreateContext RecreateContext(this);
+			if (!BodySetup->SetCollisionSourceMode(Mode)) return false;
+			BodySetup->ClearCollisionGeometry(EBodySetupCollisionBuildStatus::None, {});
+			OutError.clear();
+			return true;
+		}
+		if (!RenderData)
+		{
+			OutError = "Static-mesh collision authoring requires published CPU render data.";
+			return false;
+		}
+		const EBodySetupCollisionQueryPolicy Policy = BodySetup
+			? BodySetup->GetCollisionQueryPolicy()
+			: EBodySetupCollisionQueryPolicy::SimpleAndComplex;
+		FCollisionGeometryRef Simple;
+		FCollisionGeometryRef Complex;
+		EBodySetupCollisionBuildStatus Status;
+		std::string Key;
+		std::string Diagnostic;
+		uint64 PayloadBytes = 0;
+		if (!BuildCollisionCandidate(*RenderData, Mode, Policy, Simple, Complex,
+			Status, Key, Diagnostic, PayloadBytes, OutError)) return false;
+		DBodySetup* Setup = BodySetup.Get();
+		if (!Setup)
+		{
+			Setup = NewObject<DBodySetup>(this, "BodySetup", GetConstructionPurpose());
+			if (!Setup) { OutError = "Static mesh could not allocate BodySetup."; return false; }
+			BodySetup = Setup;
+		}
+		FStaticMeshRenderStateRecreateContext RecreateContext(this);
+		if (!Setup->SetCollisionSourceMode(Mode)
+			|| !Setup->PublishCollisionGeometry(Simple, Complex, Status,
+				std::move(Key), std::move(Diagnostic), PayloadBytes))
+		{
+			OutError = "Static mesh could not publish collision state.";
+			return false;
+		}
+		OutError.clear();
+		return true;
+	}
+
+	auto DStaticMesh::SetCollisionQueryPolicy(
+		EBodySetupCollisionQueryPolicy Policy,
+		std::string& OutError) -> bool
+	{
+		if (!BodySetup || BodySetup->GetCollisionSourceMode() == EBodySetupCollisionSourceMode::None)
+		{
+			if (!BodySetup)
+			{
+				BodySetup = NewObject<DBodySetup>(this, "BodySetup", GetConstructionPurpose());
+				if (!BodySetup) { OutError = "Static mesh could not allocate BodySetup."; return false; }
+			}
+			const bool bChanged = BodySetup->SetCollisionQueryPolicy(Policy);
+			OutError = bChanged ? std::string{} : "Static-mesh collision query policy is invalid.";
+			return bChanged;
+		}
+		if (!RenderData) { OutError = "Static mesh has no CPU data for collision policy rebuild."; return false; }
+		const EBodySetupCollisionSourceMode Mode = BodySetup->GetCollisionSourceMode();
+		FCollisionGeometryRef Simple;
+		FCollisionGeometryRef Complex;
+		EBodySetupCollisionBuildStatus Status;
+		std::string Key;
+		std::string Diagnostic;
+		uint64 PayloadBytes = 0;
+		if (!BuildCollisionCandidate(*RenderData, Mode, Policy, Simple, Complex,
+			Status, Key, Diagnostic, PayloadBytes, OutError)) return false;
+		FStaticMeshRenderStateRecreateContext RecreateContext(this);
+		if (!BodySetup->SetCollisionQueryPolicy(Policy)
+			|| !BodySetup->PublishCollisionGeometry(Simple, Complex, Status,
+				std::move(Key), std::move(Diagnostic), PayloadBytes))
+		{
+			OutError = "Static mesh could not publish collision policy state.";
+			return false;
+		}
+		OutError.clear();
+		return true;
+	}
+
+	auto DStaticMesh::RebuildCollision(std::string& OutError) -> bool
+	{
+		if (!BodySetup || BodySetup->GetCollisionSourceMode() == EBodySetupCollisionSourceMode::None)
+		{
+			OutError.clear();
+			return true;
+		}
+		return SetCollisionSourceMode(BodySetup->GetCollisionSourceMode(), OutError);
+	}
+
 	auto DStaticMesh::EnsureQualifiedBoxBodySetup() -> DBodySetup*
 	{
 		if (BodySetup) return BodySetup.Get();
@@ -753,6 +993,48 @@ namespace Durin
 		if (Size.x <= 0.0 || Size.y <= 0.0 || Size.z <= 0.0)
 			return std::nullopt;
 		return Bounds;
+	}
+
+	auto DStaticMesh::InspectCollision() const -> FStaticMeshCollisionInspection
+	{
+		FStaticMeshCollisionInspection Result{};
+		Result.Mode = EBodySetupCollisionSourceMode::None;
+		Result.Policy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
+		Result.BuildStatus = EBodySetupCollisionBuildStatus::None;
+		Result.GeometryKind = ECollisionGeometryKind::Primitive;
+		Result.BuilderVersion = StaticMeshCollisionBuilderVersion;
+		Result.SchemaVersion = StaticMeshCollisionPayloadSchemaVersion;
+		if (!BodySetup) return Result;
+		Result.Mode = BodySetup->GetCollisionSourceMode();
+		Result.Policy = BodySetup->GetCollisionQueryPolicy();
+		Result.BuildStatus = BodySetup->GetCollisionBuildStatus();
+		Result.BuildRevision = BodySetup->GetCollisionBuildRevision();
+		Result.PayloadBytes = BodySetup->GetCollisionPayloadBytes();
+		Result.CacheKey = BodySetup->GetCollisionDerivedDataKey();
+		Result.Diagnostic = BodySetup->GetCollisionDiagnostic();
+		if (RenderData && !RenderData->LODResources.empty())
+			Result.SourceTriangles = static_cast<uint32>(
+				RenderData->LODResources.front().IndexBuffer.GetIndices().size() / 3);
+		FCollisionGeometryRef Geometry;
+		if (!BodySetup->BuildSimpleGeometry(Geometry))
+			BodySetup->BuildComplexGeometry(Geometry);
+		if (!Geometry)
+		{
+			Result.bRevisionCoherent = Result.Mode == EBodySetupCollisionSourceMode::None;
+			return Result;
+		}
+		Result.GeometryKind = Geometry.GetKind();
+		Result.bHasGeometry = true;
+		Result.RetainedTriangles = Geometry.GetTriangleCount();
+		Result.RemovedTriangles = Result.SourceTriangles >= Result.RetainedTriangles
+			? Result.SourceTriangles - Result.RetainedTriangles : 0;
+		Result.Nodes = Geometry.GetNodeCount();
+		Result.RuntimeBytes = Geometry.GetRetainedBytes();
+		FVector3 Minimum;
+		FVector3 Maximum;
+		if (Geometry.GetLocalBounds(Minimum, Maximum)) Result.Bounds = FBox(Minimum, Maximum);
+		Result.bRevisionCoherent = Result.BuildRevision != 0;
+		return Result;
 	}
 
 	auto DStaticMesh::LoadRenderResourceState() const
@@ -925,7 +1207,8 @@ namespace Durin
 	auto DStaticMesh::CommitRenderDataCandidate(
 		std::unique_ptr<FStaticMeshRenderData> InRenderData,
 		std::vector<FStaticMeshMaterialSlotDefinition>* InMaterialSlots,
-		std::string& OutError) -> bool
+		std::string& OutError,
+		bool bBuildAuthoredCollision) -> bool
 	{
 		CheckStaticMeshUpdateThread();
 		if (InRenderData == nullptr)
@@ -943,6 +1226,25 @@ namespace Durin
 		for (FStaticMeshLODResources& LOD : InRenderData->LODResources)
 			LOD.RayQueryAcceleration = BuildStaticMeshRayQueryAcceleration(LOD);
 #endif
+		FCollisionGeometryRef CollisionSimple;
+		FCollisionGeometryRef CollisionComplex;
+		EBodySetupCollisionBuildStatus CollisionStatus = EBodySetupCollisionBuildStatus::None;
+		std::string CollisionKey;
+		std::string CollisionDiagnostic;
+		uint64 CollisionPayloadBytes = 0;
+		const bool bHasAuthoredCollision = bBuildAuthoredCollision && BodySetup
+			&& BodySetup->GetCollisionSourceMode() != EBodySetupCollisionSourceMode::None;
+		if (bHasAuthoredCollision && !BuildCollisionCandidate(
+			*InRenderData,
+			BodySetup->GetCollisionSourceMode(),
+			BodySetup->GetCollisionQueryPolicy(),
+			CollisionSimple,
+			CollisionComplex,
+			CollisionStatus,
+			CollisionKey,
+			CollisionDiagnostic,
+			CollisionPayloadBytes,
+			OutError)) return false;
 
 #if DURIN_BUILD_DEBUG
 		const FName DebugOwner = GetPackage()
@@ -961,6 +1263,14 @@ namespace Durin
 			}
 			RenderData = std::move(InRenderData);
 			RefreshQualifiedBoxBodySetup();
+			if (bHasAuthoredCollision)
+			{
+				const bool bPublished = BodySetup->PublishCollisionGeometry(
+					CollisionSimple, CollisionComplex, CollisionStatus,
+					std::move(CollisionKey), std::move(CollisionDiagnostic),
+					CollisionPayloadBytes);
+				check(bPublished);
+			}
 			PublishRenderResourceState(
 				EStaticMeshRenderResourceState::Uninitialized);
 			OutError.clear();
@@ -988,6 +1298,14 @@ namespace Durin
 			}
 			RenderData = std::move(InRenderData);
 			RefreshQualifiedBoxBodySetup();
+			if (bHasAuthoredCollision)
+			{
+				const bool bPublished = BodySetup->PublishCollisionGeometry(
+					CollisionSimple, CollisionComplex, CollisionStatus,
+					std::move(CollisionKey), std::move(CollisionDiagnostic),
+					CollisionPayloadBytes);
+				check(bPublished);
+			}
 			PublishRenderResourceState(CandidateState);
 			RetireStaticMeshRenderData(OldRenderData);
 		}
@@ -1529,6 +1847,19 @@ namespace Durin
 	{
 		MaterialSlots = Previous.MaterialSlots;
 		SourceImportData = Previous.SourceImportData;
+		if (Previous.BodySetup
+			&& Previous.BodySetup->GetCollisionSourceMode() != EBodySetupCollisionSourceMode::None)
+		{
+			if (!BodySetup)
+				BodySetup = NewObject<DBodySetup>(this, "BodySetup", GetConstructionPurpose());
+			if (BodySetup)
+			{
+				BodySetup->SetCollisionQueryPolicy(
+					Previous.BodySetup->GetCollisionQueryPolicy());
+				BodySetup->SetCollisionSourceMode(
+					Previous.BodySetup->GetCollisionSourceMode());
+			}
+		}
 	}
 
 	auto DStaticMesh::SetImportedDefaultMaterial(
@@ -1628,6 +1959,8 @@ namespace Durin
 			std::swap(NormalizedSize, Other.NormalizedSize);
 			std::swap(MaterialSlots, Other.MaterialSlots);
 			std::swap(CookedPayload, Other.CookedPayload);
+			if (BodySetup && Other.BodySetup)
+				BodySetup->ExchangeCollisionState(*Other.BodySetup);
 			std::swap(
 				DerivedDataDiagnostic,
 				Other.DerivedDataDiagnostic);
@@ -1702,6 +2035,8 @@ namespace Durin
 		std::swap(Target->NormalizedSize, Candidate->NormalizedSize);
 		std::swap(Target->MaterialSlots, Candidate->MaterialSlots);
 		std::swap(Target->CookedPayload, Candidate->CookedPayload);
+		if (Target->BodySetup && Candidate->BodySetup)
+			Target->BodySetup->ExchangeCollisionState(*Candidate->BodySetup);
 		std::swap(Target->DerivedDataDiagnostic, Candidate->DerivedDataDiagnostic);
 		std::swap(Target->RenderData, Candidate->RenderData);
 		Target->RefreshQualifiedBoxBodySetup();
@@ -1936,6 +2271,20 @@ namespace Durin
 		{
 			return FailCooked("required DMSH descriptor is missing or incompatible.");
 		}
+		const bool bRequiresCollision = BodySetup
+			&& BodySetup->GetCollisionSourceMode() != EBodySetupCollisionSourceMode::None;
+		const Asset::FCookedPayloadDescriptor* CollisionDescriptor = bRequiresCollision
+			? &BodySetup->GetCookedCollisionPayloadDescriptor() : nullptr;
+		if (bRequiresCollision
+			&& (CollisionDescriptor->PayloadId != StaticMeshCollisionCookedPayloadId
+				|| CollisionDescriptor->LocationKind != static_cast<uint32>(Asset::ECookedPayloadLocationKind::PackageCompanion)
+				|| CollisionDescriptor->PayloadSchemaVersion != StaticMeshCollisionPayloadSchemaVersion
+				|| CollisionDescriptor->TargetPlatform != static_cast<uint32>(Asset::ECookTargetPlatform::Win64)
+				|| CollisionDescriptor->TargetProfile != static_cast<uint32>(Asset::ECookTargetProfile::Game)
+				|| CollisionDescriptor->CompressionMethod != static_cast<uint32>(Asset::ECookedPayloadCompression::None)))
+		{
+			return FailCooked("required DCOL descriptor is missing or incompatible.");
+		}
 
 		const Asset::FPackageLoadContext& LoadContext = Asset::GetPackageLoadContext();
 		std::filesystem::path PackagePath;
@@ -1962,6 +2311,29 @@ namespace Durin
 		std::span<const uint8> Bytes;
 		if (!Asset::ResolveCookedPayload(Container, CookedPayload, Bytes, &OutError))
 			return FailCooked(OutError);
+		FCollisionGeometryRef CookedSimple;
+		FCollisionGeometryRef CookedComplex;
+		if (bRequiresCollision)
+		{
+			std::span<const uint8> CollisionBytes;
+			if (!Asset::ResolveCookedPayload(
+				Container, *CollisionDescriptor, CollisionBytes, &OutError))
+				return FailCooked(OutError);
+			FStaticMeshCollisionPayloadData CollisionPayload;
+			const FPayloadDecodeResult CollisionDecode = DecodeStaticMeshCollisionPayload(
+				CollisionBytes, EStaticMeshTargetPlatform::Win64, CollisionPayload);
+			if (!CollisionDecode) return FailCooked(CollisionDecode.Message);
+			if (CollisionPayload.SourceMode != BodySetup->GetCollisionSourceMode()
+				|| CollisionPayload.QueryPolicy != BodySetup->GetCollisionQueryPolicy())
+				return FailCooked("DCOL policy does not match its cooked BodySetup metadata.");
+			FCollisionGeometryRef Geometry;
+			if (!MakeStaticMeshCollisionGeometry(CollisionPayload, Geometry, OutError))
+				return FailCooked(OutError);
+			if (CollisionPayload.SourceMode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0)
+				CookedSimple = Geometry;
+			else
+				CookedComplex = Geometry;
+		}
 
 		FStaticMeshPayloadData Payload;
 		std::unique_ptr<FStaticMeshRenderData> CandidateRenderData;
@@ -1977,9 +2349,18 @@ namespace Durin
 		}
 
 		if (!CommitRenderDataCandidate(
-			std::move(CandidateRenderData), nullptr, OutError))
+			std::move(CandidateRenderData), nullptr, OutError, false))
 		{
 			return FailCooked(OutError);
+		}
+		if (bRequiresCollision)
+		{
+			const bool bPublished = BodySetup->PublishCollisionGeometry(
+				CookedSimple, CookedComplex,
+				EBodySetupCollisionBuildStatus::CookedLoaded,
+				{}, "Loaded immutable collision from the cooked DCOL companion payload.",
+				CollisionDescriptor->UncompressedSize);
+			check(bPublished);
 		}
 		DerivedDataDiagnostic.Status = EStaticMeshDerivedDataStatus::CookedLoaded;
 		DerivedDataDiagnostic.Message = std::format(
@@ -2026,25 +2407,86 @@ namespace Durin
 			.Compression = Asset::ECookedPayloadCompression::None,
 			.Alignment = StaticMeshPayloadAlignment,
 			.Bytes = std::move(PayloadBytes)};
+		std::vector<Asset::FCookedBulkPayload> BulkPayloads;
+		BulkPayloads.emplace_back(std::move(BulkPayload));
+		const bool bHasAuthoredCollision = BodySetup
+			&& BodySetup->GetCollisionSourceMode() != EBodySetupCollisionSourceMode::None;
+		if (bHasAuthoredCollision)
+		{
+			FCollisionGeometryRef CollisionGeometry;
+			bool bHasGeometry = BodySetup->GetCollisionSourceMode()
+				== EBodySetupCollisionSourceMode::ConvexHullFromLOD0
+				? BodySetup->BuildSimpleGeometry(CollisionGeometry)
+				: BodySetup->BuildComplexGeometry(CollisionGeometry);
+			if (!bHasGeometry && !RebuildCollision(OutError))
+			{
+				OutError = std::format("Failed to cook static-mesh collision '{}': {}", GetObjectPath(), OutError);
+				return false;
+			}
+			if (!bHasGeometry)
+			{
+				bHasGeometry = BodySetup->GetCollisionSourceMode()
+					== EBodySetupCollisionSourceMode::ConvexHullFromLOD0
+					? BodySetup->BuildSimpleGeometry(CollisionGeometry)
+					: BodySetup->BuildComplexGeometry(CollisionGeometry);
+				if (!bHasGeometry)
+				{
+					OutError = "Rebuilt collision did not publish its required geometry.";
+					return false;
+				}
+			}
+			FStaticMeshCollisionPayloadData CollisionPayload;
+			std::vector<uint8> CollisionBytes;
+			if (!MakeStaticMeshCollisionPayloadData(
+				CollisionGeometry, BodySetup->GetCollisionQueryPolicy(), CollisionPayload, OutError)
+				|| !EncodeStaticMeshCollisionPayload(
+					CollisionPayload, EStaticMeshTargetPlatform::Win64, CollisionBytes, OutError))
+			{
+				OutError = std::format("Failed to encode static-mesh collision '{}': {}", GetObjectPath(), OutError);
+				return false;
+			}
+			BulkPayloads.push_back({
+				.PayloadId = StaticMeshCollisionCookedPayloadId,
+				.Flags = 1,
+				.PayloadSchemaVersion = StaticMeshCollisionPayloadSchemaVersion,
+				.Compression = Asset::ECookedPayloadCompression::None,
+				.Alignment = StaticMeshCollisionPayloadAlignment,
+				.Bytes = std::move(CollisionBytes)});
+		}
 
 		return Context.AddPackage(
 			std::string(VirtualPackagePath),
-			{std::move(BulkPayload)},
+			std::move(BulkPayloads),
 			[this, bRetainDiagnosticSourceMetadata](
 				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
 				std::vector<uint8>& OutPackageBytes,
 				std::string* Error) {
-				if (Descriptors.size() != 1
-					|| Descriptors.front().PayloadId != StaticMeshPrimaryCookedPayloadId)
+				const auto RenderDescriptor = std::ranges::find(
+					Descriptors, StaticMeshPrimaryCookedPayloadId,
+					&Asset::FCookedPayloadDescriptor::PayloadId);
+				const auto CollisionDescriptor = std::ranges::find(
+					Descriptors, StaticMeshCollisionCookedPayloadId,
+					&Asset::FCookedPayloadDescriptor::PayloadId);
+				const bool bRequiresCollision = BodySetup
+					&& BodySetup->GetCollisionSourceMode() != EBodySetupCollisionSourceMode::None;
+				if (RenderDescriptor == Descriptors.end()
+					|| (bRequiresCollision != (CollisionDescriptor != Descriptors.end()))
+					|| Descriptors.size() != (bRequiresCollision ? 2u : 1u))
 				{
-					if (Error) *Error = "Static-mesh cook did not produce its required descriptor.";
+					if (Error) *Error = "Static-mesh cook did not produce its exact required descriptor set.";
 					return false;
 				}
 
 				const FStaticMeshSourceImportData SavedSourceImportData = SourceImportData;
 				const std::vector<FStaticMeshMaterialSlotDefinition> SavedMaterialSlots = MaterialSlots;
 				const Asset::FCookedPayloadDescriptor SavedCookedPayload = CookedPayload;
-				CookedPayload = Descriptors.front();
+				const Asset::FCookedPayloadDescriptor SavedCollisionPayload = BodySetup
+					? BodySetup->GetCookedCollisionPayloadDescriptor()
+					: Asset::FCookedPayloadDescriptor{};
+				CookedPayload = *RenderDescriptor;
+				if (BodySetup)
+					BodySetup->SetCookedCollisionPayloadDescriptor(
+						bRequiresCollision ? *CollisionDescriptor : Asset::FCookedPayloadDescriptor{});
 				if (!bRetainDiagnosticSourceMetadata)
 				{
 					SourceImportData = {};
@@ -2056,19 +2498,24 @@ namespace Durin
 				}
 
 				Asset::FAssetPackageSerializationOptions SerializationOptions;
-				if (!bRetainDiagnosticSourceMetadata)
-				{
-					SerializationOptions.PropertyFilter = [this](const DObject* Object, const FProperty* Property) {
-					if (Object != this) return true;
-					const FName Name = Property->NamePrivate;
-					return Name != FName("SourceImportData");
-				};
-				}
+				SerializationOptions.PropertyFilter = [this, bRetainDiagnosticSourceMetadata](
+					const DObject* Object, const FProperty* Property) {
+						const FName Name = Property->NamePrivate;
+						if (Object == this)
+							return bRetainDiagnosticSourceMetadata
+								|| Name != FName("SourceImportData");
+						if (Object == BodySetup)
+							return Name != FName("CollisionBuildRevision")
+								&& Name != FName("CollisionBuildStatus");
+						return true;
+					};
 				const Asset::FAssetResult Result = Asset::SerializeAssetPackageBytes(
 					GetPackage(), OutPackageBytes, SerializationOptions);
 				SourceImportData = SavedSourceImportData;
 				MaterialSlots = SavedMaterialSlots;
 				CookedPayload = SavedCookedPayload;
+				if (BodySetup)
+					BodySetup->SetCookedCollisionPayloadDescriptor(SavedCollisionPayload);
 				if (!Result)
 				{
 					if (Error) *Error = Result.Message;

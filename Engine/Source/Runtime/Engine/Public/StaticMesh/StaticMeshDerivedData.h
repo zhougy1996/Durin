@@ -3,6 +3,7 @@
 #include "EngineAPI.h"
 #include "Hash/XxHash.h"
 #include "PayloadDecodeResult.h"
+#include "Physics/BodySetup.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 
@@ -24,6 +25,17 @@ namespace Durin
 	inline constexpr uint64 MaximumStaticMeshPayloadBytes = 8ull * 1024ull * 1024ull * 1024ull;
 	inline const FGuid StaticMeshPrimaryCookedPayloadId{
 		0x6d9f79b5, 0x7b684d91, 0xa42c2a60, 0x63fcab16};
+	inline constexpr uint32 StaticMeshCollisionPayloadMagic = 0x4c4f4344; // DCOL
+	inline constexpr uint32 StaticMeshCollisionPayloadSchemaVersion = 1;
+	inline constexpr uint32 StaticMeshCollisionBuilderVersion = 1;
+	inline constexpr uint32 StaticMeshCollisionKeySchemaVersion = 1;
+	inline constexpr uint32 StaticMeshCollisionPayloadAlignment = 16;
+	inline constexpr uint32 StaticMeshCollisionPayloadHeaderSize = 64;
+	inline constexpr uint32 StaticMeshCollisionPayloadChunkEntrySize = 32;
+	inline constexpr uint32 MaximumStaticMeshCollisionPayloadChunks = 8;
+	inline constexpr uint64 MaximumStaticMeshCollisionPayloadBytes = 256ull * 1024ull * 1024ull;
+	inline const FGuid StaticMeshCollisionCookedPayloadId{
+		0x3c10f7d1, 0x92fa4e20, 0xb544ad79, 0x1d788064};
 
 	// Identifies a disk-compatible static-mesh build target independently of host platform enums.
 	enum class EStaticMeshTargetPlatform : uint32
@@ -97,6 +109,32 @@ namespace Durin
 		EStaticMeshTargetPlatform TargetPlatform = EStaticMeshTargetPlatform::Unknown;
 	};
 
+	struct FStaticMeshCollisionDerivedDataKeyInput
+	{
+		FXxHash128 SourceContentHash;
+		FXxHash128 GeometryHash;
+		std::string ImporterId;
+		uint32 ImporterVersion = 0;
+		FStaticMeshImportSettings ImportSettings;
+		EBodySetupCollisionSourceMode SourceMode = EBodySetupCollisionSourceMode::None;
+		EBodySetupCollisionQueryPolicy QueryPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
+		uint32 WeldToleranceBits = 0;
+		uint32 BuilderVersion = StaticMeshCollisionBuilderVersion;
+		uint32 PayloadSchemaVersion = StaticMeshCollisionPayloadSchemaVersion;
+		EStaticMeshTargetPlatform TargetPlatform = EStaticMeshTargetPlatform::Unknown;
+	};
+
+	struct FStaticMeshCollisionPayloadData
+	{
+		EBodySetupCollisionSourceMode SourceMode = EBodySetupCollisionSourceMode::None;
+		EBodySetupCollisionQueryPolicy QueryPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
+		std::vector<FVector3f> Positions;
+		std::vector<uint32> Indices;
+		std::vector<uint32> SourceOrdinals;
+		std::vector<FCollisionGeometryNode> Nodes;
+		std::vector<uint32> LeafTriangles;
+	};
+
 	// Produces the canonical bytes hashed for a static-mesh DDC key.
 	ENGINE_API auto BuildStaticMeshDerivedDataKeyBytes(
 		const FStaticMeshDerivedDataKeyInput& Input) -> std::vector<uint8>;
@@ -104,6 +142,28 @@ namespace Durin
 	// Returns the lowercase 32-hex-character XXH3-128 key for the canonical input bytes.
 	ENGINE_API auto BuildStaticMeshDerivedDataKey(
 		const FStaticMeshDerivedDataKeyInput& Input) -> std::string;
+	ENGINE_API auto BuildStaticMeshCollisionDerivedDataKeyBytes(
+		const FStaticMeshCollisionDerivedDataKeyInput& Input) -> std::vector<uint8>;
+	ENGINE_API auto BuildStaticMeshCollisionDerivedDataKey(
+		const FStaticMeshCollisionDerivedDataKeyInput& Input) -> std::string;
+	ENGINE_API auto EncodeStaticMeshCollisionPayload(
+		const FStaticMeshCollisionPayloadData& Payload,
+		EStaticMeshTargetPlatform TargetPlatform,
+		std::vector<uint8>& OutBytes,
+		std::string& OutError) -> bool;
+	ENGINE_API auto DecodeStaticMeshCollisionPayload(
+		std::span<const uint8> Bytes,
+		EStaticMeshTargetPlatform ExpectedPlatform,
+		FStaticMeshCollisionPayloadData& OutPayload) -> FPayloadDecodeResult;
+	ENGINE_API auto MakeStaticMeshCollisionPayloadData(
+		const FCollisionGeometryRef& Geometry,
+		EBodySetupCollisionQueryPolicy QueryPolicy,
+		FStaticMeshCollisionPayloadData& OutPayload,
+		std::string& OutError) -> bool;
+	ENGINE_API auto MakeStaticMeshCollisionGeometry(
+		const FStaticMeshCollisionPayloadData& Payload,
+		FCollisionGeometryRef& OutGeometry,
+		std::string& OutError) -> bool;
 
 	// Encodes a validated logical mesh into deterministic DMSH schema-version-four bytes.
 	ENGINE_API auto EncodeStaticMeshPayload(

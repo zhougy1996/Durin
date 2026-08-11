@@ -1,8 +1,8 @@
 # StaticMesh Inspector
 
 The StaticMesh Inspector provides a read-only view of a StaticMesh asset. Use it
-to inspect the rendered mesh, its bounds, material slots, and LOD 0 statistics
-without changing the asset.
+to inspect rendered data and independently cooked collision state without
+changing the asset.
 
 ## Open And Manage Mesh Documents
 
@@ -35,9 +35,20 @@ viewport.
 
 The details pane reports the asset path, render-resource state, LOD count,
 selected LOD, vertex, index, triangle, section and material-slot counts, plus
-local bounds. The first inspector exposes reliable existing render data only;
-it does not edit topology, collision, sockets, LODs, import settings, or
-material assignments.
+local bounds.
+
+The **Collision** section reports the authored source mode, Simple/Complex query
+policy, build/load status, source and retained triangle counts, removed
+degenerates, BVH node/depth and local bounds, derived/cooked payload bytes,
+runtime retained bytes, builder/schema/platform versions, BodySetup revision,
+derived-data key, and the latest diagnostic. These facts describe an immutable
+collision payload that does not depend on preview or render-resource readiness.
+`None` means collision was not explicitly authored; a failure status includes
+the reason instead of showing stale facts.
+
+The inspector does not edit topology, collision, sockets, LODs, import settings,
+or material assignments. Author or change collision through the asset/import
+workflow, then reimport or rebuild the asset and inspect the new revision here.
 
 ## Asset Changes And Unavailable Previews
 
@@ -50,7 +61,9 @@ thumbnail cannot overwrite the new result.
 If a package is incompatible, the inspector leaves the current document active
 and directs you to **Tools > Asset Compatibility Audit** for details. Missing
 render resources, empty geometry, invalid bounds, or failed resource builds are
-reported as unavailable rather than displaying stale geometry.
+reported as unavailable rather than displaying stale geometry. Collision facts
+remain inspectable when render initialization is absent, provided the asset's
+collision state itself is valid.
 
 ## Troubleshooting
 

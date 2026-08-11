@@ -60,6 +60,12 @@ namespace Durin
 		return IsValidPhysicsTransform(OutWorldTransform);
 	}
 
+	auto DStaticMeshComponent::GetCollisionStateRevision() const -> uint64
+	{
+		const DBodySetup* Setup = GetBodySetup();
+		return Setup ? Setup->GetRevision() : 0;
+	}
+
 	auto DStaticMeshComponent::SetMaterial(DMaterialInterface* InMaterial) -> bool
 	{
 		return SetMaterial(0, InMaterial);

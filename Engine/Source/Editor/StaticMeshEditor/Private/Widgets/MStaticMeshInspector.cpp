@@ -7,6 +7,7 @@
 #include "Editor/WorkspaceUI.h"
 #include "Materials/MaterialInterface.h"
 #include "MonaImGui.h"
+#include "Physics/BodySetup.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "Workspace/StaticMeshEditorWorkspace.h"
@@ -45,6 +46,43 @@ namespace Durin::Editor::StaticMesh
 		auto FormatVector(const FVector3& Value) -> std::string
 		{
 			return std::format("({:.3f}, {:.3f}, {:.3f})", Value.x, Value.y, Value.z);
+		}
+
+		auto CollisionModeLabel(EBodySetupCollisionSourceMode Mode) -> const char*
+		{
+			switch (Mode)
+			{
+			case EBodySetupCollisionSourceMode::None: return "None";
+			case EBodySetupCollisionSourceMode::ConvexHullFromLOD0: return "Convex hull from LOD 0";
+			case EBodySetupCollisionSourceMode::TriangleMeshFromLOD0: return "Triangle mesh from LOD 0";
+			}
+			return "Invalid";
+		}
+
+		auto CollisionPolicyLabel(EBodySetupCollisionQueryPolicy Policy) -> const char*
+		{
+			switch (Policy)
+			{
+			case EBodySetupCollisionQueryPolicy::SimpleOnly: return "Simple only";
+			case EBodySetupCollisionQueryPolicy::ComplexOnly: return "Complex only";
+			case EBodySetupCollisionQueryPolicy::SimpleAndComplex: return "Simple and complex";
+			}
+			return "Invalid";
+		}
+
+		auto CollisionStatusLabel(EBodySetupCollisionBuildStatus Status) -> const char*
+		{
+			switch (Status)
+			{
+			case EBodySetupCollisionBuildStatus::None: return "None";
+			case EBodySetupCollisionBuildStatus::Ready: return "Ready";
+			case EBodySetupCollisionBuildStatus::CacheHit: return "Cache hit";
+			case EBodySetupCollisionBuildStatus::Rebuilt: return "Rebuilt";
+			case EBodySetupCollisionBuildStatus::SourceUnavailable: return "Source unavailable";
+			case EBodySetupCollisionBuildStatus::Failed: return "Failed";
+			case EBodySetupCollisionBuildStatus::CookedLoaded: return "Cooked loaded";
+			}
+			return "Invalid";
 		}
 	}
 
@@ -259,6 +297,33 @@ namespace Durin::Editor::StaticMesh
 				DrawInfoRow("Sections", std::to_string(LOD.Sections.size()));
 				ImGui::EndTable();
 			}
+		}
+
+		ImGui::SeparatorText("Collision");
+		const FStaticMeshCollisionInspection Collision = Mesh
+			? Mesh->InspectCollision() : FStaticMeshCollisionInspection{};
+		if (ImGui::BeginTable("StaticMeshCollisionInfo", 2, ImGuiTableFlags_SizingStretchProp))
+		{
+			DrawInfoRow("Mode", CollisionModeLabel(Collision.Mode));
+			DrawInfoRow("Policy", CollisionPolicyLabel(Collision.Policy));
+			DrawInfoRow("Cache / Cook status", CollisionStatusLabel(Collision.BuildStatus));
+			DrawInfoRow("Source triangles", std::to_string(Collision.SourceTriangles));
+			DrawInfoRow("Retained triangles", std::to_string(Collision.RetainedTriangles));
+			DrawInfoRow("Removed triangles", std::to_string(Collision.RemovedTriangles));
+			DrawInfoRow("BVH nodes", std::to_string(Collision.Nodes));
+			DrawInfoRow("Payload bytes", std::to_string(Collision.PayloadBytes));
+			DrawInfoRow("Runtime bytes", std::to_string(Collision.RuntimeBytes));
+			DrawInfoRow("Builder / schema", std::format("{} / {}", Collision.BuilderVersion, Collision.SchemaVersion));
+			DrawInfoRow("Build revision", std::to_string(Collision.BuildRevision));
+			DrawInfoRow("Revision coherence", Collision.bRevisionCoherent ? "Coherent" : "Unavailable");
+			if (Collision.Bounds)
+			{
+				DrawInfoRow("Bounds center", FormatVector(Collision.Bounds->GetCenter()));
+				DrawInfoRow("Bounds extent", FormatVector(Collision.Bounds->GetExtent()));
+			}
+			DrawInfoRow("Cache key", Collision.CacheKey.empty() ? "None" : Collision.CacheKey);
+			DrawInfoRow("Last diagnostic", Collision.Diagnostic.empty() ? "None" : Collision.Diagnostic);
+			ImGui::EndTable();
 		}
 
 		ImGui::SeparatorText("Material Slots");
