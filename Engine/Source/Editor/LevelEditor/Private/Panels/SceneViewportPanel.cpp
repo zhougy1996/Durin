@@ -28,12 +28,24 @@
 #include "Widgets/MWindow.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
+#include "StaticMeshLevelAuthoring.h"
 
 namespace Durin
 {
 	namespace
 	{
 		auto Add(const ImVec2& A, const ImVec2& B) -> ImVec2 { return ImVec2(A.x + B.x, A.y + B.y); }
+
+		auto MakeUniqueActorName(DLevel& Level, FName Requested) -> FName
+		{
+			if (!Level.FindActorByName(Requested)) return Requested;
+			const std::string Base = Requested.ToString();
+			for (uint32 Suffix = 2;; ++Suffix)
+			{
+				FName Candidate(std::format("{}_{}", Base, Suffix));
+				if (!Level.FindActorByName(Candidate)) return Candidate;
+			}
+		}
 	} // namespace
 
 
@@ -175,12 +187,35 @@ namespace Durin
 							Context.SetError(Result.Message);
 						else if (DStaticMesh* StaticMesh = Cast<DStaticMesh>(Asset))
 						{
-							auto* StaticMeshActor = Context.Level->SpawnActor<AStaticMeshActor>(FName(AssetPath.GetAssetName()));
-							if (StaticMeshActor)
-							{
-								StaticMeshActor->GetStaticMeshComponent()->SetStaticMesh(StaticMesh);
-								Actor = StaticMeshActor;
-							}
+							FTransform PlacementTransform;
+							FSceneView View;
+							uint32 Width = 0;
+							uint32 Height = 0;
+							FLevelEditorViewportClient::ResolveViewportExtent({VpMax.x - VpMin.x, VpMax.y - VpMin.y}, Width, Height);
+							ViewportClient->BuildViewMatrices(Width, Height, View);
+							const ImVec2 Mouse = ImGui::GetMousePos();
+							FVector3 Origin, Direction;
+							if (SceneViewProjection::BuildViewportRay(View, {Mouse.x - VpMin.x, Mouse.y - VpMin.y}, Origin, Direction))
+								PlacementTransform.Translation = Origin + Direction * 5.0;
+
+							auto Request = FStaticMeshLevelAuthoringService::CaptureTarget(*Context.Level);
+							Request.bReadOnly = Context.bReadOnly;
+							Request.Description = "Place static mesh actor";
+							Request.Mutations.push_back({
+								.Kind = EStaticMeshLevelMutationKind::Create,
+								.TargetName = MakeUniqueActorName(*Context.Level, FName(AssetPath.GetAssetName())),
+								.Desired = {.StaticMesh = StaticMesh, .Transform = PlacementTransform},
+							});
+							const FStaticMeshLevelMutationPlan Plan = FStaticMeshLevelAuthoringService::Plan(Request);
+							const FStaticMeshLevelMutationResult ApplyResult = FStaticMeshLevelAuthoringService::Execute(Plan, {
+								.OpenLevel = Context.Level,
+								.Transactions = GEditor ? &GEditor->GetTransactionManager() : nullptr,
+								.bReadOnly = Context.bReadOnly,
+							});
+							if (!ApplyResult)
+								Context.SetError(ApplyResult.Diagnostic.Message);
+							else if (!ApplyResult.ResultActorNames.empty())
+								Actor = Context.Level->FindActorByName(ApplyResult.ResultActorNames.front());
 						}
 						else if (DSkeletalMesh* SkeletalMesh = Cast<DSkeletalMesh>(Asset))
 						{
@@ -208,9 +243,11 @@ namespace Durin
 							ViewportClient->BuildViewMatrices(Width, Height, View);
 							const ImVec2 Mouse = ImGui::GetMousePos();
 							FVector3 Origin, Direction;
-							if (SceneViewProjection::BuildViewportRay(View, {Mouse.x - VpMin.x, Mouse.y - VpMin.y}, Origin, Direction) && Actor->GetRootComponent())
+							if (!Actor->IsA<AStaticMeshActor>()
+								&& SceneViewProjection::BuildViewportRay(View, {Mouse.x - VpMin.x, Mouse.y - VpMin.y}, Origin, Direction)
+								&& Actor->GetRootComponent())
 								Actor->GetRootComponent()->SetWorldLocation(Origin + Direction * 5.0);
-							Context.InvalidatePackageSavedState(Actor->GetPackage());
+							if (!Actor->IsA<AStaticMeshActor>()) Context.InvalidatePackageSavedState(Actor->GetPackage());
 							Context.SelectActor(Actor);
 						}
 					}

@@ -190,6 +190,19 @@ durin_add_engine_functional_test(EditorHierarchyTests
 		${_durin_level_editor_private}/Panels/WorldOutlinerHierarchyModel.cpp
 )
 
+durin_add_engine_functional_test(LevelAuthoringTests
+	RUNTIME_STACK_RATIONALE "Exercises transaction-backed LevelEditor structural authoring."
+	SOURCES
+		Private/Editor/StaticMeshLevelAuthoringTests.cpp
+	PRIVATE_SOURCES
+		${_durin_level_editor_private}/Authoring/StaticMeshLevelAuthoring.cpp
+	LIBRARIES DurinEd
+)
+if(TARGET LevelAuthoringTests)
+	target_compile_definitions(LevelAuthoringTests PRIVATE
+		DURIN_LEVEL_AUTHORING_TEST_FAILURE_INJECTION=1)
+endif()
+
 durin_add_engine_functional_test(MaterialTests
 	GPU
 	TIMEOUT 900

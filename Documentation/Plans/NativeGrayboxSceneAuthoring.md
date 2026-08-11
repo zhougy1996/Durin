@@ -26,6 +26,25 @@ individually editable, but repeating or reconciling the layout requires either
 manual UI work or another bespoke executable. That workflow is evidence for a
 missing reusable authoring boundary, not an accepted long-term workflow.
 
+Stage 1 is implemented. `FStaticMeshLevelAuthoringService` now plans and
+executes bounded create/update/rename/remove batches for ordinary unattached
+`AStaticMeshActor` graphs. It uses exact package and hierarchy revisions,
+typed diagnostics, one structural transaction, source-state validation on
+Undo/Redo, collision refusal, no-op suppression, and existing saved-revision
+tracking. StaticMesh viewport placement and the corresponding Outliner
+create/rename/delete paths use the service; unsupported Actor graphs retain
+explicit legacy behavior. `LevelAuthoringTests` covers atomic batches,
+Undo/Redo, saved state, stale plans, read-only/document transitions,
+unsupported graphs, no-op execution, and Redo collision refusal.
+Test-only failure injection also verifies rollback after temporary rename,
+remove, create, final rename, and state update without publishing history or
+leaving the package dirty.
+Selection remains workspace state rather than transaction history: interactive
+callers select the exact names returned by Execute, document synchronization
+removes destroyed selections after Undo, and Redo does not overwrite whatever
+the user selected after the original operation. This avoids retaining a panel
+or workspace-context pointer in long-lived transaction history.
+
 This plan selects an entirely repository-native solution. It does not use Echo
 SceneBox, MCP, a remote service, a network listener, or code from another
 project. The first slice combines a LevelEditor-owned mutation service, a
@@ -123,8 +142,9 @@ command wrapped by DurinDevTool.
 - Structural transactions retain detached before/after descriptions sufficient
   to recreate the supported Actor class, requested stable name, mesh reference,
   transform, visibility, attachment state allowed by the first slice, and
-  primary selection effects. They do not retain ephemeral component addresses
-  as their restoration authority.
+  attachment state allowed by the first slice. The first slice supports only
+  unattached Actors. They do not retain ephemeral component addresses or a
+  workspace selection pointer as their restoration authority.
 - Preflight resolves every class and asset, validates every finite transform,
   proves unique identities, checks prune eligibility, and computes the full
   before/after set before the first live mutation.
@@ -183,7 +203,9 @@ command wrapped by DurinDevTool.
   no ceiling. A ceiling is added only when the user explicitly enables it.
 - Newly created Actors become the shared Level selection and remain editable
   through the existing gizmo and Details panel. Panel-local selection never
-  competes with `FLevelEditorContext`.
+  competes with `FLevelEditorContext`. Selection is published by the caller
+  after initial Execute; Undo removes invalid selections through ordinary
+  context synchronization, while Redo preserves the user's current selection.
 
 ### Non-interactive execution
 
@@ -244,19 +266,19 @@ saved-revision, and asset compatibility contracts.
 
 Dependencies: Stage 0.
 
-- [ ] Add the LevelEditor-owned planning and execution service with immutable
+- [x] Add the LevelEditor-owned planning and execution service with immutable
   requests, typed diagnostics, supported Actor snapshots, and stale-plan checks.
-- [ ] Implement atomic create, update, rename, and remove for supported
+- [x] Implement atomic create, update, rename, and remove for supported
   `AStaticMeshActor` graphs.
-- [ ] Add one structural batch transaction with exact package reporting,
+- [x] Add one structural batch transaction with exact package reporting,
   rollback, Undo/Redo collision checks, saved-revision integration, and no-op
   suppression.
-- [ ] Route existing StaticMesh viewport drop through the service without
+- [x] Route existing StaticMesh viewport drop through the service without
   changing placement position, selection, asset loading, or error behavior.
-- [ ] Route the relevant Outliner StaticMesh create/rename/delete paths through
+- [x] Route the relevant Outliner StaticMesh create/rename/delete paths through
   the service; retain explicit behavior for unsupported Actor classes until a
   separate generic snapshot contract exists.
-- [ ] Prove document replacement, PIE/read-only transition, actor/component
+- [x] Prove document replacement, PIE/read-only transition, actor/component
   destruction, asset replacement, failed rollback, and editor shutdown safety.
 
 #### Acceptance Gate
@@ -389,6 +411,7 @@ Dependencies: Stage 3.
 ## Related Documentation
 
 - [Viewport Editing Architecture](../Editor/Architecture/ViewportEditing.md)
+- [Static Mesh Level Authoring](../Editor/Architecture/StaticMeshLevelAuthoring.md)
 - [Reflected Property Editing](../Editor/Architecture/ReflectedPropertyEditing.md)
 - [Editor Workspace Framework](../Editor/Architecture/WorkspaceFramework.md)
 - [Sandbox Gameplay](../Runtime/Gameplay/SandboxGameplay.md)
@@ -402,6 +425,9 @@ Dependencies: Stage 3.
 - `Engine/Source/Runtime/Engine/Public/Engine/Level.h`
 - `Engine/Source/Runtime/Engine/Private/Engine/Level.cpp`
 - `Engine/Source/Runtime/Engine/Public/Actors/StaticMeshActor.h`
+- `Engine/Source/Editor/LevelEditor/Public/StaticMeshLevelAuthoring.h`
+- `Engine/Source/Editor/LevelEditor/Private/Authoring/StaticMeshLevelAuthoring.cpp`
+- `Engine/Tests/Native/EngineTests/Private/Editor/StaticMeshLevelAuthoringTests.cpp`
 - `Engine/Source/Editor/DurinEd/Public/Editor/EditorTransaction.h`
 - `Engine/Source/Editor/LevelEditor/Private/Workspace/LevelEditorContext.h`
 - `Engine/Source/Editor/LevelEditor/Private/Panels/SceneViewportPanel.cpp`
