@@ -17,12 +17,11 @@ presentation; the logical device exposes that single queue as the current
 graphics, compute, transfer, and present queue, so M2 needs no queue-family or
 cross-queue design.
 
-The backend-neutral RHI still exposes only graphics PSO creation and draw
-submission. `SwitchPipeline(Compute)` can be recorded but replay rejects it and
-no compute command can follow it, shader-parameter and push-constant submission
-are graphics-only, and Vulkan pending descriptor state is owned by the graphics
-path. Direct compute creation, binding, and dispatch are therefore the next
-bounded vertical slice.
+M2 completed on 2026-08-12 through
+[Synchronous Compute Pipeline](../Plans/SynchronousComputePipeline.md). Public
+RHI now owns canonical complete-or-null compute PSOs, reflected parameters and
+push constants, direct dispatch, exact limits, synchronous replay through both
+executors, and buffer/image handoffs to compute, graphics, copy, and readback.
 
 Two upstream RHI submission plans are complete:
 [Recorded RHI Command List](../Plans/Archive/2026-08/RecordedRHICommandList.md) establishes the
@@ -43,12 +42,13 @@ the native aggregate, full Debug Editor build, and hidden-window runtime smoke
 passed. The lasting contract is recorded in
 [RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md).
 
-The M2 entry gate is met and
-[Synchronous Compute Pipeline](../Plans/SynchronousComputePipeline.md) is active
-as of 2026-08-12. It owns compute PSO identity and creation, active-context
-selection, reflected binding and push-constant submission, direct dispatch,
-bounded Vulkan cache behavior, and storage-buffer/image result validation on
-the existing synchronous immediate queue.
+The M3 entry gate is met and
+[Compute Renderer Integration](../Plans/ComputeRendererIntegration.md) is active
+as of 2026-08-12. It selects FXAA resolved into a size-keyed linear storage
+intermediate as the first Renderer workload, retains fragment FXAA as the exact
+fallback, and owns the compute-to-graphics-output handoff, refresh/lifetime
+behavior, pixel parity, and measured rollout decision. Final sRGB offscreen and
+Present targets remain ordinary graphics attachments.
 
 ## Outcome
 
@@ -180,7 +180,7 @@ flowchart LR
 | --- | --- | --- | --- | --- |
 | M1: Resource transitions | Required; completed | [GPUResourceTransitions](../Plans/Archive/2026-08/GPUResourceTransitions.md) and [lasting contract](../Runtime/Rendering/RHIResourceTransitions.md) | Met on 2026-08-10: recorded replay is stable, synchronization2 availability is published, and render-pass/upload/readback/subresource mutation paths have a bounded audit. | Met on 2026-08-10: exact buffer/image transitions, inline/threaded replay, Vulkan mappings, implicit-path reconciliation, focused/native/full-build qualification, and runtime smoke passed without divergent state or new global idle waits. |
 | M2: Synchronous compute core | Required; completed 2026-08-12 | [Synchronous Compute Pipeline](../Plans/SynchronousComputePipeline.md) | Met; activated on 2026-08-12 after confirming M1 compute-intent mappings, recorded replay/lifetime, the shared compute-capable immediate queue, reflected storage bindings, and the raw Vulkan dispatch proof. | Met on 2026-08-12: canonical complete-or-null PSOs, reflected binding/push constants, direct dispatch, buffer/image results, compute/graphics/copy handoffs, both executors, aggregate/full build, and runtime smoke passed. |
-| M3: Renderer integration | Required; ready | `ComputeRendererIntegration` | Met on 2026-08-12; M2 vertical slice and public-RHI interop validation pass. The M3 plan must select a consumer with an explicit fallback and measurable benefit. | The selected renderer path consumes compute output without Vulkan escape hatches, survives resource refresh/lifetime scenarios, and passes its runtime validation. |
+| M3: Renderer integration | Required; active 2026-08-12 | [Compute Renderer Integration](../Plans/ComputeRendererIntegration.md) | Met on 2026-08-12; M2 vertical slice and public-RHI interop validation pass. The plan selects FXAA through a linear storage intermediate, fragment fallback, and a predeclared measurement gate. | Eligible FXAA consumes compute output through the existing graphics output pass without Vulkan escape hatches, survives resource refresh/lifetime scenarios, preserves pixel/order contracts, passes runtime validation, and has evidence supporting normal rollout. |
 | M4: Indirect dispatch | Conditional | `ComputeDispatchExtensions` | A concrete GPU-driven workload requires indirect dispatch and M2 is complete. | Indirect argument creation, transitions, bounds validation, and `DispatchIndirect` pass focused and runtime tests. |
 | M5: Async compute | Evidence-gated | `AsyncComputeExecution` | M1-M3 and the dedicated RHI thread plan are complete; profiling identifies overlap opportunity that exceeds scheduling and ownership costs on target hardware. | Separate compute submission, cross-queue synchronization, ownership transfer, resource lifetime, fallback, and frame shutdown are validated without global idle waits. |
 
@@ -227,13 +227,13 @@ asynchronous scheduler.
 The implementation must preserve graphics behavior while removing hard-coded
 graphics bind points only from facilities shared by both pipeline types.
 
-### `ComputeRendererIntegration`
+### [Compute Renderer Integration](../Plans/ComputeRendererIntegration.md)
 
-Owns selection and delivery of the first renderer workload, capability/fallback
-policy, renderer resource ownership, reload/failure behavior, diagnostics, and
-runtime validation. Candidate workloads may include image processing, mip
-generation, culling, or other measured needs, but the child plan selects one
-before implementation.
+Owns the selected FXAA-to-linear-storage-intermediate workload, fragment
+fallback policy, Renderer resource ownership, reload/failure behavior,
+diagnostics, pixel parity, GPU timing evidence, and runtime validation. The
+existing graphics copy pass consumes compute output, so M3 does not absorb sRGB
+final-target or swapchain storage admission.
 
 It also moves stable compute usage and synchronization contracts into
 `Documentation/Runtime/Rendering/` after they are validated.
