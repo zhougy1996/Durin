@@ -4,33 +4,34 @@ Summary: Add deterministic current-pose CPU surface picking for `DSkeletalMeshCo
 
 Last reviewed: 2026-08-11
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-11
 
 ## Current Status
 
-M1 is complete through the
-[Viewport Picking Contract Plan](ViewportPickingContract.md). The Level Editor
-now submits one semantic Actor/component surface request to a private
-per-viewport service; StaticMesh geometry and prepared visualizations compete
-through one world-distance comparator; and request identity, cancellation,
-generation invalidation, and exact primitive/component resolution are already
-covered.
+M2 is complete. The private Level Editor reference backend now registers a
+current-pose SkeletalMesh provider beside the retained StaticMesh provider.
+It snapshots one immutable `FSkeletalPosePalette`, validates compatibility and
+all CPU shapes, resolves skeleton bone indices through the mesh palette, rejects
+against current pose bounds, skins each referenced LOD0 vertex once, and tests
+all indexed triangles double-sided. Both families compete through the existing
+world-distance and stable-key comparator without changes to Select mode, the
+viewport client, public request/result types, Renderer state, or selection
+ownership.
 
-`DSkeletalMeshComponent` is still skipped by the reference backend. The runtime
-already exposes detached LOD0 CPU positions, triangle indices, per-vertex bone
-influences, palette bone indices, an immutable current `FSkeletalPosePalette`,
-and pose-derived local bounds. M2 will consume those game-thread values through
-a new built-in geometry provider. It will not read Renderer scene state or
-change Select mode, the public request/result types, or selection ownership.
+The frozen request-wide limits are 250,000 skinned vertices and 500,000 tested
+triangles. Exact-limit work is allowed; over-limit work fails the full geometry
+completion without a partial winner. Private diagnostics distinguish
+applicable/invalid skeletal targets, bounds rejection, budget failure, skinned
+vertices, and tested triangles. Missing, incompatible, incomplete, malformed,
+non-finite, or singular candidates remain component-local skips with no bind
+pose or bounds-only fallback.
 
-The selected correctness policy is current-pose, LOD0, double-sided surface
-intersection with no bind-pose or bounds-only hit fallback. Missing,
-incompatible, incomplete, or non-finite pose data makes that skeletal component
-a non-candidate. A deterministic operation-count budget will fail the whole
-geometry completion rather than publish a possibly wrong partial winner; Stage
-0 must record its numeric limits from representative fixtures before provider
-implementation starts.
+Qualification passed in the `windows-msvc-x64` Agent Build Profile with the
+`Win64-Debug-DurinEditor` preset: `ViewportTests` 74/74,
+`SkeletalAssetTests` 33/33, changed-document validation, a successful full
+`all` build, and an 8-second startup smoke of the resulting `DurinEditor.exe`.
+M3 `ViewportPickingSpatialAcceleration` is the next ready required milestone.
 
 ## Goal
 
@@ -184,24 +185,24 @@ query code is added.
 Dependencies: completed M1 Viewport Picking Contract and current skeletal
 render-data/pose-publication contracts.
 
-- [ ] Inventory the exact CPU geometry, influence, palette, compatibility,
+- [x] Inventory the exact CPU geometry, influence, palette, compatibility,
   pose, bounds, and component-transform APIs used by the provider; record any
   lifetime or indexing mismatch that would require Runtime Engine work.
-- [ ] Freeze a private provider outcome that distinguishes not-applicable,
+- [x] Freeze a private provider outcome that distinguishes not-applicable,
   valid miss/hit, invalid-component skip, and request-level failure while
   preserving the existing backend completion contract.
-- [ ] Write the reference deformation equation and bone-to-palette-slot mapping
+- [x] Write the reference deformation equation and bone-to-palette-slot mapping
   against non-contiguous palette fixtures; prove it matches existing pose and
   rendering matrix conventions.
-- [ ] Freeze LOD0, all-section, double-sided, current-pose-only, world-distance,
+- [x] Freeze LOD0, all-section, double-sided, current-pose-only, world-distance,
   epsilon, and stable-tie policies as stated above.
-- [ ] Add or identify deterministic viewport test builders for a one-bone
+- [x] Add or identify deterministic viewport test builders for a one-bone
   triangle, a non-contiguous palette, mixed influences, animated translation,
   multiple components, and mixed StaticMesh/SkeletalMesh scenes.
-- [ ] Measure vertices and triangles for representative fixtures and record the
+- [x] Measure vertices and triangles for representative fixtures and record the
   request-wide maximum skinned-vertex and tested-triangle constants plus their
   over-budget status/counter expectations.
-- [ ] Confirm no public request/result field, Select-mode branch, Renderer API,
+- [x] Confirm no public request/result field, Select-mode branch, Renderer API,
   or general runtime query interface is required by the frozen design.
 
 #### Acceptance Gate
@@ -224,25 +225,25 @@ to viewport clients or modes.
 
 Dependencies: Stage 0 acceptance gate.
 
-- [ ] Add the private provider outcome/query context needed for deterministic
+- [x] Add the private provider outcome/query context needed for deterministic
   work accounting and request-level failure propagation; keep StaticMesh
   behavior and ordering unchanged.
-- [ ] Register a built-in SkeletalMesh provider alongside the StaticMesh
+- [x] Register a built-in SkeletalMesh provider alongside the StaticMesh
   provider without relying on provider order for winner selection.
-- [ ] Acquire and validate one mesh render-data/pose snapshot, build the
+- [x] Acquire and validate one mesh render-data/pose snapshot, build the
   request-local bone-to-palette lookup, and reject invalid shapes atomically.
-- [ ] Transform the captured ray to component local space and reject it against
+- [x] Transform the captured ray to component local space and reject it against
   the current pose bounds before charging deformation/triangle work.
-- [ ] Skin each referenced LOD0 vertex once using finite weighted palette
+- [x] Skin each referenced LOD0 vertex once using finite weighted palette
   transforms, then run exact double-sided indexed triangle intersection and
   convert the closest local hit to world distance.
-- [ ] Enforce the frozen request-wide caps with overflow-safe counts and return
+- [x] Enforce the frozen request-wide caps with overflow-safe counts and return
   `Failed` without a partial winner when a bounds-surviving workload exceeds
   them.
-- [ ] Add test-visible diagnostics for applicable targets, pose/data skips,
+- [x] Add test-visible diagnostics for applicable targets, pose/data skips,
   bounds rejects, budget failures, skinned vertices, and tested triangles
   without per-click logging or public semantic-result expansion.
-- [ ] Add focused provider/service tests for reference pose, non-contiguous
+- [x] Add focused provider/service tests for reference pose, non-contiguous
   palette lookup, multiple influences, back faces, degenerates, malformed
   indices/influences, missing/incompatible/incomplete/non-finite pose, singular
   transforms, and exact Actor/component/primitive identity.
@@ -268,24 +269,24 @@ lifetime changes.
 
 Dependencies: Stage 1 acceptance gate and M1 selection integration coverage.
 
-- [ ] Add a pose-revision sequence where animation moves geometry into the ray,
+- [x] Add a pose-revision sequence where animation moves geometry into the ray,
   out of the ray, and back again across separate requests.
-- [ ] Add a bind-pose-only intersection whose current pose has moved away and
+- [x] Add a bind-pose-only intersection whose current pose has moved away and
   prove the click is blank or resolves another valid candidate rather than the
   bind surface.
-- [ ] Prove nearer/farther StaticMesh and SkeletalMesh candidates compete by
+- [x] Prove nearer/farther StaticMesh and SkeletalMesh candidates compete by
   the same world-space distance under both enumeration orders.
-- [ ] Prove equal-distance mixed-family candidates use the existing stable
+- [x] Prove equal-distance mixed-family candidates use the existing stable
   primitive tie-break and do not depend on provider or Level order.
-- [ ] Cover translated, rotated, non-uniformly scaled, mirrored, and singular
+- [x] Cover translated, rotated, non-uniformly scaled, mirrored, and singular
   skeletal components, including finite world-distance ordering.
-- [ ] Cover multiple skeletal components on one Actor and across Actors,
+- [x] Cover multiple skeletal components on one Actor and across Actors,
   hidden Actors, unregister/re-register, destruction, and Level/client reset
   with exact component identity and no stale selection.
-- [ ] Drive the result through the existing Select-mode immediate-completion
+- [x] Drive the result through the existing Select-mode immediate-completion
   helper and prove replace, Ctrl toggle, blank clearing, visualization
   arbitration, and gizmo preemption need no skeletal-specific branch.
-- [ ] Prove invalid skeletal components remain non-candidates while valid
+- [x] Prove invalid skeletal components remain non-candidates while valid
   static/skeletal candidates still resolve, and prove budget failure leaves the
   current selection unchanged instead of applying a partial winner.
 
@@ -306,25 +307,25 @@ and becomes the reference truth required by M3 spatial acceleration.
 
 Dependencies: Stages 1-2 acceptance gates.
 
-- [ ] Update Viewport Editing Architecture with current-pose skeletal provider
+- [x] Update Viewport Editing Architecture with current-pose skeletal provider
   ownership, LOD/facing policy, pose validity, deformation/distance semantics,
   and bounded failure behavior.
-- [ ] Update this plan's Current Status, Last reviewed date, checklists, and
+- [x] Update this plan's Current Status, Last reviewed date, checklists, and
   evidence for every completed gate; record any selected deviation before
   qualification.
-- [ ] Update the Viewport Picking Roadmap to mark M2 complete, link this plan,
+- [x] Update the Viewport Picking Roadmap to mark M2 complete, link this plan,
   and identify M3 `ViewportPickingSpatialAcceleration` as the next ready
   required milestone.
-- [ ] Run documentation validation and the smallest affected native test target
+- [x] Run documentation validation and the smallest affected native test target
   or targets under repository guidance; preserve M1 viewport and skeletal
   animation/asset coverage relevant to any shared helper changed by M2.
-- [ ] Run the required successful full `all` build because skeletal selection
+- [x] Run the required successful full `all` build because skeletal selection
   is a user-visible editor change.
-- [ ] Launch the editor from the same Agent Build Profile and complete a runtime
+- [x] Launch the editor from the same Agent Build Profile and complete a runtime
   startup smoke; use focused native interaction coverage as the deterministic
   evidence for animated surface selection when no stable repository demo Level
   contains a skeletal fixture.
-- [ ] Review the verified executable and plan/roadmap/architecture/code/test
+- [x] Review the verified executable and plan/roadmap/architecture/code/test
   agreement before marking this plan Completed.
 
 #### Acceptance Gate

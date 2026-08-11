@@ -34,10 +34,32 @@ namespace Durin
 		int32 Priority = 0;
 	};
 
+	inline constexpr uint64 ViewportPickingMaximumSkinnedVertices = 250'000;
+	inline constexpr uint64 ViewportPickingMaximumTestedTriangles = 500'000;
+
+	// Bounds deterministic reference work without exposing it through the semantic picking API.
+	struct FViewportPickingWorkBudget
+	{
+		uint64 MaximumSkinnedVertices = ViewportPickingMaximumSkinnedVertices;
+		uint64 MaximumTestedTriangles = ViewportPickingMaximumTestedTriangles;
+	};
+
+	// Reports private reference-backend work for deterministic qualification and diagnosis.
+	struct FViewportPickingBackendDiagnostics
+	{
+		uint64 ApplicableSkeletalTargets = 0;
+		uint64 InvalidSkeletalTargets = 0;
+		uint64 SkeletalBoundsRejects = 0;
+		uint64 SkeletalBudgetFailures = 0;
+		uint64 SkinnedVertices = 0;
+		uint64 TestedTriangles = 0;
+	};
+
 	struct FViewportPickingBackendCompletion
 	{
 		EViewportPickStatus Status = EViewportPickStatus::Invalid;
 		std::optional<FViewportPickingBackendHit> Hit;
+		FViewportPickingBackendDiagnostics Diagnostics;
 	};
 
 	// Defines the complete-or-pending boundary used by CPU and deterministic fake backends.
@@ -49,6 +71,10 @@ namespace Durin
 		virtual auto Poll(FViewportPickTicket Ticket) -> FViewportPickingBackendCompletion = 0;
 		virtual auto Cancel(FViewportPickTicket Ticket) -> void = 0;
 	};
+
+	// Creates the built-in immediate reference backend for focused private-contract tests.
+	auto MakeReferenceViewportPickingBackend(FViewportPickingWorkBudget WorkBudget = {})
+		-> std::unique_ptr<IViewportPickingBackend>;
 
 	// Owns per-viewport ticket sequencing, weak target tables, validation, and arbitration.
 	class FViewportPickingService final

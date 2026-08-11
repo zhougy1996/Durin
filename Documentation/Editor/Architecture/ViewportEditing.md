@@ -73,13 +73,34 @@ mutations.
 
 For each scene-geometry request, the service captures a request-local table
 from a non-zero numeric token to `FPrimitiveSceneId`, weak component/Actor, and
-the component registration generation. The M1 StaticMesh backend performs the
-LOD0 double-sided bounds-then-triangle query and returns only a token and world
-distance. Before exposing a completion, the service verifies client/Level
+the component registration generation. The built-in reference backend performs
+LOD0, double-sided surface queries for StaticMesh and current-pose SkeletalMesh
+components and returns only a token and world distance. Before exposing a completion, the service verifies client/Level
 generation, weak identity, Level membership, ownership, registration cycle,
 visibility, and primitive identity. World or Level replacement, client reset or
 destruction, mode exit, cancellation, and a newer click retire old work;
 camera movement alone does not reinterpret the immutable clicked view.
+
+For a skeletal candidate, the backend acquires one immutable
+`FSkeletalPosePalette` from the component on the game thread. The pose must have
+a non-zero revision, the mesh's non-empty skeleton compatibility identity, one
+finite matrix per LOD0 palette entry, and finite valid current local bounds.
+CPU positions, indices, sections, influences, and palette shapes must agree.
+Influence bone indices are skeleton bone indices and resolve through a unique
+request-local bone-to-palette-slot map; each referenced vertex is deformed once
+as the weighted sum of its palette-matrix-transformed bind position. Missing,
+incomplete, incompatible, malformed, or non-finite data makes only that
+component a non-candidate. There is no bind-pose or bounds-only fallback.
+
+The current pose bounds reject work before deformation. Bounds-surviving
+skeletal candidates share request-wide limits of 250,000 skinned referenced
+vertices and 500,000 tested triangles. Reaching either limit is permitted;
+exceeding a limit fails the complete geometry request with no partial winner.
+Private diagnostics record applicable/invalid targets, bounds rejects, budget
+failures, skinned vertices, and tested triangles without expanding the public
+result or producing per-click logs. Local hits are transformed back to world
+space before distance comparison, preserving ordering under rotation,
+non-uniform scale, and mirroring; singular transforms are skipped.
 
 Geometry and the prepared visualization candidate enter one resolver. A
 depth-independent visualization wins first. Otherwise the nearest finite world
