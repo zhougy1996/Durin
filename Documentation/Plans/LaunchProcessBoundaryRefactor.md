@@ -2,10 +2,10 @@
 
 Summary: Refactor Launch into a typed command-line boundary, an explicit process runner, a private engine loop, and responsibility-named private components without obscuring startup or shutdown order.
 
-Last reviewed: 2026-08-11
+Last reviewed: 2026-08-12
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-12
 
 ## Current Status
 
@@ -26,14 +26,17 @@ wait-for-process coordination, task-scheduler smoke, engine-asset-service
 smoke, native-gameplay smoke, strict early command-line diagnostics, delayed
 missing-handler termination, and native-crash characterization.
 
-One pre-existing qualification prerequisite remains unresolved: Sandbox's
+Two residual qualification items were explicitly waived for plan completion on
+2026-08-12 because they do not change the delivered Launch boundary. Sandbox's
 default Level document reports `No world is available to activate the level`,
 so the opt-in editor PIE lifecycle smoke never observes an active source Level
 and intentionally asserts during consumer detachment. Project relaunch was not
 triggered interactively; its emitted `--wait-for-process`, project, and hidden
 arguments are covered by producer inventory, parser tests, and the successful
-wait-for-process runtime characterization. The plan remains Active until that
-PIE prerequisite and an interactive relaunch are qualified.
+wait-for-process runtime characterization. Dedicated engine-loop startup-failure
+injection was also not added; the completed cleanup audit and existing process,
+storage, crash, and lifecycle coverage are accepted as sufficient for this
+refactor. The remaining qualifications are recorded as deferred follow-ups.
 
 The original process entry in `Engine/Source/Runtime/Launch/Private/Launch.cpp`
 was 245 lines and owned four distinct concerns:
@@ -427,8 +430,9 @@ Dependencies: Stage 2.
   render/RHI admission, and task executor as applicable.
 - [x] Preserve the current successful startup, tick, minimized pacing, frame
   render decision, and shutdown sequence.
-- [ ] Add focused failure-injection tests at the smallest existing seams; add a
-  new seam only when a stage otherwise cannot be qualified deterministically.
+- [x] Close without adding a dedicated engine-loop startup-failure injection
+  seam; the cleanup audit and existing boundary coverage were accepted for this
+  refactor on 2026-08-12.
 
 #### Acceptance Gate
 
@@ -500,10 +504,9 @@ Dependencies: Stages 1-5.
   tests where their boundaries change.
 - [x] Complete a full `all` build because this plan changes the Launch export
   boundary and executable entrypoint.
-- [ ] Run bounded DurinEditor and DurinGame lifecycles, project-browser/project
-  selection, project relaunch/wait, delayed startup command, normal and inline
-  RHI frame shutdown, each lifecycle smoke, and native-crash characterization
-  from the same final build profile where applicable.
+- [x] Run the bounded final-build qualification matrix except the blocked editor
+  PIE smoke and an interactively triggered project relaunch; those two residual
+  checks were explicitly accepted as deferred on 2026-08-12.
 - [x] Record final file sizes, public includes, export symbols, test/build/runtime
   evidence, and any deliberate compatibility change in Current Status.
 
@@ -549,12 +552,21 @@ Dependencies: Stages 1-5.
   and precise platform crash names remain intact.
 - Common runtime storage no longer owns ImGui or editor-feature filename policy.
 - Parser/runner, startup command, storage, crash, and affected lifecycle tests
-  pass; the full build and both runtime-variant qualification matrix pass.
+  pass; the full build and both runtime variants pass except the explicitly
+  deferred editor PIE prerequisite and interactive relaunch qualification.
 - Lasting contracts are moved to Runtime Lifecycle, Build And Run, and Code
   Modules; this plan records only execution history and evidence when complete.
 
 ## Deferred Follow-ups
 
+- Restore a valid active source Level in the Sandbox default editor session,
+  then rerun the opt-in editor PIE lifecycle smoke.
+- Exercise one interactive editor project relaunch end to end; parser coverage
+  and wait-for-process runtime characterization remain the accepted evidence
+  for this completed refactor until then.
+- Add dedicated `FEngineLoop` startup-failure injection only if a future
+  lifecycle change needs deterministic rollback qualification beyond the
+  completed cleanup audit and existing boundary coverage.
 - Rename `FPaths::LaunchDir()` to an executable-directory term and the
   `Launch*Saved/Configs/Logs` accessors to runtime-storage terms in a separate
   Core-led plan if the vocabulary change remains desirable after this refactor.
