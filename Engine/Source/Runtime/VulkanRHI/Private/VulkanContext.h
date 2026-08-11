@@ -17,6 +17,8 @@ namespace Durin::VulkanRHI
 	class FVulkanSemaphore;
 	class FVulkanPayload;
 	class FVulkanPendingGraphicsState;
+	class FVulkanPendingComputeState;
+	class FVulkanComputePipelineState;
 	class FVulkanTexture;
 	class FVulkanGPUTimingQuery;
 
@@ -51,6 +53,7 @@ namespace Durin::VulkanRHI
 		auto RHIEndDrawingViewport(FRHIViewport* Viewport, bool bPresent, bool bLockToVsync) -> void override;
 
 		auto RHISetGraphicsPipelineState(FRHIGraphicsPipelineState& GraphicsPipelineState) -> void override;
+		auto RHISetComputePipelineState(FRHIComputePipelineState& ComputePipelineState) -> void override;
 
 		auto RHIBindVertexBuffer(uint32 StreamIndex, FRHIBuffer* InVertexBuffer, uint32 Offset) -> void override;
 
@@ -91,6 +94,8 @@ namespace Durin::VulkanRHI
 		auto RHIDraw(const FRHIDrawArguments& Arguments) -> void override;
 
 		auto RHIDrawIndexed(const FRHIDrawIndexedArguments& Arguments) -> void override;
+		auto RHIDispatch(uint32 GroupCountX, uint32 GroupCountY,
+			uint32 GroupCountZ) -> void override;
 
 		auto GetCommandBuffer() -> FVulkanCommandBuffer*;
 
@@ -110,6 +115,8 @@ namespace Durin::VulkanRHI
 
 		auto NotifyDeleted_GraphicsPipeline(
 			FVulkanGraphicsPipelineState* PipelineState) -> void;
+		auto NotifyDeleted_ComputePipeline(
+			FVulkanComputePipelineState* PipelineState) -> void;
 
 		// Submit and reset context
 		auto Finalize() -> FVulkanCompletionToken;
@@ -132,6 +139,7 @@ namespace Durin::VulkanRHI
 		FVulkanCommandBufferPool* Pool = nullptr;
 
 		std::unique_ptr<FVulkanPendingGraphicsState> PendingGfxState;
+		std::unique_ptr<FVulkanPendingComputeState> PendingComputeState;
 
 		struct FBoundVertexBuffer
 		{

@@ -9,6 +9,7 @@
 #include "RHIResources.h"
 #include "RenderingThread.h"
 #include "Shader/SlangShaderCompiler.h"
+#include "Shader/Shader.h"
 #include "Texture/TextureBuild.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanDiagnostics.h"
@@ -437,9 +438,9 @@ namespace Durin
 			VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, nullptr, &BufferInfo};
 		vkUpdateDescriptorSets(Device, static_cast<uint32>(Writes.size()), Writes.data(), 0, nullptr);
 
-		// Compute is not yet part of the portable command surface. This explicit
-		// Vulkan integration path is independent of the RHI recorder. Replay the
-		// portable uploads first so native compute follows them in the same context.
+		// This native-only fixture remains as sampled-format conformance coverage;
+		// public compute PSO, dispatch, storage, and readback acceptance is owned by
+		// PublicComputePipelineWritesBufferAndImageInlineAndThreaded below.
 		VulkanRHI->RHIExecuteCommandBufferForBackendIntegration(
 			[Pipeline, PipelineLayout, DescriptorSet](vk::CommandBuffer CommandBuffer) {
 				const VkCommandBuffer RawCommandBuffer = CommandBuffer;
@@ -1048,6 +1049,285 @@ namespace Durin
 			CompressedSource = nullptr;
 			CompressedDestination = nullptr;
 			RHICmdList.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
+		}
+	}
+
+	TEST(FVulkanTextureSamplingTests,
+		PublicComputePipelineWritesBufferAndImageInlineAndThreaded)
+	{
+		FShaderCompileOptions Options;
+		Options.EntryPoints = {"ComputeMain", "ComputeSecondMain"};
+		Options.Frequencies = {
+			EShaderFrequency::Compute, EShaderFrequency::Compute};
+		const FShaderCompilerOutput Compiled = FSlangShaderCompiler().Compile(
+			(std::filesystem::path(DURIN_TEST_DATA_DIR)
+				/ "PublicComputePipeline.slang").string(), Options);
+		ASSERT_TRUE(Compiled) << Compiled.ErrorMessage;
+		ASSERT_EQ(Compiled.CompiledShaders.size(), 2u);
+		const FCompiledShader& CompiledShader = Compiled.CompiledShaders[0];
+		FPipelineLayoutDesc ReflectedLayout;
+		std::string ReflectionError;
+		ASSERT_TRUE(BuildPipelineLayoutFromReflection(
+			std::span(&CompiledShader.Reflection, 1), ReflectedLayout,
+			ReflectionError)) << ReflectionError;
+		FPipelineLayoutDesc SecondReflectedLayout;
+		ASSERT_TRUE(BuildPipelineLayoutFromReflection(
+			std::span(&Compiled.CompiledShaders[1].Reflection, 1),
+			SecondReflectedLayout, ReflectionError)) << ReflectionError;
+		FShaderCompileOptions InteropOptions;
+		InteropOptions.EntryPoints = {"VertexMain", "FragmentMain"};
+		InteropOptions.Frequencies = {
+			EShaderFrequency::Vertex, EShaderFrequency::Fragment};
+		const FShaderCompilerOutput InteropCompiled =
+			FSlangShaderCompiler().Compile(
+				(std::filesystem::path(DURIN_TEST_DATA_DIR)
+					/ "ComputeGraphicsInterop.slang").string(), InteropOptions);
+		ASSERT_TRUE(InteropCompiled) << InteropCompiled.ErrorMessage;
+		ASSERT_EQ(InteropCompiled.CompiledShaders.size(), 2u);
+		FPipelineLayoutDesc InteropLayout;
+		const std::array InteropReflections{
+			InteropCompiled.CompiledShaders[0].Reflection,
+			InteropCompiled.CompiledShaders[1].Reflection};
+		ASSERT_TRUE(BuildPipelineLayoutFromReflection(
+			InteropReflections, InteropLayout, ReflectionError)) << ReflectionError;
+
+		for (const char* Mode : {"inline", "threaded"})
+		{
+			SCOPED_TRACE(Mode);
+			struct FRHIScope
+			{
+				explicit FRHIScope(const char* Value)
+				{
+					_putenv_s("DURIN_RHI_EXECUTION", Value);
+				}
+				~FRHIScope()
+				{
+					if (GDynamicRHI) RHIExit();
+					_putenv_s("DURIN_RHI_EXECUTION", "");
+				}
+			} Scope(Mode);
+			ASSERT_TRUE(RHIInit());
+			FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
+			FRHIShaderCreateDesc ShaderDesc = FRHIShaderCreateDesc::Create(
+				CompiledShader.DebugName.c_str(), CompiledShader.Frequency,
+				*CompiledShader.Code, CompiledShader.Hash);
+			ShaderDesc.SetEntryPoint(CompiledShader.BinaryEntryPoint.c_str());
+			FShaderRHIRef Shader = GDynamicRHI->RHICreateShader(ShaderDesc);
+			const FCompiledShader& SecondCompiledShader = Compiled.CompiledShaders[1];
+			FRHIShaderCreateDesc SecondShaderDesc = FRHIShaderCreateDesc::Create(
+				SecondCompiledShader.DebugName.c_str(), SecondCompiledShader.Frequency,
+				*SecondCompiledShader.Code, SecondCompiledShader.Hash);
+			SecondShaderDesc.SetEntryPoint(
+				SecondCompiledShader.BinaryEntryPoint.c_str());
+			FShaderRHIRef SecondShader =
+				GDynamicRHI->RHICreateShader(SecondShaderDesc);
+			auto MakeInteropShader = [&](uint32 Index) {
+				const FCompiledShader& Source = InteropCompiled.CompiledShaders[Index];
+				FRHIShaderCreateDesc Desc = FRHIShaderCreateDesc::Create(
+					Source.DebugName.c_str(), Source.Frequency, *Source.Code, Source.Hash);
+				Desc.SetEntryPoint(Source.BinaryEntryPoint.c_str());
+				return GDynamicRHI->RHICreateShader(Desc);
+			};
+			FShaderRHIRef InteropVertex = MakeInteropShader(0);
+			FShaderRHIRef InteropFragment = MakeInteropShader(1);
+			FVertexDeclarationRHIRef VertexDeclaration =
+				GDynamicRHI->RHICreateVertexDeclaration({});
+			FComputePipelineStateInitializer PipelineInitializer;
+			PipelineInitializer.ComputeShader = Shader;
+			PipelineInitializer.PipelineLayout = ReflectedLayout;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			VulkanRHI::ArmVulkanCreateFailure(
+				VulkanRHI::EVulkanCreateFailurePoint::PipelineLayout);
+			EXPECT_FALSE(GDynamicRHI->RHICreateComputePipelineState(
+				"PublicComputePipelineFailedCandidate", PipelineInitializer));
+#endif
+			FComputePipelineStateRHIRef Pipeline =
+				GDynamicRHI->RHICreateComputePipelineState(
+					"PublicComputePipeline", PipelineInitializer);
+			FComputePipelineStateInitializer SecondPipelineInitializer;
+			SecondPipelineInitializer.ComputeShader = SecondShader;
+			SecondPipelineInitializer.PipelineLayout = SecondReflectedLayout;
+			FComputePipelineStateRHIRef SecondPipeline =
+				GDynamicRHI->RHICreateComputePipelineState(
+					"PublicComputeSecondPipeline", SecondPipelineInitializer);
+			ASSERT_TRUE(Shader && SecondShader && Pipeline && SecondPipeline
+				&& InteropVertex && InteropFragment
+				&& VertexDeclaration);
+			FComputePipelineStateRHIRef EqualPipeline =
+				GDynamicRHI->RHICreateComputePipelineState(
+					"DifferentDiagnosticName", PipelineInitializer);
+			ASSERT_EQ(EqualPipeline.GetReference(), Pipeline.GetReference());
+			FComputePipelineStateInitializer DifferentInitializer =
+				PipelineInitializer;
+			DifferentInitializer.PipelineLayout.BindingLayouts.emplace_back();
+			FComputePipelineStateRHIRef DifferentPipeline =
+				GDynamicRHI->RHICreateComputePipelineState(
+					"PublicComputePipeline", DifferentInitializer);
+			ASSERT_TRUE(DifferentPipeline);
+			EXPECT_NE(DifferentPipeline.GetReference(), Pipeline.GetReference());
+
+			FBufferRHIRef OutputBuffer = GDynamicRHI->RHICreateBuffer(Commands,
+				FRHIBufferCreateDesc::Create("ComputeOutputBuffer", 16, 4,
+					EBufferUsageFlags::StructuredBuffer
+						| EBufferUsageFlags::UnorderedAccess
+						| EBufferUsageFlags::SourceCopy));
+			FTextureRHIRef OutputImage = GDynamicRHI->RHICreateTexture(Commands,
+				FRHITextureCreateDesc::Create2D("ComputeOutputImage", 4, 1,
+					EPixelFormat::RGBA8_UNORM).SetFlags(
+						ETextureCreateFlags::Storage
+						| ETextureCreateFlags::ShaderResource
+						| ETextureCreateFlags::CPUReadback));
+			FTextureRHIRef BufferReadback = GDynamicRHI->RHICreateTexture(Commands,
+				FRHITextureCreateDesc::Create2D("ComputeBufferReadback", 4, 1,
+					EPixelFormat::RGBA8_UNORM).SetFlags(
+						ETextureCreateFlags::DestinationCopy
+						| ETextureCreateFlags::CPUReadback));
+			ASSERT_TRUE(OutputBuffer && OutputImage && BufferReadback);
+			FRHIRenderTargetLayout RenderTargetLayout;
+			RenderTargetLayout.NumColorRenderTargets = 1;
+			auto& Color = RenderTargetLayout.ColorAttachments[0].RenderTarget;
+			Color.Format = EPixelFormat::RGBA8_UNORM;
+			Color.LoadAction = ERHIRenderTargetLoadAction::Clear;
+			Color.StoreAction = ERHIRenderTargetStoreAction::Store;
+			Color.InitialLayout = ERHITextureLayout::Undefined;
+			Color.InitialAccess = ERHIAccess::None;
+			Color.FinalLayout = ERHITextureLayout::ShaderReadOnly;
+			Color.FinalAccess = ERHIAccess::GraphicsShaderRead;
+			FGraphicsPipelineStateInitializer GraphicsInitializer;
+			GraphicsInitializer.BoundShaders = {InteropVertex, InteropFragment};
+			GraphicsInitializer.VertexDeclaration = VertexDeclaration;
+			GraphicsInitializer.PipelineLayout = InteropLayout;
+			GraphicsInitializer.RenderTargetLayout = RenderTargetLayout;
+			FGraphicsPipelineStateRHIRef GraphicsPipeline =
+				GDynamicRHI->RHICreateGraphicsPipelineState(
+					"ComputeGraphicsInterop", GraphicsInitializer);
+			FTextureRHIRef GraphicsReadback = GDynamicRHI->RHICreateTexture(Commands,
+				FRHITextureCreateDesc::Create2D("ComputeGraphicsReadback", 4, 1,
+					EPixelFormat::RGBA8_UNORM).SetFlags(
+						ETextureCreateFlags::RenderTargetable
+						| ETextureCreateFlags::CPUReadback
+						| ETextureCreateFlags::ShaderResource));
+			ASSERT_TRUE(GraphicsPipeline && GraphicsReadback);
+			FBufferViewRHIRef BufferView = GDynamicRHI->RHICreateBufferView(
+				OutputBuffer, MakeDefaultBufferViewDesc(*OutputBuffer,
+					ERHIBufferViewType::StructuredStorage));
+			FTextureViewRHIRef ImageView = GDynamicRHI->RHICreateTextureView(
+				OutputImage, MakeDefaultTextureViewDesc(*OutputImage,
+					ERHITextureViewUsage::Storage));
+			ASSERT_TRUE(BufferView && ImageView);
+
+			const FRHITextureSubresourceRange WholeColor{
+				ERHITextureAspect::Color, 0, 1, 0, 1};
+			Commands.TransitionBuffers(std::array{FRHIBufferTransition{
+				OutputBuffer, 0, 16, ERHIAccess::Discard,
+				ERHIAccess::ComputeShaderReadWrite}});
+			Commands.TransitionTextures(std::array{FRHITextureTransition{
+				OutputImage, WholeColor, ERHIAccess::Discard,
+				ERHIAccess::ComputeShaderReadWrite}});
+			Commands.SwitchPipeline(ERHIPipeline::Compute);
+			Commands.SetComputePipelineState(*Pipeline);
+			const uint32 NoIncrement = 0;
+			Commands.PushConstants(EShaderStageFlags::Compute, 0,
+				sizeof(NoIncrement), &NoIncrement);
+			std::array Parameters{
+				FRHIShaderParameterResource{.Resource = BufferView.GetReference(),
+					.SetIndex = 0, .BindingIndex = 0,
+					.Type = ERHIBindingType::StorageBuffer},
+				FRHIShaderParameterResource{.Resource = ImageView.GetReference(),
+					.SetIndex = 0, .BindingIndex = 1,
+					.Type = ERHIBindingType::StorageImage}};
+			Commands.SetShaderParameters(Shader, Parameters);
+			Commands.Dispatch(4, 1, 1);
+			Commands.SwitchPipeline(ERHIPipeline::None);
+			Commands.TransitionBuffers(std::array{FRHIBufferTransition{
+				OutputBuffer, 0, 16, ERHIAccess::ComputeShaderReadWrite,
+				ERHIAccess::ComputeShaderReadWrite}});
+			Commands.TransitionTextures(std::array{FRHITextureTransition{
+				OutputImage, WholeColor, ERHIAccess::ComputeShaderReadWrite,
+				ERHIAccess::ComputeShaderReadWrite}});
+			Commands.SwitchPipeline(ERHIPipeline::Compute);
+			Commands.SetComputePipelineState(*SecondPipeline);
+			const uint32 Increment = 1;
+			Commands.PushConstants(EShaderStageFlags::Compute, 0,
+				sizeof(Increment), &Increment);
+			Commands.SetShaderParameters(SecondShader, Parameters);
+			Commands.Dispatch(4, 1, 1);
+			Commands.SwitchPipeline(ERHIPipeline::None);
+			Commands.TransitionBuffers(std::array{FRHIBufferTransition{
+				OutputBuffer, 0, 16, ERHIAccess::ComputeShaderReadWrite,
+				ERHIAccess::ComputeShaderReadWrite}});
+			Commands.TransitionTextures(std::array{FRHITextureTransition{
+				OutputImage, WholeColor, ERHIAccess::ComputeShaderReadWrite,
+				ERHIAccess::ComputeShaderReadWrite}});
+			Commands.SwitchPipeline(ERHIPipeline::Compute);
+			Commands.SetComputePipelineState(*SecondPipeline);
+			Commands.PushConstants(EShaderStageFlags::Compute, 0,
+				sizeof(Increment), &Increment);
+			Commands.SetShaderParameters(SecondShader, Parameters);
+			Commands.Dispatch(4, 1, 1);
+			Commands.SwitchPipeline(ERHIPipeline::None);
+			Commands.TransitionTextures(std::array{FRHITextureTransition{
+				OutputImage, WholeColor, ERHIAccess::ComputeShaderReadWrite,
+				ERHIAccess::GraphicsShaderRead}});
+			FTextureViewRHIRef SampledOutput = GDynamicRHI->RHICreateTextureView(
+				OutputImage, MakeDefaultTextureViewDesc(*OutputImage,
+					ERHITextureViewUsage::Sampled));
+			ASSERT_TRUE(SampledOutput);
+			Commands.SwitchPipeline(ERHIPipeline::Graphics);
+			FRHIRenderPassInfo Pass;
+			Pass.RenderTargetLayout = RenderTargetLayout;
+			Pass.ColorRenderTargets[0] = GraphicsReadback;
+			Commands.BeginRenderPass(Pass, "ComputeGraphicsInteropPass");
+			Commands.SetGraphicsPipelineState(*GraphicsPipeline);
+			Commands.SetViewport(0, 0, 0, 4, 1, 1);
+			std::array SampleParameter{FRHIShaderParameterResource{
+				.Resource = SampledOutput.GetReference(), .SetIndex = 0,
+				.BindingIndex = 0, .Type = ERHIBindingType::Texture}};
+			Commands.SetShaderParameters(InteropFragment, SampleParameter);
+			Commands.Draw({.VertexCount = 3});
+			Commands.EndRenderPass();
+			Commands.SwitchPipeline(ERHIPipeline::None);
+			Commands.TransitionBuffers(std::array{FRHIBufferTransition{
+				OutputBuffer, 0, 16, ERHIAccess::ComputeShaderReadWrite,
+				ERHIAccess::TransferRead}});
+			Commands.TransitionTextures(std::array{
+				FRHITextureTransition{OutputImage, WholeColor,
+					ERHIAccess::GraphicsShaderRead, ERHIAccess::TransferRead},
+				FRHITextureTransition{BufferReadback, WholeColor,
+					ERHIAccess::Discard, ERHIAccess::TransferWrite}});
+			Commands.CopyBufferToTexture(OutputBuffer, BufferReadback,
+				std::array{FRHIBufferTextureCopyRegion{
+					.TextureExtent = {4, 1, 1}}});
+			Commands.TransitionTextures(std::array{FRHITextureTransition{
+				BufferReadback, WholeColor, ERHIAccess::TransferWrite,
+				ERHIAccess::TransferRead}});
+
+			std::vector<uint8> ImageBytes;
+			std::vector<uint8> BufferBytes;
+			std::vector<uint8> GraphicsBytes;
+			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
+				Commands, OutputImage, 0, 0, ImageBytes));
+			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
+				Commands, BufferReadback, 0, 0, BufferBytes));
+			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
+				Commands, GraphicsReadback, 0, 0, GraphicsBytes));
+			std::vector<uint8> Expected;
+			for (uint8 Index = 0; Index < 4; ++Index)
+				Expected.insert(Expected.end(), {
+					static_cast<uint8>(18 + Index),
+					static_cast<uint8>(34 + Index),
+					static_cast<uint8>(50 + Index), 255});
+			EXPECT_EQ(ImageBytes, Expected);
+			EXPECT_EQ(BufferBytes, Expected);
+			EXPECT_EQ(GraphicsBytes, Expected);
+			const FRHIPipelineCacheStatistics Stats =
+				GDynamicRHI->RHIGetPipelineCacheStatistics();
+			EXPECT_GE(Stats.ComputePipelines.NativeCreations, 1u);
+			EXPECT_GE(Stats.ComputePipelines.Hits, 1u);
+			EXPECT_GE(Stats.DescriptorSnapshots.Hits, 1u);
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			EXPECT_GE(Stats.ComputePipelines.FailedCandidates, 1u);
+#endif
 		}
 	}
 

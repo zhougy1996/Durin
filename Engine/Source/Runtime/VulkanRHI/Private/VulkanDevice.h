@@ -23,6 +23,7 @@ namespace Durin::VulkanRHI
 		uint32 MaxImageDimension2D = 0;
 		uint32 MaxImageDimensionCube = 0;
 		uint32 MaxImageArrayLayers = 0;
+		std::array<uint32, 3> MaxComputeWorkGroupCount = {};
 		bool bFillModeNonSolid = false;
 		bool bIndependentBlend = false;
 		bool bShaderDrawParameters = false;
@@ -62,6 +63,7 @@ namespace Durin::VulkanRHI
 	class FVulkanRenderPassManager;
 	class FVulkanPipelineManager;
 	class FVulkanGraphicsPipelineState;
+	class FVulkanComputePipelineState;
 	class FVulkanFrame;
 	class FVulkanGlobalDescriptorPool;
 	class FVulkanDescriptorSetLayoutCache;
@@ -227,6 +229,8 @@ namespace Durin::VulkanRHI
 		auto NotifyDeleted_Image(vk::Image Image) -> void;
 		auto NotifyDeleted_GraphicsPipeline(
 			FVulkanGraphicsPipelineState* PipelineState) -> void;
+		auto NotifyDeleted_ComputePipeline(
+			FVulkanComputePipelineState* PipelineState) -> void;
 
 	private:
 		auto Destroy() -> void;

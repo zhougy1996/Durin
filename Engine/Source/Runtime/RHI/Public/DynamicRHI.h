@@ -49,11 +49,12 @@ namespace Durin
 	};
 
 	// Snapshots graphics cache, descriptor-pool, and persistence behavior without a GPU wait.
-	struct FRHIGraphicsCacheStatistics
+	struct FRHIPipelineCacheStatistics
 	{
 		FRHICacheStatistics DescriptorSnapshots;
 		FRHICacheStatistics StructuralLayouts;
 		FRHICacheStatistics GraphicsPipelines;
+		FRHICacheStatistics ComputePipelines;
 		uint64 DescriptorValueCapacity = 0;
 		uint64 DescriptorValueOccupancy = 0;
 		uint64 DescriptorAllocations = 0;
@@ -63,6 +64,7 @@ namespace Durin
 		uint64 PersistentRejects = 0;
 		uint64 PersistentBytes = 0;
 	};
+	using FRHIGraphicsCacheStatistics = FRHIPipelineCacheStatistics;
 
 	enum class ERHIMemoryAllocationClass : uint8
 	{
@@ -198,6 +200,10 @@ namespace Durin
 		RHI_API virtual auto RHIGetGraphicsCacheStatistics() const -> FRHIGraphicsCacheStatistics;
 		// Clears accumulated counters while preserving capacities and live occupancy.
 		RHI_API virtual auto RHIResetGraphicsCacheStatistics() -> void;
+		// Pipeline-neutral cache snapshot; the graphics-named API remains a compatibility alias.
+		RHI_API virtual auto RHIGetPipelineCacheStatistics() const
+			-> FRHIPipelineCacheStatistics;
+		RHI_API virtual auto RHIResetPipelineCacheStatistics() -> void;
 		RHI_API virtual auto RHIGetMemoryStatistics() const -> FRHIMemoryStatistics;
 		RHI_API virtual auto RHIResetMemoryStatistics() -> void;
 		// Owner-thread snapshot; bounded and never waits for GPU completion.
@@ -222,6 +228,10 @@ namespace Durin
 		virtual auto RHIResizeViewport(FRHIViewport* InViewport, uint32 InSizeX, uint32 InSizeY, bool bIsFullscreen) -> void = 0;
 
 		virtual auto RHICreateGraphicsPipelineState(FName DebugName, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState> = 0;
+		// Creates one complete compute PSO or returns null after a recoverable diagnostic.
+		RHI_API virtual auto RHICreateComputePipelineState(FName DebugName,
+			const FComputePipelineStateInitializer& Initializer)
+			-> TRefCountPtr<FRHIComputePipelineState>;
 		virtual auto RHIGetDefaultContext() -> IRHICommandContext* = 0;
 		virtual auto RHIGetViewportBackBuffer(FRHIViewport* InViewportRHI) -> TRefCountPtr<FRHITexture> = 0;
 

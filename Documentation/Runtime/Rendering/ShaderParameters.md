@@ -29,9 +29,9 @@ The current design moves those responsibilities into the shader system:
 3. `FShader::InitializeParameterBindings()` resolves metadata fields to reflected bindings and stores the resolved result on the shader instance.
 4. Callers build a typed `FParameters` struct and call the typed `SetShaderParameters(...)` helper.
 5. The helper converts the typed struct into compact resolved `FRHIShaderParameterResource` entries.
-6. `FVulkanCommandListContext` merges those entries into pending draw-state bindings.
-7. `Draw()` or `DrawIndexed()` asks Vulkan to find or create descriptor sets for the current pending bindings and current pipeline layout.
-8. Vulkan binds the descriptor sets and submits the draw.
+6. `FVulkanCommandListContext` merges those entries into the active graphics or compute pending bindings.
+7. `Draw()`, `DrawIndexed()`, or `Dispatch()` materializes the complete descriptor snapshot for the active pipeline layout.
+8. Vulkan binds the descriptor sets at the matching graphics or compute bind point and submits the command.
 
 ## Public Types
 
@@ -162,7 +162,13 @@ RHI now exposes a single low-level resource-submission path:
 
 - `FRHICommandListBase::SetShaderParameters(FRHIShader*, span<FRHIShaderParameterResource>)`
 
-At this layer, bindings are already resolved. RHI no longer has a byte-blob parameter path and no longer expects callers to hand-build descriptor details in normal usage.
+At this layer, bindings are already resolved. RHI no longer has a byte-blob
+parameter path and no longer expects callers to hand-build descriptor details
+in normal usage. Graphics updates accept vertex or fragment shaders owned by
+the active graphics PSO; compute updates accept only the compute shader owned by
+the active compute PSO. Both paths retain canonical views and parent resources
+through replay and require every reflected descriptor element before draw or
+dispatch.
 
 ## Vulkan Responsibilities
 

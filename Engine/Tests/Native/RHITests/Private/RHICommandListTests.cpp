@@ -165,6 +165,10 @@ namespace Durin
 			{
 				Operations.emplace_back("PipelineState");
 			}
+			auto RHISetComputePipelineState(FRHIComputePipelineState&) -> void override
+			{
+				Operations.emplace_back("ComputePipelineState");
+			}
 			auto RHIBindVertexBuffer(uint32, FRHIBuffer*, uint32) -> void override
 			{
 				Operations.emplace_back("VertexBuffer");
@@ -294,6 +298,11 @@ namespace Durin
 				Operations.emplace_back("Draw" + std::to_string(Arguments.IndexCount));
 				ObservedDrawIndexedArguments = Arguments;
 			}
+			auto RHIDispatch(uint32 X, uint32 Y, uint32 Z) -> void override
+			{
+				Operations.emplace_back("Dispatch");
+				ObservedDispatch = {X, Y, Z};
+			}
 
 			std::vector<std::string> Operations;
 			FRHIGPUTimingQuery* ObservedTimingQuery = nullptr;
@@ -306,6 +315,7 @@ namespace Durin
 			std::vector<FRHIShaderParameterResource> ObservedShaderParameters;
 			std::optional<FRHIDrawArguments> ObservedDrawArguments;
 			std::optional<FRHIDrawIndexedArguments> ObservedDrawIndexedArguments;
+			std::optional<std::array<uint32, 3>> ObservedDispatch;
 			FRHIBuffer* ObservedBuffer = nullptr;
 			uint32 ObservedBufferOffset = 0;
 			std::vector<uint8> ObservedBufferData;
@@ -1297,6 +1307,107 @@ namespace Durin
 		EXPECT_EQ(Buffer->GetRefCount(), 1u);
 		EXPECT_EQ(Shader->GetRefCount(), 1u);
 		EXPECT_EQ(PipelineState->GetRefCount(), 1u);
+	}
+
+	TEST(FRHICommandListTests, ComputePayloadsReplayInOrderAndRetainOwners)
+	{
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		FRHICommandListImmediate& Immediate = Executor.GetImmediateCommandList();
+		FComputePipelineStateRHIRef Pipeline =
+			MakeRefCount<FRHIComputePipelineState>();
+		FShaderRHIRef Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(
+			EShaderFrequency::Compute, FXxHash128{17, 0}));
+		FBufferRHIRef Buffer = MakeRefCount<FRHIBuffer>(
+			FRHIBufferCreateDesc::Create("ComputeBuffer", 64, 4,
+				EBufferUsageFlags::StructuredBuffer
+					| EBufferUsageFlags::UnorderedAccess));
+		std::array<uint32, 1> Push{23};
+		std::vector<FRHIShaderParameterResource> Parameters{{
+			.Resource = Buffer.GetReference(), .SetIndex = 0, .BindingIndex = 0,
+			.Type = ERHIBindingType::StorageBuffer, .Size = 64}};
+
+		Immediate.SwitchPipeline(ERHIPipeline::Compute);
+		Immediate.SetComputePipelineState(*Pipeline);
+		Immediate.SetShaderParameters(Shader.GetReference(), Parameters);
+		Immediate.PushConstants(EShaderStageFlags::Compute, 0, sizeof(Push), Push.data());
+		Immediate.Dispatch(3, 2, 1);
+		Parameters[0].Resource = nullptr;
+		Push[0] = 99;
+		EXPECT_GT(Pipeline->GetRefCount(), 1u);
+		EXPECT_GT(Shader->GetRefCount(), 1u);
+		EXPECT_GT(Buffer->GetRefCount(), 1u);
+
+		Executor.Submit({}, ERHISubmitFlags::None);
+
+		EXPECT_EQ(Context.Operations,
+			(std::vector<std::string>{"ComputePipelineState", "ShaderParameters",
+				"PushConstants", "Dispatch"}));
+		EXPECT_EQ(Context.ObservedDispatch,
+			(std::optional<std::array<uint32, 3>>{{3, 2, 1}}));
+		EXPECT_EQ(Context.ObservedPushConstants,
+			(std::vector<uint8>{23, 0, 0, 0}));
+		ASSERT_EQ(Context.ObservedShaderParameters.size(), 1u);
+		EXPECT_EQ(static_cast<FRHIBufferView*>(
+			Context.ObservedShaderParameters[0].Resource)->GetBuffer(),
+			Buffer.GetReference());
+	}
+
+	TEST(FRHICommandListTests, ComputePipelineKeysUseCanonicalLayoutIdentity)
+	{
+		FShaderRHIRef ComputeShader = MakeRefCount<FRHIShader>(FRHIShaderDesc(
+			EShaderFrequency::Compute, FXxHash128{31, 7}));
+		FComputePipelineStateInitializer First;
+		First.ComputeShader = ComputeShader;
+		First.PipelineLayout.BindingLayouts.resize(1);
+		First.PipelineLayout.BindingLayouts[0].BindingLayouts = {
+			{EShaderStageFlags::Compute, 3, ERHIBindingType::StorageImage},
+			{EShaderStageFlags::Compute, 1, ERHIBindingType::StorageBuffer}};
+		FComputePipelineStateInitializer Second = First;
+		std::ranges::reverse(
+			Second.PipelineLayout.BindingLayouts[0].BindingLayouts);
+		FComputePipelineStateKey FirstKey;
+		FComputePipelineStateKey SecondKey;
+		std::string Error;
+		ASSERT_TRUE(BuildComputePipelineStateKey(First, nullptr, FirstKey, Error))
+			<< Error;
+		ASSERT_TRUE(BuildComputePipelineStateKey(Second, nullptr, SecondKey, Error))
+			<< Error;
+		EXPECT_EQ(FirstKey, SecondKey);
+		EXPECT_EQ(FComputePipelineStateKeyHasher{}(FirstKey),
+			FComputePipelineStateKeyHasher{}(SecondKey));
+
+		FComputePipelineStateInitializer Invalid = First;
+		Invalid.ComputeShader = nullptr;
+		EXPECT_FALSE(BuildComputePipelineStateKey(
+			Invalid, nullptr, FirstKey, Error));
+		Invalid = First;
+		Invalid.PipelineLayout.BindingLayouts[0].BindingLayouts[0].StageFlags =
+			EShaderStageFlags::Fragment;
+		EXPECT_FALSE(BuildComputePipelineStateKey(
+			Invalid, nullptr, FirstKey, Error));
+		Invalid = First;
+		Invalid.PipelineLayout.PushConstantRanges = {
+			{EShaderStageFlags::Compute, 0, 8},
+			{EShaderStageFlags::Compute, 4, 8}};
+		EXPECT_FALSE(BuildComputePipelineStateKey(
+			Invalid, nullptr, FirstKey, Error));
+	}
+
+	TEST(FRHICommandListTests, RejectsInvalidComputePipelineCombinations)
+	{
+#if DO_CHECK
+		FComputePipelineStateRHIRef Pipeline =
+			MakeRefCount<FRHIComputePipelineState>();
+		EXPECT_DEATH(FRHICommandList().SetComputePipelineState(*Pipeline), "");
+		FRHICommandList Compute;
+		Compute.SwitchPipeline(ERHIPipeline::Compute);
+		EXPECT_DEATH(Compute.Draw({.VertexCount = 1}), "");
+		EXPECT_DEATH(Compute.Dispatch(0, 1, 1), "");
+		FRHICommandList Graphics;
+		Graphics.SwitchPipeline(ERHIPipeline::Graphics);
+		EXPECT_DEATH(Graphics.SetComputePipelineState(*Pipeline), "");
+#endif
 	}
 
 	TEST(FRHICommandListTests, ValidatesGraphicsPipelineAndRenderPassBalance)

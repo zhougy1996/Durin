@@ -75,6 +75,10 @@ namespace Durin::VulkanRHI
 		CapabilityCandidate.MinStorageBufferOffsetAlignment = static_cast<uint32>(
 			std::max<vk::DeviceSize>(16, Limits.minStorageBufferOffsetAlignment));
 		CapabilityCandidate.MaxStorageBufferRange = Limits.maxStorageBufferRange;
+		CapabilityCandidate.MaxComputeWorkGroupCount = {
+			Limits.maxComputeWorkGroupCount[0],
+			Limits.maxComputeWorkGroupCount[1],
+			Limits.maxComputeWorkGroupCount[2]};
 		const vk::PhysicalDeviceFeatures Features = Device->GetGpu().getFeatures();
 		CapabilityCandidate.bSupportsNonSolidFill = Features.fillModeNonSolid == vk::True;
 		CapabilityCandidate.bSupportsDepthClamp = Features.depthClamp == vk::True;
@@ -557,6 +561,10 @@ namespace Durin::VulkanRHI
 			Candidate.Input.MaxImageDimension2D = Properties.limits.maxImageDimension2D;
 			Candidate.Input.MaxImageDimensionCube = Properties.limits.maxImageDimensionCube;
 			Candidate.Input.MaxImageArrayLayers = Properties.limits.maxImageArrayLayers;
+			Candidate.Input.MaxComputeWorkGroupCount = {
+				Properties.limits.maxComputeWorkGroupCount[0],
+				Properties.limits.maxComputeWorkGroupCount[1],
+				Properties.limits.maxComputeWorkGroupCount[2]};
 			Candidate.Input.bFillModeNonSolid = Features.fillModeNonSolid == vk::True;
 			Candidate.Input.bIndependentBlend = Features.independentBlend == vk::True;
 			for (const vk::ExtensionProperties& Extension : Gpu.enumerateDeviceExtensionProperties())

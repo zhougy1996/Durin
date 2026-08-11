@@ -129,6 +129,7 @@ namespace Durin
 			switch (Pipeline)
 			{
 			case ERHIPipeline::Graphics:
+			case ERHIPipeline::Compute:
 				if (GraphicsContextOverride)
 				{
 					ActiveContext = GraphicsContextOverride;
@@ -136,11 +137,11 @@ namespace Durin
 				else
 				{
 					checkf(GDynamicRHI,
-						"SwitchPipeline(Graphics) replay requires an initialized dynamic RHI.");
+						"SwitchPipeline replay requires an initialized dynamic RHI.");
 					ActiveContext = GDynamicRHI->RHIGetDefaultContext();
 				}
 				checkf(ActiveContext,
-					"SwitchPipeline(Graphics) replay could not resolve a graphics context.");
+					"SwitchPipeline replay could not resolve a shared command context.");
 				break;
 			case ERHIPipeline::None:
 				ActiveContext = nullptr;
@@ -157,6 +158,23 @@ namespace Durin
 		{
 			checkf(ActivePipeline == ERHIPipeline::Graphics && ActiveContext,
 				"%s replay requires an active graphics pipeline.", CommandName);
+			return *ActiveContext;
+		}
+
+		auto GetComputeContext(const char* CommandName) const
+			-> IRHICommandContext&
+		{
+			checkf(ActivePipeline == ERHIPipeline::Compute && ActiveContext,
+				"%s replay requires an active compute pipeline.", CommandName);
+			return *ActiveContext;
+		}
+
+		auto GetPipelineContext(const char* CommandName) const
+			-> IRHICommandContext&
+		{
+			checkf((ActivePipeline == ERHIPipeline::Graphics
+				|| ActivePipeline == ERHIPipeline::Compute) && ActiveContext,
+				"%s replay requires an active graphics or compute pipeline.", CommandName);
 			return *ActiveContext;
 		}
 
@@ -642,6 +660,24 @@ namespace Durin
 			TRefCountPtr<FRHIGraphicsPipelineState> State;
 		};
 
+		struct FSetComputePipelineStateCommand
+		{
+			explicit FSetComputePipelineStateCommand(
+				FRHIComputePipelineState& InState)
+				: State(&InState)
+			{
+			}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetComputeContext("SetComputePipelineState")
+					.RHISetComputePipelineState(*State);
+			}
+
+			TRefCountPtr<FRHIComputePipelineState> State;
+		};
+
 		struct FBindVertexBufferCommand
 		{
 			FBindVertexBufferCommand(
@@ -844,6 +880,22 @@ namespace Durin
 			FRHIDrawIndexedArguments Arguments;
 		};
 
+		struct FDispatchCommand
+		{
+			FDispatchCommand(uint32 InX, uint32 InY, uint32 InZ)
+				: X(InX), Y(InY), Z(InZ) {}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext).GetComputeContext("Dispatch")
+					.RHIDispatch(X, Y, Z);
+			}
+
+			uint32 X;
+			uint32 Y;
+			uint32 Z;
+		};
+
 		struct FSetViewportCommand
 		{
 			FSetViewportCommand(float A, float B, float C, float D, float E, float F)
@@ -897,7 +949,7 @@ namespace Durin
 			auto Execute(void* ReplayContext) -> void
 			{
 				GetReplayContext(ReplayContext)
-					.GetGraphicsContext("PushConstants")
+					.GetPipelineContext("PushConstants")
 					.RHIPushConstants(
 						StageFlags, Offset, static_cast<uint32>(Data.size()), Data.data());
 			}
@@ -1075,7 +1127,7 @@ namespace Durin
 			auto Execute(void* ReplayContext) -> void
 			{
 				GetReplayContext(ReplayContext)
-					.GetGraphicsContext("SetShaderParameters")
+					.GetPipelineContext("SetShaderParameters")
 					.RHISetShaderParameters(Shader.GetReference(), Parameters);
 			}
 
@@ -1267,6 +1319,7 @@ namespace Durin
 		: Storage(std::move(Other.Storage))
 		, RecordingState(Other.RecordingState)
 		, ActivePipeline(Other.ActivePipeline)
+		, ActiveComputePipelineState(Other.ActiveComputePipelineState)
 		, bInsideRenderPass(Other.bInsideRenderPass)
 		, DiagnosticRegionDepth(Other.DiagnosticRegionDepth)
 		, RenderPassDiagnosticRegionDepth(Other.RenderPassDiagnosticRegionDepth)
@@ -1275,6 +1328,7 @@ namespace Durin
 	{
 		Other.RecordingState = ERecordingState::MovedFrom;
 		Other.ActivePipeline = ERHIPipeline::None;
+		Other.ActiveComputePipelineState = nullptr;
 		Other.bInsideRenderPass = false;
 		Other.DiagnosticRegionDepth = 0;
 		Other.RenderPassDiagnosticRegionDepth = 0;
@@ -1292,6 +1346,7 @@ namespace Durin
 			Storage = std::move(Other.Storage);
 			RecordingState = Other.RecordingState;
 			ActivePipeline = Other.ActivePipeline;
+			ActiveComputePipelineState = Other.ActiveComputePipelineState;
 			bInsideRenderPass = Other.bInsideRenderPass;
 			DiagnosticRegionDepth = Other.DiagnosticRegionDepth;
 			RenderPassDiagnosticRegionDepth = Other.RenderPassDiagnosticRegionDepth;
@@ -1299,6 +1354,7 @@ namespace Durin
 			ActiveGPUTimingReservation = std::move(Other.ActiveGPUTimingReservation);
 			Other.RecordingState = ERecordingState::MovedFrom;
 			Other.ActivePipeline = ERHIPipeline::None;
+			Other.ActiveComputePipelineState = nullptr;
 			Other.bInsideRenderPass = false;
 			Other.DiagnosticRegionDepth = 0;
 			Other.RenderPassDiagnosticRegionDepth = 0;
@@ -1424,6 +1480,7 @@ namespace Durin
 		}
 		RecordCommand<FSwitchPipelineCommand>(Pipeline);
 		ActivePipeline = Pipeline;
+		ActiveComputePipelineState = nullptr;
 	}
 
 	auto FRHICommandListBase::BeginDiagnosticRegion(std::string_view Name) -> void
@@ -1521,6 +1578,17 @@ namespace Durin
 		checkf(ActivePipeline == ERHIPipeline::Graphics,
 			"SetGraphicsPipelineState requires an active graphics pipeline while recording.");
 		RecordCommand<FSetGraphicsPipelineStateCommand>(State);
+	}
+
+	auto FRHICommandListBase::SetComputePipelineState(
+		FRHIComputePipelineState& State) -> void
+	{
+		checkf(ActivePipeline == ERHIPipeline::Compute,
+			"SetComputePipelineState requires an active compute pipeline while recording.");
+		checkf(!bInsideRenderPass,
+			"SetComputePipelineState cannot be recorded inside a render pass.");
+		RecordCommand<FSetComputePipelineStateCommand>(State);
+		ActiveComputePipelineState = &State;
 	}
 
 	auto FRHICommandListBase::BindVertexBuffer(uint32 StreamIndex, FRHIBuffer* VertexBuffer, uint32 Offset) -> void
@@ -1629,6 +1697,29 @@ namespace Durin
 			.VertexOffset = VertexOffset});
 	}
 
+	auto FRHICommandListBase::Dispatch(uint32 GroupCountX,
+		uint32 GroupCountY, uint32 GroupCountZ) -> void
+	{
+		checkf(ActivePipeline == ERHIPipeline::Compute,
+			"Dispatch requires an active compute pipeline while recording.");
+		checkf(!bInsideRenderPass,
+			"Dispatch cannot be recorded inside a render pass.");
+		checkf(ActiveComputePipelineState,
+			"Dispatch requires an active compute pipeline state while recording.");
+		const FRHICapabilities* Capabilities = GDynamicRHI
+			? GDynamicRHI->RHIGetCapabilities() : nullptr;
+		const std::array Counts{GroupCountX, GroupCountY, GroupCountZ};
+		for (size_t Axis = 0; Axis < Counts.size(); ++Axis)
+		{
+			checkf(Counts[Axis] != 0,
+				"Dispatch group counts must be nonzero.");
+			checkf(!Capabilities
+				|| Counts[Axis] <= Capabilities->MaxComputeWorkGroupCount[Axis],
+				"Dispatch group count exceeds the published device limit.");
+		}
+		RecordCommand<FDispatchCommand>(GroupCountX, GroupCountY, GroupCountZ);
+	}
+
 	auto FRHICommandListBase::SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void
 	{
 		checkf(ActivePipeline == ERHIPipeline::Graphics,
@@ -1681,15 +1772,23 @@ namespace Durin
 
 	auto FRHICommandListBase::PushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void
 	{
-		checkf(ActivePipeline == ERHIPipeline::Graphics,
-			"PushConstants requires an active graphics pipeline while recording.");
+		checkf(ActivePipeline == ERHIPipeline::Graphics
+			|| ActivePipeline == ERHIPipeline::Compute,
+			"PushConstants requires an active graphics or compute pipeline while recording.");
+		checkf(ActivePipeline != ERHIPipeline::Compute
+			|| StageFlags == EShaderStageFlags::Compute,
+			"Compute push constants require compute-only stage visibility.");
 		RecordCommand<FPushConstantsCommand>(StageFlags, Offset, Size, Data);
 	}
 
 	auto FRHICommandListBase::SetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void
 	{
-		checkf(ActivePipeline == ERHIPipeline::Graphics,
-			"SetShaderParameters requires an active graphics pipeline while recording.");
+		checkf(ActivePipeline == ERHIPipeline::Graphics
+			|| ActivePipeline == ERHIPipeline::Compute,
+			"SetShaderParameters requires an active graphics or compute pipeline while recording.");
+		checkf(ActivePipeline != ERHIPipeline::Compute || (InShader
+			&& InShader->GetFrequency() == EShaderFrequency::Compute),
+			"Compute shader parameters require a compute shader.");
 		std::vector<FRHIShaderParameterResource> CanonicalParameters;
 		std::vector<TRefCountPtr<FRHIResource>> CreatedViews;
 		CanonicalizeShaderParameters(InResourceParameters, CanonicalParameters, CreatedViews);

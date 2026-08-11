@@ -62,6 +62,10 @@ namespace Durin::VulkanRHI
 			Result.RejectionReasons.emplace_back("maxImageDimensionCube is zero");
 		if (Input.MaxImageArrayLayers < TextureCubeFaceCount)
 			Result.RejectionReasons.emplace_back("maxImageArrayLayers is below six");
+		if (std::ranges::any_of(Input.MaxComputeWorkGroupCount,
+			[](uint32 Limit) { return Limit == 0; }))
+			Result.RejectionReasons.emplace_back(
+				"maxComputeWorkGroupCount contains a zero limit");
 		for (uint32 Index = 0; Index < Input.QueueFamilies.size(); ++Index)
 		{
 			const FVulkanQueueFamilyCandidate& Queue = Input.QueueFamilies[Index];
@@ -336,6 +340,7 @@ namespace Durin::VulkanRHI
 		GraphicsCacheStatistics.DescriptorValueCapacity = 8192;
 		GraphicsCacheStatistics.StructuralLayouts.Capacity = 256;
 		GraphicsCacheStatistics.GraphicsPipelines.Capacity = 2048;
+		GraphicsCacheStatistics.ComputePipelines.Capacity = 2048;
 
 		for (auto& Frame : Frames)
 		{
@@ -349,6 +354,8 @@ namespace Durin::VulkanRHI
 		const uint64 DescriptorValueOccupancy = GraphicsCacheStatistics.DescriptorValueOccupancy;
 		const uint64 LayoutOccupancy = GraphicsCacheStatistics.StructuralLayouts.Occupancy;
 		const uint64 PipelineOccupancy = GraphicsCacheStatistics.GraphicsPipelines.Occupancy;
+		const uint64 ComputePipelineOccupancy =
+			GraphicsCacheStatistics.ComputePipelines.Occupancy;
 		GraphicsCacheStatistics = {};
 		GraphicsCacheStatistics.DescriptorSnapshots.Capacity = 512;
 		GraphicsCacheStatistics.DescriptorSnapshots.Occupancy = DescriptorOccupancy;
@@ -358,6 +365,9 @@ namespace Durin::VulkanRHI
 		GraphicsCacheStatistics.StructuralLayouts.Occupancy = LayoutOccupancy;
 		GraphicsCacheStatistics.GraphicsPipelines.Capacity = 2048;
 		GraphicsCacheStatistics.GraphicsPipelines.Occupancy = PipelineOccupancy;
+		GraphicsCacheStatistics.ComputePipelines.Capacity = 2048;
+		GraphicsCacheStatistics.ComputePipelines.Occupancy =
+			ComputePipelineOccupancy;
 	}
 
 	auto FVulkanDevice::CreateDevice() -> void
@@ -537,6 +547,16 @@ namespace Durin::VulkanRHI
 		{
 			Context->NotifyDeleted_GraphicsPipeline(PipelineState);
 		}
+	}
+
+	auto FVulkanDevice::NotifyDeleted_ComputePipeline(
+		FVulkanComputePipelineState* PipelineState) -> void
+	{
+		CheckVulkanRHIThread();
+		if (ImmediateContext)
+			ImmediateContext->NotifyDeleted_ComputePipeline(PipelineState);
+		for (FVulkanCommandListContext* Context : CommandContexts)
+			Context->NotifyDeleted_ComputePipeline(PipelineState);
 	}
 
 	auto FVulkanDevice::Destroy() -> void

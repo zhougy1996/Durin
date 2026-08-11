@@ -4,23 +4,17 @@ Summary: Add backend-neutral compute PSO creation, reflected binding, direct dis
 
 Last reviewed: 2026-08-12
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-12
 
 ## Current Status
 
-Ready to implement Stage 0. The roadmap entry gate is satisfied: recorded RHI
-commands and dedicated-thread replay are stable, exact resource transitions
-cover compute read and read/write intent, Vulkan startup admits only a shared
-graphics/compute/present queue family, and raw Vulkan coverage proves compute
-shader compilation, storage descriptors, pipeline creation, dispatch, and
-readback on the supported device profile.
-
-The remaining path is bounded. Public RHI has no compute PSO type or factory,
-`SwitchPipeline(Compute)` is rejected during replay, parameters and push
-constants require graphics, and Vulkan has no compute pending state or public
-dispatch command. No queue-family, semaphore, ownership-transfer, render-graph,
-or asynchronous scheduling work is required by this plan.
+Completed on 2026-08-12. Public RHI now owns canonical compute PSO creation,
+recorded binding/push constants/direct dispatch, shared-immediate-context replay,
+compute descriptor state, exact dispatch limits, storage buffer/image results,
+compute-to-compute, compute-to-graphics, and copy/readback handoffs. Focused
+tests, both executor modes, the native aggregate, full Debug Editor build,
+validation-enabled hidden-window smoke, and documentation validation passed.
 
 ## Goal
 
@@ -127,21 +121,21 @@ Vulkan calls or a whole-device idle dependency.
 
 ### Stage 0: Freeze the public contract and baseline the missing path
 
-- [ ] Inventory every DynamicRHI implementation/test double, command replay
+- [x] Inventory every DynamicRHI implementation/test double, command replay
   seam, pending-state owner, cache statistic consumer, and native fixture that
   must change for the named compute API.
-- [ ] Record the focused rejection matrix for null/non-compute shaders,
+- [x] Record the focused rejection matrix for null/non-compute shaders,
   shader/layout stage mismatch, malformed descriptor arrays, overlapping or
   out-of-limit push constants, zero/over-limit dispatch dimensions, dispatch
   inside a render pass, graphics commands under compute, and compute commands
   under graphics.
-- [ ] Convert the existing raw Vulkan fixture into an explicit baseline: retain
+- [x] Convert the existing raw Vulkan fixture into an explicit baseline: retain
   it as backend proof until the public-RHI replacement passes, but prevent it
   from being counted as M2 completion evidence.
-- [ ] Inventory graphics pending-state fields and separate genuinely shared
+- [x] Inventory graphics pending-state fields and separate genuinely shared
   descriptor snapshot/layout mechanics from graphics-only dynamic and draw
   state before changing production code.
-- [ ] Confirm the exact Vulkan property source and public field names for the
+- [x] Confirm the exact Vulkan property source and public field names for the
   three direct-dispatch group-count limits, plus the startup rejection rule for
   unavailable or zero limits.
 
@@ -153,31 +147,31 @@ Vulkan calls or a whole-device idle dependency.
 
 ### Stage 1: Add compute capability, PSO identity, and complete-or-null creation
 
-- [ ] Add the three direct-dispatch group-count limits to `FRHICapabilities`,
+- [x] Add the three direct-dispatch group-count limits to `FRHICapabilities`,
   publish them from Vulkan startup, and cover unavailable/zero admission plus
   exact value publication in RHI initialization tests.
-- [ ] Add `FComputePipelineStateInitializer`, canonical key construction and
+- [x] Add `FComputePipelineStateInitializer`, canonical key construction and
   hashing, `FRHIComputePipelineState`, its RHI reference alias, forward
   declarations, and `RHICreateComputePipelineState`.
-- [ ] Add compile-time and validation tests for the compute initializer,
+- [x] Add compile-time and validation tests for the compute initializer,
   canonical key, resource/reference type, DynamicRHI factory, and all Stage 0
   initializer/capability rejection cases.
-- [ ] Validate the exact compute shader frequency, reflected descriptor layout,
+- [x] Validate the exact compute shader frequency, reflected descriptor layout,
   push-constant stage/range contract, and supported device limits before
   scheduling Vulkan creation.
-- [ ] Add `FVulkanComputePipelineState` with one structural layout, pipeline
+- [x] Add `FVulkanComputePipelineState` with one structural layout, pipeline
   layout, and native compute pipeline; keep native candidates local until all
   construction succeeds.
-- [ ] Route expected native failure through the existing fallible creation
+- [x] Route expected native failure through the existing fallible creation
   operation, roll back pipeline and layout handles exactly once, and keep later
   retry usable.
-- [ ] Add a bounded canonical compute-PSO cache beside the existing graphics
+- [x] Add a bounded canonical compute-PSO cache beside the existing graphics
   cache and reuse the driver pipeline cache and structural-layout cache.
-- [ ] Generalize `FRHIGraphicsCacheStatistics` and its getter/reset API to
+- [x] Generalize `FRHIGraphicsCacheStatistics` and its getter/reset API to
   pipeline-cache terminology, keep shared descriptor/layout counters
   aggregated, and expose separate graphics and compute PSO
   hit/miss/creation/eviction/failure occupancy.
-- [ ] Verify same-name/different-key separation, different-name/equal-key reuse,
+- [x] Verify same-name/different-key separation, different-name/equal-key reuse,
   full-cache eviction, cache pressure with externally owned entries, failure
   non-publication, deferred destruction, and orderly shutdown.
 
@@ -189,23 +183,23 @@ Vulkan calls or a whole-device idle dependency.
 
 ### Stage 2: Record, replay, bind, and dispatch compute work
 
-- [ ] Extend DynamicRHI context selection so graphics and compute both resolve
+- [x] Extend DynamicRHI context selection so graphics and compute both resolve
   to the supported shared immediate context while `None` resolves to no active
   context.
-- [ ] Teach command recording and replay to admit `SwitchPipeline(Compute)` and
+- [x] Teach command recording and replay to admit `SwitchPipeline(Compute)` and
   retain the active pipeline distinction without duplicating the underlying
   synchronous context.
-- [ ] Add `RHISetComputePipelineState`/`SetComputePipelineState` and
+- [x] Add `RHISetComputePipelineState`/`SetComputePipelineState` and
   `RHIDispatch`/`Dispatch` typed commands with PSO lifetime retention and exact
   recording-time/replay-time validation, including zero and over-limit group
   counts from the published capability snapshot.
-- [ ] Make push constants and shader-parameter recording pipeline-aware. Retain
+- [x] Make push constants and shader-parameter recording pipeline-aware. Retain
   graphics behavior and require compute-only stage/shader ownership on the
   compute path.
-- [ ] Add Vulkan compute pending state that binds the compute pipeline, applies
+- [x] Add Vulkan compute pending state that binds the compute pipeline, applies
   reflected descriptor snapshots with `eCompute` bind points and stage masks,
   validates required resource states, and emits `vkCmdDispatch`.
-- [ ] Clear incompatible pending state on PSO deletion, frame-generation reset,
+- [x] Clear incompatible pending state on PSO deletion, frame-generation reset,
   pipeline switches, and context reset without rescanning unrelated cache
   entries.
 
@@ -218,20 +212,20 @@ Vulkan calls or a whole-device idle dependency.
 
 ### Stage 3: Prove storage buffers, storage images, and consumer handoffs
 
-- [ ] Add a RenderCore compute shader type and typed parameters covering a
+- [x] Add a RenderCore compute shader type and typed parameters covering a
   storage buffer, storage image, sampled input, uniform range, and push
   constants; build its PSO layout exclusively from reflection.
-- [ ] Add a public-RHI storage-buffer dispatch whose output is transitioned to
+- [x] Add a public-RHI storage-buffer dispatch whose output is transitioned to
   transfer read and verified through the existing readback path without a
   whole-device idle memory dependency.
-- [ ] Add consecutive compute dispatches with an explicit write-to-read/write
+- [x] Add consecutive compute dispatches with an explicit write-to-read/write
   transition and deterministic second-pass output.
-- [ ] Add a public-RHI storage-image dispatch and validate exact mip/layer view
+- [x] Add a public-RHI storage-image dispatch and validate exact mip/layer view
   state, output bytes, and descriptor layout.
-- [ ] Add compute-write to graphics-read coverage using a bounded test draw,
+- [x] Add compute-write to graphics-read coverage using a bounded test draw,
   proving the same resource-state authority and descriptor snapshot survive a
   compute-to-graphics pipeline switch.
-- [ ] Exercise partial ranges, missing/incorrect transitions, mismatched views,
+- [x] Exercise partial ranges, missing/incorrect transitions, mismatched views,
   missing descriptors, resource replacement, cache hits, and recorded-command
   lifetime until submission completion.
 
@@ -244,23 +238,23 @@ Vulkan calls or a whole-device idle dependency.
 
 ### Stage 4: Qualify both executors and publish the lasting contract
 
-- [ ] Run focused `RHITests`, `RenderCoreTests`, and `VulkanRHITests` coverage
+- [x] Run focused `RHITests`, `RenderCoreTests`, and `VulkanRHITests` coverage
   through the root [build and run](../Development/Build/BuildAndRun.md)
   workflow, first in the default dedicated-thread mode and then with
   `DURIN_RHI_EXECUTION=inline` for the compute vertical slice.
-- [ ] Because the change crosses RHI, RenderCore, VulkanRHI, recorded command
+- [x] Because the change crosses RHI, RenderCore, VulkanRHI, recorded command
   infrastructure, and multiple native targets, run the native aggregate at
   default target granularity and a successful full `all` build.
-- [ ] Run a validation-enabled hidden-window Debug Editor smoke from the same
+- [x] Run a validation-enabled hidden-window Debug Editor smoke from the same
   Agent Build Profile, including startup, several frames, and orderly shutdown.
-- [ ] Remove or narrow the raw Vulkan compute test once every behavior it proves
+- [x] Remove or narrow the raw Vulkan compute test once every behavior it proves
   has a public-RHI owner; retain only backend-native failure/translation
   coverage that cannot be expressed portably.
-- [ ] Publish the stable compute PSO, binding, dispatch, synchronization,
+- [x] Publish the stable compute PSO, binding, dispatch, synchronization,
   cache/lifetime, and synchronous-queue contract under
   `Documentation/Runtime/Rendering/` and remove compute limitations that are no
   longer true from shader-parameter documentation.
-- [ ] Mark M2 complete in the
+- [x] Mark M2 complete in the
   [Compute Shader Pipeline roadmap](../Roadmaps/ComputeShaderPipeline.md) and
   record the M3 entry state without selecting its renderer consumer here.
 

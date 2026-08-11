@@ -293,6 +293,14 @@ namespace Durin
 			IgnoredError);
 	}
 
+	auto FComputePipelineStateInitializer::IsValid() const -> bool
+	{
+		FComputePipelineStateKey IgnoredKey;
+		std::string IgnoredError;
+		return BuildComputePipelineStateKey(*this, nullptr, IgnoredKey,
+			IgnoredError);
+	}
+
 	auto ValidateShaderParameterUpdate(const FPipelineLayoutDesc& Layout,
 		EShaderStageFlags ShaderStage,
 		std::span<const FRHIShaderParameterResource> Resources,
@@ -303,7 +311,8 @@ namespace Durin
 			return false;
 		};
 		if (ShaderStage != EShaderStageFlags::Vertex
-			&& ShaderStage != EShaderStageFlags::Fragment)
+			&& ShaderStage != EShaderStageFlags::Fragment
+			&& ShaderStage != EShaderStageFlags::Compute)
 			return Fail("Shader parameter update stage is invalid.");
 		for (const FRHIShaderParameterResource& Resource : Resources)
 		{
@@ -634,6 +643,97 @@ namespace Durin
 			HashValue(Builder, Blend.ColorWriteMask);
 		}
 		HashValue(Builder, Key.PrimitiveTopology);
+		return static_cast<size_t>(Builder.Finalize().HashValue);
+	}
+
+	auto BuildComputePipelineStateKey(
+		const FComputePipelineStateInitializer& Initializer,
+		const FRHICapabilities* Capabilities,
+		FComputePipelineStateKey& OutKey,
+		std::string& OutError) -> bool
+	{
+		auto Fail = [&OutError](const char* Message) {
+			OutError = Message;
+			return false;
+		};
+		if (!Initializer.ComputeShader)
+			return Fail("Compute pipeline requires a compute shader.");
+		if (Initializer.ComputeShader->GetFrequency() != EShaderFrequency::Compute)
+			return Fail("Compute pipeline shader stage does not match its slot.");
+		for (const FBindingLayout& Set : Initializer.PipelineLayout.BindingLayouts)
+		{
+			std::unordered_set<uint32> Slots;
+			for (const FBindingLayoutItem& Binding : Set.BindingLayouts)
+			{
+				if (Binding.StageFlags != EShaderStageFlags::Compute
+					|| Binding.Type > ERHIBindingType::StorageImage
+					|| Binding.ArraySize == 0
+					|| !Slots.insert(Binding.Slot).second)
+					return Fail("Compute pipeline reflected layout is structurally invalid.");
+			}
+		}
+		for (size_t Index = 0;
+			Index < Initializer.PipelineLayout.PushConstantRanges.size(); ++Index)
+		{
+			const FPushConstantRange& Range =
+				Initializer.PipelineLayout.PushConstantRanges[Index];
+			if (Range.StageFlags != EShaderStageFlags::Compute || Range.Size == 0
+				|| (Range.Offset % 4) != 0 || (Range.Size % 4) != 0)
+				return Fail("Compute pipeline push-constant layout is structurally invalid.");
+			for (size_t OtherIndex = Index + 1;
+				OtherIndex < Initializer.PipelineLayout.PushConstantRanges.size();
+				++OtherIndex)
+			{
+				const FPushConstantRange& Other =
+					Initializer.PipelineLayout.PushConstantRanges[OtherIndex];
+				if (RangesOverlap(Range.Offset, Range.Size, Other.Offset, Other.Size))
+					return Fail("Compute pipeline push-constant ranges overlap.");
+			}
+		}
+		if (Capabilities && std::ranges::any_of(
+			Capabilities->MaxComputeWorkGroupCount,
+			[](uint32 Limit) { return Limit == 0; }))
+			return Fail("Compute dispatch limits are unavailable.");
+
+		FComputePipelineStateKey Key;
+		Key.ComputeShaderHash = Initializer.ComputeShader->GetHash();
+		Key.PipelineLayout = Initializer.PipelineLayout;
+		for (FBindingLayout& Set : Key.PipelineLayout.BindingLayouts)
+			std::ranges::sort(Set.BindingLayouts, {}, &FBindingLayoutItem::Slot);
+		std::ranges::sort(Key.PipelineLayout.PushConstantRanges,
+			[](const FPushConstantRange& A, const FPushConstantRange& B) {
+				return std::tie(A.Offset, A.Size, A.StageFlags)
+					< std::tie(B.Offset, B.Size, B.StageFlags);
+			});
+		OutKey = std::move(Key);
+		OutError.clear();
+		return true;
+	}
+
+	auto FComputePipelineStateKeyHasher::operator()(
+		const FComputePipelineStateKey& Key) const -> size_t
+	{
+		FXxHash64Builder Builder;
+		HashValue(Builder, Key.ComputeShaderHash);
+		HashValue(Builder, Key.PipelineLayout.BindingLayouts.size());
+		for (const FBindingLayout& Set : Key.PipelineLayout.BindingLayouts)
+		{
+			HashValue(Builder, Set.BindingLayouts.size());
+			for (const FBindingLayoutItem& Binding : Set.BindingLayouts)
+			{
+				HashValue(Builder, Binding.StageFlags);
+				HashValue(Builder, Binding.Slot);
+				HashValue(Builder, Binding.Type);
+				HashValue(Builder, Binding.ArraySize);
+			}
+		}
+		HashValue(Builder, Key.PipelineLayout.PushConstantRanges.size());
+		for (const FPushConstantRange& Range : Key.PipelineLayout.PushConstantRanges)
+		{
+			HashValue(Builder, Range.StageFlags);
+			HashValue(Builder, Range.Offset);
+			HashValue(Builder, Range.Size);
+		}
 		return static_cast<size_t>(Builder.Finalize().HashValue);
 	}
 

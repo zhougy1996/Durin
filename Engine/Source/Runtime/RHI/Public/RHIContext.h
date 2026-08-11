@@ -7,6 +7,7 @@ namespace Durin
 {
 	struct FRHIRenderPassInfo;
 	class FRHIGraphicsPipelineState;
+	class FRHIComputePipelineState;
 	class FRHIViewport;
 	class FRHITexture;
 	class FRHIGPUTimingQuery;
@@ -30,6 +31,10 @@ namespace Durin
 		virtual auto RHISetViewport(float InMinX, float InMinY, float InMinZ, float InMaxX, float InMaxY, float InMaxZ) -> void = 0;
 		virtual auto RHISetScissor(float InMinX, float InMinY, float InWidth, float InHeight) -> void = 0;
 		virtual auto RHISetGraphicsPipelineState(FRHIGraphicsPipelineState& InGraphicsPipelineState) -> void = 0;
+		virtual auto RHISetComputePipelineState(FRHIComputePipelineState&) -> void
+		{
+			checkf(false, "This RHI context does not support compute pipelines.");
+		}
 		virtual auto RHIBindVertexBuffer(uint32 StreamIndex, FRHIBuffer* VertexBuffer, uint32 Offset) -> void = 0;
 		virtual auto RHIBindIndexBuffer(FRHIBuffer* IndexBuffer, uint32 Offset) -> void = 0;
 		virtual auto RHITransitionBuffers(std::span<const FRHIBufferTransition> Transitions) -> void = 0;
@@ -55,5 +60,9 @@ namespace Durin
 		virtual auto RHISetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void = 0;
 		virtual auto RHIDraw(const FRHIDrawArguments& Arguments) -> void = 0;
 		virtual auto RHIDrawIndexed(const FRHIDrawIndexedArguments& Arguments) -> void = 0;
+		virtual auto RHIDispatch(uint32, uint32, uint32) -> void
+		{
+			checkf(false, "This RHI context does not support compute dispatch.");
+		}
 	};
 }

@@ -18,6 +18,7 @@ namespace Durin
 		uint32 MaxColorAttachments = 0;
 		uint32 MinStorageBufferOffsetAlignment = 0;
 		uint32 MaxStorageBufferRange = 0;
+		std::array<uint32, 3> MaxComputeWorkGroupCount = {};
 		bool bSupportsNonSolidFill = false;
 		bool bSupportsDepthClamp = false;
 		bool bSupportsWideLines = false;

@@ -13,6 +13,252 @@
 
 namespace Durin::VulkanRHI
 {
+	auto FVulkanPendingComputeState::SetComputePipelineState(
+		FVulkanComputePipelineState& InPipelineState,
+		vk::CommandBuffer InCmdBuffer) -> void
+	{
+		if (CurrentPipelineState != &InPipelineState)
+		{
+			PendingResources.clear();
+			PendingOwners.clear();
+			ClearDescriptorSetCache();
+		}
+		CurrentPipelineState = &InPipelineState;
+		CurrentPipelineState->Bind(InCmdBuffer);
+	}
+
+	auto FVulkanPendingComputeState::SetShaderParameters(FRHIShader* InShader,
+		std::span<FRHIShaderParameterResource> InResourceParameters) -> void
+	{
+		check(CurrentPipelineState && InShader);
+		const FComputePipelineStateKey& Key = CurrentPipelineState->GetKey();
+		checkf(InShader->GetFrequency() == EShaderFrequency::Compute
+			&& InShader->GetHash() == Key.ComputeShaderHash,
+			"Shader parameter update does not belong to the active compute pipeline.");
+		std::string Error;
+		checkf(ValidateShaderParameterUpdate(Key.PipelineLayout,
+			EShaderStageFlags::Compute, InResourceParameters, Error),
+			"Invalid compute shader parameter update: {}", Error);
+		for (const FRHIShaderParameterResource& Parameter : InResourceParameters)
+		{
+			const auto It = std::ranges::find_if(PendingResources,
+				[&](const FRHIShaderParameterResource& Existing) {
+					return Existing.SetIndex == Parameter.SetIndex
+						&& Existing.BindingIndex == Parameter.BindingIndex
+						&& Existing.ArrayElement == Parameter.ArrayElement;
+				});
+			if (It == PendingResources.end()) PendingResources.push_back(Parameter);
+			else *It = Parameter;
+		}
+		PendingOwners.clear();
+		PendingOwners.reserve(PendingResources.size());
+		for (FRHIShaderParameterResource& Resource : PendingResources)
+		{
+			PendingOwners.emplace_back(Resource.Resource);
+			Resource.Resource = PendingOwners.back().GetReference();
+		}
+	}
+
+	auto FVulkanPendingComputeState::PushConstants(
+		FVulkanCommandListContext& InContext, EShaderStageFlags StageFlags,
+		uint32 Offset, uint32 Size, const void* Data) -> void
+	{
+		check(CurrentPipelineState);
+		checkf(StageFlags == EShaderStageFlags::Compute,
+			"Compute push constants require compute stage visibility.");
+		checkf(Data && Size > 0 && Offset <= std::numeric_limits<uint32>::max() - Size,
+			"Compute push constants require one nonempty valid byte range.");
+		const auto& Ranges = CurrentPipelineState->GetKey()
+			.PipelineLayout.PushConstantRanges;
+		checkf(std::ranges::any_of(Ranges,
+			[&](const FPushConstantRange& Range) {
+				return Range.StageFlags == EShaderStageFlags::Compute
+					&& Offset >= Range.Offset
+					&& Offset + Size <= Range.Offset + Range.Size;
+			}), "Compute push constants are outside the active pipeline layout.");
+		CurrentPipelineState->PushConstants(InContext, StageFlags, Offset, Size, Data);
+	}
+
+	auto FVulkanPendingComputeState::ClearDescriptorSetCache() -> void
+	{
+		if (!CachedDescriptorSets.empty())
+		{
+			auto& Stats = Device.GetGraphicsCacheStatisticsMutable();
+			check(Stats.DescriptorSnapshots.Occupancy > 0);
+			--Stats.DescriptorSnapshots.Occupancy;
+			check(Stats.DescriptorValueOccupancy >= CachedResources.size());
+			Stats.DescriptorValueOccupancy -= CachedResources.size();
+		}
+		CachedResources.clear();
+		CachedOwners.clear();
+		CachedDescriptorSets.clear();
+	}
+
+	auto FVulkanPendingComputeState::NotifyDeletedPipeline(
+		FVulkanComputePipelineState* PipelineState) -> void
+	{
+		if (CurrentPipelineState == PipelineState)
+		{
+			CurrentPipelineState = nullptr;
+			PendingResources.clear();
+			PendingOwners.clear();
+			ClearDescriptorSetCache();
+		}
+	}
+
+	auto FVulkanPendingComputeState::PrepareDescriptors(
+		FVulkanCommandListContext& InContext) -> void
+	{
+		check(CurrentPipelineState);
+		std::ranges::sort(PendingResources,
+			[](const FRHIShaderParameterResource& A,
+				const FRHIShaderParameterResource& B) {
+				return std::tie(A.SetIndex, A.BindingIndex, A.ArrayElement)
+					< std::tie(B.SetIndex, B.BindingIndex, B.ArrayElement);
+			});
+		std::string Error;
+		checkf(ValidateShaderBindingCompleteness(
+			CurrentPipelineState->GetKey().PipelineLayout, PendingResources, Error),
+			"Invalid compute shader binding snapshot: {}", Error);
+		const auto ResourcesEqual = [](const auto& A, const auto& B) {
+			if (A.size() != B.size()) return false;
+			for (size_t Index = 0; Index < A.size(); ++Index)
+			{
+				if (A[Index].Resource != B[Index].Resource
+					|| A[Index].SetIndex != B[Index].SetIndex
+					|| A[Index].BindingIndex != B[Index].BindingIndex
+					|| A[Index].ArrayElement != B[Index].ArrayElement
+					|| A[Index].Type != B[Index].Type
+					|| A[Index].Offset != B[Index].Offset
+					|| A[Index].Size != B[Index].Size) return false;
+			}
+			return true;
+		};
+		std::vector<uint32> DynamicOffsets;
+		for (const FRHIShaderParameterResource& Resource : PendingResources)
+		{
+			if (Resource.Type == ERHIBindingType::UniformBuffer
+				|| Resource.Type == ERHIBindingType::UniformBufferDynamic
+				|| Resource.Type == ERHIBindingType::StorageBuffer)
+			{
+				checkf(Resource.Resource->GetResourceType() == ERHIResourceType::BufferView,
+					"Compute buffer descriptor requires a canonical buffer view.");
+				const auto* View = static_cast<const FVulkanBufferView*>(Resource.Resource);
+				const auto* Buffer = static_cast<const FVulkanBuffer*>(View->GetBuffer());
+				const ERHIAccess Expected = Resource.Type == ERHIBindingType::StorageBuffer
+					? ERHIAccess::ComputeShaderReadWrite : ERHIAccess::ComputeUniformRead;
+				ERHIAccess Tracked = ERHIAccess::None;
+				checkf(Buffer->GetStateTracker().Validate(View->GetDesc().Offset,
+					View->GetDesc().Size, Expected, Tracked),
+					"Compute buffer descriptor binding state mismatch.");
+				if (Resource.Type == ERHIBindingType::UniformBufferDynamic)
+					DynamicOffsets.push_back(Resource.Offset);
+			}
+			else if (Resource.Type == ERHIBindingType::Texture
+				|| Resource.Type == ERHIBindingType::StorageImage)
+			{
+				checkf(Resource.Resource->GetResourceType() == ERHIResourceType::TextureView,
+					"Compute image descriptor requires a canonical texture view.");
+				const auto* View = static_cast<const FVulkanTextureView*>(Resource.Resource);
+				const auto* Texture = static_cast<const FVulkanTexture*>(View->GetTexture());
+				const ERHIAccess Expected = Resource.Type == ERHIBindingType::Texture
+					? ERHIAccess::ComputeShaderRead : ERHIAccess::ComputeShaderReadWrite;
+				ERHIAccess Tracked = ERHIAccess::None;
+				checkf(Texture->GetStateTracker().Validate(
+					View->GetDesc().Range, Expected, Tracked),
+					"Compute image descriptor binding state mismatch.");
+			}
+		}
+
+		auto& Stats = Device.GetGraphicsCacheStatisticsMutable();
+		if (ResourcesEqual(CachedResources, PendingResources)
+			&& !CachedDescriptorSets.empty())
+		{
+			++Stats.DescriptorSnapshots.Hits;
+		}
+		else
+		{
+			ClearDescriptorSetCache();
+			++Stats.DescriptorSnapshots.Misses;
+			const FVulkanDescriptorSetsLayout& Layout =
+				CurrentPipelineState->GetDescriptorSetsLayout();
+			const auto& Handles = Layout.GetLayoutHandles();
+			if (!Handles.empty())
+			{
+				CachedDescriptorSets = Device.GetGlobalDescriptorPool().AllocateDescriptorSets(
+					Handles, Layout.GetInfo().GetDescriptorRequirements());
+				std::vector<vk::DescriptorBufferInfo> BufferInfos;
+				std::vector<vk::DescriptorImageInfo> ImageInfos;
+				std::vector<vk::WriteDescriptorSet> Writes;
+				BufferInfos.reserve(PendingResources.size());
+				ImageInfos.reserve(PendingResources.size());
+				Writes.reserve(PendingResources.size());
+				for (const FRHIShaderParameterResource& Resource : PendingResources)
+				{
+					vk::WriteDescriptorSet Write;
+					Write.setDstSet(CachedDescriptorSets[Resource.SetIndex])
+						.setDstBinding(Resource.BindingIndex)
+						.setDstArrayElement(Resource.ArrayElement)
+						.setDescriptorType(ToVulkan_RHIBindingType(Resource.Type))
+						.setDescriptorCount(1);
+					if (Resource.Type == ERHIBindingType::UniformBuffer
+						|| Resource.Type == ERHIBindingType::UniformBufferDynamic
+						|| Resource.Type == ERHIBindingType::StorageBuffer)
+					{
+						const auto* View = static_cast<const FVulkanBufferView*>(Resource.Resource);
+						const auto* Buffer = static_cast<const FVulkanBuffer*>(View->GetBuffer());
+						auto& Info = BufferInfos.emplace_back();
+						Info.setBuffer(Buffer->GetHandle()).setOffset(View->GetDesc().Offset)
+							.setRange(View->GetDesc().Size);
+						Write.setBufferInfo(Info);
+					}
+					else if (Resource.Type == ERHIBindingType::Texture
+						|| Resource.Type == ERHIBindingType::StorageImage)
+					{
+						const auto* View = static_cast<const FVulkanTextureView*>(Resource.Resource);
+						auto& Info = ImageInfos.emplace_back();
+						Info.setImageView(View->GetHandle())
+							.setImageLayout(GetVulkanDescriptorImageLayout(Resource.Type));
+						Write.setImageInfo(Info);
+					}
+					else
+					{
+						const auto* Sampler = static_cast<const FVulkanSampler*>(Resource.Resource);
+						auto& Info = ImageInfos.emplace_back();
+						Info.setSampler(Sampler->GetHandle());
+						Write.setImageInfo(Info);
+					}
+					Writes.push_back(Write);
+				}
+				Device.GetHandle().updateDescriptorSets(Writes, {});
+				CachedResources = PendingResources;
+				CachedOwners.clear();
+				for (FRHIShaderParameterResource& Resource : CachedResources)
+				{
+					CachedOwners.emplace_back(Resource.Resource);
+					Resource.Resource = CachedOwners.back().GetReference();
+				}
+				++Stats.DescriptorSnapshots.NativeCreations;
+				++Stats.DescriptorAllocations;
+				++Stats.DescriptorSnapshots.Occupancy;
+				Stats.DescriptorValueOccupancy += CachedResources.size();
+			}
+		}
+		if (!CachedDescriptorSets.empty())
+			InContext.GetCommandBuffer()->GetHandle().bindDescriptorSets(
+				vk::PipelineBindPoint::eCompute,
+				CurrentPipelineState->GetPipelineLayout(), 0,
+				CachedDescriptorSets, DynamicOffsets);
+	}
+
+	auto FVulkanPendingComputeState::Dispatch(FVulkanCommandListContext& InContext,
+		uint32 GroupCountX, uint32 GroupCountY, uint32 GroupCountZ) -> void
+	{
+		PrepareDescriptors(InContext);
+		InContext.GetCommandBuffer()->GetHandle().dispatch(
+			GroupCountX, GroupCountY, GroupCountZ);
+	}
+
 	FVulkanPendingGraphicsState::FVulkanPendingGraphicsState(FVulkanDevice& InDevice)
 		: Device(InDevice)
 	{

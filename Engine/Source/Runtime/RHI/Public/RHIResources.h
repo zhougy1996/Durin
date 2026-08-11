@@ -1346,6 +1346,16 @@ namespace Durin
 		RHI_API auto IsValid() const -> bool;
 	};
 
+	// Collects the shader and reflected layout required to create a compute pipeline.
+	class FComputePipelineStateInitializer
+	{
+	public:
+		FRHIShader* ComputeShader = nullptr;
+		FPipelineLayoutDesc PipelineLayout;
+
+		RHI_API auto IsValid() const -> bool;
+	};
+
 	// Stores one canonical vertex element without backend object identity.
 	struct FRHIVertexElementIdentity
 	{
@@ -1416,6 +1426,27 @@ namespace Durin
 		const FGraphicsPipelineStateInitializer& Initializer,
 		const FRHICapabilities* Capabilities,
 		FGraphicsPipelineStateKey& OutKey,
+		std::string& OutError) -> bool;
+
+	// Canonical immutable identity used by compute-pipeline caches.
+	struct FComputePipelineStateKey
+	{
+		FXxHash128 ComputeShaderHash;
+		FPipelineLayoutDesc PipelineLayout;
+
+		auto operator==(const FComputePipelineStateKey&) const -> bool = default;
+	};
+
+	struct FComputePipelineStateKeyHasher
+	{
+		RHI_API auto operator()(const FComputePipelineStateKey& Key) const -> size_t;
+	};
+
+	// Validates and canonicalizes one complete compute initializer.
+	RHI_API auto BuildComputePipelineStateKey(
+		const FComputePipelineStateInitializer& Initializer,
+		const FRHICapabilities* Capabilities,
+		FComputePipelineStateKey& OutKey,
 		std::string& OutError) -> bool;
 
 	// Describes the byte size, element stride, and allowed usages of a buffer.
@@ -1735,6 +1766,16 @@ namespace Durin
 		}
 	};
 
+	// Represents a backend compute pipeline with one reflected layout.
+	class FRHIComputePipelineState : public FRHIResource
+	{
+	public:
+		FRHIComputePipelineState()
+			: FRHIResource(ERHIResourceType::PipelineState)
+		{
+		}
+	};
+
 	using FVertexDeclarationRHIRef = TRefCountPtr<FRHIVertexDeclaration>;
 	using FViewportRHIRef = TRefCountPtr<FRHIViewport>;
 	using FTextureRHIRef = TRefCountPtr<FRHITexture>;
@@ -1745,5 +1786,6 @@ namespace Durin
 	using FBufferViewRHIRef = TRefCountPtr<FRHIBufferView>;
 	using FShaderRHIRef = TRefCountPtr<FRHIShader>;
 	using FGraphicsPipelineStateRHIRef = TRefCountPtr<FRHIGraphicsPipelineState>;
+	using FComputePipelineStateRHIRef = TRefCountPtr<FRHIComputePipelineState>;
 	using FGPUTimingQueryRHIRef = TRefCountPtr<FRHIGPUTimingQuery>;
 } // namespace Durin

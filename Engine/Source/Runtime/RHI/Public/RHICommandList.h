@@ -16,6 +16,7 @@ namespace Durin
 	class FRHICommandListExecutor;
 	class FRHIViewport;
 	class FRHIGraphicsPipelineState;
+	class FRHIComputePipelineState;
 	class FRHICommandStorage;
 
 	// Provides backend-neutral command recording shared by regular and immediate lists.
@@ -81,6 +82,7 @@ namespace Durin
 		RHI_API auto BeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetTexture) -> void;
 		RHI_API auto EndDrawingViewport(FRHIViewport* Viewport, bool bPresent, bool bLockToVsync) -> void;
 		RHI_API auto SetGraphicsPipelineState(FRHIGraphicsPipelineState& State) -> void;
+		RHI_API auto SetComputePipelineState(FRHIComputePipelineState& State) -> void;
 		RHI_API auto BindVertexBuffer(uint32 StreamIndex, FRHIBuffer* VertexBuffer, uint32 Offset) -> void;
 		RHI_API auto BindIndexBuffer(FRHIBuffer* Buffer, uint32 Offset) -> void;
 		RHI_API auto TransitionBuffers(std::span<const FRHIBufferTransition> Transitions) -> void;
@@ -95,6 +97,8 @@ namespace Durin
 			std::span<const FRHITextureCopyRegion> Regions) -> void;
 		RHI_API auto Draw(const FRHIDrawArguments& Arguments) -> void;
 		RHI_API auto DrawIndexed(const FRHIDrawIndexedArguments& Arguments) -> void;
+		RHI_API auto Dispatch(uint32 GroupCountX, uint32 GroupCountY,
+			uint32 GroupCountZ) -> void;
 		RHI_API auto DrawIndexed(uint32 IndexCount, uint32 StartIndexLocation,
 			int32 VertexOffset) -> void;
 		RHI_API auto SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;
@@ -171,6 +175,7 @@ namespace Durin
 		std::unique_ptr<FRHICommandStorage> Storage;
 		ERecordingState RecordingState = ERecordingState::Recording;
 		ERHIPipeline ActivePipeline = ERHIPipeline::None;
+		FRHIComputePipelineState* ActiveComputePipelineState = nullptr;
 		bool bInsideRenderPass = false;
 		uint32 DiagnosticRegionDepth = 0;
 		uint32 RenderPassDiagnosticRegionDepth = 0;

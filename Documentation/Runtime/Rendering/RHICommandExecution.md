@@ -140,7 +140,7 @@ returns the same result directly. A Vulkan factory already executing on the RHI
 thread catches at the same boundary without enqueueing and waiting on itself.
 
 Nullable runtime factories translate only that operation-failure result into a
-null RHI reference. Buffer, texture, shader, graphics-pipeline, sampler, and
+null RHI reference. Buffer, texture, shader, graphics-pipeline, compute-pipeline, sampler, and
 vertex-declaration factories must otherwise publish a complete resource; a
 non-null wrapper with an invalid native handle or allocation is forbidden.
 Partially built native candidates clean up immediately on the RHI thread, and a
@@ -154,6 +154,10 @@ fallible backend creation, so the public result is always a compatible complete
 PSO or null. Non-indexed and indexed command records carry exact instance,
 first-location, and base-vertex arguments. See
 [Graphics State and Bindings](GraphicsStateAndBindings.md).
+
+Compute pipeline selection, reflected binding, and direct dispatch use the same
+recorded ownership and executor rules without creating another queue. See
+[Synchronous Compute Pipelines](SynchronousComputePipelines.md).
 
 Executor admission, serial wait, replay-context, queue, device-loss, and
 already-recorded command failures do not become a fallible result. Startup

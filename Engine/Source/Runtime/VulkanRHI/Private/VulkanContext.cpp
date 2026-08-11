@@ -79,6 +79,7 @@ namespace Durin::VulkanRHI
 		, Device(InDevice)
 		, Queue(InQueue)
 		, PendingGfxState(std::make_unique<FVulkanPendingGraphicsState>(InDevice))
+		, PendingComputeState(std::make_unique<FVulkanPendingComputeState>(InDevice))
 	{
 		CheckVulkanRHIThread();
 		Pool = new FVulkanCommandBufferPool(Device);
@@ -89,6 +90,7 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		PendingGfxState.reset();
+		PendingComputeState.reset();
 		delete Pool;
 	}
 
@@ -109,6 +111,7 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		PendingGfxState->ClearDescriptorSetCache();
+		PendingComputeState->ClearDescriptorSetCache();
 	}
 
 	auto FVulkanCommandListContext::RHISubmitCommands() -> void
@@ -405,6 +408,15 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		PendingGfxState->SetGraphicsPipelineState(static_cast<FVulkanGraphicsPipelineState&>(GraphicsPipelineState), GetCommandBuffer()->GetHandle());
+	}
+
+	auto FVulkanCommandListContext::RHISetComputePipelineState(
+		FRHIComputePipelineState& ComputePipelineState) -> void
+	{
+		CheckVulkanRHIThread();
+		PendingComputeState->SetComputePipelineState(
+			static_cast<FVulkanComputePipelineState&>(ComputePipelineState),
+			GetCommandBuffer()->GetHandle());
 	}
 
 	auto FVulkanCommandListContext::RHIBindVertexBuffer(uint32 StreamIndex, FRHIBuffer* InVertexBuffer, uint32 Offset) -> void
@@ -723,6 +735,11 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHIPushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void
 	{
 		CheckVulkanRHIThread();
+		if (StageFlags == EShaderStageFlags::Compute)
+		{
+			PendingComputeState->PushConstants(*this, StageFlags, Offset, Size, Data);
+			return;
+		}
 		FVulkanGraphicsPipelineState* PipelineState = PendingGfxState->GetPipelineState();
 		check(PipelineState);
 		PipelineState->PushConstants(*this, StageFlags, Offset, Size, Data);
@@ -731,7 +748,24 @@ namespace Durin::VulkanRHI
 	auto FVulkanCommandListContext::RHISetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void
 	{
 		CheckVulkanRHIThread();
-		PendingGfxState->SetShaderParameters(InShader, InResourceParameters);
+		if (InShader && InShader->GetFrequency() == EShaderFrequency::Compute)
+			PendingComputeState->SetShaderParameters(InShader, InResourceParameters);
+		else PendingGfxState->SetShaderParameters(InShader, InResourceParameters);
+	}
+
+	auto FVulkanCommandListContext::RHIDispatch(uint32 GroupCountX,
+		uint32 GroupCountY, uint32 GroupCountZ) -> void
+	{
+		CheckVulkanRHIThread();
+		check(PendingComputeState->GetPipelineState());
+		const FRHICapabilities* Capabilities = RHI->RHIGetCapabilities();
+		check(Capabilities);
+		checkf(GroupCountX > 0 && GroupCountY > 0 && GroupCountZ > 0
+			&& GroupCountX <= Capabilities->MaxComputeWorkGroupCount[0]
+			&& GroupCountY <= Capabilities->MaxComputeWorkGroupCount[1]
+			&& GroupCountZ <= Capabilities->MaxComputeWorkGroupCount[2],
+			"Compute dispatch group counts are outside the published limits.");
+		PendingComputeState->Dispatch(*this, GroupCountX, GroupCountY, GroupCountZ);
 	}
 
 	auto FVulkanCommandListContext::ValidateDrawBindings(uint32 VertexCount,
@@ -884,6 +918,13 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		PendingGfxState->NotifyDeletedPipeline(PipelineState);
+	}
+
+	auto FVulkanCommandListContext::NotifyDeleted_ComputePipeline(
+		FVulkanComputePipelineState* PipelineState) -> void
+	{
+		CheckVulkanRHIThread();
+		PendingComputeState->NotifyDeletedPipeline(PipelineState);
 	}
 
 	auto FVulkanCommandListContext::Finalize() -> FVulkanCompletionToken

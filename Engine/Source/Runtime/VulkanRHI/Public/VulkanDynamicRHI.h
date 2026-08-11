@@ -59,6 +59,9 @@ namespace Durin::VulkanRHI
 		auto RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat, EViewportPresentModePolicy InPresentModePolicy) const -> FViewportRHIRef override;
 		auto RHIResizeViewport(FRHIViewport* InViewport, uint32 InSizeX, uint32 InSizeY, bool bInIsFullscreen) -> void override;
 		auto RHICreateGraphicsPipelineState(FName DebugName, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState> override;
+		auto RHICreateComputePipelineState(FName DebugName,
+			const FComputePipelineStateInitializer& Initializer)
+			-> TRefCountPtr<FRHIComputePipelineState> override;
 		auto RHICreateGPUTimingQuery() -> TRefCountPtr<FRHIGPUTimingQuery> override;
 		auto RHIGetGPUTimingResult(const FRHIGPUTimingQuery* Query) const
 			-> FRHIGPUTimingResult override;

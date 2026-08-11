@@ -91,6 +91,7 @@ namespace Durin::VulkanRHI
 			Input.MaxImageDimension2D = 8192;
 			Input.MaxImageDimensionCube = 8192;
 			Input.MaxImageArrayLayers = 256;
+			Input.MaxComputeWorkGroupCount = {65535, 65535, 65535};
 			Input.bFillModeNonSolid = true;
 			Input.bIndependentBlend = true;
 			Input.bShaderDrawParameters = true;
@@ -329,6 +330,9 @@ namespace Durin::VulkanRHI
 			FCase{"maxImageDimension2D", [](auto& Input) { Input.MaxImageDimension2D = 0; }},
 			FCase{"maxImageDimensionCube", [](auto& Input) { Input.MaxImageDimensionCube = 0; }},
 			FCase{"below six", [](auto& Input) { Input.MaxImageArrayLayers = 5; }},
+			FCase{"maxComputeWorkGroupCount", [](auto& Input) {
+				Input.MaxComputeWorkGroupCount[1] = 0;
+			}},
 			FCase{"graphics, compute, and Win32 presentation", [](auto& Input) {
 				Input.QueueFamilies[0].bSupportsWin32Presentation = false;
 			}},
@@ -1156,6 +1160,9 @@ namespace Durin::VulkanRHI
 		EXPECT_GE(Capabilities->MaxTextureDimensionCube, 1u);
 		EXPECT_GE(Capabilities->MaxTextureArrayLayers,
 			static_cast<uint32>(TextureCubeFaceCount));
+		EXPECT_TRUE(std::ranges::all_of(
+			Capabilities->MaxComputeWorkGroupCount,
+			[](uint32 Limit) { return Limit > 0; }));
 		EXPECT_TRUE(EnumHasAnyFlags(Capabilities->ColorSampleCounts,
 			ERHISampleCountFlags::Samples1));
 		EXPECT_TRUE(EnumHasAnyFlags(Capabilities->DepthSampleCounts,

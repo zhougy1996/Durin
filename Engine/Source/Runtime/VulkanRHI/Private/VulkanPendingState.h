@@ -8,6 +8,42 @@ namespace Durin::VulkanRHI
 	class FVulkanDevice;
 	class FVulkanGraphicsPipelineState;
 	class FVulkanPendingGraphicsState;
+	class FVulkanComputePipelineState;
+
+	// Accumulates compute bindings and materializes one complete descriptor snapshot.
+	class FVulkanPendingComputeState
+	{
+	public:
+		explicit FVulkanPendingComputeState(FVulkanDevice& InDevice)
+			: Device(InDevice) {}
+
+		auto SetComputePipelineState(FVulkanComputePipelineState& InPipelineState,
+			vk::CommandBuffer InCmdBuffer) -> void;
+		auto SetShaderParameters(FRHIShader* InShader,
+			std::span<FRHIShaderParameterResource> InResourceParameters) -> void;
+		auto PushConstants(FVulkanCommandListContext& InContext,
+			EShaderStageFlags StageFlags, uint32 Offset, uint32 Size,
+			const void* Data) -> void;
+		auto Dispatch(FVulkanCommandListContext& InContext,
+			uint32 GroupCountX, uint32 GroupCountY, uint32 GroupCountZ) -> void;
+		auto ClearDescriptorSetCache() -> void;
+		auto NotifyDeletedPipeline(FVulkanComputePipelineState* PipelineState) -> void;
+		auto GetPipelineState() const -> FVulkanComputePipelineState*
+		{
+			return CurrentPipelineState;
+		}
+
+	private:
+		auto PrepareDescriptors(FVulkanCommandListContext& InContext) -> void;
+
+		FVulkanDevice& Device;
+		FVulkanComputePipelineState* CurrentPipelineState = nullptr;
+		std::vector<FRHIShaderParameterResource> PendingResources;
+		std::vector<TRefCountPtr<FRHIResource>> PendingOwners;
+		std::vector<FRHIShaderParameterResource> CachedResources;
+		std::vector<TRefCountPtr<FRHIResource>> CachedOwners;
+		std::vector<vk::DescriptorSet> CachedDescriptorSets;
+	};
 
 	// Descriptor state owned by one graphics PSO within a command context.
 	class FVulkanGraphicsPipelineDescriptorState

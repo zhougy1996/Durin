@@ -8,7 +8,9 @@ namespace Durin
 	struct FRHIBufferCreateDesc;
 
 	class FRHIGraphicsPipelineState;
+	class FRHIComputePipelineState;
 	class FGraphicsPipelineStateInitializer;
+	class FComputePipelineStateInitializer;
 	class IRHICommandContext;
 	class FRHIViewport;
 	class FRHICommandListBase;

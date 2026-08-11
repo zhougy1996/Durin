@@ -52,6 +52,7 @@ namespace Durin
 				Capabilities.DepthSampleCounts = ERHISampleCountFlags::Samples1;
 				Capabilities.MinStorageBufferOffsetAlignment = 16;
 				Capabilities.MaxStorageBufferRange = 128 * 1024 * 1024;
+				Capabilities.MaxComputeWorkGroupCount = {65535, 1024, 64};
 				PublishCapabilities(Capabilities);
 			}
 
@@ -153,6 +154,8 @@ namespace Durin
 		EXPECT_EQ(Capabilities->SupportedTextureDimensions,
 			ERHITextureDimensionFlags::Texture2D | ERHITextureDimensionFlags::TextureCube);
 		EXPECT_EQ(Capabilities->MaxTextureDimension2D, 4096u);
+		EXPECT_EQ(Capabilities->MaxComputeWorkGroupCount,
+			(std::array<uint32, 3>{65535, 1024, 64}));
 		EXPECT_FALSE(Capabilities->bSupportsSynchronization2);
 		EXPECT_FALSE(Capabilities->bSupportsGPUTimestamps);
 		EXPECT_EQ(Capabilities->GPUTimestampNanosecondsPerTick, 0.0);

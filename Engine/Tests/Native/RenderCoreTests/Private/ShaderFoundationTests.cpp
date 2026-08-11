@@ -38,6 +38,21 @@ namespace Durin
 			DURIN_DECLARE_SHADER(FStorageFragmentShader, FShader, "/Unit/StorageShader", EShaderFrequency::Fragment, "fragmentMain");
 		};
 
+		class FComputePipelineFixtureShader : public FShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FComputePipelineFixtureShader)
+				DURIN_SHADER_PARAMETER_STORAGE_BUFFER(OutputBuffer);
+				DURIN_SHADER_PARAMETER_STORAGE_IMAGE(OutputImage);
+				DURIN_SHADER_PARAMETER_TEXTURE(SampledInput);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER(Constants);
+			DURIN_END_SHADER_PARAMETERS();
+
+			DURIN_DECLARE_SHADER(FComputePipelineFixtureShader, FShader,
+				"/Unit/ComputePipelineFixture", EShaderFrequency::Compute,
+				"computeMain");
+		};
+
 		class FArrayFragmentShader : public FShader
 		{
 		public:
@@ -199,6 +214,25 @@ namespace Durin
 		TShaderRef<FShader> FragmentShaderRef(FragmentShader, &ShaderMap);
 		ASSERT_TRUE(FragmentShaderRef);
 		EXPECT_EQ(FragmentShaderRef.GetShader()->GetType(), &FragmentShaderType);
+	}
+
+	TEST(FShaderFoundationTests,
+		ComputeShaderTypePublishesTypedStorageAndInputParameters)
+	{
+		FShaderType& Type = FComputePipelineFixtureShader::StaticType();
+		EXPECT_EQ(Type.GetFrequency(), EShaderFrequency::Compute);
+		const FShaderParametersMetadata* Metadata =
+			FComputePipelineFixtureShader::GetOwnParametersMetadata();
+		ASSERT_NE(Metadata, nullptr);
+		ASSERT_EQ(Metadata->Members.size(), 4u);
+		EXPECT_EQ(Metadata->Members[0].Type,
+			ERHIBindingType::StorageBuffer);
+		EXPECT_EQ(Metadata->Members[1].Type,
+			ERHIBindingType::StorageImage);
+		EXPECT_EQ(Metadata->Members[2].Type,
+			ERHIBindingType::Texture);
+		EXPECT_EQ(Metadata->Members[3].Type,
+			ERHIBindingType::UniformBuffer);
 	}
 
 	TEST(FShaderFoundationTests, ShaderMapInitializeReusesCachedResourcesForEquivalentIdentity)

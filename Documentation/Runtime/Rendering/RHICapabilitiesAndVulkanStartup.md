@@ -19,6 +19,8 @@ Reads require no RHI-thread round trip. The active public fields are:
 - conservative color and depth sample-count masks; and
 - positive `MinStorageBufferOffsetAlignment` and `MaxStorageBufferRange`
   limits for exact dynamic storage-range admission; and
+- three positive `MaxComputeWorkGroupCount` values copied from Vulkan device
+  limits for direct-dispatch admission; and
 - `bSupportsSynchronization2`, true only when the selected device activated the
   core Vulkan 1.3 feature or the Vulkan 1.1/1.2 extension feature chain; and
 - `bSupportsGPUTimestamps` plus `GPUTimestampNanosecondsPerTick`, published only
@@ -78,7 +80,8 @@ and debug-utils extension are independent optional diagnostics.
 Every physical device is evaluated locally before ranking. Hard requirements
 are Vulkan 1.1, `VK_KHR_swapchain`, `fillModeNonSolid`,
 `shaderDrawParameters`, nonzero 2D/cube limits, at least six array layers,
-positive storage-buffer alignment/range limits, and one queue family with queue
+positive storage-buffer alignment/range and direct-dispatch group-count limits,
+and one queue family with queue
 zero, graphics and compute flags, and Win32 presentation support. Rejected
 devices never receive a ranking position.
 
@@ -106,7 +109,8 @@ never published in the immutable `FRHICapabilities` snapshot.
 ## Complete Structural Candidates
 
 Render-pass, framebuffer, descriptor-set-layout, pipeline descriptor-layout,
-pipeline-layout, and graphics-pipeline construction follows one rule: native
+pipeline-layout, graphics-pipeline, and compute-pipeline construction follows
+one rule: native
 handles and dependent immutable state remain local until complete, then one
 cache or public owner publishes them.
 
@@ -116,8 +120,9 @@ cache or public owner publishes them.
 - Descriptor-set layouts use explicit insertion only after native creation.
   Complete earlier set layouts may remain reusable if a later set fails.
 - Pipeline descriptor-layout maps contain only owned non-null complete values.
-- Graphics pipeline layout and pipeline handles publish together; dependency or
-  native failure returns null through the owning public PSO factory.
+- Graphics and compute pipeline layout/pipeline handles publish together;
+  dependency or native failure returns null through the owning public PSO
+  factory.
 
 Debug names annotate diagnostics and command regions. They are never structural
 cache identity. Same-key retry after an injected failure creates one complete

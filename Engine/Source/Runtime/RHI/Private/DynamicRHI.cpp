@@ -110,6 +110,13 @@ namespace Durin
 		return Capabilities ? &*Capabilities : nullptr;
 	}
 
+	auto FDynamicRHI::RHICreateComputePipelineState(FName,
+		const FComputePipelineStateInitializer&)
+		-> TRefCountPtr<FRHIComputePipelineState>
+	{
+		return nullptr;
+	}
+
 	auto FDynamicRHI::RHIGetGraphicsCacheStatistics() const -> FRHIGraphicsCacheStatistics
 	{
 		return {};
@@ -117,6 +124,17 @@ namespace Durin
 
 	auto FDynamicRHI::RHIResetGraphicsCacheStatistics() -> void
 	{
+	}
+
+	auto FDynamicRHI::RHIGetPipelineCacheStatistics() const
+		-> FRHIPipelineCacheStatistics
+	{
+		return RHIGetGraphicsCacheStatistics();
+	}
+
+	auto FDynamicRHI::RHIResetPipelineCacheStatistics() -> void
+	{
+		RHIResetGraphicsCacheStatistics();
 	}
 
 	auto FDynamicRHI::RHIGetMemoryStatistics() const -> FRHIMemoryStatistics
@@ -137,6 +155,8 @@ namespace Durin
 		check(InCapabilities.MaxTextureArrayLayers >= TextureCubeFaceCount);
 		check(InCapabilities.ColorSampleCounts != ERHISampleCountFlags::None);
 		check(InCapabilities.DepthSampleCounts != ERHISampleCountFlags::None);
+		check(std::ranges::all_of(InCapabilities.MaxComputeWorkGroupCount,
+			[](uint32 Limit) { return Limit > 0; }));
 		Capabilities.emplace(std::move(InCapabilities));
 	}
 
