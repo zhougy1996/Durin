@@ -1,7 +1,7 @@
 #include "Thumbnail/MaterialAssetThumbnail.h"
 #include "Thumbnail/RenderedAssetThumbnailCache.h"
 #include "MaterialEditorModule.h"
-#include "Editor/EditorWorkspace.h"
+#include "Editor/WorkspaceManager.h"
 
 #include "Materials/MaterialTestSupport.h"
 
@@ -66,7 +66,7 @@ namespace
 TEST(FMaterialAssetThumbnailTests, ModuleOwnsBothExactProvidersAndWorkspaceLifecycle)
 {
 	InitializeDObjectSystem();
-	Durin::FEditorWorkspaceManager Manager;
+	Durin::Editor::FWorkspaceManager Manager;
 	Durin::FRenderedAssetThumbnailService Service;
 	Durin::FMaterialEditorModule Module;
 	const std::string MaterialClass =
@@ -77,19 +77,19 @@ TEST(FMaterialAssetThumbnailTests, ModuleOwnsBothExactProvidersAndWorkspaceLifec
 	EXPECT_TRUE(Service.Find(MaterialClass));
 	EXPECT_TRUE(Service.Find(InstanceClass));
 	EXPECT_NE(Manager.FindWorkspace(
-		Durin::FEditorWorkspaceTypeId("MaterialEditor")), nullptr);
+		Durin::Editor::FWorkspaceTypeId("MaterialEditor")), nullptr);
 	EXPECT_FALSE(Module.RegisterMaterialEditor(Manager, Service));
 	Module.UnregisterMaterialEditor();
 	EXPECT_FALSE(Service.Find(MaterialClass));
 	EXPECT_FALSE(Service.Find(InstanceClass));
 	EXPECT_EQ(Manager.FindWorkspace(
-		Durin::FEditorWorkspaceTypeId("MaterialEditor")), nullptr);
+		Durin::Editor::FWorkspaceTypeId("MaterialEditor")), nullptr);
 }
 
 TEST(FMaterialAssetThumbnailTests, ProviderConflictRollsBackWholeIntegration)
 {
 	InitializeDObjectSystem();
-	Durin::FEditorWorkspaceManager Manager;
+	Durin::Editor::FWorkspaceManager Manager;
 	Durin::FRenderedAssetThumbnailService Service;
 	std::string Error;
 	auto Existing = Service.RegisterScoped(
@@ -104,7 +104,7 @@ TEST(FMaterialAssetThumbnailTests, ProviderConflictRollsBackWholeIntegration)
 	EXPECT_TRUE(Service.Find(
 		Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString()));
 	EXPECT_EQ(Manager.FindWorkspace(
-		Durin::FEditorWorkspaceTypeId("MaterialEditor")), nullptr);
+		Durin::Editor::FWorkspaceTypeId("MaterialEditor")), nullptr);
 }
 
 TEST(FMaterialAssetThumbnailTests, ProviderCapturesSortedTransitiveMaterialDependencies)

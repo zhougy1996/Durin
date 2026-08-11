@@ -6,7 +6,7 @@
 #include "Thumbnail/AssetThumbnailCache.h"
 
 #include "AssetSystem.h"
-#include "Editor/EditorWorkspace.h"
+#include "Editor/WorkspaceManager.h"
 #include "MaterialEditorModule.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -510,7 +510,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 	ASSERT_TRUE(Durin::Tests::CreateRenderedAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
 
-	Durin::FEditorWorkspaceManager Manager;
+	Durin::Editor::FWorkspaceManager Manager;
 	Durin::FRenderedAssetThumbnailService Service;
 	Durin::FMaterialEditorModule MaterialModule;
 	Durin::FTextureEditorModule TextureModule;
@@ -560,7 +560,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 	EXPECT_TRUE(Service.Find(MaterialClass));
 	EXPECT_TRUE(Service.Find(TextureCubeClass));
 	EXPECT_EQ(
-		Manager.FindWorkspace(Durin::FEditorWorkspaceTypeId("StaticMeshEditor")),
+		Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("StaticMeshEditor")),
 		nullptr);
 	Cache.EndFrame();
 
@@ -569,14 +569,14 @@ TEST(FStaticMeshAssetThumbnailTests,
 	EXPECT_FALSE(Service.Find(TextureCubeClass));
 	EXPECT_TRUE(Service.Find(MaterialClass));
 	EXPECT_EQ(
-		Manager.FindWorkspace(Durin::FEditorWorkspaceTypeId("TextureEditor")),
+		Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("TextureEditor")),
 		nullptr);
 
 	MaterialModule.UnregisterMaterialEditor();
 	EXPECT_FALSE(Service.Find(MaterialClass));
 	EXPECT_FALSE(Service.Find(MaterialInstanceClass));
 	EXPECT_EQ(
-		Manager.FindWorkspace(Durin::FEditorWorkspaceTypeId("MaterialEditor")),
+		Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("MaterialEditor")),
 		nullptr);
 	EXPECT_TRUE(Manager.GetWorkspaceDescriptors().empty());
 

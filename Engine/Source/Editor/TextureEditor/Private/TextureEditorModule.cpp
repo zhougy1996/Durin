@@ -1,6 +1,6 @@
 #include "TextureEditorModule.h"
 
-#include "Editor/EditorWorkspace.h"
+#include "Editor/WorkspaceManager.h"
 #include "Texture/Texture2D.h"
 #include "Thumbnail/RenderedAssetThumbnailCache.h"
 #include "Thumbnail/Texture2DAssetThumbnail.h"
@@ -26,7 +26,7 @@ namespace Durin
 	}
 
 	auto FTextureEditorModule::RegisterTextureEditor(
-		FEditorWorkspaceManager& WorkspaceManager,
+		Editor::FWorkspaceManager& WorkspaceManager,
 		FRenderedAssetThumbnailService& ThumbnailService) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
@@ -37,7 +37,7 @@ namespace Durin
 		Texture2DThumbnailRegistration.reset();
 		TextureCubeThumbnailRegistration.reset();
 		std::shared_ptr<MTextureEditor> Workspace = std::make_shared<MTextureEditor>(WorkspaceManager);
-		FEditorWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
+		Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
 			.Workspaces = {
 				{
 					.Descriptor = {
@@ -46,7 +46,7 @@ namespace Durin
 						.RootKey = std::string(TextureEditorWorkspace::RootKey),
 						.bShowInWindowMenu = false,
 						.bOpenByDefault = false,
-						.DefaultHostDockPreference = EEditorWorkspaceHostDockPreference::Center,
+						.DefaultHostDockPreference = Editor::EWorkspaceHostDockPreference::Center,
 					},
 					.Workspace = Workspace,
 				},
@@ -55,13 +55,13 @@ namespace Durin
 				{
 					.AssetClassName = DTexture2D::StaticClass()->GetQualifiedName().ToString(),
 					.WorkspaceType = TextureEditorWorkspace::Type,
-					.DocumentPolicy = EEditorDocumentPolicy::PerResource,
+					.DocumentPolicy = Editor::EDocumentPolicy::PerResource,
 					.bClosable = true,
 				},
 			},
 		});
 		if (!Registration) return false;
-		WorkspaceRegistration = std::make_unique<FEditorWorkspaceRegistrationHandle>(std::move(Registration));
+		WorkspaceRegistration = std::make_unique<Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
 		std::string Error;
 		auto Texture2DHandle = ThumbnailService.RegisterScoped(
 			std::make_unique<FTexture2DAssetThumbnailProvider>(), Error);

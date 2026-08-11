@@ -2,8 +2,8 @@
 
 #include "LevelEditorAPI.h"
 #include "DObject/SoftObjectPtr.h"
-#include "Editor/EditorWorkspace.h"
-#include "Editor/EditorWorkspaceRootWindow.h"
+#include "Editor/Workspace.h"
+#include "Editor/WorkspaceRootWindow.h"
 
 namespace Durin
 {
@@ -14,7 +14,10 @@ namespace Durin
 	class DLevel;
 	class FAssetPath;
 	class FEditorAssetMoveCoordinator;
-	class FEditorWorkspaceManager;
+	namespace Editor
+	{
+		class FWorkspaceManager;
+	}
 	class FLevelDocumentController;
 	class FSceneViewportPanel;
 	class FSceneImportDialog;
@@ -28,21 +31,21 @@ namespace Durin
 	struct FLevelEditorContext;
 
 	// Hosts level documents, panels, play controls, and project settings.
-	class MLevelEditor final : public IEditorWorkspace
+	class MLevelEditor final : public Editor::IWorkspace
 	{
 	public:
-		MLevelEditor(FLevelEditorSessionSettings& InSessionSettings, FEditorWorkspaceManager& InWorkspaceManager);
+		MLevelEditor(FLevelEditorSessionSettings& InSessionSettings, Editor::FWorkspaceManager& InWorkspaceManager);
 		LEVELEDITOR_API ~MLevelEditor() override;
 		LEVELEDITOR_API auto Construct() -> void;
 		LEVELEDITOR_API auto OpenDefaultDocument() -> bool;
-		LEVELEDITOR_API auto GetWorkspaceType() const -> const FEditorWorkspaceTypeId& override;
-		LEVELEDITOR_API auto OpenDocument(const FEditorDocumentTab& Document) -> EEditorDocumentOpenResult override;
-		LEVELEDITOR_API auto ActivateDocument(const FEditorDocumentTab& Document) -> void override;
+		LEVELEDITOR_API auto GetWorkspaceType() const -> const Editor::FWorkspaceTypeId& override;
+		LEVELEDITOR_API auto OpenDocument(const Editor::FDocumentTab& Document) -> Editor::EDocumentOpenResult override;
+		LEVELEDITOR_API auto ActivateDocument(const Editor::FDocumentTab& Document) -> void override;
 		LEVELEDITOR_API auto RequestDeactivate() -> bool override;
-		LEVELEDITOR_API auto RequestCloseDocument(const FEditorDocumentTab& Document) -> EEditorDocumentCloseResult override;
-		LEVELEDITOR_API auto SaveDocument(const FEditorDocumentTab& Document) -> bool override;
-		LEVELEDITOR_API auto DiscardDocument(const FEditorDocumentTab& Document) -> bool override;
-		LEVELEDITOR_API auto IsDocumentDirty(const FEditorDocumentTab& Document) const -> bool override;
+		LEVELEDITOR_API auto RequestCloseDocument(const Editor::FDocumentTab& Document) -> Editor::EDocumentCloseResult override;
+		LEVELEDITOR_API auto SaveDocument(const Editor::FDocumentTab& Document) -> bool override;
+		LEVELEDITOR_API auto DiscardDocument(const Editor::FDocumentTab& Document) -> bool override;
+		LEVELEDITOR_API auto IsDocumentDirty(const Editor::FDocumentTab& Document) const -> bool override;
 		LEVELEDITOR_API auto CanSaveActiveDocument() const -> bool override;
 		LEVELEDITOR_API auto SaveActiveDocument() -> bool override;
 		LEVELEDITOR_API auto CanUndo() const -> bool override;
@@ -81,7 +84,7 @@ namespace Durin
 		std::unique_ptr<FLevelEditorContext> Context;
 		// Module-owned services outlive this registered workspace.
 		FLevelEditorSessionSettings& SessionSettings;
-		FEditorWorkspaceManager& WorkspaceManager;
+		Editor::FWorkspaceManager& WorkspaceManager;
 		std::unique_ptr<FLevelDocumentController> DocumentController;
 		std::unique_ptr<FEditorAssetMoveCoordinator> AssetMoveCoordinator;
 		std::unique_ptr<FSceneImportDialog> SceneImportDialog;
@@ -96,7 +99,7 @@ namespace Durin
 		FSceneViewportPanel* SceneViewportPanel = nullptr;
 		FContentBrowserPanel* ContentBrowserPanel = nullptr;
 		FDetailsPanel* DetailsPanel = nullptr;
-		FEditorWorkspaceRootWindow RootWindow;
+		Editor::FWorkspaceRootWindow RootWindow;
 		bool bResetLayoutRequested = false;
 		bool bSelectDefaultBottomPanelRequested = true;
 		bool bWasActive = false;
@@ -104,6 +107,6 @@ namespace Durin
 		TSoftObjectPtr<DLevel> DefaultLevel;
 		TSoftObjectPtr<DLevel> PendingDefaultLevel;
 		std::string EditorError;
-		FEditorDocumentId DeferredOpenDocumentId;
+		Editor::FDocumentId DeferredOpenDocumentId;
 	};
 } // namespace Durin

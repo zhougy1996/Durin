@@ -1,5 +1,5 @@
 #include "Animation/AnimationClip.h"
-#include "Editor/EditorWorkspace.h"
+#include "Editor/WorkspaceManager.h"
 #include "Engine/Actor.h"
 #include "EngineTestSupport.h"
 #include "Materials/MaterialTestSupport.h"
@@ -35,12 +35,12 @@ TEST(FSkeletalMeshEditorTests, PreviewControllerFramesAndNavigatesDeterministica
 
 TEST(FSkeletalMeshEditorTests, RegistrationIsExactReadOnlyAndScoped)
 {
-	Durin::FEditorWorkspaceManager Manager;
+	Durin::Editor::FWorkspaceManager Manager;
 	Durin::FRenderedAssetThumbnailService ThumbnailService;
 	Durin::FSkeletalMeshEditorModule Module;
 	ASSERT_TRUE(Module.RegisterSkeletalMeshEditor(Manager, ThumbnailService));
 	EXPECT_FALSE(Module.RegisterSkeletalMeshEditor(Manager, ThumbnailService));
-	auto Workspace = Manager.FindWorkspace(Durin::FEditorWorkspaceTypeId("SkeletalMeshEditor"));
+	auto Workspace = Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("SkeletalMeshEditor"));
 	ASSERT_NE(Workspace, nullptr);
 	EXPECT_FALSE(Workspace->CanSaveActiveDocument());
 	EXPECT_FALSE(Workspace->SaveActiveDocument());
@@ -58,7 +58,7 @@ TEST(FSkeletalMeshEditorTests, RegistrationIsExactReadOnlyAndScoped)
 		EXPECT_FALSE(Manager.OpenAsset("/Missing/SkeletalAsset", ClassName));
 
 	Module.UnregisterSkeletalMeshEditor();
-	EXPECT_EQ(Manager.FindWorkspace(Durin::FEditorWorkspaceTypeId("SkeletalMeshEditor")), nullptr);
+	EXPECT_EQ(Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("SkeletalMeshEditor")), nullptr);
 	EXPECT_FALSE(ThumbnailService.Find(
 		Durin::DSkeletalMesh::StaticClass()->GetQualifiedName().ToString()));
 	EXPECT_TRUE(Module.RegisterSkeletalMeshEditor(Manager, ThumbnailService));

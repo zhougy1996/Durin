@@ -1,15 +1,16 @@
-#include "Editor/EditorWorkspaceRootWindow.h"
+#include "Editor/WorkspaceRootWindow.h"
 
-#include "Editor/EditorWorkspaceUI.h"
+#include "Editor/WorkspaceManager.h"
+#include "Editor/WorkspaceUI.h"
 
-namespace Durin
+namespace Durin::Editor
 {
-	auto FEditorWorkspaceRootWindow::Begin(const FEditorWorkspaceRootWindowConfig& Config) -> FEditorWorkspaceRootWindowState
+	auto FWorkspaceRootWindow::Begin(const FWorkspaceRootWindowConfig& Config) -> FWorkspaceRootWindowState
 	{
 		checkf(!bWindowBegun, "An editor workspace root window must be ended before it begins again");
-		EditorWorkspaceUI::SetNextEditorRootWindowClass();
+		WorkspaceUI::SetNextRootWindowClass();
 		if (Config.bDockInEditorHost)
-			ImGui::SetNextWindowDockID(EditorWorkspaceUI::MakeEditorHostDockSpaceId(EditorWorkspaceUI::HostLayoutVersion), ImGuiCond_FirstUseEver);
+			ImGui::SetNextWindowDockID(WorkspaceUI::MakeHostDockSpaceId(WorkspaceUI::HostLayoutVersion), ImGuiCond_FirstUseEver);
 		if (bFocusRequested)
 		{
 			ImGui::SetNextWindowFocus();
@@ -17,12 +18,12 @@ namespace Durin
 		}
 
 		const std::string DisplayName = Config.bDirty ? std::format("{} *", Config.DisplayName) : std::string(Config.DisplayName);
-		const std::string RootWindowName = EditorWorkspaceUI::MakeEditorRootWindowName(DisplayName, Config.RootKey);
+		const std::string RootWindowName = WorkspaceUI::MakeRootWindowName(DisplayName, Config.RootKey);
 		if (Config.bZeroPadding) ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 		bool bOpen = true;
 		const ImGuiWindowFlags Flags = ImGuiWindowFlags_NoCollapse | Config.AdditionalFlags |
 			(Config.bDirty ? ImGuiWindowFlags_UnsavedDocument : ImGuiWindowFlags_None);
-		FEditorWorkspaceRootWindowState State;
+		FWorkspaceRootWindowState State;
 		State.bVisible = ImGui::Begin(RootWindowName.c_str(), &bOpen, Flags);
 		bWindowBegun = true;
 		if (Config.bZeroPadding) ImGui::PopStyleVar();
@@ -37,12 +38,12 @@ namespace Durin
 		State.bCloseRequested = !bOpen;
 
 		if (!State.bVisible && Config.InternalDockSpace &&
-			ImGui::DockBuilderGetNode(EditorWorkspaceUI::MakeDockSpaceId(
+			ImGui::DockBuilderGetNode(WorkspaceUI::MakeDockSpaceId(
 				Config.InternalDockSpace->WorkspaceType,
 				Config.InternalDockSpace->LayoutVersion
 			)) != nullptr)
 		{
-			EditorWorkspaceUI::SubmitDockSpace(
+			WorkspaceUI::SubmitDockSpace(
 				Config.InternalDockSpace->WorkspaceType,
 				Config.InternalDockSpace->LayoutVersion,
 				ImVec2(0.0f, 0.0f),
@@ -52,47 +53,47 @@ namespace Durin
 		return State;
 	}
 
-	auto FEditorWorkspaceRootWindow::End() -> void
+	auto FWorkspaceRootWindow::End() -> void
 	{
 		checkf(bWindowBegun, "An editor workspace root window must begin before it ends");
 		ImGui::End();
 		bWindowBegun = false;
 	}
 
-	auto FEditorWorkspaceDocumentHost::RequestFocus(FEditorDocumentId DocumentId) -> void
+	auto FWorkspaceDocumentHost::RequestFocus(FDocumentId DocumentId) -> void
 	{
 		DocumentWindows[DocumentId.Value].RequestFocus();
 	}
 
-	auto FEditorWorkspaceDocumentHost::DrawDocuments(
-		FEditorWorkspaceManager& WorkspaceManager,
-		const FEditorWorkspaceTypeId& WorkspaceType,
+	auto FWorkspaceDocumentHost::DrawDocuments(
+		FWorkspaceManager& WorkspaceManager,
+		const FWorkspaceTypeId& WorkspaceType,
 		std::string_view WorkspaceRootKey,
-		const std::function<bool(const FEditorDocumentTab&)>& CanDrawDocument,
-		const std::function<void(const FEditorDocumentTab&)>& DrawDocument,
-		const std::function<void(const FEditorDocumentTab&)>& PrepareDocument
+		const std::function<bool(const FDocumentTab&)>& CanDrawDocument,
+		const std::function<void(const FDocumentTab&)>& DrawDocument,
+		const std::function<void(const FDocumentTab&)>& PrepareDocument
 	) -> bool
 	{
 		bool bWorkspaceActivated = false;
-		std::vector<FEditorDocumentId> CloseRequests;
+		std::vector<FDocumentId> CloseRequests;
 		std::unordered_set<uint64> OpenDocumentIds;
-		for (const FEditorDocumentTab& Document : WorkspaceManager.GetDocuments())
+		for (const FDocumentTab& Document : WorkspaceManager.GetDocuments())
 		{
 			if (Document.WorkspaceType != WorkspaceType) continue;
 			OpenDocumentIds.insert(Document.Id.Value);
 			if (PrepareDocument) PrepareDocument(Document);
 			if (!CanDrawDocument(Document)) continue;
 
-			FEditorWorkspaceRootWindow& RootWindow = DocumentWindows[Document.Id.Value];
-			const FEditorWorkspaceRootWindowState WindowState = RootWindow.Begin({
+			FWorkspaceRootWindow& RootWindow = DocumentWindows[Document.Id.Value];
+			const FWorkspaceRootWindowState WindowState = RootWindow.Begin({
 				.DisplayName = Document.Label,
-				.RootKey = EditorWorkspaceUI::MakeEditorDocumentRootKey(WorkspaceRootKey, Document.DocumentKey),
+				.RootKey = WorkspaceUI::MakeDocumentRootKey(WorkspaceRootKey, Document.DocumentKey),
 				.bDirty = Document.bDirty,
 			});
 			if (WindowState.bFocused || WindowState.bActivated)
 			{
 				bWorkspaceActivated = true;
-				const FEditorDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument();
+				const FDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument();
 				if (!ActiveDocument || ActiveDocument->Id != Document.Id)
 					WorkspaceManager.ActivateDocument(Document.Id);
 			}
@@ -104,7 +105,7 @@ namespace Durin
 		std::erase_if(DocumentWindows, [&](const auto& Entry) {
 			return !OpenDocumentIds.contains(Entry.first);
 		});
-		for (FEditorDocumentId DocumentId : CloseRequests)
+		for (FDocumentId DocumentId : CloseRequests)
 			WorkspaceManager.RequestCloseDocument(DocumentId);
 		return bWorkspaceActivated;
 	}

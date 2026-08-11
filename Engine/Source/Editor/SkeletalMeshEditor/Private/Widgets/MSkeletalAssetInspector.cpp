@@ -5,6 +5,7 @@
 #include "AssetSystem.h"
 #include "ImportRecordIndex.h"
 #include "DObject/Object.h"
+#include "Editor/WorkspaceManager.h"
 #include "Materials/MaterialInterface.h"
 #include "MonaImGui.h"
 #include "SkeletalMesh/SkeletalMesh.h"
@@ -81,28 +82,28 @@ namespace Durin
 		}
 	}
 
-	MSkeletalAssetInspector::MSkeletalAssetInspector(FEditorWorkspaceManager& InWorkspaceManager)
+	MSkeletalAssetInspector::MSkeletalAssetInspector(Editor::FWorkspaceManager& InWorkspaceManager)
 		: WorkspaceManager(InWorkspaceManager) {}
 
 	MSkeletalAssetInspector::~MSkeletalAssetInspector() = default;
 
-	auto MSkeletalAssetInspector::GetWorkspaceType() const -> const FEditorWorkspaceTypeId&
+	auto MSkeletalAssetInspector::GetWorkspaceType() const -> const Editor::FWorkspaceTypeId&
 	{
 		return SkeletalMeshEditorWorkspace::Type;
 	}
 
-	auto MSkeletalAssetInspector::OpenDocument(const FEditorDocumentTab& Document)
-		-> EEditorDocumentOpenResult
+	auto MSkeletalAssetInspector::OpenDocument(const Editor::FDocumentTab& Document)
+		-> Editor::EDocumentOpenResult
 	{
 		if (Document.ResourceId.empty() || Document.DocumentKey.empty())
-			return EEditorDocumentOpenResult::Rejected;
-		if (FindState(Document.DocumentKey)) return EEditorDocumentOpenResult::Opened;
+			return Editor::EDocumentOpenResult::Rejected;
+		if (FindState(Document.DocumentKey)) return Editor::EDocumentOpenResult::Opened;
 		FAssetPath AssetPath;
 		std::string PathError;
 		if (!FAssetPath::TryCreate(Document.ResourceId, AssetPath, &PathError))
 		{
 			ErrorMessage = std::move(PathError);
-			return EEditorDocumentOpenResult::Rejected;
+			return Editor::EDocumentOpenResult::Rejected;
 		}
 		FWorkspaceAssetOpenCompatibility CompatibilityPolicy(AssetPath);
 		DObject* Asset = nullptr;
@@ -113,34 +114,34 @@ namespace Durin
 			&& Asset->GetClass() != DAnimationClip::StaticClass()))
 		{
 			ErrorMessage = Result ? "The selected asset is not an exact skeletal asset." : Result.Message;
-			return EEditorDocumentOpenResult::Rejected;
+			return Editor::EDocumentOpenResult::Rejected;
 		}
 		std::string CompatibilityDiagnostic;
 		if (CompatibilityPolicy.RejectIfIncompatible(Report, CompatibilityDiagnostic))
 		{
 			ErrorMessage = std::move(CompatibilityDiagnostic);
-			return EEditorDocumentOpenResult::Rejected;
+			return Editor::EDocumentOpenResult::Rejected;
 		}
 		FDocumentState State{.Asset = Asset};
 		if (Cast<DSkeletalMesh>(Asset) || Cast<DAnimationClip>(Asset))
 			State.PreviewPeer = ResolveSameRecordPreviewPeer(
 				AssetPath, Asset, State.PreviewPeerPaths);
 		Documents.emplace(Document.DocumentKey, std::move(State));
-		return EEditorDocumentOpenResult::Opened;
+		return Editor::EDocumentOpenResult::Opened;
 	}
 
-	auto MSkeletalAssetInspector::ActivateDocument(const FEditorDocumentTab& Document) -> void
+	auto MSkeletalAssetInspector::ActivateDocument(const Editor::FDocumentTab& Document) -> void
 	{
 		DocumentHost.RequestFocus(Document.Id);
 	}
 
-	auto MSkeletalAssetInspector::RequestCloseDocument(const FEditorDocumentTab& Document)
-		-> EEditorDocumentCloseResult
+	auto MSkeletalAssetInspector::RequestCloseDocument(const Editor::FDocumentTab& Document)
+		-> Editor::EDocumentCloseResult
 	{
 		if (FDocumentState* State = FindState(Document.DocumentKey); State && State->Preview)
 			State->Preview->SetVisible(false);
 		Documents.erase(Document.DocumentKey);
-		return EEditorDocumentCloseResult::Closed;
+		return Editor::EDocumentCloseResult::Closed;
 	}
 
 	auto MSkeletalAssetInspector::DrawWorkspace(bool bActive) -> bool
@@ -150,8 +151,8 @@ namespace Durin
 		return DocumentHost.DrawDocuments(
 			WorkspaceManager, SkeletalMeshEditorWorkspace::Type,
 			SkeletalMeshEditorWorkspace::RootKey,
-			[this](const FEditorDocumentTab& Document) { return FindState(Document.DocumentKey) != nullptr; },
-			[this](const FEditorDocumentTab& Document) {
+			[this](const Editor::FDocumentTab& Document) { return FindState(Document.DocumentKey) != nullptr; },
+			[this](const Editor::FDocumentTab& Document) {
 				if (FDocumentState* State = FindState(Document.DocumentKey)) DrawDocument(Document, *State);
 			});
 	}
@@ -165,7 +166,7 @@ namespace Durin
 	}
 
 	auto MSkeletalAssetInspector::DrawDocument(
-		const FEditorDocumentTab& Document, FDocumentState& State) -> void
+		const Editor::FDocumentTab& Document, FDocumentState& State) -> void
 	{
 		DObject* Asset = State.Asset.Get();
 		if (!Asset)

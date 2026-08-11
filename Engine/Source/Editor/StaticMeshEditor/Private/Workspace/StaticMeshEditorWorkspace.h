@@ -1,9 +1,9 @@
 #pragma once
 
-#include "Editor/EditorWorkspace.h"
+#include "Editor/WorkspaceTypes.h"
 
 namespace Durin::StaticMeshEditorWorkspace
 {
-	inline const FEditorWorkspaceTypeId Type("StaticMeshEditor");
+	inline const Editor::FWorkspaceTypeId Type("StaticMeshEditor");
 	inline constexpr std::string_view RootKey = "StaticMeshEditor";
 }

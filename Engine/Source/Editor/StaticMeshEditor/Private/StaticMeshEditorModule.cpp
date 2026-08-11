@@ -1,6 +1,6 @@
 #include "StaticMeshEditorModule.h"
 
-#include "Editor/EditorWorkspace.h"
+#include "Editor/WorkspaceManager.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Thumbnail/RenderedAssetThumbnailCache.h"
 #include "Thumbnail/StaticMeshAssetThumbnail.h"
@@ -23,7 +23,7 @@ namespace Durin
 	}
 
 	auto FStaticMeshEditorModule::RegisterStaticMeshEditor(
-		FEditorWorkspaceManager& WorkspaceManager,
+		Editor::FWorkspaceManager& WorkspaceManager,
 		FRenderedAssetThumbnailService& ThumbnailService) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
@@ -31,7 +31,7 @@ namespace Durin
 		WorkspaceRegistration.reset();
 		ThumbnailRegistration.reset();
 		std::shared_ptr<MStaticMeshInspector> Workspace = std::make_shared<MStaticMeshInspector>(WorkspaceManager);
-		FEditorWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
+		Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
 			.Workspaces = {
 				{
 					.Descriptor = {
@@ -40,7 +40,7 @@ namespace Durin
 						.RootKey = std::string(StaticMeshEditorWorkspace::RootKey),
 						.bShowInWindowMenu = false,
 						.bOpenByDefault = false,
-						.DefaultHostDockPreference = EEditorWorkspaceHostDockPreference::Center,
+						.DefaultHostDockPreference = Editor::EWorkspaceHostDockPreference::Center,
 					},
 					.Workspace = Workspace,
 				},
@@ -49,13 +49,13 @@ namespace Durin
 				{
 					.AssetClassName = DStaticMesh::StaticClass()->GetQualifiedName().ToString(),
 					.WorkspaceType = StaticMeshEditorWorkspace::Type,
-					.DocumentPolicy = EEditorDocumentPolicy::PerResource,
+					.DocumentPolicy = Editor::EDocumentPolicy::PerResource,
 					.bClosable = true,
 				},
 			},
 		});
 		if (!Registration) return false;
-		WorkspaceRegistration = std::make_unique<FEditorWorkspaceRegistrationHandle>(std::move(Registration));
+		WorkspaceRegistration = std::make_unique<Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
 
 		std::string Error;
 		FAssetThumbnailProviderRegistrationHandle ThumbnailHandle =

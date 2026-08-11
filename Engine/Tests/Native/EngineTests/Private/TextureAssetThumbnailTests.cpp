@@ -2,7 +2,7 @@
 #include "Thumbnail/Texture2DAssetThumbnail.h"
 #include "Thumbnail/RenderedAssetThumbnailCache.h"
 #include "TextureEditorModule.h"
-#include "Editor/EditorWorkspace.h"
+#include "Editor/WorkspaceManager.h"
 
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 
@@ -57,7 +57,7 @@ TEST(FTextureAssetThumbnailTests, Texture2DProviderCapturesAuthoredSourceImage)
 TEST(FTextureAssetThumbnailTests, ModuleOwnsBothExactProvidersAndWorkspaceLifecycle)
 {
 	InitializeDObjectSystem();
-	Durin::FEditorWorkspaceManager Manager;
+	Durin::Editor::FWorkspaceManager Manager;
 	Durin::FRenderedAssetThumbnailService Service;
 	Durin::FTextureEditorModule Module;
 	const std::string Texture2DClass =
@@ -69,20 +69,20 @@ TEST(FTextureAssetThumbnailTests, ModuleOwnsBothExactProvidersAndWorkspaceLifecy
 	EXPECT_TRUE(Service.UsesSourceImage(Texture2DClass));
 	EXPECT_TRUE(Service.Find(TextureCubeClass));
 	EXPECT_NE(Manager.FindWorkspace(
-		Durin::FEditorWorkspaceTypeId("TextureEditor")), nullptr);
+		Durin::Editor::FWorkspaceTypeId("TextureEditor")), nullptr);
 	EXPECT_FALSE(Module.RegisterTextureEditor(Manager, Service));
 	Module.UnregisterTextureEditor();
 	EXPECT_FALSE(Service.Find(Texture2DClass));
 	EXPECT_FALSE(Service.UsesSourceImage(Texture2DClass));
 	EXPECT_FALSE(Service.Find(TextureCubeClass));
 	EXPECT_EQ(Manager.FindWorkspace(
-		Durin::FEditorWorkspaceTypeId("TextureEditor")), nullptr);
+		Durin::Editor::FWorkspaceTypeId("TextureEditor")), nullptr);
 }
 
 TEST(FTextureAssetThumbnailTests, ProviderConflictRollsBackWholeIntegration)
 {
 	InitializeDObjectSystem();
-	Durin::FEditorWorkspaceManager Manager;
+	Durin::Editor::FWorkspaceManager Manager;
 	Durin::FRenderedAssetThumbnailService Service;
 	std::string Error;
 	auto Existing = Service.RegisterScoped(
@@ -95,7 +95,7 @@ TEST(FTextureAssetThumbnailTests, ProviderConflictRollsBackWholeIntegration)
 	EXPECT_TRUE(Service.Find(
 		Durin::DTextureCube::StaticClass()->GetQualifiedName().ToString()));
 	EXPECT_EQ(Manager.FindWorkspace(
-		Durin::FEditorWorkspaceTypeId("TextureEditor")), nullptr);
+		Durin::Editor::FWorkspaceTypeId("TextureEditor")), nullptr);
 }
 
 TEST(FTextureAssetThumbnailTests,
@@ -105,7 +105,7 @@ TEST(FTextureAssetThumbnailTests,
 	std::string Error;
 	ASSERT_TRUE(Durin::Tests::CreateRenderedAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
-	Durin::FEditorWorkspaceManager Manager;
+	Durin::Editor::FWorkspaceManager Manager;
 	Durin::FRenderedAssetThumbnailService Service;
 	Durin::FTextureEditorModule Module;
 	ASSERT_TRUE(Module.RegisterTextureEditor(Manager, Service));
@@ -121,7 +121,7 @@ TEST(FTextureAssetThumbnailTests,
 	ImGui::GetIO().Fonts->Build();
 	ImGui::NewFrame();
 	auto Workspace = Manager.FindWorkspace(
-		Durin::FEditorWorkspaceTypeId("TextureEditor"));
+		Durin::Editor::FWorkspaceTypeId("TextureEditor"));
 	ASSERT_NE(Workspace, nullptr);
 	ImGui::SetNextWindowSize(ImVec2(1280.0f, 720.0f), ImGuiCond_Always);
 	EXPECT_NO_FATAL_FAILURE(Workspace->DrawWorkspace(true));

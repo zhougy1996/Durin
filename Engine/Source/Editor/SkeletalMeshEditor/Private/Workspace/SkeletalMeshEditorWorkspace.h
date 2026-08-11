@@ -1,9 +1,9 @@
 #pragma once
 
-#include "Editor/EditorWorkspace.h"
+#include "Editor/WorkspaceTypes.h"
 
 namespace Durin::SkeletalMeshEditorWorkspace
 {
-	inline const FEditorWorkspaceTypeId Type("SkeletalMeshEditor");
+	inline const Editor::FWorkspaceTypeId Type("SkeletalMeshEditor");
 	inline constexpr std::string_view RootKey = "SkeletalMeshEditor";
 }

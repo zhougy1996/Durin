@@ -14,8 +14,11 @@ namespace Durin
 
 	class FLevelEditorSessionSettings;
 	class FAssetPath;
-	class FEditorWorkspaceRegistrationHandle;
-	class FEditorWorkspaceManager;
+	namespace Editor
+	{
+		class FWorkspaceRegistrationHandle;
+		class FWorkspaceManager;
+	}
 
 	// Registers the level workspace and its editor customizations.
 	class FLevelEditorModule final : public IModuleInterface
@@ -24,12 +27,12 @@ namespace Durin
 		LEVELEDITOR_API ~FLevelEditorModule() override;
 		LEVELEDITOR_API auto StartupModule() -> void override;
 		LEVELEDITOR_API auto ShutdownModule() -> void override;
-		LEVELEDITOR_API auto RegisterLevelEditorWorkspace(FEditorWorkspaceManager& WorkspaceManager) -> bool;
+		LEVELEDITOR_API auto RegisterLevelEditorWorkspace(Editor::FWorkspaceManager& WorkspaceManager) -> bool;
 		LEVELEDITOR_API auto UnregisterLevelEditorWorkspace() -> void;
 		LEVELEDITOR_API auto OpenDefaultDocument() -> bool;
 		LEVELEDITOR_API auto RevealAssetInContentBrowser(const FAssetPath& AssetPath) -> bool;
 	private:
-		std::unique_ptr<FEditorWorkspaceRegistrationHandle> WorkspaceRegistration;
+		std::unique_ptr<Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
 		std::unique_ptr<FLevelEditorSessionSettings> SessionSettings;
 		std::vector<FLevelEditorCustomizationHandle> CustomizationHandles;
 		FLevelViewportEditModeHandle SplineEditModeHandle;

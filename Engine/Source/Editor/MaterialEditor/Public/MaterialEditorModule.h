@@ -5,8 +5,11 @@
 
 namespace Durin
 {
-	class FEditorWorkspaceRegistrationHandle;
-	class FEditorWorkspaceManager;
+	namespace Editor
+	{
+		class FWorkspaceRegistrationHandle;
+		class FWorkspaceManager;
+	}
 	class FRenderedAssetThumbnailService;
 	class FAssetThumbnailProviderRegistrationHandle;
 
@@ -18,12 +21,12 @@ namespace Durin
 		MATERIALEDITOR_API auto StartupModule() -> void override;
 		MATERIALEDITOR_API auto ShutdownModule() -> void override;
 		MATERIALEDITOR_API auto RegisterMaterialEditor(
-			FEditorWorkspaceManager& WorkspaceManager,
+			Editor::FWorkspaceManager& WorkspaceManager,
 			FRenderedAssetThumbnailService& ThumbnailService) -> bool;
 		MATERIALEDITOR_API auto UnregisterMaterialEditor() -> void;
 
 	private:
-		std::unique_ptr<FEditorWorkspaceRegistrationHandle> WorkspaceRegistration;
+		std::unique_ptr<Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
 		std::unique_ptr<FAssetThumbnailProviderRegistrationHandle> MaterialThumbnailRegistration;
 		std::unique_ptr<FAssetThumbnailProviderRegistrationHandle> MaterialInstanceThumbnailRegistration;
 	};

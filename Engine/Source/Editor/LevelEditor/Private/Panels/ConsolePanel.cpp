@@ -2,7 +2,7 @@
 
 #include "Panels/ConsoleRecordModel.h"
 
-#include "Editor/EditorWorkspaceUI.h"
+#include "Editor/WorkspaceUI.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "Workspace/LevelEditorHelpers.h"
@@ -165,7 +165,7 @@ namespace Durin
 		(void)Context;
 		const bool bHadNewConsoleRecords = std::exchange(bHasNewConsoleRecords, false);
 		const bool bReceivedRecords = PollLogRecords() || bHadNewConsoleRecords;
-		if (!EditorWorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "Console", "OutputLog", GetOpenPtr()))
+		if (!Editor::WorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "Console", "OutputLog", GetOpenPtr()))
 		{
 			ImGui::End();
 			return;

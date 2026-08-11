@@ -1,69 +1,71 @@
-#include "Editor/EditorWorkspaceUI.h"
+#include "Editor/WorkspaceUI.h"
 
-namespace Durin::EditorWorkspaceUI
+#include "Editor/WorkspaceManager.h"
+
+namespace Durin::Editor::WorkspaceUI
 {
-	auto MakeEditorHostDockSpaceName(uint32 LayoutVersion) -> std::string
+	auto MakeHostDockSpaceName(uint32 LayoutVersion) -> std::string
 	{
 		return std::format("Durin.DockSpace.EditorHost.v{}", LayoutVersion);
 	}
 
-	auto MakeEditorRootWindowName(std::string_view DisplayName, std::string_view RootKey) -> std::string
+	auto MakeRootWindowName(std::string_view DisplayName, std::string_view RootKey) -> std::string
 	{
 		return std::format("{}###Durin.Editor.Root.{}", DisplayName, RootKey);
 	}
 
-	auto MakeEditorDocumentRootKey(std::string_view WorkspaceRootKey, std::string_view DocumentKey) -> std::string
+	auto MakeDocumentRootKey(std::string_view WorkspaceRootKey, std::string_view DocumentKey) -> std::string
 	{
 		return std::format("{}.{}", WorkspaceRootKey, DocumentKey);
 	}
 
-	auto MakeDockClassName(const FEditorWorkspaceTypeId& WorkspaceType) -> std::string
+	auto MakeDockClassName(const FWorkspaceTypeId& WorkspaceType) -> std::string
 	{
 		return std::format("Durin.DockClass.{}", WorkspaceType.GetValue());
 	}
 
-	auto MakeDockSpaceName(const FEditorWorkspaceTypeId& WorkspaceType, uint32 LayoutVersion) -> std::string
+	auto MakeDockSpaceName(const FWorkspaceTypeId& WorkspaceType, uint32 LayoutVersion) -> std::string
 	{
 		return std::format("Durin.DockSpace.{}.v{}", WorkspaceType.GetValue(), LayoutVersion);
 	}
 
-	auto MakePanelWindowName(std::string_view DisplayName, const FEditorWorkspaceTypeId& WorkspaceType, std::string_view PanelKey) -> std::string
+	auto MakePanelWindowName(std::string_view DisplayName, const FWorkspaceTypeId& WorkspaceType, std::string_view PanelKey) -> std::string
 	{
 		return std::format("{}###Durin.{}.Panel.{}", DisplayName, WorkspaceType.GetValue(), PanelKey);
 	}
 
-	auto MakeEditorRootDockClassId() -> ImGuiID
+	auto MakeRootDockClassId() -> ImGuiID
 	{
 		return ImHashStr("Durin.DockClass.EditorRoot");
 	}
 
-	auto MakeEditorHostDockSpaceId(uint32 LayoutVersion) -> ImGuiID
+	auto MakeHostDockSpaceId(uint32 LayoutVersion) -> ImGuiID
 	{
-		const std::string Name = MakeEditorHostDockSpaceName(LayoutVersion);
+		const std::string Name = MakeHostDockSpaceName(LayoutVersion);
 		return ImHashStr(Name.c_str());
 	}
 
-	auto MakeDockClassId(const FEditorWorkspaceTypeId& WorkspaceType) -> ImGuiID
+	auto MakeDockClassId(const FWorkspaceTypeId& WorkspaceType) -> ImGuiID
 	{
 		const std::string Name = MakeDockClassName(WorkspaceType);
 		return ImHashStr(Name.c_str());
 	}
 
-	auto MakeDockSpaceId(const FEditorWorkspaceTypeId& WorkspaceType, uint32 LayoutVersion) -> ImGuiID
+	auto MakeDockSpaceId(const FWorkspaceTypeId& WorkspaceType, uint32 LayoutVersion) -> ImGuiID
 	{
 		const std::string Name = MakeDockSpaceName(WorkspaceType, LayoutVersion);
 		return ImHashStr(Name.c_str());
 	}
 
-	auto MakeEditorRootWindowClass() -> ImGuiWindowClass
+	auto MakeRootWindowClass() -> ImGuiWindowClass
 	{
 		ImGuiWindowClass WindowClass;
-		WindowClass.ClassId = MakeEditorRootDockClassId();
+		WindowClass.ClassId = MakeRootDockClassId();
 		WindowClass.DockingAllowUnclassed = false;
 		return WindowClass;
 	}
 
-	auto MakeWindowClass(const FEditorWorkspaceTypeId& WorkspaceType) -> ImGuiWindowClass
+	auto MakeWindowClass(const FWorkspaceTypeId& WorkspaceType) -> ImGuiWindowClass
 	{
 		ImGuiWindowClass WindowClass;
 		WindowClass.ClassId = MakeDockClassId(WorkspaceType);
@@ -71,20 +73,20 @@ namespace Durin::EditorWorkspaceUI
 		return WindowClass;
 	}
 
-	auto SetNextEditorRootWindowClass() -> void
+	auto SetNextRootWindowClass() -> void
 	{
-		const ImGuiWindowClass WindowClass = MakeEditorRootWindowClass();
+		const ImGuiWindowClass WindowClass = MakeRootWindowClass();
 		ImGui::SetNextWindowClass(&WindowClass);
 	}
 
-	auto SetNextDockableWindowClass(const FEditorWorkspaceTypeId& WorkspaceType) -> void
+	auto SetNextDockableWindowClass(const FWorkspaceTypeId& WorkspaceType) -> void
 	{
 		const ImGuiWindowClass WindowClass = MakeWindowClass(WorkspaceType);
 		ImGui::SetNextWindowClass(&WindowClass);
 	}
 
 	auto BeginDockablePanel(
-		const FEditorWorkspaceTypeId& WorkspaceType,
+		const FWorkspaceTypeId& WorkspaceType,
 		std::string_view DisplayName,
 		std::string_view PanelKey,
 		bool* bOpen,
@@ -97,7 +99,7 @@ namespace Durin::EditorWorkspaceUI
 	}
 
 	auto SubmitDockSpace(
-		const FEditorWorkspaceTypeId& WorkspaceType,
+		const FWorkspaceTypeId& WorkspaceType,
 		uint32 LayoutVersion,
 		const ImVec2& Size,
 		ImGuiDockNodeFlags Flags
@@ -108,16 +110,16 @@ namespace Durin::EditorWorkspaceUI
 		return ImGui::DockSpace(DockSpaceId, Size, Flags, &WindowClass);
 	}
 
-	auto SubmitEditorHostDockSpace(uint32 LayoutVersion, const ImVec2& Size, ImGuiDockNodeFlags Flags) -> ImGuiID
+	auto SubmitHostDockSpace(uint32 LayoutVersion, const ImVec2& Size, ImGuiDockNodeFlags Flags) -> ImGuiID
 	{
-		const ImGuiWindowClass WindowClass = MakeEditorRootWindowClass();
-		const ImGuiID DockSpaceId = MakeEditorHostDockSpaceId(LayoutVersion);
+		const ImGuiWindowClass WindowClass = MakeRootWindowClass();
+		const ImGuiID DockSpaceId = MakeHostDockSpaceId(LayoutVersion);
 		return ImGui::DockSpace(DockSpaceId, Size, Flags, &WindowClass);
 	}
 
-	auto DrawDocumentCloseConfirmation(FEditorWorkspaceManager& WorkspaceManager) -> void
+	auto DrawDocumentCloseConfirmation(FWorkspaceManager& WorkspaceManager) -> void
 	{
-		const FEditorDocumentTab* PendingDocument = WorkspaceManager.GetPendingCloseDocument();
+		const FDocumentTab* PendingDocument = WorkspaceManager.GetPendingCloseDocument();
 		if (!PendingDocument) return;
 
 		ImGui::OpenPopup("Confirm Close Document###Durin.Editor.DocumentCloseConfirmation");
@@ -132,21 +134,21 @@ namespace Durin::EditorWorkspaceUI
 		ImGui::Spacing();
 		if (ImGui::Button("Save", ImVec2(100, 0)))
 		{
-			if (WorkspaceManager.ResolvePendingDocumentClose(EEditorDocumentCloseResponse::Save) ==
-				EEditorDocumentCloseResult::Closed)
+			if (WorkspaceManager.ResolvePendingDocumentClose(EDocumentCloseResponse::Save) ==
+				EDocumentCloseResult::Closed)
 				ImGui::CloseCurrentPopup();
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Discard", ImVec2(100, 0)))
 		{
-			if (WorkspaceManager.ResolvePendingDocumentClose(EEditorDocumentCloseResponse::Discard) ==
-				EEditorDocumentCloseResult::Closed)
+			if (WorkspaceManager.ResolvePendingDocumentClose(EDocumentCloseResponse::Discard) ==
+				EDocumentCloseResult::Closed)
 				ImGui::CloseCurrentPopup();
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Cancel", ImVec2(100, 0)))
 		{
-			WorkspaceManager.ResolvePendingDocumentClose(EEditorDocumentCloseResponse::Cancel);
+			WorkspaceManager.ResolvePendingDocumentClose(EDocumentCloseResponse::Cancel);
 			ImGui::CloseCurrentPopup();
 		}
 		ImGui::EndPopup();

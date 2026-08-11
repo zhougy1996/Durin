@@ -1,7 +1,7 @@
 #include "LevelEditorModule.h"
 
 #include "AssetSystem.h"
-#include "Editor/EditorWorkspace.h"
+#include "Editor/WorkspaceManager.h"
 #include "Settings/LevelEditorSessionSettings.h"
 #include "Settings/ProjectDefaultLevelReferenceStore.h"
 #include "Engine/Level.h"
@@ -73,13 +73,13 @@ namespace Durin
 		SessionSettings.reset();
 	}
 
-	LEVELEDITOR_API auto FLevelEditorModule::RegisterLevelEditorWorkspace(FEditorWorkspaceManager& WorkspaceManager) -> bool
+	LEVELEDITOR_API auto FLevelEditorModule::RegisterLevelEditorWorkspace(Editor::FWorkspaceManager& WorkspaceManager) -> bool
 	{
 		if (WorkspaceRegistration && WorkspaceRegistration->IsValid()) return false;
 		WorkspaceRegistration.reset();
 		std::shared_ptr<MLevelEditor> Workspace = std::make_shared<MLevelEditor>(*SessionSettings, WorkspaceManager);
 		Workspace->Construct();
-		FEditorWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
+		Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
 			.Workspaces = {
 				{
 					.Descriptor = {
@@ -88,7 +88,7 @@ namespace Durin
 						.RootKey = LevelEditorWorkspace::RootKey,
 						.bShowInWindowMenu = true,
 						.bOpenByDefault = true,
-						.DefaultHostDockPreference = EEditorWorkspaceHostDockPreference::Center,
+						.DefaultHostDockPreference = Editor::EWorkspaceHostDockPreference::Center,
 						.SingletonDocumentKey = "LevelEditor",
 						.SingletonDocumentLabel = "Level Editor",
 						.bSingletonDocumentClosable = true,
@@ -100,7 +100,7 @@ namespace Durin
 				{
 					.AssetClassName = DLevel::StaticClass()->GetQualifiedName().ToString(),
 					.WorkspaceType = LevelEditorWorkspace::Type,
-					.DocumentPolicy = EEditorDocumentPolicy::Singleton,
+					.DocumentPolicy = Editor::EDocumentPolicy::Singleton,
 					.SingletonDocumentKey = "LevelEditor",
 					.SingletonLabel = "Level Editor",
 					.bClosable = true,
@@ -108,7 +108,7 @@ namespace Durin
 			},
 		});
 		if (!Registration) return false;
-		WorkspaceRegistration = std::make_unique<FEditorWorkspaceRegistrationHandle>(std::move(Registration));
+		WorkspaceRegistration = std::make_unique<Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
 		LevelEditorWorkspace = Workspace;
 		return true;
 	}

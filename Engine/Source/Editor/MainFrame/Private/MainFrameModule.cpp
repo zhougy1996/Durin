@@ -4,8 +4,8 @@
 #include "ProjectBrowser.h"
 #include "ProfilingToolService.h"
 
-#include "Editor/EditorWorkspace.h"
-#include "Editor/EditorWorkspaceUI.h"
+#include "Editor/WorkspaceManager.h"
+#include "Editor/WorkspaceUI.h"
 #include "Editor/EditorEngine.h"
 #include "Mona.h"
 #include "LevelEditorModule.h"
@@ -36,7 +36,7 @@ namespace Durin
 		std::string FailureMessage;
 		std::shared_ptr<FEditorHostSettings> HostSettings;
 		std::shared_ptr<MWindow> RootWindow;
-		std::shared_ptr<FEditorWorkspaceManager> WorkspaceManager;
+		std::shared_ptr<Editor::FWorkspaceManager> WorkspaceManager;
 		std::shared_ptr<FProjectBrowser> ProjectBrowser;
 		std::shared_ptr<FProfilingToolService> ProfilingTools;
 		std::shared_ptr<FAssetCompatibilityWindow> AssetCompatibilityWindow;
@@ -54,7 +54,7 @@ namespace Durin
 		}
 
 		auto RegisterEditorWorkspaces(
-			FEditorWorkspaceManager& WorkspaceManager,
+			Editor::FWorkspaceManager& WorkspaceManager,
 			FLevelEditorModule& LevelEditorModule,
 			FMaterialEditorModule& MaterialEditorModule,
 			FTextureEditorModule& TextureEditorModule,
@@ -204,20 +204,20 @@ namespace Durin
 		auto BuildDefaultEditorHostLayout(
 			ImGuiID DockSpaceId,
 			const ImVec2& DockSpaceSize,
-			const std::vector<FEditorWorkspaceDescriptor>& Descriptors
+			const std::vector<Editor::FWorkspaceDescriptor>& Descriptors
 		) -> void
 		{
 			ImGui::DockBuilderRemoveNode(DockSpaceId);
 			ImGui::DockBuilderAddNode(DockSpaceId, ImGuiDockNodeFlags_DockSpace | ImGuiDockNodeFlags_NoWindowMenuButton);
 			ImGui::DockBuilderSetNodeSize(DockSpaceId, DockSpaceSize);
 			if (ImGuiDockNode* DockSpaceNode = ImGui::DockBuilderGetNode(DockSpaceId))
-				DockSpaceNode->WindowClass = EditorWorkspaceUI::MakeEditorRootWindowClass();
-			for (const FEditorWorkspaceDescriptor& Descriptor : Descriptors)
+				DockSpaceNode->WindowClass = Editor::WorkspaceUI::MakeRootWindowClass();
+			for (const Editor::FWorkspaceDescriptor& Descriptor : Descriptors)
 			{
 				// Per-resource windows do not exist during the initial layout build; their root helper
 				// applies the same host preference when each document first appears.
-				if (Descriptor.DefaultHostDockPreference != EEditorWorkspaceHostDockPreference::Center || !Descriptor.HasSingletonDocument()) continue;
-				const std::string RootWindowName = EditorWorkspaceUI::MakeEditorRootWindowName(Descriptor.DisplayName, Descriptor.RootKey);
+				if (Descriptor.DefaultHostDockPreference != Editor::EWorkspaceHostDockPreference::Center || !Descriptor.HasSingletonDocument()) continue;
+				const std::string RootWindowName = Editor::WorkspaceUI::MakeRootWindowName(Descriptor.DisplayName, Descriptor.RootKey);
 				ImGui::DockBuilderDockWindow(RootWindowName.c_str(), DockSpaceId);
 			}
 			ImGui::DockBuilderFinish(DockSpaceId);
@@ -390,14 +390,14 @@ namespace Durin
 			ImGui::EndMenu();
 		}
 
-		auto DrawOpenEditorsMenu(FEditorWorkspaceManager& WorkspaceManager) -> void
+		auto DrawOpenEditorsMenu(Editor::FWorkspaceManager& WorkspaceManager) -> void
 		{
 			if (!ImGui::BeginMenu("Editors")) return;
 
-			const std::vector<FEditorDocumentTab>& Documents = WorkspaceManager.GetDocuments();
-			const FEditorDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument();
+			const std::vector<Editor::FDocumentTab>& Documents = WorkspaceManager.GetDocuments();
+			const Editor::FDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument();
 			if (Documents.empty()) ImGui::MenuItem("No Open Editors", nullptr, false, false);
-			for (const FEditorDocumentTab& Document : Documents)
+			for (const Editor::FDocumentTab& Document : Documents)
 			{
 				const std::string DisplayLabel = Document.bDirty ? std::format("{} *", Document.Label) : Document.Label;
 				const std::string MenuLabel = std::format("{}###Durin.Editor.DocumentMenu.{}", DisplayLabel, Document.Id.Value);
@@ -407,10 +407,10 @@ namespace Durin
 			}
 
 			bool bDrewOpenCommand = false;
-			for (const FEditorWorkspaceDescriptor& Descriptor : WorkspaceManager.GetWorkspaceDescriptors())
+			for (const Editor::FWorkspaceDescriptor& Descriptor : WorkspaceManager.GetWorkspaceDescriptors())
 			{
 				if (!Descriptor.bShowInWindowMenu || !Descriptor.HasSingletonDocument()) continue;
-				const bool bDocumentOpen = std::ranges::any_of(Documents, [&](const FEditorDocumentTab& Document) {
+				const bool bDocumentOpen = std::ranges::any_of(Documents, [&](const Editor::FDocumentTab& Document) {
 					return Document.WorkspaceType == Descriptor.WorkspaceType
 						&& Document.DocumentKey == Descriptor.SingletonDocumentKey;
 				});
@@ -437,7 +437,7 @@ namespace Durin
 		}
 
 		auto DrawWorkspaceHost(
-			FEditorWorkspaceManager& WorkspaceManager,
+			Editor::FWorkspaceManager& WorkspaceManager,
 			FEditorHostSettings& HostSettings,
 			MWindow& RootWindow,
 			const FProfilingToolService& ProfilingTools,
@@ -465,8 +465,8 @@ namespace Durin
 			ImGui::PopStyleVar(3);
 
 			WorkspaceManager.RefreshDocumentState();
-			std::shared_ptr<IEditorWorkspace> ActiveWorkspace;
-			if (const FEditorDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument())
+			std::shared_ptr<Editor::IWorkspace> ActiveWorkspace;
+			if (const Editor::FDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument())
 				ActiveWorkspace = WorkspaceManager.FindWorkspace(ActiveDocument->WorkspaceType);
 			const ImGuiIO& IO = ImGui::GetIO();
 			if (ActiveWorkspace && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false))
@@ -478,13 +478,13 @@ namespace Durin
 			}
 			if (ImGui::BeginMenuBar())
 			{
-				const std::vector<std::shared_ptr<IEditorWorkspace>> Workspaces = WorkspaceManager.GetRegisteredWorkspaces();
+				const std::vector<std::shared_ptr<Editor::IWorkspace>> Workspaces = WorkspaceManager.GetRegisteredWorkspaces();
 				if (ImGui::BeginMenu("File"))
 				{
 					if (ImGui::MenuItem("Save Current", "Ctrl+S", false, ActiveWorkspace && ActiveWorkspace->CanSaveActiveDocument()))
 						ActiveWorkspace->SaveActiveDocument();
 					ImGui::Separator();
-					for (const std::shared_ptr<IEditorWorkspace>& Workspace : Workspaces) Workspace->DrawFileMenu();
+					for (const std::shared_ptr<Editor::IWorkspace>& Workspace : Workspaces) Workspace->DrawFileMenu();
 					ImGui::EndMenu();
 				}
 				if (ImGui::BeginMenu("Edit"))
@@ -497,7 +497,7 @@ namespace Durin
 					if (ImGui::MenuItem(RedoLabel.c_str(), "Ctrl+Y", false, ActiveWorkspace && ActiveWorkspace->CanRedo())) ActiveWorkspace->Redo();
 					ImGui::Separator();
 					if (ImGui::MenuItem("Editor Preferences...")) bEditorPreferencesOpen = true;
-					for (const std::shared_ptr<IEditorWorkspace>& Workspace : Workspaces) Workspace->DrawEditMenu();
+					for (const std::shared_ptr<Editor::IWorkspace>& Workspace : Workspaces) Workspace->DrawEditMenu();
 					ImGui::EndMenu();
 				}
 				DrawProfilingMenu(ProfilingTools, ProfilingStatusMessage, bProfilingStatusOpen, bAssetCompatibilityOpen);
@@ -528,21 +528,21 @@ namespace Durin
 				});
 
 			const ImVec2 DockSpaceSize = ImGui::GetContentRegionAvail();
-			const ImGuiID DockSpaceId = EditorWorkspaceUI::MakeEditorHostDockSpaceId(EditorWorkspaceUI::HostLayoutVersion);
+			const ImGuiID DockSpaceId = Editor::WorkspaceUI::MakeHostDockSpaceId(Editor::WorkspaceUI::HostLayoutVersion);
 			const bool bNeedsDefaultLayout = ImGui::DockBuilderGetNode(DockSpaceId) == nullptr;
 			if (bNeedsDefaultLayout)
 			{
 				// DockBuilder must finish before DockSpace submission so the new tree retains this frame's host window.
 				BuildDefaultEditorHostLayout(DockSpaceId, DockSpaceSize, WorkspaceManager.GetWorkspaceDescriptors());
 			}
-			EditorWorkspaceUI::SubmitEditorHostDockSpace(EditorWorkspaceUI::HostLayoutVersion, DockSpaceSize, ImGuiDockNodeFlags_NoWindowMenuButton);
+			Editor::WorkspaceUI::SubmitHostDockSpace(Editor::WorkspaceUI::HostLayoutVersion, DockSpaceSize, ImGuiDockNodeFlags_NoWindowMenuButton);
 
-			for (const std::shared_ptr<IEditorWorkspace>& Workspace : WorkspaceManager.GetRegisteredWorkspaces())
+			for (const std::shared_ptr<Editor::IWorkspace>& Workspace : WorkspaceManager.GetRegisteredWorkspaces())
 			{
 				if (Workspace->DrawWorkspace(Workspace == ActiveWorkspace))
 					WorkspaceManager.ActivateWorkspace(Workspace->GetWorkspaceType());
 			}
-			EditorWorkspaceUI::DrawDocumentCloseConfirmation(WorkspaceManager);
+			Editor::WorkspaceUI::DrawDocumentCloseConfirmation(WorkspaceManager);
 
 			ImGui::End();
 		}
@@ -574,7 +574,7 @@ namespace Durin
 		MonaImGui::SetGlobalUIScale(Context.HostSettings->GetUIScale());
 		Context.RootWindow = std::make_shared<MWindow>();
 		MonaImGui::BindMainViewportToWindow(Context.RootWindow);
-		Context.WorkspaceManager = std::make_shared<FEditorWorkspaceManager>();
+		Context.WorkspaceManager = std::make_shared<Editor::FWorkspaceManager>();
 		Context.ProjectBrowser = std::make_shared<FProjectBrowser>();
 		Context.ProfilingTools =
 			std::make_shared<FProfilingToolService>(FPaths::RootDir());

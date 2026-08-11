@@ -4,24 +4,22 @@ Summary: Move the reusable workspace/document framework into `Durin::Editor`, sh
 
 Last reviewed: 2026-08-11
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-11
 
 ## Current Status
 
-The transaction and property-editing foundation already uses `Durin::Editor`,
-but the workspace framework still exposes 24 `FEditorWorkspace...`,
-`FEditorDocument...`, `EEditorDocument...`, and `IEditorWorkspace` names from the
-`Durin` root. Its public contract is a single 259-line header, its manager
-implementation is 501 lines, and its consumers span 39 source/test files across
-DurinEd, MainFrame, LevelEditor, MaterialEditor, TextureEditor,
-StaticMeshEditor, and SkeletalMeshEditor.
+All stages are complete. Workspace and document lifecycle contracts now live in
+`Durin::Editor` behind responsibility-specific `WorkspaceTypes.h`, `Workspace.h`,
+and `WorkspaceManager.h` headers. The root-window and presentation boundaries
+use `WorkspaceRootWindow.h` and `WorkspaceUI.h`, and every repository consumer
+uses the shortened names without root-namespace compatibility aliases.
 
-All production registrations already use the atomic `RegisterBatch()` path.
-The public `RegisterWorkspace()` and `RegisterAssetEditor()` wrappers have no
-callers and duplicate only part of that contract. Workspace window helpers also
-repeat `Editor` in the `Durin::EditorWorkspaceUI` namespace and in functions
-such as `MakeEditorRootWindowName()`.
+The unused one-at-a-time registration wrappers were removed, leaving the atomic
+scoped `RegisterBatch()` path. Stable ImGui names and IDs are pinned by tests.
+`EditorShellTests` passes 34 tests, all six concrete integration targets pass,
+the complete 60-target native test suite passes, the `Win64-Debug-DurinEditor`
+full `all` build passes, and the hidden Sandbox startup/exit smoke succeeds.
 
 ## Goal
 
@@ -118,56 +116,56 @@ panel, and window-class helper names already remain specific and do not change.
 
 ### Stage 1: Core contract and manager boundary
 
-- [ ] Add `WorkspaceTypes.h`, `Workspace.h`, and `WorkspaceManager.h` under
+- [x] Add `WorkspaceTypes.h`, `Workspace.h`, and `WorkspaceManager.h` under
   `Durin::Editor` with the selected names.
-- [ ] Rename `EditorWorkspace.cpp` to `WorkspaceManager.cpp` and migrate its
+- [x] Rename `EditorWorkspace.cpp` to `WorkspaceManager.cpp` and migrate its
   registry/detail state into `Durin::Editor`.
-- [ ] Remove `RegisterWorkspace()` and `RegisterAssetEditor()`; retain only the
+- [x] Remove `RegisterWorkspace()` and `RegisterAssetEditor()`; retain only the
   validated, scoped `RegisterBatch()` entry.
-- [ ] Migrate MainFrame, LevelEditor, MaterialEditor, TextureEditor,
+- [x] Migrate MainFrame, LevelEditor, MaterialEditor, TextureEditor,
   StaticMeshEditor, SkeletalMeshEditor, and tests to the narrowest new header.
-- [ ] Remove `EditorWorkspace.h` without adding root-namespace aliases or a
+- [x] Remove `EditorWorkspace.h` without adding root-namespace aliases or a
   forwarding header.
-- [ ] Run `EditorShellTests` and the smallest concrete editor test targets that
+- [x] Run `EditorShellTests` and the smallest concrete editor test targets that
   compile registration integrations touched by this stage.
 
 ### Stage 2: Workspace presentation boundary
 
-- [ ] Rename the root-window and UI source/header pairs to
+- [x] Rename the root-window and UI source/header pairs to
   `WorkspaceRootWindow` and `WorkspaceUI`.
-- [ ] Move root-window/document-host types into `Durin::Editor` and shorten
+- [x] Move root-window/document-host types into `Durin::Editor` and shorten
   their redundant names.
-- [ ] Move helpers to `Durin::Editor::WorkspaceUI`, shorten only redundant
+- [x] Move helpers to `Durin::Editor::WorkspaceUI`, shorten only redundant
   `Editor` function stems, and verify stable names/IDs against pre-migration
   expectations.
-- [ ] Migrate MainFrame and concrete editor panel/window consumers.
-- [ ] Extend `EditorShellTests` to pin host dock-space, root-window, document
+- [x] Migrate MainFrame and concrete editor panel/window consumers.
+- [x] Extend `EditorShellTests` to pin host dock-space, root-window, document
   root, dock-class, dock-space, and panel-window identity strings/IDs.
 
 ### Stage 3: Documentation and qualification
 
-- [ ] Update `WorkspaceFramework.md`, current related architecture documents,
+- [x] Update `WorkspaceFramework.md`, current related architecture documents,
   active plans, and `DurinEd` public include references.
-- [ ] Search source, tests, and non-archived documentation for old symbols and
+- [x] Search source, tests, and non-archived documentation for old symbols and
   `EditorWorkspace*.h`; retain only test-suite names when they remain useful.
-- [ ] Run `EditorShellTests` after the final source state.
-- [ ] Run `test --target all` because the source-breaking public migration spans
+- [x] Run `EditorShellTests` after the final source state.
+- [x] Run `test --target all` because the source-breaking public migration spans
   multiple native-test targets.
-- [ ] Complete a `Win64-Debug-DurinEditor` full `all` build.
-- [ ] Run a hidden Sandbox editor startup/exit smoke to qualify MainFrame
+- [x] Complete a `Win64-Debug-DurinEditor` full `all` build.
+- [x] Run a hidden Sandbox editor startup/exit smoke to qualify MainFrame
   registration, default workspace activation, and default-document opening.
-- [ ] Validate all plans and mark this plan completed with final evidence.
+- [x] Validate all plans and mark this plan completed with final evidence.
 
 ## Validation
 
-- `\.\DevTool.bat test --target EditorShellTests`.
+- `\.\DevTool.bat test --target EditorShellTests`: 34/34 tests pass.
 - `StaticMeshTests`, `SkeletalMeshEditorTests`, `MaterialThumbnailTests`,
   `TextureThumbnailTests`, `StaticMeshThumbnailTests`, and
-  `EditorRenderingTests` when their workspace integration consumers change.
-- `\.\DevTool.bat test --target all` for the final cross-target gate.
-- `\.\DevTool.bat build --target all` for the final editor binary.
-- `\.\DevTool.bat run --project Sandbox\Sandbox.dproject --args --hidden-window --exit-after-ticks=2`.
-- `\.\DevTool.bat doc plan validate --scope all`.
+  `EditorRenderingTests`: all pass.
+- `\.\DevTool.bat test --target all`: all 60 native-test targets pass.
+- `\.\DevTool.bat build --target all`: `Win64-Debug-DurinEditor` passes.
+- `\.\DevTool.bat run --project Sandbox\Sandbox.dproject --args --hidden-window --exit-after-ticks=2`: passes.
+- `\.\DevTool.bat doc plan validate --scope all`: passes.
 
 ## Risks and Controls
 

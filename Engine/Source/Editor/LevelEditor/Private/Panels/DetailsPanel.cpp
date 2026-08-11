@@ -7,7 +7,7 @@
 #include "DObject/MathStructs.h"
 #include "Engine/Actor.h"
 #include "Editor/EditorEngine.h"
-#include "Editor/EditorWorkspaceUI.h"
+#include "Editor/WorkspaceUI.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Workspace/LevelEditorHelpers.h"
 #include "Workspace/LevelEditorWorkspace.h"
@@ -32,7 +32,7 @@ namespace Durin
 
 	auto FDetailsPanel::Draw(FLevelEditorContext& Context) -> void
 	{
-		if (!EditorWorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "Details", "Details", GetOpenPtr()))
+		if (!Editor::WorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "Details", "Details", GetOpenPtr()))
 		{
 			if (!FinishActivePropertyEdit(&Context, true)) SetOpen(true);
 			ImGui::End();

@@ -1,10 +1,10 @@
 #pragma once
 
-#include "Editor/EditorWorkspace.h"
+#include "Editor/WorkspaceTypes.h"
 
 namespace Durin::LevelEditorWorkspace
 {
-	inline const FEditorWorkspaceTypeId Type{"LevelEditor"};
+	inline const Editor::FWorkspaceTypeId Type{"LevelEditor"};
 		inline constexpr uint32 LayoutVersion = 4;
 	inline constexpr const char* RootKey = "LevelEditor";
 }

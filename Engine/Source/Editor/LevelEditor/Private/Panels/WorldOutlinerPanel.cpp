@@ -9,7 +9,7 @@
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
-#include "Editor/EditorWorkspaceUI.h"
+#include "Editor/WorkspaceUI.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/Transaction.h"
 #include "Icons/FontAwesomeIcons.h"
@@ -592,7 +592,7 @@ namespace Durin
 
 	auto FWorldOutlinerPanel::Draw(FLevelEditorContext& Context) -> void
 	{
-		if (!EditorWorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "World Outliner", "WorldOutliner", GetOpenPtr()))
+		if (!Editor::WorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "World Outliner", "WorldOutliner", GetOpenPtr()))
 		{
 			ImGui::End();
 			return;

@@ -1,6 +1,6 @@
 #include "Editor/EditorAssetPicker.h"
-#include "Editor/EditorWorkspace.h"
-#include "Editor/EditorWorkspaceUI.h"
+#include "Editor/WorkspaceManager.h"
+#include "Editor/WorkspaceUI.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Texture/Texture.h"
@@ -11,7 +11,7 @@
 
 namespace
 {
-	class FTestWorkspace final : public Durin::IEditorWorkspace
+	class FTestWorkspace final : public Durin::Editor::IWorkspace
 	{
 	public:
 		explicit FTestWorkspace(std::string Type)
@@ -19,12 +19,12 @@ namespace
 		{
 		}
 
-		auto GetWorkspaceType() const -> const Durin::FEditorWorkspaceTypeId& override { return WorkspaceType; }
-		auto OpenDocument(const Durin::FEditorDocumentTab&) -> Durin::EEditorDocumentOpenResult override
+		auto GetWorkspaceType() const -> const Durin::Editor::FWorkspaceTypeId& override { return WorkspaceType; }
+		auto OpenDocument(const Durin::Editor::FDocumentTab&) -> Durin::Editor::EDocumentOpenResult override
 		{
 			return OpenResult;
 		}
-		auto ActivateDocument(const Durin::FEditorDocumentTab& Document) -> void override
+		auto ActivateDocument(const Durin::Editor::FDocumentTab& Document) -> void override
 		{
 			++ActivationCount;
 			LastActivatedResource = Document.ResourceId;
@@ -34,23 +34,23 @@ namespace
 			++DeactivationRequestCount;
 			return bAllowDeactivation;
 		}
-		auto RequestCloseDocument(const Durin::FEditorDocumentTab&) -> Durin::EEditorDocumentCloseResult override
+		auto RequestCloseDocument(const Durin::Editor::FDocumentTab&) -> Durin::Editor::EDocumentCloseResult override
 		{
 			++CloseRequestCount;
 			return CloseResult;
 		}
-		auto SaveDocument(const Durin::FEditorDocumentTab& Document) -> bool override
+		auto SaveDocument(const Durin::Editor::FDocumentTab& Document) -> bool override
 		{
 			++SaveCount;
 			LastSavedResource = Document.ResourceId;
-			if (bAllowSave) CloseResult = Durin::EEditorDocumentCloseResult::Closed;
+			if (bAllowSave) CloseResult = Durin::Editor::EDocumentCloseResult::Closed;
 			return bAllowSave;
 		}
-		auto DiscardDocument(const Durin::FEditorDocumentTab& Document) -> bool override
+		auto DiscardDocument(const Durin::Editor::FDocumentTab& Document) -> bool override
 		{
 			++DiscardCount;
 			LastDiscardedResource = Document.ResourceId;
-			if (bAllowDiscard) CloseResult = Durin::EEditorDocumentCloseResult::Closed;
+			if (bAllowDiscard) CloseResult = Durin::Editor::EDocumentCloseResult::Closed;
 			return bAllowDiscard;
 		}
 		auto DrawWorkspace(bool) -> bool override { return false; }
@@ -64,21 +64,21 @@ namespace
 		bool bAllowDeactivation = true;
 		bool bAllowSave = true;
 		bool bAllowDiscard = true;
-		Durin::EEditorDocumentOpenResult OpenResult = Durin::EEditorDocumentOpenResult::Opened;
-		Durin::EEditorDocumentCloseResult CloseResult = Durin::EEditorDocumentCloseResult::Closed;
+		Durin::Editor::EDocumentOpenResult OpenResult = Durin::Editor::EDocumentOpenResult::Opened;
+		Durin::Editor::EDocumentCloseResult CloseResult = Durin::Editor::EDocumentCloseResult::Closed;
 		std::string LastActivatedResource;
 		std::string LastSavedResource;
 		std::string LastDiscardedResource;
 
 	private:
-		Durin::FEditorWorkspaceTypeId WorkspaceType;
+		Durin::Editor::FWorkspaceTypeId WorkspaceType;
 	};
 
-	auto MakeAssetEditor(std::string AssetClassName, std::string WorkspaceType) -> Durin::FEditorAssetEditorRegistration
+	auto MakeAssetEditor(std::string AssetClassName, std::string WorkspaceType) -> Durin::Editor::FAssetEditorRegistration
 	{
 		return {
 			.AssetClassName = std::move(AssetClassName),
-			.WorkspaceType = Durin::FEditorWorkspaceTypeId(std::move(WorkspaceType)),
+			.WorkspaceType = Durin::Editor::FWorkspaceTypeId(std::move(WorkspaceType)),
 		};
 	}
 
@@ -86,12 +86,12 @@ namespace
 		const std::shared_ptr<FTestWorkspace>& Workspace,
 		std::string DisplayName = "Test Editor",
 		std::string RootKey = {}
-	) -> Durin::FEditorWorkspaceRegistration
+	) -> Durin::Editor::FWorkspaceRegistration
 	{
 		const std::string WorkspaceType(Workspace->GetWorkspaceType().GetValue());
 		return {
 			.Descriptor = {
-				.WorkspaceType = Durin::FEditorWorkspaceTypeId(WorkspaceType),
+				.WorkspaceType = Durin::Editor::FWorkspaceTypeId(WorkspaceType),
 				.DisplayName = std::move(DisplayName),
 				.RootKey = RootKey.empty() ? WorkspaceType : std::move(RootKey),
 			},
@@ -102,15 +102,15 @@ namespace
 
 TEST(FEditorWorkspaceManagerTests, CommitsWorkspaceAndAssetEditorsAsOneBatch)
 {
-	Durin::FEditorWorkspaceManager Manager;
+	Durin::Editor::FWorkspaceManager Manager;
 	auto Workspace = std::make_shared<FTestWorkspace>("MaterialEditor");
-	Durin::FEditorWorkspaceRegistrationHandle Registration = Manager.RegisterBatch({
+	Durin::Editor::FWorkspaceRegistrationHandle Registration = Manager.RegisterBatch({
 		.Workspaces = {MakeWorkspaceRegistration(Workspace, "Material Editor")},
 		.AssetEditors = {MakeAssetEditor("Material", "MaterialEditor")},
 	});
 
 	ASSERT_TRUE(Registration);
-	EXPECT_EQ(Manager.FindWorkspace(Durin::FEditorWorkspaceTypeId("MaterialEditor")), Workspace);
+	EXPECT_EQ(Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("MaterialEditor")), Workspace);
 	EXPECT_TRUE(Manager.OpenAsset("/Game/Materials/M_Stone", "Material"));
 	ASSERT_EQ(Manager.GetDocuments().size(), 1);
 	EXPECT_EQ(Manager.GetDocuments().front().Label, "M_Stone");
@@ -118,20 +118,20 @@ TEST(FEditorWorkspaceManagerTests, CommitsWorkspaceAndAssetEditorsAsOneBatch)
 
 TEST(FEditorWorkspaceManagerTests, RejectsDuplicatesBeforeApplyingAnyBatchEntry)
 {
-	Durin::FEditorWorkspaceManager Manager;
+	Durin::Editor::FWorkspaceManager Manager;
 	EXPECT_FALSE(Manager.RegisterBatch({}));
 	auto ExistingWorkspace = std::make_shared<FTestWorkspace>("LevelEditor");
-	Durin::FEditorWorkspaceRegistrationHandle Existing = Manager.RegisterBatch({.Workspaces = {MakeWorkspaceRegistration(ExistingWorkspace)}});
+	Durin::Editor::FWorkspaceRegistrationHandle Existing = Manager.RegisterBatch({.Workspaces = {MakeWorkspaceRegistration(ExistingWorkspace)}});
 	ASSERT_TRUE(Existing);
 
 	auto CandidateWorkspace = std::make_shared<FTestWorkspace>("MaterialEditor");
-	Durin::FEditorWorkspaceRegistrationHandle DuplicateWorkspace = Manager.RegisterBatch({
+	Durin::Editor::FWorkspaceRegistrationHandle DuplicateWorkspace = Manager.RegisterBatch({
 		.Workspaces = {MakeWorkspaceRegistration(CandidateWorkspace), MakeWorkspaceRegistration(ExistingWorkspace)},
 	});
 	EXPECT_FALSE(DuplicateWorkspace);
-	EXPECT_EQ(Manager.FindWorkspace(Durin::FEditorWorkspaceTypeId("MaterialEditor")), nullptr);
+	EXPECT_EQ(Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("MaterialEditor")), nullptr);
 
-	Durin::FEditorWorkspaceRegistrationHandle DuplicateAsset = Manager.RegisterBatch({
+	Durin::Editor::FWorkspaceRegistrationHandle DuplicateAsset = Manager.RegisterBatch({
 		.Workspaces = {MakeWorkspaceRegistration(CandidateWorkspace)},
 		.AssetEditors = {
 			MakeAssetEditor("Material", "MaterialEditor"),
@@ -139,15 +139,15 @@ TEST(FEditorWorkspaceManagerTests, RejectsDuplicatesBeforeApplyingAnyBatchEntry)
 		},
 	});
 	EXPECT_FALSE(DuplicateAsset);
-	EXPECT_EQ(Manager.FindWorkspace(Durin::FEditorWorkspaceTypeId("MaterialEditor")), nullptr);
+	EXPECT_EQ(Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("MaterialEditor")), nullptr);
 	EXPECT_FALSE(Manager.OpenAsset("/Game/M_Test", "Material"));
 }
 
 TEST(FEditorWorkspaceManagerTests, RollsBackInvalidBatchAndAllowsRetry)
 {
-	Durin::FEditorWorkspaceManager Manager;
+	Durin::Editor::FWorkspaceManager Manager;
 	auto Workspace = std::make_shared<FTestWorkspace>("MaterialEditor");
-	Durin::FEditorWorkspaceRegistrationHandle Invalid = Manager.RegisterBatch({
+	Durin::Editor::FWorkspaceRegistrationHandle Invalid = Manager.RegisterBatch({
 		.Workspaces = {MakeWorkspaceRegistration(Workspace)},
 		.AssetEditors = {
 			MakeAssetEditor("Material", "MaterialEditor"),
@@ -155,27 +155,27 @@ TEST(FEditorWorkspaceManagerTests, RollsBackInvalidBatchAndAllowsRetry)
 		},
 	});
 	EXPECT_FALSE(Invalid);
-	EXPECT_EQ(Manager.FindWorkspace(Durin::FEditorWorkspaceTypeId("MaterialEditor")), nullptr);
+	EXPECT_EQ(Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("MaterialEditor")), nullptr);
 	EXPECT_FALSE(Manager.OpenAsset("/Game/M_Test", "Material"));
 
-	Durin::FEditorWorkspaceRegistrationHandle Retry = Manager.RegisterBatch({
+	Durin::Editor::FWorkspaceRegistrationHandle Retry = Manager.RegisterBatch({
 		.Workspaces = {MakeWorkspaceRegistration(Workspace)},
 		.AssetEditors = {MakeAssetEditor("Material", "MaterialEditor")},
 	});
 	EXPECT_TRUE(Retry);
-	EXPECT_EQ(Manager.FindWorkspace(Durin::FEditorWorkspaceTypeId("MaterialEditor")), Workspace);
+	EXPECT_EQ(Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("MaterialEditor")), Workspace);
 }
 
 TEST(FEditorWorkspaceManagerTests, ScopedUnregistrationRemovesRoutesAndOwnedDocuments)
 {
-	Durin::FEditorWorkspaceManager Manager;
+	Durin::Editor::FWorkspaceManager Manager;
 	auto LevelWorkspace = std::make_shared<FTestWorkspace>("LevelEditor");
 	auto MaterialWorkspace = std::make_shared<FTestWorkspace>("MaterialEditor");
-	Durin::FEditorWorkspaceRegistrationHandle LevelRegistration = Manager.RegisterBatch({
+	Durin::Editor::FWorkspaceRegistrationHandle LevelRegistration = Manager.RegisterBatch({
 		.Workspaces = {MakeWorkspaceRegistration(LevelWorkspace, "Level Editor")},
 		.AssetEditors = {MakeAssetEditor("Level", "LevelEditor")},
 	});
-	Durin::FEditorWorkspaceRegistrationHandle MaterialRegistration = Manager.RegisterBatch({
+	Durin::Editor::FWorkspaceRegistrationHandle MaterialRegistration = Manager.RegisterBatch({
 		.Workspaces = {MakeWorkspaceRegistration(MaterialWorkspace, "Material Editor")},
 		.AssetEditors = {MakeAssetEditor("Material", "MaterialEditor")},
 	});
@@ -189,19 +189,19 @@ TEST(FEditorWorkspaceManagerTests, ScopedUnregistrationRemovesRoutesAndOwnedDocu
 
 	EXPECT_EQ(MaterialWorkspace->DeactivationRequestCount, 1);
 	ASSERT_EQ(Manager.GetDocuments().size(), 1);
-	EXPECT_EQ(Manager.GetDocuments().front().WorkspaceType, Durin::FEditorWorkspaceTypeId("LevelEditor"));
+	EXPECT_EQ(Manager.GetDocuments().front().WorkspaceType, Durin::Editor::FWorkspaceTypeId("LevelEditor"));
 	ASSERT_NE(Manager.GetActiveDocument(), nullptr);
-	EXPECT_EQ(Manager.GetActiveDocument()->WorkspaceType, Durin::FEditorWorkspaceTypeId("LevelEditor"));
-	EXPECT_EQ(Manager.FindWorkspace(Durin::FEditorWorkspaceTypeId("MaterialEditor")), nullptr);
+	EXPECT_EQ(Manager.GetActiveDocument()->WorkspaceType, Durin::Editor::FWorkspaceTypeId("LevelEditor"));
+	EXPECT_EQ(Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("MaterialEditor")), nullptr);
 	EXPECT_FALSE(Manager.OpenAsset("/Game/Materials/M_Other", "Material"));
 	EXPECT_GT(LevelWorkspace->ActivationCount, 1);
 }
 
 TEST(FEditorWorkspaceManagerTests, RegistrationHandleMayOutliveManager)
 {
-	Durin::FEditorWorkspaceRegistrationHandle Registration;
+	Durin::Editor::FWorkspaceRegistrationHandle Registration;
 	{
-		Durin::FEditorWorkspaceManager Manager;
+		Durin::Editor::FWorkspaceManager Manager;
 		auto Workspace = std::make_shared<FTestWorkspace>("MaterialEditor");
 		Registration = Manager.RegisterBatch({.Workspaces = {MakeWorkspaceRegistration(Workspace)}});
 		ASSERT_TRUE(Registration);
@@ -212,38 +212,38 @@ TEST(FEditorWorkspaceManagerTests, RegistrationHandleMayOutliveManager)
 
 TEST(FEditorWorkspaceManagerTests, RegistersOrderedDescriptorsAndOpensDefaults)
 {
-	Durin::FEditorWorkspaceManager Manager;
+	Durin::Editor::FWorkspaceManager Manager;
 	auto LevelWorkspace = std::make_shared<FTestWorkspace>("LevelEditor");
 	auto MaterialWorkspace = std::make_shared<FTestWorkspace>("MaterialEditor");
-	Durin::FEditorWorkspaceRegistration Level = MakeWorkspaceRegistration(LevelWorkspace, "Level Editor");
+	Durin::Editor::FWorkspaceRegistration Level = MakeWorkspaceRegistration(LevelWorkspace, "Level Editor");
 	Level.Descriptor.bOpenByDefault = true;
 	Level.Descriptor.SingletonDocumentKey = "LevelEditor";
 	Level.Descriptor.SingletonDocumentLabel = "Level Editor";
-	Durin::FEditorWorkspaceRegistrationHandle Registration = Manager.RegisterBatch({
+	Durin::Editor::FWorkspaceRegistrationHandle Registration = Manager.RegisterBatch({
 		.Workspaces = {std::move(Level), MakeWorkspaceRegistration(MaterialWorkspace, "Material Editor")},
 	});
 	ASSERT_TRUE(Registration);
 
-	const std::vector<Durin::FEditorWorkspaceDescriptor> Descriptors = Manager.GetWorkspaceDescriptors();
+	const std::vector<Durin::Editor::FWorkspaceDescriptor> Descriptors = Manager.GetWorkspaceDescriptors();
 	ASSERT_EQ(Descriptors.size(), 2);
 	EXPECT_EQ(Descriptors[0].DisplayName, "Level Editor");
 	EXPECT_EQ(Descriptors[1].DisplayName, "Material Editor");
 	EXPECT_TRUE(Manager.OpenDefaultWorkspaces());
 	ASSERT_EQ(Manager.GetDocuments().size(), 1);
-	EXPECT_EQ(Manager.GetDocuments().front().WorkspaceType, Durin::FEditorWorkspaceTypeId("LevelEditor"));
+	EXPECT_EQ(Manager.GetDocuments().front().WorkspaceType, Durin::Editor::FWorkspaceTypeId("LevelEditor"));
 }
 
 TEST(FEditorWorkspaceManagerTests, RejectsInvalidOrCollidingDescriptorsBeforeMutation)
 {
-	Durin::FEditorWorkspaceManager Manager;
+	Durin::Editor::FWorkspaceManager Manager;
 	auto LevelWorkspace = std::make_shared<FTestWorkspace>("LevelEditor");
 	auto MaterialWorkspace = std::make_shared<FTestWorkspace>("MaterialEditor");
-	Durin::FEditorWorkspaceRegistration InvalidDefault = MakeWorkspaceRegistration(LevelWorkspace);
+	Durin::Editor::FWorkspaceRegistration InvalidDefault = MakeWorkspaceRegistration(LevelWorkspace);
 	InvalidDefault.Descriptor.bOpenByDefault = true;
 	EXPECT_FALSE(Manager.RegisterBatch({.Workspaces = {std::move(InvalidDefault)}}));
 
-	Durin::FEditorWorkspaceRegistration WrongType = MakeWorkspaceRegistration(LevelWorkspace);
-	WrongType.Descriptor.WorkspaceType = Durin::FEditorWorkspaceTypeId("WrongEditor");
+	Durin::Editor::FWorkspaceRegistration WrongType = MakeWorkspaceRegistration(LevelWorkspace);
+	WrongType.Descriptor.WorkspaceType = Durin::Editor::FWorkspaceTypeId("WrongEditor");
 	EXPECT_FALSE(Manager.RegisterBatch({.Workspaces = {std::move(WrongType)}}));
 
 	EXPECT_FALSE(Manager.RegisterBatch({
@@ -257,9 +257,9 @@ TEST(FEditorWorkspaceManagerTests, RejectsInvalidOrCollidingDescriptorsBeforeMut
 
 TEST(FEditorWorkspaceManagerTests, OpensAndSwitchesMultiplePerResourceDocumentsInOneWorkspace)
 {
-	Durin::FEditorWorkspaceManager Manager;
+	Durin::Editor::FWorkspaceManager Manager;
 	auto Workspace = std::make_shared<FTestWorkspace>("MaterialEditor");
-	Durin::FEditorWorkspaceRegistrationHandle Registration = Manager.RegisterBatch({
+	Durin::Editor::FWorkspaceRegistrationHandle Registration = Manager.RegisterBatch({
 		.Workspaces = {MakeWorkspaceRegistration(Workspace, "Material Editor")},
 		.AssetEditors = {
 			MakeAssetEditor("Material", "MaterialEditor"),
@@ -280,15 +280,15 @@ TEST(FEditorWorkspaceManagerTests, OpensAndSwitchesMultiplePerResourceDocumentsI
 
 TEST(FEditorWorkspaceManagerTests, CommitsDeferredSingletonReplacementOnlyAfterCompletion)
 {
-	Durin::FEditorWorkspaceManager Manager;
+	Durin::Editor::FWorkspaceManager Manager;
 	auto Workspace = std::make_shared<FTestWorkspace>("LevelEditor");
-	Durin::FEditorWorkspaceRegistrationHandle Registration = Manager.RegisterBatch({
+	Durin::Editor::FWorkspaceRegistrationHandle Registration = Manager.RegisterBatch({
 		.Workspaces = {MakeWorkspaceRegistration(Workspace, "Level Editor")},
 	});
 	ASSERT_TRUE(Registration);
 
-	const Durin::FEditorDocumentId DocumentId = Manager.OpenDocument({
-		.WorkspaceType = Durin::FEditorWorkspaceTypeId("LevelEditor"),
+	const Durin::Editor::FDocumentId DocumentId = Manager.OpenDocument({
+		.WorkspaceType = Durin::Editor::FWorkspaceTypeId("LevelEditor"),
 		.DocumentKey = "LevelEditor",
 		.ResourceId = "/Game/Maps/First",
 		.Label = "First",
@@ -296,9 +296,9 @@ TEST(FEditorWorkspaceManagerTests, CommitsDeferredSingletonReplacementOnlyAfterC
 	ASSERT_TRUE(DocumentId.IsValid());
 	ASSERT_EQ(Manager.GetDocuments().size(), 1);
 
-	Workspace->OpenResult = Durin::EEditorDocumentOpenResult::Deferred;
-	const Durin::FEditorDocumentId DeferredId = Manager.OpenDocument({
-		.WorkspaceType = Durin::FEditorWorkspaceTypeId("LevelEditor"),
+	Workspace->OpenResult = Durin::Editor::EDocumentOpenResult::Deferred;
+	const Durin::Editor::FDocumentId DeferredId = Manager.OpenDocument({
+		.WorkspaceType = Durin::Editor::FWorkspaceTypeId("LevelEditor"),
 		.DocumentKey = "LevelEditor",
 		.ResourceId = "/Game/Maps/Second",
 		.Label = "Second",
@@ -311,8 +311,8 @@ TEST(FEditorWorkspaceManagerTests, CommitsDeferredSingletonReplacementOnlyAfterC
 	EXPECT_EQ(Manager.GetDocuments().front().ResourceId, "/Game/Maps/First");
 	EXPECT_EQ(Workspace->LastActivatedResource, "/Game/Maps/First");
 
-	const Durin::FEditorDocumentId SecondDeferredId = Manager.OpenDocument({
-		.WorkspaceType = Durin::FEditorWorkspaceTypeId("LevelEditor"),
+	const Durin::Editor::FDocumentId SecondDeferredId = Manager.OpenDocument({
+		.WorkspaceType = Durin::Editor::FWorkspaceTypeId("LevelEditor"),
 		.DocumentKey = "LevelEditor",
 		.ResourceId = "/Game/Maps/Second",
 		.Label = "Second",
@@ -326,9 +326,9 @@ TEST(FEditorWorkspaceManagerTests, CommitsDeferredSingletonReplacementOnlyAfterC
 
 TEST(FEditorWorkspaceManagerTests, KeepsActiveDocumentWhenHostCannotRestoreItsPreview)
 {
-	Durin::FEditorWorkspaceManager Manager;
+	Durin::Editor::FWorkspaceManager Manager;
 	auto Workspace = std::make_shared<FTestWorkspace>("MaterialEditor");
-	Durin::FEditorWorkspaceRegistrationHandle Registration = Manager.RegisterBatch({
+	Durin::Editor::FWorkspaceRegistrationHandle Registration = Manager.RegisterBatch({
 		.Workspaces = {MakeWorkspaceRegistration(Workspace, "Material Editor")},
 		.AssetEditors = {
 			MakeAssetEditor("Material", "MaterialEditor"),
@@ -338,8 +338,8 @@ TEST(FEditorWorkspaceManagerTests, KeepsActiveDocumentWhenHostCannotRestoreItsPr
 	ASSERT_TRUE(Registration);
 	ASSERT_TRUE(Manager.OpenAsset("/Game/Materials/M_Stone", "Material"));
 	ASSERT_TRUE(Manager.OpenAsset("/Game/Materials/MI_Stone", "MaterialInstance"));
-	const Durin::FEditorDocumentId First = Manager.GetDocuments()[0].Id;
-	const Durin::FEditorDocumentId Second = Manager.GetDocuments()[1].Id;
+	const Durin::Editor::FDocumentId First = Manager.GetDocuments()[0].Id;
+	const Durin::Editor::FDocumentId Second = Manager.GetDocuments()[1].Id;
 	ASSERT_EQ(Manager.GetActiveDocument()->Id, Second);
 
 	Workspace->bAllowDeactivation = false;
@@ -353,21 +353,21 @@ TEST(FEditorWorkspaceManagerTests, KeepsActiveDocumentWhenHostCannotRestoreItsPr
 
 TEST(FEditorWorkspaceManagerTests, CoordinatesPendingDocumentCloseResponses)
 {
-	Durin::FEditorWorkspaceManager Manager;
+	Durin::Editor::FWorkspaceManager Manager;
 	auto Workspace = std::make_shared<FTestWorkspace>("MaterialEditor");
-	Durin::FEditorWorkspaceRegistrationHandle Registration = Manager.RegisterBatch({
+	Durin::Editor::FWorkspaceRegistrationHandle Registration = Manager.RegisterBatch({
 		.Workspaces = {MakeWorkspaceRegistration(Workspace, "Material Editor")},
 	});
 	ASSERT_TRUE(Registration);
 
-	const Durin::FEditorDocumentId First = Manager.OpenDocument({
-		.WorkspaceType = Durin::FEditorWorkspaceTypeId("MaterialEditor"),
+	const Durin::Editor::FDocumentId First = Manager.OpenDocument({
+		.WorkspaceType = Durin::Editor::FWorkspaceTypeId("MaterialEditor"),
 		.DocumentKey = "First",
 		.ResourceId = "/Game/Materials/M_First",
 		.Label = "M_First",
 	});
-	const Durin::FEditorDocumentId Second = Manager.OpenDocument({
-		.WorkspaceType = Durin::FEditorWorkspaceTypeId("MaterialEditor"),
+	const Durin::Editor::FDocumentId Second = Manager.OpenDocument({
+		.WorkspaceType = Durin::Editor::FWorkspaceTypeId("MaterialEditor"),
 		.DocumentKey = "Second",
 		.ResourceId = "/Game/Materials/M_Second",
 		.Label = "M_Second",
@@ -375,44 +375,44 @@ TEST(FEditorWorkspaceManagerTests, CoordinatesPendingDocumentCloseResponses)
 	ASSERT_TRUE(First.IsValid());
 	ASSERT_TRUE(Second.IsValid());
 
-	Workspace->CloseResult = Durin::EEditorDocumentCloseResult::PendingConfirmation;
-	EXPECT_EQ(Manager.RequestCloseDocument(First), Durin::EEditorDocumentCloseResult::PendingConfirmation);
+	Workspace->CloseResult = Durin::Editor::EDocumentCloseResult::PendingConfirmation;
+	EXPECT_EQ(Manager.RequestCloseDocument(First), Durin::Editor::EDocumentCloseResult::PendingConfirmation);
 	ASSERT_NE(Manager.GetPendingCloseDocument(), nullptr);
 	EXPECT_EQ(Manager.GetPendingCloseDocument()->Id, First);
-	EXPECT_EQ(Manager.RequestCloseDocument(First), Durin::EEditorDocumentCloseResult::PendingConfirmation);
-	EXPECT_EQ(Manager.RequestCloseDocument(Second), Durin::EEditorDocumentCloseResult::Rejected);
+	EXPECT_EQ(Manager.RequestCloseDocument(First), Durin::Editor::EDocumentCloseResult::PendingConfirmation);
+	EXPECT_EQ(Manager.RequestCloseDocument(Second), Durin::Editor::EDocumentCloseResult::Rejected);
 
 	Workspace->bAllowSave = false;
 	EXPECT_EQ(
-		Manager.ResolvePendingDocumentClose(Durin::EEditorDocumentCloseResponse::Save),
-		Durin::EEditorDocumentCloseResult::PendingConfirmation
+		Manager.ResolvePendingDocumentClose(Durin::Editor::EDocumentCloseResponse::Save),
+		Durin::Editor::EDocumentCloseResult::PendingConfirmation
 	);
 	EXPECT_EQ(Manager.GetDocuments().size(), 2);
 	ASSERT_NE(Manager.GetPendingCloseDocument(), nullptr);
 
 	Workspace->bAllowSave = true;
 	EXPECT_EQ(
-		Manager.ResolvePendingDocumentClose(Durin::EEditorDocumentCloseResponse::Save),
-		Durin::EEditorDocumentCloseResult::Closed
+		Manager.ResolvePendingDocumentClose(Durin::Editor::EDocumentCloseResponse::Save),
+		Durin::Editor::EDocumentCloseResult::Closed
 	);
 	EXPECT_EQ(Workspace->LastSavedResource, "/Game/Materials/M_First");
 	ASSERT_EQ(Manager.GetDocuments().size(), 1);
 	EXPECT_EQ(Manager.GetDocuments().front().Id, Second);
 	EXPECT_EQ(Manager.GetPendingCloseDocument(), nullptr);
 
-	Workspace->CloseResult = Durin::EEditorDocumentCloseResult::PendingConfirmation;
-	EXPECT_EQ(Manager.RequestCloseDocument(Second), Durin::EEditorDocumentCloseResult::PendingConfirmation);
+	Workspace->CloseResult = Durin::Editor::EDocumentCloseResult::PendingConfirmation;
+	EXPECT_EQ(Manager.RequestCloseDocument(Second), Durin::Editor::EDocumentCloseResult::PendingConfirmation);
 	EXPECT_EQ(
-		Manager.ResolvePendingDocumentClose(Durin::EEditorDocumentCloseResponse::Cancel),
-		Durin::EEditorDocumentCloseResult::Cancelled
+		Manager.ResolvePendingDocumentClose(Durin::Editor::EDocumentCloseResponse::Cancel),
+		Durin::Editor::EDocumentCloseResult::Cancelled
 	);
 	EXPECT_EQ(Manager.GetDocuments().size(), 1);
 	EXPECT_EQ(Manager.GetPendingCloseDocument(), nullptr);
 
-	EXPECT_EQ(Manager.RequestCloseDocument(Second), Durin::EEditorDocumentCloseResult::PendingConfirmation);
+	EXPECT_EQ(Manager.RequestCloseDocument(Second), Durin::Editor::EDocumentCloseResult::PendingConfirmation);
 	EXPECT_EQ(
-		Manager.ResolvePendingDocumentClose(Durin::EEditorDocumentCloseResponse::Discard),
-		Durin::EEditorDocumentCloseResult::Closed
+		Manager.ResolvePendingDocumentClose(Durin::Editor::EDocumentCloseResponse::Discard),
+		Durin::Editor::EDocumentCloseResult::Closed
 	);
 	EXPECT_EQ(Workspace->LastDiscardedResource, "/Game/Materials/M_Second");
 	EXPECT_TRUE(Manager.GetDocuments().empty());
@@ -420,17 +420,43 @@ TEST(FEditorWorkspaceManagerTests, CoordinatesPendingDocumentCloseResponses)
 
 TEST(FEditorWorkspaceUITests, DocumentRootKeysRemainDistinctForSameNamedAssets)
 {
-	const std::string First = Durin::EditorWorkspaceUI::MakeEditorDocumentRootKey(
+	const std::string First = Durin::Editor::WorkspaceUI::MakeDocumentRootKey(
 		"MaterialEditor", "/Game/Environment/M_Stone"
 	);
-	const std::string Second = Durin::EditorWorkspaceUI::MakeEditorDocumentRootKey(
+	const std::string Second = Durin::Editor::WorkspaceUI::MakeDocumentRootKey(
 		"MaterialEditor", "/Game/Props/M_Stone"
 	);
 	EXPECT_NE(First, Second);
 	EXPECT_NE(
-		Durin::EditorWorkspaceUI::MakeEditorRootWindowName("M_Stone", First),
-		Durin::EditorWorkspaceUI::MakeEditorRootWindowName("M_Stone", Second)
+		Durin::Editor::WorkspaceUI::MakeRootWindowName("M_Stone", First),
+		Durin::Editor::WorkspaceUI::MakeRootWindowName("M_Stone", Second)
 	);
+}
+
+TEST(FEditorWorkspaceUITests, PreservesStableWorkspaceWindowAndDockIdentities)
+{
+	using namespace Durin::Editor;
+	const FWorkspaceTypeId WorkspaceType("LevelEditor");
+
+	EXPECT_EQ(WorkspaceUI::MakeHostDockSpaceName(2), "Durin.DockSpace.EditorHost.v2");
+	EXPECT_EQ(
+		WorkspaceUI::MakeRootWindowName("Level Editor", "LevelEditor"),
+		"Level Editor###Durin.Editor.Root.LevelEditor"
+	);
+	EXPECT_EQ(
+		WorkspaceUI::MakeDocumentRootKey("MaterialEditor", "/Game/Materials/M_Stone"),
+		"MaterialEditor./Game/Materials/M_Stone"
+	);
+	EXPECT_EQ(WorkspaceUI::MakeDockClassName(WorkspaceType), "Durin.DockClass.LevelEditor");
+	EXPECT_EQ(WorkspaceUI::MakeDockSpaceName(WorkspaceType, 4), "Durin.DockSpace.LevelEditor.v4");
+	EXPECT_EQ(
+		WorkspaceUI::MakePanelWindowName("Details", WorkspaceType, "Details"),
+		"Details###Durin.LevelEditor.Panel.Details"
+	);
+	EXPECT_EQ(WorkspaceUI::MakeRootDockClassId(), ImHashStr("Durin.DockClass.EditorRoot"));
+	EXPECT_EQ(WorkspaceUI::MakeHostDockSpaceId(2), ImHashStr("Durin.DockSpace.EditorHost.v2"));
+	EXPECT_EQ(WorkspaceUI::MakeDockClassId(WorkspaceType), ImHashStr("Durin.DockClass.LevelEditor"));
+	EXPECT_EQ(WorkspaceUI::MakeDockSpaceId(WorkspaceType, 4), ImHashStr("Durin.DockSpace.LevelEditor.v4"));
 }
 
 TEST(FEditorAssetPickerTests, AppliesExactAndDerivedClassPolicies)

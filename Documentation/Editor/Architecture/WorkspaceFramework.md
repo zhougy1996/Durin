@@ -80,11 +80,14 @@ toolbar or panels rather than replacing the application menu bar.
 
 ## Workspace Registration
 
-`DurinEd` owns the reusable editor workspace and document framework. Workspace
-modules register their workspace descriptor, factory, and asset-class routes as
-one scoped batch. The manager validates the complete batch before mutation, and
-destroying its registration handle removes the routes and documents owned by
-that module.
+`DurinEd` owns the reusable editor workspace and document framework under
+`Durin::Editor`. `WorkspaceTypes.h` defines IDs, document metadata, descriptors,
+and asset routes; `Workspace.h` defines the implementation-facing `IWorkspace`
+contract; and `WorkspaceManager.h` owns registration leases and document
+lifecycle. Workspace modules register their workspace descriptor, implementation,
+and asset-class routes as one scoped batch. The manager validates the complete
+batch before mutation, and destroying its registration handle removes the routes
+and documents owned by that module.
 
 `MainFrame` derives the default host layout and singleton reopen commands from
 registered descriptors. The Window menu lists every open document, marks the
@@ -114,18 +117,18 @@ session, preview object, or queued upload can retain module code.
 
 ## Document Ownership
 
-`FEditorDocumentTab` is document identity and presentation metadata, not a
+`Editor::FDocumentTab` is document identity and presentation metadata, not a
 resource controller. Each workspace remains responsible for loading, saving,
 discarding, releasing, and drawing its resource.
 
-`FEditorWorkspaceRootWindow` provides the shared root-window state transition,
-while `FEditorWorkspaceDocumentHost` composes that transition across the
+`Editor::FWorkspaceRootWindow` provides the shared root-window state transition,
+while `Editor::FWorkspaceDocumentHost` composes that transition across the
 per-resource documents used by Material, Texture, and StaticMesh editors. The
 singleton Level workspace keeps its specialized internal dock-space lifecycle.
 
 Document open and close operations return explicit results. A deferred singleton
 open preserves the current document until its replacement succeeds. For dirty
-closes, `FEditorWorkspaceManager` owns the single pending document and routes
+closes, `Editor::FWorkspaceManager` owns the single pending document and routes
 Save, Discard, or Cancel back to resource-specific workspace callbacks.
 `MainFrame` renders the one shared confirmation modal. Repeated close requests
 cannot create duplicate confirmations.

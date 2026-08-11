@@ -6,7 +6,7 @@
 #include "Assets/ContentBrowserDragDrop.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/Transaction.h"
-#include "Editor/EditorWorkspaceUI.h"
+#include "Editor/WorkspaceUI.h"
 #include "Engine/Engine.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
@@ -138,7 +138,7 @@ namespace Durin
 		if (ViewportClient) ViewportClient->SetPickingSceneIndex(Context.GetPickingSceneIndex());
 		Context.ActivateViewportEditMode = [this, &Context](std::string_view Id) { return EditModeManager.Activate(Id, Context); };
 		const bool bPlayingInNewWindow = GEditor && GEditor->IsPlayingInNewWindow();
-		if (!EditorWorkspaceUI::BeginDockablePanel(
+		if (!Editor::WorkspaceUI::BeginDockablePanel(
 			LevelEditorWorkspace::Type,
 			"Scene Viewport",
 			"SceneViewport",

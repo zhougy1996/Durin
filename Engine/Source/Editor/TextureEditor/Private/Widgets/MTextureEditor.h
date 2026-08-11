@@ -1,8 +1,8 @@
 #pragma once
 
 #include "DObject/ObjectPtr.h"
-#include "Editor/EditorWorkspace.h"
-#include "Editor/EditorWorkspaceRootWindow.h"
+#include "Editor/Workspace.h"
+#include "Editor/WorkspaceRootWindow.h"
 #include "Editor/PropertyView.h"
 #include "Source/SourceReferenceIndex.h"
 #include "TextureEditorAPI.h"
@@ -13,19 +13,19 @@ namespace Durin
 	class DTexture2D;
 
 	// Hosts one texture document with preview, mip, and metadata controls.
-	class MTextureEditor final : public IEditorWorkspace
+	class MTextureEditor final : public Editor::IWorkspace
 	{
 	public:
-		explicit MTextureEditor(FEditorWorkspaceManager& InWorkspaceManager);
+		explicit MTextureEditor(Editor::FWorkspaceManager& InWorkspaceManager);
 		TEXTUREEDITOR_API ~MTextureEditor() override;
-		TEXTUREEDITOR_API auto GetWorkspaceType() const -> const FEditorWorkspaceTypeId& override;
-		TEXTUREEDITOR_API auto OpenDocument(const FEditorDocumentTab& Document) -> EEditorDocumentOpenResult override;
-		TEXTUREEDITOR_API auto ActivateDocument(const FEditorDocumentTab& Document) -> void override;
+		TEXTUREEDITOR_API auto GetWorkspaceType() const -> const Editor::FWorkspaceTypeId& override;
+		TEXTUREEDITOR_API auto OpenDocument(const Editor::FDocumentTab& Document) -> Editor::EDocumentOpenResult override;
+		TEXTUREEDITOR_API auto ActivateDocument(const Editor::FDocumentTab& Document) -> void override;
 		TEXTUREEDITOR_API auto RequestDeactivate() -> bool override;
-		TEXTUREEDITOR_API auto RequestCloseDocument(const FEditorDocumentTab& Document) -> EEditorDocumentCloseResult override;
-		TEXTUREEDITOR_API auto SaveDocument(const FEditorDocumentTab& Document) -> bool override;
-		TEXTUREEDITOR_API auto DiscardDocument(const FEditorDocumentTab& Document) -> bool override;
-		TEXTUREEDITOR_API auto IsDocumentDirty(const FEditorDocumentTab& Document) const -> bool override;
+		TEXTUREEDITOR_API auto RequestCloseDocument(const Editor::FDocumentTab& Document) -> Editor::EDocumentCloseResult override;
+		TEXTUREEDITOR_API auto SaveDocument(const Editor::FDocumentTab& Document) -> bool override;
+		TEXTUREEDITOR_API auto DiscardDocument(const Editor::FDocumentTab& Document) -> bool override;
+		TEXTUREEDITOR_API auto IsDocumentDirty(const Editor::FDocumentTab& Document) const -> bool override;
 		TEXTUREEDITOR_API auto CanSaveActiveDocument() const -> bool override;
 		TEXTUREEDITOR_API auto SaveActiveDocument() -> bool override;
 		TEXTUREEDITOR_API auto CanUndo() const -> bool override;
@@ -41,8 +41,8 @@ namespace Durin
 		auto FindOpenTexture(std::string_view ResourceId) const -> DTexture2D*;
 		auto GetActiveTexture() const -> DTexture2D*;
 		auto SaveTexture(DTexture2D* Texture) -> bool;
-		auto DrawDocument(const FEditorDocumentTab& Document, DTexture2D* Texture) -> void;
-		auto DrawToolbar(const FEditorDocumentTab& Document, DTexture2D* Texture) -> void;
+		auto DrawDocument(const Editor::FDocumentTab& Document, DTexture2D* Texture) -> void;
+		auto DrawToolbar(const Editor::FDocumentTab& Document, DTexture2D* Texture) -> void;
 		auto DrawWideLayout(const std::string& ResourceId, DTexture2D* Texture) -> void;
 		auto DrawNarrowLayout(const std::string& ResourceId, DTexture2D* Texture) -> void;
 		auto DrawPreviewPanel(const std::string& ResourceId, DTexture2D* Texture, float Width, float Height) -> void;
@@ -64,9 +64,9 @@ namespace Durin
 		auto MakePropertyViewContext() -> Editor::FPropertyViewContext;
 		auto SetError(std::string Message) -> void;
 
-		FEditorWorkspaceManager& WorkspaceManager;
+		Editor::FWorkspaceManager& WorkspaceManager;
 		std::unordered_map<std::string, TObjectPtr<DTexture2D>> OpenTextures;
-		FEditorWorkspaceDocumentHost DocumentHost;
+		Editor::FWorkspaceDocumentHost DocumentHost;
 		std::string ActiveResourceId;
 		std::string ErrorMessage;
 		Editor::FPropertyView PropertyView;

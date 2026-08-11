@@ -50,7 +50,7 @@ Files reported as owned by AssetCore's registered companion contributors cannot
 be renamed or deleted independently; the owning asset operation must be used.
 A shared filename stem alone does not establish companion ownership.
 
-Double-click routing is resolved by the live `FEditorWorkspaceManager` exact-class
+Double-click routing is resolved by the live `Editor::FWorkspaceManager` exact-class
 route table. `MaterialEditor`, `TextureEditor`, and `StaticMeshEditor` own their
 respective asset routes; StaticMesh opens a closable per-resource document in
 the user-visible **StaticMesh Inspector** workspace. The Content Browser does

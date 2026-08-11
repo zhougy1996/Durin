@@ -1,9 +1,9 @@
 #pragma once
 
-#include "Editor/EditorWorkspace.h"
+#include "Editor/WorkspaceTypes.h"
 
 namespace Durin::TextureEditorWorkspace
 {
-	inline const FEditorWorkspaceTypeId Type("TextureEditor");
+	inline const Editor::FWorkspaceTypeId Type("TextureEditor");
 	inline constexpr std::string_view RootKey = "TextureEditor";
 }

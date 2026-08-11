@@ -8,7 +8,7 @@
 #include "AssetSystem.h"
 #include "Assets/ContentBrowserDragDrop.h"
 #include "Assets/ContentBrowserThumbnailCache.h"
-#include "Editor/EditorWorkspaceUI.h"
+#include "Editor/WorkspaceUI.h"
 #include "Settings/LevelEditorSessionSettings.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Workspace/LevelEditorContext.h"
@@ -102,7 +102,7 @@ namespace Durin
 		}
 		SynchronizeMountedContentMutation();
 		RefreshMountSnapshot();
-		if (!EditorWorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "Content Browser", "ContentBrowser", GetOpenPtr()))
+		if (!Editor::WorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "Content Browser", "ContentBrowser", GetOpenPtr()))
 		{
 			ImGui::End();
 			return;

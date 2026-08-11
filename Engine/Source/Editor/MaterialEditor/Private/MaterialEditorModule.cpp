@@ -1,6 +1,6 @@
 #include "MaterialEditorModule.h"
 
-#include "Editor/EditorWorkspace.h"
+#include "Editor/WorkspaceManager.h"
 #include "Workspace/MaterialEditorWorkspace.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -24,7 +24,7 @@ namespace Durin
 	}
 
 	auto FMaterialEditorModule::RegisterMaterialEditor(
-		FEditorWorkspaceManager& WorkspaceManager,
+		Editor::FWorkspaceManager& WorkspaceManager,
 		FRenderedAssetThumbnailService& ThumbnailService) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
@@ -35,7 +35,7 @@ namespace Durin
 		MaterialThumbnailRegistration.reset();
 		MaterialInstanceThumbnailRegistration.reset();
 		std::shared_ptr<MMaterialEditor> Workspace = std::make_shared<MMaterialEditor>(WorkspaceManager);
-		FEditorWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
+		Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
 			.Workspaces = {
 				{
 					.Descriptor = {
@@ -44,7 +44,7 @@ namespace Durin
 						.RootKey = std::string(MaterialEditorWorkspace::RootKey),
 						.bShowInWindowMenu = false,
 						.bOpenByDefault = false,
-						.DefaultHostDockPreference = EEditorWorkspaceHostDockPreference::Center,
+						.DefaultHostDockPreference = Editor::EWorkspaceHostDockPreference::Center,
 					},
 					.Workspace = Workspace,
 				},
@@ -53,19 +53,19 @@ namespace Durin
 				{
 					.AssetClassName = DMaterial::StaticClass()->GetQualifiedName().ToString(),
 					.WorkspaceType = MaterialEditorWorkspace::Type,
-					.DocumentPolicy = EEditorDocumentPolicy::PerResource,
+					.DocumentPolicy = Editor::EDocumentPolicy::PerResource,
 					.bClosable = true,
 				},
 				{
 					.AssetClassName = DMaterialInstance::StaticClass()->GetQualifiedName().ToString(),
 					.WorkspaceType = MaterialEditorWorkspace::Type,
-					.DocumentPolicy = EEditorDocumentPolicy::PerResource,
+					.DocumentPolicy = Editor::EDocumentPolicy::PerResource,
 					.bClosable = true,
 				},
 			},
 		});
 		if (!Registration) return false;
-		WorkspaceRegistration = std::make_unique<FEditorWorkspaceRegistrationHandle>(std::move(Registration));
+		WorkspaceRegistration = std::make_unique<Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
 		std::string Error;
 		auto MaterialHandle = ThumbnailService.RegisterScoped(
 			std::make_unique<FMaterialAssetThumbnailProvider>(

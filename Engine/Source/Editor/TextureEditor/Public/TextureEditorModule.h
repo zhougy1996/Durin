@@ -5,8 +5,11 @@
 
 namespace Durin
 {
-	class FEditorWorkspaceRegistrationHandle;
-	class FEditorWorkspaceManager;
+	namespace Editor
+	{
+		class FWorkspaceRegistrationHandle;
+		class FWorkspaceManager;
+	}
 	class FRenderedAssetThumbnailService;
 	class FAssetThumbnailProviderRegistrationHandle;
 
@@ -18,12 +21,12 @@ namespace Durin
 		TEXTUREEDITOR_API auto StartupModule() -> void override;
 		TEXTUREEDITOR_API auto ShutdownModule() -> void override;
 		TEXTUREEDITOR_API auto RegisterTextureEditor(
-			FEditorWorkspaceManager& WorkspaceManager,
+			Editor::FWorkspaceManager& WorkspaceManager,
 			FRenderedAssetThumbnailService& ThumbnailService) -> bool;
 		TEXTUREEDITOR_API auto UnregisterTextureEditor() -> void;
 
 	private:
-		std::unique_ptr<FEditorWorkspaceRegistrationHandle> WorkspaceRegistration;
+		std::unique_ptr<Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
 		std::unique_ptr<FAssetThumbnailProviderRegistrationHandle> Texture2DThumbnailRegistration;
 		std::unique_ptr<FAssetThumbnailProviderRegistrationHandle> TextureCubeThumbnailRegistration;
 	};

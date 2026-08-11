@@ -8,7 +8,8 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "Editor/EditorAssetPicker.h"
 #include "Editor/EditorEngine.h"
-#include "Editor/EditorWorkspaceUI.h"
+#include "Editor/WorkspaceManager.h"
+#include "Editor/WorkspaceUI.h"
 #include "Workspace/MaterialEditorWorkspace.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -100,7 +101,7 @@ namespace Durin
 		}
 	}
 
-	MMaterialEditor::MMaterialEditor(FEditorWorkspaceManager& InWorkspaceManager)
+	MMaterialEditor::MMaterialEditor(Editor::FWorkspaceManager& InWorkspaceManager)
 		: WorkspaceManager(InWorkspaceManager)
 	{
 	}
@@ -111,21 +112,21 @@ namespace Durin
 		MaterialPreviews.clear();
 	}
 
-	auto MMaterialEditor::GetWorkspaceType() const -> const FEditorWorkspaceTypeId&
+	auto MMaterialEditor::GetWorkspaceType() const -> const Editor::FWorkspaceTypeId&
 	{
 		return MaterialEditorWorkspace::Type;
 	}
 
-	auto MMaterialEditor::OpenDocument(const FEditorDocumentTab& Document) -> EEditorDocumentOpenResult
+	auto MMaterialEditor::OpenDocument(const Editor::FDocumentTab& Document) -> Editor::EDocumentOpenResult
 	{
-		if (Document.ResourceId.empty()) return EEditorDocumentOpenResult::Rejected;
-		if (FindOpenMaterial(Document.ResourceId)) return EEditorDocumentOpenResult::Opened;
+		if (Document.ResourceId.empty()) return Editor::EDocumentOpenResult::Rejected;
+		if (FindOpenMaterial(Document.ResourceId)) return Editor::EDocumentOpenResult::Opened;
 		FAssetPath AssetPath;
 		std::string PathError;
 		if (!FAssetPath::TryCreate(Document.ResourceId, AssetPath, &PathError))
 		{
 			SetError(std::move(PathError));
-			return EEditorDocumentOpenResult::Rejected;
+			return Editor::EDocumentOpenResult::Rejected;
 		}
 		FWorkspaceAssetOpenCompatibility CompatibilityPolicy(AssetPath);
 		DMaterialInterface* Material = nullptr;
@@ -134,19 +135,19 @@ namespace Durin
 		if (!Result || !Material)
 		{
 			SetError(Result ? "The selected asset is not a material." : Result.Message);
-			return EEditorDocumentOpenResult::Rejected;
+			return Editor::EDocumentOpenResult::Rejected;
 		}
 		std::string CompatibilityDiagnostic;
 		if (CompatibilityPolicy.RejectIfIncompatible(LoadReport, CompatibilityDiagnostic))
 		{
 			SetError(std::move(CompatibilityDiagnostic));
-			return EEditorDocumentOpenResult::Rejected;
+			return Editor::EDocumentOpenResult::Rejected;
 		}
 		OpenMaterials.emplace(Document.ResourceId, Material);
-		return EEditorDocumentOpenResult::Opened;
+		return Editor::EDocumentOpenResult::Opened;
 	}
 
-	auto MMaterialEditor::ActivateDocument(const FEditorDocumentTab& Document) -> void
+	auto MMaterialEditor::ActivateDocument(const Editor::FDocumentTab& Document) -> void
 	{
 		DMaterialInterface* Material = FindOpenMaterial(Document.ResourceId);
 		if (PropertyView.IsEditing() && !PropertyView.IsEditingObject(Material) && !FinishActivePropertyEdit(true)) return;
@@ -159,23 +160,23 @@ namespace Durin
 		return FinishActivePropertyEdit(true);
 	}
 
-	auto MMaterialEditor::RequestCloseDocument(const FEditorDocumentTab& Document) -> EEditorDocumentCloseResult
+	auto MMaterialEditor::RequestCloseDocument(const Editor::FDocumentTab& Document) -> Editor::EDocumentCloseResult
 	{
 		if (PropertyView.IsEditingObject(FindOpenMaterial(Document.ResourceId)) && !FinishActivePropertyEdit(true))
-			return EEditorDocumentCloseResult::Rejected;
-		if (IsDocumentDirty(Document)) return EEditorDocumentCloseResult::PendingConfirmation;
+			return Editor::EDocumentCloseResult::Rejected;
+		if (IsDocumentDirty(Document)) return Editor::EDocumentCloseResult::PendingConfirmation;
 		OpenMaterials.erase(Document.ResourceId);
 		MaterialPreviews.erase(Document.Id.Value);
 		if (ActiveResourceId == Document.ResourceId) ActiveResourceId.clear();
-		return EEditorDocumentCloseResult::Closed;
+		return Editor::EDocumentCloseResult::Closed;
 	}
 
-	auto MMaterialEditor::SaveDocument(const FEditorDocumentTab& Document) -> bool
+	auto MMaterialEditor::SaveDocument(const Editor::FDocumentTab& Document) -> bool
 	{
 		return SaveMaterial(FindOpenMaterial(Document.ResourceId));
 	}
 
-	auto MMaterialEditor::DiscardDocument(const FEditorDocumentTab& Document) -> bool
+	auto MMaterialEditor::DiscardDocument(const Editor::FDocumentTab& Document) -> bool
 	{
 		DMaterialInterface* Material = FindOpenMaterial(Document.ResourceId);
 		if (!Material || !Material->GetPackage()) return false;
@@ -183,7 +184,7 @@ namespace Durin
 		return true;
 	}
 
-	auto MMaterialEditor::IsDocumentDirty(const FEditorDocumentTab& Document) const -> bool
+	auto MMaterialEditor::IsDocumentDirty(const Editor::FDocumentTab& Document) const -> bool
 	{
 		DMaterialInterface* Material = FindOpenMaterial(Document.ResourceId);
 		return Material && Material->GetPackage() && Material->GetPackage()->IsDirty();
@@ -207,13 +208,13 @@ namespace Durin
 			WorkspaceManager,
 			MaterialEditorWorkspace::Type,
 			MaterialEditorWorkspace::RootKey,
-			[this](const FEditorDocumentTab& Document) {
+			[this](const Editor::FDocumentTab& Document) {
 				return FindOpenMaterial(Document.ResourceId) != nullptr;
 			},
-			[this](const FEditorDocumentTab& Document) {
+			[this](const Editor::FDocumentTab& Document) {
 				DrawDocument(Document, FindOpenMaterial(Document.ResourceId));
 			},
-			[this](const FEditorDocumentTab& Document) {
+			[this](const Editor::FDocumentTab& Document) {
 				if (const auto PreviewIt = MaterialPreviews.find(Document.Id.Value); PreviewIt != MaterialPreviews.end())
 					PreviewIt->second->SetVisible(false);
 			}
@@ -280,7 +281,7 @@ namespace Durin
 		return CanRedo() && GEditor->GetTransactionManager().Redo();
 	}
 
-	auto MMaterialEditor::DrawDocument(const FEditorDocumentTab& Document, DMaterialInterface* Material) -> void
+	auto MMaterialEditor::DrawDocument(const Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void
 	{
 		DrawToolbar(Document, Material);
 		ImGui::Spacing();
@@ -294,7 +295,7 @@ namespace Durin
 		MonaImGui::ErrorDialog("Material Editor Error", ErrorMessage);
 	}
 
-	auto MMaterialEditor::DrawToolbar(const FEditorDocumentTab& Document, DMaterialInterface* Material) -> void
+	auto MMaterialEditor::DrawToolbar(const Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void
 	{
 		if (ImGui::Button("Save")) SaveMaterial(Material);
 		ImGui::SameLine();
@@ -303,7 +304,7 @@ namespace Durin
 		ImGui::TextUnformatted(Document.ResourceId.c_str());
 	}
 
-	auto MMaterialEditor::DrawWideLayout(const FEditorDocumentTab& Document, DMaterialInterface* Material) -> void
+	auto MMaterialEditor::DrawWideLayout(const Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void
 	{
 		const MonaImGui::FUIStyleMetrics Metrics = MonaImGui::GetUIStyleMetrics();
 		const ImVec2 Available = ImGui::GetContentRegionAvail();
@@ -369,7 +370,7 @@ namespace Durin
 		DrawDetailsPanel(Material, Available.y);
 	}
 
-	auto MMaterialEditor::DrawNarrowLayout(const FEditorDocumentTab& Document, DMaterialInterface* Material) -> void
+	auto MMaterialEditor::DrawNarrowLayout(const Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void
 	{
 		DrawPreviewPanel(
 			Document,
@@ -385,7 +386,7 @@ namespace Durin
 	}
 
 	auto MMaterialEditor::DrawPreviewPanel(
-		const FEditorDocumentTab& Document,
+		const Editor::FDocumentTab& Document,
 		DMaterialInterface* Material,
 		float Height
 	) -> void
@@ -396,7 +397,7 @@ namespace Durin
 	}
 
 	auto MMaterialEditor::DrawOverviewPanel(
-		const FEditorDocumentTab& Document,
+		const Editor::FDocumentTab& Document,
 		DMaterialInterface* Material,
 		float Height
 	) -> void

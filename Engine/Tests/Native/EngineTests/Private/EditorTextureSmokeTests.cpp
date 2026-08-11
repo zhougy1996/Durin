@@ -10,7 +10,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/FPrimitiveSceneProxy.h"
-#include "Editor/EditorWorkspace.h"
+#include "Editor/WorkspaceManager.h"
 #include "MaterialEditorModule.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialTypes.h"
@@ -225,7 +225,7 @@ namespace Durin
 		std::vector<uint8> BeforeSave;
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(
 			BeforeSave, MaterialFile));
-		FEditorWorkspaceManager WorkspaceManager;
+		Editor::FWorkspaceManager WorkspaceManager;
 		FRenderedAssetThumbnailService ThumbnailService;
 		FMaterialEditorModule MaterialEditorModule;
 		ASSERT_TRUE(MaterialEditorModule.RegisterMaterialEditor(
@@ -234,7 +234,7 @@ namespace Durin
 			MaterialPath.ToString(),
 			DMaterial::StaticClass()->GetQualifiedName().ToString()));
 		auto MaterialWorkspace = WorkspaceManager.FindWorkspace(
-			FEditorWorkspaceTypeId("MaterialEditor"));
+			Editor::FWorkspaceTypeId("MaterialEditor"));
 		ASSERT_NE(MaterialWorkspace, nullptr);
 		LoadedMaterial->MarkPackageDirty();
 		EXPECT_TRUE(MaterialWorkspace->CanSaveActiveDocument());

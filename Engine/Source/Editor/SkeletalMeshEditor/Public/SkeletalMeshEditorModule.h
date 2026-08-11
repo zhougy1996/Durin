@@ -5,8 +5,11 @@
 
 namespace Durin
 {
-	class FEditorWorkspaceManager;
-	class FEditorWorkspaceRegistrationHandle;
+	namespace Editor
+	{
+		class FWorkspaceManager;
+		class FWorkspaceRegistrationHandle;
+	}
 	class FRenderedAssetThumbnailService;
 	class FAssetThumbnailProviderRegistrationHandle;
 
@@ -18,12 +21,12 @@ namespace Durin
 		SKELETALMESHEDITOR_API auto StartupModule() -> void override;
 		SKELETALMESHEDITOR_API auto ShutdownModule() -> void override;
 		SKELETALMESHEDITOR_API auto RegisterSkeletalMeshEditor(
-			FEditorWorkspaceManager& WorkspaceManager,
+			Editor::FWorkspaceManager& WorkspaceManager,
 			FRenderedAssetThumbnailService& ThumbnailService) -> bool;
 		SKELETALMESHEDITOR_API auto UnregisterSkeletalMeshEditor() -> void;
 
 	private:
-		std::unique_ptr<FEditorWorkspaceRegistrationHandle> WorkspaceRegistration;
+		std::unique_ptr<Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
 		std::unique_ptr<FAssetThumbnailProviderRegistrationHandle> ThumbnailRegistration;
 	};
 }
