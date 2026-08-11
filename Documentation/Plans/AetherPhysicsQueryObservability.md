@@ -748,7 +748,7 @@ Dependencies: Stages 0-3 and complete recorded qualification evidence.
 - [Sandbox Gameplay](../Runtime/Gameplay/SandboxGameplay.md)
 - [CPU Profiling](../Development/Build/Profiling.md)
 - [Native Tests](../Development/Build/NativeTests.md)
-- [Physics Scene And Character Collision Plan](PhysicsSceneAndCharacterCollision.md)
+- [Physics Scene And Character Collision Plan](Archive/2026-08/PhysicsSceneAndCharacterCollision.md)
 
 ## Related Code
 
