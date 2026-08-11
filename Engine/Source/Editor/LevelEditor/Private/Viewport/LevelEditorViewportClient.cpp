@@ -232,6 +232,14 @@ namespace Durin::Editor::Level
 			if (!Actor || Actor->IsHidden()) continue;
 			const bool bSelected = std::ranges::any_of(SelectedActors, [Actor](const TObjectPtr<AActor>& Entry) { return Entry.Get() == Actor; });
 			const bool bPrimarySelection = PrimarySelectedActor.Get() == Actor;
+			const FEditorVisualizationContext ActorContext{
+				.View = View,
+				.Level = Level,
+				.bSelected = bSelected,
+				.bPrimarySelection = bPrimarySelection,
+			};
+			if (const std::shared_ptr<IActorEditorVisualizer> Visualizer = Registry.FindActorVisualizer(Actor->GetClass()))
+				Visualizer->DrawVisualization(Actor, ActorContext, Collector);
 			for (const TObjectPtr<DActorComponent>& ComponentPtr : Actor->GetOwnedComponents())
 			{
 				DActorComponent* Component = ComponentPtr.Get();

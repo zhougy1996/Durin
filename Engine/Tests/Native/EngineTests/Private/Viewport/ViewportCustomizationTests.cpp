@@ -211,6 +211,12 @@ TEST(FLevelEditorCustomizationRegistryTests, RejectsDuplicatesFindsBaseClassAndU
 {
 	InitializeDObjectSystem();
 	auto& Registry = Durin::Editor::Level::FLevelEditorCustomizationRegistry::Get();
+	const auto ActorVisualizer = std::make_shared<FTestActorVisualizer>();
+	FCustomizationGuard ActorVisualizerGuard{Registry.RegisterActorVisualizer(Durin::AActor::StaticClass(), ActorVisualizer)};
+	ASSERT_TRUE(ActorVisualizerGuard.Handle);
+	EXPECT_FALSE(Registry.RegisterActorVisualizer(Durin::AActor::StaticClass(), std::make_shared<FTestActorVisualizer>()));
+	EXPECT_EQ(Registry.FindActorVisualizer(Durin::APlayerStart::StaticClass()), ActorVisualizer);
+
 	const auto Visualizer = std::make_shared<FTestComponentVisualizer>();
 	FCustomizationGuard VisualizerGuard{Registry.RegisterComponentVisualizer(Durin::DSceneComponent::StaticClass(), Visualizer)};
 	ASSERT_TRUE(VisualizerGuard.Handle);
@@ -588,4 +594,45 @@ TEST(FDirectionalLightComponentVisualizerTests, DrawsSelectableIconAndSelectedDi
 	EXPECT_NEAR(Durin::Math::Length(Selected.GetLines().front().Start - Origin), 0.0, 1.e-6);
 	EXPECT_GT(Durin::Math::Dot(Selected.GetLines().front().End - Origin, Forward), 0.0);
 	EXPECT_TRUE(Selected.GetIcons().front().bDepthIndependentHit);
+}
+
+TEST(FPlayerStartActorVisualizerTests, DrawsSelectableSpawnShapeAndFacingCue)
+{
+	InitializeDObjectSystem();
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "PlayerStartVisualizerWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "PlayerStartVisualizerLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	auto* PlayerStart = Level->SpawnActor<Durin::APlayerStart>("PlayerStart");
+	ASSERT_NE(PlayerStart, nullptr);
+	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	const Durin::FVector3 Origin = Client.GetCameraTransform().GetLocation()
+		+ Client.GetCameraTransform().GetForwardVector() * 5.0;
+	PlayerStart->GetRootComponent()->SetWorldLocation(Origin);
+	Durin::FSceneView View;
+	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
+	const std::shared_ptr<Durin::Editor::Level::IActorEditorVisualizer> Visualizer =
+		Durin::Editor::Level::CreatePlayerStartActorVisualizer();
+	ASSERT_NE(Visualizer, nullptr);
+
+	Durin::Editor::Level::FEditorVisualizationCollector Unselected;
+	Visualizer->DrawVisualization(PlayerStart, {View, Level, false, false}, Unselected);
+	EXPECT_EQ(Unselected.GetBoxes().size(), 1u);
+	EXPECT_EQ(Unselected.GetLines().size(), 41u);
+	EXPECT_TRUE(Unselected.GetBoxes().front().HoverColor.has_value());
+	Durin::FVector2f ScreenCenter;
+	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, Origin, ScreenCenter));
+	const Durin::Editor::Level::FEditorVisualizationHit Hit = Unselected.HitTest(View, ScreenCenter);
+	EXPECT_EQ(Hit.Actor, PlayerStart);
+	EXPECT_EQ(Hit.Component, PlayerStart->GetRootComponent());
+	EXPECT_TRUE(Hit.bDepthIndependent);
+
+	Durin::Editor::Level::FEditorVisualizationCollector Selected;
+	Visualizer->DrawVisualization(PlayerStart, {View, Level, true, true}, Selected);
+	ASSERT_EQ(Selected.GetBoxes().size(), 1u);
+	EXPECT_FALSE(Selected.GetBoxes().front().HoverColor.has_value());
+	EXPECT_GT(Durin::Math::Dot(Selected.GetLines()[36].End - Selected.GetLines()[36].Start,
+		PlayerStart->GetRootComponent()->GetWorldRotation() * Durin::FVectorConstants::Forward), 0.0);
+
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
 }

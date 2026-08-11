@@ -2,6 +2,7 @@
 
 #include "Actors/CameraActor.h"
 #include "Actors/DirectionalLightActor.h"
+#include "Actors/PlayerStart.h"
 #include "Actors/StaticMeshActor.h"
 #include "AssetSystem.h"
 #include "Customizations/CameraEditorCustomizations.h"
@@ -17,6 +18,7 @@
 #include "DObject/Package.h"
 #include "DObject/Property.h"
 #include "Customizations/DirectionalLightEditorCustomizations.h"
+#include "Customizations/PlayerStartEditorCustomizations.h"
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
@@ -172,6 +174,15 @@ namespace
 
 	private:
 		int* DrawCount = nullptr;
+	};
+
+	class FTestActorVisualizer final : public Durin::Editor::Level::IActorEditorVisualizer
+	{
+	public:
+		auto DrawVisualization(Durin::AActor*, const Durin::Editor::Level::FEditorVisualizationContext&,
+			Durin::Editor::Level::FEditorVisualizationCollector&) const -> void override
+		{
+		}
 	};
 
 	class FTestDetailsCustomization final : public Durin::Editor::Level::IObjectDetailsCustomization

@@ -263,6 +263,14 @@ namespace Durin::Editor::Level
 		return {Id, ELevelEditorCustomizationKind::ComponentVisualizer};
 	}
 
+	auto FLevelEditorCustomizationRegistry::RegisterActorVisualizer(DClass* Class, std::shared_ptr<IActorEditorVisualizer> Visualizer) -> FLevelEditorCustomizationHandle
+	{
+		if (!Class || !Visualizer || ActorVisualizers.contains(Class)) return {};
+		const uint64 Id = NextHandleId++;
+		ActorVisualizers.emplace(Class, TEntry<IActorEditorVisualizer>{Id, std::move(Visualizer)});
+		return {Id, ELevelEditorCustomizationKind::ActorVisualizer};
+	}
+
 	auto FLevelEditorCustomizationRegistry::RegisterObjectDetails(DClass* Class, std::shared_ptr<IObjectDetailsCustomization> Customization) -> FLevelEditorCustomizationHandle
 	{
 		if (!Class || !Customization || ObjectDetails.contains(Class)) return {};
@@ -274,6 +282,13 @@ namespace Durin::Editor::Level
 	auto FLevelEditorCustomizationRegistry::Unregister(FLevelEditorCustomizationHandle Handle) -> bool
 	{
 		if (!Handle) return false;
+		if (Handle.Kind == ELevelEditorCustomizationKind::ActorVisualizer)
+		{
+			const auto It = std::ranges::find_if(ActorVisualizers, [Handle](const auto& Pair) { return Pair.second.HandleId == Handle.Id; });
+			if (It == ActorVisualizers.end()) return false;
+			ActorVisualizers.erase(It);
+			return true;
+		}
 		if (Handle.Kind == ELevelEditorCustomizationKind::ComponentVisualizer)
 		{
 			const auto It = std::ranges::find_if(ComponentVisualizers, [Handle](const auto& Pair) { return Pair.second.HandleId == Handle.Id; });
@@ -285,6 +300,11 @@ namespace Durin::Editor::Level
 		if (It == ObjectDetails.end()) return false;
 		ObjectDetails.erase(It);
 		return true;
+	}
+
+	auto FLevelEditorCustomizationRegistry::FindActorVisualizer(const DClass* Class) const -> std::shared_ptr<IActorEditorVisualizer>
+	{
+		return FindMostSpecific<IActorEditorVisualizer>(Class, ActorVisualizers);
 	}
 
 	auto FLevelEditorCustomizationRegistry::FindComponentVisualizer(const DClass* Class) const -> std::shared_ptr<IComponentEditorVisualizer>

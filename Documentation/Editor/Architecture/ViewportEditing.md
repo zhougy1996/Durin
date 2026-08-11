@@ -149,7 +149,7 @@ never retained by pending state.
 
 ## Visualization And Hit Identity
 
-Component visualizers are stateless draw producers. Their primitives may carry
+Actor and component visualizers are stateless draw producers. Their primitives may carry
 the exact Actor, component, and optional typed sub-element handle. Hover and
 hit-testing preserve that identity through viewport presentation and mode
 dispatch.

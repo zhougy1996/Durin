@@ -120,6 +120,15 @@ namespace Durin::Editor::Level
 		virtual auto DrawVisualization(DActorComponent* Component, const FEditorVisualizationContext& Context, FEditorVisualizationCollector& Collector) const -> void = 0;
 	};
 
+	// Defines an actor-specific producer of editor viewport overlays.
+	class IActorEditorVisualizer
+	{
+	public:
+		virtual ~IActorEditorVisualizer() = default;
+		virtual auto DrawVisualization(AActor* Actor, const FEditorVisualizationContext& Context,
+			FEditorVisualizationCollector& Collector) const -> void = 0;
+	};
+
 	// Summarizes rows and changes produced by an object details builder.
 	struct FObjectPropertyViewBuilderResult
 	{
@@ -177,6 +186,7 @@ namespace Durin::Editor::Level
 	// Distinguishes viewport visualizers from object-details customizations.
 	enum class ELevelEditorCustomizationKind : uint8
 	{
+		ActorVisualizer,
 		ComponentVisualizer,
 		ObjectDetails
 	};
@@ -194,9 +204,11 @@ namespace Durin::Editor::Level
 	{
 	public:
 		LEVELEDITOR_API static auto Get() -> FLevelEditorCustomizationRegistry&;
+		LEVELEDITOR_API auto RegisterActorVisualizer(DClass* Class, std::shared_ptr<IActorEditorVisualizer> Visualizer) -> FLevelEditorCustomizationHandle;
 		LEVELEDITOR_API auto RegisterComponentVisualizer(DClass* Class, std::shared_ptr<IComponentEditorVisualizer> Visualizer) -> FLevelEditorCustomizationHandle;
 		LEVELEDITOR_API auto RegisterObjectDetails(DClass* Class, std::shared_ptr<IObjectDetailsCustomization> Customization) -> FLevelEditorCustomizationHandle;
 		LEVELEDITOR_API auto Unregister(FLevelEditorCustomizationHandle Handle) -> bool;
+		LEVELEDITOR_API auto FindActorVisualizer(const DClass* Class) const -> std::shared_ptr<IActorEditorVisualizer>;
 		LEVELEDITOR_API auto FindComponentVisualizer(const DClass* Class) const -> std::shared_ptr<IComponentEditorVisualizer>;
 		LEVELEDITOR_API auto FindObjectDetails(const DClass* Class) const -> std::shared_ptr<IObjectDetailsCustomization>;
 		LEVELEDITOR_API auto FindObjectDetailsCustomizations(const DClass* Class) const -> std::vector<std::shared_ptr<IObjectDetailsCustomization>>;
@@ -211,6 +223,7 @@ namespace Durin::Editor::Level
 		};
 
 		uint64 NextHandleId = 1;
+		std::unordered_map<DClass*, TEntry<IActorEditorVisualizer>> ActorVisualizers;
 		std::unordered_map<DClass*, TEntry<IComponentEditorVisualizer>> ComponentVisualizers;
 		std::unordered_map<DClass*, TEntry<IObjectDetailsCustomization>> ObjectDetails;
 	};

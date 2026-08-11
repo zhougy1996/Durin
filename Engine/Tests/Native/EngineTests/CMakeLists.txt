@@ -493,6 +493,7 @@ durin_add_engine_functional_test(ViewportTests
 		${_durin_level_editor_private}/Viewport/TransformGizmo.cpp
 		${_durin_level_editor_private}/Customizations/CameraEditorCustomizations.cpp
 		${_durin_level_editor_private}/Customizations/DirectionalLightEditorCustomizations.cpp
+		${_durin_level_editor_private}/Customizations/PlayerStartEditorCustomizations.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
 		${_durin_level_editor_private}/Customizations/SplineEditorCustomizations.cpp
 		${_durin_level_editor_private}/Settings/LevelViewportSessionSettings.cpp

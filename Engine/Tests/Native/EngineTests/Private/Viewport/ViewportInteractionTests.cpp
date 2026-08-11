@@ -232,6 +232,31 @@ TEST(FLevelEditorViewportClientTests, PicksVisualizerForActorWithoutStaticMesh)
 	EXPECT_EQ(Pick.Completion.Hit->Actor.Get(), Camera);
 }
 
+TEST(FLevelEditorViewportClientTests, PicksPlayerStartActorVisualizerWithoutSceneGeometry)
+{
+	InitializeDObjectSystem();
+	auto& Registry = Durin::Editor::Level::FLevelEditorCustomizationRegistry::Get();
+	FCustomizationGuard Guard{Registry.RegisterActorVisualizer(
+		Durin::APlayerStart::StaticClass(), Durin::Editor::Level::CreatePlayerStartActorVisualizer())};
+	ASSERT_TRUE(Guard.Handle);
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "PlayerStartVisualizerPickingWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "PlayerStartVisualizerPickingLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	auto* PlayerStart = Level->SpawnActor<Durin::APlayerStart>("PlayerStart");
+	ASSERT_NE(PlayerStart, nullptr);
+	PlayerStart->GetRootComponent()->SetWorldLocation(
+		Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0);
+	Durin::FSceneView PickView;
+	ASSERT_TRUE(Client.BuildViewMatrices(800, 600, PickView));
+	const Durin::Editor::Level::FViewportPickSubmission Pick =
+		Client.SubmitViewportPick(Level, PickView, {400.0f, 300.0f});
+	ASSERT_EQ(Pick.Completion.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
+	ASSERT_TRUE(Pick.Completion.Hit);
+	EXPECT_EQ(Pick.Completion.Hit->Actor.Get(), PlayerStart);
+	EXPECT_EQ(Pick.Completion.Hit->Component.Get(), PlayerStart->GetRootComponent());
+}
+
 TEST(FLevelEditorViewportClientTests, ResetsIndependentViewUnlessSavedStateExists)
 {
 	InitializeDObjectSystem();

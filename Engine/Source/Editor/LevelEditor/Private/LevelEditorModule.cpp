@@ -5,6 +5,7 @@
 #include "Settings/LevelEditorSessionSettings.h"
 #include "Settings/ProjectDefaultLevelReferenceStore.h"
 #include "Engine/Level.h"
+#include "Actors/PlayerStart.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "Widgets/MLevelEditor.h"
 #include "Customizations/CameraEditorCustomizations.h"
@@ -12,6 +13,7 @@
 #include "Components/DirectionalLightComponent.h"
 #include "Components/SplineComponent.h"
 #include "Customizations/DirectionalLightEditorCustomizations.h"
+#include "Customizations/PlayerStartEditorCustomizations.h"
 #include "Customizations/SplineEditorCustomizations.h"
 #include "StaticMeshMaterialSlotDetails.h"
 #include "Components/StaticMeshComponent.h"
@@ -43,6 +45,7 @@ namespace Durin
 		SessionSettings = std::make_unique<FLevelEditorSessionSettings>();
 		SessionSettings->Load();
 		auto& Registry = FLevelEditorCustomizationRegistry::Get();
+		CustomizationHandles.push_back(Registry.RegisterActorVisualizer(APlayerStart::StaticClass(), CreatePlayerStartActorVisualizer()));
 		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DCameraComponent::StaticClass(), CreateCameraComponentVisualizer()));
 		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DDirectionalLightComponent::StaticClass(), CreateDirectionalLightComponentVisualizer()));
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DCameraComponent::StaticClass(), CreateCameraDetailsCustomization()));
