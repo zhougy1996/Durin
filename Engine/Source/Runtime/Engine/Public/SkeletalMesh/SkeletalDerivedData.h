@@ -76,7 +76,7 @@ namespace Durin
 
 	private:
 		std::vector<DObject*> MissingAssets;
-		friend auto ReportMissingSkeletalDerivedDataAsset(DObject*) -> void;
+		friend ENGINE_API auto ReportMissingSkeletalDerivedDataAsset(DObject*) -> void;
 	};
 
 	ENGINE_API auto IsSkeletalDerivedDataRepairLoadActive() -> bool;
