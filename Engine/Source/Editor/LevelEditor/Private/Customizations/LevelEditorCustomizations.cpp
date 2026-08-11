@@ -2,7 +2,7 @@
 
 #include "DObject/Class.h"
 #include "DObject/Property.h"
-#include "Editor/ReflectedPropertyView.h"
+#include "Editor/PropertyView.h"
 #include "Math/Operations.h"
 #include "Misc/StringHelper.h"
 #include "SceneViewProjection.h"
@@ -47,10 +47,10 @@ namespace Durin
 	}
 
 	auto FObjectPropertyViewBuilder::AddProperty(DObject* Object, FProperty* Property, uint32 ArrayIndex,
-		const FPropertyViewOptions& Options, std::string_view SearchKeywords) -> void
+		const Editor::FPropertyViewOptions& Options, std::string_view SearchKeywords) -> void
 	{
 		if (!Object || !Property || ArrayIndex >= Property->GetArrayDim()) return;
-		const std::string Label = Options.Label.empty() ? MakeReflectedPropertyLabel(*Property, ArrayIndex) : Options.Label;
+		const std::string Label = Options.Label.empty() ? Editor::MakePropertyLabel(*Property, ArrayIndex) : Options.Label;
 		Rows.push_back({Object, Property, ArrayIndex, Label,
 			std::format("{} {} {}", Property->NamePrivate.ToString(), Label, SearchKeywords), {}});
 	}
@@ -91,8 +91,8 @@ namespace Durin
 		return static_cast<uint32>(std::ranges::count_if(Rows, [this](const FRow& Row) { return MatchesSearch(Row.SearchText); }));
 	}
 
-	auto FObjectPropertyViewBuilder::DrawRows(FReflectedPropertyView& PropertyView,
-		const FReflectedPropertyViewContext& ViewContext) const -> FObjectPropertyViewBuilderResult
+	auto FObjectPropertyViewBuilder::DrawRows(Editor::FPropertyView& PropertyView,
+		const Editor::FPropertyViewContext& ViewContext) const -> FObjectPropertyViewBuilderResult
 	{
 		FObjectPropertyViewBuilderResult Result;
 		for (const FRow& Row : Rows)

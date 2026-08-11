@@ -103,7 +103,7 @@ TEST(FSplineDetailsCustomizationTests, EmitsVisiblePropertyTableRows)
 	const bool bTableOpen = Durin::MonaImGui::PropertyEdit::BeginTable("SplineDetailsRows");
 	if (bTableOpen)
 	{
-		Durin::FReflectedPropertyView PropertyView;
+		Durin::Editor::FPropertyView PropertyView;
 		const Durin::FObjectPropertyViewBuilderResult Result = Builder.DrawRows(PropertyView, {});
 		EXPECT_EQ(Result.VisibleRowCount, 1u);
 		EXPECT_GE(ImGui::TableGetRowIndex(), 2);
@@ -184,7 +184,7 @@ TEST(FSplineViewportAuthoringTests, ModeUsesGuidMultiSelectionAndTransactionalDe
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
 	Durin::FLevelEditorViewportInput Input;
 	Input.bDelete = true;
-	Durin::FEditorTransactionManager Transactions;
+	Durin::Editor::FTransactionManager Transactions;
 	ASSERT_TRUE(Manager.Tick(Context, Client, View, Input, &Transactions));
 	EXPECT_EQ(Spline->GetNumSplinePoints(), 1u);
 	ASSERT_TRUE(Transactions.Undo());
@@ -243,7 +243,7 @@ TEST(FObjectPropertyViewBuilderTests, ComposesPropertiesHidingReplacementAndSear
 
 	Durin::FObjectPropertyViewBuilder Builder("rotation");
 	Builder.AddProperty(RootComponent, TransformProperty, 0, {.Label = "Transform"}, "Location Rotation Scale");
-	Builder.AddCustomRow("Materials Material Slots", [](Durin::FReflectedPropertyView&, const Durin::FReflectedPropertyViewContext&) { return false; });
+	Builder.AddCustomRow("Materials Material Slots", [](Durin::Editor::FPropertyView&, const Durin::Editor::FPropertyViewContext&) { return false; });
 	Builder.HideProperty(TransformProperty);
 	Builder.ReplaceDefaultProperties();
 

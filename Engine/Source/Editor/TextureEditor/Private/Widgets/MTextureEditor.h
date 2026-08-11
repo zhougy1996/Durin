@@ -3,7 +3,7 @@
 #include "DObject/ObjectPtr.h"
 #include "Editor/EditorWorkspace.h"
 #include "Editor/EditorWorkspaceRootWindow.h"
-#include "Editor/ReflectedPropertyView.h"
+#include "Editor/PropertyView.h"
 #include "Source/SourceReferenceIndex.h"
 #include "TextureEditorAPI.h"
 #include "Widgets/TexturePreview.h"
@@ -61,7 +61,7 @@ namespace Durin
 		auto DrawSharedSourceRelocationConfirmation(DTexture2D* Texture) -> void;
 		auto ChangeSourceLocation(DTexture2D* Texture) -> void;
 		auto FinishActivePropertyEdit(bool bCancel) -> bool;
-		auto MakePropertyViewContext() -> FReflectedPropertyViewContext;
+		auto MakePropertyViewContext() -> Editor::FPropertyViewContext;
 		auto SetError(std::string Message) -> void;
 
 		FEditorWorkspaceManager& WorkspaceManager;
@@ -69,7 +69,7 @@ namespace Durin
 		FEditorWorkspaceDocumentHost DocumentHost;
 		std::string ActiveResourceId;
 		std::string ErrorMessage;
-		FReflectedPropertyView PropertyView;
+		Editor::FPropertyView PropertyView;
 		FSourceReferenceIndex SourceReferenceIndex;
 		struct FPendingSourceReplacement
 		{

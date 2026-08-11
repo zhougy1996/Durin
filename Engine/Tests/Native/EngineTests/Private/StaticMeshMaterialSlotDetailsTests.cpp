@@ -39,8 +39,8 @@ namespace
 		return static_cast<Durin::uint32>(Index);
 	}
 
-	auto MakeContext(Durin::FEditorTransactionManager& Transactions, std::string& Error)
-		-> Durin::FReflectedPropertyViewContext
+	auto MakeContext(Durin::Editor::FTransactionManager& Transactions, std::string& Error)
+		-> Durin::Editor::FPropertyViewContext
 	{
 		return {.Transactions = &Transactions, .ReportError = [&Error](std::string Message) { Error = std::move(Message); }};
 	}
@@ -108,8 +108,8 @@ TEST(FStaticMeshMaterialSlotDetailsTests, FiltersMaterialTypesAndUsesIndexScoped
 
 	EXPECT_TRUE(Durin::FStaticMeshMaterialSlotDetailsModel::IsSupportedMaterialClass(First->GetClass()));
 	EXPECT_FALSE(Durin::FStaticMeshMaterialSlotDetailsModel::IsSupportedMaterialClass(Texture->GetClass()));
-	Durin::FEditorTransactionManager Transactions;
-	Durin::FReflectedPropertyView PropertyView;
+	Durin::Editor::FTransactionManager Transactions;
+	Durin::Editor::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
 
@@ -187,8 +187,8 @@ TEST(FStaticMeshMaterialSlotDetailsTests, CustomizationHidesCollectionsAndTransa
 	EXPECT_EQ(Component->GetClass()->FindPropertyByName("MaterialOverrides"), nullptr);
 	EXPECT_EQ(Component->GetClass()->FindPropertyByName("MaterialOverridesVersion"), nullptr);
 
-	Durin::FEditorTransactionManager Transactions;
-	Durin::FReflectedPropertyView PropertyView;
+	Durin::Editor::FTransactionManager Transactions;
+	Durin::Editor::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
 	Durin::FStaticMeshMaterialSlotDetailsModel Model(Component);

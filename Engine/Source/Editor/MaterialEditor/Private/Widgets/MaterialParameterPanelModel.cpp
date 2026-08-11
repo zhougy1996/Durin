@@ -63,8 +63,8 @@ namespace Durin
 		}
 
 		auto SubmitRootArrayEdit(
-			FReflectedPropertyView& PropertyView,
-			const FReflectedPropertyViewContext& Context,
+			Editor::FPropertyView& PropertyView,
+			const Editor::FPropertyViewContext& Context,
 			DObject* Object,
 			FArrayProperty* Property,
 			const FGuid& ParameterId,
@@ -74,7 +74,7 @@ namespace Durin
 		) -> bool
 		{
 			if (!Object || !Property || !Mutate) return false;
-			FReflectedPropertyEditTarget Target = FReflectedPropertyEditTarget::ForMember(Object, Property);
+			Editor::FPropertyEditTarget Target = Editor::FPropertyEditTarget::ForMember(Object, Property);
 			Target.LogicalIdentity.resize(sizeof(ParameterId));
 			std::memcpy(Target.LogicalIdentity.data(), &ParameterId, sizeof(ParameterId));
 			Target.Kind = Kind;
@@ -179,8 +179,8 @@ namespace Durin
 	}
 
 	auto FMaterialParameterPanelModel::SubmitValueEdit(
-		FReflectedPropertyView& PropertyView,
-		const FReflectedPropertyViewContext& Context,
+		Editor::FPropertyView& PropertyView,
+		const Editor::FPropertyViewContext& Context,
 		const FMaterialParameterPanelEntry& Entry,
 		const FMaterialParameterValue& Value,
 		bool bContinuous
@@ -220,8 +220,8 @@ namespace Durin
 	}
 
 	auto FMaterialParameterPanelModel::SetOverrideEnabled(
-		FReflectedPropertyView& PropertyView,
-		const FReflectedPropertyViewContext& Context,
+		Editor::FPropertyView& PropertyView,
+		const Editor::FPropertyViewContext& Context,
 		const FMaterialParameterPanelEntry& Entry,
 		bool bEnabled
 	) const -> bool
@@ -249,8 +249,8 @@ namespace Durin
 	}
 
 	auto FMaterialParameterPanelModel::RemoveOrphan(
-		FReflectedPropertyView& PropertyView,
-		const FReflectedPropertyViewContext& Context,
+		Editor::FPropertyView& PropertyView,
+		const Editor::FPropertyViewContext& Context,
 		const FMaterialParameterPanelEntry& Entry
 	) const -> bool
 	{

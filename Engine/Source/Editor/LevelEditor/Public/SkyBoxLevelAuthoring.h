@@ -3,12 +3,16 @@
 #include "LevelEditorAPI.h"
 #include "Misc/Name.h"
 
+namespace Durin::Editor
+{
+	class FTransactionManager;
+}
+
 namespace Durin
 {
 	class AActor;
 	class DLevel;
 	class DTextureCube;
-	class FEditorTransactionManager;
 
 	// Reports the actor selected by a TextureCube placement request or its rejection reason.
 	struct FSkyBoxPlacementResult
@@ -28,7 +32,7 @@ namespace Durin
 			DLevel& Level,
 			DTextureCube* TextureCube,
 			FName RequestedName,
-			FEditorTransactionManager* Transactions,
+			Editor::FTransactionManager* Transactions,
 			bool bReadOnly = false) -> FSkyBoxPlacementResult;
 	};
 }

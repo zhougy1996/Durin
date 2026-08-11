@@ -69,14 +69,14 @@ namespace Durin
 					SearchKeywords += Entry.SearchKeywords;
 				}
 				Builder.AddCustomRow(SearchKeywords,
-					[Component](FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& ViewContext) {
+					[Component](Editor::FPropertyView& PropertyView, const Editor::FPropertyViewContext& ViewContext) {
 						return DrawMaterials(Component, PropertyView, ViewContext);
 					});
 			}
 
 		private:
-			static auto DrawMaterials(DStaticMeshComponent* Component, FReflectedPropertyView& PropertyView,
-				const FReflectedPropertyViewContext& Context) -> bool
+			static auto DrawMaterials(DStaticMeshComponent* Component, Editor::FPropertyView& PropertyView,
+				const Editor::FPropertyViewContext& Context) -> bool
 			{
 				const FStaticMeshMaterialSlotDetailsModel Model(Component);
 				ImGui::PushID("StaticMeshMaterials");
@@ -114,7 +114,7 @@ namespace Durin
 			}
 
 			static auto DrawCurrentRow(DStaticMeshComponent* Component, const FStaticMeshMaterialSlotDetailsEntry& Entry,
-				FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& Context) -> bool
+				Editor::FPropertyView& PropertyView, const Editor::FPropertyViewContext& Context) -> bool
 			{
 				FStaticMeshMaterialSlotDetailsModel Model(Component);
 				bool bChanged = false;
@@ -210,13 +210,13 @@ namespace Durin
 		return "Unknown";
 	}
 
-	auto FStaticMeshMaterialSlotDetailsModel::SubmitOverrideEdit(FReflectedPropertyView& PropertyView,
-		const FReflectedPropertyViewContext& Context, uint32 SlotIndex, DMaterialInterface* Material,
+	auto FStaticMeshMaterialSlotDetailsModel::SubmitOverrideEdit(Editor::FPropertyView& PropertyView,
+		const Editor::FPropertyViewContext& Context, uint32 SlotIndex, DMaterialInterface* Material,
 		EPropertyChangeKind Kind, bool bContinuous) const -> bool
 	{
 		FArrayProperty* Property = FindOverridesProperty(Component);
 		if (!Component || !Property) return false;
-		FReflectedPropertyEditTarget Target = FReflectedPropertyEditTarget::ForMember(Component, Property);
+		Editor::FPropertyEditTarget Target = Editor::FPropertyEditTarget::ForMember(Component, Property);
 		Target.LogicalIdentity.resize(sizeof(SlotIndex));
 		std::memcpy(Target.LogicalIdentity.data(), &SlotIndex, sizeof(SlotIndex));
 		Target.Kind = Kind;
@@ -235,8 +235,8 @@ namespace Durin
 			}, bContinuous);
 	}
 
-	auto FStaticMeshMaterialSlotDetailsModel::AssignMaterial(FReflectedPropertyView& PropertyView,
-		const FReflectedPropertyViewContext& Context, const FStaticMeshMaterialSlotDetailsEntry& Entry,
+	auto FStaticMeshMaterialSlotDetailsModel::AssignMaterial(Editor::FPropertyView& PropertyView,
+		const Editor::FPropertyViewContext& Context, const FStaticMeshMaterialSlotDetailsEntry& Entry,
 		DMaterialInterface* Material, bool bContinuous) const -> bool
 	{
 		if (!Material || !Component || Entry.SlotIndex >= Component->GetNumMaterials()) return false;
@@ -244,19 +244,19 @@ namespace Durin
 			Entry.bHasOverride ? EPropertyChangeKind::ValueSet : EPropertyChangeKind::ArrayAdd, bContinuous);
 	}
 
-	auto FStaticMeshMaterialSlotDetailsModel::ResetOverride(FReflectedPropertyView& PropertyView,
-		const FReflectedPropertyViewContext& Context, const FStaticMeshMaterialSlotDetailsEntry& Entry) const -> bool
+	auto FStaticMeshMaterialSlotDetailsModel::ResetOverride(Editor::FPropertyView& PropertyView,
+		const Editor::FPropertyViewContext& Context, const FStaticMeshMaterialSlotDetailsEntry& Entry) const -> bool
 	{
 		if (!Entry.bHasOverride) return false;
 		return SubmitOverrideEdit(PropertyView, Context, Entry.SlotIndex, nullptr, EPropertyChangeKind::ArrayRemove);
 	}
 
-	auto FStaticMeshMaterialSlotDetailsModel::ClearOverrides(FReflectedPropertyView& PropertyView,
-		const FReflectedPropertyViewContext& Context) const -> bool
+	auto FStaticMeshMaterialSlotDetailsModel::ClearOverrides(Editor::FPropertyView& PropertyView,
+		const Editor::FPropertyViewContext& Context) const -> bool
 	{
 		FArrayProperty* Property = FindOverridesProperty(Component);
 		if (!Component || !Property || !bHasStoredOverrides) return false;
-		FReflectedPropertyEditTarget Target = FReflectedPropertyEditTarget::ForMember(Component, Property);
+		Editor::FPropertyEditTarget Target = Editor::FPropertyEditTarget::ForMember(Component, Property);
 		Target.Kind = EPropertyChangeKind::ArrayRemove;
 		return PropertyView.SubmitPropertyValueEdit(Context, Target,
 			[](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {

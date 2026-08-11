@@ -7,7 +7,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
-#include "Editor/EditorTransaction.h"
+#include "Editor/Transaction.h"
 #include "Engine/Level.h"
 #include "Misc/Paths.h"
 #include "NativeDObjectTestSupport.h"
@@ -130,7 +130,7 @@ TEST(FGrayboxOpenArenaTests, RejectsInvalidDimensionsAndDegenerateBounds)
 TEST(FStaticMeshLevelAuthoringTests, AppliesOneAtomicBatchAndRestoresSavedRevision)
 {
 	FLevelFixture Fixture;
-	Durin::FEditorTransactionManager Transactions;
+	Durin::Editor::FTransactionManager Transactions;
 	Transactions.EstablishSavedState(*Fixture.Package);
 	Durin::FTransform SecondTransform;
 	SecondTransform.Translation = {3.0, 4.0, 5.0};
@@ -169,7 +169,7 @@ TEST(FStaticMeshLevelAuthoringTests, UpdatesRenamesAndRemovesSupportedActors)
 	ASSERT_NE(UpdateActor, nullptr);
 	ASSERT_NE(RenameActor, nullptr);
 	ASSERT_NE(RemoveActor, nullptr);
-	Durin::FEditorTransactionManager Transactions;
+	Durin::Editor::FTransactionManager Transactions;
 	Transactions.EstablishSavedState(*Fixture.Package);
 
 	Durin::FTransform ChangedTransform;
@@ -205,7 +205,7 @@ TEST(FStaticMeshLevelAuthoringTests, RejectsStalePlansWithoutMutation)
 	ASSERT_TRUE(Plan);
 	Fixture.Level->SpawnActor<Durin::ACameraActor>("ExternalChange");
 
-	Durin::FEditorTransactionManager Transactions;
+	Durin::Editor::FTransactionManager Transactions;
 	const auto Result = Durin::FStaticMeshLevelAuthoringService::Execute(Plan, {Fixture.Level, &Transactions});
 	EXPECT_FALSE(Result);
 	EXPECT_EQ(Result.Diagnostic.Error, Durin::EStaticMeshLevelAuthoringError::StaleTarget);
@@ -218,7 +218,7 @@ TEST(FStaticMeshLevelAuthoringTests, SuppressesNoOpAndRejectsUnsupportedGraphs)
 	FLevelFixture Fixture;
 	auto* Actor = Fixture.Level->SpawnActor<Durin::AStaticMeshActor>("Stable");
 	ASSERT_NE(Actor, nullptr);
-	Durin::FEditorTransactionManager Transactions;
+	Durin::Editor::FTransactionManager Transactions;
 	auto NoOp = Durin::FStaticMeshLevelAuthoringService::CaptureTarget(*Fixture.Level);
 	NoOp.Mutations.push_back({
 		.Kind = Durin::EStaticMeshLevelMutationKind::Update,
@@ -248,7 +248,7 @@ TEST(FStaticMeshLevelAuthoringTests, RejectsReadOnlyAndReplacedDocumentExecution
 	Request.Mutations = {MakeCreate("Deferred")};
 	const auto Plan = Durin::FStaticMeshLevelAuthoringService::Plan(Request);
 	ASSERT_TRUE(Plan);
-	Durin::FEditorTransactionManager Transactions;
+	Durin::Editor::FTransactionManager Transactions;
 
 	const auto ReadOnly = Durin::FStaticMeshLevelAuthoringService::Execute(
 		Plan, {.OpenLevel = Fixture.Level, .Transactions = &Transactions, .bReadOnly = true});
@@ -265,7 +265,7 @@ TEST(FStaticMeshLevelAuthoringTests, RejectsReadOnlyAndReplacedDocumentExecution
 TEST(FStaticMeshLevelAuthoringTests, RedoRefusesNameCollisionWithoutChangingHistory)
 {
 	FLevelFixture Fixture;
-	Durin::FEditorTransactionManager Transactions;
+	Durin::Editor::FTransactionManager Transactions;
 	auto Request = Durin::FStaticMeshLevelAuthoringService::CaptureTarget(*Fixture.Level);
 	Request.Mutations = {MakeCreate("Managed")};
 	const auto Plan = Durin::FStaticMeshLevelAuthoringService::Plan(Request);
@@ -319,7 +319,7 @@ TEST(FStaticMeshLevelAuthoringTests, RollsBackEveryInjectedLiveMutationFailure)
 		ASSERT_NE(RenameActor, nullptr);
 		ASSERT_NE(RemoveActor, nullptr);
 		ASSERT_NE(UpdateActor, nullptr);
-		Durin::FEditorTransactionManager Transactions;
+		Durin::Editor::FTransactionManager Transactions;
 		Transactions.EstablishSavedState(*Fixture.Package);
 		Durin::FTransform ChangedTransform;
 		ChangedTransform.Translation = {9.0, 8.0, 7.0};

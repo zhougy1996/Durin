@@ -1,7 +1,7 @@
 #pragma once
 
 #include "DObject/ObjectPtr.h"
-#include "Editor/ReflectedPropertyView.h"
+#include "Editor/PropertyView.h"
 #include "Panels/DetailsComponentTree.h"
 #include "Panels/LevelEditorPanel.h"
 
@@ -27,12 +27,12 @@ namespace Durin
 	private:
 		auto DrawReflectedProperties(FLevelEditorContext& Context, DObject* Object) -> void;
 		auto FinishActivePropertyEdit(FLevelEditorContext* Context, bool bCancel) -> bool;
-		auto MakePropertyViewContext(FLevelEditorContext& Context) const -> FReflectedPropertyViewContext;
+		auto MakePropertyViewContext(FLevelEditorContext& Context) const -> Editor::FPropertyViewContext;
 
 		std::array<char, 128> PropertySearchText{};
 		TObjectPtr<AActor> PropertyActor;
 		FLevelEditorSessionSettings& SessionSettings;
-		FReflectedPropertyView PropertyView;
+		Editor::FPropertyView PropertyView;
 		FDetailsComponentTree ComponentTree;
 		float ComponentPaneRatio;
 	};

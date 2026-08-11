@@ -1,6 +1,6 @@
 #include "Panels/DetailsPanel.h"
 #include "Panels/DetailsPanelTargeting.h"
-#include "Editor/ReflectedPropertyView.h"
+#include "Editor/PropertyView.h"
 
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -114,7 +114,7 @@ namespace Durin
 
 	auto FDetailsPanel::DrawReflectedProperties(FLevelEditorContext& Context, DObject* Object) -> void
 	{
-		const FReflectedPropertyViewContext ViewContext = MakePropertyViewContext(Context);
+		const Editor::FPropertyViewContext ViewContext = MakePropertyViewContext(Context);
 		if (!PropertyView.HandleOwnerContext(ViewContext, Object))
 		{
 			ImGui::TextDisabled("The active property preview must be restored before changing targets.");
@@ -139,7 +139,7 @@ namespace Durin
 		if (!MonaImGui::PropertyEdit::BeginTable("DetailsPropertyTable")) return;
 
 		const FObjectPropertyViewBuilderResult BuilderResult = Builder.DrawRows(PropertyView, ViewContext);
-		FObjectPropertyViewResult ObjectViewResult;
+		Editor::FObjectPropertyViewResult ObjectViewResult;
 		if (!Builder.IsReplacingDefaultProperties())
 		{
 			ObjectViewResult = PropertyView.EditObject(ViewContext, Object, {
@@ -161,7 +161,7 @@ namespace Durin
 		}
 	}
 
-	auto FDetailsPanel::MakePropertyViewContext(FLevelEditorContext& Context) const -> FReflectedPropertyViewContext
+	auto FDetailsPanel::MakePropertyViewContext(FLevelEditorContext& Context) const -> Editor::FPropertyViewContext
 	{
 		return {
 			.Transactions = GEditor ? &GEditor->GetTransactionManager() : nullptr,
@@ -181,7 +181,7 @@ namespace Durin
 	{
 		if (!Context)
 			return PropertyView.FinishActiveEdit(nullptr, bCancel);
-		const FReflectedPropertyViewContext ViewContext = MakePropertyViewContext(*Context);
+		const Editor::FPropertyViewContext ViewContext = MakePropertyViewContext(*Context);
 		return PropertyView.FinishActiveEdit(&ViewContext, bCancel);
 	}
 } // namespace Durin

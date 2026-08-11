@@ -37,9 +37,9 @@ flag if a defensive runtime failure still occurs.
 
 ## Transactions and saved state
 
-One changed batch creates one `IEditorTransaction`; an unchanged update creates
+One changed batch creates one `Editor::ITransaction`; an unchanged update creates
 none. The transaction reports only the target Level package, so
-`FEditorTransactionManager` advances and restores that package's editor
+`Editor::FTransactionManager` advances and restores that package's editor
 revision relative to its saved checkpoint. Interactive callers never save as
 part of execution.
 

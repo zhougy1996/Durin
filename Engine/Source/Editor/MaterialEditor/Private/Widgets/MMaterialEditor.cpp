@@ -474,7 +474,7 @@ namespace Durin
 					return false;
 				}
 				const bool bAssigned = PropertyView.SubmitPropertyValueEdit(MakePropertyViewContext(),
-					FReflectedPropertyEditTarget::ForMember(Instance, Property), [&](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
+					Editor::FPropertyEditTarget::ForMember(Instance, Property), [&](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
 					static_cast<FObjectProperty*>(ScratchProperty)->SetObjectPropertyValue(ScratchContainer, Parent, ScratchArrayIndex);
 				}, false);
 				if (!bAssigned && OutError.empty()) OutError = "Unable to assign the reflected material parent.";
@@ -829,11 +829,11 @@ namespace Durin
 
 	auto MMaterialEditor::FinishActivePropertyEdit(bool bCancel) -> bool
 	{
-		const FReflectedPropertyViewContext Context = MakePropertyViewContext();
+		const Editor::FPropertyViewContext Context = MakePropertyViewContext();
 		return PropertyView.FinishActiveEdit(&Context, bCancel);
 	}
 
-	auto MMaterialEditor::MakePropertyViewContext() -> FReflectedPropertyViewContext
+	auto MMaterialEditor::MakePropertyViewContext() -> Editor::FPropertyViewContext
 	{
 		return {
 			.Transactions = GEditor ? &GEditor->GetTransactionManager() : nullptr,

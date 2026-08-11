@@ -1,7 +1,7 @@
 #include "Assets/EditorAssetMoveCoordinator.h"
 
 #include "Assets/AssetRelocationTransaction.h"
-#include "Editor/EditorTransaction.h"
+#include "Editor/Transaction.h"
 #include "Engine/Level.h"
 #include "Settings/LevelEditorSessionSettings.h"
 #include "Workspace/LevelEditorContext.h"
@@ -13,7 +13,7 @@ namespace Durin
 		FLevelEditorContext& InContext,
 		FLevelEditorSessionSettings& InSessionSettings,
 		FSceneViewportPanel& InSceneViewportPanel,
-		FEditorTransactionManager& InTransactions
+		Editor::FTransactionManager& InTransactions
 	)
 		: Context(InContext)
 		, SessionSettings(InSessionSettings)

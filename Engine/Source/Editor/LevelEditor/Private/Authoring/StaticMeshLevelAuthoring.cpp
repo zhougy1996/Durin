@@ -4,7 +4,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
-#include "Editor/EditorTransaction.h"
+#include "Editor/Transaction.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
@@ -313,7 +313,7 @@ namespace Durin
 			return true;
 		}
 
-		class FStaticMeshLevelMutationTransaction final : public IEditorTransaction
+		class FStaticMeshLevelMutationTransaction final : public Editor::ITransaction
 		{
 		public:
 			FStaticMeshLevelMutationTransaction(const FStaticMeshLevelMutationPlan& Plan)
@@ -323,7 +323,7 @@ namespace Durin
 			}
 
 			auto GetDescription() const -> std::string_view override { return Description; }
-			auto GetDetails(EEditorTransactionOperation) const -> std::string override
+			auto GetDetails(Editor::ETransactionOperation) const -> std::string override
 			{
 				return LastError.empty()
 					? std::format("Edit {} static mesh actor(s)", Deltas.size())

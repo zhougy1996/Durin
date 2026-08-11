@@ -1,19 +1,19 @@
 #pragma once
 
 #include "AssetSystem.h"
-#include "Editor/EditorTransaction.h"
+#include "Editor/Transaction.h"
 
 namespace Durin
 {
 	// Retains one AssetCore relocation token in shared editor Undo/Redo history.
-	class FAssetRelocationTransaction final : public IEditorTransaction
+	class FAssetRelocationTransaction final : public Editor::ITransaction
 	{
 	public:
 		explicit FAssetRelocationTransaction(
 			Asset::FAssetRelocationBatchToken InToken);
 
 		auto GetDescription() const -> std::string_view override;
-		auto GetDetails(EEditorTransactionOperation Operation) const
+		auto GetDetails(Editor::ETransactionOperation Operation) const
 			-> std::string override;
 		auto MutatesMountedContent() const -> bool override { return true; }
 		auto Undo() -> bool override;

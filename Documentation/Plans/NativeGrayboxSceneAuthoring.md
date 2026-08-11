@@ -175,7 +175,7 @@ command wrapped by DurinDevTool.
 ### Transactions, dirty state, and failure
 
 - One interactive placement or one recipe application produces at most one
-  `IEditorTransaction`. It reports the exact Level package through
+  `Editor::ITransaction`. It reports the exact Level package through
   `GetAffectedPackages()` and participates in the existing saved-revision
   model.
 - Structural transactions retain detached before/after descriptions sufficient
@@ -574,7 +574,7 @@ DevTool scene group instead of creating a second automation path.
 - `Engine/Source/Editor/LevelEditor/Public/GrayboxSceneAuthoring.h`
 - `Engine/Source/Editor/LevelEditor/Private/Authoring/StaticMeshLevelAuthoring.cpp`
 - `Engine/Tests/Native/EngineTests/Private/Editor/StaticMeshLevelAuthoringTests.cpp`
-- `Engine/Source/Editor/DurinEd/Public/Editor/EditorTransaction.h`
+- `Engine/Source/Editor/DurinEd/Public/Editor/Transaction.h`
 - `Engine/Source/Editor/LevelEditor/Private/Workspace/LevelEditorContext.h`
 - `Engine/Source/Editor/LevelEditor/Private/Panels/SceneViewportPanel.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Panels/WorldOutlinerPanel.cpp`

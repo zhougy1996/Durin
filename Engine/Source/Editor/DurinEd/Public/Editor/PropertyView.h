@@ -1,7 +1,7 @@
 #pragma once
 
 #include "DObject/AssetPath.h"
-#include "Editor/ReflectedPropertyEditing.h"
+#include "Editor/PropertyEditing.h"
 
 namespace Durin
 {
@@ -10,8 +10,11 @@ namespace Durin
 	class FMapProperty;
 	class FProperty;
 	class FSoftObjectProperty;
+}
 
-	enum class ESoftObjectPropertyViewState : uint8
+namespace Durin::Editor
+{
+	enum class ESoftObjectViewState : uint8
 	{
 		Null,
 		Unloaded,
@@ -22,9 +25,9 @@ namespace Durin
 	};
 
 	// Describes a soft reference without loading its target.
-	struct FSoftObjectPropertyViewState
+	struct FSoftObjectViewState
 	{
-		ESoftObjectPropertyViewState State = ESoftObjectPropertyViewState::Null;
+		ESoftObjectViewState State = ESoftObjectViewState::Null;
 		FAssetPath Path;
 		FAssetPath ResolvedPath;
 		DObject* LoadedObject = nullptr;
@@ -32,9 +35,9 @@ namespace Durin
 	};
 
 	// Supplies transaction, error, and read-only policy to a property view.
-	struct FReflectedPropertyViewContext
+	struct FPropertyViewContext
 	{
-		FEditorTransactionManager* Transactions = nullptr;
+		FTransactionManager* Transactions = nullptr;
 		std::function<void(std::string)> ReportError;
 		std::function<bool(const FAssetPath&, std::string&)> RevealAsset;
 		std::function<bool(const FAssetPath&, std::string&)> OpenAsset;
@@ -66,17 +69,17 @@ namespace Durin
 
 	// An embeddable immediate-mode property view. It owns only transient widget/edit
 	// state; committed history remains owned by the transaction manager supplied by its host.
-	class FReflectedPropertyView
+	class FPropertyView
 	{
 	public:
 		DURINED_API auto EditObject(
-			const FReflectedPropertyViewContext& Context,
+			const FPropertyViewContext& Context,
 			DObject* Object,
 			const FObjectPropertyViewOptions& Options = {}
 		) -> FObjectPropertyViewResult;
 
 		DURINED_API auto EditProperty(
-			const FReflectedPropertyViewContext& Context,
+			const FPropertyViewContext& Context,
 			DObject* Object,
 			FProperty* Property,
 			uint32 ArrayIndex = 0,
@@ -84,25 +87,25 @@ namespace Durin
 		) -> bool;
 
 		DURINED_API auto SubmitPropertyEdit(
-			const FReflectedPropertyViewContext& Context,
-			const FReflectedPropertyEditTarget& Target,
+			const FPropertyViewContext& Context,
+			const FPropertyEditTarget& Target,
 			const FPropertyValueSnapshot& ProposedValue,
 			bool bContinuous
 		) -> bool;
 		DURINED_API auto SubmitPropertyValueEdit(
-			const FReflectedPropertyViewContext& Context,
-			const FReflectedPropertyEditTarget& Target,
+			const FPropertyViewContext& Context,
+			const FPropertyEditTarget& Target,
 			const std::function<void(FProperty*, void*, uint32)>& AssignValue,
 			bool bContinuous
 		) -> bool;
 
 		// Returns false only when the requested terminal action failed and the
 		// recoverable edit must remain active.
-		DURINED_API auto FinishActiveEdit(const FReflectedPropertyViewContext* Context, bool bCancel) -> bool;
-		DURINED_API auto HandleOwnerContext(const FReflectedPropertyViewContext& Context, DObject* Object) -> bool;
+		DURINED_API auto FinishActiveEdit(const FPropertyViewContext* Context, bool bCancel) -> bool;
+		DURINED_API auto HandleOwnerContext(const FPropertyViewContext& Context, DObject* Object) -> bool;
 		auto IsEditing() const -> bool { return EditSession.IsActive(); }
 		auto IsEditingObject(const DObject* Object) const -> bool { return EditSession.IsActive() && ActiveEditObject == Object; }
-		auto IsEditingTarget(const FReflectedPropertyEditTarget& Target) const -> bool { return EditSession.MatchesTarget(Target); }
+		auto IsEditingTarget(const FPropertyEditTarget& Target) const -> bool { return EditSession.MatchesTarget(Target); }
 
 	private:
 		// Captures widget output without exposing a live reflected target to UI code.
@@ -120,24 +123,24 @@ namespace Durin
 		// Retains detached key/value drafts while a map insertion UI is active.
 		struct FMapInsertDraft
 		{
-			FReflectedPropertyEditTarget Target;
+			FPropertyEditTarget Target;
 			FPropertyValueSnapshot Key;
 			FPropertyValueSnapshot Value;
 			bool bActive = false;
 		};
 
 		auto EditPropertyValue(
-			const FReflectedPropertyViewContext& Context,
+			const FPropertyViewContext& Context,
 			DObject* Object,
 			FProperty* Property,
 			void* Container,
 			uint32 ArrayIndex,
 			const std::string& Label,
 			bool bReadOnly,
-			const FReflectedPropertyEditTarget& EditTarget
+			const FPropertyEditTarget& EditTarget
 		) -> bool;
 		auto EditPropertyWidget(
-			const FReflectedPropertyViewContext& Context,
+			const FPropertyViewContext& Context,
 			FProperty* Property,
 			void* Container,
 			uint32 ArrayIndex,
@@ -146,39 +149,39 @@ namespace Durin
 		) -> FPropertyWidgetEditResult;
 		auto EditStructPropertyWidget(FProperty* Property, void* Container, uint32 ArrayIndex,
 			const std::string& Label, bool bReadOnly) -> FPropertyWidgetEditResult;
-		auto SubmitWidgetEdit(const FReflectedPropertyViewContext& Context,
-			const FReflectedPropertyEditTarget& EditTarget, const FPropertyWidgetEditResult& Edit) -> bool;
-		auto EditArrayProperty(const FReflectedPropertyViewContext& Context, DObject* Object, FArrayProperty* Property,
+		auto SubmitWidgetEdit(const FPropertyViewContext& Context,
+			const FPropertyEditTarget& EditTarget, const FPropertyWidgetEditResult& Edit) -> bool;
+		auto EditArrayProperty(const FPropertyViewContext& Context, DObject* Object, FArrayProperty* Property,
 			void* Container, uint32 ArrayIndex, const std::string& Label, bool bReadOnly,
-			const FReflectedPropertyEditTarget& EditTarget) -> bool;
-		auto EditMapProperty(const FReflectedPropertyViewContext& Context, DObject* Object, FMapProperty* Property,
+			const FPropertyEditTarget& EditTarget) -> bool;
+		auto EditMapProperty(const FPropertyViewContext& Context, DObject* Object, FMapProperty* Property,
 			void* Container, uint32 ArrayIndex, const std::string& Label, bool bReadOnly,
-			const FReflectedPropertyEditTarget& EditTarget) -> bool;
-		auto ReportError(const FReflectedPropertyViewContext& Context, std::string Error) const -> void;
+			const FPropertyEditTarget& EditTarget) -> bool;
+		auto ReportError(const FPropertyViewContext& Context, std::string Error) const -> void;
 
 		std::array<char, 256> AssetSearchText{};
 		FMapInsertDraft MapInsertDraft;
-		FReflectedPropertyEditSession EditSession;
+		FPropertyEditSession EditSession;
 		DObject* OwnerContextObject = nullptr;
 		DObject* ActiveEditOwnerObject = nullptr;
 		DObject* ActiveEditObject = nullptr;
 	};
 
-	DURINED_API auto MakeReflectedPropertyDisplayName(
+	DURINED_API auto MakePropertyDisplayName(
 		std::string_view PropertyName,
 		DurinCodeGen::EPropertyGenFlags Kind,
 		std::string_view ExplicitDisplayName = {}
 	) -> std::string;
-	DURINED_API auto MakeReflectedPropertyLabel(const FProperty& Property, uint32 ArrayIndex = 0) -> std::string;
-	DURINED_API auto InspectSoftObjectProperty(
+	DURINED_API auto MakePropertyLabel(const FProperty& Property, uint32 ArrayIndex = 0) -> std::string;
+	DURINED_API auto InspectSoftObject(
 		FSoftObjectProperty* Property, void* Container, uint32 ArrayIndex = 0
-	) -> FSoftObjectPropertyViewState;
-	DURINED_API auto LoadSoftObjectProperty(
+	) -> FSoftObjectViewState;
+	DURINED_API auto LoadSoftObject(
 		FSoftObjectProperty* Property,
 		void* Container,
 		uint32 ArrayIndex,
 		DObject*& OutObject,
 		std::string* OutError = nullptr
 	) -> bool;
-	DURINED_API auto GetSoftObjectPropertyStateLabel(ESoftObjectPropertyViewState State) -> std::string_view;
+	DURINED_API auto GetSoftObjectStateLabel(ESoftObjectViewState State) -> std::string_view;
 }

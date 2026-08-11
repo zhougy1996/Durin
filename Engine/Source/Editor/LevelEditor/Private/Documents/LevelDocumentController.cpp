@@ -7,7 +7,7 @@
 #include "SceneImport.h"
 #include "AssetSystem.h"
 #include "Editor/EditorEngine.h"
-#include "Editor/EditorTransaction.h"
+#include "Editor/Transaction.h"
 #include "Settings/LevelEditorSessionSettings.h"
 #include "Assets/EditorAssetMoveCoordinator.h"
 #include "Engine/Level.h"
@@ -23,7 +23,7 @@ namespace Durin
 {
 	namespace
 	{
-		auto GetLevelTransactions() -> FEditorTransactionManager*
+		auto GetLevelTransactions() -> Editor::FTransactionManager*
 		{
 			return GEditor ? &GEditor->GetTransactionManager() : nullptr;
 		}

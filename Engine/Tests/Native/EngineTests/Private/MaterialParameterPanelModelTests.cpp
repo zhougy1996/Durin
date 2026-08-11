@@ -20,9 +20,9 @@ namespace
 	}
 
 	auto MakeContext(
-		Durin::FEditorTransactionManager& Transactions,
+		Durin::Editor::FTransactionManager& Transactions,
 		std::string& Error
-	) -> Durin::FReflectedPropertyViewContext
+	) -> Durin::Editor::FPropertyViewContext
 	{
 		return {
 			.Transactions = &Transactions,
@@ -78,8 +78,8 @@ TEST(FMaterialParameterPanelModelTests, IntegerPresentationCanonicalizesSubmitte
 {
 	InitializeDObjectSystem();
 	auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "PanelIntegerMaterial");
-	Durin::FEditorTransactionManager Transactions;
-	Durin::FReflectedPropertyView PropertyView;
+	Durin::Editor::FTransactionManager Transactions;
+	Durin::Editor::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
 	const Durin::FMaterialParameterPanelModel Model(Material);
@@ -111,8 +111,8 @@ TEST(FMaterialParameterPanelModelTests, EnablingOverrideCopiesTheParameterType)
 	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PanelTypedOverrideInstance");
 	ASSERT_TRUE(Instance->SetParent(Base));
 
-	Durin::FEditorTransactionManager Transactions;
-	Durin::FReflectedPropertyView PropertyView;
+	Durin::Editor::FTransactionManager Transactions;
+	Durin::Editor::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
 	const Durin::FMaterialParameterPanelModel Model(Instance);
@@ -142,8 +142,8 @@ TEST(FMaterialParameterPanelModelTests, GuidRootEditsSurviveIndexChangesAndCoale
 	ASSERT_TRUE(Instance->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.3, 0.4)));
 
-	Durin::FEditorTransactionManager Transactions;
-	Durin::FReflectedPropertyView PropertyView;
+	Durin::Editor::FTransactionManager Transactions;
+	Durin::Editor::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
 
@@ -204,8 +204,8 @@ TEST(FMaterialParameterPanelModelTests, ResetAndOrphanRemovalAreTransactional)
 	ASSERT_TRUE(Instance->SetParent(Base));
 	ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::MaterialParameters::OpacityName(), 0.3f));
 
-	Durin::FEditorTransactionManager Transactions;
-	Durin::FReflectedPropertyView PropertyView;
+	Durin::Editor::FTransactionManager Transactions;
+	Durin::Editor::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
 	Durin::FMaterialParameterPanelModel OverrideModel(Instance);
@@ -247,8 +247,8 @@ TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoH
 	auto* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "PanelValueTexture");
 	ASSERT_TRUE(Instance->SetParent(Base));
 
-	Durin::FEditorTransactionManager Transactions;
-	Durin::FReflectedPropertyView PropertyView;
+	Durin::Editor::FTransactionManager Transactions;
+	Durin::Editor::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
 
@@ -303,8 +303,8 @@ TEST(FMaterialParameterPanelModelTests, RootSnapshotContinuousSessionsRemainPara
 {
 	InitializeDObjectSystem();
 	auto* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "PanelIdentityBase");
-	Durin::FEditorTransactionManager Transactions;
-	Durin::FReflectedPropertyView PropertyView;
+	Durin::Editor::FTransactionManager Transactions;
+	Durin::Editor::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
 	Durin::FMaterialParameterPanelModel Model(Base);

@@ -17,8 +17,8 @@
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
-#include "Editor/ReflectedPropertyEditing.h"
-#include "Editor/ReflectedPropertyView.h"
+#include "Editor/PropertyEditing.h"
+#include "Editor/PropertyView.h"
 #include "DObject/Class.h"
 #include "StaticMeshMaterialSlotDetails.h"
 #include "Workspace/LevelEditorContext.h"
@@ -440,7 +440,7 @@ namespace
 	}
 
 	auto MakeMaterialValueTarget(Durin::DMaterial* Material, const Durin::FGuid& Id, Durin::FName FieldName)
-		-> std::optional<Durin::FReflectedPropertyEditTarget>
+		-> std::optional<Durin::Editor::FPropertyEditTarget>
 	{
 		Durin::FProperty* DefinitionsProperty = Material->GetClass()->FindPropertyByName("ParameterDefinitions");
 		if (!DefinitionsProperty || DefinitionsProperty->GetKind() != Durin::DurinCodeGen::EPropertyGenFlags::Array) return std::nullopt;
@@ -459,7 +459,7 @@ namespace
 		const Durin::uint64 Index = static_cast<Durin::uint64>(It - DefinitionsView.begin());
 		void* Definition = Definitions->GetMutableElementPtr(Material, Index);
 		void* Value = ValueProperty->GetValuePtr(Definition);
-		return Durin::FReflectedPropertyEditTarget::ForMember(Material, Definitions)
+		return Durin::Editor::FPropertyEditTarget::ForMember(Material, Definitions)
 			.ForArrayElement(Definitions->GetInner(), Index)
 			.ForStructMember(ValueProperty)
 			.ForStructMember(Field);

@@ -2,10 +2,14 @@
 
 #include "AssetSystem.h"
 
+namespace Durin::Editor
+{
+	class FTransactionManager;
+}
+
 namespace Durin
 {
 	class FLevelEditorSessionSettings;
-	class FEditorTransactionManager;
 	struct FLevelEditorContext;
 	class FSceneViewportPanel;
 
@@ -25,7 +29,7 @@ namespace Durin
 			FLevelEditorContext& InContext,
 			FLevelEditorSessionSettings& InSessionSettings,
 			FSceneViewportPanel& InSceneViewportPanel,
-			FEditorTransactionManager& InTransactions
+			Editor::FTransactionManager& InTransactions
 		);
 		~FEditorAssetMoveCoordinator();
 
@@ -38,7 +42,7 @@ namespace Durin
 		FLevelEditorContext& Context;
 		FLevelEditorSessionSettings& SessionSettings;
 		FSceneViewportPanel& SceneViewportPanel;
-		FEditorTransactionManager& Transactions;
+		Editor::FTransactionManager& Transactions;
 		Asset::FAssetMoveObserverHandle ObserverHandle = 0;
 	};
 } // namespace Durin

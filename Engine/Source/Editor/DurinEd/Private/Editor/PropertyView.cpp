@@ -1,4 +1,4 @@
-#include "Editor/ReflectedPropertyView.h"
+#include "Editor/PropertyView.h"
 #include "Editor/PropertyValueDraft.h"
 
 #include "AssetSystem.h"
@@ -15,7 +15,7 @@
 #include "MonaImGui.h"
 #include "MonaImGuiPropertyTable.h"
 
-namespace Durin
+namespace Durin::Editor
 {
 	namespace
 	{
@@ -164,7 +164,7 @@ namespace Durin
 		}
 
 		template<typename TWriteProposed>
-		auto CaptureProposedPropertyValue(const FReflectedPropertyEditTarget& Target,
+		auto CaptureProposedPropertyValue(const FPropertyEditTarget& Target,
 			TWriteProposed&& WriteProposed, FPropertyValueSnapshot& OutSnapshot, std::string* OutError) -> bool
 		{
 			FPropertyValueDraft Draft(Target, OutError);
@@ -193,28 +193,12 @@ namespace Durin
 			return Result;
 		}
 
-		auto MatchesStableTarget(const FReflectedPropertyEditTarget& Left, const FReflectedPropertyEditTarget& Right) -> bool
-		{
-			if (Left.Object != Right.Object || Left.MemberProperty != Right.MemberProperty
-				|| Left.LeafProperty != Right.LeafProperty || Left.SnapshotProperty != Right.SnapshotProperty
-				|| Left.SnapshotArrayIndex != Right.SnapshotArrayIndex
-				|| Left.LogicalIdentity != Right.LogicalIdentity || Left.Path.size() != Right.Path.size()) return false;
-			for (size_t Index = 0; Index < Left.Path.size(); ++Index)
-			{
-				const FReflectedPropertyEditPathSegment& A = Left.Path[Index];
-				const FReflectedPropertyEditPathSegment& B = Right.Path[Index];
-				if (A.Property != B.Property || A.Selector != B.Selector || A.Index != B.Index
-					|| A.MapKeyData != B.MapKeyData || A.MapKey != B.MapKey) return false;
-			}
-			return true;
-		}
-
 		auto MakePropertySearchText(const FProperty& Property, uint32 ArrayIndex) -> std::string
 		{
 			const std::string SourceName = Property.GetArrayDim() > 1
 				? std::format("{}[{}]", Property.NamePrivate.ToString(), ArrayIndex)
 				: Property.NamePrivate.ToString();
-			const std::string DisplayName = MakeReflectedPropertyLabel(Property, ArrayIndex);
+			const std::string DisplayName = MakePropertyLabel(Property, ArrayIndex);
 			if (Property.GetKind() == DurinCodeGen::EPropertyGenFlags::Struct
 				&& static_cast<const FStructProperty&>(Property).GetStruct() == Z_Construct_DStruct_Durin_FTransform())
 			{
@@ -224,37 +208,37 @@ namespace Durin
 		}
 	}
 
-	auto GetSoftObjectPropertyStateLabel(ESoftObjectPropertyViewState State) -> std::string_view
+	auto GetSoftObjectStateLabel(ESoftObjectViewState State) -> std::string_view
 	{
 		switch (State)
 		{
-		case ESoftObjectPropertyViewState::Null: return "Null";
-		case ESoftObjectPropertyViewState::Unloaded: return "Unloaded";
-		case ESoftObjectPropertyViewState::Loaded: return "Loaded";
-		case ESoftObjectPropertyViewState::Redirected: return "Redirected";
-		case ESoftObjectPropertyViewState::Missing: return "Missing";
-		case ESoftObjectPropertyViewState::TypeMismatch: return "Type mismatch";
+		case ESoftObjectViewState::Null: return "Null";
+		case ESoftObjectViewState::Unloaded: return "Unloaded";
+		case ESoftObjectViewState::Loaded: return "Loaded";
+		case ESoftObjectViewState::Redirected: return "Redirected";
+		case ESoftObjectViewState::Missing: return "Missing";
+		case ESoftObjectViewState::TypeMismatch: return "Type mismatch";
 		default: return "Unknown";
 		}
 	}
 
-	auto InspectSoftObjectProperty(
+	auto InspectSoftObject(
 		FSoftObjectProperty* Property,
 		void* Container,
 		uint32 ArrayIndex
-	) -> FSoftObjectPropertyViewState
+	) -> FSoftObjectViewState
 	{
-		FSoftObjectPropertyViewState ViewState;
+		FSoftObjectViewState ViewState;
 		if (!Property || !Container || ArrayIndex >= Property->GetArrayDim())
 		{
-			ViewState.State = ESoftObjectPropertyViewState::TypeMismatch;
+			ViewState.State = ESoftObjectViewState::TypeMismatch;
 			ViewState.Message = "Soft object property metadata or storage is unavailable.";
 			return ViewState;
 		}
 		FSoftObjectPtr* Reference = Property->GetSoftObjectPtr(Container, ArrayIndex);
 		if (!Reference)
 		{
-			ViewState.State = ESoftObjectPropertyViewState::TypeMismatch;
+			ViewState.State = ESoftObjectViewState::TypeMismatch;
 			ViewState.Message = "Soft object property has no typed value accessor.";
 			return ViewState;
 		}
@@ -267,8 +251,8 @@ namespace Durin
 		{
 			ViewState.State = Resolve.Result.Error == Asset::EAssetError::TypeMismatch
 				|| Resolve.Result.Error == Asset::EAssetError::UnknownClass
-				? ESoftObjectPropertyViewState::TypeMismatch
-				: ESoftObjectPropertyViewState::Missing;
+				? ESoftObjectViewState::TypeMismatch
+				: ESoftObjectViewState::Missing;
 			ViewState.Message = Resolve.Result.Message;
 			return ViewState;
 		}
@@ -276,7 +260,7 @@ namespace Durin
 		ViewState.LoadedObject = Resolve.Object;
 		if (Resolve.bRedirected)
 		{
-			ViewState.State = ESoftObjectPropertyViewState::Redirected;
+			ViewState.State = ESoftObjectViewState::Redirected;
 			ViewState.Message = std::format(
 				"Asset {} resolves to {}.",
 				ViewState.Path.ToString(), ViewState.ResolvedPath.ToString());
@@ -284,15 +268,15 @@ namespace Durin
 		}
 		if (Resolve.State == Asset::ESoftObjectResolveState::Loaded)
 		{
-			ViewState.State = ESoftObjectPropertyViewState::Loaded;
+			ViewState.State = ESoftObjectViewState::Loaded;
 			ViewState.LoadedObject = Resolve.Object;
 			return ViewState;
 		}
-		ViewState.State = ESoftObjectPropertyViewState::Unloaded;
+		ViewState.State = ESoftObjectViewState::Unloaded;
 		return ViewState;
 	}
 
-	auto LoadSoftObjectProperty(
+	auto LoadSoftObject(
 		FSoftObjectProperty* Property,
 		void* Container,
 		uint32 ArrayIndex,
@@ -323,8 +307,8 @@ namespace Durin
 		return OutObject != nullptr;
 	}
 
-	auto FReflectedPropertyView::EditObject(
-		const FReflectedPropertyViewContext& Context,
+	auto FPropertyView::EditObject(
+		const FPropertyViewContext& Context,
 		DObject* Object,
 		const FObjectPropertyViewOptions& Options
 	) -> FObjectPropertyViewResult
@@ -375,8 +359,8 @@ namespace Durin
 		return Result;
 	}
 
-	auto FReflectedPropertyView::EditProperty(
-		const FReflectedPropertyViewContext& Context,
+	auto FPropertyView::EditProperty(
+		const FPropertyViewContext& Context,
 		DObject* Object,
 		FProperty* Property,
 		uint32 ArrayIndex,
@@ -385,25 +369,25 @@ namespace Durin
 	{
 		if (!Object || !Property || ArrayIndex >= Property->GetArrayDim()) return false;
 		std::string Label = Options.Label;
-		if (Label.empty()) Label = MakeReflectedPropertyLabel(*Property, ArrayIndex);
+		if (Label.empty()) Label = MakePropertyLabel(*Property, ArrayIndex);
 		const bool bReadOnly = Context.bReadOnly || Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly);
 		ImGui::PushID(Property);
 		ImGui::PushID(static_cast<int>(ArrayIndex));
-		const bool bChanged = EditPropertyValue(Context, Object, Property, Object, ArrayIndex, Label, bReadOnly, FReflectedPropertyEditTarget::ForMember(Object, Property, ArrayIndex));
+		const bool bChanged = EditPropertyValue(Context, Object, Property, Object, ArrayIndex, Label, bReadOnly, FPropertyEditTarget::ForMember(Object, Property, ArrayIndex));
 		ImGui::PopID();
 		ImGui::PopID();
 		return bChanged;
 	}
 
-	auto FReflectedPropertyView::EditPropertyValue(
-		const FReflectedPropertyViewContext& Context,
+	auto FPropertyView::EditPropertyValue(
+		const FPropertyViewContext& Context,
 		DObject* Object,
 		FProperty* Property,
 		void* Container,
 		uint32 ArrayIndex,
 		const std::string& Label,
 		bool bReadOnly,
-		const FReflectedPropertyEditTarget& EditTarget
+		const FPropertyEditTarget& EditTarget
 	) -> bool
 	{
 		bReadOnly |= Property->HasAnyPropertyFlags(EPropertyFlags::ReadOnly);
@@ -418,7 +402,7 @@ namespace Durin
 		}
 	}
 
-	auto FReflectedPropertyView::EditStructPropertyWidget(
+	auto FPropertyView::EditStructPropertyWidget(
 		FProperty* Property,
 		void* Container,
 		uint32 ArrayIndex,
@@ -489,8 +473,8 @@ namespace Durin
 		return Result;
 	}
 
-	auto FReflectedPropertyView::EditPropertyWidget(
-		const FReflectedPropertyViewContext& Context,
+	auto FPropertyView::EditPropertyWidget(
+		const FPropertyViewContext& Context,
 		FProperty* Property,
 		void* Container,
 		uint32 ArrayIndex,
@@ -659,11 +643,11 @@ namespace Durin
 		{
 			auto* SoftProperty = static_cast<FSoftObjectProperty*>(Property);
 			FSoftObjectPtr* CurrentReference = SoftProperty->GetSoftObjectPtr(Container, ArrayIndex);
-			const FSoftObjectPropertyViewState ViewState = InspectSoftObjectProperty(SoftProperty, Container, ArrayIndex);
+			const FSoftObjectViewState ViewState = InspectSoftObject(SoftProperty, Container, ArrayIndex);
 			FSoftObjectPath SelectedPath = CurrentReference ? CurrentReference->GetSoftObjectPath() : FSoftObjectPath();
-			const std::string_view StateLabel = GetSoftObjectPropertyStateLabel(ViewState.State);
-			const bool bCanLoad = ViewState.State == ESoftObjectPropertyViewState::Unloaded
-				|| (ViewState.State == ESoftObjectPropertyViewState::Redirected
+			const std::string_view StateLabel = GetSoftObjectStateLabel(ViewState.State);
+			const bool bCanLoad = ViewState.State == ESoftObjectViewState::Unloaded
+				|| (ViewState.State == ESoftObjectViewState::Redirected
 					&& !ViewState.LoadedObject);
 			const bool bCanReveal = ViewState.Path.IsValid()
 				&& Asset::GetAssetRegistry().FindAssetExact(ViewState.Path) && Context.RevealAsset;
@@ -675,7 +659,7 @@ namespace Durin
 				.bEnabled = bCanLoad,
 				.Execute = [SoftProperty, Container, ArrayIndex](std::string& Error) {
 					DObject* LoadedObject = nullptr;
-					if (!LoadSoftObjectProperty(SoftProperty, Container, ArrayIndex, LoadedObject, &Error)) return false;
+					if (!LoadSoftObject(SoftProperty, Container, ArrayIndex, LoadedObject, &Error)) return false;
 					return LoadedObject != nullptr;
 				},
 			};
@@ -734,9 +718,9 @@ namespace Durin
 		return Result;
 	}
 
-	auto FReflectedPropertyView::SubmitWidgetEdit(
-		const FReflectedPropertyViewContext& Context,
-		const FReflectedPropertyEditTarget& EditTarget,
+	auto FPropertyView::SubmitWidgetEdit(
+		const FPropertyViewContext& Context,
+		const FPropertyEditTarget& EditTarget,
 		const FPropertyWidgetEditResult& Edit
 	) -> bool
 	{
@@ -763,15 +747,15 @@ namespace Durin
 		return bChanged;
 	}
 
-	auto FReflectedPropertyView::EditArrayProperty(
-		const FReflectedPropertyViewContext& Context,
+	auto FPropertyView::EditArrayProperty(
+		const FPropertyViewContext& Context,
 		DObject* Object,
 		FArrayProperty* Property,
 		void* Container,
 		uint32 ArrayIndex,
 		const std::string& Label,
 		bool bReadOnly,
-		const FReflectedPropertyEditTarget& EditTarget
+		const FPropertyEditTarget& EditTarget
 	) -> bool
 	{
 		const std::string TypeTooltip = ReflectedPropertyTypeTooltip(*Property);
@@ -800,7 +784,7 @@ namespace Durin
 		if (bReadOnly) ImGui::BeginDisabled();
 		bool bChanged = false;
 		auto SubmitStructure = [&](EPropertyChangeKind Kind, auto&& Mutation) -> bool {
-			FReflectedPropertyEditTarget StructuralTarget = EditTarget;
+			FPropertyEditTarget StructuralTarget = EditTarget;
 			StructuralTarget.Kind = Kind;
 			FPropertyValueSnapshot Proposed;
 			std::string Error;
@@ -849,7 +833,7 @@ namespace Durin
 				void* Element = Property->GetMutableElementPtr(Container, Index, ArrayIndex);
 				if (!Element) continue;
 				ImGui::PushID(static_cast<int>(Index));
-				const FReflectedPropertyEditTarget ElementTarget = EditTarget.ForArrayElement(Property->GetInner(), Index);
+				const FPropertyEditTarget ElementTarget = EditTarget.ForArrayElement(Property->GetInner(), Index);
 				const bool bElementChanged = EditPropertyValue(Context, Object, Property->GetInner(), Element, 0, std::format("[{}]", Index), bReadOnly, ElementTarget);
 				bChanged |= bElementChanged;
 				ImGui::PopID();
@@ -860,15 +844,15 @@ namespace Durin
 		return bChanged;
 	}
 
-	auto FReflectedPropertyView::EditMapProperty(
-		const FReflectedPropertyViewContext& Context,
+	auto FPropertyView::EditMapProperty(
+		const FPropertyViewContext& Context,
 		DObject* Object,
 		FMapProperty* Property,
 		void* Container,
 		uint32 ArrayIndex,
 		const std::string& Label,
 		bool bReadOnly,
-		const FReflectedPropertyEditTarget& EditTarget
+		const FPropertyEditTarget& EditTarget
 	) -> bool
 	{
 		const std::string TypeTooltip = ReflectedPropertyTypeTooltip(*Property);
@@ -896,7 +880,7 @@ namespace Durin
 		ImGui::TableSetColumnIndex(1);
 		if (bReadOnly) ImGui::BeginDisabled();
 		bool bChanged = false;
-		auto SubmitStructure = [&](FReflectedPropertyEditTarget StructuralTarget, EPropertyChangeKind Kind, auto&& Mutation, bool bContinuous = false) -> bool {
+		auto SubmitStructure = [&](FPropertyEditTarget StructuralTarget, EPropertyChangeKind Kind, auto&& Mutation, bool bContinuous = false) -> bool {
 			StructuralTarget.Kind = Kind;
 			FPropertyValueSnapshot Proposed;
 			std::string Error;
@@ -949,7 +933,7 @@ namespace Durin
 
 		if (bOpen)
 		{
-			if (MapInsertDraft.bActive && MatchesStableTarget(MapInsertDraft.Target, EditTarget))
+			if (MapInsertDraft.bActive && MapInsertDraft.Target.IsSameStableTarget(EditTarget))
 			{
 				ImGui::PushID("MapInsertDraft");
 				FReflectedValueStorage DraftKeyStorage;
@@ -1004,7 +988,7 @@ namespace Durin
 						}
 						else
 						{
-							FReflectedPropertyEditTarget InsertTarget = EditTarget;
+							FPropertyEditTarget InsertTarget = EditTarget;
 							InsertTarget.Path.back().Selector = EPropertyPathSelector::MapKey;
 							InsertTarget.Path.back().MapKeyData = CaptureMapPathKey(Property->GetKeyProp(), DraftKey);
 							InsertTarget.Path.back().MapKey = MapInsertDraft.Key;
@@ -1051,13 +1035,13 @@ namespace Durin
 				}
 				const std::vector<uint8> SerializedKey = CaptureMapPathKey(Property->GetKeyProp(), Key);
 
-				FReflectedPropertyEditTarget KeyTarget = EditTarget.ForMapEntry(
+				FPropertyEditTarget KeyTarget = EditTarget.ForMapEntry(
 					Property->GetKeyProp(), KeySnapshot, SerializedKey);
 				KeyTarget.Kind = EPropertyChangeKind::MapKeyRename;
 				const FPropertyWidgetEditResult KeyEdit = EditPropertyWidget(
 					Context, Property->GetKeyProp(), const_cast<void*>(Key), 0, std::format("[{}] Key", Index), bReadOnly);
 				const bool bKeyChanged = KeyEdit.bChanged;
-				const FReflectedPropertyEditTarget ValueTarget = EditTarget.ForMapEntry(Property->GetValueProp(), KeySnapshot, SerializedKey);
+				const FPropertyEditTarget ValueTarget = EditTarget.ForMapEntry(Property->GetValueProp(), KeySnapshot, SerializedKey);
 				const bool bValueChanged = EditPropertyValue(Context, Object, Property->GetValueProp(), Value, 0, std::format("[{}] Value", Index), bReadOnly, ValueTarget);
 				bChanged |= bValueChanged;
 				if (bValueChanged)
@@ -1071,7 +1055,7 @@ namespace Durin
 				MonaImGui::PropertyEdit::EndRow(bReadOnly);
 				if (bRemove)
 				{
-					FReflectedPropertyEditTarget RemoveTarget = EditTarget;
+					FPropertyEditTarget RemoveTarget = EditTarget;
 					RemoveTarget.Path.back().Selector = EPropertyPathSelector::MapKey;
 					RemoveTarget.Path.back().MapKeyData = SerializedKey;
 					RemoveTarget.Path.back().MapKey = KeySnapshot;
@@ -1140,9 +1124,9 @@ namespace Durin
 		return bChanged;
 	}
 
-	auto FReflectedPropertyView::SubmitPropertyEdit(
-		const FReflectedPropertyViewContext& Context,
-		const FReflectedPropertyEditTarget& Target,
+	auto FPropertyView::SubmitPropertyEdit(
+		const FPropertyViewContext& Context,
+		const FPropertyEditTarget& Target,
 		const FPropertyValueSnapshot& ProposedValue,
 		bool bContinuous
 	) -> bool
@@ -1162,21 +1146,21 @@ namespace Durin
 			ActiveEditOwnerObject = OwnerContextObject ? OwnerContextObject : Target.Object;
 		}
 
-		const EReflectedPropertyEditResult Result = EditSession.Apply(ProposedValue, &Error);
-		if (Result == EReflectedPropertyEditResult::Failed)
+		const EPropertyEditResult Result = EditSession.Apply(ProposedValue, &Error);
+		if (Result == EPropertyEditResult::Failed)
 		{
 			ReportError(Context, std::move(Error));
 			FinishActiveEdit(&Context, true);
 			return false;
 		}
-		if (Result == EReflectedPropertyEditResult::Pending) return true;
+		if (Result == EPropertyEditResult::Pending) return true;
 		if (!bContinuous) FinishActiveEdit(&Context, false);
-		return Result == EReflectedPropertyEditResult::Changed;
+		return Result == EPropertyEditResult::Changed;
 	}
 
-	auto FReflectedPropertyView::SubmitPropertyValueEdit(
-		const FReflectedPropertyViewContext& Context,
-		const FReflectedPropertyEditTarget& Target,
+	auto FPropertyView::SubmitPropertyValueEdit(
+		const FPropertyViewContext& Context,
+		const FPropertyEditTarget& Target,
 		const std::function<void(FProperty*, void*, uint32)>& AssignValue,
 		bool bContinuous
 	) -> bool
@@ -1200,22 +1184,22 @@ namespace Durin
 		return bSubmitted;
 	}
 
-	auto FReflectedPropertyView::FinishActiveEdit(const FReflectedPropertyViewContext* Context, bool bCancel) -> bool
+	auto FPropertyView::FinishActiveEdit(const FPropertyViewContext* Context, bool bCancel) -> bool
 	{
 		if (!EditSession.IsActive()) return true;
 		std::string Error;
-		const EReflectedPropertyEditResult Result = bCancel ? EditSession.Cancel(&Error) : EditSession.Commit(&Error);
-		if (Result == EReflectedPropertyEditResult::Failed && Context) ReportError(*Context, std::move(Error));
+		const EPropertyEditResult Result = bCancel ? EditSession.Cancel(&Error) : EditSession.Commit(&Error);
+		if (Result == EPropertyEditResult::Failed && Context) ReportError(*Context, std::move(Error));
 		if (!EditSession.IsActive())
 		{
 			ActiveEditObject = nullptr;
 			ActiveEditOwnerObject = nullptr;
 		}
-		return Result != EReflectedPropertyEditResult::Failed;
+		return Result != EPropertyEditResult::Failed;
 	}
 
 
-	auto FReflectedPropertyView::HandleOwnerContext(const FReflectedPropertyViewContext& Context, DObject* Object) -> bool
+	auto FPropertyView::HandleOwnerContext(const FPropertyViewContext& Context, DObject* Object) -> bool
 	{
 		if (EditSession.IsActive() && (ActiveEditOwnerObject != Object || Context.bReadOnly))
 		{
@@ -1226,12 +1210,12 @@ namespace Durin
 		return true;
 	}
 
-	auto FReflectedPropertyView::ReportError(const FReflectedPropertyViewContext& Context, std::string Error) const -> void
+	auto FPropertyView::ReportError(const FPropertyViewContext& Context, std::string Error) const -> void
 	{
 		if (Context.ReportError) Context.ReportError(std::move(Error));
 	}
 
-	auto MakeReflectedPropertyDisplayName(std::string_view PropertyName, DurinCodeGen::EPropertyGenFlags Kind,
+	auto MakePropertyDisplayName(std::string_view PropertyName, DurinCodeGen::EPropertyGenFlags Kind,
 		std::string_view ExplicitDisplayName) -> std::string
 	{
 		if (!ExplicitDisplayName.empty()) return std::string(ExplicitDisplayName);
@@ -1244,10 +1228,10 @@ namespace Durin
 		return StringUtils::HumanizeName(PropertyName);
 	}
 
-	auto MakeReflectedPropertyLabel(const FProperty& Property, uint32 ArrayIndex) -> std::string
+	auto MakePropertyLabel(const FProperty& Property, uint32 ArrayIndex) -> std::string
 	{
 		static const FName DisplayNameMetaDataKey("DisplayName");
-		std::string Label = MakeReflectedPropertyDisplayName(
+		std::string Label = MakePropertyDisplayName(
 			Property.NamePrivate.ToString(),
 			Property.GetKind(),
 			Property.GetMetaData(DisplayNameMetaDataKey)

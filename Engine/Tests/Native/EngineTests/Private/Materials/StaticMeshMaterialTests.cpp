@@ -343,10 +343,10 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	const auto RedEntry = std::ranges::find(
 		Model.GetCurrentEntries(), RedIndex, &Durin::FStaticMeshMaterialSlotDetailsEntry::SlotIndex);
 	ASSERT_NE(RedEntry, Model.GetCurrentEntries().end());
-	Durin::FEditorTransactionManager Transactions;
-	Durin::FReflectedPropertyView PropertyView;
+	Durin::Editor::FTransactionManager Transactions;
+	Durin::Editor::FPropertyView PropertyView;
 	std::string EditError;
-	const Durin::FReflectedPropertyViewContext Context{
+	const Durin::Editor::FPropertyViewContext Context{
 		.Transactions = &Transactions,
 		.ReportError = [&EditError](std::string Error) { EditError = std::move(Error); }};
 	ASSERT_TRUE(Model.AssignMaterial(PropertyView, Context, *RedEntry, Material));

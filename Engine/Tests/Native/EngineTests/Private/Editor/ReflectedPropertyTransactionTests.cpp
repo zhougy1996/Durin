@@ -6,7 +6,7 @@ TEST(FReflectedPropertyEditSessionTests, KeepsTargetAliveForTheSession)
 	auto Property = MakeValueProperty();
 	FValueContainer Container{4};
 	Durin::DObject* Object = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("PropertyEditTarget"));
-	Durin::FReflectedPropertyEditTarget Target;
+	Durin::Editor::FPropertyEditTarget Target;
 	Target.Object = Object;
 	Target.MemberProperty = Property.get();
 	Target.LeafProperty = Property.get();
@@ -14,11 +14,11 @@ TEST(FReflectedPropertyEditSessionTests, KeepsTargetAliveForTheSession)
 	Target.SnapshotContainer = &Container;
 	Target.Path.push_back({Property.get()});
 
-	Durin::FReflectedPropertyEditSession Session;
+	Durin::Editor::FPropertyEditSession Session;
 	ASSERT_TRUE(Session.Begin(Target, "Rooted Edit"));
 	Durin::CollectGarbage();
 	ASSERT_TRUE(Durin::GDObjectArray.Contains(Object));
-	ASSERT_EQ(Session.Cancel(), Durin::EReflectedPropertyEditResult::NoChange);
+	ASSERT_EQ(Session.Cancel(), Durin::Editor::EPropertyEditResult::NoChange);
 	Durin::CollectGarbage();
 	EXPECT_FALSE(Durin::GDObjectArray.Contains(Object));
 }
@@ -28,13 +28,13 @@ TEST(FReflectedPropertyEditSessionTests, ContinuousCommitCreatesOneUndoRedoTrans
 	auto Property = MakeValueProperty();
 	FValueContainer Container{7};
 	DEditObserver Object;
-	Durin::FEditorTransactionManager Transactions;
-	Durin::FReflectedPropertyEditSession Session;
+	Durin::Editor::FTransactionManager Transactions;
+	Durin::Editor::FPropertyEditSession Session;
 	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value", nullptr, &Transactions));
 
-	EXPECT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 11)), Durin::EReflectedPropertyEditResult::Changed);
-	EXPECT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 19)), Durin::EReflectedPropertyEditResult::Changed);
-	EXPECT_EQ(Session.Commit(), Durin::EReflectedPropertyEditResult::Changed);
+	EXPECT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 11)), Durin::Editor::EPropertyEditResult::Changed);
+	EXPECT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 19)), Durin::Editor::EPropertyEditResult::Changed);
+	EXPECT_EQ(Session.Commit(), Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_TRUE(Transactions.CanUndo());
 	EXPECT_FALSE(Transactions.CanRedo());
 	EXPECT_EQ(Transactions.GetUndoDescription(), "Edit Value");
@@ -56,10 +56,10 @@ TEST(FReflectedPropertyEditSessionTests, ContinuousCommitCreatesOneUndoRedoTrans
 	EXPECT_FALSE(Transactions.CanRedo());
 	ASSERT_EQ(Object.Changes.size(), 5u);
 	EXPECT_EQ(Object.Changes[4].Origin, Durin::EPropertyChangeOrigin::Redo);
-	const std::vector<Durin::FEditorTransactionEvent> Events = Transactions.ConsumeEvents();
+	const std::vector<Durin::Editor::FTransactionEvent> Events = Transactions.ConsumeEvents();
 	ASSERT_EQ(Events.size(), 2u);
-	EXPECT_EQ(Events[0].Type, Durin::EEditorTransactionEventType::Undone);
-	EXPECT_EQ(Events[1].Type, Durin::EEditorTransactionEventType::Redone);
+	EXPECT_EQ(Events[0].Type, Durin::Editor::ETransactionEventType::Undone);
+	EXPECT_EQ(Events[1].Type, Durin::Editor::ETransactionEventType::Redone);
 }
 
 TEST(FReflectedPropertyEditSessionTests, SynchronizesPackageDirtyStateAtSavedRevision)
@@ -68,20 +68,20 @@ TEST(FReflectedPropertyEditSessionTests, SynchronizesPackageDirtyStateAtSavedRev
 	FValueContainer Container{7};
 	Durin::DPackage* Package = MakeReflectedRevisionTestPackage();
 	Durin::DObject* Object = Durin::NewObject<Durin::DObject>(Package, Durin::FName("PropertyEditTarget"));
-	Durin::FReflectedPropertyEditTarget Target;
+	Durin::Editor::FPropertyEditTarget Target;
 	Target.Object = Object;
 	Target.MemberProperty = Property.get();
 	Target.LeafProperty = Property.get();
 	Target.SnapshotProperty = Property.get();
 	Target.SnapshotContainer = &Container;
 	Target.Path.push_back({Property.get()});
-	Durin::FEditorTransactionManager Transactions;
+	Durin::Editor::FTransactionManager Transactions;
 	Transactions.EstablishSavedState(*Package);
 
-	Durin::FReflectedPropertyEditSession Session;
+	Durin::Editor::FPropertyEditSession Session;
 	ASSERT_TRUE(Session.Begin(Target, "Edit Saved Value", nullptr, &Transactions));
-	ASSERT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 19)), Durin::EReflectedPropertyEditResult::Changed);
-	ASSERT_EQ(Session.Commit(), Durin::EReflectedPropertyEditResult::Changed);
+	ASSERT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 19)), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_EQ(Session.Commit(), Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_TRUE(Package->IsDirty());
 	ASSERT_TRUE(Transactions.Undo());
 	EXPECT_EQ(Container.Value, 7);
@@ -102,16 +102,16 @@ TEST(FReflectedPropertyEditSessionTests, NoOpAndCancelledEditsDoNotCreateTransac
 	auto Property = MakeValueProperty();
 	FValueContainer Container{3};
 	DEditObserver Object;
-	Durin::FEditorTransactionManager Transactions;
+	Durin::Editor::FTransactionManager Transactions;
 
-	Durin::FReflectedPropertyEditSession NoOpSession;
+	Durin::Editor::FPropertyEditSession NoOpSession;
 	ASSERT_TRUE(NoOpSession.Begin(MakeTarget(Object, Property.get(), Container), "No-op", nullptr, &Transactions));
-	EXPECT_EQ(NoOpSession.Commit(), Durin::EReflectedPropertyEditResult::NoChange);
+	EXPECT_EQ(NoOpSession.Commit(), Durin::Editor::EPropertyEditResult::NoChange);
 
-	Durin::FReflectedPropertyEditSession CancelledSession;
+	Durin::Editor::FPropertyEditSession CancelledSession;
 	ASSERT_TRUE(CancelledSession.Begin(MakeTarget(Object, Property.get(), Container), "Cancelled", nullptr, &Transactions));
-	ASSERT_EQ(CancelledSession.Apply(CaptureValue(Property.get(), Container, 9)), Durin::EReflectedPropertyEditResult::Changed);
-	EXPECT_EQ(CancelledSession.Cancel(), Durin::EReflectedPropertyEditResult::Changed);
+	ASSERT_EQ(CancelledSession.Apply(CaptureValue(Property.get(), Container, 9)), Durin::Editor::EPropertyEditResult::Changed);
+	EXPECT_EQ(CancelledSession.Cancel(), Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_EQ(Container.Value, 3);
 	EXPECT_FALSE(Transactions.CanUndo());
 	EXPECT_TRUE(Transactions.ConsumeEvents().empty());
@@ -123,18 +123,18 @@ TEST(FReflectedPropertyEditSessionTests, TransactionHistoryKeepsTargetAlive)
 	auto Property = MakeValueProperty();
 	FValueContainer Container{4};
 	Durin::DObject* Object = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("TransactionalPropertyTarget"));
-	Durin::FReflectedPropertyEditTarget Target;
+	Durin::Editor::FPropertyEditTarget Target;
 	Target.Object = Object;
 	Target.MemberProperty = Property.get();
 	Target.LeafProperty = Property.get();
 	Target.SnapshotProperty = Property.get();
 	Target.SnapshotContainer = &Container;
 	Target.Path.push_back({Property.get()});
-	Durin::FEditorTransactionManager Transactions;
-	Durin::FReflectedPropertyEditSession Session;
+	Durin::Editor::FTransactionManager Transactions;
+	Durin::Editor::FPropertyEditSession Session;
 	ASSERT_TRUE(Session.Begin(Target, "Edit Rooted Value", nullptr, &Transactions));
-	ASSERT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 12)), Durin::EReflectedPropertyEditResult::Changed);
-	ASSERT_EQ(Session.Commit(), Durin::EReflectedPropertyEditResult::Changed);
+	ASSERT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 12)), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_EQ(Session.Commit(), Durin::Editor::EPropertyEditResult::Changed);
 
 	Durin::CollectGarbage();
 	ASSERT_TRUE(Durin::GDObjectArray.Contains(Object));
@@ -168,18 +168,18 @@ TEST(FReflectedPropertyEditSessionTests, TransactionSnapshotsKeepObjectValuesAli
 	FObjectValueContainer ProposedContainer{After};
 	Durin::FPropertyValueSnapshot Proposed;
 	ASSERT_TRUE(Durin::CapturePropertyValue(&Property, &ProposedContainer, 0, Proposed));
-	Durin::FReflectedPropertyEditTarget Target;
+	Durin::Editor::FPropertyEditTarget Target;
 	Target.Object = Owner;
 	Target.MemberProperty = &Property;
 	Target.LeafProperty = &Property;
 	Target.SnapshotProperty = &Property;
 	Target.SnapshotContainer = &Container;
 	Target.Path.push_back({&Property});
-	Durin::FEditorTransactionManager Transactions;
-	Durin::FReflectedPropertyEditSession Session;
+	Durin::Editor::FTransactionManager Transactions;
+	Durin::Editor::FPropertyEditSession Session;
 	ASSERT_TRUE(Session.Begin(Target, "Edit Object Value", nullptr, &Transactions));
-	ASSERT_EQ(Session.Apply(Proposed), Durin::EReflectedPropertyEditResult::Changed);
-	ASSERT_EQ(Session.Commit(), Durin::EReflectedPropertyEditResult::Changed);
+	ASSERT_EQ(Session.Apply(Proposed), Durin::Editor::EPropertyEditResult::Changed);
+	ASSERT_EQ(Session.Commit(), Durin::Editor::EPropertyEditResult::Changed);
 
 	Durin::CollectGarbage();
 	ASSERT_TRUE(Durin::GDObjectArray.Contains(Owner));

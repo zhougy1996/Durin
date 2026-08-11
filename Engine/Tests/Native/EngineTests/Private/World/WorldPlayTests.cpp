@@ -226,19 +226,19 @@ TEST(FCameraEditingTests, SharedTransactionsPreserveAtomicProjectionSemanticsAnd
 		return Projection->ContainerPtrToValuePtr<Durin::FCameraProjectionSettings>(Camera);
 	};
 	auto MakeTarget = [&](Durin::FProperty* Field) {
-		return Durin::FReflectedPropertyEditTarget::ForMember(Camera, Projection).ForStructMember(Field);
+		return Durin::Editor::FPropertyEditTarget::ForMember(Camera, Projection).ForStructMember(Field);
 	};
-	const Durin::FReflectedPropertyEditTarget NearTarget = MakeTarget(NearClip);
+	const Durin::Editor::FPropertyEditTarget NearTarget = MakeTarget(NearClip);
 	ASSERT_EQ(NearTarget.Path.size(), 2u);
 	EXPECT_EQ(NearTarget.MemberProperty, Projection);
 	EXPECT_EQ(NearTarget.LeafProperty, NearClip);
 	EXPECT_EQ(NearTarget.Path[0].Property, Projection);
 	EXPECT_EQ(NearTarget.Path[1].Property, NearClip);
 
-	Durin::FEditorTransactionManager Transactions;
-	Durin::FReflectedPropertyView View;
+	Durin::Editor::FTransactionManager Transactions;
+	Durin::Editor::FPropertyView View;
 	std::string Error;
-	const Durin::FReflectedPropertyViewContext Context{
+	const Durin::Editor::FPropertyViewContext Context{
 		.Transactions = &Transactions,
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 	};

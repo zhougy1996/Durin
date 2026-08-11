@@ -5,9 +5,13 @@
 
 #include "EditorEngine.gen.h"
 
+namespace Durin::Editor
+{
+	class FTransactionManager;
+}
+
 namespace Durin
 {
-	class FEditorTransactionManager;
 	class FEditorNotificationManager;
 	class DLevel;
 	class DWorld;
@@ -75,7 +79,7 @@ namespace Durin
 			-> FEngineInitializationResult override;
 		DURINED_API auto Tick(float DeltaSeconds, bool bIdleMode) -> void override;
 		DURINED_API auto BeginDestroy() -> void override;
-		DURINED_API auto GetTransactionManager() -> FEditorTransactionManager&;
+		DURINED_API auto GetTransactionManager() -> Editor::FTransactionManager&;
 		DURINED_API auto GetNotificationManager() -> FEditorNotificationManager&;
 		DURINED_API auto StartPlaySession(DLevel* SourceLevel, std::string* OutError = nullptr) -> bool;
 		DURINED_API auto StartPlaySession(const FEditorPlayRequest& Request, std::string* OutError = nullptr) -> bool;
@@ -114,7 +118,7 @@ namespace Durin
 		auto ReleaseRetiredPlaySessions(bool bReleaseAll = false) -> void;
 		auto SuspendPlayMouseCapture() -> void;
 
-		std::unique_ptr<FEditorTransactionManager> TransactionManager;
+		std::unique_ptr<Editor::FTransactionManager> TransactionManager;
 		std::unique_ptr<FEditorNotificationManager> NotificationManager;
 		// Authoritative world being edited; retained for the editor engine lifetime.
 		DPROPERTY(Transient)

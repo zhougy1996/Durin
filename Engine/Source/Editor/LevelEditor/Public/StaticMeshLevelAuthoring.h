@@ -5,13 +5,17 @@
 #include "Math/Transform.h"
 #include "Misc/Name.h"
 
+namespace Durin::Editor
+{
+	class FTransactionManager;
+}
+
 namespace Durin
 {
 	class AStaticMeshActor;
 	class DLevel;
 	class DPackage;
 	class DStaticMesh;
-	class FEditorTransactionManager;
 
 	enum class EStaticMeshLevelMutationKind : uint8
 	{
@@ -102,7 +106,7 @@ namespace Durin
 	struct FStaticMeshLevelExecutionContext
 	{
 		DLevel* OpenLevel = nullptr;
-		FEditorTransactionManager* Transactions = nullptr;
+		Editor::FTransactionManager* Transactions = nullptr;
 		bool bReadOnly = false;
 	};
 

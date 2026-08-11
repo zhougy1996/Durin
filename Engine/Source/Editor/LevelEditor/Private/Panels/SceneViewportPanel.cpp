@@ -5,7 +5,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Assets/ContentBrowserDragDrop.h"
 #include "Editor/EditorEngine.h"
-#include "Editor/EditorTransaction.h"
+#include "Editor/Transaction.h"
 #include "Editor/EditorWorkspaceUI.h"
 #include "Engine/Engine.h"
 #include "Engine/Actor.h"
@@ -444,7 +444,7 @@ namespace Durin
 			|| ImGui::IsMouseHoveringRect(ToolbarLayout.PlayBackgroundMin, ToolbarLayout.PlayBackgroundMax);
 		const bool bPopupOpen = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
 		if (bToolbarHovered || bPopupOpen) Input.bLeftMousePressed = false;
-		FEditorTransactionManager* Transactions = GEditor != nullptr ? &GEditor->GetTransactionManager() : nullptr;
+		Editor::FTransactionManager* Transactions = GEditor != nullptr ? &GEditor->GetTransactionManager() : nullptr;
 		ViewportClient->Update(Context.Level, Context.GetPrimarySelectedActor(), Input);
 		uint32 ViewWidth = 0;
 		uint32 ViewHeight = 0;

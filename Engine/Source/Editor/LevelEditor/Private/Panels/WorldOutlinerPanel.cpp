@@ -11,7 +11,7 @@
 #include "Engine/World.h"
 #include "Editor/EditorWorkspaceUI.h"
 #include "Editor/EditorEngine.h"
-#include "Editor/EditorTransaction.h"
+#include "Editor/Transaction.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Workspace/LevelEditorHelpers.h"
@@ -53,7 +53,7 @@ namespace Durin
 		}
 
 		// Restores the level's primary-camera selection.
-		class FPrimaryCameraTransaction final : public IEditorTransaction
+		class FPrimaryCameraTransaction final : public Editor::ITransaction
 		{
 		public:
 			FPrimaryCameraTransaction(DLevel* InLevel, ACameraActor* InBefore, ACameraActor* InAfter)
@@ -62,7 +62,7 @@ namespace Durin
 				AffectedPackages.front() = InLevel ? InLevel->GetPackage() : nullptr;
 			}
 			auto GetDescription() const -> std::string_view override { return "Set primary camera"; }
-			auto GetDetails(EEditorTransactionOperation) const -> std::string override
+			auto GetDetails(Editor::ETransactionOperation) const -> std::string override
 			{
 				return After ? std::format("Set '{}' as the primary camera", After->GetName()) : "Clear the primary camera";
 			}
@@ -78,7 +78,7 @@ namespace Durin
 		};
 
 		// Restores visibility for every actor changed by one outliner operation.
-		class FActorVisibilityTransaction final : public IEditorTransaction
+		class FActorVisibilityTransaction final : public Editor::ITransaction
 		{
 		public:
 			// Stores one actor's visibility before and after the outliner action.
@@ -100,9 +100,9 @@ namespace Durin
 				}
 			}
 			auto GetDescription() const -> std::string_view override { return bShow ? "Show actors" : "Hide actors"; }
-			auto GetDetails(EEditorTransactionOperation Operation) const -> std::string override
+			auto GetDetails(Editor::ETransactionOperation Operation) const -> std::string override
 			{
-				const bool bApplyingAfter = Operation != EEditorTransactionOperation::Undo;
+				const bool bApplyingAfter = Operation != Editor::ETransactionOperation::Undo;
 				const size_t HiddenCount = std::ranges::count_if(Entries, [bApplyingAfter](const FEntry& Entry) { return bApplyingAfter ? Entry.bAfter : Entry.bBefore; });
 				return std::format("Set visibility for {} actor(s); {} hidden", Entries.size(), HiddenCount);
 			}

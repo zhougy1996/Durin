@@ -1,13 +1,13 @@
-#include "Editor/EditorTransaction.h"
+#include "Editor/Transaction.h"
 
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 
-namespace Durin
+namespace Durin::Editor
 {
-	struct FEditorTransactionManager::FTrackedPackageState
+	struct FTransactionManager::FTrackedPackageState
 	{
-		FTrackedPackageState(DPackage& InPackage, FEditorRevisionId InCurrentRevision, FEditorRevisionId InSavedRevision, bool bInCheckpointValid)
+		FTrackedPackageState(DPackage& InPackage, FRevisionId InCurrentRevision, FRevisionId InSavedRevision, bool bInCheckpointValid)
 			: Package(&InPackage)
 			, Root(&InPackage)
 			, CurrentRevision(InCurrentRevision)
@@ -18,81 +18,81 @@ namespace Durin
 
 		DPackage* Package = nullptr;
 		FScopedObjectRoot Root;
-		FEditorRevisionId CurrentRevision = 0;
-		FEditorRevisionId SavedRevision = 0;
+		FRevisionId CurrentRevision = 0;
+		FRevisionId SavedRevision = 0;
 		bool bCheckpointValid = false;
 	};
 
-	FEditorTransactionManager::FEditorTransactionManager() = default;
+	FTransactionManager::FTransactionManager() = default;
 
-	FEditorTransactionManager::~FEditorTransactionManager()
+	FTransactionManager::~FTransactionManager()
 	{
 		Clear();
 	}
 
-	auto FEditorTransactionManager::Execute(std::unique_ptr<IEditorTransaction> Transaction) -> bool
+	auto FTransactionManager::Execute(std::unique_ptr<ITransaction> Transaction) -> bool
 	{
 		if (!Transaction || PendingTransactionId != 0) return false;
 		FEntry Entry = PrepareEntry(std::move(Transaction));
-		IEditorTransaction& Operation = *Entry.Transaction;
+		ITransaction& Operation = *Entry.Transaction;
 		const std::string Description(Operation.GetDescription());
 		if (!Operation.Redo())
 		{
-			RecordFailure(EEditorTransactionOperation::Execute, 0, Description, Operation.GetDetails(EEditorTransactionOperation::Execute));
+			RecordFailure(ETransactionOperation::Execute, 0, Description, Operation.GetDetails(ETransactionOperation::Execute));
 			return false;
 		}
 		Entry.Id = NextId++;
-		const FEditorTransactionId Id = Entry.Id;
-		const std::string Details(Operation.GetDetails(EEditorTransactionOperation::Execute));
+		const FTransactionId Id = Entry.Id;
+		const std::string Details(Operation.GetDetails(ETransactionOperation::Execute));
 		RedoStack.clear();
 		UndoStack.emplace_back(std::move(Entry));
 		ApplyPackageTransitions(UndoStack.back(), true);
 		if (UndoStack.back().Transaction->MutatesMountedContent()) NotifyMountedContentMutation();
 		if (UndoStack.size() > MaxHistory) UndoStack.erase(UndoStack.begin());
-		PendingEvents.push_back({EEditorTransactionEventType::Executed, EEditorTransactionOperation::Execute, Id, Description, Details});
+		PendingEvents.push_back({ETransactionEventType::Executed, ETransactionOperation::Execute, Id, Description, Details});
 		return true;
 	}
 
-	auto FEditorTransactionManager::CommitApplied(std::unique_ptr<IEditorTransaction> Transaction) -> bool
+	auto FTransactionManager::CommitApplied(std::unique_ptr<ITransaction> Transaction) -> bool
 	{
 		if (!Transaction || PendingTransactionId != 0) return false;
 		FEntry Entry = PrepareEntry(std::move(Transaction));
 		Entry.Id = NextId++;
-		const FEditorTransactionId Id = Entry.Id;
+		const FTransactionId Id = Entry.Id;
 		const std::string Description(Entry.Transaction->GetDescription());
-		const std::string Details(Entry.Transaction->GetDetails(EEditorTransactionOperation::Execute));
+		const std::string Details(Entry.Transaction->GetDetails(ETransactionOperation::Execute));
 		RedoStack.clear();
 		UndoStack.emplace_back(std::move(Entry));
 		ApplyPackageTransitions(UndoStack.back(), true);
 		if (UndoStack.back().Transaction->MutatesMountedContent()) NotifyMountedContentMutation();
 		if (UndoStack.size() > MaxHistory) UndoStack.erase(UndoStack.begin());
-		PendingEvents.push_back({EEditorTransactionEventType::Executed, EEditorTransactionOperation::Execute, Id, Description, Details});
+		PendingEvents.push_back({ETransactionEventType::Executed, ETransactionOperation::Execute, Id, Description, Details});
 		return true;
 	}
 
-	auto FEditorTransactionManager::Undo() -> bool
+	auto FTransactionManager::Undo() -> bool
 	{
 		return !UndoStack.empty() && Undo(UndoStack.back().Id);
 	}
 
-	auto FEditorTransactionManager::Undo(FEditorTransactionId ExpectedId) -> bool
+	auto FTransactionManager::Undo(FTransactionId ExpectedId) -> bool
 	{
 		if (PendingTransactionId != 0 || !IsUndoHead(ExpectedId)) return false;
 		FEntry& Entry = UndoStack.back();
 		const std::string Description(Entry.Transaction->GetDescription());
 		Entry.Transaction->SetDeferredOperationCompletion(
 			[this, ExpectedId](bool bSucceeded) {
-				CompleteDeferredOperation(EEditorTransactionOperation::Undo, ExpectedId, bSucceeded);
+				CompleteDeferredOperation(ETransactionOperation::Undo, ExpectedId, bSucceeded);
 			});
 		if (!Entry.Transaction->Undo())
 		{
 			Entry.Transaction->SetDeferredOperationCompletion({});
-			RecordFailure(EEditorTransactionOperation::Undo, Entry.Id, Description, Entry.Transaction->GetDetails(EEditorTransactionOperation::Undo));
+			RecordFailure(ETransactionOperation::Undo, Entry.Id, Description, Entry.Transaction->GetDetails(ETransactionOperation::Undo));
 			return false;
 		}
 		if (Entry.Transaction->IsDeferredOperationPending())
 		{
-			PendingOperation = EEditorTransactionOperation::Undo;
+			PendingOperation = ETransactionOperation::Undo;
 			PendingTransactionId = ExpectedId;
 			return true;
 		}
@@ -101,29 +101,29 @@ namespace Durin
 		return true;
 	}
 
-	auto FEditorTransactionManager::Redo() -> bool
+	auto FTransactionManager::Redo() -> bool
 	{
 		return !RedoStack.empty() && Redo(RedoStack.back().Id);
 	}
 
-	auto FEditorTransactionManager::Redo(FEditorTransactionId ExpectedId) -> bool
+	auto FTransactionManager::Redo(FTransactionId ExpectedId) -> bool
 	{
 		if (PendingTransactionId != 0 || !IsRedoHead(ExpectedId)) return false;
 		FEntry& Entry = RedoStack.back();
 		const std::string Description(Entry.Transaction->GetDescription());
 		Entry.Transaction->SetDeferredOperationCompletion(
 			[this, ExpectedId](bool bSucceeded) {
-				CompleteDeferredOperation(EEditorTransactionOperation::Redo, ExpectedId, bSucceeded);
+				CompleteDeferredOperation(ETransactionOperation::Redo, ExpectedId, bSucceeded);
 			});
 		if (!Entry.Transaction->Redo())
 		{
 			Entry.Transaction->SetDeferredOperationCompletion({});
-			RecordFailure(EEditorTransactionOperation::Redo, Entry.Id, Description, Entry.Transaction->GetDetails(EEditorTransactionOperation::Redo));
+			RecordFailure(ETransactionOperation::Redo, Entry.Id, Description, Entry.Transaction->GetDetails(ETransactionOperation::Redo));
 			return false;
 		}
 		if (Entry.Transaction->IsDeferredOperationPending())
 		{
-			PendingOperation = EEditorTransactionOperation::Redo;
+			PendingOperation = ETransactionOperation::Redo;
 			PendingTransactionId = ExpectedId;
 			return true;
 		}
@@ -132,107 +132,107 @@ namespace Durin
 		return true;
 	}
 
-	auto FEditorTransactionManager::FinalizeUndo(FEditorTransactionId Id) -> void
+	auto FTransactionManager::FinalizeUndo(FTransactionId Id) -> void
 	{
 		check(IsUndoHead(Id));
 		FEntry& Entry = UndoStack.back();
 		const std::string Description(Entry.Transaction->GetDescription());
-		const std::string Details(Entry.Transaction->GetDetails(EEditorTransactionOperation::Undo));
+		const std::string Details(Entry.Transaction->GetDetails(ETransactionOperation::Undo));
 		ApplyPackageTransitions(Entry, false);
 		if (Entry.Transaction->MutatesMountedContent()) NotifyMountedContentMutation();
 		FEntry Applied = std::move(Entry);
 		UndoStack.pop_back();
 		RedoStack.emplace_back(std::move(Applied));
-		PendingEvents.push_back({EEditorTransactionEventType::Undone, EEditorTransactionOperation::Undo, Id, Description, Details});
+		PendingEvents.push_back({ETransactionEventType::Undone, ETransactionOperation::Undo, Id, Description, Details});
 	}
 
-	auto FEditorTransactionManager::FinalizeRedo(FEditorTransactionId Id) -> void
+	auto FTransactionManager::FinalizeRedo(FTransactionId Id) -> void
 	{
 		check(IsRedoHead(Id));
 		FEntry& Entry = RedoStack.back();
 		const std::string Description(Entry.Transaction->GetDescription());
-		const std::string Details(Entry.Transaction->GetDetails(EEditorTransactionOperation::Redo));
+		const std::string Details(Entry.Transaction->GetDetails(ETransactionOperation::Redo));
 		ApplyPackageTransitions(Entry, true);
 		if (Entry.Transaction->MutatesMountedContent()) NotifyMountedContentMutation();
 		FEntry Applied = std::move(Entry);
 		RedoStack.pop_back();
 		UndoStack.emplace_back(std::move(Applied));
-		PendingEvents.push_back({EEditorTransactionEventType::Redone, EEditorTransactionOperation::Redo, Id, Description, Details});
+		PendingEvents.push_back({ETransactionEventType::Redone, ETransactionOperation::Redo, Id, Description, Details});
 	}
 
-	auto FEditorTransactionManager::CompleteDeferredOperation(
-		EEditorTransactionOperation Operation,
-		FEditorTransactionId Id,
+	auto FTransactionManager::CompleteDeferredOperation(
+		ETransactionOperation Operation,
+		FTransactionId Id,
 		bool bSucceeded) -> void
 	{
 		if (PendingTransactionId != Id || PendingOperation != Operation) return;
-		FEntry& Entry = Operation == EEditorTransactionOperation::Undo
+		FEntry& Entry = Operation == ETransactionOperation::Undo
 			? UndoStack.back() : RedoStack.back();
 		Entry.Transaction->SetDeferredOperationCompletion({});
 		PendingTransactionId = 0;
-		PendingOperation = EEditorTransactionOperation::Execute;
+		PendingOperation = ETransactionOperation::Execute;
 		if (!bSucceeded)
 		{
 			RecordFailure(Operation, Id, Entry.Transaction->GetDescription(), Entry.Transaction->GetDetails(Operation));
 			return;
 		}
-		if (Operation == EEditorTransactionOperation::Undo) FinalizeUndo(Id);
+		if (Operation == ETransactionOperation::Undo) FinalizeUndo(Id);
 		else FinalizeRedo(Id);
 	}
 
-	auto FEditorTransactionManager::IsUndoHead(FEditorTransactionId Id) const -> bool
+	auto FTransactionManager::IsUndoHead(FTransactionId Id) const -> bool
 	{
 		return Id != 0 && !UndoStack.empty() && UndoStack.back().Id == Id;
 	}
 
-	auto FEditorTransactionManager::IsRedoHead(FEditorTransactionId Id) const -> bool
+	auto FTransactionManager::IsRedoHead(FTransactionId Id) const -> bool
 	{
 		return Id != 0 && !RedoStack.empty() && RedoStack.back().Id == Id;
 	}
 
-	auto FEditorTransactionManager::GetUndoDescription() const -> std::string_view
+	auto FTransactionManager::GetUndoDescription() const -> std::string_view
 	{
 		return UndoStack.empty() ? std::string_view{} : UndoStack.back().Transaction->GetDescription();
 	}
 
-	auto FEditorTransactionManager::GetRedoDescription() const -> std::string_view
+	auto FTransactionManager::GetRedoDescription() const -> std::string_view
 	{
 		return RedoStack.empty() ? std::string_view{} : RedoStack.back().Transaction->GetDescription();
 	}
 
-	auto FEditorTransactionManager::GetUndoId() const -> FEditorTransactionId
+	auto FTransactionManager::GetUndoId() const -> FTransactionId
 	{
 		return UndoStack.empty() ? 0 : UndoStack.back().Id;
 	}
 
-	auto FEditorTransactionManager::GetRedoId() const -> FEditorTransactionId
+	auto FTransactionManager::GetRedoId() const -> FTransactionId
 	{
 		return RedoStack.empty() ? 0 : RedoStack.back().Id;
 	}
 
-	auto FEditorTransactionManager::ConsumeEvents() -> std::vector<FEditorTransactionEvent>
+	auto FTransactionManager::ConsumeEvents() -> std::vector<FTransactionEvent>
 	{
-		std::vector<FEditorTransactionEvent> Events;
+		std::vector<FTransactionEvent> Events;
 		Events.swap(PendingEvents);
 		return Events;
 	}
 
-	auto FEditorTransactionManager::NotifyMountedContentMutation() -> void
+	auto FTransactionManager::NotifyMountedContentMutation() -> void
 	{
 		check(MountedContentMutationRevision != std::numeric_limits<uint64>::max());
 		++MountedContentMutationRevision;
 	}
 
-	auto FEditorTransactionManager::EstablishSavedState(DPackage& Package) -> void
+	auto FTransactionManager::EstablishSavedState(DPackage& Package) -> void
 	{
 		ForgetPackage(Package);
-		const FEditorRevisionId Revision = AllocateRevision();
+		const FRevisionId Revision = AllocateRevision();
 		auto State = std::make_unique<FTrackedPackageState>(Package, Revision, Revision, true);
 		PackageStates.emplace(&Package, std::move(State));
 		Package.ClearDirty();
 	}
 
-	auto FEditorTransactionManager::MarkSaved(DPackage& Package) -> void
+	auto FTransactionManager::MarkSaved(DPackage& Package) -> void
 	{
 		FTrackedPackageState& State = EnsurePackageState(Package);
 		State.SavedRevision = State.CurrentRevision;
@@ -240,7 +240,7 @@ namespace Durin
 		SynchronizeDirtyState(State);
 	}
 
-	auto FEditorTransactionManager::InvalidateSavedState(DPackage& Package) -> void
+	auto FTransactionManager::InvalidateSavedState(DPackage& Package) -> void
 	{
 		FTrackedPackageState& State = EnsurePackageState(Package);
 		State.SavedRevision = 0;
@@ -248,40 +248,40 @@ namespace Durin
 		SynchronizeDirtyState(State);
 	}
 
-	auto FEditorTransactionManager::GetPackageRevisionState(const DPackage& Package) const -> std::optional<FEditorPackageRevisionState>
+	auto FTransactionManager::GetPackageRevisionState(const DPackage& Package) const -> std::optional<FPackageRevisionState>
 	{
 		const FTrackedPackageState* State = FindPackageState(Package);
 		if (!State) return std::nullopt;
-		return FEditorPackageRevisionState{
+		return FPackageRevisionState{
 			.CurrentRevision = State->CurrentRevision,
 			.SavedRevision = State->SavedRevision,
 			.bCheckpointValid = State->bCheckpointValid,
 		};
 	}
 
-	auto FEditorTransactionManager::ForgetPackage(DPackage& Package) -> void
+	auto FTransactionManager::ForgetPackage(DPackage& Package) -> void
 	{
 		RemovePackageHistory(Package);
 		PackageStates.erase(&Package);
 	}
 
-	auto FEditorTransactionManager::Clear() -> void
+	auto FTransactionManager::Clear() -> void
 	{
 		if (PendingTransactionId != 0)
 		{
-			FEntry& Entry = PendingOperation == EEditorTransactionOperation::Undo
+			FEntry& Entry = PendingOperation == ETransactionOperation::Undo
 				? UndoStack.back() : RedoStack.back();
 			Entry.Transaction->SetDeferredOperationCompletion({});
 		}
 		PendingTransactionId = 0;
-		PendingOperation = EEditorTransactionOperation::Execute;
+		PendingOperation = ETransactionOperation::Execute;
 		UndoStack.clear();
 		RedoStack.clear();
 		PendingEvents.clear();
 		PackageStates.clear();
 	}
 
-	auto FEditorTransactionManager::PrepareEntry(std::unique_ptr<IEditorTransaction> Transaction) -> FEntry
+	auto FTransactionManager::PrepareEntry(std::unique_ptr<ITransaction> Transaction) -> FEntry
 	{
 		FEntry Entry{
 			.Transaction = std::move(Transaction),
@@ -292,7 +292,7 @@ namespace Durin
 			if (!IsValid(Package) || !Package->IsAssetPackage() || !AddedPackages.insert(Package).second) continue;
 
 			const FTrackedPackageState* State = FindPackageState(*Package);
-			const FEditorRevisionId BeforeRevision = State ? State->CurrentRevision : AllocateRevision();
+			const FRevisionId BeforeRevision = State ? State->CurrentRevision : AllocateRevision();
 			Entry.PackageTransitions.push_back({
 				.Package = Package,
 				.BeforeRevision = BeforeRevision,
@@ -304,28 +304,28 @@ namespace Durin
 		return Entry;
 	}
 
-	auto FEditorTransactionManager::AllocateRevision() -> FEditorRevisionId
+	auto FTransactionManager::AllocateRevision() -> FRevisionId
 	{
 		check(NextRevision != 0);
 		return NextRevision++;
 	}
 
-	auto FEditorTransactionManager::FindPackageState(const DPackage& Package) -> FTrackedPackageState*
+	auto FTransactionManager::FindPackageState(const DPackage& Package) -> FTrackedPackageState*
 	{
 		const auto It = PackageStates.find(const_cast<DPackage*>(&Package));
 		return It == PackageStates.end() ? nullptr : It->second.get();
 	}
 
-	auto FEditorTransactionManager::FindPackageState(const DPackage& Package) const -> const FTrackedPackageState*
+	auto FTransactionManager::FindPackageState(const DPackage& Package) const -> const FTrackedPackageState*
 	{
 		const auto It = PackageStates.find(const_cast<DPackage*>(&Package));
 		return It == PackageStates.end() ? nullptr : It->second.get();
 	}
 
-	auto FEditorTransactionManager::EnsurePackageState(DPackage& Package) -> FTrackedPackageState&
+	auto FTransactionManager::EnsurePackageState(DPackage& Package) -> FTrackedPackageState&
 	{
 		if (FTrackedPackageState* State = FindPackageState(Package)) return *State;
-		const FEditorRevisionId Revision = AllocateRevision();
+		const FRevisionId Revision = AllocateRevision();
 		const bool bCheckpointValid = !Package.IsDirty();
 		auto State = std::make_unique<FTrackedPackageState>(
 			Package, Revision, bCheckpointValid ? Revision : 0, bCheckpointValid
@@ -335,7 +335,7 @@ namespace Durin
 		return *Result;
 	}
 
-	auto FEditorTransactionManager::ApplyPackageTransitions(const FEntry& Entry, bool bForward) -> void
+	auto FTransactionManager::ApplyPackageTransitions(const FEntry& Entry, bool bForward) -> void
 	{
 		for (const FPackageRevisionTransition& Transition : Entry.PackageTransitions)
 		{
@@ -356,7 +356,7 @@ namespace Durin
 		}
 	}
 
-	auto FEditorTransactionManager::SynchronizeDirtyState(FTrackedPackageState& State) -> void
+	auto FTransactionManager::SynchronizeDirtyState(FTrackedPackageState& State) -> void
 	{
 		if (!State.bCheckpointValid || State.CurrentRevision != State.SavedRevision)
 		{
@@ -368,7 +368,7 @@ namespace Durin
 		}
 	}
 
-	auto FEditorTransactionManager::RemovePackageHistory(const DPackage& Package) -> void
+	auto FTransactionManager::RemovePackageHistory(const DPackage& Package) -> void
 	{
 		const auto ReferencesPackage = [&Package](const FEntry& Entry) {
 			return std::ranges::any_of(Entry.PackageTransitions, [&Package](const FPackageRevisionTransition& Transition) {
@@ -379,8 +379,8 @@ namespace Durin
 		std::erase_if(RedoStack, ReferencesPackage);
 	}
 
-	auto FEditorTransactionManager::RecordFailure(EEditorTransactionOperation Operation, FEditorTransactionId Id, std::string_view Description, std::string_view Details) -> void
+	auto FTransactionManager::RecordFailure(ETransactionOperation Operation, FTransactionId Id, std::string_view Description, std::string_view Details) -> void
 	{
-		PendingEvents.push_back({EEditorTransactionEventType::Failed, Operation, Id, std::string(Description), std::string(Details)});
+		PendingEvents.push_back({ETransactionEventType::Failed, Operation, Id, std::string(Description), std::string(Details)});
 	}
 }

@@ -19,7 +19,7 @@ namespace Durin
 			{
 				if (!Cast<DSkyBoxComponent>(Object) || !Context.Level) return;
 				Builder.AddCustomRow("Sky Box Conflict Active Ignored",
-					[Level = Context.Level](FReflectedPropertyView&, const FReflectedPropertyViewContext&) {
+					[Level = Context.Level](Editor::FPropertyView&, const Editor::FPropertyViewContext&) {
 						const FSkyBoxConflictModel Model(Level);
 						if (!Model.HasConflict()) return false;
 

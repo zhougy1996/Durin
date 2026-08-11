@@ -2,7 +2,7 @@
 
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorNotification.h"
-#include "Editor/EditorTransaction.h"
+#include "Editor/Transaction.h"
 #include "Editor/EditorWorkspaceUI.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Workspace/LevelEditorWorkspace.h"
@@ -85,13 +85,13 @@ namespace Durin
 			ImGui::PopStyleColor(4);
 		}
 
-		auto FailureOperation(EEditorTransactionOperation Operation) -> std::string_view
+		auto FailureOperation(Editor::ETransactionOperation Operation) -> std::string_view
 		{
 			switch (Operation)
 			{
-			case EEditorTransactionOperation::Undo: return "undo";
-			case EEditorTransactionOperation::Redo: return "redo";
-			case EEditorTransactionOperation::Execute:
+			case Editor::ETransactionOperation::Undo: return "undo";
+			case Editor::ETransactionOperation::Redo: return "redo";
+			case Editor::ETransactionOperation::Execute:
 			default: return "execute";
 			}
 		}
@@ -103,7 +103,7 @@ namespace Durin
 		if (GEditor) DrawHistory(GEditor->GetNotificationManager(), GetOpenPtr());
 	}
 
-	auto FEditorNotificationOverlay::DrawNotifications(FEditorNotificationManager& Notifications, FEditorTransactionManager& Transactions) -> void
+	auto FEditorNotificationOverlay::DrawNotifications(FEditorNotificationManager& Notifications, Editor::FTransactionManager& Transactions) -> void
 	{
 		PublishTransactionEvents(Notifications, Transactions);
 		Notifications.Tick(ImGui::GetIO().DeltaTime);
@@ -273,12 +273,12 @@ namespace Durin
 		ImGui::End();
 	}
 
-	auto FEditorNotificationOverlay::PublishTransactionEvents(FEditorNotificationManager& Notifications, FEditorTransactionManager& Transactions) -> void
+	auto FEditorNotificationOverlay::PublishTransactionEvents(FEditorNotificationManager& Notifications, Editor::FTransactionManager& Transactions) -> void
 	{
-		for (FEditorTransactionEvent& Event : Transactions.ConsumeEvents())
+		for (Editor::FTransactionEvent& Event : Transactions.ConsumeEvents())
 		{
 			FEditorNotificationDesc Desc;
-			if (Event.Type == EEditorTransactionEventType::Failed)
+			if (Event.Type == Editor::ETransactionEventType::Failed)
 			{
 				Desc.Type = EEditorNotificationType::Error;
 				Desc.Message = std::format("Failed to {} {}", FailureOperation(Event.Operation), Event.Description);
@@ -288,18 +288,18 @@ namespace Durin
 				continue;
 			}
 
-			const bool bOffersRedo = Event.Type == EEditorTransactionEventType::Undone;
+			const bool bOffersRedo = Event.Type == Editor::ETransactionEventType::Undone;
 			Desc.Type = bOffersRedo ? EEditorNotificationType::Info : EEditorNotificationType::Success;
 			switch (Event.Type)
 			{
-			case EEditorTransactionEventType::Undone: Desc.Message = std::format("Undid {}", Event.Description); break;
-			case EEditorTransactionEventType::Redone: Desc.Message = std::format("Redid {}", Event.Description); break;
-			case EEditorTransactionEventType::Executed:
+			case Editor::ETransactionEventType::Undone: Desc.Message = std::format("Undid {}", Event.Description); break;
+			case Editor::ETransactionEventType::Redone: Desc.Message = std::format("Redid {}", Event.Description); break;
+			case Editor::ETransactionEventType::Executed:
 			default: Desc.Message = Event.Description; break;
 			}
 			Desc.Details = std::move(Event.Details);
 
-			const FEditorTransactionId Id = Event.Id;
+			const Editor::FTransactionId Id = Event.Id;
 			FEditorNotificationAction Action;
 			Action.Label = bOffersRedo ? "Redo" : "Undo";
 			Action.IsEnabled = [&Transactions, Id, bOffersRedo] {

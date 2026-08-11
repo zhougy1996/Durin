@@ -1,11 +1,11 @@
 #include <gtest/gtest.h>
 
-#include "Editor/EditorTransaction.h"
+#include "Editor/Transaction.h"
 #include "Panels/ContentBrowserRefreshCoordinator.h"
 
 namespace
 {
-	class FRefreshTestTransaction final : public Durin::IEditorTransaction
+	class FRefreshTestTransaction final : public Durin::Editor::ITransaction
 	{
 	public:
 		explicit FRefreshTestTransaction(bool bInMutatesMountedContent)
@@ -32,7 +32,7 @@ namespace
 TEST(FContentBrowserRefreshCoordinatorTests,
 	OrdinaryTransactionsNeverPublishMountedContentInvalidation)
 {
-	Durin::FEditorTransactionManager Transactions;
+	Durin::Editor::FTransactionManager Transactions;
 	const Durin::uint64 InitialRevision =
 		Transactions.GetMountedContentMutationRevision();
 	ASSERT_TRUE(Transactions.Execute(
@@ -50,7 +50,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 TEST(FContentBrowserRefreshCoordinatorTests,
 	MountedContentTransactionsPublishEverySuccessfulTransition)
 {
-	Durin::FEditorTransactionManager Transactions;
+	Durin::Editor::FTransactionManager Transactions;
 	const Durin::uint64 InitialRevision =
 		Transactions.GetMountedContentMutationRevision();
 	ASSERT_TRUE(Transactions.Execute(

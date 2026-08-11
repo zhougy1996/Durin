@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Assets/EditorAssetMoveCoordinator.h"
-#include "Editor/EditorTransaction.h"
+#include "Editor/Transaction.h"
 #include "Panels/ContentBrowserModel.h"
 
 namespace Durin
@@ -156,7 +156,7 @@ namespace Durin
 			const Asset::FAssetDeletionBatchToken&)> RestoreAssetBatch;
 	};
 
-	class FContentDeletionTransaction final : public IEditorTransaction
+	class FContentDeletionTransaction final : public Editor::ITransaction
 	{
 	public:
 		explicit FContentDeletionTransaction(
@@ -165,7 +165,7 @@ namespace Durin
 		~FContentDeletionTransaction() override;
 
 		auto GetDescription() const -> std::string_view override;
-		auto GetDetails(EEditorTransactionOperation Operation) const
+		auto GetDetails(Editor::ETransactionOperation Operation) const
 			-> std::string override;
 		auto MutatesMountedContent() const -> bool override { return true; }
 		auto Undo() -> bool override;

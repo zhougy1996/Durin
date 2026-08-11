@@ -1,9 +1,9 @@
 #pragma once
 
 #include "DObject/Property.h"
-#include "Editor/ReflectedPropertyEditing.h"
+#include "Editor/PropertyEditing.h"
 
-namespace Durin
+namespace Durin::Editor
 {
 	// Resolves a reflected edit path to its current property storage.
 	struct FResolvedPropertyValue
@@ -13,7 +13,7 @@ namespace Durin
 		uint32 ArrayIndex = 0;
 	};
 
-	auto ResolveReflectedPropertyValue(const FReflectedPropertyEditTarget& Target,
+	auto ResolveReflectedPropertyValue(const FPropertyEditTarget& Target,
 		FResolvedPropertyValue& OutValue, std::string* OutError = nullptr) -> bool;
 
 	// Owns one detached, fully constructed snapshot-root value. Leaf addresses
@@ -21,7 +21,7 @@ namespace Durin
 	class FPropertyValueDraft
 	{
 	public:
-		explicit FPropertyValueDraft(const FReflectedPropertyEditTarget& Target, std::string* OutError)
+		explicit FPropertyValueDraft(const FPropertyEditTarget& Target, std::string* OutError)
 			: Property(Target.SnapshotProperty)
 			, ArrayIndex(Target.SnapshotArrayIndex)
 		{
@@ -62,12 +62,12 @@ namespace Durin
 			return bValid && RestorePropertyValue(Property, Memory, ArrayIndex, Snapshot, OutError);
 		}
 
-		auto Resolve(const FReflectedPropertyEditTarget& Source, const FProperty*& OutProperty,
+		auto Resolve(const FPropertyEditTarget& Source, const FProperty*& OutProperty,
 			void*& OutContainer, uint32& OutArrayIndex, std::string* OutError) const -> bool
 		{
 			if (!bValid || Source.SnapshotProperty != Property || Source.SnapshotArrayIndex != ArrayIndex)
 				return Fail(OutError, "The edit target does not match its reflected property draft root.");
-			FReflectedPropertyEditTarget DraftTarget = Source;
+			FPropertyEditTarget DraftTarget = Source;
 			DraftTarget.SnapshotContainer = Memory;
 			FResolvedPropertyValue Resolved;
 			if (!ResolveReflectedPropertyValue(DraftTarget, Resolved, OutError)) return false;

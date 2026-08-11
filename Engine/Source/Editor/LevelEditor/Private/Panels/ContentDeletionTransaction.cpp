@@ -69,7 +69,7 @@ namespace Durin
 	}
 
 	auto FContentDeletionTransaction::GetDetails(
-		EEditorTransactionOperation) const -> std::string
+		Editor::ETransactionOperation) const -> std::string
 	{
 		return Details;
 	}

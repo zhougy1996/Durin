@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Editor/ReflectedPropertyView.h"
+#include "Editor/PropertyView.h"
 #include "Materials/MaterialTypes.h"
 
 namespace Durin
@@ -48,21 +48,21 @@ namespace Durin
 
 		static auto SelectControl(const FMaterialParameterDefinition& Definition) -> EMaterialParameterControlKind;
 		auto SubmitValueEdit(
-			FReflectedPropertyView& PropertyView,
-			const FReflectedPropertyViewContext& Context,
+			Editor::FPropertyView& PropertyView,
+			const Editor::FPropertyViewContext& Context,
 			const FMaterialParameterPanelEntry& Entry,
 			const FMaterialParameterValue& Value,
 			bool bContinuous
 		) const -> bool;
 		auto SetOverrideEnabled(
-			FReflectedPropertyView& PropertyView,
-			const FReflectedPropertyViewContext& Context,
+			Editor::FPropertyView& PropertyView,
+			const Editor::FPropertyViewContext& Context,
 			const FMaterialParameterPanelEntry& Entry,
 			bool bEnabled
 		) const -> bool;
 		auto RemoveOrphan(
-			FReflectedPropertyView& PropertyView,
-			const FReflectedPropertyViewContext& Context,
+			Editor::FPropertyView& PropertyView,
+			const Editor::FPropertyViewContext& Context,
 			const FMaterialParameterPanelEntry& Entry
 		) const -> bool;
 

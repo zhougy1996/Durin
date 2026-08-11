@@ -1,6 +1,6 @@
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorNotification.h"
-#include "Editor/EditorTransaction.h"
+#include "Editor/Transaction.h"
 
 #include "AssetSystem.h"
 #include "DObject/Archive.h"
@@ -28,7 +28,7 @@ namespace Durin
 
 	DEditorEngine::DEditorEngine(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
-		, TransactionManager(std::make_unique<FEditorTransactionManager>())
+		, TransactionManager(std::make_unique<Editor::FTransactionManager>())
 		, NotificationManager(std::make_unique<FEditorNotificationManager>())
 	{
 		GEditor = this;
@@ -581,7 +581,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DEditorEngine::GetTransactionManager() -> FEditorTransactionManager&
+	auto DEditorEngine::GetTransactionManager() -> Editor::FTransactionManager&
 	{
 		return *TransactionManager;
 	}

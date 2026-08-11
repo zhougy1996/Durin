@@ -16,7 +16,7 @@ namespace Durin
 	}
 
 	auto FAssetRelocationTransaction::GetDetails(
-		EEditorTransactionOperation) const -> std::string
+		Editor::ETransactionOperation) const -> std::string
 	{
 		return LastResult.Message;
 	}

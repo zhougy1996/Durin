@@ -21,7 +21,7 @@ namespace
 		auto Enter(Durin::FLevelEditorContext&) -> void override { ++Probe->EnterCount; }
 		auto Exit(Durin::FLevelEditorContext&, bool bForced) -> void override { ++Probe->ExitCount; Probe->ForcedExitCount += bForced; }
 		auto Tick(Durin::FLevelEditorContext&, Durin::FLevelEditorViewportClient&, const Durin::FSceneView&,
-			Durin::FLevelEditorViewportInput&, Durin::FEditorTransactionManager*) -> bool override { ++Probe->TickCount; return true; }
+			Durin::FLevelEditorViewportInput&, Durin::Editor::FTransactionManager*) -> bool override { ++Probe->TickCount; return true; }
 	private:
 		std::shared_ptr<FEditModeProbe> Probe;
 	};
@@ -125,7 +125,7 @@ TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowle
 	Durin::FVector2f HandleScreen;
 	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, InitialLocation, CenterScreen));
 	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, HandlePoint, HandleScreen));
-	Durin::FEditorTransactionManager Transactions;
+	Durin::Editor::FTransactionManager Transactions;
 	const Durin::uint64 MountedContentRevision =
 		Transactions.GetMountedContentMutationRevision();
 	Input.bFocused = true;
@@ -282,7 +282,7 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	Durin::FVector2f HandleScreen;
 	ASSERT_TRUE(Client.ProjectWorldToViewport(InitialLocation, {800.0f, 600.0f}, CenterScreen));
 	ASSERT_TRUE(Client.ProjectWorldToViewport(XHandlePoint, {800.0f, 600.0f}, HandleScreen));
-	Durin::FEditorTransactionManager TransformTransactions;
+	Durin::Editor::FTransactionManager TransformTransactions;
 	TransformTransactions.EstablishSavedState(*Package);
 	Durin::FLevelEditorViewportInput DragInput;
 	DragInput.bFocused = true;
@@ -331,7 +331,7 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
 	DragInput.bLeftMouseDown = false;
 	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
-	const std::vector<Durin::FEditorTransactionEvent> TransformEvents = TransformTransactions.ConsumeEvents();
+	const std::vector<Durin::Editor::FTransactionEvent> TransformEvents = TransformTransactions.ConsumeEvents();
 	ASSERT_EQ(TransformEvents.size(), 1);
 	EXPECT_EQ(TransformEvents.front().Description, "Translate 'Selected'");
 	EXPECT_NE(TransformEvents.front().Details.find("'Selected'"), std::string::npos);

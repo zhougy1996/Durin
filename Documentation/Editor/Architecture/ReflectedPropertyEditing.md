@@ -31,25 +31,25 @@ setters, or store editor transactions inside `DObject`.
 
 ```text
 host panel or workspace
-  owns FReflectedPropertyView
-  supplies FReflectedPropertyViewContext
+  owns Editor::FPropertyView
+  supplies Editor::FPropertyViewContext
         |
         v
-FReflectedPropertyView
+Editor::FPropertyView
   owns transient widget state and one active edit session
         |
         v
-FReflectedPropertyEditSession
+Editor::FPropertyEditSession
   captures, applies, commits, or cancels one logical edit
         |
         +--> detached draft + DObject::PreEditChangeProperty()
         |
         +--> DObject::PostEditChangeProperty()
         |
-        +--> externally owned FEditorTransactionManager
+        +--> externally owned Editor::FTransactionManager
                     |
                     v
-          FReflectedPropertyTransaction
+          Editor::FPropertyTransaction
 ```
 
 The view and session own only an edit in progress. Committed history belongs to
@@ -150,7 +150,7 @@ address, but it cannot invalidate the stored member snapshot used by Undo/Redo.
 
 ## Edit Targets
 
-`FReflectedPropertyEditTarget` describes:
+`Editor::FPropertyEditTarget` describes:
 
 - the owning object;
 - member and leaf properties;
@@ -191,7 +191,7 @@ contract is introduced.
 
 ## Edit Session Lifecycle
 
-`FReflectedPropertyEditSession` implements one logical edit:
+`Editor::FPropertyEditSession` implements one logical edit:
 
 ```text
 Begin(target)
@@ -231,17 +231,17 @@ discarding the preview state.
 
 ## Transactions and Dirty State
 
-`FReflectedPropertyTransaction` retains the stable target, before/after
+`Editor::FPropertyTransaction` retains the stable target, before/after
 snapshots, and description. Undo and Redo use the same atomic generic execution
 and rollback path as interactive edits and deliver the same post notification
 with the corresponding origin.
 
-The session calls `FEditorTransactionManager::CommitApplied()` because the live
+The session calls `Editor::FTransactionManager::CommitApplied()` because the live
 interactive edit has already placed the object in its final state. A no-op or
 cancelled edit creates no history entry and does not dirty the package.
 
 Each transaction reports a stable, deduplicated set of affected asset packages.
-`FEditorTransactionManager` owns editor-session revision metadata for those
+`Editor::FTransactionManager` owns editor-session revision metadata for those
 packages: the current revision, the last successfully saved revision, and
 whether that save checkpoint remains trustworthy. Committing a changed edit
 allocates a fresh after-revision. Undo moves to the stored before-revision only
@@ -286,7 +286,7 @@ inserting and then renaming a live entry.
 
 ## Reflected Property View
 
-`FReflectedPropertyView` is an embeddable immediate-mode view, not a dockable
+`Editor::FPropertyView` is an embeddable immediate-mode view, not a dockable
 panel or standalone asset editor. A host stores one instance and supplies a
 context containing:
 
@@ -424,9 +424,9 @@ and hidden-window editor startup is part of final validation.
 Engine/Source/Runtime/CoreDObject/Public/DObject/PropertyChange.h
 Engine/Source/Runtime/CoreDObject/Public/DObject/Archive.h
 Engine/Source/Runtime/CoreDObject/Public/DObject/Object.h
-Engine/Source/Editor/DurinEd/Public/Editor/ReflectedPropertyEditing.h
-Engine/Source/Editor/DurinEd/Public/Editor/ReflectedPropertyView.h
-Engine/Source/Editor/DurinEd/Public/Editor/EditorTransaction.h
+Engine/Source/Editor/DurinEd/Public/Editor/PropertyEditing.h
+Engine/Source/Editor/DurinEd/Public/Editor/PropertyView.h
+Engine/Source/Editor/DurinEd/Public/Editor/Transaction.h
 Engine/Source/Editor/LevelEditor/Private/Panels/DetailsPanel.cpp
 Engine/Source/Editor/LevelEditor/Public/LevelEditorTransformTargets.h
 Engine/Source/Editor/LevelEditor/Private/Customizations/SplineEditorCustomizations.cpp

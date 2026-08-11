@@ -323,17 +323,17 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	ASSERT_NE(CompressionQualityProperty, nullptr);
 	ASSERT_NE(AlphaMipModeProperty, nullptr);
 	ASSERT_NE(AlphaCoverageThresholdProperty, nullptr);
-	Durin::FReflectedPropertyView PropertyView;
-	Durin::FEditorTransactionManager Transactions;
+	Durin::Editor::FPropertyView PropertyView;
+	Durin::Editor::FTransactionManager Transactions;
 	std::string Error;
-	const Durin::FReflectedPropertyViewContext Context{
+	const Durin::Editor::FPropertyViewContext Context{
 		.Transactions = &Transactions,
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
 
 	const auto SubmitUsage = [&](Durin::ETextureUsage Usage) {
 		return PropertyView.SubmitPropertyValueEdit(Context,
-			Durin::FReflectedPropertyEditTarget::ForMember(Texture, UsageProperty),
+			Durin::Editor::FPropertyEditTarget::ForMember(Texture, UsageProperty),
 			[Usage](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
 				static_cast<Durin::FEnumProperty*>(Property)->SetValueFromUInt64(
 					Container, static_cast<Durin::uint64>(Usage), ArrayIndex);
@@ -341,21 +341,21 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	};
 	const auto SubmitSRGB = [&](bool bSRGB) {
 		return PropertyView.SubmitPropertyValueEdit(Context,
-			Durin::FReflectedPropertyEditTarget::ForMember(Texture, SRGBProperty),
+			Durin::Editor::FPropertyEditTarget::ForMember(Texture, SRGBProperty),
 			[bSRGB](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
 				*Property->ContainerPtrToValuePtr<bool>(Container, ArrayIndex) = bSRGB;
 			}, false);
 	};
 	const auto SubmitMaxResolution = [&](Durin::uint32 MaxResolution) {
 		return PropertyView.SubmitPropertyValueEdit(Context,
-			Durin::FReflectedPropertyEditTarget::ForMember(Texture, MaxResolutionProperty),
+			Durin::Editor::FPropertyEditTarget::ForMember(Texture, MaxResolutionProperty),
 			[MaxResolution](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
 				*Property->ContainerPtrToValuePtr<Durin::uint32>(Container, ArrayIndex) = MaxResolution;
 			}, false);
 	};
 	const auto SubmitCompressionQuality = [&](Durin::ETextureCompressionQuality Quality) {
 		return PropertyView.SubmitPropertyValueEdit(Context,
-			Durin::FReflectedPropertyEditTarget::ForMember(Texture, CompressionQualityProperty),
+			Durin::Editor::FPropertyEditTarget::ForMember(Texture, CompressionQualityProperty),
 			[Quality](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
 				static_cast<Durin::FEnumProperty*>(Property)->SetValueFromUInt64(
 					Container, static_cast<Durin::uint64>(Quality), ArrayIndex);
@@ -363,7 +363,7 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	};
 	const auto SubmitAlphaMipMode = [&](Durin::ETextureAlphaMipMode Mode) {
 		return PropertyView.SubmitPropertyValueEdit(Context,
-			Durin::FReflectedPropertyEditTarget::ForMember(Texture, AlphaMipModeProperty),
+			Durin::Editor::FPropertyEditTarget::ForMember(Texture, AlphaMipModeProperty),
 			[Mode](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
 				static_cast<Durin::FEnumProperty*>(Property)->SetValueFromUInt64(
 					Container, static_cast<Durin::uint64>(Mode), ArrayIndex);
@@ -371,7 +371,7 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	};
 	const auto SubmitAlphaCoverageThreshold = [&](float Threshold) {
 		return PropertyView.SubmitPropertyValueEdit(Context,
-			Durin::FReflectedPropertyEditTarget::ForMember(Texture, AlphaCoverageThresholdProperty),
+			Durin::Editor::FPropertyEditTarget::ForMember(Texture, AlphaCoverageThresholdProperty),
 			[Threshold](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
 				*Property->ContainerPtrToValuePtr<float>(Container, ArrayIndex) = Threshold;
 			}, false);
@@ -486,16 +486,16 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 	ASSERT_NE(Texture, nullptr);
 	Durin::FProperty* UsageProperty = Texture->GetClass()->FindPropertyByName("Usage");
 	ASSERT_NE(UsageProperty, nullptr);
-	Durin::FReflectedPropertyView PropertyView;
-	Durin::FEditorTransactionManager Transactions;
+	Durin::Editor::FPropertyView PropertyView;
+	Durin::Editor::FTransactionManager Transactions;
 	std::string Error;
-	const Durin::FReflectedPropertyViewContext Context{
+	const Durin::Editor::FPropertyViewContext Context{
 		.Transactions = &Transactions,
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); }};
 	const auto SubmitUsage = [&](Durin::ETextureUsage Usage) {
 		return PropertyView.SubmitPropertyValueEdit(
 			Context,
-			Durin::FReflectedPropertyEditTarget::ForMember(Texture, UsageProperty),
+			Durin::Editor::FPropertyEditTarget::ForMember(Texture, UsageProperty),
 			[Usage](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
 				static_cast<Durin::FEnumProperty*>(Property)->SetValueFromUInt64(
 					Container, static_cast<Durin::uint64>(Usage), ArrayIndex);
@@ -570,7 +570,7 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::DataMask);
 	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
 	ASSERT_TRUE(Transactions.CanUndo());
-	const Durin::FEditorTransactionId UndoId = Transactions.GetUndoId();
+	const Durin::Editor::FTransactionId UndoId = Transactions.GetUndoId();
 	bEntered = false;
 	bRelease = false;
 	Coordinator->SetPhaseHookForTests(

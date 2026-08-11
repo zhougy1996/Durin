@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Editor/ReflectedPropertyEditing.h"
-#include "Editor/EditorTransaction.h"
+#include "Editor/PropertyEditing.h"
+#include "Editor/Transaction.h"
 
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/DObjectArray.h"
@@ -201,9 +201,9 @@ namespace
 		return Snapshot;
 	}
 
-	auto MakeTarget(DEditObserver& Object, const Durin::FProperty* Property, FValueContainer& Container) -> Durin::FReflectedPropertyEditTarget
+	auto MakeTarget(DEditObserver& Object, const Durin::FProperty* Property, FValueContainer& Container) -> Durin::Editor::FPropertyEditTarget
 	{
-		Durin::FReflectedPropertyEditTarget Target;
+		Durin::Editor::FPropertyEditTarget Target;
 		Target.Object = &Object;
 		Target.MemberProperty = Property;
 		Target.LeafProperty = Property;

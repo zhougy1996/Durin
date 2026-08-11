@@ -4,7 +4,7 @@
 #include "Editor/EditorWorkspaceRootWindow.h"
 #include "MaterialEditorAPI.h"
 #include "DObject/ObjectPtr.h"
-#include "Editor/ReflectedPropertyView.h"
+#include "Editor/PropertyView.h"
 
 namespace Durin
 {
@@ -63,7 +63,7 @@ namespace Durin
 		auto DrawTextureParameter(const FMaterialParameterPanelModel& Model, const FMaterialParameterPanelEntry& Entry) -> void;
 		auto DrawOrphanParameter(const FMaterialParameterPanelModel& Model, const FMaterialParameterPanelEntry& Entry) -> void;
 		auto FinishActivePropertyEdit(bool bCancel) -> bool;
-		auto MakePropertyViewContext() -> FReflectedPropertyViewContext;
+		auto MakePropertyViewContext() -> Editor::FPropertyViewContext;
 		auto SetError(std::string Message) -> void;
 
 		FEditorWorkspaceManager& WorkspaceManager;
@@ -74,7 +74,7 @@ namespace Durin
 		std::array<char, 128> ParentSearchText{};
 		std::array<char, 128> TextureSearchText{};
 		std::string ErrorMessage;
-		FReflectedPropertyView PropertyView;
+		Editor::FPropertyView PropertyView;
 		float SidebarRatio = 0.40f;
 		float PreviewPaneRatio = 0.68f;
 		bool bUsePreferredPreviewWidth = true;

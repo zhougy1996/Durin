@@ -5,8 +5,8 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
-#include "Editor/EditorTransaction.h"
-#include "Editor/ReflectedPropertyView.h"
+#include "Editor/Transaction.h"
+#include "Editor/PropertyView.h"
 #include "EngineTestSupport.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
@@ -70,18 +70,18 @@ namespace
 			return Curve->ContainerPtrToValuePtr<Durin::FSplineCurve>(Spline);
 		}
 
-		auto CurveTarget(Durin::DSplineComponent* Spline) const -> Durin::FReflectedPropertyEditTarget
+		auto CurveTarget(Durin::DSplineComponent* Spline) const -> Durin::Editor::FPropertyEditTarget
 		{
-			return Durin::FReflectedPropertyEditTarget::ForMember(Spline, Curve);
+			return Durin::Editor::FPropertyEditTarget::ForMember(Spline, Curve);
 		}
 
-		auto PointsTarget(Durin::DSplineComponent* Spline) const -> Durin::FReflectedPropertyEditTarget
+		auto PointsTarget(Durin::DSplineComponent* Spline) const -> Durin::Editor::FPropertyEditTarget
 		{
 			return CurveTarget(Spline).ForStructMember(Points);
 		}
 
 		auto PointFieldTarget(Durin::DSplineComponent* Spline, Durin::uint32 Index, Durin::FProperty* Field) const
-			-> Durin::FReflectedPropertyEditTarget
+			-> Durin::Editor::FPropertyEditTarget
 		{
 			return PointsTarget(Spline).ForArrayElement(Point, Index).ForStructMember(Field);
 		}
@@ -352,17 +352,17 @@ TEST(FSplineEditingTests, SharedTransactionsPublishSnapshotsAndPreserveStablePat
 	ASSERT_NE(Reflection.Position, nullptr);
 	ASSERT_NE(Reflection.ClosedLoop, nullptr);
 
-	Durin::FEditorTransactionManager Transactions;
+	Durin::Editor::FTransactionManager Transactions;
 	const Durin::uint64 MountedContentRevision =
 		Transactions.GetMountedContentMutationRevision();
-	Durin::FReflectedPropertyView View;
+	Durin::Editor::FPropertyView View;
 	std::string Error;
-	const Durin::FReflectedPropertyViewContext Context{
+	const Durin::Editor::FPropertyViewContext Context{
 		.Transactions = &Transactions,
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
 	auto SubmitPosition = [&](const Durin::FVector3& Position, bool bContinuous) {
-		const Durin::FReflectedPropertyEditTarget Target = Reflection.PointFieldTarget(Spline, 1, Reflection.Position);
+		const Durin::Editor::FPropertyEditTarget Target = Reflection.PointFieldTarget(Spline, 1, Reflection.Position);
 		return View.SubmitPropertyValueEdit(Context, Target,
 			[&](Durin::FProperty* ScratchProperty, void* ScratchContainer, Durin::uint32 ScratchArrayIndex) {
 				*ScratchProperty->ContainerPtrToValuePtr<Durin::FVector3>(ScratchContainer, ScratchArrayIndex) = Position;

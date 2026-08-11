@@ -21,7 +21,7 @@
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "EngineTestSupport.h"
-#include "Editor/EditorTransaction.h"
+#include "Editor/Transaction.h"
 #include "SceneView.h"
 #include "NativeTestSupport.h"
 #include "Settings/LevelViewportSessionSettings.h"
@@ -43,14 +43,14 @@
 
 namespace
 {
-	class FCountingTransaction final : public Durin::IEditorTransaction
+	class FCountingTransaction final : public Durin::Editor::ITransaction
 	{
 	public:
 		explicit FCountingTransaction(int& InValue, int InDelta = 1) : Value(InValue), Delta(InDelta) {}
 		auto GetDescription() const -> std::string_view override { return "Counting"; }
-		auto GetDetails(Durin::EEditorTransactionOperation Operation) const -> std::string override
+		auto GetDetails(Durin::Editor::ETransactionOperation Operation) const -> std::string override
 		{
-			return Operation == Durin::EEditorTransactionOperation::Undo ? "Counter changed backward" : "Counter changed forward";
+			return Operation == Durin::Editor::ETransactionOperation::Undo ? "Counter changed backward" : "Counter changed forward";
 		}
 		auto Undo() -> bool override { Value -= Delta; return true; }
 		auto Redo() -> bool override { Value += Delta; return true; }
@@ -63,7 +63,7 @@ namespace
 		bool bFailUndo = false;
 		bool bFailRedo = false;
 	};
-	class FControlledTransaction final : public Durin::IEditorTransaction
+	class FControlledTransaction final : public Durin::Editor::ITransaction
 	{
 	public:
 		FControlledTransaction(int& InValue, FTransactionControl& InControl) : Value(InValue), Control(InControl) {}
@@ -85,7 +85,7 @@ namespace
 		FTransactionControl& Control;
 	};
 
-	class FPackageCountingTransaction final : public Durin::IEditorTransaction
+	class FPackageCountingTransaction final : public Durin::Editor::ITransaction
 	{
 	public:
 		FPackageCountingTransaction(

@@ -2,7 +2,7 @@
 
 #include "Components/SplineComponent.h"
 #include "DObject/Package.h"
-#include "Editor/EditorTransaction.h"
+#include "Editor/Transaction.h"
 #include "Engine/Actor.h"
 #include "Math/Operations.h"
 #include "MonaImGui.h"
@@ -38,7 +38,7 @@ namespace Durin
 			return std::ranges::find(Selection, Element) != Selection.end();
 		}
 
-		class FSplineSnapshotTransaction final : public IEditorTransaction
+		class FSplineSnapshotTransaction final : public Editor::ITransaction
 		{
 		public:
 			FSplineSnapshotTransaction(DSplineComponent* InSpline, std::string InDescription,
@@ -71,7 +71,7 @@ namespace Durin
 		};
 
 		template<typename F>
-		auto CommitSplineEdit(DSplineComponent& Spline, FEditorTransactionManager* Transactions, std::string Description, F&& Edit) -> bool
+		auto CommitSplineEdit(DSplineComponent& Spline, Editor::FTransactionManager* Transactions, std::string Description, F&& Edit) -> bool
 		{
 			const std::vector<FSplinePoint> Before = Spline.GetSplinePoints();
 			const bool bBeforeClosed = Spline.IsClosedLoop();
@@ -95,7 +95,7 @@ namespace Durin
 		}
 
 		template<typename F>
-		auto EditSelectedPoints(FLevelEditorContext& Context, DSplineComponent& Spline, FEditorTransactionManager* Transactions,
+		auto EditSelectedPoints(FLevelEditorContext& Context, DSplineComponent& Spline, Editor::FTransactionManager* Transactions,
 			std::string Description, F&& Edit) -> bool
 		{
 			const std::vector<uint32> Indices = GetSelectedPointIndices(Context, Spline);
@@ -288,7 +288,7 @@ namespace Durin
 				bExitRequested = false;
 			}
 			auto Tick(FLevelEditorContext& Context, FLevelEditorViewportClient& Client, const FSceneView& View,
-				FLevelEditorViewportInput& Input, FEditorTransactionManager* Transactions) -> bool override
+				FLevelEditorViewportInput& Input, Editor::FTransactionManager* Transactions) -> bool override
 			{
 				LastClient = &Client;
 				auto* Spline = Cast<DSplineComponent>(Context.GetSelectedComponent());
@@ -368,7 +368,7 @@ namespace Durin
 				Context.ClearSubElementSelection();
 				for (const auto& Element : Valid) Context.ToggleSubElement(&Spline, Element);
 			}
-			static auto DeleteSelected(FLevelEditorContext& Context, DSplineComponent& Spline, FEditorTransactionManager* Transactions) -> bool
+			static auto DeleteSelected(FLevelEditorContext& Context, DSplineComponent& Spline, Editor::FTransactionManager* Transactions) -> bool
 			{
 				std::unordered_set<FGuid> Ids;
 				for (const auto& Element : Context.GetSelectedSubElements()) if (Element.Kind == EEditorSubElementKind::Point) Ids.insert(Element.StableId);
@@ -381,7 +381,7 @@ namespace Durin
 				if (Changed) Context.ClearSubElementSelection();
 				return Changed;
 			}
-			static auto DuplicateSelected(FLevelEditorContext& Context, DSplineComponent& Spline, FEditorTransactionManager* Transactions) -> bool
+			static auto DuplicateSelected(FLevelEditorContext& Context, DSplineComponent& Spline, Editor::FTransactionManager* Transactions) -> bool
 			{
 				const auto Index = Spline.GetSplineCurve().FindPointIndex(Context.GetSelectedSubElement().StableId);
 				FGuid NewId;
@@ -392,7 +392,7 @@ namespace Durin
 				if (Changed) Context.SelectSubElement(&Spline, {EEditorSubElementKind::Point, NewId});
 				return Changed;
 			}
-			static auto AppendPoint(FLevelEditorContext& Context, DSplineComponent& Spline, FEditorTransactionManager* Transactions) -> bool
+			static auto AppendPoint(FLevelEditorContext& Context, DSplineComponent& Spline, Editor::FTransactionManager* Transactions) -> bool
 			{
 				FGuid NewId;
 				const bool Changed = CommitSplineEdit(Spline, Transactions, "Append Spline Point", [&] {
@@ -413,7 +413,7 @@ namespace Durin
 				if (!Spline) return;
 				if (FProperty* SplineCurve = Spline->GetClass()->FindPropertyByName("SplineCurve")) Builder.HideProperty(SplineCurve);
 				Builder.AddCustomRow("Spline Edit Points Segments Length Position Tangents Interpolation Automatic Clamped Aligned Broken Add Duplicate Delete Loop Reorder",
-					[&Context, Spline](FReflectedPropertyView&, const FReflectedPropertyViewContext& ViewContext) {
+					[&Context, Spline](Editor::FPropertyView&, const Editor::FPropertyViewContext& ViewContext) {
 					ImGui::PushID(Spline);
 					bool Changed = false;
 					if (MonaImGui::PropertyEdit::BeginGroup("##SplineOverview", "Spline"))

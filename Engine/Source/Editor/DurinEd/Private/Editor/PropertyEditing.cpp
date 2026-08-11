@@ -1,4 +1,4 @@
-#include "Editor/ReflectedPropertyEditing.h"
+#include "Editor/PropertyEditing.h"
 #include "Editor/PropertyValueDraft.h"
 
 #include "DObject/DObjectArray.h"
@@ -11,7 +11,7 @@
 #include "Logging/LogMacros.h"
 #include "Misc/AssertionMacros.h"
 
-namespace Durin
+namespace Durin::Editor
 {
 	namespace
 	{
@@ -44,56 +44,40 @@ namespace Durin
 			return true;
 		}
 
-		auto CaptureTargetValue(const FReflectedPropertyEditTarget& Target,
+		auto CaptureTargetValue(const FPropertyEditTarget& Target,
 			FPropertyValueSnapshot& OutSnapshot, std::string* OutError) -> bool
 		{
 			return CapturePropertyValue(
 				Target.SnapshotProperty, Target.SnapshotContainer, Target.SnapshotArrayIndex, OutSnapshot, OutError);
 		}
 
-		auto RestoreTargetValue(const FReflectedPropertyEditTarget& Target,
+		auto RestoreTargetValue(const FPropertyEditTarget& Target,
 			const FPropertyValueSnapshot& Snapshot, std::string* OutError) -> bool
 		{
 			return RestorePropertyValue(
 				Target.SnapshotProperty, Target.SnapshotContainer, Target.SnapshotArrayIndex, Snapshot, OutError);
 		}
 
-		auto MakeEventPath(const FReflectedPropertyEditTarget& Target) -> std::vector<FPropertyPathSegment>
+		auto MakeEventPath(const FPropertyEditTarget& Target) -> std::vector<FPropertyPathSegment>
 		{
 			std::vector<FPropertyPathSegment> Result;
 			Result.reserve(Target.Path.size());
-			for (const FReflectedPropertyEditPathSegment& Segment : Target.Path)
+			for (const FPropertyEditPathSegment& Segment : Target.Path)
 				Result.push_back({Segment.Property, Segment.Selector, Segment.Index, Segment.MapKeyData});
 			return Result;
 		}
 
-		auto IsSameMutationTarget(const FReflectedPropertyEditTarget& Left, const FReflectedPropertyEditTarget& Right) -> bool
-		{
-			if (Left.Object != Right.Object || Left.MemberProperty != Right.MemberProperty
-				|| Left.LeafProperty != Right.LeafProperty || Left.SnapshotProperty != Right.SnapshotProperty
-				|| Left.SnapshotContainer != Right.SnapshotContainer || Left.SnapshotArrayIndex != Right.SnapshotArrayIndex
-				|| Left.LogicalIdentity != Right.LogicalIdentity || Left.Path.size() != Right.Path.size()) return false;
-			for (size_t Index = 0; Index < Left.Path.size(); ++Index)
-			{
-				const auto& A = Left.Path[Index];
-				const auto& B = Right.Path[Index];
-				if (A.Property != B.Property || A.Selector != B.Selector || A.Index != B.Index
-					|| A.MapKeyData != B.MapKeyData || A.MapKey != B.MapKey) return false;
-			}
-			return true;
-		}
-
-		thread_local std::vector<const FReflectedPropertyEditTarget*> GActiveGenericMutations;
+		thread_local std::vector<const FPropertyEditTarget*> GActiveGenericMutations;
 
 		// Balances pre/post mutation callbacks even when a container edit fails.
 		class FGenericMutationScope
 		{
 		public:
-			explicit FGenericMutationScope(const FReflectedPropertyEditTarget& Target)
+			explicit FGenericMutationScope(const FPropertyEditTarget& Target)
 				: Target(&Target) { GActiveGenericMutations.push_back(this->Target); }
 			~FGenericMutationScope() { GActiveGenericMutations.pop_back(); }
 		private:
-			const FReflectedPropertyEditTarget* Target;
+			const FPropertyEditTarget* Target;
 		};
 
 		struct FDeferredMutation
@@ -103,7 +87,7 @@ namespace Durin
 		};
 
 		auto ApplyGenericMutation(
-			const FReflectedPropertyEditTarget& Target,
+			const FPropertyEditTarget& Target,
 			const FPropertyValueSnapshot& ProposedValue,
 			EPropertyChangePhase Phase,
 			EPropertyChangeOrigin Origin,
@@ -112,7 +96,7 @@ namespace Durin
 			std::string* OutError
 		) -> bool
 		{
-			if (std::ranges::any_of(GActiveGenericMutations, [&](const auto* Active) { return IsSameMutationTarget(*Active, Target); }))
+			if (std::ranges::any_of(GActiveGenericMutations, [&](const auto* Active) { return Active->IsSameMutationTarget(Target); }))
 				return Fail(OutError, "A reflected property hook cannot start a nested edit of the same target.");
 			FGenericMutationScope Scope(Target);
 
@@ -195,7 +179,7 @@ namespace Durin
 			return true;
 		}
 
-		auto ValidateTarget(const FReflectedPropertyEditTarget& Target, std::string* OutError) -> bool
+		auto ValidateTarget(const FPropertyEditTarget& Target, std::string* OutError) -> bool
 		{
 			if (!Target.Object) return Fail(OutError, "The edit target has no owning object.");
 			if (!Target.MemberProperty || !Target.LeafProperty
@@ -205,7 +189,7 @@ namespace Durin
 			{
 				return Fail(OutError, "The property path must run from the member property to the leaf property.");
 			}
-			for (const FReflectedPropertyEditPathSegment& Segment : Target.Path)
+			for (const FPropertyEditPathSegment& Segment : Target.Path)
 			{
 				if (!Segment.Property) return Fail(OutError, "The property path contains an empty segment.");
 				if (Segment.Selector != EPropertyPathSelector::MapKey && !Segment.MapKeyData.empty())
@@ -234,7 +218,7 @@ namespace Durin
 		};
 
 		auto NotifyMutation(
-			const FReflectedPropertyEditTarget& Target,
+			const FPropertyEditTarget& Target,
 			EPropertyChangePhase Phase,
 			EPropertyChangeOrigin Origin
 		) -> void
@@ -251,7 +235,7 @@ namespace Durin
 		}
 
 		auto ApplyDeferredMutation(
-			const FReflectedPropertyEditTarget& Target,
+			const FPropertyEditTarget& Target,
 			const FPropertyValueSnapshot& ProposedValue,
 			EPropertyChangePhase Phase,
 			EPropertyChangeOrigin Origin,
@@ -267,7 +251,7 @@ namespace Durin
 		}
 
 		auto ExecuteMutation(
-			const FReflectedPropertyEditTarget& Target,
+			const FPropertyEditTarget& Target,
 			const FPropertyValueSnapshot* Value,
 			const FPropertyValueSnapshot* PreviousValue,
 			EMutationOperation Operation,
@@ -305,14 +289,14 @@ namespace Durin
 		}
 	}
 
-	struct FReflectedPropertyEditSession::FDeferredOwnerState
+	struct FPropertyEditSession::FDeferredOwnerState
 	{
 		std::mutex Mutex;
-		FReflectedPropertyEditSession* Owner = nullptr;
+		FPropertyEditSession* Owner = nullptr;
 	};
 
 	auto ResolveReflectedPropertyValue(
-		const FReflectedPropertyEditTarget& Target,
+		const FPropertyEditTarget& Target,
 		FResolvedPropertyValue& OutValue,
 		std::string* OutError
 	) -> bool
@@ -325,7 +309,7 @@ namespace Durin
 		uint32 CurrentArrayIndex = Target.SnapshotArrayIndex;
 		for (size_t PathIndex = 0; PathIndex < Target.Path.size(); ++PathIndex)
 		{
-			const FReflectedPropertyEditPathSegment& Segment = Target.Path[PathIndex];
+			const FPropertyEditPathSegment& Segment = Target.Path[PathIndex];
 			auto* CurrentProperty = const_cast<FProperty*>(Segment.Property);
 			if (PathIndex + 1 == Target.Path.size())
 			{
@@ -388,9 +372,9 @@ namespace Durin
 		return Fail(OutError, "The reflected property path is empty.");
 	}
 
-	auto FReflectedPropertyEditTarget::ForMember(DObject* Object, const FProperty* Property, uint32 ArrayIndex) -> FReflectedPropertyEditTarget
+	auto FPropertyEditTarget::ForMember(DObject* Object, const FProperty* Property, uint32 ArrayIndex) -> FPropertyEditTarget
 	{
-		FReflectedPropertyEditTarget Target;
+		FPropertyEditTarget Target;
 		Target.Object = Object;
 		Target.MemberProperty = Property;
 		Target.LeafProperty = Property;
@@ -405,9 +389,9 @@ namespace Durin
 		return Target;
 	}
 
-	auto FReflectedPropertyEditTarget::ForStructMember(const FProperty* Property, uint32 ArrayIndex) const -> FReflectedPropertyEditTarget
+	auto FPropertyEditTarget::ForStructMember(const FProperty* Property, uint32 ArrayIndex) const -> FPropertyEditTarget
 	{
-		FReflectedPropertyEditTarget Target = *this;
+		FPropertyEditTarget Target = *this;
 		Target.LeafProperty = Property;
 		Target.Path.push_back({
 			Property,
@@ -418,9 +402,9 @@ namespace Durin
 		return Target;
 	}
 
-	auto FReflectedPropertyEditTarget::ForArrayElement(const FProperty* ElementProperty, uint64 ElementIndex) const -> FReflectedPropertyEditTarget
+	auto FPropertyEditTarget::ForArrayElement(const FProperty* ElementProperty, uint64 ElementIndex) const -> FPropertyEditTarget
 	{
-		FReflectedPropertyEditTarget Target = *this;
+		FPropertyEditTarget Target = *this;
 		Target.LeafProperty = ElementProperty;
 		if (!Target.Path.empty())
 		{
@@ -432,15 +416,15 @@ namespace Durin
 		return Target;
 	}
 
-	auto FReflectedPropertyEditTarget::ForMapEntry(const FProperty* EntryProperty, std::vector<uint8> SerializedKey) const -> FReflectedPropertyEditTarget
+	auto FPropertyEditTarget::ForMapEntry(const FProperty* EntryProperty, std::vector<uint8> SerializedKey) const -> FPropertyEditTarget
 	{
 		return ForMapEntry(EntryProperty, {}, std::move(SerializedKey));
 	}
 
-	auto FReflectedPropertyEditTarget::ForMapEntry(const FProperty* EntryProperty,
-		FPropertyValueSnapshot KeySnapshot, std::vector<uint8> SerializedKey) const -> FReflectedPropertyEditTarget
+	auto FPropertyEditTarget::ForMapEntry(const FProperty* EntryProperty,
+		FPropertyValueSnapshot KeySnapshot, std::vector<uint8> SerializedKey) const -> FPropertyEditTarget
 	{
-		FReflectedPropertyEditTarget Target = *this;
+		FPropertyEditTarget Target = *this;
 		Target.LeafProperty = EntryProperty;
 		if (!Target.Path.empty())
 		{
@@ -453,14 +437,65 @@ namespace Durin
 		return Target;
 	}
 
-	struct FReflectedPropertyTransaction::FDeferredRestoreOwnerState
+	auto FPropertyEditTarget::IsSameMutationTarget(const FPropertyEditTarget& Other) const -> bool
+	{
+		if (Object != Other.Object || MemberProperty != Other.MemberProperty
+			|| LeafProperty != Other.LeafProperty || SnapshotProperty != Other.SnapshotProperty
+			|| SnapshotContainer != Other.SnapshotContainer || SnapshotArrayIndex != Other.SnapshotArrayIndex
+			|| LogicalIdentity != Other.LogicalIdentity || Path.size() != Other.Path.size()) return false;
+		for (size_t Index = 0; Index < Path.size(); ++Index)
+		{
+			const FPropertyEditPathSegment& Left = Path[Index];
+			const FPropertyEditPathSegment& Right = Other.Path[Index];
+			if (Left.Property != Right.Property || Left.Selector != Right.Selector || Left.Index != Right.Index
+				|| Left.MapKeyData != Right.MapKeyData || Left.MapKey != Right.MapKey) return false;
+		}
+		return true;
+	}
+
+	auto FPropertyEditTarget::IsSameStableTarget(const FPropertyEditTarget& Other) const -> bool
+	{
+		if (Object != Other.Object || MemberProperty != Other.MemberProperty
+			|| LeafProperty != Other.LeafProperty || SnapshotProperty != Other.SnapshotProperty
+			|| SnapshotArrayIndex != Other.SnapshotArrayIndex
+			|| LogicalIdentity != Other.LogicalIdentity || Path.size() != Other.Path.size()) return false;
+		for (size_t Index = 0; Index < Path.size(); ++Index)
+		{
+			const FPropertyEditPathSegment& Left = Path[Index];
+			const FPropertyEditPathSegment& Right = Other.Path[Index];
+			if (Left.Property != Right.Property || Left.Selector != Right.Selector || Left.Index != Right.Index
+				|| Left.MapKeyData != Right.MapKeyData || Left.MapKey != Right.MapKey) return false;
+		}
+		return true;
+	}
+
+	auto FPropertyEditTarget::MatchesContinuousEdit(const FPropertyEditTarget& Other) const -> bool
+	{
+		if (Object != Other.Object || MemberProperty != Other.MemberProperty
+			|| LeafProperty != Other.LeafProperty || SnapshotProperty != Other.SnapshotProperty
+			|| SnapshotContainer != Other.SnapshotContainer || SnapshotArrayIndex != Other.SnapshotArrayIndex
+			|| Kind != Other.Kind || LogicalIdentity != Other.LogicalIdentity
+			|| Path.size() != Other.Path.size()) return false;
+		for (size_t Index = 0; Index < Path.size(); ++Index)
+		{
+			const FPropertyEditPathSegment& Left = Path[Index];
+			const FPropertyEditPathSegment& Right = Other.Path[Index];
+			if (Left.Property != Right.Property || Left.Selector != Right.Selector || Left.Index != Right.Index) return false;
+			const bool bContinuousKeyRename = Kind == EPropertyChangeKind::MapKeyRename
+				&& Left.Selector == EPropertyPathSelector::MapKey;
+			if (!bContinuousKeyRename && (Left.MapKeyData != Right.MapKeyData || Left.MapKey != Right.MapKey)) return false;
+		}
+		return true;
+	}
+
+	struct FPropertyTransaction::FDeferredRestoreOwnerState
 	{
 		std::mutex Mutex;
-		FReflectedPropertyTransaction* Owner = nullptr;
+		FPropertyTransaction* Owner = nullptr;
 	};
 
-	FReflectedPropertyTransaction::FReflectedPropertyTransaction(
-		FReflectedPropertyEditTarget InTarget,
+	FPropertyTransaction::FPropertyTransaction(
+		FPropertyEditTarget InTarget,
 		FPropertyValueSnapshot InBefore,
 		FPropertyValueSnapshot InAfter,
 		std::string InDescription
@@ -480,7 +515,7 @@ namespace Durin
 		}
 	}
 
-	FReflectedPropertyTransaction::~FReflectedPropertyTransaction()
+	FPropertyTransaction::~FPropertyTransaction()
 	{
 		if (DeferredRestoreOwnerState)
 		{
@@ -491,24 +526,24 @@ namespace Durin
 		if (bObjectRooted && GDObjectArray.Contains(Target.Object)) RemoveFromRoot(Target.Object);
 	}
 
-	auto FReflectedPropertyTransaction::GetDetails(EEditorTransactionOperation) const -> std::string
+	auto FPropertyTransaction::GetDetails(ETransactionOperation) const -> std::string
 	{
 		if (!LastError.empty()) return LastError;
 		if (!Target.Object || !Target.MemberProperty) return {};
 		return std::format("{}.{}", Target.Object->GetObjectPath(), Target.MemberProperty->NamePrivate.ToString());
 	}
 
-	auto FReflectedPropertyTransaction::Undo() -> bool
+	auto FPropertyTransaction::Undo() -> bool
 	{
 		return Restore(Before, EPropertyChangeOrigin::Undo);
 	}
 
-	auto FReflectedPropertyTransaction::Redo() -> bool
+	auto FPropertyTransaction::Redo() -> bool
 	{
 		return Restore(After, EPropertyChangeOrigin::Redo);
 	}
 
-	auto FReflectedPropertyTransaction::Restore(const FPropertyValueSnapshot& Snapshot, EPropertyChangeOrigin Origin) -> bool
+	auto FPropertyTransaction::Restore(const FPropertyValueSnapshot& Snapshot, EPropertyChangeOrigin Origin) -> bool
 	{
 		LastError.clear();
 		if (bDeferredRestorePending)
@@ -532,7 +567,7 @@ namespace Durin
 		}
 		if (Result.bDeferred)
 		{
-			const FReflectedPropertyEditTarget DeferredTarget = Target;
+			const FPropertyEditTarget DeferredTarget = Target;
 			const FWeakObjectPtr WeakObject(Target.Object);
 			FPropertyValueSnapshot ProposedValue = std::move(Result.Deferred.ProposedValue);
 			bDeferredRestorePending = true;
@@ -544,7 +579,7 @@ namespace Durin
 			CancelDeferredRestore = Result.Deferred.Action(
 				[OwnerState, DeferredTarget, WeakObject, ProposedValue = std::move(ProposedValue), Origin](
 					bool bSucceeded, std::string Error) mutable {
-					FReflectedPropertyTransaction* Owner = nullptr;
+					FPropertyTransaction* Owner = nullptr;
 					{
 						std::lock_guard Lock(OwnerState->Mutex);
 						Owner = OwnerState->Owner;
@@ -576,10 +611,10 @@ namespace Durin
 		return true;
 	}
 
-	auto FReflectedPropertyTransaction::CompleteDeferredRestore(
+	auto FPropertyTransaction::CompleteDeferredRestore(
 		bool bSucceeded,
 		std::string Error,
-		FReflectedPropertyEditTarget DeferredTarget,
+		FPropertyEditTarget DeferredTarget,
 		FPropertyValueSnapshot ProposedValue,
 		EPropertyChangeOrigin Origin) -> void
 	{
@@ -610,18 +645,18 @@ namespace Durin
 			ImmediateDeferredRestoreResult = bSucceeded;
 			return;
 		}
-		FEditorTransactionDeferredCompletion Completion = DeferredRestoreCompletion;
+		FTransactionDeferredCompletion Completion = DeferredRestoreCompletion;
 		if (Completion) Completion(bSucceeded);
 	}
 
-	FReflectedPropertyEditSession::~FReflectedPropertyEditSession()
+	FPropertyEditSession::~FPropertyEditSession()
 	{
 		// An applied preview must never be abandoned merely because its UI owner is
 		// destroyed. Explicit Commit/Cancel remains preferable because it can surface errors.
 		if (bActive)
 		{
 			std::string Error;
-			if (Cancel(&Error) == EReflectedPropertyEditResult::Failed)
+			if (Cancel(&Error) == EPropertyEditResult::Failed)
 			{
 				DURIN_FATAL("Unable to restore an unfinished reflected-property preview: {}", Error);
 				check(false);
@@ -630,11 +665,11 @@ namespace Durin
 		Reset();
 	}
 
-	auto FReflectedPropertyEditSession::Begin(
-		const FReflectedPropertyEditTarget& InTarget,
+	auto FPropertyEditSession::Begin(
+		const FPropertyEditTarget& InTarget,
 		std::string_view InDescription,
 		std::string* OutError,
-		FEditorTransactionManager* InTransactionManager
+		FTransactionManager* InTransactionManager
 	) -> bool
 	{
 		if (bActive) return Fail(OutError, "A reflected-property edit session is already active.");
@@ -665,9 +700,9 @@ namespace Durin
 		return true;
 	}
 
-	auto FReflectedPropertyEditSession::Apply(const FPropertyValueSnapshot& ProposedValue, std::string* OutError) -> EReflectedPropertyEditResult
+	auto FPropertyEditSession::Apply(const FPropertyValueSnapshot& ProposedValue, std::string* OutError) -> EPropertyEditResult
 	{
-		if (!bActive) { Fail(OutError, "No reflected-property edit session is active."); return EReflectedPropertyEditResult::Failed; }
+		if (!bActive) { Fail(OutError, "No reflected-property edit session is active."); return EPropertyEditResult::Failed; }
 		if (bDeferredPending)
 		{
 			if (DeferredOwnerState)
@@ -680,14 +715,14 @@ namespace Durin
 			DeferredOwnerState.reset();
 			bDeferredPending = false;
 		}
-		if (ProposedValue == CurrentValue) return EReflectedPropertyEditResult::NoChange;
+		if (ProposedValue == CurrentValue) return EPropertyEditResult::NoChange;
 		FMutationExecutionResult Result = ExecuteMutation(
 			Target, &ProposedValue, &CurrentValue, EMutationOperation::Apply,
 			EPropertyChangePhase::Interactive, EPropertyChangeOrigin::Edit, OutError);
 		if (!Result.bSucceeded)
 		{
 			if (Result.AppliedValue.IsValid()) CurrentValue = std::move(Result.AppliedValue);
-			return EReflectedPropertyEditResult::Failed;
+			return EPropertyEditResult::Failed;
 		}
 		if (Result.bDeferred)
 		{
@@ -699,7 +734,7 @@ namespace Durin
 			FPropertyEditDeferredCancel Cancel = Result.Deferred.Action(
 				[OwnerState, DeferredValue = std::move(DeferredValue)](
 					bool bSucceeded, std::string Error) mutable {
-					FReflectedPropertyEditSession* Owner = nullptr;
+					FPropertyEditSession* Owner = nullptr;
 					{
 						std::lock_guard Lock(OwnerState->Mutex);
 						Owner = OwnerState->Owner;
@@ -710,13 +745,13 @@ namespace Durin
 				});
 			if (bDeferredPending && DeferredOwnerState == OwnerState)
 				CancelDeferredEdit = std::move(Cancel);
-			return EReflectedPropertyEditResult::Pending;
+			return EPropertyEditResult::Pending;
 		}
 		CurrentValue = std::move(Result.AppliedValue);
-		return Result.bChanged ? EReflectedPropertyEditResult::Changed : EReflectedPropertyEditResult::NoChange;
+		return Result.bChanged ? EPropertyEditResult::Changed : EPropertyEditResult::NoChange;
 	}
 
-	auto FReflectedPropertyEditSession::CompleteDeferredEdit(
+	auto FPropertyEditSession::CompleteDeferredEdit(
 		bool bSucceeded,
 		std::string Error,
 		FPropertyValueSnapshot ProposedValue) -> void
@@ -749,39 +784,22 @@ namespace Durin
 			return;
 		}
 		CurrentValue = std::move(Result.AppliedValue);
-		if (Commit(&Error) == EReflectedPropertyEditResult::Failed)
+		if (Commit(&Error) == EPropertyEditResult::Failed)
 			DURIN_ERROR("Deferred reflected-property transaction failed: {}", Error);
 	}
 
-	auto FReflectedPropertyEditSession::MatchesTarget(const FReflectedPropertyEditTarget& Other) const -> bool
+	auto FPropertyEditSession::MatchesTarget(const FPropertyEditTarget& Other) const -> bool
 	{
-		if (!bActive || Target.Object != Other.Object || Target.MemberProperty != Other.MemberProperty
-			|| Target.LeafProperty != Other.LeafProperty || Target.SnapshotProperty != Other.SnapshotProperty
-			|| Target.SnapshotContainer != Other.SnapshotContainer || Target.SnapshotArrayIndex != Other.SnapshotArrayIndex
-			|| Target.Kind != Other.Kind || Target.LogicalIdentity != Other.LogicalIdentity
-			|| Target.Path.size() != Other.Path.size()) return false;
-		for (size_t Index = 0; Index < Target.Path.size(); ++Index)
-		{
-			const FReflectedPropertyEditPathSegment& Left = Target.Path[Index];
-			const FReflectedPropertyEditPathSegment& Right = Other.Path[Index];
-			if (Left.Property != Right.Property || Left.Selector != Right.Selector || Left.Index != Right.Index) return false;
-			// A key's bytes necessarily change during a rename. The active ImGui item
-			// is the sole editor of this leaf, so member/leaf/path shape is the stable
-			// identity while the transaction retains the original key in Target.Path.
-			const bool bContinuousKeyRename = Target.Kind == EPropertyChangeKind::MapKeyRename
-				&& Other.Kind == EPropertyChangeKind::MapKeyRename && Left.Selector == EPropertyPathSelector::MapKey;
-			if (!bContinuousKeyRename && (Left.MapKeyData != Right.MapKeyData || Left.MapKey != Right.MapKey)) return false;
-		}
-		return true;
+		return bActive && Target.MatchesContinuousEdit(Other);
 	}
 
-	auto FReflectedPropertyEditSession::Commit(std::string* OutError) -> EReflectedPropertyEditResult
+	auto FPropertyEditSession::Commit(std::string* OutError) -> EPropertyEditResult
 	{
-		if (!bActive) { Fail(OutError, "No reflected-property edit session is active."); return EReflectedPropertyEditResult::Failed; }
+		if (!bActive) { Fail(OutError, "No reflected-property edit session is active."); return EPropertyEditResult::Failed; }
 		const bool bChanged = HasChanges();
 		if (!ExecuteMutation(Target, nullptr, nullptr, EMutationOperation::NotifyOnly,
 			EPropertyChangePhase::Committed, EPropertyChangeOrigin::Edit, OutError).bSucceeded)
-			return EReflectedPropertyEditResult::Failed;
+			return EPropertyEditResult::Failed;
 		if (bChanged)
 		{
 			Target.Object->MarkPackageDirty();
@@ -789,18 +807,18 @@ namespace Durin
 			{
 				// Preview already placed the object in its final state. Register exactly
 				// one applied transaction here instead of replaying the value on commit.
-				TransactionManager->CommitApplied(std::make_unique<FReflectedPropertyTransaction>(
+				TransactionManager->CommitApplied(std::make_unique<FPropertyTransaction>(
 					Target, OriginalValue, CurrentValue, Description
 				));
 			}
 		}
 		Reset();
-		return bChanged ? EReflectedPropertyEditResult::Changed : EReflectedPropertyEditResult::NoChange;
+		return bChanged ? EPropertyEditResult::Changed : EPropertyEditResult::NoChange;
 	}
 
-	auto FReflectedPropertyEditSession::Cancel(std::string* OutError) -> EReflectedPropertyEditResult
+	auto FPropertyEditSession::Cancel(std::string* OutError) -> EPropertyEditResult
 	{
-		if (!bActive) { Fail(OutError, "No reflected-property edit session is active."); return EReflectedPropertyEditResult::Failed; }
+		if (!bActive) { Fail(OutError, "No reflected-property edit session is active."); return EPropertyEditResult::Failed; }
 		const bool bChanged = HasChanges();
 		FMutationExecutionResult Result = ExecuteMutation(
 			Target, bChanged ? &OriginalValue : nullptr, nullptr,
@@ -809,13 +827,13 @@ namespace Durin
 		if (!Result.bSucceeded)
 		{
 			if (Result.AppliedValue.IsValid()) CurrentValue = std::move(Result.AppliedValue);
-			return EReflectedPropertyEditResult::Failed;
+			return EPropertyEditResult::Failed;
 		}
 		Reset();
-		return bChanged ? EReflectedPropertyEditResult::Changed : EReflectedPropertyEditResult::NoChange;
+		return bChanged ? EPropertyEditResult::Changed : EPropertyEditResult::NoChange;
 	}
 
-	auto FReflectedPropertyEditSession::Reset() -> void
+	auto FPropertyEditSession::Reset() -> void
 	{
 		if (DeferredOwnerState)
 		{

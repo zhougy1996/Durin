@@ -1307,11 +1307,11 @@ namespace Durin
 
 	auto MTextureEditor::FinishActivePropertyEdit(bool bCancel) -> bool
 	{
-		const FReflectedPropertyViewContext Context = MakePropertyViewContext();
+		const Editor::FPropertyViewContext Context = MakePropertyViewContext();
 		return PropertyView.FinishActiveEdit(&Context, bCancel);
 	}
 
-	auto MTextureEditor::MakePropertyViewContext() -> FReflectedPropertyViewContext
+	auto MTextureEditor::MakePropertyViewContext() -> Editor::FPropertyViewContext
 	{
 		return {
 			.Transactions = GEditor ? &GEditor->GetTransactionManager() : nullptr,

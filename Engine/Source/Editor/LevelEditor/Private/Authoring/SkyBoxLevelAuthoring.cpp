@@ -4,7 +4,7 @@
 #include "Components/SkyBoxComponent.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Package.h"
-#include "Editor/EditorTransaction.h"
+#include "Editor/Transaction.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Texture/TextureCube.h"
@@ -53,7 +53,7 @@ namespace Durin
 		}
 
 		// Creates and removes one actor while preserving its requested level identity.
-		class FCreateSkyBoxTransaction final : public IEditorTransaction
+		class FCreateSkyBoxTransaction final : public Editor::ITransaction
 		{
 		public:
 			FCreateSkyBoxTransaction(DLevel* InLevel, DTextureCube* InTextureCube, FName InActorName)
@@ -63,9 +63,9 @@ namespace Durin
 			}
 
 			auto GetDescription() const -> std::string_view override { return "Place sky box"; }
-			auto GetDetails(EEditorTransactionOperation Operation) const -> std::string override
+			auto GetDetails(Editor::ETransactionOperation Operation) const -> std::string override
 			{
-				return Operation == EEditorTransactionOperation::Undo
+				return Operation == Editor::ETransactionOperation::Undo
 					? std::format("Remove sky box '{}'", ActorName.ToString())
 					: std::format("Create sky box '{}'", ActorName.ToString());
 			}
@@ -97,7 +97,7 @@ namespace Durin
 		};
 
 		// Restores the cube reference on one existing skybox component.
-		class FSetSkyBoxTextureTransaction final : public IEditorTransaction
+		class FSetSkyBoxTextureTransaction final : public Editor::ITransaction
 		{
 		public:
 			FSetSkyBoxTextureTransaction(DSkyBoxComponent* InComponent, DTextureCube* InBefore, DTextureCube* InAfter)
@@ -130,7 +130,7 @@ namespace Durin
 		DLevel& Level,
 		DTextureCube* TextureCube,
 		FName RequestedName,
-		FEditorTransactionManager* Transactions,
+		Editor::FTransactionManager* Transactions,
 		bool bReadOnly) -> FSkyBoxPlacementResult
 	{
 		if (bReadOnly) return {.Message = "The level is read-only."};

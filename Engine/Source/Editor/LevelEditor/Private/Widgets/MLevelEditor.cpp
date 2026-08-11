@@ -4,7 +4,7 @@
 #include "Editor/EditorAssetPicker.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorNotification.h"
-#include "Editor/EditorTransaction.h"
+#include "Editor/Transaction.h"
 #include "Editor/EditorWorkspaceUI.h"
 #include "Settings/LevelEditorSessionSettings.h"
 #include "Assets/EditorAssetMoveCoordinator.h"
@@ -219,7 +219,7 @@ namespace Durin
 			[this](std::span<const FEditorAssetMove> Moves) {
 				return AssetMoveCoordinator->MoveAssets(Moves);
 			},
-			[](std::unique_ptr<IEditorTransaction> Transaction) {
+			[](std::unique_ptr<Editor::ITransaction> Transaction) {
 				return GEditor
 					&& GEditor->GetTransactionManager().Execute(
 						std::move(Transaction));

@@ -1,5 +1,5 @@
 #include "SkyBoxTestSupport.h"
-#include "Editor/EditorTransaction.h"
+#include "Editor/Transaction.h"
 #include "Math/Operations.h"
 #include "SkyBoxLevelAuthoring.h"
 
@@ -27,7 +27,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConf
 
 	Durin::DLevel* Level = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(LevelPath, Level));
-	Durin::FEditorTransactionManager Transactions;
+	Durin::Editor::FTransactionManager Transactions;
 	const Durin::FSkyBoxPlacementResult Placement =
 		Durin::FSkyBoxLevelAuthoringService::PlaceTextureCube(
 			*Level, CubeResult.Asset, "Sky", &Transactions);
@@ -145,7 +145,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	ASSERT_TRUE(Durin::Asset::CreateAsset(LevelPath, Level));
 	auto* Actor = Level->SpawnActor<Durin::ASkyBoxActor>("PanoramaSky");
 	ASSERT_NE(Actor, nullptr);
-	Durin::FEditorTransactionManager Transactions;
+	Durin::Editor::FTransactionManager Transactions;
 	const Durin::FSkyBoxPlacementResult Placement =
 		Durin::FSkyBoxLevelAuthoringService::PlaceTextureCube(
 			*Level, CubeResult.Asset, "UnusedName", &Transactions);
