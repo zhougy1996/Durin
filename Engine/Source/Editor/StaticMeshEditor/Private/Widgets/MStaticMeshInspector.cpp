@@ -72,7 +72,7 @@ namespace Durin
 			ErrorMessage = std::move(PathError);
 			return Editor::EDocumentOpenResult::Rejected;
 		}
-		FWorkspaceAssetOpenCompatibility CompatibilityPolicy(AssetPath);
+		Editor::FWorkspaceAssetOpenCompatibility CompatibilityPolicy(AssetPath);
 		DStaticMesh* Mesh = nullptr;
 		Asset::FAssetLoadReport LoadReport;
 		const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Mesh, &LoadReport);

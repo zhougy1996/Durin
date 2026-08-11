@@ -128,7 +128,7 @@ namespace Durin
 			SetError(std::move(PathError));
 			return Editor::EDocumentOpenResult::Rejected;
 		}
-		FWorkspaceAssetOpenCompatibility CompatibilityPolicy(AssetPath);
+		Editor::FWorkspaceAssetOpenCompatibility CompatibilityPolicy(AssetPath);
 		DMaterialInterface* Material = nullptr;
 		Asset::FAssetLoadReport LoadReport;
 		const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Material, &LoadReport);

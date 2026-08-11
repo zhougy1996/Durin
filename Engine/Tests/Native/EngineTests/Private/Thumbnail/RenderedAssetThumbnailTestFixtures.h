@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AssetSystem.h"
-#include "Asset/EditorAssetRetention.h"
+#include "Asset/AssetRetention.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/Actor.h"
@@ -83,7 +83,7 @@ namespace Durin::Tests
 						FRenderedAssetThumbnailVisualContract::SphereVirtualPath,
 						SpherePath,
 						&Error)
-					|| !FEditorAssetRetentionService::Acquire(
+					|| !Editor::FAssetRetentionService::Acquire(
 						SpherePath, SphereAsset, Error))
 					return nullptr;
 			}
@@ -249,7 +249,7 @@ namespace Durin::Tests
 		FRenderedAssetThumbnailPreviewScenePool Pool;
 		FRenderedAssetThumbnailPreviewView View;
 		AActor* Actor = nullptr;
-		FRetainedEditorAsset SphereAsset;
+		Editor::FRetainedAsset SphereAsset;
 	};
 
 	inline auto MakeRenderedThumbnailFixturePath(std::string_view Value, FAssetPath& OutPath) -> bool

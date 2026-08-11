@@ -70,12 +70,12 @@ namespace Durin
 		std::string ActiveResourceId;
 		std::string ErrorMessage;
 		Editor::FPropertyView PropertyView;
-		FSourceReferenceIndex SourceReferenceIndex;
+		Editor::FSourceReferenceIndex SourceReferenceIndex;
 		struct FPendingSourceReplacement
 		{
 			std::string SourceVirtualPath;
 			std::string ReplacementPhysicalPath;
-			std::vector<FSourceReference> AffectedAssets;
+			std::vector<Editor::FSourceReference> AffectedAssets;
 			bool bOpenRequested = false;
 		};
 		FPendingSourceReplacement PendingSourceReplacement;
@@ -83,7 +83,7 @@ namespace Durin
 		{
 			std::string OriginalSourceVirtualPath;
 			std::string DestinationSourceVirtualPath;
-			std::vector<FSourceReference> AffectedAssets;
+			std::vector<Editor::FSourceReference> AffectedAssets;
 			bool bOpenRequested = false;
 		};
 		FPendingSourceRelocation PendingSourceRelocation;

@@ -3,7 +3,7 @@
 #include "DObject/AssetPath.h"
 #include "DurinEdAPI.h"
 
-namespace Durin
+namespace Durin::Editor
 {
 	struct FSourceReference
 	{
@@ -32,4 +32,4 @@ namespace Durin
 		size_t InspectedPackageCount = 0;
 		std::string Warning;
 	};
-} // namespace Durin
+} // namespace Durin::Editor

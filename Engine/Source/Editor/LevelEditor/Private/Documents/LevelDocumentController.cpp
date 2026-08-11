@@ -222,7 +222,7 @@ namespace Durin
 			return true;
 		if (ClearError) ClearError();
 		const FAssetPath& Path = DefaultLevel.GetSoftObjectPath().GetAssetPath();
-		FWorkspaceAssetOpenCompatibility CompatibilityPolicy(Path);
+		Editor::FWorkspaceAssetOpenCompatibility CompatibilityPolicy(Path);
 		DLevel* Level = nullptr;
 		Asset::FAssetLoadReport LoadReport;
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadBegin);
@@ -287,7 +287,7 @@ namespace Durin
 			SetError(PathError);
 			return ELevelDocumentOpenResult::Rejected;
 		}
-		FWorkspaceAssetOpenCompatibility CompatibilityPolicy(Path);
+		Editor::FWorkspaceAssetOpenCompatibility CompatibilityPolicy(Path);
 		DLevel* Level = nullptr;
 		Asset::FAssetLoadReport LoadReport;
 		Asset::FAssetResult Result;

@@ -153,7 +153,7 @@ namespace Durin
 			SetError(std::move(PathError));
 			return Editor::EDocumentOpenResult::Rejected;
 		}
-		FWorkspaceAssetOpenCompatibility CompatibilityPolicy(AssetPath);
+		Editor::FWorkspaceAssetOpenCompatibility CompatibilityPolicy(AssetPath);
 		DTexture2D* Texture = nullptr;
 		Asset::FAssetLoadReport LoadReport;
 		const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Texture, &LoadReport);
@@ -766,7 +766,7 @@ namespace Durin
 					DescribeMountOwner(Resolved.Mount->Owner),
 					Resolved.Mount->bAuthoringWritable ? "writable" : "read-only"));
 			}
-			const std::span<const FSourceReference> References =
+			const std::span<const Editor::FSourceReference> References =
 				SourceReferenceIndex.FindReferences(Texture->GetSourceFile());
 			DrawInfoRow("Shared References", std::format("{} asset(s)", References.size()));
 		}
@@ -1005,7 +1005,7 @@ namespace Durin
 			return;
 		}
 		SourceReferenceIndex.Refresh();
-		const std::span<const FSourceReference> References =
+		const std::span<const Editor::FSourceReference> References =
 			SourceReferenceIndex.FindReferences(Texture->GetSourceFile());
 		PendingSourceReplacement = {
 			.SourceVirtualPath = Texture->GetSourceFile(),
@@ -1034,7 +1034,7 @@ namespace Durin
 		ImGui::BeginChild("AffectedMountedSources",
 			ImVec2(MonaImGui::ScaleUI(520.0f), MonaImGui::ScaleUI(130.0f)),
 			ImGuiChildFlags_Borders);
-		for (const FSourceReference& Reference :
+		for (const Editor::FSourceReference& Reference :
 			PendingSourceReplacement.AffectedAssets)
 			ImGui::TextUnformatted(Reference.AssetPath.ToString().c_str());
 		ImGui::EndChild();
@@ -1129,7 +1129,7 @@ namespace Durin
 			return;
 		}
 		SourceReferenceIndex.Refresh();
-		const std::span<const FSourceReference> References =
+		const std::span<const Editor::FSourceReference> References =
 			SourceReferenceIndex.FindReferences(Texture->GetSourceFile());
 		PendingSourceRelocation = {
 			.OriginalSourceVirtualPath = Texture->GetSourceFile(),
@@ -1164,7 +1164,7 @@ namespace Durin
 		ImGui::BeginChild("RelocatedMountedSources",
 			ImVec2(MonaImGui::ScaleUI(520.0f), MonaImGui::ScaleUI(130.0f)),
 			ImGuiChildFlags_Borders);
-		for (const FSourceReference& Reference :
+		for (const Editor::FSourceReference& Reference :
 			PendingSourceRelocation.AffectedAssets)
 			ImGui::TextUnformatted(Reference.AssetPath.ToString().c_str());
 		ImGui::EndChild();
@@ -1178,7 +1178,7 @@ namespace Durin
 			ImVec2(MonaImGui::ScaleUI(210.0f), 0.0f)))
 		{
 			std::string Error;
-			if (!RelocateMountedSourceAcrossPackages({
+			if (!Editor::RelocateMountedSourceAcrossPackages({
 					.AuthoringAssetPath =
 						Texture && Texture->GetPackage()
 							? Texture->GetPackage()->GetPackagePath() : "",

@@ -3,7 +3,7 @@
 #include "DurinEdAPI.h"
 #include "Source/SourceReferenceIndex.h"
 
-namespace Durin
+namespace Durin::Editor
 {
 	struct FMountedSourceRelocationRequest
 	{
@@ -19,4 +19,4 @@ namespace Durin
 	DURINED_API auto RelocateMountedSourceAcrossPackages(
 		const FMountedSourceRelocationRequest& Request,
 		std::string& OutError) -> bool;
-} // namespace Durin
+} // namespace Durin::Editor

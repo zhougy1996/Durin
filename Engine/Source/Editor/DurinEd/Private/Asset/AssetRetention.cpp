@@ -1,18 +1,18 @@
-#include "Asset/EditorAssetRetention.h"
+#include "Asset/AssetRetention.h"
 
 #include "AssetSystem.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Threading/RunnableThread.h"
 
-namespace Durin
+namespace Durin::Editor
 {
-	struct FRetainedEditorAssetState
+	struct FRetainedAssetState
 	{
 		FAssetPath Path;
 		DObject* Asset = nullptr;
 		std::optional<FScopedObjectRoot> Root;
 
-		FRetainedEditorAssetState(FAssetPath InPath, DObject* InAsset)
+		FRetainedAssetState(FAssetPath InPath, DObject* InAsset)
 			: Path(std::move(InPath))
 			, Asset(InAsset)
 			, Root(std::in_place, InAsset)
@@ -22,9 +22,9 @@ namespace Durin
 
 	namespace
 	{
-		auto GetRetainedAssets() -> std::unordered_map<std::string, std::weak_ptr<FRetainedEditorAssetState>>&
+		auto GetRetainedAssets() -> std::unordered_map<std::string, std::weak_ptr<FRetainedAssetState>>&
 		{
-			static std::unordered_map<std::string, std::weak_ptr<FRetainedEditorAssetState>> Assets;
+			static std::unordered_map<std::string, std::weak_ptr<FRetainedAssetState>> Assets;
 			return Assets;
 		}
 
@@ -34,19 +34,19 @@ namespace Durin
 		}
 	}
 
-	auto FRetainedEditorAsset::Get() const -> DObject*
+	auto FRetainedAsset::Get() const -> DObject*
 	{
 		return State ? State->Asset : nullptr;
 	}
 
-	auto FRetainedEditorAsset::GetPath() const -> const FAssetPath*
+	auto FRetainedAsset::GetPath() const -> const FAssetPath*
 	{
 		return State ? &State->Path : nullptr;
 	}
 
-	auto FEditorAssetRetentionService::Acquire(
+	auto FAssetRetentionService::Acquire(
 		const FAssetPath& Path,
-		FRetainedEditorAsset& OutAsset,
+		FRetainedAsset& OutAsset,
 		std::string& OutError) -> bool
 	{
 		checkf(IsInGameThread(), "Editor asset acquisition must run on the game thread.");
@@ -60,7 +60,7 @@ namespace Durin
 		{
 			if (std::shared_ptr Existing = It->second.lock())
 			{
-				OutAsset = FRetainedEditorAsset(std::move(Existing));
+				OutAsset = FRetainedAsset(std::move(Existing));
 				return true;
 			}
 		}
@@ -75,16 +75,16 @@ namespace Durin
 			return false;
 		}
 
-		auto State = std::make_shared<FRetainedEditorAssetState>(Path, Asset);
+		auto State = std::make_shared<FRetainedAssetState>(Path, Asset);
 		Assets.insert_or_assign(Key, State);
-		OutAsset = FRetainedEditorAsset(std::move(State));
+		OutAsset = FRetainedAsset(std::move(State));
 		return true;
 	}
 
-	auto FEditorAssetRetentionService::NumRetained() -> size_t
+	auto FAssetRetentionService::NumRetained() -> size_t
 	{
 		checkf(IsInGameThread(), "Editor asset retention diagnostics must run on the game thread.");
 		RemoveExpiredRetainedAssets();
 		return GetRetainedAssets().size();
 	}
-}
+} // namespace Durin::Editor

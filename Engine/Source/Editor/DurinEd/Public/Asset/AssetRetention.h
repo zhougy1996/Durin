@@ -6,37 +6,41 @@
 namespace Durin
 {
 	class DObject;
-	struct FRetainedEditorAssetState;
+}
+
+namespace Durin::Editor
+{
+	struct FRetainedAssetState;
 
 	// Keeps one canonically identified editor asset alive while any acquisition handle exists.
-	class FRetainedEditorAsset
+	class FRetainedAsset
 	{
 	public:
-		FRetainedEditorAsset() = default;
+		FRetainedAsset() = default;
 
 		DURINED_API auto Get() const -> DObject*;
 		DURINED_API auto GetPath() const -> const FAssetPath*;
 		explicit operator bool() const { return Get() != nullptr; }
 
 	private:
-		friend class FEditorAssetRetentionService;
-		explicit FRetainedEditorAsset(std::shared_ptr<FRetainedEditorAssetState> InState)
+		friend class FAssetRetentionService;
+		explicit FRetainedAsset(std::shared_ptr<FRetainedAssetState> InState)
 			: State(std::move(InState))
 		{
 		}
 
-		std::shared_ptr<FRetainedEditorAssetState> State;
+		std::shared_ptr<FRetainedAssetState> State;
 	};
 
 	// Coalesces editor asset lifetime by canonical virtual identity on the game thread.
-	class FEditorAssetRetentionService
+	class FAssetRetentionService
 	{
 	public:
 		DURINED_API static auto Acquire(
 			const FAssetPath& Path,
-			FRetainedEditorAsset& OutAsset,
+			FRetainedAsset& OutAsset,
 			std::string& OutError) -> bool;
 
 		DURINED_API static auto NumRetained() -> size_t;
 	};
-}
+} // namespace Durin::Editor

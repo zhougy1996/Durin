@@ -4,7 +4,7 @@
 
 #include "AssetSystem.h"
 #include "AssetPackageV4Reader.h"
-#include "Asset/EditorAssetRetention.h"
+#include "Asset/AssetRetention.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/DObjectArray.h"

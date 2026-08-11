@@ -41,7 +41,7 @@ TEST_F(FWorkspaceAssetOpenCompatibilityTests, AcceptsACompatibleLoadWithoutRelea
 {
 	const Durin::FAssetPath Path = MakePath("/CompatibilityTests/Materials/Compatible");
 	Durin::uint32 ReleaseCount = 0;
-	Durin::FWorkspaceAssetOpenCompatibility Policy(
+	Durin::Editor::FWorkspaceAssetOpenCompatibility Policy(
 		Path,
 		[&ReleaseCount] {
 			++ReleaseCount;
@@ -59,7 +59,7 @@ TEST_F(FWorkspaceAssetOpenCompatibilityTests, RejectsAnIncompatibleLoadWithStabl
 {
 	const Durin::FAssetPath Path = MakePath("/CompatibilityTests/Textures/Incompatible");
 	Durin::uint32 ReleaseCount = 0;
-	Durin::FWorkspaceAssetOpenCompatibility Policy(
+	Durin::Editor::FWorkspaceAssetOpenCompatibility Policy(
 		Path,
 		[&ReleaseCount] {
 			++ReleaseCount;
@@ -85,7 +85,7 @@ TEST_F(FWorkspaceAssetOpenCompatibilityTests, LevelMaterialAndTextureUseTheSameO
 		const Durin::FAssetPath Path = MakePath(std::format(
 			"/CompatibilityTests/{}/Qualification", Workspace));
 		Durin::uint32 ReleaseCount = 0;
-		Durin::FWorkspaceAssetOpenCompatibility CompatiblePolicy(
+		Durin::Editor::FWorkspaceAssetOpenCompatibility CompatiblePolicy(
 			Path,
 			[&ReleaseCount] {
 				++ReleaseCount;
@@ -97,7 +97,7 @@ TEST_F(FWorkspaceAssetOpenCompatibilityTests, LevelMaterialAndTextureUseTheSameO
 			<< Workspace;
 		EXPECT_EQ(ReleaseCount, 0u) << Workspace;
 
-		Durin::FWorkspaceAssetOpenCompatibility IncompatiblePolicy(
+		Durin::Editor::FWorkspaceAssetOpenCompatibility IncompatiblePolicy(
 			Path,
 			[&ReleaseCount] {
 				++ReleaseCount;

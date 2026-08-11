@@ -1,6 +1,6 @@
 #include "Widgets/MaterialPreview.h"
 
-#include "Asset/EditorAssetRetention.h"
+#include "Asset/AssetRetention.h"
 #include "Client/ViewportClient.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -128,8 +128,8 @@ namespace Durin
 			FAssetPath BoxPath;
 			if (!FAssetPath::TryCreate(PreviewSpherePath, SpherePath, &Error)
 				|| !FAssetPath::TryCreate(PreviewBoxPath, BoxPath, &Error)
-				|| !FEditorAssetRetentionService::Acquire(SpherePath, SphereAsset, Error)
-				|| !FEditorAssetRetentionService::Acquire(BoxPath, BoxAsset, Error))
+				|| !Editor::FAssetRetentionService::Acquire(SpherePath, SphereAsset, Error)
+				|| !Editor::FAssetRetentionService::Acquire(BoxPath, BoxAsset, Error))
 			{
 				return;
 			}
@@ -279,8 +279,8 @@ namespace Durin
 		std::unique_ptr<FMaterialPreviewViewportClient> ViewportClient;
 		std::shared_ptr<MViewport> ViewportWidget;
 		std::shared_ptr<FSceneViewport> SceneViewport;
-		FRetainedEditorAsset SphereAsset;
-		FRetainedEditorAsset BoxAsset;
+		Editor::FRetainedAsset SphereAsset;
+		Editor::FRetainedAsset BoxAsset;
 		TObjectPtr<DStaticMeshComponent> PreviewMesh;
 		TObjectPtr<DDirectionalLightComponent> PreviewLight;
 		DMaterialInterface* CurrentMaterial = nullptr;

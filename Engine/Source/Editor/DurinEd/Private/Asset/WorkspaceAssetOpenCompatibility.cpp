@@ -1,6 +1,6 @@
 #include "Asset/WorkspaceAssetOpenCompatibility.h"
 
-namespace Durin
+namespace Durin::Editor
 {
 	FWorkspaceAssetOpenCompatibility::FWorkspaceAssetOpenCompatibility(
 		const FAssetPath& InRequestedPath)
@@ -47,4 +47,4 @@ namespace Durin
 	{
 		return Release ? Release() : Asset::FAssetResult{};
 	}
-}
+} // namespace Durin::Editor

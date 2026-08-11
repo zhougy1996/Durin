@@ -105,7 +105,7 @@ namespace Durin
 			ErrorMessage = std::move(PathError);
 			return Editor::EDocumentOpenResult::Rejected;
 		}
-		FWorkspaceAssetOpenCompatibility CompatibilityPolicy(AssetPath);
+		Editor::FWorkspaceAssetOpenCompatibility CompatibilityPolicy(AssetPath);
 		DObject* Asset = nullptr;
 		Asset::FAssetLoadReport Report;
 		const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Asset, &Report);

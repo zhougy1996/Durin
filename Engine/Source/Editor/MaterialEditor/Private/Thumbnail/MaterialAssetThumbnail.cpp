@@ -1,6 +1,6 @@
 #include "Thumbnail/MaterialAssetThumbnail.h"
 
-#include "Asset/EditorAssetRetention.h"
+#include "Asset/AssetRetention.h"
 #include "AssetSystem.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Actor.h"
@@ -183,7 +183,7 @@ namespace Durin
 						FRenderedAssetThumbnailVisualContract::SphereVirtualPath,
 						SpherePath,
 						&OutError)
-					|| !FEditorAssetRetentionService::Acquire(SpherePath, SphereAsset, OutError))
+					|| !Editor::FAssetRetentionService::Acquire(SpherePath, SphereAsset, OutError))
 					return false;
 				DStaticMesh* Sphere = Cast<DStaticMesh>(SphereAsset.Get());
 				Actor = World->SpawnActor<AActor>("MaterialThumbnailPreviewActor");
@@ -247,7 +247,7 @@ namespace Durin
 			DWorld* World = nullptr;
 			AActor* Actor = nullptr;
 			DStaticMeshComponent* Component = nullptr;
-			FRetainedEditorAsset SphereAsset;
+			Editor::FRetainedAsset SphereAsset;
 		};
 	} // namespace
 

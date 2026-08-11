@@ -1,5 +1,5 @@
 #include "AssetSystem.h"
-#include "Asset/EditorAssetRetention.h"
+#include "Asset/AssetRetention.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DynamicRHI.h"
 #include "Engine/Engine.h"
@@ -94,9 +94,9 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Durin::FAssetPath SpherePath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::FRenderedAssetThumbnailVisualContract::SphereVirtualPath, SpherePath));
-	Durin::FRetainedEditorAsset PreloadedSphere;
+	Durin::Editor::FRetainedAsset PreloadedSphere;
 	std::string Error;
-	ASSERT_TRUE(Durin::FEditorAssetRetentionService::Acquire(
+	ASSERT_TRUE(Durin::Editor::FAssetRetentionService::Acquire(
 		SpherePath, PreloadedSphere, Error)) << Error;
 
 	const std::filesystem::path Root =

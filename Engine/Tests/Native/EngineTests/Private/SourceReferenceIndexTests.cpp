@@ -26,7 +26,7 @@ TEST(FSourceReferenceIndexTests, TracksSharedMountedSourcesAcrossRegistryRevisio
 	ASSERT_TRUE(Second) << Second.Message;
 	ASSERT_EQ(Second.Asset->GetSourceFile(), SourceVirtualPath);
 
-	Durin::FSourceReferenceIndex Index;
+	Durin::Editor::FSourceReferenceIndex Index;
 	Index.Refresh();
 	EXPECT_EQ(Index.FindReferences(SourceVirtualPath).size(), 2u);
 	const Durin::uint64 FirstRevision = Index.GetRegistryRevision();
@@ -43,7 +43,7 @@ TEST(FSourceReferenceIndexTests, TracksSharedMountedSourcesAcrossRegistryRevisio
 TEST(FSourceReferenceIndexTests, BoundsPackageInspectionWork)
 {
 	InitializeDObjectSystem();
-	Durin::FSourceReferenceIndex Index;
+	Durin::Editor::FSourceReferenceIndex Index;
 	Index.Refresh(1);
 	EXPECT_LE(Index.GetInspectedPackageCount(), 1u);
 	const size_t SourceBearingAssets = std::ranges::count_if(
@@ -80,9 +80,9 @@ TEST(FSourceReferenceIndexTests, RelocatesSharedSourceAndAllReferencingPackages)
 		OriginalSource.PhysicalPath, "/TextureImportTests/Relocation/Second");
 	ASSERT_TRUE(Second) << Second.Message;
 
-	Durin::FSourceReferenceIndex Index;
+	Durin::Editor::FSourceReferenceIndex Index;
 	Index.Refresh();
-	const std::span<const Durin::FSourceReference> References =
+	const std::span<const Durin::Editor::FSourceReference> References =
 		Index.FindReferences(First.Asset->GetSourceFile());
 	ASSERT_EQ(References.size(), 2u);
 	const std::string OriginalVirtualPath = First.Asset->GetSourceFile();
@@ -90,7 +90,7 @@ TEST(FSourceReferenceIndexTests, RelocatesSharedSourceAndAllReferencingPackages)
 		"/TextureImportTests/Textures/RelocatedSharedSource.png";
 	std::string Error;
 	Second.Asset->MarkPackageDirty();
-	EXPECT_FALSE(Durin::RelocateMountedSourceAcrossPackages({
+	EXPECT_FALSE(Durin::Editor::RelocateMountedSourceAcrossPackages({
 		.AuthoringAssetPath = "/TextureImportTests/Relocation/First",
 		.OriginalSourceVirtualPath = OriginalVirtualPath,
 		.DestinationSourceVirtualPath = DestinationVirtualPath,
@@ -105,7 +105,7 @@ TEST(FSourceReferenceIndexTests, RelocatesSharedSourceAndAllReferencingPackages)
 	EXPECT_FALSE(std::filesystem::exists(UnpublishedDestination.PhysicalPath));
 	Second.Asset->GetPackage()->ClearDirty();
 
-	ASSERT_TRUE(Durin::RelocateMountedSourceAcrossPackages({
+	ASSERT_TRUE(Durin::Editor::RelocateMountedSourceAcrossPackages({
 		.AuthoringAssetPath = "/TextureImportTests/Relocation/First",
 		.OriginalSourceVirtualPath = OriginalVirtualPath,
 		.DestinationSourceVirtualPath = DestinationVirtualPath,

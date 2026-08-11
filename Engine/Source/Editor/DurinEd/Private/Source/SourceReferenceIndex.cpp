@@ -5,7 +5,7 @@
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 
-namespace Durin
+namespace Durin::Editor
 {
 	namespace
 	{
@@ -120,4 +120,4 @@ namespace Durin
 			? std::span<const FSourceReference>{}
 			: std::span<const FSourceReference>(It->second);
 	}
-} // namespace Durin
+} // namespace Durin::Editor

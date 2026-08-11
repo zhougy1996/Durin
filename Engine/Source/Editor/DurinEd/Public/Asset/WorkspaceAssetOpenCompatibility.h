@@ -3,7 +3,7 @@
 #include "AssetSystem.h"
 #include "DurinEdAPI.h"
 
-namespace Durin
+namespace Durin::Editor
 {
 	// Applies the shared editor policy to one asset load before document activation.
 	class FWorkspaceAssetOpenCompatibility
@@ -25,4 +25,4 @@ namespace Durin
 		FAssetPath RequestedPath;
 		FReleaseIntroducedPackages Release;
 	};
-}
+} // namespace Durin::Editor

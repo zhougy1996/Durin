@@ -9,7 +9,7 @@
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 
-namespace Durin
+namespace Durin::Editor
 {
 	namespace
 	{
@@ -247,4 +247,4 @@ namespace Durin
 		OutError.clear();
 		return true;
 	}
-} // namespace Durin
+} // namespace Durin::Editor
