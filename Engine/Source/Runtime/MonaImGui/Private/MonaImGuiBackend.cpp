@@ -3,6 +3,7 @@
 #include "Application/MonaApplication.h"
 #include "ImGuiRHIImpl.h"
 #include "MonaCoreGlobals.h"
+#include "Misc/FilesystemMigration.h"
 #include "Misc/Paths.h"
 #include "RHI.h"
 #include "RenderingThread.h"
@@ -20,6 +21,12 @@ namespace Durin::MonaImGui
 		GMonaImGuiContext = ImGui::CreateContext();
 		ImGui::SetCurrentContext(GMonaImGuiContext);
 		static std::string GImGuiIniPath = FPaths::LaunchConfigsDir() + "imgui.ini";
+		std::string MigrationWarning;
+		if (!MigrateLegacyFileIfMissing(
+				std::filesystem::path(FPaths::LaunchDir()) / "imgui.ini",
+				GImGuiIniPath,
+				&MigrationWarning))
+			DURIN_WARN("{}", MigrationWarning);
 		ImGui::GetIO().IniFilename = GImGuiIniPath.c_str();
 
 		ImGuiRHIImpl_Init();   // sets RendererHasTextures before InitFonts->Build()

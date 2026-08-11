@@ -1,4 +1,4 @@
-#include "LaunchEngineLoop.h"
+#include "EngineLoop.h"
 
 #include "Threading/Task.h"
 #include "DObject/DObjectGlobals.h"
@@ -25,10 +25,8 @@
 #include "EngineGlobals.h"
 #include "EngineAssetServices.h"
 
-#include "LaunchFrame.h"
-#include "LaunchGameplayValidation.h"
-#include "LaunchRuntimeStorage.h"
-#include "LaunchTaskSchedulerValidation.h"
+#include "EngineFrame.h"
+#include "RuntimeStorage.h"
 #include "Windows/WindowsProcessCrashHandler.h"
 
 #if DURIN_WITH_EDITOR
@@ -40,42 +38,33 @@
 
 namespace Durin
 {
-	FEngineLoop GEngineLoop;
+	FEngineLoop::FEngineLoop(FLaunchDiagnosticsRequest DiagnosticsRequest)
+		: Diagnostics(std::move(DiagnosticsRequest))
+	{
+	}
 
 	auto FEngineLoop::PreInit(const FEngineStartupParams& Params) -> bool
 	{
+		if (State != EEngineLoopState::Uninitialized) return false;
+		State = EEngineLoopState::PreInitializing;
 		SetProcessCrashPhase(EProcessCrashPhase::PreInitialization);
 		DURIN_PROFILE_CPU_ZONE_NAMED("Startup.PreInit");
 		DURIN_PROFILE_THREAD("GameThread");
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		GIsGameThreadIdInitialized = true;
 		GIsWindowDisplaySuppressed = Params.bSuppressWindowDisplay;
-		bRunTaskSchedulerLifecycleSmoke =
-			Params.bRunTaskSchedulerLifecycleSmoke;
-		bRunEngineAssetServiceLifecycleSmoke =
-			Params.bRunEngineAssetServiceLifecycleSmoke;
-		bRunEditorPIELifecycleSmoke = Params.bRunEditorPIELifecycleSmoke;
-		bRunNativeGameplayLifecycleSmoke = Params.bRunNativeGameplayLifecycleSmoke;
-		NativeCrashFixture = Params.NativeCrashFixture;
-		NativeCrashPhase = Params.NativeCrashPhase;
-		bFillNativeCrashLogGap = Params.bFillNativeCrashLogGap;
-
 		FPlatformMisc::EnableUserBinaryDirectoriesSearch();
 		FPlatformMisc::AddRuntimeBinaryDirectory(FPaths::EngineThirdPartyRuntimeBinariesDir().c_str());
 
-		FLaunchRuntimeStorageResult RuntimeStorage = PrepareLaunchRuntimeStorage();
+		FRuntimeStoragePreparationResult RuntimeStorage = PrepareRuntimeStorage();
 		PublishWindowsProcessCrashRoot(FPaths::LaunchSavedDir());
-		if (NativeCrashPhase == "pre-initialization") RunWindowsProcessCrashFixture(NativeCrashFixture);
+		Diagnostics.AtPreInitialization();
 		LoadAppConfig(RuntimeStorage.AppConfigPath.string());
 
 		FNameInit(); // Initialize FName system.
 		LoggerInit();
-		if (bFillNativeCrashLogGap && NativeCrashPhase == "logger-running")
-		{
-			for (uint32 Index = 0; Index < 4096; ++Index)
-				DURIN_TRACE("Native crash logger-tail qualification record {}.", Index);
-		}
-		if (NativeCrashPhase == "logger-running") RunWindowsProcessCrashFixture(NativeCrashFixture);
+		bLoggerStarted = true;
+		Diagnostics.AfterLoggerStarted();
 		for (const std::string& Warning : RuntimeStorage.Warnings) DURIN_WARN("{}", Warning);
 		DURIN_INFO(STR("Launching Durin Engine {}..."), GetEngineVersionString());
 #if DURIN_WITH_TRACY
@@ -91,8 +80,9 @@ namespace Durin
 			&& !AcquireProjectAuthoringOwnership(&ProjectError))
 		{
 			DURIN_ERROR("Editor project ownership failed: {}", ProjectError);
-			return false;
+			return FailPreInitialization();
 		}
+		bProjectAuthoringOwnershipAcquired = HasCurrentProject();
 #endif
 		DURIN_PROFILE_PROGRAM_IDENTITY(
 			DURIN_RUNTIME_VARIANT,
@@ -104,29 +94,78 @@ namespace Durin
 		if (!PathUtilities::InitDefaultMountPoints(&MountError))
 		{
 			DURIN_ERROR("Failed to initialize mount registry: {}", MountError);
-			return false;
+			return FailPreInitialization();
 		}
 		if (!InitializeTaskScheduler())
 		{
 			DURIN_ERROR("Engine pre-initialization failed because the task scheduler could not start.");
-			return false;
+			return FailPreInitialization();
 		}
+		bTaskSchedulerStarted = true;
 		if (!InitializeGameThreadDeferredExecutor())
 		{
 			DURIN_ERROR("Engine pre-initialization failed because the GameThread deferred executor could not start.");
-			ShutdownTaskScheduler(false);
-			return false;
+			return FailPreInitialization();
 		}
+		bGameThreadDeferredExecutorStarted = true;
 
 		FModuleManager::Get().LoadModule("RenderCore");
 		DObjectInit();
 		InitializeEngineAssetServices();
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::PreInitComplete);
+		State = EEngineLoopState::PreInitialized;
 		return true;
+	}
+
+	auto FEngineLoop::FailPreInitialization() -> bool
+	{
+		if (bGameThreadDeferredExecutorStarted)
+		{
+			ShutdownTaskSystem(ETaskShutdownMode::Drain);
+			bGameThreadDeferredExecutorStarted = false;
+			bTaskSchedulerStarted = false;
+		}
+		else if (bTaskSchedulerStarted)
+		{
+			ShutdownTaskScheduler(false);
+			bTaskSchedulerStarted = false;
+		}
+		if (bProjectAuthoringOwnershipAcquired)
+		{
+			ReleaseProjectAuthoringOwnership();
+			bProjectAuthoringOwnershipAcquired = false;
+		}
+		State = EEngineLoopState::Exited;
+		return false;
+	}
+
+	auto FEngineLoop::FailInitializationAfterRHI() -> bool
+	{
+		ShutdownEngineAssetServices();
+		ShutdownTaskSystem(ETaskShutdownMode::Drain);
+		bGameThreadDeferredExecutorStarted = false;
+		bTaskSchedulerStarted = false;
+		RemoveFromRoot(GEngine);
+		MarkObjectHierarchyAsGarbage(GEngine);
+		GEngine = nullptr;
+		ReleaseClassDefaultObjects();
+		ReleaseDStructDefaults();
+		CollectGarbage();
+		FModuleManager::Get().UnloadModulesAtShutdown();
+		ShutdownApplicationCore();
+		if (bProjectAuthoringOwnershipAcquired)
+		{
+			ReleaseProjectAuthoringOwnership();
+			bProjectAuthoringOwnershipAcquired = false;
+		}
+		State = EEngineLoopState::Exited;
+		return false;
 	}
 
 	auto FEngineLoop::Init() -> bool
 	{
+		if (State != EEngineLoopState::PreInitialized) return false;
+		State = EEngineLoopState::Initializing;
 		SetProcessCrashPhase(EProcessCrashPhase::EngineInitialization);
 #if DURIN_WITH_EDITOR
 		GEngine = NewObject<DEditorEngine>(nullptr, "EditorEngine");
@@ -142,17 +181,7 @@ namespace Durin
 			{
 				DURIN_ERROR(
 					"Engine initialization stopped because the dynamic RHI could not start.");
-				ShutdownEngineAssetServices();
-				ShutdownTaskSystem(ETaskShutdownMode::Drain);
-				RemoveFromRoot(GEngine);
-				MarkObjectHierarchyAsGarbage(GEngine);
-				GEngine = nullptr;
-				ReleaseClassDefaultObjects();
-				ReleaseDStructDefaults();
-				CollectGarbage();
-				FModuleManager::Get().UnloadModulesAtShutdown();
-				ShutdownApplicationCore();
-				return false;
+				return FailInitializationAfterRHI();
 			}
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RHIReady);
@@ -162,23 +191,18 @@ namespace Durin
 		FModuleManager::Get().LoadModuleChecked("Mona");
 
 		GEngine->Init();
-		if (bRunEngineAssetServiceLifecycleSmoke)
-			BeginEngineAssetServiceLifecycleSmoke();
 		LastTickTime = FTime::Seconds();
 
 		DURIN_INFO(STR("Durin engine initialized."));
 		SetProcessCrashPhase(EProcessCrashPhase::Running);
-		if (bFillNativeCrashLogGap && NativeCrashPhase == "running")
-		{
-			for (uint32 Index = 0; Index < 4096; ++Index)
-				DURIN_TRACE("Native crash logger-tail qualification record {}.", Index);
-		}
-		if (NativeCrashPhase == "running") RunWindowsProcessCrashFixture(NativeCrashFixture);
+		Diagnostics.AfterEngineInitialized();
+		State = EEngineLoopState::Running;
 		return true;
 	}
 
 	auto FEngineLoop::Tick() -> void
 	{
+		check(State == EEngineLoopState::Running);
 		DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.Tick");
 		constexpr double MinimizedTickIntervalSeconds = 1.0 / 20.0;
 
@@ -190,20 +214,7 @@ namespace Durin
 			DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.GameLogic");
 			GEngine->Tick(DeltaSeconds, false);
 		}
-#if DURIN_WITH_EDITOR
-		if (bRunEditorPIELifecycleSmoke
-			&& !bEditorPIELifecycleSmokeCompleted
-			&& GEditor)
-		{
-			bEditorPIELifecycleSmokeCompleted = TryRunEditorPIELifecycleSmoke();
-		}
-#endif
-		if (bRunNativeGameplayLifecycleSmoke
-			&& !bNativeGameplayLifecycleSmokeCompleted)
-		{
-			RunNativeGameplayLifecycleSmoke();
-			bNativeGameplayLifecycleSmokeCompleted = true;
-		}
+		Diagnostics.Tick();
 		PumpGameThreadDeferredWork();
 		PumpEngineAssetServiceCompletions();
 		GFrameCounter++;
@@ -241,32 +252,24 @@ namespace Durin
 
 	auto FEngineLoop::Exit() -> void
 	{
-		SetProcessCrashPhase(EProcessCrashPhase::ConsumerDetachment);
-#if DURIN_WITH_EDITOR
-		checkf(!bRunEditorPIELifecycleSmoke || bEditorPIELifecycleSmokeCompleted,
-			"Editor PIE lifecycle smoke never observed an active source Level.");
-#endif
-		checkf(!bRunNativeGameplayLifecycleSmoke
-			|| bNativeGameplayLifecycleSmokeCompleted,
-			"Native gameplay lifecycle smoke did not execute.");
-		std::shared_ptr<FLaunchTaskSchedulerValidationState> TaskSchedulerValidation;
-		if (bRunTaskSchedulerLifecycleSmoke)
+		if (State == EEngineLoopState::Exited || State == EEngineLoopState::Uninitialized) return;
+		if (State != EEngineLoopState::Running)
 		{
-			TaskSchedulerValidation = BeginLaunchTaskSchedulerValidation();
+			FailPreInitialization();
+			return;
 		}
+		State = EEngineLoopState::ShuttingDown;
+		SetProcessCrashPhase(EProcessCrashPhase::ConsumerDetachment);
+		Diagnostics.BeginConsumerDetachment();
 
 		FModuleManager::Get().ShutdownModule("Mona");
 
-		if (bRunEngineAssetServiceLifecycleSmoke)
-			ValidateEngineAssetServiceLifecycleSmoke();
+		Diagnostics.BeforeAssetServiceShutdown();
 		SetProcessCrashPhase(EProcessCrashPhase::AssetServiceShutdown);
 		ShutdownEngineAssetServices();
 		SetProcessCrashPhase(EProcessCrashPhase::TaskSystemShutdown);
 		ShutdownTaskSystem(ETaskShutdownMode::Drain);
-		if (TaskSchedulerValidation)
-		{
-			ValidateLaunchTaskSchedulerShutdown(TaskSchedulerValidation);
-		}
+		Diagnostics.AfterTaskSystemShutdown();
 
 		RemoveFromRoot(GEngine);
 		MarkObjectHierarchyAsGarbage(GEngine);
@@ -280,7 +283,7 @@ namespace Durin
 		AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::StructDefaultsReleased);
 		SetProcessCrashPhase(EProcessCrashPhase::ObjectCollection);
 		AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::FirstObjectCollection);
-		if (NativeCrashPhase == "object-collection") RunWindowsProcessCrashFixture(NativeCrashFixture);
+		Diagnostics.AtObjectCollection();
 		CollectGarbage();
 
 		if (GRenderingThread)
@@ -302,7 +305,9 @@ namespace Durin
 
 		SetProcessCrashPhase(EProcessCrashPhase::ApplicationShutdown);
 		ShutdownApplicationCore();
-		ReleaseProjectAuthoringOwnership();
+		if (bProjectAuthoringOwnershipAcquired) ReleaseProjectAuthoringOwnership();
+		bProjectAuthoringOwnershipAcquired = false;
 		DURIN_INFO(STR("Durin Engine exited."));
+		State = EEngineLoopState::Exited;
 	}
 } // namespace Durin

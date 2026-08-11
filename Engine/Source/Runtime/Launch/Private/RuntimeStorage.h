@@ -5,7 +5,7 @@
 namespace Durin
 {
 	// Describes the physical runtime storage roots consumed by one preparation pass.
-	struct FLaunchRuntimeStoragePaths
+	struct FRuntimeStoragePaths
 	{
 		std::filesystem::path LaunchDirectory;
 		std::filesystem::path SavedDirectory;
@@ -14,22 +14,22 @@ namespace Durin
 	};
 
 	// Returns the selected application configuration and pass-local migration diagnostics.
-	struct FLaunchRuntimeStorageResult
+	struct FRuntimeStoragePreparationResult
 	{
 		std::filesystem::path AppConfigPath;
 		std::vector<std::string> Warnings;
 	};
 
 	// Test-only controls for deterministic fallback qualification of private storage policy.
-	struct FLaunchRuntimeStorageTestOptions
+	struct FRuntimeStorageTestOptions
 	{
 		bool bForceLegacyFileRenameFailure = false;
 	};
 
-	auto PrepareLaunchRuntimeStorage(
-		const FLaunchRuntimeStoragePaths& Paths,
+	auto PrepareRuntimeStorage(
+		const FRuntimeStoragePaths& Paths,
 		std::string_view AppConfigFileName,
-		const FLaunchRuntimeStorageTestOptions& TestOptions = {})
-		-> FLaunchRuntimeStorageResult;
-	auto PrepareLaunchRuntimeStorage() -> FLaunchRuntimeStorageResult;
+		const FRuntimeStorageTestOptions& TestOptions = {})
+		-> FRuntimeStoragePreparationResult;
+	auto PrepareRuntimeStorage() -> FRuntimeStoragePreparationResult;
 }

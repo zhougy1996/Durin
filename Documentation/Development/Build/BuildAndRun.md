@@ -257,8 +257,18 @@ Pass other runtime arguments after the final `--args` option. The typed project
 argument is always forwarded before them:
 
 ```powershell
-.\DevTool.bat run --preset Win64-Debug-DurinGame --project Sandbox\Sandbox.dproject --args -ExampleArgument
+.\DevTool.bat run --preset Win64-Debug-DurinGame --project Sandbox\Sandbox.dproject --args --hidden-window
 ```
+
+Launch accepts only its documented option grammar. Unknown options, repeated
+flags or scalar options, mixed `--project` spellings, empty values, malformed or
+overflowing positive integers, incompatible startup-command modes, and
+diagnostic options unavailable in the selected build are rejected before
+engine startup. These command-line contract failures print one diagnostic to
+stderr and return status `2`; bootstrap/runtime failures return `1`. Only
+`--startup-command-arg=<value>` is repeatable. Both `--project=<path>` and
+`--project <path>` remain accepted, but a process may supply exactly one of
+them.
 
 For non-interactive lifecycle smoke tests, pass
 `--args --hidden-window --exit-after-ticks=<positive-count>`. The runtime still

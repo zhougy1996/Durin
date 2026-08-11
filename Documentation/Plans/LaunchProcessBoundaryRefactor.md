@@ -9,9 +9,34 @@ Completed:
 
 ## Current Status
 
-Architecture review completed on 2026-08-11. No implementation has started.
-The current process entry in `Engine/Source/Runtime/Launch/Private/Launch.cpp`
-is 245 lines and owns four distinct concerns:
+Implementation completed on 2026-08-11 through Stages 0-5 and the build/test
+portion of Stage 6. `DurinLauncher/Private/Main.cpp` is a six-line executable
+entry, `ApplicationRunner.cpp` is 147 lines, the pure parser is 190 lines, and
+the private `EngineLoop.cpp` is 313 lines. Launch exports only
+`Durin::RunApplicationProcess`; `dumpbin /exports` confirms the former DLL
+`main` symbol is absent.
+
+Focused validation passes for `LaunchArgumentTests` (7),
+`LaunchProcessBoundaryTests` (4), `LaunchStorageTests` (5), the affected
+`CoreFileSystemTests` selection (9), `CoreUtilityTests` startup-command cases
+(2), and `NativeCrashCharacterizationTests` (11). The final
+`Win64-Debug-DurinEditor` full `all` build passes, as do editor/game bounded
+lifecycle runs, both inline-RHI variants, project-browser selection,
+wait-for-process coordination, task-scheduler smoke, engine-asset-service
+smoke, native-gameplay smoke, strict early command-line diagnostics, delayed
+missing-handler termination, and native-crash characterization.
+
+One pre-existing qualification prerequisite remains unresolved: Sandbox's
+default Level document reports `No world is available to activate the level`,
+so the opt-in editor PIE lifecycle smoke never observes an active source Level
+and intentionally asserts during consumer detachment. Project relaunch was not
+triggered interactively; its emitted `--wait-for-process`, project, and hidden
+arguments are covered by producer inventory, parser tests, and the successful
+wait-for-process runtime characterization. The plan remains Active until that
+PIE prerequisite and an interactive relaunch are qualified.
+
+The original process entry in `Engine/Source/Runtime/Launch/Private/Launch.cpp`
+was 245 lines and owned four distinct concerns:
 
 - process crash-context and handler installation;
 - parsing and partially validating eighteen command-line option spellings;
@@ -293,23 +318,42 @@ or early-exit diagnostics.
 | Runtime storage | Preparation has explicit result/warnings and focused tests. | Common bootstrap hard-codes settings owned by four different feature areas. |
 | Naming | `LaunchAPI.h` and Windows crash files are precise. | Most other private filenames repeat the module rather than state their responsibility. |
 
+## Frozen Command-Line Contract
+
+| Family | Accepted forms | Consumer and deliberate policy |
+| --- | --- | --- |
+| Process coordination | `--wait-for-process=<positive uint32>` | Runner waits before startup; malformed/zero/duplicate values return 2, runtime wait failure returns 1. |
+| Project/host | `--project=<path>`, `--project <path>`, `--project-browser`, `--hidden-window` | Both project spellings normalize to one owned path; every scalar/flag is unique and empty project values fail. |
+| Automation | `--exit-after-ticks=<positive uint64>` | Runner requests exit only after the bounded count and never overrides an existing exit request. |
+| Startup command | `--startup-command=<name>`, repeated `--startup-command-arg=<value>` | Arguments preserve order; missing/empty names and conflicts with tick exit, project browser, or lifecycle smokes return 2. |
+| Lifecycle diagnostics | task-scheduler, engine-asset-service, editor-PIE, and native-gameplay `*-lifecycle-smoke` flags | Typed diagnostic state owns the workload; Shipping rejects it before side effects. |
+| Native crash | fixture, saved root, typed phase, dump/collision/log-gap/writer flags | Runner applies validated configuration; phases are `process-entry`, `pre-initialization`, `logger-running`, `running`, or `object-collection`. |
+| Unknown/duplicate input | none | Every unknown or repeated non-repeatable option returns 2 with an option-specific stderr diagnostic. No repository workflow consumes implicit passthrough. |
+
+Producer inventory covers DurinDevTool `run` and `scene`, Core editor relaunch,
+native-crash child processes, Build And Run examples, and direct lifecycle smoke
+commands. Crash installation remains first; validation precedes diagnostic
+publication, waiting, startup-command configuration, or engine startup; editor
+relaunch precedes logger shutdown; and delayed startup-command admission remains
+terminal after 120 completed ticks.
+
 ## Implementation Stages
 
 ### Stage 0: Freeze the command-line and lifetime contract
 
-- [ ] Inventory every repository-owned producer of Launch arguments, including
+- [x] Inventory every repository-owned producer of Launch arguments, including
   DurinDevTool run/scene flows, project relaunch, native-crash child processes,
   build/run documentation, and runtime smoke commands.
-- [ ] Record the current accepted forms, consumers, exit codes, conflicts, and
+- [x] Record the current accepted forms, consumers, exit codes, conflicts, and
   side-effect order in a parser test matrix before moving implementation.
-- [ ] Specify expected characterization cases for unknown ordinary arguments,
+- [x] Specify expected characterization cases for unknown ordinary arguments,
   repeated scalar options, mixed project spellings, empty scalar values,
   numeric zero/overflow/trailing text, startup-command companion rules, and
   Shipping-only rejection so Stage 1 can land them with the parser seam.
-- [ ] Confirm that no external module or supported workflow consumes silently
+- [x] Confirm that no external module or supported workflow consumes silently
   ignored arguments. If a real consumer is found, amend the plan with an
   explicit passthrough contract before implementation.
-- [ ] Freeze process-entry crash installation, logger shutdown, editor relaunch,
+- [x] Freeze process-entry crash installation, logger shutdown, editor relaunch,
   startup-command timeout, and automated-exit ordering as integration
   invariants.
 
@@ -323,17 +367,17 @@ or early-exit diagnostics.
 
 Dependencies: Stage 0.
 
-- [ ] Add owning request/result types for process coordination, normal host
+- [x] Add owning request/result types for process coordination, normal host
   startup, automation, startup command, and diagnostics.
-- [ ] Implement parsing from an argument span without global writes or process
+- [x] Implement parsing from an argument span without global writes or process
   operations.
-- [ ] Implement one semantic validation pass for duplicates, empty values,
+- [x] Implement one semantic validation pass for duplicates, empty values,
   required companions, incompatible modes, bounded numeric values, typed crash
   phases, and build availability.
-- [ ] Normalize both supported project spellings into one owned path.
-- [ ] Return structured error text and the command-line exit classification to
+- [x] Normalize both supported project spellings into one owned path.
+- [x] Return structured error text and the command-line exit classification to
   the caller.
-- [ ] Add deterministic unit tests for every accepted and rejected row in the
+- [x] Add deterministic unit tests for every accepted and rejected row in the
   Stage 0 matrix, including repeatable startup-command argument ordering.
 
 #### Acceptance Gate
@@ -347,19 +391,19 @@ Dependencies: Stage 0.
 
 Dependencies: Stage 1.
 
-- [ ] Replace `Hello.cpp` with `Main.cpp` containing the actual C runtime entry
+- [x] Replace `Hello.cpp` with `Main.cpp` containing the actual C runtime entry
   and update the executable target source.
-- [ ] Replace the exported DLL `main` with one responsibility-named Launch
+- [x] Replace the exported DLL `main` with one responsibility-named Launch
   process function and keep its public header minimal.
-- [ ] Move validated-request application and run-loop control into
+- [x] Move validated-request application and run-loop control into
   `ApplicationRunner.cpp`.
-- [ ] Establish exact-once crash-handler restoration and conditional logger
+- [x] Establish exact-once crash-handler restoration and conditional logger
   finalization for every ordinary return.
-- [ ] Apply crash options, wait-for-process, startup-command publication, and
+- [x] Apply crash options, wait-for-process, startup-command publication, and
   engine startup only after complete validation.
-- [ ] Emit early diagnostics to stderr and normalize command-line failures to
+- [x] Emit early diagnostics to stderr and normalize command-line failures to
   exit code 2 without changing runtime failure or startup-command results.
-- [ ] Add runner-level tests or child-process characterizations for parse
+- [x] Add runner-level tests or child-process characterizations for parse
   failure, wait failure, startup-command configuration failure, bounded tick
   exit, and normal shutdown.
 
@@ -374,14 +418,14 @@ Dependencies: Stage 1.
 
 Dependencies: Stage 2.
 
-- [ ] Move `FEngineLoop` and its semantic startup type under Launch `Private/`.
-- [ ] Construct one loop in the process runner and remove `GEngineLoop`.
-- [ ] Add explicit lifecycle state and make the terminal cleanup call safe for
+- [x] Move `FEngineLoop` and its semantic startup type under Launch `Private/`.
+- [x] Construct one loop in the process runner and remove `GEngineLoop`.
+- [x] Add explicit lifecycle state and make the terminal cleanup call safe for
   every admitted startup state without hiding shutdown order.
-- [ ] Audit each `PreInit()` and `Init()` failure edge and unwind every earlier
+- [x] Audit each `PreInit()` and `Init()` failure edge and unwind every earlier
   owned service, mount/project ownership, object/module state, application,
   render/RHI admission, and task executor as applicable.
-- [ ] Preserve the current successful startup, tick, minimized pacing, frame
+- [x] Preserve the current successful startup, tick, minimized pacing, frame
   render decision, and shutdown sequence.
 - [ ] Add focused failure-injection tests at the smallest existing seams; add a
   new seam only when a stage otherwise cannot be qualified deterministically.
@@ -397,17 +441,17 @@ Dependencies: Stage 2.
 
 Dependencies: Stage 3.
 
-- [ ] Introduce typed private diagnostic configuration, including a native-crash
+- [x] Introduce typed private diagnostic configuration, including a native-crash
   phase enum resolved during command validation.
-- [ ] Move diagnostic retained state out of `FEngineStartupParams` and
+- [x] Move diagnostic retained state out of `FEngineStartupParams` and
   `FEngineLoop` data members into responsibility-specific components.
-- [ ] Split editor PIE and native gameplay smokes into separately named files.
-- [ ] Rename the task-scheduler qualification component to its precise lifecycle
+- [x] Split editor PIE and native gameplay smokes into separately named files.
+- [x] Rename the task-scheduler qualification component to its precise lifecycle
   smoke role.
-- [ ] Keep explicit named diagnostic calls at process entry, pre-init,
+- [x] Keep explicit named diagnostic calls at process entry, pre-init,
   logger-running, running/tick, consumer detachment, task shutdown, and object
   collection boundaries as required.
-- [ ] Verify that disabled diagnostics add no workload and Shipping rejects
+- [x] Verify that disabled diagnostics add no workload and Shipping rejects
   their options before configuration.
 
 #### Acceptance Gate
@@ -421,16 +465,16 @@ Dependencies: Stage 3.
 
 Dependencies: Stage 4.
 
-- [ ] Apply the selected private file/type mapping and repair build metadata,
+- [x] Apply the selected private file/type mapping and repair build metadata,
   includes, tests, and direct documentation links.
-- [ ] Rename `LaunchFrame` to the selected render-frame responsibility name.
-- [ ] Rename `LaunchRuntimeStorage` and its types to preparation-focused names.
-- [ ] Restrict runtime-storage preparation to common roots, app config, legacy
+- [x] Rename `LaunchFrame` to the selected render-frame responsibility name.
+- [x] Rename `LaunchRuntimeStorage` and its types to preparation-focused names.
+- [x] Restrict runtime-storage preparation to common roots, app config, legacy
   logs, and explicit warnings.
-- [ ] Move ImGui, MainFrame, LevelEditor, and ProjectHistory legacy-file
+- [x] Move ImGui, MainFrame, LevelEditor, and ProjectHistory legacy-file
   migration to their owning load paths, sharing only a filename-agnostic Core
   helper if duplication proves real.
-- [ ] Preserve storage fallback, destination-wins, rename, copy/remove,
+- [x] Preserve storage fallback, destination-wins, rename, copy/remove,
   idempotence, and post-logger warning behavior with focused tests.
 
 #### Acceptance Gate
@@ -444,23 +488,23 @@ Dependencies: Stage 4.
 
 Dependencies: Stages 1-5.
 
-- [ ] Update Runtime Lifecycle with the final executable, parser, process
+- [x] Update Runtime Lifecycle with the final executable, parser, process
   runner, private loop, diagnostics, and cleanup ownership.
-- [ ] Update Build And Run with the strict unknown/duplicate/error contract and
+- [x] Update Build And Run with the strict unknown/duplicate/error contract and
   any intentionally changed exit-code behavior.
-- [ ] Update Code Modules so `DurinLauncher` is described as the executable
+- [x] Update Code Modules so `DurinLauncher` is described as the executable
   entry for the configured runtime variant rather than only an editor entry.
-- [ ] Run changed-document validation and the all-plan validator.
-- [ ] Run the smallest affected native test targets during implementation,
+- [x] Run changed-document validation and the all-plan validator.
+- [x] Run the smallest affected native test targets during implementation,
   including parser/runner, Core startup-command/path, Engine storage, and crash
   tests where their boundaries change.
-- [ ] Complete a full `all` build because this plan changes the Launch export
+- [x] Complete a full `all` build because this plan changes the Launch export
   boundary and executable entrypoint.
 - [ ] Run bounded DurinEditor and DurinGame lifecycles, project-browser/project
   selection, project relaunch/wait, delayed startup command, normal and inline
   RHI frame shutdown, each lifecycle smoke, and native-crash characterization
   from the same final build profile where applicable.
-- [ ] Record final file sizes, public includes, export symbols, test/build/runtime
+- [x] Record final file sizes, public includes, export symbols, test/build/runtime
   evidence, and any deliberate compatibility change in Current Status.
 
 #### Acceptance Gate

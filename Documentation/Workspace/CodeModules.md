@@ -47,7 +47,7 @@ direction.
 | `StaticMeshEditor` | Static-mesh inspector, preview, material overrides, and mesh-specific editor tools | [source](../../Engine/Source/Editor/StaticMeshEditor) |
 | `AssetImportCore` | Format-neutral asset-import requests, policies, results, and extension interfaces | [source](../../Engine/Source/Editor/AssetImportCore) |
 | `StandardAssetImport` | Built-in image, mesh, material, texture, and skeletal import implementations | [source](../../Engine/Source/Editor/StandardAssetImport) |
-| `DurinLauncher` | Editor executable entrypoint and editor runtime module admission | [source](../../Engine/Source/Editor/DurinLauncher) |
+| `DurinLauncher` | Minimal executable entrypoint for the configured editor or game runtime variant | [source](../../Engine/Source/Editor/DurinLauncher) |
 
 ## Project Modules
 

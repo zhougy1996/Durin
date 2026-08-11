@@ -9,33 +9,43 @@ lifecycle, logging guarantees, module loading, and validation expectations.
 
 ## Boot Flow
 
-Process entry is `Engine/Source/Runtime/Launch/Private/Launch.cpp`.
+Process entry is the minimal C runtime `main()` in
+`Engine/Source/Editor/DurinLauncher/Private/Main.cpp`. It delegates directly to
+the exported `Durin::RunApplicationProcess()` boundary in Launch.
 
-Before profiling or subsystem startup, Launch initializes Core's bounded crash
-state and installs the Windows process crash owner. Runtime storage preparation
-later publishes `Saved/Crashes` without leaving a partially visible path. A
-normal exit publishes the exited phase and restores the prior handlers. Native
-fault ownership, phase values, and artifact safety are defined by
+Before profiling or subsystem startup, the process runner initializes Core's
+bounded crash state and installs the Windows process crash owner. It then parses
+all arguments into one owned request and validates the complete command-line
+contract before waiting, publishing diagnostic state, configuring automation,
+or starting the engine. Runtime storage preparation later publishes
+`Saved/Crashes` without leaving a partially visible path. A lifetime guard
+restores the prior handlers exactly once on every ordinary return. Native fault
+ownership, phase values, and artifact safety are defined by
 [Native Crash Diagnostics](NativeCrashDiagnostics.md).
 
-`main()` drives `FEngineLoop` through:
+`ApplicationRunner.cpp` constructs one private, local `FEngineLoop` and drives
+it through:
 
 - `PreInit()`
 - `Init()`
 - `Tick()`
 - `Exit()`
 
-`Launch.cpp` stays thin. Concrete engine selection happens inside
-`FEngineLoop::Init()`.
+The runner owns process coordination, startup-command dispatch, automated exit,
+editor relaunch, conditional logger finalization, and process result selection.
+Concrete engine selection remains inside `FEngineLoop::Init()`; no global engine
+loop or public engine-loop header exists.
 
 ## Startup Responsibilities
 
-`FEngineLoop::PreInit()` handles early process setup, DLL search paths, config
+`FEngineLoop::PreInit()` handles early engine setup, DLL search paths, config
 loading, path mount points, `RenderCore` loading, and reflected object
 initialization. Its private runtime-storage component creates Saved directories,
-migrates legacy configuration and log files, and returns the selected app-config
-path plus pass-local warnings. `PreInit()` loads that path before logger startup
-and emits the returned warnings only after the logger is ready.
+migrates the legacy application configuration and log directory, and returns
+the selected app-config path plus pass-local warnings. Feature-owned legacy
+settings migrate immediately before their ImGui, MainFrame, LevelEditor, or
+ProjectHistory owner loads the new path. `PreInit()` loads the app config before
+logger startup and emits the returned warnings only after the logger is ready.
 
 The loop publishes coarse crash phases around pre-initialization, engine
 initialization, running, consumer detachment, service and task shutdown, asset
@@ -97,10 +107,12 @@ retain their own admission, payload, frame-budget, explicit-wait, and shutdown
 drain policies rather than storing large results in the deferred executor.
 
 Launch keeps the frame render decision visible in `FEngineLoop::Tick()`, while
-its private frame component owns begin/end render-thread callbacks, UI and
-viewport submission, end-frame synchronization, and the render counter. A
-separate private validation component owns the opt-in task-scheduler lifecycle
-workload across `ShutdownTaskSystem()`. These components do not change
+its private `EngineFrame` component owns begin/end render-thread callbacks, UI
+and viewport submission, end-frame synchronization, and the render counter.
+Responsibility-specific diagnostics own editor PIE, native gameplay, and
+task-scheduler retained state. Typed native-crash phases are resolved at the
+argument boundary rather than compared as arbitrary strings by the loop. These
+components do not change
 `FEngineLoop::Exit()` ownership of explicit process shutdown ordering.
 
 The same function owns the CPU-profiler frame mark and stable top-level zones.

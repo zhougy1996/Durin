@@ -4,6 +4,6 @@
 
 namespace Durin
 {
-	// Submits and synchronizes one non-minimized Engine frame.
+	// Submits and synchronizes one non-minimized engine render frame.
 	auto RenderEngineFrame() -> void;
 }

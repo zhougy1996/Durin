@@ -1,6 +1,7 @@
 #include "Misc/ProjectHistory.h"
 
 #include "Json/Json.h"
+#include "Misc/FilesystemMigration.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "Yaml/Yaml.h"
@@ -158,8 +159,16 @@ namespace Durin
 
 	auto MakeDefaultProjectHistory() -> FProjectHistory
 	{
+		const std::string HistoryFile =
+			FPaths::LaunchConfigsDir() + ProjectHistoryFileName;
+		std::string MigrationWarning;
+		if (!MigrateLegacyFileIfMissing(
+				std::filesystem::path(FPaths::LaunchDir()) / ProjectHistoryFileName,
+				HistoryFile,
+				&MigrationWarning))
+			DURIN_WARN("{}", MigrationWarning);
 		return FProjectHistory(
-			FPaths::LaunchConfigsDir() + ProjectHistoryFileName,
+			HistoryFile,
 			FPaths::LaunchConfigsDir() + LegacySessionFileName);
 	}
 }

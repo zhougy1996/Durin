@@ -3,6 +3,7 @@
 #include "AssetSystem.h"
 #include "Engine/Level.h"
 #include "Workspace/LevelEditorContext.h"
+#include "Misc/FilesystemMigration.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "Panels/SceneViewportPanel.h"
@@ -21,6 +22,12 @@ namespace Durin
 		FYamlDocument Document;
 		FYamlParseError Error;
 		const std::string FilePath = FPaths::LaunchConfigsDir() + SessionSettingsFileName;
+		std::string MigrationWarning;
+		if (!MigrateLegacyFileIfMissing(
+				std::filesystem::path(FPaths::LaunchDir()) / SessionSettingsFileName,
+				FilePath,
+				&MigrationWarning))
+			DURIN_WARN("{}", MigrationWarning);
 		if (!std::filesystem::exists(FilePath)) return true;
 		if (!Document.LoadFromFile(FilePath, &Error))
 		{

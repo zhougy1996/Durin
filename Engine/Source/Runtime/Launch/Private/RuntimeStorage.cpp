@@ -1,4 +1,4 @@
-#include "LaunchRuntimeStorage.h"
+#include "RuntimeStorage.h"
 
 #include "Misc/Paths.h"
 
@@ -29,9 +29,9 @@ namespace Durin
 		}
 
 		auto MigrateLegacyRuntimeFile(
-			const FLaunchRuntimeStoragePaths& Paths,
+			const FRuntimeStoragePaths& Paths,
 			std::string_view FileName,
-			const FLaunchRuntimeStorageTestOptions& TestOptions,
+			const FRuntimeStorageTestOptions& TestOptions,
 			std::vector<std::string>& Warnings) -> void
 		{
 			const std::filesystem::path LegacyPath = Paths.LaunchDirectory / FileName;
@@ -60,13 +60,13 @@ namespace Durin
 		}
 	}
 
-	auto PrepareLaunchRuntimeStorage(
-		const FLaunchRuntimeStoragePaths& Paths,
+	auto PrepareRuntimeStorage(
+		const FRuntimeStoragePaths& Paths,
 		std::string_view InAppConfigFileName,
-		const FLaunchRuntimeStorageTestOptions& TestOptions)
-		-> FLaunchRuntimeStorageResult
+		const FRuntimeStorageTestOptions& TestOptions)
+		-> FRuntimeStoragePreparationResult
 	{
-		FLaunchRuntimeStorageResult Result;
+		FRuntimeStoragePreparationResult Result;
 		std::error_code Error;
 		std::filesystem::create_directories(Paths.SavedDirectory, Error);
 		if (Error)
@@ -108,15 +108,7 @@ namespace Durin
 				Result.Warnings, "create runtime log directory", Paths.LogDirectory, Error);
 		}
 
-		for (const std::string_view FileName : {
-			InAppConfigFileName,
-			std::string_view{"imgui.ini"},
-			std::string_view{"EditorHostSettings.yaml"},
-			std::string_view{"LevelEditorSession.yaml"},
-			std::string_view{"ProjectHistory.yaml"}})
-		{
-			MigrateLegacyRuntimeFile(Paths, FileName, TestOptions, Result.Warnings);
-		}
+		MigrateLegacyRuntimeFile(Paths, InAppConfigFileName, TestOptions, Result.Warnings);
 
 		const std::filesystem::path SavedAppConfig =
 			Paths.ConfigDirectory / InAppConfigFileName;
@@ -125,9 +117,9 @@ namespace Durin
 		return Result;
 	}
 
-	auto PrepareLaunchRuntimeStorage() -> FLaunchRuntimeStorageResult
+	auto PrepareRuntimeStorage() -> FRuntimeStoragePreparationResult
 	{
-		return PrepareLaunchRuntimeStorage({
+		return PrepareRuntimeStorage({
 			.LaunchDirectory = FPaths::LaunchDir(),
 			.SavedDirectory = FPaths::LaunchSavedDir(),
 			.ConfigDirectory = FPaths::LaunchConfigsDir(),

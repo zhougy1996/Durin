@@ -1,4 +1,4 @@
-#include "LaunchTaskSchedulerValidation.h"
+#include "TaskSchedulerLifecycleSmoke.h"
 
 #include "CoreGlobals.h"
 #include "Threading/RunnableThread.h"
@@ -8,7 +8,7 @@
 namespace Durin
 {
 	// Retains every qualification handle and observation across task-system shutdown.
-	struct FLaunchTaskSchedulerValidationState
+	struct FTaskSchedulerLifecycleSmokeState
 	{
 		FThreadEvent AdmissionProbeStarted;
 		FTaskHandle AdmissionProbe;
@@ -29,11 +29,11 @@ namespace Durin
 		bool bGameThreadDeferredRan = false;
 	};
 
-	auto BeginLaunchTaskSchedulerValidation()
-		-> std::shared_ptr<FLaunchTaskSchedulerValidationState>
+	auto BeginTaskSchedulerLifecycleSmoke()
+		-> std::shared_ptr<FTaskSchedulerLifecycleSmokeState>
 	{
-		auto State = std::make_shared<FLaunchTaskSchedulerValidationState>();
-		FLaunchTaskSchedulerValidationState* StatePtr = State.get();
+		auto State = std::make_shared<FTaskSchedulerLifecycleSmokeState>();
+		FTaskSchedulerLifecycleSmokeState* StatePtr = State.get();
 		State->ShortTask = LaunchTask("EngineSmoke.Short", []() {});
 		std::array<FTaskHandle, 1> ShortPrerequisites{State->ShortTask};
 		FTaskLaunchOptions DependentOptions;
@@ -128,8 +128,8 @@ namespace Durin
 		return State;
 	}
 
-	auto ValidateLaunchTaskSchedulerShutdown(
-		const std::shared_ptr<FLaunchTaskSchedulerValidationState>& State) -> void
+	auto ValidateTaskSchedulerLifecycleSmoke(
+		const std::shared_ptr<FTaskSchedulerLifecycleSmokeState>& State) -> void
 	{
 		check(State != nullptr);
 		checkf(!IsTaskSchedulerRunning(),

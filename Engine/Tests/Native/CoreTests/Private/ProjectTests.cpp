@@ -3,6 +3,7 @@
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
 #include "HAL/PlatformProcess.h"
+#include "Misc/FilesystemMigration.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "Misc/ProjectHistory.h"
@@ -251,4 +252,30 @@ TEST_F(FProjectHistoryTest, MigratesLegacyRecentProjectOnlyOnceAndPersistsEmptyH
 	Durin::FProjectHistory Reloaded(HistoryFile(), LegacyFile());
 	ASSERT_TRUE(Reloaded.Load());
 	EXPECT_TRUE(Reloaded.GetEntries().empty());
+}
+
+TEST_F(FProjectHistoryTest, FileMigrationPreservesExistingDestinationAndIsIdempotent)
+{
+	const std::filesystem::path Legacy = Root / "Legacy.yaml";
+	const std::filesystem::path Destination = Root / "Saved.yaml";
+	{
+		std::ofstream Stream(Legacy);
+		Stream << "legacy";
+	}
+	std::string Warning;
+	ASSERT_TRUE(Durin::MigrateLegacyFileIfMissing(Legacy, Destination, &Warning));
+	EXPECT_TRUE(Warning.empty());
+	EXPECT_FALSE(std::filesystem::exists(Legacy));
+	ASSERT_TRUE(std::filesystem::exists(Destination));
+
+	{
+		std::ofstream Stream(Legacy);
+		Stream << "new legacy";
+	}
+	ASSERT_TRUE(Durin::MigrateLegacyFileIfMissing(Legacy, Destination, &Warning));
+	EXPECT_TRUE(std::filesystem::exists(Legacy));
+	std::ifstream Stream(Destination);
+	std::string Contents;
+	Stream >> Contents;
+	EXPECT_EQ(Contents, "legacy");
 }

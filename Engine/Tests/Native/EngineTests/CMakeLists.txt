@@ -319,10 +319,31 @@ endif()
 
 durin_add_engine_functional_test(LaunchStorageTests
 	RUNTIME_STACK_RATIONALE "Exercises Launch-private runtime storage selection and migration policy."
-	SOURCES Private/Launch/LaunchRuntimeStorageTests.cpp
+	SOURCES Private/Launch/RuntimeStorageTests.cpp
 	PRIVATE_SOURCES
-		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Launch/Private/LaunchRuntimeStorage.cpp
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Launch/Private/RuntimeStorage.cpp
 )
+
+durin_add_engine_functional_test(LaunchArgumentTests
+	RUNTIME_STACK_RATIONALE "Exercises the pure Launch command-line grammar and semantic policy."
+	SOURCES Private/Launch/LaunchArgumentsTests.cpp
+	PRIVATE_SOURCES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Launch/Private/LaunchArguments.cpp
+)
+
+durin_add_engine_functional_test(LaunchProcessBoundaryTests
+	TIMEOUT 90
+	RUNTIME_STACK_RATIONALE "Launches isolated runtime children to characterize process exit and cleanup policy."
+	SOURCES Private/Launch/LaunchProcessBoundaryTests.cpp
+)
+if(TARGET LaunchProcessBoundaryTests)
+	add_dependencies(LaunchProcessBoundaryTests DurinLauncher)
+	target_compile_definitions(LaunchProcessBoundaryTests PRIVATE
+		DURIN_LAUNCH_EXECUTABLE="$<TARGET_FILE:DurinLauncher>"
+		DURIN_LAUNCH_TEST_PROJECT="${DURIN_WORKSPACE_DIR}/Sandbox/Sandbox.dproject")
+	set_target_properties(LaunchProcessBoundaryTests PROPERTIES
+		DURIN_TEST_CASE_PARALLEL_SAFE FALSE)
+endif()
 
 durin_add_engine_functional_test(NativeCrashCharacterizationTests
 	TIMEOUT 120
