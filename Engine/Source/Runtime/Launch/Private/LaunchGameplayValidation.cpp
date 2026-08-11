@@ -8,6 +8,8 @@
 #include "Engine/World.h"
 #include "EngineGlobals.h"
 #include "Mona.h"
+#include "Widgets/MWindow.h"
+#include "Window/GenericWindow.h"
 
 #if DURIN_WITH_EDITOR
 	#include "Editor/EditorEngine.h"
@@ -51,6 +53,27 @@ namespace Durin
 					checkf(GEditor->GetPlayWorld()->FindActorByName("PIE_EditorCamera"),
 						"Play From Camera did not publish its transient camera.");
 				}
+				const std::shared_ptr<MWindow> ActiveWindow = Mona::FMonaApplication::Get().GetActiveTopLevelWindow();
+				const std::shared_ptr<FGenericWindow> NativeWindow = ActiveWindow ? ActiveWindow->GetNativeWindow() : nullptr;
+				checkf(NativeWindow, "PIE mouse-capture smoke could not resolve the active native window.");
+				if (NativeWindow)
+				{
+					NativeWindow->Focus();
+					if (Destination == EEditorPlayDestination::EmbeddedViewport)
+						GEditor->UpdateEmbeddedPlayMouseTarget(NativeWindow, true, false);
+					for (int32 Cycle = 0; Cycle < 10; ++Cycle)
+					{
+						const bool bCaptured = GEditor->RequestPlayMouseCapture(NativeWindow);
+						checkf(bCaptured
+							&& GEditor->IsPlayMouseCaptured()
+							&& NativeWindow->GetCursorMode() == ECursorMode::Captured,
+							"PIE mouse-capture smoke failed to capture on cycle {}.", Cycle);
+						GEditor->ReleasePlayMouseCapture();
+						checkf(!GEditor->IsPlayMouseCaptured()
+							&& NativeWindow->GetCursorMode() == ECursorMode::Free,
+							"PIE mouse-capture smoke failed to release on cycle {}.", Cycle);
+					}
+				}
 				GEditor->SetPlaySessionPaused(true);
 				GEditor->StepPlaySession();
 				GEditor->Tick(1.0f / 60.0f, false);
@@ -62,7 +85,7 @@ namespace Durin
 				Mona::FMonaApplication::Get().Tick();
 			}
 		}
-		DURIN_INFO("Editor PIE lifecycle smoke passed all four host/start combinations.");
+		DURIN_INFO("Editor PIE lifecycle smoke passed all four host/start combinations and repeated mouse capture/release.");
 		return true;
 	}
 #endif

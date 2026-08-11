@@ -56,11 +56,18 @@ namespace Durin
 		MouseWheelDelta = 0.0;
 	}
 
+	auto FGameInputState::ResetMouseTracking() -> void
+	{
+		MousePosition = FVector2d(0.0);
+		MouseDelta = FVector2d(0.0);
+		bHasMousePosition = false;
+	}
+
 	auto FGameInputState::Reset() -> void
 	{
 		KeyDown.fill(false);
 		MouseDown.fill(false);
 		FinishGameTick();
-		bHasMousePosition = false;
+		ResetMouseTracking();
 	}
 }

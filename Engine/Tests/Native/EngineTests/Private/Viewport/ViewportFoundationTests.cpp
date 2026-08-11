@@ -1,6 +1,53 @@
 #include "ViewportTestSupport.h"
 #include "Documents/LevelDocumentRevisionState.h"
 #include "Math/Operations.h"
+#include "Window/GenericWindow.h"
+
+namespace
+{
+	class FTestCursorWindow final : public Durin::FGenericWindow
+	{
+	public:
+		auto GetCursorPosition() const -> Durin::FVector2d override { return Position; }
+		auto SetCursorPosition(Durin::FVector2d InPosition) -> void override
+		{
+			Position = InPosition;
+			Operations.emplace_back("position");
+		}
+		auto SetPosition(Durin::FVector2d InPosition) -> void { Position = InPosition; }
+		auto GetOperations() const -> const std::vector<std::string>& { return Operations; }
+
+	protected:
+		auto ApplyCursorMode(Durin::ECursorMode InCursorMode) -> void override
+		{
+			Operations.emplace_back(InCursorMode == Durin::ECursorMode::Captured ? "captured" : "free");
+		}
+
+	private:
+		Durin::FVector2d Position{0.0};
+		std::vector<std::string> Operations;
+	};
+}
+
+TEST(FGenericWindowCursorTests, KeepsCursorShapeAndModeAsIndependentState)
+{
+	FTestCursorWindow Window;
+	EXPECT_EQ(Window.GetCursorMode(), Durin::ECursorMode::Free);
+	Window.SetPosition({31.0, 47.0});
+	Window.SetCursor(Durin::EMouseCursor::Hand);
+	EXPECT_EQ(Window.GetCursorMode(), Durin::ECursorMode::Free);
+	Window.SetCursorMode(Durin::ECursorMode::Captured);
+	EXPECT_EQ(Window.GetCursorMode(), Durin::ECursorMode::Captured);
+	Window.SetPosition({900.0, 700.0});
+	Window.SetCursor(Durin::EMouseCursor::TextInput);
+	EXPECT_EQ(Window.GetCursorMode(), Durin::ECursorMode::Captured);
+	Window.SetCursorMode(Durin::ECursorMode::Captured);
+	EXPECT_EQ(Window.GetCursorMode(), Durin::ECursorMode::Captured);
+	Window.SetCursorMode(Durin::ECursorMode::Free);
+	EXPECT_EQ(Window.GetCursorMode(), Durin::ECursorMode::Free);
+	EXPECT_EQ(Window.GetCursorPosition(), Durin::FVector2d(31.0, 47.0));
+	EXPECT_EQ(Window.GetOperations(), (std::vector<std::string>{"captured", "free", "position"}));
+}
 
 TEST(FEditorTransactionManagerTests, ExecutesUndoesRedoesAndClearsRedoBranch)
 {

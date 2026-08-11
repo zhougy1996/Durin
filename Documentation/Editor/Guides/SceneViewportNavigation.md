@@ -131,6 +131,20 @@ The editor view is used only for editing the scene:
 
 To change the view used by the game, select a Camera Actor in the World Outliner and edit its Transform or camera properties in the Details panel.
 
+## Mouse Capture During Play
+
+Embedded Play starts with the cursor available for editor controls. Click the
+rendered game image, outside the viewport toolbar or an open popup, to capture
+and hide the cursor for continuous mouse look. The viewport badge indicates
+when a click is required.
+
+Press `Escape` to release the cursor while leaving Play active. The Play
+toolbar is then available, and another click in the game image is required to
+capture again. New-window Play follows the same click-to-capture and
+`Escape`-to-release interaction. Pausing, switching focus to another window,
+closing the Play window, stopping Play, or shutting down the editor always
+releases the cursor; resuming or returning focus never captures automatically.
+
 ## Troubleshooting
 
 ### Keyboard movement does not respond

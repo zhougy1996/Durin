@@ -331,15 +331,16 @@ namespace Durin::MonaImGui
 		if (HoveredViewport)
 		{
 			FGenericWindow* NativeWindow = static_cast<FGenericWindow*>(HoveredViewport->PlatformHandle);
-			if (NativeWindow)
+			if (NativeWindow && NativeWindow->GetCursorMode() != ECursorMode::Captured)
 			{
 				if (DesiredCursor == EMouseCursor::None || IO.MouseDrawCursor)
 				{
-					NativeWindow->SetCursor(EMouseCursor::None);
+					NativeWindow->SetCursorMode(ECursorMode::Hidden);
 				}
 				else
 				{
 					NativeWindow->SetCursor(DesiredCursor);
+					NativeWindow->SetCursorMode(ECursorMode::Free);
 				}
 			}
 		}

@@ -13,6 +13,7 @@ namespace Durin
 	class IRendererModule;
 	class FRenderCommandFence;
 	class FEngineInputEventHandler;
+	class FGenericWindow;
 	class DWorld;
 	class IScene;
 	struct FSceneView;
@@ -48,10 +49,17 @@ namespace Durin
 		auto GetWorld() const -> DWorld* { return MainWorld.Get(); }
 		auto GetGameInputState() const -> const FGameInputState& { return GameInputState; }
 		ENGINE_API auto SetGameInputEnabled(bool bEnabled) -> void;
+		ENGINE_API auto SetGameInputWindow(const std::shared_ptr<FGenericWindow>& InWindow) -> void;
+		ENGINE_API auto ClearGameInputWindow() -> void;
+		ENGINE_API auto ResetGameInputMouse() -> void;
 
 	protected:
 		ENGINE_API auto BuildMainSceneView(uint32 Width, uint32 Height) const -> FSceneView;
 		ENGINE_API auto BuildSceneView(const FSceneViewport* SceneViewport, uint32 Width, uint32 Height, bool bAllowCameraFallback, FSceneView& OutView) const -> bool;
+		virtual auto HandleGameInputWindowFocus(const std::shared_ptr<FGenericWindow>& Window, bool bFocused) -> void {}
+		virtual auto HandleGameInputWindowClose(const std::shared_ptr<FGenericWindow>& Window) -> void {}
+		virtual auto HandleGameInputKeyDown(const std::shared_ptr<FGenericWindow>& Window, EKey Key, bool bRepeat) -> bool { return false; }
+		virtual auto HandleGameInputMouseDown(const std::shared_ptr<FGenericWindow>& Window, EMouseButton Button) -> bool { return false; }
 
 		IRendererModule* RendererModule = nullptr;
 		std::unique_ptr<IScene> MainScene;
@@ -63,8 +71,10 @@ namespace Durin
 		DPROPERTY(Transient)
 		TObjectPtr<DWorld> MainWorld;
 		FGameInputState GameInputState;
+		std::weak_ptr<FGenericWindow> GameInputWindow;
 
 		friend class FEngineInputEventHandler;
+		friend struct FEngineInputTestAccess;
 	};
 
 	extern ENGINE_API DEngine* GEngine;

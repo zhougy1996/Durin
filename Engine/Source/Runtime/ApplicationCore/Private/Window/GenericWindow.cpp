@@ -160,6 +160,35 @@ namespace Durin
 
 	auto FGenericWindow::SetCursor(EMouseCursor Cursor) -> void
 	{
+		if (Cursor != EMouseCursor::None) CursorShape = Cursor;
+	}
+
+	auto FGenericWindow::SetCursorMode(ECursorMode InCursorMode) -> void
+	{
+		if (CursorMode == InCursorMode) return;
+		const bool bLeavingCapture = CursorMode == ECursorMode::Captured;
+		if (InCursorMode == ECursorMode::Captured)
+		{
+			CursorPositionBeforeCapture = GetCursorPosition();
+			bHasCursorPositionBeforeCapture = true;
+		}
+		ApplyCursorMode(InCursorMode);
+		CursorMode = InCursorMode;
+		if (InCursorMode == ECursorMode::Free && bHasCursorPositionBeforeCapture)
+		{
+			SetCursorPosition(CursorPositionBeforeCapture);
+			bHasCursorPositionBeforeCapture = false;
+		}
+	}
+
+	auto FGenericWindow::ApplyCursorMode(ECursorMode InCursorMode) -> void
+	{
+		(void)InCursorMode;
+	}
+
+	auto FGenericWindow::SetCursorPosition(FVector2d Position) -> void
+	{
+		(void)Position;
 	}
 
 } // namespace Durin

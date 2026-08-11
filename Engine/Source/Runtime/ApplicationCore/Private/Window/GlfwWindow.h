@@ -81,10 +81,13 @@ namespace Durin
 
 		APPLICATIONCORE_API auto GetCursorPosition() const -> FVector2d override;
 
+		APPLICATIONCORE_API auto SetCursorPosition(FVector2d Position) -> void override;
+
 		APPLICATIONCORE_API auto IsHovered() const -> bool override;
 
 	private:
 		FGlfwWindow();
+		auto ApplyCursorMode(ECursorMode InCursorMode) -> void override;
 
 		GLFWwindow* GlfwWindow = nullptr;
 	};

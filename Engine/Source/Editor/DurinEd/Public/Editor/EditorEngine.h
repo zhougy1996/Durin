@@ -17,6 +17,7 @@ namespace Durin
 	class FRenderCommandFence;
 	class IMainFrameModule;
 	class MWindow;
+	class FGenericWindow;
 	struct FEditorEngineTestAccess;
 
 	// Tracks the lifecycle transition of a play-in-editor session.
@@ -41,6 +42,14 @@ namespace Durin
 	{
 		EmbeddedViewport,
 		NewWindow
+	};
+
+	// Tracks editor Play ownership of the native mouse independently of Play state.
+	enum class EEditorMouseCaptureState : uint8
+	{
+		Released,
+		Captured,
+		Suspended
 	};
 
 	// Describes the source world, viewpoint, and physics policy for starting play.
@@ -72,6 +81,12 @@ namespace Durin
 		DURINED_API auto StopPlaySession() -> void;
 		DURINED_API auto SetPlaySessionPaused(bool bPaused) -> void;
 		DURINED_API auto StepPlaySession() -> void;
+		DURINED_API auto UpdateEmbeddedPlayMouseTarget(
+			const std::shared_ptr<FGenericWindow>& Window,
+			bool bFocused,
+			bool bCaptureClicked) -> void;
+		DURINED_API auto RequestPlayMouseCapture(const std::shared_ptr<FGenericWindow>& Window) -> bool;
+		DURINED_API auto ReleasePlayMouseCapture() -> void;
 		DURINED_API auto ApplyPlaySessionChanges(const std::vector<AActor*>& PlayActors, uint32* OutAppliedActorCount = nullptr, std::string* OutError = nullptr) -> bool;
 		DURINED_API auto GetEditorObjectForPlayObject(const DObject* PlayObject) const -> DObject*;
 		auto GetPlayState() const -> EEditorPlayState { return PlayState; }
@@ -80,6 +95,14 @@ namespace Durin
 		auto GetEditorWorld() const -> DWorld* { return EditorWorld.Get(); }
 		auto GetPlayWorld() const -> DWorld* { return PlayWorld.Get(); }
 		auto IsPlayingInNewWindow() const -> bool { return IsPlaying() && PlayDestination == EEditorPlayDestination::NewWindow; }
+		auto GetMouseCaptureState() const -> EEditorMouseCaptureState { return MouseCaptureState; }
+		auto IsPlayMouseCaptured() const -> bool { return MouseCaptureState == EEditorMouseCaptureState::Captured; }
+
+	protected:
+		auto HandleGameInputWindowFocus(const std::shared_ptr<FGenericWindow>& Window, bool bFocused) -> void override;
+		auto HandleGameInputWindowClose(const std::shared_ptr<FGenericWindow>& Window) -> void override;
+		auto HandleGameInputKeyDown(const std::shared_ptr<FGenericWindow>& Window, EKey Key, bool bRepeat) -> bool override;
+		auto HandleGameInputMouseDown(const std::shared_ptr<FGenericWindow>& Window, EMouseButton Button) -> bool override;
 
 	private:
 		DURINED_API auto StartPlaySessionInternal(
@@ -88,6 +111,7 @@ namespace Durin
 			std::string* OutError) -> bool;
 		auto TeardownPlaySession() -> void;
 		auto ReleaseRetiredPlaySessions(bool bReleaseAll = false) -> void;
+		auto SuspendPlayMouseCapture() -> void;
 
 		std::unique_ptr<FEditorTransactionManager> TransactionManager;
 		std::unique_ptr<FEditorNotificationManager> NotificationManager;
@@ -119,6 +143,8 @@ namespace Durin
 		std::shared_ptr<FSceneViewport> PreviousSceneViewport;
 		std::shared_ptr<FSceneViewport> PlayWindowViewport;
 		std::shared_ptr<MWindow> PlayWindow;
+		std::weak_ptr<FGenericWindow> CapturedMouseWindow;
+		EEditorMouseCaptureState MouseCaptureState = EEditorMouseCaptureState::Released;
 		std::vector<std::unique_ptr<FRenderCommandFence>> RetiredPlayFences;
 		std::vector<uint64> ConsoleCommandHandles;
 		IMainFrameModule* MainFrameModule = nullptr;

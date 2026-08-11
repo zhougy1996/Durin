@@ -16,6 +16,14 @@ namespace Durin
 		Windowed,			// Stretch the window to the size of the monitor
 	};
 
+	// Selects cursor presentation and native pointer ownership independently of cursor shape.
+	enum class ECursorMode : uint8
+	{
+		Free,
+		Hidden,
+		Captured
+	};
+
 	// Defines the platform-independent window contract used by runtime and UI code.
 	class FGenericWindow
 	{
@@ -90,15 +98,27 @@ namespace Durin
 
 		APPLICATIONCORE_API virtual auto SetCursor(EMouseCursor Cursor) -> void;
 
+		APPLICATIONCORE_API virtual auto SetCursorMode(ECursorMode InCursorMode) -> void;
+
+		auto GetCursorMode() const -> ECursorMode { return CursorMode; }
+
 		APPLICATIONCORE_API virtual auto GetCursorPosition() const -> FVector2d;
+
+		APPLICATIONCORE_API virtual auto SetCursorPosition(FVector2d Position) -> void;
 
 		APPLICATIONCORE_API virtual auto IsHovered() const -> bool;
 
 	protected:
+		APPLICATIONCORE_API virtual auto ApplyCursorMode(ECursorMode InCursorMode) -> void;
+
 		// Retained so platform implementations can reapply the requested window policy.
 		std::shared_ptr<FGenericWindowDefinition> Definition;
 
 		EWindowMode WindowMode = EWindowMode::Windowed;
+		ECursorMode CursorMode = ECursorMode::Free;
+		EMouseCursor CursorShape = EMouseCursor::Arrow;
+		FVector2d CursorPositionBeforeCapture{0.0};
+		bool bHasCursorPositionBeforeCapture = false;
 
 		// Non-owning handle supplied by the platform windowing implementation.
 		void* OSNativeWindowHandle = nullptr;

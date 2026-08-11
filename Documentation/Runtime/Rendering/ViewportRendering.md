@@ -151,6 +151,16 @@ In this path, `MViewport::Draw()` only updates the referenced viewport. It exits
 
 The editor viewport is render-target-backed because it must be displayed inside an ImGui dockable panel rather than presented directly to a native window.
 
+During Play, rendering destination and mouse ownership remain separate. Both
+embedded and new-window Play assign exactly one native window as the Engine's
+gameplay-input authority, but input stays disabled until a primary click on
+the game surface captures that window. Capture uses the platform
+`Captured` cursor mode, while ordinary ImGui cursor-shape updates skip only
+that native window. `Escape`, focus loss, pause, stop, Play-window close, and
+teardown restore `Free` mode synchronously before the window or Play world is
+released. Focus restoration and resume require another click rather than
+recapturing automatically.
+
 Flow:
 
 ```text

@@ -15,6 +15,7 @@
 #include "Profiling/Profiling.h"
 #include "Application/MonaApplication.h"
 #include "Application/MonaEventHandler.h"
+#include "Window/GenericWindow.h"
 
 #include "DynamicRHI.h"
 #include "IScene.h"
@@ -51,47 +52,61 @@ namespace Durin
 	class FEngineInputEventHandler final : public Mona::FMonaEventHandler
 	{
 	public:
-		auto OnWindowFocused(const std::shared_ptr<FGenericWindow>&, bool bFocused) -> void override
+		auto IsTarget(const std::shared_ptr<FGenericWindow>& Window) const -> bool
 		{
-			if (GEngine) GEngine->GameInputState.SetFocused(bFocused);
+			return GEngine && GEngine->GameInputWindow.lock() == Window;
 		}
-		auto OnKeyDown(const std::shared_ptr<FGenericWindow>&, EKey Key, EKeyModFlags, bool) -> bool override
+		auto OnWindowFocused(const std::shared_ptr<FGenericWindow>& Window, bool bFocused) -> void override
 		{
-			if (GEngine) GEngine->GameInputState.SetKey(Key, true);
-			return GEngine && GEngine->GameInputState.IsEnabled();
+			if (!IsTarget(Window)) return;
+			GEngine->HandleGameInputWindowFocus(Window, bFocused);
+			GEngine->GameInputState.SetFocused(bFocused);
 		}
-		auto OnKeyUp(const std::shared_ptr<FGenericWindow>&, EKey Key, EKeyModFlags) -> bool override
+		auto OnWindowCloseRequested(const std::shared_ptr<FGenericWindow>& Window) -> bool override
 		{
-			if (GEngine) GEngine->GameInputState.SetKey(Key, false);
-			return GEngine && GEngine->GameInputState.IsEnabled();
+			if (!IsTarget(Window)) return false;
+			GEngine->HandleGameInputWindowClose(Window);
+			return false;
 		}
-		auto OnMouseMove(const std::shared_ptr<FGenericWindow>&, FVector2d Position) -> bool override
+		auto OnKeyDown(const std::shared_ptr<FGenericWindow>& Window, EKey Key, EKeyModFlags, bool bRepeat) -> bool override
 		{
-			if (GEngine) GEngine->GameInputState.SetMousePosition(Position);
-			return GEngine && GEngine->GameInputState.IsEnabled();
+			if (!IsTarget(Window)) return false;
+			if (GEngine->HandleGameInputKeyDown(Window, Key, bRepeat)) return true;
+			GEngine->GameInputState.SetKey(Key, true);
+			return GEngine->GameInputState.IsEnabled();
 		}
-		auto OnMouseDown(const std::shared_ptr<FGenericWindow>&, EMouseButton Button, FVector2d Position) -> bool override
+		auto OnKeyUp(const std::shared_ptr<FGenericWindow>& Window, EKey Key, EKeyModFlags) -> bool override
 		{
-			if (GEngine)
-			{
-				GEngine->GameInputState.SetMousePosition(Position);
-				GEngine->GameInputState.SetMouseButton(Button, true);
-			}
-			return GEngine && GEngine->GameInputState.IsEnabled();
+			if (!IsTarget(Window)) return false;
+			GEngine->GameInputState.SetKey(Key, false);
+			return GEngine->GameInputState.IsEnabled();
 		}
-		auto OnMouseUp(const std::shared_ptr<FGenericWindow>&, EMouseButton Button, FVector2d Position) -> bool override
+		auto OnMouseMove(const std::shared_ptr<FGenericWindow>& Window, FVector2d Position) -> bool override
 		{
-			if (GEngine)
-			{
-				GEngine->GameInputState.SetMousePosition(Position);
-				GEngine->GameInputState.SetMouseButton(Button, false);
-			}
-			return GEngine && GEngine->GameInputState.IsEnabled();
+			if (!IsTarget(Window)) return false;
+			GEngine->GameInputState.SetMousePosition(Position);
+			return GEngine->GameInputState.IsEnabled();
 		}
-		auto OnMouseWheel(const std::shared_ptr<FGenericWindow>&, double, double DeltaY) -> bool override
+		auto OnMouseDown(const std::shared_ptr<FGenericWindow>& Window, EMouseButton Button, FVector2d Position) -> bool override
 		{
-			if (GEngine) GEngine->GameInputState.AddMouseWheel(DeltaY);
-			return GEngine && GEngine->GameInputState.IsEnabled();
+			if (!IsTarget(Window)) return false;
+			if (GEngine->HandleGameInputMouseDown(Window, Button)) return true;
+			GEngine->GameInputState.SetMousePosition(Position);
+			GEngine->GameInputState.SetMouseButton(Button, true);
+			return GEngine->GameInputState.IsEnabled();
+		}
+		auto OnMouseUp(const std::shared_ptr<FGenericWindow>& Window, EMouseButton Button, FVector2d Position) -> bool override
+		{
+			if (!IsTarget(Window)) return false;
+			GEngine->GameInputState.SetMousePosition(Position);
+			GEngine->GameInputState.SetMouseButton(Button, false);
+			return GEngine->GameInputState.IsEnabled();
+		}
+		auto OnMouseWheel(const std::shared_ptr<FGenericWindow>& Window, double, double DeltaY) -> bool override
+		{
+			if (!IsTarget(Window)) return false;
+			GEngine->GameInputState.AddMouseWheel(DeltaY);
+			return GEngine->GameInputState.IsEnabled();
 		}
 	};
 
@@ -123,6 +138,7 @@ namespace Durin
 
 	auto DEngine::BeginDestroy() -> void
 	{
+		ClearGameInputWindow();
 		AuxiliarySceneViewports.clear();
 		MainSceneViewport.reset();
 		SetWorld(nullptr);
@@ -157,6 +173,7 @@ namespace Durin
 	auto DEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
 	{
 		(void)bIdleMode;
+		if (GameInputWindow.expired() && GameInputState.IsEnabled()) ClearGameInputWindow();
 		if (MainWorld) MainWorld->Tick({.DeltaSeconds = DeltaSeconds, .GameInput = &GameInputState});
 		GameInputState.FinishGameTick();
 	}
@@ -267,7 +284,26 @@ namespace Durin
 
 	auto DEngine::SetGameInputEnabled(bool bEnabled) -> void
 	{
-		GameInputState.SetEnabled(bEnabled);
+		GameInputState.SetEnabled(bEnabled && !GameInputWindow.expired());
+	}
+
+	auto DEngine::SetGameInputWindow(const std::shared_ptr<FGenericWindow>& InWindow) -> void
+	{
+		if (GameInputWindow.lock() == InWindow && (InWindow || !GameInputState.IsEnabled())) return;
+		GameInputState.SetEnabled(false);
+		GameInputState.SetFocused(false);
+		GameInputWindow = InWindow;
+		if (InWindow) GameInputState.SetFocused(InWindow->IsFocused());
+	}
+
+	auto DEngine::ClearGameInputWindow() -> void
+	{
+		SetGameInputWindow(nullptr);
+	}
+
+	auto DEngine::ResetGameInputMouse() -> void
+	{
+		GameInputState.ResetMouseTracking();
 	}
 
 	auto DEngine::GetActiveCameraComponent() const -> DCameraComponent*

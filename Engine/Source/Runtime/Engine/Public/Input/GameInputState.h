@@ -33,6 +33,7 @@ namespace Durin
 		ENGINE_API auto SetMousePosition(FVector2d Position) -> void;
 		auto AddMouseWheel(double Delta) -> void;
 		ENGINE_API auto FinishGameTick() -> void;
+		ENGINE_API auto ResetMouseTracking() -> void;
 		auto Reset() -> void;
 
 		inline static constexpr size_t KeyCapacity = 256;

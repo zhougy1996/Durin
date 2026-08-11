@@ -4,12 +4,12 @@ Summary: Add deterministic click-to-capture and release behavior for embedded an
 
 Last reviewed: 2026-08-11
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-11
 
 ## Current Status
 
-Stage 0 is complete. The focused pre-change baseline passed on 2026-08-11:
+All stages are complete. The focused pre-change baseline passed on 2026-08-11:
 `WorldTests` passed 76/76 and `ViewportTests` passed 81/81. The mutation
 inventory found no additional cursor or Play-session owner beyond the files
 listed below.
@@ -33,6 +33,30 @@ exists. Test seams will use a derived `FGenericWindow` without GLFW and the
 public coordinator requests without requiring an ImGui frame. Dependency
 direction remains `Core -> ApplicationCore -> MonaCore/Engine -> DurinEd ->
 LevelEditor`, while MonaImGui consumes only the generic window contract.
+
+Stage 1 added the independent cursor-mode contract, GLFW disabled/raw-motion
+capture with saved-position restoration, and per-window MonaImGui arbitration.
+Stage 2 added weak authoritative-window routing and mouse-baseline reset.
+Stage 3 added the editor capture coordinator, embedded/new-window click
+integration, synchronous lifecycle cleanup, Escape consumption, and the
+released-state viewport hint. `WorldTests` passed 79/79 and `ViewportTests`
+passed 82/82 after the changes; native edge motion and interactive repetition
+were qualified through the final visible runtime smoke.
+
+Final evidence on the `windows-msvc-x64` Agent Build Profile:
+
+- `WorldTests` passed 79/79 and `ViewportTests` passed 82/82.
+- Changed-document validation and all-plan validation passed.
+- A full `all` build succeeded and linked
+  `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`.
+- The visible Sandbox PIE lifecycle smoke passed embedded and new-window Play
+  from both Level Start and Editor Camera. Each of the four combinations ran
+  ten real `FGlfwWindow` capture/release cycles (40 total), then exercised
+  pause, single-step, stop, window retirement, and clean editor shutdown.
+- Focused native transition coverage exercised Escape consumption, focus
+  suspension/restoration, pause, close, repeated release, target replacement
+  and expiry, unrelated target rejection, held-state cleanup, and first-delta
+  suppression.
 
 ## Goal
 
@@ -203,15 +227,15 @@ Dependencies: none.
 
 ### Stage 1: Separate cursor presentation from native capture
 
-- [ ] Add the platform-neutral cursor-mode and cursor-position contracts to
+- [x] Add the platform-neutral cursor-mode and cursor-position contracts to
   `FGenericWindow`, retaining only the compatibility necessary for migrated
   callers.
-- [ ] Implement stateful, idempotent free, hidden, and captured behavior in
+- [x] Implement stateful, idempotent free, hidden, and captured behavior in
   `FGlfwWindow`, including supported raw motion and synchronous position
   restoration.
-- [ ] Migrate MonaImGui to set cursor shape/presentation through the separated
+- [x] Migrate MonaImGui to set cursor shape/presentation through the separated
   API and skip captured windows without disabling other platform windows.
-- [ ] Add focused native tests using a test window for mode idempotence,
+- [x] Add focused native tests using a test window for mode idempotence,
   capture precedence over cursor-shape requests, restoration ordering, and
   destruction-safe cleanup.
 
@@ -225,13 +249,13 @@ Dependencies: Stage 0 contract and test seam.
 
 ### Stage 2: Route gameplay input through one authoritative window
 
-- [ ] Add explicit gameplay input-window assignment and clearing to `DEngine`
+- [x] Add explicit gameplay input-window assignment and clearing to `DEngine`
   and filter all Engine input events by that identity.
-- [ ] Split mouse-baseline reset from full `FGameInputState` reset and invoke it
+- [x] Split mouse-baseline reset from full `FGameInputState` reset and invoke it
   on capture entry and input-window replacement.
-- [ ] Ensure unrelated-window focus, keyboard, mouse-button, move, and wheel
+- [x] Ensure unrelated-window focus, keyboard, mouse-button, move, and wheel
   events neither mutate nor consume gameplay input.
-- [ ] Add focused tests for target replacement, target expiry, focus loss,
+- [x] Add focused tests for target replacement, target expiry, focus loss,
   first-delta suppression, held-state cleanup, and unrelated-window isolation.
 
 Dependencies: Stage 1 window contract.
@@ -244,20 +268,20 @@ Dependencies: Stage 1 window contract.
 
 ### Stage 3: Integrate capture with both editor Play destinations
 
-- [ ] Implement the `DEditorEngine` capture coordinator and route every Play
+- [x] Implement the `DEditorEngine` capture coordinator and route every Play
   lifecycle transition through its idempotent release boundary.
-- [ ] Have `FSceneViewportPanel` report embedded game-surface clicks, focus,
+- [x] Have `FSceneViewportPanel` report embedded game-surface clicks, focus,
   popup/toolbar exclusion, and the host native window without directly
   changing cursor mode.
-- [ ] Route new-window client clicks and focus through the same coordinator;
+- [x] Route new-window client clicks and focus through the same coordinator;
   closing that window must release before requesting native destruction.
-- [ ] Reserve non-repeated `Escape` for release while captured and leave Play
+- [x] Reserve non-repeated `Escape` for release while captured and leave Play
   active. Require another eligible click before gameplay input resumes.
-- [ ] Release on pause, step completion, focus loss, stop, startup failure, and
+- [x] Release on pause, step completion, focus loss, stop, startup failure, and
   editor teardown; resume or refocus in `Released` state.
-- [ ] Add the released-state viewport hint and ensure it does not consume the
+- [x] Add the released-state viewport hint and ensure it does not consume the
   recapture click or cover existing Play controls.
-- [ ] Add coordinator and editor integration tests covering the transition
+- [x] Add coordinator and editor integration tests covering the transition
   table, partial startup, repeated release, and both destinations.
 
 Dependencies: Stage 2 authoritative input routing.
@@ -270,15 +294,15 @@ Dependencies: Stage 2 authoritative input routing.
 
 ### Stage 4: Qualify user-visible behavior and publish the contract
 
-- [ ] Update the viewport-rendering and gameplay-control documentation with
+- [x] Update the viewport-rendering and gameplay-control documentation with
   cursor ownership, click-to-capture, `Escape`, focus, pause, and teardown
   behavior.
-- [ ] Run the changed-document validator and the all-plan validator.
-- [ ] Run the smallest affected native targets after final edits, then complete
+- [x] Run the changed-document validator and the all-plan validator.
+- [x] Run the smallest affected native targets after final edits, then complete
   the required full `all` build for the user-visible editor change.
-- [ ] Exercise the validation matrix in the editor executable produced by that
+- [x] Exercise the validation matrix in the editor executable produced by that
   same full build and record the executable path and results in this plan.
-- [ ] Set `Status: Completed`, fill `Completed`, and record final evidence only
+- [x] Set `Status: Completed`, fill `Completed`, and record final evidence only
   after every required gate succeeds.
 
 Dependencies: Stage 3 acceptance gate.

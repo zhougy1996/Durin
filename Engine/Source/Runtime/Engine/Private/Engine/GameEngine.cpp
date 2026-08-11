@@ -33,6 +33,7 @@ namespace Durin
 
 		std::shared_ptr<FSceneViewport> SceneViewport = std::make_shared<FSceneViewport>(nullptr, GameWindow);
 		SetMainSceneViewport(SceneViewport);
+		SetGameInputWindow(GameWindow->GetNativeWindow());
 		SetGameInputEnabled(true);
 
 		if (const FProjectInfo* CurrentProject = GetCurrentProject())

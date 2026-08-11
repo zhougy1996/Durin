@@ -181,7 +181,8 @@ namespace Durin::Mona
 
 	auto FMonaApplication::OnWindowCloseRequested(const std::shared_ptr<FGenericWindow>& PlatformWindow) -> void
 	{
-		if (MonaEventHandler && MonaEventHandler->OnWindowCloseRequested(PlatformWindow))
+		const bool bGameHandled = GameEventHandler && GameEventHandler->OnWindowCloseRequested(PlatformWindow);
+		if ((MonaEventHandler && MonaEventHandler->OnWindowCloseRequested(PlatformWindow)) || bGameHandled)
 		{
 			return;
 		}

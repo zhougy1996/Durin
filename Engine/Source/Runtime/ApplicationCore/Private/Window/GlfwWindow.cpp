@@ -397,6 +397,10 @@ namespace Durin
 
 	FGlfwWindow::~FGlfwWindow()
 	{
+		if (GlfwWindow != nullptr && CursorMode == ECursorMode::Captured)
+		{
+			SetCursorMode(ECursorMode::Free);
+		}
 		glfwDestroyWindow(GlfwWindow);
 		GlfwWindow = nullptr;
 	}
@@ -498,6 +502,11 @@ namespace Durin
 		FVector2d CursorPos;
 		glfwGetCursorPos(GlfwWindow, &CursorPos.x, &CursorPos.y);
 		return CursorPos;
+	}
+
+	auto FGlfwWindow::SetCursorPosition(FVector2d Position) -> void
+	{
+		if (GlfwWindow != nullptr) glfwSetCursorPos(GlfwWindow, Position.x, Position.y);
 	}
 
 	void FGlfwWindow::Close()
@@ -637,15 +646,38 @@ namespace Durin
 
 	auto FGlfwWindow::SetCursor(EMouseCursor Cursor) -> void
 	{
+		if (Cursor == EMouseCursor::None) return;
+		CursorShape = Cursor;
 		const int CursorIndex = static_cast<int>(Cursor);
-		if (Cursor == EMouseCursor::None)
+		glfwSetCursor(GlfwWindow, GGlfwCursors[CursorIndex]);
+	}
+
+	auto FGlfwWindow::ApplyCursorMode(ECursorMode InCursorMode) -> void
+	{
+		if (GlfwWindow == nullptr) return;
+
+		if (CursorMode == ECursorMode::Captured && glfwRawMouseMotionSupported() == GLFW_TRUE)
 		{
-			glfwSetInputMode(GlfwWindow, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
-			return;
+			glfwSetInputMode(GlfwWindow, GLFW_RAW_MOUSE_MOTION, GLFW_FALSE);
 		}
 
-		glfwSetInputMode(GlfwWindow, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-		glfwSetCursor(GlfwWindow, GGlfwCursors[CursorIndex]);
+		if (InCursorMode == ECursorMode::Captured)
+		{
+			glfwSetInputMode(GlfwWindow, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+			if (glfwRawMouseMotionSupported() == GLFW_TRUE)
+			{
+				glfwSetInputMode(GlfwWindow, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+			}
+		}
+		else if (InCursorMode == ECursorMode::Hidden)
+		{
+			glfwSetInputMode(GlfwWindow, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
+		}
+		else
+		{
+			glfwSetInputMode(GlfwWindow, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+			glfwSetCursor(GlfwWindow, GGlfwCursors[static_cast<int>(CursorShape)]);
+		}
 	}
 
 

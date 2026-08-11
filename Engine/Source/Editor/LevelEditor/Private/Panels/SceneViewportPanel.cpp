@@ -18,12 +18,14 @@
 #include "Workspace/LevelEditorWorkspace.h"
 #include "Math/Vector.h"
 #include "Mona/SceneViewport.h"
+#include "Application/MonaApplication.h"
 #include "MonaImGui.h"
 #include "SceneViewProjection.h"
 #include "Viewport/LevelEditorViewportClient.h"
 #include "Viewport/CameraPreviewViewportClient.h"
 #include "Viewport/ViewportPresentation.h"
 #include "Widgets/MViewport.h"
+#include "Widgets/MWindow.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 
@@ -129,7 +131,7 @@ namespace Durin
 			ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
 		))
 		{
-			if (GEngine && !bPlayingInNewWindow) GEngine->SetGameInputEnabled(false);
+			if (GEditor && !bPlayingInNewWindow) GEditor->UpdateEmbeddedPlayMouseTarget(nullptr, false, false);
 			if (ViewportClient != nullptr) ViewportClient->ResetNavigation();
 			if (CameraPreviewViewportClient != nullptr) CameraPreviewViewportClient->SetCamera(nullptr);
 			bViewportHovered = false;
@@ -140,7 +142,7 @@ namespace Durin
 
 		if (Context.Level == nullptr)
 		{
-			if (GEngine && !bPlayingInNewWindow) GEngine->SetGameInputEnabled(false);
+			if (GEditor && !bPlayingInNewWindow) GEditor->UpdateEmbeddedPlayMouseTarget(nullptr, false, false);
 			if (ViewportClient != nullptr) ViewportClient->ResetNavigation();
 			if (CameraPreviewViewportClient != nullptr) CameraPreviewViewportClient->SetCamera(nullptr);
 			bViewportHovered = false;
@@ -217,6 +219,9 @@ namespace Durin
 				EditModeManager.Synchronize(Context);
 				const FViewportToolbarLayout ToolbarLayout = ViewportToolbar->CalculateLayout(ViewportClient.get(), &EditModeManager, VpMin, VpMax);
 				bViewportHovered = ImGui::IsItemHovered();
+				const bool bToolbarHovered = ImGui::IsMouseHoveringRect(ToolbarLayout.BackgroundMin, ToolbarLayout.BackgroundMax)
+					|| ImGui::IsMouseHoveringRect(ToolbarLayout.PlayBackgroundMin, ToolbarLayout.PlayBackgroundMax);
+				const bool bPopupOpen = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
 				const bool bRightMousePressed = ImGui::IsMouseClicked(ImGuiMouseButton_Right);
 				const bool bNavigationMousePressed = bRightMousePressed || ImGui::IsMouseClicked(ImGuiMouseButton_Middle) || (ImGui::GetIO().KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left));
 				const bool bPopupDismissRightPressHovered = bRightMousePressed
@@ -228,7 +233,22 @@ namespace Durin
 					bViewportHovered = true;
 				}
 				bViewportFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-				if (GEngine && !bPlayingInNewWindow) GEngine->SetGameInputEnabled(Context.bReadOnly && bViewportFocused);
+				if (GEditor && Context.bReadOnly && !bPlayingInNewWindow)
+				{
+					std::shared_ptr<FGenericWindow> HostWindow;
+					FGenericWindow* HostWindowRaw = static_cast<FGenericWindow*>(ImGui::GetWindowViewport()->PlatformHandle);
+					for (const std::shared_ptr<MWindow>& Window : Mona::FMonaApplication::Get().GetWindows())
+					{
+						if (Window && Window->GetNativeWindow().get() == HostWindowRaw)
+						{
+							HostWindow = Window->GetNativeWindow();
+							break;
+						}
+					}
+					const bool bCaptureClicked = bViewportHovered && !bToolbarHovered && !bPopupOpen
+						&& ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+					GEditor->UpdateEmbeddedPlayMouseTarget(HostWindow, bViewportFocused, bCaptureClicked);
+				}
 				if (Context.bReadOnly)
 				{
 					if (ViewportClient) ViewportClient->ResetNavigation();
@@ -246,7 +266,10 @@ namespace Durin
 				if (Context.bReadOnly)
 				{
 					ImDrawList* DrawList = ImGui::GetWindowDrawList();
-					const char* Status = bPlayingInNewWindow ? "PLAYING IN NEW WINDOW" : GEditor && GEditor->IsPlaySessionPaused() ? "PLAY PAUSED" : "PLAYING";
+					const char* Status = bPlayingInNewWindow ? "PLAYING IN NEW WINDOW"
+						: GEditor && GEditor->IsPlaySessionPaused() ? "PLAY PAUSED"
+						: GEditor && !GEditor->IsPlayMouseCaptured() ? "CLICK TO CAPTURE MOUSE"
+						: "PLAYING";
 					const ImVec2 TextSize = ImGui::CalcTextSize(Status);
 					const ImVec2 Padding(MonaImGui::ScaleUI(8.0f), MonaImGui::ScaleUI(4.0f));
 					const ImVec2 BadgeSize(TextSize.x + Padding.x * 2.0f, TextSize.y + Padding.y * 2.0f);
@@ -262,6 +285,7 @@ namespace Durin
 		}
 		if (ViewportWidget == nullptr || !ViewportWidget->WasTextureDrawn())
 		{
+			if (GEditor && !bPlayingInNewWindow) GEditor->UpdateEmbeddedPlayMouseTarget(nullptr, false, false);
 			if (ViewportClient != nullptr) ViewportClient->ResetNavigation();
 			bViewportHovered = false;
 			bViewportFocused = false;
