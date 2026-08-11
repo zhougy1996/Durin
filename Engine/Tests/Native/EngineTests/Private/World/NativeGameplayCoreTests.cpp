@@ -2,6 +2,7 @@
 
 #include "DObject/Class.h"
 #include "Editor/EditorEngine.h"
+#include "Engine/GameEngine.h"
 #include "Gameplay/PawnControlIntent.h"
 #include "Input/GameInputState.h"
 #include "Window/GenericWindow.h"
@@ -60,6 +61,29 @@ namespace Durin
 		static auto IsTarget(const DEngine& Engine, const std::shared_ptr<FGenericWindow>& Window) -> bool
 		{
 			return Engine.GameInputWindow.lock() == Window;
+		}
+	};
+
+	struct FGameEngineTestAccess
+	{
+		static auto KeyDown(DGameEngine& Engine, const std::shared_ptr<FGenericWindow>& Window, EKey Key, bool bRepeat = false) -> bool
+		{
+			return Engine.HandleGameInputKeyDown(Window, Key, bRepeat);
+		}
+
+		static auto Focus(DGameEngine& Engine, const std::shared_ptr<FGenericWindow>& Window, bool bFocused) -> void
+		{
+			Engine.HandleGameInputWindowFocus(Window, bFocused);
+		}
+
+		static auto MouseDown(DGameEngine& Engine, const std::shared_ptr<FGenericWindow>& Window, EMouseButton Button) -> bool
+		{
+			return Engine.HandleGameInputMouseDown(Window, Button);
+		}
+
+		static auto Close(DGameEngine& Engine, const std::shared_ptr<FGenericWindow>& Window) -> void
+		{
+			Engine.HandleGameInputWindowClose(Window);
 		}
 	};
 
@@ -365,6 +389,43 @@ TEST(FEditorMouseCaptureTests, EscapeAndFocusLossRestoreWithoutAutomaticRecaptur
 	EXPECT_FALSE(Engine->GetGameInputState().IsEnabled());
 
 	Engine->StopPlaySession();
+	Durin::MarkObjectHierarchyAsGarbage(Engine);
+	Durin::CollectGarbage();
+}
+
+TEST(FGameMouseCaptureTests, StartupEscapeClickFocusAndCloseManageStandaloneCapture)
+{
+	InitializeDObjectSystem();
+	auto* Engine = Durin::NewObject<Durin::DGameEngine>(nullptr, "StandaloneMouseCaptureEngine");
+	auto Window = std::make_shared<FFocusedTestWindow>();
+	Engine->SetGameInputWindow(Window);
+
+	ASSERT_TRUE(Engine->RequestGameMouseCapture(Window));
+	EXPECT_EQ(Window->GetCursorMode(), Durin::ECursorMode::Captured);
+	EXPECT_TRUE(Engine->IsGameMouseCaptured());
+	EXPECT_TRUE(Engine->GetGameInputState().IsEnabled());
+
+	EXPECT_TRUE(Durin::FGameEngineTestAccess::KeyDown(*Engine, Window, Durin::EKey::Escape));
+	EXPECT_EQ(Window->GetCursorMode(), Durin::ECursorMode::Free);
+	EXPECT_FALSE(Engine->IsGameMouseCaptured());
+	EXPECT_FALSE(Engine->GetGameInputState().IsEnabled());
+	EXPECT_FALSE(Durin::FGameEngineTestAccess::KeyDown(*Engine, Window, Durin::EKey::Escape));
+
+	EXPECT_FALSE(Durin::FGameEngineTestAccess::MouseDown(*Engine, Window, Durin::EMouseButton::Right));
+	ASSERT_TRUE(Durin::FGameEngineTestAccess::MouseDown(*Engine, Window, Durin::EMouseButton::Left));
+	Durin::FGameEngineTestAccess::Focus(*Engine, Window, false);
+	EXPECT_EQ(Window->GetCursorMode(), Durin::ECursorMode::Free);
+	EXPECT_FALSE(Engine->IsGameMouseCaptured());
+	EXPECT_FALSE(Engine->GetGameInputState().IsEnabled());
+
+	Window->SetFocused(false);
+	EXPECT_FALSE(Durin::FGameEngineTestAccess::MouseDown(*Engine, Window, Durin::EMouseButton::Left));
+	Window->SetFocused(true);
+	ASSERT_TRUE(Durin::FGameEngineTestAccess::MouseDown(*Engine, Window, Durin::EMouseButton::Left));
+	Durin::FGameEngineTestAccess::Close(*Engine, Window);
+	EXPECT_EQ(Window->GetCursorMode(), Durin::ECursorMode::Free);
+	EXPECT_FALSE(Engine->IsGameMouseCaptured());
+
 	Durin::MarkObjectHierarchyAsGarbage(Engine);
 	Durin::CollectGarbage();
 }

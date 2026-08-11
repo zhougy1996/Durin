@@ -9,6 +9,7 @@
 #include "Mona.h"
 #include "Mona/SceneViewport.h"
 #include "Widgets/MWindow.h"
+#include "Window/GenericWindow.h"
 
 namespace Durin
 {
@@ -35,8 +36,9 @@ namespace Durin
 
 		std::shared_ptr<FSceneViewport> SceneViewport = std::make_shared<FSceneViewport>(nullptr, GameWindow);
 		SetMainSceneViewport(SceneViewport);
-		SetGameInputWindow(GameWindow->GetNativeWindow());
-		SetGameInputEnabled(true);
+		const std::shared_ptr<FGenericWindow> NativeWindow = GameWindow->GetNativeWindow();
+		SetGameInputWindow(NativeWindow);
+		RequestGameMouseCapture(NativeWindow);
 
 		if (const FProjectInfo* CurrentProject = GetCurrentProject())
 		{
@@ -90,5 +92,64 @@ namespace Durin
 			}
 		}
 		return FEngineInitializationResult::Success();
+	}
+
+	auto DGameEngine::BeginDestroy() -> void
+	{
+		ReleaseGameMouseCapture();
+		DEngine::BeginDestroy();
+	}
+
+	auto DGameEngine::RequestGameMouseCapture(const std::shared_ptr<FGenericWindow>& Window) -> bool
+	{
+		if (!Window || !Window->IsFocused()) return false;
+		if (GameInputWindow.lock() != Window) SetGameInputWindow(Window);
+		if (CapturedMouseWindow.lock() == Window) return true;
+		ReleaseGameMouseCapture();
+		CapturedMouseWindow = Window;
+		Window->SetCursorMode(ECursorMode::Captured);
+		ResetGameInputMouse();
+		SetGameInputEnabled(true);
+		return true;
+	}
+
+	auto DGameEngine::ReleaseGameMouseCapture() -> void
+	{
+		if (const std::shared_ptr<FGenericWindow> Window = CapturedMouseWindow.lock())
+		{
+			Window->SetCursorMode(ECursorMode::Free);
+		}
+		CapturedMouseWindow.reset();
+		SetGameInputEnabled(false);
+	}
+
+	auto DGameEngine::HandleGameInputWindowFocus(
+		const std::shared_ptr<FGenericWindow>& Window,
+		bool bFocused) -> void
+	{
+		if (!bFocused && GameInputWindow.lock() == Window) ReleaseGameMouseCapture();
+	}
+
+	auto DGameEngine::HandleGameInputWindowClose(const std::shared_ptr<FGenericWindow>& Window) -> void
+	{
+		if (GameInputWindow.lock() == Window) ReleaseGameMouseCapture();
+	}
+
+	auto DGameEngine::HandleGameInputKeyDown(
+		const std::shared_ptr<FGenericWindow>&,
+		EKey Key,
+		bool bRepeat) -> bool
+	{
+		if (Key != EKey::Escape || bRepeat || CapturedMouseWindow.expired()) return false;
+		ReleaseGameMouseCapture();
+		return true;
+	}
+
+	auto DGameEngine::HandleGameInputMouseDown(
+		const std::shared_ptr<FGenericWindow>& Window,
+		EMouseButton Button) -> bool
+	{
+		if (Button != EMouseButton::Left || !CapturedMouseWindow.expired()) return false;
+		return RequestGameMouseCapture(Window);
 	}
 }

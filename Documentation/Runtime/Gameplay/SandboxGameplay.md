@@ -36,8 +36,10 @@ reads physical input:
 In editor Play, click the rendered game surface to capture the mouse before
 using mouse look. Press `Escape` to release it without stopping Play; click the
 game surface again to resume mouse input. Embedded and new-window Play use the
-same rule. Focus loss, pause, stop, or closing the Play window also releases
-the cursor and clears held gameplay input.
+same rule. Standalone DurinGame captures its main window at startup and uses
+the same `Escape` release and left-click recapture behavior. Focus loss, pause,
+stop, or closing the gameplay window also releases the cursor and clears held
+gameplay input.
 
 Opposing digital inputs cancel. Digital movement scale is `1.0`; mouse delta
 uses `0.1` intent units per pixel and is admitted through the Engine's bounded
