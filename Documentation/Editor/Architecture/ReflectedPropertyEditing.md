@@ -97,6 +97,13 @@ dispatch. It contains no Actor or static-mesh type branches. Real property rows
 still enter `EditProperty()`, while custom controls submit through the same
 session and mutation pipeline.
 
+The shared property view renders an ordinary reflected struct as a default-open
+tree containing each nested field marked `Edit`. Nested rows retain the
+object-owned outer member as their snapshot root and append a struct-member
+path segment for notification and transaction identity. Math structs such as
+vectors, quaternions, transforms, and linear colors keep their compact inline
+widgets instead of expanding into member rows.
+
 ## Object Notification Contract
 
 `DObject::PreEditChangeProperty(FPropertyEditProposal&, std::string&)` is the

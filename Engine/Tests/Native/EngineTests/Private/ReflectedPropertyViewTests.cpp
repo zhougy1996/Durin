@@ -2,14 +2,17 @@
 
 #include "AssetRedirector.h"
 #include "AssetSystem.h"
+#include "Components/StaticMeshComponent.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Object.h"
+#include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "DObject/SoftObjectPtr.h"
 #include "Editor/Transaction.h"
 #include "EngineTestSupport.h"
 #include "Misc/Paths.h"
+#include "MonaImGuiPropertyTable.h"
 #include "NativeTestSupport.h"
 
 #include <gtest/gtest.h>
@@ -284,6 +287,42 @@ TEST(FReflectedPropertyViewTests, EditObjectEnumeratesEditableStaticArrayElement
 	EXPECT_EQ(Result.VisiblePropertyCount, 0u);
 	EXPECT_FALSE(Result.bChanged);
 	EXPECT_EQ(Durin::Editor::MakePropertyLabel(EditableProperty, 2), "Test Values[2]");
+}
+
+TEST(FReflectedPropertyViewTests, GenericStructRendersEditableFields)
+{
+	InitializeDObjectSystem();
+	auto* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "StructPropertyView");
+	ASSERT_NE(Component, nullptr);
+	Durin::FProperty* BodyInstance = Component->GetClass()->FindPropertyByName("BodyInstance");
+	ASSERT_NE(BodyInstance, nullptr);
+
+	ImGuiContext* ImContext = ImGui::CreateContext();
+	ASSERT_NE(ImContext, nullptr);
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.DisplaySize = {800.0f, 600.0f};
+	IO.DeltaTime = 1.0f / 60.0f;
+	IO.IniFilename = nullptr;
+	IO.Fonts->AddFontDefault();
+	IO.Fonts->Build();
+	ImGui::NewFrame();
+	ImGui::SetNextWindowSize({600.0f, 400.0f}, ImGuiCond_Always);
+	ImGui::Begin("Struct Property View Test");
+	const bool bTableOpen = Durin::MonaImGui::PropertyEdit::BeginTable("StructPropertyRows");
+	if (bTableOpen)
+	{
+		Durin::Editor::FPropertyView PropertyView;
+		EXPECT_FALSE(PropertyView.EditProperty({}, Component, BodyInstance));
+		EXPECT_EQ(ImGui::TableGetRowIndex(), 3);
+		Durin::MonaImGui::PropertyEdit::EndTable();
+	}
+	ImGui::End();
+	ImGui::Render();
+	ImGui::DestroyContext(ImContext);
+	EXPECT_TRUE(bTableOpen);
+
+	Durin::MarkObjectHierarchyAsGarbage(Component);
+	Durin::CollectGarbage();
 }
 
 TEST(FReflectedPropertyViewTests, ObjectReplacementWaitsForFailedPreviewRestoration)

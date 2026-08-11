@@ -149,6 +149,9 @@ namespace Durin::Editor
 		) -> FPropertyWidgetEditResult;
 		auto EditStructPropertyWidget(FProperty* Property, void* Container, uint32 ArrayIndex,
 			const std::string& Label, bool bReadOnly) -> FPropertyWidgetEditResult;
+		auto EditStructProperty(const FPropertyViewContext& Context, DObject* Object,
+			FProperty* Property, void* Container, uint32 ArrayIndex, const std::string& Label,
+			bool bReadOnly, const FPropertyEditTarget& EditTarget) -> bool;
 		auto SubmitWidgetEdit(const FPropertyViewContext& Context,
 			const FPropertyEditTarget& EditTarget, const FPropertyWidgetEditResult& Edit) -> bool;
 		auto EditArrayProperty(const FPropertyViewContext& Context, DObject* Object, FArrayProperty* Property,
