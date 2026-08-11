@@ -48,37 +48,37 @@ namespace Durin
 
 	// Carries only the mounted identity and frozen visual inputs across the shared pipeline.
 	class FStaticMeshAssetThumbnailGenerationInput final
-		: public IAssetThumbnailGenerationInput
+		: public Editor::IAssetThumbnailGenerationInput
 	{
 	public:
 		FStaticMeshAssetThumbnailGenerationInput(
 			FAssetPath InAssetPath,
-			FRenderedAssetThumbnailVisualContract InVisualContract)
+			Editor::FRenderedAssetThumbnailVisualContract InVisualContract)
 			: AssetPath(std::move(InAssetPath))
 			, VisualContract(std::move(InVisualContract))
 		{
 		}
 
 		FAssetPath AssetPath;
-		FRenderedAssetThumbnailVisualContract VisualContract;
+		Editor::FRenderedAssetThumbnailVisualContract VisualContract;
 	};
 
 	// Captures the exact StaticMesh fingerprint and sorted transitive dependency closure.
-	class FStaticMeshAssetThumbnailProvider final : public IRenderedAssetThumbnailExtension
+	class FStaticMeshAssetThumbnailProvider final : public Editor::IRenderedAssetThumbnailExtension
 	{
 	public:
 		STATICMESHEDITOR_API auto GetRegistration() const
-			-> FAssetThumbnailProviderRegistration override;
+			-> Editor::FAssetThumbnailProviderRegistration override;
 		STATICMESHEDITOR_API auto CaptureGenerationRequest(
-			const FAssetThumbnailRequest& Request,
+			const Editor::FAssetThumbnailRequest& Request,
 			uint64 ProviderGeneration,
-			FAssetThumbnailGenerationRequest& OutRequest,
+			Editor::FAssetThumbnailGenerationRequest& OutRequest,
 			std::string& OutError) -> bool override;
 		STATICMESHEDITOR_API auto CreateGenerationSession(
-			const FAssetThumbnailGenerationRequest& Request,
-			const IAssetThumbnailGenerationInput& Input,
+			const Editor::FAssetThumbnailGenerationRequest& Request,
+			const Editor::IAssetThumbnailGenerationInput& Input,
 			std::string& OutError)
-			-> std::unique_ptr<IRenderedAssetThumbnailGenerationSession> override;
+			-> std::unique_ptr<Editor::IRenderedAssetThumbnailGenerationSession> override;
 	};
 
 	// Fits all eight finite, non-degenerate bounds corners inside the requested image margin.

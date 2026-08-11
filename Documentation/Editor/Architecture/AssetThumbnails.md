@@ -12,8 +12,10 @@ project content.
 
 - `DurinEd` owns the provider-neutral request, view, provider registry,
   scheduler, rendered-generation pipeline, persistent object store, preview
-  scene pool, and resource budgets.
-- `FRenderedAssetThumbnailService` owns the one long-lived registry. A rendered
+  scene pool, and resource budgets. Every shared contract lives in the flat
+  `Durin::Editor` namespace; concrete feature-editor providers remain in their
+  owning modules.
+- `Editor::FRenderedAssetThumbnailService` owns the one long-lived registry. A rendered
   cache receives that service and resolves registrations when capturing each
   request, so cache construction order does not snapshot or fork provider state.
 - Rendered providers may register a module-owned generation extension through a
@@ -46,6 +48,15 @@ diagnostics live in `TextureEditor`. StaticMesh provider code, generation
 sessions, visual contracts, and diagnostics live in `StaticMeshEditor`. The
 default service constructs no concrete provider. Moving ownership did not change
 any rendered provider name, key field, schema, fixture, shader, or output policy.
+
+The public headers follow responsibility rather than one broad thumbnail facade:
+`AssetThumbnailTypes.h`, `AssetThumbnailKey.h`,
+`AssetThumbnailProvider.h`, and `AssetThumbnailScheduler.h` own core
+contracts; `AssetThumbnailObjectStore.h` owns persistence and budget
+selection; rendered extension, preview-scene, pipeline, service, and cache
+contracts each have their matching `RenderedAssetThumbnail*.h` header.
+The former `AssetThumbnail.h` and `AssetThumbnailCache.h` paths no longer
+exist.
 
 The shared preview pool owns only its world, provider-neutral camera/view,
 lighting, output target, render command, and readback. A cold-generation session

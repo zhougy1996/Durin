@@ -4,7 +4,7 @@
 #include "ImageDecoder.h"
 #include "Misc/DerivedDataCache.h"
 #include "Misc/Paths.h"
-#include "Thumbnail/AssetThumbnailCache.h"
+#include "Thumbnail/AssetThumbnailObjectStore.h"
 
 namespace Durin
 {
@@ -184,7 +184,7 @@ namespace Durin
 		}
 
 		FSourceImageThumbnailDiskCacheSettings Settings;
-		FAssetThumbnailObjectStore ObjectStore;
+		Editor::FAssetThumbnailObjectStore ObjectStore;
 		uint64 SourceDecodes = 0;
 		mutable std::mutex Mutex;
 	};
@@ -232,7 +232,7 @@ namespace Durin
 		if (!Desired.SourceIdentity.empty())
 		{
 			std::vector<uint8> EncodedBytes;
-			if (Impl->ObjectStore.Load(Desired.Key, EncodedBytes) == EAssetThumbnailObjectLoadResult::Hit)
+			if (Impl->ObjectStore.Load(Desired.Key, EncodedBytes) == Editor::EAssetThumbnailObjectLoadResult::Hit)
 			{
 				if (DecodeCachedPng(EncodedBytes, Impl->Settings.MaximumDimension, OutThumbnail, OutError))
 					return true;
@@ -255,7 +255,7 @@ namespace Durin
 
 	auto FSourceImageThumbnailDiskCache::GetStats() const -> FSourceImageThumbnailDiskCacheStats
 	{
-		const FAssetThumbnailObjectStoreStats StoreStats = Impl->ObjectStore.GetStats();
+		const Editor::FAssetThumbnailObjectStoreStats StoreStats = Impl->ObjectStore.GetStats();
 		std::lock_guard Lock(Impl->Mutex);
 		return {
 			.CacheHits = StoreStats.CacheHits,

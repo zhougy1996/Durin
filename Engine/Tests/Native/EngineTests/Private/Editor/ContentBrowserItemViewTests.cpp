@@ -14,37 +14,37 @@ namespace Durin
 {
 	TEST(FContentBrowserItemViewTests, MapsProviderStatesWithoutOwningTextures)
 	{
-		FAssetThumbnailView Thumbnail;
+		Editor::FAssetThumbnailView Thumbnail;
 		EXPECT_EQ(
 			ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail),
 			ContentBrowserItemView::EThumbnailPresentation::Icon);
 
-		Thumbnail.State = EAssetThumbnailState::Queued;
+		Thumbnail.State = Editor::EAssetThumbnailState::Queued;
 		EXPECT_EQ(
 			ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail),
 			ContentBrowserItemView::EThumbnailPresentation::Loading);
-		Thumbnail.State = EAssetThumbnailState::Loading;
+		Thumbnail.State = Editor::EAssetThumbnailState::Loading;
 		EXPECT_EQ(
 			ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail),
 			ContentBrowserItemView::EThumbnailPresentation::Loading);
-		Thumbnail.State = EAssetThumbnailState::Uploading;
+		Thumbnail.State = Editor::EAssetThumbnailState::Uploading;
 		EXPECT_EQ(
 			ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail),
 			ContentBrowserItemView::EThumbnailPresentation::Loading);
 
-		Thumbnail.State = EAssetThumbnailState::Ready;
+		Thumbnail.State = Editor::EAssetThumbnailState::Ready;
 		Thumbnail.Texture = reinterpret_cast<FRHITexture*>(1);
 		EXPECT_EQ(
 			ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail),
 			ContentBrowserItemView::EThumbnailPresentation::Ready);
 
-		Thumbnail.State = EAssetThumbnailState::Failed;
+		Thumbnail.State = Editor::EAssetThumbnailState::Failed;
 		Thumbnail.Texture = nullptr;
 		EXPECT_EQ(
 			ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail),
 			ContentBrowserItemView::EThumbnailPresentation::Failed);
 
-		Thumbnail.State = EAssetThumbnailState::Invalid;
+		Thumbnail.State = Editor::EAssetThumbnailState::Invalid;
 		EXPECT_EQ(
 			ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail),
 			ContentBrowserItemView::EThumbnailPresentation::Icon);

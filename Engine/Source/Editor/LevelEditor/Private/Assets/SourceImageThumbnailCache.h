@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Thumbnail/AssetThumbnail.h"
+#include "Thumbnail/AssetThumbnailProvider.h"
 
 namespace Durin
 {
@@ -11,7 +11,7 @@ namespace Durin
 		std::string_view PhysicalPath;
 		uintmax_t FileSize = 0;
 		std::filesystem::file_time_type LastWriteTime{};
-		EAssetThumbnailPriority Priority = EAssetThumbnailPriority::Prefetch;
+		Editor::EAssetThumbnailPriority Priority = Editor::EAssetThumbnailPriority::Prefetch;
 	};
 
 	// Coordinates asynchronous decode, GPU upload, memory eviction, and disk reuse.
@@ -26,7 +26,7 @@ namespace Durin
 
 		auto BeginFrame() -> void;
 		auto Request(const FSourceImageThumbnailRequest& Request) -> void;
-		auto Find(std::string_view Identity) const -> FAssetThumbnailView;
+		auto Find(std::string_view Identity) const -> Editor::FAssetThumbnailView;
 		auto EndFrame() -> void;
 		auto CancelPendingRequests() -> void;
 		auto Clear() -> void;

@@ -19,7 +19,7 @@
 namespace
 {
 	auto MakeRequest(const Durin::Asset::FAssetData& Data)
-		-> Durin::FAssetThumbnailRequest
+		-> Durin::Editor::FAssetThumbnailRequest
 	{
 		return {
 			.Asset = {
@@ -28,7 +28,7 @@ namespace
 				.PackageFormatVersion = Data.FormatVersion,
 				.FileSize = static_cast<Durin::uint64>(Data.FileSize),
 				.LastWriteTimeTicks = Data.LastWriteTimeTicks},
-			.Priority = Durin::EAssetThumbnailPriority::Visible,
+			.Priority = Durin::Editor::EAssetThumbnailPriority::Visible,
 			.RequestSerial = 3};
 	}
 }
@@ -47,7 +47,7 @@ TEST(FTextureAssetThumbnailTests, Texture2DProviderCapturesAuthoredSourceImage)
 		Durin::Asset::GetAssetRegistry().FindAssetExact(TexturePath);
 	ASSERT_NE(Data, nullptr);
 	Durin::FTexture2DAssetThumbnailProvider Provider;
-	Durin::FAssetThumbnailSourceImage Source;
+	Durin::Editor::FAssetThumbnailSourceImage Source;
 	ASSERT_TRUE(Provider.CaptureSourceImage(*Data, Source, Error)) << Error;
 	EXPECT_FALSE(Source.PhysicalPath.empty());
 	EXPECT_GT(Source.FileSize, 0u);
@@ -58,7 +58,7 @@ TEST(FTextureAssetThumbnailTests, ModuleOwnsBothExactProvidersAndWorkspaceLifecy
 {
 	InitializeDObjectSystem();
 	Durin::Editor::FWorkspaceManager Manager;
-	Durin::FRenderedAssetThumbnailService Service;
+	Durin::Editor::FRenderedAssetThumbnailService Service;
 	Durin::FTextureEditorModule Module;
 	const std::string Texture2DClass =
 		Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString();
@@ -83,7 +83,7 @@ TEST(FTextureAssetThumbnailTests, ProviderConflictRollsBackWholeIntegration)
 {
 	InitializeDObjectSystem();
 	Durin::Editor::FWorkspaceManager Manager;
-	Durin::FRenderedAssetThumbnailService Service;
+	Durin::Editor::FRenderedAssetThumbnailService Service;
 	std::string Error;
 	auto Existing = Service.RegisterScoped(
 		std::make_unique<Durin::FTextureCubeAssetThumbnailProvider>(), Error);
@@ -106,7 +106,7 @@ TEST(FTextureAssetThumbnailTests,
 	ASSERT_TRUE(Durin::Tests::CreateRenderedAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
 	Durin::Editor::FWorkspaceManager Manager;
-	Durin::FRenderedAssetThumbnailService Service;
+	Durin::Editor::FRenderedAssetThumbnailService Service;
 	Durin::FTextureEditorModule Module;
 	ASSERT_TRUE(Module.RegisterTextureEditor(Manager, Service));
 	ASSERT_TRUE(Manager.OpenAsset(
@@ -145,20 +145,20 @@ TEST(FTextureCubeAssetThumbnailTests, ProviderCapturesPackageAndCubeVisualContra
 	ASSERT_NE(Data, nullptr);
 
 	Durin::FTextureCubeAssetThumbnailProvider Provider;
-	const Durin::FAssetThumbnailProviderRegistration Registration =
+	const Durin::Editor::FAssetThumbnailProviderRegistration Registration =
 		Provider.GetRegistration();
-	Durin::FAssetThumbnailGenerationRequest Captured;
+	Durin::Editor::FAssetThumbnailGenerationRequest Captured;
 	ASSERT_TRUE(Provider.CaptureGenerationRequest(
 		MakeRequest(*Data), 9, Captured, Error)) << Error;
 	EXPECT_EQ(Captured.ProviderGeneration, 9u);
 	EXPECT_EQ(Captured.RequestSerial, 3u);
 	EXPECT_EQ(
 		Captured.KeyInput.PreviewFixtureIdentity,
-		Durin::FRenderedAssetThumbnailVisualContract::
+		Durin::Editor::FRenderedAssetThumbnailVisualContract::
 			TextureCubeEnvironmentViewIdentity);
 	EXPECT_EQ(
 		Captured.KeyInput.PreviewFixtureVersion,
-		Durin::FRenderedAssetThumbnailVisualContract::
+		Durin::Editor::FRenderedAssetThumbnailVisualContract::
 			TextureCubeEnvironmentViewVersion);
 	EXPECT_EQ(Captured.KeyInput.ShaderContractVersion, 2u);
 	EXPECT_TRUE(Captured.KeyInput.Dependencies.empty());
@@ -172,10 +172,10 @@ TEST(FTextureCubeAssetThumbnailTests, ProviderCapturesPackageAndCubeVisualContra
 	Captured.KeyInput.GeneratorSchemaVersion =
 		Registration.GeneratorSchemaVersion;
 	const std::string OriginalKey =
-		Durin::BuildAssetThumbnailCacheKey(Captured.KeyInput);
-	Durin::FAssetThumbnailKeyInput Rebuilt = Captured.KeyInput;
+		Durin::Editor::BuildAssetThumbnailCacheKey(Captured.KeyInput);
+	Durin::Editor::FAssetThumbnailKeyInput Rebuilt = Captured.KeyInput;
 	++Rebuilt.Asset.LastWriteTimeTicks;
-	EXPECT_NE(OriginalKey, Durin::BuildAssetThumbnailCacheKey(Rebuilt));
+	EXPECT_NE(OriginalKey, Durin::Editor::BuildAssetThumbnailCacheKey(Rebuilt));
 }
 
 TEST(FTextureCubeAssetThumbnailTests, PreviewComponentCreatesStableCubeReference)
@@ -215,7 +215,7 @@ TEST(FTextureCubeAssetThumbnailTests, ProviderRejectsMissingRegistryData)
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		"/RenderedThumbnailFixtures/Textures/TC_Missing", MissingPath));
 	Durin::FTextureCubeAssetThumbnailProvider Provider;
-	Durin::FAssetThumbnailGenerationRequest Captured;
+	Durin::Editor::FAssetThumbnailGenerationRequest Captured;
 	std::string Error;
 	EXPECT_FALSE(Provider.CaptureGenerationRequest({
 		.Asset = {
@@ -225,7 +225,7 @@ TEST(FTextureCubeAssetThumbnailTests, ProviderRejectsMissingRegistryData)
 			.PackageFormatVersion = 1,
 			.FileSize = 1,
 			.LastWriteTimeTicks = 1},
-		.Priority = Durin::EAssetThumbnailPriority::Visible,
+		.Priority = Durin::Editor::EAssetThumbnailPriority::Visible,
 		.RequestSerial = 1}, 1, Captured, Error));
 	EXPECT_NE(Error.find(MissingPath.ToString()), std::string::npos);
 }

@@ -4,7 +4,7 @@
 #include "Misc/LexicalPath.h"
 #include "Misc/Paths.h"
 #include "Misc/StringHelper.h"
-#include "Thumbnail/RenderedAssetThumbnailCache.h"
+#include "Thumbnail/RenderedAssetThumbnailService.h"
 
 namespace Durin
 {
@@ -321,10 +321,10 @@ namespace Durin
 			std::error_code FileEc;
 			Item.FileSize = std::filesystem::file_size(Data.PhysicalPath, FileEc);
 			Item.LastWriteTime = Data.LastWriteTime;
-			FAssetThumbnailSourceImage SourceImage;
+			Editor::FAssetThumbnailSourceImage SourceImage;
 			std::string ThumbnailError;
-			FRenderedAssetThumbnailService& ThumbnailService =
-				GetDefaultRenderedAssetThumbnailService();
+			Editor::FRenderedAssetThumbnailService& ThumbnailService =
+				Editor::GetDefaultRenderedAssetThumbnailService();
 			if (ThumbnailService.UsesSourceImage(Data.AssetClassName))
 			{
 				if (ThumbnailService.CaptureSourceImage(

@@ -5,7 +5,7 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Thumbnail/MaterialAssetThumbnail.h"
-#include "Thumbnail/RenderedAssetThumbnailCache.h"
+#include "Thumbnail/RenderedAssetThumbnailService.h"
 #include "Widgets/MMaterialEditor.h"
 
 namespace Durin
@@ -25,7 +25,7 @@ namespace Durin
 
 	auto FMaterialEditorModule::RegisterMaterialEditor(
 		Editor::FWorkspaceManager& WorkspaceManager,
-		FRenderedAssetThumbnailService& ThumbnailService) -> bool
+		Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
 			|| (MaterialThumbnailRegistration && MaterialThumbnailRegistration->IsValid())
@@ -76,7 +76,7 @@ namespace Durin
 			return false;
 		}
 		MaterialThumbnailRegistration =
-			std::make_unique<FAssetThumbnailProviderRegistrationHandle>(
+			std::make_unique<Editor::FAssetThumbnailProviderRegistrationHandle>(
 				std::move(MaterialHandle));
 		auto InstanceHandle = ThumbnailService.RegisterScoped(
 			std::make_unique<FMaterialAssetThumbnailProvider>(
@@ -88,7 +88,7 @@ namespace Durin
 			return false;
 		}
 		MaterialInstanceThumbnailRegistration =
-			std::make_unique<FAssetThumbnailProviderRegistrationHandle>(
+			std::make_unique<Editor::FAssetThumbnailProviderRegistrationHandle>(
 				std::move(InstanceHandle));
 		return true;
 	}

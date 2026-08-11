@@ -226,7 +226,7 @@ namespace Durin
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(
 			BeforeSave, MaterialFile));
 		Editor::FWorkspaceManager WorkspaceManager;
-		FRenderedAssetThumbnailService ThumbnailService;
+		Editor::FRenderedAssetThumbnailService ThumbnailService;
 		FMaterialEditorModule MaterialEditorModule;
 		ASSERT_TRUE(MaterialEditorModule.RegisterMaterialEditor(
 			WorkspaceManager, ThumbnailService));

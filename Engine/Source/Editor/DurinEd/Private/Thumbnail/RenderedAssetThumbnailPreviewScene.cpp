@@ -1,4 +1,4 @@
-#include "Thumbnail/RenderedAssetThumbnailPipeline.h"
+#include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
 
 #include "Components/DirectionalLightComponent.h"
 #include "DynamicRHI.h"
@@ -12,7 +12,7 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 
-namespace Durin
+namespace Durin::Editor
 {
 	namespace
 	{
@@ -373,4 +373,4 @@ namespace Durin
 		}
 		Impl->View = BuildView(Impl->Output, MakeDefaultPreviewView());
 	}
-} // namespace Durin
+} // namespace Durin::Editor

@@ -1,6 +1,6 @@
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
 
-namespace Durin
+namespace Durin::Editor
 {
 	namespace
 	{
@@ -352,4 +352,4 @@ namespace Durin
 		Stats.Evictions = Impl->Store.GetStats().Evictions;
 		return Stats;
 	}
-} // namespace Durin
+} // namespace Durin::Editor

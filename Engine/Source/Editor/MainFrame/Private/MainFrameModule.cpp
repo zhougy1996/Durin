@@ -13,7 +13,7 @@
 #include "TextureEditorModule.h"
 #include "StaticMeshEditorModule.h"
 #include "SkeletalMeshEditorModule.h"
-#include "Thumbnail/RenderedAssetThumbnailCache.h"
+#include "Thumbnail/RenderedAssetThumbnailService.h"
 #include "MonaImGui.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
@@ -60,7 +60,7 @@ namespace Durin
 			FTextureEditorModule& TextureEditorModule,
 			FStaticMeshEditorModule& StaticMeshEditorModule,
 			FSkeletalMeshEditorModule& SkeletalMeshEditorModule,
-			FRenderedAssetThumbnailService& ThumbnailService
+			Editor::FRenderedAssetThumbnailService& ThumbnailService
 		) -> bool
 		{
 			if (!LevelEditorModule.RegisterLevelEditorWorkspace(WorkspaceManager)) return false;
@@ -115,8 +115,8 @@ namespace Durin
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("Startup.WorkspaceRegistration");
 				FModuleManager::Get().LoadModuleChecked("StandardAssetImport");
-				FRenderedAssetThumbnailService& ThumbnailService =
-					GetDefaultRenderedAssetThumbnailService();
+				Editor::FRenderedAssetThumbnailService& ThumbnailService =
+					Editor::GetDefaultRenderedAssetThumbnailService();
 				FLevelEditorModule& LevelEditorModule =
 					FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
 				FMaterialEditorModule& MaterialEditorModule =

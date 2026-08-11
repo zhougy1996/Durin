@@ -1,10 +1,13 @@
 #pragma once
 
-#include "Thumbnail/AssetThumbnail.h"
+#include "Thumbnail/AssetThumbnailProvider.h"
 
 namespace Durin
 {
 	class DWorld;
+
+	namespace Editor
+	{
 
 	// Reports the provider-owned cold-generation state observed by the shared core.
 	enum class ERenderedAssetThumbnailSessionState : uint8
@@ -85,4 +88,5 @@ namespace Durin
 			std::string& OutError)
 			-> std::unique_ptr<IRenderedAssetThumbnailGenerationSession> = 0;
 	};
+	} // namespace Editor
 } // namespace Durin

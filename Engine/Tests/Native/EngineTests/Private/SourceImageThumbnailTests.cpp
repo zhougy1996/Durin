@@ -76,17 +76,17 @@ namespace Durin
 			.PhysicalPath = "C:/Project/Content/Textures/Example.png",
 			.FileSize = 128,
 			.LastWriteTime = LastWriteTime,
-			.Priority = EAssetThumbnailPriority::Visible});
+			.Priority = Editor::EAssetThumbnailPriority::Visible});
 
-		const FAssetThumbnailView AssetView = Cache.Find("/Game/Textures/Example");
-		EXPECT_EQ(AssetView.State, EAssetThumbnailState::Queued);
+		const Editor::FAssetThumbnailView AssetView = Cache.Find("/Game/Textures/Example");
+		EXPECT_EQ(AssetView.State, Editor::EAssetThumbnailState::Queued);
 		EXPECT_EQ(AssetView.RequestSerial, 1u);
 		EXPECT_EQ(Cache.Find("C:/Project/Content/Textures/Example.png").State,
-			EAssetThumbnailState::NotRequested);
+			Editor::EAssetThumbnailState::NotRequested);
 
 		Cache.CancelPendingRequests();
-		const FAssetThumbnailView CancelledView = Cache.Find("/Game/Textures/Example");
-		EXPECT_EQ(CancelledView.State, EAssetThumbnailState::NotRequested);
+		const Editor::FAssetThumbnailView CancelledView = Cache.Find("/Game/Textures/Example");
+		EXPECT_EQ(CancelledView.State, Editor::EAssetThumbnailState::NotRequested);
 		EXPECT_GT(CancelledView.RequestSerial, AssetView.RequestSerial);
 	}
 
@@ -102,13 +102,13 @@ namespace Durin
 		Cache.Request(AssetRequest);
 		FSourceImageThumbnailRequest SourceRequest = AssetRequest;
 		SourceRequest.Identity = "C:/Project/Content/Textures/Shared.png";
-		SourceRequest.Priority = EAssetThumbnailPriority::Visible;
+		SourceRequest.Priority = Editor::EAssetThumbnailPriority::Visible;
 		Cache.Request(SourceRequest);
 
-		const FAssetThumbnailView AssetView = Cache.Find(AssetRequest.Identity);
-		const FAssetThumbnailView SourceView = Cache.Find(SourceRequest.Identity);
-		EXPECT_EQ(AssetView.State, EAssetThumbnailState::Queued);
-		EXPECT_EQ(SourceView.State, EAssetThumbnailState::Queued);
+		const Editor::FAssetThumbnailView AssetView = Cache.Find(AssetRequest.Identity);
+		const Editor::FAssetThumbnailView SourceView = Cache.Find(SourceRequest.Identity);
+		EXPECT_EQ(AssetView.State, Editor::EAssetThumbnailState::Queued);
+		EXPECT_EQ(SourceView.State, Editor::EAssetThumbnailState::Queued);
 		EXPECT_EQ(AssetView.RequestSerial, SourceView.RequestSerial);
 	}
 
@@ -123,14 +123,14 @@ namespace Durin
 			.LastWriteTime = std::filesystem::file_time_type::clock::now()});
 		ASSERT_EQ(
 			Cache.Find("/Game/Textures/Pending").State,
-			EAssetThumbnailState::Queued);
+			Editor::EAssetThumbnailState::Queued);
 
 		Cache.Shutdown();
 		Cache.Shutdown();
 		EXPECT_TRUE(Cache.IsShuttingDown());
 		EXPECT_EQ(
 			Cache.Find("/Game/Textures/Pending").State,
-			EAssetThumbnailState::NotRequested);
+			Editor::EAssetThumbnailState::NotRequested);
 
 		Cache.Request({
 			.Identity = "/Game/Textures/Late",
@@ -141,7 +141,7 @@ namespace Durin
 		Cache.EndFrame();
 		EXPECT_EQ(
 			Cache.Find("/Game/Textures/Late").State,
-			EAssetThumbnailState::NotRequested);
+			Editor::EAssetThumbnailState::NotRequested);
 	}
 
 	TEST(FSourceImageThumbnailTests, DecodeTasksPublishOwnerDiagnostics)
@@ -162,18 +162,18 @@ namespace Durin
 				.PhysicalPath = Path.generic_string(),
 				.FileSize = CorruptPng.size(),
 				.LastWriteTime = std::filesystem::last_write_time(Path),
-				.Priority = EAssetThumbnailPriority::Visible});
+				.Priority = Editor::EAssetThumbnailPriority::Visible});
 			Cache.EndFrame();
 
-			EAssetThumbnailState State = EAssetThumbnailState::Loading;
-			for (uint32 Attempt = 0; Attempt < 1'000 && State == EAssetThumbnailState::Loading; ++Attempt)
+			Editor::EAssetThumbnailState State = Editor::EAssetThumbnailState::Loading;
+			for (uint32 Attempt = 0; Attempt < 1'000 && State == Editor::EAssetThumbnailState::Loading; ++Attempt)
 			{
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
 				Cache.BeginFrame();
 				State = Cache.Find("/Game/Textures/AttributedThumbnail").State;
 				Cache.EndFrame();
 			}
-			EXPECT_EQ(State, EAssetThumbnailState::Failed);
+			EXPECT_EQ(State, Editor::EAssetThumbnailState::Failed);
 			Cache.Shutdown();
 		}
 
@@ -221,7 +221,7 @@ namespace Durin
 				.PhysicalPath = Path.generic_string(),
 				.FileSize = std::filesystem::file_size(Path),
 				.LastWriteTime = std::filesystem::last_write_time(Path),
-				.Priority = EAssetThumbnailPriority::Visible});
+				.Priority = Editor::EAssetThumbnailPriority::Visible});
 			Cache.EndFrame();
 
 			const FTaskSchedulerDiagnostics ActiveDiagnostics =
@@ -232,7 +232,7 @@ namespace Durin
 
 			Cache.Shutdown();
 			EXPECT_EQ(Cache.Find("/Game/Textures/CanceledThumbnail").State,
-				EAssetThumbnailState::NotRequested);
+				Editor::EAssetThumbnailState::NotRequested);
 			const FTaskSchedulerDiagnostics ClosedDiagnostics =
 				GetTaskSchedulerDiagnostics();
 			EXPECT_EQ(ClosedDiagnostics.LiveScopeCount, 1u);

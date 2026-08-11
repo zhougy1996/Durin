@@ -2,7 +2,7 @@
 
 #include "DurinEdAPI.h"
 
-namespace Durin
+namespace Durin::Editor
 {
 	// Configures the provider-neutral persistent thumbnail object store.
 	struct FAssetThumbnailObjectStoreSettings
@@ -61,4 +61,4 @@ namespace Durin
 	// Selects least-recently-used, unpinned allocations until the requested budget is met.
 	DURINED_API auto SelectAssetThumbnailBudgetEvictions(
 		std::span<const FAssetThumbnailBudgetEntry> Entries, uint64 BudgetBytes) -> std::vector<std::string>;
-} // namespace Durin
+} // namespace Durin::Editor

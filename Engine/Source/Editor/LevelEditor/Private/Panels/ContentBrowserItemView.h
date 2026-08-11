@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Panels/ContentBrowserModel.h"
-#include "Thumbnail/AssetThumbnail.h"
+#include "Thumbnail/AssetThumbnailProvider.h"
 
 #include "MonaImGui.h"
 
@@ -84,7 +84,7 @@ namespace Durin::ContentBrowserItemView
 		auto NameMax(const ImVec2& TileStart, const ImVec2& TileSize) const -> ImVec2;
 	};
 
-	auto ResolveThumbnailPresentation(const FAssetThumbnailView& Thumbnail)
+	auto ResolveThumbnailPresentation(const Editor::FAssetThumbnailView& Thumbnail)
 		-> EThumbnailPresentation;
 	auto TypeLabel(const FContentBrowserItem& Item) -> std::string;
 	auto Icon(const FContentBrowserItem& Item) -> const char*;
@@ -97,7 +97,7 @@ namespace Durin::ContentBrowserItemView
 		const ImVec2& PreviewMax) -> void;
 	auto DrawThumbnail(
 		const FContentBrowserItem& Item,
-		const FAssetThumbnailView& Thumbnail,
+		const Editor::FAssetThumbnailView& Thumbnail,
 		const FGridMetrics& Metrics,
 		const ImVec2& PreviewMin,
 		const ImVec2& PreviewMax,

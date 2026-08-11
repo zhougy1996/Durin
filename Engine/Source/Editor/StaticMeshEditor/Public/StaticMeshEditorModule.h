@@ -10,8 +10,8 @@ namespace Durin
 		class FWorkspaceManager;
 		class FWorkspaceRegistrationHandle;
 	}
-	class FRenderedAssetThumbnailService;
-	class FAssetThumbnailProviderRegistrationHandle;
+	namespace Editor { class FRenderedAssetThumbnailService; }
+	namespace Editor { class FAssetThumbnailProviderRegistrationHandle; }
 
 	// Registers the read-only StaticMesh inspector and its exact asset route.
 	class FStaticMeshEditorModule final : public IModuleInterface
@@ -22,11 +22,11 @@ namespace Durin
 		STATICMESHEDITOR_API auto ShutdownModule() -> void override;
 		STATICMESHEDITOR_API auto RegisterStaticMeshEditor(
 			Editor::FWorkspaceManager& WorkspaceManager,
-			FRenderedAssetThumbnailService& ThumbnailService) -> bool;
+			Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool;
 		STATICMESHEDITOR_API auto UnregisterStaticMeshEditor() -> void;
 
 	private:
 		std::unique_ptr<Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
-		std::unique_ptr<FAssetThumbnailProviderRegistrationHandle> ThumbnailRegistration;
+		std::unique_ptr<Editor::FAssetThumbnailProviderRegistrationHandle> ThumbnailRegistration;
 	};
 }

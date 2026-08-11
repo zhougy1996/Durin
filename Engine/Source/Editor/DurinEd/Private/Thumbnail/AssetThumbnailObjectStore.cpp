@@ -1,10 +1,10 @@
-#include "Thumbnail/AssetThumbnailCache.h"
+#include "Thumbnail/AssetThumbnailObjectStore.h"
 
 #include "Misc/DerivedDataCache.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 
-namespace Durin
+namespace Durin::Editor
 {
 	namespace
 	{
@@ -268,4 +268,4 @@ namespace Durin
 		}
 		return Evictions;
 	}
-} // namespace Durin
+} // namespace Durin::Editor

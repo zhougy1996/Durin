@@ -8,22 +8,22 @@ namespace Durin
 	class DMaterialInterface;
 
 	// Captures deterministic material dependency keys for one exact material asset class.
-	class FMaterialAssetThumbnailProvider final : public IRenderedAssetThumbnailExtension
+	class FMaterialAssetThumbnailProvider final : public Editor::IRenderedAssetThumbnailExtension
 	{
 	public:
 		MATERIALEDITOR_API explicit FMaterialAssetThumbnailProvider(std::string AssetClassName);
 
-		MATERIALEDITOR_API auto GetRegistration() const -> FAssetThumbnailProviderRegistration override;
+		MATERIALEDITOR_API auto GetRegistration() const -> Editor::FAssetThumbnailProviderRegistration override;
 		MATERIALEDITOR_API auto CaptureGenerationRequest(
-			const FAssetThumbnailRequest& Request,
+			const Editor::FAssetThumbnailRequest& Request,
 			uint64 ProviderGeneration,
-			FAssetThumbnailGenerationRequest& OutRequest,
+			Editor::FAssetThumbnailGenerationRequest& OutRequest,
 			std::string& OutError) -> bool override;
 		MATERIALEDITOR_API auto CreateGenerationSession(
-			const FAssetThumbnailGenerationRequest& Request,
-			const IAssetThumbnailGenerationInput& Input,
+			const Editor::FAssetThumbnailGenerationRequest& Request,
+			const Editor::IAssetThumbnailGenerationInput& Input,
 			std::string& OutError)
-			-> std::unique_ptr<IRenderedAssetThumbnailGenerationSession> override;
+			-> std::unique_ptr<Editor::IRenderedAssetThumbnailGenerationSession> override;
 
 	private:
 		std::string AssetClassName;

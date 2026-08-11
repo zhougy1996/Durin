@@ -10,6 +10,7 @@
 #include "RHIGlobals.h"
 #include "StandardAssetImportProviders.h"
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
+#include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 #include "Thumbnail/MaterialAssetThumbnail.h"
 #include "Thumbnail/RenderedAssetThumbnailCache.h"
@@ -636,19 +637,19 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
 	InitializeDObjectSystem();
 	std::string StaticMeshProviderError;
-	Durin::FAssetThumbnailProviderRegistrationHandle StaticMeshProvider =
-		Durin::GetDefaultRenderedAssetThumbnailService().RegisterScoped(
+	Durin::Editor::FAssetThumbnailProviderRegistrationHandle StaticMeshProvider =
+		Durin::Editor::GetDefaultRenderedAssetThumbnailService().RegisterScoped(
 			std::make_unique<Durin::FStaticMeshAssetThumbnailProvider>(),
 			StaticMeshProviderError);
 	ASSERT_TRUE(StaticMeshProvider) << StaticMeshProviderError;
-	Durin::FAssetThumbnailProviderRegistrationHandle MaterialProvider =
-		Durin::GetDefaultRenderedAssetThumbnailService().RegisterScoped(
+	Durin::Editor::FAssetThumbnailProviderRegistrationHandle MaterialProvider =
+		Durin::Editor::GetDefaultRenderedAssetThumbnailService().RegisterScoped(
 			std::make_unique<Durin::FMaterialAssetThumbnailProvider>(
 				Durin::DMaterial::StaticClass()->GetQualifiedName().ToString()),
 			StaticMeshProviderError);
 	ASSERT_TRUE(MaterialProvider) << StaticMeshProviderError;
-	Durin::FAssetThumbnailProviderRegistrationHandle MaterialInstanceProvider =
-		Durin::GetDefaultRenderedAssetThumbnailService().RegisterScoped(
+	Durin::Editor::FAssetThumbnailProviderRegistrationHandle MaterialInstanceProvider =
+		Durin::Editor::GetDefaultRenderedAssetThumbnailService().RegisterScoped(
 			std::make_unique<Durin::FMaterialAssetThumbnailProvider>(
 				Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString()),
 			StaticMeshProviderError);
@@ -675,7 +676,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	ASSERT_TRUE(MountRegistry.IsValid()) << MountRegistry.GetError();
 	Durin::FAssetPath SpherePath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
-		Durin::FRenderedAssetThumbnailVisualContract::SphereVirtualPath, SpherePath));
+		Durin::Editor::FRenderedAssetThumbnailVisualContract::SphereVirtualPath, SpherePath));
 	Durin::Editor::FRetainedAsset PreloadedSphere;
 	std::string Error;
 	ASSERT_TRUE(Durin::Editor::FAssetRetentionService::Acquire(
@@ -709,7 +710,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	Engine.SetTestRendererModule(&Renderer);
 	Durin::GEngine = &Engine;
 
-	Durin::FRenderedAssetThumbnailVisualContract Contract;
+	Durin::Editor::FRenderedAssetThumbnailVisualContract Contract;
 	Contract.Output.Width = 64;
 	Contract.Output.Height = 64;
 	Durin::DStaticMesh* CaptureMesh = nullptr;
@@ -736,7 +737,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.5)));
 	ASSERT_TRUE(LowRoughnessMaterial->SetScalarParameterValue(
 		Durin::MaterialParameters::MetallicName(), 0.0f));
-	Durin::FRenderedAssetThumbnailVisualContract AlignedContract = Contract;
+	Durin::Editor::FRenderedAssetThumbnailVisualContract AlignedContract = Contract;
 	AlignedContract.CameraDirectionX = 0.001f;
 	AlignedContract.CameraDirectionY = 0.0f;
 	AlignedContract.CameraDirectionZ = 1.0f;
@@ -760,7 +761,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			Durin::FlushRenderingCommands();
 			EXPECT_EQ(
 				AlignedPool.PollCapture(Pixels, Error),
-				Durin::ERenderedAssetThumbnailCaptureState::Ready) << Error;
+				Durin::Editor::ERenderedAssetThumbnailCaptureState::Ready) << Error;
 			AlignedPool.Reset();
 			return Pixels;
 		};
@@ -874,7 +875,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			Durin::FlushRenderingCommands();
 			EXPECT_EQ(
 				Pool.PollCapture(Pixels, Error),
-				Durin::ERenderedAssetThumbnailCaptureState::Ready) << Error;
+				Durin::Editor::ERenderedAssetThumbnailCaptureState::Ready) << Error;
 			Pool.Reset();
 			return Pixels;
 		};
@@ -954,7 +955,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			Durin::FlushRenderingCommands();
 			EXPECT_EQ(
 				Pool.PollCapture(Pixels, Error),
-				Durin::ERenderedAssetThumbnailCaptureState::Ready) << Error;
+				Durin::Editor::ERenderedAssetThumbnailCaptureState::Ready) << Error;
 			Pool.Reset();
 			return Pixels;
 		};
@@ -1000,7 +1001,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		const Durin::Asset::FAssetData* StaticMeshAssetData =
 			Durin::Asset::GetAssetRegistry().FindAssetExact(StaticMeshFixturePath);
 		ASSERT_NE(StaticMeshAssetData, nullptr);
-		const Durin::FAssetThumbnailPackageFingerprint StaticMeshFingerprint = {
+		const Durin::Editor::FAssetThumbnailPackageFingerprint StaticMeshFingerprint = {
 			.VirtualPath = StaticMeshAssetData->PackagePath,
 			.AssetClassName = StaticMeshAssetData->AssetClassName,
 			.PackageFormatVersion = StaticMeshAssetData->FormatVersion,
@@ -1016,33 +1017,33 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		{
 			~FThumbnailBackendGuard() { Durin::Mona::GActiveUIBackend = nullptr; }
 		} ThumbnailBackendGuard;
-		auto PumpCacheToReady = [&](Durin::FRenderedAssetThumbnailCache& Cache) {
-			Durin::FAssetThumbnailView View;
+		auto PumpCacheToReady = [&](Durin::Editor::FRenderedAssetThumbnailCache& Cache) {
+			Durin::Editor::FAssetThumbnailView View;
 			for (Durin::uint32 Attempt = 0; Attempt < 16; ++Attempt)
 			{
 				Cache.BeginFrame();
 				Cache.Request(
 					StaticMeshFingerprint,
-					Durin::EAssetThumbnailPriority::Visible);
+					Durin::Editor::EAssetThumbnailPriority::Visible);
 				View = Cache.Find(StaticMeshFixturePath);
 				Cache.EndFrame();
 				Durin::FlushRenderingCommands();
-				if (View.State == Durin::EAssetThumbnailState::Ready
+				if (View.State == Durin::Editor::EAssetThumbnailState::Ready
 					&& View.Texture != nullptr)
 					break;
 			}
 			return View;
 		};
 		{
-			Durin::FRenderedAssetThumbnailCache Cache({}, {
+			Durin::Editor::FRenderedAssetThumbnailCache Cache({}, {
 				.CacheRoot = ThumbnailCacheRoot,
 				.ObjectExtension = ".png"});
-			const Durin::FAssetThumbnailView Ready = PumpCacheToReady(Cache);
-			ASSERT_EQ(Ready.State, Durin::EAssetThumbnailState::Ready)
+			const Durin::Editor::FAssetThumbnailView Ready = PumpCacheToReady(Cache);
+			ASSERT_EQ(Ready.State, Durin::Editor::EAssetThumbnailState::Ready)
 				<< Ready.Diagnostic;
 			ASSERT_NE(Ready.Texture, nullptr);
 			EXPECT_TRUE(Ready.bHasTransparency);
-			const Durin::FRenderedAssetThumbnailCacheStats Stats = Cache.GetStats();
+			const Durin::Editor::FRenderedAssetThumbnailCacheStats Stats = Cache.GetStats();
 			EXPECT_EQ(Stats.Pipeline.Loads, 1u);
 			EXPECT_EQ(Stats.Pipeline.Renders, 1u);
 			EXPECT_EQ(Stats.Pipeline.Readbacks, 1u);
@@ -1057,13 +1058,13 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			EXPECT_EQ(ThumbnailUIBackend.NumRegistered(), 0u);
 		}
 		{
-			Durin::FRenderedAssetThumbnailCache WarmCache({}, {
+			Durin::Editor::FRenderedAssetThumbnailCache WarmCache({}, {
 				.CacheRoot = ThumbnailCacheRoot,
 				.ObjectExtension = ".png"});
-			const Durin::FAssetThumbnailView Ready = PumpCacheToReady(WarmCache);
-			ASSERT_EQ(Ready.State, Durin::EAssetThumbnailState::Ready)
+			const Durin::Editor::FAssetThumbnailView Ready = PumpCacheToReady(WarmCache);
+			ASSERT_EQ(Ready.State, Durin::Editor::EAssetThumbnailState::Ready)
 				<< Ready.Diagnostic;
-			const Durin::FRenderedAssetThumbnailCacheStats Stats = WarmCache.GetStats();
+			const Durin::Editor::FRenderedAssetThumbnailCacheStats Stats = WarmCache.GetStats();
 			EXPECT_EQ(Stats.Pipeline.DiskHits, 1u);
 			EXPECT_EQ(Stats.Pipeline.Loads, 0u);
 			EXPECT_EQ(Stats.Pipeline.Renders, 0u);
@@ -1073,20 +1074,20 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			EXPECT_EQ(Stats.UploadsCompleted, 1u);
 
 			WarmCache.CancelPendingRequests();
-			const Durin::FAssetThumbnailView Retained =
+			const Durin::Editor::FAssetThumbnailView Retained =
 				WarmCache.Find(StaticMeshFixturePath);
-			EXPECT_EQ(Retained.State, Durin::EAssetThumbnailState::Ready);
+			EXPECT_EQ(Retained.State, Durin::Editor::EAssetThumbnailState::Ready);
 			EXPECT_EQ(Retained.Texture, Ready.Texture);
 			WarmCache.BeginFrame();
 			WarmCache.Request(
 				StaticMeshFingerprint,
-				Durin::EAssetThumbnailPriority::Visible);
-			const Durin::FAssetThumbnailView Revisited =
+				Durin::Editor::EAssetThumbnailPriority::Visible);
+			const Durin::Editor::FAssetThumbnailView Revisited =
 				WarmCache.Find(StaticMeshFixturePath);
 			WarmCache.EndFrame();
-			EXPECT_EQ(Revisited.State, Durin::EAssetThumbnailState::Ready);
+			EXPECT_EQ(Revisited.State, Durin::Editor::EAssetThumbnailState::Ready);
 			EXPECT_EQ(Revisited.Texture, Ready.Texture);
-			const Durin::FRenderedAssetThumbnailCacheStats RevisitedStats =
+			const Durin::Editor::FRenderedAssetThumbnailCacheStats RevisitedStats =
 				WarmCache.GetStats();
 			EXPECT_EQ(RevisitedStats.Pipeline.DiskHits, Stats.Pipeline.DiskHits);
 			EXPECT_EQ(RevisitedStats.UploadsQueued, Stats.UploadsQueued);
@@ -1359,7 +1360,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		Durin::FlushRenderingCommands();
 		ASSERT_EQ(
 			Pool.PollCapture(CubePixels, Error),
-			Durin::ERenderedAssetThumbnailCaptureState::Ready) << Error;
+			Durin::Editor::ERenderedAssetThumbnailCaptureState::Ready) << Error;
 		Pool.Reset();
 		ASSERT_EQ(MaterialPixels.size(), 64u * 64u * 4u);
 		ASSERT_EQ(InstancePixels.size(), MaterialPixels.size());

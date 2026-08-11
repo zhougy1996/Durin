@@ -46,7 +46,7 @@ TEST(FStaticMeshEditorTests, PreviewControllerFramesAndNavigatesDeterministicall
 TEST(FStaticMeshEditorTests, RegistrationIsExactReadOnlyAndScoped)
 {
 	Durin::Editor::FWorkspaceManager Manager;
-	Durin::FRenderedAssetThumbnailService ThumbnailService;
+	Durin::Editor::FRenderedAssetThumbnailService ThumbnailService;
 	Durin::FStaticMeshEditorModule Module;
 	ASSERT_TRUE(Module.RegisterStaticMeshEditor(Manager, ThumbnailService));
 	EXPECT_FALSE(Module.RegisterStaticMeshEditor(Manager, ThumbnailService));
@@ -91,7 +91,7 @@ TEST(FStaticMeshEditorTests, PreviewSceneOwnsAndReleasesItsViewportComponents)
 TEST(FStaticMeshEditorTests, ThumbnailConflictRollsBackWorkspaceRegistration)
 {
 	Durin::Editor::FWorkspaceManager Manager;
-	Durin::FRenderedAssetThumbnailService ThumbnailService;
+	Durin::Editor::FRenderedAssetThumbnailService ThumbnailService;
 	std::string Error;
 	auto Existing = ThumbnailService.RegisterScoped(
 		std::make_unique<Durin::FStaticMeshAssetThumbnailProvider>(), Error);
@@ -125,7 +125,7 @@ TEST(FStaticMeshEditorTests, ReusesOneDocumentPerMeshAndSupportsCloseReopen)
 	ASSERT_TRUE(Second) << Second.Message;
 
 	Durin::Editor::FWorkspaceManager Manager;
-	Durin::FRenderedAssetThumbnailService ThumbnailService;
+	Durin::Editor::FRenderedAssetThumbnailService ThumbnailService;
 	Durin::FStaticMeshEditorModule Module;
 	ASSERT_TRUE(Module.RegisterStaticMeshEditor(Manager, ThumbnailService));
 	const std::string ClassName = Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString();

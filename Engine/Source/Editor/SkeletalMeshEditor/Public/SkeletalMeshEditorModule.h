@@ -10,8 +10,8 @@ namespace Durin
 		class FWorkspaceManager;
 		class FWorkspaceRegistrationHandle;
 	}
-	class FRenderedAssetThumbnailService;
-	class FAssetThumbnailProviderRegistrationHandle;
+	namespace Editor { class FRenderedAssetThumbnailService; }
+	namespace Editor { class FAssetThumbnailProviderRegistrationHandle; }
 
 	// Registers exact read-only Skeleton, SkeletalMesh, and AnimationClip editor routes.
 	class FSkeletalMeshEditorModule final : public IModuleInterface
@@ -22,11 +22,11 @@ namespace Durin
 		SKELETALMESHEDITOR_API auto ShutdownModule() -> void override;
 		SKELETALMESHEDITOR_API auto RegisterSkeletalMeshEditor(
 			Editor::FWorkspaceManager& WorkspaceManager,
-			FRenderedAssetThumbnailService& ThumbnailService) -> bool;
+			Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool;
 		SKELETALMESHEDITOR_API auto UnregisterSkeletalMeshEditor() -> void;
 
 	private:
 		std::unique_ptr<Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
-		std::unique_ptr<FAssetThumbnailProviderRegistrationHandle> ThumbnailRegistration;
+		std::unique_ptr<Editor::FAssetThumbnailProviderRegistrationHandle> ThumbnailRegistration;
 	};
 }

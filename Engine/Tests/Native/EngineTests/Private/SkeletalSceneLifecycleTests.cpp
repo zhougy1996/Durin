@@ -166,8 +166,8 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 					Durin::Asset::GetAssetRegistry().FindAssetExact(MeshPath);
 				ASSERT_NE(MeshData, nullptr);
 				Durin::FSkeletalMeshAssetThumbnailProvider Provider;
-				Durin::FAssetThumbnailGenerationRequest ThumbnailRequest;
-				const Durin::FAssetThumbnailPackageFingerprint Fingerprint{
+				Durin::Editor::FAssetThumbnailGenerationRequest ThumbnailRequest;
+				const Durin::Editor::FAssetThumbnailPackageFingerprint Fingerprint{
 					.VirtualPath = MeshData->PackagePath,
 					.AssetClassName = MeshData->AssetClassName,
 					.PackageFormatVersion = MeshData->FormatVersion,
@@ -175,11 +175,11 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 					.LastWriteTimeTicks = MeshData->LastWriteTimeTicks};
 				ASSERT_TRUE(Provider.CaptureGenerationRequest({
 					.Asset = Fingerprint,
-					.Priority = Durin::EAssetThumbnailPriority::Visible,
+					.Priority = Durin::Editor::EAssetThumbnailPriority::Visible,
 					.RequestSerial = 1}, 7, ThumbnailRequest, Error)) << Error;
 				EXPECT_TRUE(std::ranges::any_of(
 					ThumbnailRequest.KeyInput.Dependencies,
-					[Mesh](const Durin::FAssetThumbnailPackageFingerprint& Dependency) {
+					[Mesh](const Durin::Editor::FAssetThumbnailPackageFingerprint& Dependency) {
 						return Mesh->GetSkeleton()
 							&& Dependency.VirtualPath.GetView()
 								== Mesh->GetSkeleton()->GetPackage()->GetPackagePath();

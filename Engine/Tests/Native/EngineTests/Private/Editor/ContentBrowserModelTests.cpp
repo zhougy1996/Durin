@@ -69,7 +69,7 @@ namespace
 		auto Redo() -> bool override { return true; }
 	};
 
-	class FRouteOnlyThumbnailProvider final : public IAssetThumbnailProvider
+	class FRouteOnlyThumbnailProvider final : public Editor::IAssetThumbnailProvider
 	{
 	public:
 		explicit FRouteOnlyThumbnailProvider(
@@ -81,7 +81,7 @@ namespace
 		}
 		auto UsesSourceImage() const -> bool override { return bUsesSourceImage; }
 
-		auto GetRegistration() const -> FAssetThumbnailProviderRegistration override
+		auto GetRegistration() const -> Editor::FAssetThumbnailProviderRegistration override
 		{
 			return {
 				.AssetClassName = AssetClassName,
@@ -90,9 +90,9 @@ namespace
 		}
 
 		auto CaptureGenerationRequest(
-			const FAssetThumbnailRequest&,
+			const Editor::FAssetThumbnailRequest&,
 			uint64,
-			FAssetThumbnailGenerationRequest& OutRequest,
+			Editor::FAssetThumbnailGenerationRequest& OutRequest,
 			std::string& OutError) -> bool override
 		{
 			OutRequest = {};
@@ -140,7 +140,7 @@ TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToRenderedThumbnails)
 	ASSERT_NE(AssetData, nullptr);
 	std::string RegistrationError;
 	auto ThumbnailRegistration =
-		GetDefaultRenderedAssetThumbnailService().RegisterScoped(
+		Editor::GetDefaultRenderedAssetThumbnailService().RegisterScoped(
 			std::make_unique<FRouteOnlyThumbnailProvider>(AssetData->AssetClassName),
 			RegistrationError);
 	ASSERT_TRUE(ThumbnailRegistration) << RegistrationError;
@@ -176,7 +176,7 @@ TEST_F(FContentBrowserModelTests, SourceProviderWithoutUsableSourceKeepsAssetIco
 	ASSERT_NE(AssetData, nullptr);
 	std::string Error;
 	auto Registration =
-		GetDefaultRenderedAssetThumbnailService().RegisterScoped(
+		Editor::GetDefaultRenderedAssetThumbnailService().RegisterScoped(
 			std::make_unique<FRouteOnlyThumbnailProvider>(
 				AssetData->AssetClassName, true),
 			Error);

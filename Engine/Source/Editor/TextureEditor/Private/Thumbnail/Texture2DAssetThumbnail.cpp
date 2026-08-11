@@ -73,7 +73,7 @@ namespace Durin
 	} // namespace
 
 	auto FTexture2DAssetThumbnailProvider::GetRegistration() const
-		-> FAssetThumbnailProviderRegistration
+		-> Editor::FAssetThumbnailProviderRegistration
 	{
 		return {
 			.AssetClassName = DTexture2D::StaticClass()->GetQualifiedName().ToString(),
@@ -82,9 +82,9 @@ namespace Durin
 	}
 
 	auto FTexture2DAssetThumbnailProvider::CaptureGenerationRequest(
-		const FAssetThumbnailRequest&,
+		const Editor::FAssetThumbnailRequest&,
 		uint64,
-		FAssetThumbnailGenerationRequest& OutRequest,
+		Editor::FAssetThumbnailGenerationRequest& OutRequest,
 		std::string& OutError) -> bool
 	{
 		OutRequest = {};
@@ -94,7 +94,7 @@ namespace Durin
 
 	auto FTexture2DAssetThumbnailProvider::CaptureSourceImage(
 		const Asset::FAssetData& AssetData,
-		FAssetThumbnailSourceImage& OutSource,
+		Editor::FAssetThumbnailSourceImage& OutSource,
 		std::string& OutError) -> bool
 	{
 		OutSource = {};

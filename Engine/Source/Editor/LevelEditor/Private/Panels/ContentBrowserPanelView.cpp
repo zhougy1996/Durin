@@ -46,12 +46,12 @@ namespace Durin
 		}
 
 		auto MakeRenderedThumbnailFingerprint(const FContentBrowserItem& Item)
-			-> std::optional<FAssetThumbnailPackageFingerprint>
+			-> std::optional<Editor::FAssetThumbnailPackageFingerprint>
 		{
 			if (!Item.ThumbnailSourcePath.empty()) return std::nullopt;
 			FAssetPath Path;
 			if (!FAssetPath::TryCreate(Item.VirtualPath, Path)) return std::nullopt;
-			return FAssetThumbnailPackageFingerprint{
+			return Editor::FAssetThumbnailPackageFingerprint{
 				.VirtualPath = std::move(Path),
 				.AssetClassName = Item.AssetClassName,
 				.PackageFormatVersion = Item.ThumbnailPackageFormatVersion,
@@ -539,8 +539,8 @@ namespace Durin
 							.SourceLastWriteTime = Item.ThumbnailLastWriteTime,
 							.Asset = MakeRenderedThumbnailFingerprint(Item),
 							.Priority = Row >= Clipper.DisplayStart && Row < Clipper.DisplayEnd
-								? EAssetThumbnailPriority::Visible
-								: EAssetThumbnailPriority::Prefetch});
+								? Editor::EAssetThumbnailPriority::Visible
+								: Editor::EAssetThumbnailPriority::Prefetch});
 				}
 
 			for (int32 Row = Clipper.DisplayStart; Row < Clipper.DisplayEnd; ++Row)
@@ -602,7 +602,7 @@ namespace Durin
 								MonaImGui::ScaleUI(1.0f));
 					}
 
-					const FAssetThumbnailView Thumbnail = ThumbnailCache->Find(Item.ThumbnailIdentity);
+					const Editor::FAssetThumbnailView Thumbnail = ThumbnailCache->Find(Item.ThumbnailIdentity);
 					const ContentBrowserItemView::EThumbnailPresentation ThumbnailPresentation =
 						ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail);
 					const bool bDrewThumbnail = ContentBrowserItemView::DrawThumbnail(
@@ -647,7 +647,7 @@ namespace Durin
 							ImGui::SameLine();
 							ImGui::TextUnformatted(FormatFileTime(Item.LastWriteTime).c_str());
 						}
-						if (Thumbnail.State == EAssetThumbnailState::Failed && !Thumbnail.Diagnostic.empty())
+						if (Thumbnail.State == Editor::EAssetThumbnailState::Failed && !Thumbnail.Diagnostic.empty())
 						{
 							ImGui::TextDisabled("Preview");
 							ImGui::SameLine();

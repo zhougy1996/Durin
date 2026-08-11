@@ -7,7 +7,7 @@ namespace Durin
 {
 	FContentBrowserThumbnailCache::FContentBrowserThumbnailCache()
 		: SourceImages(std::make_unique<FSourceImageThumbnailCache>())
-		, RenderedAssets(std::make_unique<FRenderedAssetThumbnailCache>())
+		, RenderedAssets(std::make_unique<Editor::FRenderedAssetThumbnailCache>())
 	{
 	}
 
@@ -44,7 +44,7 @@ namespace Durin
 	}
 
 	auto FContentBrowserThumbnailCache::Find(std::string_view Identity) const
-		-> FAssetThumbnailView
+		-> Editor::FAssetThumbnailView
 	{
 		const auto It = RenderedIdentities.find(std::string(Identity));
 		return It == RenderedIdentities.end()

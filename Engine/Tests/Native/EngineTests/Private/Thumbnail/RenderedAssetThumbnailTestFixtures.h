@@ -14,7 +14,7 @@
 #include "NativeTestSupport.h"
 #include "Preview/TextureCubePreviewComponent.h"
 #include "StaticMesh/StaticMesh.h"
-#include "Thumbnail/RenderedAssetThumbnailPipeline.h"
+#include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
 #include "Thumbnail/StaticMeshAssetThumbnail.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
@@ -54,7 +54,7 @@ namespace Durin::Tests
 	{
 	public:
 		explicit FRenderedAssetThumbnailTestPool(
-			FRenderedAssetThumbnailVisualContract InContract = {})
+			Editor::FRenderedAssetThumbnailVisualContract InContract = {})
 			: Contract(std::move(InContract))
 			, Pool(Contract)
 			, View(MakeView(Contract))
@@ -80,7 +80,7 @@ namespace Durin::Tests
 				FAssetPath SpherePath;
 				std::string Error;
 				if (!FAssetPath::TryCreate(
-						FRenderedAssetThumbnailVisualContract::SphereVirtualPath,
+						Editor::FRenderedAssetThumbnailVisualContract::SphereVirtualPath,
 						SpherePath,
 						&Error)
 					|| !Editor::FAssetRetentionService::Acquire(
@@ -198,7 +198,7 @@ namespace Durin::Tests
 		}
 
 		auto PollCapture(std::vector<uint8>& OutPixels, std::string& OutError)
-			-> ERenderedAssetThumbnailCaptureState
+			-> Editor::ERenderedAssetThumbnailCaptureState
 		{
 			return Pool.PollCapture(OutPixels, OutError);
 		}
@@ -211,8 +211,8 @@ namespace Durin::Tests
 		}
 
 	private:
-		static auto MakeView(const FRenderedAssetThumbnailVisualContract& Contract)
-			-> FRenderedAssetThumbnailPreviewView
+		static auto MakeView(const Editor::FRenderedAssetThumbnailVisualContract& Contract)
+			-> Editor::FRenderedAssetThumbnailPreviewView
 		{
 			const FVector3 Eye = Math::Normalize(FVector3(
 				Contract.CameraDirectionX,
@@ -245,9 +245,9 @@ namespace Durin::Tests
 			}
 		}
 
-		FRenderedAssetThumbnailVisualContract Contract;
-		FRenderedAssetThumbnailPreviewScenePool Pool;
-		FRenderedAssetThumbnailPreviewView View;
+		Editor::FRenderedAssetThumbnailVisualContract Contract;
+		Editor::FRenderedAssetThumbnailPreviewScenePool Pool;
+		Editor::FRenderedAssetThumbnailPreviewView View;
 		AActor* Actor = nullptr;
 		Editor::FRetainedAsset SphereAsset;
 	};

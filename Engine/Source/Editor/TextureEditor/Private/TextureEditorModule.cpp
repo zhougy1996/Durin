@@ -2,7 +2,7 @@
 
 #include "Editor/WorkspaceManager.h"
 #include "Texture/Texture2D.h"
-#include "Thumbnail/RenderedAssetThumbnailCache.h"
+#include "Thumbnail/RenderedAssetThumbnailService.h"
 #include "Thumbnail/Texture2DAssetThumbnail.h"
 #include "Thumbnail/TextureCubeAssetThumbnail.h"
 #include "Widgets/MTextureEditor.h"
@@ -27,7 +27,7 @@ namespace Durin
 
 	auto FTextureEditorModule::RegisterTextureEditor(
 		Editor::FWorkspaceManager& WorkspaceManager,
-		FRenderedAssetThumbnailService& ThumbnailService) -> bool
+		Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
 			|| (Texture2DThumbnailRegistration && Texture2DThumbnailRegistration->IsValid())
@@ -71,7 +71,7 @@ namespace Durin
 			return false;
 		}
 		Texture2DThumbnailRegistration =
-			std::make_unique<FAssetThumbnailProviderRegistrationHandle>(
+			std::make_unique<Editor::FAssetThumbnailProviderRegistrationHandle>(
 				std::move(Texture2DHandle));
 		auto TextureCubeHandle = ThumbnailService.RegisterScoped(
 			std::make_unique<FTextureCubeAssetThumbnailProvider>(), Error);
@@ -82,7 +82,7 @@ namespace Durin
 			return false;
 		}
 		TextureCubeThumbnailRegistration =
-			std::make_unique<FAssetThumbnailProviderRegistrationHandle>(
+			std::make_unique<Editor::FAssetThumbnailProviderRegistrationHandle>(
 				std::move(TextureCubeHandle));
 		return true;
 	}

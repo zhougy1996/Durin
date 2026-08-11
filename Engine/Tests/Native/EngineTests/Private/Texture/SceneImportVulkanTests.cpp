@@ -20,9 +20,10 @@
 #include "StaticMesh/StaticMeshResources.h"
 #include "StaticMeshTestAccess.h"
 #include "SceneImport.h"
-#include "Thumbnail/AssetThumbnail.h"
+#include "Thumbnail/AssetThumbnailProvider.h"
 #include "Thumbnail/RenderedAssetThumbnailCache.h"
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
+#include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 #include "Texture/Texture2D.h"
 #include "TextureTestSupport.h"
@@ -93,7 +94,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Durin::PathUtilities::InitDefaultMountPoints();
 	Durin::FAssetPath SpherePath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
-		Durin::FRenderedAssetThumbnailVisualContract::SphereVirtualPath, SpherePath));
+		Durin::Editor::FRenderedAssetThumbnailVisualContract::SphereVirtualPath, SpherePath));
 	Durin::Editor::FRetainedAsset PreloadedSphere;
 	std::string Error;
 	ASSERT_TRUE(Durin::Editor::FAssetRetentionService::Acquire(
@@ -611,7 +612,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		Durin::EncodeMaterialSamplerState(FailedSampler)));
 	Durin::FlushRenderingCommands();
 
-	Durin::FRenderedAssetThumbnailVisualContract Contract;
+	Durin::Editor::FRenderedAssetThumbnailVisualContract Contract;
 	Contract.Output.Width = 64;
 	Contract.Output.Height = 64;
 	{
@@ -631,7 +632,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			Durin::FlushRenderingCommands();
 			EXPECT_EQ(
 				Pool.PollCapture(Pixels, Error),
-				Durin::ERenderedAssetThumbnailCaptureState::Ready) << Error;
+				Durin::Editor::ERenderedAssetThumbnailCaptureState::Ready) << Error;
 			Pool.Reset();
 			return Pixels;
 		};
