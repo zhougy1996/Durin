@@ -21,11 +21,13 @@ bounds, per-view light preparation, overflow policy, multi-light shader ABI, or
 light counters. This plan adds those contracts on the existing synchronous
 forward renderer; it does not depend on the Compute Shader Pipeline.
 
-The initial production budget is selected as at most four directional lights
-and thirty-two local lights per view, with point and spot lights sharing the
-local budget. The resulting fixed uniform payload stays small enough for the
-current dynamic-uniform path while establishing measured overflow evidence for
-any later clustered-lighting decision.
+The initial production budget is selected as at most one directional light and
+eight local lights per view, with point and spot lights sharing the local
+budget. A later profiling plan may evaluate two directional plus sixteen local
+lights after `1 + 8` is implemented, but `2 + 16` is not an M5 commitment and
+cannot replace the default without recorded target-GPU evidence and a reviewed
+plan revision. The small fixed payload establishes measured overflow evidence
+for any later per-object, tiled, or clustered-lighting decision.
 
 ## Goal
 
@@ -133,9 +135,12 @@ reworking light ownership or view preparation.
   conservative sphere centered at the light position with the authored range;
   a sphere outside the view frustum is rejected. Fine cone/frustum or
   per-object tests are deferred until counters justify them.
-- The hard per-view budget is four directional lights and thirty-two local
+- The hard per-view budget is one directional light and eight local
   lights total. Point and spot entries compete in one local budget so the
   shader cost cannot grow by filling two independent maxima.
+- The current renderer has no per-object, tiled, or clustered assignment: every
+  selected light is evaluated by every Lit fragment. The `1 + 8` limit is a
+  pixel-cost control, not merely a uniform-buffer capacity choice.
 - Eligible entries are ordered by `FLightSceneId` within the directional and
   combined-local lists. The first entries within each budget are selected;
   remaining entries are overflow-rejected. Scene map/vector iteration order is
@@ -149,8 +154,8 @@ reworking light ownership or view preparation.
 
 ### The forward payload is one small per-view ABI
 
-- The selected payload contains view position and counts, four directional
-  records, and thirty-two packed local records. A local record contains
+- The selected payload contains view position and counts, one directional
+  record, and eight packed local records. A local record contains
   position/inverse range, direction/type, color/intensity, and spot cone terms.
 - CPU and Slang representations use explicit 16-byte fields and arrays, with
   compile-time size/alignment checks and shader-reflection coverage. Counts are
@@ -214,9 +219,12 @@ reworking light ownership or view preparation.
   consumer, prepared-view field, per-draw uniform allocation, shader parameter,
   serialization fixture, and renderer test double affected by generic light
   mutation.
-- [ ] Record the exact CPU and Slang field layout for the four-directional and
-  thirty-two-local payload, including byte size, alignment, reflected binding,
+- [ ] Record the exact CPU and Slang field layout for the one-directional and
+  eight-local payload, including byte size, alignment, reflected binding,
   and the current backend uniform-range margin.
+- [ ] Name the target GPU, resolution, representative opaque/overdraw scene,
+  GPU-timing method, and accepted incremental lighting-time budget. Record the
+  current single-directional baseline before multi-light implementation.
 - [ ] Freeze finite-value normalization, local range semantics, cone angle
   semantics, inverse-square near floor, smooth range equation, angular equation,
   and exact boundary results at zero distance, range, inner cone, and outer
@@ -239,6 +247,8 @@ reworking light ownership or view preparation.
 - The fixed payload fits the current dynamic-uniform contract with documented
   margin, and no compute, storage-buffer, clustered, or new RHI dependency is
   required.
+- Target hardware, resolution, workload, timing method, current single-light
+  baseline, and the `1 + 8` acceptance budget are frozen before shader work.
 - Existing scene-contract, material, StaticMesh, SkeletalMesh, world, and
   Vulkan baselines pass or any pre-existing failure is recorded.
 
@@ -293,8 +303,8 @@ reworking light ownership or view preparation.
 
 #### Acceptance Gate
 
-- Each view owns a complete immutable light list with at most four directional
-  and thirty-two combined local entries, and all counters reconcile.
+- Each view owns a complete immutable light list with at most one directional
+  and eight combined local entries, and all counters reconcile.
 - Local lights outside the view do not enter the payload; boundary and overflow
   choices are deterministic across runs and independent of container order.
 - Multiple sequential views consume the same scene snapshot without sharing or
@@ -319,6 +329,10 @@ reworking light ownership or view preparation.
 - [ ] Add CPU reference tests for directional/point/spot accumulation and
   Vulkan image/readback scenes for zero/one/multiple lights, range/cone edges,
   mixed families, static/skeletal receivers, and view/output variants.
+- [ ] Profile the full-screen `1 + 8` representative scene on the Stage 0 target
+  GPU and compare its incremental lighting time with the frozen budget. Record
+  `2 + 16` only as deferred capacity; do not widen the implemented arrays or
+  selection limit in this plan.
 - [ ] Exercise invalid uniform ranges, shader/PSO creation failure, manual
   retry, shader invalidation, device invalidation, and shutdown without a stale
   or previous-view payload fallback.
@@ -330,6 +344,9 @@ reworking light ownership or view preparation.
   one per-view payload in opaque, masked, and translucent execution.
 - The current single-directional and zero-light baselines remain compatible;
   point range and spot cone edges match CPU references without NaN/Inf.
+- The `1 + 8` representative scene meets the frozen target-GPU lighting-time
+  budget; failure keeps M5 open and requires reducing the limit or selecting a
+  bounded light-assignment optimization.
 - Reflected ABI, descriptor lifetime, failure recovery, resource reload, and
   Vulkan validation are clean across main, auxiliary, present, and offscreen
   paths.
@@ -374,7 +391,8 @@ reworking light ownership or view preparation.
 | Component/actor lifecycle | Reflected values serialize; registration, transform, visibility, duplication, retirement, and scene release publish no stale state | `WorldTests` and scene-contract tests |
 | Invalid data | Non-finite color/intensity/position/direction/range/angles never publish a partial SceneInfo or GPU record | Engine and Renderer focused negative tests |
 | Local visibility | Point/spot conservative spheres outside the frustum are rejected; plane-boundary spheres remain included | Renderer preparation tests |
-| Budget and order | Four directional and thirty-two combined local maxima; stable-ID selection and overflow counters are container-order independent | Renderer preparation/counter tests |
+| Budget and order | One directional and eight combined local maxima; stable-ID selection and overflow counters are container-order independent | Renderer preparation/counter tests |
+| Forward-light GPU cost | The `1 + 8` full-screen Lit fixture meets the recorded target-GPU budget; `2 + 16` remains evidence-gated | GPU timestamp/profile fixture and Stage 3 handoff |
 | Multi-view | Sequential unequal views prepare independent lists and buffers from identical scene state | Renderer scene and viewport tests |
 | Payload ABI | CPU size/alignment, Slang fields/counts, reflection, and descriptor range agree exactly | `RenderShaderContractTests` and Renderer tests |
 | Directional compatibility | Existing one-light pixels and zero-direct-light fallback remain unchanged | material reference and Vulkan image/readback tests |
@@ -391,7 +409,7 @@ reworking light ownership or view preparation.
   proxy/SceneInfo entries with deterministic ordered lifecycle and no render-
   thread reflected-object access.
 - Each immutable view conservatively culls local lights, selects no more than
-  four directional and thirty-two combined local lights by stable identity,
+  one directional and eight combined local lights by stable identity,
   and emits reconciling diagnostics for every submitted entry.
 - StaticMesh and SkeletalMesh share one reflected per-view lighting payload and
   accumulate deterministic directional, point, and spot PBR direct lighting in
@@ -410,6 +428,9 @@ reworking light ownership or view preparation.
   exposure, and light-authoring UX, each behind a concrete product requirement.
 - Light priority authoring or a contribution-based overflow policy if real
   scenes exceed the fixed budget and stable-ID overflow is visibly inadequate.
+- A two-directional/sixteen-local forward tier only if target-GPU profiling
+  meets a named lighting-time budget and a later plan revision accepts its
+  worst-case opaque, masked, translucent, and overdraw cost.
 - Per-object, tiled, or clustered light assignment if counters show that the
   fixed forward loop is a material GPU cost or required light counts exceed the
   accepted budget; clustered work also waits for Compute Renderer integration.
