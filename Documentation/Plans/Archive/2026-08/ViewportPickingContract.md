@@ -4,7 +4,7 @@ Summary: Replace Actor-only viewport picking with one per-viewport semantic requ
 
 Last reviewed: 2026-08-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-11
 
 ## Current Status
@@ -515,14 +515,14 @@ Dependencies: Stages 1-3 acceptance gates.
 
 ## Related Documentation
 
-- [Viewport Picking Roadmap](../Roadmaps/ViewportPicking.md)
-- [Viewport Editing Architecture](../Editor/Architecture/ViewportEditing.md)
-- [Scene Viewport Navigation](../Editor/Guides/SceneViewportNavigation.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Renderer Scene Representation](../Runtime/Rendering/SceneRepresentation.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Native Tests](../Development/Build/NativeTests.md)
+- [Viewport Picking Roadmap](../../../Roadmaps/Archive/2026-08/ViewportPicking.md)
+- [Viewport Editing Architecture](../../../Editor/Architecture/ViewportEditing.md)
+- [Scene Viewport Navigation](../../../Editor/Guides/SceneViewportNavigation.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code
 

@@ -4,7 +4,7 @@ Summary: Add deterministic local native-crash artifacts, bounded process-lifecyc
 
 Last reviewed: 2026-08-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-11
 
 ## Current Status
@@ -596,10 +596,10 @@ Dependencies: Stages 1-5.
 
 ## Related Documentation
 
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Native Tests](../Development/Build/NativeTests.md)
-- [Profiling](../Development/Build/Profiling.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
+- [Profiling](../../../Development/Build/Profiling.md)
 - [Engine Loop Orchestration Cleanup Plan](EngineLoopOrchestrationCleanup.md)
 
 ## Related Code

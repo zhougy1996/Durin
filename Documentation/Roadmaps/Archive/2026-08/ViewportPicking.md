@@ -4,7 +4,7 @@ Summary: Establish correct, extensible editor viewport picking that scales from 
 
 Last reviewed: 2026-08-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-11
 
 ## Current Status
@@ -39,13 +39,13 @@ texture readback is synchronous and reads a complete subresource, so it is not
 an acceptable viewport-interaction path.
 
 M1 completed through the
-[Viewport Picking Contract Plan](../Plans/ViewportPickingContract.md). Its
+[Viewport Picking Contract Plan](../../../Plans/Archive/2026-08/ViewportPickingContract.md). Its
 public request/result shape, private per-viewport service boundary,
 request-local identity snapshot, coordinate convention, winner ordering, and
 immediate/deferred ticket lifecycle remain the backend contract. M2 completed
-through [Skeletal Viewport Picking](../Plans/SkeletalViewportPicking.md).
+through [Skeletal Viewport Picking](../../../Plans/Archive/2026-08/SkeletalViewportPicking.md).
 M3 completed through the
-[Viewport Picking Spatial Acceleration Plan](../Plans/ViewportPickingSpatialAcceleration.md).
+[Viewport Picking Spatial Acceleration Plan](../../../Plans/Archive/2026-08/ViewportPickingSpatialAcceleration.md).
 Its generated 10,000-primitive fixture reduced a sparse ray to one candidate;
 the 1,000,000-triangle fixture reduced exact tests to 16, retained 22,874,384
 bytes, and measured 44.4 microseconds accelerated versus 665.6 milliseconds
@@ -252,9 +252,9 @@ flowchart LR
 
 | Milestone | Requirement | Proposed child plan | Dependencies | Deliverable | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- | --- | --- |
-| M1: Semantic picking contract | Required; completed | [Viewport Picking Contract](../Plans/ViewportPickingContract.md) | Current viewport editing and StaticMesh picking behavior | Per-viewport request/result/service boundary, exact primitive/component identity, generation and cancellation rules, explicit hit arbitration, and a CPU reference backend preserving current StaticMesh behavior | Actor/component/visualizer/gizmo selection semantics, fitted-view coordinates, layer priorities, and immediate-versus-pending API shape are recorded before implementation | Passed: semantic mode integration, single arbitration, transformed closest-triangle behavior, and deterministic lifecycle/multi-viewport tests |
-| M2: Current-pose skeletal picking | Required; completed | [Skeletal Viewport Picking](../Plans/SkeletalViewportPicking.md) | M1 contract; skeletal render data and pose publication | Correct CPU reference picking for `DSkeletalMeshComponent` using current pose bounds and deformation, with Actor/component results and deterministic request failure | Passed: LOD0/current-pose-only, double-sided, invalid-component skip, world-distance, 250,000 vertex/500,000 triangle request limits, and private diagnostics are frozen | Passed: exact semantic identity, animation in/out sequence, non-contiguous palette, mixed influences, Static/Skeletal distance and stable ties, transforms, bounds rejection, and atomic over-budget failure |
-| M3: CPU spatial acceleration | Required; completed | [Viewport Picking Spatial Acceleration](../Plans/ViewportPickingSpatialAcceleration.md) | M1-M2 reference behavior and representative scene/mesh fixtures | Incremental scene bounds index, immutable per-LOD StaticMesh triangle acceleration, measured skeletal disposition, diagnostics, and selectable brute-force comparison | Passed | Passed: zero compare mismatches; ordered mutation coverage; 1/10,000 scene candidates; 16/1,000,000 triangle candidates; bounded memory and measured speedup |
+| M1: Semantic picking contract | Required; completed | [Viewport Picking Contract](../../../Plans/Archive/2026-08/ViewportPickingContract.md) | Current viewport editing and StaticMesh picking behavior | Per-viewport request/result/service boundary, exact primitive/component identity, generation and cancellation rules, explicit hit arbitration, and a CPU reference backend preserving current StaticMesh behavior | Actor/component/visualizer/gizmo selection semantics, fitted-view coordinates, layer priorities, and immediate-versus-pending API shape are recorded before implementation | Passed: semantic mode integration, single arbitration, transformed closest-triangle behavior, and deterministic lifecycle/multi-viewport tests |
+| M2: Current-pose skeletal picking | Required; completed | [Skeletal Viewport Picking](../../../Plans/Archive/2026-08/SkeletalViewportPicking.md) | M1 contract; skeletal render data and pose publication | Correct CPU reference picking for `DSkeletalMeshComponent` using current pose bounds and deformation, with Actor/component results and deterministic request failure | Passed: LOD0/current-pose-only, double-sided, invalid-component skip, world-distance, 250,000 vertex/500,000 triangle request limits, and private diagnostics are frozen | Passed: exact semantic identity, animation in/out sequence, non-contiguous palette, mixed influences, Static/Skeletal distance and stable ties, transforms, bounds rejection, and atomic over-budget failure |
+| M3: CPU spatial acceleration | Required; completed | [Viewport Picking Spatial Acceleration](../../../Plans/Archive/2026-08/ViewportPickingSpatialAcceleration.md) | M1-M2 reference behavior and representative scene/mesh fixtures | Incremental scene bounds index, immutable per-LOD StaticMesh triangle acceleration, measured skeletal disposition, diagnostics, and selectable brute-force comparison | Passed | Passed: zero compare mismatches; ordered mutation coverage; 1/10,000 scene candidates; 16/1,000,000 triangle candidates; bounded memory and measured speedup |
 | M4: Asynchronous bounded-region readback | Conditional; deferred | `AsynchronousTextureRegionReadback` | M1 request lifetime; selected GPU consumer and accepted latency/buffer budgets | Backend-independent RHI region-copy/readback handle, bounded staging ring, polling/completion, cancellation/retirement, diagnostics, and Vulkan implementation | Not met: qualified CPU picking does not require readback; activate only when a consumer freezes format, region, concurrency, latency, ownership, and fallback budgets | Subresource regions round-trip correctly without full-texture copy or caller-visible GPU wait; multiple in-flight requests, resize/invalidation, overflow, shutdown, and device/resource failure pass RHI and Vulkan coverage |
 | M5: GPU picking and hybrid arbitration | Conditional; deferred | `GPUViewportPicking` | M1-M3; M4; Renderer prepared-view and skeletal paths | On-demand scissored integer-ID pass, immutable dense token table, current-pose StaticMesh/SkeletalMesh output, asynchronous result integration, and backend policy/fallback | Not met: CPU measurements pass; reconsider for unsupported generated/deformed/instanced geometry or a visible-surface requirement after M4 has an accepted contract | Opaque/Masked visible-surface results match CPU/reference expectations and rendered pose across main and auxiliary viewports; no reflected object reaches the render thread; no interaction path uses synchronous full readback; stale requests are rejected; headless/unsupported RHI falls back deterministically |
 
@@ -266,7 +266,7 @@ product constraints.
 
 ## Child Plan Boundaries
 
-### [Viewport Picking Contract](../Plans/ViewportPickingContract.md)
+### [Viewport Picking Contract](../../../Plans/Archive/2026-08/ViewportPickingContract.md)
 
 This plan owns the LevelEditor-facing request/result/service seam, per-viewport
 pending state, identity resolution, invalidation generations, hit layers,
@@ -280,7 +280,7 @@ selection ownership, or introduce RHI resources. It must decide whether the
 service is synchronous-with-optional-pending-result or always request-based;
 either form must permit a later GPU result without changing mode APIs.
 
-### [Skeletal Viewport Picking](../Plans/SkeletalViewportPicking.md)
+### [Skeletal Viewport Picking](../../../Plans/Archive/2026-08/SkeletalViewportPicking.md)
 
 This plan owns the first correct current-pose CPU query for skeletal components
 and its bounded fallback policy. It may share value-only skinning math with the
@@ -294,7 +294,7 @@ tracing, or a bind-pose BVH presented as a conservative deformed query. Any
 bone/section influence-bound optimization whose correctness is non-trivial
 belongs to M3 after the reference path is green.
 
-### [Viewport Picking Spatial Acceleration](../Plans/ViewportPickingSpatialAcceleration.md)
+### [Viewport Picking Spatial Acceleration](../../../Plans/Archive/2026-08/ViewportPickingSpatialAcceleration.md)
 
 This plan owns CPU query scalability and nothing about selection UX. It defines
 the scene broad-phase owner and mutation protocol, per-asset StaticMesh BVH
@@ -387,16 +387,16 @@ gated extension of the semantic token payload.
 
 ## Related Documentation
 
-- [Viewport Editing Architecture](../Editor/Architecture/ViewportEditing.md)
-- [Scene Viewport Navigation](../Editor/Guides/SceneViewportNavigation.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Renderer Scene Representation](../Runtime/Rendering/SceneRepresentation.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Skeletal Mesh Rendering](../Runtime/Rendering/SkeletalMeshRendering.md)
-- [Skeletal Animation Playback](../Runtime/Animation/SkeletalAnimationPlayback.md)
-- [Rendering Capability Expansion Roadmap](RenderingCapabilityExpansion.md)
+- [Viewport Editing Architecture](../../../Editor/Architecture/ViewportEditing.md)
+- [Scene Viewport Navigation](../../../Editor/Guides/SceneViewportNavigation.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
+- [Skeletal Animation Playback](../../../Runtime/Animation/SkeletalAnimationPlayback.md)
+- [Rendering Capability Expansion Roadmap](../../RenderingCapabilityExpansion.md)
 - [RHI and Vulkan Backend Evolution Roadmap](RHIAndVulkanEvolution.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

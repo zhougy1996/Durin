@@ -4,7 +4,7 @@ Summary: Remove avoidable descriptor-validation scans, barrier-lowering allocati
 
 Last reviewed: 2026-08-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-11
 
 ## Current Status
@@ -330,14 +330,14 @@ without broadening rendering behavior.
 
 ## Related Documentation
 
-- [Graphics State and Bindings](../Runtime/Rendering/GraphicsStateAndBindings.md)
-- [RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md)
-- [RHI Resource Views and Transfers](../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
-- [Vulkan Memory and GPU Completion](../Runtime/Rendering/VulkanMemoryAndGPUCompletion.md)
-- [RHI Diagnostics and Conformance](../Runtime/Rendering/RHIDiagnosticsAndConformance.md)
+- [Graphics State and Bindings](../../../Runtime/Rendering/GraphicsStateAndBindings.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
+- [RHI Resource Views and Transfers](../../../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
+- [Vulkan Memory and GPU Completion](../../../Runtime/Rendering/VulkanMemoryAndGPUCompletion.md)
+- [RHI Diagnostics and Conformance](../../../Runtime/Rendering/RHIDiagnosticsAndConformance.md)
 - [RHI and Vulkan Correctness Hardening Plan](RHIAndVulkanCorrectnessHardening.md)
-- [Native Tests](../Development/Build/NativeTests.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

@@ -149,7 +149,7 @@ terminal behavior.
 - [Graphics state and bindings](GraphicsStateAndBindings.md)
 - [Viewport rendering](ViewportRendering.md)
 - [RHI diagnostics and conformance](RHIDiagnosticsAndConformance.md)
-- [RHI and Vulkan backend evolution roadmap](../../Roadmaps/RHIAndVulkanEvolution.md)
+- [RHI and Vulkan backend evolution roadmap](../../Roadmaps/Archive/2026-08/RHIAndVulkanEvolution.md)
 
 ## Related Code
 

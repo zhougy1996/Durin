@@ -641,7 +641,7 @@ lock; token-order and failure paths retain headless coverage where possible.
 
 ## Related Documentation
 
-- [RHI and Vulkan Backend Evolution roadmap](../../../Roadmaps/RHIAndVulkanEvolution.md)
+- [RHI and Vulkan Backend Evolution roadmap](../../../Roadmaps/Archive/2026-08/RHIAndVulkanEvolution.md)
 - [RHI Capabilities and Vulkan Startup](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
 - [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
 - [RHI Resource Views and Transfers](../../../Runtime/Rendering/RHIResourceViewsAndTransfers.md)

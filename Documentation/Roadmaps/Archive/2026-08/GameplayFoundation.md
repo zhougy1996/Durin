@@ -4,7 +4,7 @@ Summary: Establish a native C++ gameplay foundation around possession, semantic 
 
 Last reviewed: 2026-08-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-11
 
 ## Current Status
@@ -15,15 +15,15 @@ view-target boundaries, transactional bootstrap/restart, shared project
 settings, and qualified PIE/standalone hosts. Sandbox owns the first concrete
 keys, deterministic ground-plane movement, camera composition, graybox visual,
 and authored start through the completed
-[Sandbox Gameplay Vertical Slice](../Plans/SandboxGameplayVerticalSlice.md).
+[Sandbox Gameplay Vertical Slice](../../../Plans/Archive/2026-08/SandboxGameplayVerticalSlice.md).
 G3 was not activated because no second concrete consumer demonstrates
 duplicated policy.
 
 | Milestone | Status | Child plan |
 | --- | --- | --- |
-| G0: Namespace-safe reflected type resolution | Complete | [DHT Namespace-Aware Type Resolution](../Plans/DHTNamespaceAwareTypeResolution.md) |
-| G1: Native possession and player bootstrap | Complete | [Native Gameplay Core](../Plans/NativeGameplayCore.md) |
-| G2: Sandbox graybox playable slice | Complete | [Sandbox Gameplay Vertical Slice](../Plans/SandboxGameplayVerticalSlice.md) |
+| G0: Namespace-safe reflected type resolution | Complete | [DHT Namespace-Aware Type Resolution](../../../Plans/Archive/2026-08/DHTNamespaceAwareTypeResolution.md) |
+| G1: Native possession and player bootstrap | Complete | [Native Gameplay Core](../../../Plans/Archive/2026-08/NativeGameplayCore.md) |
+| G2: Sandbox graybox playable slice | Complete | [Sandbox Gameplay Vertical Slice](../../../Plans/Archive/2026-08/SandboxGameplayVerticalSlice.md) |
 | G3: Evidence-gated framework extraction | Not activated | No second concrete consumer exists |
 
 ## Outcome
@@ -184,7 +184,7 @@ Entry gate: the current resolver limitation is reproduced and bounded by the
 active child plan.
 
 Exit gate: every acceptance gate in the
-[DHT Namespace-Aware Type Resolution Plan](../Plans/DHTNamespaceAwareTypeResolution.md)
+[DHT Namespace-Aware Type Resolution Plan](../../../Plans/Archive/2026-08/DHTNamespaceAwareTypeResolution.md)
 passes, generated output remains order-independent, and the full DHT/shared-
 generation qualification required by repository guidance succeeds.
 
@@ -212,7 +212,7 @@ standalone native lifecycle, and unchanged ordinary Actor behavior. Long-lived
 contracts are published in their Runtime, Level, PIE, viewport, and workspace
 owners.
 
-Completed child plan: [Native Gameplay Core](../Plans/NativeGameplayCore.md).
+Completed child plan: [Native Gameplay Core](../../../Plans/Archive/2026-08/NativeGameplayCore.md).
 
 ### G2: Sandbox graybox playable slice
 
@@ -234,7 +234,7 @@ authored assets, full Editor/Game builds, and threaded/inline process smokes
 prove the complete start-to-stop loop, repeated PIE restoration, configured
 standalone startup, and Sandbox-owned tuning.
 
-Completed child plan: [Sandbox Gameplay Vertical Slice](../Plans/SandboxGameplayVerticalSlice.md).
+Completed child plan: [Sandbox Gameplay Vertical Slice](../../../Plans/Archive/2026-08/SandboxGameplayVerticalSlice.md).
 
 ### G3: Evidence-gated framework extraction
 
@@ -311,15 +311,15 @@ not activated when this roadmap completes.
 
 ## Related Documentation
 
-- [Generated Reflection System](../Runtime/Core/ReflectionSystem.md)
-- [Level System](../Runtime/World/LevelSystem.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Play In Editor Architecture](../Editor/Architecture/PlayInEditorArchitecture.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Workspace And Projects](../Workspace/WorkspaceProjects.md)
-- [Build And Run](../Development/Build/BuildAndRun.md)
-- [Native C++ Tests](../Development/Build/NativeTests.md)
-- [Actor Component System Plan](../Plans/Archive/2026-07/ActorComponentSystem.md)
+- [Generated Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Level System](../../../Runtime/World/LevelSystem.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Play In Editor Architecture](../../../Editor/Architecture/PlayInEditorArchitecture.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)
+- [Build And Run](../../../Development/Build/BuildAndRun.md)
+- [Native C++ Tests](../../../Development/Build/NativeTests.md)
+- [Actor Component System Plan](../../../Plans/Archive/2026-07/ActorComponentSystem.md)
 
 ## Related Code
 

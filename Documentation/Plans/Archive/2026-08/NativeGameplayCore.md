@@ -4,7 +4,7 @@ Summary: Add the minimal native pawn, controller, possession, game-mode bootstra
 
 Last reviewed: 2026-08-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-11
 
 ## Current Status
@@ -519,17 +519,17 @@ Dependencies: Stages 1-4.
 
 ## Related Documentation
 
-- [Gameplay Foundation Roadmap](../Roadmaps/GameplayFoundation.md)
-- [Generated Reflection System](../Runtime/Core/ReflectionSystem.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Level System](../Runtime/World/LevelSystem.md)
-- [Play In Editor Architecture](../Editor/Architecture/PlayInEditorArchitecture.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Workspace And Projects](../Workspace/WorkspaceProjects.md)
-- [Build And Run](../Development/Build/BuildAndRun.md)
-- [Native C++ Tests](../Development/Build/NativeTests.md)
-- [Actor Component System](Archive/2026-07/ActorComponentSystem.md)
-- [Actor Lifecycle Mutation Safety](Archive/2026-07/ActorLifecycleMutationSafety.md)
+- [Gameplay Foundation Roadmap](../../../Roadmaps/Archive/2026-08/GameplayFoundation.md)
+- [Generated Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Level System](../../../Runtime/World/LevelSystem.md)
+- [Play In Editor Architecture](../../../Editor/Architecture/PlayInEditorArchitecture.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)
+- [Build And Run](../../../Development/Build/BuildAndRun.md)
+- [Native C++ Tests](../../../Development/Build/NativeTests.md)
+- [Actor Component System](../2026-07/ActorComponentSystem.md)
+- [Actor Lifecycle Mutation Safety](../2026-07/ActorLifecycleMutationSafety.md)
 
 ## Related Code
 

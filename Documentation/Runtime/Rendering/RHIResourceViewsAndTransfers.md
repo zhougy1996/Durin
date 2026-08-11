@@ -115,7 +115,7 @@ per-operation temporary allocation without changing public copy semantics.
 - [RHI command execution](RHICommandExecution.md)
 - [Shader parameters](ShaderParameters.md)
 - [RHI capabilities and Vulkan startup](RHICapabilitiesAndVulkanStartup.md)
-- [RHI and Vulkan backend evolution roadmap](../../Roadmaps/RHIAndVulkanEvolution.md)
+- [RHI and Vulkan backend evolution roadmap](../../Roadmaps/Archive/2026-08/RHIAndVulkanEvolution.md)
 - [Vulkan memory and GPU completion](VulkanMemoryAndGPUCompletion.md)
 
 ## Related Code

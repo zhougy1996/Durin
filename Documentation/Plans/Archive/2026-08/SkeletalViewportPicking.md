@@ -4,7 +4,7 @@ Summary: Add deterministic current-pose CPU surface picking for `DSkeletalMeshCo
 
 Last reviewed: 2026-08-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-11
 
 ## Current Status
@@ -397,14 +397,14 @@ Dependencies: Stages 1-2 acceptance gates.
 
 ## Related Documentation
 
-- [Viewport Picking Roadmap](../Roadmaps/ViewportPicking.md)
+- [Viewport Picking Roadmap](../../../Roadmaps/Archive/2026-08/ViewportPicking.md)
 - [Viewport Picking Contract Plan](ViewportPickingContract.md)
-- [Viewport Editing Architecture](../Editor/Architecture/ViewportEditing.md)
-- [Skeletal Mesh Rendering](../Runtime/Rendering/SkeletalMeshRendering.md)
-- [Skeletal Animation Playback](../Runtime/Animation/SkeletalAnimationPlayback.md)
-- [Renderer Scene Representation](../Runtime/Rendering/SceneRepresentation.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Native Tests](../Development/Build/NativeTests.md)
+- [Viewport Editing Architecture](../../../Editor/Architecture/ViewportEditing.md)
+- [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
+- [Skeletal Animation Playback](../../../Runtime/Animation/SkeletalAnimationPlayback.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code
 

@@ -4,7 +4,7 @@ Summary: Make DurinHeaderTool resolve reflected base and property type spellings
 
 Last reviewed: 2026-08-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-11
 
 ## Current Status
@@ -372,13 +372,13 @@ Dependencies: Stages 1-3 and all focused acceptance gates.
 
 ## Related Documentation
 
-- [Gameplay Foundation Roadmap](../Roadmaps/GameplayFoundation.md)
-- [Generated Reflection System](../Runtime/Core/ReflectionSystem.md)
-- [Build System](../Development/Build/BuildSystem.md)
-- [Build And Run](../Development/Build/BuildAndRun.md)
-- [Workspace And Projects](../Workspace/WorkspaceProjects.md)
-- [DHT Persistent Header Cache](Archive/2026-08/DHTPersistentHeaderCache.md)
-- [DHT Strict Descriptor Parsing](Archive/2026-08/DHTStrictDescriptorParsing.md)
+- [Gameplay Foundation Roadmap](../../../Roadmaps/Archive/2026-08/GameplayFoundation.md)
+- [Generated Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Build System](../../../Development/Build/BuildSystem.md)
+- [Build And Run](../../../Development/Build/BuildAndRun.md)
+- [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)
+- [DHT Persistent Header Cache](DHTPersistentHeaderCache.md)
+- [DHT Strict Descriptor Parsing](DHTStrictDescriptorParsing.md)
 
 ## Related Code
 

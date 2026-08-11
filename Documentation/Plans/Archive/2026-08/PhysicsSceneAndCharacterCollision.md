@@ -4,7 +4,7 @@ Summary: Add layered AetherCore/Aether physics modules, a UE-shaped World query 
 
 Last reviewed: 2026-08-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-11
 
 ## Current Status
@@ -583,15 +583,15 @@ Dependencies: Stages 1-4 and lasting documentation updates.
 
 ## Related Documentation
 
-- [Code Modules](../Workspace/CodeModules.md)
-- [Sandbox Gameplay](../Runtime/Gameplay/SandboxGameplay.md)
-- [Level System](../Runtime/World/LevelSystem.md)
-- [Play In Editor Architecture](../Editor/Architecture/PlayInEditorArchitecture.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Static Mesh Level Authoring](../Editor/Architecture/StaticMeshLevelAuthoring.md)
-- [Native Graybox Scene Authoring Plan](NativeGrayboxSceneAuthoring.md)
-- [Native Tests](../Development/Build/NativeTests.md)
-- [Build And Run](../Development/Build/BuildAndRun.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Sandbox Gameplay](../../../Runtime/Gameplay/SandboxGameplay.md)
+- [Level System](../../../Runtime/World/LevelSystem.md)
+- [Play In Editor Architecture](../../../Editor/Architecture/PlayInEditorArchitecture.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Static Mesh Level Authoring](../../../Editor/Architecture/StaticMeshLevelAuthoring.md)
+- [Native Graybox Scene Authoring Plan](../../NativeGrayboxSceneAuthoring.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
+- [Build And Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

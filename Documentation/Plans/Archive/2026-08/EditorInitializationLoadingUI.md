@@ -4,7 +4,7 @@ Summary: Move editor workspace and default-level loading back into `DEditorEngin
 
 Last reviewed: 2026-08-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-11
 
 ## Current Status
@@ -426,11 +426,11 @@ Dependencies: Stages 1-4.
 
 ## Related Documentation
 
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Workspace Framework](../Editor/Architecture/WorkspaceFramework.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [UI Style](../Editor/Design/UIStyle.md)
-- [Launch Process Boundary Refactor](LaunchProcessBoundaryRefactor.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Workspace Framework](../../../Editor/Architecture/WorkspaceFramework.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [UI Style](../../../Editor/Design/UIStyle.md)
+- [Launch Process Boundary Refactor](../../LaunchProcessBoundaryRefactor.md)
 
 ## Related Code
 

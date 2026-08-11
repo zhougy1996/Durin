@@ -10,7 +10,7 @@ Completed: 2026-08-10
 ## Current Status
 
 This plan executes M0 of the
-[RHI and Vulkan Backend Evolution Roadmap](../../../Roadmaps/RHIAndVulkanEvolution.md).
+[RHI and Vulkan Backend Evolution Roadmap](../../../Roadmaps/Archive/2026-08/RHIAndVulkanEvolution.md).
 It was activated after a roadmap and code audit at baseline commit
 `bf8697ecf44f38f1a01cdae4344e6113567a1a2a` confirmed that command transport,
 thread ownership, exact CPU serial waits, initialization rollback, and public
@@ -726,7 +726,7 @@ Later stages add these exact boundaries rather than replacing the baseline:
 
 ## Related Documentation
 
-- [RHI and Vulkan Backend Evolution Roadmap](../../../Roadmaps/RHIAndVulkanEvolution.md)
+- [RHI and Vulkan Backend Evolution Roadmap](../../../Roadmaps/Archive/2026-08/RHIAndVulkanEvolution.md)
 - [Compute Shader Pipeline Roadmap](../../../Roadmaps/ComputeShaderPipeline.md)
 - [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
 - [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)

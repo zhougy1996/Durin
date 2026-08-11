@@ -4,7 +4,7 @@ Summary: Add a game-thread scene broad phase and immutable StaticMesh ray-query 
 
 Last reviewed: 2026-08-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-11
 
 ## Current Status
@@ -502,14 +502,14 @@ path was added.
 
 ## Related Documentation
 
-- [Viewport Picking Roadmap](../Roadmaps/ViewportPicking.md)
+- [Viewport Picking Roadmap](../../../Roadmaps/Archive/2026-08/ViewportPicking.md)
 - [Viewport Picking Contract Plan](ViewportPickingContract.md)
 - [Skeletal Viewport Picking Plan](SkeletalViewportPicking.md)
-- [Viewport Editing Architecture](../Editor/Architecture/ViewportEditing.md)
-- [Renderer Scene Representation](../Runtime/Rendering/SceneRepresentation.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Skeletal Mesh Rendering](../Runtime/Rendering/SkeletalMeshRendering.md)
-- [Native Tests](../Development/Build/NativeTests.md)
+- [Viewport Editing Architecture](../../../Editor/Architecture/ViewportEditing.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code
 

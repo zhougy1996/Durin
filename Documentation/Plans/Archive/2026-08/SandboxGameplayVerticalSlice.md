@@ -4,7 +4,7 @@ Summary: Build the first Sandbox-owned graybox pawn, controller, movement, camer
 
 Last reviewed: 2026-08-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-11
 
 ## Current Status
@@ -263,15 +263,15 @@ Dependencies: Stages 1-2.
 
 ## Related Documentation
 
-- [Gameplay Foundation Roadmap](../Roadmaps/GameplayFoundation.md)
+- [Gameplay Foundation Roadmap](../../../Roadmaps/Archive/2026-08/GameplayFoundation.md)
 - [Native Gameplay Core](NativeGameplayCore.md)
-- [Level System](../Runtime/World/LevelSystem.md)
-- [Play In Editor Architecture](../Editor/Architecture/PlayInEditorArchitecture.md)
-- [Play In Editor Guide](../Editor/Guides/PlayInEditor.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Workspace And Projects](../Workspace/WorkspaceProjects.md)
-- [Build And Run](../Development/Build/BuildAndRun.md)
-- [Native C++ Tests](../Development/Build/NativeTests.md)
+- [Level System](../../../Runtime/World/LevelSystem.md)
+- [Play In Editor Architecture](../../../Editor/Architecture/PlayInEditorArchitecture.md)
+- [Play In Editor Guide](../../../Editor/Guides/PlayInEditor.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)
+- [Build And Run](../../../Development/Build/BuildAndRun.md)
+- [Native C++ Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code
 

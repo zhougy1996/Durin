@@ -4,7 +4,7 @@ Summary: Add deterministic click-to-capture and release behavior for embedded an
 
 Last reviewed: 2026-08-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-11
 
 ## Current Status
@@ -353,11 +353,11 @@ Dependencies: Stage 3 acceptance gate.
 
 ## Related Documentation
 
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Sandbox Gameplay](../Runtime/Gameplay/SandboxGameplay.md)
-- [Scene Viewport Navigation](../Editor/Guides/SceneViewportNavigation.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Sandbox Gameplay](../../../Runtime/Gameplay/SandboxGameplay.md)
+- [Scene Viewport Navigation](../../../Editor/Guides/SceneViewportNavigation.md)
 - [Native Gameplay Core](NativeGameplayCore.md)
-- [C++ Coding Standards](../Development/Standards/CodingStandards.md)
+- [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
 
 ## Related Code
 
