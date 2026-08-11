@@ -3149,9 +3149,24 @@ namespace Durin::Asset
 			LastScanStats.HeaderReadAttempts, LastScanStats.HeaderBytesRead,
 			ReferenceIndex.Stats.PayloadReadAttempts, ReferenceIndex.Stats.PayloadBytesRead,
 			LastScanStats.Removed, LastScanStats.Failed);
-		if (!CacheWarning.empty()) DURIN_WARN_CATEGORY("AssetRegistry", "{}", CacheWarning);
+		if (!CacheWarning.empty())
+		{
+			if (bPersistentSnapshotDirty)
+				DURIN_WARN_CATEGORY("AssetRegistry", "{}", CacheWarning);
+			else
+				DURIN_INFO_CATEGORY("AssetRegistry",
+					"Rebuilt asset registry cache after a recoverable cache read issue: {}",
+					CacheWarning);
+		}
 		if (!ReferenceIndex.CacheWarning.empty())
-			DURIN_WARN_CATEGORY("AssetRegistry", "{}", ReferenceIndex.CacheWarning);
+		{
+			if (ReferenceIndex.bSnapshotDirty)
+				DURIN_WARN_CATEGORY("AssetRegistry", "{}", ReferenceIndex.CacheWarning);
+			else
+				DURIN_INFO_CATEGORY("AssetRegistry",
+					"Rebuilt asset-reference cache after a recoverable cache read issue: {}",
+					ReferenceIndex.CacheWarning);
+		}
 		for (const FAssetResult& ReferenceError : ReferenceIndex.Errors)
 			DURIN_WARN_CATEGORY("AssetRegistry", "{}", ReferenceError.Message);
 		return {};
