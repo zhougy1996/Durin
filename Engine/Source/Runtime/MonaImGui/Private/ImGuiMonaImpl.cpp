@@ -57,6 +57,11 @@ namespace Durin::MonaImGui
 
 	static FMonaImGuiMouseState GMonaImGuiMouseState;
 
+	static auto IsMouseCaptured(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> bool
+	{
+		return InPlatformWindow && InPlatformWindow->GetCursorMode() == ECursorMode::Captured;
+	}
+
 #if defined(_WIN32)
 	static constexpr const char* MonaImGuiViewportProp = "DURIN_MONA_IMGUI_VIEWPORT";
 	static constexpr const char* MonaImGuiPrevWndProcProp = "DURIN_MONA_IMGUI_PREV_WNDPROC";
@@ -382,7 +387,7 @@ namespace Durin::MonaImGui
 		{
 			const std::shared_ptr<MWindow> Window = GetViewportWindow(FocusedViewport);
 			const std::shared_ptr<FGenericWindow> NativeWindow = Window != nullptr ? Window->GetNativeWindow() : nullptr;
-			if (NativeWindow != nullptr)
+			if (NativeWindow != nullptr && !IsMouseCaptured(NativeWindow))
 			{
 				FVector2d CursorPos = NativeWindow->GetCursorPosition();
 				if ((IO.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) != 0)
@@ -815,7 +820,7 @@ namespace Durin::MonaImGui
 
 	static auto GetImGuiIO(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> ImGuiIO&
 	{
-		return ImGui::GetIO(GMonaImGuiContext);
+		return ImGui::GetIO(GMonaImGuiContext != nullptr ? GMonaImGuiContext : ImGui::GetCurrentContext());
 	}
 
 	static auto ConvertMousePositionToImGuiSpace(const std::shared_ptr<FGenericWindow>& InPlatformWindow, FVector2d CursorPos) -> FVector2d
@@ -960,6 +965,7 @@ namespace Durin::MonaImGui
 
 	auto FMonaImGuiEventHandler::OnMouseMove(const std::shared_ptr<FGenericWindow>& InPlatformWindow, FVector2d CursorPos) -> bool
 	{
+		if (IsMouseCaptured(InPlatformWindow)) return false;
 		auto& IO = GetImGuiIO(InPlatformWindow);
 		const FVector2d ImGuiCursorPos = ConvertMousePositionToImGuiSpace(InPlatformWindow, CursorPos);
 		GMonaImGuiMouseState.LastValidMousePos = ImVec2(static_cast<float>(ImGuiCursorPos.x), static_cast<float>(ImGuiCursorPos.y));
@@ -970,6 +976,7 @@ namespace Durin::MonaImGui
 
 	auto FMonaImGuiEventHandler::OnMouseEnter(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> void
 	{
+		if (IsMouseCaptured(InPlatformWindow)) return;
 		auto& IO = GetImGuiIO(InPlatformWindow);
 		GMonaImGuiMouseState.MouseWindow = InPlatformWindow;
 		IO.AddMousePosEvent(GMonaImGuiMouseState.LastValidMousePos.x, GMonaImGuiMouseState.LastValidMousePos.y);
@@ -977,6 +984,7 @@ namespace Durin::MonaImGui
 
 	auto FMonaImGuiEventHandler::OnMouseLeave(const std::shared_ptr<FGenericWindow>& InPlatformWindow) -> void
 	{
+		if (IsMouseCaptured(InPlatformWindow)) return;
 		if (const std::shared_ptr<FGenericWindow> MouseWindow = GMonaImGuiMouseState.MouseWindow.lock())
 		{
 			if (MouseWindow == InPlatformWindow)
@@ -991,6 +999,7 @@ namespace Durin::MonaImGui
 
 	auto FMonaImGuiEventHandler::OnMouseDown(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos) -> bool
 	{
+		if (IsMouseCaptured(InPlatformWindow)) return false;
 		auto& IO = GetImGuiIO(InPlatformWindow);
 		const FVector2d ImGuiCursorPos = ConvertMousePositionToImGuiSpace(InPlatformWindow, CursorPos);
 		GMonaImGuiMouseState.LastValidMousePos = ImVec2(static_cast<float>(ImGuiCursorPos.x), static_cast<float>(ImGuiCursorPos.y));
@@ -1003,6 +1012,13 @@ namespace Durin::MonaImGui
 	auto FMonaImGuiEventHandler::OnMouseUp(const std::shared_ptr<FGenericWindow>& InPlatformWindow, EMouseButton Button, FVector2d CursorPos) -> bool
 	{
 		auto& IO = GetImGuiIO(InPlatformWindow);
+		if (IsMouseCaptured(InPlatformWindow))
+		{
+			// The click that entered capture was already submitted to ImGui. Preserve
+			// its matching release without forwarding GLFW's unbounded virtual position.
+			IO.AddMouseButtonEvent(ConvertMouseButtonToImGuiType(Button), false);
+			return false;
+		}
 		const FVector2d ImGuiCursorPos = ConvertMousePositionToImGuiSpace(InPlatformWindow, CursorPos);
 		GMonaImGuiMouseState.LastValidMousePos = ImVec2(static_cast<float>(ImGuiCursorPos.x), static_cast<float>(ImGuiCursorPos.y));
 		UpdateHoveredViewport(IO, InPlatformWindow);
@@ -1013,6 +1029,7 @@ namespace Durin::MonaImGui
 
 	bool FMonaImGuiEventHandler::OnMouseWheel(const std::shared_ptr<FGenericWindow>& InPlatformWindow, double DeltaX, double DeltaY)
 	{
+		if (IsMouseCaptured(InPlatformWindow)) return false;
 		auto& IO = GetImGuiIO(InPlatformWindow);
 		IO.AddMouseWheelEvent(static_cast<float>(DeltaX), static_cast<float>(DeltaY));
 		return IO.WantCaptureMouse;
@@ -1053,7 +1070,7 @@ namespace Durin::MonaImGui
 
 		auto& App = Mona::FMonaApplication::Get();
 		check(Mona::FMonaApplication::IsInitialized());
-		App.SetMonaEventHandler(std::make_unique<FMonaBackendEventHandler>());
+		App.SetMonaEventHandler(ImGuiMonaImpl_CreateEventHandler());
 	}
 
 	auto ImGuiMonaImpl_Shutdown() -> void
@@ -1104,5 +1121,10 @@ namespace Durin::MonaImGui
 	auto ImGuiMonaImpl_GetViewportWindow(ImGuiViewport* Viewport) -> std::shared_ptr<MWindow>
 	{
 		return GetViewportWindow(Viewport);
+	}
+
+	auto ImGuiMonaImpl_CreateEventHandler() -> std::unique_ptr<Mona::FMonaEventHandler>
+	{
+		return std::make_unique<FMonaBackendEventHandler>();
 	}
 }

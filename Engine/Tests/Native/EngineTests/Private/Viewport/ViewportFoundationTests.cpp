@@ -1,6 +1,9 @@
 #include "ViewportTestSupport.h"
+#include "Application/MonaEventHandler.h"
 #include "Documents/LevelDocumentRevisionState.h"
 #include "Math/Operations.h"
+#include "MonaImGui.h"
+#include "Runtime/MonaImGui/Private/ImGuiMonaImpl.h"
 #include "Window/GenericWindow.h"
 
 namespace
@@ -47,6 +50,56 @@ TEST(FGenericWindowCursorTests, KeepsCursorShapeAndModeAsIndependentState)
 	EXPECT_EQ(Window.GetCursorMode(), Durin::ECursorMode::Free);
 	EXPECT_EQ(Window.GetCursorPosition(), Durin::FVector2d(31.0, 47.0));
 	EXPECT_EQ(Window.GetOperations(), (std::vector<std::string>{"captured", "free", "position"}));
+}
+
+TEST(FMonaImGuiInputTests, KeepsCapturedVirtualMouseEventsOutOfTheUI)
+{
+	ImGuiContext* Context = ImGui::CreateContext();
+	ASSERT_NE(Context, nullptr);
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.IniFilename = nullptr;
+	IO.DisplaySize = ImVec2(800.0f, 600.0f);
+	IO.DeltaTime = 1.0f / 60.0f;
+	IO.Fonts->Build();
+
+	const std::unique_ptr<Durin::Mona::FMonaEventHandler> Handler =
+		Durin::MonaImGui::ImGuiMonaImpl_CreateEventHandler();
+	const std::shared_ptr<FTestCursorWindow> Window = std::make_shared<FTestCursorWindow>();
+
+	auto DrawFrame = [&]() {
+		ImGui::NewFrame();
+		ImGui::EndFrame();
+	};
+
+	Handler->OnMouseMove(Window, {64.0, 48.0});
+	Handler->OnMouseDown(Window, Durin::EMouseButton::Left, {64.0, 48.0});
+	DrawFrame();
+	EXPECT_FLOAT_EQ(IO.MousePos.x, 64.0f);
+	EXPECT_FLOAT_EQ(IO.MousePos.y, 48.0f);
+	EXPECT_TRUE(IO.MouseDown[ImGuiMouseButton_Left]);
+
+	Window->SetCursorMode(Durin::ECursorMode::Captured);
+	EXPECT_FALSE(Handler->OnMouseMove(Window, {100000.0, -100000.0}));
+	EXPECT_FALSE(Handler->OnMouseDown(Window, Durin::EMouseButton::Right, {100000.0, -100000.0}));
+	EXPECT_FALSE(Handler->OnMouseWheel(Window, 3.0, 7.0));
+	Handler->OnMouseLeave(Window);
+	Handler->OnMouseEnter(Window);
+	EXPECT_FALSE(Handler->OnMouseUp(Window, Durin::EMouseButton::Left, {100000.0, -100000.0}));
+	DrawFrame();
+
+	EXPECT_FLOAT_EQ(IO.MousePos.x, 64.0f);
+	EXPECT_FLOAT_EQ(IO.MousePos.y, 48.0f);
+	EXPECT_FALSE(IO.MouseDown[ImGuiMouseButton_Left]);
+	EXPECT_FALSE(IO.MouseDown[ImGuiMouseButton_Right]);
+	EXPECT_FLOAT_EQ(IO.MouseWheel, 0.0f);
+
+	Window->SetCursorMode(Durin::ECursorMode::Free);
+	Handler->OnMouseMove(Window, {12.0, 24.0});
+	DrawFrame();
+	EXPECT_FLOAT_EQ(IO.MousePos.x, 12.0f);
+	EXPECT_FLOAT_EQ(IO.MousePos.y, 24.0f);
+
+	ImGui::DestroyContext(Context);
 }
 
 TEST(FEditorTransactionManagerTests, ExecutesUndoesRedoesAndClearsRedoBranch)
