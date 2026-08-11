@@ -34,6 +34,12 @@ Rigid-body simulation, parallel execution, and alternate backends are
 conditional tracks activated by concrete consumers and measurements; they are
 not prerequisites for fixing current collision-query cost.
 
+M0 is now selected through the
+[Aether Physics Query Observability Plan](../Plans/AetherPhysicsQueryObservability.md).
+No implementation stage has begun; the plan first freezes current query
+semantics, counter reconciliation, representative workloads, and baseline
+methodology before extracting the reference and production pipelines.
+
 ## Outcome
 
 Aether provides a stable physics-scene boundary whose implementation can
@@ -257,7 +263,7 @@ flowchart LR
 
 | Milestone | Requirement | Proposed child plan | Dependencies | Deliverable | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- | --- | --- |
-| M0: Query observability and reference oracle | Required; next | `AetherPhysicsQueryObservability` | Completed first-slice collision plan and current focused fixtures | Explicit query pipeline seam, Reference/Accelerated/Compare policy, diagnostics snapshot, representative fixtures, randomized/adversarial parity corpus, and recorded baselines | Current World query semantics, hit fields, tolerances, ordering, scene sizes, query mixes, and measurement method are frozen before acceleration changes | Reference results remain unchanged; counters reconcile every candidate and pair test; small, sparse, dense, churn, and Sandbox baselines are recorded with bounded diagnostic overhead |
+| M0: Query observability and reference oracle | Required; active | [Aether Physics Query Observability](../Plans/AetherPhysicsQueryObservability.md) | Completed first-slice collision plan and current focused fixtures | Explicit query pipeline seam, Reference/Accelerated/Compare policy, diagnostics snapshot, representative fixtures, randomized/adversarial parity corpus, and recorded baselines | Current World query semantics, hit fields, tolerances, ordering, scene sizes, query mixes, and measurement method are frozen before acceleration changes | Reference results remain unchanged; counters reconcile every candidate and pair test; small, sparse, dense, churn, and Sandbox baselines are recorded with bounded diagnostic overhead |
 | M1: Body storage and hybrid broad phase | Required | `AetherSceneQueryAcceleration` | M0 oracle, counters, fixtures, and budgets | Generation-checked dense body storage; explicit motion type; conservative AABBs; static BVH plus moving-body dynamic AABB tree or an equivalently qualified hybrid; incremental mutation; closest-hit pruning; bounded scratch | M0 compare mode can detect false negatives, result/order changes, stale handles, and incomplete overflow | Zero reference mismatches; stale handles reject; ordinary moving updates never rebuild the static partition; broad-phase candidates track local occupancy; memory/update/query targets beat recorded flat-scan baselines at qualified scale without regressing accepted small-scene bounds |
 | M2: Geometry and narrow-phase architecture | Required | `AetherGeometryAndNarrowphase` | M1 body/index ownership and query pipeline | Immutable shared geometry references, compound simple shapes, operation/pair dispatch, complete primitive query matrix, analytic common fast paths, generic convex fallback, bounded penetration and shape casts, and pair/iteration diagnostics | Shape transform/scale semantics, tolerance policy, contact fields, non-convergence behavior, and geometry-resource lifetime are frozen against the reference oracle | Qualified primitive and compound pairs match reference/goldens; Capsule movement removes pathological nested search from the production path; pair dispatch adds a new geometry type without editing scene traversal; shared geometry is not copied per body |
 | M3: Cooked world collision | Required | `AetherCookedCollisionGeometry` | M2 immutable geometry and dispatch; AssetCore derived-data contracts | Versioned BodySetup cook input/output, convex and triangle-mesh payloads, asset-level BVH, simple-versus-complex query policy, bounded cook/runtime memory, serialization/DDC integration, and collision inspection | Representative imported assets, cook ownership, source-change invalidation, precision, degenerate/oversized failure, platform versioning, and editor authoring scope are selected | Instances share one cooked payload; ray/sweep/overlap parity and nearest-feature ordering pass against reference fixtures; asset and scene acceleration counters reconcile; reimport/cook/load/PIE/standalone preserve collision without render-data dependency |
@@ -273,7 +279,7 @@ not require speculative simulation, threading, or backend work.
 
 ## Child Plan Boundaries
 
-### `AetherPhysicsQueryObservability`
+### [Aether Physics Query Observability](../Plans/AetherPhysicsQueryObservability.md)
 
 This plan owns instrumentation, fixtures, reference preservation, execution
 policy, and the internal query-pipeline seam. It may move existing flat query
