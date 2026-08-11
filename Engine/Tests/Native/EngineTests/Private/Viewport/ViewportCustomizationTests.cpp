@@ -617,8 +617,9 @@ TEST(FPlayerStartActorVisualizerTests, DrawsSelectableSpawnShapeAndFacingCue)
 	Durin::Editor::Level::FEditorVisualizationCollector Unselected;
 	Visualizer->DrawVisualization(PlayerStart, {View, Level, false, false}, Unselected);
 	EXPECT_EQ(Unselected.GetBoxes().size(), 1u);
-	EXPECT_EQ(Unselected.GetLines().size(), 41u);
-	EXPECT_TRUE(Unselected.GetBoxes().front().HoverColor.has_value());
+	EXPECT_EQ(Unselected.GetLines().size(), 104u);
+	EXPECT_FLOAT_EQ(Unselected.GetBoxes().front().Color.a, 0.0f);
+	EXPECT_FLOAT_EQ(Unselected.GetLines().front().WidthPixels, Durin::MonaImGui::ScaleUI(1.5f));
 	Durin::FVector2f ScreenCenter;
 	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, Origin, ScreenCenter));
 	const Durin::Editor::Level::FEditorVisualizationHit Hit = Unselected.HitTest(View, ScreenCenter);
@@ -630,7 +631,8 @@ TEST(FPlayerStartActorVisualizerTests, DrawsSelectableSpawnShapeAndFacingCue)
 	Visualizer->DrawVisualization(PlayerStart, {View, Level, true, true}, Selected);
 	ASSERT_EQ(Selected.GetBoxes().size(), 1u);
 	EXPECT_FALSE(Selected.GetBoxes().front().HoverColor.has_value());
-	EXPECT_GT(Durin::Math::Dot(Selected.GetLines()[36].End - Selected.GetLines()[36].Start,
+	EXPECT_FLOAT_EQ(Selected.GetLines().front().WidthPixels, Durin::MonaImGui::ScaleUI(2.0f));
+	EXPECT_GT(Durin::Math::Dot(Selected.GetLines()[100].End - Selected.GetLines()[100].Start,
 		PlayerStart->GetRootComponent()->GetWorldRotation() * Durin::FVectorConstants::Forward), 0.0);
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
