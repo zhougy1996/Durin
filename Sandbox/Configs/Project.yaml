@@ -1,4 +1,4 @@
 Game:
-  DefaultLevel: /Game/Levels/NewLevel
+  DefaultLevel: /Game/Levels/ThirdPersonTest
   NativeModule: Sandbox
   GameModeClass: Durin::Sandbox::ADefaultGameMode

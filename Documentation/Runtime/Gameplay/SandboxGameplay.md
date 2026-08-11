@@ -11,7 +11,8 @@ Modules: Sandbox
 mode `Durin::Sandbox::ADefaultGameMode`. The game mode selects
 `ADefaultPlayerController` and `APlayerPawn`; the existing World bootstrap
 spawns and possesses them at the first authored `APlayerStart` in stable Actor
-order. `NewLevel` contains one intentional start at world location `(0, 0, 0)`.
+order. `ThirdPersonTest` contains one intentional start at world location
+`(-14, 0, 0)`.
 
 The pawn owns exactly one `DSimpleGroundMovementComponent`, one
 `DStaticMeshComponent`, and one `DCameraComponent`. Restart retains the player
@@ -73,6 +74,12 @@ view target. Play From Camera remains an explicit host override and does not
 change Sandbox camera ownership.
 
 ## Visual and limitations
+
+The default `ThirdPersonTest` level is an open-air, UE-style graybox arena built
+entirely from `/Engine/Models/Box`. A floor and four perimeter walls enclose the
+play space without a ceiling. Its interior contains a broad raised platform, a
+rotated-box ramp, return stairs, shoulder-height cover, a slalom lane, low cover,
+and four tall corner landmarks for movement and camera checks.
 
 The pawn loads Sandbox-owned `/Game/Models/GrayboxPawn`, imported from
 `/Game/Sources/Models/GrayboxPawn.obj`. The unit box is scaled to
