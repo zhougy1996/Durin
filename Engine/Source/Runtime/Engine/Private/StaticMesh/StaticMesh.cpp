@@ -1705,7 +1705,6 @@ namespace Durin
 			return false;
 		}
 
-		DURIN_WARN("{} Rebuilding static mesh '{}' from source.", DerivedDataDiagnostic.Message, GetObjectPath());
 		DerivedDataDiagnostic.bSourceImporterInvoked = true;
 		std::unique_ptr<FStaticMeshRenderData> CandidateRenderData;
 		std::vector<FStaticMeshMaterialSlotDefinition> CandidateMaterialSlots;
@@ -1745,6 +1744,7 @@ namespace Durin
 		DerivedDataDiagnostic.Message = std::format(
 			"Rebuilt static mesh and stored DDC key {} after cache miss: {}",
 			DerivedDataDiagnostic.Key, CacheMessage);
+		DURIN_INFO("Rebuilt static mesh '{}' after DDC miss.", GetObjectPath());
 		if (SourceImportData.SourceContentHash != CurrentSourceHash)
 		{
 			SourceImportData.SourceContentHash = std::move(CurrentSourceHash);
