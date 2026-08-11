@@ -20,11 +20,11 @@
 #include "MonaImGui.h"
 #include "StaticMeshLevelAuthoring.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{
-		using LevelEditorHelpers::ClassDisplayName;
+		using Helpers::ClassDisplayName;
 		using StringUtils::ContainsInsensitive;
 
 		constexpr auto ActorPayloadType = "DURIN_OUTLINER_ACTOR";
@@ -53,7 +53,7 @@ namespace Durin
 		}
 
 		// Restores the level's primary-camera selection.
-		class FPrimaryCameraTransaction final : public Editor::ITransaction
+		class FPrimaryCameraTransaction final : public ::Durin::Editor::ITransaction
 		{
 		public:
 			FPrimaryCameraTransaction(DLevel* InLevel, ACameraActor* InBefore, ACameraActor* InAfter)
@@ -62,7 +62,7 @@ namespace Durin
 				AffectedPackages.front() = InLevel ? InLevel->GetPackage() : nullptr;
 			}
 			auto GetDescription() const -> std::string_view override { return "Set primary camera"; }
-			auto GetDetails(Editor::ETransactionOperation) const -> std::string override
+			auto GetDetails(::Durin::Editor::ETransactionOperation) const -> std::string override
 			{
 				return After ? std::format("Set '{}' as the primary camera", After->GetName()) : "Clear the primary camera";
 			}
@@ -78,7 +78,7 @@ namespace Durin
 		};
 
 		// Restores visibility for every actor changed by one outliner operation.
-		class FActorVisibilityTransaction final : public Editor::ITransaction
+		class FActorVisibilityTransaction final : public ::Durin::Editor::ITransaction
 		{
 		public:
 			// Stores one actor's visibility before and after the outliner action.
@@ -100,9 +100,9 @@ namespace Durin
 				}
 			}
 			auto GetDescription() const -> std::string_view override { return bShow ? "Show actors" : "Hide actors"; }
-			auto GetDetails(Editor::ETransactionOperation Operation) const -> std::string override
+			auto GetDetails(::Durin::Editor::ETransactionOperation Operation) const -> std::string override
 			{
-				const bool bApplyingAfter = Operation != Editor::ETransactionOperation::Undo;
+				const bool bApplyingAfter = Operation != ::Durin::Editor::ETransactionOperation::Undo;
 				const size_t HiddenCount = std::ranges::count_if(Entries, [bApplyingAfter](const FEntry& Entry) { return bApplyingAfter ? Entry.bAfter : Entry.bBefore; });
 				return std::format("Set visibility for {} actor(s); {} hidden", Entries.size(), HiddenCount);
 			}
@@ -592,7 +592,7 @@ namespace Durin
 
 	auto FWorldOutlinerPanel::Draw(FLevelEditorContext& Context) -> void
 	{
-		if (!Editor::WorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "World Outliner", "WorldOutliner", GetOpenPtr()))
+		if (!::Durin::Editor::WorkspaceUI::BeginDockablePanel(Workspace::Type, "World Outliner", "WorldOutliner", GetOpenPtr()))
 		{
 			ImGui::End();
 			return;
@@ -667,4 +667,4 @@ namespace Durin
 		LastVisibleActors.swap(VisibleActors);
 		ImGui::End();
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

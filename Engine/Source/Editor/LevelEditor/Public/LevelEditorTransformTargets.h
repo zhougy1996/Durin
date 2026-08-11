@@ -6,6 +6,10 @@
 namespace Durin
 {
 	class DPackage;
+}
+
+namespace Durin::Editor::Level
+{
 	struct FLevelEditorContext;
 
 	enum class ETransformGizmoCapability : uint8
@@ -48,4 +52,4 @@ namespace Durin
 	};
 
 	LEVELEDITOR_API auto MakeActorTransformGizmoTargets(const FLevelEditorContext& Context) -> FTransformGizmoTargetSet;
-} // namespace Durin
+} // namespace Durin::Editor::Level

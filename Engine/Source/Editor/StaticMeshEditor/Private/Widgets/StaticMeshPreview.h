@@ -3,10 +3,10 @@
 #include "Math/Box.h"
 #include "StaticMeshEditorAPI.h"
 
-namespace Durin
-{
-	class DStaticMesh;
+namespace Durin { class DStaticMesh; }
 
+namespace Durin::Editor::StaticMesh
+{
 	// Pure camera state used by the StaticMesh preview viewport and its input tests.
 	class STATICMESHEDITOR_API FStaticMeshPreviewController final
 	{

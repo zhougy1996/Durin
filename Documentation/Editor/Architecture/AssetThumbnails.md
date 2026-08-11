@@ -14,7 +14,7 @@ project content.
   scheduler, rendered-generation pipeline, persistent object store, preview
   scene pool, and resource budgets. Every shared contract lives in the flat
   `Durin::Editor` namespace; concrete feature-editor providers remain in their
-  owning modules.
+  owning modules under `Durin::Editor::<Feature>`.
 - `Editor::FRenderedAssetThumbnailService` owns the one long-lived registry. A rendered
   cache receives that service and resolves registrations when capturing each
   request, so cache construction order does not snapshot or fork provider state.
@@ -31,6 +31,10 @@ project content.
   provider with its reflection-vector preview pass. Texture2D and
   supported source files retain their source-image decode path behind the same
   Content Browser request/view lifecycle.
+- Material and texture ordinary C++ implementation types live in
+  `Durin::Editor::Material` and `Durin::Editor::Texture`.
+  The reflected `DTextureCubePreviewComponent` remains in `Durin` so its
+  generated class identity and preview-world component lifecycle stay stable.
 - `StaticMeshEditor` owns the StaticMesh rendered extension and immutable LOD 0
   framing inputs. Its unified module integration installs the exact-class asset
   route and thumbnail provider together. The provider never stores a mesh

@@ -152,7 +152,7 @@ namespace
 		}
 	};
 
-	class FTestComponentVisualizer final : public Durin::IComponentEditorVisualizer
+	class FTestComponentVisualizer final : public Durin::Editor::Level::IComponentEditorVisualizer
 	{
 	public:
 		explicit FTestComponentVisualizer(int* InDrawCount = nullptr)
@@ -160,7 +160,7 @@ namespace
 		{
 		}
 
-		auto DrawVisualization(Durin::DActorComponent* Component, const Durin::FEditorVisualizationContext&, Durin::FEditorVisualizationCollector& Collector) const -> void override
+		auto DrawVisualization(Durin::DActorComponent* Component, const Durin::Editor::Level::FEditorVisualizationContext&, Durin::Editor::Level::FEditorVisualizationCollector& Collector) const -> void override
 		{
 			if (DrawCount) ++*DrawCount;
 			auto* SceneComponent = Durin::Cast<Durin::DSceneComponent>(Component);
@@ -174,17 +174,17 @@ namespace
 		int* DrawCount = nullptr;
 	};
 
-	class FTestDetailsCustomization final : public Durin::IObjectDetailsCustomization
+	class FTestDetailsCustomization final : public Durin::Editor::Level::IObjectDetailsCustomization
 	{
 	public:
-		auto CustomizeDetails(Durin::FLevelEditorContext&, Durin::DObject*,
-			Durin::FObjectPropertyViewBuilder&) -> void override {}
+		auto CustomizeDetails(Durin::Editor::Level::FLevelEditorContext&, Durin::DObject*,
+			Durin::Editor::Level::FObjectPropertyViewBuilder&) -> void override {}
 	};
 
 	struct FCustomizationGuard
 	{
-		Durin::FLevelEditorCustomizationHandle Handle;
-		~FCustomizationGuard() { if (Handle) Durin::FLevelEditorCustomizationRegistry::Get().Unregister(Handle); }
+		Durin::Editor::Level::FLevelEditorCustomizationHandle Handle;
+		~FCustomizationGuard() { if (Handle) Durin::Editor::Level::FLevelEditorCustomizationRegistry::Get().Unregister(Handle); }
 	};
 
 	class FTestEngine final : public Durin::DEngine

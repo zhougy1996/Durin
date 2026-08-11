@@ -5,6 +5,10 @@
 namespace Durin
 {
 	class DPrimitiveComponent;
+}
+
+namespace Durin::Editor::Level
+{
 	class FViewportPickingSceneIndex;
 
 	// Resolves a backend token through the request-local weak identity table.
@@ -136,4 +140,4 @@ namespace Durin
 		std::unordered_map<uint64, FRequestRecord> Requests;
 		std::unordered_map<EViewportPickPurpose, FViewportPickTicket> PurposeTickets;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

@@ -27,7 +27,7 @@ namespace
 	{
 		std::string Error;
 		auto Handle = Durin::Editor::GetDefaultRenderedAssetThumbnailService().RegisterScoped(
-			std::make_unique<Durin::FStaticMeshAssetThumbnailProvider>(), Error);
+			std::make_unique<Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailProvider>(), Error);
 		EXPECT_TRUE(Handle) << Error;
 		return Handle;
 	}
@@ -54,7 +54,7 @@ namespace
 	}
 
 	auto CaptureKey(
-		Durin::FStaticMeshAssetThumbnailProvider& Provider,
+		Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailProvider& Provider,
 		const Durin::Editor::FAssetThumbnailPackageFingerprint& Asset,
 		Durin::Editor::FAssetThumbnailGenerationRequest& OutRequest,
 		std::string& OutError) -> std::string
@@ -122,7 +122,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 	const Durin::Editor::FAssetThumbnailPackageFingerprint Fingerprint =
 		MakeFingerprint(*Data);
 
-	Durin::FStaticMeshAssetThumbnailProvider Provider;
+	Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailProvider Provider;
 	const Durin::Editor::FAssetThumbnailProviderRegistration Registration =
 		Provider.GetRegistration();
 	EXPECT_EQ(
@@ -130,10 +130,10 @@ TEST(FStaticMeshAssetThumbnailTests,
 		Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString());
 	EXPECT_EQ(
 		Registration.ProviderName,
-		Durin::FStaticMeshAssetThumbnailContract::ProviderName);
+		Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailContract::ProviderName);
 	EXPECT_EQ(
 		Registration.GeneratorSchemaVersion,
-		Durin::FStaticMeshAssetThumbnailContract::GeneratorSchemaVersion);
+		Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailContract::GeneratorSchemaVersion);
 
 	Durin::Editor::FAssetThumbnailGenerationRequest FirstRequest;
 	const std::string FirstKey =
@@ -152,7 +152,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 		FirstRequest,
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::ParentTexturePath));
 	const auto Input = std::dynamic_pointer_cast<
-		const Durin::FStaticMeshAssetThumbnailGenerationInput>(FirstRequest.Input);
+		const Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailGenerationInput>(FirstRequest.Input);
 	ASSERT_NE(Input, nullptr);
 	EXPECT_EQ(Input->AssetPath, StaticMeshPath);
 	EXPECT_EQ(Input->VisualContract.Output, FirstRequest.KeyInput.Output);
@@ -187,7 +187,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 	ProviderRejectsMissingAndStaleRegistrySnapshots)
 {
 	Durin::Tests::RegisterRenderedAssetThumbnailFixtureMount();
-	Durin::FStaticMeshAssetThumbnailProvider Provider;
+	Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailProvider Provider;
 	Durin::FAssetPath MissingPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		"/RenderedThumbnailFixtures/Meshes/SM_Missing", MissingPath));
@@ -238,7 +238,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 		Durin::Asset::GetAssetRegistry().FindAssetExact(StaticMeshPath);
 	ASSERT_NE(Data, nullptr);
 
-	Durin::FStaticMeshAssetThumbnailProvider Provider;
+	Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailProvider Provider;
 	Durin::Editor::FAssetThumbnailGenerationRequest Request;
 	const std::string Baseline =
 		CaptureKey(Provider, MakeFingerprint(*Data), Request, Error);
@@ -323,7 +323,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 		Durin::Asset::GetAssetRegistry().FindAssetExact(StaticMeshPath);
 	ASSERT_NE(Data, nullptr);
 	const Durin::Editor::FAssetThumbnailPackageFingerprint Fingerprint = MakeFingerprint(*Data);
-	Durin::FStaticMeshAssetThumbnailProvider Provider;
+	Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailProvider Provider;
 	Durin::Editor::FAssetThumbnailGenerationRequest GenerationRequest;
 	const std::string CacheKey =
 		CaptureKey(Provider, Fingerprint, GenerationRequest, Error);
@@ -387,7 +387,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 		Durin::Asset::GetAssetRegistry().FindAssetExact(StaticMeshPath);
 	ASSERT_NE(Data, nullptr);
 	const Durin::Editor::FAssetThumbnailPackageFingerprint Fingerprint = MakeFingerprint(*Data);
-	Durin::FStaticMeshAssetThumbnailProvider Provider;
+	Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailProvider Provider;
 	Durin::Editor::FAssetThumbnailGenerationRequest GenerationRequest;
 	const std::string CacheKey =
 		CaptureKey(Provider, Fingerprint, GenerationRequest, Error);
@@ -448,7 +448,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 	ASSERT_NE(Data, nullptr);
 	const Durin::Editor::FAssetThumbnailPackageFingerprint Current = MakeFingerprint(*Data);
 
-	Durin::FContentBrowserThumbnailCache Cache;
+	Durin::Editor::Level::FContentBrowserThumbnailCache Cache;
 	Cache.BeginFrame();
 	Cache.Request({
 		.Identity = "/RenderedThumbnailFixtures/Meshes/SM_OldIdentity",
@@ -489,7 +489,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 		Durin::Editor::EAssetThumbnailState::NotRequested);
 
 	{
-		Durin::FContentBrowserThumbnailCache ClosingCache;
+		Durin::Editor::Level::FContentBrowserThumbnailCache ClosingCache;
 		ClosingCache.BeginFrame();
 		ClosingCache.Request({
 			.Identity = StaticMeshPath.GetView(),

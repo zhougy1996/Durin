@@ -4,7 +4,7 @@
 #include "Math/Operations.h"
 #include "MonaImGui.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{

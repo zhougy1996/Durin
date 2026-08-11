@@ -8,7 +8,7 @@ namespace Durin::Editor
 	class FTransactionManager;
 }
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	// Draws active notifications and transaction feedback over the editor.
 	class FEditorNotificationOverlay final : public ILevelEditorPanel
@@ -16,10 +16,10 @@ namespace Durin
 	public:
 		auto GetWindowName() const -> const char* override { return "Activity History"; }
 		auto Draw(FLevelEditorContext& Context) -> void override;
-		auto DrawNotifications(Editor::FNotificationManager& Notifications, Editor::FTransactionManager& Transactions) -> void;
+		auto DrawNotifications(::Durin::Editor::FNotificationManager& Notifications, ::Durin::Editor::FTransactionManager& Transactions) -> void;
 
 	private:
-		static auto DrawHistory(Editor::FNotificationManager& Notifications, bool* bOpen) -> void;
-		static auto PublishTransactionEvents(Editor::FNotificationManager& Notifications, Editor::FTransactionManager& Transactions) -> void;
+		static auto DrawHistory(::Durin::Editor::FNotificationManager& Notifications, bool* bOpen) -> void;
+		static auto PublishTransactionEvents(::Durin::Editor::FNotificationManager& Notifications, ::Durin::Editor::FTransactionManager& Transactions) -> void;
 	};
 }

@@ -5,7 +5,7 @@
 #include "Misc/Paths.h"
 #include "Texture/Texture2D.h"
 
-namespace Durin
+namespace Durin::Editor::Texture
 {
 	namespace
 	{
@@ -73,7 +73,7 @@ namespace Durin
 	} // namespace
 
 	auto FTexture2DAssetThumbnailProvider::GetRegistration() const
-		-> Editor::FAssetThumbnailProviderRegistration
+		-> ::Durin::Editor::FAssetThumbnailProviderRegistration
 	{
 		return {
 			.AssetClassName = DTexture2D::StaticClass()->GetQualifiedName().ToString(),
@@ -82,9 +82,9 @@ namespace Durin
 	}
 
 	auto FTexture2DAssetThumbnailProvider::CaptureGenerationRequest(
-		const Editor::FAssetThumbnailRequest&,
+		const ::Durin::Editor::FAssetThumbnailRequest&,
 		uint64,
-		Editor::FAssetThumbnailGenerationRequest& OutRequest,
+		::Durin::Editor::FAssetThumbnailGenerationRequest& OutRequest,
 		std::string& OutError) -> bool
 	{
 		OutRequest = {};
@@ -94,7 +94,7 @@ namespace Durin
 
 	auto FTexture2DAssetThumbnailProvider::CaptureSourceImage(
 		const Asset::FAssetData& AssetData,
-		Editor::FAssetThumbnailSourceImage& OutSource,
+		::Durin::Editor::FAssetThumbnailSourceImage& OutSource,
 		std::string& OutError) -> bool
 	{
 		OutSource = {};
@@ -123,4 +123,4 @@ namespace Durin
 		}
 		return true;
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Texture

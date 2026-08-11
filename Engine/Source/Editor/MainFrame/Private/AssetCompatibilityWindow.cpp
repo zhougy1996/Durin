@@ -4,7 +4,7 @@
 #include "MonaImGui.h"
 #include "Misc/Paths.h"
 
-namespace Durin
+namespace Durin::Editor::MainFrame
 {
 	namespace
 	{

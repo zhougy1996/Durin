@@ -5,7 +5,7 @@
 #include "Math/Transform.h"
 #include "Misc/Name.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	struct FGrayboxOpenArenaParams
 	{

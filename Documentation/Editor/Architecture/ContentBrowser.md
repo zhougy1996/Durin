@@ -9,6 +9,11 @@ content roots. It combines registered engine assets and ordinary files in one
 directory-oriented view while preserving their different identities and
 operations.
 
+Its concrete models, panels, refresh coordination, source-thumbnail caches, and
+asset-operation helpers are owned by `Durin::Editor::Level`. Shared asset
+registries, picker contracts, and thumbnail services remain in the flat
+`Durin::Editor` boundary or their runtime modules.
+
 ## Content Model
 
 - Folders are navigation items and remain visible under every content-type

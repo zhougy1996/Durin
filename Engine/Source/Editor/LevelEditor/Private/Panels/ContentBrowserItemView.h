@@ -5,7 +5,7 @@
 
 #include "MonaImGui.h"
 
-namespace Durin::ContentBrowserItemView
+namespace Durin::Editor::Level::ContentBrowserItemView
 {
 	// Describes the visual fallback selected for a thumbnail provider state.
 	enum class EThumbnailPresentation : uint8
@@ -84,7 +84,7 @@ namespace Durin::ContentBrowserItemView
 		auto NameMax(const ImVec2& TileStart, const ImVec2& TileSize) const -> ImVec2;
 	};
 
-	auto ResolveThumbnailPresentation(const Editor::FAssetThumbnailView& Thumbnail)
+	auto ResolveThumbnailPresentation(const ::Durin::Editor::FAssetThumbnailView& Thumbnail)
 		-> EThumbnailPresentation;
 	auto TypeLabel(const FContentBrowserItem& Item) -> std::string;
 	auto Icon(const FContentBrowserItem& Item) -> const char*;
@@ -97,7 +97,7 @@ namespace Durin::ContentBrowserItemView
 		const ImVec2& PreviewMax) -> void;
 	auto DrawThumbnail(
 		const FContentBrowserItem& Item,
-		const Editor::FAssetThumbnailView& Thumbnail,
+		const ::Durin::Editor::FAssetThumbnailView& Thumbnail,
 		const FGridMetrics& Metrics,
 		const ImVec2& PreviewMin,
 		const ImVec2& PreviewMax,
@@ -113,4 +113,4 @@ namespace Durin::ContentBrowserItemView
 		const FGridMetrics& Metrics,
 		const ImVec2& NameMin,
 		const ImVec2& NameMax) -> void;
-} // namespace Durin::ContentBrowserItemView
+} // namespace Durin::Editor::Level::ContentBrowserItemView

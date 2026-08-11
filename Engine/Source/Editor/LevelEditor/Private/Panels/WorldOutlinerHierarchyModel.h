@@ -1,6 +1,6 @@
 #pragma once
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	// Builds a deterministic actor hierarchy projection without owning world or UI state.
 	class FWorldOutlinerHierarchyModel
@@ -54,4 +54,4 @@ namespace Durin
 		std::vector<uint8> FilterVisibility;
 		std::string CachedFilter;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

@@ -147,7 +147,7 @@ namespace Durin::Tests
 
 		auto SetStaticMesh(
 			DStaticMesh* StaticMesh,
-			const FStaticMeshAssetThumbnailView& ThumbnailView,
+			const Editor::StaticMesh::FStaticMeshAssetThumbnailView& ThumbnailView,
 			std::string& OutError) -> bool
 		{
 			ResetActor();

@@ -2,7 +2,7 @@
 
 #include "LevelEditorCustomizations.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	auto CreateDirectionalLightComponentVisualizer() -> std::shared_ptr<IComponentEditorVisualizer>;
 }

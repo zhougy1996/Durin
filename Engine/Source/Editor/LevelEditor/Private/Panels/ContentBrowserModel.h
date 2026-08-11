@@ -5,7 +5,7 @@
 #include <filesystem>
 #include <unordered_map>
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	// Distinguishes folders, registered assets, and ordinary files.
 	enum class EContentBrowserItemKind : uint8
@@ -187,4 +187,4 @@ namespace Durin
 		bool bShowHiddenFiles = false;
 		bool bShowRedirectors = false;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

@@ -2,7 +2,7 @@
 
 #include "Yaml/Yaml.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{

@@ -2,7 +2,7 @@
 
 #include "ImageDecoder.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{
@@ -79,4 +79,4 @@ namespace Durin
 		}
 		return true;
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

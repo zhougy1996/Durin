@@ -4,8 +4,8 @@ Summary: Move MainFrame, LevelEditor, and concrete asset-editor implementation A
 
 Last reviewed: 2026-08-12
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-12
 
 ## Current Status
 
@@ -24,17 +24,76 @@ the smaller host and asset-editor boundaries, keeps every stage independently
 buildable, and migrates LevelEditor only after re-inventorying the symbols added
 or changed by active feature work.
 
+Stages 0 through 3 are complete. The repository-wide classification selects
+the owning feature namespace for every ordinary type and retains the existing
+name except for the explicit public map below. Stable runtime strings remain
+covered by the existing workspace/bootstrap/provider tests. MainFrame now lives
+in `Durin::Editor::MainFrame`; `DEditorEngine` loads `IMainFrameModule`, and
+the interface and host-settings files use responsibility-matched names.
+`EditorShellTests` passes 34 tests, `ExternalToolTests` passes 5 tests, the
+MainFrame target builds, and a hidden Sandbox startup/exit smoke passes.
+MaterialEditor and TextureEditor ordinary APIs now live in their selected
+feature namespaces; shared Editor references use explicit parent qualification,
+while `DTextureCubePreviewComponent` retains its reflected root identity.
+`MaterialThumbnailTests` passes 6 tests, `TextureThumbnailTests` passes 7 tests,
+`EditorPropertyTests` passes 27 tests, `EditorRenderingTests` passes 39 tests,
+and `MaterialTests` passes 78 tests.
+StaticMeshEditor and SkeletalMeshEditor ordinary APIs now live in their selected
+feature namespaces, including inspectors, preview controllers, thumbnail
+contracts/providers. Their explicit module entry classes remain in `Durin`.
+`StaticMeshThumbnailTests` passes
+8 tests, `StaticMeshTests` passes 52 tests, `SkeletalMeshEditorTests` passes 3
+tests, and the post-migration `EditorRenderingTests` run passes 39 tests.
+LevelEditor public contracts and private implementation now live in
+`Durin::Editor::Level`; the former workspace/helper sibling namespaces
+fold into `Workspace` and `Helpers`.
+Runtime/reflected types and runtime enums remain rooted in `Durin`. The
+LevelEditor and MainFrame targets build, while `EditorAssetWorkflowTests`,
+`LevelAuthoringTests`, `ViewportTests`, `EditorShellTests`, `StaticMeshTests`,
+`ThumbnailTests`, `AssetReferenceStoreTests`, and `EditorHierarchyTests` pass
+their post-migration focused runs.
+
+Stage 6 is complete. The owning workspace, Content Browser, and viewport
+architecture documents record the feature namespace topology and reflected-type
+exceptions. Stale-name searches find no production consumer of the old module
+types or ad-hoc LevelEditor namespaces, the complete native-test suite passes at
+default target granularity, the full editor `all` build links successfully, and
+the hidden two-tick Sandbox startup/exit smoke exits normally from the same
+`windows-msvc-x64` Agent Build Profile.
+
+A post-completion vocabulary review removed the redundant trailing `Editor`
+from the four asset-domain namespace segments. Their C++ owners are now
+`Editor::Material`, `Editor::Texture`, `Editor::StaticMesh`, and
+`Editor::SkeletalMesh`; physical module names, lookup strings, directories,
+persisted identities, and reflected types remain unchanged. `MainFrame` retains
+its role-bearing name. The four focused editor targets, the complete native-test
+suite, full `all` build, hidden Sandbox startup/exit smoke, and all-plan
+validator pass after the refinement.
+
+A second post-completion vocabulary review applies the same redundancy rule to
+the level-editing domain: its C++ owner is now `Editor::Level`, while the
+physical `LevelEditor` module name, directory, lookup string, persisted
+identities, and level-editor type names remain unchanged.
+
+Concrete module entry classes are the deliberate root-owned exception to the
+feature namespace rule. `FMainFrameModule`, `FLevelEditorModule`,
+`FMaterialEditorModule`, `FTextureEditorModule`, `FStaticMeshEditorModule`, and
+`FSkeletalMeshEditorModule` remain in `Durin`, aligned with the other engine
+module entry points and their physical module identities. Their business APIs
+remain under the selected `Durin::Editor` feature owners.
+
 The selected destination is one feature subnamespace per module:
-`Durin::Editor::MainFrame`, `Durin::Editor::LevelEditor`,
-`Durin::Editor::MaterialEditor`, `Durin::Editor::TextureEditor`,
-`Durin::Editor::StaticMeshEditor`, and
-`Durin::Editor::SkeletalMeshEditor`. Runtime/reflected object types remain in
+`Durin::Editor::MainFrame`, `Durin::Editor::Level`,
+`Durin::Editor::Material`, `Durin::Editor::Texture`,
+`Durin::Editor::StaticMesh`, and
+`Durin::Editor::SkeletalMesh`. Runtime/reflected object types remain in
 `Durin`; shared DurinEd contracts remain directly in `Durin::Editor`.
 
 ## Goal
 
 - Make the C++ namespace hierarchy express the existing editor module ownership.
-- Remove concrete editor implementation types from the `Durin` root namespace.
+- Remove concrete editor implementation types from the `Durin` root namespace,
+  except for explicitly named physical module entry classes.
 - Give MainFrame and each feature editor a closed public/private vocabulary
   without mixing feature-owned types into shared `Durin::Editor` infrastructure.
 - Shorten only names whose complete feature meaning is supplied by the new
@@ -101,24 +160,42 @@ The selected destination is one feature subnamespace per module:
 
 ### Naming policy
 
-- Public module interfaces and implementations shorten after qualification:
-  `IMainFrameModule` becomes `Editor::MainFrame::IModule`, and each
-  `F<Feature>EditorModule` becomes `Editor::<Feature>::FModule`.
-- MainFrame bootstrap names remove the redundant `Editor` stem, for example
-  `EEditorBootstrapState` becomes `Editor::MainFrame::EBootstrapState` and
-  `FEditorBootstrapProgress` becomes `Editor::MainFrame::FBootstrapProgress`.
-- A feature-owned type removes its feature prefix only when the remaining name
-  is specific inside that namespace. For example, a LevelEditor context may
-  become `Editor::LevelEditor::FContext`; a type such as
-  `FStaticMeshLevelMutationPlan` retains the `StaticMesh` qualifier because the
-  Level Editor can own multiple authoring domains.
+- Public feature interfaces shorten after qualification; concrete physical
+  module entry classes stay explicitly named in `Durin`.
+- MainFrame bootstrap names remove the redundant `Editor` stem.
+- To keep the broad migration reviewable, all other public and private type
+  names remain unchanged in this plan. Further vocabulary shortening requires
+  a separate ownership review after namespace migration rather than being
+  inferred by mechanical replacement.
 - Concrete provider names retain asset-kind distinctions when a feature owns
   more than one provider. Texture2D and TextureCube names therefore remain
-  distinct even inside `Editor::TextureEditor`.
+  distinct even inside `Editor::Texture`.
 - Reflected `D` types keep their existing C++ names and namespace. Feature code
   refers to them through their stable `Durin` ownership.
-- Stage 0 records the complete public rename map before implementation. Private
-  names follow the same rule but are not renamed merely for stylistic novelty.
+
+The complete public rename map is intentionally small:
+
+| Current | Selected |
+| --- | --- |
+| `Durin::IMainFrameModule` | `Durin::IMainFrameModule` |
+| `Durin::FMainFrameModule` | `Durin::FMainFrameModule` |
+| `EEditorBootstrapState` | `Editor::MainFrame::EBootstrapState` |
+| `EEditorDefaultDocumentState` | `Editor::MainFrame::EDefaultDocumentState` |
+| `EEditorBootstrapStepStatus` | `Editor::MainFrame::EBootstrapStepStatus` |
+| `FEditorBootstrapProgress` | `Editor::MainFrame::FBootstrapProgress` |
+| `GetEditorBootstrapPhaseIndex()` | `Editor::MainFrame::GetBootstrapPhaseIndex()` |
+| `GetEditorBootstrapStepStatus()` | `Editor::MainFrame::GetBootstrapStepStatus()` |
+| `IsValidEditorBootstrapTransition()` | `Editor::MainFrame::IsValidBootstrapTransition()` |
+| `FLevelEditorModule` | `Durin::FLevelEditorModule` |
+| `FMaterialEditorModule` | `Durin::FMaterialEditorModule` |
+| `FTextureEditorModule` | `Durin::FTextureEditorModule` |
+| `FStaticMeshEditorModule` | `Durin::FStaticMeshEditorModule` |
+| `FSkeletalMeshEditorModule` | `Durin::FSkeletalMeshEditorModule` |
+
+MainFrame's private `FMainFrameBootstrapContext` and `FEditorHostSettings`
+become `FBootstrapContext` and `FHostSettings`. Other ordinary types retain
+their spelling and move under their selected owner. The reflected
+`DTextureCubePreviewComponent` is the explicit exception and stays in `Durin`.
 
 ### Binary, module, and lifecycle invariants
 
@@ -157,8 +234,9 @@ The selected destination is one feature subnamespace per module:
 - Namespace-only edits and approved responsibility renames are separated from
   behavioral edits. Any required behavior correction is documented as a plan
   decision before implementation or handled in its owning plan.
-- Module registration macros, exported entry points, and persisted strings are
-  reviewed explicitly rather than changed by unbounded search-and-replace.
+- Module registration macros and exported entry classes remain root-owned;
+  persisted strings are reviewed explicitly rather than changed by unbounded
+  search-and-replace.
 
 ## Current Foundations and Gaps
 
@@ -189,19 +267,19 @@ The selected destination is one feature subnamespace per module:
 
 ### Stage 0: Freeze the migration map and stable identities
 
-- [ ] Inventory every declaration, definition, forward declaration, module
+- [x] Inventory every declaration, definition, forward declaration, module
   loader, export annotation, include, test, and non-archived documentation
   consumer in the six selected modules.
-- [ ] Classify each symbol as shared Editor infrastructure, feature-owned
+- [x] Classify each symbol as shared Editor infrastructure, feature-owned
   ordinary C++, reflected/runtime-owned, or translation-unit-local.
-- [ ] Record the complete public old-to-new symbol map and any responsibility
+- [x] Record the complete public old-to-new symbol map and any responsibility
   filename renames; resolve collisions before moving code.
-- [ ] Capture module strings, workspace/document IDs, provider names, ImGui
+- [x] Capture module strings, workspace/document IDs, provider names, ImGui
   identities, layout/settings versions, configuration keys, and command names
   that must remain stable.
-- [ ] Pin missing representative identity and bootstrap transition tests before
+- [x] Pin missing representative identity and bootstrap transition tests before
   changing declarations.
-- [ ] Reconcile the LevelEditor inventory with the then-current Native Graybox
+- [x] Reconcile the LevelEditor inventory with the then-current Native Graybox
   Scene Authoring stage and update cross-plan code references without claiming
   its behavioral work.
 
@@ -215,33 +293,35 @@ The selected destination is one feature subnamespace per module:
 
 ### Stage 1: Move the MainFrame host boundary
 
-- [ ] Move the public module interface, bootstrap values, module
+- [x] Move the public module interface, bootstrap values, module
   implementation, bootstrap context, and private host services into
   `Durin::Editor::MainFrame` using the approved concise names.
-- [ ] Update `DEditorEngine` forward declarations, typed module loading, stored
+- [x] Update `DEditorEngine` forward declarations, typed module loading, stored
   interface pointer, and bootstrap calls without moving the reflected engine.
-- [ ] Preserve the `MainFrame` module string, exported initializer ABI,
+- [x] Preserve the `MainFrame` module string, exported initializer ABI,
   first-present gate, progress values, failure messages, settings identity, and
   destruction order.
-- [ ] Update bootstrap tests and non-archived workspace/PIE documentation.
+- [x] Update bootstrap tests and non-archived workspace documentation.
 
 #### Acceptance Gate
 
 - Editor bootstrap state tests pass with unchanged transition and phase outputs.
 - Editor engine and MainFrame link across the DLL boundary using the new types.
-- Searches find no root-owned MainFrame ordinary C++ API or compatibility alias.
+- Searches find no root-owned MainFrame ordinary C++ API or compatibility alias
+  other than the explicit `FMainFrameModule` entry class.
 - A hidden editor startup/exit smoke reaches the same bootstrap outcome.
 
 ### Stage 2: Move MaterialEditor and TextureEditor
 
-- [ ] Move each module entry point, workspace, widget/model, preview, and
-  concrete thumbnail provider into its feature namespace.
-- [ ] Keep `DTextureCubePreviewComponent` in `Durin` and update its ordinary
+- [x] Keep each concrete module entry point root-owned while moving its
+  workspace, widget/model, preview, and concrete thumbnail provider into the
+  selected feature namespace.
+- [x] Keep `DTextureCubePreviewComponent` in `Durin` and update its ordinary
   TextureEditor consumers without changing reflection or serialization identity.
-- [ ] Apply the approved concise public names and retain material-instance,
+- [x] Apply the approved concise public names and retain material-instance,
   Texture2D, and TextureCube distinctions where required.
-- [ ] Update MainFrame composition, tests, exports, and direct includes.
-- [ ] Preserve asset routes, workspace IDs, layout IDs, transaction behavior,
+- [x] Update MainFrame composition, tests, exports, and direct includes.
+- [x] Preserve asset routes, workspace IDs, layout IDs, transaction behavior,
   preview state, thumbnail keys/providers, registration rollback, and unload.
 
 #### Acceptance Gate
@@ -251,16 +331,18 @@ The selected destination is one feature subnamespace per module:
 - Module registration, rollback, provider reset, and re-registration tests pass.
 - Reflection lookup still resolves `DTextureCubePreviewComponent` under its
   existing identity.
-- Searches find no root-owned ordinary MaterialEditor or TextureEditor API.
+- Searches find no root-owned ordinary MaterialEditor or TextureEditor API
+  other than their explicit module entry classes.
 
 ### Stage 3: Move StaticMeshEditor and SkeletalMeshEditor
 
-- [ ] Move module entry points, workspaces/inspectors, preview controllers, and
-  concrete thumbnail providers into their feature namespaces.
-- [ ] Apply approved concise names without erasing StaticMesh, Skeleton,
+- [x] Keep concrete module entry points root-owned while moving
+  workspaces/inspectors, preview controllers, and concrete thumbnail providers
+  into their feature namespaces.
+- [x] Apply approved concise names without erasing StaticMesh, Skeleton,
   SkeletalMesh, or AnimationClip distinctions needed inside the modules.
-- [ ] Update MainFrame composition, tests, exports, and direct includes.
-- [ ] Preserve exact asset routes, read-only policies, preview ownership,
+- [x] Update MainFrame composition, tests, exports, and direct includes.
+- [x] Preserve exact asset routes, read-only policies, preview ownership,
   rendered fixtures, provider identities, registration rollback, and unload.
 
 #### Acceptance Gate
@@ -269,18 +351,20 @@ The selected destination is one feature subnamespace per module:
 - Shared editor rendering integration passes for both feature modules.
 - Exact-route, preview teardown, provider reset, and module re-registration
   tests pass.
-- Searches find no root-owned ordinary StaticMeshEditor or SkeletalMeshEditor API.
+- Searches find no root-owned ordinary StaticMeshEditor or SkeletalMeshEditor API
+  other than their explicit module entry classes.
 
 ### Stage 4: Move the LevelEditor public extension boundary
 
-- [ ] Move LevelEditor module, selection, viewport editing/picking, transform
-  target, customization, authoring, details, and public workspace contracts
-  into `Durin::Editor::LevelEditor`.
-- [ ] Apply the Stage 0 public rename map, retaining authoring-domain qualifiers
+- [x] Keep the `FLevelEditorModule` entry class root-owned while moving
+  selection, viewport editing/picking, transform target, customization,
+  authoring, details, and public workspace contracts into
+  `Durin::Editor::Level`.
+- [x] Apply the Stage 0 public rename map, retaining authoring-domain qualifiers
   that remain meaningful inside LevelEditor.
-- [ ] Update MainFrame, DurinEd, feature modules, tests, active-plan references,
+- [x] Update MainFrame, DurinEd, feature modules, tests, active-plan references,
   and external module consumers atomically.
-- [ ] Preserve workspace/document IDs, customization handles, edit-mode IDs,
+- [x] Preserve workspace/document IDs, customization handles, edit-mode IDs,
   selection semantics, viewport coordinates, pick ordering, transaction
   boundaries, authoring diagnostics, and command names.
 
@@ -291,18 +375,19 @@ The selected destination is one feature subnamespace per module:
 - Graybox tests that are complete and applicable at stage entry still pass
   without changing their behavioral expectations.
 - No public consumer depends on a root-owned LevelEditor ordinary C++ type,
-  alias, forwarding header, or accidental transitive include.
+  alias, forwarding header, or accidental transitive include other than the
+  explicit `FLevelEditorModule` entry class.
 
 ### Stage 5: Move the LevelEditor private implementation
 
-- [ ] Move workspace, viewport, panels, documents, Content Browser, authoring,
+- [x] Move workspace, viewport, panels, documents, Content Browser, authoring,
   assets/import dialogs, settings, customizations, and widgets into the feature
   namespace.
-- [ ] Fold ad-hoc feature sibling namespaces into the selected boundary and
+- [x] Fold ad-hoc feature sibling namespaces into the selected boundary and
   keep translation-unit helpers anonymous.
-- [ ] Remove redundant forward declarations and add the narrow direct includes
+- [x] Remove redundant forward declarations and add the narrow direct includes
   revealed by the migration.
-- [ ] Preserve Content Browser refresh/thumbnail behavior, asset move/import
+- [x] Preserve Content Browser refresh/thumbnail behavior, asset move/import
   transactions, source workflows, document save/dirty state, panel/window
   identity, viewport presentation, and editor shutdown.
 
@@ -316,19 +401,19 @@ The selected destination is one feature subnamespace per module:
 
 ### Stage 6: Documentation, stale-surface removal, and full qualification
 
-- [ ] Update owning Editor architecture documentation with the feature namespace
+- [x] Update owning Editor architecture documentation with the feature namespace
   topology and the reflected-type exception.
-- [ ] Update active plans that name migrated C++ symbols or code paths without
+- [x] Update active plans that name migrated C++ symbols or code paths without
   rewriting archived historical evidence unless a link must be repaired.
-- [ ] Search source, tests, and non-archived documentation for old qualified
+- [x] Search source, tests, and non-archived documentation for old qualified
   names, root forward declarations, compatibility aliases, broad `using
   namespace` directives, and stale responsibility filenames.
-- [ ] Run all focused validation entries after the final source state.
-- [ ] Run the complete native-test suite at default target granularity because
+- [x] Run all focused validation entries after the final source state.
+- [x] Run the complete native-test suite at default target granularity because
   the migration crosses module, DLL, test-target, and editor-composition boundaries.
-- [ ] Complete a full editor `all` build and a hidden Sandbox startup/exit smoke
+- [x] Complete a full editor `all` build and a hidden Sandbox startup/exit smoke
   from the same Agent Build Profile.
-- [ ] Validate all plans and record final evidence before marking this plan complete.
+- [x] Validate all plans and record final evidence before marking this plan complete.
 
 #### Acceptance Gate
 

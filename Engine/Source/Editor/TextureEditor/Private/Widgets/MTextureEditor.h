@@ -8,24 +8,24 @@
 #include "TextureEditorAPI.h"
 #include "Widgets/TexturePreview.h"
 
-namespace Durin
-{
-	class DTexture2D;
+namespace Durin { class DTexture2D; }
 
+namespace Durin::Editor::Texture
+{
 	// Hosts one texture document with preview, mip, and metadata controls.
-	class MTextureEditor final : public Editor::IWorkspace
+	class MTextureEditor final : public ::Durin::Editor::IWorkspace
 	{
 	public:
-		explicit MTextureEditor(Editor::FWorkspaceManager& InWorkspaceManager);
+		explicit MTextureEditor(::Durin::Editor::FWorkspaceManager& InWorkspaceManager);
 		TEXTUREEDITOR_API ~MTextureEditor() override;
-		TEXTUREEDITOR_API auto GetWorkspaceType() const -> const Editor::FWorkspaceTypeId& override;
-		TEXTUREEDITOR_API auto OpenDocument(const Editor::FDocumentTab& Document) -> Editor::EDocumentOpenResult override;
-		TEXTUREEDITOR_API auto ActivateDocument(const Editor::FDocumentTab& Document) -> void override;
+		TEXTUREEDITOR_API auto GetWorkspaceType() const -> const ::Durin::Editor::FWorkspaceTypeId& override;
+		TEXTUREEDITOR_API auto OpenDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentOpenResult override;
+		TEXTUREEDITOR_API auto ActivateDocument(const ::Durin::Editor::FDocumentTab& Document) -> void override;
 		TEXTUREEDITOR_API auto RequestDeactivate() -> bool override;
-		TEXTUREEDITOR_API auto RequestCloseDocument(const Editor::FDocumentTab& Document) -> Editor::EDocumentCloseResult override;
-		TEXTUREEDITOR_API auto SaveDocument(const Editor::FDocumentTab& Document) -> bool override;
-		TEXTUREEDITOR_API auto DiscardDocument(const Editor::FDocumentTab& Document) -> bool override;
-		TEXTUREEDITOR_API auto IsDocumentDirty(const Editor::FDocumentTab& Document) const -> bool override;
+		TEXTUREEDITOR_API auto RequestCloseDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentCloseResult override;
+		TEXTUREEDITOR_API auto SaveDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool override;
+		TEXTUREEDITOR_API auto DiscardDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool override;
+		TEXTUREEDITOR_API auto IsDocumentDirty(const ::Durin::Editor::FDocumentTab& Document) const -> bool override;
 		TEXTUREEDITOR_API auto CanSaveActiveDocument() const -> bool override;
 		TEXTUREEDITOR_API auto SaveActiveDocument() -> bool override;
 		TEXTUREEDITOR_API auto CanUndo() const -> bool override;
@@ -41,8 +41,8 @@ namespace Durin
 		auto FindOpenTexture(std::string_view ResourceId) const -> DTexture2D*;
 		auto GetActiveTexture() const -> DTexture2D*;
 		auto SaveTexture(DTexture2D* Texture) -> bool;
-		auto DrawDocument(const Editor::FDocumentTab& Document, DTexture2D* Texture) -> void;
-		auto DrawToolbar(const Editor::FDocumentTab& Document, DTexture2D* Texture) -> void;
+		auto DrawDocument(const ::Durin::Editor::FDocumentTab& Document, DTexture2D* Texture) -> void;
+		auto DrawToolbar(const ::Durin::Editor::FDocumentTab& Document, DTexture2D* Texture) -> void;
 		auto DrawWideLayout(const std::string& ResourceId, DTexture2D* Texture) -> void;
 		auto DrawNarrowLayout(const std::string& ResourceId, DTexture2D* Texture) -> void;
 		auto DrawPreviewPanel(const std::string& ResourceId, DTexture2D* Texture, float Width, float Height) -> void;
@@ -61,21 +61,21 @@ namespace Durin
 		auto DrawSharedSourceRelocationConfirmation(DTexture2D* Texture) -> void;
 		auto ChangeSourceLocation(DTexture2D* Texture) -> void;
 		auto FinishActivePropertyEdit(bool bCancel) -> bool;
-		auto MakePropertyViewContext() -> Editor::FPropertyViewContext;
+		auto MakePropertyViewContext() -> ::Durin::Editor::FPropertyViewContext;
 		auto SetError(std::string Message) -> void;
 
-		Editor::FWorkspaceManager& WorkspaceManager;
+		::Durin::Editor::FWorkspaceManager& WorkspaceManager;
 		std::unordered_map<std::string, TObjectPtr<DTexture2D>> OpenTextures;
-		Editor::FWorkspaceDocumentHost DocumentHost;
+		::Durin::Editor::FWorkspaceDocumentHost DocumentHost;
 		std::string ActiveResourceId;
 		std::string ErrorMessage;
-		Editor::FPropertyView PropertyView;
-		Editor::FSourceReferenceIndex SourceReferenceIndex;
+		::Durin::Editor::FPropertyView PropertyView;
+		::Durin::Editor::FSourceReferenceIndex SourceReferenceIndex;
 		struct FPendingSourceReplacement
 		{
 			std::string SourceVirtualPath;
 			std::string ReplacementPhysicalPath;
-			std::vector<Editor::FSourceReference> AffectedAssets;
+			std::vector<::Durin::Editor::FSourceReference> AffectedAssets;
 			bool bOpenRequested = false;
 		};
 		FPendingSourceReplacement PendingSourceReplacement;
@@ -83,7 +83,7 @@ namespace Durin
 		{
 			std::string OriginalSourceVirtualPath;
 			std::string DestinationSourceVirtualPath;
-			std::vector<Editor::FSourceReference> AffectedAssets;
+			std::vector<::Durin::Editor::FSourceReference> AffectedAssets;
 			bool bOpenRequested = false;
 		};
 		FPendingSourceRelocation PendingSourceRelocation;

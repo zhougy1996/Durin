@@ -35,7 +35,7 @@
 #include "Assets/TextureCubeImportDialog.h"
 #include "Widgets/EditorNotificationOverlay.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{
@@ -48,7 +48,7 @@ namespace Durin
 	} // namespace
 
 	// MLevelEditor is the composition root for the editor-specific controllers.
-	MLevelEditor::MLevelEditor(FLevelEditorSessionSettings& InSessionSettings, Editor::FWorkspaceManager& InWorkspaceManager)
+	MLevelEditor::MLevelEditor(FLevelEditorSessionSettings& InSessionSettings, ::Durin::Editor::FWorkspaceManager& InWorkspaceManager)
 		: SessionSettings(InSessionSettings)
 		, WorkspaceManager(InWorkspaceManager)
 	{
@@ -85,7 +85,7 @@ namespace Durin
 		Context->RenameLevel = [this](std::string_view NewName) {
 			return DocumentController && DocumentController->RenameCurrentLevel(NewName);
 		};
-		Context->StartPlay = [this](Editor::EPlayStartLocation StartLocation, Editor::EPlayDestination Destination) {
+		Context->StartPlay = [this](::Durin::Editor::EPlayStartLocation StartLocation, ::Durin::Editor::EPlayDestination Destination) {
 			StartPlay(StartLocation, Destination);
 		};
 		Context->ApplyPlayChanges = [this](bool bSelectedOnly) { ApplyPlayChanges(bSelectedOnly); };
@@ -153,7 +153,7 @@ namespace Durin
 			[this](std::string Message) { SetError(std::move(Message)); },
 			[this](bool bSucceeded) {
 				if (!DeferredOpenDocumentId.IsValid()) return;
-				const Editor::FDocumentId CompletedId = std::exchange(DeferredOpenDocumentId, {});
+				const ::Durin::Editor::FDocumentId CompletedId = std::exchange(DeferredOpenDocumentId, {});
 				if (!WorkspaceManager.CompleteDeferredDocumentOpen(CompletedId, bSucceeded))
 					SetError("The deferred level document request is no longer available.");
 			}
@@ -220,7 +220,7 @@ namespace Durin
 			[this](std::span<const FEditorAssetMove> Moves) {
 				return AssetMoveCoordinator->MoveAssets(Moves);
 			},
-			[](std::unique_ptr<Editor::ITransaction> Transaction) {
+			[](std::unique_ptr<::Durin::Editor::ITransaction> Transaction) {
 				return GEditor
 					&& GEditor->GetTransactionManager().Execute(
 						std::move(Transaction));
@@ -346,27 +346,27 @@ namespace Durin
 			PendingDefaultLevel.SetPath(std::move(SoftPath));
 	}
 
-	auto MLevelEditor::GetWorkspaceType() const -> const Editor::FWorkspaceTypeId&
+	auto MLevelEditor::GetWorkspaceType() const -> const ::Durin::Editor::FWorkspaceTypeId&
 	{
-		return LevelEditorWorkspace::Type;
+		return Workspace::Type;
 	}
 
-	auto MLevelEditor::OpenDocument(const Editor::FDocumentTab& Document) -> Editor::EDocumentOpenResult
+	auto MLevelEditor::OpenDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentOpenResult
 	{
-		if (Document.ResourceId.empty()) return Editor::EDocumentOpenResult::Opened;
-		if (!DocumentController) return Editor::EDocumentOpenResult::Rejected;
+		if (Document.ResourceId.empty()) return ::Durin::Editor::EDocumentOpenResult::Opened;
+		if (!DocumentController) return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		switch (DocumentController->RequestOpenLevel(Document.ResourceId))
 		{
-		case ELevelDocumentOpenResult::Opened: return Editor::EDocumentOpenResult::Opened;
+		case ELevelDocumentOpenResult::Opened: return ::Durin::Editor::EDocumentOpenResult::Opened;
 		case ELevelDocumentOpenResult::Deferred:
 			DeferredOpenDocumentId = Document.Id;
-			return Editor::EDocumentOpenResult::Deferred;
-		case ELevelDocumentOpenResult::Rejected: return Editor::EDocumentOpenResult::Rejected;
+			return ::Durin::Editor::EDocumentOpenResult::Deferred;
+		case ELevelDocumentOpenResult::Rejected: return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
-		return Editor::EDocumentOpenResult::Rejected;
+		return ::Durin::Editor::EDocumentOpenResult::Rejected;
 	}
 
-	auto MLevelEditor::ActivateDocument(const Editor::FDocumentTab& Document) -> void
+	auto MLevelEditor::ActivateDocument(const ::Durin::Editor::FDocumentTab& Document) -> void
 	{
 		(void)Document;
 		RootWindow.RequestFocus();
@@ -377,20 +377,20 @@ namespace Durin
 		return !Context || !DetailsPanel || DetailsPanel->RequestDeactivate(*Context);
 	}
 
-	auto MLevelEditor::RequestCloseDocument(const Editor::FDocumentTab& Document) -> Editor::EDocumentCloseResult
+	auto MLevelEditor::RequestCloseDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentCloseResult
 	{
-		if (!RequestDeactivate()) return Editor::EDocumentCloseResult::Rejected;
-		if (IsDocumentDirty(Document)) return Editor::EDocumentCloseResult::PendingConfirmation;
-		return Editor::EDocumentCloseResult::Closed;
+		if (!RequestDeactivate()) return ::Durin::Editor::EDocumentCloseResult::Rejected;
+		if (IsDocumentDirty(Document)) return ::Durin::Editor::EDocumentCloseResult::PendingConfirmation;
+		return ::Durin::Editor::EDocumentCloseResult::Closed;
 	}
 
-	auto MLevelEditor::SaveDocument(const Editor::FDocumentTab& Document) -> bool
+	auto MLevelEditor::SaveDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool
 	{
 		(void)Document;
 		return SaveActiveDocument();
 	}
 
-	auto MLevelEditor::DiscardDocument(const Editor::FDocumentTab& Document) -> bool
+	auto MLevelEditor::DiscardDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool
 	{
 		(void)Document;
 		if (!Context || !Context->Level || !Context->Level->GetPackage()) return false;
@@ -401,7 +401,7 @@ namespace Durin
 		return true;
 	}
 
-	auto MLevelEditor::IsDocumentDirty(const Editor::FDocumentTab& Document) const -> bool
+	auto MLevelEditor::IsDocumentDirty(const ::Durin::Editor::FDocumentTab& Document) const -> bool
 	{
 		(void)Document;
 		return Context && Context->Level && Context->Level->GetPackage() && Context->Level->GetPackage()->IsDirty();
@@ -424,8 +424,8 @@ namespace Durin
 			bSelectDefaultBottomPanelRequested = true;
 		}
 		bWasActive = bActive;
-		const bool bDocumentOpen = std::ranges::any_of(WorkspaceManager.GetDocuments(), [](const Editor::FDocumentTab& Document) {
-			return Document.WorkspaceType == LevelEditorWorkspace::Type;
+		const bool bDocumentOpen = std::ranges::any_of(WorkspaceManager.GetDocuments(), [](const ::Durin::Editor::FDocumentTab& Document) {
+			return Document.WorkspaceType == Workspace::Type;
 		});
 		if (!bDocumentOpen)
 		{
@@ -433,16 +433,16 @@ namespace Durin
 			return false;
 		}
 
-		const ImGuiID DockSpaceId = Editor::WorkspaceUI::MakeDockSpaceId(LevelEditorWorkspace::Type, LevelEditorWorkspace::LayoutVersion);
+		const ImGuiID DockSpaceId = ::Durin::Editor::WorkspaceUI::MakeDockSpaceId(Workspace::Type, Workspace::LayoutVersion);
 		const bool bLevelDirty = Context->Level && Context->Level->GetPackage() && Context->Level->GetPackage()->IsDirty();
-		const Editor::FWorkspaceRootWindowState RootWindowState = RootWindow.Begin({
+		const ::Durin::Editor::FWorkspaceRootWindowState RootWindowState = RootWindow.Begin({
 			.DisplayName = "Level Editor",
-			.RootKey = LevelEditorWorkspace::RootKey,
+			.RootKey = Workspace::RootKey,
 			.bDirty = bLevelDirty,
 			.bZeroPadding = true,
-			.InternalDockSpace = Editor::FWorkspaceInternalDockSpace{
-				.WorkspaceType = LevelEditorWorkspace::Type,
-				.LayoutVersion = LevelEditorWorkspace::LayoutVersion,
+			.InternalDockSpace = ::Durin::Editor::FWorkspaceInternalDockSpace{
+				.WorkspaceType = Workspace::Type,
+				.LayoutVersion = Workspace::LayoutVersion,
 			},
 		});
 		if (!RootWindowState.bVisible)
@@ -450,8 +450,8 @@ namespace Durin
 			RootWindow.End();
 			if (RootWindowState.bCloseRequested)
 			{
-				const Editor::FDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument();
-				if (ActiveDocument && ActiveDocument->WorkspaceType == LevelEditorWorkspace::Type)
+				const ::Durin::Editor::FDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument();
+				if (ActiveDocument && ActiveDocument->WorkspaceType == Workspace::Type)
 					WorkspaceManager.RequestCloseDocument(ActiveDocument->Id);
 			}
 			return RootWindowState.bActivated;
@@ -470,7 +470,7 @@ namespace Durin
 				if (GEditor->IsPlaying()) GEditor->StopPlaySession();
 				else
 				{
-					StartPlay(Editor::EPlayStartLocation::LevelStart, IO.KeyCtrl ? Editor::EPlayDestination::NewWindow : Editor::EPlayDestination::EmbeddedViewport);
+					StartPlay(::Durin::Editor::EPlayStartLocation::LevelStart, IO.KeyCtrl ? ::Durin::Editor::EPlayDestination::NewWindow : ::Durin::Editor::EPlayDestination::EmbeddedViewport);
 				}
 			}
 			if (!IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F6, false) && GEditor && GEditor->IsPlaying()) GEditor->SetPlaySessionPaused(!GEditor->IsPlaySessionPaused());
@@ -491,12 +491,12 @@ namespace Durin
 			BuildDefaultLayout(DockSpaceId, DockSpaceSize.x, DockSpaceSize.y);
 			bResetLayoutRequested = false;
 		}
-		Editor::WorkspaceUI::SubmitDockSpace(LevelEditorWorkspace::Type, LevelEditorWorkspace::LayoutVersion, DockSpaceSize);
+		::Durin::Editor::WorkspaceUI::SubmitDockSpace(Workspace::Type, Workspace::LayoutVersion, DockSpaceSize);
 		RootWindow.End();
 		if (RootWindowState.bCloseRequested)
 		{
-			const Editor::FDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument();
-			if (ActiveDocument && ActiveDocument->WorkspaceType == LevelEditorWorkspace::Type)
+			const ::Durin::Editor::FDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument();
+			if (ActiveDocument && ActiveDocument->WorkspaceType == Workspace::Type)
 				WorkspaceManager.RequestCloseDocument(ActiveDocument->Id);
 		}
 
@@ -524,7 +524,7 @@ namespace Durin
 		if (bSelectDefaultBottomPanelRequested)
 		{
 			// Docking tabs do not exist until every panel has submitted its window this frame.
-			const std::string ContentBrowserName = Editor::WorkspaceUI::MakePanelWindowName("Content Browser", LevelEditorWorkspace::Type, "ContentBrowser");
+			const std::string ContentBrowserName = ::Durin::Editor::WorkspaceUI::MakePanelWindowName("Content Browser", Workspace::Type, "ContentBrowser");
 			ImGui::SetWindowFocus(ContentBrowserName.c_str());
 			bSelectDefaultBottomPanelRequested = false;
 		}
@@ -653,13 +653,13 @@ namespace Durin
 				ImGui::SameLine(MonaImGui::ScaleUI(130.0f));
 				ImGui::SetNextItemWidth(-1.0f);
 				static std::array<char, 128> LevelSearchText{};
-				const Editor::FAssetPickerResult PickerResult = Editor::AssetPicker::Draw({
+				const ::Durin::Editor::FAssetPickerResult PickerResult = ::Durin::Editor::AssetPicker::Draw({
 					.ComboId = "##DefaultLevel",
 					.SearchId = "##DefaultLevelSearch",
 					.SearchHint = "Search levels...",
 					.RequiredClass = DLevel::StaticClass(),
-					.ClassPolicy = Editor::EAssetClassPolicy::Exact,
-					.AssignmentMode = Editor::EAssetAssignmentMode::AssetPath,
+					.ClassPolicy = ::Durin::Editor::EAssetClassPolicy::Exact,
+					.AssignmentMode = ::Durin::Editor::EAssetAssignmentMode::AssetPath,
 					.CurrentSelectionPath =
 						PendingDefaultLevel.GetSoftObjectPath().GetView(),
 					.SearchText = LevelSearchText,
@@ -711,17 +711,17 @@ namespace Durin
 		DURIN_ERROR("Level editor: {}", EditorError);
 	}
 
-	auto MLevelEditor::StartPlay(Editor::EPlayStartLocation StartLocation, Editor::EPlayDestination Destination) -> void
+	auto MLevelEditor::StartPlay(::Durin::Editor::EPlayStartLocation StartLocation, ::Durin::Editor::EPlayDestination Destination) -> void
 	{
 		if (!GEditor || !Context || !Context->Level) return;
 		if (!RequestDeactivate()) return;
 		if (SceneViewportPanel) SceneViewportPanel->SetPreferredPlayMode(StartLocation, Destination);
-		Editor::FPlayRequest Request;
+		::Durin::Editor::FPlayRequest Request;
 		Request.SourceLevel = Context->Level;
 		Request.StartLocation = StartLocation;
 		Request.Destination = Destination;
 		Request.bSimulatePhysics = Context->bSimulatePhysics;
-		if (StartLocation == Editor::EPlayStartLocation::EditorCamera && SceneViewportPanel)
+		if (StartLocation == ::Durin::Editor::EPlayStartLocation::EditorCamera && SceneViewportPanel)
 		{
 			FLevelViewportCameraState CameraState;
 			if (!SceneViewportPanel->CaptureCameraState(Context->Level, CameraState))
@@ -763,19 +763,19 @@ namespace Durin
 		ImGui::DockBuilderAddNode(DockSpaceId, ImGuiDockNodeFlags_DockSpace);
 		ImGui::DockBuilderSetNodeSize(DockSpaceId, ImVec2(DockSpaceWidth, DockSpaceHeight));
 		if (ImGuiDockNode* DockSpaceNode = ImGui::DockBuilderGetNode(DockSpaceId))
-			DockSpaceNode->WindowClass = Editor::WorkspaceUI::MakeWindowClass(LevelEditorWorkspace::Type);
+			DockSpaceNode->WindowClass = ::Durin::Editor::WorkspaceUI::MakeWindowClass(Workspace::Type);
 
 		ImGuiID MainDockId = DockSpaceId;
 		const ImGuiID LeftDockId = ImGui::DockBuilderSplitNode(MainDockId, ImGuiDir_Left, 0.20f, nullptr, &MainDockId);
 		const ImGuiID RightDockId = ImGui::DockBuilderSplitNode(MainDockId, ImGuiDir_Right, 0.25f, nullptr, &MainDockId);
 		const ImGuiID BottomDockId = ImGui::DockBuilderSplitNode(MainDockId, ImGuiDir_Down, 0.25f, nullptr, &MainDockId);
 
-		const std::string WorldOutlinerName = Editor::WorkspaceUI::MakePanelWindowName("World Outliner", LevelEditorWorkspace::Type, "WorldOutliner");
-		const std::string DetailsName = Editor::WorkspaceUI::MakePanelWindowName("Details", LevelEditorWorkspace::Type, "Details");
-		const std::string ContentBrowserName = Editor::WorkspaceUI::MakePanelWindowName("Content Browser", LevelEditorWorkspace::Type, "ContentBrowser");
-		const std::string ConsoleName = Editor::WorkspaceUI::MakePanelWindowName("Console", LevelEditorWorkspace::Type, "OutputLog");
-		const std::string ActivityHistoryName = Editor::WorkspaceUI::MakePanelWindowName("Activity History", LevelEditorWorkspace::Type, "ActivityHistory");
-		const std::string SceneViewportName = Editor::WorkspaceUI::MakePanelWindowName("Scene Viewport", LevelEditorWorkspace::Type, "SceneViewport");
+		const std::string WorldOutlinerName = ::Durin::Editor::WorkspaceUI::MakePanelWindowName("World Outliner", Workspace::Type, "WorldOutliner");
+		const std::string DetailsName = ::Durin::Editor::WorkspaceUI::MakePanelWindowName("Details", Workspace::Type, "Details");
+		const std::string ContentBrowserName = ::Durin::Editor::WorkspaceUI::MakePanelWindowName("Content Browser", Workspace::Type, "ContentBrowser");
+		const std::string ConsoleName = ::Durin::Editor::WorkspaceUI::MakePanelWindowName("Console", Workspace::Type, "OutputLog");
+		const std::string ActivityHistoryName = ::Durin::Editor::WorkspaceUI::MakePanelWindowName("Activity History", Workspace::Type, "ActivityHistory");
+		const std::string SceneViewportName = ::Durin::Editor::WorkspaceUI::MakePanelWindowName("Scene Viewport", Workspace::Type, "SceneViewport");
 		ImGui::DockBuilderDockWindow(WorldOutlinerName.c_str(), LeftDockId);
 		ImGui::DockBuilderDockWindow(DetailsName.c_str(), RightDockId);
 		ImGui::DockBuilderDockWindow(ActivityHistoryName.c_str(), BottomDockId);
@@ -784,4 +784,4 @@ namespace Durin
 		ImGui::DockBuilderDockWindow(SceneViewportName.c_str(), MainDockId);
 		ImGui::DockBuilderFinish(DockSpaceId);
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

@@ -1,11 +1,14 @@
 #pragma once
 
-#include "Interfaces/IMainFrameModule.h"
+#include "Interfaces/MainFrame.h"
+
+namespace Durin::Editor::MainFrame
+{
+	struct FBootstrapContext;
+}
 
 namespace Durin
 {
-	struct FMainFrameBootstrapContext;
-
 	// Owns the editor host window and workspace manager for the process.
 	class FMainFrameModule : public IMainFrameModule
 	{
@@ -15,18 +18,18 @@ namespace Durin
 
 		auto StartupModule() -> void override;
 		auto ShutdownModule() -> void override;
-		auto CreateDefaultMainFrame() -> void override;
-		auto DestroyDefaultMainFrame() -> void override;
-		auto AdvanceDefaultMainFrameBootstrap(bool bFirstPresentAvailable)
-			-> FEditorBootstrapProgress override;
-		auto GetDefaultMainFrameBootstrapProgress() const
-			-> FEditorBootstrapProgress override;
-		auto GetDefaultMainFrameBootstrapState() const
-			-> EEditorBootstrapState override;
+		auto CreateDefaultFrame() -> void override;
+		auto DestroyDefaultFrame() -> void override;
+		auto AdvanceDefaultBootstrap(bool bFirstPresentAvailable)
+			-> Editor::MainFrame::FBootstrapProgress override;
+		auto GetDefaultBootstrapProgress() const
+			-> Editor::MainFrame::FBootstrapProgress override;
+		auto GetDefaultBootstrapState() const
+			-> Editor::MainFrame::EBootstrapState override;
 		auto GetDefaultDocumentState() const
-			-> EEditorDefaultDocumentState override;
+			-> Editor::MainFrame::EDefaultDocumentState override;
 
 	private:
-		std::shared_ptr<FMainFrameBootstrapContext> BootstrapContext;
+		std::shared_ptr<Editor::MainFrame::FBootstrapContext> BootstrapContext;
 	};
 }

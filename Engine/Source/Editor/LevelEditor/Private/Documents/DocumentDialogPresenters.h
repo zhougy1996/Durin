@@ -1,6 +1,6 @@
 #pragma once
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	// Identifies the user decision returned by the unsaved-level modal.
 	enum class EUnsavedLevelDialogDecision : uint8
@@ -20,4 +20,4 @@ namespace Durin
 		auto Draw(bool bRequestOpen, const FResolve& Resolve)
 			-> std::optional<EUnsavedLevelDialogDecision>;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

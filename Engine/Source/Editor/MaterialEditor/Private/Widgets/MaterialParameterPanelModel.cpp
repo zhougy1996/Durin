@@ -4,7 +4,7 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 
-namespace Durin
+namespace Durin::Editor::Material
 {
 	namespace
 	{
@@ -63,8 +63,8 @@ namespace Durin
 		}
 
 		auto SubmitRootArrayEdit(
-			Editor::FPropertyView& PropertyView,
-			const Editor::FPropertyViewContext& Context,
+			::Durin::Editor::FPropertyView& PropertyView,
+			const ::Durin::Editor::FPropertyViewContext& Context,
 			DObject* Object,
 			FArrayProperty* Property,
 			const FGuid& ParameterId,
@@ -74,7 +74,7 @@ namespace Durin
 		) -> bool
 		{
 			if (!Object || !Property || !Mutate) return false;
-			Editor::FPropertyEditTarget Target = Editor::FPropertyEditTarget::ForMember(Object, Property);
+			::Durin::Editor::FPropertyEditTarget Target = ::Durin::Editor::FPropertyEditTarget::ForMember(Object, Property);
 			Target.LogicalIdentity.resize(sizeof(ParameterId));
 			std::memcpy(Target.LogicalIdentity.data(), &ParameterId, sizeof(ParameterId));
 			Target.Kind = Kind;
@@ -179,8 +179,8 @@ namespace Durin
 	}
 
 	auto FMaterialParameterPanelModel::SubmitValueEdit(
-		Editor::FPropertyView& PropertyView,
-		const Editor::FPropertyViewContext& Context,
+		::Durin::Editor::FPropertyView& PropertyView,
+		const ::Durin::Editor::FPropertyViewContext& Context,
 		const FMaterialParameterPanelEntry& Entry,
 		const FMaterialParameterValue& Value,
 		bool bContinuous
@@ -220,8 +220,8 @@ namespace Durin
 	}
 
 	auto FMaterialParameterPanelModel::SetOverrideEnabled(
-		Editor::FPropertyView& PropertyView,
-		const Editor::FPropertyViewContext& Context,
+		::Durin::Editor::FPropertyView& PropertyView,
+		const ::Durin::Editor::FPropertyViewContext& Context,
 		const FMaterialParameterPanelEntry& Entry,
 		bool bEnabled
 	) const -> bool
@@ -249,8 +249,8 @@ namespace Durin
 	}
 
 	auto FMaterialParameterPanelModel::RemoveOrphan(
-		Editor::FPropertyView& PropertyView,
-		const Editor::FPropertyViewContext& Context,
+		::Durin::Editor::FPropertyView& PropertyView,
+		const ::Durin::Editor::FPropertyViewContext& Context,
 		const FMaterialParameterPanelEntry& Entry
 	) const -> bool
 	{

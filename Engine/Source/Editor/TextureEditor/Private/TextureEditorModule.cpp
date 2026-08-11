@@ -11,6 +11,8 @@
 
 namespace Durin
 {
+	using namespace Editor::Texture;
+
 	IMPLEMENT_MODULE(FTextureEditorModule, TextureEditor)
 
 	FTextureEditorModule::~FTextureEditorModule() = default;
@@ -26,8 +28,8 @@ namespace Durin
 	}
 
 	auto FTextureEditorModule::RegisterTextureEditor(
-		Editor::FWorkspaceManager& WorkspaceManager,
-		Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool
+		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
+		::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
 			|| (Texture2DThumbnailRegistration && Texture2DThumbnailRegistration->IsValid())
@@ -37,16 +39,16 @@ namespace Durin
 		Texture2DThumbnailRegistration.reset();
 		TextureCubeThumbnailRegistration.reset();
 		std::shared_ptr<MTextureEditor> Workspace = std::make_shared<MTextureEditor>(WorkspaceManager);
-		Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
+		::Durin::Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
 			.Workspaces = {
 				{
 					.Descriptor = {
-						.WorkspaceType = TextureEditorWorkspace::Type,
+						.WorkspaceType = Workspace::Type,
 						.DisplayName = "Texture Editor",
-						.RootKey = std::string(TextureEditorWorkspace::RootKey),
+						.RootKey = std::string(Workspace::RootKey),
 						.bShowInWindowMenu = false,
 						.bOpenByDefault = false,
-						.DefaultHostDockPreference = Editor::EWorkspaceHostDockPreference::Center,
+						.DefaultHostDockPreference = ::Durin::Editor::EWorkspaceHostDockPreference::Center,
 					},
 					.Workspace = Workspace,
 				},
@@ -54,14 +56,14 @@ namespace Durin
 			.AssetEditors = {
 				{
 					.AssetClassName = DTexture2D::StaticClass()->GetQualifiedName().ToString(),
-					.WorkspaceType = TextureEditorWorkspace::Type,
-					.DocumentPolicy = Editor::EDocumentPolicy::PerResource,
+					.WorkspaceType = Workspace::Type,
+					.DocumentPolicy = ::Durin::Editor::EDocumentPolicy::PerResource,
 					.bClosable = true,
 				},
 			},
 		});
 		if (!Registration) return false;
-		WorkspaceRegistration = std::make_unique<Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
+		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
 		std::string Error;
 		auto Texture2DHandle = ThumbnailService.RegisterScoped(
 			std::make_unique<FTexture2DAssetThumbnailProvider>(), Error);
@@ -71,7 +73,7 @@ namespace Durin
 			return false;
 		}
 		Texture2DThumbnailRegistration =
-			std::make_unique<Editor::FAssetThumbnailProviderRegistrationHandle>(
+			std::make_unique<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
 				std::move(Texture2DHandle));
 		auto TextureCubeHandle = ThumbnailService.RegisterScoped(
 			std::make_unique<FTextureCubeAssetThumbnailProvider>(), Error);
@@ -82,7 +84,7 @@ namespace Durin
 			return false;
 		}
 		TextureCubeThumbnailRegistration =
-			std::make_unique<Editor::FAssetThumbnailProviderRegistrationHandle>(
+			std::make_unique<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
 				std::move(TextureCubeHandle));
 		return true;
 	}

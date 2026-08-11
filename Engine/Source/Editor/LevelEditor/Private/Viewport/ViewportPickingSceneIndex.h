@@ -7,6 +7,10 @@ namespace Durin
 {
 	class AActor;
 	class DPrimitiveComponent;
+}
+
+namespace Durin::Editor::Level
+{
 
 	struct FViewportPickingSceneCandidate
 	{

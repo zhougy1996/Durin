@@ -2,7 +2,7 @@
 
 #include "AssetSystem.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{
@@ -117,4 +117,4 @@ namespace Durin
 		}
 		return InspectContentDirectory(Classified.NormalizedVirtualPath);
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

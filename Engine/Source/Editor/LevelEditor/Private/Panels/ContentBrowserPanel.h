@@ -9,9 +9,10 @@
 #include <array>
 #include <unordered_set>
 
-namespace Durin
+namespace Durin::AssetImport { enum class EImportRecordAction : uint8; }
+
+namespace Durin::Editor::Level
 {
-	namespace AssetImport { enum class EImportRecordAction : uint8; }
 	class FLevelEditorSessionSettings;
 	class FContentBrowserThumbnailCache;
 	struct FLevelEditorContext;
@@ -40,7 +41,7 @@ namespace Durin
 		using FRequestImport = std::function<void(const std::string&, EContentBrowserImportType)>;
 		using FMoveAssets = std::function<Asset::FAssetResult(std::span<const FEditorAssetMove>)>;
 		using FExecuteTransaction =
-			std::function<bool(std::unique_ptr<Editor::ITransaction>)>;
+			std::function<bool(std::unique_ptr<::Durin::Editor::ITransaction>)>;
 		using FGetMountedContentMutationRevision = std::function<uint64()>;
 		using FNotifyMountedContentMutation = std::function<void()>;
 
@@ -154,4 +155,4 @@ namespace Durin
 		const ContentBrowserItemView::FTextureCubeDetailsSnapshot*
 			TextureCubeDetailsSnapshot = nullptr;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

@@ -7,7 +7,7 @@
 #include "MonaImGui.h"
 #include "Workspace/LevelEditorContext.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{
@@ -19,7 +19,7 @@ namespace Durin
 			{
 				if (!Cast<DSkyBoxComponent>(Object) || !Context.Level) return;
 				Builder.AddCustomRow("Sky Box Conflict Active Ignored",
-					[Level = Context.Level](Editor::FPropertyView&, const Editor::FPropertyViewContext&) {
+					[Level = Context.Level](::Durin::Editor::FPropertyView&, const ::Durin::Editor::FPropertyViewContext&) {
 						const FSkyBoxConflictModel Model(Level);
 						if (!Model.HasConflict()) return false;
 

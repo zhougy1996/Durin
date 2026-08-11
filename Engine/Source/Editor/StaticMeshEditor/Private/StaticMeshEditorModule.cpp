@@ -9,6 +9,8 @@
 
 namespace Durin
 {
+	using namespace Editor::StaticMesh;
+
 	IMPLEMENT_MODULE(FStaticMeshEditorModule, StaticMeshEditor)
 
 	FStaticMeshEditorModule::~FStaticMeshEditorModule() = default;
@@ -23,24 +25,24 @@ namespace Durin
 	}
 
 	auto FStaticMeshEditorModule::RegisterStaticMeshEditor(
-		Editor::FWorkspaceManager& WorkspaceManager,
-		Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool
+		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
+		::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
 			|| (ThumbnailRegistration && ThumbnailRegistration->IsValid())) return false;
 		WorkspaceRegistration.reset();
 		ThumbnailRegistration.reset();
 		std::shared_ptr<MStaticMeshInspector> Workspace = std::make_shared<MStaticMeshInspector>(WorkspaceManager);
-		Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
+		::Durin::Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
 			.Workspaces = {
 				{
 					.Descriptor = {
-						.WorkspaceType = StaticMeshEditorWorkspace::Type,
+						.WorkspaceType = Workspace::Type,
 						.DisplayName = "StaticMesh Inspector",
-						.RootKey = std::string(StaticMeshEditorWorkspace::RootKey),
+						.RootKey = std::string(Workspace::RootKey),
 						.bShowInWindowMenu = false,
 						.bOpenByDefault = false,
-						.DefaultHostDockPreference = Editor::EWorkspaceHostDockPreference::Center,
+						.DefaultHostDockPreference = ::Durin::Editor::EWorkspaceHostDockPreference::Center,
 					},
 					.Workspace = Workspace,
 				},
@@ -48,17 +50,17 @@ namespace Durin
 			.AssetEditors = {
 				{
 					.AssetClassName = DStaticMesh::StaticClass()->GetQualifiedName().ToString(),
-					.WorkspaceType = StaticMeshEditorWorkspace::Type,
-					.DocumentPolicy = Editor::EDocumentPolicy::PerResource,
+					.WorkspaceType = Workspace::Type,
+					.DocumentPolicy = ::Durin::Editor::EDocumentPolicy::PerResource,
 					.bClosable = true,
 				},
 			},
 		});
 		if (!Registration) return false;
-		WorkspaceRegistration = std::make_unique<Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
+		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
 
 		std::string Error;
-		Editor::FAssetThumbnailProviderRegistrationHandle ThumbnailHandle =
+		::Durin::Editor::FAssetThumbnailProviderRegistrationHandle ThumbnailHandle =
 			ThumbnailService.RegisterScoped(
 				std::make_unique<FStaticMeshAssetThumbnailProvider>(), Error);
 		if (!ThumbnailHandle)
@@ -67,7 +69,7 @@ namespace Durin
 			return false;
 		}
 		ThumbnailRegistration =
-			std::make_unique<Editor::FAssetThumbnailProviderRegistrationHandle>(
+			std::make_unique<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
 				std::move(ThumbnailHandle));
 		return true;
 	}

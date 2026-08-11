@@ -7,7 +7,7 @@ namespace Durin::Editor
 	class FTransactionManager;
 }
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	class FLevelEditorSessionSettings;
 	struct FLevelEditorContext;
@@ -29,7 +29,7 @@ namespace Durin
 			FLevelEditorContext& InContext,
 			FLevelEditorSessionSettings& InSessionSettings,
 			FSceneViewportPanel& InSceneViewportPanel,
-			Editor::FTransactionManager& InTransactions
+			::Durin::Editor::FTransactionManager& InTransactions
 		);
 		~FEditorAssetMoveCoordinator();
 
@@ -42,7 +42,7 @@ namespace Durin
 		FLevelEditorContext& Context;
 		FLevelEditorSessionSettings& SessionSettings;
 		FSceneViewportPanel& SceneViewportPanel;
-		Editor::FTransactionManager& Transactions;
+		::Durin::Editor::FTransactionManager& Transactions;
 		Asset::FAssetMoveObserverHandle ObserverHandle = 0;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

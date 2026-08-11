@@ -11,7 +11,7 @@
 #include "Source/SourcePath.h"
 #include "StaticMesh/StaticMesh.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{
@@ -500,4 +500,4 @@ namespace Durin
 	{
 		Callbacks.Report(std::move(Message));
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

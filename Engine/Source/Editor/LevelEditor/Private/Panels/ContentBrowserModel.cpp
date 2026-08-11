@@ -6,7 +6,7 @@
 #include "Misc/StringHelper.h"
 #include "Thumbnail/RenderedAssetThumbnailService.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{
@@ -321,10 +321,10 @@ namespace Durin
 			std::error_code FileEc;
 			Item.FileSize = std::filesystem::file_size(Data.PhysicalPath, FileEc);
 			Item.LastWriteTime = Data.LastWriteTime;
-			Editor::FAssetThumbnailSourceImage SourceImage;
+			::Durin::Editor::FAssetThumbnailSourceImage SourceImage;
 			std::string ThumbnailError;
-			Editor::FRenderedAssetThumbnailService& ThumbnailService =
-				Editor::GetDefaultRenderedAssetThumbnailService();
+			::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService =
+				::Durin::Editor::GetDefaultRenderedAssetThumbnailService();
 			if (ThumbnailService.UsesSourceImage(Data.AssetClassName))
 			{
 				if (ThumbnailService.CaptureSourceImage(
@@ -568,4 +568,4 @@ namespace Durin
 		SuppressedEnumerationDiagnosticCount = 0;
 		RebuildItems();
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

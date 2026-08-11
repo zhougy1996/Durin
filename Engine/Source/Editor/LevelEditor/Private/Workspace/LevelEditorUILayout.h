@@ -1,6 +1,6 @@
 #pragma once
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	// Selects the default docking arrangement for the level editor.
 	enum class EEditorUILayoutMode : uint8
@@ -16,4 +16,4 @@ namespace Durin
 		if (AvailableWidth >= CompactMinimumWidth) return EEditorUILayoutMode::Compact;
 		return EEditorUILayoutMode::Narrow;
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

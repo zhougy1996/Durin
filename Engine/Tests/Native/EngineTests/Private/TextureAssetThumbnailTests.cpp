@@ -46,7 +46,7 @@ TEST(FTextureAssetThumbnailTests, Texture2DProviderCapturesAuthoredSourceImage)
 	const Durin::Asset::FAssetData* Data =
 		Durin::Asset::GetAssetRegistry().FindAssetExact(TexturePath);
 	ASSERT_NE(Data, nullptr);
-	Durin::FTexture2DAssetThumbnailProvider Provider;
+	Durin::Editor::Texture::FTexture2DAssetThumbnailProvider Provider;
 	Durin::Editor::FAssetThumbnailSourceImage Source;
 	ASSERT_TRUE(Provider.CaptureSourceImage(*Data, Source, Error)) << Error;
 	EXPECT_FALSE(Source.PhysicalPath.empty());
@@ -86,7 +86,7 @@ TEST(FTextureAssetThumbnailTests, ProviderConflictRollsBackWholeIntegration)
 	Durin::Editor::FRenderedAssetThumbnailService Service;
 	std::string Error;
 	auto Existing = Service.RegisterScoped(
-		std::make_unique<Durin::FTextureCubeAssetThumbnailProvider>(), Error);
+		std::make_unique<Durin::Editor::Texture::FTextureCubeAssetThumbnailProvider>(), Error);
 	ASSERT_TRUE(Existing) << Error;
 	Durin::FTextureEditorModule Module;
 	EXPECT_FALSE(Module.RegisterTextureEditor(Manager, Service));
@@ -144,7 +144,7 @@ TEST(FTextureCubeAssetThumbnailTests, ProviderCapturesPackageAndCubeVisualContra
 		Durin::Asset::GetAssetRegistry().FindAssetExact(CubePath);
 	ASSERT_NE(Data, nullptr);
 
-	Durin::FTextureCubeAssetThumbnailProvider Provider;
+	Durin::Editor::Texture::FTextureCubeAssetThumbnailProvider Provider;
 	const Durin::Editor::FAssetThumbnailProviderRegistration Registration =
 		Provider.GetRegistration();
 	Durin::Editor::FAssetThumbnailGenerationRequest Captured;
@@ -164,7 +164,7 @@ TEST(FTextureCubeAssetThumbnailTests, ProviderCapturesPackageAndCubeVisualContra
 	EXPECT_TRUE(Captured.KeyInput.Dependencies.empty());
 	EXPECT_NE(
 		std::dynamic_pointer_cast<
-			const Durin::FTextureCubeThumbnailGenerationInput>(Captured.Input),
+			const Durin::Editor::Texture::FTextureCubeThumbnailGenerationInput>(Captured.Input),
 		nullptr);
 
 	Captured.KeyInput.Asset = MakeRequest(*Data).Asset;
@@ -214,7 +214,7 @@ TEST(FTextureCubeAssetThumbnailTests, ProviderRejectsMissingRegistryData)
 	Durin::FAssetPath MissingPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		"/RenderedThumbnailFixtures/Textures/TC_Missing", MissingPath));
-	Durin::FTextureCubeAssetThumbnailProvider Provider;
+	Durin::Editor::Texture::FTextureCubeAssetThumbnailProvider Provider;
 	Durin::Editor::FAssetThumbnailGenerationRequest Captured;
 	std::string Error;
 	EXPECT_FALSE(Provider.CaptureGenerationRequest({

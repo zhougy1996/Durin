@@ -598,8 +598,8 @@ TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionA
 	const std::string FirstLightName = std::format("MaterialPreviewLight_{}", FirstPreviewId);
 	const std::string SecondLightName = std::format("MaterialPreviewLight_{}", SecondPreviewId);
 	{
-		Durin::FMaterialPreview FirstPreview(FirstPreviewId);
-		Durin::FMaterialPreview SecondPreview(SecondPreviewId);
+		Durin::Editor::Material::FMaterialPreview FirstPreview(FirstPreviewId);
+		Durin::Editor::Material::FMaterialPreview SecondPreview(SecondPreviewId);
 		ASSERT_EQ(Durin::Editor::FAssetRetentionService::NumRetained(), 2u);
 		ASSERT_NE(FindObjectByName(FirstLightName), nullptr);
 		ASSERT_NE(FindObjectByName(SecondLightName), nullptr);
@@ -639,18 +639,18 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	std::string StaticMeshProviderError;
 	Durin::Editor::FAssetThumbnailProviderRegistrationHandle StaticMeshProvider =
 		Durin::Editor::GetDefaultRenderedAssetThumbnailService().RegisterScoped(
-			std::make_unique<Durin::FStaticMeshAssetThumbnailProvider>(),
+			std::make_unique<Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailProvider>(),
 			StaticMeshProviderError);
 	ASSERT_TRUE(StaticMeshProvider) << StaticMeshProviderError;
 	Durin::Editor::FAssetThumbnailProviderRegistrationHandle MaterialProvider =
 		Durin::Editor::GetDefaultRenderedAssetThumbnailService().RegisterScoped(
-			std::make_unique<Durin::FMaterialAssetThumbnailProvider>(
+			std::make_unique<Durin::Editor::Material::FMaterialAssetThumbnailProvider>(
 				Durin::DMaterial::StaticClass()->GetQualifiedName().ToString()),
 			StaticMeshProviderError);
 	ASSERT_TRUE(MaterialProvider) << StaticMeshProviderError;
 	Durin::Editor::FAssetThumbnailProviderRegistrationHandle MaterialInstanceProvider =
 		Durin::Editor::GetDefaultRenderedAssetThumbnailService().RegisterScoped(
-			std::make_unique<Durin::FMaterialAssetThumbnailProvider>(
+			std::make_unique<Durin::Editor::Material::FMaterialAssetThumbnailProvider>(
 				Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString()),
 			StaticMeshProviderError);
 	ASSERT_TRUE(MaterialInstanceProvider) << StaticMeshProviderError;
@@ -936,12 +936,12 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		const std::optional<Durin::FBox> StaticMeshBounds =
 			StaticMeshFixture->GetLOD0LocalBounds();
 		ASSERT_TRUE(StaticMeshBounds.has_value());
-		Durin::FStaticMeshAssetThumbnailView StaticMeshView;
-		ASSERT_TRUE(Durin::CalculateStaticMeshAssetThumbnailView({
+		Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailView StaticMeshView;
+		ASSERT_TRUE(Durin::Editor::StaticMesh::CalculateStaticMeshAssetThumbnailView({
 			.LocalBounds = *StaticMeshBounds,
 			.OutputAspectRatio = 1.0,
 			.VerticalFieldOfViewDegrees = Contract.VerticalFieldOfViewDegrees,
-			.CameraDirection = Durin::FStaticMeshAssetThumbnailViewInput{}
+			.CameraDirection = Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailViewInput{}
 				.CameraDirection},
 			StaticMeshView,
 			Error)) << Error;
@@ -950,7 +950,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			EXPECT_TRUE(Pool.SetStaticMesh(
 				StaticMeshFixture, StaticMeshView, Error)) << Error;
 			EXPECT_TRUE(Pool.BeginCapture(
-				Error, Durin::FStaticMeshAssetThumbnailContract::bOutputOpaque))
+				Error, Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailContract::bOutputOpaque))
 				<< Error;
 			Durin::FlushRenderingCommands();
 			EXPECT_EQ(

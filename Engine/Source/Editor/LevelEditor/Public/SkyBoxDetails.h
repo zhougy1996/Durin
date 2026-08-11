@@ -6,6 +6,10 @@ namespace Durin
 {
 	class DLevel;
 	class DSkyBoxComponent;
+}
+
+namespace Durin::Editor::Level
+{
 	class IObjectDetailsCustomization;
 
 	// Describes one visible registered skybox and whether scene ordering selects it.

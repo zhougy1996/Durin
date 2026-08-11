@@ -2,7 +2,7 @@
 
 #include "Logging/Logger.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	// Distinguishes log output from command history and command results.
 	enum class EConsoleRecordType
@@ -40,4 +40,4 @@ namespace Durin
 
 		std::deque<FConsoleRecord> Records;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

@@ -4,7 +4,7 @@
 #include "Editor/Transaction.h"
 #include "Panels/ContentBrowserModel.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	// Classifies every preflight condition that can keep a deletion plan read-only.
 	enum class EContentDeletionBlocker : uint8
@@ -156,7 +156,7 @@ namespace Durin
 			const Asset::FAssetDeletionBatchToken&)> RestoreAssetBatch;
 	};
 
-	class FContentDeletionTransaction final : public Editor::ITransaction
+	class FContentDeletionTransaction final : public ::Durin::Editor::ITransaction
 	{
 	public:
 		explicit FContentDeletionTransaction(
@@ -165,7 +165,7 @@ namespace Durin
 		~FContentDeletionTransaction() override;
 
 		auto GetDescription() const -> std::string_view override;
-		auto GetDetails(Editor::ETransactionOperation Operation) const
+		auto GetDetails(::Durin::Editor::ETransactionOperation Operation) const
 			-> std::string override;
 		auto MutatesMountedContent() const -> bool override { return true; }
 		auto Undo() -> bool override;
@@ -276,4 +276,4 @@ namespace Durin
 		FContentBrowserModel& Model;
 		FMoveAssets MoveAssets;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

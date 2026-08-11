@@ -6,7 +6,7 @@
 #include "NativeTestSupport.h"
 #include "Threading/Task.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{
@@ -503,4 +503,4 @@ namespace Durin
 		EXPECT_LE(TotalObjectBytes, 128u);
 		EXPECT_TRUE(std::filesystem::exists(Outside));
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

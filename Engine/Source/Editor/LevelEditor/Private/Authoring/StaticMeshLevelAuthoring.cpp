@@ -16,7 +16,7 @@
 #include "Authoring/StaticMeshLevelAuthoringTestHooks.h"
 #endif
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	#if DURIN_LEVEL_AUTHORING_TEST_FAILURE_INJECTION
 	namespace Testing
@@ -313,7 +313,7 @@ namespace Durin
 			return true;
 		}
 
-		class FStaticMeshLevelMutationTransaction final : public Editor::ITransaction
+		class FStaticMeshLevelMutationTransaction final : public ::Durin::Editor::ITransaction
 		{
 		public:
 			FStaticMeshLevelMutationTransaction(const FStaticMeshLevelMutationPlan& Plan)
@@ -323,7 +323,7 @@ namespace Durin
 			}
 
 			auto GetDescription() const -> std::string_view override { return Description; }
-			auto GetDetails(Editor::ETransactionOperation) const -> std::string override
+			auto GetDetails(::Durin::Editor::ETransactionOperation) const -> std::string override
 			{
 				return LastError.empty()
 					? std::format("Edit {} static mesh actor(s)", Deltas.size())

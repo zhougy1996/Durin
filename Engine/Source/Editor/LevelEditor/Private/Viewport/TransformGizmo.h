@@ -12,9 +12,13 @@ namespace Durin::Editor
 
 namespace Durin
 {
-	class FLevelEditorContext;
 	class AActor;
 	class DPackage;
+}
+
+namespace Durin::Editor::Level
+{
+	class FLevelEditorContext;
 	struct FLevelEditorViewportInput;
 
 	// Selects translation, rotation, or scale manipulation.
@@ -43,8 +47,8 @@ namespace Durin
 	class FTransformGizmo
 	{
 	public:
-		auto Update(FLevelEditorContext& Context, const FSceneView& View, const FLevelEditorViewportInput& Input, Editor::FTransactionManager* Transactions) -> void;
-		auto Update(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, Editor::FTransactionManager* Transactions) -> void;
+		auto Update(FLevelEditorContext& Context, const FSceneView& View, const FLevelEditorViewportInput& Input, ::Durin::Editor::FTransactionManager* Transactions) -> void;
+		auto Update(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, ::Durin::Editor::FTransactionManager* Transactions) -> void;
 		auto AppendOverlayPrimitives(FSceneView& View) const -> void;
 		auto CancelDrag() -> void;
 		auto IsDragging() const -> bool { return ActiveHandle != ETransformGizmoHandle::None; }
@@ -77,7 +81,7 @@ namespace Durin
 		auto HitTest(const FSceneView& View, const FVector2f& MousePosition) const -> ETransformGizmoHandle;
 		auto BeginDrag(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input) -> bool;
 		auto UpdateDrag(const FSceneView& View, const FLevelEditorViewportInput& Input) -> void;
-		auto FinishDrag(Editor::FTransactionManager* Transactions) -> void;
+		auto FinishDrag(::Durin::Editor::FTransactionManager* Transactions) -> void;
 		auto RestoreSnapshots() -> void;
 		auto RestoreInitialDirtyState() -> void;
 		auto ApplyTranslation(const FVector3& Delta) -> void;

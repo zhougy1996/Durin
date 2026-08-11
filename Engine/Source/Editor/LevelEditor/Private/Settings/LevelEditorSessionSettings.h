@@ -5,6 +5,10 @@
 namespace Durin
 {
 	class DLevel;
+}
+
+namespace Durin::Editor::Level
+{
 	class FEditorAssetMoveCoordinator;
 	struct FLevelEditorContext;
 	class FSceneViewportPanel;
@@ -60,4 +64,4 @@ namespace Durin
 		std::string ContentBrowserLastDirectory;
 		float DetailsPaneRatio = DefaultDetailsPaneRatio;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

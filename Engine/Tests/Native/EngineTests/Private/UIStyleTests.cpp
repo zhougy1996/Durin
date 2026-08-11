@@ -3,7 +3,7 @@
 #include "Workspace/LevelEditorUILayout.h"
 #include "MonaImGui.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	TEST(FEditorUILayoutTests, SelectsResponsiveModeAtBoundaries)
 	{
@@ -87,4 +87,4 @@ namespace Durin
 		EXPECT_DOUBLE_EQ(StoredValue.z, 42.0);
 		ImGui::DestroyContext(Context);
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

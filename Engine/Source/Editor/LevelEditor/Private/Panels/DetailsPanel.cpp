@@ -17,7 +17,7 @@
 #include "MonaImGui.h"
 #include "MonaImGuiPropertyTable.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	FDetailsPanel::FDetailsPanel(FLevelEditorSessionSettings& InSessionSettings)
 		: SessionSettings(InSessionSettings)
@@ -32,7 +32,7 @@ namespace Durin
 
 	auto FDetailsPanel::Draw(FLevelEditorContext& Context) -> void
 	{
-		if (!Editor::WorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "Details", "Details", GetOpenPtr()))
+		if (!::Durin::Editor::WorkspaceUI::BeginDockablePanel(Workspace::Type, "Details", "Details", GetOpenPtr()))
 		{
 			if (!FinishActivePropertyEdit(&Context, true)) SetOpen(true);
 			ImGui::End();
@@ -114,7 +114,7 @@ namespace Durin
 
 	auto FDetailsPanel::DrawReflectedProperties(FLevelEditorContext& Context, DObject* Object) -> void
 	{
-		const Editor::FPropertyViewContext ViewContext = MakePropertyViewContext(Context);
+		const ::Durin::Editor::FPropertyViewContext ViewContext = MakePropertyViewContext(Context);
 		if (!PropertyView.HandleOwnerContext(ViewContext, Object))
 		{
 			ImGui::TextDisabled("The active property preview must be restored before changing targets.");
@@ -139,7 +139,7 @@ namespace Durin
 		if (!MonaImGui::PropertyEdit::BeginTable("DetailsPropertyTable")) return;
 
 		const FObjectPropertyViewBuilderResult BuilderResult = Builder.DrawRows(PropertyView, ViewContext);
-		Editor::FObjectPropertyViewResult ObjectViewResult;
+		::Durin::Editor::FObjectPropertyViewResult ObjectViewResult;
 		if (!Builder.IsReplacingDefaultProperties())
 		{
 			ObjectViewResult = PropertyView.EditObject(ViewContext, Object, {
@@ -161,7 +161,7 @@ namespace Durin
 		}
 	}
 
-	auto FDetailsPanel::MakePropertyViewContext(FLevelEditorContext& Context) const -> Editor::FPropertyViewContext
+	auto FDetailsPanel::MakePropertyViewContext(FLevelEditorContext& Context) const -> ::Durin::Editor::FPropertyViewContext
 	{
 		return {
 			.Transactions = GEditor ? &GEditor->GetTransactionManager() : nullptr,
@@ -181,7 +181,7 @@ namespace Durin
 	{
 		if (!Context)
 			return PropertyView.FinishActiveEdit(nullptr, bCancel);
-		const Editor::FPropertyViewContext ViewContext = MakePropertyViewContext(*Context);
+		const ::Durin::Editor::FPropertyViewContext ViewContext = MakePropertyViewContext(*Context);
 		return PropertyView.FinishActiveEdit(&ViewContext, bCancel);
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

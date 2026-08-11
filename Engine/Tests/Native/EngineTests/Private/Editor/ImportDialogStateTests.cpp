@@ -8,6 +8,7 @@
 namespace
 {
 	using namespace Durin;
+	using namespace Durin::Editor::Level;
 
 	auto EmptyOccupancy(const FAssetPath&) -> FAssetDestinationOccupancy
 	{

@@ -2,7 +2,7 @@
 
 #include "Assets/AssetDestinationValidation.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	// Routes import-dialog outcomes to the owning editor workspace.
 	struct FImportDialogCallbacks
@@ -85,4 +85,4 @@ namespace Durin
 	};
 
 	auto DrawImportDialogWarning(std::string_view Message) -> void;
-} // namespace Durin
+} // namespace Durin::Editor::Level

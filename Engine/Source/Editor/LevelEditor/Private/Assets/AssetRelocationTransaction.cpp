@@ -1,6 +1,6 @@
 #include "Assets/AssetRelocationTransaction.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	FAssetRelocationTransaction::FAssetRelocationTransaction(
 		Asset::FAssetRelocationBatchToken InToken)
@@ -16,7 +16,7 @@ namespace Durin
 	}
 
 	auto FAssetRelocationTransaction::GetDetails(
-		Editor::ETransactionOperation) const -> std::string
+		::Durin::Editor::ETransactionOperation) const -> std::string
 	{
 		return LastResult.Message;
 	}

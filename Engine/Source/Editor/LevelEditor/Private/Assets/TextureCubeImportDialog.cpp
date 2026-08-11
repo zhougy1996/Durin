@@ -11,7 +11,7 @@
 #include "PixelFormat.h"
 #include "Texture/TextureCube.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{

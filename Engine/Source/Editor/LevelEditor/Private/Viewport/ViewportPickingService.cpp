@@ -13,7 +13,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{
@@ -705,4 +705,4 @@ namespace Durin
 	{
 		return {Status, std::nullopt};
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

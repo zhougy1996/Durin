@@ -3,7 +3,7 @@
 #include "Components/PrimitiveComponent.h"
 #include "Engine/Actor.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{

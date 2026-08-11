@@ -16,6 +16,7 @@
 namespace
 {
 	using namespace Durin;
+	using namespace Durin::Editor::Level;
 
 	class FContentBrowserModelTests : public testing::Test
 	{

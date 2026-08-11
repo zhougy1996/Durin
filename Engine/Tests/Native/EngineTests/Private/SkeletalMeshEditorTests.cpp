@@ -14,7 +14,7 @@
 
 TEST(FSkeletalMeshEditorTests, PreviewControllerFramesAndNavigatesDeterministically)
 {
-	Durin::FSkeletalAssetPreviewController Controller;
+	Durin::Editor::SkeletalMesh::FSkeletalAssetPreviewController Controller;
 	const Durin::FBox Bounds(
 		Durin::FVector3(-2.0, -1.0, 3.0), Durin::FVector3(6.0, 5.0, 11.0));
 	Controller.FrameBounds(Bounds);
@@ -71,7 +71,7 @@ TEST(FSkeletalMeshEditorTests, PreviewSceneOwnsAndReleasesProductionComponents)
 	const std::string ActorName = std::format("SkeletalAssetPreviewActor_{}", PreviewId);
 	const std::string LightName = std::format("SkeletalAssetPreviewLightActor_{}", PreviewId);
 	{
-		Durin::FSkeletalAssetPreview Preview(PreviewId);
+		Durin::Editor::SkeletalMesh::FSkeletalAssetPreview Preview(PreviewId);
 		auto* PreviewActor = Durin::Cast<Durin::AActor>(FindObjectByName(ActorName));
 		ASSERT_NE(PreviewActor, nullptr);
 		EXPECT_TRUE(PreviewActor->IsActorTickEnabled());

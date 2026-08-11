@@ -33,7 +33,7 @@
 #include "SkyBoxLevelAuthoring.h"
 #include "Texture/TextureCube.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{
@@ -53,8 +53,8 @@ namespace Durin
 
 
 	FSceneViewportPanel::FSceneViewportPanel()
-		: PreferredPlayStartLocation(Editor::EPlayStartLocation::LevelStart)
-		, PreferredPlayDestination(Editor::EPlayDestination::EmbeddedViewport)
+		: PreferredPlayStartLocation(::Durin::Editor::EPlayStartLocation::LevelStart)
+		, PreferredPlayDestination(::Durin::Editor::EPlayDestination::EmbeddedViewport)
 	{
 		ViewportClient = std::make_unique<FLevelEditorViewportClient>();
 		ViewportToolbar = std::make_unique<FViewportToolbar>();
@@ -102,7 +102,7 @@ namespace Durin
 		ViewportClient->PrepareSceneView(Context.Level, Width, Height);
 	}
 
-	auto FSceneViewportPanel::SetPreferredPlayMode(Editor::EPlayStartLocation StartLocation, Editor::EPlayDestination Destination) -> void
+	auto FSceneViewportPanel::SetPreferredPlayMode(::Durin::Editor::EPlayStartLocation StartLocation, ::Durin::Editor::EPlayDestination Destination) -> void
 	{
 		PreferredPlayStartLocation = StartLocation;
 		PreferredPlayDestination = Destination;
@@ -138,8 +138,8 @@ namespace Durin
 		if (ViewportClient) ViewportClient->SetPickingSceneIndex(Context.GetPickingSceneIndex());
 		Context.ActivateViewportEditMode = [this, &Context](std::string_view Id) { return EditModeManager.Activate(Id, Context); };
 		const bool bPlayingInNewWindow = GEditor && GEditor->IsPlayingInNewWindow();
-		if (!Editor::WorkspaceUI::BeginDockablePanel(
-			LevelEditorWorkspace::Type,
+		if (!::Durin::Editor::WorkspaceUI::BeginDockablePanel(
+			Workspace::Type,
 			"Scene Viewport",
 			"SceneViewport",
 			GetOpenPtr(),
@@ -444,7 +444,7 @@ namespace Durin
 			|| ImGui::IsMouseHoveringRect(ToolbarLayout.PlayBackgroundMin, ToolbarLayout.PlayBackgroundMax);
 		const bool bPopupOpen = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
 		if (bToolbarHovered || bPopupOpen) Input.bLeftMousePressed = false;
-		Editor::FTransactionManager* Transactions = GEditor != nullptr ? &GEditor->GetTransactionManager() : nullptr;
+		::Durin::Editor::FTransactionManager* Transactions = GEditor != nullptr ? &GEditor->GetTransactionManager() : nullptr;
 		ViewportClient->Update(Context.Level, Context.GetPrimarySelectedActor(), Input);
 		uint32 ViewWidth = 0;
 		uint32 ViewHeight = 0;
@@ -482,4 +482,4 @@ namespace Durin
 			ViewportWidget->SetDesiredSize({AvailableSize.x, AvailableSize.y});
 		}
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

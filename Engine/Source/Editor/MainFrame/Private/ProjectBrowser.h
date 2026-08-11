@@ -2,7 +2,7 @@
 
 #include "Misc/ProjectHistory.h"
 
-namespace Durin
+namespace Durin::Editor::MainFrame
 {
 	// Draws and owns state for the startup project-selection window.
 	class FProjectBrowser

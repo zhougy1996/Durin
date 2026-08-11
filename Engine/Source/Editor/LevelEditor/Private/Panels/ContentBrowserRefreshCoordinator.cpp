@@ -1,6 +1,6 @@
 #include "Panels/ContentBrowserRefreshCoordinator.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	FContentBrowserRefreshCoordinator::FContentBrowserRefreshCoordinator(
 		uint64 InMountedContentRevision,
@@ -110,4 +110,4 @@ namespace Durin
 		ObservedMountedContentRevision = MountedContentRevision;
 		ObservedAssetRegistryRevision = GetRegistryRevision();
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

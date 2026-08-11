@@ -6,7 +6,10 @@ namespace Durin
 {
 	struct FTexturePlatformData;
 	struct FTextureSourceData;
+}
 
+namespace Durin::Editor::Texture
+{
 	enum class ETexturePreviewChannel : uint8
 	{
 		RGBA,

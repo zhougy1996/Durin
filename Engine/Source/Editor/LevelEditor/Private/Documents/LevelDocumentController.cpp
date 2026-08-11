@@ -19,11 +19,11 @@
 #include "SkeletalMesh/SkeletalDerivedData.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{
-		auto GetLevelTransactions() -> Editor::FTransactionManager*
+		auto GetLevelTransactions() -> ::Durin::Editor::FTransactionManager*
 		{
 			return GEditor ? &GEditor->GetTransactionManager() : nullptr;
 		}
@@ -222,7 +222,7 @@ namespace Durin
 			return true;
 		if (ClearError) ClearError();
 		const FAssetPath& Path = DefaultLevel.GetSoftObjectPath().GetAssetPath();
-		Editor::FWorkspaceAssetOpenCompatibility CompatibilityPolicy(Path);
+		::Durin::Editor::FWorkspaceAssetOpenCompatibility CompatibilityPolicy(Path);
 		DLevel* Level = nullptr;
 		Asset::FAssetLoadReport LoadReport;
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadBegin);
@@ -287,7 +287,7 @@ namespace Durin
 			SetError(PathError);
 			return ELevelDocumentOpenResult::Rejected;
 		}
-		Editor::FWorkspaceAssetOpenCompatibility CompatibilityPolicy(Path);
+		::Durin::Editor::FWorkspaceAssetOpenCompatibility CompatibilityPolicy(Path);
 		DLevel* Level = nullptr;
 		Asset::FAssetLoadReport LoadReport;
 		Asset::FAssetResult Result;
@@ -460,4 +460,4 @@ namespace Durin
 	{
 		if (ReportError) ReportError(std::move(Message));
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

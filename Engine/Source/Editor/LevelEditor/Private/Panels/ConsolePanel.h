@@ -6,7 +6,7 @@
 
 struct ImGuiInputTextCallbackData;
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	struct FConsolePanelState;
 
@@ -48,4 +48,4 @@ namespace Durin
 		bool bRefocusInput = false;
 		uint8 ScrollToLatestFrames = 0;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

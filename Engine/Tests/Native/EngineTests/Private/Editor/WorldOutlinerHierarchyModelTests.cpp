@@ -5,6 +5,7 @@
 namespace
 {
 	using namespace Durin;
+	using namespace Durin::Editor::Level;
 
 	struct FNodeKey
 	{

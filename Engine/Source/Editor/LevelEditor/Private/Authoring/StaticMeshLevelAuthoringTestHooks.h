@@ -1,7 +1,7 @@
 #pragma once
 
 #if DURIN_LEVEL_AUTHORING_TEST_FAILURE_INJECTION
-namespace Durin::Testing
+namespace Durin::Editor::Level::Testing
 {
 	enum class EStaticMeshLevelAuthoringFailurePoint : uint8
 	{

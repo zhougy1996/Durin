@@ -9,7 +9,7 @@
 #include "Math/Operations.h"
 #include "StaticMesh/StaticMesh.h"
 
-namespace Durin
+namespace Durin::Editor::StaticMesh
 {
 	namespace
 	{
@@ -17,7 +17,7 @@ namespace Durin
 		constexpr double ClipPaddingFraction = 0.05;
 
 		auto MakeStaticMeshThumbnailFingerprint(const Asset::FAssetData& Data)
-			-> Editor::FAssetThumbnailPackageFingerprint
+			-> ::Durin::Editor::FAssetThumbnailPackageFingerprint
 		{
 			return {
 				.VirtualPath = Data.PackagePath,
@@ -47,7 +47,7 @@ namespace Durin
 		}
 
 		class FStaticMeshThumbnailGenerationSession final
-			: public Editor::IRenderedAssetThumbnailGenerationSession
+			: public ::Durin::Editor::IRenderedAssetThumbnailGenerationSession
 		{
 		public:
 			explicit FStaticMeshThumbnailGenerationSession(
@@ -61,7 +61,7 @@ namespace Durin
 				ResetPreview();
 			}
 
-			auto Load() -> Editor::FRenderedAssetThumbnailSessionUpdate override
+			auto Load() -> ::Durin::Editor::FRenderedAssetThumbnailSessionUpdate override
 			{
 				DObject* Loaded = nullptr;
 				const Asset::FAssetResult Result = Asset::LoadAsset(Input.AssetPath, Loaded);
@@ -71,7 +71,7 @@ namespace Durin
 				{
 					StaticMesh = nullptr;
 					return {
-						.State = Editor::ERenderedAssetThumbnailSessionState::Failed,
+						.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::Failed,
 						.Diagnostic = Result.Message.empty()
 							? std::format(
 								"The requested asset '{}' is not an exact DStaticMesh.",
@@ -83,7 +83,7 @@ namespace Durin
 				if (!StaticMesh->GetLOD0LocalBounds())
 				{
 					return {
-						.State = Editor::ERenderedAssetThumbnailSessionState::Failed,
+						.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::Failed,
 						.AssetRevision = Status.Revision,
 						.Diagnostic = std::format(
 							"StaticMesh '{}' has no valid non-degenerate LOD 0 bounds.",
@@ -96,15 +96,15 @@ namespace Durin
 				}
 				AssetRevision = Status.Revision;
 				return {
-					.State = Editor::ERenderedAssetThumbnailSessionState::WaitingForResources,
+					.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::WaitingForResources,
 					.AssetRevision = AssetRevision};
 			}
 
-			auto PollResources() -> Editor::FRenderedAssetThumbnailSessionUpdate override
+			auto PollResources() -> ::Durin::Editor::FRenderedAssetThumbnailSessionUpdate override
 			{
 				if (StaticMesh == nullptr)
 					return {
-						.State = Editor::ERenderedAssetThumbnailSessionState::Failed,
+						.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::Failed,
 						.Diagnostic = QualifyDiagnostic(
 							Input.AssetPath, "The StaticMesh asset is unavailable.")};
 				const FStaticMeshRenderResourceStatus Status =
@@ -113,17 +113,17 @@ namespace Durin
 				{
 				case EStaticMeshRenderResourceReadiness::Ready:
 					return {
-						.State = Editor::ERenderedAssetThumbnailSessionState::ReadyToRender,
+						.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::ReadyToRender,
 						.AssetRevision = AssetRevision,
 						.ResourceRevision = Status.Revision};
 				case EStaticMeshRenderResourceReadiness::Queued:
 					return {
-						.State = Editor::ERenderedAssetThumbnailSessionState::WaitingForResources,
+						.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::WaitingForResources,
 						.AssetRevision = AssetRevision,
 						.ResourceRevision = Status.Revision};
 				case EStaticMeshRenderResourceReadiness::Failed:
 					return {
-						.State = Editor::ERenderedAssetThumbnailSessionState::Failed,
+						.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::Failed,
 						.AssetRevision = AssetRevision,
 						.ResourceRevision = Status.Revision,
 						.Diagnostic = QualifyDiagnostic(
@@ -131,7 +131,7 @@ namespace Durin
 				case EStaticMeshRenderResourceReadiness::Unavailable:
 				default:
 					return {
-						.State = Editor::ERenderedAssetThumbnailSessionState::Failed,
+						.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::Failed,
 						.AssetRevision = AssetRevision,
 						.ResourceRevision = Status.Revision,
 						.Diagnostic = QualifyDiagnostic(
@@ -140,7 +140,7 @@ namespace Durin
 			}
 
 			auto PreparePreview(
-				Editor::IRenderedAssetThumbnailPreviewScene& PreviewScene,
+				::Durin::Editor::IRenderedAssetThumbnailPreviewScene& PreviewScene,
 				std::string& OutError) -> bool override
 			{
 				ResetPreview();
@@ -183,7 +183,7 @@ namespace Durin
 				Component->ClearMaterialOverrides();
 				Component->SetStaticMesh(StaticMesh);
 				Component->SetWorldTransform(ThumbnailView.MeshTransform);
-				const Editor::FRenderedAssetThumbnailPreviewView View{
+				const ::Durin::Editor::FRenderedAssetThumbnailPreviewView View{
 					.CameraPosition = {
 						ThumbnailView.CameraPosition.x,
 						ThumbnailView.CameraPosition.y,
@@ -270,7 +270,7 @@ namespace Durin
 	} // namespace
 
 	auto FStaticMeshAssetThumbnailProvider::GetRegistration() const
-		-> Editor::FAssetThumbnailProviderRegistration
+		-> ::Durin::Editor::FAssetThumbnailProviderRegistration
 	{
 		return {
 			.AssetClassName = DStaticMesh::StaticClass()
@@ -282,14 +282,14 @@ namespace Durin
 	}
 
 	auto FStaticMeshAssetThumbnailProvider::CaptureGenerationRequest(
-		const Editor::FAssetThumbnailRequest& Request,
+		const ::Durin::Editor::FAssetThumbnailRequest& Request,
 		uint64 ProviderGeneration,
-		Editor::FAssetThumbnailGenerationRequest& OutRequest,
+		::Durin::Editor::FAssetThumbnailGenerationRequest& OutRequest,
 		std::string& OutError) -> bool
 	{
 		OutRequest = {};
 		OutError.clear();
-		const Editor::FAssetThumbnailProviderRegistration Registration =
+		const ::Durin::Editor::FAssetThumbnailProviderRegistration Registration =
 			GetRegistration();
 		if (Request.Asset.AssetClassName != Registration.AssetClassName)
 		{
@@ -316,7 +316,7 @@ namespace Durin
 			return false;
 		}
 
-		std::vector<Editor::FAssetThumbnailDependencyNode> Nodes;
+		std::vector<::Durin::Editor::FAssetThumbnailDependencyNode> Nodes;
 		Nodes.reserve(Registry.GetAssets().size());
 		for (const auto& [Path, Data] : Registry.GetAssets())
 		{
@@ -324,14 +324,14 @@ namespace Durin
 				.Package = MakeStaticMeshThumbnailFingerprint(Data),
 				.Dependencies = Data.Dependencies});
 		}
-		std::vector<Editor::FAssetThumbnailPackageFingerprint> Dependencies;
-		if (!Editor::BuildAssetThumbnailDependencyClosure(
+		std::vector<::Durin::Editor::FAssetThumbnailPackageFingerprint> Dependencies;
+		if (!::Durin::Editor::BuildAssetThumbnailDependencyClosure(
 				Request.Asset.VirtualPath, Nodes, Dependencies, OutError))
 		{
 			return false;
 		}
 
-		Editor::FRenderedAssetThumbnailVisualContract Visual;
+		::Durin::Editor::FRenderedAssetThumbnailVisualContract Visual;
 		const FStaticMeshAssetThumbnailViewInput ViewContract;
 		Visual.CameraDirectionX =
 			static_cast<float>(ViewContract.CameraDirection.x);
@@ -361,10 +361,10 @@ namespace Durin
 	}
 
 	auto FStaticMeshAssetThumbnailProvider::CreateGenerationSession(
-		const Editor::FAssetThumbnailGenerationRequest&,
-		const Editor::IAssetThumbnailGenerationInput& Input,
+		const ::Durin::Editor::FAssetThumbnailGenerationRequest&,
+		const ::Durin::Editor::IAssetThumbnailGenerationInput& Input,
 		std::string& OutError)
-		-> std::unique_ptr<Editor::IRenderedAssetThumbnailGenerationSession>
+		-> std::unique_ptr<::Durin::Editor::IRenderedAssetThumbnailGenerationSession>
 	{
 		const auto* StaticMeshInput =
 			dynamic_cast<const FStaticMeshAssetThumbnailGenerationInput*>(&Input);
@@ -525,4 +525,4 @@ namespace Durin
 		OutError.clear();
 		return true;
 	}
-} // namespace Durin
+} // namespace Durin::Editor::StaticMesh

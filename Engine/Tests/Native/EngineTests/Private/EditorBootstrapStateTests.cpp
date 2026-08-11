@@ -1,69 +1,69 @@
 #include "gtest/gtest.h"
 
-#include "Editor/MainFrame/Public/Interfaces/IMainFrameModule.h"
+#include "Editor/MainFrame/Public/Interfaces/MainFrame.h"
 #include "Engine/Engine.h"
 #include "Runtime/Launch/Private/EngineFrame.h"
 
-namespace Durin
+namespace Durin::Editor::MainFrame
 {
 	TEST(FEditorBootstrapStateTests, AllowsOnlyDocumentedForwardTransitions)
 	{
-		EXPECT_TRUE(IsValidEditorBootstrapTransition(
-			EEditorBootstrapState::ConstructingShell,
-			EEditorBootstrapState::WaitingForFirstPresent));
-		EXPECT_TRUE(IsValidEditorBootstrapTransition(
-			EEditorBootstrapState::WaitingForFirstPresent,
-			EEditorBootstrapState::LoadingWorkspace));
-		EXPECT_TRUE(IsValidEditorBootstrapTransition(
-			EEditorBootstrapState::WaitingForFirstPresent,
-			EEditorBootstrapState::Ready));
-		EXPECT_TRUE(IsValidEditorBootstrapTransition(
-			EEditorBootstrapState::LoadingWorkspace,
-			EEditorBootstrapState::WorkspaceReady));
-		EXPECT_TRUE(IsValidEditorBootstrapTransition(
-			EEditorBootstrapState::WorkspaceReady,
-			EEditorBootstrapState::LoadingDefaultDocument));
-		EXPECT_TRUE(IsValidEditorBootstrapTransition(
-			EEditorBootstrapState::LoadingDefaultDocument,
-			EEditorBootstrapState::Ready));
-		EXPECT_TRUE(IsValidEditorBootstrapTransition(
-			EEditorBootstrapState::LoadingDefaultDocument,
-			EEditorBootstrapState::Failed));
-		EXPECT_TRUE(IsValidEditorBootstrapTransition(
-			EEditorBootstrapState::LoadingWorkspace,
-			EEditorBootstrapState::Failed));
+		EXPECT_TRUE(IsValidBootstrapTransition(
+			EBootstrapState::ConstructingShell,
+			EBootstrapState::WaitingForFirstPresent));
+		EXPECT_TRUE(IsValidBootstrapTransition(
+			EBootstrapState::WaitingForFirstPresent,
+			EBootstrapState::LoadingWorkspace));
+		EXPECT_TRUE(IsValidBootstrapTransition(
+			EBootstrapState::WaitingForFirstPresent,
+			EBootstrapState::Ready));
+		EXPECT_TRUE(IsValidBootstrapTransition(
+			EBootstrapState::LoadingWorkspace,
+			EBootstrapState::WorkspaceReady));
+		EXPECT_TRUE(IsValidBootstrapTransition(
+			EBootstrapState::WorkspaceReady,
+			EBootstrapState::LoadingDefaultDocument));
+		EXPECT_TRUE(IsValidBootstrapTransition(
+			EBootstrapState::LoadingDefaultDocument,
+			EBootstrapState::Ready));
+		EXPECT_TRUE(IsValidBootstrapTransition(
+			EBootstrapState::LoadingDefaultDocument,
+			EBootstrapState::Failed));
+		EXPECT_TRUE(IsValidBootstrapTransition(
+			EBootstrapState::LoadingWorkspace,
+			EBootstrapState::Failed));
 	}
 
 	TEST(FEditorBootstrapStateTests, RejectsSkippedBackwardAndTerminalTransitions)
 	{
 		constexpr std::array States{
-			EEditorBootstrapState::ConstructingShell,
-			EEditorBootstrapState::WaitingForFirstPresent,
-			EEditorBootstrapState::LoadingWorkspace,
-			EEditorBootstrapState::WorkspaceReady,
-			EEditorBootstrapState::LoadingDefaultDocument,
-			EEditorBootstrapState::Ready,
-			EEditorBootstrapState::Failed,
+			EBootstrapState::ConstructingShell,
+			EBootstrapState::WaitingForFirstPresent,
+			EBootstrapState::LoadingWorkspace,
+			EBootstrapState::WorkspaceReady,
+			EBootstrapState::LoadingDefaultDocument,
+			EBootstrapState::Ready,
+			EBootstrapState::Failed,
 		};
-		for (const EEditorBootstrapState From : States)
+		for (const EBootstrapState From : States)
 		{
-			for (const EEditorBootstrapState To : States)
+			for (const EBootstrapState To : States)
 			{
 				const bool bExpected =
-					(From == EEditorBootstrapState::ConstructingShell
-						&& To == EEditorBootstrapState::WaitingForFirstPresent)
-					|| (From == EEditorBootstrapState::WaitingForFirstPresent
-						&& (To == EEditorBootstrapState::LoadingWorkspace
-							|| To == EEditorBootstrapState::Ready))
-					|| (From == EEditorBootstrapState::LoadingWorkspace
-						&& (To == EEditorBootstrapState::WorkspaceReady
-							|| To == EEditorBootstrapState::Failed))
-					|| (From == EEditorBootstrapState::WorkspaceReady
-						&& To == EEditorBootstrapState::LoadingDefaultDocument)
-					|| (From == EEditorBootstrapState::LoadingDefaultDocument
-						&& (To == EEditorBootstrapState::Ready
-							|| To == EEditorBootstrapState::Failed));
-				EXPECT_EQ(IsValidEditorBootstrapTransition(From, To), bExpected);
+					(From == EBootstrapState::ConstructingShell
+						&& To == EBootstrapState::WaitingForFirstPresent)
+					|| (From == EBootstrapState::WaitingForFirstPresent
+						&& (To == EBootstrapState::LoadingWorkspace
+							|| To == EBootstrapState::Ready))
+					|| (From == EBootstrapState::LoadingWorkspace
+						&& (To == EBootstrapState::WorkspaceReady
+							|| To == EBootstrapState::Failed))
+					|| (From == EBootstrapState::WorkspaceReady
+						&& To == EBootstrapState::LoadingDefaultDocument)
+					|| (From == EBootstrapState::LoadingDefaultDocument
+						&& (To == EBootstrapState::Ready
+							|| To == EBootstrapState::Failed));
+				EXPECT_EQ(IsValidBootstrapTransition(From, To), bExpected);
 			}
 		}
 	}
@@ -88,27 +88,27 @@ namespace Durin
 
 	TEST(FEditorBootstrapStateTests, MapsEveryStateToTruthfulPhaseAndStatus)
 	{
-		EXPECT_EQ(GetEditorBootstrapPhaseIndex(
-			EEditorBootstrapState::ConstructingShell), 1);
-		EXPECT_EQ(GetEditorBootstrapPhaseIndex(
-			EEditorBootstrapState::WaitingForFirstPresent), 1);
-		EXPECT_EQ(GetEditorBootstrapPhaseIndex(
-			EEditorBootstrapState::LoadingWorkspace), 2);
-		EXPECT_EQ(GetEditorBootstrapPhaseIndex(
-			EEditorBootstrapState::WorkspaceReady), 2);
-		EXPECT_EQ(GetEditorBootstrapPhaseIndex(
-			EEditorBootstrapState::LoadingDefaultDocument), 3);
-		EXPECT_EQ(GetEditorBootstrapPhaseIndex(
-			EEditorBootstrapState::Ready), 3);
-		EXPECT_EQ(GetEditorBootstrapPhaseIndex(
-			EEditorBootstrapState::Failed), 0);
-		EXPECT_EQ(GetEditorBootstrapStepStatus(EEditorBootstrapState::Ready),
-			EEditorBootstrapStepStatus::Ready);
-		EXPECT_EQ(GetEditorBootstrapStepStatus(EEditorBootstrapState::Failed),
-			EEditorBootstrapStepStatus::Failed);
-		EXPECT_EQ(GetEditorBootstrapStepStatus(
-			EEditorBootstrapState::LoadingDefaultDocument),
-			EEditorBootstrapStepStatus::Pending);
+		EXPECT_EQ(GetBootstrapPhaseIndex(
+			EBootstrapState::ConstructingShell), 1);
+		EXPECT_EQ(GetBootstrapPhaseIndex(
+			EBootstrapState::WaitingForFirstPresent), 1);
+		EXPECT_EQ(GetBootstrapPhaseIndex(
+			EBootstrapState::LoadingWorkspace), 2);
+		EXPECT_EQ(GetBootstrapPhaseIndex(
+			EBootstrapState::WorkspaceReady), 2);
+		EXPECT_EQ(GetBootstrapPhaseIndex(
+			EBootstrapState::LoadingDefaultDocument), 3);
+		EXPECT_EQ(GetBootstrapPhaseIndex(
+			EBootstrapState::Ready), 3);
+		EXPECT_EQ(GetBootstrapPhaseIndex(
+			EBootstrapState::Failed), 0);
+		EXPECT_EQ(GetBootstrapStepStatus(EBootstrapState::Ready),
+			EBootstrapStepStatus::Ready);
+		EXPECT_EQ(GetBootstrapStepStatus(EBootstrapState::Failed),
+			EBootstrapStepStatus::Failed);
+		EXPECT_EQ(GetBootstrapStepStatus(
+			EBootstrapState::LoadingDefaultDocument),
+			EBootstrapStepStatus::Pending);
 	}
 
 	TEST(FEditorBootstrapStateTests, StartupFramesExcludeEngineViewportRendering)

@@ -7,6 +7,10 @@ namespace Durin
 {
 	class DAnimationClip;
 	class DSkeletalMesh;
+}
+
+namespace Durin::Editor::SkeletalMesh
+{
 
 	// Pure deterministic camera state shared by skeletal preview documents and tests.
 	class SKELETALMESHEDITOR_API FSkeletalAssetPreviewController final

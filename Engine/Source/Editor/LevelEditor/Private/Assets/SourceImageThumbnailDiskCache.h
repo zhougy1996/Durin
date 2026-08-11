@@ -2,7 +2,7 @@
 
 #include "Assets/SourceImageThumbnailDecoder.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	// Configures disk budget and image dimensions for source thumbnails.
 	struct FSourceImageThumbnailDiskCacheSettings
@@ -43,4 +43,4 @@ namespace Durin
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

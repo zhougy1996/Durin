@@ -7,13 +7,13 @@
 #include "Workspace/LevelEditorContext.h"
 #include "Panels/SceneViewportPanel.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	FEditorAssetMoveCoordinator::FEditorAssetMoveCoordinator(
 		FLevelEditorContext& InContext,
 		FLevelEditorSessionSettings& InSessionSettings,
 		FSceneViewportPanel& InSceneViewportPanel,
-		Editor::FTransactionManager& InTransactions
+		::Durin::Editor::FTransactionManager& InTransactions
 	)
 		: Context(InContext)
 		, SessionSettings(InSessionSettings)
@@ -67,4 +67,4 @@ namespace Durin
 				"LevelEditor",
 				"Could not persist transient viewport state after asset relocation.");
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

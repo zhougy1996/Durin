@@ -135,7 +135,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, FixUpRewritesYamlAndPreservesOther
 	FDefaultLevelScenario Scenario = BuildScenario("Rewrite");
 	auto MountFixture = ConfigureAssets(Scenario);
 	Durin::FAssetPath NotifiedPath;
-	Durin::FProjectDefaultLevelReferenceStore Store(
+	Durin::Editor::Level::FProjectDefaultLevelReferenceStore Store(
 		[&](const Durin::FAssetPath& Path) { NotifiedPath = Path; },
 		[&] { return &Scenario.Project; });
 	FScopedStoreRegistration Registration(Store);
@@ -157,7 +157,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, VerificationFailureRestoresYamlAnd
 	FDefaultLevelScenario Scenario = BuildScenario("Restore");
 	auto MountFixture = ConfigureAssets(Scenario);
 	Durin::FAssetPath NotifiedPath;
-	Durin::FProjectDefaultLevelReferenceStore Store(
+	Durin::Editor::Level::FProjectDefaultLevelReferenceStore Store(
 		[&](const Durin::FAssetPath& Path) { NotifiedPath = Path; },
 		[&] { return &Scenario.Project; });
 	FScopedStoreRegistration Registration(Store);
@@ -183,7 +183,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, CookContributesCanonicalRootWithou
 {
 	FDefaultLevelScenario Scenario = BuildScenario("CookRoot");
 	auto MountFixture = ConfigureAssets(Scenario);
-	Durin::FProjectDefaultLevelReferenceStore Store(
+	Durin::Editor::Level::FProjectDefaultLevelReferenceStore Store(
 		{}, [&] { return &Scenario.Project; });
 	FScopedStoreRegistration Registration(Store);
 

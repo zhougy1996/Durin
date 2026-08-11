@@ -9,7 +9,7 @@
 #include "Engine/Actor.h"
 #include "Viewport/ViewportPickingSceneIndex.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	auto FLevelEditorContext::Synchronize(DWorld* CurrentWorld) -> void
 	{
@@ -171,4 +171,4 @@ namespace Durin
 		else
 			Package->MarkDirty();
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

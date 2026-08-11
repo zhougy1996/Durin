@@ -339,9 +339,9 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	Durin::DStaticMeshComponent* Component = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(ComponentPath, Component));
 	Component->SetStaticMesh(Import.Asset);
-	Durin::FStaticMeshMaterialSlotDetailsModel Model(Component);
+	Durin::Editor::Level::FStaticMeshMaterialSlotDetailsModel Model(Component);
 	const auto RedEntry = std::ranges::find(
-		Model.GetCurrentEntries(), RedIndex, &Durin::FStaticMeshMaterialSlotDetailsEntry::SlotIndex);
+		Model.GetCurrentEntries(), RedIndex, &Durin::Editor::Level::FStaticMeshMaterialSlotDetailsEntry::SlotIndex);
 	ASSERT_NE(RedEntry, Model.GetCurrentEntries().end());
 	Durin::Editor::FTransactionManager Transactions;
 	Durin::Editor::FPropertyView PropertyView;

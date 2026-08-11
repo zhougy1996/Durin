@@ -17,7 +17,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "Widgets/MViewport.h"
 
-namespace Durin
+namespace Durin::Editor::Material
 {
 	namespace
 	{
@@ -116,7 +116,7 @@ namespace Durin
 	public:
 		explicit FImpl(uint64 PreviewId)
 		{
-			PreviewScene = std::make_unique<Editor::FPreviewScene>(
+			PreviewScene = std::make_unique<::Durin::Editor::FPreviewScene>(
 				FName(std::format("MaterialPreview_{}", PreviewId)));
 			if (!PreviewScene->IsAvailable())
 			{
@@ -128,8 +128,8 @@ namespace Durin
 			FAssetPath BoxPath;
 			if (!FAssetPath::TryCreate(PreviewSpherePath, SpherePath, &Error)
 				|| !FAssetPath::TryCreate(PreviewBoxPath, BoxPath, &Error)
-				|| !Editor::FAssetRetentionService::Acquire(SpherePath, SphereAsset, Error)
-				|| !Editor::FAssetRetentionService::Acquire(BoxPath, BoxAsset, Error))
+				|| !::Durin::Editor::FAssetRetentionService::Acquire(SpherePath, SphereAsset, Error)
+				|| !::Durin::Editor::FAssetRetentionService::Acquire(BoxPath, BoxAsset, Error))
 			{
 				return;
 			}
@@ -275,12 +275,12 @@ namespace Durin
 			}
 		}
 
-		std::unique_ptr<Editor::FPreviewScene> PreviewScene;
+		std::unique_ptr<::Durin::Editor::FPreviewScene> PreviewScene;
 		std::unique_ptr<FMaterialPreviewViewportClient> ViewportClient;
 		std::shared_ptr<MViewport> ViewportWidget;
 		std::shared_ptr<FSceneViewport> SceneViewport;
-		Editor::FRetainedAsset SphereAsset;
-		Editor::FRetainedAsset BoxAsset;
+		::Durin::Editor::FRetainedAsset SphereAsset;
+		::Durin::Editor::FRetainedAsset BoxAsset;
 		TObjectPtr<DStaticMeshComponent> PreviewMesh;
 		TObjectPtr<DDirectionalLightComponent> PreviewLight;
 		DMaterialInterface* CurrentMaterial = nullptr;

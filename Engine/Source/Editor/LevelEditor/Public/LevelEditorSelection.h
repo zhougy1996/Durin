@@ -2,7 +2,7 @@
 
 #include "Misc/Guid.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	enum class EEditorSubElementKind : uint8
 	{
@@ -23,4 +23,4 @@ namespace Durin
 		auto IsValid() const -> bool { return Kind != EEditorSubElementKind::None && StableId.IsValid(); }
 		auto operator==(const FEditorSubElementSelection&) const -> bool = default;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

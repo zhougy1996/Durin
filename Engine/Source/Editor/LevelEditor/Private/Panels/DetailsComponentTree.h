@@ -8,6 +8,10 @@ namespace Durin
 	class AActor;
 	class DActorComponent;
 	class DSceneComponent;
+}
+
+namespace Durin::Editor::Level
+{
 	struct FLevelEditorContext;
 
 	// Owns component-tree selection, mutation workflows, and immediate-mode component presentation.
@@ -26,4 +30,4 @@ namespace Durin
 		FEditorRenameDialog RenameDialog;
 		bool bAddComponentAsChild = false;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

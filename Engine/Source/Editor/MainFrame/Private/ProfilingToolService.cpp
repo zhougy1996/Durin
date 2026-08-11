@@ -5,7 +5,7 @@
 #include "Json/Json.h"
 #include "Profiling/Profiling.h"
 
-namespace Durin
+namespace Durin::Editor::MainFrame
 {
 	namespace
 	{

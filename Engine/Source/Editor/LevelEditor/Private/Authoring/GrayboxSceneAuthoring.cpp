@@ -15,7 +15,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMeshLevelAuthoring.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{

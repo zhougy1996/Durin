@@ -13,7 +13,7 @@
 
 TEST(FStaticMeshEditorTests, PreviewControllerFramesAndNavigatesDeterministically)
 {
-	Durin::FStaticMeshPreviewController Controller;
+	Durin::Editor::StaticMesh::FStaticMeshPreviewController Controller;
 	const Durin::FBox Bounds(Durin::FVector3(-2.0, -1.0, 3.0), Durin::FVector3(6.0, 5.0, 11.0));
 	Controller.FrameBounds(Bounds);
 	const Durin::FVector3 InitialTarget = Controller.GetTarget();
@@ -74,7 +74,7 @@ TEST(FStaticMeshEditorTests, PreviewSceneOwnsAndReleasesItsViewportComponents)
 	const std::string ActorName = std::format("StaticMeshPreviewActor_{}", PreviewId);
 	const std::string LightName = std::format("StaticMeshPreviewLightActor_{}", PreviewId);
 	{
-		Durin::FStaticMeshPreview Preview(PreviewId);
+		Durin::Editor::StaticMesh::FStaticMeshPreview Preview(PreviewId);
 		EXPECT_NE(FindObjectByName(ActorName), nullptr);
 		EXPECT_NE(FindObjectByName(LightName), nullptr);
 		EXPECT_FALSE(Preview.IsWireframe());
@@ -94,7 +94,7 @@ TEST(FStaticMeshEditorTests, ThumbnailConflictRollsBackWorkspaceRegistration)
 	Durin::Editor::FRenderedAssetThumbnailService ThumbnailService;
 	std::string Error;
 	auto Existing = ThumbnailService.RegisterScoped(
-		std::make_unique<Durin::FStaticMeshAssetThumbnailProvider>(), Error);
+		std::make_unique<Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailProvider>(), Error);
 	ASSERT_TRUE(Existing) << Error;
 	const std::string ClassName =
 		Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString();

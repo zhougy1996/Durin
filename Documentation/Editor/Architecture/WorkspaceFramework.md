@@ -7,15 +7,28 @@ Modules: DurinEd, LevelEditor, MainFrame
 This document defines editor-host ownership, persistent settings, application
 commands, workspace registration, and document lifecycle contracts.
 
+## C++ Ownership Boundary
+
+Shared workspace, document, transaction, property, asset, preview, and
+interaction contracts live directly in `Durin::Editor`. Concrete editor modules
+own their ordinary C++ APIs under `Durin::Editor::MainFrame`, `LevelEditor`,
+`MaterialEditor`, `TextureEditor`, `StaticMeshEditor`, and
+`SkeletalMeshEditor`. Runtime and reflected object types remain in `Durin`; in
+particular, `DEditorEngine` and `DTextureCubePreviewComponent` keep their stable
+reflection identities. Module lookup strings and persisted workspace/document
+identities are independent of these C++ namespaces.
+
 ## Host Ownership
 
-`MainFrame` owns the editor root window. `FEditorHostSettings` stores the native
-window size and maximized state together with the global UI scale and color
-theme in `EditorHostSettings.yaml`. When that file does not exist, the host uses
+`MainFrame` owns the editor root window. Its ordinary C++ host contracts live in
+`Durin::Editor::MainFrame`; `FHostSettings` stores the native window size and
+maximized state together with the global UI scale and color theme in the stable
+`EditorHostSettings.yaml` file. When that file does not exist, the host uses
 monitor-derived defaults and creates it when host display state is first
-persisted.
+persisted. The reflected `DEditorEngine` remains in `Durin` and talks to the
+host through `Durin::IMainFrameModule`.
 
-`FLevelEditorSessionSettings` remains owned by `LevelEditor` and persists only
+`Editor::Level::FLevelEditorSessionSettings` persists only
 Level workspace state such as viewport cameras, gizmo preferences, Content
 Browser state, and Details layout. The two settings files have no compatibility
 or migration coupling.

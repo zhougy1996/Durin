@@ -1,6 +1,6 @@
 #pragma once
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	// Reports whether a rename dialog is idle, accepted, or cancelled.
 	enum class EEditorRenameDialogResult : uint8
@@ -26,4 +26,4 @@ namespace Durin
 		bool bRequestOpen = false;
 		bool bActive = false;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

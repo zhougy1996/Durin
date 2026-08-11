@@ -2,8 +2,8 @@
 
 #include "Editor/WorkspaceTypes.h"
 
-namespace Durin::SkeletalMeshEditorWorkspace
+namespace Durin::Editor::SkeletalMesh::Workspace
 {
-	inline const Editor::FWorkspaceTypeId Type("SkeletalMeshEditor");
+	inline const ::Durin::Editor::FWorkspaceTypeId Type("SkeletalMeshEditor");
 	inline constexpr std::string_view RootKey = "SkeletalMeshEditor";
 }

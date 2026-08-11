@@ -11,7 +11,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
 
-namespace Durin
+namespace Durin::Editor::Material
 {
 	namespace
 	{
@@ -20,7 +20,7 @@ namespace Durin
 		constexpr float MaterialThumbnailSphereScale = 1.65f;
 
 		class FMaterialThumbnailGenerationInput final
-			: public Editor::IAssetThumbnailGenerationInput
+			: public ::Durin::Editor::IAssetThumbnailGenerationInput
 		{
 		public:
 			explicit FMaterialThumbnailGenerationInput(FAssetPath InAssetPath)
@@ -32,7 +32,7 @@ namespace Durin
 		};
 
 		auto MakeFingerprint(const Asset::FAssetData& Data)
-			-> Editor::FAssetThumbnailPackageFingerprint
+			-> ::Durin::Editor::FAssetThumbnailPackageFingerprint
 		{
 			return {
 				.VirtualPath = Data.PackagePath,
@@ -89,9 +89,9 @@ namespace Durin
 			return Revision == 0 ? 1 : Revision;
 		}
 
-		auto MakeMaterialPreviewView() -> Editor::FRenderedAssetThumbnailPreviewView
+		auto MakeMaterialPreviewView() -> ::Durin::Editor::FRenderedAssetThumbnailPreviewView
 		{
-			const Editor::FRenderedAssetThumbnailVisualContract Contract;
+			const ::Durin::Editor::FRenderedAssetThumbnailVisualContract Contract;
 			const FVector3 Eye = Math::Normalize(FVector3(
 				Contract.CameraDirectionX,
 				Contract.CameraDirectionY,
@@ -115,7 +115,7 @@ namespace Durin
 		}
 
 		class FMaterialThumbnailGenerationSession final
-			: public Editor::IRenderedAssetThumbnailGenerationSession
+			: public ::Durin::Editor::IRenderedAssetThumbnailGenerationSession
 		{
 		public:
 			FMaterialThumbnailGenerationSession(
@@ -131,7 +131,7 @@ namespace Durin
 				ResetPreview();
 			}
 
-			auto Load() -> Editor::FRenderedAssetThumbnailSessionUpdate override
+			auto Load() -> ::Durin::Editor::FRenderedAssetThumbnailSessionUpdate override
 			{
 				DObject* Loaded = nullptr;
 				const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Loaded);
@@ -141,38 +141,38 @@ namespace Durin
 				{
 					Material = nullptr;
 					return {
-						.State = Editor::ERenderedAssetThumbnailSessionState::Failed,
+						.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::Failed,
 						.Diagnostic = Result.Message.empty()
 							? "The requested asset is not an exact material class."
 							: Result.Message};
 				}
 				AssetRevision = Material->GetRenderStateVersion();
 				return {
-					.State = Editor::ERenderedAssetThumbnailSessionState::WaitingForResources,
+					.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::WaitingForResources,
 					.AssetRevision = AssetRevision};
 			}
 
-			auto PollResources() -> Editor::FRenderedAssetThumbnailSessionUpdate override
+			auto PollResources() -> ::Durin::Editor::FRenderedAssetThumbnailSessionUpdate override
 			{
 				bool bReady = false;
 				std::string Error;
 				const uint64 Revision = GetMaterialResourceRevision(Material, bReady, Error);
 				if (!Error.empty())
 					return {
-						.State = Editor::ERenderedAssetThumbnailSessionState::Failed,
+						.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::Failed,
 						.AssetRevision = AssetRevision,
 						.ResourceRevision = Revision,
 						.Diagnostic = std::move(Error)};
 				return {
 					.State = bReady
-						? Editor::ERenderedAssetThumbnailSessionState::ReadyToRender
-						: Editor::ERenderedAssetThumbnailSessionState::WaitingForResources,
+						? ::Durin::Editor::ERenderedAssetThumbnailSessionState::ReadyToRender
+						: ::Durin::Editor::ERenderedAssetThumbnailSessionState::WaitingForResources,
 					.AssetRevision = AssetRevision,
 					.ResourceRevision = Revision};
 			}
 
 			auto PreparePreview(
-				Editor::IRenderedAssetThumbnailPreviewScene& PreviewScene,
+				::Durin::Editor::IRenderedAssetThumbnailPreviewScene& PreviewScene,
 				std::string& OutError) -> bool override
 			{
 				ResetPreview();
@@ -180,10 +180,10 @@ namespace Durin
 				FAssetPath SpherePath;
 				if (World == nullptr
 					|| !FAssetPath::TryCreate(
-						Editor::FRenderedAssetThumbnailVisualContract::SphereVirtualPath,
+						::Durin::Editor::FRenderedAssetThumbnailVisualContract::SphereVirtualPath,
 						SpherePath,
 						&OutError)
-					|| !Editor::FAssetRetentionService::Acquire(SpherePath, SphereAsset, OutError))
+					|| !::Durin::Editor::FAssetRetentionService::Acquire(SpherePath, SphereAsset, OutError))
 					return false;
 				DStaticMesh* Sphere = Cast<DStaticMesh>(SphereAsset.Get());
 				Actor = World->SpawnActor<AActor>("MaterialThumbnailPreviewActor");
@@ -247,7 +247,7 @@ namespace Durin
 			DWorld* World = nullptr;
 			AActor* Actor = nullptr;
 			DStaticMeshComponent* Component = nullptr;
-			Editor::FRetainedAsset SphereAsset;
+			::Durin::Editor::FRetainedAsset SphereAsset;
 		};
 	} // namespace
 
@@ -258,7 +258,7 @@ namespace Durin
 	}
 
 	auto FMaterialAssetThumbnailProvider::GetRegistration() const
-		-> Editor::FAssetThumbnailProviderRegistration
+		-> ::Durin::Editor::FAssetThumbnailProviderRegistration
 	{
 		return {
 			.AssetClassName = AssetClassName,
@@ -267,9 +267,9 @@ namespace Durin
 	}
 
 	auto FMaterialAssetThumbnailProvider::CaptureGenerationRequest(
-		const Editor::FAssetThumbnailRequest& Request,
+		const ::Durin::Editor::FAssetThumbnailRequest& Request,
 		uint64 ProviderGeneration,
-		Editor::FAssetThumbnailGenerationRequest& OutRequest,
+		::Durin::Editor::FAssetThumbnailGenerationRequest& OutRequest,
 		std::string& OutError) -> bool
 	{
 		OutRequest = {};
@@ -296,7 +296,7 @@ namespace Durin
 				Request.Asset.VirtualPath.ToString());
 			return false;
 		}
-		std::vector<Editor::FAssetThumbnailDependencyNode> Nodes;
+		std::vector<::Durin::Editor::FAssetThumbnailDependencyNode> Nodes;
 		Nodes.reserve(Registry.GetAssets().size());
 		for (const auto& [Path, Data] : Registry.GetAssets())
 		{
@@ -304,18 +304,18 @@ namespace Durin
 				.Package = MakeFingerprint(Data),
 				.Dependencies = Data.Dependencies});
 		}
-		std::vector<Editor::FAssetThumbnailPackageFingerprint> Dependencies;
-		if (!Editor::BuildAssetThumbnailDependencyClosure(
+		std::vector<::Durin::Editor::FAssetThumbnailPackageFingerprint> Dependencies;
+		if (!::Durin::Editor::BuildAssetThumbnailDependencyClosure(
 				Request.Asset.VirtualPath, Nodes, Dependencies, OutError))
 			return false;
 
-		const Editor::FRenderedAssetThumbnailVisualContract Visual;
+		const ::Durin::Editor::FRenderedAssetThumbnailVisualContract Visual;
 		OutRequest.KeyInput = {
 			.Output = Visual.Output,
 			.PreviewFixtureIdentity = std::string(
-				Editor::FRenderedAssetThumbnailVisualContract::SphereVirtualPath),
+				::Durin::Editor::FRenderedAssetThumbnailVisualContract::SphereVirtualPath),
 			.PreviewFixtureVersion =
-				Editor::FRenderedAssetThumbnailVisualContract::SphereFixtureVersion,
+				::Durin::Editor::FRenderedAssetThumbnailVisualContract::SphereFixtureVersion,
 			.ShaderContractVersion = MaterialThumbnailShaderContract,
 			.Dependencies = std::move(Dependencies)};
 		OutRequest.Input =
@@ -326,10 +326,10 @@ namespace Durin
 	}
 
 	auto FMaterialAssetThumbnailProvider::CreateGenerationSession(
-		const Editor::FAssetThumbnailGenerationRequest&,
-		const Editor::IAssetThumbnailGenerationInput& Input,
+		const ::Durin::Editor::FAssetThumbnailGenerationRequest&,
+		const ::Durin::Editor::IAssetThumbnailGenerationInput& Input,
 		std::string& OutError)
-		-> std::unique_ptr<Editor::IRenderedAssetThumbnailGenerationSession>
+		-> std::unique_ptr<::Durin::Editor::IRenderedAssetThumbnailGenerationSession>
 	{
 		const auto* MaterialInput = dynamic_cast<const FMaterialThumbnailGenerationInput*>(&Input);
 		if (MaterialInput == nullptr)
@@ -342,4 +342,4 @@ namespace Durin
 			MaterialInput->AssetPath, AssetClassName);
 	}
 
-} // namespace Durin
+} // namespace Durin::Editor::Material

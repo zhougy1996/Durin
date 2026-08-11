@@ -3,13 +3,13 @@
 #include "DObject/Package.h"
 #include "Editor/Transaction.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	// Centralizes the transaction checkpoint handoff at level-document lifecycle boundaries.
 	struct FLevelDocumentRevisionState
 	{
 		static auto CompleteSave(
-			Editor::FTransactionManager* Transactions,
+			::Durin::Editor::FTransactionManager* Transactions,
 			DPackage& Package,
 			bool bSucceeded
 		) -> void
@@ -17,7 +17,7 @@ namespace Durin
 			if (bSucceeded && Transactions) Transactions->MarkSaved(Package);
 		}
 
-		static auto Activate(Editor::FTransactionManager* Transactions, DPackage* Package) -> void
+		static auto Activate(::Durin::Editor::FTransactionManager* Transactions, DPackage* Package) -> void
 		{
 			if (!Transactions) return;
 			Transactions->Clear();
@@ -28,7 +28,7 @@ namespace Durin
 				Transactions->EstablishSavedState(*Package);
 		}
 
-		static auto Discard(Editor::FTransactionManager* Transactions, DPackage& Package) -> void
+		static auto Discard(::Durin::Editor::FTransactionManager* Transactions, DPackage& Package) -> void
 		{
 			if (Transactions) Transactions->ForgetPackage(Package);
 			Package.ClearDirty();

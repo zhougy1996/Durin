@@ -3,6 +3,8 @@
 #include "Editor/Transaction.h"
 #include "Panels/ContentBrowserRefreshCoordinator.h"
 
+using namespace Durin::Editor::Level;
+
 namespace
 {
 	class FRefreshTestTransaction final : public Durin::Editor::ITransaction
@@ -71,7 +73,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 TEST(FContentBrowserRefreshCoordinatorTests,
 	RegistryOnlyPublicationRefreshesWithoutScanning)
 {
-	Durin::FContentBrowserRefreshCoordinator Coordinator(4, 10);
+	FContentBrowserRefreshCoordinator Coordinator(4, 10);
 	int ScanCount = 0;
 	int RefreshCount = 0;
 	Durin::uint64 RegistryRevision = 11;
@@ -95,7 +97,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 TEST(FContentBrowserRefreshCoordinatorTests,
 	MountedRevisionScansOnceAndAcknowledgesRegistryPublication)
 {
-	Durin::FContentBrowserRefreshCoordinator Coordinator(7, 20);
+	FContentBrowserRefreshCoordinator Coordinator(7, 20);
 	int ScanCount = 0;
 	int RefreshCount = 0;
 	Durin::uint64 RegistryRevision = 20;
@@ -128,9 +130,9 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 	OpenPanelsShareOneMountedContentReconciliation)
 {
 	auto SharedState =
-		std::make_shared<Durin::FMountedContentReconciliationState>();
-	Durin::FContentBrowserRefreshCoordinator First(5, 12, SharedState);
-	Durin::FContentBrowserRefreshCoordinator Second(5, 12, SharedState);
+		std::make_shared<FMountedContentReconciliationState>();
+	FContentBrowserRefreshCoordinator First(5, 12, SharedState);
+	FContentBrowserRefreshCoordinator Second(5, 12, SharedState);
 	int ScanCount = 0;
 	int FirstRefreshCount = 0;
 	int SecondRefreshCount = 0;
@@ -156,7 +158,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 TEST(FContentBrowserRefreshCoordinatorTests,
 	FailedRevisionDoesNotSpinAndExplicitRefreshRetriesPendingWork)
 {
-	Durin::FContentBrowserRefreshCoordinator Coordinator(2, 30);
+	FContentBrowserRefreshCoordinator Coordinator(2, 30);
 	int ScanCount = 0;
 	int RefreshCount = 0;
 	Durin::uint64 RegistryRevision = 30;
@@ -197,7 +199,7 @@ TEST(FContentBrowserRefreshCoordinatorTests,
 TEST(FContentBrowserRefreshCoordinatorTests,
 	LaterMountedRevisionRetriesAFailedAutomaticReconciliation)
 {
-	Durin::FContentBrowserRefreshCoordinator Coordinator(8, 40);
+	FContentBrowserRefreshCoordinator Coordinator(8, 40);
 	int ScanCount = 0;
 	int RefreshCount = 0;
 	bool bFail = true;

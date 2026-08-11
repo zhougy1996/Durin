@@ -6,6 +6,10 @@
 namespace Durin
 {
 	class DCameraComponent;
+}
+
+namespace Durin::Editor::Level
+{
 
 	// Builds a preview scene view from one reflected camera component.
 	class FCameraPreviewViewportClient final : public FViewportClient

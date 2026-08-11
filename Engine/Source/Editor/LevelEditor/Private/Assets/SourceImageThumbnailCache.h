@@ -2,7 +2,7 @@
 
 #include "Thumbnail/AssetThumbnailProvider.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	// Supplies source-image provider input while keeping public lookup keyed by the requesting item.
 	struct FSourceImageThumbnailRequest
@@ -11,7 +11,7 @@ namespace Durin
 		std::string_view PhysicalPath;
 		uintmax_t FileSize = 0;
 		std::filesystem::file_time_type LastWriteTime{};
-		Editor::EAssetThumbnailPriority Priority = Editor::EAssetThumbnailPriority::Prefetch;
+		::Durin::Editor::EAssetThumbnailPriority Priority = ::Durin::Editor::EAssetThumbnailPriority::Prefetch;
 	};
 
 	// Coordinates asynchronous decode, GPU upload, memory eviction, and disk reuse.
@@ -26,7 +26,7 @@ namespace Durin
 
 		auto BeginFrame() -> void;
 		auto Request(const FSourceImageThumbnailRequest& Request) -> void;
-		auto Find(std::string_view Identity) const -> Editor::FAssetThumbnailView;
+		auto Find(std::string_view Identity) const -> ::Durin::Editor::FAssetThumbnailView;
 		auto EndFrame() -> void;
 		auto CancelPendingRequests() -> void;
 		auto Clear() -> void;
@@ -37,4 +37,4 @@ namespace Durin
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

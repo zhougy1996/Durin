@@ -2,7 +2,7 @@
 
 #include "HAL/Platform.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	// Carries decoded RGBA thumbnail pixels and their dimensions.
 	struct FDecodedSourceImageThumbnail
@@ -15,4 +15,4 @@ namespace Durin
 
 	auto IsSupportedSourceImageExtension(std::string_view Extension) -> bool;
 	auto DecodeSourceImageThumbnail(std::string_view FilePath, uint32 MaximumDimension, FDecodedSourceImageThumbnail& OutThumbnail, std::string& OutError) -> bool;
-} // namespace Durin
+} // namespace Durin::Editor::Level

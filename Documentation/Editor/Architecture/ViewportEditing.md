@@ -7,6 +7,9 @@ Modules: LevelEditor, DurinEd, Engine
 The Level Editor separates shared camera navigation from contextual content
 editing. A registry describes available edit modes, while each Scene Viewport
 owns its own manager, active mode, selection view, and transform interaction.
+The ordinary C++ types described below are owned by
+`Durin::Editor::Level`; Actors, Components, Worlds, and other reflected
+runtime types retain their `Durin` identities.
 
 ## Ownership
 

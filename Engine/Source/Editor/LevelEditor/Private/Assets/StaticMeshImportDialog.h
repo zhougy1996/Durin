@@ -4,7 +4,7 @@
 #include "Assets/MountedSourceImport.h"
 #include "StaticMesh/StaticMesh.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	// Creates one geometry-only StaticMesh without Scene materials or textures.
 	class FStaticMeshImportDialog
@@ -42,4 +42,4 @@ namespace Durin
 		EMountedSourceImportMode SourceMode =
 			EMountedSourceImportMode::IngestExternal;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

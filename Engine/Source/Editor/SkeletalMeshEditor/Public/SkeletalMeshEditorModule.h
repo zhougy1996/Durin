@@ -3,16 +3,16 @@
 #include "Modules/ModuleManager.h"
 #include "SkeletalMeshEditorAPI.h"
 
+namespace Durin::Editor
+{
+	class FWorkspaceManager;
+	class FWorkspaceRegistrationHandle;
+	class FRenderedAssetThumbnailService;
+	class FAssetThumbnailProviderRegistrationHandle;
+}
+
 namespace Durin
 {
-	namespace Editor
-	{
-		class FWorkspaceManager;
-		class FWorkspaceRegistrationHandle;
-	}
-	namespace Editor { class FRenderedAssetThumbnailService; }
-	namespace Editor { class FAssetThumbnailProviderRegistrationHandle; }
-
 	// Registers exact read-only Skeleton, SkeletalMesh, and AnimationClip editor routes.
 	class FSkeletalMeshEditorModule final : public IModuleInterface
 	{
@@ -21,12 +21,12 @@ namespace Durin
 		SKELETALMESHEDITOR_API auto StartupModule() -> void override;
 		SKELETALMESHEDITOR_API auto ShutdownModule() -> void override;
 		SKELETALMESHEDITOR_API auto RegisterSkeletalMeshEditor(
-			Editor::FWorkspaceManager& WorkspaceManager,
-			Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool;
+			::Durin::Editor::FWorkspaceManager& WorkspaceManager,
+			::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool;
 		SKELETALMESHEDITOR_API auto UnregisterSkeletalMeshEditor() -> void;
 
 	private:
-		std::unique_ptr<Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
-		std::unique_ptr<Editor::FAssetThumbnailProviderRegistrationHandle> ThumbnailRegistration;
+		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
+		std::unique_ptr<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle> ThumbnailRegistration;
 	};
 }

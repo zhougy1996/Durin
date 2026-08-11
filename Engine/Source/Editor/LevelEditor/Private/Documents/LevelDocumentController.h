@@ -6,6 +6,10 @@
 namespace Durin
 {
 	class DLevel;
+}
+
+namespace Durin::Editor::Level
+{
 	class FEditorAssetMoveCoordinator;
 	class FLevelEditorSessionSettings;
 	struct FLevelEditorContext;
@@ -78,4 +82,4 @@ namespace Durin
 		FUnsavedLevelDialogPresenter UnsavedLevelDialog;
 		bool bPendingDocumentOpen = false;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

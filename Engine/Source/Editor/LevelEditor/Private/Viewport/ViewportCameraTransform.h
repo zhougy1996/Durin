@@ -2,7 +2,7 @@
 
 #include "Math/DurinMath.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	// Persists level-viewport camera position, orbit target, and Euler angles.
 	struct FLevelViewportCameraState

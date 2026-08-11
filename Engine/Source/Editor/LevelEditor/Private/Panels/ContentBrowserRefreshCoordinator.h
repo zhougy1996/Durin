@@ -2,7 +2,7 @@
 
 #include "AssetSystem.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	struct FMountedContentReconciliationState
 	{
@@ -67,4 +67,4 @@ namespace Durin
 		uint64 ObservedAssetRegistryRevision = 0;
 		std::shared_ptr<FMountedContentReconciliationState> ReconciliationState;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

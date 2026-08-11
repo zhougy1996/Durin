@@ -10,7 +10,7 @@
 #include "Workspace/LevelEditorContext.h"
 #include "MonaImGui.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{
@@ -106,14 +106,14 @@ namespace Durin
 				Builder.HideProperty(Camera->GetClass()->FindPropertyByName("ProjectionSettings"));
 				Builder.AddCustomRow(
 					"Camera Projection Field Of View Near Clip Far Clip Aspect Ratio Custom Ratio",
-					[&Context, Camera](Editor::FPropertyView& PropertyView, const Editor::FPropertyViewContext& ViewContext) {
+					[&Context, Camera](::Durin::Editor::FPropertyView& PropertyView, const ::Durin::Editor::FPropertyViewContext& ViewContext) {
 						return DrawCameraDetails(Context, *Camera, PropertyView, ViewContext);
 					});
 			}
 
 		private:
 			static auto DrawCameraDetails(FLevelEditorContext& Context, DCameraComponent& Camera,
-				Editor::FPropertyView& PropertyView, const Editor::FPropertyViewContext& ViewContext) -> bool
+				::Durin::Editor::FPropertyView& PropertyView, const ::Durin::Editor::FPropertyViewContext& ViewContext) -> bool
 			{
 				const FReflection Reflection = ResolveReflection(Camera);
 				if (!Reflection.IsValid())
@@ -154,9 +154,9 @@ namespace Durin
 				{
 					return Projection->ContainerPtrToValuePtr<FCameraProjectionSettings>(&Camera);
 				}
-				auto MakeTarget(DCameraComponent& Camera, FProperty* Field) const -> Editor::FPropertyEditTarget
+				auto MakeTarget(DCameraComponent& Camera, FProperty* Field) const -> ::Durin::Editor::FPropertyEditTarget
 				{
-					return Editor::FPropertyEditTarget::ForMember(&Camera, Projection).ForStructMember(Field);
+					return ::Durin::Editor::FPropertyEditTarget::ForMember(&Camera, Projection).ForStructMember(Field);
 				}
 			};
 
@@ -192,15 +192,15 @@ namespace Durin
 				return Result;
 			}
 
-			static auto FinishContinuousEdit(Editor::FPropertyView& PropertyView, const Editor::FPropertyViewContext& ViewContext,
-				const Editor::FPropertyEditTarget& Target, const MonaImGui::PropertyEdit::FWidgetState& State) -> void
+			static auto FinishContinuousEdit(::Durin::Editor::FPropertyView& PropertyView, const ::Durin::Editor::FPropertyViewContext& ViewContext,
+				const ::Durin::Editor::FPropertyEditTarget& Target, const MonaImGui::PropertyEdit::FWidgetState& State) -> void
 			{
 				if (State.bDeactivatedAfterEdit && PropertyView.IsEditingTarget(Target)) PropertyView.FinishActiveEdit(&ViewContext, false);
 				else if (State.bActive && ImGui::IsKeyPressed(ImGuiKey_Escape) && PropertyView.IsEditingTarget(Target))
 					PropertyView.FinishActiveEdit(&ViewContext, true);
 			}
 
-			static auto DrawAspectRatioMode(Editor::FPropertyView& PropertyView, const Editor::FPropertyViewContext& ViewContext,
+			static auto DrawAspectRatioMode(::Durin::Editor::FPropertyView& PropertyView, const ::Durin::Editor::FPropertyViewContext& ViewContext,
 				DCameraComponent& Camera, const FReflection& Reflection) -> void
 			{
 				const ECameraAspectRatioMode CurrentMode = Camera.GetAspectRatioMode();
@@ -230,12 +230,12 @@ namespace Durin
 				ImGui::PopID();
 			}
 
-			static auto DrawValue(Editor::FPropertyView& PropertyView, const Editor::FPropertyViewContext& ViewContext,
+			static auto DrawValue(::Durin::Editor::FPropertyView& PropertyView, const ::Durin::Editor::FPropertyViewContext& ViewContext,
 				DCameraComponent& Camera, const FReflection& Reflection, const char* Label, FProperty* Field,
 				float Speed, float Min, float Max, const char* Format) -> void
 			{
 				float Value = *Field->ContainerPtrToValuePtr<float>(Reflection.GetSettings(Camera));
-				const Editor::FPropertyEditTarget Target = Reflection.MakeTarget(Camera, Field);
+				const ::Durin::Editor::FPropertyEditTarget Target = Reflection.MakeTarget(Camera, Field);
 				ImGui::PushID(Field);
 				MonaImGui::PropertyEdit::BeginRow(Label, ViewContext.bReadOnly, 0.0f, "Type: Float");
 				const bool bChanged = ImGui::DragFloat("##Value", &Value, Speed, Min, Max, Format, ImGuiSliderFlags_AlwaysClamp);

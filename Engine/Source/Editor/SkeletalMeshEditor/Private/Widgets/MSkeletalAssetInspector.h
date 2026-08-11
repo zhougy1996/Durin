@@ -6,23 +6,23 @@
 #include "SkeletalMeshEditorAPI.h"
 #include "Widgets/SkeletalAssetPreview.h"
 
-namespace Durin
-{
-	class DObject;
+namespace Durin { class DObject; }
 
+namespace Durin::Editor::SkeletalMesh
+{
 	// Hosts bounded read-only documents for the three skeletal asset classes.
-	class MSkeletalAssetInspector final : public Editor::IWorkspace
+	class MSkeletalAssetInspector final : public ::Durin::Editor::IWorkspace
 	{
 	public:
-		explicit MSkeletalAssetInspector(Editor::FWorkspaceManager& InWorkspaceManager);
+		explicit MSkeletalAssetInspector(::Durin::Editor::FWorkspaceManager& InWorkspaceManager);
 		SKELETALMESHEDITOR_API ~MSkeletalAssetInspector() override;
-		SKELETALMESHEDITOR_API auto GetWorkspaceType() const -> const Editor::FWorkspaceTypeId& override;
-		SKELETALMESHEDITOR_API auto OpenDocument(const Editor::FDocumentTab& Document) -> Editor::EDocumentOpenResult override;
-		SKELETALMESHEDITOR_API auto ActivateDocument(const Editor::FDocumentTab& Document) -> void override;
-		SKELETALMESHEDITOR_API auto RequestCloseDocument(const Editor::FDocumentTab& Document) -> Editor::EDocumentCloseResult override;
-		auto SaveDocument(const Editor::FDocumentTab&) -> bool override { return false; }
-		auto DiscardDocument(const Editor::FDocumentTab&) -> bool override { return false; }
-		auto IsDocumentDirty(const Editor::FDocumentTab&) const -> bool override { return false; }
+		SKELETALMESHEDITOR_API auto GetWorkspaceType() const -> const ::Durin::Editor::FWorkspaceTypeId& override;
+		SKELETALMESHEDITOR_API auto OpenDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentOpenResult override;
+		SKELETALMESHEDITOR_API auto ActivateDocument(const ::Durin::Editor::FDocumentTab& Document) -> void override;
+		SKELETALMESHEDITOR_API auto RequestCloseDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentCloseResult override;
+		auto SaveDocument(const ::Durin::Editor::FDocumentTab&) -> bool override { return false; }
+		auto DiscardDocument(const ::Durin::Editor::FDocumentTab&) -> bool override { return false; }
+		auto IsDocumentDirty(const ::Durin::Editor::FDocumentTab&) const -> bool override { return false; }
 		auto CanSaveActiveDocument() const -> bool override { return false; }
 		auto SaveActiveDocument() -> bool override { return false; }
 		SKELETALMESHEDITOR_API auto DrawWorkspace(bool bActive) -> bool override;
@@ -39,11 +39,11 @@ namespace Durin
 		};
 
 		auto FindState(std::string_view DocumentKey) -> FDocumentState*;
-		auto DrawDocument(const Editor::FDocumentTab& Document, FDocumentState& State) -> void;
+		auto DrawDocument(const ::Durin::Editor::FDocumentTab& Document, FDocumentState& State) -> void;
 
-		Editor::FWorkspaceManager& WorkspaceManager;
+		::Durin::Editor::FWorkspaceManager& WorkspaceManager;
 		std::unordered_map<std::string, FDocumentState> Documents;
-		Editor::FWorkspaceDocumentHost DocumentHost;
+		::Durin::Editor::FWorkspaceDocumentHost DocumentHost;
 		std::string ErrorMessage;
 		uint64 NextPreviewId = 1;
 	};

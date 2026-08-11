@@ -17,10 +17,14 @@ namespace Durin
 {
 	class MViewport;
 	class FSceneViewport;
-	class FCameraPreviewViewportClient;
-	class FLevelEditorViewportClient;
 	class AActor;
 	class DLevel;
+}
+
+namespace Durin::Editor::Level
+{
+	class FCameraPreviewViewportClient;
+	class FLevelEditorViewportClient;
 	struct FLevelViewportCameraState;
 	struct FViewportToolbarLayout;
 	class FViewportToolbar;
@@ -40,7 +44,7 @@ namespace Durin
 		auto CaptureCameraState(DLevel* Level, FLevelViewportCameraState& OutState) const -> bool;
 		auto RestoreCameraState(DLevel* Level, const FLevelViewportCameraState* State) -> void;
 		auto FinalizeViewportFrame(FLevelEditorContext& Context) -> void;
-		auto SetPreferredPlayMode(Editor::EPlayStartLocation StartLocation, Editor::EPlayDestination Destination) -> void;
+		auto SetPreferredPlayMode(::Durin::Editor::EPlayStartLocation StartLocation, ::Durin::Editor::EPlayDestination Destination) -> void;
 		auto GetTransformGizmo() -> FTransformGizmo*;
 		auto GetTransformGizmo() const -> const FTransformGizmo*;
 		auto GetEditModeManager() -> FLevelViewportEditModeManager& { return EditModeManager; }
@@ -63,7 +67,7 @@ namespace Durin
 		FLevelViewportEditModeManager EditModeManager;
 		bool bViewportHovered = false;
 		bool bViewportFocused = false;
-		Editor::EPlayStartLocation PreferredPlayStartLocation;
-		Editor::EPlayDestination PreferredPlayDestination;
+		::Durin::Editor::EPlayStartLocation PreferredPlayStartLocation;
+		::Durin::Editor::EPlayDestination PreferredPlayDestination;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

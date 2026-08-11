@@ -6,7 +6,7 @@
 #include "Misc/Paths.h"
 #include "Thumbnail/AssetThumbnailObjectStore.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{
@@ -184,7 +184,7 @@ namespace Durin
 		}
 
 		FSourceImageThumbnailDiskCacheSettings Settings;
-		Editor::FAssetThumbnailObjectStore ObjectStore;
+		::Durin::Editor::FAssetThumbnailObjectStore ObjectStore;
 		uint64 SourceDecodes = 0;
 		mutable std::mutex Mutex;
 	};
@@ -232,7 +232,7 @@ namespace Durin
 		if (!Desired.SourceIdentity.empty())
 		{
 			std::vector<uint8> EncodedBytes;
-			if (Impl->ObjectStore.Load(Desired.Key, EncodedBytes) == Editor::EAssetThumbnailObjectLoadResult::Hit)
+			if (Impl->ObjectStore.Load(Desired.Key, EncodedBytes) == ::Durin::Editor::EAssetThumbnailObjectLoadResult::Hit)
 			{
 				if (DecodeCachedPng(EncodedBytes, Impl->Settings.MaximumDimension, OutThumbnail, OutError))
 					return true;
@@ -255,11 +255,11 @@ namespace Durin
 
 	auto FSourceImageThumbnailDiskCache::GetStats() const -> FSourceImageThumbnailDiskCacheStats
 	{
-		const Editor::FAssetThumbnailObjectStoreStats StoreStats = Impl->ObjectStore.GetStats();
+		const ::Durin::Editor::FAssetThumbnailObjectStoreStats StoreStats = Impl->ObjectStore.GetStats();
 		std::lock_guard Lock(Impl->Mutex);
 		return {
 			.CacheHits = StoreStats.CacheHits,
 			.SourceDecodes = Impl->SourceDecodes,
 			.Regenerations = StoreStats.Regenerations};
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

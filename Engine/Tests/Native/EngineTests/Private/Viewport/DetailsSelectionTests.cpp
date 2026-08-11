@@ -21,7 +21,7 @@ TEST(FDetailsPanelTargetingTests, DefaultsToRootComponentAndPreservesRootlessAct
 	ASSERT_EQ(RootlessActor->GetRootComponent(), nullptr);
 	const size_t RootlessComponentCount = RootlessActor->GetOwnedComponents().size();
 
-	EXPECT_EQ(Durin::DetailsPanelTargeting::ResolveDefaultComponent(RootlessActor), nullptr);
+	EXPECT_EQ(Durin::Editor::Level::DetailsPanelTargeting::ResolveDefaultComponent(RootlessActor), nullptr);
 	EXPECT_EQ(RootlessActor->GetRootComponent(), nullptr);
 	EXPECT_EQ(RootlessActor->GetOwnedComponents().size(), RootlessComponentCount);
 
@@ -29,11 +29,11 @@ TEST(FDetailsPanelTargetingTests, DefaultsToRootComponentAndPreservesRootlessAct
 		RootlessActor->AddInstanceComponent(Durin::DSceneComponent::StaticClass(), "Root"));
 	ASSERT_NE(RootComponent, nullptr);
 	EXPECT_EQ(RootlessActor->GetRootComponent(), RootComponent);
-	EXPECT_EQ(Durin::DetailsPanelTargeting::ResolveDefaultComponent(RootlessActor), RootComponent);
+	EXPECT_EQ(Durin::Editor::Level::DetailsPanelTargeting::ResolveDefaultComponent(RootlessActor), RootComponent);
 	ASSERT_TRUE(RootlessActor->DestroyInstanceComponent(RootComponent));
 	EXPECT_EQ(RootlessActor->GetRootComponent(), nullptr);
 	EXPECT_FALSE(RootlessActor->OwnsComponent(RootComponent));
-	EXPECT_EQ(Durin::DetailsPanelTargeting::ResolveSelectedComponent(RootlessActor, RootComponent), nullptr);
+	EXPECT_EQ(Durin::Editor::Level::DetailsPanelTargeting::ResolveSelectedComponent(RootlessActor, RootComponent), nullptr);
 
 	Durin::MarkObjectHierarchyAsGarbage(RootlessActor);
 	Durin::CollectGarbage();
@@ -53,10 +53,10 @@ TEST(FDetailsPanelTargetingTests, PreservesExplicitActorSelectionAndRecoversInva
 	auto* ForeignComponent = OtherActor->AddInstanceComponent(Durin::DActorComponent::StaticClass(), "Foreign");
 	ASSERT_NE(ForeignComponent, nullptr);
 
-	EXPECT_EQ(Durin::DetailsPanelTargeting::ResolveSelectedComponent(RootedActor, nullptr), nullptr);
-	EXPECT_EQ(Durin::DetailsPanelTargeting::ResolveSelectedComponent(RootedActor, OwnedComponent), OwnedComponent);
-	EXPECT_EQ(Durin::DetailsPanelTargeting::ResolveSelectedComponent(RootedActor, ForeignComponent), RootComponent);
-	EXPECT_EQ(Durin::DetailsPanelTargeting::ResolveSelectedComponent(OtherActor, RootComponent), nullptr);
+	EXPECT_EQ(Durin::Editor::Level::DetailsPanelTargeting::ResolveSelectedComponent(RootedActor, nullptr), nullptr);
+	EXPECT_EQ(Durin::Editor::Level::DetailsPanelTargeting::ResolveSelectedComponent(RootedActor, OwnedComponent), OwnedComponent);
+	EXPECT_EQ(Durin::Editor::Level::DetailsPanelTargeting::ResolveSelectedComponent(RootedActor, ForeignComponent), RootComponent);
+	EXPECT_EQ(Durin::Editor::Level::DetailsPanelTargeting::ResolveSelectedComponent(OtherActor, RootComponent), nullptr);
 
 	Durin::MarkObjectHierarchyAsGarbage(RootedActor);
 	Durin::MarkObjectHierarchyAsGarbage(OtherActor);
@@ -73,10 +73,10 @@ TEST(FLevelEditorContextSelectionTests, SharesComponentAndRepairsTypedSubElement
 	ASSERT_NE(Actor, nullptr);
 	auto* Component = Actor->AddInstanceComponent(Durin::DActorComponent::StaticClass(), "SelectedComponent");
 	ASSERT_NE(Component, nullptr);
-	Durin::FLevelEditorContext Context;
+	Durin::Editor::Level::FLevelEditorContext Context;
 	Context.Synchronize(World);
 	Context.SelectActor(Actor);
-	const Durin::FEditorSubElementSelection Element{Durin::EEditorSubElementKind::Point, Durin::FGuid::NewGuid()};
+	const Durin::Editor::Level::FEditorSubElementSelection Element{Durin::Editor::Level::EEditorSubElementKind::Point, Durin::FGuid::NewGuid()};
 	Context.SelectSubElement(Component, Element);
 	EXPECT_EQ(Context.GetSelectedComponent(), Component);
 	EXPECT_EQ(Context.GetSelectedSubElement(), Element);

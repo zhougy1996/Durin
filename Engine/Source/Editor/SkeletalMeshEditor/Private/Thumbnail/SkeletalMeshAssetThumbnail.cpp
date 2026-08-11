@@ -7,12 +7,12 @@
 #include "Math/Operations.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 
-namespace Durin
+namespace Durin::Editor::SkeletalMesh
 {
 	namespace
 	{
 		auto MakeFingerprint(const Asset::FAssetData& Data)
-			-> Editor::FAssetThumbnailPackageFingerprint
+			-> ::Durin::Editor::FAssetThumbnailPackageFingerprint
 		{
 			return {.VirtualPath = Data.PackagePath,
 				.AssetClassName = Data.AssetClassName,
@@ -27,26 +27,26 @@ namespace Durin
 				Path.ToString(), Detail.empty() ? "unknown preview error" : Detail);
 		}
 
-		class FSession final : public Editor::IRenderedAssetThumbnailGenerationSession
+		class FSession final : public ::Durin::Editor::IRenderedAssetThumbnailGenerationSession
 		{
 		public:
 			explicit FSession(FSkeletalMeshAssetThumbnailGenerationInput InInput)
 				: Input(std::move(InInput)) {}
 			~FSession() override { ResetPreview(); }
 
-			auto Load() -> Editor::FRenderedAssetThumbnailSessionUpdate override
+			auto Load() -> ::Durin::Editor::FRenderedAssetThumbnailSessionUpdate override
 			{
 				DObject* Loaded = nullptr;
 				const Asset::FAssetResult Result = Asset::LoadAsset(Input.AssetPath, Loaded);
 				Mesh = Result ? Cast<DSkeletalMesh>(Loaded) : nullptr;
 				if (!Result || !Mesh || Mesh->GetClass() != DSkeletalMesh::StaticClass())
-					return {.State = Editor::ERenderedAssetThumbnailSessionState::Failed,
+					return {.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::Failed,
 						.Diagnostic = Result.Message.empty()
 							? Qualify(Input.AssetPath, "the asset is not an exact DSkeletalMesh")
 							: Result.Message};
 				const FSkeletalMeshSummary& Summary = Mesh->GetSummary();
 				if (!Mesh->GetSkeleton() || !Summary.LocalBounds.IsValid())
-					return {.State = Editor::ERenderedAssetThumbnailSessionState::Failed,
+					return {.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::Failed,
 						.Diagnostic = Qualify(Input.AssetPath, "Skeleton or finite bounds are unavailable")};
 				FSkeletalMeshRenderResourceStatus Status = Mesh->GetRenderResourceStatus();
 				if (Status.Readiness == ESkeletalMeshRenderResourceReadiness::Unavailable)
@@ -54,30 +54,30 @@ namespace Durin
 					Mesh->InitResources(); Status = Mesh->GetRenderResourceStatus();
 				}
 				AssetRevision = Status.Revision;
-				return {.State = Editor::ERenderedAssetThumbnailSessionState::WaitingForResources,
+				return {.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::WaitingForResources,
 					.AssetRevision = AssetRevision};
 			}
 
-			auto PollResources() -> Editor::FRenderedAssetThumbnailSessionUpdate override
+			auto PollResources() -> ::Durin::Editor::FRenderedAssetThumbnailSessionUpdate override
 			{
-				if (!Mesh) return {.State = Editor::ERenderedAssetThumbnailSessionState::Failed,
+				if (!Mesh) return {.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::Failed,
 					.Diagnostic = Qualify(Input.AssetPath, "the asset is unavailable")};
 				const FSkeletalMeshRenderResourceStatus Status = Mesh->GetRenderResourceStatus();
 				if (Status.Readiness == ESkeletalMeshRenderResourceReadiness::Ready)
 				{
 					AssetRevision = Status.Revision;
-					return {.State = Editor::ERenderedAssetThumbnailSessionState::ReadyToRender,
+					return {.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::ReadyToRender,
 						.AssetRevision = AssetRevision, .ResourceRevision = Status.Revision};
 				}
 				if (Status.Readiness == ESkeletalMeshRenderResourceReadiness::Queued)
-					return {.State = Editor::ERenderedAssetThumbnailSessionState::WaitingForResources,
+					return {.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::WaitingForResources,
 						.AssetRevision = AssetRevision, .ResourceRevision = Status.Revision};
-				return {.State = Editor::ERenderedAssetThumbnailSessionState::Failed,
+				return {.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::Failed,
 					.AssetRevision = AssetRevision, .ResourceRevision = Status.Revision,
 					.Diagnostic = Qualify(Input.AssetPath, "render resources failed or became unavailable")};
 			}
 
-			auto PreparePreview(Editor::IRenderedAssetThumbnailPreviewScene& Scene,
+			auto PreparePreview(::Durin::Editor::IRenderedAssetThumbnailPreviewScene& Scene,
 				std::string& OutError) -> bool override
 			{
 				ResetPreview();
@@ -111,7 +111,7 @@ namespace Durin
 				}
 				Component->Pause(); Component->ClearMaterialOverrides();
 				const FVector3 CameraPosition = Center + Direction * Distance;
-				const Editor::FRenderedAssetThumbnailPreviewView View{
+				const ::Durin::Editor::FRenderedAssetThumbnailPreviewView View{
 					.CameraPosition = {CameraPosition.x, CameraPosition.y, CameraPosition.z},
 					.CameraForward = {Forward.x, Forward.y, Forward.z},
 					.CameraRight = {Right.x, Right.y, Right.z},
@@ -157,7 +157,7 @@ namespace Durin
 	}
 
 	auto FSkeletalMeshAssetThumbnailProvider::GetRegistration() const
-		-> Editor::FAssetThumbnailProviderRegistration
+		-> ::Durin::Editor::FAssetThumbnailProviderRegistration
 	{
 		return {.AssetClassName = DSkeletalMesh::StaticClass()->GetQualifiedName().ToString(),
 			.ProviderName = std::string(FSkeletalMeshAssetThumbnailContract::ProviderName),
@@ -165,8 +165,8 @@ namespace Durin
 	}
 
 	auto FSkeletalMeshAssetThumbnailProvider::CaptureGenerationRequest(
-		const Editor::FAssetThumbnailRequest& Request, uint64 ProviderGeneration,
-		Editor::FAssetThumbnailGenerationRequest& OutRequest, std::string& OutError) -> bool
+		const ::Durin::Editor::FAssetThumbnailRequest& Request, uint64 ProviderGeneration,
+		::Durin::Editor::FAssetThumbnailGenerationRequest& OutRequest, std::string& OutError) -> bool
 	{
 		OutRequest = {}; OutError.clear();
 		if (Request.Asset.AssetClassName != GetRegistration().AssetClassName)
@@ -179,14 +179,14 @@ namespace Durin
 		{
 			OutError = "Skeletal thumbnail registry data is missing or changed."; return false;
 		}
-		std::vector<Editor::FAssetThumbnailDependencyNode> Nodes;
+		std::vector<::Durin::Editor::FAssetThumbnailDependencyNode> Nodes;
 		Nodes.reserve(Registry.GetAssets().size());
 		for (const auto& [Path, Data] : Registry.GetAssets())
 			Nodes.push_back({.Package = MakeFingerprint(Data), .Dependencies = Data.Dependencies});
-		std::vector<Editor::FAssetThumbnailPackageFingerprint> Dependencies;
-		if (!Editor::BuildAssetThumbnailDependencyClosure(Request.Asset.VirtualPath,
+		std::vector<::Durin::Editor::FAssetThumbnailPackageFingerprint> Dependencies;
+		if (!::Durin::Editor::BuildAssetThumbnailDependencyClosure(Request.Asset.VirtualPath,
 			Nodes, Dependencies, OutError)) return false;
-		Editor::FRenderedAssetThumbnailVisualContract Visual;
+		::Durin::Editor::FRenderedAssetThumbnailVisualContract Visual;
 		Visual.CameraDirectionX = 2.4f; Visual.CameraDirectionY = -3.2f;
 		Visual.CameraDirectionZ = 2.4f; Visual.VerticalFieldOfViewDegrees = 42.0f;
 		Visual.bOutputOpaque = false;
@@ -203,8 +203,8 @@ namespace Durin
 	}
 
 	auto FSkeletalMeshAssetThumbnailProvider::CreateGenerationSession(
-		const Editor::FAssetThumbnailGenerationRequest&, const Editor::IAssetThumbnailGenerationInput& Input,
-		std::string& OutError) -> std::unique_ptr<Editor::IRenderedAssetThumbnailGenerationSession>
+		const ::Durin::Editor::FAssetThumbnailGenerationRequest&, const ::Durin::Editor::IAssetThumbnailGenerationInput& Input,
+		std::string& OutError) -> std::unique_ptr<::Durin::Editor::IRenderedAssetThumbnailGenerationSession>
 	{
 		const auto* Typed = dynamic_cast<const FSkeletalMeshAssetThumbnailGenerationInput*>(&Input);
 		if (!Typed) { OutError = "The skeletal thumbnail generation input is invalid."; return nullptr; }

@@ -16,7 +16,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{
@@ -513,4 +513,4 @@ namespace Durin
 		PreparedSceneView.bReadyForRender = false;
 		if (bDiscardInteractionData) PreparedSceneView = {};
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

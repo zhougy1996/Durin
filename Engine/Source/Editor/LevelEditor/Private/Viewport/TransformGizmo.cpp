@@ -11,7 +11,7 @@
 #include "Viewport/LevelEditorViewportClient.h"
 #include "MonaImGui.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{
@@ -106,7 +106,7 @@ namespace Durin
 		}
 
 		// Restores before/after transforms for every target changed by one gizmo drag.
-		class FTransformTargetTransaction final : public Editor::ITransaction
+		class FTransformTargetTransaction final : public ::Durin::Editor::ITransaction
 		{
 		public:
 			struct FEntry
@@ -130,7 +130,7 @@ namespace Durin
 					Description = std::format("{} {} {}", Action, Entries.size(), CollectionLabel);
 			}
 			auto GetDescription() const -> std::string_view override { return Description; }
-			auto GetDetails(Editor::ETransactionOperation Operation) const -> std::string override { return BuildDetails(Operation != Editor::ETransactionOperation::Undo); }
+			auto GetDetails(::Durin::Editor::ETransactionOperation Operation) const -> std::string override { return BuildDetails(Operation != ::Durin::Editor::ETransactionOperation::Undo); }
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
 			auto Undo() -> bool override { return Apply(false); }
 			auto Redo() -> bool override { return Apply(true); }
@@ -522,7 +522,7 @@ namespace Durin
 		}
 	}
 
-	auto FTransformGizmo::FinishDrag(Editor::FTransactionManager* Transactions) -> void
+	auto FTransformGizmo::FinishDrag(::Durin::Editor::FTransactionManager* Transactions) -> void
 	{
 		if (bDragChanged && Transactions)
 		{
@@ -553,12 +553,12 @@ namespace Durin
 		bDragChanged = false;
 	}
 
-	auto FTransformGizmo::Update(FLevelEditorContext& Context, const FSceneView& View, const FLevelEditorViewportInput& Input, Editor::FTransactionManager* Transactions) -> void
+	auto FTransformGizmo::Update(FLevelEditorContext& Context, const FSceneView& View, const FLevelEditorViewportInput& Input, ::Durin::Editor::FTransactionManager* Transactions) -> void
 	{
 		Update(MakeActorTransformGizmoTargets(Context), View, Input, Transactions);
 	}
 
-	auto FTransformGizmo::Update(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, Editor::FTransactionManager* Transactions) -> void
+	auto FTransformGizmo::Update(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, ::Durin::Editor::FTransactionManager* Transactions) -> void
 	{
 		if (IsDragging())
 		{
@@ -652,4 +652,4 @@ namespace Durin
 			Add(EViewOverlayShape::Box, Box, ETransformGizmoHandle::Uniform);
 		}
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

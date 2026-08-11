@@ -3,7 +3,7 @@
 #include "DObject/Class.h"
 #include "MonaImGui.h"
 
-namespace Durin::LevelEditorHelpers
+namespace Durin::Editor::Level::Helpers
 {
 	inline auto ClassDisplayName(const DClass* Class) -> std::string
 	{
@@ -14,4 +14,4 @@ namespace Durin::LevelEditorHelpers
 	{
 		return MonaImGui::ToolbarIconButton(Icon, Id);
 	}
-} // namespace Durin::LevelEditorHelpers
+} // namespace Durin::Editor::Level::Helpers

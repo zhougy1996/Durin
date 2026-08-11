@@ -12,11 +12,11 @@
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{
-		using LevelEditorHelpers::ClassDisplayName;
+		using Helpers::ClassDisplayName;
 		using StringUtils::ContainsInsensitive;
 
 		constexpr const char* ComponentDragPayload = "DURIN_DETAILS_SCENE_COMPONENT";
@@ -363,4 +363,4 @@ namespace Durin
 			ImGui::EndPopup();
 		}
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

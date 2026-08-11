@@ -9,7 +9,7 @@ namespace Durin::Editor
 	enum class EPlayDestination : uint8;
 }
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	class FLevelEditorViewportClient;
 	class FLevelViewportEditModeManager;
@@ -55,8 +55,8 @@ namespace Durin
 			FLevelEditorContext& Context,
 			FLevelEditorViewportClient* ViewportClient,
 			FLevelViewportEditModeManager* EditModeManager,
-			Editor::EPlayStartLocation& PreferredPlayStartLocation,
-			Editor::EPlayDestination& PreferredPlayDestination,
+			::Durin::Editor::EPlayStartLocation& PreferredPlayStartLocation,
+			::Durin::Editor::EPlayDestination& PreferredPlayDestination,
 			const FViewportToolbarLayout& Layout
 		) const -> void;
 	};
@@ -64,4 +64,4 @@ namespace Durin
 	auto DrawViewportPlayStateBorder(const ImVec2& ViewportMin, const ImVec2& ViewportMax, bool bPaused) -> void;
 	auto DrawViewportOrientationOverlay(const FLevelEditorViewportClient* ViewportClient, const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void;
 	auto DrawViewportFPSOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void;
-} // namespace Durin
+} // namespace Durin::Editor::Level

@@ -12,7 +12,7 @@
 #include "Engine/Level.h"
 #include "Engine/ProjectGameSettings.h"
 #include "Engine/World.h"
-#include "Interfaces/IMainFrameModule.h"
+#include "Interfaces/MainFrame.h"
 #include "Modules/ModuleManager.h"
 #include "Misc/Project.h"
 #include "Profiling/Profiling.h"
@@ -53,7 +53,7 @@ namespace Durin
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellBegin);
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.EditorShell");
-			MainFrameModule->CreateDefaultMainFrame();
+			MainFrameModule->CreateDefaultFrame();
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::EditorShellComplete);
 
@@ -68,11 +68,11 @@ namespace Durin
 			const bool bFirstPresentAvailable = InitContext.bHeadless
 				|| Profiling::GetStartupMilestoneMilliseconds(
 					Profiling::EStartupMilestone::FirstPresent) >= 0.0;
-			const FEditorBootstrapProgress Progress =
-				MainFrameModule->AdvanceDefaultMainFrameBootstrap(
+			const Editor::MainFrame::FBootstrapProgress Progress =
+				MainFrameModule->AdvanceDefaultBootstrap(
 					bFirstPresentAvailable);
-			if (Progress.Status == EEditorBootstrapStepStatus::Ready) break;
-			if (Progress.Status == EEditorBootstrapStepStatus::Failed)
+			if (Progress.Status == Editor::MainFrame::EBootstrapStepStatus::Ready) break;
+			if (Progress.Status == Editor::MainFrame::EBootstrapStepStatus::Failed)
 			{
 				// Keep the actionable failure visible for one final safe frame.
 				InitContext.PumpStartupFrame();
@@ -183,7 +183,7 @@ namespace Durin
 	auto DEditorEngine::BeginDestroy() -> void
 	{
 		if (MainFrameModule)
-			MainFrameModule->DestroyDefaultMainFrame();
+			MainFrameModule->DestroyDefaultFrame();
 		TeardownPlaySession();
 		TransactionManager->Clear();
 		for (const uint64 Handle : ConsoleCommandHandles) FConsoleCommandRegistry::Get().UnregisterCommand(Handle);

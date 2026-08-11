@@ -3,7 +3,7 @@
 #include "SkeletalMeshEditorAPI.h"
 #include "Thumbnail/RenderedAssetThumbnailExtension.h"
 
-namespace Durin
+namespace Durin::Editor::SkeletalMesh
 {
 	// Freezes reference-pose LOD 0 skeletal thumbnail identity and output policy.
 	struct FSkeletalMeshAssetThumbnailContract
@@ -17,31 +17,31 @@ namespace Durin
 	};
 
 	class FSkeletalMeshAssetThumbnailGenerationInput final
-		: public Editor::IAssetThumbnailGenerationInput
+		: public ::Durin::Editor::IAssetThumbnailGenerationInput
 	{
 	public:
 		FSkeletalMeshAssetThumbnailGenerationInput(
-			FAssetPath InAssetPath, Editor::FRenderedAssetThumbnailVisualContract InVisual)
+			FAssetPath InAssetPath, ::Durin::Editor::FRenderedAssetThumbnailVisualContract InVisual)
 			: AssetPath(std::move(InAssetPath)), Visual(std::move(InVisual)) {}
 		FAssetPath AssetPath;
-		Editor::FRenderedAssetThumbnailVisualContract Visual;
+		::Durin::Editor::FRenderedAssetThumbnailVisualContract Visual;
 	};
 
 	// Captures the mesh, Skeleton, material, and texture package closure before generation.
 	class FSkeletalMeshAssetThumbnailProvider final
-		: public Editor::IRenderedAssetThumbnailExtension
+		: public ::Durin::Editor::IRenderedAssetThumbnailExtension
 	{
 	public:
 		SKELETALMESHEDITOR_API auto GetRegistration() const
-			-> Editor::FAssetThumbnailProviderRegistration override;
+			-> ::Durin::Editor::FAssetThumbnailProviderRegistration override;
 		SKELETALMESHEDITOR_API auto CaptureGenerationRequest(
-			const Editor::FAssetThumbnailRequest& Request, uint64 ProviderGeneration,
-			Editor::FAssetThumbnailGenerationRequest& OutRequest,
+			const ::Durin::Editor::FAssetThumbnailRequest& Request, uint64 ProviderGeneration,
+			::Durin::Editor::FAssetThumbnailGenerationRequest& OutRequest,
 			std::string& OutError) -> bool override;
 		SKELETALMESHEDITOR_API auto CreateGenerationSession(
-			const Editor::FAssetThumbnailGenerationRequest& Request,
-			const Editor::IAssetThumbnailGenerationInput& Input,
+			const ::Durin::Editor::FAssetThumbnailGenerationRequest& Request,
+			const ::Durin::Editor::IAssetThumbnailGenerationInput& Input,
 			std::string& OutError)
-			-> std::unique_ptr<Editor::IRenderedAssetThumbnailGenerationSession> override;
+			-> std::unique_ptr<::Durin::Editor::IRenderedAssetThumbnailGenerationSession> override;
 	};
 }

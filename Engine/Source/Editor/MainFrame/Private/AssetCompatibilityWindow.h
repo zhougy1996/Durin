@@ -2,7 +2,7 @@
 
 #include "Asset/AssetCompatibilityAudit.h"
 
-namespace Durin
+namespace Durin::Editor::MainFrame
 {
 	class FAssetCompatibilityWindow
 	{

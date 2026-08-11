@@ -11,6 +11,10 @@ namespace Durin
 	class AActor;
 	class DActorComponent;
 	class DLevel;
+}
+
+namespace Durin::Editor::Level
+{
 	class IViewportPickingBackend;
 	class FViewportPickingService;
 	class FViewportPickingSceneIndex;

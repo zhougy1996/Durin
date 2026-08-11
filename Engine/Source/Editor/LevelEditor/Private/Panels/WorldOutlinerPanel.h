@@ -9,6 +9,10 @@ namespace Durin
 {
 	class AActor;
 	class DLevel;
+}
+
+namespace Durin::Editor::Level
+{
 
 	// Builds and draws the searchable actor hierarchy for the active level.
 	class FWorldOutlinerPanel final : public ILevelEditorPanel
@@ -54,4 +58,4 @@ namespace Durin
 		bool bRenamingLevel = false;
 		int ExpandRequest = 0;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

@@ -2,8 +2,8 @@
 
 #include "Editor/WorkspaceTypes.h"
 
-namespace Durin::MaterialEditorWorkspace
+namespace Durin::Editor::Material::Workspace
 {
-	inline const Editor::FWorkspaceTypeId Type("MaterialEditor");
+	inline const ::Durin::Editor::FWorkspaceTypeId Type("MaterialEditor");
 	inline constexpr std::string_view RootKey = "MaterialEditor";
 }

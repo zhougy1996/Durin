@@ -11,6 +11,10 @@ namespace Durin
 	class AActor;
 	class DActorComponent;
 	class DLevel;
+}
+
+namespace Durin::Editor::Level
+{
 
 	// Selects the semantic families considered by one viewport request.
 	enum class EViewportPickLayer : uint8
@@ -102,4 +106,4 @@ namespace Durin
 
 	// Applies the lasting cross-family ordering contract to two already valid candidates.
 	LEVELEDITOR_API auto IsViewportPickHitPreferred(const FViewportPickHit& Candidate, const FViewportPickHit& Current) -> bool;
-} // namespace Durin
+} // namespace Durin::Editor::Level

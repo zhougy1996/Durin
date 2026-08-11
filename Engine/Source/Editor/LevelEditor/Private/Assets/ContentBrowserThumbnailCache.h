@@ -2,9 +2,10 @@
 
 #include "Thumbnail/AssetThumbnailProvider.h"
 
-namespace Durin
+namespace Durin::Editor { class FRenderedAssetThumbnailCache; }
+
+namespace Durin::Editor::Level
 {
-	namespace Editor { class FRenderedAssetThumbnailCache; }
 	class FSourceImageThumbnailCache;
 
 	// Supplies either source-image input or an authored asset fingerprint through one card request.
@@ -14,8 +15,8 @@ namespace Durin
 		std::string_view SourcePhysicalPath;
 		uintmax_t SourceFileSize = 0;
 		std::filesystem::file_time_type SourceLastWriteTime{};
-		std::optional<Editor::FAssetThumbnailPackageFingerprint> Asset;
-		Editor::EAssetThumbnailPriority Priority = Editor::EAssetThumbnailPriority::Prefetch;
+		std::optional<::Durin::Editor::FAssetThumbnailPackageFingerprint> Asset;
+		::Durin::Editor::EAssetThumbnailPriority Priority = ::Durin::Editor::EAssetThumbnailPriority::Prefetch;
 	};
 
 	// Presents source and rendered providers through one Content Browser lifecycle.
@@ -30,14 +31,14 @@ namespace Durin
 
 		auto BeginFrame() -> void;
 		auto Request(const FContentBrowserThumbnailRequest& Request) -> void;
-		auto Find(std::string_view Identity) const -> Editor::FAssetThumbnailView;
+		auto Find(std::string_view Identity) const -> ::Durin::Editor::FAssetThumbnailView;
 		auto EndFrame() -> void;
 		auto CancelPendingRequests() -> void;
 		auto Clear() -> void;
 
 	private:
 		std::unique_ptr<FSourceImageThumbnailCache> SourceImages;
-		std::unique_ptr<Editor::FRenderedAssetThumbnailCache> RenderedAssets;
+		std::unique_ptr<::Durin::Editor::FRenderedAssetThumbnailCache> RenderedAssets;
 		std::unordered_map<std::string, FAssetPath> RenderedIdentities;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

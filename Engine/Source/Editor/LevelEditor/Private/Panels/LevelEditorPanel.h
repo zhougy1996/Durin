@@ -1,6 +1,6 @@
 #pragma once
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	struct FLevelEditorContext;
 
@@ -21,4 +21,4 @@ namespace Durin
 	private:
 		bool bOpen = true;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

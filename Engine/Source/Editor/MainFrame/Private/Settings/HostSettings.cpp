@@ -1,17 +1,17 @@
-#include "Settings/EditorHostSettings.h"
+#include "Settings/HostSettings.h"
 
 #include "Application/GenericApplication.h"
 #include "Misc/FilesystemMigration.h"
 #include "Misc/Paths.h"
 #include "Yaml/Yaml.h"
 
-namespace Durin
+namespace Durin::Editor::MainFrame
 {
 	namespace
 	{
 		constexpr const char* HostSettingsFileName = "EditorHostSettings.yaml";
 
-		auto LoadDisplaySettings(const FYamlNodeView& Display, FEditorHostSettings& Settings) -> void
+		auto LoadDisplaySettings(const FYamlNodeView& Display, FHostSettings& Settings) -> void
 		{
 			Settings.SetDisplaySettings(
 				static_cast<int32>(Display.GetView("WindowWidth").GetInt(Settings.GetWindowWidth())),
@@ -24,7 +24,7 @@ namespace Durin
 		}
 	}
 
-	auto FEditorHostSettings::Load() -> bool
+	auto FHostSettings::Load() -> bool
 	{
 		const std::vector<FMonitorInfo> Monitors = EnumerateMonitors();
 		if (!Monitors.empty())
@@ -54,7 +54,7 @@ namespace Durin
 		return true;
 	}
 
-	auto FEditorHostSettings::Save() const -> bool
+	auto FHostSettings::Save() const -> bool
 	{
 		FYamlDocument Document;
 		FYamlNodeRef Display = Document.GetMutableRoot().AddMap("Display");
@@ -71,7 +71,7 @@ namespace Durin
 		return true;
 	}
 
-	auto FEditorHostSettings::SetDisplaySettings(int32 Width, int32 Height, float Scale) -> void
+	auto FHostSettings::SetDisplaySettings(int32 Width, int32 Height, float Scale) -> void
 	{
 		WindowWidth = Width;
 		WindowHeight = Height;

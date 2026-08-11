@@ -5,7 +5,7 @@
 #include "StaticMeshEditorAPI.h"
 #include "Thumbnail/RenderedAssetThumbnailExtension.h"
 
-namespace Durin
+namespace Durin::Editor::StaticMesh
 {
 	// Freezes the initial StaticMesh thumbnail identity and visual policy.
 	struct FStaticMeshAssetThumbnailContract
@@ -48,37 +48,37 @@ namespace Durin
 
 	// Carries only the mounted identity and frozen visual inputs across the shared pipeline.
 	class FStaticMeshAssetThumbnailGenerationInput final
-		: public Editor::IAssetThumbnailGenerationInput
+		: public ::Durin::Editor::IAssetThumbnailGenerationInput
 	{
 	public:
 		FStaticMeshAssetThumbnailGenerationInput(
 			FAssetPath InAssetPath,
-			Editor::FRenderedAssetThumbnailVisualContract InVisualContract)
+			::Durin::Editor::FRenderedAssetThumbnailVisualContract InVisualContract)
 			: AssetPath(std::move(InAssetPath))
 			, VisualContract(std::move(InVisualContract))
 		{
 		}
 
 		FAssetPath AssetPath;
-		Editor::FRenderedAssetThumbnailVisualContract VisualContract;
+		::Durin::Editor::FRenderedAssetThumbnailVisualContract VisualContract;
 	};
 
 	// Captures the exact StaticMesh fingerprint and sorted transitive dependency closure.
-	class FStaticMeshAssetThumbnailProvider final : public Editor::IRenderedAssetThumbnailExtension
+	class FStaticMeshAssetThumbnailProvider final : public ::Durin::Editor::IRenderedAssetThumbnailExtension
 	{
 	public:
 		STATICMESHEDITOR_API auto GetRegistration() const
-			-> Editor::FAssetThumbnailProviderRegistration override;
+			-> ::Durin::Editor::FAssetThumbnailProviderRegistration override;
 		STATICMESHEDITOR_API auto CaptureGenerationRequest(
-			const Editor::FAssetThumbnailRequest& Request,
+			const ::Durin::Editor::FAssetThumbnailRequest& Request,
 			uint64 ProviderGeneration,
-			Editor::FAssetThumbnailGenerationRequest& OutRequest,
+			::Durin::Editor::FAssetThumbnailGenerationRequest& OutRequest,
 			std::string& OutError) -> bool override;
 		STATICMESHEDITOR_API auto CreateGenerationSession(
-			const Editor::FAssetThumbnailGenerationRequest& Request,
-			const Editor::IAssetThumbnailGenerationInput& Input,
+			const ::Durin::Editor::FAssetThumbnailGenerationRequest& Request,
+			const ::Durin::Editor::IAssetThumbnailGenerationInput& Input,
 			std::string& OutError)
-			-> std::unique_ptr<Editor::IRenderedAssetThumbnailGenerationSession> override;
+			-> std::unique_ptr<::Durin::Editor::IRenderedAssetThumbnailGenerationSession> override;
 	};
 
 	// Fits all eight finite, non-degenerate bounds corners inside the requested image margin.
@@ -86,4 +86,4 @@ namespace Durin
 		const FStaticMeshAssetThumbnailViewInput& Input,
 		FStaticMeshAssetThumbnailView& OutView,
 		std::string& OutError) -> bool;
-} // namespace Durin
+} // namespace Durin::Editor::StaticMesh

@@ -365,10 +365,10 @@ TEST(FLevelDocumentRevisionStateTests, AdvancesCheckpointOnlyAfterSuccessfulSave
 	ASSERT_TRUE(Manager.Execute(std::make_unique<FPackageCountingTransaction>(Value, std::initializer_list{Package})));
 	const Durin::Editor::FPackageRevisionState BeforeFailure = *Manager.GetPackageRevisionState(*Package);
 
-	Durin::FLevelDocumentRevisionState::CompleteSave(&Manager, *Package, false);
+	Durin::Editor::Level::FLevelDocumentRevisionState::CompleteSave(&Manager, *Package, false);
 	EXPECT_EQ(Manager.GetPackageRevisionState(*Package)->SavedRevision, BeforeFailure.SavedRevision);
 	EXPECT_TRUE(Package->IsDirty());
-	Durin::FLevelDocumentRevisionState::CompleteSave(&Manager, *Package, true);
+	Durin::Editor::Level::FLevelDocumentRevisionState::CompleteSave(&Manager, *Package, true);
 	EXPECT_EQ(
 		Manager.GetPackageRevisionState(*Package)->SavedRevision,
 		Manager.GetPackageRevisionState(*Package)->CurrentRevision
@@ -386,27 +386,27 @@ TEST(FLevelDocumentRevisionStateTests, ReplacesActivationStateAndDiscardsMetadat
 	Manager.EstablishSavedState(*Previous);
 	ASSERT_TRUE(Manager.Execute(std::make_unique<FPackageCountingTransaction>(Value, std::initializer_list{Previous})));
 
-	Durin::FLevelDocumentRevisionState::Activate(&Manager, CleanReplacement);
+	Durin::Editor::Level::FLevelDocumentRevisionState::Activate(&Manager, CleanReplacement);
 	EXPECT_FALSE(Manager.GetPackageRevisionState(*Previous).has_value());
 	ASSERT_TRUE(Manager.GetPackageRevisionState(*CleanReplacement).has_value());
 	EXPECT_TRUE(Manager.GetPackageRevisionState(*CleanReplacement)->bCheckpointValid);
 	EXPECT_FALSE(CleanReplacement->IsDirty());
 
 	DirtyReplacement->MarkDirty();
-	Durin::FLevelDocumentRevisionState::Activate(&Manager, DirtyReplacement);
+	Durin::Editor::Level::FLevelDocumentRevisionState::Activate(&Manager, DirtyReplacement);
 	EXPECT_FALSE(Manager.GetPackageRevisionState(*CleanReplacement).has_value());
 	ASSERT_TRUE(Manager.GetPackageRevisionState(*DirtyReplacement).has_value());
 	EXPECT_FALSE(Manager.GetPackageRevisionState(*DirtyReplacement)->bCheckpointValid);
 	EXPECT_TRUE(DirtyReplacement->IsDirty());
 
-	Durin::FLevelDocumentRevisionState::Discard(&Manager, *DirtyReplacement);
+	Durin::Editor::Level::FLevelDocumentRevisionState::Discard(&Manager, *DirtyReplacement);
 	EXPECT_FALSE(Manager.GetPackageRevisionState(*DirtyReplacement).has_value());
 	EXPECT_FALSE(DirtyReplacement->IsDirty());
 }
 
 TEST(FViewportCameraTransformTests, ClampsPitchAndBuildsOrthonormalDirections)
 {
-	Durin::FViewportCameraTransform Camera;
+	Durin::Editor::Level::FViewportCameraTransform Camera;
 	Camera.Rotate(0.0f, 200.0f);
 	EXPECT_DOUBLE_EQ(Camera.GetPitch(), 89.0);
 	EXPECT_NEAR(Durin::Math::Length(Camera.GetForwardVector()), 1.0, 1.e-8);
@@ -416,7 +416,7 @@ TEST(FViewportCameraTransformTests, ClampsPitchAndBuildsOrthonormalDirections)
 
 TEST(FViewportCameraTransformTests, MovesPansAndPreservesOrbitDistance)
 {
-	Durin::FViewportCameraTransform Camera;
+	Durin::Editor::Level::FViewportCameraTransform Camera;
 	const Durin::FVector3 InitialLocation = Camera.GetLocation();
 	const Durin::FVector3 InitialPivot = Camera.GetOrbitPivot();
 	Camera.MoveLocal({2.0, 0.0, 0.0});
@@ -430,7 +430,7 @@ TEST(FViewportCameraTransformTests, MovesPansAndPreservesOrbitDistance)
 
 TEST(FViewportCameraTransformTests, FocusAndDollyRemainFiniteAtDegenerateDistance)
 {
-	Durin::FViewportCameraTransform Camera;
+	Durin::Editor::Level::FViewportCameraTransform Camera;
 	Camera.Focus({3.0, 4.0, 5.0}, 0.0f);
 	EXPECT_GE(Camera.GetOrbitDistance(), 0.05);
 	ExpectVectorNear(Camera.GetOrbitPivot(), {3.0, 4.0, 5.0});
@@ -442,15 +442,15 @@ TEST(FViewportCameraTransformTests, FocusAndDollyRemainFiniteAtDegenerateDistanc
 
 TEST(FViewportCameraTransformTests, RestoresCompleteStateAndConstrainsInvalidNavigationValues)
 {
-	Durin::FViewportCameraTransform Camera;
-	Durin::FLevelViewportCameraState State;
+	Durin::Editor::Level::FViewportCameraTransform Camera;
+	Durin::Editor::Level::FLevelViewportCameraState State;
 	State.Location = {10.0, 20.0, 30.0};
 	State.OrbitPivot = {1.0, 2.0, 3.0};
 	State.OrbitDistance = -4.0;
 	State.Pitch = 200.0;
 	State.Yaw = 123.0;
 	Camera.SetState(State);
-	const Durin::FLevelViewportCameraState Actual = Camera.GetState();
+	const Durin::Editor::Level::FLevelViewportCameraState Actual = Camera.GetState();
 	ExpectVectorNear(Actual.Location, State.Location);
 	ExpectVectorNear(Actual.OrbitPivot, State.OrbitPivot);
 	EXPECT_DOUBLE_EQ(Actual.OrbitDistance, 0.05);
@@ -460,23 +460,23 @@ TEST(FViewportCameraTransformTests, RestoresCompleteStateAndConstrainsInvalidNav
 
 TEST(FLevelViewportSessionSettingsTests, RoundTripsProjectsAndLevelsAndSkipsInvalidEntries)
 {
-	Durin::FLevelViewportStateMap States;
+	Durin::Editor::Level::FLevelViewportStateMap States;
 	States["G:/Projects/A/A.dproject"]["/A/Levels/Main"] = {{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, 7.0, -8.0, 9.0};
 	States["G:/Projects/B/B.dproject"]["/B/Levels/Other"] = {{10.0, 20.0, 30.0}, {40.0, 50.0, 60.0}, 70.0, -80.0, 90.0};
 	Durin::FYamlDocument Document;
 	Durin::FYamlNodeRef Root = Document.GetMutableRoot();
 	Root.EnsureMap();
-	Durin::SaveLevelViewportStates(Root, States);
+	Durin::Editor::Level::SaveLevelViewportStates(Root, States);
 	Durin::FYamlNodeRef Invalid = Root.GetRef("LevelViewportStates").AppendMap();
 	Invalid.SetChildValue("Project", "G:/Projects/A/A.dproject");
 	Invalid.SetChildValue("Level", "/A/Levels/Broken");
 	Invalid.AddSequence("Location").AppendValue(1.0).AppendValue(2.0);
 
-	Durin::FLevelViewportStateMap Loaded;
-	Durin::LoadLevelViewportStates(Document.GetRootView(), Loaded);
+	Durin::Editor::Level::FLevelViewportStateMap Loaded;
+	Durin::Editor::Level::LoadLevelViewportStates(Document.GetRootView(), Loaded);
 	ASSERT_EQ(Loaded.size(), 2u);
 	ASSERT_EQ(Loaded.at("G:/Projects/A/A.dproject").size(), 1u);
-	const Durin::FLevelViewportCameraState& Main = Loaded.at("G:/Projects/A/A.dproject").at("/A/Levels/Main");
+	const Durin::Editor::Level::FLevelViewportCameraState& Main = Loaded.at("G:/Projects/A/A.dproject").at("/A/Levels/Main");
 	ExpectVectorNear(Main.Location, {1.0, 2.0, 3.0});
 	ExpectVectorNear(Main.OrbitPivot, {4.0, 5.0, 6.0});
 	EXPECT_DOUBLE_EQ(Main.OrbitDistance, 7.0);

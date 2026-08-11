@@ -16,42 +16,42 @@ namespace
 {
 	struct FFakePickingState
 	{
-		std::unordered_map<Durin::uint64, Durin::FViewportPickingBackendRequest> Requests;
-		std::unordered_map<Durin::uint64, Durin::FViewportPickingBackendCompletion> Completions;
+		std::unordered_map<Durin::uint64, Durin::Editor::Level::FViewportPickingBackendRequest> Requests;
+		std::unordered_map<Durin::uint64, Durin::Editor::Level::FViewportPickingBackendCompletion> Completions;
 		std::unordered_set<Durin::uint64> Cancelled;
 
-		auto CompleteFirst(Durin::FViewportPickTicket Ticket, double Distance = 3.0) -> void
+		auto CompleteFirst(Durin::Editor::Level::FViewportPickTicket Ticket, double Distance = 3.0) -> void
 		{
 			const auto It = Requests.find(Ticket.Id);
 			ASSERT_NE(It, Requests.end());
 			ASSERT_FALSE(It->second.Targets.empty());
 			Completions[Ticket.Id] = {
-				Durin::EViewportPickStatus::Completed,
-				Durin::FViewportPickingBackendHit{It->second.Targets.front().Token, Distance, 0},
+				Durin::Editor::Level::EViewportPickStatus::Completed,
+				Durin::Editor::Level::FViewportPickingBackendHit{It->second.Targets.front().Token, Distance, 0},
 			};
 		}
 	};
 
-	class FControlledPickingBackend final : public Durin::IViewportPickingBackend
+	class FControlledPickingBackend final : public Durin::Editor::Level::IViewportPickingBackend
 	{
 	public:
 		explicit FControlledPickingBackend(std::shared_ptr<FFakePickingState> InState) : State(std::move(InState)) {}
 
-		auto Submit(Durin::FViewportPickingBackendRequest Request) -> Durin::FViewportPickingBackendCompletion override
+		auto Submit(Durin::Editor::Level::FViewportPickingBackendRequest Request) -> Durin::Editor::Level::FViewportPickingBackendCompletion override
 		{
 			State->Requests.emplace(Request.Ticket.Id, std::move(Request));
-			return {Durin::EViewportPickStatus::Pending, std::nullopt};
+			return {Durin::Editor::Level::EViewportPickStatus::Pending, std::nullopt};
 		}
 
-		auto Poll(Durin::FViewportPickTicket Ticket) -> Durin::FViewportPickingBackendCompletion override
+		auto Poll(Durin::Editor::Level::FViewportPickTicket Ticket) -> Durin::Editor::Level::FViewportPickingBackendCompletion override
 		{
 			const auto It = State->Completions.find(Ticket.Id);
 			return It == State->Completions.end()
-				? Durin::FViewportPickingBackendCompletion{Durin::EViewportPickStatus::Pending, std::nullopt}
+				? Durin::Editor::Level::FViewportPickingBackendCompletion{Durin::Editor::Level::EViewportPickStatus::Pending, std::nullopt}
 				: It->second;
 		}
 
-		auto Cancel(Durin::FViewportPickTicket Ticket) -> void override { State->Cancelled.insert(Ticket.Id); }
+		auto Cancel(Durin::Editor::Level::FViewportPickTicket Ticket) -> void override { State->Cancelled.insert(Ticket.Id); }
 
 	private:
 		std::shared_ptr<FFakePickingState> State;
@@ -62,7 +62,7 @@ namespace
 		Durin::DWorld* World = nullptr;
 		Durin::DLevel* Level = nullptr;
 		Durin::AStaticMeshActor* Actor = nullptr;
-		Durin::FLevelEditorViewportClient Client;
+		Durin::Editor::Level::FLevelEditorViewportClient Client;
 		Durin::FSceneView View;
 
 		FPickingFixture()
@@ -175,7 +175,7 @@ namespace
 		}
 
 		auto MakeRequest(Durin::FVector3 Origin = {0.0, 0.0, -2.0},
-			Durin::FVector3 Direction = {0.0, 0.0, 1.0}) const -> Durin::FViewportPickingBackendRequest
+			Durin::FVector3 Direction = {0.0, 0.0, 1.0}) const -> Durin::Editor::Level::FViewportPickingBackendRequest
 		{
 			auto* Component = Actor->GetSkeletalMeshComponent();
 			return {{1}, Origin, Direction, {{1, Component->GetPrimitiveSceneId(), Actor, Component,
@@ -183,7 +183,7 @@ namespace
 		}
 	};
 
-	auto MakeStaticRequest(Durin::AStaticMeshActor* Actor) -> Durin::FViewportPickingBackendRequest
+	auto MakeStaticRequest(Durin::AStaticMeshActor* Actor) -> Durin::Editor::Level::FViewportPickingBackendRequest
 	{
 		auto* Component = Actor->GetStaticMeshComponent();
 		return {{1}, {0.1, 0.1, 0.0}, {0.0, 0.0, 1.0},
@@ -233,32 +233,32 @@ namespace
 
 TEST(FViewportPickingContractTests, AppliesFrozenCrossFamilyOrdering)
 {
-	Durin::FViewportPickHit Geometry{.Kind = Durin::EViewportPickHitKind::SceneGeometry, .Distance = 5.0, .Priority = 0, .StableTieKey = 20};
-	Durin::FViewportPickHit Visualization{.Kind = Durin::EViewportPickHitKind::EditorVisualization, .Distance = 4.0, .Priority = 100, .StableTieKey = 10};
-	EXPECT_TRUE(Durin::IsViewportPickHitPreferred(Visualization, Geometry));
+	Durin::Editor::Level::FViewportPickHit Geometry{.Kind = Durin::Editor::Level::EViewportPickHitKind::SceneGeometry, .Distance = 5.0, .Priority = 0, .StableTieKey = 20};
+	Durin::Editor::Level::FViewportPickHit Visualization{.Kind = Durin::Editor::Level::EViewportPickHitKind::EditorVisualization, .Distance = 4.0, .Priority = 100, .StableTieKey = 10};
+	EXPECT_TRUE(Durin::Editor::Level::IsViewportPickHitPreferred(Visualization, Geometry));
 	Visualization.Distance = 6.0;
-	EXPECT_FALSE(Durin::IsViewportPickHitPreferred(Visualization, Geometry));
+	EXPECT_FALSE(Durin::Editor::Level::IsViewportPickHitPreferred(Visualization, Geometry));
 	Visualization.bDepthIndependent = true;
-	EXPECT_TRUE(Durin::IsViewportPickHitPreferred(Visualization, Geometry));
+	EXPECT_TRUE(Durin::Editor::Level::IsViewportPickHitPreferred(Visualization, Geometry));
 	Visualization.bDepthIndependent = false;
 	Visualization.Distance = Geometry.Distance;
-	EXPECT_FALSE(Durin::IsViewportPickHitPreferred(Visualization, Geometry));
-	Durin::FViewportPickHit Stable = Geometry;
+	EXPECT_FALSE(Durin::Editor::Level::IsViewportPickHitPreferred(Visualization, Geometry));
+	Durin::Editor::Level::FViewportPickHit Stable = Geometry;
 	Stable.StableTieKey = 5;
-	EXPECT_TRUE(Durin::IsViewportPickHitPreferred(Stable, Geometry));
+	EXPECT_TRUE(Durin::Editor::Level::IsViewportPickHitPreferred(Stable, Geometry));
 }
 
 TEST(FViewportPickingContractTests, RejectsOutsideViewAndPreservesExactPrimitiveIdentity)
 {
 	FPickingFixture Fixture;
-	const Durin::FViewportPickSubmission Outside = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {-1.0f, 300.0f});
+	const Durin::Editor::Level::FViewportPickSubmission Outside = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {-1.0f, 300.0f});
 	EXPECT_TRUE(Outside.Ticket);
-	EXPECT_EQ(Outside.Completion.Status, Durin::EViewportPickStatus::Invalid);
+	EXPECT_EQ(Outside.Completion.Status, Durin::Editor::Level::EViewportPickStatus::Invalid);
 
-	const Durin::FViewportPickSubmission Pick = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
-	ASSERT_EQ(Pick.Completion.Status, Durin::EViewportPickStatus::Completed);
+	const Durin::Editor::Level::FViewportPickSubmission Pick = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
+	ASSERT_EQ(Pick.Completion.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
 	ASSERT_TRUE(Pick.Completion.Hit);
-	EXPECT_EQ(Pick.Completion.Hit->Kind, Durin::EViewportPickHitKind::SceneGeometry);
+	EXPECT_EQ(Pick.Completion.Hit->Kind, Durin::Editor::Level::EViewportPickHitKind::SceneGeometry);
 	EXPECT_EQ(Pick.Completion.Hit->Actor.Get(), Fixture.Actor);
 	EXPECT_EQ(Pick.Completion.Hit->Component.Get(), Fixture.Actor->GetStaticMeshComponent());
 	EXPECT_EQ(Pick.Completion.Hit->PrimitiveId, Fixture.Actor->GetStaticMeshComponent()->GetPrimitiveSceneId());
@@ -269,22 +269,22 @@ TEST(FViewportPickingContractTests, SupportsPendingPollingCancellationAndSuperse
 	FPickingFixture Fixture;
 	auto State = std::make_shared<FFakePickingState>();
 	Fixture.Client.SetPickingBackendForTesting(std::make_unique<FControlledPickingBackend>(State));
-	const Durin::FViewportPickSubmission First = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
-	ASSERT_EQ(First.Completion.Status, Durin::EViewportPickStatus::Pending);
-	EXPECT_EQ(Fixture.Client.PollViewportPick(First.Ticket).Status, Durin::EViewportPickStatus::Pending);
+	const Durin::Editor::Level::FViewportPickSubmission First = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
+	ASSERT_EQ(First.Completion.Status, Durin::Editor::Level::EViewportPickStatus::Pending);
+	EXPECT_EQ(Fixture.Client.PollViewportPick(First.Ticket).Status, Durin::Editor::Level::EViewportPickStatus::Pending);
 
-	const Durin::FViewportPickSubmission Second = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
-	EXPECT_EQ(Fixture.Client.PollViewportPick(First.Ticket).Status, Durin::EViewportPickStatus::Cancelled);
+	const Durin::Editor::Level::FViewportPickSubmission Second = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
+	EXPECT_EQ(Fixture.Client.PollViewportPick(First.Ticket).Status, Durin::Editor::Level::EViewportPickStatus::Cancelled);
 	EXPECT_TRUE(State->Cancelled.contains(First.Ticket.Id));
 	State->CompleteFirst(Second.Ticket);
-	const Durin::FViewportPickCompletion Completed = Fixture.Client.PollViewportPick(Second.Ticket);
-	ASSERT_EQ(Completed.Status, Durin::EViewportPickStatus::Completed);
+	const Durin::Editor::Level::FViewportPickCompletion Completed = Fixture.Client.PollViewportPick(Second.Ticket);
+	ASSERT_EQ(Completed.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
 	ASSERT_TRUE(Completed.Hit);
 	EXPECT_EQ(Completed.Hit->Actor.Get(), Fixture.Actor);
 
-	const Durin::FViewportPickSubmission Third = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
+	const Durin::Editor::Level::FViewportPickSubmission Third = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
 	Fixture.Client.CancelViewportPick(Third.Ticket);
-	EXPECT_EQ(Fixture.Client.PollViewportPick(Third.Ticket).Status, Durin::EViewportPickStatus::Cancelled);
+	EXPECT_EQ(Fixture.Client.PollViewportPick(Third.Ticket).Status, Durin::Editor::Level::EViewportPickStatus::Cancelled);
 }
 
 TEST(FViewportPickingContractTests, InvalidatesRetiredTargetsButNotCameraMotion)
@@ -292,32 +292,32 @@ TEST(FViewportPickingContractTests, InvalidatesRetiredTargetsButNotCameraMotion)
 	FPickingFixture Fixture;
 	auto State = std::make_shared<FFakePickingState>();
 	Fixture.Client.SetPickingBackendForTesting(std::make_unique<FControlledPickingBackend>(State));
-	const Durin::FViewportPickSubmission CameraStable = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
+	const Durin::Editor::Level::FViewportPickSubmission CameraStable = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
 	Fixture.Client.FocusLocation({100.0, 200.0, 300.0});
 	State->CompleteFirst(CameraStable.Ticket);
-	EXPECT_EQ(Fixture.Client.PollViewportPick(CameraStable.Ticket).Status, Durin::EViewportPickStatus::Completed);
+	EXPECT_EQ(Fixture.Client.PollViewportPick(CameraStable.Ticket).Status, Durin::Editor::Level::EViewportPickStatus::Completed);
 
-	const Durin::FViewportPickSubmission Hidden = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
+	const Durin::Editor::Level::FViewportPickSubmission Hidden = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
 	State->CompleteFirst(Hidden.Ticket);
 	Fixture.Actor->SetHidden(true);
-	EXPECT_EQ(Fixture.Client.PollViewportPick(Hidden.Ticket).Status, Durin::EViewportPickStatus::Invalidated);
+	EXPECT_EQ(Fixture.Client.PollViewportPick(Hidden.Ticket).Status, Durin::Editor::Level::EViewportPickStatus::Invalidated);
 	Fixture.Actor->SetHidden(false);
 
-	const Durin::FViewportPickSubmission Reregistered = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
+	const Durin::Editor::Level::FViewportPickSubmission Reregistered = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
 	Fixture.Actor->GetStaticMeshComponent()->UnregisterComponent();
 	Fixture.Actor->GetStaticMeshComponent()->RegisterComponent();
 	State->CompleteFirst(Reregistered.Ticket);
-	EXPECT_EQ(Fixture.Client.PollViewportPick(Reregistered.Ticket).Status, Durin::EViewportPickStatus::Invalidated);
+	EXPECT_EQ(Fixture.Client.PollViewportPick(Reregistered.Ticket).Status, Durin::Editor::Level::EViewportPickStatus::Invalidated);
 
-	const Durin::FViewportPickSubmission Reset = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
+	const Durin::Editor::Level::FViewportPickSubmission Reset = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
 	Fixture.Client.InitializeForLevel(Fixture.Level);
-	EXPECT_EQ(Fixture.Client.PollViewportPick(Reset.Ticket).Status, Durin::EViewportPickStatus::Invalidated);
+	EXPECT_EQ(Fixture.Client.PollViewportPick(Reset.Ticket).Status, Durin::Editor::Level::EViewportPickStatus::Invalidated);
 
-	const Durin::FViewportPickSubmission Destroyed = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
+	const Durin::Editor::Level::FViewportPickSubmission Destroyed = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
 	State->CompleteFirst(Destroyed.Ticket);
 	ASSERT_TRUE(Fixture.Level->DestroyActor(Fixture.Actor));
 	Durin::CollectGarbage();
-	EXPECT_EQ(Fixture.Client.PollViewportPick(Destroyed.Ticket).Status, Durin::EViewportPickStatus::Invalidated);
+	EXPECT_EQ(Fixture.Client.PollViewportPick(Destroyed.Ticket).Status, Durin::Editor::Level::EViewportPickStatus::Invalidated);
 }
 
 TEST(FViewportPickingContractTests, CancelsPendingWorkOnModeAndViewportExit)
@@ -325,10 +325,10 @@ TEST(FViewportPickingContractTests, CancelsPendingWorkOnModeAndViewportExit)
 	FPickingFixture Fixture;
 	auto State = std::make_shared<FFakePickingState>();
 	Fixture.Client.SetPickingBackendForTesting(std::make_unique<FControlledPickingBackend>(State));
-	Durin::FLevelEditorContext Context;
+	Durin::Editor::Level::FLevelEditorContext Context;
 	Context.Synchronize(Fixture.World);
-	Durin::FLevelViewportEditModeManager Manager;
-	Durin::FLevelEditorViewportInput Input;
+	Durin::Editor::Level::FLevelViewportEditModeManager Manager;
+	Durin::Editor::Level::FLevelEditorViewportInput Input;
 	Input.bRequestSelection = true;
 	Input.MousePosition = {400.0f, 300.0f};
 	ASSERT_TRUE(Manager.Tick(Context, Fixture.Client, Fixture.View, Input, nullptr));
@@ -340,10 +340,10 @@ TEST(FViewportPickingContractTests, CancelsPendingWorkOnModeAndViewportExit)
 	auto ViewportState = std::make_shared<FFakePickingState>();
 	Durin::uint64 ViewportTicket = 0;
 	{
-		Durin::FLevelEditorViewportClient Client;
+		Durin::Editor::Level::FLevelEditorViewportClient Client;
 		Client.InitializeForLevel(Fixture.Level);
 		Client.SetPickingBackendForTesting(std::make_unique<FControlledPickingBackend>(ViewportState));
-		const Durin::FViewportPickSubmission Pick = Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
+		const Durin::Editor::Level::FViewportPickSubmission Pick = Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
 		ViewportTicket = Pick.Ticket.Id;
 	}
 	EXPECT_TRUE(ViewportState->Cancelled.contains(ViewportTicket));
@@ -358,17 +358,17 @@ TEST(FViewportPickingContractTests, SelectModeAppliesCapturedCtrlIntentAfterDefe
 	Durin::FTransform ExistingTransform;
 	ExistingTransform.Translation = {1000.0, 1000.0, 1000.0};
 	Existing->SetActorTransform(ExistingTransform);
-	Durin::FLevelEditorContext Context;
+	Durin::Editor::Level::FLevelEditorContext Context;
 	Context.Synchronize(Fixture.World);
 	Context.SelectActor(Existing);
-	Durin::FLevelViewportEditModeManager Manager;
-	Durin::FLevelEditorViewportInput Input;
+	Durin::Editor::Level::FLevelViewportEditModeManager Manager;
+	Durin::Editor::Level::FLevelEditorViewportInput Input;
 	Input.bRequestSelection = true;
 	Input.bCtrl = true;
 	Input.MousePosition = {400.0f, 300.0f};
 	ASSERT_TRUE(Manager.Tick(Context, Fixture.Client, Fixture.View, Input, nullptr));
 	ASSERT_EQ(State->Requests.size(), 1u);
-	const Durin::FViewportPickTicket Ticket{State->Requests.begin()->first};
+	const Durin::Editor::Level::FViewportPickTicket Ticket{State->Requests.begin()->first};
 	State->CompleteFirst(Ticket);
 	Input = {};
 	ASSERT_TRUE(Manager.Tick(Context, Fixture.Client, Fixture.View, Input, nullptr));
@@ -380,9 +380,9 @@ TEST(FViewportPickingContractTests, SelectModeAppliesCapturedCtrlIntentAfterDefe
 TEST(FViewportPickingContractTests, KeepsViewportTicketAndCompletionStateIndependent)
 {
 	FPickingFixture Fixture;
-	Durin::FLevelEditorViewportClient SecondClient;
+	Durin::Editor::Level::FLevelEditorViewportClient SecondClient;
 	SecondClient.InitializeForLevel(Fixture.Level);
-	auto SharedIndex = std::make_shared<Durin::FViewportPickingSceneIndex>();
+	auto SharedIndex = std::make_shared<Durin::Editor::Level::FViewportPickingSceneIndex>();
 	SharedIndex->SetLevel(Fixture.Level);
 	Fixture.Client.SetPickingSceneIndex(SharedIndex);
 	SecondClient.SetPickingSceneIndex(SharedIndex);
@@ -390,13 +390,13 @@ TEST(FViewportPickingContractTests, KeepsViewportTicketAndCompletionStateIndepen
 	auto SecondState = std::make_shared<FFakePickingState>();
 	Fixture.Client.SetPickingBackendForTesting(std::make_unique<FControlledPickingBackend>(FirstState));
 	SecondClient.SetPickingBackendForTesting(std::make_unique<FControlledPickingBackend>(SecondState));
-	const Durin::FViewportPickSubmission FirstPick = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
-	const Durin::FViewportPickSubmission SecondPick = SecondClient.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
+	const Durin::Editor::Level::FViewportPickSubmission FirstPick = Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
+	const Durin::Editor::Level::FViewportPickSubmission SecondPick = SecondClient.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
 	EXPECT_EQ(FirstPick.Ticket.Id, 1u);
 	EXPECT_EQ(SecondPick.Ticket.Id, 1u);
 	FirstState->CompleteFirst(FirstPick.Ticket);
-	EXPECT_EQ(Fixture.Client.PollViewportPick(FirstPick.Ticket).Status, Durin::EViewportPickStatus::Completed);
-	EXPECT_EQ(SecondClient.PollViewportPick(SecondPick.Ticket).Status, Durin::EViewportPickStatus::Pending);
+	EXPECT_EQ(Fixture.Client.PollViewportPick(FirstPick.Ticket).Status, Durin::Editor::Level::EViewportPickStatus::Completed);
+	EXPECT_EQ(SecondClient.PollViewportPick(SecondPick.Ticket).Status, Durin::Editor::Level::EViewportPickStatus::Pending);
 	EXPECT_EQ(SharedIndex->GetDiagnostics().SnapshotBuilds, 1u);
 	EXPECT_EQ(SharedIndex->GetDiagnostics().CandidatePrimitives, 2u);
 }
@@ -404,9 +404,9 @@ TEST(FViewportPickingContractTests, KeepsViewportTicketAndCompletionStateIndepen
 TEST(FViewportPickingContractTests, PicksCurrentPoseWithNonContiguousPaletteAndMixedInfluences)
 {
 	FSkeletalPickingFixture Fixture;
-	auto Backend = Durin::MakeReferenceViewportPickingBackend();
-	const Durin::FViewportPickingBackendCompletion Front = Backend->Submit(Fixture.MakeRequest());
-	ASSERT_EQ(Front.Status, Durin::EViewportPickStatus::Completed);
+	auto Backend = Durin::Editor::Level::MakeReferenceViewportPickingBackend();
+	const Durin::Editor::Level::FViewportPickingBackendCompletion Front = Backend->Submit(Fixture.MakeRequest());
+	ASSERT_EQ(Front.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
 	ASSERT_TRUE(Front.Hit);
 	EXPECT_EQ(Front.Hit->Token, 1u);
 	EXPECT_NEAR(Front.Hit->Distance, 2.0, 1.0e-6);
@@ -414,17 +414,17 @@ TEST(FViewportPickingContractTests, PicksCurrentPoseWithNonContiguousPaletteAndM
 	EXPECT_EQ(Front.Diagnostics.SkinnedVertices, 3u);
 	EXPECT_EQ(Front.Diagnostics.TestedTriangles, 1u);
 
-	const Durin::FViewportPickingBackendCompletion Back = Backend->Submit(
+	const Durin::Editor::Level::FViewportPickingBackendCompletion Back = Backend->Submit(
 		Fixture.MakeRequest({0.0, 0.0, 2.0}, {0.0, 0.0, -1.0}));
-	ASSERT_EQ(Back.Status, Durin::EViewportPickStatus::Completed);
+	ASSERT_EQ(Back.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
 	EXPECT_TRUE(Back.Hit);
 }
 
 TEST(FViewportPickingContractTests, PicksOneBoneReferencePoseTriangle)
 {
 	FSkeletalPickingFixture Fixture(false);
-	const auto Completion = Durin::MakeReferenceViewportPickingBackend()->Submit(Fixture.MakeRequest());
-	ASSERT_EQ(Completion.Status, Durin::EViewportPickStatus::Completed);
+	const auto Completion = Durin::Editor::Level::MakeReferenceViewportPickingBackend()->Submit(Fixture.MakeRequest());
+	ASSERT_EQ(Completion.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
 	ASSERT_TRUE(Completion.Hit);
 	EXPECT_NEAR(Completion.Hit->Distance, 2.0, 1.0e-6);
 	EXPECT_EQ(Completion.Diagnostics.SkinnedVertices, 3u);
@@ -434,25 +434,25 @@ TEST(FViewportPickingContractTests, PicksOneBoneReferencePoseTriangle)
 TEST(FViewportPickingContractTests, RejectsPoseBoundsBeforeWorkAndFailsAtomicallyOverBudget)
 {
 	FSkeletalPickingFixture Fixture;
-	auto Backend = Durin::MakeReferenceViewportPickingBackend({3, 1});
-	const Durin::FViewportPickingBackendCompletion AtLimit = Backend->Submit(Fixture.MakeRequest());
-	ASSERT_EQ(AtLimit.Status, Durin::EViewportPickStatus::Completed);
+	auto Backend = Durin::Editor::Level::MakeReferenceViewportPickingBackend({3, 1});
+	const Durin::Editor::Level::FViewportPickingBackendCompletion AtLimit = Backend->Submit(Fixture.MakeRequest());
+	ASSERT_EQ(AtLimit.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
 	EXPECT_TRUE(AtLimit.Hit);
 	EXPECT_EQ(AtLimit.Diagnostics.SkinnedVertices, 3u);
 	EXPECT_EQ(AtLimit.Diagnostics.TestedTriangles, 1u);
 
-	Backend = Durin::MakeReferenceViewportPickingBackend({2, 1});
-	const Durin::FViewportPickingBackendCompletion OverLimit = Backend->Submit(Fixture.MakeRequest());
-	EXPECT_EQ(OverLimit.Status, Durin::EViewportPickStatus::Failed);
+	Backend = Durin::Editor::Level::MakeReferenceViewportPickingBackend({2, 1});
+	const Durin::Editor::Level::FViewportPickingBackendCompletion OverLimit = Backend->Submit(Fixture.MakeRequest());
+	EXPECT_EQ(OverLimit.Status, Durin::Editor::Level::EViewportPickStatus::Failed);
 	EXPECT_FALSE(OverLimit.Hit);
 	EXPECT_EQ(OverLimit.Diagnostics.SkeletalBudgetFailures, 1u);
 	EXPECT_EQ(OverLimit.Diagnostics.SkinnedVertices, 0u);
 	EXPECT_EQ(OverLimit.Diagnostics.TestedTriangles, 0u);
 
-	Backend = Durin::MakeReferenceViewportPickingBackend({0, 0});
-	const Durin::FViewportPickingBackendCompletion BoundsMiss = Backend->Submit(
+	Backend = Durin::Editor::Level::MakeReferenceViewportPickingBackend({0, 0});
+	const Durin::Editor::Level::FViewportPickingBackendCompletion BoundsMiss = Backend->Submit(
 		Fixture.MakeRequest({10.0, 10.0, -2.0}));
-	EXPECT_EQ(BoundsMiss.Status, Durin::EViewportPickStatus::Completed);
+	EXPECT_EQ(BoundsMiss.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
 	EXPECT_FALSE(BoundsMiss.Hit);
 	EXPECT_EQ(BoundsMiss.Diagnostics.SkeletalBoundsRejects, 1u);
 	EXPECT_EQ(BoundsMiss.Diagnostics.SkinnedVertices, 0u);
@@ -476,12 +476,12 @@ TEST(FViewportPickingContractTests, CurrentAnimationPoseAddsAndRemovesSurfaceHit
 	auto* Component = Fixture.Actor->GetSkeletalMeshComponent();
 	ASSERT_TRUE(Component->SetAnimationClip(Clip, Error)) << Error;
 	Component->SetLooping(false);
-	auto Backend = Durin::MakeReferenceViewportPickingBackend();
+	auto Backend = Durin::Editor::Level::MakeReferenceViewportPickingBackend();
 
 	ASSERT_TRUE(Component->Seek(0.0f, Error)) << Error;
 	EXPECT_TRUE(Backend->Submit(Fixture.MakeRequest()).Hit);
 	ASSERT_TRUE(Component->Seek(1.0f, Error)) << Error;
-	const Durin::FViewportPickingBackendCompletion Moved = Backend->Submit(Fixture.MakeRequest());
+	const Durin::Editor::Level::FViewportPickingBackendCompletion Moved = Backend->Submit(Fixture.MakeRequest());
 	EXPECT_FALSE(Moved.Hit);
 	EXPECT_EQ(Moved.Diagnostics.SkinnedVertices, 3u);
 	EXPECT_EQ(Moved.Diagnostics.TestedTriangles, 1u);
@@ -492,15 +492,15 @@ TEST(FViewportPickingContractTests, CurrentAnimationPoseAddsAndRemovesSurfaceHit
 TEST(FViewportPickingContractTests, SkeletalSurfaceFlowsThroughExactSemanticIdentity)
 {
 	FSkeletalPickingFixture Fixture;
-	Durin::FLevelEditorViewportClient Client;
+	Durin::Editor::Level::FLevelEditorViewportClient Client;
 	Client.InitializeForLevel(Fixture.Level);
 	Fixture.Actor->GetSkeletalMeshComponent()->SetWorldLocation(
 		Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 3.0);
 	Durin::FSceneView View;
 	ASSERT_TRUE(Client.BuildViewMatrices(800, 600, View));
-	const Durin::FViewportPickSubmission Pick = Client.SubmitViewportPick(
+	const Durin::Editor::Level::FViewportPickSubmission Pick = Client.SubmitViewportPick(
 		Fixture.Level, View, {400.0f, 300.0f});
-	ASSERT_EQ(Pick.Completion.Status, Durin::EViewportPickStatus::Completed);
+	ASSERT_EQ(Pick.Completion.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
 	ASSERT_TRUE(Pick.Completion.Hit);
 	EXPECT_EQ(Pick.Completion.Hit->Actor.Get(), Fixture.Actor);
 	EXPECT_EQ(Pick.Completion.Hit->Component.Get(), Fixture.Actor->GetSkeletalMeshComponent());
@@ -511,21 +511,21 @@ TEST(FViewportPickingContractTests, SkeletalSurfaceFlowsThroughExactSemanticIden
 TEST(FViewportPickingContractTests, SkeletalBudgetFailureLeavesSelectionUnchanged)
 {
 	FSkeletalPickingFixture Fixture;
-	Durin::FLevelEditorViewportClient Client;
+	Durin::Editor::Level::FLevelEditorViewportClient Client;
 	Client.InitializeForLevel(Fixture.Level);
-	Client.SetPickingBackendForTesting(Durin::MakeReferenceViewportPickingBackend({0, 0}));
+	Client.SetPickingBackendForTesting(Durin::Editor::Level::MakeReferenceViewportPickingBackend({0, 0}));
 	Fixture.Actor->GetSkeletalMeshComponent()->SetWorldLocation(
 		Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 3.0);
 	auto* Existing = Fixture.Level->SpawnActor<Durin::ACameraActor>("ExistingSelection");
 	ASSERT_NE(Existing, nullptr);
 	Existing->GetRootComponent()->SetWorldLocation({1000.0, 1000.0, 1000.0});
-	Durin::FLevelEditorContext Context;
+	Durin::Editor::Level::FLevelEditorContext Context;
 	Context.Synchronize(Fixture.World);
 	Context.SelectActor(Existing);
 	Durin::FSceneView View;
 	ASSERT_TRUE(Client.BuildViewMatrices(800, 600, View));
-	Durin::FLevelViewportEditModeManager Manager;
-	Durin::FLevelEditorViewportInput Input;
+	Durin::Editor::Level::FLevelViewportEditModeManager Manager;
+	Durin::Editor::Level::FLevelEditorViewportInput Input;
 	Input.bRequestSelection = true;
 	Input.MousePosition = {400.0f, 300.0f};
 	ASSERT_TRUE(Manager.Tick(Context, Client, View, Input, nullptr));
@@ -547,18 +547,18 @@ TEST(FViewportPickingContractTests, OrdersStaticAndSkeletalByWorldDistanceAndSta
 
 	auto MakeMixedRequest = [&](bool bReverse, Durin::uint64 SkeletalKey, Durin::uint64 StaticKey)
 	{
-		Durin::FViewportPickingBackendRequest Request{{1}, {0.1, 0.1, 0.0}, {0.0, 0.0, 1.0}};
-		Durin::FViewportPickingTarget SkeletalTarget{1, Skeletal->GetPrimitiveSceneId(), Fixture.Actor,
+		Durin::Editor::Level::FViewportPickingBackendRequest Request{{1}, {0.1, 0.1, 0.0}, {0.0, 0.0, 1.0}};
+		Durin::Editor::Level::FViewportPickingTarget SkeletalTarget{1, Skeletal->GetPrimitiveSceneId(), Fixture.Actor,
 			Skeletal, SkeletalKey, Skeletal->GetRegistrationGeneration()};
-		Durin::FViewportPickingTarget StaticTarget{2, Static->GetPrimitiveSceneId(), StaticActor,
+		Durin::Editor::Level::FViewportPickingTarget StaticTarget{2, Static->GetPrimitiveSceneId(), StaticActor,
 			Static, StaticKey, Static->GetRegistrationGeneration()};
 		Request.Targets = bReverse
-			? std::vector<Durin::FViewportPickingTarget>{StaticTarget, SkeletalTarget}
-			: std::vector<Durin::FViewportPickingTarget>{SkeletalTarget, StaticTarget};
+			? std::vector<Durin::Editor::Level::FViewportPickingTarget>{StaticTarget, SkeletalTarget}
+			: std::vector<Durin::Editor::Level::FViewportPickingTarget>{SkeletalTarget, StaticTarget};
 		return Request;
 	};
 
-	auto Backend = Durin::MakeReferenceViewportPickingBackend();
+	auto Backend = Durin::Editor::Level::MakeReferenceViewportPickingBackend();
 	for (bool bReverse : {false, true})
 	{
 		const auto NearStatic = Backend->Submit(MakeMixedRequest(bReverse, 20, 10));
@@ -580,7 +580,7 @@ TEST(FViewportPickingContractTests, PreservesWorldDistanceUnderMirroringAndRejec
 	auto* Component = Fixture.Actor->GetSkeletalMeshComponent();
 	Component->SetWorldLocation({0.0, 0.0, 3.0});
 	Component->SetWorldScale3D({-2.0, 0.5, 1.0});
-	auto Backend = Durin::MakeReferenceViewportPickingBackend();
+	auto Backend = Durin::Editor::Level::MakeReferenceViewportPickingBackend();
 	const auto Mirrored = Backend->Submit(Fixture.MakeRequest({-0.5, 0.1, 0.0}));
 	ASSERT_TRUE(Mirrored.Hit);
 	EXPECT_NEAR(Mirrored.Hit->Distance, 3.0, 1.0e-6);
@@ -593,7 +593,7 @@ TEST(FViewportPickingContractTests, PreservesWorldDistanceUnderMirroringAndRejec
 
 	Component->SetWorldScale3D({0.0, 1.0, 1.0});
 	const auto Singular = Backend->Submit(Fixture.MakeRequest({0.0, 0.1, 0.0}));
-	EXPECT_EQ(Singular.Status, Durin::EViewportPickStatus::Completed);
+	EXPECT_EQ(Singular.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
 	EXPECT_FALSE(Singular.Hit);
 	EXPECT_EQ(Singular.Diagnostics.InvalidSkeletalTargets, 1u);
 }
@@ -601,11 +601,11 @@ TEST(FViewportPickingContractTests, PreservesWorldDistanceUnderMirroringAndRejec
 TEST(FViewportPickingContractTests, SkipsIncompleteIncompatibleAndMalformedSkeletalCandidatesAtomically)
 {
 	FSkeletalPickingFixture Fixture;
-	auto Backend = Durin::MakeReferenceViewportPickingBackend();
+	auto Backend = Durin::Editor::Level::MakeReferenceViewportPickingBackend();
 	auto ExpectInvalid = [&]
 	{
 		const auto Completion = Backend->Submit(Fixture.MakeRequest());
-		EXPECT_EQ(Completion.Status, Durin::EViewportPickStatus::Completed);
+		EXPECT_EQ(Completion.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
 		EXPECT_FALSE(Completion.Hit);
 		EXPECT_EQ(Completion.Diagnostics.InvalidSkeletalTargets, 1u);
 	};
@@ -651,7 +651,7 @@ TEST(FViewportPickingContractTests, SkipsIncompleteIncompatibleAndMalformedSkele
 	Request.Targets.push_back({2, Static->GetPrimitiveSceneId(), StaticActor, Static, 2,
 		Static->GetRegistrationGeneration()});
 	const auto StaticWinner = Backend->Submit(std::move(Request));
-	ASSERT_EQ(StaticWinner.Status, Durin::EViewportPickStatus::Completed);
+	ASSERT_EQ(StaticWinner.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
 	ASSERT_TRUE(StaticWinner.Hit);
 	EXPECT_EQ(StaticWinner.Hit->Token, 2u);
 	Pose->SkeletonCompatibilityIdentity = Compatibility;
@@ -673,15 +673,15 @@ TEST(FViewportPickingContractTests, ResolvesExactIdentityAcrossMultipleSkeletalC
 	Original->SetWorldLocation({0.0, 0.0, 4.0});
 	Added->SetWorldLocation({0.0, 0.0, 2.0});
 	OtherActor->GetSkeletalMeshComponent()->SetWorldLocation({0.0, 0.0, 3.0});
-	Durin::FViewportPickingBackendRequest Request{{1}, {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}};
+	Durin::Editor::Level::FViewportPickingBackendRequest Request{{1}, {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}};
 	Request.Targets = {
 		{1, Original->GetPrimitiveSceneId(), Fixture.Actor, Original, 10, Original->GetRegistrationGeneration()},
 		{2, OtherActor->GetSkeletalMeshComponent()->GetPrimitiveSceneId(), OtherActor,
 			OtherActor->GetSkeletalMeshComponent(), 20,
 			OtherActor->GetSkeletalMeshComponent()->GetRegistrationGeneration()},
 		{3, Added->GetPrimitiveSceneId(), Fixture.Actor, Added, 30, Added->GetRegistrationGeneration()}};
-	const auto Completion = Durin::MakeReferenceViewportPickingBackend()->Submit(std::move(Request));
-	ASSERT_EQ(Completion.Status, Durin::EViewportPickStatus::Completed);
+	const auto Completion = Durin::Editor::Level::MakeReferenceViewportPickingBackend()->Submit(std::move(Request));
+	ASSERT_EQ(Completion.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
 	ASSERT_TRUE(Completion.Hit);
 	EXPECT_EQ(Completion.Hit->Token, 3u);
 	EXPECT_EQ(Completion.Diagnostics.ApplicableSkeletalTargets, 3u);
@@ -690,7 +690,7 @@ TEST(FViewportPickingContractTests, ResolvesExactIdentityAcrossMultipleSkeletalC
 TEST(FViewportPickingContractTests, SceneIndexTracksOrderedPrimitiveMutationsAndReducesSparseCandidates)
 {
 	FPickingFixture Fixture;
-	auto Index = std::make_shared<Durin::FViewportPickingSceneIndex>();
+	auto Index = std::make_shared<Durin::Editor::Level::FViewportPickingSceneIndex>();
 	Index->SetLevel(Fixture.Level);
 	Fixture.Client.SetPickingSceneIndex(Index);
 	auto State = std::make_shared<FFakePickingState>();
@@ -732,7 +732,7 @@ TEST(FViewportPickingContractTests, SceneIndexTracksOrderedPrimitiveMutationsAnd
 TEST(FViewportPickingContractTests, SceneIndexObserverDoesNotOutliveIndexWhenLevelIsPendingKill)
 {
 	FPickingFixture Fixture;
-	auto Index = std::make_shared<Durin::FViewportPickingSceneIndex>();
+	auto Index = std::make_shared<Durin::Editor::Level::FViewportPickingSceneIndex>();
 	Index->SetLevel(Fixture.Level);
 
 	Durin::MarkObjectHierarchyAsGarbage(Fixture.Level);
@@ -756,13 +756,13 @@ TEST(FViewportPickingContractTests, StaticAccelerationReusesAssetDataAndMatchesR
 	EXPECT_EQ(Other->GetStaticMeshComponent()->GetStaticMesh()->GetRenderData()->LODResources[0].RayQueryAcceleration,
 		Data->LODResources[0].RayQueryAcceleration);
 
-	const Durin::FViewportPickingBackendRequest Request = MakeStaticRequest(Fixture.Actor);
-	const auto Reference = Durin::MakeViewportPickingBackend(
-		Durin::EViewportPickingBackendPolicy::Reference)->Submit(Request);
-	const auto Accelerated = Durin::MakeViewportPickingBackend(
-		Durin::EViewportPickingBackendPolicy::Accelerated)->Submit(Request);
-	const auto Compared = Durin::MakeViewportPickingBackend(
-		Durin::EViewportPickingBackendPolicy::Compare)->Submit(Request);
+	const Durin::Editor::Level::FViewportPickingBackendRequest Request = MakeStaticRequest(Fixture.Actor);
+	const auto Reference = Durin::Editor::Level::MakeViewportPickingBackend(
+		Durin::Editor::Level::EViewportPickingBackendPolicy::Reference)->Submit(Request);
+	const auto Accelerated = Durin::Editor::Level::MakeViewportPickingBackend(
+		Durin::Editor::Level::EViewportPickingBackendPolicy::Accelerated)->Submit(Request);
+	const auto Compared = Durin::Editor::Level::MakeViewportPickingBackend(
+		Durin::Editor::Level::EViewportPickingBackendPolicy::Compare)->Submit(Request);
 	ASSERT_TRUE(Reference.Hit);
 	ASSERT_TRUE(Accelerated.Hit);
 	ASSERT_TRUE(Compared.Hit);
@@ -775,8 +775,8 @@ TEST(FViewportPickingContractTests, StaticAccelerationReusesAssetDataAndMatchesR
 	auto& MutableAcceleration = const_cast<Durin::FStaticMeshLODResources&>(Data->LODResources[0]).RayQueryAcceleration;
 	const auto SavedAcceleration = MutableAcceleration;
 	MutableAcceleration.reset();
-	const auto Fallback = Durin::MakeViewportPickingBackend(
-		Durin::EViewportPickingBackendPolicy::Accelerated)->Submit(Request);
+	const auto Fallback = Durin::Editor::Level::MakeViewportPickingBackend(
+		Durin::Editor::Level::EViewportPickingBackendPolicy::Accelerated)->Submit(Request);
 	ASSERT_TRUE(Fallback.Hit);
 	EXPECT_EQ(Fallback.Hit->Token, Reference.Hit->Token);
 	EXPECT_DOUBLE_EQ(Fallback.Hit->Distance, Reference.Hit->Distance);
@@ -800,7 +800,7 @@ TEST(FViewportPickingContractTests, RandomizedStaticCompareIsIndependentOfTarget
 	}
 	for (Durin::uint32 Iteration = 0; Iteration < 32; ++Iteration)
 	{
-		Durin::FViewportPickingBackendRequest Request{{Iteration + 1}, {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}};
+		Durin::Editor::Level::FViewportPickingBackendRequest Request{{Iteration + 1}, {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}};
 		for (size_t Index = 0; Index < Actors.size(); ++Index)
 		{
 			auto* Component = Actors[Index]->GetStaticMeshComponent();
@@ -810,9 +810,9 @@ TEST(FViewportPickingContractTests, RandomizedStaticCompareIsIndependentOfTarget
 				Actors[Index], Component, static_cast<Durin::uint64>(Index), Component->GetRegistrationGeneration()});
 		}
 		if ((Iteration & 1u) != 0) std::ranges::reverse(Request.Targets);
-		const auto Completion = Durin::MakeViewportPickingBackend(
-			Durin::EViewportPickingBackendPolicy::Compare)->Submit(std::move(Request));
-		EXPECT_EQ(Completion.Status, Durin::EViewportPickStatus::Completed);
+		const auto Completion = Durin::Editor::Level::MakeViewportPickingBackend(
+			Durin::Editor::Level::EViewportPickingBackendPolicy::Compare)->Submit(std::move(Request));
+		EXPECT_EQ(Completion.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
 		EXPECT_EQ(Completion.Diagnostics.ParityMismatches, 0u);
 	}
 }
@@ -828,8 +828,8 @@ TEST(FViewportPickingContractTests, RepresentativeStaticTriangleCountsBuildAndCo
 		const auto* Data = Mesh->GetRenderData();
 		ASSERT_NE(Data, nullptr);
 		ASSERT_TRUE(Data->LODResources[0].RayQueryAcceleration);
-		const auto Completion = Durin::MakeViewportPickingBackend(
-			Durin::EViewportPickingBackendPolicy::Compare)->Submit(MakeStaticRequest(Fixture.Actor));
+		const auto Completion = Durin::Editor::Level::MakeViewportPickingBackend(
+			Durin::Editor::Level::EViewportPickingBackendPolicy::Compare)->Submit(MakeStaticRequest(Fixture.Actor));
 		ASSERT_TRUE(Completion.Hit);
 		EXPECT_EQ(Completion.Diagnostics.ParityMismatches, 0u);
 		EXPECT_LE(Completion.Diagnostics.StaticCandidateTriangles,
@@ -859,16 +859,16 @@ TEST(FViewportPickingContractTests, MillionTriangleFixtureMeetsDeterministicCand
 	RecordProperty("static_acceleration_build_ns",
 		std::to_string(Data->LODResources[0].RayQueryAcceleration->BuildNanoseconds));
 
-	const Durin::FViewportPickingBackendRequest Request = MakeStaticRequest(Fixture.Actor);
-	auto AcceleratedBackend = Durin::MakeViewportPickingBackend(Durin::EViewportPickingBackendPolicy::Accelerated);
+	const Durin::Editor::Level::FViewportPickingBackendRequest Request = MakeStaticRequest(Fixture.Actor);
+	auto AcceleratedBackend = Durin::Editor::Level::MakeViewportPickingBackend(Durin::Editor::Level::EViewportPickingBackendPolicy::Accelerated);
 	const auto Warm = AcceleratedBackend->Submit(Request);
 	ASSERT_TRUE(Warm.Hit);
 	EXPECT_LE(Warm.Diagnostics.StaticCandidateTriangles, TriangleCount / 100);
 	EXPECT_LE(Warm.Diagnostics.StaticTestedTriangles, TriangleCount / 100);
 	RecordProperty("accelerated_candidate_triangles", std::to_string(Warm.Diagnostics.StaticCandidateTriangles));
-	const auto Measure = [&Request](Durin::EViewportPickingBackendPolicy Policy)
+	const auto Measure = [&Request](Durin::Editor::Level::EViewportPickingBackendPolicy Policy)
 	{
-		auto Backend = Durin::MakeViewportPickingBackend(Policy);
+		auto Backend = Durin::Editor::Level::MakeViewportPickingBackend(Policy);
 		std::array<Durin::uint64, 3> Samples{};
 		for (Durin::uint64& Sample : Samples)
 		{
@@ -882,13 +882,13 @@ TEST(FViewportPickingContractTests, MillionTriangleFixtureMeetsDeterministicCand
 		std::ranges::sort(Samples);
 		return Samples[1];
 	};
-	const Durin::uint64 ReferenceNanoseconds = Measure(Durin::EViewportPickingBackendPolicy::Reference);
-	const Durin::uint64 AcceleratedNanoseconds = Measure(Durin::EViewportPickingBackendPolicy::Accelerated);
+	const Durin::uint64 ReferenceNanoseconds = Measure(Durin::Editor::Level::EViewportPickingBackendPolicy::Reference);
+	const Durin::uint64 AcceleratedNanoseconds = Measure(Durin::Editor::Level::EViewportPickingBackendPolicy::Accelerated);
 	RecordProperty("reference_median_ns", std::to_string(ReferenceNanoseconds));
 	RecordProperty("accelerated_median_ns", std::to_string(AcceleratedNanoseconds));
 	EXPECT_LE(AcceleratedNanoseconds, ReferenceNanoseconds / 4);
-	const auto Compared = Durin::MakeViewportPickingBackend(
-		Durin::EViewportPickingBackendPolicy::Compare)->Submit(Request);
+	const auto Compared = Durin::Editor::Level::MakeViewportPickingBackend(
+		Durin::Editor::Level::EViewportPickingBackendPolicy::Compare)->Submit(Request);
 	ASSERT_TRUE(Compared.Hit);
 	EXPECT_EQ(Compared.Diagnostics.ParityMismatches, 0u);
 }
@@ -897,7 +897,7 @@ TEST(FViewportPickingContractTests, TenThousandPrimitiveSparseFixtureMeetsSceneC
 {
 	FPickingFixture Fixture;
 	Durin::DStaticMesh* Mesh = Fixture.Actor->GetStaticMeshComponent()->GetStaticMesh();
-	auto Index = std::make_shared<Durin::FViewportPickingSceneIndex>();
+	auto Index = std::make_shared<Durin::Editor::Level::FViewportPickingSceneIndex>();
 	Index->SetLevel(Fixture.Level);
 	Fixture.Client.SetPickingSceneIndex(Index);
 	auto State = std::make_shared<FFakePickingState>();
@@ -923,7 +923,7 @@ TEST(FViewportPickingContractTests, TenThousandPrimitiveSparseFixtureMeetsSceneC
 	Fixture.Client.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
 	const Durin::uint64 NodeVisitsBefore = Index->GetDiagnostics().NodeVisits;
 	std::array<Durin::uint64, 5> AcceleratedSamples{};
-	Durin::FViewportPickSubmission Pick;
+	Durin::Editor::Level::FViewportPickSubmission Pick;
 	for (Durin::uint64& Sample : AcceleratedSamples)
 	{
 		const auto Start = std::chrono::steady_clock::now();
@@ -933,16 +933,16 @@ TEST(FViewportPickingContractTests, TenThousandPrimitiveSparseFixtureMeetsSceneC
 	}
 	const size_t CandidateCount = State->Requests.at(Pick.Ticket.Id).Targets.size();
 	const Durin::uint64 WarmNodeVisits = Index->GetDiagnostics().NodeVisits - NodeVisitsBefore;
-	std::vector<Durin::FViewportPickingSceneCandidate> DenseCandidates;
+	std::vector<Durin::Editor::Level::FViewportPickingSceneCandidate> DenseCandidates;
 	ASSERT_TRUE(Index->QueryRay({99.0, 100.1, 3.0}, {1.0, 0.0, 0.0}, DenseCandidates));
 	EXPECT_GE(DenseCandidates.size(), 90u);
-	Durin::FLevelEditorViewportClient ReferenceClient;
+	Durin::Editor::Level::FLevelEditorViewportClient ReferenceClient;
 	ReferenceClient.InitializeForLevel(Fixture.Level);
 	auto ReferenceState = std::make_shared<FFakePickingState>();
 	ReferenceClient.SetPickingBackendForTesting(std::make_unique<FControlledPickingBackend>(ReferenceState));
 	ReferenceClient.SubmitViewportPick(Fixture.Level, Fixture.View, {400.0f, 300.0f});
 	std::array<Durin::uint64, 5> ReferenceSamples{};
-	Durin::FViewportPickSubmission ReferencePick;
+	Durin::Editor::Level::FViewportPickSubmission ReferencePick;
 	for (Durin::uint64& Sample : ReferenceSamples)
 	{
 		const auto Start = std::chrono::steady_clock::now();

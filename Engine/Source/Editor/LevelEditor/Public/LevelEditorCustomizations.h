@@ -13,6 +13,10 @@ namespace Durin
 	class DClass;
 	class DLevel;
 	class DObject;
+}
+
+namespace Durin::Editor::Level
+{
 	struct FLevelEditorContext;
 
 	// Supplies scene and selection state to component visualization extensions.
@@ -127,19 +131,19 @@ namespace Durin
 	class FObjectPropertyViewBuilder
 	{
 	public:
-		using FCustomRowDrawer = std::function<bool(Editor::FPropertyView&, const Editor::FPropertyViewContext&)>;
+		using FCustomRowDrawer = std::function<bool(::Durin::Editor::FPropertyView&, const ::Durin::Editor::FPropertyViewContext&)>;
 
 		LEVELEDITOR_API explicit FObjectPropertyViewBuilder(std::string_view InSearchText = {});
 		LEVELEDITOR_API auto AddProperty(DObject* Object, FProperty* Property, uint32 ArrayIndex = 0,
-			const Editor::FPropertyViewOptions& Options = {}, std::string_view SearchKeywords = {}) -> void;
+			const ::Durin::Editor::FPropertyViewOptions& Options = {}, std::string_view SearchKeywords = {}) -> void;
 		LEVELEDITOR_API auto AddCustomRow(std::string_view SearchKeywords, FCustomRowDrawer Drawer) -> void;
 		LEVELEDITOR_API auto HideProperty(FProperty* Property) -> void;
 		LEVELEDITOR_API auto ReplaceDefaultProperties() -> void;
 		LEVELEDITOR_API auto IsPropertyHidden(const FProperty& Property) const -> bool;
 		LEVELEDITOR_API auto IsReplacingDefaultProperties() const -> bool;
 		LEVELEDITOR_API auto GetVisibleRowCount() const -> uint32;
-		LEVELEDITOR_API auto DrawRows(Editor::FPropertyView& PropertyView,
-			const Editor::FPropertyViewContext& ViewContext) const -> FObjectPropertyViewBuilderResult;
+		LEVELEDITOR_API auto DrawRows(::Durin::Editor::FPropertyView& PropertyView,
+			const ::Durin::Editor::FPropertyViewContext& ViewContext) const -> FObjectPropertyViewBuilderResult;
 
 	private:
 		// Stores either one reflected-property row or one custom drawer.
@@ -210,4 +214,4 @@ namespace Durin
 		std::unordered_map<DClass*, TEntry<IComponentEditorVisualizer>> ComponentVisualizers;
 		std::unordered_map<DClass*, TEntry<IObjectDetailsCustomization>> ObjectDetails;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

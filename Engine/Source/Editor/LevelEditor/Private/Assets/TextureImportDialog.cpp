@@ -11,7 +11,7 @@
 #include "MonaImGui.h"
 #include "Texture/Texture2D.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{
@@ -330,4 +330,4 @@ namespace Durin
 	{
 		Callbacks.Report(std::move(Message));
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

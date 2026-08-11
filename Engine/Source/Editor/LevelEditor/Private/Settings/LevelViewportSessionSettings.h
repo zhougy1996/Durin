@@ -6,6 +6,10 @@ namespace Durin
 {
 	class FYamlNodeRef;
 	class FYamlNodeView;
+}
+
+namespace Durin::Editor::Level
+{
 
 	using FLevelViewportStateMap = std::unordered_map<std::string, std::unordered_map<std::string, FLevelViewportCameraState>>;
 

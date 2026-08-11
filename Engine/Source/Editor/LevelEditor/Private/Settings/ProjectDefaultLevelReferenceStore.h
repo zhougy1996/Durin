@@ -5,6 +5,10 @@
 namespace Durin
 {
 	struct FProjectInfo;
+}
+
+namespace Durin::Editor::Level
+{
 
 	// Owns the project YAML default-level occurrence for redirector Fix Up.
 	class FProjectDefaultLevelReferenceStore final

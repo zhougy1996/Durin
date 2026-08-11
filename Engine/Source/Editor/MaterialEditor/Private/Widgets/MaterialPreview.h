@@ -2,10 +2,10 @@
 
 #include "MaterialEditorAPI.h"
 
-namespace Durin
-{
-	class DMaterialInterface;
+namespace Durin { class DMaterialInterface; }
 
+namespace Durin::Editor::Material
+{
 	// Owns the isolated viewport and scene used to preview editor materials.
 	class FMaterialPreview final
 	{

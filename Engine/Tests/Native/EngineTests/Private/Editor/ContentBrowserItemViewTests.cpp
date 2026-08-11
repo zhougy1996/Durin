@@ -10,7 +10,7 @@
 
 #include <gtest/gtest.h>
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	TEST(FContentBrowserItemViewTests, MapsProviderStatesWithoutOwningTextures)
 	{
@@ -209,4 +209,4 @@ namespace Durin
 
 		ImGui::DestroyContext(Context);
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

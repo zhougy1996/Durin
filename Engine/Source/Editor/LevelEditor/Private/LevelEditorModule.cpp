@@ -22,6 +22,8 @@
 
 namespace Durin
 {
+	using namespace Editor::Level;
+
 	IMPLEMENT_MODULE(FLevelEditorModule, LevelEditor)
 
 	FLevelEditorModule::~FLevelEditorModule() = default;
@@ -73,22 +75,22 @@ namespace Durin
 		SessionSettings.reset();
 	}
 
-	LEVELEDITOR_API auto FLevelEditorModule::RegisterLevelEditorWorkspace(Editor::FWorkspaceManager& WorkspaceManager) -> bool
+	LEVELEDITOR_API auto FLevelEditorModule::RegisterLevelEditorWorkspace(::Durin::Editor::FWorkspaceManager& WorkspaceManager) -> bool
 	{
 		if (WorkspaceRegistration && WorkspaceRegistration->IsValid()) return false;
 		WorkspaceRegistration.reset();
 		std::shared_ptr<MLevelEditor> Workspace = std::make_shared<MLevelEditor>(*SessionSettings, WorkspaceManager);
 		Workspace->Construct();
-		Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
+		::Durin::Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
 			.Workspaces = {
 				{
 					.Descriptor = {
-						.WorkspaceType = LevelEditorWorkspace::Type,
+						.WorkspaceType = Workspace::Type,
 						.DisplayName = "Level Editor",
-						.RootKey = LevelEditorWorkspace::RootKey,
+						.RootKey = Workspace::RootKey,
 						.bShowInWindowMenu = true,
 						.bOpenByDefault = true,
-						.DefaultHostDockPreference = Editor::EWorkspaceHostDockPreference::Center,
+						.DefaultHostDockPreference = ::Durin::Editor::EWorkspaceHostDockPreference::Center,
 						.SingletonDocumentKey = "LevelEditor",
 						.SingletonDocumentLabel = "Level Editor",
 						.bSingletonDocumentClosable = true,
@@ -99,8 +101,8 @@ namespace Durin
 			.AssetEditors = {
 				{
 					.AssetClassName = DLevel::StaticClass()->GetQualifiedName().ToString(),
-					.WorkspaceType = LevelEditorWorkspace::Type,
-					.DocumentPolicy = Editor::EDocumentPolicy::Singleton,
+					.WorkspaceType = Workspace::Type,
+					.DocumentPolicy = ::Durin::Editor::EDocumentPolicy::Singleton,
 					.SingletonDocumentKey = "LevelEditor",
 					.SingletonLabel = "Level Editor",
 					.bClosable = true,
@@ -108,7 +110,7 @@ namespace Durin
 			},
 		});
 		if (!Registration) return false;
-		WorkspaceRegistration = std::make_unique<Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
+		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
 		LevelEditorWorkspace = Workspace;
 		return true;
 	}

@@ -2,10 +2,10 @@
 
 #include "MonaImGui.h"
 
-namespace Durin
+namespace Durin::Editor::MainFrame
 {
 	// Persists editor-host layout and startup behavior outside project settings.
-	class FEditorHostSettings
+	class FHostSettings
 	{
 	public:
 		auto Load() -> bool;

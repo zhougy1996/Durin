@@ -13,7 +13,7 @@
 	#include <shellapi.h>
 #endif
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	FContentBrowserPanel::FContentBrowserPanel(
 		FLevelEditorSessionSettings& InSessionSettings,
@@ -646,4 +646,4 @@ namespace Durin
 	{
 		ErrorMessage = std::move(Message);
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

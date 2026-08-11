@@ -227,7 +227,7 @@ namespace Durin
 			BeforeSave, MaterialFile));
 		Editor::FWorkspaceManager WorkspaceManager;
 		Editor::FRenderedAssetThumbnailService ThumbnailService;
-		FMaterialEditorModule MaterialEditorModule;
+		Durin::FMaterialEditorModule MaterialEditorModule;
 		ASSERT_TRUE(MaterialEditorModule.RegisterMaterialEditor(
 			WorkspaceManager, ThumbnailService));
 		ASSERT_TRUE(WorkspaceManager.OpenAsset(

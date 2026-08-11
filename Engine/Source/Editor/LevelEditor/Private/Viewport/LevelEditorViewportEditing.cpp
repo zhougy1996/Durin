@@ -5,7 +5,7 @@
 #include "Viewport/TransformGizmo.h"
 #include "Workspace/LevelEditorContext.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{
@@ -24,7 +24,7 @@ namespace Durin
 			}
 
 			auto Tick(FLevelEditorContext& Context, FLevelEditorViewportClient& Client, const FSceneView& View,
-				FLevelEditorViewportInput& Input, Editor::FTransactionManager* Transactions) -> bool override
+				FLevelEditorViewportInput& Input, ::Durin::Editor::FTransactionManager* Transactions) -> bool override
 			{
 				LastClient = &Client;
 				const FTransformGizmoTargetSet Targets = GetGizmoTargets(Context);
@@ -188,7 +188,7 @@ namespace Durin
 	}
 
 	auto FLevelViewportEditModeManager::Tick(FLevelEditorContext& Context, FLevelEditorViewportClient& Client, const FSceneView& View,
-		FLevelEditorViewportInput& Input, Editor::FTransactionManager* Transactions) -> bool
+		FLevelEditorViewportInput& Input, ::Durin::Editor::FTransactionManager* Transactions) -> bool
 	{
 		Synchronize(Context);
 		if (!ActiveMode) return false;
@@ -204,4 +204,4 @@ namespace Durin
 		ActiveId.clear();
 		LastContext = nullptr;
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

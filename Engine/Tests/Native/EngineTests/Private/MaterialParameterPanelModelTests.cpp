@@ -10,12 +10,12 @@
 namespace
 {
 	auto FindEntry(
-		const Durin::FMaterialParameterPanelModel& Model,
+		const Durin::Editor::Material::FMaterialParameterPanelModel& Model,
 		const Durin::FGuid& ParameterId
-	) -> const Durin::FMaterialParameterPanelEntry*
+	) -> const Durin::Editor::Material::FMaterialParameterPanelEntry*
 	{
 		const auto Entries = Model.GetEntries();
-		const auto It = std::ranges::find(Entries, ParameterId, &Durin::FMaterialParameterPanelEntry::ParameterId);
+		const auto It = std::ranges::find(Entries, ParameterId, &Durin::Editor::Material::FMaterialParameterPanelEntry::ParameterId);
 		return It == Entries.end() ? nullptr : &*It;
 	}
 
@@ -41,7 +41,7 @@ TEST(FMaterialParameterPanelModelTests, BuildsControlsAndResolvedSourceFromRunti
 	ASSERT_TRUE(Child->SetParent(Parent));
 	ASSERT_TRUE(Parent->SetScalarParameterValue(Durin::MaterialParameters::OpacityName(), 0.6f));
 
-	const Durin::FMaterialParameterPanelModel Model(Child);
+	const Durin::Editor::Material::FMaterialParameterPanelModel Model(Child);
 	ASSERT_EQ(Model.GetEntries().size(), 56u);
 	const auto* BaseColor = FindEntry(Model, Durin::MaterialParameters::BaseColorId);
 	const auto* Texture = FindEntry(Model, Durin::MaterialParameters::BaseColorTextureId);
@@ -55,13 +55,13 @@ TEST(FMaterialParameterPanelModelTests, BuildsControlsAndResolvedSourceFromRunti
 	ASSERT_NE(Roughness, nullptr);
 	ASSERT_NE(UVChannel, nullptr);
 	ASSERT_NE(UVScale, nullptr);
-	EXPECT_EQ(BaseColor->Control, Durin::EMaterialParameterControlKind::Color);
-	EXPECT_EQ(Texture->Control, Durin::EMaterialParameterControlKind::AssetPicker);
-	EXPECT_EQ(Opacity->Control, Durin::EMaterialParameterControlKind::RangedScalar);
-	EXPECT_EQ(Roughness->Control, Durin::EMaterialParameterControlKind::RangedScalar);
-	EXPECT_EQ(UVChannel->Control, Durin::EMaterialParameterControlKind::IntegerScalar);
+	EXPECT_EQ(BaseColor->Control, Durin::Editor::Material::EMaterialParameterControlKind::Color);
+	EXPECT_EQ(Texture->Control, Durin::Editor::Material::EMaterialParameterControlKind::AssetPicker);
+	EXPECT_EQ(Opacity->Control, Durin::Editor::Material::EMaterialParameterControlKind::RangedScalar);
+	EXPECT_EQ(Roughness->Control, Durin::Editor::Material::EMaterialParameterControlKind::RangedScalar);
+	EXPECT_EQ(UVChannel->Control, Durin::Editor::Material::EMaterialParameterControlKind::IntegerScalar);
 	EXPECT_EQ(UVChannel->Definition->GroupName.ToString(), "Surface/Base");
-	EXPECT_EQ(UVScale->Control, Durin::EMaterialParameterControlKind::Vector);
+	EXPECT_EQ(UVScale->Control, Durin::Editor::Material::EMaterialParameterControlKind::Vector);
 	EXPECT_EQ(UVScale->Definition->Type, Durin::EMaterialParameterType::Vector2);
 	EXPECT_EQ(Opacity->Source, Parent);
 	EXPECT_FLOAT_EQ(Opacity->Value.ScalarValue, 0.6f);
@@ -82,7 +82,7 @@ TEST(FMaterialParameterPanelModelTests, IntegerPresentationCanonicalizesSubmitte
 	Durin::Editor::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
-	const Durin::FMaterialParameterPanelModel Model(Material);
+	const Durin::Editor::Material::FMaterialParameterPanelModel Model(Material);
 	const auto* UVChannel = FindEntry(Model, Durin::MaterialParameters::UVChannelIds[0]);
 	ASSERT_NE(UVChannel, nullptr);
 
@@ -115,7 +115,7 @@ TEST(FMaterialParameterPanelModelTests, EnablingOverrideCopiesTheParameterType)
 	Durin::Editor::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
-	const Durin::FMaterialParameterPanelModel Model(Instance);
+	const Durin::Editor::Material::FMaterialParameterPanelModel Model(Instance);
 	const auto* BaseColor = FindEntry(Model, Durin::MaterialParameters::BaseColorId);
 	ASSERT_NE(BaseColor, nullptr);
 	ASSERT_EQ(BaseColor->Definition->Type, Durin::EMaterialParameterType::Vector);
@@ -147,13 +147,13 @@ TEST(FMaterialParameterPanelModelTests, GuidRootEditsSurviveIndexChangesAndCoale
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
 
-	Durin::FMaterialParameterPanelModel InitialModel(Instance);
+	Durin::Editor::Material::FMaterialParameterPanelModel InitialModel(Instance);
 	const auto* InitialOpacity = FindEntry(InitialModel, Durin::MaterialParameters::OpacityId);
 	ASSERT_NE(InitialOpacity, nullptr);
 	ASSERT_TRUE(InitialModel.SetOverrideEnabled(PropertyView, Context, *InitialOpacity, true));
 	ASSERT_TRUE(Instance->HasLocalParameterOverride(Durin::MaterialParameters::OpacityId));
 
-	Durin::FMaterialParameterPanelModel EditModel(Instance);
+	Durin::Editor::Material::FMaterialParameterPanelModel EditModel(Instance);
 	const auto* Opacity = FindEntry(EditModel, Durin::MaterialParameters::OpacityId);
 	ASSERT_NE(Opacity, nullptr);
 	ASSERT_TRUE(Opacity->bHasLocalOverride);
@@ -179,7 +179,7 @@ TEST(FMaterialParameterPanelModelTests, GuidRootEditsSurviveIndexChangesAndCoale
 	ASSERT_TRUE(Instance->GetScalarParameterValue(Durin::MaterialParameters::OpacityName(), Value));
 	EXPECT_FLOAT_EQ(Value, 0.25f);
 
-	Durin::FMaterialParameterPanelModel CancelModel(Instance);
+	Durin::Editor::Material::FMaterialParameterPanelModel CancelModel(Instance);
 	const auto* CancelOpacity = FindEntry(CancelModel, Durin::MaterialParameters::OpacityId);
 	ASSERT_NE(CancelOpacity, nullptr);
 	auto CancelValue = CancelOpacity->Value;
@@ -208,7 +208,7 @@ TEST(FMaterialParameterPanelModelTests, ResetAndOrphanRemovalAreTransactional)
 	Durin::Editor::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
-	Durin::FMaterialParameterPanelModel OverrideModel(Instance);
+	Durin::Editor::Material::FMaterialParameterPanelModel OverrideModel(Instance);
 	const auto* Opacity = FindEntry(OverrideModel, Durin::MaterialParameters::OpacityId);
 	ASSERT_NE(Opacity, nullptr);
 	ASSERT_TRUE(OverrideModel.SetOverrideEnabled(PropertyView, Context, *Opacity, false));
@@ -220,7 +220,7 @@ TEST(FMaterialParameterPanelModelTests, ResetAndOrphanRemovalAreTransactional)
 
 	ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::MaterialParameters::OpacityName(), 0.3f));
 	ASSERT_TRUE(Instance->SetParent(nullptr));
-	Durin::FMaterialParameterPanelModel OrphanModel(Instance);
+	Durin::Editor::Material::FMaterialParameterPanelModel OrphanModel(Instance);
 	ASSERT_EQ(OrphanModel.GetEntries().size(), 1u);
 	const auto& Orphan = OrphanModel.GetEntries().front();
 	EXPECT_TRUE(Orphan.bOrphan);
@@ -252,7 +252,7 @@ TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoH
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
 
-	Durin::FMaterialParameterPanelModel BaseModel(Base);
+	Durin::Editor::Material::FMaterialParameterPanelModel BaseModel(Base);
 	const auto* BaseOpacity = FindEntry(BaseModel, Durin::MaterialParameters::OpacityId);
 	ASSERT_NE(BaseOpacity, nullptr);
 	auto ScalarValue = BaseOpacity->Value;
@@ -268,11 +268,11 @@ TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoH
 	ASSERT_TRUE(Base->GetScalarParameterValue(Durin::MaterialParameters::OpacityName(), Opacity));
 	EXPECT_FLOAT_EQ(Opacity, 0.7f);
 
-	Durin::FMaterialParameterPanelModel InheritedModel(Instance);
+	Durin::Editor::Material::FMaterialParameterPanelModel InheritedModel(Instance);
 	const auto* InheritedTexture = FindEntry(InheritedModel, Durin::MaterialParameters::BaseColorTextureId);
 	ASSERT_NE(InheritedTexture, nullptr);
 	ASSERT_TRUE(InheritedModel.SetOverrideEnabled(PropertyView, Context, *InheritedTexture, true));
-	Durin::FMaterialParameterPanelModel TextureModel(Instance);
+	Durin::Editor::Material::FMaterialParameterPanelModel TextureModel(Instance);
 	const auto* TextureEntry = FindEntry(TextureModel, Durin::MaterialParameters::BaseColorTextureId);
 	ASSERT_NE(TextureEntry, nullptr);
 	auto TextureValue = TextureEntry->Value;
@@ -307,7 +307,7 @@ TEST(FMaterialParameterPanelModelTests, RootSnapshotContinuousSessionsRemainPara
 	Durin::Editor::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
-	Durin::FMaterialParameterPanelModel Model(Base);
+	Durin::Editor::Material::FMaterialParameterPanelModel Model(Base);
 	const auto* Opacity = FindEntry(Model, Durin::MaterialParameters::OpacityId);
 	const auto* BaseColor = FindEntry(Model, Durin::MaterialParameters::BaseColorId);
 	ASSERT_NE(Opacity, nullptr);

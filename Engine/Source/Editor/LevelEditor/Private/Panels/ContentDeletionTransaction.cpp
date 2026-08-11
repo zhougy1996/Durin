@@ -6,7 +6,7 @@
 #include <atomic>
 #include <fstream>
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{
@@ -69,7 +69,7 @@ namespace Durin
 	}
 
 	auto FContentDeletionTransaction::GetDetails(
-		Editor::ETransactionOperation) const -> std::string
+		::Durin::Editor::ETransactionOperation) const -> std::string
 	{
 		return Details;
 	}
@@ -402,4 +402,4 @@ namespace Durin
 		Marker.close();
 		std::filesystem::remove_all(StagingRoot, Ec);
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

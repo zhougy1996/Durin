@@ -10,6 +10,8 @@
 
 namespace Durin
 {
+	using namespace Editor::Material;
+
 	IMPLEMENT_MODULE(FMaterialEditorModule, MaterialEditor)
 
 	FMaterialEditorModule::~FMaterialEditorModule() = default;
@@ -24,8 +26,8 @@ namespace Durin
 	}
 
 	auto FMaterialEditorModule::RegisterMaterialEditor(
-		Editor::FWorkspaceManager& WorkspaceManager,
-		Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool
+		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
+		::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
 			|| (MaterialThumbnailRegistration && MaterialThumbnailRegistration->IsValid())
@@ -35,16 +37,16 @@ namespace Durin
 		MaterialThumbnailRegistration.reset();
 		MaterialInstanceThumbnailRegistration.reset();
 		std::shared_ptr<MMaterialEditor> Workspace = std::make_shared<MMaterialEditor>(WorkspaceManager);
-		Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
+		::Durin::Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
 			.Workspaces = {
 				{
 					.Descriptor = {
-						.WorkspaceType = MaterialEditorWorkspace::Type,
+						.WorkspaceType = Workspace::Type,
 						.DisplayName = "Material Editor",
-						.RootKey = std::string(MaterialEditorWorkspace::RootKey),
+						.RootKey = std::string(Workspace::RootKey),
 						.bShowInWindowMenu = false,
 						.bOpenByDefault = false,
-						.DefaultHostDockPreference = Editor::EWorkspaceHostDockPreference::Center,
+						.DefaultHostDockPreference = ::Durin::Editor::EWorkspaceHostDockPreference::Center,
 					},
 					.Workspace = Workspace,
 				},
@@ -52,20 +54,20 @@ namespace Durin
 			.AssetEditors = {
 				{
 					.AssetClassName = DMaterial::StaticClass()->GetQualifiedName().ToString(),
-					.WorkspaceType = MaterialEditorWorkspace::Type,
-					.DocumentPolicy = Editor::EDocumentPolicy::PerResource,
+					.WorkspaceType = Workspace::Type,
+					.DocumentPolicy = ::Durin::Editor::EDocumentPolicy::PerResource,
 					.bClosable = true,
 				},
 				{
 					.AssetClassName = DMaterialInstance::StaticClass()->GetQualifiedName().ToString(),
-					.WorkspaceType = MaterialEditorWorkspace::Type,
-					.DocumentPolicy = Editor::EDocumentPolicy::PerResource,
+					.WorkspaceType = Workspace::Type,
+					.DocumentPolicy = ::Durin::Editor::EDocumentPolicy::PerResource,
 					.bClosable = true,
 				},
 			},
 		});
 		if (!Registration) return false;
-		WorkspaceRegistration = std::make_unique<Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
+		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
 		std::string Error;
 		auto MaterialHandle = ThumbnailService.RegisterScoped(
 			std::make_unique<FMaterialAssetThumbnailProvider>(
@@ -76,7 +78,7 @@ namespace Durin
 			return false;
 		}
 		MaterialThumbnailRegistration =
-			std::make_unique<Editor::FAssetThumbnailProviderRegistrationHandle>(
+			std::make_unique<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
 				std::move(MaterialHandle));
 		auto InstanceHandle = ThumbnailService.RegisterScoped(
 			std::make_unique<FMaterialAssetThumbnailProvider>(
@@ -88,7 +90,7 @@ namespace Durin
 			return false;
 		}
 		MaterialInstanceThumbnailRegistration =
-			std::make_unique<Editor::FAssetThumbnailProviderRegistrationHandle>(
+			std::make_unique<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
 				std::move(InstanceHandle));
 		return true;
 	}

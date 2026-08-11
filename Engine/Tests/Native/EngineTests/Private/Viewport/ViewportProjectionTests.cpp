@@ -18,8 +18,8 @@ TEST(FLevelEditorViewportClientTests, NavigationDoesNotDirtyTheLevelPackage)
 	ASSERT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));
 	ASSERT_FALSE(Level->GetPackage()->IsDirty());
 
-	Durin::FLevelEditorViewportClient Client;
-	Durin::FLevelEditorViewportInput Input;
+	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::Editor::Level::FLevelEditorViewportInput Input;
 	Input.bFocused = true;
 	Input.bHovered = true;
 	Input.bRightMousePressed = true;
@@ -46,7 +46,7 @@ TEST(FBoxTests, AccumulatesFinitePointsAndResets)
 
 TEST(FLevelEditorViewportClientTests, BuildsCenterPickingRayAndRejectsInvalidViewport)
 {
-	Durin::FLevelEditorViewportClient Client;
+	Durin::Editor::Level::FLevelEditorViewportClient Client;
 	Durin::FVector3 Origin;
 	Durin::FVector3 Direction;
 	EXPECT_FALSE(Client.BuildPickingRay({0.0f, 0.0f}, {0.0f, 100.0f}, Origin, Direction));
@@ -65,8 +65,8 @@ TEST(FLevelEditorViewportClientTests, FocusesTheSelectedActorFromViewportInput)
 	ASSERT_NE(Actor, nullptr);
 	Actor->GetRootComponent()->SetWorldLocation({12.0, -4.0, 7.0});
 
-	Durin::FLevelEditorViewportClient Client;
-	Durin::FLevelEditorViewportInput Input;
+	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Durin::Editor::Level::FLevelEditorViewportInput Input;
 	Input.bFocused = true;
 	Input.bFocusSelection = true;
 	Client.Update(Level, Actor, Input);

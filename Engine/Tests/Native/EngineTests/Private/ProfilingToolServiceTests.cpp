@@ -6,7 +6,7 @@
 
 #include <fstream>
 
-namespace Durin
+namespace Durin::Editor::MainFrame
 {
 	namespace
 	{

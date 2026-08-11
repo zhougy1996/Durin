@@ -5,7 +5,7 @@
 #include "SceneImport.h"
 #include "StaticMesh/StaticMesh.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	// Selects the mesh-coordinate policy applied while importing a Scene source.
 	enum class ESceneMeshImportPreset : uint8
@@ -51,4 +51,4 @@ namespace Durin
 		std::optional<FSceneImportAsyncPlanHandle> PreviewRequest;
 		std::optional<FSceneImportAsyncPlanHandle> ImportRequest;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

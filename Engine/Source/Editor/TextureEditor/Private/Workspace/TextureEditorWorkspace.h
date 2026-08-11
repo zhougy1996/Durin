@@ -2,8 +2,8 @@
 
 #include "Editor/WorkspaceTypes.h"
 
-namespace Durin::TextureEditorWorkspace
+namespace Durin::Editor::Texture::Workspace
 {
-	inline const Editor::FWorkspaceTypeId Type("TextureEditor");
+	inline const ::Durin::Editor::FWorkspaceTypeId Type("TextureEditor");
 	inline constexpr std::string_view RootKey = "TextureEditor";
 }

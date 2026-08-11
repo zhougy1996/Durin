@@ -9,7 +9,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/TextureCube.h"
 
-namespace Durin
+namespace Durin::Editor::Texture
 {
 	namespace
 	{
@@ -17,7 +17,7 @@ namespace Durin
 		constexpr uint32 TextureCubeThumbnailShaderContract = 2;
 
 		auto MakeFingerprint(const Asset::FAssetData& Data)
-			-> Editor::FAssetThumbnailPackageFingerprint
+			-> ::Durin::Editor::FAssetThumbnailPackageFingerprint
 		{
 			return {
 				.VirtualPath = Data.PackagePath,
@@ -65,9 +65,9 @@ namespace Durin
 			return TextureCube->GetBuildRevision();
 		}
 
-		auto MakeTextureCubePreviewView() -> Editor::FRenderedAssetThumbnailPreviewView
+		auto MakeTextureCubePreviewView() -> ::Durin::Editor::FRenderedAssetThumbnailPreviewView
 		{
-			const Editor::FRenderedAssetThumbnailVisualContract Contract;
+			const ::Durin::Editor::FRenderedAssetThumbnailVisualContract Contract;
 			const FVector3 Eye = Math::Normalize(FVector3(
 				Contract.CameraDirectionX,
 				Contract.CameraDirectionY,
@@ -91,7 +91,7 @@ namespace Durin
 		}
 
 		class FTextureCubeThumbnailGenerationSession final
-			: public Editor::IRenderedAssetThumbnailGenerationSession
+			: public ::Durin::Editor::IRenderedAssetThumbnailGenerationSession
 		{
 		public:
 			explicit FTextureCubeThumbnailGenerationSession(FAssetPath InAssetPath)
@@ -104,7 +104,7 @@ namespace Durin
 				ResetPreview();
 			}
 
-			auto Load() -> Editor::FRenderedAssetThumbnailSessionUpdate override
+			auto Load() -> ::Durin::Editor::FRenderedAssetThumbnailSessionUpdate override
 			{
 				DObject* Loaded = nullptr;
 				const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Loaded);
@@ -113,18 +113,18 @@ namespace Durin
 				{
 					TextureCube = nullptr;
 					return {
-						.State = Editor::ERenderedAssetThumbnailSessionState::Failed,
+						.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::Failed,
 						.Diagnostic = Result.Message.empty()
 							? "The requested asset is not a TextureCube."
 							: Result.Message};
 				}
 				AssetRevision = TextureCube->GetBuildRevision();
 				return {
-					.State = Editor::ERenderedAssetThumbnailSessionState::WaitingForResources,
+					.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::WaitingForResources,
 					.AssetRevision = AssetRevision};
 			}
 
-			auto PollResources() -> Editor::FRenderedAssetThumbnailSessionUpdate override
+			auto PollResources() -> ::Durin::Editor::FRenderedAssetThumbnailSessionUpdate override
 			{
 				bool bReady = false;
 				std::string Error;
@@ -132,20 +132,20 @@ namespace Durin
 					TextureCube, bReady, Error);
 				if (!Error.empty())
 					return {
-						.State = Editor::ERenderedAssetThumbnailSessionState::Failed,
+						.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::Failed,
 						.AssetRevision = AssetRevision,
 						.ResourceRevision = Revision,
 						.Diagnostic = std::move(Error)};
 				return {
 					.State = bReady
-						? Editor::ERenderedAssetThumbnailSessionState::ReadyToRender
-						: Editor::ERenderedAssetThumbnailSessionState::WaitingForResources,
+						? ::Durin::Editor::ERenderedAssetThumbnailSessionState::ReadyToRender
+						: ::Durin::Editor::ERenderedAssetThumbnailSessionState::WaitingForResources,
 					.AssetRevision = AssetRevision,
 					.ResourceRevision = Revision};
 			}
 
 			auto PreparePreview(
-				Editor::IRenderedAssetThumbnailPreviewScene& PreviewScene,
+				::Durin::Editor::IRenderedAssetThumbnailPreviewScene& PreviewScene,
 				std::string& OutError) -> bool override
 			{
 				ResetPreview();
@@ -153,10 +153,10 @@ namespace Durin
 				FAssetPath SpherePath;
 				if (World == nullptr
 					|| !FAssetPath::TryCreate(
-						Editor::FRenderedAssetThumbnailVisualContract::SphereVirtualPath,
+						::Durin::Editor::FRenderedAssetThumbnailVisualContract::SphereVirtualPath,
 						SpherePath,
 						&OutError)
-					|| !Editor::FAssetRetentionService::Acquire(SpherePath, SphereAsset, OutError))
+					|| !::Durin::Editor::FAssetRetentionService::Acquire(SpherePath, SphereAsset, OutError))
 					return false;
 				DStaticMesh* Sphere = Cast<DStaticMesh>(SphereAsset.Get());
 				Actor = World->SpawnActor<AActor>("TextureCubeThumbnailPreviewActor");
@@ -216,12 +216,12 @@ namespace Durin
 			DWorld* World = nullptr;
 			AActor* Actor = nullptr;
 			DTextureCubePreviewComponent* Component = nullptr;
-			Editor::FRetainedAsset SphereAsset;
+			::Durin::Editor::FRetainedAsset SphereAsset;
 		};
 	} // namespace
 
 	auto FTextureCubeAssetThumbnailProvider::GetRegistration() const
-		-> Editor::FAssetThumbnailProviderRegistration
+		-> ::Durin::Editor::FAssetThumbnailProviderRegistration
 	{
 		return {
 			.AssetClassName = DTextureCube::StaticClass()->GetQualifiedName().ToString(),
@@ -230,14 +230,14 @@ namespace Durin
 	}
 
 	auto FTextureCubeAssetThumbnailProvider::CaptureGenerationRequest(
-		const Editor::FAssetThumbnailRequest& Request,
+		const ::Durin::Editor::FAssetThumbnailRequest& Request,
 		uint64 ProviderGeneration,
-		Editor::FAssetThumbnailGenerationRequest& OutRequest,
+		::Durin::Editor::FAssetThumbnailGenerationRequest& OutRequest,
 		std::string& OutError) -> bool
 	{
 		OutRequest = {};
 		OutError.clear();
-		const Editor::FAssetThumbnailProviderRegistration Registration = GetRegistration();
+		const ::Durin::Editor::FAssetThumbnailProviderRegistration Registration = GetRegistration();
 		if (Request.Asset.AssetClassName != Registration.AssetClassName)
 		{
 			OutError = "The TextureCube thumbnail provider received the wrong asset class.";
@@ -260,15 +260,15 @@ namespace Durin
 			return false;
 		}
 
-		const Editor::FRenderedAssetThumbnailVisualContract Visual;
+		const ::Durin::Editor::FRenderedAssetThumbnailVisualContract Visual;
 		OutRequest.KeyInput = {
 			.Output = Visual.Output,
 			.PreviewFixtureIdentity =
 				std::string(
-					Editor::FRenderedAssetThumbnailVisualContract::
+					::Durin::Editor::FRenderedAssetThumbnailVisualContract::
 						TextureCubeEnvironmentViewIdentity),
 			.PreviewFixtureVersion =
-				Editor::FRenderedAssetThumbnailVisualContract::
+				::Durin::Editor::FRenderedAssetThumbnailVisualContract::
 					TextureCubeEnvironmentViewVersion,
 			.ShaderContractVersion = TextureCubeThumbnailShaderContract};
 		OutRequest.Input =
@@ -281,10 +281,10 @@ namespace Durin
 	}
 
 	auto FTextureCubeAssetThumbnailProvider::CreateGenerationSession(
-		const Editor::FAssetThumbnailGenerationRequest&,
-		const Editor::IAssetThumbnailGenerationInput& Input,
+		const ::Durin::Editor::FAssetThumbnailGenerationRequest&,
+		const ::Durin::Editor::IAssetThumbnailGenerationInput& Input,
 		std::string& OutError)
-		-> std::unique_ptr<Editor::IRenderedAssetThumbnailGenerationSession>
+		-> std::unique_ptr<::Durin::Editor::IRenderedAssetThumbnailGenerationSession>
 	{
 		const auto* TextureCubeInput =
 			dynamic_cast<const FTextureCubeThumbnailGenerationInput*>(&Input);
@@ -297,4 +297,4 @@ namespace Durin
 		return std::make_unique<FTextureCubeThumbnailGenerationSession>(
 			TextureCubeInput->AssetPath);
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Texture

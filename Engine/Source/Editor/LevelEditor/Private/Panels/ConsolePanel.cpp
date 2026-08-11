@@ -10,7 +10,7 @@
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	// Retains console input and filtering state across panel reconstruction.
 	struct FConsolePanelState
@@ -21,7 +21,7 @@ namespace Durin
 
 	namespace
 	{
-		using LevelEditorHelpers::DrawToolbarIconButton;
+		using Helpers::DrawToolbarIconButton;
 		using StringUtils::ContainsInsensitive;
 
 		constexpr size_t MaxCommandHistory = 100;
@@ -165,7 +165,7 @@ namespace Durin
 		(void)Context;
 		const bool bHadNewConsoleRecords = std::exchange(bHasNewConsoleRecords, false);
 		const bool bReceivedRecords = PollLogRecords() || bHadNewConsoleRecords;
-		if (!Editor::WorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "Console", "OutputLog", GetOpenPtr()))
+		if (!::Durin::Editor::WorkspaceUI::BeginDockablePanel(Workspace::Type, "Console", "OutputLog", GetOpenPtr()))
 		{
 			ImGui::End();
 			return;
@@ -429,4 +429,4 @@ namespace Durin
 		MarkRecordsChanged();
 		bHasNewConsoleRecords = false;
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

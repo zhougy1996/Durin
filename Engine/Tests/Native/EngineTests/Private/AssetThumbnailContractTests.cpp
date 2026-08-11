@@ -317,10 +317,10 @@ namespace Durin
 			const FBox& Bounds,
 			double AspectRatio = 1.0) -> void
 		{
-			const FStaticMeshAssetThumbnailViewInput Input{
+			const Editor::StaticMesh::FStaticMeshAssetThumbnailViewInput Input{
 				.LocalBounds = Bounds,
 				.OutputAspectRatio = AspectRatio};
-			FStaticMeshAssetThumbnailView View;
+			Editor::StaticMesh::FStaticMeshAssetThumbnailView View;
 			std::string Error;
 			ASSERT_TRUE(CalculateStaticMeshAssetThumbnailView(Input, View, Error)) << Error;
 
@@ -364,18 +364,18 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, StaticMeshVisualContractIsFrozen)
 	{
-		EXPECT_EQ(FStaticMeshAssetThumbnailContract::AssetClassName, "DStaticMesh");
-		EXPECT_EQ(FStaticMeshAssetThumbnailContract::ProviderName, "Durin.StaticMeshThumbnail");
-		EXPECT_EQ(FStaticMeshAssetThumbnailContract::GeneratorSchemaVersion, 2u);
+		EXPECT_EQ(Editor::StaticMesh::FStaticMeshAssetThumbnailContract::AssetClassName, "DStaticMesh");
+		EXPECT_EQ(Editor::StaticMesh::FStaticMeshAssetThumbnailContract::ProviderName, "Durin.StaticMeshThumbnail");
+		EXPECT_EQ(Editor::StaticMesh::FStaticMeshAssetThumbnailContract::GeneratorSchemaVersion, 2u);
 		EXPECT_EQ(
-			FStaticMeshAssetThumbnailContract::PreviewFixtureIdentity,
+			Editor::StaticMesh::FStaticMeshAssetThumbnailContract::PreviewFixtureIdentity,
 			"/Engine/Editor/StaticMeshPreview/LOD0DefaultMaterials");
-		EXPECT_EQ(FStaticMeshAssetThumbnailContract::PreviewFixtureVersion, 2u);
-		EXPECT_EQ(FStaticMeshAssetThumbnailContract::ShaderContractVersion, 1u);
-		EXPECT_EQ(FStaticMeshAssetThumbnailContract::ImageMargin, 0.04);
-		EXPECT_EQ(FStaticMeshAssetThumbnailContract::LODIndex, 0u);
-		EXPECT_FALSE(FStaticMeshAssetThumbnailContract::bOutputOpaque);
-		const FStaticMeshAssetThumbnailViewInput ViewInput;
+		EXPECT_EQ(Editor::StaticMesh::FStaticMeshAssetThumbnailContract::PreviewFixtureVersion, 2u);
+		EXPECT_EQ(Editor::StaticMesh::FStaticMeshAssetThumbnailContract::ShaderContractVersion, 1u);
+		EXPECT_EQ(Editor::StaticMesh::FStaticMeshAssetThumbnailContract::ImageMargin, 0.04);
+		EXPECT_EQ(Editor::StaticMesh::FStaticMeshAssetThumbnailContract::LODIndex, 0u);
+		EXPECT_FALSE(Editor::StaticMesh::FStaticMeshAssetThumbnailContract::bOutputOpaque);
+		const Editor::StaticMesh::FStaticMeshAssetThumbnailViewInput ViewInput;
 		EXPECT_EQ(ViewInput.CameraDirection, FVector3(2.4, -3.2, 2.4));
 	}
 
@@ -405,11 +405,11 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, StaticMeshBoundsFramingIsDeterministic)
 	{
-		const FStaticMeshAssetThumbnailViewInput Input{
+		const Editor::StaticMesh::FStaticMeshAssetThumbnailViewInput Input{
 			.LocalBounds = FBox(FVector3(3.0, -8.0, 2.0), FVector3(11.0, 4.0, 6.0)),
 			.OutputAspectRatio = 1.25};
-		FStaticMeshAssetThumbnailView First;
-		FStaticMeshAssetThumbnailView Second;
+		Editor::StaticMesh::FStaticMeshAssetThumbnailView First;
+		Editor::StaticMesh::FStaticMeshAssetThumbnailView Second;
 		std::string Error;
 		ASSERT_TRUE(CalculateStaticMeshAssetThumbnailView(Input, First, Error)) << Error;
 		ASSERT_TRUE(CalculateStaticMeshAssetThumbnailView(Input, Second, Error)) << Error;
@@ -426,8 +426,8 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, StaticMeshBoundsFramingRejectsInvalidInputs)
 	{
-		auto ExpectRejected = [](FStaticMeshAssetThumbnailViewInput Input) {
-			FStaticMeshAssetThumbnailView View;
+		auto ExpectRejected = [](Editor::StaticMesh::FStaticMeshAssetThumbnailViewInput Input) {
+			Editor::StaticMesh::FStaticMeshAssetThumbnailView View;
 			std::string Error;
 			EXPECT_FALSE(CalculateStaticMeshAssetThumbnailView(Input, View, Error));
 			EXPECT_FALSE(Error.empty());

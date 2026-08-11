@@ -2,8 +2,8 @@
 
 #include "Editor/WorkspaceTypes.h"
 
-namespace Durin::StaticMeshEditorWorkspace
+namespace Durin::Editor::StaticMesh::Workspace
 {
-	inline const Editor::FWorkspaceTypeId Type("StaticMeshEditor");
+	inline const ::Durin::Editor::FWorkspaceTypeId Type("StaticMeshEditor");
 	inline constexpr std::string_view RootKey = "StaticMeshEditor";
 }

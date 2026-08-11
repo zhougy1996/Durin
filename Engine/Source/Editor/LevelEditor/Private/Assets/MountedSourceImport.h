@@ -2,7 +2,7 @@
 
 #include "Misc/Paths.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	enum class EMountedSourceImportMode : uint8
 	{
@@ -139,4 +139,4 @@ namespace Durin
 		if (!SourceGroup.empty()) Result += std::string(SourceGroup) + "/";
 		return Result + std::string(FileName);
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

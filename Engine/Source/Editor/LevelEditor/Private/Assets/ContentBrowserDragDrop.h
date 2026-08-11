@@ -2,7 +2,7 @@
 
 #include <array>
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	inline constexpr const char* ContentBrowserAssetPayloadType = "DURIN_CONTENT_ASSET";
 

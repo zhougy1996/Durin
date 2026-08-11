@@ -2,7 +2,7 @@
 
 #include "MonaImGui.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	auto FUnsavedLevelDialogPresenter::Draw(bool bRequestOpen, const FResolve& Resolve)
 		-> std::optional<EUnsavedLevelDialogDecision>
@@ -27,4 +27,4 @@ namespace Durin
 		ImGui::EndPopup();
 		return Decision;
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

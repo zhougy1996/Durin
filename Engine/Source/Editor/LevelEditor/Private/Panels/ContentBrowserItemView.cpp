@@ -6,7 +6,7 @@
 #include "Math/Vector.h"
 #include "Texture/TextureCube.h"
 
-namespace Durin::ContentBrowserItemView
+namespace Durin::Editor::Level::ContentBrowserItemView
 {
 	namespace
 	{
@@ -253,16 +253,16 @@ namespace Durin::ContentBrowserItemView
 			Min.y + NameAreaHeight);
 	}
 
-	auto ResolveThumbnailPresentation(const Editor::FAssetThumbnailView& Thumbnail)
+	auto ResolveThumbnailPresentation(const ::Durin::Editor::FAssetThumbnailView& Thumbnail)
 		-> EThumbnailPresentation
 	{
-		if (Thumbnail.State == Editor::EAssetThumbnailState::Ready && Thumbnail.Texture)
+		if (Thumbnail.State == ::Durin::Editor::EAssetThumbnailState::Ready && Thumbnail.Texture)
 			return EThumbnailPresentation::Ready;
-		if (Thumbnail.State == Editor::EAssetThumbnailState::Queued
-			|| Thumbnail.State == Editor::EAssetThumbnailState::Loading
-			|| Thumbnail.State == Editor::EAssetThumbnailState::Uploading)
+		if (Thumbnail.State == ::Durin::Editor::EAssetThumbnailState::Queued
+			|| Thumbnail.State == ::Durin::Editor::EAssetThumbnailState::Loading
+			|| Thumbnail.State == ::Durin::Editor::EAssetThumbnailState::Uploading)
 			return EThumbnailPresentation::Loading;
-		if (Thumbnail.State == Editor::EAssetThumbnailState::Failed)
+		if (Thumbnail.State == ::Durin::Editor::EAssetThumbnailState::Failed)
 			return EThumbnailPresentation::Failed;
 		return EThumbnailPresentation::Icon;
 	}
@@ -370,7 +370,7 @@ namespace Durin::ContentBrowserItemView
 
 	auto DrawThumbnail(
 		const FContentBrowserItem& Item,
-		const Editor::FAssetThumbnailView& Thumbnail,
+		const ::Durin::Editor::FAssetThumbnailView& Thumbnail,
 		const FGridMetrics& Metrics,
 		const ImVec2& PreviewMin,
 		const ImVec2& PreviewMax,
@@ -475,4 +475,4 @@ namespace Durin::ContentBrowserItemView
 			TextWidth);
 		DrawList->PopClipRect();
 	}
-} // namespace Durin::ContentBrowserItemView
+} // namespace Durin::Editor::Level::ContentBrowserItemView

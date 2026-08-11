@@ -11,6 +11,8 @@
 
 namespace Durin
 {
+	using namespace Editor::SkeletalMesh;
+
 	IMPLEMENT_MODULE(FSkeletalMeshEditorModule, SkeletalMeshEditor)
 
 	FSkeletalMeshEditorModule::~FSkeletalMeshEditorModule() = default;
@@ -18,44 +20,44 @@ namespace Durin
 	auto FSkeletalMeshEditorModule::ShutdownModule() -> void { UnregisterSkeletalMeshEditor(); }
 
 	auto FSkeletalMeshEditorModule::RegisterSkeletalMeshEditor(
-		Editor::FWorkspaceManager& WorkspaceManager,
-		Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool
+		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
+		::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
 			|| (ThumbnailRegistration && ThumbnailRegistration->IsValid())) return false;
 		WorkspaceRegistration.reset();
 		auto Workspace = std::make_shared<MSkeletalAssetInspector>(WorkspaceManager);
-		Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
+		::Durin::Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
 			.Workspaces = {{
 				.Descriptor = {
-					.WorkspaceType = SkeletalMeshEditorWorkspace::Type,
+					.WorkspaceType = Workspace::Type,
 					.DisplayName = "Skeletal Asset Inspector",
-					.RootKey = std::string(SkeletalMeshEditorWorkspace::RootKey),
+					.RootKey = std::string(Workspace::RootKey),
 					.bShowInWindowMenu = false,
 					.bOpenByDefault = false,
-					.DefaultHostDockPreference = Editor::EWorkspaceHostDockPreference::Center},
+					.DefaultHostDockPreference = ::Durin::Editor::EWorkspaceHostDockPreference::Center},
 				.Workspace = Workspace}},
 			.AssetEditors = {
 				{.AssetClassName = DSkeleton::StaticClass()->GetQualifiedName().ToString(),
-					.WorkspaceType = SkeletalMeshEditorWorkspace::Type,
-					.DocumentPolicy = Editor::EDocumentPolicy::PerResource, .bClosable = true},
+					.WorkspaceType = Workspace::Type,
+					.DocumentPolicy = ::Durin::Editor::EDocumentPolicy::PerResource, .bClosable = true},
 				{.AssetClassName = DSkeletalMesh::StaticClass()->GetQualifiedName().ToString(),
-					.WorkspaceType = SkeletalMeshEditorWorkspace::Type,
-					.DocumentPolicy = Editor::EDocumentPolicy::PerResource, .bClosable = true},
+					.WorkspaceType = Workspace::Type,
+					.DocumentPolicy = ::Durin::Editor::EDocumentPolicy::PerResource, .bClosable = true},
 				{.AssetClassName = DAnimationClip::StaticClass()->GetQualifiedName().ToString(),
-					.WorkspaceType = SkeletalMeshEditorWorkspace::Type,
-					.DocumentPolicy = Editor::EDocumentPolicy::PerResource, .bClosable = true}}});
+					.WorkspaceType = Workspace::Type,
+					.DocumentPolicy = ::Durin::Editor::EDocumentPolicy::PerResource, .bClosable = true}}});
 		if (!Registration) return false;
-		WorkspaceRegistration = std::make_unique<Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
+		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
 		std::string Error;
-		Editor::FAssetThumbnailProviderRegistrationHandle ThumbnailHandle =
+		::Durin::Editor::FAssetThumbnailProviderRegistrationHandle ThumbnailHandle =
 			ThumbnailService.RegisterScoped(
 				std::make_unique<FSkeletalMeshAssetThumbnailProvider>(), Error);
 		if (!ThumbnailHandle)
 		{
 			WorkspaceRegistration.reset(); return false;
 		}
-		ThumbnailRegistration = std::make_unique<Editor::FAssetThumbnailProviderRegistrationHandle>(
+		ThumbnailRegistration = std::make_unique<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
 			std::move(ThumbnailHandle));
 		return true;
 	}

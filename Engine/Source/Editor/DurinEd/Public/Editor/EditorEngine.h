@@ -66,10 +66,10 @@ namespace Durin
 	class DObject;
 	class FSceneViewport;
 	class FRenderCommandFence;
-	class IMainFrameModule;
 	class MWindow;
 	class FGenericWindow;
 	struct FEditorEngineTestAccess;
+	class IMainFrameModule;
 
 	// Owns editor services and coordinates editor and play-world lifetimes.
 	DCLASS(NoClassDefaultObject)

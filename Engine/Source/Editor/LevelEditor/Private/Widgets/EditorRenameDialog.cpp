@@ -2,7 +2,7 @@
 
 #include "MonaImGui.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	auto FEditorRenameDialog::Open(std::string_view InitialName) -> void
 	{
@@ -69,4 +69,4 @@ namespace Durin
 		ImGui::EndPopup();
 		return Result;
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

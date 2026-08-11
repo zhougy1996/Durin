@@ -13,7 +13,7 @@
 	#include <shellapi.h>
 #endif
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{
@@ -1224,4 +1224,4 @@ namespace Durin
 	{
 		ImGui::SetClipboardText(std::string(Text).c_str());
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

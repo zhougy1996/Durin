@@ -9,7 +9,7 @@
 #include "Panels/SceneViewportPanel.h"
 #include "Yaml/Yaml.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	// Session persistence stays independent from the editor widget's menu and popup orchestration.
 	namespace
@@ -204,4 +204,4 @@ namespace Durin
 	{
 		DetailsPaneRatio = std::clamp(Ratio, MinimumDetailsPaneRatio, MaximumDetailsPaneRatio);
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

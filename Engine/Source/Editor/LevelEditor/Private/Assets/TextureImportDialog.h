@@ -6,7 +6,10 @@
 namespace Durin
 {
 	enum class ETextureUsage : uint8;
+}
 
+namespace Durin::Editor::Level
+{
 	// Collects texture import options and submits the selected source file.
 	class FTextureImportDialog
 	{
@@ -34,4 +37,4 @@ namespace Durin
 		EMountedSourceImportMode SourceMode =
 			EMountedSourceImportMode::IngestExternal;
 	};
-} // namespace Durin
+} // namespace Durin::Editor::Level

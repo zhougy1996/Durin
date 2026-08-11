@@ -34,7 +34,7 @@ namespace
 	}
 
 	auto CaptureKey(
-		Durin::FMaterialAssetThumbnailProvider& Provider,
+		Durin::Editor::Material::FMaterialAssetThumbnailProvider& Provider,
 		const Durin::Asset::FAssetData& Data,
 		Durin::Editor::FAssetThumbnailGenerationRequest& OutRequest,
 		std::string& OutError) -> std::string
@@ -93,7 +93,7 @@ TEST(FMaterialAssetThumbnailTests, ProviderConflictRollsBackWholeIntegration)
 	Durin::Editor::FRenderedAssetThumbnailService Service;
 	std::string Error;
 	auto Existing = Service.RegisterScoped(
-		std::make_unique<Durin::FMaterialAssetThumbnailProvider>(
+		std::make_unique<Durin::Editor::Material::FMaterialAssetThumbnailProvider>(
 			Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString()),
 		Error);
 	ASSERT_TRUE(Existing) << Error;
@@ -126,9 +126,9 @@ TEST(FMaterialAssetThumbnailTests, ProviderCapturesSortedTransitiveMaterialDepen
 	ASSERT_NE(MaterialData, nullptr);
 	ASSERT_NE(InstanceData, nullptr);
 
-	Durin::FMaterialAssetThumbnailProvider MaterialProvider(
+	Durin::Editor::Material::FMaterialAssetThumbnailProvider MaterialProvider(
 		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString());
-	Durin::FMaterialAssetThumbnailProvider InstanceProvider(
+	Durin::Editor::Material::FMaterialAssetThumbnailProvider InstanceProvider(
 		Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString());
 	Durin::Editor::FAssetThumbnailGenerationRequest MaterialRequest;
 	Durin::Editor::FAssetThumbnailGenerationRequest InstanceRequest;
@@ -167,7 +167,7 @@ TEST(FMaterialAssetThumbnailTests, ProviderRejectsMissingRegistryData)
 	Durin::FAssetPath MissingPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		"/RenderedThumbnailFixtures/Materials/M_Missing", MissingPath));
-	Durin::FMaterialAssetThumbnailProvider Provider(
+	Durin::Editor::Material::FMaterialAssetThumbnailProvider Provider(
 		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString());
 	Durin::Editor::FAssetThumbnailGenerationRequest Captured;
 	std::string Error;
@@ -261,7 +261,7 @@ TEST(FMaterialAssetThumbnailTests, InvalidInstancePublishesOneStableDiagnostic)
 
 	Durin::Editor::FRenderedAssetThumbnailService Service;
 	auto Handle = Service.RegisterScoped(
-		std::make_unique<Durin::FMaterialAssetThumbnailProvider>(
+		std::make_unique<Durin::Editor::Material::FMaterialAssetThumbnailProvider>(
 			Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString()),
 		Error);
 	ASSERT_TRUE(Handle) << Error;

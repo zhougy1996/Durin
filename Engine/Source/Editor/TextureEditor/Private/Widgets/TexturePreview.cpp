@@ -11,7 +11,7 @@
 #include "Shader/ShaderCompilerCore.h"
 #include "Texture/Texture2D.h"
 
-namespace Durin
+namespace Durin::Editor::Texture
 {
 	namespace
 	{

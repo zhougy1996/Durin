@@ -3,11 +3,11 @@
 #include "Assets/SourceImageThumbnailCache.h"
 #include "Thumbnail/RenderedAssetThumbnailCache.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	FContentBrowserThumbnailCache::FContentBrowserThumbnailCache()
 		: SourceImages(std::make_unique<FSourceImageThumbnailCache>())
-		, RenderedAssets(std::make_unique<Editor::FRenderedAssetThumbnailCache>())
+		, RenderedAssets(std::make_unique<::Durin::Editor::FRenderedAssetThumbnailCache>())
 	{
 	}
 
@@ -44,7 +44,7 @@ namespace Durin
 	}
 
 	auto FContentBrowserThumbnailCache::Find(std::string_view Identity) const
-		-> Editor::FAssetThumbnailView
+		-> ::Durin::Editor::FAssetThumbnailView
 	{
 		const auto It = RenderedIdentities.find(std::string(Identity));
 		return It == RenderedIdentities.end()
@@ -70,4 +70,4 @@ namespace Durin
 		RenderedAssets->Clear();
 		RenderedIdentities.clear();
 	}
-} // namespace Durin
+} // namespace Durin::Editor::Level

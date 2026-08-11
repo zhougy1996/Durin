@@ -7,6 +7,10 @@ namespace Durin
 {
 	class DMaterialInterface;
 	class DMaterialInstance;
+}
+
+namespace Durin::Editor::Material
+{
 
 	// Selects the editor control appropriate for one material parameter schema.
 	enum class EMaterialParameterControlKind : uint8
@@ -48,21 +52,21 @@ namespace Durin
 
 		static auto SelectControl(const FMaterialParameterDefinition& Definition) -> EMaterialParameterControlKind;
 		auto SubmitValueEdit(
-			Editor::FPropertyView& PropertyView,
-			const Editor::FPropertyViewContext& Context,
+			::Durin::Editor::FPropertyView& PropertyView,
+			const ::Durin::Editor::FPropertyViewContext& Context,
 			const FMaterialParameterPanelEntry& Entry,
 			const FMaterialParameterValue& Value,
 			bool bContinuous
 		) const -> bool;
 		auto SetOverrideEnabled(
-			Editor::FPropertyView& PropertyView,
-			const Editor::FPropertyViewContext& Context,
+			::Durin::Editor::FPropertyView& PropertyView,
+			const ::Durin::Editor::FPropertyViewContext& Context,
 			const FMaterialParameterPanelEntry& Entry,
 			bool bEnabled
 		) const -> bool;
 		auto RemoveOrphan(
-			Editor::FPropertyView& PropertyView,
-			const Editor::FPropertyViewContext& Context,
+			::Durin::Editor::FPropertyView& PropertyView,
+			const ::Durin::Editor::FPropertyViewContext& Context,
 			const FMaterialParameterPanelEntry& Entry
 		) const -> bool;
 

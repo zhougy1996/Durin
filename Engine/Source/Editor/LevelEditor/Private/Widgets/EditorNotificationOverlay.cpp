@@ -8,52 +8,52 @@
 #include "Workspace/LevelEditorWorkspace.h"
 #include "MonaImGui.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	namespace
 	{
 		constexpr size_t MaxVisibleNotifications = 5;
 
-		auto ThemeColor(Editor::ENotificationType Type) -> MonaImGui::EUIThemeColor
+		auto ThemeColor(::Durin::Editor::ENotificationType Type) -> MonaImGui::EUIThemeColor
 		{
 			switch (Type)
 			{
-			case Editor::ENotificationType::Success: return MonaImGui::EUIThemeColor::Success;
-			case Editor::ENotificationType::Warning: return MonaImGui::EUIThemeColor::Warning;
-			case Editor::ENotificationType::Error: return MonaImGui::EUIThemeColor::Error;
-			case Editor::ENotificationType::Progress:
-			case Editor::ENotificationType::Info:
+			case ::Durin::Editor::ENotificationType::Success: return MonaImGui::EUIThemeColor::Success;
+			case ::Durin::Editor::ENotificationType::Warning: return MonaImGui::EUIThemeColor::Warning;
+			case ::Durin::Editor::ENotificationType::Error: return MonaImGui::EUIThemeColor::Error;
+			case ::Durin::Editor::ENotificationType::Progress:
+			case ::Durin::Editor::ENotificationType::Info:
 			default: return MonaImGui::EUIThemeColor::Info;
 			}
 		}
 
-		auto TypeIcon(Editor::ENotificationType Type) -> const char*
+		auto TypeIcon(::Durin::Editor::ENotificationType Type) -> const char*
 		{
 			switch (Type)
 			{
-			case Editor::ENotificationType::Success: return Icons::Check;
-			case Editor::ENotificationType::Warning: return Icons::Warning;
-			case Editor::ENotificationType::Error: return Icons::Error;
-			case Editor::ENotificationType::Progress: return Icons::Refresh;
-			case Editor::ENotificationType::Info:
+			case ::Durin::Editor::ENotificationType::Success: return Icons::Check;
+			case ::Durin::Editor::ENotificationType::Warning: return Icons::Warning;
+			case ::Durin::Editor::ENotificationType::Error: return Icons::Error;
+			case ::Durin::Editor::ENotificationType::Progress: return Icons::Refresh;
+			case ::Durin::Editor::ENotificationType::Info:
 			default: return Icons::Info;
 			}
 		}
 
-		auto TypeLabel(Editor::ENotificationType Type) -> const char*
+		auto TypeLabel(::Durin::Editor::ENotificationType Type) -> const char*
 		{
 			switch (Type)
 			{
-			case Editor::ENotificationType::Success: return "Completed";
-			case Editor::ENotificationType::Warning: return "Warning";
-			case Editor::ENotificationType::Error: return "Error";
-			case Editor::ENotificationType::Progress: return "In progress";
-			case Editor::ENotificationType::Info:
+			case ::Durin::Editor::ENotificationType::Success: return "Completed";
+			case ::Durin::Editor::ENotificationType::Warning: return "Warning";
+			case ::Durin::Editor::ENotificationType::Error: return "Error";
+			case ::Durin::Editor::ENotificationType::Progress: return "In progress";
+			case ::Durin::Editor::ENotificationType::Info:
 			default: return "Information";
 			}
 		}
 
-		auto DrawActionButton(Editor::FNotificationManager& Notifications, const Editor::FNotification& Notification) -> void
+		auto DrawActionButton(::Durin::Editor::FNotificationManager& Notifications, const ::Durin::Editor::FNotification& Notification) -> void
 		{
 			const ImVec4 Accent = MonaImGui::GetThemeColor(ThemeColor(Notification.Type));
 			ImVec4 Button = Accent;
@@ -67,7 +67,7 @@ namespace Durin
 			ImGui::PushStyleColor(ImGuiCol_ButtonActive, Active);
 			ImGui::PushStyleColor(ImGuiCol_Text, Accent);
 
-			if (Notification.Type == Editor::ENotificationType::Progress && Notification.Cancel)
+			if (Notification.Type == ::Durin::Editor::ENotificationType::Progress && Notification.Cancel)
 			{
 				const char* Label = Notification.bCancelRequested ? "Canceling..." : "Cancel";
 				ImGui::BeginDisabled(Notification.bCancelRequested);
@@ -85,13 +85,13 @@ namespace Durin
 			ImGui::PopStyleColor(4);
 		}
 
-		auto FailureOperation(Editor::ETransactionOperation Operation) -> std::string_view
+		auto FailureOperation(::Durin::Editor::ETransactionOperation Operation) -> std::string_view
 		{
 			switch (Operation)
 			{
-			case Editor::ETransactionOperation::Undo: return "undo";
-			case Editor::ETransactionOperation::Redo: return "redo";
-			case Editor::ETransactionOperation::Execute:
+			case ::Durin::Editor::ETransactionOperation::Undo: return "undo";
+			case ::Durin::Editor::ETransactionOperation::Redo: return "redo";
+			case ::Durin::Editor::ETransactionOperation::Execute:
 			default: return "execute";
 			}
 		}
@@ -103,21 +103,21 @@ namespace Durin
 		if (GEditor) DrawHistory(GEditor->GetNotificationManager(), GetOpenPtr());
 	}
 
-	auto FEditorNotificationOverlay::DrawNotifications(Editor::FNotificationManager& Notifications, Editor::FTransactionManager& Transactions) -> void
+	auto FEditorNotificationOverlay::DrawNotifications(::Durin::Editor::FNotificationManager& Notifications, ::Durin::Editor::FTransactionManager& Transactions) -> void
 	{
 		PublishTransactionEvents(Notifications, Transactions);
 		Notifications.Tick(ImGui::GetIO().DeltaTime);
 
-		const std::vector<Editor::FNotification>& Active = Notifications.GetNotifications();
-		std::vector<const Editor::FNotification*> Visible;
+		const std::vector<::Durin::Editor::FNotification>& Active = Notifications.GetNotifications();
+		std::vector<const ::Durin::Editor::FNotification*> Visible;
 		Visible.reserve(std::min(MaxVisibleNotifications, Active.size()));
 		for (auto Iterator = Active.rbegin(); Iterator != Active.rend() && Visible.size() < MaxVisibleNotifications; ++Iterator)
 		{
-			if (Iterator->Type == Editor::ENotificationType::Progress) Visible.push_back(&*Iterator);
+			if (Iterator->Type == ::Durin::Editor::ENotificationType::Progress) Visible.push_back(&*Iterator);
 		}
 		for (auto Iterator = Active.rbegin(); Iterator != Active.rend() && Visible.size() < MaxVisibleNotifications; ++Iterator)
 		{
-			if (Iterator->Type != Editor::ENotificationType::Progress) Visible.push_back(&*Iterator);
+			if (Iterator->Type != ::Durin::Editor::ENotificationType::Progress) Visible.push_back(&*Iterator);
 		}
 
 		const ImGuiViewport* Viewport = ImGui::GetMainViewport();
@@ -131,7 +131,7 @@ namespace Durin
 		const float Width = std::min(DesiredWidth, AvailableWidth);
 		float BottomOffset = Margin;
 
-		for (const Editor::FNotification* Notification : Visible)
+		for (const ::Durin::Editor::FNotification* Notification : Visible)
 		{
 			ImGui::PushID(static_cast<int>(Notification->Id));
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(MonaImGui::ScaleUI(Metrics.SpacingL), MonaImGui::ScaleUI(Metrics.SpacingL)));
@@ -171,7 +171,7 @@ namespace Durin
 				ImGui::TextUnformatted(Notification->Message.c_str());
 				ImGui::PopTextWrapPos();
 
-				if (Notification->Type == Editor::ENotificationType::Progress)
+				if (Notification->Type == ::Durin::Editor::ENotificationType::Progress)
 				{
 					const float Progress = Notification->Progress.value_or(static_cast<float>(std::fmod(ImGui::GetTime() * 0.65, 1.0)));
 					const std::string Overlay = Notification->Progress ? std::format("{}%", static_cast<int>(*Notification->Progress * 100.0f)) : std::string{};
@@ -182,9 +182,9 @@ namespace Durin
 					ImGui::PopStyleVar();
 				}
 
-				if ((Notification->Type == Editor::ENotificationType::Progress && Notification->Cancel) || Notification->Action)
+				if ((Notification->Type == ::Durin::Editor::ENotificationType::Progress && Notification->Cancel) || Notification->Action)
 				{
-					const char* Label = Notification->Type == Editor::ENotificationType::Progress ?
+					const char* Label = Notification->Type == ::Durin::Editor::ENotificationType::Progress ?
 						(Notification->bCancelRequested ? "Canceling..." : "Cancel") : Notification->Action->Label.c_str();
 					const float ButtonWidth = ImGui::CalcTextSize(Label).x + ImGui::GetStyle().FramePadding.x * 2.0f;
 					ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - ButtonWidth);
@@ -204,12 +204,12 @@ namespace Durin
 		}
 	}
 
-	auto FEditorNotificationOverlay::DrawHistory(Editor::FNotificationManager& Notifications, bool* bOpen) -> void
+	auto FEditorNotificationOverlay::DrawHistory(::Durin::Editor::FNotificationManager& Notifications, bool* bOpen) -> void
 	{
 		ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(520.0f), MonaImGui::ScaleUI(420.0f)), ImGuiCond_FirstUseEver);
-		if (Editor::WorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "Activity History", "ActivityHistory", bOpen))
+		if (::Durin::Editor::WorkspaceUI::BeginDockablePanel(Workspace::Type, "Activity History", "ActivityHistory", bOpen))
 		{
-			const std::vector<Editor::FNotification>& History = Notifications.GetHistory();
+			const std::vector<::Durin::Editor::FNotification>& History = Notifications.GetHistory();
 			ImGui::TextDisabled("Editor activity from this session");
 			ImGui::SameLine();
 			const char* ClearLabel = "Clear history";
@@ -232,7 +232,7 @@ namespace Durin
 				{
 					for (auto Iterator = History.rbegin(); Iterator != History.rend(); ++Iterator)
 					{
-						const Editor::FNotification& Notification = *Iterator;
+						const ::Durin::Editor::FNotification& Notification = *Iterator;
 						ImGui::PushID(static_cast<int>(Notification.Id));
 						const ImVec4 Accent = MonaImGui::GetThemeColor(ThemeColor(Notification.Type));
 						ImGui::PushStyleColor(ImGuiCol_Text, Accent);
@@ -250,7 +250,7 @@ namespace Durin
 							ImGui::PopStyleColor();
 						}
 
-						if (Notification.Type == Editor::ENotificationType::Progress)
+						if (Notification.Type == ::Durin::Editor::ENotificationType::Progress)
 						{
 							const float Progress = Notification.Progress.value_or(static_cast<float>(std::fmod(ImGui::GetTime() * 0.65, 1.0)));
 							const std::string Overlay = Notification.Progress ? std::format("{}%", static_cast<int>(*Notification.Progress * 100.0f)) : std::string{};
@@ -259,7 +259,7 @@ namespace Durin
 							ImGui::PopStyleColor();
 						}
 
-						if ((Notification.Type == Editor::ENotificationType::Progress && Notification.Cancel) || Notification.Action)
+						if ((Notification.Type == ::Durin::Editor::ENotificationType::Progress && Notification.Cancel) || Notification.Action)
 						{
 							DrawActionButton(Notifications, Notification);
 						}
@@ -273,14 +273,14 @@ namespace Durin
 		ImGui::End();
 	}
 
-	auto FEditorNotificationOverlay::PublishTransactionEvents(Editor::FNotificationManager& Notifications, Editor::FTransactionManager& Transactions) -> void
+	auto FEditorNotificationOverlay::PublishTransactionEvents(::Durin::Editor::FNotificationManager& Notifications, ::Durin::Editor::FTransactionManager& Transactions) -> void
 	{
-		for (Editor::FTransactionEvent& Event : Transactions.ConsumeEvents())
+		for (::Durin::Editor::FTransactionEvent& Event : Transactions.ConsumeEvents())
 		{
-			Editor::FNotificationDesc Desc;
-			if (Event.Type == Editor::ETransactionEventType::Failed)
+			::Durin::Editor::FNotificationDesc Desc;
+			if (Event.Type == ::Durin::Editor::ETransactionEventType::Failed)
 			{
-				Desc.Type = Editor::ENotificationType::Error;
+				Desc.Type = ::Durin::Editor::ENotificationType::Error;
 				Desc.Message = std::format("Failed to {} {}", FailureOperation(Event.Operation), Event.Description);
 				Desc.Details = std::move(Event.Details);
 				Desc.DurationSeconds = 0.0f;
@@ -288,19 +288,19 @@ namespace Durin
 				continue;
 			}
 
-			const bool bOffersRedo = Event.Type == Editor::ETransactionEventType::Undone;
-			Desc.Type = bOffersRedo ? Editor::ENotificationType::Info : Editor::ENotificationType::Success;
+			const bool bOffersRedo = Event.Type == ::Durin::Editor::ETransactionEventType::Undone;
+			Desc.Type = bOffersRedo ? ::Durin::Editor::ENotificationType::Info : ::Durin::Editor::ENotificationType::Success;
 			switch (Event.Type)
 			{
-			case Editor::ETransactionEventType::Undone: Desc.Message = std::format("Undid {}", Event.Description); break;
-			case Editor::ETransactionEventType::Redone: Desc.Message = std::format("Redid {}", Event.Description); break;
-			case Editor::ETransactionEventType::Executed:
+			case ::Durin::Editor::ETransactionEventType::Undone: Desc.Message = std::format("Undid {}", Event.Description); break;
+			case ::Durin::Editor::ETransactionEventType::Redone: Desc.Message = std::format("Redid {}", Event.Description); break;
+			case ::Durin::Editor::ETransactionEventType::Executed:
 			default: Desc.Message = Event.Description; break;
 			}
 			Desc.Details = std::move(Event.Details);
 
-			const Editor::FTransactionId Id = Event.Id;
-			Editor::FNotificationAction Action;
+			const ::Durin::Editor::FTransactionId Id = Event.Id;
+			::Durin::Editor::FNotificationAction Action;
 			Action.Label = bOffersRedo ? "Redo" : "Undo";
 			Action.IsEnabled = [&Transactions, Id, bOffersRedo] {
 				return bOffersRedo ? Transactions.IsRedoHead(Id) : Transactions.IsUndoHead(Id);

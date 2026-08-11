@@ -4,7 +4,7 @@
 #include "Assets/MountedSourceImport.h"
 #include "Texture/TextureCube.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	// Collects, validates, and imports either six oriented faces or one equirectangular panorama.
 	class FTextureCubeImportDialog

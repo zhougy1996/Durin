@@ -23,13 +23,13 @@
 #include "MonaUIBackend.h"
 #include "Math/Vector.h"
 
-namespace Durin
+namespace Durin::Editor::Level
 {
 	using ContentBrowserItemView::FGridMetrics;
 
 	namespace
 	{
-		using LevelEditorHelpers::DrawToolbarIconButton;
+		using Helpers::DrawToolbarIconButton;
 
 		auto NormalizePath(std::string_view Path) -> std::string
 		{
@@ -46,12 +46,12 @@ namespace Durin
 		}
 
 		auto MakeRenderedThumbnailFingerprint(const FContentBrowserItem& Item)
-			-> std::optional<Editor::FAssetThumbnailPackageFingerprint>
+			-> std::optional<::Durin::Editor::FAssetThumbnailPackageFingerprint>
 		{
 			if (!Item.ThumbnailSourcePath.empty()) return std::nullopt;
 			FAssetPath Path;
 			if (!FAssetPath::TryCreate(Item.VirtualPath, Path)) return std::nullopt;
-			return Editor::FAssetThumbnailPackageFingerprint{
+			return ::Durin::Editor::FAssetThumbnailPackageFingerprint{
 				.VirtualPath = std::move(Path),
 				.AssetClassName = Item.AssetClassName,
 				.PackageFormatVersion = Item.ThumbnailPackageFormatVersion,
@@ -102,7 +102,7 @@ namespace Durin
 		}
 		SynchronizeMountedContentMutation();
 		RefreshMountSnapshot();
-		if (!Editor::WorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "Content Browser", "ContentBrowser", GetOpenPtr()))
+		if (!::Durin::Editor::WorkspaceUI::BeginDockablePanel(Workspace::Type, "Content Browser", "ContentBrowser", GetOpenPtr()))
 		{
 			ImGui::End();
 			return;
@@ -539,8 +539,8 @@ namespace Durin
 							.SourceLastWriteTime = Item.ThumbnailLastWriteTime,
 							.Asset = MakeRenderedThumbnailFingerprint(Item),
 							.Priority = Row >= Clipper.DisplayStart && Row < Clipper.DisplayEnd
-								? Editor::EAssetThumbnailPriority::Visible
-								: Editor::EAssetThumbnailPriority::Prefetch});
+								? ::Durin::Editor::EAssetThumbnailPriority::Visible
+								: ::Durin::Editor::EAssetThumbnailPriority::Prefetch});
 				}
 
 			for (int32 Row = Clipper.DisplayStart; Row < Clipper.DisplayEnd; ++Row)
@@ -602,7 +602,7 @@ namespace Durin
 								MonaImGui::ScaleUI(1.0f));
 					}
 
-					const Editor::FAssetThumbnailView Thumbnail = ThumbnailCache->Find(Item.ThumbnailIdentity);
+					const ::Durin::Editor::FAssetThumbnailView Thumbnail = ThumbnailCache->Find(Item.ThumbnailIdentity);
 					const ContentBrowserItemView::EThumbnailPresentation ThumbnailPresentation =
 						ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail);
 					const bool bDrewThumbnail = ContentBrowserItemView::DrawThumbnail(
@@ -647,7 +647,7 @@ namespace Durin
 							ImGui::SameLine();
 							ImGui::TextUnformatted(FormatFileTime(Item.LastWriteTime).c_str());
 						}
-						if (Thumbnail.State == Editor::EAssetThumbnailState::Failed && !Thumbnail.Diagnostic.empty())
+						if (Thumbnail.State == ::Durin::Editor::EAssetThumbnailState::Failed && !Thumbnail.Diagnostic.empty())
 						{
 							ImGui::TextDisabled("Preview");
 							ImGui::SameLine();
@@ -1266,4 +1266,4 @@ namespace Durin
 		MonaImGui::ErrorDialog("Content Browser Error", ErrorMessage);
 	}
 
-} // namespace Durin
+} // namespace Durin::Editor::Level

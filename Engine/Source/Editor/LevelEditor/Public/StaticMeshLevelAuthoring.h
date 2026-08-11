@@ -16,6 +16,10 @@ namespace Durin
 	class DLevel;
 	class DPackage;
 	class DStaticMesh;
+}
+
+namespace Durin::Editor::Level
+{
 
 	enum class EStaticMeshLevelMutationKind : uint8
 	{
@@ -106,7 +110,7 @@ namespace Durin
 	struct FStaticMeshLevelExecutionContext
 	{
 		DLevel* OpenLevel = nullptr;
-		Editor::FTransactionManager* Transactions = nullptr;
+		::Durin::Editor::FTransactionManager* Transactions = nullptr;
 		bool bReadOnly = false;
 	};
 

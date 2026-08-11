@@ -1,6 +1,6 @@
 #pragma once
 
-namespace Durin
+namespace Durin::Editor::MainFrame
 {
 	struct FTracyToolStatus
 	{
