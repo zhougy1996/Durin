@@ -1,12 +1,7 @@
 #include "Thumbnail/TextureCubeAssetThumbnail.h"
 
-#include "Asset/AssetRetention.h"
 #include "AssetSystem.h"
-#include "Engine/Actor.h"
-#include "Engine/World.h"
 #include "Math/Operations.h"
-#include "Preview/TextureCubePreviewComponent.h"
-#include "StaticMesh/StaticMesh.h"
 #include "Texture/TextureCube.h"
 
 namespace Durin::Editor::Texture
@@ -65,9 +60,16 @@ namespace Durin::Editor::Texture
 			return TextureCube->GetBuildRevision();
 		}
 
-		auto MakeTextureCubePreviewView() -> ::Durin::Editor::FRenderedAssetThumbnailPreviewView
+		auto MakeTextureCubeThumbnailView() -> ::Durin::Editor::FRenderedAssetThumbnailPreviewView
 		{
 			const ::Durin::Editor::FRenderedAssetThumbnailVisualContract Contract;
+			const float EnvironmentYScale = 1.0f / std::tan(
+				Math::DegreesToRadians(
+					FTextureCubeAssetThumbnailVisualContract::VerticalFieldOfViewDegrees)
+				* 0.5f);
+			const double CompatibleVerticalFieldOfViewDegrees =
+				Math::RadiansToDegrees(
+					2.0 * std::atan(1.0 / static_cast<double>(EnvironmentYScale)));
 			const FVector3 Eye = Math::Normalize(FVector3(
 				Contract.CameraDirectionX,
 				Contract.CameraDirectionY,
@@ -81,7 +83,8 @@ namespace Durin::Editor::Texture
 				.CameraForward = {Forward.x, Forward.y, Forward.z},
 				.CameraRight = {Right.x, Right.y, Right.z},
 				.CameraUp = {Up.x, Up.y, Up.z},
-				.VerticalFieldOfViewDegrees = Contract.VerticalFieldOfViewDegrees,
+				// Reconstruct the legacy float-quantized 100-degree projection exactly.
+				.VerticalFieldOfViewDegrees = CompatibleVerticalFieldOfViewDegrees,
 				.NearClipDistance = Contract.NearClipDistance,
 				.FarClipDistance = Contract.FarClipDistance,
 				.ClearRed = Contract.BackgroundRed,
@@ -97,11 +100,6 @@ namespace Durin::Editor::Texture
 			explicit FTextureCubeThumbnailGenerationSession(FAssetPath InAssetPath)
 				: AssetPath(std::move(InAssetPath))
 			{
-			}
-
-			~FTextureCubeThumbnailGenerationSession() override
-			{
-				ResetPreview();
 			}
 
 			auto Load() -> ::Durin::Editor::FRenderedAssetThumbnailSessionUpdate override
@@ -148,37 +146,25 @@ namespace Durin::Editor::Texture
 				::Durin::Editor::IRenderedAssetThumbnailPreviewScene& PreviewScene,
 				std::string& OutError) -> bool override
 			{
-				ResetPreview();
-				World = PreviewScene.GetWorld();
-				FAssetPath SpherePath;
-				if (World == nullptr
-					|| !FAssetPath::TryCreate(
-						::Durin::Editor::FRenderedAssetThumbnailVisualContract::SphereVirtualPath,
-						SpherePath,
-						&OutError)
-					|| !::Durin::Editor::FAssetRetentionService::Acquire(SpherePath, SphereAsset, OutError))
-					return false;
-				DStaticMesh* Sphere = Cast<DStaticMesh>(SphereAsset.Get());
-				Actor = World->SpawnActor<AActor>("TextureCubeThumbnailPreviewActor");
-				Component = Actor
-					? Cast<DTextureCubePreviewComponent>(Actor->AddInstanceComponent(
-						DTextureCubePreviewComponent::StaticClass(), "TextureCubePreview"))
-					: nullptr;
-				if (Sphere == nullptr || Component == nullptr || TextureCube == nullptr
-					|| TextureCube->GetTextureReferenceRHI() == nullptr)
+				if (TextureCube == nullptr)
 				{
-					OutError = "The rendered-thumbnail TextureCube preview is unavailable.";
-					ResetPreview();
+					OutError = std::format(
+						"The rendered-thumbnail TextureCube {} is unavailable.",
+						AssetPath.ToString());
 					return false;
 				}
-				Component->SetStaticMesh(Sphere);
-				Component->SetTextureCube(TextureCube);
-				if (!PreviewScene.SetView(MakeTextureCubePreviewView(), OutError))
+				const FRHITextureReferenceRef TextureReference =
+					TextureCube->GetTextureReferenceRHI();
+				if (TextureReference == nullptr)
 				{
-					ResetPreview();
+					OutError = std::format(
+						"The rendered-thumbnail TextureCube {} has no texture reference.",
+						AssetPath.ToString());
 					return false;
 				}
-				return true;
+				return PreviewScene.SetView(MakeTextureCubeThumbnailView(), OutError)
+					&& PreviewScene.SetViewEnvironment(
+						{.TextureReference = TextureReference}, OutError);
 			}
 
 			auto ValidateRevisions(
@@ -200,23 +186,12 @@ namespace Durin::Editor::Texture
 				return true;
 			}
 
-			auto ResetPreview() -> void override
-			{
-				if (World != nullptr && Actor != nullptr) World->DestroyActor(Actor);
-				Component = nullptr;
-				Actor = nullptr;
-				World = nullptr;
-				SphereAsset = {};
-			}
+			auto ResetPreview() -> void override {}
 
 		private:
 			FAssetPath AssetPath;
 			DTextureCube* TextureCube = nullptr;
 			uint64 AssetRevision = 0;
-			DWorld* World = nullptr;
-			AActor* Actor = nullptr;
-			DTextureCubePreviewComponent* Component = nullptr;
-			::Durin::Editor::FRetainedAsset SphereAsset;
 		};
 	} // namespace
 

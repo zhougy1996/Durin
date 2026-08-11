@@ -15,8 +15,6 @@
 
 namespace Durin
 {
-	class FTextureCubePreviewSceneProxy;
-
 	enum class EPreparedTranslucentGeometryFamily : uint8
 	{
 		StaticMesh,
@@ -39,10 +37,11 @@ namespace Durin
 		FDirectionalLightSceneData DirectionalLight;
 		FSkyBoxSceneData SkyBox;
 		bool bHasSkyBox = false;
+		FRHITexture* ViewEnvironmentTexture = nullptr;
+		bool bHasViewEnvironment = false;
 		FPreparedStaticMeshView StaticMeshes;
 		FPreparedSkeletalMeshView SkeletalMeshes;
 		std::vector<FPreparedTranslucentSceneDraw> TranslucentGeometry;
-		std::vector<const FTextureCubePreviewSceneProxy*> TextureCubePreviews;
 		FViewRenderCounters Counters;
 	};
 

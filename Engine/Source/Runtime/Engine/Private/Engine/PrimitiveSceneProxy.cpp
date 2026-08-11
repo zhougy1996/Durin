@@ -113,17 +113,4 @@ namespace Durin
 		Pose = std::move(InPose);
 		return true;
 	}
-
-	FTextureCubePreviewSceneProxy::FTextureCubePreviewSceneProxy(
-		const FStaticMeshRenderData* InRenderData,
-		FRHITextureReferenceRef InTextureReference)
-		: RenderData(InRenderData)
-		, TextureReference(std::move(InTextureReference))
-	{
-	}
-
-	auto FTextureCubePreviewSceneProxy::GetLocalBounds() const -> FBox
-	{
-		return RenderData != nullptr ? RenderData->LocalBounds : FBox{};
-	}
 }

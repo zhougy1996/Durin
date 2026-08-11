@@ -128,8 +128,13 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		std::array<std::vector<Durin::uint8>, 2> FaceBoundary;
 		std::vector<Durin::uint8> Translated;
 		std::vector<Durin::uint8> ComponentRotated;
+		std::vector<Durin::uint8> ExplicitOverride;
 		std::vector<Durin::uint8> Letterboxed;
 		std::vector<Durin::uint8> Occluded;
+		Durin::ERenderViewResult InvalidOutputResult =
+			Durin::ERenderViewResult::Success;
+		Durin::ERenderViewResult MissingEnvironmentResult =
+			Durin::ERenderViewResult::Success;
 	};
 	auto Result = std::make_shared<FValidationResult>();
 
@@ -211,10 +216,19 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 				return;
 			}
 
-			auto Render = [&](const Durin::FSceneView& View, std::vector<Durin::uint8>& OutPixels) {
+			auto RenderWithOptions = [&](const Durin::FSceneView& View,
+				std::vector<Durin::uint8>& OutPixels,
+				const Durin::FSceneViewRenderOptions& Options) {
 				Durin::FSceneView RenderView = View;
 				RenderView.Settings.RenderMode = Durin::ERenderMode::Unlit;
-				Renderer.RenderView(CommandList, &Scene, RenderView, Color, false);
+				if (Renderer.RenderView(
+						CommandList, &Scene, RenderView, Color, false, Options)
+					!= Durin::ERenderViewResult::Success)
+				{
+					Result->bSucceeded = false;
+					Result->Error = "The validation view did not render successfully.";
+					return false;
+				}
 				if (!Durin::GDynamicRHI->RHIReadTexture2D(CommandList, Color, 0, 0, OutPixels))
 				{
 					Result->bSucceeded = false;
@@ -222,6 +236,10 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 					return false;
 				}
 				return true;
+			};
+			auto Render = [&](const Durin::FSceneView& View,
+				std::vector<Durin::uint8>& OutPixels) {
+				return RenderWithOptions(View, OutPixels, {});
 			};
 
 			constexpr std::array<Durin::FVector3, Durin::TextureCubeFaceCount> Directions = {
@@ -255,6 +273,29 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			RotatedSky.TextureReference = HdrCubeReference;
 			RotatedSky.Rotation = glm::identity<Durin::FQuat>();
 			PublishSkyBox(Scene, RotatedSky);
+			Durin::FSceneViewRenderOptions OverrideOptions;
+			OverrideOptions.Environment = Durin::FViewEnvironmentOverride{
+				.TextureReference = CubeReference};
+			if (!RenderWithOptions(
+					MakePrincipalAxisView(Directions[0], {}, 17, 17),
+					Result->ExplicitOverride,
+					OverrideOptions)) return;
+			Result->InvalidOutputResult = Renderer.RenderView(
+				CommandList,
+				&Scene,
+				MakePrincipalAxisView(Directions[0], {}, 17, 17),
+				nullptr,
+				false,
+				{});
+			Durin::FSceneViewRenderOptions MissingEnvironment;
+			MissingEnvironment.Environment = Durin::FViewEnvironmentOverride{};
+			Result->MissingEnvironmentResult = Renderer.RenderView(
+				CommandList,
+				&Scene,
+				MakePrincipalAxisView(Directions[0], {}, 17, 17),
+				Color,
+				false,
+				MissingEnvironment);
 			for (size_t FaceIndex = 0; FaceIndex < Directions.size(); ++FaceIndex)
 			{
 				if (!Render(MakePrincipalAxisView(
@@ -281,6 +322,13 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	EXPECT_TRUE(Result->bSucceeded) << Result->Error;
 	if (Result->bSucceeded)
 	{
+		EXPECT_EQ(
+			Result->InvalidOutputResult,
+			Durin::ERenderViewResult::InvalidOutput);
+		EXPECT_EQ(
+			Result->MissingEnvironmentResult,
+			Durin::ERenderViewResult::RequiredEnvironmentUnavailable);
+		EXPECT_EQ(Result->ExplicitOverride, Result->PrincipalAxes[0]);
 		for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
 		{
 			SCOPED_TRACE(std::format("principal face {}", FaceIndex));

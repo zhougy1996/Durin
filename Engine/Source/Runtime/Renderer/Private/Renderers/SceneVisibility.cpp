@@ -41,7 +41,6 @@ namespace Durin
 		Result.PrimitiveRecords.reserve(SceneInfos.size());
 		Result.StaticMeshSceneInfos.reserve(SceneInfos.size());
 		Result.SkeletalMeshSceneInfos.reserve(SceneInfos.size());
-		Result.TextureCubePreviewSceneInfos.reserve(SceneInfos.size());
 
 		FViewFrustum Frustum;
 		const bool bCullingEnabled =
@@ -129,9 +128,6 @@ namespace Durin
 			case EPrimitiveSceneProxyKind::SkeletalMesh:
 				Result.SkeletalMeshSceneInfos.push_back(SceneInfo);
 				++Counters.VisibleSkeletalMeshCandidates;
-				break;
-			case EPrimitiveSceneProxyKind::TextureCubePreview:
-				Result.TextureCubePreviewSceneInfos.push_back(SceneInfo);
 				break;
 			}
 		}

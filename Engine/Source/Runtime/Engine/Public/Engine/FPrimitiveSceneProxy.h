@@ -16,8 +16,7 @@ namespace Durin
 	enum class EPrimitiveSceneProxyKind : uint8
 	{
 		StaticMesh,
-		SkeletalMesh,
-		TextureCubePreview
+		SkeletalMesh
 	};
 
 	class FPrimitiveSceneProxy
@@ -95,27 +94,5 @@ namespace Durin
 		const FStaticMeshRenderData* RenderData = nullptr;
 		std::vector<FMaterialRenderProxyRef> Materials;
 		uint64 MaterialComponentRevision = 0;
-	};
-
-	// Couples the shared preview sphere with one retained cube resource for editor previews.
-	class FTextureCubePreviewSceneProxy final : public FPrimitiveSceneProxy
-	{
-	public:
-		ENGINE_API FTextureCubePreviewSceneProxy(
-			const FStaticMeshRenderData* InRenderData,
-			FRHITextureReferenceRef InTextureReference);
-
-		auto GetRenderData() const -> const FStaticMeshRenderData* { return RenderData; }
-		auto GetKind() const -> EPrimitiveSceneProxyKind override { return EPrimitiveSceneProxyKind::TextureCubePreview; }
-		ENGINE_API auto GetLocalBounds() const -> FBox override;
-		auto GetTextureReference() const -> const FRHITextureReferenceRef&
-		{
-			return TextureReference;
-		}
-
-	private:
-		// Same component-render-state bounded borrow as FStaticMeshSceneProxy.
-		const FStaticMeshRenderData* RenderData = nullptr;
-		FRHITextureReferenceRef TextureReference;
 	};
 }

@@ -279,7 +279,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
 			View.Settings.VisibilityMode =
 				Durin::EViewVisibilityMode::FrustumCullingDisabled;
-			Renderer.RenderView(CommandList, &Scene, View, Target, false);
+			(void)Renderer.RenderView(
+				CommandList, &Scene, View, Target, false, {});
 			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
 				CommandList, Target, 0, 0, *Readback));
 			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
@@ -343,7 +344,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
 			View.Settings.VisibilityMode =
 				Durin::EViewVisibilityMode::FrustumCullingDisabled;
-			Renderer.RenderView(CommandList, &Scene, View, Target, false);
+			(void)Renderer.RenderView(
+				CommandList, &Scene, View, Target, false, {});
 			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
 				CommandList, Target, 0, 0, *TranslatedReadback));
 
@@ -366,8 +368,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			AuxiliaryView.Settings.bEnableFXAA = false;
 			AuxiliaryView.Settings.VisibilityMode =
 				Durin::EViewVisibilityMode::FrustumCullingDisabled;
-			Renderer.RenderView(CommandList, &Scene, AuxiliaryView,
-				AuxiliaryTarget, false);
+			(void)Renderer.RenderView(CommandList, &Scene, AuxiliaryView,
+				AuxiliaryTarget, false, {});
 			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
 				CommandList, AuxiliaryTarget, 0, 0, *AuxiliaryReadback));
 			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);

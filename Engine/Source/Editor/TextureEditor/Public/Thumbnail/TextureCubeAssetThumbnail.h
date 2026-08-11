@@ -5,6 +5,12 @@
 
 namespace Durin::Editor::Texture
 {
+	// Freezes TextureEditor-owned presentation values for the wide environment view.
+	struct FTextureCubeAssetThumbnailVisualContract
+	{
+		static constexpr float VerticalFieldOfViewDegrees = 100.0f;
+	};
+
 	// Immutable provider input used by the shared rendered-thumbnail scheduler.
 	class FTextureCubeThumbnailGenerationInput final
 		: public ::Durin::Editor::IAssetThumbnailGenerationInput

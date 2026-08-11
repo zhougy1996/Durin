@@ -73,15 +73,17 @@ namespace Durin
 		IScene* Scene,
 		const FSceneView& View,
 		FRHITexture* OutputTarget,
-		bool bPresentOutput) -> void
+		bool bPresentOutput,
+		const FSceneViewRenderOptions& Options) -> ERenderViewResult
 	{
 		auto* RendererScene = dynamic_cast<FScene*>(Scene);
-		SceneRenderer->RenderView_RenderThread(
+		return SceneRenderer->RenderView_RenderThread(
 			CommandList,
 			RendererScene,
 			View,
 			OutputTarget,
-			bPresentOutput);
+			bPresentOutput,
+			Options);
 	}
 
 	IMPLEMENT_MODULE(FRendererModule, Renderer)

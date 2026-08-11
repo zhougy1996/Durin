@@ -2,7 +2,7 @@
 
 Summary: Define thumbnail requests, providers, caches, rendering, invalidation, and Content Browser consumption.
 
-Modules: DurinEd, LevelEditor, Renderer
+Modules: DurinEd, LevelEditor, RenderCore, Renderer, TextureEditor
 
 Content Browser thumbnails are optional editor derivatives. They never replace
 authored packages or source files, and deleting the thumbnail cache cannot lose
@@ -28,13 +28,11 @@ project content.
   as the job loads and reaches resource-dependent transitions.
 - `MaterialEditor` registers two exact classes that share the material provider.
   `TextureEditor` registers authored Texture2D source selection and the TextureCube
-  provider with its reflection-vector preview pass. Texture2D and
+  provider with its wide view-environment presentation. Texture2D and
   supported source files retain their source-image decode path behind the same
   Content Browser request/view lifecycle.
 - Material and texture ordinary C++ implementation types live in
   `Durin::Editor::Material` and `Durin::Editor::Texture`.
-  The reflected `DTextureCubePreviewComponent` remains in `Durin` so its
-  generated class identity and preview-world component lifecycle stay stable.
 - `StaticMeshEditor` owns the StaticMesh rendered extension and immutable LOD 0
   framing inputs. Its unified module integration installs the exact-class asset
   route and thumbnail provider together. The provider never stores a mesh
@@ -47,8 +45,8 @@ project content.
 
 Material and MaterialInstance provider code, sessions, dependency closure, and
 diagnostics live in `MaterialEditor`. Texture2D authored-source selection plus
-TextureCube provider code, sessions, orientation, preview component, and
-diagnostics live in `TextureEditor`. StaticMesh provider code, generation
+TextureCube provider code, sessions, orientation, wide-environment contract,
+and diagnostics live in `TextureEditor`. StaticMesh provider code, generation
 sessions, visual contracts, and diagnostics live in `StaticMeshEditor`. The
 default service constructs no concrete provider. Moving ownership did not change
 any rendered provider name, key field, schema, fixture, shader, or output policy.
@@ -62,13 +60,15 @@ contracts each have their matching `RenderedAssetThumbnail*.h` header.
 The former `AssetThumbnail.h` and `AssetThumbnailCache.h` paths no longer
 exist.
 
-The shared preview pool owns only its world, provider-neutral camera/view,
-lighting, output target, render command, and readback. A cold-generation session
-spawns its own preview actor/components into the leased world and destroys them
-in `ResetPreview`. The core cache therefore has no concrete asset includes,
-casts, active pointers, readiness branches, framing branches, or diagnostics.
-Material and StaticMesh sessions retain transparent-black capture while
-TextureCube retains its opaque environment background.
+The shared preview pool owns its world, provider-neutral camera/view, optional
+RenderCore view environment, lighting, output target, render command, and
+readback. Scene-backed cold sessions such as Material and StaticMesh attach
+their own Actor/Components to the leased world and remove them in
+`ResetPreview`. TextureCube installs no world content: it supplies a counted
+stable RHI texture reference as one submission-local environment value. The
+core cache therefore has no concrete asset includes, casts, active pointers,
+readiness branches, framing branches, or diagnostics. Material and StaticMesh
+retain transparent-black capture while TextureCube retains opaque output.
 
 ## Extension Registration And Unload
 
@@ -92,10 +92,11 @@ service registration before exposing the texture to the UI backend, preventing
 an upload queued by an unloaded or replaced extension from publishing.
 
 The extension owns exact-class capture, deterministic key fields, immutable
-input, asset load and type checks, readiness and revision polling, preview-world
-content and view selection, validation, and asset-qualified diagnostics. Its
-session may mutate only the preview scene leased to that cold job and must detach
-all content during reset. `DurinEd` retains scheduling, coalescing, cache lookup,
+input, asset load and type checks, readiness and revision polling, scene-backed
+content or value-only environment selection, validation, and asset-qualified
+diagnostics. Its session may configure only the preview scene leased to that
+cold job and must detach its own scene content during reset. `DurinEd` retains
+scheduling, coalescing, cache lookup,
 scene leasing, capture, readback, encode/decode, persistence, UI upload, budgets,
 and publication. Provider objects never cross module unload.
 
@@ -145,6 +146,13 @@ not selected. Closing Content Browser or unloading a provider cancels pending
 work and rejects stale completion before releasing scenes and GPU resources on
 their owning threads.
 
+The pool snapshots the view and optional environment independently when a
+capture is accepted. Reset advances the cancellation generation, clears pixel
+and diagnostic state, restores the default view, and releases the environment
+reference. Success, failed preparation, failed render, cancellation, provider
+removal, pool replacement, and shutdown all converge on this idempotent reset,
+so a later scene-backed job cannot inherit an earlier TextureCube environment.
+
 Refresh, navigation, rename, move, reimport, delete, panel close, and editor
 shutdown cancel the current request generation. Cancellation advances the UI
 upload serial too, so an already-enqueued render-thread upload cannot register a
@@ -188,12 +196,18 @@ failures retain the icon and expose one stable asset-qualified diagnostic.
 Failures are not persisted as successful output and do not retry every frame;
 retry requires a changed key, refresh, or explicit retry.
 
+A required TextureCube environment is resolved on the rendering thread. A null
+target, incompatible dimension, or unavailable renderer resource fails the
+render result before readback; a clear image or black fallback is never
+persisted as a successful TextureCube thumbnail.
+
 Material and MaterialInstance previews use the retained shared
 `/Engine/Models/Sphere` mesh and the resolved runtime material
-values. TextureCube previews use the same sphere with the editor-only
-world-reflection shader and the orientation contract in
-[Cube Textures](../../Runtime/Rendering/CubeTextures.md). Content Browser cards
-never own live viewports, worlds, or per-card preview meshes.
+values. TextureCube previews use an opaque 100-degree wide environment view and
+the orientation contract in [Cube Textures](../../Runtime/Rendering/CubeTextures.md).
+They create no Actor, Component, StaticMesh, primitive proxy, bounds, or
+visibility record. Content Browser cards never own live viewports, worlds, or
+per-card preview meshes.
 
 StaticMesh previews use the asset's validated LOD 0 bounds, a deterministic
 elevated three-quarter camera, a compact image margin, the asset's default

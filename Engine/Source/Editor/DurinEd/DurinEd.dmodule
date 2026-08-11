@@ -12,6 +12,7 @@
     ],
     "PublicDependencies": [
         "AssetCore",
+        "RenderCore",
         "MonaImGui"
     ],
     "ReflectHeaders": [

@@ -1,5 +1,6 @@
 #include "MaterialTestSupport.h"
 #include "Console/ConsoleCommand.h"
+#include "DefaultTextures.h"
 #include "DynamicRHI.h"
 #include "Modules/ModuleManager.h"
 #include "MonaCoreGlobals.h"
@@ -20,6 +21,7 @@
 
 #include <array>
 #include <cmath>
+#include <condition_variable>
 #include <limits>
 
 namespace
@@ -1353,9 +1355,191 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		CaptureCube = CubeResult.Asset;
 		CaptureCubeReference = CaptureCube->GetTextureReferenceRHI();
 		Durin::FlushRenderingCommands();
+
+		Durin::FRHITextureReferenceRef Texture2DReference =
+			TextureResult.Asset->GetTextureReferenceRHI();
+		const Durin::FViewEnvironmentOverride CubeEnvironment{
+			.TextureReference = CaptureCubeReference};
+		const Durin::FViewEnvironmentOverride Texture2DEnvironment{
+			.TextureReference = Texture2DReference};
+		const Durin::uint32 CubeReferenceBaseline =
+			CaptureCubeReference->GetRefCount();
+		const Durin::uint32 Texture2DReferenceBaseline =
+			Texture2DReference->GetRefCount();
+		ASSERT_TRUE(Pool.SetViewEnvironment(CubeEnvironment, Error)) << Error;
+		ASSERT_TRUE(Pool.SetView(Error)) << Error;
+		EXPECT_EQ(
+			CaptureCubeReference->GetRefCount(), CubeReferenceBaseline + 1u);
+		ASSERT_TRUE(Pool.SetViewEnvironment(Texture2DEnvironment, Error)) << Error;
+		EXPECT_EQ(CaptureCubeReference->GetRefCount(), CubeReferenceBaseline);
+		EXPECT_EQ(
+			Texture2DReference->GetRefCount(), Texture2DReferenceBaseline + 1u);
+		Pool.Reset();
+		EXPECT_EQ(
+			Texture2DReference->GetRefCount(), Texture2DReferenceBaseline);
+		Pool.Reset();
+		EXPECT_EQ(
+			Texture2DReference->GetRefCount(), Texture2DReferenceBaseline);
+		ASSERT_TRUE(Pool.SetView(Error)) << Error;
+		ASSERT_TRUE(Pool.SetViewEnvironment(CubeEnvironment, Error)) << Error;
+		EXPECT_EQ(
+			CaptureCubeReference->GetRefCount(), CubeReferenceBaseline + 1u);
+		Pool.Reset();
+		EXPECT_EQ(CaptureCubeReference->GetRefCount(), CubeReferenceBaseline);
+
+		ASSERT_TRUE(Pool.SetViewEnvironment(CubeEnvironment, Error)) << Error;
+		ASSERT_TRUE(Pool.BeginCapture(Error)) << Error;
+		Durin::FlushRenderingCommands();
+		std::vector<Durin::uint8> DirectEnvironmentPixels;
+		ASSERT_EQ(
+			Pool.PollCapture(DirectEnvironmentPixels, Error),
+			Durin::Editor::ERenderedAssetThumbnailCaptureState::Ready) << Error;
+		ASSERT_FALSE(DirectEnvironmentPixels.empty());
+		Pool.Reset();
+
+		Durin::FTextureRHIRef OriginalCubeTarget;
+		struct FRetargetRenderedThumbnailEnvironment
+		{
+			static constexpr auto GetName() -> const char*
+			{
+				return "RetargetRenderedThumbnailEnvironment";
+			}
+		};
+		ASSERT_TRUE(Pool.SetViewEnvironment(CubeEnvironment, Error)) << Error;
+		Durin::EnqueueRenderCommand<FRetargetRenderedThumbnailEnvironment>(
+			[Reference = CaptureCubeReference, &OriginalCubeTarget](
+				Durin::FRHICommandListImmediate&) {
+				OriginalCubeTarget =
+					Reference->GetReferencedTexture_RenderThread();
+				Durin::GDynamicRHI->RHIUpdateTextureReference(
+					Reference.GetReference(),
+					Durin::GetDefaultCubeTexture_RenderThread());
+			});
+		Durin::FlushRenderingCommands();
+		ASSERT_NE(OriginalCubeTarget, nullptr);
+		EXPECT_TRUE(Pool.BeginCapture(Error)) << Error;
+		Durin::FlushRenderingCommands();
+		std::vector<Durin::uint8> RetargetedEnvironmentPixels;
+		EXPECT_EQ(
+			Pool.PollCapture(RetargetedEnvironmentPixels, Error),
+			Durin::Editor::ERenderedAssetThumbnailCaptureState::Ready) << Error;
+		EXPECT_NE(RetargetedEnvironmentPixels, DirectEnvironmentPixels);
+		Pool.Reset();
+
+		struct FRestoreRenderedThumbnailEnvironment
+		{
+			static constexpr auto GetName() -> const char*
+			{
+				return "RestoreRenderedThumbnailEnvironment";
+			}
+		};
+		auto RestoreCubeTarget = [&] {
+			Durin::EnqueueRenderCommand<FRestoreRenderedThumbnailEnvironment>(
+				[Reference = CaptureCubeReference, OriginalCubeTarget](
+					Durin::FRHICommandListImmediate&) {
+					Durin::GDynamicRHI->RHIUpdateTextureReference(
+						Reference.GetReference(), OriginalCubeTarget.GetReference());
+				});
+			Durin::FlushRenderingCommands();
+		};
+		RestoreCubeTarget();
+
+		ASSERT_TRUE(Pool.SetViewEnvironment(CubeEnvironment, Error)) << Error;
+		struct FClearRenderedThumbnailEnvironment
+		{
+			static constexpr auto GetName() -> const char*
+			{
+				return "ClearRenderedThumbnailEnvironment";
+			}
+		};
+		Durin::EnqueueRenderCommand<FClearRenderedThumbnailEnvironment>(
+			[Reference = CaptureCubeReference](
+				Durin::FRHICommandListImmediate&) {
+				Durin::GDynamicRHI->RHIUpdateTextureReference(
+					Reference.GetReference(), nullptr);
+			});
+		Durin::FlushRenderingCommands();
+		EXPECT_TRUE(Pool.BeginCapture(Error)) << Error;
+		Durin::FlushRenderingCommands();
+		std::vector<Durin::uint8> UnavailableEnvironmentPixels;
+		EXPECT_EQ(
+			Pool.PollCapture(UnavailableEnvironmentPixels, Error),
+			Durin::Editor::ERenderedAssetThumbnailCaptureState::Failed);
+		EXPECT_TRUE(UnavailableEnvironmentPixels.empty());
+		EXPECT_NE(Error.find("view environment"), std::string::npos);
+		Pool.Reset();
+		RestoreCubeTarget();
+
+		ASSERT_TRUE(Pool.BeginCapture(Error)) << Error;
+		Durin::FlushRenderingCommands();
+		std::vector<Durin::uint8> EmptyScenePixels;
+		ASSERT_EQ(
+			Pool.PollCapture(EmptyScenePixels, Error),
+			Durin::Editor::ERenderedAssetThumbnailCaptureState::Ready) << Error;
+		EXPECT_EQ(EmptyScenePixels.size(), DirectEnvironmentPixels.size());
+		EXPECT_NE(EmptyScenePixels, DirectEnvironmentPixels);
+		Pool.Reset();
+
+		ASSERT_TRUE(Pool.SetViewEnvironment(Texture2DEnvironment, Error)) << Error;
+		ASSERT_TRUE(Pool.BeginCapture(Error)) << Error;
+		Durin::FlushRenderingCommands();
+		std::vector<Durin::uint8> FailedEnvironmentPixels;
+		EXPECT_EQ(
+			Pool.PollCapture(FailedEnvironmentPixels, Error),
+			Durin::Editor::ERenderedAssetThumbnailCaptureState::Failed);
+		EXPECT_TRUE(FailedEnvironmentPixels.empty());
+		EXPECT_NE(Error.find("view environment"), std::string::npos);
+		Pool.Reset();
+
+		ASSERT_TRUE(Pool.SetViewEnvironment(CubeEnvironment, Error)) << Error;
+		struct FRenderedThumbnailCancellationGate
+		{
+			std::mutex Mutex;
+			std::condition_variable Condition;
+			bool bEntered = false;
+			bool bReleased = false;
+		};
+		struct FBlockRenderedThumbnailCaptureForCancellation
+		{
+			static constexpr auto GetName() -> const char*
+			{
+				return "BlockRenderedThumbnailCaptureForCancellation";
+			}
+		};
+		const auto Gate = std::make_shared<FRenderedThumbnailCancellationGate>();
+		Durin::EnqueueRenderCommand<FBlockRenderedThumbnailCaptureForCancellation>(
+			[Gate](Durin::FRHICommandListImmediate&) {
+				std::unique_lock Lock(Gate->Mutex);
+				Gate->bEntered = true;
+				Gate->Condition.notify_all();
+				Gate->Condition.wait(Lock, [&Gate] { return Gate->bReleased; });
+			});
+		{
+			std::unique_lock Lock(Gate->Mutex);
+			Gate->Condition.wait(Lock, [&Gate] { return Gate->bEntered; });
+		}
+		const bool bCancelledCaptureStarted = Pool.BeginCapture(Error);
+		Pool.Reset();
+		const Durin::uint32 QueuedReferenceCount =
+			CaptureCubeReference->GetRefCount();
+		{
+			std::lock_guard Lock(Gate->Mutex);
+			Gate->bReleased = true;
+		}
+		Gate->Condition.notify_all();
+		Durin::FlushRenderingCommands();
+		EXPECT_TRUE(bCancelledCaptureStarted) << Error;
+		EXPECT_GT(QueuedReferenceCount, CubeReferenceBaseline);
+		EXPECT_EQ(CaptureCubeReference->GetRefCount(), CubeReferenceBaseline);
+		std::vector<Durin::uint8> CancelledPixels;
+		EXPECT_EQ(
+			Pool.PollCapture(CancelledPixels, Error),
+			Durin::Editor::ERenderedAssetThumbnailCaptureState::Idle);
+		EXPECT_TRUE(CancelledPixels.empty());
+		EXPECT_TRUE(Error.empty());
+
 		std::vector<Durin::uint8> CubePixels;
-		ASSERT_TRUE(Pool.SetTextureCube(
-			CubeResult.Asset, Durin::FTransform(), Error)) << Error;
+		ASSERT_TRUE(Pool.SetTextureCube(CubeResult.Asset, Error)) << Error;
 		ASSERT_TRUE(Pool.BeginCapture(Error)) << Error;
 		Durin::FlushRenderingCommands();
 		ASSERT_EQ(

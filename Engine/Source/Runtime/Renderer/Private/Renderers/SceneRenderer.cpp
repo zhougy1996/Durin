@@ -264,7 +264,8 @@ namespace Durin
 		FScene* Scene,
 		const FSceneView& View,
 		FRHITexture* OutputTarget,
-		bool bPresentOutput) -> void
+		bool bPresentOutput,
+		const FSceneViewRenderOptions& Options) -> ERenderViewResult
 	{
 		check(IsInRenderingThread());
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.RenderView");
@@ -283,39 +284,66 @@ namespace Durin
 			OutputTarget != nullptr ? OutputTarget->GetSizeY() : 0;
 		if (OutputTarget == nullptr || Width == 0 || Height == 0)
 		{
-			return;
+			return ERenderViewResult::InvalidOutput;
 		}
 		const RenderTargetLayouts::EViewportOutput ViewportOutput =
 			GetViewportOutput(bPresentOutput);
 		const RendererEditorAssistance::FRequest EditorAssistanceRequest =
 			FEditorAssistanceRenderer::AnalyzeRequest(View, ViewportOutput);
 
-		PostProcessRenderer.EnsureResources_RenderThread(CommandList);
+		if (!PostProcessRenderer.EnsureResources_RenderThread(CommandList))
+		{
+			return ERenderViewResult::RendererResourcesUnavailable;
+		}
 		// Generated IBL uploads must finish before entering the Scene Color pass.
 		// Failure is non-fatal: StaticMeshRenderer binds the complete black
 		// environment fallback set instead.
 		EnvironmentLighting.EnsureResources_RenderThread(CommandList);
 		// Sky resources include a static index upload, so initialize them before
 		// entering the Scene Color render pass.
-		SkyBoxRenderer.EnsureResources_RenderThread();
+		const bool bSkyBoxResourcesReady =
+			SkyBoxRenderer.EnsureResources_RenderThread();
+		if (Options.Environment && !bSkyBoxResourcesReady)
+		{
+			return ERenderViewResult::RendererResourcesUnavailable;
+		}
 		FPostProcessRenderer::FSceneTargets* SceneTargets =
 			PostProcessRenderer.EnsureSceneTargets_RenderThread(Width, Height);
 		if (SceneTargets == nullptr || SceneTargets->Color == nullptr
 			|| SceneTargets->Depth == nullptr)
 		{
-			return;
+			return ERenderViewResult::RendererResourcesUnavailable;
 		}
 		FRHITexture* SceneColor = SceneTargets->Color;
 
 		const FSceneView RenderView = FitViewToOutput(View, Width, Height);
 		PreparedView.View = RenderView;
+		if (Options.Environment)
+		{
+			const FViewEnvironmentOverride& Environment = *Options.Environment;
+			FRHITexture* Texture = Environment.TextureReference != nullptr
+				? Environment.TextureReference->GetReferencedTexture_RenderThread()
+				: nullptr;
+			if (Texture == nullptr
+				|| Texture->GetDimension() != ETextureDimension::TextureCube)
+			{
+				return ERenderViewResult::RequiredEnvironmentUnavailable;
+			}
+			PreparedView.SkyBox.TextureReference = Environment.TextureReference;
+			PreparedView.SkyBox.Rotation = Environment.Rotation;
+			PreparedView.SkyBox.Tint = Environment.Tint;
+			PreparedView.SkyBox.Intensity = Environment.Intensity;
+			PreparedView.ViewEnvironmentTexture = Texture;
+			PreparedView.bHasViewEnvironment = true;
+			PreparedView.bHasSkyBox = true;
+		}
 		if (Scene != nullptr)
 		{
 			const FSceneVisibilityResult Visibility = PrepareSceneVisibility(
 				*Scene, RenderView, PreparedView.Counters);
 			const FSkyBoxSceneInfo* SkyBoxInfo =
 				Scene->GetActiveSkyBoxSceneInfo_RenderThread();
-			if (SkyBoxInfo != nullptr)
+			if (!PreparedView.bHasViewEnvironment && SkyBoxInfo != nullptr)
 			{
 				PreparedView.SkyBox = SkyBoxInfo->GetProxy().GetData();
 				PreparedView.bHasSkyBox = true;
@@ -329,15 +357,6 @@ namespace Durin
 			PreparedView.SkeletalMeshes = PrepareSkeletalMeshView_RenderThread(
 				CommandList, Visibility.SkeletalMeshSceneInfos, RenderView,
 				RenderView.Settings.RasterMode);
-			for (const FPrimitiveSceneInfo* SceneInfo :
-				 Visibility.TextureCubePreviewSceneInfos)
-			{
-				if (SceneInfo != nullptr)
-				{
-					PreparedView.TextureCubePreviews.push_back(
-						&SceneInfo->GetTextureCubePreviewProxy());
-				}
-			}
 		}
 		StaticMeshRenderer.PrepareResources_RenderThread(
 			CommandList, PreparedView.StaticMeshes);
@@ -365,8 +384,13 @@ namespace Durin
 		CommandList.BeginRenderPass(
 			ScenePassInfo,
 			"SceneColorRenderPass");
-		RenderScene_RenderThread(CommandList, PreparedView, SceneColor);
+		const bool bSceneRendered =
+			RenderScene_RenderThread(CommandList, PreparedView, SceneColor);
 		CommandList.EndRenderPass();
+		if (!bSceneRendered)
+		{
+			return ERenderViewResult::RequiredEnvironmentUnavailable;
+		}
 		CopyStaticMeshCounters(
 			PreparedView.StaticMeshes, PreparedView.Counters);
 		CopySkeletalMeshCounters(
@@ -411,7 +435,7 @@ namespace Durin
 		CommandList.EndRenderPass();
 		if (!bHasEditorAssistance)
 		{
-			return;
+			return ERenderViewResult::Success;
 		}
 
 		FRHIRenderPassInfo EditorAssistancePassInfo{};
@@ -430,12 +454,13 @@ namespace Durin
 			RenderView,
 			PreparedEditorAssistance);
 		CommandList.EndRenderPass();
+		return ERenderViewResult::Success;
 	}
 
 	auto FSceneRenderer::RenderScene_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FPreparedSceneView& PreparedView,
-		FRHITexture* RenderTarget) -> void
+		FRHITexture* RenderTarget) -> bool
 	{
 		check(IsInRenderingThread());
 		check(CommandList.IsInsideRenderPass());
@@ -445,7 +470,7 @@ namespace Durin
 		const uint32 Height = View.ViewportHeight;
 		if (RenderTarget == nullptr || Width == 0 || Height == 0)
 		{
-			return;
+			return false;
 		}
 
 		CommandList.SetViewport(
@@ -463,8 +488,22 @@ namespace Durin
 
 		if (PreparedView.bHasSkyBox)
 		{
-			SkyBoxRenderer.Draw_RenderThread(
-				CommandList, View, PreparedView.SkyBox);
+			if (PreparedView.bHasViewEnvironment)
+			{
+				if (!SkyBoxRenderer.DrawTexture_RenderThread(
+						CommandList,
+						View,
+						PreparedView.ViewEnvironmentTexture,
+						PreparedView.SkyBox))
+				{
+					return false;
+				}
+			}
+			else
+			{
+				SkyBoxRenderer.Draw_RenderThread(
+					CommandList, View, PreparedView.SkyBox);
+			}
 		}
 
 		for (const EStaticMeshBasePass Pass : {
@@ -497,10 +536,6 @@ namespace Durin
 			PreparedView.StaticMeshes);
 		SkeletalMeshRenderer.FinalizeExecution_RenderThread(
 			PreparedView.SkeletalMeshes);
-		TextureCubeThumbnailRenderer.DrawPrepared_RenderThread(
-			CommandList,
-			View,
-			PreparedView.TextureCubePreviews,
-			SkyBoxRenderer);
+		return true;
 	}
 } // namespace Durin

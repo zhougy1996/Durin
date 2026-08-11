@@ -36,6 +36,9 @@ namespace Durin::Editor
 		DURINED_API auto SetView(
 			const FRenderedAssetThumbnailPreviewView& View,
 			std::string& OutError) -> bool override;
+		DURINED_API auto SetViewEnvironment(
+			const FViewEnvironmentOverride& Environment,
+			std::string& OutError) -> bool override;
 		// Enqueues one render and one readback on the rendering thread. Transparent
 		// captures clear to transparent black so UI compositing has no color fringe.
 		DURINED_API auto BeginCapture(std::string& OutError) -> bool;

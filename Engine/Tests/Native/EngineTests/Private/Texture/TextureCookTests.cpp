@@ -412,7 +412,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 			View.ViewLocation = {0.0, 0.0, -1.0};
 			View.ViewportWidth = 17;
 			View.ViewportHeight = 17;
-			Renderer.RenderView(CommandList, &Scene, View, Color, false);
+			(void)Renderer.RenderView(
+				CommandList, &Scene, View, Color, false, {});
 			if (!Durin::GDynamicRHI->RHIReadTexture2D(
 				CommandList, Color, 0, 0, UploadResult->SamplePixels))
 			{

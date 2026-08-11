@@ -4,24 +4,120 @@ Summary: Move TextureCube thumbnails from an editor-only mesh Component and Prim
 
 Last reviewed: 2026-08-12
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-12
 
 ## Current Status
 
-No implementation stage has started. This plan selects a direct view-environment
-path for TextureCube thumbnails and retains preview-world Components only for
-assets whose thumbnails are genuinely represented by scene-resident geometry.
+Stage 0 is complete. The existing `TextureThumbnailTests` target passes 7/7,
+`RendererSceneContractTests` passes 7/7, and the focused Vulkan
+`FMaterialTests.RenderedThumbnailPreviewSceneCapturesResolvedMaterialDifferences`
+case passes. The Vulkan fixture freezes a 64-by-64 opaque wide-environment
+capture with non-black center, multiple corner directions, and more than eight
+sampled colors; RenderCore's cube-direction contract separately freezes
+principal-axis and edge sampling. Production source fixes the environment view
+at 100 vertical degrees, and the scene-contract baseline confirms that the
+current implementation submits exactly one TextureCube preview primitive.
 
-The current TextureCube provider still loads `/Engine/Models/Sphere`, spawns an
-Actor, installs `DTextureCubePreviewComponent`, assigns the sphere and cube, and
-publishes `FTextureCubePreviewSceneProxy` as a primitive. That proxy passes
+The dependency inventory finds no interactive TextureCube editor consumer. The
+specialized Component is used only by the rendered-thumbnail provider and its
+test fixtures; its proxy, primitive kind, typed SceneInfo list, visibility
+classification, prepared-view list, and renderer adapter are the complete
+runtime removal set. Cache versions remain unchanged when the migrated pixels
+match this baseline. An intentional pixel change must increment the TextureCube
+generator schema and environment-view fixture version; the shader contract
+changes only if shader code or bindings change.
+
+Stage 1 is complete. RenderCore now owns `FViewEnvironmentOverride`,
+`FSceneViewRenderOptions`, and the typed `ERenderViewResult` submission result.
+Runtime/editor callers deliberately pass empty options. Renderer validates an
+explicit cube target on the render thread, gives it precedence over scene sky,
+draws it through `FSkyBoxRenderer` before geometry, and reports invalid output,
+renderer-resource failure, or required-environment failure without changing
+ordinary scene-SkyBox fallback policy. The SkyBox Vulkan test proves override
+precedence against a different scene cube and rejects null output/reference;
+`SkyBoxTests` passes 10/10 and `RendererSceneContractTests` passes 8/8.
+
+Stage 2 is complete. `IRenderedAssetThumbnailPreviewScene` now accepts the
+RenderCore-owned environment value, and DurinEd declares RenderCore as a public
+dependency. The shared pool stores view and environment independently,
+normalizes valid rotations, snapshots both into the queued command, maps typed
+render failures before readback, and clears the counted reference in its
+idempotent reset. Existing preparation failure, cancellation, provider removal,
+pool replacement, and shutdown paths continue to converge on that reset.
+
+`ThumbnailTests` passes 53/53. The focused Vulkan rendered-thumbnail case also
+passes and covers both setter orders, overwrite/reference release, reset,
+environment-to-scene reuse, incompatible required-environment failure with no
+pixels, a deliberately queued cancellation, and stable-reference lifetime.
+
+Stage 3 is complete. TextureEditor now owns the 100-degree wide-environment
+presentation constant and reconstructs the old float-quantized projection
+through the shared double-valued view contract. The TextureCube session retains
+only its asset pointer for load/readiness/revision validation and configures the
+pool with a copied stable texture reference; it no longer requests a world,
+loads the sphere, or creates/stores an Actor or Component. `TextureThumbnailTests`
+passes 7/7. The focused Vulkan rendered-thumbnail case passes and proves exact
+byte equality between the direct and legacy 64-by-64 outputs, so generator,
+fixture, and shader/cache versions remain unchanged. The same case proves that
+an accepted stable reference observes a retargeted cube, fails with no readback
+when its render-thread target is cleared, survives queued cancellation, and is
+released by reset.
+
+Stage 4 is complete. The reflected TextureEditor Component and module entry,
+Engine proxy and primitive kind, Renderer SceneInfo membership, visibility and
+prepared-view collections, and the dedicated renderer adapter have been
+deleted. The static-mesh lifetime model no longer includes a TextureCube sphere
+consumer. A production/test source audit finds none of the removed type, list,
+kind, or renderer symbols; the unchanged persistent identity string remains for
+cache compatibility. `RendererSceneContractTests` passes 8/8,
+`TextureThumbnailTests` passes 7/7, `StaticMeshTests` passes 52/52,
+`RenderContractTests` passes 39/39, and the focused Vulkan rendered-thumbnail
+case still passes. Preview-world Components remain only for assets whose
+thumbnails are genuinely represented by scene-resident geometry.
+
+Stage 5 is complete. Asset Thumbnails, Cube Textures, Renderer Scene
+Representation, Workspace Framework, and Viewport Rendering now publish the
+value-only view-environment contract and no longer describe TextureCube
+thumbnails as scene primitives. Changed-document validation passes for all five
+documents, and the all-plan validator passes for 4 active, 11 completed, and
+117 archived plans. The final removed-symbol audit finds no legacy TextureCube
+thumbnail Component, proxy, primitive kind, typed collection, visibility path,
+or renderer adapter in production or test source.
+
+Focused validation passes for `ThumbnailTests` (53/53),
+`TextureThumbnailTests` (7/7), `MaterialThumbnailTests` (6/6),
+`StaticMeshThumbnailTests` (8/8), `StaticMeshTests` (52/52),
+`SkyBoxTests` (10/10), `RendererSceneContractTests` (8/8), and
+`RenderContractTests` (39/39), together with the focused rendered-thumbnail
+Vulkan case. Full native validation passes at target granularity with
+`--jobs 1`; the default 18-target run exposed pre-existing cross-target
+resource/isolation instability in `VulkanRHIIntegrationTests` and the native
+crash-writer characterization case, while their isolated runs pass 54/54 and
+1/1 respectively. The complete `all` editor build passes for profile
+`windows-msvc-x64`, preset `Win64-Debug-DurinEditor`.
+
+A bounded 300-tick hidden-window editor smoke opened the Sandbox project with
+the Content Browser rooted at its TextureCube directory, exited normally, and
+generated a new 256-by-256 persistent thumbnail object for
+`TEXCUBE_PureSky_512x512` without thumbnail or renderer errors. The qualified
+executable is
+`Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`. Exact byte
+equality with the Stage 0 baseline keeps the TextureCube generator schema,
+environment-view fixture version, shader contract, and persistent cache
+identity unchanged. Final ownership is RenderCore for submission values,
+Renderer for environment validation/draw, DurinEd for pooled capture, and
+TextureEditor for asset readiness, revision, and presentation policy.
+
+The baseline TextureCube provider loaded `/Engine/Models/Sphere`, spawned an
+Actor, installed `DTextureCubePreviewComponent`, assigned the sphere and cube,
+and published `FTextureCubePreviewSceneProxy` as a primitive. That proxy passed
 through primitive identity, bounds, visibility classification, typed SceneInfo
-storage, and prepared-view collection. The final renderer no longer consumes
-the sphere render data: it changes the view to a fixed 100-degree vertical field
-of-view and invokes the shared SkyBox fullscreen draw. The Component and sphere
-therefore survive from the former reflection-sphere implementation rather than
-representing the current wide-environment output.
+storage, and prepared-view collection. The final renderer no longer consumed
+the sphere render data: it changed the view to a fixed 100-degree vertical
+field-of-view and invoked the shared SkyBox fullscreen draw. The Component and
+sphere therefore survived from the former reflection-sphere implementation
+rather than representing the wide-environment output.
 
 The selected correction keeps Durin's existing cold-generation session,
 revision validation, cancellation, render-thread capture, readback, persistent
@@ -39,10 +135,11 @@ thumbnails use preview scenes and Components. Durin retains its own asynchronous
 cache and module-unload safety rather than introducing an Unreal-style UObject
 thumbnail renderer boundary.
 
-Two implemented contract documents currently describe a reflective sphere even
-though production code and cache identity use the wide-environment path. Their
-lasting text is corrected only after the new path and output baseline are
-qualified, so the plan does not publish intended behavior as implemented early.
+Two implemented contract documents originally described a reflective sphere
+even though production code and cache identity used the wide-environment path.
+Their lasting text was corrected only after the new path and output baseline
+were qualified, so the plan did not publish intended behavior as implemented
+early.
 
 ## Goal
 
@@ -267,21 +364,21 @@ qualified, so the plan does not publish intended behavior as implemented early.
 
 Dependencies: none.
 
-- [ ] Record the current TextureCube thumbnail output for the directional cube
+- [x] Record the current TextureCube thumbnail output for the directional cube
   fixture at the production output size and at the smallest existing Vulkan
   integration size that retains useful orientation evidence.
-- [ ] Add or tighten assertions for principal directions, representative edges,
+- [x] Add or tighten assertions for principal directions, representative edges,
   opaque alpha, fitted viewport behavior, and the current 100-degree vertical
   field-of-view rather than relying only on a broad screenshot comparison.
-- [ ] Characterize current render counters and scene membership so removal can
+- [x] Characterize current render counters and scene membership so removal can
   prove that the same image no longer submits a TextureCube primitive.
-- [ ] Inventory every source, reflection metadata, module dependency, test, and
+- [x] Inventory every source, reflection metadata, module dependency, test, and
   lasting document that names `DTextureCubePreviewComponent`,
   `FTextureCubePreviewSceneProxy`, `TextureCubePreviewSceneInfos`, or
   `FTextureCubeThumbnailRenderer`.
-- [ ] Confirm that no interactive TextureCube editor path uses the specialized
+- [x] Confirm that no interactive TextureCube editor path uses the specialized
   Component; split that consumer explicitly if the inventory finds one.
-- [ ] Record the cache-version rule for byte-identical versus deliberately
+- [x] Record the cache-version rule for byte-identical versus deliberately
   changed output in the implementation handoff before Stage 1.
 
 #### Acceptance Gate
@@ -295,20 +392,20 @@ Dependencies: none.
 
 Dependencies: Stage 0.
 
-- [ ] Add RenderCore-owned `FViewEnvironmentOverride` and
+- [x] Add RenderCore-owned `FViewEnvironmentOverride` and
   `FSceneViewRenderOptions` value types with a stable texture reference,
   rotation, tint, and intensity.
-- [ ] Add a typed `RenderView` result and update `IRendererModule`,
+- [x] Add a typed `RenderView` result and update `IRendererModule`,
   `FRendererModule`, `FSceneRenderer`, and the small set of engine/editor call
   sites to handle or deliberately ignore it at their owned boundary.
-- [ ] Give a valid explicit environment precedence over the active scene SkyBox
+- [x] Give a valid explicit environment precedence over the active scene SkyBox
   during prepared-view construction without mutating `FScene`.
-- [ ] Resolve and validate the required environment texture on the render
+- [x] Resolve and validate the required environment texture on the render
   thread; do not substitute default black for an invalid explicit override.
-- [ ] Execute the selected environment through the existing
+- [x] Execute the selected environment through the existing
   `FSkyBoxRenderer` before scene geometry and preserve ordinary scene-SkyBox
   behavior when no override exists.
-- [ ] Add focused RenderContract coverage for empty options, explicit override,
+- [x] Add focused RenderContract coverage for empty options, explicit override,
   scene-SkyBox fallback, precedence, invalid required environment, output/resource
   failure, and unchanged ordinary viewport submission.
 
@@ -323,19 +420,19 @@ Dependencies: Stage 0.
 
 Dependencies: Stage 1.
 
-- [ ] Add a provider-neutral view-environment configuration method to
+- [x] Add a provider-neutral view-environment configuration method to
   `IRenderedAssetThumbnailPreviewScene` using the RenderCore value type.
-- [ ] Declare the required public module dependency for every public header that
+- [x] Declare the required public module dependency for every public header that
   exposes the new type; do not depend on global include-directory leakage.
-- [ ] Store view and optional environment independently in
+- [x] Store view and optional environment independently in
   `FRenderedAssetThumbnailPreviewScenePool` so setter order cannot discard one.
-- [ ] Snapshot both values into `BeginCapture`, pass render options to
+- [x] Snapshot both values into `BeginCapture`, pass render options to
   `IRendererModule`, and translate a failed render result into the existing
   capture failure state before readback.
-- [ ] Clear the environment and release its reference on every `Reset`, failed
+- [x] Clear the environment and release its reference on every `Reset`, failed
   preparation, cancellation, provider removal, pool replacement, and shutdown
   path already converging on pool reset.
-- [ ] Add pool-level tests for setter order, overwrite, reset, failed render,
+- [x] Add pool-level tests for setter order, overwrite, reset, failed render,
   cancellation during queued work, reference lifetime, and no cross-job leakage
   between environment-backed and scene-backed providers.
 
@@ -350,23 +447,23 @@ Dependencies: Stage 1.
 
 Dependencies: Stage 2.
 
-- [ ] Move the 100-degree environment FOV into the TextureEditor-owned visual
+- [x] Move the 100-degree environment FOV into the TextureEditor-owned visual
   contract and make `MakeTextureCubePreviewView` express the actual submitted
   projection without Renderer rewriting it.
-- [ ] Make the TextureCube session pass its stable
+- [x] Make the TextureCube session pass its stable
   `FRHITextureReferenceRef` to the pool after readiness validation.
-- [ ] Remove sphere retention, preview Actor creation, Component creation,
+- [x] Remove sphere retention, preview Actor creation, Component creation,
   transform setup, and all session fields used only by that world content.
-- [ ] Preserve the TextureCube asset pointer only for the established
+- [x] Preserve the TextureCube asset pointer only for the established
   game-thread load/readiness/revision-validation lifetime; do not capture it in
   the render command.
-- [ ] Preserve asset-qualified diagnostics, opaque output, request identity,
+- [x] Preserve asset-qualified diagnostics, opaque output, request identity,
   provider generation, cancellation serial, and pre/post-capture revision
   validation.
-- [ ] Replace the Component/proxy construction test with provider/pool tests
+- [x] Replace the Component/proxy construction test with provider/pool tests
   proving stable-reference capture, reset release, render-thread retarget
   observation, and failure when the explicit target is unavailable.
-- [ ] Compare the migrated Vulkan output to the Stage 0 baseline and stop before
+- [x] Compare the migrated Vulkan output to the Stage 0 baseline and stop before
   legacy removal if the difference is unexplained.
 
 #### Acceptance Gate
@@ -381,20 +478,20 @@ Dependencies: Stage 2.
 
 Dependencies: Stage 3.
 
-- [ ] Delete `DTextureCubePreviewComponent` source/header, generated reflection
+- [x] Delete `DTextureCubePreviewComponent` source/header, generated reflection
   input, constructor, transient asset property, and TextureEditor module entry.
-- [ ] Delete `FTextureCubePreviewSceneProxy`, its Engine implementation, and
+- [x] Delete `FTextureCubePreviewSceneProxy`, its Engine implementation, and
   `EPrimitiveSceneProxyKind::TextureCubePreview`.
-- [ ] Remove TextureCube preview accessors and typed membership from
+- [x] Remove TextureCube preview accessors and typed membership from
   `FPrimitiveSceneInfo`, `FScene`, detach/add/release logic, scene-contract
   tests, and renderer public/private headers.
-- [ ] Remove TextureCube preview classification and storage from scene
+- [x] Remove TextureCube preview classification and storage from scene
   visibility and prepared-view data.
-- [ ] Delete `FTextureCubeThumbnailRenderer` and its `FSceneRenderer` member,
+- [x] Delete `FTextureCubeThumbnailRenderer` and its `FSceneRenderer` member,
   preparation loop, late draw call, includes, and build metadata.
-- [ ] Update exhaustive primitive-kind switches and tests without adding a
+- [x] Update exhaustive primitive-kind switches and tests without adding a
   compatibility enumerator or dead branch.
-- [ ] Verify by targeted search that production source, module reflection input,
+- [x] Verify by targeted search that production source, module reflection input,
   and tests contain no legacy symbol; retain historical plan references as
   provenance rather than rewriting archives.
 
@@ -409,28 +506,28 @@ Dependencies: Stage 3.
 
 Dependencies: Stages 0-4.
 
-- [ ] Update Asset Thumbnails to distinguish scene-backed thumbnail content
+- [x] Update Asset Thumbnails to distinguish scene-backed thumbnail content
   from the value-only TextureCube environment path and document pool ownership,
   reset, cancellation, and module-unload behavior.
-- [ ] Update Cube Textures to describe the actual wide-environment view,
+- [x] Update Cube Textures to describe the actual wide-environment view,
   orientation, stable-reference transfer, required-resource failure, and cache
   identity instead of a reflective sphere.
-- [ ] Update Renderer Scene Representation to remove TextureCube preview from
+- [x] Update Renderer Scene Representation to remove TextureCube preview from
   primitive families and record view-local environment override precedence.
-- [ ] Update any directly affected module-routing or rendering contract text;
+- [x] Update any directly affected module-routing or rendering contract text;
   do not copy implementation-stage checklists into lasting documentation.
-- [ ] Run changed-document validation and the all-plan validator.
-- [ ] Run the smallest affected native targets during implementation, including
+- [x] Run changed-document validation and the all-plan validator.
+- [x] Run the smallest affected native targets during implementation, including
   `TextureThumbnailTests`, `ThumbnailTests`, `RenderContractTests`, and the
   scene/renderer contract target containing the removed primitive cases.
-- [ ] Run full native-test validation because the final change crosses test
+- [x] Run full native-test validation because the final change crosses test
   targets and alters shared RenderCore/Renderer submission infrastructure.
-- [ ] Complete a full `all` build because the result changes user-visible
+- [x] Complete a full `all` build because the result changes user-visible
   Content Browser rendering and the public renderer-module contract.
-- [ ] Run the bounded TextureCube Content Browser/editor thumbnail smoke and
+- [x] Run the bounded TextureCube Content Browser/editor thumbnail smoke and
   link the verified editor executable from the same Agent Build Profile in the
   final handoff.
-- [ ] Record output identity/version, focused/full test evidence, build profile,
+- [x] Record output identity/version, focused/full test evidence, build profile,
   runtime result, removed-symbol audit, and final file/module ownership in
   Current Status before completion.
 
@@ -525,8 +622,6 @@ Dependencies: Stages 0-4.
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneVisibility.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SkyBoxRenderer.h`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SkyBoxRenderer.cpp`
-- `Engine/Source/Runtime/Renderer/Private/Renderers/TextureCubeThumbnailRenderer.h`
-- `Engine/Source/Runtime/Renderer/Private/Renderers/TextureCubeThumbnailRenderer.cpp`
 - `Engine/Source/Runtime/Engine/Public/Engine/FPrimitiveSceneProxy.h`
 - `Engine/Source/Runtime/Engine/Private/Engine/PrimitiveSceneProxy.cpp`
 - `Engine/Source/Editor/DurinEd/Public/Thumbnail/RenderedAssetThumbnailExtension.h`
@@ -534,8 +629,6 @@ Dependencies: Stages 0-4.
 - `Engine/Source/Editor/DurinEd/Private/Thumbnail/RenderedAssetThumbnailPreviewScene.cpp`
 - `Engine/Source/Editor/DurinEd/Private/Thumbnail/RenderedAssetThumbnailCache.cpp`
 - `Engine/Source/Editor/DurinEd/Public/Thumbnail/AssetThumbnailTypes.h`
-- `Engine/Source/Editor/TextureEditor/Public/Preview/TextureCubePreviewComponent.h`
-- `Engine/Source/Editor/TextureEditor/Private/Preview/TextureCubePreviewComponent.cpp`
 - `Engine/Source/Editor/TextureEditor/Private/Thumbnail/TextureCubeAssetThumbnail.cpp`
 - `Engine/Source/Editor/TextureEditor/TextureEditor.dmodule`
 - `Engine/Tests/Native/EngineTests/Private/TextureAssetThumbnailTests.cpp`

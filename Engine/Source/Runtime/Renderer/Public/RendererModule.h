@@ -16,7 +16,13 @@ namespace Durin
 		RENDERER_API auto StartupModule() -> void override;
 		RENDERER_API auto ShutdownModule() -> void override;
 		RENDERER_API auto CreateScene() -> std::unique_ptr<IScene> override;
-		RENDERER_API auto RenderView(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput) -> void override;
+		RENDERER_API auto RenderView(
+			FRHICommandListImmediate& CommandList,
+			IScene* Scene,
+			const FSceneView& View,
+			FRHITexture* OutputTarget,
+			bool bPresentOutput,
+			const FSceneViewRenderOptions& Options) -> ERenderViewResult override;
 
 	private:
 		std::unique_ptr<FSceneRenderer> SceneRenderer;

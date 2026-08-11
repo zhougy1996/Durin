@@ -97,6 +97,18 @@ TEST(FRendererSceneContractTests, ViewSettingsDefaultToProductionVisibilityAndLO
 	EXPECT_EQ(Settings.LODMode, Durin::EViewLODMode::Automatic);
 }
 
+TEST(FRendererSceneContractTests, ViewRenderOptionsDefaultToNoEnvironmentOverride)
+{
+	const Durin::FSceneViewRenderOptions Options;
+	EXPECT_FALSE(Options.Environment.has_value());
+
+	const Durin::FViewEnvironmentOverride Environment;
+	EXPECT_EQ(Environment.TextureReference, nullptr);
+	EXPECT_EQ(Environment.Rotation, Durin::FQuat(1.0, 0.0, 0.0, 0.0));
+	EXPECT_EQ(Environment.Tint, Durin::FVector3f(1.0f));
+	EXPECT_EQ(Environment.Intensity, 1.0f);
+}
+
 TEST(FRendererSceneContractTests, PrimitiveMembershipOwnsClassificationBoundsAndFifoLifetime)
 {
 	FRenderingThreadScope RenderingThread;
@@ -116,7 +128,6 @@ TEST(FRendererSceneContractTests, PrimitiveMembershipOwnsClassificationBoundsAnd
 	Durin::FlushRenderingCommands();
 	ASSERT_EQ(Scene.GetPrimitiveSceneInfos().size(), 1u);
 	ASSERT_EQ(Scene.GetStaticMeshSceneInfos().size(), 1u);
-	EXPECT_TRUE(Scene.GetTextureCubePreviewSceneInfos().empty());
 	const Durin::FPrimitiveSceneInfo* Info = Scene.GetStaticMeshSceneInfos().front();
 	EXPECT_EQ(Info->GetId(), Id);
 	EXPECT_TRUE(Info->GetLocalBounds().bIsValid);
@@ -145,11 +156,11 @@ TEST(FRendererSceneContractTests, PrimitiveMembershipOwnsClassificationBoundsAnd
 	EXPECT_TRUE(Scene.GetPrimitiveSceneInfos().empty());
 
 	Scene.AddOrReplacePrimitive(Id,
-		std::make_unique<Durin::FTextureCubePreviewSceneProxy>(nullptr, nullptr),
+		std::make_unique<Durin::FStaticMeshSceneProxy>(
+			&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}, 0),
 		Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
-	EXPECT_EQ(Scene.GetTextureCubePreviewSceneInfos().size(), 1u);
-	EXPECT_TRUE(Scene.GetStaticMeshSceneInfos().empty());
+	EXPECT_EQ(Scene.GetStaticMeshSceneInfos().size(), 1u);
 
 	Scene.Release();
 	Durin::FlushRenderingCommands();
@@ -178,11 +189,6 @@ TEST(FRendererSceneContractTests, VisibilityClassifiesOnceAndKeepsFallbacksVisib
 	AddStaticMesh(2, {3.0, 0.0, 0.0}, false, &ValidRenderData);
 	AddStaticMesh(3, {3.0, 20.0, 0.0}, true, &ValidRenderData);
 	AddStaticMesh(4, {3.0, 0.0, 0.0}, true, &InvalidBoundsRenderData);
-	Scene.AddOrReplacePrimitive(
-		Durin::FPrimitiveSceneId(5),
-		std::make_unique<Durin::FTextureCubePreviewSceneProxy>(
-			&ValidRenderData, nullptr),
-		glm::translate(Durin::FMatrix(1.0), Durin::FVector3(3.0, 0.0, 0.0)));
 	Durin::FlushRenderingCommands();
 
 	Durin::FSceneView View;
@@ -191,15 +197,14 @@ TEST(FRendererSceneContractTests, VisibilityClassifiesOnceAndKeepsFallbacksVisib
 	Durin::FViewRenderCounters Counters;
 	const Durin::FSceneVisibilityResult Visibility =
 		Durin::PrepareSceneVisibility(Scene, View, Counters);
-	EXPECT_EQ(Visibility.PrimitiveRecords.size(), 5u);
-	EXPECT_EQ(Counters.SubmittedPrimitives, 5u);
+	EXPECT_EQ(Visibility.PrimitiveRecords.size(), 4u);
+	EXPECT_EQ(Counters.SubmittedPrimitives, 4u);
 	EXPECT_EQ(Counters.HiddenPrimitives, 1u);
 	EXPECT_EQ(Counters.FrustumCulledPrimitives, 1u);
-	EXPECT_EQ(Counters.VisiblePrimitives, 3u);
+	EXPECT_EQ(Counters.VisiblePrimitives, 2u);
 	EXPECT_EQ(Counters.InvalidBoundsFallbacks, 1u);
 	EXPECT_EQ(Counters.InvalidViewFallbacks, 0u);
 	EXPECT_EQ(Visibility.StaticMeshSceneInfos.size(), 2u);
-	EXPECT_EQ(Visibility.TextureCubePreviewSceneInfos.size(), 1u);
 
 	View.Settings.VisibilityMode =
 		Durin::EViewVisibilityMode::FrustumCullingDisabled;
@@ -208,7 +213,7 @@ TEST(FRendererSceneContractTests, VisibilityClassifiesOnceAndKeepsFallbacksVisib
 		Durin::PrepareSceneVisibility(Scene, View, DisabledCounters);
 	EXPECT_EQ(DisabledCounters.HiddenPrimitives, 1u);
 	EXPECT_EQ(DisabledCounters.FrustumCulledPrimitives, 0u);
-	EXPECT_EQ(DisabledCounters.VisiblePrimitives, 4u);
+	EXPECT_EQ(DisabledCounters.VisiblePrimitives, 3u);
 	EXPECT_EQ(Disabled.StaticMeshSceneInfos.size(), 3u);
 
 	View.Settings.VisibilityMode = Durin::EViewVisibilityMode::Normal;
@@ -218,8 +223,8 @@ TEST(FRendererSceneContractTests, VisibilityClassifiesOnceAndKeepsFallbacksVisib
 	const Durin::FSceneVisibilityResult InvalidView =
 		Durin::PrepareSceneVisibility(Scene, View, InvalidViewCounters);
 	EXPECT_EQ(InvalidViewCounters.HiddenPrimitives, 1u);
-	EXPECT_EQ(InvalidViewCounters.VisiblePrimitives, 4u);
-	EXPECT_EQ(InvalidViewCounters.InvalidViewFallbacks, 4u);
+	EXPECT_EQ(InvalidViewCounters.VisiblePrimitives, 3u);
+	EXPECT_EQ(InvalidViewCounters.InvalidViewFallbacks, 3u);
 	EXPECT_EQ(InvalidView.StaticMeshSceneInfos.size(), 3u);
 
 	Scene.Release();

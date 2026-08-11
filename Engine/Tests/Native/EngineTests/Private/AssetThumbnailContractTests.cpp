@@ -152,7 +152,17 @@ namespace Durin
 				return true;
 			}
 
+			auto SetViewEnvironment(
+				const FViewEnvironmentOverride& Environment,
+				std::string& OutError) -> bool override
+			{
+				LastEnvironment = Environment;
+				OutError.clear();
+				return true;
+			}
+
 			Editor::FRenderedAssetThumbnailPreviewView LastView;
+			std::optional<FViewEnvironmentOverride> LastEnvironment;
 		};
 
 		class FFakeRenderedThumbnailSession final

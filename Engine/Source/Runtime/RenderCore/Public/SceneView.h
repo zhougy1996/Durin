@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Math/DurinMath.h"
+#include "RHIResources.h"
 
 namespace Durin
 {
@@ -40,6 +41,21 @@ namespace Durin
 		ERasterMode RasterMode = ERasterMode::Solid;
 		EViewVisibilityMode VisibilityMode = EViewVisibilityMode::Normal;
 		EViewLODMode LODMode = EViewLODMode::Automatic;
+	};
+
+	// Supplies one submission-local cube environment without publishing scene state.
+	struct FViewEnvironmentOverride
+	{
+		FRHITextureReferenceRef TextureReference;
+		FQuat Rotation{1.0, 0.0, 0.0, 0.0};
+		FVector3f Tint{1.0f};
+		float Intensity = 1.0f;
+	};
+
+	// Carries optional value-owned content overrides for one renderer submission.
+	struct FSceneViewRenderOptions
+	{
+		std::optional<FViewEnvironmentOverride> Environment;
 	};
 
 	// Identifies a procedural editor-assistance shape rendered over a scene view.

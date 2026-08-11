@@ -12,10 +12,10 @@
 #include "Misc/Paths.h"
 #include "Math/Operations.h"
 #include "NativeTestSupport.h"
-#include "Preview/TextureCubePreviewComponent.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
 #include "Thumbnail/StaticMeshAssetThumbnail.h"
+#include "Thumbnail/TextureCubeAssetThumbnail.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 
@@ -72,6 +72,16 @@ namespace Durin::Tests
 		{
 			View.bForceLOD0 = bForceLOD0;
 		}
+		auto SetView(std::string& OutError) -> bool
+		{
+			return Pool.SetView(View, OutError);
+		}
+		auto SetViewEnvironment(
+			const FViewEnvironmentOverride& Environment,
+			std::string& OutError) -> bool
+		{
+			return Pool.SetViewEnvironment(Environment, OutError);
+		}
 
 		auto GetSphereMesh() -> DStaticMesh*
 		{
@@ -120,29 +130,25 @@ namespace Durin::Tests
 
 		auto SetTextureCube(
 			DTextureCube* TextureCube,
-			const FTransform& Transform,
 			std::string& OutError) -> bool
 		{
 			ResetActor();
-			DWorld* World = Pool.GetWorld();
-			Actor = World
-				? World->SpawnActor<AActor>("RenderedThumbnailTestCubeActor")
-				: nullptr;
-			auto* Component = Actor
-				? Cast<DTextureCubePreviewComponent>(Actor->AddInstanceComponent(
-					DTextureCubePreviewComponent::StaticClass(), "TextureCubePreview"))
-				: nullptr;
-			DStaticMesh* Sphere = GetSphereMesh();
-			if (TextureCube == nullptr || Sphere == nullptr || Component == nullptr)
+			const FRHITextureReferenceRef TextureReference = TextureCube
+				? TextureCube->GetTextureReferenceRHI()
+				: FRHITextureReferenceRef{};
+			if (TextureReference == nullptr)
 			{
 				OutError = "The TextureCube test preview is unavailable.";
-				ResetActor();
 				return false;
 			}
-			Component->SetStaticMesh(Sphere);
-			Component->SetTextureCube(TextureCube);
-			Component->SetWorldTransform(Transform);
-			return Pool.SetView(View, OutError);
+			View.VerticalFieldOfViewDegrees =
+				Math::RadiansToDegrees(2.0 * std::atan(1.0 / static_cast<double>(
+					1.0f / std::tan(Math::DegreesToRadians(
+						Editor::Texture::FTextureCubeAssetThumbnailVisualContract::
+							VerticalFieldOfViewDegrees) * 0.5f))));
+			return Pool.SetView(View, OutError)
+				&& Pool.SetViewEnvironment(
+					{.TextureReference = TextureReference}, OutError);
 		}
 
 		auto SetStaticMesh(

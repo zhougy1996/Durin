@@ -14,8 +14,8 @@ interaction contracts live directly in `Durin::Editor`. Concrete editor modules
 own their ordinary C++ APIs under `Durin::Editor::MainFrame`, `LevelEditor`,
 `MaterialEditor`, `TextureEditor`, `StaticMeshEditor`, and
 `SkeletalMeshEditor`. Runtime and reflected object types remain in `Durin`; in
-particular, `DEditorEngine` and `DTextureCubePreviewComponent` keep their stable
-reflection identities. Module lookup strings and persisted workspace/document
+particular, `DEditorEngine` keeps its stable reflection identity. Module lookup
+strings and persisted workspace/document
 identities are independent of these C++ namespaces.
 
 ## Host Ownership

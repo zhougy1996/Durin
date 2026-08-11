@@ -29,7 +29,6 @@ namespace Durin
 		auto GetProxy() const -> FPrimitiveSceneProxy& { return *Proxy; }
 		auto GetStaticMeshProxy() const -> FStaticMeshSceneProxy&;
 		auto GetSkeletalMeshProxy() const -> FSkeletalMeshSceneProxy&;
-		auto GetTextureCubePreviewProxy() const -> FTextureCubePreviewSceneProxy&;
 		auto SetTransform(const FMatrix& InTransform) -> void;
 		auto SetVisible(bool bInVisible) -> void { bVisible = bInVisible; }
 		auto UpdateMaterialBinding(const FMaterialRenderProxyBindingUpdate& Update) -> bool;
@@ -108,7 +107,6 @@ namespace Durin
 		auto GetPrimitiveSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return PrimitiveSceneInfos; }
 		auto GetStaticMeshSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return StaticMeshSceneInfos; }
 		auto GetSkeletalMeshSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return SkeletalMeshSceneInfos; }
-		auto GetTextureCubePreviewSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return TextureCubePreviewSceneInfos; }
 		RENDERER_API auto GetActiveSkyBoxSceneInfo_RenderThread() const -> const FSkyBoxSceneInfo*;
 
 	private:
@@ -117,7 +115,6 @@ namespace Durin
 		std::vector<FPrimitiveSceneInfo*> PrimitiveSceneInfos;
 		std::vector<FPrimitiveSceneInfo*> StaticMeshSceneInfos;
 		std::vector<FPrimitiveSceneInfo*> SkeletalMeshSceneInfos;
-		std::vector<FPrimitiveSceneInfo*> TextureCubePreviewSceneInfos;
 		std::unordered_map<FLightSceneId, std::unique_ptr<FLightSceneInfo>, FSceneIdHash> LightInfosById;
 		std::vector<FLightSceneInfo*> DirectionalLightSceneInfos;
 		std::unordered_map<FSkyBoxSceneId, std::unique_ptr<FSkyBoxSceneInfo>, FSceneIdHash> SkyBoxInfosById;

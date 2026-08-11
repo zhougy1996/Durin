@@ -1,5 +1,6 @@
 #pragma once
 
+#include "SceneView.h"
 #include "Thumbnail/AssetThumbnailProvider.h"
 
 namespace Durin
@@ -44,7 +45,7 @@ namespace Durin
 		float ClearAlpha = 0.0f;
 	};
 
-	// Exposes the leased shared preview world and provider-neutral camera setup.
+	// Exposes the leased shared preview world and provider-neutral view setup.
 	// The extension may attach only session-owned content and must remove it in ResetPreview.
 	class IRenderedAssetThumbnailPreviewScene
 	{
@@ -54,6 +55,9 @@ namespace Durin
 		virtual auto GetWorld() -> DWorld* = 0;
 		virtual auto SetView(
 			const FRenderedAssetThumbnailPreviewView& View,
+			std::string& OutError) -> bool = 0;
+		virtual auto SetViewEnvironment(
+			const FViewEnvironmentOverride& Environment,
 			std::string& OutError) -> bool = 0;
 	};
 

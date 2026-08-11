@@ -14,7 +14,6 @@ namespace Durin
 		{
 			Component,
 			MaterialThumbnail,
-			TextureCubePreview,
 			AuxiliaryScene
 		};
 
@@ -346,7 +345,6 @@ namespace Durin
 		for (const EStaticMeshConsumerKind Kind : {
 			EStaticMeshConsumerKind::Component,
 			EStaticMeshConsumerKind::MaterialThumbnail,
-			EStaticMeshConsumerKind::TextureCubePreview,
 			EStaticMeshConsumerKind::AuxiliaryScene})
 		{
 			Asset.RegisterConsumer(Kind);
@@ -367,7 +365,7 @@ namespace Durin
 
 		Scheduler.RunNext();
 		EXPECT_EQ(std::ranges::count(
-			Retired->Events, EStaticMeshLifetimeEvent::Detach), 4);
+			Retired->Events, EStaticMeshLifetimeEvent::Detach), 3);
 		EXPECT_FALSE(Retired->bResourcesReleased);
 
 		Scheduler.RunNext();
@@ -385,7 +383,7 @@ namespace Durin
 
 		Scheduler.RunNext();
 		EXPECT_EQ(std::ranges::count(
-			Candidate->Events, EStaticMeshLifetimeEvent::Attach), 4);
+			Candidate->Events, EStaticMeshLifetimeEvent::Attach), 3);
 	}
 
 	TEST(FStaticMeshRenderDataLifetimeContractTests,
@@ -477,7 +475,7 @@ namespace Durin
 	{
 		FDeterministicStaticMeshScheduler Scheduler;
 		FStaticMeshLifetimeModel Asset(false);
-		Asset.RegisterConsumer(EStaticMeshConsumerKind::TextureCubePreview);
+		Asset.RegisterConsumer(EStaticMeshConsumerKind::AuxiliaryScene);
 		const std::shared_ptr Retired = Asset.BeginDestroy(Scheduler);
 		EXPECT_FALSE(Retired->bResourcesInitialized);
 

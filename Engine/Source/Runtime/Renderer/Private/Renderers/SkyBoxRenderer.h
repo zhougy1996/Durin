@@ -33,7 +33,7 @@ namespace Durin
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
 			FRHITexture* Texture,
-			const FSkyBoxSceneData& SkyBox) -> void;
+			const FSkyBoxSceneData& SkyBox) -> bool;
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:

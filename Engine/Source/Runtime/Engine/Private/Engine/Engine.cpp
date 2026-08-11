@@ -198,7 +198,8 @@ namespace Durin
 					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 					if (RendererModule != nullptr)
 					{
-						RendererModule->RenderView(CommandList, Scene, View, RenderTargetRHI, false);
+						(void)RendererModule->RenderView(
+							CommandList, Scene, View, RenderTargetRHI, false, {});
 					}
 				}
 			);
@@ -234,7 +235,8 @@ namespace Durin
 
 							if (RendererModule != nullptr)
 							{
-								RendererModule->RenderView(CommandList, Scene, View, BackBuffer, true);
+								(void)RendererModule->RenderView(
+									CommandList, Scene, View, BackBuffer, true, {});
 							}
 
 							CommandList.EndDrawingViewport(ViewportRHI, true, false);

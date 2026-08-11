@@ -231,11 +231,11 @@ namespace Durin
 		DrawTexture_RenderThread(CommandList, View, Texture, SkyBox);
 	}
 
-	auto FSkyBoxRenderer::DrawTexture_RenderThread(
+		auto FSkyBoxRenderer::DrawTexture_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneView& View,
 		FRHITexture* Texture,
-		const FSkyBoxSceneData& SkyBox) -> void
+		const FSkyBoxSceneData& SkyBox) -> bool
 	{
 		const FState::FPayload* Payload = State->Slot.GetPayload();
 		if (Texture == nullptr || Payload == nullptr
@@ -245,13 +245,13 @@ namespace Durin
 			|| !Payload->FragmentShader
 			|| Payload->IndexBuffer == nullptr)
 		{
-			return;
+			return false;
 		}
 
 		SkyBoxRendering::FSkyBoxUniform Uniform;
 		if (!SkyBoxRendering::BuildUniform(View, SkyBox, Uniform))
 		{
-			return;
+			return false;
 		}
 
 		CommandList.SetGraphicsPipelineState(*Payload->PipelineState);
@@ -267,6 +267,7 @@ namespace Durin
 			Payload->FragmentShader,
 			Parameters);
 		CommandList.DrawIndexed(3, 0, 0);
+		return true;
 	}
 
 	auto FSkyBoxRenderer::ReleaseResources_RenderThread() -> void

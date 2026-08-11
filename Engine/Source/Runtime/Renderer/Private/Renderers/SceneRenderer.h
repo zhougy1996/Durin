@@ -5,11 +5,11 @@
 #include "Renderers/SkyBoxRenderer.h"
 #include "Renderers/SkeletalMeshRenderer.h"
 #include "Renderers/StaticMeshRenderer.h"
-#include "Renderers/TextureCubeThumbnailRenderer.h"
 #include "Resources/DefaultTextureResources.h"
 #include "Resources/EnvironmentLightingResources.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
+#include "IRendererModule.h"
 #include "RendererAPI.h"
 
 namespace Durin
@@ -45,7 +45,8 @@ namespace Durin
 			FScene* Scene,
 			const FSceneView& View,
 			FRHITexture* OutputTarget,
-			bool bPresentOutput) -> void;
+			bool bPresentOutput,
+			const FSceneViewRenderOptions& Options) -> ERenderViewResult;
 
 		auto GetResourceCoordinator() -> FRendererResourceCoordinator&
 		{
@@ -66,7 +67,7 @@ namespace Durin
 		auto RenderScene_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			struct FPreparedSceneView& PreparedView,
-			FRHITexture* RenderTarget) -> void;
+			FRHITexture* RenderTarget) -> bool;
 
 		FRendererResourceCoordinator Coordinator;
 		FDefaultTextureResources DefaultTextures;
@@ -75,7 +76,6 @@ namespace Durin
 		FStaticMeshRenderer StaticMeshRenderer;
 		FSkeletalMeshRenderer SkeletalMeshRenderer;
 		FSkyBoxRenderer SkyBoxRenderer;
-		FTextureCubeThumbnailRenderer TextureCubeThumbnailRenderer;
 		FPostProcessRenderer PostProcessRenderer;
 		FEditorAssistanceRenderer EditorAssistanceRenderer;
 	};

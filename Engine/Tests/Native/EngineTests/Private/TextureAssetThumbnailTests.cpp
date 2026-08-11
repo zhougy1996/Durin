@@ -7,9 +7,6 @@
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 
 #include "AssetSystem.h"
-#include "Engine/FPrimitiveSceneProxy.h"
-#include "Preview/TextureCubePreviewComponent.h"
-#include "StaticMesh/StaticMesh.h"
 #include "Texture/TextureCube.h"
 #include "Texture/Texture2D.h"
 #include "ThirdParty/ImGui/imgui.h"
@@ -32,6 +29,39 @@ namespace
 			.RequestSerial = 3};
 	}
 }
+
+class FCapturingTextureCubeThumbnailPreviewScene final
+	: public Durin::Editor::IRenderedAssetThumbnailPreviewScene
+{
+public:
+	auto GetWorld() -> Durin::DWorld* override
+	{
+		++WorldRequests;
+		return nullptr;
+	}
+
+	auto SetView(
+		const Durin::Editor::FRenderedAssetThumbnailPreviewView& View,
+		std::string& OutError) -> bool override
+	{
+		LastView = View;
+		OutError.clear();
+		return true;
+	}
+
+	auto SetViewEnvironment(
+		const Durin::FViewEnvironmentOverride& Environment,
+		std::string& OutError) -> bool override
+	{
+		LastEnvironment = Environment;
+		OutError.clear();
+		return true;
+	}
+
+	Durin::uint32 WorldRequests = 0;
+	Durin::Editor::FRenderedAssetThumbnailPreviewView LastView;
+	std::optional<Durin::FViewEnvironmentOverride> LastEnvironment;
+};
 
 TEST(FTextureAssetThumbnailTests, Texture2DProviderCapturesAuthoredSourceImage)
 {
@@ -178,34 +208,48 @@ TEST(FTextureCubeAssetThumbnailTests, ProviderCapturesPackageAndCubeVisualContra
 	EXPECT_NE(OriginalKey, Durin::Editor::BuildAssetThumbnailCacheKey(Rebuilt));
 }
 
-TEST(FTextureCubeAssetThumbnailTests, PreviewComponentCreatesStableCubeReference)
+TEST(FTextureCubeAssetThumbnailTests,
+	GenerationSessionConfiguresAValueOnlyStableEnvironment)
 {
 	Durin::Tests::FRenderedAssetThumbnailFixtureSet Fixtures;
 	std::string Error;
 	ASSERT_TRUE(Durin::Tests::CreateRenderedAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
-	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
-	ASSERT_NE(Mesh, nullptr);
+	Durin::FAssetPath CubePath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		Durin::Tests::FRenderedAssetThumbnailFixtureSet::DirectionalCubePath,
+		CubePath));
+	const Durin::Asset::FAssetData* Data =
+		Durin::Asset::GetAssetRegistry().FindAssetExact(CubePath);
+	ASSERT_NE(Data, nullptr);
 
-	auto* Component = Durin::NewObject<Durin::DTextureCubePreviewComponent>(
-		nullptr, "TextureCubeThumbnailPreviewComponent");
-	Component->SetStaticMesh(Mesh);
-	Component->SetTextureCube(Fixtures.DirectionalCube);
-	std::unique_ptr<Durin::FPrimitiveSceneProxy> Primitive =
-		Component->CreateSceneProxy();
-	ASSERT_NE(Primitive, nullptr) << Error;
-	auto* CubeProxy =
-		dynamic_cast<Durin::FTextureCubePreviewSceneProxy*>(Primitive.get());
-	ASSERT_NE(CubeProxy, nullptr);
-	EXPECT_EQ(CubeProxy->GetRenderData(), Mesh->GetRenderData());
+	Durin::Editor::Texture::FTextureCubeAssetThumbnailProvider Provider;
+	Durin::Editor::FAssetThumbnailGenerationRequest Request;
+	ASSERT_TRUE(Provider.CaptureGenerationRequest(
+		MakeRequest(*Data), 1, Request, Error)) << Error;
+	ASSERT_NE(Request.Input, nullptr);
+	std::unique_ptr<Durin::Editor::IRenderedAssetThumbnailGenerationSession> Session =
+		Provider.CreateGenerationSession(Request, *Request.Input, Error);
+	ASSERT_NE(Session, nullptr) << Error;
 	EXPECT_EQ(
-		CubeProxy->GetTextureReference(),
-		Fixtures.DirectionalCube->GetTextureReferenceRHI());
+		Session->Load().State,
+		Durin::Editor::ERenderedAssetThumbnailSessionState::WaitingForResources);
 
-	Primitive.reset();
-	Durin::MarkAsGarbage(Component);
-	Durin::MarkAsGarbage(Mesh);
-	Durin::CollectGarbage();
+	FCapturingTextureCubeThumbnailPreviewScene PreviewScene;
+	ASSERT_TRUE(Session->PreparePreview(PreviewScene, Error)) << Error;
+	EXPECT_EQ(PreviewScene.WorldRequests, 0u);
+	EXPECT_NEAR(
+		PreviewScene.LastView.VerticalFieldOfViewDegrees,
+		Durin::Editor::Texture::FTextureCubeAssetThumbnailVisualContract::
+			VerticalFieldOfViewDegrees,
+		1.0e-5);
+	ASSERT_TRUE(PreviewScene.LastEnvironment);
+	EXPECT_EQ(
+		PreviewScene.LastEnvironment->TextureReference,
+		Fixtures.DirectionalCube->GetTextureReferenceRHI());
+	Session->ResetPreview();
+	Session.reset();
+	EXPECT_EQ(PreviewScene.WorldRequests, 0u);
 }
 
 TEST(FTextureCubeAssetThumbnailTests, ProviderRejectsMissingRegistryData)

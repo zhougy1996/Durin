@@ -109,9 +109,11 @@ For each valid non-zero output, `FSceneRenderer` preserves this order:
 
 1. Resolve size-keyed Scene Color and depth targets and fit the view to the
    output.
-2. Draw SkyBox, PBR StaticMesh, then TextureCube preview proxies into Scene
-   Color. StaticMesh draws share the hidden Engine studio-environment asset;
-   it lights surfaces but does not replace or follow the scene SkyBox.
+2. Draw the submission-local environment override or scene SkyBox, then PBR
+   StaticMesh and SkeletalMesh geometry into Scene Color. An explicit
+   environment overrides the scene SkyBox only for that view. Geometry shares
+   the hidden Engine studio-environment asset for lighting; it does not replace
+   or follow the visible SkyBox.
 3. Prepare demanded editor-assistance operations after the scene pass.
 4. Copy or apply FXAA from Scene Color to the final output.
 5. When assistance has drawable work, load the preserved color and depth and

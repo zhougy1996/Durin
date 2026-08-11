@@ -117,6 +117,22 @@ namespace Durin::Editor
 				.ClearBlue = Contract.BackgroundBlue,
 				.ClearAlpha = Contract.bOutputOpaque ? 1.0f : Contract.BackgroundAlpha};
 		}
+
+		auto GetRenderFailureDiagnostic(ERenderViewResult Result) -> std::string
+		{
+			switch (Result)
+			{
+			case ERenderViewResult::Success:
+				return {};
+			case ERenderViewResult::InvalidOutput:
+				return "The rendered-thumbnail output target is invalid.";
+			case ERenderViewResult::RendererResourcesUnavailable:
+				return "The rendered-thumbnail renderer resources are unavailable.";
+			case ERenderViewResult::RequiredEnvironmentUnavailable:
+				return "The rendered-thumbnail view environment is unavailable.";
+			}
+			return "The rendered-thumbnail renderer returned an unknown failure.";
+		}
 	} // namespace
 
 	struct FRenderedAssetThumbnailPreviewScenePool::FImpl
@@ -137,6 +153,7 @@ namespace Durin::Editor
 		TObjectPtr<DDirectionalLightComponent> Light;
 		FTextureRHIRef RenderTarget;
 		FSceneView View;
+		std::optional<FViewEnvironmentOverride> Environment;
 		std::shared_ptr<FCapture> Capture = std::make_shared<FCapture>();
 		std::string Error;
 
@@ -285,6 +302,41 @@ namespace Durin::Editor
 		return true;
 	}
 
+	auto FRenderedAssetThumbnailPreviewScenePool::SetViewEnvironment(
+		const FViewEnvironmentOverride& Environment,
+		std::string& OutError) -> bool
+	{
+		checkf(IsInGameThread(),
+			"Rendered thumbnail scene mutation must run on the game thread.");
+		OutError.clear();
+		if (!IsAvailable())
+		{
+			OutError = Impl->Error;
+			return false;
+		}
+		{
+			std::lock_guard Lock(Impl->Capture->Mutex);
+			if (Impl->Capture->State == ERenderedAssetThumbnailCaptureState::Rendering)
+			{
+				OutError = "A rendered-thumbnail capture is already in flight.";
+				return false;
+			}
+		}
+		if (Environment.TextureReference == nullptr
+			|| !Math::IsFinite(Environment.Rotation)
+			|| Math::LengthSquared(Environment.Rotation) <= kDoubleSmallNumber
+			|| !Math::IsFinite(Environment.Tint)
+			|| !std::isfinite(Environment.Intensity)
+			|| Environment.Intensity < 0.0f)
+		{
+			OutError = "The rendered-thumbnail view environment is invalid.";
+			return false;
+		}
+		Impl->Environment = Environment;
+		Impl->Environment->Rotation = Math::Normalize(Environment.Rotation);
+		return true;
+	}
+
 	auto FRenderedAssetThumbnailPreviewScenePool::BeginCapture(
 		std::string& OutError) -> bool
 	{
@@ -316,8 +368,9 @@ namespace Durin::Editor
 		IScene* Scene = Impl->PreviewScene->GetRenderScene();
 		FTextureRHIRef RenderTarget = Impl->RenderTarget;
 		const FSceneView View = Impl->View;
+		const FSceneViewRenderOptions Options{.Environment = Impl->Environment};
 		ENQUEUE_RENDER_COMMAND(RenderAssetThumbnailPreview)(
-			[Capture, Generation, Renderer, Scene, RenderTarget, View](
+			[Capture, Generation, Renderer, Scene, RenderTarget, View, Options](
 				FRHICommandListImmediate& CommandList) {
 				std::vector<uint8> Pixels;
 				std::string Error;
@@ -328,8 +381,11 @@ namespace Durin::Editor
 				else
 				{
 					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
-					Renderer->RenderView(CommandList, Scene, View, RenderTarget, false);
-					if (!GDynamicRHI->RHIReadTexture2D(
+					const ERenderViewResult RenderResult = Renderer->RenderView(
+						CommandList, Scene, View, RenderTarget, false, Options);
+					if (RenderResult != ERenderViewResult::Success)
+						Error = GetRenderFailureDiagnostic(RenderResult);
+					else if (!GDynamicRHI->RHIReadTexture2D(
 							CommandList, RenderTarget, 0, 0, Pixels))
 						Error = "Failed to read back the rendered-thumbnail output.";
 				}
@@ -372,5 +428,6 @@ namespace Durin::Editor
 			Impl->Capture->Error.clear();
 		}
 		Impl->View = BuildView(Impl->Output, MakeDefaultPreviewView());
+		Impl->Environment.reset();
 	}
 } // namespace Durin::Editor

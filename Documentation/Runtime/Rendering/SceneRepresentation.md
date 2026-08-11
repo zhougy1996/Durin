@@ -2,9 +2,9 @@
 
 Summary: Define engine-to-renderer scene publication, proxies, infos, mutation, and frame visibility.
 
-Modules: Engine, Renderer
+Modules: Engine, RenderCore, Renderer
 
-Last reviewed: 2026-08-08
+Last reviewed: 2026-08-12
 
 Durin represents each renderable world resident with an Engine-facing
 SceneProxy and a Renderer-owned SceneInfo. Components publish detached
@@ -15,7 +15,7 @@ component, actor, reflected asset, or other game-thread object.
 
 | Family | Detached proxy | Renderer scene entry |
 | --- | --- | --- |
-| Primitive | `FPrimitiveSceneProxy`, specialized by `FStaticMeshSceneProxy`, `FSkeletalMeshSceneProxy`, and `FTextureCubePreviewSceneProxy` | `FPrimitiveSceneInfo` |
+| Primitive | `FPrimitiveSceneProxy`, specialized by `FStaticMeshSceneProxy` and `FSkeletalMeshSceneProxy` | `FPrimitiveSceneInfo` |
 | Light | `FLightSceneProxy`, specialized by `FDirectionalLightSceneProxy` | `FLightSceneInfo` |
 | SkyBox | `FSkyBoxSceneProxy` | `FSkyBoxSceneInfo` |
 
@@ -37,8 +37,8 @@ material proxies and SkyBox texture references remain counted references.
 
 `FPrimitiveSceneInfo` owns stable identity, owning scene, primitive kind,
 visibility, transform, local bounds, derived world bounds, and typed-list
-membership. StaticMesh and TextureCube preview proxies own family-specific
-render data and bindings. World bounds are rebuilt from the eight local AABB
+membership. StaticMesh and SkeletalMesh proxies own family-specific render data
+and bindings. World bounds are rebuilt from the eight local AABB
 corners whenever a finite transform is attached or updated; an invalid local
 box remains invalid and is not used for culling. A skeletal dynamic update
 replaces the immutable pose and local bound together and recomputes this world
@@ -66,12 +66,29 @@ Owner-specific material and resource revisions remain at their actual
 asynchronous or independently ordered boundaries.
 
 `FScene` maintains one owning map per family and authoritative typed pointer
-views for StaticMesh, SkeletalMesh, TextureCube preview, directional light, and SkyBox.
+views for StaticMesh, SkeletalMesh, directional light, and SkyBox.
 Attach, replacement, detach, and release update ownership and every relevant
 view in one render command. Feature renderers iterate only their typed
 SceneInfo view; they do not scan a shared primitive array or use RTTI to
 rediscover proxy families. Material binding updates dispatch through the base
 primitive-proxy contract rather than a StaticMesh branch in `FScene`.
+
+## View-Local Environment Overrides
+
+A submission may carry one optional `FViewEnvironmentOverride` inside
+`FSceneViewRenderOptions`. This RenderCore value contains only a counted cube
+texture reference plus copied rotation, tint, and intensity. It is command-local
+content, not a primitive family: it has no Scene ID, transform, bounds,
+visibility record, typed SceneInfo list, reflected owner, or persistent scene
+selection state.
+
+Renderer resolves the reference on the rendering thread and gives a valid
+explicit environment precedence over the active scene SkyBox for that one
+view. It then uses the shared SkyBox path before geometry. Empty options retain
+ordinary scene-SkyBox behavior. A required override whose target is null, not a
+cube, or cannot be rendered fails the view submission rather than selecting a
+fallback texture. This path supports value-only editor captures without
+changing the scene representation.
 
 ## Editor Primitive-Mutation Observation
 
@@ -106,5 +123,7 @@ does not expose `FScene`, SceneInfo, prepared views, or render-thread state.
 
 - [Viewport Rendering](ViewportRendering.md)
 - [Static Mesh Rendering](StaticMeshRendering.md)
+- [Cube Textures](CubeTextures.md)
+- [Asset Thumbnails](../../Editor/Architecture/AssetThumbnails.md)
 - [RHI Command Execution](RHICommandExecution.md)
 - [Rendering Capability Expansion Roadmap](../../Roadmaps/RenderingCapabilityExpansion.md)

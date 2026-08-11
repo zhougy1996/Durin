@@ -113,7 +113,6 @@ namespace Durin
 		std::vector<FPrimitiveVisibilityRecord> PrimitiveRecords;
 		std::vector<const FPrimitiveSceneInfo*> StaticMeshSceneInfos;
 		std::vector<const FPrimitiveSceneInfo*> SkeletalMeshSceneInfos;
-		std::vector<const FPrimitiveSceneInfo*> TextureCubePreviewSceneInfos;
 	};
 
 	// Classifies every authoritative live primitive once for one immutable view.

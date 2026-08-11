@@ -79,23 +79,35 @@ face and labeled edge markers matching the source-orientation table.
 
 ## Editor Thumbnail Sampling
 
-The Content Browser TextureCube provider uses an editor-only reflective-sphere
-shader. It samples the authored cube resource with the world-space reflection
-vector and the same face, row, and direction-to-face contract defined above;
-it must not substitute the black fallback cube as successful output. The
-provider waits for an exact ready build/resource revision and includes the
-package fingerprint, provider schema, and visual contract in its persistent
-key. The in-flight revision is revalidated before publication. A warm PNG hit
-performs no cube load, GPU build, preview render, or readback. General
-ownership, scheduling, persistence, and recovery rules are documented in
+The Content Browser TextureCube provider presents the authored cube as an
+opaque, camera-oriented environment with a 100-degree vertical field of view.
+The projection reproduces the established float-quantized 100-degree output,
+and sampling uses the same face, row, and direction-to-face contract defined
+above. The provider waits for an exact ready build/resource revision and
+includes the package fingerprint, provider schema, wide-environment fixture,
+and shader contract in its persistent key. The in-flight revision is
+revalidated before and after capture and before publication. Byte-compatible
+migration to this path retained the existing cache versions. A warm PNG hit
+performs no cube load, GPU build, preview render, or readback. General ownership,
+scheduling, persistence, and recovery rules are documented in
 [Asset Thumbnails](../../Editor/Architecture/AssetThumbnails.md).
 
 Before a render job is accepted, the provider uses producer-side asset lifetime
-only to obtain diagnostics and a counted stable `FRHITextureReferenceRef`.
-Accepted preview work retains that RHI reference, not `DTextureCube` or its
-concrete `FTextureCubeResource`. Closing or cancelling the preview therefore
-releases only consumer references and cannot prolong the lifetime of the
-concrete C++ resource.
+only for load, readiness, revision checks, and diagnostics. It passes a counted
+stable `FRHITextureReferenceRef` through the RenderCore-owned view-environment
+value. The pool snapshots that value into the render command; accepted work
+retains no `DTextureCube`, concrete `FTextureCubeResource`, TextureEditor
+callback, Actor, Component, mesh, primitive proxy, or Scene membership. A later
+render-thread retarget is observed through the same stable reference.
+
+The explicit environment applies only to that renderer submission and takes
+precedence over any scene SkyBox without mutating `FScene`. It executes through
+the shared SkyBox renderer before scene geometry. The reference must resolve to
+a concrete cube texture; a null target, incompatible dimension, or unavailable
+SkyBox resource is a required-environment failure. The thumbnail pool performs
+no readback or persistence after that failure and never converts the runtime
+black-cube fallback into success. Reset and cancellation release only counted
+consumer values and cannot prolong the concrete resource lifetime.
 
 ## Equirectangular Panorama Import
 
