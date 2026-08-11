@@ -1121,6 +1121,7 @@ namespace Durin::VulkanRHI
 		_putenv_s("DURIN_RHI_EXECUTION", "inline");
 		ASSERT_TRUE(RHIInit());
 		EXPECT_EQ(GRHIThread, nullptr);
+		ResetVulkanMemoryBaselineStatistics();
 
 		FRHICommandListImmediate& RHICmdList =
 			FRHICommandListImmediate::Get();

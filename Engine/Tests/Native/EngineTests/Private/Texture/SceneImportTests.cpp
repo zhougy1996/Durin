@@ -15,11 +15,34 @@ namespace
 {
 	struct FAsyncImportSchedulerGuard
 	{
+		FAsyncImportSchedulerGuard()
+		{
+			const Durin::FTaskSchedulerDiagnostics Diagnostics =
+				Durin::GetTaskSchedulerDiagnostics();
+			bRestoreScheduler = Diagnostics.bRunning;
+			PreviousConfig.NumWorkerThreads = Diagnostics.WorkerCount;
+			PreviousConfig.MaxNonterminalTasks = Diagnostics.TaskReservationCapacity;
+			bRestoreDeferredExecutor =
+				Durin::GetGameThreadDeferredWorkQueueDiagnostics().bAccepting;
+		}
+
 		~FAsyncImportSchedulerGuard()
 		{
 			Durin::AssetImport::CancelAndDrainAllAsyncImports();
 			Durin::ShutdownTaskScheduler(false);
+			if (bRestoreScheduler && !Durin::InitializeTaskScheduler(PreviousConfig))
+			{
+				ADD_FAILURE() << "Failed to restore the native-test task scheduler.";
+			}
+			if (bRestoreDeferredExecutor && !Durin::InitializeGameThreadDeferredExecutor())
+			{
+				ADD_FAILURE() << "Failed to restore the native-test deferred executor.";
+			}
 		}
+
+		Durin::FTaskSchedulerConfig PreviousConfig;
+		bool bRestoreScheduler = false;
+		bool bRestoreDeferredExecutor = false;
 	};
 
 	auto MakeAssetPath(std::string_view Value) -> Durin::FAssetPath
@@ -622,8 +645,8 @@ TEST(FSceneImportTests, PlansPeerOutputsInsideTypedSceneDirectories)
 
 TEST(FSceneImportTests, AsyncPreparationMatchesSynchronousScenePlan)
 {
-	Durin::ShutdownTaskScheduler(false);
 	FAsyncImportSchedulerGuard SchedulerGuard;
+	Durin::ShutdownTaskScheduler(false);
 	ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
 	const FSceneFixture Fixture = InitializeSceneFixture("AsyncEquivalence");
 	Durin::FSceneImportRequest Request{
@@ -705,8 +728,8 @@ TEST(FSceneImportTests, AsyncPreparationMatchesSynchronousScenePlan)
 
 TEST(FSceneImportTests, SkeletalAsyncPreparationMatchesSynchronousAssetGraph)
 {
-	Durin::ShutdownTaskScheduler(false);
 	FAsyncImportSchedulerGuard SchedulerGuard;
+	Durin::ShutdownTaskScheduler(false);
 	ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
 	const FSceneFixture Fixture = InitializeSkeletalSceneFixture("SkeletalAsyncEquivalence");
 	const Durin::FSceneImportRequest Request{

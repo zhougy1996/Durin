@@ -81,6 +81,14 @@ namespace
 					.bAutoScan = true}};
 			Mounts = std::make_unique<Durin::PathUtilities::FScopedMountRegistryFixture>(Definitions);
 			ASSERT_TRUE(Mounts->IsValid()) << Mounts->GetError();
+			const Durin::FTaskSchedulerDiagnostics Diagnostics =
+				Durin::GetTaskSchedulerDiagnostics();
+			bRestoreScheduler = Diagnostics.bRunning;
+			PreviousConfig.NumWorkerThreads = Diagnostics.WorkerCount;
+			PreviousConfig.MaxNonterminalTasks = Diagnostics.TaskReservationCapacity;
+			bRestoreDeferredExecutor =
+				Durin::GetGameThreadDeferredWorkQueueDiagnostics().bAccepting;
+			Durin::ShutdownTaskScheduler(false);
 			ASSERT_TRUE(Durin::InitializeTaskScheduler(1));
 			ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
 		}
@@ -88,11 +96,22 @@ namespace
 		void TearDown() override
 		{
 			Durin::ShutdownTaskScheduler(true);
+			if (bRestoreScheduler && !Durin::InitializeTaskScheduler(PreviousConfig))
+			{
+				ADD_FAILURE() << "Failed to restore the native-test task scheduler.";
+			}
+			if (bRestoreDeferredExecutor && !Durin::InitializeGameThreadDeferredExecutor())
+			{
+				ADD_FAILURE() << "Failed to restore the native-test deferred executor.";
+			}
 			Mounts.reset();
 		}
 
 		std::filesystem::path Root;
 		std::unique_ptr<Durin::PathUtilities::FScopedMountRegistryFixture> Mounts;
+		Durin::FTaskSchedulerConfig PreviousConfig;
+		bool bRestoreScheduler = false;
+		bool bRestoreDeferredExecutor = false;
 	};
 }
 

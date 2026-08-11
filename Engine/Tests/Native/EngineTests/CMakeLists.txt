@@ -465,6 +465,7 @@ durin_add_engine_functional_test(SplineTests
 		${_durin_level_editor_private}/Viewport/ViewportCameraTransform.cpp
 		${_durin_level_editor_private}/Viewport/LevelEditorViewportClient.cpp
 		${_durin_level_editor_private}/Viewport/ViewportPickingService.cpp
+		${_durin_level_editor_private}/Viewport/ViewportPickingSceneIndex.cpp
 		${_durin_level_editor_private}/Viewport/LevelEditorViewportEditing.cpp
 		${_durin_level_editor_private}/Viewport/TransformGizmo.cpp
 		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
@@ -541,6 +542,7 @@ durin_add_engine_functional_test(EditorShellTests
 		Private/ConsoleRecordModelTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
+		${_durin_level_editor_private}/Viewport/ViewportPickingSceneIndex.cpp
 		${_durin_level_editor_private}/Panels/ConsoleRecordModel.cpp
 	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd
 )

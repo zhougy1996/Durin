@@ -2706,6 +2706,13 @@ namespace Durin
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(BlockerTask));
 		for (const FTaskHandle& Task : WaitingTasks) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task));
 		EXPECT_EQ(ETaskState::Succeeded, WaitTask(UniqueConsumer));
+		const auto ReservationReleaseDeadline =
+			std::chrono::steady_clock::now() + std::chrono::seconds(1);
+		while (GetTaskSchedulerDiagnostics().CurrentTaskReservationCount != 0
+			&& std::chrono::steady_clock::now() < ReservationReleaseDeadline)
+		{
+			std::this_thread::yield();
+		}
 		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().CurrentTaskReservationCount);
 
 		FTaskHandle Deferred = Then(FanInProducer, "CapacityAcceptedDeferred", [](const int&) {}, DeferredOptions);
@@ -2763,6 +2770,13 @@ namespace Durin
 		ReleaseBlocker.Trigger();
 		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker));
 		for (const FTaskHandle& Task : Accepted) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task));
+		const auto ReservationReleaseDeadline =
+			std::chrono::steady_clock::now() + std::chrono::seconds(1);
+		while (GetTaskSchedulerDiagnostics().CurrentTaskReservationCount != 0
+			&& std::chrono::steady_clock::now() < ReservationReleaseDeadline)
+		{
+			std::this_thread::yield();
+		}
 		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().CurrentTaskReservationCount);
 	}
 
