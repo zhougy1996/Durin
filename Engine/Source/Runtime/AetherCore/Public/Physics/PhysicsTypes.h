@@ -26,6 +26,14 @@ namespace Durin
 		Block
 	};
 
+	// Classifies scene bodies by spatial-mutation policy without implying simulation behavior.
+	enum class EPhysicsBodyMotionType : uint8
+	{
+		Static,
+		Kinematic,
+		Dynamic
+	};
+
 	// Carries object-channel and per-query-channel response values without Engine types.
 	struct FPhysicsFilterData
 	{
@@ -44,6 +52,7 @@ namespace Durin
 		FCollisionShape Shape;
 		FTransform Transform;
 		FPhysicsFilterData Filter;
+		EPhysicsBodyMotionType MotionType = EPhysicsBodyMotionType::Kinematic;
 		uint64 UserToken = 0;
 	};
 

@@ -8,6 +8,7 @@ namespace Durin
 		: Super(ObjectInitializer)
 	{
 		StaticMeshComponent = CreateDefaultComponent<DStaticMeshComponent>("DStaticMeshComponent");
+		StaticMeshComponent->SetPhysicsBodyMotionType(EPhysicsBodyMotionType::Static);
 		verify(StaticMeshComponent->SetCollisionProfileName(CollisionProfile::WorldStatic));
 		SetRootComponent(StaticMeshComponent);
 	}

@@ -33,6 +33,11 @@ namespace Durin
 			Scene.ProductionTestFault = FPhysicsScene::EProductionTestFault::CorruptFirstResult;
 		}
 
+		static auto ForceScratchOverflow(FPhysicsScene& Scene) -> void
+		{
+			Scene.ProductionTestFault = FPhysicsScene::EProductionTestFault::ForceScratchOverflow;
+		}
+
 		static auto GetMismatchCount(const FPhysicsScene& Scene) -> uint64
 		{
 			uint64 Result = 0;
@@ -53,9 +58,20 @@ namespace Durin
 		}
 
 		static auto GetSceneSize() -> size_t { return sizeof(FPhysicsScene); }
-		static auto GetBodyRecordSize() -> size_t { return sizeof(FPhysicsScene::FBodyRecord); }
+		static constexpr auto GetBodyRecordSize() -> size_t { return sizeof(FPhysicsScene::FBodyRecord); }
 		static auto GetDiagnosticsSize() -> size_t { return sizeof(FPhysicsSceneQueryDiagnostics); }
 		static auto GetMismatchSize() -> size_t { return sizeof(FPhysicsSceneQueryMismatch); }
+		static constexpr auto GetSlotSize() -> size_t { return sizeof(FPhysicsScene::FSlot); }
+		static constexpr auto GetSpatialNodeSize() -> size_t { return sizeof(FPhysicsScene::FSpatialNode); }
+
+		static auto GetBodyBounds(const FPhysicsScene& Scene, FPhysicsActorHandle Handle)
+			-> std::array<float, 6>
+		{
+			if (!Handle.IsValid() || Handle.Id > Scene.Slots.size()) return {};
+			const FPhysicsScene::FSlot& Slot = Scene.Slots[static_cast<size_t>(Handle.Id - 1)];
+			if (Slot.Generation != Handle.Generation || Slot.DenseOrNext >= Scene.Bodies.size()) return {};
+			return Scene.Bodies[Slot.DenseOrNext].Bounds;
+		}
 	};
 }
 
@@ -230,7 +246,7 @@ namespace
 			Counters.IgnoredBodies + Counters.FilterRejectedBodies + Counters.NarrowPhasePairTests);
 		EXPECT_LE(Counters.RawHits, Counters.NarrowPhasePairTests);
 		EXPECT_LE(Counters.ReturnedResults, Counters.RawHits);
-		EXPECT_EQ(Counters.Fallbacks, Counters.CompareMismatches);
+		EXPECT_GE(Counters.Fallbacks, Counters.CompareMismatches);
 	}
 
 	auto PrintStructuralBaseline(
@@ -255,7 +271,12 @@ namespace
 			<< ",raw_hits=" << Counters.RawHits
 			<< ",returned=" << Counters.ReturnedResults
 			<< ",scratch_high_water=" << Counters.ScratchHighWater
-			<< ",capture_high_water=" << Counters.CaptureHighWater << '\n';
+			<< ",capture_high_water=" << Counters.CaptureHighWater
+			<< ",node_tests=" << Counters.NodeTests
+			<< ",bound_tests=" << Counters.BoundTests
+			<< ",pruned_nodes=" << Counters.PrunedNodes
+			<< ",retained_spatial_bytes=" << Diagnostics.Mutations.RetainedSpatialBytes
+			<< ",spatial_fallbacks=" << Diagnostics.Mutations.SpatialFallbacks << '\n';
 	}
 
 	template <typename Function>
@@ -692,7 +713,7 @@ TEST(FAetherQueryDiagnosticsTests, ReconcilesProductionReferenceAndCompareStruct
 	EXPECT_EQ(Compare.NarrowPhasePairTests, 2u);
 	EXPECT_EQ(Compare.RawHits, 2u);
 	EXPECT_EQ(Compare.ReturnedResults, 1u);
-	EXPECT_EQ(Compare.ScratchHighWater, 2u);
+	EXPECT_LE(Compare.ScratchHighWater, 128u);
 	EXPECT_EQ(Compare.CaptureHighWater, 1u);
 
 	ASSERT_TRUE(Scene.ResetQueryDiagnostics());
@@ -717,7 +738,7 @@ TEST(FAetherQueryDiagnosticsTests, ReconcilesProductionReferenceAndCompareStruct
 	ExpectQueryCountersReconcile(Overlap);
 	EXPECT_EQ(Overlap.ReturnedResults, 1u);
 	EXPECT_EQ(Overlap.RawHits, 2u);
-	EXPECT_EQ(Overlap.ScratchHighWater, 2u);
+	EXPECT_LE(Overlap.ScratchHighWater, 128u);
 }
 
 TEST(FAetherQueryDiagnosticsTests, ReconcilesRejectedQueriesDetailedMismatchAndSaturation)
@@ -836,6 +857,199 @@ TEST(FAetherQueryDiagnosticsTests, MutationCountersAndResetRetainAConstantTimeBo
 	Worker.join();
 	EXPECT_EQ(OffThreadSnapshot.Mutations.BodiesPresent, 0u);
 	EXPECT_FALSE(OffThreadSnapshot.LastQuery.bValid);
+}
+
+TEST(FAetherSceneAccelerationTests, ReusesGenerationSlotsAndRepairsDenseSwapsWithoutChangingIdentity)
+{
+	Durin::FPhysicsScene Scene;
+	const Durin::FPhysicsActorHandle First = Scene.AddBody(MakeBoxBody({0.0, 0.0, 0.0}, 1));
+	const Durin::FPhysicsActorHandle Middle = Scene.AddBody(MakeBoxBody({2.0, 0.0, 0.0}, 2));
+	const Durin::FPhysicsActorHandle Last = Scene.AddBody(MakeBoxBody({4.0, 0.0, 0.0}, 3));
+	ASSERT_TRUE(First.IsValid());
+	ASSERT_TRUE(Middle.IsValid());
+	ASSERT_TRUE(Last.IsValid());
+	ASSERT_TRUE(Scene.RemoveBody(Middle));
+	EXPECT_FALSE(Scene.ContainsBody(Middle));
+	EXPECT_TRUE(Scene.ContainsBody(First));
+	EXPECT_TRUE(Scene.ContainsBody(Last));
+	const std::vector<Durin::FPhysicsBodySnapshot> AfterSwap = Scene.CaptureBodies();
+	ASSERT_EQ(AfterSwap.size(), 2u);
+	EXPECT_EQ(AfterSwap[0].Handle, First);
+	EXPECT_EQ(AfterSwap[1].Handle, Last);
+
+	const Durin::FPhysicsActorHandle Reused = Scene.AddBody(MakeBoxBody({2.0, 0.0, 0.0}, 4));
+	EXPECT_EQ(Reused.Id, Middle.Id);
+	EXPECT_GT(Reused.Generation, Middle.Generation);
+	EXPECT_FALSE(Scene.ContainsBody(Middle));
+	EXPECT_TRUE(Scene.ContainsBody(Reused));
+	EXPECT_FALSE(Scene.UpdateBody(Middle, MakeBoxBody({8.0, 0.0, 0.0}, 5)));
+	EXPECT_FALSE(Scene.RemoveBody(Middle));
+	const Durin::FPhysicsSceneMutationCounters Mutations = Scene.CaptureQueryDiagnostics().Mutations;
+	EXPECT_EQ(Mutations.SlotReuses, 1u);
+	EXPECT_EQ(Mutations.DenseSwaps, 1u);
+}
+
+TEST(FAetherSceneAccelerationTests, BuildsConservativeBoundsForEveryShapeAndRejectsOverflow)
+{
+	static_assert(static_cast<Durin::uint8>(Durin::EPhysicsBodyMotionType::Static) == 0);
+	static_assert(static_cast<Durin::uint8>(Durin::EPhysicsBodyMotionType::Kinematic) == 1);
+	static_assert(static_cast<Durin::uint8>(Durin::EPhysicsBodyMotionType::Dynamic) == 2);
+	EXPECT_EQ(Durin::FPhysicsBodyDesc{}.MotionType, Durin::EPhysicsBodyMotionType::Kinematic);
+
+	Durin::FPhysicsScene Scene;
+	Durin::FPhysicsBodyDesc Box = MakeBoxBody({10.0, 20.0, 30.0}, 1, {2.0, 1.0, 0.5});
+	Box.Transform.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(90.0, Durin::FVectorConstants::Up);
+	const Durin::FPhysicsActorHandle BoxHandle = Scene.AddBody(Box);
+	ASSERT_TRUE(BoxHandle.IsValid());
+	const auto BoxBounds = Durin::FPhysicsSceneQueryTestAccess::GetBodyBounds(Scene, BoxHandle);
+	EXPECT_LT(BoxBounds[0], 9.49f);
+	EXPECT_GT(BoxBounds[3], 10.51f);
+	EXPECT_LT(BoxBounds[1], 18.0f);
+	EXPECT_GT(BoxBounds[4], 22.0f);
+
+	Durin::FPhysicsBodyDesc Sphere;
+	Sphere.Shape = Durin::FCollisionShape::MakeSphere(2.0);
+	Sphere.Transform.Scale3D = {1.0, 2.0, 3.0};
+	const auto SphereHandle = Scene.AddBody(Sphere);
+	ASSERT_TRUE(SphereHandle.IsValid());
+	const auto SphereBounds = Durin::FPhysicsSceneQueryTestAccess::GetBodyBounds(Scene, SphereHandle);
+	EXPECT_LT(SphereBounds[0], -6.0f);
+	EXPECT_GT(SphereBounds[3], 6.0f);
+
+	Durin::FPhysicsBodyDesc Capsule;
+	Capsule.Shape = Durin::FCollisionShape::MakeCapsule(1.0, 3.0);
+	Capsule.Transform.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(90.0, Durin::FVectorConstants::Right);
+	const auto CapsuleHandle = Scene.AddBody(Capsule);
+	ASSERT_TRUE(CapsuleHandle.IsValid());
+	const auto CapsuleBounds = Durin::FPhysicsSceneQueryTestAccess::GetBodyBounds(Scene, CapsuleHandle);
+	EXPECT_LT(CapsuleBounds[0], -3.0f);
+	EXPECT_GT(CapsuleBounds[3], 3.0f);
+
+	Durin::FPhysicsBodyDesc Overflow = Box;
+	Overflow.Transform.Translation.x = std::numeric_limits<double>::max();
+	EXPECT_FALSE(Scene.AddBody(Overflow).IsValid());
+}
+
+TEST(FAetherSceneAccelerationTests, MaintainsMotionPartitionsAndIsolatesMovingUpdatesFromStaticBuilds)
+{
+	Durin::FPhysicsScene Scene;
+	Durin::FPhysicsBodyDesc Static = MakeBoxBody({0.0, 0.0, 0.0}, 1);
+	Static.MotionType = Durin::EPhysicsBodyMotionType::Static;
+	Durin::FPhysicsBodyDesc Moving = MakeBoxBody({3.0, 0.0, 0.0}, 2);
+	Durin::FPhysicsBodyDesc Dynamic = MakeBoxBody({6.0, 0.0, 0.0}, 3);
+	Dynamic.MotionType = Durin::EPhysicsBodyMotionType::Dynamic;
+	ASSERT_TRUE(Scene.AddBody(Static).IsValid());
+	const Durin::FPhysicsActorHandle MovingHandle = Scene.AddBody(Moving);
+	ASSERT_TRUE(MovingHandle.IsValid());
+	ASSERT_TRUE(Scene.AddBody(Dynamic).IsValid());
+	Durin::FPhysicsQueryHit Hit;
+	EXPECT_TRUE(Scene.LineTraceSingle({-2.0, 0.0, 0.0}, {8.0, 0.0, 0.0}, {}, Hit));
+	ASSERT_TRUE(Scene.ResetQueryDiagnostics());
+
+	Moving.UserToken = 22;
+	ASSERT_TRUE(Scene.UpdateBody(MovingHandle, Moving));
+	Moving.Transform.Translation.x += 0.05;
+	ASSERT_TRUE(Scene.UpdateBody(MovingHandle, Moving));
+	EXPECT_TRUE(Scene.LineTraceSingle({-2.0, 0.0, 0.0}, {8.0, 0.0, 0.0}, {}, Hit));
+	auto Mutations = Scene.CaptureQueryDiagnostics().Mutations;
+	EXPECT_EQ(Mutations.StaticBuilds, 0u);
+	EXPECT_EQ(Mutations.MovingRemovals, 0u);
+	EXPECT_EQ(Mutations.FilterOnlyUpdates, 1u);
+	EXPECT_EQ(Mutations.MovingContainedUpdates, 1u);
+
+	Moving.Transform.Translation.x = 30.0;
+	ASSERT_TRUE(Scene.UpdateBody(MovingHandle, Moving));
+	Mutations = Scene.CaptureQueryDiagnostics().Mutations;
+	EXPECT_EQ(Mutations.MovingReinsertions, 1u);
+	EXPECT_EQ(Mutations.MovingRemovals, 1u);
+	Moving.MotionType = Durin::EPhysicsBodyMotionType::Static;
+	ASSERT_TRUE(Scene.UpdateBody(MovingHandle, Moving));
+	Mutations = Scene.CaptureQueryDiagnostics().Mutations;
+	EXPECT_EQ(Mutations.MotionMigrations, 1u);
+	EXPECT_EQ(Mutations.StaticBodies, 2u);
+	EXPECT_EQ(Mutations.KinematicBodies, 0u);
+	EXPECT_EQ(Mutations.DynamicBodies, 1u);
+}
+
+TEST(FAetherSceneAccelerationTests, ScratchOverflowFallsBackToTheCompleteReferenceResult)
+{
+	Durin::FPhysicsScene Scene;
+	const Durin::FPhysicsActorHandle Handle = Scene.AddBody(MakeBoxBody({0.0, 0.0, 0.0}, 77));
+	ASSERT_TRUE(Handle.IsValid());
+	ASSERT_TRUE(Scene.SetQueryExecutionPolicy(Durin::EPhysicsSceneQueryExecutionPolicy::Compare));
+	Durin::FPhysicsSceneQueryTestAccess::ForceScratchOverflow(Scene);
+	Durin::FPhysicsQueryHit Hit;
+	ASSERT_TRUE(Scene.LineTraceSingle({-2.0, 0.0, 0.0}, {2.0, 0.0, 0.0}, {}, Hit));
+	EXPECT_EQ(Hit.ActorHandle, Handle);
+	const Durin::FPhysicsSceneQueryDiagnostics Diagnostics = Scene.CaptureQueryDiagnostics();
+	const auto& Counters = GetQueryCounters(Diagnostics, Durin::EPhysicsSceneQueryKind::LineTraceSingle);
+	EXPECT_EQ(Counters.Fallbacks, 1u);
+	EXPECT_EQ(Counters.CompareMismatches, 0u);
+	EXPECT_EQ(Diagnostics.Mutations.SpatialFallbacks, 1u);
+	EXPECT_EQ(Diagnostics.Mutations.ScratchOverflows, 1u);
+	Durin::FPhysicsSceneQueryTestAccess::ClearFault(Scene);
+}
+
+TEST(FAetherSceneAccelerationTests, MeetsSparseDenseScratchAndRetainedMemoryGatesAtScale)
+{
+	constexpr size_t BodyCount = 10'000;
+	static_assert(Durin::FPhysicsSceneQueryTestAccess::GetBodyRecordSize() == 192);
+	static_assert(Durin::FPhysicsSceneQueryTestAccess::GetSlotSize() == 12);
+	static_assert(Durin::FPhysicsSceneQueryTestAccess::GetSpatialNodeSize() == 36);
+	Durin::FPhysicsScene SparseScene;
+	AddDeterministicBodies(SparseScene, BodyCount, EFixtureDistribution::Sparse);
+	ASSERT_TRUE(SparseScene.ResetQueryDiagnostics());
+	Durin::FPhysicsQueryHit Hit;
+	EXPECT_FALSE(SparseScene.LineTraceSingle({-10.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {}, Hit));
+	Durin::FTransform SweepTransform;
+	SweepTransform.Translation = {-10.0, 0.0, 0.0};
+	EXPECT_FALSE(SparseScene.SweepSingle(
+		Durin::FCollisionShape::MakeCapsule(0.5, 1.0), SweepTransform, {20.0, 0.0, 0.0}, {}, Hit));
+	const Durin::FPhysicsSceneQueryDiagnostics Sparse = SparseScene.CaptureQueryDiagnostics();
+	EXPECT_LE(GetQueryCounters(Sparse, Durin::EPhysicsSceneQueryKind::LineTraceSingle).Candidates, 100u);
+	EXPECT_LE(GetQueryCounters(Sparse, Durin::EPhysicsSceneQueryKind::SweepSingle).Candidates, 100u);
+	EXPECT_LE(GetQueryCounters(Sparse, Durin::EPhysicsSceneQueryKind::LineTraceSingle).ScratchHighWater, 128u);
+	EXPECT_EQ(Sparse.Mutations.SpatialFallbacks, 0u);
+	EXPECT_LE(Sparse.Mutations.RetainedSpatialBytes, 64u * BodyCount + 64u * 1024u);
+
+	Durin::FPhysicsScene DenseScene;
+	AddDeterministicBodies(DenseScene, BodyCount, EFixtureDistribution::Dense);
+	std::vector<Durin::FPhysicsQueryHit> Hits;
+	ASSERT_TRUE(DenseScene.OverlapMulti(
+		Durin::FCollisionShape::MakeCapsule(0.5, 1.0), Durin::FTransform(), {}, Hits));
+	ASSERT_EQ(Hits.size(), BodyCount);
+	EXPECT_TRUE(std::ranges::is_sorted(Hits, {}, &Durin::FPhysicsQueryHit::ActorHandle));
+	EXPECT_EQ(DenseScene.CaptureQueryDiagnostics().Mutations.SpatialFallbacks, 0u);
+	EXPECT_LE(DenseScene.CaptureQueryDiagnostics().Mutations.RetainedSpatialBytes,
+		64u * BodyCount + 64u * 1024u);
+}
+
+TEST(FAetherSceneAccelerationTests, RetainedMemoryFitsEveryScaleAndPartitionMix)
+{
+	for (const size_t BodyCount : FixtureBodyCounts)
+	{
+		Durin::FPhysicsScene StaticScene;
+		Durin::FPhysicsScene MixedScene;
+		for (size_t Index = 0; Index < BodyCount; ++Index)
+		{
+			const Durin::FVector3 Center{100.0 + static_cast<double>(Index % 100) * 4.0,
+				-200.0 + static_cast<double>((Index / 100) % 100) * 4.0, 20.0};
+			Durin::FPhysicsBodyDesc Static = MakeBoxBody(Center, Index + 1);
+			Static.MotionType = Durin::EPhysicsBodyMotionType::Static;
+			ASSERT_TRUE(StaticScene.AddBody(Static).IsValid());
+			Durin::FPhysicsBodyDesc Mixed = Static;
+			if (Index % 2 != 0) Mixed.MotionType = Durin::EPhysicsBodyMotionType::Kinematic;
+			ASSERT_TRUE(MixedScene.AddBody(Mixed).IsValid());
+		}
+		Durin::FPhysicsQueryHit Hit;
+		StaticScene.LineTraceSingle({-10.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {}, Hit);
+		MixedScene.LineTraceSingle({-10.0, 0.0, 0.0}, {10.0, 0.0, 0.0}, {}, Hit);
+		const Durin::uint64 Budget = 64u * BodyCount + 64u * 1024u;
+		EXPECT_LE(StaticScene.CaptureQueryDiagnostics().Mutations.RetainedSpatialBytes, Budget);
+		EXPECT_LE(MixedScene.CaptureQueryDiagnostics().Mutations.RetainedSpatialBytes, Budget);
+		EXPECT_EQ(StaticScene.CaptureQueryDiagnostics().Mutations.StaticBodies, BodyCount);
+		EXPECT_EQ(MixedScene.CaptureQueryDiagnostics().Mutations.StaticBodies, (BodyCount + 1) / 2);
+	}
 }
 
 TEST(FAetherQueryParityTests, FixedSeedRandomizedAdversarialScenesRemainMismatchFreeThroughChurn)

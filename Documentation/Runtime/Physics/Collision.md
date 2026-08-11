@@ -72,13 +72,13 @@ queries return no result and do not alter scene state.
 
 `FPhysicsScene` keeps three owning-thread execution policies behind the same
 public query methods. `Production` is the normal default and runs explicit
-validation, flat candidate enumeration, filtering, narrow phase, accumulation,
-and stable final ordering. `Reference` retains the original flat loops as the
-semantic oracle. `Compare` copies one immutable query input, runs Reference and
-Production synchronously against the unmutated scene, compares the complete
-output, and returns the Reference output on any mismatch. Policy changes reject
-invalid values and off-thread calls without changing the prior policy. `DWorld`
-and component code never select or interpret a policy.
+validation, hybrid broad-phase traversal, filtering, narrow phase,
+accumulation, and stable final ordering. `Reference` retains the dense flat
+loops as the semantic oracle. `Compare` copies one immutable query input, runs
+Reference and Production synchronously against the unmutated scene, compares
+the complete output, and returns the Reference output on any mismatch. Policy
+changes reject invalid values and off-thread calls without changing the prior
+policy. `DWorld` and component code never select or interpret a policy.
 
 Closest hits remain ordered by exact normalized time followed by stable body
 handle. Overlap results remain ordered by body handle. Compare treats status,
@@ -107,7 +107,7 @@ BodyVisits = Candidates
 Candidates = IgnoredBodies + FilterRejectedBodies + NarrowPhasePairTests
 RawHits <= NarrowPhasePairTests
 ReturnedResults <= RawHits
-Fallbacks = CompareMismatches
+Fallbacks >= CompareMismatches
 
 AddCalls = AddSuccesses + AddRejected
 UpdateCalls = UpdateSuccesses + UpdateRejected
@@ -128,25 +128,44 @@ currently performs 59 distance evaluations and 28 search iterations. A sparse
 Capsule/Box sweep miss performs 3,422 and 1,652 per tested pair. These values are
 reference cost facts, not convergence targets for future production geometry.
 
-## Current query cost and acceleration entry
+## Indexed storage and query cost
 
-Production still enumerates every body. On the qualified Release profile, a
-10,000-body sparse LineTrace miss visited/tested all 10,000 bodies and took
-2.533 ms median; a sparse Capsule sweep miss tested all 10,000 pairs, performed
-34.22 million distance evaluations plus 16.52 million search iterations, and
-took 217.593 ms median. A dense 10,000-result overlap took 10.110 ms median.
-The same scene's last-handle update and remove/add medians were 5.350 us and
-5.380 us. One body record is 176 bytes; fixed scene diagnostics retain 840
-bytes and one 56-byte mismatch slot.
+Handles encode a one-based slot plus a non-zero generation. Slots resolve one
+dense record directly; removal swap-removes the dense tail and repairs its
+owning slot. Retired generations reject before dense access, and reusable slots
+advance their generation before returning to the LIFO free list. A record owns
+one outward-rounded six-float exact AABB and its slot index. The qualified
+layout is 192 bytes per record, including 16 bytes above the M0 payload, plus a
+12-byte slot.
 
-The accepted M1 proposal requires at most 32 candidates for a 1,000-body sparse
-miss and 100 for a 10,000-body sparse miss, while dense overlap still returns
-all real results. Proposed incremental index memory is at most 64 bytes per body
-plus 64 KiB fixed. A 32-body query may regress at most 10%; 10,000-body sparse
-LineTrace and Sweep medians must improve by at least 4x while satisfying the
-candidate limits. Update/remove-add P95 proposals at 10,000 bodies are
-12.600 us and 10.780 us. These budgets select and qualify a future M1; they do
-not imply a chosen spatial data structure.
+Motion is explicit and independent of filters. Low-level descriptions and
+component-driven bodies default to `Kinematic`; qualified `AStaticMeshActor`
+geometry publishes `Static`; `Dynamic` is accepted by the moving partition but
+does not imply simulation. Static bodies use a deterministic median-split
+contiguous BVH. Kinematic and Dynamic bodies use a deterministic incremental
+AABB tree. Moving fat bounds are derived from the exact bound with 10 percent
+extent margin and 0.01 minimum margin, so contained moves avoid reinsertion
+without retaining a second bound. A depth threshold deterministically rebuilds
+the moving tree before its supported traversal height can be exceeded.
+
+Production traverses both partitions with a fixed 128-entry stack. Leaves are
+stable slot references, so dense swaps do not invalidate either tree. Finite
+segment, swept-shape, and overlap AABBs cull nodes and exact body bounds;
+closest queries additionally prune only when conservative node near time is
+strictly greater than the current exact winner. Equal times remain eligible for
+the documented complete-handle tie-break. Scratch overflow records an explicit
+fallback and executes the complete flat Reference path.
+
+On the qualified `Win64-Release-DurinEditor` profile at revision based on
+`07b9bc567b0deaa3b744755047d14f89a4711dce`, 10,000-body sparse LineTrace and
+Capsule sweep misses emitted zero candidates and measured 0.120 and 0.300
+microseconds median, versus the M0 2.533 and 217.593 milliseconds. A sparse
+closest-hit trace emitted one candidate. Dense overlap returned all 10,000
+results in handle order. The 32-body filter-only update P95 was 0.017
+microseconds; 10,000-body update and stable remove/add P95 were 0.030 and 1.430
+microseconds. Actual all-static, all-moving, and mixed retained capacities at
+0/32/1,000/10,000 bodies fit `64 * live bodies + 64 KiB`; qualified queries had
+zero mismatch, scratch overflow, or spatial fallback.
 
 ## Debugging and current limits
 
@@ -158,8 +177,7 @@ The Level Editor viewport's **View mode > Overlays > Collision** toggle consumes
 the renderer-independent snapshot to draw Box, Sphere, and Capsule wire shapes
 plus the latest blocking impact normal without exposing mutable scene storage.
 
-The implementation is synchronous, query-only, and uses a flat Production
-candidate source. Dynamic rigid bodies,
+The implementation is synchronous and query-only. Dynamic rigid bodies,
 forces, constraints, asynchronous stepping, moving platforms, triangle meshes,
 heightfields, overlap events, and project-defined profiles remain future work.
 The cross-plan sequencing for scalable queries, geometry, cooked collision,

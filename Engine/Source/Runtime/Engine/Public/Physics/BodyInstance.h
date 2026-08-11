@@ -25,5 +25,7 @@ namespace Durin
 
 		FPhysicsActorHandle ActorHandle;
 		uint64 PublishedBodySetupRevision = 0;
+		// Non-reflected spatial mutation policy published independently from collision filters.
+		EPhysicsBodyMotionType MotionType = EPhysicsBodyMotionType::Kinematic;
 	};
 }

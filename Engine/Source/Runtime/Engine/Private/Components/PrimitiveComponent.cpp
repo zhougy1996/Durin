@@ -75,6 +75,13 @@ namespace Durin
 		RecreatePhysicsState();
 	}
 
+	auto DPrimitiveComponent::SetPhysicsBodyMotionType(EPhysicsBodyMotionType MotionType) -> void
+	{
+		if (BodyInstance.MotionType == MotionType) return;
+		BodyInstance.MotionType = MotionType;
+		UpdatePhysicsState();
+	}
+
 	auto DPrimitiveComponent::BuildCollisionShape(FCollisionShape&, FTransform&) const -> bool
 	{
 		return false;
@@ -95,6 +102,7 @@ namespace Durin
 		for (uint8 Index = 0; Index < MaximumPhysicsChannels; ++Index)
 			Desc.Filter.Responses[Index] = ToPhysicsResponse(BodyInstance.Responses.Responses[Index]);
 		Desc.UserToken = reinterpret_cast<uint64>(this);
+		Desc.MotionType = BodyInstance.MotionType;
 		BodyInstance.ActorHandle = World->GetPhysicsScene().AddBody(Desc);
 	}
 
@@ -128,6 +136,7 @@ namespace Durin
 		for (uint8 Index = 0; Index < MaximumPhysicsChannels; ++Index)
 			Desc.Filter.Responses[Index] = ToPhysicsResponse(BodyInstance.Responses.Responses[Index]);
 		Desc.UserToken = reinterpret_cast<uint64>(this);
+		Desc.MotionType = BodyInstance.MotionType;
 		if (!World->GetPhysicsScene().UpdateBody(BodyInstance.ActorHandle, Desc)) RecreatePhysicsState();
 	}
 

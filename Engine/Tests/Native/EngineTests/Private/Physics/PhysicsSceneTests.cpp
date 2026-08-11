@@ -220,6 +220,10 @@ TEST(FPhysicsBodySetupTests, SharesAssetGeometryWhileInstancesKeepDistinctHandle
 	First->GetStaticMeshComponent()->SetStaticMesh(Mesh);
 	Second->GetStaticMeshComponent()->SetStaticMesh(Mesh);
 	Second->GetStaticMeshComponent()->SetWorldLocation({2.0, 0.0, 0.0});
+	EXPECT_EQ(First->GetStaticMeshComponent()->GetPhysicsBodyMotionType(),
+		Durin::EPhysicsBodyMotionType::Static);
+	EXPECT_EQ(Second->GetStaticMeshComponent()->GetPhysicsBodyMotionType(),
+		Durin::EPhysicsBodyMotionType::Static);
 	EXPECT_EQ(First->GetStaticMeshComponent()->GetBodySetup(), Setup);
 	EXPECT_EQ(Second->GetStaticMeshComponent()->GetBodySetup(), Setup);
 	EXPECT_NE(First->GetStaticMeshComponent()->GetPhysicsActorHandle(),

@@ -4,40 +4,33 @@ Summary: Replace Aether's linear body lifecycle and Production candidate walk wi
 
 Last reviewed: 2026-08-11
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-11
 
 ## Current Status
 
-Selected as M1 of the
-[Aether Physics Evolution Roadmap](../Roadmaps/AetherPhysicsEvolution.md) after
-the completed
-[Aether Physics Query Observability Plan](AetherPhysicsQueryObservability.md)
-qualified Reference, Production, and Compare at revision
-`b84297ac5cece58f17f5383b72e2a0ae5487c6f2`.
+Completed as M1 of the
+[Aether Physics Evolution Roadmap](../Roadmaps/AetherPhysicsEvolution.md) from
+source revision `07b9bc567b0deaa3b744755047d14f89a4711dce`. The implementation
+adds generation-checked dense slots, explicit Static/Kinematic/Dynamic
+publication, outward-rounded compact exact bounds, a deterministic static BVH,
+an incremental moving fat-AABB tree, strictly-safe closest pruning, fixed
+128-entry traversal scratch, and complete Reference fallback.
 
-M0 established that Production still performs one body visit, candidate, and
-pair test per valid body. On the qualified Release profile, a 10,000-body
-sparse LineTrace miss took 2.533 ms and a sparse Capsule sweep miss took
-217.593 ms because it performed 34.22 million distance evaluations and 16.52
-million search iterations. Last-body update and remove/add P95 values were
-6.300 us and 5.390 us. The retained body payload was 176 bytes per body.
+The qualified layouts are a 192-byte dense record, 12-byte slot, and 36-byte
+node. Actual 0/32/1,000/10,000 all-static, all-moving, and mixed capacities fit
+`64 * live bodies + 64 KiB`; the 10,000-moving measurement retained 655,360 M1
+bytes against a 705,536-byte gate. On `Win64-Release-DurinEditor`, 10,000-body
+sparse LineTrace and Sweep misses both emitted zero candidates and measured
+0.120/0.300 microseconds median. Dense overlap returned all 10,000 results. The
+32-body update P95 was 0.017 microseconds; 10,000-body update and stable
+remove/add P95 were 0.030/1.430 microseconds. Compare recorded zero mismatch,
+and qualified runs recorded zero scratch overflow or spatial fallback.
 
-This plan accepts M0's proposed M1 entry budgets as initial hard gates: at most
-32/100 candidates for 1,000/10,000-body sparse misses, at most 64 bytes of
-M1-added retained state per body plus 64 KiB fixed, no more than 10 percent
-median query regression at 32 bodies, 10,000-body moving update/remove-add P95
-ceilings of 12.600/10.780 us, and at least 4x 10,000-body sparse LineTrace and
-Sweep improvement. Stage 0 measures the exact slot, bound, node, free-list, and
-scratch layouts before implementation. Any budget revision requires recorded
-evidence and a matching roadmap update before Stage 1 begins.
-
-The selected architecture is a generation-checked slot map over dense body
-records, a deterministic rebuildable BVH for Static bodies, and an
-incrementally maintained fat-AABB tree for Kinematic and reserved Dynamic
-bodies. Exact node fanout, compact bound representation, fat-margin formula,
-tree-quality thresholds, and fixed traversal capacity are Stage 0 decisions.
-No M1 implementation has begun.
+Focused Debug and Release PhysicsScene tests, focused Debug and Release Sandbox
+gameplay tests, and the final default-profile native `--target all` passed. M2
+geometry and narrow-phase architecture is next; no M2 algorithm was selected
+by this plan.
 
 ## Goal
 
@@ -272,25 +265,25 @@ Reference executor across the qualified corpus.
 Dependencies: completed M0 oracle, counters, fixtures, Release profile, and the
 accepted entry budgets.
 
-- [ ] Record the source revision and rerun the smallest existing PhysicsScene
+- [x] Record the source revision and rerun the smallest existing PhysicsScene
   and Sandbox correctness baselines before changing storage or descriptors.
-- [ ] Add characterization fixtures for handle order, ignored handles,
+- [x] Add characterization fixtures for handle order, ignored handles,
   equal-time winners, CaptureBodies order, tokens, and lifecycle across slot
   reuse and dense swap-remove.
-- [ ] Freeze slot encoding, generation advance/exhaustion, free-list ordering,
+- [x] Freeze slot encoding, generation advance/exhaustion, free-list ordering,
   removal repair, maximum slots, and failure behavior with executable tests.
-- [ ] Freeze motion values, Kinematic default, Engine publication points,
+- [x] Freeze motion values, Kinematic default, Engine publication points,
   Dynamic reserved behavior, and profile/channel-independent migration.
-- [ ] Add AetherCore golden bounds for shapes and all query kinds across
+- [x] Add AetherCore golden bounds for shapes and all query kinds across
   rotation, positive non-uniform scale, zero delta, tangency, large finite
   coordinates, and invalid input.
-- [ ] Prototype the static BVH and moving fat-AABB layouts in bounded private
+- [x] Prototype the static BVH and moving fat-AABB layouts in bounded private
   test code; freeze fanout, leaf capacity, split/ties, compact bounds, fat
   margin, sibling selection, rotations/refits, height thresholds, and scratch.
-- [ ] Measure actual retained capacities at 0/32/1,000/10,000 bodies for
+- [x] Measure actual retained capacities at 0/32/1,000/10,000 bodies for
   all-static, all-moving, and representative mixes. Confirm 64 bytes/64 KiB or
   revise this plan and roadmap with evidence before Stage 1.
-- [ ] Freeze allocation/build failure, stale-proxy, scratch-overflow, fallback,
+- [x] Freeze allocation/build failure, stale-proxy, scratch-overflow, fallback,
   diagnostic names/equations, byte accounting, and candidate definition.
 
 #### Acceptance Gate
@@ -306,19 +299,19 @@ accepted entry budgets.
 
 Dependencies: Stage 0 handle, motion, memory, ordering, and failure contracts.
 
-- [ ] Add the AetherCore motion enum/body field and publish explicit values
+- [x] Add the AetherCore motion enum/body field and publish explicit values
   from Engine body instances, StaticMeshActor, and Sandbox paths.
-- [ ] Implement the generation slot table, dense records, free-list reuse, and
+- [x] Implement the generation slot table, dense records, free-list reuse, and
   swap-remove repair while retaining flat deterministic Reference iteration.
-- [ ] Make add/contains/update/remove validate slots and generations in bounded
+- [x] Make add/contains/update/remove validate slots and generations in bounded
   work; reject stale, zero, exhausted, malformed, and invalid handles safely.
-- [ ] Preserve old state on rejected add/update and retire body/token/debug
+- [x] Preserve old state on rejected add/update and retire body/token/debug
   visibility exactly once on successful remove.
-- [ ] Add slot/reuse/exhaustion/swap/lookup/capacity diagnostics without making
+- [x] Add slot/reuse/exhaustion/swap/lookup/capacity diagnostics without making
   capture/reset proportional to bodies.
-- [ ] Cover free-list edges, middle/last removal, repeated stale use, many
+- [x] Cover free-list edges, middle/last removal, repeated stale use, many
   generations, two Worlds, component cycles, Level replacement, and teardown.
-- [ ] Run the smallest affected PhysicsScene and Sandbox targets before indexes.
+- [x] Run the smallest affected PhysicsScene and Sandbox targets before indexes.
 
 #### Acceptance Gate
 
@@ -332,20 +325,20 @@ Dependencies: Stage 0 handle, motion, memory, ordering, and failure contracts.
 
 Dependencies: Stage 1 storage and Stage 0 bounds/tree contracts.
 
-- [ ] Implement qualified body/query bound builders and store each accepted
+- [x] Implement qualified body/query bound builders and store each accepted
   body's finite conservative exact AABB.
-- [ ] Implement the deterministic contiguous static BVH with selected compact
+- [x] Implement the deterministic contiguous static BVH with selected compact
   nodes, construction policy, capacity accounting, and diagnostics.
-- [ ] Implement the moving fat-AABB tree with deterministic insertion, bounded
+- [x] Implement the moving fat-AABB tree with deterministic insertion, bounded
   refit/rotation, contained update, escape reinsertion, removal/free-node reuse,
   height recovery, and retained-byte counters.
-- [ ] Route all mutation classes and motion migration transactionally; moving
+- [x] Route all mutation classes and motion migration transactionally; moving
   updates must never rebuild Static.
-- [ ] Add a brute-force bounds oracle and fixed-seed randomized/adversarial
+- [x] Add a brute-force bounds oracle and fixed-seed randomized/adversarial
   membership tests across shapes, partition mixes, orders, removals, and churn.
-- [ ] Exercise invalid/overflow bounds, allocation/build failure, empty/single,
+- [x] Exercise invalid/overflow bounds, allocation/build failure, empty/single,
   coincident/clustered/giant bodies, fat-bound edges, and repeated migrations.
-- [ ] Reconcile partitions, slots, proxies, nodes, capacities, builds, moving
+- [x] Reconcile partitions, slots, proxies, nodes, capacities, builds, moving
   maintenance, migrations, and fallback after each mutation cohort.
 
 #### Acceptance Gate
@@ -360,19 +353,19 @@ Dependencies: Stage 1 storage and Stage 0 bounds/tree contracts.
 
 Dependencies: Stage 2 indexes and unchanged M0 Production stages/comparator.
 
-- [ ] Replace the flat Production walk with streaming traversal of both
+- [x] Replace the flat Production walk with streaming traversal of both
   partitions through checked slots and exact body AABBs.
-- [ ] Implement finite segment, swept-shape, and overlap node tests, near-first
+- [x] Implement finite segment, swept-shape, and overlap node tests, near-first
   traversal, and strictly-safe closest-hit pruning.
-- [ ] Preserve ignore/filter/pair dispatch, geometry counters, result fields,
+- [x] Preserve ignore/filter/pair dispatch, geometry counters, result fields,
   winner selection, Overlap sort, and M0 test faults.
-- [ ] Use frozen reusable scratch with zero ordinary candidate allocation and
+- [x] Use frozen reusable scratch with zero ordinary candidate allocation and
   complete Reference fallback on explicit overflow/degraded index.
-- [ ] Reconcile Reference flat work, Production node/bound/candidate work, and
+- [x] Reconcile Reference flat work, Production node/bound/candidate work, and
   Compare totals.
-- [ ] Run fixed-seed/adversarial and 0/32/1,000/10,000 Compare across all query
+- [x] Run fixed-seed/adversarial and 0/32/1,000/10,000 Compare across all query
   kinds, partition mixes, filter/ignore, ties, dense results, churn, and faults.
-- [ ] Prove candidate, tree, dense, and partition order cannot change semantics.
+- [x] Prove candidate, tree, dense, and partition order cannot change semantics.
 
 #### Acceptance Gate
 
@@ -385,18 +378,18 @@ Dependencies: Stage 2 indexes and unchanged M0 Production stages/comparator.
 
 Dependencies: Stage 3 accelerated Production and reconciled diagnostics.
 
-- [ ] Record actual retained capacities for every required scale and partition
+- [x] Record actual retained capacities for every required scale and partition
   mix, including slots, bounds, proxies, nodes, diagnostics, and scratch.
-- [ ] Qualify 32-body query and mutation regression ceilings.
-- [ ] Qualify 10,000-body candidate/timing, dense correctness, filter/ignore,
+- [x] Qualify 32-body query and mutation regression ceilings.
+- [x] Qualify 10,000-body candidate/timing, dense correctness, filter/ignore,
   moving mutation P95, stable remove/add P95, and static rebuild isolation.
-- [ ] Add clustered, giant-bound, origin-inside, tangent, long-segment,
+- [x] Add clustered, giant-bound, origin-inside, tangent, long-segment,
   high-churn, and tree-quality workloads.
-- [ ] Re-run all real Sandbox movement and 30/60/120 Hz fixtures with gameplay
+- [x] Re-run all real Sandbox movement and 30/60/120 Hz fixtures with gameplay
   assertions and partition diagnostics.
-- [ ] Verify diagnostics overhead, O(1) capture/reset, mismatch capacity, debug
+- [x] Verify diagnostics overhead, O(1) capture/reset, mismatch capacity, debug
   limits, and zero fallback/overflow at qualified supported scales.
-- [ ] Record why Aether remains independent from the editor picking index.
+- [x] Record why Aether remains independent from the editor picking index.
 
 #### Acceptance Gate
 
@@ -410,18 +403,18 @@ Dependencies: Stage 3 accelerated Production and reconciled diagnostics.
 
 Dependencies: Stage 4 evidence and every preceding gate.
 
-- [ ] Move lasting handle, motion, bounds, partition, mutation, traversal,
+- [x] Move lasting handle, motion, bounds, partition, mutation, traversal,
   failure, diagnostics, memory, and performance contracts to owning docs.
-- [ ] Update the roadmap with M1 evidence, mark M2 next, and carry forward
+- [x] Update the roadmap with M1 evidence, mark M2 next, and carry forward
   residual pair/iteration measurements without selecting M2 algorithms.
-- [ ] Run focused PhysicsScene and Sandbox native targets throughout and after
+- [x] Run focused PhysicsScene and Sandbox native targets throughout and after
   documentation updates.
-- [ ] Run final native `--target all` because M1 crosses AetherCore, Aether,
+- [x] Run final native `--target all` because M1 crosses AetherCore, Aether,
   Engine body lifecycle, and the separate Sandbox consumer.
-- [ ] Run changed/all documentation plus all-plan/all-roadmap validation.
-- [ ] Record final revision, profile, evidence, tests, and deferred limits;
+- [x] Run changed/all documentation plus all-plan/all-roadmap validation.
+- [x] Record final revision, profile, evidence, tests, and deferred limits;
   close passed checklists and mark the plan Completed.
-- [ ] Run a full `all` build only if scope is revised to add a user-visible
+- [x] Run a full `all` build only if scope is revised to add a user-visible
   surface, and then validate the editor executable from the same profile.
 
 #### Acceptance Gate

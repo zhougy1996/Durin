@@ -44,6 +44,9 @@ namespace Durin
 		uint64 CompareMismatches = 0;
 		uint64 ScratchHighWater = 0;
 		uint64 CaptureHighWater = 0;
+		uint64 NodeTests = 0;
+		uint64 BoundTests = 0;
+		uint64 PrunedNodes = 0;
 		uint64 DetailedTimingSamples = 0;
 		uint64 DetailedTimingNanoseconds = 0;
 	};
@@ -90,6 +93,24 @@ namespace Durin
 		uint64 FailedLookups = 0;
 		uint64 BodiesAtReset = 0;
 		uint64 BodiesPresent = 0;
+		uint64 SlotReuses = 0;
+		uint64 DenseSwaps = 0;
+		uint64 StaticBodies = 0;
+		uint64 KinematicBodies = 0;
+		uint64 DynamicBodies = 0;
+		uint64 StaticBuilds = 0;
+		uint64 MovingInsertions = 0;
+		uint64 MovingRemovals = 0;
+		uint64 MovingReinsertions = 0;
+		uint64 MovingContainedUpdates = 0;
+		uint64 MovingRefits = 0;
+		uint64 MovingTreeRebuilds = 0;
+		uint64 BoundBuilds = 0;
+		uint64 MotionMigrations = 0;
+		uint64 FilterOnlyUpdates = 0;
+		uint64 SpatialFallbacks = 0;
+		uint64 ScratchOverflows = 0;
+		uint64 RetainedSpatialBytes = 0;
 	};
 
 	// Value-only snapshot of scene query, mismatch, and mutation diagnostics.
@@ -158,13 +179,33 @@ namespace Durin
 			OmitFirstCandidate,
 			ReverseCandidates,
 			ReverseResults,
-			CorruptFirstResult
+			CorruptFirstResult,
+			ForceScratchOverflow
 		};
 
+		// Dense body payload retaining the owning slot and exact outward-rounded bound.
 		struct FBodyRecord
 		{
-			FPhysicsActorHandle Handle;
 			FPhysicsBodyDesc Desc;
+			std::array<float, 6> Bounds{};
+			uint32 Slot = 0;
+		};
+
+		// Resolves one generation-checked identity or links one free-list entry.
+		struct FSlot
+		{
+			uint32 DenseOrNext = std::numeric_limits<uint32>::max();
+			uint32 Generation = 1;
+			uint32 ProxyParent = std::numeric_limits<uint32>::max();
+		};
+
+		// Compact internal binary-tree node; leaves are encoded stable slot references.
+		struct FSpatialNode
+		{
+			std::array<float, 6> Bounds{};
+			uint32 Parent = std::numeric_limits<uint32>::max();
+			uint32 Left = std::numeric_limits<uint32>::max();
+			uint32 Right = std::numeric_limits<uint32>::max();
 		};
 
 		auto IsOwningThread() const -> bool;
@@ -243,25 +284,129 @@ namespace Durin
 			const FPhysicsSceneQueryCounters& Source) const -> void;
 		auto SaturatingAdd(uint64& Target, uint64 Delta) const -> void;
 		auto CountMutation(uint64& Counter) -> void;
+		auto BuildBodyBounds(const FPhysicsBodyDesc& Desc, std::array<float, 6>& OutBounds) const -> bool;
+		auto BuildQueryBounds(
+			const FCollisionShape& Shape,
+			const FTransform& Transform,
+			const FVector3& Delta,
+			std::array<float, 6>& OutBounds) const -> bool;
+		auto InsertMovingProxy(uint32 Slot) -> bool;
+		auto RemoveMovingProxy(uint32 Slot) -> void;
+		auto RebuildMovingTree() -> bool;
+		auto RebuildStaticTree() const -> bool;
+		auto RefreshSpatialDiagnostics() -> void;
+		auto IsValidMotionType(EPhysicsBodyMotionType MotionType) const -> bool;
+		auto GetHandle(const FBodyRecord& Body) const -> FPhysicsActorHandle;
+		auto GetBodyBySlot(uint32 Slot) const -> const FBodyRecord*;
+		auto GetBodyBySlot(uint32 Slot) -> FBodyRecord*;
 
 		template <typename Visitor>
-		auto ForEachProductionCandidate(Visitor&& Visit) const -> void
+		auto TraverseProductionCandidates(const std::array<float, 6>& QueryBounds,
+			const FVector3& SweepStartCenter,
+			const FVector3& SweepHalfExtent,
+			const FVector3& SweepDelta,
+			const FPhysicsQueryHit* BestHit,
+			Visitor&& Visit, FPhysicsSceneQueryCounters& Work) const -> bool
 		{
-			if (ProductionTestFault == EProductionTestFault::ReverseCandidates)
+			constexpr uint32 Invalid = std::numeric_limits<uint32>::max();
+			constexpr uint32 LeafBit = 1u << 31;
+			if (!RebuildStaticTree()) return false;
+			if (ProductionTestFault == EProductionTestFault::ForceScratchOverflow) return false;
+			std::array<std::pair<bool, uint32>, 128> Stack{};
+			size_t StackSize = 0;
+			auto Push = [&](bool bMoving, uint32 Reference) -> bool
 			{
-				for (auto It = Bodies.rbegin(); It != Bodies.rend(); ++It) Visit(*It);
-				return;
-			}
-			for (size_t Index = 0; Index < Bodies.size(); ++Index)
+				if (Reference == Invalid) return true;
+				if (StackSize == Stack.size()) return false;
+				Stack[StackSize++] = {bMoving, Reference};
+				Work.ScratchHighWater = std::max<uint64>(Work.ScratchHighWater, StackSize);
+				return true;
+			};
+			if (!Push(false, StaticRoot) || !Push(true, MovingRoot)) return false;
+			bool bSkippedFaultCandidate = false;
+			while (StackSize)
 			{
-				if (ProductionTestFault == EProductionTestFault::OmitFirstCandidate && Index == 0) continue;
-				Visit(Bodies[Index]);
+				const auto [bMoving, Reference] = Stack[--StackSize];
+				const std::array<float, 6>* Bounds = nullptr;
+				const FBodyRecord* Body = nullptr;
+				if ((Reference & LeafBit) != 0)
+				{
+					Body = GetBodyBySlot(Reference & ~LeafBit);
+					if (!Body) continue;
+					Bounds = &Body->Bounds;
+				}
+				else
+				{
+					const std::vector<FSpatialNode>& Nodes = bMoving ? MovingNodes : StaticNodes;
+					if (Reference >= Nodes.size()) continue;
+					Bounds = &Nodes[Reference].Bounds;
+				}
+				SaturatingAdd(Work.BoundTests, 1);
+				const bool bIntersects = (*Bounds)[0] <= QueryBounds[3] && (*Bounds)[3] >= QueryBounds[0]
+					&& (*Bounds)[1] <= QueryBounds[4] && (*Bounds)[4] >= QueryBounds[1]
+					&& (*Bounds)[2] <= QueryBounds[5] && (*Bounds)[5] >= QueryBounds[2];
+				if (!bIntersects)
+				{
+					if ((Reference & LeafBit) == 0) SaturatingAdd(Work.PrunedNodes, 1);
+					continue;
+				}
+				if (BestHit && BestHit->IsHit())
+				{
+					double NearTime = 0.0;
+					double FarTime = 1.0;
+					bool bPathIntersects = true;
+					for (uint32 Axis = 0; Axis < 3; ++Axis)
+					{
+						const double Lower = static_cast<double>((*Bounds)[Axis]) - SweepHalfExtent[Axis];
+						const double Upper = static_cast<double>((*Bounds)[Axis + 3]) + SweepHalfExtent[Axis];
+						if (std::abs(SweepDelta[Axis]) <= 1.0e-12)
+						{
+							if (SweepStartCenter[Axis] < Lower || SweepStartCenter[Axis] > Upper)
+								bPathIntersects = false;
+							continue;
+						}
+						double A = (Lower - SweepStartCenter[Axis]) / SweepDelta[Axis];
+						double B = (Upper - SweepStartCenter[Axis]) / SweepDelta[Axis];
+						if (A > B) std::swap(A, B);
+						NearTime = std::max(NearTime, A);
+						FarTime = std::min(FarTime, B);
+						if (NearTime > FarTime) bPathIntersects = false;
+					}
+					if (!bPathIntersects || NearTime > BestHit->Time)
+					{
+						SaturatingAdd(Work.PrunedNodes, 1);
+						continue;
+					}
+				}
+				if (Body)
+				{
+					if (ProductionTestFault == EProductionTestFault::OmitFirstCandidate && !bSkippedFaultCandidate)
+					{
+						bSkippedFaultCandidate = true;
+						continue;
+					}
+					Visit(*Body);
+					continue;
+				}
+				SaturatingAdd(Work.NodeTests, 1);
+				const FSpatialNode& Node = (bMoving ? MovingNodes : StaticNodes)[Reference];
+				const bool bReverse = ProductionTestFault == EProductionTestFault::ReverseCandidates;
+				if (!Push(bMoving, bReverse ? Node.Left : Node.Right)
+					|| !Push(bMoving, bReverse ? Node.Right : Node.Left)) return false;
 			}
+			return true;
 		}
 
 		std::thread::id OwningThread;
 		std::vector<FBodyRecord> Bodies;
-		uint64 NextHandleId = 1;
+		std::vector<FSlot> Slots;
+		uint32 FreeSlot = std::numeric_limits<uint32>::max();
+		std::vector<FSpatialNode> MovingNodes;
+		uint32 FreeMovingNode = std::numeric_limits<uint32>::max();
+		uint32 MovingRoot = std::numeric_limits<uint32>::max();
+		mutable std::vector<FSpatialNode> StaticNodes;
+		mutable uint32 StaticRoot = std::numeric_limits<uint32>::max();
+		mutable bool bStaticTreeDirty = false;
 		EPhysicsSceneQueryExecutionPolicy QueryExecutionPolicy = EPhysicsSceneQueryExecutionPolicy::Production;
 		EProductionTestFault ProductionTestFault = EProductionTestFault::None;
 		mutable FPhysicsSceneQueryDiagnostics Diagnostics;

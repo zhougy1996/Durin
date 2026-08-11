@@ -47,6 +47,9 @@ namespace Durin
 		auto GetCollisionEnabled() const -> ECollisionEnabled { return BodyInstance.CollisionEnabled; }
 		auto GetCollisionObjectType() const -> ECollisionChannel { return BodyInstance.ObjectChannel; }
 		auto GetPhysicsActorHandle() const -> FPhysicsActorHandle { return BodyInstance.ActorHandle; }
+		auto GetPhysicsBodyMotionType() const -> EPhysicsBodyMotionType { return BodyInstance.MotionType; }
+		// Migrates an existing scene body between spatial partitions without exposing index state.
+		ENGINE_API auto SetPhysicsBodyMotionType(EPhysicsBodyMotionType MotionType) -> void;
 		ENGINE_API virtual auto BuildCollisionShape(FCollisionShape& OutShape, FTransform& OutWorldTransform) const -> bool;
 		ENGINE_API auto RecreatePhysicsState() -> void;
 
