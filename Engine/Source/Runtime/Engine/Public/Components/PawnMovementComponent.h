@@ -16,7 +16,7 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		ENGINE_API explicit DPawnMovementComponent(const FObjectInitializer& ObjectInitializer);
-		auto GetPawnOwner() const -> APawn*;
+		ENGINE_API auto GetPawnOwner() const -> APawn*;
 		auto GetVelocity() const -> const FVector3& { return Velocity; }
 		auto SetVelocity(const FVector3& InVelocity) -> void { Velocity = InVelocity; }
 

@@ -1,5 +1,6 @@
 #include "Components/SkeletalMeshComponent.h"
 
+#include "AssetSystem.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Materials/DefaultMaterialService.h"
 #include "Materials/MaterialInterface.h"
@@ -253,6 +254,7 @@ namespace Durin
 			OutError = "Skeletal-mesh component play rate must be finite and non-negative.";
 			return false;
 		}
+		if (Asset::IsAssetMigrationLoad()) return true;
 		if (IsSkeletalDerivedDataRepairLoadActive()
 			&& SkeletalMesh
 			&& (!SkeletalMesh->GetPayloadData()

@@ -4,30 +4,27 @@ Summary: Establish a native C++ gameplay foundation around possession, semantic 
 
 Last reviewed: 2026-08-11
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-11
 
 ## Current Status
 
-The Actor/Component, World/Level, PIE, raw game-input, camera, static-mesh, and
-limited ground-plane physics foundations exist. `Sandbox` currently contains
-only its runtime shell and a cross-module qualification fixture; it has no
-gameplay policy or playable loop.
-
-Milestones G0 and G1 are complete. The native core now provides exact reflected
-gameplay roots, possession, semantic control, movement and view-target
-boundaries, transactional bootstrap/restart, shared project settings, and
-qualified PIE/standalone hosts. G2 is active through the
-[Sandbox Gameplay Vertical Slice](../Plans/SandboxGameplayVerticalSlice.md)
-plan. It owns the first concrete keys, movement tune, camera composition,
-graybox visual, and authored start entirely inside Sandbox.
+Milestones G0, G1, and G2 are complete. The native core provides exact
+reflected gameplay roots, possession, semantic control, movement and
+view-target boundaries, transactional bootstrap/restart, shared project
+settings, and qualified PIE/standalone hosts. Sandbox owns the first concrete
+keys, deterministic ground-plane movement, camera composition, graybox visual,
+and authored start through the completed
+[Sandbox Gameplay Vertical Slice](../Plans/SandboxGameplayVerticalSlice.md).
+G3 was not activated because no second concrete consumer demonstrates
+duplicated policy.
 
 | Milestone | Status | Child plan |
 | --- | --- | --- |
 | G0: Namespace-safe reflected type resolution | Complete | [DHT Namespace-Aware Type Resolution](../Plans/DHTNamespaceAwareTypeResolution.md) |
 | G1: Native possession and player bootstrap | Complete | [Native Gameplay Core](../Plans/NativeGameplayCore.md) |
-| G2: Sandbox graybox playable slice | Active | [Sandbox Gameplay Vertical Slice](../Plans/SandboxGameplayVerticalSlice.md) |
-| G3: Evidence-gated framework extraction | Conditional | Create only after a second concrete consumer exists |
+| G2: Sandbox graybox playable slice | Complete | [Sandbox Gameplay Vertical Slice](../Plans/SandboxGameplayVerticalSlice.md) |
+| G3: Evidence-gated framework extraction | Not activated | No second concrete consumer exists |
 
 ## Outcome
 
@@ -168,7 +165,7 @@ The required program delivers:
 | Movement | Actor transforms and lightweight gravity/ground-plane physics | Pawn movement contract and a controlled graybox implementation |
 | Camera | `ACameraActor`, `DCameraComponent`, primary level camera | Controller view target and pawn camera composition |
 | Rendering | Static mesh component and graybox-capable scene rendering | No required gap; skeletal rendering is not an entry dependency |
-| Sandbox | Runtime module linkage to Core and Engine | No concrete game mode, controller, pawn, movement, camera, or playable loop |
+| Sandbox | Concrete game mode, controller, pawn, movement, camera, graybox, and playable loop | No required gap |
 
 ## Milestone Map
 
@@ -232,11 +229,12 @@ Entry gate: satisfied 2026-08-11. G1 types, host integration, lifecycle tests,
 and process diagnostics are complete; the selected graybox level and
 placeholder visual require no skeletal asset or production collision backend.
 
-Exit gate: a focused automated matrix plus editor and standalone smoke proves
-the complete start-to-stop loop, repeated PIE sessions leak no control or input
-state, and game-specific tuning remains outside Engine.
+Exit gate: satisfied 2026-08-11. Focused and full native tests, compatible
+authored assets, full Editor/Game builds, and threaded/inline process smokes
+prove the complete start-to-stop loop, repeated PIE restoration, configured
+standalone startup, and Sandbox-owned tuning.
 
-Active child plan: [Sandbox Gameplay Vertical Slice](../Plans/SandboxGameplayVerticalSlice.md).
+Completed child plan: [Sandbox Gameplay Vertical Slice](../Plans/SandboxGameplayVerticalSlice.md).
 
 ### G3: Evidence-gated framework extraction
 

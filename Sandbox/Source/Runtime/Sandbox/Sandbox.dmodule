@@ -7,6 +7,10 @@
         "Engine"
     ],
     "ReflectHeaders": [
+        "Public/DefaultGameMode.h",
+        "Public/DefaultPlayerController.h",
+        "Public/PlayerPawn.h",
+        "Public/SimpleGroundMovementComponent.h",
         "Public/Testing/CrossModuleGameModeFixture.h"
     ]
 }

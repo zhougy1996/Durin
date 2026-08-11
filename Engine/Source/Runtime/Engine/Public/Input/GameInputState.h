@@ -30,7 +30,7 @@ namespace Durin
 		ENGINE_API auto SetFocused(bool bInFocused) -> void;
 		ENGINE_API auto SetKey(EKey Key, bool bDown) -> void;
 		auto SetMouseButton(EMouseButton Button, bool bDown) -> void;
-		auto SetMousePosition(FVector2d Position) -> void;
+		ENGINE_API auto SetMousePosition(FVector2d Position) -> void;
 		auto AddMouseWheel(double Delta) -> void;
 		ENGINE_API auto FinishGameTick() -> void;
 		auto Reset() -> void;

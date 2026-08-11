@@ -1,5 +1,8 @@
 #include "Modules/ModuleManager.h"
 
+#include "Misc/Build.h"
+#include "Misc/Paths.h"
+
 namespace Durin
 {
 	namespace
@@ -113,6 +116,15 @@ namespace Durin
 		}
 		DURIN_TRACE(STR("Try load: {}"), FoundModuleInfo->FileName);
 		FModuleHandle ModuleHandle = FPlatformMisc::LoadLibrary(FoundModuleInfo->FileName);
+		if (!ModuleHandle && !FPaths::ProjectDir().empty())
+		{
+			const std::filesystem::path ProjectModule = std::filesystem::path(FPaths::ProjectDir())
+				/ "Binaries" / DURIN_BUILD_PLATFORM_STRING / DURIN_BUILD_TYPE_STRING
+				/ "Runtime" / GetConfiguredRuntimeVariant() / FoundModuleInfo->FileName;
+			DURIN_TRACE(STR("Try active-project module: {}"), ProjectModule.generic_string());
+			ModuleHandle = FPlatformMisc::LoadLibrary(ProjectModule.generic_string());
+			if (ModuleHandle) FoundModuleInfo->FileName = ProjectModule.generic_string();
+		}
 		if (!ModuleHandle)
 		{
 			DURIN_ERROR(STR("Failed to load module \"{}\"."), InModuleName.ToString());

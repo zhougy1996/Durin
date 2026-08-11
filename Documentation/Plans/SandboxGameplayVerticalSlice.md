@@ -4,22 +4,38 @@ Summary: Build the first Sandbox-owned graybox pawn, controller, movement, camer
 
 Last reviewed: 2026-08-11
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-11
 
 ## Current Status
 
-Gameplay Foundation G1 is complete. Engine now owns the generic pawn,
-controller, possession, game-mode bootstrap, semantic intent, movement, view
-target, restart, PIE, and standalone contracts. Sandbox contains only the
-cross-module reflection qualification fixture and still has no gameplay
-policy or playable loop.
+G2 completed on 2026-08-11. Sandbox now owns the concrete reflected game mode,
+player controller, pawn, ground movement, input mapping, graybox visual, camera
+composition, exact project settings, and authored player start. The default
+level starts the same deterministic playable session in PIE and DurinGame;
+restart and stop retain the G1 ownership and teardown paths.
 
-G2 is ready to implement entirely inside Sandbox. The entry baseline is the
-completed [Native Gameplay Core](NativeGameplayCore.md), including exact
-`Game.NativeModule`/`Game.GameModeClass` selection and deterministic first
-`APlayerStart` bootstrap. Stage 0 must audit the smallest reusable graybox mesh
-path and freeze tuning before production behavior changes.
+The recorded pre-change revision was
+`ff42d6deb1477b2da328d31b55f6539ed662c197`. Stage 0 selected a Sandbox-owned
+unit Box import at `/Game/Models/GrayboxPawn` rather than using the unsuitable
+existing Vintage Lighter placeholder. The fixed tune is ground `Z=0`, speed
+`6`, acceleration `24`, deceleration `32`, gravity `-20`, jump impulse `8`,
+maximum delta `0.05s`, mouse intent scale `0.1`, look scale `4 degrees`, pitch
+limits `-80..80 degrees`, and camera offset `(-6, 0, 3)`.
+
+Focused evidence passed for SandboxGameplayTests 5/5, the relevant WorldTests
+15/15, SkeletalAssetTests 14/14 including the new headless migration case, and
+the asset compatibility audit with 24/24 compatible packages. The final
+default target-granularity native suite passed. Full `all` builds passed for
+`Win64-Debug-DurinEditor` and `Win64-Debug-DurinGame`.
+
+Bounded hidden-window process qualification passed for DurinEditor and
+DurinGame in both threaded and inline RHI modes. Editor covered Level Start,
+Play From Camera, pause, single-step, stop, repeated entry, and World
+restoration; Game covered the configured Sandbox module/class bootstrap and
+native start/tick/pause-step/restart/stop lifecycle. The handoff commit uses
+subject `feat(sandbox): add playable graybox slice` and records this plan plus
+Stages 0 through 3 in its provenance lines.
 
 ## Goal
 
@@ -136,15 +152,15 @@ stop without adding game-specific policy to Engine.
 
 Dependencies: completed G1.
 
-- [ ] Record the G1 source revision and focused Sandbox, World, viewport, and
+- [x] Record the G1 source revision and focused Sandbox, World, viewport, and
   asset baseline.
-- [ ] Audit the smallest current Sandbox-owned graybox asset path and record
+- [x] Audit the smallest current Sandbox-owned graybox asset path and record
   whether a new imported asset or existing suitable placeholder is selected.
-- [ ] Freeze class identities, key/mouse mapping, movement axes, fixed ground
+- [x] Freeze class identities, key/mouse mapping, movement axes, fixed ground
   height, acceleration, speed, gravity, jump, yaw, pitch, and camera offset.
-- [ ] Add failing focused fixtures for reflection, mapping, movement,
+- [x] Add failing focused fixtures for reflection, mapping, movement,
   frame-rate behavior, camera, bootstrap, restart, and teardown.
-- [ ] Confirm the existing authored default level can accept one player start
+- [x] Confirm the existing authored default level can accept one player start
   without unrelated asset migration.
 
 #### Acceptance Gate
@@ -156,13 +172,13 @@ Dependencies: completed G1.
 
 Dependencies: Stage 0.
 
-- [ ] Add and reflect the Sandbox game mode, player controller, pawn, and
+- [x] Add and reflect the Sandbox game mode, player controller, pawn, and
   movement component.
-- [ ] Select the Sandbox controller and pawn from the game mode and install the
+- [x] Select the Sandbox controller and pawn from the game mode and install the
   movement component as the pawn's single authority.
-- [ ] Migrate `Project.yaml` to the exact Sandbox native module/class pair.
-- [ ] Add one stable player start to the Sandbox default level.
-- [ ] Prove exact cross-module lookup, transactional spawn, possession,
+- [x] Migrate `Project.yaml` to the exact Sandbox native module/class pair.
+- [x] Add one stable player start to the Sandbox default level.
+- [x] Prove exact cross-module lookup, transactional spawn, possession,
   restart, and runtime-only teardown with the concrete classes.
 
 #### Acceptance Gate
@@ -174,13 +190,13 @@ Dependencies: Stage 0.
 
 Dependencies: Stage 1.
 
-- [ ] Implement the fixed raw-to-semantic mapping only in the Sandbox player
+- [x] Implement the fixed raw-to-semantic mapping only in the Sandbox player
   controller.
-- [ ] Implement deterministic horizontal acceleration/deceleration, gravity,
+- [x] Implement deterministic horizontal acceleration/deceleration, gravity,
   ground contact, and single-edge jump in the movement component.
-- [ ] Add the graybox static-mesh visual with actionable missing-asset behavior.
-- [ ] Add pawn yaw, bounded camera pitch, and the fixed camera composition.
-- [ ] Prove focus reset, pause suppression, single-step, restart, frame-rate
+- [x] Add the graybox static-mesh visual with actionable missing-asset behavior.
+- [x] Add pawn yaw, bounded camera pitch, and the fixed camera composition.
+- [x] Prove focus reset, pause suppression, single-step, restart, frame-rate
   consistency, ground-plane limitation, camera selection, and Play From Camera
   override behavior.
 
@@ -193,14 +209,14 @@ Dependencies: Stage 1.
 
 Dependencies: Stages 1-2.
 
-- [ ] Publish Sandbox gameplay controls, tuning, ground-plane limitation,
+- [x] Publish Sandbox gameplay controls, tuning, ground-plane limitation,
   camera, bootstrap, restart, and failure behavior in lasting documentation.
-- [ ] Run the smallest affected targets during development and the final full
+- [x] Run the smallest affected targets during development and the final full
   native suite because Engine tests, Sandbox tests, assets, and hosts cross.
-- [ ] Complete full DurinEditor and DurinGame `all` builds.
-- [ ] Run bounded threaded and inline-RHI PIE/standalone smokes for move, look,
+- [x] Complete full DurinEditor and DurinGame `all` builds.
+- [x] Run bounded threaded and inline-RHI PIE/standalone smokes for move, look,
   jump, land, pause/step, restart, Play From Camera, stop, and repeated entry.
-- [ ] Record validation and commit provenance, complete G2 in the roadmap, and
+- [x] Record validation and commit provenance, complete G2 in the roadmap, and
   leave G3 conditional until a second concrete consumer exists.
 
 #### Acceptance Gate

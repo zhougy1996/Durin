@@ -1,7 +1,11 @@
 #include <gtest/gtest.h>
 
 #include "Animation/AnimationClip.h"
+#include "Actors/SkeletalMeshActor.h"
 #include "AssetSystem.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "DObject/Package.h"
+#include "Engine/Level.h"
 #include "EngineTestSupport.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -745,6 +749,71 @@ TEST(FSkeletalAssetTests, AuthoredReloadConsumesValidatedDerivedDataObjects)
 	EXPECT_FALSE(CorruptLoad);
 	EXPECT_EQ(Mesh, nullptr);
 	EXPECT_NE(CorruptLoad.Message.find("checksum"), std::string::npos) << CorruptLoad.Message;
+	Durin::FPaths::SetDerivedDataCacheDirForTests({});
+}
+
+TEST(FSkeletalAssetTests, MigrationLoadPreservesLevelReferencesWithoutRuntimeDerivedData)
+{
+	const std::filesystem::path Root = InitializeAssetMount();
+	const std::filesystem::path CacheRoot = Root / "MigrationDerivedDataCache";
+	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
+	Durin::FAssetPath SkeletonPath;
+	Durin::FAssetPath MeshPath;
+	Durin::FAssetPath ClipPath;
+	Durin::FAssetPath LevelPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkeletalAssetTests/MigrationSkeleton", SkeletonPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkeletalAssetTests/MigrationMesh", MeshPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkeletalAssetTests/MigrationClip", ClipPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkeletalAssetTests/MigrationLevel", LevelPath));
+	const std::string MeshKey = Durin::FXxHash128::HashBuffer("migration-mesh-key").ToString();
+	const std::string ClipKey = Durin::FXxHash128::HashBuffer("migration-clip-key").ToString();
+
+	Durin::DSkeleton* Skeleton = nullptr;
+	Durin::DSkeletalMesh* Mesh = nullptr;
+	Durin::DAnimationClip* Clip = nullptr;
+	Durin::DLevel* Level = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(SkeletonPath, Skeleton));
+	InitializeSkeleton(*Skeleton);
+	ASSERT_TRUE(Durin::Asset::CreateAsset(MeshPath, Mesh));
+	InitializeMesh(*Mesh, *Skeleton, "Body", MeshKey);
+	ASSERT_TRUE(Durin::Asset::CreateAsset(ClipPath, Clip));
+	InitializeClip(*Clip, *Skeleton, "Walk", 1.0f, ClipKey);
+	ASSERT_TRUE(Durin::Asset::CreateAsset(LevelPath, Level));
+	auto* Actor = Level->SpawnActor<Durin::ASkeletalMeshActor>("AnimatedActor");
+	ASSERT_NE(Actor, nullptr);
+	std::string Error;
+	ASSERT_TRUE(Actor->GetSkeletalMeshComponent()->SetSkeletalMesh(Mesh, Error)) << Error;
+	ASSERT_TRUE(Actor->GetSkeletalMeshComponent()->SetAnimationClip(Clip, Error)) << Error;
+	ASSERT_TRUE(Durin::Asset::SavePackage(Skeleton->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Mesh->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Clip->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(ClipPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(SkeletonPath));
+	ASSERT_TRUE(std::filesystem::remove(CacheRoot / "SkeletalMesh/Objects"
+		/ MeshKey.substr(0, 2) / (MeshKey + ".bin")));
+	ASSERT_TRUE(std::filesystem::remove(CacheRoot / "AnimationClip/Objects"
+		/ ClipKey.substr(0, 2) / (ClipKey + ".bin")));
+
+	Durin::DPackage* MigratedPackage = nullptr;
+	const Durin::Asset::FAssetResult Load =
+		Durin::Asset::LoadPackageForMigration(LevelPath, MigratedPackage);
+	ASSERT_TRUE(Load) << Load.Message;
+	auto* MigratedLevel = Durin::Cast<Durin::DLevel>(MigratedPackage->GetAsset());
+	ASSERT_NE(MigratedLevel, nullptr);
+	auto* MigratedActor = Durin::Cast<Durin::ASkeletalMeshActor>(
+		MigratedLevel->FindActorByName("AnimatedActor"));
+	ASSERT_NE(MigratedActor, nullptr);
+	ASSERT_NE(MigratedActor->GetSkeletalMeshComponent()->GetSkeletalMesh(), nullptr);
+	ASSERT_NE(MigratedActor->GetSkeletalMeshComponent()->GetAnimationClip(), nullptr);
+	EXPECT_EQ(MigratedActor->GetSkeletalMeshComponent()->GetSkeletalMesh()->GetPayloadData(), nullptr);
+	EXPECT_EQ(MigratedActor->GetSkeletalMeshComponent()->GetAnimationClip()->GetPayloadData(), nullptr);
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(ClipPath));
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(SkeletonPath));
 	Durin::FPaths::SetDerivedDataCacheDirForTests({});
 }
 

@@ -19,6 +19,7 @@ not open the other rows or scan an entire directory.
 | Workspace, project, module, or runtime-variant ownership | [Workspace projects](Workspace/WorkspaceProjects.md) |
 | Runtime physical paths or atomic byte publication | [File I/O](Runtime/Core/FileIO.md) |
 | Runtime startup, shutdown, or frame lifecycle | [Runtime lifecycle](Runtime/Core/RuntimeLifecycle.md) |
+| Sandbox gameplay controls, tuning, camera, or ground-plane limits | [Sandbox gameplay](Runtime/Gameplay/SandboxGameplay.md) |
 | Core math aliases, operation semantics, or the GLM boundary | [Core math](Runtime/Core/Math.md) |
 | CPU tasks, dependencies, cancellation, waiting, or worker-thread ownership | [CPU task system](Runtime/Core/TaskSystem.md) |
 | Scene viewport or window-backed rendering | [Viewport rendering](Runtime/Rendering/ViewportRendering.md) |

@@ -1,2 +1,4 @@
 Game:
   DefaultLevel: /Game/Levels/NewLevel
+  NativeModule: Sandbox
+  GameModeClass: Durin::Sandbox::ADefaultGameMode
