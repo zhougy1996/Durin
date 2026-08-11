@@ -4,7 +4,7 @@ Summary: Refactor Launch into a typed command-line boundary, an explicit process
 
 Last reviewed: 2026-08-12
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-12
 
 ## Current Status
@@ -583,14 +583,14 @@ Dependencies: Stages 1-5.
 
 ## Related Documentation
 
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Native Crash Diagnostics](../Runtime/Core/NativeCrashDiagnostics.md)
-- [Build And Run](../Development/Build/BuildAndRun.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [C++ Coding Standards](../Development/Standards/CodingStandards.md)
-- [Engine Loop Orchestration Cleanup](Archive/2026-08/EngineLoopOrchestrationCleanup.md)
-- [Native Process Crash Diagnostics](Archive/2026-08/NativeProcessCrashDiagnostics.md)
-- [Native Gameplay Core](Archive/2026-08/NativeGameplayCore.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Native Crash Diagnostics](../../../Runtime/Core/NativeCrashDiagnostics.md)
+- [Build And Run](../../../Development/Build/BuildAndRun.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
+- [Engine Loop Orchestration Cleanup](EngineLoopOrchestrationCleanup.md)
+- [Native Process Crash Diagnostics](NativeProcessCrashDiagnostics.md)
+- [Native Gameplay Core](NativeGameplayCore.md)
 
 ## Related Code
 

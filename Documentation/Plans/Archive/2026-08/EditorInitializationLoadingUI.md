@@ -430,7 +430,7 @@ Dependencies: Stages 1-4.
 - [Workspace Framework](../../../Editor/Architecture/WorkspaceFramework.md)
 - [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
 - [UI Style](../../../Editor/Design/UIStyle.md)
-- [Launch Process Boundary Refactor](../../LaunchProcessBoundaryRefactor.md)
+- [Launch Process Boundary Refactor](LaunchProcessBoundaryRefactor.md)
 
 ## Related Code
 
