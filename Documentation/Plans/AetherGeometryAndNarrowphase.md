@@ -4,8 +4,8 @@ Summary: Add immutable shared collision geometry and pair dispatch, complete pri
 
 Last reviewed: 2026-08-12
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-12
 
 ## Current Status
 
@@ -18,7 +18,7 @@ zero-mismatch corpus; query and geometry work are independently counted; and
 the production boundary reaches narrow phase only after bounded traversal and
 filtering.
 
-Stages 0 through 4 are implemented and qualified. Bodies now retain immutable
+Completed at source revision `82fef8cb`. Bodies now retain immutable
 primitive or 1-64 child compound resources; BodySetup publishes one identity
 per revision; AetherCore owns the complete primitive operation/pair facade;
 and Production Capsule/Box uses exact piecewise segment/box distance with
@@ -27,10 +27,10 @@ per reference, 112 bytes per child, and 208/7,264 retained bytes for 1/64
 children. Debug full native validation passes after a successful full `all`
 build. Focused Release PhysicsScene and Sandbox suites pass; the controlled
 sparse pair median is 437 ns Production versus 11,000 ns reference (25.17x).
-Stage 5 remains to publish the completed roadmap state and source revision.
-
-M3 cooking, simulation, and concurrency remain inactive until Stage 5 records
-the immutable resource and dispatch handoff.
+The roadmap now names M3 cooked world collision as the next required milestone
+with immutable resource identity, child bounds/order, operation/pair dispatch,
+and diagnostics as its entry handoff. M3 cooking, simulation, and concurrency
+remain inactive pending their own accepted plans.
 
 ## Goal
 
@@ -329,13 +329,13 @@ allocation and one exactly reserved child-array allocation.
 
 - [x] Move shipped ownership, matrix, compound, dispatch, contact, convergence,
   fallback, and diagnostics rules into Runtime Collision documentation.
-- [ ] Update the roadmap with M2 evidence and M3 entry constraints without
+- [x] Update the roadmap with M2 evidence and M3 entry constraints without
   activating M3 prematurely.
-- [ ] Record source revision, layouts, memory, work, timing, parity, fallback,
+- [x] Record source revision, layouts, memory, work, timing, parity, fallback,
   and validation in Current Status.
-- [ ] Complete checklists/lifecycle metadata and run required plan, roadmap, and
+- [x] Complete checklists/lifecycle metadata and run required plan, roadmap, and
   repository documentation validators.
-- [ ] Stage and commit the isolated implementation/tests/docs with M2 plan and
+- [x] Stage and commit the isolated implementation/tests/docs with M2 plan and
   stage provenance.
 
 #### Acceptance Gate
