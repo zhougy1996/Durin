@@ -19,7 +19,8 @@ struct GridUniform
 {
     float4x4 WorldToClip;
     float4x4 ClipToWorld;
-    // x is the horizontal grid plane's world-space height; yzw are reserved.
+    // x is the horizontal grid plane's world-space height; y is the normalized
+    // depth bias that keeps coplanar scene geometry in front; zw are reserved.
     float4 GridPlane;
     float4 ViewPositionFadeDistance;
     float4 MinorColor;
@@ -153,6 +154,6 @@ GridFragmentOutput FragmentMain(GridVSOutput input)
 
     GridFragmentOutput output;
     output.color = color;
-    output.depth = hitDepth;
+    output.depth = saturate(hitDepth + Grid.GridPlane.y);
     return output;
 }

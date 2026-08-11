@@ -45,7 +45,8 @@ namespace Durin::EditorGridRendering
 		const float FadeDistance = std::max(1.0f, View.EditorGrid.FadeDistance);
 		OutUniform.WorldToClip = WorldToClip;
 		OutUniform.ClipToWorld = ClipToWorld;
-		OutUniform.GridPlane = {static_cast<float>(View.EditorGrid.Height), 0.0f, 0.0f, 0.0f};
+		OutUniform.GridPlane = {
+			static_cast<float>(View.EditorGrid.Height), GridDepthBias, 0.0f, 0.0f};
 		OutUniform.ViewPositionFadeDistance = FVector4f(FVector3f(View.ViewLocation), FadeDistance);
 		OutUniform.MinorColor = View.EditorGrid.MinorColor;
 		OutUniform.MajorColor = View.EditorGrid.MajorColor;

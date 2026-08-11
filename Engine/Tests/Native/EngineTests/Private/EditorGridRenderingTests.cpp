@@ -35,6 +35,8 @@ namespace Durin
 		ASSERT_TRUE(EditorGridRendering::BuildUniform(View, Uniform));
 		ExpectIdentity(glm::transpose(Uniform.WorldToClip) * glm::transpose(Uniform.ClipToWorld));
 		EXPECT_FLOAT_EQ(Uniform.GridPlane.x, 2.5f);
+		EXPECT_FLOAT_EQ(Uniform.GridPlane.y, EditorGridRendering::GridDepthBias);
+		EXPECT_GT(Uniform.GridPlane.y, 0.0f);
 		EXPECT_EQ(Uniform.ViewPositionFadeDistance, FVector4f(11.0f, 12.0f, 13.0f, 750.0f));
 		EXPECT_EQ(Uniform.MinorColor, View.EditorGrid.MinorColor);
 	}

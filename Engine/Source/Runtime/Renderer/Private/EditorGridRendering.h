@@ -5,6 +5,9 @@
 
 namespace Durin::EditorGridRendering
 {
+	// Normalized depth offset that makes coplanar scene geometry win the depth test.
+	inline constexpr float GridDepthBias = 1.e-5f;
+
 	// Mirrors the editor-grid shader uniform layout uploaded for each view.
 	struct FEditorGridUniform
 	{
