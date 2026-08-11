@@ -1,4 +1,5 @@
 #include "RHIResources.h"
+#include "RHIShaderParameterValidationInternal.h"
 
 #include "RHI.h"
 #include "RHICapabilities.h"
@@ -325,31 +326,8 @@ namespace Durin
 		std::span<const FRHIShaderParameterResource> Resources,
 		std::string& OutError) -> bool
 	{
-		for (uint32 SetIndex = 0; SetIndex < Layout.BindingLayouts.size(); ++SetIndex)
-		{
-			for (const FBindingLayoutItem& Binding :
-				Layout.BindingLayouts[SetIndex].BindingLayouts)
-			{
-				for (uint32 ArrayElement = 0; ArrayElement < Binding.ArraySize;
-					++ArrayElement)
-				{
-					const auto It = std::ranges::find_if(Resources,
-						[=](const FRHIShaderParameterResource& Resource) {
-							return Resource.SetIndex == SetIndex
-								&& Resource.BindingIndex == Binding.Slot
-								&& Resource.ArrayElement == ArrayElement;
-						});
-					if (It == Resources.end() || !It->Resource
-						|| It->Type != Binding.Type)
-					{
-						OutError = "Draw is missing a required shader binding element.";
-						return false;
-					}
-				}
-			}
-		}
-		OutError.clear();
-		return true;
+		return RHIShaderParameterValidationInternal::VisitOrderedBindings(
+			Layout, Resources, [](const auto&, const auto&) {}, OutError);
 	}
 
 	auto BuildGraphicsPipelineStateKey(

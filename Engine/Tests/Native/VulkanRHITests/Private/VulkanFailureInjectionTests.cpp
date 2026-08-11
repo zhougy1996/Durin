@@ -924,6 +924,7 @@ namespace Durin::VulkanRHI
 			SCOPED_TRACE(Modes[ModeIndex]);
 			_putenv_s("DURIN_RHI_EXECUTION", Modes[ModeIndex]);
 			ASSERT_TRUE(RHIInit());
+			ResetVulkanHotPathWorkTestStats();
 			FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
 
 			auto MakeShaderDesc = [](const FCompiledShader& Shader) {
@@ -1033,6 +1034,13 @@ namespace Durin::VulkanRHI
 			Commands.SetShaderParameters(VertexShader, TextureParameters);
 			Commands.SetShaderParameters(FragmentShader, SamplerParameters);
 			Commands.Draw({.VertexCount = 3});
+			Commands.Draw({.VertexCount = 3});
+			for (uint32 SnapshotIndex = 1; SnapshotIndex <= 512; ++SnapshotIndex)
+			{
+				SamplerParameters[0].Offset = SnapshotIndex;
+				Commands.SetShaderParameters(FragmentShader, SamplerParameters);
+				Commands.Draw({.VertexCount = 3});
+			}
 			Commands.EndRenderPass();
 			Commands.EndGPUTimingQuery(Timing);
 			Commands.EndDiagnosticRegion();
@@ -1062,6 +1070,28 @@ namespace Durin::VulkanRHI
 			EXPECT_GT(ModeSnapshots[ModeIndex].Naming.LabelBegins, 0u);
 			EXPECT_GT(ModeSnapshots[ModeIndex].Timing.ReadyResultCount, 0u);
 			EXPECT_EQ(ModeSnapshots[ModeIndex].Naming.ActiveRegionDepth, 0u);
+			EXPECT_EQ(ModeSnapshots[ModeIndex].GraphicsCache
+				.DescriptorSnapshots.Occupancy, 512u);
+			EXPECT_EQ(ModeSnapshots[ModeIndex].GraphicsCache
+				.DescriptorValueOccupancy, 1536u);
+			EXPECT_GE(ModeSnapshots[ModeIndex].GraphicsCache
+				.DescriptorSnapshots.Hits, 1u);
+			EXPECT_GE(ModeSnapshots[ModeIndex].GraphicsCache
+				.DescriptorSnapshots.Evictions, 1u);
+			const FVulkanHotPathWorkTestStats HotPathWork =
+				GetVulkanHotPathWorkTestStats();
+			EXPECT_EQ(HotPathWork.BindingValidationVisits, 1542u);
+			EXPECT_EQ(HotPathWork.DescriptorOccupancyVerificationVisits, 0u);
+			EXPECT_EQ(HotPathWork.DescriptorOccupancyMutations, 514u);
+
+			FRHIDiagnosticSnapshot StatisticsReset;
+			GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
+				GDynamicRHI->RHIResetDiagnosticStatistics();
+				StatisticsReset = GDynamicRHI->RHIGetDiagnosticSnapshot();
+			});
+			EXPECT_EQ(StatisticsReset.GraphicsCache.DescriptorSnapshots.Occupancy, 512u);
+			EXPECT_EQ(StatisticsReset.GraphicsCache.DescriptorValueOccupancy, 1536u);
+			EXPECT_EQ(StatisticsReset.GraphicsCache.DescriptorSnapshots.Hits, 0u);
 
 			Replacement = nullptr;
 			Timing = nullptr;

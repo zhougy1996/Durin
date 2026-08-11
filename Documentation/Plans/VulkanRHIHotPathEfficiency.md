@@ -4,8 +4,8 @@ Summary: Remove avoidable descriptor-validation scans, barrier-lowering allocati
 
 Last reviewed: 2026-08-11
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-11
 
 ## Current Status
 
@@ -29,6 +29,19 @@ The correctness-hardening baseline passes 59 `RHICommandListTests` cases and
 work counters and allocation-sensitive fixtures, then optimizes only work that
 the evidence shows is redundant. Swapchain maintenance and the maintenance-
 unavailable queue-idle fallback remain explicitly outside scope.
+
+Completion evidence:
+
+| Hot path | Before | Completed evidence |
+| --- | --- | --- |
+| Binding completeness | A 64-element complete array performed 2,080 snapshot comparisons, followed by another Vulkan layout/resource search and a dynamic-offset pass. | The shared ordered cursor performs 64 validation visits. A 514-draw, three-element Vulkan cache-hit/eviction fixture reports exactly 1,542 visits. |
+| Barrier lowering | Every input constructed one synchronization2 and one legacy record and reserved both vectors. | Forced legacy and synchronization2 fixtures each construct 130 buffer and two image records for 130/two inputs, with zero inactive-path records. Operation-local single-path vectors retain zero context capacity after small or 64-element burst batches. |
+| Descriptor occupancy | Insertion and other mutations called a full pipeline/cache/value refresh. | The hit/insertion/eviction fixture reports 514 local occupancy mutations and zero verification traversal visits; the bounded result remains exactly 512 entries/1,536 values across statistics reset. Clear, pipeline deletion, and context reset subtract their exact owned counts; test-only cold verification independently recomputes totals. |
+
+Qualification completed on the `windows-msvc-x64` Agent Build Profile:
+`RHICommandListTests` 60/60, `VulkanRHIIntegrationTests` 54/54, changed-document
+validation, incremental full `all` build, and validation-enabled hidden
+DurinEditor PIE lifecycle smoke through normal shutdown.
 
 ## Goal
 
@@ -146,18 +159,18 @@ diagnostics, or resource lifetime.
 Outcome: correctness invariants and deterministic redundant-work measurements
 are executable before optimization.
 
-- [ ] Record expected flattened binding order and diagnostic precedence for
+- [x] Record expected flattened binding order and diagnostic precedence for
   scalar, array, missing, null, mismatched, duplicate, and trailing records.
-- [ ] Add work-count fixtures that expose the current nested completeness
+- [x] Add work-count fixtures that expose the current nested completeness
   search and repeated Vulkan binding traversal at representative binding sizes.
-- [ ] Add sync2 and legacy lowering fixtures that count native barrier records
+- [x] Add sync2 and legacy lowering fixtures that count native barrier records
   constructed for buffer and texture batches without requiring two GPUs.
-- [ ] Add descriptor occupancy mutation fixtures for insertion, cache hit,
+- [x] Add descriptor occupancy mutation fixtures for insertion, cache hit,
   eviction, clear, pipeline deletion, frame reset, failed creation, and context
   reset.
-- [ ] Measure small and burst transition capacity behavior and choose a frozen
+- [x] Measure small and burst transition capacity behavior and choose a frozen
   scratch-retention bound or operation-local single-path strategy.
-- [ ] Confirm the pre-change 59/59 RHI and 54/54 Vulkan baselines.
+- [x] Confirm the pre-change 59/59 RHI and 54/54 Vulkan baselines.
 
 #### Acceptance Gate
 
@@ -173,17 +186,17 @@ are executable before optimization.
 Outcome: draw preparation proves completeness and Vulkan resource compatibility
 with one ordered correspondence rather than nested lookup scans.
 
-- [ ] Introduce one private flattening/ordered-walk helper or equivalent cursor
+- [x] Introduce one private flattening/ordered-walk helper or equivalent cursor
   logic shared by portable completeness and Vulkan draw preparation.
-- [ ] Preserve exact set, binding, array-element, type, null-resource, and stage
+- [x] Preserve exact set, binding, array-element, type, null-resource, and stage
   validation plus deterministic diagnostic precedence.
-- [ ] Fold Vulkan buffer-view, texture-view, exact texture-state, sampler-kind,
+- [x] Fold Vulkan buffer-view, texture-view, exact texture-state, sampler-kind,
   and dynamic-offset checks into the ordered resource walk before cache lookup.
-- [ ] Build dynamic offsets in Vulkan-required binding order without adding a
+- [x] Build dynamic offsets in Vulkan-required binding order without adding a
   second resource traversal where the ordered walk can emit them directly.
-- [ ] Retain descriptor hash/equality, resource ownership, cache hit behavior,
+- [x] Retain descriptor hash/equality, resource ownership, cache hit behavior,
   and threaded/inline execution semantics.
-- [ ] Run focused RHI binding tests and Vulkan descriptor/conformance coverage.
+- [x] Run focused RHI binding tests and Vulkan descriptor/conformance coverage.
 
 #### Acceptance Gate
 
@@ -199,18 +212,18 @@ with one ordered correspondence rather than nested lookup scans.
 Outcome: each transition batch validates once and constructs only the Vulkan
 barriers that the active synchronization path consumes.
 
-- [ ] Select sync2 versus legacy lowering before barrier construction for both
+- [x] Select sync2 versus legacy lowering before barrier construction for both
   buffer and texture transitions.
-- [ ] Share portable validation/mapping logic without materializing the unused
+- [x] Share portable validation/mapping logic without materializing the unused
   native barrier representation.
-- [ ] Apply the Stage 0 storage strategy and enforce its retained-capacity bound
+- [x] Apply the Stage 0 storage strategy and enforce its retained-capacity bound
   for small normal batches and oversized bursts.
-- [ ] Preserve all-before-record validation, legacy stage aggregation, queue-
+- [x] Preserve all-before-record validation, legacy stage aggregation, queue-
   family ignored fields, image layouts, exact ranges, and post-record tracker
   commit ordering.
-- [ ] Cover sync2 and legacy buffer/texture mappings, rejection atomicity,
+- [x] Cover sync2 and legacy buffer/texture mappings, rejection atomicity,
   repeated small batches, burst batches, and inline/threaded replay.
-- [ ] Run focused RHI transition and Vulkan integration targets.
+- [x] Run focused RHI transition and Vulkan integration targets.
 
 #### Acceptance Gate
 
@@ -226,17 +239,17 @@ barriers that the active synchronization path consumes.
 Outcome: descriptor cache mutations update exact occupancy locally and no hot
 mutation rescans all pipeline descriptor states.
 
-- [ ] Add context-owned entry/value totals with checked add/subtract helpers.
-- [ ] Update totals atomically with successful insertion, LRU eviction, clear,
+- [x] Add context-owned entry/value totals with checked add/subtract helpers.
+- [x] Update totals atomically with successful insertion, LRU eviction, clear,
   pipeline deletion, frame reset, and context reset ownership changes.
-- [ ] Keep failed descriptor allocation/update candidates and cache hits neutral
+- [x] Keep failed descriptor allocation/update candidates and cache hits neutral
   to occupancy while preserving existing accumulated counters.
-- [ ] Remove production calls to full `RefreshDescriptorCacheOccupancy` from
+- [x] Remove production calls to full `RefreshDescriptorCacheOccupancy` from
   hot mutation paths; retain a test/debug recomputation assertion only if it
   provides useful invariant evidence.
-- [ ] Cover zero/nonzero pipelines, mixed entry sizes, repeated reset, eviction,
+- [x] Cover zero/nonzero pipelines, mixed entry sizes, repeated reset, eviction,
   failure recovery, and statistics reset semantics.
-- [ ] Run focused Vulkan descriptor-cache and diagnostic-statistics coverage.
+- [x] Run focused Vulkan descriptor-cache and diagnostic-statistics coverage.
 
 #### Acceptance Gate
 
@@ -252,18 +265,18 @@ mutation rescans all pipeline descriptor states.
 Outcome: measured hot-path reductions are regression-qualified and documented
 without broadening rendering behavior.
 
-- [ ] Update lasting graphics-binding, transition, and Vulkan cache ownership
+- [x] Update lasting graphics-binding, transition, and Vulkan cache ownership
   documents only where the optimized implementation changes a durable rule.
-- [ ] Record before/after deterministic work counts and capacity evidence in
+- [x] Record before/after deterministic work counts and capacity evidence in
   this plan; do not claim unsupported wall-clock gains.
-- [ ] Run documentation validation plus the smallest affected RHI and Vulkan
+- [x] Run documentation validation plus the smallest affected RHI and Vulkan
   native targets under repository guidance.
-- [ ] Run a full `all` build because the implementation crosses shared RHI and
+- [x] Run a full `all` build because the implementation crosses shared RHI and
   VulkanRHI runtime/test boundaries.
-- [ ] Run a validation-enabled hidden Editor smoke covering ordinary rendering,
+- [x] Run a validation-enabled hidden Editor smoke covering ordinary rendering,
   resize, and shutdown; detached viewport WSI remains covered by the retained
   Vulkan integration suite.
-- [ ] Review code, tests, measurements, documentation, and exclusions before
+- [x] Review code, tests, measurements, documentation, and exclusions before
   marking the plan Completed.
 
 #### Acceptance Gate

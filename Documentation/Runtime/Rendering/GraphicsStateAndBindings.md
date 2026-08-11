@@ -62,7 +62,12 @@ Updates must belong to a shader in the active PSO and must match reflected
 set, binding, array extent, and type. Before descriptor allocation or the
 first write, draw preparation requires every reflected array element and
 scalar to be populated, validates view usage and ranges, and checks dynamic
-uniform alignment. Dynamic offsets are ordered submission data and do not
+uniform alignment. Canonical layout elements and the sorted resource snapshot
+are walked once in set, binding, and array-element order; the same validated
+correspondence performs Vulkan kind/view/state checks and emits dynamic offsets.
+Missing, null, mismatched, duplicate, and trailing records therefore retain a
+deterministic rejection point without a per-element snapshot search. Dynamic
+offsets are ordered submission data and do not
 participate in immutable descriptor identity. Binding a different PSO selects
 state for that complete PSO identity, so an incompatible layout cannot inherit
 stale values.
@@ -99,7 +104,11 @@ complete cache entry or fails without replacing the renderer's current PSO.
 `RHIGetGraphicsCacheStatistics` returns capacity, live occupancy, hits,
 misses, native creations, evictions, failed candidates, descriptor allocation
 and pool-expansion counts, and persistence counters without waiting for the
-GPU. Counters accumulate for the device lifetime.
+GPU. Descriptor entry and retained-value occupancy are updated with the cache
+mutation that inserts or removes their owner; insertion, hits, and statistics
+reset do not rescan unrelated pipeline descriptor states. Debug/test cold
+boundaries may independently recompute the totals to check this invariant.
+Counters accumulate for the device lifetime.
 `RHIResetGraphicsCacheStatistics` clears accumulated counters while preserving
 capacities and live occupancy.
 

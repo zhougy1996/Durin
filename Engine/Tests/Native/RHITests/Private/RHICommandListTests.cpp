@@ -2,6 +2,7 @@
 
 #include "RHI.h"
 #include "RHIContext.h"
+#include "RHIShaderParameterValidationInternal.h"
 #include "RHIThread.h"
 #include "Threading/ThreadEvent.h"
 #include "Threading/RunnableThread.h"
@@ -1872,5 +1873,52 @@ namespace Durin
 		Resources[1].Type = ERHIBindingType::Texture;
 		EXPECT_FALSE(ValidateShaderParameterUpdate(Layout,
 			EShaderStageFlags::Fragment, Resources, Error));
+	}
+
+	TEST(FRHICommandListTests, BindingCompletenessUsesOneOrderedLinearWalk)
+	{
+		FPipelineLayoutDesc Layout;
+		Layout.BindingLayouts.emplace_back().BindingLayouts.emplace_back(
+			EShaderStageFlags::Fragment, 2, ERHIBindingType::Sampler, 64);
+		std::vector<FRHIShaderParameterResource> Resources;
+		Resources.reserve(64);
+		for (uint32 ArrayElement = 0; ArrayElement < 64; ++ArrayElement)
+		{
+			Resources.push_back({
+				.Resource = reinterpret_cast<FRHIResource*>(
+					static_cast<uintptr_t>(ArrayElement + 1)),
+				.SetIndex = 0, .BindingIndex = 2, .ArrayElement = ArrayElement,
+				.Type = ERHIBindingType::Sampler});
+		}
+
+		uint64 Visits = 0;
+		std::vector<uint32> VisitedElements;
+		std::string Error;
+		EXPECT_TRUE(RHIShaderParameterValidationInternal::VisitOrderedBindings(
+			Layout, Resources,
+			[&](const RHIShaderParameterValidationInternal::FBindingElement& Element,
+				const FRHIShaderParameterResource&) {
+					VisitedElements.push_back(Element.ArrayElement);
+				}, Error, &Visits)) << Error;
+		EXPECT_EQ(Visits, 64u);
+		EXPECT_EQ(VisitedElements.size(), 64u);
+		EXPECT_EQ(VisitedElements.front(), 0u);
+		EXPECT_EQ(VisitedElements.back(), 63u);
+
+		Resources[31].Resource = nullptr;
+		Visits = 0;
+		EXPECT_FALSE(RHIShaderParameterValidationInternal::VisitOrderedBindings(
+			Layout, Resources, [](const auto&, const auto&) {}, Error, &Visits));
+		EXPECT_EQ(Visits, 32u);
+		EXPECT_EQ(Error, "Draw is missing a required shader binding element.");
+
+		Resources[31].Resource = reinterpret_cast<FRHIResource*>(uintptr_t{32});
+		Resources.push_back(Resources.back());
+		Resources.back().ArrayElement = 64;
+		Visits = 0;
+		EXPECT_FALSE(RHIShaderParameterValidationInternal::VisitOrderedBindings(
+			Layout, Resources, [](const auto&, const auto&) {}, Error, &Visits));
+		EXPECT_EQ(Visits, 65u);
+		EXPECT_EQ(Error, "Draw contains an unexpected shader binding element.");
 	}
 } // namespace Durin

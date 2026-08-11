@@ -97,7 +97,9 @@ namespace Durin::VulkanRHI
 		auto FindOrAddDescriptorState(FVulkanGraphicsPipelineState& InPipelineState) -> FVulkanGraphicsPipelineDescriptorState&;
 		auto TouchDescriptorCacheEntry(FVulkanGraphicsPipelineDescriptorState::FVulkanDescriptorSetCacheEntry& Entry) -> void;
 		auto EnforceDescriptorCacheBudget() -> void;
-		auto RefreshDescriptorCacheOccupancy() -> void;
+		auto AddDescriptorCacheOccupancy(uint64 EntryCount, uint64 ValueCount) -> void;
+		auto RemoveDescriptorCacheOccupancy(uint64 EntryCount, uint64 ValueCount) -> void;
+		auto VerifyDescriptorCacheOccupancy() const -> void;
 
 		FVulkanDevice& Device;
 
@@ -112,5 +114,7 @@ namespace Durin::VulkanRHI
 		// Owns descriptor states by raw pointer; Reset deletes every value.
 		std::unordered_map<FVulkanGraphicsPipelineState*, FVulkanGraphicsPipelineDescriptorState*> PipelineStates;
 		uint64 DescriptorAccessSerial = 0;
+		uint64 DescriptorEntryOccupancy = 0;
+		uint64 DescriptorValueOccupancy = 0;
 	};
 } // namespace Durin::VulkanRHI

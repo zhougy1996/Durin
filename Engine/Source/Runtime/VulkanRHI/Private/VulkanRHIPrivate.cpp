@@ -52,6 +52,14 @@ namespace Durin::VulkanRHI
 	std::atomic<uint64> GVulkanReleasedFramebufferViewCount = 0;
 	std::atomic<uint64> GVulkanCreatedFramebufferCount = 0;
 	std::atomic<uint64> GVulkanReleasedFramebufferCount = 0;
+	std::atomic<uint64> GVulkanSync2BufferBarrierCount = 0;
+	std::atomic<uint64> GVulkanLegacyBufferBarrierCount = 0;
+	std::atomic<uint64> GVulkanSync2ImageBarrierCount = 0;
+	std::atomic<uint64> GVulkanLegacyImageBarrierCount = 0;
+	std::atomic<int32> GVulkanBarrierPathOverride = -1;
+	std::atomic<uint64> GVulkanBindingValidationVisitCount = 0;
+	std::atomic<uint64> GVulkanDescriptorOccupancyVerificationVisitCount = 0;
+	std::atomic<uint64> GVulkanDescriptorOccupancyMutationCount = 0;
 	std::atomic<uint64> GVulkanDebugMessengerCreatedCount = 0;
 	std::atomic<uint64> GVulkanDebugMessengerDestroyedCount = 0;
 	std::atomic<uint64> GVulkanDebugMessengerActiveCount = 0;
@@ -228,6 +236,47 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		FVulkanDynamicRHI::Get().GetDeviceForTesting()
 			->GetDeferredDeletionQueue().ReleaseResources();
+	}
+
+	auto ResetVulkanHotPathWorkTestStats() -> void
+	{
+		GVulkanSync2BufferBarrierCount.store(0, std::memory_order_release);
+		GVulkanLegacyBufferBarrierCount.store(0, std::memory_order_release);
+		GVulkanSync2ImageBarrierCount.store(0, std::memory_order_release);
+		GVulkanLegacyImageBarrierCount.store(0, std::memory_order_release);
+		GVulkanBindingValidationVisitCount.store(0, std::memory_order_release);
+		GVulkanDescriptorOccupancyVerificationVisitCount.store(0, std::memory_order_release);
+		GVulkanDescriptorOccupancyMutationCount.store(0, std::memory_order_release);
+	}
+
+	auto GetVulkanHotPathWorkTestStats() -> FVulkanHotPathWorkTestStats
+	{
+		return {
+			.Sync2BufferBarriers = GVulkanSync2BufferBarrierCount.load(std::memory_order_acquire),
+			.LegacyBufferBarriers = GVulkanLegacyBufferBarrierCount.load(std::memory_order_acquire),
+			.Sync2ImageBarriers = GVulkanSync2ImageBarrierCount.load(std::memory_order_acquire),
+			.LegacyImageBarriers = GVulkanLegacyImageBarrierCount.load(std::memory_order_acquire),
+			.BindingValidationVisits = GVulkanBindingValidationVisitCount.load(std::memory_order_acquire),
+			.DescriptorOccupancyVerificationVisits = GVulkanDescriptorOccupancyVerificationVisitCount.load(std::memory_order_acquire),
+			.DescriptorOccupancyMutations = GVulkanDescriptorOccupancyMutationCount.load(std::memory_order_acquire)};
+	}
+
+	auto SetVulkanBarrierPathOverrideForTest(
+		std::optional<bool> bUseSynchronization2) -> void
+	{
+		GVulkanBarrierPathOverride.store(
+			bUseSynchronization2.has_value() ? (*bUseSynchronization2 ? 1 : 0) : -1,
+			std::memory_order_release);
+	}
+
+	auto SelectVulkanSynchronization2BarrierPath(
+		bool bSupportsSynchronization2) -> bool
+	{
+		const int32 Override = GVulkanBarrierPathOverride.load(
+			std::memory_order_acquire);
+		checkf(Override != 1 || bSupportsSynchronization2,
+			"Synchronization2 barrier override requires device support.");
+		return Override < 0 ? bSupportsSynchronization2 : Override != 0;
 	}
 #endif
 

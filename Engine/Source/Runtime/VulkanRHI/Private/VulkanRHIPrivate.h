@@ -141,6 +141,32 @@ namespace Durin::VulkanRHI
 	VULKANRHI_API auto SubmitAndRetireDescriptorPoolsForTesting() -> uint64;
 	VULKANRHI_API auto WaitForAllVulkanSubmissionsForTesting() -> void;
 	VULKANRHI_API auto ReleaseCompletedVulkanResourcesForTesting() -> void;
+
+	struct FVulkanHotPathWorkTestStats
+	{
+		uint64 Sync2BufferBarriers = 0;
+		uint64 LegacyBufferBarriers = 0;
+		uint64 Sync2ImageBarriers = 0;
+		uint64 LegacyImageBarriers = 0;
+		uint64 BindingValidationVisits = 0;
+		uint64 DescriptorOccupancyVerificationVisits = 0;
+		uint64 DescriptorOccupancyMutations = 0;
+	};
+	VULKANRHI_API auto ResetVulkanHotPathWorkTestStats() -> void;
+	VULKANRHI_API auto GetVulkanHotPathWorkTestStats()
+		-> FVulkanHotPathWorkTestStats;
+	VULKANRHI_API auto SetVulkanBarrierPathOverrideForTest(
+		std::optional<bool> bUseSynchronization2) -> void;
+	VULKANRHI_API auto SelectVulkanSynchronization2BarrierPath(
+		bool bSupportsSynchronization2) -> bool;
+	extern std::atomic<uint64> GVulkanSync2BufferBarrierCount;
+	extern std::atomic<uint64> GVulkanLegacyBufferBarrierCount;
+	extern std::atomic<uint64> GVulkanSync2ImageBarrierCount;
+	extern std::atomic<uint64> GVulkanLegacyImageBarrierCount;
+	extern std::atomic<int32> GVulkanBarrierPathOverride;
+	extern std::atomic<uint64> GVulkanBindingValidationVisitCount;
+	extern std::atomic<uint64> GVulkanDescriptorOccupancyVerificationVisitCount;
+	extern std::atomic<uint64> GVulkanDescriptorOccupancyMutationCount;
 #endif
 
 	class FVulkanDevice;

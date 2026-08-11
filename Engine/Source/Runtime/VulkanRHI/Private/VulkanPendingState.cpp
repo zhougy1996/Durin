@@ -9,6 +9,7 @@
 #include "VulkanRHIPrivate.h"
 #include "VulkanTexture.h"
 #include "VulkanView.h"
+#include "RHIShaderParameterValidationInternal.h"
 
 namespace Durin::VulkanRHI
 {
@@ -124,7 +125,7 @@ namespace Durin::VulkanRHI
 		{
 			Entry.second->ClearDescriptorSetCache();
 		}
-		RefreshDescriptorCacheOccupancy();
+		VerifyDescriptorCacheOccupancy();
 	}
 
 	auto FVulkanPendingGraphicsState::NotifyDeletedPipeline(
@@ -140,7 +141,7 @@ namespace Durin::VulkanRHI
 		{
 			delete It->second;
 			PipelineStates.erase(It);
-			RefreshDescriptorCacheOccupancy();
+			VerifyDescriptorCacheOccupancy();
 		}
 	}
 
@@ -154,11 +155,14 @@ namespace Durin::VulkanRHI
 			delete State;
 		}
 		PipelineStates.clear();
-		RefreshDescriptorCacheOccupancy();
+		VerifyDescriptorCacheOccupancy();
 	}
 
 	auto FVulkanGraphicsPipelineDescriptorState::ClearDescriptorSetCache() -> void
 	{
+		uint64 ValueCount = 0;
+		for (const auto& Entry : DescriptorSetCache) ValueCount += Entry.Resources.size();
+		Owner.RemoveDescriptorCacheOccupancy(DescriptorSetCache.size(), ValueCount);
 		DescriptorSetCache.clear();
 		DescriptorSetCacheIndex.clear();
 	}
@@ -167,8 +171,7 @@ namespace Durin::VulkanRHI
 	{
 		PendingShaderResources.clear();
 		PendingResourceOwners.clear();
-		DescriptorSetCache.clear();
-		DescriptorSetCacheIndex.clear();
+		ClearDescriptorSetCache();
 	}
 
 	auto FVulkanPendingGraphicsState::SetScissorRect(uint32 MinX, uint32 MinY, uint32 Width, uint32 Height) -> void
@@ -263,29 +266,15 @@ namespace Durin::VulkanRHI
 
 		SortDescriptorResources(PendingShaderResources);
 		std::string CompletenessError;
-		checkf(ValidateShaderBindingCompleteness(PipelineState.GetKey().PipelineLayout,
-			PendingShaderResources, CompletenessError),
-			"Invalid shader binding snapshot: {}", CompletenessError);
-		for (uint32 SetIndex = 0;
-			SetIndex < DescriptorSetsLayout.GetInfo().GetLayouts().size(); ++SetIndex)
-		{
-			const FBindingLayout& Set = PipelineState.GetKey()
-				.PipelineLayout.BindingLayouts[SetIndex];
-			for (const FBindingLayoutItem& Binding : Set.BindingLayouts)
-			{
-				for (uint32 ArrayElement = 0; ArrayElement < Binding.ArraySize;
-					++ArrayElement)
-				{
-					const auto ResourceIt = std::ranges::find_if(PendingShaderResources,
-						[=](const FRHIShaderParameterResource& Resource) {
-							return Resource.SetIndex == SetIndex
-								&& Resource.BindingIndex == Binding.Slot
-								&& Resource.ArrayElement == ArrayElement;
-						});
-					checkf(ResourceIt != PendingShaderResources.end()
-						&& ResourceIt->Resource && ResourceIt->Type == Binding.Type,
-						"Draw is missing a required shader binding element.");
-					const FRHIResource* Resource = ResourceIt->Resource;
+		std::vector<uint32> DynamicOffsets;
+		DynamicOffsets.reserve(PendingShaderResources.size());
+		uint64 BindingValidationVisits = 0;
+		const bool bBindingsValid = RHIShaderParameterValidationInternal::VisitOrderedBindings(
+			PipelineState.GetKey().PipelineLayout, PendingShaderResources,
+			[&](const RHIShaderParameterValidationInternal::FBindingElement& Element,
+				const FRHIShaderParameterResource& ResourceRecord) {
+					const FBindingLayoutItem& Binding = *Element.Binding;
+					const FRHIResource* Resource = ResourceRecord.Resource;
 					if (Binding.Type == ERHIBindingType::UniformBuffer
 						|| Binding.Type == ERHIBindingType::UniformBufferDynamic
 						|| Binding.Type == ERHIBindingType::StorageBuffer)
@@ -303,8 +292,9 @@ namespace Durin::VulkanRHI
 						{
 							const uint64 Alignment = Device.GetGpuProperties().limits
 								.minUniformBufferOffsetAlignment;
-							checkf(Alignment == 0 || (ResourceIt->Offset % Alignment) == 0,
+							checkf(Alignment == 0 || (ResourceRecord.Offset % Alignment) == 0,
 								"Dynamic uniform offset is not device-aligned.");
+							DynamicOffsets.push_back(ResourceRecord.Offset);
 						}
 					}
 					else if (Binding.Type == ERHIBindingType::Texture
@@ -327,26 +317,20 @@ namespace Durin::VulkanRHI
 							VulkanTexture->GetStateTracker(), View->GetDesc().Range,
 							Binding.Type, TrackedAccess),
 							"Image descriptor binding state mismatch: set={}, binding={}, element={}, type={}, expectedAccess={}, trackedAccess={}.",
-							SetIndex, Binding.Slot, ArrayElement,
+							Element.SetIndex, Binding.Slot, Element.ArrayElement,
 							static_cast<uint32>(Binding.Type), static_cast<uint32>(ExpectedAccess),
 							static_cast<uint32>(TrackedAccess));
 					}
 					else
 						checkf(Resource->GetResourceType() == ERHIResourceType::Sampler,
 							"Sampler descriptor requires a sampler resource.");
-				}
-			}
-		}
+				}, CompletenessError, &BindingValidationVisits);
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		GVulkanBindingValidationVisitCount.fetch_add(
+			BindingValidationVisits, std::memory_order_relaxed);
+#endif
+		checkf(bBindingsValid, "Invalid shader binding snapshot: {}", CompletenessError);
 		const uint64 DescriptorHash = CalculatePendingDescriptorHash();
-
-		std::vector<uint32> DynamicOffsets;
-		for (const FRHIShaderParameterResource& Resource : PendingShaderResources)
-		{
-			if (Resource.Type == ERHIBindingType::UniformBufferDynamic)
-			{
-				DynamicOffsets.push_back(Resource.Offset);
-			}
-		}
 
 		// Hash is a fast reject only; resource equality is still checked before cache reuse.
 		const auto [FirstCandidate, LastCandidate] = DescriptorSetCacheIndex.equal_range(DescriptorHash);
@@ -362,9 +346,8 @@ namespace Durin::VulkanRHI
 		}
 		++Device.GetGraphicsCacheStatisticsMutable().DescriptorSnapshots.Misses;
 
-		FVulkanDescriptorSetCacheEntry& NewEntry = DescriptorSetCache.emplace_back();
+		FVulkanDescriptorSetCacheEntry NewEntry;
 		NewEntry.Hash = DescriptorHash;
-		DescriptorSetCacheIndex.emplace(DescriptorHash, DescriptorSetCache.size() - 1);
 		NewEntry.Resources = PendingShaderResources;
 		NewEntry.ResourceOwners.reserve(NewEntry.Resources.size());
 		for (FRHIShaderParameterResource& Resource : NewEntry.Resources)
@@ -466,9 +449,12 @@ namespace Durin::VulkanRHI
 		Device.GetHandle().updateDescriptorSets(DescriptorWrites, {});
 		++Device.GetGraphicsCacheStatisticsMutable().DescriptorSnapshots.NativeCreations;
 		++Device.GetGraphicsCacheStatisticsMutable().DescriptorAllocations;
-		Owner.TouchDescriptorCacheEntry(NewEntry);
+		DescriptorSetCache.push_back(std::move(NewEntry));
+		DescriptorSetCacheIndex.emplace(DescriptorHash, DescriptorSetCache.size() - 1);
+		FVulkanDescriptorSetCacheEntry& CommittedEntry = DescriptorSetCache.back();
+		Owner.AddDescriptorCacheOccupancy(1, CommittedEntry.Resources.size());
+		Owner.TouchDescriptorCacheEntry(CommittedEntry);
 		Owner.EnforceDescriptorCacheBudget();
-		Owner.RefreshDescriptorCacheOccupancy();
 		for (FVulkanDescriptorSetCacheEntry& Entry : DescriptorSetCache)
 		{
 			if (Entry.LastUsed == Owner.DescriptorAccessSerial)
@@ -484,36 +470,74 @@ namespace Durin::VulkanRHI
 		Entry.LastUsed = ++DescriptorAccessSerial;
 	}
 
-	auto FVulkanPendingGraphicsState::RefreshDescriptorCacheOccupancy() -> void
+	auto FVulkanPendingGraphicsState::AddDescriptorCacheOccupancy(
+		uint64 EntryCount, uint64 ValueCount) -> void
 	{
+		check(DescriptorEntryOccupancy <= std::numeric_limits<uint64>::max() - EntryCount);
+		check(DescriptorValueOccupancy <= std::numeric_limits<uint64>::max() - ValueCount);
+		DescriptorEntryOccupancy += EntryCount;
+		DescriptorValueOccupancy += ValueCount;
+		auto& Stats = Device.GetGraphicsCacheStatisticsMutable();
+		Stats.DescriptorSnapshots.Occupancy = DescriptorEntryOccupancy;
+		Stats.DescriptorValueOccupancy = DescriptorValueOccupancy;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		GVulkanDescriptorOccupancyMutationCount.fetch_add(1, std::memory_order_relaxed);
+#endif
+	}
+
+	auto FVulkanPendingGraphicsState::RemoveDescriptorCacheOccupancy(
+		uint64 EntryCount, uint64 ValueCount) -> void
+	{
+		check(EntryCount <= DescriptorEntryOccupancy);
+		check(ValueCount <= DescriptorValueOccupancy);
+		DescriptorEntryOccupancy -= EntryCount;
+		DescriptorValueOccupancy -= ValueCount;
+		auto& Stats = Device.GetGraphicsCacheStatisticsMutable();
+		Stats.DescriptorSnapshots.Occupancy = DescriptorEntryOccupancy;
+		Stats.DescriptorValueOccupancy = DescriptorValueOccupancy;
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		if (EntryCount != 0 || ValueCount != 0)
+			GVulkanDescriptorOccupancyMutationCount.fetch_add(1, std::memory_order_relaxed);
+#endif
+	}
+
+	auto FVulkanPendingGraphicsState::VerifyDescriptorCacheOccupancy() const -> void
+	{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
 		uint64 EntryCount = 0;
 		uint64 ValueCount = 0;
 		for (const auto* State : PipelineStates | std::views::values)
 		{
+			GVulkanDescriptorOccupancyVerificationVisitCount.fetch_add(
+				1, std::memory_order_relaxed);
 			EntryCount += State->DescriptorSetCache.size();
-			for (const auto& Entry : State->DescriptorSetCache) ValueCount += Entry.Resources.size();
+			for (const auto& Entry : State->DescriptorSetCache)
+			{
+				GVulkanDescriptorOccupancyVerificationVisitCount.fetch_add(
+					1, std::memory_order_relaxed);
+				ValueCount += Entry.Resources.size();
+			}
 		}
-		auto& Stats = Device.GetGraphicsCacheStatisticsMutable();
-		Stats.DescriptorSnapshots.Occupancy = EntryCount;
-		Stats.DescriptorValueOccupancy = ValueCount;
+		checkfSlow(EntryCount == DescriptorEntryOccupancy
+			&& ValueCount == DescriptorValueOccupancy,
+			"Incremental descriptor occupancy diverged from owned cache state.");
+#endif
 	}
 
 	auto FVulkanPendingGraphicsState::EnforceDescriptorCacheBudget() -> void
 	{
 		while (true)
 		{
-			uint64 EntryCount = 0;
-			uint64 ValueCount = 0;
+			if (DescriptorEntryOccupancy <= 512 && DescriptorValueOccupancy <= 8192)
+				break;
 			FVulkanGraphicsPipelineDescriptorState* VictimState = nullptr;
 			size_t VictimIndex = 0;
 			uint64 Oldest = std::numeric_limits<uint64>::max();
 			for (auto* State : PipelineStates | std::views::values)
 			{
-				EntryCount += State->DescriptorSetCache.size();
 				for (size_t Index = 0; Index < State->DescriptorSetCache.size(); ++Index)
 				{
 					const auto& Entry = State->DescriptorSetCache[Index];
-					ValueCount += Entry.Resources.size();
 					if (Entry.LastUsed < Oldest)
 					{
 						Oldest = Entry.LastUsed;
@@ -522,8 +546,9 @@ namespace Durin::VulkanRHI
 					}
 				}
 			}
-			if (EntryCount <= 512 && ValueCount <= 8192) break;
 			check(VictimState);
+			RemoveDescriptorCacheOccupancy(1,
+				VictimState->DescriptorSetCache[VictimIndex].Resources.size());
 			VictimState->DescriptorSetCache.erase(VictimState->DescriptorSetCache.begin() + VictimIndex);
 			VictimState->RebuildCacheIndex();
 			++Device.GetGraphicsCacheStatisticsMutable().DescriptorSnapshots.Evictions;

@@ -100,6 +100,13 @@ in-flight native pool reset. Command buffers and submission fences return to
 their pools directly from completion-tracker retirement, not from a frame-age
 path.
 
+Live descriptor snapshot and retained-value occupancy belong to the command
+context and change in the same operation that commits insertion, eviction,
+frame clear, pipeline deletion, or context reset. Failed candidates and cache
+hits are occupancy-neutral. Statistics reset preserves these exact live totals
+while clearing accumulated counters; production cache mutations do not derive
+them by traversing every pipeline state.
+
 ## Statistics and Reset
 
 `FDynamicRHI::RHIGetMemoryStatistics` returns a non-waiting,

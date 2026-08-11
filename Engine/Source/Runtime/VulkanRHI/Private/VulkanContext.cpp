@@ -458,49 +458,77 @@ namespace Durin::VulkanRHI
 		std::span<const FRHIBufferTransition> Transitions) -> void
 	{
 		CheckVulkanRHIThread();
-		std::vector<vk::BufferMemoryBarrier2> Barriers2;
-		std::vector<vk::BufferMemoryBarrier> LegacyBarriers;
-		vk::PipelineStageFlags LegacySourceStages;
-		vk::PipelineStageFlags LegacyDestinationStages;
-		Barriers2.reserve(Transitions.size());
-		LegacyBarriers.reserve(Transitions.size());
-		for (const FRHIBufferTransition& Transition : Transitions)
-		{
-			auto* Buffer = static_cast<FVulkanBuffer*>(Transition.Buffer);
-			ERHIAccess Tracked = ERHIAccess::None;
-			checkf(Buffer->GetStateTracker().Validate(
-				Transition.Offset, Transition.Size, Transition.ExpectedBefore, Tracked),
-				"Vulkan buffer transition state mismatch: resource={}, offset={}, size={}, expected={}, tracked={}, requested={}.",
-				static_cast<const void*>(Buffer), Transition.Offset, Transition.Size,
-				static_cast<uint32>(Transition.ExpectedBefore), static_cast<uint32>(Tracked),
-				static_cast<uint32>(Transition.RequiredAfter));
-			const ERHIAccess SourceAccess = Transition.ExpectedBefore == ERHIAccess::Discard
-				? ERHIAccess::None : Tracked;
-			const FVulkanResourceStateMapping Source = MapVulkanResourceState(SourceAccess);
-			const FVulkanResourceStateMapping Destination = MapVulkanResourceState(Transition.RequiredAfter);
-			Barriers2.push_back(vk::BufferMemoryBarrier2()
-				.setSrcStageMask(Source.StageMask2).setSrcAccessMask(Source.AccessMask2)
-				.setDstStageMask(Destination.StageMask2).setDstAccessMask(Destination.AccessMask2)
-				.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED).setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-				.setBuffer(Buffer->GetHandle()).setOffset(Transition.Offset).setSize(Transition.Size));
-			LegacyBarriers.push_back(vk::BufferMemoryBarrier()
-				.setSrcAccessMask(Source.LegacyAccessMask).setDstAccessMask(Destination.LegacyAccessMask)
-				.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED).setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-				.setBuffer(Buffer->GetHandle()).setOffset(Transition.Offset).setSize(Transition.Size));
-			LegacySourceStages |= Source.LegacyStageMask;
-			LegacyDestinationStages |= Destination.LegacyStageMask;
-		}
 		vk::CommandBuffer CommandBuffer = GetCommandBuffer()->GetHandle();
 		const FRHICapabilities* Capabilities = RHI->RHIGetCapabilities();
 		check(Capabilities);
-		if (Capabilities->bSupportsSynchronization2)
+		const bool bUseSynchronization2 =
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			SelectVulkanSynchronization2BarrierPath(
+				Capabilities->bSupportsSynchronization2);
+#else
+			Capabilities->bSupportsSynchronization2;
+#endif
+		if (bUseSynchronization2)
 		{
-			CommandBuffer.pipelineBarrier2(vk::DependencyInfo().setBufferMemoryBarriers(Barriers2));
+			std::vector<vk::BufferMemoryBarrier2> Barriers;
+			Barriers.reserve(Transitions.size());
+			for (const FRHIBufferTransition& Transition : Transitions)
+			{
+				auto* Buffer = static_cast<FVulkanBuffer*>(Transition.Buffer);
+				ERHIAccess Tracked = ERHIAccess::None;
+				checkf(Buffer->GetStateTracker().Validate(
+					Transition.Offset, Transition.Size, Transition.ExpectedBefore, Tracked),
+					"Vulkan buffer transition state mismatch: resource={}, offset={}, size={}, expected={}, tracked={}, requested={}.",
+					static_cast<const void*>(Buffer), Transition.Offset, Transition.Size,
+					static_cast<uint32>(Transition.ExpectedBefore), static_cast<uint32>(Tracked),
+					static_cast<uint32>(Transition.RequiredAfter));
+				const ERHIAccess SourceAccess = Transition.ExpectedBefore == ERHIAccess::Discard
+					? ERHIAccess::None : Tracked;
+				const FVulkanResourceStateMapping Source = MapVulkanResourceState(SourceAccess);
+				const FVulkanResourceStateMapping Destination = MapVulkanResourceState(Transition.RequiredAfter);
+				Barriers.push_back(vk::BufferMemoryBarrier2()
+					.setSrcStageMask(Source.StageMask2).setSrcAccessMask(Source.AccessMask2)
+					.setDstStageMask(Destination.StageMask2).setDstAccessMask(Destination.AccessMask2)
+					.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED).setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+					.setBuffer(Buffer->GetHandle()).setOffset(Transition.Offset).setSize(Transition.Size));
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+				GVulkanSync2BufferBarrierCount.fetch_add(1, std::memory_order_relaxed);
+#endif
+			}
+			CommandBuffer.pipelineBarrier2(vk::DependencyInfo().setBufferMemoryBarriers(Barriers));
 		}
 		else
 		{
-			CommandBuffer.pipelineBarrier(LegacySourceStages, LegacyDestinationStages,
-				vk::DependencyFlags{}, {}, LegacyBarriers, {});
+			std::vector<vk::BufferMemoryBarrier> Barriers;
+			vk::PipelineStageFlags SourceStages;
+			vk::PipelineStageFlags DestinationStages;
+			Barriers.reserve(Transitions.size());
+			for (const FRHIBufferTransition& Transition : Transitions)
+			{
+				auto* Buffer = static_cast<FVulkanBuffer*>(Transition.Buffer);
+				ERHIAccess Tracked = ERHIAccess::None;
+				checkf(Buffer->GetStateTracker().Validate(
+					Transition.Offset, Transition.Size, Transition.ExpectedBefore, Tracked),
+					"Vulkan buffer transition state mismatch: resource={}, offset={}, size={}, expected={}, tracked={}, requested={}.",
+					static_cast<const void*>(Buffer), Transition.Offset, Transition.Size,
+					static_cast<uint32>(Transition.ExpectedBefore), static_cast<uint32>(Tracked),
+					static_cast<uint32>(Transition.RequiredAfter));
+				const ERHIAccess SourceAccess = Transition.ExpectedBefore == ERHIAccess::Discard
+					? ERHIAccess::None : Tracked;
+				const FVulkanResourceStateMapping Source = MapVulkanResourceState(SourceAccess);
+				const FVulkanResourceStateMapping Destination = MapVulkanResourceState(Transition.RequiredAfter);
+				Barriers.push_back(vk::BufferMemoryBarrier()
+					.setSrcAccessMask(Source.LegacyAccessMask).setDstAccessMask(Destination.LegacyAccessMask)
+					.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED).setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+					.setBuffer(Buffer->GetHandle()).setOffset(Transition.Offset).setSize(Transition.Size));
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+				GVulkanLegacyBufferBarrierCount.fetch_add(1, std::memory_order_relaxed);
+#endif
+				SourceStages |= Source.LegacyStageMask;
+				DestinationStages |= Destination.LegacyStageMask;
+			}
+			CommandBuffer.pipelineBarrier(SourceStages, DestinationStages,
+				vk::DependencyFlags{}, {}, Barriers, {});
 		}
 		for (const FRHIBufferTransition& Transition : Transitions)
 		{
@@ -513,55 +541,87 @@ namespace Durin::VulkanRHI
 		std::span<const FRHITextureTransition> Transitions) -> void
 	{
 		CheckVulkanRHIThread();
-		std::vector<vk::ImageMemoryBarrier2> Barriers2;
-		std::vector<vk::ImageMemoryBarrier> LegacyBarriers;
-		vk::PipelineStageFlags LegacySourceStages;
-		vk::PipelineStageFlags LegacyDestinationStages;
-		Barriers2.reserve(Transitions.size());
-		LegacyBarriers.reserve(Transitions.size());
-		for (const FRHITextureTransition& Transition : Transitions)
-		{
-			auto* Texture = static_cast<FVulkanTexture*>(Transition.Texture);
-			ERHIAccess Tracked = ERHIAccess::None;
-			checkf(Texture->GetStateTracker().Validate(Transition.Range, Transition.ExpectedBefore, Tracked),
-				"Vulkan texture transition state mismatch: resource={}, aspects={}, mip={}+{}, layer={}+{}, expected={}, tracked={}, requested={}.",
-				static_cast<const void*>(Texture), static_cast<uint32>(Transition.Range.Aspects),
-				Transition.Range.FirstMip, Transition.Range.NumMips,
-				Transition.Range.FirstArrayLayer, Transition.Range.NumArrayLayers,
-				static_cast<uint32>(Transition.ExpectedBefore), static_cast<uint32>(Tracked),
-				static_cast<uint32>(Transition.RequiredAfter));
-			const ERHIAccess SourceAccess = Transition.ExpectedBefore == ERHIAccess::Discard
-				? ERHIAccess::None : Tracked;
-			const FVulkanResourceStateMapping Source = MapVulkanResourceState(SourceAccess);
-			const FVulkanResourceStateMapping Destination = MapVulkanResourceState(Transition.RequiredAfter);
-			const vk::ImageSubresourceRange Range(ToVulkanAspectFlags(Transition.Range.Aspects),
-				Transition.Range.FirstMip, Transition.Range.NumMips,
-				Transition.Range.FirstArrayLayer, Transition.Range.NumArrayLayers);
-			Barriers2.push_back(vk::ImageMemoryBarrier2()
-				.setSrcStageMask(Source.StageMask2).setSrcAccessMask(Source.AccessMask2)
-				.setDstStageMask(Destination.StageMask2).setDstAccessMask(Destination.AccessMask2)
-				.setOldLayout(Source.Layout).setNewLayout(Destination.Layout)
-				.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED).setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-				.setImage(Texture->Image).setSubresourceRange(Range));
-			LegacyBarriers.push_back(vk::ImageMemoryBarrier()
-				.setSrcAccessMask(Source.LegacyAccessMask).setDstAccessMask(Destination.LegacyAccessMask)
-				.setOldLayout(Source.Layout).setNewLayout(Destination.Layout)
-				.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED).setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-				.setImage(Texture->Image).setSubresourceRange(Range));
-			LegacySourceStages |= Source.LegacyStageMask;
-			LegacyDestinationStages |= Destination.LegacyStageMask;
-		}
 		vk::CommandBuffer CommandBuffer = GetCommandBuffer()->GetHandle();
 		const FRHICapabilities* Capabilities = RHI->RHIGetCapabilities();
 		check(Capabilities);
-		if (Capabilities->bSupportsSynchronization2)
+		const bool bUseSynchronization2 =
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			SelectVulkanSynchronization2BarrierPath(
+				Capabilities->bSupportsSynchronization2);
+#else
+			Capabilities->bSupportsSynchronization2;
+#endif
+		if (bUseSynchronization2)
 		{
-			CommandBuffer.pipelineBarrier2(vk::DependencyInfo().setImageMemoryBarriers(Barriers2));
+			std::vector<vk::ImageMemoryBarrier2> Barriers;
+			Barriers.reserve(Transitions.size());
+			for (const FRHITextureTransition& Transition : Transitions)
+			{
+				auto* Texture = static_cast<FVulkanTexture*>(Transition.Texture);
+				ERHIAccess Tracked = ERHIAccess::None;
+				checkf(Texture->GetStateTracker().Validate(Transition.Range, Transition.ExpectedBefore, Tracked),
+					"Vulkan texture transition state mismatch: resource={}, aspects={}, mip={}+{}, layer={}+{}, expected={}, tracked={}, requested={}.",
+					static_cast<const void*>(Texture), static_cast<uint32>(Transition.Range.Aspects),
+					Transition.Range.FirstMip, Transition.Range.NumMips,
+					Transition.Range.FirstArrayLayer, Transition.Range.NumArrayLayers,
+					static_cast<uint32>(Transition.ExpectedBefore), static_cast<uint32>(Tracked),
+					static_cast<uint32>(Transition.RequiredAfter));
+				const ERHIAccess SourceAccess = Transition.ExpectedBefore == ERHIAccess::Discard
+					? ERHIAccess::None : Tracked;
+				const FVulkanResourceStateMapping Source = MapVulkanResourceState(SourceAccess);
+				const FVulkanResourceStateMapping Destination = MapVulkanResourceState(Transition.RequiredAfter);
+				const vk::ImageSubresourceRange Range(ToVulkanAspectFlags(Transition.Range.Aspects),
+					Transition.Range.FirstMip, Transition.Range.NumMips,
+					Transition.Range.FirstArrayLayer, Transition.Range.NumArrayLayers);
+				Barriers.push_back(vk::ImageMemoryBarrier2()
+					.setSrcStageMask(Source.StageMask2).setSrcAccessMask(Source.AccessMask2)
+					.setDstStageMask(Destination.StageMask2).setDstAccessMask(Destination.AccessMask2)
+					.setOldLayout(Source.Layout).setNewLayout(Destination.Layout)
+					.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED).setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+					.setImage(Texture->Image).setSubresourceRange(Range));
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+				GVulkanSync2ImageBarrierCount.fetch_add(1, std::memory_order_relaxed);
+#endif
+			}
+			CommandBuffer.pipelineBarrier2(vk::DependencyInfo().setImageMemoryBarriers(Barriers));
 		}
 		else
 		{
-			CommandBuffer.pipelineBarrier(LegacySourceStages, LegacyDestinationStages,
-				vk::DependencyFlags{}, {}, {}, LegacyBarriers);
+			std::vector<vk::ImageMemoryBarrier> Barriers;
+			vk::PipelineStageFlags SourceStages;
+			vk::PipelineStageFlags DestinationStages;
+			Barriers.reserve(Transitions.size());
+			for (const FRHITextureTransition& Transition : Transitions)
+			{
+				auto* Texture = static_cast<FVulkanTexture*>(Transition.Texture);
+				ERHIAccess Tracked = ERHIAccess::None;
+				checkf(Texture->GetStateTracker().Validate(Transition.Range, Transition.ExpectedBefore, Tracked),
+					"Vulkan texture transition state mismatch: resource={}, aspects={}, mip={}+{}, layer={}+{}, expected={}, tracked={}, requested={}.",
+					static_cast<const void*>(Texture), static_cast<uint32>(Transition.Range.Aspects),
+					Transition.Range.FirstMip, Transition.Range.NumMips,
+					Transition.Range.FirstArrayLayer, Transition.Range.NumArrayLayers,
+					static_cast<uint32>(Transition.ExpectedBefore), static_cast<uint32>(Tracked),
+					static_cast<uint32>(Transition.RequiredAfter));
+				const ERHIAccess SourceAccess = Transition.ExpectedBefore == ERHIAccess::Discard
+					? ERHIAccess::None : Tracked;
+				const FVulkanResourceStateMapping Source = MapVulkanResourceState(SourceAccess);
+				const FVulkanResourceStateMapping Destination = MapVulkanResourceState(Transition.RequiredAfter);
+				const vk::ImageSubresourceRange Range(ToVulkanAspectFlags(Transition.Range.Aspects),
+					Transition.Range.FirstMip, Transition.Range.NumMips,
+					Transition.Range.FirstArrayLayer, Transition.Range.NumArrayLayers);
+				Barriers.push_back(vk::ImageMemoryBarrier()
+					.setSrcAccessMask(Source.LegacyAccessMask).setDstAccessMask(Destination.LegacyAccessMask)
+					.setOldLayout(Source.Layout).setNewLayout(Destination.Layout)
+					.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED).setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+					.setImage(Texture->Image).setSubresourceRange(Range));
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+				GVulkanLegacyImageBarrierCount.fetch_add(1, std::memory_order_relaxed);
+#endif
+				SourceStages |= Source.LegacyStageMask;
+				DestinationStages |= Destination.LegacyStageMask;
+			}
+			CommandBuffer.pipelineBarrier(SourceStages, DestinationStages,
+				vk::DependencyFlags{}, {}, {}, Barriers);
 		}
 		for (const FRHITextureTransition& Transition : Transitions)
 		{

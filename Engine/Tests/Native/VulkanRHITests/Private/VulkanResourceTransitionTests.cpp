@@ -8,6 +8,7 @@
 #include "RHIGlobals.h"
 #include "VulkanBuffer.h"
 #include "VulkanTexture.h"
+#include "VulkanRHIPrivate.h"
 
 namespace Durin::VulkanRHI
 {
@@ -134,14 +135,26 @@ namespace Durin::VulkanRHI
 		} Scope;
 
 		ASSERT_TRUE(RHIInit());
+		struct FBarrierOverrideScope
+		{
+			~FBarrierOverrideScope()
+			{
+				SetVulkanBarrierPathOverrideForTest(std::nullopt);
+			}
+		} BarrierOverrideScope;
 		FRHICommandListImmediate& Commands = FRHICommandListImmediate::Get();
 		FBufferRHIRef Buffer = RHICreateBuffer(FRHIBufferCreateDesc::Create(
 			"TransitionHardwareBuffer", 64, 4,
 			EBufferUsageFlags::Static | EBufferUsageFlags::VertexBuffer));
+		FBufferRHIRef BurstBuffer = RHICreateBuffer(FRHIBufferCreateDesc::Create(
+			"TransitionBurstBuffer", 64, 1,
+			EBufferUsageFlags::Static | EBufferUsageFlags::VertexBuffer));
 		FTextureRHIRef Texture = RHICreateTexture(FRHITextureCreateDesc::Create2D(
 			"TransitionHardwareTexture", 8, 8, EPixelFormat::RGBA8_UNORM)
 			.SetNumMips(2).SetFlags(ETextureCreateFlags::ShaderResource));
-		ASSERT_TRUE(Buffer && Texture);
+		ASSERT_TRUE(Buffer && BurstBuffer && Texture);
+		ResetVulkanHotPathWorkTestStats();
+		SetVulkanBarrierPathOverrideForTest(false);
 
 		const std::array BufferWriteTransitions{FRHIBufferTransition::Whole(
 			Buffer.GetReference(), ERHIAccess::Discard, ERHIAccess::TransferWrite)};
@@ -157,7 +170,54 @@ namespace Durin::VulkanRHI
 		Commands.TransitionTextures(TextureWriteTransitions);
 		Commands.TransitionBuffers(BufferReadTransitions);
 		Commands.TransitionTextures(TextureReadTransitions);
+		std::vector<FRHIBufferTransition> BurstWriteTransitions;
+		std::vector<FRHIBufferTransition> BurstReadTransitions;
+		for (uint64 Offset = 0; Offset < 64; ++Offset)
+		{
+			BurstWriteTransitions.push_back({BurstBuffer.GetReference(), Offset, 1,
+				ERHIAccess::Discard, ERHIAccess::TransferWrite});
+			BurstReadTransitions.push_back({BurstBuffer.GetReference(), Offset, 1,
+				ERHIAccess::TransferWrite, ERHIAccess::VertexBufferRead});
+		}
+		Commands.TransitionBuffers(BurstWriteTransitions);
+		Commands.TransitionBuffers(BurstReadTransitions);
 		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread, ERHISubmitFlags::SubmitToGPU);
+		const FVulkanHotPathWorkTestStats LegacyWork =
+			GetVulkanHotPathWorkTestStats();
+		EXPECT_EQ(LegacyWork.Sync2BufferBarriers, 0u);
+		EXPECT_EQ(LegacyWork.LegacyBufferBarriers, 130u);
+		EXPECT_EQ(LegacyWork.Sync2ImageBarriers, 0u);
+		EXPECT_EQ(LegacyWork.LegacyImageBarriers, 2u);
+
+		if (GDynamicRHI->RHIGetCapabilities()->bSupportsSynchronization2)
+		{
+			ResetVulkanHotPathWorkTestStats();
+			SetVulkanBarrierPathOverrideForTest(true);
+			Commands.TransitionBuffers(std::array{FRHIBufferTransition::Whole(
+				Buffer.GetReference(), ERHIAccess::VertexBufferRead,
+				ERHIAccess::TransferWrite)});
+			Commands.TransitionBuffers(std::array{FRHIBufferTransition::Whole(
+				Buffer.GetReference(), ERHIAccess::TransferWrite,
+				ERHIAccess::VertexBufferRead)});
+			Commands.TransitionTextures(std::array{FRHITextureTransition{
+				Texture.GetReference(), {ERHITextureAspect::Color, 1, 1, 0, 1},
+				ERHIAccess::GraphicsShaderRead, ERHIAccess::TransferWrite}});
+			Commands.TransitionTextures(std::array{FRHITextureTransition{
+				Texture.GetReference(), {ERHITextureAspect::Color, 1, 1, 0, 1},
+				ERHIAccess::TransferWrite, ERHIAccess::GraphicsShaderRead}});
+			for (FRHIBufferTransition& Transition : BurstWriteTransitions)
+				Transition.ExpectedBefore = ERHIAccess::VertexBufferRead;
+			Commands.TransitionBuffers(BurstWriteTransitions);
+			Commands.TransitionBuffers(BurstReadTransitions);
+			Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
+				ERHISubmitFlags::SubmitToGPU);
+			const FVulkanHotPathWorkTestStats Sync2Work =
+				GetVulkanHotPathWorkTestStats();
+			EXPECT_EQ(Sync2Work.Sync2BufferBarriers, 130u);
+			EXPECT_EQ(Sync2Work.LegacyBufferBarriers, 0u);
+			EXPECT_EQ(Sync2Work.Sync2ImageBarriers, 2u);
+			EXPECT_EQ(Sync2Work.LegacyImageBarriers, 0u);
+		}
 
 		auto* VulkanBuffer = static_cast<FVulkanBuffer*>(Buffer.GetReference());
 		auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture.GetReference());
@@ -169,6 +229,7 @@ namespace Durin::VulkanRHI
 			ERHIAccess::None);
 
 		Buffer = nullptr;
+		BurstBuffer = nullptr;
 		Texture = nullptr;
 		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
 		RHIExit();
