@@ -15,6 +15,7 @@ namespace Durin
 		bool bRunNativeGameplayLifecycleSmoke = false;
 		std::string_view NativeCrashFixture;
 		std::string_view NativeCrashPhase;
+		bool bFillNativeCrashLogGap = false;
 		FProjectInitializationParams Project;
 	};
 
@@ -40,6 +41,7 @@ namespace Durin
 		bool bNativeGameplayLifecycleSmokeCompleted = false;
 		std::string_view NativeCrashFixture;
 		std::string_view NativeCrashPhase;
+		bool bFillNativeCrashLogGap = false;
 	};
 
 	extern FEngineLoop GEngineLoop;

@@ -80,7 +80,7 @@ versioned marker.
 | Worker-thread access violation | Supported; the OS faulting thread id is retained. |
 | `std::terminate` | Supported with private status `0xE0000001`; no synthetic SEH record is claimed. |
 | Stack overflow | Deferred; current hostile characterization can fault again while entering the in-process writer and does not reliably preserve `0xC00000FD` or artifacts. |
-| Simultaneous or recursive faults | Best-effort; current characterization terminates promptly without duplicate artifacts but may produce no complete set. |
+| Simultaneous or recursive faults | Best-effort; characterization terminates promptly without duplicate artifacts but may produce no complete set. |
 | Assertions using the existing `abort` path | Deferred; assertion semantics are not changed merely to obtain a dump. |
 | GPU device loss | Outside this contract. |
 | Non-Windows and non-x64 platforms | Deferred to platform-specific adapters. |

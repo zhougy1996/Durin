@@ -17,12 +17,37 @@ namespace
 		return {std::istreambuf_iterator<char>(Stream), std::istreambuf_iterator<char>()};
 	}
 
-	auto RunCrashChild(std::string_view Fixture, std::string_view ExtraArgument = {}) -> FChildResult
+	auto ReadContextValues(const std::filesystem::path& CrashDirectory) -> std::unordered_map<std::string, std::string>
+	{
+		std::unordered_map<std::string, std::string> Values;
+		for (const std::filesystem::directory_entry& Entry : std::filesystem::directory_iterator(CrashDirectory))
+		{
+			if (Entry.path().filename().string().find("CrashContext-v1.txt") == std::string::npos) continue;
+			std::istringstream Lines(ReadText(Entry.path()));
+			for (std::string Line; std::getline(Lines, Line);)
+			{
+				if (!Line.empty() && Line.back() == '\r') Line.pop_back();
+				const size_t Equals = Line.find('=');
+				if (Equals != std::string::npos) Values.emplace(Line.substr(0, Equals), Line.substr(Equals + 1));
+			}
+		}
+		return Values;
+	}
+
+	auto RunCrashChild(
+		std::string_view Fixture,
+		std::string_view ExtraArgument = {},
+		bool bBlockCrashRoot = false) -> FChildResult
 	{
 		const std::filesystem::path Saved = Durin::Testing::GetTestWorkDirectory() / Fixture;
 		std::error_code Error;
 		Durin::Testing::RemoveTestWorkDirectory(Saved, Error);
 		std::filesystem::create_directories(Saved);
+		if (bBlockCrashRoot)
+		{
+			std::ofstream BlockedRoot(Saved / "Crashes", std::ios::binary);
+			BlockedRoot << "not a directory";
+		}
 		const std::string Command = std::format(
 			"\"{}\" --native-crash-saved=\"{}\" --native-crash-fixture={} {}",
 			DURIN_CRASH_FIXTURE_EXECUTABLE, Saved.string(), Fixture, ExtraArgument);
@@ -48,8 +73,11 @@ namespace
 				if (Entry.is_directory()) Directories.push_back(Entry.path());
 			}
 		}
-		EXPECT_LE(Directories.size(), 1u);
-		return {.ExitCode = ExitCode, .CrashDirectory = Directories.empty() ? std::filesystem::path{} : Directories.front()};
+		EXPECT_LE(Directories.size(), ExtraArgument == "--native-crash-force-collision" ? 2u : 1u);
+		const auto Complete = std::ranges::find_if(Directories, [](const std::filesystem::path& Directory) {
+			return std::filesystem::is_regular_file(Directory / "Complete.marker");
+		});
+		return {.ExitCode = ExitCode, .CrashDirectory = Complete == Directories.end() ? std::filesystem::path{} : *Complete};
 	}
 
 	void ExpectCompleteAccessViolation(std::string_view Fixture, std::string_view Operation)
@@ -109,6 +137,45 @@ TEST(FNativeCrashCharacterizationTests, DumpFailureRetainsContextAndOriginalStat
 	EXPECT_TRUE(std::filesystem::is_regular_file(Result.CrashDirectory / "Complete.marker"));
 }
 
+TEST(FNativeCrashCharacterizationTests, CollisionNeverOverwritesAndUsesBoundedSuffix)
+{
+	const FChildResult Result = RunCrashChild("access-read", "--native-crash-force-collision");
+	EXPECT_EQ(Result.ExitCode, static_cast<DWORD>(EXCEPTION_ACCESS_VIOLATION));
+	ASSERT_FALSE(Result.CrashDirectory.empty());
+	EXPECT_TRUE(Result.CrashDirectory.filename().string().ends_with("-1"));
+	EXPECT_TRUE(std::filesystem::is_regular_file(Result.CrashDirectory / "Complete.marker"));
+}
+
+TEST(FNativeCrashCharacterizationTests, UnwritablePrimaryRootPreservesOriginalStatusWithoutHanging)
+{
+	const FChildResult Result = RunCrashChild("access-read", {}, true);
+	EXPECT_EQ(Result.ExitCode, static_cast<DWORD>(EXCEPTION_ACCESS_VIOLATION));
+	EXPECT_TRUE(Result.CrashDirectory.empty());
+}
+
+TEST(FNativeCrashCharacterizationTests, RecursiveCrashWriterFaultTerminatesWithoutRecursingIndefinitely)
+{
+	const FChildResult Result = RunCrashChild("access-read", "--native-crash-fault-writer");
+	EXPECT_EQ(Result.ExitCode, static_cast<DWORD>(EXCEPTION_ACCESS_VIOLATION));
+	EXPECT_TRUE(Result.CrashDirectory.empty());
+}
+
+TEST(FNativeCrashCharacterizationTests, LoggerTailGapIsCapturedWithoutDrainOrFlush)
+{
+	const FChildResult Result = RunCrashChild(
+		"access-read",
+		"--native-crash-at=logger-running --native-crash-log-gap");
+	EXPECT_EQ(Result.ExitCode, static_cast<DWORD>(EXCEPTION_ACCESS_VIOLATION));
+	ASSERT_FALSE(Result.CrashDirectory.empty());
+	const std::unordered_map<std::string, std::string> Values = ReadContextValues(Result.CrashDirectory);
+	const uint64_t Accepted = std::stoull(Values.at("LastAcceptedLogSequence"));
+	const uint64_t Processed = std::stoull(Values.at("LastProcessedLogSequence"));
+	EXPECT_GT(Accepted, Processed);
+	const std::filesystem::path ActiveLog = Values.at("ActiveLogPath");
+	EXPECT_TRUE(std::filesystem::is_regular_file(ActiveLog));
+	EXPECT_GT(std::filesystem::file_size(ActiveLog), 0u);
+}
+
 TEST(FNativeCrashCharacterizationTests, SimultaneousFaultsTerminateWithoutASecondArtifactSet)
 {
 	const FChildResult Result = RunCrashChild("simultaneous-access");
@@ -123,13 +190,4 @@ TEST(FNativeCrashCharacterizationTests, SimultaneousFaultsTerminateWithoutASecon
 	}
 	EXPECT_LE(ContextCount, 1u);
 	EXPECT_LE(DumpCount, 1u);
-}
-
-TEST(FNativeCrashCharacterizationTests, CharacterizesStackOverflowWithReservedHandlerStack)
-{
-	const FChildResult Result = RunCrashChild("stack-overflow");
-	EXPECT_TRUE(Result.ExitCode == static_cast<DWORD>(EXCEPTION_STACK_OVERFLOW)
-		|| Result.ExitCode == static_cast<DWORD>(EXCEPTION_ACCESS_VIOLATION));
-	if (!Result.CrashDirectory.empty())
-		EXPECT_TRUE(std::filesystem::is_regular_file(Result.CrashDirectory / "Complete.marker"));
 }

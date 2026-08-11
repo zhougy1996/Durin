@@ -31,6 +31,9 @@ int LAUNCH_API main(int argc, char** argv)
 	std::optional<std::string_view> CrashSavedOverride;
 	std::optional<std::string_view> CrashPhase;
 	bool bDisableCrashDump = false;
+	bool bForceCrashCollision = false;
+	bool bFillCrashLogGap = false;
+	bool bFaultCrashWriter = false;
 	FEngineStartupParams StartupParams;
 	for (int Index = 1; Index < argc; ++Index)
 	{
@@ -107,17 +110,30 @@ int LAUNCH_API main(int argc, char** argv)
 		{
 			bDisableCrashDump = true;
 		}
+		else if (Argument == "--native-crash-force-collision")
+		{
+			bForceCrashCollision = true;
+		}
+		else if (Argument == "--native-crash-log-gap")
+		{
+			bFillCrashLogGap = true;
+		}
+		else if (Argument == "--native-crash-fault-writer")
+		{
+			bFaultCrashWriter = true;
+		}
 	}
-	ConfigureWindowsProcessCrashTestOptions(bDisableCrashDump);
+	ConfigureWindowsProcessCrashTestOptions(bDisableCrashDump, bForceCrashCollision, bFaultCrashWriter);
 
 #if DURIN_BUILD_SHIPPING
-	if (CrashFixture || CrashPhase || CrashSavedOverride || bDisableCrashDump)
+	if (CrashFixture || CrashPhase || CrashSavedOverride || bDisableCrashDump
+		|| bForceCrashCollision || bFillCrashLogGap || bFaultCrashWriter)
 	{
 		UninstallWindowsProcessCrashHandler();
 		return 1;
 	}
 #endif
-	if (CrashSavedOverride && !PublishWindowsProcessCrashRoot(*CrashSavedOverride))
+	if (CrashSavedOverride && !PublishWindowsProcessCrashRoot(*CrashSavedOverride, true))
 	{
 		UninstallWindowsProcessCrashHandler();
 		return 1;
@@ -136,6 +152,7 @@ int LAUNCH_API main(int argc, char** argv)
 		StartupParams.Project.RequestedProjectFile = *ProjectSeparateArgument;
 	StartupParams.NativeCrashFixture = CrashFixture.value_or(std::string_view{});
 	StartupParams.NativeCrashPhase = CrashPhase.value_or(std::string_view{});
+	StartupParams.bFillNativeCrashLogGap = bFillCrashLogGap;
 	if (!GEngineLoop.PreInit(StartupParams))
 	{
 		LoggerShutdown();

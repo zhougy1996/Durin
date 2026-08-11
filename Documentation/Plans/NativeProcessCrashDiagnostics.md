@@ -4,8 +4,8 @@ Summary: Add deterministic local native-crash artifacts, bounded process-lifecyc
 
 Last reviewed: 2026-08-11
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-11
 
 ## Current Status
 
@@ -43,24 +43,30 @@ in-process writer can fault again on the exhausted stack, so neither a preserved
 
 Final focused evidence: `CoreUtilityTests` passed 66/66,
 `CoreConcurrencyTests` passed 121/121, and
-`NativeCrashCharacterizationTests` passed 5/5 in Debug Editor, Debug Game, and
-Release Editor. The DurinDevTool suite passed 316/316 and documentation validation
-passed all 100 documents. The final Debug Editor `all` build succeeded. Hidden
+`NativeCrashCharacterizationTests` passed 12/12 in Debug Editor, Debug Game,
+and Release Editor. The DurinDevTool suite passed 316/316 and documentation
+validation passed all 100 documents. The final Debug Editor `all` build succeeded. Hidden
 threaded and inline-RHI two-tick runs exited normally without increasing either
 crash-root directory count. The post-build threaded Running-phase qualification
-produced a 652,210-byte dump, a 1,318-byte context, and a 23-byte marker under
+produced a 713,762-byte dump, a 1,318-byte context, and a 23-byte marker under
 `Saved/Crashes`; context reported `accepted=processed=74`, `durable=0`, and the
 active log path. CDB resolved the exact fault, `FEngineLoop::Init`, and `main`
-to repository source lines from adjacent PDBs. Release passed the same five
-isolated characterizations. Shipping DurinGame built successfully, rejected
-diagnostic injection/root-override arguments with exit code 1, and created no
+to repository source lines from adjacent PDBs. Release passed the same twelve
+supported-crash and hostile-policy characterizations. An
+automated pre-initialization logger-tail crash observed accepted sequence 4,170
+and processed sequence 2,583 at capture while the already-written log remained
+readable. Pure policy tests qualified access metadata, root validation,
+age/count/partial retention, and directory-link avoidance. Shipping DurinGame
+built successfully, rejected diagnostic injection/root-override arguments with
+exit code 1, and created no
 crash directory.
 
 The repository already emits PDBs for the Windows Debug Editor build, keeps the
 runtime executable and module PDBs together in the runtime output, captures
 child output through DurinDevTool, and has explicit process-isolation rules for
 intentional crash characterization. Windows SDK Debuggers, including CDB, may
-be installed locally but are not a runtime prerequisite. At the baseline no code used
+be installed locally but are not a runtime prerequisite. At the baseline no
+code used
 `SetUnhandledExceptionFilter`, `MiniDumpWriteDump`, a vectored exception
 handler, `std::set_terminate`, or DbgHelp.
 
@@ -394,7 +400,7 @@ Dependencies: Stage 1.
   status while preserving exact terminal process status.
 - [x] Implement bounded collision handling, recursion/second-fault behavior,
   no-dialog unattended behavior, and restoration on successful normal exit.
-- [ ] Add pure tests around synthetic exception records, context serialization,
+- [x] Add pure tests around synthetic exception records, context serialization,
   path validation, collision handling, incomplete artifacts, dump-callback
   policy, retention selection, and injected Win32/DbgHelp failures.
 - [x] Verify normal startup and shutdown create no crash directory and do not
@@ -423,7 +429,7 @@ Dependencies: Stage 2.
   release, root retirement, first collection, render flush, second collection,
   deferred-destroy audit, and module unload without recording object names or
   project data in the fixed ring.
-- [ ] Add tests that crash with accepted-but-unprocessed log records and verify
+- [x] Add tests that crash with accepted-but-unprocessed log records and verify
   context reports the sequence gap honestly while already durable log content
   remains readable.
 - [x] Verify crashes on the GameThread and one non-GameThread identify the exact
@@ -475,14 +481,14 @@ Dependencies: Stage 4.
 - [x] Register a separately isolated characterization target with the required
   runtime-stack rationale; its parent launches one child per intentional fault
   and owns cleanup only after artifacts are verified.
-- [ ] Qualify access violation for read, write, and execute metadata where the
+- [x] Qualify access violation for read, write, and execute metadata where the
   OS provides it; `std::terminate`; a faulting worker thread; two near-simultaneous
   faults; recursive artifact failure; unwritable primary crash root; name
   collision; missing DbgHelp; missing dump; and missing/mismatched PDBs.
 - [x] Characterize stack overflow separately and label it supported only if it
   repeatedly writes a valid context and debugger-readable dump without relying
   on undefined remaining stack space.
-- [ ] Verify dumps stay within the measured size/latency bounds, retention runs
+- [x] Verify dumps stay within the measured size/latency bounds, retention runs
   only on later healthy startup, partial directories follow the frozen policy,
   and no test follows or removes an unrecognized directory link.
 - [x] Run repeated crash children to detect handler-state leakage, nondeterministic

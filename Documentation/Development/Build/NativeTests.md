@@ -76,9 +76,11 @@ context, dump, and completion marker before the retained sandbox can be
 cleaned. The target carries a runtime-stack rationale because a native fault
 cannot be characterized safely inside the GoogleTest process. Current
 supported fixtures cover read, write, and execute access violations,
-`std::terminate`, and a worker-thread access violation. Stack overflow and
-simultaneous/recursive faults remain best-effort and stack overflow remains
-deferred as documented in
+`std::terminate`, a worker-thread access violation, logger-tail gaps, dump
+failure, collision, unwritable roots, and recursive writer failure. Policy
+tests cover path admission, age/count retention, partial cleanup, and
+directory-link avoidance. Simultaneous/recursive faults remain best-effort and
+stack overflow remains deferred as documented in
 [Native Crash Diagnostics](../../Runtime/Core/NativeCrashDiagnostics.md).
 
 In the interactive shell, use the equivalent commands:

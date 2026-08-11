@@ -313,7 +313,11 @@ durin_add_engine_functional_test(LaunchStorageTests
 durin_add_engine_functional_test(NativeCrashCharacterizationTests
 	TIMEOUT 120
 	RUNTIME_STACK_RATIONALE "Launches isolated runtime children because native faults must preserve process exception state and cannot be characterized in-process."
-	SOURCES Private/Launch/NativeCrashCharacterizationTests.cpp
+	SOURCES
+		Private/Launch/NativeCrashCharacterizationTests.cpp
+		Private/Launch/WindowsProcessCrashPolicyTests.cpp
+	PRIVATE_SOURCES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Launch/Private/Windows/WindowsProcessCrashPolicy.cpp
 )
 if(TARGET NativeCrashCharacterizationTests)
 	add_dependencies(NativeCrashCharacterizationTests DurinLauncher)

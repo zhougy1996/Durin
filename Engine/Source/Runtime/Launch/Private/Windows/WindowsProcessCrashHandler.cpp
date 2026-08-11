@@ -1,4 +1,5 @@
 #include "WindowsProcessCrashHandler.h"
+#include "WindowsProcessCrashPolicy.h"
 
 #include "Diagnostics/ProcessCrashContext.h"
 #include "HAL/PlatformProcess.h"
@@ -59,6 +60,9 @@ namespace Durin
 			std::atomic<uint32> Writer{0};
 			std::atomic<uint32> RootIndex{0};
 			std::atomic<bool> bDisableDump{false};
+			std::atomic<bool> bForceCollision{false};
+			std::atomic<bool> bExplicitRootOverride{false};
+			std::atomic<bool> bFaultCrashWriter{false};
 			std::array<wchar_t, 32768> Roots[2]{};
 			std::array<wchar_t, 32768> ExecutablePath{};
 			std::array<char, ProcessCrashPathCapacity> ExecutablePathUtf8{};
@@ -133,17 +137,6 @@ namespace Durin
 				WriteFile(Error, Text.data(), static_cast<DWORD>(Text.size()), &Written, nullptr);
 		}
 
-		auto ExceptionAccessName(ULONG_PTR Operation) -> const char*
-		{
-			switch (Operation)
-			{
-			case 0: return "Read";
-			case 1: return "Write";
-			case 8: return "Execute";
-			default: return "Unavailable";
-			}
-		}
-
 		auto CaptureCrashArtifacts(DWORD ReasonCode, EXCEPTION_POINTERS* ExceptionPointers) -> void
 		{
 			uint32 ExpectedWriter = 0;
@@ -151,6 +144,11 @@ namespace Durin
 			{
 				WriteFallback("Durin crash capture skipped on a second faulting thread.\r\n");
 				TerminateProcess(GetCurrentProcess(), ReasonCode);
+			}
+			if (GCrashHandler.bFaultCrashWriter.load(std::memory_order_relaxed))
+			{
+				const volatile uint32 Value = *reinterpret_cast<volatile uint32*>(static_cast<uintptr_t>(1));
+				(void)Value;
 			}
 
 			const FProcessCrashContextSnapshot Snapshot = ReadProcessCrashContext();
@@ -181,6 +179,11 @@ namespace Durin
 			bool bDirectoryReady = false;
 			if (DirectoryError == 0)
 			{
+				if (GCrashHandler.bForceCollision.load(std::memory_order_relaxed))
+				{
+					std::array<wchar_t, 32768> Occupied = GCrashHandler.Roots[RootIndex];
+					if (AppendWidePath(Occupied, WideCrashId.data())) CreateDirectoryW(Occupied.data(), nullptr);
+				}
 				for (uint32 Collision = 0; Collision < CrashDirectoryCollisionLimit; ++Collision)
 				{
 					CrashDirectory = GCrashHandler.Roots[RootIndex];
@@ -260,7 +263,7 @@ namespace Durin
 				&& ReasonCode == EXCEPTION_ACCESS_VIOLATION
 				&& ExceptionPointers->ExceptionRecord->NumberParameters >= 2)
 			{
-				Context.Key("AccessViolationOperation", ExceptionAccessName(ExceptionPointers->ExceptionRecord->ExceptionInformation[0]));
+				Context.Key("AccessViolationOperation", WindowsAccessViolationOperationName(ExceptionPointers->ExceptionRecord->ExceptionInformation[0]));
 				Context.KeyHex("AccessViolationAddress", ExceptionPointers->ExceptionRecord->ExceptionInformation[1]);
 			}
 			else
@@ -346,48 +349,6 @@ namespace Durin
 			TerminateProcess(GetCurrentProcess(), DurinTerminateStatus);
 		}
 
-		auto CleanupCrashRetention(const std::filesystem::path& CrashRoot) -> void
-		{
-			std::error_code Error;
-			if (!std::filesystem::is_directory(CrashRoot, Error)) return;
-			struct FCandidate { std::filesystem::path Path; std::filesystem::file_time_type Time; };
-			std::vector<FCandidate> Complete;
-			const auto Now = std::filesystem::file_time_type::clock::now();
-			for (const std::filesystem::directory_entry& Entry : std::filesystem::directory_iterator(CrashRoot, Error))
-			{
-				if (Error) break;
-				if (Entry.is_symlink(Error) || !Entry.is_directory(Error)) continue;
-				const auto WriteTime = Entry.last_write_time(Error);
-				if (Error) { Error.clear(); continue; }
-				const bool bComplete = std::filesystem::is_regular_file(Entry.path() / "Complete.marker", Error);
-				Error.clear();
-				const auto Age = Now - WriteTime;
-				if (!bComplete)
-				{
-					if (Age > std::chrono::hours(24 * PartialCrashRetentionDays))
-						std::filesystem::remove_all(Entry.path(), Error);
-					Error.clear();
-					continue;
-				}
-				if (Age > std::chrono::hours(24 * CrashRetentionDays))
-					std::filesystem::remove_all(Entry.path(), Error);
-				else Complete.push_back({Entry.path(), WriteTime});
-				Error.clear();
-			}
-			std::ranges::sort(Complete, [](const FCandidate& Left, const FCandidate& Right) { return Left.Time > Right.Time; });
-			for (size_t Index = CrashRetentionCount; Index < Complete.size(); ++Index)
-			{
-				std::filesystem::remove_all(Complete[Index].Path, Error);
-				Error.clear();
-			}
-		}
-
-		__declspec(noinline) auto OverflowStack(uint64 Depth) -> uint64
-		{
-			volatile uint8 StackUse[4096]{};
-			StackUse[Depth & 4095] = static_cast<uint8>(Depth);
-			return OverflowStack(Depth + 1) + StackUse[(Depth + 1) & 4095];
-		}
 	}
 
 	auto InstallWindowsProcessCrashHandler() -> bool
@@ -414,17 +375,20 @@ namespace Durin
 		return true;
 	}
 
-	auto PublishWindowsProcessCrashRoot(std::string_view SavedDirectory) -> bool
+	auto PublishWindowsProcessCrashRoot(std::string_view SavedDirectory, bool bExplicitDiagnosticOverride) -> bool
 	{
 		if (!GCrashHandler.bInstalled) return false;
+		if (!bExplicitDiagnosticOverride && GCrashHandler.bExplicitRootOverride.load(std::memory_order_acquire)) return true;
 		std::filesystem::path Root = std::filesystem::path(SavedDirectory) / "Crashes";
 		Root = Root.lexically_normal();
 		if (!Root.is_absolute()) return false;
-		CleanupCrashRetention(Root);
+		if (!IsValidWindowsProcessCrashSavedDirectory(std::filesystem::path(SavedDirectory))) return false;
+		ApplyWindowsProcessCrashRetention(Root, CrashRetentionCount, CrashRetentionDays, PartialCrashRetentionDays);
 		const std::wstring WideRoot = Root.wstring();
 		const uint32 NextIndex = 1 - GCrashHandler.RootIndex.load(std::memory_order_relaxed);
 		if (!CopyWide(WideRoot, GCrashHandler.Roots[NextIndex].data(), GCrashHandler.Roots[NextIndex].size())) return false;
 		GCrashHandler.RootIndex.store(NextIndex, std::memory_order_release);
+		if (bExplicitDiagnosticOverride) GCrashHandler.bExplicitRootOverride.store(true, std::memory_order_release);
 		return true;
 	}
 
@@ -436,12 +400,16 @@ namespace Durin
 		GCrashHandler.bInstalled = false;
 	}
 
-	auto ConfigureWindowsProcessCrashTestOptions(bool bDisableDump) -> void
+	auto ConfigureWindowsProcessCrashTestOptions(bool bDisableDump, bool bForceCollision, bool bFaultCrashWriter) -> void
 	{
 #if DURIN_BUILD_SHIPPING
 		(void)bDisableDump;
+		(void)bForceCollision;
+		(void)bFaultCrashWriter;
 #else
 		GCrashHandler.bDisableDump.store(bDisableDump, std::memory_order_relaxed);
+		GCrashHandler.bForceCollision.store(bForceCollision, std::memory_order_relaxed);
+		GCrashHandler.bFaultCrashWriter.store(bFaultCrashWriter, std::memory_order_relaxed);
 #endif
 	}
 
@@ -493,12 +461,6 @@ namespace Durin
 			std::jthread Second(Fault);
 			First.join();
 			Second.join();
-			return true;
-		}
-		if (Fixture == "stack-overflow")
-		{
-			const volatile uint64 Result = OverflowStack(1);
-			(void)Result;
 			return true;
 		}
 		return false;

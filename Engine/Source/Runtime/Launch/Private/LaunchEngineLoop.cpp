@@ -58,6 +58,7 @@ namespace Durin
 		bRunNativeGameplayLifecycleSmoke = Params.bRunNativeGameplayLifecycleSmoke;
 		NativeCrashFixture = Params.NativeCrashFixture;
 		NativeCrashPhase = Params.NativeCrashPhase;
+		bFillNativeCrashLogGap = Params.bFillNativeCrashLogGap;
 
 		FPlatformMisc::EnableUserBinaryDirectoriesSearch();
 		FPlatformMisc::AddRuntimeBinaryDirectory(FPaths::EngineThirdPartyRuntimeBinariesDir().c_str());
@@ -69,6 +70,12 @@ namespace Durin
 
 		FNameInit(); // Initialize FName system.
 		LoggerInit();
+		if (bFillNativeCrashLogGap && NativeCrashPhase == "logger-running")
+		{
+			for (uint32 Index = 0; Index < 4096; ++Index)
+				DURIN_TRACE("Native crash logger-tail qualification record {}.", Index);
+		}
+		if (NativeCrashPhase == "logger-running") RunWindowsProcessCrashFixture(NativeCrashFixture);
 		for (const std::string& Warning : RuntimeStorage.Warnings) DURIN_WARN("{}", Warning);
 		DURIN_INFO(STR("Launching Durin Engine {}..."), GetEngineVersionString());
 #if DURIN_WITH_TRACY
@@ -153,6 +160,11 @@ namespace Durin
 
 		DURIN_INFO(STR("Durin engine initialized."));
 		SetProcessCrashPhase(EProcessCrashPhase::Running);
+		if (bFillNativeCrashLogGap && NativeCrashPhase == "running")
+		{
+			for (uint32 Index = 0; Index < 4096; ++Index)
+				DURIN_TRACE("Native crash logger-tail qualification record {}.", Index);
+		}
 		if (NativeCrashPhase == "running") RunWindowsProcessCrashFixture(NativeCrashFixture);
 		return true;
 	}
