@@ -251,6 +251,7 @@ durin_add_engine_functional_test(StaticMeshTests
 		Private/StaticMeshDerivedDataContractTests.cpp
 		Private/StaticMeshDerivedDataCacheTests.cpp
 		Private/StaticMeshPayloadCodecTests.cpp
+		Private/StaticMeshCollisionStage0Tests.cpp
 		Private/StaticMeshMaterialSlotDetailsTests.cpp
 		Private/StaticMeshEditorTests.cpp
 	PRIVATE_SOURCES

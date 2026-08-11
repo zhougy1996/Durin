@@ -23,9 +23,22 @@ and a read-only Inspector. Collision does not participate in those paths:
 arbitrary meshes remain collision-free, BodySetup stores only one primitive,
 and AetherCore has no hull/mesh payload, asset BVH, or disk reconstruction seam.
 
-M3 is active. Stage 0 must turn the selected contracts below into golden
-fixtures and measured layout gates before persistent formats or Production
-dispatch are implemented. No implementation evidence is recorded yet.
+M3 is active. Stage 0 completed on 2026-08-12 from entry revision `1501a569`.
+Eleven executable characterization tests now freeze the source/policy matrix,
+representative fixture corpus, hull input rules, deterministic 32-byte BVH
+node and eight-triangle leaf, 64-depth/128-stack limits, complete 18-cell
+algorithm/reference matrix, DCOL version-one key/payload bytes and corruption
+classes, transactional failure, inspection fields, and accepted resource caps.
+
+The 100,352-triangle Debug prototype produced a 3,261,872-byte encoded payload,
+3,261,676 logical retained bytes, an 11,289,836-byte estimated builder peak, a
+449,744,900 ns measured tree build, and a 563,356,600 ns measured complete
+prototype encode. Its sparse outside query performed one node test and zero
+feature tests versus 100,352 Reference feature tests.
+The conservative two-million-triangle worst-case runtime equation is
+119,999,968 bytes, below the accepted 256 MiB payload cap; the corresponding
+estimated builder working set stays below 512 MiB. Stage 1 immutable resource
+and Reference-oracle implementation is next and has not started.
 
 ## Goal
 
@@ -192,22 +205,22 @@ lifetime, and reuse repository DDC and Cook publication contracts.
 Dependencies: completed M2; current StaticMesh DDC, reimport, Cook, Inspector,
 and runtime-load contracts.
 
-- [ ] Record one source revision and rerun focused PhysicsScene, StaticMesh DDC/
+- [x] Record one source revision and rerun focused PhysicsScene, StaticMesh DDC/
   Cook/import/reimport, and Sandbox baselines.
-- [ ] Add tetrahedron/cube hulls and open, closed, non-manifold, duplicate,
+- [x] Add tetrahedron/cube hulls and open, closed, non-manifold, duplicate,
   degenerate, thin, large-coordinate, reversed, clustered, 100k-plus triangle,
   real imported world, and many-instance fixtures.
-- [ ] Freeze source modes, policy resolution, default compatibility, explicit
+- [x] Freeze source modes, policy resolution, default compatibility, explicit
   failure, feature ties, normals, penetration, and scale semantics in tests.
-- [ ] Prototype hull and BVH layouts; freeze ordering, nodes/leaves, outward
+- [x] Prototype hull and BVH layouts; freeze ordering, nodes/leaves, outward
   rounding, depth, builder/traversal scratch, and retained-byte equations.
-- [ ] Prototype the complete primitive/hull/triangle operation matrix against
+- [x] Prototype the complete primitive/hull/triangle operation matrix against
   brute-force/high-precision evidence; freeze tolerances and iteration caps.
-- [ ] Freeze key bytes, payload fields/ranges, descriptor ID, corruption cases,
+- [x] Freeze key bytes, payload fields/ranges, descriptor ID, corruption cases,
   compatibility policy, and one deterministic golden payload hash.
-- [ ] Measure cook time, peak memory, payload/runtime bytes, tree quality, and
+- [x] Measure cook time, peak memory, payload/runtime bytes, tree quality, and
   Reference/Production work; accept or revise initial ceilings before Stage 1.
-- [ ] Freeze transactional failure, counters/equations, Inspector fields,
+- [x] Freeze transactional failure, counters/equations, Inspector fields,
   capture caps, and render-independence assertions.
 
 #### Acceptance Gate
@@ -216,6 +229,46 @@ and runtime-load contracts.
   have executable characterization or a failing fixture.
 - One hull/BVH layout fits accepted limits and produces deterministic output.
 - Existing primitive, StaticMesh, Cook, and Sandbox behavior remains green.
+
+#### Stage 0 Handoff
+
+- Entry baselines passed on `Win64-Debug-DurinEditor`: PhysicsScene 34/34,
+  StaticMesh 52/52, AssetCook 12/12, AssetImport 17/17, and SandboxGameplay
+  12/12. The added Stage 0 contract suite passes 11/11.
+- Imported assets default to source mode `None`. Explicit modes are stable
+  values 1 `ConvexHullFromLOD0` and 2 `TriangleMeshFromLOD0`; Default query
+  selects valid Simple first and explicit Simple/Complex never substitutes.
+- Mesh nodes are 32 bytes with outward-rounded float bounds. Leaves hold at
+  most eight stable source ordinals; trees stop at depth 64 and traverse with a
+  128-entry stack. Hull plane, half-edge, and face records are each 16 bytes.
+- The accepted caps are 256 MiB runtime payload, 512 MiB builder peak,
+  2,000,000 retained triangles, 256 vertices for one hull, and 256 debug
+  triangles. The maximum-count runtime equation is 119,999,968 bytes.
+- The 100,352-triangle fixture encodes to 3,261,872 bytes and builds in the
+  recorded Debug profile with depth at most 15. A sparse outside bound performs
+  one Production node test and zero feature tests; dense traversal reconciles
+  every node and all 100,352 retained source ordinals.
+- DCOL uses magic `0x4c4f4344`, key/schema/builder version 1, 64-byte header,
+  32-byte chunk entries, 16-byte alignment, at most eight chunks, and an
+  independent payload ID. The golden key hash is
+  `31049dc20de3b54a742c931cb587ce92`; the tetrahedron prototype is 336 bytes
+  with hash `e18caaa3799e0c65edea7a0af09edbf1`.
+- Required chunks are ordered positions, indices, stable ordinals, and nodes.
+  Magic/schema/platform/count/alignment/size/checksum/range/data corruption is
+  rejected. Unknown required chunks remain incompatible; any future optional
+  chunk policy requires a deliberate readable-schema revision.
+- Convex input must be finite, closed, consistently oriented, manifold, and
+  non-coplanar. Triangle meshes remove degenerate/duplicate-index triangles in
+  source order, preserve retained source ordinals, accept open/non-manifold
+  surfaces, and fail if nothing collidable remains.
+- Hull ray uses plane clipping; hull overlap/cast uses support mapping. Mesh ray
+  is double-sided; Sphere/Capsule use closest features; Box overlap uses SAT;
+  mesh sweeps use bounded feature advancement capped at 32 iterations. Feature
+  ties use time then source ordinal, tangency blocks only when motion enters,
+  and only finite strictly positive scale is accepted.
+- Inspector freezes 12 read-only facts covering mode/policy, triangle counts,
+  bounds, bytes, versions, cache/Cook state, and revision coherence. Failure
+  leaves prior output unchanged and debug capture never exceeds its fixed cap.
 
 ### Stage 1: Extend immutable geometry and the Reference oracle
 
@@ -426,5 +479,6 @@ Dependencies: Stage 5 end-to-end behavior and reconciled diagnostics.
 - `Engine/Tests/Native/EngineTests/Private/Physics/PhysicsSceneTests.cpp`
 - `Engine/Tests/Native/EngineTests/Private/StaticMeshDerivedDataContractTests.cpp`
 - `Engine/Tests/Native/EngineTests/Private/StaticMeshDerivedDataCacheTests.cpp`
+- `Engine/Tests/Native/EngineTests/Private/StaticMeshCollisionStage0Tests.cpp`
 - `Engine/Tests/Native/AssetCoreTests/Private/CookedAssetTests.cpp`
 - `Sandbox/Tests/Native/Private/SandboxGameplayTests.cpp`
