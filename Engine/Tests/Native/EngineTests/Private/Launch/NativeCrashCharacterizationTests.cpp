@@ -191,3 +191,12 @@ TEST(FNativeCrashCharacterizationTests, SimultaneousFaultsTerminateWithoutASecon
 	EXPECT_LE(ContextCount, 1u);
 	EXPECT_LE(DumpCount, 1u);
 }
+
+TEST(FNativeCrashCharacterizationTests, CharacterizesStackOverflowWithReservedHandlerStack)
+{
+	const FChildResult Result = RunCrashChild("stack-overflow");
+	EXPECT_TRUE(Result.ExitCode == static_cast<DWORD>(EXCEPTION_STACK_OVERFLOW)
+		|| Result.ExitCode == static_cast<DWORD>(EXCEPTION_ACCESS_VIOLATION));
+	if (!Result.CrashDirectory.empty())
+		EXPECT_TRUE(std::filesystem::is_regular_file(Result.CrashDirectory / "Complete.marker"));
+}
