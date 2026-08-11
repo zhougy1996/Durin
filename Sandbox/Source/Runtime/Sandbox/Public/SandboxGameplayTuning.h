@@ -5,8 +5,11 @@
 namespace Durin::Sandbox::GameplayTuning
 {
 	inline constexpr double DigitalMoveScale = 1.0;
-	inline constexpr double MouseIntentPerPixel = 0.1;
-	inline constexpr double LookDegreesPerIntent = 4.0;
+	inline constexpr double LookDegreesPerIntent = 8.0;
+	inline constexpr double MouseDegreesPerPixel = 0.12;
+	inline constexpr double MouseIntentPerPixel = MouseDegreesPerPixel / LookDegreesPerIntent;
+	inline constexpr double MouseMinorAxisNoiseCounts = 1.0;
+	inline constexpr double MouseDominantAxisThresholdCounts = 4.0;
 	inline constexpr double MinimumPitchDegrees = -80.0;
 	inline constexpr double MaximumPitchDegrees = 80.0;
 	inline constexpr double MaximumHorizontalSpeed = 6.0;

@@ -6,6 +6,26 @@
 
 namespace Durin::Sandbox
 {
+	namespace
+	{
+		auto SuppressMouseAxisCrosstalk(FVector2d Delta) -> FVector2d
+		{
+			const double AbsoluteX = std::abs(Delta.x);
+			const double AbsoluteY = std::abs(Delta.y);
+			if (AbsoluteX >= GameplayTuning::MouseDominantAxisThresholdCounts
+				&& AbsoluteY <= GameplayTuning::MouseMinorAxisNoiseCounts)
+			{
+				Delta.y = 0.0;
+			}
+			else if (AbsoluteY >= GameplayTuning::MouseDominantAxisThresholdCounts
+				&& AbsoluteX <= GameplayTuning::MouseMinorAxisNoiseCounts)
+			{
+				Delta.x = 0.0;
+			}
+			return Delta;
+		}
+	}
+
 	ADefaultPlayerController::ADefaultPlayerController(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
@@ -21,9 +41,10 @@ namespace Durin::Sandbox
 		Intent.bJumpHeld = Input.IsKeyDown(EKey::Space);
 		Intent.bJumpPressed = Input.WasKeyPressed(EKey::Space);
 		Intent.bJumpReleased = Input.WasKeyReleased(EKey::Space);
+		const FVector2d MouseDelta = SuppressMouseAxisCrosstalk(Input.GetMouseDelta());
 		Intent.Look = {
-			Input.GetMouseDelta().x * GameplayTuning::MouseIntentPerPixel,
-			-Input.GetMouseDelta().y * GameplayTuning::MouseIntentPerPixel};
+			MouseDelta.x * GameplayTuning::MouseIntentPerPixel,
+			-MouseDelta.y * GameplayTuning::MouseIntentPerPixel};
 		return Intent;
 	}
 }

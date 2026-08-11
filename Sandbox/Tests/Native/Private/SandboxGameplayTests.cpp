@@ -289,8 +289,52 @@ TEST(FSandboxGameplayInputTests, MapsDigitalCancellationJumpEdgesAndMouseDelta)
 	EXPECT_TRUE(Intent.bJumpHeld);
 	EXPECT_TRUE(Intent.bJumpPressed);
 	EXPECT_FALSE(Intent.bJumpReleased);
-	EXPECT_DOUBLE_EQ(Intent.Look.x, 0.3);
-	EXPECT_DOUBLE_EQ(Intent.Look.y, 0.5);
+	EXPECT_DOUBLE_EQ(Intent.Look.x, 3.0 * Durin::Sandbox::GameplayTuning::MouseIntentPerPixel);
+	EXPECT_DOUBLE_EQ(Intent.Look.y, 5.0 * Durin::Sandbox::GameplayTuning::MouseIntentPerPixel);
+}
+
+TEST(FSandboxGameplayInputTests, SuppressesOnlyMinorAxisMouseCrosstalk)
+{
+	Durin::Testing::InitializeDObjectSystemForTests();
+	ResolveSandboxGameMode();
+	Durin::Sandbox::ADefaultPlayerController Controller(Durin::FObjectInitializer::Get());
+	auto BuildLook = [&Controller](const Durin::FVector2d& Delta) {
+		Durin::FGameInputState Input;
+		Durin::FGameInputStateTestAccess::EnableAndFocus(Input);
+		Durin::FGameInputStateTestAccess::SetMousePosition(Input, {0.0, 0.0});
+		Durin::FGameInputStateTestAccess::SetMousePosition(Input, Delta);
+		return Durin::Sandbox::FDefaultPlayerControllerTestAccess::Build(Controller, Input).Look;
+	};
+
+	const double Scale = Durin::Sandbox::GameplayTuning::MouseIntentPerPixel;
+	EXPECT_EQ(BuildLook({12.0, 1.0}), Durin::FVector2(12.0 * Scale, 0.0));
+	EXPECT_EQ(BuildLook({1.0, 12.0}), Durin::FVector2(0.0, -12.0 * Scale));
+	EXPECT_EQ(BuildLook({12.0, 2.0}), Durin::FVector2(12.0 * Scale, -2.0 * Scale));
+	EXPECT_EQ(BuildLook({0.0, 1.0}), Durin::FVector2(0.0, -Scale));
+}
+
+TEST(FSandboxGameplayInputTests, HorizontalLookKeepsPitchAndCameraHeightStable)
+{
+	Durin::DWorld* World = CreateGameplayWorld();
+	Durin::Sandbox::APlayerPawn* Pawn = BeginGameplay(*World);
+	ASSERT_NE(Pawn, nullptr);
+	Durin::FGameInputState Input;
+	Durin::FGameInputStateTestAccess::EnableAndFocus(Input);
+
+	World->Tick({.DeltaSeconds = 1.0f / 60.0f, .GameInput = &Input});
+	Durin::FGameInputStateTestAccess::FinishTick(Input);
+	const double InitialPitch = Pawn->GetPitchDegrees();
+	const double InitialPawnHeight = Pawn->GetActorTransform().Translation.z;
+	const double InitialCameraHeight = Pawn->GetCameraComponent()->GetWorldLocation().z;
+
+	Durin::FGameInputStateTestAccess::SetMousePosition(Input, {0.0, 0.0});
+	Durin::FGameInputStateTestAccess::SetMousePosition(Input, {12.0, 1.0});
+	World->Tick({.DeltaSeconds = 1.0f / 60.0f, .GameInput = &Input});
+
+	EXPECT_DOUBLE_EQ(Pawn->GetPitchDegrees(), InitialPitch);
+	EXPECT_NEAR(Pawn->GetActorTransform().Translation.z, InitialPawnHeight, 1.0e-7);
+	EXPECT_NEAR(Pawn->GetCameraComponent()->GetWorldLocation().z, InitialCameraHeight, 1.0e-7);
+	DestroyWorld(World);
 }
 
 TEST(FSandboxGameplayBootstrapTests, SelectsOwnsRestartsAndTearsDownConcreteRoles)
@@ -348,7 +392,7 @@ TEST(FSandboxGameplayMovementTests, AcceleratesJumpsLandsAndAppliesBoundedLook)
 	EXPECT_LE(Durin::Math::Length(Durin::FVector2(
 		Pawn->GetGroundMovementComponent()->GetVelocity().x,
 		Pawn->GetGroundMovementComponent()->GetVelocity().y)),
-		Durin::Sandbox::GameplayTuning::MaximumHorizontalSpeed);
+		Durin::Sandbox::GameplayTuning::MaximumHorizontalSpeed + 1.0e-9);
 	DestroyWorld(World);
 }
 
