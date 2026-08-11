@@ -15,6 +15,7 @@
 #include "Math/Color.h"
 #include "MonaImGui.h"
 #include "MonaImGuiPropertyTable.h"
+#include "MonaImGuiWidgets.h"
 #include "Texture/Texture2D.h"
 
 namespace Durin
@@ -290,17 +291,7 @@ namespace Durin
 			DrawNarrowLayout(Document, Material);
 
 		if (ActiveResourceId != Document.ResourceId) return;
-		if (!ErrorMessage.empty()) ImGui::OpenPopup("Material Editor Error");
-		if (ImGui::BeginPopupModal("Material Editor Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
-		{
-			ImGui::TextWrapped("%s", ErrorMessage.c_str());
-			if (ImGui::Button("OK"))
-			{
-				ErrorMessage.clear();
-				ImGui::CloseCurrentPopup();
-			}
-			ImGui::EndPopup();
-		}
+		MonaImGui::ErrorDialog("Material Editor Error", ErrorMessage);
 	}
 
 	auto MMaterialEditor::DrawToolbar(const FEditorDocumentTab& Document, DMaterialInterface* Material) -> void

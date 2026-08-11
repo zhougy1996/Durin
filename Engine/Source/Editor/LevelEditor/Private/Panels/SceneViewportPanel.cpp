@@ -13,6 +13,7 @@
 #include "Engine/World.h"
 #include "Actors/StaticMeshActor.h"
 #include "Actors/SkeletalMeshActor.h"
+#include "Actors/SkyBoxActor.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Workspace/LevelEditorWorkspace.h"
@@ -29,6 +30,8 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "StaticMeshLevelAuthoring.h"
+#include "SkyBoxLevelAuthoring.h"
+#include "Texture/TextureCube.h"
 
 namespace Durin
 {
@@ -232,8 +235,21 @@ namespace Durin
 								}
 							}
 						}
+						else if (DTextureCube* TextureCube = Cast<DTextureCube>(Asset))
+						{
+							const FSkyBoxPlacementResult Result = FSkyBoxLevelAuthoringService::PlaceTextureCube(
+								*Context.Level,
+								TextureCube,
+								FName(std::format("{}_SkyBox", AssetPath.GetAssetName())),
+								GEditor ? &GEditor->GetTransactionManager() : nullptr,
+								Context.bReadOnly);
+							if (!Result)
+								Context.SetError(Result.Message);
+							else
+								Actor = Result.Actor;
+						}
 						else
-							Context.SetError("Only StaticMesh and SkeletalMesh assets can be placed in the scene viewport.");
+							Context.SetError("Only StaticMesh, SkeletalMesh, and TextureCube assets can be placed in the scene viewport.");
 						if (Actor)
 						{
 							FSceneView View;
@@ -243,11 +259,11 @@ namespace Durin
 							ViewportClient->BuildViewMatrices(Width, Height, View);
 							const ImVec2 Mouse = ImGui::GetMousePos();
 							FVector3 Origin, Direction;
-							if (!Actor->IsA<AStaticMeshActor>()
+							if (!Actor->IsA<AStaticMeshActor>() && !Actor->IsA<ASkyBoxActor>()
 								&& SceneViewProjection::BuildViewportRay(View, {Mouse.x - VpMin.x, Mouse.y - VpMin.y}, Origin, Direction)
 								&& Actor->GetRootComponent())
 								Actor->GetRootComponent()->SetWorldLocation(Origin + Direction * 5.0);
-							if (!Actor->IsA<AStaticMeshActor>()) Context.InvalidatePackageSavedState(Actor->GetPackage());
+							if (!Actor->IsA<AStaticMeshActor>() && !Actor->IsA<ASkyBoxActor>()) Context.InvalidatePackageSavedState(Actor->GetPackage());
 							Context.SelectActor(Actor);
 						}
 					}

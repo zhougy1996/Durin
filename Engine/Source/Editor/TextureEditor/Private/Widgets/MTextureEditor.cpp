@@ -11,6 +11,7 @@
 #include "Misc/Paths.h"
 #include "MonaImGui.h"
 #include "MonaImGuiPropertyTable.h"
+#include "MonaImGuiWidgets.h"
 #include "MonaCoreGlobals.h"
 #include "MonaUIBackend.h"
 #include "PixelFormat.h"
@@ -329,18 +330,7 @@ namespace Durin
 			DrawNarrowLayout(Document.ResourceId, Texture);
 
 		if (ActiveResourceId != Document.ResourceId) return;
-		if (!ErrorMessage.empty()) ImGui::OpenPopup("Texture Editor Error");
-		if (ImGui::BeginPopupModal("Texture Editor Error", nullptr,
-			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
-		{
-			ImGui::TextWrapped("%s", ErrorMessage.c_str());
-			if (ImGui::Button("OK"))
-			{
-				ErrorMessage.clear();
-				ImGui::CloseCurrentPopup();
-			}
-			ImGui::EndPopup();
-		}
+		MonaImGui::ErrorDialog("Texture Editor Error", ErrorMessage);
 	}
 
 	auto MTextureEditor::DrawToolbar(const FEditorDocumentTab& Document, DTexture2D* Texture) -> void

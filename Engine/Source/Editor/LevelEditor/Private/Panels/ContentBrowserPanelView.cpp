@@ -18,6 +18,7 @@
 #include "Misc/Paths.h"
 #include "Misc/LexicalPath.h"
 #include "MonaImGui.h"
+#include "MonaImGuiWidgets.h"
 #include "MonaCoreGlobals.h"
 #include "MonaUIBackend.h"
 #include "Math/Vector.h"
@@ -1262,17 +1263,7 @@ namespace Durin
 			ImGui::EndPopup();
 		}
 
-		if (!ErrorMessage.empty()) ImGui::OpenPopup("Content Browser Error");
-		if (ImGui::BeginPopupModal("Content Browser Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
-		{
-			ImGui::TextWrapped("%s", ErrorMessage.c_str());
-			if (MonaImGui::DialogButton("OK"))
-			{
-				ErrorMessage.clear();
-				ImGui::CloseCurrentPopup();
-			}
-			ImGui::EndPopup();
-		}
+		MonaImGui::ErrorDialog("Content Browser Error", ErrorMessage);
 	}
 
 } // namespace Durin

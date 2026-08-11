@@ -61,6 +61,35 @@ namespace Durin::MonaImGui
 		return ImGui::Button(Label, ImVec2(bCompact ? Metrics.CompactButtonWidth : Metrics.StandardButtonWidth, 0.0f));
 	}
 
+	auto ErrorDialog(const char* Title, std::string& Message) -> void
+	{
+		if (!Title || Message.empty()) return;
+		ImGui::OpenPopup(Title);
+
+		const ImGuiViewport* Viewport = ImGui::GetMainViewport();
+		const float AvailableWidth = Viewport ? Viewport->WorkSize.x : ScaleUI(480.0f);
+		const float DialogWidth = std::clamp(
+			ScaleUI(440.0f),
+			std::min(ScaleUI(260.0f), AvailableWidth),
+			std::max(ScaleUI(260.0f), AvailableWidth - ScaleUI(48.0f)));
+		const float MaximumHeight = Viewport
+			? std::max(ScaleUI(160.0f), Viewport->WorkSize.y * 0.75f)
+			: ScaleUI(560.0f);
+		ImGui::SetNextWindowSizeConstraints(
+			ImVec2(DialogWidth, 0.0f),
+			ImVec2(DialogWidth, MaximumHeight));
+		if (!ImGui::BeginPopupModal(Title, nullptr,
+			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings)) return;
+
+		ImGui::TextWrapped("%s", Message.c_str());
+		if (DialogButton("OK") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+		{
+			Message.clear();
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+	}
+
 	auto InputText(const char* Label, std::string& Value, ImGuiInputTextFlags Flags) -> bool
 	{
 		check((Flags & ImGuiInputTextFlags_CallbackResize) == 0);

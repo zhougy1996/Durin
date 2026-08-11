@@ -493,6 +493,7 @@ durin_add_engine_functional_test(SkyBoxTests
 		Private/SkyBox/SkyBoxComponentTests.cpp
 		Private/SkyBox/SkyBoxEditorTests.cpp
 	PRIVATE_SOURCES
+		${_durin_level_editor_private}/Authoring/SkyBoxLevelAuthoring.cpp
 		${_durin_level_editor_private}/Customizations/SkyBoxDetails.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
 	LIBRARIES RenderCore Renderer DurinEd

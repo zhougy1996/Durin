@@ -20,6 +20,7 @@
 #include "Misc/Project.h"
 #include "Math/Operations.h"
 #include "MonaImGui.h"
+#include "MonaImGuiWidgets.h"
 #include "Panels/ConsolePanel.h"
 #include "Panels/DetailsPanel.h"
 #include "Panels/ContentBrowserPanel.h"
@@ -505,17 +506,7 @@ namespace Durin
 		TextureCubeImportDialog->Draw();
 		DrawProjectSettings();
 
-		if (!EditorError.empty()) ImGui::OpenPopup("Editor Error");
-		if (ImGui::BeginPopupModal("Editor Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
-		{
-			ImGui::TextWrapped("%s", EditorError.c_str());
-			if (ImGui::Button("OK"))
-			{
-				EditorError.clear();
-				ImGui::CloseCurrentPopup();
-			}
-			ImGui::EndPopup();
-		}
+		MonaImGui::ErrorDialog("Editor Error", EditorError);
 		for (const std::unique_ptr<ILevelEditorPanel>& Panel : Panels)
 		{
 			if (!Panel->IsOpen())
