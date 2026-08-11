@@ -57,7 +57,8 @@ namespace Durin
 	enum class EViewOverlayIcon : uint8
 	{
 		Camera,
-		DirectionalLight
+		DirectionalLight,
+		PlayerStart
 	};
 
 	// Selects solid or distance-patterned rendering for an overlay line.

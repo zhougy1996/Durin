@@ -36,6 +36,20 @@ namespace Durin::Editor::Level
 				const FVector3 Forward = Math::Normalize(Rotation * FVectorConstants::Forward);
 				const FVector3 Right = Math::Normalize(Rotation * FVectorConstants::Right);
 				const FVector3 Up = Math::Normalize(Rotation * FVectorConstants::Up);
+				Collector.AddIcon({
+					.Icon = EViewOverlayIcon::PlayerStart,
+					.WorldPosition = Origin,
+					.Color = Color,
+					.SizePixels = MonaImGui::ScaleUI(Context.bSelected ? 40.0f : 36.0f),
+					.HitPaddingPixels = MonaImGui::ScaleUI(4.0f),
+					.HitPriority = 100,
+					.Actor = PlayerStart,
+					.Component = Root,
+					.bDepthIndependentHit = true,
+					.HoverColor = HoverColor,
+				});
+				if (!Context.bSelected) return;
+
 				constexpr double Radius = 0.4;
 				constexpr double CylinderHalfHeight = 0.6;
 				constexpr uint32 RingSegmentCount = 24;
@@ -87,9 +101,6 @@ namespace Durin::Editor::Level
 				AddLine(ArrowTip, ArrowRight, ArrowWidth, 90);
 				AddLine(ArrowRight, ArrowLeft, ArrowWidth, 90);
 				AddLine(ArrowLeft, ArrowTip, ArrowWidth, 90);
-				// Preserve a generous depth-independent picking anchor without rendering a center cube.
-				Collector.AddBox({Origin, FVector4f(0.0f), MonaImGui::ScaleUI(12.0f),
-					MonaImGui::ScaleUI(5.0f), 100, PlayerStart, Root, true});
 			}
 		};
 	} // namespace

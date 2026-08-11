@@ -616,10 +616,12 @@ TEST(FPlayerStartActorVisualizerTests, DrawsSelectableSpawnShapeAndFacingCue)
 
 	Durin::Editor::Level::FEditorVisualizationCollector Unselected;
 	Visualizer->DrawVisualization(PlayerStart, {View, Level, false, false}, Unselected);
-	EXPECT_EQ(Unselected.GetBoxes().size(), 1u);
-	EXPECT_EQ(Unselected.GetLines().size(), 104u);
-	EXPECT_FLOAT_EQ(Unselected.GetBoxes().front().Color.a, 0.0f);
-	EXPECT_FLOAT_EQ(Unselected.GetLines().front().WidthPixels, Durin::MonaImGui::ScaleUI(1.5f));
+	ASSERT_EQ(Unselected.GetIcons().size(), 1u);
+	EXPECT_EQ(Unselected.GetIcons().front().Icon, Durin::EViewOverlayIcon::PlayerStart);
+	EXPECT_FLOAT_EQ(Unselected.GetIcons().front().SizePixels, Durin::MonaImGui::ScaleUI(36.0f));
+	EXPECT_TRUE(Unselected.GetIcons().front().HoverColor.has_value());
+	EXPECT_TRUE(Unselected.GetLines().empty());
+	EXPECT_TRUE(Unselected.GetBoxes().empty());
 	Durin::FVector2f ScreenCenter;
 	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, Origin, ScreenCenter));
 	const Durin::Editor::Level::FEditorVisualizationHit Hit = Unselected.HitTest(View, ScreenCenter);
@@ -629,8 +631,10 @@ TEST(FPlayerStartActorVisualizerTests, DrawsSelectableSpawnShapeAndFacingCue)
 
 	Durin::Editor::Level::FEditorVisualizationCollector Selected;
 	Visualizer->DrawVisualization(PlayerStart, {View, Level, true, true}, Selected);
-	ASSERT_EQ(Selected.GetBoxes().size(), 1u);
-	EXPECT_FALSE(Selected.GetBoxes().front().HoverColor.has_value());
+	ASSERT_EQ(Selected.GetIcons().size(), 1u);
+	EXPECT_FLOAT_EQ(Selected.GetIcons().front().SizePixels, Durin::MonaImGui::ScaleUI(40.0f));
+	EXPECT_FALSE(Selected.GetIcons().front().HoverColor.has_value());
+	EXPECT_EQ(Selected.GetLines().size(), 104u);
 	EXPECT_FLOAT_EQ(Selected.GetLines().front().WidthPixels, Durin::MonaImGui::ScaleUI(2.0f));
 	EXPECT_GT(Durin::Math::Dot(Selected.GetLines()[100].End - Selected.GetLines()[100].Start,
 		PlayerStart->GetRootComponent()->GetWorldRotation() * Durin::FVectorConstants::Forward), 0.0);

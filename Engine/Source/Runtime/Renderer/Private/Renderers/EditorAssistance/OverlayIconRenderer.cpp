@@ -57,11 +57,11 @@ namespace Durin
 			FVector4f Color{1.0f};
 		};
 
-		auto BuildAtlasPixels() -> std::array<uint8, 128 * 64 * 4>
+		auto BuildAtlasPixels() -> std::array<uint8, 192 * 64 * 4>
 		{
 			constexpr uint32 Size = 64;
 			constexpr uint32 SamplesPerAxis = 4;
-			constexpr uint32 AtlasWidth = Size * 2;
+			constexpr uint32 AtlasWidth = Size * 3;
 			std::array<uint8, AtlasWidth * Size * 4> Pixels{};
 			auto InsideCircle = [](
 				float X,
@@ -167,6 +167,36 @@ namespace Durin
 						/ (SamplesPerAxis * SamplesPerAxis));
 				}
 			}
+			for (uint32 Y = 0; Y < Size; ++Y)
+			{
+				for (uint32 X = 0; X < Size; ++X)
+				{
+					uint32 CoveredSamples = 0;
+					for (uint32 SampleY = 0; SampleY < SamplesPerAxis; ++SampleY)
+					{
+						for (uint32 SampleX = 0; SampleX < SamplesPerAxis; ++SampleX)
+						{
+							const float PX = static_cast<float>(X)
+								+ (static_cast<float>(SampleX) + 0.5f) / SamplesPerAxis - 32.0f;
+							const float PY = static_cast<float>(Y)
+								+ (static_cast<float>(SampleY) + 0.5f) / SamplesPerAxis - 26.0f;
+							const float Radius = std::sqrt(PX * PX + PY * PY);
+							const bool bPinHead = Radius <= 16.0f;
+							const float TailHalfWidth = std::max(0.0f, (20.0f - PY) * 0.32f);
+							const bool bPinTail = PY >= 8.0f && PY <= 24.0f && std::abs(PX) <= TailHalfWidth;
+							const bool bCenterHole = Radius <= 5.5f;
+							if ((bPinHead || bPinTail) && !bCenterHole) ++CoveredSamples;
+						}
+					}
+					const size_t Offset =
+						(static_cast<size_t>(Y) * AtlasWidth + Size * 2 + X) * 4;
+					Pixels[Offset + 0] = 255;
+					Pixels[Offset + 1] = 255;
+					Pixels[Offset + 2] = 255;
+					Pixels[Offset + 3] = static_cast<uint8>(
+						CoveredSamples * 255 / (SamplesPerAxis * SamplesPerAxis));
+				}
+			}
 			return Pixels;
 		}
 
@@ -179,11 +209,8 @@ namespace Durin
 			{
 				if (!std::isfinite(Icon.SizePixels) || Icon.SizePixels <= 0.0f)
 					continue;
-				const float MinU =
-					Icon.Icon == EViewOverlayIcon::DirectionalLight
-					? 0.5f
-					: 0.0f;
-				const float MaxU = MinU + 0.5f;
+				const float MinU = static_cast<float>(Icon.Icon) / 3.0f;
+				const float MaxU = MinU + 1.0f / 3.0f;
 				const FVector4 Clip =
 					View.ViewProjectionMatrix
 					* FVector4(Icon.WorldPosition, 1.0);
@@ -403,7 +430,7 @@ namespace Durin
 				FRHITextureCreateDesc TextureDesc =
 					FRHITextureCreateDesc::Create2D(
 						"EditorOverlayIconAtlas",
-						128,
+						192,
 						64,
 						EPixelFormat::RGBA8_UNORM)
 						.SetFlags(ETextureCreateFlags::ShaderResource);
