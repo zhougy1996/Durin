@@ -4,7 +4,7 @@ Summary: Move shared thumbnail infrastructure into `Durin::Editor` and split its
 
 Last reviewed: 2026-08-12
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-12
 
 ## Current Status
@@ -309,11 +309,11 @@ compatibility facade, or forwarding alias.
 - [Editor Preview Scene Namespace Refactor](EditorPreviewSceneNamespaceRefactor.md)
 - [Editor Asset Support Namespace Refactor](EditorAssetSupportNamespaceRefactor.md)
 - [Editor Common Namespace Refactor](EditorCommonNamespaceRefactor.md)
-- [Asset Thumbnails](../Editor/Architecture/AssetThumbnails.md)
-- [Content Browser](../Editor/Architecture/ContentBrowser.md)
-- [Skeletal Asset Editor](../Editor/Architecture/SkeletalAssetEditor.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [C++ Coding Standards](../Development/Standards/CodingStandards.md)
+- [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
+- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Skeletal Asset Editor](../../../Editor/Architecture/SkeletalAssetEditor.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
 
 ## Related Code
 

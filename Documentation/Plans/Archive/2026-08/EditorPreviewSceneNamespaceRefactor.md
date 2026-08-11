@@ -4,7 +4,7 @@ Summary: Move the shared editor preview-scene lifetime contract into `Durin::Edi
 
 Last reviewed: 2026-08-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-11
 
 ## Current Status
@@ -178,9 +178,9 @@ contract family remains explicitly deferred.
 
 - [Editor Asset Support Namespace Refactor](EditorAssetSupportNamespaceRefactor.md)
 - [Editor Common Namespace Refactor](EditorCommonNamespaceRefactor.md)
-- [Asset Thumbnails](../Editor/Architecture/AssetThumbnails.md)
-- [Skeletal Asset Editor](../Editor/Architecture/SkeletalAssetEditor.md)
-- [C++ Coding Standards](../Development/Standards/CodingStandards.md)
+- [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
+- [Skeletal Asset Editor](../../../Editor/Architecture/SkeletalAssetEditor.md)
+- [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
 
 ## Related Code
 

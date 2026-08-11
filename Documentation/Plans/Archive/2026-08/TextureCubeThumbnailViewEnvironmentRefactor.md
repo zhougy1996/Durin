@@ -4,7 +4,7 @@ Summary: Move TextureCube thumbnails from an editor-only mesh Component and Prim
 
 Last reviewed: 2026-08-12
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-12
 
 ## Current Status
@@ -597,15 +597,15 @@ Dependencies: Stages 0-4.
 
 ## Related Documentation
 
-- [Asset Thumbnails](../Editor/Architecture/AssetThumbnails.md)
-- [Cube Textures](../Runtime/Rendering/CubeTextures.md)
-- [Renderer Scene Representation](../Runtime/Rendering/SceneRepresentation.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Static Mesh Render Data Lifecycle](Archive/2026-08/StaticMeshRenderDataLifecycle.md)
-- [Static Mesh LOD Resources Refactor](Archive/2026-08/StaticMeshLODResourcesRefactor.md)
-- [Renderer SceneProxy and SceneInfo Contract](Archive/2026-08/RendererSceneProxyAndInfoContract.md)
-- [Per-View Visibility and LOD](Archive/2026-08/PerViewVisibilityAndLOD.md)
+- [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
+- [Cube Textures](../../../Runtime/Rendering/CubeTextures.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Static Mesh Render Data Lifecycle](StaticMeshRenderDataLifecycle.md)
+- [Static Mesh LOD Resources Refactor](StaticMeshLODResourcesRefactor.md)
+- [Renderer SceneProxy and SceneInfo Contract](RendererSceneProxyAndInfoContract.md)
+- [Per-View Visibility and LOD](PerViewVisibilityAndLOD.md)
 
 ## Related Code
 

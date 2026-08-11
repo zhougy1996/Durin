@@ -4,13 +4,13 @@ Summary: Establish an instrumented reference/production query pipeline, determin
 
 Last reviewed: 2026-08-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-11
 
 ## Current Status
 
 Selected as M0 of the
-[Aether Physics Evolution Roadmap](../Roadmaps/AetherPhysicsEvolution.md).
+[Aether Physics Evolution Roadmap](../../../Roadmaps/AetherPhysicsEvolution.md).
 All stages completed on 2026-08-11. The baseline source revision is
 `cca78dbc30e0cc70a6d64e7a9d12d990c725fa2a`, where the completed first-slice
 physics scene stores bodies in one flat vector and executes deterministic
@@ -742,23 +742,23 @@ Dependencies: Stages 0-3 and complete recorded qualification evidence.
 
 ## Related Documentation
 
-- [Aether Physics Evolution Roadmap](../Roadmaps/AetherPhysicsEvolution.md)
-- [Runtime Collision](../Runtime/Physics/Collision.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Sandbox Gameplay](../Runtime/Gameplay/SandboxGameplay.md)
-- [CPU Profiling](../Development/Build/Profiling.md)
-- [Native Tests](../Development/Build/NativeTests.md)
-- [Physics Scene And Character Collision Plan](Archive/2026-08/PhysicsSceneAndCharacterCollision.md)
+- [Aether Physics Evolution Roadmap](../../../Roadmaps/AetherPhysicsEvolution.md)
+- [Runtime Collision](../../../Runtime/Physics/Collision.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Sandbox Gameplay](../../../Runtime/Gameplay/SandboxGameplay.md)
+- [CPU Profiling](../../../Development/Build/Profiling.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
+- [Physics Scene And Character Collision Plan](PhysicsSceneAndCharacterCollision.md)
 
 ## Related Code
 
-- [`Engine/Source/Runtime/AetherCore/Public/Physics/PhysicsTypes.h`](../../Engine/Source/Runtime/AetherCore/Public/Physics/PhysicsTypes.h)
-- [`Engine/Source/Runtime/AetherCore/Public/Collision/CollisionGeometry.h`](../../Engine/Source/Runtime/AetherCore/Public/Collision/CollisionGeometry.h)
-- [`Engine/Source/Runtime/AetherCore/Private/Collision/CollisionGeometry.cpp`](../../Engine/Source/Runtime/AetherCore/Private/Collision/CollisionGeometry.cpp)
-- [`Engine/Source/Runtime/Aether/Public/Physics/PhysicsScene.h`](../../Engine/Source/Runtime/Aether/Public/Physics/PhysicsScene.h)
-- [`Engine/Source/Runtime/Aether/Private/Physics/PhysicsScene.cpp`](../../Engine/Source/Runtime/Aether/Private/Physics/PhysicsScene.cpp)
-- [`Engine/Source/Runtime/Engine/Public/Engine/World.h`](../../Engine/Source/Runtime/Engine/Public/Engine/World.h)
-- [`Engine/Source/Runtime/Engine/Private/Engine/World.cpp`](../../Engine/Source/Runtime/Engine/Private/Engine/World.cpp)
-- [`Engine/Tests/Native/EngineTests/Private/Physics/PhysicsSceneTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Physics/PhysicsSceneTests.cpp)
-- [`Sandbox/Source/Runtime/Sandbox/Private/SimpleGroundMovementComponent.cpp`](../../Sandbox/Source/Runtime/Sandbox/Private/SimpleGroundMovementComponent.cpp)
-- [`Sandbox/Tests/Native/Private/SandboxGameplayTests.cpp`](../../Sandbox/Tests/Native/Private/SandboxGameplayTests.cpp)
+- [`Engine/Source/Runtime/AetherCore/Public/Physics/PhysicsTypes.h`](../../../../Engine/Source/Runtime/AetherCore/Public/Physics/PhysicsTypes.h)
+- [`Engine/Source/Runtime/AetherCore/Public/Collision/CollisionGeometry.h`](../../../../Engine/Source/Runtime/AetherCore/Public/Collision/CollisionGeometry.h)
+- [`Engine/Source/Runtime/AetherCore/Private/Collision/CollisionGeometry.cpp`](../../../../Engine/Source/Runtime/AetherCore/Private/Collision/CollisionGeometry.cpp)
+- [`Engine/Source/Runtime/Aether/Public/Physics/PhysicsScene.h`](../../../../Engine/Source/Runtime/Aether/Public/Physics/PhysicsScene.h)
+- [`Engine/Source/Runtime/Aether/Private/Physics/PhysicsScene.cpp`](../../../../Engine/Source/Runtime/Aether/Private/Physics/PhysicsScene.cpp)
+- [`Engine/Source/Runtime/Engine/Public/Engine/World.h`](../../../../Engine/Source/Runtime/Engine/Public/Engine/World.h)
+- [`Engine/Source/Runtime/Engine/Private/Engine/World.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Engine/World.cpp)
+- [`Engine/Tests/Native/EngineTests/Private/Physics/PhysicsSceneTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Physics/PhysicsSceneTests.cpp)
+- [`Sandbox/Source/Runtime/Sandbox/Private/SimpleGroundMovementComponent.cpp`](../../../../Sandbox/Source/Runtime/Sandbox/Private/SimpleGroundMovementComponent.cpp)
+- [`Sandbox/Tests/Native/Private/SandboxGameplayTests.cpp`](../../../../Sandbox/Tests/Native/Private/SandboxGameplayTests.cpp)

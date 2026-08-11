@@ -4,7 +4,7 @@ Summary: Move the reusable workspace/document framework into `Durin::Editor`, sh
 
 Last reviewed: 2026-08-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-11
 
 ## Current Status

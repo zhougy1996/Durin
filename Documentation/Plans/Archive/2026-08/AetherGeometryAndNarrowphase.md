@@ -4,13 +4,13 @@ Summary: Add immutable shared collision geometry and pair dispatch, complete pri
 
 Last reviewed: 2026-08-12
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-12
 
 ## Current Status
 
 Activated as M2 of the
-[Aether Physics Evolution Roadmap](../Roadmaps/AetherPhysicsEvolution.md) after
+[Aether Physics Evolution Roadmap](../../../Roadmaps/AetherPhysicsEvolution.md) after
 M1 completed at source revision `07b9bc567b0deaa3b744755047d14f89a4711dce`.
 The entry evidence is sufficient: generation-checked body storage and both
 spatial indexes are qualified; Reference, Production, and Compare have a
@@ -386,15 +386,15 @@ allocation and one exactly reserved child-array allocation.
 
 ## Related Documentation
 
-- [Aether Physics Evolution Roadmap](../Roadmaps/AetherPhysicsEvolution.md)
+- [Aether Physics Evolution Roadmap](../../../Roadmaps/AetherPhysicsEvolution.md)
 - [Aether Scene Query Acceleration Plan](AetherSceneQueryAcceleration.md)
 - [Aether Physics Query Observability Plan](AetherPhysicsQueryObservability.md)
-- [Physics Scene And Character Collision Plan](Archive/2026-08/PhysicsSceneAndCharacterCollision.md)
-- [Runtime Collision](../Runtime/Physics/Collision.md)
-- [Core Math](../Runtime/Core/Math.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Sandbox Gameplay](../Runtime/Gameplay/SandboxGameplay.md)
-- [Native Tests](../Development/Build/NativeTests.md)
+- [Physics Scene And Character Collision Plan](PhysicsSceneAndCharacterCollision.md)
+- [Runtime Collision](../../../Runtime/Physics/Collision.md)
+- [Core Math](../../../Runtime/Core/Math.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Sandbox Gameplay](../../../Runtime/Gameplay/SandboxGameplay.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code
 

@@ -4,7 +4,7 @@ Summary: Move MainFrame, LevelEditor, and concrete asset-editor implementation A
 
 Last reviewed: 2026-08-12
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-12
 
 ## Current Status
@@ -472,16 +472,16 @@ registry rather than duplicated here when ownership spans an aggregate target.
 
 ## Related Documentation
 
-- [Workspace Framework](../Editor/Architecture/WorkspaceFramework.md)
-- [Viewport Editing](../Editor/Architecture/ViewportEditing.md)
-- [Content Browser](../Editor/Architecture/ContentBrowser.md)
-- [Asset Thumbnails](../Editor/Architecture/AssetThumbnails.md)
-- [Reflected Property Editing](../Editor/Architecture/ReflectedPropertyEditing.md)
-- [Play In Editor Architecture](../Editor/Architecture/PlayInEditorArchitecture.md)
-- [Skeletal Asset Editor](../Editor/Architecture/SkeletalAssetEditor.md)
-- [Static Mesh Level Authoring](../Editor/Architecture/StaticMeshLevelAuthoring.md)
-- [Native Graybox Scene Authoring](NativeGrayboxSceneAuthoring.md)
-- [C++ Coding Standards](../Development/Standards/CodingStandards.md)
+- [Workspace Framework](../../../Editor/Architecture/WorkspaceFramework.md)
+- [Viewport Editing](../../../Editor/Architecture/ViewportEditing.md)
+- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
+- [Reflected Property Editing](../../../Editor/Architecture/ReflectedPropertyEditing.md)
+- [Play In Editor Architecture](../../../Editor/Architecture/PlayInEditorArchitecture.md)
+- [Skeletal Asset Editor](../../../Editor/Architecture/SkeletalAssetEditor.md)
+- [Static Mesh Level Authoring](../../../Editor/Architecture/StaticMeshLevelAuthoring.md)
+- [Native Graybox Scene Authoring](../../NativeGrayboxSceneAuthoring.md)
+- [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
 
 ## Related Code
 

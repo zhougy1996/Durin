@@ -4,7 +4,7 @@ Summary: Add backend-neutral compute PSO creation, reflected binding, direct dis
 
 Last reviewed: 2026-08-12
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-12
 
 ## Current Status
@@ -239,7 +239,7 @@ Vulkan calls or a whole-device idle dependency.
 ### Stage 4: Qualify both executors and publish the lasting contract
 
 - [x] Run focused `RHITests`, `RenderCoreTests`, and `VulkanRHITests` coverage
-  through the root [build and run](../Development/Build/BuildAndRun.md)
+  through the root [build and run](../../../Development/Build/BuildAndRun.md)
   workflow, first in the default dedicated-thread mode and then with
   `DURIN_RHI_EXECUTION=inline` for the compute vertical slice.
 - [x] Because the change crosses RHI, RenderCore, VulkanRHI, recorded command
@@ -255,7 +255,7 @@ Vulkan calls or a whole-device idle dependency.
   `Documentation/Runtime/Rendering/` and remove compute limitations that are no
   longer true from shader-parameter documentation.
 - [x] Mark M2 complete in the
-  [Compute Shader Pipeline roadmap](../Roadmaps/ComputeShaderPipeline.md) and
+  [Compute Shader Pipeline roadmap](../../../Roadmaps/ComputeShaderPipeline.md) and
   record the M3 entry state without selecting its renderer consumer here.
 
 #### Acceptance Gate
@@ -308,13 +308,13 @@ Vulkan calls or a whole-device idle dependency.
 
 ## Related Documentation
 
-- [Compute Shader Pipeline roadmap](../Roadmaps/ComputeShaderPipeline.md)
-- [RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md)
-- [RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md)
-- [Graphics State and Bindings](../Runtime/Rendering/GraphicsStateAndBindings.md)
-- [Shader Parameters](../Runtime/Rendering/ShaderParameters.md)
-- [RHI Capabilities and Vulkan Startup](../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Compute Shader Pipeline roadmap](../../../Roadmaps/ComputeShaderPipeline.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [Graphics State and Bindings](../../../Runtime/Rendering/GraphicsStateAndBindings.md)
+- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
+- [RHI Capabilities and Vulkan Startup](../../../Runtime/Rendering/RHICapabilitiesAndVulkanStartup.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

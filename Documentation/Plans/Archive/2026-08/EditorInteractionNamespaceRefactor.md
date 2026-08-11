@@ -4,7 +4,7 @@ Summary: Move shared editor notification, asset-picker, and play-session value c
 
 Last reviewed: 2026-08-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-11
 
 ## Current Status
@@ -153,7 +153,7 @@ Core concurrency soak retry also passed before the final aggregate succeeded.
 
 - [Editor Common Namespace Refactor](EditorCommonNamespaceRefactor.md)
 - [Editor Workspace Namespace Refactor](EditorWorkspaceNamespaceRefactor.md)
-- [C++ Coding Standards](../Development/Standards/CodingStandards.md)
+- [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
 
 ## Related Code
 

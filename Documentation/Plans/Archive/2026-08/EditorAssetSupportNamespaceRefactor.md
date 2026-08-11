@@ -4,7 +4,7 @@ Summary: Move shared editor asset retention, open-compatibility, and source-mana
 
 Last reviewed: 2026-08-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-11
 
 ## Current Status
@@ -201,8 +201,8 @@ are not required for this ownership cleanup.
 - [Editor Common Namespace Refactor](EditorCommonNamespaceRefactor.md)
 - [Editor Workspace Namespace Refactor](EditorWorkspaceNamespaceRefactor.md)
 - [Editor Interaction Namespace Refactor](EditorInteractionNamespaceRefactor.md)
-- [Asset Thumbnails](../Editor/Architecture/AssetThumbnails.md)
-- [C++ Coding Standards](../Development/Standards/CodingStandards.md)
+- [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
+- [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
 
 ## Related Code
 

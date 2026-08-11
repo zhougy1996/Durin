@@ -4,7 +4,7 @@ Summary: Replace Actor-owned Component Tick traversal with stable registered Tic
 
 Last reviewed: 2026-08-12
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-12
 
 ## Current Status
@@ -23,7 +23,7 @@ the full `all` build pass under the `windows-msvc-x64`
 changed-document validation, and all-plan validation pass.
 
 This plan is the explicit follow-up deferred by the archived
-[Actor Lifecycle Mutation Safety](Archive/2026-07/ActorLifecycleMutationSafety.md)
+[Actor Lifecycle Mutation Safety](../2026-07/ActorLifecycleMutationSafety.md)
 plan.
 
 ## Goal
@@ -402,8 +402,8 @@ Dependencies: Stage 4.
 | Documentation | Runtime contract update, changed-document checks, all-plan validation |
 
 Build and test commands must follow
-[Build And Run](../Development/Build/BuildAndRun.md) and
-[Native C++ Tests](../Development/Build/NativeTests.md).
+[Build And Run](../../../Development/Build/BuildAndRun.md) and
+[Native C++ Tests](../../../Development/Build/NativeTests.md).
 
 ## Definition of Done
 
@@ -435,12 +435,12 @@ Build and test commands must follow
 
 ## Related Documentation
 
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [CPU Task System](../Runtime/Core/TaskSystem.md)
-- [Build And Run](../Development/Build/BuildAndRun.md)
-- [Native C++ Tests](../Development/Build/NativeTests.md)
-- [Actor Lifecycle Mutation Safety](Archive/2026-07/ActorLifecycleMutationSafety.md)
-- [Actor Component System](Archive/2026-07/ActorComponentSystem.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [CPU Task System](../../../Runtime/Core/TaskSystem.md)
+- [Build And Run](../../../Development/Build/BuildAndRun.md)
+- [Native C++ Tests](../../../Development/Build/NativeTests.md)
+- [Actor Lifecycle Mutation Safety](../2026-07/ActorLifecycleMutationSafety.md)
+- [Actor Component System](../2026-07/ActorComponentSystem.md)
 - [UE Actor Ticking](https://dev.epicgames.com/documentation/en-us/unreal-engine/actor-ticking-in-unreal-engine)
 - [UE `FTickFunction`](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/FTickFunction)
 - [UE `FTickTaskManagerInterface`](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/FTickTaskManagerInterface)

@@ -32,12 +32,12 @@ conditional tracks activated by concrete consumers and measurements; they are
 not prerequisites for fixing current collision-query cost.
 
 M0 completed through the
-[Aether Physics Query Observability Plan](../Plans/AetherPhysicsQueryObservability.md).
+[Aether Physics Query Observability Plan](../Plans/Archive/2026-08/AetherPhysicsQueryObservability.md).
 Reference, Production, and Compare preserve complete query semantics; bounded
 query/mutation diagnostics reconcile; fixed-seed and 0/32/1,000/10,000 parity
 qualification has zero mismatch; and real Sandbox movement plus controlled
 Release baselines separate traversal from pair cost. M1 completed through the
-[Aether Scene Query Acceleration Plan](../Plans/AetherSceneQueryAcceleration.md).
+[Aether Scene Query Acceleration Plan](../Plans/Archive/2026-08/AetherSceneQueryAcceleration.md).
 Generation-checked dense slots, explicit motion, compact conservative bounds,
 a deterministic static BVH, an incremental moving fat-AABB tree, bounded
 traversal, exact near-time pruning, and complete Reference fallback now back
@@ -45,13 +45,13 @@ Production. Qualified 10,000-body sparse misses emit zero candidates; retained
 capacity fits 64 bytes per body plus 64 KiB; Release query and mutation gates
 pass with zero mismatch, overflow, or fallback. M2 geometry and narrow-phase
 architecture completed at source revision `82fef8cb` through the
-[Aether Geometry And Narrowphase Plan](../Plans/AetherGeometryAndNarrowphase.md).
+[Aether Geometry And Narrowphase Plan](../Plans/Archive/2026-08/AetherGeometryAndNarrowphase.md).
 The 176-byte body record retains one 16-byte reference; 10,000 bodies can share
 one payload identity; the complete directed primitive matrix and compound
 ordering pass; and the controlled Release Capsule/Box median improves 25.17x
 with zero ordinary unsupported, non-convergence, or fallback. M3 cooked world
 collision completed on 2026-08-12 through the
-[Aether Cooked Collision Geometry Plan](../Plans/AetherCookedCollisionGeometry.md).
+[Aether Cooked Collision Geometry Plan](../Plans/Archive/2026-08/AetherCookedCollisionGeometry.md).
 Explicit StaticMeshes now produce independently versioned immutable hull or
 triangle resources, deterministic asset BVHs and DDC/DCOL payloads, transactional
 reimport/Cook/load, render-independent World publication, bounded inspection and
@@ -284,10 +284,10 @@ flowchart LR
 
 | Milestone | Requirement | Proposed child plan | Dependencies | Deliverable | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- | --- | --- |
-| M0: Query observability and reference oracle | Required; completed 2026-08-11 | [Aether Physics Query Observability](../Plans/AetherPhysicsQueryObservability.md) | Completed first-slice collision plan and current focused fixtures | Explicit query pipeline seam, Reference/Production/Compare policy, diagnostics snapshot, representative fixtures, randomized/adversarial parity corpus, and recorded baselines | Frozen World semantics, result tolerances, ordering, counter equations, scene scales, Sandbox mixes, and measurement method | Zero qualified mismatch; reconciled structural/geometry/mutation work; bounded diagnostic overhead; controlled small, sparse, dense, churn, and Sandbox evidence plus M1 budget proposals |
-| M1: Body storage and hybrid broad phase | Required; completed 2026-08-11 | [Aether Scene Query Acceleration](../Plans/AetherSceneQueryAcceleration.md) | Completed M0 oracle, counters, fixtures, and accepted entry budgets | Generation-checked dense body storage; explicit motion type; conservative AABBs; deterministic static BVH; incremental moving fat-AABB tree; closest-hit pruning; bounded scratch and complete fallback | Met: 192-byte record, 12-byte slot, 36-byte node, 128-entry stack, and actual capacities fit the accepted memory gate at every qualified scale/mix | Zero mismatches and stale resolutions; 10,000 sparse misses emit zero candidates; dense overlap returns 10,000; moving updates isolate Static; all Release query/mutation and Sandbox gates pass with zero qualified overflow/fallback |
-| M2: Geometry and narrow-phase architecture | Required; completed 2026-08-12 | [Aether Geometry And Narrowphase](../Plans/AetherGeometryAndNarrowphase.md) | M1 body/index ownership and query pipeline | Immutable shared geometry references, compound simple shapes, operation/pair dispatch, complete primitive query matrix, analytic common fast paths, generic convex fallback, bounded penetration and shape casts, and pair/iteration diagnostics | Met: resource lifetime, compound precedence, convergence caps, pair budgets, result fields, and ordering were frozen before dispatch changes | Met at `82fef8cb`: primitive/compound matrix and sharing qualify; Production Capsule/Box removes nested search and improves 25.17x; traversal contains no pair algorithms; diagnostics and full native validation pass |
-| M3: Cooked world collision | Required; completed 2026-08-12 | [Aether Cooked Collision Geometry](../Plans/AetherCookedCollisionGeometry.md) | M2 immutable geometry and dispatch; AssetCore derived-data contracts | Versioned BodySetup cook input/output, convex and triangle-mesh payloads, asset-level BVH, simple-versus-complex query policy, bounded cook/runtime memory, serialization/DDC integration, and collision inspection | Met: representative fixtures, explicit source modes, Cook ownership, invalidation, feature semantics, degenerate/oversized failure, independent platform versions, hard caps, and read-only editor scope were frozen before persistence | Met: one identity is shared by 10,000 instances; complete queries and nearest-feature ordering match Reference; 100,352-triangle sparse work is local; DDC/reimport/cooked-only load, two Worlds, PIE, render independence, full native/build/docs, and Release gates pass |
+| M0: Query observability and reference oracle | Required; completed 2026-08-11 | [Aether Physics Query Observability](../Plans/Archive/2026-08/AetherPhysicsQueryObservability.md) | Completed first-slice collision plan and current focused fixtures | Explicit query pipeline seam, Reference/Production/Compare policy, diagnostics snapshot, representative fixtures, randomized/adversarial parity corpus, and recorded baselines | Frozen World semantics, result tolerances, ordering, counter equations, scene scales, Sandbox mixes, and measurement method | Zero qualified mismatch; reconciled structural/geometry/mutation work; bounded diagnostic overhead; controlled small, sparse, dense, churn, and Sandbox evidence plus M1 budget proposals |
+| M1: Body storage and hybrid broad phase | Required; completed 2026-08-11 | [Aether Scene Query Acceleration](../Plans/Archive/2026-08/AetherSceneQueryAcceleration.md) | Completed M0 oracle, counters, fixtures, and accepted entry budgets | Generation-checked dense body storage; explicit motion type; conservative AABBs; deterministic static BVH; incremental moving fat-AABB tree; closest-hit pruning; bounded scratch and complete fallback | Met: 192-byte record, 12-byte slot, 36-byte node, 128-entry stack, and actual capacities fit the accepted memory gate at every qualified scale/mix | Zero mismatches and stale resolutions; 10,000 sparse misses emit zero candidates; dense overlap returns 10,000; moving updates isolate Static; all Release query/mutation and Sandbox gates pass with zero qualified overflow/fallback |
+| M2: Geometry and narrow-phase architecture | Required; completed 2026-08-12 | [Aether Geometry And Narrowphase](../Plans/Archive/2026-08/AetherGeometryAndNarrowphase.md) | M1 body/index ownership and query pipeline | Immutable shared geometry references, compound simple shapes, operation/pair dispatch, complete primitive query matrix, analytic common fast paths, generic convex fallback, bounded penetration and shape casts, and pair/iteration diagnostics | Met: resource lifetime, compound precedence, convergence caps, pair budgets, result fields, and ordering were frozen before dispatch changes | Met at `82fef8cb`: primitive/compound matrix and sharing qualify; Production Capsule/Box removes nested search and improves 25.17x; traversal contains no pair algorithms; diagnostics and full native validation pass |
+| M3: Cooked world collision | Required; completed 2026-08-12 | [Aether Cooked Collision Geometry](../Plans/Archive/2026-08/AetherCookedCollisionGeometry.md) | M2 immutable geometry and dispatch; AssetCore derived-data contracts | Versioned BodySetup cook input/output, convex and triangle-mesh payloads, asset-level BVH, simple-versus-complex query policy, bounded cook/runtime memory, serialization/DDC integration, and collision inspection | Met: representative fixtures, explicit source modes, Cook ownership, invalidation, feature semantics, degenerate/oversized failure, independent platform versions, hard caps, and read-only editor scope were frozen before persistence | Met: one identity is shared by 10,000 instances; complete queries and nearest-feature ordering match Reference; 100,352-triangle sparse work is local; DDC/reimport/cooked-only load, two Worlds, PIE, render independence, full native/build/docs, and Release gates pass |
 | M4: Rigid-body simulation kernel | Conditional; deferred | `AetherRigidBodySimulation` | M1-M2; concrete Dynamic-body gameplay requirement and accepted stability budget | Fixed-step scene state, mass/inertia, forces/impulses, broad-phase pair generation, persistent manifolds, islands, iterative constraint solver, sleeping, kinematic targets, and bounded CCD policy | Not met: no selected dynamic-body consumer, stack/joint scale, timestep, determinism, CCD, failure, or performance budget | Selected dynamic scenarios remain stable within frozen tolerances; query and simulation body identity agree; pause/step/restart/teardown are deterministic; solver/island/contact work and energy/error bounds are observable |
 | M5: Engine dynamics and events | Conditional; deferred | `AetherEngineDynamicsIntegration` | M4 and selected Engine/gameplay consumers | Engine motion publication and state application, physics materials, hit/overlap event queues, safe object resolution, transaction/PIE lifecycle, and migration or retirement of legacy `DPhysicsComponent` | Not met until M4 exists and event ordering, transform authority, teleports, ownership, and gameplay consumers are frozen | Exactly one transform authority per body mode; stale events cannot resolve retired objects; PIE/standalone lifecycle, moving bodies/platforms, material responses, and event ordering pass focused and full integration gates |
 | M6: Batch and parallel execution | Conditional; deferred | `AetherParallelPhysicsExecution` | M0-M2 diagnostics; accepted CPU task-system integration; measured query or step pressure | Batch query API, bounded scratch arenas, mutation commands, committed query snapshot, worker scheduling, cancellation/teardown, and latency/freshness diagnostics | Not met: single-thread query cost must first be reduced; activate only when profiles show remaining parallel work and freeze synchronous-query visibility semantics | Supported batch/worker results match synchronous reference semantics; no DObject crosses threads; buffers and in-flight work are bounded; shutdown, cancellation, World replacement, and fallback complete without races or hidden waits |
@@ -307,7 +307,7 @@ measured benefit has been proposed.
 
 ## Child Plan Boundaries
 
-### [Aether Physics Query Observability](../Plans/AetherPhysicsQueryObservability.md)
+### [Aether Physics Query Observability](../Plans/Archive/2026-08/AetherPhysicsQueryObservability.md)
 
 This plan owns instrumentation, fixtures, reference preservation, execution
 policy, and the internal query-pipeline seam. It may move existing flat query
@@ -315,7 +315,7 @@ loops behind a reference implementation but does not add a spatial index,
 change geometry math, alter World APIs, or claim performance improvement. Its
 main output is trustworthy evidence for M1 and M2.
 
-### [Aether Scene Query Acceleration](../Plans/AetherSceneQueryAcceleration.md)
+### [Aether Scene Query Acceleration](../Plans/Archive/2026-08/AetherSceneQueryAcceleration.md)
 
 This plan owns generational body storage, body motion classification, world
 AABB publication, static/moving partitioning, broad-phase data structures,
@@ -330,7 +330,7 @@ handles, and World lifetime. Only a genuinely consumer-neutral math or
 container primitive proven by both systems may move to Core; the two scene
 indexes retain separate ownership.
 
-### [Aether Geometry And Narrowphase](../Plans/AetherGeometryAndNarrowphase.md)
+### [Aether Geometry And Narrowphase](../Plans/Archive/2026-08/AetherGeometryAndNarrowphase.md)
 
 This plan owns geometry-resource identity and lifetime, compound layout,
 shape-pair dispatch, analytic and generic convex algorithms, contact semantics,
@@ -339,7 +339,7 @@ assets, cook render/source meshes, schedule simulation, or add editor UI. M1's
 scene traversal consumes its interface without knowing the selected pair
 algorithm.
 
-### [Aether Cooked Collision Geometry](../Plans/AetherCookedCollisionGeometry.md)
+### [Aether Cooked Collision Geometry](../Plans/Archive/2026-08/AetherCookedCollisionGeometry.md)
 
 This plan owns the Engine/AssetCore-to-Aether cook boundary, BodySetup cook
 settings and version, immutable convex/triangle payloads, asset BVH, derived

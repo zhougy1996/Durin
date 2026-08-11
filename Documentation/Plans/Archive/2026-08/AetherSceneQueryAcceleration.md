@@ -4,13 +4,13 @@ Summary: Replace Aether's linear body lifecycle and Production candidate walk wi
 
 Last reviewed: 2026-08-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-11
 
 ## Current Status
 
 Completed as M1 of the
-[Aether Physics Evolution Roadmap](../Roadmaps/AetherPhysicsEvolution.md) from
+[Aether Physics Evolution Roadmap](../../../Roadmaps/AetherPhysicsEvolution.md) from
 source revision `07b9bc567b0deaa3b744755047d14f89a4711dce`. The implementation
 adds generation-checked dense slots, explicit Static/Kinematic/Dynamic
 publication, outward-rounded compact exact bounds, a deterministic static BVH,
@@ -470,15 +470,15 @@ Dependencies: Stage 4 evidence and every preceding gate.
 
 ## Related Documentation
 
-- [Aether Physics Evolution Roadmap](../Roadmaps/AetherPhysicsEvolution.md)
+- [Aether Physics Evolution Roadmap](../../../Roadmaps/AetherPhysicsEvolution.md)
 - [Aether Physics Query Observability Plan](AetherPhysicsQueryObservability.md)
-- [Physics Scene And Character Collision Plan](Archive/2026-08/PhysicsSceneAndCharacterCollision.md)
-- [Runtime Collision](../Runtime/Physics/Collision.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Sandbox Gameplay](../Runtime/Gameplay/SandboxGameplay.md)
-- [Core Math](../Runtime/Core/Math.md)
-- [Viewport Picking Spatial Acceleration Plan](Archive/2026-08/ViewportPickingSpatialAcceleration.md)
-- [Native Tests](../Development/Build/NativeTests.md)
+- [Physics Scene And Character Collision Plan](PhysicsSceneAndCharacterCollision.md)
+- [Runtime Collision](../../../Runtime/Physics/Collision.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Sandbox Gameplay](../../../Runtime/Gameplay/SandboxGameplay.md)
+- [Core Math](../../../Runtime/Core/Math.md)
+- [Viewport Picking Spatial Acceleration Plan](ViewportPickingSpatialAcceleration.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code
 

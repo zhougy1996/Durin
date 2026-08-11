@@ -4,7 +4,7 @@ Summary: Move reusable editor infrastructure out of the `Durin` root namespace a
 
 Last reviewed: 2026-08-11
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-11
 
 ## Current Status
