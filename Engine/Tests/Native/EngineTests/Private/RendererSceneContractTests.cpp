@@ -5,6 +5,7 @@
 #include "NativeTestSupport.h"
 #include "RenderingThread.h"
 #include "Renderers/SceneVisibility.h"
+#include "Renderers/ForwardLighting.h"
 #include "Scene.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -40,7 +41,10 @@ namespace
 		};
 		Durin::EnqueueRenderCommand<FObserveLightCommand>(
 			[&Scene, Result](Durin::FRHICommandListImmediate&) {
-				Result->bPresent = Scene.GetDirectionalLight(Result->Data);
+				const auto& Lights = Scene.GetDirectionalLightSceneInfos();
+				Result->bPresent = !Lights.empty();
+				if (Result->bPresent)
+					Result->Data = Lights.front()->GetDirectionalProxy().GetData();
 			});
 		Durin::FlushRenderingCommands();
 		return *Result;
@@ -302,7 +306,7 @@ TEST(FRendererSceneContractTests, DirectionalLightProxyOutlivesPublisherAndUsesF
 	{
 		Durin::FDirectionalLightSceneData Data;
 		Data.Intensity = 2.0f;
-		Scene.AddOrReplaceDirectionalLight(Id,
+		Scene.AddOrReplaceLight(Id,
 			std::make_unique<Durin::FDirectionalLightSceneProxy>(Data));
 	}
 	Durin::FlushRenderingCommands();
@@ -312,18 +316,140 @@ TEST(FRendererSceneContractTests, DirectionalLightProxyOutlivesPublisherAndUsesF
 
 	Durin::FDirectionalLightSceneData Replacement;
 	Replacement.Intensity = 5.0f;
-	Scene.AddOrReplaceDirectionalLight(Id,
+	Scene.AddOrReplaceLight(Id,
 		std::make_unique<Durin::FDirectionalLightSceneProxy>(Replacement));
-	Scene.RemoveDirectionalLight(Id);
+	Scene.RemoveLight(Id);
 	Durin::FlushRenderingCommands();
 	EXPECT_FALSE(ObserveLight(Scene).bPresent);
 
-	Scene.AddOrReplaceDirectionalLight(Id,
+	Scene.AddOrReplaceLight(Id,
 		std::make_unique<Durin::FDirectionalLightSceneProxy>(Replacement));
 	Durin::FlushRenderingCommands();
 	Observed = ObserveLight(Scene);
 	ASSERT_TRUE(Observed.bPresent);
 	EXPECT_EQ(Observed.Data.Intensity, 5.0f);
+	Scene.Release();
+	Durin::FlushRenderingCommands();
+}
+
+TEST(FRendererSceneContractTests, LightFamiliesReplaceTypedMembershipAtomically)
+{
+	FRenderingThreadScope RenderingThread;
+	Durin::FScene Scene;
+	Durin::FPointLightSceneData Point;
+	Point.Intensity = 1.0f;
+	Scene.AddOrReplaceLight(Durin::FLightSceneId(77),
+		std::make_unique<Durin::FPointLightSceneProxy>(Point));
+	Durin::FSpotLightSceneData Spot;
+	Spot.Intensity = 1.0f;
+	Scene.AddOrReplaceLight(Durin::FLightSceneId(77),
+		std::make_unique<Durin::FSpotLightSceneProxy>(Spot));
+	Durin::FlushRenderingCommands();
+	EXPECT_TRUE(Scene.GetPointLightSceneInfos().empty());
+	ASSERT_EQ(Scene.GetSpotLightSceneInfos().size(), 1u);
+	EXPECT_EQ(Scene.GetSpotLightSceneInfos().front()->GetId().Value, 77u);
+	Scene.Release();
+	Durin::FlushRenderingCommands();
+}
+
+TEST(FRendererSceneContractTests, PreparedLightsUseStableIdAndSharedLocalBudget)
+{
+	FRenderingThreadScope RenderingThread;
+	Durin::FScene Scene;
+	for (Durin::uint64 Id : {101u, 100u})
+	{
+		Durin::FDirectionalLightSceneData Data;
+		Data.Intensity = 1.0f;
+		Scene.AddOrReplaceLight(Durin::FLightSceneId(Id),
+			std::make_unique<Durin::FDirectionalLightSceneProxy>(Data));
+	}
+	for (Durin::uint64 Id = 10; Id > 0; --Id)
+	{
+		if ((Id & 1u) == 0)
+		{
+			Durin::FPointLightSceneData Data;
+			Data.Intensity = 1.0f;
+			Data.Range = 5.0f;
+			Scene.AddOrReplaceLight(Durin::FLightSceneId(Id),
+				std::make_unique<Durin::FPointLightSceneProxy>(Data));
+		}
+		else
+		{
+			Durin::FSpotLightSceneData Data;
+			Data.Intensity = 1.0f;
+			Data.Range = 5.0f;
+			Scene.AddOrReplaceLight(Durin::FLightSceneId(Id),
+				std::make_unique<Durin::FSpotLightSceneProxy>(Data));
+		}
+	}
+	Durin::FlushRenderingCommands();
+	struct FObservedPreparation
+	{
+		Durin::FPreparedLightView Lights;
+		Durin::FViewRenderCounters Counters;
+	};
+	auto Observed = std::make_shared<FObservedPreparation>();
+	Durin::FSceneView View;
+	View.Settings.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
+	struct FPrepareLightsCommand
+	{
+		static constexpr auto GetName() -> const char* { return "PrepareLights"; }
+	};
+	Durin::EnqueueRenderCommand<FPrepareLightsCommand>(
+		[&Scene, View, Observed](Durin::FRHICommandListImmediate&) {
+			Observed->Lights = Durin::PrepareLightView_RenderThread(
+				Scene, View, Observed->Counters);
+		});
+	Durin::FlushRenderingCommands();
+	ASSERT_EQ(Observed->Lights.Directional.size(), 1u);
+	EXPECT_EQ(Observed->Lights.Directional.front().Id.Value, 100u);
+	ASSERT_EQ(Observed->Lights.Local.size(), 4u);
+	for (size_t Index = 0; Index < Observed->Lights.Local.size(); ++Index)
+		EXPECT_EQ(Observed->Lights.Local[Index].Id.Value, Index + 1);
+	EXPECT_EQ(Observed->Counters.OverflowDirectionalLights, 1u);
+	EXPECT_EQ(Observed->Counters.SelectedPointLights, 2u);
+	EXPECT_EQ(Observed->Counters.SelectedSpotLights, 2u);
+	EXPECT_EQ(Observed->Counters.OverflowPointLights, 3u);
+	EXPECT_EQ(Observed->Counters.OverflowSpotLights, 3u);
+	EXPECT_EQ(Observed->Counters.PackedLightBytes,
+		sizeof(Durin::FForwardLightingUniform));
+	Scene.Release();
+	Durin::FlushRenderingCommands();
+}
+
+TEST(FRendererSceneContractTests, PreparedLightsCullOnlyOutsideLocalInfluenceBounds)
+{
+	FRenderingThreadScope RenderingThread;
+	Durin::FScene Scene;
+	auto AddPoint = [&](Durin::uint64 Id, const Durin::FVector3& Position) {
+		Durin::FPointLightSceneData Data;
+		Data.Position = Position;
+		Data.Intensity = 1.0f;
+		Data.Range = 1.0f;
+		Scene.AddOrReplaceLight(Durin::FLightSceneId(Id),
+			std::make_unique<Durin::FPointLightSceneProxy>(Data));
+	};
+	AddPoint(1, {3.0, 0.0, 0.0});
+	AddPoint(2, {3.0, 20.0, 0.0});
+	Durin::FlushRenderingCommands();
+	auto Observed = std::make_shared<std::pair<
+		Durin::FPreparedLightView, Durin::FViewRenderCounters>>();
+	Durin::FSceneView View;
+	View.ProjectionMatrix = MakePerspectiveProjection();
+	View.ViewProjectionMatrix = View.ProjectionMatrix;
+	struct FCullLightsCommand
+	{
+		static constexpr auto GetName() -> const char* { return "CullLights"; }
+	};
+	Durin::EnqueueRenderCommand<FCullLightsCommand>(
+		[&Scene, View, Observed](Durin::FRHICommandListImmediate&) {
+			Observed->first = Durin::PrepareLightView_RenderThread(
+				Scene, View, Observed->second);
+		});
+	Durin::FlushRenderingCommands();
+	ASSERT_EQ(Observed->first.Local.size(), 1u);
+	EXPECT_EQ(Observed->first.Local.front().Id.Value, 1u);
+	EXPECT_EQ(Observed->second.FrustumCulledPointLights, 1u);
 	Scene.Release();
 	Durin::FlushRenderingCommands();
 }

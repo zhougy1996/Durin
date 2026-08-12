@@ -16,7 +16,7 @@ component, actor, reflected asset, or other game-thread object.
 | Family | Detached proxy | Renderer scene entry |
 | --- | --- | --- |
 | Primitive | `FPrimitiveSceneProxy`, specialized by `FStaticMeshSceneProxy` and `FSkeletalMeshSceneProxy` | `FPrimitiveSceneInfo` |
-| Light | `FLightSceneProxy`, specialized by `FDirectionalLightSceneProxy` | `FLightSceneInfo` |
+| Light | `FLightSceneProxy`, specialized by directional, point, and spot proxies | `FLightSceneInfo` with authoritative typed family views |
 | SkyBox | `FSkyBoxSceneProxy` | `FSkyBoxSceneInfo` |
 
 A component constructs a complete proxy candidate from copied values and
@@ -44,11 +44,12 @@ box remains invalid and is not used for culling. A skeletal dynamic update
 replaces the immutable pose and local bound together and recomputes this world
 bound before later FIFO visibility work.
 
-`FLightSceneInfo` owns light identity and typed membership.
-`FDirectionalLightSceneProxy` owns copied direction, color, intensity,
-ambient, and rim-light values. Component registration, visibility, transform,
-and authored property changes publish a replacement candidate; the renderer
-never calls a component getter.
+`FLightSceneInfo` owns light identity, explicit family, conservative local
+influence bounds, and typed membership. Directional, point, and spot proxies
+own copied family values. `DLightComponent` centralizes registration,
+visibility, transform, authored-property, and retirement publication; the
+renderer never calls a component getter. Bounded per-view selection and the
+shared GPU contract are defined by [Forward Lighting](ForwardLighting.md).
 
 `FSkyBoxSceneInfo` owns runtime identity, persistent selection identity, the
 selection-key tie-break, and typed membership. `FSkyBoxSceneProxy` owns the

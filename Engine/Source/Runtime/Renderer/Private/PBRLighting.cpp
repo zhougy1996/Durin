@@ -80,6 +80,34 @@ namespace Durin
 		return Math::IsFinite(Result) ? Result : FVector3f(0.0f);
 	}
 
+	auto EvaluatePointLightAttenuation(
+		float DistanceSquared, float Range) -> float
+	{
+		if (!std::isfinite(DistanceSquared) || DistanceSquared < 0.0f
+			|| !std::isfinite(Range) || Range <= 0.0f) return 0.0f;
+		const float Distance = std::sqrt(DistanceSquared);
+		const float NormalizedDistance = Distance / Range;
+		if (NormalizedDistance >= 1.0f) return 0.0f;
+		const float RangeBase = 1.0f - NormalizedDistance * NormalizedDistance;
+		constexpr float NearDistanceSquared = 0.05f * 0.05f;
+		return RangeBase * RangeBase
+			/ std::max(DistanceSquared, NearDistanceSquared);
+	}
+
+	auto EvaluateSpotLightConeAttenuation(
+		float AngleCosine, float InnerCosine, float OuterCosine) -> float
+	{
+		if (!std::isfinite(AngleCosine) || !std::isfinite(InnerCosine)
+			|| !std::isfinite(OuterCosine) || InnerCosine < OuterCosine)
+			return 0.0f;
+		const float Denominator = InnerCosine - OuterCosine;
+		if (Denominator <= 1.0e-6f)
+			return AngleCosine > OuterCosine ? 1.0f : 0.0f;
+		const float Value = std::clamp(
+			(AngleCosine - OuterCosine) / Denominator, 0.0f, 1.0f);
+		return Value * Value * (3.0f - 2.0f * Value);
+	}
+
 	auto EvaluatePBRMappedNormal(
 		const FPBRMappedNormalInput& Input) -> FVector3f
 	{

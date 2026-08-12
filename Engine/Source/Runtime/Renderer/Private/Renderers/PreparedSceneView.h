@@ -5,6 +5,7 @@
 #include "Renderers/StaticMeshRenderPreparation.h"
 
 #include "EnvironmentLighting/EnvironmentLighting.h"
+#include "Renderers/ForwardLighting.h"
 #include "IScene.h"
 #include "SceneView.h"
 
@@ -34,7 +35,8 @@ namespace Durin
 	struct FPreparedSceneView
 	{
 		FSceneView View;
-		FDirectionalLightSceneData DirectionalLight;
+		FPreparedLightView Lights;
+		FRHIUniformBufferRange LightingUniformBuffer;
 		FSkyBoxSceneData SkyBox;
 		bool bHasSkyBox = false;
 		FRHITexture* ViewEnvironmentTexture = nullptr;

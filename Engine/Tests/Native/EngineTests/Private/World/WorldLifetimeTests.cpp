@@ -44,17 +44,12 @@ namespace
 		{
 		}
 
-		auto AddOrReplaceDirectionalLight(Durin::FLightSceneId, std::unique_ptr<Durin::FDirectionalLightSceneProxy>) -> void override
+		auto AddOrReplaceLight(Durin::FLightSceneId, std::unique_ptr<Durin::FLightSceneProxy>) -> void override
 		{
 		}
 
-		auto RemoveDirectionalLight(Durin::FLightSceneId) -> void override
+		auto RemoveLight(Durin::FLightSceneId) -> void override
 		{
-		}
-
-		auto GetDirectionalLight(Durin::FDirectionalLightSceneData&) const -> bool override
-		{
-			return false;
 		}
 
 		auto AddOrReplaceSkyBox(Durin::FSkyBoxSceneId, Durin::FGuid, std::string, std::unique_ptr<Durin::FSkyBoxSceneProxy>) -> void override

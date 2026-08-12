@@ -7,7 +7,7 @@
 namespace Durin
 {
 	class FPrimitiveSceneProxy;
-	class FDirectionalLightSceneProxy;
+	class FLightSceneProxy;
 	class FSkyBoxSceneProxy;
 	struct FSkeletalPosePalette;
 	template<typename TTag>
@@ -48,6 +48,27 @@ namespace Durin
 		float AmbientIntensity = 0.0f;
 		// Optional view-facing edge light used by editor preview scenes.
 		float RimLightIntensity = 0.0f;
+	};
+
+	// Captures renderer-facing point-light state in world space.
+	struct FPointLightSceneData
+	{
+		FVector3 Position{0.0};
+		FVector3f Color{1.0f};
+		float Intensity = 0.0f;
+		float Range = 1.0f;
+	};
+
+	// Captures renderer-facing spot-light state in world space and degrees.
+	struct FSpotLightSceneData
+	{
+		FVector3 Position{0.0};
+		FVector3 Direction{1.0, 0.0, 0.0};
+		FVector3f Color{1.0f};
+		float Intensity = 0.0f;
+		float Range = 1.0f;
+		float InnerConeAngle = 0.0f;
+		float OuterConeAngle = 45.0f;
 	};
 
 	// Captures sky state without retaining or reading reflected objects on the render thread.
@@ -95,11 +116,10 @@ namespace Durin
 
 		virtual auto Release() -> void = 0;
 
-		virtual auto AddOrReplaceDirectionalLight(
+		virtual auto AddOrReplaceLight(
 			FLightSceneId LightId,
-			std::unique_ptr<FDirectionalLightSceneProxy> Proxy) -> void = 0;
-		virtual auto RemoveDirectionalLight(FLightSceneId LightId) -> void = 0;
-		virtual auto GetDirectionalLight(FDirectionalLightSceneData& OutLight) const -> bool = 0;
+			std::unique_ptr<FLightSceneProxy> Proxy) -> void = 0;
+		virtual auto RemoveLight(FLightSceneId LightId) -> void = 0;
 
 		virtual auto AddOrReplaceSkyBox(
 			FSkyBoxSceneId SkyBoxId,

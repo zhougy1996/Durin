@@ -24,6 +24,50 @@ namespace Durin
 		}
 	}
 
+	FLightSceneInfo::FLightSceneInfo(FScene& InScene, FLightSceneId InId,
+		std::shared_ptr<FLightSceneProxy> InProxy)
+		: Scene(&InScene), Id(InId), Proxy(std::move(InProxy)), Kind(Proxy->GetKind())
+	{
+		FVector3 Position(0.0);
+		double Range = 0.0;
+		if (Kind == ELightSceneProxyKind::Point)
+		{
+			const auto& Data = GetPointProxy().GetData();
+			Position = Data.Position;
+			Range = Data.Range;
+		}
+		else if (Kind == ELightSceneProxyKind::Spot)
+		{
+			const auto& Data = GetSpotProxy().GetData();
+			Position = Data.Position;
+			Range = Data.Range;
+		}
+		if (Range > 0.0)
+		{
+			InfluenceBounds.AddPoint(Position - FVector3(Range));
+			InfluenceBounds.AddPoint(Position + FVector3(Range));
+		}
+	}
+
+	auto FLightSceneInfo::GetDirectionalProxy() const
+		-> const FDirectionalLightSceneProxy&
+	{
+		check(Kind == ELightSceneProxyKind::Directional);
+		return static_cast<const FDirectionalLightSceneProxy&>(*Proxy);
+	}
+
+	auto FLightSceneInfo::GetPointProxy() const -> const FPointLightSceneProxy&
+	{
+		check(Kind == ELightSceneProxyKind::Point);
+		return static_cast<const FPointLightSceneProxy&>(*Proxy);
+	}
+
+	auto FLightSceneInfo::GetSpotProxy() const -> const FSpotLightSceneProxy&
+	{
+		check(Kind == ELightSceneProxyKind::Spot);
+		return static_cast<const FSpotLightSceneProxy&>(*Proxy);
+	}
+
 	FPrimitiveSceneInfo::FPrimitiveSceneInfo(FScene& InScene, FPrimitiveSceneId InId,
 		std::shared_ptr<FPrimitiveSceneProxy> InProxy, const FMatrix& InTransform)
 		: Scene(&InScene), Id(InId), Proxy(std::move(InProxy)), Kind(Proxy->GetKind()),
@@ -164,51 +208,71 @@ namespace Durin
 		ENQUEUE_RENDER_COMMAND(ReleaseScene)([this](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			PrimitiveSceneInfos.clear(); StaticMeshSceneInfos.clear(); SkeletalMeshSceneInfos.clear(); PrimitiveInfosById.clear();
-			DirectionalLightSceneInfos.clear(); LightInfosById.clear();
+			DirectionalLightSceneInfos.clear(); PointLightSceneInfos.clear();
+			SpotLightSceneInfos.clear(); LightInfosById.clear();
 			SkyBoxSceneInfos.clear(); SkyBoxInfosById.clear();
 		});
 	}
 
-	auto FScene::AddOrReplaceDirectionalLight(FLightSceneId LightId, std::unique_ptr<FDirectionalLightSceneProxy> Proxy) -> void
+	auto FScene::AttachLight(FLightSceneInfo& Info) -> void
+	{
+		switch (Info.GetKind())
+		{
+		case ELightSceneProxyKind::Directional:
+			DirectionalLightSceneInfos.push_back(&Info);
+			break;
+		case ELightSceneProxyKind::Point:
+			PointLightSceneInfos.push_back(&Info);
+			break;
+		case ELightSceneProxyKind::Spot:
+			SpotLightSceneInfos.push_back(&Info);
+			break;
+		}
+	}
+
+	auto FScene::DetachLight(FLightSceneInfo& Info) -> void
+	{
+		switch (Info.GetKind())
+		{
+		case ELightSceneProxyKind::Directional:
+			std::erase(DirectionalLightSceneInfos, &Info);
+			break;
+		case ELightSceneProxyKind::Point:
+			std::erase(PointLightSceneInfos, &Info);
+			break;
+		case ELightSceneProxyKind::Spot:
+			std::erase(SpotLightSceneInfos, &Info);
+			break;
+		}
+	}
+
+	auto FScene::AddOrReplaceLight(FLightSceneId LightId, std::unique_ptr<FLightSceneProxy> Proxy) -> void
 	{
 		if (LightId == InvalidLightSceneId || Proxy == nullptr) return;
-		std::shared_ptr<FDirectionalLightSceneProxy> SharedProxy(std::move(Proxy));
-		ENQUEUE_RENDER_COMMAND(AddOrReplaceDirectionalLight)([this, LightId, SharedProxy = std::move(SharedProxy)](FRHICommandListImmediate&) {
+		std::shared_ptr<FLightSceneProxy> SharedProxy(std::move(Proxy));
+		ENQUEUE_RENDER_COMMAND(AddOrReplaceLight)([this, LightId, SharedProxy = std::move(SharedProxy)](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			if (const auto Found = LightInfosById.find(LightId); Found != LightInfosById.end())
 			{
-				FLightSceneInfo* Previous = Found->second.get();
-				const auto Membership = std::ranges::find(DirectionalLightSceneInfos, Previous);
-				check(Membership != DirectionalLightSceneInfos.end());
-				auto Replacement = std::make_unique<FLightSceneInfo>(*this, LightId, SharedProxy);
-				*Membership = Replacement.get();
-				Found->second = std::move(Replacement);
-				return;
+				DetachLight(*Found->second);
+				LightInfosById.erase(Found);
 			}
 			auto Info = std::make_unique<FLightSceneInfo>(*this, LightId, SharedProxy);
-			DirectionalLightSceneInfos.push_back(Info.get());
+			AttachLight(*Info);
 			LightInfosById.emplace(LightId, std::move(Info));
 		});
 	}
 
-	auto FScene::RemoveDirectionalLight(FLightSceneId LightId) -> void
+	auto FScene::RemoveLight(FLightSceneId LightId) -> void
 	{
 		if (LightId == InvalidLightSceneId) return;
-		ENQUEUE_RENDER_COMMAND(RemoveDirectionalLight)([this, LightId](FRHICommandListImmediate&) {
+		ENQUEUE_RENDER_COMMAND(RemoveLight)([this, LightId](FRHICommandListImmediate&) {
 			CheckRenderingThread();
 			const auto Found = LightInfosById.find(LightId);
 			if (Found == LightInfosById.end()) return;
-			std::erase(DirectionalLightSceneInfos, Found->second.get());
+			DetachLight(*Found->second);
 			LightInfosById.erase(Found);
 		});
-	}
-
-	auto FScene::GetDirectionalLight(FDirectionalLightSceneData& OutLight) const -> bool
-	{
-		CheckRenderingThread();
-		if (DirectionalLightSceneInfos.empty()) return false;
-		OutLight = DirectionalLightSceneInfos.front()->GetProxy().GetData();
-		return true;
 	}
 
 	auto FScene::AddOrReplaceSkyBox(FSkyBoxSceneId SkyBoxId, FGuid PersistentId, std::string SelectionKey, std::unique_ptr<FSkyBoxSceneProxy> Proxy) -> void

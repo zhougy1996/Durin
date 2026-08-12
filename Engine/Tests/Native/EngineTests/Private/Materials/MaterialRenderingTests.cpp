@@ -74,6 +74,25 @@ namespace
 	};
 }
 
+TEST(FMaterialRenderingTests, LocalLightAttenuationHasFiniteExactBoundaries)
+{
+	EXPECT_FLOAT_EQ(Durin::EvaluatePointLightAttenuation(1.0f, 1.0f), 0.0f);
+	EXPECT_FLOAT_EQ(Durin::EvaluatePointLightAttenuation(4.0f, 1.0f), 0.0f);
+	EXPECT_TRUE(std::isfinite(Durin::EvaluatePointLightAttenuation(0.0f, 10.0f)));
+	EXPECT_GT(Durin::EvaluatePointLightAttenuation(0.0f, 10.0f), 0.0f);
+	EXPECT_GT(Durin::EvaluatePointLightAttenuation(0.25f, 1.0f), 0.0f);
+	EXPECT_FLOAT_EQ(
+		Durin::EvaluateSpotLightConeAttenuation(0.5f, 1.0f, 0.5f), 0.0f);
+	EXPECT_FLOAT_EQ(
+		Durin::EvaluateSpotLightConeAttenuation(1.0f, 1.0f, 0.5f), 1.0f);
+	EXPECT_NEAR(
+		Durin::EvaluateSpotLightConeAttenuation(0.75f, 1.0f, 0.5f), 0.5f, 1.0e-6f);
+	EXPECT_FLOAT_EQ(
+		Durin::EvaluateSpotLightConeAttenuation(0.5f, 0.5f, 0.5f), 0.0f);
+	EXPECT_FLOAT_EQ(
+		Durin::EvaluateSpotLightConeAttenuation(0.5001f, 0.5f, 0.5f), 1.0f);
+}
+
 TEST(FMaterialTests, DirectPBRReferenceMatchesFrozenAlignedLightValues)
 {
 	Durin::FPBRDirectLightingInput Input;

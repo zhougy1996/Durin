@@ -63,6 +63,35 @@ TEST(FDirectionalLightTests, LinearColorRoundTripsThroughLevelAssets)
 	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
 }
 
+TEST(FLocalLightTests, PointAndSpotActorsNormalizeAuthoredValues)
+{
+	Durin::DWorld* World = CreateWorld();
+	auto* Point = World->SpawnActor<Durin::APointLightActor>("PointLight");
+	auto* Spot = World->SpawnActor<Durin::ASpotLightActor>("SpotLight");
+	ASSERT_NE(Point, nullptr);
+	ASSERT_NE(Spot, nullptr);
+	Point->GetLightComponent()->SetWorldLocation(Durin::FVector3(1.0, 2.0, 3.0));
+	Point->GetLightComponent()->SetRange(-5.0f);
+	const Durin::FPointLightSceneData PointData =
+		Point->GetLightComponent()->GetSceneData();
+	EXPECT_EQ(PointData.Position, Durin::FVector3(1.0, 2.0, 3.0));
+	EXPECT_FLOAT_EQ(PointData.Range, 1.0f);
+
+	Spot->GetLightComponent()->SetRange(20.0f);
+	Spot->GetLightComponent()->SetConeAngles(80.0f, 40.0f);
+	const Durin::FSpotLightSceneData SpotData =
+		Spot->GetLightComponent()->GetSceneData();
+	EXPECT_FLOAT_EQ(SpotData.Range, 20.0f);
+	EXPECT_FLOAT_EQ(SpotData.InnerConeAngle, 40.0f);
+	EXPECT_FLOAT_EQ(SpotData.OuterConeAngle, 40.0f);
+	EXPECT_NEAR(Durin::Math::Length(SpotData.Direction), 1.0, 1.0e-8);
+	EXPECT_NE(Durin::DPointLightComponent::StaticClass()->FindPropertyByName("Range"), nullptr);
+	EXPECT_NE(Durin::DSpotLightComponent::StaticClass()->FindPropertyByName("OuterConeAngle"), nullptr);
+
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
 TEST(FSceneComponentTests, SupportsAttachmentTransformRulesAndPropagation)
 {
 	Durin::DWorld* World = CreateWorld();

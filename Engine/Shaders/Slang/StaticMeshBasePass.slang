@@ -30,11 +30,21 @@ struct TransformUniform
     float4 TransformParams;
 };
 
+struct LocalLightUniform
+{
+    float4 PositionInverseRange;
+    float4 DirectionType;
+    float4 ColorIntensity;
+    float4 SpotCone;
+};
+
 struct LightingUniform
 {
-    float4 LightDirection;
-    float4 LightColorIntensity;
     float4 ViewPosition;
+    uint4 Counts;
+    float4 DirectionalDirection;
+    float4 DirectionalColorIntensity;
+    LocalLightUniform Local[4];
 };
 
 struct MaterialUniform
@@ -221,11 +231,6 @@ float4 FragmentMain(VSOutput input) : SV_Target
         && mappedNormalLengthSquared > minVectorLengthSquared
         ? mappedNormal * rsqrt(mappedNormalLengthSquared)
         : geometricNormal;
-    float3 lightVector = -Lighting.LightDirection.xyz;
-    float lightLengthSquared = dot(lightVector, lightVector);
-    float3 toLight = lightLengthSquared > minVectorLengthSquared
-        ? lightVector * rsqrt(lightLengthSquared)
-        : float3(0.0);
     float3 viewVector = Lighting.ViewPosition.xyz - input.worldPosition;
     float viewLengthSquared = dot(viewVector, viewVector);
     float3 toView = viewLengthSquared > minVectorLengthSquared
@@ -234,15 +239,51 @@ float4 FragmentMain(VSOutput input) : SV_Target
     float NoV = saturate(dot(normal, toView));
     float metallic = saturate(Material.EmissiveMetallic.w) * saturate(metallicSample);
     float roughness = clamp(saturate(Material.NormalRoughness.w) * saturate(roughnessSample), 0.045, 1.0);
-    float3 lightColor = Lighting.LightColorIntensity.rgb * Lighting.LightColorIntensity.a;
-    float3 direct = EvaluatePBRDirectLighting(
-        baseColor,
-        metallic,
-        roughness,
-        normal,
-        toLight,
-        toView,
-        lightColor);
+    float3 direct = float3(0.0);
+    if (Lighting.Counts.x > 0u)
+    {
+        float3 toLight = SafeNormal(-Lighting.DirectionalDirection.xyz);
+        float3 radiance = Lighting.DirectionalColorIntensity.rgb
+            * Lighting.DirectionalColorIntensity.a;
+        direct += EvaluatePBRDirectLighting(
+            baseColor, metallic, roughness, normal, toLight, toView, radiance);
+    }
+    [unroll]
+    for (uint lightIndex = 0u; lightIndex < 4u; ++lightIndex)
+    {
+        if (lightIndex >= Lighting.Counts.y)
+            break;
+        float3 lightVector = Lighting.Local[lightIndex].PositionInverseRange.xyz
+            - input.worldPosition;
+        float distanceSquared = dot(lightVector, lightVector);
+        float3 toLight = distanceSquared > minVectorLengthSquared
+            ? lightVector * rsqrt(distanceSquared) : float3(0.0);
+        float inverseRange = Lighting.Local[lightIndex].PositionInverseRange.w;
+        float normalizedDistance = sqrt(max(distanceSquared, 0.0)) * inverseRange;
+        float rangeBase = 1.0 - saturate(normalizedDistance * normalizedDistance);
+        float rangeAttenuation = rangeBase * rangeBase;
+        float inverseSquare = 1.0 / max(distanceSquared, 0.0025);
+        float coneAttenuation = 1.0;
+        if (Lighting.Local[lightIndex].DirectionType.w > 0.5)
+        {
+            float angleCosine = dot(
+                Lighting.Local[lightIndex].DirectionType.xyz, -toLight);
+            float4 cone = Lighting.Local[lightIndex].SpotCone;
+            if (cone.w > 0.5)
+                coneAttenuation = angleCosine > cone.y ? 1.0 : 0.0;
+            else
+            {
+                float coneValue = saturate((angleCosine - cone.y) * cone.z);
+                coneAttenuation = coneValue * coneValue
+                    * (3.0 - 2.0 * coneValue);
+            }
+        }
+        float3 radiance = Lighting.Local[lightIndex].ColorIntensity.rgb
+            * Lighting.Local[lightIndex].ColorIntensity.a
+            * inverseSquare * rangeAttenuation * coneAttenuation;
+        direct += EvaluatePBRDirectLighting(
+            baseColor, metallic, roughness, normal, toLight, toView, radiance);
+    }
     float3 reflectionDirection = reflect(-toView, normal);
     float3 irradiance = EnvironmentIrradiance.Sample(
         EnvironmentSampler, normal).rgb;

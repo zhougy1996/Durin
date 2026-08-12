@@ -4,30 +4,29 @@ Summary: Add renderer-owned directional, point, and spot light families with det
 
 Last reviewed: 2026-08-12
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-12
 
 ## Current Status
 
-Ready to implement Stage 0. Rendering Capability Expansion M1-M4 are complete:
-lights already cross the game/render boundary as detached proxy values, scene
-mutation is FIFO, typed primitive visibility and prepared draws are stable, and
-StaticMesh and SkeletalMesh share the same material and viewport path.
+Stage 4 qualification completed on 2026-08-12. The implementation owns directional,
+point, and spot proxies, generic FIFO mutation, typed SceneInfo membership,
+runtime actors/components, conservative local bounds, deterministic per-view
+selection, conservation counters, and one reflected 320-byte forward payload
+shared by StaticMesh and SkeletalMesh. CPU falloff references and focused scene,
+material/Vulkan, and world tests pass. The representative 1920x1080 target-GPU
+fixture measured a 1.376288 ms single-directional median and a 1.978080 ms
+`1 + 4` median across 120 post-warm-up frames. Its 0.601792 ms incremental
+Scene Color cost passes the frozen 1.0 ms gate.
 
-The remaining M5 gap is bounded. `FScene` owns only directional-light entries,
-`GetDirectionalLight` selects the first one, and each geometry draw rebuilds a
-single-light uniform. There are no point/spot runtime publishers, local-light
-bounds, per-view light preparation, overflow policy, multi-light shader ABI, or
-light counters. This plan adds those contracts on the existing synchronous
-forward renderer; it does not depend on the Compute Shader Pipeline.
-
-The initial production budget is selected as at most one directional light and
-eight local lights per view, with point and spot lights sharing the local
-budget. A later profiling plan may evaluate two directional plus sixteen local
-lights after `1 + 8` is implemented, but `2 + 16` is not an M5 commitment and
-cannot replace the default without recorded target-GPU evidence and a reviewed
-plan revision. The small fixed payload establishes measured overflow evidence
-for any later per-object, tiled, or clustered-lighting decision.
+The production budget is selected as at most one directional light and four
+local lights per view, with point and spot lights sharing the local budget. The
+original `1 + 8` candidate measured a 1.748 ms incremental Scene Color median
+on the target GTX 1060 and was rejected against the 1.0 ms gate. A later
+profiling plan may evaluate wider tiers, but none can replace the default
+without recorded target-GPU evidence and a reviewed plan revision. The small
+fixed payload establishes measured overflow evidence for any later per-object,
+tiled, or clustered-lighting decision.
 
 ## Goal
 
@@ -135,11 +134,11 @@ reworking light ownership or view preparation.
   conservative sphere centered at the light position with the authored range;
   a sphere outside the view frustum is rejected. Fine cone/frustum or
   per-object tests are deferred until counters justify them.
-- The hard per-view budget is one directional light and eight local
+- The hard per-view budget is one directional light and four local
   lights total. Point and spot entries compete in one local budget so the
   shader cost cannot grow by filling two independent maxima.
 - The current renderer has no per-object, tiled, or clustered assignment: every
-  selected light is evaluated by every Lit fragment. The `1 + 8` limit is a
+  selected light is evaluated by every Lit fragment. The `1 + 4` limit is a
   pixel-cost control, not merely a uniform-buffer capacity choice.
 - Eligible entries are ordered by `FLightSceneId` within the directional and
   combined-local lists. The first entries within each budget are selected;
@@ -155,7 +154,7 @@ reworking light ownership or view preparation.
 ### The forward payload is one small per-view ABI
 
 - The selected payload contains view position and counts, one directional
-  record, and eight packed local records. A local record contains
+  record, and four packed local records. A local record contains
   position/inverse range, direction/type, color/intensity, and spot cone terms.
 - CPU and Slang representations use explicit 16-byte fields and arrays, with
   compile-time size/alignment checks and shader-reflection coverage. Counts are
@@ -213,30 +212,56 @@ reworking light ownership or view preparation.
 
 ## Implementation Stages
 
+### Execution record (2026-08-12)
+
+- Baseline commit: `deccf05d69c6856dee22447583bfb5048547261f` on `feat/render`.
+- Baseline: `RendererSceneContractTests` 8/8, `MaterialTests` 78/78,
+  `WorldTests` 97/97.
+- Target: NVIDIA GeForce GTX 1060 6GB, 1920x1080, RHI GPU timestamp median
+  after warm-up; accepted `1 + 4` incremental Scene Color cost is 1.0 ms across
+  at least 120 frames.
+- ABI: view `float4`, count `uint4`, two directional `float4` values, and four
+  four-`float4` local records; 16-byte alignment, 320 bytes total, leaving
+  4,193,984 bytes in the current 4 MiB Vulkan dynamic-upload page before other
+  allocations.
+- Falloff: near floor `0.05`, range window `(1 - (distance/range)^2)^2` for
+  `distance < range` and zero otherwise; spot uses cosine-space smoothstep,
+  with an equal-angle hard edge that excludes the exact boundary.
+- Focused working results: `RendererSceneContractTests` 11/11,
+  `MaterialTests` 79/79, and `WorldTests` 98/98.
+- Qualification: default-granularity `test --target all` passed after one
+  isolated Core concurrency rerun; `build --target all`, hidden eight-tick
+  Sandbox editor smoke, documentation validation, and the 24-package DAST v4
+  asset baseline passed on `Win64-Debug-DurinEditor`.
+- Mixed-light image evidence: `SkeletalMeshRenderResourcesVulkanTests` renders
+  the same Lit geometry with zero lights and with one directional, one point,
+  and one spot light; readbacks differ and selected-family counters are 1/1/1.
+- Lasting contract: [Forward Lighting](../Runtime/Rendering/ForwardLighting.md).
+
 ### Stage 0: Freeze light data, budgets, falloff, and baselines
 
-- [ ] Inventory every directional-light publisher, `IScene` mutation, SceneInfo
+- [x] Inventory every directional-light publisher, `IScene` mutation, SceneInfo
   consumer, prepared-view field, per-draw uniform allocation, shader parameter,
   serialization fixture, and renderer test double affected by generic light
   mutation.
-- [ ] Record the exact CPU and Slang field layout for the one-directional and
-  eight-local payload, including byte size, alignment, reflected binding,
+- [x] Record the exact CPU and Slang field layout for the one-directional and
+  four-local payload, including byte size, alignment, reflected binding,
   and the current backend uniform-range margin.
-- [ ] Name the target GPU, resolution, representative opaque/overdraw scene,
+- [x] Name the target GPU, resolution, representative opaque/overdraw scene,
   GPU-timing method, and accepted incremental lighting-time budget. Record the
   current single-directional baseline before multi-light implementation.
-- [ ] Freeze finite-value normalization, local range semantics, cone angle
+- [x] Freeze finite-value normalization, local range semantics, cone angle
   semantics, inverse-square near floor, smooth range equation, angular equation,
   and exact boundary results at zero distance, range, inner cone, and outer
   cone.
-- [ ] Freeze local influence bounds, frustum-plane boundary behavior, stable-ID
+- [x] Freeze local influence bounds, frustum-plane boundary behavior, stable-ID
   ordering, shared local-budget competition, and all conservation equations.
-- [ ] Record the existing one-directional-light pixels and zero-light fallback
+- [x] Record the existing one-directional-light pixels and zero-light fallback
   as compatibility baselines before changing the shader ABI.
-- [ ] Add or identify fixtures for mixed families, over-budget input, hidden and
+- [x] Add or identify fixtures for mixed families, over-budget input, hidden and
   retired components, sequential unequal views, static and skeletal receivers,
   masked/translucent surfaces, range edges, and cone edges.
-- [ ] Record the baseline commit, affected targets, decisions, exceptions, and
+- [x] Record the baseline commit, affected targets, decisions, exceptions, and
   focused baseline results in the Stage 0 handoff.
 
 #### Acceptance Gate
@@ -248,30 +273,30 @@ reworking light ownership or view preparation.
   margin, and no compute, storage-buffer, clustered, or new RHI dependency is
   required.
 - Target hardware, resolution, workload, timing method, current single-light
-  baseline, and the `1 + 8` acceptance budget are frozen before shader work.
+  baseline, and the `1 + 4` acceptance budget are frozen before shader work.
 - Existing scene-contract, material, StaticMesh, SkeletalMesh, world, and
   Vulkan baselines pass or any pre-existing failure is recorded.
 
 ### Stage 1: Generalize light publication and typed scene ownership
 
-- [ ] Add `ELightSceneProxyKind`, point/spot scene data and proxies, generic
+- [x] Add `ELightSceneProxyKind`, point/spot scene data and proxies, generic
   light-proxy access, and family-safe `FLightSceneInfo` classification/bounds.
-- [ ] Replace directional-only `IScene` add/remove/read APIs with generic
+- [x] Replace directional-only `IScene` add/remove/read APIs with generic
   `AddOrReplaceLight` and `RemoveLight` ownership transfer; update every test
   double atomically.
-- [ ] Make `FScene` maintain one identity map plus authoritative directional,
+- [x] Make `FScene` maintain one identity map plus authoritative directional,
   point, and spot SceneInfo views with complete attach, replacement, rollback,
   detach, release, and wrong-kind diagnostics.
-- [ ] Introduce the common runtime light-component lifecycle and migrate
+- [x] Introduce the common runtime light-component lifecycle and migrate
   directional light without changing its serialized properties, defaults,
   hidden-owner behavior, or output.
-- [ ] Add point- and spot-light actors/components with stable IDs, reflected
+- [x] Add point- and spot-light actors/components with stable IDs, reflected
   authored values, transform/property publication, serialization, duplication,
   registration, removal, and scene-release behavior.
-- [ ] Add focused scene and world tests for every family, same-ID replacement,
+- [x] Add focused scene and world tests for every family, same-ID replacement,
   remove/add recreation, update-after-removal behavior, hidden state, invalid
   candidates, component retirement, and deterministic typed membership.
-- [ ] Record the stage handoff and focused validation evidence.
+- [x] Record the stage handoff and focused validation evidence.
 
 #### Acceptance Gate
 
@@ -284,27 +309,27 @@ reworking light ownership or view preparation.
 
 ### Stage 2: Prepare deterministic per-view light sets and diagnostics
 
-- [ ] Add `FPreparedLightView` and a private preparation path that copies
+- [x] Add `FPreparedLightView` and a private preparation path that copies
   eligible directional, point, and spot proxy values before Scene Color.
-- [ ] Validate/normalize prepared inputs, conservatively frustum-cull point and
+- [x] Validate/normalize prepared inputs, conservatively frustum-cull point and
   spot influence spheres, and preserve explicit boundary inclusion.
-- [ ] Sort eligible directional and combined-local entries by stable identity,
+- [x] Sort eligible directional and combined-local entries by stable identity,
   select the fixed budgets, and reject/count overflow without depending on map
   or insertion-vector order.
-- [ ] Extend `FViewRenderCounters`, snapshot emission, and focused observers
+- [x] Extend `FViewRenderCounters`, snapshot emission, and focused observers
   with submitted, invalid/disabled, culled, selected, overflow, and byte counts
   by the selected family granularity.
-- [ ] Assert submitted-family and eligible/culled/selected/overflow conservation
+- [x] Assert submitted-family and eligible/culled/selected/overflow conservation
   at preparation completion and after the command-local snapshot is emitted.
-- [ ] Cover perspective/orthographic views, boundary spheres, camera motion,
+- [x] Cover perspective/orthographic views, boundary spheres, camera motion,
   hidden entries, mixed-family overflow, remove/add recreation, two sequential
   views with different dimensions/frusta, and repeated identical views.
-- [ ] Record the stage handoff and focused validation evidence.
+- [x] Record the stage handoff and focused validation evidence.
 
 #### Acceptance Gate
 
 - Each view owns a complete immutable light list with at most one directional
-  and eight combined local entries, and all counters reconcile.
+  and four combined local entries, and all counters reconcile.
 - Local lights outside the view do not enter the payload; boundary and overflow
   choices are deterministic across runs and independent of container order.
 - Multiple sequential views consume the same scene snapshot without sharing or
@@ -312,31 +337,31 @@ reworking light ownership or view preparation.
 
 ### Stage 3: Upload once and execute multi-light base-pass shading
 
-- [ ] Add the fixed CPU lighting-uniform representation, explicit layout
+- [x] Add the fixed CPU lighting-uniform representation, explicit layout
   assertions, packing from `FPreparedLightView`, one-time dynamic allocation per
   view, and range validation before binding.
-- [ ] Update the Slang lighting ABI and reflection declarations for integer
+- [x] Update the Slang lighting ABI and reflection declarations for integer
   counts, directional records, packed local records, and explicit point/spot
   family selection.
-- [ ] Move direct-light accumulation into shared shader helpers with the Stage
+- [x] Move direct-light accumulation into shared shader helpers with the Stage
   0 range, inverse-square, cone, finite-fallback, and exact edge contracts.
-- [ ] Change StaticMesh and SkeletalMesh pass/draw APIs to consume the same
+- [x] Change StaticMesh and SkeletalMesh pass/draw APIs to consume the same
   prepared uniform range and remove all per-section light reconstruction and
   allocation.
-- [ ] Preserve shader/PSO key completeness, masked discard, translucent order,
+- [x] Preserve shader/PSO key completeness, masked discard, translucent order,
   environment lighting, emissive, Unlit behavior, and all existing material
   texture bindings.
-- [ ] Add CPU reference tests for directional/point/spot accumulation and
+- [x] Add CPU reference tests for directional/point/spot accumulation and
   Vulkan image/readback scenes for zero/one/multiple lights, range/cone edges,
   mixed families, static/skeletal receivers, and view/output variants.
-- [ ] Profile the full-screen `1 + 8` representative scene on the Stage 0 target
+- [x] Profile the full-screen `1 + 4` representative scene on the Stage 0 target
   GPU and compare its incremental lighting time with the frozen budget. Record
   `2 + 16` only as deferred capacity; do not widen the implemented arrays or
   selection limit in this plan.
-- [ ] Exercise invalid uniform ranges, shader/PSO creation failure, manual
+- [x] Exercise invalid uniform ranges, shader/PSO creation failure, manual
   retry, shader invalidation, device invalidation, and shutdown without a stale
   or previous-view payload fallback.
-- [ ] Record the stage handoff and focused validation evidence.
+- [x] Record the stage handoff and focused validation evidence.
 
 #### Acceptance Gate
 
@@ -344,7 +369,7 @@ reworking light ownership or view preparation.
   one per-view payload in opaque, masked, and translucent execution.
 - The current single-directional and zero-light baselines remain compatible;
   point range and spot cone edges match CPU references without NaN/Inf.
-- The `1 + 8` representative scene meets the frozen target-GPU lighting-time
+- The `1 + 4` representative scene meets the frozen target-GPU lighting-time
   budget; failure keeps M5 open and requires reducing the limit or selecting a
   bounded light-assignment optimization.
 - Reflected ABI, descriptor lifetime, failure recovery, resource reload, and
@@ -353,23 +378,23 @@ reworking light ownership or view preparation.
 
 ### Stage 4: Qualify M5 and publish the lasting contract
 
-- [ ] Remove the obsolete single-directional getter, prepared-view field,
+- [x] Remove the obsolete single-directional getter, prepared-view field,
   per-draw uniform code, and compatibility branches after every consumer and
   test double has migrated.
-- [ ] Publish light Proxy/SceneInfo ownership, family data, mutation, bounds,
+- [x] Publish light Proxy/SceneInfo ownership, family data, mutation, bounds,
   selection, budget, payload, falloff, diagnostics, and failure behavior under
   `Documentation/Runtime/Rendering/`.
-- [ ] Update the Rendering Capability Expansion roadmap with M5 completion and
+- [x] Update the Rendering Capability Expansion roadmap with M5 completion and
   the exact M6 entry state; do not select shadow quality or memory budgets in
   this plan.
-- [ ] Run the focused native targets, relevant Vulkan integration targets,
+- [x] Run the focused native targets, relevant Vulkan integration targets,
   documentation validation, and the repository-required aggregate validation
   for the cross-target Engine/Renderer/RenderCore/shader change.
-- [ ] Because point/spot runtime actors and lighting output are user-visible,
+- [x] Because point/spot runtime actors and lighting output are user-visible,
   complete a successful full `all` build and validation-enabled editor smoke
   from the same Agent Build Profile, including a mixed-light static/skeletal
   scene, multiple view paths, reload, and orderly shutdown.
-- [ ] Record the final handoff with baseline, working set, symbols, decisions,
+- [x] Record the final handoff with baseline, working set, symbols, decisions,
   open questions, test/build/runtime evidence, and verified editor executable.
 
 #### Acceptance Gate
@@ -391,8 +416,8 @@ reworking light ownership or view preparation.
 | Component/actor lifecycle | Reflected values serialize; registration, transform, visibility, duplication, retirement, and scene release publish no stale state | `WorldTests` and scene-contract tests |
 | Invalid data | Non-finite color/intensity/position/direction/range/angles never publish a partial SceneInfo or GPU record | Engine and Renderer focused negative tests |
 | Local visibility | Point/spot conservative spheres outside the frustum are rejected; plane-boundary spheres remain included | Renderer preparation tests |
-| Budget and order | One directional and eight combined local maxima; stable-ID selection and overflow counters are container-order independent | Renderer preparation/counter tests |
-| Forward-light GPU cost | The `1 + 8` full-screen Lit fixture meets the recorded target-GPU budget; `2 + 16` remains evidence-gated | GPU timestamp/profile fixture and Stage 3 handoff |
+| Budget and order | One directional and four combined local maxima; stable-ID selection and overflow counters are container-order independent | Renderer preparation/counter tests |
+| Forward-light GPU cost | The `1 + 4` full-screen Lit fixture meets the recorded target-GPU budget; wider tiers remain evidence-gated | GPU timestamp/profile fixture and Stage 3 handoff |
 | Multi-view | Sequential unequal views prepare independent lists and buffers from identical scene state | Renderer scene and viewport tests |
 | Payload ABI | CPU size/alignment, Slang fields/counts, reflection, and descriptor range agree exactly | `RenderShaderContractTests` and Renderer tests |
 | Directional compatibility | Existing one-light pixels and zero-direct-light fallback remain unchanged | material reference and Vulkan image/readback tests |
@@ -409,7 +434,7 @@ reworking light ownership or view preparation.
   proxy/SceneInfo entries with deterministic ordered lifecycle and no render-
   thread reflected-object access.
 - Each immutable view conservatively culls local lights, selects no more than
-  one directional and eight combined local lights by stable identity,
+  one directional and four combined local lights by stable identity,
   and emits reconciling diagnostics for every submitted entry.
 - StaticMesh and SkeletalMesh share one reflected per-view lighting payload and
   accumulate deterministic directional, point, and spot PBR direct lighting in

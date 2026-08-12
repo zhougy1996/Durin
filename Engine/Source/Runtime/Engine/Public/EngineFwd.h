@@ -15,6 +15,8 @@ namespace Durin
 
 	class ACameraActor;
 	class ADirectionalLightActor;
+	class APointLightActor;
+	class ASpotLightActor;
 	class AStaticMeshActor;
 	class ASkeletalMeshActor;
 	class ASkyBoxActor;
@@ -25,6 +27,9 @@ namespace Durin
 	class DMeshComponent;
 	class DCameraComponent;
 	class DDirectionalLightComponent;
+	class DLightComponent;
+	class DPointLightComponent;
+	class DSpotLightComponent;
 	class DPhysicsComponent;
 	class DPawnMovementComponent;
 	class DSplineComponent;

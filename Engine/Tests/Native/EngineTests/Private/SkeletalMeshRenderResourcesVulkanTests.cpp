@@ -6,6 +6,7 @@
 #include "RenderingThread.h"
 #include "RendererModule.h"
 #include "Renderers/SceneVisibility.h"
+#include "Renderers/SceneRendererProfiling.h"
 #include "Scene.h"
 #include "SceneView.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
@@ -40,9 +41,16 @@ namespace Durin
 namespace
 {
 	Durin::FViewRenderCounters GLastCounters;
+	std::vector<Durin::FGPUTimingQueryRHIRef>* GSceneColorTimingQueries = nullptr;
 	auto CaptureCounters(const Durin::FViewRenderCounters& Counters) -> void
 	{
 		GLastCounters = Counters;
+	}
+	auto CaptureSceneColorTiming(
+		const Durin::FGPUTimingQueryRHIRef& Query) -> void
+	{
+		if (GSceneColorTimingQueries != nullptr)
+			GSceneColorTimingQueries->push_back(Query);
 	}
 
 	auto MakeRenderData(bool bComplete = true)
@@ -227,7 +235,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		Publication.LocalLayer.StaticProperties =
 			Durin::FMaterialStaticProperties{
 				.BlendMode = BlendMode,
-				.ShadingModel = Durin::EMaterialShadingModel::Unlit,
+				.ShadingModel = Durin::EMaterialShadingModel::Lit,
 				.bTwoSided = true};
 		Publication.LocalLayer.Parameters.push_back({
 			.Id = Durin::MaterialParameters::BaseColorId,
@@ -312,6 +320,178 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		RedPixels += (*Readback)[Offset] > (*Readback)[Offset + 1] + 20
 			&& (*Readback)[Offset] > (*Readback)[Offset + 2] + 20 ? 1u : 0u;
 	EXPECT_GT(RedPixels, 0u);
+	auto RenderLitReadback = [&](std::string Name) {
+		auto Result = std::make_shared<std::vector<Durin::uint8>>();
+		Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
+			[&Renderer, &Scene, Result, Name = std::move(Name)](
+				Durin::FRHICommandListImmediate& CommandList) {
+				Durin::GRenderFrameCounterRenderThread++;
+				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+				const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+					Name.c_str(), 33, 33, Durin::EPixelFormat::SRGBA8_UNORM)
+					.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
+						| Durin::ETextureCreateFlags::ShaderResource
+						| Durin::ETextureCreateFlags::CPUReadback);
+				Durin::FTextureRHIRef Target =
+					Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+				ASSERT_NE(Target, nullptr);
+				Durin::FSceneView View;
+				View.ViewProjectionMatrix = Durin::FMatrix(1.0);
+				View.ViewportWidth = 33;
+				View.ViewportHeight = 33;
+				View.Settings.RenderMode = Durin::ERenderMode::Lit;
+				View.Settings.VisibilityMode =
+					Durin::EViewVisibilityMode::FrustumCullingDisabled;
+				EXPECT_EQ(Renderer.RenderView(
+					CommandList, &Scene, View, Target, false, {}),
+					Durin::ERenderViewResult::Success);
+				ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
+					CommandList, Target, 0, 0, *Result));
+				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+			});
+		Durin::FlushRenderingCommands();
+		return Result;
+	};
+	const auto ZeroLightReadback = RenderLitReadback("ZeroLightSkeletalColor");
+	Durin::FDirectionalLightSceneData Directional;
+	Directional.Direction = {0.0, 0.0, -1.0};
+	Directional.Color = {1.0f, 0.1f, 0.1f};
+	Directional.Intensity = 2.0f;
+	Scene.AddOrReplaceLight(Durin::FLightSceneId(10),
+		std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
+	Durin::FPointLightSceneData Point;
+	Point.Position = {0.5, 0.5, 1.0};
+	Point.Color = {0.1f, 1.0f, 0.1f};
+	Point.Intensity = 2.0f;
+	Point.Range = 5.0f;
+	Scene.AddOrReplaceLight(Durin::FLightSceneId(11),
+		std::make_unique<Durin::FPointLightSceneProxy>(Point));
+	Durin::FSpotLightSceneData Spot;
+	Spot.Position = {0.5, 0.5, 1.0};
+	Spot.Direction = {0.0, 0.0, -1.0};
+	Spot.Color = {0.1f, 0.1f, 1.0f};
+	Spot.Intensity = 2.0f;
+	Spot.Range = 5.0f;
+	Spot.InnerConeAngle = 30.0f;
+	Spot.OuterConeAngle = 45.0f;
+	Scene.AddOrReplaceLight(Durin::FLightSceneId(12),
+		std::make_unique<Durin::FSpotLightSceneProxy>(Spot));
+	Durin::FlushRenderingCommands();
+	const auto MixedLightReadback = RenderLitReadback("MixedLightSkeletalColor");
+	EXPECT_EQ(ZeroLightReadback->size(), MixedLightReadback->size());
+	EXPECT_NE(*ZeroLightReadback, *MixedLightReadback);
+	EXPECT_EQ(GLastCounters.SelectedDirectionalLights, 1u);
+	EXPECT_EQ(GLastCounters.SelectedPointLights, 1u);
+	EXPECT_EQ(GLastCounters.SelectedSpotLights, 1u);
+	if (std::getenv("DURIN_RUN_LIGHTING_PROFILE") != nullptr)
+	{
+		Scene.RemoveLight(Durin::FLightSceneId(11));
+		Scene.RemoveLight(Durin::FLightSceneId(12));
+		Scene.UpdatePrimitiveTransform(
+			Durin::FPrimitiveSceneId(1),
+			glm::translate(Durin::FMatrix(1.0), Durin::FVector3(-1.0, -1.0, 0.0))
+				* glm::scale(Durin::FMatrix(1.0), Durin::FVector3(4.0, 4.0, 1.0)));
+		Durin::FlushRenderingCommands();
+		auto ProfileSceneColor = [&](const char* TargetName) {
+			constexpr Durin::uint32 WarmupFrames = 10;
+			constexpr Durin::uint32 MeasuredFrames = 120;
+			std::vector<Durin::FGPUTimingQueryRHIRef> Queries;
+			GSceneColorTimingQueries = &Queries;
+			Durin::SetSceneColorTimingQuerySink(CaptureSceneColorTiming);
+			Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
+				[&Renderer, &Scene, TargetName](
+					Durin::FRHICommandListImmediate& CommandList) {
+					const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+						TargetName, 1920, 1080,
+						Durin::EPixelFormat::SRGBA8_UNORM)
+						.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
+							| Durin::ETextureCreateFlags::ShaderResource);
+					Durin::FTextureRHIRef Target =
+						Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+					ASSERT_NE(Target, nullptr);
+					Durin::FSceneView View;
+					View.ViewProjectionMatrix = Durin::FMatrix(1.0);
+					View.ViewportWidth = 1920;
+					View.ViewportHeight = 1080;
+					View.Settings.RenderMode = Durin::ERenderMode::Lit;
+					View.Settings.VisibilityMode =
+						Durin::EViewVisibilityMode::FrustumCullingDisabled;
+					for (Durin::uint32 Frame = 0;
+						Frame < WarmupFrames + MeasuredFrames; ++Frame)
+					{
+						Durin::GRenderFrameCounterRenderThread++;
+						Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+						EXPECT_EQ(Renderer.RenderView(
+							CommandList, &Scene, View, Target, false, {}),
+							Durin::ERenderViewResult::Success);
+						Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+					}
+				});
+			Durin::FlushRenderingCommands();
+			Durin::SetSceneColorTimingQuerySink(nullptr);
+			GSceneColorTimingQueries = nullptr;
+			for (Durin::uint32 Attempt = 0; Attempt < 100; ++Attempt)
+			{
+				const bool bReady = Queries.size() == WarmupFrames + MeasuredFrames
+					&& std::ranges::all_of(Queries, [](const auto& Query) {
+						return Query->GetResult().State
+							== Durin::ERHIGPUTimingResultState::Ready;
+					});
+				if (bReady) break;
+				Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
+					[](Durin::FRHICommandListImmediate& CommandList) {
+						Durin::GRenderFrameCounterRenderThread++;
+						Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+						Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+					});
+				Durin::FlushRenderingCommands();
+				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			}
+			EXPECT_EQ(Queries.size(), WarmupFrames + MeasuredFrames);
+			std::vector<Durin::uint64> Durations;
+			for (size_t Index = WarmupFrames; Index < Queries.size(); ++Index)
+			{
+				const Durin::FRHIGPUTimingResult Result = Queries[Index]->GetResult();
+				EXPECT_EQ(Result.State, Durin::ERHIGPUTimingResultState::Ready);
+				if (Result.State == Durin::ERHIGPUTimingResultState::Ready)
+					Durations.push_back(Result.DurationNanoseconds);
+			}
+			std::ranges::sort(Durations);
+			EXPECT_EQ(Durations.size(), MeasuredFrames);
+			return Durations.empty() ? Durin::uint64(0)
+				: Durations[Durations.size() / 2];
+		};
+		const Durin::uint64 DirectionalMedian =
+			ProfileSceneColor("DirectionalLightingProfile");
+		for (Durin::uint64 Id = 20; Id < 24; ++Id)
+		{
+			if ((Id & 1u) == 0)
+			{
+				auto Data = Point;
+				Data.Position.x += static_cast<double>(
+					static_cast<Durin::int64>(Id) - 24) * 0.1;
+				Scene.AddOrReplaceLight(Durin::FLightSceneId(Id),
+					std::make_unique<Durin::FPointLightSceneProxy>(Data));
+			}
+			else
+			{
+				auto Data = Spot;
+				Data.Position.y += static_cast<double>(
+					static_cast<Durin::int64>(Id) - 24) * 0.1;
+				Scene.AddOrReplaceLight(Durin::FLightSceneId(Id),
+					std::make_unique<Durin::FSpotLightSceneProxy>(Data));
+			}
+		}
+		Durin::FlushRenderingCommands();
+		const Durin::uint64 MultiLightMedian =
+			ProfileSceneColor("MultiLightingProfile");
+		const Durin::uint64 Incremental = MultiLightMedian > DirectionalMedian
+			? MultiLightMedian - DirectionalMedian : 0;
+		std::cout << "Lighting profile: directional=" << DirectionalMedian
+			<< " ns, 1+4=" << MultiLightMedian << " ns, incremental="
+			<< Incremental << " ns\n";
+		EXPECT_LE(Incremental, 1'000'000u);
+	}
 	auto TranslatedPose = std::make_shared<Durin::FSkeletalPosePalette>(*Pose);
 	TranslatedPose->Revision = 2;
 	TranslatedPose->Matrices[1] = glm::scale(

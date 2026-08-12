@@ -69,15 +69,16 @@ second production vertex factory. The lasting contract is recorded in
 dependency gate for M6 is open; M6 still waits for the M5 light snapshot and
 selected shadow quality/budget entry gates.
 
-M5 is active through the
+M5 completed on 2026-08-12 through the
 [Renderer Light Scene Contract Plan](../Plans/RendererLightSceneContract.md).
-Its initial forward budget is selected as one directional light and eight
-combined point/spot lights per view. A two-directional/sixteen-local tier remains
-profiling-gated rather than an M5 commitment. The plan adds renderer-owned point
-and spot snapshots, deterministic view preparation, one shared bounded light
-payload, and visible local-light falloff without waiting for compute or
-clustered lighting. Stage 0 is ready; M6 remains closed until M5 completes and a
-separate directional-shadow quality and memory budget is selected.
+It adds renderer-owned point and spot snapshots, deterministic `1 + 4` view
+preparation, one shared 320-byte forward payload, and visible local-light
+falloff without waiting for compute or clustered lighting. GTX 1060 profiling
+rejected the original `1 + 8` candidate at 1.748 ms incremental Scene Color;
+the production `1 + 4` tier passed at 0.602 ms incremental across 120 measured
+1920x1080 frames. Mixed-light Vulkan readback, aggregate tests, full build,
+asset baseline, and editor smoke pass. M6's M5 dependency gate is open; entry
+now requires selecting one directional-shadow quality and memory budget.
 
 ## Outcome
 
@@ -244,7 +245,7 @@ cross-product enum and lets a new primitive reuse existing pass semantics.
 | --- | --- | --- | --- |
 | Feature ownership | `FSceneRenderer` explicitly composes private StaticMesh, SkyBox, TextureCube preview, post-process, and editor-assistance owners with coordinated invalidation and typed scene inputs. | Adding a feature still requires hand-editing orchestration, which remains acceptable until a named external module requires registration. | Conditional public registration |
 | Primitive scene state | `FPrimitiveSceneInfo` owns strong identity, transform, finite local/world bounds, visibility, explicit kind, and authoritative StaticMesh/SkeletalMesh membership; one command-local classifier produces typed visible lists and conserved outcomes. | Additional families extend the private kind switch and consume the same visibility result. | Complete through M4 |
-| Light scene state | `FDirectionalLightSceneProxy` and `FLightSceneInfo` detach copied values from components and mutate through FIFO render commands. | Point/spot families, bounded GPU payloads, and multi-light selection remain M5 work. | M5 |
+| Light scene state | Directional, point, and spot proxies and `FLightSceneInfo` detach copied values, mutate through generic FIFO commands, prepare deterministic `1 + 4` view-local sets, and share one 320-byte forward payload. | Wider forward tiers remain evidence-gated; shadows enter through M6. | Complete through M5 |
 | SkyBox scene state | `FSkyBoxSceneProxy` and `FSkyBoxSceneInfo` own retained texture state, strong identity, deterministic selection, and typed membership without a duplicate revision map. | No M1 ownership gap remains. | Complete |
 | Materials | Versioned immutable v3 representation drives visible Opaque, Masked, and Translucent behavior with authored cull/depth policy. | Material graph compilation and additional authored blend modes remain later Material System work. | Complete for M2 |
 | Graphics state | RHI value descriptors and Vulkan mapping cover selected polygon/cull/winding, depth, blend factors/ops, and RGBA write mask. | Depth bias and stencil remain unselected until M6 or another concrete consumer. | Complete for M2; M6 extension |
@@ -252,7 +253,7 @@ cross-product enum and lets a new primitive reuse existing pass semantics.
 | Scene passes | Scene Color/depth executes family-grouped Opaque/Masked work and one globally ordered StaticMesh/SkeletalMesh Translucent stream before post-process and preserved-depth assistance. | There are no depth-only, shadow, GBuffer, or debug-view pass contracts. | Complete through M4; M6 extension |
 | Scene targets | Size-keyed cache is capped at eight entries and supports sequential multi-view rendering. | Scene Color is LDR `SRGBA8_UNORM`; D32 lacks shader-resource usage; allocation is entry-count rather than byte-budget based; no view history identity exists. | Conditional architecture branch |
 | View policy | Per-view Lit/Unlit, Solid/Wireframe, FXAA, fitted content rect, editor assistance, visibility mode, and LOD mode are immutable snapshots; one value counter snapshot explains each invocation. | Exposure, debug buffers, temporal matrices/history, and persistent performance history remain conditional work. | Complete for M3; conditional branches |
-| Validation | Pass classification/order, effective state, lifecycle, visibility, counters, palette transport, CPU/GPU deformation, sequential views, and Vulkan readback cover both geometry families. | Multi-light ordering and shadow image baselines remain. | Complete through M4; M5-M6 |
+| Validation | Pass classification/order, effective state, lifecycle, visibility, counters, palette transport, CPU/GPU deformation, sequential views, multi-light ordering, and Vulkan readback cover both geometry families. | Shadow image baselines remain. | Complete through M5; M6 extension |
 
 ## Milestone Map
 
@@ -279,7 +280,7 @@ flowchart LR
 | M2: Material render-pass policies | Required; also executes Material System milestone 4 | [MaterialRenderPassPolicies](../Plans/Archive/2026-08/MaterialRenderPassPolicies.md) | M1 classification contract; current material v3 identity | Opaque, masked, and translucent buckets; visible mask/blend/cull/depth policy; minimal required RHI state descriptors; deterministic translucent sorting. | M1 is stable and the exact RHI state gaps for three surface policies are enumerated. | All static properties have tested on-screen meaning across Lit/Unlit, Solid/Wireframe, main/auxiliary, present/offscreen, and fixed-aspect views; Vulkan validation is clean. |
 | M3: Per-view visibility and LOD | Required; complete | [PerViewVisibilityAndLOD](../Plans/Archive/2026-08/PerViewVisibilityAndLOD.md) | M1 proxy bounds; M2 pass buckets | Frustum culling, deterministic LOD selection, prepared draw lists, sort/state keys, and counters. | Met: bounds semantics, pass inputs, projection/LOD policy, representative assets, and comparison views were frozen before production defaults. | Passed: invisible primitives issue no base-pass draw, LOD thresholds and ordering are deterministic, and counters reconcile submitted, culled, selected, prepared, resource, and execution work across qualified viewport paths. |
 | M4: Second production primitive family | Completed 2026-08-11 | [Skeletal Mesh Rendering](../Plans/Archive/2026-08/SkeletalMeshRendering.md) | M2-M3 shared pass and visibility contracts; Skeletal S1-S2; completed RHI Graphics State and Bindings handoff | GPU-skinned SkeletalMesh with coherent pose/bounds snapshots, bounded palette transport, a second vertex factory, and shared material/pass/viewport participation. | Met on 2026-08-10: prerequisites, selected family, budgets, fixtures, and gaps were frozen before implementation. | Passed: SkeletalMesh reuses scene mutation, visibility, pass, material, invalidation, and viewport contracts without a parallel frame renderer or whole-scene RTTI scan; Debug/Shipping Vulkan, full build, and editor smoke are green. |
-| M5: Renderer-owned multi-light scene | Required; active | [RendererLightSceneContract](../Plans/RendererLightSceneContract.md) | M1 detached light mutation | Directional, point, and spot Proxy/SceneInfo types, typed collections, visibility inputs, bounded GPU-facing light data, and explicit versions only for independently reordered work. | Met on 2026-08-12: M1 removed component reads and the initial budget is frozen at one directional plus eight combined local lights per view; two plus sixteen remains profiling-gated. | Add/update/remove order is deterministic; any retained asynchronous version rejects stale work; no render-thread object read occurs; multiple view renders consume identical scene state; point/spot falloff has focused and image coverage. |
+| M5: Renderer-owned multi-light scene | Required; complete | [RendererLightSceneContract](../Plans/RendererLightSceneContract.md) | M1 detached light mutation | Directional, point, and spot Proxy/SceneInfo types, typed collections, visibility inputs, bounded GPU-facing light data, and explicit versions only for independently reordered work. | Met on 2026-08-12: M1 removed component reads; GTX 1060 evidence rejected `1 + 8` and qualified one directional plus four combined local lights per view at 0.602 ms incremental. | Add/update/remove order is deterministic; no render-thread object read occurs; multiple view renders consume identical scene state; point/spot falloff has focused and image coverage. |
 | M6: Directional shadow pipeline | Required | `DirectionalShadowPipeline` | M2 pass state, M3 visibility/draw lists, M4 second-family participation, M5 light snapshots | Shadow-depth target/layout, caster classification, masked caster behavior, directional shadow matrices, bias/filtering, lifetime, diagnostics, and lighting sampling. | M2-M5 contracts are stable; one directional shadow quality/budget target is selected. | StaticMesh and the selected M4 family cast and receive deterministic shadows; masked coverage, camera/light motion, multi-view reuse, invalidation, and Vulkan validation pass without whole-device idle waits. |
 
 M1 through M6 define the required roadmap. M4 intentionally requires one

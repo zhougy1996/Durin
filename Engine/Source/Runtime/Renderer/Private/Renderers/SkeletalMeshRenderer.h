@@ -14,7 +14,7 @@ namespace Durin
 	struct FPreparedSkeletalMeshDraw;
 	struct FPreparedSkeletalMeshPrimitive;
 	enum class ERenderMode : uint8;
-	struct FDirectionalLightSceneData;
+	struct FRHIUniformBufferRange;
 	struct FSceneView;
 	enum class EStaticMeshBasePass : uint8;
 
@@ -36,16 +36,16 @@ namespace Durin
 		auto Execute_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
-			const FDirectionalLightSceneData& Light,
+			const FRHIUniformBufferRange& Lighting,
 			ERenderMode RenderMode,
 			FPreparedSkeletalMeshView& PreparedView) -> void;
 		auto ExecutePass_RenderThread(
 			FRHICommandListImmediate& CommandList, const FSceneView& View,
-			const FDirectionalLightSceneData& Light, ERenderMode RenderMode,
+			const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode,
 			EStaticMeshBasePass Pass, FPreparedSkeletalMeshView& PreparedView) -> void;
 		auto ExecutePreparedDraw_RenderThread(
 			FRHICommandListImmediate& CommandList, const FSceneView& View,
-			const FDirectionalLightSceneData& Light, ERenderMode RenderMode,
+			const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode,
 			EStaticMeshBasePass Pass, const FPreparedSkeletalMeshDraw& Draw,
 			FPreparedSkeletalMeshView& PreparedView) -> void;
 		auto FinalizeExecution_RenderThread(FPreparedSkeletalMeshView& PreparedView)
@@ -60,7 +60,7 @@ namespace Durin
 		auto DrawSection_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
-			const FDirectionalLightSceneData& Light,
+			const FRHIUniformBufferRange& Lighting,
 			ERenderMode RenderMode,
 			const FPreparedSkeletalMeshPrimitive& Primitive,
 			const FPreparedSkeletalMeshDraw& Item) -> bool;

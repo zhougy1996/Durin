@@ -117,13 +117,6 @@ namespace Durin
 			FVector4f TransformParams{1.0f, 0.0f, 0.0f, 0.0f};
 		};
 
-		struct FStaticMeshLightingUniform
-		{
-			FVector4f LightDirection{-0.5f, -0.5f, -1.0f, 0.0f};
-			FVector4f LightColorIntensity{1.0f, 1.0f, 1.0f, 1.0f};
-			FVector4f ViewPosition{0.0f};
-		};
-
 		struct FStaticMeshMaterialUniform
 		{
 			FVector4f BaseColor{1.0f};
@@ -1324,7 +1317,7 @@ namespace Durin
 	auto FStaticMeshRenderer::Execute_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneView& View,
-		const FDirectionalLightSceneData& Light,
+		const FRHIUniformBufferRange& Lighting,
 		ERenderMode RenderMode,
 		FPreparedStaticMeshView& PreparedView
 	) -> void
@@ -1372,7 +1365,7 @@ namespace Durin
 					continue;
 				}
 				if (DrawSection_RenderThread(
-						CommandList, View, Light, RenderMode, *Primitive, Item))
+						CommandList, View, Lighting, RenderMode, *Primitive, Item))
 				{
 					++PreparedView.SuccessfulDraws;
 				}
@@ -1396,7 +1389,7 @@ namespace Durin
 
 	auto FStaticMeshRenderer::ExecutePreparedDraw_RenderThread(
 		FRHICommandListImmediate& CommandList, const FSceneView& View,
-		const FDirectionalLightSceneData& Light, ERenderMode RenderMode,
+		const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode,
 		EStaticMeshBasePass Pass, const FPreparedStaticMeshDraw& Item,
 		FPreparedStaticMeshView& PreparedView) -> void
 	{
@@ -1415,14 +1408,14 @@ namespace Durin
 			++PreparedView.RejectedDraws;
 			return;
 		}
-		if (DrawSection_RenderThread(CommandList, View, Light, RenderMode,
+		if (DrawSection_RenderThread(CommandList, View, Lighting, RenderMode,
 			*Primitive, Item)) ++PreparedView.SuccessfulDraws;
 		else ++PreparedView.RejectedDraws;
 	}
 
 	auto FStaticMeshRenderer::ExecutePass_RenderThread(
 		FRHICommandListImmediate& CommandList, const FSceneView& View,
-		const FDirectionalLightSceneData& Light, ERenderMode RenderMode,
+		const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode,
 		EStaticMeshBasePass Pass, FPreparedStaticMeshView& PreparedView) -> void
 	{
 		check(CommandList.IsInsideRenderPass());
@@ -1433,7 +1426,7 @@ namespace Durin
 			? PreparedView.Opaque : Pass == EStaticMeshBasePass::Masked
 				? PreparedView.Masked : PreparedView.Translucent;
 		for (const FPreparedStaticMeshDraw& Draw : Bucket)
-			ExecutePreparedDraw_RenderThread(CommandList, View, Light, RenderMode,
+			ExecutePreparedDraw_RenderThread(CommandList, View, Lighting, RenderMode,
 				Pass, Draw, PreparedView);
 	}
 
@@ -1450,7 +1443,7 @@ namespace Durin
 	auto FStaticMeshRenderer::DrawSection_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneView& View,
-		const FDirectionalLightSceneData& Light,
+		const FRHIUniformBufferRange& Lighting,
 		ERenderMode RenderMode,
 		const FPreparedStaticMeshPrimitive& Primitive,
 		const FPreparedStaticMeshDraw& Item
@@ -1484,23 +1477,6 @@ namespace Durin
 			CommandList.AllocateDynamicUniformBuffer(
 				&TransformUniform,
 				sizeof(TransformUniform)
-			);
-
-		FStaticMeshLightingUniform LightingUniform;
-		LightingUniform.LightDirection = FVector4f(
-			FVector3f(Light.Direction),
-			0.0f
-		);
-		LightingUniform.LightColorIntensity =
-			FVector4f(Light.Color, Light.Intensity);
-		LightingUniform.ViewPosition = FVector4f(
-			FVector3f(View.ViewLocation),
-			0.0f
-		);
-		const FRHIUniformBufferRange LightingUniformBuffer =
-			CommandList.AllocateDynamicUniformBuffer(
-				&LightingUniform,
-				sizeof(LightingUniform)
 			);
 
 		VertexFactory.BindStreams(CommandList);
@@ -1581,7 +1557,7 @@ namespace Durin
 				sizeof(MaterialUniform)
 			);
 		FStaticMeshFragmentShader::FParameters FragmentShaderParameters;
-		FragmentShaderParameters.Lighting = LightingUniformBuffer;
+		FragmentShaderParameters.Lighting = Lighting;
 		FragmentShaderParameters.Material = MaterialUniformBuffer;
 		auto ResolveTexture = [&](size_t Role, EDefaultTexture Fallback) {
 			FRHITexture* Texture = MaterialBinding.Textures[Role] != nullptr ? MaterialBinding.Textures[Role]->GetReferencedTexture_RenderThread() : nullptr;
@@ -1900,7 +1876,7 @@ namespace Durin
 
 	auto FSkeletalMeshRenderer::Execute_RenderThread(
 		FRHICommandListImmediate& CommandList, const FSceneView& View,
-		const FDirectionalLightSceneData& Light, ERenderMode RenderMode,
+		const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode,
 		FPreparedSkeletalMeshView& PreparedView) -> void
 	{
 		check(CommandList.IsInsideRenderPass());
@@ -1931,7 +1907,7 @@ namespace Durin
 					++PreparedView.RejectedDraws;
 					continue;
 				}
-				if (DrawSection_RenderThread(CommandList, View, Light, RenderMode,
+				if (DrawSection_RenderThread(CommandList, View, Lighting, RenderMode,
 					*Primitive, Draw)) ++PreparedView.SuccessfulDraws;
 				else ++PreparedView.RejectedDraws;
 			}
@@ -1947,7 +1923,7 @@ namespace Durin
 
 	auto FSkeletalMeshRenderer::ExecutePreparedDraw_RenderThread(
 		FRHICommandListImmediate& CommandList, const FSceneView& View,
-		const FDirectionalLightSceneData& Light, ERenderMode RenderMode,
+		const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode,
 		EStaticMeshBasePass Pass, const FPreparedSkeletalMeshDraw& Draw,
 		FPreparedSkeletalMeshView& PreparedView) -> void
 	{
@@ -1967,14 +1943,14 @@ namespace Durin
 			++PreparedView.RejectedDraws;
 			return;
 		}
-		if (DrawSection_RenderThread(CommandList, View, Light, RenderMode,
+		if (DrawSection_RenderThread(CommandList, View, Lighting, RenderMode,
 			*Primitive, Draw)) ++PreparedView.SuccessfulDraws;
 		else ++PreparedView.RejectedDraws;
 	}
 
 	auto FSkeletalMeshRenderer::ExecutePass_RenderThread(
 		FRHICommandListImmediate& CommandList, const FSceneView& View,
-		const FDirectionalLightSceneData& Light, ERenderMode RenderMode,
+		const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode,
 		EStaticMeshBasePass Pass, FPreparedSkeletalMeshView& PreparedView) -> void
 	{
 		check(CommandList.IsInsideRenderPass());
@@ -1985,7 +1961,7 @@ namespace Durin
 			? PreparedView.Opaque : Pass == EStaticMeshBasePass::Masked
 				? PreparedView.Masked : PreparedView.Translucent;
 		for (const FPreparedSkeletalMeshDraw& Draw : Bucket)
-			ExecutePreparedDraw_RenderThread(CommandList, View, Light, RenderMode,
+			ExecutePreparedDraw_RenderThread(CommandList, View, Lighting, RenderMode,
 				Pass, Draw, PreparedView);
 	}
 
@@ -2001,7 +1977,7 @@ namespace Durin
 
 	auto FSkeletalMeshRenderer::DrawSection_RenderThread(
 		FRHICommandListImmediate& CommandList, const FSceneView& View,
-		const FDirectionalLightSceneData& Light, ERenderMode RenderMode,
+		const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode,
 		const FPreparedSkeletalMeshPrimitive& Primitive,
 		const FPreparedSkeletalMeshDraw& Item) -> bool
 	{
@@ -2021,12 +1997,6 @@ namespace Durin
 			Primitive.Pose->Matrices.size());
 		const FRHIUniformBufferRange TransformBuffer =
 			CommandList.AllocateDynamicUniformBuffer(&Transform, sizeof(Transform));
-		FStaticMeshLightingUniform Lighting;
-		Lighting.LightDirection = FVector4f(FVector3f(Light.Direction), 0.0f);
-		Lighting.LightColorIntensity = FVector4f(Light.Color, Light.Intensity);
-		Lighting.ViewPosition = FVector4f(FVector3f(View.ViewLocation), 0.0f);
-		const FRHIUniformBufferRange LightingBuffer =
-			CommandList.AllocateDynamicUniformBuffer(&Lighting, sizeof(Lighting));
 
 		Primitive.VertexFactory->BindStreams(CommandList);
 		CommandList.BindIndexBuffer(Data.IndexBuffer.GetRHI(), 0);
@@ -2068,7 +2038,7 @@ namespace Durin
 			CommandList.AllocateDynamicUniformBuffer(
 				&MaterialUniform, sizeof(MaterialUniform));
 		FStaticMeshFragmentShader::FParameters FragmentParameters;
-		FragmentParameters.Lighting = LightingBuffer;
+		FragmentParameters.Lighting = Lighting;
 		FragmentParameters.Material = MaterialBuffer;
 		auto ResolveTexture = [&](size_t Role, EDefaultTexture Fallback) {
 			FRHITexture* Texture = Binding.Textures[Role] != nullptr

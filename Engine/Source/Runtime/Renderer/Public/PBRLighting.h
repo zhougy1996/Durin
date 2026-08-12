@@ -44,6 +44,14 @@ namespace Durin
 	RENDERER_API auto EvaluatePBRDirectLighting(
 		const FPBRDirectLightingInput& Input) -> FVector3f;
 
+	// CPU reference for the bounded local-light inverse-square and range window.
+	RENDERER_API auto EvaluatePointLightAttenuation(
+		float DistanceSquared, float Range) -> float;
+
+	// CPU reference for smooth or equal-angle hard-edged spot attenuation.
+	RENDERER_API auto EvaluateSpotLightConeAttenuation(
+		float AngleCosine, float InnerCosine, float OuterCosine) -> float;
+
 	// CPU reference for normal-texture decode, RNM composition, and mirrored
 	// tangent-basis reconstruction used by the StaticMesh shader.
 	RENDERER_API auto EvaluatePBRMappedNormal(

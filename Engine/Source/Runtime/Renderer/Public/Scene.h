@@ -50,16 +50,22 @@ namespace Durin
 	{
 	public:
 		FLightSceneInfo(FScene& InScene, FLightSceneId InId,
-			std::shared_ptr<FDirectionalLightSceneProxy> InProxy)
-			: Scene(&InScene), Id(InId), Proxy(std::move(InProxy)) {}
+			std::shared_ptr<FLightSceneProxy> InProxy);
 
 		auto GetId() const -> FLightSceneId { return Id; }
-		auto GetProxy() const -> const FDirectionalLightSceneProxy& { return *Proxy; }
+		auto GetKind() const -> ELightSceneProxyKind { return Kind; }
+		auto GetInfluenceBounds() const -> const FBox& { return InfluenceBounds; }
+		auto GetProxy() const -> const FLightSceneProxy& { return *Proxy; }
+		auto GetDirectionalProxy() const -> const FDirectionalLightSceneProxy&;
+		auto GetPointProxy() const -> const FPointLightSceneProxy&;
+		auto GetSpotProxy() const -> const FSpotLightSceneProxy&;
 
 	private:
 		FScene* Scene = nullptr;
 		FLightSceneId Id = InvalidLightSceneId;
-		std::shared_ptr<FDirectionalLightSceneProxy> Proxy;
+		std::shared_ptr<FLightSceneProxy> Proxy;
+		ELightSceneProxyKind Kind = ELightSceneProxyKind::Directional;
+		FBox InfluenceBounds;
 	};
 
 	class RENDERER_API FSkyBoxSceneInfo final
@@ -96,9 +102,8 @@ namespace Durin
 			FPrimitiveSceneId PrimitiveId,
 			std::shared_ptr<const FSkeletalPosePalette> Pose) -> void override;
 		RENDERER_API auto Release() -> void override;
-		RENDERER_API auto AddOrReplaceDirectionalLight(FLightSceneId LightId, std::unique_ptr<FDirectionalLightSceneProxy> Proxy) -> void override;
-		RENDERER_API auto RemoveDirectionalLight(FLightSceneId LightId) -> void override;
-		RENDERER_API auto GetDirectionalLight(FDirectionalLightSceneData& OutLight) const -> bool override;
+		RENDERER_API auto AddOrReplaceLight(FLightSceneId LightId, std::unique_ptr<FLightSceneProxy> Proxy) -> void override;
+		RENDERER_API auto RemoveLight(FLightSceneId LightId) -> void override;
 		RENDERER_API auto AddOrReplaceSkyBox(FSkyBoxSceneId SkyBoxId, FGuid PersistentId, std::string SelectionKey, std::unique_ptr<FSkyBoxSceneProxy> Proxy) -> void override;
 		RENDERER_API auto RemoveSkyBox(FSkyBoxSceneId SkyBoxId) -> void override;
 		RENDERER_API auto GetActiveSkyBox_RenderThread(FSkyBoxSceneData& OutSkyBox) const -> bool override;
@@ -107,16 +112,23 @@ namespace Durin
 		auto GetPrimitiveSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return PrimitiveSceneInfos; }
 		auto GetStaticMeshSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return StaticMeshSceneInfos; }
 		auto GetSkeletalMeshSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return SkeletalMeshSceneInfos; }
+		auto GetDirectionalLightSceneInfos() const -> const std::vector<FLightSceneInfo*>& { return DirectionalLightSceneInfos; }
+		auto GetPointLightSceneInfos() const -> const std::vector<FLightSceneInfo*>& { return PointLightSceneInfos; }
+		auto GetSpotLightSceneInfos() const -> const std::vector<FLightSceneInfo*>& { return SpotLightSceneInfos; }
 		RENDERER_API auto GetActiveSkyBoxSceneInfo_RenderThread() const -> const FSkyBoxSceneInfo*;
 
 	private:
 		auto DetachPrimitive(FPrimitiveSceneInfo& Info) -> void;
+		auto AttachLight(FLightSceneInfo& Info) -> void;
+		auto DetachLight(FLightSceneInfo& Info) -> void;
 		std::unordered_map<FPrimitiveSceneId, std::unique_ptr<FPrimitiveSceneInfo>, FSceneIdHash> PrimitiveInfosById;
 		std::vector<FPrimitiveSceneInfo*> PrimitiveSceneInfos;
 		std::vector<FPrimitiveSceneInfo*> StaticMeshSceneInfos;
 		std::vector<FPrimitiveSceneInfo*> SkeletalMeshSceneInfos;
 		std::unordered_map<FLightSceneId, std::unique_ptr<FLightSceneInfo>, FSceneIdHash> LightInfosById;
 		std::vector<FLightSceneInfo*> DirectionalLightSceneInfos;
+		std::vector<FLightSceneInfo*> PointLightSceneInfos;
+		std::vector<FLightSceneInfo*> SpotLightSceneInfos;
 		std::unordered_map<FSkyBoxSceneId, std::unique_ptr<FSkyBoxSceneInfo>, FSceneIdHash> SkyBoxInfosById;
 		std::vector<FSkyBoxSceneInfo*> SkyBoxSceneInfos;
 	};

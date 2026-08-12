@@ -1,5 +1,7 @@
 #include "Renderers/SceneRenderer.h"
 #include "Renderers/PreparedSceneView.h"
+#include "Renderers/ForwardLighting.h"
+#include "Renderers/SceneRendererProfiling.h"
 
 #include "Profiling/Profiling.h"
 
@@ -18,6 +20,8 @@ namespace Durin
 {
 	namespace
 	{
+		std::atomic<FSceneColorTimingQuerySink> GSceneColorTimingQuerySink = nullptr;
+
 		auto GetViewportOutput(bool bPresent)
 			-> RenderTargetLayouts::EViewportOutput
 		{
@@ -113,6 +117,11 @@ namespace Durin
 			Counters.UploadedSkeletalPaletteBytes = Meshes.UploadedPaletteBytes;
 		}
 	} // namespace
+
+	auto SetSceneColorTimingQuerySink(FSceneColorTimingQuerySink Sink) -> void
+	{
+		GSceneColorTimingQuerySink.store(Sink, std::memory_order_release);
+	}
 
 	FSceneRenderer::FSceneRenderer()
 		: DefaultTextures(Coordinator)
@@ -348,7 +357,8 @@ namespace Durin
 				PreparedView.SkyBox = SkyBoxInfo->GetProxy().GetData();
 				PreparedView.bHasSkyBox = true;
 			}
-			Scene->GetDirectionalLight(PreparedView.DirectionalLight);
+			PreparedView.Lights = PrepareLightView_RenderThread(
+				*Scene, RenderView, PreparedView.Counters);
 			PreparedView.StaticMeshes = PrepareStaticMeshView_RenderThread(
 				CommandList,
 				Visibility.StaticMeshSceneInfos,
@@ -369,6 +379,16 @@ namespace Durin
 			PreparedView.StaticMeshes, PreparedView.Counters);
 		CopySkeletalMeshCounters(
 			PreparedView.SkeletalMeshes, PreparedView.Counters);
+		const FForwardLightingUniform Lighting = BuildForwardLightingUniform(
+			PreparedView.Lights, RenderView);
+		PreparedView.Counters.PackedLightBytes = sizeof(Lighting);
+		PreparedView.LightingUniformBuffer =
+			CommandList.AllocateDynamicUniformBuffer(&Lighting, sizeof(Lighting));
+		if (PreparedView.LightingUniformBuffer.Buffer == nullptr
+			|| PreparedView.LightingUniformBuffer.Size != sizeof(Lighting))
+		{
+			return ERenderViewResult::RendererResourcesUnavailable;
+		}
 
 		FRHIRenderPassInfo ScenePassInfo{};
 		ScenePassInfo.RenderTargetLayout =
@@ -381,12 +401,26 @@ namespace Durin
 			View.ClearColor.b,
 			View.ClearColor.a);
 		ScenePassInfo.DepthStencilClearValue = FClearValueBinding(1.0f, 0u);
+		FGPUTimingQueryRHIRef SceneColorTimingQuery;
+		const FSceneColorTimingQuerySink TimingSink =
+			GSceneColorTimingQuerySink.load(std::memory_order_acquire);
+		if (TimingSink != nullptr && GDynamicRHI != nullptr)
+		{
+			SceneColorTimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
+			if (SceneColorTimingQuery)
+				CommandList.BeginGPUTimingQuery(SceneColorTimingQuery);
+		}
 		CommandList.BeginRenderPass(
 			ScenePassInfo,
 			"SceneColorRenderPass");
 		const bool bSceneRendered =
 			RenderScene_RenderThread(CommandList, PreparedView, SceneColor);
 		CommandList.EndRenderPass();
+		if (SceneColorTimingQuery)
+		{
+			CommandList.EndGPUTimingQuery(SceneColorTimingQuery);
+			TimingSink(SceneColorTimingQuery);
+		}
 		if (!bSceneRendered)
 		{
 			return ERenderViewResult::RequiredEnvironmentUnavailable;
@@ -510,10 +544,10 @@ namespace Durin
 			EStaticMeshBasePass::Opaque, EStaticMeshBasePass::Masked})
 		{
 			StaticMeshRenderer.ExecutePass_RenderThread(
-				CommandList, View, PreparedView.DirectionalLight,
+				CommandList, View, PreparedView.LightingUniformBuffer,
 				View.Settings.RenderMode, Pass, PreparedView.StaticMeshes);
 			SkeletalMeshRenderer.ExecutePass_RenderThread(
-				CommandList, View, PreparedView.DirectionalLight,
+				CommandList, View, PreparedView.LightingUniformBuffer,
 				View.Settings.RenderMode, Pass, PreparedView.SkeletalMeshes);
 		}
 		for (const FPreparedTranslucentSceneDraw& Draw :
@@ -521,13 +555,13 @@ namespace Durin
 		{
 			if (Draw.Family == EPreparedTranslucentGeometryFamily::StaticMesh)
 				StaticMeshRenderer.ExecutePreparedDraw_RenderThread(
-					CommandList, View, PreparedView.DirectionalLight,
+					CommandList, View, PreparedView.LightingUniformBuffer,
 					View.Settings.RenderMode, EStaticMeshBasePass::Translucent,
 					PreparedView.StaticMeshes.Translucent[Draw.DrawIndex],
 					PreparedView.StaticMeshes);
 			else
 				SkeletalMeshRenderer.ExecutePreparedDraw_RenderThread(
-					CommandList, View, PreparedView.DirectionalLight,
+					CommandList, View, PreparedView.LightingUniformBuffer,
 					View.Settings.RenderMode, EStaticMeshBasePass::Translucent,
 					PreparedView.SkeletalMeshes.Translucent[Draw.DrawIndex],
 					PreparedView.SkeletalMeshes);
