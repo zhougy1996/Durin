@@ -142,7 +142,6 @@ namespace Durin
 
 	auto FEngineLoop::FailInitializationAfterRHI() -> bool
 	{
-		ShutdownEngineAssetServices();
 		ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		bGameThreadDeferredExecutorStarted = false;
 		bTaskSchedulerStarted = false;
@@ -255,7 +254,6 @@ namespace Durin
 				}
 				Diagnostics.Tick();
 				PumpGameThreadDeferredWork();
-				PumpEngineAssetServiceCompletions();
 				GFrameCounter++;
 			},
 			[&Application]() {
@@ -303,7 +301,6 @@ namespace Durin
 
 		Diagnostics.BeforeAssetServiceShutdown();
 		SetProcessCrashPhase(EProcessCrashPhase::AssetServiceShutdown);
-		ShutdownEngineAssetServices();
 		SetProcessCrashPhase(EProcessCrashPhase::TaskSystemShutdown);
 		ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		Diagnostics.AfterTaskSystemShutdown();

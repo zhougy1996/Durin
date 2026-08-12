@@ -19,6 +19,7 @@
 #include "Thumbnail/TextureCubeAssetThumbnail.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "Texture/TextureBuildOperations.h"
+#include "Texture2DSourceTranslation.h"
 
 #include <array>
 #include <cmath>
@@ -844,7 +845,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MaterialThumbnailVulkan/T_Preview", CaptureTexturePath));
 		const Durin::FTexture2DImportResult TextureResult =
-			Durin::AssetBuild::ImportTexture2DAsset(
+			Durin::StandardAssetImport::ImportTexture2DAsset(
 				TextureSource.generic_string(), CaptureTexturePath.ToString());
 		ASSERT_TRUE(TextureResult) << TextureResult.Message;
 		ASSERT_NE(TextureResult.Asset->GetPlatformData(), nullptr);
@@ -856,13 +857,14 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MaterialThumbnailVulkan/T_Data", DataTexturePath));
 		const Durin::FTexture2DImportResult DataTextureResult =
-			Durin::AssetBuild::ImportTexture2DAsset(
+			Durin::StandardAssetImport::ImportTexture2DAsset(
 				TextureSource.generic_string(), DataTexturePath.ToString());
 		ASSERT_TRUE(DataTextureResult) << DataTextureResult.Message;
-		ASSERT_TRUE(DataTextureResult.Asset->SetUsage(
-			Durin::ETextureUsage::DataMask, Error)) << Error;
-		ASSERT_TRUE(DataTextureResult.Asset->WaitForPendingBuild(10.0))
-			<< DataTextureResult.Asset->GetLastBuildError();
+		ASSERT_TRUE(Durin::StandardAssetImport::SetTexture2DUsage(
+			*DataTextureResult.Asset, Durin::ETextureUsage::DataMask, Error)) << Error;
+		ASSERT_TRUE(Durin::AssetBuild::WaitForTexture2DBuild(
+			*DataTextureResult.Asset, 10.0))
+			<< Durin::AssetBuild::GetTexture2DBuildDiagnostic(*DataTextureResult.Asset).Message;
 		ASSERT_NE(DataTextureResult.Asset->GetPlatformData(), nullptr);
 		EXPECT_FALSE(DataTextureResult.Asset->IsSRGB());
 		EXPECT_EQ(
@@ -872,13 +874,14 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MaterialThumbnailVulkan/T_Normal", NormalTexturePath));
 		const Durin::FTexture2DImportResult NormalTextureResult =
-			Durin::AssetBuild::ImportTexture2DAsset(
+			Durin::StandardAssetImport::ImportTexture2DAsset(
 				TextureSource.generic_string(), NormalTexturePath.ToString());
 		ASSERT_TRUE(NormalTextureResult) << NormalTextureResult.Message;
-		ASSERT_TRUE(NormalTextureResult.Asset->SetUsage(
-			Durin::ETextureUsage::Normal, Error)) << Error;
-		ASSERT_TRUE(NormalTextureResult.Asset->WaitForPendingBuild(10.0))
-			<< NormalTextureResult.Asset->GetLastBuildError();
+		ASSERT_TRUE(Durin::StandardAssetImport::SetTexture2DUsage(
+			*NormalTextureResult.Asset, Durin::ETextureUsage::Normal, Error)) << Error;
+		ASSERT_TRUE(Durin::AssetBuild::WaitForTexture2DBuild(
+			*NormalTextureResult.Asset, 10.0))
+			<< Durin::AssetBuild::GetTexture2DBuildDiagnostic(*NormalTextureResult.Asset).Message;
 		ASSERT_NE(NormalTextureResult.Asset->GetPlatformData(), nullptr);
 		EXPECT_FALSE(NormalTextureResult.Asset->IsSRGB());
 		EXPECT_EQ(

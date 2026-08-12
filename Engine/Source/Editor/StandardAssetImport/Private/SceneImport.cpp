@@ -15,6 +15,7 @@
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "SkeletalMesh/Skeleton.h"
 #include "StandardAssetImportProviders.h"
+#include "Texture2DSourceTranslation.h"
 #include "StaticMeshImportAdapter.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
@@ -1777,7 +1778,7 @@ namespace Durin
 				Source = EmbeddedSource.SourcePath;
 				EmbeddedSources.push_back(std::move(EmbeddedSource));
 			}
-			if (!AssetBuild::BuildTexture2DFromEncodedBytes(*Texture, Bytes, Source,
+			if (!StandardAssetImport::BuildTexture2DCandidateFromSource(*Texture, Bytes, Source,
 					{.Usage = Descriptor->TextureUsage,
 						.bSRGB = Descriptor->TextureUsage == ETextureUsage::Color}, Error))
 			{

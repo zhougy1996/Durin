@@ -17,12 +17,14 @@
 #include "RHIGlobals.h"
 #include "RenderingThread.h"
 #include "Scene.h"
+#include "Serialization/Archive.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "StaticMeshTestAccess.h"
 #include "Texture/TextureDerivedData.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
+#include "Texture2DSourceTranslation.h"
 #include "Texture/Texture2DRenderResource.h"
 
 #include <gtest/gtest.h>
@@ -151,7 +153,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 
 	const std::filesystem::path Source = Root / "NpotTexture.tga";
 	WriteNpotTextureFixture(Source);
-	const Durin::FTexture2DImportResult Import = Durin::AssetBuild::ImportTexture2DAsset(
+	const Durin::FTexture2DImportResult Import = Durin::StandardAssetImport::ImportTexture2DAsset(
 		Source.generic_string(), "/TextureCookTests/Texture");
 	ASSERT_TRUE(Import) << Import.Message;
 	ASSERT_NE(Import.Asset, nullptr);
@@ -207,17 +209,17 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	ASSERT_EQ(DecodedBulk.Entries.size(), 1u);
 	ASSERT_EQ(DecodedBulk.Payloads.size(), 1u);
 	EXPECT_EQ(DecodedBulk.Entries.front().PayloadId, Durin::Texture2DPrimaryCookedPayloadId);
-	std::unique_ptr<Durin::FTexturePlatformData> DecodedPlatformData;
-	const Durin::FPayloadDecodeResult DecodeResult = Durin::DecodeTexture2DPayload(
-		DecodedBulk.Payloads.front(),
-		Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game,
-		DecodedPlatformData);
-	ASSERT_TRUE(DecodeResult) << DecodeResult.Message;
-	ASSERT_NE(DecodedPlatformData, nullptr);
-	ExpectPlatformDataEqual(*DecodedPlatformData, ExpectedPlatformData);
-	ASSERT_EQ(DecodedPlatformData->Mips.back().Width, 1u);
-	ASSERT_EQ(DecodedPlatformData->Mips.back().Height, 1u);
+	Durin::FTexturePlatformData DecodedPlatformData;
+	Durin::FCanonicalMemoryReader PayloadAr(
+		DecodedBulk.Payloads.front(), Durin::EArchivePurpose::CookedPayload);
+	DecodedPlatformData.Serialize(PayloadAr, {
+		.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
+		.TargetProfile = Durin::Asset::ECookTargetProfile::Game});
+	ASSERT_FALSE(PayloadAr.HasError()) << PayloadAr.GetError();
+	ASSERT_TRUE(Durin::RequireArchiveEnd(PayloadAr));
+	ExpectPlatformDataEqual(DecodedPlatformData, ExpectedPlatformData);
+	ASSERT_EQ(DecodedPlatformData.Mips.back().Width, 1u);
+	ASSERT_EQ(DecodedPlatformData.Mips.back().Height, 1u);
 
 	const std::filesystem::path WrongProfileRoot =
 		std::filesystem::absolute(Root / "CookWrongProfile");

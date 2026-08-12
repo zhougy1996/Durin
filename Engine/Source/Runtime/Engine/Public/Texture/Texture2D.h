@@ -12,6 +12,7 @@
 
 namespace Durin
 {
+	class FArchive;
 	struct FTextureBuildOperations;
 	struct FTexture2DBuildDiagnostic;
 	enum class ETexture2DBuildPriority : uint8;
@@ -116,6 +117,13 @@ namespace Durin
 		ENGINE_API auto IsValid(EPixelFormat PixelFormat) const -> bool;
 	};
 
+	// Supplies the stable target identity carried by a serialized texture platform value.
+	struct FTexturePlatformSerializationContext
+	{
+		Asset::ECookTargetPlatform TargetPlatform = Asset::ECookTargetPlatform::Invalid;
+		Asset::ECookTargetProfile TargetProfile = Asset::ECookTargetProfile::Invalid;
+	};
+
 	// Owns the pixel format and complete mip chain consumed by the render resource.
 	struct FTexturePlatformData
 	{
@@ -123,6 +131,10 @@ namespace Durin
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
 
 		ENGINE_API auto IsValid() const -> bool;
+		// Serializes the canonical TXPL value for DDC and cooked payload boundaries.
+		ENGINE_API auto Serialize(
+			FArchive& Ar,
+			const FTexturePlatformSerializationContext& Context) -> void;
 	};
 
 	class DTexture2D;
@@ -154,6 +166,27 @@ namespace Durin
 		std::optional<bool> bSRGB;
 	};
 
+	// Complete object-free imported state accepted by the Engine publication seam.
+	// Authoring modules construct this value after their detached build succeeds.
+	struct FTexture2DImportedState
+	{
+		FTexture2DSourceImportData SourceImportData;
+		std::string SourceContentHash;
+		uint64 SourceFileSize = 0;
+		int64 SourceLastWriteTime = 0;
+		std::unique_ptr<FTextureSourceData> SourceData;
+		std::unique_ptr<FTexturePlatformData> PlatformData;
+		std::string DerivedDataKey;
+		ETextureUsage Usage = ETextureUsage::Color;
+		bool bSRGB = true;
+		uint32 MaxResolution = 0;
+		ETextureCompressionQuality CompressionQuality = ETextureCompressionQuality::Normal;
+		ETextureAlphaMipMode AlphaMipMode = ETextureAlphaMipMode::Average;
+		float AlphaCoverageThreshold = 0.5f;
+		bool bMarkPackageDirty = true;
+		bool bReportLoadMutation = false;
+	};
+
 	// Owns imported texture source, derived platform data, and its render resources.
 	DCLASS()
 	class DTexture2D : public DTexture
@@ -162,6 +195,7 @@ namespace Durin
 	public:
 		ENGINE_API explicit DTexture2D(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DTexture2D() override;
+		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 		ENGINE_API auto BeginDestroy() -> void override;
 
 		auto GetSourceFile() const -> const std::string&
@@ -192,29 +226,7 @@ namespace Durin
 		auto HasPendingBuild() const -> bool { return ActiveBuildRequestId != 0; }
 		ENGINE_API auto CancelPendingBuild() -> bool;
 		ENGINE_API auto WaitForPendingBuild(double TimeoutSeconds = 300.0) -> bool;
-		ENGINE_API auto SetUsage(ETextureUsage InUsage, std::string& OutError) -> bool;
-		ENGINE_API auto SetSRGB(bool bInSRGB, std::string& OutError) -> bool;
-		ENGINE_API auto SetMaxResolution(uint32 InMaxResolution, std::string& OutError) -> bool;
-		ENGINE_API auto SetCompressionQuality(ETextureCompressionQuality InQuality, std::string& OutError) -> bool;
-		ENGINE_API auto SetAlphaMipMode(ETextureAlphaMipMode InMode, std::string& OutError) -> bool;
-		ENGINE_API auto SetAlphaCoverageThreshold(float InThreshold, std::string& OutError) -> bool;
-
-		ENGINE_API auto RebuildPlatformData(std::string& OutError) -> bool;
 		ENGINE_API auto InspectSource() const -> FTextureSourceDiagnostic;
-		// Reimport reads only the persisted mounted source. A non-empty path is
-		// accepted only when it names that same physical file.
-		ENGINE_API auto ReimportSource(std::string_view FilePath, std::string& OutError) -> bool;
-		ENGINE_API auto ChangeSourceReference(
-			std::string_view SourceVirtualPath, std::string& OutError) -> bool;
-		ENGINE_API auto IngestAndChangeSource(
-			std::string_view FilePath,
-			std::string_view TargetSourceVirtualPath,
-			std::string& OutError) -> bool;
-		ENGINE_API auto RepairSourcePath(std::string_view FilePath, std::string& OutError) -> bool;
-		// Copies the managed source to a new path in the same mount and keeps the old copy
-		// so other assets that share it remain valid.
-		ENGINE_API auto ChangeSourceLocation(
-			std::string_view SourceDestination, std::string& OutError) -> bool;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 		// Contributes a validated TXPL object and descriptor-bearing runtime metadata to a cook.
 		ENGINE_API auto AddToCook(
@@ -225,6 +237,22 @@ namespace Durin
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		ENGINE_API auto RefreshBuildStatus() -> void;
+		ENGINE_API auto PublishImportedState(
+			FTexture2DImportedState State,
+			std::string& OutError) -> bool;
+		// Narrow value-publication seams for editor-owned uncooked load policy.
+		ENGINE_API auto PublishDerivedDataLoad(
+			std::unique_ptr<FTexturePlatformData> InPlatformData,
+			std::string InDerivedDataKey,
+			bool bSourceAvailable,
+			std::string& OutError) -> bool;
+		ENGINE_API auto PublishUncookedLoadFailure(
+			ETextureDerivedDataStatus DerivedDataStatus,
+			ETextureBuildStatus InBuildStatus,
+			std::string Message,
+			std::string DerivedDataKey = {}) -> bool;
+		ENGINE_API auto PublishSourceFingerprint(
+			uint64 FileSize, int64 LastWriteTime) -> void;
 
 		// Exchanges persisted and derived import state while preserving object
 		// identity. Render resources are rebuilt for both objects.
@@ -238,14 +266,6 @@ protected:
 			-> std::unique_ptr<FTextureAssetResource> override;
 
 	private:
-		auto BuildSourceData(std::string_view PhysicalFilePath, std::string& OutError) -> bool;
-		auto DecodeSourceData(std::string_view PhysicalFilePath, std::string& OutError) -> bool;
-		auto EnsureSourceData(std::string& OutError) -> bool;
-		auto UpdateSourceFingerprint(const std::filesystem::path& PhysicalFilePath) -> void;
-		auto BuildPlatformData(ETextureUsage InUsage, bool bInSRGB, uint32 InMaxResolution,
-			ETextureCompressionQuality InCompressionQuality, ETextureAlphaMipMode InAlphaMipMode,
-			float InAlphaCoverageThreshold,
-			std::unique_ptr<FTexturePlatformData>& OutPlatformData, std::string& OutError) const -> bool;
 		auto InvalidatePlatformData() -> void;
 		auto LoadCookedPlatformData(std::string& OutError) -> bool;
 		auto SubmitAsyncBuild(
@@ -259,13 +279,6 @@ protected:
 			int64 SourceLastWriteTimeSnapshot,
 			std::string& OutError) -> bool;
 		auto ApplyAsyncBuildResult(struct FTexture2DBuildResult&& Result) -> void;
-		auto SubmitAsyncPropertyBuild(
-			const FTexture2DImportSettings& Settings,
-			FPropertyEditDeferredCompletion Completion) -> FPropertyEditDeferredCancel;
-		auto ApplyAsyncPropertyBuildResult(struct FTexture2DBuildResult&& Result) -> void;
-		auto SubmitBuildSettingsAsync(
-			const FTexture2DImportSettings& Settings,
-			std::string& OutError) -> bool;
 
 		DPROPERTY()
 		FTexture2DSourceImportData SourceImportData;
@@ -328,20 +341,7 @@ protected:
 		// Persistent failure state. Set by the build pipeline and cleared on success.
 		ETextureBuildStatus BuildStatus = ETextureBuildStatus::Unbuilt;
 
-		friend struct FTextureBuildOperations;
 		std::string LastBuildError;
-
-		// Reflected edits validate and build detached settings before live storage
-		// changes. PostEditChangeProperty consumes this exact candidate atomically.
-		std::unique_ptr<FTexturePlatformData> PendingEditPlatformData;
-		std::unique_ptr<FTextureSourceData> PendingEditSourceData;
-		std::string PendingEditDerivedDataKey;
-		ETextureUsage PendingEditUsage = ETextureUsage::Color;
-		bool bPendingEditSRGB = true;
-		uint32 PendingEditMaxResolution = 0;
-		ETextureCompressionQuality PendingEditCompressionQuality = ETextureCompressionQuality::Normal;
-		ETextureAlphaMipMode PendingEditAlphaMipMode = ETextureAlphaMipMode::Average;
-		float PendingEditAlphaCoverageThreshold = 0.5f;
 
 		uint64 BuildRequestGeneration = 0;
 		uint64 ActiveBuildRequestId = 0;
@@ -353,6 +353,5 @@ protected:
 		int64 PendingBuildSourceLastWriteTime = 0;
 		bool bPendingBuildMarksDirty = false;
 		bool bPendingBuildReportsLoadMutation = false;
-		FPropertyEditDeferredCompletion PendingPropertyEditCompletion;
 	};
 }

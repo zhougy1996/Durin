@@ -7,6 +7,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
+#include "Texture2DSourceTranslation.h"
 #include "Texture/TextureCube.h"
 #include "TextureTestSupport.h"
 
@@ -49,7 +50,7 @@ TEST(FSingleAssetImportTests, Texture2DRestoresAuthoredAndRuntimeStateWhenSaveFa
 	const std::filesystem::path Source =
 		Durin::Testing::GetTestWorkDirectory() / "SingleAssetTexture2D.png";
 	WriteTextureFixture(Source);
-	Durin::FTexture2DImportResult Imported = Durin::AssetBuild::ImportTexture2DAsset(
+	Durin::FTexture2DImportResult Imported = Durin::StandardAssetImport::ImportTexture2DAsset(
 		Source.generic_string(), "/SingleAssetStage2/Texture2D");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	Durin::DTexture2D* Identity = Imported.Asset;
@@ -88,7 +89,7 @@ TEST(FSingleAssetImportTests, RejectsStalePackageRevisionBeforeExchange)
 	const std::filesystem::path Source =
 		Durin::Testing::GetTestWorkDirectory() / "SingleAssetStale.png";
 	WriteTextureFixture(Source);
-	Durin::FTexture2DImportResult Imported = Durin::AssetBuild::ImportTexture2DAsset(
+	Durin::FTexture2DImportResult Imported = Durin::StandardAssetImport::ImportTexture2DAsset(
 		Source.generic_string(), "/SingleAssetStage2/StaleTexture");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	auto PlanResult = PlanCurrent(Imported.Asset);

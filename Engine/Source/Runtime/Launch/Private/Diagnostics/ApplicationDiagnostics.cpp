@@ -4,7 +4,6 @@
 #include "Diagnostics/NativeGameplayLifecycleSmoke.h"
 #include "Diagnostics/ProcessCrashContext.h"
 #include "Diagnostics/TaskSchedulerLifecycleSmoke.h"
-#include "EngineAssetServices.h"
 #include "Windows/WindowsProcessCrashHandler.h"
 
 #if DURIN_WITH_EDITOR
@@ -40,8 +39,6 @@ namespace Durin
 
 	auto FApplicationDiagnostics::AfterEngineInitialized() -> void
 	{
-		if (Request.bRunEngineAssetServiceLifecycleSmoke)
-			BeginEngineAssetServiceLifecycleSmoke();
 		if (Request.NativeCrashPhase == ENativeCrashPhase::Running)
 		{
 			FillCrashLogGap();
@@ -80,8 +77,6 @@ namespace Durin
 
 	auto FApplicationDiagnostics::BeforeAssetServiceShutdown() const -> void
 	{
-		if (Request.bRunEngineAssetServiceLifecycleSmoke)
-			ValidateEngineAssetServiceLifecycleSmoke();
 	}
 
 	auto FApplicationDiagnostics::AfterTaskSystemShutdown() const -> void

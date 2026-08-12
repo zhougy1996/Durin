@@ -15,6 +15,21 @@ namespace Durin::Editor
 {
 	namespace
 	{
+		std::mutex GPropertyEditExtensionsMutex;
+		std::unordered_map<FPropertyEditExtensionHandle, FPropertyEditExtension>
+			GPropertyEditExtensions;
+		FPropertyEditExtensionHandle GNextPropertyEditExtensionHandle = 1;
+
+		auto SnapshotPropertyEditExtensions() -> std::vector<FPropertyEditExtension>
+		{
+			std::lock_guard Lock(GPropertyEditExtensionsMutex);
+			std::vector<FPropertyEditExtension> Extensions;
+			Extensions.reserve(GPropertyEditExtensions.size());
+			for (const auto& [Handle, Extension] : GPropertyEditExtensions)
+				Extensions.push_back(Extension);
+			return Extensions;
+		}
+
 		auto Fail(std::string* OutError, std::string_view Message) -> bool
 		{
 			if (OutError) *OutError = Message;
@@ -126,6 +141,16 @@ namespace Durin::Editor
 				bResolvedLeaf ? DraftLeaf.ArrayIndex : 0
 			};
 			std::string HookError;
+			for (const FPropertyEditExtension& Extension : SnapshotPropertyEditExtensions())
+			{
+				if (Extension.PreEdit && !Extension.PreEdit(*Target.Object, Proposal, HookError))
+				{
+					if (OutError) *OutError = HookError.empty()
+						? "A property edit extension rejected the reflected property proposal."
+						: HookError;
+					return false;
+				}
+			}
 			if (!Target.Object->PreEditChangeProperty(Proposal, HookError))
 			{
 				if (OutError) *OutError = HookError.empty() ? "The object rejected the reflected property proposal." : HookError;
@@ -232,6 +257,15 @@ namespace Durin::Editor
 				Target.Kind,
 				Origin
 			});
+			const FPropertyChangedEvent Event{
+				Target.MemberProperty,
+				Target.LeafProperty,
+				std::move(EventPath),
+				Phase,
+				Target.Kind,
+				Origin};
+			for (const FPropertyEditExtension& Extension : SnapshotPropertyEditExtensions())
+				if (Extension.PostEdit) Extension.PostEdit(*Target.Object, Event);
 		}
 
 		auto ApplyDeferredMutation(
@@ -287,6 +321,23 @@ namespace Durin::Editor
 			if (Phase != EPropertyChangePhase::Interactive || Result.bChanged) NotifyMutation(Target, Phase, Origin);
 			return Result;
 		}
+	}
+
+	auto RegisterPropertyEditExtension(FPropertyEditExtension Extension)
+		-> FPropertyEditExtensionHandle
+	{
+		if (!Extension.PreEdit && !Extension.PostEdit) return 0;
+		std::lock_guard Lock(GPropertyEditExtensionsMutex);
+		const FPropertyEditExtensionHandle Handle = GNextPropertyEditExtensionHandle++;
+		GPropertyEditExtensions.emplace(Handle, std::move(Extension));
+		return Handle;
+	}
+
+	auto UnregisterPropertyEditExtension(FPropertyEditExtensionHandle Handle) -> void
+	{
+		if (Handle == 0) return;
+		std::lock_guard Lock(GPropertyEditExtensionsMutex);
+		GPropertyEditExtensions.erase(Handle);
 	}
 
 	struct FPropertyEditSession::FDeferredOwnerState

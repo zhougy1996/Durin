@@ -15,6 +15,7 @@
 #include "Terrain/TerrainHeightmapDerivedData.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
+#include "Texture2DSourceTranslation.h"
 
 #include <gtest/gtest.h>
 
@@ -286,7 +287,7 @@ TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndRollbackPreserveTheA
 	EXPECT_EQ(RetainedSnapshot->Samples, std::vector<Durin::uint16>(Initial.begin(), Initial.end()));
 
 	// Ordinary PNG import remains the Texture2D path even for a 16-bit grayscale source.
-	const Durin::FTexture2DImportResult TextureImport = Durin::AssetBuild::ImportTexture2DAsset(
+	const Durin::FTexture2DImportResult TextureImport = Durin::StandardAssetImport::ImportTexture2DAsset(
 		Source.generic_string(), "/TerrainHeightmap/DefaultPngTexture");
 	ASSERT_TRUE(TextureImport) << TextureImport.Message;
 	ASSERT_NE(TextureImport.Asset, nullptr);

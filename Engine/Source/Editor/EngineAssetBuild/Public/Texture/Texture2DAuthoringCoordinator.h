@@ -1,11 +1,11 @@
 #pragma once
 
-#include "EngineAPI.h"
+#include "EngineAssetBuildAPI.h"
 #include "Hash/XxHash.h"
 #include "Source/SourcePath.h"
 #include "Texture/Texture2D.h"
 
-namespace Durin
+namespace Durin::AssetBuild
 {
 	// Identifies the externally visible phase of one editor Texture2D CPU build.
 	enum class ETexture2DBuildPhase : uint8
@@ -41,7 +41,7 @@ namespace Durin
 	};
 
 	// Immutable value snapshot consumed without reflected-object access on a worker.
-	struct FTexture2DBuildRequest
+	struct FTexture2DQueuedBuildRequest
 	{
 		std::string AssetIdentity;
 		FSourcePath SourcePath;
@@ -71,7 +71,7 @@ namespace Durin
 	};
 
 	// Owns detached build output until a main-thread consumer accepts or discards it.
-	struct FTexture2DBuildResult
+	struct FTexture2DQueuedBuildResult
 	{
 		uint64 RequestId = 0;
 		uint64 Generation = 0;
@@ -110,47 +110,47 @@ namespace Durin
 		uint64 InFlightByteBudget = 1024ull * 1024ull * 1024ull;
 	};
 
-	using FTexture2DBuildCompletion = std::function<void(FTexture2DBuildResult&&)>;
+	using FTexture2DBuildCompletion = std::function<void(FTexture2DQueuedBuildResult&&)>;
 
 	// Owns bounded Texture2D worker admission and a main-thread completion mailbox.
 	class FTexture2DBuildCoordinator
 	{
 	public:
-		ENGINE_API explicit FTexture2DBuildCoordinator(
+		ENGINEASSETBUILD_API explicit FTexture2DBuildCoordinator(
 			const FTexture2DBuildCoordinatorConfig& Config = {});
-		ENGINE_API ~FTexture2DBuildCoordinator();
+		ENGINEASSETBUILD_API ~FTexture2DBuildCoordinator();
 		FTexture2DBuildCoordinator(const FTexture2DBuildCoordinator&) = delete;
 		auto operator=(const FTexture2DBuildCoordinator&) -> FTexture2DBuildCoordinator& = delete;
 
 		// Returns zero when admission has stopped or the process task system rejects work.
-		ENGINE_API auto Submit(
-			FTexture2DBuildRequest Request,
+		ENGINEASSETBUILD_API auto Submit(
+			FTexture2DQueuedBuildRequest Request,
 			FTexture2DBuildCompletion Completion) -> uint64;
-		ENGINE_API auto Cancel(uint64 RequestId) -> bool;
-		ENGINE_API auto CancelAsset(std::string_view AssetIdentity) -> uint32;
-		ENGINE_API auto GetDiagnostic(uint64 RequestId) const -> FTexture2DBuildDiagnostic;
-		ENGINE_API auto GetQueuedCount() const -> uint32;
-		ENGINE_API auto GetRunningCount() const -> uint32;
-		ENGINE_API auto GetInFlightEstimatedBytes() const -> uint64;
+		ENGINEASSETBUILD_API auto Cancel(uint64 RequestId) -> bool;
+		ENGINEASSETBUILD_API auto CancelAsset(std::string_view AssetIdentity) -> uint32;
+		ENGINEASSETBUILD_API auto GetDiagnostic(uint64 RequestId) const -> FTexture2DBuildDiagnostic;
+		ENGINEASSETBUILD_API auto GetQueuedCount() const -> uint32;
+		ENGINEASSETBUILD_API auto GetRunningCount() const -> uint32;
+		ENGINEASSETBUILD_API auto GetInFlightEstimatedBytes() const -> uint64;
 		// Installs a controlled-barrier seam used only by deterministic native tests.
-		ENGINE_API auto SetPhaseHookForTests(
+		ENGINEASSETBUILD_API auto SetPhaseHookForTests(
 			std::function<void(uint64, ETexture2DBuildPhase)> Hook) -> void;
 
 		// Applies completed callbacks on the GameThread and returns the number pumped.
-		ENGINE_API auto PumpCompletions(uint32 MaximumCount = 64) -> uint32;
+		ENGINEASSETBUILD_API auto PumpCompletions(uint32 MaximumCount = 64) -> uint32;
 		// Explicit blocking boundary for save, cook, tools, and deterministic tests.
-		ENGINE_API auto WaitForRequest(uint64 RequestId, double TimeoutSeconds) -> bool;
+		ENGINEASSETBUILD_API auto WaitForRequest(uint64 RequestId, double TimeoutSeconds) -> bool;
 		// Stops admission, cooperatively cancels all jobs, waits for workers, and drains callbacks.
-		ENGINE_API auto Shutdown() -> void;
+		ENGINEASSETBUILD_API auto Shutdown() -> void;
 
 	private:
 		struct FState;
 		std::shared_ptr<FState> State;
 	};
 
-	ENGINE_API auto InitializeTexture2DBuildCoordinator(
+	ENGINEASSETBUILD_API auto InitializeTexture2DBuildCoordinator(
 		const FTexture2DBuildCoordinatorConfig& Config = {}) -> bool;
-	ENGINE_API auto GetTexture2DBuildCoordinator() -> FTexture2DBuildCoordinator*;
-	ENGINE_API auto PumpTexture2DBuildCompletions(uint32 MaximumCount = 64) -> uint32;
-	ENGINE_API auto ShutdownTexture2DBuildCoordinator() -> void;
+	ENGINEASSETBUILD_API auto GetTexture2DBuildCoordinator() -> FTexture2DBuildCoordinator*;
+	ENGINEASSETBUILD_API auto PumpTexture2DBuildCompletions(uint32 MaximumCount = 64) -> uint32;
+	ENGINEASSETBUILD_API auto ShutdownTexture2DBuildCoordinator() -> void;
 }

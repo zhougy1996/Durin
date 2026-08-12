@@ -1,6 +1,7 @@
 #include "Texture/TextureDerivedDataWriter.h"
 
 #include "Misc/DerivedDataCache.h"
+#include "Serialization/Archive.h"
 
 namespace Durin::AssetBuild::TextureDerivedDataWriter
 {
@@ -40,16 +41,6 @@ namespace Durin::AssetBuild::TextureDerivedDataWriter
 				& ~(static_cast<uint64>(TexturePayloadAlignment) - 1);
 		}
 
-		auto IsCompleteMipChain(const FTexturePlatformData& PlatformData) -> bool
-		{
-			return PlatformData.IsValid()
-				&& PlatformData.Mips.size() <= MaximumTextureMipCount
-				&& PlatformData.Mips.front().Width <= MaximumTexture2DDimension
-				&& PlatformData.Mips.front().Height <= MaximumTexture2DDimension
-				&& PlatformData.Mips.back().Width == 1
-				&& PlatformData.Mips.back().Height == 1;
-		}
-
 		auto IsCompleteCubeMipChain(const FTextureCubePlatformData& PlatformData) -> bool
 		{
 			if (!PlatformData.IsValid()) return false;
@@ -80,22 +71,10 @@ namespace Durin::AssetBuild::TextureDerivedDataWriter
 	auto BuildTexture2DDerivedDataKeyBytes(
 		const FTexture2DDerivedDataKeyInput& Input) -> std::vector<uint8>
 	{
-		DerivedDataCache::FWriter Writer;
-		Writer.WriteU32(TextureDerivedDataKeySchemaVersion);
-		Writer.WriteU32(static_cast<uint32>(ETexturePayloadDimension::Texture2D));
-		Writer.WriteU64(Input.SourceContentHash.HashLow);
-		Writer.WriteU64(Input.SourceContentHash.HashHigh);
-		Writer.WriteU8(static_cast<uint8>(Input.Usage));
-		Writer.WriteU8(Input.bSRGB ? 1 : 0);
-		Writer.WriteU8(static_cast<uint8>(Input.CompressionQuality));
-		Writer.WriteU8(static_cast<uint8>(Input.AlphaMipMode));
-		Writer.WriteU32(Input.MaximumResolution);
-		Writer.WriteU32(std::bit_cast<uint32>(Input.AlphaCoverageThreshold));
-		Writer.WriteU32(Input.BuilderVersion);
-		Writer.WriteU32(Input.PayloadSchemaVersion);
-		Writer.WriteU32(static_cast<uint32>(Input.TargetPlatform));
-		Writer.WriteU32(static_cast<uint32>(Input.TargetProfile));
-		return Writer.TakeBytes();
+		std::vector<uint8> Bytes;
+		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
+		const_cast<FTexture2DDerivedDataKeyInput&>(Input).Serialize(Ar);
+		return Bytes;
 	}
 
 	auto BuildTexture2DDerivedDataKey(
@@ -163,83 +142,6 @@ namespace Durin::AssetBuild::TextureDerivedDataWriter
 		if (!TextureDerivedDataWriter::BuildTextureCubeDerivedDataKeyBytes(
 			Input, Bytes, OutError)) return false;
 		OutKey = FXxHash128::HashBuffer(Bytes).ToString();
-		return true;
-	}
-
-	auto EncodeTexture2DPayload(
-		const FTexturePlatformData& PlatformData,
-		Asset::ECookTargetPlatform TargetPlatform,
-		Asset::ECookTargetProfile TargetProfile,
-		std::vector<uint8>& OutBytes,
-		std::string& OutError) -> bool
-	{
-		OutError.clear();
-		if (!IsSupportedTarget(TargetPlatform, TargetProfile))
-			return Fail(OutError, "Texture payload target platform or profile is unsupported.");
-		if (!IsCompleteMipChain(PlatformData))
-			return Fail(OutError, "Texture payload requires a valid, complete, bounded mip chain.");
-		ETextureStablePixelFormat StableFormat;
-		if (!ToStablePixelFormat(PlatformData.PixelFormat, StableFormat))
-			return Fail(OutError, "Texture payload pixel format has no stable serialized identifier.");
-
-		const uint32 RecordCount = static_cast<uint32>(PlatformData.Mips.size());
-		uint64 DataOffset = AlignPayloadOffset(
-			TexturePayloadHeaderSize + static_cast<uint64>(RecordCount) * TexturePayloadRecordSize);
-		std::vector<uint64> DataOffsets;
-		DataOffsets.reserve(RecordCount);
-		for (const FTexture2DMipData& Mip : PlatformData.Mips)
-		{
-			DataOffsets.push_back(DataOffset);
-			if (Mip.Pixels.size() > MaximumTexturePayloadBytes - DataOffset)
-				return Fail(OutError, "Texture payload exceeds its stored-size limit.");
-			DataOffset += Mip.Pixels.size();
-			if (&Mip != &PlatformData.Mips.back()) DataOffset = AlignPayloadOffset(DataOffset);
-		}
-		if (DataOffset > MaximumTexturePayloadBytes)
-			return Fail(OutError, "Texture payload exceeds its stored-size limit.");
-
-		DerivedDataCache::FWriter Body;
-		for (uint32 MipIndex = 0; MipIndex < RecordCount; ++MipIndex)
-		{
-			const FTexture2DMipData& Mip = PlatformData.Mips[MipIndex];
-			Body.WriteU32(0);
-			Body.WriteU32(MipIndex);
-			Body.WriteU32(Mip.Width);
-			Body.WriteU32(Mip.Height);
-			Body.WriteU32(Mip.RowPitch);
-			Body.WriteU32(0);
-			Body.WriteU64(DataOffsets[MipIndex]);
-			Body.WriteU64(Mip.Pixels.size());
-		}
-		uint64 CurrentOffset = TexturePayloadHeaderSize + Body.GetBytes().size();
-		for (uint32 MipIndex = 0; MipIndex < RecordCount; ++MipIndex)
-		{
-			std::vector<uint8> Padding(static_cast<size_t>(DataOffsets[MipIndex] - CurrentOffset), 0);
-			Body.WriteBytes(Padding);
-			Body.WriteBytes(PlatformData.Mips[MipIndex].Pixels);
-			CurrentOffset = DataOffsets[MipIndex] + PlatformData.Mips[MipIndex].Pixels.size();
-		}
-		const std::vector<uint8> BodyBytes = Body.TakeBytes();
-
-		DerivedDataCache::FWriter Result;
-		Result.WriteU32(TexturePayloadMagic);
-		Result.WriteU32(TexturePayloadSchemaVersion);
-		Result.WriteU32(Texture2DBuilderVersion);
-		Result.WriteU32(static_cast<uint32>(TargetPlatform));
-		Result.WriteU32(static_cast<uint32>(TargetProfile));
-		Result.WriteU32(static_cast<uint32>(ETexturePayloadDimension::Texture2D));
-		Result.WriteU32(static_cast<uint32>(StableFormat));
-		Result.WriteU32(1);
-		Result.WriteU32(RecordCount);
-		Result.WriteU32(TexturePayloadHeaderSize);
-		Result.WriteU32(RecordCount);
-		Result.WriteU32(TexturePayloadRecordSize);
-		Result.WriteU64(TexturePayloadHeaderSize);
-		Result.WriteU64(DataOffset);
-		Result.WriteU64(FXxHash64::HashBuffer(BodyBytes).HashValue);
-		Result.WriteU64(0);
-		Result.WriteBytes(BodyBytes);
-		OutBytes = Result.TakeBytes();
 		return true;
 	}
 

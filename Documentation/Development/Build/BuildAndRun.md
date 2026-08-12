@@ -282,11 +282,6 @@ short, long, dependent, failed, canceled, waiting, and parallel CPU tasks at
 exit, then audits admission close, drain outcomes, and final scheduler
 diagnostics before rendering shutdown continues.
 
-Append `--engine-asset-service-lifecycle-smoke` when qualifying the normal-frame
-Engine asset-service completion phase. It submits one asynchronous invalid
-Texture2D result during initialization and requires the bounded Engine frame
-pump to discard it exactly once on the GameThread before normal shutdown.
-
 Run `--editor-pie-lifecycle-smoke` with a visible DurinEditor window when
 qualifying PIE host restoration and mouse capture. After editor initialization
 and default-level activation, the diagnostic exercises embedded and new-window

@@ -9,7 +9,8 @@
         "Core",
         "CoreDObject",
 		"Engine",
-		"EngineAssetBuild"
+		"EngineAssetBuild",
+		"DurinEd"
     ],
 	"ReflectHeaders": [],
     "OptionalPrivateDependencies": [],

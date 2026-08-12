@@ -1,20 +1,15 @@
-#include "Texture/Texture2DBuildCoordinator.h"
+#include "Texture/Texture2DAuthoringCoordinator.h"
 
-#include "DerivedDataObjectStore.h"
 #include "DObject/DObjectGlobals.h"
-#include "Serialization/Archive.h"
-#include "Texture/TextureBuild.h"
-#include "Texture/TextureDerivedData.h"
+#include "Texture/TextureBuildOperations.h"
 #include "Threading/RunnableThread.h"
 #include "Threading/Task.h"
 
-namespace Durin
+namespace Durin::AssetBuild
 {
 	namespace
 	{
 		using FClock = std::chrono::steady_clock;
-		constexpr uint64 TextureDerivedDataBudgetBytes = 4ull * 1024ull * 1024ull * 1024ull;
-		constexpr uint32 TextureDerivedDataCleanupDeleteLimit = 16;
 
 		auto NowNanoseconds() -> uint64
 		{
@@ -34,7 +29,7 @@ namespace Durin
 				? std::numeric_limits<uint64>::max() : Left * Right;
 		}
 
-		auto EstimateBuildBytes(const FTexture2DBuildRequest& Request) -> uint64
+		auto EstimateBuildBytes(const FTexture2DQueuedBuildRequest& Request) -> uint64
 		{
 			uint64 PixelCount = SaturatingMultiply(Request.EstimatedWidth, Request.EstimatedHeight);
 			uint64 WorkingBytes = SaturatingMultiply(PixelCount, 12);
@@ -53,34 +48,6 @@ namespace Durin
 			return Bytes;
 		}
 
-		auto GetTextureObjectStore() -> Asset::FDerivedDataObjectStore
-		{
-			return Asset::FDerivedDataObjectStore("Textures/Objects", MaximumTexturePayloadBytes);
-		}
-
-		auto PersistTextureDerivedData(
-			std::string_view Key,
-			const FTexturePlatformData& PlatformData,
-			std::string& OutError) -> bool
-		{
-			std::vector<uint8> Bytes;
-			FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataPayload);
-			const_cast<FTexturePlatformData&>(PlatformData).Serialize(Ar, {
-				.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-				.TargetProfile = Asset::ECookTargetProfile::Game});
-			if (Ar.HasError())
-			{
-				OutError = Ar.GetError();
-				return false;
-			}
-			if (!GetTextureObjectStore().Write(Key, Bytes, &OutError)) return false;
-			const Asset::FDerivedDataObjectCleanupResult Cleanup =
-				GetTextureObjectStore().CleanupToBudget(
-					TextureDerivedDataBudgetBytes, TextureDerivedDataCleanupDeleteLimit);
-			if (!Cleanup.Message.empty())
-				DURIN_WARN("Texture2D DDC cleanup: {}", Cleanup.Message);
-			return true;
-		}
 	}
 
 	struct FTexture2DBuildCoordinator::FState final
@@ -88,7 +55,7 @@ namespace Durin
 	{
 		struct FJob
 		{
-			FTexture2DBuildRequest Request;
+			FTexture2DQueuedBuildRequest Request;
 			FTexture2DBuildCompletion Completion;
 			FTexture2DBuildDiagnostic Diagnostic;
 			FTaskHandle Task;
@@ -105,7 +72,7 @@ namespace Durin
 		struct FCompletion
 		{
 			std::shared_ptr<FJob> Job;
-			FTexture2DBuildResult Result;
+			FTexture2DQueuedBuildResult Result;
 		};
 
 		explicit FState(FTexture2DBuildCoordinatorConfig InConfig)
@@ -116,7 +83,7 @@ namespace Durin
 			Config.InFlightByteBudget = std::max<uint64>(Config.InFlightByteBudget, 1);
 		}
 
-		auto Submit(FTexture2DBuildRequest Request, FTexture2DBuildCompletion Completion) -> uint64
+		auto Submit(FTexture2DQueuedBuildRequest Request, FTexture2DBuildCompletion Completion) -> uint64
 		{
 			if (!Completion || Request.AssetIdentity.empty() || !Request.SourceData.IsValid()
 				|| (Request.SourceHash.HashLow == 0 && Request.SourceHash.HashHigh == 0)) return 0;
@@ -214,7 +181,7 @@ namespace Durin
 				});
 			if (!Task.IsValid())
 			{
-				FTexture2DBuildResult Result = MakeFailureResult(
+				FTexture2DQueuedBuildResult Result = MakeFailureResult(
 					*Job, ETexture2DBuildPhase::Failed,
 					"Texture build task admission was rejected.");
 				Result.FailurePhase = ETexture2DBuildPhase::Queued;
@@ -228,7 +195,7 @@ namespace Durin
 		static auto MakeFailureResult(
 			const FJob& Job,
 			ETexture2DBuildPhase Phase,
-			std::string Error) -> FTexture2DBuildResult
+			std::string Error) -> FTexture2DQueuedBuildResult
 		{
 			return {
 				.RequestId = Job.Diagnostic.RequestId,
@@ -272,7 +239,7 @@ namespace Durin
 			const std::shared_ptr<FJob>& Job,
 			const FTaskCancellationToken& Token) -> void
 		{
-			FTexture2DBuildResult Result = MakeFailureResult(
+			FTexture2DQueuedBuildResult Result = MakeFailureResult(
 				*Job, ETexture2DBuildPhase::Failed, {});
 			const uint64 WorkerStart = NowNanoseconds();
 			{
@@ -305,65 +272,50 @@ namespace Durin
 			Result.SourceHash = Job->Request.SourceHash;
 
 			SetPhase(Job, ETexture2DBuildPhase::Building);
-			auto PlatformData = std::make_unique<FTexturePlatformData>();
-			TextureBuild::FBuildMipChainMetrics BuildMetrics;
-			const TextureBuild::FBuildExecutionControl Control{
-				.ShouldCancel = Cancel,
-				.Metrics = &BuildMetrics};
 			const FTexture2DBuildSettingsSnapshot& Settings = Job->Request.Settings;
-			if (!TextureBuild::BuildMipChain(
-				*SourceData,
-				Settings.Usage,
-				Settings.bSRGB,
-				*PlatformData,
-				Result.Error,
-				Settings.MaxResolution,
-				Settings.CompressionQuality,
-				Settings.AlphaMipMode,
-				Settings.AlphaCoverageThreshold,
-				&Control))
+			FTexture2DRecipeMetrics RecipeMetrics;
+			bool bEnteredPersisting = false;
+			const FTexture2DBuildExecutionControl Control{
+				.ShouldCancel = Cancel,
+				.OnPersisting = [&] {
+					bEnteredPersisting = true;
+					SetPhase(Job, ETexture2DBuildPhase::Persisting);
+				},
+				.Metrics = &RecipeMetrics};
+			FTexture2DBuildProduct Product;
+			if (!BuildTexture2D({
+				.SourceData = std::move(*SourceData),
+				.SourceContentHashLow = Result.SourceHash.HashLow,
+				.SourceContentHashHigh = Result.SourceHash.HashHigh,
+				.Settings = {
+					.Usage = Settings.Usage,
+					.CompressionQuality = Settings.CompressionQuality,
+					.AlphaMipMode = Settings.AlphaMipMode,
+					.AlphaCoverageThreshold = Settings.AlphaCoverageThreshold,
+					.MaxResolution = Settings.MaxResolution,
+					.bSRGB = Settings.bSRGB},
+				.bPersistDerivedData = Job->Request.bPersistDerivedData},
+				Product, Result.Error, &Control))
 			{
-				Result.Metrics.MipGenerationNanoseconds = BuildMetrics.MipGenerationNanoseconds;
-				Result.Metrics.CompressionNanoseconds = BuildMetrics.CompressionNanoseconds;
-				Result.Metrics.PeakIntermediateBytes = BuildMetrics.PeakIntermediateBytes;
+				Result.Metrics.MipGenerationNanoseconds = RecipeMetrics.MipGenerationNanoseconds;
+				Result.Metrics.CompressionNanoseconds = RecipeMetrics.CompressionNanoseconds;
+				Result.Metrics.PersistenceNanoseconds = RecipeMetrics.PersistenceNanoseconds;
+				Result.Metrics.PeakIntermediateBytes = RecipeMetrics.PeakIntermediateBytes;
 				Result.Phase = Cancel() ? ETexture2DBuildPhase::Cancelled : ETexture2DBuildPhase::Failed;
 				if (Result.Phase == ETexture2DBuildPhase::Failed)
-					Result.FailurePhase = ETexture2DBuildPhase::Building;
+					Result.FailurePhase = bEnteredPersisting
+						? ETexture2DBuildPhase::Persisting : ETexture2DBuildPhase::Building;
 				CompleteAdmitted(Job, std::move(Result));
 				return;
 			}
-			Result.Metrics.MipGenerationNanoseconds = BuildMetrics.MipGenerationNanoseconds;
-			Result.Metrics.CompressionNanoseconds = BuildMetrics.CompressionNanoseconds;
-			Result.Metrics.PeakIntermediateBytes = BuildMetrics.PeakIntermediateBytes;
-			Result.Metrics.ResultBytes = PlatformDataBytes(*PlatformData);
-			Result.DerivedDataKey = BuildTexture2DDerivedDataKey({
-				.SourceContentHash = Result.SourceHash,
-				.Usage = Settings.Usage,
-				.bSRGB = Settings.bSRGB,
-				.CompressionQuality = Settings.CompressionQuality,
-				.AlphaMipMode = Settings.AlphaMipMode,
-				.MaximumResolution = Settings.MaxResolution,
-				.AlphaCoverageThreshold = Settings.AlphaCoverageThreshold,
-				.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-				.TargetProfile = Asset::ECookTargetProfile::Game});
-
-			if (Job->Request.bPersistDerivedData)
-			{
-				SetPhase(Job, ETexture2DBuildPhase::Persisting);
-				const uint64 PersistenceStart = NowNanoseconds();
-				if (!PersistTextureDerivedData(Result.DerivedDataKey, *PlatformData, Result.Error))
-				{
-					Result.Metrics.PersistenceNanoseconds = NowNanoseconds() - PersistenceStart;
-					Result.Phase = Cancel() ? ETexture2DBuildPhase::Cancelled : ETexture2DBuildPhase::Failed;
-					if (Result.Phase == ETexture2DBuildPhase::Failed)
-						Result.FailurePhase = ETexture2DBuildPhase::Persisting;
-					CompleteAdmitted(Job, std::move(Result));
-					return;
-				}
-				Result.Metrics.PersistenceNanoseconds = NowNanoseconds() - PersistenceStart;
-			}
-			Result.SourceData = std::move(SourceData);
-			Result.PlatformData = std::move(PlatformData);
+			Result.Metrics.MipGenerationNanoseconds = RecipeMetrics.MipGenerationNanoseconds;
+			Result.Metrics.CompressionNanoseconds = RecipeMetrics.CompressionNanoseconds;
+			Result.Metrics.PersistenceNanoseconds = RecipeMetrics.PersistenceNanoseconds;
+			Result.Metrics.PeakIntermediateBytes = RecipeMetrics.PeakIntermediateBytes;
+			Result.Metrics.ResultBytes = PlatformDataBytes(Product.PlatformData);
+			Result.DerivedDataKey = std::move(Product.DerivedDataKey);
+			Result.SourceData = std::make_unique<FTextureSourceData>(std::move(Product.SourceData));
+			Result.PlatformData = std::make_unique<FTexturePlatformData>(std::move(Product.PlatformData));
 			Result.Error.clear();
 			Result.Phase = Cancel() ? ETexture2DBuildPhase::Cancelled : ETexture2DBuildPhase::UploadPending;
 			Result.Metrics.WorkerNanoseconds = NowNanoseconds() - WorkerStart;
@@ -375,14 +327,14 @@ namespace Durin
 			ETexture2DBuildPhase Phase,
 			std::string Error) -> void
 		{
-			FTexture2DBuildResult Result = MakeFailureResult(*Job, Phase, std::move(Error));
+			FTexture2DQueuedBuildResult Result = MakeFailureResult(*Job, Phase, std::move(Error));
 			std::vector<uint8>().swap(Job->Request.SourceData.Pixels);
 			PushCompletion(Job, std::move(Result));
 		}
 
 		auto CompleteAdmitted(
 			const std::shared_ptr<FJob>& Job,
-			FTexture2DBuildResult Result) -> void
+			FTexture2DQueuedBuildResult Result) -> void
 		{
 			Job->bWorkerCompleted.store(true, std::memory_order_release);
 			{
@@ -398,7 +350,7 @@ namespace Durin
 
 		auto PushCompletion(
 			const std::shared_ptr<FJob>& Job,
-			FTexture2DBuildResult Result) -> void
+			FTexture2DQueuedBuildResult Result) -> void
 		{
 			if (Result.Metrics.WorkerNanoseconds == 0)
 				Result.Metrics.WorkerNanoseconds = NowNanoseconds() - Job->EnqueueNanoseconds;
@@ -583,7 +535,7 @@ namespace Durin
 	}
 
 	auto FTexture2DBuildCoordinator::Submit(
-		FTexture2DBuildRequest Request,
+		FTexture2DQueuedBuildRequest Request,
 		FTexture2DBuildCompletion Completion) -> uint64
 	{
 		return State ? State->Submit(std::move(Request), std::move(Completion)) : 0;

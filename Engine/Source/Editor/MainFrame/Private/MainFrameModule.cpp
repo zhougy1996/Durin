@@ -11,6 +11,7 @@
 #include "LevelEditorModule.h"
 #include "MaterialEditorModule.h"
 #include "TextureEditorModule.h"
+#include "Texture/Texture2DAuthoringCoordinator.h"
 #include "StaticMeshEditorModule.h"
 #include "SkeletalMeshEditorModule.h"
 #include "Thumbnail/RenderedAssetThumbnailService.h"
@@ -612,6 +613,7 @@ namespace Durin
 			const std::shared_ptr<FBootstrapContext> Context =
 				WeakContext.lock();
 			if (!Context) return;
+			AssetBuild::PumpTexture2DBuildCompletions();
 			ObserveHostWindowState(
 				*Context->HostSettings, *Context->RootWindow);
 			if (Context->State == EBootstrapState::Ready

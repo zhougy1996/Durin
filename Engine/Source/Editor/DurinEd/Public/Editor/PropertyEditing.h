@@ -13,6 +13,18 @@ namespace Durin
 
 namespace Durin::Editor
 {
+	struct FPropertyEditExtension
+	{
+		std::function<bool(DObject&, FPropertyEditProposal&, std::string&)> PreEdit;
+		std::function<void(DObject&, const FPropertyChangedEvent&)> PostEdit;
+	};
+
+	using FPropertyEditExtensionHandle = uint64;
+
+	DURINED_API auto RegisterPropertyEditExtension(FPropertyEditExtension Extension)
+		-> FPropertyEditExtensionHandle;
+	DURINED_API auto UnregisterPropertyEditExtension(FPropertyEditExtensionHandle Handle) -> void;
+
 	// Identifies one stable traversal step from a reflected member to a nested value.
 	struct FPropertyEditPathSegment
 	{

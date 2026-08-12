@@ -6,7 +6,6 @@
 #include "Misc/Paths.h"
 #include "Source/SourcePath.h"
 #include "StaticMesh/StaticMesh.h"
-#include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 #include "Terrain/TerrainHeightmap.h"
 
@@ -14,6 +13,23 @@ namespace Durin::Editor
 {
 	namespace
 	{
+		std::mutex GSourceRelocationHandlersMutex;
+		std::unordered_map<
+			FMountedSourceRelocationHandlerHandle,
+			FMountedSourceRelocationHandler> GSourceRelocationHandlers;
+		FMountedSourceRelocationHandlerHandle GNextSourceRelocationHandlerHandle = 1;
+
+		auto SnapshotSourceRelocationHandlers()
+			-> std::vector<FMountedSourceRelocationHandler>
+		{
+			std::lock_guard Lock(GSourceRelocationHandlersMutex);
+			std::vector<FMountedSourceRelocationHandler> Handlers;
+			Handlers.reserve(GSourceRelocationHandlers.size());
+			for (const auto& [Handle, Handler] : GSourceRelocationHandlers)
+				Handlers.push_back(Handler);
+			return Handlers;
+		}
+
 		struct FPackageSnapshot
 		{
 			Asset::FAssetData Data;
@@ -37,20 +53,17 @@ namespace Durin::Editor
 			return false;
 		}
 
-			auto ChangeAssetSourceReference(
+		auto ChangeAssetSourceReference(
 			DObject* Asset,
 			std::string_view From,
 			std::string_view To,
 			std::string& OutError) -> bool
 		{
-			if (DTexture2D* Texture = Cast<DTexture2D>(Asset))
+			for (const FMountedSourceRelocationHandler& Handler
+				: SnapshotSourceRelocationHandlers())
 			{
-				if (!Texture->ChangeSourceReference(To, OutError)) return false;
-				if (Texture->WaitForPendingBuild()) return true;
-				OutError = Texture->GetLastBuildError().empty()
-					? "Texture2D source relocation build did not complete."
-					: Texture->GetLastBuildError();
-				return false;
+				if (std::optional<bool> Result = Handler(*Asset, From, To, OutError))
+					return *Result;
 			}
 			if (DStaticMesh* Mesh = Cast<DStaticMesh>(Asset))
 				return Mesh->ChangeSourceReference(To, OutError);
@@ -133,6 +146,26 @@ namespace Durin::Editor
 				Asset::EAssetRegistryScanMode::FullValidation);
 		}
 	} // namespace
+
+	auto RegisterMountedSourceRelocationHandler(
+		FMountedSourceRelocationHandler Handler)
+		-> FMountedSourceRelocationHandlerHandle
+	{
+		if (!Handler) return 0;
+		std::lock_guard Lock(GSourceRelocationHandlersMutex);
+		const FMountedSourceRelocationHandlerHandle Handle =
+			GNextSourceRelocationHandlerHandle++;
+		GSourceRelocationHandlers.emplace(Handle, std::move(Handler));
+		return Handle;
+	}
+
+	auto UnregisterMountedSourceRelocationHandler(
+		FMountedSourceRelocationHandlerHandle Handle) -> void
+	{
+		if (Handle == 0) return;
+		std::lock_guard Lock(GSourceRelocationHandlersMutex);
+		GSourceRelocationHandlers.erase(Handle);
+	}
 
 	auto RelocateMountedSourceAcrossPackages(
 		const FMountedSourceRelocationRequest& Request,

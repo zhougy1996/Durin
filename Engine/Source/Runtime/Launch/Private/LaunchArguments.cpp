@@ -98,7 +98,6 @@ namespace Durin
 				else if (Argument == "--hidden-window") Parsed.Request.Host.bSuppressWindowDisplay = true;
 				else if (Argument == "--project-browser") Parsed.Request.Host.bOpenProjectBrowser = true;
 				else if (Argument == "--task-scheduler-lifecycle-smoke") Parsed.Request.Diagnostics.bRunTaskSchedulerLifecycleSmoke = true;
-				else if (Argument == "--engine-asset-service-lifecycle-smoke") Parsed.Request.Diagnostics.bRunEngineAssetServiceLifecycleSmoke = true;
 				else if (Argument == "--editor-pie-lifecycle-smoke") Parsed.Request.Diagnostics.bRunEditorPIELifecycleSmoke = true;
 				else if (Argument == "--native-gameplay-lifecycle-smoke") Parsed.Request.Diagnostics.bRunNativeGameplayLifecycleSmoke = true;
 				else if (Option == "--project" && Equals != std::string_view::npos)
@@ -147,8 +146,7 @@ namespace Durin
 
 			const bool bLifecycleSmoke =
 				Request.Diagnostics.bRunTaskSchedulerLifecycleSmoke
-				|| Request.Diagnostics.bRunEngineAssetServiceLifecycleSmoke
-				|| Request.Diagnostics.bRunEditorPIELifecycleSmoke
+					|| Request.Diagnostics.bRunEditorPIELifecycleSmoke
 				|| Request.Diagnostics.bRunNativeGameplayLifecycleSmoke;
 			if (Request.Automation.StartupCommand.Name
 				&& (Request.Automation.ExitAfterTicks || Request.Host.bOpenProjectBrowser || bLifecycleSmoke))

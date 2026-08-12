@@ -170,7 +170,7 @@ durin_add_legacy_engine_functional_test(EditorAssetWorkflowTests
 		${_durin_level_editor_private}/Panels/ContentBrowserOperations.cpp
 		${_durin_level_editor_private}/Panels/ContentBrowserRefreshCoordinator.cpp
 		${_durin_level_editor_private}/Panels/ContentDeletionTransaction.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd EngineAssetBuild
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd EngineAssetBuild StandardAssetImport
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -819,5 +819,5 @@ durin_add_legacy_engine_functional_test(TextureCookIntegrationTests
 	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this Vulkan-backed test."
 	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/Texture/TextureCookTests.cpp
-	LIBRARIES EngineAssetBuild RenderCore Renderer
+	LIBRARIES EngineAssetBuild StandardAssetImport RenderCore Renderer
 )

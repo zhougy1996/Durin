@@ -58,6 +58,8 @@ namespace Durin
 		uint32 PayloadSchemaVersion = TexturePayloadSchemaVersion;
 		Asset::ECookTargetPlatform TargetPlatform = Asset::ECookTargetPlatform::Invalid;
 		Asset::ECookTargetProfile TargetProfile = Asset::ECookTargetProfile::Invalid;
+
+		ENGINE_API auto Serialize(FArchive& Ar) -> void;
 	};
 
 	enum class ETextureCubeDerivedDataSourceLayout : uint32
@@ -97,19 +99,6 @@ namespace Durin
 		const FTextureCubeDerivedDataKeyInput& Input,
 		std::string& OutKey,
 		std::string& OutError) -> bool;
-
-	ENGINE_API auto EncodeTexture2DPayload(
-		const FTexturePlatformData& PlatformData,
-		Asset::ECookTargetPlatform TargetPlatform,
-		Asset::ECookTargetProfile TargetProfile,
-		std::vector<uint8>& OutBytes,
-		std::string& OutError) -> bool;
-
-	ENGINE_API auto DecodeTexture2DPayload(
-		std::span<const uint8> Bytes,
-		Asset::ECookTargetPlatform ExpectedPlatform,
-		Asset::ECookTargetProfile ExpectedProfile,
-		std::unique_ptr<FTexturePlatformData>& OutPlatformData) -> FPayloadDecodeResult;
 
 	ENGINE_API auto EncodeTextureCubePayload(
 		const FTextureCubePlatformData& PlatformData,

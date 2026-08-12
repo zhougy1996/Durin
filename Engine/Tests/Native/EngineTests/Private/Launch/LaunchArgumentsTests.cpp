@@ -49,6 +49,8 @@ TEST(FLaunchArgumentsTests, PreservesRepeatedStartupCommandArgumentOrder)
 TEST(FLaunchArgumentsTests, RejectsUnknownDuplicateAndMixedProjectForms)
 {
 	ExpectRejected({"--unknown"}, "--unknown");
+	ExpectRejected({"--engine-asset-service-lifecycle-smoke"},
+		"--engine-asset-service-lifecycle-smoke");
 	ExpectRejected({"--hidden-window", "--hidden-window"}, "--hidden-window");
 	ExpectRejected({"--project=One", "--project", "Two"}, "--project");
 	ExpectRejected({"--exit-after-ticks=1", "--exit-after-ticks=2"}, "--exit-after-ticks");

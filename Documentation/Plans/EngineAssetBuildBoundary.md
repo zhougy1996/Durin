@@ -2,7 +2,7 @@
 
 Summary: Standardize authored assets, build keys, DDC values, and cooked data on UE-style type-owned Serialize(FArchive&) while isolating source translation and derived builds.
 
-Last reviewed: 2026-08-12
+Last reviewed: 2026-08-13
 
 Status: Active
 Completed:
@@ -622,19 +622,19 @@ Dependencies: canonical archive foundation.
 
 - [ ] Split the mixed Texture derived-data header into Engine-owned serialized
   runtime/platform value declarations and Build-owned recipe/key declarations.
-- [ ] Make `DTexture2D::Serialize(FArchive&)` own authored/cooked object fields
+- [x] Make `DTexture2D::Serialize(FArchive&)` own authored/cooked object fields
   and make `FTexturePlatformData::Serialize(FArchive&, Owner/Context)` own the
   TXPL field order, records, bulk bytes, limits, checksums, and both directions.
-- [ ] Route DDC and Cook through that platform-data `Serialize`; add a
+- [x] Route DDC and Cook through that platform-data `Serialize`; add a
   `SerializeCooked` helper only if the intentionally different Cook layout
   requires it.
-- [ ] Retain `EncodeTexture2DPayload`/`DecodeTexture2DPayload` only as immediate
+- [x] Retain `EncodeTexture2DPayload`/`DecodeTexture2DPayload` only as immediate
   delegating migration wrappers, then delete both in this stage.
-- [ ] Preserve exact TXPL bytes, strict corrupt-input diagnostics, platform
+- [x] Preserve exact TXPL bytes, strict corrupt-input diagnostics, platform
   value construction, and source/DDC-free cooked loads.
-- [ ] Remove builder version as a Runtime payload compatibility gate while
+- [x] Remove builder version as a Runtime payload compatibility gate while
   preserving current version compatibility and DDC invalidation behavior.
-- [ ] Replace `BuildTexture2DFromEncodedBytes(DTexture2D&, ...)` with a normalized
+- [x] Replace `BuildTexture2DFromEncodedBytes(DTexture2D&, ...)` with a normalized
   decoded-image request and detached product; move concrete image translation
   to `StandardAssetImport`.
 - [ ] Make `FTexture2DBuildKeyInput::Serialize` the sole canonical recipe field
@@ -642,7 +642,7 @@ Dependencies: canonical archive foundation.
   `EngineAssetBuild`; serialize valid products through Engine value types.
 - [ ] Migrate the Texture2D coordinator, diagnostics, waits and lifecycle to the
   build module without allowing worker access to assets.
-- [ ] Add a main-thread publication adapter using the narrow Engine-owned
+- [x] Add a main-thread publication adapter using the narrow Engine-owned
   detached-state seam and existing AssetCore transaction semantics.
 - [ ] Delete `TextureDerivedDataWriter`, the legacy Engine Texture2D builder,
   self-build/forwarding methods, and redundant tests after consumer proof.
@@ -657,6 +657,122 @@ Dependencies: canonical archive foundation.
 - Golden keys/payloads, corruption behavior, DDC policy, import/reimport,
   cancellation, latest-wins, rollback, Cook, runtime load and rendering pass.
 - Engine no longer reaches BC compression because of Texture2D.
+
+Stage 2 serialization progress (2026-08-13): `DTexture2D` explicitly owns its
+object `Serialize`, and `FTexturePlatformData::Serialize` is the sole owner of
+the Texture2D TXPL header, records, bulk bytes, bounds, checksum and validation
+in both directions. DDC, Cook, the coordinator and Build publication paths call
+that value serializer directly; the public Texture2D `Encode*`/`Decode*` APIs
+and the duplicated Build writer are removed. Runtime compatibility is now
+gated by the payload schema and stable identifiers rather than the producer's
+builder version. `FTexture2DDerivedDataKeyInput::Serialize` also supplies the
+single current Texture2D key field order while its declaration awaits the
+remaining Build ownership move. `TextureTests` preserves all golden keys and
+payload hashes, malformed-input transactions and builder-version compatibility;
+`TextureCookIntegrationTests` preserves source/DDC-free cooked loading.
+
+Stage 2 normalized-build progress (2026-08-13): `EngineAssetBuild` now exports
+an owned, source-format-neutral `FTexture2DBuildRequest` and detached
+`FTexture2DBuildProduct`; its worker entry accepts decoded RGBA8 state and a
+captured content identity, never encoded bytes or a `DObject`. Standard single-
+asset and Scene import paths translate encoded image snapshots in
+`StandardAssetImport` before invoking that worker. Publication is a separate
+game-thread adapter and enters Runtime Engine through
+`DTexture2D::PublishImportedState`, which validates a complete detached state
+before mutating the object; existing candidate exchange and package save
+transactions remain outside the worker. Direct Texture2D file import, source
+mounting and destination policy now also live in `StandardAssetImport`, and all
+editor/test callers use that owner; `EngineAssetBuild` no longer exports or
+implements an encoded-byte Texture2D entry. Runtime self-build/coordinator paths
+and the shared cube-era Build decoder remain, so the legacy-removal items are
+still active.
+
+Stage 2 coordinator normalization progress (2026-08-13): the existing bounded
+coordinator request now owns `FTextureSourceData` plus its captured content hash
+instead of encoded source bytes. Source translation completes before admission;
+workers begin with a `Preparing` phase, validate normalized ownership at submit,
+and perform only mip/compression, key, persistence and completion work. Admission
+budgets account for decoded pixels, and cancellation/latest-wins/lifecycle tests
+retain their prior behavior. The coordinator implementation, object-facing
+submission methods and lifecycle host still reside in Runtime Engine pending the
+remaining ownership migration.
+
+Stage 2 coordinator ownership staging (2026-08-13): a Build-exported
+`FTexture2DBuildCoordinator` now exists in `EngineAssetBuild` with distinct
+queued request/result contracts, normalized input, bounded admission,
+cancellation, diagnostics, completion mailbox, waits and shutdown. The
+`EngineAssetBuild` module owns initialization/draining, and `MainFrame` pumps
+its mailbox on editor frames. Focused tests exercise the Build DLL's global
+lifecycle and worker path. The Runtime coordinator remains temporarily for
+unmigrated `DTexture2D` methods and Engine lifecycle consumers; it must be
+deleted, not retained as a forwarding layer, before this stage is accepted.
+
+The Build-owned coordinator delegates mip generation, key construction, DDC
+serialization/write/cleanup and cancellation to the same `BuildTexture2D`
+recipe used by synchronous import. Its queue adds scheduling metadata and phase
+reporting only; it no longer carries a second Texture2D builder/key/persistence
+implementation.
+
+Stage 2 object-state migration progress (2026-08-13):
+`FTexture2DAuthoringService` now owns per-object weak identity, generation,
+active/last request, latest-wins cancellation, waits, failure outcome and
+diagnostic lookup outside `DTexture2D`. Completed Build products publish only on
+the game thread through the Engine detached-state seam. `StandardAssetImport`
+prepares current mounted source bytes and provenance for reimport/settings
+rebuilds, and TextureEditor uses the Build service for pending status,
+cancellation, waits and reimport. Standard authoring entry points now also own
+Texture2D usage, color-space, resolution, compression and alpha-setting rebuild
+policy; direct editor/render/import tests submit through those entry points and
+wait on Build-owned diagnostics instead of calling Runtime self-build methods.
+DurinEd now exposes an editor-only property-policy extension point, and
+StandardAssetImport uses it to validate, submit and publish Texture2D reflected
+setting proposals through the Build coordinator. Property transactions,
+Undo/Redo, cancellation and supersession no longer use object-owned pending
+products or the Runtime coordinator. Runtime direct methods and load/source
+lifecycle callers remain to be migrated before the duplicate coordinator and
+the now-bypassed legacy property implementation can be removed.
+
+Texture2D source-reference, external-ingest, repair and private-copy policies
+now live in `StandardAssetImport` and submit normalized builds through the
+Build authoring service. TextureEditor, Standard repair providers and direct
+source-policy tests no longer invoke those Runtime self-build methods. The
+generic DurinEd mounted-source relocation adapter remains on the legacy method
+until its asset-family callback is externalized without creating a module cycle.
+
+That relocation callback is now externalized: DurinEd owns a format-neutral
+asset-family handler registry, while StandardAssetImport registers the
+Texture2D handler and waits on Build-owned diagnostics. DurinEd no longer
+includes Texture2D or calls its self-build/wait methods for source relocation.
+
+Stage 2 coordinator-test migration progress (2026-08-13): all bounded
+admission, starvation, shutdown cancellation, explicit wait, completion budget,
+metrics and characterization tests now instantiate or pump the Build-owned
+coordinator and its queued request/result contracts. The Runtime coordinator no
+longer has unique behavioral coverage; remaining tests exercise it only
+indirectly through unmigrated Runtime load/source lifecycle methods.
+
+Runtime no longer initializes, pumps or shuts down a Texture2D authoring worker
+through `EngineAssetServices`. The obsolete Launch lifecycle-smoke option and
+its documentation were removed with that host contract; Build module lifecycle
+and completion-budget tests now provide the corresponding authoring proof.
+
+The Runtime `DTexture2D` public self-build and source-authoring surface is now
+removed: setting rebuilds, source decode/fingerprint mutation, synchronous
+platform rebuilds, reimport, reference changes, ingestion, repair and private
+source relocation are available only through editor authoring policy. Runtime
+retains only the temporary uncooked `PostLoad` compatibility path and its
+pending-build bridge; those are removed with the remaining Runtime coordinator,
+legacy builder and Build-owned key/DDC load migration below.
+
+Uncooked Texture2D `PostLoad` policy now crosses a single Engine registration
+seam: `StandardAssetImport` owns mounted-source availability, fingerprint
+reconciliation, translation and background-rebuild decisions, while
+`EngineAssetBuild` owns current recipe-key construction and DDC value loading.
+Engine accepts only detached cached values, diagnostics and source fingerprints
+through narrow publication methods; cooked loading remains Runtime-owned. The
+old Runtime key/DDC helpers remain only for Cook validation until key-input and
+Cook policy migration removes their final callers, and the old object pending
+bridge remains only until its coordinator implementation is deleted.
 
 ### Stage 3: Complete TextureCube and TerrainHeightmap slices
 

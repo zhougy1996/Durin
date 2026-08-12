@@ -1,6 +1,7 @@
 #include "Texture/TextureDerivedData.h"
 
 #include "Misc/DerivedDataCache.h"
+#include "Serialization/Archive.h"
 #include "Texture/TextureCube.h"
 
 namespace Durin
@@ -114,22 +115,32 @@ namespace Durin
 	auto BuildTexture2DDerivedDataKeyBytes(
 		const FTexture2DDerivedDataKeyInput& Input) -> std::vector<uint8>
 	{
-		DerivedDataCache::FWriter Writer;
-		Writer.WriteU32(TextureDerivedDataKeySchemaVersion);
-		Writer.WriteU32(static_cast<uint32>(ETexturePayloadDimension::Texture2D));
-		Writer.WriteU64(Input.SourceContentHash.HashLow);
-		Writer.WriteU64(Input.SourceContentHash.HashHigh);
-		Writer.WriteU8(static_cast<uint8>(Input.Usage));
-		Writer.WriteU8(Input.bSRGB ? 1 : 0);
-		Writer.WriteU8(static_cast<uint8>(Input.CompressionQuality));
-		Writer.WriteU8(static_cast<uint8>(Input.AlphaMipMode));
-		Writer.WriteU32(Input.MaximumResolution);
-		Writer.WriteU32(std::bit_cast<uint32>(Input.AlphaCoverageThreshold));
-		Writer.WriteU32(Input.BuilderVersion);
-		Writer.WriteU32(Input.PayloadSchemaVersion);
-		Writer.WriteU32(static_cast<uint32>(Input.TargetPlatform));
-		Writer.WriteU32(static_cast<uint32>(Input.TargetProfile));
-		return Writer.TakeBytes();
+		std::vector<uint8> Bytes;
+		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
+		const_cast<FTexture2DDerivedDataKeyInput&>(Input).Serialize(Ar);
+		return Bytes;
+	}
+
+	auto FTexture2DDerivedDataKeyInput::Serialize(FArchive& Ar) -> void
+	{
+		uint32 KeySchemaVersion = TextureDerivedDataKeySchemaVersion;
+		uint32 Dimension = static_cast<uint32>(ETexturePayloadDimension::Texture2D);
+		uint8 EncodedUsage = static_cast<uint8>(Usage);
+		uint8 EncodedSRGB = bSRGB ? 1 : 0;
+		uint8 EncodedCompressionQuality = static_cast<uint8>(CompressionQuality);
+		uint8 EncodedAlphaMipMode = static_cast<uint8>(AlphaMipMode);
+		uint32 EncodedAlphaCoverageThreshold = std::bit_cast<uint32>(AlphaCoverageThreshold);
+		uint32 EncodedTargetPlatform = static_cast<uint32>(TargetPlatform);
+		uint32 EncodedTargetProfile = static_cast<uint32>(TargetProfile);
+		Ar << KeySchemaVersion << Dimension
+			<< SourceContentHash.HashLow << SourceContentHash.HashHigh
+			<< EncodedUsage << EncodedSRGB << EncodedCompressionQuality << EncodedAlphaMipMode
+			<< MaximumResolution << EncodedAlphaCoverageThreshold
+			<< BuilderVersion << PayloadSchemaVersion
+			<< EncodedTargetPlatform << EncodedTargetProfile;
+		if (Ar.IsLoading())
+			Ar.Fail(EArchiveFailureCode::UnsupportedCapability,
+				"Texture2D build-key input is save-only.");
 	}
 
 	auto BuildTexture2DDerivedDataKey(
@@ -198,7 +209,7 @@ namespace Durin
 		return true;
 	}
 
-	auto EncodeTexture2DPayload(
+	auto BuildTexture2DSerializedValue(
 		const FTexturePlatformData& PlatformData,
 		Asset::ECookTargetPlatform TargetPlatform,
 		Asset::ECookTargetProfile TargetProfile,
@@ -275,7 +286,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DecodeTexture2DPayloadImpl(
+	auto ParseTexture2DSerializedValue(
 		std::span<const uint8> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
@@ -324,11 +335,9 @@ namespace Durin
 			OutCode = EPayloadDecodeError::Incompatible;
 			return Fail(OutError, "Texture payload schema version is unsupported.");
 		}
-		if (BuilderVersion != Texture2DBuilderVersion)
-		{
-			OutCode = EPayloadDecodeError::Incompatible;
-			return Fail(OutError, "Texture2D payload builder version is unsupported.");
-		}
+		// Producer identity is diagnostic metadata. Runtime compatibility is owned
+		// by the payload schema and stable value identifiers.
+		(void)BuilderVersion;
 		if (Platform != static_cast<uint32>(ExpectedPlatform)
 			|| Profile != static_cast<uint32>(ExpectedProfile))
 			return Fail(OutError, "Texture payload target platform or profile does not match.");
@@ -412,17 +421,55 @@ namespace Durin
 		return true;
 	}
 
-	auto DecodeTexture2DPayload(
-		std::span<const uint8> Bytes,
-		Asset::ECookTargetPlatform ExpectedPlatform,
-		Asset::ECookTargetProfile ExpectedProfile,
-		std::unique_ptr<FTexturePlatformData>& OutPlatformData) -> FPayloadDecodeResult
+	auto FTexturePlatformData::Serialize(
+		FArchive& Ar,
+		const FTexturePlatformSerializationContext& Context) -> void
 	{
-		FPayloadDecodeResult Result;
-		if (!DecodeTexture2DPayloadImpl(
-			Bytes, ExpectedPlatform, ExpectedProfile, OutPlatformData, Result.Message, Result.Code))
-			return Result;
-		return {};
+		if (Ar.HasError()) return;
+		if (Ar.IsSaving())
+		{
+			std::vector<uint8> Bytes;
+			std::string Error;
+			if (!BuildTexture2DSerializedValue(
+				*this, Context.TargetPlatform, Context.TargetProfile, Bytes, Error))
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData, Error);
+				return;
+			}
+			Ar.WriteBytes(std::as_bytes(std::span<const uint8>(Bytes)));
+			return;
+		}
+
+		const uint64 ByteCount = Ar.GetRemainingPayloadBytes();
+		if (ByteCount == std::numeric_limits<uint64>::max())
+		{
+			Ar.Fail(EArchiveFailureCode::UnsupportedCapability,
+				"Texture platform data requires a bounded input archive.");
+			return;
+		}
+		if (ByteCount > MaximumTexturePayloadBytes
+			|| ByteCount > static_cast<uint64>(std::vector<uint8>().max_size()))
+		{
+			Ar.Fail(EArchiveFailureCode::LimitExceeded,
+				"Texture platform data exceeds its stored-size limit.");
+			return;
+		}
+		std::vector<uint8> Bytes(static_cast<size_t>(ByteCount));
+		Ar.ReadBytes(std::as_writable_bytes(std::span<uint8>(Bytes)));
+		if (Ar.HasError()) return;
+
+		std::unique_ptr<FTexturePlatformData> Candidate;
+		std::string Error;
+		EPayloadDecodeError Code = EPayloadDecodeError::Corrupt;
+		if (!ParseTexture2DSerializedValue(
+			Bytes, Context.TargetPlatform, Context.TargetProfile, Candidate, Error, Code))
+		{
+			Ar.Fail(Code == EPayloadDecodeError::Incompatible
+				? EArchiveFailureCode::UnsupportedVersion : EArchiveFailureCode::InvalidData,
+				Error);
+			return;
+		}
+		*this = std::move(*Candidate);
 	}
 
 	auto EncodeTextureCubePayload(

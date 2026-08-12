@@ -13,6 +13,8 @@
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
 #include "Texture/TextureBuilder.h"
+#include "Texture/Texture2DAuthoringService.h"
+#include "Texture2DSourceTranslation.h"
 
 #include <bc7decomp.h>
 #include <gtest/gtest.h>

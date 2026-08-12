@@ -24,6 +24,7 @@
 #include "StandardAssetImportProviders.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
+#include "Texture2DSourceTranslation.h"
 #include "Thumbnail/RenderedAssetThumbnailCache.h"
 
 namespace Durin
@@ -96,7 +97,7 @@ namespace Durin
 		const std::filesystem::path TextureSource =
 			Root / "VisibleTexture.png";
 		WriteTextureSmokeFixture(TextureSource);
-		const FTexture2DImportResult TextureImport = AssetBuild::ImportTexture2DAsset(
+		const FTexture2DImportResult TextureImport = StandardAssetImport::ImportTexture2DAsset(
 			TextureSource.generic_string(), "/EditorMixedV4/Textures/BaseColor");
 		ASSERT_TRUE(TextureImport) << TextureImport.Message;
 		const std::filesystem::path MeshSource =
@@ -271,7 +272,7 @@ namespace Durin
 
 		const std::filesystem::path TextureSource = Testing::GetTestWorkDirectory() / "EditorTextureSmoke.png";
 		WriteTextureSmokeFixture(TextureSource);
-		const FTexture2DImportResult TextureImport = AssetBuild::ImportTexture2DAsset(TextureSource.generic_string(), "/EditorTextureSmoke/Textures/BaseColor");
+		const FTexture2DImportResult TextureImport = StandardAssetImport::ImportTexture2DAsset(TextureSource.generic_string(), "/EditorTextureSmoke/Textures/BaseColor");
 		ASSERT_TRUE(TextureImport) << TextureImport.Message;
 		ASSERT_NE(TextureImport.Asset, nullptr);
 		ASSERT_NE(TextureImport.Asset->GetSourceData(), nullptr);
@@ -340,10 +341,10 @@ namespace Durin
 			TextureImport.Asset->GetTextureReferenceRHI().GetReference();
 		ASSERT_NE(StableTextureReference, nullptr);
 		std::string RebuildError;
-		ASSERT_TRUE(TextureImport.Asset->SetSRGB(
-			!TextureImport.Asset->IsSRGB(), RebuildError)) << RebuildError;
-		ASSERT_TRUE(TextureImport.Asset->WaitForPendingBuild(10.0))
-			<< TextureImport.Asset->GetLastBuildError();
+		ASSERT_TRUE(StandardAssetImport::SetTexture2DSRGB(
+			*TextureImport.Asset, !TextureImport.Asset->IsSRGB(), RebuildError)) << RebuildError;
+		ASSERT_TRUE(AssetBuild::WaitForTexture2DBuild(*TextureImport.Asset, 10.0))
+			<< AssetBuild::GetTexture2DBuildDiagnostic(*TextureImport.Asset).Message;
 		FlushRenderingCommands();
 		EXPECT_EQ(
 			TextureImport.Asset->GetTextureReferenceRHI().GetReference(),
@@ -427,7 +428,7 @@ namespace Durin
 		const std::filesystem::path Source =
 			Testing::GetTestWorkDirectory() / "TextureOwnershipSmoke.png";
 		WriteTextureSmokeFixture(Source);
-		const FTexture2DImportResult Import = AssetBuild::ImportTexture2DAsset(
+		const FTexture2DImportResult Import = StandardAssetImport::ImportTexture2DAsset(
 			Source.generic_string(), "/TextureOwnershipSmoke/Texture");
 		ASSERT_TRUE(Import) << Import.Message;
 		ASSERT_NE(Import.Asset, nullptr);

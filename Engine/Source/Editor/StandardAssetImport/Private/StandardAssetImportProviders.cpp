@@ -1,4 +1,8 @@
 #include "StandardAssetImportProviders.h"
+#include "Texture2DSourceTranslation.h"
+#include "Texture2DPropertyEditing.h"
+#include "Texture2DPostLoad.h"
+#include "Texture2DSourceRelocation.h"
 
 #include "Animation/AnimationClip.h"
 #include "ImportedScene.h"
@@ -489,7 +493,7 @@ namespace Durin
 					.MaxResolution = Target->GetMaxResolution(),
 					.bSRGB = Target->IsSRGB()};
 				std::string Error;
-				if (!AssetBuild::BuildTexture2DFromEncodedBytes(
+				if (!StandardAssetImport::BuildTexture2DCandidateFromSource(
 					*Candidate, Root->GetBytes(), Root->SourcePath, Settings, Error))
 				{
 					Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
@@ -514,7 +518,8 @@ namespace Durin
 				auto* Texture = Cast<DTexture2D>(&AssetObject);
 				std::string Error;
 				const bool bResult = Texture && Sources.size() == 1
-					&& Texture->ChangeSourceReference(Sources[0].Path, Error);
+					&& StandardAssetImport::ChangeTexture2DSourceReference(
+						*Texture, Sources[0].Path, Error);
 				if (!bResult) Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
 					.Category = EImportDiagnosticCategory::InvalidSource,
 					.Phase = "source-repair", .Message = Error});
@@ -891,6 +896,24 @@ namespace Durin
 			Providers.Unregister(SceneImportProviderId);
 			return false;
 		}
+		if (!StandardAssetImport::RegisterTexture2DPostLoadPolicy())
+		{
+			OutError = "Failed to register Texture2D uncooked load policy.";
+			return false;
+		}
+		if (!StandardAssetImport::RegisterTexture2DPropertyEditing())
+		{
+			StandardAssetImport::UnregisterTexture2DPostLoadPolicy();
+			OutError = "Failed to register Texture2D property authoring policy.";
+			return false;
+		}
+		if (!StandardAssetImport::RegisterTexture2DSourceRelocation())
+		{
+			StandardAssetImport::UnregisterTexture2DPropertyEditing();
+			StandardAssetImport::UnregisterTexture2DPostLoadPolicy();
+			OutError = "Failed to register Texture2D source relocation policy.";
+			return false;
+		}
 		GRegistered = true;
 		OutError.clear();
 		return true;
@@ -900,6 +923,9 @@ namespace Durin
 	{
 		std::lock_guard Lock(GRegistrationMutex);
 		if (!GRegistered) return;
+		StandardAssetImport::UnregisterTexture2DSourceRelocation();
+		StandardAssetImport::UnregisterTexture2DPropertyEditing();
+		StandardAssetImport::UnregisterTexture2DPostLoadPolicy();
 		AssetImport::CancelAndDrainAsyncImportsForProvider(SceneImportProviderId);
 		AssetImport::CancelAndDrainAsyncImportsForProvider("Assimp");
 		AssetImport::CancelAndDrainAsyncImportsForProvider("DurinImage");

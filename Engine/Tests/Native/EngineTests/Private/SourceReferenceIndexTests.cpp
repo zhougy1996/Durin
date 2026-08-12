@@ -2,6 +2,7 @@
 #include "Source/SourceReferenceIndex.h"
 #include "Texture/TextureTestSupport.h"
 #include "Texture/TextureBuildOperations.h"
+#include "Texture2DSourceTranslation.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 
@@ -14,7 +15,7 @@ TEST(FSourceReferenceIndexTests, TracksSharedMountedSourcesAcrossRegistryRevisio
 		Durin::Testing::GetTestWorkDirectory() / "SourceReferenceIndex.png";
 	WriteTextureFixture(Input);
 
-	const Durin::FTexture2DImportResult First = Durin::AssetBuild::ImportTexture2DAsset(
+	const Durin::FTexture2DImportResult First = Durin::StandardAssetImport::ImportTexture2DAsset(
 		Input.generic_string(), "/TextureImportTests/SourceIndex/First");
 	ASSERT_TRUE(First) << First.Message;
 	ASSERT_NE(First.Asset, nullptr);
@@ -22,7 +23,7 @@ TEST(FSourceReferenceIndexTests, TracksSharedMountedSourcesAcrossRegistryRevisio
 	const Durin::FTextureSourceDiagnostic Source = First.Asset->InspectSource();
 	ASSERT_EQ(Source.Status, Durin::ETextureSourceStatus::Available);
 
-	const Durin::FTexture2DImportResult Second = Durin::AssetBuild::ImportTexture2DAsset(
+	const Durin::FTexture2DImportResult Second = Durin::StandardAssetImport::ImportTexture2DAsset(
 		Source.PhysicalPath, "/TextureImportTests/SourceIndex/Second");
 	ASSERT_TRUE(Second) << Second.Message;
 	ASSERT_EQ(Second.Asset->GetSourceFile(), SourceVirtualPath);
@@ -32,7 +33,7 @@ TEST(FSourceReferenceIndexTests, TracksSharedMountedSourcesAcrossRegistryRevisio
 	EXPECT_EQ(Index.FindReferences(SourceVirtualPath).size(), 2u);
 	const Durin::uint64 FirstRevision = Index.GetRegistryRevision();
 
-	const Durin::FTexture2DImportResult Third = Durin::AssetBuild::ImportTexture2DAsset(
+	const Durin::FTexture2DImportResult Third = Durin::StandardAssetImport::ImportTexture2DAsset(
 		Source.PhysicalPath, "/TextureImportTests/SourceIndex/Third");
 	ASSERT_TRUE(Third) << Third.Message;
 	ASSERT_EQ(Third.Asset->GetSourceFile(), SourceVirtualPath);
@@ -70,14 +71,14 @@ TEST(FSourceReferenceIndexTests, RelocatesSharedSourceAndAllReferencingPackages)
 	Durin::FTexture2DImportSettings ImportSettings;
 	ImportSettings.SourceDestination =
 		"/TextureImportTests/Textures/RelocationTransactionShared.png";
-	const Durin::FTexture2DImportResult First = Durin::AssetBuild::ImportTexture2DAsset(
+	const Durin::FTexture2DImportResult First = Durin::StandardAssetImport::ImportTexture2DAsset(
 		Input.generic_string(), "/TextureImportTests/Relocation/First",
 		ImportSettings);
 	ASSERT_TRUE(First) << First.Message;
 	const Durin::FTextureSourceDiagnostic OriginalSource =
 		First.Asset->InspectSource();
 	ASSERT_EQ(OriginalSource.Status, Durin::ETextureSourceStatus::Available);
-	const Durin::FTexture2DImportResult Second = Durin::AssetBuild::ImportTexture2DAsset(
+	const Durin::FTexture2DImportResult Second = Durin::StandardAssetImport::ImportTexture2DAsset(
 		OriginalSource.PhysicalPath, "/TextureImportTests/Relocation/Second");
 	ASSERT_TRUE(Second) << Second.Message;
 

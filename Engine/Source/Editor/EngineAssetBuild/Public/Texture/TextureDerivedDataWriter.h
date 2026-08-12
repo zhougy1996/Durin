@@ -18,12 +18,6 @@ namespace Durin::AssetBuild::TextureDerivedDataWriter
 		const FTextureCubeDerivedDataKeyInput& Input,
 		std::string& OutKey,
 		std::string& OutError) -> bool;
-	ENGINEASSETBUILD_API auto EncodeTexture2DPayload(
-		const FTexturePlatformData& PlatformData,
-		Asset::ECookTargetPlatform TargetPlatform,
-		Asset::ECookTargetProfile TargetProfile,
-		std::vector<uint8>& OutBytes,
-		std::string& OutError) -> bool;
 	ENGINEASSETBUILD_API auto EncodeTextureCubePayload(
 		const FTextureCubePlatformData& PlatformData,
 		Asset::ECookTargetPlatform TargetPlatform,
@@ -31,4 +25,3 @@ namespace Durin::AssetBuild::TextureDerivedDataWriter
 		std::vector<uint8>& OutBytes,
 		std::string& OutError) -> bool;
 }
-

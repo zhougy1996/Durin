@@ -46,7 +46,6 @@ namespace Durin
 	struct FLaunchDiagnosticsRequest
 	{
 		bool bRunTaskSchedulerLifecycleSmoke = false;
-		bool bRunEngineAssetServiceLifecycleSmoke = false;
 		bool bRunEditorPIELifecycleSmoke = false;
 		bool bRunNativeGameplayLifecycleSmoke = false;
 		std::optional<std::string> NativeCrashFixture;

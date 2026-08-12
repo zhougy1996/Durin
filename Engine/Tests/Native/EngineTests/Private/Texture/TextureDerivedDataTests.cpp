@@ -3,6 +3,7 @@
 #include "Texture/TextureDerivedData.h"
 #include "Texture/TextureDerivedDataWriter.h"
 #include "Texture/TextureCube.h"
+#include "Serialization/Archive.h"
 
 namespace
 {
@@ -42,6 +43,46 @@ namespace
 				std::ranges::fill(Mip.Pixels, static_cast<Durin::uint8>(FaceIndex + 1));
 		}
 		return Result;
+	}
+
+	auto StorePlatformDataValue(
+		const Durin::FTexturePlatformData& PlatformData,
+		std::vector<Durin::uint8>& OutBytes,
+		std::string& OutError) -> bool
+	{
+		OutBytes.clear();
+		Durin::FCanonicalMemoryWriter Ar(
+			OutBytes, Durin::EArchivePurpose::DerivedDataPayload);
+		const_cast<Durin::FTexturePlatformData&>(PlatformData).Serialize(Ar, {
+			.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
+			.TargetProfile = Durin::Asset::ECookTargetProfile::Game});
+		OutError = Ar.GetError();
+		return !Ar.HasError();
+	}
+
+	auto LoadPlatformDataValue(
+		std::span<const Durin::uint8> Bytes,
+		std::unique_ptr<Durin::FTexturePlatformData>& OutPlatformData)
+		-> Durin::FPayloadDecodeResult
+	{
+		auto Candidate = std::make_unique<Durin::FTexturePlatformData>();
+		Durin::FCanonicalMemoryReader Ar(
+			Bytes, Durin::EArchivePurpose::DerivedDataPayload);
+		Candidate->Serialize(Ar, {
+			.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
+			.TargetProfile = Durin::Asset::ECookTargetProfile::Game});
+		if (!Ar.HasError()) Durin::RequireArchiveEnd(Ar);
+		if (Ar.HasError())
+		{
+			return {
+				.Code = Ar.GetFailure()
+					&& Ar.GetFailure()->Code == Durin::EArchiveFailureCode::UnsupportedVersion
+					? Durin::EPayloadDecodeError::Incompatible
+					: Durin::EPayloadDecodeError::Corrupt,
+				.Message = std::string(Ar.GetError())};
+		}
+		OutPlatformData = std::move(Candidate);
+		return {};
 	}
 }
 
@@ -123,12 +164,8 @@ TEST(FTextureDerivedDataTests, PayloadRoundTripsDeterministically)
 		std::vector<Durin::uint8> First;
 		std::vector<Durin::uint8> Second;
 		std::string Error;
-		ASSERT_TRUE(Durin::AssetBuild::TextureDerivedDataWriter::EncodeTexture2DPayload(
-			Expected, Durin::Asset::ECookTargetPlatform::Win64,
-			Durin::Asset::ECookTargetProfile::Game, First, Error)) << Error;
-		ASSERT_TRUE(Durin::AssetBuild::TextureDerivedDataWriter::EncodeTexture2DPayload(
-			Expected, Durin::Asset::ECookTargetPlatform::Win64,
-			Durin::Asset::ECookTargetProfile::Game, Second, Error)) << Error;
+		ASSERT_TRUE(StorePlatformDataValue(Expected, First, Error)) << Error;
+		ASSERT_TRUE(StorePlatformDataValue(Expected, Second, Error)) << Error;
 		EXPECT_EQ(First, Second);
 		EXPECT_EQ(Durin::FXxHash128::HashBuffer(First).ToString(),
 			ExpectedPayloadHashes[FormatIndex])
@@ -136,13 +173,34 @@ TEST(FTextureDerivedDataTests, PayloadRoundTripsDeterministically)
 		ASSERT_GE(First.size(), Durin::TexturePayloadHeaderSize);
 
 		std::unique_ptr<Durin::FTexturePlatformData> Actual;
-		const Durin::FPayloadDecodeResult DecodeResult = Durin::DecodeTexture2DPayload(
-			First, Durin::Asset::ECookTargetPlatform::Win64,
-			Durin::Asset::ECookTargetProfile::Game, Actual);
+		const Durin::FPayloadDecodeResult DecodeResult =
+			LoadPlatformDataValue(First, Actual);
 		ASSERT_TRUE(DecodeResult) << DecodeResult.Message;
 		ASSERT_NE(Actual, nullptr);
 		ExpectPlatformDataEqual(*Actual, Expected);
 	}
+}
+
+TEST(FTextureDerivedDataTests, PlatformDataOwnsCanonicalSerialization)
+{
+	Durin::FTexturePlatformData Expected = MakePlatformData();
+	std::vector<Durin::uint8> Bytes;
+	Durin::FCanonicalMemoryWriter Writer(
+		Bytes, Durin::EArchivePurpose::DerivedDataPayload);
+	Expected.Serialize(Writer, {
+		.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
+		.TargetProfile = Durin::Asset::ECookTargetProfile::Game});
+	ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
+
+	Durin::FTexturePlatformData Actual;
+	Durin::FCanonicalMemoryReader Reader(
+		Bytes, Durin::EArchivePurpose::DerivedDataPayload);
+	Actual.Serialize(Reader, {
+		.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
+		.TargetProfile = Durin::Asset::ECookTargetProfile::Game});
+	ASSERT_FALSE(Reader.HasError()) << Reader.GetError();
+	EXPECT_TRUE(Durin::RequireArchiveEnd(Reader));
+	ExpectPlatformDataEqual(Actual, Expected);
 }
 
 TEST(FTextureDerivedDataTests, PayloadRejectsMalformedDataTransactionally)
@@ -150,47 +208,43 @@ TEST(FTextureDerivedDataTests, PayloadRejectsMalformedDataTransactionally)
 	const Durin::FTexturePlatformData Expected = MakePlatformData();
 	std::vector<Durin::uint8> Bytes;
 	std::string Error;
-	ASSERT_TRUE(Durin::AssetBuild::TextureDerivedDataWriter::EncodeTexture2DPayload(
-		Expected, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, Bytes, Error)) << Error;
+	ASSERT_TRUE(StorePlatformDataValue(Expected, Bytes, Error)) << Error;
 	auto Existing = std::make_unique<Durin::FTexturePlatformData>(Expected);
 	Durin::FTexturePlatformData* ExistingAddress = Existing.get();
 
 	auto WrongProfile = Bytes;
 	WriteU32(WrongProfile, 16, static_cast<Durin::uint32>(Durin::Asset::ECookTargetProfile::EditorValidation));
-	Durin::FPayloadDecodeResult DecodeResult = Durin::DecodeTexture2DPayload(
-		WrongProfile, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, Existing);
+	Durin::FPayloadDecodeResult DecodeResult = LoadPlatformDataValue(WrongProfile, Existing);
 	EXPECT_FALSE(DecodeResult);
 	EXPECT_EQ(DecodeResult.Code, Durin::EPayloadDecodeError::Corrupt);
 	EXPECT_EQ(Existing.get(), ExistingAddress);
 
 	auto Corrupt = Bytes;
 	Corrupt.back() ^= 0xff;
-	DecodeResult = Durin::DecodeTexture2DPayload(
-		Corrupt, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, Existing);
+	DecodeResult = LoadPlatformDataValue(Corrupt, Existing);
 	EXPECT_FALSE(DecodeResult);
 	EXPECT_EQ(DecodeResult.Code, Durin::EPayloadDecodeError::Corrupt);
 	EXPECT_EQ(Existing.get(), ExistingAddress);
 
 	auto WrongRange = Bytes;
 	WriteU32(WrongRange, Durin::TexturePayloadHeaderSize + 16, 1);
-	DecodeResult = Durin::DecodeTexture2DPayload(
-		WrongRange, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, Existing);
+	DecodeResult = LoadPlatformDataValue(WrongRange, Existing);
 	EXPECT_FALSE(DecodeResult);
 	EXPECT_EQ(DecodeResult.Code, Durin::EPayloadDecodeError::Corrupt);
 	EXPECT_EQ(Existing.get(), ExistingAddress);
 
 	auto UnsupportedSchema = Bytes;
 	WriteU32(UnsupportedSchema, 4, Durin::TexturePayloadSchemaVersion + 1);
-	DecodeResult = Durin::DecodeTexture2DPayload(
-		UnsupportedSchema, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, Existing);
+	DecodeResult = LoadPlatformDataValue(UnsupportedSchema, Existing);
 	EXPECT_FALSE(DecodeResult);
 	EXPECT_EQ(DecodeResult.Code, Durin::EPayloadDecodeError::Incompatible);
 	EXPECT_EQ(Existing.get(), ExistingAddress);
+
+	auto DifferentBuilder = Bytes;
+	WriteU32(DifferentBuilder, 8, Durin::Texture2DBuilderVersion + 17);
+	DecodeResult = LoadPlatformDataValue(DifferentBuilder, Existing);
+	EXPECT_TRUE(DecodeResult) << DecodeResult.Message;
+	EXPECT_NE(Existing.get(), ExistingAddress);
 }
 
 TEST(FTextureDerivedDataTests, CubeKeysCoverFaceOrderLayoutAndProjectionInputs)

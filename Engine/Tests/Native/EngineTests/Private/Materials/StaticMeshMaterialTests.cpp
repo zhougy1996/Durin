@@ -1,6 +1,7 @@
 #include "MaterialTestSupport.h"
 #include "NativeTestSupport.h"
 #include "Texture/TextureBuildOperations.h"
+#include "Texture2DSourceTranslation.h"
 
 namespace
 {
@@ -533,7 +534,7 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	const std::filesystem::path TextureSource =
 		Durin::Testing::GetTestWorkDirectory() / "MaterialBaseColor.png";
 	WriteMaterialTextureFixture(TextureSource);
-	Durin::FTexture2DImportResult TextureImport = Durin::AssetBuild::ImportTexture2DAsset(TextureSource.generic_string(), TexturePath.ToString());
+	Durin::FTexture2DImportResult TextureImport = Durin::StandardAssetImport::ImportTexture2DAsset(TextureSource.generic_string(), TexturePath.ToString());
 	ASSERT_TRUE(TextureImport) << TextureImport.Message;
 	ASSERT_NE(TextureImport.Asset, nullptr);
 

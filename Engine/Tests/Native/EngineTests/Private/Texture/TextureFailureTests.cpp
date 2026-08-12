@@ -1,6 +1,6 @@
 #include "TextureTestSupport.h"
 #include "Texture/Texture2DRenderResource.h"
-#include "Texture/Texture2DBuildCoordinator.h"
+#include "Texture/Texture2DAuthoringCoordinator.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "Texture/TextureRenderResource.h"
 
@@ -127,7 +127,7 @@ TEST(FTexture2DTests, RejectsUnsupportedSourceWithoutCreatingAsset)
 	InitializeTextureImportMount();
 	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "UnsupportedTexture.gif";
 	std::ofstream(Source, std::ios::binary | std::ios::trunc) << "not an image";
-	Durin::FTexture2DImportResult Result = Durin::AssetBuild::ImportTexture2DAsset(Source.generic_string(), "/TextureImportTests/Unsupported");
+	Durin::FTexture2DImportResult Result = Durin::StandardAssetImport::ImportTexture2DAsset(Source.generic_string(), "/TextureImportTests/Unsupported");
 	EXPECT_FALSE(Result);
 	EXPECT_EQ(Result.Asset, nullptr);
 	EXPECT_FALSE(Result.Message.empty());
@@ -169,7 +169,7 @@ TEST(FTexture2DTests, FailureState_ReadyAfterSuccessfulPostLoad)
 
 	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "FailureReadySource.png";
 	WriteTextureFixture(Source);
-	const Durin::FTexture2DImportResult Result = Durin::AssetBuild::ImportTexture2DAsset(Source.generic_string(), "/TextureFailureTests/Ready");
+	const Durin::FTexture2DImportResult Result = Durin::StandardAssetImport::ImportTexture2DAsset(Source.generic_string(), "/TextureFailureTests/Ready");
 	ASSERT_TRUE(Result) << Result.Message;
 	EXPECT_EQ(Result.Asset->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
 	EXPECT_TRUE(Result.Asset->GetLastBuildError().empty());
@@ -193,7 +193,7 @@ TEST(FTexture2DTests, MissingSourceUsesPersistedIdentityAndCanRecover)
 
 	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "InvalidateSource.png";
 	WriteTextureFixture(Source);
-	const Durin::FTexture2DImportResult Result = Durin::AssetBuild::ImportTexture2DAsset(Source.generic_string(), "/TextureInvalidateTests/Invalid");
+	const Durin::FTexture2DImportResult Result = Durin::StandardAssetImport::ImportTexture2DAsset(Source.generic_string(), "/TextureInvalidateTests/Invalid");
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTexture2D* Texture = Result.Asset;
 	ASSERT_NE(Texture, nullptr);
@@ -235,7 +235,8 @@ TEST(FTexture2DTests, MissingSourceUsesPersistedIdentityAndCanRecover)
 
 	WriteTextureFixture(CopiedSource);
 	ASSERT_TRUE(Texture->PostLoad(Error)) << Error;
-	ASSERT_TRUE(Texture->WaitForPendingBuild()) << Texture->GetLastBuildError();
+	ASSERT_TRUE(Durin::AssetBuild::WaitForTexture2DBuild(*Texture))
+		<< Texture->GetLastBuildError();
 	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
 	EXPECT_NE(Texture->GetSourceData(), nullptr);
 	EXPECT_NE(Texture->GetPlatformData(), nullptr);
@@ -279,7 +280,7 @@ TEST(FTexture2DTests, PendingReimportPreservesLastGoodAndCannotCommitAfterUnload
 	const std::filesystem::path Source =
 		Durin::Testing::GetTestWorkDirectory() / "TextureAsyncUnload.png";
 	WriteTextureFixture(Source);
-	const Durin::FTexture2DImportResult Imported = Durin::AssetBuild::ImportTexture2DAsset(
+	const Durin::FTexture2DImportResult Imported = Durin::StandardAssetImport::ImportTexture2DAsset(
 		Source.generic_string(), "/TextureImportTests/AsyncUnload");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	Durin::DTexture2D* Texture = Imported.Asset;
@@ -287,16 +288,17 @@ TEST(FTexture2DTests, PendingReimportPreservesLastGoodAndCannotCommitAfterUnload
 	const Durin::FTexturePlatformData LastGood = *Texture->GetPlatformData();
 	const Durin::uint64 LastGoodRevision = Texture->GetBuildRevision();
 
-	Durin::FTexture2DBuildCoordinator* Coordinator =
-		Durin::GetTexture2DBuildCoordinator();
+	ASSERT_TRUE(Durin::AssetBuild::InitializeTexture2DBuildCoordinator());
+	Durin::AssetBuild::FTexture2DBuildCoordinator* Coordinator =
+		Durin::AssetBuild::GetTexture2DBuildCoordinator();
 	ASSERT_NE(Coordinator, nullptr);
 	std::mutex Mutex;
 	std::condition_variable Condition;
 	bool bEntered = false;
 	bool bRelease = false;
 	Coordinator->SetPhaseHookForTests(
-		[&](Durin::uint64, Durin::ETexture2DBuildPhase Phase) {
-			if (Phase != Durin::ETexture2DBuildPhase::Decoding) return;
+		[&](Durin::uint64, Durin::AssetBuild::ETexture2DBuildPhase Phase) {
+			if (Phase != Durin::AssetBuild::ETexture2DBuildPhase::Preparing) return;
 			std::unique_lock Lock(Mutex);
 			if (bEntered) return;
 			bEntered = true;
@@ -307,7 +309,8 @@ TEST(FTexture2DTests, PendingReimportPreservesLastGoodAndCannotCommitAfterUnload
 	ASSERT_EQ(SourceDiagnostic.Status, Durin::ETextureSourceStatus::Available);
 	WriteNpotTextureFixture(SourceDiagnostic.PhysicalPath);
 	std::string Error;
-	ASSERT_TRUE(Texture->ReimportSource({}, Error)) << Error;
+	ASSERT_TRUE(Durin::StandardAssetImport::ReimportTexture2DSource(
+		*Texture, {}, Error)) << Error;
 	{
 		std::unique_lock Lock(Mutex);
 		ASSERT_TRUE(Condition.wait_for(Lock, std::chrono::seconds(10), [&] {
@@ -315,7 +318,7 @@ TEST(FTexture2DTests, PendingReimportPreservesLastGoodAndCannotCommitAfterUnload
 		}));
 	}
 	const Durin::uint64 RequestId =
-		Texture->GetBuildReadinessDiagnostic().RequestId;
+		Durin::AssetBuild::GetTexture2DBuildDiagnostic(*Texture).RequestId;
 	ASSERT_NE(RequestId, 0u);
 	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
 	EXPECT_EQ(Texture->GetBuildRevision(), LastGoodRevision);
@@ -335,6 +338,6 @@ TEST(FTexture2DTests, PendingReimportPreservesLastGoodAndCannotCommitAfterUnload
 	Coordinator->PumpCompletions();
 	EXPECT_EQ(
 		Coordinator->GetDiagnostic(RequestId).Phase,
-		Durin::ETexture2DBuildPhase::Cancelled);
+		Durin::AssetBuild::ETexture2DBuildPhase::UploadPending);
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
 }
