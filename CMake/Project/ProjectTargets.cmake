@@ -1077,8 +1077,9 @@ function(durin_generate_native_test_registry output_path)
 	file(WRITE "${_durin_temp_path}" "${_durin_registry}")
 	file(RENAME "${_durin_temp_path}" "${output_path}")
 	set_property(GLOBAL PROPERTY DURIN_NATIVE_TEST_REGISTRY_PATH "${output_path}")
+	list(LENGTH _durin_targets _durin_target_count)
 	message(STATUS
-		"Generated native-test registry for ${_durin_targets} at ${output_path}")
+		"Generated native-test registry (${_durin_target_count} targets): ${output_path}")
 endfunction()
 
 function(durin_discover_tests target_name)

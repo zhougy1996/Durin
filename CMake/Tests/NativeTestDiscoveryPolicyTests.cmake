@@ -56,6 +56,22 @@ function(configure_metadata_probe probe expect_success expected_text)
 			message(FATAL_ERROR
 				"Metadata probe '${probe}' failed:\n${_durin_output}\n${_durin_error}")
 		endif()
+		if(probe STREQUAL "unavailable")
+			set(_durin_expected_target_count 0)
+		else()
+			set(_durin_expected_target_count 1)
+		endif()
+		if(NOT _durin_output MATCHES
+			"Generated native-test registry [(]${_durin_expected_target_count} targets[)]:")
+			message(FATAL_ERROR
+				"Metadata probe '${probe}' omitted the concise registry summary:\n"
+				"${_durin_output}")
+		endif()
+		if(_durin_output MATCHES "registry for ProbeTests")
+			message(FATAL_ERROR
+				"Metadata probe '${probe}' listed registry target names:\n"
+				"${_durin_output}")
+		endif()
 		set(_durin_registry "${_durin_probe_binary}/DurinNativeTestRegistry.json")
 		file(READ "${_durin_registry}" _durin_first_registry)
 		if(probe STREQUAL "unavailable")
