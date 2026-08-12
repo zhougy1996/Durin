@@ -42,6 +42,7 @@ namespace Durin
 		Result.StaticMeshSceneInfos.reserve(SceneInfos.size());
 		Result.SkeletalMeshSceneInfos.reserve(SceneInfos.size());
 		Result.TerrainSceneInfos.reserve(SceneInfos.size());
+		Result.SplineMeshSceneInfos.reserve(SceneInfos.size());
 
 		FViewFrustum Frustum;
 		const bool bCullingEnabled =
@@ -133,6 +134,10 @@ namespace Durin
 			case EPrimitiveSceneProxyKind::Terrain:
 				Result.TerrainSceneInfos.push_back(SceneInfo);
 				++Counters.VisibleTerrainCandidates;
+				break;
+			case EPrimitiveSceneProxyKind::SplineMesh:
+				Result.SplineMeshSceneInfos.push_back(SceneInfo);
+				++Counters.VisibleSplineMeshCandidates;
 				break;
 			}
 		}

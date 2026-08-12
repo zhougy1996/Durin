@@ -153,6 +153,10 @@ namespace
 			return "InitializePreparedStaticMeshResources";
 		}
 	};
+	struct FCapturePreparedStaticMeshViewCommand
+	{
+		static constexpr auto GetName() -> const char* { return "CapturePreparedStaticMeshView"; }
+	};
 } // namespace
 
 TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecomputesPerViewFacts)
@@ -184,15 +188,42 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 		}
 	);
 	Durin::FlushRenderingCommands();
+	Durin::FScene SplineScene;
+	Durin::FSplineMeshRenderDynamicData SplineDynamic{
+		.Params = {},
+		.LocalBounds = Durin::FBox({-2.0, -2.0, -1.0}, {120.0, 40.0, 20.0}),
+		.Revision = 1};
+	SplineDynamic.Params.EndPosition = {100.0, 30.0, 10.0};
+	SplineDynamic.Params.EndTangent = {80.0, 0.0, 10.0};
+	SplineDynamic.Params.SourceForwardMin = -1.0;
+	SplineDynamic.Params.SourceForwardMax = 1.0;
+	SplineScene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(72),
+		std::make_unique<Durin::FSplineMeshSceneProxy>(RenderData.get(),
+			std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent, Opaque},
+			1, SplineDynamic), Durin::FMatrix(1.0));
+	Durin::FlushRenderingCommands();
+	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+		[&SplineScene](Durin::FRHICommandListImmediate& CommandList) {
+			const Durin::FPreparedStaticMeshView Prepared =
+				Durin::PrepareStaticMeshView_RenderThread(CommandList, {},
+					Durin::FSceneView{}, Durin::ERasterMode::Solid,
+					SplineScene.GetSplineMeshSceneInfos());
+			ASSERT_EQ(Prepared.Primitives.size(), 1u);
+			EXPECT_EQ(Prepared.Primitives[0].VertexDomain,
+				Durin::EVertexDeformationDomain::Spline);
+			EXPECT_EQ(Prepared.Primitives[0].SplineDynamicData.Revision, 1u);
+			ASSERT_FALSE(Prepared.Opaque.empty());
+			EXPECT_EQ(Prepared.Opaque[0].PipelineKey.VertexDomain,
+				Durin::EVertexDeformationDomain::Spline);
+		});
+	Durin::FlushRenderingCommands();
+	SplineScene.Release();
+	Durin::FlushRenderingCommands();
 
 	const Durin::FPrimitiveSceneId Id(71);
 	Scene.AddOrReplacePrimitive(Id, std::make_unique<Durin::FStaticMeshSceneProxy>(RenderData.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1), glm::scale(Durin::FMatrix(1.0), Durin::FVector3(-1.0, 1.0, 1.0)));
 	Durin::FlushRenderingCommands();
 
-	struct FCapturePreparedStaticMeshViewCommand
-	{
-		static constexpr auto GetName() -> const char* { return "CapturePreparedStaticMeshView"; }
-	};
 	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
 		[&Scene, Summary](Durin::FRHICommandListImmediate& CommandList) {
 			Durin::FSceneView FirstView;

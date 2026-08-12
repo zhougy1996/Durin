@@ -104,9 +104,12 @@ namespace Durin::Editor::Level
 		if (ImGui::BeginChild("DetailsProperties", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders))
 		{
 			DObject* InspectedObject = Context.GetSelectedComponent() ? static_cast<DObject*>(Context.GetSelectedComponent()) : static_cast<DObject*>(Actor);
-			if (Context.bReadOnly) ImGui::BeginDisabled();
+			const bool bGeneratedSelection = Context.GetSelectedComponent()
+				&& Context.GetSelectedComponent()->GetCreationMethod() == EComponentCreationMethod::Generated;
+			if (bGeneratedSelection) ImGui::TextDisabled("Generated component diagnostics (read-only)");
+			if (Context.bReadOnly || bGeneratedSelection) ImGui::BeginDisabled();
 			DrawReflectedProperties(Context, InspectedObject);
-			if (Context.bReadOnly) ImGui::EndDisabled();
+			if (Context.bReadOnly || bGeneratedSelection) ImGui::EndDisabled();
 		}
 		ImGui::EndChild();
 		ImGui::End();
@@ -168,7 +171,8 @@ namespace Durin::Editor::Level
 			.ReportError = [&Context](std::string Error) { Context.SetError(std::move(Error)); },
 			.RevealAsset = Context.RevealAsset,
 			.OpenAsset = Context.OpenAsset,
-			.bReadOnly = Context.bReadOnly,
+			.bReadOnly = Context.bReadOnly || (Context.GetSelectedComponent()
+				&& Context.GetSelectedComponent()->GetCreationMethod() == EComponentCreationMethod::Generated),
 		};
 	}
 

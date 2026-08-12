@@ -362,6 +362,14 @@ current Actor, Details applies the same RootComponent-or-Actor default. These
 target transitions continue through the property view's owner-context handling
 so an active preview is committed or restored before its owner changes.
 
+Generated components are inspection-only derived state. Selecting one keeps its
+tree row visible but presents a read-only Details view; rename, duplication,
+deletion, reordering, reparenting, drag/drop, and direct property proposals are
+disabled. Domain owners may expose a redirect action instead. `ASplineMeshActor`
+uses `Edit Owning Spline`, returning selection and editing authority to its
+persistent Spline root while the generated segment remains non-transactional
+and non-serializable.
+
 Material Editor owns another property view and a reusable parameter-panel model.
 Runtime Engine definitions provide parameter type, labels, ordering,
 presentation, ranges, and texture hints. The model snapshots each definition,

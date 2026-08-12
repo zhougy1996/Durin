@@ -1,12 +1,15 @@
 #include "Components/SplineMeshComponent.h"
+#include "Components/SplineComponent.h"
 
 #include "AssetSystem.h"
+#include "Actors/SplineMeshActor.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Archive.h"
 #include "DObject/Property.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
+#include "Engine/World.h"
 #include "EngineTestSupport.h"
 #include "Materials/Material.h"
 #include "Misc/Paths.h"
@@ -15,6 +18,7 @@
 #include "StandardAssetImportProviders.h"
 
 #include <gtest/gtest.h>
+#include <chrono>
 
 namespace
 {
@@ -152,6 +156,112 @@ TEST(FSplineMeshComponentTests, MaterialOverridesUseStaticMeshSlotRules)
 	EXPECT_TRUE(Component->GetOverrideMaterials().empty());
 }
 
+TEST(FSplineMeshCollisionTests, UsesExactDerivedTriangleMeshAndRevisionsEveryInputMutation)
+{
+	auto [Component, Mesh] = MakeComponentWithMesh();
+	Component->SetSplineMeshCollisionMode(ESplineMeshCollisionMode::DeformedTriangleMesh);
+	const auto FirstState = Component->GetDerivedState();
+	ASSERT_TRUE(FirstState && FirstState->IsValid());
+	ASSERT_TRUE(FirstState->CollisionGeometry.IsValid());
+	EXPECT_EQ(FirstState->CollisionGeometry.GetKind(), ECollisionGeometryKind::TriangleMesh);
+	EXPECT_EQ(FirstState->CollisionGeometry.GetTriangleCount(), 1u);
+	FCollisionGeometryRef Geometry;
+	FTransform Transform;
+	ASSERT_TRUE(Component->BuildCollisionGeometry(Geometry, Transform));
+	EXPECT_EQ(Geometry.GetIdentity(), FirstState->CollisionGeometry.GetIdentity());
+
+	const FVector3 A(FirstState->DeformedLOD0Positions[0]);
+	const FVector3 B(FirstState->DeformedLOD0Positions[1]);
+	const FVector3 C(FirstState->DeformedLOD0Positions[2]);
+	const FVector3 Center = (A + B + C) / 3.0;
+	const FVector3 Normal = Math::NormalizeOr(Math::Cross(B - A, C - A), FVectorConstants::Up);
+	FPhysicsQueryHit Hit;
+	EXPECT_EQ(CollisionGeometry::Raycast(Center + Normal * 10.0, Center - Normal * 10.0,
+		Geometry, Transform, CollisionGeometry::ECollisionQueryAlgorithm::Production, Hit),
+		CollisionGeometry::ECollisionQueryStatus::Hit);
+	const FCollisionShape QuerySphere = FCollisionShape::MakeSphere(0.05);
+	FTransform OverlapTransform;
+	OverlapTransform.Translation = Center;
+	EXPECT_EQ(CollisionGeometry::Overlap(QuerySphere, OverlapTransform, Geometry, Transform,
+		CollisionGeometry::ECollisionQueryAlgorithm::Production, Hit),
+		CollisionGeometry::ECollisionQueryStatus::Hit);
+	FTransform SweepTransform;
+	SweepTransform.Translation = Center + Normal;
+	EXPECT_EQ(CollisionGeometry::Sweep(QuerySphere, SweepTransform, Normal * -2.0, Geometry, Transform,
+		CollisionGeometry::ECollisionQueryAlgorithm::Production, Hit),
+		CollisionGeometry::ECollisionQueryStatus::Hit);
+
+	FSplineMeshParams Params = Component->GetSplineMeshParams();
+	Params.EndPosition = {2.0, 1.0, 0.5};
+	Params.EndTangent = {1.0, 1.0, 0.0};
+	ASSERT_TRUE(Component->SetSplineMeshParams(Params));
+	const auto CurvedState = Component->GetDerivedState();
+	ASSERT_TRUE(CurvedState && CurvedState->CollisionGeometry.IsValid());
+	EXPECT_NE(CurvedState->CollisionInputIdentity, FirstState->CollisionInputIdentity);
+	EXPECT_NE(CurvedState->CollisionGeometry.GetIdentity(), Geometry.GetIdentity());
+
+	Params.StartScale = {-1.0, 1.0};
+	Params.EndScale = {-1.0, 1.0};
+	ASSERT_TRUE(Component->SetSplineMeshParams(Params));
+	EXPECT_TRUE(Component->BuildCollisionGeometry(Geometry, Transform));
+	Params.StartScale = {0.0, 0.0};
+	Params.EndScale = {0.0, 0.0};
+	Params.EndPosition = Params.StartPosition;
+	Params.StartTangent = FVector3(0.0);
+	Params.EndTangent = FVector3(0.0);
+	ASSERT_TRUE(Component->SetSplineMeshParams(Params));
+	EXPECT_TRUE(Component->GetDerivedState()->IsValid());
+	EXPECT_FALSE(Component->BuildCollisionGeometry(Geometry, Transform));
+	Component->SetSplineMeshCollisionMode(ESplineMeshCollisionMode::Disabled);
+	EXPECT_FALSE(Component->BuildCollisionGeometry(Geometry, Transform));
+}
+
+TEST(FSplineMeshCollisionTests, RegisteredMutationReplacesBodiesWithoutStaleHandles)
+{
+	InitializeDObjectSystem();
+	auto* World = NewObject<DWorld>(nullptr, "SplineMeshCollisionWorld");
+	auto* Level = NewObject<DLevel>(World, "SplineMeshCollisionLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	auto* Actor = Level->SpawnActor<AActor>("SplineMeshCollisionActor");
+	auto* Component = Cast<DSplineMeshComponent>(Actor->AddInstanceComponent(
+		DSplineMeshComponent::StaticClass(), "SplineMesh"));
+	ASSERT_NE(Component, nullptr);
+	Component->SetStaticMesh(DStaticMesh::CreateDebugTriangle(Level));
+	Component->SetSplineMeshCollisionMode(ESplineMeshCollisionMode::DeformedTriangleMesh);
+	Component->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	FPhysicsScene& PhysicsScene = World->GetPhysicsScene();
+	ASSERT_EQ(PhysicsScene.GetBodyCount(), 1u);
+	const FPhysicsActorHandle FirstHandle = Component->GetPhysicsActorHandle();
+	ASSERT_TRUE(FirstHandle.IsValid());
+	EXPECT_TRUE(PhysicsScene.ContainsBody(FirstHandle));
+	const uint64 FirstRevision = Component->GetPublishedBodySetupRevision();
+	FTransform NonUniformActorTransform;
+	NonUniformActorTransform.Scale3D = {2.0, 0.5, 1.5};
+	ASSERT_TRUE(Actor->SetActorTransform(NonUniformActorTransform));
+	EXPECT_EQ(PhysicsScene.GetBodyCount(), 1u);
+	EXPECT_TRUE(Component->GetPhysicsActorHandle().IsValid());
+
+	FSplineMeshParams Params = Component->GetSplineMeshParams();
+	Params.EndPosition = {2.0, 1.0, 0.25};
+	Params.EndTangent = {1.0, 1.0, 0.0};
+	ASSERT_TRUE(Component->SetSplineMeshParams(Params));
+	ASSERT_EQ(PhysicsScene.GetBodyCount(), 1u);
+	EXPECT_FALSE(PhysicsScene.ContainsBody(FirstHandle));
+	EXPECT_TRUE(Component->GetPhysicsActorHandle().IsValid());
+	EXPECT_NE(Component->GetPhysicsActorHandle(), FirstHandle);
+	EXPECT_NE(Component->GetPublishedBodySetupRevision(), FirstRevision);
+
+	Component->SetSplineMeshCollisionMode(ESplineMeshCollisionMode::Disabled);
+	EXPECT_EQ(PhysicsScene.GetBodyCount(), 0u);
+	EXPECT_FALSE(Component->GetPhysicsActorHandle().IsValid());
+	Component->SetSplineMeshCollisionMode(ESplineMeshCollisionMode::DeformedTriangleMesh);
+	EXPECT_EQ(PhysicsScene.GetBodyCount(), 1u);
+	Component->SetStaticMesh(nullptr);
+	EXPECT_EQ(PhysicsScene.GetBodyCount(), 0u);
+	MarkObjectHierarchyAsGarbage(World);
+	CollectGarbage();
+}
+
 TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsDerivedState)
 {
 	InitializeDObjectSystem();
@@ -201,4 +311,225 @@ TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsD
 	EXPECT_EQ(State->DeformedLOD0Positions.size(), 3u);
 	EXPECT_TRUE(Asset::UnloadPackage(Path));
 	UnregisterStandardAssetImportProviders();
+}
+
+TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
+{
+	InitializeDObjectSystem();
+	const std::filesystem::path Root = Testing::GetTestWorkDirectory() / "SplineMeshActorAssets";
+	static std::unordered_set<std::filesystem::path> InitializedRoots;
+	if (InitializedRoots.insert(Root).second)
+	{
+		Testing::RemoveTestWorkDirectory(Root);
+		PathUtilities::RegisterMountPointForTests("/SplineMeshActorTests/", Root.generic_string() + "/");
+	}
+	FAssetPath Path;
+	ASSERT_TRUE(FAssetPath::TryCreate("/SplineMeshActorTests/Reconciliation", Path));
+	DLevel* Level = nullptr;
+	ASSERT_TRUE(Asset::CreateAsset(Path, Level));
+	auto* Actor = Level->SpawnActor<ASplineMeshActor>("SplineMeshActor");
+	ASSERT_NE(Actor, nullptr);
+	auto* InitialMesh = DStaticMesh::CreateDebugTriangle(Level);
+	Actor->SetPathMesh(InitialMesh);
+	FSplinePoint A({0.0, 0.0, 0.0});
+	FSplinePoint B({100.0, 0.0, 0.0});
+	FSplinePoint C({200.0, 0.0, 0.0});
+	Actor->GetSplineComponent()->SetSplinePoints({A, B, C});
+	auto Segments = Actor->FindComponentsByClass<DSplineMeshComponent>();
+	ASSERT_EQ(Segments.size(), 2u);
+	auto* First = Cast<DSplineMeshComponent>(Segments[0]);
+	auto* Second = Cast<DSplineMeshComponent>(Segments[1]);
+	ASSERT_NE(First, nullptr);
+	ASSERT_NE(Second, nullptr);
+	EXPECT_EQ(First->GetCreationMethod(), EComponentCreationMethod::Generated);
+	EXPECT_TRUE(First->HasAnyObjectFlags(EObjectFlags::Transient));
+	EXPECT_EQ(First->GetAttachParent(), Actor->GetSplineComponent());
+
+	B.Position.y = 25.0;
+	ASSERT_TRUE(Actor->GetSplineComponent()->UpdateSplinePoint(1, B));
+	Segments = Actor->FindComponentsByClass<DSplineMeshComponent>();
+	ASSERT_EQ(Segments.size(), 2u);
+	EXPECT_NE(std::ranges::find(Segments, First), Segments.end());
+	EXPECT_NE(std::ranges::find(Segments, Second), Segments.end());
+	EXPECT_EQ(First->GetSplineMeshParams().EndPosition, B.Position);
+
+	FSplinePoint Inserted({50.0, 10.0, 0.0});
+	ASSERT_TRUE(Actor->GetSplineComponent()->InsertSplinePoint(1, Inserted));
+	Segments = Actor->FindComponentsByClass<DSplineMeshComponent>();
+	ASSERT_EQ(Segments.size(), 3u);
+	EXPECT_NE(std::ranges::find(Segments, First), Segments.end());
+	EXPECT_NE(std::ranges::find(Segments, Second), Segments.end());
+	ASSERT_TRUE(Actor->GetSplineComponent()->RemoveSplinePoint(1));
+	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>().size(), 2u);
+	Actor->SetPathCollisionEnabled(true);
+	Actor->SetPathVisible(false);
+	Segments = Actor->FindComponentsByClass<DSplineMeshComponent>();
+	for (DActorComponent* Owned : Segments)
+	{
+		auto* Segment = Cast<DSplineMeshComponent>(Owned);
+		ASSERT_NE(Segment, nullptr);
+		EXPECT_FALSE(Segment->IsVisible());
+		EXPECT_EQ(Segment->GetCollisionEnabled(), ECollisionEnabled::QueryOnly);
+		EXPECT_EQ(Segment->GetSplineMeshCollisionMode(), ESplineMeshCollisionMode::DeformedTriangleMesh);
+		FCollisionGeometryRef Geometry;
+		FTransform Transform;
+		EXPECT_TRUE(Segment->BuildCollisionGeometry(Geometry, Transform));
+	}
+	auto* ReplacementMesh = DStaticMesh::CreateDebugTriangle(Level);
+	Actor->SetPathMesh(ReplacementMesh);
+	MarkAsGarbage(InitialMesh);
+	CollectGarbage();
+	Segments = Actor->FindComponentsByClass<DSplineMeshComponent>();
+	EXPECT_NE(std::ranges::find(Segments, First), Segments.end());
+	EXPECT_NE(std::ranges::find(Segments, Second), Segments.end());
+	for (DActorComponent* Owned : Segments)
+		EXPECT_EQ(Cast<DSplineMeshComponent>(Owned)->GetStaticMesh(), ReplacementMesh);
+	FTransform ActorTransform;
+	ActorTransform.Translation = {25.0, 50.0, 10.0};
+	ASSERT_TRUE(Actor->SetActorTransform(ActorTransform));
+	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>(), Segments);
+
+	Level->GetPackage()->ClearDirty();
+	ASSERT_TRUE(Actor->RequestNativeReconstruction());
+	EXPECT_FALSE(Level->GetPackage()->IsDirty());
+	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>().size(), 2u);
+	std::unordered_map<DObject*, DObject*> Duplicates;
+	std::string DuplicateError;
+	auto* Duplicate = Cast<ASplineMeshActor>(DuplicateObjectGraph(
+		Actor, Level, "SplineMeshActorDuplicate", &DuplicateError, &Duplicates));
+	ASSERT_NE(Duplicate, nullptr) << DuplicateError;
+	EXPECT_EQ(Duplicate->GetSplineComponent()->GetSplinePoints(),
+		Actor->GetSplineComponent()->GetSplinePoints());
+	const auto DuplicateSegments = Duplicate->FindComponentsByClass<DSplineMeshComponent>();
+	ASSERT_EQ(DuplicateSegments.size(), 2u);
+	for (DActorComponent* Segment : DuplicateSegments)
+		EXPECT_EQ(Segment->GetCreationMethod(), EComponentCreationMethod::Generated);
+	Level->GetPackage()->MarkDirty();
+	const Asset::FAssetResult SaveResult = Asset::SavePackage(Level->GetPackage());
+	EXPECT_TRUE(SaveResult) << SaveResult.Message;
+	EXPECT_TRUE(Asset::UnloadPackage(Path));
+	DObject* LoadedObject = nullptr;
+	ASSERT_TRUE(Asset::LoadAsset(Path, LoadedObject));
+	auto* LoadedLevel = Cast<DLevel>(LoadedObject);
+	ASSERT_NE(LoadedLevel, nullptr);
+	auto* LoadedActor = Cast<ASplineMeshActor>(LoadedLevel->FindActorByName("SplineMeshActor"));
+	ASSERT_NE(LoadedActor, nullptr);
+	EXPECT_EQ(LoadedActor->GetSplineComponent()->GetNumSplinePoints(), 3u);
+	EXPECT_EQ(LoadedActor->FindComponentsByClass<DSplineMeshComponent>().size(), 2u);
+	EXPECT_TRUE(Asset::UnloadPackage(Path));
+}
+
+TEST(FSplineMeshActorTests, ClosedLoopReorderAndEmptyCurvesPreserveGuidOwnership)
+{
+	InitializeDObjectSystem();
+	auto* World = NewObject<DWorld>(nullptr, "SplineMeshTopologyWorld");
+	auto* Level = NewObject<DLevel>(World, "SplineMeshTopologyLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	auto* Actor = Level->SpawnActor<ASplineMeshActor>("SplineMeshActor");
+	ASSERT_NE(Actor, nullptr);
+	Actor->SetPathMesh(DStaticMesh::CreateDebugTriangle());
+	FSplinePoint A({0.0, 0.0, 0.0});
+	FSplinePoint B({100.0, 0.0, 0.0});
+	FSplinePoint C({200.0, 0.0, 0.0});
+	Actor->GetSplineComponent()->SetSplinePoints({A, B, C});
+	Actor->GetSplineComponent()->SetClosedLoop(true);
+	auto Segments = Actor->FindComponentsByClass<DSplineMeshComponent>();
+	ASSERT_EQ(Segments.size(), 3u);
+	std::unordered_map<FGuid, DActorComponent*> IdentityByStartGuid;
+	for (DActorComponent* SegmentObject : Segments)
+	{
+		auto* Segment = Cast<DSplineMeshComponent>(SegmentObject);
+		ASSERT_NE(Segment, nullptr);
+		const FVector3 Start = Segment->GetSplineMeshParams().StartPosition;
+		const FSplinePoint* Point = Start == A.Position ? &A : Start == B.Position ? &B : &C;
+		IdentityByStartGuid.emplace(Point->Id, Segment);
+	}
+	ASSERT_TRUE(Actor->GetSplineComponent()->MoveSplinePoint(0, 2));
+	Segments = Actor->FindComponentsByClass<DSplineMeshComponent>();
+	ASSERT_EQ(Segments.size(), 3u);
+	for (DActorComponent* SegmentObject : Segments)
+	{
+		auto* Segment = Cast<DSplineMeshComponent>(SegmentObject);
+		const FVector3 Start = Segment->GetSplineMeshParams().StartPosition;
+		const FSplinePoint* Point = Start == A.Position ? &A : Start == B.Position ? &B : &C;
+		EXPECT_EQ(IdentityByStartGuid.at(Point->Id), Segment);
+	}
+	Actor->GetSplineComponent()->SetClosedLoop(false);
+	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>().size(), 2u);
+	Actor->GetSplineComponent()->SetSplinePoints({A});
+	EXPECT_TRUE(Actor->FindComponentsByClass<DSplineMeshComponent>().empty());
+	Actor->GetSplineComponent()->SetSplinePoints({});
+	EXPECT_TRUE(Actor->FindComponentsByClass<DSplineMeshComponent>().empty());
+	MarkObjectHierarchyAsGarbage(World);
+	MarkAsGarbage(Actor->GetPathMesh());
+	CollectGarbage();
+}
+
+TEST(FSplineMeshActorBudgetTests, FrozenThirtyTwoSegmentEditsMeetCpuAndStructuralMemoryBudgets)
+{
+	if (std::getenv("DURIN_RUN_SPLINE_PROFILE") == nullptr)
+		GTEST_SKIP() << "Set DURIN_RUN_SPLINE_PROFILE=1 for isolated performance qualification.";
+	InitializeDObjectSystem();
+	auto* World = NewObject<DWorld>(nullptr, "SplineMeshBudgetWorld");
+	auto* Level = NewObject<DLevel>(World, "SplineMeshBudgetLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	auto* Actor = Level->SpawnActor<ASplineMeshActor>("SplineMeshActor");
+	ASSERT_NE(Actor, nullptr);
+	auto* Mesh = DStaticMesh::CreateDebugTriangle();
+	Actor->SetPathMesh(Mesh);
+	std::vector<FSplinePoint> Points;
+	Points.reserve(33);
+	for (uint32 Index = 0; Index < 33; ++Index)
+		Points.emplace_back(FVector3(static_cast<double>(Index) * 100.0,
+			std::sin(static_cast<double>(Index) * 0.35) * 25.0, 0.0));
+	Actor->GetSplineComponent()->SetSplinePoints(Points);
+	auto Segments = Actor->FindComponentsByClass<DSplineMeshComponent>();
+	ASSERT_EQ(Segments.size(), 32u);
+	DActorComponent* StableFirst = Segments.front();
+	std::vector<double> EditMilliseconds;
+	EditMilliseconds.reserve(300);
+	for (uint32 Iteration = 0; Iteration < 320; ++Iteration)
+	{
+		FSplinePoint Middle = *Actor->GetSplineComponent()->GetSplinePoint(16);
+		Middle.Position.z = static_cast<double>((Iteration % 13) + 1) * 0.25;
+		const auto Start = std::chrono::steady_clock::now();
+		ASSERT_TRUE(Actor->GetSplineComponent()->UpdateSplinePoint(16, Middle));
+		const auto End = std::chrono::steady_clock::now();
+		if (Iteration >= 20)
+			EditMilliseconds.push_back(std::chrono::duration<double, std::milli>(End - Start).count());
+	}
+	std::ranges::sort(EditMilliseconds);
+	const double P95Milliseconds = EditMilliseconds[284];
+	Segments = Actor->FindComponentsByClass<DSplineMeshComponent>();
+	EXPECT_NE(std::ranges::find(Segments, StableFirst), Segments.end());
+	for (DActorComponent* SegmentObject : Segments)
+		EXPECT_EQ(Cast<DSplineMeshComponent>(SegmentObject)->GetStaticMesh(), Mesh);
+	RecordProperty("reconstruction_32_segments_p95_ms", P95Milliseconds);
+	RecordProperty("spline_mesh_component_structural_bytes", sizeof(DSplineMeshComponent));
+	EXPECT_LE(P95Milliseconds, 4.0);
+	EXPECT_LE(sizeof(DSplineMeshComponent), 4096u);
+	MarkObjectHierarchyAsGarbage(World);
+	MarkAsGarbage(Mesh);
+	CollectGarbage();
+}
+
+TEST(FSplineComponentMutationTests, ListenerRemovalDuringPublicationIsSafe)
+{
+	InitializeDObjectSystem();
+	auto* Spline = NewObject<DSplineComponent>(nullptr, "SplineMutationListeners");
+	uint32 FirstCalls = 0;
+	uint32 RemovedCalls = 0;
+	uint64 RemovedId = 0;
+	Spline->AddSplineMutationListener([&](uint64, ESplineChangeFlags,
+		std::shared_ptr<const FSplineEvaluationData>) {
+		++FirstCalls;
+		Spline->RemoveSplineMutationListener(RemovedId);
+	});
+	RemovedId = Spline->AddSplineMutationListener([&](uint64, ESplineChangeFlags,
+		std::shared_ptr<const FSplineEvaluationData>) { ++RemovedCalls; });
+	Spline->AddSplinePoint(FSplinePoint({0.0, 0.0, 0.0}));
+	EXPECT_EQ(FirstCalls, 1u);
+	EXPECT_EQ(RemovedCalls, 0u);
+	MarkAsGarbage(Spline);
+	CollectGarbage();
 }

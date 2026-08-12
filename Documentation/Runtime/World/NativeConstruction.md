@@ -25,8 +25,9 @@ actor regenerates its own derived identities.
 Generated objects use `EObjectConstructionPurpose::Generated`, carry the
 `Transient` object flag, and are retained explicitly through
 `AActor::AddReferencedObjects`. Editor hierarchy diagnostics may display them,
-but authored component rename, duplicate, delete, and reorder operations do not
-accept them.
+but label them read-only; reflected editing, rename, duplicate, delete, reorder,
+reparent, and drag/drop operations do not accept them. Domain-specific details
+actions redirect authoring to the owning Actor or authored input component.
 
 ## Reconstruction
 

@@ -40,6 +40,12 @@ namespace
 		{
 		}
 
+		auto UpdateSplineMeshDynamicData(
+			Durin::FPrimitiveSceneId,
+			Durin::FSplineMeshRenderDynamicData) -> void override
+		{
+		}
+
 		auto Release() -> void override
 		{
 		}

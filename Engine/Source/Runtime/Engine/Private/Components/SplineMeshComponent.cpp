@@ -1,13 +1,16 @@
 #include "Components/SplineMeshComponent.h"
 
 #include "DObject/DurinPropertyTypes.h"
+#include "Engine/FPrimitiveSceneProxy.h"
 #include "Engine/Level.h"
+#include "IScene.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/DefaultMaterialService.h"
 #include "Spline/SplineMeshDeformer.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshMaterialBinding.h"
+#include "StaticMesh/StaticMeshResources.h"
 
 namespace Durin
 {
@@ -80,8 +83,37 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 		if (IsRegistered()) NotifyEditorPickingMutation();
 #endif
+		PushDynamicDataToScene();
 		RecreatePhysicsState();
 		return true;
+	}
+
+	auto DSplineMeshComponent::SetSplineMeshCollisionMode(ESplineMeshCollisionMode InMode) -> void
+	{
+		if (CollisionMode == InMode) return;
+		CollisionMode = InMode;
+		RebuildCollisionGeometryForPublishedState();
+		MarkPackageDirty();
+		RecreatePhysicsState();
+	}
+
+	auto DSplineMeshComponent::RebuildCollisionGeometryForPublishedState() -> void
+	{
+		const auto Published = GetDerivedState();
+		if (!Published || !Published->IsValid()) return;
+		auto Candidate = std::make_shared<FSplineMeshDerivedState>(*Published);
+		Candidate->CollisionGeometry = {};
+		if (CollisionMode == ESplineMeshCollisionMode::DeformedTriangleMesh)
+		{
+			std::vector<FVector3> CollisionPositions;
+			CollisionPositions.reserve(Candidate->DeformedLOD0Positions.size());
+			for (const FVector3f& Position : Candidate->DeformedLOD0Positions)
+				CollisionPositions.emplace_back(Position);
+			Candidate->CollisionGeometry = FCollisionGeometryRef::BuildTriangleMesh(
+				CollisionPositions, Candidate->LOD0Indices);
+		}
+		std::atomic_store_explicit(&DerivedState,
+			std::shared_ptr<const FSplineMeshDerivedState>(Candidate), std::memory_order_release);
 	}
 
 	auto DSplineMeshComponent::RebuildDerivedState(std::string* OutError) -> bool
@@ -157,6 +189,15 @@ namespace Durin
 		Candidate->DeformationRevision = DeformationRevision + 1;
 		Candidate->CollisionInputIdentity = MakeCollisionInputIdentity(
 			Candidate->SourceRenderResourceRevision, Candidate->DeformationRevision);
+		if (CollisionMode == ESplineMeshCollisionMode::DeformedTriangleMesh)
+		{
+			std::vector<FVector3> CollisionPositions;
+			CollisionPositions.reserve(Candidate->DeformedLOD0Positions.size());
+			for (const FVector3f& Position : Candidate->DeformedLOD0Positions)
+				CollisionPositions.emplace_back(Position);
+			Candidate->CollisionGeometry = FCollisionGeometryRef::BuildTriangleMesh(
+				CollisionPositions, Candidate->LOD0Indices);
+		}
 		Candidate->Status = ESplineMeshDerivedStateStatus::Valid;
 		Candidate->Diagnostic.clear();
 		DeformationRevision = Candidate->DeformationRevision;
@@ -164,6 +205,24 @@ namespace Durin
 		std::atomic_store_explicit(&DerivedState, std::shared_ptr<const FSplineMeshDerivedState>(Candidate), std::memory_order_release);
 		if (OutError) OutError->clear();
 		return true;
+	}
+
+	auto DSplineMeshComponent::BuildCollisionGeometry(
+		FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool
+	{
+		if (CollisionMode != ESplineMeshCollisionMode::DeformedTriangleMesh) return false;
+		const auto State = GetDerivedState();
+		if (!State || !State->IsValid() || !State->CollisionGeometry.IsValid()) return false;
+		OutGeometry = State->CollisionGeometry;
+		OutWorldTransform = GetWorldTransform();
+		return IsValidPhysicsTransform(OutWorldTransform);
+	}
+
+	auto DSplineMeshComponent::GetCollisionStateRevision() const -> uint64
+	{
+		const auto State = GetDerivedState();
+		return CollisionMode == ESplineMeshCollisionMode::DeformedTriangleMesh && State
+			? State->CollisionInputIdentity : 0;
 	}
 
 	auto DSplineMeshComponent::SetMaterial(DMaterialInterface* InMaterial) -> bool
@@ -230,6 +289,43 @@ namespace Durin
 		return StaticMesh ? StaticMesh->GetNumMaterialSlots() : 0;
 	}
 
+	auto DSplineMeshComponent::CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy>
+	{
+		const auto State = GetDerivedState();
+		if (!StaticMesh || !State || !State->IsValid()) return nullptr;
+		StaticMesh->InitResources();
+		const FStaticMeshRenderData* RenderData = StaticMesh->GetRenderData();
+		if (!StaticMesh->GetRenderResourceStatus().IsReady() || !RenderData
+			|| RenderData->LODResources.empty() || RenderData->LODResources[0].GetNumIndices() == 0)
+			return nullptr;
+		std::vector<FMaterialRenderProxyRef> MaterialProxies;
+		MaterialProxies.reserve(RenderData->MaterialSlots.size());
+		for (uint32 SlotIndex = 0; SlotIndex < RenderData->MaterialSlots.size(); ++SlotIndex)
+		{
+			DMaterialInterface* SlotMaterial = GetMaterial(SlotIndex);
+			if (!SlotMaterial) RecordMaterialFallbackReason(EMaterialFallbackReason::UnassignedDefault);
+			MaterialProxies.push_back(SlotMaterial
+				? SlotMaterial->GetMaterialRenderProxy() : GetDefaultMaterialRenderProxy());
+		}
+		return std::make_unique<FSplineMeshSceneProxy>(RenderData, std::move(MaterialProxies),
+			MaterialComponentRevision, FSplineMeshRenderDynamicData{
+				.Params = State->Params,
+				.LocalBounds = State->ConservativeLocalBounds,
+				.Revision = State->DeformationRevision});
+	}
+
+	auto DSplineMeshComponent::PushDynamicDataToScene() -> void
+	{
+		if (!IsRegistered()) return;
+		IScene* Scene = GetRenderScene();
+		const auto State = GetDerivedState();
+		if (!Scene || !State || !State->IsValid()) return;
+		Scene->UpdateSplineMeshDynamicData(GetPrimitiveSceneId(), FSplineMeshRenderDynamicData{
+			.Params = State->Params,
+			.LocalBounds = State->ConservativeLocalBounds,
+			.Revision = State->DeformationRevision});
+	}
+
 	auto DSplineMeshComponent::TrimTrailingNullOverrides() -> void
 	{
 		TrimTrailingNullStaticMeshMaterialOverrides(OverrideMaterials);
@@ -294,6 +390,12 @@ namespace Durin
 			MarkRenderStateDirty();
 			return;
 		}
+		if (Name == FName("CollisionMode"))
+		{
+			RebuildCollisionGeometryForPublishedState();
+			RecreatePhysicsState();
+			return;
+		}
 		if (Name == FName("StaticMesh") || Name == FName("SplineMeshParams"))
 		{
 			RebuildDerivedState();
@@ -301,6 +403,7 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 			else if (IsRegistered()) NotifyEditorPickingMutation();
 #endif
+			if (Name == FName("SplineMeshParams")) PushDynamicDataToScene();
 			RecreatePhysicsState();
 		}
 	}

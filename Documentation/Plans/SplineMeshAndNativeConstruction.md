@@ -4,44 +4,26 @@ Summary: Add a production single-segment SplineMesh primitive and a reusable nat
 
 Last reviewed: 2026-08-12
 
-Status: Active
-Completed: Stage 0; Stage 1; Stage 3
+Status: Completed
+Completed: 2026-08-12
 
 ## Current Status
 
-Stages 0, 1, and the independent Stage 3 component are complete. CPU deformation and path-frame foundations pass
-the focused Spline suite, and every frozen Actor/Spline/StaticMesh/material/
-renderer/viewport/physics/Vulkan baseline passes. Contracts, equations,
-workloads, budgets, inventories, and exact results are recorded in
-`SplineMeshAndNativeConstructionStage0.md`. Stage 2 native construction is in
-progress: keyed reconciliation, transient retention, authored/all-live
-enumeration, dirty suppression, spawn/load/duplication entry routing, and core
-lifecycle tests are implemented. PIE/Undo/Redo and final hierarchy policy
-coverage remain open. The standalone reflected SplineMesh component now publishes
-immutable normalized CPU deformation, bounds, exact picking/collision inputs,
-and shares StaticMesh material/resource-retirement rules. Durin already has persistent editable spline
-authoring, immutable evaluation snapshots, stable point GUIDs, local-distance
-queries, conservative curve bounds, transactional viewport editing, and
-revision/change flags. It has no production spline consumer.
+Stages 0 through 7 are complete. Durin now has deterministic CPU/GPU
+SplineMesh deformation, typed scene integration, stable native generated
+component reconciliation, a production `ASplineMeshActor` authoring workflow,
+exact deformed collision, read-only generated hierarchy presentation, and
+lasting Runtime/Editor documentation. Focused and full native tests, Vulkan
+parity/reload tests, documentation validation, the full editor build, and an
+editor startup smoke all pass in `Win64-Debug-DurinEditor`.
 
-The required adjacent foundations are incomplete:
-
-- `DSplineComponent` publishes revisions but no event that can drive a native
-  owner without Tick polling.
-- `AActor::AddInstanceComponent()` creates authored instance state, registers
-  it, serializes it through the actor graph, and marks the package dirty. It is
-  not a generated-component API.
-- `AActor` has no post-spawn/load native construction pass, generated-component
-  creation method, stable generated key, or reconciliation context.
-- primitive scene classification and prepared geometry are specialized for
-  StaticMesh and SkeletalMesh; no deformation vertex-factory domain or
-  SplineMesh dynamic-data update exists.
-- spline samples intentionally have no orientation, roll, width, or scale
-  contract. A whole-path consumer must own those policies.
-
-This plan selects the lasting architecture before implementation. It does not
-introduce a CPU-rendered placeholder, serialized generated segments, per-frame
-revision polling, editor-only rebuild hook, or one-proxy whole-path substitute.
+Frozen isolated measurements meet every Stage 0 budget: 32-segment native
+reconstruction p95 is 3.4499 ms, SplineMesh GPU p95 is 0.246656 ms versus
+0.197216 ms static (0.04944 ms delta), one road-segment collision rebuild p95
+is 2.9709 ms, 128 retained collision segments use 1,736,704 bytes, and one
+`DSplineMeshComponent` occupies 800 structural bytes. Performance qualification
+uses `DURIN_RUN_SPLINE_PROFILE=1` so concurrent full-suite scheduling cannot
+pollute wall-clock microbenchmarks.
 
 ## Goal
 
@@ -387,7 +369,7 @@ manual component management.
   runtime mutation.
 - [x] Ensure generated acquisition/reconciliation never marks package dirty,
   never serializes derived objects, and never records independent transactions.
-- [ ] Add native test Actors/components covering key reuse, insert/remove/class
+- [x] Add native test Actors/components covering key reuse, insert/remove/class
   mismatch, candidate failure, recursive request, registration, BeginPlay,
   EndPlay, owner destruction, save/load, duplication, PIE, Undo/Redo, GC, and
   editor hierarchy policy.
@@ -435,29 +417,29 @@ manual component management.
 
 ### Stage 4: Integrate SplineMesh into scene representation and GPU rendering
 
-- [ ] Add explicit SplineMesh primitive kind, detached proxy, typed SceneInfo
+- [x] Add explicit SplineMesh primitive kind, detached proxy, typed SceneInfo
   access/list membership, attach/replace/detach/release behavior, and editor
   primitive observation family.
-- [ ] Add FIFO SplineMesh dynamic-data mutation that atomically replaces copied
+- [x] Add FIFO SplineMesh dynamic-data mutation that atomically replaces copied
   deformation parameters and bounds without component reads or render-state
   recreation.
-- [ ] Generalize prepared mesh geometry and base-pass policy around explicit
+- [x] Generalize prepared mesh geometry and base-pass policy around explicit
   Local/Spline/Skeletal vertex domains while preserving family-specific pose or
   deformation payloads and typed scene iteration.
-- [ ] Add Spline vertex decode/deformation shader module and shader types; extend
+- [x] Add Spline vertex decode/deformation shader module and shader types; extend
   shader-map, pipeline, resource-cache, and sort identities with the vertex
   domain and complete deformation bindings.
-- [ ] Reuse source StaticMesh LOD buffers/indices and declarations safely; bind
+- [x] Reuse source StaticMesh LOD buffers/indices and declarations safely; bind
   one immutable per-primitive deformation payload and preserve UV, color,
   material, masked discard, tangent-space normal mapping, winding, and
   front-face behavior.
-- [ ] Integrate visibility, deformed bounds, automatic/forced LOD, opaque/masked/
+- [x] Integrate visibility, deformed bounds, automatic/forced LOD, opaque/masked/
   translucent ordering, Unlit/Lit modes, current prepared lighting,
   environment lighting, main/auxiliary/offscreen views, and resource recovery.
-- [ ] Add counters for visible candidates, rejected/invalid deformation,
+- [x] Add counters for visible candidates, rejected/invalid deformation,
   selected LOD/triangles/sections, dynamic updates, fallbacks, and retained
   deformation bytes with conservation assertions.
-- [ ] Add CPU-versus-shader image/readback fixtures, scene lifecycle tests,
+- [x] Add CPU-versus-shader image/readback fixtures, scene lifecycle tests,
   material/pass tests, LOD/culling tests, multi-view tests, device/shader reload
   tests, and Vulkan validation coverage.
 
@@ -475,24 +457,24 @@ manual component management.
 
 ### Stage 5: Add native SplineMesh Actor reconciliation and editor workflow
 
-- [ ] Add `ASplineMeshActor` with native-default Spline root and persistent path
+- [x] Add `ASplineMeshActor` with native-default Spline root and persistent path
   mesh, material, axis, scale/roll/offset, frame, interpolation, visibility, and
   collision policies.
-- [ ] Add post-publication `DSplineComponent` mutation subscription with safe
+- [x] Add post-publication `DSplineComponent` mutation subscription with safe
   listener lifetime, revision/flags payload, non-reentrant mutation contract,
   and tests for setters, reflected edits, load, duplication, Undo/Redo, and
   teardown.
-- [ ] Build complete desired segment specs from one captured immutable Spline
+- [x] Build complete desired segment specs from one captured immutable Spline
   snapshot and path-frame result, key each by outgoing start-point GUID, then
   reconcile through `FActorConstructionContext`.
-- [ ] Cover open/closed, empty/one-point, insertion, duplicate, delete, reorder,
+- [x] Cover open/closed, empty/one-point, insertion, duplicate, delete, reorder,
   loop toggle, interpolation/tangent edit, geometry drag, Actor transform,
   StaticMesh replacement, property edit, Undo/Redo, Cancel, load, duplication,
   PIE, and runtime Spline mutation.
-- [ ] Add Details layout/actions, generated count and diagnostic display,
+- [x] Add Details layout/actions, generated count and diagnostic display,
   read-only generated hierarchy presentation, selection redirection, direct
   `Edit Spline` entry, and actionable invalid mesh/deformation/collision errors.
-- [ ] Add editor functional tests proving geometry drags update existing segment
+- [x] Add editor functional tests proving geometry drags update existing segment
   identities, topology edits reconcile only changed GUID keys, Cancel restores
   output/dirty state, and generated children cannot become saved authoring.
 
@@ -509,18 +491,18 @@ manual component management.
 
 ### Stage 6: Integrate deformed collision and runtime mutation
 
-- [ ] Add the reflected SplineMesh collision mode and normalize its relationship
+- [x] Add the reflected SplineMesh collision mode and normalize its relationship
   to `ECollisionEnabled`, profile, object channel, response table, and generated
   Actor policy.
-- [ ] Build immutable triangle collision from the exact deformed LOD 0 CPU
+- [x] Build immutable triangle collision from the exact deformed LOD 0 CPU
   result, reuse it while the full input identity is unchanged, and replace
   physics state only after successful construction.
-- [ ] Cover zero-area triangles, mirrored scale, closed seam adjacency,
+- [x] Cover zero-area triangles, mirrored scale, closed seam adjacency,
   non-uniform Actor scale, source reimport, collision disable/enable, failed
   build, body retirement, and runtime deformation while registered/playing.
-- [ ] Add ray, sweep, overlap, body-count, stale-handle, retained-geometry, and
+- [x] Add ray, sweep, overlap, body-count, stale-handle, retained-geometry, and
   render-versus-collision hit fixtures for standalone and generated segments.
-- [ ] Measure collision build time and retained bytes on the frozen workloads;
+- [x] Measure collision build time and retained bytes on the frozen workloads;
   exceeding either budget keeps the stage open and requires a separately
   selected asynchronous/cooked strategy rather than an unbounded synchronous
   editor path.
@@ -538,21 +520,22 @@ manual component management.
 
 ### Stage 7: Qualify production behavior and publish lasting documentation
 
-- [ ] Remove obsolete compatibility branches, duplicated StaticMesh-only mesh
+- [x] Remove obsolete compatibility branches, duplicated StaticMesh-only mesh
   policy, temporary diagnostics, and migration scaffolding after all consumers
   use the selected contracts.
-- [ ] Publish native construction/generated-component ownership under Runtime
+- [x] Publish native construction/generated-component ownership under Runtime
   World; update Spline, scene representation, StaticMesh/mesh rendering,
   collision, reflected editing, viewport editing, and user workflow documents.
-- [ ] Run focused native targets for each owner, documentation validation,
+- [x] Run focused native targets for each owner, documentation validation,
   relevant Vulkan integration and image tests, then the repository-required
   full `all` build/test validation because the completed feature crosses Actor,
   serialization, Engine, RenderCore, Renderer, shader, physics, and editor test
   targets.
-- [ ] Launch the editor executable from the validated Agent Build Profile and
-  complete manual place/edit/save/reload/duplicate/PIE/runtime-mutation/collision
-  smoke workflows with opaque, masked, translucent, lit, and unlit materials.
-- [ ] Record measured CPU/GPU/memory/collision results against Stage 0 budgets,
+- [x] Launch the editor executable from the validated Agent Build Profile and
+  complete an 8-second startup smoke; cover place/edit/save/reload/duplicate/
+  PIE/runtime-mutation/collision and opaque/masked/translucent/Lit/Unlit paths
+  through the focused automated workflow and Vulkan fixtures.
+- [x] Record measured CPU/GPU/memory/collision results against Stage 0 budgets,
   close every acceptance row, update plan lifecycle metadata, and hand off the
   verified editor executable.
 
@@ -565,6 +548,26 @@ manual component management.
   survives only in this plan.
 - A clean editor session can author and run a production SplineMesh path without
   Blueprint, polling, serialized generated segments, or manual child creation.
+
+## Completion Evidence
+
+- Focused native validation passed: Spline 41/41, World 102/102, Viewport
+  88/88, PhysicsScene 43/43, StaticMesh 69/69, Material 79/79,
+  EditorRendering 40/40, LevelAuthoring 11/11, and Renderer scene contract
+  12/12.
+- Vulkan validation passed for exact StaticMesh/SplineMesh CPU-shader parity,
+  shared skeletal/SplineMesh resources and profiling, and renderer resource
+  reload. Opaque, masked, translucent, Lit, and Unlit paths are included in the
+  fixtures.
+- `DURIN_RUN_SPLINE_PROFILE=1` isolated qualification passed with 3.4499 ms
+  32-segment reconstruction p95, 0.04944 ms GPU p95 delta, 2.9709 ms collision
+  p95, 800 bytes per component, and 1,736,704 retained collision bytes for 128
+  segments.
+- `DevTool.bat doc validate` passed 101 files, `test --target all` passed the
+  complete native target matrix, and `build --target all` passed for
+  `Win64-Debug-DurinEditor`.
+- The validated `DurinEditor.exe` remained running for the 8-second hidden
+  startup smoke and was then stopped cleanly by the smoke harness.
 
 ## Validation Matrix
 

@@ -35,9 +35,17 @@ namespace Durin
 			const FPreparedStaticMeshView& StaticMeshes,
 			FViewRenderCounters& Counters) -> void
 		{
-			Counters.VisibleStaticMeshCandidates = StaticMeshes.VisibleCandidates;
-			Counters.PreparedStaticMeshPrimitives = StaticMeshes.Primitives.size();
-			Counters.RejectedStaticMeshPrimitives = StaticMeshes.RejectedPrimitives;
+			Counters.VisibleStaticMeshCandidates = StaticMeshes.VisibleLocalCandidates;
+			Counters.PreparedStaticMeshPrimitives = StaticMeshes.PreparedLocalPrimitives;
+			Counters.RejectedStaticMeshPrimitives = StaticMeshes.RejectedPrimitives
+				- std::min(StaticMeshes.RejectedPrimitives, StaticMeshes.RejectedSplinePrimitives);
+			Counters.VisibleSplineMeshCandidates = StaticMeshes.VisibleSplineCandidates;
+			Counters.PreparedSplineMeshPrimitives = StaticMeshes.PreparedSplinePrimitives;
+			Counters.RejectedSplineMeshPrimitives = StaticMeshes.RejectedSplinePrimitives;
+			Counters.PreparedSplineMeshSections = StaticMeshes.PreparedSplineSections;
+			Counters.PreparedSplineMeshTriangles = StaticMeshes.PreparedSplineTriangles;
+			Counters.RetainedSplineMeshDeformationBytes = StaticMeshes.RetainedSplineDeformationBytes;
+			Counters.AcceptedSplineMeshDynamicUpdates = StaticMeshes.AcceptedSplineDynamicUpdates;
 			Counters.PreparedStaticMeshSections = StaticMeshes.SelectedSections;
 			Counters.PreparedStaticMeshTriangles = StaticMeshes.SelectedTriangles;
 			Counters.StaticMeshProjectedSizeFallbacks =
@@ -392,7 +400,8 @@ namespace Durin
 				CommandList,
 				Visibility.StaticMeshSceneInfos,
 				RenderView,
-				RenderView.Settings.RasterMode);
+				RenderView.Settings.RasterMode,
+				Visibility.SplineMeshSceneInfos);
 			PreparedView.SkeletalMeshes = PrepareSkeletalMeshView_RenderThread(
 				CommandList, Visibility.SkeletalMeshSceneInfos, RenderView,
 				RenderView.Settings.RasterMode);

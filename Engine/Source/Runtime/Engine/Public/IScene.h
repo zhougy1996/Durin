@@ -10,6 +10,7 @@ namespace Durin
 	class FLightSceneProxy;
 	class FSkyBoxSceneProxy;
 	struct FSkeletalPosePalette;
+	struct FSplineMeshRenderDynamicData;
 	template<typename TTag>
 	struct TSceneId
 	{
@@ -113,6 +114,9 @@ namespace Durin
 		virtual auto UpdateSkeletalMeshDynamicData(
 			FPrimitiveSceneId PrimitiveId,
 			std::shared_ptr<const FSkeletalPosePalette> Pose) -> void = 0;
+		virtual auto UpdateSplineMeshDynamicData(
+			FPrimitiveSceneId PrimitiveId,
+			FSplineMeshRenderDynamicData DynamicData) -> void = 0;
 
 		virtual auto Release() -> void = 0;
 

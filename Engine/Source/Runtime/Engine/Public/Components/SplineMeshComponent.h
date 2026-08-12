@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Components/MeshComponent.h"
+#include "Collision/CollisionGeometry.h"
 #include "Spline/SplineTypes.h"
 #include "StaticMesh/StaticMeshResources.h"
 
@@ -20,6 +21,13 @@ namespace Durin
 		InvalidSourceData
 	};
 
+	DENUM()
+	enum class ESplineMeshCollisionMode : uint8
+	{
+		Disabled,
+		DeformedTriangleMesh
+	};
+
 	// Immutable CPU authority used by bounds, exact editor queries, collision, and shader parity.
 	struct FSplineMeshDerivedState
 	{
@@ -31,6 +39,7 @@ namespace Durin
 		uint64 SourceRenderResourceRevision = 0;
 		uint64 DeformationRevision = 0;
 		uint64 CollisionInputIdentity = 0;
+		FCollisionGeometryRef CollisionGeometry;
 		ESplineMeshDerivedStateStatus Status = ESplineMeshDerivedStateStatus::NoStaticMesh;
 		std::string Diagnostic;
 
@@ -50,7 +59,11 @@ namespace Durin
 		ENGINE_API auto SetSplineMeshParams(const FSplineMeshParams& InParams, std::string* OutError = nullptr) -> bool;
 		auto GetSplineMeshParams() const -> const FSplineMeshParams& { return SplineMeshParams; }
 		auto GetDeformationRevision() const -> uint64 { return DeformationRevision; }
+		auto GetSplineMeshCollisionMode() const -> ESplineMeshCollisionMode { return CollisionMode; }
+		ENGINE_API auto SetSplineMeshCollisionMode(ESplineMeshCollisionMode InMode) -> void;
 		ENGINE_API auto GetDerivedState() const -> std::shared_ptr<const FSplineMeshDerivedState>;
+		ENGINE_API auto BuildCollisionGeometry(
+			FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool override;
 
 		ENGINE_API auto SetMaterial(DMaterialInterface* InMaterial) -> bool;
 		ENGINE_API auto SetMaterial(uint32 SlotIndex, DMaterialInterface* InMaterial) -> bool;
@@ -59,6 +72,7 @@ namespace Durin
 		ENGINE_API auto ClearMaterialOverrides() -> bool;
 		auto GetOverrideMaterials() const -> std::span<const TObjectPtr<DMaterialInterface>> { return OverrideMaterials; }
 		ENGINE_API auto GetNumMaterials() const -> uint32;
+		ENGINE_API auto CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy> override;
 
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
@@ -73,9 +87,12 @@ namespace Durin
 			FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool override;
 		auto RebuildDerivedState(std::string* OutError = nullptr) -> bool;
 		auto HandleStaticMeshRenderDataChanged(DStaticMesh* ChangedMesh) -> void;
+		auto PushDynamicDataToScene() -> void;
 		auto ValidateOverrideMaterials(std::span<const TObjectPtr<DMaterialInterface>> Overrides, std::string& OutError) const -> bool;
 		auto TrimTrailingNullOverrides() -> void;
 		auto GetMaterialOverride(uint32 SlotIndex) const -> DMaterialInterface*;
+		auto GetCollisionStateRevision() const -> uint64 override;
+		auto RebuildCollisionGeometryForPublishedState() -> void;
 
 		DPROPERTY(Edit)
 		TObjectPtr<DStaticMesh> StaticMesh;
@@ -85,6 +102,9 @@ namespace Durin
 
 		DPROPERTY()
 		std::vector<TObjectPtr<DMaterialInterface>> OverrideMaterials;
+
+		DPROPERTY(Edit)
+		ESplineMeshCollisionMode CollisionMode = ESplineMeshCollisionMode::Disabled;
 
 		std::shared_ptr<const FSplineMeshDerivedState> DerivedState;
 		uint64 DeformationRevision = 0;

@@ -15,7 +15,7 @@ component, actor, reflected asset, or other game-thread object.
 
 | Family | Detached proxy | Renderer scene entry |
 | --- | --- | --- |
-| Primitive | `FPrimitiveSceneProxy`, specialized by `FStaticMeshSceneProxy` and `FSkeletalMeshSceneProxy` | `FPrimitiveSceneInfo` |
+| Primitive | `FPrimitiveSceneProxy`, specialized by `FStaticMeshSceneProxy`, `FSkeletalMeshSceneProxy`, and `FSplineMeshSceneProxy` | `FPrimitiveSceneInfo` with StaticMesh/SkeletalMesh/SplineMesh typed views |
 | Light | `FLightSceneProxy`, specialized by directional, point, and spot proxies | `FLightSceneInfo` with authoritative typed family views |
 | SkyBox | `FSkyBoxSceneProxy` | `FSkyBoxSceneInfo` |
 
@@ -30,19 +30,24 @@ Removal erases every typed membership reference before destroying the
 SceneInfo and proxy on the rendering thread. Scene release clears typed views
 before their owning maps. StaticMesh render data remains a non-owning borrow
 bounded by the component render-state and asset-release fence protocol.
-SkeletalMesh pose matrices and animated bounds are retained immutable values;
+SkeletalMesh pose matrices and animated bounds are retained immutable values.
+SplineMesh retains copied normalized deformation values and bounds while
+borrowing the source StaticMesh render data under the same retirement fence;
 material proxies and SkyBox texture references remain counted references.
 
 ## Proxy and SceneInfo Responsibilities
 
 `FPrimitiveSceneInfo` owns stable identity, owning scene, primitive kind,
 visibility, transform, local bounds, derived world bounds, and typed-list
-membership. StaticMesh and SkeletalMesh proxies own family-specific render data
-and bindings. World bounds are rebuilt from the eight local AABB
+membership. StaticMesh, SkeletalMesh, and SplineMesh proxies own
+family-specific render data and bindings. World bounds are rebuilt from the eight local AABB
 corners whenever a finite transform is attached or updated; an invalid local
 box remains invalid and is not used for culling. A skeletal dynamic update
 replaces the immutable pose and local bound together and recomputes this world
-bound before later FIFO visibility work.
+bound before later FIFO visibility work. A SplineMesh dynamic update similarly
+accepts only a newer non-zero deformation revision and atomically replaces the
+copied parameters and local/world bounds. Stale updates and updates after
+retirement are ignored without reading the component.
 
 `FLightSceneInfo` owns light identity, explicit family, conservative local
 influence bounds, and typed membership. Directional, point, and spot proxies
@@ -67,11 +72,14 @@ Owner-specific material and resource revisions remain at their actual
 asynchronous or independently ordered boundaries.
 
 `FScene` maintains one owning map per family and authoritative typed pointer
-views for StaticMesh, SkeletalMesh, directional light, and SkyBox.
+views for StaticMesh, SkeletalMesh, SplineMesh, directional light, and SkyBox.
 Attach, replacement, detach, and release update ownership and every relevant
 view in one render command. Feature renderers iterate only their typed
 SceneInfo view; they do not scan a shared primitive array or use RTTI to
-rediscover proxy families. Material binding updates dispatch through the base
+rediscover proxy families. SplineMesh visibility and preparation counters
+separate visible, prepared, rejected, section/triangle, accepted dynamic-update,
+and retained-deformation values and conserve candidates against outcomes.
+Material binding updates dispatch through the base
 primitive-proxy contract rather than a StaticMesh branch in `FScene`.
 
 ## View-Local Environment Overrides

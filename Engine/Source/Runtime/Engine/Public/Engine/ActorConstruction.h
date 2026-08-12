@@ -19,6 +19,17 @@ namespace Durin
 		auto operator==(const FActorGeneratedComponentKey&) const -> bool = default;
 	};
 
+	struct FActorGeneratedComponentKeyHash
+	{
+		auto operator()(const FActorGeneratedComponentKey& Key) const noexcept -> size_t
+		{
+			const size_t NamespaceHash = std::hash<FName>{}(Key.Namespace);
+			const size_t GuidHash = std::hash<FGuid>{}(Key.Id);
+			return NamespaceHash ^ (GuidHash + 0x9e3779b9u
+				+ (NamespaceHash << 6) + (NamespaceHash >> 2));
+		}
+	};
+
 	// Stages one complete keyed desired set and commits it atomically to an actor.
 	class FActorConstructionContext final
 	{
@@ -50,6 +61,10 @@ namespace Durin
 		AActor& Actor;
 		uint64 Generation = 0;
 		std::vector<FDesiredEntry> Desired;
+		std::unordered_map<FActorGeneratedComponentKey, DActorComponent*,
+			FActorGeneratedComponentKeyHash> ExistingByKey;
+		std::unordered_set<FActorGeneratedComponentKey,
+			FActorGeneratedComponentKeyHash> DesiredKeys;
 		std::string Error;
 		bool bCommitted = false;
 	};

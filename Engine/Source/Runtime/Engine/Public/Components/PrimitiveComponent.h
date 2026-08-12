@@ -39,6 +39,8 @@ namespace Durin
 		ENGINE_API auto DestroyRenderState() -> void;
 		ENGINE_API auto RecreateRenderState() -> void;
 		ENGINE_API auto MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags DirtyFlags = EPrimitiveRenderStateDirtyFlags::Proxy) -> void;
+		ENGINE_API auto SetVisible(bool bInVisible) -> void;
+		auto IsVisible() const -> bool { return bVisible; }
 		ENGINE_API auto SetCollisionProfileName(FName ProfileName) -> bool;
 		ENGINE_API auto SetCollisionEnabled(ECollisionEnabled Enabled) -> void;
 		ENGINE_API auto SetCollisionObjectType(ECollisionChannel Channel) -> void;
@@ -78,6 +80,8 @@ namespace Durin
 
 		FPrimitiveSceneId PrimitiveSceneId = InvalidPrimitiveSceneId;
 		mutable FCollisionGeometryRef CachedCollisionGeometry;
+		DPROPERTY(Edit)
+		bool bVisible = true;
 		DPROPERTY(Edit)
 		FBodyInstance BodyInstance;
 	};

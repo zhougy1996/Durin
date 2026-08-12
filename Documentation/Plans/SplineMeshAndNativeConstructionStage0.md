@@ -1,8 +1,17 @@
-# SplineMesh and Native Construction Stage 0 Handoff
+# SplineMesh and Native Construction Stage 0 Handoff Plan
 
 Summary: Freeze the implementation choices, affected ownership surfaces, reference workloads, and validation baseline for `SplineMeshAndNativeConstruction.md`.
 
 Last reviewed: 2026-08-12
+
+Status: Completed
+Completed: 2026-08-12
+
+## Current Status
+
+Stage 0 architecture, budgets, inventories, baselines, and deterministic
+fixtures are frozen. The parent implementation plan consumes this handoff as
+its acceptance baseline.
 
 ## Native Construction Contract
 

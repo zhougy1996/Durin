@@ -7,6 +7,8 @@ Modules: Engine, Renderer, RenderCore
 SkeletalMesh uses the same material/pass policy and combined Translucent order
 through its dedicated geometry, vertex-factory, palette, and renderer owner; see
 [Skeletal Mesh Rendering](SkeletalMeshRendering.md).
+SplineMesh is a distinct primitive/deformation domain that borrows these
+StaticMesh LOD resources and uses the same material/pass/LOD/lighting policy.
 
 This document defines the implemented static-mesh render-resource ownership,
 per-LOD lifecycle, vertex-factory boundary, and shader input contract.
@@ -217,6 +219,29 @@ floats before the vertex-factory module receives them.
 `VertexFactory.LocalVertexFactory`. The shader compiler links imported module
 dependencies before code generation and fingerprints imported modules so a
 change invalidates every dependent shader artifact.
+
+### SplineMesh vertex deformation domain
+
+Prepared mesh identity includes
+`EVertexDeformationDomain::{Local,Spline,Skeletal}` in shader-map, effective
+graphics-pipeline, and draw-sort keys. Material identity alone therefore cannot
+alias Local and Spline vertex programs. `FSplineMeshSceneProxy` supplies the
+same selected LOD buffers, indices, declaration, sections, material proxies,
+and world transform as StaticMesh plus one immutable deformation uniform.
+There is no per-component position, tangent, UV, color, or index-buffer copy.
+
+`VertexFactory.SplineMeshVertexFactory` translates the normalized CPU Hermite,
+attribute interpolation, forward-axis mapping, frame fallback, roll, scale, and
+offset equations. `StaticMeshBasePass.slang` selects it only for the Spline
+domain; UV/color/material behavior, masked discard, tangent-space normal
+mapping, winding, front face, Lit/Unlit behavior, prepared lights, and
+environment lighting remain common. Deformation-only FIFO updates replace the
+uniform and bounds without recreating the primitive or source GPU resources.
+
+Vulkan qualification renders opaque, masked, and translucent sections, checks
+straight identity pixels against StaticMesh, and checks curved Spline shader
+pixels against a StaticMesh built from CPU-deformed positions and tangent bases.
+The two curved images are byte-identical on the qualified adapter.
 
 ## View-Local Base-Pass Preparation
 

@@ -4,6 +4,9 @@ import VertexFactory.LocalVertexFactory;
 #if DURIN_TERRAIN
 import VertexFactory.TerrainVertexFactory;
 #endif
+#if DURIN_SPLINE_MESH
+import VertexFactory.SplineMeshVertexFactory;
+#endif
 #if DURIN_SKELETAL_MESH
 import VertexFactory.SkeletalMeshVertexFactory;
 #endif
@@ -104,6 +107,9 @@ struct TerrainUniform
 [[vk::binding(23, 0)]] Texture2D<uint> HeightTexture;
 [[vk::binding(24, 0)]] ConstantBuffer<TerrainUniform> Terrain;
 #endif
+#if DURIN_SPLINE_MESH
+[[vk::binding(24, 0)]] ConstantBuffer<FSplineMeshUniform> SplineMesh;
+#endif
 
 [shader("vertex")]
 #if DURIN_TERRAIN
@@ -136,6 +142,9 @@ VSOutput VertexMain(FLocalVertexFactoryInput input)
 #elif DURIN_SKELETAL_MESH
     FSkeletalMeshVertexFactoryIntermediates vertex =
         GetSkeletalMeshVertexFactoryIntermediates(input, SkinPalette);
+#elif DURIN_SPLINE_MESH
+    FLocalVertexFactoryIntermediates vertex =
+        GetSplineMeshVertexFactoryIntermediates(input, SplineMesh);
 #else
     FLocalVertexFactoryIntermediates vertex =
         GetLocalVertexFactoryIntermediates(input);

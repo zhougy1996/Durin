@@ -57,6 +57,15 @@ Modes additionally repair domain identity—for example, Spline mode discards
 handles whose point GUID no longer exists. No panel keeps a competing private
 component or point selection.
 
+Native-construction `Generated` components remain visible in the Details
+component tree for diagnostics, but the tree labels them read-only and disables
+rename, duplicate, delete, reorder, reparent, drag/drop, and reflected property
+editing. Their owning Actor remains the authoring authority. `ASplineMeshActor`
+Details reports the generated-segment count and construction diagnostic and its
+**Edit Spline** action selects the native spline root and explicitly activates
+Spline mode. Viewport curve edits therefore mutate persistent spline points;
+the generated segment set is reconciled synchronously from stable point GUIDs.
+
 ## Semantic Picking Contract
 
 Each `FLevelEditorViewportClient` owns one `FViewportPickingService`. A mode

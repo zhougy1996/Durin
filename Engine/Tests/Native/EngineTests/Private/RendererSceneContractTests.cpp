@@ -483,7 +483,6 @@ TEST(FRendererSceneContractTests, SkeletalPoseAndBoundsUpdateAtomicallyInTypedMe
 	EXPECT_EQ(Info->GetSkeletalMeshProxy().GetPose()->Revision, 2u);
 	EXPECT_EQ(Info->GetLocalBounds().Min.x, -2.0);
 	EXPECT_EQ(Info->GetWorldBounds().Min.x, 0.0);
-
 	Durin::FViewRenderCounters Counters;
 	Durin::FSceneView View;
 	View.Settings.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
@@ -491,6 +490,58 @@ TEST(FRendererSceneContractTests, SkeletalPoseAndBoundsUpdateAtomicallyInTypedMe
 		Durin::PrepareSceneVisibility(Scene, View, Counters);
 	EXPECT_EQ(Visibility.SkeletalMeshSceneInfos.size(), 1u);
 	EXPECT_EQ(Counters.VisibleSkeletalMeshCandidates, 1u);
+	Scene.Release();
+	Durin::FlushRenderingCommands();
+}
+
+TEST(FRendererSceneContractTests, SplineDeformationAndBoundsUpdateAtomicallyInTypedMembership)
+{
+	FRenderingThreadScope RenderingThread;
+	Durin::FScene Scene;
+	Durin::FStaticMeshRenderData RenderData;
+	Durin::FSplineMeshRenderDynamicData First{
+		.Params = {},
+		.LocalBounds = Durin::FBox({0.0, -1.0, -1.0}, {10.0, 1.0, 1.0}),
+		.Revision = 1};
+	const Durin::FPrimitiveSceneId Id(92);
+	Scene.AddOrReplacePrimitive(Id,
+		std::make_unique<Durin::FSplineMeshSceneProxy>(&RenderData,
+			std::vector<Durin::FMaterialRenderProxyRef>{}, 1, First),
+		glm::translate(Durin::FMatrix(1.0), Durin::FVector3(2.0, 0.0, 0.0)));
+	Durin::FlushRenderingCommands();
+	ASSERT_EQ(Scene.GetSplineMeshSceneInfos().size(), 1u);
+	const Durin::FPrimitiveSceneInfo* Info = Scene.GetSplineMeshSceneInfos().front();
+	EXPECT_EQ(Info->GetSplineMeshProxy().GetDynamicData().Revision, 1u);
+	EXPECT_EQ(Info->GetWorldBounds().Min.x, 2.0);
+
+	auto Second = First;
+	Second.Revision = 2;
+	Second.Params.EndPosition = {20.0, 10.0, 0.0};
+	Second.LocalBounds = Durin::FBox({-2.0, -3.0, -1.0}, {23.0, 13.0, 1.0});
+	Scene.UpdateSplineMeshDynamicData(Id, Second);
+	Durin::FlushRenderingCommands();
+	Info = Scene.GetSplineMeshSceneInfos().front();
+	EXPECT_EQ(Info->GetSplineMeshProxy().GetDynamicData().Revision, 2u);
+	EXPECT_EQ(Info->GetSplineMeshProxy().GetAcceptedDynamicUpdateCount(), 1u);
+	EXPECT_EQ(Info->GetLocalBounds().Min.x, -2.0);
+	EXPECT_EQ(Info->GetWorldBounds().Min.x, 0.0);
+	auto Stale = Second;
+	Stale.Revision = 1;
+	Stale.LocalBounds = Durin::FBox(Durin::FVector3(-100.0), Durin::FVector3(100.0));
+	Scene.UpdateSplineMeshDynamicData(Id, Stale);
+	Durin::FlushRenderingCommands();
+	Info = Scene.GetSplineMeshSceneInfos().front();
+	EXPECT_EQ(Info->GetSplineMeshProxy().GetDynamicData().Revision, 2u);
+	EXPECT_EQ(Info->GetSplineMeshProxy().GetAcceptedDynamicUpdateCount(), 1u);
+	EXPECT_EQ(Info->GetLocalBounds().Min.x, -2.0);
+
+	Durin::FViewRenderCounters Counters;
+	Durin::FSceneView View;
+	View.Settings.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
+	const Durin::FSceneVisibilityResult Visibility =
+		Durin::PrepareSceneVisibility(Scene, View, Counters);
+	EXPECT_EQ(Visibility.SplineMeshSceneInfos.size(), 1u);
+	EXPECT_EQ(Counters.VisibleSplineMeshCandidates, 1u);
 	Scene.Release();
 	Durin::FlushRenderingCommands();
 }

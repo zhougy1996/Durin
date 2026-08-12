@@ -6,9 +6,9 @@ Modules: Engine, LevelEditor
 
 Durin's spline foundation provides an editable, persistent spatial curve, an
 immutable query snapshot, and direct Level Editor point/tangent authoring. It
-also provides value-only SplineMesh deformation and parallel-transport frame
-math and a standalone SplineMesh component. It does not yet provide the production renderer,
-path actor, path follower, or placement system.
+also provides value-only SplineMesh deformation, parallel-transport frame
+math, a production SplineMesh primitive, and a native whole-path Actor. It does
+not provide a path follower, procedural extrusion, or placement system.
 
 ## Support Summary
 
@@ -21,7 +21,7 @@ path actor, path follower, or placement system.
 | Evaluation | Immutable snapshots with adaptive distance tables, conservative bounds, and concurrent read access |
 | Editing | Selected-point Details editing and transactional viewport point/tangent manipulation, insertion, structural actions, Undo/Redo, and Cancel |
 | Persistence | Reflection, object-graph duplication, level-package save/load, point-ID repair, and post-load snapshot publication |
-| Higher-level consumers | None in production code beyond Level Editor integration |
+| Higher-level consumers | `ASplineMeshActor` reconciles one transient segment component per outgoing point GUID |
 
 ## Authoring Model
 
@@ -150,9 +150,12 @@ latest publication, and `GetLastSplineChangeFlags()` reports the reason:
 - `Geometry` for shape changes; and
 - `Build` for an explicit rebuild of unchanged authoring data.
 
-Consumers that retain derived data should compare the revision and react to
-the relevant flags. They must not mutate or assume object identity for a
-snapshot after a later revision is published.
+Consumers may subscribe to the post-publication mutation event. The callback
+receives the revision, change flags, and exact immutable snapshot already made
+authoritative. Publication forbids reentrant spline mutation, snapshots
+listener identities, and permits listener removal during callback delivery.
+`ASplineMeshActor` uses this event instead of Tick polling. Other consumers that
+retain derived data should compare revisions and must not mutate a snapshot.
 
 ## SplineMesh Deformation and Path Frames
 
@@ -210,7 +213,8 @@ Every accepted mesh-resource or deformation change atomically publishes an
 immutable `FSplineMeshDerivedState`. The state copies normalized parameters,
 conservative all-LOD local bounds, exact deformed LOD 0 positions and indices,
 an exact-query acceleration hierarchy, the source resource revision, a
-monotonic deformation revision, collision input identity, and a diagnostic
+monotonic deformation revision, collision input identity, optional immutable
+deformed triangle collision, and a diagnostic
 status. Consumers retain this value snapshot rather than borrowing mutable CPU
 asset data. Missing assets and temporarily unavailable source data are explicit
 diagnostic states; malformed indexed geometry is never published as valid.
@@ -221,8 +225,38 @@ uses the same scoped retirement protocol for both consumer classes: registered
 components release old render state before exchange and rebuild their CPU state
 after the new resource publication. Deformation-only edits retain the source
 asset and component identity, update exact editor picking and collision input,
-and do not request proxy recreation; the renderer FIFO dynamic update is added
-by the renderer integration stage.
+and do not request proxy recreation. The component publishes deformation and
+bounds together through one FIFO scene update while retaining primitive and
+source GPU identities. `ESplineMeshCollisionMode::DeformedTriangleMesh`
+explicitly opts into collision construction; Disabled retains no collision BVH.
+
+The renderer classifies SplineMesh as its own typed primitive family. Prepared
+mesh work carries an explicit Local/Spline/Skeletal vertex-deformation domain
+through shader-map, pipeline, and draw-sort identity. The Spline vertex shader
+borrows StaticMesh LOD streams and applies the CPU-authority Hermite/frame
+translation without copying source geometry per component. Material slots,
+opaque/masked/translucent ordering, visibility, LOD, lighting, auxiliary views,
+and resource recovery remain shared mesh-pass policy.
+
+## Native SplineMesh Actor
+
+`ASplineMeshActor` owns a native-default `DSplineComponent` root and persistent
+mesh, material, axis, scale, roll, offset, frame seed, interpolation,
+visibility, and collision policies. A construction pass captures one immutable
+spline snapshot, builds one parallel-transport frame result, prepares the
+complete desired segment set, and acquires generated components by
+`("SplineMeshSegment", outgoing-start-point GUID)`. Closed loops include the
+last-to-first seam; empty and one-point curves produce no generated component.
+
+Geometry edits reuse identities. Insert, delete, reorder, loop toggle, load,
+duplication, PIE cloning, Undo/Redo, Cancel, and runtime mutation all enter the
+same synchronous native-construction path. Generated segments are transient,
+attach to the spline root, never serialize or dirty the package during
+reconstruction, and route registration and play state with the owner. Details
+reports generated count and construction diagnostics and exposes **Edit
+Spline**. Generated hierarchy rows remain visible for diagnostics but are
+labeled read-only and cannot be renamed, duplicated, deleted, reordered,
+reparented, or edited as authoring.
 
 ## Verification Coverage
 
@@ -237,8 +271,8 @@ invalid-target exits, and multi-component isolation.
 
 ## Current Boundaries
 
-The spline foundation has no production SplineMesh renderer,
-path actor, follower, placement, animation, navigation, physics, event, width,
-or metadata consumer. True world-distance traversal under non-uniform scale and
-simultaneous editing across multiple spline components are also outside the
-implemented contract.
+SplineMesh is a single-segment deformation primitive and the Actor is a simple
+shared-mesh whole-path policy owner. It does not implement extrusion, junctions,
+caps, per-segment assets, navigation, animation, events, width metadata, or
+world-distance traversal under non-uniform scale. Simultaneous editing across
+multiple spline components is also outside the implemented contract.

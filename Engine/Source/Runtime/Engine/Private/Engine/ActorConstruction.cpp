@@ -4,12 +4,19 @@
 #include "Components/SceneComponent.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/Actor.h"
+#include "Engine/Level.h"
+#include "Engine/World.h"
 
 namespace Durin
 {
 	FActorConstructionContext::FActorConstructionContext(AActor& InActor, uint64 InGeneration)
 		: Actor(InActor), Generation(InGeneration)
 	{
+		ExistingByKey.reserve(Actor.GeneratedComponents.size());
+		DesiredKeys.reserve(Actor.GeneratedComponents.size());
+		for (const AActor::FGeneratedComponentRecord& Existing : Actor.GeneratedComponents)
+			ExistingByKey.emplace(Existing.Key, Existing.Component.Get());
+		Desired.reserve(Actor.GeneratedComponents.size());
 	}
 
 	FActorConstructionContext::~FActorConstructionContext()
@@ -30,13 +37,12 @@ namespace Durin
 		if (!Key.IsValid()) return Fail("Generated component key must contain a namespace and valid GUID.");
 		if (!CanConstructObjectOfClass(ExactClass, DActorComponent::StaticClass()))
 			return Fail("Generated component class is not a constructible ActorComponent class.");
-		if (std::ranges::any_of(Desired, [&](const FDesiredEntry& Entry) { return Entry.Key == Key; }))
+		if (!DesiredKeys.insert(Key).second)
 			return Fail("Generated component key was acquired more than once in one construction generation.");
 
-		for (const AActor::FGeneratedComponentRecord& Existing : Actor.GeneratedComponents)
+		if (const auto Existing = ExistingByKey.find(Key); Existing != ExistingByKey.end())
 		{
-			if (!(Existing.Key == Key)) continue;
-			DActorComponent* Component = Existing.Component.Get();
+			DActorComponent* Component = Existing->second;
 			if (!Component || Component->IsPendingKill())
 				return Fail("Generated component key refers to a retired component.");
 			if (Component->GetClass() != ExactClass)
@@ -102,18 +108,25 @@ namespace Durin
 		}
 
 		Actor.GeneratedComponents = Next;
+		auto* Level = Cast<DLevel>(Actor.GetOuter());
+		DWorld* World = Level ? Level->GetWorld() : nullptr;
+		const bool bActorIsInActiveWorld = World
+			&& World->GetCurrentLevel() == Level
+			&& Level->ContainsActor(&Actor);
+		std::unordered_set<DActorComponent*> DesiredComponents;
+		DesiredComponents.reserve(Desired.size());
+		for (const FDesiredEntry& Entry : Desired) DesiredComponents.insert(Entry.Component);
 		for (const FDesiredEntry& Entry : Desired)
 		{
 			if (!Entry.bCandidate) continue;
-			Entry.Component->RegisterComponent();
+			if (bActorIsInActiveWorld) Entry.Component->RegisterComponent();
 			if (Actor.PlayState == EActorPlayState::BeginningPlay
 				|| Actor.PlayState == EActorPlayState::Playing) Entry.Component->DispatchBeginPlay();
 		}
 		for (auto It = Previous.rbegin(); It != Previous.rend(); ++It)
 		{
 			DActorComponent* Component = It->Component.Get();
-			if (!Component || std::ranges::any_of(Desired,
-				[Component](const FDesiredEntry& Entry) { return Entry.Component == Component; })) continue;
+			if (!Component || DesiredComponents.contains(Component)) continue;
 			if (Component->HasBegunPlay()) Component->RouteEndPlay();
 			if (Component->IsRegistered()) Component->UnregisterComponent();
 			Component->DestroyComponent();

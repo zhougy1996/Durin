@@ -55,6 +55,17 @@ namespace Durin
 			);
 		};
 
+		class FSplineMeshVertexShader : public FShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FSplineMeshVertexShader)
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Transform);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(SplineMesh);
+			DURIN_END_SHADER_PARAMETERS();
+			DURIN_DECLARE_SHADER(FSplineMeshVertexShader, FShader,
+				"/Engine/StaticMeshBasePass", EShaderFrequency::Vertex, "VertexMain");
+		};
+
 		class FStaticMeshFragmentShader : public FShader
 		{
 		public:
@@ -116,6 +127,34 @@ namespace Durin
 			FMatrix4f NormalToWorld{1.0f};
 			FVector4f TransformParams{1.0f, 0.0f, 0.0f, 0.0f};
 		};
+
+		struct FSplineMeshUniform
+		{
+			FVector4f StartPosition{0.0f};
+			FVector4f StartTangent{0.0f};
+			FVector4f EndPosition{0.0f};
+			FVector4f EndTangent{0.0f};
+			FVector4f StartEndScale{1.0f};
+			FVector4f StartEndOffset{0.0f};
+			FVector4f RollUpAxis{0.0f};
+			FVector4f SourceRangePolicy{0.0f};
+		};
+
+		auto MakeSplineMeshUniform(const FSplineMeshParams& Params) -> FSplineMeshUniform
+		{
+			FSplineMeshUniform Result;
+			Result.StartPosition = FVector4f(FVector3f(Params.StartPosition), static_cast<float>(Params.StartRollRadians));
+			Result.StartTangent = FVector4f(FVector3f(Params.StartTangent), static_cast<float>(Params.EndRollRadians));
+			Result.EndPosition = FVector4f(FVector3f(Params.EndPosition), 0.0f);
+			Result.EndTangent = FVector4f(FVector3f(Params.EndTangent), 0.0f);
+			Result.StartEndScale = FVector4f(FVector2f(Params.StartScale), FVector2f(Params.EndScale));
+			Result.StartEndOffset = FVector4f(FVector2f(Params.StartOffset), FVector2f(Params.EndOffset));
+			Result.RollUpAxis = FVector4f(FVector3f(Params.SplineUpDirection), static_cast<float>(Params.ForwardAxis));
+			Result.SourceRangePolicy = FVector4f(static_cast<float>(Params.SourceForwardMin),
+				static_cast<float>(Params.SourceForwardMax),
+				Params.Interpolation == ESplineMeshInterpolation::SmoothStep ? 1.0f : 0.0f, 0.0f);
+			return Result;
+		}
 
 		struct FStaticMeshMaterialUniform
 		{
@@ -196,8 +235,9 @@ namespace Durin
 		) -> std::string
 		{
 			return std::format(
-				"{},polygon={},cull={},front={},depth-test={},depth-write={},depth-compare={},blend={},color-src={},color-dst={},color-op={},alpha-src={},alpha-dst={},alpha-op={},write-mask={}",
+				"{},vertex-domain={},polygon={},cull={},front={},depth-test={},depth-write={},depth-compare={},blend={},color-src={},color-dst={},color-op={},alpha-src={},alpha-dst={},alpha-op={},write-mask={}",
 				GetIdentityText(Identity.Material),
+				static_cast<uint8>(Identity.VertexDomain),
 				static_cast<uint8>(Identity.Rasterizer.PolygonMode),
 				static_cast<uint8>(Identity.Rasterizer.CullMode),
 				static_cast<uint8>(Identity.Rasterizer.FrontFace),
@@ -238,6 +278,7 @@ namespace Durin
 				std::bit_cast<uint32>(Shader.OpacityMaskThreshold),
 				Material.bTwoSided ? 1u : 0u,
 				static_cast<uint32>(Material.DepthWritePolicy),
+				static_cast<uint32>(PipelineKey.VertexDomain),
 				static_cast<uint32>(PipelineKey.Rasterizer.PolygonMode),
 				static_cast<uint32>(PipelineKey.Rasterizer.CullMode),
 				static_cast<uint32>(PipelineKey.Rasterizer.FrontFace),
@@ -407,6 +448,7 @@ namespace Durin
 		{
 			std::shared_ptr<FShaderMapBase> ShaderMap;
 			TShaderRef<FStaticMeshVertexShader> VertexShader;
+			TShaderRef<FSplineMeshVertexShader> SplineVertexShader;
 			TShaderRef<FStaticMeshFragmentShader> FragmentShader;
 		};
 
@@ -414,6 +456,7 @@ namespace Durin
 		{
 			std::shared_ptr<FShaderMapBase> ShaderMap;
 			TShaderRef<FStaticMeshVertexShader> VertexShader;
+			TShaderRef<FSplineMeshVertexShader> SplineVertexShader;
 			TShaderRef<FStaticMeshFragmentShader> FragmentShader;
 			FGraphicsPipelineStateRHIRef PipelineState;
 		};
@@ -422,7 +465,7 @@ namespace Durin
 			ERenderResourceGenerationDependency::Device
 		};
 		TRendererResourceSlotCache<
-			FMaterialShaderMapIdentity,
+			FMeshShaderMapKey,
 			FShaderMapPayload>
 			ShaderMaps{ERenderResourceGenerationDependency::Shader};
 		TRendererResourceSlotCache<
@@ -469,24 +512,35 @@ namespace Durin
 		std::span<const FPrimitiveSceneInfo* const> SceneInfos,
 		const FSceneView& View,
 		ERasterMode RasterMode
+		,
+		std::span<const FPrimitiveSceneInfo* const> SplineSceneInfos
 	) -> FPreparedStaticMeshView
 	{
 		check(IsInRenderingThread());
 		checkf(!CommandList.IsInsideRenderPass(),
 			"StaticMesh preparation must occur before the scene render pass.");
 		FPreparedStaticMeshView Result;
-		Result.Primitives.reserve(SceneInfos.size());
-		for (const FPrimitiveSceneInfo* SceneInfo : SceneInfos)
+		Result.Primitives.reserve(SceneInfos.size() + SplineSceneInfos.size());
+		std::vector<const FPrimitiveSceneInfo*> CombinedSceneInfos;
+		CombinedSceneInfos.reserve(SceneInfos.size() + SplineSceneInfos.size());
+		CombinedSceneInfos.insert(CombinedSceneInfos.end(), SceneInfos.begin(), SceneInfos.end());
+		CombinedSceneInfos.insert(CombinedSceneInfos.end(), SplineSceneInfos.begin(), SplineSceneInfos.end());
+		for (const FPrimitiveSceneInfo* SceneInfo : CombinedSceneInfos)
 		{
-			++Result.VisibleCandidates;
 			if (SceneInfo == nullptr)
 			{
 				++Result.RejectedPrimitives;
 				continue;
 			}
-			check(SceneInfo->GetKind() == EPrimitiveSceneProxyKind::StaticMesh);
-			const FStaticMeshSceneProxy& Proxy = SceneInfo->GetStaticMeshProxy();
-			const FStaticMeshRenderData* RenderData = Proxy.GetRenderData();
+			const bool bSplineMesh = SceneInfo->GetKind() == EPrimitiveSceneProxyKind::SplineMesh;
+			++Result.VisibleCandidates;
+			if (bSplineMesh) ++Result.VisibleSplineCandidates;
+			else ++Result.VisibleLocalCandidates;
+			check(bSplineMesh || SceneInfo->GetKind() == EPrimitiveSceneProxyKind::StaticMesh);
+			const FStaticMeshSceneProxy* StaticProxy = bSplineMesh ? nullptr : &SceneInfo->GetStaticMeshProxy();
+			const FSplineMeshSceneProxy* SplineProxy = bSplineMesh ? &SceneInfo->GetSplineMeshProxy() : nullptr;
+			const FStaticMeshRenderData* RenderData = bSplineMesh
+				? SplineProxy->GetRenderData() : StaticProxy->GetRenderData();
 			if (RenderData == nullptr || RenderData->LODResources.empty()
 				|| RenderData->LODVertexFactories.size()
 					!= RenderData->LODResources.size())
@@ -555,6 +609,8 @@ namespace Durin
 				.SelectedLODIndex = SelectedLODIndex,
 				.LOD = &LOD,
 				.VertexFactory = &VertexFactory,
+				.VertexDomain = bSplineMesh ? EVertexDeformationDomain::Spline : EVertexDeformationDomain::Local,
+				.SplineDynamicData = bSplineMesh ? SplineProxy->GetDynamicData() : FSplineMeshRenderDynamicData{},
 				.LocalToWorld = LocalToWorld});
 			const size_t FirstSectionCount = Result.GetNumSections();
 			const size_t FirstTriangleCount = Result.SelectedTriangles;
@@ -571,10 +627,9 @@ namespace Durin
 					continue;
 				}
 
-				const FMaterialRenderData& ResolvedMaterial =
-					Proxy.ResolveMaterialRenderData_RenderThread(
-						Section.MaterialSlotIndex
-					);
+				const FMaterialRenderData& ResolvedMaterial = bSplineMesh
+					? SplineProxy->ResolveMaterialRenderData_RenderThread(Section.MaterialSlotIndex)
+					: StaticProxy->ResolveMaterialRenderData_RenderThread(Section.MaterialSlotIndex);
 				FPreparedStaticMeshDraw Item;
 				Item.Material = ResolvedMaterial;
 				FMaterialRenderValidationDiagnostic BindingDiagnostic;
@@ -630,6 +685,7 @@ namespace Durin
 				Item.Section = &Section;
 				Item.ShaderMapIdentity = Item.Material.PipelineIdentity.ShaderMap;
 				Item.PipelineKey.Material = Item.Material.PipelineIdentity;
+				Item.PipelineKey.VertexDomain = Result.Primitives[PrimitiveIndex].VertexDomain;
 				Item.PipelineKey.Rasterizer.PolygonMode =
 					RasterMode == ERasterMode::Wireframe ? ERHIPolygonMode::Line : ERHIPolygonMode::Fill;
 				Item.PipelineKey.Rasterizer.CullMode =
@@ -722,6 +778,15 @@ namespace Durin
 				++Result.RejectedPrimitives;
 				continue;
 			}
+			if (bSplineMesh)
+			{
+				++Result.PreparedSplinePrimitives;
+				Result.PreparedSplineSections += PreparedSectionCount;
+				Result.PreparedSplineTriangles += Result.SelectedTriangles - FirstTriangleCount;
+				Result.RetainedSplineDeformationBytes += sizeof(FSplineMeshRenderDynamicData);
+				Result.AcceptedSplineDynamicUpdates += SplineProxy->GetAcceptedDynamicUpdateCount();
+			}
+			else ++Result.PreparedLocalPrimitives;
 			Result.SelectedSections += PreparedSectionCount;
 			const size_t HistogramSize = RenderData->LODResources.size();
 			Result.RequestedLODHistogram.resize(
@@ -731,6 +796,8 @@ namespace Durin
 			++Result.RequestedLODHistogram[RequestedLODIndex];
 			++Result.SelectedLODHistogram[SelectedLODIndex];
 		}
+		Result.RejectedSplinePrimitives = Result.VisibleSplineCandidates
+			- std::min(Result.VisibleSplineCandidates, Result.PreparedSplinePrimitives);
 		auto CountInputStateGroups = [](const auto& Bucket) -> size_t {
 			if (Bucket.empty())
 			{
@@ -940,6 +1007,7 @@ namespace Durin
 				Item.Section = &Section;
 				Item.ShaderMapIdentity = Item.Material.PipelineIdentity.ShaderMap;
 				Item.PipelineKey.Material = Item.Material.PipelineIdentity;
+				Item.PipelineKey.VertexDomain = EVertexDeformationDomain::Skeletal;
 				Item.PipelineKey.Rasterizer.PolygonMode =
 					RasterMode == ERasterMode::Wireframe
 					? ERHIPolygonMode::Line : ERHIPolygonMode::Fill;
@@ -1139,12 +1207,14 @@ namespace Durin
 
 		using FShaderMapResult =
 			TRenderResourceCreateResult<FState::FShaderMapPayload>;
-		auto& ShaderMapEntry = State->ShaderMaps.FindOrAdd(
-			Material.PipelineIdentity.ShaderMap);
+		const FMeshShaderMapKey ShaderMapKey{
+			.Material = Material.PipelineIdentity.ShaderMap,
+			.VertexDomain = Primitive.VertexDomain};
+		auto& ShaderMapEntry = State->ShaderMaps.FindOrAdd(ShaderMapKey);
 		FState::FShaderMapPayload* ShaderMapPayload =
 			ShaderMapEntry.Slot.Resolve(
 				Coordinator.GetGeneration_RenderThread(),
-				[this, &Material]() -> FShaderMapResult {
+				[this, &Material, Domain = Primitive.VertexDomain]() -> FShaderMapResult {
 					const FMaterialShaderMapIdentity& Identity =
 						Material.PipelineIdentity.ShaderMap;
 					FShaderCompileOptions CompileOptions;
@@ -1160,8 +1230,10 @@ namespace Durin
 						"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS",
 						std::to_string(std::bit_cast<uint32>(
 							Identity.OpacityMaskThreshold)));
-					FShaderType& VertexShaderType =
-						FStaticMeshVertexShader::StaticType();
+					if (Domain == EVertexDeformationDomain::Spline)
+						CompileOptions.Macros.emplace_back("DURIN_SPLINE_MESH", "1");
+					FShaderType& VertexShaderType = Domain == EVertexDeformationDomain::Spline
+						? FSplineMeshVertexShader::StaticType() : FStaticMeshVertexShader::StaticType();
 					FShaderType& FragmentShaderType =
 						FStaticMeshFragmentShader::StaticType();
 					const std::array<const FShaderType*, 2> ShaderTypes = {
@@ -1180,8 +1252,7 @@ namespace Durin
 								ERenderResourceGenerationDependency::Shader
 									| ERenderResourceGenerationDependency::Manual));
 					}
-					auto* VertexShader = static_cast<FStaticMeshVertexShader*>(
-						ShaderMap->GetShader(&VertexShaderType));
+					FShader* VertexShader = ShaderMap->GetShader(&VertexShaderType);
 					auto* FragmentShader = static_cast<FStaticMeshFragmentShader*>(
 						ShaderMap->GetShader(&FragmentShaderType));
 					if (VertexShader == nullptr || FragmentShader == nullptr)
@@ -1197,11 +1268,16 @@ namespace Durin
 					}
 					FState::FShaderMapPayload Candidate;
 					Candidate.ShaderMap = std::move(ShaderMap);
-					Candidate.VertexShader = TShaderRef<FStaticMeshVertexShader>(
-						VertexShader, Candidate.ShaderMap.get());
+					if (Domain == EVertexDeformationDomain::Spline)
+						Candidate.SplineVertexShader = TShaderRef<FSplineMeshVertexShader>(
+							static_cast<FSplineMeshVertexShader*>(VertexShader), Candidate.ShaderMap.get());
+					else Candidate.VertexShader = TShaderRef<FStaticMeshVertexShader>(
+						static_cast<FStaticMeshVertexShader*>(VertexShader), Candidate.ShaderMap.get());
 					Candidate.FragmentShader = TShaderRef<FStaticMeshFragmentShader>(
 						FragmentShader, Candidate.ShaderMap.get());
-					if (Candidate.VertexShader.GetRHIShader(false) == nullptr
+					if ((Domain == EVertexDeformationDomain::Spline
+						? Candidate.SplineVertexShader.GetRHIShader(false)
+						: Candidate.VertexShader.GetRHIShader(false)) == nullptr
 						|| Candidate.FragmentShader.GetRHIShader(false) == nullptr)
 					{
 						return FShaderMapResult::Failure(
@@ -1237,12 +1313,14 @@ namespace Durin
 				FState::FPipelinePayload Candidate;
 				Candidate.ShaderMap = ShaderMapPayload->ShaderMap;
 				Candidate.VertexShader = ShaderMapPayload->VertexShader;
+				Candidate.SplineVertexShader = ShaderMapPayload->SplineVertexShader;
 				Candidate.FragmentShader = ShaderMapPayload->FragmentShader;
 				FGraphicsPipelineStateInitializer Initializer;
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeSceneTargets();
-				Initializer.BoundShaders.VertexShader =
-					Candidate.VertexShader.GetRHIShader();
+				Initializer.BoundShaders.VertexShader = Identity.VertexDomain == EVertexDeformationDomain::Spline
+					? Candidate.SplineVertexShader.GetRHIShader()
+					: Candidate.VertexShader.GetRHIShader();
 				Initializer.BoundShaders.FragmentShader =
 					Candidate.FragmentShader.GetRHIShader();
 				Initializer.VertexDeclaration = VertexFactory.GetDeclaration();
@@ -1478,6 +1556,11 @@ namespace Durin
 				&TransformUniform,
 				sizeof(TransformUniform)
 			);
+		const FSplineMeshUniform SplineUniform = MakeSplineMeshUniform(
+			Primitive.VertexDomain == EVertexDeformationDomain::Spline
+				? Primitive.SplineDynamicData.Params : FSplineMeshParams{});
+		const FRHIUniformBufferRange SplineUniformBuffer =
+			CommandList.AllocateDynamicUniformBuffer(&SplineUniform, sizeof(SplineUniform));
 
 		VertexFactory.BindStreams(CommandList);
 		CommandList.BindIndexBuffer(LOD.IndexBuffer.GetRHI(), 0);
@@ -1498,13 +1581,19 @@ namespace Durin
 
 		CommandList.SetGraphicsPipelineState(*Pipeline->PipelineState);
 
-		FStaticMeshVertexShader::FParameters VertexShaderParameters;
-		VertexShaderParameters.Transform = TransformUniformBuffer;
-		SetShaderParameters(
-			CommandList,
-			Pipeline->VertexShader,
-			VertexShaderParameters
-		);
+		if (Primitive.VertexDomain == EVertexDeformationDomain::Spline)
+		{
+			FSplineMeshVertexShader::FParameters Parameters;
+			Parameters.Transform = TransformUniformBuffer;
+			Parameters.SplineMesh = SplineUniformBuffer;
+			SetShaderParameters(CommandList, Pipeline->SplineVertexShader, Parameters);
+		}
+		else
+		{
+			FStaticMeshVertexShader::FParameters Parameters;
+			Parameters.Transform = TransformUniformBuffer;
+			SetShaderParameters(CommandList, Pipeline->VertexShader, Parameters);
+		}
 
 		FStaticMeshMaterialUniform MaterialUniform;
 		MaterialUniform.BaseColor = MaterialBinding.BaseColor;

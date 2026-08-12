@@ -10,6 +10,7 @@
 #include "Scene.h"
 #include "SceneView.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
+#include "Spline/SplineMeshDeformer.h"
 #include "Shader/Shader.h"
 #include "Shader/ShaderCompilerCore.h"
 
@@ -110,6 +111,70 @@ namespace
 		return Data;
 	}
 
+	auto MakeSplineSourceRenderData() -> std::unique_ptr<Durin::FStaticMeshRenderData>
+	{
+		auto Data = std::make_unique<Durin::FStaticMeshRenderData>();
+		Data->MaterialSlots = {{"Opaque", 0}, {"Masked", 1}, {"Translucent", 2}};
+		Data->LODResources.resize(1);
+		auto& LOD = Data->LODResources[0];
+		LOD.VertexBuffers.PositionVertexBuffer.Init({
+			{-0.8f, -0.25f, 0.0f}, {0.8f, -0.25f, 0.0f}, {0.0f, 0.25f, 0.0f}});
+		LOD.VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer.Init(
+			std::vector<Durin::FVector3f>(3, {0.0f, 0.0f, 1.0f}),
+			std::vector<Durin::FVector4f>(3, {1.0f, 0.0f, 0.0f, 1.0f}));
+		std::array<std::vector<Durin::FVector2f>, Durin::MaxStaticMeshUVChannels> UVs;
+		UVs[0] = {{0.0f, 0.0f}, {1.0f, 0.0f}, {0.5f, 1.0f}};
+		LOD.VertexBuffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.Init(std::move(UVs), 3, 1);
+		LOD.VertexBuffers.ColorVertexBuffer.Init(
+			std::vector<Durin::FVector4f>(3, Durin::FVector4f(1.0f)), 3);
+		LOD.IndexBuffer.Init({0, 1, 2, 0, 1, 2, 0, 1, 2});
+		for (Durin::uint32 SectionIndex = 0; SectionIndex < 3; ++SectionIndex)
+			LOD.Sections.push_back({.Name = std::format("Spline{}", SectionIndex),
+				.FirstIndex = SectionIndex * 3, .IndexCount = 3,
+				.MinVertexIndex = 0, .MaxVertexIndex = 2, .MaterialSlotIndex = SectionIndex,
+				.LocalBounds = Durin::FBox({-0.8, -0.25, 0.0}, {0.8, 0.25, 0.0})});
+		LOD.LocalBounds = LOD.Sections[0].LocalBounds;
+		Data->LODVertexFactories.resize(1);
+		Data->RecalculateBounds();
+		return Data;
+	}
+
+	auto MakeSplineRoadRenderData() -> std::unique_ptr<Durin::FStaticMeshRenderData>
+	{
+		auto Data = std::make_unique<Durin::FStaticMeshRenderData>();
+		Data->MaterialSlots = {{"Opaque", 0}};
+		auto& LOD = Data->LODResources.emplace_back();
+		std::vector<Durin::FVector3f> Positions;
+		std::vector<Durin::uint32> Indices;
+		std::array<std::vector<Durin::FVector2f>, Durin::MaxStaticMeshUVChannels> UVs;
+		Positions.reserve(256); UVs[0].reserve(256); Indices.reserve(254 * 3);
+		for (Durin::uint32 Slice = 0; Slice < 128; ++Slice)
+		{
+			const float X = static_cast<float>(Slice) / 127.0f;
+			Positions.push_back({X, -0.5f, 0.0f}); Positions.push_back({X, 0.5f, 0.0f});
+			UVs[0].push_back({X, 0.0f}); UVs[0].push_back({X, 1.0f});
+			if (Slice == 0) continue;
+			const Durin::uint32 Base = (Slice - 1) * 2;
+			Indices.insert(Indices.end(), {Base, Base + 1, Base + 2,
+				Base + 1, Base + 3, Base + 2});
+		}
+		LOD.VertexBuffers.PositionVertexBuffer.Init(std::move(Positions));
+		LOD.VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer.Init(
+			std::vector<Durin::FVector3f>(256, {0.0f, 0.0f, 1.0f}),
+			std::vector<Durin::FVector4f>(256, {1.0f, 0.0f, 0.0f, 1.0f}));
+		LOD.VertexBuffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.Init(std::move(UVs), 256, 1);
+		LOD.VertexBuffers.ColorVertexBuffer.Init(
+			std::vector<Durin::FVector4f>(256, Durin::FVector4f(1.0f)), 256);
+		LOD.IndexBuffer.Init(std::move(Indices));
+		LOD.Sections.push_back({.Name = "Road", .FirstIndex = 0, .IndexCount = 254 * 3,
+			.MinVertexIndex = 0, .MaxVertexIndex = 255, .MaterialSlotIndex = 0,
+			.LocalBounds = Durin::FBox({0.0, -0.5, 0.0}, {1.0, 0.5, 0.0})});
+		LOD.LocalBounds = LOD.Sections[0].LocalBounds;
+		Data->LODVertexFactories.resize(1);
+		Data->RecalculateBounds();
+		return Data;
+	}
+
 	struct FSkeletalResourceLifecycleCommand
 	{
 		static constexpr auto GetName() -> const char*
@@ -141,6 +206,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	Durin::SetViewRenderCounterSink(CaptureCounters);
 
 	auto Complete = MakeRenderData();
+	auto SplineSource = MakeSplineSourceRenderData();
 	auto Malformed = MakeRenderData(false);
 	Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
 		[&](Durin::FRHICommandListImmediate& CommandList) {
@@ -224,6 +290,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			ASSERT_TRUE(Complete->InitResources(CommandList));
 			EXPECT_TRUE(Complete->IsReadyForRendering());
 			EXPECT_EQ(Complete->GetNumInitializedResources(), 7u);
+			ASSERT_TRUE(SplineSource->InitResources(CommandList));
 		});
 	Durin::FlushRenderingCommands();
 
@@ -561,10 +628,235 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	EXPECT_NE(AuxiliaryReadback->size(), TranslatedReadback->size());
 
 	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(1));
+	Durin::FSplineMeshRenderDynamicData SplineData{
+		.Params = {}, .LocalBounds = Durin::FBox({-1.0, -1.0, -0.1}, {1.0, 1.0, 0.1}),
+		.Revision = 1};
+	SplineData.Params.StartTangent = {1.5, 0.0, 0.0};
+	SplineData.Params.EndPosition = {0.7, 0.5, 0.0};
+	SplineData.Params.EndTangent = {0.0, 1.5, 0.0};
+	SplineData.Params.SourceForwardMin = -0.8;
+	SplineData.Params.SourceForwardMax = 0.8;
+	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(2),
+		std::make_unique<Durin::FSplineMeshSceneProxy>(SplineSource.get(),
+			std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1, SplineData),
+		Durin::FMatrix(1.0));
+	Durin::FlushRenderingCommands();
+	auto SplineReadback = std::make_shared<std::vector<Durin::uint8>>();
+	Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
+		[&Renderer, &Scene, SplineReadback](Durin::FRHICommandListImmediate& CommandList) {
+			Durin::GRenderFrameCounterRenderThread++;
+			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+			const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+				"SplineMeshValidationColor", 33, 33, Durin::EPixelFormat::SRGBA8_UNORM)
+				.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
+					| Durin::ETextureCreateFlags::ShaderResource
+					| Durin::ETextureCreateFlags::CPUReadback);
+			Durin::FTextureRHIRef Target = Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+			Durin::FSceneView View;
+			View.ViewProjectionMatrix = Durin::FMatrix(1.0);
+			View.ViewportWidth = 33;
+			View.ViewportHeight = 33;
+			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
+			View.Settings.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
+			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
+				Durin::ERenderViewResult::Success);
+			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(CommandList, Target, 0, 0, *SplineReadback));
+			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+		});
+	Durin::FlushRenderingCommands();
+	EXPECT_EQ(GLastCounters.VisibleSplineMeshCandidates, 1u);
+	EXPECT_EQ(GLastCounters.PreparedSplineMeshPrimitives, 1u);
+	EXPECT_EQ(GLastCounters.PreparedSplineMeshSections, 3u);
+	EXPECT_EQ(GLastCounters.PreparedSplineMeshTriangles, 3u);
+	EXPECT_EQ(GLastCounters.RetainedSplineMeshDeformationBytes,
+		sizeof(Durin::FSplineMeshRenderDynamicData));
+	EXPECT_EQ(SplineReadback->size(), 33u * 33u * 4u);
+	EXPECT_TRUE(std::ranges::any_of(*SplineReadback, [](Durin::uint8 Value) { return Value != 0; }));
+	auto CaptureSplineParity = [&](std::string Name) {
+		auto Result = std::make_shared<std::vector<Durin::uint8>>();
+		Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
+			[&Renderer, &Scene, Result, Name = std::move(Name)](Durin::FRHICommandListImmediate& CommandList) {
+				Durin::GRenderFrameCounterRenderThread++;
+				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+				const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+					Name.c_str(), 33, 33, Durin::EPixelFormat::SRGBA8_UNORM)
+					.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
+						| Durin::ETextureCreateFlags::ShaderResource
+						| Durin::ETextureCreateFlags::CPUReadback);
+				Durin::FTextureRHIRef Target = Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+				Durin::FSceneView View;
+				View.ViewProjectionMatrix = Durin::FMatrix(1.0);
+				View.ViewportWidth = 33;
+				View.ViewportHeight = 33;
+				View.Settings.RenderMode = Durin::ERenderMode::Unlit;
+				View.Settings.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
+				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}), Durin::ERenderViewResult::Success);
+				ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(CommandList, Target, 0, 0, *Result));
+				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+			});
+		Durin::FlushRenderingCommands();
+		return Result;
+	};
+	auto CpuSplineSource = MakeSplineSourceRenderData();
+	{
+		auto& LOD = CpuSplineSource->LODResources[0];
+		const auto SourcePositions = LOD.VertexBuffers.PositionVertexBuffer.GetPositions();
+		std::vector<Durin::FVector3f> CpuPositions;
+		std::vector<Durin::FVector3f> CpuNormals;
+		std::vector<Durin::FVector4f> CpuTangents;
+		CpuPositions.reserve(SourcePositions.size());
+		CpuNormals.reserve(SourcePositions.size());
+		CpuTangents.reserve(SourcePositions.size());
+		for (const Durin::FVector3f& SourcePosition : SourcePositions)
+		{
+			CpuPositions.emplace_back(Durin::FSplineMeshDeformer::DeformPosition(
+				SplineData.Params, Durin::FVector3(SourcePosition)));
+			const Durin::FSplineMeshTangentBasis Basis = Durin::FSplineMeshDeformer::DeformTangentBasis(
+				SplineData.Params, Durin::FVector3(SourcePosition), {0.0, 0.0, 1.0},
+				{1.0, 0.0, 0.0}, 1.0);
+			CpuNormals.emplace_back(Basis.Normal);
+			CpuTangents.emplace_back(Durin::FVector3f(Basis.Tangent), static_cast<float>(Basis.Handedness));
+		}
+		LOD.VertexBuffers.PositionVertexBuffer.Init(std::move(CpuPositions));
+		LOD.VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer.Init(
+			std::move(CpuNormals), std::move(CpuTangents));
+		LOD.LocalBounds = SplineData.LocalBounds;
+		CpuSplineSource->RecalculateBounds();
+	}
+	Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
+		[&CpuSplineSource](Durin::FRHICommandListImmediate& CommandList) {
+			ASSERT_TRUE(CpuSplineSource->InitResources(CommandList));
+		});
+	Durin::FlushRenderingCommands();
+	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(2),
+		std::make_unique<Durin::FStaticMeshSceneProxy>(CpuSplineSource.get(),
+			std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1), Durin::FMatrix(1.0));
+	Durin::FlushRenderingCommands();
+	const auto CpuCurvedReadback = CaptureSplineParity("CpuCurvedSplineMeshColor");
+	EXPECT_EQ(*SplineReadback, *CpuCurvedReadback);
+	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(2),
+		std::make_unique<Durin::FSplineMeshSceneProxy>(SplineSource.get(),
+			std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1, SplineData),
+		Durin::FMatrix(1.0));
+	Durin::FlushRenderingCommands();
+	auto IdentityData = SplineData;
+	IdentityData.Revision = 2;
+	IdentityData.Params.StartPosition = {-0.8, 0.0, 0.0};
+	IdentityData.Params.StartTangent = {1.6, 0.0, 0.0};
+	IdentityData.Params.EndPosition = {0.8, 0.0, 0.0};
+	IdentityData.Params.EndTangent = {1.6, 0.0, 0.0};
+	Scene.UpdateSplineMeshDynamicData(Durin::FPrimitiveSceneId(2), IdentityData);
+	Durin::FlushRenderingCommands();
+	const auto IdentitySplineReadback = CaptureSplineParity("IdentitySplineMeshColor");
+	EXPECT_EQ(GLastCounters.AcceptedSplineMeshDynamicUpdates, 1u);
+	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(2),
+		std::make_unique<Durin::FStaticMeshSceneProxy>(SplineSource.get(),
+			std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1), Durin::FMatrix(1.0));
+	Durin::FlushRenderingCommands();
+	const auto StaticParityReadback = CaptureSplineParity("StaticMeshParityColor");
+	EXPECT_EQ(*IdentitySplineReadback, *StaticParityReadback);
+	EXPECT_NE(*SplineReadback, *IdentitySplineReadback);
+	if (std::getenv("DURIN_RUN_SPLINE_PROFILE") != nullptr)
+	{
+		auto RoadSource = MakeSplineRoadRenderData();
+		Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
+			[&RoadSource](Durin::FRHICommandListImmediate& CommandList) {
+				ASSERT_TRUE(RoadSource->InitResources(CommandList));
+			});
+		Durin::FlushRenderingCommands();
+		Durin::FScene ProfileScene;
+		auto SegmentTransform = [](Durin::uint32 Index) {
+			const double X = -0.9 + static_cast<double>(Index % 8) * 0.24;
+			const double Y = -0.9 + static_cast<double>(Index / 8) * 0.48;
+			return glm::translate(Durin::FMatrix(1.0), Durin::FVector3(X, Y, 0.0))
+				* glm::scale(Durin::FMatrix(1.0), Durin::FVector3(0.18, 0.18, 1.0));
+		};
+		for (Durin::uint32 Index = 0; Index < 32; ++Index)
+			ProfileScene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(100 + Index),
+				std::make_unique<Durin::FStaticMeshSceneProxy>(RoadSource.get(),
+					std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1), SegmentTransform(Index));
+		Durin::FlushRenderingCommands();
+		auto ProfileP95 = [&](const char* TargetName) {
+			constexpr Durin::uint32 WarmupFrames = 10;
+			constexpr Durin::uint32 MeasuredFrames = 120;
+			std::vector<Durin::FGPUTimingQueryRHIRef> Queries;
+			GSceneColorTimingQueries = &Queries;
+			Durin::SetSceneColorTimingQuerySink(CaptureSceneColorTiming);
+			Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
+				[&Renderer, &ProfileScene, TargetName](Durin::FRHICommandListImmediate& CommandList) {
+					const auto Desc = Durin::FRHITextureCreateDesc::Create2D(TargetName, 1920, 1080,
+						Durin::EPixelFormat::SRGBA8_UNORM).SetFlags(
+							Durin::ETextureCreateFlags::RenderTargetable | Durin::ETextureCreateFlags::ShaderResource);
+					Durin::FTextureRHIRef Target = Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+					Durin::FSceneView View; View.ViewProjectionMatrix = Durin::FMatrix(1.0);
+					View.ViewportWidth = 1920; View.ViewportHeight = 1080;
+					View.Settings.RenderMode = Durin::ERenderMode::Unlit;
+					View.Settings.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
+					for (Durin::uint32 Frame = 0; Frame < WarmupFrames + MeasuredFrames; ++Frame)
+					{
+						Durin::GRenderFrameCounterRenderThread++;
+						Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+						EXPECT_EQ(Renderer.RenderView(
+							CommandList, &ProfileScene, View, Target, false, {}),
+							Durin::ERenderViewResult::Success);
+						Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+					}
+				});
+			Durin::FlushRenderingCommands();
+			Durin::SetSceneColorTimingQuerySink(nullptr); GSceneColorTimingQueries = nullptr;
+			for (Durin::uint32 Attempt = 0; Attempt < 200; ++Attempt)
+			{
+				if (Queries.size() == WarmupFrames + MeasuredFrames
+					&& std::ranges::all_of(Queries, [](const auto& Query) {
+						return Query->GetResult().State == Durin::ERHIGPUTimingResultState::Ready; })) break;
+				Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
+					[](Durin::FRHICommandListImmediate& CommandList) {
+						Durin::GRenderFrameCounterRenderThread++;
+						Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+						Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+					});
+				Durin::FlushRenderingCommands();
+				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			}
+			std::vector<Durin::uint64> Durations;
+			for (size_t Index = WarmupFrames; Index < Queries.size(); ++Index)
+				if (const auto Result = Queries[Index]->GetResult();
+					Result.State == Durin::ERHIGPUTimingResultState::Ready)
+					Durations.push_back(Result.DurationNanoseconds);
+			std::ranges::sort(Durations);
+			EXPECT_EQ(Durations.size(), MeasuredFrames);
+			return Durations.size() == MeasuredFrames ? Durations[113] : Durin::uint64(0);
+		};
+		const Durin::uint64 StaticP95 = ProfileP95("StaticRoadProfile");
+		Durin::FSplineMeshRenderDynamicData RoadSpline{
+			.Params = {}, .LocalBounds = Durin::FBox({-0.1, -0.6, -0.2}, {1.1, 0.8, 0.4}), .Revision = 1};
+		RoadSpline.Params.StartTangent = {0.8, 0.5, 0.2};
+		RoadSpline.Params.EndPosition = {1.0, 0.25, 0.1};
+		RoadSpline.Params.EndTangent = {0.8, -0.2, 0.3};
+		RoadSpline.Params.SourceForwardMin = 0.0; RoadSpline.Params.SourceForwardMax = 1.0;
+		for (Durin::uint32 Index = 0; Index < 32; ++Index)
+			ProfileScene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(100 + Index),
+				std::make_unique<Durin::FSplineMeshSceneProxy>(RoadSource.get(),
+					std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1, RoadSpline), SegmentTransform(Index));
+		Durin::FlushRenderingCommands();
+		const Durin::uint64 SplineP95 = ProfileP95("SplineRoadProfile");
+		const Durin::uint64 Delta = SplineP95 > StaticP95 ? SplineP95 - StaticP95 : 0;
+		std::cout << "Spline profile: static_p95=" << StaticP95
+			<< " ns, spline_p95=" << SplineP95 << " ns, delta=" << Delta << " ns\n";
+		EXPECT_LE(Delta, 350'000u);
+		ProfileScene.Release(); Durin::FlushRenderingCommands();
+		Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
+			[&RoadSource](Durin::FRHICommandListImmediate&) { RoadSource->ReleaseResources(); });
+		Durin::FlushRenderingCommands();
+	}
+
+	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(2));
 	Durin::FlushRenderingCommands();
 	Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
-		[&Complete](Durin::FRHICommandListImmediate&) {
+		[&Complete, &SplineSource, &CpuSplineSource](Durin::FRHICommandListImmediate&) {
 			Complete->ReleaseResources();
+			SplineSource->ReleaseResources();
+			CpuSplineSource->ReleaseResources();
 		});
 	Durin::FlushRenderingCommands();
 	Renderer.ShutdownModule();

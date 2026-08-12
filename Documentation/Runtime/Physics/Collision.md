@@ -97,6 +97,26 @@ mesh, shape, and profile changes synchronize that handle. A no-collision compone
 component without valid body geometry has no scene entry and can recover after
 a later valid edit.
 
+`DSplineMeshComponent` adds an explicit
+`ESplineMeshCollisionMode::{Disabled,DeformedTriangleMesh}` policy. Disabled is
+the default and builds or retains no collision BVH. DeformedTriangleMesh builds
+one immutable triangle resource from the same normalized LOD 0 positions and
+indices used by exact editor picking and CPU/shader parity; its input identity
+combines the source render-resource revision and deformation revision. Rendering
+can remain valid when all deformed triangles are degenerate and collision is
+therefore invalid. A successful deformation publishes the new immutable CPU
+state before ordinary physics-state replacement, so the old handle is retired
+and no stale handle remains queryable. Disable, source removal/reimport,
+component retirement, Actor segment removal, PIE teardown, and World teardown
+release the body and shared geometry normally.
+
+`ASplineMeshActor` defaults generated segments to Disabled plus `NoCollision`.
+Its reflected path collision policy enables DeformedTriangleMesh and QueryOnly
+consistently for every segment. On the frozen 256-vertex/254-triangle road strip
+in `Win64-Debug-DurinEditor`, 300 post-warm-up synchronous builds measured 2.97
+ms p95; one payload multiplied by the 128-segment stress count retains 1,736,704
+bytes, below the 8 ms and 32 MiB gates.
+
 `AStaticMeshActor` selects `WorldStatic`; an independently created
 `DStaticMeshComponent` remains `NoCollision`. `DBoxComponent`,
 `DSphereComponent`, and `DCapsuleComponent` publish analytic geometry without

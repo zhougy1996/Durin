@@ -120,6 +120,27 @@ With no drag, it clears the point/tangent selection. A later press exits Spline
 mode and returns to Select. Deleting the target component, changing documents,
 or entering read-only mode performs the same safe cancellation and exit.
 
+## Authoring a SplineMesh Path
+
+Place **Spline Mesh Actor** from the Actor placement list, select the Actor row
+in Details, and assign a StaticMesh whose LOD 0 has a finite extent along the
+chosen forward axis. Configure the optional material, scale, roll, offset,
+frame up direction, interpolation, visibility, and collision policies. The
+**Path Output** row reports the generated segment count or an actionable native
+construction error.
+
+Choose **Edit Spline** to select the Actor's native spline root and enter Spline
+mode. Every outgoing point creates one read-only generated SplineMesh segment;
+a closed loop also creates the last-to-first seam. Point drags update existing
+segment identities, while insert/delete/reorder and loop changes reconcile by
+stable point GUID. Generated rows are diagnostic output—edit the Actor or
+Spline, not those rows. Save/reload, duplicate, Undo/Redo, Cancel, and PIE
+regenerate the same derived path without saving generated child objects.
+
+Collision is opt-in. Enabling the path collision policy publishes QueryOnly
+deformed LOD 0 triangle bodies for all segments. Leave it disabled while
+authoring when collision queries are unnecessary.
+
 ## Editor View Versus Game Camera
 
 The editor view is used only for editing the scene:

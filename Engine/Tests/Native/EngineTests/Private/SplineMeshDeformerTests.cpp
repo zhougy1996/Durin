@@ -1,9 +1,11 @@
 #include "Math/Operations.h"
+#include "Collision/CollisionGeometry.h"
 #include "Spline/SplineMeshDeformer.h"
 
 #include <gtest/gtest.h>
 
 #include <random>
+#include <chrono>
 
 namespace
 {
@@ -213,4 +215,59 @@ TEST(FSplinePathFrameTests, OpenAndClosedFramesAreDeterministicOrthonormalAndSea
 		ExpectVectorNear(Math::Cross(A.Forward, A.Side), A.Up);
 	}
 	ExpectVectorNear(First.GetSamples().front().Frame.Up, First.GetSamples().back().Frame.Up, 1.e-6);
+}
+
+TEST(FSplineMeshCollisionBudgetTests, FrozenRoadStripMeetsSynchronousBuildAndRetentionBudgets)
+{
+	if (std::getenv("DURIN_RUN_SPLINE_PROFILE") == nullptr)
+		GTEST_SKIP() << "Set DURIN_RUN_SPLINE_PROFILE=1 for isolated performance qualification.";
+	std::vector<FVector3> SourcePositions;
+	std::vector<uint32> Indices;
+	SourcePositions.reserve(256);
+	Indices.reserve(254 * 3);
+	for (uint32 Slice = 0; Slice < 128; ++Slice)
+	{
+		const double X = static_cast<double>(Slice) / 127.0;
+		SourcePositions.push_back({X, -0.5, 0.0});
+		SourcePositions.push_back({X, 0.5, 0.0});
+		if (Slice == 0) continue;
+		const uint32 Base = (Slice - 1) * 2;
+		Indices.insert(Indices.end(), {Base, Base + 1, Base + 2,
+			Base + 1, Base + 3, Base + 2});
+	}
+	ASSERT_EQ(SourcePositions.size(), 256u);
+	ASSERT_EQ(Indices.size() / 3, 254u);
+	FSplineMeshParams Params;
+	Params.StartPosition = {0.0, 0.0, 0.0};
+	Params.StartTangent = {0.7, 1.4, 0.3};
+	Params.EndPosition = {1.0, 1.0, 0.5};
+	Params.EndTangent = {1.2, -0.3, 0.7};
+	Params.StartRollRadians = -0.25;
+	Params.EndRollRadians = 0.6;
+	Params.SourceForwardMin = 0.0;
+	Params.SourceForwardMax = 1.0;
+	std::vector<double> BuildMilliseconds;
+	BuildMilliseconds.reserve(300);
+	FCollisionGeometryRef LastGeometry;
+	for (uint32 Iteration = 0; Iteration < 320; ++Iteration)
+	{
+		Params.EndPosition.z = 0.5 + static_cast<double>(Iteration % 7) * 0.001;
+		const auto Start = std::chrono::steady_clock::now();
+		std::vector<FVector3> Deformed;
+		Deformed.reserve(SourcePositions.size());
+		for (const FVector3& Position : SourcePositions)
+			Deformed.push_back(FSplineMeshDeformer::DeformPosition(Params, Position));
+		LastGeometry = FCollisionGeometryRef::BuildTriangleMesh(Deformed, Indices);
+		const auto End = std::chrono::steady_clock::now();
+		ASSERT_TRUE(LastGeometry.IsValid());
+		if (Iteration >= 20)
+			BuildMilliseconds.push_back(std::chrono::duration<double, std::milli>(End - Start).count());
+	}
+	std::ranges::sort(BuildMilliseconds);
+	const double P95Milliseconds = BuildMilliseconds[284];
+	const uint64 StressRetainedBytes = LastGeometry.GetRetainedBytes() * 128u;
+	RecordProperty("collision_road_p95_ms", P95Milliseconds);
+	RecordProperty("collision_128_segments_retained_bytes", StressRetainedBytes);
+	EXPECT_LE(P95Milliseconds, 8.0);
+	EXPECT_LE(StressRetainedBytes, 32ull * 1024ull * 1024ull);
 }

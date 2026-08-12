@@ -6,6 +6,7 @@
 #include "Settings/ProjectDefaultLevelReferenceStore.h"
 #include "Engine/Level.h"
 #include "Actors/PlayerStart.h"
+#include "Actors/SplineMeshActor.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "Widgets/MLevelEditor.h"
 #include "Customizations/CameraEditorCustomizations.h"
@@ -51,6 +52,7 @@ namespace Durin
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DCameraComponent::StaticClass(), CreateCameraDetailsCustomization()));
 		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DSplineComponent::StaticClass(), CreateSplineComponentVisualizer()));
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DSplineComponent::StaticClass(), CreateSplineDetailsCustomization()));
+		CustomizationHandles.push_back(Registry.RegisterObjectDetails(ASplineMeshActor::StaticClass(), CreateSplineMeshActorDetailsCustomization()));
 		SplineEditModeHandle = RegisterSplineViewportEditMode();
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DStaticMeshComponent::StaticClass(), CreateStaticMeshComponentDetailsCustomization()));
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DSkyBoxComponent::StaticClass(), CreateSkyBoxDetailsCustomization()));

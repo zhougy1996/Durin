@@ -127,6 +127,7 @@ namespace Durin::Editor::Level
 			const bool bHasChildren = ChildrenIt != SceneChildren.end() && !ChildrenIt->second.empty();
 			const bool bIsRoot = Component == Actor->GetRootComponent();
 			const bool bIsInstance = Actor->IsInstanceComponent(Component);
+			const bool bIsGenerated = Component->GetCreationMethod() == EComponentCreationMethod::Generated;
 			ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
 			if (!bHasChildren) Flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
 			if (Context.GetSelectedComponent() == Component) Flags |= ImGuiTreeNodeFlags_Selected;
@@ -137,14 +138,16 @@ namespace Durin::Editor::Level
 				ImGui::SetNextItemOpen(true, ImGuiCond_Always);
 				PendingExpandComponent = nullptr;
 			}
-			const std::string Status = bIsRoot ? std::format("Root, {}", bIsInstance ? "Instance" : "Default") : bIsInstance ? "Instance" : "Default";
+			const std::string Status = bIsGenerated ? "Generated, Read-only"
+				: bIsRoot ? std::format("Root, {}", bIsInstance ? "Instance" : "Default")
+				: bIsInstance ? "Instance" : "Default";
 			const std::string Label = std::format("{}  ({})  [{}]", Component->GetName(), ClassDisplayName(Component->GetClass()), Status);
 			const bool bOpen = MonaImGui::CompactTreeNode("##Component", Flags, "%s", Label.c_str());
 			if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) Context.SelectComponent(Component);
 			if (ImGui::BeginPopupContextItem("ComponentContext"))
 			{
 				Context.SelectComponent(Component);
-				if (Context.bReadOnly) ImGui::BeginDisabled();
+				if (Context.bReadOnly || bIsGenerated) ImGui::BeginDisabled();
 				if (ImGui::MenuItem("Add Component")) QueueAddComponent(nullptr, false);
 				if (SceneComponent && ImGui::MenuItem("Add Child Component")) QueueAddComponent(SceneComponent, true);
 				ImGui::Separator();
@@ -174,21 +177,28 @@ namespace Durin::Editor::Level
 					ImGui::MenuItem("Default component cannot be deleted");
 					ImGui::EndDisabled();
 				}
-				if (Context.bReadOnly) ImGui::EndDisabled();
+				if (Context.bReadOnly || bIsGenerated) ImGui::EndDisabled();
+				if (bIsGenerated)
+				{
+					ImGui::Separator();
+					if (ImGui::MenuItem("Edit Owning Spline"))
+						Context.SelectComponent(SceneComponent && SceneComponent->GetAttachParent()
+							? SceneComponent->GetAttachParent() : Actor->GetRootComponent());
+				}
 				ImGui::Separator();
 				if (ImGui::MenuItem("Copy Component Name")) ImGui::SetClipboardText(Component->GetName().c_str());
 				if (ImGui::MenuItem("Copy Component Type")) ImGui::SetClipboardText(Component->GetClass()->GetQualifiedName().ToString().c_str());
 				ImGui::EndPopup();
 			}
 
-			if (!Context.bReadOnly && SceneComponent && !bIsRoot && ImGui::BeginDragDropSource())
+			if (!Context.bReadOnly && !bIsGenerated && SceneComponent && !bIsRoot && ImGui::BeginDragDropSource())
 			{
 				DSceneComponent* PayloadComponent = SceneComponent;
 				ImGui::SetDragDropPayload(ComponentDragPayload, &PayloadComponent, sizeof(PayloadComponent));
 				ImGui::Text("Move %s", Component->GetName().c_str());
 				ImGui::EndDragDropSource();
 			}
-			if (!Context.bReadOnly && SceneComponent && ImGui::BeginDragDropTarget())
+			if (!Context.bReadOnly && !bIsGenerated && SceneComponent && ImGui::BeginDragDropTarget())
 			{
 				if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(ComponentDragPayload))
 				{
@@ -274,7 +284,9 @@ namespace Durin::Editor::Level
 		const bool bComponentsFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 		if (!Context.bReadOnly && bComponentsFocused && !IO.WantTextInput && Context.GetSelectedComponent())
 		{
-			if (ImGui::IsKeyPressed(ImGuiKey_F2, false)) BeginRenameComponent(Context.GetSelectedComponent());
+			if (ImGui::IsKeyPressed(ImGuiKey_F2, false)
+				&& Context.GetSelectedComponent()->GetCreationMethod() != EComponentCreationMethod::Generated)
+				BeginRenameComponent(Context.GetSelectedComponent());
 			if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D, false) && Actor->IsInstanceComponent(Context.GetSelectedComponent()) && Context.GetSelectedComponent() != Actor->GetRootComponent()) DuplicateComponent(Context.GetSelectedComponent());
 			if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) && Actor->IsInstanceComponent(Context.GetSelectedComponent()))
 			{

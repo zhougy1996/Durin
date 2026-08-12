@@ -21,12 +21,27 @@ namespace Durin
 		Translucent,
 	};
 
+	enum class EVertexDeformationDomain : uint8
+	{
+		Local,
+		Spline,
+		Skeletal
+	};
+
+	struct FMeshShaderMapKey
+	{
+		FMaterialShaderMapIdentity Material;
+		EVertexDeformationDomain VertexDomain = EVertexDeformationDomain::Local;
+		auto operator==(const FMeshShaderMapKey&) const -> bool = default;
+	};
+
 	struct FEffectiveStaticMeshPipelineKey
 	{
 		FMaterialPipelineIdentity Material;
 		FRHIRasterizerState Rasterizer;
 		FRHIDepthStencilState Depth;
 		FRHIColorBlendState ColorBlend;
+		EVertexDeformationDomain VertexDomain = EVertexDeformationDomain::Local;
 
 		auto operator==(const FEffectiveStaticMeshPipelineKey&) const
 			-> bool = default;
@@ -36,7 +51,7 @@ namespace Durin
 	// grouping happens before deterministic primitive/section tie breaking.
 	struct FStaticMeshDrawSortKey
 	{
-		std::array<uint32, 25> Pipeline{};
+		std::array<uint32, 26> Pipeline{};
 		std::vector<uint8> MaterialUniform;
 		std::array<uint32, 1 + MaxVertexElementCount * 5> VertexFactory{};
 		std::array<uint32, 6> Geometry{};
@@ -62,6 +77,8 @@ namespace Durin
 		uint32 SelectedLODIndex = 0;
 		const FStaticMeshLODResources* LOD = nullptr;
 		const FLocalVertexFactory* VertexFactory = nullptr;
+		EVertexDeformationDomain VertexDomain = EVertexDeformationDomain::Local;
+		FSplineMeshRenderDynamicData SplineDynamicData;
 		FMatrix LocalToWorld{1.0};
 	};
 
@@ -91,6 +108,15 @@ namespace Durin
 		std::vector<size_t> RequestedLODHistogram;
 		std::vector<size_t> SelectedLODHistogram;
 		size_t VisibleCandidates = 0;
+		size_t VisibleLocalCandidates = 0;
+		size_t VisibleSplineCandidates = 0;
+		size_t PreparedLocalPrimitives = 0;
+		size_t PreparedSplinePrimitives = 0;
+		size_t RejectedSplinePrimitives = 0;
+		size_t PreparedSplineSections = 0;
+		size_t PreparedSplineTriangles = 0;
+		size_t RetainedSplineDeformationBytes = 0;
+		size_t AcceptedSplineDynamicUpdates = 0;
 		size_t RejectedPrimitives = 0;
 		size_t ProjectedSizeFallbacks = 0;
 		size_t ResourceFallbacks = 0;
@@ -135,6 +161,7 @@ namespace Durin
 		const FRHICommandListImmediate& CommandList,
 		std::span<const FPrimitiveSceneInfo* const> SceneInfos,
 		const FSceneView& View,
-		ERasterMode RasterMode
+		ERasterMode RasterMode,
+		std::span<const FPrimitiveSceneInfo* const> SplineSceneInfos = {}
 	) -> FPreparedStaticMeshView;
 } // namespace Durin

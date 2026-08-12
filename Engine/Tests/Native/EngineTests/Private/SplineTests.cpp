@@ -1,4 +1,6 @@
 #include "Components/SplineComponent.h"
+#include "Components/SplineMeshComponent.h"
+#include "Actors/SplineMeshActor.h"
 #include "AssetSystem.h"
 #include "CoreGlobals.h"
 #include "DObject/Archive.h"
@@ -14,6 +16,7 @@
 #include "Math/Operations.h"
 #include "NativeTestSupport.h"
 #include "Spline/SplineCurve.h"
+#include "StaticMesh/StaticMesh.h"
 
 #include <gtest/gtest.h>
 
@@ -394,6 +397,72 @@ TEST(FSplineEditingTests, SharedTransactionsPublishSnapshotsAndPreserveStablePat
 	Transactions.Clear();
 	Durin::MarkAsGarbage(Spline);
 	Durin::CollectGarbage();
+}
+
+TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoReconcileWithoutIdentityChurn)
+{
+	InitializeDObjectSystem();
+	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "SplineMeshActorEditing";
+	static std::unordered_set<std::filesystem::path> InitializedRoots;
+	if (InitializedRoots.insert(Root).second)
+	{
+		Durin::Testing::RemoveTestWorkDirectory(Root);
+		Durin::PathUtilities::RegisterMountPointForTests(
+			"/SplineMeshActorEditing/", Root.generic_string() + "/");
+	}
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SplineMeshActorEditing/Transactions", Path));
+	Durin::DLevel* Level = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Level));
+	auto* Actor = Level->SpawnActor<Durin::ASplineMeshActor>("SplineMeshActor");
+	ASSERT_NE(Actor, nullptr);
+	Actor->SetPathMesh(Durin::DStaticMesh::CreateDebugTriangle(Level));
+	Actor->GetSplineComponent()->SetSplinePoints({MakePoint({0.0, 0.0, 0.0}),
+		MakePoint({100.0, 0.0, 0.0}), MakePoint({200.0, 0.0, 0.0})});
+	auto Segments = Actor->FindComponentsByClass<Durin::DSplineMeshComponent>();
+	ASSERT_EQ(Segments.size(), 2u);
+	Durin::DActorComponent* StableFirst = Segments.front();
+	const FSplineReflection Reflection = FSplineReflection::Resolve(Actor->GetSplineComponent());
+	ASSERT_NE(Reflection.Position, nullptr);
+
+	Durin::Editor::FTransactionManager Transactions;
+	Level->GetPackage()->ClearDirty();
+	Transactions.EstablishSavedState(*Level->GetPackage());
+	Durin::Editor::FPropertyView View;
+	std::string Error;
+	const Durin::Editor::FPropertyViewContext Context{
+		.Transactions = &Transactions,
+		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
+	};
+	auto SubmitPosition = [&](const Durin::FVector3& Position, bool bContinuous) {
+		return View.SubmitPropertyValueEdit(Context,
+			Reflection.PointFieldTarget(Actor->GetSplineComponent(), 1, Reflection.Position),
+			[&](Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
+				*Property->ContainerPtrToValuePtr<Durin::FVector3>(Container, ArrayIndex) = Position;
+			}, bContinuous);
+	};
+
+	ASSERT_TRUE(SubmitPosition({120.0, 25.0, 0.0}, true));
+	Segments = Actor->FindComponentsByClass<Durin::DSplineMeshComponent>();
+	EXPECT_NE(std::ranges::find(Segments, StableFirst), Segments.end());
+	ASSERT_TRUE(View.FinishActiveEdit(&Context, true));
+	ExpectVectorNear(Actor->GetSplineComponent()->GetSplinePoint(1)->Position, {100.0, 0.0, 0.0});
+	EXPECT_FALSE(Level->GetPackage()->IsDirty());
+
+	ASSERT_TRUE(SubmitPosition({130.0, 30.0, 0.0}, true));
+	ASSERT_TRUE(View.FinishActiveEdit(&Context, false));
+	EXPECT_TRUE(Transactions.CanUndo());
+	ASSERT_TRUE(Transactions.Undo());
+	ExpectVectorNear(Actor->GetSplineComponent()->GetSplinePoint(1)->Position, {100.0, 0.0, 0.0});
+	Segments = Actor->FindComponentsByClass<Durin::DSplineMeshComponent>();
+	EXPECT_NE(std::ranges::find(Segments, StableFirst), Segments.end());
+	ASSERT_TRUE(Transactions.Redo());
+	ExpectVectorNear(Actor->GetSplineComponent()->GetSplinePoint(1)->Position, {130.0, 30.0, 0.0});
+	Segments = Actor->FindComponentsByClass<Durin::DSplineMeshComponent>();
+	EXPECT_NE(std::ranges::find(Segments, StableFirst), Segments.end());
+	EXPECT_TRUE(Error.empty());
+	Transactions.Clear();
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
 }
 
 TEST(FSplineComponentTests, LevelPackageRoundTripsV2ControlPointsAndIds)

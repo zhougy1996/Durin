@@ -62,6 +62,13 @@ namespace Durin
 		size_t TerrainTopologyCreations = 0;
 		size_t TerrainTopologyReuses = 0;
 		size_t TerrainTopologyBytes = 0;
+		size_t VisibleSplineMeshCandidates = 0;
+		size_t PreparedSplineMeshPrimitives = 0;
+		size_t RejectedSplineMeshPrimitives = 0;
+		size_t PreparedSplineMeshSections = 0;
+		size_t PreparedSplineMeshTriangles = 0;
+		size_t RetainedSplineMeshDeformationBytes = 0;
+		size_t AcceptedSplineMeshDynamicUpdates = 0;
 		size_t PreparedStaticMeshPrimitives = 0;
 		size_t RejectedStaticMeshPrimitives = 0;
 		size_t PreparedStaticMeshSections = 0;
@@ -150,6 +157,7 @@ namespace Durin
 		std::vector<const FPrimitiveSceneInfo*> StaticMeshSceneInfos;
 		std::vector<const FPrimitiveSceneInfo*> SkeletalMeshSceneInfos;
 		std::vector<const FPrimitiveSceneInfo*> TerrainSceneInfos;
+		std::vector<const FPrimitiveSceneInfo*> SplineMeshSceneInfos;
 	};
 
 	// Classifies every authoritative live primitive once for one immutable view.

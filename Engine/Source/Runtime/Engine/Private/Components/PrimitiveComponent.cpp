@@ -185,10 +185,24 @@ namespace Durin
 		MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::Visibility);
 	}
 
+	auto DPrimitiveComponent::SetVisible(bool bInVisible) -> void
+	{
+		if (bVisible == bInVisible) return;
+		bVisible = bInVisible;
+		MarkPackageDirty();
+		MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::Visibility);
+	}
+
 	auto DPrimitiveComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		Super::PostEditChangeProperty(Event);
-		if (!Event.MemberProperty || Event.MemberProperty->NamePrivate != FName("BodyInstance")) return;
+		if (!Event.MemberProperty) return;
+		if (Event.MemberProperty->NamePrivate == FName("bVisible"))
+		{
+			MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::Visibility);
+			return;
+		}
+		if (Event.MemberProperty->NamePrivate != FName("BodyInstance")) return;
 		if (!BodyInstance.ProfileName.IsNone())
 		{
 			CollisionProfile::FProfile Profile;
@@ -237,14 +251,14 @@ namespace Durin
 
 		const FPrimitiveSceneId SceneId = EnsurePrimitiveSceneId();
 		const AActor* Owner = GetOwner();
-		const bool bVisible = Owner == nullptr || !Owner->IsHidden();
+		const bool bPrimitiveVisible = bVisible && (Owner == nullptr || !Owner->IsHidden());
 		if (EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Proxy))
 		{
 			std::unique_ptr<FPrimitiveSceneProxy> Proxy = CreateSceneProxy();
 			if (Proxy != nullptr)
 			{
 				Scene->AddOrReplacePrimitive(
-					SceneId, std::move(Proxy), GetRenderMatrix(), bVisible);
+					SceneId, std::move(Proxy), GetRenderMatrix(), bPrimitiveVisible);
 			}
 			else
 			{
@@ -254,7 +268,7 @@ namespace Durin
 		}
 		if (EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Visibility))
 		{
-			Scene->UpdatePrimitiveVisibility(SceneId, bVisible);
+			Scene->UpdatePrimitiveVisibility(SceneId, bPrimitiveVisible);
 		}
 
 		if (EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::Transform))

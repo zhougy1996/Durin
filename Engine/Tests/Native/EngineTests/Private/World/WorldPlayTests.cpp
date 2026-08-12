@@ -1,4 +1,7 @@
 #include "WorldTestSupport.h"
+#include "Actors/SplineMeshActor.h"
+#include "Components/SplineComponent.h"
+#include "Components/SplineMeshComponent.h"
 
 TEST(FWorldTests, StartsWithoutALevelAndActorOperationsAreSafe)
 {
@@ -49,6 +52,61 @@ TEST(FWorldTests, DuplicatesLevelForPlayWithoutDuplicatingExternalAssets)
 	EXPECT_FALSE(Durin::IsValid(PlayActor));
 	EXPECT_FALSE(Durin::IsValid(PlayComponent));
 	EXPECT_TRUE(Durin::IsValid(SharedMesh));
+	Durin::MarkObjectHierarchyAsGarbage(EditorWorld);
+	Durin::MarkAsGarbage(SharedMesh);
+	Durin::CollectGarbage();
+}
+
+TEST(FNativeConstructionPIETests, SplineMeshActorRegeneratesTransientSegmentsAndMutatesDuringPlay)
+{
+	Durin::DWorld* EditorWorld = CreateWorld();
+	auto* SourceActor = EditorWorld->SpawnActor<Durin::ASplineMeshActor>("SplinePath");
+	ASSERT_NE(SourceActor, nullptr);
+	auto* SharedMesh = Durin::DStaticMesh::CreateDebugTriangle();
+	SourceActor->SetPathMesh(SharedMesh);
+	SourceActor->GetSplineComponent()->SetSplinePoints({
+		Durin::FSplinePoint({0.0, 0.0, 0.0}),
+		Durin::FSplinePoint({100.0, 0.0, 0.0}),
+		Durin::FSplinePoint({200.0, 0.0, 0.0})});
+	SourceActor->SetPathCollisionEnabled(true);
+	const auto SourceSegments = SourceActor->FindComponentsByClass<Durin::DSplineMeshComponent>();
+	ASSERT_EQ(SourceSegments.size(), 2u);
+
+	Durin::DWorld* PlayWorld = CreateEmptyWorld();
+	PlayWorld->SetWorldType(Durin::EWorldType::PlayInEditor);
+	std::unordered_map<Durin::DObject*, Durin::DObject*> EditorToPlay;
+	std::string Error;
+	auto* PlayLevel = Durin::Cast<Durin::DLevel>(Durin::DuplicateObjectGraph(
+		EditorWorld->GetCurrentLevel(), PlayWorld, "PlayLevel", &Error, &EditorToPlay));
+	ASSERT_NE(PlayLevel, nullptr) << Error;
+	ASSERT_TRUE(PlayWorld->SetCurrentLevel(PlayLevel));
+	auto* PlayActor = Durin::Cast<Durin::ASplineMeshActor>(PlayLevel->FindActorByName("SplinePath"));
+	ASSERT_NE(PlayActor, nullptr);
+	const auto PlaySegments = PlayActor->FindComponentsByClass<Durin::DSplineMeshComponent>();
+	ASSERT_EQ(PlaySegments.size(), 2u);
+	EXPECT_EQ(PlayWorld->GetPhysicsScene().GetBodyCount(), 2u);
+	for (Durin::DActorComponent* SourceSegment : SourceSegments)
+		EXPECT_FALSE(EditorToPlay.contains(SourceSegment));
+	for (Durin::DActorComponent* PlaySegment : PlaySegments)
+	{
+		EXPECT_EQ(PlaySegment->GetCreationMethod(), Durin::EComponentCreationMethod::Generated);
+		EXPECT_TRUE(PlaySegment->IsRegistered());
+	}
+	ASSERT_TRUE(PlayWorld->BeginPlay({}));
+	for (Durin::DActorComponent* PlaySegment : PlaySegments) EXPECT_TRUE(PlaySegment->HasBegunPlay());
+	Durin::FSplinePoint Edited = *PlayActor->GetSplineComponent()->GetSplinePoint(1);
+	Edited.Position.y = 35.0;
+	ASSERT_TRUE(PlayActor->GetSplineComponent()->UpdateSplinePoint(1, Edited));
+	const auto MutatedSegments = PlayActor->FindComponentsByClass<Durin::DSplineMeshComponent>();
+	ASSERT_EQ(MutatedSegments.size(), 2u);
+	EXPECT_EQ(PlayWorld->GetPhysicsScene().GetBodyCount(), 2u);
+	for (Durin::DActorComponent* Segment : PlaySegments)
+		EXPECT_NE(std::ranges::find(MutatedSegments, Segment), MutatedSegments.end());
+	PlayWorld->EndPlay();
+	for (Durin::DActorComponent* PlaySegment : PlaySegments) EXPECT_FALSE(PlaySegment->HasBegunPlay());
+	ASSERT_TRUE(PlayWorld->SetCurrentLevel(nullptr, false));
+	EXPECT_EQ(PlayWorld->GetPhysicsScene().GetBodyCount(), 0u);
+	Durin::MarkObjectHierarchyAsGarbage(PlayWorld);
 	Durin::MarkObjectHierarchyAsGarbage(EditorWorld);
 	Durin::MarkAsGarbage(SharedMesh);
 	Durin::CollectGarbage();

@@ -28,6 +28,9 @@ namespace Durin
 	{
 		GENERATED_BODY()
 	public:
+		using FSplineMutationListener = std::function<void(
+			uint64 Revision, ESplineChangeFlags Flags,
+			std::shared_ptr<const FSplineEvaluationData> Evaluation)>;
 		ENGINE_API explicit DSplineComponent(const FObjectInitializer& ObjectInitializer);
 
 		auto GetSplineCurve() const -> const FSplineCurve& { return SplineCurve; }
@@ -62,6 +65,8 @@ namespace Durin
 
 		auto GetSplineRevision() const -> uint64 { return SplineRevision; }
 		auto GetLastSplineChangeFlags() const -> ESplineChangeFlags { return LastSplineChangeFlags; }
+		ENGINE_API auto AddSplineMutationListener(FSplineMutationListener Listener) -> uint64;
+		ENGINE_API auto RemoveSplineMutationListener(uint64 ListenerId) -> bool;
 
 		ENGINE_API auto UpdateSpline(ESplineChangeFlags ChangeFlags = ESplineChangeFlags::Build) -> void;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
@@ -77,5 +82,8 @@ namespace Durin
 		std::atomic<std::shared_ptr<const FSplineEvaluationData>> EvaluationData;
 		uint64 SplineRevision = 0;
 		ESplineChangeFlags LastSplineChangeFlags = ESplineChangeFlags::None;
+		std::vector<std::pair<uint64, FSplineMutationListener>> MutationListeners;
+		uint64 NextMutationListenerId = 1;
+		bool bPublishingMutation = false;
 	};
 } // namespace Durin

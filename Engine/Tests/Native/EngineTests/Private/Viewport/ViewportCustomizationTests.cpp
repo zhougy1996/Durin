@@ -1,5 +1,8 @@
 #include "ViewportTestSupport.h"
 #include "Math/Operations.h"
+#include "Actors/SplineMeshActor.h"
+#include "Components/SplineMeshComponent.h"
+#include "StaticMesh/StaticMesh.h"
 
 TEST(FSplineComponentVisualizerTests, EmitsSelectableCurveLinesAndControlPointBoxes)
 {
@@ -225,6 +228,61 @@ TEST(FSplineViewportAuthoringTests, ModeUsesGuidMultiSelectionAndTransactionalDe
 	Manager.Shutdown(&Context);
 	EXPECT_TRUE(Durin::Editor::Level::FLevelViewportEditModeRegistry::Get().Unregister(Handle));
 	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
+TEST(FSplineMeshActorViewportTests, PointTargetUpdatesGeneratedIdentityAndCancelRestoresOutput)
+{
+	InitializeDObjectSystem();
+	auto* World = Durin::NewObject<Durin::DWorld>(nullptr, "SplineMeshViewportWorld");
+	auto* Level = Durin::NewObject<Durin::DLevel>(World, "SplineMeshViewportLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	auto* Actor = Level->SpawnActor<Durin::ASplineMeshActor>("SplineMeshActor");
+	ASSERT_NE(Actor, nullptr);
+	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
+	Actor->SetPathMesh(Mesh);
+	Actor->GetSplineComponent()->SetSplinePoints({
+		Durin::FSplinePoint({0.0, 0.0, 0.0}), Durin::FSplinePoint({100.0, 0.0, 0.0}),
+		Durin::FSplinePoint({200.0, 0.0, 0.0})});
+	auto Segments = Actor->FindComponentsByClass<Durin::DSplineMeshComponent>();
+	ASSERT_EQ(Segments.size(), 2u);
+	Durin::DActorComponent* First = Segments[0];
+	Durin::DActorComponent* Second = Segments[1];
+	Durin::DSplineComponent* Spline = Actor->GetSplineComponent();
+	const Durin::FGuid MiddleId = Spline->GetSplinePoint(1)->Id;
+
+	Durin::Editor::Level::FLevelEditorContext Context;
+	Context.Synchronize(World);
+	Context.SelectActor(Actor);
+	Context.SelectComponent(Spline);
+	Context.SelectSubElement(Spline,
+		{Durin::Editor::Level::EEditorSubElementKind::Point, MiddleId});
+	const auto Handle = Durin::Editor::Level::RegisterSplineViewportEditMode();
+	ASSERT_TRUE(Handle);
+	Durin::Editor::Level::FLevelViewportEditModeManager Manager;
+	ASSERT_TRUE(Manager.Activate("Spline", Context));
+	auto Targets = Manager.GetActiveMode()->GetGizmoTargets(Context);
+	ASSERT_EQ(Targets.Targets.size(), 1u);
+	const Durin::FTransform Before = Targets.Targets[0]->GetTransform();
+	Durin::FTransform Dragged = Before;
+	Dragged.Translation.y += 40.0;
+	ASSERT_TRUE(Targets.Targets[0]->SetTransform(Dragged));
+	Segments = Actor->FindComponentsByClass<Durin::DSplineMeshComponent>();
+	EXPECT_NE(std::ranges::find(Segments, First), Segments.end());
+	EXPECT_NE(std::ranges::find(Segments, Second), Segments.end());
+	EXPECT_NEAR(Spline->GetSplinePoint(1)->Position.y, 40.0, 1.e-8);
+	EXPECT_EQ(Durin::Cast<Durin::DSplineMeshComponent>(First)->GetSplineMeshParams().EndPosition,
+		Spline->GetSplinePoint(1)->Position);
+	ASSERT_TRUE(Targets.Targets[0]->SetTransform(Before));
+	EXPECT_NEAR(Spline->GetSplinePoint(1)->Position.y, 0.0, 1.e-8);
+	Segments = Actor->FindComponentsByClass<Durin::DSplineMeshComponent>();
+	EXPECT_NE(std::ranges::find(Segments, First), Segments.end());
+	EXPECT_NE(std::ranges::find(Segments, Second), Segments.end());
+
+	Manager.Shutdown(&Context);
+	EXPECT_TRUE(Durin::Editor::Level::FLevelViewportEditModeRegistry::Get().Unregister(Handle));
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::MarkAsGarbage(Mesh);
 	Durin::CollectGarbage();
 }
 

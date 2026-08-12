@@ -132,11 +132,39 @@ namespace Durin
 
 	auto DSplineComponent::UpdateSpline(ESplineChangeFlags ChangeFlags) -> void
 	{
+		checkf(!bPublishingMutation, "Spline mutation listeners must not mutate the publishing Spline component reentrantly.");
 		const bool bRepairedIds = SplineCurve.RepairPointIds();
 		if (bRepairedIds) ChangeFlags |= ESplineChangeFlags::Topology;
-		EvaluationData.store(SplineCurve.BuildEvaluationData());
+		const auto PublishedEvaluation = SplineCurve.BuildEvaluationData();
+		EvaluationData.store(PublishedEvaluation);
 		++SplineRevision;
 		LastSplineChangeFlags = ChangeFlags;
+		bPublishingMutation = true;
+		std::vector<uint64> ListenerIds;
+		ListenerIds.reserve(MutationListeners.size());
+		for (const auto& Entry : MutationListeners) ListenerIds.push_back(Entry.first);
+		for (uint64 ListenerId : ListenerIds)
+		{
+			const auto Found = std::ranges::find(MutationListeners, ListenerId,
+				[](const auto& Entry) { return Entry.first; });
+			if (Found != MutationListeners.end() && Found->second)
+				Found->second(SplineRevision, ChangeFlags, PublishedEvaluation);
+		}
+		bPublishingMutation = false;
+	}
+
+	auto DSplineComponent::AddSplineMutationListener(FSplineMutationListener Listener) -> uint64
+	{
+		if (!Listener) return 0;
+		const uint64 Id = NextMutationListenerId++;
+		MutationListeners.emplace_back(Id, std::move(Listener));
+		return Id;
+	}
+
+	auto DSplineComponent::RemoveSplineMutationListener(uint64 ListenerId) -> bool
+	{
+		return std::erase_if(MutationListeners,
+			[ListenerId](const auto& Entry) { return Entry.first == ListenerId; }) != 0;
 	}
 
 	auto DSplineComponent::PostLoad(std::string& OutError) -> bool

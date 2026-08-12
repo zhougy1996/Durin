@@ -94,6 +94,12 @@ namespace Durin
 		return static_cast<FTerrainSceneProxy&>(*Proxy);
 	}
 
+	auto FPrimitiveSceneInfo::GetSplineMeshProxy() const -> FSplineMeshSceneProxy&
+	{
+		check(Kind == EPrimitiveSceneProxyKind::SplineMesh);
+		return static_cast<FSplineMeshSceneProxy&>(*Proxy);
+	}
+
 	auto FPrimitiveSceneInfo::SetTransform(const FMatrix& InTransform) -> void
 	{
 		Transform = InTransform;
@@ -115,6 +121,16 @@ namespace Durin
 		return true;
 	}
 
+	auto FPrimitiveSceneInfo::UpdateSplineMeshDynamicData(
+		FSplineMeshRenderDynamicData DynamicData) -> bool
+	{
+		if (Kind != EPrimitiveSceneProxyKind::SplineMesh
+			|| !GetSplineMeshProxy().UpdateDynamicData_RenderThread(std::move(DynamicData))) return false;
+		LocalBounds = GetSplineMeshProxy().GetLocalBounds();
+		WorldBounds = TransformBounds(LocalBounds, Transform);
+		return true;
+	}
+
 	auto FScene::DetachPrimitive(FPrimitiveSceneInfo& Info) -> void
 	{
 		std::erase(PrimitiveSceneInfos, &Info);
@@ -123,6 +139,7 @@ namespace Durin
 		case EPrimitiveSceneProxyKind::StaticMesh: std::erase(StaticMeshSceneInfos, &Info); break;
 		case EPrimitiveSceneProxyKind::SkeletalMesh: std::erase(SkeletalMeshSceneInfos, &Info); break;
 		case EPrimitiveSceneProxyKind::Terrain: std::erase(TerrainSceneInfos, &Info); break;
+		case EPrimitiveSceneProxyKind::SplineMesh: std::erase(SplineMeshSceneInfos, &Info); break;
 		}
 	}
 
@@ -146,6 +163,7 @@ namespace Durin
 			case EPrimitiveSceneProxyKind::StaticMesh: StaticMeshSceneInfos.push_back(RawInfo); break;
 			case EPrimitiveSceneProxyKind::SkeletalMesh: SkeletalMeshSceneInfos.push_back(RawInfo); break;
 			case EPrimitiveSceneProxyKind::Terrain: TerrainSceneInfos.push_back(RawInfo); break;
+			case EPrimitiveSceneProxyKind::SplineMesh: SplineMeshSceneInfos.push_back(RawInfo); break;
 			}
 			PrimitiveInfosById.emplace(PrimitiveId, std::move(Info));
 		});
@@ -211,11 +229,27 @@ namespace Durin
 			});
 	}
 
+	auto FScene::UpdateSplineMeshDynamicData(
+		FPrimitiveSceneId PrimitiveId,
+		FSplineMeshRenderDynamicData DynamicData) -> void
+	{
+		if (PrimitiveId == InvalidPrimitiveSceneId || DynamicData.Revision == 0
+			|| !DynamicData.LocalBounds.bIsValid) return;
+		ENQUEUE_RENDER_COMMAND(UpdateSplineMeshDynamicData)(
+			[this, PrimitiveId, DynamicData = std::move(DynamicData)](FRHICommandListImmediate&) mutable {
+				CheckRenderingThread();
+				if (const auto Found = PrimitiveInfosById.find(PrimitiveId);
+					Found != PrimitiveInfosById.end())
+					Found->second->UpdateSplineMeshDynamicData(std::move(DynamicData));
+			});
+	}
+
 	auto FScene::Release() -> void
 	{
 		ENQUEUE_RENDER_COMMAND(ReleaseScene)([this](FRHICommandListImmediate&) {
 			CheckRenderingThread();
-			PrimitiveSceneInfos.clear(); StaticMeshSceneInfos.clear(); SkeletalMeshSceneInfos.clear(); TerrainSceneInfos.clear(); PrimitiveInfosById.clear();
+			PrimitiveSceneInfos.clear(); StaticMeshSceneInfos.clear(); SkeletalMeshSceneInfos.clear();
+			TerrainSceneInfos.clear(); SplineMeshSceneInfos.clear(); PrimitiveInfosById.clear();
 			DirectionalLightSceneInfos.clear(); PointLightSceneInfos.clear();
 			SpotLightSceneInfos.clear(); LightInfosById.clear();
 			SkyBoxSceneInfos.clear(); SkyBoxInfosById.clear();

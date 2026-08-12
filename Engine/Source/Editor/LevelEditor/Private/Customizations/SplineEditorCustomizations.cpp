@@ -1,6 +1,8 @@
 #include "Customizations/SplineEditorCustomizations.h"
 
 #include "Components/SplineComponent.h"
+#include "Components/SplineMeshComponent.h"
+#include "Actors/SplineMeshActor.h"
 #include "DObject/Package.h"
 #include "Editor/Transaction.h"
 #include "Engine/Actor.h"
@@ -594,6 +596,36 @@ namespace Durin::Editor::Level
 					});
 			}
 		};
+
+		class FSplineMeshActorDetailsCustomization final : public IObjectDetailsCustomization
+		{
+		public:
+			auto CustomizeDetails(FLevelEditorContext& Context, DObject* Object,
+				FObjectPropertyViewBuilder& Builder) -> void override
+			{
+				auto* Actor = Cast<ASplineMeshActor>(Object);
+				if (!Actor) return;
+				Builder.AddCustomRow("Spline Path Generated Segments Diagnostics Edit",
+					[Actor = TWeakObjectPtr<ASplineMeshActor>(Actor), &Context](
+						::Durin::Editor::FPropertyView&, const ::Durin::Editor::FPropertyViewContext& ViewContext) {
+						auto* Resolved = Actor.Get();
+						if (!Resolved) return false;
+						MonaImGui::PropertyEdit::BeginRow("Path Output", ViewContext.bReadOnly);
+						ImGui::Text("%zu generated segment(s)",
+							Resolved->FindComponentsByClass<DSplineMeshComponent>().size());
+						if (!Resolved->GetNativeConstructionError().empty())
+							ImGui::TextColored(MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Error),
+								"%s", Resolved->GetNativeConstructionError().c_str());
+						if (ImGui::Button("Edit Spline") && !ViewContext.bReadOnly)
+						{
+							Context.SelectComponent(Resolved->GetSplineComponent());
+							if (Context.ActivateViewportEditMode) Context.ActivateViewportEditMode("Spline");
+						}
+						MonaImGui::PropertyEdit::EndRow(ViewContext.bReadOnly);
+						return false;
+					});
+			}
+		};
 	} // namespace
 
 	auto CalculateSplineAppendPosition(const DSplineComponent& Spline) -> FVector3
@@ -646,6 +678,7 @@ namespace Durin::Editor::Level
 
 	auto CreateSplineComponentVisualizer() -> std::shared_ptr<IComponentEditorVisualizer> { return std::make_shared<FSplineComponentVisualizer>(); }
 	auto CreateSplineDetailsCustomization() -> std::shared_ptr<IObjectDetailsCustomization> { return std::make_shared<FSplineDetailsCustomization>(); }
+	auto CreateSplineMeshActorDetailsCustomization() -> std::shared_ptr<IObjectDetailsCustomization> { return std::make_shared<FSplineMeshActorDetailsCustomization>(); }
 	auto RegisterSplineViewportEditMode() -> FLevelViewportEditModeHandle
 	{
 		return FLevelViewportEditModeRegistry::Get().Register({
