@@ -79,6 +79,11 @@ namespace Durin
 		uint16 Minimum = 0;
 		uint16 Maximum = 0;
 
+		ENGINE_API auto Serialize(
+			FArchive& Ar,
+			Asset::ECookTargetPlatform TargetPlatform,
+			Asset::ECookTargetProfile TargetProfile) -> void;
+
 		ENGINE_API auto IsValid() const -> bool;
 		ENGINE_API auto GetSample(uint32 X, uint32 Y, uint16& OutSample) const -> bool;
 		// Queries an exact half-open sample rectangle; empty/out-of-range rectangles fail.
@@ -138,6 +143,13 @@ namespace Durin
 		ENGINE_API auto QueryMinMax(
 			uint32 MinX, uint32 MinY, uint32 MaxX, uint32 MaxY,
 			uint16& OutMinimum, uint16& OutMaximum) const -> bool;
+		ENGINE_API auto PublishAuthoringCandidate(
+			FTerrainHeightmapSourceImportData InSourceImportData,
+			uint64 InSourceFileSize,
+			int64 InSourceLastWriteTime,
+			std::shared_ptr<const FTerrainHeightmapPayload> InPayload,
+			std::string InDerivedDataKey,
+			std::string InDiagnostic) -> void;
 
 		ENGINE_API auto InitializeFromSamples(
 			uint32 InWidth,

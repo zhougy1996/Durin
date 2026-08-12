@@ -417,6 +417,26 @@ namespace Durin
 			MinX, MinY, MaxX, MaxY, OutMinimum, OutMaximum);
 	}
 
+	auto DTerrainHeightmap::PublishAuthoringCandidate(
+		FTerrainHeightmapSourceImportData InSourceImportData,
+		uint64 InSourceFileSize,
+		int64 InSourceLastWriteTime,
+		std::shared_ptr<const FTerrainHeightmapPayload> InPayload,
+		std::string InDerivedDataKey,
+		std::string InDiagnostic) -> void
+	{
+		SourceImportData = std::move(InSourceImportData);
+		SourceFileSize = InSourceFileSize;
+		SourceLastWriteTime = InSourceLastWriteTime;
+		SourceBitDepth = 16;
+		SourceChannelCount = 1;
+		DerivedDataKey = std::move(InDerivedDataKey);
+		bLoadedFromDerivedDataCache = false;
+		PublishPayload(std::move(InPayload), true);
+		SetBoundedDiagnostic(LastDiagnostic, std::move(InDiagnostic));
+		MarkPackageDirty();
+	}
+
 	auto DTerrainHeightmap::InitializeFromSamples(
 		uint32 InWidth,
 		uint32 InHeight,

@@ -1,6 +1,12 @@
 #include "Terrain/TerrainHeightmapBuildOperations.h"
 
 #include "AssetSystem.h"
+#include "DerivedDataObjectStore.h"
+#include "Serialization/Archive.h"
+#include "Terrain/TerrainHeightmapBuildKey.h"
+#include "Terrain/TerrainHeightmapDerivedData.h"
+#include "Hash/XxHash.h"
+#include "ImageDecoder.h"
 #include "Misc/DerivedDataCache.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -80,13 +86,69 @@ namespace Durin::AssetBuild
 		}
 	}
 
-	auto BuildTerrainHeightmapFromEncodedBytes(
-		DTerrainHeightmap& Heightmap,
-		std::span<const uint8> EncodedBytes,
-		const FSourcePath& SourcePath,
+	auto BuildTerrainHeightmap(
+		FTerrainHeightmapBuildRequest Request,
+		FTerrainHeightmapBuildProduct& OutProduct,
 		std::string& OutError) -> bool
 	{
-		return Heightmap.BuildFromEncodedBytes(EncodedBytes, SourcePath, OutError);
+		OutProduct = {};
+		std::shared_ptr<const FTerrainHeightmapPayload> Payload;
+		if (!BuildTerrainHeightmapPayload(
+			Request.Width, Request.Height, Request.Samples, Payload, OutError)) return false;
+		std::string Key = BuildTerrainHeightmapDerivedDataKey({
+			.SourceContentHash = {
+				.HashLow = Request.SourceContentHashLow,
+				.HashHigh = Request.SourceContentHashHigh},
+			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
+			.TargetProfile = Asset::ECookTargetProfile::Game}, OutError);
+		if (Key.empty()) return false;
+		if (Request.bPersistDerivedData)
+		{
+			std::vector<uint8> Bytes;
+			FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataPayload);
+			const_cast<FTerrainHeightmapPayload&>(*Payload).Serialize(
+				Ar, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game);
+			if (Ar.HasError())
+			{
+				OutError = Ar.GetFailure()->Message;
+				return false;
+			}
+			if (!Asset::FDerivedDataObjectStore(
+				"TerrainHeightmap/Objects", MaximumTerrainHeightmapPayloadBytes)
+				.Write(Key, Bytes, &OutError)) return false;
+		}
+		OutProduct = {
+			.Payload = std::move(Payload),
+			.DerivedDataKey = std::move(Key),
+			.SourceContentHashLow = Request.SourceContentHashLow,
+			.SourceContentHashHigh = Request.SourceContentHashHigh};
+		OutError.clear();
+		return true;
+	}
+
+	auto PublishTerrainHeightmapProduct(
+		DTerrainHeightmap& Heightmap,
+		FTerrainHeightmapBuildProduct Product,
+		const FTerrainHeightmapPublicationContext& Context,
+		std::string& OutError) -> bool
+	{
+		if (!Product.Payload || !Product.Payload->IsValid()
+			|| Product.DerivedDataKey.empty() || Context.SourcePath.IsEmpty())
+		{
+			OutError = "Terrain heightmap publication requires a complete product and provenance.";
+			return false;
+		}
+		Heightmap.PublishAuthoringCandidate({
+			.SourcePath = Context.SourcePath,
+			.SourceContentHashLow = Product.SourceContentHashLow,
+			.SourceContentHashHigh = Product.SourceContentHashHigh,
+			.DecoderId = Context.DecoderId,
+			.DecoderVersion = Context.DecoderVersion},
+			Context.SourceFileSize, Context.SourceLastWriteTime,
+			std::move(Product.Payload), std::move(Product.DerivedDataKey),
+			"Built canonical terrain heightmap payload from normalized height samples.");
+		OutError.clear();
+		return true;
 	}
 
 	auto ImportTerrainHeightmapAsset(
@@ -138,8 +200,26 @@ namespace Durin::AssetBuild
 			RollbackMountedSourceFile(MountedSource);
 			return {false, Created.Message, nullptr};
 		}
-		if (!BuildTerrainHeightmapFromEncodedBytes(
-			*Heightmap, EncodedBytes, MountedSource.SourcePath, Error))
+		Asset::FDecodedGrayscale16Image Decoded;
+		if (!Asset::DecodeGrayscale16PngFromMemory(EncodedBytes, Decoded, Error, {
+			.MaximumEncodedBytes = MaximumTerrainHeightmapEncodedBytes,
+			.MaximumDecodedPixels = MaximumTerrainHeightmapSamples}))
+		{
+			RollbackMountedSourceFile(MountedSource);
+			Asset::UnloadPackage(ParsedPath);
+			return {false, std::move(Error), nullptr};
+		}
+		const FXxHash128 Hash = FXxHash128::HashBuffer(EncodedBytes);
+		FTerrainHeightmapBuildProduct Product;
+		if (!BuildTerrainHeightmap({
+			.Samples = std::move(Decoded.Samples),
+			.Width = Decoded.Width,
+			.Height = Decoded.Height,
+			.SourceContentHashLow = Hash.HashLow,
+			.SourceContentHashHigh = Hash.HashHigh}, Product, Error)
+			|| !PublishTerrainHeightmapProduct(*Heightmap, std::move(Product), {
+				.SourcePath = MountedSource.SourcePath,
+				.SourceFileSize = EncodedBytes.size()}, Error))
 		{
 			RollbackMountedSourceFile(MountedSource);
 			Asset::UnloadPackage(ParsedPath);

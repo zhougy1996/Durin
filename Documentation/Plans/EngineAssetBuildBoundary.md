@@ -694,6 +694,16 @@ Dependencies: completed Texture2D pattern and no unresolved archive defect.
 - [ ] Remove Terrain asset self-build/source decode/key/write logic after direct
   import, reimport, repair, Cook and editor callers use the new operations.
 
+Stage 3 progress (2026-08-13): Engine platform/payload values now expose owning
+TextureCube TXPL and Terrain THPL `Serialize` operations. EngineAssetBuild owns
+new canonical TextureCube and Terrain key serializers plus a normalized
+height-sample request/product/publication path. StandardAssetImport now decodes
+single-asset TextureCube and Terrain reimport snapshots before invoking Build.
+The remaining unchecked work is intentional: legacy Runtime import/post-load,
+repair and Cook paths still own duplicate keys, payload adapters and source
+decoding, and the direct creation dialogs still use transitional Build import
+wrappers.
+
 #### Acceptance Gate
 
 - TextureCube and Terrain asset/platform/key/DDC/Cooked values all route through

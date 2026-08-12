@@ -12,6 +12,7 @@
 #include "Source/SourceReferenceIndex.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapBuildOperations.h"
+#include "Terrain/TerrainHeightmapBuildKey.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
@@ -203,33 +204,40 @@ TEST(FTerrainHeightmapDerivedDataTests, KeyAndPayloadRoundTripAreStableAndCorrup
 	std::shared_ptr<const Durin::FTerrainHeightmapPayload> Payload;
 	std::string Error;
 	ASSERT_TRUE(Durin::BuildTerrainHeightmapPayload(4, 3, Samples, Payload, Error)) << Error;
-	Durin::FTerrainHeightmapDerivedDataKeyInput KeyInput{
+	Durin::AssetBuild::FTerrainHeightmapBuildKeyInput KeyInput{
 		.SourceContentHash = Durin::FXxHash128::HashBuffer(std::as_bytes(std::span(Samples))),
 		.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
 		.TargetProfile = Durin::Asset::ECookTargetProfile::Game};
 	std::string FirstKey;
 	std::string SecondKey;
-	ASSERT_TRUE(Durin::BuildTerrainHeightmapDerivedDataKey(KeyInput, FirstKey, Error)) << Error;
-	ASSERT_TRUE(Durin::BuildTerrainHeightmapDerivedDataKey(KeyInput, SecondKey, Error)) << Error;
+	FirstKey = Durin::AssetBuild::BuildTerrainHeightmapDerivedDataKey(KeyInput, Error);
+	ASSERT_FALSE(FirstKey.empty()) << Error;
+	SecondKey = Durin::AssetBuild::BuildTerrainHeightmapDerivedDataKey(KeyInput, Error);
+	ASSERT_FALSE(SecondKey.empty()) << Error;
 	EXPECT_EQ(FirstKey, SecondKey);
 	EXPECT_EQ(FirstKey, "7b5c3faf0186011b52e3ff3368519321");
 	EXPECT_EQ(FirstKey.size(), 32);
 	std::vector<Durin::uint8> Bytes;
-	ASSERT_TRUE(Durin::EncodeTerrainHeightmapPayload(
-		*Payload, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, Bytes, Error)) << Error;
+	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::DerivedDataPayload);
+	const_cast<Durin::FTerrainHeightmapPayload&>(*Payload).Serialize(
+		Writer, Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game);
+	ASSERT_FALSE(Writer.HasError());
 	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Bytes).ToString(),
 		"b82a8b45c019f5a7a7d9c748c9d25d17");
-	std::shared_ptr<const Durin::FTerrainHeightmapPayload> Decoded;
-	ASSERT_TRUE(Durin::DecodeTerrainHeightmapPayload(
-		Bytes, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, Decoded));
-	EXPECT_EQ(Decoded->Samples, Payload->Samples);
-	EXPECT_EQ(Decoded->Nodes, Payload->Nodes);
+	Durin::FTerrainHeightmapPayload Decoded;
+	Durin::FCanonicalMemoryReader Reader(Bytes, Durin::EArchivePurpose::DerivedDataPayload);
+	Decoded.Serialize(Reader, Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game);
+	ASSERT_FALSE(Reader.HasError());
+	EXPECT_EQ(Decoded.Samples, Payload->Samples);
+	EXPECT_EQ(Decoded.Nodes, Payload->Nodes);
 	Bytes.back() ^= 0x80;
-	EXPECT_FALSE(Durin::DecodeTerrainHeightmapPayload(
-		Bytes, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, Decoded));
+	Durin::FCanonicalMemoryReader CorruptReader(
+		Bytes, Durin::EArchivePurpose::DerivedDataPayload);
+	Decoded.Serialize(CorruptReader, Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game);
+	EXPECT_TRUE(CorruptReader.HasError());
 }
 
 TEST(FTerrainHeightmapDecoderTests, AcceptsOnlyNonInterlacedGrayscale16Png)

@@ -700,4 +700,54 @@ namespace Durin
 			return Result;
 		return {};
 	}
+
+	auto FTextureCubePlatformData::Serialize(
+		FArchive& Ar,
+		const FTexturePlatformSerializationContext& Context) -> void
+	{
+		if (Ar.HasError()) return;
+		if (Ar.IsSaving())
+		{
+			std::vector<uint8> Bytes;
+			std::string Error;
+			if (!EncodeTextureCubePayload(
+				*this, Context.TargetPlatform, Context.TargetProfile, Bytes, Error))
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData, Error);
+				return;
+			}
+			Ar.WriteBytes(std::as_bytes(std::span<const uint8>(Bytes)));
+			return;
+		}
+
+		const uint64 ByteCount = Ar.GetRemainingPayloadBytes();
+		if (ByteCount == std::numeric_limits<uint64>::max())
+		{
+			Ar.Fail(EArchiveFailureCode::UnsupportedCapability,
+				"TextureCube platform data requires a bounded input archive.");
+			return;
+		}
+		if (ByteCount > MaximumTexturePayloadBytes
+			|| ByteCount > static_cast<uint64>(std::vector<uint8>().max_size()))
+		{
+			Ar.Fail(EArchiveFailureCode::LimitExceeded,
+				"TextureCube platform data exceeds its stored-size limit.");
+			return;
+		}
+		std::vector<uint8> Bytes(static_cast<size_t>(ByteCount));
+		Ar.ReadBytes(std::as_writable_bytes(std::span<uint8>(Bytes)));
+		if (Ar.HasError()) return;
+
+		std::unique_ptr<FTextureCubePlatformData> Candidate;
+		const FPayloadDecodeResult Result = DecodeTextureCubePayload(
+			Bytes, Context.TargetPlatform, Context.TargetProfile, Candidate);
+		if (!Result)
+		{
+			Ar.Fail(Result.Code == EPayloadDecodeError::Incompatible
+				? EArchiveFailureCode::UnsupportedVersion : EArchiveFailureCode::InvalidData,
+				Result.Message);
+			return;
+		}
+		*this = std::move(*Candidate);
+	}
 }

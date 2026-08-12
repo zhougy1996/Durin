@@ -9,6 +9,8 @@
 #include "AssetImportCore.h"
 #include "AssetSystem.h"
 #include "DObject/ObjectLifecycle.h"
+#include "Hash/XxHash.h"
+#include "ImageDecoder.h"
 #include "Materials/MaterialInstance.h"
 #include "SceneImport.h"
 #include "SceneImportInternal.h"
@@ -21,8 +23,10 @@
 #include "Texture/TextureBuildOperations.h"
 #include "Texture/TextureCube.h"
 #include "Texture/TextureCubeBuildOperations.h"
+#include "Texture/TextureCubeBuilder.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapBuildOperations.h"
+#include "Terrain/TerrainHeightmapDerivedData.h"
 
 namespace Durin
 {
@@ -576,10 +580,39 @@ namespace Durin
 				if (Target->GetSourceLayout() == ETextureCubeSourceLayout::EquirectangularPanorama)
 				{
 					const FSourceSnapshotEntry* Root = Plan.GetSnapshot().FindSource("root");
-					if (!Root || !AssetBuild::BuildTextureCubePanoramaFromEncodedBytes(
-						*Candidate,
-						Root->GetBytes(), std::filesystem::path(Root->SourcePath.Path).extension().generic_string(),
-						Root->SourcePath, {Target->GetPanoramaFaceDimension(), Target->GetPanoramaExposureEV()}, Error))
+					if (!Root)
+					{
+						Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
+							.Category = EImportDiagnosticCategory::CandidateFailure,
+							.Phase = "candidate-build", .Message = Error});
+						Result->Abandon();
+						return nullptr;
+					}
+					const FXxHash128 Hash = FXxHash128::HashBuffer(Root->GetBytes());
+					const FTextureCubePanoramaImportSettings Settings{
+						Target->GetPanoramaFaceDimension(), Target->GetPanoramaExposureEV()};
+					std::string Extension =
+						std::filesystem::path(Root->SourcePath.Path).extension().generic_string();
+					bool bBuilt = false;
+					if (Asset::IsRadianceHDRExtension(Extension))
+					{
+						Asset::FDecodedFloatImage Panorama;
+						bBuilt = Asset::DecodeRadianceHDRFromMemory(
+							Root->GetBytes(), Panorama, Error,
+							{.MaximumDecodedPixels = AssetBuild::TextureCubeBuilder::MaximumPanoramaPixels})
+							&& AssetBuild::BuildTextureCubePanorama(
+								*Candidate, std::move(Panorama), Hash, Root->SourcePath, Settings, Error);
+					}
+					else
+					{
+						Asset::FDecodedImage Panorama;
+						bBuilt = Asset::DecodeImageFromMemory(
+							Root->GetBytes(), Panorama, Error,
+							{.MaximumDecodedPixels = AssetBuild::TextureCubeBuilder::MaximumPanoramaPixels})
+							&& AssetBuild::BuildTextureCubePanorama(
+								*Candidate, std::move(Panorama), Hash, Root->SourcePath, Settings, Error);
+					}
+					if (!bBuilt)
 					{
 						Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
 							.Category = EImportDiagnosticCategory::CandidateFailure,
@@ -590,18 +623,25 @@ namespace Durin
 				}
 				else
 				{
-					std::array<std::span<const uint8>, TextureCubeFaceCount> Bytes;
+					FTextureCubeSourceData SourceData;
+					std::array<FXxHash128, TextureCubeFaceCount> Hashes;
 					std::array<FSourcePath, TextureCubeFaceCount> Paths;
 					for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
 					{
 						const FSourceSnapshotEntry* Entry = Plan.GetSnapshot().FindSource(
 							Index == 0 ? "root" : std::format("face-{}", Index));
 						if (!Entry) { Result->Abandon(); return nullptr; }
-						Bytes[Index] = Entry->GetBytes();
+						if (!StandardAssetImport::TranslateTexture2DSource(
+							Entry->GetBytes(), SourceData.Faces[Index], Error))
+						{
+							Result->Abandon();
+							return nullptr;
+						}
+						Hashes[Index] = FXxHash128::HashBuffer(Entry->GetBytes());
 						Paths[Index] = Entry->SourcePath;
 					}
-					if (!AssetBuild::BuildTextureCubeFacesFromEncodedBytes(
-						*Candidate, Bytes, Paths, {Target->IsSRGB()}, Error))
+					if (!AssetBuild::BuildTextureCubeFaces(
+						*Candidate, std::move(SourceData), Hashes, Paths, {Target->IsSRGB()}, Error))
 					{
 						Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
 							.Category = EImportDiagnosticCategory::CandidateFailure,
@@ -693,8 +733,32 @@ namespace Durin
 					|| !Asset::CreateAsset(CandidatePath, Candidate)) return nullptr;
 				auto Result = std::make_unique<FEngineSingleAssetCandidate>(Candidate);
 				std::string Error;
-				if (!AssetBuild::BuildTerrainHeightmapFromEncodedBytes(
-					*Candidate, Root->GetBytes(), Root->SourcePath, Error))
+				Asset::FDecodedGrayscale16Image Decoded;
+				if (!Asset::DecodeGrayscale16PngFromMemory(
+					Root->GetBytes(), Decoded, Error, {
+						.MaximumEncodedBytes = MaximumTerrainHeightmapEncodedBytes,
+						.MaximumDecodedPixels = MaximumTerrainHeightmapSamples}))
+				{
+					Diagnostics.push_back({
+						.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::CandidateFailure,
+						.Phase = "candidate-build",
+						.Message = Error});
+					Result->Abandon();
+					return nullptr;
+				}
+				const FXxHash128 Hash = FXxHash128::HashBuffer(Root->GetBytes());
+				AssetBuild::FTerrainHeightmapBuildProduct Product;
+				if (!AssetBuild::BuildTerrainHeightmap({
+					.Samples = std::move(Decoded.Samples),
+					.Width = Decoded.Width,
+					.Height = Decoded.Height,
+					.SourceContentHashLow = Hash.HashLow,
+					.SourceContentHashHigh = Hash.HashHigh}, Product, Error)
+					|| !AssetBuild::PublishTerrainHeightmapProduct(
+						*Candidate, std::move(Product), {
+							.SourcePath = Root->SourcePath,
+							.SourceFileSize = Root->GetBytes().size()}, Error))
 				{
 					Diagnostics.push_back({
 						.Severity = EImportDiagnosticSeverity::Error,

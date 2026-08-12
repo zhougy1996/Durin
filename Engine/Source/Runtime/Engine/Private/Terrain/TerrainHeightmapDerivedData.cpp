@@ -1,6 +1,7 @@
 #include "Terrain/TerrainHeightmapDerivedData.h"
 
 #include "Misc/DerivedDataCache.h"
+#include "Serialization/Archive.h"
 #include "Terrain/TerrainHeightmap.h"
 
 namespace Durin
@@ -274,5 +275,55 @@ namespace Durin
 		}
 		OutPayload = std::move(Candidate);
 		return {};
+	}
+
+	auto FTerrainHeightmapPayload::Serialize(
+		FArchive& Ar,
+		Asset::ECookTargetPlatform TargetPlatform,
+		Asset::ECookTargetProfile TargetProfile) -> void
+	{
+		if (Ar.HasError()) return;
+		if (Ar.IsSaving())
+		{
+			std::vector<uint8> Bytes;
+			std::string Error;
+			if (!EncodeTerrainHeightmapPayload(
+				*this, TargetPlatform, TargetProfile, Bytes, Error))
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData, Error);
+				return;
+			}
+			Ar.WriteBytes(std::as_bytes(std::span<const uint8>(Bytes)));
+			return;
+		}
+
+		const uint64 ByteCount = Ar.GetRemainingPayloadBytes();
+		if (ByteCount == std::numeric_limits<uint64>::max())
+		{
+			Ar.Fail(EArchiveFailureCode::UnsupportedCapability,
+				"Terrain heightmap payload requires a bounded input archive.");
+			return;
+		}
+		if (ByteCount > MaximumTerrainHeightmapPayloadBytes
+			|| ByteCount > static_cast<uint64>(std::vector<uint8>().max_size()))
+		{
+			Ar.Fail(EArchiveFailureCode::LimitExceeded,
+				"Terrain heightmap payload exceeds its stored-size limit.");
+			return;
+		}
+		std::vector<uint8> Bytes(static_cast<size_t>(ByteCount));
+		Ar.ReadBytes(std::as_writable_bytes(std::span<uint8>(Bytes)));
+		if (Ar.HasError()) return;
+		std::shared_ptr<const FTerrainHeightmapPayload> Candidate;
+		const FPayloadDecodeResult Result = DecodeTerrainHeightmapPayload(
+			Bytes, TargetPlatform, TargetProfile, Candidate);
+		if (!Result)
+		{
+			Ar.Fail(Result.Code == EPayloadDecodeError::Incompatible
+				? EArchiveFailureCode::UnsupportedVersion : EArchiveFailureCode::InvalidData,
+				Result.Message);
+			return;
+		}
+		*this = *Candidate;
 	}
 }
