@@ -450,6 +450,83 @@ The earlier Stage 0 characterization is retained as evidence. Its former rule
 that private payload writers follow build operations is explicitly replaced by
 the `Serialize`-follows-value-owner rule in this plan.
 
+## Stage 0 Boundary Inventory
+
+This inventory freezes the migration state immediately before Core archive
+ownership changes. A row describes semantic ownership, not the module that
+happens to contain the transitional implementation today.
+
+| Asset family/boundary | Source translation | Derived build | Value serialization | Build identity | Storage/publication |
+| --- | --- | --- | --- | --- | --- |
+| Texture2D | PNG/JPEG and related image decoding moves from `AssetCore`/Build call sites to `StandardAssetImport` | `EngineAssetBuild` owns mip generation, format selection and BC compression | Engine-owned texture platform data gains `Serialize(FArchive&, DTexture2D*)`; TXPL save/load field order moves here | Build-owned `FTexture2DBuildKeyInput::Serialize` | `AssetCore` keeps opaque DDC bytes and transactions; Engine exposes detached publication |
+| TextureCube | LDR/HDR panorama and six-face decoding belongs to `StandardAssetImport` | `EngineAssetBuild` owns projection, exposure, mips, format selection and compression | Engine-owned cube platform data gains `Serialize(FArchive&, DTextureCube*)` | Build-owned `FTextureCubeBuildKeyInput::Serialize` | Generic storage remains in `AssetCore`; Engine validates and publishes complete candidates |
+| TerrainHeightmap | Grayscale16 PNG decoding belongs to `StandardAssetImport` | `EngineAssetBuild` owns normalized-sample hierarchy construction | Engine-owned terrain payload gains `Serialize(FArchive&, DTerrainHeightmap*)` | Build-owned `FTerrainHeightmapBuildKeyInput::Serialize` | Generic DDC/Cook storage and transactional publication remain outside workers |
+| StaticMesh/collision | Assimp/glTF/FBX translation belongs to `StandardAssetImport` | `EngineAssetBuild` owns render/collision conversion and diagnostics | Engine-owned render data, collision data and directory records own `Serialize` | Build-owned mesh and collision key inputs each own `Serialize` | `AssetCore` stores opaque values; Engine candidate exchange is the publication seam |
+| SkeletalMesh | glTF/Assimp translation and scene reconciliation belong to `StandardAssetImport` | `EngineAssetBuild` owns palette, hierarchy and render-data preparation | Engine-owned skeletal platform/render data owns `Serialize` | Build-owned skeletal key input owns `Serialize` | Existing graph validation and atomic candidate exchange remain Engine/AssetCore seams |
+| AnimationClip | glTF/Assimp channel translation belongs to `StandardAssetImport` | `EngineAssetBuild` owns clip preparation | Engine-owned animation payload owns `Serialize` | Build-owned animation key input owns `Serialize` | Existing skeleton-reference validation and transactional exchange remain intact |
+| Environment lighting | Bake/import program owns normalized input production | Authoring bake/build tooling owns production | `FEnvironmentLightingData::Serialize` in Engine replaces payload direction wrappers | The producing tool owns any recipe identity | Cook/package storage remains generic |
+| Authored objects and packages | Not applicable | Not applicable | `DObject::Serialize` and CoreDObject object-aware adapters; AssetCore package/manifest values serialize themselves | Not applicable | `AssetCore` owns package, Cook, DDC-object and atomic publication policy |
+
+### Transitional seams and removal gates
+
+| Transitional implementation/API | Named consumers at the baseline | Removal stage | Compatibility evidence |
+| --- | --- | --- | --- |
+| Engine and Build copies of `BuildTexture2DDerivedDataKey*` and `EncodeTexture2DPayload` | `DTexture2D`, Texture2D coordinator, Standard import candidates, texture tests | Stage 2 | `FTextureDerivedDataTests`, `FTexture2DTests`, `FTextureCookTests` |
+| `DecodeTexture2DPayload` in Engine | `DTexture2D` DDC/Cook loading | Stage 2 after an immediate Serialize-delegating wrapper | Deterministic TXPL round trip, malformed transactional rejection and cooked package tests |
+| `BuildTexture2DFromEncodedBytes(DTexture2D&, ...)` plus Build/Engine `DecodeRGBA8` | Standard single-asset provider, coordinator and legacy asset rebuild paths | Stage 2 | Import/cache, failure, coordinator and single-asset rollback tests |
+| `FTexture2DBuildCoordinator` and `EngineAssetServices` hosted by Runtime Engine | editor frame pump, waits, save/reimport and shutdown | Stage 2, with common hosting consolidated in Stage 6 | `FTexture2DBuildCoordinatorTests` and async transaction tests |
+| Engine and Build copies of cube key/TXPL writers plus Engine cube reader | `DTextureCube`, Standard cube provider and direct import/reimport paths | Stage 3 | cube key/payload, panorama, six-face, rollback and Cook tests |
+| `BuildTextureCube*FromEncodedBytes` and Runtime/Build LDR/HDR decoders | Standard cube provider and legacy direct cube operations | Stage 3 | `FEquirectangularTextureCubeTests` and `FTextureCubeTests` |
+| Engine terrain key/THPL encode/decode plus `BuildTerrainHeightmapFromEncodedBytes` and `DTerrainHeightmap::BuildFromEncodedBytes` | Standard provider and direct terrain import/rebuild | Stage 3 | terrain key/payload corruption, import rollback, warm-DDC and cooked-runtime tests |
+| Engine `BuildStaticMesh*DerivedDataKey*`, DMSH/DCOL encode/decode and source-decoder registry | `DStaticMesh`, Standard scene provider, repair/reimport and Cook paths | Stage 4 | static-mesh contract, collision Stage 0, cache, transaction and Cook tests |
+| Broad `DStaticMesh::InitializeFromImportedData`/`BuildRenderData*`/collision build methods | scene import, direct import, repair and asset lifecycle | Stage 4 | `FStaticMeshTests` import/reimport/collision failure matrices |
+| Engine skeletal/animation key builders and payload encode/decode | skeletal scene import, authored reload, Cook and runtime load | Stage 5 | `FSkeletalAssetTests` exact codecs, malformed input, package, duplication and source/DDC-free Cook |
+| Broad skeletal/animation `InitializeFromImportedData`, rebuild and DDC methods | Standard scene provider and Runtime asset lifecycle | Stage 5 | skeletal graph replacement, write-failure and scene rollback tests |
+| Runtime authoring initialize/pump/wait/shutdown entry points | editor host, asset editors, Cook and `DurinAssetTool` | Stage 6 | coordinator/provider unload and lifecycle tests |
+| `AssetCore` image decoder and generic/package `Encode*`/`Decode*` wire helpers | Standard translators, editor source thumbnails, package/Cook readers and writers | Stage 1 for canonical archive reuse; Stage 3/7 for translator relocation and final wrapper removal | image hostile-input tests, PackageV4 independent-reference goldens and Cook manifest/bulk tests |
+| `EncodeEnvironmentLightingPayload`/`DecodeEnvironmentLightingPayload` | environment bake program and Engine runtime load | Stage 7 | `FEnvironmentLightingTests` golden deterministic/corrupt-input coverage |
+
+Direction words that describe source-format translation (`DecodeDataUri`,
+Assimp/glTF parsing), color conversion (`EncodeSRGB`), or non-wire mathematical
+packing (`EncodeMaterialSamplerState`) are not persistent-value customization
+points and therefore are not renamed merely for containing `Encode`/`Decode`.
+
+### Executable dependency baseline
+
+Configure-time closure assertions now encode the allowed direction:
+
+- `AssetCore` and `AssetImportCore` exclude Engine asset types, concrete source
+  translators, authoring builders, Assimp and offline compressors.
+- Runtime `Engine` excludes import frameworks, `EngineAssetBuild`,
+  `StandardAssetImport` and Assimp. Its temporary direct BC compressor link is
+  the named Stage 2 exception and is deliberately not hidden by the assertion.
+- `EngineAssetBuild` requires Runtime Engine and the BC compressor while
+  excluding import frameworks, `StandardAssetImport` and Assimp.
+- `StandardAssetImport` requires `AssetImportCore`, `EngineAssetBuild` and
+  Assimp, making it the concrete translator root.
+- `DurinGame` excludes authoring frameworks/hosts, builders/offline
+  compressors, concrete translators and their SDKs. Engine serialized values
+  and AssetCore generic storage remain intentionally allowed.
+
+### Frozen baseline evidence
+
+The `Win64-Debug-DurinEditor` profile reproduced the pre-refactor baseline on
+2026-08-12. These target-level gates are the compatibility oracle for Stage 1:
+
+| Boundary | Target and frozen behavior |
+| --- | --- |
+| Object graph, duplication, archive failure | `CoreObjectTests` (73 passed) and `CorePropertyValueSnapshotTests` (16 passed) |
+| Authored PackageV4 and Cook package bytes | `AssetPackageTests` (97 passed) and `AssetCookTests` (12 passed) |
+| Generic DDC object bytes | `AssetDerivedDataTests` (3 passed) |
+| Texture2D/TextureCube keys, TXPL, corruption, transactions and Cook | `TextureTests` (74 passed, 2 skipped) plus `TextureCookIntegrationTests` |
+| DMSH/DCOL keys, payloads, corruption and transactions | `StaticMeshTests` (69 passed) |
+| Skeletal and animation keys/payloads/packages/Cook | `SkeletalAssetTests` (34 passed) |
+| THPL keys/payloads/import transactions | `TerrainHeightmapTests` (6 passed) plus `TerrainHeightmapCookTests` |
+
+The initial `CoreDObjectTests` command was a selection-name error before test
+execution; the registry-owned targets above are the successful replacement and
+no build recovery was required.
+
 ## Implementation Stages
 
 ### Stage 0: Rebaseline the rejected split
@@ -460,19 +537,19 @@ Dependencies: none.
   architecture.
 - [x] Preserve the previously committed module, build algorithm, golden byte,
   failure, lifecycle, and dependency characterization work.
-- [ ] Reclassify the remaining public and private symbols for every asset family
+- [x] Reclassify the remaining public and private symbols for every asset family
   using the vocabulary and module ownership in this plan.
-- [ ] Record all duplicate implementations and compatibility seams, including
+- [x] Record all duplicate implementations and compatibility seams, including
   their named consumers and the exact stage that removes them.
-- [ ] Add explicit dependency checks that distinguish source translators,
+- [x] Add explicit dependency checks that distinguish source translators,
   offline compressors, serialized runtime values, build keys, and generic
   storage.
-- [ ] Map every direction-named `Encode*`/`Decode*` entry to its final owning
+- [x] Map every direction-named `Encode*`/`Decode*` entry to its final owning
   value's `Serialize`, and name the migration stage that removes the wrapper.
-- [ ] Confirm the pre-archive-refactor byte baselines for object graphs,
+- [x] Confirm the pre-archive-refactor byte baselines for object graphs,
   authored packages, DDC keys, TXPL, DMSH/DCOL, skeletal, animation, THPL, and
   cooked packages.
-- [ ] Record the revised Stage 0 handoff before changing `FArchive` ownership.
+- [x] Record the revised Stage 0 handoff before changing `FArchive` ownership.
 
 #### Acceptance Gate
 

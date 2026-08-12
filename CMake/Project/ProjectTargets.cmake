@@ -100,6 +100,29 @@ function(durin_target_enable_windows_long_paths target_name)
 	)
 endfunction()
 
+# Requires named libraries in a target's concrete link dependency closure.
+function(durin_assert_target_dependency_closure_includes target_name)
+	set(_durin_required_dependencies ${ARGN})
+	durin_collect_target_dependency_closure(
+		_durin_dependency_closure
+		"${target_name}"
+	)
+
+	foreach(_durin_required_dependency IN LISTS _durin_required_dependencies)
+		if(TARGET "${_durin_required_dependency}")
+			durin_normalize_target_alias(
+				_durin_required_dependency
+				"${_durin_required_dependency}"
+			)
+		endif()
+		if(NOT _durin_required_dependency IN_LIST _durin_dependency_closure)
+			message(FATAL_ERROR
+				"Target ${target_name} dependency closure omits required dependency "
+				"${_durin_required_dependency}.")
+		endif()
+	endforeach()
+endfunction()
+
 # Rejects forbidden libraries anywhere in a target's concrete link dependency closure.
 function(durin_assert_target_dependency_closure_excludes target_name)
 	set(_durin_forbidden_dependencies ${ARGN})
@@ -117,7 +140,7 @@ function(durin_assert_target_dependency_closure_excludes target_name)
 		endif()
 		if(_durin_forbidden_dependency IN_LIST _durin_dependency_closure)
 			message(FATAL_ERROR
-				"Runtime target ${target_name} dependency closure includes "
+				"Target ${target_name} dependency closure includes "
 				"forbidden dependency ${_durin_forbidden_dependency}.")
 		endif()
 	endforeach()

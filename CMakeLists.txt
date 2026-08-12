@@ -35,6 +35,61 @@ include("${DURIN_CMAKE_DIR}/DurinWorkspaceSetup.cmake")
 add_subdirectory(Engine)
 add_subdirectory(Sandbox)
 
+# Keep the asset boundary executable while the implementation migrates. Runtime
+# values and generic storage are allowed below authoring modules; source
+# translators and offline build tools may not flow in the opposite direction.
+if(TARGET AssetCore)
+	durin_assert_target_dependency_closure_excludes(AssetCore
+		Engine
+		AssetImportCore
+		EngineAssetBuild
+		StandardAssetImport
+		assimp::assimp
+		bc7enc_rdo::bc7enc_rdo
+		rgbcx
+	)
+endif()
+
+if(TARGET AssetImportCore)
+	durin_assert_target_dependency_closure_excludes(AssetImportCore
+		Engine
+		EngineAssetBuild
+		StandardAssetImport
+		assimp::assimp
+		bc7enc_rdo::bc7enc_rdo
+		rgbcx
+	)
+endif()
+
+if(TARGET Engine)
+	durin_assert_target_dependency_closure_excludes(Engine
+		AssetImportCore
+		EngineAssetBuild
+		StandardAssetImport
+		assimp::assimp
+	)
+endif()
+
+if(TARGET EngineAssetBuild)
+	durin_assert_target_dependency_closure_includes(EngineAssetBuild
+		Engine
+		bc7enc_rdo::bc7enc_rdo
+	)
+	durin_assert_target_dependency_closure_excludes(EngineAssetBuild
+		AssetImportCore
+		StandardAssetImport
+		assimp::assimp
+	)
+endif()
+
+if(TARGET StandardAssetImport)
+	durin_assert_target_dependency_closure_includes(StandardAssetImport
+		AssetImportCore
+		EngineAssetBuild
+		assimp::assimp
+	)
+endif()
+
 if(BUILD_TESTING)
 	durin_add_native_test_aggregate_target(DurinNativeTests)
 	durin_generate_native_test_registry(
@@ -43,13 +98,16 @@ endif()
 
 if(DURIN_PROFILE_NAME STREQUAL "DurinGame")
 	durin_assert_target_dependency_closure_excludes(DurinLauncher
+		# Authoring frameworks and hosts.
 		AssetImport
 		AssetImportCore
+		# Derived builders and offline compressors.
 		EngineAssetBuild
-		StandardAssetImport
-		assimp::assimp
 		bc7enc_rdo::bc7enc_rdo
 		rgbcx
+		# Concrete source translators and their SDKs.
+		StandardAssetImport
+		assimp::assimp
 	)
 endif()
 
