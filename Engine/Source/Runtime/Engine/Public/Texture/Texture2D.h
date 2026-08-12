@@ -14,8 +14,6 @@ namespace Durin
 {
 	class FArchive;
 	struct FTextureBuildOperations;
-	struct FTexture2DBuildDiagnostic;
-	enum class ETexture2DBuildPriority : uint8;
 
 	// Identifies the decoded pixel layout retained as editable texture source data.
 	enum class ETextureSourceFormat : uint8
@@ -196,7 +194,6 @@ namespace Durin
 		ENGINE_API explicit DTexture2D(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DTexture2D() override;
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
-		ENGINE_API auto BeginDestroy() -> void override;
 
 		auto GetSourceFile() const -> const std::string&
 		{
@@ -222,10 +219,6 @@ namespace Durin
 		auto GetAlphaCoverageThreshold() const -> float { return AlphaCoverageThreshold; }
 		auto GetBuildStatus() const -> ETextureBuildStatus { return BuildStatus; }
 		auto GetLastBuildError() const -> const std::string& { return LastBuildError; }
-		ENGINE_API auto GetBuildReadinessDiagnostic() const -> FTexture2DBuildDiagnostic;
-		auto HasPendingBuild() const -> bool { return ActiveBuildRequestId != 0; }
-		ENGINE_API auto CancelPendingBuild() -> bool;
-		ENGINE_API auto WaitForPendingBuild(double TimeoutSeconds = 300.0) -> bool;
 		ENGINE_API auto InspectSource() const -> FTextureSourceDiagnostic;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 		// Contributes a validated TXPL object and descriptor-bearing runtime metadata to a cook.
@@ -268,18 +261,6 @@ protected:
 	private:
 		auto InvalidatePlatformData() -> void;
 		auto LoadCookedPlatformData(std::string& OutError) -> bool;
-		auto SubmitAsyncBuild(
-			std::vector<uint8> EncodedSource,
-			const FSourcePath& SourcePath,
-			const FTexture2DImportSettings& Settings,
-			ETexture2DBuildPriority Priority,
-			bool bMarkDirtyOnCommit,
-			bool bReportLoadMutationOnCommit,
-			uint64 SourceFileSizeSnapshot,
-			int64 SourceLastWriteTimeSnapshot,
-			std::string& OutError) -> bool;
-		auto ApplyAsyncBuildResult(struct FTexture2DBuildResult&& Result) -> void;
-
 		DPROPERTY()
 		FTexture2DSourceImportData SourceImportData;
 
@@ -343,15 +324,5 @@ protected:
 
 		std::string LastBuildError;
 
-		uint64 BuildRequestGeneration = 0;
-		uint64 ActiveBuildRequestId = 0;
-		uint64 LastBuildRequestId = 0;
-		std::string PendingBuildAssetIdentity;
-		FSourcePath PendingBuildSourcePath;
-		FTexture2DImportSettings PendingBuildSettings;
-		uint64 PendingBuildSourceFileSize = 0;
-		int64 PendingBuildSourceLastWriteTime = 0;
-		bool bPendingBuildMarksDirty = false;
-		bool bPendingBuildReportsLoadMutation = false;
 	};
 }

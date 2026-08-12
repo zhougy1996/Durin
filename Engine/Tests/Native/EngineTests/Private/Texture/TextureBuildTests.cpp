@@ -1,5 +1,4 @@
 #include "TextureTestSupport.h"
-#include "Texture/Texture2DBuildCoordinator.h"
 
 TEST(FTexture2DTests, StandardTranslationFeedsDetachedNormalizedBuildProduct)
 {

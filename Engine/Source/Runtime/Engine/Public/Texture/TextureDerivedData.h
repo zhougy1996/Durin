@@ -12,7 +12,7 @@ namespace Durin
 
 	inline constexpr uint32 TexturePayloadMagic = 0x4C505854; // TXPL
 	inline constexpr uint32 TexturePayloadSchemaVersion = 1;
-	inline constexpr uint32 Texture2DBuilderVersion = 2;
+	inline constexpr uint32 Texture2DPayloadProducerVersion = 2;
 	inline constexpr uint32 TextureCubeBuilderVersion = 1;
 	inline constexpr uint32 TextureCubeProjectionVersion = 1;
 	inline constexpr uint32 TextureDerivedDataKeySchemaVersion = 1;
@@ -45,23 +45,6 @@ namespace Durin
 		BC7_UNORM_SRGB = 7
 	};
 
-	struct FTexture2DDerivedDataKeyInput
-	{
-		FXxHash128 SourceContentHash;
-		ETextureUsage Usage = ETextureUsage::Color;
-		bool bSRGB = true;
-		ETextureCompressionQuality CompressionQuality = ETextureCompressionQuality::Normal;
-		ETextureAlphaMipMode AlphaMipMode = ETextureAlphaMipMode::Average;
-		uint32 MaximumResolution = 0;
-		float AlphaCoverageThreshold = 0.5f;
-		uint32 BuilderVersion = Texture2DBuilderVersion;
-		uint32 PayloadSchemaVersion = TexturePayloadSchemaVersion;
-		Asset::ECookTargetPlatform TargetPlatform = Asset::ECookTargetPlatform::Invalid;
-		Asset::ECookTargetProfile TargetProfile = Asset::ECookTargetProfile::Invalid;
-
-		ENGINE_API auto Serialize(FArchive& Ar) -> void;
-	};
-
 	enum class ETextureCubeDerivedDataSourceLayout : uint32
 	{
 		SixFaces = 0,
@@ -83,12 +66,6 @@ namespace Durin
 		Asset::ECookTargetPlatform TargetPlatform = Asset::ECookTargetPlatform::Invalid;
 		Asset::ECookTargetProfile TargetProfile = Asset::ECookTargetProfile::Invalid;
 	};
-
-	ENGINE_API auto BuildTexture2DDerivedDataKeyBytes(
-		const FTexture2DDerivedDataKeyInput& Input) -> std::vector<uint8>;
-
-	ENGINE_API auto BuildTexture2DDerivedDataKey(
-		const FTexture2DDerivedDataKeyInput& Input) -> std::string;
 
 	ENGINE_API auto BuildTextureCubeDerivedDataKeyBytes(
 		const FTextureCubeDerivedDataKeyInput& Input,

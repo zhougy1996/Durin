@@ -107,8 +107,8 @@ fallback.
 
 ## Asynchronous Editor Build Coordination
 
-`FTexture2DBuildCoordinator` is initialized with Engine asset services after the
-process task system and is shut down before task-system admission closes. It
+`EngineAssetBuild` initializes `FTexture2DBuildCoordinator` after the process
+task system and shuts it down before task-system admission closes. It
 owns two worker admissions and a conservative 1 GiB estimated in-flight byte
 budget. Requests are FIFO within background and interactive classes. At most
 four interactive requests are admitted consecutively while background work is
@@ -116,24 +116,23 @@ waiting; an already admitted job is never preempted. A single valid request
 larger than the budget runs alone so maximum-dimension textures cannot deadlock
 the queue.
 
-Each request carries object/package identity, mounted source identity, source
-content hash, all build settings, Win64/Game target identity, and a monotonic
-per-object generation. Workers only receive value snapshots. They decode,
+Each request carries a normalized decoded source value, captured content hash,
+all build settings, Win64/Game target identity, scheduling identity, and a
+monotonic per-object generation. Workers only receive value snapshots. They
 generate mips, compress, validate, and atomically persist DDC data, then place a
-move-only result in the coordinator mailbox. The GameThread pump commits only a
-result whose request id, generation, object identity, source path, and complete
-settings still match. Cancellation is cooperative; this commit comparison is
-the correctness boundary.
+move-only result in the coordinator mailbox. `FTexture2DAuthoringService`
+commits on the GameThread only when request id, generation, weak object identity,
+source path, and complete settings still match. Cancellation is cooperative;
+this commit comparison is the correctness boundary.
 
-Launch has no Texture2D coordinator dependency. After each bounded
-`GameThreadDeferred` pump, it calls the Engine asset-service completion phase;
-Engine routes that phase to Texture2D with a 64-item normal-frame budget. The
-coordinator mailbox remains the durable owner of large move-only results and
-does not depend on deferred-executor admission for wakeup. `WaitForPendingBuild`
-waits until its request reaches the mailbox and then pumps without the
-normal-frame item budget. Shutdown likewise drains all callbacks before the
-process task scheduler closes. Every callback is GameThread-only and the
-request/generation/identity/settings comparison prevents stale publication.
+Runtime Engine and Launch have no Texture2D coordinator dependency. MainFrame
+pumps the Build-owned mailbox with a 64-item normal-frame budget. The mailbox
+remains the durable owner of large move-only results and does not depend on
+deferred-executor admission for wakeup. `WaitForTexture2DBuild` waits until its
+request reaches the mailbox and then pumps without the normal-frame item budget.
+Shutdown likewise drains all callbacks before the process task scheduler
+closes. Every callback is GameThread-only and the authoring service's request/
+generation/identity/settings comparison prevents stale publication.
 
 Cancellation is checked every eight generated or alpha-processing scanlines,
 between mips, and every 64 compression blocks. New requests cancel the older
@@ -145,7 +144,7 @@ to 256 diagnostics and encoded request bytes are released as soon as worker
 use ends.
 
 Readiness is separate from the persistent build result and from render
-revision. Its phases are Queued, Decoding, Building, Persisting, Upload Pending,
+revision. Its phases are Queued, Preparing, Building, Persisting, Upload Pending,
 Ready, Failed, and Cancelled. Diagnostics retain request/generation identity,
 queue and worker time, estimated bytes, decoded bytes, peak intermediate bytes,
 result bytes, completion callback time, DDC key, and the latest matching failure with its originating

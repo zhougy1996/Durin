@@ -88,7 +88,7 @@ namespace
 
 TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 {
-	Durin::FTexture2DDerivedDataKeyInput Input{
+	Durin::AssetBuild::FTexture2DBuildKeyInput Input{
 		.SourceContentHash = {0x0123456789abcdefull, 0xfedcba9876543210ull},
 		.Usage = Durin::ETextureUsage::Color,
 		.bSRGB = true,
@@ -103,7 +103,7 @@ TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 	EXPECT_EQ(Baseline, "ceabc87aee9e8db676c2f6c13020593f");
 	EXPECT_EQ(Baseline.size(), 32u);
 
-	auto ExpectChange = [&Baseline](const Durin::FTexture2DDerivedDataKeyInput& Changed) {
+	auto ExpectChange = [&Baseline](const Durin::AssetBuild::FTexture2DBuildKeyInput& Changed) {
 		EXPECT_NE(Durin::AssetBuild::TextureDerivedDataWriter::BuildTexture2DDerivedDataKey(
 			Changed), Baseline);
 	};
@@ -241,7 +241,7 @@ TEST(FTextureDerivedDataTests, PayloadRejectsMalformedDataTransactionally)
 	EXPECT_EQ(Existing.get(), ExistingAddress);
 
 	auto DifferentBuilder = Bytes;
-	WriteU32(DifferentBuilder, 8, Durin::Texture2DBuilderVersion + 17);
+	WriteU32(DifferentBuilder, 8, Durin::Texture2DPayloadProducerVersion + 17);
 	DecodeResult = LoadPlatformDataValue(DifferentBuilder, Existing);
 	EXPECT_TRUE(DecodeResult) << DecodeResult.Message;
 	EXPECT_NE(Existing.get(), ExistingAddress);
