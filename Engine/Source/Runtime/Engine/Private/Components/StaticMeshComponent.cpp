@@ -9,6 +9,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshResources.h"
+#include "StaticMesh/StaticMeshMaterialBinding.h"
 
 namespace Durin
 {
@@ -155,10 +156,7 @@ namespace Durin
 
 	auto DStaticMeshComponent::TrimTrailingNullOverrides() -> void
 	{
-		while (!OverrideMaterials.empty() && OverrideMaterials.back() == nullptr)
-		{
-			OverrideMaterials.pop_back();
-		}
+		TrimTrailingNullStaticMeshMaterialOverrides(OverrideMaterials);
 	}
 
 	auto DStaticMeshComponent::GetNumMaterials() const -> uint32
@@ -323,24 +321,7 @@ namespace Durin
 		std::span<const TObjectPtr<DMaterialInterface>> Overrides,
 		std::string& OutError) const -> bool
 	{
-		if (Overrides.size() > MaximumStaticMeshMaterialSlots)
-		{
-			OutError = std::format(
-				"A static-mesh component contains {} positional material entries, exceeding the limit of {}.",
-				Overrides.size(), MaximumStaticMeshMaterialSlots);
-			return false;
-		}
-		for (size_t Index = 0; Index < Overrides.size(); ++Index)
-		{
-			if (Overrides[Index] != nullptr
-				&& Cast<DMaterialInterface>(reinterpret_cast<DObject*>(Overrides[Index].Get())) == nullptr)
-			{
-				OutError = std::format(
-					"A static-mesh component contains an incompatible object at material index {}.", Index);
-				return false;
-			}
-		}
-		return true;
+		return ValidateStaticMeshMaterialOverrides(Overrides, "static-mesh component", OutError);
 	}
 
 }

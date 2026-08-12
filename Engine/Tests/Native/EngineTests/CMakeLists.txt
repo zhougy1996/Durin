@@ -537,6 +537,7 @@ durin_add_engine_functional_test(SplineTests
 	RUNTIME_STACK_RATIONALE "Exercises DurinEd spline customization behavior."
 	SOURCES
 		Private/SplineTests.cpp
+		Private/SplineMeshComponentTests.cpp
 		Private/SplineMeshDeformerTests.cpp
 		Private/SplineV2ContractTests.cpp
 	PRIVATE_SOURCES
@@ -549,7 +550,8 @@ durin_add_engine_functional_test(SplineTests
 		${_durin_level_editor_private}/Viewport/LevelEditorViewportEditing.cpp
 		${_durin_level_editor_private}/Viewport/TransformGizmo.cpp
 		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd AssetImportCore StandardAssetImport
+	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
 durin_add_engine_functional_test(SkyBoxTests

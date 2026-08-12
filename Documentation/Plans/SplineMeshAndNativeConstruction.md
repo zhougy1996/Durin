@@ -5,11 +5,11 @@ Summary: Add a production single-segment SplineMesh primitive and a reusable nat
 Last reviewed: 2026-08-12
 
 Status: Active
-Completed: Stage 0; Stage 1
+Completed: Stage 0; Stage 1; Stage 3
 
 ## Current Status
 
-Stages 0 and 1 are complete. CPU deformation and path-frame foundations pass
+Stages 0, 1, and the independent Stage 3 component are complete. CPU deformation and path-frame foundations pass
 the focused Spline suite, and every frozen Actor/Spline/StaticMesh/material/
 renderer/viewport/physics/Vulkan baseline passes. Contracts, equations,
 workloads, budgets, inventories, and exact results are recorded in
@@ -17,7 +17,9 @@ workloads, budgets, inventories, and exact results are recorded in
 progress: keyed reconciliation, transient retention, authored/all-live
 enumeration, dirty suppression, spawn/load/duplication entry routing, and core
 lifecycle tests are implemented. PIE/Undo/Redo and final hierarchy policy
-coverage remain open. Durin already has persistent editable spline
+coverage remain open. The standalone reflected SplineMesh component now publishes
+immutable normalized CPU deformation, bounds, exact picking/collision inputs,
+and shares StaticMesh material/resource-retirement rules. Durin already has persistent editable spline
 authoring, immutable evaluation snapshots, stable point GUIDs, local-distance
 queries, conservative curve bounds, transactional viewport editing, and
 revision/change flags. It has no production spline consumer.
@@ -404,20 +406,20 @@ manual component management.
 
 ### Stage 3: Implement the independent SplineMesh component and derived CPU state
 
-- [ ] Add `DSplineMeshComponent` as a reflected `DMeshComponent` with validated
+- [x] Add `DSplineMeshComponent` as a reflected `DMeshComponent` with validated
   setters, StaticMesh/material binding, normalized deformation snapshot,
   deformation revision, and precise property-edit hooks.
-- [ ] Reuse/generalize StaticMesh material-slot validation, default/ErrorMaterial
+- [x] Reuse/generalize StaticMesh material-slot validation, default/ErrorMaterial
   fallback, asset render-resource readiness, and render-state recreation so both
   StaticMesh consumer component classes obey one asset-retirement protocol.
-- [ ] Build and atomically publish immutable deformation-derived state containing
+- [x] Build and atomically publish immutable deformation-derived state containing
   normalized parameters, conservative local bounds, exact deformed LOD 0
   positions/indices, editor acceleration, collision input identity, and
   diagnostic status.
-- [ ] Distinguish deformation-only, material-only, transform-only, mesh-resource,
+- [x] Distinguish deformation-only, material-only, transform-only, mesh-resource,
   and collision-policy invalidation; avoid proxy recreation for deformation-only
   edits.
-- [ ] Add reflection, default-object, package, duplication, property validation,
+- [x] Add reflection, default-object, package, duplication, property validation,
   material, bounds, editor picking, source asset replacement/reimport, and
   revision tests.
 

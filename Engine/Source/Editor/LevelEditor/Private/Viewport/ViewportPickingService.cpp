@@ -3,6 +3,7 @@
 
 #include "Components/PrimitiveComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/SplineMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
@@ -254,6 +255,62 @@ namespace Durin::Editor::Level
 			bool bAccelerated = false;
 		};
 
+		// Intersects the immutable exact deformed LOD0 snapshot without reading mutable authoring data.
+		class FSplineMeshViewportGeometryProvider final : public IViewportGeometryProvider
+		{
+		public:
+			auto Query(const FViewportPickingBackendRequest& Request,
+				const FViewportPickingTarget& Target,
+				FViewportGeometryQueryContext& Context) const -> FViewportGeometryQueryResult override
+			{
+				auto* Component = Cast<DSplineMeshComponent>(Target.Component.Get());
+				if (!Component) return {};
+				++Context.Diagnostics.ApplicableSplineMeshTargets;
+				const auto State = Component->GetDerivedState();
+				if (!Component->IsRegistered() || !State || !State->IsValid()
+					|| State->DeformedLOD0Positions.empty() || State->LOD0Indices.size() < 3
+					|| State->LOD0Indices.size() % 3 != 0)
+				{
+					++Context.Diagnostics.InvalidSplineMeshTargets;
+					return {EViewportGeometryQueryStatus::InvalidComponent, std::nullopt};
+				}
+				FMatrix WorldToLocal(1.0);
+				const FMatrix LocalToWorld = Component->GetRenderMatrix();
+				if (!Math::TryInverse(LocalToWorld, WorldToLocal, kIntersectionEpsilon))
+				{
+					++Context.Diagnostics.InvalidSplineMeshTargets;
+					return {EViewportGeometryQueryStatus::InvalidComponent, std::nullopt};
+				}
+				const FVector3 LocalOrigin(WorldToLocal * FVector4(Request.RayOrigin, 1.0));
+				const FVector3 LocalDirection(WorldToLocal * FVector4(Request.RayDirection, 0.0));
+				if (!IntersectRayBox(LocalOrigin, LocalDirection, State->ConservativeLocalBounds))
+				{
+					++Context.Diagnostics.SplineMeshBoundsRejects;
+					return {EViewportGeometryQueryStatus::Miss, std::nullopt};
+				}
+				std::optional<FViewportPickingBackendHit> Best;
+				for (size_t Index = 0; Index < State->LOD0Indices.size(); Index += 3)
+				{
+					++Context.Diagnostics.SplineMeshTestedTriangles;
+					const uint32 I0 = State->LOD0Indices[Index];
+					const uint32 I1 = State->LOD0Indices[Index + 1];
+					const uint32 I2 = State->LOD0Indices[Index + 2];
+					if (I0 >= State->DeformedLOD0Positions.size()
+						|| I1 >= State->DeformedLOD0Positions.size()
+						|| I2 >= State->DeformedLOD0Positions.size()) continue;
+					double LocalDistance = 0.0;
+					if (!IntersectRayTriangle(LocalOrigin, LocalDirection,
+						FVector3(State->DeformedLOD0Positions[I0]), FVector3(State->DeformedLOD0Positions[I1]),
+						FVector3(State->DeformedLOD0Positions[I2]), LocalDistance)) continue;
+					const FVector3 WorldHit(LocalToWorld * FVector4(LocalOrigin + LocalDirection * LocalDistance, 1.0));
+					const double WorldDistance = Math::Length(WorldHit - Request.RayOrigin);
+					if (std::isfinite(WorldDistance) && (!Best || WorldDistance < Best->Distance))
+						Best = FViewportPickingBackendHit{Target.Token, WorldDistance, 0};
+				}
+				return {Best ? EViewportGeometryQueryStatus::Hit : EViewportGeometryQueryStatus::Miss, Best};
+			}
+		};
+
 		// Provides exact current-pose LOD0 double-sided skeletal surface intersection.
 		class FSkeletalMeshViewportGeometryProvider final : public IViewportGeometryProvider
 		{
@@ -405,6 +462,7 @@ namespace Durin::Editor::Level
 				: WorkBudget(InWorkBudget)
 			{
 				Providers.push_back(std::make_unique<FStaticMeshViewportGeometryProvider>(bAccelerated));
+				Providers.push_back(std::make_unique<FSplineMeshViewportGeometryProvider>());
 				Providers.push_back(std::make_unique<FSkeletalMeshViewportGeometryProvider>());
 			}
 

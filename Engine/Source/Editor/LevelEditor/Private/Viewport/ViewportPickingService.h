@@ -59,6 +59,10 @@ namespace Durin::Editor::Level
 		uint64 StaticTestedTriangles = 0;
 		uint64 StaticReferenceFallbacks = 0;
 		uint64 StaticAccelerationBytes = 0;
+		uint64 ApplicableSplineMeshTargets = 0;
+		uint64 InvalidSplineMeshTargets = 0;
+		uint64 SplineMeshBoundsRejects = 0;
+		uint64 SplineMeshTestedTriangles = 0;
 		uint64 ParityMismatches = 0;
 		uint64 ApplicableSkeletalTargets = 0;
 		uint64 InvalidSkeletalTargets = 0;

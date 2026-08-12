@@ -100,12 +100,16 @@ bound.
 
 ## Renderer Integration Baseline
 
-As of 2026-08-12, `RendererLightSceneContract.md` and
-`ComputeRendererIntegration.md` are both Active at Stage 0. SplineMesh Stage 4
-therefore targets the current synchronous forward renderer, current
-directional-light/environment ABI, and existing graphics output path. It must
-recheck both plans immediately before editing shared prepared-view, shader-map,
-pipeline, or base-pass code.
+As rechecked on 2026-08-12 after rebasing onto `dev`,
+`RendererLightSceneContract.md` is Completed and
+`ComputeRendererIntegration.md` remains Active. SplineMesh Stage 4 therefore
+consumes the completed 320-byte per-view forward-light payload, including the
+deterministic budget of at most one directional and four shared point/spot
+lights, plus the existing environment payload. It must not restore the removed
+single-light ABI or reconstruct light state per draw. Compute integration still
+owns the future FXAA storage-intermediate/output transition, so Stage 4 must
+recheck that plan immediately before editing shared prepared-view, shader-map,
+pipeline, base-pass, or final-output code.
 
 The affected renderer surface is the explicit proxy kind and typed `FScene`
 membership, SceneInfo attach/update/remove, primitive visibility, Static and

@@ -7,7 +7,7 @@ Modules: Engine, LevelEditor
 Durin's spline foundation provides an editable, persistent spatial curve, an
 immutable query snapshot, and direct Level Editor point/tangent authoring. It
 also provides value-only SplineMesh deformation and parallel-transport frame
-math. It does not yet provide the production SplineMesh component, renderer,
+math and a standalone SplineMesh component. It does not yet provide the production renderer,
 path actor, path follower, or placement system.
 
 ## Support Summary
@@ -197,6 +197,33 @@ for the user workflow and
 [Viewport Editing Architecture](../../Editor/Architecture/ViewportEditing.md)
 for mode, selection, input, and gizmo ownership.
 
+## Standalone SplineMesh Component
+
+`DSplineMeshComponent` is a reflected `DMeshComponent` that owns authored
+`StaticMesh`, positional material overrides, and `FSplineMeshParams`. Its
+validated setter derives the canonical forward interval from StaticMesh LOD 0;
+the hidden interval is never trusted as independent authoring. Invalid finite,
+axis, interpolation, or extent proposals are rejected before the authored
+object, package state, or published CPU state changes.
+
+Every accepted mesh-resource or deformation change atomically publishes an
+immutable `FSplineMeshDerivedState`. The state copies normalized parameters,
+conservative all-LOD local bounds, exact deformed LOD 0 positions and indices,
+an exact-query acceleration hierarchy, the source resource revision, a
+monotonic deformation revision, collision input identity, and a diagnostic
+status. Consumers retain this value snapshot rather than borrowing mutable CPU
+asset data. Missing assets and temporarily unavailable source data are explicit
+diagnostic states; malformed indexed geometry is never published as valid.
+
+StaticMesh and SplineMesh components share positional material-override
+validation and trailing-null canonicalization. StaticMesh resource exchange
+uses the same scoped retirement protocol for both consumer classes: registered
+components release old render state before exchange and rebuild their CPU state
+after the new resource publication. Deformation-only edits retain the source
+asset and component identity, update exact editor picking and collision input,
+and do not request proxy recreation; the renderer FIFO dynamic update is added
+by the renderer integration stage.
+
 ## Verification Coverage
 
 Native tests cover golden linear and cubic evaluation; every tangent mode;
@@ -210,7 +237,7 @@ invalid-target exits, and multi-component isolation.
 
 ## Current Boundaries
 
-The spline foundation has no production SplineMesh component, runtime renderer,
+The spline foundation has no production SplineMesh renderer,
 path actor, follower, placement, animation, navigation, physics, event, width,
 or metadata consumer. True world-distance traversal under non-uniform scale and
 simultaneous editing across multiple spline components are also outside the

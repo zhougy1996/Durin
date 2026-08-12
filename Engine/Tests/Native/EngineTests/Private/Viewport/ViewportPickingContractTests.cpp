@@ -2,6 +2,7 @@
 #include "Actors/SkeletalMeshActor.h"
 #include "Animation/AnimationClip.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/SplineMeshComponent.h"
 #include "LevelEditorViewportEditing.h"
 #include "SkeletalMesh/Skeleton.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
@@ -596,6 +597,28 @@ TEST(FViewportPickingContractTests, PreservesWorldDistanceUnderMirroringAndRejec
 	EXPECT_EQ(Singular.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
 	EXPECT_FALSE(Singular.Hit);
 	EXPECT_EQ(Singular.Diagnostics.InvalidSkeletalTargets, 1u);
+}
+
+TEST(FViewportPickingContractTests, IntersectsExactSplineMeshDerivedLOD0Surface)
+{
+	FPickingFixture Fixture;
+	auto* Component = Durin::Cast<Durin::DSplineMeshComponent>(Fixture.Actor->AddInstanceComponent(
+		Durin::DSplineMeshComponent::StaticClass(), Durin::FName("SplineMeshPicking")));
+	ASSERT_NE(Component, nullptr);
+	Component->SetStaticMesh(Durin::DStaticMesh::CreateDebugTriangle(Fixture.Level));
+	Component->SetWorldLocation({0.0, 0.0, 3.0});
+	ASSERT_TRUE(Component->IsRegistered());
+
+	Durin::Editor::Level::FViewportPickingBackendRequest Request{{1}, {50.0, 0.0, 0.0}, {0.0, 0.0, 1.0}};
+	Request.Targets.push_back({1, Component->GetPrimitiveSceneId(), Fixture.Actor, Component, 1,
+		Component->GetRegistrationGeneration()});
+	const auto Completion = Durin::Editor::Level::MakeReferenceViewportPickingBackend()->Submit(std::move(Request));
+	ASSERT_EQ(Completion.Status, Durin::Editor::Level::EViewportPickStatus::Completed);
+	ASSERT_TRUE(Completion.Hit);
+	EXPECT_EQ(Completion.Hit->Token, 1u);
+	EXPECT_NEAR(Completion.Hit->Distance, 3.0, 1.e-6);
+	EXPECT_EQ(Completion.Diagnostics.ApplicableSplineMeshTargets, 1u);
+	EXPECT_EQ(Completion.Diagnostics.SplineMeshTestedTriangles, 1u);
 }
 
 TEST(FViewportPickingContractTests, SkipsIncompleteIncompatibleAndMalformedSkeletalCandidatesAtomically)

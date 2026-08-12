@@ -1,5 +1,6 @@
 #include "MaterialTestSupport.h"
 #include "DynamicRHI.h"
+#include "Components/SplineMeshComponent.h"
 #include "StaticMesh/StaticMeshRenderStateRecreateContext.h"
 
 #include <chrono>
@@ -151,6 +152,31 @@ TEST(FStaticMeshRenderStateRecreateContextTests, RejectsReusedObjectSlotGenerati
 	Replacement->UnregisterComponent();
 	Durin::MarkAsGarbage(Replacement);
 	Durin::RemoveFromRoot(Mesh);
+	Durin::MarkAsGarbage(Mesh);
+	Durin::CollectGarbage();
+}
+
+TEST(FStaticMeshRenderStateRecreateContextTests, RepublishesSplineMeshDerivedStateAfterSourceExchange)
+{
+	InitializeDObjectSystem();
+	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
+	auto* Component = Durin::NewObject<Durin::DSplineMeshComponent>(nullptr, "SplineMeshSourceExchange");
+	ASSERT_NE(Mesh, nullptr);
+	ASSERT_NE(Component, nullptr);
+	Component->SetStaticMesh(Mesh);
+	Component->RegisterComponent();
+	const auto Before = Component->GetDerivedState();
+	ASSERT_TRUE(Before && Before->IsValid());
+	ASSERT_TRUE(ReplaceWithDebugCandidate(Mesh));
+	const auto After = Component->GetDerivedState();
+	ASSERT_TRUE(After && After->IsValid());
+	EXPECT_NE(After, Before);
+	EXPECT_GT(After->SourceRenderResourceRevision, Before->SourceRenderResourceRevision);
+	EXPECT_GT(After->DeformationRevision, Before->DeformationRevision);
+	EXPECT_NE(After->CollisionInputIdentity, Before->CollisionInputIdentity);
+
+	Component->UnregisterComponent();
+	Durin::MarkAsGarbage(Component);
 	Durin::MarkAsGarbage(Mesh);
 	Durin::CollectGarbage();
 }

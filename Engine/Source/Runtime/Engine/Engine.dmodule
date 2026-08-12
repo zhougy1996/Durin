@@ -56,6 +56,7 @@
         "Public/Components/PhysicsComponent.h",
         "Public/Components/StaticMeshComponent.h",
 		"Public/Components/TerrainComponent.h",
+		"Public/Components/SplineMeshComponent.h",
 		"Public/Components/SkeletalMeshComponent.h",
         "Public/SkeletalMesh/Skeleton.h",
         "Public/SkeletalMesh/SkeletalMesh.h",

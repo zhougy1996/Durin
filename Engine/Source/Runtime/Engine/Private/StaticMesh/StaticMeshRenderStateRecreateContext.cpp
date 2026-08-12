@@ -1,6 +1,7 @@
 #include "StaticMesh/StaticMeshRenderStateRecreateContext.h"
 
 #include "Components/StaticMeshComponent.h"
+#include "Components/SplineMeshComponent.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/ObjectLifecycle.h"
 #include "StaticMesh/StaticMesh.h"
@@ -24,9 +25,14 @@ namespace Durin
 
 		for (DObject* Object : GDObjectArray.Snapshot(EObjectQueryScope::LiveOnly))
 		{
-			auto* Component = Cast<DStaticMeshComponent>(Object);
+			auto* StaticComponent = Cast<DStaticMeshComponent>(Object);
+			auto* SplineComponent = Cast<DSplineMeshComponent>(Object);
+			DPrimitiveComponent* Component = StaticComponent
+				? static_cast<DPrimitiveComponent*>(StaticComponent)
+				: static_cast<DPrimitiveComponent*>(SplineComponent);
 			if (!IsValid(Component) || !Component->IsRegistered()
-				|| Component->GetStaticMesh() != StaticMesh)
+				|| (StaticComponent && StaticComponent->GetStaticMesh() != StaticMesh)
+				|| (SplineComponent && SplineComponent->GetStaticMesh() != StaticMesh))
 				continue;
 			const FObjectHandle Handle = MakeObjectHandle(Component);
 			if (IsObjectHandleNull(Handle)) continue;
@@ -36,9 +42,15 @@ namespace Durin
 
 		for (FObjectHandle Handle : ComponentHandles)
 		{
-			auto* Component = Cast<DStaticMeshComponent>(ResolveObjectHandle(Handle));
+			auto* Object = ResolveObjectHandle(Handle);
+			auto* StaticComponent = Cast<DStaticMeshComponent>(Object);
+			auto* SplineComponent = Cast<DSplineMeshComponent>(Object);
+			DPrimitiveComponent* Component = StaticComponent
+				? static_cast<DPrimitiveComponent*>(StaticComponent)
+				: static_cast<DPrimitiveComponent*>(SplineComponent);
 			if (IsValid(Component) && Component->IsRegistered()
-				&& Component->GetStaticMesh() == StaticMesh)
+				&& ((!StaticComponent || StaticComponent->GetStaticMesh() == StaticMesh)
+					&& (!SplineComponent || SplineComponent->GetStaticMesh() == StaticMesh)))
 				Component->DestroyRenderState();
 		}
 	}
@@ -50,10 +62,15 @@ namespace Durin
 
 		for (FObjectHandle Handle : ComponentHandles)
 		{
-			auto* Component = Cast<DStaticMeshComponent>(ResolveObjectHandle(Handle));
-			if (IsValid(Component) && Component->IsRegistered()
+			auto* Object = ResolveObjectHandle(Handle);
+			if (auto* Component = Cast<DStaticMeshComponent>(Object);
+				IsValid(Component) && Component->IsRegistered()
 				&& Component->GetStaticMesh() == StaticMesh)
 				Component->HandleStaticMeshRenderDataChanged(StaticMesh);
+			else if (auto* SplineComponent = Cast<DSplineMeshComponent>(Object);
+				IsValid(SplineComponent) && SplineComponent->IsRegistered()
+				&& SplineComponent->GetStaticMesh() == StaticMesh)
+				SplineComponent->HandleStaticMeshRenderDataChanged(StaticMesh);
 		}
 	}
 } // namespace Durin
