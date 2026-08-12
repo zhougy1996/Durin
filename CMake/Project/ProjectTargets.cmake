@@ -61,7 +61,6 @@ set(DURIN_NATIVE_TEST_LEGACY_TARGET_ALLOWLIST
 	TerrainRenderPrimitiveTests
 	TerrainRenderVulkanTests
 	TextureCookIntegrationTests
-	TextureTests
 	TextureThumbnailTests
 	ThumbnailTests
 )

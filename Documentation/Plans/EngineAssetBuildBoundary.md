@@ -751,6 +751,13 @@ coordinator and its queued request/result contracts. The Runtime coordinator no
 longer has unique behavioral coverage; remaining tests exercise it only
 indirectly through unmigrated Runtime load/source lifecycle methods.
 
+Stage 2 native-test registration progress (2026-08-13): the focused
+`TextureTests` target now uses structured feature metadata and owns only texture
+import, build, cache, failure, coordinator and cube contracts. The slower
+cross-family `FSceneImportTests` suite is preserved in the separately selectable
+structured `SceneImportTests` integration target, so routine Texture2D changes
+do not repeatedly pay for skeletal and scene publication/rollback coverage.
+
 Runtime no longer initializes, pumps or shuts down a Texture2D authoring worker
 through `EngineAssetServices`. The obsolete Launch lifecycle-smoke option and
 its documentation were removed with that host contract; Build module lifecycle

@@ -298,27 +298,100 @@ durin_add_legacy_engine_functional_test(SkeletalMeshRenderResourcesVulkanTests
 	LIBRARIES ApplicationCore RenderCore Renderer
 )
 
-durin_add_legacy_engine_functional_test(TextureTests
-	TIMEOUT 600
-	RUNTIME_STACK_RATIONALE "Exercises renderer-backed texture import, build, and cache behavior."
-	SOURCES
+set(_durin_texture_test_include_directories
+	${CMAKE_CURRENT_SOURCE_DIR}/Private
+	${DURIN_PROJECT_ROOT_DIR}/Source/Editor/StandardAssetImport/Private
+)
+set(_durin_texture_test_libraries
+	Core
+	CoreDObject
+	AssetCore
+	Engine
+	AssetImportCore
+	EngineAssetBuild
+	StandardAssetImport
+	RenderCore
+	Renderer
+	DurinEd
+)
+
+if(DURIN_WITH_EDITOR)
+	add_durin_test(TextureTests
 		Private/Texture/TextureImportAndCacheTests.cpp
 		Private/Texture/TextureDerivedDataTests.cpp
 		Private/Texture/TextureBuildTests.cpp
 		Private/Texture/Texture2DBuildCoordinatorTests.cpp
 		Private/Texture/TextureFailureTests.cpp
-		Private/Texture/SceneImportTests.cpp
 		Private/Texture/SingleAssetImportTests.cpp
 		Private/Texture/EquirectangularTextureCubeTests.cpp
 		Private/TextureCubeTests.cpp
-	LIBRARIES AssetImportCore EngineAssetBuild StandardAssetImport RenderCore Renderer DurinEd
-	DATA_DIRECTORIES
-		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
-		${CMAKE_CURRENT_SOURCE_DIR}/Data
 	)
-if(TARGET TextureTests)
 	target_include_directories(TextureTests PRIVATE
-		${DURIN_PROJECT_ROOT_DIR}/Source/Editor/StandardAssetImport/Private)
+		${_durin_texture_test_include_directories})
+	target_link_libraries(TextureTests PRIVATE
+		${_durin_texture_test_libraries})
+	set_target_properties(TextureTests PROPERTIES
+		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+		DURIN_TEST_HEAVY_RUNTIME_RATIONALE
+			"Exercises editor texture import, build, cache, and render-resource contracts."
+		DURIN_TEST_TIMEOUT 600
+	)
+	durin_test_deploy_directory_to_data(
+		TextureTests
+		"${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport"
+	)
+	durin_test_deploy_directory_to_data(
+		TextureTests
+		"${CMAKE_CURRENT_SOURCE_DIR}/Data"
+	)
+	durin_finalize_native_test(TextureTests
+		KIND feature
+		DOMAINS texture
+		MODULES engine engine-asset-build standard-asset-import
+		STACKS editor
+	)
+	durin_set_native_test_target_execution(TextureTests)
+	durin_discover_tests(TextureTests)
+
+	add_durin_test(SceneImportTests
+		Private/Texture/SceneImportTests.cpp
+	)
+	target_include_directories(SceneImportTests PRIVATE
+		${_durin_texture_test_include_directories})
+	target_link_libraries(SceneImportTests PRIVATE
+		${_durin_texture_test_libraries})
+	set_target_properties(SceneImportTests PROPERTIES
+		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+		DURIN_TEST_HEAVY_RUNTIME_RATIONALE
+			"Exercises editor scene-import publication and rollback across runtime asset families."
+		DURIN_TEST_TIMEOUT 600
+	)
+	durin_test_deploy_directory_to_data(
+		SceneImportTests
+		"${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport"
+	)
+	durin_finalize_native_test(SceneImportTests
+		KIND integration
+		DOMAINS asset-import
+		MODULES asset-import-core engine standard-asset-import
+		STACKS editor
+	)
+	durin_set_native_test_target_execution(SceneImportTests)
+	durin_discover_tests(SceneImportTests)
+else()
+	durin_exclude_native_test_sources(
+		RATIONALE "Texture authoring and scene import require editor-only Build and StandardAssetImport services."
+		SOURCES
+			Private/Texture/TextureImportAndCacheTests.cpp
+			Private/Texture/TextureDerivedDataTests.cpp
+			Private/Texture/TextureBuildTests.cpp
+			Private/Texture/Texture2DBuildCoordinatorTests.cpp
+			Private/Texture/TextureFailureTests.cpp
+			Private/Texture/SceneImportTests.cpp
+			Private/Texture/SingleAssetImportTests.cpp
+			Private/Texture/EquirectangularTextureCubeTests.cpp
+			Private/TextureCubeTests.cpp
+	)
 endif()
 
 durin_add_legacy_engine_functional_test(TerrainHeightmapTests
@@ -497,7 +570,7 @@ durin_add_legacy_engine_functional_test(ThumbnailTests
 		${_durin_level_editor_private}/Assets/ContentBrowserThumbnailCache.cpp
 		${_durin_level_editor_private}/Assets/SourceImageThumbnailDecoder.cpp
 		${_durin_level_editor_private}/Assets/SourceImageThumbnailDiskCache.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd EngineAssetBuild StaticMeshEditor TextureEditor
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd EngineAssetBuild StandardAssetImport StaticMeshEditor TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -507,7 +580,7 @@ durin_add_legacy_engine_functional_test(MaterialThumbnailTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises the MaterialEditor-owned Material and MaterialInstance thumbnail extensions."
 	SOURCES Private/MaterialAssetThumbnailTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd EngineAssetBuild MaterialEditor TextureEditor
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd EngineAssetBuild StandardAssetImport MaterialEditor TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -517,7 +590,7 @@ durin_add_legacy_engine_functional_test(TextureThumbnailTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises the TextureEditor-owned Texture2D and TextureCube thumbnail extensions."
 	SOURCES Private/TextureAssetThumbnailTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd EngineAssetBuild TextureEditor
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd EngineAssetBuild StandardAssetImport TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -532,7 +605,7 @@ durin_add_legacy_engine_functional_test(StaticMeshThumbnailTests
 		${_durin_level_editor_private}/Assets/ContentBrowserThumbnailCache.cpp
 		${_durin_level_editor_private}/Assets/SourceImageThumbnailDecoder.cpp
 		${_durin_level_editor_private}/Assets/SourceImageThumbnailDiskCache.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd EngineAssetBuild MaterialEditor StaticMeshEditor TextureEditor
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd EngineAssetBuild StandardAssetImport MaterialEditor StaticMeshEditor TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
