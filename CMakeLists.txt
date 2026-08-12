@@ -42,7 +42,9 @@ endif()
 if(DURIN_PROFILE_NAME STREQUAL "DurinGame")
 	durin_assert_target_dependency_closure_excludes(DurinLauncher
 		AssetImport
+		AssetImportCore
 		EngineAssetBuild
+		StandardAssetImport
 		assimp::assimp
 		bc7enc_rdo::bc7enc_rdo
 		rgbcx

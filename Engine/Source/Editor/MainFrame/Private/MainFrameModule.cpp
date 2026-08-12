@@ -114,6 +114,7 @@ namespace Durin::Editor::MainFrame
 			bool bWorkspaceReady = false;
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("Startup.WorkspaceRegistration");
+				FModuleManager::Get().LoadModuleChecked("EngineAssetBuild");
 				FModuleManager::Get().LoadModuleChecked("StandardAssetImport");
 				Editor::FRenderedAssetThumbnailService& ThumbnailService =
 					Editor::GetDefaultRenderedAssetThumbnailService();

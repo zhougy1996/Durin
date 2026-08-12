@@ -45,6 +45,7 @@ direction.
 | `MaterialEditor` | Material asset editor and material-specific editing UI | [source](../../Engine/Source/Editor/MaterialEditor) |
 | `TextureEditor` | Texture asset editor, import/build-setting UI, preview, and texture-specific diagnostics | [source](../../Engine/Source/Editor/TextureEditor) |
 | `StaticMeshEditor` | Static-mesh inspector, preview, material overrides, and mesh-specific editor tools | [source](../../Engine/Source/Editor/StaticMeshEditor) |
+| `EngineAssetBuild` | Authoring-only Engine asset builders, asset-specific DDC policy, build coordination, and diagnostics | [source](../../Engine/Source/Editor/EngineAssetBuild) |
 | `AssetImportCore` | Format-neutral asset-import requests, policies, results, and extension interfaces | [source](../../Engine/Source/Editor/AssetImportCore) |
 | `StandardAssetImport` | Built-in image, mesh, material, texture, and skeletal import implementations | [source](../../Engine/Source/Editor/StandardAssetImport) |
 | `DurinLauncher` | Minimal executable entrypoint for the configured editor or game runtime variant | [source](../../Engine/Source/Editor/DurinLauncher) |

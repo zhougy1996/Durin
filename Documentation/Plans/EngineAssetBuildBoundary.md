@@ -9,7 +9,7 @@ Completed:
 
 ## Current Status
 
-Stage 0 is complete and Stage 1 is ready to execute. Runtime `Engine` currently
+Stage 0 is complete and Stage 1 is in progress. Runtime `Engine` currently
 owns both consumption and production paths for several asset families: runtime
 asset objects and render resources sit beside source provenance inspection,
 normalized import intermediates, asset-specific DDC builders, texture mip and
@@ -359,17 +359,17 @@ stale/cancel behavior, DDC write failure, and transactional preservation.
 
 Dependencies: Stage 0 ownership and dependency baselines.
 
-- [ ] Add `EngineAssetBuild.dmodule`, its CMake target, API export, module
+- [x] Add `EngineAssetBuild.dmodule`, its CMake target, API export, module
   lifecycle, and `Engine.dproject` selection for authoring roots. Give it only
   the minimal public/private dependencies required by the frozen inventory.
 - [ ] Move the `bc7enc_rdo` link from Engine to `EngineAssetBuild`; keep Assimp
   and concrete source decoder deployment owned by `StandardAssetImport`.
-- [ ] Update focused native-test targets so builder tests link
+- [x] Update focused native-test targets so builder tests link
   `EngineAssetBuild` rather than BC7 or builder-only Engine APIs directly.
-- [ ] Strengthen target dependency/deployment assertions so `DurinGame` rejects
+- [x] Strengthen target dependency/deployment assertions so `DurinGame` rejects
   `EngineAssetBuild`, source decoder/provider modules, Assimp, image decoder
   libraries, BC encoders, and any authoring-only runtime file.
-- [ ] Prove that an editor build loads the new empty/thin module in the selected
+- [x] Prove that an editor build loads the new empty/thin module in the selected
   lifecycle order while a game build neither builds nor deploys it as part of
   the runtime product.
 - [ ] Record the Stage 1 handoff with target closures, deployed files, module

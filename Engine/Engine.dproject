@@ -25,7 +25,8 @@
         "SkeletalMeshEditor": "Source/Editor/SkeletalMeshEditor",
         "DurinLauncher": "Source/Editor/DurinLauncher",
         "StandardAssetImport": "Source/Editor/StandardAssetImport",
-        "AssetImportCore": "Source/Editor/AssetImportCore"
+        "AssetImportCore": "Source/Editor/AssetImportCore",
+        "EngineAssetBuild": "Source/Editor/EngineAssetBuild"
     },
     "BaseModules": [
         "DurinLauncher",
@@ -43,7 +44,8 @@
                 "StaticMeshEditor",
                 "SkeletalMeshEditor",
                 "StandardAssetImport",
-                "AssetImportCore"
+                "AssetImportCore",
+                "EngineAssetBuild"
             ]
         },
         "DurinGame": {

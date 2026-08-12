@@ -15,6 +15,7 @@ set(_durin_editor_test_modules
 	DurinEd
 	Mona
 	MonaImGui
+	EngineAssetBuild
 	StandardAssetImport
 )
 
@@ -100,7 +101,6 @@ function(durin_add_engine_functional_test target_name)
 		CoreDObject
 		AssetCore
 		Engine
-		bc7enc_rdo::bc7enc_rdo
 		${DURIN_ENGINE_TEST_LIBRARIES}
 	)
 
@@ -234,7 +234,7 @@ durin_add_engine_functional_test(MaterialTests
 		MaterialEditor
 		StaticMeshEditor
 		TextureEditor
-		bc7enc_rdo::bc7enc_rdo
+		EngineAssetBuild
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -257,7 +257,7 @@ durin_add_engine_functional_test(StaticMeshTests
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Customizations/StaticMeshMaterialSlotDetails.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
-	LIBRARIES AssetImportCore StandardAssetImport RenderCore Renderer DurinEd StaticMeshEditor bc7enc_rdo::bc7enc_rdo
+	LIBRARIES AssetImportCore EngineAssetBuild StandardAssetImport RenderCore Renderer DurinEd StaticMeshEditor
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
@@ -308,7 +308,7 @@ durin_add_engine_functional_test(TextureTests
 		Private/Texture/SingleAssetImportTests.cpp
 		Private/Texture/EquirectangularTextureCubeTests.cpp
 		Private/TextureCubeTests.cpp
-	LIBRARIES AssetImportCore StandardAssetImport RenderCore Renderer DurinEd bc7enc_rdo::bc7enc_rdo
+	LIBRARIES AssetImportCore EngineAssetBuild StandardAssetImport RenderCore Renderer DurinEd
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -415,7 +415,7 @@ durin_add_engine_functional_test(SceneImportVulkanTests
 	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this Vulkan-backed test."
 	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/Texture/SceneImportVulkanTests.cpp
-	LIBRARIES ApplicationCore AssetImportCore StandardAssetImport RenderCore Renderer DurinEd TextureEditor bc7enc_rdo::bc7enc_rdo
+	LIBRARIES ApplicationCore AssetImportCore EngineAssetBuild StandardAssetImport RenderCore Renderer DurinEd TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -678,5 +678,5 @@ durin_add_engine_functional_test(TextureCookIntegrationTests
 	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this Vulkan-backed test."
 	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/Texture/TextureCookTests.cpp
-	LIBRARIES RenderCore Renderer bc7enc_rdo::bc7enc_rdo
+	LIBRARIES EngineAssetBuild RenderCore Renderer
 )
