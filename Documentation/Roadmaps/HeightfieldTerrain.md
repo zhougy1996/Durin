@@ -28,8 +28,10 @@ for large regular grids.
 
 T0 is complete; its lasting contract is
 [Terrain Heightmap Asset](../Runtime/Terrain/TerrainHeightmapAsset.md).
-T1 and T2 may now consume immutable revisioned payload snapshots without
-opening source files or defining a second height authority.
+T1 is selected and planned as
+[Terrain Render Primitive](../Plans/TerrainRenderPrimitive.md). T2 remains
+ready for independent plan selection. Both consume immutable revisioned payload
+snapshots without opening source files or defining a second height authority.
 
 ## Outcome
 
@@ -188,7 +190,7 @@ flowchart LR
 | Milestone | Requirement | Child plan | Dependencies | Deliverable | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- | --- | --- |
 | T0: Heightmap asset foundation | Required; complete | [Terrain Heightmap Asset](../Runtime/Terrain/TerrainHeightmapAsset.md) | Existing AssetCore, Engine asset lifecycle, StandardAssetImport | Dedicated 16-bit asset with validated source import, derived/cooked data, load, reimport, inspection facts, and bounded tests | Complete | Editor and cooked runtime reproduce identical canonical samples and regional metadata without source/DDC |
-| T1: Terrain render primitive | Required; ready for plan selection as `TerrainRenderPrimitive` | T0, existing Renderer scene/visibility/material contracts | Actor/Component, proxy/info, patch resources, vertex factory/shader, PBR material mapping, single-LOD visible terrain | Consume `FTerrainHeightmapPayload` snapshots and revision; freeze representative terrain/render and R16 upload budgets without changing asset semantics | Finite terrain renders in all required view/output paths with conservative patch visibility, counted resources, clean invalidation, and full editor smoke |
+| T1: Terrain render primitive | Required; active | [Terrain Render Primitive](../Plans/TerrainRenderPrimitive.md) | T0, existing Renderer scene/visibility/material contracts | Actor/Component, proxy/info, patch resources, vertex factory/shader, PBR material mapping, single-LOD visible terrain | Consume `FTerrainHeightmapPayload` snapshots and revision; freeze representative terrain/render and exact R16 upload budgets without changing asset semantics | Finite terrain renders in all required view/output paths with conservative patch visibility, counted resources, clean invalidation, and full editor smoke |
 | T2: Heightfield collision | Required; ready for plan selection as `AetherHeightfieldCollision` | T0, existing Aether geometry/query facade | Immutable HeightField resource, cell acceleration, full Ray/Sweep/Overlap matrix, Cook/load, BodyInstance publication | Consume the stable top-left row-major samples and 64×64 extrema hierarchy; freeze query fixtures and a bounded triangle-mesh oracle | Heightfield Production matches Reference/oracle semantics, scales by local cells rather than all triangles, and tracks asset revisions safely |
 | T3: Patch LOD and crack control | Required; proposed `TerrainPatchLOD` | T1 | Deterministic patch LOD, adjacency resolution, skirts or stitching, regional bounds, counters and GPU qualification | T1 has a correct single-LOD baseline and measured patch/draw/triangle costs | Camera motion and all neighbor transitions remain crack-free and deterministic within frozen CPU/GPU/memory budgets |
 | T4: Editor workflow and qualification | Required; proposed `TerrainEditorWorkflow` | T1-T3 | Placement, reflected properties, picking, reimport propagation, error presentation, final fixtures and lasting docs | Runtime/render/collision contracts are stable enough that editor actions do not define them implicitly | A user can import, place, configure, save, reload, Cook, run, select, and collide with terrain; all program validation rows pass |
@@ -205,7 +207,7 @@ transactional import/reimport, asset registry facts, and focused inspection.
 It does not create Terrain actors, GPU render resources, materials, Aether
 geometry, viewport tools, or runtime deformation.
 
-### `TerrainRenderPrimitive`
+### [Terrain Render Primitive](../Plans/TerrainRenderPrimitive.md)
 
 Owns Engine publishers, Renderer scene family, patch resource lifetime,
 single-LOD topology, height sampling, normal derivation, base-pass material
