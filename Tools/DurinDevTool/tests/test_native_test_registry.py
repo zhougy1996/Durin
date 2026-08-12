@@ -1,0 +1,120 @@
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+import pytest
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+PRODUCT_ROOT = REPOSITORY_ROOT / "Tools" / "DurinDevTool"
+if str(PRODUCT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PRODUCT_ROOT))
+
+from durin_dev_tool.build.config import BuildToolError
+from durin_dev_tool.build.native_test_registry import (
+    NativeTestRegistry,
+    NativeTestTarget,
+    load_native_test_registry,
+    resolve_selection,
+)
+
+
+def target(
+    name: str,
+    *,
+    kind: str = "feature",
+    domains: tuple[str, ...] = ("viewport",),
+    modules: tuple[str, ...] = ("engine",),
+    backends: tuple[str, ...] = (),
+) -> NativeTestTarget:
+    return NativeTestTarget(
+        name=name,
+        metadata_mode="structured",
+        kind=kind,
+        domains=domains,
+        modules=modules,
+        backends=backends,
+        stacks=(),
+        direct_lifecycle=kind != "characterization",
+        timeout_seconds=300,
+        resource_locks=(),
+        heavy_runtime=False,
+    )
+
+
+@pytest.fixture
+def registry(tmp_path: Path) -> NativeTestRegistry:
+    return NativeTestRegistry(
+        tmp_path / "registry.json",
+        "debug",
+        (
+            target("EngineViewportTests"),
+            target("MonaViewportTests", modules=("mona",)),
+            target(
+                "VulkanViewportTests",
+                kind="integration",
+                backends=("vulkan",),
+            ),
+            target("LaunchCrashTests", kind="characterization", domains=("launch",)),
+        ),
+    )
+
+
+def test_selector_unions_within_dimension_and_intersects_dimensions(
+    registry: NativeTestRegistry,
+) -> None:
+    resolved = resolve_selection(
+        registry,
+        "@kind=feature+integration,domain=viewport,backend=vulkan",
+    )
+    assert resolved.names == ("VulkanViewportTests",)
+    assert "kind=feature + integration" in resolved.explanation
+
+
+def test_domain_shorthand_and_exact_target_precedence(registry: NativeTestRegistry) -> None:
+    assert resolve_selection(registry, "@viewport").names == (
+        "EngineViewportTests",
+        "MonaViewportTests",
+        "VulkanViewportTests",
+    )
+    assert resolve_selection(registry, "MonaViewportTests").explanation == "exact target name"
+
+
+def test_empty_and_characterization_selections_are_explicit(
+    registry: NativeTestRegistry,
+) -> None:
+    with pytest.raises(BuildToolError, match="matched no configured targets"):
+        resolve_selection(registry, "@domain=missing")
+    with pytest.raises(BuildToolError, match="characterization-only"):
+        resolve_selection(registry, "LaunchCrashTests")
+    assert resolve_selection(
+        registry,
+        "@kind=characterization",
+        admit_characterization=True,
+    ).names == ("LaunchCrashTests",)
+
+
+def test_registry_loader_rejects_wrong_preset_identity(tmp_path: Path) -> None:
+    document = {
+        "schemaVersion": 1,
+        "identity": {
+            "sourceDir": str(REPOSITORY_ROOT),
+            "binaryDir": str(tmp_path),
+            "preset": "release",
+            "configuration": "Debug",
+        },
+        "targets": [],
+    }
+    (tmp_path / "DurinNativeTestRegistry.json").write_text(
+        json.dumps(document), encoding="utf-8"
+    )
+    context = SimpleNamespace(preset=SimpleNamespace(name="debug"))
+    with mock.patch(
+        "durin_dev_tool.build.native_test_registry.preset_build_directory",
+        return_value=tmp_path,
+    ):
+        with pytest.raises(BuildToolError, match="does not match"):
+            load_native_test_registry(context)  # type: ignore[arg-type]

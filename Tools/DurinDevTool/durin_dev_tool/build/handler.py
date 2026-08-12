@@ -7,6 +7,7 @@ from typing import TextIO
 from .config import (
     Action,
     BuildActionOptions,
+    BuildToolError,
     CommandRequest,
     CreateActionOptions,
     CreateKind,
@@ -20,6 +21,7 @@ from .config import (
     RunActionOptions,
     TestActionOptions,
     TestGranularity,
+    TestMode,
 )
 from .operations import execute_request
 
@@ -63,14 +65,42 @@ def request_from_namespace(namespace: argparse.Namespace) -> CommandRequest:
             fresh=bool(namespace_value(namespace, "fresh", False)),
         )
     elif action is Action.TEST:
+        positional_selection = str(namespace_value(namespace, "selection", ""))
+        positional_filter = str(namespace_value(namespace, "case_filter", ""))
+        compatibility_target = str(
+            namespace_value(namespace, "compatibility_target", "")
+        )
+        option_filter = str(namespace_value(namespace, "filter", ""))
+        if positional_selection and compatibility_target:
+            raise BuildToolError("test selection and --target cannot be used together")
+        if positional_filter and option_filter:
+            raise BuildToolError("positional case filter and --filter cannot be used together")
+        operation = "run"
+        query = ""
+        target = positional_selection or compatibility_target
+        test_filter = option_filter or positional_filter
+        if positional_selection == "list":
+            operation, query, target, test_filter = "list", positional_filter, "", ""
+        elif positional_selection == "explain":
+            operation, query, target, test_filter = "explain", "", positional_filter, ""
+        test_mode = TestMode(str(namespace_value(namespace, "mode", "routine")))
+        report_path = namespace_value(namespace, "report", None)
         options = TestActionOptions(
-            target=str(namespace_value(namespace, "target", "")),
-            filter=str(namespace_value(namespace, "filter", "")),
+            target=target,
+            filter=test_filter,
+            operation=operation,
+            query=query,
+            mode=test_mode,
+            report_path=report_path,
             timeout_seconds=int(namespace_value(namespace, "timeout", 300)),
-            schedule_random=bool(
-                namespace_value(namespace, "schedule_random", False)
+            schedule_random=(
+                test_mode is TestMode.STRESS
+                or bool(namespace_value(namespace, "schedule_random", False))
             ),
-            output_junit=namespace_value(namespace, "output_junit", None),
+            output_junit=(
+                namespace_value(namespace, "output_junit", None)
+                or report_path
+            ),
             ctest_regex=str(namespace_value(namespace, "ctest_regex", "")),
             include_direct=bool(
                 namespace_value(namespace, "include_direct", False)
@@ -146,6 +176,22 @@ def run(
     session_state: dict[str, object] | None = None,
 ) -> int:
     del registry, repository_root
+    if str(namespace_value(namespace, "build_action", "")) == Action.TEST.value:
+        compatibility_warnings = []
+        if namespace_value(namespace, "compatibility_target", ""):
+            compatibility_warnings.append("--target is deprecated; use positional test <selection>.")
+        if namespace_value(namespace, "granularity", None) is not None:
+            compatibility_warnings.append("--granularity is compatibility-only; use --mode isolation when needed.")
+        if bool(namespace_value(namespace, "include_direct", False)):
+            compatibility_warnings.append("--include-direct is a deprecated no-op in target mode.")
+        if namespace_value(namespace, "ctest_regex", ""):
+            compatibility_warnings.append("--ctest-regex is compatibility-only; use a case filter with --mode isolation.")
+        if bool(namespace_value(namespace, "schedule_random", False)):
+            compatibility_warnings.append("--schedule-random is deprecated; use --mode stress.")
+        if namespace_value(namespace, "output_junit", None) is not None:
+            compatibility_warnings.append("--output-junit is deprecated; use --mode report [--report <path>].")
+        for warning in compatibility_warnings:
+            print(f"Warning: {warning}", file=stderr)
     request = request_from_namespace(namespace)
     return execute_request(
         request,

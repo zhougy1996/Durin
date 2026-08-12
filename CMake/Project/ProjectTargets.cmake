@@ -287,6 +287,7 @@ function(add_durin_test target_name)
 		DURIN_TEST_BIN_DIR "${_durin_test_bin_dir}"
 		DURIN_TEST_DATA_DIR "${_durin_test_data_dir}"
 		DURIN_TEST_WORK_DIR "${_durin_test_work_dir}"
+		DURIN_TEST_METADATA_MODE "legacy"
 	)
 
 	add_custom_command(TARGET ${target_name} POST_BUILD
@@ -300,6 +301,189 @@ function(add_durin_test target_name)
 
 	set_target_properties(${target_name} PROPERTIES FOLDER "Tests/${target_name}")
 	set_property(GLOBAL APPEND PROPERTY DURIN_NATIVE_TEST_TARGETS "${target_name}")
+endfunction()
+
+set(DURIN_NATIVE_TEST_KINDS
+	contract
+	feature
+	integration
+	characterization
+	infrastructure
+)
+set(DURIN_NATIVE_TEST_RESERVED_LABEL_PREFIXES
+	kind-
+	domain-
+	module-
+	backend-
+	stack-
+)
+
+function(durin_validate_native_test_metadata_value out_value dimension value)
+	string(TOLOWER "${value}" _durin_value)
+	if(NOT _durin_value MATCHES "^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
+		message(FATAL_ERROR
+			"Native-test ${dimension} value '${value}' is invalid; use a lowercase "
+			"slug matching [a-z][a-z0-9]*(-[a-z0-9]+)*.")
+	endif()
+	set(${out_value} "${_durin_value}" PARENT_SCOPE)
+endfunction()
+
+function(durin_normalize_native_test_metadata_list out_values dimension)
+	set(_durin_normalized)
+	foreach(_durin_value IN LISTS ARGN)
+		durin_validate_native_test_metadata_value(
+			_durin_normalized_value "${dimension}" "${_durin_value}")
+		if(_durin_normalized_value IN_LIST _durin_normalized)
+			message(FATAL_ERROR
+				"Native-test ${dimension} metadata contains duplicate value "
+				"'${_durin_normalized_value}'.")
+		endif()
+		list(APPEND _durin_normalized "${_durin_normalized_value}")
+	endforeach()
+	list(SORT _durin_normalized)
+	set(${out_values} "${_durin_normalized}" PARENT_SCOPE)
+endfunction()
+
+function(durin_assert_native_test_labels_not_reserved target_name)
+	foreach(_durin_label IN LISTS ARGN)
+		foreach(_durin_prefix IN LISTS DURIN_NATIVE_TEST_RESERVED_LABEL_PREFIXES)
+			if(_durin_label MATCHES "^${_durin_prefix}")
+				message(FATAL_ERROR
+					"${target_name} label '${_durin_label}' uses reserved native-test "
+					"prefix '${_durin_prefix}'. Declare structured metadata instead.")
+			endif()
+		endforeach()
+	endforeach()
+endfunction()
+
+function(durin_finalize_native_test target_name)
+	if(NOT TARGET ${target_name})
+		message(FATAL_ERROR
+			"Cannot finalize structured metadata for missing target ${target_name}.")
+	endif()
+	get_target_property(_durin_discovered ${target_name} DURIN_TEST_DISCOVERED)
+	if(_durin_discovered)
+		message(FATAL_ERROR
+			"${target_name} structured metadata must be finalized before durin_discover_tests.")
+	endif()
+
+	set(one_value_args KIND PRIVATE_SOURCE_OWNER PRIVATE_SOURCE_RATIONALE)
+	set(multi_value_args DOMAINS MODULES BACKENDS STACKS)
+	cmake_parse_arguments(DURIN_METADATA "" "${one_value_args}" "${multi_value_args}" ${ARGN})
+	if(DURIN_METADATA_UNPARSED_ARGUMENTS)
+		message(FATAL_ERROR
+			"Unknown structured native-test metadata for ${target_name}: "
+			"${DURIN_METADATA_UNPARSED_ARGUMENTS}")
+	endif()
+	if(NOT DURIN_METADATA_KIND)
+		message(FATAL_ERROR "${target_name} structured native-test metadata requires KIND.")
+	endif()
+	durin_validate_native_test_metadata_value(_durin_kind kind "${DURIN_METADATA_KIND}")
+	if(NOT _durin_kind IN_LIST DURIN_NATIVE_TEST_KINDS)
+		message(FATAL_ERROR
+			"${target_name} KIND '${_durin_kind}' is invalid; expected one of: "
+			"${DURIN_NATIVE_TEST_KINDS}.")
+	endif()
+	if(NOT DURIN_METADATA_DOMAINS)
+		message(FATAL_ERROR "${target_name} structured native-test metadata requires DOMAINS.")
+	endif()
+	durin_normalize_native_test_metadata_list(
+		_durin_domains domains ${DURIN_METADATA_DOMAINS})
+	durin_normalize_native_test_metadata_list(
+		_durin_modules modules ${DURIN_METADATA_MODULES})
+	durin_normalize_native_test_metadata_list(
+		_durin_backends backends ${DURIN_METADATA_BACKENDS})
+	durin_normalize_native_test_metadata_list(
+		_durin_stacks stacks ${DURIN_METADATA_STACKS})
+
+	get_target_property(_durin_direct_lifecycle ${target_name} DURIN_TEST_DIRECT_LIFECYCLE)
+	if(_durin_direct_lifecycle MATCHES "-NOTFOUND$")
+		set(_durin_direct_lifecycle TRUE)
+	endif()
+	get_target_property(_durin_labels ${target_name} DURIN_TEST_LABELS)
+	if(_durin_labels MATCHES "-NOTFOUND$")
+		set(_durin_labels)
+	endif()
+	durin_assert_native_test_labels_not_reserved("${target_name}" ${_durin_labels})
+	if(_durin_kind STREQUAL "characterization")
+		if(_durin_direct_lifecycle)
+			message(FATAL_ERROR
+				"${target_name} KIND characterization requires DURIN_TEST_DIRECT_LIFECYCLE FALSE.")
+		endif()
+		list(APPEND _durin_labels native-test-characterization)
+	elseif(native-test-characterization IN_LIST _durin_labels)
+		message(FATAL_ERROR
+			"${target_name} non-characterization KIND cannot use native-test-characterization.")
+	endif()
+
+	get_target_property(_durin_sources ${target_name} SOURCES)
+	foreach(_durin_source IN LISTS _durin_sources)
+		if(_durin_source MATCHES "^\\$<")
+			continue()
+		endif()
+		if(IS_ABSOLUTE "${_durin_source}")
+			cmake_path(NORMAL_PATH _durin_source OUTPUT_VARIABLE _durin_source_absolute)
+		else()
+			get_target_property(_durin_source_dir ${target_name} SOURCE_DIR)
+			cmake_path(ABSOLUTE_PATH _durin_source BASE_DIRECTORY "${_durin_source_dir}"
+				NORMALIZE OUTPUT_VARIABLE _durin_source_absolute)
+		endif()
+		set(_durin_is_test_owned_source FALSE)
+		if(DEFINED DURIN_PROJECT_TESTS_DIR)
+			cmake_path(IS_PREFIX DURIN_PROJECT_TESTS_DIR "${_durin_source_absolute}"
+				NORMALIZE _durin_is_test_owned_source)
+		endif()
+		if(_durin_is_test_owned_source OR NOT _durin_source_absolute MATCHES "[/\\\\]Private[/\\\\].*\\.(c|cc|cpp|cxx)$")
+			continue()
+		endif()
+		if(NOT DURIN_METADATA_PRIVATE_SOURCE_OWNER OR NOT DURIN_METADATA_PRIVATE_SOURCE_RATIONALE)
+			message(FATAL_ERROR
+				"${target_name} compiles production-private source ${_durin_source_absolute}. "
+				"Link the production module or declare an owned seam with "
+				"PRIVATE_SOURCE_OWNER and PRIVATE_SOURCE_RATIONALE.")
+		endif()
+		string(TOLOWER "${DURIN_METADATA_PRIVATE_SOURCE_OWNER}" _durin_private_owner)
+		if(NOT _durin_private_owner IN_LIST _durin_modules)
+			message(FATAL_ERROR
+				"${target_name} PRIVATE_SOURCE_OWNER must also appear in MODULES.")
+		endif()
+		if(NOT TARGET ${DURIN_METADATA_PRIVATE_SOURCE_OWNER})
+			message(FATAL_ERROR
+				"${target_name} PRIVATE_SOURCE_OWNER '${DURIN_METADATA_PRIVATE_SOURCE_OWNER}' "
+				"is not a configured production module target.")
+		endif()
+		get_target_property(_durin_owner_source_dir
+			${DURIN_METADATA_PRIVATE_SOURCE_OWNER} SOURCE_DIR)
+		set(_durin_owner_private_dir "${_durin_owner_source_dir}/Private")
+		cmake_path(IS_PREFIX _durin_owner_private_dir "${_durin_source_absolute}"
+			NORMALIZE _durin_is_owned_private_source)
+		if(NOT _durin_is_owned_private_source)
+			message(FATAL_ERROR
+				"${target_name} production-private source ${_durin_source_absolute} is not "
+				"owned by ${DURIN_METADATA_PRIVATE_SOURCE_OWNER}.")
+		endif()
+	endforeach()
+
+	set(_durin_structured_labels "kind-${_durin_kind}")
+	foreach(_durin_dimension domains modules backends stacks)
+		string(REGEX REPLACE "s$" "" _durin_label_prefix "${_durin_dimension}")
+		foreach(_durin_value IN LISTS _durin_${_durin_dimension})
+			list(APPEND _durin_structured_labels "${_durin_label_prefix}-${_durin_value}")
+		endforeach()
+	endforeach()
+	list(APPEND _durin_labels ${_durin_structured_labels})
+	list(REMOVE_DUPLICATES _durin_labels)
+	set_target_properties(${target_name} PROPERTIES
+		DURIN_TEST_METADATA_MODE "structured"
+		DURIN_TEST_KIND "${_durin_kind}"
+		DURIN_TEST_DOMAINS "${_durin_domains}"
+		DURIN_TEST_MODULES "${_durin_modules}"
+		DURIN_TEST_BACKENDS "${_durin_backends}"
+		DURIN_TEST_STACKS "${_durin_stacks}"
+		DURIN_TEST_LABELS "${_durin_labels}"
+		DURIN_TEST_PRIVATE_SOURCE_OWNER "${DURIN_METADATA_PRIVATE_SOURCE_OWNER}"
+		DURIN_TEST_PRIVATE_SOURCE_RATIONALE "${DURIN_METADATA_PRIVATE_SOURCE_RATIONALE}"
+	)
 endfunction()
 
 function(durin_add_native_test_aggregate_target target_name)
@@ -705,6 +889,100 @@ function(durin_resolve_native_test_execution_policy
 	set(${out_target_labels} "${_durin_target_labels}" PARENT_SCOPE)
 endfunction()
 
+function(durin_json_escape out_value value)
+	set(_durin_value "${value}")
+	string(REPLACE "\\" "\\\\" _durin_value "${_durin_value}")
+	string(REPLACE "\"" "\\\"" _durin_value "${_durin_value}")
+	string(REPLACE "\n" "\\n" _durin_value "${_durin_value}")
+	string(REPLACE "\r" "\\r" _durin_value "${_durin_value}")
+	string(REPLACE "\t" "\\t" _durin_value "${_durin_value}")
+	set(${out_value} "${_durin_value}" PARENT_SCOPE)
+endfunction()
+
+function(durin_json_string_array out_value)
+	set(_durin_items)
+	foreach(_durin_value IN LISTS ARGN)
+		durin_json_escape(_durin_escaped "${_durin_value}")
+		list(APPEND _durin_items "\"${_durin_escaped}\"")
+	endforeach()
+	string(JOIN "," _durin_joined ${_durin_items})
+	set(${out_value} "[${_durin_joined}]" PARENT_SCOPE)
+endfunction()
+
+function(durin_generate_native_test_registry output_path)
+	get_property(_durin_targets GLOBAL PROPERTY DURIN_NATIVE_TEST_TARGETS)
+	list(REMOVE_DUPLICATES _durin_targets)
+	list(SORT _durin_targets)
+	set(_durin_records)
+	foreach(_durin_target IN LISTS _durin_targets)
+		get_target_property(_durin_discovered ${_durin_target} DURIN_TEST_DISCOVERED)
+		if(NOT _durin_discovered)
+			message(FATAL_ERROR
+				"Native-test target ${_durin_target} was not finalized with durin_discover_tests.")
+		endif()
+		foreach(_durin_property
+			METADATA_MODE KIND DOMAINS MODULES BACKENDS STACKS
+			DIRECT_LIFECYCLE TIMEOUT DISCOVERY_RESOURCE_LOCKS
+			HEAVY_RUNTIME_RATIONALE)
+			get_target_property(_durin_${_durin_property}
+				${_durin_target} DURIN_TEST_${_durin_property})
+			if(_durin_${_durin_property} MATCHES "-NOTFOUND$")
+				set(_durin_${_durin_property})
+			endif()
+		endforeach()
+		foreach(_durin_list DOMAINS MODULES BACKENDS STACKS DISCOVERY_RESOURCE_LOCKS)
+			durin_json_string_array(_durin_${_durin_list}_json ${_durin_${_durin_list}})
+		endforeach()
+		if(_durin_DIRECT_LIFECYCLE)
+			set(_durin_direct_json true)
+		else()
+			set(_durin_direct_json false)
+		endif()
+		if(_durin_HEAVY_RUNTIME_RATIONALE)
+			set(_durin_heavy_json true)
+		else()
+			set(_durin_heavy_json false)
+		endif()
+		durin_json_escape(_durin_name_json "${_durin_target}")
+		durin_json_escape(_durin_mode_json "${_durin_METADATA_MODE}")
+		durin_json_escape(_durin_kind_json "${_durin_KIND}")
+		string(CONCAT _durin_record
+			"    {\"name\":\"${_durin_name_json}\",\"availability\":\"configured\","
+			"\"metadataMode\":\"${_durin_mode_json}\",\"kind\":\"${_durin_kind_json}\","
+			"\"domains\":${_durin_DOMAINS_json},\"modules\":${_durin_MODULES_json},"
+			"\"backends\":${_durin_BACKENDS_json},\"stacks\":${_durin_STACKS_json},"
+			"\"directLifecycle\":${_durin_direct_json},\"timeoutSeconds\":${_durin_TIMEOUT},"
+			"\"resourceLocks\":${_durin_DISCOVERY_RESOURCE_LOCKS_json},"
+			"\"heavyRuntime\":${_durin_heavy_json}}")
+		list(APPEND _durin_records "${_durin_record}")
+	endforeach()
+	string(JOIN ",\n" _durin_records_json ${_durin_records})
+	durin_json_escape(_durin_source_dir_json "${CMAKE_SOURCE_DIR}")
+	durin_json_escape(_durin_binary_dir_json "${CMAKE_BINARY_DIR}")
+	set(_durin_registry_preset "${CMAKE_PRESET_NAME}")
+	if(NOT _durin_registry_preset)
+		get_filename_component(_durin_registry_preset "${CMAKE_BINARY_DIR}" NAME)
+	endif()
+	durin_json_escape(_durin_preset_json "${_durin_registry_preset}")
+	durin_json_escape(_durin_configuration_json "${CMAKE_BUILD_TYPE}")
+	string(CONCAT _durin_registry
+		"{\n"
+		"  \"schemaVersion\": 1,\n"
+		"  \"identity\": {\"sourceDir\":\"${_durin_source_dir_json}\","
+		"\"binaryDir\":\"${_durin_binary_dir_json}\",\"preset\":\"${_durin_preset_json}\","
+		"\"configuration\":\"${_durin_configuration_json}\"},\n"
+		"  \"targets\": [\n${_durin_records_json}\n  ]\n"
+		"}\n")
+	get_filename_component(_durin_registry_dir "${output_path}" DIRECTORY)
+	file(MAKE_DIRECTORY "${_durin_registry_dir}")
+	set(_durin_temp_path "${output_path}.tmp")
+	file(WRITE "${_durin_temp_path}" "${_durin_registry}")
+	file(RENAME "${_durin_temp_path}" "${output_path}")
+	set_property(GLOBAL PROPERTY DURIN_NATIVE_TEST_REGISTRY_PATH "${output_path}")
+	message(STATUS
+		"Generated native-test registry for ${_durin_targets} at ${output_path}")
+endfunction()
+
 function(durin_discover_tests target_name)
 	if(NOT TARGET ${target_name})
 		message(FATAL_ERROR "Cannot discover tests for missing target ${target_name}.")
@@ -744,6 +1022,13 @@ function(durin_discover_tests target_name)
 	get_target_property(_durin_extra_labels ${target_name} DURIN_TEST_LABELS)
 	if(_durin_extra_labels MATCHES "-NOTFOUND$")
 		set(_durin_extra_labels)
+	endif()
+	get_target_property(_durin_metadata_mode ${target_name} DURIN_TEST_METADATA_MODE)
+	if(_durin_metadata_mode MATCHES "-NOTFOUND$")
+		set(_durin_metadata_mode legacy)
+	endif()
+	if(_durin_metadata_mode STREQUAL "legacy")
+		durin_assert_native_test_labels_not_reserved("${target_name}" ${_durin_extra_labels})
 	endif()
 	get_target_property(_durin_timeout ${target_name} DURIN_TEST_TIMEOUT)
 	if(_durin_timeout MATCHES "-NOTFOUND$")
@@ -807,6 +1092,9 @@ function(durin_discover_tests target_name)
 	set_target_properties(${target_name} PROPERTIES
 		DURIN_TEST_DISCOVERY_RESOURCE_LOCKS "${_durin_resource_locks}"
 		DURIN_TEST_DISCOVERY_LABELS "${_durin_case_labels}"
+		DURIN_TEST_DIRECT_LIFECYCLE "${_durin_direct_lifecycle}"
+		DURIN_TEST_TIMEOUT "${_durin_timeout}"
+		DURIN_TEST_DISCOVERED TRUE
 	)
 
 	gtest_discover_tests(${target_name}

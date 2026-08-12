@@ -9,39 +9,50 @@ Completed:
 
 ## Current Status
 
-Durin's native-test infrastructure already has strong execution foundations:
-each source and suite has one target owner, targets run through the common
-harness, runtime dependency closure is derived from real link edges, CTest
-registrations carry labels and resource locks, target-level execution is the
-default, and the repository guidance already says that test targets should own
-coherent feature or lifecycle slices rather than mirror production modules.
+Stages 0-2 are complete. CMake now validates structured `KIND`, `DOMAINS`,
+`MODULES`, `BACKENDS`, and `STACKS` metadata, generates reserved labels, rejects
+foreign production-private source compilation for structured targets unless an
+owned seam is declared, and writes a deterministic configured registry. The
+registry for `Win64-Debug-DurinEditor` currently contains 66 targets: 64 legacy
+records and the structured ordinary/characterization native-test-harness pair.
 
-The remaining problem is not a missing test framework. It is that selection and
-declaration have not caught up with the growing feature set:
+DurinDevTool now shares one positional grammar in batch and interactive use:
+`test <target> [filter]`, `test "@<selector>"`, and `test all`. Set grammar is
+`@dimension=value+value,dimension=value`; `@value` is the domain shorthand.
+Union applies within a dimension and intersection across dimensions. `test
+list [query]` and `test explain <selection>` read the configured registry
+without building. Routine selected sets build only resolved executables and run
+their CTest direct registrations; isolation, stress, report, and
+characterization are named modes. Characterization admission and empty-set
+failure are explicit. Compatibility flags remain accepted with warnings and
+are hidden from routine help through the final enforcement stage.
 
-- `DevTool test` focuses one named target or runs the complete aggregate, but
-  has no first-class way to select a bounded feature, contract, backend, or
-  runtime-stack set.
-- Existing labels are mostly execution-policy labels and free-form additions;
-  they do not form a validated taxonomy that tooling can safely query.
-- `EngineTests/CMakeLists.txt` declares many unrelated feature and integration
-  targets through one broad helper with an implicit Engine-heavy dependency
-  baseline.
-- Several targets compile production `Private/*.cpp` files from other modules
-  directly, which can bypass the link/export boundary that the feature is
-  supposed to validate.
-- Directory names still suggest module ownership even when the contained
-  targets correctly exercise cross-module features.
+Stage 0 classified the representative migrations without adding dimensions
+that do not change selection: `WorldTests` is `feature/world` with Engine and
+DurinEd participation; Launch storage/argument targets are `contract/launch`,
+the process-boundary target is `integration/launch` with the `process` stack,
+and crash coverage is `characterization/launch`; Mona and Engine viewport
+headers are module contracts, `ViewportTests` is `feature/viewport`, and Vulkan
+viewport coverage is `integration/viewport` with `backend=vulkan`. The live
+private-source inventory distinguishes same-owner RenderCore white-box sources
+from cross-owner Launch, LevelEditor, MaterialEditor, MainFrame, and other
+EngineTests shortcuts; the latter remain legacy until their representative or
+touch-driven migration.
 
-The selected migration is deliberately incremental. First extend CMake with a
-compatible structured declaration and generated registry. Then teach
-DurinDevTool to build and run registry-selected target sets while preserving
-CTest scheduling and locks. Migrate a small group of representative targets to
-prove the model. After that, require the new declaration for new targets and
-migrate legacy targets when their feature area is substantively changed.
+Acceptance evidence on 2026-08-12: configure completed in 6.6 seconds; the
+`@native-test-harness` set built and ran in 1.5 seconds; the selected Vulkan GPU
+target built, retained its CTest lock policy, ran, and emitted default JUnit in
+54.5 seconds; DurinDevTool's 327 Python tests and all extended CMake policy and
+runtime-closure probes passed. The initial complete aggregate completed at
+default target granularity in 201.2 seconds (101.8-second aggregate build and
+99.3-second execution); after making the two CMake infrastructure probes part
+of that target-level gate, the final incremental aggregate completed in 97.5
+seconds and included both probes. Wall-clock values are migration evidence, not
+correctness gates.
 
-No implementation stage has started. Existing targets, commands, names, and
-directories remain authoritative until their stage acceptance gate passes.
+Stage 3, the World low-dependency feature pilot, is next. Existing target names
+and legacy declarations remain authoritative until their individual migration
+gate passes.
 
 ## Goal
 
@@ -319,34 +330,34 @@ After the plan:
 
 ### Stage 0: Freeze taxonomy, selector semantics, and baseline
 
-- [ ] Inventory configured ordinary and characterization targets from CMake
+- [x] Inventory configured ordinary and characterization targets from CMake
   rather than recording a long-lived target count in documentation.
-- [ ] Classify the representative World, Launch, and Viewport targets using the
+- [x] Classify the representative World, Launch, and Viewport targets using the
   proposed kind/domain/module/backend/stack dimensions and remove any dimension
   that does not improve an actual selection decision.
-- [ ] Freeze reserved label prefixes, allowed value syntax, normalization,
+- [x] Freeze reserved label prefixes, allowed value syntax, normalization,
   duplicate handling, and validation errors.
-- [ ] Select and document the DurinDevTool grammar for list, explain, and
+- [x] Select and document the DurinDevTool grammar for list, explain, and
   selected-set execution, including union/intersection, empty results,
   unavailable preset targets, and characterization admission.
-- [ ] Freeze one consistent positional command grammar for batch and
+- [x] Freeze one consistent positional command grammar for batch and
   interactive use, including exact target, explicit set, `all`, and optional
   single-target case filter forms.
-- [ ] Select the scenario-oriented surface for routine, isolation, randomized
+- [x] Select the scenario-oriented surface for routine, isolation, randomized
   stress, and JUnit/report execution; map every current test flag to its new
   owner or compatibility-only status.
-- [ ] Define the deprecation window and warning policy for `--target`,
+- [x] Define the deprecation window and warning policy for `--target`,
   `--granularity hybrid`, `--include-direct`, `--ctest-regex`,
   `--schedule-random`, and `--output-junit` without breaking existing CI in the
   first stage.
-- [ ] Prototype help/list/explain output and verify that the four common tasks
+- [x] Prototype help/list/explain output and verify that the four common tasks
   require no knowledge of CTest labels or execution granularity.
-- [ ] Freeze the generated registry schema, preset/build identity, location,
+- [x] Freeze the generated registry schema, preset/build identity, location,
   and stale-registry failure behavior.
-- [ ] Record representative focused and aggregate configure/build/test timings
+- [x] Record representative focused and aggregate configure/build/test timings
   as migration evidence without turning wall-clock values into correctness
   gates.
-- [ ] Inventory foreign production-private source compilation and distinguish
+- [x] Inventory foreign production-private source compilation and distinguish
   same-owner white-box seams from cross-owner feature-test shortcuts.
 
 #### Acceptance Gate
@@ -358,24 +369,24 @@ After the plan:
 
 ### Stage 1: Add compatible structured CMake declarations
 
-- [ ] Add a generic structured native-test declaration/finalization path that
+- [x] Add a generic structured native-test declaration/finalization path that
   composes the existing lower-level helpers rather than duplicating discovery,
   deployment, timeout, locks, or lifecycle logic.
-- [ ] Store validated kind, domains, modules, backends, and stacks as target
+- [x] Store validated kind, domains, modules, backends, and stacks as target
   properties and emit normalized reserved labels into existing CTest
   registrations.
-- [ ] Generate the configured native-test registry from final target
+- [x] Generate the configured native-test registry from final target
   properties.
-- [ ] Mark legacy targets explicitly in the generated registry while allowing
+- [x] Mark legacy targets explicitly in the generated registry while allowing
   their current helpers to continue unchanged.
-- [ ] Add positive and negative CMake policy probes for valid metadata, missing
+- [x] Add positive and negative CMake policy probes for valid metadata, missing
   kind/domain, invalid reserved labels, characterization misuse, duplicates,
   unavailable configurations, and registry determinism.
-- [ ] Add enforcement that new structured declarations cannot include foreign
+- [x] Add enforcement that new structured declarations cannot include foreign
   production-private sources without an owned seam; keep legacy declarations
   compatible until migrated.
-- [ ] Document the structured CMake authoring pattern and compatibility rule.
-- [ ] Because this stage changes shared native-test infrastructure, run the
+- [x] Document the structured CMake authoring pattern and compatibility rule.
+- [x] Because this stage changes shared native-test infrastructure, run the
   policy/runtime-closure probes and the complete native aggregate at default
   target granularity.
 
@@ -388,37 +399,37 @@ After the plan:
 
 ### Stage 2: Simplify DurinDevTool and add bounded test-set selection
 
-- [ ] Make positional `test <selection> [case-filter]` work consistently from
+- [x] Make positional `test <selection> [case-filter]` work consistently from
   `DevTool.bat` and the interactive shell while retaining `--target` as a
   compatibility alias.
-- [ ] Add commands to list available target metadata and explain why a target
+- [x] Add commands to list available target metadata and explain why a target
   matches a selector in the active preset.
-- [ ] Resolve selected sets from the generated registry before invoking CMake
+- [x] Resolve selected sets from the generated registry before invoking CMake
   and print the exact target list.
-- [ ] Build only resolved target executables and their dependency closures.
-- [ ] Execute selected targets through CTest direct registrations while
+- [x] Build only resolved target executables and their dependency closures.
+- [x] Execute selected targets through CTest direct registrations while
   preserving resource locks, timeouts, target-level process lifetime, shuffle,
   JUnit, failure output, cancellation, and recovery semantics.
-- [ ] Reject stale registry, empty selection, incompatible focused filters, and
+- [x] Reject stale registry, empty selection, incompatible focused filters, and
   implicit characterization inclusion.
-- [ ] Implement the selected routine/isolation/stress/report scenarios with
+- [x] Implement the selected routine/isolation/stress/report scenarios with
   safe defaults and move low-level compatibility flags out of routine help.
-- [ ] Give JUnit/report mode a deterministic default artifact path while
+- [x] Give JUnit/report mode a deterministic default artifact path while
   retaining an explicit path override for automation.
-- [ ] Unify ordinary case-pattern terminology under `filter`; retain raw CTest
+- [x] Unify ordinary case-pattern terminology under `filter`; retain raw CTest
   regex only as an advanced compatibility escape hatch where exact discovered
   registration matching is genuinely required.
-- [ ] Emit one copyable recovery command for unsupported combinations and one
+- [x] Emit one copyable recovery command for unsupported combinations and one
   short selection summary before a multi-target build begins.
-- [ ] Add registry-backed interactive completion or an equivalent discoverable
+- [x] Add registry-backed interactive completion or an equivalent discoverable
   target/set listing so users do not need to memorize names.
-- [ ] Add DurinDevTool unit tests for grammar, selection algebra, escaping,
+- [x] Add DurinDevTool unit tests for grammar, selection algebra, escaping,
   preset availability, build command composition, CTest command composition,
   compatibility aliases, help grouping, recovery suggestions, error behavior,
   and result reporting.
-- [ ] Preserve `test --target <name>` and `test --target all` without semantic
+- [x] Preserve `test --target <name>` and `test --target all` without semantic
   changes.
-- [ ] Because this stage changes shared test execution tooling, run its Python
+- [x] Because this stage changes shared test execution tooling, run its Python
   tests, the native policy probes, representative locked/GPU selections, and
   the complete native aggregate.
 

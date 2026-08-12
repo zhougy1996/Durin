@@ -278,6 +278,78 @@ class TestCore:
             show_heartbeat=False,
         )
 
+    def test_selected_set_uses_direct_ctest_registrations_and_report_path(self) -> None:
+        preset = self.make_preset()
+        request = build_config.CommandRequest(
+            build_config.Action.TEST,
+            options=build_config.TestActionOptions(
+                target='@viewport',
+                mode=build_config.TestMode.REPORT,
+            ),
+        )
+        context = build_config.BuildContext(
+            request,
+            build_config.LocalConfig(),
+            self.make_profile(),
+            {'debug': preset},
+            preset,
+            'windows',
+            cmake=r'C:\Tools\CMake\bin\cmake.exe',
+            jobs=4,
+            environment={'PATH': 'cached'},
+            resolved_test_targets=('MonaViewportTests', 'ViewportTests'),
+        )
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        build_directory = Path('Build/debug')
+        with mock.patch.object(build_runtime, 'preset_build_directory', return_value=build_directory), mock.patch.object(build_runtime, 'run_command') as run:
+            build_runtime.run_selected_native_tests(context, output)
+        command = run.call_args.args[0]
+        assert command[7:13] == [
+            '-L',
+            'native-test-target',
+            '-LE',
+            'native-test-characterization',
+            '-R',
+            r'^Durin\.NativeTestDirect\.(MonaViewportTests|ViewportTests)$',
+        ]
+        assert command[-2:] == [
+            '--output-junit',
+            str(build_core.REPO_ROOT / 'Build/NativeTestResults/debug/viewport.xml'),
+        ]
+
+    def test_selected_set_builds_only_resolved_cmake_targets(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        preset = self.make_preset()
+        request = build_config.CommandRequest(
+            build_config.Action.TEST,
+            options=build_config.TestActionOptions(target='@viewport'),
+        )
+        context = build_config.BuildContext(
+            request,
+            build_config.LocalConfig(),
+            self.make_profile(),
+            {'debug': preset},
+            preset,
+            'windows',
+            cmake='cmake',
+            jobs=4,
+            environment={},
+            resolved_test_targets=('MonaViewportTests', 'ViewportTests'),
+        )
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        build_directory = Path(tmp_path_factory.mktemp('case'))
+        with mock.patch.object(build_core, 'preset_build_directory', return_value=build_directory), mock.patch.object(build_core, 'cache_is_usable', return_value=True), mock.patch.object(build_core, 'run_command') as run:
+            build_core.perform_action(context, output)
+        assert run.call_args.args[0] == [
+            'cmake',
+            '--build',
+            str(build_directory),
+            '--target',
+            'MonaViewportTests',
+            'ViewportTests',
+            '-j',
+            '4',
+        ]
+
     def test_default_target_mode_treats_include_direct_as_noop(self) -> None:
         preset = self.make_preset()
         request = build_config.CommandRequest(
@@ -566,6 +638,22 @@ class TestCore:
             build_core.execute_with_recovery_marker(action=build_config.Action.REBUILD, marker_file=marker, metadata={'pid': 2, 'action': 'rebuild', 'target': 'Editor'}, operation=operation)
         operation.assert_not_called()
         assert build_core.recovery_target(marker) == 'Core'
+
+    def test_selected_target_set_is_recoverable_as_one_build(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        directory = tmp_path_factory.mktemp('case')
+        marker = Path(directory) / 'interrupted.json'
+        marker.write_text(
+            json.dumps({'pid': 1, 'action': 'test', 'target': 'WorldTests;ViewportTests'}),
+            encoding='utf-8',
+        )
+        operation = mock.Mock()
+        build_core.execute_with_recovery_marker(
+            action=build_config.Action.RECOVER,
+            marker_file=marker,
+            metadata={'pid': 2, 'action': 'recover', 'target': 'recorded-target'},
+            operation=operation,
+        )
+        operation.assert_called_once_with('WorldTests;ViewportTests')
 
     def test_rebuild_all_does_not_claim_to_recover_an_excluded_test_target(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')

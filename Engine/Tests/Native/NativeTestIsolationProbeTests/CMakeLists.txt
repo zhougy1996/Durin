@@ -9,7 +9,6 @@ add_durin_test(NativeTestIsolationCharacterizationTests
 )
 
 set_target_properties(NativeTestIsolationCharacterizationTests PROPERTIES
-	DURIN_TEST_LABELS native-test-characterization
 	DURIN_TEST_DIRECT_LIFECYCLE FALSE
 )
 
@@ -27,6 +26,17 @@ foreach(_durin_isolation_target IN ITEMS
 	set_target_properties(${_durin_isolation_target} PROPERTIES
 		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 	)
+	if(_durin_isolation_target STREQUAL "NativeTestIsolationCharacterizationTests")
+		durin_finalize_native_test(${_durin_isolation_target}
+			KIND characterization
+			DOMAINS native-test-harness
+		)
+	else()
+		durin_finalize_native_test(${_durin_isolation_target}
+			KIND infrastructure
+			DOMAINS native-test-harness
+		)
+	endif()
 	durin_discover_tests(${_durin_isolation_target})
 endforeach()
 

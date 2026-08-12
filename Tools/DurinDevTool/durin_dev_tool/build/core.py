@@ -30,6 +30,7 @@ from .config import (
     EnvironmentProvider,
     EnvironmentSetup,
     TestGranularity,
+    TestMode,
     host_name,
     load_configure_presets,
     load_local_config,
@@ -91,9 +92,11 @@ from .runtime import (
     run_all_native_tests,
     run_application,
     run_native_test,
+    run_selected_native_tests,
     runtime_executable_path,
     test_executable_path,
 )
+from .native_test_registry import load_native_test_registry, registry_path, resolve_selection
 from ..toolchain import (
     ToolchainError,
     capture_windows_environment,
@@ -467,12 +470,25 @@ def normalize_run_request(
 
 
 def validate_request(request: CommandRequest, preset: ConfigurePreset) -> None:
-    if request.action in {Action.BUILD, Action.TEST}:
+    if request.action is Action.BUILD:
         validate_target(request.target, action=request.action)
+    if request.action is Action.TEST:
+        if request.test_operation == "explain" and not request.target:
+            raise BuildToolError("test explain requires a target or @set selection.")
+        if request.test_operation == "run" and not request.target:
+            raise BuildToolError(
+                "test requires a target, @set selector, or all.",
+                recovery="Run .\\DevTool.bat test list to inspect configured choices.",
+            )
+        if request.test_operation not in {"run", "list", "explain"}:
+            raise BuildToolError(f'Unknown test operation "{request.test_operation}".')
+        if request.test_operation != "run" and request.test_mode is not TestMode.ROUTINE:
+            raise BuildToolError("test list and test explain do not accept --mode.")
     if request.action is Action.REBUILD and request.target:
         validate_target(request.target, action=request.action)
     if (
         request.action is Action.TEST
+        and request.test_operation == "run"
         and request.target.casefold() == "all"
         and request.test_filter
     ):
@@ -482,13 +498,20 @@ def validate_request(request: CommandRequest, preset: ConfigurePreset) -> None:
         )
     if (
         request.action is Action.TEST
+        and request.test_operation == "run"
         and request.target.casefold() != "all"
         and (
-            request.test_schedule_random
-            or request.test_output_junit is not None
-            or request.test_ctest_regex
+            request.test_ctest_regex
             or request.test_include_direct
             or request.test_granularity_explicit
+            or (
+                request.test_schedule_random
+                and request.test_mode is TestMode.ROUTINE
+            )
+            or (
+                request.test_output_junit is not None
+                and request.test_mode is TestMode.ROUTINE
+            )
         )
     ):
         raise BuildToolError(
@@ -505,6 +528,22 @@ def validate_request(request: CommandRequest, preset: ConfigurePreset) -> None:
             "--ctest-regex requires --granularity case because a case-name regex "
             "is ambiguous for batched target processes."
         )
+    if request.action is Action.TEST and request.test_operation == "run":
+        if request.test_mode is TestMode.ISOLATION:
+            if not request.test_filter or request.target.casefold() == "all":
+                raise BuildToolError(
+                    "isolation mode requires a bounded selection and one case filter.",
+                    recovery="Run test <target-or-@set> <suite.case> --mode isolation.",
+                )
+        elif request.test_filter and request.target.startswith("@"):
+            raise BuildToolError(
+                "A case filter on a set requires --mode isolation.",
+                recovery=f"Run test {request.target} {request.test_filter} --mode isolation.",
+            )
+        if request.test_report_path is not None and request.test_mode is not TestMode.REPORT:
+            raise BuildToolError("--report requires --mode report.")
+        if request.test_mode is TestMode.CHARACTERIZATION and request.target.casefold() == "all":
+            raise BuildToolError("characterization mode requires an explicit target or @set.")
     if request.action is Action.TEST and not preset_cache_bool(preset, "BUILD_TESTING"):
         raise BuildToolError(f'Preset "{preset.name}" does not enable BUILD_TESTING.')
     if request.action is not Action.PURGE and (request.all_presets or request.yes):
@@ -657,6 +696,8 @@ def require_english_msvc_ninja_prefix(context: BuildContext, build_directory: Pa
 
 
 def cmake_build_target(context: BuildContext) -> str:
+    if context.resolved_test_targets:
+        return ";".join(context.resolved_test_targets)
     if context.request.action is Action.TEST and context.target == "all":
         return ALL_NATIVE_TESTS_TARGET
     return context.target
@@ -743,8 +784,9 @@ def perform_action(
         require_english_msvc_ninja_prefix(context, build_directory)
 
     with output.stage("Build"):
+        targets = target.split(";")
         run_command(
-            [context.cmake, "--build", str(build_directory), "--target", target, "-j", str(context.jobs)],
+            [context.cmake, "--build", str(build_directory), "--target", *targets, "-j", str(context.jobs)],
             environment=environment,
             output=output,
             show_heartbeat=request.agent,
@@ -759,6 +801,23 @@ def execute_context(
 ) -> float:
     started = perf_counter()
     output.context(context)
+    request = context.request
+    if (
+        request.action is Action.TEST
+        and request.test_operation == "run"
+        and request.target.casefold() != "all"
+        and (request.target.startswith("@") or request.test_mode is not TestMode.ROUTINE)
+    ):
+        registry = load_native_test_registry(context)
+        resolved = resolve_selection(
+            registry,
+            request.target,
+            admit_characterization=request.test_mode is TestMode.CHARACTERIZATION,
+        )
+        context.resolved_test_targets = resolved.names
+        context.test_selection_explanation = resolved.explanation
+        output.info(f"Selection: {request.target} ({resolved.explanation})")
+        output.info(f"Resolved targets: {', '.join(resolved.names)}")
     marker_file = interruption_marker_path(context.preset.name)
     lock_metadata = operation_metadata(
         context,
@@ -795,7 +854,15 @@ def execute_context(
             if context.request.action is Action.TEST:
                 if context.target == "all":
                     run_all_native_tests(context, output)
+                elif context.resolved_test_targets:
+                    run_selected_native_tests(context, output)
                 else:
+                    if registry_path(context).is_file():
+                        resolve_selection(
+                            load_native_test_registry(context),
+                            context.target,
+                            admit_characterization=False,
+                        )
                     run_native_test(context, output)
     elapsed = perf_counter() - started
     if context.request.action is not Action.PURGE:

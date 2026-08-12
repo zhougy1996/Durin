@@ -72,14 +72,6 @@ def normalize_compact_build_command(parts: list[str]) -> list[str]:
     values = parts[1:]
     if command in {"build", "rebuild"} and values and not values[0].startswith("-"):
         return [parts[0], "--target", values[0], *values[1:]]
-    if command == "test" and values and not values[0].startswith("-"):
-        normalized = [parts[0], "--target", values[0]]
-        if len(values) > 1 and not values[1].startswith("-"):
-            normalized.extend(["--filter", values[1]])
-            values = values[2:]
-        else:
-            values = values[1:]
-        return [*normalized, *values]
     run_options = {
         "--profile",
         "--preset",

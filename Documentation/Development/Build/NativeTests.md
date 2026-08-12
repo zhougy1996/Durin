@@ -19,16 +19,50 @@ fixture.
 Build and run a test executable through the root wrapper:
 
 ```powershell
-.\DevTool.bat test --target CoreUtilityTests
-.\DevTool.bat test --target CoreUtilityTests --filter FJsonDocumentTests.ParseObjectFromString
-.\DevTool.bat test --target CoreUtilityTests --timeout 60
-.\DevTool.bat test --target all
-.\DevTool.bat test --target all --granularity hybrid
-.\DevTool.bat test --target all --schedule-random --output-junit Build\NativeTestResults.xml
-.\DevTool.bat test --target all --granularity case --ctest-regex "^FJsonDocumentTests.ParseObjectFromString$"
+.\DevTool.bat test CoreUtilityTests
+.\DevTool.bat test CoreUtilityTests FJsonDocumentTests.ParseObjectFromString
+.\DevTool.bat test "@viewport"
+.\DevTool.bat test all
 ```
 
-The first command runs the target's discovered tests. The second passes a GoogleTest filter. The test executable has a 300-second timeout by default; `--timeout <seconds>` changes it, and `--timeout 0` disables it for an intentionally long diagnostic run. The timeout starts after the target has finished building.
+The first command runs one target process. The second passes a GoogleTest
+filter. The third resolves a configured domain set, prints the exact target
+list, builds only those executables and their dependency closures, and runs
+their direct CTest registrations. A test executable has a 300-second timeout
+by default; `--timeout <seconds>` changes it, and `--timeout 0` disables it for
+an intentionally long diagnostic run. The timeout starts after the target has
+finished building.
+
+Discover configured choices without building them:
+
+```powershell
+.\DevTool.bat test list
+.\DevTool.bat test list viewport
+.\DevTool.bat test explain "@domain=viewport,backend=vulkan"
+```
+
+Set selectors start with `@`. `@viewport` is shorthand for
+`@domain=viewport`. Within a dimension, `+` is union; comma-separated
+dimensions intersect. For example,
+`@kind=feature+integration,domain=viewport,backend=vulkan` selects Vulkan
+viewport feature or integration targets. Exact target names take precedence
+over set syntax. An empty result is an error and never falls back to `all`.
+Ordinary selectors exclude characterization targets.
+
+Execution scenarios keep the routine path short:
+
+```powershell
+.\DevTool.bat test "@viewport" ViewportSuite.Resize --mode isolation
+.\DevTool.bat test "@viewport" --mode stress
+.\DevTool.bat test "@viewport" --mode report
+.\DevTool.bat test "@kind=characterization,domain=launch" --mode characterization
+```
+
+Isolation requires a bounded selection and case filter. Stress mode randomizes
+CTest scheduling and GoogleTest order, printing a reproducible seed. Report
+mode writes JUnit XML under
+`Build/NativeTestResults/<Preset>/<Selection>.xml` unless `--report <path>` is
+given. Characterization admission is always explicit.
 
 `--target all` builds the `DurinNativeTests` aggregate and then runs every
 ordinary target once through CTest. This `target` granularity is the default.
@@ -45,14 +79,19 @@ default `all` target, so routine `build` and `rebuild` commands do not compile
 tests even when the selected preset enables `BUILD_TESTING`.
 Its timeout applies to each CTest-registered test. GoogleTest `--filter` syntax
 is executable-specific and therefore cannot be combined with `--target all`.
-Use `--schedule-random` to randomize the CTest launch order and
-`--output-junit <path>` to retain machine-readable aggregate results. In target
+The compatibility options `--schedule-random` and `--output-junit <path>`
+retain their prior aggregate behavior. In target
 and hybrid modes the command also prints and forwards a GoogleTest shuffle seed
 so order failures can be reproduced with `GTEST_RANDOM_SEED`. Use
 `--ctest-regex <regex>` only with case granularity for an isolated rerun of a
 matching case registration. `--include-direct` remains an accepted no-op
 compatibility alias in target mode and never duplicates a process. These
-options require `--target all`.
+options require `--target all`. `--target`, `--granularity`,
+`--include-direct`, `--ctest-regex`, `--schedule-random`, and `--output-junit`
+remain accepted through the structured-metadata migration, emit a deprecation
+warning, and are hidden from routine help. Repository automation may keep them
+until the final enforcement stage; new commands use positional selections and
+named modes.
 
 Use a focused `--target <Target> --filter <GoogleTestFilter>` command for the
 fastest failing-case iteration. It launches one target process with the filter;
@@ -87,8 +126,8 @@ In the interactive shell, use the equivalent commands:
 
 ```text
 DurinDevTool> preset Win64-Debug-DurinEditor
-DurinDevTool> test --target CoreUtilityTests
-DurinDevTool> test --target CoreUtilityTests --filter FJsonDocumentTests.ParseObjectFromString
+DurinDevTool> test CoreUtilityTests
+DurinDevTool> test CoreUtilityTests FJsonDocumentTests.ParseObjectFromString
 DurinDevTool> test all
 ```
 
@@ -184,9 +223,44 @@ set_target_properties(PackageRoundTripTests PROPERTIES
     DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 )
 
+durin_finalize_native_test(PackageRoundTripTests
+    KIND feature
+    DOMAINS asset-package
+    MODULES asset-core
+)
 durin_set_native_test_target_execution(PackageRoundTripTests)
 durin_discover_tests(PackageRoundTripTests)
 ```
+
+`durin_finalize_native_test(...)` is the structured declaration boundary. It
+must appear after sources, links, runtime policy, and execution properties are
+known and before `durin_discover_tests(...)`. `KIND` is exactly one of
+`contract`, `feature`, `integration`, `characterization`, or
+`infrastructure`; `DOMAINS` contains at least one stable selection slice.
+Optional `MODULES`, `BACKENDS`, and `STACKS` aid discovery but never replace
+real link, runtime-only dependency, resource-lock, or timeout declarations.
+
+Metadata values are lowercase slugs matching
+`[a-z][a-z0-9]*(-[a-z0-9]+)*`; duplicate values are errors and emitted values
+are sorted. The label prefixes `kind-`, `domain-`, `module-`, `backend-`, and
+`stack-` are reserved for generated metadata. Do not add them through
+`DURIN_TEST_LABELS`. Structured declarations cannot compile a production
+`Private/*.cpp` directly unless the owning module is named by both
+`PRIVATE_SOURCE_OWNER` and `MODULES` and a reviewed
+`PRIVATE_SOURCE_RATIONALE` explains the same-owner white-box seam. Feature and
+integration targets should normally link the production boundary instead.
+
+Untouched declarations without finalization remain `legacy` in the configured
+registry and retain their existing commands. New targets use the structured
+path. A legacy target becomes migration-required when it gains a suite,
+materially changes its dependency/runtime stack, or changes its lifecycle
+boundary; assertion-only corrections do not force unrelated migration.
+
+Configuration writes the deterministic registry to
+`<BuildDir>/DurinNativeTestRegistry.json`. Its schema version and
+source/binary/preset/configuration identity belong to CMake. DurinDevTool
+rejects a missing, unsupported, or identity-mismatched registry and asks for a
+fresh configure rather than selecting from stale metadata.
 
 Complete every target link declaration before calling
 `durin_discover_tests(...)`. The discovery call is the runtime-closure

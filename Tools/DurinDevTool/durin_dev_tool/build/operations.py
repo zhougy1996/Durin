@@ -31,6 +31,12 @@ from .core import (
 )
 from .locking import stop_active_operation
 from .output import BuildOutput
+from .native_test_registry import (
+    filter_targets,
+    load_native_test_registry,
+    resolve_selection,
+    target_metadata_text,
+)
 from .recovery import interruption_marker_path, recoverable_target, recovery_target
 
 TOOLCHAIN_ACTIONS = {
@@ -42,6 +48,12 @@ TOOLCHAIN_ACTIONS = {
     Action.TEST,
 }
 CREATE_ACTIONS = {Action.CREATE_MODULE, Action.CREATE_PROJECT}
+
+
+def request_needs_toolchain(request: CommandRequest) -> bool:
+    return request.action in TOOLCHAIN_ACTIONS and not (
+        request.action is Action.TEST and request.test_operation in {"list", "explain"}
+    )
 
 
 @dataclass(frozen=True)
@@ -298,7 +310,7 @@ def acquire_request_context(
             )
         context = create_context(
             request,
-            prepare_tools=request.action in TOOLCHAIN_ACTIONS,
+            prepare_tools=request_needs_toolchain(request),
         )
         return AcquiredRequest(request, context, context.preset.name)
 
@@ -334,11 +346,11 @@ def acquire_request_context(
     if needs_independent_context:
         context = create_context(
             request,
-            prepare_tools=request.action in TOOLCHAIN_ACTIONS,
+            prepare_tools=request_needs_toolchain(request),
         )
     else:
         context = derive_context(base, request)
-        if request.action in TOOLCHAIN_ACTIONS and base.environment is None:
+        if request_needs_toolchain(request) and base.environment is None:
             prepare_toolchain_environment(base)
             context = derive_context(base, request)
         needs_command_preparation = (
@@ -347,7 +359,7 @@ def acquire_request_context(
             or request.cmake != base.request.cmake
             or request.jobs != base.request.jobs
         )
-        if request.action in TOOLCHAIN_ACTIONS and needs_command_preparation:
+        if request_needs_toolchain(request) and needs_command_preparation:
             prepare_command_context(context)
             if request.cmake == base.request.cmake:
                 base.cmake = context.cmake
@@ -387,6 +399,23 @@ def dispatch_request(
         return
     if request.action in {Action.PATH, Action.OPEN}:
         execute_location_request(request, context, output)
+        return
+    if request.action is Action.TEST and request.test_operation in {"list", "explain"}:
+        registry = load_native_test_registry(context)
+        if request.test_operation == "list":
+            targets = filter_targets(registry, request.test_query)
+            if not targets:
+                raise BuildToolError(
+                    f'No configured native-test metadata matched "{request.test_query}".'
+                )
+            output.info(f'Configured native tests for preset "{registry.preset}":')
+            for target in targets:
+                output.raw_line(f"{target.name}\t{target_metadata_text(target)}")
+            return
+        resolved = resolve_selection(registry, request.target, admit_characterization=True)
+        output.info(f'Selection: {request.target} ({resolved.explanation})')
+        for target in resolved.targets:
+            output.raw_line(f"{target.name}\t{target_metadata_text(target)}")
         return
     execute_context(
         context,

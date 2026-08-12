@@ -120,6 +120,30 @@ class TestBuildRegistry:
 
         assert direct_requests == shell_requests
 
+    def test_native_test_positional_and_scenario_grammar(self) -> None:
+        request = handler.request_from_namespace(
+            self.parse(["test", "@domain=viewport+world,kind=feature", "--mode", "stress"])
+        )
+        assert request.target == "@domain=viewport+world,kind=feature"
+        assert request.test_mode.value == "stress"
+        assert request.test_schedule_random
+
+        focused = handler.request_from_namespace(
+            self.parse(["test", "CoreUtilityTests", "Suite.Case"])
+        )
+        assert focused.target == "CoreUtilityTests"
+        assert focused.test_filter == "Suite.Case"
+
+        listing = handler.request_from_namespace(self.parse(["test", "list", "viewport"]))
+        assert listing.test_operation == "list"
+        assert listing.test_query == "viewport"
+
+        explaining = handler.request_from_namespace(
+            self.parse(["test", "explain", "@viewport"])
+        )
+        assert explaining.test_operation == "explain"
+        assert explaining.target == "@viewport"
+
     def test_stage_zero_location_contract_has_stable_unique_names(self) -> None:
         canonical_names = tuple(name for name, _aliases in EXPECTED_LOCATION_CONTRACT)
         all_names = [
@@ -202,7 +226,11 @@ class TestBuildRegistry:
         pairs = (('build Core --plain', 'build --target Core --plain'), ('rebuild Core', 'rebuild --target Core'), ('test CoreTests Core.* --timeout 20', 'test --target CoreTests --filter Core.* --timeout 20'), ('test all', 'test --target all'), ('run --hidden-window', 'run --args --hidden-window'))
         for compact, canonical in pairs:
             compact_parts = normalize_compact_build_command(split_shell_command(compact))
-            assert vars(self.parse(compact_parts)) == vars(self.parse(split_shell_command(canonical)))
+            compact_request = handler.request_from_namespace(self.parse(compact_parts))
+            canonical_request = handler.request_from_namespace(
+                self.parse(split_shell_command(canonical))
+            )
+            assert compact_request == canonical_request
 
     def test_build_namespace_constructs_typed_request_without_reparsing(self) -> None:
         spec, namespace = self.registry.parse(['create', 'module', 'Sample', '--project', 'Examples/Sandbox/Sandbox.dproject', '--kind', 'editor', '--link', 'static', '--enable', 'base', '--dry-run'])

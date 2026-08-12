@@ -18,10 +18,11 @@ add_test(
 	COMMAND ${CMAKE_COMMAND}
 		"-DDURIN_WORKSPACE_DIR=${DURIN_WORKSPACE_DIR}"
 		"-DDURIN_TEST_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+		"-DDURIN_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
 		-P "${DURIN_WORKSPACE_DIR}/CMake/Tests/NativeTestDiscoveryPolicyTests.cmake"
 )
 set_tests_properties(Durin.NativeTestDiscoveryPolicy PROPERTIES
-	LABELS "native-test;infrastructure"
+	LABELS "native-test;infrastructure;native-test-target;native-test-default"
 	TIMEOUT 30
 )
 
@@ -36,6 +37,6 @@ add_test(
 		-P "${DURIN_WORKSPACE_DIR}/CMake/Tests/NativeTestRuntimeClosureTests.cmake"
 )
 set_tests_properties(Durin.NativeTestRuntimeClosure PROPERTIES
-	LABELS "native-test;infrastructure"
+	LABELS "native-test;infrastructure;native-test-target;native-test-default"
 	TIMEOUT 120
 )

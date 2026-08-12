@@ -112,6 +112,14 @@ class TestGranularity(str, Enum):
     HYBRID = "hybrid"
 
 
+class TestMode(str, Enum):
+    ROUTINE = "routine"
+    ISOLATION = "isolation"
+    STRESS = "stress"
+    REPORT = "report"
+    CHARACTERIZATION = "characterization"
+
+
 @dataclass(frozen=True)
 class EnvironmentSetup:
     script: str = ""
@@ -177,6 +185,10 @@ class BuildActionOptions:
 class TestActionOptions:
     target: str = ""
     filter: str = ""
+    operation: str = "run"
+    query: str = ""
+    mode: TestMode = TestMode.ROUTINE
+    report_path: Path | None = None
     timeout_seconds: int = 300
     schedule_random: bool = False
     output_junit: Path | None = None
@@ -352,6 +364,22 @@ class CommandRequest:
         return self.options.filter if isinstance(self.options, TestActionOptions) else ""
 
     @property
+    def test_operation(self) -> str:
+        return self.options.operation if isinstance(self.options, TestActionOptions) else "run"
+
+    @property
+    def test_query(self) -> str:
+        return self.options.query if isinstance(self.options, TestActionOptions) else ""
+
+    @property
+    def test_mode(self) -> TestMode:
+        return self.options.mode if isinstance(self.options, TestActionOptions) else TestMode.ROUTINE
+
+    @property
+    def test_report_path(self) -> Path | None:
+        return self.options.report_path if isinstance(self.options, TestActionOptions) else None
+
+    @property
     def test_timeout_seconds(self) -> int:
         return (
             self.options.timeout_seconds
@@ -518,6 +546,8 @@ class BuildContext:
     cmake: str = ""
     jobs: int = 0
     environment: dict[str, str] | None = None
+    resolved_test_targets: tuple[str, ...] = ()
+    test_selection_explanation: str = ""
 
     @property
     def target(self) -> str:

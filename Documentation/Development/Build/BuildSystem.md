@@ -187,7 +187,9 @@ defaults, summaries, and help. Lowercase named syntax is canonical; interactive
 slash prefixes and compact operands remain compatibility forms.
 
 `build` and `rebuild` default to target `all`, while `test` requires an explicit
-target. An option belongs only to commands that consume it: toolchain and job
+target, `@` metadata set, or `all`. The batch and interactive forms both accept
+`test <selection> [case-filter]`; `test list` and `test explain` inspect the
+configured CMake registry without building. An option belongs only to commands that consume it: toolchain and job
 overrides are not accepted by artifact-only commands such as `purge`, `run`,
 `path`, or `open`, and child-output selection is not accepted by discovery or
 external-opening commands. The direct `presets`, `status`, `path`, and `open`

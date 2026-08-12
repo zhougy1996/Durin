@@ -36,6 +36,50 @@ function(assert_policy_rejected probe expected_text)
 	endif()
 endfunction()
 
+function(configure_metadata_probe probe expect_success expected_text)
+	set(_durin_probe_binary "${DURIN_TEST_BINARY_DIR}/MetadataProbe/${probe}")
+	file(REMOVE_RECURSE "${_durin_probe_binary}")
+	execute_process(
+		COMMAND "${CMAKE_COMMAND}"
+			-G Ninja
+			"-DCMAKE_MAKE_PROGRAM=${DURIN_MAKE_PROGRAM}"
+			-S "${DURIN_WORKSPACE_DIR}/CMake/Tests/Fixtures/NativeTestMetadata"
+			-B "${_durin_probe_binary}"
+			"-DDURIN_WORKSPACE_DIR=${DURIN_WORKSPACE_DIR}"
+			"-DDURIN_METADATA_PROBE=${probe}"
+		RESULT_VARIABLE _durin_result
+		OUTPUT_VARIABLE _durin_output
+		ERROR_VARIABLE _durin_error
+	)
+	if(expect_success)
+		if(NOT _durin_result EQUAL 0)
+			message(FATAL_ERROR
+				"Metadata probe '${probe}' failed:\n${_durin_output}\n${_durin_error}")
+		endif()
+		set(_durin_registry "${_durin_probe_binary}/DurinNativeTestRegistry.json")
+		file(READ "${_durin_registry}" _durin_first_registry)
+		if(probe STREQUAL "unavailable")
+			if(_durin_first_registry MATCHES "\"name\"")
+				message(FATAL_ERROR "Unavailable metadata probe emitted a target record.")
+			endif()
+		elseif(NOT _durin_first_registry MATCHES "\"metadataMode\":\"structured\"")
+			message(FATAL_ERROR "Metadata probe registry omitted structured mode.")
+		endif()
+		configure_file("${_durin_registry}" "${_durin_registry}.copy" COPYONLY)
+		file(READ "${_durin_registry}.copy" _durin_second_registry)
+		assert_list_equals("${_durin_first_registry}" "${_durin_second_registry}"
+			"deterministic metadata registry")
+	elseif(_durin_result EQUAL 0)
+		message(FATAL_ERROR "Metadata probe '${probe}' unexpectedly succeeded.")
+	else()
+		set(_durin_text "${_durin_output}\n${_durin_error}")
+		if(NOT _durin_text MATCHES "${expected_text}")
+			message(FATAL_ERROR
+				"Metadata probe '${probe}' did not report '${expected_text}':\n${_durin_text}")
+		endif()
+	endif()
+endfunction()
+
 durin_resolve_native_test_discovery_policy(
 	default_locks
 	default_labels
@@ -201,3 +245,14 @@ assert_policy_rejected(
 	"repository-post-build-runtime-copy"
 	"target-owned POST_BUILD runtime copy"
 )
+
+configure_metadata_probe("valid" TRUE "")
+configure_metadata_probe("unavailable" TRUE "")
+configure_metadata_probe("missing-kind" FALSE "requires KIND")
+configure_metadata_probe("missing-domain" FALSE "requires DOMAINS")
+configure_metadata_probe("invalid-kind" FALSE "KIND 'smoke' is invalid")
+configure_metadata_probe("invalid-value" FALSE "value 'World_Rendering' is invalid")
+configure_metadata_probe("duplicate" FALSE "duplicate value 'world'")
+configure_metadata_probe("reserved-label" FALSE "reserved native-test prefix")
+configure_metadata_probe("characterization-direct" FALSE "KIND characterization requires")
+configure_metadata_probe("private-source" FALSE "compiles production-private source")

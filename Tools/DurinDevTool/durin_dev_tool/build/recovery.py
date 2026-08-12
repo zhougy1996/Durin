@@ -37,7 +37,11 @@ def recoverable_target(path: Path) -> str | None:
     if not isinstance(target, str) or not target:
         return None
     allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.+-")
-    if any(character not in allowed for character in target):
+    targets = target.split(";")
+    if any(
+        not candidate or any(character not in allowed for character in candidate)
+        for candidate in targets
+    ):
         return None
     return target
 

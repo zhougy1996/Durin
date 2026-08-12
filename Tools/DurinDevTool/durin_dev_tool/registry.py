@@ -36,6 +36,7 @@ class CommandSpec:
     default_subcommand: str = ""
     defaults: tuple[tuple[str, object], ...] = ()
     feature: str = ""
+    epilog: str = ""
 
     def load_handler(self) -> Callable[..., int]:
         module_name, separator, attribute = self.handler.partition(":")
@@ -136,6 +137,7 @@ def _build_command(
     *,
     action: str | None = None,
     feature: str = "build",
+    epilog: str = "",
 ) -> CommandSpec:
     return CommandSpec(
         name,
@@ -146,6 +148,7 @@ def _build_command(
         required_modules=BUILD_MODULES,
         defaults=(("build_action", action or name),),
         feature=feature,
+        epilog=epilog,
     )
 
 
@@ -595,18 +598,38 @@ COMMAND_SPECS = (
     ),
     _build_command(
         "test",
-        "build and run one or all native tests",
+        "list, explain, build, and run native-test selections",
         TOOL_ARGUMENTS
         + (
             _argument(
+                "selection",
+                nargs="?",
+                default="",
+                help="target, @set selector, all, list [query], or explain <selection>",
+            ),
+            _argument("case_filter", nargs="?", default=""),
+            _argument(
                 "--target",
-                required=True,
-                help="native test target, or 'all' for every CTest-registered test",
+                dest="compatibility_target",
+                default="",
+                help=argparse.SUPPRESS,
             ),
             _argument(
                 "--filter",
                 default="",
                 help="GoogleTest filter for a single native test target",
+            ),
+            _argument(
+                "--mode",
+                choices=("routine", "isolation", "stress", "report", "characterization"),
+                default="routine",
+                help="execution scenario (default: routine)",
+            ),
+            _argument(
+                "--report",
+                type=Path,
+                default=None,
+                help="JUnit path for report mode (default: preset result directory)",
             ),
             _argument(
                 "--timeout",
@@ -619,30 +642,37 @@ COMMAND_SPECS = (
             _argument(
                 "--schedule-random",
                 action="store_true",
-                help="randomize CTest scheduling for --target all",
+                help=argparse.SUPPRESS,
             ),
             _argument(
                 "--output-junit",
                 type=Path,
                 default=None,
-                help="write CTest JUnit XML for --target all",
+                help=argparse.SUPPRESS,
             ),
             _argument(
                 "--ctest-regex",
                 default="",
-                help="run CTest names matching a regex for --target all",
+                help=argparse.SUPPRESS,
             ),
             _argument(
                 "--granularity",
                 choices=("target", "case", "hybrid"),
                 default=None,
-                help="aggregate execution granularity (default: target)",
+                help=argparse.SUPPRESS,
             ),
             _argument(
                 "--include-direct",
                 action="store_true",
-                help="compatibility qualification for direct targets not already selected",
+                help=argparse.SUPPRESS,
             ),
+        ),
+        epilog=(
+            "Common examples:\n"
+            "  DevTool test CoreUtilityTests\n"
+            "  DevTool test CoreUtilityTests Suite.Case\n"
+            "  DevTool test \"@viewport\"\n"
+            "  DevTool test all"
         ),
     ),
     _build_command(
@@ -846,6 +876,8 @@ class CommandRegistry:
                 spec.name,
                 help=spec.summary,
                 description=spec.summary,
+                epilog=spec.epilog or None,
+                formatter_class=argparse.RawDescriptionHelpFormatter,
             )
             self._configure_parser(command_parser, spec)
         return parser
@@ -869,6 +901,8 @@ class CommandRegistry:
                     child.name,
                     help=child.summary,
                     description=child.summary,
+                    epilog=child.epilog or None,
+                    formatter_class=argparse.RawDescriptionHelpFormatter,
                 )
                 self._configure_parser(child_parser, child)
 
@@ -966,6 +1000,8 @@ class CommandRegistry:
         parser = DevToolArgumentParser(
             prog=f'DevTool {" ".join(canonical_path)}',
             description=spec.summary,
+            epilog=spec.epilog or None,
+            formatter_class=argparse.RawDescriptionHelpFormatter,
         )
         self._configure_parser(parser, spec)
         return parser.format_help().rstrip()

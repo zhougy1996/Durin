@@ -37,6 +37,8 @@ add_subdirectory(Sandbox)
 
 if(BUILD_TESTING)
 	durin_add_native_test_aggregate_target(DurinNativeTests)
+	durin_generate_native_test_registry(
+		"${CMAKE_BINARY_DIR}/DurinNativeTestRegistry.json")
 endif()
 
 if(DURIN_PROFILE_NAME STREQUAL "DurinGame")

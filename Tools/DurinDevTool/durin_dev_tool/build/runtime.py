@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import re
 from pathlib import Path
 
 from .config import (
@@ -13,6 +14,7 @@ from .config import (
     BuildToolError,
     ConfigurePreset,
     TestGranularity,
+    TestMode,
     preset_build_directory,
     preset_cache_string,
 )
@@ -228,6 +230,10 @@ def run_all_native_tests(context: BuildContext, output: BuildOutput) -> None:
     request = context.request
     granularity = request.test_granularity
     junit_path = _resolved_junit_path(request.test_output_junit)
+    if request.test_mode is TestMode.REPORT and junit_path is None:
+        junit_path = _resolved_junit_path(
+            Path("Build") / "NativeTestResults" / context.preset.name / "all.xml"
+        )
     environment = _aggregate_test_environment(context, output)
     try:
         _run_all_native_test_phase(
@@ -263,6 +269,79 @@ def run_all_native_tests(context: BuildContext, output: BuildOutput) -> None:
         junit_path=_direct_junit_path(junit_path) if junit_path is not None else None,
         environment=environment,
     )
+
+
+def _selected_report_path(context: BuildContext) -> Path | None:
+    request = context.request
+    if request.test_mode is not TestMode.REPORT:
+        return None
+    if request.test_report_path is not None:
+        return _resolved_junit_path(request.test_report_path)
+    selection_slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", request.target).strip("-") or "selection"
+    return _resolved_junit_path(
+        Path("Build") / "NativeTestResults" / context.preset.name / f"{selection_slug}.xml"
+    )
+
+
+def run_selected_native_tests(context: BuildContext, output: BuildOutput) -> None:
+    request = context.request
+    names = context.resolved_test_targets
+    if not names:
+        raise BuildToolError("Native-test selection resolved no targets.")
+    escaped_names = "|".join(re.escape(name) for name in names)
+    command = [
+        ctest_command(context.cmake),
+        "--test-dir",
+        str(preset_build_directory(context.preset)),
+        "--output-on-failure",
+        "--no-tests=error",
+        "-j",
+        str(context.jobs),
+    ]
+    environment = dict(context.environment or os.environ)
+    if request.test_mode in {TestMode.ISOLATION, TestMode.CHARACTERIZATION}:
+        command.extend(["-L", "native-test-case", "-L", f"^({escaped_names})$"])
+        if request.test_mode is TestMode.CHARACTERIZATION:
+            command.extend(["-L", "native-test-characterization"])
+        else:
+            command.extend(["-LE", "native-test-characterization"])
+        if request.test_filter:
+            command.extend(["-R", request.test_filter])
+    else:
+        command.extend(
+            [
+                "-L",
+                "native-test-target",
+                "-LE",
+                "native-test-characterization",
+                "-R",
+                rf"^Durin\.NativeTestDirect\.({escaped_names})$",
+            ]
+        )
+    if request.test_timeout_seconds:
+        command.extend(["--timeout", str(request.test_timeout_seconds)])
+    if request.test_mode is TestMode.STRESS:
+        command.append("--schedule-random")
+        seed_text = environment.get("GTEST_RANDOM_SEED", "")
+        seed = int(seed_text) if seed_text else secrets.randbelow(99999) + 1
+        if seed < 1 or seed > 99999:
+            raise BuildToolError("GTEST_RANDOM_SEED must be an integer from 1 through 99999.")
+        environment["GTEST_SHUFFLE"] = "1"
+        environment["GTEST_RANDOM_SEED"] = str(seed)
+        output.info(f"GoogleTest shuffle seed: {seed} (reproduce with GTEST_RANDOM_SEED={seed})")
+    junit_path = _selected_report_path(context)
+    if junit_path is not None:
+        command.extend(["--output-junit", str(junit_path)])
+    with output.stage(f"Test {request.test_mode.value} selection"):
+        run_command(
+            command,
+            environment=environment,
+            output=output,
+            recovery_required_on_interrupt=False,
+            interruption_message="Native test run was interrupted.",
+            colorize_test_output=True,
+            show_heartbeat=request.agent,
+        )
 
 
 def run_application(context: BuildContext, output: BuildOutput) -> None:
