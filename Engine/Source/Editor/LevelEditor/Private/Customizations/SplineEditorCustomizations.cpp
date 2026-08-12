@@ -396,7 +396,7 @@ namespace Durin::Editor::Level
 			{
 				FGuid NewId;
 				const bool Changed = CommitSplineEdit(Spline, Transactions, "Append Spline Point", [&] {
-					FVector3 Position = Spline.GetNumSplinePoints() ? Spline.GetSplinePoint(Spline.GetNumSplinePoints() - 1)->Position + FVectorConstants::Forward * 100.0 : FVector3(0.0);
+					const FVector3 Position = CalculateSplineAppendPosition(Spline);
 					const uint32 Index = Spline.AddSplinePoint(FSplinePoint(Position)); NewId = Spline.GetSplinePoint(Index)->Id; return true;
 				});
 				if (Changed) Context.SelectSubElement(&Spline, {EEditorSubElementKind::Point, NewId});
@@ -442,7 +442,7 @@ namespace Durin::Editor::Level
 						if (ImGui::Button("Add Point", ImVec2(-FLT_MIN, 0.0f)) && !ViewContext.bReadOnly)
 						{
 							FGuid Id; Changed |= CommitSplineEdit(*Spline, ViewContext.Transactions, "Append Spline Point", [&] {
-								const FVector3 Position = Spline->GetNumSplinePoints() ? Spline->GetSplinePoint(Spline->GetNumSplinePoints() - 1)->Position + FVectorConstants::Forward * 100.0 : FVector3(0.0);
+								const FVector3 Position = CalculateSplineAppendPosition(*Spline);
 								const uint32 Index = Spline->AddSplinePoint(FSplinePoint(Position)); Id = Spline->GetSplinePoint(Index)->Id; return true; });
 							if (Id.IsValid()) Context.SelectSubElement(Spline, {EEditorSubElementKind::Point, Id});
 						}
@@ -595,6 +595,20 @@ namespace Durin::Editor::Level
 			}
 		};
 	} // namespace
+
+	auto CalculateSplineAppendPosition(const DSplineComponent& Spline) -> FVector3
+	{
+		constexpr double DefaultAppendDistance = 10.0;
+		const uint32 PointCount = Spline.GetNumSplinePoints();
+		if (PointCount == 0) return FVector3(0.0);
+		const FVector3 LastPosition = Spline.GetSplinePoint(PointCount - 1)->Position;
+		if (PointCount == 1) return LastPosition + FVectorConstants::Forward * DefaultAppendDistance;
+
+		const FVector3 LastChord = LastPosition - Spline.GetSplinePoint(PointCount - 2)->Position;
+		const double LastChordLength = Math::Length(LastChord);
+		if (LastChordLength <= kSmallNumber) return LastPosition + FVectorConstants::Forward * DefaultAppendDistance;
+		return LastPosition + LastChord / LastChordLength * std::min(LastChordLength, DefaultAppendDistance);
+	}
 
 	auto SplitSplineSegment(DSplineComponent& Spline, uint32 SegmentIndex, double T, FGuid* OutPointId) -> bool
 	{

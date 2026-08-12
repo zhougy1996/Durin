@@ -149,6 +149,27 @@ TEST(FSplineViewportAuthoringTests, CubicSplitPreservesShapeAndCreatesStableId)
 	Durin::CollectGarbage();
 }
 
+TEST(FSplineViewportAuthoringTests, AppendContinuesTheTailWithoutAFullLengthJump)
+{
+	InitializeDObjectSystem();
+	auto* Actor = Durin::NewObject<Durin::AActor>(nullptr, "AppendSplineActor");
+	auto* Spline = Durin::Cast<Durin::DSplineComponent>(Actor->AddInstanceComponent(Durin::DSplineComponent::StaticClass(), "Spline"));
+	ASSERT_NE(Spline, nullptr);
+	Durin::FSplinePoint Start = *Spline->GetSplinePoint(0);
+	Durin::FSplinePoint End = *Spline->GetSplinePoint(1);
+	Start.Position = {10.0, 20.0, 0.0};
+	End.Position = {310.0, 420.0, 0.0};
+	ASSERT_TRUE(Spline->UpdateSplinePoint(0, Start));
+	ASSERT_TRUE(Spline->UpdateSplinePoint(1, End));
+	const Durin::FVector3 Position = Durin::Editor::Level::CalculateSplineAppendPosition(*Spline);
+	EXPECT_NEAR(Durin::Math::Length(Position - End.Position), 10.0, 1.e-6);
+	EXPECT_LT(Durin::Math::Length(Durin::Math::Normalize(Position - End.Position)
+		- Durin::Math::Normalize(End.Position - Start.Position)), 1.e-9);
+
+	Durin::MarkObjectHierarchyAsGarbage(Actor);
+	Durin::CollectGarbage();
+}
+
 TEST(FSplineViewportAuthoringTests, ModeUsesGuidMultiSelectionAndTransactionalDelete)
 {
 	InitializeDObjectSystem();
