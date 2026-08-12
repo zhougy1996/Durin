@@ -12,6 +12,7 @@
 #include "Source/SourceReferenceIndex.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapBuildOperations.h"
+#include "TerrainHeightmapSourceTranslation.h"
 #include "Terrain/TerrainHeightmapBuildKey.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
 #include "Texture/Texture2D.h"
@@ -270,7 +271,7 @@ TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndRollbackPreserveTheA
 	const std::array<Durin::uint16, 6> Initial{0, 100, 200, 300, 400, 65'535};
 	WritePng(Source, 3, 2, Initial);
 	const Durin::FTerrainHeightmapImportResult Imported =
-		Durin::AssetBuild::ImportTerrainHeightmapAsset(
+		Durin::StandardAssetImport::ImportTerrainHeightmapAsset(
 			Source.generic_string(), "/TerrainHeightmap/Asymmetric");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	ASSERT_NE(Imported.Asset, nullptr);
@@ -349,7 +350,7 @@ TEST(FTerrainHeightmapImportTests, AuthoredReloadUsesWarmDdcWithoutReopeningSour
 	const std::array<Durin::uint16, 6> Samples{5, 4, 3, 2, 1, 0};
 	WritePng(Source, 3, 2, Samples);
 	const Durin::FTerrainHeightmapImportResult Imported =
-		Durin::AssetBuild::ImportTerrainHeightmapAsset(
+		Durin::StandardAssetImport::ImportTerrainHeightmapAsset(
 			Source.generic_string(), "/TerrainHeightmap/WarmReload");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	const std::string Key = Imported.Asset->GetDerivedDataKey();

@@ -1,5 +1,4 @@
 #include "Texture/TextureDerivedData.h"
-#include "Texture/TextureCubeDerivedDataLegacy.h"
 
 #include "Misc/DerivedDataCache.h"
 #include "Serialization/Archive.h"
@@ -111,66 +110,6 @@ namespace Durin
 				Value |= static_cast<uint64>(Bytes[Offset + Byte]) << (Byte * 8);
 			return true;
 		}
-	}
-
-	auto BuildTextureCubeDerivedDataKeyBytes(
-		const FTextureCubeDerivedDataKeyInput& Input,
-		std::vector<uint8>& OutBytes,
-		std::string& OutError) -> bool
-	{
-		OutBytes.clear();
-		OutError.clear();
-		if (!IsSupportedTarget(Input.TargetPlatform, Input.TargetProfile))
-			return Fail(OutError, "TextureCube derived-data target is unsupported.");
-		if (!std::isfinite(Input.ExposureEV)
-			|| std::bit_cast<uint32>(Input.ExposureEV) == 0x80000000u
-			|| Input.ExposureEV < -32.0f || Input.ExposureEV > 32.0f)
-			return Fail(OutError, "TextureCube panorama exposure is not canonical.");
-		if (Input.FaceDimension > MaximumTextureCubeDimension)
-			return Fail(OutError, "TextureCube requested face dimension exceeds the supported limit.");
-
-		DerivedDataCache::FWriter Writer;
-		Writer.WriteU32(TextureDerivedDataKeySchemaVersion);
-		Writer.WriteU32(static_cast<uint32>(ETexturePayloadDimension::TextureCube));
-		Writer.WriteU32(static_cast<uint32>(Input.SourceLayout));
-		switch (Input.SourceLayout)
-		{
-		case ETextureCubeDerivedDataSourceLayout::SixFaces:
-			for (const FXxHash128& Hash : Input.FaceContentHashes)
-			{
-				Writer.WriteU64(Hash.HashLow);
-				Writer.WriteU64(Hash.HashHigh);
-			}
-			Writer.WriteU8(Input.bSRGB ? 1 : 0);
-			break;
-		case ETextureCubeDerivedDataSourceLayout::EquirectangularPanorama:
-			Writer.WriteU64(Input.PanoramaContentHash.HashLow);
-			Writer.WriteU64(Input.PanoramaContentHash.HashHigh);
-			Writer.WriteU32(Input.FaceDimension);
-			Writer.WriteU32(std::bit_cast<uint32>(Input.ExposureEV));
-			Writer.WriteU8(Input.bSRGB ? 1 : 0);
-			break;
-		default:
-			return Fail(OutError, "TextureCube source layout is unsupported.");
-		}
-		Writer.WriteU32(Input.BuilderVersion);
-		Writer.WriteU32(Input.PayloadSchemaVersion);
-		Writer.WriteU32(Input.ProjectionVersion);
-		Writer.WriteU32(static_cast<uint32>(Input.TargetPlatform));
-		Writer.WriteU32(static_cast<uint32>(Input.TargetProfile));
-		OutBytes = Writer.TakeBytes();
-		return true;
-	}
-
-	auto BuildTextureCubeDerivedDataKey(
-		const FTextureCubeDerivedDataKeyInput& Input,
-		std::string& OutKey,
-		std::string& OutError) -> bool
-	{
-		std::vector<uint8> Bytes;
-		if (!BuildTextureCubeDerivedDataKeyBytes(Input, Bytes, OutError)) return false;
-		OutKey = FXxHash128::HashBuffer(Bytes).ToString();
-		return true;
 	}
 
 	auto BuildTexture2DSerializedValue(
@@ -436,7 +375,7 @@ namespace Durin
 		*this = std::move(*Candidate);
 	}
 
-	auto EncodeTextureCubePayload(
+	auto BuildTextureCubeSerializedValue(
 		const FTextureCubePlatformData& PlatformData,
 		Asset::ECookTargetPlatform TargetPlatform,
 		Asset::ECookTargetProfile TargetProfile,
@@ -527,7 +466,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DecodeTextureCubePayloadImpl(
+	auto ParseTextureCubeSerializedValue(
 		std::span<const uint8> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
@@ -688,19 +627,6 @@ namespace Durin
 		return true;
 	}
 
-	auto DecodeTextureCubePayload(
-		std::span<const uint8> Bytes,
-		Asset::ECookTargetPlatform ExpectedPlatform,
-		Asset::ECookTargetProfile ExpectedProfile,
-		std::unique_ptr<FTextureCubePlatformData>& OutPlatformData) -> FPayloadDecodeResult
-	{
-		FPayloadDecodeResult Result;
-		if (!DecodeTextureCubePayloadImpl(
-			Bytes, ExpectedPlatform, ExpectedProfile, OutPlatformData, Result.Message, Result.Code))
-			return Result;
-		return {};
-	}
-
 	auto FTextureCubePlatformData::Serialize(
 		FArchive& Ar,
 		const FTexturePlatformSerializationContext& Context) -> void
@@ -710,7 +636,7 @@ namespace Durin
 		{
 			std::vector<uint8> Bytes;
 			std::string Error;
-			if (!EncodeTextureCubePayload(
+			if (!BuildTextureCubeSerializedValue(
 				*this, Context.TargetPlatform, Context.TargetProfile, Bytes, Error))
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData, Error);
@@ -739,13 +665,14 @@ namespace Durin
 		if (Ar.HasError()) return;
 
 		std::unique_ptr<FTextureCubePlatformData> Candidate;
-		const FPayloadDecodeResult Result = DecodeTextureCubePayload(
-			Bytes, Context.TargetPlatform, Context.TargetProfile, Candidate);
-		if (!Result)
+		std::string Error;
+		EPayloadDecodeError Code = EPayloadDecodeError::Corrupt;
+		if (!ParseTextureCubeSerializedValue(
+			Bytes, Context.TargetPlatform, Context.TargetProfile, Candidate, Error, Code))
 		{
-			Ar.Fail(Result.Code == EPayloadDecodeError::Incompatible
+			Ar.Fail(Code == EPayloadDecodeError::Incompatible
 				? EArchiveFailureCode::UnsupportedVersion : EArchiveFailureCode::InvalidData,
-				Result.Message);
+				Error);
 			return;
 		}
 		*this = std::move(*Candidate);

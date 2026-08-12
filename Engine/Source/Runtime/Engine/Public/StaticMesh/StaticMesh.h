@@ -10,6 +10,7 @@
 
 namespace Durin
 {
+	namespace AssetBuild { class FStaticMeshBuildOperations; }
 	class DMaterialInterface;
 	class DBodySetup;
 	class FCollisionGeometryRef;
@@ -79,46 +80,6 @@ namespace Durin
 		auto operator==(const FStaticMeshImportSettings&) const -> bool = default;
 	};
 
-	inline constexpr uint32 MaximumStaticMeshImportedUVChannels = 4;
-
-	struct FStaticMeshImportedMaterialSlot
-	{
-		std::string Name;
-		uint32 SourceMaterialIndex = 0;
-		std::string SourceName;
-	};
-
-	struct FStaticMeshImportedMesh
-	{
-		std::string Name;
-		std::vector<FVector3f> Positions;
-		std::vector<FVector3f> Normals;
-		std::vector<FVector4f> Tangents;
-		std::array<std::vector<FVector2f>, MaximumStaticMeshImportedUVChannels> UVChannels;
-		std::vector<FVector4f> Colors;
-		std::vector<uint32> Indices;
-		uint32 SourceMaterialIndex = 0;
-	};
-
-	struct FStaticMeshImportedData
-	{
-		std::vector<FStaticMeshImportedMaterialSlot> MaterialSlots;
-		std::vector<FStaticMeshImportedMesh> Meshes;
-	};
-
-	using FStaticMeshSourceDecodeFunction = bool (*)(
-		std::string_view FilePath,
-		const FStaticMeshImportSettings& Settings,
-		FStaticMeshImportedData& OutData,
-		std::string& OutError);
-
-	// Editor import modules register concrete source decoders without adding a
-	// reverse Runtime Engine dependency on those modules or their third parties.
-	ENGINE_API auto RegisterStaticMeshSourceDecoder(
-		FStaticMeshSourceDecodeFunction Decoder) -> bool;
-	ENGINE_API auto UnregisterStaticMeshSourceDecoder(
-		FStaticMeshSourceDecodeFunction Decoder) -> void;
-
 	// Stores optional portable source provenance used only for editor rebuild and reimport.
 	DSTRUCT()
 	struct FStaticMeshSourceImportData
@@ -149,6 +110,7 @@ namespace Durin
 	struct FStaticMeshBuildData;
 	struct FStaticMeshRenderData;
 	struct FStaticMeshImportResult;
+	struct FStaticMeshAuthoringProduct;
 	class FStaticMeshImportedStateExchange;
 
 	enum class EStaticMeshSourceStatus : uint8
@@ -277,17 +239,9 @@ namespace Durin
 		ENGINE_API auto GetMaterialIndex(FName Name) const -> std::optional<uint32>;
 		ENGINE_API auto RenameMaterialSlot(uint32 SlotIndex, FName Name, std::string& OutError) -> bool;
 
-		ENGINE_API auto InspectSource() const -> FStaticMeshSourceDiagnostic;
 		ENGINE_API auto InspectCollision() const -> FStaticMeshCollisionInspection;
 		auto GetDerivedDataDiagnostic() const -> const FStaticMeshDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
 		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
-		ENGINE_API auto ChangeSourceReference(
-			std::string_view SourceVirtualPath, std::string& OutError) -> bool;
-		ENGINE_API auto IngestAndChangeSource(
-			std::string_view FilePath,
-			std::string_view TargetSourceVirtualPath,
-			std::string& OutError) -> bool;
-		ENGINE_API auto RepairSourcePath(std::string_view FilePath, std::string& OutError) -> bool;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 		// Contributes deterministic DMSH data and descriptor-bearing runtime metadata to a cook.
 		ENGINE_API auto AddToCook(
@@ -297,29 +251,13 @@ namespace Durin
 			bool bRetainDiagnosticSourceMetadata = false) -> bool;
 
 		ENGINE_API static auto CreateDebugTriangle(DObject* Outer = nullptr) -> DStaticMesh*;
-		// Creates unpackaged geometry for tests and runtime-generated content; editor previews use retained assets.
-		ENGINE_API static auto CreateTransientFromFile(
-			std::string_view FilePath,
-			DObject* Outer,
-			std::string_view ObjectName,
-			std::string& OutError,
-			const FStaticMeshImportSettings& InImportSettings = {}
-		) -> DStaticMesh*;
-		ENGINE_API static auto ImportAsset(
-			std::string_view FilePath,
-			std::string_view AssetPath,
-			const FStaticMeshImportSettings& InImportSettings = {},
-			std::string_view SourceDestination = {},
-			bool bEngineAuthoringContext = false) -> FStaticMeshImportResult;
-		ENGINE_API auto InitializeFromImportedData(
-			const FStaticMeshImportedData& ImportedData,
-			const FStaticMeshSourceImportData& InSourceImportData,
-			std::string_view SourceLabel,
-			std::string& OutError) -> bool;
 		// Seeds a detached candidate with only the slot state required by the
 		// conservative reimport reconciliation algorithm.
 		ENGINE_API auto SeedMaterialReconciliationFrom(
 			const DStaticMesh& Previous) -> void;
+		ENGINE_API auto PublishImportedProduct(
+			FStaticMeshAuthoringProduct Product,
+			std::string& OutError) -> bool;
 		ENGINE_API auto SetImportedDefaultMaterial(
 			uint32 SourceMaterialIndex,
 			DMaterialInterface* Material,
@@ -381,20 +319,6 @@ namespace Durin
 			EStaticMeshRenderResourceState State) -> bool;
 		auto AdvanceRenderResourceRevision() -> void;
 		auto ReleaseResources() -> void;
-		auto BuildRenderData(std::string_view PhysicalFilePath, std::string& OutError) -> bool;
-		auto BuildRenderDataCandidate(
-			std::string_view PhysicalFilePath,
-			std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
-			std::vector<FStaticMeshMaterialSlotDefinition>& OutMaterialSlots,
-			bool& bOutSlotMetadataChanged,
-			std::string& OutError) -> bool;
-		auto BuildRenderDataCandidate(
-			const FStaticMeshImportedData& ImportedData,
-			std::string_view SourceLabel,
-			std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
-			std::vector<FStaticMeshMaterialSlotDefinition>& OutMaterialSlots,
-			bool& bOutSlotMetadataChanged,
-			std::string& OutError) -> bool;
 		auto PublishRenderData(
 			std::unique_ptr<FStaticMeshRenderData> InRenderData,
 			std::vector<FStaticMeshMaterialSlotDefinition> InMaterialSlots,
@@ -442,6 +366,7 @@ namespace Durin
 			EStaticMeshRenderResourceState::Uninitialized, 1)};
 
 		friend class FStaticMeshImportedStateExchange;
+		friend class AssetBuild::FStaticMeshBuildOperations;
 	};
 
 	class ENGINE_API FStaticMeshImportedStateExchange

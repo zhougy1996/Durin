@@ -10,6 +10,7 @@
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
 #include "StandardAssetImportProviders.h"
+#include "StaticMesh/StaticMeshBuildOperations.h"
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
@@ -922,12 +923,12 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		ASSERT_TRUE(Durin::Asset::CreateAsset(
 			StaticMeshFixturePath, StaticMeshFixture)) << Error;
 		ASSERT_NE(StaticMeshFixture, nullptr);
-		Durin::FStaticMeshImportedData ImportedMesh;
+		Durin::AssetBuild::FStaticMeshImportedData ImportedMesh;
 		ImportedMesh.MaterialSlots.push_back({
 			.Name = "Default",
 			.SourceMaterialIndex = 0,
 			.SourceName = "Default"});
-		Durin::FStaticMeshImportedMesh& ImportedSection =
+		Durin::AssetBuild::FStaticMeshImportedMesh& ImportedSection =
 			ImportedMesh.Meshes.emplace_back();
 		ImportedSection.Name = "ThumbnailTetrahedron";
 		ImportedSection.Positions = {
@@ -941,8 +942,8 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			1, 2, 3,
 			2, 0, 3};
 		ImportedSection.SourceMaterialIndex = 0;
-		ASSERT_TRUE(StaticMeshFixture->InitializeFromImportedData(
-			ImportedMesh,
+		ASSERT_TRUE(Durin::AssetBuild::FStaticMeshBuildOperations::BuildAndPublishImported(
+			*StaticMeshFixture, ImportedMesh,
 			{
 				.SourcePath = {.Path = "/MaterialThumbnailVulkan/SM_ThumbnailPreview.fixture"},
 				.SourceContentHash = "0123456789abcdef0123456789abcdef",

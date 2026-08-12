@@ -10,10 +10,10 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Source/SourcePath.h"
-#include "Texture/EquirectangularTextureCube.h"
-#include "Texture/TextureCubeLegacyBuild.h"
+#include "Serialization/Archive.h"
 #include "Texture/TextureCubeRenderResource.h"
-#include "Texture/TextureCubeDerivedDataLegacy.h"
+#include "Texture/TextureCubePostLoad.h"
+#include "Texture/TextureCubeAuthoring.h"
 #include "Texture/TextureDerivedData.h"
 
 namespace Durin
@@ -225,102 +225,6 @@ namespace Durin
 			return false;
 		}
 
-		auto MakeTextureCubeDerivedDataKey(
-			const DTextureCube& Texture, std::string& OutKey, std::string& OutError) -> bool
-		{
-			const FTextureCubeSourceImportData& Provenance = Texture.GetSourceImportData();
-			if (!Provenance.HasSource())
-			{
-				OutError = "TextureCube has no persisted source identity.";
-				return false;
-			}
-			if (!ValidateCubeProvenance(Texture, OutError)) return false;
-			FTextureCubeDerivedDataKeyInput Input{
-				.SourceLayout = Provenance.SourceLayout == ETextureCubeSourceLayout::SixFaces
-					? ETextureCubeDerivedDataSourceLayout::SixFaces
-					: ETextureCubeDerivedDataSourceLayout::EquirectangularPanorama,
-				.FaceDimension = Texture.GetPanoramaFaceDimension(),
-				.ExposureEV = Texture.GetPanoramaExposureEV(),
-				.bSRGB = Texture.IsSRGB(),
-				.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-				.TargetProfile = Asset::ECookTargetProfile::Game};
-			if (Provenance.SourceLayout == ETextureCubeSourceLayout::SixFaces)
-			{
-				for (uint32 FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
-				{
-					const FTextureSourceFile& Source =
-						Provenance.GetFace(static_cast<ETextureCubeFace>(FaceIndex));
-					Input.FaceContentHashes[FaceIndex] = {
-						Source.SourceContentHashLow, Source.SourceContentHashHigh};
-				}
-			}
-			else
-			{
-				Input.PanoramaContentHash = {
-					Provenance.Panorama.SourceContentHashLow,
-					Provenance.Panorama.SourceContentHashHigh};
-			}
-			return BuildTextureCubeDerivedDataKey(Input, OutKey, OutError);
-		}
-
-		auto LoadTextureCubeDerivedData(
-			std::string_view Key,
-			std::unique_ptr<FTextureCubePlatformData>& OutPlatformData,
-			ETextureDerivedDataStatus& OutStatus,
-			std::string& OutMessage) -> bool
-		{
-			std::vector<uint8> Bytes;
-			const Asset::FDerivedDataObjectReadResult Read = GetTextureCubeObjectStore().Read(Key, Bytes);
-			if (!Read)
-			{
-				OutStatus = Read.Status == Asset::EDerivedDataObjectReadStatus::Missing
-					? ETextureDerivedDataStatus::Missing : ETextureDerivedDataStatus::Corrupt;
-				OutMessage = Read.Message;
-				return false;
-			}
-			FPayloadDecodeResult DecodeResult = DecodeTextureCubePayload(
-				Bytes, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game,
-				OutPlatformData);
-			if (!DecodeResult)
-			{
-				OutStatus = DecodeResult.Code == EPayloadDecodeError::Incompatible
-					? ETextureDerivedDataStatus::Incompatible : ETextureDerivedDataStatus::Corrupt;
-				OutMessage = std::move(DecodeResult.Message);
-				return false;
-			}
-			OutStatus = ETextureDerivedDataStatus::Hit;
-			OutMessage.clear();
-			return true;
-		}
-
-		auto StoreTextureCubeDerivedData(
-			std::string_view Key, const FTextureCubePlatformData& PlatformData,
-			std::string& OutError) -> bool
-		{
-			std::vector<uint8> Bytes;
-			if (!EncodeTextureCubePayload(
-				PlatformData, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game,
-				Bytes, OutError)
-				|| !GetTextureCubeObjectStore().Write(Key, Bytes, &OutError)) return false;
-			const Asset::FDerivedDataObjectCleanupResult Cleanup =
-				GetTextureCubeObjectStore().CleanupToBudget(
-					TextureCubeDerivedDataBudgetBytes, TextureCubeDerivedDataCleanupDeleteLimit);
-			if (!Cleanup.Message.empty()) DURIN_WARN("TextureCube DDC cleanup: {}", Cleanup.Message);
-			return true;
-		}
-
-		auto MakePanoramaSourceFileName(std::string_view AssetName, std::string_view Extension) -> std::string
-		{
-			std::string NormalizedExtension(Extension);
-			std::ranges::transform(NormalizedExtension, NormalizedExtension.begin(),
-				[](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
-			return std::format("{}_panorama{}", AssetName, NormalizedExtension);
-		}
-
-		auto MakeSourceFileName(std::string_view AssetName, size_t FaceIndex, std::string_view Extension) -> std::string
-		{
-			return std::format("{}_{}{}", AssetName, FaceSuffixes[FaceIndex], Extension);
-		}
 
 		auto ValidateCubeSourceData(const FTextureCubeSourceData& SourceData, std::string& OutError) -> bool
 		{
@@ -355,173 +259,6 @@ namespace Durin
 			return true;
 		}
 
-		auto BuildCubePlatformData(const FTextureCubeSourceData& SourceData, bool bSRGB,
-			FTextureCubePlatformData& OutPlatformData, std::string& OutError) -> bool
-		{
-			OutPlatformData = {};
-			if (!ValidateCubeSourceData(SourceData, OutError)) return false;
-			const bool bCubeHasTransparency = std::ranges::any_of(SourceData.Faces,
-				[](const FTextureSourceData& Face) { return Face.bHasTransparency; });
-			for (size_t FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
-			{
-				FTextureSourceData BuildSource = SourceData.Faces[FaceIndex];
-				// All physical layers of one cube image must use one pixel format.
-				BuildSource.bHasTransparency = bCubeHasTransparency;
-				if (!TextureCubeLegacyBuild::BuildMipChain(BuildSource, ETextureUsage::Color, bSRGB,
-					OutPlatformData.Faces[FaceIndex], OutError))
-				{
-					OutError = std::format("{} face platform build failed: {}", FaceNames[FaceIndex], OutError);
-					return false;
-				}
-			}
-			OutPlatformData.PixelFormat = OutPlatformData.Faces[0].PixelFormat;
-			if (OutPlatformData.IsValid()) return true;
-			OutPlatformData = {};
-			OutError = "Cube texture platform data is inconsistent.";
-			return false;
-		}
-
-		auto DecodeCubeInputs(const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
-			std::array<std::filesystem::path, TextureCubeFaceCount>& OutInputs,
-			FTextureCubeSourceData& OutSourceData, std::string& OutError) -> bool
-		{
-#if DURIN_WITH_EDITOR
-			for (size_t FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
-			{
-				if (FaceFiles[FaceIndex].empty())
-				{
-					OutError = std::format("{} face source is missing.", FaceNames[FaceIndex]);
-					return false;
-				}
-				OutInputs[FaceIndex] = std::filesystem::absolute(FaceFiles[FaceIndex]).lexically_normal();
-				if (!std::filesystem::is_regular_file(OutInputs[FaceIndex]))
-				{
-					OutError = std::format("{} face source file does not exist.", FaceNames[FaceIndex]);
-					return false;
-				}
-				if (!Asset::IsSupportedImageExtension(OutInputs[FaceIndex].extension().generic_string()))
-				{
-					OutError = std::format("{} face uses an unsupported texture source format.", FaceNames[FaceIndex]);
-					return false;
-				}
-				std::string DecodeError;
-				if (!TextureCubeLegacyBuild::DecodeRGBA8(OutInputs[FaceIndex].generic_string(),
-					OutSourceData.Faces[FaceIndex], DecodeError))
-				{
-					OutError = std::format("{} face decode failed: {}", FaceNames[FaceIndex], DecodeError);
-					return false;
-				}
-			}
-			return ValidateCubeSourceData(OutSourceData, OutError);
-#else
-			(void)FaceFiles;
-			(void)OutInputs;
-			OutSourceData = {};
-			OutError = "TextureCube source decoding is unavailable in runtime-only builds.";
-			return false;
-#endif
-		}
-
-		enum class EPanoramaDecodeError
-		{
-			None,
-			Decode,
-			Build
-		};
-
-		auto DecodePanoramaInput(const std::filesystem::path& Input,
-			const FTextureCubePanoramaImportSettings& Settings, FTextureCubeSourceData& OutSourceData,
-			uint32& OutSourceWidth, uint32& OutSourceHeight, bool& bOutHDR,
-			EPanoramaDecodeError& OutCode, std::string& OutError) -> bool
-		{
-#if DURIN_WITH_EDITOR
-			OutSourceData = {};
-			OutSourceWidth = 0;
-			OutSourceHeight = 0;
-			bOutHDR = false;
-			OutCode = EPanoramaDecodeError::Build;
-			if (!std::filesystem::is_regular_file(Input))
-			{
-				OutError = "Panorama source file does not exist.";
-				return false;
-			}
-
-			const std::string Extension = Input.extension().generic_string();
-			const TextureCubeLegacyBuild::FEquirectangularTextureCubeProjectionSettings ProjectionSettings{
-				.FaceDimension = Settings.FaceDimension,
-				.ExposureEV = Settings.ExposureEV,
-			};
-			if (Asset::IsRadianceHDRExtension(Extension))
-			{
-				bOutHDR = true;
-				Asset::FDecodedFloatImage Panorama;
-				if (!Asset::DecodeRadianceHDRFromFile(Input.generic_string(), Panorama, OutError))
-				{
-					OutCode = EPanoramaDecodeError::Decode;
-					OutError = std::format("Panorama HDR decode failed: {}", OutError);
-					return false;
-				}
-				OutSourceWidth = Panorama.Width;
-				OutSourceHeight = Panorama.Height;
-				if (!TextureCubeLegacyBuild::ProjectEquirectangularTextureCube(
-					Panorama, ProjectionSettings, OutSourceData, OutError))
-				{
-					OutError = std::format("Panorama projection failed: {}", OutError);
-					return false;
-				}
-				OutCode = EPanoramaDecodeError::None;
-				return true;
-			}
-			if (!Asset::IsSupportedImageExtension(Extension))
-			{
-				OutError = "Panorama uses an unsupported source format.";
-				return false;
-			}
-
-			Asset::FDecodedImage Panorama;
-			Asset::FImageDecodeLimits Limits;
-			Limits.MaximumDecodedPixels = TextureCubeLegacyBuild::MaximumPanoramaPixels;
-			if (!Asset::DecodeImageFromFile(Input.generic_string(), Panorama, OutError, Limits))
-			{
-				OutCode = EPanoramaDecodeError::Decode;
-				OutError = std::format("Panorama LDR decode failed: {}", OutError);
-				return false;
-			}
-			OutSourceWidth = Panorama.Width;
-			OutSourceHeight = Panorama.Height;
-			if (!TextureCubeLegacyBuild::ProjectEquirectangularTextureCube(
-				Panorama, ProjectionSettings, OutSourceData, OutError))
-			{
-				OutError = std::format("Panorama projection failed: {}", OutError);
-				return false;
-			}
-			OutCode = EPanoramaDecodeError::None;
-			return true;
-#else
-			(void)Input;
-			(void)Settings;
-			OutSourceData = {};
-			OutSourceWidth = 0;
-			OutSourceHeight = 0;
-			bOutHDR = false;
-			OutCode = EPanoramaDecodeError::Build;
-			OutError = "TextureCube panorama decoding and projection are unavailable in runtime-only builds.";
-			return false;
-#endif
-		}
-
-		auto ValidatePanorama(const std::filesystem::path& Input,
-			const FTextureCubePanoramaImportSettings& Settings, FTextureCubeSourceData& OutSourceData,
-			FTextureCubePlatformData& OutPlatformData, uint32& OutSourceWidth, uint32& OutSourceHeight,
-			bool& bOutHDR, std::string& OutError) -> bool
-		{
-			EPanoramaDecodeError DecodeCode = EPanoramaDecodeError::None;
-			if (!DecodePanoramaInput(
-				Input, Settings, OutSourceData, OutSourceWidth, OutSourceHeight,
-				bOutHDR, DecodeCode, OutError))
-				return false;
-			return BuildCubePlatformData(OutSourceData, true, OutPlatformData, OutError);
-		}
 	}
 
 	auto FTextureCubeSourceImportData::GetFace(ETextureCubeFace Face) const -> const FTextureSourceFile&
@@ -640,20 +377,10 @@ namespace Durin
 
 	auto DTextureCube::RebuildPlatformData(std::string& OutError) -> bool
 	{
-		auto NewPlatformData = std::make_unique<FTextureCubePlatformData>();
-		if (!SourceData || !SourceData->IsValid() || !BuildCubePlatformData(*SourceData, bSRGB, *NewPlatformData, OutError))
-		{
-			if (OutError.empty()) OutError = "Cube texture source data is unavailable or invalid.";
-			BuildStatus = ETextureBuildStatus::BuildFailure;
-			LastBuildError = OutError;
-			InvalidatePlatformData();
-			return false;
-		}
-		PlatformData = std::move(NewPlatformData);
-		BuildStatus = ETextureBuildStatus::Ready;
-		LastBuildError.clear();
-		QueueRenderResourceBuild();
-		return true;
+		const FTextureCubeAuthoringHandlers Handlers = GetTextureCubeAuthoringHandlers();
+		if (Handlers.Rebuild) return Handlers.Rebuild(*this, OutError);
+		OutError = "TextureCube rebuild policy is unavailable.";
+		return false;
 	}
 
 	auto DTextureCube::PostLoad(std::string& OutError) -> bool
@@ -666,177 +393,7 @@ namespace Durin
 			return true;
 		}
 
-		DerivedDataKey.clear();
-		DerivedDataDiagnostic = {};
-		bLoadedFromDerivedDataCache = false;
-		if (!SourceImportData.HasSource())
-		{
-			OutError = "TextureCube has no normalized mounted-source provenance; legacy source metadata is unsupported.";
-			BuildStatus = ETextureBuildStatus::MissingSource;
-			LastBuildError = OutError;
-			DerivedDataDiagnostic = {
-				.Status = ETextureDerivedDataStatus::Incompatible,
-				.Message = OutError};
-			return false;
-		}
-		if (SourceImportData.HasSource())
-		{
-			if (!MakeTextureCubeDerivedDataKey(*this, DerivedDataKey, OutError))
-			{
-				DerivedDataDiagnostic = {
-					.Status = ETextureDerivedDataStatus::Incompatible,
-					.Message = OutError};
-				LastBuildError = OutError;
-				return false;
-			}
-			std::unique_ptr<FTextureCubePlatformData> CachedPlatformData;
-			ETextureDerivedDataStatus CacheStatus = ETextureDerivedDataStatus::Missing;
-			std::string CacheMessage;
-			if (LoadTextureCubeDerivedData(
-				DerivedDataKey, CachedPlatformData, CacheStatus, CacheMessage))
-			{
-				SourceData.reset();
-				PlatformData = std::move(CachedPlatformData);
-				BuildStatus = ETextureBuildStatus::Ready;
-				LastBuildError.clear();
-				bLoadedFromDerivedDataCache = true;
-				DerivedDataDiagnostic = {
-					.Status = ETextureDerivedDataStatus::Hit,
-					.Key = DerivedDataKey,
-					.Message = std::format("TextureCube DDC hit for key {}.", DerivedDataKey)};
-				QueueRenderResourceBuild();
-				OutError.clear();
-				return true;
-			}
-			DerivedDataDiagnostic = {
-				.Status = CacheStatus,
-				.Key = DerivedDataKey,
-				.Message = std::format("TextureCube DDC miss for key {}: {}",
-					DerivedDataKey, CacheMessage)};
-		}
-
-		auto NewSourceData = std::make_unique<FTextureCubeSourceData>();
-		if (SourceLayout == ETextureCubeSourceLayout::EquirectangularPanorama)
-		{
-			if (GetPanoramaSourceFile().empty())
-			{
-				OutError = "Panorama layout has no source file.";
-				BuildStatus = ETextureBuildStatus::MissingSource;
-				LastBuildError = OutError;
-				DerivedDataDiagnostic.Status = ETextureDerivedDataStatus::SourceUnavailable;
-				DerivedDataDiagnostic.Message = OutError;
-				return false;
-			}
-			const std::filesystem::path SourcePath = ResolvePanoramaSource();
-			if (!std::filesystem::is_regular_file(SourcePath))
-			{
-				OutError = std::format("Panorama source file does not exist: {}", GetPanoramaSourceFile());
-				BuildStatus = ETextureBuildStatus::MissingSource;
-				LastBuildError = OutError;
-				DerivedDataDiagnostic.Status = ETextureDerivedDataStatus::SourceUnavailable;
-				DerivedDataDiagnostic.Message = OutError;
-				return false;
-			}
-			bool bHDR = false;
-			EPanoramaDecodeError DecodeCode = EPanoramaDecodeError::None;
-			DerivedDataDiagnostic.bSourceDecoderInvoked = true;
-			if (!DecodePanoramaInput(SourcePath,
-				{.FaceDimension = PanoramaFaceDimension, .ExposureEV = PanoramaExposureEV},
-				*NewSourceData, OriginalSourceWidth, OriginalSourceHeight,
-				bHDR, DecodeCode, OutError))
-			{
-				BuildStatus = DecodeCode == EPanoramaDecodeError::Decode
-					? ETextureBuildStatus::DecodeFailure : ETextureBuildStatus::BuildFailure;
-				LastBuildError = OutError;
-				DerivedDataDiagnostic.Message = OutError;
-				return false;
-			}
-		}
-		else if (SourceLayout != ETextureCubeSourceLayout::SixFaces)
-		{
-			OutError = "Texture cube source layout is invalid.";
-			BuildStatus = ETextureBuildStatus::BuildFailure;
-			LastBuildError = OutError;
-			DerivedDataDiagnostic.Message = OutError;
-			return false;
-		}
-		else for (size_t FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
-		{
-			const ETextureCubeFace Face = static_cast<ETextureCubeFace>(FaceIndex);
-			if (GetSourceFile(Face).empty())
-			{
-				OutError = std::format("{} face has no source file.", FaceNames[FaceIndex]);
-				BuildStatus = ETextureBuildStatus::MissingSource;
-				LastBuildError = OutError;
-				DerivedDataDiagnostic.Status = ETextureDerivedDataStatus::SourceUnavailable;
-				DerivedDataDiagnostic.Message = OutError;
-				return false;
-			}
-			const std::filesystem::path SourcePath = ResolveCubeSource(*this, Face);
-			if (!std::filesystem::is_regular_file(SourcePath))
-			{
-				OutError = std::format("{} face source file does not exist: {}", FaceNames[FaceIndex], GetSourceFile(Face));
-				BuildStatus = ETextureBuildStatus::MissingSource;
-				LastBuildError = OutError;
-				DerivedDataDiagnostic.Status = ETextureDerivedDataStatus::SourceUnavailable;
-				DerivedDataDiagnostic.Message = OutError;
-				return false;
-			}
-			DerivedDataDiagnostic.bSourceDecoderInvoked = true;
-			if (!TextureCubeLegacyBuild::DecodeRGBA8(SourcePath.generic_string(), NewSourceData->Faces[FaceIndex], OutError))
-			{
-				OutError = std::format("{} face decode failed: {}", FaceNames[FaceIndex], OutError);
-				BuildStatus = ETextureBuildStatus::DecodeFailure;
-				LastBuildError = OutError;
-				DerivedDataDiagnostic.Message = OutError;
-				return false;
-			}
-		}
-		if (!ValidateCubeSourceData(*NewSourceData, OutError))
-		{
-			BuildStatus = ETextureBuildStatus::BuildFailure;
-			LastBuildError = OutError;
-			DerivedDataDiagnostic.Message = OutError;
-			return false;
-		}
-
-		auto NewPlatformData = std::make_unique<FTextureCubePlatformData>();
-		if (!BuildCubePlatformData(*NewSourceData, bSRGB, *NewPlatformData, OutError))
-		{
-			BuildStatus = ETextureBuildStatus::BuildFailure;
-			LastBuildError = OutError;
-			DerivedDataDiagnostic.Message = OutError;
-			return false;
-		}
-		if (SourceImportData.HasSource())
-		{
-			if (DerivedDataKey.empty()
-				&& !MakeTextureCubeDerivedDataKey(*this, DerivedDataKey, OutError))
-				return false;
-			if (!StoreTextureCubeDerivedData(DerivedDataKey, *NewPlatformData, OutError))
-			{
-				DerivedDataDiagnostic = {
-					.Status = ETextureDerivedDataStatus::WriteFailure,
-					.Key = DerivedDataKey,
-					.Message = OutError,
-					.bSourceDecoderInvoked = true};
-				LastBuildError = OutError;
-				return false;
-			}
-		}
-		SourceData = std::move(NewSourceData);
-		PlatformData = std::move(NewPlatformData);
-		BuildStatus = ETextureBuildStatus::Ready;
-		LastBuildError.clear();
-		bLoadedFromDerivedDataCache = false;
-		DerivedDataDiagnostic = {
-			.Status = ETextureDerivedDataStatus::Rebuilt,
-			.Key = DerivedDataKey,
-			.Message = std::format("Rebuilt TextureCube and stored DDC key {}.", DerivedDataKey),
-			.bSourceDecoderInvoked = true};
-		QueueRenderResourceBuild();
-		OutError.clear();
-		return true;
+		return InvokeTextureCubeUncookedPostLoadHandler(*this, OutError);
 	}
 
 	auto DTextureCube::LoadCookedPlatformData(std::string& OutError) -> bool
@@ -879,12 +436,12 @@ namespace Durin
 		std::span<const uint8> Bytes;
 		if (!Asset::ResolveCookedPayload(Container, CookedPayload, Bytes, &OutError))
 			return FailCooked(OutError);
-		std::unique_ptr<FTextureCubePlatformData> CandidatePlatformData;
-		const FPayloadDecodeResult DecodeResult = DecodeTextureCubePayload(
-			Bytes, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game,
-			CandidatePlatformData);
-		if (!DecodeResult)
-			return FailCooked(DecodeResult.Message);
+		auto CandidatePlatformData = std::make_unique<FTextureCubePlatformData>();
+		FCanonicalMemoryReader PayloadAr(Bytes, EArchivePurpose::CookedPayload);
+		CandidatePlatformData->Serialize(PayloadAr, {
+			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
+			.TargetProfile = Asset::ECookTargetProfile::Game});
+		if (PayloadAr.HasError()) return FailCooked(PayloadAr.GetFailure()->Message);
 
 		SourceData.reset();
 		PlatformData = std::move(CandidatePlatformData);
@@ -913,38 +470,27 @@ namespace Durin
 				"TextureCube '{}' supports only the Win64 game cook target.", GetObjectPath());
 			return false;
 		}
-		std::string ExpectedKey;
-		if (!MakeTextureCubeDerivedDataKey(*this, ExpectedKey, OutError))
+		std::vector<uint8> PayloadBytes;
+		if (!PlatformData && !PostLoad(OutError))
 		{
 			OutError = std::format("Failed to cook TextureCube '{}': {}", GetObjectPath(), OutError);
 			return false;
 		}
-
-		std::vector<uint8> PayloadBytes;
-		std::unique_ptr<FTextureCubePlatformData> ValidatedPlatformData;
-		const Asset::FDerivedDataObjectReadResult Read =
-			GetTextureCubeObjectStore().Read(ExpectedKey, PayloadBytes);
-		const FPayloadDecodeResult DecodeResult = Read
-			? DecodeTextureCubePayload(
-				PayloadBytes, Asset::ECookTargetPlatform::Win64,
-				Asset::ECookTargetProfile::Game, ValidatedPlatformData)
-			: FPayloadDecodeResult{
-				.Code = EPayloadDecodeError::Corrupt,
-				.Message = Read.Message};
-		if (!DecodeResult)
+		if (!PlatformData)
 		{
-			if (!PlatformData && !PostLoad(OutError))
-			{
-				OutError = std::format("Failed to cook TextureCube '{}': {}", GetObjectPath(), OutError);
-				return false;
-			}
-			if (!PlatformData || !EncodeTextureCubePayload(
-				*PlatformData, Asset::ECookTargetPlatform::Win64,
-				Asset::ECookTargetProfile::Game, PayloadBytes, OutError))
-			{
-				OutError = std::format("Failed to cook TextureCube '{}': {}", GetObjectPath(), OutError);
-				return false;
-			}
+			OutError = std::format("Failed to cook TextureCube '{}': platform data is unavailable.",
+				GetObjectPath());
+			return false;
+		}
+		FCanonicalMemoryWriter CookAr(PayloadBytes, EArchivePurpose::CookedPayload);
+		PlatformData->Serialize(CookAr, {
+			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
+			.TargetProfile = Asset::ECookTargetProfile::Game});
+		if (CookAr.HasError())
+		{
+			OutError = std::format("Failed to cook TextureCube '{}': {}",
+				GetObjectPath(), CookAr.GetFailure()->Message);
+			return false;
 		}
 
 		Asset::FCookedBulkPayload BulkPayload{
@@ -1017,52 +563,17 @@ namespace Durin
 	auto DTextureCube::ValidateImportSources(const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 		const FTextureCubeImportSettings& Settings) -> FTextureCubeImportValidation
 	{
-		std::array<std::filesystem::path, TextureCubeFaceCount> Inputs;
-		FTextureCubeSourceData SourceData;
-		std::string Error;
-		if (!DecodeCubeInputs(FaceFiles, Inputs, SourceData, Error))
-			return {false, std::move(Error)};
-
-		FTextureCubePlatformData PlatformData;
-		if (!BuildCubePlatformData(SourceData, Settings.bSRGB, PlatformData, Error))
-			return {false, std::move(Error)};
-		return {
-			.bValid = true,
-			.SourceLayout = ETextureCubeSourceLayout::SixFaces,
-			.SourceWidth = SourceData.Faces[0].Width,
-			.SourceHeight = SourceData.Faces[0].Height,
-			.Dimension = SourceData.Faces[0].Width,
-			.MipCount = static_cast<uint32>(PlatformData.Faces[0].Mips.size()),
-			.PixelFormat = PlatformData.PixelFormat,
-		};
+		const FTextureCubeAuthoringHandlers Handlers = GetTextureCubeAuthoringHandlers();
+		return Handlers.ValidateFaces ? Handlers.ValidateFaces(FaceFiles, Settings)
+			: FTextureCubeImportValidation{false, "TextureCube validation policy is unavailable."};
 	}
 
 	auto DTextureCube::ValidatePanoramaImportSource(std::string_view PanoramaFile,
 		const FTextureCubePanoramaImportSettings& Settings) -> FTextureCubeImportValidation
 	{
-		if (PanoramaFile.empty()) return {false, "Panorama source is missing."};
-		const std::filesystem::path Input = std::filesystem::absolute(PanoramaFile).lexically_normal();
-		FTextureCubeSourceData SourceData;
-		FTextureCubePlatformData PlatformData;
-		uint32 SourceWidth = 0;
-		uint32 SourceHeight = 0;
-		bool bHDR = false;
-		std::string Error;
-		if (!ValidatePanorama(Input, Settings, SourceData, PlatformData,
-			SourceWidth, SourceHeight, bHDR, Error))
-		{
-			return {false, std::move(Error)};
-		}
-		return {
-			.bValid = true,
-			.SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama,
-			.SourceWidth = SourceWidth,
-			.SourceHeight = SourceHeight,
-			.Dimension = SourceData.Faces[0].Width,
-			.MipCount = static_cast<uint32>(PlatformData.Faces[0].Mips.size()),
-			.PixelFormat = PlatformData.PixelFormat,
-			.bHDR = bHDR,
-		};
+		const FTextureCubeAuthoringHandlers Handlers = GetTextureCubeAuthoringHandlers();
+		return Handlers.ValidatePanorama ? Handlers.ValidatePanorama(PanoramaFile, Settings)
+			: FTextureCubeImportValidation{false, "TextureCube validation policy is unavailable."};
 	}
 
 	auto DTextureCube::ImportPanoramaAsset(std::string_view PanoramaFile, std::string_view AssetPath,
@@ -1072,18 +583,7 @@ namespace Durin
 	{
 		if (PanoramaFile.empty()) return {false, "Panorama source is missing.", nullptr};
 		const std::filesystem::path Input = std::filesystem::absolute(PanoramaFile).lexically_normal();
-		auto NewSourceData = std::make_unique<FTextureCubeSourceData>();
-		auto NewPlatformData = std::make_unique<FTextureCubePlatformData>();
-		uint32 SourceWidth = 0;
-		uint32 SourceHeight = 0;
-		bool bHDR = false;
 		std::string Error;
-		if (!ValidatePanorama(Input, Settings, *NewSourceData, *NewPlatformData,
-			SourceWidth, SourceHeight, bHDR, Error))
-		{
-			return {false, std::move(Error), nullptr};
-		}
-
 		FAssetPath ParsedAssetPath;
 		if (!FAssetPath::TryCreate(AssetPath, ParsedAssetPath, &Error))
 			return {false, std::move(Error), nullptr};
@@ -1102,30 +602,6 @@ namespace Durin
 			Input, ParsedAssetPath.ToString(), StoredSourcePath, MountedSource, Error,
 			bEngineAuthoringContext))
 			return {false, std::move(Error), nullptr};
-		Destination = MountedSource.PhysicalPath;
-		StoredSourcePath = MountedSource.SourcePath.Path;
-		FXxHash128 SourceHash;
-		if (!HashTextureSource(Destination, SourceHash, Error))
-		{
-			RollbackMountedSourceFile(MountedSource);
-			return {false, std::move(Error), nullptr};
-		}
-
-		std::string DerivedKey;
-		if (!BuildTextureCubeDerivedDataKey({
-			.SourceLayout = ETextureCubeDerivedDataSourceLayout::EquirectangularPanorama,
-			.PanoramaContentHash = SourceHash,
-			.FaceDimension = Settings.FaceDimension,
-			.ExposureEV = Settings.ExposureEV,
-			.bSRGB = true,
-			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-			.TargetProfile = Asset::ECookTargetProfile::Game}, DerivedKey, Error)
-			|| !StoreTextureCubeDerivedData(DerivedKey, *NewPlatformData, Error))
-		{
-			RollbackMountedSourceFile(MountedSource);
-			return {false, std::move(Error), nullptr};
-		}
-
 		DTextureCube* Texture = nullptr;
 		Asset::FAssetResult CreateResult = Asset::CreateAsset(ParsedAssetPath, Texture);
 		if (!CreateResult)
@@ -1134,27 +610,18 @@ namespace Durin
 			return {false, CreateResult.Message, nullptr};
 		}
 
-		Texture->SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama;
-		Texture->SourceImportData = {
-			.SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama,
-			.Panorama = MakeSourceFile(StoredSourcePath, SourceHash),
-			.DecoderId = std::string(TextureDecoderId),
-			.DecoderVersion = TextureDecoderVersion,
-			.ProjectionVersion = TextureCubeProjectionVersion};
-		Texture->PanoramaFaceDimension = Settings.FaceDimension;
-		Texture->PanoramaExposureEV = Settings.ExposureEV;
-		Texture->OriginalSourceWidth = SourceWidth;
-		Texture->OriginalSourceHeight = SourceHeight;
-		Texture->bSRGB = true;
-		Texture->SourceData = std::move(NewSourceData);
-		Texture->PlatformData = std::move(NewPlatformData);
-		Texture->DerivedDataKey = std::move(DerivedKey);
-		Texture->DerivedDataDiagnostic = {
-			.Status = ETextureDerivedDataStatus::Rebuilt,
-			.Key = Texture->DerivedDataKey,
-			.Message = "Imported panorama TextureCube and populated the DDC.",
-			.bSourceDecoderInvoked = true};
-		Texture->BuildStatus = ETextureBuildStatus::Ready;
+		std::vector<uint8> Bytes;
+		const FTextureCubeAuthoringHandlers Handlers = GetTextureCubeAuthoringHandlers();
+		if (!Handlers.BuildPanorama
+			|| !FFileHelper::LoadFileToArray(Bytes, MountedSource.PhysicalPath.generic_string())
+			|| !Handlers.BuildPanorama(*Texture, Bytes, Input.extension().generic_string(),
+				MountedSource.SourcePath, Settings, Error))
+		{
+			if (Error.empty()) Error = "TextureCube panorama build policy is unavailable.";
+			RollbackMountedSourceFile(MountedSource);
+			Asset::UnloadPackage(ParsedAssetPath);
+			return {false, std::move(Error), nullptr};
+		}
 
 		Asset::FAssetResult SaveResult = Asset::SavePackage(Texture->GetPackage());
 		if (!SaveResult)
@@ -1164,7 +631,6 @@ namespace Durin
 			return {false, SaveResult.Message, nullptr};
 		}
 		CommitMountedSourceFile(MountedSource);
-		Texture->QueueRenderResourceBuild();
 		return {true, {}, Texture};
 	}
 
@@ -1204,147 +670,24 @@ namespace Durin
 				"Reimport is read-only and must use the persisted mounted panorama source.";
 			return false;
 		}
-		auto NewSourceData = std::make_unique<FTextureCubeSourceData>();
-		auto NewPlatformData = std::make_unique<FTextureCubePlatformData>();
-		uint32 NewSourceWidth = 0;
-		uint32 NewSourceHeight = 0;
-		bool bHDR = false;
-		if (!ValidatePanorama(Input, Settings, *NewSourceData, *NewPlatformData,
-			NewSourceWidth, NewSourceHeight, bHDR, OutError))
+		std::vector<uint8> EncodedBytes;
+		const FTextureCubeAuthoringHandlers Handlers = GetTextureCubeAuthoringHandlers();
+		if (!Handlers.BuildPanorama
+			|| !FFileHelper::LoadFileToArray(EncodedBytes, Input.generic_string())
+			|| !Handlers.BuildPanorama(*this, EncodedBytes,
+				Input.extension().generic_string(), MountedSource.SourcePath, Settings, OutError))
 		{
+			if (OutError.empty()) OutError = "TextureCube panorama build policy is unavailable.";
 			return false;
 		}
-
-		FXxHash128 SourceHash;
-		if (!HashTextureSource(Input, SourceHash, OutError)) return false;
-		const std::filesystem::path OldSource = ResolvePanoramaSource();
-		const std::filesystem::path NewSource = MountedSource.PhysicalPath;
-		const std::string NewStoredSourcePath = MountedSource.SourcePath.Path;
-		std::string NewDerivedKey;
-		if (!BuildTextureCubeDerivedDataKey({
-			.SourceLayout = ETextureCubeDerivedDataSourceLayout::EquirectangularPanorama,
-			.PanoramaContentHash = SourceHash,
-			.FaceDimension = Settings.FaceDimension,
-			.ExposureEV = Settings.ExposureEV,
-			.bSRGB = true,
-			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-			.TargetProfile = Asset::ECookTargetProfile::Game}, NewDerivedKey, OutError)
-			|| !StoreTextureCubeDerivedData(NewDerivedKey, *NewPlatformData, OutError)) return false;
-		std::error_code ErrorCode;
-		const bool bInputIsDestination = Input.lexically_normal() == NewSource.lexically_normal();
-		const std::filesystem::path TemporarySource =
-			NewSource.generic_string() + ".reimport.tmp";
-		const std::filesystem::path BackupSource =
-			NewSource.generic_string() + ".reimport.backup";
-		if (!bInputIsDestination)
-		{
-			std::filesystem::create_directories(NewSource.parent_path(), ErrorCode);
-			if (NewSource != OldSource && std::filesystem::exists(NewSource))
-			{
-				OutError = std::format("Panorama replacement destination already exists: {}",
-					NewSource.generic_string());
-				return false;
-			}
-			std::filesystem::remove(TemporarySource, ErrorCode);
-			ErrorCode.clear();
-			if (!std::filesystem::copy_file(Input, TemporarySource,
-				std::filesystem::copy_options::none, ErrorCode))
-			{
-				OutError = std::format("Failed to stage panorama replacement: {}", ErrorCode.message());
-				return false;
-			}
-			if (NewSource == OldSource && std::filesystem::exists(NewSource))
-			{
-				std::filesystem::remove(BackupSource, ErrorCode);
-				ErrorCode.clear();
-				std::filesystem::rename(NewSource, BackupSource, ErrorCode);
-				if (ErrorCode)
-				{
-					const std::string MoveError = ErrorCode.message();
-					std::error_code CleanupError;
-					std::filesystem::remove(TemporarySource, CleanupError);
-					OutError = std::format("Failed to preserve the current panorama source: {}", MoveError);
-					return false;
-				}
-			}
-			ErrorCode.clear();
-			std::filesystem::rename(TemporarySource, NewSource, ErrorCode);
-			if (ErrorCode)
-			{
-				const std::string InstallError = ErrorCode.message();
-				if (std::filesystem::exists(BackupSource))
-				{
-					std::error_code RestoreError;
-					std::filesystem::rename(BackupSource, NewSource, RestoreError);
-				}
-				std::error_code CleanupError;
-				std::filesystem::remove(TemporarySource, CleanupError);
-				OutError = std::format("Failed to install panorama replacement: {}", InstallError);
-				return false;
-			}
-		}
-
-		const FTextureCubeSourceImportData OldSourceImportData = SourceImportData;
-		const bool bOldSourceWasPortable = OldSourceImportData.HasSource();
-		const uint32 OldFaceDimension = PanoramaFaceDimension;
-		const float OldExposureEV = PanoramaExposureEV;
-		const uint32 OldSourceWidth = OriginalSourceWidth;
-		const uint32 OldSourceHeight = OriginalSourceHeight;
-		auto OldSourceData = std::move(SourceData);
-		auto OldPlatformData = std::move(PlatformData);
-		const std::string OldDerivedDataKey = DerivedDataKey;
-		const FTextureDerivedDataDiagnostic OldDiagnostic = DerivedDataDiagnostic;
-		SourceImportData = {
-			.SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama,
-			.Panorama = MakeSourceFile(NewStoredSourcePath, SourceHash),
-			.DecoderId = std::string(TextureDecoderId),
-			.DecoderVersion = TextureDecoderVersion,
-			.ProjectionVersion = TextureCubeProjectionVersion};
-		PanoramaFaceDimension = Settings.FaceDimension;
-		PanoramaExposureEV = Settings.ExposureEV;
-		OriginalSourceWidth = NewSourceWidth;
-		OriginalSourceHeight = NewSourceHeight;
-		SourceData = std::move(NewSourceData);
-		PlatformData = std::move(NewPlatformData);
-		DerivedDataKey = NewDerivedKey;
-		DerivedDataDiagnostic = {
-			.Status = ETextureDerivedDataStatus::Rebuilt,
-			.Key = DerivedDataKey,
-			.Message = "Reimported panorama TextureCube and populated the DDC.",
-			.bSourceDecoderInvoked = true};
-
 		const Asset::FAssetResult SaveResult = Asset::SavePackage(GetPackage());
 		if (!SaveResult)
 		{
-			SourceImportData = OldSourceImportData;
-			PanoramaFaceDimension = OldFaceDimension;
-			PanoramaExposureEV = OldExposureEV;
-			OriginalSourceWidth = OldSourceWidth;
-			OriginalSourceHeight = OldSourceHeight;
-			SourceData = std::move(OldSourceData);
-			PlatformData = std::move(OldPlatformData);
-			DerivedDataKey = OldDerivedDataKey;
-			DerivedDataDiagnostic = OldDiagnostic;
-			if (!bInputIsDestination)
-			{
-				std::filesystem::remove(NewSource, ErrorCode);
-				if (std::filesystem::exists(BackupSource))
-					std::filesystem::rename(BackupSource, OldSource, ErrorCode);
-			}
 			OutError = SaveResult.Message;
 			return false;
 		}
-
-		if (!bInputIsDestination)
-		{
-			std::filesystem::remove(BackupSource, ErrorCode);
-			if (!bOldSourceWasPortable && OldSource != NewSource)
-				std::filesystem::remove(OldSource, ErrorCode);
-		}
-		BuildStatus = ETextureBuildStatus::Ready;
-		LastBuildError.clear();
-		QueueRenderResourceBuild();
 		return true;
+
 	}
 
 	auto DTextureCube::ReimportSources(
@@ -1385,139 +728,35 @@ namespace Durin
 			MountedFaceFiles[FaceIndex] =
 				MountedSources[FaceIndex].PhysicalPath.generic_string();
 		}
-		std::array<std::filesystem::path, TextureCubeFaceCount> Inputs;
-		auto NewSourceData = std::make_unique<FTextureCubeSourceData>();
-		if (!DecodeCubeInputs(MountedFaceFiles, Inputs, *NewSourceData, OutError)) return false;
-		auto NewPlatformData = std::make_unique<FTextureCubePlatformData>();
-		if (!BuildCubePlatformData(
-			*NewSourceData, Settings.bSRGB, *NewPlatformData, OutError)) return false;
-
-		std::array<FXxHash128, TextureCubeFaceCount> Hashes;
-		std::array<std::filesystem::path, TextureCubeFaceCount> Destinations;
-		std::array<std::string, TextureCubeFaceCount> StoredPaths;
+		std::array<std::vector<uint8>, TextureCubeFaceCount> OwnedBytes;
+		std::array<std::span<const uint8>, TextureCubeFaceCount> Bytes;
+		std::array<FSourcePath, TextureCubeFaceCount> Paths;
 		for (size_t FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
 		{
-			if (!HashTextureSource(Inputs[FaceIndex], Hashes[FaceIndex], OutError))
+			if (!FFileHelper::LoadFileToArray(
+				OwnedBytes[FaceIndex], MountedSources[FaceIndex].PhysicalPath.generic_string()))
+			{
+				OutError = "Failed to read mounted TextureCube face source.";
 				return false;
-			Destinations[FaceIndex] = MountedSources[FaceIndex].PhysicalPath;
-			StoredPaths[FaceIndex] = MountedSources[FaceIndex].SourcePath.Path;
+			}
+			Bytes[FaceIndex] = OwnedBytes[FaceIndex];
+			Paths[FaceIndex] = MountedSources[FaceIndex].SourcePath;
 		}
-		std::string NewDerivedKey;
-		if (!BuildTextureCubeDerivedDataKey({
-			.SourceLayout = ETextureCubeDerivedDataSourceLayout::SixFaces,
-			.FaceContentHashes = Hashes,
-			.bSRGB = Settings.bSRGB,
-			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-			.TargetProfile = Asset::ECookTargetProfile::Game}, NewDerivedKey, OutError)
-			|| !StoreTextureCubeDerivedData(NewDerivedKey, *NewPlatformData, OutError))
+		const FTextureCubeAuthoringHandlers Handlers = GetTextureCubeAuthoringHandlers();
+		if (!Handlers.BuildFaces
+			|| !Handlers.BuildFaces(*this, Bytes, Paths, Settings, OutError))
+		{
+			if (OutError.empty()) OutError = "TextureCube face build policy is unavailable.";
 			return false;
-
-		std::array<std::filesystem::path, TextureCubeFaceCount> Temporaries;
-		std::array<std::filesystem::path, TextureCubeFaceCount> Backups;
-		std::array<bool, TextureCubeFaceCount> Replaced{};
-		std::array<bool, TextureCubeFaceCount> Installed{};
-		std::error_code ErrorCode;
-		auto RollbackFiles = [&] {
-			for (size_t FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
-			{
-				if (!Temporaries[FaceIndex].empty())
-					std::filesystem::remove(Temporaries[FaceIndex], ErrorCode);
-				if (Installed[FaceIndex])
-				{
-					std::filesystem::remove(Destinations[FaceIndex], ErrorCode);
-					if (Replaced[FaceIndex] && std::filesystem::exists(Backups[FaceIndex]))
-						std::filesystem::rename(
-							Backups[FaceIndex], Destinations[FaceIndex], ErrorCode);
-				}
-			}
-		};
-		for (size_t FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
-		{
-			if (Inputs[FaceIndex] == Destinations[FaceIndex]) continue;
-			std::filesystem::create_directories(Destinations[FaceIndex].parent_path(), ErrorCode);
-			Temporaries[FaceIndex] = Destinations[FaceIndex].generic_string() + ".reimport.tmp";
-			Backups[FaceIndex] = Destinations[FaceIndex].generic_string() + ".reimport.backup";
-			std::filesystem::remove(Temporaries[FaceIndex], ErrorCode);
-			std::filesystem::remove(Backups[FaceIndex], ErrorCode);
-			ErrorCode.clear();
-			if (!std::filesystem::copy_file(
-				Inputs[FaceIndex], Temporaries[FaceIndex],
-				std::filesystem::copy_options::none, ErrorCode))
-			{
-				OutError = std::format("Failed to stage {} face replacement: {}",
-					FaceNames[FaceIndex], ErrorCode.message());
-				RollbackFiles();
-				return false;
-			}
-			if (std::filesystem::exists(Destinations[FaceIndex]))
-			{
-				ErrorCode.clear();
-				std::filesystem::rename(
-					Destinations[FaceIndex], Backups[FaceIndex], ErrorCode);
-				if (ErrorCode)
-				{
-					OutError = std::format("Failed to preserve {} face source: {}",
-						FaceNames[FaceIndex], ErrorCode.message());
-					RollbackFiles();
-					return false;
-				}
-				Replaced[FaceIndex] = true;
-			}
-			ErrorCode.clear();
-			std::filesystem::rename(
-				Temporaries[FaceIndex], Destinations[FaceIndex], ErrorCode);
-			if (ErrorCode)
-			{
-				OutError = std::format("Failed to install {} face replacement: {}",
-					FaceNames[FaceIndex], ErrorCode.message());
-				RollbackFiles();
-				return false;
-			}
-			Installed[FaceIndex] = true;
 		}
-
-		const FTextureCubeSourceImportData OldSourceImportData = SourceImportData;
-		const bool bOldSRGB = bSRGB;
-		const std::string OldDerivedDataKey = DerivedDataKey;
-		const FTextureDerivedDataDiagnostic OldDiagnostic = DerivedDataDiagnostic;
-		auto OldSourceData = std::move(SourceData);
-		auto OldPlatformData = std::move(PlatformData);
-		SourceImportData = {};
-		SourceImportData.SourceLayout = ETextureCubeSourceLayout::SixFaces;
-		SourceImportData.DecoderId = std::string(TextureDecoderId);
-		SourceImportData.DecoderVersion = TextureDecoderVersion;
-		SourceImportData.ProjectionVersion = TextureCubeProjectionVersion;
-		for (size_t FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
-			SourceImportData.GetMutableFace(static_cast<ETextureCubeFace>(FaceIndex)) =
-				MakeSourceFile(StoredPaths[FaceIndex], Hashes[FaceIndex]);
-		bSRGB = Settings.bSRGB;
-		SourceData = std::move(NewSourceData);
-		PlatformData = std::move(NewPlatformData);
-		DerivedDataKey = NewDerivedKey;
-		DerivedDataDiagnostic = {
-			.Status = ETextureDerivedDataStatus::Rebuilt,
-			.Key = DerivedDataKey,
-			.Message = "Reimported six-face TextureCube and populated the DDC.",
-			.bSourceDecoderInvoked = true};
 		const Asset::FAssetResult SaveResult = Asset::SavePackage(GetPackage());
 		if (!SaveResult)
 		{
-			SourceImportData = OldSourceImportData;
-			bSRGB = bOldSRGB;
-			SourceData = std::move(OldSourceData);
-			PlatformData = std::move(OldPlatformData);
-			DerivedDataKey = OldDerivedDataKey;
-			DerivedDataDiagnostic = OldDiagnostic;
-			RollbackFiles();
 			OutError = SaveResult.Message;
 			return false;
 		}
-		for (const std::filesystem::path& Backup : Backups)
-			if (!Backup.empty()) std::filesystem::remove(Backup, ErrorCode);
-		BuildStatus = ETextureBuildStatus::Ready;
-		LastBuildError.clear();
-		QueueRenderResourceBuild();
 		return true;
+
 	}
 
 	auto DTextureCube::ExchangeImportedState(DTextureCube& Other) noexcept -> void
@@ -1574,6 +813,31 @@ namespace Durin
 		bLoadedFromDerivedDataCache = false;
 		QueueRenderResourceBuild();
 		MarkPackageDirty();
+	}
+
+	auto DTextureCube::PublishDerivedDataLoad(
+		std::unique_ptr<FTextureCubePlatformData> InPlatformData,
+		std::string InDerivedDataKey,
+		std::string& OutError) -> bool
+	{
+		if (!InPlatformData || !InPlatformData->IsValid() || InDerivedDataKey.empty())
+		{
+			OutError = "TextureCube DDC publication requires valid platform data and key.";
+			return false;
+		}
+		SourceData.reset();
+		PlatformData = std::move(InPlatformData);
+		DerivedDataKey = std::move(InDerivedDataKey);
+		bLoadedFromDerivedDataCache = true;
+		DerivedDataDiagnostic = {
+			.Status = ETextureDerivedDataStatus::Hit,
+			.Key = DerivedDataKey,
+			.Message = "Loaded TextureCube platform data from DDC."};
+		BuildStatus = ETextureBuildStatus::Ready;
+		LastBuildError.clear();
+		QueueRenderResourceBuild();
+		OutError.clear();
+		return true;
 	}
 
 	auto DTextureCube::ChangePanoramaSourceReference(
@@ -1708,15 +972,13 @@ namespace Durin
 		-> FTextureCubeImportResult
 	{
 		std::array<std::filesystem::path, TextureCubeFaceCount> Inputs;
-		auto NewSourceData = std::make_unique<FTextureCubeSourceData>();
 		std::string ValidationError;
-		if (!DecodeCubeInputs(FaceFiles, Inputs, *NewSourceData, ValidationError))
-			return {false, std::move(ValidationError), nullptr};
-
-		auto NewPlatformData = std::make_unique<FTextureCubePlatformData>();
-		std::string BuildError;
-		if (!BuildCubePlatformData(*NewSourceData, Settings.bSRGB, *NewPlatformData, BuildError))
-			return {false, std::move(BuildError), nullptr};
+		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
+		{
+			Inputs[Index] = std::filesystem::absolute(FaceFiles[Index]).lexically_normal();
+			if (!std::filesystem::is_regular_file(Inputs[Index]))
+				return {false, std::format("{} face source is unavailable.", FaceNames[Index]), nullptr};
+		}
 
 		FAssetPath ParsedAssetPath;
 		std::string PathError;
@@ -1724,7 +986,6 @@ namespace Durin
 		if (Asset::GetAssetRegistry().FindAssetExact(ParsedAssetPath) || Asset::FindLoadedPackage(ParsedAssetPath))
 			return {false, std::format("Asset {} already exists.", ParsedAssetPath.ToString()), nullptr};
 
-		std::array<FXxHash128, TextureCubeFaceCount> SourceHashes;
 		std::array<std::string, TextureCubeFaceCount> StoredSourcePaths;
 		std::array<std::filesystem::path, TextureCubeFaceCount> Destinations;
 		std::array<FMountedSourceFile, TextureCubeFaceCount> MountedSources;
@@ -1749,25 +1010,6 @@ namespace Durin
 			}
 			Destinations[FaceIndex] = MountedSources[FaceIndex].PhysicalPath;
 			StoredSourcePaths[FaceIndex] = MountedSources[FaceIndex].SourcePath.Path;
-			if (!HashTextureSource(
-				Destinations[FaceIndex], SourceHashes[FaceIndex], PathError))
-			{
-				RollbackMountedSources();
-				return {false, std::move(PathError), nullptr};
-			}
-		}
-
-		std::string DerivedKey;
-		if (!BuildTextureCubeDerivedDataKey({
-			.SourceLayout = ETextureCubeDerivedDataSourceLayout::SixFaces,
-			.FaceContentHashes = SourceHashes,
-			.bSRGB = Settings.bSRGB,
-			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-			.TargetProfile = Asset::ECookTargetProfile::Game}, DerivedKey, PathError)
-			|| !StoreTextureCubeDerivedData(DerivedKey, *NewPlatformData, PathError))
-		{
-			RollbackMountedSources();
-			return {false, std::move(PathError), nullptr};
 		}
 
 		DTextureCube* Texture = nullptr;
@@ -1778,25 +1020,30 @@ namespace Durin
 			return {false, CreateResult.Message, nullptr};
 		}
 
-		Texture->SourceLayout = ETextureCubeSourceLayout::SixFaces;
-		Texture->SourceImportData.SourceLayout = ETextureCubeSourceLayout::SixFaces;
-		Texture->SourceImportData.DecoderId = std::string(TextureDecoderId);
-		Texture->SourceImportData.DecoderVersion = TextureDecoderVersion;
-		Texture->SourceImportData.ProjectionVersion = TextureCubeProjectionVersion;
+		std::array<std::vector<uint8>, TextureCubeFaceCount> OwnedBytes;
+		std::array<std::span<const uint8>, TextureCubeFaceCount> Bytes;
+		std::array<FSourcePath, TextureCubeFaceCount> Paths;
 		for (size_t FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
-			Texture->SourceImportData.GetMutableFace(static_cast<ETextureCubeFace>(FaceIndex)) =
-				MakeSourceFile(StoredSourcePaths[FaceIndex], SourceHashes[FaceIndex]);
-		Texture->bSRGB = Settings.bSRGB;
-		Texture->SourceData = std::move(NewSourceData);
-		Texture->PlatformData = std::move(NewPlatformData);
-		Texture->DerivedDataKey = std::move(DerivedKey);
-		Texture->DerivedDataDiagnostic = {
-			.Status = ETextureDerivedDataStatus::Rebuilt,
-			.Key = Texture->DerivedDataKey,
-			.Message = "Imported six-face TextureCube and populated the DDC.",
-			.bSourceDecoderInvoked = true};
-		Texture->BuildStatus = ETextureBuildStatus::Ready;
-		Texture->QueueRenderResourceBuild();
+		{
+			if (!FFileHelper::LoadFileToArray(
+				OwnedBytes[FaceIndex], MountedSources[FaceIndex].PhysicalPath.generic_string()))
+			{
+				RollbackMountedSources();
+				Asset::UnloadPackage(ParsedAssetPath);
+				return {false, "Failed to read mounted TextureCube face source.", nullptr};
+			}
+			Bytes[FaceIndex] = OwnedBytes[FaceIndex];
+			Paths[FaceIndex] = MountedSources[FaceIndex].SourcePath;
+		}
+		const FTextureCubeAuthoringHandlers Handlers = GetTextureCubeAuthoringHandlers();
+		if (!Handlers.BuildFaces
+			|| !Handlers.BuildFaces(*Texture, Bytes, Paths, Settings, PathError))
+		{
+			if (PathError.empty()) PathError = "TextureCube face build policy is unavailable.";
+			RollbackMountedSources();
+			Asset::UnloadPackage(ParsedAssetPath);
+			return {false, std::move(PathError), nullptr};
+		}
 
 		Asset::FAssetResult SaveResult = Asset::SavePackage(Texture->GetPackage());
 		if (!SaveResult)

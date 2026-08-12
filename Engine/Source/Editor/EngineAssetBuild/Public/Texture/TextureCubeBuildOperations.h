@@ -28,21 +28,13 @@ namespace Durin::AssetBuild
 		const std::array<FSourcePath, TextureCubeFaceCount>& SourcePaths,
 		const FTextureCubeImportSettings& Settings,
 		std::string& OutError) -> bool;
+	ENGINEASSETBUILD_API auto MakeTextureCubeDerivedDataKey(
+		const DTextureCube& Texture,
+		std::string& OutError) -> std::string;
+	ENGINEASSETBUILD_API auto LoadTextureCubeDerivedData(
+		std::string_view Key,
+		std::unique_ptr<FTextureCubePlatformData>& OutPlatformData,
+		ETextureDerivedDataStatus& OutStatus,
+		std::string& OutMessage) -> bool;
 
-	// Transitional encoded adapters retained only for legacy Runtime TextureCube
-	// authoring callers; StandardAssetImport uses the normalized overloads above.
-	ENGINEASSETBUILD_API auto BuildTextureCubePanoramaFromEncodedBytes(
-		DTextureCube& Texture,
-		std::span<const uint8> EncodedBytes,
-		std::string_view ExtensionHint,
-		const FSourcePath& SourcePath,
-		const FTextureCubePanoramaImportSettings& Settings,
-		std::string& OutError) -> bool;
-
-	ENGINEASSETBUILD_API auto BuildTextureCubeFacesFromEncodedBytes(
-		DTextureCube& Texture,
-		const std::array<std::span<const uint8>, TextureCubeFaceCount>& EncodedFaces,
-		const std::array<FSourcePath, TextureCubeFaceCount>& SourcePaths,
-		const FTextureCubeImportSettings& Settings,
-		std::string& OutError) -> bool;
 }

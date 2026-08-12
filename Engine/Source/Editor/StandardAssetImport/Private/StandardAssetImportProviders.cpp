@@ -1,8 +1,11 @@
 #include "StandardAssetImportProviders.h"
+#include "StaticMeshSourceTranslation.h"
 #include "Texture2DSourceTranslation.h"
 #include "Texture2DPropertyEditing.h"
 #include "Texture2DPostLoad.h"
 #include "Texture2DSourceRelocation.h"
+#include "Stage3PostLoad.h"
+#include "TerrainHeightmapSourceTranslation.h"
 
 #include "Animation/AnimationClip.h"
 #include "ImportedScene.h"
@@ -12,13 +15,18 @@
 #include "Hash/XxHash.h"
 #include "ImageDecoder.h"
 #include "Materials/MaterialInstance.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 #include "SceneImport.h"
 #include "SceneImportInternal.h"
 #include "AsyncImport.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "SkeletalMesh/Skeleton.h"
+#include "Source/SourcePath.h"
 #include "StaticMeshImportAdapter.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshAuthoring.h"
+#include "StaticMesh/StaticMeshBuildOperations.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
 #include "Texture/TextureCube.h"
@@ -33,6 +41,105 @@ namespace Durin
 	namespace
 	{
 		using namespace AssetImport;
+		inline constexpr uint32 StaticMeshAssimpImporterVersion = 3;
+		inline constexpr std::string_view StaticMeshImporterId = "Assimp";
+		inline constexpr std::string_view StaticMeshSourceRoot = "Models";
+
+		auto FindOwningMount(std::string_view AssetPath) -> const PathUtilities::FMountPoint*
+		{
+			const PathUtilities::FMountLookupResult Lookup =
+				PathUtilities::FindMountForVirtualPath(AssetPath);
+			return Lookup ? Lookup.Mount : nullptr;
+		}
+
+		auto MakeCanonicalStaticMeshSourceLocation(
+			const FAssetPath& AssetPath,
+			std::string_view Extension,
+			std::string_view RequestedSourcePath,
+			std::filesystem::path& OutPhysicalPath,
+			std::string& OutStoredPath,
+			std::string& OutError) -> bool
+		{
+			const PathUtilities::FMountPoint* Mount = FindOwningMount(AssetPath.ToString());
+			if (!Mount)
+			{
+				OutError = std::format(
+					"Static mesh asset {} is not beneath a registered package mount.",
+					AssetPath.ToString());
+				return false;
+			}
+			if (RequestedSourcePath.empty())
+			{
+				std::filesystem::path RelativeAssetPath(
+					std::string(AssetPath.ToString().substr(Mount->VirtualRoot.size())));
+				RelativeAssetPath.replace_extension(Extension);
+				const std::filesystem::path StoredPath =
+					std::filesystem::path(StaticMeshSourceRoot) / RelativeAssetPath;
+				OutStoredPath = Mount->VirtualRoot
+					+ StoredPath.lexically_normal().generic_string();
+			}
+			else
+			{
+				OutStoredPath = RequestedSourcePath;
+			}
+			const PathUtilities::FSourcePathResult Resolved =
+				PathUtilities::ResolveSourcePath(
+					OutStoredPath, PathUtilities::EPathExistence::AllowMissing);
+			if (!Resolved)
+			{
+				OutError = Resolved.Message;
+				return false;
+			}
+			OutPhysicalPath = Resolved.PhysicalPath;
+			return true;
+		}
+
+		auto ResolvePortableStaticMeshSource(
+			const DStaticMesh& Mesh,
+			std::filesystem::path& OutPath,
+			std::string& OutError) -> bool
+		{
+			const FStaticMeshSourceImportData& Source = Mesh.GetSourceImportData();
+			if (!Mesh.GetPackage())
+			{
+				OutError = "Static mesh source cannot be resolved without an owning package.";
+				return false;
+			}
+			const PathUtilities::FMountPolicyResult Dependency =
+				PathUtilities::CheckMountDependency(
+					Mesh.GetPackage()->GetPackagePath(), Source.SourcePath.Path);
+			if (!Dependency)
+			{
+				OutError = Dependency.Message;
+				return false;
+			}
+			const PathUtilities::FSourcePathResult Resolved =
+				PathUtilities::ResolveSourcePath(
+					Source.SourcePath.Path, PathUtilities::EPathExistence::AllowMissing);
+			if (!Resolved)
+			{
+				OutError = Resolved.Message;
+				return false;
+			}
+			OutPath = Resolved.PhysicalPath;
+			return true;
+		}
+
+		auto HashStaticMeshSource(
+			const std::filesystem::path& Path,
+			std::string& OutHash,
+			std::string& OutError) -> bool
+		{
+			std::vector<uint8> Bytes;
+			if (!FFileHelper::LoadFileToArray(Bytes, Path.generic_string()))
+			{
+				OutError = std::format(
+					"Failed to read static mesh source file: {}", Path.generic_string());
+				return false;
+			}
+			OutHash = FXxHash128::HashBuffer(Bytes).ToString();
+			return true;
+		}
 
 		template<typename T>
 		auto AppendValue(std::vector<uint8>& Bytes, const T& Value) -> void
@@ -98,7 +205,7 @@ namespace Durin
 		auto DecodeStaticMeshSource(
 			std::string_view FilePath,
 			const FStaticMeshImportSettings& Settings,
-			FStaticMeshImportedData& OutData,
+			AssetBuild::FStaticMeshImportedData& OutData,
 			std::string& OutError) -> bool
 		{
 			Asset::FImportedSceneData Scene;
@@ -113,8 +220,116 @@ namespace Durin
 			return false;
 		}
 
-		bool GStaticMeshSourceDecoderRegistered =
-			RegisterStaticMeshSourceDecoder(&DecodeStaticMeshSource);
+			auto BuildStaticMeshFileProduct(
+			DStaticMesh& Mesh,
+			std::string_view FilePath,
+			FStaticMeshSourceImportData SourceImportData,
+			std::string_view SourceLabel,
+			FStaticMeshAuthoringProduct& OutProduct,
+			std::string& OutError) -> bool
+		{
+			AssetBuild::FStaticMeshImportedData ImportedData;
+			if (!DecodeStaticMeshSource(
+				FilePath, SourceImportData.ImportSettings, ImportedData, OutError))
+				return false;
+			return AssetBuild::FStaticMeshBuildOperations::BuildImportedProduct(
+				Mesh, ImportedData, std::move(SourceImportData), SourceLabel,
+				OutProduct, OutError);
+		}
+
+		auto PostLoadStaticMesh(
+			DStaticMesh& Mesh,
+			FStaticMeshDerivedDataDiagnostic& OutDiagnostic,
+			std::string& OutError) -> bool
+		{
+			const FStaticMeshSourceDiagnostic SourceDiagnostic =
+				StandardAssetImport::InspectStaticMeshSource(Mesh);
+			if (SourceDiagnostic.Status == EStaticMeshSourceStatus::NoSource)
+			{
+				OutDiagnostic = {};
+				OutError.clear();
+				return true;
+			}
+			if (Mesh.GetMaterialSlots().empty())
+			{
+				OutError = "StaticMesh with source metadata must contain a material slot.";
+				return false;
+			}
+
+			FStaticMeshSourceImportData Source = Mesh.GetSourceImportData();
+			const bool bSourceAvailable = SourceDiagnostic.IsAvailable();
+			if (bSourceAvailable)
+			{
+				std::vector<uint8> Bytes;
+				if (!FFileHelper::LoadFileToArray(Bytes, SourceDiagnostic.ResolvedPath))
+				{
+					OutDiagnostic.Status = EStaticMeshDerivedDataStatus::SourceUnavailable;
+					OutError = std::format(
+						"Failed to read StaticMesh source file: {}",
+						SourceDiagnostic.ResolvedPath);
+					OutDiagnostic.Message = OutError;
+					return false;
+				}
+				Source.SourceContentHash = FXxHash128::HashBuffer(Bytes).ToString();
+			}
+			const bool bSourceHashValid = Source.SourceContentHash.size() == 32
+				&& std::ranges::all_of(Source.SourceContentHash, [](char Character) {
+					return Character >= '0' && Character <= '9'
+						|| Character >= 'a' && Character <= 'f';
+				});
+			if (!bSourceHashValid)
+			{
+				OutDiagnostic.Status = EStaticMeshDerivedDataStatus::SourceUnavailable;
+				OutError = SourceDiagnostic.Message.empty()
+					? "StaticMesh source hash is unavailable."
+					: SourceDiagnostic.Message;
+				OutDiagnostic.Message = OutError;
+				return false;
+			}
+
+			const bool bSourceMetadataStale = bSourceAvailable
+				&& Mesh.GetSourceImportData().SourceContentHash
+					!= Source.SourceContentHash;
+			FStaticMeshAuthoringProduct Product;
+			EStaticMeshDerivedDataStatus CacheStatus =
+				EStaticMeshDerivedDataStatus::Missing;
+			std::string CacheMessage;
+			if (!bSourceMetadataStale
+				&& AssetBuild::FStaticMeshBuildOperations::LoadDerivedDataProduct(
+					Mesh, Source, bSourceAvailable, Product, CacheStatus,
+					CacheMessage, OutError))
+			{
+				return Mesh.PublishImportedProduct(std::move(Product), OutError);
+			}
+			if (!bSourceAvailable)
+			{
+				OutDiagnostic.Status = EStaticMeshDerivedDataStatus::SourceUnavailable;
+				OutDiagnostic.Message = std::format(
+					"{}. Cached payload was unavailable: {} Reimport and cache regeneration are unavailable.",
+					SourceDiagnostic.Message, CacheMessage);
+				OutError = OutDiagnostic.Message;
+				return false;
+			}
+
+			if (!BuildStaticMeshFileProduct(
+				Mesh, SourceDiagnostic.ResolvedPath, std::move(Source),
+				SourceDiagnostic.ResolvedPath, Product, OutError))
+			{
+				OutDiagnostic.Status = Product.FailureStage
+					== EStaticMeshAuthoringFailureStage::DerivedDataWrite
+					? EStaticMeshDerivedDataStatus::WriteFailure
+					: CacheStatus;
+				OutDiagnostic.Message = OutError;
+				OutDiagnostic.bSourceImporterInvoked = true;
+				return false;
+			}
+			Product.DerivedDataStatus = EStaticMeshDerivedDataStatus::Rebuilt;
+			Product.DiagnosticMessage = std::format(
+				"Rebuilt static mesh after cache miss: {}", CacheMessage);
+			return Mesh.PublishImportedProduct(std::move(Product), OutError);
+		}
+
+		bool GStaticMeshAuthoringRegistered = false;
 
 		auto MakeTexture2DSettings(const DTexture2D& Texture) -> FImportPayload
 		{
@@ -411,9 +626,12 @@ namespace Durin
 					.ImporterId = Plan.GetProvenance().ProviderId,
 					.ImporterVersion = Plan.GetProvenance().ProviderContractVersion,
 					.ImportSettings = Target->GetImportSettings()};
-				if (!Candidate->InitializeFromImportedData(
-					MakeStaticMeshImportedData(Scene), Provenance,
-					Root->SourcePath.Path, Error))
+				AssetBuild::FStaticMeshBuildProduct Product;
+				if (!AssetBuild::FStaticMeshBuildOperations::BuildImportedProduct(
+						*Candidate, MakeStaticMeshImportedData(Scene), Provenance,
+						Root->SourcePath.Path, Product, Error)
+					|| !AssetBuild::FStaticMeshBuildOperations::PublishImportedProduct(
+						*Candidate, std::move(Product), Error))
 				{
 					Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
 						.Category = EImportDiagnosticCategory::CandidateFailure,
@@ -444,7 +662,8 @@ namespace Durin
 				auto* Mesh = Cast<DStaticMesh>(&AssetObject);
 				std::string Error;
 				const bool bResult = Mesh && Sources.size() == 1
-					&& Mesh->ChangeSourceReference(Sources[0].Path, Error);
+					&& StandardAssetImport::ChangeStaticMeshSourceReference(
+						*Mesh, Sources[0].Path, Error);
 				if (!bResult) Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
 					.Category = EImportDiagnosticCategory::InvalidSource,
 					.Phase = "source-repair", .Message = Error});
@@ -793,7 +1012,8 @@ namespace Durin
 				auto* Heightmap = Cast<DTerrainHeightmap>(&AssetObject);
 				std::string Error;
 				const bool bResult = Heightmap && Sources.size() == 1
-					&& Heightmap->ChangeSourceReference(Sources[0].Path, Error);
+					&& StandardAssetImport::ChangeTerrainHeightmapSourceReference(
+						*Heightmap, Sources[0].Path, Error);
 				if (!bResult) Diagnostics.push_back({
 					.Severity = EImportDiagnosticSeverity::Error,
 					.Category = EImportDiagnosticCategory::InvalidSource,
@@ -899,6 +1119,212 @@ namespace Durin
 		bool GRegistered = false;
 	}
 
+	namespace StandardAssetImport
+	{
+		auto InspectStaticMeshSource(
+			const DStaticMesh& Mesh) -> FStaticMeshSourceDiagnostic
+		{
+			const FStaticMeshSourceImportData& Source = Mesh.GetSourceImportData();
+			if (!Source.HasSource()) return {};
+			std::filesystem::path PhysicalPath;
+			std::string Error;
+			if (!ResolvePortableStaticMeshSource(Mesh, PhysicalPath, Error))
+				return {EStaticMeshSourceStatus::Invalid, {}, std::move(Error)};
+			if (!std::filesystem::is_regular_file(PhysicalPath))
+			{
+				return {
+					EStaticMeshSourceStatus::Missing,
+					PhysicalPath.generic_string(),
+					std::format(
+						"Static mesh source is missing: {}. Use source-path repair to select its replacement.",
+						Source.SourcePath.Path)};
+			}
+			std::string CurrentHash;
+			if (!HashStaticMeshSource(PhysicalPath, CurrentHash, Error))
+				return {
+					EStaticMeshSourceStatus::Invalid,
+					PhysicalPath.generic_string(),
+					std::move(Error)};
+			if (!Source.SourceContentHash.empty()
+				&& CurrentHash != Source.SourceContentHash)
+			{
+				return {
+					EStaticMeshSourceStatus::Changed,
+					PhysicalPath.generic_string(),
+					"The mounted static-mesh source bytes changed since this asset was last imported."};
+			}
+			return {EStaticMeshSourceStatus::Available, PhysicalPath.generic_string(), {}};
+		}
+
+		auto ChangeStaticMeshSourceReference(
+			DStaticMesh& Mesh,
+			std::string_view SourceVirtualPath,
+			std::string& OutError) -> bool
+		{
+			if (!Mesh.GetPackage())
+			{
+				OutError = "Only packaged static meshes can retain source provenance.";
+				return false;
+			}
+			FMountedSourceFile Source;
+			if (!ResolveMountedSourceReference(
+				Mesh.GetPackage()->GetPackagePath(), SourceVirtualPath, Source, OutError))
+				return false;
+			std::string SourceHash;
+			if (!HashStaticMeshSource(Source.PhysicalPath, SourceHash, OutError)) return false;
+
+			FStaticMeshSourceImportData NewSource = {
+				.SourcePath = std::move(Source.SourcePath),
+				.SourceContentHash = std::move(SourceHash),
+				.ImporterId = std::string(StaticMeshImporterId),
+				.ImporterVersion = StaticMeshAssimpImporterVersion,
+				.ImportSettings = Mesh.GetImportSettings()};
+			FStaticMeshAuthoringProduct Product;
+			return BuildStaticMeshFileProduct(
+					Mesh, Source.PhysicalPath.generic_string(), std::move(NewSource),
+					Source.PhysicalPath.generic_string(), Product, OutError)
+				&& Mesh.PublishImportedProduct(std::move(Product), OutError);
+		}
+
+		auto IngestAndChangeStaticMeshSource(
+			DStaticMesh& Mesh,
+			std::string_view FilePath,
+			std::string_view TargetSourceVirtualPath,
+			std::string& OutError) -> bool
+		{
+			if (!Mesh.GetPackage())
+			{
+				OutError = "Only packaged static meshes can retain source provenance.";
+				return false;
+			}
+			FMountedSourceFile Source;
+			if (!PrepareMountedSourceFile(
+				FilePath, Mesh.GetPackage()->GetPackagePath(),
+				TargetSourceVirtualPath, Source, OutError)) return false;
+			const bool bChanged = ChangeStaticMeshSourceReference(
+				Mesh, Source.SourcePath.Path, OutError);
+			if (bChanged)
+				CommitMountedSourceFile(Source);
+			else
+				RollbackMountedSourceFile(Source);
+			return bChanged;
+		}
+
+		auto CreateTransientStaticMeshFromFile(
+			std::string_view FilePath,
+			DObject* Outer,
+			std::string_view ObjectName,
+			std::string& OutError,
+			const FStaticMeshImportSettings& ImportSettings) -> DStaticMesh*
+		{
+			const std::filesystem::path Input =
+				std::filesystem::absolute(FilePath).lexically_normal();
+			if (!std::filesystem::is_regular_file(Input))
+			{
+				OutError = std::format(
+					"Static mesh source file does not exist: {}", Input.generic_string());
+				return nullptr;
+			}
+			if (!ImportSettings.IsValid(&OutError)) return nullptr;
+
+			DStaticMesh* Mesh = NewObject<DStaticMesh>(Outer, ObjectName);
+			std::string SourceHash;
+			FStaticMeshAuthoringProduct Product;
+			if (HashStaticMeshSource(Input, SourceHash, OutError)
+				&& BuildStaticMeshFileProduct(
+					*Mesh, Input.generic_string(),
+					{
+						.SourcePath = {.Path = Input.generic_string()},
+						.SourceContentHash = std::move(SourceHash),
+						.ImporterId = std::string(StaticMeshImporterId),
+						.ImporterVersion = StaticMeshAssimpImporterVersion,
+						.ImportSettings = ImportSettings},
+					Input.generic_string(), Product, OutError)
+				&& Mesh->PublishImportedProduct(std::move(Product), OutError)) return Mesh;
+			MarkAsGarbage(Mesh);
+			return nullptr;
+		}
+
+		auto ImportStaticMeshAsset(
+			std::string_view FilePath,
+			std::string_view AssetPath,
+			const FStaticMeshImportSettings& ImportSettings,
+			std::string_view SourceDestination,
+			bool bEngineAuthoringContext) -> FStaticMeshImportResult
+		{
+			const std::filesystem::path Input =
+				std::filesystem::absolute(FilePath).lexically_normal();
+			if (!std::filesystem::is_regular_file(Input))
+				return {false, "Source file does not exist.", nullptr};
+			std::string Error;
+			if (!ImportSettings.IsValid(&Error)) return {false, std::move(Error), nullptr};
+
+			FAssetPath ParsedAssetPath;
+			if (!FAssetPath::TryCreate(AssetPath, ParsedAssetPath, &Error))
+				return {false, std::move(Error), nullptr};
+			if (Asset::GetAssetRegistry().FindAssetExact(ParsedAssetPath)
+				|| Asset::FindLoadedPackage(ParsedAssetPath))
+				return {
+					false,
+					std::format("Asset {} already exists.", ParsedAssetPath.ToString()),
+					nullptr};
+
+			std::filesystem::path Destination;
+			std::string StoredSourcePath;
+			if (!MakeCanonicalStaticMeshSourceLocation(
+				ParsedAssetPath, Input.extension().generic_string(), SourceDestination,
+				Destination, StoredSourcePath, Error))
+				return {false, std::move(Error), nullptr};
+			FMountedSourceFile MountedSource;
+			if (!PrepareMountedSourceFile(
+				Input, ParsedAssetPath.ToString(), StoredSourcePath, MountedSource, Error,
+				bEngineAuthoringContext))
+				return {false, std::move(Error), nullptr};
+			Destination = MountedSource.PhysicalPath;
+			StoredSourcePath = MountedSource.SourcePath.Path;
+			std::string SourceHash;
+			if (!HashStaticMeshSource(Destination, SourceHash, Error))
+			{
+				RollbackMountedSourceFile(MountedSource);
+				return {false, std::move(Error), nullptr};
+			}
+
+			DStaticMesh* Mesh = nullptr;
+			const Asset::FAssetResult CreateResult = Asset::CreateAsset(ParsedAssetPath, Mesh);
+			if (!CreateResult)
+			{
+				RollbackMountedSourceFile(MountedSource);
+				return {false, CreateResult.Message, nullptr};
+			}
+			FStaticMeshAuthoringProduct Product;
+			if (!BuildStaticMeshFileProduct(
+					*Mesh, Destination.generic_string(),
+					{
+						.SourcePath = {.Path = StoredSourcePath},
+						.SourceContentHash = std::move(SourceHash),
+						.ImporterId = std::string(StaticMeshImporterId),
+						.ImporterVersion = StaticMeshAssimpImporterVersion,
+						.ImportSettings = ImportSettings},
+					Destination.generic_string(), Product, Error)
+				|| !Mesh->PublishImportedProduct(std::move(Product), Error))
+			{
+				RollbackMountedSourceFile(MountedSource);
+				Asset::UnloadPackage(ParsedAssetPath);
+				return {false, std::move(Error), nullptr};
+			}
+
+			const Asset::FAssetResult SaveResult = Asset::SavePackage(Mesh->GetPackage());
+			if (!SaveResult)
+			{
+				RollbackMountedSourceFile(MountedSource);
+				Asset::UnloadPackage(ParsedAssetPath);
+				return {false, SaveResult.Message, nullptr};
+			}
+			CommitMountedSourceFile(MountedSource);
+			return {true, {}, Mesh};
+		}
+	}
+
 	auto RegisterStandardAssetImportProviders(std::string& OutError) -> bool
 	{
 		std::lock_guard Lock(GRegistrationMutex);
@@ -906,13 +1332,16 @@ namespace Durin
 		AssetImport::OpenAsyncImportProviderAdmission(SceneImportProviderId);
 		AssetImport::OpenAsyncImportProviderAdmission("Assimp");
 		AssetImport::OpenAsyncImportProviderAdmission("DurinImage");
-		if (!GStaticMeshSourceDecoderRegistered)
+		if (!GStaticMeshAuthoringRegistered)
 		{
-			GStaticMeshSourceDecoderRegistered =
-				RegisterStaticMeshSourceDecoder(&DecodeStaticMeshSource);
-			if (!GStaticMeshSourceDecoderRegistered)
+			GStaticMeshAuthoringRegistered = RegisterStaticMeshAuthoringHandlers({
+				.BuildFileProduct = &BuildStaticMeshFileProduct,
+				.PostLoadUncooked = &PostLoadStaticMesh,
+				.ChangeSourceReference =
+					&StandardAssetImport::ChangeStaticMeshSourceReference});
+			if (!GStaticMeshAuthoringRegistered)
 			{
-				OutError = "Another StaticMesh source decoder is already registered.";
+				OutError = "Another StaticMesh authoring handler is already registered.";
 				return false;
 			}
 		}
@@ -978,6 +1407,14 @@ namespace Durin
 			OutError = "Failed to register Texture2D source relocation policy.";
 			return false;
 		}
+		if (!StandardAssetImport::RegisterStage3PostLoadPolicies())
+		{
+			StandardAssetImport::UnregisterTexture2DSourceRelocation();
+			StandardAssetImport::UnregisterTexture2DPropertyEditing();
+			StandardAssetImport::UnregisterTexture2DPostLoadPolicy();
+			OutError = "Failed to register TextureCube/Terrain uncooked load policies.";
+			return false;
+		}
 		GRegistered = true;
 		OutError.clear();
 		return true;
@@ -987,6 +1424,7 @@ namespace Durin
 	{
 		std::lock_guard Lock(GRegistrationMutex);
 		if (!GRegistered) return;
+		StandardAssetImport::UnregisterStage3PostLoadPolicies();
 		StandardAssetImport::UnregisterTexture2DSourceRelocation();
 		StandardAssetImport::UnregisterTexture2DPropertyEditing();
 		StandardAssetImport::UnregisterTexture2DPostLoadPolicy();
@@ -1007,8 +1445,8 @@ namespace Durin
 			&& Providers.GetOutstandingLeaseCount("Assimp") == 0
 			&& Providers.GetOutstandingLeaseCount(SceneImportProviderId) == 0,
 			"StandardAssetImport cannot unload while import plans, candidates, or results retain provider leases.");
-		UnregisterStaticMeshSourceDecoder(&DecodeStaticMeshSource);
-		GStaticMeshSourceDecoderRegistered = false;
+		UnregisterStaticMeshAuthoringHandlers();
+		GStaticMeshAuthoringRegistered = false;
 		GRegistered = false;
 	}
 }

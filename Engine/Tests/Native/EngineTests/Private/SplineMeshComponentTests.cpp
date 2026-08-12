@@ -16,6 +16,7 @@
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StandardAssetImportProviders.h"
+#include "StaticMeshSourceTranslation.h"
 
 #include <gtest/gtest.h>
 #include <chrono>
@@ -278,7 +279,7 @@ TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsD
 	std::string ProviderError;
 	ASSERT_TRUE(RegisterStandardAssetImportProviders(ProviderError)) << ProviderError;
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "Triangle.obj";
-	FStaticMeshImportResult MeshImport = DStaticMesh::ImportAsset(
+	FStaticMeshImportResult MeshImport = StandardAssetImport::ImportStaticMeshAsset(
 		Source.generic_string(), "/SplineMeshComponentTests/SourceMesh");
 	ASSERT_TRUE(MeshImport) << MeshImport.Message;
 	ASSERT_TRUE(Asset::CreateAsset(Path, Level));

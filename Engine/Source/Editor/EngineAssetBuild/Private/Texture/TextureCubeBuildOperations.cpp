@@ -43,7 +43,7 @@ namespace Durin::AssetBuild
 				if (Face.Width != Reference.Width || Face.Height != Reference.Height
 					|| Face.SourceChannelCount != Reference.SourceChannelCount)
 				{
-					OutError = std::format("{} face source layout does not match PositiveX.",
+					OutError = std::format("{} face source layout must be identical to PositiveX.",
 						FaceNames[Index]);
 					return false;
 				}
@@ -160,6 +160,89 @@ namespace Durin::AssetBuild
 			Panorama.Height, SourceHash, SourcePath, Settings, OutError);
 	}
 
+	auto MakeTextureCubeDerivedDataKey(
+		const DTextureCube& Texture,
+		std::string& OutError) -> std::string
+	{
+		const FTextureCubeSourceImportData& Source = Texture.GetSourceImportData();
+		if (!Source.HasSource())
+		{
+			OutError = "TextureCube has no persisted source identity.";
+			return {};
+		}
+		FTextureCubeBuildKeyInput Input{
+			.SourceLayout = Source.SourceLayout == ETextureCubeSourceLayout::SixFaces
+				? ETextureCubeBuildSourceLayout::SixFaces
+				: ETextureCubeBuildSourceLayout::EquirectangularPanorama,
+			.FaceDimension = Texture.GetPanoramaFaceDimension(),
+			.ExposureEV = Texture.GetPanoramaExposureEV(),
+			.bSRGB = Texture.IsSRGB(),
+			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
+			.TargetProfile = Asset::ECookTargetProfile::Game};
+		if (Source.SourceLayout == ETextureCubeSourceLayout::SixFaces)
+		{
+			for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
+			{
+				const FTextureSourceFile& Face =
+					Source.GetFace(static_cast<ETextureCubeFace>(Index));
+				if (!Face.HasSource() || !Face.HasContentHash())
+				{
+					OutError = "TextureCube face source provenance is incomplete.";
+					return {};
+				}
+				Input.FaceContentHashes[Index] = {
+					.HashLow = Face.SourceContentHashLow,
+					.HashHigh = Face.SourceContentHashHigh};
+			}
+		}
+		else
+		{
+			if (!Source.Panorama.HasSource() || !Source.Panorama.HasContentHash())
+			{
+				OutError = "TextureCube panorama source provenance is incomplete.";
+				return {};
+			}
+			Input.PanoramaContentHash = {
+				.HashLow = Source.Panorama.SourceContentHashLow,
+				.HashHigh = Source.Panorama.SourceContentHashHigh};
+		}
+		return BuildTextureCubeDerivedDataKey(Input, OutError);
+	}
+
+	auto LoadTextureCubeDerivedData(
+		std::string_view Key,
+		std::unique_ptr<FTextureCubePlatformData>& OutPlatformData,
+		ETextureDerivedDataStatus& OutStatus,
+		std::string& OutMessage) -> bool
+	{
+		std::vector<uint8> Bytes;
+		const Asset::FDerivedDataObjectReadResult Read = Asset::FDerivedDataObjectStore(
+			"TextureCube/Objects", MaximumTexturePayloadBytes).Read(Key, Bytes);
+		if (!Read)
+		{
+			OutStatus = Read.Status == Asset::EDerivedDataObjectReadStatus::Missing
+				? ETextureDerivedDataStatus::Missing : ETextureDerivedDataStatus::Corrupt;
+			OutMessage = Read.Message;
+			return false;
+		}
+		auto Candidate = std::make_unique<FTextureCubePlatformData>();
+		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::DerivedDataPayload);
+		Candidate->Serialize(Ar, {
+			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
+			.TargetProfile = Asset::ECookTargetProfile::Game});
+		if (Ar.HasError())
+		{
+			OutStatus = Ar.GetFailure()->Code == EArchiveFailureCode::UnsupportedVersion
+				? ETextureDerivedDataStatus::Incompatible : ETextureDerivedDataStatus::Corrupt;
+			OutMessage = Ar.GetFailure()->Message;
+			return false;
+		}
+		OutPlatformData = std::move(Candidate);
+		OutStatus = ETextureDerivedDataStatus::Hit;
+		OutMessage.clear();
+		return true;
+	}
+
 	auto BuildTextureCubePanorama(
 		DTextureCube& Texture,
 		Asset::FDecodedFloatImage Panorama,
@@ -174,46 +257,6 @@ namespace Durin::AssetBuild
 			return false;
 		return PublishPanoramaProduct(Texture, std::move(SourceData), Panorama.Width,
 			Panorama.Height, SourceHash, SourcePath, Settings, OutError);
-	}
-
-	auto BuildTextureCubePanoramaFromEncodedBytes(
-		DTextureCube& Texture,
-		std::span<const uint8> EncodedBytes,
-		std::string_view ExtensionHint,
-		const FSourcePath& SourcePath,
-		const FTextureCubePanoramaImportSettings& Settings,
-		std::string& OutError) -> bool
-	{
-		if (EncodedBytes.empty() || SourcePath.IsEmpty())
-		{
-			OutError = "Panorama candidate requires captured bytes and mounted provenance.";
-			return false;
-		}
-		const FXxHash128 Hash = FXxHash128::HashBuffer(EncodedBytes);
-		std::string Extension(ExtensionHint);
-		std::ranges::transform(Extension, Extension.begin(), [](unsigned char Character) {
-			return static_cast<char>(std::tolower(Character));
-		});
-		if (Asset::IsRadianceHDRExtension(Extension))
-		{
-			Asset::FDecodedFloatImage Panorama;
-			Asset::FRadianceHDRDecodeLimits Limits;
-			Limits.MaximumDecodedPixels = TextureCubeBuilder::MaximumPanoramaPixels;
-			if (!Asset::DecodeRadianceHDRFromMemory(EncodedBytes, Panorama, OutError, Limits)
-				) return false;
-			return BuildTextureCubePanorama(
-				Texture, std::move(Panorama), Hash, SourcePath, Settings, OutError);
-		}
-		else
-		{
-			Asset::FDecodedImage Panorama;
-			Asset::FImageDecodeLimits Limits;
-			Limits.MaximumDecodedPixels = TextureCubeBuilder::MaximumPanoramaPixels;
-			if (!Asset::DecodeImageFromMemory(EncodedBytes, Panorama, OutError, Limits)
-				) return false;
-			return BuildTextureCubePanorama(
-				Texture, std::move(Panorama), Hash, SourcePath, Settings, OutError);
-		}
 	}
 
 	auto BuildTextureCubeFaces(
@@ -257,28 +300,4 @@ namespace Durin::AssetBuild
 		return true;
 	}
 
-	auto BuildTextureCubeFacesFromEncodedBytes(
-		DTextureCube& Texture,
-		const std::array<std::span<const uint8>, TextureCubeFaceCount>& EncodedFaces,
-		const std::array<FSourcePath, TextureCubeFaceCount>& SourcePaths,
-		const FTextureCubeImportSettings& Settings,
-		std::string& OutError) -> bool
-	{
-		auto SourceData = std::make_unique<FTextureCubeSourceData>();
-		std::array<FXxHash128, TextureCubeFaceCount> Hashes;
-		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
-		{
-			if (EncodedFaces[Index].empty() || SourcePaths[Index].IsEmpty()
-				|| !TextureBuilder::DecodeRGBA8(
-					EncodedFaces[Index], SourceData->Faces[Index], OutError))
-			{
-				if (OutError.empty())
-					OutError = std::format("{} face source is invalid.", FaceNames[Index]);
-				return false;
-			}
-			Hashes[Index] = FXxHash128::HashBuffer(EncodedFaces[Index]);
-		}
-		return BuildTextureCubeFaces(
-			Texture, std::move(*SourceData), Hashes, SourcePaths, Settings, OutError);
-	}
 }

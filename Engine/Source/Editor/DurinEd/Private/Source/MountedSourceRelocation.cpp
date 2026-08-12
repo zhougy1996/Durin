@@ -6,8 +6,10 @@
 #include "Misc/Paths.h"
 #include "Source/SourcePath.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshAuthoring.h"
 #include "Texture/TextureCube.h"
 #include "Terrain/TerrainHeightmap.h"
+#include "Terrain/TerrainHeightmapPostLoad.h"
 
 namespace Durin::Editor
 {
@@ -66,7 +68,14 @@ namespace Durin::Editor
 					return *Result;
 			}
 			if (DStaticMesh* Mesh = Cast<DStaticMesh>(Asset))
-				return Mesh->ChangeSourceReference(To, OutError);
+			{
+				if (Mesh->GetSourceFile() != From)
+				{
+					OutError = "StaticMesh no longer references the source being relocated.";
+					return false;
+				}
+				return InvokeStaticMeshSourceChangeHandler(*Mesh, To, OutError);
+			}
 			if (DTerrainHeightmap* Heightmap = Cast<DTerrainHeightmap>(Asset))
 			{
 				if (Heightmap->GetSourceFile() != From)
@@ -74,7 +83,7 @@ namespace Durin::Editor
 					OutError = "Terrain heightmap no longer references the source being relocated.";
 					return false;
 				}
-				return Heightmap->ChangeSourceReference(To, OutError);
+				return InvokeTerrainHeightmapSourceChangeHandler(*Heightmap, To, OutError);
 			}
 			if (DTextureCube* Cube = Cast<DTextureCube>(Asset))
 			{

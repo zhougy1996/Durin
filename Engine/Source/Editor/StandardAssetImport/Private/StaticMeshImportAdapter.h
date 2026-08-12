@@ -1,14 +1,15 @@
 #pragma once
 
 #include "ImportedScene.h"
-#include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshBuildOperations.h"
 
 namespace Durin
 {
 	inline auto MakeStaticMeshImportedData(
-		const Asset::FImportedSceneData& Scene) -> FStaticMeshImportedData
+		const Asset::FImportedSceneData& Scene)
+		-> AssetBuild::FStaticMeshImportedData
 	{
-		FStaticMeshImportedData Result;
+		AssetBuild::FStaticMeshImportedData Result;
 		Result.MaterialSlots.reserve(Scene.MaterialSlots.size());
 		for (const Asset::FImportedMaterialSlot& Slot : Scene.MaterialSlots)
 		{
@@ -20,12 +21,13 @@ namespace Durin
 		Result.Meshes.reserve(Scene.Meshes.size());
 		for (const Asset::FImportedMeshData& Mesh : Scene.Meshes)
 		{
-			FStaticMeshImportedMesh& Output = Result.Meshes.emplace_back();
+			AssetBuild::FStaticMeshImportedMesh& Output = Result.Meshes.emplace_back();
 			Output.Name = Mesh.Name;
 			Output.Positions.assign(Mesh.Positions.begin(), Mesh.Positions.end());
 			Output.Normals.assign(Mesh.Normals.begin(), Mesh.Normals.end());
 			Output.Tangents.assign(Mesh.Tangents.begin(), Mesh.Tangents.end());
-			for (uint32 Channel = 0; Channel < MaximumStaticMeshImportedUVChannels;
+			for (uint32 Channel = 0;
+				Channel < AssetBuild::MaximumStaticMeshImportedUVChannels;
 				++Channel)
 			{
 				Output.UVChannels[Channel].assign(

@@ -26,32 +26,4 @@ namespace Durin
 	inline const FGuid TerrainHeightmapPrimaryCookedPayloadId{
 		0x7d0d1524, 0x69ba42a9, 0x91f70da3, 0x47bc2861};
 
-	struct FTerrainHeightmapDerivedDataKeyInput
-	{
-		FXxHash128 SourceContentHash;
-		uint32 BuilderVersion = TerrainHeightmapBuilderVersion;
-		uint32 PayloadSchemaVersion = TerrainHeightmapPayloadSchemaVersion;
-		Asset::ECookTargetPlatform TargetPlatform = Asset::ECookTargetPlatform::Invalid;
-		Asset::ECookTargetProfile TargetProfile = Asset::ECookTargetProfile::Invalid;
-	};
-
-	ENGINE_API auto BuildTerrainHeightmapDerivedDataKeyBytes(
-		const FTerrainHeightmapDerivedDataKeyInput& Input,
-		std::vector<uint8>& OutBytes,
-		std::string& OutError) -> bool;
-	ENGINE_API auto BuildTerrainHeightmapDerivedDataKey(
-		const FTerrainHeightmapDerivedDataKeyInput& Input,
-		std::string& OutKey,
-		std::string& OutError) -> bool;
-	ENGINE_API auto EncodeTerrainHeightmapPayload(
-		const FTerrainHeightmapPayload& Payload,
-		Asset::ECookTargetPlatform TargetPlatform,
-		Asset::ECookTargetProfile TargetProfile,
-		std::vector<uint8>& OutBytes,
-		std::string& OutError) -> bool;
-	ENGINE_API auto DecodeTerrainHeightmapPayload(
-		std::span<const uint8> Bytes,
-		Asset::ECookTargetPlatform ExpectedPlatform,
-		Asset::ECookTargetProfile ExpectedProfile,
-		std::shared_ptr<const FTerrainHeightmapPayload>& OutPayload) -> FPayloadDecodeResult;
 }

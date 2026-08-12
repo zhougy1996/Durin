@@ -5,58 +5,14 @@ Summary: Standardize authored assets, build keys, DDC values, and cooked data on
 Last reviewed: 2026-08-13
 
 Status: Active
-Completed:
+Completed: Stages 0-4
 
 ## Current Status
 
-This plan supersedes the previous stage decomposition in this file. The former
-design assigned payload writers to `EngineAssetBuild` while retaining payload
-readers in Runtime `Engine`. That direction is rejected: a stable binary format
-has one semantic owner, and its save, load, validation, version negotiation,
-limits, stable identifiers, alignment, and checksum rules must evolve together.
-This revision also rejects direction-named `Encode*` and `Decode*` functions as
-the final serialization API. Authored assets, runtime/platform values, build-key
-inputs, DDC values, cooked descriptors, and cooked bulk data all participate in
-one `Serialize(FArchive&)` protocol owned by the type whose state is serialized.
-
-Work completed before this rewrite remains useful and is not reverted merely to
-restart the plan:
-
-- The authoring-only `EngineAssetBuild` module exists, is selected by editor
-  profiles, and is excluded from the `DurinGame` dependency closure.
-- Active Texture2D candidate builds use an independently exported texture
-  builder for mip generation, format selection, BC compression, metrics, and
-  cancellation.
-- TextureCube panorama projection and candidate build paths, plus the first
-  TerrainHeightmap authoring operations, have entered `EngineAssetBuild`.
-- `StandardAssetImport` and editor import entry points explicitly reach the new
-  module for those migrated paths.
-- Stage-zero golden DDC keys, payload hashes, corrupt-input behavior, cooked
-  loads, transaction preservation, coordinator behavior, and dependency
-  baselines exist for the affected asset families.
-
-The current repository is nevertheless an intentional migration state, not an
-acceptable boundary:
-
-- Texture TXPL encoding and key construction are duplicated between Runtime
-  `Engine` and `EngineAssetBuild`.
-- The build module accepts encoded PNG/HDR-style bytes and mutable `DObject`
-  assets in several public operations, so source translation, pure build work,
-  and publication are not separated.
-- Runtime asset self-build paths and the Texture2D coordinator still require
-  the old Engine builder implementation and keep `bc7enc_rdo` linked by both
-  Engine and `EngineAssetBuild` in editor configurations.
-- StaticMesh still relies on Runtime decoder registration and broad asset-owned
-  build behavior; skeletal, animation, and terrain key/build/serialization
-  boundaries have not been normalized.
-- The current `FArchive` abstraction has the right bidirectional direction and
-  structured failure model, but its primitive memory archives use native byte
-  representation and lack the bounded, canonical binary facilities needed to
-  replace the asset-specific wire readers and writers safely.
-
-No further writer-only extraction or new direction-named payload API is allowed.
-The next implementation work is the archive foundation and a complete
-Texture2D vertical slice.
+Stages 0-4 are complete. Canonical archive support and the Texture2D,
+TextureCube, TerrainHeightmap, and StaticMesh vertical slices now follow the
+type-owned serialization, normalized translation, detached Build product, and
+narrow publication model. Stage 5 is the next implementation boundary.
 
 ## Goal
 
@@ -676,33 +632,30 @@ import/reimport, coordinator, cancellation, rollback and compatibility) and
 
 Dependencies: completed Texture2D pattern and no unresolved archive defect.
 
-- [ ] Apply the Texture2D value-Serialize/build-key split to TextureCube while
+- [x] Apply the Texture2D value-Serialize/build-key split to TextureCube while
   sharing only genuinely common Texture serialized structures and limits.
-- [ ] Move LDR/HDR and six-face source translation fully to
+- [x] Move LDR/HDR and six-face source translation fully to
   `StandardAssetImport`; pass normalized owned face/panorama values to Build.
-- [ ] Keep projection, exposure policy, mip generation, format selection and
+- [x] Keep projection, exposure policy, mip generation, format selection and
   compression in Build; keep TextureCube asset/platform `Serialize` in Engine
   and key-input `Serialize` in Build.
-- [ ] Remove the duplicate TextureCube writer, legacy Engine builder, broad
+- [x] Remove the duplicate TextureCube writer, legacy Engine builder, broad
   encoded-source operations, and obsolete publication forwarding.
-- [ ] Introduce a normalized height-sample Terrain request/product, move concrete
+- [x] Introduce a normalized height-sample Terrain request/product, move concrete
   image interpretation to StandardAssetImport, and retain hierarchy/build/key/
   DDC policy in Build.
-- [ ] Make the Terrain runtime payload value own one `Serialize(FArchive&)` for
+- [x] Make the Terrain runtime payload value own one `Serialize(FArchive&)` for
   THPL DDC/Cooked directions and make the Terrain key input own its canonical
   Build `Serialize`; retain runtime query/publication behavior in Engine.
-- [ ] Remove Terrain asset self-build/source decode/key/write logic after direct
+- [x] Remove Terrain asset self-build/source decode/key/write logic after direct
   import, reimport, repair, Cook and editor callers use the new operations.
 
-Stage 3 progress (2026-08-13): Engine platform/payload values now expose owning
-TextureCube TXPL and Terrain THPL `Serialize` operations. EngineAssetBuild owns
-new canonical TextureCube and Terrain key serializers plus a normalized
-height-sample request/product/publication path. StandardAssetImport now decodes
-single-asset TextureCube and Terrain reimport snapshots before invoking Build.
-The remaining unchecked work is intentional: legacy Runtime import/post-load,
-repair and Cook paths still own duplicate keys, payload adapters and source
-decoding, and the direct creation dialogs still use transitional Build import
-wrappers.
+Stage 3 completed (2026-08-13): TextureCube/Terrain values own TXPL/THPL
+`Serialize`; Build owns their canonical keys, DDC and normalized recipes;
+StandardAssetImport owns concrete LDR/HDR/PNG translation, uncooked load and
+source repair. Runtime legacy builders, encoded Build APIs, duplicate key/value
+entry points and the Engine BC link are deleted. Existing Engine-facing
+authoring calls are policy dispatch only and contain no source/build logic.
 
 #### Acceptance Gate
 
@@ -718,24 +671,36 @@ wrappers.
 Dependencies: established vertical-slice pattern and archive/container support
 qualified against chunked mesh payloads.
 
-- [ ] Define Build-owned normalized StaticMesh and collision requests that
+- [x] Define Build-owned normalized StaticMesh and collision requests that
   contain no provider objects, source-format assumptions, or mutable asset.
-- [ ] Make StandardAssetImport Assimp/glTF/FBX translators produce those values
+- [x] Make StandardAssetImport Assimp/glTF/FBX translators produce those values
   for single-asset and Scene workflows.
-- [ ] Move render-data conversion, collision building, build keys, DDC policy,
+- [x] Move render-data conversion, collision building, build keys, DDC policy,
   rebuild decisions, metrics and diagnostics to EngineAssetBuild.
-- [ ] Make StaticMesh render/collision data, chunk directories, and records own
+- [x] Make StaticMesh render/collision data, chunk directories, and records own
   Engine-resident `Serialize(FArchive&, Owner/Context)` operations for DMSH/DCOL
   DDC and Cooked layouts, bounds, and checksums; make Build key inputs own their
   canonical `Serialize`.
-- [ ] Preserve material reconciliation, reflected provenance/settings,
+- [x] Preserve material reconciliation, reflected provenance/settings,
   body-setup ownership, cooked descriptors, runtime collision/render values and
   imported-state exchange in Engine.
-- [ ] Replace broad `InitializeFromImportedData`, source inspection/repair and
+- [x] Replace broad `InitializeFromImportedData`, source inspection/repair and
   self-build entry points with detached products and narrow publication seams.
-- [ ] Migrate every named consumer, then remove
+- [x] Migrate every named consumer, then remove
   `RegisterStaticMeshSourceDecoder`, its global state, complete Runtime imported
   intermediates, and compatibility forwarding.
+
+Stage 4 completed (2026-08-13): Runtime DMSH/DCOL values own transactional
+archive entry points while Build owns normalized imported values, key inputs,
+render/collision recipes, DDC policy and detached products. StandardAssetImport
+owns concrete source translation, inspection, relocation and import policy.
+Runtime decoder state, complete imported intermediates, asset self-build/source
+operations, direction-named payload wrappers and duplicate key/recipe paths are
+deleted; Engine retains runtime values and narrow publication/capability seams.
+
+Acceptance is covered by `StaticMeshTests`, `SceneImportTests`, `TextureTests`
+(single-asset provider coverage), `MaterialTests`, `ViewportTests`,
+`PhysicsSceneTests`, `SplineTests`, and `StaticMeshThumbnailTests`.
 
 #### Acceptance Gate
 

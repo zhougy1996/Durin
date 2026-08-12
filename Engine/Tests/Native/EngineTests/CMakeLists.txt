@@ -499,13 +499,13 @@ durin_add_engine_functional_test(TerrainHeightmapTests
 durin_add_engine_functional_test(TerrainHeightmapCookTests
 	KIND integration
 	DOMAINS asset-cook terrain
-	MODULES engine engine-asset-build
+	MODULES engine engine-asset-build standard-asset-import
 	STACKS editor
 	EDITOR_ONLY
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises source-free cooked heightmap package loading."
 	SOURCES Private/Terrain/TerrainHeightmapCookTests.cpp
-	LIBRARIES EngineAssetBuild
+	LIBRARIES EngineAssetBuild StandardAssetImport
 )
 
 durin_add_engine_functional_test(TerrainRenderPrimitiveTests
@@ -803,11 +803,12 @@ endif()
 durin_add_engine_functional_test(PhysicsSceneTests
 	KIND feature
 	DOMAINS physics
-	MODULES aether engine
+	MODULES aether engine engine-asset-build
+	STACKS editor
 	SOURCES
 		Private/Physics/PhysicsSceneTests.cpp
 		Private/Physics/PhysicsQueryObservabilityTests.cpp
-	LIBRARIES AetherCore Aether
+	LIBRARIES AetherCore Aether EngineAssetBuild
 )
 
 durin_add_engine_functional_test(PhysicsQualificationTests

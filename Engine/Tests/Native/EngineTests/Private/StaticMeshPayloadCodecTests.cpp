@@ -7,6 +7,7 @@
 #include "Misc/Paths.h"
 #include "RHI.h"
 #include "RenderingThread.h"
+#include "Serialization/Archive.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 
 namespace
@@ -143,11 +144,42 @@ namespace
 		return Payload;
 	}
 
+	auto EncodePayload(
+		const FStaticMeshPayloadData& Payload,
+		EStaticMeshTargetPlatform Platform,
+		std::vector<uint8>& OutBytes,
+		std::string& OutError) -> bool
+	{
+		std::vector<uint8> Candidate;
+		FCanonicalMemoryWriter Ar(Candidate, EArchivePurpose::DerivedDataPayload);
+		const_cast<FStaticMeshPayloadData&>(Payload).Serialize(Ar, Platform);
+		OutError = Ar.HasError() ? Ar.GetFailure()->Message : std::string{};
+		if (Ar.HasError()) return false;
+		OutBytes = std::move(Candidate);
+		return true;
+	}
+
+	auto DecodePayload(
+		std::span<const uint8> Bytes,
+		EStaticMeshTargetPlatform Platform,
+		FStaticMeshPayloadData& OutPayload) -> FPayloadDecodeResult
+	{
+		FStaticMeshPayloadData Candidate;
+		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::DerivedDataPayload);
+		Candidate.Serialize(Ar, Platform);
+		if (Ar.HasError())
+			return {Ar.GetFailure()->Code == EArchiveFailureCode::UnsupportedVersion
+				? EPayloadDecodeError::Incompatible : EPayloadDecodeError::Corrupt,
+				Ar.GetFailure()->Message};
+		OutPayload = std::move(Candidate);
+		return {};
+	}
+
 	auto Encode(const FStaticMeshPayloadData& Payload) -> std::vector<uint8>
 	{
 		std::vector<uint8> Bytes;
 		std::string Error;
-		EXPECT_TRUE(EncodeStaticMeshPayload(Payload, EStaticMeshTargetPlatform::Win64, Bytes, Error)) << Error;
+		EXPECT_TRUE(EncodePayload(Payload, EStaticMeshTargetPlatform::Win64, Bytes, Error)) << Error;
 		return Bytes;
 	}
 
@@ -198,7 +230,7 @@ namespace
 		FStaticMeshPayloadData Sentinel = MakeMultiMaterialFixture();
 		const uint32 SentinelSlotCount = Sentinel.MaterialSlotCount;
 		const FPayloadDecodeResult Result =
-			DecodeStaticMeshPayload(Bytes, EStaticMeshTargetPlatform::Win64, Sentinel);
+			DecodePayload(Bytes, EStaticMeshTargetPlatform::Win64, Sentinel);
 		EXPECT_FALSE(Result);
 		if (ExpectedCode != EPayloadDecodeError::None)
 			EXPECT_EQ(Result.Code, ExpectedCode);
@@ -314,7 +346,7 @@ TEST(FStaticMeshPayloadCodecTests, CanonicalFixturesRoundTripDeterministically)
 		FStaticMeshPayloadData Decoded;
 		std::string Error;
 		const FPayloadDecodeResult DecodeResult =
-			DecodeStaticMeshPayload(First, EStaticMeshTargetPlatform::Win64, Decoded);
+			DecodePayload(First, EStaticMeshTargetPlatform::Win64, Decoded);
 		ASSERT_TRUE(DecodeResult) << DecodeResult.Message;
 		ExpectEquivalent(Decoded, Fixture);
 
@@ -337,7 +369,7 @@ TEST(FStaticMeshPayloadCodecTests,
 		EXPECT_EQ(First, Second);
 
 		FStaticMeshPayloadData Decoded;
-		const FPayloadDecodeResult Result = DecodeStaticMeshPayload(
+		const FPayloadDecodeResult Result = DecodePayload(
 			First, EStaticMeshTargetPlatform::Win64, Decoded);
 		ASSERT_TRUE(Result) << Result.Message;
 		ExpectEquivalent(Decoded, Fixture);
@@ -382,7 +414,7 @@ TEST(FStaticMeshPayloadCodecTests, SupportsMeshWithoutUVChannels)
 	FStaticMeshPayloadData Decoded;
 	std::string Error;
 	const FPayloadDecodeResult DecodeResult =
-		DecodeStaticMeshPayload(Bytes, EStaticMeshTargetPlatform::Win64, Decoded);
+		DecodePayload(Bytes, EStaticMeshTargetPlatform::Win64, Decoded);
 	ASSERT_TRUE(DecodeResult) << DecodeResult.Message;
 	ExpectEquivalent(Decoded, Fixture);
 
@@ -783,7 +815,7 @@ TEST(FStaticMeshPayloadCodecTests,
 	Invalid.LODs[0].ScreenSize = 1.25f;
 	std::vector<uint8> Sentinel{1, 2, 3};
 	std::string Error;
-	EXPECT_FALSE(EncodeStaticMeshPayload(
+	EXPECT_FALSE(EncodePayload(
 		Invalid, EStaticMeshTargetPlatform::Win64, Sentinel, Error));
 	EXPECT_EQ(Sentinel, (std::vector<uint8>{1, 2, 3}));
 }
@@ -794,7 +826,7 @@ TEST(FStaticMeshPayloadCodecTests, SkipsUnknownOptionalChunksAndRejectsUnknownRe
 	const std::vector<uint8> Optional = AddUnknownOptionalChunk(Valid, false);
 	FStaticMeshPayloadData Decoded;
 	const FPayloadDecodeResult DecodeResult =
-		DecodeStaticMeshPayload(Optional, EStaticMeshTargetPlatform::Win64, Decoded);
+		DecodePayload(Optional, EStaticMeshTargetPlatform::Win64, Decoded);
 	ASSERT_TRUE(DecodeResult) << DecodeResult.Message;
 	ExpectEquivalent(Decoded, MakeSingleSectionFixture());
 
@@ -808,9 +840,9 @@ TEST(FStaticMeshPayloadCodecTests, EncoderRejectsInvalidLogicalDataWithoutPublis
 	Invalid.LODs[0].Positions[0].x = std::numeric_limits<float>::quiet_NaN();
 	std::vector<uint8> Bytes{1, 2, 3};
 	std::string Error;
-	EXPECT_FALSE(EncodeStaticMeshPayload(Invalid, EStaticMeshTargetPlatform::Win64, Bytes, Error));
+	EXPECT_FALSE(EncodePayload(Invalid, EStaticMeshTargetPlatform::Win64, Bytes, Error));
 	EXPECT_EQ(Bytes, (std::vector<uint8>{1, 2, 3}));
 	EXPECT_FALSE(Error.empty());
-	EXPECT_FALSE(EncodeStaticMeshPayload(
+	EXPECT_FALSE(EncodePayload(
 		MakeSingleSectionFixture(), static_cast<EStaticMeshTargetPlatform>(2), Bytes, Error));
 }

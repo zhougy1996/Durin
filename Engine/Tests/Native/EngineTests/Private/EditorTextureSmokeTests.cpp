@@ -22,6 +22,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "StandardAssetImportProviders.h"
+#include "StaticMeshSourceTranslation.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
 #include "Texture2DSourceTranslation.h"
@@ -102,7 +103,7 @@ namespace Durin
 		ASSERT_TRUE(TextureImport) << TextureImport.Message;
 		const std::filesystem::path MeshSource =
 			std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-		const FStaticMeshImportResult MeshImport = DStaticMesh::ImportAsset(
+		const FStaticMeshImportResult MeshImport = StandardAssetImport::ImportStaticMeshAsset(
 			MeshSource.generic_string(), "/EditorMixedV4/Meshes/VisibleMesh");
 		ASSERT_TRUE(MeshImport) << MeshImport.Message;
 		FAssetPath MaterialPath;
@@ -279,7 +280,7 @@ namespace Durin
 		EXPECT_EQ(TextureImport.Asset->GetSourceData()->Pixels.size(), 8u);
 
 		const std::filesystem::path MeshSource = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-		const FStaticMeshImportResult MeshImport = DStaticMesh::ImportAsset(MeshSource.generic_string(), "/EditorTextureSmoke/Meshes/VisibleMesh");
+		const FStaticMeshImportResult MeshImport = StandardAssetImport::ImportStaticMeshAsset(MeshSource.generic_string(), "/EditorTextureSmoke/Meshes/VisibleMesh");
 		ASSERT_TRUE(MeshImport) << MeshImport.Message;
 		ASSERT_NE(MeshImport.Asset, nullptr);
 

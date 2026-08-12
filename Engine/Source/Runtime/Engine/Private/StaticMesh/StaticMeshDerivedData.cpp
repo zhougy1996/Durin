@@ -1,5 +1,7 @@
 #include "StaticMesh/StaticMeshDerivedData.h"
 
+#include "Serialization/Archive.h"
+
 #include "Misc/DerivedDataCache.h"
 
 namespace Durin
@@ -497,61 +499,7 @@ namespace Durin
 		}
 	}
 
-	auto BuildStaticMeshDerivedDataKeyBytes(
-		const FStaticMeshDerivedDataKeyInput& Input) -> std::vector<uint8>
-	{
-		DerivedDataCache::FWriter Writer;
-		Writer.WriteU32(StaticMeshDerivedDataKeySchemaVersion);
-		Writer.WriteU64(Input.SourceContentHash.HashLow);
-		Writer.WriteU64(Input.SourceContentHash.HashHigh);
-		Writer.WriteString(Input.ImporterId);
-		Writer.WriteU32(Input.ImporterVersion);
-		Writer.WriteU8(static_cast<uint8>(Input.ImportSettings.ForwardAxis));
-		Writer.WriteU8(static_cast<uint8>(Input.ImportSettings.RightAxis));
-		Writer.WriteU8(static_cast<uint8>(Input.ImportSettings.UpAxis));
-		Writer.WriteU32(Input.BuilderVersion);
-		Writer.WriteU32(Input.PayloadSchemaVersion);
-		Writer.WriteU32(static_cast<uint32>(Input.TargetPlatform));
-		return Writer.TakeBytes();
-	}
-
-	auto BuildStaticMeshDerivedDataKey(
-		const FStaticMeshDerivedDataKeyInput& Input) -> std::string
-	{
-		return FXxHash128::HashBuffer(BuildStaticMeshDerivedDataKeyBytes(Input)).ToString();
-	}
-
-	auto BuildStaticMeshCollisionDerivedDataKeyBytes(
-		const FStaticMeshCollisionDerivedDataKeyInput& Input) -> std::vector<uint8>
-	{
-		DerivedDataCache::FWriter Writer;
-		Writer.WriteU32(StaticMeshCollisionKeySchemaVersion);
-		Writer.WriteU64(Input.SourceContentHash.HashLow);
-		Writer.WriteU64(Input.SourceContentHash.HashHigh);
-		Writer.WriteU64(Input.GeometryHash.HashLow);
-		Writer.WriteU64(Input.GeometryHash.HashHigh);
-		Writer.WriteString(Input.ImporterId);
-		Writer.WriteU32(Input.ImporterVersion);
-		Writer.WriteU8(static_cast<uint8>(Input.ImportSettings.ForwardAxis));
-		Writer.WriteU8(static_cast<uint8>(Input.ImportSettings.RightAxis));
-		Writer.WriteU8(static_cast<uint8>(Input.ImportSettings.UpAxis));
-		Writer.WriteU8(static_cast<uint8>(Input.SourceMode));
-		Writer.WriteU8(static_cast<uint8>(Input.QueryPolicy));
-		Writer.WriteU32(Input.WeldToleranceBits);
-		Writer.WriteU32(Input.BuilderVersion);
-		Writer.WriteU32(Input.PayloadSchemaVersion);
-		Writer.WriteU32(static_cast<uint32>(Input.TargetPlatform));
-		return Writer.TakeBytes();
-	}
-
-	auto BuildStaticMeshCollisionDerivedDataKey(
-		const FStaticMeshCollisionDerivedDataKeyInput& Input) -> std::string
-	{
-		return FXxHash128::HashBuffer(
-			BuildStaticMeshCollisionDerivedDataKeyBytes(Input)).ToString();
-	}
-
-	auto EncodeStaticMeshPayload(
+	auto BuildStaticMeshSerializedValue(
 		const FStaticMeshPayloadData& Payload,
 		EStaticMeshTargetPlatform TargetPlatform,
 		std::vector<uint8>& OutBytes,
@@ -615,7 +563,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DecodeStaticMeshPayloadImpl(
+	auto ParseStaticMeshSerializedValueImpl(
 		std::span<const uint8> Bytes,
 		EStaticMeshTargetPlatform ExpectedPlatform,
 		FStaticMeshPayloadData& OutPayload,
@@ -765,13 +713,13 @@ namespace Durin
 		return true;
 	}
 
-	auto DecodeStaticMeshPayload(
+	auto ParseStaticMeshSerializedValue(
 		std::span<const uint8> Bytes,
 		EStaticMeshTargetPlatform ExpectedPlatform,
 		FStaticMeshPayloadData& OutPayload) -> FPayloadDecodeResult
 	{
 		FPayloadDecodeResult Result;
-		if (!DecodeStaticMeshPayloadImpl(
+		if (!ParseStaticMeshSerializedValueImpl(
 			Bytes, ExpectedPlatform, OutPayload, Result.Message, Result.Code))
 			return Result;
 		return {};
@@ -1018,7 +966,7 @@ namespace Durin
 		return true;
 	}
 
-	auto EncodeStaticMeshCollisionPayload(
+	auto BuildStaticMeshCollisionSerializedValue(
 		const FStaticMeshCollisionPayloadData& Payload,
 		EStaticMeshTargetPlatform TargetPlatform,
 		std::vector<uint8>& OutBytes,
@@ -1116,7 +1064,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DecodeStaticMeshCollisionPayload(
+	auto ParseStaticMeshCollisionSerializedValue(
 		std::span<const uint8> Bytes,
 		EStaticMeshTargetPlatform ExpectedPlatform,
 		FStaticMeshCollisionPayloadData& OutPayload) -> FPayloadDecodeResult
@@ -1215,5 +1163,90 @@ namespace Durin
 			return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, std::move(Error));
 		OutPayload = std::move(Candidate);
 		return {};
+	}
+
+	auto FStaticMeshPayloadData::Serialize(
+		FArchive& Ar,
+		EStaticMeshTargetPlatform TargetPlatform) -> void
+	{
+		if (Ar.IsSaving())
+		{
+			std::vector<uint8> Bytes;
+			std::string Error;
+			if (!BuildStaticMeshSerializedValue(*this, TargetPlatform, Bytes, Error))
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData, Error);
+				return;
+			}
+			Ar.Serialize(Bytes.data(), Bytes.size());
+			return;
+		}
+
+		const uint64 ByteCount = Ar.GetRemainingPayloadBytes();
+		if (ByteCount > MaximumStaticMeshPayloadBytes
+			|| ByteCount > std::numeric_limits<size_t>::max())
+		{
+			Ar.Fail(EArchiveFailureCode::LimitExceeded,
+				"Static-mesh payload exceeds the runtime byte limit.");
+			return;
+		}
+		std::vector<uint8> Bytes(static_cast<size_t>(ByteCount));
+		Ar.Serialize(Bytes.data(), Bytes.size());
+		if (Ar.HasError()) return;
+		FStaticMeshPayloadData Candidate;
+		const FPayloadDecodeResult Result = ParseStaticMeshSerializedValue(
+			Bytes, TargetPlatform, Candidate);
+		if (!Result)
+		{
+			Ar.Fail(Result.Code == EPayloadDecodeError::Incompatible
+				? EArchiveFailureCode::UnsupportedVersion
+				: EArchiveFailureCode::InvalidData,
+				Result.Message);
+			return;
+		}
+		*this = std::move(Candidate);
+	}
+
+	auto FStaticMeshCollisionPayloadData::Serialize(
+		FArchive& Ar,
+		EStaticMeshTargetPlatform TargetPlatform) -> void
+	{
+		if (Ar.IsSaving())
+		{
+			std::vector<uint8> Bytes;
+			std::string Error;
+			if (!BuildStaticMeshCollisionSerializedValue(
+				*this, TargetPlatform, Bytes, Error))
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData, Error);
+				return;
+			}
+			Ar.Serialize(Bytes.data(), Bytes.size());
+			return;
+		}
+
+		const uint64 ByteCount = Ar.GetRemainingPayloadBytes();
+		if (ByteCount > MaximumStaticMeshCollisionPayloadBytes
+			|| ByteCount > std::numeric_limits<size_t>::max())
+		{
+			Ar.Fail(EArchiveFailureCode::LimitExceeded,
+				"DCOL payload exceeds the runtime byte limit.");
+			return;
+		}
+		std::vector<uint8> Bytes(static_cast<size_t>(ByteCount));
+		Ar.Serialize(Bytes.data(), Bytes.size());
+		if (Ar.HasError()) return;
+		FStaticMeshCollisionPayloadData Candidate;
+		const FPayloadDecodeResult Result = ParseStaticMeshCollisionSerializedValue(
+			Bytes, TargetPlatform, Candidate);
+		if (!Result)
+		{
+			Ar.Fail(Result.Code == EPayloadDecodeError::Incompatible
+				? EArchiveFailureCode::UnsupportedVersion
+				: EArchiveFailureCode::InvalidData,
+				Result.Message);
+			return;
+		}
+		*this = std::move(Candidate);
 	}
 }

@@ -2,31 +2,15 @@
 
 #include "AssetCore.h"
 #include "AssetSystem.h"
-#include "DerivedDataObjectStore.h"
-#include "Hash/XxHash.h"
-#include "ImageDecoder.h"
-#include "Misc/DerivedDataCache.h"
-#include "Misc/FileHelper.h"
-#include "Misc/Paths.h"
-#include "Source/SourcePath.h"
+#include "Serialization/Archive.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
 #include "Terrain/TerrainHeightmapRenderStateRecreateContext.h"
+#include "Terrain/TerrainHeightmapPostLoad.h"
 
 namespace Durin
 {
 	namespace
 	{
-		constexpr std::string_view HeightmapDecoderId = "DurinHeightmapPng";
-		constexpr uint32 HeightmapDecoderVersion = 1;
-		constexpr std::string_view DefaultHeightmapSourceRoot = "TerrainHeightmaps";
-		constexpr uint64 HeightmapDerivedDataBudgetBytes = 4ull * 1024ull * 1024ull * 1024ull;
-
-		auto GetHeightmapObjectStore() -> Asset::FDerivedDataObjectStore
-		{
-			return Asset::FDerivedDataObjectStore(
-				"TerrainHeightmap/Objects", MaximumTerrainHeightmapPayloadBytes);
-		}
-
 		auto SetBoundedDiagnostic(std::string& Target, std::string Message) -> void
 		{
 			constexpr size_t MaximumDiagnosticBytes = 2048;
@@ -35,126 +19,6 @@ namespace Durin
 			Target = std::move(Message);
 		}
 
-		auto MakeDerivedDataKey(
-			const FTerrainHeightmapSourceImportData& Source,
-			std::string& OutKey,
-			std::string& OutError) -> bool
-		{
-			if (!Source.HasContentHash())
-			{
-				OutError = "Terrain heightmap source content identity is missing.";
-				return false;
-			}
-			return BuildTerrainHeightmapDerivedDataKey({
-				.SourceContentHash = {
-					.HashLow = Source.SourceContentHashLow,
-					.HashHigh = Source.SourceContentHashHigh},
-				.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-				.TargetProfile = Asset::ECookTargetProfile::Game}, OutKey, OutError);
-		}
-
-		auto StoreDerivedData(
-			std::string_view Key,
-			const FTerrainHeightmapPayload& Payload,
-			std::string& OutError) -> bool
-		{
-			std::vector<uint8> Bytes;
-			if (!EncodeTerrainHeightmapPayload(
-				Payload, Asset::ECookTargetPlatform::Win64,
-				Asset::ECookTargetProfile::Game, Bytes, OutError)
-				|| !GetHeightmapObjectStore().Write(Key, Bytes, &OutError)) return false;
-			const Asset::FDerivedDataObjectCleanupResult Cleanup =
-				GetHeightmapObjectStore().CleanupToBudget(HeightmapDerivedDataBudgetBytes, 16);
-			if (!Cleanup.Message.empty())
-				DURIN_WARN("Terrain heightmap DDC cleanup: {}", Cleanup.Message);
-			return true;
-		}
-
-		auto FindOwningMount(std::string_view VirtualPath)
-			-> const PathUtilities::FMountPoint*
-		{
-			const PathUtilities::FMountLookupResult Lookup =
-				PathUtilities::FindMountForVirtualPath(VirtualPath);
-			return Lookup ? Lookup.Mount : nullptr;
-		}
-
-		auto MakeCanonicalSourceLocation(
-			const FAssetPath& AssetPath,
-			std::string_view RequestedSourcePath,
-			std::string& OutStoredPath,
-			std::string& OutError) -> bool
-		{
-			const PathUtilities::FMountPoint* Mount = FindOwningMount(AssetPath.ToString());
-			if (!Mount)
-			{
-				OutError = std::format(
-					"Terrain heightmap asset {} is outside a registered mount.",
-					AssetPath.ToString());
-				return false;
-			}
-			std::filesystem::path Relative = RequestedSourcePath.empty()
-				? std::filesystem::path(DefaultHeightmapSourceRoot)
-					/ (std::string(AssetPath.GetAssetName()) + ".png")
-				: std::filesystem::path(RequestedSourcePath);
-			if (RequestedSourcePath.starts_with('/'))
-			{
-				const PathUtilities::FSourcePathResult Requested =
-					PathUtilities::ResolveSourcePath(
-						RequestedSourcePath, PathUtilities::EPathExistence::AllowMissing);
-				if (!Requested || Requested.Mount != Mount)
-				{
-					OutError = Requested ? "Heightmap source must remain in the asset mount."
-						: Requested.Message;
-					return false;
-				}
-				Relative = Requested.RelativePath;
-			}
-			Relative = Relative.lexically_normal();
-			const std::string RelativeText = Relative.generic_string();
-			std::string Extension = Relative.extension().generic_string();
-			std::ranges::transform(Extension, Extension.begin(), [](unsigned char Character) {
-				return static_cast<char>(std::tolower(Character));
-			});
-			if (Relative.empty() || Relative.is_absolute() || RelativeText == ".."
-				|| RelativeText.starts_with("../") || Extension != ".png")
-			{
-				OutError = "Heightmap source destination must be a normalized mount-relative .png path.";
-				return false;
-			}
-			OutStoredPath = Mount->VirtualRoot + RelativeText;
-			return true;
-		}
-
-		auto ResolveHeightmapSource(
-			const DTerrainHeightmap& Heightmap,
-			std::filesystem::path& OutPath,
-			std::string& OutError) -> bool
-		{
-			const FTerrainHeightmapSourceImportData& Source = Heightmap.GetSourceImportData();
-			if (!Source.HasSource() || Source.DecoderId != HeightmapDecoderId
-				|| Source.DecoderVersion != HeightmapDecoderVersion || !Heightmap.GetPackage())
-			{
-				OutError = "Terrain heightmap source provenance is missing or incompatible.";
-				return false;
-			}
-			const PathUtilities::FMountPolicyResult Dependency =
-				PathUtilities::CheckMountDependency(
-					Heightmap.GetPackage()->GetPackagePath(), Source.SourcePath.Path);
-			if (!Dependency)
-			{
-				OutError = Dependency.Message;
-				return false;
-			}
-			const PathUtilities::FSourcePathResult Resolved = PathUtilities::ResolveSourcePath(
-				Source.SourcePath.Path, PathUtilities::EPathExistence::AllowMissing);
-			if (!Resolved)
-			{
-				OutError = Resolved.Message;
-				return false;
-			}
-			OutPath = Resolved.PhysicalPath;
-			return true;
-		}
 	}
 
 	auto BuildTerrainHeightmapPayload(
@@ -423,7 +287,10 @@ namespace Durin
 		int64 InSourceLastWriteTime,
 		std::shared_ptr<const FTerrainHeightmapPayload> InPayload,
 		std::string InDerivedDataKey,
-		std::string InDiagnostic) -> void
+		std::string InDiagnostic,
+		bool bAdvanceRevision,
+		bool bMarkPackageDirty,
+		bool bInLoadedFromDerivedDataCache) -> void
 	{
 		SourceImportData = std::move(InSourceImportData);
 		SourceFileSize = InSourceFileSize;
@@ -431,10 +298,10 @@ namespace Durin
 		SourceBitDepth = 16;
 		SourceChannelCount = 1;
 		DerivedDataKey = std::move(InDerivedDataKey);
-		bLoadedFromDerivedDataCache = false;
-		PublishPayload(std::move(InPayload), true);
+		bLoadedFromDerivedDataCache = bInLoadedFromDerivedDataCache;
+		PublishPayload(std::move(InPayload), bAdvanceRevision);
 		SetBoundedDiagnostic(LastDiagnostic, std::move(InDiagnostic));
-		MarkPackageDirty();
+		if (bMarkPackageDirty) MarkPackageDirty();
 	}
 
 	auto DTerrainHeightmap::InitializeFromSamples(
@@ -458,87 +325,6 @@ namespace Durin
 		return true;
 	}
 
-	auto DTerrainHeightmap::BuildFromEncodedBytes(
-		std::span<const uint8> EncodedBytes,
-		const FSourcePath& InSourcePath,
-		std::string& OutError) -> bool
-	{
-#if DURIN_WITH_EDITOR
-		if (!GetPackage())
-		{
-			OutError = "Terrain heightmap candidates require an owning package.";
-			return false;
-		}
-		const PathUtilities::FSourcePathResult Resolved = PathUtilities::ResolveSourcePath(
-			InSourcePath.Path, PathUtilities::EPathExistence::AllowMissing);
-		if (!Resolved)
-		{
-			OutError = Resolved.Message;
-			return false;
-		}
-		const PathUtilities::FMountPolicyResult Dependency = PathUtilities::CheckMountDependency(
-			GetPackage()->GetPackagePath(), Resolved.NormalizedVirtualPath);
-		if (!Dependency)
-		{
-			OutError = Dependency.Message;
-			return false;
-		}
-
-		Asset::FDecodedGrayscale16Image Decoded;
-		if (!Asset::DecodeGrayscale16PngFromMemory(
-			EncodedBytes, Decoded, OutError,
-			{.MaximumEncodedBytes = MaximumTerrainHeightmapEncodedBytes,
-				.MaximumDecodedPixels = MaximumTerrainHeightmapSamples}))
-		{
-			Status = ETerrainHeightmapStatus::Failed;
-			SetBoundedDiagnostic(LastDiagnostic, OutError);
-			return false;
-		}
-		std::shared_ptr<const FTerrainHeightmapPayload> Candidate;
-		if (!BuildTerrainHeightmapPayload(
-			Decoded.Width, Decoded.Height, Decoded.Samples, Candidate, OutError))
-		{
-			Status = ETerrainHeightmapStatus::Failed;
-			SetBoundedDiagnostic(LastDiagnostic, OutError);
-			return false;
-		}
-		const FXxHash128 SourceHash = FXxHash128::HashBuffer(EncodedBytes);
-		FTerrainHeightmapSourceImportData CandidateSource{
-			.SourcePath = {.Path = Resolved.NormalizedVirtualPath},
-			.SourceContentHashLow = SourceHash.HashLow,
-			.SourceContentHashHigh = SourceHash.HashHigh,
-			.DecoderId = std::string(HeightmapDecoderId),
-			.DecoderVersion = HeightmapDecoderVersion};
-		std::string CandidateKey;
-		if (!MakeDerivedDataKey(CandidateSource, CandidateKey, OutError)
-			|| !StoreDerivedData(CandidateKey, *Candidate, OutError))
-		{
-			Status = ETerrainHeightmapStatus::Failed;
-			SetBoundedDiagnostic(LastDiagnostic, OutError);
-			return false;
-		}
-		SourceImportData = std::move(CandidateSource);
-		SourceFileSize = EncodedBytes.size();
-		SourceLastWriteTime = 0;
-		SourceBitDepth = 16;
-		SourceChannelCount = 1;
-		DerivedDataKey = std::move(CandidateKey);
-		bLoadedFromDerivedDataCache = false;
-		PublishPayload(std::move(Candidate), true);
-		LastDiagnostic = std::format(
-			"Decoded {}x{} grayscale16 PNG; samples={} bytes, hierarchy={} bytes, retained={} bytes.",
-			Width, Height, SampleBytes, HierarchyBytes, RetainedBytes);
-		MarkPackageDirty();
-		OutError.clear();
-		return true;
-#else
-		(void)EncodedBytes;
-		(void)InSourcePath;
-		OutError = "Terrain heightmap source decoding is unavailable in runtime-only builds.";
-		return false;
-#endif
-	}
-
 	auto DTerrainHeightmap::PostLoad(std::string& OutError) -> bool
 	{
 		if (Asset::GetPackageLoadContext().Mode == Asset::EPackageLoadMode::CookedRuntime)
@@ -553,58 +339,7 @@ namespace Durin
 			OutError.clear();
 			return true;
 		}
-		Payload.reset();
-		Status = ETerrainHeightmapStatus::Unavailable;
-		bLoadedFromDerivedDataCache = false;
-		if (!MakeDerivedDataKey(SourceImportData, DerivedDataKey, OutError))
-		{
-			Status = ETerrainHeightmapStatus::SourceUnavailable;
-			SetBoundedDiagnostic(LastDiagnostic, OutError);
-			return false;
-		}
-		std::vector<uint8> CachedBytes;
-		const Asset::FDerivedDataObjectReadResult Read =
-			GetHeightmapObjectStore().Read(DerivedDataKey, CachedBytes);
-		if (Read)
-		{
-			std::shared_ptr<const FTerrainHeightmapPayload> CachedPayload;
-			const FPayloadDecodeResult Decoded = DecodeTerrainHeightmapPayload(
-				CachedBytes, Asset::ECookTargetPlatform::Win64,
-				Asset::ECookTargetProfile::Game, CachedPayload);
-			if (Decoded)
-			{
-				PublishPayload(std::move(CachedPayload), false);
-				bLoadedFromDerivedDataCache = true;
-				LastDiagnostic = std::format("Terrain heightmap DDC hit for key {}.", DerivedDataKey);
-				OutError.clear();
-				return true;
-			}
-		}
-
-		std::filesystem::path SourcePath;
-		if (!ResolveHeightmapSource(*this, SourcePath, OutError)
-			|| !std::filesystem::is_regular_file(SourcePath))
-		{
-			if (OutError.empty()) OutError = std::format(
-				"Terrain heightmap source file does not exist: {}.", GetSourceFile());
-			Status = ETerrainHeightmapStatus::SourceUnavailable;
-			SetBoundedDiagnostic(LastDiagnostic, OutError);
-			return false;
-		}
-		std::vector<uint8> EncodedBytes;
-		if (!FFileHelper::LoadFileToArray(EncodedBytes, SourcePath.generic_string()))
-		{
-			OutError = std::format("Failed to read terrain heightmap source {}.", SourcePath.generic_string());
-			Status = ETerrainHeightmapStatus::SourceUnavailable;
-			SetBoundedDiagnostic(LastDiagnostic, OutError);
-			return false;
-		}
-		const uint64 SavedRevision = Revision;
-		if (!BuildFromEncodedBytes(EncodedBytes, SourceImportData.SourcePath, OutError)) return false;
-		Revision = SavedRevision;
-		GetPackage()->ClearDirty();
-		LastDiagnostic = std::format("Rebuilt terrain heightmap DDC key {} from source.", DerivedDataKey);
-		return true;
+		return InvokeTerrainHeightmapUncookedPostLoadHandler(*this, OutError);
 	}
 
 	auto DTerrainHeightmap::LoadCookedPayload(std::string& OutError) -> bool
@@ -640,11 +375,12 @@ namespace Durin
 		std::span<const uint8> Bytes;
 		if (!Asset::ResolveCookedPayload(Container, CookedPayload, Bytes, &OutError))
 			return FailCooked(OutError);
-		std::shared_ptr<const FTerrainHeightmapPayload> Candidate;
-		const FPayloadDecodeResult Decoded = DecodeTerrainHeightmapPayload(
-			Bytes, Asset::ECookTargetPlatform::Win64,
-			Asset::ECookTargetProfile::Game, Candidate);
-		if (!Decoded) return FailCooked(Decoded.Message);
+		auto MutableCandidate = std::make_shared<FTerrainHeightmapPayload>();
+		FCanonicalMemoryReader PayloadAr(Bytes, EArchivePurpose::CookedPayload);
+		MutableCandidate->Serialize(PayloadAr, Asset::ECookTargetPlatform::Win64,
+			Asset::ECookTargetProfile::Game);
+		if (PayloadAr.HasError()) return FailCooked(PayloadAr.GetFailure()->Message);
+		std::shared_ptr<const FTerrainHeightmapPayload> Candidate = std::move(MutableCandidate);
 		if (Candidate->Width != Width || Candidate->Height != Height
 			|| Candidate->Minimum != Minimum || Candidate->Maximum != Maximum)
 			return FailCooked("package facts do not match the required THPL payload.");
@@ -671,9 +407,14 @@ namespace Durin
 			return false;
 		}
 		std::vector<uint8> PayloadBytes;
-		if (!EncodeTerrainHeightmapPayload(
-			*Payload, Context.GetTargetPlatform(), Context.GetTargetProfile(),
-			PayloadBytes, OutError)) return false;
+		FCanonicalMemoryWriter CookAr(PayloadBytes, EArchivePurpose::CookedPayload);
+		const_cast<FTerrainHeightmapPayload&>(*Payload).Serialize(
+			CookAr, Context.GetTargetPlatform(), Context.GetTargetProfile());
+		if (CookAr.HasError())
+		{
+			OutError = CookAr.GetFailure()->Message;
+			return false;
+		}
 		Asset::FCookedBulkPayload Bulk{
 			.PayloadId = TerrainHeightmapPrimaryCookedPayloadId,
 			.Flags = 1,
@@ -772,57 +513,6 @@ namespace Durin
 		std::swap(bLoadedFromDerivedDataCache, Other.bLoadedFromDerivedDataCache);
 		MarkPackageDirty();
 		Other.MarkPackageDirty();
-	}
-
-	auto DTerrainHeightmap::ChangeSourceReference(
-		std::string_view SourceVirtualPath, std::string& OutError) -> bool
-	{
-		if (!GetPackage())
-		{
-			OutError = "Terrain heightmap source changes require an owning package.";
-			return false;
-		}
-		FMountedSourceFile Source;
-		if (!ResolveMountedSourceReference(
-			GetPackage()->GetPackagePath(), SourceVirtualPath, Source, OutError)) return false;
-		std::vector<uint8> EncodedBytes;
-		if (!FFileHelper::LoadFileToArray(EncodedBytes, Source.PhysicalPath.generic_string()))
-		{
-			OutError = "Failed to read the replacement terrain heightmap source.";
-			return false;
-		}
-		return BuildFromEncodedBytes(EncodedBytes, Source.SourcePath, OutError);
-	}
-
-	auto DTerrainHeightmap::ReimportSource(
-		std::string_view FilePath, std::string& OutError) -> bool
-	{
-		std::filesystem::path SourcePath;
-		if (!ResolveHeightmapSource(*this, SourcePath, OutError)) return false;
-		if (!FilePath.empty())
-		{
-			std::error_code Error;
-			if (std::filesystem::absolute(FilePath, Error).lexically_normal()
-				!= std::filesystem::absolute(SourcePath, Error).lexically_normal())
-			{
-				OutError = "Terrain heightmap reimport may only read its persisted mounted source.";
-				return false;
-			}
-		}
-		std::vector<uint8> EncodedBytes;
-		if (!FFileHelper::LoadFileToArray(EncodedBytes, SourcePath.generic_string()))
-		{
-			OutError = "Failed to read the terrain heightmap source for reimport.";
-			return false;
-		}
-		const FXxHash128 Hash = FXxHash128::HashBuffer(EncodedBytes);
-		if (Hash.HashLow == SourceImportData.SourceContentHashLow
-			&& Hash.HashHigh == SourceImportData.SourceContentHashHigh)
-		{
-			OutError.clear();
-			return true;
-		}
-		return BuildFromEncodedBytes(EncodedBytes, SourceImportData.SourcePath, OutError);
 	}
 
 }

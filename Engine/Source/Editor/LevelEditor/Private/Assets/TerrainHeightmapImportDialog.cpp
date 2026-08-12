@@ -9,6 +9,7 @@
 #include "MonaImGui.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapBuildOperations.h"
+#include "TerrainHeightmapSourceTranslation.h"
 
 namespace Durin::Editor::Level
 {
@@ -130,7 +131,7 @@ namespace Durin::Editor::Level
 		const std::filesystem::path Source(SourcePathBuffer.data());
 		const std::string SourceDestination = MakeDefaultImportedSourceVirtualPath(
 			Destination.GetPath(), "TerrainHeightmaps", Source.filename().generic_string());
-		const FTerrainHeightmapImportResult Result = AssetBuild::ImportTerrainHeightmapAsset(
+		const FTerrainHeightmapImportResult Result = StandardAssetImport::ImportTerrainHeightmapAsset(
 			Source.generic_string(), Destination.GetPath(),
 			{.SourceDestination = SourceDestination},
 			IsEngineAuthoringDestination(Destination.GetPath()));

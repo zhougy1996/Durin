@@ -30,6 +30,8 @@ namespace Durin::AssetBuild
 		uint32 DecoderVersion = 1;
 		uint64 SourceFileSize = 0;
 		int64 SourceLastWriteTime = 0;
+		bool bAdvanceRevision = true;
+		bool bMarkPackageDirty = true;
 	};
 
 	ENGINEASSETBUILD_API auto BuildTerrainHeightmap(
@@ -41,10 +43,12 @@ namespace Durin::AssetBuild
 		FTerrainHeightmapBuildProduct Product,
 		const FTerrainHeightmapPublicationContext& Context,
 		std::string& OutError) -> bool;
+	ENGINEASSETBUILD_API auto MakeTerrainHeightmapDerivedDataKey(
+		const DTerrainHeightmap& Heightmap,
+		std::string& OutError) -> std::string;
+	ENGINEASSETBUILD_API auto LoadTerrainHeightmapDerivedData(
+		std::string_view Key,
+		std::shared_ptr<const FTerrainHeightmapPayload>& OutPayload,
+		std::string& OutError) -> bool;
 
-	ENGINEASSETBUILD_API auto ImportTerrainHeightmapAsset(
-		std::string_view FilePath,
-		std::string_view AssetPath,
-		const FTerrainHeightmapImportSettings& Settings = {},
-		bool bEngineAuthoringContext = false) -> FTerrainHeightmapImportResult;
 }

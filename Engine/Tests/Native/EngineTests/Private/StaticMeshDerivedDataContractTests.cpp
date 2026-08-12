@@ -1,13 +1,14 @@
 #include <gtest/gtest.h>
 
+#include "StaticMesh/StaticMeshBuildDerivedData.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshResources.h"
 
 namespace
 {
-	auto MakeKeyInput() -> Durin::FStaticMeshDerivedDataKeyInput
+	auto MakeKeyInput() -> Durin::AssetBuild::FStaticMeshBuildKeyInput
 	{
-		Durin::FStaticMeshDerivedDataKeyInput Input;
+		Durin::AssetBuild::FStaticMeshBuildKeyInput Input;
 		Input.SourceContentHash = Durin::FXxHash128{
 			0x0123456789abcdefull,
 			0xfedcba9876543210ull};
@@ -21,9 +22,13 @@ namespace
 
 TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic)
 {
-	const Durin::FStaticMeshDerivedDataKeyInput Input = MakeKeyInput();
-	const std::vector<Durin::uint8> First = Durin::BuildStaticMeshDerivedDataKeyBytes(Input);
-	const std::vector<Durin::uint8> Second = Durin::BuildStaticMeshDerivedDataKeyBytes(Input);
+	const Durin::AssetBuild::FStaticMeshBuildKeyInput Input = MakeKeyInput();
+	std::string Error;
+	const std::vector<Durin::uint8> First =
+		Durin::AssetBuild::BuildStaticMeshDerivedDataKeyBytes(Input, Error);
+	ASSERT_TRUE(Error.empty()) << Error;
+	const std::vector<Durin::uint8> Second =
+		Durin::AssetBuild::BuildStaticMeshDerivedDataKeyBytes(Input, Error);
 	const std::vector<Durin::uint8> Expected{
 		0x01, 0x00, 0x00, 0x00,
 		0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
@@ -38,21 +43,23 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(First, Expected);
-	EXPECT_EQ(Durin::BuildStaticMeshDerivedDataKey(Input),
+	EXPECT_EQ(Durin::AssetBuild::BuildStaticMeshDerivedDataKey(Input, Error),
 		"423fd576f6529b0df5c564c4f093ae11");
-	EXPECT_EQ(Durin::BuildStaticMeshDerivedDataKey(Input).size(), 32u);
+	EXPECT_EQ(Durin::AssetBuild::BuildStaticMeshDerivedDataKey(Input, Error).size(), 32u);
 }
 
 TEST(FStaticMeshDerivedDataContractTests, EverySemanticInputChangesTheKey)
 {
-	const Durin::FStaticMeshDerivedDataKeyInput Baseline = MakeKeyInput();
-	const std::string BaselineKey = Durin::BuildStaticMeshDerivedDataKey(Baseline);
+	const Durin::AssetBuild::FStaticMeshBuildKeyInput Baseline = MakeKeyInput();
+	std::string Error;
+	const std::string BaselineKey =
+		Durin::AssetBuild::BuildStaticMeshDerivedDataKey(Baseline, Error);
 
 	auto ExpectChanged = [&](auto Mutate)
 	{
-		Durin::FStaticMeshDerivedDataKeyInput Changed = Baseline;
+		Durin::AssetBuild::FStaticMeshBuildKeyInput Changed = Baseline;
 		Mutate(Changed);
-		EXPECT_NE(Durin::BuildStaticMeshDerivedDataKey(Changed), BaselineKey);
+		EXPECT_NE(Durin::AssetBuild::BuildStaticMeshDerivedDataKey(Changed, Error), BaselineKey);
 	};
 
 	ExpectChanged([](auto& Value) { ++Value.SourceContentHash.HashLow; });

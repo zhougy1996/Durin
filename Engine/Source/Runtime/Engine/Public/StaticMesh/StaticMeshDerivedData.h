@@ -9,6 +9,7 @@
 
 namespace Durin
 {
+	class FArchive;
 	inline constexpr uint32 StaticMeshPayloadMagic = 0x48534D44; // DMSH
 	inline constexpr uint32 StaticMeshPayloadSchemaVersion = 4;
 	inline constexpr uint32 StaticMeshBuilderVersion = 3;
@@ -95,33 +96,10 @@ namespace Durin
 		uint32 MaterialSlotCount = 0;
 		std::vector<FStaticMeshPayloadLOD> LODs;
 		FBox LocalBounds;
-	};
 
-	// Collects every semantic input to the version-one static-mesh derived-data key.
-	struct FStaticMeshDerivedDataKeyInput
-	{
-		FXxHash128 SourceContentHash;
-		std::string ImporterId;
-		uint32 ImporterVersion = 0;
-		FStaticMeshImportSettings ImportSettings;
-		uint32 BuilderVersion = StaticMeshBuilderVersion;
-		uint32 PayloadSchemaVersion = StaticMeshPayloadSchemaVersion;
-		EStaticMeshTargetPlatform TargetPlatform = EStaticMeshTargetPlatform::Unknown;
-	};
-
-	struct FStaticMeshCollisionDerivedDataKeyInput
-	{
-		FXxHash128 SourceContentHash;
-		FXxHash128 GeometryHash;
-		std::string ImporterId;
-		uint32 ImporterVersion = 0;
-		FStaticMeshImportSettings ImportSettings;
-		EBodySetupCollisionSourceMode SourceMode = EBodySetupCollisionSourceMode::None;
-		EBodySetupCollisionQueryPolicy QueryPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
-		uint32 WeldToleranceBits = 0;
-		uint32 BuilderVersion = StaticMeshCollisionBuilderVersion;
-		uint32 PayloadSchemaVersion = StaticMeshCollisionPayloadSchemaVersion;
-		EStaticMeshTargetPlatform TargetPlatform = EStaticMeshTargetPlatform::Unknown;
+		ENGINE_API auto Serialize(
+			FArchive& Ar,
+			EStaticMeshTargetPlatform TargetPlatform) -> void;
 	};
 
 	struct FStaticMeshCollisionPayloadData
@@ -133,28 +111,12 @@ namespace Durin
 		std::vector<uint32> SourceOrdinals;
 		std::vector<FCollisionGeometryNode> Nodes;
 		std::vector<uint32> LeafTriangles;
+
+		ENGINE_API auto Serialize(
+			FArchive& Ar,
+			EStaticMeshTargetPlatform TargetPlatform) -> void;
 	};
 
-	// Produces the canonical bytes hashed for a static-mesh DDC key.
-	ENGINE_API auto BuildStaticMeshDerivedDataKeyBytes(
-		const FStaticMeshDerivedDataKeyInput& Input) -> std::vector<uint8>;
-
-	// Returns the lowercase 32-hex-character XXH3-128 key for the canonical input bytes.
-	ENGINE_API auto BuildStaticMeshDerivedDataKey(
-		const FStaticMeshDerivedDataKeyInput& Input) -> std::string;
-	ENGINE_API auto BuildStaticMeshCollisionDerivedDataKeyBytes(
-		const FStaticMeshCollisionDerivedDataKeyInput& Input) -> std::vector<uint8>;
-	ENGINE_API auto BuildStaticMeshCollisionDerivedDataKey(
-		const FStaticMeshCollisionDerivedDataKeyInput& Input) -> std::string;
-	ENGINE_API auto EncodeStaticMeshCollisionPayload(
-		const FStaticMeshCollisionPayloadData& Payload,
-		EStaticMeshTargetPlatform TargetPlatform,
-		std::vector<uint8>& OutBytes,
-		std::string& OutError) -> bool;
-	ENGINE_API auto DecodeStaticMeshCollisionPayload(
-		std::span<const uint8> Bytes,
-		EStaticMeshTargetPlatform ExpectedPlatform,
-		FStaticMeshCollisionPayloadData& OutPayload) -> FPayloadDecodeResult;
 	ENGINE_API auto MakeStaticMeshCollisionPayloadData(
 		const FCollisionGeometryRef& Geometry,
 		EBodySetupCollisionQueryPolicy QueryPolicy,
@@ -164,19 +126,6 @@ namespace Durin
 		const FStaticMeshCollisionPayloadData& Payload,
 		FCollisionGeometryRef& OutGeometry,
 		std::string& OutError) -> bool;
-
-	// Encodes a validated logical mesh into deterministic DMSH schema-version-four bytes.
-	ENGINE_API auto EncodeStaticMeshPayload(
-		const FStaticMeshPayloadData& Payload,
-		EStaticMeshTargetPlatform TargetPlatform,
-		std::vector<uint8>& OutBytes,
-		std::string& OutError) -> bool;
-
-	// Decodes DMSH bytes transactionally; OutPayload is unchanged when validation fails.
-	ENGINE_API auto DecodeStaticMeshPayload(
-		std::span<const uint8> Bytes,
-		EStaticMeshTargetPlatform ExpectedPlatform,
-		FStaticMeshPayloadData& OutPayload) -> FPayloadDecodeResult;
 
 	// Copies serializable CPU data from runtime render data into the explicit payload model.
 	ENGINE_API auto MakeStaticMeshPayloadData(

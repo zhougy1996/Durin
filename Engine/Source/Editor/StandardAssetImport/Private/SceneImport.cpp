@@ -17,6 +17,7 @@
 #include "StandardAssetImportProviders.h"
 #include "Texture2DSourceTranslation.h"
 #include "StaticMeshImportAdapter.h"
+#include "StaticMesh/StaticMeshBuildOperations.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
 
@@ -2021,15 +2022,19 @@ namespace Durin
 			auto* Mesh = Cast<DStaticMesh>(MeshOutput->Candidate->GetAsset());
 			const FSourceSnapshotEntry* Root =
 				Plan.MultiOutputPlan.GetGenericPlan().GetSnapshot().FindSource("root");
-			if (!Mesh || !Root || !Mesh->InitializeFromImportedData(
-				MakeStaticMeshImportedData(Data->Scene),
-				{
+			AssetBuild::FStaticMeshBuildProduct Product;
+			if (!Mesh || !Root
+				|| !AssetBuild::FStaticMeshBuildOperations::BuildImportedProduct(
+					*Mesh, MakeStaticMeshImportedData(Data->Scene),
+					{
 					.SourcePath = Root->SourcePath,
 					.SourceContentHash = Root->ContentHash.ToString(),
 					.ImporterId = std::string(SceneImportProviderId),
 					.ImporterVersion = SceneImportProviderContractVersion,
 					.ImportSettings = Data->MeshSettings},
-				Root->SourcePath.Path, Error))
+					Root->SourcePath.Path, Product, Error)
+				|| !AssetBuild::FStaticMeshBuildOperations::PublishImportedProduct(
+					*Mesh, std::move(Product), Error))
 			{
 				return FailPrepared(
 					Error.empty() ? "Scene mesh candidate failed." : std::move(Error));

@@ -1,4 +1,5 @@
 #include "EngineTestSupport.h"
+#include "Modules/ModuleManager.h"
 #include "RenderingThread.h"
 #include "StandardAssetImportProviders.h"
 
@@ -13,6 +14,7 @@ namespace
 		auto SetUp() -> void override
 		{
 			InitializeDObjectSystem();
+			Durin::FModuleManager::Get().LoadModule("EngineAssetBuild");
 			std::string Error;
 			ASSERT_TRUE(Durin::RegisterStandardAssetImportProviders(Error)) << Error;
 			ASSERT_EQ(

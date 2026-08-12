@@ -7,6 +7,7 @@
 #include "SkeletalMesh/Skeleton.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshBuildOperations.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "Viewport/ViewportPickingSceneIndex.h"
 #include "Viewport/ViewportPickingService.h"
@@ -198,7 +199,7 @@ namespace
 		const Durin::uint32 Width = std::max<Durin::uint32>(1,
 			static_cast<Durin::uint32>(std::ceil(std::sqrt(static_cast<double>(CellCount)))));
 		const Durin::uint32 Height = (CellCount + Width - 1) / Width;
-		Durin::FStaticMeshImportedData Imported;
+		Durin::AssetBuild::FStaticMeshImportedData Imported;
 		Imported.MaterialSlots.push_back({.Name = "Default", .SourceMaterialIndex = 0, .SourceName = "Default"});
 		auto& Mesh = Imported.Meshes.emplace_back();
 		Mesh.Name = "PickingGrid";
@@ -222,7 +223,8 @@ namespace
 		auto* Result = Durin::NewObject<Durin::DStaticMesh>(Level,
 			std::format("PickingGrid{}", TriangleCount));
 		std::string Error;
-		if (!Result->InitializeFromImportedData(Imported,
+		if (!Durin::AssetBuild::FStaticMeshBuildOperations::BuildAndPublishImported(
+			*Result, Imported,
 			{.SourcePath = {.Path = std::format("/Tests/PickingGrid{}.fixture", TriangleCount)},
 				.SourceContentHash = "0123456789abcdef0123456789abcdef",
 				.ImporterId = "ViewportPickingFixture", .ImporterVersion = 1,

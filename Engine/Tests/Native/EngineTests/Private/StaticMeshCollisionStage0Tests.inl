@@ -5,7 +5,10 @@
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "Physics/BodySetup.h"
+#include "Serialization/Archive.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMeshSourceTranslation.h"
+#include "StaticMesh/StaticMeshBuildDerivedData.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshResources.h"
 
@@ -40,6 +43,37 @@ namespace
 	inline constexpr uint32 LeafFlag = 0x80000000u;
 	inline const FGuid StaticMeshCollisionPayloadId{
 		0x3c10f7d1, 0x92fa4e20, 0xb544ad79, 0x1d788064};
+
+	auto EncodeCollisionPayload(
+		const FStaticMeshCollisionPayloadData& Payload,
+		EStaticMeshTargetPlatform Platform,
+		std::vector<uint8>& OutBytes,
+		std::string& OutError) -> bool
+	{
+		std::vector<uint8> Candidate;
+		FCanonicalMemoryWriter Ar(Candidate, EArchivePurpose::DerivedDataPayload);
+		const_cast<FStaticMeshCollisionPayloadData&>(Payload).Serialize(Ar, Platform);
+		OutError = Ar.HasError() ? Ar.GetFailure()->Message : std::string{};
+		if (Ar.HasError()) return false;
+		OutBytes = std::move(Candidate);
+		return true;
+	}
+
+	auto DecodeCollisionPayload(
+		std::span<const uint8> Bytes,
+		EStaticMeshTargetPlatform Platform,
+		FStaticMeshCollisionPayloadData& OutPayload) -> FPayloadDecodeResult
+	{
+		FStaticMeshCollisionPayloadData Candidate;
+		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::DerivedDataPayload);
+		Candidate.Serialize(Ar, Platform);
+		if (Ar.HasError())
+			return {Ar.GetFailure()->Code == EArchiveFailureCode::UnsupportedVersion
+				? EPayloadDecodeError::Incompatible : EPayloadDecodeError::Corrupt,
+				Ar.GetFailure()->Message};
+		OutPayload = std::move(Candidate);
+		return {};
+	}
 
 	enum class ECollisionSourceMode : uint8
 	{
@@ -977,7 +1011,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage0Tests, Capt
 {
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
 	std::string Error;
-	DStaticMesh* Mesh = DStaticMesh::CreateTransientFromFile(
+	DStaticMesh* Mesh = StandardAssetImport::CreateTransientStaticMeshFromFile(
 		Source.generic_string(), nullptr, "M3CollisionSourceFixture", Error);
 	ASSERT_NE(Mesh, nullptr) << Error;
 	const FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
@@ -1034,7 +1068,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage0Tests, Free
 
 DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage3Tests, ProductionKeyAndPayloadMatchFrozenGoldenBytes)
 {
-	const FStaticMeshCollisionDerivedDataKeyInput KeyInput{
+	const AssetBuild::FStaticMeshCollisionBuildKeyInput KeyInput{
 		.SourceContentHash = {0x0123456789abcdefull, 0xfedcba9876543210ull},
 		.GeometryHash = {0x1111222233334444ull, 0xaaaabbbbccccddddull},
 		.ImporterId = "Assimp",
@@ -1044,10 +1078,13 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage3Tests, Prod
 		.QueryPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex,
 		.WeldToleranceBits = std::bit_cast<uint32>(1.0e-5f),
 		.TargetPlatform = EStaticMeshTargetPlatform::Win64};
-	const std::vector<uint8> KeyBytes = BuildStaticMeshCollisionDerivedDataKeyBytes(KeyInput);
+	std::string Error;
+	const std::vector<uint8> KeyBytes =
+		AssetBuild::BuildStaticMeshCollisionDerivedDataKeyBytes(KeyInput, Error);
+	ASSERT_TRUE(Error.empty()) << Error;
 	EXPECT_EQ(KeyBytes.size(), 75u);
 	EXPECT_EQ(FXxHash128::HashBuffer(KeyBytes).ToString(), "31049dc20de3b54a742c931cb587ce92");
-	EXPECT_EQ(BuildStaticMeshCollisionDerivedDataKey(KeyInput),
+	EXPECT_EQ(AssetBuild::BuildStaticMeshCollisionDerivedDataKey(KeyInput, Error),
 		"31049dc20de3b54a742c931cb587ce92");
 
 	const FCollisionSourceFixture Tetra = MakeTetrahedron();
@@ -1057,20 +1094,19 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage3Tests, Prod
 		Positions, Tetra.Indices);
 	ASSERT_TRUE(Geometry.IsValid());
 	FStaticMeshCollisionPayloadData Payload;
-	std::string Error;
 	ASSERT_TRUE(MakeStaticMeshCollisionPayloadData(Geometry,
 		EBodySetupCollisionQueryPolicy::SimpleAndComplex, Payload, Error)) << Error;
 	std::vector<uint8> First;
 	std::vector<uint8> Second;
-	ASSERT_TRUE(EncodeStaticMeshCollisionPayload(
+	ASSERT_TRUE(EncodeCollisionPayload(
 		Payload, EStaticMeshTargetPlatform::Win64, First, Error)) << Error;
-	ASSERT_TRUE(EncodeStaticMeshCollisionPayload(
+	ASSERT_TRUE(EncodeCollisionPayload(
 		Payload, EStaticMeshTargetPlatform::Win64, Second, Error)) << Error;
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(First.size(), 336u);
 	EXPECT_EQ(FXxHash128::HashBuffer(First).ToString(), "e18caaa3799e0c65edea7a0af09edbf1");
 	FStaticMeshCollisionPayloadData Decoded;
-	ASSERT_TRUE(DecodeStaticMeshCollisionPayload(
+	ASSERT_TRUE(DecodeCollisionPayload(
 		First, EStaticMeshTargetPlatform::Win64, Decoded));
 	FCollisionGeometryRef RoundTrip;
 	ASSERT_TRUE(MakeStaticMeshCollisionGeometry(Decoded, RoundTrip, Error)) << Error;
@@ -1079,7 +1115,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage3Tests, Prod
 	std::vector<uint8> Corrupt = First;
 	Corrupt.back() ^= 0x80;
 	FStaticMeshCollisionPayloadData Preserved = Decoded;
-	EXPECT_FALSE(DecodeStaticMeshCollisionPayload(
+	EXPECT_FALSE(DecodeCollisionPayload(
 		Corrupt, EStaticMeshTargetPlatform::Win64, Preserved));
 	EXPECT_EQ(Preserved.Indices, Decoded.Indices);
 }
@@ -1088,7 +1124,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage5Tests, Insp
 {
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
 	std::string Error;
-	DStaticMesh* Mesh = DStaticMesh::CreateTransientFromFile(
+	DStaticMesh* Mesh = StandardAssetImport::CreateTransientStaticMeshFromFile(
 		Source.generic_string(), nullptr, "M3CollisionInspectionFixture", Error);
 	ASSERT_NE(Mesh, nullptr) << Error;
 	ASSERT_TRUE(Mesh->SetCollisionSourceMode(

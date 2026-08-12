@@ -4,6 +4,7 @@
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "StandardAssetImportProviders.h"
+#include "StaticMeshSourceTranslation.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
@@ -111,7 +112,7 @@ TEST(FSingleAssetImportTests, ReimportsGeometryWithoutAnImportRecord)
 		Durin::Testing::GetTestWorkDirectory() / "SingleAssetStaticMeshDdc");
 	const std::filesystem::path Source =
 		std::filesystem::path(DURIN_TEST_DATA_DIR) / "Triangle.obj";
-	Durin::FStaticMeshImportResult Imported = Durin::DStaticMesh::ImportAsset(
+	Durin::FStaticMeshImportResult Imported = Durin::StandardAssetImport::ImportStaticMeshAsset(
 		Source.generic_string(), "/SingleAssetStage2/Geometry");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	auto PlanResult = PlanCurrent(Imported.Asset);

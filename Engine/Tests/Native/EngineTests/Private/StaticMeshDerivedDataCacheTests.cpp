@@ -12,6 +12,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshResources.h"
+#include "StaticMeshSourceTranslation.h"
 
 namespace
 {
@@ -54,7 +55,7 @@ namespace
 		Durin::FPaths::SetDerivedDataCacheDirForTests(Fixture.CacheRoot.generic_string());
 		EXPECT_TRUE(Durin::FAssetPath::TryCreate(Mount + "Mesh", Fixture.AssetPath));
 		const auto Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-		const Durin::FStaticMeshImportResult Import = Durin::DStaticMesh::ImportAsset(
+		const Durin::FStaticMeshImportResult Import = Durin::StandardAssetImport::ImportStaticMeshAsset(
 			Source.generic_string(), Fixture.AssetPath.ToString());
 		EXPECT_TRUE(Import) << Import.Message;
 		Fixture.Mesh = Import.Asset;

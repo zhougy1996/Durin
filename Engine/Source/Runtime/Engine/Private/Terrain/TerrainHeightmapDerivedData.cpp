@@ -62,43 +62,7 @@ namespace Durin
 		}
 	}
 
-	auto BuildTerrainHeightmapDerivedDataKeyBytes(
-		const FTerrainHeightmapDerivedDataKeyInput& Input,
-		std::vector<uint8>& OutBytes,
-		std::string& OutError) -> bool
-	{
-		OutBytes.clear();
-		OutError.clear();
-		if (!IsSupportedTarget(Input.TargetPlatform, Input.TargetProfile))
-			return Fail(OutError, "Terrain heightmap derived-data target is unsupported.");
-		DerivedDataCache::FWriter Writer;
-		Writer.WriteU32(TerrainHeightmapKeySchemaVersion);
-		Writer.WriteString("Durin.TerrainHeightmap.Builder.V1");
-		Writer.WriteU64(Input.SourceContentHash.HashLow);
-		Writer.WriteU64(Input.SourceContentHash.HashHigh);
-		Writer.WriteU32(16); // unsigned normalized bits per sample
-		Writer.WriteU32(1); // top-left row-major orientation
-		Writer.WriteU32(TerrainHeightmapBaseRegionSize);
-		Writer.WriteU32(Input.BuilderVersion);
-		Writer.WriteU32(Input.PayloadSchemaVersion);
-		Writer.WriteU32(static_cast<uint32>(Input.TargetPlatform));
-		Writer.WriteU32(static_cast<uint32>(Input.TargetProfile));
-		OutBytes = Writer.TakeBytes();
-		return true;
-	}
-
-	auto BuildTerrainHeightmapDerivedDataKey(
-		const FTerrainHeightmapDerivedDataKeyInput& Input,
-		std::string& OutKey,
-		std::string& OutError) -> bool
-	{
-		std::vector<uint8> Bytes;
-		if (!BuildTerrainHeightmapDerivedDataKeyBytes(Input, Bytes, OutError)) return false;
-		OutKey = FXxHash128::HashBuffer(Bytes).ToString();
-		return true;
-	}
-
-	auto EncodeTerrainHeightmapPayload(
+	auto BuildTerrainHeightmapSerializedValue(
 		const FTerrainHeightmapPayload& Payload,
 		Asset::ECookTargetPlatform TargetPlatform,
 		Asset::ECookTargetProfile TargetProfile,
@@ -169,7 +133,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DecodeTerrainHeightmapPayload(
+	auto ParseTerrainHeightmapSerializedValue(
 		std::span<const uint8> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
@@ -287,7 +251,7 @@ namespace Durin
 		{
 			std::vector<uint8> Bytes;
 			std::string Error;
-			if (!EncodeTerrainHeightmapPayload(
+			if (!BuildTerrainHeightmapSerializedValue(
 				*this, TargetPlatform, TargetProfile, Bytes, Error))
 			{
 				Ar.Fail(EArchiveFailureCode::InvalidData, Error);
@@ -315,7 +279,7 @@ namespace Durin
 		Ar.ReadBytes(std::as_writable_bytes(std::span<uint8>(Bytes)));
 		if (Ar.HasError()) return;
 		std::shared_ptr<const FTerrainHeightmapPayload> Candidate;
-		const FPayloadDecodeResult Result = DecodeTerrainHeightmapPayload(
+		const FPayloadDecodeResult Result = ParseTerrainHeightmapSerializedValue(
 			Bytes, TargetPlatform, TargetProfile, Candidate);
 		if (!Result)
 		{

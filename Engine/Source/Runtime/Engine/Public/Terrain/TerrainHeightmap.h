@@ -97,7 +97,6 @@ namespace Durin
 
 	class DTerrainHeightmap;
 	class FTerrainHeightmapRenderStateRecreateContext;
-	struct FTerrainHeightmapBuildOperations;
 
 	struct FTerrainHeightmapImportResult
 	{
@@ -149,20 +148,16 @@ namespace Durin
 			int64 InSourceLastWriteTime,
 			std::shared_ptr<const FTerrainHeightmapPayload> InPayload,
 			std::string InDerivedDataKey,
-			std::string InDiagnostic) -> void;
+			std::string InDiagnostic,
+			bool bAdvanceRevision = true,
+			bool bMarkPackageDirty = true,
+			bool bInLoadedFromDerivedDataCache = false) -> void;
 
 		ENGINE_API auto InitializeFromSamples(
 			uint32 InWidth,
 			uint32 InHeight,
 			std::span<const uint16> InSamples,
 			std::string& OutError) -> bool;
-		ENGINE_API auto BuildFromEncodedBytes(
-			std::span<const uint8> EncodedBytes,
-			const FSourcePath& SourcePath,
-			std::string& OutError) -> bool;
-		ENGINE_API auto ReimportSource(std::string_view FilePath, std::string& OutError) -> bool;
-		ENGINE_API auto ChangeSourceReference(
-			std::string_view SourceVirtualPath, std::string& OutError) -> bool;
 		ENGINE_API auto IsSemanticImportNoOp(const DTerrainHeightmap& Candidate) const -> bool;
 		ENGINE_API auto PrepareCandidateRevision(DTerrainHeightmap& Candidate) const -> void;
 		ENGINE_API auto ExchangeImportedState(DTerrainHeightmap& Other) noexcept -> void;
@@ -174,7 +169,6 @@ namespace Durin
 
 	private:
 		friend class FTerrainHeightmapRenderStateRecreateContext;
-		friend struct FTerrainHeightmapBuildOperations;
 		auto LoadCookedPayload(std::string& OutError) -> bool;
 		auto PublishPayload(
 			std::shared_ptr<const FTerrainHeightmapPayload> InPayload,

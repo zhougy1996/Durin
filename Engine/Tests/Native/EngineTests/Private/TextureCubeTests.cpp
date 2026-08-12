@@ -6,6 +6,7 @@
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "RenderingThread.h"
+#include "Serialization/Archive.h"
 #include "Texture/TextureCube.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "Texture/TextureDerivedData.h"
@@ -568,14 +569,15 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 		Durin::Asset::ECookTargetProfile::Game, Container, &Error)) << Error;
 	ASSERT_EQ(Container.Entries.size(), 1u);
 	EXPECT_EQ(Container.Entries[0].PayloadId, Durin::TextureCubePrimaryCookedPayloadId);
-	std::unique_ptr<Durin::FTextureCubePlatformData> Decoded;
-	const Durin::FPayloadDecodeResult DecodeResult = Durin::DecodeTextureCubePayload(
-		Container.Payloads[0], Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, Decoded);
-	ASSERT_TRUE(DecodeResult) << DecodeResult.Message;
-	ASSERT_NE(Decoded, nullptr);
+	Durin::FTextureCubePlatformData Decoded;
+	Durin::FCanonicalMemoryReader PayloadAr(
+		Container.Payloads[0], Durin::EArchivePurpose::CookedPayload);
+	Decoded.Serialize(PayloadAr, {
+		.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
+		.TargetProfile = Durin::Asset::ECookTargetProfile::Game});
+	ASSERT_FALSE(PayloadAr.HasError());
 	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
-		EXPECT_EQ(Decoded->Faces[FaceIndex].Mips[0].Pixels,
+		EXPECT_EQ(Decoded.Faces[FaceIndex].Mips[0].Pixels,
 			Expected.Faces[FaceIndex].Mips[0].Pixels);
 
 	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)

@@ -17,6 +17,7 @@
 #include "RendererModule.h"
 #include "Renderers/SceneVisibility.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMeshSourceTranslation.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "StaticMeshTestAccess.h"
 #include "SceneImport.h"
@@ -191,7 +192,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	const Durin::FAssetPath LODContractPath =
 		MakeAssetPath("/SceneImportVulkan/LODContract");
 	const Durin::FStaticMeshImportResult LODContractImport =
-		Durin::DStaticMesh::ImportAsset(
+		Durin::StandardAssetImport::ImportStaticMeshAsset(
 			(std::filesystem::path(DURIN_TEST_DATA_DIR)
 				/ "MultiSection.gltf").generic_string(),
 			LODContractPath.ToString());

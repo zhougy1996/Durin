@@ -13,6 +13,8 @@
 #include "Math/Operations.h"
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshBuildOperations.h"
+#include "StandardAssetImportProviders.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
 #include "Thumbnail/StaticMeshAssetThumbnail.h"
 #include "Thumbnail/TextureCubeAssetThumbnail.h"
@@ -301,6 +303,7 @@ namespace Durin::Tests
 	) -> bool
 	{
 		InitializeDObjectSystem();
+		if (!RegisterStandardAssetImportProviders(OutError)) return false;
 		const std::filesystem::path Root = GetRenderedAssetThumbnailFixtureRoot();
 		static std::unordered_map<std::filesystem::path, FRenderedAssetThumbnailFixtureSet> CachedFixtures;
 		if (auto It = CachedFixtures.find(Root); It != CachedFixtures.end())
@@ -403,12 +406,12 @@ namespace Durin::Tests
 
 		Result = Asset::CreateAsset(StaticMeshPath, OutFixtures.StaticMesh);
 		if (!Result) return Fail(Result.Message);
-		FStaticMeshImportedData ImportedMesh;
+		AssetBuild::FStaticMeshImportedData ImportedMesh;
 		ImportedMesh.MaterialSlots.push_back({
 			.Name = "Default",
 			.SourceMaterialIndex = 0,
 			.SourceName = "Default"});
-		FStaticMeshImportedMesh& Mesh = ImportedMesh.Meshes.emplace_back();
+		AssetBuild::FStaticMeshImportedMesh& Mesh = ImportedMesh.Meshes.emplace_back();
 		Mesh.Name = "ThumbnailTetrahedron";
 		Mesh.Positions = {
 			FVector3f(-0.6f, -0.5f, -0.4f),
@@ -428,8 +431,8 @@ namespace Durin::Tests
 			.ImporterId = "RenderedThumbnailFixture",
 			.ImporterVersion = 1,
 			.ImportSettings = FStaticMeshImportSettings::MakeDurin()};
-		if (!OutFixtures.StaticMesh->InitializeFromImportedData(
-				ImportedMesh,
+		if (!AssetBuild::FStaticMeshBuildOperations::BuildAndPublishImported(
+				*OutFixtures.StaticMesh, ImportedMesh,
 				SourceImportData,
 				"Rendered thumbnail StaticMesh fixture",
 				OutError)

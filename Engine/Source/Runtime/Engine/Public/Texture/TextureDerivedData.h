@@ -44,9 +44,4 @@ namespace Durin
 		BC7_UNORM_SRGB = 7
 	};
 
-	ENGINE_API auto DecodeTextureCubePayload(
-		std::span<const uint8> Bytes,
-		Asset::ECookTargetPlatform ExpectedPlatform,
-		Asset::ECookTargetProfile ExpectedProfile,
-		std::unique_ptr<FTextureCubePlatformData>& OutPlatformData) -> FPayloadDecodeResult;
 }

@@ -7,6 +7,7 @@
 #include "Misc/Project.h"
 #include "Misc/StringConvert.h"
 #include "MonaImGui.h"
+#include "StaticMeshSourceTranslation.h"
 
 namespace Durin::Editor::Level
 {
@@ -363,7 +364,7 @@ namespace Durin::Editor::Level
 	auto FStaticMeshImportDialog::Import() -> bool
 	{
 		Callbacks.Clear();
-		const FStaticMeshImportResult Result = DStaticMesh::ImportAsset(
+		const FStaticMeshImportResult Result = StandardAssetImport::ImportStaticMeshAsset(
 			SourcePathBuffer.data(), Destination.GetPath(), ImportSettings,
 			SourceMode == EMountedSourceImportMode::IngestExternal
 				? std::string_view(SourceDestinationBuffer.data()) : std::string_view{},

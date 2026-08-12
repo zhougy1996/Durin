@@ -7,10 +7,12 @@
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "Math/Operations.h"
+#include "Modules/ModuleManager.h"
 #include "NativeDObjectTestSupport.h"
 #include "Physics/BodySetup.h"
 #include "Physics/PhysicsScene.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMesh/StaticMeshBuildOperations.h"
 
 #include <gtest/gtest.h>
 #include <random>
@@ -237,13 +239,14 @@ TEST(FPhysicsWorldTests, CollisionDebugSnapshotIsBoundedAndDisabledByDefault)
 
 TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry)
 {
+	Durin::FModuleManager::Get().LoadModule("EngineAssetBuild");
 	Durin::DWorld* FirstWorld = CreatePhysicsWorld();
 	Durin::DWorld* SecondWorld = CreatePhysicsWorld();
 	std::string Error;
 	Durin::DStaticMesh* Mesh = Durin::NewObject<Durin::DStaticMesh>(FirstWorld, "SceneCollisionMesh");
-	Durin::FStaticMeshImportedData Imported;
+	Durin::AssetBuild::FStaticMeshImportedData Imported;
 	Imported.MaterialSlots.push_back({"Default", 0, "Default"});
-	Durin::FStaticMeshImportedMesh& ImportedMesh = Imported.Meshes.emplace_back();
+	Durin::AssetBuild::FStaticMeshImportedMesh& ImportedMesh = Imported.Meshes.emplace_back();
 	ImportedMesh.Name = "Tetrahedron";
 	ImportedMesh.Positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
 	ImportedMesh.Indices = {0, 2, 1, 0, 1, 3, 1, 2, 3, 2, 0, 3};
@@ -254,8 +257,8 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 		.ImporterId = "PhysicsSceneFixture",
 		.ImporterVersion = 1,
 		.ImportSettings = Durin::FStaticMeshImportSettings::MakeDurin()};
-	ASSERT_TRUE(Mesh->InitializeFromImportedData(
-		Imported, Provenance, "Scene collision fixture", Error)) << Error;
+	ASSERT_TRUE(Durin::AssetBuild::FStaticMeshBuildOperations::BuildAndPublishImported(
+		*Mesh, Imported, Provenance, "Scene collision fixture", Error)) << Error;
 	ASSERT_TRUE(Mesh->SetCollisionSourceMode(
 		Durin::EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error)) << Error;
 	auto AddMesh = [&](Durin::DWorld& World, std::string_view Name) {
