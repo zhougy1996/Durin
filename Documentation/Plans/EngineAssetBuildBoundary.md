@@ -1,6 +1,6 @@
-# Engine Asset Format and Build Boundary Plan
+# Engine Asset Serialization and Build Boundary Plan
 
-Summary: Rebuild the Engine asset authoring boundary around unified runtime-owned payload codecs, FArchive-based bidirectional serialization, detached authoring builds, and explicit source translators.
+Summary: Standardize authored assets, build keys, DDC values, and cooked data on UE-style type-owned Serialize(FArchive&) while isolating source translation and derived builds.
 
 Last reviewed: 2026-08-12
 
@@ -14,6 +14,10 @@ design assigned payload writers to `EngineAssetBuild` while retaining payload
 readers in Runtime `Engine`. That direction is rejected: a stable binary format
 has one semantic owner, and its save, load, validation, version negotiation,
 limits, stable identifiers, alignment, and checksum rules must evolve together.
+This revision also rejects direction-named `Encode*` and `Decode*` functions as
+the final serialization API. Authored assets, runtime/platform values, build-key
+inputs, DDC values, cooked descriptors, and cooked bulk data all participate in
+one `Serialize(FArchive&)` protocol owned by the type whose state is serialized.
 
 Work completed before this rewrite remains useful and is not reverted merely to
 restart the plan:
@@ -43,20 +47,25 @@ acceptable boundary:
   the old Engine builder implementation and keep `bc7enc_rdo` linked by both
   Engine and `EngineAssetBuild` in editor configurations.
 - StaticMesh still relies on Runtime decoder registration and broad asset-owned
-  build behavior; skeletal, animation, and terrain key/build/codec boundaries
-  have not been normalized.
+  build behavior; skeletal, animation, and terrain key/build/serialization
+  boundaries have not been normalized.
 - The current `FArchive` abstraction has the right bidirectional direction and
   structured failure model, but its primitive memory archives use native byte
   representation and lack the bounded, canonical binary facilities needed to
   replace the asset-specific wire readers and writers safely.
 
-No further writer-only extraction is allowed. The next implementation work is
-the archive foundation and a complete Texture2D vertical slice.
+No further writer-only extraction or new direction-named payload API is allowed.
+The next implementation work is the archive foundation and a complete
+Texture2D vertical slice.
 
 ## Goal
 
 Establish one structural dependency boundary for Engine assets:
 
+- Every persistent Engine value enters the byte layer through a type-owned
+  `Serialize(FArchive&)`, a UE-style `Serialize(FArchive&, Owner/Context)` when
+  owner context is genuinely required, or an equivalent free `Serialize`/
+  `operator<<` customization for non-owning value types.
 - Runtime `Engine` owns runtime asset value types and the complete bidirectional
   serialization contract for every payload those types consume.
 - `EngineAssetBuild` owns source-independent production of runtime/platform
@@ -83,8 +92,8 @@ uses the following terms consistently:
 | --- | --- | --- |
 | Source translation | PNG/HDR/FBX/glTF/Assimp bytes to normalized pixels, geometry, skeletons, clips, or height samples | `StandardAssetImport` |
 | Derived build | Mips, panorama projection, BC compression, mesh/collision conversion, palette generation, hierarchy construction | `EngineAssetBuild` |
-| Payload serialization | Runtime/platform values to or from TXPL, DMSH, DCOL, skeletal, animation, or THPL bytes | Runtime `Engine` |
-| Build identity | Canonical build-recipe inputs to a DDC key | `EngineAssetBuild` |
+| Value serialization | Type-owned `Serialize(FArchive&)` for authored, DDC, cooked, TXPL, DMSH, DCOL, skeletal, animation, or THPL state | The module that owns the serialized value type |
+| Build identity | Build-key input `Serialize` through a canonical hashing/key archive | `EngineAssetBuild` |
 | Object storage/publication | DDC object bytes, packages, Cook descriptors, atomic writes, mutation transactions | `AssetCore` |
 
 Source translation may decode a third-party file format. A derived build may
@@ -116,7 +125,8 @@ DurinGame -----------------> Engine only from this authoring branch
 
 Arrows point from a consumer toward a dependency. In particular:
 
-- `EngineAssetBuild` depends on `Engine` and calls Engine-owned payload codecs.
+- `EngineAssetBuild` depends on `Engine` and calls Engine-owned value
+  `Serialize` operations.
 - `StandardAssetImport` depends on `AssetImportCore` and `EngineAssetBuild`.
 - `Engine` never includes, loads, registers, or discovers an authoring module.
 - `AssetImportCore` never depends on an Engine asset family or a concrete source
@@ -130,8 +140,10 @@ Arrows point from a consumer toward a dependency. In particular:
 
 `Core` owns the reusable byte-archive substrate:
 
-- archive direction, purpose, canonical byte order, position, bounded regions,
-  version contexts, first-failure state, and raw byte transfer;
+- archive direction, persistence, cooking, editor-only filtering, bulk-data
+  policy, purpose/capabilities, canonical byte order, byte swapping, position,
+  bounded regions, custom/format versions, first-failure state, and raw byte
+  transfer;
 - canonical memory/span readers and writers;
 - counting and hashing archives required for deterministic sizes, offsets, and
   checksums;
@@ -141,6 +153,11 @@ Arrows point from a consumer toward a dependency. In particular:
 The generic substrate must not know `DObject`, packages, DDC namespaces, or an
 Engine payload schema.
 
+As in UE, `IsLoading`, `IsSaving`, `IsPersistent`, `IsCooking`,
+`IsFilterEditorOnly`, bulk-data policy, target information, and custom versions
+are archive context queried by serializers. `EArchivePurpose` refines that
+context for Durin; it does not replace these orthogonal facts.
+
 ### CoreDObject
 
 `CoreDObject` layers object semantics over the Core archive substrate:
@@ -149,6 +166,11 @@ Engine payload schema.
 - object/field/path scopes and canonical reflected map behavior;
 - hard and soft `DObject` references;
 - object graph, duplicate, property snapshot, and authored-package adapters.
+
+The object-aware layer is the Durin equivalent of UE's archive specialization
+for UObjects: ordinary `DObject` types still override one
+`Serialize(FArchive&)`, while object reference behavior is supplied by the
+active archive rather than by asset-specific readers and writers.
 
 Existing `DObject::Serialize` behavior and package bytes must remain qualified
 during the extraction. Transitional include forwarding is allowed, but the
@@ -164,6 +186,11 @@ generic archive implementation must have a single final owner.
   mutation transactions;
 - source capture/storage primitives that do not recognize a concrete format.
 
+AssetCore package descriptors, manifests, bulk references, cache records, and
+other persistent generic values use their own `Serialize` implementations.
+DDC values are immutable opaque buffers identified by key/value identity,
+content hash, and size; the store never calls an Engine-type serializer itself.
+
 It does not own texture/mesh/skeletal/animation/terrain schema fields, build
 versions, or build decisions.
 
@@ -174,8 +201,13 @@ versions, or build decisions.
 - reflected asset schema needed to load authored and cooked packages;
 - runtime/platform value types, stable serialized identifiers, payload IDs,
   schema versions, limits, layout rules, and semantic validation;
-- one bidirectional `FArchive` serializer per payload family;
-- thin encode/decode convenience wrappers that both call that serializer;
+- owning `DObject`-derived asset `Serialize(FArchive&)` overrides for authored
+  and cooked package fields, plus type-owned
+  `Serialize(FArchive&, Owner/Context)` operations for runtime/platform data,
+  chunk tables, mip/LOD records, and bulk descriptors;
+- purpose-specific `SerializeCooked`-style helpers only where a cooked layout
+  materially differs, always entered through the same Archive protocol and
+  never split by save versus load direction;
 - runtime CPU state, render-resource construction, readiness, strict cooked
   loading, and narrow detached-state publication/exchange seams.
 
@@ -206,7 +238,9 @@ Public worker operations consume immutable or owned snapshots and return
 detached values. They never accept a mutable `DObject`, package, registry model,
 render resource, or RHI object. The module does not recognize PNG, HDR, FBX,
 glTF, or Assimp source formats and does not implement an Engine payload wire
-writer.
+writer. It serializes Build key inputs through a canonical key/hash archive and
+serializes completed runtime/platform values by calling their Engine-owned
+`Serialize` implementations.
 
 ### AssetImportCore
 
@@ -232,27 +266,101 @@ It must not forward encoded source bytes to `EngineAssetBuild`, write Engine
 payload formats, compress runtime blocks, or register a decoder in Runtime
 Engine.
 
-## Payload Codec Contract
+## Unified Serialize Contract
 
-### One owner and one serializer
+### One protocol, multiple owning types
 
-Every stable payload family has one Engine-resident serializer such as:
+Every persistent boundary uses `Serialize`; there is no separate family of
+writer and reader APIs:
+
+| Boundary | Owning serialization entry | Archive behavior |
+| --- | --- | --- |
+| Authored asset/package | Owning `DObject`-derived asset `Serialize(FArchive&)` and reflected value `Serialize` operations | Persistent object archive with object references and editor fields |
+| Cooked asset/package | The same asset `Serialize`, queried through `Ar.IsCooking()` / editor-only filtering, plus serializable descriptors | Persistent Cook archive |
+| DDC build key | Build-owned key input `Serialize` through a canonical key/hash archive | Save-only, deterministic and path/timestamp independent |
+| DDC value | Runtime/platform value `Serialize` into an immutable value buffer | Canonical persistent memory archive |
+| Cooked bulk payload | The same runtime/platform value `Serialize`, or its `SerializeCooked` helper when the Cook layout is intentionally different | Persistent bounded bulk archive |
+| DDC/cache record | AssetCore record/metadata `Serialize`; Engine value remains opaque bytes | Asset-family-neutral storage archive |
+
+The preferred shape follows UE runtime value types:
 
 ```cpp
-auto SerializeTexture2DPayload(
-    FArchive& Ar,
-    FTexturePayloadContext& Context,
-    FTexturePlatformData& Value) -> void;
+struct FTexturePlatformData
+{
+    auto Serialize(FArchive& Ar, DTexture* Owner) -> void;
+    auto SerializeCooked(FArchive& Ar, DTexture* Owner) -> void;
+};
+
+class DTexture2D : public DTexture
+{
+    auto Serialize(FArchive& Ar) -> void override;
+};
+
+struct FTexture2DBuildKeyInput
+{
+    auto Serialize(FArchive& Ar) -> void;
+};
 ```
 
-The public save and load wrappers translate archive failures into the existing
-result style, but contain no independent field order, version, offset, limit,
-or validation implementation. A load constructs a detached candidate and only
-returns or publishes it after archive and semantic validation succeed.
+An optional owner or format context is allowed when the value cannot interpret
+itself without stable external facts, matching UE's platform/render-data
+serializers. It must not duplicate direction, persistence, Cook state, target,
+or version data already carried by the Archive. Free `Serialize` or
+`operator<<` is preferred when a type cannot or should not own a member.
 
-Offset tables, chunk directories, padding, checksums, and bulk regions remain
-part of the serializer contract. The archive layer must support them without
-unbounded allocation or native-layout serialization.
+`SerializeCooked` is a semantic layout helper, not a save-direction API. If DDC
+and cooked bytes have the same schema, both routes call the exact same
+`Serialize`. If Cook repackages the value for streaming or bulk placement, the
+outer Cook serializer may differ while inner mip/LOD/chunk values continue to
+use their shared `Serialize` operations.
+
+Direction is always selected by the Archive:
+
+```cpp
+FCanonicalMemoryWriter DdcAr(OutputBytes, EArchivePurpose::DerivedDataPayload);
+Product.PlatformData.Serialize(DdcAr, OwnerContext);
+
+FCanonicalMemoryReader CookedAr(InputBytes, EArchivePurpose::CookedPayload);
+Candidate.PlatformData.Serialize(CookedAr, OwnerContext);
+```
+
+Loading serializes into a detached candidate. Archive failure, version failure,
+or semantic validation failure discards that candidate; only a fully validated
+value may be published.
+
+### Archive context instead of API proliferation
+
+Serializers query Archive state rather than selecting an `Encode`, `Decode`,
+`SaveDdc`, or `LoadCooked` function. Stage 1 adds the relevant UE-style queries
+to Durin's existing purpose/capability model:
+
+- `IsLoading()` and `IsSaving()` for direction;
+- `IsPersistent()` for transient-field policy;
+- `IsCooking()` and Cook target/profile for platform selection;
+- `IsFilterEditorOnly()` for authored-versus-runtime fields;
+- bulk-data skip/inline policy for package and streaming layouts;
+- custom/format versions for schema evolution;
+- `GetPurpose()` for Durin-specific authored package, DDC key/value, cooked
+  package/payload, duplication, discovery, and snapshot behavior.
+
+Serializers should normally stream fields without branching. Direction checks
+are reserved for allocation, post-load validation, migration, and ownership
+differences; Cook/purpose checks are reserved for genuine schema or field-set
+differences. One giant asset serializer must not absorb Build, DDC lookup,
+source translation, or publication behavior merely because all values use
+`FArchive`.
+
+### One owner and one field order
+
+Each serialized value type has one implementation of field order, stable IDs,
+versions, offsets, limits, alignment, padding, checksums, and semantic
+validation. Direction-named compatibility wrappers may exist only during the
+asset family's migration stage and must immediately delegate to the value's
+`Serialize`; they are removed at that stage's acceptance gate.
+
+Offset tables, chunk directories, checksums, and bulk regions are serializable
+value types rather than anonymous writer/reader code. The archive layer must
+support them without unbounded allocation or native-layout serialization.
 
 ### Version ownership
 
@@ -260,8 +368,8 @@ Versions are separated by the behavior they invalidate:
 
 | Version | Owner | Effect |
 | --- | --- | --- |
-| Payload schema version | Runtime `Engine` codec | Determines wire compatibility and reader selection |
-| Stable serialized ID revision | Runtime `Engine` codec | Defines persistent enum/type identities |
+| Payload schema/custom version | Runtime `Engine` serialized value | Determines field/layout compatibility during `Serialize` |
+| Stable serialized ID revision | Runtime `Engine` serialized value | Defines persistent enum/type identities |
 | Builder version | `EngineAssetBuild` | Invalidates build keys when produced values can change |
 | Compressor/SDK version | `EngineAssetBuild` | Invalidates relevant build keys and diagnostics |
 | Projection/conversion version | `EngineAssetBuild` | Invalidates the affected build recipe |
@@ -278,13 +386,13 @@ compatibility gate.
   encoding; no primitive is serialized by native object representation.
 - Every count, byte length, offset, range, multiplication, and allocation is
   bounded before use.
-- Readers reject overlap, non-canonical ordering, non-zero reserved fields or
-  padding, incompatible IDs, checksum mismatch, trailing bytes where forbidden,
-  and incomplete semantic structures.
-- Writers apply the same limits and stable identifiers as readers.
+- Loading serializers reject overlap, non-canonical ordering, non-zero reserved
+  fields or padding, incompatible IDs, checksum mismatch, trailing bytes where
+  forbidden, and incomplete semantic structures.
+- Saving serializers apply the same limits and stable identifiers as loading.
 - Generic archive helpers do not silently serialize container capacity,
   pointers, padding, ABI layout, paths, timestamps, or unordered iteration.
-- A codec change that alters bytes requires an explicit schema decision,
+- A `Serialize` change that alters bytes requires an explicit schema decision,
   golden update, compatibility reader or migration story, and Cook/runtime
   qualification. A module move alone never changes bytes.
 
@@ -297,11 +405,15 @@ captured source bytes
   -> StandardAssetImport translator
   -> normalized immutable EngineAssetBuild request
   -> pure/cancellable detached build product
-  -> Engine-owned payload serializer
-  -> EngineAssetBuild DDC policy
+  -> Build key input Serialize -> canonical key/hash archive
+  -> platform/runtime value Serialize -> immutable DDC value buffer
+  -> EngineAssetBuild DDC policy/store
   -> prepared main-thread publication
   -> AssetCore transaction commit
 ```
+
+Cook later serializes the same accepted runtime/platform value through a Cook
+Archive; runtime load executes that value's `Serialize` in the load direction.
 
 Requests include every normalized source identity, setting, target/profile,
 builder dependency, and version required for a stable key. Physical paths and
@@ -309,7 +421,7 @@ timestamps are optimization or diagnostic facts, never key identity.
 
 Worker tasks cannot access `DObject`. Main-thread publication may call a narrow
 Engine-owned exchange that atomically swaps a complete candidate. Cancellation,
-translation failure, build failure, codec failure, DDC corruption/write
+translation failure, build failure, serialization failure, DDC corruption/write
 failure, stale generation, or publication failure preserves the previous
 complete authored and runtime state according to the existing contract.
 
@@ -324,19 +436,19 @@ The following facts are frozen as the starting point for the rewritten plan:
 | Area | Reusable work | Required correction |
 | --- | --- | --- |
 | Module graph | `EngineAssetBuild` exists and authoring/game selection gates exist | Complete dependency/deployment proof after all legacy Engine links are removed |
-| Archive | Bidirectional direction, purpose, capability, versions, paths, failures, memory archives | Separate generic Core byte layer from DObject semantics; add canonical endian, span, bounds, alignment, counting and hashing |
-| Texture2D builder | Active candidate/test path uses the exported build module algorithms | Replace encoded-byte/mutable-asset API, unify TXPL codec in Engine, migrate coordinator and remove Engine builder copy |
-| TextureCube builder | Panorama/six-face projection and provider candidate paths use build operations | Move source decoding to StandardAssetImport, unify TXPL codec and keys, remove legacy Engine seams |
-| Terrain | Provider candidate and direct import can reach build operations | Introduce normalized samples request/product, unify THPL codec, move keys and authoring policy |
-| StaticMesh | Characterized DMSH/DCOL, detached render candidate and exchange mechanisms exist | Route normalized geometry through Build; unify codecs; remove decoder registration and asset self-build APIs |
-| Skeletal/animation | Stable keys, payloads, relationship validation and exchanges exist | Split translation/build/codec/version ownership and detach worker paths |
+| Archive | Bidirectional direction, purpose, capability, versions, paths, failures, memory archives | Separate generic Core byte layer from DObject semantics; add UE-style persistence/Cook/filter/bulk context, canonical endian, span, bounds, alignment, counting and hashing |
+| Texture2D builder | Active candidate/test path uses the exported build module algorithms | Replace encoded-byte/mutable-asset API, route asset/key/platform/DDC/Cooked state through type-owned `Serialize`, migrate coordinator and remove Engine builder copy |
+| TextureCube builder | Panorama/six-face projection and provider candidate paths use build operations | Move source decoding to StandardAssetImport, unify TXPL value `Serialize` and Build key `Serialize`, remove legacy Engine seams |
+| Terrain | Provider candidate and direct import can reach build operations | Introduce normalized samples request/product, unify THPL value `Serialize`, move key `Serialize` and authoring policy |
+| StaticMesh | Characterized DMSH/DCOL, detached render candidate and exchange mechanisms exist | Route normalized geometry through Build; make runtime values own `Serialize`; remove decoder registration and asset self-build APIs |
+| Skeletal/animation | Stable keys, payloads, relationship validation and exchanges exist | Split translation/build/serialization/version ownership and detach worker paths |
 | Import | Framework transactions and standard providers are established | Translators must emit normalized Build requests rather than encoded-byte calls or Runtime decoder registration |
-| DDC | Generic object storage and asset-specific characterization exist | Keep storage generic; move recipe/key/policy to Build while Engine owns payload bytes |
-| Tests | Golden keys/hashes, corruption, Cook, runtime and rollback coverage exist | Add archive symmetry/version/bounds tests and vertical-slice dependency gates |
+| DDC | Generic object storage and asset-specific characterization exist | Keep storage generic and opaque; move recipe/key/policy to Build while Engine runtime/platform values own payload `Serialize` |
+| Tests | Golden keys/hashes, corruption, Cook, runtime and rollback coverage exist | Add Serialize routing/symmetry/context/version/bounds tests and vertical-slice dependency gates |
 
 The earlier Stage 0 characterization is retained as evidence. Its former rule
 that private payload writers follow build operations is explicitly replaced by
-the codec-follows-runtime-value rule in this plan.
+the `Serialize`-follows-value-owner rule in this plan.
 
 ## Implementation Stages
 
@@ -353,7 +465,10 @@ Dependencies: none.
 - [ ] Record all duplicate implementations and compatibility seams, including
   their named consumers and the exact stage that removes them.
 - [ ] Add explicit dependency checks that distinguish source translators,
-  offline compressors, payload codecs, build keys, and generic storage.
+  offline compressors, serialized runtime values, build keys, and generic
+  storage.
+- [ ] Map every direction-named `Encode*`/`Decode*` entry to its final owning
+  value's `Serialize`, and name the migration stage that removes the wrapper.
 - [ ] Confirm the pre-archive-refactor byte baselines for object graphs,
   authored packages, DDC keys, TXPL, DMSH/DCOL, skeletal, animation, THPL, and
   cooked packages.
@@ -361,9 +476,9 @@ Dependencies: none.
 
 #### Acceptance Gate
 
-- Every operation is classified as source translation, derived build, payload
+- Every operation is classified as source translation, derived build, value
   serialization, build identity, storage, or publication, with exactly one
-  final module owner.
+  final module owner and serialization entry.
 - Every duplicate and migration seam has a bounded removal stage and a named
   compatibility test.
 - Existing byte, failure, transaction, lifecycle, and dependency baselines are
@@ -373,16 +488,24 @@ Dependencies: none.
 
 Dependencies: revised Stage 0 inventory and byte baselines.
 
-- [ ] Extract archive direction, purpose, canonical byte order, raw transfer,
-  position, bounded regions, versions, and failure state into a generic `Core`
+- [ ] Extract archive direction, persistence, Cook state/target, editor-only
+  filtering, bulk-data policy, purpose/capabilities, canonical byte order,
+  byte swapping, raw `Serialize(void*, size)` transfer, position, bounded
+  regions, custom/format versions, and failure state into a generic `Core`
   archive layer.
 - [ ] Retain reflected field/object/path scopes, DObject reference behavior, and
-  object/package adapters in `CoreDObject` on top of that layer.
+  object/package adapters in a CoreDObject object-aware archive layer on top of
+  Core, following UE's `FArchive`/object-archive separation.
+- [ ] Define and qualify the repository customization convention: member
+  `Serialize(FArchive&)`, UE-style `Serialize(FArchive&, Owner/Context)`, or free
+  `Serialize`/`operator<<`; direction-named save/load APIs are not a final
+  customization point.
 - [ ] Add canonical little-endian span reader/writer, counting archive, hashing
   archive, alignment/padding helpers, bounded byte/string/sequence helpers, and
   const-correct save versus mutable load byte APIs.
-- [ ] Add payload/key archive purposes without coupling Core to Engine or DDC
-  asset families.
+- [ ] Add authored package, DDC key/value, cooked package/payload, and bulk-data
+  purposes plus UE-style `IsPersistent`, `IsCooking`, `IsFilterEditorOnly`, and
+  bulk policy queries without coupling Core to Engine asset families.
 - [ ] Migrate or adapt `DerivedDataCache::FWriter/FReader` so canonical primitive
   behavior has one implementation while preserving every existing cache byte.
 - [ ] Preserve source compatibility with forwarding headers or aliases only
@@ -396,20 +519,29 @@ Dependencies: revised Stage 0 inventory and byte baselines.
 #### Acceptance Gate
 
 - Core owns one canonical byte archive independent of `DObject` and assets.
+- All persistent types share one documented `Serialize` customization protocol;
+  Archive state, not a direction-named function, selects load/save/Cook behavior.
 - CoreDObject behavior and all frozen object/package bytes remain compatible.
 - No persistent writer relies on native ABI representation or unbounded
   container allocation.
-- The archive facilities required by payload codecs are public, documented, and
-  qualified before any payload implementation is rewritten.
+- The archive facilities required by asset, key, DDC-value, Cook and bulk-data
+  serializers are public, documented, and qualified before any payload value is
+  rewritten.
 
 ### Stage 2: Complete the Texture2D vertical slice
 
 Dependencies: canonical archive foundation.
 
-- [ ] Split the mixed Texture derived-data header into Engine-owned payload
-  schema/codec declarations and Build-owned recipe/key declarations.
-- [ ] Replace the Runtime TXPL encoder and decoder with thin wrappers over one
-  Engine-resident bidirectional Texture2D payload serializer.
+- [ ] Split the mixed Texture derived-data header into Engine-owned serialized
+  runtime/platform value declarations and Build-owned recipe/key declarations.
+- [ ] Make `DTexture2D::Serialize(FArchive&)` own authored/cooked object fields
+  and make `FTexturePlatformData::Serialize(FArchive&, Owner/Context)` own the
+  TXPL field order, records, bulk bytes, limits, checksums, and both directions.
+- [ ] Route DDC and Cook through that platform-data `Serialize`; add a
+  `SerializeCooked` helper only if the intentionally different Cook layout
+  requires it.
+- [ ] Retain `EncodeTexture2DPayload`/`DecodeTexture2DPayload` only as immediate
+  delegating migration wrappers, then delete both in this stage.
 - [ ] Preserve exact TXPL bytes, strict corrupt-input diagnostics, platform
   value construction, and source/DDC-free cooked loads.
 - [ ] Remove builder version as a Runtime payload compatibility gate while
@@ -417,9 +549,9 @@ Dependencies: canonical archive foundation.
 - [ ] Replace `BuildTexture2DFromEncodedBytes(DTexture2D&, ...)` with a normalized
   decoded-image request and detached product; move concrete image translation
   to `StandardAssetImport`.
-- [ ] Keep Texture2D key construction, builder/compressor versions, DDC namespace
-  and policy solely in `EngineAssetBuild`; call the Engine codec to serialize a
-  valid product.
+- [ ] Make `FTexture2DBuildKeyInput::Serialize` the sole canonical recipe field
+  order and keep builder/compressor versions, DDC namespace and policy solely in
+  `EngineAssetBuild`; serialize valid products through Engine value types.
 - [ ] Migrate the Texture2D coordinator, diagnostics, waits and lifecycle to the
   build module without allowing worker access to assets.
 - [ ] Add a main-thread publication adapter using the narrow Engine-owned
@@ -430,8 +562,9 @@ Dependencies: canonical archive foundation.
 
 #### Acceptance Gate
 
-- Texture2D has one Engine TXPL serializer, one Build recipe/key implementation,
-  one Standard image translation path, and no duplicate writer or builder.
+- Texture2D asset state, build-key input, DDC value and Cooked value all enter
+  the byte layer through their owning `Serialize` operations; no public
+  direction-named payload API, duplicate writer, or duplicate builder remains.
 - Worker build paths accept no encoded source format and touch no `DObject`.
 - Golden keys/payloads, corruption behavior, DDC policy, import/reimport,
   cancellation, latest-wins, rollback, Cook, runtime load and rendering pass.
@@ -441,26 +574,29 @@ Dependencies: canonical archive foundation.
 
 Dependencies: completed Texture2D pattern and no unresolved archive defect.
 
-- [ ] Apply the Texture2D codec/build/key split to TextureCube while sharing only
-  genuinely common Texture codec structures and limits.
+- [ ] Apply the Texture2D value-Serialize/build-key split to TextureCube while
+  sharing only genuinely common Texture serialized structures and limits.
 - [ ] Move LDR/HDR and six-face source translation fully to
   `StandardAssetImport`; pass normalized owned face/panorama values to Build.
 - [ ] Keep projection, exposure policy, mip generation, format selection and
-  compression in Build; keep TXPL serialization in Engine.
+  compression in Build; keep TextureCube asset/platform `Serialize` in Engine
+  and key-input `Serialize` in Build.
 - [ ] Remove the duplicate TextureCube writer, legacy Engine builder, broad
   encoded-source operations, and obsolete publication forwarding.
 - [ ] Introduce a normalized height-sample Terrain request/product, move concrete
   image interpretation to StandardAssetImport, and retain hierarchy/build/key/
   DDC policy in Build.
-- [ ] Rewrite THPL save/load as one Engine `FArchive` serializer and retain
-  runtime query/publication behavior in Engine.
+- [ ] Make the Terrain runtime payload value own one `Serialize(FArchive&)` for
+  THPL DDC/Cooked directions and make the Terrain key input own its canonical
+  Build `Serialize`; retain runtime query/publication behavior in Engine.
 - [ ] Remove Terrain asset self-build/source decode/key/write logic after direct
   import, reimport, repair, Cook and editor callers use the new operations.
 
 #### Acceptance Gate
 
-- TextureCube and Terrain each have one Engine codec, one Build recipe, one
-  normalized translator handoff, and no duplicate or encoded-byte build API.
+- TextureCube and Terrain asset/platform/key/DDC/Cooked values all route through
+  owning `Serialize` operations, with one Build recipe, one normalized
+  translator handoff, and no duplicate or encoded-byte build API.
 - Existing projection, exposure, cube-face ordering, terrain revision,
   hierarchy, DDC, Cook/load, rendering/query and failure semantics pass.
 - Runtime Engine has no Texture build algorithm or offline compressor link.
@@ -476,8 +612,10 @@ qualified against chunked mesh payloads.
   for single-asset and Scene workflows.
 - [ ] Move render-data conversion, collision building, build keys, DDC policy,
   rebuild decisions, metrics and diagnostics to EngineAssetBuild.
-- [ ] Rewrite DMSH and DCOL save/load using Engine-resident bidirectional
-  serializers with shared chunk-directory, bounds and checksum logic.
+- [ ] Make StaticMesh render/collision data, chunk directories, and records own
+  Engine-resident `Serialize(FArchive&, Owner/Context)` operations for DMSH/DCOL
+  DDC and Cooked layouts, bounds, and checksums; make Build key inputs own their
+  canonical `Serialize`.
 - [ ] Preserve material reconciliation, reflected provenance/settings,
   body-setup ownership, cooked descriptors, runtime collision/render values and
   imported-state exchange in Engine.
@@ -491,14 +629,15 @@ qualified against chunked mesh payloads.
 
 - StaticMesh source translators call Build explicitly; Engine owns no decoder
   registry, source format or build policy.
-- DMSH/DCOL have one serializer each and preserve golden bytes, strict malformed
-  chunk behavior, collision, Cook/load and render-resource results.
+- DMSH/DCOL runtime values and Build key inputs have one owning `Serialize`
+  implementation each and preserve golden bytes, strict malformed chunk
+  behavior, collision, Cook/load and render-resource results.
 - Single and Scene import/reimport preserve slot/material reconciliation,
   fingerprints, output order, repair and rollback.
 
 ### Stage 5: Complete SkeletalMesh and AnimationClip slices
 
-Dependencies: StaticMesh chunked codec and Scene import pattern.
+Dependencies: StaticMesh chunked Serialize and Scene import pattern.
 
 - [ ] Define normalized Build requests for skeleton relationships, skeletal
   geometry/influences and animation tracks without exposing provider-specific
@@ -507,9 +646,10 @@ Dependencies: StaticMesh chunked codec and Scene import pattern.
   StandardAssetImport.
 - [ ] Move skeletal/animation preparation, key recipes, builder versions, DDC
   decisions, fingerprints and authoring diagnostics to EngineAssetBuild.
-- [ ] Rewrite skeletal and animation payload save/load as Engine-resident
-  bidirectional serializers while preserving strict relationship and skeleton
-  compatibility validation.
+- [ ] Make skeletal render/payload values and animation clip values own
+  Engine-resident `Serialize(FArchive&, Owner/Context)` operations for DDC and
+  Cooked layouts, and make their Build key inputs own canonical `Serialize`,
+  while preserving strict relationship and skeleton compatibility validation.
 - [ ] Preserve runtime payload/value types, skeleton references, Cook
   descriptors, sampling, render-resource creation and imported-state exchanges
   in Engine.
@@ -518,8 +658,9 @@ Dependencies: StaticMesh chunked codec and Scene import pattern.
 
 #### Acceptance Gate
 
-- SkeletalMesh and AnimationClip each have one Engine codec and Build recipe,
-  with translator, worker, and publication boundaries mechanically testable.
+- SkeletalMesh and AnimationClip asset/platform/key/DDC/Cooked values all route
+  through owning `Serialize` operations and one Build recipe, with translator,
+  worker, and publication boundaries mechanically testable.
 - Golden payloads/keys, influence and track bounds, skeleton compatibility,
   Scene output identities, Cook/load, sampling/rendering and rollback pass.
 
@@ -560,11 +701,12 @@ Dependencies: consolidated hosts and lifecycle.
 - [ ] Remove all obsolete Runtime source decoders, build algorithms, DDC key/
   write policy, authoring diagnostics, build coordinators, forwarding wrappers,
   editor-only builder fields and `DURIN_WITH_EDITOR` authoring branches.
-- [ ] Remove duplicated asset payload readers/writers and transitional archive
-  compatibility implementations after repository-wide consumer proof.
-- [ ] Reduce Engine public headers to runtime/authored schema, unified codec
-  contracts, payload access, detached publication seams, consumption status and
-  render resources.
+- [ ] Remove all direction-named payload readers/writers, duplicated field-order
+  implementations, and transitional archive compatibility layers after
+  repository-wide consumer proof.
+- [ ] Reduce Engine public headers to runtime/authored schema, type-owned
+  `Serialize` contracts, payload access, detached publication seams,
+  consumption status and render resources.
 - [ ] Inspect module binaries, third-party links and deployed files for editor,
   game, Cook, tools and focused tests.
 - [ ] Run focused Archive, CoreDObject, AssetCore, Engine asset, builder, import,
@@ -574,13 +716,15 @@ Dependencies: consolidated hosts and lifecycle.
   after focused diagnosis.
 - [ ] Complete clean full `all` builds for the selected editor and game Agent
   Build Profiles and run source/DDC-free cooked game smoke validation.
-- [ ] Move lasting archive, codec, build, import, Cook, lifecycle and runtime
-  independence rules into owning documentation, then complete this plan.
+- [ ] Move lasting Archive/Serialize, build, import, DDC-value, Cook, lifecycle
+  and runtime-independence rules into owning documentation, then complete this
+  plan.
 
 #### Acceptance Gate
 
-- Every payload family has exactly one Engine-resident bidirectional codec and
-  every build family exactly one EngineAssetBuild recipe/key path.
+- Every authored asset, runtime/platform payload, Build key input, DDC value and
+  Cooked value enters bytes through its owning `Serialize`, and every build
+  family has exactly one EngineAssetBuild recipe/key path.
 - StandardAssetImport is the only standard concrete source translator; no
   Runtime or Build module recognizes its file formats.
 - Runtime Engine and `DurinGame` contain no source translator, offline
@@ -597,11 +741,12 @@ Dependencies: consolidated hosts and lifecycle.
   indicates an unresolved archive or ownership defect.
 - A duplicate implementation may exist only inside its named migration stage
   and must be removed at that stage's acceptance gate.
-- Migrate one complete vertical path—translator, build, codec, DDC, publication,
-  Cook and runtime proof—rather than creating another repository-wide
-  reader/writer split.
+- Migrate one complete vertical path—translator, build, owning `Serialize`, DDC,
+  publication, Cook and runtime proof—rather than creating another
+  repository-wide reader/writer split.
 - Preserve public compatibility wrappers only for named consumers and record
-  their removal checklist in the active stage.
+  their removal checklist in the active stage; wrappers delegate immediately to
+  `Serialize` and cannot own field order or validation.
 - Worker purity and module closure are compile/link-testable properties, not
   comments or `DURIN_WITH_EDITOR` conventions.
 - Update this plan's status and acceptance evidence in the same commit as each
@@ -615,12 +760,16 @@ Dependencies: consolidated hosts and lifecycle.
 | Scenario | Required behavior | Evidence owner |
 | --- | --- | --- |
 | Core archive primitives | Exact little-endian bytes, span behavior, counting/hash equivalence and structured failures | Core archive tests |
-| Bounds and hostile input | Overflow, truncation, oversized collections, invalid offsets, overlap, padding and trailing data fail before unsafe access/allocation | Core and asset codec malformed-input tests |
+| Bounds and hostile input | Overflow, truncation, oversized collections, invalid offsets, overlap, padding and trailing data fail before unsafe access/allocation | Core and serialized-value malformed-input tests |
 | DObject archive compatibility | Object graph, duplicate, snapshot, reflected fields, authored PackageV4 and Cook bytes remain stable | CoreDObject and AssetCore tests |
-| Codec symmetry | One serializer saves and loads each payload; save-load-save is deterministic | Engine payload codec tests |
+| Serialize protocol | Member/free `Serialize` and object-aware archives compose without direction-named APIs | Core, CoreDObject and API compile tests |
+| Archive context routing | Loading/saving, persistent, Cook target, editor filtering, bulk policy, purpose and custom versions select the intended fields/layout | CoreDObject, AssetCore and Engine serialization tests |
+| Serialization symmetry | One value `Serialize` saves and loads each payload; save-load-save is deterministic | Engine serialized-value tests |
 | Version separation | Schema compatibility is Runtime-owned; builder/provider changes invalidate keys/fingerprints without false Runtime rejection | Engine, Build and Import version tests |
-| Payload compatibility | TXPL, DMSH, DCOL, skeletal, animation and THPL golden bytes/read results remain stable | Engine codec golden tests |
-| Build-key compatibility | Recipe field order, canonical floats/IDs, versions, targets and dependency hashes remain deterministic | EngineAssetBuild key tests |
+| Asset/DDC/Cook routing | Asset metadata uses object `Serialize`; DDC and Cook use the owning platform value `Serialize` or an explicit Cook-layout helper | Asset, DDC and Cook integration tests |
+| Payload compatibility | TXPL, DMSH, DCOL, skeletal, animation and THPL golden bytes/read results remain stable | Engine Serialize golden tests |
+| Build-key compatibility | Key-input `Serialize` preserves recipe field order, canonical floats/IDs, versions, targets and dependency hashes | EngineAssetBuild key tests |
+| DDC value model | Build outputs are immutable identified buffers; AssetCore storage never interprets Engine value types | EngineAssetBuild, AssetCore and dependency tests |
 | Translator boundary | Standard translators own concrete encoded formats and produce normalized values | StandardAssetImport tests and dependency closure |
 | Worker isolation | Build workers operate on owned values and never access DObject/package/registry/render/RHI state | API compile tests, unit tests and thread assertions |
 | DDC behavior | Namespaces, hit/miss/corrupt policy, atomic writes and best-effort write failures remain stable | EngineAssetBuild and AssetCore tests |
@@ -637,8 +786,12 @@ Dependencies: consolidated hosts and lifecycle.
 - Core exposes one canonical, bounded byte archive; CoreDObject layers reflection
   and object reference semantics over it without duplicated primitive/archive
   implementations.
-- Runtime Engine owns runtime values and the complete save/load/validation/
-  version contract for every Engine payload format.
+- Every authored asset, generic package/cache record, Build key input,
+  runtime/platform value, DDC value and Cooked value uses the common
+  `Serialize(FArchive&)` customization protocol owned by its data type.
+- Runtime Engine owns runtime values and their complete field order, DDC/Cooked
+  serialization, validation and schema/custom-version contract, with no final
+  direction-named payload API.
 - EngineAssetBuild owns source-independent build requests/products, algorithms,
   recipe identity, DDC policy, coordination and authoring diagnostics, and has
   no concrete source decoder or payload wire implementation.
@@ -648,7 +801,7 @@ Dependencies: consolidated hosts and lifecycle.
   at their respective framework/storage boundaries.
 - No build worker accesses mutable assets; complete products publish atomically
   on the main thread through narrow Engine and AssetCore seams.
-- Payload schema, builder, compressor, projection and provider versions have
+- Archive schema/custom, builder, compressor, projection and provider versions have
   distinct owners and invalidation effects.
 - Runtime Engine and DurinGame have no transitive source translator, offline
   compressor, build recipe, DDC builder/coordinator or authoring lifecycle.
@@ -662,14 +815,27 @@ Dependencies: consolidated hosts and lifecycle.
 ## Rejected Designs
 
 - Writer in `EngineAssetBuild` and reader in Runtime `Engine` for one format.
-- A codec-only module that depends on Engine runtime values and creates a cycle;
-  if runtime value types are ever extracted, their codec moves with them.
+- Direction-named `Encode*`/`Decode*`, `SaveDdc*`/`LoadDdc*`, or
+  `WriteCooked*`/`ReadCooked*` as the final API for a value that can own one
+  `Serialize` implementation.
+- A serialization-only module that depends on Engine runtime values and creates
+  a cycle; if runtime value types are ever extracted, their `Serialize` moves
+  with them.
 - Treating payload serialization as an offline compressor merely because only
   authoring currently calls its save direction.
 - Using the current native-representation `FMemoryWriter/FMemoryReader` as a
-  persistent canonical codec without the archive foundation stage.
+  persistent canonical serializer without the archive foundation stage.
 - Public `BuildFromEncodedBytes(DObject&, ...)` operations that combine source
   translation, worker build, storage and publication.
+- One giant asset-object `Serialize` that performs source translation, Build,
+  DDC lookup/write, publication, or render-resource creation.
+- Separate DDC and Cooked serializers for semantically identical platform data;
+  an explicit `SerializeCooked` helper is justified only by a real layout or
+  streaming difference.
+- DDC storage that includes Engine headers or interprets asset-family values
+  instead of storing immutable opaque buffers.
+- Forcing PNG/HDR/FBX/glTF/Assimp source decoding through `FArchive`; translators
+  remain source-format APIs and only their normalized outputs join Build.
 - Runtime decoder registries or dynamic discovery of authoring capabilities.
 - Using builder versions as Runtime wire-compatibility gates.
 - Horizontal migration stages that duplicate every writer before completing
@@ -679,9 +845,9 @@ Dependencies: consolidated hosts and lifecycle.
 
 ## Deferred Follow-ups
 
-- Extract runtime asset value types and their codecs into a lower
+- Extract runtime asset value types and their serialization into a lower
   `EngineAssetRuntime`-style module only if a non-Engine runtime consumer proves
-  the need; never extract codecs alone.
+  the need; never extract `Serialize` separately from its values.
 - Split texture, geometry, skeletal, animation or terrain builders only after a
   measured dependency, deployment, lifecycle or release-cadence requirement.
 - Remote/shared DDC, distributed builds, build farms, build-worker processes and
@@ -699,12 +865,25 @@ The design follows these Unreal Engine precedents at the level of responsibility
 not module count or API compatibility:
 
 - [FArchive](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Core/FArchive?lang=en-US)
-  is a Runtime Core bidirectional serialization foundation.
+  is a Runtime Core byte-order-neutral bidirectional foundation carrying
+  loading/saving, persistent, Cook, editor-filter, bulk, target, bounds and
+  custom-version context.
+- [UObject::Serialize](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/CoreUObject/UObject/Serialize)
+  uses one `Serialize(FArchive&)` for reading, writing and reference collection;
+  [FArchiveUObject](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/CoreUObject/FArchiveUObject)
+  layers object reference behavior over Core `FArchive`.
 - [FTexturePlatformData](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/FTexturePlatformData?lang=en-US)
-  keeps cooked texture serialization with Runtime Engine platform data.
+  owns `Serialize` and `SerializeCooked` with its Runtime Engine platform data;
+  [FStaticMeshRenderData::Serialize](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/FStaticMeshRenderData/Serialize?application_version=5.5)
+  follows the same owner/context pattern for mesh render data.
 - [TextureCompressor](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Developer/TextureCompressor)
   and [TextureFormat](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Developer/TextureFormat)
   separate offline production from runtime serialization.
+- [DerivedDataCache FValue](https://dev.epicgames.com/documentation/unreal-engine/API/Developer/DerivedDataCache/FValue)
+  models a DDC value as an identified compressed buffer, while
+  [FBuildOutput](https://dev.epicgames.com/documentation/unreal-engine/API/Developer/DerivedDataCache/FBuildOutput)
+  is an immutable collection of values, messages and logs; Durin adopts the
+  opaque-value boundary without copying UE's complete DDC system.
 - [Interchange](https://dev.epicgames.com/documentation/unreal-engine/importing-assets-using-interchange-in-unreal-engine)
   separates source translation, pipelines and asset factories.
 
