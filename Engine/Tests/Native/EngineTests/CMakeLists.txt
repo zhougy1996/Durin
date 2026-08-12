@@ -143,7 +143,9 @@ durin_add_legacy_engine_functional_test(EditorPropertyTests
 		Private/Editor/ReflectedPropertyEditSessionTests.cpp
 		Private/Editor/ReflectedPropertyTransactionTests.cpp
 		Private/Editor/ReflectedPropertyContainerTests.cpp
-	LIBRARIES DurinEd LevelEditorViewportContracts
+	PRIVATE_SOURCES
+		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
+	LIBRARIES DurinEd
 )
 
 durin_add_legacy_engine_functional_test(EditorAssetWorkflowTests
@@ -257,7 +259,8 @@ durin_add_legacy_engine_functional_test(StaticMeshTests
 		Private/StaticMeshEditorTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Customizations/StaticMeshMaterialSlotDetails.cpp
-	LIBRARIES AssetImportCore EngineAssetBuild StandardAssetImport RenderCore Renderer DurinEd StaticMeshEditor LevelEditorViewportContracts
+		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
+	LIBRARIES AssetImportCore EngineAssetBuild StandardAssetImport RenderCore Renderer DurinEd StaticMeshEditor
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
@@ -352,8 +355,10 @@ durin_add_legacy_engine_functional_test(TerrainRenderVulkanTests
 
 add_durin_test(LaunchStorageTests
 	Private/Launch/RuntimeStorageTests.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Launch/Private/RuntimeStorage.cpp
 )
-target_link_libraries(LaunchStorageTests PRIVATE LaunchPrivateContracts)
+target_include_directories(LaunchStorageTests PRIVATE ${CMAKE_SOURCE_DIR}/Engine/Source)
+target_link_libraries(LaunchStorageTests PRIVATE Core)
 set_target_properties(LaunchStorageTests PROPERTIES
 	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 )
@@ -361,6 +366,9 @@ durin_finalize_native_test(LaunchStorageTests
 	KIND contract
 	DOMAINS launch
 	MODULES launch
+	PRIVATE_SOURCE_OWNER Launch
+	PRIVATE_SOURCE_RATIONALE
+		"Launch-owned runtime-storage white-box coverage without exporting private DLL symbols."
 )
 durin_set_native_test_target_execution(LaunchStorageTests)
 durin_discover_tests(LaunchStorageTests)
@@ -368,8 +376,10 @@ durin_discover_tests(LaunchStorageTests)
 add_durin_test(LaunchArgumentTests
 	Private/Launch/LaunchArgumentsTests.cpp
 	Private/Launch/EngineFramePhaseTests.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Launch/Private/LaunchArguments.cpp
 )
-target_link_libraries(LaunchArgumentTests PRIVATE LaunchPrivateContracts)
+target_include_directories(LaunchArgumentTests PRIVATE ${CMAKE_SOURCE_DIR}/Engine/Source)
+target_link_libraries(LaunchArgumentTests PRIVATE Core)
 set_target_properties(LaunchArgumentTests PROPERTIES
 	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 )
@@ -377,6 +387,9 @@ durin_finalize_native_test(LaunchArgumentTests
 	KIND contract
 	DOMAINS launch
 	MODULES launch
+	PRIVATE_SOURCE_OWNER Launch
+	PRIVATE_SOURCE_RATIONALE
+		"Launch-owned argument parser white-box coverage without exporting private DLL symbols."
 )
 durin_set_native_test_target_execution(LaunchArgumentTests)
 durin_discover_tests(LaunchArgumentTests)
@@ -411,11 +424,11 @@ durin_discover_tests(LaunchProcessBoundaryTests)
 add_durin_test(NativeCrashCharacterizationTests
 	Private/Launch/NativeCrashCharacterizationTests.cpp
 	Private/Launch/WindowsProcessCrashPolicyTests.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Launch/Private/Windows/WindowsProcessCrashPolicy.cpp
 )
-target_link_libraries(
-	NativeCrashCharacterizationTests
-	PRIVATE LaunchPrivateContracts
-)
+target_include_directories(NativeCrashCharacterizationTests PRIVATE
+	${CMAKE_SOURCE_DIR}/Engine/Source)
+target_link_libraries(NativeCrashCharacterizationTests PRIVATE Core)
 add_dependencies(NativeCrashCharacterizationTests DurinLauncher)
 target_compile_definitions(NativeCrashCharacterizationTests PRIVATE
 	DURIN_CRASH_FIXTURE_EXECUTABLE="$<TARGET_FILE:DurinLauncher>"
@@ -434,6 +447,9 @@ durin_finalize_native_test(NativeCrashCharacterizationTests
 	DOMAINS launch
 	MODULES launch
 	STACKS process
+	PRIVATE_SOURCE_OWNER Launch
+	PRIVATE_SOURCE_RATIONALE
+		"Launch-owned crash-policy white-box coverage accompanies isolated native-fault characterization."
 )
 durin_discover_tests(NativeCrashCharacterizationTests)
 
@@ -611,27 +627,58 @@ durin_set_native_test_target_execution(EngineViewportHeaderTests)
 durin_discover_tests(EngineViewportHeaderTests)
 
 set(_durin_viewport_test_sources
-		Private/Viewport/ViewportFoundationTests.cpp
-		Private/Viewport/ViewportProjectionTests.cpp
-		Private/Viewport/ViewportCustomizationTests.cpp
-		Private/Viewport/ViewportInteractionTests.cpp
-		Private/Viewport/ViewportPickingContractTests.cpp
-		Private/Viewport/DetailsSelectionTests.cpp
+	Private/Viewport/ViewportFoundationTests.cpp
+	Private/Viewport/ViewportProjectionTests.cpp
+	Private/Viewport/ViewportCustomizationTests.cpp
+	Private/Viewport/ViewportInteractionTests.cpp
+	Private/Viewport/ViewportPickingContractTests.cpp
+	Private/Viewport/DetailsSelectionTests.cpp
+)
+set(_durin_viewport_private_sources
+	${_durin_level_editor_private}/Panels/DetailsPanelTargeting.cpp
+	${_durin_level_editor_private}/Viewport/ViewportCameraTransform.cpp
+	${_durin_level_editor_private}/Viewport/CameraPreviewViewportClient.cpp
+	${_durin_level_editor_private}/Viewport/LevelEditorViewportClient.cpp
+	${_durin_level_editor_private}/Viewport/ViewportPickingService.cpp
+	${_durin_level_editor_private}/Viewport/ViewportPickingSceneIndex.cpp
+	${_durin_level_editor_private}/Viewport/LevelEditorViewportEditing.cpp
+	${_durin_level_editor_private}/Viewport/TransformGizmo.cpp
+	${_durin_level_editor_private}/Customizations/CameraEditorCustomizations.cpp
+	${_durin_level_editor_private}/Customizations/DirectionalLightEditorCustomizations.cpp
+	${_durin_level_editor_private}/Customizations/PlayerStartEditorCustomizations.cpp
+	${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
+	${_durin_level_editor_private}/Customizations/SplineEditorCustomizations.cpp
+	${_durin_level_editor_private}/Settings/LevelViewportSessionSettings.cpp
+	${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
 )
 if(DURIN_WITH_EDITOR)
-	add_durin_test(ViewportTests ${_durin_viewport_test_sources})
+	add_durin_test(ViewportTests
+		${_durin_viewport_test_sources}
+		${_durin_viewport_private_sources}
+	)
 	target_include_directories(ViewportTests PRIVATE
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
+		${_durin_level_editor_private}
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public
+		${CMAKE_SOURCE_DIR}/Engine/Source
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/MonaImGui/Private
 	)
+	target_compile_definitions(ViewportTests PRIVATE LEVELEDITOR_EXPORTS)
 	target_link_libraries(ViewportTests PRIVATE
+		Core
+		CoreDObject
+		RHI
+		RenderCore
 		Engine
 		ApplicationCore
 		MonaCore
 		Mona
 		MonaImGui
+		AssetCore
+		AssetImportCore
+		StandardAssetImport
+		EngineAssetBuild
 		DurinEd
-		LevelEditorViewportContracts
 	)
 	set_target_properties(ViewportTests PROPERTIES
 		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
@@ -644,6 +691,9 @@ if(DURIN_WITH_EDITOR)
 		DOMAINS viewport
 		MODULES engine level-editor mona
 		STACKS editor
+		PRIVATE_SOURCE_OWNER LevelEditor
+		PRIVATE_SOURCE_RATIONALE
+			"LevelEditor-owned viewport white-box coverage without exporting private DLL symbols."
 	)
 	durin_set_native_test_target_execution(ViewportTests)
 	durin_discover_tests(ViewportTests)
@@ -661,7 +711,17 @@ durin_add_legacy_engine_functional_test(SplineTests
 		Private/SplineMeshComponentTests.cpp
 		Private/SplineMeshDeformerTests.cpp
 		Private/SplineV2ContractTests.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd AssetImportCore StandardAssetImport LevelEditorViewportContracts
+	PRIVATE_SOURCES
+		${_durin_level_editor_private}/Customizations/SplineEditorCustomizations.cpp
+		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
+		${_durin_level_editor_private}/Viewport/ViewportCameraTransform.cpp
+		${_durin_level_editor_private}/Viewport/LevelEditorViewportClient.cpp
+		${_durin_level_editor_private}/Viewport/ViewportPickingService.cpp
+		${_durin_level_editor_private}/Viewport/ViewportPickingSceneIndex.cpp
+		${_durin_level_editor_private}/Viewport/LevelEditorViewportEditing.cpp
+		${_durin_level_editor_private}/Viewport/TransformGizmo.cpp
+		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd AssetImportCore StandardAssetImport
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
@@ -674,7 +734,8 @@ durin_add_legacy_engine_functional_test(SkyBoxTests
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Authoring/SkyBoxLevelAuthoring.cpp
 		${_durin_level_editor_private}/Customizations/SkyBoxDetails.cpp
-	LIBRARIES RenderCore Renderer DurinEd LevelEditorViewportContracts
+		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
+	LIBRARIES RenderCore Renderer DurinEd
 	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
@@ -734,8 +795,10 @@ durin_add_legacy_engine_functional_test(EditorShellTests
 		Private/UIStyleTests.cpp
 		Private/ConsoleRecordModelTests.cpp
 	PRIVATE_SOURCES
+		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
+		${_durin_level_editor_private}/Viewport/ViewportPickingSceneIndex.cpp
 		${_durin_level_editor_private}/Panels/ConsoleRecordModel.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd LevelEditorViewportContracts
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd
 )
 
 durin_add_legacy_engine_functional_test(ExternalToolTests

@@ -4,7 +4,7 @@
 #include "Diagnostics/ProcessCrashContext.h"
 #include "EngineLoop.h"
 #include "HAL/PlatformProcess.h"
-#include "LaunchContracts/LaunchArguments.h"
+#include "LaunchArguments.h"
 #include "Misc/Project.h"
 #include "Misc/StartupCommand.h"
 #include "Misc/Version.h"

@@ -1,4 +1,4 @@
-#include "LaunchContracts/LaunchArguments.h"
+#include "LaunchArguments.h"
 
 #include "Misc/Build.h"
 

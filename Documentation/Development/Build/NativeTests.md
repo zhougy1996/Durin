@@ -275,6 +275,10 @@ are sorted. The label prefixes `kind-`, `domain-`, `module-`, `backend-`, and
 `PRIVATE_SOURCE_OWNER` and `MODULES` and a reviewed
 `PRIVATE_SOURCE_RATIONALE` explains the same-owner white-box seam. Feature and
 integration targets should normally link the production boundary instead.
+Do not aggregate unrelated production logic into a library solely to make it
+test-linkable. A small module-owned test target may compile the specific
+private implementation it exercises when exporting a DLL symbol or inventing
+a production component would distort the production architecture.
 
 Untouched declarations without finalization remain `legacy` in the configured
 registry and retain their existing commands. Their target names are frozen in

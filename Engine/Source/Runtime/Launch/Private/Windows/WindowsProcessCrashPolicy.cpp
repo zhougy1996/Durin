@@ -1,4 +1,4 @@
-#include "LaunchContracts/WindowsProcessCrashPolicy.h"
+#include "WindowsProcessCrashPolicy.h"
 
 namespace Durin
 {

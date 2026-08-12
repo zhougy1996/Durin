@@ -26,8 +26,8 @@
 #include "EngineAssetServices.h"
 
 #include "EngineFrame.h"
-#include "LaunchContracts/EngineFramePhases.h"
-#include "LaunchContracts/RuntimeStorage.h"
+#include "EngineFramePhases.h"
+#include "RuntimeStorage.h"
 #include "Windows/WindowsProcessCrashHandler.h"
 
 #if DURIN_WITH_EDITOR

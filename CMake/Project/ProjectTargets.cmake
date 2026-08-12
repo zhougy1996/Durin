@@ -505,7 +505,11 @@ function(durin_finalize_native_test target_name)
 				"PRIVATE_SOURCE_OWNER and PRIVATE_SOURCE_RATIONALE.")
 		endif()
 		string(TOLOWER "${DURIN_METADATA_PRIVATE_SOURCE_OWNER}" _durin_private_owner)
-		if(NOT _durin_private_owner IN_LIST _durin_modules)
+		string(REGEX REPLACE "([a-z0-9])([A-Z])" "\\1-\\2"
+			_durin_private_owner_slug "${DURIN_METADATA_PRIVATE_SOURCE_OWNER}")
+		string(TOLOWER "${_durin_private_owner_slug}" _durin_private_owner_slug)
+		if(NOT _durin_private_owner IN_LIST _durin_modules
+			AND NOT _durin_private_owner_slug IN_LIST _durin_modules)
 			message(FATAL_ERROR
 				"${target_name} PRIVATE_SOURCE_OWNER must also appear in MODULES.")
 		endif()

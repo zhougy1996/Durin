@@ -62,15 +62,15 @@ and runtime-closure probes passed, and the DurinGame preset configured with the
 editor-only sources explicitly excluded. No production public/export boundary
 changed, so the stage did not require a full build.
 
-Stage 4 introduced the Launch-owned `LaunchPrivateContracts` static boundary
-for command-line parsing, runtime storage, interactive frame ordering, and
-Windows crash-retention policy. Production Launch and the migrated contract
-and characterization targets now link that boundary instead of compiling
-Launch-private production sources into test executables. `LaunchArgumentTests`
-and `LaunchStorageTests` are `contract/launch`,
+Stage 4 classified `LaunchArgumentTests` and `LaunchStorageTests` as
+`contract/launch`,
 `LaunchProcessBoundaryTests` is `integration/launch` with the `process` stack,
 and `NativeCrashCharacterizationTests` is explicit `characterization/launch`
-with no direct ordinary lifecycle. The contract, integration, ordinary
+with no direct ordinary lifecycle. Launch production sources remain in their
+natural `Private` locations; the argument, storage, and crash-policy targets
+compile only their respective same-owner implementation and carry an explicit
+Launch white-box rationale rather than forcing unrelated logic into a shared
+production component. The contract, integration, ordinary
 `@launch`, and explicit characterization selections passed; existing process,
 GPU, renderer, target-serialization, timeout, and child-launch policies remain
 visible in configured metadata. Both native CMake policy/runtime-closure probes
@@ -84,11 +84,13 @@ boundary. `MonaViewportTests` and `EngineViewportHeaderTests` are separate
 `contract/viewport` targets, `ViewportTests` is the cross-module
 `feature/viewport` owner for Engine, LevelEditor, and Mona composition, and
 `VulkanRHIIntegrationTests` is `integration/viewport` with `backend=vulkan` and
-the renderer stack. LevelEditor now owns one internal object component for the
-viewport/customization implementations shared by its DLL and white-box tests;
-the feature and adjacent legacy targets no longer compile those production
-`.cpp` files independently. The existing RenderCore shader-compiler white-box
-sources remain an explicit RenderCore-owned seam in the Vulkan target.
+the renderer stack. LevelEditor production implementations remain organized by
+their natural `Private` responsibilities under Customizations, Panels,
+Settings, Viewport, and Workspace. The feature target compiles its explicit
+LevelEditor-owned white-box source set with a reviewed ownership rationale;
+adjacent legacy targets retain only the smaller source subsets they exercise.
+The existing RenderCore shader-compiler white-box sources remain an explicit
+RenderCore-owned seam in the Vulkan target.
 
 The two contract targets, Viewport feature, Vulkan integration, combined
 `@viewport` set, affected EditorProperty/StaticMesh/Spline/SkyBox/EditorShell
@@ -109,10 +111,11 @@ target remain a review-time migration gate because CMake cannot infer semantic
 impact from a source diff.
 
 `test list migration` now derives the long-tail report from the configured
-registry. The final Debug DurinEditor report contained 56 legacy targets and
-one explicit same-owner private-source seam, the RenderCore-owned shader
-compiler sources in `VulkanRHIIntegrationTests`. This is visibility, not a
-second authoritative checklist; remaining migrations are touch-driven work.
+registry. The final Debug DurinEditor report contains 56 legacy targets and
+five explicit same-owner private-source seams: three Launch targets, the
+LevelEditor-owned `ViewportTests`, and the RenderCore-owned
+`VulkanRHIIntegrationTests`. This is visibility, not a second authoritative
+checklist; remaining migrations are touch-driven work.
 
 Final acceptance on 2026-08-12: all 328 DurinDevTool Python tests passed,
 changed-document validation passed, and both native-test discovery-policy and
@@ -122,6 +125,16 @@ native aggregate then passed at default target granularity in 58.35 seconds
 (1.36-second incremental aggregate build and 56.96-second execution). The gate
 also exposed and corrected four missing `EngineAssetBuild` link declarations
 for existing thumbnail fixtures; no suite, lifecycle, or ownership changed.
+
+A post-completion ownership correction restored the Launch and LevelEditor
+implementations from test-driven aggregate components to their natural
+production `Private` locations. Focused Launch, characterization, Viewport, and
+five adjacent legacy targets passed; both CMake probes, Debug DurinGame
+configure, and the complete Debug DurinEditor build passed. The final ordinary
+native aggregate passed at target granularity in 202.16 seconds. One preceding
+aggregate exposed a non-reproducing Core concurrency soak failure, and another
+was manually stopped after `MaterialTests` remained quiescent; their focused
+targets passed before the successful final aggregate.
 
 ## Goal
 
@@ -534,11 +547,12 @@ After the plan:
 - [x] Classify Launch argument/storage contract targets and process-boundary or
   crash targets into their correct contract, integration, and characterization
   kinds.
-- [x] Stop representative Launch feature targets from compiling Launch-private
-  production `.cpp` files through the EngineTests broad helper.
-- [x] Introduce the smallest Launch-owned internal/test-support target or normal
-  production component needed to share pure grammar/storage logic without
-  exporting Launch internals indiscriminately.
+- [x] Stop representative Launch targets from compiling private sources through
+  the EngineTests broad helper; declare each same-owner white-box source
+  explicitly on its structured target.
+- [x] Keep unrelated Launch logic in its natural production `Private` location;
+  introduce an internal/test-support component only when the production logic
+  itself forms a cohesive reusable boundary.
 - [x] Preserve process isolation, crash artifacts, timeouts, runtime child
   dependencies, and aggregate exclusion for characterization.
 - [x] Validate focused Launch contracts, the process-boundary set, explicit
