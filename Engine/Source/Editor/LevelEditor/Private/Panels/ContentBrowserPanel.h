@@ -29,6 +29,7 @@ namespace Durin::Editor::Level
 	{
 		Texture,
 		TextureCube,
+		TerrainHeightmap,
 		StaticMesh,
 		Scene
 	};

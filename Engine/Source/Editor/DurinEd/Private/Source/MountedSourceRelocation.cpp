@@ -8,6 +8,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
+#include "Terrain/TerrainHeightmap.h"
 
 namespace Durin::Editor
 {
@@ -36,7 +37,7 @@ namespace Durin::Editor
 			return false;
 		}
 
-		auto ChangeAssetSourceReference(
+			auto ChangeAssetSourceReference(
 			DObject* Asset,
 			std::string_view From,
 			std::string_view To,
@@ -53,6 +54,15 @@ namespace Durin::Editor
 			}
 			if (DStaticMesh* Mesh = Cast<DStaticMesh>(Asset))
 				return Mesh->ChangeSourceReference(To, OutError);
+			if (DTerrainHeightmap* Heightmap = Cast<DTerrainHeightmap>(Asset))
+			{
+				if (Heightmap->GetSourceFile() != From)
+				{
+					OutError = "Terrain heightmap no longer references the source being relocated.";
+					return false;
+				}
+				return Heightmap->ChangeSourceReference(To, OutError);
+			}
 			if (DTextureCube* Cube = Cast<DTextureCube>(Asset))
 			{
 				if (Cube->GetSourceLayout()

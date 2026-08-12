@@ -44,6 +44,7 @@ namespace Durin
 	class DTexture;
 	class DTexture2D;
 	class DTextureCube;
+	class DTerrainHeightmap;
 
 	class FSceneViewport;
 	class FViewport;

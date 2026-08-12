@@ -5,6 +5,7 @@
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DBuildCoordinator.h"
 #include "Texture/TextureCube.h"
+#include "Terrain/TerrainHeightmap.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
@@ -40,6 +41,7 @@ namespace Durin
 			Asset::RegisterAssetDeleteContributor(DTexture2D::StaticClass(), PreserveMountedSource);
 			Asset::RegisterAssetDeleteContributor(DTextureCube::StaticClass(), PreserveMountedSource);
 			Asset::RegisterAssetDeleteContributor(DStaticMesh::StaticClass(), PreserveMountedSource);
+			Asset::RegisterAssetDeleteContributor(DTerrainHeightmap::StaticClass(), PreserveMountedSource);
 			return true;
 		}();
 		(void)bInitialized;

@@ -27,6 +27,14 @@ namespace Durin::Asset
 		bool bHasTransparency = false;
 	};
 
+	// Stores exact top-left-origin grayscale samples from a non-interlaced 16-bit PNG.
+	struct FDecodedGrayscale16Image
+	{
+		std::vector<uint16> Samples;
+		uint32 Width = 0;
+		uint32 Height = 0;
+	};
+
 	// Bounds Radiance HDR input and its decoded linear RGB working set.
 	struct FRadianceHDRDecodeLimits
 	{
@@ -48,6 +56,16 @@ namespace Durin::Asset
 	ASSETCORE_API auto DecodeImageFromMemory(std::span<const uint8> EncodedBytes, FDecodedImage& OutImage, std::string& OutError,
 		const FImageDecodeLimits& Limits = {}) -> bool;
 	ASSETCORE_API auto DecodeImageFromFile(std::string_view FilePath, FDecodedImage& OutImage, std::string& OutError,
+		const FImageDecodeLimits& Limits = {}) -> bool;
+	ASSETCORE_API auto DecodeGrayscale16PngFromMemory(
+		std::span<const uint8> EncodedBytes,
+		FDecodedGrayscale16Image& OutImage,
+		std::string& OutError,
+		const FImageDecodeLimits& Limits = {}) -> bool;
+	ASSETCORE_API auto DecodeGrayscale16PngFromFile(
+		std::string_view FilePath,
+		FDecodedGrayscale16Image& OutImage,
+		std::string& OutError,
 		const FImageDecodeLimits& Limits = {}) -> bool;
 	ASSETCORE_API auto DecodeRadianceHDRFromMemory(std::span<const uint8> EncodedBytes, FDecodedFloatImage& OutImage,
 		std::string& OutError, const FRadianceHDRDecodeLimits& Limits = {}) -> bool;

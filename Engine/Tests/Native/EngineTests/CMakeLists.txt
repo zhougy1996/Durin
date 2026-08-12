@@ -318,6 +318,20 @@ if(TARGET TextureTests)
 		${DURIN_PROJECT_ROOT_DIR}/Source/Editor/StandardAssetImport/Private)
 endif()
 
+durin_add_engine_functional_test(TerrainHeightmapTests
+	TIMEOUT 600
+	RUNTIME_STACK_RATIONALE "Exercises heightmap import, DDC, package, and source-index integration."
+	SOURCES Private/Terrain/TerrainHeightmapTests.cpp
+	LIBRARIES AssetImportCore StandardAssetImport DurinEd
+)
+
+durin_add_engine_functional_test(TerrainHeightmapCookTests
+	EDITOR_ONLY
+	TIMEOUT 600
+	RUNTIME_STACK_RATIONALE "Exercises source-free cooked heightmap package loading."
+	SOURCES Private/Terrain/TerrainHeightmapCookTests.cpp
+)
+
 durin_add_engine_functional_test(LaunchStorageTests
 	RUNTIME_STACK_RATIONALE "Exercises Launch-private runtime storage selection and migration policy."
 	SOURCES Private/Launch/RuntimeStorageTests.cpp

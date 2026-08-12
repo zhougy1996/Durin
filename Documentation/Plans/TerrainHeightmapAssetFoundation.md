@@ -4,25 +4,22 @@ Summary: Add a dedicated lossless 16-bit heightmap asset with transactional impo
 
 Last reviewed: 2026-08-12
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-12
 
 ## Current Status
 
-No Terrain or Heightmap asset exists. `DTexture2D` is the nearest asset
-lifecycle reference, but its canonical source is RGBA8 and its Data/Mask path
-selects BC7. Reusing that path would quantize or compress height samples and
-would entangle terrain identity with color-texture policies.
+T0 is implemented. `DTerrainHeightmap` is an Engine-owned asset with exact
+top-left row-major `uint16` samples, a deterministic 64×64 regional min/max
+hierarchy, strict grayscale16 PNG import, transactional StandardAssetImport
+reimport, independent DDC and THPL Cook schemas, source-free cooked-runtime
+load, source-reference integration, bounded reflected inspection, and a
+Content Browser import action.
 
-RHI already exposes suitable future upload formats, but this plan deliberately
-stops before GPU resource ownership. AssetCore already provides package
-serialization, source references, derived-data storage, cooked companions,
-checksums, and transactional publication patterns. StandardAssetImport already
-provides single-asset import/reimport providers and no-fail target exchange.
-
-This is the active T0 child of the
-[Heightfield Terrain Roadmap](../Roadmaps/HeightfieldTerrain.md). No source or
-test changes have started.
+The lasting contract is
+[Terrain Heightmap Asset](../Runtime/Terrain/TerrainHeightmapAsset.md). The
+[Heightfield Terrain Roadmap](../Roadmaps/HeightfieldTerrain.md) records T0 as
+complete and makes T1/T2 ready for plan selection.
 
 ## Goal
 
@@ -183,31 +180,31 @@ inventing their own height authority.
 
 ### Stage 0: Freeze format, limits, ownership, and baselines
 
-- [ ] Inventory `DTexture2D` asset lifecycle, source provenance, DDC key/payload,
+- [x] Inventory `DTexture2D` asset lifecycle, source provenance, DDC key/payload,
   Cook/load, import/reimport provider, source-reference index, asset-registry
   presentation, duplication, and shutdown seams only as references; record all
   places where Terrain must remain separately identified.
-- [ ] Add asymmetric non-square 16-bit grayscale PNG fixture designs with
+- [x] Add asymmetric non-square 16-bit grayscale PNG fixture designs with
   distinct corners, row/column gradients, repeated extrema, odd dimensions,
   and uniform data. Record decoded golden samples without using production code.
-- [ ] Freeze PNG color type, interlace acceptance, byte order at the decoder
+- [x] Freeze PNG color type, interlace acceptance, byte order at the decoder
   boundary, row origin, sample axes, canonical native-memory encoding, and
   explicit error behavior for 8-bit, multichannel, palette, alpha, malformed,
   truncated, and oversized inputs.
-- [ ] Measure or derive exact decoded, hierarchy, payload, and peak-build bytes
+- [x] Measure or derive exact decoded, hierarchy, payload, and peak-build bytes
   for representative and maximum candidates. Freeze per-dimension, total
   sample, encoded-source, payload, hierarchy, and allocation ceilings.
-- [ ] Freeze hierarchy base-region dimensions, odd-edge coverage, level ordering,
+- [x] Freeze hierarchy base-region dimensions, odd-edge coverage, level ordering,
   node layout, alignment, and exact min/max query semantics.
-- [ ] Freeze class name, package fields, revision/status values, immutable
+- [x] Freeze class name, package fields, revision/status values, immutable
   payload ownership, duplicate/exchange semantics, DDC namespace/key fields,
   builder/schema/platform versions, cooked payload ID, descriptor, and binary
   layout with golden bytes.
-- [ ] Decide synchronous versus task-system build execution from measured
+- [x] Decide synchronous versus task-system build execution from measured
   representative/maximum decode and hierarchy costs. If asynchronous, freeze
   admission bytes, cancellation checkpoints, generation matching, completion
   pumping, shutdown, and save/Cook waiting behavior before implementation.
-- [ ] Record baseline focused EngineTests and documentation validation, plus any
+- [x] Record baseline focused EngineTests and documentation validation, plus any
   pre-existing failure, in the Stage 0 handoff.
 
 #### Acceptance Gate
@@ -224,22 +221,22 @@ inventing their own height authority.
 
 ### Stage 1: Add the runtime asset and canonical payload builder
 
-- [ ] Add terrain heightmap public/private Engine files, forward declaration,
+- [x] Add terrain heightmap public/private Engine files, forward declaration,
   reflection registration, build membership, asset class metadata, and a
   minimal reflected package representation.
-- [ ] Implement immutable canonical payload ownership, exact validation,
+- [x] Implement immutable canonical payload ownership, exact validation,
   dimensions, sample lookup/snapshot, global min/max, regional hierarchy query,
   revision/status, retained bytes, and finite allocation guards.
-- [ ] Implement the deterministic hierarchy builder with checked arithmetic,
+- [x] Implement the deterministic hierarchy builder with checked arithmetic,
   odd-dimension coverage, exact extrema, stable node order, and no sample
   averaging or mutation.
-- [ ] Implement duplicate, exchange, PostLoad, BeginDestroy/FinishDestroy, and
+- [x] Implement duplicate, exchange, PostLoad, BeginDestroy/FinishDestroy, and
   shutdown behavior so retained payloads survive consumer snapshots and no
   transient proposal/build state is serialized or aliased.
-- [ ] Add focused unit tests for asymmetric orientation, non-square/odd/uniform
+- [x] Add focused unit tests for asymmetric orientation, non-square/odd/uniform
   inputs, exact global/regional extrema, invalid dimensions/counts, overflow,
   immutable revision replacement, duplication, destruction, and retained bytes.
-- [ ] Record the stage handoff and focused validation evidence.
+- [x] Record the stage handoff and focused validation evidence.
 
 #### Acceptance Gate
 
@@ -252,25 +249,25 @@ inventing their own height authority.
 
 ### Stage 2: Implement 16-bit PNG import and transactional reimport
 
-- [ ] Add a decoder boundary that returns exact single-channel `uint16` rows
+- [x] Add a decoder boundary that returns exact single-channel `uint16` rows
   and source facts without passing through RGBA8, sRGB, BC compression, or
   observed-range normalization.
-- [ ] Register an explicit `DTerrainHeightmap` StandardAssetImport provider
+- [x] Register an explicit `DTerrainHeightmap` StandardAssetImport provider
   while preserving ordinary `.png` Texture2D default routing and scene import.
-- [ ] Build a detached import candidate from decoded samples and hierarchy,
+- [x] Build a detached import candidate from decoded samples and hierarchy,
   retain mounted source provenance/hash/fingerprint, and publish a new package
   only after complete validation.
-- [ ] Add same-path and moved-path reimport planning, semantic no-op detection,
+- [x] Add same-path and moved-path reimport planning, semantic no-op detection,
   complete-state exchange, source-reference index updates, package Dirty and
   revision behavior, cancellation/failure preservation, and provider
   registration/unregistration safety.
-- [ ] Expose bounded import/build diagnostics including source facts, canonical
+- [x] Expose bounded import/build diagnostics including source facts, canonical
   bytes, hierarchy bytes, peak estimated bytes, elapsed phases, revision, and
   latest failure without retaining encoded/decoded proposals indefinitely.
-- [ ] Add focused tests for every accepted golden PNG and rejected bit depth,
+- [x] Add focused tests for every accepted golden PNG and rejected bit depth,
   color type, malformed/truncated, dimension, allocation, path, reimport,
   no-op, provider-routing, and rollback case.
-- [ ] Record the stage handoff and focused validation evidence.
+- [x] Record the stage handoff and focused validation evidence.
 
 #### Acceptance Gate
 
@@ -284,22 +281,22 @@ inventing their own height authority.
 
 ### Stage 3: Add DDC, Cook, and cooked-runtime loading
 
-- [ ] Implement the frozen terrain DDC key, namespace, payload encoder/decoder,
+- [x] Implement the frozen terrain DDC key, namespace, payload encoder/decoder,
   checksums, checked byte-range validation, atomic persistence, warm restore,
   source fingerprint reuse, and corrupt/incompatible miss behavior.
-- [ ] Make editor PostLoad distinguish warm restore, rebuildable miss, missing
+- [x] Make editor PostLoad distinguish warm restore, rebuildable miss, missing
   source, active build, failure, and ready state without silently substituting
   a Texture2D or zero-height payload.
-- [ ] Contribute the independently identified height payload and descriptor to
+- [x] Contribute the independently identified height payload and descriptor to
   `FCookContext` transactionally; strip source-only fields and reject Cook when
   the committed revision is unavailable or invalid.
-- [ ] Implement cooked-runtime descriptor/bulk resolution and complete schema,
+- [x] Implement cooked-runtime descriptor/bulk resolution and complete schema,
   platform/profile, dimension, count, offset, alignment, checksum, extrema,
   hierarchy, and allocation validation before publication.
-- [ ] Add golden-byte, warm/cold DDC, missing/corrupt/truncated/oversized/schema/
+- [x] Add golden-byte, warm/cold DDC, missing/corrupt/truncated/oversized/schema/
   platform mismatch, source-unavailable, Cook rollback, cooked-package
   round-trip, and runtime-without-source/DDC tests.
-- [ ] Record payload sizes, cache/build timings, peak memory, and the stage
+- [x] Record payload sizes, cache/build timings, peak memory, and the stage
   handoff with focused validation evidence.
 
 #### Acceptance Gate
@@ -314,26 +311,26 @@ inventing their own height authority.
 
 ### Stage 4: Integrate inspection, qualify T0, and publish the contract
 
-- [ ] Register Content Browser/source-reference facts and generic inspection
+- [x] Register Content Browser/source-reference facts and generic inspection
   fields for dimensions, format, global range, source path/status, revision,
   sample bytes, hierarchy bytes, total retained bytes, DDC identity, payload
   versions, and latest bounded diagnostic.
-- [ ] Ensure save/reload, duplicate, rename/move, delete, source move, reimport,
+- [x] Ensure save/reload, duplicate, rename/move, delete, source move, reimport,
   asset-registry refresh, and editor shutdown preserve the frozen asset and
   source-reference contracts without requiring a dedicated heightmap editor or
   rendered thumbnail.
-- [ ] Run the smallest affected native test targets, documentation validation,
+- [x] Run the smallest affected native test targets, documentation validation,
   and any broader validation required by actual cross-target changes according
   to the repository build/test guidance.
-- [ ] Because the new importable asset is user-visible, complete the
+- [x] Because the new importable asset is user-visible, complete the
   repository-required full `all` build and validation-enabled editor smoke from
   one Agent Build Profile, covering import, inspection, save/reload, reimport,
   Cook, runtime load, and orderly shutdown.
-- [ ] Publish the implemented long-lived heightmap asset, format, DDC,
+- [x] Publish the implemented long-lived heightmap asset, format, DDC,
   Cook/load, source, failure, and diagnostic contracts under
   `Documentation/Runtime/`; update the Heightfield Terrain roadmap T0 status
   and the precise entry state for T1/T2.
-- [ ] Record final source revision, format/version identities, limits, memory/
+- [x] Record final source revision, format/version identities, limits, memory/
   timing evidence, validation, verified editor executable, decisions, and open
   follow-ups in the final handoff.
 
@@ -381,6 +378,37 @@ inventing their own height authority.
 - Focused tests, required aggregate validation, full build, editor smoke, and
   documentation validation pass; lasting contracts are published and roadmap
   T0 is complete.
+
+## Final Handoff
+
+- Completed on 2026-08-12 in the completion commit for this plan (the final
+  commit identifier is reported with the handoff because a commit cannot
+  contain its own stable identifier).
+- The canonical contract is synchronous construction of immutable
+  `shared_ptr<const FTerrainHeightmapPayload>` revisions from non-interlaced,
+  16-bit grayscale PNG input. Samples use top-left, row-major `uint16` order;
+  regional extrema use deterministic 64x64 base regions and 2x2 reduction.
+- Frozen limits are 16,384 per dimension, 268,435,456 samples, 512 MiB encoded
+  input, 513 MiB payload, 512 KiB hierarchy, and 2,560 MiB admitted peak memory.
+  At the maximum square extent the retained canonical data is 537,220,652
+  bytes: 536,870,912 sample bytes plus 349,524 hierarchy bytes and nine level
+  records.
+- Derived data uses `TerrainHeightmap/Objects`, the terrain-specific builder
+  identity, THPL magic `0x4C504854`, schema/build version 1, and Cook bulk GUID
+  `{7d0d1524-69ba42a9-91f70da3-47bc2861}`. Payloads are aligned, checksummed,
+  bounded, and structurally revalidated before publication.
+- Focused validation passed: `TerrainHeightmapTests` (6/6, 372 ms),
+  `TerrainHeightmapCookTests` (1/1, 121 ms), `TextureTests` (74 passed and two
+  intentional skips), and `EditorAssetWorkflowTests` (80 passed and one
+  intentional skip). The complete `all` Agent build passed in 7.70 seconds,
+  followed by a validation-enabled hidden editor smoke in 2.61 seconds.
+- Documentation plan and roadmap validation passed. The verified executable is
+  `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe` from the
+  same Agent Build Profile.
+- There are no open T0 blockers. T1 may consume the immutable revisioned
+  payload for rendering, and T2 may consume it for collision without reopening
+  source decoding, ownership, or persistence semantics. Remaining work is
+  listed below and on the Heightfield Terrain roadmap.
 
 ## Deferred Follow-ups
 

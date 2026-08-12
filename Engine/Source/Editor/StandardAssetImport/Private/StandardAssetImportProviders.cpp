@@ -15,6 +15,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
+#include "Terrain/TerrainHeightmap.h"
 
 namespace Durin
 {
@@ -128,6 +129,11 @@ namespace Durin
 			return MakePayload("Durin.TextureCube.ImportSettings", 1, std::move(Bytes));
 		}
 
+		auto MakeTerrainHeightmapSettings() -> FImportPayload
+		{
+			return MakePayload("Durin.TerrainHeightmap.ImportSettings", 1, {});
+		}
+
 		auto MakeSourceHash(const FTextureSourceFile& Source) -> FXxHash128
 		{
 			FXxHash128 Hash;
@@ -165,6 +171,8 @@ namespace Durin
 					return Texture->GetDerivedDataKey();
 				if (const auto* Cube = Cast<DTextureCube>(AssetObject))
 					return Cube->GetDerivedDataKey();
+				if (const auto* Heightmap = Cast<DTerrainHeightmap>(AssetObject))
+					return Heightmap->GetDerivedDataKey();
 				return {};
 			}
 			auto Validate(std::vector<FImportDiagnostic>& OutDiagnostics) const -> bool override
@@ -177,6 +185,9 @@ namespace Durin
 				else if (const auto* Cube = Cast<DTextureCube>(AssetObject))
 					bValid = Cube->GetPlatformData() != nullptr
 						&& Cube->GetBuildStatus() == ETextureBuildStatus::Ready;
+				else if (const auto* Heightmap = Cast<DTerrainHeightmap>(AssetObject))
+					bValid = Heightmap->GetPayload() != nullptr
+						&& Heightmap->GetStatus() == ETerrainHeightmapStatus::Ready;
 				if (!bValid)
 					OutDiagnostics.push_back({
 						.Severity = EImportDiagnosticSeverity::Error,
@@ -217,6 +228,14 @@ namespace Durin
 			T* Target = nullptr;
 			T* Candidate = nullptr;
 			bool bCommitted = false;
+		};
+
+		class FNoopExchange final : public IPreparedImportedStateExchange
+		{
+		public:
+			auto Commit() noexcept -> void override {}
+			auto Reverse() noexcept -> void override {}
+			auto Finalize() noexcept -> void override {}
 		};
 
 		class FStaticMeshExchange final : public IPreparedImportedStateExchange
@@ -614,6 +633,100 @@ namespace Durin
 			}
 		};
 
+		class FTerrainHeightmapHandler final : public ISingleAssetImportHandler
+		{
+		public:
+			auto GetAssetClassName() const -> std::string_view override
+			{
+				return "Durin::DTerrainHeightmap";
+			}
+			auto GetProviderId() const -> std::string_view override { return "DurinImage"; }
+			auto InspectProvenance(
+				const DObject& AssetObject,
+				FSingleAssetProvenance& Out,
+				std::vector<FImportDiagnostic>&) const -> bool override
+			{
+				const auto* Heightmap = Cast<DTerrainHeightmap>(&AssetObject);
+				if (!Heightmap || !Heightmap->GetSourceImportData().HasSource()) return false;
+				const auto& Source = Heightmap->GetSourceImportData();
+				Out = {
+					.ProviderId = "DurinImage",
+					.ProviderContractVersion = 1,
+					.Settings = MakeTerrainHeightmapSettings(),
+					.Sources = {{
+						.StableIdentity = "heightmap",
+						.Role = "Heightmap",
+						.SourcePath = Source.SourcePath,
+						.ContentHash = {
+							.HashLow = Source.SourceContentHashLow,
+							.HashHigh = Source.SourceContentHashHigh}}},
+					.AuthoredOutputFingerprint = Heightmap->GetDerivedDataKey()};
+				return Out.IsComplete();
+			}
+			auto QueryCapabilities(const DObject&, const FSingleAssetProvenance&) const
+				-> FSingleAssetCapabilitySet override
+			{
+				return MakeCapabilities(std::string(GetAssetClassName()), "DurinImage", true,
+					"Replaces exact height samples, hierarchy, source provenance, DDC identity, and revision while retaining object identity.");
+			}
+			auto BuildCandidate(
+				const FSingleAssetImportPlan& Plan,
+				std::vector<FImportDiagnostic>& Diagnostics) const
+				-> std::unique_ptr<ISingleAssetCandidate> override
+			{
+				auto* Target = Cast<DTerrainHeightmap>(Plan.GetAsset());
+				const FSourceSnapshotEntry* Root = Plan.GetSnapshot().FindSource("root");
+				FAssetPath CandidatePath;
+				DTerrainHeightmap* Candidate = nullptr;
+				if (!Target || !Root || !MakeCandidatePath(Plan.GetAssetPath(), CandidatePath)
+					|| !Asset::CreateAsset(CandidatePath, Candidate)) return nullptr;
+				auto Result = std::make_unique<FEngineSingleAssetCandidate>(Candidate);
+				std::string Error;
+				if (!Candidate->BuildFromEncodedBytes(Root->GetBytes(), Root->SourcePath, Error))
+				{
+					Diagnostics.push_back({
+						.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::CandidateFailure,
+						.Phase = "candidate-build",
+						.Message = Error});
+					Result->Abandon();
+					return nullptr;
+				}
+				return Result;
+			}
+			auto PrepareImportedStateExchange(
+				DObject& TargetObject,
+				ISingleAssetCandidate& CandidateObject,
+				std::vector<FImportDiagnostic>&) const
+				-> std::unique_ptr<IPreparedImportedStateExchange> override
+			{
+				auto* Target = Cast<DTerrainHeightmap>(&TargetObject);
+				auto* Candidate = Cast<DTerrainHeightmap>(CandidateObject.GetAsset());
+				if (!Target || !Candidate) return nullptr;
+				if (Target->IsSemanticImportNoOp(*Candidate))
+					return std::make_unique<FNoopExchange>();
+				Target->PrepareCandidateRevision(*Candidate);
+				return std::make_unique<TNoFailExchange<DTerrainHeightmap>>(
+					*Target, *Candidate);
+			}
+			auto RepairSource(
+				DObject& AssetObject,
+				std::span<const FSourcePath> Sources,
+				std::vector<FImportDiagnostic>& Diagnostics) const -> bool override
+			{
+				auto* Heightmap = Cast<DTerrainHeightmap>(&AssetObject);
+				std::string Error;
+				const bool bResult = Heightmap && Sources.size() == 1
+					&& Heightmap->ChangeSourceReference(Sources[0].Path, Error);
+				if (!bResult) Diagnostics.push_back({
+					.Severity = EImportDiagnosticSeverity::Error,
+					.Category = EImportDiagnosticCategory::InvalidSource,
+					.Phase = "source-repair",
+					.Message = Error});
+				return bResult;
+			}
+		};
+
 		class FSceneRecordHandler final : public IImportRecordHandler
 		{
 		public:
@@ -756,13 +869,15 @@ namespace Durin
 		std::vector<std::shared_ptr<ISingleAssetImportHandler>> Builtins = {
 			std::make_shared<FStaticMeshHandler>(),
 			std::make_shared<FTexture2DHandler>(),
-			std::make_shared<FTextureCubeHandler>()};
+			std::make_shared<FTextureCubeHandler>(),
+			std::make_shared<FTerrainHeightmapHandler>()};
 		for (const auto& Handler : Builtins)
 		{
 			if (Handlers.Register(Handler, OutError)) continue;
 			Handlers.Unregister("Durin::DStaticMesh");
 			Handlers.Unregister("Durin::DTexture2D");
 			Handlers.Unregister("Durin::DTextureCube");
+			Handlers.Unregister("Durin::DTerrainHeightmap");
 			RecordHandlers.Unregister(SceneImportProviderId);
 			Providers.Unregister("DurinImage");
 			Providers.Unregister("Assimp");
@@ -785,6 +900,7 @@ namespace Durin
 		Handlers.Unregister("Durin::DStaticMesh");
 		Handlers.Unregister("Durin::DTexture2D");
 		Handlers.Unregister("Durin::DTextureCube");
+		Handlers.Unregister("Durin::DTerrainHeightmap");
 		AssetImport::GetImportRecordHandlerRegistry().Unregister(SceneImportProviderId);
 		auto& Providers = AssetImport::GetProviderRegistry();
 		Providers.Unregister("DurinImage");

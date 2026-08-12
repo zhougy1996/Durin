@@ -1,0 +1,57 @@
+#pragma once
+
+#include "CookedAsset.h"
+#include "EngineAPI.h"
+#include "Hash/XxHash.h"
+#include "PayloadDecodeResult.h"
+
+namespace Durin
+{
+	struct FTerrainHeightmapPayload;
+
+	inline constexpr uint32 TerrainHeightmapPayloadMagic = 0x4C504854; // THPL
+	inline constexpr uint32 TerrainHeightmapPayloadSchemaVersion = 1;
+	inline constexpr uint32 TerrainHeightmapBuilderVersion = 1;
+	inline constexpr uint32 TerrainHeightmapKeySchemaVersion = 1;
+	inline constexpr uint32 TerrainHeightmapBaseRegionSize = 64;
+	inline constexpr uint32 TerrainHeightmapPayloadHeaderSize = 96;
+	inline constexpr uint32 TerrainHeightmapLevelRecordSize = 24;
+	inline constexpr uint32 TerrainHeightmapPayloadAlignment = 16;
+	inline constexpr uint32 MaximumTerrainHeightmapDimension = 16'384;
+	inline constexpr uint64 MaximumTerrainHeightmapSamples = 268'435'456;
+	inline constexpr uint64 MaximumTerrainHeightmapEncodedBytes = 512ull * 1024ull * 1024ull;
+	inline constexpr uint64 MaximumTerrainHeightmapPayloadBytes = 513ull * 1024ull * 1024ull;
+	inline constexpr uint64 MaximumTerrainHeightmapHierarchyBytes = 512ull * 1024ull;
+	inline constexpr uint64 MaximumTerrainHeightmapPeakBuildBytes = 2'560ull * 1024ull * 1024ull;
+	inline const FGuid TerrainHeightmapPrimaryCookedPayloadId{
+		0x7d0d1524, 0x69ba42a9, 0x91f70da3, 0x47bc2861};
+
+	struct FTerrainHeightmapDerivedDataKeyInput
+	{
+		FXxHash128 SourceContentHash;
+		uint32 BuilderVersion = TerrainHeightmapBuilderVersion;
+		uint32 PayloadSchemaVersion = TerrainHeightmapPayloadSchemaVersion;
+		Asset::ECookTargetPlatform TargetPlatform = Asset::ECookTargetPlatform::Invalid;
+		Asset::ECookTargetProfile TargetProfile = Asset::ECookTargetProfile::Invalid;
+	};
+
+	ENGINE_API auto BuildTerrainHeightmapDerivedDataKeyBytes(
+		const FTerrainHeightmapDerivedDataKeyInput& Input,
+		std::vector<uint8>& OutBytes,
+		std::string& OutError) -> bool;
+	ENGINE_API auto BuildTerrainHeightmapDerivedDataKey(
+		const FTerrainHeightmapDerivedDataKeyInput& Input,
+		std::string& OutKey,
+		std::string& OutError) -> bool;
+	ENGINE_API auto EncodeTerrainHeightmapPayload(
+		const FTerrainHeightmapPayload& Payload,
+		Asset::ECookTargetPlatform TargetPlatform,
+		Asset::ECookTargetProfile TargetProfile,
+		std::vector<uint8>& OutBytes,
+		std::string& OutError) -> bool;
+	ENGINE_API auto DecodeTerrainHeightmapPayload(
+		std::span<const uint8> Bytes,
+		Asset::ECookTargetPlatform ExpectedPlatform,
+		Asset::ECookTargetProfile ExpectedProfile,
+		std::shared_ptr<const FTerrainHeightmapPayload>& OutPayload) -> FPayloadDecodeResult;
+}

@@ -21,6 +21,16 @@ namespace Durin::Asset
 			return Result;
 		}
 
+		auto ReadPngU32(std::span<const uint8> Bytes, size_t Offset, uint32& OutValue) -> bool
+		{
+			if (Offset > Bytes.size() || Bytes.size() - Offset < 4) return false;
+			OutValue = static_cast<uint32>(Bytes[Offset]) << 24
+				| static_cast<uint32>(Bytes[Offset + 1]) << 16
+				| static_cast<uint32>(Bytes[Offset + 2]) << 8
+				| static_cast<uint32>(Bytes[Offset + 3]);
+			return true;
+		}
+
 		auto ReadRadianceLine(std::span<const uint8> Bytes, size_t& Offset, std::string_view& OutLine) -> bool
 		{
 			if (Offset >= Bytes.size()) return false;
@@ -269,6 +279,102 @@ namespace Durin::Asset
 			return false;
 		}
 		return DecodeImageFromMemory(EncodedBytes, OutImage, OutError, Limits);
+	}
+
+	auto DecodeGrayscale16PngFromMemory(
+		std::span<const uint8> EncodedBytes,
+		FDecodedGrayscale16Image& OutImage,
+		std::string& OutError,
+		const FImageDecodeLimits& Limits) -> bool
+	{
+		OutImage = {};
+		OutError.clear();
+		constexpr std::array<uint8, 8> Signature{137, 80, 78, 71, 13, 10, 26, 10};
+		if (EncodedBytes.size() > Limits.MaximumEncodedBytes
+			|| EncodedBytes.size() > static_cast<size_t>(std::numeric_limits<int>::max()))
+		{
+			OutError = "The encoded heightmap PNG exceeds the configured limit.";
+			return false;
+		}
+		if (EncodedBytes.size() < 33
+			|| !std::equal(Signature.begin(), Signature.end(), EncodedBytes.begin()))
+		{
+			OutError = "The heightmap source is not a complete PNG header.";
+			return false;
+		}
+		uint32 IhdrSize = 0;
+		uint32 Width = 0;
+		uint32 Height = 0;
+		if (!ReadPngU32(EncodedBytes, 8, IhdrSize) || IhdrSize != 13
+			|| !std::equal(EncodedBytes.begin() + 12, EncodedBytes.begin() + 16, "IHDR")
+			|| !ReadPngU32(EncodedBytes, 16, Width)
+			|| !ReadPngU32(EncodedBytes, 20, Height))
+		{
+			OutError = "The heightmap PNG IHDR is missing or invalid.";
+			return false;
+		}
+		if (EncodedBytes[24] != 16 || EncodedBytes[25] != 0)
+		{
+			OutError = "Heightmaps require PNG color type 0 with exactly 16 bits per grayscale sample.";
+			return false;
+		}
+		if (EncodedBytes[26] != 0 || EncodedBytes[27] != 0 || EncodedBytes[28] != 0)
+		{
+			OutError = "Heightmaps require standard PNG compression/filtering and non-interlaced rows.";
+			return false;
+		}
+		const uint64 PixelCount = static_cast<uint64>(Width) * Height;
+		if (Width == 0 || Height == 0 || PixelCount > Limits.MaximumDecodedPixels
+			|| PixelCount > std::numeric_limits<size_t>::max() / sizeof(uint16))
+		{
+			OutError = "The decoded heightmap dimensions exceed the configured limit.";
+			return false;
+		}
+
+		int DecodedWidth = 0;
+		int DecodedHeight = 0;
+		int Channels = 0;
+		stbi_us* Decoded = stbi_load_16_from_memory(
+			EncodedBytes.data(), static_cast<int>(EncodedBytes.size()),
+			&DecodedWidth, &DecodedHeight, &Channels, 0);
+		if (!Decoded || DecodedWidth != static_cast<int>(Width)
+			|| DecodedHeight != static_cast<int>(Height) || Channels != 1)
+		{
+			if (Decoded) stbi_image_free(Decoded);
+			OutError = "The heightmap PNG is malformed or could not be decoded losslessly.";
+			return false;
+		}
+		FDecodedGrayscale16Image Candidate;
+		Candidate.Width = Width;
+		Candidate.Height = Height;
+		Candidate.Samples.assign(Decoded, Decoded + static_cast<size_t>(PixelCount));
+		stbi_image_free(Decoded);
+		OutImage = std::move(Candidate);
+		return true;
+	}
+
+	auto DecodeGrayscale16PngFromFile(
+		std::string_view FilePath,
+		FDecodedGrayscale16Image& OutImage,
+		std::string& OutError,
+		const FImageDecodeLimits& Limits) -> bool
+	{
+		OutImage = {};
+		std::error_code ErrorCode;
+		const uintmax_t FileSize = std::filesystem::file_size(
+			std::filesystem::path(FilePath), ErrorCode);
+		if (ErrorCode || FileSize == 0 || FileSize > Limits.MaximumEncodedBytes)
+		{
+			OutError = "The heightmap PNG file is unavailable, empty, or too large.";
+			return false;
+		}
+		std::vector<uint8> EncodedBytes;
+		if (!FFileHelper::LoadFileToArray(EncodedBytes, FilePath))
+		{
+			OutError = "Unable to read the heightmap PNG file.";
+			return false;
+		}
+		return DecodeGrayscale16PngFromMemory(EncodedBytes, OutImage, OutError, Limits);
 	}
 
 	auto DecodeRadianceHDRFromMemory(std::span<const uint8> EncodedBytes, FDecodedFloatImage& OutImage,

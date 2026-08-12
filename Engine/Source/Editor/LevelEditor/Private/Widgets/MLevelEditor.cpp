@@ -32,6 +32,7 @@
 #include "Assets/SceneImportDialog.h"
 #include "Assets/StaticMeshImportDialog.h"
 #include "Assets/TextureImportDialog.h"
+#include "Assets/TerrainHeightmapImportDialog.h"
 #include "Assets/TextureCubeImportDialog.h"
 #include "Widgets/EditorNotificationOverlay.h"
 
@@ -190,6 +191,8 @@ namespace Durin::Editor::Level
 			MakeImportDialog<FTextureImportDialog>(ImportCallbacks);
 		TextureCubeImportDialog =
 			MakeImportDialog<FTextureCubeImportDialog>(ImportCallbacks);
+		TerrainHeightmapImportDialog =
+			MakeImportDialog<FTerrainHeightmapImportDialog>(ImportCallbacks);
 	}
 
 	auto MLevelEditor::CreateContentBrowser() -> void
@@ -210,6 +213,11 @@ namespace Durin::Editor::Level
 				else if (ImportType == EContentBrowserImportType::TextureCube)
 				{
 					if (TextureCubeImportDialog) TextureCubeImportDialog->Open(DestinationDirectory);
+				}
+				else if (ImportType == EContentBrowserImportType::TerrainHeightmap)
+				{
+					if (TerrainHeightmapImportDialog)
+						TerrainHeightmapImportDialog->Open(DestinationDirectory);
 				}
 				else if (ImportType == EContentBrowserImportType::StaticMesh)
 				{
@@ -416,7 +424,7 @@ namespace Durin::Editor::Level
 	auto MLevelEditor::DrawWorkspace(bool bActive) -> bool
 	{
 		if (!Context || !DocumentController || !SceneImportDialog || !StaticMeshImportDialog
-			|| !TextureImportDialog) return false;
+			|| !TextureImportDialog || !TerrainHeightmapImportDialog) return false;
 		if (bActive && !bWasActive)
 		{
 			// Internal panel windows are not submitted while another workspace is visible, so
@@ -505,6 +513,7 @@ namespace Durin::Editor::Level
 		StaticMeshImportDialog->Draw();
 		TextureImportDialog->Draw();
 		TextureCubeImportDialog->Draw();
+		TerrainHeightmapImportDialog->Draw();
 		DrawProjectSettings();
 
 		MonaImGui::ErrorDialog("Editor Error", EditorError);
