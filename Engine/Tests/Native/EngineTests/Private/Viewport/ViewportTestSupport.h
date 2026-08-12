@@ -30,7 +30,7 @@
 #include "Workspace/LevelEditorContext.h"
 #include "LevelEditorCustomizations.h"
 #include "MonaImGui.h"
-#include "Mona/SceneViewport.h"
+#include "Client/SceneViewport.h"
 #include "Misc/Paths.h"
 #include "SceneViewProjection.h"
 #include "StaticMesh/StaticMesh.h"

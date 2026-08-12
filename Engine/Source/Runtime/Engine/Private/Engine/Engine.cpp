@@ -9,7 +9,7 @@
 #include "Client/ViewportClient.h"
 #include "DObject/DObjectGlobals.h"
 #include "IRendererModule.h"
-#include "Mona/SceneViewport.h"
+#include "Client/SceneViewport.h"
 #include "Modules/ModuleManager.h"
 #include "Materials/DefaultMaterialService.h"
 #include "Profiling/Profiling.h"

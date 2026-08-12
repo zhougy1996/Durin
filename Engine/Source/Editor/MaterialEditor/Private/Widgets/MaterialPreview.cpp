@@ -10,7 +10,7 @@
 #include "IScene.h"
 #include "Materials/MaterialInterface.h"
 #include "Math/Operations.h"
-#include "Mona/SceneViewport.h"
+#include "Client/SceneViewport.h"
 #include "MonaImGui.h"
 #include "Preview/PreviewScene.h"
 #include "SceneView.h"
@@ -157,9 +157,9 @@ namespace Durin::Editor::Material
 
 			ViewportClient = std::make_unique<FMaterialPreviewViewportClient>();
 			ViewportWidget = std::make_shared<MViewport>();
-			SceneViewport = std::make_shared<FSceneViewport>(
-				ViewportClient.get(), ViewportWidget, PreviewScene->GetRenderScene());
-			ViewportWidget->SetViewportInterface(SceneViewport);
+			SceneViewport = FSceneViewport::CreateOffscreen(
+				ViewportClient.get(), PreviewScene->GetRenderScene());
+			ViewportWidget->SetDisplaySource(SceneViewport);
 			GEngine->RegisterAuxiliarySceneViewport(SceneViewport);
 		}
 

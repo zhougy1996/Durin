@@ -489,7 +489,7 @@ TEST(FViewportSelectionTests, PrefersViewportClientThenControllerTargetThenPrima
 		.RenderMode = Durin::ERenderMode::Unlit,
 		.RasterMode = Durin::ERasterMode::Wireframe,
 	});
-	auto ClientViewport = std::make_shared<Durin::FSceneViewport>(&Client, std::shared_ptr<Durin::MViewport>{});
+	auto ClientViewport = Durin::FSceneViewport::CreateOffscreen(&Client);
 	Engine.SetTestViewport(ClientViewport);
 	const Durin::FSceneView ClientView = Engine.BuildMainSceneView(640, 480);
 	ExpectVectorNear(ClientView.ViewLocation, {11.0, 12.0, 13.0});

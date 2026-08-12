@@ -18,7 +18,7 @@
 #include "Profiling/Profiling.h"
 #include "RenderingThread.h"
 #include "Mona.h"
-#include "Mona/SceneViewport.h"
+#include "Client/SceneViewport.h"
 #include "Application/MonaApplication.h"
 #include "Widgets/MWindow.h"
 
@@ -314,7 +314,7 @@ namespace Durin
 			PlayWindow->ReshapeWindow({160.0f, 160.0f}, {1280.0f, 720.0f});
 			Mona::FMonaApplication::Get().AddWindow(PlayWindow, true);
 			Mona::FMonaApplication::Get().GetRenderer()->CreateViewport(PlayWindow);
-			PlayWindowViewport = std::make_shared<FSceneViewport>(nullptr, PlayWindow);
+			PlayWindowViewport = FSceneViewport::CreateWindowBacked(nullptr, PlayWindow);
 			SetMainSceneViewport(PlayWindowViewport);
 			SetGameInputWindow(PlayWindow->GetNativeWindow());
 		}

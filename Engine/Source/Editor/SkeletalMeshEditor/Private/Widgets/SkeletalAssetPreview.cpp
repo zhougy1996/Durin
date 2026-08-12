@@ -8,7 +8,7 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Math/Operations.h"
-#include "Mona/SceneViewport.h"
+#include "Client/SceneViewport.h"
 #include "MonaImGui.h"
 #include "Preview/PreviewScene.h"
 #include "SceneView.h"
@@ -135,8 +135,8 @@ namespace Durin::Editor::SkeletalMesh
 			Light->SetWorldRotation(RotationFromForward(FVector3(-2.6, 2.6, -2.4)));
 			ViewportClient = std::make_unique<FSkeletalPreviewViewportClient>();
 			ViewportWidget = std::make_shared<MViewport>();
-			SceneViewport = std::make_shared<FSceneViewport>(ViewportClient.get(), ViewportWidget, PreviewScene->GetRenderScene());
-			ViewportWidget->SetViewportInterface(SceneViewport);
+			SceneViewport = FSceneViewport::CreateOffscreen(ViewportClient.get(), PreviewScene->GetRenderScene());
+			ViewportWidget->SetDisplaySource(SceneViewport);
 			GEngine->RegisterAuxiliarySceneViewport(SceneViewport);
 			PreviewScene->BeginPlay();
 		}

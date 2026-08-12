@@ -2,7 +2,7 @@
 
 Summary: Define window-backed viewports, render targets, presentation, resize recovery, and editor assistance rendering.
 
-Modules: ApplicationCore, Mona, Renderer, RHI
+Modules: Engine, MonaCore, Mona, Renderer, RHI
 
 This document explains how Durin connects Mona widgets, scene viewports, and RHI render targets for both standalone game windows and editor viewport panels.
 
@@ -16,22 +16,27 @@ The viewport stack intentionally mirrors the broad Unreal Engine split between a
 - `DEngine::MainSceneViewport` owns the active scene viewport lifetime.
 - `DEngine::RedrawViewports()` drives rendering for the active scene viewport.
 
-`MWindow` should not own or expose a scene viewport directly. A window can contain an `MViewport`, and the `MViewport` can reference a viewport implementation through `Mona::IMonaViewport`.
+`MWindow` does not own or expose a scene viewport. Offscreen widgets observe a
+neutral `IViewportDisplaySource`; native windows are connected directly to an
+Engine scene viewport by the runtime or editor composition owner.
 
 ## Ownership
 
-`MViewport` stores a weak pointer to `Mona::IMonaViewport`. It is a UI widget, not the lifetime owner of the engine viewport.
+`MViewport` stores a weak pointer to `IViewportDisplaySource`. It is a UI
+consumer, not the lifetime owner of the Engine producer. It owns only the UI
+backend registration for the currently published texture.
 
 `FSceneViewport` is held by the engine through `DEngine::MainSceneViewport`. This keeps the scene viewport alive independently of transient widget references.
 
 Editor-only secondary views can be registered through the engine's auxiliary scene viewport list. The main viewport remains the semantic owner of input, PIE destination switching, and active-camera fallback; auxiliary viewports render only when their own viewport client supplies a valid view.
 
-The current paths are:
+The composition paths are:
 
-- game startup: `MWindow -> MViewport -> FSceneViewport`
-- editor viewport panel: `MLevelEditor -> MViewport -> FSceneViewport`
+- game and detached Play windows: `composition owner -> MWindow + FSceneViewport`
+- editor and asset-preview panels: `composition owner -> MViewport + FSceneViewport`
 
-This keeps the widget composition path consistent while still allowing each viewport to choose a different render mode.
+`FSceneViewport` alone chooses window or offscreen output. Mona does not know
+that policy and never branches on it.
 
 ### Renderer Ownership and Scene Vocabulary
 
@@ -72,16 +77,14 @@ facilities are explicit resource owners rather than anonymous feature globals.
 All GPU resource mutation, invalidation, retry, and release remains confined
 to the rendering thread.
 
-## Render Modes
-
-`Mona::IMonaViewport` exposes the render mode through `GetRenderMode()` and `IsWindowBacked()`.
+## Output Policies
 
 Window-backed viewports render directly to the native window backbuffer. Render-target-backed viewports render into an offscreen texture that can later be shown by UI code.
 
-`FSceneViewport` currently supports both modes:
+`FSceneViewport` exposes unambiguous Engine-owned factories:
 
-- `FSceneViewport(FViewportClient*, std::shared_ptr<MWindow>)` creates a window-backed viewport.
-- `FSceneViewport(FViewportClient*, std::shared_ptr<MViewport>)` creates a render-target-backed viewport.
+- `CreateWindowBacked(FViewportClient*, std::shared_ptr<MWindow>)` creates a native-window viewport.
+- `CreateOffscreen(FViewportClient*, IScene*)` creates an optional isolated-scene offscreen viewport.
 
 ## Scene View Settings
 
@@ -123,9 +126,10 @@ For each valid non-zero output, `FSceneRenderer` preserves this order:
 
 ## Game Window Path
 
-`DGameEngine::Init()` creates the standalone game window, creates an `MViewport` widget, installs that widget as the window content, then creates a window-backed `FSceneViewport`.
-
-The important detail is that the game still renders directly to the window. The `MViewport` exists so the runtime follows the same widget-level viewport composition model as the editor, not because the game is rendered through an ImGui image.
+`DGameEngine::Init()` creates the standalone game window and a window-backed
+`FSceneViewport`. The game renders directly to the native backbuffer and does
+not create an `MViewport` or UI texture registration. Detached Play windows
+use the same composition.
 
 Flow:
 
@@ -133,9 +137,7 @@ Flow:
 DGameEngine::Init()
   creates MWindow
   creates native RHI viewport for the window
-  creates MViewport and sets it as window content
-  creates FSceneViewport from MWindow
-  assigns FSceneViewport to MViewport
+  calls FSceneViewport::CreateWindowBacked(...)
   sets DEngine::MainSceneViewport
 
 DEngine::RedrawViewports()
@@ -144,8 +146,6 @@ DEngine::RedrawViewports()
   clears/renders the backbuffer
   presents through the RHI viewport
 ```
-
-In this path, `MViewport::Draw()` only updates the referenced viewport. It exits before drawing a texture because the viewport is window-backed.
 
 ## Editor Viewport Path
 
@@ -168,8 +168,8 @@ Flow:
 ```text
 MLevelEditor::Construct()
   creates MViewport
-  creates FSceneViewport from MViewport
-  assigns FSceneViewport to MViewport
+  calls FSceneViewport::CreateOffscreen(...)
+  calls MViewport::SetDisplaySource(...)
   sets DEngine::MainSceneViewport
 
 MLevelEditor::Draw()
@@ -185,12 +185,19 @@ DEngine::RedrawViewports()
   renders each valid auxiliary view into its own offscreen target
 
 MViewport::Draw()
-  updates the referenced viewport
-  asks the viewport interface for the display texture
-  calls MonaUI::DrawTexture(...)
+  publishes the latest logical desired size
+  prepares and obtains the matching display texture
+  updates UI-backend registration when texture identity changes
+  draws the registered texture
 ```
 
-For editor render-target viewports, `FSceneViewport::GetDisplayTexture()` simply exposes the current offscreen render target. The UI frame is built before scene rendering commands are enqueued, while ImGui samples the texture later in the same frame, so using the current render target removes the extra-frame resize lag while still letting the render pass populate it before sampling.
+For editor render-target viewports, `PrepareDisplay()` sanitizes each dimension
+to `max(8, ceil(value))`, retains that exact extent in `FSceneViewport`, and
+synchronously creates or replaces the offscreen texture. `GetDisplayTexture()`
+then exposes it. The UI frame is built before scene rendering commands are
+enqueued, while ImGui samples the texture later in the same frame. Engine uses
+the retained extent for view construction and rendering, so interactive resize
+does not add a stale-size frame.
 
 The Level Editor finalizes one scene-view snapshot after all of its panels have submitted UI for the logic frame. Matrix construction is independent from editor-overlay generation: navigation, gizmo interaction, projection, and picking use the lightweight view, while component visualizers traverse the level once to populate the final render snapshot. `FLevelEditorViewportClient::CalcSceneView()` reuses that snapshot when the renderer requests the same frame and quantized extent. Hover and visualization picking use the previous rendered collector with current matrices, matching the image on which the input occurred; weak object handles make cached hits harmless after object retirement. Hover color is stored on visualization primitives and resolved during composition, so changing hover does not rerun component visualizers.
 
@@ -329,23 +336,36 @@ shutdown path.
 
 ## Interface Boundary
 
-`MViewport` talks only to `Mona::IMonaViewport`, not to `FSceneViewport`.
+`MViewport` talks only to the MonaCore-owned `IViewportDisplaySource`, not to
+`FSceneViewport`.
 
-`IMonaViewport` contains the widget-facing operations needed by Mona:
+The neutral port contains only the widget-facing operations needed by Mona:
 
-- `GetRenderMode()`
-- `IsWindowBacked()`
-- `GetDesiredSize()`
-- `UpdateRHIViewport()`
+- `PrepareDisplay(const FVector2f&)`
 - `GetDisplayTexture()`
 
-This prevents the Mona widget layer from depending on the Engine module. `FSceneViewport` implements the interface on the Engine side.
+MonaCore owns this contract. Engine and Mona both depend publicly on MonaCore,
+while neither module depends on the other. The port contains no World, Scene,
+viewport-client, editor, input, window, or concrete widget vocabulary.
+
+## UI Texture Registration
+
+`FSceneViewport` owns RHI texture creation, replacement, and destruction but
+never calls the UI backend. `MViewport` registers the first non-null published
+texture and reuses that registration while both texture and backend identity
+remain stable. Source replacement, source expiration, null publication, or
+widget destruction unregisters the current texture once when its backend is
+still active. A changed or unavailable backend is never called through a stale
+pointer; its own shutdown owns any backend-internal cleanup.
 
 ## Resize Behavior
 
 `MViewport::SetDesiredSize()` records the size requested by the widget layout.
 
-For editor render-target viewports, `FSceneViewport::UpdateRHIViewport()` reads that desired size and recreates the offscreen render target when the size changes. Sizes are clamped to a small non-zero minimum before RHI texture creation.
+For editor render-target viewports, `MViewport::Draw()` passes that size to
+`FSceneViewport::PrepareDisplay()`. Engine is the sole normalization owner and
+stores the quantized extent used by both view construction and texture
+allocation.
 
 For game window viewports, `FSceneViewport::UpdateRHIViewport()` asks `FMonaRenderer` for the RHI viewport associated with the `MWindow`. Native window resize events are handled by `FMonaApplication` and the renderer.
 
@@ -403,10 +423,11 @@ are defined by [RHI Diagnostics and Conformance](RHIDiagnosticsAndConformance.md
 - Keep `MWindow` focused on native window state and widget content.
 - Put viewport widget behavior in `MViewport`.
 - Keep scene rendering state in `FSceneViewport` and engine/rendering code.
+- Keep UI texture registration in `MViewport`; Engine must not call a UI backend.
 - Keep primary viewport semantics separate from auxiliary editor views; auxiliary clients must explicitly provide their view and do not fall back to the world's active camera.
 - Do not make Mona widgets depend on Engine types.
+- Do not add a direct Engine/Mona module dependency in either direction.
 - Do not make `MViewport` own the scene viewport lifetime.
-- Use `MonaUI::DrawTexture(...)` only for render-target-backed UI display.
 - Window-backed game rendering should continue to present through the native RHI viewport.
 
 The provisioned Win64 graphics/presentation family and later-surface rejection
@@ -416,12 +437,12 @@ rule are documented in
 ## Related Code
 
 - `Engine/Source/Runtime/MonaCore/Public/Widgets/MWindow.h`
+- `Engine/Source/Runtime/MonaCore/Public/Rendering/ViewportDisplaySource.h`
 - `Engine/Source/Runtime/Mona/Public/Widgets/MViewport.h`
-- `Engine/Source/Runtime/MonaCore/Public/Rendering/RenderingCommon.h`
-- `Engine/Source/Runtime/Engine/Public/Mona/SceneViewport.h`
+- `Engine/Source/Runtime/Engine/Public/Client/SceneViewport.h`
 - `Engine/Source/Runtime/Engine/Private/Engine/Engine.cpp`
 - `Engine/Source/Runtime/Engine/Private/Engine/GameEngine.cpp`
-- `Engine/Source/Editor/LevelEditor/Private/Widgets/MLevelEditor.cpp`
+- `Engine/Source/Editor/LevelEditor/Private/Panels/SceneViewportPanel.cpp`
 
 ## User Guide
 

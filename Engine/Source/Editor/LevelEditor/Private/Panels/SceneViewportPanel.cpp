@@ -20,7 +20,7 @@
 #include "Workspace/LevelEditorContext.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "Math/Vector.h"
-#include "Mona/SceneViewport.h"
+#include "Client/SceneViewport.h"
 #include "Application/MonaApplication.h"
 #include "MonaImGui.h"
 #include "SceneViewProjection.h"
@@ -62,8 +62,8 @@ namespace Durin::Editor::Level
 		ViewportClient = std::make_unique<FLevelEditorViewportClient>();
 		ViewportToolbar = std::make_unique<FViewportToolbar>();
 		ViewportWidget = std::make_shared<MViewport>();
-		const std::shared_ptr<FSceneViewport> SceneViewport = std::make_shared<FSceneViewport>(ViewportClient.get(), ViewportWidget);
-		ViewportWidget->SetViewportInterface(SceneViewport);
+		const std::shared_ptr<FSceneViewport> SceneViewport = FSceneViewport::CreateOffscreen(ViewportClient.get());
+		ViewportWidget->SetDisplaySource(SceneViewport);
 		if (GEngine != nullptr)
 		{
 			GEngine->SetMainSceneViewport(SceneViewport);
@@ -71,8 +71,8 @@ namespace Durin::Editor::Level
 
 		CameraPreviewViewportClient = std::make_unique<FCameraPreviewViewportClient>();
 		CameraPreviewViewportWidget = std::make_shared<MViewport>();
-		CameraPreviewSceneViewport = std::make_shared<FSceneViewport>(CameraPreviewViewportClient.get(), CameraPreviewViewportWidget);
-		CameraPreviewViewportWidget->SetViewportInterface(CameraPreviewSceneViewport);
+		CameraPreviewSceneViewport = FSceneViewport::CreateOffscreen(CameraPreviewViewportClient.get());
+		CameraPreviewViewportWidget->SetDisplaySource(CameraPreviewSceneViewport);
 		if (GEngine != nullptr) GEngine->RegisterAuxiliarySceneViewport(CameraPreviewSceneViewport);
 	}
 

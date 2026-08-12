@@ -5,6 +5,11 @@
 
 namespace Durin
 {
+	MViewport::~MViewport()
+	{
+		ReleaseRegisteredTexture();
+	}
+
 	auto MViewport::SetDesiredSize(const FVector2f& InDesiredSize) -> void
 	{
 		DesiredSize = InDesiredSize;
@@ -15,14 +20,17 @@ namespace Durin
 		return DesiredSize;
 	}
 
-	auto MViewport::SetViewportInterface(const std::shared_ptr<Mona::IMonaViewport>& InViewport) -> void
+	auto MViewport::SetDisplaySource(const std::shared_ptr<IViewportDisplaySource>& InDisplaySource) -> void
 	{
-		ViewportInterface = InViewport;
+		if (DisplaySource.lock() == InDisplaySource
+			&& (InDisplaySource != nullptr || RegisteredTexture == nullptr)) return;
+		ReleaseRegisteredTexture();
+		DisplaySource = InDisplaySource;
 	}
 
-	auto MViewport::GetViewportInterface() const -> std::shared_ptr<Mona::IMonaViewport>
+	auto MViewport::GetDisplaySource() const -> std::shared_ptr<IViewportDisplaySource>
 	{
-		return ViewportInterface.lock();
+		return DisplaySource.lock();
 	}
 
 	auto MViewport::WasTextureDrawn() const -> bool
@@ -34,21 +42,46 @@ namespace Durin
 	{
 		bLastDrawSucceeded = false;
 
-		const std::shared_ptr<Mona::IMonaViewport> ViewportPtr = ViewportInterface.lock();
-		if (ViewportPtr == nullptr)
+		const std::shared_ptr<IViewportDisplaySource> DisplaySourcePtr = DisplaySource.lock();
+		if (DisplaySourcePtr == nullptr)
+		{
+			ReleaseRegisteredTexture();
+			return;
+		}
+
+		DisplaySourcePtr->PrepareDisplay(DesiredSize);
+		const FTextureRHIRef& DisplayTexture = DisplaySourcePtr->GetDisplayTexture();
+		SynchronizeRegisteredTexture(DisplayTexture);
+		if (DisplayTexture == nullptr || RegisteredBackend == nullptr)
 		{
 			return;
 		}
 
-		check(!ViewportPtr->IsWindowBacked());
-		ViewportPtr->UpdateRHIViewport();
+		bLastDrawSucceeded = RegisteredBackend->DrawImage(DisplayTexture, DesiredSize);
+	}
 
-		const FTextureRHIRef& DisplayTexture = ViewportPtr->GetDisplayTexture();
-		if (DisplayTexture == nullptr || Mona::GActiveUIBackend == nullptr)
+	auto MViewport::SynchronizeRegisteredTexture(const FTextureRHIRef& DisplayTexture) -> void
+	{
+		Mona::IMonaUIBackend* ActiveBackend = Mona::GActiveUIBackend;
+		if (RegisteredTexture == DisplayTexture && RegisteredBackend == ActiveBackend) return;
+
+		ReleaseRegisteredTexture();
+		if (DisplayTexture != nullptr && ActiveBackend != nullptr)
 		{
-			return;
+			ActiveBackend->RegisterTexture(DisplayTexture);
+			RegisteredTexture = DisplayTexture;
+			RegisteredBackend = ActiveBackend;
 		}
+	}
 
-		bLastDrawSucceeded = Mona::GActiveUIBackend->DrawImage(DisplayTexture, DesiredSize);
+	auto MViewport::ReleaseRegisteredTexture() -> void
+	{
+		if (RegisteredTexture != nullptr && RegisteredBackend != nullptr
+			&& RegisteredBackend == Mona::GActiveUIBackend)
+		{
+			RegisteredBackend->UnregisterTexture(RegisteredTexture);
+		}
+		RegisteredTexture = nullptr;
+		RegisteredBackend = nullptr;
 	}
 }

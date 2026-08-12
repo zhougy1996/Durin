@@ -7,7 +7,7 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Math/Operations.h"
-#include "Mona/SceneViewport.h"
+#include "Client/SceneViewport.h"
 #include "MonaImGui.h"
 #include "Preview/PreviewScene.h"
 #include "SceneView.h"
@@ -172,8 +172,8 @@ namespace Durin::Editor::StaticMesh
 
 			ViewportClient = std::make_unique<FStaticMeshPreviewViewportClient>();
 			ViewportWidget = std::make_shared<MViewport>();
-			SceneViewport = std::make_shared<FSceneViewport>(ViewportClient.get(), ViewportWidget, PreviewScene->GetRenderScene());
-			ViewportWidget->SetViewportInterface(SceneViewport);
+			SceneViewport = FSceneViewport::CreateOffscreen(ViewportClient.get(), PreviewScene->GetRenderScene());
+			ViewportWidget->SetDisplaySource(SceneViewport);
 			GEngine->RegisterAuxiliarySceneViewport(SceneViewport);
 		}
 

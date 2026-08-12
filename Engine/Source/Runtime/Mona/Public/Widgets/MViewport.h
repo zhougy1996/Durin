@@ -1,17 +1,22 @@
 #pragma once
 
 #include "MonaAPI.h"
-#include "Rendering/RenderingCommon.h"
+#include "Rendering/ViewportDisplaySource.h"
 #include "Widgets/MWidget.h"
+
+namespace Durin::Mona
+{
+	class IMonaUIBackend;
+}
 
 namespace Durin
 {
-	// Presents an engine viewport texture inside the Mona widget tree.
+	// Presents a neutral display source inside the Mona widget tree without owning its lifetime.
 	class MViewport : public MWidget
 	{
 	public:
 		MViewport() = default;
-		~MViewport() override = default;
+		MONA_API ~MViewport() override;
 
 		MONA_API auto Draw() -> void override;
 
@@ -19,9 +24,9 @@ namespace Durin
 
 		MONA_API auto GetDesiredSize() const -> FVector2f;
 
-		MONA_API auto SetViewportInterface(const std::shared_ptr<Mona::IMonaViewport>& InViewport) -> void;
+		MONA_API auto SetDisplaySource(const std::shared_ptr<IViewportDisplaySource>& InDisplaySource) -> void;
 
-		MONA_API auto GetViewportInterface() const -> std::shared_ptr<Mona::IMonaViewport>;
+		MONA_API auto GetDisplaySource() const -> std::shared_ptr<IViewportDisplaySource>;
 
 		MONA_API auto WasTextureDrawn() const -> bool;
 
@@ -29,8 +34,15 @@ namespace Durin
 		// Logical widget size requested from the layout system.
 		FVector2f DesiredSize = {640.0f, 360.0f};
 
-		// The widget observes the viewport without extending its runtime lifetime.
-		std::weak_ptr<Mona::IMonaViewport> ViewportInterface;
+		auto SynchronizeRegisteredTexture(const FTextureRHIRef& DisplayTexture) -> void;
+		auto ReleaseRegisteredTexture() -> void;
+
+		// The widget observes the source without extending its producer lifetime.
+		std::weak_ptr<IViewportDisplaySource> DisplaySource;
+
+		// Registration belongs to the consumer and changes only with texture or backend identity.
+		FTextureRHIRef RegisteredTexture;
+		Mona::IMonaUIBackend* RegisteredBackend = nullptr;
 
 		// Records whether the latest draw submitted a valid viewport texture.
 		bool bLastDrawSucceeded = false;

@@ -2,10 +2,12 @@
     "ModuleName": "Mona",
     "LinkType": "Shared",
     "PCH": "SharedPCH_Core",
+    "PublicDependencies": [
+        "MonaCore"
+    ],
     "PrivateDependencies": [
         "Core",
         "RHI",
-        "ApplicationCore",
-        "MonaCore"
+        "ApplicationCore"
     ]
 }

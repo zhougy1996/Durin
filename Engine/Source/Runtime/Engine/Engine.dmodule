@@ -9,13 +9,11 @@
         "ApplicationCore",
         "AssetCore",
         "CoreDObject",
+        "MonaCore",
         "RenderCore",
         "RHI"
     ],
-    "PrivateDependencies": [
-        "MonaCore",
-        "Mona"
-    ],
+    "PrivateDependencies": [],
     "OptionalPrivateDependencies": [],
     "ReflectHeaders": [
         "Public/Engine/Actor.h",

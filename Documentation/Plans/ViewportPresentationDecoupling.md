@@ -4,34 +4,37 @@ Summary: Decouple Engine scene-view production from Mona widget presentation thr
 
 Last reviewed: 2026-08-12
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-12
 
 ## Current Status
 
-The current viewport path works, but its ownership and dependency declarations
-do not match its actual responsibilities. `Mona::IMonaViewport` lives in
-MonaCore while describing Engine/RHI viewport behavior, `FSceneViewport` lives
-in Engine while retaining a concrete `MViewport`, and Engine privately depends
-on both MonaCore and Mona. Offscreen texture registration is also performed by
-Engine even though it is UI-backend state.
-
-The selected direction is:
+The viewport presentation boundary now ships as:
 
 ```text
 Engine -> MonaCore <- Mona
        no direct edge
 ```
 
-MonaCore will own one neutral display-source port. Engine will produce an
+MonaCore owns one neutral display-source port. Engine produces an
 offscreen display texture through that port, Mona will consume it through
 `MViewport`, and editor/host composition code that already knows both objects
 will connect them. Window-backed scene viewports remain an Engine concern and
 continue to present directly through their native RHI viewport.
 
-No implementation stage has started. Stage 0 must freeze the public names,
-same-frame resize ordering, and UI texture-registration ownership before source
-changes begin.
+`IViewportDisplaySource`, explicit `FSceneViewport` factories, Engine-owned
+extent normalization, and Mona-owned registration are implemented. The old
+Mona viewport interface, render-mode vocabulary, Engine `Mona/SceneViewport`
+paths, and direct Engine/Mona dependency are removed. The earlier game-window
+documentation claimed an `MViewport` composition that the implementation did
+not create; the lasting documentation now records the implemented direct
+window-backed path as the migration base.
+
+Validation completed on 2026-08-12: focused Mona/Engine header-boundary,
+viewport, Material, StaticMesh, SkeletalMesh, editor-shell, editor-rendering,
+Renderer, and process-boundary targets passed; the default-granularity native
+aggregate and full `all` build passed; and the built DurinEditor remained live
+during the runtime smoke check before controlled shutdown.
 
 ## Goal
 
@@ -213,18 +216,18 @@ After the plan:
 
 ### Stage 0: Freeze the port and ordering contract
 
-- [ ] Confirm the final neutral interface and file names, keeping the type
+- [x] Confirm the final neutral interface and file names, keeping the type
   outside `Durin::Mona` and excluding Engine-specific vocabulary.
-- [ ] Trace the UI-build, `DEngine::RedrawViewports`, render-command submission,
+- [x] Trace the UI-build, `DEngine::RedrawViewports`, render-command submission,
   ImGui sampling, and consumer-detachment order for main, auxiliary, preview,
   standalone, and detached Play-window paths.
-- [ ] Freeze one extent normalization rule and identify its Engine owner.
-- [ ] Specify texture registration state transitions for first publication,
+- [x] Freeze one extent normalization rule and identify its Engine owner.
+- [x] Specify texture registration state transitions for first publication,
   stable reuse, resize replacement, null output, source replacement, source
   expiration, widget destruction, and backend shutdown.
-- [ ] Add characterization coverage for the current same-frame resize and
+- [x] Add characterization coverage for the current same-frame resize and
   window/offscreen behavior before removing the old interface.
-- [ ] Record any documentation/code mismatch discovered in the game-window
+- [x] Record any documentation/code mismatch discovered in the game-window
   composition path and select the implemented behavior as the migration base.
 
 #### Acceptance Gate
@@ -235,15 +238,15 @@ After the plan:
 
 ### Stage 1: Introduce the neutral display-source seam
 
-- [ ] Add the MonaCore display-source header and make `FSceneViewport` implement
+- [x] Add the MonaCore display-source header and make `FSceneViewport` implement
   it without removing the old path in the first compile step.
-- [ ] Add `MViewport::SetDisplaySource` and `GetDisplaySource` using a weak
+- [x] Add `MViewport::SetDisplaySource` and `GetDisplaySource` using a weak
   reference and migrate draw logic to the neutral contract.
-- [ ] Preserve same-frame preparation: publish desired size, prepare the
+- [x] Preserve same-frame preparation: publish desired size, prepare the
   offscreen resource, then obtain the texture for the current UI draw.
-- [ ] Add focused fake-source tests for null source, weak lifetime, size
+- [x] Add focused fake-source tests for null source, weak lifetime, size
   publication, prepare-before-get ordering, null texture, and successful draw.
-- [ ] Remove compatibility aliases as soon as all in-tree callers migrate; do
+- [x] Remove compatibility aliases as soon as all in-tree callers migrate; do
   not leave two long-lived viewport contracts.
 
 #### Acceptance Gate
@@ -253,16 +256,16 @@ After the plan:
 
 ### Stage 2: Remove the Engine-to-widget reference
 
-- [ ] Add explicit window-backed and offscreen `FSceneViewport` construction.
-- [ ] Store the sanitized offscreen extent in `FSceneViewport` and use it for
+- [x] Add explicit window-backed and offscreen `FSceneViewport` construction.
+- [x] Store the sanitized offscreen extent in `FSceneViewport` and use it for
   view construction and render-target allocation.
-- [ ] Remove the `MViewport` constructor argument, weak member, include, and
+- [x] Remove the `MViewport` constructor argument, weak member, include, and
   size query from Engine.
-- [ ] Migrate Level Editor main viewport and camera preview composition.
-- [ ] Migrate Material, StaticMesh, and SkeletalMesh preview composition.
-- [ ] Preserve custom preview scenes, main/auxiliary registration, camera
+- [x] Migrate Level Editor main viewport and camera preview composition.
+- [x] Migrate Material, StaticMesh, and SkeletalMesh preview composition.
+- [x] Preserve custom preview scenes, main/auxiliary registration, camera
   fallback policy, dormant preview behavior, and object lifetime ownership.
-- [ ] Update window-backed game and detached Play-window construction without
+- [x] Update window-backed game and detached Play-window construction without
   introducing a display-source binding.
 
 #### Acceptance Gate
@@ -273,16 +276,16 @@ After the plan:
 
 ### Stage 3: Transfer UI texture registration and clean ownership
 
-- [ ] Add one `MViewport`-owned registered-texture state transition helper.
-- [ ] Register the first non-null display texture, retain stable registration,
+- [x] Add one `MViewport`-owned registered-texture state transition helper.
+- [x] Register the first non-null display texture, retain stable registration,
   and replace registration exactly once when Engine recreates the texture.
-- [ ] Unregister on source replacement/expiration, null publication, widget
+- [x] Unregister on source replacement/expiration, null publication, widget
   destruction, and ordinary Mona consumer detachment.
-- [ ] Remove `MonaUIBackend`, `GActiveUIBackend`, `RegisterTexture`, and
+- [x] Remove `MonaUIBackend`, `GActiveUIBackend`, `RegisterTexture`, and
   `UnregisterTexture` use from `FSceneViewport`.
-- [ ] Verify Engine render-target destruction does not call UI code and that
+- [x] Verify Engine render-target destruction does not call UI code and that
   Mona shutdown leaves no registered stale texture or backend access.
-- [ ] Add resize/replacement, repeated-frame, reverse-destruction-order, and
+- [x] Add resize/replacement, repeated-frame, reverse-destruction-order, and
   backend-unavailable tests.
 
 #### Acceptance Gate
@@ -293,19 +296,19 @@ After the plan:
 
 ### Stage 4: Remove obsolete vocabulary and dependency edges
 
-- [ ] Delete `Mona::IMonaViewport` and `EMonaViewportRenderMode`.
-- [ ] Move `FSceneViewport` headers and sources from Engine's `Mona/` paths to
+- [x] Delete `Mona::IMonaViewport` and `EMonaViewportRenderMode`.
+- [x] Move `FSceneViewport` headers and sources from Engine's `Mona/` paths to
   the selected Engine-owned client/rendering path and repair includes.
-- [ ] Rename `SetViewportInterface`/`GetViewportInterface` to the selected
+- [x] Rename `SetViewportInterface`/`GetViewportInterface` to the selected
   display-source API and remove compatibility names.
-- [ ] Remove Engine's Mona module dependency and classify MonaCore correctly as
+- [x] Remove Engine's Mona module dependency and classify MonaCore correctly as
   public or private from the final public-header surface.
-- [ ] Classify MonaCore as a Mona public dependency and remove redundant direct
+- [x] Classify MonaCore as a Mona public dependency and remove redundant direct
   dependencies only when public-header compilation proves they are unnecessary.
-- [ ] Add a dependency regression check or equivalent build coverage proving
+- [x] Add a dependency regression check or equivalent build coverage proving
   Mona public headers compile without Engine and Engine public headers compile
   without Mona.
-- [ ] Update `ViewportRendering.md` with the lasting ownership, composition,
+- [x] Update `ViewportRendering.md` with the lasting ownership, composition,
   resize ordering, registration, and dependency contract.
 
 #### Acceptance Gate
@@ -317,20 +320,20 @@ After the plan:
 
 ### Stage 5: Qualify editor, runtime, and shutdown behavior
 
-- [ ] Run the smallest affected viewport, Mona, Engine, editor-shell, preview,
+- [x] Run the smallest affected viewport, Mona, Engine, editor-shell, preview,
   Renderer, and process-boundary native targets through the root build/test
   workflow.
-- [ ] Exercise main and camera-preview offscreen viewports, interactive resize,
+- [x] Exercise main and camera-preview offscreen viewports, interactive resize,
   hidden/reopened panels, Material/StaticMesh/SkeletalMesh previews, repeated
   stable frames, and orderly editor shutdown.
-- [ ] Exercise standalone and detached Play-window presentation, resize,
+- [x] Exercise standalone and detached Play-window presentation, resize,
   input-capture independence, window close, and shutdown.
-- [ ] Because the change is user-visible and crosses runtime/editor module
+- [x] Because the change is user-visible and crosses runtime/editor module
   boundaries, run the required native aggregate at default target granularity
   and a full `all` build before handoff.
-- [ ] Validate documentation and inspect the final dependency/include search
+- [x] Validate documentation and inspect the final dependency/include search
   for forbidden Engine/Mona references.
-- [ ] Move lasting rules into `ViewportRendering.md`, record evidence in
+- [x] Move lasting rules into `ViewportRendering.md`, record evidence in
   `Current Status`, and complete the plan only after every acceptance gate
   passes.
 
@@ -403,12 +406,12 @@ After the plan:
 
 ## Related Code
 
-- `Engine/Source/Runtime/MonaCore/Public/Rendering/RenderingCommon.h`
+- `Engine/Source/Runtime/MonaCore/Public/Rendering/ViewportDisplaySource.h`
 - `Engine/Source/Runtime/MonaCore/Public/MonaUIBackend.h`
 - `Engine/Source/Runtime/Mona/Public/Widgets/MViewport.h`
 - `Engine/Source/Runtime/Mona/Private/Widgets/MViewport.cpp`
-- `Engine/Source/Runtime/Engine/Public/Mona/SceneViewport.h`
-- `Engine/Source/Runtime/Engine/Private/Mona/SceneViewport.cpp`
+- `Engine/Source/Runtime/Engine/Public/Client/SceneViewport.h`
+- `Engine/Source/Runtime/Engine/Private/Client/SceneViewport.cpp`
 - `Engine/Source/Runtime/Engine/Public/Client/Viewport.h`
 - `Engine/Source/Runtime/Engine/Public/Engine/Engine.h`
 - `Engine/Source/Runtime/Engine/Private/Engine/Engine.cpp`
@@ -422,4 +425,3 @@ After the plan:
 - `Engine/Source/Runtime/Mona/Mona.dmodule`
 - `Engine/Source/Runtime/MonaCore/MonaCore.dmodule`
 - `Engine/Tests/Native/EngineTests/Private/Viewport/`
-

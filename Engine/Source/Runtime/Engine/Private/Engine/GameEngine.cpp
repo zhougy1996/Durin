@@ -6,8 +6,9 @@
 #include "Engine/ProjectGameSettings.h"
 #include "Engine/World.h"
 #include "Misc/Project.h"
-#include "Mona.h"
-#include "Mona/SceneViewport.h"
+#include "Application/MonaApplication.h"
+#include "Client/SceneViewport.h"
+#include "Rendering/MonaRenderer.h"
 #include "Widgets/MWindow.h"
 #include "Window/GenericWindow.h"
 
@@ -34,7 +35,7 @@ namespace Durin
 		MonaApp.AddWindow(GameWindow, true);
 		MonaApp.GetRenderer()->CreateViewport(GameWindow);
 
-		std::shared_ptr<FSceneViewport> SceneViewport = std::make_shared<FSceneViewport>(nullptr, GameWindow);
+		std::shared_ptr<FSceneViewport> SceneViewport = FSceneViewport::CreateWindowBacked(nullptr, GameWindow);
 		SetMainSceneViewport(SceneViewport);
 		const std::shared_ptr<FGenericWindow> NativeWindow = GameWindow->GetNativeWindow();
 		SetGameInputWindow(NativeWindow);

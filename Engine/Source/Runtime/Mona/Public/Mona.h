@@ -2,6 +2,7 @@
 
 #include "MonaCore.h"
 #include "MonaGlobals.h"
+#include "Widgets/MFunctionWidget.h"
 
 namespace Durin::Mona
 {

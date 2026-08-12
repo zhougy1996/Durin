@@ -504,6 +504,36 @@ durin_add_engine_functional_test(PhysicsSceneTests
 	LIBRARIES AetherCore Aether
 )
 
+add_durin_test(MonaViewportTests
+	Private/Viewport/ViewportDisplaySourceTests.cpp
+)
+target_link_libraries(MonaViewportTests PRIVATE
+	Core
+	RHI
+	MonaCore
+	Mona
+)
+set_target_properties(MonaViewportTests PROPERTIES
+	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+	DURIN_TEST_HEAVY_RUNTIME_RATIONALE
+		"Exercises the Mona display-source consumer without Engine linkage."
+)
+durin_set_native_test_target_execution(MonaViewportTests)
+durin_discover_tests(MonaViewportTests)
+
+add_durin_test(EngineViewportHeaderTests
+	Private/Viewport/EngineViewportHeaderTests.cpp
+)
+target_link_libraries(EngineViewportHeaderTests PRIVATE
+	Core
+	Engine
+)
+set_target_properties(EngineViewportHeaderTests PROPERTIES
+	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+)
+durin_set_native_test_target_execution(EngineViewportHeaderTests)
+durin_discover_tests(EngineViewportHeaderTests)
+
 durin_add_engine_functional_test(ViewportTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises DurinEd and Mona viewport interaction behavior."
