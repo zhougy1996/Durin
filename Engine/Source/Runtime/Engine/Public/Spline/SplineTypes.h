@@ -24,6 +24,78 @@ namespace Durin
 		ManualBroken
 	};
 
+	// Selects the source-mesh axis mapped onto a Hermite segment direction.
+	DENUM()
+	enum class ESplineMeshAxis : uint8
+	{
+		X,
+		Y,
+		Z
+	};
+
+	// Controls interpolation of scale, roll, and offset independently of curve geometry.
+	DENUM()
+	enum class ESplineMeshInterpolation : uint8
+	{
+		Linear,
+		SmoothStep
+	};
+
+	// Contains one finite, component-local SplineMesh deformation interval.
+	DSTRUCT()
+	struct FSplineMeshParams
+	{
+		GENERATED_BODY()
+
+		DPROPERTY(Edit)
+		FVector3 StartPosition{0.0};
+
+		DPROPERTY(Edit)
+		FVector3 StartTangent{100.0, 0.0, 0.0};
+
+		DPROPERTY(Edit)
+		FVector3 EndPosition{100.0, 0.0, 0.0};
+
+		DPROPERTY(Edit)
+		FVector3 EndTangent{100.0, 0.0, 0.0};
+
+		DPROPERTY(Edit)
+		FVector2 StartScale{1.0};
+
+		DPROPERTY(Edit)
+		FVector2 EndScale{1.0};
+
+		DPROPERTY(Edit)
+		double StartRollRadians = 0.0;
+
+		DPROPERTY(Edit)
+		double EndRollRadians = 0.0;
+
+		DPROPERTY(Edit)
+		FVector2 StartOffset{0.0};
+
+		DPROPERTY(Edit)
+		FVector2 EndOffset{0.0};
+
+		DPROPERTY(Edit)
+		FVector3 SplineUpDirection{0.0, 0.0, 1.0};
+
+		DPROPERTY(Edit)
+		ESplineMeshAxis ForwardAxis = ESplineMeshAxis::X;
+
+		DPROPERTY(Edit)
+		ESplineMeshInterpolation Interpolation = ESplineMeshInterpolation::Linear;
+
+		// Canonical LOD 0 source bounds along ForwardAxis; the interval must be non-degenerate.
+		DPROPERTY()
+		double SourceForwardMin = 0.0;
+
+		DPROPERTY()
+		double SourceForwardMax = 100.0;
+
+		auto operator==(const FSplineMeshParams&) const -> bool = default;
+	};
+
 	DSTRUCT()
 	struct FSplinePoint
 	{

@@ -537,6 +537,7 @@ durin_add_engine_functional_test(SplineTests
 	RUNTIME_STACK_RATIONALE "Exercises DurinEd spline customization behavior."
 	SOURCES
 		Private/SplineTests.cpp
+		Private/SplineMeshDeformerTests.cpp
 		Private/SplineV2ContractTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Customizations/SplineEditorCustomizations.cpp

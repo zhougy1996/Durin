@@ -6,8 +6,9 @@ Modules: Engine, LevelEditor
 
 Durin's spline foundation provides an editable, persistent spatial curve, an
 immutable query snapshot, and direct Level Editor point/tangent authoring. It
-does not provide a spline mesh, path follower, placement system, or another
-production consumer.
+also provides value-only SplineMesh deformation and parallel-transport frame
+math. It does not yet provide the production SplineMesh component, renderer,
+path actor, path follower, or placement system.
 
 ## Support Summary
 
@@ -153,6 +154,28 @@ Consumers that retain derived data should compare the revision and react to
 the relevant flags. They must not mutate or assume object identity for a
 snapshot after a later revision is published.
 
+## SplineMesh Deformation and Path Frames
+
+`FSplineMeshParams` describes one independent local cubic Hermite interval.
+Positions and tangents are component-local; tangents are derivatives with
+respect to segment `T` and receive no implicit length multiplier. Roll is in
+radians. Scale and offset use the two cyclic cross axes perpendicular to the
+selected X, Y, or Z source forward axis. The default attribute interpolation
+is linear; smoothstep is available explicitly.
+
+`FSplineMeshDeformer` is the finite CPU authority for position, derivative,
+orthonormal frame, direction/normal transformation, and conservative bounds.
+It rejects non-finite parameters and a non-positive canonical LOD 0 forward
+extent atomically. A singular up projection uses the least-aligned cardinal
+axis; a zero derivative falls back to the endpoint chord and then the selected
+source axis. Frames are right-handed with `Forward × Side = Up`.
+
+`FSplinePathFrameData` builds immutable consumer-owned frames over the existing
+adaptive distance samples. It uses deterministic minimal-rotation transport,
+retains the preceding direction across zero derivatives, and distributes
+closed-loop seam correction by local distance. This state is derived and does
+not add roll, scale, or orientation fields to `FSplinePoint`.
+
 ## Level Editor Authoring
 
 Selecting a spline component exposes component settings and the current stable
@@ -187,8 +210,8 @@ invalid-target exits, and multi-component isolation.
 
 ## Current Boundaries
 
-The spline foundation has no production spline mesh, runtime renderer, follower,
-placement, animation, navigation, physics, event, orientation-frame, width, or
-metadata consumer. True world-distance traversal under non-uniform scale and
+The spline foundation has no production SplineMesh component, runtime renderer,
+path actor, follower, placement, animation, navigation, physics, event, width,
+or metadata consumer. True world-distance traversal under non-uniform scale and
 simultaneous editing across multiple spline components are also outside the
 implemented contract.

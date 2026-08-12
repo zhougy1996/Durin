@@ -5,11 +5,16 @@ Summary: Add a production single-segment SplineMesh primitive and a reusable nat
 Last reviewed: 2026-08-12
 
 Status: Active
-Completed:
+Completed: Stage 0; Stage 1
 
 ## Current Status
 
-Ready to implement Stage 0. Durin already has persistent editable spline
+Stages 0 and 1 are complete. CPU deformation and path-frame foundations pass
+the focused Spline suite, and every frozen Actor/Spline/StaticMesh/material/
+renderer/viewport/physics/Vulkan baseline passes. Contracts, equations,
+workloads, budgets, inventories, and exact results are recorded in
+`SplineMeshAndNativeConstructionStage0.md`. Stage 2 native construction is the
+next implementation stage. Durin already has persistent editable spline
 authoring, immutable evaluation snapshots, stable point GUIDs, local-distance
 queries, conservative curve bounds, transactional viewport editing, and
 revision/change flags. It has no production spline consumer.
@@ -291,36 +296,36 @@ manual component management.
 
 ### Stage 0: Freeze contracts, inventories, equations, and baselines
 
-- [ ] Inventory every Actor component collection/enumerator, archive and
+- [x] Inventory every Actor component collection/enumerator, archive and
   duplication traversal, registration/play/destruction loop, hierarchy/picking
   consumer, `AddInstanceComponent` caller, package-dirty mutation, and test
   fixture affected by a generated creation method.
-- [ ] Freeze exact native construction entry points and ordering for runtime
+- [x] Freeze exact native construction entry points and ordering for runtime
   spawn, asset load, duplication, PIE, Undo/Redo, registration, BeginPlay,
   reconstruction during play, failure, recursive request, owner destruction,
   and editor shutdown.
-- [ ] Freeze generated key representation, creation-method serialization rules,
+- [x] Freeze generated key representation, creation-method serialization rules,
   authored/all-component enumeration names, transient object retention, atomic
   reconciliation failure behavior, and hierarchy editability.
-- [ ] Freeze `FSplineMeshParams` field types/defaults/units, forward-axis mapping,
+- [x] Freeze `FSplineMeshParams` field types/defaults/units, forward-axis mapping,
   Hermite basis, longitudinal normalization, scale/roll/offset interpolation,
   frame fallback, tangent-basis handedness, UV/color preservation, finite
   validation, and degenerate-input behavior.
-- [ ] Record golden CPU deformation fixtures for straight, curved, twisted,
+- [x] Record golden CPU deformation fixtures for straight, curved, twisted,
   scaled, offset, reversed tangent, near-up-parallel, zero derivative, and all
   three forward-axis cases.
-- [ ] Prove the conservative bound formula contains an exhaustive deterministic
+- [x] Prove the conservative bound formula contains an exhaustive deterministic
   CPU vertex corpus for every LOD and record tolerance/error policy.
-- [ ] Inventory primitive kind/access, typed scene membership, visibility,
+- [x] Inventory primitive kind/access, typed scene membership, visibility,
   prepared geometry, shader type, shader-map/pipeline key, material binding,
   LOD, lighting, pass execution, counters, editor observation, StaticMesh
   render-state recreation, and test doubles affected by SplineMesh.
-- [ ] Record current statuses of the active light and compute renderer plans and
+- [x] Record current statuses of the active light and compute renderer plans and
   freeze the integration baseline that SplineMesh renderer stages must consume.
-- [ ] Select representative straight/curved path assets, segment/vertex counts,
+- [x] Select representative straight/curved path assets, segment/vertex counts,
   target GPU, resolution, editor drag workload, CPU reconstruction budget, GPU
   delta budget, generated memory budget, and collision rebuild budget.
-- [ ] Run and record focused Actor/component, Spline, StaticMesh, material,
+- [x] Run and record focused Actor/component, Spline, StaticMesh, material,
   renderer, viewport, collision, serialization, and Vulkan baselines or name
   each pre-existing failure.
 
@@ -336,18 +341,18 @@ manual component management.
 
 ### Stage 1: Implement deterministic deformation and path-frame foundations
 
-- [ ] Add reflected axis/interpolation enums and value-only `FSplineMeshParams`
+- [x] Add reflected axis/interpolation enums and value-only `FSplineMeshParams`
   with strict finite normalization and equality/revision input support.
-- [ ] Implement `FSplineMeshDeformer` CPU position, derivative, frame,
+- [x] Implement `FSplineMeshDeformer` CPU position, derivative, frame,
   tangent-basis, scale, roll, offset, longitudinal mapping, and conservative
   bound calculations without component, renderer, editor, or physics ownership.
-- [ ] Add `FSplinePathFrameData` construction over immutable Spline evaluation
+- [x] Add `FSplinePathFrameData` construction over immutable Spline evaluation
   snapshots, including open endpoints, closed-loop seam correction, duplicate
   positions, zero derivatives, frame seed, and deterministic fallback.
-- [ ] Add golden unit tests and randomized finite/property tests for CPU
+- [x] Add golden unit tests and randomized finite/property tests for CPU
   deformation, orthonormality, handedness, endpoint exactness, bound
   containment, repeatability, and path-frame seam continuity.
-- [ ] Document the lasting deformation/frame contract under Runtime World and
+- [x] Document the lasting deformation/frame contract under Runtime World and
   keep `FSplineCurve` authoring free of consumer roll/scale state.
 
 #### Acceptance Gate
@@ -615,6 +620,7 @@ manual component management.
 
 ## Related Documentation
 
+- [Stage 0 Handoff](SplineMeshAndNativeConstructionStage0.md)
 - [Spline System](../Runtime/World/SplineSystem.md)
 - [Level System](../Runtime/World/LevelSystem.md)
 - [Tick Scheduling](../Runtime/World/TickScheduling.md)
