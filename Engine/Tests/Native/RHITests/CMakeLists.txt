@@ -1,9 +1,5 @@
 include(GoogleTest)
 
-function(durin_set_rhi_test_migration target_name)
-	durin_set_native_test_target_execution(${target_name})
-endfunction()
-
 add_durin_test(RHICommandListTests
 	Private/RHICommandListTests.cpp
 )
@@ -14,7 +10,12 @@ target_link_libraries(RHICommandListTests PRIVATE
 set_target_properties(RHICommandListTests PROPERTIES
 	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 )
-durin_set_rhi_test_migration(RHICommandListTests)
+durin_finalize_native_test(RHICommandListTests
+	KIND contract
+	DOMAINS renderer
+	MODULES rhi
+)
+durin_set_native_test_target_execution(RHICommandListTests)
 durin_discover_tests(RHICommandListTests)
 
 add_durin_test(RHIThreadTests
@@ -27,7 +28,12 @@ target_link_libraries(RHIThreadTests PRIVATE
 set_target_properties(RHIThreadTests PROPERTIES
 	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 )
-durin_set_rhi_test_migration(RHIThreadTests)
+durin_finalize_native_test(RHIThreadTests
+	KIND contract
+	DOMAINS renderer
+	MODULES rhi
+)
+durin_set_native_test_target_execution(RHIThreadTests)
 durin_discover_tests(RHIThreadTests)
 
 add_durin_test(RHIInitializationTests
@@ -40,7 +46,12 @@ target_link_libraries(RHIInitializationTests PRIVATE
 set_target_properties(RHIInitializationTests PROPERTIES
 	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 )
-durin_set_rhi_test_migration(RHIInitializationTests)
+durin_finalize_native_test(RHIInitializationTests
+	KIND contract
+	DOMAINS renderer
+	MODULES rhi
+)
+durin_set_native_test_target_execution(RHIInitializationTests)
 durin_discover_tests(RHIInitializationTests)
 
 add_durin_test(RHIResourceTransitionValidationTests
@@ -53,7 +64,12 @@ target_link_libraries(RHIResourceTransitionValidationTests PRIVATE
 set_target_properties(RHIResourceTransitionValidationTests PROPERTIES
 	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 )
-durin_set_rhi_test_migration(RHIResourceTransitionValidationTests)
+durin_finalize_native_test(RHIResourceTransitionValidationTests
+	KIND contract
+	DOMAINS renderer
+	MODULES rhi
+)
+durin_set_native_test_target_execution(RHIResourceTransitionValidationTests)
 durin_discover_tests(RHIResourceTransitionValidationTests)
 
 add_durin_test(RHIResourceViewValidationTests
@@ -66,7 +82,12 @@ target_link_libraries(RHIResourceViewValidationTests PRIVATE
 set_target_properties(RHIResourceViewValidationTests PROPERTIES
 	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 )
-durin_set_rhi_test_migration(RHIResourceViewValidationTests)
+durin_finalize_native_test(RHIResourceViewValidationTests
+	KIND contract
+	DOMAINS renderer
+	MODULES rhi
+)
+durin_set_native_test_target_execution(RHIResourceViewValidationTests)
 durin_discover_tests(RHIResourceViewValidationTests)
 
 add_durin_test(RHITransferValidationTests
@@ -79,5 +100,10 @@ target_link_libraries(RHITransferValidationTests PRIVATE
 set_target_properties(RHITransferValidationTests PROPERTIES
 	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 )
-durin_set_rhi_test_migration(RHITransferValidationTests)
+durin_finalize_native_test(RHITransferValidationTests
+	KIND contract
+	DOMAINS renderer
+	MODULES rhi
+)
+durin_set_native_test_target_execution(RHITransferValidationTests)
 durin_discover_tests(RHITransferValidationTests)

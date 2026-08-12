@@ -38,12 +38,6 @@ set(DURIN_NATIVE_TEST_LEGACY_TARGET_ALLOWLIST
 	RenderShaderCacheTests
 	RenderShaderContractTests
 	RenderShaderServiceTests
-	RHICommandListTests
-	RHIInitializationTests
-	RHIResourceTransitionValidationTests
-	RHIResourceViewValidationTests
-	RHIThreadTests
-	RHITransferValidationTests
 	SandboxGameplayTests
 	SceneImportVulkanTests
 	SkeletalAssetTests
