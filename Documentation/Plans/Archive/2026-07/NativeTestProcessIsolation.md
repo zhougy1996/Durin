@@ -297,9 +297,7 @@ cases.
 #### Stage 0 Handoff
 
 - Baseline commit: `88e54d76`.
-- Evidence: `Documentation/Development/Build/NativeTestProcessIsolationStage0.md`
-  and
-  `Documentation/Plans/Archive/2026-07/NativeTestProcessIsolationBaseline.json`.
+- Evidence: `Documentation/Plans/Archive/2026-07/NativeTestProcessIsolationBaseline.json`.
 - Working set entering Stage 1: `CMake/Project/ProjectTargets.cmake`, the seven
   legacy native-test CMake files, the native-test root CMake file, and
   `Tools/DurinDevTool/tests/test_build_core.py`.
@@ -345,10 +343,9 @@ cases.
 #### Stage 1 Handoff
 
 - Baseline commit: `754a6ee5`.
-- Working set entering Stage 2: the functional source map in
-  `Documentation/Development/Build/NativeTestProcessIsolationStage0.md`, the
-  eight current native-test CMake files, and private implementation sources
-  compiled directly by `RenderCoreTests` and `EngineTests`.
+- Working set entering Stage 2: the Stage 0 functional source map, the eight
+  current native-test CMake files, and private implementation sources compiled
+  directly by `RenderCoreTests` and `EngineTests`.
 - Key symbols: `durin_discover_tests`,
   `durin_resolve_native_test_discovery_policy`,
   `DURIN_TEST_CASE_PARALLEL_SAFE`,
@@ -431,8 +428,7 @@ cases.
   sources; the complete `all` build passes; all 720 Stage 3 CTest entries pass
   at 18 jobs; all 30 direct executable smokes pass; and the
   legacy-collision/isolated-control probe still reproduces its expected
-  outcomes. Evidence is recorded in
-  `Documentation/Development/Build/NativeTestProcessIsolationStage2.md`.
+  outcomes.
 
 ### Stage 3: Introduce the native-test process sandbox
 
@@ -485,8 +481,7 @@ cases.
   keep-work, cleanup-failure, and abrupt-exit retention probes; four focused
   API tests passed; after the `dev` rebase, the complete `all` build and all
   720 CTest entries passed at 18 jobs in 14.81 seconds; all 30 `Runs` roots
-  were empty after the original Stage 3 aggregate. Evidence is recorded in
-  `Documentation/Development/Build/NativeTestProcessIsolationStage3.md`.
+  were empty after the original Stage 3 aggregate.
 
 ### Stage 4: Migrate functional targets and remove shared-root access
 
@@ -679,7 +674,6 @@ cases.
 
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native C++ Tests](../../../Development/Build/NativeTests.md)
-- [Stage 0 Evidence](../../../Development/Build/NativeTestProcessIsolationStage0.md)
 - [18-job Failure Baseline](NativeTestProcessIsolationBaseline.json)
 - [Stage 6 Qualification](NativeTestProcessIsolationQualification.json)
 

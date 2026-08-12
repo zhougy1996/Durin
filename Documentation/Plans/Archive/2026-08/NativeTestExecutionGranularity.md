@@ -37,9 +37,6 @@ target execution the repository default. The final 48-process aggregate cuts
 launches by 96.1 percent from the Stage 0 case baseline and passes the timing,
 case-compatibility, and diagnostic gates.
 
-The Stage 0 handoff is
-[Native Test Execution Granularity Stage 0 Evidence](../../../Development/Build/NativeTestExecutionGranularityStage0.md).
-
 Stage 1 baseline commit: `63be6552`. Its working set was
 `CMake/Project/ProjectTargets.cmake`, the native-test policy probes, and native
 target `CMakeLists.txt` declarations. The migration fallback remains `CASE`;
@@ -63,7 +60,7 @@ target-default registrations own their existing process sandbox and scoped
 fixture lifecycle; no production lifecycle change was required. Three
 randomized hybrid runs and two randomized case runs passed. Two randomized
 all-target diagnostics left only the Stage 4 repair queue failing. The detailed
-handoff is [Native Test Execution Granularity Stage 3 Evidence](../../../Development/Build/NativeTestExecutionGranularityStage3.md).
+handoff was recorded at the Stage 3 baseline commit.
 
 Stage 4 baseline commit: `055e05b6`. Its working set was the final native-test
 declarations, shared object/death-child support, bounded object and task test
@@ -72,7 +69,7 @@ documentation. Three consecutive randomized target aggregates, a complete
 case aggregate, hybrid compatibility, focused lifecycle qualification, CMake
 policy configuration, and all 306 DurinDevTool tests passed. There are no
 temporary ordinary `CASE` exceptions or open questions. The detailed handoff
-is [Native Test Execution Granularity Stage 4 Evidence](../../../Development/Build/NativeTestExecutionGranularityStage4.md).
+was recorded at the Stage 4 baseline commit.
 
 ## Goal
 
@@ -437,13 +434,7 @@ runtime sandbox rules remain owned by
 
 - [Native C++ Tests](../../../Development/Build/NativeTests.md)
 - [Build And Run](../../../Development/Build/BuildAndRun.md)
-- [Native Test Execution Granularity Stage 0 Evidence](../../../Development/Build/NativeTestExecutionGranularityStage0.md)
-- [Native Test Execution Granularity Stage 3 Evidence](../../../Development/Build/NativeTestExecutionGranularityStage3.md)
-- [Native Test Execution Granularity Stage 4 Evidence](../../../Development/Build/NativeTestExecutionGranularityStage4.md)
 - [Native Test Process Isolation](../2026-07/NativeTestProcessIsolation.md)
-- [Native Test Process Isolation Stage 0 Evidence](../../../Development/Build/NativeTestProcessIsolationStage0.md)
-- [Native Test Process Isolation Stage 2 Evidence](../../../Development/Build/NativeTestProcessIsolationStage2.md)
-- [Native Test Process Isolation Stage 3 Evidence](../../../Development/Build/NativeTestProcessIsolationStage3.md)
 
 ## Related Code
 
