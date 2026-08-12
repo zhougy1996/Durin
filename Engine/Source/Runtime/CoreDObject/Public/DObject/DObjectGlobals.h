@@ -24,6 +24,7 @@ namespace Durin
 		ClassDefaultSubobject,
 		AssetLoad,
 		Duplication,
+		Generated,
 	};
 
 	constexpr auto IsTemplateConstructionPurpose(EObjectConstructionPurpose Purpose) -> bool

@@ -9,6 +9,16 @@
 namespace Durin
 {
 	class AActor;
+	class FActorConstructionContext;
+
+	// Records whether component state is native-authored, instance-authored, or transient derived output.
+	DENUM()
+	enum class EComponentCreationMethod : uint8
+	{
+		NativeDefault,
+		Instance,
+		Generated
+	};
 
 	enum class EComponentPlayState : uint8
 	{
@@ -51,6 +61,7 @@ namespace Durin
 		ENGINE_API auto BeginDestroy() -> void override;
 
 		auto IsRegistered() const -> bool { return bRegistered; }
+		auto GetCreationMethod() const -> EComponentCreationMethod { return CreationMethod; }
 		auto IsOwnedByActor() const -> bool { return bOwnedByActor; }
 		// Advances after every successful registration or unregistration transition.
 		auto GetRegistrationGeneration() const -> uint64 { return RegistrationGeneration; }
@@ -93,9 +104,13 @@ namespace Durin
 		// Call OnUnregister();
 		auto ExecuteUnregisterEvents() -> void;
 		auto SetOwnedByActor(bool bOwned) -> void { bOwnedByActor = bOwned; }
+		auto SetCreationMethod(EComponentCreationMethod Method) -> void { CreationMethod = Method; }
 
 	private:
 		AActor* OwnerActorPrivate;
+
+		DPROPERTY()
+		EComponentCreationMethod CreationMethod = EComponentCreationMethod::NativeDefault;
 
 		uint8 bRegistered : 1 = false;
 
@@ -111,6 +126,7 @@ namespace Durin
 		FActorComponentTickFunction PrimaryComponentTick;
 
 		friend class AActor;
+		friend class FActorConstructionContext;
 		friend class DLevel;
 	};
 }

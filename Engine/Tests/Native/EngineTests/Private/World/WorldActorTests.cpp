@@ -1,5 +1,65 @@
 #include "WorldTestSupport.h"
 
+namespace
+{
+	class FNativeConstructionTestActor final : public Durin::AActor
+	{
+	public:
+		explicit FNativeConstructionTestActor(const Durin::FObjectInitializer& Initializer)
+			: AActor(Initializer)
+		{
+			Root = CreateDefaultComponent<Durin::DSceneComponent>("Root");
+			SetRootComponent(Root);
+		}
+
+		std::vector<std::pair<Durin::FActorGeneratedComponentKey, Durin::DClass*>> Desired;
+		std::vector<Durin::DActorComponent*> Acquired;
+		bool bAcquireFirstTwice = false;
+		bool bRequestAgain = false;
+		Durin::uint32 ConstructionCalls = 0;
+
+	protected:
+		auto OnNativeConstruct(Durin::FActorConstructionContext& Context,
+			std::string& OutError) -> bool override
+		{
+			++ConstructionCalls;
+			Acquired.clear();
+			for (const auto& [Key, Class] : Desired)
+				Acquired.push_back(Context.AcquireGeneratedComponent(Key, Class, "Generated"));
+			if (bAcquireFirstTwice && !Desired.empty())
+				Context.AcquireGeneratedComponent(Desired.front().first, Desired.front().second, "Duplicate");
+			if (bRequestAgain)
+			{
+				bRequestAgain = false;
+				RequestNativeReconstruction();
+			}
+			OutError.clear();
+			return !Context.HasFailed();
+		}
+
+	private:
+		Durin::DSceneComponent* Root = nullptr;
+	};
+
+	auto MakeNativeConstructionTestClass() -> std::unique_ptr<Durin::DClass>
+	{
+		auto Constructor = [](const Durin::FObjectInitializer& Initializer) {
+			new (Initializer.GetObj()) FNativeConstructionTestActor(Initializer);
+		};
+		auto Class = std::make_unique<Durin::DClass>(Durin::EC_StaticConstructor,
+			"NativeConstructionTestActor", sizeof(FNativeConstructionTestActor),
+			alignof(FNativeConstructionTestActor), Durin::EObjectFlags::Transient,
+			Durin::EClassFlags::None, Durin::EClassCastFlags::DClass, Constructor);
+		Class->SetSuperStructBase(Durin::AActor::StaticClass());
+		return Class;
+	}
+
+	auto MakeGeneratedKey(Durin::uint32 Value) -> Durin::FActorGeneratedComponentKey
+	{
+		return {"TestGenerated", Durin::FGuid(0x44555249, 0x4E47454E, 0, Value)};
+	}
+}
+
 TEST(FWorldTests, ReflectedClassNamesSeparateIdentityDisplayAndObjectDefaults)
 {
 	InitializeDObjectSystem();
@@ -22,6 +82,129 @@ TEST(FWorldTests, ReflectedClassNamesSeparateIdentityDisplayAndObjectDefaults)
 	Durin::DClass* ComponentClass = Durin::DSceneComponent::StaticClass();
 	EXPECT_EQ(ComponentClass->GetDisplayName(), "Scene Component");
 	EXPECT_EQ(ComponentClass->GetDefaultObjectName(), "SceneComponent");
+}
+
+TEST(FNativeConstructionTests, ReconcilesStableKeysAtomicallyAndRoutesLiveLifecycle)
+{
+	Durin::DWorld* World = CreateWorld();
+	auto TestClass = MakeNativeConstructionTestClass();
+	auto* Actor = static_cast<FNativeConstructionTestActor*>(
+		World->SpawnActor(TestClass.get(), "Constructed"));
+	ASSERT_NE(Actor, nullptr);
+	ASSERT_EQ(Actor->GetAuthoredComponents().size(), 1u);
+	EXPECT_EQ(Actor->GetAuthoredComponents().front()->GetCreationMethod(),
+		Durin::EComponentCreationMethod::NativeDefault);
+
+	const auto FirstKey = MakeGeneratedKey(1);
+	const auto SecondKey = MakeGeneratedKey(2);
+	Actor->Desired = {{FirstKey, Durin::DSceneComponent::StaticClass()},
+		{SecondKey, Durin::DSceneComponent::StaticClass()}};
+	ASSERT_TRUE(Actor->RequestNativeReconstruction()) << Actor->GetNativeConstructionError();
+	ASSERT_EQ(Actor->Acquired.size(), 2u);
+	Durin::DActorComponent* First = Actor->Acquired[0];
+	Durin::DActorComponent* Second = Actor->Acquired[1];
+	ASSERT_NE(First, nullptr);
+	ASSERT_NE(Second, nullptr);
+	EXPECT_EQ(First->GetCreationMethod(), Durin::EComponentCreationMethod::Generated);
+	EXPECT_TRUE(First->HasAnyObjectFlags(Durin::EObjectFlags::Transient));
+	EXPECT_EQ(First->GetOwner(), Actor);
+	EXPECT_TRUE(First->IsRegistered());
+	EXPECT_EQ(static_cast<Durin::DSceneComponent*>(First)->GetAttachParent(), Actor->GetRootComponent());
+	EXPECT_EQ(Actor->GetAuthoredComponents().size(), 1u);
+	EXPECT_EQ(Actor->GetOwnedComponents().size(), 3u);
+	EXPECT_FALSE(Actor->RenameComponent(First, "AuthoredName"));
+
+	ASSERT_TRUE(Actor->RequestNativeReconstruction());
+	EXPECT_EQ(Actor->Acquired[0], First);
+	EXPECT_EQ(Actor->Acquired[1], Second);
+	std::unordered_map<Durin::DObject*, Durin::DObject*> Duplicates;
+	std::string DuplicateError;
+	auto* Duplicate = static_cast<FNativeConstructionTestActor*>(Durin::DuplicateObjectGraph(
+		Actor, World->GetCurrentLevel(), "DuplicateConstructed", &DuplicateError, &Duplicates));
+	ASSERT_NE(Duplicate, nullptr) << DuplicateError;
+	EXPECT_FALSE(Duplicates.contains(First));
+	EXPECT_FALSE(Duplicates.contains(Second));
+	EXPECT_EQ(Duplicate->GetAuthoredComponents().size(), 1u);
+	EXPECT_EQ(Duplicate->GetOwnedComponents().size(), 1u);
+	Durin::MarkObjectHierarchyAsGarbage(Duplicate);
+
+	Actor->Desired.erase(Actor->Desired.begin() + 1);
+	ASSERT_TRUE(Actor->RequestNativeReconstruction());
+	EXPECT_EQ(Actor->Acquired.front(), First);
+	EXPECT_TRUE(Second->IsPendingKill());
+	EXPECT_EQ(Actor->GetOwnedComponents().size(), 2u);
+
+	Actor->Desired.front().second = Durin::DPhysicsComponent::StaticClass();
+	EXPECT_FALSE(Actor->RequestNativeReconstruction());
+	EXPECT_EQ(Actor->GetOwnedComponents().size(), 2u);
+	EXPECT_TRUE(Actor->OwnsComponent(First));
+	EXPECT_FALSE(First->IsPendingKill());
+	Actor->Desired.front().second = Durin::DSceneComponent::StaticClass();
+
+	Actor->Desired.push_back({MakeGeneratedKey(3), Durin::DSceneComponent::StaticClass()});
+	Actor->bAcquireFirstTwice = true;
+	EXPECT_FALSE(Actor->RequestNativeReconstruction());
+	Actor->bAcquireFirstTwice = false;
+	EXPECT_EQ(Actor->GetOwnedComponents().size(), 2u);
+	EXPECT_TRUE(Actor->OwnsComponent(First));
+
+	Actor->Desired.resize(1);
+	const Durin::uint32 CallsBeforeCoalescing = Actor->ConstructionCalls;
+	Actor->bRequestAgain = true;
+	ASSERT_TRUE(Actor->RequestNativeReconstruction());
+	EXPECT_EQ(Actor->ConstructionCalls, CallsBeforeCoalescing + 2);
+	EXPECT_EQ(Actor->Acquired.front(), First);
+
+	ASSERT_TRUE(World->BeginPlay({}));
+	EXPECT_TRUE(First->HasBegunPlay());
+	World->EndPlay();
+	EXPECT_FALSE(First->HasBegunPlay());
+
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
+TEST(FNativeConstructionTests, InstanceCreationMethodRemainsPersistentAuthoredState)
+{
+	Durin::DWorld* World = CreateWorld();
+	Durin::ACameraActor* Actor = World->SpawnActor<Durin::ACameraActor>();
+	Durin::DActorComponent* Instance = Actor->AddInstanceComponent(
+		Durin::DSceneComponent::StaticClass(), "Instance");
+	ASSERT_NE(Instance, nullptr);
+	EXPECT_EQ(Instance->GetCreationMethod(), Durin::EComponentCreationMethod::Instance);
+	EXPECT_EQ(Actor->GetAuthoredComponents().size(), 2u);
+	EXPECT_EQ(Actor->GetOwnedComponents().size(), 2u);
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
+TEST(FNativeConstructionTests, RepeatedDerivedReconciliationDoesNotDirtyTheLevelPackage)
+{
+	InitializeDObjectSystem();
+	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "NativeConstructionLevels";
+	static std::unordered_set<std::filesystem::path> InitializedRoots;
+	if (InitializedRoots.insert(Root).second)
+	{
+		Durin::Testing::RemoveTestWorkDirectory(Root);
+		Durin::PathUtilities::RegisterMountPointForTests(
+			"/NativeConstructionTests/", Root.generic_string() + "/");
+	}
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/NativeConstructionTests/Dirty", Path));
+	Durin::DLevel* Level = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Level));
+	auto TestClass = MakeNativeConstructionTestClass();
+	auto* Actor = static_cast<FNativeConstructionTestActor*>(Level->SpawnActor(
+		TestClass.get(), "Constructed"));
+	ASSERT_NE(Actor, nullptr);
+	Actor->Desired = {{MakeGeneratedKey(1), Durin::DSceneComponent::StaticClass()}};
+	Level->GetPackage()->ClearDirty();
+	const Durin::uint64 Revision = Level->GetPackage()->GetEditRevision();
+	ASSERT_TRUE(Actor->RequestNativeReconstruction());
+	ASSERT_TRUE(Actor->RequestNativeReconstruction());
+	EXPECT_FALSE(Level->GetPackage()->IsDirty());
+	EXPECT_EQ(Level->GetPackage()->GetEditRevision(), Revision);
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
 }
 
 TEST(FWorldTests, SkeletalMeshActorOwnsDefaultRootComponent)
@@ -320,6 +503,9 @@ TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents
 	ASSERT_EQ(LoadedChild->GetInstanceComponents().size(), 1u);
 	auto* LoadedExtraComponent = dynamic_cast<Durin::DSceneComponent*>(LoadedChild->GetInstanceComponents().front().Get());
 	ASSERT_NE(LoadedExtraComponent, nullptr);
+	EXPECT_EQ(LoadedExtraComponent->GetCreationMethod(), Durin::EComponentCreationMethod::Instance);
+	EXPECT_EQ(LoadedChild->GetRootComponent()->GetCreationMethod(),
+		Durin::EComponentCreationMethod::NativeDefault);
 	EXPECT_EQ(LoadedExtraComponent->GetAttachParent(), LoadedChild->GetRootComponent());
 	ExpectVectorNear(LoadedParent->GetActorTransform().Translation, ParentTransform.Translation);
 	ExpectVectorNear(LoadedChild->GetRootComponent()->GetRelativeTransform().Translation, ChildRelative.Translation);

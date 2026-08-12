@@ -2,6 +2,7 @@
 
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
+#include "DObject/ObjectLifecycle.h"
 #include "Engine/Level.h"
 
 namespace Durin
@@ -16,6 +17,7 @@ namespace Durin
 	AActor::~AActor()
 	{
 		UnregisterTickFunction();
+		GeneratedComponents.clear();
 		InstanceComponents.clear();
 		RootComponent = nullptr;
 		OwnedComponents.clear();
@@ -34,6 +36,13 @@ namespace Durin
 		{
 			if (*It) (*It)->SetOwnedByActor(false);
 			OwnedComponents.erase(It);
+		}
+		auto GeneratedIt = std::find_if(GeneratedComponents.begin(), GeneratedComponents.end(),
+			[Component](const FGeneratedComponentRecord& Entry) { return Entry.Component.Get() == Component; });
+		if (GeneratedIt != GeneratedComponents.end())
+		{
+			if (GeneratedIt->Component) GeneratedIt->Component->SetOwnedByActor(false);
+			GeneratedComponents.erase(GeneratedIt);
 		}
 	}
 
@@ -81,6 +90,7 @@ namespace Durin
 		OwnedComponents.emplace_back(Component);
 		InstanceComponents.emplace_back(Component);
 		Component->SetOwnedByActor(true);
+		Component->SetCreationMethod(EComponentCreationMethod::Instance);
 		Component->OnComponentCreated();
 		if (auto* SceneComponent = Cast<DSceneComponent>(Component))
 		{
@@ -98,7 +108,8 @@ namespace Durin
 
 	auto AActor::RenameComponent(DActorComponent* Component, FName RequestedName) -> bool
 	{
-		if (!Component || RequestedName.IsNone() || std::ranges::none_of(OwnedComponents, [Component](const TObjectPtr<DActorComponent>& Entry) { return Entry.Get() == Component; })) return false;
+		if (!Component || RequestedName.IsNone() || Component->GetCreationMethod() == EComponentCreationMethod::Generated
+			|| std::ranges::none_of(OwnedComponents, [Component](const TObjectPtr<DActorComponent>& Entry) { return Entry.Get() == Component; })) return false;
 		Component->Rename(MakeUniqueComponentName(RequestedName, Component));
 		MarkPackageDirty();
 		return true;
@@ -108,7 +119,7 @@ namespace Durin
 	{
 		const std::string BaseName = RequestedName.ToString();
 		FName UniqueName = RequestedName;
-		for (uint32 Suffix = 2; std::ranges::any_of(OwnedComponents, [&](const TObjectPtr<DActorComponent>& Entry) {
+		for (uint32 Suffix = 2; std::ranges::any_of(GetOwnedComponents(), [&](const TObjectPtr<DActorComponent>& Entry) {
 				 return Entry && Entry.Get() != IgnoredComponent && Entry->GetFName() == UniqueName;
 			 }); ++Suffix)
 		{
@@ -132,7 +143,15 @@ namespace Durin
 
 	auto AActor::OwnsComponent(const DActorComponent* Component) const -> bool
 	{
-		return Component && std::ranges::any_of(OwnedComponents, [Component](const TObjectPtr<DActorComponent>& Entry) { return Entry.Get() == Component; });
+		return Component && std::ranges::any_of(GetOwnedComponents(), [Component](const TObjectPtr<DActorComponent>& Entry) { return Entry.Get() == Component; });
+	}
+
+	auto AActor::GetOwnedComponents() const -> std::vector<TObjectPtr<DActorComponent>>
+	{
+		std::vector<TObjectPtr<DActorComponent>> Result = OwnedComponents;
+		Result.reserve(Result.size() + GeneratedComponents.size());
+		for (const FGeneratedComponentRecord& Entry : GeneratedComponents) Result.push_back(Entry.Component);
+		return Result;
 	}
 
 	auto AActor::GetActorTransform() const -> FTransform
@@ -154,7 +173,7 @@ namespace Durin
 	{
 		if (bHidden == bInHidden) return;
 		bHidden = bInHidden;
-		const std::vector<TObjectPtr<DActorComponent>> Components = OwnedComponents;
+		const std::vector<TObjectPtr<DActorComponent>> Components = GetOwnedComponents();
 		for (const TObjectPtr<DActorComponent>& Component : Components)
 		{
 			if (Component
@@ -244,7 +263,7 @@ namespace Durin
 
 	auto AActor::BeginPlay() -> void
 	{
-		const std::vector<TObjectPtr<DActorComponent>> Components = OwnedComponents;
+		const std::vector<TObjectPtr<DActorComponent>> Components = GetOwnedComponents();
 		for (const TObjectPtr<DActorComponent>& Component : Components)
 		{
 			if (Component
@@ -267,7 +286,7 @@ namespace Durin
 
 	auto AActor::EndPlay() -> void
 	{
-		const std::vector<TObjectPtr<DActorComponent>> Components = OwnedComponents;
+		const std::vector<TObjectPtr<DActorComponent>> Components = GetOwnedComponents();
 		for (auto It = Components.rbegin(); It != Components.rend(); ++It)
 		{
 			if (*It
@@ -284,6 +303,70 @@ namespace Durin
 
 	auto AActor::OnActorDestroyed() -> void
 	{
+	}
+
+	auto AActor::OnNativeConstruct(FActorConstructionContext& Context, std::string& OutError) -> bool
+	{
+		(void)Context;
+		OutError.clear();
+		return true;
+	}
+
+	auto AActor::RequestNativeReconstruction() -> bool
+	{
+		if (IsBeingDestroyed() || IsPendingKill()) return false;
+		if (bNativeConstructionRunning)
+		{
+			bNativeConstructionRequested = true;
+			return true;
+		}
+		bNativeConstructionRunning = true;
+		FScopedPackageDirtySuppression SuppressConstructionDirtying;
+		bool bSucceeded = true;
+		for (uint32 Pass = 0; Pass < 2; ++Pass)
+		{
+			bNativeConstructionRequested = false;
+			FActorConstructionContext Context(*this, ++NativeConstructionGeneration);
+			std::string Error;
+			if (!OnNativeConstruct(Context, Error) || Context.HasFailed() || !Context.Commit(Error))
+			{
+				NativeConstructionError = Context.HasFailed() ? Context.GetError() : Error;
+				bSucceeded = false;
+				break;
+			}
+			NativeConstructionError.clear();
+			if (!bNativeConstructionRequested) break;
+		}
+		bNativeConstructionRequested = false;
+		bNativeConstructionRunning = false;
+		return bSucceeded;
+	}
+
+	auto AActor::AddReferencedObjects(FReferenceCollector& Collector) -> void
+	{
+		Super::AddReferencedObjects(Collector);
+		for (FGeneratedComponentRecord& Entry : GeneratedComponents)
+		{
+			DObject* Object = Entry.Component.Get();
+			Collector.AddReferencedObject(Object);
+			Entry.Component = Cast<DActorComponent>(Object);
+		}
+	}
+
+	auto AActor::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
+	{
+		Super::PostEditChangeProperty(Event);
+		RequestNativeReconstruction();
+	}
+
+	auto AActor::PostLoad(std::string& OutError) -> bool
+	{
+		if (!Super::PostLoad(OutError)) return false;
+		if (RequestNativeReconstruction()) return true;
+		OutError = NativeConstructionError.empty()
+			? "Actor native reconstruction failed after load or duplication."
+			: NativeConstructionError;
+		return false;
 	}
 
 	auto AActor::BeginDestroy() -> void

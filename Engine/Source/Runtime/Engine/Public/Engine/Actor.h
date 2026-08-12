@@ -4,6 +4,7 @@
 #include "DObject/CoreDObject.h"
 #include "Components/SceneComponent.h"
 #include "Engine/TickFunction.h"
+#include "Engine/ActorConstruction.h"
 
 #include "Actor.gen.h"
 
@@ -66,6 +67,9 @@ namespace Durin
 		ENGINE_API virtual auto Tick(float DeltaSeconds) -> void;
 		ENGINE_API virtual auto EndPlay() -> void;
 		ENGINE_API auto BeginDestroy() -> void override;
+		ENGINE_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
+		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		auto HasBegunPlay() const -> bool { return PlayState != EActorPlayState::NotBegun; }
 		auto IsBeginningPlay() const -> bool { return PlayState == EActorPlayState::BeginningPlay; }
 		auto IsEndingPlay() const -> bool { return PlayState == EActorPlayState::EndingPlay; }
@@ -74,14 +78,20 @@ namespace Durin
 		auto SetActorTickEnabled(bool bEnabled) -> void { PrimaryActorTick.SetTickFunctionEnable(bEnabled); }
 		auto GetPrimaryActorTick() -> FActorTickFunction& { return PrimaryActorTick; }
 		auto GetPrimaryActorTick() const -> const FActorTickFunction& { return PrimaryActorTick; }
-		auto GetOwnedComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return OwnedComponents; }
+		// Returns persistent native-default and instance-authored components only.
+		auto GetAuthoredComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return OwnedComponents; }
+		// Returns a stable snapshot of every currently live authored and generated component.
+		ENGINE_API auto GetOwnedComponents() const -> std::vector<TObjectPtr<DActorComponent>>;
 		auto GetInstanceComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return InstanceComponents; }
+		ENGINE_API auto RequestNativeReconstruction() -> bool;
+		auto GetNativeConstructionGeneration() const -> uint64 { return NativeConstructionGeneration; }
+		auto GetNativeConstructionError() const -> const std::string& { return NativeConstructionError; }
 
 		template<typename T>
 		auto FindComponentByStaticClass() -> T*
 		{
 			static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
-			for (const TObjectPtr<DActorComponent>& ComponentPtr : OwnedComponents)
+			for (const TObjectPtr<DActorComponent>& ComponentPtr : GetOwnedComponents())
 			{
 				DActorComponent* Component = ComponentPtr.Get();
 				if (!Component)
@@ -100,7 +110,7 @@ namespace Durin
 		auto FindComponentByClass() -> T*
 		{
 			static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
-			for (const TObjectPtr<DActorComponent>& ComponentPtr : OwnedComponents)
+			for (const TObjectPtr<DActorComponent>& ComponentPtr : GetOwnedComponents())
 			{
 				DActorComponent* Component = ComponentPtr.Get();
 				if (!Component)
@@ -120,7 +130,7 @@ namespace Durin
 		{
 			static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
 			std::vector<DActorComponent*> FoundComponents;
-			for (const TObjectPtr<DActorComponent>& ComponentPtr : OwnedComponents)
+			for (const TObjectPtr<DActorComponent>& ComponentPtr : GetOwnedComponents())
 			{
 				DActorComponent* Component = ComponentPtr.Get();
 				if (!Component)
@@ -136,6 +146,12 @@ namespace Durin
 		}
 
 	private:
+		struct FGeneratedComponentRecord
+		{
+			FActorGeneratedComponentKey Key;
+			TObjectPtr<DActorComponent> Component;
+		};
+
 		auto InitializeDefaults() -> void;
 		auto MakeUniqueComponentName(FName RequestedName, const DActorComponent* IgnoredComponent = nullptr) const -> FName;
 		auto RegisterTickFunction(DLevel* Level) -> void;
@@ -144,6 +160,9 @@ namespace Durin
 	protected:
 		// Called exactly once after Level accepts destruction and before EndPlay or component teardown.
 		ENGINE_API virtual auto OnActorDestroyed() -> void;
+		// Declares one complete desired generated set for a synchronous construction generation.
+		ENGINE_API virtual auto OnNativeConstruct(FActorConstructionContext& Context,
+			std::string& OutError) -> bool;
 
 		template<typename T>
 		auto CreateDefaultComponent(const FName& InComponentName = FName()) -> T*
@@ -155,6 +174,7 @@ namespace Durin
 			T* Component = NewObject<T>(this, InComponentName, ComponentPurpose);
 			OwnedComponents.push_back(Component);
 			Component->SetOwnedByActor(true);
+			Component->SetCreationMethod(EComponentCreationMethod::NativeDefault);
 			return Component;
 		}
 
@@ -170,6 +190,8 @@ namespace Durin
 		DPROPERTY()
 		std::vector<TObjectPtr<DActorComponent>> InstanceComponents;
 
+		std::vector<FGeneratedComponentRecord> GeneratedComponents;
+
 		DPROPERTY()
 		bool bHidden = false;
 
@@ -177,7 +199,12 @@ namespace Durin
 		EActorDestructionState DestructionState = EActorDestructionState::Alive;
 		bool bEndPlayRequested = false;
 		FActorTickFunction PrimaryActorTick;
+		uint64 NativeConstructionGeneration = 0;
+		bool bNativeConstructionRunning = false;
+		bool bNativeConstructionRequested = false;
+		std::string NativeConstructionError;
 
 		friend class DLevel;
+		friend class FActorConstructionContext;
 	};
 } // namespace Durin

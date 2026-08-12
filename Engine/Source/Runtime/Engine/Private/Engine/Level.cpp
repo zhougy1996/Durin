@@ -70,6 +70,12 @@ namespace Durin
 		AActor* Actor = NewObject<AActor>(ActorClass, this, MakeUniqueActorName(RequestedName));
 		if (!Actor) return nullptr;
 		Actors.emplace_back(Actor);
+		if (!Actor->RequestNativeReconstruction())
+		{
+			Actors.pop_back();
+			MarkObjectHierarchyAsGarbage(Actor);
+			return nullptr;
+		}
 #if DURIN_WITH_EDITOR
 		NotifyEditorActorHierarchyChanged();
 #endif
@@ -239,6 +245,14 @@ namespace Durin
 					OutError = "Level contains a cross-level component attachment.";
 					return false;
 				}
+			}
+		}
+		for (const TObjectPtr<AActor>& Actor : Actors)
+		{
+			if (Actor && !Actor->RequestNativeReconstruction())
+			{
+				OutError = Actor->GetNativeConstructionError();
+				return false;
 			}
 		}
 		for (DSceneComponent* Component : SceneComponents)

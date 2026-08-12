@@ -6,6 +6,11 @@ Modules: Engine
 
 `DLevel` is the persistent scene asset. A packaged level is the main asset of a `.dasset` package. Levels retain actors through reflected `TObjectPtr` arrays, and actors retain their components the same way; their Outer hierarchy separately provides structural containment and object paths.
 
+Actors may additionally retain transient generated components through the
+native construction registry. Those components participate in live World and
+editor lifecycles but are excluded from the reflected package graph. See
+[Native Actor Construction](NativeConstruction.md).
+
 `DWorld` is a runtime or editor session container. It activates at most one level, forwards actor APIs to that level, and registers or unregisters the level's components when switching. Each active Level owns the non-owning registry for stable Actor and Component Tick functions; Level detachment clears that registry before the World endpoint is removed. Tick ownership, groups, mutation, and lifetime rules are defined by [Tick Scheduling](TickScheduling.md). Replacing a transient level structurally owned by the world marks that complete level hierarchy as garbage. A persistent packaged level is structurally owned by its package instead, so switching worlds does not destroy it; an object that must survive a transient world must likewise be explicitly reparented before world retirement.
 
 Each World also owns one synchronous `FPhysicsScene`. Primitive components

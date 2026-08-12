@@ -16,6 +16,17 @@ namespace Durin
 	using FClassRegisterFunc = DClass* (*)();
 	using FEnumRegisterFunc = DEnum* (*)();
 
+	// Suppresses package dirty/revision mutation for observational derived-state reconciliation.
+	class FScopedPackageDirtySuppression final
+	{
+	public:
+		COREDOBJECT_API FScopedPackageDirtySuppression();
+		COREDOBJECT_API ~FScopedPackageDirtySuppression();
+		FScopedPackageDirtySuppression(const FScopedPackageDirtySuppression&) = delete;
+		auto operator=(const FScopedPackageDirtySuppression&)
+			-> FScopedPackageDirtySuppression& = delete;
+	};
+
 	template<typename T>
 	struct FRegistrationInfo
 	{

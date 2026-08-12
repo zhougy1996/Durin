@@ -1668,6 +1668,7 @@ namespace Durin
 		std::unordered_set<DObject*> Visited;
 		std::function<void(DObject*)> GatherInnerTree = [&](DObject* Object) {
 			if (!Object || !Visited.insert(Object).second) return;
+			if (Object != RootObject && Object->HasAnyObjectFlags(EObjectFlags::Transient)) return;
 			Sources.push_back(Object);
 			for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::LiveOnly)) GatherInnerTree(Inner);
 		};

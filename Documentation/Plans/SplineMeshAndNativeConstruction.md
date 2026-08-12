@@ -13,8 +13,11 @@ Stages 0 and 1 are complete. CPU deformation and path-frame foundations pass
 the focused Spline suite, and every frozen Actor/Spline/StaticMesh/material/
 renderer/viewport/physics/Vulkan baseline passes. Contracts, equations,
 workloads, budgets, inventories, and exact results are recorded in
-`SplineMeshAndNativeConstructionStage0.md`. Stage 2 native construction is the
-next implementation stage. Durin already has persistent editable spline
+`SplineMeshAndNativeConstructionStage0.md`. Stage 2 native construction is in
+progress: keyed reconciliation, transient retention, authored/all-live
+enumeration, dirty suppression, spawn/load/duplication entry routing, and core
+lifecycle tests are implemented. PIE/Undo/Redo and final hierarchy policy
+coverage remain open. Durin already has persistent editable spline
 authoring, immutable evaluation snapshots, stable point GUIDs, local-distance
 queries, conservative curve bounds, transactional viewport editing, and
 revision/change flags. It has no production spline consumer.
@@ -367,26 +370,26 @@ manual component management.
 
 ### Stage 2: Add native construction and generated-component ownership
 
-- [ ] Add component creation-method state and split persistent authored
+- [x] Add component creation-method state and split persistent authored
   ownership from transient generated retention without changing existing native
   default or instance package round trips.
-- [ ] Add explicit authored-versus-all component enumeration and migrate Actor,
+- [x] Add explicit authored-versus-all component enumeration and migrate Actor,
   Level, World, hierarchy, picking, visibility, attachment, registration,
   ticking, play, destruction, GC, duplication, and archive call sites according
   to the Stage 0 inventory.
-- [ ] Implement `FActorConstructionContext` keyed acquisition, class validation,
+- [x] Implement `FActorConstructionContext` keyed acquisition, class validation,
   candidate staging, attachment, atomic commit, reuse, unclaimed retirement,
   rollback, generation diagnostics, and exact lifecycle routing.
-- [ ] Implement `AActor` construction request/coalescing/reentrancy state and
+- [x] Implement `AActor` construction request/coalescing/reentrancy state and
   entry routing after spawn/load/duplication/Undo/Redo plus relevant native
   runtime mutation.
-- [ ] Ensure generated acquisition/reconciliation never marks package dirty,
+- [x] Ensure generated acquisition/reconciliation never marks package dirty,
   never serializes derived objects, and never records independent transactions.
 - [ ] Add native test Actors/components covering key reuse, insert/remove/class
   mismatch, candidate failure, recursive request, registration, BeginPlay,
   EndPlay, owner destruction, save/load, duplication, PIE, Undo/Redo, GC, and
   editor hierarchy policy.
-- [ ] Publish the lasting native construction and generated-component lifecycle
+- [x] Publish the lasting native construction and generated-component lifecycle
   contract under Runtime World.
 
 #### Acceptance Gate

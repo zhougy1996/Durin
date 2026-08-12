@@ -13,6 +13,22 @@
 
 namespace Durin
 {
+	namespace
+	{
+		thread_local uint32 PackageDirtySuppressionDepth = 0;
+	}
+
+	FScopedPackageDirtySuppression::FScopedPackageDirtySuppression()
+	{
+		++PackageDirtySuppressionDepth;
+	}
+
+	FScopedPackageDirtySuppression::~FScopedPackageDirtySuppression()
+	{
+		require(PackageDirtySuppressionDepth > 0);
+		--PackageDirtySuppressionDepth;
+	}
+
 	struct FPendingRegistrantInfo
 	{
 		std::string Name;
@@ -114,6 +130,8 @@ namespace Durin
 			? EObjectFlags::ClassDefaultObject | EObjectFlags::Transient
 			: ObjectInitializer.Purpose == EObjectConstructionPurpose::ClassDefaultSubobject
 				? EObjectFlags::DefaultSubobject | EObjectFlags::Transient
+				: ObjectInitializer.Purpose == EObjectConstructionPurpose::Generated
+					? EObjectFlags::Transient
 				: EObjectFlags::NoFlags)
 		, ConstructionPurpose(ObjectInitializer.Purpose)
 		, OuterPrivate(ObjectInitializer.Outer)
@@ -263,7 +281,7 @@ namespace Durin
 
 	auto DObject::MarkPackageDirty() -> void
 	{
-		if (IsTemplateObject()) return;
+		if (IsTemplateObject() || PackageDirtySuppressionDepth > 0) return;
 		if (DPackage* Package = GetPackage()) Package->MarkDirty();
 	}
 
