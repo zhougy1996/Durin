@@ -426,7 +426,12 @@ def dispatch_request(
             for target in targets:
                 output.raw_line(f"{target.name}\t{target_metadata_text(target)}")
             return
-        resolved = resolve_selection(registry, request.target, admit_characterization=True)
+        resolved = resolve_selection(
+            registry,
+            request.target,
+            admit_characterization=True,
+            admit_qualification=True,
+        )
         output.info(f'Selection: {request.target} ({resolved.explanation})')
         for target in resolved.targets:
             output.raw_line(f"{target.name}\t{target_metadata_text(target)}")

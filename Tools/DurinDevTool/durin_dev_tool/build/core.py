@@ -542,8 +542,10 @@ def validate_request(request: CommandRequest, preset: ConfigurePreset) -> None:
             )
         if request.test_report_path is not None and request.test_mode is not TestMode.REPORT:
             raise BuildToolError("--report requires --mode report.")
-        if request.test_mode is TestMode.CHARACTERIZATION and request.target.casefold() == "all":
-            raise BuildToolError("characterization mode requires an explicit target or @set.")
+        if request.test_mode in {TestMode.CHARACTERIZATION, TestMode.QUALIFICATION} and request.target.casefold() == "all":
+            raise BuildToolError(
+                f"{request.test_mode.value} mode requires an explicit target or @set."
+            )
     if request.action is Action.TEST and not preset_cache_bool(preset, "BUILD_TESTING"):
         raise BuildToolError(f'Preset "{preset.name}" does not enable BUILD_TESTING.')
     if request.action is not Action.PURGE and (request.all_presets or request.yes):
@@ -813,6 +815,7 @@ def execute_context(
             registry,
             request.target,
             admit_characterization=request.test_mode is TestMode.CHARACTERIZATION,
+            admit_qualification=request.test_mode is TestMode.QUALIFICATION,
         )
         context.resolved_test_targets = resolved.names
         context.test_selection_explanation = resolved.explanation

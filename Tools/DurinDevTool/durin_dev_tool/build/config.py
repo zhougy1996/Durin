@@ -118,6 +118,7 @@ class TestMode(str, Enum):
     STRESS = "stress"
     REPORT = "report"
     CHARACTERIZATION = "characterization"
+    QUALIFICATION = "qualification"
 
 
 @dataclass(frozen=True)

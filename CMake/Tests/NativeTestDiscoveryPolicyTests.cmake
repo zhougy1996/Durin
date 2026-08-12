@@ -264,6 +264,7 @@ assert_policy_rejected(
 )
 
 configure_metadata_probe("valid" TRUE "")
+configure_metadata_probe("qualification" TRUE "\"kind\":\"qualification\"")
 configure_metadata_probe("unavailable" TRUE "")
 configure_metadata_probe("missing-kind" FALSE "requires KIND")
 configure_metadata_probe("missing-domain" FALSE "requires DOMAINS")

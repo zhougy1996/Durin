@@ -338,6 +338,7 @@ set(DURIN_NATIVE_TEST_KINDS
 	integration
 	characterization
 	infrastructure
+	qualification
 )
 set(DURIN_NATIVE_TEST_RESERVED_LABEL_PREFIXES
 	kind-
@@ -443,6 +444,12 @@ function(durin_finalize_native_test target_name)
 	elseif(native-test-characterization IN_LIST _durin_labels)
 		message(FATAL_ERROR
 			"${target_name} non-characterization KIND cannot use native-test-characterization.")
+	endif()
+	if(_durin_kind STREQUAL "qualification")
+		list(APPEND _durin_labels native-test-qualification)
+	elseif(native-test-qualification IN_LIST _durin_labels)
+		message(FATAL_ERROR
+			"${target_name} non-qualification KIND cannot use native-test-qualification.")
 	endif()
 
 	get_target_property(_durin_sources ${target_name} SOURCES)
@@ -554,10 +561,21 @@ function(durin_add_native_test_aggregate_target target_name)
 
 	get_property(_durin_native_test_targets GLOBAL PROPERTY DURIN_NATIVE_TEST_TARGETS)
 	list(REMOVE_DUPLICATES _durin_native_test_targets)
+	set(_durin_default_native_test_targets)
+	foreach(_durin_native_test_target IN LISTS _durin_native_test_targets)
+		get_target_property(_durin_native_test_kind
+			${_durin_native_test_target} DURIN_TEST_KIND)
+		if(_durin_native_test_kind STREQUAL "characterization"
+			OR _durin_native_test_kind STREQUAL "qualification")
+			continue()
+		endif()
+		list(APPEND _durin_default_native_test_targets
+			${_durin_native_test_target})
+	endforeach()
 
 	add_custom_target(${target_name})
-	if(_durin_native_test_targets)
-		add_dependencies(${target_name} ${_durin_native_test_targets})
+	if(_durin_default_native_test_targets)
+		add_dependencies(${target_name} ${_durin_default_native_test_targets})
 	endif()
 	set_target_properties(${target_name} PROPERTIES FOLDER "Tests")
 	if(DEFINED ENV{DURIN_NATIVE_TEST_RUNTIME_CLOSURE_AUDIT})

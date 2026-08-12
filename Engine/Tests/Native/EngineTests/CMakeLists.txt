@@ -134,7 +134,6 @@ function(durin_add_engine_functional_test target_name)
 
 	if(DURIN_ENGINE_TEST_GPU)
 		set_target_properties(${target_name} PROPERTIES
-			DURIN_TEST_LEGACY_SERIALIZATION_GROUP renderer-runtime
 			DURIN_TEST_RESOURCE_LOCKS durin-gpu
 		)
 	endif()
@@ -527,6 +526,23 @@ durin_add_engine_functional_test(TerrainRenderVulkanTests
 	LIBRARIES ApplicationCore RenderCore Renderer
 )
 
+durin_add_engine_functional_test(TerrainRenderQualificationTests
+	KIND qualification
+	DOMAINS terrain
+	MODULES engine renderer
+	BACKENDS vulkan
+	STACKS renderer
+	GPU
+	TIMEOUT 900
+	RUNTIME_STACK_RATIONALE
+		"Measures maximum supported Terrain rendering on an initialized Vulkan device."
+	RUNTIME_ONLY_RATIONALE
+		"RHIInit selects VulkanRHI dynamically for Terrain render qualification."
+	RUNTIME_ONLY_TARGETS VulkanRHI
+	SOURCES Private/Terrain/TerrainRenderQualificationTests.cpp
+	LIBRARIES ApplicationCore RenderCore Renderer
+)
+
 add_durin_test(LaunchStorageTests
 	Private/Launch/RuntimeStorageTests.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Launch/Private/RuntimeStorage.cpp
@@ -580,7 +596,6 @@ set_target_properties(LaunchProcessBoundaryTests PROPERTIES
 	DURIN_TEST_CASE_PARALLEL_SAFE FALSE
 	DURIN_TEST_HEAVY_RUNTIME_RATIONALE
 		"Launches isolated runtime children to verify process exit and cleanup policy."
-	DURIN_TEST_LEGACY_SERIALIZATION_GROUP renderer-runtime
 	DURIN_TEST_RESOURCE_LOCKS durin-gpu
 	DURIN_TEST_TARGET_LOCK_RATIONALE
 		"Serializes child processes that share the configured launcher binary."

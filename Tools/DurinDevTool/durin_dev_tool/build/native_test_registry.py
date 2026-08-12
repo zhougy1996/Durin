@@ -43,6 +43,10 @@ class NativeTestTarget:
     def characterization(self) -> bool:
         return self.kind == "characterization"
 
+    @property
+    def qualification(self) -> bool:
+        return self.kind == "qualification"
+
 
 @dataclass(frozen=True)
 class NativeTestRegistry:
@@ -171,6 +175,7 @@ def resolve_selection(
     expression: str,
     *,
     admit_characterization: bool = False,
+    admit_qualification: bool = False,
 ) -> ResolvedSelection:
     exact = registry.target(expression)
     if exact is not None:
@@ -178,6 +183,11 @@ def resolve_selection(
             raise BuildToolError(
                 f'Native-test target "{expression}" is characterization-only.',
                 recovery=f"Rerun test {expression} --mode characterization.",
+            )
+        if exact.qualification and not admit_qualification:
+            raise BuildToolError(
+                f'Native-test target "{expression}" is qualification-only.',
+                recovery=f"Rerun test {expression} --mode qualification.",
             )
         return ResolvedSelection(expression, (exact,), "exact target name")
     if not expression.startswith("@"):
@@ -189,6 +199,8 @@ def resolve_selection(
     matches: list[NativeTestTarget] = []
     for target in registry.targets:
         if target.characterization and not admit_characterization:
+            continue
+        if target.qualification and not admit_qualification:
             continue
         if all(
             bool(set(getattr(target, SELECTOR_DIMENSIONS[dimension])) & values)

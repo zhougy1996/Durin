@@ -269,7 +269,7 @@ class TestCore:
         with mock.patch.object(build_runtime, 'preset_build_directory', return_value=build_directory), mock.patch.object(build_runtime, 'run_command') as run:
             build_core.run_all_native_tests(context, output)
         run.assert_called_once_with(
-            [r'C:\Tools\CMake\bin\ctest.exe', '--test-dir', str(build_directory), '--output-on-failure', '--no-tests=error', '-j', '4', '-L', 'native-test-case', '-LE', 'native-test-characterization', '--timeout', '60', '--schedule-random', '-R', '^Core\\.', '--output-junit', str(build_core.REPO_ROOT / 'Build/results.xml')],
+            [r'C:\Tools\CMake\bin\ctest.exe', '--test-dir', str(build_directory), '--output-on-failure', '--no-tests=error', '-j', '4', '-L', 'native-test-case', '-LE', 'native-test-characterization|native-test-qualification', '--timeout', '60', '--schedule-random', '-R', '^Core\\.', '--output-junit', str(build_core.REPO_ROOT / 'Build/results.xml')],
             environment={'PATH': 'cached'},
             output=output,
             recovery_required_on_interrupt=False,
@@ -308,7 +308,7 @@ class TestCore:
             '-L',
             'native-test-target',
             '-LE',
-            'native-test-characterization',
+            'native-test-characterization|native-test-qualification',
             '-R',
             r'^Durin\.NativeTestDirect\.(MonaViewportTests|ViewportTests)$',
         ]
@@ -368,7 +368,7 @@ class TestCore:
             '-L',
             'native-test-target',
             '-LE',
-            'native-test-characterization',
+            'native-test-characterization|native-test-qualification',
             '--timeout',
             '300',
         ]
@@ -452,7 +452,41 @@ class TestCore:
             build_core.run_all_native_tests(context, output)
         command = run.call_args.args[0]
         assert command[command.index('-L') + 1] == label
-        assert command[command.index('-LE') + 1] == 'native-test-characterization'
+        assert command[command.index('-LE') + 1] == 'native-test-characterization|native-test-qualification'
+
+    def test_qualification_mode_selects_only_qualification_registrations(self) -> None:
+        preset = self.make_preset()
+        request = build_config.CommandRequest(
+            build_config.Action.TEST,
+            options=build_config.TestActionOptions(
+                target='@kind=qualification',
+                mode=build_config.TestMode.QUALIFICATION,
+            ),
+        )
+        context = build_config.BuildContext(
+            request,
+            build_config.LocalConfig(),
+            self.make_profile(),
+            {'debug': preset},
+            preset,
+            'windows',
+            cmake='cmake',
+            jobs=4,
+            environment={},
+            resolved_test_targets=('TerrainRenderQualificationTests',),
+        )
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        with mock.patch.object(build_runtime, 'run_command') as run:
+            build_runtime.run_selected_native_tests(context, output)
+        command = run.call_args.args[0]
+        assert command[7:13] == [
+            '-L',
+            'native-test-target',
+            '-L',
+            'native-test-qualification',
+            '-R',
+            r'^Durin\.NativeTestDirect\.(TerrainRenderQualificationTests)$',
+        ]
 
     def test_random_batched_mode_injects_and_reports_gtest_seed(self) -> None:
         preset = self.make_preset()

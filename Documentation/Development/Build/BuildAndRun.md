@@ -469,7 +469,10 @@ leading slash remains accepted for compatibility but is not required. A bare
 group without a selected safe default displays its group help and returns to the
 interactive prompt.
 
-`test --target all` defaults to one process per ordinary native-test target.
+`test --target all` defaults to one process per ordinary native-test target and
+excludes characterization and performance-qualification targets. Run a bounded
+`@kind=qualification` selection with `--mode qualification` when those
+measurements are required.
 Do not run unfiltered `--target all --granularity case`; use a focused target
 and GoogleTest filter for ordinary failure diagnosis. Case granularity remains
 available with a narrow case-name `--ctest-regex` or for explicit isolation

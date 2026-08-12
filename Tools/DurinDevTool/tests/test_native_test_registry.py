@@ -63,6 +63,7 @@ def registry(tmp_path: Path) -> NativeTestRegistry:
                 backends=("vulkan",),
             ),
             target("LaunchCrashTests", kind="characterization", domains=("launch",)),
+            target("TerrainQualificationTests", kind="qualification", domains=("terrain",)),
         ),
     )
 
@@ -99,6 +100,18 @@ def test_empty_and_characterization_selections_are_explicit(
         "@kind=characterization",
         admit_characterization=True,
     ).names == ("LaunchCrashTests",)
+
+
+def test_qualification_selections_are_explicit(
+    registry: NativeTestRegistry,
+) -> None:
+    with pytest.raises(BuildToolError, match="qualification-only"):
+        resolve_selection(registry, "TerrainQualificationTests")
+    assert resolve_selection(
+        registry,
+        "@kind=qualification",
+        admit_qualification=True,
+    ).names == ("TerrainQualificationTests",)
 
 
 def test_migration_report_selects_legacy_and_private_source_exceptions(

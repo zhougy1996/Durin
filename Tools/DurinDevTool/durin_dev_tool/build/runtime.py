@@ -123,7 +123,7 @@ def _all_native_tests_command(
         str(context.jobs),
     ]
     if compatibility_phase:
-        excluded_labels = "native-test-characterization"
+        excluded_labels = "native-test-characterization|native-test-qualification"
         if granularity is TestGranularity.HYBRID:
             excluded_labels += "|native-test-default"
         command.extend(["-L", "native-test-target", "-LE", excluded_labels])
@@ -134,7 +134,7 @@ def _all_native_tests_command(
             TestGranularity.HYBRID: "native-test-default",
         }[granularity]
         command.extend(
-            ["-L", selected_label, "-LE", "native-test-characterization"]
+            ["-L", selected_label, "-LE", "native-test-characterization|native-test-qualification"]
         )
     if request.test_timeout_seconds:
         command.extend(["--timeout", str(request.test_timeout_seconds)])
@@ -304,16 +304,27 @@ def run_selected_native_tests(context: BuildContext, output: BuildOutput) -> Non
         if request.test_mode is TestMode.CHARACTERIZATION:
             command.extend(["-L", "native-test-characterization"])
         else:
-            command.extend(["-LE", "native-test-characterization"])
+            command.extend(["-LE", "native-test-characterization|native-test-qualification"])
         if request.test_filter:
             command.extend(["-R", request.test_filter])
+    elif request.test_mode is TestMode.QUALIFICATION:
+        command.extend(
+            [
+                "-L",
+                "native-test-target",
+                "-L",
+                "native-test-qualification",
+                "-R",
+                rf"^Durin\.NativeTestDirect\.({escaped_names})$",
+            ]
+        )
     else:
         command.extend(
             [
                 "-L",
                 "native-test-target",
                 "-LE",
-                "native-test-characterization",
+                "native-test-characterization|native-test-qualification",
                 "-R",
                 rf"^Durin\.NativeTestDirect\.({escaped_names})$",
             ]

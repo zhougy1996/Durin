@@ -621,7 +621,7 @@ COMMAND_SPECS = (
             ),
             _argument(
                 "--mode",
-                choices=("routine", "isolation", "stress", "report", "characterization"),
+                choices=("routine", "isolation", "stress", "report", "characterization", "qualification"),
                 default="routine",
                 help="execution scenario (default: routine)",
             ),

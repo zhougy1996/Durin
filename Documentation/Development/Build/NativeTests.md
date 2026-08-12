@@ -53,7 +53,7 @@ dimensions intersect. For example,
 `@kind=feature+integration,domain=viewport,backend=vulkan` selects Vulkan
 viewport feature or integration targets. Exact target names take precedence
 over set syntax. An empty result is an error and never falls back to `all`.
-Ordinary selectors exclude characterization targets.
+Ordinary selectors exclude characterization and qualification targets.
 
 Execution scenarios keep the routine path short:
 
@@ -62,13 +62,16 @@ Execution scenarios keep the routine path short:
 .\DevTool.bat test "@viewport" --mode stress
 .\DevTool.bat test "@viewport" --mode report
 .\DevTool.bat test "@kind=characterization,domain=launch" --mode characterization
+.\DevTool.bat test "@kind=qualification,domain=terrain" --mode qualification
 ```
 
 Isolation requires a bounded selection and case filter. Stress mode randomizes
 CTest scheduling and GoogleTest order, printing a reproducible seed. Report
 mode writes JUnit XML under
 `Build/NativeTestResults/<Preset>/<Selection>.xml` unless `--report <path>` is
-given. Characterization admission is always explicit.
+given. Characterization and qualification admission are always explicit.
+Qualification targets own performance, scale, memory, or hardware-baseline
+measurements that should not extend routine correctness feedback.
 
 Choose validation by risk and preserve the resolved target names in the
 handoff or CI log:
@@ -81,17 +84,22 @@ handoff or CI log:
   `test "@domain=viewport,backend=vulkan"`.
 - Child-process, crash, or launcher behavior selects `stack=process`; explicit
   characterization additionally requires `--mode characterization`.
+- Performance and scale qualification selects `kind=qualification` and requires
+  `--mode qualification`.
 - Shared discovery, registry, harness, locking, deployment, or aggregate
   changes run `test --target all` at default target granularity.
 
 Scheduled/nightly repository validation owns the ordinary native aggregate.
-Release qualification owns that aggregate plus any platform/backend matrix
-required by the release. A failed set is diagnosed with its printed named
-targets and narrow case filters; local implementation and handoff validation
-remain risk-based and do not inherit the whole scheduled matrix.
+Release qualification owns that aggregate, the explicit qualification set,
+and any platform/backend matrix required by the release. A failed set is
+diagnosed with its printed named targets and narrow case filters; local
+implementation and handoff validation remain risk-based and do not inherit the
+whole scheduled matrix.
 
 `--target all` builds the `DurinNativeTests` aggregate and then runs every
-ordinary target once through CTest. This `target` granularity is the default.
+ordinary target once through CTest. Characterization and qualification targets
+are neither built nor run by this aggregate. This `target` granularity is the
+default.
 Use `--granularity case` to run every discovered GoogleTest case in a separate
 process for isolation diagnosis and independence qualification. Do not run
 unfiltered `--target all --granularity case`; diagnose an ordinary aggregate
@@ -261,8 +269,8 @@ durin_discover_tests(PackageRoundTripTests)
 `durin_finalize_native_test(...)` is the structured declaration boundary. It
 must appear after sources, links, runtime policy, and execution properties are
 known and before `durin_discover_tests(...)`. `KIND` is exactly one of
-`contract`, `feature`, `integration`, `characterization`, or
-`infrastructure`; `DOMAINS` contains at least one stable selection slice.
+`contract`, `feature`, `integration`, `characterization`, `infrastructure`, or
+`qualification`; `DOMAINS` contains at least one stable selection slice.
 Optional `MODULES`, `BACKENDS`, and `STACKS` aid discovery but never replace
 real link, runtime-only dependency, resource-lock, or timeout declarations.
 
@@ -355,6 +363,11 @@ execution. Checked-in data is read-only; generated assets, caches, databases,
 and external-tool outputs must resolve below the current process sandbox.
 Intentional multi-process, crash, and abrupt-exit characterization belongs in
 a separately registered characterization target with a concrete rationale.
+Performance, scale, memory, and hardware-baseline measurements belong in a
+separately registered qualification target. Keep a bounded correctness case in
+the ordinary owning target, and run the qualification target explicitly. A
+physical-resource lock such as `durin-gpu` describes lifecycle ownership; it
+does not make a correctness target a performance test.
 
 Case-level parallel safety remains required for the explicit case diagnostic
 mode. If a target cannot use
@@ -387,13 +400,11 @@ The `windows-msvc-x64` Agent Build Profile qualified the native suite at
 and 39.74 seconds at two jobs. Whole-target direct lifecycle qualification also
 passed.
 
-The remaining aggregate critical path is explicit resource ownership:
-`MaterialTests`, `VulkanRHIIntegrationTests`,
-`SkyBoxVulkanIntegrationTests`, and `TextureCookIntegrationTests` use
-`durin-gpu`; the renderer-backed owners also use
-`durin-test-legacy-renderer-runtime`. In the final measured schedule these
-locks covered 50 CTest entries and 17.24 process-seconds. Do not relax them
-without separating the physical-device or renderer lifecycle they protect.
+The remaining aggregate critical path includes explicit physical-resource
+ownership. Vulkan-backed correctness targets use `durin-gpu` while they own the
+physical device, global RHI, or renderer lifecycle. Do not relax that lock
+without separating those lifecycles. Move performance-only work into explicit
+qualification targets so it does not extend the routine GPU lock chain.
 
 Incremental `all` dependency checks took 0.88-0.96 seconds in the qualification
 matrix. Whole-target startup and multi-case execution accounted for 34.36
