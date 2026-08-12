@@ -332,6 +332,23 @@ durin_add_engine_functional_test(TerrainHeightmapCookTests
 	SOURCES Private/Terrain/TerrainHeightmapCookTests.cpp
 )
 
+durin_add_engine_functional_test(TerrainRenderPrimitiveTests
+	TIMEOUT 600
+	RUNTIME_STACK_RATIONALE "Exercises reflected Terrain component, patch, proxy, and revision contracts."
+	SOURCES Private/Terrain/TerrainRenderPrimitiveTests.cpp
+	LIBRARIES Renderer RenderCore
+)
+
+durin_add_engine_functional_test(TerrainRenderVulkanTests
+	GPU
+	TIMEOUT 900
+	RUNTIME_STACK_RATIONALE "Exercises exact R16 Terrain rendering, counters, and resource release on Vulkan."
+	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for Terrain render validation."
+	RUNTIME_ONLY_TARGETS VulkanRHI
+	SOURCES Private/Terrain/TerrainRenderVulkanTests.cpp
+	LIBRARIES ApplicationCore RenderCore Renderer
+)
+
 durin_add_engine_functional_test(LaunchStorageTests
 	RUNTIME_STACK_RATIONALE "Exercises Launch-private runtime storage selection and migration policy."
 	SOURCES Private/Launch/RuntimeStorageTests.cpp

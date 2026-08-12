@@ -88,6 +88,12 @@ namespace Durin
 		return static_cast<FSkeletalMeshSceneProxy&>(*Proxy);
 	}
 
+	auto FPrimitiveSceneInfo::GetTerrainProxy() const -> FTerrainSceneProxy&
+	{
+		check(Kind == EPrimitiveSceneProxyKind::Terrain);
+		return static_cast<FTerrainSceneProxy&>(*Proxy);
+	}
+
 	auto FPrimitiveSceneInfo::SetTransform(const FMatrix& InTransform) -> void
 	{
 		Transform = InTransform;
@@ -116,6 +122,7 @@ namespace Durin
 		{
 		case EPrimitiveSceneProxyKind::StaticMesh: std::erase(StaticMeshSceneInfos, &Info); break;
 		case EPrimitiveSceneProxyKind::SkeletalMesh: std::erase(SkeletalMeshSceneInfos, &Info); break;
+		case EPrimitiveSceneProxyKind::Terrain: std::erase(TerrainSceneInfos, &Info); break;
 		}
 	}
 
@@ -138,6 +145,7 @@ namespace Durin
 			{
 			case EPrimitiveSceneProxyKind::StaticMesh: StaticMeshSceneInfos.push_back(RawInfo); break;
 			case EPrimitiveSceneProxyKind::SkeletalMesh: SkeletalMeshSceneInfos.push_back(RawInfo); break;
+			case EPrimitiveSceneProxyKind::Terrain: TerrainSceneInfos.push_back(RawInfo); break;
 			}
 			PrimitiveInfosById.emplace(PrimitiveId, std::move(Info));
 		});
@@ -207,7 +215,7 @@ namespace Durin
 	{
 		ENQUEUE_RENDER_COMMAND(ReleaseScene)([this](FRHICommandListImmediate&) {
 			CheckRenderingThread();
-			PrimitiveSceneInfos.clear(); StaticMeshSceneInfos.clear(); SkeletalMeshSceneInfos.clear(); PrimitiveInfosById.clear();
+			PrimitiveSceneInfos.clear(); StaticMeshSceneInfos.clear(); SkeletalMeshSceneInfos.clear(); TerrainSceneInfos.clear(); PrimitiveInfosById.clear();
 			DirectionalLightSceneInfos.clear(); PointLightSceneInfos.clear();
 			SpotLightSceneInfos.clear(); LightInfosById.clear();
 			SkyBoxSceneInfos.clear(); SkyBoxInfosById.clear();

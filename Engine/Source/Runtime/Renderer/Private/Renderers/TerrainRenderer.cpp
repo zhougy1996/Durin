@@ -1,0 +1,566 @@
+#include "Renderers/TerrainRenderer.h"
+#include "Renderers/TerrainRenderPreparation.h"
+
+#include "Engine/FPrimitiveSceneProxy.h"
+#include "Math/Operations.h"
+#include "RHI.h"
+#include "RHICommandList.h"
+#include "RendererResourceSlotCache.h"
+#include "Renderers/RendererResourceDiagnostics.h"
+#include "Renderers/ViewPreparationMath.h"
+#include "RenderingThread.h"
+#include "Resources/DefaultTextureResources.h"
+#include "Resources/EnvironmentLightingResources.h"
+#include "Resources/RendererResourceCoordinator.h"
+#include "Resources/RenderTargetLayouts.h"
+#include "Shader/Shader.h"
+#include "Shader/ShaderCompilerCore.h"
+#include "Terrain/TerrainHeightmap.h"
+#include "Terrain/TerrainVertexFactory.h"
+
+#include <glm/mat3x3.hpp>
+#include <glm/matrix.hpp>
+
+#include <bit>
+#include <unordered_map>
+
+namespace Durin
+{
+	namespace
+	{
+		constexpr size_t MaximumRetainedTerrainHeightRevisions = 64;
+		constexpr size_t MaximumRetainedTerrainTopologies = 256;
+		class FTerrainVertexShader final : public FShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FTerrainVertexShader)
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Transform);
+				DURIN_SHADER_PARAMETER_TEXTURE(HeightTexture);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Terrain);
+			DURIN_END_SHADER_PARAMETERS();
+			DURIN_DECLARE_SHADER(FTerrainVertexShader, FShader,
+				"/Engine/StaticMeshBasePass", EShaderFrequency::Vertex, "VertexMain");
+		};
+
+		class FTerrainFragmentShader final : public FShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FTerrainFragmentShader)
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Lighting);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Material);
+				DURIN_SHADER_PARAMETER_TEXTURE(BaseColorTexture);
+				DURIN_SHADER_PARAMETER_TEXTURE(NormalTexture);
+				DURIN_SHADER_PARAMETER_TEXTURE(MetallicTexture);
+				DURIN_SHADER_PARAMETER_TEXTURE(RoughnessTexture);
+				DURIN_SHADER_PARAMETER_TEXTURE(AmbientOcclusionTexture);
+				DURIN_SHADER_PARAMETER_TEXTURE(EmissiveTexture);
+				DURIN_SHADER_PARAMETER_TEXTURE(OpacityTexture);
+				DURIN_SHADER_PARAMETER_TEXTURE(OpacityMaskTexture);
+				DURIN_SHADER_PARAMETER_SAMPLER(BaseColorSampler);
+				DURIN_SHADER_PARAMETER_SAMPLER(NormalSampler);
+				DURIN_SHADER_PARAMETER_SAMPLER(MetallicSampler);
+				DURIN_SHADER_PARAMETER_SAMPLER(RoughnessSampler);
+				DURIN_SHADER_PARAMETER_SAMPLER(AmbientOcclusionSampler);
+				DURIN_SHADER_PARAMETER_SAMPLER(EmissiveSampler);
+				DURIN_SHADER_PARAMETER_SAMPLER(OpacitySampler);
+				DURIN_SHADER_PARAMETER_SAMPLER(OpacityMaskSampler);
+				DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentIrradiance);
+				DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentPrefiltered);
+				DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentBrdfLut);
+				DURIN_SHADER_PARAMETER_SAMPLER(EnvironmentSampler);
+			DURIN_END_SHADER_PARAMETERS();
+			DURIN_DECLARE_SHADER(FTerrainFragmentShader, FShader,
+				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment, "FragmentMain");
+		};
+
+		struct FTransformUniform
+		{
+			FMatrix4f LocalToClip{1.0f};
+			FMatrix4f LocalToWorld{1.0f};
+			FMatrix4f NormalToWorld{1.0f};
+			FVector4f TransformParams{1.0f, 0.0f, 0.0f, 0.0f};
+		};
+
+		struct FTerrainUniform
+		{
+			std::array<uint32, 4> SamplePatch{};
+			FVector4f SpacingHeight{1.0f, 1.0f, 1.0f, 0.0f};
+		};
+
+		struct FMaterialUniform
+		{
+			FVector4f BaseColor{1.0f};
+			FVector4f EmissiveMetallic{0.0f};
+			FVector4f NormalRoughness{0.0f, 0.0f, 1.0f, 0.5f};
+			FVector4f SurfaceParams{1.0f, 1.0f, 1.0f, 0.0f};
+			std::array<FVector4f, 8> UVTransforms{};
+			FVector4f UVChannels0{0.0f};
+			FVector4f UVChannels1{0.0f};
+			FVector4f UVRotations0{0.0f};
+			FVector4f UVRotations1{0.0f};
+		};
+
+		auto ToShaderMatrix(const FMatrix& Matrix) -> FMatrix4f
+		{
+			FMatrix4f Result(0.0f);
+			for (uint32 Column = 0; Column < 4; ++Column)
+				for (uint32 Row = 0; Row < 4; ++Row)
+					Result[Column][Row] = static_cast<float>(Matrix[Row][Column]);
+			return Result;
+		}
+
+		auto TransformBounds(const FBox& Bounds, const FMatrix& Transform) -> FBox
+		{
+			FBox Result;
+			if (!Bounds.bIsValid || !Math::IsFinite(Transform)) return Result;
+			for (uint32 Corner = 0; Corner < 8; ++Corner)
+			{
+				const FVector3 Point(
+					(Corner & 1u) ? Bounds.Max.x : Bounds.Min.x,
+					(Corner & 2u) ? Bounds.Max.y : Bounds.Min.y,
+					(Corner & 4u) ? Bounds.Max.z : Bounds.Min.z);
+				Result.AddPoint(FVector3(Transform * FVector4(Point, 1.0)));
+			}
+			return Result;
+		}
+
+		auto GetSamplerKey(const FMaterialSamplerState& State) -> size_t
+		{
+			return static_cast<size_t>(State.MinFilter) + 6 *
+				(static_cast<size_t>(State.MagFilter) + 2 *
+				(static_cast<size_t>(State.AddressU) + 3 * static_cast<size_t>(State.AddressV)));
+		}
+
+		auto ToAddress(EMaterialSamplerAddressMode Address) -> ESamplerAddressMode
+		{
+			if (Address == EMaterialSamplerAddressMode::MirroredRepeat) return ESamplerAddressMode::MirroredRepeat;
+			if (Address == EMaterialSamplerAddressMode::ClampToEdge) return ESamplerAddressMode::ClampToEdge;
+			return ESamplerAddressMode::Repeat;
+		}
+
+		auto MakeSampler(const FMaterialSamplerState& State) -> FRHISamplerDesc
+		{
+			FRHISamplerDesc Result;
+			const uint8 Min = static_cast<uint8>(State.MinFilter);
+			Result.MinFilter = (Min & 1u) ? ESamplerFilter::Linear : ESamplerFilter::Nearest;
+			Result.MagFilter = State.MagFilter == EMaterialSamplerMagFilter::Linear ? ESamplerFilter::Linear : ESamplerFilter::Nearest;
+			Result.MipmapMode = Min >= 4 ? ESamplerMipmapMode::Linear : ESamplerMipmapMode::Nearest;
+			Result.MaxLod = Min < 2 ? 0.0f : 1000.0f;
+			Result.AddressU = ToAddress(State.AddressU);
+			Result.AddressV = ToAddress(State.AddressV);
+			Result.AddressW = ESamplerAddressMode::Repeat;
+			return Result;
+		}
+
+		auto ResolveMaterialBinding(FPreparedTerrainDraw& Draw) -> bool
+		{
+			FMaterialRenderValidationDiagnostic Diagnostic;
+			if (TryGetMaterialRenderV3Binding(Draw.Material.Representation,
+				Draw.MaterialBinding, Diagnostic)) return true;
+			if (Draw.Material.Representation.GetLayout().Identity.Version == 2)
+			{
+				FMaterialRenderV2Binding Legacy;
+				if (TryGetMaterialRenderV2Binding(Draw.Material.Representation, Legacy, Diagnostic))
+				{
+					static_cast<FMaterialRenderV2Binding&>(Draw.MaterialBinding) = std::move(Legacy);
+					return true;
+				}
+			}
+			RecordMaterialFallbackReason(EMaterialFallbackReason::UnsupportedLayout);
+			Draw.Material = GetErrorMaterialRenderData();
+			return TryGetMaterialRenderV3Binding(Draw.Material.Representation,
+				Draw.MaterialBinding, Diagnostic);
+		}
+	}
+
+	auto PrepareTerrainView_RenderThread(
+		std::span<const FPrimitiveSceneInfo* const> SceneInfos,
+		const FSceneView& View, ERasterMode RasterMode) -> FPreparedTerrainView
+	{
+		check(IsInRenderingThread());
+		FPreparedTerrainView Result;
+		FViewFrustum Frustum;
+		const bool bCull = View.Settings.VisibilityMode == EViewVisibilityMode::Normal;
+		const bool bValidView = !bCull || TryBuildViewFrustum(View, Frustum);
+		for (const FPrimitiveSceneInfo* Info : SceneInfos)
+		{
+			if (!Info || Info->GetKind() != EPrimitiveSceneProxyKind::Terrain) continue;
+			const FTerrainSceneProxy& Proxy = Info->GetTerrainProxy();
+			const FMatrix& Transform = Info->GetTransform();
+			if (!Math::IsFinite(Transform)) continue;
+			const double Determinant = glm::determinant(glm::mat3(Transform));
+			if (!std::isfinite(Determinant)) continue;
+			for (const FTerrainPatchDescriptor& Patch : Proxy.GetPatches())
+			{
+				++Result.PatchCandidates;
+				const FBox WorldBounds = TransformBounds(Patch.LocalBounds, Transform);
+				if (bCull && bValidView)
+				{
+					const auto Classification = ClassifyWorldBounds(Frustum, WorldBounds);
+					if (Classification == EViewBoundsClassification::Outside)
+					{
+						++Result.CulledPatches;
+						continue;
+					}
+					if (Classification == EViewBoundsClassification::InvalidBounds)
+						++Result.InvalidBoundsFallbacks;
+				}
+				FPreparedTerrainDraw Draw;
+				Draw.SceneInfo = Info;
+				Draw.Patch = &Patch;
+				Draw.Material = Proxy.ResolveMaterialRenderData_RenderThread();
+				if (!ResolveMaterialBinding(Draw)) continue;
+				Draw.PipelineKey.Material = Draw.Material.PipelineIdentity;
+				Draw.PipelineKey.Rasterizer.PolygonMode = RasterMode == ERasterMode::Wireframe ? ERHIPolygonMode::Line : ERHIPolygonMode::Fill;
+				Draw.PipelineKey.Rasterizer.CullMode = Draw.Material.PipelineIdentity.bTwoSided ? ERHICullMode::None : ERHICullMode::Back;
+				Draw.PipelineKey.Rasterizer.FrontFace = Determinant < 0.0 ? ERHIFrontFace::CounterClockwise : ERHIFrontFace::Clockwise;
+				Draw.PipelineKey.Depth.bEnableTest = true;
+				const auto Blend = Draw.Material.PipelineIdentity.ShaderMap.BlendMode;
+				Draw.Pass = Blend == EMaterialBlendMode::Masked ? EStaticMeshBasePass::Masked
+					: Blend == EMaterialBlendMode::Translucent ? EStaticMeshBasePass::Translucent
+					: EStaticMeshBasePass::Opaque;
+				const auto Depth = Draw.Material.PipelineIdentity.DepthWritePolicy;
+				Draw.PipelineKey.Depth.bEnableWrite = Depth == EMaterialDepthWritePolicy::Enabled
+					|| (Depth == EMaterialDepthWritePolicy::Automatic && Draw.Pass != EStaticMeshBasePass::Translucent);
+				if (Draw.Pass == EStaticMeshBasePass::Translucent)
+					Draw.PipelineKey.ColorBlend = FRHIColorBlendState::StraightAlpha();
+				const FVector3 Center = WorldBounds.bIsValid ? WorldBounds.GetCenter() : FVector3(Transform * FVector4(0.0, 0.0, 0.0, 1.0));
+				const FVector3 Offset = Center - View.ViewLocation;
+				Draw.TranslucentDistanceSquared = glm::dot(Offset, Offset);
+				Draw.SortKey.Pipeline[0] = static_cast<uint32>(Draw.Pass);
+				Draw.SortKey.Pipeline[1] = Draw.Material.PipelineIdentity.ShaderMap.RenderLayout.Version;
+				Draw.SortKey.PrimitiveId = Info->GetId().Value;
+				Draw.SortKey.SectionIndex = static_cast<uint32>(Result.VisiblePatches);
+				const auto Bytes = Draw.Material.Representation.GetUniformPayload();
+				for (std::byte Byte : Bytes) Draw.SortKey.MaterialUniform.push_back(std::to_integer<uint8>(Byte));
+				++Result.VisiblePatches;
+				Result.Triangles += static_cast<size_t>(Patch.CellCountX) * Patch.CellCountY * 2;
+				auto& Bucket = Draw.Pass == EStaticMeshBasePass::Opaque ? Result.Opaque
+					: Draw.Pass == EStaticMeshBasePass::Masked ? Result.Masked : Result.Translucent;
+				Bucket.push_back(std::move(Draw));
+			}
+		}
+		auto SortOpaque = [](auto& Bucket) { std::ranges::sort(Bucket, [](const auto& A, const auto& B) { return std::tie(A.SortKey.Pipeline, A.SortKey.MaterialUniform, A.SortKey.PrimitiveId, A.SortKey.SectionIndex) < std::tie(B.SortKey.Pipeline, B.SortKey.MaterialUniform, B.SortKey.PrimitiveId, B.SortKey.SectionIndex); }); };
+		SortOpaque(Result.Opaque);
+		SortOpaque(Result.Masked);
+		std::ranges::sort(Result.Translucent, [](const auto& A, const auto& B) {
+			return A.TranslucentDistanceSquared != B.TranslucentDistanceSquared
+				? A.TranslucentDistanceSquared > B.TranslucentDistanceSquared
+				: A.SortKey.PrimitiveId < B.SortKey.PrimitiveId;
+		});
+		return Result;
+	}
+
+	struct FTerrainRenderer::FState
+	{
+		struct FTopology
+		{
+			FBufferRHIRef Vertices;
+			FBufferRHIRef Indices;
+			FTerrainVertexFactory VertexFactory;
+			uint32 IndexCount = 0;
+		};
+		struct FHeight
+		{
+			std::shared_ptr<const FTerrainHeightmapPayload> Payload;
+			FTextureRHIRef Texture;
+		};
+		struct FShaderPayload
+		{
+			std::shared_ptr<FShaderMapBase> Map;
+			TShaderRef<FTerrainVertexShader> Vertex;
+			TShaderRef<FTerrainFragmentShader> Fragment;
+		};
+		struct FPipelinePayload
+		{
+			std::shared_ptr<FShaderMapBase> Map;
+			TShaderRef<FTerrainVertexShader> Vertex;
+			TShaderRef<FTerrainFragmentShader> Fragment;
+			FGraphicsPipelineStateRHIRef Pipeline;
+		};
+		std::unordered_map<uint64, std::unique_ptr<FTopology>> Topologies;
+		std::unordered_map<const FTerrainHeightmapPayload*, FHeight> Heights;
+		std::unordered_map<size_t, FSamplerRHIRef> Samplers;
+		TRendererResourceSlotCache<FMaterialShaderMapIdentity, FShaderPayload> Shaders{
+			ERenderResourceGenerationDependency::Shader};
+		TRendererResourceSlotCache<FEffectiveStaticMeshPipelineKey, FPipelinePayload> Pipelines{
+			ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device};
+	};
+
+	FTerrainRenderer::FTerrainRenderer(FRendererResourceCoordinator& InCoordinator,
+		FDefaultTextureResources& InDefaultTextures,
+		FEnvironmentLightingResources& InEnvironmentLighting)
+		: Coordinator(InCoordinator), DefaultTextures(InDefaultTextures),
+		  EnvironmentLighting(InEnvironmentLighting), State(std::make_unique<FState>())
+	{
+	}
+
+	FTerrainRenderer::~FTerrainRenderer() = default;
+
+	auto FTerrainRenderer::EnsureDrawResources_RenderThread(
+		FRHICommandListImmediate& CommandList, FPreparedTerrainDraw& Draw,
+		FPreparedTerrainView& View) -> bool
+	{
+		if (!Draw.SceneInfo || !Draw.Patch || GDynamicRHI == nullptr) return false;
+		const FTerrainSceneProxy& Proxy = Draw.SceneInfo->GetTerrainProxy();
+		const auto Payload = Proxy.GetPayload();
+		if (!Payload || !Payload->IsValid()) return false;
+		auto HeightIt = State->Heights.find(Payload.get());
+		if (HeightIt == State->Heights.end())
+		{
+			if (State->Heights.size() >= MaximumRetainedTerrainHeightRevisions) return false;
+			FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D(
+				"TerrainHeight", Payload->Width, Payload->Height, EPixelFormat::R16_UINT)
+				.SetFlags(ETextureCreateFlags::ShaderResource);
+			FState::FHeight Candidate{Payload, GDynamicRHI->RHICreateTexture(CommandList, Desc)};
+			if (!Candidate.Texture) return false;
+			GDynamicRHI->RHIUpdateTexture2D(CommandList, Candidate.Texture, 0, 0,
+				FUpdateTextureRegion2D(0, 0, 0, 0, Payload->Width, Payload->Height),
+				Payload->Width * sizeof(uint16),
+				reinterpret_cast<const uint8*>(Payload->Samples.data()));
+			View.HeightUploadBytes += Payload->GetSampleBytes();
+			++View.HeightUploads;
+			HeightIt = State->Heights.emplace(Payload.get(), std::move(Candidate)).first;
+		}
+		else ++View.HeightReuses;
+		const uint64 TopologyKey = (static_cast<uint64>(Draw.Patch->CellCountX) << 32)
+			| Draw.Patch->CellCountY;
+		auto TopologyIt = State->Topologies.find(TopologyKey);
+		if (TopologyIt == State->Topologies.end())
+		{
+			if (State->Topologies.size() >= MaximumRetainedTerrainTopologies) return false;
+			const uint32 Width = Draw.Patch->CellCountX + 1;
+			const uint32 Height = Draw.Patch->CellCountY + 1;
+			std::vector<std::array<uint16, 2>> Vertices;
+			Vertices.reserve(static_cast<size_t>(Width) * Height);
+			for (uint16 Y = 0; Y < Height; ++Y)
+				for (uint16 X = 0; X < Width; ++X) Vertices.push_back({X, Y});
+			std::vector<uint16> Indices;
+			Indices.reserve(static_cast<size_t>(Draw.Patch->CellCountX) * Draw.Patch->CellCountY * 6);
+			for (uint16 Y = 0; Y < Draw.Patch->CellCountY; ++Y)
+				for (uint16 X = 0; X < Draw.Patch->CellCountX; ++X)
+				{
+					const uint16 A = static_cast<uint16>(Y * Width + X);
+					const uint16 B = static_cast<uint16>(A + 1);
+					const uint16 C = static_cast<uint16>(A + Width);
+					const uint16 D = static_cast<uint16>(C + 1);
+					Indices.insert(Indices.end(), {A, B, C, B, D, C});
+				}
+			auto Candidate = std::make_unique<FState::FTopology>();
+			FRHIBufferCreateDesc VertexDesc = FRHIBufferCreateDesc::CreateVertex("TerrainGrid", static_cast<uint32>(Vertices.size() * sizeof(Vertices[0])));
+			VertexDesc.Usage |= EBufferUsageFlags::Static;
+			VertexDesc.InitialData = {Vertices.data(), VertexDesc.Size};
+			Candidate->Vertices = GDynamicRHI->RHICreateBuffer(CommandList, VertexDesc);
+			FRHIBufferCreateDesc IndexDesc = FRHIBufferCreateDesc::CreateIndex("TerrainIndices", static_cast<uint32>(Indices.size() * sizeof(uint16)), sizeof(uint16));
+			IndexDesc.Usage |= EBufferUsageFlags::Static;
+			IndexDesc.InitialData = {Indices.data(), IndexDesc.Size};
+			Candidate->Indices = GDynamicRHI->RHICreateBuffer(CommandList, IndexDesc);
+			Candidate->IndexCount = static_cast<uint32>(Indices.size());
+			if (!Candidate->Vertices || !Candidate->Indices
+				|| !Candidate->VertexFactory.Initialize(Candidate->Vertices, static_cast<uint32>(Vertices.size()))) return false;
+			Candidate->VertexFactory.InitResource(CommandList);
+			if (!Candidate->VertexFactory.IsReady()) return false;
+			View.TopologyBytes += Vertices.size() * sizeof(Vertices[0])
+				+ Indices.size() * sizeof(uint16);
+			++View.TopologyCreations;
+			TopologyIt = State->Topologies.emplace(TopologyKey, std::move(Candidate)).first;
+		}
+		else ++View.TopologyReuses;
+
+		auto& ShaderEntry = State->Shaders.FindOrAdd(Draw.Material.PipelineIdentity.ShaderMap);
+		using FShaderResult = TRenderResourceCreateResult<FState::FShaderPayload>;
+		auto* Shader = ShaderEntry.Slot.Resolve(Coordinator.GetGeneration_RenderThread(),
+			[this, &Draw]() -> FShaderResult {
+				const auto& Identity = Draw.Material.PipelineIdentity.ShaderMap;
+				FShaderCompileOptions Options;
+				Options.bForceRecompile = Coordinator.ShouldForceShaderRecompile_RenderThread();
+				Options.Macros.emplace_back("DURIN_TERRAIN", "1");
+				Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", std::to_string(static_cast<uint8>(Identity.BlendMode)));
+				Options.Macros.emplace_back("DURIN_MATERIAL_SHADING_MODEL", std::to_string(static_cast<uint8>(Identity.ShadingModel)));
+				Options.Macros.emplace_back("DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", std::to_string(std::bit_cast<uint32>(Identity.OpacityMaskThreshold)));
+				FShaderType& VertexType = FTerrainVertexShader::StaticType();
+				FShaderType& FragmentType = FTerrainFragmentShader::StaticType();
+				const std::array<const FShaderType*, 2> Types{&VertexType, &FragmentType};
+				auto Map = std::make_shared<FShaderMapBase>();
+				std::string Error;
+				if (!Map->InitializeFromShaderTypes(Types, Options, Error))
+					return FShaderResult::Failure(MakeRendererResourceCreateError(ERenderResourceCreateErrorCategory::ShaderCompile, "TerrainShaderMap", "terrain", std::move(Error), ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Manual));
+				auto* Vertex = static_cast<FTerrainVertexShader*>(Map->GetShader(&VertexType));
+				auto* Fragment = static_cast<FTerrainFragmentShader*>(Map->GetShader(&FragmentType));
+				if (!Vertex || !Fragment) return FShaderResult::Failure(MakeRendererResourceCreateError(ERenderResourceCreateErrorCategory::ShaderBinding, "TerrainShaderMap", "terrain", "Typed shaders are missing.", ERenderResourceGenerationDependency::Shader));
+				FState::FShaderPayload Candidate;
+				Candidate.Map = std::move(Map);
+				Candidate.Vertex = {Vertex, Candidate.Map.get()};
+				Candidate.Fragment = {Fragment, Candidate.Map.get()};
+				return FShaderResult::Success(std::move(Candidate));
+			}, ReportRendererResourceCreateDiagnostic);
+		if (!Shader) return false;
+
+		auto& PipelineEntry = State->Pipelines.FindOrAdd(Draw.PipelineKey);
+		using FPipelineResult = TRenderResourceCreateResult<FState::FPipelinePayload>;
+		FRenderResourceGeneration Generation = Coordinator.GetGeneration_RenderThread();
+		Generation.Shader = ShaderEntry.Slot.GetPayloadGeneration().Shader;
+		auto* Pipeline = PipelineEntry.Slot.Resolve(Generation,
+			[&Draw, &PipelineEntry, Shader, &TopologyIt]() -> FPipelineResult {
+				FState::FPipelinePayload Candidate;
+				Candidate.Map = Shader->Map;
+				Candidate.Vertex = Shader->Vertex;
+				Candidate.Fragment = Shader->Fragment;
+				FGraphicsPipelineStateInitializer Initializer;
+				Initializer.RenderTargetLayout = RenderTargetLayouts::MakeSceneTargets();
+				Initializer.BoundShaders.VertexShader = Candidate.Vertex.GetRHIShader();
+				Initializer.BoundShaders.FragmentShader = Candidate.Fragment.GetRHIShader();
+				Initializer.VertexDeclaration = TopologyIt->second->VertexFactory.GetDeclaration();
+				Initializer.RasterizerState = Draw.PipelineKey.Rasterizer;
+				Initializer.DepthStencilState = Draw.PipelineKey.Depth;
+				Initializer.ColorBlendStates[0] = Draw.PipelineKey.ColorBlend;
+				Initializer.PipelineLayout = Candidate.Map->GetMergedPipelineLayout();
+				Candidate.Pipeline = GDynamicRHI->RHICreateGraphicsPipelineState(FName(std::format("TerrainPipeline_{}", PipelineEntry.Index)), Initializer);
+				return Candidate.Pipeline ? FPipelineResult::Success(std::move(Candidate))
+					: FPipelineResult::Failure(MakeRendererResourceCreateError(ERenderResourceCreateErrorCategory::GraphicsPipeline, "TerrainPipeline", "terrain", "Pipeline creation returned null.", ERenderResourceGenerationDependency::Device));
+			}, ReportRendererResourceCreateDiagnostic);
+		if (!Pipeline) return false;
+		for (const auto& Sampler : Draw.MaterialBinding.Samplers)
+		{
+			const size_t Key = GetSamplerKey(Sampler);
+			if (!State->Samplers.contains(Key))
+			{
+				auto Created = RHICreateSampler(MakeSampler(Sampler));
+				if (!Created) return false;
+				State->Samplers.emplace(Key, std::move(Created));
+			}
+		}
+		return true;
+	}
+
+	auto FTerrainRenderer::PrepareResources_RenderThread(
+		FRHICommandListImmediate& CommandList, FPreparedTerrainView& View) -> bool
+	{
+		check(View.Phase == EPreparedTerrainPhase::Prepared);
+		View.ResourceAttemptedDraws = View.GetNumDraws();
+		for (auto* Bucket : {&View.Opaque, &View.Masked, &View.Translucent})
+			for (auto& Draw : *Bucket)
+			{
+				Draw.bResourcesReady = EnsureDrawResources_RenderThread(CommandList, Draw, View);
+				View.ResourceSuccessfulDraws += Draw.bResourcesReady ? 1u : 0u;
+			}
+		View.ResourceRejectedDraws = View.ResourceAttemptedDraws - View.ResourceSuccessfulDraws;
+		View.Phase = EPreparedTerrainPhase::ResourcesPrepared;
+		return std::ranges::all_of(View.Opaque, [](const auto& D) { return D.bResourcesReady; })
+			&& std::ranges::all_of(View.Masked, [](const auto& D) { return D.bResourcesReady; })
+			&& std::ranges::all_of(View.Translucent, [](const auto& D) { return D.bResourcesReady; });
+	}
+
+	auto FTerrainRenderer::Draw_RenderThread(FRHICommandListImmediate& CommandList,
+		const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting,
+		ERenderMode RenderMode, const FPreparedTerrainDraw& Draw) -> bool
+	{
+		if (!Draw.bResourcesReady || !Draw.SceneInfo || !Draw.Patch) return false;
+		const FTerrainSceneProxy& Proxy = Draw.SceneInfo->GetTerrainProxy();
+		const auto Payload = Proxy.GetPayload();
+		auto HeightIt = State->Heights.find(Payload.get());
+		const uint64 Key = (static_cast<uint64>(Draw.Patch->CellCountX) << 32) | Draw.Patch->CellCountY;
+		auto TopologyIt = State->Topologies.find(Key);
+		auto* PipelineEntry = State->Pipelines.Find(Draw.PipelineKey);
+		auto* Pipeline = PipelineEntry ? PipelineEntry->Slot.GetPayload() : nullptr;
+		if (HeightIt == State->Heights.end() || TopologyIt == State->Topologies.end() || !Pipeline) return false;
+		const FMatrix& LocalToWorld = Draw.SceneInfo->GetTransform();
+		FTransformUniform Transform;
+		Transform.LocalToClip = ToShaderMatrix(SceneView.ViewProjectionMatrix * LocalToWorld);
+		Transform.LocalToWorld = ToShaderMatrix(LocalToWorld);
+		Transform.NormalToWorld = ToShaderMatrix(Math::Transpose(Math::Inverse(LocalToWorld)));
+		Transform.TransformParams.x = glm::determinant(glm::mat3(LocalToWorld)) < 0.0 ? -1.0f : 1.0f;
+		const auto TransformBuffer = CommandList.AllocateDynamicUniformBuffer(&Transform, sizeof(Transform));
+		FTerrainUniform Terrain;
+		Terrain.SamplePatch = {Payload->Width, Payload->Height, Draw.Patch->OriginX, Draw.Patch->OriginY};
+		Terrain.SpacingHeight = FVector4f(static_cast<float>(Proxy.GetSpacingX()), static_cast<float>(Proxy.GetSpacingY()), static_cast<float>(Proxy.GetHeightScale()), static_cast<float>(Proxy.GetHeightOffset()));
+		const auto TerrainBuffer = CommandList.AllocateDynamicUniformBuffer(&Terrain, sizeof(Terrain));
+		FMaterialUniform Material;
+		const auto& Binding = Draw.MaterialBinding;
+		Material.BaseColor = Binding.BaseColor;
+		Material.EmissiveMetallic = FVector4f(Binding.Emissive, Binding.Metallic);
+		Material.NormalRoughness = FVector4f(Binding.Normal, Binding.Roughness);
+		Material.SurfaceParams = FVector4f(Binding.AmbientOcclusion, Binding.OpacityMask,
+			RenderMode == ERenderMode::Lit && Draw.Material.PipelineIdentity.ShaderMap.ShadingModel == EMaterialShadingModel::Lit ? 1.0f : 0.0f, 0.0f);
+		for (size_t Role = 0; Role < 8; ++Role)
+			Material.UVTransforms[Role] = FVector4f(Binding.UVScales[Role].x, Binding.UVScales[Role].y, Binding.UVOffsets[Role].x, Binding.UVOffsets[Role].y);
+		Material.UVChannels0 = FVector4f(Binding.UVChannels[0], Binding.UVChannels[1], Binding.UVChannels[2], Binding.UVChannels[3]);
+		Material.UVChannels1 = FVector4f(Binding.UVChannels[4], Binding.UVChannels[5], Binding.UVChannels[6], Binding.UVChannels[7]);
+		Material.UVRotations0 = FVector4f(Binding.UVRotations[0], Binding.UVRotations[1], Binding.UVRotations[2], Binding.UVRotations[3]);
+		Material.UVRotations1 = FVector4f(Binding.UVRotations[4], Binding.UVRotations[5], Binding.UVRotations[6], Binding.UVRotations[7]);
+		const auto MaterialBuffer = CommandList.AllocateDynamicUniformBuffer(&Material, sizeof(Material));
+		CommandList.SetGraphicsPipelineState(*Pipeline->Pipeline);
+		TopologyIt->second->VertexFactory.BindStreams(CommandList);
+		CommandList.BindIndexBuffer(TopologyIt->second->Indices, 0);
+		FTerrainVertexShader::FParameters VS;
+		VS.Transform = TransformBuffer;
+		VS.HeightTexture = HeightIt->second.Texture;
+		VS.Terrain = TerrainBuffer;
+		SetShaderParameters(CommandList, Pipeline->Vertex, VS);
+		FTerrainFragmentShader::FParameters PS;
+		PS.Lighting = Lighting;
+		PS.Material = MaterialBuffer;
+		auto ResolveTexture = [&](size_t Role, EDefaultTexture Fallback) { FRHITexture* T = Binding.Textures[Role] ? Binding.Textures[Role]->GetReferencedTexture_RenderThread() : nullptr; return T ? T : DefaultTextures.Get_RenderThread(Fallback); };
+		PS.BaseColorTexture = ResolveTexture(0, EDefaultTexture::White);
+		PS.NormalTexture = ResolveTexture(1, EDefaultTexture::FlatNormal);
+		PS.MetallicTexture = ResolveTexture(2, EDefaultTexture::White);
+		PS.RoughnessTexture = ResolveTexture(3, EDefaultTexture::White);
+		PS.AmbientOcclusionTexture = ResolveTexture(4, EDefaultTexture::White);
+		PS.EmissiveTexture = ResolveTexture(5, EDefaultTexture::Black);
+		PS.OpacityTexture = ResolveTexture(6, EDefaultTexture::White);
+		PS.OpacityMaskTexture = ResolveTexture(7, EDefaultTexture::White);
+		std::array<FRHISampler*, 8> Samplers{};
+		for (size_t Role = 0; Role < 8; ++Role) Samplers[Role] = State->Samplers.at(GetSamplerKey(Binding.Samplers[Role]));
+		PS.BaseColorSampler = Samplers[0]; PS.NormalSampler = Samplers[1]; PS.MetallicSampler = Samplers[2]; PS.RoughnessSampler = Samplers[3];
+		PS.AmbientOcclusionSampler = Samplers[4]; PS.EmissiveSampler = Samplers[5]; PS.OpacitySampler = Samplers[6]; PS.OpacityMaskSampler = Samplers[7];
+		FRHITexture* Irradiance = EnvironmentLighting.GetIrradiance_RenderThread();
+		FRHITexture* Prefiltered = EnvironmentLighting.GetPrefiltered_RenderThread();
+		FRHITexture* Brdf = EnvironmentLighting.GetBrdfLut_RenderThread();
+		FRHISampler* EnvironmentSampler = EnvironmentLighting.GetSampler_RenderThread();
+		const bool Complete = Irradiance && Prefiltered && Brdf && EnvironmentSampler;
+		PS.EnvironmentIrradiance = Complete ? Irradiance : DefaultTextures.GetCube_RenderThread();
+		PS.EnvironmentPrefiltered = Complete ? Prefiltered : DefaultTextures.GetCube_RenderThread();
+		PS.EnvironmentBrdfLut = Complete ? Brdf : DefaultTextures.Get_RenderThread(EDefaultTexture::Black);
+		PS.EnvironmentSampler = Complete ? EnvironmentSampler : Samplers[0];
+		SetShaderParameters(CommandList, Pipeline->Fragment, PS);
+		CommandList.DrawIndexed(TopologyIt->second->IndexCount, 0, 0);
+		return true;
+	}
+
+	auto FTerrainRenderer::ExecutePreparedDraw_RenderThread(
+		FRHICommandListImmediate& CommandList, const FSceneView& SceneView,
+		const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode,
+		const FPreparedTerrainDraw& Draw, FPreparedTerrainView& View) -> void
+	{
+		++View.AttemptedDraws;
+		if (Draw_RenderThread(CommandList, SceneView, Lighting, RenderMode, Draw)) ++View.SuccessfulDraws;
+		else ++View.RejectedDraws;
+	}
+
+	auto FTerrainRenderer::ExecutePass_RenderThread(
+		FRHICommandListImmediate& CommandList, const FSceneView& SceneView,
+		const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode,
+		EStaticMeshBasePass Pass, FPreparedTerrainView& View) -> void
+	{
+		const auto& Bucket = Pass == EStaticMeshBasePass::Opaque ? View.Opaque : View.Masked;
+		for (const auto& Draw : Bucket) ExecutePreparedDraw_RenderThread(CommandList, SceneView, Lighting, RenderMode, Draw, View);
+	}
+
+	auto FTerrainRenderer::FinalizeExecution_RenderThread(FPreparedTerrainView& View) -> void
+	{
+		View.Phase = EPreparedTerrainPhase::Executed;
+		check(View.AttemptedDraws == View.SuccessfulDraws + View.RejectedDraws);
+		check(View.AttemptedDraws == View.GetNumDraws());
+	}
+
+	auto FTerrainRenderer::ReleaseResources_RenderThread() -> void
+	{
+		for (auto& [Key, Topology] : State->Topologies)
+			if (Topology->VertexFactory.IsInitialized()) Topology->VertexFactory.ReleaseResource();
+		State->Topologies.clear();
+		State->Heights.clear();
+		State->Samplers.clear();
+		State->Shaders.Reset();
+		State->Pipelines.Reset();
+	}
+} // namespace Durin

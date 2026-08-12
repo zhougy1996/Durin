@@ -41,6 +41,27 @@ namespace Durin
 		size_t InvalidViewFallbacks = 0;
 		size_t VisibleStaticMeshCandidates = 0;
 		size_t VisibleSkeletalMeshCandidates = 0;
+		size_t VisibleTerrainCandidates = 0;
+		size_t TerrainPatchCandidates = 0;
+		size_t VisibleTerrainPatches = 0;
+		size_t CulledTerrainPatches = 0;
+		size_t InvalidTerrainPatchBounds = 0;
+		size_t PreparedTerrainTriangles = 0;
+		size_t OpaqueTerrainPatches = 0;
+		size_t MaskedTerrainPatches = 0;
+		size_t TranslucentTerrainPatches = 0;
+		size_t TerrainResourceAttemptedDraws = 0;
+		size_t TerrainResourceSuccessfulDraws = 0;
+		size_t TerrainResourceRejectedDraws = 0;
+		size_t TerrainAttemptedDraws = 0;
+		size_t TerrainSuccessfulDraws = 0;
+		size_t TerrainRejectedDraws = 0;
+		size_t TerrainHeightUploadBytes = 0;
+		size_t TerrainHeightUploads = 0;
+		size_t TerrainHeightReuses = 0;
+		size_t TerrainTopologyCreations = 0;
+		size_t TerrainTopologyReuses = 0;
+		size_t TerrainTopologyBytes = 0;
 		size_t PreparedStaticMeshPrimitives = 0;
 		size_t RejectedStaticMeshPrimitives = 0;
 		size_t PreparedStaticMeshSections = 0;
@@ -128,6 +149,7 @@ namespace Durin
 		std::vector<FPrimitiveVisibilityRecord> PrimitiveRecords;
 		std::vector<const FPrimitiveSceneInfo*> StaticMeshSceneInfos;
 		std::vector<const FPrimitiveSceneInfo*> SkeletalMeshSceneInfos;
+		std::vector<const FPrimitiveSceneInfo*> TerrainSceneInfos;
 	};
 
 	// Classifies every authoritative live primitive once for one immutable view.

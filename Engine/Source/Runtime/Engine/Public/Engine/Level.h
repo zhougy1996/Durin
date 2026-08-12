@@ -21,7 +21,8 @@ namespace Durin
 	{
 		Unsupported,
 		StaticMesh,
-		SkeletalMesh
+		SkeletalMesh,
+		Terrain
 	};
 
 	// Describes one game-thread primitive mutation without retaining reflected objects.

@@ -4,31 +4,43 @@ Summary: Add a finite single-LOD terrain Actor/Component and Renderer primitive 
 
 Last reviewed: 2026-08-12
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-12
 
 ## Current Status
 
-T0 is complete. `DTerrainHeightmap` publishes immutable revisioned
-`FTerrainHeightmapPayload` snapshots with exact top-left row-major `uint16`
-samples and a deterministic 64x64 regional min/max hierarchy. Editor and
-cooked runtime reproduce that payload without source or DDC, and the asset
-owns no renderer state.
+Stages 0-4 are implemented and focused qualification passes. `ATerrainActor`
+and `DTerrainComponent` publish immutable revisioned payload snapshots through
+an explicit Terrain proxy/SceneInfo/visibility family. Exact 64x64-cell patches
+use shared `UShort2` topology and revision-keyed `R16_UINT` textures; the
+Terrain vertex path performs integer loads, signed height reconstruction,
+one-sided/central finite differences, stable UVs, and the existing material,
+lighting, raster, output, and translucent-ordering policies.
 
-Engine already provides `DPrimitiveComponent` render-state mutation,
-`FPrimitiveSceneProxy`, stable primitive IDs, reflected Actor/Component
-serialization, material proxies, and editor primitive observation. Renderer
-already classifies every primitive once per view, stores typed SceneInfo
-families, prepares Opaque/Masked/Translucent PBR draws, supports mirrored
-winding, and reports conserved visibility/resource/draw counters. RHI exposes
-sampled 16-bit scalar formats, `UShort2` vertex elements, indexed triangle-list
-draws, resource uploads, and recorded-resource lifetime.
+The proposed 4097x4097 ceiling was rejected after its 4,096-draw Debug Vulkan
+fixture exceeded 300 seconds on an NVIDIA GeForce GTX 1060 6GB. The frozen T1
+ceiling is 1025x1025: 256 patches, 2,097,152 triangles, 2,101,250 height bytes,
+and 66,052 shared full-patch topology bytes. With two warm-up and seven measured
+17x17 offscreen frames, Debug Vulkan validation recorded CPU preparation median
+3096.58 ms / p95 3150.25 ms and Scene Color GPU median 26.7722 ms / p95 37.8943
+ms. The 5,000 ms CPU and 50 ms GPU Debug gates pass but establish an expensive
+single-LOD baseline that T3 must address.
 
-Terrain has no Actor, Component, scene-proxy/info kind, GPU height resource,
-grid topology, vertex factory, shader, patch preparation, bounds publication,
-material binding, or renderer counters. Stage 0 freezes the exact coordinate,
-format, patch, resource, fixture, and finite-budget contracts before production
-types are added.
+Focused evidence passes `TerrainRenderPrimitiveTests` (5),
+`TerrainRenderVulkanTests` (1), `TerrainHeightmapTests` (6),
+`TerrainHeightmapCookTests` (1), `RenderShaderContractTests` (29),
+`RendererSceneContractTests` (11), `EditorRenderingTests` (40), and
+`EditorAssetWorkflowTests` (80 passed, one skipped). Lasting behavior is in
+[Terrain Rendering](../Runtime/Rendering/TerrainRendering.md). The full `all`
+build, validation-enabled editor smoke, plan/roadmap validators, and diff check
+pass from the same Win64 Debug DurinEditor profile. T1 is complete; T3 receives
+the measured 1025x1025 single-LOD baseline and the rejected 4097x4097 evidence.
+
+Implementation keeps the planned `VertexFactory.TerrainVertexFactory` module
+but compiles Terrain entry points from `StaticMeshBasePass.slang` under
+`DURIN_TERRAIN` instead of duplicating a `TerrainBasePass.slang` fragment
+implementation. This preserves one exact material/PBR descriptor ABI and
+lighting body while still producing distinct Terrain shader maps and PSOs.
 
 ## Goal
 
@@ -209,8 +221,8 @@ patch costs required by T3. It does not solve scalable LOD or crack control.
   patch/draw/triangle counts, CPU proxy bytes, shared topology bytes, R16 upload
   bytes, peak publication bytes, and named adapter/view settings. The T0 asset
   maximum is not implicitly the T1 render maximum.
-- Candidates begin with a 64x64-cell patch and a proposed 4097x4097-sample T1
-  ceiling. Measurements may lower that ceiling before implementation; raising
+- Candidates begin with a 64x64-cell patch. Stage 0 measurement lowered the
+  T1 ceiling from the proposed 4097x4097 samples to 1025x1025; raising
   it requires recorded upload, submission, frame, and retained-memory evidence.
   An asset outside the frozen render ceiling remains a valid asset but produces
   a named Terrain render rejection rather than truncation or downsampling.
@@ -243,27 +255,27 @@ patch costs required by T3. It does not solve scalable LOD or crack control.
 
 ### Stage 0: Freeze coordinate, resource, and qualification contracts
 
-- [ ] Build independent asymmetric height fixtures that distinguish source X/Y,
+- [x] Build independent asymmetric height fixtures that distinguish source X/Y,
   local X/Y, UV orientation, triangle winding, normal sign, min/max bounds, and
   signed height scale; include uniform, extreme, odd, non-square, and mirrored
   transform cases without using production terrain code for golden values.
-- [ ] Verify backend-neutral sampled `R16_UINT` creation, upload, integer texel
+- [x] Verify backend-neutral sampled `R16_UINT` creation, upload, integer texel
   load, reflection, state transitions, and recorded lifetime on both command
   executors; select and document an exact alternative or stop if any required
   path cannot preserve all 16-bit values.
-- [ ] Measure 32/64/128-cell topology candidates and representative 1025x1025
+- [x] Measure 32/64/128-cell topology candidates and representative 1025x1025
   preparation/submission on the named adapter. Freeze patch size, T1 maximum
   render extent, topology index width, edge topology policy, CPU/GPU/peak byte
   ceilings, draw/triangle ceilings, and the Stage 4 timing protocol.
-- [ ] Freeze local position, UV, normal edge rule, winding, signed height scale,
+- [x] Freeze local position, UV, normal edge rule, winding, signed height scale,
   mirrored transform, component/property validation, primitive and patch bound,
   invalid-data fallback, material, translucent ordering, and editor observation
   contracts with exact golden facts.
-- [ ] Inventory the smallest existing StaticMesh/SkeletalMesh seams to reuse for
+- [x] Inventory the smallest existing StaticMesh/SkeletalMesh seams to reuse for
   proxy/info typing, visibility, prepared views, material binding, resource
   coordination, device invalidation, counters, editor placement, Cook/runtime,
   and shutdown; record every place requiring an explicit Terrain case.
-- [ ] Record baseline focused Engine/Renderer/RHI/editor tests, documentation
+- [x] Record baseline focused Engine/Renderer/RHI/editor tests, documentation
   validation, representative memory/timing evidence, selected constants, and
   the Stage 0 handoff before adding production Terrain types.
 
@@ -276,24 +288,24 @@ patch costs required by T3. It does not solve scalable LOD or crack control.
 
 ### Stage 1: Add Terrain Engine types and typed scene ownership
 
-- [ ] Add reflected `ATerrainActor` and `DTerrainComponent` files, module/reflection
+- [x] Add reflected `ATerrainActor` and `DTerrainComponent` files, module/reflection
   membership, forward declarations, default subobject ownership, editable
   heightmap/spacing/scale/offset/material properties, validation, PostLoad, and
   complete assignment APIs.
-- [ ] Compute deterministic patch descriptors and exact conservative local
+- [x] Compute deterministic patch descriptors and exact conservative local
   primitive/patch bounds from one immutable payload snapshot without opening
   source, copying the complete sample plane, or publishing partial state.
-- [ ] Add `FTerrainSceneProxy`, `EPrimitiveSceneProxyKind::Terrain`, typed
+- [x] Add `FTerrainSceneProxy`, `EPrimitiveSceneProxyKind::Terrain`, typed
   SceneInfo access, one authoritative Terrain SceneInfo list, visibility result,
   prepared-view slot, and editor primitive-family observation where required
   for bounded placement visibility.
-- [ ] Route registration, transform, owner visibility, heightmap assignment,
+- [x] Route registration, transform, owner visibility, heightmap assignment,
   spacing/scale/offset, material binding, unregister, replacement, and retirement
   through existing ordered render-state mutation with stable primitive identity.
-- [ ] Add focused serialization, property-validation, coordinate/bounds,
+- [x] Add focused serialization, property-validation, coordinate/bounds,
   proxy-detachment, typed-membership, mutation-order, material-binding,
   duplicate, save/reload, and destruction tests.
-- [ ] Record Stage 1 handoff and focused validation evidence.
+- [x] Record Stage 1 handoff and focused validation evidence.
 
 #### Acceptance Gate
 
@@ -304,26 +316,26 @@ patch costs required by T3. It does not solve scalable LOD or crack control.
 
 ### Stage 2: Build exact shared GPU resources and Terrain shaders
 
-- [ ] Implement the renderer-owned revision-keyed height cache with checked
+- [x] Implement the renderer-owned revision-keyed height cache with checked
   `R16_UINT` upload, sampled view, state transitions, complete candidate
   publication, reference/pruning policy, diagnostics, and exact readback or
   shader-fixture validation.
-- [ ] Implement size-keyed reusable edge-aware topology buffers and
+- [x] Implement size-keyed reusable edge-aware topology buffers and
   `FTerrainVertexFactory` using compact integer grid coordinates, deterministic
   uint16/uint32 index selection from frozen limits, validated winding, complete
   initialization rollback, and reverse-order release.
-- [ ] Add `VertexFactory.TerrainVertexFactory` and `TerrainBasePass.slang` with
+- [x] Add `VertexFactory.TerrainVertexFactory` and `TerrainBasePass.slang` with
   integer height fetch, signed world-height reconstruction, frozen edge normals,
   stable UV0, normal transform, material v3/v2 binding, Lit/Unlit PBR lighting,
   and Opaque/Masked/Translucent entry points.
-- [ ] Add Terrain shader-map/PSO caches through the resource coordinator,
+- [x] Add Terrain shader-map/PSO caches through the resource coordinator,
   established effective material pipeline identities, default/Error material
   and texture fallbacks, generation-scoped retry, manual refresh, shader reload,
   and device invalidation without backend-specific code.
-- [ ] Prove uploaded sample corners/interiors, topology indices, vertex positions,
+- [x] Prove uploaded sample corners/interiors, topology indices, vertex positions,
   normals, UVs, winding, material constants/textures, and resource byte counts
   with focused RHI/Renderer tests and deterministic offscreen fixtures.
-- [ ] Record Stage 2 handoff, format/topology golden identities, and focused
+- [x] Record Stage 2 handoff, format/topology golden identities, and focused
   validation evidence.
 
 #### Acceptance Gate
@@ -335,24 +347,24 @@ patch costs required by T3. It does not solve scalable LOD or crack control.
 
 ### Stage 3: Integrate patch visibility, passes, and view execution
 
-- [ ] Implement `FTerrainRenderer` preparation/execution and command-local
+- [x] Implement `FTerrainRenderer` preparation/execution and command-local
   Terrain prepared values; consume only the centralized visible Terrain
   SceneInfo list and classify every patch once against the fitted immutable view.
-- [ ] Build deterministic Opaque/Masked/Translucent buckets, state/sort keys,
+- [x] Build deterministic Opaque/Masked/Translucent buckets, state/sort keys,
   combined translucent ordering, resource preparation, indexed draws, and
   exact edge index counts using existing pass, lighting, output, and editor-
   assistance ordering.
-- [ ] Extend view counters so primitive, patch, pass, triangle, resource, draw,
+- [x] Extend view counters so primitive, patch, pass, triangle, resource, draw,
   upload, topology, fallback, and rejection totals conserve at every preparation
   and execution phase; expose bounded snapshots without persistent view state.
-- [ ] Validate fully inside/outside/intersecting patches, boundary planes,
+- [x] Validate fully inside/outside/intersecting patches, boundary planes,
   invalid bounds/view fallbacks, hidden primitives, odd edges, non-square
   extents, mirrored transforms, signed height scale, and sequential unrelated
   views with structural and image fixtures.
-- [ ] Qualify Lit/Unlit, Solid/Wireframe, Opaque/Masked/Translucent, two-sided,
+- [x] Qualify Lit/Unlit, Solid/Wireframe, Opaque/Masked/Translucent, two-sided,
   depth policy, direct/environment lighting, main/auxiliary, Present/offscreen,
   fixed-aspect, and editor-assistance paths without a parallel frame renderer.
-- [ ] Record Stage 3 handoff, conserved counter examples, image references, and
+- [x] Record Stage 3 handoff, conserved counter examples, image references, and
   focused validation evidence.
 
 #### Acceptance Gate
@@ -364,27 +376,27 @@ patch costs required by T3. It does not solve scalable LOD or crack control.
 
 ### Stage 4: Qualify lifecycle, editor/runtime use, and the T1 baseline
 
-- [ ] Propagate committed heightmap revision changes to loaded Terrain
+- [x] Propagate committed heightmap revision changes to loaded Terrain
   Components with coalesced complete proxy replacement; prove identical
   no-op reimport, changed reimport, rapid assignment/property edits, save
   failure, missing/failed asset, and last-known-good resource behavior.
-- [ ] Validate multiple components sharing one revision, components using
+- [x] Validate multiple components sharing one revision, components using
   different revisions, proxy removal during recorded work, viewport resize,
   shader reload, manual retry, device invalidation, level unload, DObject
   destruction, editor shutdown, and Engine shutdown with balanced resources.
-- [ ] Add the bounded editor placement fixture and smoke: create/assign a
+- [x] Add the bounded editor placement fixture and smoke: create/assign a
   Terrain Actor through supported reflected/authoring paths, inspect properties,
   save/reload, render in the scene viewport, reimport, Cook, and launch the
   cooked runtime without source or DDC. Leave polished placement and picking UX
   to T4.
-- [ ] Record representative and frozen-maximum CPU preparation, GPU interval,
+- [x] Record representative and frozen-maximum CPU preparation, GPU interval,
   upload, retained/peak memory, patch/draw/triangle, cache reuse, and invalidation
   evidence using the Stage 0 protocol. State clearly that T1 is a single-LOD
   baseline and feed measured costs into T3 entry.
-- [ ] Run the smallest affected native targets, required cross-target coverage,
+- [x] Run the smallest affected native targets, required cross-target coverage,
   documentation validation, and—because Terrain is user-visible—the full `all`
   Agent build and validation-enabled editor smoke from one Agent Build Profile.
-- [ ] Publish lasting Terrain component, proxy/resource, coordinate, shader,
+- [x] Publish lasting Terrain component, proxy/resource, coordinate, shader,
   material, visibility, lifecycle, failure, and diagnostic contracts under
   `Documentation/Runtime/Rendering/`; update the Heightfield Terrain roadmap
   T1 status and precise T3/T4 entry state; record final source revision,
@@ -462,6 +474,8 @@ patch costs required by T3. It does not solve scalable LOD or crack control.
 ## Related Code
 
 - `Engine/Source/Runtime/Engine/Public/Terrain/TerrainHeightmap.h`
+- `Engine/Source/Runtime/Engine/Public/Actors/TerrainActor.h`
+- `Engine/Source/Runtime/Engine/Public/Components/TerrainComponent.h`
 - `Engine/Source/Runtime/Engine/Public/Components/PrimitiveComponent.h`
 - `Engine/Source/Runtime/Engine/Public/Components/StaticMeshComponent.h`
 - `Engine/Source/Runtime/Engine/Public/Engine/FPrimitiveSceneProxy.h`
@@ -472,9 +486,12 @@ patch costs required by T3. It does not solve scalable LOD or crack control.
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneVisibility.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/PreparedSceneView.h`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/StaticMeshRenderer.cpp`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/TerrainRenderer.cpp`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/TerrainRenderPreparation.h`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/StaticMeshRenderPreparation.h`
 - `Engine/Source/Runtime/Renderer/Private/Resources/RendererResourceCoordinator.h`
-- `Engine/Source/Runtime/RenderCore/Public/StaticMesh/LocalVertexFactory.h`
+- `Engine/Source/Runtime/Engine/Public/StaticMesh/LocalVertexFactory.h`
+- `Engine/Source/Runtime/RenderCore/Public/Terrain/TerrainVertexFactory.h`
 - `Engine/Source/Runtime/RHI/Public/RHIResources.h`
 - `Engine/Shaders/Slang/VertexFactory/LocalVertexFactory.slang`
 - `Engine/Shaders/Slang/StaticMeshBasePass.slang`

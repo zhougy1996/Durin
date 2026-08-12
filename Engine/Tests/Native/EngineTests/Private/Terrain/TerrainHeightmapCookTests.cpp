@@ -6,6 +6,8 @@
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "Terrain/TerrainHeightmap.h"
+#include "Components/TerrainComponent.h"
+#include "Engine/FPrimitiveSceneProxy.h"
 
 #include <gtest/gtest.h>
 
@@ -124,5 +126,11 @@ TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDd
 		std::vector<Durin::uint16>(Samples.begin(), Samples.end()));
 	EXPECT_TRUE(Cooked->GetSourceFile().empty());
 	EXPECT_TRUE(Cooked->GetDerivedDataKey().empty());
+	auto* Component = Durin::NewObject<Durin::DTerrainComponent>(nullptr, "CookedTerrainComponent");
+	Component->SetHeightmap(Cooked);
+	std::unique_ptr<Durin::FPrimitiveSceneProxy> Proxy = Component->CreateSceneProxy();
+	ASSERT_NE(Proxy, nullptr);
+	EXPECT_EQ(Proxy->GetKind(), Durin::EPrimitiveSceneProxyKind::Terrain);
+	EXPECT_EQ(static_cast<Durin::FTerrainSceneProxy&>(*Proxy).GetPayload(), Cooked->GetPayload());
 	Durin::FPaths::SetDerivedDataCacheDirForTests(PreviousDdc);
 }

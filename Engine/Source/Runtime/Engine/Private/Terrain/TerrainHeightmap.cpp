@@ -10,6 +10,7 @@
 #include "Misc/Paths.h"
 #include "Source/SourcePath.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
+#include "Terrain/TerrainHeightmapRenderStateRecreateContext.h"
 
 namespace Durin
 {
@@ -390,6 +391,7 @@ namespace Durin
 		std::shared_ptr<const FTerrainHeightmapPayload> InPayload,
 		bool bAdvanceRevision) -> void
 	{
+		FTerrainHeightmapRenderStateRecreateContext RecreateContext(this);
 		Payload = std::move(InPayload);
 		Width = Payload->Width;
 		Height = Payload->Height;

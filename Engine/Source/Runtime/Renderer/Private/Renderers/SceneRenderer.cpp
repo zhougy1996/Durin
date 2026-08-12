@@ -1,6 +1,7 @@
 #include "Renderers/SceneRenderer.h"
 #include "Renderers/PreparedSceneView.h"
 #include "Renderers/ForwardLighting.h"
+#include "Renderers/TerrainRenderPreparation.h"
 #include "Renderers/SceneRendererProfiling.h"
 
 #include "Profiling/Profiling.h"
@@ -116,6 +117,31 @@ namespace Durin
 			Counters.UploadedSkeletalPaletteMatrices = Meshes.UploadedPaletteMatrices;
 			Counters.UploadedSkeletalPaletteBytes = Meshes.UploadedPaletteBytes;
 		}
+
+		auto CopyTerrainCounters(
+			const FPreparedTerrainView& Terrain, FViewRenderCounters& Counters) -> void
+		{
+			Counters.TerrainPatchCandidates = Terrain.PatchCandidates;
+			Counters.VisibleTerrainPatches = Terrain.VisiblePatches;
+			Counters.CulledTerrainPatches = Terrain.CulledPatches;
+			Counters.InvalidTerrainPatchBounds = Terrain.InvalidBoundsFallbacks;
+			Counters.PreparedTerrainTriangles = Terrain.Triangles;
+			Counters.OpaqueTerrainPatches = Terrain.Opaque.size();
+			Counters.MaskedTerrainPatches = Terrain.Masked.size();
+			Counters.TranslucentTerrainPatches = Terrain.Translucent.size();
+			Counters.TerrainResourceAttemptedDraws = Terrain.ResourceAttemptedDraws;
+			Counters.TerrainResourceSuccessfulDraws = Terrain.ResourceSuccessfulDraws;
+			Counters.TerrainResourceRejectedDraws = Terrain.ResourceRejectedDraws;
+			Counters.TerrainAttemptedDraws = Terrain.AttemptedDraws;
+			Counters.TerrainSuccessfulDraws = Terrain.SuccessfulDraws;
+			Counters.TerrainRejectedDraws = Terrain.RejectedDraws;
+			Counters.TerrainHeightUploadBytes = Terrain.HeightUploadBytes;
+			Counters.TerrainHeightUploads = Terrain.HeightUploads;
+			Counters.TerrainHeightReuses = Terrain.HeightReuses;
+			Counters.TerrainTopologyCreations = Terrain.TopologyCreations;
+			Counters.TerrainTopologyReuses = Terrain.TopologyReuses;
+			Counters.TerrainTopologyBytes = Terrain.TopologyBytes;
+		}
 	} // namespace
 
 	auto SetSceneColorTimingQuerySink(FSceneColorTimingQuerySink Sink) -> void
@@ -127,6 +153,7 @@ namespace Durin
 		: DefaultTextures(Coordinator)
 		, EnvironmentLighting(Coordinator)
 		, StaticMeshRenderer(Coordinator, DefaultTextures, EnvironmentLighting)
+		, TerrainRenderer(Coordinator, DefaultTextures, EnvironmentLighting)
 		, SkeletalMeshRenderer(Coordinator, DefaultTextures, EnvironmentLighting)
 		, SkyBoxRenderer(Coordinator, DefaultTextures)
 		, PostProcessRenderer(Coordinator, FullscreenGeometry)
@@ -183,6 +210,7 @@ namespace Durin
 		DefaultTextures.ReleaseResources_RenderThread();
 		EnvironmentLighting.ReleaseResources_RenderThread();
 		StaticMeshRenderer.ReleaseResources_RenderThread();
+		TerrainRenderer.ReleaseResources_RenderThread();
 		SkeletalMeshRenderer.ReleaseResources_RenderThread();
 		Coordinator.ReleaseResources_RenderThread();
 		SkyBoxRenderer.ReleaseResources_RenderThread();
@@ -247,6 +275,7 @@ namespace Durin
 						DefaultTextures.ReleaseResources_RenderThread();
 						EnvironmentLighting.ReleaseResources_RenderThread();
 						StaticMeshRenderer.ReleaseResources_RenderThread();
+						TerrainRenderer.ReleaseResources_RenderThread();
 						SkeletalMeshRenderer.ReleaseResources_RenderThread();
 						SkyBoxRenderer.ReleaseResources_RenderThread();
 						PostProcessRenderer.ReleaseResources_RenderThread();
@@ -367,11 +396,16 @@ namespace Durin
 			PreparedView.SkeletalMeshes = PrepareSkeletalMeshView_RenderThread(
 				CommandList, Visibility.SkeletalMeshSceneInfos, RenderView,
 				RenderView.Settings.RasterMode);
+			PreparedView.Terrains = PrepareTerrainView_RenderThread(
+				Visibility.TerrainSceneInfos, RenderView,
+				RenderView.Settings.RasterMode);
 		}
 		StaticMeshRenderer.PrepareResources_RenderThread(
 			CommandList, PreparedView.StaticMeshes);
 		SkeletalMeshRenderer.PrepareResources_RenderThread(
 			CommandList, PreparedView.SkeletalMeshes);
+		TerrainRenderer.PrepareResources_RenderThread(
+			CommandList, PreparedView.Terrains);
 		PrepareCombinedTranslucentGeometry(PreparedView);
 		PreparedView.Counters.CombinedTranslucentGeometryDraws =
 			PreparedView.TranslucentGeometry.size();
@@ -379,6 +413,7 @@ namespace Durin
 			PreparedView.StaticMeshes, PreparedView.Counters);
 		CopySkeletalMeshCounters(
 			PreparedView.SkeletalMeshes, PreparedView.Counters);
+		CopyTerrainCounters(PreparedView.Terrains, PreparedView.Counters);
 		const FForwardLightingUniform Lighting = BuildForwardLightingUniform(
 			PreparedView.Lights, RenderView);
 		PreparedView.Counters.PackedLightBytes = sizeof(Lighting);
@@ -429,6 +464,7 @@ namespace Durin
 			PreparedView.StaticMeshes, PreparedView.Counters);
 		CopySkeletalMeshCounters(
 			PreparedView.SkeletalMeshes, PreparedView.Counters);
+		CopyTerrainCounters(PreparedView.Terrains, PreparedView.Counters);
 
 		RendererEditorAssistance::FPrepared PreparedEditorAssistance;
 		if (!EditorAssistanceRequest.IsEmpty())
@@ -549,6 +585,9 @@ namespace Durin
 			SkeletalMeshRenderer.ExecutePass_RenderThread(
 				CommandList, View, PreparedView.LightingUniformBuffer,
 				View.Settings.RenderMode, Pass, PreparedView.SkeletalMeshes);
+			TerrainRenderer.ExecutePass_RenderThread(
+				CommandList, View, PreparedView.LightingUniformBuffer,
+				View.Settings.RenderMode, Pass, PreparedView.Terrains);
 		}
 		for (const FPreparedTranslucentSceneDraw& Draw :
 			 PreparedView.TranslucentGeometry)
@@ -559,17 +598,24 @@ namespace Durin
 					View.Settings.RenderMode, EStaticMeshBasePass::Translucent,
 					PreparedView.StaticMeshes.Translucent[Draw.DrawIndex],
 					PreparedView.StaticMeshes);
-			else
+			else if (Draw.Family == EPreparedTranslucentGeometryFamily::SkeletalMesh)
 				SkeletalMeshRenderer.ExecutePreparedDraw_RenderThread(
 					CommandList, View, PreparedView.LightingUniformBuffer,
 					View.Settings.RenderMode, EStaticMeshBasePass::Translucent,
 					PreparedView.SkeletalMeshes.Translucent[Draw.DrawIndex],
 					PreparedView.SkeletalMeshes);
+			else
+				TerrainRenderer.ExecutePreparedDraw_RenderThread(
+					CommandList, View, PreparedView.LightingUniformBuffer,
+					View.Settings.RenderMode,
+					PreparedView.Terrains.Translucent[Draw.DrawIndex],
+					PreparedView.Terrains);
 		}
 		StaticMeshRenderer.FinalizeExecution_RenderThread(
 			PreparedView.StaticMeshes);
 		SkeletalMeshRenderer.FinalizeExecution_RenderThread(
 			PreparedView.SkeletalMeshes);
+		TerrainRenderer.FinalizeExecution_RenderThread(PreparedView.Terrains);
 		return true;
 	}
 } // namespace Durin

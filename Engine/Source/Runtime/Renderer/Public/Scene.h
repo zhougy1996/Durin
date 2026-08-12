@@ -29,6 +29,7 @@ namespace Durin
 		auto GetProxy() const -> FPrimitiveSceneProxy& { return *Proxy; }
 		auto GetStaticMeshProxy() const -> FStaticMeshSceneProxy&;
 		auto GetSkeletalMeshProxy() const -> FSkeletalMeshSceneProxy&;
+		auto GetTerrainProxy() const -> FTerrainSceneProxy&;
 		auto SetTransform(const FMatrix& InTransform) -> void;
 		auto SetVisible(bool bInVisible) -> void { bVisible = bInVisible; }
 		auto UpdateMaterialBinding(const FMaterialRenderProxyBindingUpdate& Update) -> bool;
@@ -112,6 +113,7 @@ namespace Durin
 		auto GetPrimitiveSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return PrimitiveSceneInfos; }
 		auto GetStaticMeshSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return StaticMeshSceneInfos; }
 		auto GetSkeletalMeshSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return SkeletalMeshSceneInfos; }
+		auto GetTerrainSceneInfos() const -> const std::vector<FPrimitiveSceneInfo*>& { return TerrainSceneInfos; }
 		auto GetDirectionalLightSceneInfos() const -> const std::vector<FLightSceneInfo*>& { return DirectionalLightSceneInfos; }
 		auto GetPointLightSceneInfos() const -> const std::vector<FLightSceneInfo*>& { return PointLightSceneInfos; }
 		auto GetSpotLightSceneInfos() const -> const std::vector<FLightSceneInfo*>& { return SpotLightSceneInfos; }
@@ -125,6 +127,7 @@ namespace Durin
 		std::vector<FPrimitiveSceneInfo*> PrimitiveSceneInfos;
 		std::vector<FPrimitiveSceneInfo*> StaticMeshSceneInfos;
 		std::vector<FPrimitiveSceneInfo*> SkeletalMeshSceneInfos;
+		std::vector<FPrimitiveSceneInfo*> TerrainSceneInfos;
 		std::unordered_map<FLightSceneId, std::unique_ptr<FLightSceneInfo>, FSceneIdHash> LightInfosById;
 		std::vector<FLightSceneInfo*> DirectionalLightSceneInfos;
 		std::vector<FLightSceneInfo*> PointLightSceneInfos;

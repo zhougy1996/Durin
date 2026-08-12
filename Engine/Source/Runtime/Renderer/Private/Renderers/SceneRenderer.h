@@ -5,6 +5,7 @@
 #include "Renderers/SkyBoxRenderer.h"
 #include "Renderers/SkeletalMeshRenderer.h"
 #include "Renderers/StaticMeshRenderer.h"
+#include "Renderers/TerrainRenderer.h"
 #include "Resources/DefaultTextureResources.h"
 #include "Resources/EnvironmentLightingResources.h"
 #include "Resources/FullscreenGeometryResources.h"
@@ -74,6 +75,7 @@ namespace Durin
 		FEnvironmentLightingResources EnvironmentLighting;
 		FFullscreenGeometryResources FullscreenGeometry;
 		FStaticMeshRenderer StaticMeshRenderer;
+		FTerrainRenderer TerrainRenderer;
 		FSkeletalMeshRenderer SkeletalMeshRenderer;
 		FSkyBoxRenderer SkyBoxRenderer;
 		FPostProcessRenderer PostProcessRenderer;

@@ -91,6 +91,7 @@ namespace Durin
 	};
 
 	class DTerrainHeightmap;
+	class FTerrainHeightmapRenderStateRecreateContext;
 
 	struct FTerrainHeightmapImportResult
 	{
@@ -165,6 +166,7 @@ namespace Durin
 			bool bEngineAuthoringContext = false) -> FTerrainHeightmapImportResult;
 
 	private:
+		friend class FTerrainHeightmapRenderStateRecreateContext;
 		auto LoadCookedPayload(std::string& OutError) -> bool;
 		auto PublishPayload(
 			std::shared_ptr<const FTerrainHeightmapPayload> InPayload,

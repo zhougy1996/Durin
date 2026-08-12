@@ -14,6 +14,8 @@
 #include "Actors/StaticMeshActor.h"
 #include "Actors/SkeletalMeshActor.h"
 #include "Actors/SkyBoxActor.h"
+#include "Actors/TerrainActor.h"
+#include "Components/TerrainComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Workspace/LevelEditorWorkspace.h"
@@ -32,6 +34,7 @@
 #include "StaticMeshLevelAuthoring.h"
 #include "SkyBoxLevelAuthoring.h"
 #include "Texture/TextureCube.h"
+#include "Terrain/TerrainHeightmap.h"
 
 namespace Durin::Editor::Level
 {
@@ -235,6 +238,16 @@ namespace Durin::Editor::Level
 								}
 							}
 						}
+						else if (DTerrainHeightmap* Heightmap = Cast<DTerrainHeightmap>(Asset))
+						{
+							auto* TerrainActor = Context.Level->SpawnActor<ATerrainActor>(
+								MakeUniqueActorName(*Context.Level, FName(AssetPath.GetAssetName())));
+							if (TerrainActor)
+							{
+								TerrainActor->GetTerrainComponent()->SetHeightmap(Heightmap);
+								Actor = TerrainActor;
+							}
+						}
 						else if (DTextureCube* TextureCube = Cast<DTextureCube>(Asset))
 						{
 							const FSkyBoxPlacementResult Result = FSkyBoxLevelAuthoringService::PlaceTextureCube(
@@ -249,7 +262,7 @@ namespace Durin::Editor::Level
 								Actor = Result.Actor;
 						}
 						else
-							Context.SetError("Only StaticMesh, SkeletalMesh, and TextureCube assets can be placed in the scene viewport.");
+							Context.SetError("Only StaticMesh, SkeletalMesh, TerrainHeightmap, and TextureCube assets can be placed in the scene viewport.");
 						if (Actor)
 						{
 							FSceneView View;

@@ -3,6 +3,7 @@
 #include "Renderers/SceneVisibility.h"
 #include "Renderers/SkeletalMeshRenderPreparation.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
+#include "Renderers/TerrainRenderPreparation.h"
 
 #include "EnvironmentLighting/EnvironmentLighting.h"
 #include "Renderers/ForwardLighting.h"
@@ -20,6 +21,7 @@ namespace Durin
 	{
 		StaticMesh,
 		SkeletalMesh,
+		Terrain,
 	};
 
 	struct FPreparedTranslucentSceneDraw
@@ -43,6 +45,7 @@ namespace Durin
 		bool bHasViewEnvironment = false;
 		FPreparedStaticMeshView StaticMeshes;
 		FPreparedSkeletalMeshView SkeletalMeshes;
+		FPreparedTerrainView Terrains;
 		std::vector<FPreparedTranslucentSceneDraw> TranslucentGeometry;
 		FViewRenderCounters Counters;
 	};
@@ -53,6 +56,8 @@ namespace Durin
 		View.TranslucentGeometry.clear();
 		View.TranslucentGeometry.reserve(View.StaticMeshes.Translucent.size()
 			+ View.SkeletalMeshes.Translucent.size());
+		View.TranslucentGeometry.reserve(View.TranslucentGeometry.capacity()
+			+ View.Terrains.Translucent.size());
 		for (uint32 Index = 0; Index < View.StaticMeshes.Translucent.size(); ++Index)
 		{
 			const auto& Draw = View.StaticMeshes.Translucent[Index];
@@ -65,6 +70,13 @@ namespace Durin
 			const auto& Draw = View.SkeletalMeshes.Translucent[Index];
 			View.TranslucentGeometry.push_back({
 				EPreparedTranslucentGeometryFamily::SkeletalMesh, Index,
+				Draw.TranslucentDistanceSquared, Draw.SortKey});
+		}
+		for (uint32 Index = 0; Index < View.Terrains.Translucent.size(); ++Index)
+		{
+			const auto& Draw = View.Terrains.Translucent[Index];
+			View.TranslucentGeometry.push_back({
+				EPreparedTranslucentGeometryFamily::Terrain, Index,
 				Draw.TranslucentDistanceSquared, Draw.SortKey});
 		}
 		auto CompareValue = [](const auto& A, const auto& B) {
