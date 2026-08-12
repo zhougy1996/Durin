@@ -22,6 +22,7 @@
 #include "StaticMeshTestAccess.h"
 #include "Texture/TextureDerivedData.h"
 #include "Texture/Texture2D.h"
+#include "Texture/TextureBuildOperations.h"
 #include "Texture/Texture2DRenderResource.h"
 
 #include <gtest/gtest.h>
@@ -150,7 +151,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 
 	const std::filesystem::path Source = Root / "NpotTexture.tga";
 	WriteNpotTextureFixture(Source);
-	const Durin::FTexture2DImportResult Import = Durin::DTexture2D::ImportAsset(
+	const Durin::FTexture2DImportResult Import = Durin::AssetBuild::ImportTexture2DAsset(
 		Source.generic_string(), "/TextureCookTests/Texture");
 	ASSERT_TRUE(Import) << Import.Message;
 	ASSERT_NE(Import.Asset, nullptr);

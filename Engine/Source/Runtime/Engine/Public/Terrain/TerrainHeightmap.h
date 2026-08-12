@@ -92,6 +92,7 @@ namespace Durin
 
 	class DTerrainHeightmap;
 	class FTerrainHeightmapRenderStateRecreateContext;
+	struct FTerrainHeightmapBuildOperations;
 
 	struct FTerrainHeightmapImportResult
 	{
@@ -159,14 +160,9 @@ namespace Durin
 			std::string& OutError,
 			bool bRetainDiagnosticSourceMetadata = false) -> bool;
 
-		ENGINE_API static auto ImportAsset(
-			std::string_view FilePath,
-			std::string_view AssetPath,
-			const FTerrainHeightmapImportSettings& Settings = {},
-			bool bEngineAuthoringContext = false) -> FTerrainHeightmapImportResult;
-
 	private:
 		friend class FTerrainHeightmapRenderStateRecreateContext;
+		friend struct FTerrainHeightmapBuildOperations;
 		auto LoadCookedPayload(std::string& OutError) -> bool;
 		auto PublishPayload(
 			std::shared_ptr<const FTerrainHeightmapPayload> InPayload,

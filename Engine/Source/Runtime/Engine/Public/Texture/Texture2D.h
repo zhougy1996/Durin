@@ -226,24 +226,11 @@ namespace Durin
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		ENGINE_API auto RefreshBuildStatus() -> void;
 
-		// Builds an editor candidate directly from authoritative encoded bytes.
-		// The mounted source path is persisted as provenance but need not be
-		// published until the surrounding multi-asset transaction commits.
-		ENGINE_API auto BuildFromEncodedBytes(
-			std::span<const uint8> EncodedBytes,
-			const FSourcePath& SourcePath,
-			const FTexture2DImportSettings& Settings,
-			std::string& OutError) -> bool;
 		// Exchanges persisted and derived import state while preserving object
 		// identity. Render resources are rebuilt for both objects.
 		ENGINE_API auto ExchangeImportedState(DTexture2D& Other) -> void;
 
-		ENGINE_API static auto ImportAsset(std::string_view FilePath,
-			std::string_view AssetPath,
-			const FTexture2DImportSettings& Settings = {},
-			bool bEngineAuthoringContext = false) -> FTexture2DImportResult;
-
-	protected:
+protected:
 		auto CreateRenderResourceCandidate(
 			FTextureReference* TextureReference,
 			uint64 Revision,
@@ -251,20 +238,6 @@ namespace Durin
 			-> std::unique_ptr<FTextureAssetResource> override;
 
 	private:
-		struct FEncodedBuildHooks
-		{
-			std::function<bool(std::string&)> BeforeDecode;
-			std::function<bool(std::string&)> BeforeTextureBuild;
-			std::function<bool(std::string&)> BeforeDerivedDataPublication;
-		};
-
-		ENGINE_API auto BuildFromEncodedBytes(
-			std::span<const uint8> EncodedBytes,
-			const FSourcePath& SourcePath,
-			const FTexture2DImportSettings& Settings,
-			const FEncodedBuildHooks* Hooks,
-			std::string& OutError) -> bool;
-
 		auto BuildSourceData(std::string_view PhysicalFilePath, std::string& OutError) -> bool;
 		auto DecodeSourceData(std::string_view PhysicalFilePath, std::string& OutError) -> bool;
 		auto EnsureSourceData(std::string& OutError) -> bool;

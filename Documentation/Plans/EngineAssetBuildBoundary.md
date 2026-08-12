@@ -9,7 +9,32 @@ Completed:
 
 ## Current Status
 
-Stage 0 is complete and Stage 1 is in progress. Runtime `Engine` currently
+Stage 0 is complete and Stage 1 is in progress. The first Texture2D candidate
+build operation, direct Texture2D import workflow, and asset-specific DDC
+publication policy now live behind the explicit `EngineAssetBuild` API.
+`StandardAssetImport` image/Scene providers and the LevelEditor texture import
+dialog consume that API. TerrainHeightmap provider candidate construction and
+direct editor import now use the corresponding authoring capability as well.
+TextureCube panorama and six-face provider candidates also enter through the
+authoring module, with their legacy Engine implementations retained only as a
+named migration seam.
+An independently exported `EngineAssetBuild` TextureBuilder now owns the active
+Texture2D candidate/test mip generation, format selection, BC compression,
+metrics, and cancellation path. The duplicate Runtime Engine implementation
+remains temporarily for the not-yet-migrated asset self-build/coordinator
+callers, so the Engine BC link gate is still open.
+Texture2D/TextureCube DDC key construction and TXPL encoding now have an
+authoring writer paired with the unchanged Engine decoder; candidate builds and
+golden writer tests use that pair while legacy Engine self-build callers await
+migration.
+The equirectangular LDR/HDR projection algorithms and their allocation/exposure
+validation are also exported and characterized from `EngineAssetBuild`.
+TextureCube provider candidates now perform decode, projection, mip generation,
+key construction, TXPL writing and DDC publication entirely in that module,
+then use one narrow Engine-owned atomic publication seam.
+The obsolete Runtime Engine encoded-candidate forwarding methods have been
+removed after repository-wide consumer proof.
+Runtime `Engine` currently
 owns both consumption and production paths for several asset families: runtime
 asset objects and render resources sit beside source provenance inspection,
 normalized import intermediates, asset-specific DDC builders, texture mip and

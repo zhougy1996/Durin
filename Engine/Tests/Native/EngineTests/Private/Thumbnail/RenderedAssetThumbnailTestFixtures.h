@@ -17,6 +17,7 @@
 #include "Thumbnail/StaticMeshAssetThumbnail.h"
 #include "Thumbnail/TextureCubeAssetThumbnail.h"
 #include "Texture/Texture2D.h"
+#include "Texture/TextureBuildOperations.h"
 #include "Texture/TextureCube.h"
 
 namespace Durin::Tests
@@ -358,12 +359,12 @@ namespace Durin::Tests
 		}
 
 		const std::filesystem::path DataRoot = std::filesystem::path(DURIN_TEST_DATA_DIR) / "SkyBoxConvention";
-		const FTexture2DImportResult ParentTextureResult = DTexture2D::ImportAsset(
+		const FTexture2DImportResult ParentTextureResult = AssetBuild::ImportTexture2DAsset(
 			(DataRoot / "PositiveX.png").generic_string(), ParentTexturePath.ToString());
 		if (!ParentTextureResult) return Fail(ParentTextureResult.Message);
 		OutFixtures.ParentTexture = ParentTextureResult.Asset;
 
-		const FTexture2DImportResult OverrideTextureResult = DTexture2D::ImportAsset(
+		const FTexture2DImportResult OverrideTextureResult = AssetBuild::ImportTexture2DAsset(
 			(DataRoot / "NegativeX.png").generic_string(), OverrideTexturePath.ToString());
 		if (!OverrideTextureResult) return Fail(OverrideTextureResult.Message);
 		OutFixtures.OverrideTexture = OverrideTextureResult.Asset;

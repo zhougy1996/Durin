@@ -14,8 +14,11 @@
 #include "StaticMeshImportAdapter.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
+#include "Texture/TextureBuildOperations.h"
 #include "Texture/TextureCube.h"
+#include "Texture/TextureCubeBuildOperations.h"
 #include "Terrain/TerrainHeightmap.h"
+#include "Terrain/TerrainHeightmapBuildOperations.h"
 
 namespace Durin
 {
@@ -486,7 +489,8 @@ namespace Durin
 					.MaxResolution = Target->GetMaxResolution(),
 					.bSRGB = Target->IsSRGB()};
 				std::string Error;
-				if (!Candidate->BuildFromEncodedBytes(Root->GetBytes(), Root->SourcePath, Settings, Error))
+				if (!AssetBuild::BuildTexture2DFromEncodedBytes(
+					*Candidate, Root->GetBytes(), Root->SourcePath, Settings, Error))
 				{
 					Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
 						.Category = EImportDiagnosticCategory::CandidateFailure,
@@ -567,7 +571,8 @@ namespace Durin
 				if (Target->GetSourceLayout() == ETextureCubeSourceLayout::EquirectangularPanorama)
 				{
 					const FSourceSnapshotEntry* Root = Plan.GetSnapshot().FindSource("root");
-					if (!Root || !Candidate->BuildPanoramaFromEncodedBytes(
+					if (!Root || !AssetBuild::BuildTextureCubePanoramaFromEncodedBytes(
+						*Candidate,
 						Root->GetBytes(), std::filesystem::path(Root->SourcePath.Path).extension().generic_string(),
 						Root->SourcePath, {Target->GetPanoramaFaceDimension(), Target->GetPanoramaExposureEV()}, Error))
 					{
@@ -590,7 +595,8 @@ namespace Durin
 						Bytes[Index] = Entry->GetBytes();
 						Paths[Index] = Entry->SourcePath;
 					}
-					if (!Candidate->BuildFacesFromEncodedBytes(Bytes, Paths, {Target->IsSRGB()}, Error))
+					if (!AssetBuild::BuildTextureCubeFacesFromEncodedBytes(
+						*Candidate, Bytes, Paths, {Target->IsSRGB()}, Error))
 					{
 						Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
 							.Category = EImportDiagnosticCategory::CandidateFailure,
@@ -682,7 +688,8 @@ namespace Durin
 					|| !Asset::CreateAsset(CandidatePath, Candidate)) return nullptr;
 				auto Result = std::make_unique<FEngineSingleAssetCandidate>(Candidate);
 				std::string Error;
-				if (!Candidate->BuildFromEncodedBytes(Root->GetBytes(), Root->SourcePath, Error))
+				if (!AssetBuild::BuildTerrainHeightmapFromEncodedBytes(
+					*Candidate, Root->GetBytes(), Root->SourcePath, Error))
 				{
 					Diagnostics.push_back({
 						.Severity = EImportDiagnosticSeverity::Error,

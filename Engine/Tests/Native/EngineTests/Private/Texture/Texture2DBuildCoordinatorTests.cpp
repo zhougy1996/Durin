@@ -83,9 +83,10 @@ TEST(FTexture2DBuildCoordinatorTests, WorkerResultMatchesSynchronousBuildAndRepo
 
 	Durin::FTextureSourceData BaselineSource;
 	std::string Error;
-	ASSERT_TRUE(Durin::TextureBuild::DecodeRGBA8(Bytes, BaselineSource, Error)) << Error;
+	ASSERT_TRUE(Durin::AssetBuild::TextureBuilder::DecodeRGBA8(
+		Bytes, BaselineSource, Error)) << Error;
 	Durin::FTexturePlatformData BaselinePlatform;
-	ASSERT_TRUE(Durin::TextureBuild::BuildMipChain(
+	ASSERT_TRUE(Durin::AssetBuild::TextureBuilder::BuildMipChain(
 		BaselineSource,
 		Durin::ETextureUsage::Color,
 		true,
@@ -365,7 +366,7 @@ TEST(FTexture2DBuildCharacterization, ReportsBuildCostForRequestedDimensions)
 	{
 		const unsigned long Parsed = std::stoul(DimensionText);
 		ASSERT_GT(Parsed, 0u);
-		ASSERT_LE(Parsed, Durin::TextureBuild::MaxDimension);
+		ASSERT_LE(Parsed, Durin::AssetBuild::TextureBuilder::MaxDimension);
 		Dimensions.push_back(static_cast<Durin::uint32>(Parsed));
 	}
 	ASSERT_FALSE(Dimensions.empty());
@@ -380,7 +381,8 @@ TEST(FTexture2DBuildCharacterization, ReportsBuildCostForRequestedDimensions)
 		Source.SourceChannelCount = 4;
 		Source.Format = Durin::ETextureSourceFormat::RGBA8;
 		Source.Pixels.resize(
-			static_cast<size_t>(Dimension) * Dimension * Durin::TextureBuild::ChannelCount);
+			static_cast<size_t>(Dimension) * Dimension
+				* Durin::AssetBuild::TextureBuilder::ChannelCount);
 		for (size_t Offset = 0; Offset < Source.Pixels.size(); Offset += 4)
 		{
 			const Durin::uint8 Value = static_cast<Durin::uint8>((Offset / 4) * 37u);
@@ -400,12 +402,12 @@ TEST(FTexture2DBuildCharacterization, ReportsBuildCostForRequestedDimensions)
 				Durin::ETextureCompressionQuality::High})
 			{
 				Durin::FTexturePlatformData Platform;
-				Durin::TextureBuild::FBuildMipChainMetrics Metrics;
-				const Durin::TextureBuild::FBuildExecutionControl Control{
+				Durin::AssetBuild::TextureBuilder::FBuildMipChainMetrics Metrics;
+				const Durin::AssetBuild::TextureBuilder::FBuildExecutionControl Control{
 					.Metrics = &Metrics};
 				std::string Error;
 				const auto Start = std::chrono::steady_clock::now();
-				ASSERT_TRUE(Durin::TextureBuild::BuildMipChain(
+				ASSERT_TRUE(Durin::AssetBuild::TextureBuilder::BuildMipChain(
 					Source,
 					Usage,
 					Usage == Durin::ETextureUsage::Color,

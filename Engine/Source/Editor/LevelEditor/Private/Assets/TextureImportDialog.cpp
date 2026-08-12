@@ -10,6 +10,7 @@
 #include "Misc/StringConvert.h"
 #include "MonaImGui.h"
 #include "Texture/Texture2D.h"
+#include "Texture/TextureBuildOperations.h"
 
 namespace Durin::Editor::Level
 {
@@ -315,7 +316,7 @@ namespace Durin::Editor::Level
 		if (SourceMode == EMountedSourceImportMode::IngestExternal)
 			Settings.SourceDestination = SourceDestinationBuffer.data();
 		Settings.Usage = Usage;
-		FTexture2DImportResult Result = DTexture2D::ImportAsset(
+		FTexture2DImportResult Result = AssetBuild::ImportTexture2DAsset(
 			SourcePathBuffer.data(), Destination.GetPath(), Settings,
 			IsEngineAuthoringDestination(Destination.GetPath()));
 		if (!Result) { SetError(Result.Message); return false; }

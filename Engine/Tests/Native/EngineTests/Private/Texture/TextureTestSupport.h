@@ -11,7 +11,8 @@
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "Texture/Texture2D.h"
-#include "Texture/TextureBuild.h"
+#include "Texture/TextureBuildOperations.h"
+#include "Texture/TextureBuilder.h"
 
 #include <bc7decomp.h>
 #include <gtest/gtest.h>

@@ -18,6 +18,7 @@
 #include "Thumbnail/StaticMeshAssetThumbnail.h"
 #include "Thumbnail/TextureCubeAssetThumbnail.h"
 #include "Texture/TextureCubeRenderResource.h"
+#include "Texture/TextureBuildOperations.h"
 
 #include <array>
 #include <cmath>
@@ -843,7 +844,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MaterialThumbnailVulkan/T_Preview", CaptureTexturePath));
 		const Durin::FTexture2DImportResult TextureResult =
-			Durin::DTexture2D::ImportAsset(
+			Durin::AssetBuild::ImportTexture2DAsset(
 				TextureSource.generic_string(), CaptureTexturePath.ToString());
 		ASSERT_TRUE(TextureResult) << TextureResult.Message;
 		ASSERT_NE(TextureResult.Asset->GetPlatformData(), nullptr);
@@ -855,7 +856,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MaterialThumbnailVulkan/T_Data", DataTexturePath));
 		const Durin::FTexture2DImportResult DataTextureResult =
-			Durin::DTexture2D::ImportAsset(
+			Durin::AssetBuild::ImportTexture2DAsset(
 				TextureSource.generic_string(), DataTexturePath.ToString());
 		ASSERT_TRUE(DataTextureResult) << DataTextureResult.Message;
 		ASSERT_TRUE(DataTextureResult.Asset->SetUsage(
@@ -871,7 +872,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MaterialThumbnailVulkan/T_Normal", NormalTexturePath));
 		const Durin::FTexture2DImportResult NormalTextureResult =
-			Durin::DTexture2D::ImportAsset(
+			Durin::AssetBuild::ImportTexture2DAsset(
 				TextureSource.generic_string(), NormalTexturePath.ToString());
 		ASSERT_TRUE(NormalTextureResult) << NormalTextureResult.Message;
 		ASSERT_TRUE(NormalTextureResult.Asset->SetUsage(

@@ -10,7 +10,7 @@
 #include "RenderingThread.h"
 #include "Shader/SlangShaderCompiler.h"
 #include "Shader/Shader.h"
-#include "Texture/TextureBuild.h"
+#include "Texture/TextureBuilder.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanDiagnostics.h"
 #include "VulkanRHIPrivate.h"
@@ -182,7 +182,8 @@ namespace Durin
 
 				FTexturePlatformData Built;
 				std::string Error;
-				if (!TextureBuild::BuildMipChain(Source, Usage, bSrgb, Built, Error))
+				if (!AssetBuild::TextureBuilder::BuildMipChain(
+					Source, Usage, bSrgb, Built, Error))
 				{
 					ADD_FAILURE() << Error;
 					return {};

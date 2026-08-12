@@ -17,6 +17,7 @@
 #include "StandardAssetImportProviders.h"
 #include "StaticMeshImportAdapter.h"
 #include "Texture/Texture2D.h"
+#include "Texture/TextureBuildOperations.h"
 
 namespace Durin
 {
@@ -1776,7 +1777,7 @@ namespace Durin
 				Source = EmbeddedSource.SourcePath;
 				EmbeddedSources.push_back(std::move(EmbeddedSource));
 			}
-			if (!Texture->BuildFromEncodedBytes(Bytes, Source,
+			if (!AssetBuild::BuildTexture2DFromEncodedBytes(*Texture, Bytes, Source,
 					{.Usage = Descriptor->TextureUsage,
 						.bSRGB = Descriptor->TextureUsage == ETextureUsage::Color}, Error))
 			{

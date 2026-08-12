@@ -167,7 +167,7 @@ durin_add_engine_functional_test(EditorAssetWorkflowTests
 		${_durin_level_editor_private}/Panels/ContentBrowserOperations.cpp
 		${_durin_level_editor_private}/Panels/ContentBrowserRefreshCoordinator.cpp
 		${_durin_level_editor_private}/Panels/ContentDeletionTransaction.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd EngineAssetBuild
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -322,7 +322,7 @@ durin_add_engine_functional_test(TerrainHeightmapTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises heightmap import, DDC, package, and source-index integration."
 	SOURCES Private/Terrain/TerrainHeightmapTests.cpp
-	LIBRARIES AssetImportCore StandardAssetImport DurinEd
+	LIBRARIES AssetImportCore StandardAssetImport DurinEd EngineAssetBuild
 )
 
 durin_add_engine_functional_test(TerrainHeightmapCookTests
@@ -330,6 +330,7 @@ durin_add_engine_functional_test(TerrainHeightmapCookTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises source-free cooked heightmap package loading."
 	SOURCES Private/Terrain/TerrainHeightmapCookTests.cpp
+	LIBRARIES EngineAssetBuild
 )
 
 durin_add_engine_functional_test(TerrainRenderPrimitiveTests
@@ -639,7 +640,7 @@ durin_add_engine_functional_test(EditorRenderingTests
 		Private/RendererRenderTargetLayoutTests.cpp
 		Private/RendererSceneViewTests.cpp
 		Private/EditorTextureSmokeTests.cpp
-	LIBRARIES ApplicationCore AssetImportCore StandardAssetImport RenderCore Renderer DurinEd MaterialEditor
+	LIBRARIES ApplicationCore AssetImportCore StandardAssetImport RenderCore Renderer DurinEd MaterialEditor EngineAssetBuild
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data

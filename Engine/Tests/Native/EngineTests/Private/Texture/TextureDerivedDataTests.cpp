@@ -1,6 +1,7 @@
 #include "TextureTestSupport.h"
 
 #include "Texture/TextureDerivedData.h"
+#include "Texture/TextureDerivedDataWriter.h"
 #include "Texture/TextureCube.h"
 
 namespace
@@ -56,12 +57,14 @@ TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 		.AlphaCoverageThreshold = 0.5f,
 		.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
 		.TargetProfile = Durin::Asset::ECookTargetProfile::Game};
-	const std::string Baseline = Durin::BuildTexture2DDerivedDataKey(Input);
+	const std::string Baseline =
+		Durin::AssetBuild::TextureDerivedDataWriter::BuildTexture2DDerivedDataKey(Input);
 	EXPECT_EQ(Baseline, "ceabc87aee9e8db676c2f6c13020593f");
 	EXPECT_EQ(Baseline.size(), 32u);
 
 	auto ExpectChange = [&Baseline](const Durin::FTexture2DDerivedDataKeyInput& Changed) {
-		EXPECT_NE(Durin::BuildTexture2DDerivedDataKey(Changed), Baseline);
+		EXPECT_NE(Durin::AssetBuild::TextureDerivedDataWriter::BuildTexture2DDerivedDataKey(
+			Changed), Baseline);
 	};
 	auto Changed = Input;
 	Changed.SourceContentHash.HashLow ^= 1;
@@ -120,10 +123,10 @@ TEST(FTextureDerivedDataTests, PayloadRoundTripsDeterministically)
 		std::vector<Durin::uint8> First;
 		std::vector<Durin::uint8> Second;
 		std::string Error;
-		ASSERT_TRUE(Durin::EncodeTexture2DPayload(
+		ASSERT_TRUE(Durin::AssetBuild::TextureDerivedDataWriter::EncodeTexture2DPayload(
 			Expected, Durin::Asset::ECookTargetPlatform::Win64,
 			Durin::Asset::ECookTargetProfile::Game, First, Error)) << Error;
-		ASSERT_TRUE(Durin::EncodeTexture2DPayload(
+		ASSERT_TRUE(Durin::AssetBuild::TextureDerivedDataWriter::EncodeTexture2DPayload(
 			Expected, Durin::Asset::ECookTargetPlatform::Win64,
 			Durin::Asset::ECookTargetProfile::Game, Second, Error)) << Error;
 		EXPECT_EQ(First, Second);
@@ -147,7 +150,7 @@ TEST(FTextureDerivedDataTests, PayloadRejectsMalformedDataTransactionally)
 	const Durin::FTexturePlatformData Expected = MakePlatformData();
 	std::vector<Durin::uint8> Bytes;
 	std::string Error;
-	ASSERT_TRUE(Durin::EncodeTexture2DPayload(
+	ASSERT_TRUE(Durin::AssetBuild::TextureDerivedDataWriter::EncodeTexture2DPayload(
 		Expected, Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game, Bytes, Error)) << Error;
 	auto Existing = std::make_unique<Durin::FTexturePlatformData>(Expected);
@@ -201,22 +204,26 @@ TEST(FTextureDerivedDataTests, CubeKeysCoverFaceOrderLayoutAndProjectionInputs)
 		Input.FaceContentHashes[Index] = {Index + 1, Index + 101};
 	std::string Baseline;
 	std::string Error;
-	ASSERT_TRUE(Durin::BuildTextureCubeDerivedDataKey(Input, Baseline, Error)) << Error;
+	ASSERT_TRUE(Durin::AssetBuild::TextureDerivedDataWriter::BuildTextureCubeDerivedDataKey(
+		Input, Baseline, Error)) << Error;
 	EXPECT_EQ(Baseline, "61dec1a0575878952e205558f058bd2d");
 	EXPECT_EQ(Baseline.size(), 32u);
 
 	auto Changed = Input;
 	std::swap(Changed.FaceContentHashes[0], Changed.FaceContentHashes[1]);
 	std::string Key;
-	ASSERT_TRUE(Durin::BuildTextureCubeDerivedDataKey(Changed, Key, Error)) << Error;
+	ASSERT_TRUE(Durin::AssetBuild::TextureDerivedDataWriter::BuildTextureCubeDerivedDataKey(
+		Changed, Key, Error)) << Error;
 	EXPECT_NE(Key, Baseline);
 	Changed = Input;
 	Changed.bSRGB = false;
-	ASSERT_TRUE(Durin::BuildTextureCubeDerivedDataKey(Changed, Key, Error)) << Error;
+	ASSERT_TRUE(Durin::AssetBuild::TextureDerivedDataWriter::BuildTextureCubeDerivedDataKey(
+		Changed, Key, Error)) << Error;
 	EXPECT_NE(Key, Baseline);
 	Changed = Input;
 	++Changed.ProjectionVersion;
-	ASSERT_TRUE(Durin::BuildTextureCubeDerivedDataKey(Changed, Key, Error)) << Error;
+	ASSERT_TRUE(Durin::AssetBuild::TextureDerivedDataWriter::BuildTextureCubeDerivedDataKey(
+		Changed, Key, Error)) << Error;
 	EXPECT_NE(Key, Baseline);
 
 	Changed = {};
@@ -226,18 +233,22 @@ TEST(FTextureDerivedDataTests, CubeKeysCoverFaceOrderLayoutAndProjectionInputs)
 	Changed.ExposureEV = 1.0f;
 	Changed.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64;
 	Changed.TargetProfile = Durin::Asset::ECookTargetProfile::Game;
-	ASSERT_TRUE(Durin::BuildTextureCubeDerivedDataKey(Changed, Baseline, Error)) << Error;
+	ASSERT_TRUE(Durin::AssetBuild::TextureDerivedDataWriter::BuildTextureCubeDerivedDataKey(
+		Changed, Baseline, Error)) << Error;
 	auto ChangedPanorama = Changed;
 	ChangedPanorama.FaceDimension = 256;
-	ASSERT_TRUE(Durin::BuildTextureCubeDerivedDataKey(ChangedPanorama, Key, Error)) << Error;
+	ASSERT_TRUE(Durin::AssetBuild::TextureDerivedDataWriter::BuildTextureCubeDerivedDataKey(
+		ChangedPanorama, Key, Error)) << Error;
 	EXPECT_NE(Key, Baseline);
 	ChangedPanorama = Changed;
 	ChangedPanorama.ExposureEV = 2.0f;
-	ASSERT_TRUE(Durin::BuildTextureCubeDerivedDataKey(ChangedPanorama, Key, Error)) << Error;
+	ASSERT_TRUE(Durin::AssetBuild::TextureDerivedDataWriter::BuildTextureCubeDerivedDataKey(
+		ChangedPanorama, Key, Error)) << Error;
 	EXPECT_NE(Key, Baseline);
 	ChangedPanorama = Changed;
 	ChangedPanorama.ExposureEV = -0.0f;
-	EXPECT_FALSE(Durin::BuildTextureCubeDerivedDataKey(ChangedPanorama, Key, Error));
+	EXPECT_FALSE(Durin::AssetBuild::TextureDerivedDataWriter::BuildTextureCubeDerivedDataKey(
+		ChangedPanorama, Key, Error));
 }
 
 TEST(FTextureDerivedDataTests, CubePayloadRoundTripsDirectionalSlicesDeterministically)
@@ -246,10 +257,10 @@ TEST(FTextureDerivedDataTests, CubePayloadRoundTripsDirectionalSlicesDeterminist
 	std::vector<Durin::uint8> First;
 	std::vector<Durin::uint8> Second;
 	std::string Error;
-	ASSERT_TRUE(Durin::EncodeTextureCubePayload(
+	ASSERT_TRUE(Durin::AssetBuild::TextureDerivedDataWriter::EncodeTextureCubePayload(
 		Expected, Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game, First, Error)) << Error;
-	ASSERT_TRUE(Durin::EncodeTextureCubePayload(
+	ASSERT_TRUE(Durin::AssetBuild::TextureDerivedDataWriter::EncodeTextureCubePayload(
 		Expected, Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game, Second, Error)) << Error;
 	EXPECT_EQ(First, Second);

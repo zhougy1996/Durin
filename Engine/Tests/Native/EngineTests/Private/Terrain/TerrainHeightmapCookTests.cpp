@@ -6,6 +6,7 @@
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "Terrain/TerrainHeightmap.h"
+#include "Terrain/TerrainHeightmapBuildOperations.h"
 #include "Components/TerrainComponent.h"
 #include "Engine/FPrimitiveSceneProxy.h"
 
@@ -91,7 +92,7 @@ TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDd
 	const std::array<Durin::uint16, 6> Samples{0, 17, 257, 4097, 32'768, 65'535};
 	const std::vector<Durin::uint8> Png = MakePng(Samples);
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Png)), Source));
-	const auto Imported = Durin::DTerrainHeightmap::ImportAsset(
+	const auto Imported = Durin::AssetBuild::ImportTerrainHeightmapAsset(
 		Source.generic_string(), "/Game/Height");
 	ASSERT_TRUE(Imported) << Imported.Message;
 

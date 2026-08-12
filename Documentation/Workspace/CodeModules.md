@@ -67,7 +67,7 @@ gameplay module to [`Sandbox/Source/Runtime/Sandbox`](../../Sandbox/Source/Runti
 | Vulkan capability, device, pipeline, descriptor, swapchain | `VulkanRHI` | `RHI` for backend-neutral contract; `Renderer` only for consumer behavior |
 | editor workspace, reflected details, thumbnail service | `DurinEd` | The owning feature editor or `LevelEditor` |
 | Content Browser | `LevelEditor`, `DurinEd`, `AssetCore` | Asset-type editor/import modules for extensions |
-| importing assets | `AssetImportCore`, `StandardAssetImport` | `AssetCore` and the destination runtime asset type |
+| importing assets | `AssetImportCore`, `StandardAssetImport` | `EngineAssetBuild` for Engine-asset production, plus `AssetCore` and the destination runtime asset type |
 
 After selecting modules, prefer targeted symbol searches such as:
 

@@ -175,17 +175,20 @@ namespace Durin
 			const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 			const FTextureCubeImportSettings& Settings,
 			std::string& OutError) -> bool;
-		ENGINE_API auto BuildPanoramaFromEncodedBytes(
-			std::span<const uint8> EncodedBytes,
-			std::string_view ExtensionHint,
-			const FSourcePath& SourcePath,
-			const FTextureCubePanoramaImportSettings& Settings,
-			std::string& OutError) -> bool;
-		ENGINE_API auto BuildFacesFromEncodedBytes(
-			const std::array<std::span<const uint8>, TextureCubeFaceCount>& EncodedFaces,
-			const std::array<FSourcePath, TextureCubeFaceCount>& SourcePaths,
-			const FTextureCubeImportSettings& Settings,
-			std::string& OutError) -> bool;
+		// Atomically accepts a complete, validated authoring candidate. Engine owns
+		// the live object and render-resource transition; production stays external.
+		ENGINE_API auto PublishAuthoringCandidate(
+			ETextureCubeSourceLayout InSourceLayout,
+			FTextureCubeSourceImportData InSourceImportData,
+			uint32 InPanoramaFaceDimension,
+			float InPanoramaExposureEV,
+			uint32 InOriginalSourceWidth,
+			uint32 InOriginalSourceHeight,
+			bool bInSRGB,
+			std::unique_ptr<FTextureCubeSourceData> InSourceData,
+			std::unique_ptr<FTextureCubePlatformData> InPlatformData,
+			std::string InDerivedDataKey,
+			FTextureDerivedDataDiagnostic InDiagnostic) -> void;
 		ENGINE_API auto ExchangeImportedState(DTextureCube& Other) noexcept -> void;
 		ENGINE_API auto ChangePanoramaSourceReference(
 			std::string_view SourceVirtualPath,

@@ -23,6 +23,7 @@
 #include "StaticMesh/StaticMeshResources.h"
 #include "StandardAssetImportProviders.h"
 #include "Texture/Texture2D.h"
+#include "Texture/TextureBuildOperations.h"
 #include "Thumbnail/RenderedAssetThumbnailCache.h"
 
 namespace Durin
@@ -95,7 +96,7 @@ namespace Durin
 		const std::filesystem::path TextureSource =
 			Root / "VisibleTexture.png";
 		WriteTextureSmokeFixture(TextureSource);
-		const FTexture2DImportResult TextureImport = DTexture2D::ImportAsset(
+		const FTexture2DImportResult TextureImport = AssetBuild::ImportTexture2DAsset(
 			TextureSource.generic_string(), "/EditorMixedV4/Textures/BaseColor");
 		ASSERT_TRUE(TextureImport) << TextureImport.Message;
 		const std::filesystem::path MeshSource =
@@ -270,7 +271,7 @@ namespace Durin
 
 		const std::filesystem::path TextureSource = Testing::GetTestWorkDirectory() / "EditorTextureSmoke.png";
 		WriteTextureSmokeFixture(TextureSource);
-		const FTexture2DImportResult TextureImport = DTexture2D::ImportAsset(TextureSource.generic_string(), "/EditorTextureSmoke/Textures/BaseColor");
+		const FTexture2DImportResult TextureImport = AssetBuild::ImportTexture2DAsset(TextureSource.generic_string(), "/EditorTextureSmoke/Textures/BaseColor");
 		ASSERT_TRUE(TextureImport) << TextureImport.Message;
 		ASSERT_NE(TextureImport.Asset, nullptr);
 		ASSERT_NE(TextureImport.Asset->GetSourceData(), nullptr);
@@ -426,7 +427,7 @@ namespace Durin
 		const std::filesystem::path Source =
 			Testing::GetTestWorkDirectory() / "TextureOwnershipSmoke.png";
 		WriteTextureSmokeFixture(Source);
-		const FTexture2DImportResult Import = DTexture2D::ImportAsset(
+		const FTexture2DImportResult Import = AssetBuild::ImportTexture2DAsset(
 			Source.generic_string(), "/TextureOwnershipSmoke/Texture");
 		ASSERT_TRUE(Import) << Import.Message;
 		ASSERT_NE(Import.Asset, nullptr);

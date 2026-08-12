@@ -127,7 +127,7 @@ TEST(FTexture2DTests, RejectsUnsupportedSourceWithoutCreatingAsset)
 	InitializeTextureImportMount();
 	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "UnsupportedTexture.gif";
 	std::ofstream(Source, std::ios::binary | std::ios::trunc) << "not an image";
-	Durin::FTexture2DImportResult Result = Durin::DTexture2D::ImportAsset(Source.generic_string(), "/TextureImportTests/Unsupported");
+	Durin::FTexture2DImportResult Result = Durin::AssetBuild::ImportTexture2DAsset(Source.generic_string(), "/TextureImportTests/Unsupported");
 	EXPECT_FALSE(Result);
 	EXPECT_EQ(Result.Asset, nullptr);
 	EXPECT_FALSE(Result.Message.empty());
@@ -169,7 +169,7 @@ TEST(FTexture2DTests, FailureState_ReadyAfterSuccessfulPostLoad)
 
 	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "FailureReadySource.png";
 	WriteTextureFixture(Source);
-	const Durin::FTexture2DImportResult Result = Durin::DTexture2D::ImportAsset(Source.generic_string(), "/TextureFailureTests/Ready");
+	const Durin::FTexture2DImportResult Result = Durin::AssetBuild::ImportTexture2DAsset(Source.generic_string(), "/TextureFailureTests/Ready");
 	ASSERT_TRUE(Result) << Result.Message;
 	EXPECT_EQ(Result.Asset->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
 	EXPECT_TRUE(Result.Asset->GetLastBuildError().empty());
@@ -193,7 +193,7 @@ TEST(FTexture2DTests, MissingSourceUsesPersistedIdentityAndCanRecover)
 
 	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "InvalidateSource.png";
 	WriteTextureFixture(Source);
-	const Durin::FTexture2DImportResult Result = Durin::DTexture2D::ImportAsset(Source.generic_string(), "/TextureInvalidateTests/Invalid");
+	const Durin::FTexture2DImportResult Result = Durin::AssetBuild::ImportTexture2DAsset(Source.generic_string(), "/TextureInvalidateTests/Invalid");
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTexture2D* Texture = Result.Asset;
 	ASSERT_NE(Texture, nullptr);
@@ -279,7 +279,7 @@ TEST(FTexture2DTests, PendingReimportPreservesLastGoodAndCannotCommitAfterUnload
 	const std::filesystem::path Source =
 		Durin::Testing::GetTestWorkDirectory() / "TextureAsyncUnload.png";
 	WriteTextureFixture(Source);
-	const Durin::FTexture2DImportResult Imported = Durin::DTexture2D::ImportAsset(
+	const Durin::FTexture2DImportResult Imported = Durin::AssetBuild::ImportTexture2DAsset(
 		Source.generic_string(), "/TextureImportTests/AsyncUnload");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	Durin::DTexture2D* Texture = Imported.Asset;

@@ -8,7 +8,8 @@
         "AssetCore",
         "Core",
         "CoreDObject",
-        "Engine"
+		"Engine",
+		"EngineAssetBuild"
     ],
 	"ReflectHeaders": [],
     "OptionalPrivateDependencies": [],

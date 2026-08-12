@@ -1,9 +1,9 @@
 #include "ImageDecoder.h"
-#include "Texture/EquirectangularTextureCube.h"
+#include "Texture/TextureCubeBuilder.h"
 
 #include <gtest/gtest.h>
 
-namespace Durin::TextureBuild
+namespace Durin::AssetBuild::TextureCubeBuilder
 {
 	namespace
 	{
