@@ -1,5 +1,8 @@
 #include "CoreGlobals.h"
 #include "DynamicRHI.h"
+#include "Engine/SkeletalMeshSceneProxy.h"
+#include "Engine/SplineMeshSceneProxy.h"
+#include "Engine/StaticMeshSceneProxy.h"
 #include "HAL/PlatformLTS.h"
 #include "Modules/ModuleManager.h"
 #include "RHICommandList.h"

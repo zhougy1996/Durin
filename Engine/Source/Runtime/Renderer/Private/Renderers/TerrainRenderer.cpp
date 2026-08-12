@@ -1,7 +1,7 @@
 #include "Renderers/TerrainRenderer.h"
 #include "Renderers/TerrainRenderPreparation.h"
 
-#include "Engine/FPrimitiveSceneProxy.h"
+#include "Engine/TerrainSceneProxy.h"
 #include "Math/Operations.h"
 #include "RHI.h"
 #include "RHICommandList.h"

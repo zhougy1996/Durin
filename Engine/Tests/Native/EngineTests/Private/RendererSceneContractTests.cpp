@@ -1,4 +1,6 @@
-#include "Engine/FPrimitiveSceneProxy.h"
+#include "Engine/SkeletalMeshSceneProxy.h"
+#include "Engine/SplineMeshSceneProxy.h"
+#include "Engine/StaticMeshSceneProxy.h"
 #include "Engine/LightSceneProxy.h"
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"

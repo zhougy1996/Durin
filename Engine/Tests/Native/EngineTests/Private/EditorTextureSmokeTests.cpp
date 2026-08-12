@@ -9,7 +9,7 @@
 #include "AssetSystem.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/ObjectLifecycle.h"
-#include "Engine/FPrimitiveSceneProxy.h"
+#include "Engine/StaticMeshSceneProxy.h"
 #include "Editor/WorkspaceManager.h"
 #include "MaterialEditorModule.h"
 #include "Materials/Material.h"

@@ -10,6 +10,11 @@
 namespace Durin
 {
 	class FScene;
+	class FSkeletalMeshSceneProxy;
+	class FSplineMeshSceneProxy;
+	class FStaticMeshSceneProxy;
+	class FTerrainSceneProxy;
+	struct FSplineMeshRenderDynamicData;
 
 	class RENDERER_API FPrimitiveSceneInfo final
 	{

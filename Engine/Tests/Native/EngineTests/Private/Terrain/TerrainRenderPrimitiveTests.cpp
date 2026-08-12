@@ -1,7 +1,7 @@
 #include "Actors/TerrainActor.h"
 #include "Components/TerrainComponent.h"
 #include "DObject/ObjectLifecycle.h"
-#include "Engine/FPrimitiveSceneProxy.h"
+#include "Engine/TerrainSceneProxy.h"
 #include "Terrain/TerrainHeightmap.h"
 
 #include <gtest/gtest.h>

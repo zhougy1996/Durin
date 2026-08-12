@@ -8,7 +8,7 @@
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapBuildOperations.h"
 #include "Components/TerrainComponent.h"
-#include "Engine/FPrimitiveSceneProxy.h"
+#include "Engine/TerrainSceneProxy.h"
 
 #include <gtest/gtest.h>
 

@@ -3,6 +3,7 @@
 #include "AssetSystem.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Engine/Level.h"
+#include "Engine/SkeletalMeshSceneProxy.h"
 #include "Materials/DefaultMaterialService.h"
 #include "Materials/MaterialInterface.h"
 #include "SkeletalMesh/SkeletalDerivedData.h"

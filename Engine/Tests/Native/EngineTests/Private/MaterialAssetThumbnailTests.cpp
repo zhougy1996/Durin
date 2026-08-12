@@ -8,7 +8,7 @@
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 
 #include "Components/StaticMeshComponent.h"
-#include "Engine/FPrimitiveSceneProxy.h"
+#include "Engine/StaticMeshSceneProxy.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "RenderingThread.h"

@@ -1,5 +1,6 @@
 #include "WorldTestSupport.h"
 #include "Engine/LightSceneProxy.h"
+#include "Engine/SplineMeshSceneProxy.h"
 #include "Engine/SkyBoxSceneProxy.h"
 
 namespace

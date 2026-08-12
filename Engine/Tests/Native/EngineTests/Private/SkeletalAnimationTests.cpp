@@ -6,6 +6,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
+#include "Engine/SkeletalMeshSceneProxy.h"
 #include "Engine/World.h"
 #include "EngineTestSupport.h"
 #include "Math/Operations.h"

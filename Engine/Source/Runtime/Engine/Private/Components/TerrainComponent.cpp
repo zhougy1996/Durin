@@ -1,7 +1,7 @@
 #include "Components/TerrainComponent.h"
 
 #include "DObject/DurinPropertyTypes.h"
-#include "Engine/FPrimitiveSceneProxy.h"
+#include "Engine/TerrainSceneProxy.h"
 #include "Engine/Level.h"
 #include "Materials/DefaultMaterialService.h"
 #include "Materials/MaterialInterface.h"

@@ -2,7 +2,7 @@
 
 #include "DObject/DurinPropertyTypes.h"
 #include "Engine/Level.h"
-#include "Engine/FPrimitiveSceneProxy.h"
+#include "Engine/StaticMeshSceneProxy.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/DefaultMaterialService.h"
 #include "Physics/BodySetup.h"

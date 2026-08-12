@@ -1,5 +1,10 @@
 #include "Scene.h"
 
+#include "Engine/SkeletalMeshSceneProxy.h"
+#include "Engine/SplineMeshSceneProxy.h"
+#include "Engine/StaticMeshSceneProxy.h"
+#include "Engine/TerrainSceneProxy.h"
+
 #include "Math/Operations.h"
 #include "RenderingThread.h"
 

@@ -1,7 +1,7 @@
 #include "Components/SplineMeshComponent.h"
 
 #include "DObject/DurinPropertyTypes.h"
-#include "Engine/FPrimitiveSceneProxy.h"
+#include "Engine/SplineMeshSceneProxy.h"
 #include "Engine/Level.h"
 #include "IScene.h"
 #include "Materials/MaterialInterface.h"

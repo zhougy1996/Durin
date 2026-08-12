@@ -12,7 +12,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
 #include "EngineTestSupport.h"
-#include "Engine/FPrimitiveSceneProxy.h"
+#include "Engine/StaticMeshSceneProxy.h"
 #include "Engine/Actor.h"
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
