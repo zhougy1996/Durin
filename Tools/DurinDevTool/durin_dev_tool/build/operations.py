@@ -404,22 +404,15 @@ def dispatch_request(
         registry = load_native_test_registry(context)
         if request.test_operation == "list":
             targets = filter_targets(registry, request.test_query)
-            migration_report = request.test_query.casefold() == "migration"
-            if not targets and not migration_report:
+            private_source_report = request.test_query.casefold() == "private-sources"
+            if not targets and not private_source_report:
                 raise BuildToolError(
                     f'No configured native-test metadata matched "{request.test_query}".'
                 )
-            if migration_report:
-                legacy_count = sum(
-                    target.metadata_mode == "legacy" for target in targets
-                )
-                exception_count = sum(
-                    bool(target.private_source_owner) for target in targets
-                )
+            if private_source_report:
                 output.info(
-                    f'Native-test migration report for preset "{registry.preset}": '
-                    f"{legacy_count} legacy target(s), "
-                    f"{exception_count} private-source exception(s)."
+                    f'Native-test private-source report for preset "{registry.preset}": '
+                    f"{len(targets)} owned seam(s)."
                 )
             else:
                 output.info(f'Configured native tests for preset "{registry.preset}":')

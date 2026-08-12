@@ -83,7 +83,6 @@ function(durin_add_engine_functional_test target_name)
 	set_target_properties(${target_name} PROPERTIES
 		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 	)
-	durin_set_native_test_target_execution(${target_name})
 	if(DURIN_ENGINE_TEST_RUNTIME_STACK_RATIONALE)
 		set_target_properties(${target_name} PROPERTIES
 			DURIN_TEST_HEAVY_RUNTIME_RATIONALE
@@ -433,7 +432,6 @@ if(DURIN_WITH_EDITOR)
 		MODULES engine engine-asset-build standard-asset-import
 		STACKS editor
 	)
-	durin_set_native_test_target_execution(TextureTests)
 	durin_discover_tests(TextureTests)
 
 	add_durin_test(SceneImportTests
@@ -459,7 +457,6 @@ if(DURIN_WITH_EDITOR)
 		MODULES asset-import-core engine standard-asset-import
 		STACKS editor
 	)
-	durin_set_native_test_target_execution(SceneImportTests)
 	durin_discover_tests(SceneImportTests)
 else()
 	durin_exclude_native_test_sources(
@@ -560,7 +557,6 @@ durin_finalize_native_test(LaunchStorageTests
 	PRIVATE_SOURCE_RATIONALE
 		"Launch-owned runtime-storage white-box coverage without exporting private DLL symbols."
 )
-durin_set_native_test_target_execution(LaunchStorageTests)
 durin_discover_tests(LaunchStorageTests)
 
 add_durin_test(LaunchArgumentTests
@@ -581,7 +577,6 @@ durin_finalize_native_test(LaunchArgumentTests
 	PRIVATE_SOURCE_RATIONALE
 		"Launch-owned argument parser white-box coverage without exporting private DLL symbols."
 )
-durin_set_native_test_target_execution(LaunchArgumentTests)
 durin_discover_tests(LaunchArgumentTests)
 
 add_durin_test(LaunchProcessBoundaryTests
@@ -607,7 +602,6 @@ durin_finalize_native_test(LaunchProcessBoundaryTests
 	MODULES launch
 	STACKS process
 )
-durin_set_native_test_target_execution(LaunchProcessBoundaryTests)
 durin_discover_tests(LaunchProcessBoundaryTests)
 
 add_durin_test(NativeCrashCharacterizationTests
@@ -787,7 +781,6 @@ if(DURIN_WITH_EDITOR)
 		MODULES engine durin-ed
 		STACKS editor
 	)
-	durin_set_native_test_target_execution(WorldTests)
 	durin_discover_tests(WorldTests)
 else()
 	durin_exclude_native_test_sources(
@@ -825,7 +818,6 @@ durin_finalize_native_test(MonaViewportTests
 	DOMAINS viewport
 	MODULES mona
 )
-durin_set_native_test_target_execution(MonaViewportTests)
 durin_discover_tests(MonaViewportTests)
 
 add_durin_test(EngineViewportHeaderTests
@@ -843,7 +835,6 @@ durin_finalize_native_test(EngineViewportHeaderTests
 	DOMAINS viewport
 	MODULES engine
 )
-durin_set_native_test_target_execution(EngineViewportHeaderTests)
 durin_discover_tests(EngineViewportHeaderTests)
 
 set(_durin_viewport_test_sources
@@ -915,7 +906,6 @@ if(DURIN_WITH_EDITOR)
 		PRIVATE_SOURCE_RATIONALE
 			"LevelEditor-owned viewport white-box coverage without exporting private DLL symbols."
 	)
-	durin_set_native_test_target_execution(ViewportTests)
 	durin_discover_tests(ViewportTests)
 else()
 	durin_exclude_native_test_sources(

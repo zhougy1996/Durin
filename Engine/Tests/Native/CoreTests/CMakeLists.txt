@@ -5,7 +5,6 @@ function(durin_add_core_functional_test target_name)
 	set_target_properties(${target_name} PROPERTIES
 		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 	)
-	durin_set_native_test_target_execution(${target_name})
 	target_link_libraries(${target_name} PRIVATE Core)
 	durin_test_deploy_directory_to_data(
 		${target_name}

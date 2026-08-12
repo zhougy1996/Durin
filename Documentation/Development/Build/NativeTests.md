@@ -38,14 +38,13 @@ Discover configured choices without building them:
 ```powershell
 .\DevTool.bat test list
 .\DevTool.bat test list viewport
-.\DevTool.bat test list migration
+.\DevTool.bat test list private-sources
 .\DevTool.bat test explain "@domain=viewport,backend=vulkan"
 ```
 
-`test list migration` is the generated long-tail report. It lists every
-configured legacy target and every structured target retaining an explicitly
-owned production-private source seam. The report is derived from the active
-registry; it is not a second migration checklist.
+`test list private-sources` reports targets retaining an explicitly owned
+production-private source seam. The report is derived from the active registry
+and may be empty.
 
 Set selectors start with `@`. `@viewport` is shorthand for
 `@domain=viewport`. Within a dimension, `+` is union; comma-separated
@@ -107,8 +106,8 @@ failure with `--target <failed-target> --filter <suite.case>`, or use a narrow
 case-name `--ctest-regex` when CTest-level isolation is required. After
 diagnosis, use default target granularity for the final full-suite validation
 unless the change specifically targets case isolation. `hybrid` is a
-transition-compatible spelling which currently selects the same registrations
-as `target` because every ordinary target has migrated. Native-test executables and GoogleTest are excluded from CMake's
+compatibility spelling which selects the same registrations as `target`.
+Native-test executables and GoogleTest are excluded from CMake's
 default `all` target, so routine `build` and `rebuild` commands do not compile
 tests even when the selected preset enables `BUILD_TESTING`.
 Its timeout applies to each CTest-registered test. GoogleTest `--filter` syntax
@@ -122,10 +121,9 @@ matching case registration. `--include-direct` remains an accepted no-op
 compatibility alias in target mode and never duplicates a process. These
 options require `--target all`. `--target`, `--granularity`,
 `--include-direct`, `--ctest-regex`, `--schedule-random`, and `--output-junit`
-remain accepted through the structured-metadata migration, emit a deprecation
-warning, and are hidden from routine help. Repository automation may keep them
-until the final enforcement stage; new commands use positional selections and
-named modes.
+remain temporarily accepted, emit a deprecation warning, and are hidden from
+routine help. Existing repository automation may keep them while it moves to
+positional selections and named modes.
 
 Use a focused `--target <Target> --filter <GoogleTestFilter>` command for the
 fastest failing-case iteration. It launches one target process with the filter;
@@ -262,7 +260,6 @@ durin_finalize_native_test(PackageRoundTripTests
     DOMAINS asset-package
     MODULES asset-core
 )
-durin_set_native_test_target_execution(PackageRoundTripTests)
 durin_discover_tests(PackageRoundTripTests)
 ```
 
@@ -287,17 +284,6 @@ Do not aggregate unrelated production logic into a library solely to make it
 test-linkable. A small module-owned test target may compile the specific
 private implementation it exercises when exporting a DLL symbol or inventing
 a production component would distort the production architecture.
-
-Untouched declarations without finalization remain `legacy` in the configured
-registry and retain their existing commands. Their target names are frozen in
-a CMake compatibility allowlist which may only shrink. Configuration rejects a
-new legacy name, including one passed through a compatibility helper. New
-targets use the structured path. A legacy target becomes migration-required
-when it gains a suite, materially changes its dependency/runtime stack, or
-changes its lifecycle boundary; reviewers remove that name from the allowlist
-as part of the same migration. Assertion-only corrections do not force
-unrelated migration because CMake cannot infer semantic impact from a source
-diff.
 
 Configuration writes the deterministic registry to
 `<BuildDir>/DurinNativeTestRegistry.json`. Its schema version and
@@ -355,7 +341,7 @@ point, and provides `DURIN_TEST_DATA_DIR` for input lookup. Use
 through `durin_discover_tests(...)`; direct `gtest_discover_tests(...)`
 boilerplate bypasses repository policy and is rejected.
 
-Every ordinary target uses `durin_set_native_test_target_execution(...)` and
+Every ordinary target receives one direct target-lifecycle registration and
 must reset mutable process-global state between tests and release owned
 resources at its target boundary. If suites cannot safely share those
 lifecycles, split them into cohesive targets instead of selecting routine case
@@ -378,9 +364,6 @@ shared resources must come from the central registry in
 `CMake/Project/ProjectTargets.cmake`:
 
 - `durin-gpu`: exclusive ownership of the physical GPU/device lifecycle.
-- legacy group `renderer-runtime`: temporary serialization for the
-  process-global renderer lifecycle, emitted as
-  `durin-test-legacy-renderer-runtime`.
 
 Use `DURIN_TEST_RESOURCE_LOCKS durin-gpu` only when a target owns that physical
 resource. Do not invent lock names. Targets that directly link `Renderer`,

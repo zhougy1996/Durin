@@ -10,7 +10,6 @@ add_durin_test(SandboxGameplayTests
 set_target_properties(SandboxGameplayTests PROPERTIES
 	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 )
-durin_set_native_test_target_execution(SandboxGameplayTests)
 target_link_libraries(SandboxGameplayTests PRIVATE
 	Core
 	CoreDObject

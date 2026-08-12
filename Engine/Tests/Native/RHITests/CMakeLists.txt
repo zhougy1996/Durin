@@ -15,7 +15,6 @@ durin_finalize_native_test(RHICommandListTests
 	DOMAINS renderer
 	MODULES rhi
 )
-durin_set_native_test_target_execution(RHICommandListTests)
 durin_discover_tests(RHICommandListTests)
 
 add_durin_test(RHIThreadTests
@@ -33,7 +32,6 @@ durin_finalize_native_test(RHIThreadTests
 	DOMAINS renderer
 	MODULES rhi
 )
-durin_set_native_test_target_execution(RHIThreadTests)
 durin_discover_tests(RHIThreadTests)
 
 add_durin_test(RHIInitializationTests
@@ -51,7 +49,6 @@ durin_finalize_native_test(RHIInitializationTests
 	DOMAINS renderer
 	MODULES rhi
 )
-durin_set_native_test_target_execution(RHIInitializationTests)
 durin_discover_tests(RHIInitializationTests)
 
 add_durin_test(RHIResourceTransitionValidationTests
@@ -69,7 +66,6 @@ durin_finalize_native_test(RHIResourceTransitionValidationTests
 	DOMAINS renderer
 	MODULES rhi
 )
-durin_set_native_test_target_execution(RHIResourceTransitionValidationTests)
 durin_discover_tests(RHIResourceTransitionValidationTests)
 
 add_durin_test(RHIResourceViewValidationTests
@@ -87,7 +83,6 @@ durin_finalize_native_test(RHIResourceViewValidationTests
 	DOMAINS renderer
 	MODULES rhi
 )
-durin_set_native_test_target_execution(RHIResourceViewValidationTests)
 durin_discover_tests(RHIResourceViewValidationTests)
 
 add_durin_test(RHITransferValidationTests
@@ -105,5 +100,4 @@ durin_finalize_native_test(RHITransferValidationTests
 	DOMAINS renderer
 	MODULES rhi
 )
-durin_set_native_test_target_execution(RHITransferValidationTests)
 durin_discover_tests(RHITransferValidationTests)

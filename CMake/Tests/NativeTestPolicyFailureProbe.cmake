@@ -12,7 +12,6 @@ if(DURIN_POLICY_PROBE STREQUAL "unknown-resource")
 		probe_labels
 		ProbeTests
 		TRUE
-		""
 		RESOURCE_LOCKS unregistered-resource
 	)
 elseif(DURIN_POLICY_PROBE STREQUAL "broad-lock-without-rationale")
@@ -21,39 +20,11 @@ elseif(DURIN_POLICY_PROBE STREQUAL "broad-lock-without-rationale")
 		probe_labels
 		ProbeTests
 		FALSE
-		""
 	)
-elseif(DURIN_POLICY_PROBE STREQUAL "execution-unknown-granularity")
-	durin_resolve_native_test_execution_policy(
-		probe_case_labels probe_target_labels ProbeTests TRUE PROCESS
-		"Pending migration." "Stage 3" LABELS native-test ProbeTests)
-elseif(DURIN_POLICY_PROBE STREQUAL "execution-case-missing-rationale")
-	durin_resolve_native_test_execution_policy(
-		probe_case_labels probe_target_labels ProbeTests TRUE CASE
-		"" "Stage 3" LABELS native-test ProbeTests)
-elseif(DURIN_POLICY_PROBE STREQUAL "execution-case-missing-stage")
-	durin_resolve_native_test_execution_policy(
-		probe_case_labels probe_target_labels ProbeTests TRUE CASE
-		"Pending migration." "" LABELS native-test ProbeTests)
-elseif(DURIN_POLICY_PROBE STREQUAL "execution-case-invalid-stage")
-	durin_resolve_native_test_execution_policy(
-		probe_case_labels probe_target_labels ProbeTests TRUE CASE
-		"Pending migration." "Later" LABELS native-test ProbeTests)
-elseif(DURIN_POLICY_PROBE STREQUAL "execution-target-with-case-metadata")
-	durin_resolve_native_test_execution_policy(
-		probe_case_labels probe_target_labels ProbeTests TRUE TARGET
-		"Stale migration metadata." "Stage 3" LABELS native-test ProbeTests)
 elseif(DURIN_POLICY_PROBE STREQUAL "execution-ordinary-without-direct")
 	durin_resolve_native_test_execution_policy(
-		probe_case_labels probe_target_labels ProbeTests FALSE CASE
-		"Pending migration." "Stage 3" LABELS native-test ProbeTests)
-elseif(DURIN_POLICY_PROBE STREQUAL "execution-characterization-with-default")
-	durin_resolve_native_test_execution_policy(
-		probe_case_labels probe_target_labels ProbeTests FALSE CASE
-		"Pending migration." "Stage 3"
-		LABELS native-test ProbeTests native-test-characterization)
-elseif(DURIN_POLICY_PROBE STREQUAL "migration-new-legacy-target")
-	durin_validate_native_test_legacy_name(NewLegacyTests)
+		probe_case_labels probe_target_labels ProbeTests FALSE
+		LABELS native-test ProbeTests)
 elseif(DURIN_POLICY_PROBE MATCHES "^repository-")
 	if(NOT DEFINED DURIN_PROBE_ROOT)
 		message(FATAL_ERROR "DURIN_PROBE_ROOT is required.")

@@ -58,7 +58,6 @@ function(durin_add_render_functional_test target_name)
 			MODULES ${DURIN_RENDER_TEST_MODULES}
 		)
 	endif()
-	durin_set_native_test_target_execution(${target_name})
 	durin_discover_tests(${target_name})
 endfunction()
 

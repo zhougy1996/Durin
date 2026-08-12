@@ -78,8 +78,8 @@ function(configure_metadata_probe probe expect_success expected_text)
 			if(_durin_first_registry MATCHES "\"name\"")
 				message(FATAL_ERROR "Unavailable metadata probe emitted a target record.")
 			endif()
-		elseif(NOT _durin_first_registry MATCHES "\"metadataMode\":\"structured\"")
-			message(FATAL_ERROR "Metadata probe registry omitted structured mode.")
+		elseif(NOT _durin_first_registry MATCHES "\"schemaVersion\": 2")
+			message(FATAL_ERROR "Metadata probe registry omitted schema version 2.")
 		endif()
 		configure_file("${_durin_registry}" "${_durin_registry}.copy" COPYONLY)
 		file(READ "${_durin_registry}.copy" _durin_second_registry)
@@ -101,7 +101,6 @@ durin_resolve_native_test_discovery_policy(
 	default_labels
 	CoreUtilityTests
 	FALSE
-	""
 	TARGET_LOCK_RATIONALE "Characterization of the explicit broad-lock policy."
 )
 assert_list_equals(
@@ -120,7 +119,6 @@ durin_resolve_native_test_discovery_policy(
 	parallel_labels
 	CoreConcurrencyTests
 	TRUE
-	""
 	LABELS fast core
 )
 assert_list_equals("${parallel_locks}" "" "parallel-safe target lock")
@@ -131,64 +129,33 @@ assert_list_equals(
 )
 
 durin_resolve_native_test_discovery_policy(
-	grouped_locks
-	grouped_labels
+	explicit_locks
+	explicit_labels
 	TextureCookIntegrationTests
 	TRUE
-	renderer-runtime
 	RESOURCE_LOCKS durin-gpu
 	LABELS integration
 )
 assert_list_equals(
-	"${grouped_locks}"
-	"durin-gpu;durin-test-legacy-renderer-runtime"
-	"explicit and legacy locks"
+	"${explicit_locks}"
+	"durin-gpu"
+	"explicit resource lock"
 )
 assert_list_equals(
-	"${grouped_labels}"
+	"${explicit_labels}"
 	"native-test;TextureCookIntegrationTests;integration"
-	"grouped labels"
+	"explicit-lock labels"
 )
 assert_list_equals(
 	"${DURIN_NATIVE_TEST_RESOURCE_LOCK_REGISTRY}"
 	"durin-gpu"
 	"documented explicit resource registry"
 )
-assert_list_equals(
-	"${DURIN_NATIVE_TEST_LEGACY_RESOURCE_GROUP_REGISTRY}"
-	"renderer-runtime"
-	"documented legacy resource registry"
-)
-
-durin_resolve_native_test_execution_policy(
-	case_default_case_labels
-	case_default_target_labels
-	PilotTests
-	TRUE
-	CASE
-	"Stage 3 completes pilot qualification."
-	"Stage 3"
-	LABELS native-test PilotTests fast
-)
-assert_list_equals(
-	"${case_default_case_labels}"
-	"native-test;PilotTests;fast;native-test-case;native-test-default"
-	"case-default discovered labels"
-)
-assert_list_equals(
-	"${case_default_target_labels}"
-	"native-test;PilotTests;fast;native-test-target;native-test-direct"
-	"case-default direct labels"
-)
-
 durin_resolve_native_test_execution_policy(
 	fallback_case_labels
 	fallback_target_labels
 	FallbackTests
 	TRUE
-	""
-	""
-	""
 	LABELS native-test FallbackTests
 )
 assert_list_equals(
@@ -207,9 +174,6 @@ durin_resolve_native_test_execution_policy(
 	target_default_target_labels
 	QualifiedTests
 	TRUE
-	TARGET
-	""
-	""
 	LABELS native-test QualifiedTests integration
 )
 assert_list_equals(
@@ -228,9 +192,6 @@ durin_resolve_native_test_execution_policy(
 	characterization_target_labels
 	CharacterizationTests
 	FALSE
-	""
-	""
-	""
 	LABELS native-test CharacterizationTests native-test-characterization
 )
 assert_list_equals(
@@ -246,14 +207,7 @@ assert_list_equals(
 
 assert_policy_rejected("unknown-resource" "unregistered native-test resource")
 assert_policy_rejected("broad-lock-without-rationale" "TARGET_LOCK_RATIONALE")
-assert_policy_rejected("execution-unknown-granularity" "must be CASE or TARGET")
-assert_policy_rejected("execution-case-missing-rationale" "CASE_MIGRATION_RATIONALE")
-assert_policy_rejected("execution-case-missing-stage" "CASE_REPAIR_STAGE")
-assert_policy_rejected("execution-case-invalid-stage" "CASE_REPAIR_STAGE")
-assert_policy_rejected("execution-target-with-case-metadata" "cannot retain CASE migration metadata")
 assert_policy_rejected("execution-ordinary-without-direct" "require a direct lifecycle")
-assert_policy_rejected("execution-characterization-with-default" "cannot declare ordinary default")
-assert_policy_rejected("migration-new-legacy-target" "not grandfathered for legacy")
 assert_policy_rejected("repository-retired-work" "retired DURIN_TEST_WORK_DIR")
 assert_policy_rejected("repository-direct-remove-all" "RemoveTestWorkDirectory")
 assert_policy_rejected("repository-data-write" "mutate checked-in test Data")

@@ -51,6 +51,5 @@ durin_finalize_native_test(VulkanRHIIntegrationTests
 	PRIVATE_SOURCE_RATIONALE
 		"Owns the RenderCore shader-compiler white-box seam used by Vulkan integration coverage."
 )
-durin_set_native_test_target_execution(VulkanRHIIntegrationTests)
 
 durin_discover_tests(VulkanRHIIntegrationTests)

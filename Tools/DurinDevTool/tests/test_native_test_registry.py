@@ -34,7 +34,6 @@ def target(
 ) -> NativeTestTarget:
     return NativeTestTarget(
         name=name,
-        metadata_mode="structured",
         kind=kind,
         domains=domains,
         modules=modules,
@@ -114,48 +113,34 @@ def test_qualification_selections_are_explicit(
     ).names == ("TerrainQualificationTests",)
 
 
-def test_migration_report_selects_legacy_and_private_source_exceptions(
+def test_private_source_report_selects_owned_seams(
     tmp_path: Path,
 ) -> None:
-    legacy = NativeTestTarget(
-        name="LegacyTests",
-        metadata_mode="legacy",
-        kind="",
-        domains=(),
-        modules=(),
-        backends=(),
-        stacks=(),
-        direct_lifecycle=True,
-        timeout_seconds=300,
-        resource_locks=(),
-        heavy_runtime=False,
-        private_source_owner="",
-        private_source_rationale="",
-    )
     private_source = replace(
         target("VulkanTests", kind="integration"),
         private_source_owner="RenderCore",
         private_source_rationale="Owned shader compiler seam.",
     )
-    migration_registry = NativeTestRegistry(
+    private_source_registry = NativeTestRegistry(
         tmp_path / "registry.json",
         "debug",
-        (legacy, target("StructuredTests"), private_source),
+        (target("StructuredTests"), private_source),
     )
-    assert tuple(item.name for item in filter_targets(migration_registry, "migration")) == (
-        "LegacyTests",
+    assert tuple(
+        item.name for item in filter_targets(private_source_registry, "private-sources")
+    ) == (
         "VulkanTests",
     )
     completed_registry = replace(
-        migration_registry,
+        private_source_registry,
         targets=(target("StructuredTests"),),
     )
-    assert filter_targets(completed_registry, "migration") == ()
+    assert filter_targets(completed_registry, "private-sources") == ()
 
 
 def test_registry_loader_rejects_wrong_preset_identity(tmp_path: Path) -> None:
     document = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "identity": {
             "sourceDir": str(REPOSITORY_ROOT),
             "binaryDir": str(tmp_path),

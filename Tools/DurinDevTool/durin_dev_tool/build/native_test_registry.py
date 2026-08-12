@@ -11,7 +11,7 @@ from typing import Iterable
 from .config import BuildContext, BuildToolError, REPO_ROOT, preset_build_directory
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 REGISTRY_FILE_NAME = "DurinNativeTestRegistry.json"
 SELECTOR_DIMENSIONS = {
     "kind": "kind",
@@ -26,7 +26,6 @@ VALUE_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 @dataclass(frozen=True)
 class NativeTestTarget:
     name: str
-    metadata_mode: str
     kind: str
     domains: tuple[str, ...]
     modules: tuple[str, ...]
@@ -125,7 +124,6 @@ def load_native_test_registry(context: BuildContext) -> NativeTestRegistry:
         targets.append(
             NativeTestTarget(
                 name=name,
-                metadata_mode=str(record.get("metadataMode", "")),
                 kind=str(record.get("kind", "")),
                 domains=_string_list(record, "domains", target=name),
                 modules=_string_list(record, "modules", target=name),
@@ -225,11 +223,9 @@ def filter_targets(registry: NativeTestRegistry, query: str = "") -> tuple[Nativ
     normalized = query.casefold()
     if not normalized:
         return registry.targets
-    if normalized == "migration":
+    if normalized == "private-sources":
         return tuple(
-            target
-            for target in registry.targets
-            if target.metadata_mode == "legacy" or target.private_source_owner
+            target for target in registry.targets if target.private_source_owner
         )
     return tuple(
         target
@@ -238,7 +234,6 @@ def filter_targets(registry: NativeTestRegistry, query: str = "") -> tuple[Nativ
         in " ".join(
             (
                 target.name,
-                target.metadata_mode,
                 target.kind,
                 *target.domains,
                 *target.modules,
@@ -253,7 +248,7 @@ def filter_targets(registry: NativeTestRegistry, query: str = "") -> tuple[Nativ
 
 def target_metadata_text(target: NativeTestTarget) -> str:
     values: Iterable[str] = (
-        f"kind={target.kind}" if target.kind else "legacy",
+        f"kind={target.kind}",
         f"domains={'+'.join(target.domains)}" if target.domains else "",
         f"modules={'+'.join(target.modules)}" if target.modules else "",
         f"backends={'+'.join(target.backends)}" if target.backends else "",

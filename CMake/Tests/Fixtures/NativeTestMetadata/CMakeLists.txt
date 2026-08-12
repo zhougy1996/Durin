@@ -14,7 +14,6 @@ endif()
 
 add_custom_target(ProbeTests SOURCES Empty.cpp)
 set_target_properties(ProbeTests PROPERTIES
-	DURIN_TEST_METADATA_MODE legacy
 	DURIN_TEST_DIRECT_LIFECYCLE TRUE
 	DURIN_TEST_TIMEOUT 30
 )

@@ -14,7 +14,6 @@ function(durin_add_core_object_functional_test target_name source)
 		DOMAINS reflection
 		MODULES core-dobject
 	)
-	durin_set_native_test_target_execution(${target_name})
 	durin_discover_tests(${target_name})
 endfunction()
 

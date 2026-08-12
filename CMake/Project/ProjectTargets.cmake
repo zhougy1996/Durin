@@ -4,12 +4,6 @@ include_guard(GLOBAL)
 
 include("${CMAKE_CURRENT_LIST_DIR}/TargetDependencyClosure.cmake")
 
-# Compatibility baseline for untouched native-test declarations. This list is
-# enforcement state, not test metadata: it may only shrink as targets migrate.
-# New target names must use durin_finalize_native_test before discovery.
-set(DURIN_NATIVE_TEST_LEGACY_TARGET_ALLOWLIST
-)
-
 function(durin_module_log project_name module_name)
 	message(STATUS "[${project_name}] Module: ${module_name}")
 endfunction()
@@ -316,7 +310,6 @@ function(add_durin_test target_name)
 		DURIN_TEST_BIN_DIR "${_durin_test_bin_dir}"
 		DURIN_TEST_DATA_DIR "${_durin_test_data_dir}"
 		DURIN_TEST_WORK_DIR "${_durin_test_work_dir}"
-		DURIN_TEST_METADATA_MODE "legacy"
 	)
 
 	add_custom_command(TARGET ${target_name} POST_BUILD
@@ -514,7 +507,6 @@ function(durin_finalize_native_test target_name)
 	list(APPEND _durin_labels ${_durin_structured_labels})
 	list(REMOVE_DUPLICATES _durin_labels)
 	set_target_properties(${target_name} PROPERTIES
-		DURIN_TEST_METADATA_MODE "structured"
 		DURIN_TEST_KIND "${_durin_kind}"
 		DURIN_TEST_DOMAINS "${_durin_domains}"
 		DURIN_TEST_MODULES "${_durin_modules}"
@@ -526,32 +518,17 @@ function(durin_finalize_native_test target_name)
 	)
 endfunction()
 
-function(durin_validate_native_test_legacy_name target_name)
-	if(NOT "${target_name}" IN_LIST DURIN_NATIVE_TEST_LEGACY_TARGET_ALLOWLIST)
-		message(FATAL_ERROR
-			"Native-test target ${target_name} is not grandfathered for legacy discovery. "
-			"New and substantively changed targets must call durin_finalize_native_test "
-			"with KIND and DOMAINS before durin_discover_tests.")
-	endif()
-endfunction()
-
-function(durin_validate_native_test_migration_admission target_name)
+function(durin_validate_native_test_finalization target_name)
 	if(NOT TARGET ${target_name})
 		message(FATAL_ERROR
-			"Cannot validate native-test migration admission for missing target ${target_name}.")
+			"Cannot validate native-test finalization for missing target ${target_name}.")
 	endif()
-	get_target_property(_durin_metadata_mode ${target_name} DURIN_TEST_METADATA_MODE)
-	if(_durin_metadata_mode MATCHES "-NOTFOUND$")
-		set(_durin_metadata_mode legacy)
-	endif()
-	if(_durin_metadata_mode STREQUAL "structured")
-		return()
-	endif()
-	if(NOT _durin_metadata_mode STREQUAL "legacy")
+	get_target_property(_durin_kind ${target_name} DURIN_TEST_KIND)
+	if(_durin_kind MATCHES "-NOTFOUND$" OR NOT _durin_kind)
 		message(FATAL_ERROR
-			"${target_name} has unsupported native-test metadata mode '${_durin_metadata_mode}'.")
+			"Native-test target ${target_name} must call durin_finalize_native_test "
+			"with KIND and DOMAINS before durin_discover_tests.")
 	endif()
-	durin_validate_native_test_legacy_name(${target_name})
 endfunction()
 
 function(durin_add_native_test_aggregate_target target_name)
@@ -776,9 +753,6 @@ endfunction()
 set(DURIN_NATIVE_TEST_RESOURCE_LOCK_REGISTRY
 	durin-gpu
 )
-set(DURIN_NATIVE_TEST_LEGACY_RESOURCE_GROUP_REGISTRY
-	renderer-runtime
-)
 set(DURIN_NATIVE_TEST_HEAVY_RUNTIME_LIBRARIES
 	Renderer
 	VulkanRHI
@@ -792,7 +766,6 @@ function(durin_resolve_native_test_discovery_policy
 	out_labels
 	target_name
 	case_parallel_safe
-	legacy_serialization_group
 )
 	set(options)
 	set(one_value_args TARGET_LOCK_RATIONALE)
@@ -835,21 +808,6 @@ function(durin_resolve_native_test_discovery_policy
 		endif()
 		list(APPEND _durin_resource_locks "durin-test-target-${target_name}")
 	endif()
-	if(legacy_serialization_group)
-		if(NOT legacy_serialization_group MATCHES "^[A-Za-z0-9_.-]+$")
-			message(FATAL_ERROR
-				"${target_name} has invalid DURIN_TEST_LEGACY_SERIALIZATION_GROUP "
-				"'${legacy_serialization_group}'.")
-		endif()
-		if(NOT legacy_serialization_group IN_LIST
-			DURIN_NATIVE_TEST_LEGACY_RESOURCE_GROUP_REGISTRY)
-			message(FATAL_ERROR
-				"${target_name} requests unregistered legacy serialization "
-				"group '${legacy_serialization_group}'.")
-		endif()
-		list(APPEND _durin_resource_locks
-			"durin-test-legacy-${legacy_serialization_group}")
-	endif()
 	list(REMOVE_DUPLICATES _durin_resource_locks)
 
 	set(_durin_labels native-test "${target_name}" ${DURIN_TEST_POLICY_LABELS})
@@ -859,41 +817,11 @@ function(durin_resolve_native_test_discovery_policy
 	set(${out_labels} "${_durin_labels}" PARENT_SCOPE)
 endfunction()
 
-function(durin_set_native_test_case_migration
-	target_name
-	repair_stage
-	rationale)
-	if(NOT TARGET ${target_name})
-		message(FATAL_ERROR
-			"Cannot set native-test execution policy for missing target ${target_name}.")
-	endif()
-	set_target_properties(${target_name} PROPERTIES
-		DURIN_TEST_DEFAULT_GRANULARITY CASE
-		DURIN_TEST_CASE_REPAIR_STAGE "${repair_stage}"
-		DURIN_TEST_CASE_MIGRATION_RATIONALE "${rationale}"
-	)
-endfunction()
-
-function(durin_set_native_test_target_execution target_name)
-	if(NOT TARGET ${target_name})
-		message(FATAL_ERROR
-			"Cannot set native-test execution policy for missing target ${target_name}.")
-	endif()
-	set_target_properties(${target_name} PROPERTIES
-		DURIN_TEST_DEFAULT_GRANULARITY TARGET
-		DURIN_TEST_CASE_REPAIR_STAGE ""
-		DURIN_TEST_CASE_MIGRATION_RATIONALE ""
-	)
-endfunction()
-
 function(durin_resolve_native_test_execution_policy
 	out_case_labels
 	out_target_labels
 	target_name
-	direct_lifecycle
-	default_granularity
-	case_rationale
-	case_repair_stage)
+	direct_lifecycle)
 	set(options)
 	set(one_value_args)
 	set(multi_value_args LABELS)
@@ -918,10 +846,6 @@ function(durin_resolve_native_test_execution_policy
 			message(FATAL_ERROR
 				"${target_name} characterization tests cannot register a direct lifecycle.")
 		endif()
-		if(default_granularity OR case_rationale OR case_repair_stage)
-			message(FATAL_ERROR
-				"${target_name} characterization tests cannot declare ordinary default execution policy.")
-		endif()
 		set(${out_case_labels} "${_durin_case_labels}" PARENT_SCOPE)
 		set(${out_target_labels} "" PARENT_SCOPE)
 		return()
@@ -931,37 +855,12 @@ function(durin_resolve_native_test_execution_policy
 		message(FATAL_ERROR
 			"${target_name} ordinary native tests require a direct lifecycle registration.")
 	endif()
-	if(NOT default_granularity)
-		set(default_granularity TARGET)
-	endif()
-	if(NOT default_granularity STREQUAL "CASE"
-		AND NOT default_granularity STREQUAL "TARGET")
-		message(FATAL_ERROR
-			"${target_name} DURIN_TEST_DEFAULT_GRANULARITY must be CASE or TARGET.")
-	endif()
-
 	set(_durin_target_labels
 		${DURIN_EXECUTION_LABELS}
 		native-test-target
 		native-test-direct
+		native-test-default
 	)
-	if(default_granularity STREQUAL "CASE")
-		if(NOT case_rationale)
-			message(FATAL_ERROR
-				"${target_name} CASE execution requires DURIN_TEST_CASE_MIGRATION_RATIONALE.")
-		endif()
-		if(NOT case_repair_stage MATCHES "^Stage [1-9][0-9]*$")
-			message(FATAL_ERROR
-				"${target_name} CASE execution requires DURIN_TEST_CASE_REPAIR_STAGE in 'Stage N' form.")
-		endif()
-		list(APPEND _durin_case_labels native-test-default)
-	else()
-		if(case_rationale OR case_repair_stage)
-			message(FATAL_ERROR
-				"${target_name} TARGET execution cannot retain CASE migration metadata.")
-		endif()
-		list(APPEND _durin_target_labels native-test-default)
-	endif()
 	list(REMOVE_DUPLICATES _durin_case_labels)
 	list(REMOVE_DUPLICATES _durin_target_labels)
 	set(${out_case_labels} "${_durin_case_labels}" PARENT_SCOPE)
@@ -1000,7 +899,7 @@ function(durin_generate_native_test_registry output_path)
 				"Native-test target ${_durin_target} was not finalized with durin_discover_tests.")
 		endif()
 		foreach(_durin_property
-			METADATA_MODE KIND DOMAINS MODULES BACKENDS STACKS
+			KIND DOMAINS MODULES BACKENDS STACKS
 			DIRECT_LIFECYCLE TIMEOUT DISCOVERY_RESOURCE_LOCKS
 			HEAVY_RUNTIME_RATIONALE PRIVATE_SOURCE_OWNER PRIVATE_SOURCE_RATIONALE)
 			get_target_property(_durin_${_durin_property}
@@ -1023,13 +922,12 @@ function(durin_generate_native_test_registry output_path)
 			set(_durin_heavy_json false)
 		endif()
 		durin_json_escape(_durin_name_json "${_durin_target}")
-		durin_json_escape(_durin_mode_json "${_durin_METADATA_MODE}")
 		durin_json_escape(_durin_kind_json "${_durin_KIND}")
 		durin_json_escape(_durin_private_source_owner_json "${_durin_PRIVATE_SOURCE_OWNER}")
 		durin_json_escape(_durin_private_source_rationale_json "${_durin_PRIVATE_SOURCE_RATIONALE}")
 		string(CONCAT _durin_record
 			"    {\"name\":\"${_durin_name_json}\",\"availability\":\"configured\","
-			"\"metadataMode\":\"${_durin_mode_json}\",\"kind\":\"${_durin_kind_json}\","
+			"\"kind\":\"${_durin_kind_json}\","
 			"\"domains\":${_durin_DOMAINS_json},\"modules\":${_durin_MODULES_json},"
 			"\"backends\":${_durin_BACKENDS_json},\"stacks\":${_durin_STACKS_json},"
 			"\"directLifecycle\":${_durin_direct_json},\"timeoutSeconds\":${_durin_TIMEOUT},"
@@ -1050,7 +948,7 @@ function(durin_generate_native_test_registry output_path)
 	durin_json_escape(_durin_configuration_json "${CMAKE_BUILD_TYPE}")
 	string(CONCAT _durin_registry
 		"{\n"
-		"  \"schemaVersion\": 1,\n"
+		"  \"schemaVersion\": 2,\n"
 		"  \"identity\": {\"sourceDir\":\"${_durin_source_dir_json}\","
 		"\"binaryDir\":\"${_durin_binary_dir_json}\",\"preset\":\"${_durin_preset_json}\","
 		"\"configuration\":\"${_durin_configuration_json}\"},\n"
@@ -1077,7 +975,7 @@ function(durin_discover_tests target_name)
 		message(FATAL_ERROR
 			"${target_name} must be created with add_durin_test before discovery.")
 	endif()
-	durin_validate_native_test_migration_admission(${target_name})
+	durin_validate_native_test_finalization(${target_name})
 
 	# Discovery is the first point at which the test's link declarations are
 	# complete. Register its complete deployable runtime closure before
@@ -1094,11 +992,6 @@ function(durin_discover_tests target_name)
 			"${target_name} DURIN_TEST_CASE_PARALLEL_SAFE must be TRUE or FALSE.")
 	endif()
 
-	get_target_property(_durin_legacy_group
-		${target_name} DURIN_TEST_LEGACY_SERIALIZATION_GROUP)
-	if(_durin_legacy_group MATCHES "-NOTFOUND$")
-		set(_durin_legacy_group)
-	endif()
 	get_target_property(_durin_explicit_locks
 		${target_name} DURIN_TEST_RESOURCE_LOCKS)
 	if(_durin_explicit_locks MATCHES "-NOTFOUND$")
@@ -1107,13 +1000,6 @@ function(durin_discover_tests target_name)
 	get_target_property(_durin_extra_labels ${target_name} DURIN_TEST_LABELS)
 	if(_durin_extra_labels MATCHES "-NOTFOUND$")
 		set(_durin_extra_labels)
-	endif()
-	get_target_property(_durin_metadata_mode ${target_name} DURIN_TEST_METADATA_MODE)
-	if(_durin_metadata_mode MATCHES "-NOTFOUND$")
-		set(_durin_metadata_mode legacy)
-	endif()
-	if(_durin_metadata_mode STREQUAL "legacy")
-		durin_assert_native_test_labels_not_reserved("${target_name}" ${_durin_extra_labels})
 	endif()
 	get_target_property(_durin_timeout ${target_name} DURIN_TEST_TIMEOUT)
 	if(_durin_timeout MATCHES "-NOTFOUND$")
@@ -1127,21 +1013,6 @@ function(durin_discover_tests target_name)
 		AND NOT _durin_direct_lifecycle STREQUAL "FALSE")
 		message(FATAL_ERROR
 			"${target_name} DURIN_TEST_DIRECT_LIFECYCLE must be TRUE or FALSE.")
-	endif()
-	get_target_property(_durin_default_granularity
-		${target_name} DURIN_TEST_DEFAULT_GRANULARITY)
-	if(_durin_default_granularity MATCHES "-NOTFOUND$")
-		set(_durin_default_granularity)
-	endif()
-	get_target_property(_durin_case_migration_rationale
-		${target_name} DURIN_TEST_CASE_MIGRATION_RATIONALE)
-	if(_durin_case_migration_rationale MATCHES "-NOTFOUND$")
-		set(_durin_case_migration_rationale)
-	endif()
-	get_target_property(_durin_case_repair_stage
-		${target_name} DURIN_TEST_CASE_REPAIR_STAGE)
-	if(_durin_case_repair_stage MATCHES "-NOTFOUND$")
-		set(_durin_case_repair_stage)
 	endif()
 	get_target_property(_durin_target_lock_rationale ${target_name}
 		DURIN_TEST_TARGET_LOCK_RATIONALE)
@@ -1158,7 +1029,6 @@ function(durin_discover_tests target_name)
 		_durin_labels
 		"${target_name}"
 		"${_durin_case_parallel_safe}"
-		"${_durin_legacy_group}"
 		RESOURCE_LOCKS ${_durin_explicit_locks}
 		LABELS ${_durin_extra_labels}
 		TARGET_LOCK_RATIONALE "${_durin_target_lock_rationale}"
@@ -1168,9 +1038,6 @@ function(durin_discover_tests target_name)
 		_durin_target_labels
 		"${target_name}"
 		"${_durin_direct_lifecycle}"
-		"${_durin_default_granularity}"
-		"${_durin_case_migration_rationale}"
-		"${_durin_case_repair_stage}"
 		LABELS ${_durin_labels}
 	)
 
