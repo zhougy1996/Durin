@@ -57,6 +57,7 @@ TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 		.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
 		.TargetProfile = Durin::Asset::ECookTargetProfile::Game};
 	const std::string Baseline = Durin::BuildTexture2DDerivedDataKey(Input);
+	EXPECT_EQ(Baseline, "ceabc87aee9e8db676c2f6c13020593f");
 	EXPECT_EQ(Baseline.size(), 32u);
 
 	auto ExpectChange = [&Baseline](const Durin::FTexture2DDerivedDataKeyInput& Changed) {
@@ -104,8 +105,17 @@ TEST(FTextureDerivedDataTests, PayloadRoundTripsDeterministically)
 		Durin::EPixelFormat::BC5_UNORM,
 		Durin::EPixelFormat::BC7_UNORM,
 		Durin::EPixelFormat::BC7_UNORM_SRGB};
-	for (Durin::EPixelFormat Format : Formats)
+	constexpr std::array<std::string_view, 7> ExpectedPayloadHashes{
+		"77bdfeb3d6ca79944202b1c8313f9f23",
+		"5d8d35cf6e3bd1310adfcf8be175af58",
+		"ca544d4a8eba2254722aeea249712e45",
+		"5eb1ce657248bc93efeaac279a0720bd",
+		"db4d2a5ecf8cf92991ff04c0f95b4b53",
+		"20293487d2903b76c4ae42cc49e69cee",
+		"01efb428f4563742aeeaaa3073a62d36"};
+	for (size_t FormatIndex = 0; FormatIndex < Formats.size(); ++FormatIndex)
 	{
+		const Durin::EPixelFormat Format = Formats[FormatIndex];
 		const Durin::FTexturePlatformData Expected = MakePlatformData(Format);
 		std::vector<Durin::uint8> First;
 		std::vector<Durin::uint8> Second;
@@ -117,6 +127,9 @@ TEST(FTextureDerivedDataTests, PayloadRoundTripsDeterministically)
 			Expected, Durin::Asset::ECookTargetPlatform::Win64,
 			Durin::Asset::ECookTargetProfile::Game, Second, Error)) << Error;
 		EXPECT_EQ(First, Second);
+		EXPECT_EQ(Durin::FXxHash128::HashBuffer(First).ToString(),
+			ExpectedPayloadHashes[FormatIndex])
+			<< "format index " << FormatIndex;
 		ASSERT_GE(First.size(), Durin::TexturePayloadHeaderSize);
 
 		std::unique_ptr<Durin::FTexturePlatformData> Actual;
@@ -189,6 +202,7 @@ TEST(FTextureDerivedDataTests, CubeKeysCoverFaceOrderLayoutAndProjectionInputs)
 	std::string Baseline;
 	std::string Error;
 	ASSERT_TRUE(Durin::BuildTextureCubeDerivedDataKey(Input, Baseline, Error)) << Error;
+	EXPECT_EQ(Baseline, "61dec1a0575878952e205558f058bd2d");
 	EXPECT_EQ(Baseline.size(), 32u);
 
 	auto Changed = Input;
@@ -239,6 +253,8 @@ TEST(FTextureDerivedDataTests, CubePayloadRoundTripsDirectionalSlicesDeterminist
 		Expected, Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game, Second, Error)) << Error;
 	EXPECT_EQ(First, Second);
+	EXPECT_EQ(Durin::FXxHash128::HashBuffer(First).ToString(),
+		"d476639b4d52cee3e9b5db3b09e6c874");
 
 	std::unique_ptr<Durin::FTextureCubePlatformData> Actual;
 	Durin::FPayloadDecodeResult DecodeResult = Durin::DecodeTextureCubePayload(

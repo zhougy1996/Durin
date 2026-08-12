@@ -209,11 +209,14 @@ TEST(FTerrainHeightmapDerivedDataTests, KeyAndPayloadRoundTripAreStableAndCorrup
 	ASSERT_TRUE(Durin::BuildTerrainHeightmapDerivedDataKey(KeyInput, FirstKey, Error)) << Error;
 	ASSERT_TRUE(Durin::BuildTerrainHeightmapDerivedDataKey(KeyInput, SecondKey, Error)) << Error;
 	EXPECT_EQ(FirstKey, SecondKey);
+	EXPECT_EQ(FirstKey, "7b5c3faf0186011b52e3ff3368519321");
 	EXPECT_EQ(FirstKey.size(), 32);
 	std::vector<Durin::uint8> Bytes;
 	ASSERT_TRUE(Durin::EncodeTerrainHeightmapPayload(
 		*Payload, Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game, Bytes, Error)) << Error;
+	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Bytes).ToString(),
+		"b82a8b45c019f5a7a7d9c748c9d25d17");
 	std::shared_ptr<const Durin::FTerrainHeightmapPayload> Decoded;
 	ASSERT_TRUE(Durin::DecodeTerrainHeightmapPayload(
 		Bytes, Durin::Asset::ECookTargetPlatform::Win64,

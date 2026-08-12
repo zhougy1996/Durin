@@ -533,6 +533,10 @@ TEST(FSkeletalAssetTests, PayloadCodecsAreDeterministicAndRoundTripExactValues)
 		RepeatedClipBytes, Error)) << Error;
 	EXPECT_EQ(MeshBytes, RepeatedMeshBytes);
 	EXPECT_EQ(ClipBytes, RepeatedClipBytes);
+	EXPECT_EQ(Durin::FXxHash128::HashBuffer(MeshBytes).ToString(),
+		"fc7f61d6067225ce84e3c50ccce55c51");
+	EXPECT_EQ(Durin::FXxHash128::HashBuffer(ClipBytes).ToString(),
+		"7da58a36cd32f38a3dcb1daa910994f7");
 	ASSERT_GE(MeshBytes.size(), Durin::SkeletalPayloadHeaderSize);
 	ASSERT_GE(ClipBytes.size(), Durin::SkeletalPayloadHeaderSize);
 	EXPECT_EQ(MeshBytes[0], 'D'); EXPECT_EQ(MeshBytes[1], 'S');
@@ -573,11 +577,13 @@ TEST(FSkeletalAssetTests, PayloadCodecsAreDeterministicAndRoundTripExactValues)
 	KeyInput.TargetPlatform = Durin::ESkeletalPayloadTargetPlatform::Win64;
 	KeyInput.TargetProfile = Durin::ESkeletalPayloadTargetProfile::Game;
 	const std::string MeshKey = Durin::BuildSkeletalMeshDerivedDataKey(KeyInput);
+	EXPECT_EQ(MeshKey, "d4a4365a271f98c048d49b3491170eb3");
 	EXPECT_EQ(MeshKey.size(), 32u);
 	EXPECT_EQ(Durin::BuildSkeletalMeshDerivedDataKey(KeyInput), MeshKey);
 	KeyInput.PayloadInputFingerprint = ClipFingerprint;
 	KeyInput.StableOutputIdentity = "animation-clip:animation/0/skin/0";
 	const std::string ClipKey = Durin::BuildAnimationClipDerivedDataKey(KeyInput);
+	EXPECT_EQ(ClipKey, "a8eb4f43273627152dd71bea93f6d2e9");
 	EXPECT_EQ(ClipKey.size(), 32u);
 	EXPECT_NE(ClipKey, MeshKey);
 }

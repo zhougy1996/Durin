@@ -38,7 +38,8 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(First, Expected);
-	EXPECT_EQ(Durin::BuildStaticMeshDerivedDataKey(Input), Durin::BuildStaticMeshDerivedDataKey(Input));
+	EXPECT_EQ(Durin::BuildStaticMeshDerivedDataKey(Input),
+		"423fd576f6529b0df5c564c4f093ae11");
 	EXPECT_EQ(Durin::BuildStaticMeshDerivedDataKey(Input).size(), 32u);
 }
 

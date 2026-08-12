@@ -9,7 +9,7 @@ Completed:
 
 ## Current Status
 
-Planning is complete and Stage 0 is ready to execute. Runtime `Engine` currently
+Stage 0 is complete and Stage 1 is ready to execute. Runtime `Engine` currently
 owns both consumption and production paths for several asset families: runtime
 asset objects and render resources sit beside source provenance inspection,
 normalized import intermediates, asset-specific DDC builders, texture mip and
@@ -236,25 +236,25 @@ and atomically exchange detached candidates.
 
 ### Stage 0: Freeze inventory, byte compatibility, and dependency gates
 
-- [ ] Inventory every Runtime Engine public/private symbol that reads source,
+- [x] Inventory every Runtime Engine public/private symbol that reads source,
   decodes authoring bytes, generates normalized/platform data, constructs an
   asset-specific DDC key, reads/writes DDC, coordinates background builds,
   performs reimport/rebuild, or reports authoring diagnostics. Classify each as
   Runtime Engine, AssetCore, EngineAssetBuild, AssetImportCore, or provider
   ownership.
-- [ ] Record current module and third-party dependency closures for
+- [x] Record current module and third-party dependency closures for
   `DurinEditor`, `DurinGame`, `TextureTests`, asset import/cook targets, and
   `DurinAssetTool`, including deployed DLLs.
-- [ ] Add characterization fixtures for StaticMesh, Texture2D, TextureCube,
+- [x] Add characterization fixtures for StaticMesh, Texture2D, TextureCube,
   SkeletalMesh, AnimationClip, and TerrainHeightmap DDC keys, payload bytes,
   validation results, source-free cooked loads, and failure preservation.
-- [ ] Freeze the exact Engine value types that must remain for authored package
+- [x] Freeze the exact Engine value types that must remain for authored package
   deserialization and the narrower detached build/publication seams required by
   each asset family. Record any type that cannot move and why.
-- [ ] Freeze build-service initialization, editor tick/pump, project-switch,
+- [x] Freeze build-service initialization, editor tick/pump, project-switch,
   save/cook wait, provider unload, and process-shutdown ordering from current
   behavior.
-- [ ] Record the Stage 0 handoff in this plan before moving source files or
+- [x] Record the Stage 0 handoff in this plan before moving source files or
   changing module descriptors.
 
 #### Acceptance Gate
@@ -266,6 +266,94 @@ and atomically exchange detached candidates.
   asset families.
 - The expected editor/tool/test and forbidden game dependency closures are
   explicit and mechanically inspectable.
+
+#### Stage 0 Handoff (2026-08-12)
+
+Stage 0 freezes the following ownership rule for private helpers: an unnamed-
+namespace helper, local wire reader/writer, cache accessor, validation helper,
+or transaction helper has the same final owner as the public operation it
+implements. This rule makes the file/symbol-family inventory below exhaustive
+without assigning one private helper to two modules.
+
+| Current symbol family | Final owner | Frozen disposition |
+| --- | --- | --- |
+| `TextureBuild::{IsValidUsage, GetDefaultSRGB, IsValidCompressionQuality, IsValidAlphaMipMode, IsValidAlphaCoverageThreshold, SelectPixelFormat, DecodeRGBA8, BuildMipChain}` and every helper in `TextureBuild.cpp` | `EngineAssetBuild` | Move together; source decode remains an explicit normalized-input adapter and must not reopen provider dependencies. |
+| `TextureBuild::{ValidateEquirectangularTextureCubeProjection, ProjectEquirectangularTextureCube}` and every projection helper | `EngineAssetBuild` | Move together with projection limits/settings. |
+| `BuildTexture2DDerivedDataKey*`, `BuildTextureCubeDerivedDataKey*`, `EncodeTexture2DPayload`, `EncodeTextureCubePayload` and their wire writers | `EngineAssetBuild` | Move without changing key bytes, schema constants, or payload bytes. |
+| `DecodeTexture2DPayload`, `DecodeTextureCubePayload`, stable texture payload enums/limits/IDs, and their strict reader/validation helpers | `Engine` | Remain paired with runtime consumers. |
+| `FTexture2DBuildCoordinator`, request/result/metrics/diagnostic types, global initialize/pump/shutdown functions, and all coordinator state/helpers | `EngineAssetBuild` | Move as one lifecycle unit in Stage 3. |
+| Texture2D/TextureCube source resolution, hashing, source inspection, DDC lookup/write, rebuild/reimport, async request policy, and build diagnostics in the asset implementations | `EngineAssetBuild` | Replace broad asset methods with external operations; temporary forwarding is allowed only for named consumers. |
+| Texture runtime validation, cooked payload load, `FTextureSourceData`, `FTexture2DMipData`, `FTexturePlatformData`, `FTextureCubeSourceData`, `FTextureCubePlatformData`, render-resource construction/readiness, and detached state publication | `Engine` | Runtime value/consumer surface. |
+| `RegisterStaticMeshSourceDecoder`, `UnregisterStaticMeshSourceDecoder`, `FStaticMeshImported*`, source inspection/resolution, `BuildRenderData*`, collision build, DDC decision/read/write, repair/reimport, and authoring diagnostics | `EngineAssetBuild` during migration, then provider bridge removal | The registry remains only until every `StandardAssetImport` caller uses the explicit builder. |
+| `BuildStaticMeshDerivedDataKey*`, `BuildStaticMeshCollisionDerivedDataKey*`, `EncodeStaticMeshPayload`, `EncodeStaticMeshCollisionPayload`, `MakeStaticMeshPayloadData`, and builder-side collision conversion | `EngineAssetBuild` | Move without changing DMSH/DCOL bytes or keys. |
+| `DecodeStaticMeshPayload`, `DecodeStaticMeshCollisionPayload`, runtime render-data reconstruction, DMSH/DCOL schemas/limits/IDs, cooked load, runtime collision consumption, and render resources | `Engine` | Strict runtime reader and state owner. |
+| StaticMesh material/source reflected schema and `FStaticMeshImportedStateExchange` commit/reverse/finalize behavior | `Engine` | Minimal publication seam; build interpretation moves. |
+| `BuildSkeletalMeshDerivedDataKey*`, `BuildAnimationClipDerivedDataKey*`, both payload encoders, both payload fingerprints, all DDC store/write adapters, and authoring repair scopes | `EngineAssetBuild` | Move together with writer/key helpers and rebuild diagnostics. |
+| Skeletal/animation payload decoders and validators, runtime payload/value types, skeleton compatibility checks, cooked loads, render resources, and imported-state exchanges | `Engine` | Runtime schema, relationship validation, and atomic publication. |
+| `BuildTerrainHeightmapPayload`, source resolution/decode/import/reimport, `BuildTerrainHeightmapDerivedDataKey*`, `EncodeTerrainHeightmapPayload`, Terrain DDC store/write policy, and authoring diagnostics | `EngineAssetBuild` | Move without changing THPL bytes, revision, or rollback. |
+| `DecodeTerrainHeightmapPayload`, `FTerrainHeightmapPayload` validation/query methods, cooked load, render-state consumption, and payload exchange/publication | `Engine` | Runtime consumer surface. |
+| Generic `FDerivedDataObjectStore`, DBLK/package/cook descriptors, atomic byte publication, mutation transactions, manifests, and mount/path primitives | `AssetCore` | No asset-specific policy moves into `AssetCore`. |
+| Import capture/plans/snapshots/provider leases/candidates/publication/cancellation | `AssetImportCore` | Remains format-neutral. |
+| Assimp/image/HDR recognition and decoding, Scene policy/reconciliation, provider settings/identities, and normalized source production | `StandardAssetImport` | Provider owns concrete source formats and calls `EngineAssetBuild`. |
+
+The reflected/value types that cannot move are frozen as follows. They are
+required for authored package deserialization or cooked/runtime consumption;
+behavior that interprets them still moves to the build module.
+
+| Asset family | Engine-resident types and seams | Reason |
+| --- | --- | --- |
+| Texture2D | `ETextureUsage`, compression/alpha settings, `FTextureSourceFile`, `FTexture2DSourceImportData`, platform/mip values, cooked descriptor, and a detached platform-data publication seam | Authored packages serialize provenance/settings; runtime readers and render resources consume platform data. |
+| TextureCube | reflected `FTextureCubeSourceImportData`, layout/settings, source/platform values, cooked descriptor, and detached platform-data exchange | Authored six-face/panorama packages must deserialize without the build DLL. |
+| StaticMesh | reflected import settings/source provenance/material slots/body setup/cooked descriptor, runtime payload/render values, and `FStaticMeshImportedStateExchange` | Package schema, runtime materials/collision, and transactional publication remain Engine-owned. |
+| SkeletalMesh | reflected bounds/material/provenance/summary/key/descriptor fields, payload/render values, skeleton reference, and `FSkeletalMeshImportedStateExchange` | Runtime relationship validation and rendering require these values. |
+| AnimationClip | reflected source/summary/key/descriptor/skeleton fields, payload values, and `FAnimationClipImportedStateExchange` | Runtime sampling and skeleton compatibility require them. |
+| TerrainHeightmap | reflected `FTerrainHeightmapSourceImportData`, dimensions/min/max/revision/key/descriptor, payload query values, and payload exchange | Runtime terrain queries/render state require source-independent values. |
+
+The Stage 0 dependency and deployment baseline is mechanically rooted in
+`Engine.dproject`, each named `.dmodule`, the listed target CMake files, and the
+top-level `durin_assert_target_dependency_closure_excludes` call.
+
+| Root/target | Baseline dependency fact | Baseline deployed fact |
+| --- | --- | --- |
+| `DurinEditor` | Base roots are `DurinLauncher`, `Renderer`, and `VulkanRHI`; editor extras include `StandardAssetImport`, `AssetImportCore`, all asset editors, `DurinEd`, `MainFrame`, and `LevelEditor`. `Engine` privately links `bc7enc_rdo` when editor-enabled. | Runtime directory contains all selected editor/runtime module DLLs; third-party Debug deployment contains `assimp-vc143-mt.dll` plus Slang DLLs. BC encoders are static link inputs, not deployed DLLs. |
+| `DurinGame` | Base roots only; top-level CMake rejects `AssetImport`, `EngineAssetBuild`, Assimp, `bc7enc_rdo`, and `rgbcx` from the `DurinLauncher` closure. | Existing Debug deployment contains only runtime module DLLs and no import/build/provider DLL. |
+| `TextureTests` | Common test closure links `Core`, `CoreDObject`, `AssetCore`, `Engine`, and BC7; target adds `AssetImportCore`, `StandardAssetImport`, `RenderCore`, `Renderer`, and `DurinEd`. | Test runtime closure deploys linked module DLLs plus provider runtime files. |
+| `StaticMeshTests` | Same common closure; target adds import, renderer, editor, and mesh-editor modules and redundantly names BC7. | Same provider/editor test deployment class. |
+| `SkeletalAssetTests` | Common test closure only: `Core`, `CoreDObject`, `AssetCore`, `Engine`, and BC7. | Runtime modules needed by the common closure. |
+| `TerrainHeightmapTests` / `TerrainHeightmapCookTests` | Common closure; the import target adds `AssetImportCore`, `StandardAssetImport`, and `DurinEd`; the Cook target adds no provider directly. | Import target deploys provider dependencies; Cook target uses the common runtime closure. |
+| `AssetCoreTests` import variants | Base AssetCore test closure, with import variants explicitly linking `AssetImportCore` and `StandardAssetImport`. | Provider files are present only for those variants. |
+| `DurinAssetTool` | Directly links `AssetCore`, `Engine`, and `AssetImportCore`; it does not yet link `StandardAssetImport` or a builder module. | `DurinAssetTool.exe` shares the configured editor runtime output directory. |
+
+The frozen lifecycle order is:
+
+1. `FEngineLoop::PreInit` initializes mount points, the task scheduler, and the
+   GameThread deferred executor, loads `RenderCore`, initializes DObject, then
+   calls `InitializeEngineAssetServices`.
+2. `InitializeEngineAssetServices` registers asset delete contributors and
+   initializes the global Texture2D coordinator. Editor provider registration
+   occurs later through `StandardAssetImport::StartupModule`.
+3. Each normal frame runs engine logic, diagnostics, deferred GameThread work,
+   then `PumpEngineAssetServiceCompletions(64)` before UI and rendering.
+4. Explicit save/Cook/tool/editor waits use the request wait boundary while
+   continuing to pump terminal completions on the GameThread.
+5. Shutdown first detaches Mona consumers; provider module shutdown cancels and
+   drains Scene/Assimp/image requests and unregisters handlers/decoder state.
+   Engine asset services then stop admission, cancel/drain Texture2D work, and
+   pump/discard terminal callbacks before task-system drain, object retirement,
+   module unload, rendering/RHI shutdown, and project-authoring lock release.
+6. Project/source relocation preserves the same transaction rule: complete the
+   pending build before committing the source move, otherwise retain the prior
+   asset state. No separate project-switch coordinator hook exists at Stage 0.
+
+Characterization evidence is frozen in `StaticMeshDerivedDataContractTests`,
+`StaticMeshPayloadCodecTests`, `StaticMeshCollisionStage0Tests`,
+`TextureDerivedDataTests`, `TextureCookTests`, `TextureCubeTests`,
+`SkeletalAssetTests`, `TerrainHeightmapTests`,
+`TerrainHeightmapCookTests`, and `Texture2DBuildCoordinatorTests`. Exact new
+Stage 0 constants cover StaticMesh, Texture2D, TextureCube, SkeletalMesh,
+AnimationClip, and TerrainHeightmap keys/payloads; existing tests cover cooked
+source/DDC-free loads, decoder validation, coordinator transitions and bounds,
+stale/cancel behavior, DDC write failure, and transactional preservation.
 
 ### Stage 1: Introduce the module and move offline third-party ownership
 
