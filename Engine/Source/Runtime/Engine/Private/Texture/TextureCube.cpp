@@ -11,8 +11,9 @@
 #include "Misc/Paths.h"
 #include "Source/SourcePath.h"
 #include "Texture/EquirectangularTextureCube.h"
-#include "Texture/TextureBuild.h"
+#include "Texture/TextureCubeLegacyBuild.h"
 #include "Texture/TextureCubeRenderResource.h"
+#include "Texture/TextureCubeDerivedDataLegacy.h"
 #include "Texture/TextureDerivedData.h"
 
 namespace Durin
@@ -366,7 +367,7 @@ namespace Durin
 				FTextureSourceData BuildSource = SourceData.Faces[FaceIndex];
 				// All physical layers of one cube image must use one pixel format.
 				BuildSource.bHasTransparency = bCubeHasTransparency;
-				if (!TextureBuild::BuildMipChain(BuildSource, ETextureUsage::Color, bSRGB,
+				if (!TextureCubeLegacyBuild::BuildMipChain(BuildSource, ETextureUsage::Color, bSRGB,
 					OutPlatformData.Faces[FaceIndex], OutError))
 				{
 					OutError = std::format("{} face platform build failed: {}", FaceNames[FaceIndex], OutError);
@@ -404,7 +405,7 @@ namespace Durin
 					return false;
 				}
 				std::string DecodeError;
-				if (!TextureBuild::DecodeRGBA8(OutInputs[FaceIndex].generic_string(),
+				if (!TextureCubeLegacyBuild::DecodeRGBA8(OutInputs[FaceIndex].generic_string(),
 					OutSourceData.Faces[FaceIndex], DecodeError))
 				{
 					OutError = std::format("{} face decode failed: {}", FaceNames[FaceIndex], DecodeError);
@@ -446,7 +447,7 @@ namespace Durin
 			}
 
 			const std::string Extension = Input.extension().generic_string();
-			const TextureBuild::FEquirectangularTextureCubeProjectionSettings ProjectionSettings{
+			const TextureCubeLegacyBuild::FEquirectangularTextureCubeProjectionSettings ProjectionSettings{
 				.FaceDimension = Settings.FaceDimension,
 				.ExposureEV = Settings.ExposureEV,
 			};
@@ -462,7 +463,7 @@ namespace Durin
 				}
 				OutSourceWidth = Panorama.Width;
 				OutSourceHeight = Panorama.Height;
-				if (!TextureBuild::ProjectEquirectangularTextureCube(
+				if (!TextureCubeLegacyBuild::ProjectEquirectangularTextureCube(
 					Panorama, ProjectionSettings, OutSourceData, OutError))
 				{
 					OutError = std::format("Panorama projection failed: {}", OutError);
@@ -479,7 +480,7 @@ namespace Durin
 
 			Asset::FDecodedImage Panorama;
 			Asset::FImageDecodeLimits Limits;
-			Limits.MaximumDecodedPixels = TextureBuild::MaximumPanoramaPixels;
+			Limits.MaximumDecodedPixels = TextureCubeLegacyBuild::MaximumPanoramaPixels;
 			if (!Asset::DecodeImageFromFile(Input.generic_string(), Panorama, OutError, Limits))
 			{
 				OutCode = EPanoramaDecodeError::Decode;
@@ -488,7 +489,7 @@ namespace Durin
 			}
 			OutSourceWidth = Panorama.Width;
 			OutSourceHeight = Panorama.Height;
-			if (!TextureBuild::ProjectEquirectangularTextureCube(
+			if (!TextureCubeLegacyBuild::ProjectEquirectangularTextureCube(
 				Panorama, ProjectionSettings, OutSourceData, OutError))
 			{
 				OutError = std::format("Panorama projection failed: {}", OutError);
@@ -782,7 +783,7 @@ namespace Durin
 				return false;
 			}
 			DerivedDataDiagnostic.bSourceDecoderInvoked = true;
-			if (!TextureBuild::DecodeRGBA8(SourcePath.generic_string(), NewSourceData->Faces[FaceIndex], OutError))
+			if (!TextureCubeLegacyBuild::DecodeRGBA8(SourcePath.generic_string(), NewSourceData->Faces[FaceIndex], OutError))
 			{
 				OutError = std::format("{} face decode failed: {}", FaceNames[FaceIndex], OutError);
 				BuildStatus = ETextureBuildStatus::DecodeFailure;

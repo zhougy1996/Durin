@@ -1,14 +1,13 @@
 #pragma once
 
 #include "EngineAssetBuildAPI.h"
+#include "Hash/XxHash.h"
 #include "Texture/TextureDerivedData.h"
-#include "Texture/TextureCube.h"
 
 namespace Durin::AssetBuild
 {
 	inline constexpr uint32 Texture2DBuilderVersion = 2;
 
-	// Owns the canonical Texture2D recipe fields hashed into one DDC key.
 	struct FTexture2DBuildKeyInput
 	{
 		FXxHash128 SourceContentHash;
@@ -25,26 +24,9 @@ namespace Durin::AssetBuild
 
 		ENGINEASSETBUILD_API auto Serialize(FArchive& Ar) -> void;
 	};
-}
 
-namespace Durin::AssetBuild::TextureDerivedDataWriter
-{
 	ENGINEASSETBUILD_API auto BuildTexture2DDerivedDataKeyBytes(
 		const FTexture2DBuildKeyInput& Input) -> std::vector<uint8>;
 	ENGINEASSETBUILD_API auto BuildTexture2DDerivedDataKey(
 		const FTexture2DBuildKeyInput& Input) -> std::string;
-	ENGINEASSETBUILD_API auto BuildTextureCubeDerivedDataKeyBytes(
-		const FTextureCubeDerivedDataKeyInput& Input,
-		std::vector<uint8>& OutBytes,
-		std::string& OutError) -> bool;
-	ENGINEASSETBUILD_API auto BuildTextureCubeDerivedDataKey(
-		const FTextureCubeDerivedDataKeyInput& Input,
-		std::string& OutKey,
-		std::string& OutError) -> bool;
-	ENGINEASSETBUILD_API auto EncodeTextureCubePayload(
-		const FTextureCubePlatformData& PlatformData,
-		Asset::ECookTargetPlatform TargetPlatform,
-		Asset::ECookTargetProfile TargetProfile,
-		std::vector<uint8>& OutBytes,
-		std::string& OutError) -> bool;
 }

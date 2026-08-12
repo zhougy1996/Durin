@@ -4,7 +4,7 @@
 #include "ImageDecoder.h"
 #include "Texture/TextureCube.h"
 
-namespace Durin::TextureBuild
+namespace Durin::TextureCubeLegacyBuild
 {
 	inline constexpr uint64 MaximumPanoramaPixels = 32ull * 1024ull * 1024ull;
 	inline constexpr uint32 MaximumPanoramaDimension = 16384;

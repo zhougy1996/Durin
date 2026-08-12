@@ -2,7 +2,7 @@
 
 #include "RHIResources.h"
 
-namespace Durin::TextureBuild
+namespace Durin::TextureCubeLegacyBuild
 {
 	namespace
 	{

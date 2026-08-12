@@ -2,7 +2,6 @@
 
 #include "CookedAsset.h"
 #include "EngineAPI.h"
-#include "Hash/XxHash.h"
 #include "PayloadDecodeResult.h"
 #include "Texture/Texture2D.h"
 
@@ -44,45 +43,6 @@ namespace Durin
 		BC7_UNORM = 6,
 		BC7_UNORM_SRGB = 7
 	};
-
-	enum class ETextureCubeDerivedDataSourceLayout : uint32
-	{
-		SixFaces = 0,
-		EquirectangularPanorama = 1
-	};
-
-	struct FTextureCubeDerivedDataKeyInput
-	{
-		ETextureCubeDerivedDataSourceLayout SourceLayout =
-			ETextureCubeDerivedDataSourceLayout::SixFaces;
-		std::array<FXxHash128, 6> FaceContentHashes{};
-		FXxHash128 PanoramaContentHash;
-		uint32 FaceDimension = 0;
-		float ExposureEV = 0.0f;
-		bool bSRGB = true;
-		uint32 BuilderVersion = TextureCubeBuilderVersion;
-		uint32 PayloadSchemaVersion = TexturePayloadSchemaVersion;
-		uint32 ProjectionVersion = TextureCubeProjectionVersion;
-		Asset::ECookTargetPlatform TargetPlatform = Asset::ECookTargetPlatform::Invalid;
-		Asset::ECookTargetProfile TargetProfile = Asset::ECookTargetProfile::Invalid;
-	};
-
-	ENGINE_API auto BuildTextureCubeDerivedDataKeyBytes(
-		const FTextureCubeDerivedDataKeyInput& Input,
-		std::vector<uint8>& OutBytes,
-		std::string& OutError) -> bool;
-
-	ENGINE_API auto BuildTextureCubeDerivedDataKey(
-		const FTextureCubeDerivedDataKeyInput& Input,
-		std::string& OutKey,
-		std::string& OutError) -> bool;
-
-	ENGINE_API auto EncodeTextureCubePayload(
-		const FTextureCubePlatformData& PlatformData,
-		Asset::ECookTargetPlatform TargetPlatform,
-		Asset::ECookTargetProfile TargetProfile,
-		std::vector<uint8>& OutBytes,
-		std::string& OutError) -> bool;
 
 	ENGINE_API auto DecodeTextureCubePayload(
 		std::span<const uint8> Bytes,

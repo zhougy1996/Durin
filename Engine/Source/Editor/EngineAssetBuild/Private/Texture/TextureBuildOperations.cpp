@@ -7,7 +7,7 @@
 #include "Source/SourcePath.h"
 #include "Texture/TextureBuilder.h"
 #include "Texture/TextureDerivedData.h"
-#include "Texture/TextureDerivedDataWriter.h"
+#include "Texture/Texture2DDerivedData.h"
 
 namespace Durin::AssetBuild
 {
@@ -114,7 +114,7 @@ namespace Durin::AssetBuild
 		const FXxHash128 SourceHash{
 			.HashLow = Request.SourceContentHashLow,
 			.HashHigh = Request.SourceContentHashHigh};
-		const std::string Key = TextureDerivedDataWriter::BuildTexture2DDerivedDataKey({
+		const std::string Key = BuildTexture2DDerivedDataKey({
 			.SourceContentHash = SourceHash,
 			.Usage = Settings.Usage,
 			.bSRGB = bSRGB,
@@ -230,7 +230,7 @@ namespace Durin::AssetBuild
 			OutError = "Texture source content hash is missing or invalid.";
 			return false;
 		}
-		OutKey = TextureDerivedDataWriter::BuildTexture2DDerivedDataKey({
+		OutKey = BuildTexture2DDerivedDataKey({
 			.SourceContentHash = SourceHash,
 			.Usage = Texture.GetUsage(),
 			.bSRGB = Texture.IsSRGB(),

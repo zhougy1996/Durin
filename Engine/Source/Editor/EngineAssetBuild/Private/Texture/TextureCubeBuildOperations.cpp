@@ -5,7 +5,7 @@
 #include "ImageDecoder.h"
 #include "Texture/TextureBuilder.h"
 #include "Texture/TextureCubeBuilder.h"
-#include "Texture/TextureDerivedDataWriter.h"
+#include "Texture/TextureCubeDerivedDataLegacy.h"
 
 namespace Durin::AssetBuild
 {
@@ -86,7 +86,7 @@ namespace Durin::AssetBuild
 			std::string& OutError) -> bool
 		{
 			std::vector<uint8> Bytes;
-			if (!TextureDerivedDataWriter::EncodeTextureCubePayload(
+			if (!EncodeTextureCubePayload(
 				PlatformData, Asset::ECookTargetPlatform::Win64,
 				Asset::ECookTargetProfile::Game, Bytes, OutError)) return false;
 			return Asset::FDerivedDataObjectStore(
@@ -144,7 +144,7 @@ namespace Durin::AssetBuild
 		if (!BuildCubePlatformData(*SourceData, true, *PlatformData, OutError)) return false;
 		const FXxHash128 Hash = FXxHash128::HashBuffer(EncodedBytes);
 		std::string Key;
-		if (!TextureDerivedDataWriter::BuildTextureCubeDerivedDataKey({
+		if (!BuildTextureCubeDerivedDataKey({
 			.SourceLayout = ETextureCubeDerivedDataSourceLayout::EquirectangularPanorama,
 			.PanoramaContentHash = Hash,
 			.FaceDimension = Settings.FaceDimension,
@@ -197,7 +197,7 @@ namespace Durin::AssetBuild
 		if (!BuildCubePlatformData(
 			*SourceData, Settings.bSRGB, *PlatformData, OutError)) return false;
 		std::string Key;
-		if (!TextureDerivedDataWriter::BuildTextureCubeDerivedDataKey({
+		if (!BuildTextureCubeDerivedDataKey({
 			.SourceLayout = ETextureCubeDerivedDataSourceLayout::SixFaces,
 			.FaceContentHashes = Hashes,
 			.bSRGB = Settings.bSRGB,

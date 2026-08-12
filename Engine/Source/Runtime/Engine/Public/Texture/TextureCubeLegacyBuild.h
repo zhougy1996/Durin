@@ -3,7 +3,7 @@
 #include "EngineAPI.h"
 #include "Texture/Texture2D.h"
 
-namespace Durin::TextureBuild
+namespace Durin::TextureCubeLegacyBuild
 {
 	struct FBuildMipChainMetrics
 	{

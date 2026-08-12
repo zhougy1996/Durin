@@ -1,4 +1,5 @@
 #include "Texture/TextureDerivedData.h"
+#include "Texture/TextureCubeDerivedDataLegacy.h"
 
 #include "Misc/DerivedDataCache.h"
 #include "Serialization/Archive.h"

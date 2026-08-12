@@ -1,4 +1,4 @@
-#include "Texture/TextureBuild.h"
+#include "Texture/TextureCubeLegacyBuild.h"
 
 #if DURIN_WITH_EDITOR
 	#include "ImageDecoder.h"
@@ -7,7 +7,7 @@
 	#include <rgbcx.h>
 #endif
 
-namespace Durin::TextureBuild
+namespace Durin::TextureCubeLegacyBuild
 {
 #if DURIN_WITH_EDITOR
 	namespace

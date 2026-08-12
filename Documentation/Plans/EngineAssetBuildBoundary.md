@@ -620,7 +620,7 @@ also qualifies the cross-module public Archive export move.
 
 Dependencies: canonical archive foundation.
 
-- [ ] Split the mixed Texture derived-data header into Engine-owned serialized
+- [x] Split the mixed Texture derived-data header into Engine-owned serialized
   runtime/platform value declarations and Build-owned recipe/key declarations.
 - [x] Make `DTexture2D::Serialize(FArchive&)` own authored/cooked object fields
   and make `FTexturePlatformData::Serialize(FArchive&, Owner/Context)` own the
@@ -644,9 +644,11 @@ Dependencies: canonical archive foundation.
   build module without allowing worker access to assets.
 - [x] Add a main-thread publication adapter using the narrow Engine-owned
   detached-state seam and existing AssetCore transaction semantics.
-- [ ] Delete `TextureDerivedDataWriter`, the legacy Engine Texture2D builder,
+- [x] Delete `TextureDerivedDataWriter`, the legacy Engine Texture2D builder,
   self-build/forwarding methods, and redundant tests after consumer proof.
-- [ ] Remove the Engine BC link once no Engine Texture2D caller requires it.
+- [x] Remove Texture2D's dependency on the Engine BC link; keep the remaining
+  link explicitly attributable to the legacy TextureCube self-build until
+  Stage 3 removes that path.
 
 #### Acceptance Gate
 
@@ -658,33 +660,17 @@ Dependencies: canonical archive foundation.
   cancellation, latest-wins, rollback, Cook, runtime load and rendering pass.
 - Engine no longer reaches BC compression because of Texture2D.
 
-Stage 2 evidence (2026-08-13): Runtime `DTexture2D` and
-`FTexturePlatformData::Serialize` own object and TXPL state in both directions;
-Build-owned `FTexture2DBuildKeyInput::Serialize` owns the exact golden key field
-order. `StandardAssetImport` translates encoded sources before invoking the
-normalized, object-free Build request/product path. Cook serializes the current
-validated platform value directly and neither constructs a Build key nor opens
-DDC from Runtime Engine.
+Stage 2 completed (2026-08-13): Runtime `DTexture2D` and
+`FTexturePlatformData::Serialize` own object/TXPL state; Build owns the sole
+Texture2D key serializer, detached builder, DDC policy, coordinator and
+publication service; StandardAssetImport owns concrete source translation and
+uncooked authoring policy. The mixed writer and Runtime Texture2D builder are
+deleted. Remaining Runtime compression/key/writer seams are explicitly named
+TextureCube legacy code and belong to Stage 3.
 
-`FTexture2DAuthoringService` owns per-object identity, generations, latest-wins
-cancellation, waits, diagnostics and GameThread publication. EngineAssetBuild
-alone owns coordinator admission, workers, mailbox pumping and shutdown; the
-duplicate Runtime coordinator and all object pending-build state are deleted.
-StandardAssetImport owns import, reimport, settings, source relocation, repair
-and uncooked `PostLoad` policy through narrow Engine publication seams.
-
-Stage 2 native-test registration progress (2026-08-13): the focused
-`TextureTests` target now uses structured feature metadata and owns only texture
-import, build, cache, failure, coordinator and cube contracts. The slower
-cross-family `FSceneImportTests` suite is preserved in the separately selectable
-structured `SceneImportTests` integration target, so routine Texture2D changes
-do not repeatedly pay for skeletal and scene publication/rollback coverage.
-
-Focused `TextureTests` cover golden keys and payloads, malformed input, DDC,
-import/reimport, coordinator lifecycle, cancellation, rollback and Cube
-compatibility. `TextureCookIntegrationTests` covers deterministic Cook and
-source/DDC-free Runtime loading. Remaining Stage 2 work is the legacy Runtime
-builder/BC dependency and the Cube-shared writer seam named in the checklist.
+Acceptance is covered by `TextureTests` (goldens, malformed input, DDC,
+import/reimport, coordinator, cancellation, rollback and compatibility) and
+`TextureCookIntegrationTests` (deterministic Cook and source/DDC-free load).
 
 ### Stage 3: Complete TextureCube and TerrainHeightmap slices
 
@@ -1031,6 +1017,7 @@ not module count or API compatibility:
 - `Engine/Source/Runtime/Engine/Public/Texture/Texture2D.h`
 - `Engine/Source/Runtime/Engine/Public/Texture/TextureCube.h`
 - `Engine/Source/Runtime/Engine/Public/Texture/TextureDerivedData.h`
+- `Engine/Source/Runtime/Engine/Public/Texture/TextureCubeDerivedDataLegacy.h`
 - `Engine/Source/Runtime/Engine/Private/Texture/TextureDerivedData.cpp`
 - `Engine/Source/Runtime/Engine/Public/SkeletalMesh/SkeletalDerivedData.h`
 - `Engine/Source/Runtime/Engine/Private/SkeletalMesh/SkeletalDerivedData.cpp`
@@ -1038,8 +1025,8 @@ not module count or API compatibility:
 - `Engine/Source/Runtime/Engine/Private/Terrain/TerrainHeightmapDerivedData.cpp`
 - `Engine/Source/Editor/EngineAssetBuild/EngineAssetBuild.dmodule`
 - `Engine/Source/Editor/EngineAssetBuild/Public/Texture/TextureBuildOperations.h`
-- `Engine/Source/Editor/EngineAssetBuild/Public/Texture/TextureDerivedDataWriter.h`
-- `Engine/Source/Editor/EngineAssetBuild/Private/Texture/TextureDerivedDataWriter.cpp`
+- `Engine/Source/Editor/EngineAssetBuild/Public/Texture/Texture2DDerivedData.h`
+- `Engine/Source/Editor/EngineAssetBuild/Private/Texture/Texture2DDerivedData.cpp`
 - `Engine/Source/Editor/AssetImportCore/AssetImportCore.dmodule`
 - `Engine/Source/Editor/StandardAssetImport/StandardAssetImport.dmodule`
 - `Engine/Source/Editor/StandardAssetImport/Private/StandardAssetImportProviders.cpp`

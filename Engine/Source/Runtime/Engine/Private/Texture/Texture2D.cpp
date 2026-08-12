@@ -11,7 +11,6 @@
 #include "DynamicRHI.h"
 #include "Texture/Texture2DRenderResource.h"
 #include "Texture/Texture2DPostLoad.h"
-#include "Texture/TextureBuild.h"
 #include "Texture/TextureDerivedData.h"
 #include "Threading/RunnableThread.h"
 
@@ -19,8 +18,33 @@ namespace Durin
 {
 	namespace
 	{
+		constexpr uint32 TextureSourceChannelCount = 4;
 		constexpr std::string_view TextureDecoderId = "DurinImage";
 		constexpr uint32 TextureDecoderVersion = 1;
+
+		auto IsValidUsage(ETextureUsage Usage) -> bool
+		{
+			return Usage == ETextureUsage::Color || Usage == ETextureUsage::Normal
+				|| Usage == ETextureUsage::DataMask;
+		}
+
+		auto IsValidCompressionQuality(ETextureCompressionQuality Quality) -> bool
+		{
+			return Quality == ETextureCompressionQuality::Low
+				|| Quality == ETextureCompressionQuality::Normal
+				|| Quality == ETextureCompressionQuality::High;
+		}
+
+		auto IsValidAlphaMipMode(ETextureAlphaMipMode Mode) -> bool
+		{
+			return Mode == ETextureAlphaMipMode::Average
+				|| Mode == ETextureAlphaMipMode::PreserveCoverage;
+		}
+
+		auto IsValidAlphaCoverageThreshold(float Threshold) -> bool
+		{
+			return std::isfinite(Threshold) && Threshold > 0.0f && Threshold < 1.0f;
+		}
 
 		auto ResolveTextureSource(
 			const DTexture2D& Texture,
@@ -92,7 +116,7 @@ namespace Durin
 		return Format == ETextureSourceFormat::RGBA8
 			&& Width > 0
 			&& Height > 0
-			&& static_cast<uint64>(Width) * Height * TextureBuild::ChannelCount == Pixels.size();
+			&& static_cast<uint64>(Width) * Height * TextureSourceChannelCount == Pixels.size();
 	}
 
 	auto FTexture2DMipData::IsValid(EPixelFormat PixelFormat) const -> bool
@@ -462,10 +486,10 @@ namespace Durin
 			|| !State.SourceData || !State.SourceData->IsValid()
 			|| !State.PlatformData || !State.PlatformData->IsValid()
 			|| State.DerivedDataKey.empty()
-			|| !TextureBuild::IsValidUsage(State.Usage)
-			|| !TextureBuild::IsValidCompressionQuality(State.CompressionQuality)
-			|| !TextureBuild::IsValidAlphaMipMode(State.AlphaMipMode)
-			|| !TextureBuild::IsValidAlphaCoverageThreshold(State.AlphaCoverageThreshold))
+			|| !IsValidUsage(State.Usage)
+			|| !IsValidCompressionQuality(State.CompressionQuality)
+			|| !IsValidAlphaMipMode(State.AlphaMipMode)
+			|| !IsValidAlphaCoverageThreshold(State.AlphaCoverageThreshold))
 		{
 			OutError = "Texture2D imported state is incomplete or invalid.";
 			return false;
