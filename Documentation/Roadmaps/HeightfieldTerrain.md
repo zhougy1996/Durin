@@ -29,9 +29,11 @@ for large regular grids.
 T0 is complete; its lasting contract is
 [Terrain Heightmap Asset](../Runtime/Terrain/TerrainHeightmapAsset.md).
 T1 is complete; its lasting contract is
-[Terrain Rendering](../Runtime/Rendering/TerrainRendering.md). T2 remains
-ready for independent plan selection. Both consume immutable revisioned payload
-snapshots without opening source files or defining a second height authority.
+[Terrain Rendering](../Runtime/Rendering/TerrainRendering.md). T2 is now active
+through the [Aether Heightfield Collision Plan](../Plans/AetherHeightfieldCollision.md).
+It will add a regular-grid AetherCore resource, complete query algorithms,
+Terrain BodyInstance publication, Cook/runtime behavior, and measured local-cell
+scaling without opening source files or defining a second height authority.
 
 ## Outcome
 
@@ -162,11 +164,11 @@ The required program delivers:
 
 | Area | Existing foundation | Gap | Owning milestone |
 | --- | --- | --- | --- |
-| Asset lifecycle | `DTerrainHeightmap`, exact grayscale16 import, immutable samples, regional extrema, registry/source integration, DDC and cooked companions | Renderer and collision consumers do not yet publish from the stable payload | T1, T2 |
-| RHI data | Sampled R16/R32 formats, textures, samplers, indexed triangle-list drawing | No terrain GPU resource owner or height upload contract | T1 |
-| Scene ownership | Typed proxy/SceneInfo families, FIFO mutation, component render-state recreation | No Terrain actor/component/proxy/info kind or revision synchronization | T1 |
-| Surface rendering | PBR materials, Opaque/Masked/Translucent classification, shared lighting and environment | No terrain vertex factory/shader, sample mapping, derived normal, or terrain UV contract | T1 |
-| Visibility | Central frustum classification, conservative fallbacks, view-local counters | No per-patch membership, regional height bounds, or terrain conservation counters | T1-T3 |
+| Asset lifecycle | `DTerrainHeightmap`, exact grayscale16 import, immutable samples, regional extrema, registry/source integration, DDC and cooked companions; renderer consumes stable revisions | Collision does not yet derive or publish from the stable payload | T2 |
+| RHI data | Terrain owns exact R16 upload, shared patch topology, shaders, and bounded resource caches | No T2 gap; collision must remain independent from RHI storage | Complete in T1 |
+| Scene ownership | Terrain Actor/Component, detached proxy, typed SceneInfo, FIFO mutation, and revision recreation are implemented | Physics-body recreation is not yet coordinated with heightmap revisions | T2 |
+| Surface rendering | Exact single-LOD Terrain uses shared PBR/material/output paths and signed height reconstruction | No T2 gap; collision must match its coordinate/cell contract without reading render state | Complete in T1 |
+| Visibility | Primitive and exact 64x64-cell patch visibility, regional bounds, conservative fallback, and counters are implemented | No LOD-aware bounds or adjacency selection | T3 |
 | LOD | StaticMesh projected-size selection and validated LOD policies | No patch adjacency, terrain error metric, crack policy, or stable patch LOD result | T3 |
 | Collision | Immutable shared mesh geometry, asset BVH, complete primitive queries, Production/Reference/Compare | HeightField kind, cell acceleration, algorithms, cook payload, and component publication are absent | T2 |
 | Editor | Content Browser, import/reimport providers, reflected details, viewport selection, undo transactions | No terrain asset presentation, placement, properties, picking, or diagnostics | T0, T1, T4 |
@@ -191,7 +193,7 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- | --- |
 | T0: Heightmap asset foundation | Required; complete | [Terrain Heightmap Asset](../Runtime/Terrain/TerrainHeightmapAsset.md) | Existing AssetCore, Engine asset lifecycle, StandardAssetImport | Dedicated 16-bit asset with validated source import, derived/cooked data, load, reimport, inspection facts, and bounded tests | Complete | Editor and cooked runtime reproduce identical canonical samples and regional metadata without source/DDC |
 | T1: Terrain render primitive | Required; complete | [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md) | T0, existing Renderer scene/visibility/material contracts | Actor/Component, proxy/info, patch resources, vertex factory/shader, PBR material mapping, single-LOD visible terrain | Complete | Exact single-LOD Terrain renders through shared PBR/output paths with conservative patch visibility, counted bounded resources, revision propagation, and editor placement |
-| T2: Heightfield collision | Required; ready for plan selection as `AetherHeightfieldCollision` | T0, existing Aether geometry/query facade | Immutable HeightField resource, cell acceleration, full Ray/Sweep/Overlap matrix, Cook/load, BodyInstance publication | Consume the stable top-left row-major samples and 64×64 extrema hierarchy; freeze query fixtures and a bounded triangle-mesh oracle | Heightfield Production matches Reference/oracle semantics, scales by local cells rather than all triangles, and tracks asset revisions safely |
+| T2: Heightfield collision | Required; active | [Aether Heightfield Collision](../Plans/AetherHeightfieldCollision.md) | T0, existing Aether geometry/query facade | Immutable HeightField resource, cell acceleration, full Ray/Sweep/Overlap matrix, Cook/load, BodyInstance publication | Entry gate passed: stable top-left row-major samples and 64×64 extrema hierarchy exist; Stage 0 freezes query fixtures, limits, persistence, and a bounded triangle-mesh oracle | Heightfield Production matches Reference/oracle semantics, scales by local cells rather than all triangles, and tracks asset revisions safely |
 | T3: Patch LOD and crack control | Required; proposed `TerrainPatchLOD` | T1 | Deterministic patch LOD, adjacency resolution, skirts or stitching, regional bounds, counters and GPU qualification | T1 has a correct single-LOD baseline and measured patch/draw/triangle costs | Camera motion and all neighbor transitions remain crack-free and deterministic within frozen CPU/GPU/memory budgets |
 | T4: Editor workflow and qualification | Required; proposed `TerrainEditorWorkflow` | T1-T3 | Placement, reflected properties, picking, reimport propagation, error presentation, final fixtures and lasting docs | Runtime/render/collision contracts are stable enough that editor actions do not define them implicitly | A user can import, place, configure, save, reload, Cook, run, select, and collide with terrain; all program validation rows pass |
 | T5: Terrain streaming | Conditional; proposed `TerrainStreamingAndResidency` | T4 plus concrete scale evidence | Partitioned height/render/collision residency with explicit budgets and failure behavior | Named world dimensions or measured memory/loading stalls exceed the finite component budgets | Selected working set and latency targets pass without incomplete collision or visible seam behavior |
@@ -215,7 +217,7 @@ mapping, visibility integration, counters, failure/reload behavior, and the
 first visible editor placement smoke. It does not own scalable LOD, collision,
 streaming, foliage, or painting.
 
-### `AetherHeightfieldCollision`
+### [Aether Heightfield Collision](../Plans/AetherHeightfieldCollision.md)
 
 Owns the immutable regular-grid collision resource, bounds/cell acceleration,
 operation/pair algorithms, reference comparison, payload/versioning,
