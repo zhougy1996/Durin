@@ -465,54 +465,6 @@ TEST(FSplineMeshActorTests, ClosedLoopReorderAndEmptyCurvesPreserveGuidOwnership
 	CollectGarbage();
 }
 
-TEST(FSplineMeshActorBudgetTests, FrozenThirtyTwoSegmentEditsMeetCpuAndStructuralMemoryBudgets)
-{
-	if (std::getenv("DURIN_RUN_SPLINE_PROFILE") == nullptr)
-		GTEST_SKIP() << "Set DURIN_RUN_SPLINE_PROFILE=1 for isolated performance qualification.";
-	InitializeDObjectSystem();
-	auto* World = NewObject<DWorld>(nullptr, "SplineMeshBudgetWorld");
-	auto* Level = NewObject<DLevel>(World, "SplineMeshBudgetLevel");
-	ASSERT_TRUE(World->SetCurrentLevel(Level));
-	auto* Actor = Level->SpawnActor<ASplineMeshActor>("SplineMeshActor");
-	ASSERT_NE(Actor, nullptr);
-	auto* Mesh = DStaticMesh::CreateDebugTriangle();
-	Actor->SetPathMesh(Mesh);
-	std::vector<FSplinePoint> Points;
-	Points.reserve(33);
-	for (uint32 Index = 0; Index < 33; ++Index)
-		Points.emplace_back(FVector3(static_cast<double>(Index) * 100.0,
-			std::sin(static_cast<double>(Index) * 0.35) * 25.0, 0.0));
-	Actor->GetSplineComponent()->SetSplinePoints(Points);
-	auto Segments = Actor->FindComponentsByClass<DSplineMeshComponent>();
-	ASSERT_EQ(Segments.size(), 32u);
-	DActorComponent* StableFirst = Segments.front();
-	std::vector<double> EditMilliseconds;
-	EditMilliseconds.reserve(300);
-	for (uint32 Iteration = 0; Iteration < 320; ++Iteration)
-	{
-		FSplinePoint Middle = *Actor->GetSplineComponent()->GetSplinePoint(16);
-		Middle.Position.z = static_cast<double>((Iteration % 13) + 1) * 0.25;
-		const auto Start = std::chrono::steady_clock::now();
-		ASSERT_TRUE(Actor->GetSplineComponent()->UpdateSplinePoint(16, Middle));
-		const auto End = std::chrono::steady_clock::now();
-		if (Iteration >= 20)
-			EditMilliseconds.push_back(std::chrono::duration<double, std::milli>(End - Start).count());
-	}
-	std::ranges::sort(EditMilliseconds);
-	const double P95Milliseconds = EditMilliseconds[284];
-	Segments = Actor->FindComponentsByClass<DSplineMeshComponent>();
-	EXPECT_NE(std::ranges::find(Segments, StableFirst), Segments.end());
-	for (DActorComponent* SegmentObject : Segments)
-		EXPECT_EQ(Cast<DSplineMeshComponent>(SegmentObject)->GetStaticMesh(), Mesh);
-	RecordProperty("reconstruction_32_segments_p95_ms", P95Milliseconds);
-	RecordProperty("spline_mesh_component_structural_bytes", sizeof(DSplineMeshComponent));
-	EXPECT_LE(P95Milliseconds, 4.0);
-	EXPECT_LE(sizeof(DSplineMeshComponent), 4096u);
-	MarkObjectHierarchyAsGarbage(World);
-	MarkAsGarbage(Mesh);
-	CollectGarbage();
-}
-
 TEST(FSplineComponentMutationTests, ListenerRemovalDuringPublicationIsSafe)
 {
 	InitializeDObjectSystem();

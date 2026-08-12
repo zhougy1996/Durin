@@ -90,3 +90,17 @@ durin_add_core_functional_test(CoreConcurrencyTests
 	Private/ProcessCrashContextTests.cpp
 	Private/ThreadingTests.cpp
 )
+
+add_durin_test(CoreConcurrencyQualificationTests
+	Private/ThreadingQualificationTests.cpp
+)
+set_target_properties(CoreConcurrencyQualificationTests PROPERTIES
+	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+)
+target_link_libraries(CoreConcurrencyQualificationTests PRIVATE Core)
+durin_finalize_native_test(CoreConcurrencyQualificationTests
+	KIND qualification
+	DOMAINS core
+	MODULES core
+)
+durin_discover_tests(CoreConcurrencyQualificationTests)

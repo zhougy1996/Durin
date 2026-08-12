@@ -9,6 +9,14 @@
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshResources.h"
 
+#if DURIN_STATIC_MESH_COLLISION_QUALIFICATION
+#define DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(Suite, Name) GTEST_TEST(DISABLED_##Suite, Name)
+#define DURIN_STATIC_MESH_COLLISION_QUALIFICATION_TEST(Suite, Name) GTEST_TEST(Suite, Name)
+#else
+#define DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(Suite, Name) GTEST_TEST(Suite, Name)
+#define DURIN_STATIC_MESH_COLLISION_QUALIFICATION_TEST(Suite, Name) GTEST_TEST(DISABLED_##Suite, Name)
+#endif
+
 namespace
 {
 	using namespace Durin;
@@ -677,7 +685,7 @@ namespace
 	}
 }
 
-TEST(FAetherCookedCollisionStage0Tests, FreezesSourceModesPoliciesAndDefaultCompatibility)
+DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage0Tests, FreezesSourceModesPoliciesAndDefaultCompatibility)
 {
 	EXPECT_EQ(ResolveRepresentation(ECollisionQueryPolicy::SimpleAndComplex,
 		ECollisionQueryComplexity::Default, true, true), ECollisionRepresentation::Simple);
@@ -694,7 +702,7 @@ TEST(FAetherCookedCollisionStage0Tests, FreezesSourceModesPoliciesAndDefaultComp
 	EXPECT_EQ(static_cast<uint8>(ECollisionSourceMode::TriangleMeshFromLOD0), 2u);
 }
 
-TEST(FAetherCookedCollisionStage0Tests, FreezesCompleteTargetAlgorithmMatrix)
+DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage0Tests, FreezesCompleteTargetAlgorithmMatrix)
 {
 	for (EPrototypeTarget Target : {EPrototypeTarget::ConvexHull, EPrototypeTarget::TriangleMesh})
 		for (EPrototypeOperation Operation : {EPrototypeOperation::Ray, EPrototypeOperation::Sweep,
@@ -717,7 +725,7 @@ TEST(FAetherCookedCollisionStage0Tests, FreezesCompleteTargetAlgorithmMatrix)
 	EXPECT_DOUBLE_EQ(TimeTolerance, 1.0e-12);
 }
 
-TEST(FAetherCookedCollisionStage0Tests, FreezesAnalyticReferenceEvidenceForEveryMatrixCell)
+DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage0Tests, FreezesAnalyticReferenceEvidenceForEveryMatrixCell)
 {
 	const std::vector<FReferenceEvidence> Evidence = MakeReferenceEvidence();
 	ASSERT_EQ(Evidence.size(), 18u);
@@ -745,7 +753,7 @@ TEST(FAetherCookedCollisionStage0Tests, FreezesAnalyticReferenceEvidenceForEvery
 		EPrototypeQueryShape::Capsule).Time, 0.25, 1.0e-12);
 }
 
-TEST(FAetherCookedCollisionStage0Tests, FreezesFixtureCorpusAndDeterministicAssetTree)
+DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage0Tests, FreezesFixtureCorpusAndDeterministicAssetTree)
 {
 	const std::vector<FCollisionSourceFixture> Fixtures = MakeEdgeCaseFixtures();
 	ASSERT_EQ(Fixtures.size(), 8u);
@@ -774,7 +782,7 @@ TEST(FAetherCookedCollisionStage0Tests, FreezesFixtureCorpusAndDeterministicAsse
 	EXPECT_GT(First.Nodes.front().Maximum.x, 1.0f);
 }
 
-TEST(FAetherCookedCollisionStage0Tests, FreezesDegeneracyAndTransactionalFailure)
+DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage0Tests, FreezesDegeneracyAndTransactionalFailure)
 {
 	const std::vector<FCollisionSourceFixture> Fixtures = MakeEdgeCaseFixtures();
 	FMeshBuildFacts DuplicateFacts;
@@ -794,7 +802,7 @@ TEST(FAetherCookedCollisionStage0Tests, FreezesDegeneracyAndTransactionalFailure
 	EXPECT_EQ(Sentinel.SourceTriangles, 77u);
 }
 
-TEST(FAetherCookedCollisionStage0Tests, FreezesClosedHullInputAndCanonicalVertexOrder)
+DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage0Tests, FreezesClosedHullInputAndCanonicalVertexOrder)
 {
 	const std::vector<FCollisionSourceFixture> Fixtures = MakeEdgeCaseFixtures();
 	EXPECT_TRUE(ValidateClosedHullInput(Fixtures[0]));
@@ -816,7 +824,7 @@ TEST(FAetherCookedCollisionStage0Tests, FreezesClosedHullInputAndCanonicalVertex
 	EXPECT_EQ(Canonicalize(Fixtures[1].Positions), Canonicalize(std::move(Permuted)));
 }
 
-TEST(FAetherCookedCollisionStage0Tests, FreezesHullAndMeshMemoryBudgets)
+DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage0Tests, FreezesHullAndMeshMemoryBudgets)
 {
 	constexpr uint64 CubeHullBytes = 8u * sizeof(FVector3f)
 		+ 6u * sizeof(FCollisionHullPlanePrototype)
@@ -844,7 +852,7 @@ TEST(FAetherCookedCollisionStage0Tests, FreezesHullAndMeshMemoryBudgets)
 	EXPECT_EQ(MaximumCollisionDebugTriangles, 256u);
 }
 
-TEST(FAetherCookedCollisionStage0Tests, QualifiesHundredThousandTrianglePrototype)
+DURIN_STATIC_MESH_COLLISION_QUALIFICATION_TEST(FAetherCookedCollisionQualificationTests, QualifiesHundredThousandTrianglePrototype)
 {
 	const FCollisionSourceFixture Large = MakeGrid(224, 224);
 	ASSERT_GT(Large.Indices.size() / 3, 100'000u);
@@ -886,7 +894,7 @@ TEST(FAetherCookedCollisionStage0Tests, QualifiesHundredThousandTrianglePrototyp
 	RecordProperty("M3PrototypeSparseFeatureTests", SparseMiss.FeatureTests);
 }
 
-TEST(FAetherCookedCollisionStage0Tests, FreezesKeyFormatPayloadAndDescriptorIdentity)
+DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage0Tests, FreezesKeyFormatPayloadAndDescriptorIdentity)
 {
 	const FXxHash128 Source{0x0123456789abcdefull, 0xfedcba9876543210ull};
 	const FXxHash128 Geometry{0x1111222233334444ull, 0xaaaabbbbccccddddull};
@@ -965,7 +973,7 @@ TEST(FAetherCookedCollisionStage0Tests, FreezesKeyFormatPayloadAndDescriptorIden
 	EXPECT_NE(StaticMeshCollisionPayloadId, StaticMeshPrimaryCookedPayloadId);
 }
 
-TEST(FAetherCookedCollisionStage0Tests, CapturesRealImportedSourceWithoutRetainingRenderPointers)
+DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage0Tests, CapturesRealImportedSourceWithoutRetainingRenderPointers)
 {
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
 	std::string Error;
@@ -992,7 +1000,7 @@ TEST(FAetherCookedCollisionStage0Tests, CapturesRealImportedSourceWithoutRetaini
 	EXPECT_FALSE(Snapshot.Indices.empty());
 }
 
-TEST(FAetherCookedCollisionStage0Tests, FreezesFeatureOrderingNormalsAndInspectionFacts)
+DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage0Tests, FreezesFeatureOrderingNormalsAndInspectionFacts)
 {
 	struct FFeatureCandidate { double Time; uint32 Ordinal; };
 	std::array Candidates{FFeatureCandidate{0.25, 7}, FFeatureCandidate{0.25, 3},
@@ -1024,7 +1032,7 @@ TEST(FAetherCookedCollisionStage0Tests, FreezesFeatureOrderingNormalsAndInspecti
 	EXPECT_EQ(QualifiedSharedInstances, 10'000u);
 }
 
-TEST(FAetherCookedCollisionStage3Tests, ProductionKeyAndPayloadMatchFrozenGoldenBytes)
+DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage3Tests, ProductionKeyAndPayloadMatchFrozenGoldenBytes)
 {
 	const FStaticMeshCollisionDerivedDataKeyInput KeyInput{
 		.SourceContentHash = {0x0123456789abcdefull, 0xfedcba9876543210ull},
@@ -1076,7 +1084,7 @@ TEST(FAetherCookedCollisionStage3Tests, ProductionKeyAndPayloadMatchFrozenGolden
 	EXPECT_EQ(Preserved.Indices, Decoded.Indices);
 }
 
-TEST(FAetherCookedCollisionStage5Tests, InspectionReportsBoundedReadOnlyCollisionFacts)
+DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage5Tests, InspectionReportsBoundedReadOnlyCollisionFacts)
 {
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
 	std::string Error;
@@ -1112,7 +1120,7 @@ TEST(FAetherCookedCollisionStage5Tests, InspectionReportsBoundedReadOnlyCollisio
 	CollectGarbage();
 }
 
-TEST(FAetherCookedCollisionStage3Tests, StaticMeshAuthorshipUsesIndependentDdcAndTransactionalFailure)
+DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage3Tests, StaticMeshAuthorshipUsesIndependentDdcAndTransactionalFailure)
 {
 	const std::string PreviousCache = FPaths::DerivedDataCacheDir();
 	const std::filesystem::path Cache = Testing::GetTestWorkDirectory() / "CollisionDDC";
@@ -1160,7 +1168,7 @@ TEST(FAetherCookedCollisionStage3Tests, StaticMeshAuthorshipUsesIndependentDdcAn
 	CollectGarbage();
 }
 
-TEST(FAetherCookedCollisionStage3Tests, ImportedStateExchangeMovesCollisionAsOneReversibleBundle)
+DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage3Tests, ImportedStateExchangeMovesCollisionAsOneReversibleBundle)
 {
 	const std::string PreviousCache = FPaths::DerivedDataCacheDir();
 	const std::filesystem::path Cache = Testing::GetTestWorkDirectory() / "CollisionExchangeDDC";

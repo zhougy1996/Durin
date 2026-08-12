@@ -319,12 +319,23 @@ durin_add_engine_functional_test(StaticMeshTests
 		Private/StaticMeshDerivedDataContractTests.cpp
 		Private/StaticMeshDerivedDataCacheTests.cpp
 		Private/StaticMeshPayloadCodecTests.cpp
-		Private/StaticMeshCollisionStage0Tests.cpp
+		Private/StaticMeshCollisionRoutineTests.cpp
 		Private/StaticMeshMaterialSlotDetailsTests.cpp
 		Private/StaticMeshEditorTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Customizations/StaticMeshMaterialSlotDetails.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
+	LIBRARIES AssetImportCore EngineAssetBuild StandardAssetImport RenderCore Renderer DurinEd StaticMeshEditor
+	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
+)
+
+durin_add_engine_functional_test(StaticMeshCollisionQualificationTests
+	KIND qualification
+	DOMAINS physics static-mesh
+	MODULES aether engine static-mesh-editor
+	STACKS editor renderer
+	RUNTIME_STACK_RATIONALE "Measures the large cooked-collision prototype while preserving its frozen helper model."
+	SOURCES Private/StaticMeshCollisionQualificationTests.cpp
 	LIBRARIES AssetImportCore EngineAssetBuild StandardAssetImport RenderCore Renderer DurinEd StaticMeshEditor
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
@@ -799,6 +810,14 @@ durin_add_engine_functional_test(PhysicsSceneTests
 	LIBRARIES AetherCore Aether
 )
 
+durin_add_engine_functional_test(PhysicsQualificationTests
+	KIND qualification
+	DOMAINS physics
+	MODULES aether engine
+	SOURCES Private/Physics/PhysicsQualificationTests.cpp
+	LIBRARIES AetherCore Aether
+)
+
 add_durin_test(MonaViewportTests
 	Private/Viewport/ViewportDisplaySourceTests.cpp
 )
@@ -907,10 +926,57 @@ if(DURIN_WITH_EDITOR)
 			"LevelEditor-owned viewport white-box coverage without exporting private DLL symbols."
 	)
 	durin_discover_tests(ViewportTests)
+
+	add_durin_test(ViewportQualificationTests
+		Private/Viewport/ViewportPickingQualificationTests.cpp
+		${_durin_viewport_private_sources}
+	)
+	target_include_directories(ViewportQualificationTests PRIVATE
+		${CMAKE_CURRENT_SOURCE_DIR}/Private
+		${_durin_level_editor_private}
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public
+		${CMAKE_SOURCE_DIR}/Engine/Source
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/MonaImGui/Private
+	)
+	target_compile_definitions(ViewportQualificationTests PRIVATE LEVELEDITOR_EXPORTS)
+	target_link_libraries(ViewportQualificationTests PRIVATE
+		Core
+		CoreDObject
+		RHI
+		RenderCore
+		Engine
+		ApplicationCore
+		MonaCore
+		Mona
+		MonaImGui
+		AssetCore
+		AssetImportCore
+		StandardAssetImport
+		EngineAssetBuild
+		DurinEd
+	)
+	set_target_properties(ViewportQualificationTests PROPERTIES
+		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+		DURIN_TEST_HEAVY_RUNTIME_RATIONALE
+			"Measures large-scale editor viewport picking behavior."
+		DURIN_TEST_TIMEOUT 900
+	)
+	durin_finalize_native_test(ViewportQualificationTests
+		KIND qualification
+		DOMAINS viewport
+		MODULES engine level-editor mona
+		STACKS editor
+		PRIVATE_SOURCE_OWNER LevelEditor
+		PRIVATE_SOURCE_RATIONALE
+			"LevelEditor-owned viewport qualification uses the same private picking seams as routine coverage."
+	)
+	durin_discover_tests(ViewportQualificationTests)
 else()
 	durin_exclude_native_test_sources(
 		RATIONALE "ViewportTests requires LevelEditor composition and DurinEd."
-		SOURCES ${_durin_viewport_test_sources}
+		SOURCES
+			${_durin_viewport_test_sources}
+			Private/Viewport/ViewportPickingQualificationTests.cpp
 	)
 endif()
 
@@ -940,6 +1006,13 @@ durin_add_engine_functional_test(SplineTests
 		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
 	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd AssetImportCore StandardAssetImport
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
+)
+
+durin_add_engine_functional_test(SplineQualificationTests
+	KIND qualification
+	DOMAINS spline
+	MODULES engine
+	SOURCES Private/SplineQualificationTests.cpp
 )
 
 durin_add_engine_functional_test(SkyBoxTests
