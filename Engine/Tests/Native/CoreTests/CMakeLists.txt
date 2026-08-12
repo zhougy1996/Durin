@@ -15,6 +15,11 @@ function(durin_add_core_functional_test target_name)
 		${target_name}
 		"${DURIN_PROJECT_ROOT_DIR}/Configs/TP_DurinEditor.yaml"
 	)
+	durin_finalize_native_test(${target_name}
+		KIND contract
+		DOMAINS core
+		MODULES core
+	)
 	durin_discover_tests(${target_name})
 endfunction()
 

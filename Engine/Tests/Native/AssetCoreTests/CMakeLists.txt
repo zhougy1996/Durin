@@ -2,8 +2,8 @@ include(GoogleTest)
 
 function(durin_add_asset_functional_test target_name)
 	set(options IMPORT_RUNTIME)
-	set(one_value_args TIMEOUT)
-	set(multi_value_args SOURCES LIBRARIES)
+	set(one_value_args KIND TIMEOUT)
+	set(multi_value_args DOMAINS MODULES SOURCES LIBRARIES)
 	cmake_parse_arguments(
 		DURIN_ASSET_TEST
 		"${options}"
@@ -37,10 +37,18 @@ function(durin_add_asset_functional_test target_name)
 			DURIN_TEST_TIMEOUT "${DURIN_ASSET_TEST_TIMEOUT}"
 		)
 	endif()
+	durin_finalize_native_test(${target_name}
+		KIND ${DURIN_ASSET_TEST_KIND}
+		DOMAINS ${DURIN_ASSET_TEST_DOMAINS}
+		MODULES ${DURIN_ASSET_TEST_MODULES}
+	)
 	durin_discover_tests(${target_name})
 endfunction()
 
 durin_add_asset_functional_test(AssetPackageTests
+	KIND feature
+	DOMAINS asset-package
+	MODULES asset-core engine
 	LIBRARIES Engine
 	SOURCES
 		Private/PackageTests.cpp
@@ -57,26 +65,41 @@ durin_test_deploy_directory_to_data(
 )
 
 durin_add_asset_functional_test(AssetCookTests
+	KIND feature
+	DOMAINS asset-cook
+	MODULES asset-core
 	TIMEOUT 600
 	SOURCES Private/CookedAssetTests.cpp
 )
 
 durin_add_asset_functional_test(AssetDerivedDataTests
+	KIND feature
+	DOMAINS derived-data
+	MODULES asset-core
 	SOURCES Private/DerivedDataObjectStoreTests.cpp
 )
 
 durin_add_asset_functional_test(AssetDecodeTests
+	KIND contract
+	DOMAINS asset-import
+	MODULES asset-core
 	SOURCES Private/ImageDecoderTests.cpp
 )
 
 if(DURIN_WITH_EDITOR)
 	durin_add_asset_functional_test(AssetImportTests
+		KIND integration
+		DOMAINS asset-import
+		MODULES asset-core asset-import-core standard-asset-import
 		IMPORT_RUNTIME
 		TIMEOUT 600
 		SOURCES Private/AssetImportTests.cpp
 	)
 
 	durin_add_asset_functional_test(AssetImportCoreTests
+		KIND contract
+		DOMAINS asset-import
+		MODULES asset-core asset-import-core
 		LIBRARIES AssetImportCore
 		SOURCES Private/AssetImportCoreTests.cpp Private/ImportRecordTests.cpp
 	)

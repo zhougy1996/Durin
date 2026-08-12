@@ -8,55 +8,6 @@ include("${CMAKE_CURRENT_LIST_DIR}/TargetDependencyClosure.cmake")
 # enforcement state, not test metadata: it may only shrink as targets migrate.
 # New target names must use durin_finalize_native_test before discovery.
 set(DURIN_NATIVE_TEST_LEGACY_TARGET_ALLOWLIST
-	AssetCookTests
-	AssetDecodeTests
-	AssetDerivedDataTests
-	AssetImportCoreTests
-	AssetImportTests
-	AssetPackageTests
-	AssetReferenceStoreTests
-	CoreConcurrencyTests
-	CoreFileSystemTests
-	CoreObjectTests
-	CorePropertyChangeTests
-	CorePropertyValueSnapshotTests
-	CoreUtilityTests
-	EditorAssetWorkflowTests
-	EditorHierarchyTests
-	EditorPropertyTests
-	EditorRenderingTests
-	EditorShellTests
-	EnvironmentLightingTests
-	ExternalToolTests
-	LevelAuthoringTests
-	MaterialTests
-	MaterialThumbnailTests
-	PhysicsSceneTests
-	RenderContractTests
-	RendererResourceReloadVulkanTests
-	RendererSceneContractTests
-	RenderShaderCacheTests
-	RenderShaderContractTests
-	RenderShaderServiceTests
-	SandboxGameplayTests
-	SceneImportVulkanTests
-	SkeletalAssetTests
-	SkeletalMeshEditorTests
-	SkeletalMeshRenderResourcesVulkanTests
-	SkeletalSceneLifecycleTests
-	SkyBoxTests
-	SkyBoxVulkanIntegrationTests
-	SplineTests
-	StaticMeshRenderPreparationVulkanTests
-	StaticMeshTests
-	StaticMeshThumbnailTests
-	TerrainHeightmapCookTests
-	TerrainHeightmapTests
-	TerrainRenderPrimitiveTests
-	TerrainRenderVulkanTests
-	TextureCookIntegrationTests
-	TextureThumbnailTests
-	ThumbnailTests
 )
 
 function(durin_module_log project_name module_name)

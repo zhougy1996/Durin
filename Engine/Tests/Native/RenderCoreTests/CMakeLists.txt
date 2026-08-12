@@ -5,8 +5,8 @@ set(_durin_render_core_private_dir
 
 function(durin_add_render_functional_test target_name)
 	set(options USE_SLANG)
-	set(one_value_args)
-	set(multi_value_args SOURCES PRIVATE_SOURCES)
+	set(one_value_args KIND PRIVATE_SOURCE_RATIONALE)
+	set(multi_value_args DOMAINS MODULES SOURCES PRIVATE_SOURCES)
 	cmake_parse_arguments(
 		DURIN_RENDER_TEST
 		"${options}"
@@ -42,11 +42,32 @@ function(durin_add_render_functional_test target_name)
 	set_target_properties(${target_name} PROPERTIES
 		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 	)
+	if(DURIN_RENDER_TEST_PRIVATE_SOURCES)
+		durin_finalize_native_test(${target_name}
+			KIND ${DURIN_RENDER_TEST_KIND}
+			DOMAINS ${DURIN_RENDER_TEST_DOMAINS}
+			MODULES ${DURIN_RENDER_TEST_MODULES}
+			PRIVATE_SOURCE_OWNER RenderCore
+			PRIVATE_SOURCE_RATIONALE
+				"${DURIN_RENDER_TEST_PRIVATE_SOURCE_RATIONALE}"
+		)
+	else()
+		durin_finalize_native_test(${target_name}
+			KIND ${DURIN_RENDER_TEST_KIND}
+			DOMAINS ${DURIN_RENDER_TEST_DOMAINS}
+			MODULES ${DURIN_RENDER_TEST_MODULES}
+		)
+	endif()
 	durin_set_native_test_target_execution(${target_name})
 	durin_discover_tests(${target_name})
 endfunction()
 
 durin_add_render_functional_test(RenderShaderContractTests
+	KIND contract
+	DOMAINS shader
+	MODULES rendercore
+	PRIVATE_SOURCE_RATIONALE
+		"RenderCore-owned shader compiler white-box coverage avoids exporting private compiler implementation symbols."
 	USE_SLANG
 	SOURCES
 		Private/ShaderFoundationTests.cpp
@@ -61,6 +82,11 @@ target_compile_definitions(RenderShaderContractTests PRIVATE
 )
 
 durin_add_render_functional_test(RenderShaderCacheTests
+	KIND feature
+	DOMAINS shader
+	MODULES rendercore
+	PRIVATE_SOURCE_RATIONALE
+		"RenderCore-owned shader cache white-box coverage avoids exporting private cache implementation symbols."
 	USE_SLANG
 	SOURCES Private/ShaderCacheStoreTests.cpp
 	PRIVATE_SOURCES
@@ -71,6 +97,11 @@ durin_add_render_functional_test(RenderShaderCacheTests
 )
 
 durin_add_render_functional_test(RenderShaderServiceTests
+	KIND feature
+	DOMAINS shader
+	MODULES rendercore
+	PRIVATE_SOURCE_RATIONALE
+		"RenderCore-owned shader service white-box coverage avoids exporting private service implementation symbols."
 	USE_SLANG
 	SOURCES Private/ShaderCompileServiceTests.cpp
 	PRIVATE_SOURCES
@@ -82,6 +113,9 @@ durin_add_render_functional_test(RenderShaderServiceTests
 )
 
 durin_add_render_functional_test(RenderContractTests
+	KIND contract
+	DOMAINS renderer
+	MODULES rendercore rhi
 	SOURCES
 		Private/RenderResourceCreationTests.cpp
 		Private/RenderResourceLifecycleTests.cpp

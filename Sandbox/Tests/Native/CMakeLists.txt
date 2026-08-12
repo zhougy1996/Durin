@@ -17,4 +17,9 @@ target_link_libraries(SandboxGameplayTests PRIVATE
 	Engine
 	Sandbox
 )
+durin_finalize_native_test(SandboxGameplayTests
+	KIND feature
+	DOMAINS gameplay
+	MODULES engine sandbox
+)
 durin_discover_tests(SandboxGameplayTests)
