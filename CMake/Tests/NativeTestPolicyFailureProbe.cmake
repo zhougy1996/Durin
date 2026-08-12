@@ -52,6 +52,8 @@ elseif(DURIN_POLICY_PROBE STREQUAL "execution-characterization-with-default")
 		probe_case_labels probe_target_labels ProbeTests FALSE CASE
 		"Pending migration." "Stage 3"
 		LABELS native-test ProbeTests native-test-characterization)
+elseif(DURIN_POLICY_PROBE STREQUAL "migration-new-legacy-target")
+	durin_validate_native_test_legacy_name(NewLegacyTests)
 elseif(DURIN_POLICY_PROBE MATCHES "^repository-")
 	if(NOT DEFINED DURIN_PROBE_ROOT)
 		message(FATAL_ERROR "DURIN_PROBE_ROOT is required.")

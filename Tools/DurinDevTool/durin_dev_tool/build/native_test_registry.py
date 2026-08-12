@@ -36,6 +36,8 @@ class NativeTestTarget:
     timeout_seconds: int
     resource_locks: tuple[str, ...]
     heavy_runtime: bool
+    private_source_owner: str
+    private_source_rationale: str
 
     @property
     def characterization(self) -> bool:
@@ -129,6 +131,8 @@ def load_native_test_registry(context: BuildContext) -> NativeTestRegistry:
                 timeout_seconds=int(record.get("timeoutSeconds", 0)),
                 resource_locks=_string_list(record, "resourceLocks", target=name),
                 heavy_runtime=record.get("heavyRuntime") is True,
+                private_source_owner=str(record.get("privateSourceOwner", "")),
+                private_source_rationale=str(record.get("privateSourceRationale", "")),
             )
         )
     names = [target.name for target in targets]
@@ -209,12 +213,28 @@ def filter_targets(registry: NativeTestRegistry, query: str = "") -> tuple[Nativ
     normalized = query.casefold()
     if not normalized:
         return registry.targets
+    if normalized == "migration":
+        return tuple(
+            target
+            for target in registry.targets
+            if target.metadata_mode == "legacy" or target.private_source_owner
+        )
     return tuple(
         target
         for target in registry.targets
         if normalized
         in " ".join(
-            (target.name, target.kind, *target.domains, *target.modules, *target.backends, *target.stacks)
+            (
+                target.name,
+                target.metadata_mode,
+                target.kind,
+                *target.domains,
+                *target.modules,
+                *target.backends,
+                *target.stacks,
+                target.private_source_owner,
+                target.private_source_rationale,
+            )
         ).casefold()
     )
 
@@ -228,5 +248,10 @@ def target_metadata_text(target: NativeTestTarget) -> str:
         f"stacks={'+'.join(target.stacks)}" if target.stacks else "",
         f"locks={'+'.join(target.resource_locks)}" if target.resource_locks else "",
         "heavy" if target.heavy_runtime else "",
+        (
+            f"private-source-owner={target.private_source_owner}"
+            if target.private_source_owner
+            else ""
+        ),
     )
     return ", ".join(value for value in values if value)

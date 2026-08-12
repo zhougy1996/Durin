@@ -4,6 +4,68 @@ include_guard(GLOBAL)
 
 include("${CMAKE_CURRENT_LIST_DIR}/TargetDependencyClosure.cmake")
 
+# Compatibility baseline for untouched native-test declarations. This list is
+# enforcement state, not test metadata: it may only shrink as targets migrate.
+# New target names must use durin_finalize_native_test before discovery.
+set(DURIN_NATIVE_TEST_LEGACY_TARGET_ALLOWLIST
+	AssetCookTests
+	AssetDecodeTests
+	AssetDerivedDataTests
+	AssetImportCoreTests
+	AssetImportTests
+	AssetPackageTests
+	AssetReferenceStoreTests
+	CoreConcurrencyTests
+	CoreFileSystemTests
+	CoreObjectTests
+	CorePropertyChangeTests
+	CorePropertyValueSnapshotTests
+	CoreUtilityTests
+	EditorAssetWorkflowTests
+	EditorHierarchyTests
+	EditorPropertyTests
+	EditorRenderingTests
+	EditorShellTests
+	EnvironmentLightingTests
+	ExternalToolTests
+	LevelAuthoringTests
+	MaterialTests
+	MaterialThumbnailTests
+	PhysicsSceneTests
+	RenderContractTests
+	RendererResourceReloadVulkanTests
+	RendererSceneContractTests
+	RenderShaderCacheTests
+	RenderShaderContractTests
+	RenderShaderServiceTests
+	RHICommandListTests
+	RHIInitializationTests
+	RHIResourceTransitionValidationTests
+	RHIResourceViewValidationTests
+	RHIThreadTests
+	RHITransferValidationTests
+	SandboxGameplayTests
+	SceneImportVulkanTests
+	SkeletalAssetTests
+	SkeletalMeshEditorTests
+	SkeletalMeshRenderResourcesVulkanTests
+	SkeletalSceneLifecycleTests
+	SkyBoxTests
+	SkyBoxVulkanIntegrationTests
+	SplineTests
+	StaticMeshRenderPreparationVulkanTests
+	StaticMeshTests
+	StaticMeshThumbnailTests
+	TerrainHeightmapCookTests
+	TerrainHeightmapTests
+	TerrainRenderPrimitiveTests
+	TerrainRenderVulkanTests
+	TextureCookIntegrationTests
+	TextureTests
+	TextureThumbnailTests
+	ThumbnailTests
+)
+
 function(durin_module_log project_name module_name)
 	message(STATUS "[${project_name}] Module: ${module_name}")
 endfunction()
@@ -486,6 +548,34 @@ function(durin_finalize_native_test target_name)
 	)
 endfunction()
 
+function(durin_validate_native_test_legacy_name target_name)
+	if(NOT "${target_name}" IN_LIST DURIN_NATIVE_TEST_LEGACY_TARGET_ALLOWLIST)
+		message(FATAL_ERROR
+			"Native-test target ${target_name} is not grandfathered for legacy discovery. "
+			"New and substantively changed targets must call durin_finalize_native_test "
+			"with KIND and DOMAINS before durin_discover_tests.")
+	endif()
+endfunction()
+
+function(durin_validate_native_test_migration_admission target_name)
+	if(NOT TARGET ${target_name})
+		message(FATAL_ERROR
+			"Cannot validate native-test migration admission for missing target ${target_name}.")
+	endif()
+	get_target_property(_durin_metadata_mode ${target_name} DURIN_TEST_METADATA_MODE)
+	if(_durin_metadata_mode MATCHES "-NOTFOUND$")
+		set(_durin_metadata_mode legacy)
+	endif()
+	if(_durin_metadata_mode STREQUAL "structured")
+		return()
+	endif()
+	if(NOT _durin_metadata_mode STREQUAL "legacy")
+		message(FATAL_ERROR
+			"${target_name} has unsupported native-test metadata mode '${_durin_metadata_mode}'.")
+	endif()
+	durin_validate_native_test_legacy_name(${target_name})
+endfunction()
+
 function(durin_add_native_test_aggregate_target target_name)
 	if(TARGET ${target_name})
 		message(FATAL_ERROR "Native-test aggregate target ${target_name} already exists.")
@@ -923,7 +1013,7 @@ function(durin_generate_native_test_registry output_path)
 		foreach(_durin_property
 			METADATA_MODE KIND DOMAINS MODULES BACKENDS STACKS
 			DIRECT_LIFECYCLE TIMEOUT DISCOVERY_RESOURCE_LOCKS
-			HEAVY_RUNTIME_RATIONALE)
+			HEAVY_RUNTIME_RATIONALE PRIVATE_SOURCE_OWNER PRIVATE_SOURCE_RATIONALE)
 			get_target_property(_durin_${_durin_property}
 				${_durin_target} DURIN_TEST_${_durin_property})
 			if(_durin_${_durin_property} MATCHES "-NOTFOUND$")
@@ -946,6 +1036,8 @@ function(durin_generate_native_test_registry output_path)
 		durin_json_escape(_durin_name_json "${_durin_target}")
 		durin_json_escape(_durin_mode_json "${_durin_METADATA_MODE}")
 		durin_json_escape(_durin_kind_json "${_durin_KIND}")
+		durin_json_escape(_durin_private_source_owner_json "${_durin_PRIVATE_SOURCE_OWNER}")
+		durin_json_escape(_durin_private_source_rationale_json "${_durin_PRIVATE_SOURCE_RATIONALE}")
 		string(CONCAT _durin_record
 			"    {\"name\":\"${_durin_name_json}\",\"availability\":\"configured\","
 			"\"metadataMode\":\"${_durin_mode_json}\",\"kind\":\"${_durin_kind_json}\","
@@ -953,7 +1045,9 @@ function(durin_generate_native_test_registry output_path)
 			"\"backends\":${_durin_BACKENDS_json},\"stacks\":${_durin_STACKS_json},"
 			"\"directLifecycle\":${_durin_direct_json},\"timeoutSeconds\":${_durin_TIMEOUT},"
 			"\"resourceLocks\":${_durin_DISCOVERY_RESOURCE_LOCKS_json},"
-			"\"heavyRuntime\":${_durin_heavy_json}}")
+			"\"heavyRuntime\":${_durin_heavy_json},"
+			"\"privateSourceOwner\":\"${_durin_private_source_owner_json}\","
+			"\"privateSourceRationale\":\"${_durin_private_source_rationale_json}\"}")
 		list(APPEND _durin_records "${_durin_record}")
 	endforeach()
 	string(JOIN ",\n" _durin_records_json ${_durin_records})
@@ -993,6 +1087,7 @@ function(durin_discover_tests target_name)
 		message(FATAL_ERROR
 			"${target_name} must be created with add_durin_test before discovery.")
 	endif()
+	durin_validate_native_test_migration_admission(${target_name})
 
 	# Discovery is the first point at which the test's link declarations are
 	# complete. Register its complete deployable runtime closure before

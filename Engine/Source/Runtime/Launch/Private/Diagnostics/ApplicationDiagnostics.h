@@ -1,6 +1,6 @@
 #pragma once
 
-#include "LaunchArguments.h"
+#include "LaunchContracts/LaunchArguments.h"
 
 namespace Durin
 {

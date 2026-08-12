@@ -1,4 +1,4 @@
-#include "Runtime/Launch/Private/LaunchArguments.h"
+#include "LaunchContracts/LaunchArguments.h"
 
 #include <gtest/gtest.h>
 

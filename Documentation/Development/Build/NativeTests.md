@@ -38,8 +38,14 @@ Discover configured choices without building them:
 ```powershell
 .\DevTool.bat test list
 .\DevTool.bat test list viewport
+.\DevTool.bat test list migration
 .\DevTool.bat test explain "@domain=viewport,backend=vulkan"
 ```
+
+`test list migration` is the generated long-tail report. It lists every
+configured legacy target and every structured target retaining an explicitly
+owned production-private source seam. The report is derived from the active
+registry; it is not a second migration checklist.
 
 Set selectors start with `@`. `@viewport` is shorthand for
 `@domain=viewport`. Within a dimension, `+` is union; comma-separated
@@ -63,6 +69,26 @@ CTest scheduling and GoogleTest order, printing a reproducible seed. Report
 mode writes JUnit XML under
 `Build/NativeTestResults/<Preset>/<Selection>.xml` unless `--report <path>` is
 given. Characterization admission is always explicit.
+
+Choose validation by risk and preserve the resolved target names in the
+handoff or CI log:
+
+- Routine changes run the smallest named target that owns the changed behavior.
+- Cross-module behavior runs its feature domain, such as `test "@world"` or
+  `test "@viewport"`; reproduce the result with the resolved named targets
+  printed before execution.
+- Backend-specific behavior intersects the domain with a backend, such as
+  `test "@domain=viewport,backend=vulkan"`.
+- Child-process, crash, or launcher behavior selects `stack=process`; explicit
+  characterization additionally requires `--mode characterization`.
+- Shared discovery, registry, harness, locking, deployment, or aggregate
+  changes run `test --target all` at default target granularity.
+
+Scheduled/nightly repository validation owns the ordinary native aggregate.
+Release qualification owns that aggregate plus any platform/backend matrix
+required by the release. A failed set is diagnosed with its printed named
+targets and narrow case filters; local implementation and handoff validation
+remain risk-based and do not inherit the whole scheduled matrix.
 
 `--target all` builds the `DurinNativeTests` aggregate and then runs every
 ordinary target once through CTest. This `target` granularity is the default.
@@ -251,10 +277,15 @@ are sorted. The label prefixes `kind-`, `domain-`, `module-`, `backend-`, and
 integration targets should normally link the production boundary instead.
 
 Untouched declarations without finalization remain `legacy` in the configured
-registry and retain their existing commands. New targets use the structured
-path. A legacy target becomes migration-required when it gains a suite,
-materially changes its dependency/runtime stack, or changes its lifecycle
-boundary; assertion-only corrections do not force unrelated migration.
+registry and retain their existing commands. Their target names are frozen in
+a CMake compatibility allowlist which may only shrink. Configuration rejects a
+new legacy name, including one passed through a compatibility helper. New
+targets use the structured path. A legacy target becomes migration-required
+when it gains a suite, materially changes its dependency/runtime stack, or
+changes its lifecycle boundary; reviewers remove that name from the allowlist
+as part of the same migration. Assertion-only corrections do not force
+unrelated migration because CMake cannot infer semantic impact from a source
+diff.
 
 Configuration writes the deterministic registry to
 `<BuildDir>/DurinNativeTestRegistry.json`. Its schema version and

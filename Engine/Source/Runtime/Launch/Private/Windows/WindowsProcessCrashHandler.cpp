@@ -1,5 +1,5 @@
 #include "WindowsProcessCrashHandler.h"
-#include "WindowsProcessCrashPolicy.h"
+#include "LaunchContracts/WindowsProcessCrashPolicy.h"
 
 #include "Diagnostics/ProcessCrashContext.h"
 #include "HAL/PlatformProcess.h"

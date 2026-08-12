@@ -1,5 +1,5 @@
 #include "NativeTestSupport.h"
-#include "Runtime/Launch/Private/RuntimeStorage.h"
+#include "LaunchContracts/RuntimeStorage.h"
 
 #include <gtest/gtest.h>
 

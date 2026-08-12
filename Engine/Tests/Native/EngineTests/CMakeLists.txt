@@ -19,7 +19,10 @@ set(_durin_editor_test_modules
 	StandardAssetImport
 )
 
-function(durin_add_engine_functional_test target_name)
+# Compatibility-only declaration path. Migration admission is enforced by the
+# frozen allowlist in durin_discover_tests, so this helper cannot admit a new
+# target or emit structured metadata.
+function(durin_add_legacy_engine_functional_test target_name)
 	set(options EDITOR_ONLY GPU)
 	set(one_value_args
 		TIMEOUT
@@ -133,19 +136,17 @@ function(durin_add_engine_functional_test target_name)
 	durin_discover_tests(${target_name})
 endfunction()
 
-durin_add_engine_functional_test(EditorPropertyTests
+durin_add_legacy_engine_functional_test(EditorPropertyTests
 	RUNTIME_STACK_RATIONALE "Exercises DurinEd property customization behavior."
 	SOURCES
 		Private/ReflectedPropertyViewTests.cpp
 		Private/Editor/ReflectedPropertyEditSessionTests.cpp
 		Private/Editor/ReflectedPropertyTransactionTests.cpp
 		Private/Editor/ReflectedPropertyContainerTests.cpp
-	PRIVATE_SOURCES
-		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
-	LIBRARIES DurinEd
+	LIBRARIES DurinEd LevelEditorViewportContracts
 )
 
-durin_add_engine_functional_test(EditorAssetWorkflowTests
+durin_add_legacy_engine_functional_test(EditorAssetWorkflowTests
 	RUNTIME_STACK_RATIONALE "Exercises editor asset workflows across DurinEd and Mona UI models."
 	SOURCES
 		Private/Editor/WorkspaceAssetOpenCompatibilityTests.cpp
@@ -173,7 +174,7 @@ durin_add_engine_functional_test(EditorAssetWorkflowTests
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
-durin_add_engine_functional_test(AssetReferenceStoreTests
+durin_add_legacy_engine_functional_test(AssetReferenceStoreTests
 	RUNTIME_STACK_RATIONALE "Exercises production external asset-reference stores."
 	SOURCES
 		Private/Editor/ProjectDefaultLevelReferenceStoreTests.cpp
@@ -182,7 +183,7 @@ durin_add_engine_functional_test(AssetReferenceStoreTests
 		${_durin_level_editor_private}/Settings/ProjectDefaultLevelReferenceStore.cpp
 )
 
-durin_add_engine_functional_test(EditorHierarchyTests
+durin_add_legacy_engine_functional_test(EditorHierarchyTests
 	RUNTIME_STACK_RATIONALE "Exercises the deterministic Level Editor hierarchy model without editor startup."
 	SOURCES
 		Private/Editor/WorldOutlinerHierarchyModelTests.cpp
@@ -190,7 +191,7 @@ durin_add_engine_functional_test(EditorHierarchyTests
 		${_durin_level_editor_private}/Panels/WorldOutlinerHierarchyModel.cpp
 )
 
-durin_add_engine_functional_test(LevelAuthoringTests
+durin_add_legacy_engine_functional_test(LevelAuthoringTests
 	RUNTIME_STACK_RATIONALE "Exercises transaction-backed LevelEditor structural authoring."
 	SOURCES
 		Private/Editor/StaticMeshLevelAuthoringTests.cpp
@@ -204,7 +205,7 @@ if(TARGET LevelAuthoringTests)
 		DURIN_LEVEL_AUTHORING_TEST_FAILURE_INJECTION=1)
 endif()
 
-durin_add_engine_functional_test(MaterialTests
+durin_add_legacy_engine_functional_test(MaterialTests
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Exercises rendered material editing and preview lifecycle."
@@ -240,7 +241,7 @@ durin_add_engine_functional_test(MaterialTests
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
-durin_add_engine_functional_test(StaticMeshTests
+durin_add_legacy_engine_functional_test(StaticMeshTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises renderer-backed static-mesh editing and derived data."
 	SOURCES
@@ -256,24 +257,23 @@ durin_add_engine_functional_test(StaticMeshTests
 		Private/StaticMeshEditorTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Customizations/StaticMeshMaterialSlotDetails.cpp
-		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
-	LIBRARIES AssetImportCore EngineAssetBuild StandardAssetImport RenderCore Renderer DurinEd StaticMeshEditor
+	LIBRARIES AssetImportCore EngineAssetBuild StandardAssetImport RenderCore Renderer DurinEd StaticMeshEditor LevelEditorViewportContracts
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
-durin_add_engine_functional_test(SkeletalAssetTests
+durin_add_legacy_engine_functional_test(SkeletalAssetTests
 	SOURCES
 		Private/SkeletalAssetTests.cpp
 		Private/SkeletalAnimationTests.cpp
 )
 
-durin_add_engine_functional_test(SkeletalMeshEditorTests
+durin_add_legacy_engine_functional_test(SkeletalMeshEditorTests
 	RUNTIME_STACK_RATIONALE "Exercises exact skeletal asset editor registration and read-only ownership."
 	SOURCES Private/SkeletalMeshEditorTests.cpp
 	LIBRARIES ApplicationCore RenderCore Renderer DurinEd SkeletalMeshEditor
 )
 
-durin_add_engine_functional_test(SkeletalSceneLifecycleTests
+durin_add_legacy_engine_functional_test(SkeletalSceneLifecycleTests
 	GPU
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises editor skeletal Scene import through cook and runtime-only load."
@@ -285,7 +285,7 @@ durin_add_engine_functional_test(SkeletalSceneLifecycleTests
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
-durin_add_engine_functional_test(SkeletalMeshRenderResourcesVulkanTests
+durin_add_legacy_engine_functional_test(SkeletalMeshRenderResourcesVulkanTests
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Exercises Vulkan-backed skeletal render-resource initialization and retry."
@@ -295,7 +295,7 @@ durin_add_engine_functional_test(SkeletalMeshRenderResourcesVulkanTests
 	LIBRARIES ApplicationCore RenderCore Renderer
 )
 
-durin_add_engine_functional_test(TextureTests
+durin_add_legacy_engine_functional_test(TextureTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises renderer-backed texture import, build, and cache behavior."
 	SOURCES
@@ -318,14 +318,14 @@ if(TARGET TextureTests)
 		${DURIN_PROJECT_ROOT_DIR}/Source/Editor/StandardAssetImport/Private)
 endif()
 
-durin_add_engine_functional_test(TerrainHeightmapTests
+durin_add_legacy_engine_functional_test(TerrainHeightmapTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises heightmap import, DDC, package, and source-index integration."
 	SOURCES Private/Terrain/TerrainHeightmapTests.cpp
 	LIBRARIES AssetImportCore StandardAssetImport DurinEd EngineAssetBuild
 )
 
-durin_add_engine_functional_test(TerrainHeightmapCookTests
+durin_add_legacy_engine_functional_test(TerrainHeightmapCookTests
 	EDITOR_ONLY
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises source-free cooked heightmap package loading."
@@ -333,14 +333,14 @@ durin_add_engine_functional_test(TerrainHeightmapCookTests
 	LIBRARIES EngineAssetBuild
 )
 
-durin_add_engine_functional_test(TerrainRenderPrimitiveTests
+durin_add_legacy_engine_functional_test(TerrainRenderPrimitiveTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises reflected Terrain component, patch, proxy, and revision contracts."
 	SOURCES Private/Terrain/TerrainRenderPrimitiveTests.cpp
 	LIBRARIES Renderer RenderCore
 )
 
-durin_add_engine_functional_test(TerrainRenderVulkanTests
+durin_add_legacy_engine_functional_test(TerrainRenderVulkanTests
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Exercises exact R16 Terrain rendering, counters, and resource release on Vulkan."
@@ -350,66 +350,105 @@ durin_add_engine_functional_test(TerrainRenderVulkanTests
 	LIBRARIES ApplicationCore RenderCore Renderer
 )
 
-durin_add_engine_functional_test(LaunchStorageTests
-	RUNTIME_STACK_RATIONALE "Exercises Launch-private runtime storage selection and migration policy."
-	SOURCES Private/Launch/RuntimeStorageTests.cpp
-	PRIVATE_SOURCES
-		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Launch/Private/RuntimeStorage.cpp
+add_durin_test(LaunchStorageTests
+	Private/Launch/RuntimeStorageTests.cpp
 )
-
-durin_add_engine_functional_test(LaunchArgumentTests
-	RUNTIME_STACK_RATIONALE "Exercises the pure Launch command-line grammar and semantic policy."
-	SOURCES
-		Private/Launch/LaunchArgumentsTests.cpp
-		Private/Launch/EngineFramePhaseTests.cpp
-	PRIVATE_SOURCES
-		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Launch/Private/LaunchArguments.cpp
+target_link_libraries(LaunchStorageTests PRIVATE LaunchPrivateContracts)
+set_target_properties(LaunchStorageTests PROPERTIES
+	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 )
-
-durin_add_engine_functional_test(LaunchProcessBoundaryTests
-	GPU
-	TIMEOUT 90
-	RUNTIME_STACK_RATIONALE "Launches isolated runtime children to characterize process exit and cleanup policy."
-	SOURCES Private/Launch/LaunchProcessBoundaryTests.cpp
+durin_finalize_native_test(LaunchStorageTests
+	KIND contract
+	DOMAINS launch
+	MODULES launch
 )
-if(TARGET LaunchProcessBoundaryTests)
-	add_dependencies(LaunchProcessBoundaryTests DurinLauncher)
-	target_compile_definitions(LaunchProcessBoundaryTests PRIVATE
-		DURIN_LAUNCH_EXECUTABLE="$<TARGET_FILE:DurinLauncher>"
-		DURIN_LAUNCH_TEST_PROJECT="${DURIN_WORKSPACE_DIR}/Sandbox/Sandbox.dproject")
-	set_target_properties(LaunchProcessBoundaryTests PROPERTIES
-		DURIN_TEST_CASE_PARALLEL_SAFE FALSE)
-endif()
+durin_set_native_test_target_execution(LaunchStorageTests)
+durin_discover_tests(LaunchStorageTests)
 
-durin_add_engine_functional_test(NativeCrashCharacterizationTests
-	TIMEOUT 120
-	RUNTIME_STACK_RATIONALE "Launches isolated runtime children because native faults must preserve process exception state and cannot be characterized in-process."
-	SOURCES
-		Private/Launch/NativeCrashCharacterizationTests.cpp
-		Private/Launch/WindowsProcessCrashPolicyTests.cpp
-	PRIVATE_SOURCES
-		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Launch/Private/Windows/WindowsProcessCrashPolicy.cpp
+add_durin_test(LaunchArgumentTests
+	Private/Launch/LaunchArgumentsTests.cpp
+	Private/Launch/EngineFramePhaseTests.cpp
 )
-if(TARGET NativeCrashCharacterizationTests)
-	add_dependencies(NativeCrashCharacterizationTests DurinLauncher)
-	target_compile_definitions(NativeCrashCharacterizationTests PRIVATE
-		DURIN_CRASH_FIXTURE_EXECUTABLE="$<TARGET_FILE:DurinLauncher>")
-	set_target_properties(NativeCrashCharacterizationTests PROPERTIES
-		DURIN_TEST_CASE_PARALLEL_SAFE FALSE)
-endif()
+target_link_libraries(LaunchArgumentTests PRIVATE LaunchPrivateContracts)
+set_target_properties(LaunchArgumentTests PROPERTIES
+	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+)
+durin_finalize_native_test(LaunchArgumentTests
+	KIND contract
+	DOMAINS launch
+	MODULES launch
+)
+durin_set_native_test_target_execution(LaunchArgumentTests)
+durin_discover_tests(LaunchArgumentTests)
 
-durin_add_engine_functional_test(EnvironmentLightingTests
+add_durin_test(LaunchProcessBoundaryTests
+	Private/Launch/LaunchProcessBoundaryTests.cpp
+)
+add_dependencies(LaunchProcessBoundaryTests DurinLauncher)
+target_compile_definitions(LaunchProcessBoundaryTests PRIVATE
+	DURIN_LAUNCH_EXECUTABLE="$<TARGET_FILE:DurinLauncher>"
+	DURIN_LAUNCH_TEST_PROJECT="${DURIN_WORKSPACE_DIR}/Sandbox/Sandbox.dproject"
+)
+set_target_properties(LaunchProcessBoundaryTests PROPERTIES
+	DURIN_TEST_CASE_PARALLEL_SAFE FALSE
+	DURIN_TEST_HEAVY_RUNTIME_RATIONALE
+		"Launches isolated runtime children to verify process exit and cleanup policy."
+	DURIN_TEST_LEGACY_SERIALIZATION_GROUP renderer-runtime
+	DURIN_TEST_RESOURCE_LOCKS durin-gpu
+	DURIN_TEST_TARGET_LOCK_RATIONALE
+		"Serializes child processes that share the configured launcher binary."
+	DURIN_TEST_TIMEOUT 90
+)
+durin_finalize_native_test(LaunchProcessBoundaryTests
+	KIND integration
+	DOMAINS launch
+	MODULES launch
+	STACKS process
+)
+durin_set_native_test_target_execution(LaunchProcessBoundaryTests)
+durin_discover_tests(LaunchProcessBoundaryTests)
+
+add_durin_test(NativeCrashCharacterizationTests
+	Private/Launch/NativeCrashCharacterizationTests.cpp
+	Private/Launch/WindowsProcessCrashPolicyTests.cpp
+)
+target_link_libraries(
+	NativeCrashCharacterizationTests
+	PRIVATE LaunchPrivateContracts
+)
+add_dependencies(NativeCrashCharacterizationTests DurinLauncher)
+target_compile_definitions(NativeCrashCharacterizationTests PRIVATE
+	DURIN_CRASH_FIXTURE_EXECUTABLE="$<TARGET_FILE:DurinLauncher>"
+)
+set_target_properties(NativeCrashCharacterizationTests PROPERTIES
+	DURIN_TEST_CASE_PARALLEL_SAFE FALSE
+	DURIN_TEST_DIRECT_LIFECYCLE FALSE
+	DURIN_TEST_HEAVY_RUNTIME_RATIONALE
+		"Launches isolated runtime children because native faults must preserve process exception state and cannot be characterized in-process."
+	DURIN_TEST_TARGET_LOCK_RATIONALE
+		"Serializes native-fault children and crash-artifact retention checks."
+	DURIN_TEST_TIMEOUT 120
+)
+durin_finalize_native_test(NativeCrashCharacterizationTests
+	KIND characterization
+	DOMAINS launch
+	MODULES launch
+	STACKS process
+)
+durin_discover_tests(NativeCrashCharacterizationTests)
+
+durin_add_legacy_engine_functional_test(EnvironmentLightingTests
 	RUNTIME_STACK_RATIONALE "Exercises built-in environment payload and direct cook behavior."
 	SOURCES Private/EnvironmentLightingTests.cpp
 )
 
-durin_add_engine_functional_test(RendererSceneContractTests
+durin_add_legacy_engine_functional_test(RendererSceneContractTests
 	RUNTIME_STACK_RATIONALE "Exercises renderer-owned SceneProxy and SceneInfo lifetime contracts."
 	SOURCES Private/RendererSceneContractTests.cpp
 	LIBRARIES RenderCore Renderer
 )
 
-durin_add_engine_functional_test(SceneImportVulkanTests
+durin_add_legacy_engine_functional_test(SceneImportVulkanTests
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Owns the Vulkan-backed static-model import acceptance lifecycle."
@@ -430,7 +469,7 @@ if(TARGET SceneImportVulkanTests)
 	target_link_libraries(SceneImportVulkanTests PRIVATE VulkanRHI Vulkan::Vulkan)
 endif()
 
-durin_add_engine_functional_test(ThumbnailTests
+durin_add_legacy_engine_functional_test(ThumbnailTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises renderer-backed editor thumbnail generation and caching."
 	SOURCES
@@ -442,33 +481,33 @@ durin_add_engine_functional_test(ThumbnailTests
 		${_durin_level_editor_private}/Assets/ContentBrowserThumbnailCache.cpp
 		${_durin_level_editor_private}/Assets/SourceImageThumbnailDecoder.cpp
 		${_durin_level_editor_private}/Assets/SourceImageThumbnailDiskCache.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd StaticMeshEditor TextureEditor
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd EngineAssetBuild StaticMeshEditor TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
-durin_add_engine_functional_test(MaterialThumbnailTests
+durin_add_legacy_engine_functional_test(MaterialThumbnailTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises the MaterialEditor-owned Material and MaterialInstance thumbnail extensions."
 	SOURCES Private/MaterialAssetThumbnailTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd MaterialEditor TextureEditor
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd EngineAssetBuild MaterialEditor TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
-durin_add_engine_functional_test(TextureThumbnailTests
+durin_add_legacy_engine_functional_test(TextureThumbnailTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises the TextureEditor-owned Texture2D and TextureCube thumbnail extensions."
 	SOURCES Private/TextureAssetThumbnailTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd TextureEditor
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd EngineAssetBuild TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
-durin_add_engine_functional_test(StaticMeshThumbnailTests
+durin_add_legacy_engine_functional_test(StaticMeshThumbnailTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises the StaticMeshEditor-owned thumbnail extension and cache lifecycle."
 	SOURCES Private/StaticMeshAssetThumbnailTests.cpp
@@ -477,28 +516,54 @@ durin_add_engine_functional_test(StaticMeshThumbnailTests
 		${_durin_level_editor_private}/Assets/ContentBrowserThumbnailCache.cpp
 		${_durin_level_editor_private}/Assets/SourceImageThumbnailDecoder.cpp
 		${_durin_level_editor_private}/Assets/SourceImageThumbnailDiskCache.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd MaterialEditor StaticMeshEditor TextureEditor
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd EngineAssetBuild MaterialEditor StaticMeshEditor TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
-durin_add_engine_functional_test(WorldTests
-	RUNTIME_STACK_RATIONALE "Exercises DurinEd world editing integration."
-	SOURCES
-		Private/World/NewLevelBaselineTests.cpp
-		Private/World/WorldPlayTests.cpp
-		Private/World/WorldLifecycleMutationTests.cpp
-		Private/World/WorldTickSchedulingTests.cpp
-		Private/World/WorldActorIteratorTests.cpp
-		Private/World/WorldActorTests.cpp
-		Private/World/WorldComponentTests.cpp
-		Private/World/WorldLifetimeTests.cpp
-		Private/World/NativeGameplayCoreTests.cpp
-	LIBRARIES DurinEd StandardAssetImport
+set(_durin_world_test_sources
+	Private/World/NewLevelBaselineTests.cpp
+	Private/World/WorldPlayTests.cpp
+	Private/World/WorldLifecycleMutationTests.cpp
+	Private/World/WorldTickSchedulingTests.cpp
+	Private/World/WorldActorIteratorTests.cpp
+	Private/World/WorldActorTests.cpp
+	Private/World/WorldComponentTests.cpp
+	Private/World/WorldLifetimeTests.cpp
+	Private/World/NativeGameplayCoreTests.cpp
 )
+if(DURIN_WITH_EDITOR)
+	add_durin_test(WorldTests ${_durin_world_test_sources})
+	target_include_directories(WorldTests PRIVATE
+		${CMAKE_CURRENT_SOURCE_DIR}/Private
+	)
+	target_link_libraries(WorldTests PRIVATE
+		Engine
+		DurinEd
+		StandardAssetImport
+	)
+	set_target_properties(WorldTests PROPERTIES
+		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+		DURIN_TEST_HEAVY_RUNTIME_RATIONALE
+			"Exercises DurinEd world editing integration."
+	)
+	durin_finalize_native_test(WorldTests
+		KIND feature
+		DOMAINS world
+		MODULES engine durin-ed
+		STACKS editor
+	)
+	durin_set_native_test_target_execution(WorldTests)
+	durin_discover_tests(WorldTests)
+else()
+	durin_exclude_native_test_sources(
+		RATIONALE "WorldTests requires the DurinEd editor world lifecycle."
+		SOURCES ${_durin_world_test_sources}
+	)
+endif()
 
-durin_add_engine_functional_test(PhysicsSceneTests
+durin_add_legacy_engine_functional_test(PhysicsSceneTests
 	SOURCES
 		Private/Physics/PhysicsSceneTests.cpp
 		Private/Physics/PhysicsQueryObservabilityTests.cpp
@@ -519,6 +584,11 @@ set_target_properties(MonaViewportTests PROPERTIES
 	DURIN_TEST_HEAVY_RUNTIME_RATIONALE
 		"Exercises the Mona display-source consumer without Engine linkage."
 )
+durin_finalize_native_test(MonaViewportTests
+	KIND contract
+	DOMAINS viewport
+	MODULES mona
+)
 durin_set_native_test_target_execution(MonaViewportTests)
 durin_discover_tests(MonaViewportTests)
 
@@ -532,60 +602,70 @@ target_link_libraries(EngineViewportHeaderTests PRIVATE
 set_target_properties(EngineViewportHeaderTests PROPERTIES
 	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 )
+durin_finalize_native_test(EngineViewportHeaderTests
+	KIND contract
+	DOMAINS viewport
+	MODULES engine
+)
 durin_set_native_test_target_execution(EngineViewportHeaderTests)
 durin_discover_tests(EngineViewportHeaderTests)
 
-durin_add_engine_functional_test(ViewportTests
-	TIMEOUT 600
-	RUNTIME_STACK_RATIONALE "Exercises DurinEd and Mona viewport interaction behavior."
-	SOURCES
+set(_durin_viewport_test_sources
 		Private/Viewport/ViewportFoundationTests.cpp
 		Private/Viewport/ViewportProjectionTests.cpp
 		Private/Viewport/ViewportCustomizationTests.cpp
 		Private/Viewport/ViewportInteractionTests.cpp
 		Private/Viewport/ViewportPickingContractTests.cpp
 		Private/Viewport/DetailsSelectionTests.cpp
-	PRIVATE_SOURCES
-		${_durin_level_editor_private}/Panels/DetailsPanelTargeting.cpp
-		${_durin_level_editor_private}/Viewport/ViewportCameraTransform.cpp
-		${_durin_level_editor_private}/Viewport/CameraPreviewViewportClient.cpp
-		${_durin_level_editor_private}/Viewport/LevelEditorViewportClient.cpp
-		${_durin_level_editor_private}/Viewport/ViewportPickingService.cpp
-		${_durin_level_editor_private}/Viewport/ViewportPickingSceneIndex.cpp
-		${_durin_level_editor_private}/Viewport/LevelEditorViewportEditing.cpp
-		${_durin_level_editor_private}/Viewport/TransformGizmo.cpp
-		${_durin_level_editor_private}/Customizations/CameraEditorCustomizations.cpp
-		${_durin_level_editor_private}/Customizations/DirectionalLightEditorCustomizations.cpp
-		${_durin_level_editor_private}/Customizations/PlayerStartEditorCustomizations.cpp
-		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
-		${_durin_level_editor_private}/Customizations/SplineEditorCustomizations.cpp
-		${_durin_level_editor_private}/Settings/LevelViewportSessionSettings.cpp
-		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd
 )
+if(DURIN_WITH_EDITOR)
+	add_durin_test(ViewportTests ${_durin_viewport_test_sources})
+	target_include_directories(ViewportTests PRIVATE
+		${CMAKE_CURRENT_SOURCE_DIR}/Private
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/MonaImGui/Private
+	)
+	target_link_libraries(ViewportTests PRIVATE
+		Engine
+		ApplicationCore
+		MonaCore
+		Mona
+		MonaImGui
+		DurinEd
+		LevelEditorViewportContracts
+	)
+	set_target_properties(ViewportTests PROPERTIES
+		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+		DURIN_TEST_HEAVY_RUNTIME_RATIONALE
+			"Exercises DurinEd and Mona viewport interaction behavior."
+		DURIN_TEST_TIMEOUT 600
+	)
+	durin_finalize_native_test(ViewportTests
+		KIND feature
+		DOMAINS viewport
+		MODULES engine level-editor mona
+		STACKS editor
+	)
+	durin_set_native_test_target_execution(ViewportTests)
+	durin_discover_tests(ViewportTests)
+else()
+	durin_exclude_native_test_sources(
+		RATIONALE "ViewportTests requires LevelEditor composition and DurinEd."
+		SOURCES ${_durin_viewport_test_sources}
+	)
+endif()
 
-durin_add_engine_functional_test(SplineTests
+durin_add_legacy_engine_functional_test(SplineTests
 	RUNTIME_STACK_RATIONALE "Exercises DurinEd spline customization behavior."
 	SOURCES
 		Private/SplineTests.cpp
 		Private/SplineMeshComponentTests.cpp
 		Private/SplineMeshDeformerTests.cpp
 		Private/SplineV2ContractTests.cpp
-	PRIVATE_SOURCES
-		${_durin_level_editor_private}/Customizations/SplineEditorCustomizations.cpp
-		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
-		${_durin_level_editor_private}/Viewport/ViewportCameraTransform.cpp
-		${_durin_level_editor_private}/Viewport/LevelEditorViewportClient.cpp
-		${_durin_level_editor_private}/Viewport/ViewportPickingService.cpp
-		${_durin_level_editor_private}/Viewport/ViewportPickingSceneIndex.cpp
-		${_durin_level_editor_private}/Viewport/LevelEditorViewportEditing.cpp
-		${_durin_level_editor_private}/Viewport/TransformGizmo.cpp
-		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd AssetImportCore StandardAssetImport
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd AssetImportCore StandardAssetImport LevelEditorViewportContracts
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
-durin_add_engine_functional_test(SkyBoxTests
+durin_add_legacy_engine_functional_test(SkyBoxTests
 	RUNTIME_STACK_RATIONALE "Exercises renderer-backed sky-box editing and rendering contracts."
 	SOURCES
 		Private/SkyBox/SkyBoxRenderingTests.cpp
@@ -594,12 +674,11 @@ durin_add_engine_functional_test(SkyBoxTests
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Authoring/SkyBoxLevelAuthoring.cpp
 		${_durin_level_editor_private}/Customizations/SkyBoxDetails.cpp
-		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
-	LIBRARIES RenderCore Renderer DurinEd
+	LIBRARIES RenderCore Renderer DurinEd LevelEditorViewportContracts
 	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
-durin_add_engine_functional_test(SkyBoxVulkanIntegrationTests
+durin_add_legacy_engine_functional_test(SkyBoxVulkanIntegrationTests
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Owns the Vulkan-backed sky-box integration lifecycle."
@@ -610,7 +689,7 @@ durin_add_engine_functional_test(SkyBoxVulkanIntegrationTests
 	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
-durin_add_engine_functional_test(RendererResourceReloadVulkanTests
+durin_add_legacy_engine_functional_test(RendererResourceReloadVulkanTests
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Exercises in-process renderer shader failure, reload, and recovery on Vulkan."
@@ -620,7 +699,7 @@ durin_add_engine_functional_test(RendererResourceReloadVulkanTests
 	LIBRARIES ApplicationCore RenderCore Renderer
 )
 
-durin_add_engine_functional_test(StaticMeshRenderPreparationVulkanTests
+durin_add_legacy_engine_functional_test(StaticMeshRenderPreparationVulkanTests
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Exercises view-local StaticMesh material preparation against initialized render resources."
@@ -630,7 +709,7 @@ durin_add_engine_functional_test(StaticMeshRenderPreparationVulkanTests
 	LIBRARIES ApplicationCore RenderCore Renderer
 )
 
-durin_add_engine_functional_test(EditorRenderingTests
+durin_add_legacy_engine_functional_test(EditorRenderingTests
 	RUNTIME_STACK_RATIONALE "Exercises renderer-backed editor assistance and grid rendering."
 	SOURCES
 		Private/EditorGridRenderingTests.cpp
@@ -646,7 +725,7 @@ durin_add_engine_functional_test(EditorRenderingTests
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
-durin_add_engine_functional_test(EditorShellTests
+durin_add_legacy_engine_functional_test(EditorShellTests
 	RUNTIME_STACK_RATIONALE "Exercises DurinEd and Mona editor-shell models."
 	SOURCES
 		Private/EditorBootstrapStateTests.cpp
@@ -655,13 +734,11 @@ durin_add_engine_functional_test(EditorShellTests
 		Private/UIStyleTests.cpp
 		Private/ConsoleRecordModelTests.cpp
 	PRIVATE_SOURCES
-		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
-		${_durin_level_editor_private}/Viewport/ViewportPickingSceneIndex.cpp
 		${_durin_level_editor_private}/Panels/ConsoleRecordModel.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd LevelEditorViewportContracts
 )
 
-durin_add_engine_functional_test(ExternalToolTests
+durin_add_legacy_engine_functional_test(ExternalToolTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises the DurinEd profiling-tool integration."
 	SOURCES Private/ProfilingToolServiceTests.cpp
@@ -671,7 +748,7 @@ durin_add_engine_functional_test(ExternalToolTests
 )
 
 # Cooked-runtime mode and Renderer/Vulkan teardown are process-global.
-durin_add_engine_functional_test(TextureCookIntegrationTests
+durin_add_legacy_engine_functional_test(TextureCookIntegrationTests
 	EDITOR_ONLY
 	GPU
 	TIMEOUT 900

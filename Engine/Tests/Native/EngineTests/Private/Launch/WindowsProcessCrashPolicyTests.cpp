@@ -1,5 +1,5 @@
 #include "NativeTestSupport.h"
-#include "Runtime/Launch/Private/Windows/WindowsProcessCrashPolicy.h"
+#include "LaunchContracts/WindowsProcessCrashPolicy.h"
 
 #include <gtest/gtest.h>
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -15,6 +16,7 @@ if str(PRODUCT_ROOT) not in sys.path:
 
 from durin_dev_tool.build.config import BuildToolError
 from durin_dev_tool.build.native_test_registry import (
+    filter_targets,
     NativeTestRegistry,
     NativeTestTarget,
     load_native_test_registry,
@@ -42,6 +44,8 @@ def target(
         timeout_seconds=300,
         resource_locks=(),
         heavy_runtime=False,
+        private_source_owner="",
+        private_source_rationale="",
     )
 
 
@@ -95,6 +99,45 @@ def test_empty_and_characterization_selections_are_explicit(
         "@kind=characterization",
         admit_characterization=True,
     ).names == ("LaunchCrashTests",)
+
+
+def test_migration_report_selects_legacy_and_private_source_exceptions(
+    tmp_path: Path,
+) -> None:
+    legacy = NativeTestTarget(
+        name="LegacyTests",
+        metadata_mode="legacy",
+        kind="",
+        domains=(),
+        modules=(),
+        backends=(),
+        stacks=(),
+        direct_lifecycle=True,
+        timeout_seconds=300,
+        resource_locks=(),
+        heavy_runtime=False,
+        private_source_owner="",
+        private_source_rationale="",
+    )
+    private_source = replace(
+        target("VulkanTests", kind="integration"),
+        private_source_owner="RenderCore",
+        private_source_rationale="Owned shader compiler seam.",
+    )
+    migration_registry = NativeTestRegistry(
+        tmp_path / "registry.json",
+        "debug",
+        (legacy, target("StructuredTests"), private_source),
+    )
+    assert tuple(item.name for item in filter_targets(migration_registry, "migration")) == (
+        "LegacyTests",
+        "VulkanTests",
+    )
+    completed_registry = replace(
+        migration_registry,
+        targets=(target("StructuredTests"),),
+    )
+    assert filter_targets(completed_registry, "migration") == ()
 
 
 def test_registry_loader_rejects_wrong_preset_identity(tmp_path: Path) -> None:

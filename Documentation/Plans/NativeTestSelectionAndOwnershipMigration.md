@@ -4,17 +4,18 @@ Summary: Add structured native-test metadata and focused set selection, then mig
 
 Last reviewed: 2026-08-12
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-12
 
 ## Current Status
 
-Stages 0-2 are complete. CMake now validates structured `KIND`, `DOMAINS`,
+Stages 0-6 and this plan are complete. CMake now validates structured `KIND`, `DOMAINS`,
 `MODULES`, `BACKENDS`, and `STACKS` metadata, generates reserved labels, rejects
 foreign production-private source compilation for structured targets unless an
 owned seam is declared, and writes a deterministic configured registry. The
-registry for `Win64-Debug-DurinEditor` currently contains 66 targets: 64 legacy
-records and the structured ordinary/characterization native-test-harness pair.
+registry for `Win64-Debug-DurinEditor` records the structured
+ordinary/characterization native-test-harness pair and the migrated World
+feature target alongside the remaining legacy records.
 
 DurinDevTool now shares one positional grammar in batch and interactive use:
 `test <target> [filter]`, `test "@<selector>"`, and `test all`. Set grammar is
@@ -50,9 +51,77 @@ of that target-level gate, the final incremental aggregate completed in 97.5
 seconds and included both probes. Wall-clock values are migration evidence, not
 correctness gates.
 
-Stage 3, the World low-dependency feature pilot, is next. Existing target names
-and legacy declarations remain authoritative until their individual migration
-gate passes.
+Stage 3 migrated `WorldTests` from the broad Engine functional-test helper to
+an explicit `Engine`, `DurinEd`, and `StandardAssetImport` link boundary with
+`feature/world`, Engine/DurinEd participation, and the `editor` stack. Its nine
+sources remain one feature target because they share the native-test harness,
+World/DObject lifecycle, sandbox, and editor composition; no narrower Engine
+contract target was justified. The focused executable passed all 102 tests,
+`@world` resolved only its CTest direct registration, both native CMake policy
+and runtime-closure probes passed, and the DurinGame preset configured with the
+editor-only sources explicitly excluded. No production public/export boundary
+changed, so the stage did not require a full build.
+
+Stage 4 introduced the Launch-owned `LaunchPrivateContracts` static boundary
+for command-line parsing, runtime storage, interactive frame ordering, and
+Windows crash-retention policy. Production Launch and the migrated contract
+and characterization targets now link that boundary instead of compiling
+Launch-private production sources into test executables. `LaunchArgumentTests`
+and `LaunchStorageTests` are `contract/launch`,
+`LaunchProcessBoundaryTests` is `integration/launch` with the `process` stack,
+and `NativeCrashCharacterizationTests` is explicit `characterization/launch`
+with no direct ordinary lifecycle. The contract, integration, ordinary
+`@launch`, and explicit characterization selections passed; existing process,
+GPU, renderer, target-serialization, timeout, and child-launch policies remain
+visible in configured metadata. Both native CMake policy/runtime-closure probes
+also passed. The real editor launcher was rebuilt through the process target,
+and the Debug DurinGame launcher build passed independently. No public/export
+or shared test-infrastructure boundary changed, so neither a full build nor
+complete native aggregate was required.
+
+Stage 5 aligned the Viewport targets with the completed presentation-decoupling
+boundary. `MonaViewportTests` and `EngineViewportHeaderTests` are separate
+`contract/viewport` targets, `ViewportTests` is the cross-module
+`feature/viewport` owner for Engine, LevelEditor, and Mona composition, and
+`VulkanRHIIntegrationTests` is `integration/viewport` with `backend=vulkan` and
+the renderer stack. LevelEditor now owns one internal object component for the
+viewport/customization implementations shared by its DLL and white-box tests;
+the feature and adjacent legacy targets no longer compile those production
+`.cpp` files independently. The existing RenderCore shader-compiler white-box
+sources remain an explicit RenderCore-owned seam in the Vulkan target.
+
+The two contract targets, Viewport feature, Vulkan integration, combined
+`@viewport` set, affected EditorProperty/StaticMesh/Spline/SkyBox/EditorShell
+targets, native CMake policy/runtime-closure probes, and the real LevelEditor
+DLL all passed. The Debug DurinGame preset configured with only the non-editor
+contracts. The complete Debug DurinEditor `all` build passed, and the resulting
+editor completed a hidden three-tick startup/shutdown smoke. The complete native
+aggregate was not repeated because this stage changed target ownership rather
+than shared test infrastructure, and the focused closure provided no evidence
+of cross-target leakage.
+
+Stage 6 froze the compatibility baseline at the configured legacy target names;
+the list may only shrink, and configure now rejects any new target that reaches
+discovery without structured metadata. The broad Engine helper remains only as
+`durin_add_legacy_engine_functional_test`, cannot emit structured metadata, and
+cannot admit names outside that baseline. Substantive changes to a grandfathered
+target remain a review-time migration gate because CMake cannot infer semantic
+impact from a source diff.
+
+`test list migration` now derives the long-tail report from the configured
+registry. The final Debug DurinEditor report contained 56 legacy targets and
+one explicit same-owner private-source seam, the RenderCore-owned shader
+compiler sources in `VulkanRHIIntegrationTests`. This is visibility, not a
+second authoritative checklist; remaining migrations are touch-driven work.
+
+Final acceptance on 2026-08-12: all 328 DurinDevTool Python tests passed,
+changed-document validation passed, and both native-test discovery-policy and
+runtime-closure probes passed. The combined `world+launch+viewport` selection
+resolved eight ordinary representative targets and passed. The full ordinary
+native aggregate then passed at default target granularity in 58.35 seconds
+(1.36-second incremental aggregate build and 56.96-second execution). The gate
+also exposed and corrected four missing `EngineAssetBuild` link declarations
+for existing thumbnail fixtures; no suite, lifecycle, or ownership changed.
 
 ## Goal
 
@@ -442,16 +511,16 @@ After the plan:
 
 ### Stage 3: Migrate World as the low-dependency feature pilot
 
-- [ ] Re-declare `WorldTests` with structured `feature/world` metadata and its
+- [x] Re-declare `WorldTests` with structured `feature/world` metadata and its
   actual minimum module/stack participation.
-- [ ] Separate a narrow Engine World contract target only if suites demonstrably
+- [x] Separate a narrow Engine World contract target only if suites demonstrably
   use a smaller lifecycle and dependency stack; do not split merely to mirror
   the Engine module.
-- [ ] Remove broad helper-injected libraries/includes not used by the migrated
+- [x] Remove broad helper-injected libraries/includes not used by the migrated
   target and preserve suite/source single ownership.
-- [ ] Verify lifecycle reset, sandbox behavior, direct target registration, and
+- [x] Verify lifecycle reset, sandbox behavior, direct target registration, and
   selected-set discovery.
-- [ ] Run the migrated World target, its selected domain set, CMake policy
+- [x] Run the migrated World target, its selected domain set, CMake policy
   probes, and a full build only if production public/export boundaries change.
 
 #### Acceptance Gate
@@ -462,19 +531,19 @@ After the plan:
 
 ### Stage 4: Migrate Launch as the private-seam pilot
 
-- [ ] Classify Launch argument/storage contract targets and process-boundary or
+- [x] Classify Launch argument/storage contract targets and process-boundary or
   crash targets into their correct contract, integration, and characterization
   kinds.
-- [ ] Stop representative Launch feature targets from compiling Launch-private
+- [x] Stop representative Launch feature targets from compiling Launch-private
   production `.cpp` files through the EngineTests broad helper.
-- [ ] Introduce the smallest Launch-owned internal/test-support target or normal
+- [x] Introduce the smallest Launch-owned internal/test-support target or normal
   production component needed to share pure grammar/storage logic without
   exporting Launch internals indiscriminately.
-- [ ] Preserve process isolation, crash artifacts, timeouts, runtime child
+- [x] Preserve process isolation, crash artifacts, timeouts, runtime child
   dependencies, and aggregate exclusion for characterization.
-- [ ] Validate focused Launch contracts, the process-boundary set, explicit
+- [x] Validate focused Launch contracts, the process-boundary set, explicit
   characterization execution, source ownership, and policy probes.
-- [ ] Do not run the complete aggregate solely because target declarations
+- [x] Do not run the complete aggregate solely because target declarations
   moved; require it only if shared harness/registration policy changes or
   evidence shows cross-target leakage.
 
@@ -486,26 +555,26 @@ After the plan:
 
 ### Stage 5: Migrate Viewport as the cross-module feature pilot
 
-- [ ] Coordinate with the active viewport-presentation plan so target
+- [x] Coordinate with the active viewport-presentation plan so target
   boundaries follow the shipped Engine/MonaCore/Mona contracts rather than the
   pre-refactor include graph.
-- [ ] Establish narrow Mona viewport/display-source contract coverage and
+- [x] Establish narrow Mona viewport/display-source contract coverage and
   Engine scene-viewport contract coverage where each module owns a real public
   contract.
-- [ ] Retain a cross-module `feature/viewport` target for Level Editor
+- [x] Retain a cross-module `feature/viewport` target for Level Editor
   composition, main/auxiliary view behavior, camera preview, interaction, and
   same-frame resize behavior.
-- [ ] Retain backend/system integration targets for Vulkan output,
+- [x] Retain backend/system integration targets for Vulkan output,
   window-backed Present, offscreen sampling, and shutdown where required.
-- [ ] Remove foreign LevelEditor production-private `.cpp` compilation from the
+- [x] Remove foreign LevelEditor production-private `.cpp` compilation from the
   migrated feature target by linking real feature modules or introducing
   LevelEditor-owned test seams/components with explicit ownership.
-- [ ] Preserve GPU/renderer locks, heavy-runtime rationale, editor-only
+- [x] Preserve GPU/renderer locks, heavy-runtime rationale, editor-only
   availability, preview data, and runtime-only backend dependencies.
-- [ ] Validate the Mona and Engine contract targets, selected viewport feature
+- [x] Validate the Mona and Engine contract targets, selected viewport feature
   set, Vulkan/integration set, editor/runtime smoke, and the full build required
   for the user-visible viewport change.
-- [ ] Run the complete native aggregate only when required by the viewport plan
+- [x] Run the complete native aggregate only when required by the viewport plan
   gate, shared test-infrastructure changes, or concrete cross-target evidence;
   target migration alone is insufficient reason.
 
@@ -517,22 +586,22 @@ After the plan:
 
 ### Stage 6: Enforce forward migration and publish the long-tail workflow
 
-- [ ] Require structured declarations for new targets and for legacy targets
+- [x] Require structured declarations for new targets and for legacy targets
   undergoing the defined substantive changes.
-- [ ] Add a concise migration report that lists remaining legacy targets and
+- [x] Add a concise migration report that lists remaining legacy targets and
   foreign-private-source exceptions from configured metadata without making a
   manually maintained checklist authoritative.
-- [ ] Document how to select routine, risk-expanded, backend, process, and
+- [x] Document how to select routine, risk-expanded, backend, process, and
   aggregate validation sets and how to reproduce them with named targets.
-- [ ] Define scheduled/nightly and release aggregate responsibilities in the
+- [x] Define scheduled/nightly and release aggregate responsibilities in the
   repository-owned CI guidance when that owner exists; keep local handoff rules
   focused and risk-based.
-- [ ] Remove the broad `durin_add_engine_functional_test` helper only if no
+- [x] Remove the broad `durin_add_engine_functional_test` helper only if no
   remaining legacy target uses it; otherwise leave it explicitly legacy and
   unable to declare new structured targets.
-- [ ] Update `Current Status` with representative migration evidence and defer
+- [x] Update `Current Status` with representative migration evidence and defer
   the remaining target-by-target cleanup to touch-driven maintenance.
-- [ ] Run documentation validation, CMake policy probes, DurinDevTool tests,
+- [x] Run documentation validation, CMake policy probes, DurinDevTool tests,
   representative selected sets, and the complete native aggregate because the
   final enforcement changes shared test policy.
 

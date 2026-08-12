@@ -41,6 +41,16 @@ set_target_properties(VulkanRHIIntegrationTests PROPERTIES
 	DURIN_TEST_HEAVY_RUNTIME_RATIONALE
 		"Failure-injection tests must share the test-only state compiled into VulkanRHI."
 )
+durin_finalize_native_test(VulkanRHIIntegrationTests
+	KIND integration
+	DOMAINS renderer viewport
+	MODULES rendercore rhi vulkan-rhi
+	BACKENDS vulkan
+	STACKS renderer
+	PRIVATE_SOURCE_OWNER RenderCore
+	PRIVATE_SOURCE_RATIONALE
+		"Owns the RenderCore shader-compiler white-box seam used by Vulkan integration coverage."
+)
 durin_set_native_test_target_execution(VulkanRHIIntegrationTests)
 
 durin_discover_tests(VulkanRHIIntegrationTests)
