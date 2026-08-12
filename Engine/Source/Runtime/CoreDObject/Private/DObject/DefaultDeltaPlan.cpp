@@ -42,11 +42,11 @@ namespace Durin
 				&& AreArchiveLogicalTypesEquivalent(Left.LogicalType, Right.LogicalType);
 		}
 
-		class FLogicalValueCaptureArchive final : public FArchive
+		class FLogicalValueCaptureArchive final : public FObjectArchive
 		{
 		public:
 			explicit FLogicalValueCaptureArchive(EArchivePurpose Purpose)
-				: FArchive({EArchiveDirection::Save, Purpose,
+				: FObjectArchive({EArchiveDirection::Save, Purpose,
 					EArchiveCapability::StructuredFields
 					| EArchiveCapability::RawBytes
 					| EArchiveCapability::CanonicalMapOrder

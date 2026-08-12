@@ -59,7 +59,8 @@ namespace Durin
 		{
 			if (Ar.IsLoading()) ++AssetStructTest::CodecSerializeLoadCount;
 			auto Type = FArchiveLogicalTypeDescriptor::Scalar(true, 32);
-			auto Field = Ar.EnterField({FName("Tests::FCodecSource"), FName("Value"), Type});
+			auto Field = EnterArchiveField(
+				Ar, {FName("Tests::FCodecSource"), FName("Value"), Type});
 			Ar << Value.Value;
 		}
 
@@ -443,29 +444,31 @@ namespace
 			auto NativeType = Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32);
 			NativeType.NativeFieldVersion = 7;
 			{
-				auto Field = Ar.EnterField({DeclaringType, Durin::FName("NativeValue"), NativeType});
+				auto Field = Durin::EnterArchiveField(
+					Ar, {DeclaringType, Durin::FName("NativeValue"), NativeType});
 				Ar << NativeValue;
 			}
 			if (bDuplicateField)
 			{
-				auto Field = Ar.EnterField({DeclaringType, Durin::FName("NativeValue"), NativeType});
+				auto Field = Durin::EnterArchiveField(
+					Ar, {DeclaringType, Durin::FName("NativeValue"), NativeType});
 				Ar << NativeValue;
 			}
 			{
-				auto Field = Ar.EnterField({DeclaringType, Durin::FName("HardReference"),
+				auto Field = Durin::EnterArchiveField(Ar, {DeclaringType, Durin::FName("HardReference"),
 					Durin::FArchiveLogicalTypeDescriptor::Object(Durin::DObject::StaticClass()->GetQualifiedName())});
 				Durin::DObject* Value = HardReference.Get();
-				Ar.SerializeObjectReference(Value);
+				Durin::SerializeArchiveObjectReference(Ar, Value);
 				if (Ar.IsLoading() && !Ar.HasError()) HardReference = Value;
 			}
 			{
-				auto Field = Ar.EnterField({DeclaringType, Durin::FName("SoftReference"),
+				auto Field = Durin::EnterArchiveField(Ar, {DeclaringType, Durin::FName("SoftReference"),
 					Durin::FArchiveLogicalTypeDescriptor::SoftObject(Durin::DObject::StaticClass()->GetQualifiedName())});
-				Ar.SerializeSoftObjectPath(SoftReference);
+				Durin::SerializeArchiveSoftObjectPath(Ar, SoftReference);
 			}
 			if (bLateField && !Ar.IsDiscovering())
 			{
-				auto Field = Ar.EnterField({DeclaringType, Durin::FName("EmissionOnly"),
+				auto Field = Durin::EnterArchiveField(Ar, {DeclaringType, Durin::FName("EmissionOnly"),
 					Durin::FArchiveLogicalTypeDescriptor::Scalar(false, 8)});
 				Durin::uint8 Value = 1;
 				Ar << Value;

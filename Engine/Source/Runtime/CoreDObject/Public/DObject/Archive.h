@@ -3,16 +3,12 @@
 #include "CoreDObjectAPI.h"
 #include "DObjectFwd.h"
 #include "DObject/ObjectMacros.h"
-#include "Misc/Guid.h"
-#include "Misc/Name.h"
+#include "Serialization/Archive.h"
 
-#include <concepts>
-#include <limits>
 #include <memory>
 #include <span>
 #include <string>
 #include <string_view>
-#include <type_traits>
 #include <unordered_set>
 #include <vector>
 
@@ -21,52 +17,7 @@ namespace Durin
 	class FProperty;
 	class FPropertyValueSnapshot;
 
-	enum class EArchiveDirection : uint8 { Load, Save };
-	enum class EArchivePurpose : uint8
-	{
-		Discovery,
-		ObjectGraph,
-		Duplicate,
-		PropertySnapshot,
-		EditableCopy,
-		AuthoredPackage
-	};
-	enum class EArchiveCapability : uint32
-	{
-		None = 0,
-		StructuredFields = 1 << 0,
-		RawBytes = 1 << 1,
-		CanonicalMapOrder = 1 << 2,
-		ObjectReferences = 1 << 3,
-		SoftObjectReferences = 1 << 4,
-		UnknownFieldRetention = 1 << 5,
-		RemainingPayload = 1 << 6,
-		CustomVersions = 1 << 7,
-		MultiPassDiscovery = 1 << 8
-	};
-
-	constexpr auto operator|(EArchiveCapability Left, EArchiveCapability Right) -> EArchiveCapability
-	{
-		return static_cast<EArchiveCapability>(static_cast<uint32>(Left) | static_cast<uint32>(Right));
-	}
-	constexpr auto operator&(EArchiveCapability Left, EArchiveCapability Right) -> EArchiveCapability
-	{
-		return static_cast<EArchiveCapability>(static_cast<uint32>(Left) & static_cast<uint32>(Right));
-	}
-	constexpr auto operator|=(EArchiveCapability& Left, EArchiveCapability Right) -> EArchiveCapability&
-	{
-		Left = Left | Right;
-		return Left;
-	}
-
 	enum class EArchiveObjectReferenceKind : uint8 { Null, Internal, External };
-
-	struct FArchiveState
-	{
-		EArchiveDirection Direction = EArchiveDirection::Save;
-		EArchivePurpose Purpose = EArchivePurpose::ObjectGraph;
-		EArchiveCapability Capabilities = EArchiveCapability::None;
-	};
 
 	struct FArchiveLogicalTypeDescriptor
 	{
@@ -110,51 +61,7 @@ namespace Durin
 		EPropertyFlags PropertyFlags = EPropertyFlags::None;
 	};
 
-	enum class EArchiveLogicalPrimitiveKind : uint8
-	{
-		Bool,
-		Int8, Int16, Int32, Int64,
-		UInt8, UInt16, UInt32, UInt64,
-		Float32, Float64,
-		Guid,
-	};
-
-	enum class EArchiveLogicalTextKind : uint8 { String, Name };
-
-	struct FArchiveFormatVersion { FName Format; uint32 Version = 0; };
-	struct FArchiveCustomVersion { FGuid Key; int32 Version = 0; };
-	struct FArchiveVersionContext
-	{
-		std::vector<FArchiveFormatVersion> Formats;
-		std::vector<FArchiveCustomVersion> CustomVersions;
-		COREDOBJECT_API auto FindFormat(FName Format) const -> const FArchiveFormatVersion*;
-		COREDOBJECT_API auto FindCustom(const FGuid& Key) const -> const FArchiveCustomVersion*;
-	};
-
-	enum class EArchiveFailureCode : uint8
-	{
-		UnsupportedCapability,
-		UnsupportedType,
-		InvalidData,
-		TruncatedPayload,
-		UnbalancedScope,
-		MissingBaseReflectedFields,
-		DuplicateBaseReflectedFields,
-		DuplicateField,
-		MalformedSerializer,
-		InvalidObjectReference,
-		InvalidPath,
-		UnsupportedVersion
-	};
-
-	struct FArchiveFailure
-	{
-		EArchiveFailureCode Code = EArchiveFailureCode::InvalidData;
-		std::string Path;
-		std::string Message;
-	};
-
-	class FArchive;
+	class FObjectArchive;
 	class FArchivePathScope
 	{
 	public:
@@ -165,9 +72,9 @@ namespace Durin
 		COREDOBJECT_API auto operator=(FArchivePathScope&& Other) noexcept -> FArchivePathScope&;
 		COREDOBJECT_API ~FArchivePathScope();
 	private:
-		explicit FArchivePathScope(FArchive* InArchive) : Archive(InArchive) {}
-		FArchive* Archive = nullptr;
-		friend class FArchive;
+		explicit FArchivePathScope(FObjectArchive* InArchive) : Archive(InArchive) {}
+		FObjectArchive* Archive = nullptr;
+		friend class FObjectArchive;
 	};
 
 	class FArchiveObjectScope
@@ -180,9 +87,9 @@ namespace Durin
 		COREDOBJECT_API auto operator=(FArchiveObjectScope&& Other) noexcept -> FArchiveObjectScope&;
 		COREDOBJECT_API ~FArchiveObjectScope();
 	private:
-		explicit FArchiveObjectScope(FArchive* InArchive) : Archive(InArchive) {}
-		FArchive* Archive = nullptr;
-		friend class FArchive;
+		explicit FArchiveObjectScope(FObjectArchive* InArchive) : Archive(InArchive) {}
+		FObjectArchive* Archive = nullptr;
+		friend class FObjectArchive;
 	};
 
 	class FArchiveFieldScope
@@ -195,32 +102,16 @@ namespace Durin
 		COREDOBJECT_API auto operator=(FArchiveFieldScope&& Other) noexcept -> FArchiveFieldScope&;
 		COREDOBJECT_API ~FArchiveFieldScope();
 	private:
-		explicit FArchiveFieldScope(FArchive* InArchive) : Archive(InArchive) {}
-		FArchive* Archive = nullptr;
-		friend class FArchive;
+		explicit FArchiveFieldScope(FObjectArchive* InArchive) : Archive(InArchive) {}
+		FObjectArchive* Archive = nullptr;
+		friend class FObjectArchive;
 	};
 
-	class FArchive
+	// Adds reflected fields and object-reference semantics over the Core byte Archive.
+	class FObjectArchive : public FArchive
 	{
 	public:
-		COREDOBJECT_API explicit FArchive(FArchiveState State, FArchiveVersionContext Versions = {});
-		virtual ~FArchive() = default;
-
-		auto IsLoading() const -> bool { return State.Direction == EArchiveDirection::Load; }
-		auto IsSaving() const -> bool { return State.Direction == EArchiveDirection::Save; }
-		auto IsDiscovering() const -> bool { return State.Purpose == EArchivePurpose::Discovery; }
-		auto GetPurpose() const -> EArchivePurpose { return State.Purpose; }
-		auto HasCapability(EArchiveCapability Capability) const -> bool
-		{
-			return (State.Capabilities & Capability) == Capability;
-		}
-		auto GetVersionContext() const -> const FArchiveVersionContext& { return Versions; }
-		auto GetFailure() const -> const FArchiveFailure* { return Failure ? &*Failure : nullptr; }
-		auto HasError() const -> bool { return Failure != nullptr; }
-		COREDOBJECT_API auto GetError() const -> std::string_view;
-		COREDOBJECT_API auto Fail(EArchiveFailureCode Code, std::string_view Message) -> void;
-		// Transitional call-site helper; failures are still stored as the structured first failure.
-		auto SetError(std::string_view Message) -> void { Fail(EArchiveFailureCode::InvalidData, Message); }
+		COREDOBJECT_API explicit FObjectArchive(FArchiveState State, FArchiveVersionContext Versions = {});
 
 		COREDOBJECT_API auto EnterObject(DObject& Object) -> FArchiveObjectScope;
 		COREDOBJECT_API auto EnterField(const FArchiveFieldDescriptor& Field) -> FArchiveFieldScope;
@@ -236,40 +127,10 @@ namespace Durin
 			const void* Container,
 			uint32 ArrayIndex) -> void;
 
-		virtual COREDOBJECT_API auto SerializeRawBytes(std::span<std::byte> Bytes) -> void;
 		virtual COREDOBJECT_API auto SerializeObjectReference(DObject*& Value) -> void;
 		virtual COREDOBJECT_API auto SerializeSoftObjectPath(FSoftObjectPath& Value) -> void;
-		virtual auto GetRemainingPayloadBytes() const -> uint64 { return std::numeric_limits<uint64>::max(); }
-		virtual auto IsCurrentFieldAvailable() const -> bool { return true; }
-
-		COREDOBJECT_API auto operator<<(bool& Value) -> FArchive&;
-		COREDOBJECT_API auto operator<<(int8& Value) -> FArchive&;
-		COREDOBJECT_API auto operator<<(int16& Value) -> FArchive&;
-		COREDOBJECT_API auto operator<<(int32& Value) -> FArchive&;
-		COREDOBJECT_API auto operator<<(int64& Value) -> FArchive&;
-		COREDOBJECT_API auto operator<<(uint8& Value) -> FArchive&;
-		COREDOBJECT_API auto operator<<(uint16& Value) -> FArchive&;
-		COREDOBJECT_API auto operator<<(uint32& Value) -> FArchive&;
-		COREDOBJECT_API auto operator<<(uint64& Value) -> FArchive&;
-		COREDOBJECT_API auto operator<<(float& Value) -> FArchive&;
-		COREDOBJECT_API auto operator<<(double& Value) -> FArchive&;
-		COREDOBJECT_API auto operator<<(FName& Value) -> FArchive&;
-		COREDOBJECT_API auto operator<<(FGuid& Value) -> FArchive&;
-		COREDOBJECT_API auto operator<<(std::string& Value) -> FArchive&;
-
-		template<typename T> requires std::is_enum_v<T>
-		auto operator<<(T& Value) -> FArchive&
-		{
-			if (!IsCurrentFieldAvailable()) return *this;
-			using Underlying = std::underlying_type_t<T>;
-			Underlying Encoded = static_cast<Underlying>(Value);
-			*this << Encoded;
-			if (IsLoading() && !HasError()) Value = static_cast<T>(Encoded);
-			return *this;
-		}
 
 	protected:
-		auto EnableCapabilities(EArchiveCapability Capabilities) -> void { State.Capabilities |= Capabilities; }
 		virtual COREDOBJECT_API auto OnEnterObject(DObject& Object) -> void;
 		virtual COREDOBJECT_API auto OnLeaveObject() -> void;
 		virtual COREDOBJECT_API auto OnEnterField(const FArchiveFieldDescriptor& Field) -> void;
@@ -281,12 +142,6 @@ namespace Durin
 		virtual COREDOBJECT_API auto OnCanonicalMapKey(
 			uint64 Index, std::span<const uint8> Token) -> void;
 		virtual COREDOBJECT_API auto OnLeavePath() -> void;
-		virtual COREDOBJECT_API auto TryCaptureLogicalPrimitive(
-			EArchiveLogicalPrimitiveKind Kind,
-			const void* Value) -> bool;
-		virtual COREDOBJECT_API auto TryCaptureLogicalText(
-			EArchiveLogicalTextKind Kind,
-			std::string_view Value) -> bool;
 		virtual COREDOBJECT_API auto OnReflectedPropertyValue(
 			FProperty& Property,
 			const void* Container,
@@ -303,15 +158,6 @@ namespace Durin
 		COREDOBJECT_API auto CloseObjectScope() -> void;
 		COREDOBJECT_API auto CloseFieldScope() -> void;
 		COREDOBJECT_API auto ClosePathScope() -> void;
-		COREDOBJECT_API auto FormatFailure() const -> std::string;
-		COREDOBJECT_API auto PushPath(std::string Segment) -> void;
-		COREDOBJECT_API auto PopPath() -> void;
-
-		FArchiveState State;
-		FArchiveVersionContext Versions;
-		std::unique_ptr<FArchiveFailure> Failure;
-		mutable std::string FormattedFailure;
-		std::vector<std::string> PathSegments;
 		std::vector<FObjectScopeState> ObjectScopes;
 		std::vector<bool> FieldScopes;
 
@@ -320,32 +166,57 @@ namespace Durin
 		friend class FArchivePathScope;
 	};
 
-	class FMemoryWriter : public FArchive
+	// Object-aware canonical memory writer used by graph and reflection adapters.
+	class FObjectMemoryWriter : public FObjectArchive
 	{
 	public:
-		COREDOBJECT_API explicit FMemoryWriter(
+		COREDOBJECT_API explicit FObjectMemoryWriter(
 			std::vector<uint8>& InBytes,
 			EArchivePurpose Purpose = EArchivePurpose::ObjectGraph);
 		COREDOBJECT_API auto SerializeRawBytes(std::span<std::byte> Bytes) -> void override;
+		auto Tell() const -> uint64 override { return static_cast<uint64>(Bytes.size()); }
 	private:
 		std::vector<uint8>& Bytes;
 	};
 
-	class FMemoryReader : public FArchive
+	// Object-aware canonical memory reader used by graph and reflection adapters.
+	class FObjectMemoryReader : public FObjectArchive
 	{
 	public:
-		COREDOBJECT_API explicit FMemoryReader(
-			const std::vector<uint8>& InBytes,
+		COREDOBJECT_API explicit FObjectMemoryReader(
+			std::span<const uint8> InBytes,
 			EArchivePurpose Purpose = EArchivePurpose::ObjectGraph);
 		COREDOBJECT_API auto SerializeRawBytes(std::span<std::byte> Bytes) -> void override;
 		auto GetRemainingPayloadBytes() const -> uint64 override
 		{
 			return static_cast<uint64>(Bytes.size()) - Offset;
 		}
+		auto Tell() const -> uint64 override { return Offset; }
 	private:
-		const std::vector<uint8>& Bytes;
+		std::span<const uint8> Bytes;
 		uint64 Offset = 0;
 	};
+
+	// Transitional source aliases; new persistent byte code includes Core's
+	// canonical archives directly, while existing object consumers migrate by stage.
+	using FMemoryWriter = FObjectMemoryWriter;
+	using FMemoryReader = FObjectMemoryReader;
+
+	COREDOBJECT_API auto RequireObjectArchive(FArchive& Ar) -> FObjectArchive*;
+	COREDOBJECT_API auto EnterArchiveObject(FArchive& Ar, DObject& Object) -> FArchiveObjectScope;
+	COREDOBJECT_API auto EnterArchiveField(
+		FArchive& Ar, const FArchiveFieldDescriptor& Field) -> FArchiveFieldScope;
+	COREDOBJECT_API auto EnterArchiveFixedArrayElement(FArchive& Ar, uint64 Index) -> FArchivePathScope;
+	COREDOBJECT_API auto EnterArchiveArrayElement(FArchive& Ar, uint64 Index) -> FArchivePathScope;
+	COREDOBJECT_API auto EnterArchiveMapKey(FArchive& Ar, uint64 Index) -> FArchivePathScope;
+	COREDOBJECT_API auto EnterArchiveMapValue(FArchive& Ar, uint64 Index) -> FArchivePathScope;
+	COREDOBJECT_API auto NotifyArchiveCanonicalMapKey(
+		FArchive& Ar, uint64 Index, std::span<const uint8> Token) -> void;
+	COREDOBJECT_API auto MarkArchiveBaseReflectedFieldsSerialized(FArchive& Ar) -> void;
+	COREDOBJECT_API auto NotifyArchiveReflectedPropertyValue(
+		FArchive& Ar, FProperty& Property, const void* Container, uint32 ArrayIndex) -> void;
+	COREDOBJECT_API auto SerializeArchiveObjectReference(FArchive& Ar, DObject*& Value) -> void;
+	COREDOBJECT_API auto SerializeArchiveSoftObjectPath(FArchive& Ar, FSoftObjectPath& Value) -> void;
 
 	class FPropertyValueSnapshot
 	{

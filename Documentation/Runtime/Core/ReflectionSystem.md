@@ -571,6 +571,30 @@ Outer hierarchy queries, one-way `Child -> Outer` reachability, root management,
 
 ## Serialization
 
+Core owns the generic byte Archive in `Serialization/Archive.h`. It provides
+canonical little-endian primitives, raw transfer, bounded span regions,
+position/remaining-byte queries, sticky structured failures, format/custom
+versions, counting and hashing Archives, and bounded string, buffer, sequence,
+alignment and zero-padding helpers. Persistent serializers use
+`FCanonicalMemoryWriter`/`FCanonicalMemoryReader`; they never persist native
+object representation, pointers, container capacity, ABI padding or unordered
+iteration. `FArchiveState` independently carries direction, persistence, Cook,
+editor-only filtering, bulk policy, purpose and target facts.
+
+Persistent values expose one bidirectional customization: member
+`Serialize(FArchive&)`, free `Serialize(FArchive&, Value&)`, or an explicit
+UE-style member taking a stable owner/context when the value cannot interpret
+itself alone. Archive direction selects loading versus saving. A different
+function is justified only for a materially different semantic layout such as
+Cook streaming, not merely for the opposite direction.
+
+CoreDObject layers `FObjectArchive` over that byte substrate. It owns reflected
+logical descriptors, object/field/container scopes, hard and soft object
+references and object-aware adapters. `DObject/Archive.h` forwards the Core
+Archive API and temporarily aliases its prior memory-Archive spellings to the
+object-aware canonical implementations for named migration consumers; it does
+not contain a second primitive serializer.
+
 `DObject::Serialize(FArchive&)` is the one complete-object state-transfer entry.
 Its base implementation calls `SerializeDObjectProperties(...)`, which enters
 stable reflected-field scopes and walks supported non-`Transient` properties.
@@ -580,15 +604,16 @@ semantic value operations. Missing or duplicate base calls, duplicate field
 identities, nested object entry, and unbalanced scopes are deterministic
 Archive failures.
 
-Direction and purpose are independent. `FArchiveState` selects Load or Save and
-one of Discovery, ObjectGraph, Duplicate, PropertySnapshot, EditableCopy, or
-AuthoredPackage. Capabilities describe structured fields, bounded raw payloads,
-canonical Map order, hard and soft references, unknown-field retention,
-remaining-byte queries, custom versions, and multi-pass discovery. Consumers
-branch on capabilities rather than Archive implementation type. Discovery is
-save-like and may call a serializer once before emission; a serializer must
-therefore expose the same fields, logical types, versions, and references in
-both passes and must not mutate persistent state.
+Purpose selects Discovery, ObjectGraph, Duplicate, PropertySnapshot,
+EditableCopy, AuthoredPackage, DerivedDataKey, DerivedDataPayload,
+CookedPackage, CookedPayload, or BulkData. Capabilities describe structured
+fields, bounded raw payloads, canonical Map order, hard and soft references,
+unknown-field retention, remaining-byte and position queries, custom versions,
+and multi-pass discovery. Consumers branch on capabilities and Archive context
+rather than implementation type. Discovery is save-like and may call a
+serializer once before emission; a serializer must therefore expose the same
+fields, logical types, versions, and references in both passes and must not
+mutate persistent state.
 
 `FArchiveLogicalTypeDescriptor` describes fixed-width scalars, enums, String,
 Name, Guid, bytes, hard and soft objects, structs, Array, Map, and fixed arrays

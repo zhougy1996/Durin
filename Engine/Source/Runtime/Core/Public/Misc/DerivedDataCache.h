@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreAPI.h"
+#include "Serialization/Archive.h"
 
 namespace Durin::DerivedDataCache
 {
@@ -42,7 +43,8 @@ namespace Durin::DerivedDataCache
 	class FReader
 	{
 	public:
-		explicit FReader(std::span<const uint8> InBytes) : Bytes(InBytes) {}
+		explicit FReader(std::span<const uint8> InBytes)
+			: Archive(InBytes, EArchivePurpose::DerivedDataPayload) {}
 
 		CORE_API auto ReadU8(uint8& Value) -> bool;
 		CORE_API auto ReadU32(uint32& Value) -> bool;
@@ -51,12 +53,14 @@ namespace Durin::DerivedDataCache
 		CORE_API auto ReadString(std::string& Value, uint64 MaximumBytes = MaximumCacheStringBytes) -> bool;
 		CORE_API auto ReadBytes(std::vector<uint8>& Value, uint64 ByteCount, uint64 MaximumBytes) -> bool;
 		CORE_API auto ReadAndValidateHeader(uint32 ExpectedMagic, uint32 ExpectedSchemaVersion, uint32 ExpectedFormatVersion, FCacheHeader* OutHeader = nullptr) -> bool;
-		auto IsAtEnd() const -> bool { return Offset == Bytes.size(); }
-		auto GetRemainingBytes() const -> size_t { return Bytes.size() - Offset; }
+		auto IsAtEnd() const -> bool { return !Archive.HasError() && Archive.GetRemainingPayloadBytes() == 0; }
+		auto GetRemainingBytes() const -> size_t
+		{
+			return static_cast<size_t>(Archive.GetRemainingPayloadBytes());
+		}
 
 	private:
-		std::span<const uint8> Bytes;
-		size_t Offset = 0;
+		FCanonicalMemoryReader Archive;
 	};
 
 	// Cache timestamps use signed nanoseconds in the platform file-clock domain and

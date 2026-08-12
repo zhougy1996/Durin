@@ -19,6 +19,7 @@ function(durin_add_core_functional_test target_name)
 endfunction()
 
 durin_add_core_functional_test(CoreUtilityTests
+	Private/ArchiveTests.cpp
 	Private/AssertionTests.cpp
 	Private/ConsoleCommandTests.cpp
 	Private/GuidTests.cpp

@@ -668,27 +668,27 @@ namespace
 			DObject::Serialize(Ar);
 			const Durin::FName Owner("Tests::DDefaultGraphOwnerForTest");
 			auto SerializeFirst = [&] {
-				auto Field = Ar.EnterField({Owner, Durin::FName("NativeFirst"),
+				auto Field = Durin::EnterArchiveField(Ar, {Owner, Durin::FName("NativeFirst"),
 					Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32)});
 				Ar << NativeFirst;
 			};
 			auto SerializeSecond = [&] {
-				auto Field = Ar.EnterField({Owner, Durin::FName("NativeSecond"),
+				auto Field = Durin::EnterArchiveField(Ar, {Owner, Durin::FName("NativeSecond"),
 					Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32)});
 				Ar << NativeSecond;
 			};
 			if (bReverseNativeOrder) { SerializeSecond(); SerializeFirst(); }
 			else { SerializeFirst(); SerializeSecond(); }
 			{
-				auto Field = Ar.EnterField({Owner, Durin::FName("NativeOnlyStruct"),
+				auto Field = Durin::EnterArchiveField(Ar, {Owner, Durin::FName("NativeOnlyStruct"),
 					Durin::FArchiveLogicalTypeDescriptor::Struct(
 						Durin::FName("Tests::FNativeOnlyStruct"), 1)});
-				auto ValueField = Ar.EnterField({Durin::FName("Tests::FNativeOnlyStruct"),
+				auto ValueField = Durin::EnterArchiveField(Ar, {Durin::FName("Tests::FNativeOnlyStruct"),
 					Durin::FName("Value"), Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32)});
 				Ar << NativeOnlyStructValue;
 			}
 			{
-				auto Field = Ar.EnterField({Owner, Durin::FName("NativeMap"),
+				auto Field = Durin::EnterArchiveField(Ar, {Owner, Durin::FName("NativeMap"),
 					Durin::FArchiveLogicalTypeDescriptor::Map(
 						Durin::FArchiveLogicalTypeDescriptor::String(),
 						Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32))});
@@ -696,23 +696,23 @@ namespace
 				Ar << Count;
 				std::string Key = "Key";
 				{
-					auto KeyScope = Ar.EnterMapKey(0);
+					auto KeyScope = Durin::EnterArchiveMapKey(Ar, 0);
 					Ar << Key;
 				}
 				{
-					auto ValueScope = Ar.EnterMapValue(0);
+					auto ValueScope = Durin::EnterArchiveMapValue(Ar, 0);
 					Ar << NativeMapValue;
 				}
 			}
 			if (bEmitLateField && !Ar.IsDiscovering())
 			{
-				auto Field = Ar.EnterField({Owner, Durin::FName("LateField"),
+				auto Field = Durin::EnterArchiveField(Ar, {Owner, Durin::FName("LateField"),
 					Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32)});
 				Ar << NativeFirst;
 			}
 			if (bEmitOptionalField)
 			{
-				auto Field = Ar.EnterField({Owner, Durin::FName("OptionalField"),
+				auto Field = Durin::EnterArchiveField(Ar, {Owner, Durin::FName("OptionalField"),
 					Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32)});
 				Ar << NativeFirst;
 			}
@@ -721,17 +721,17 @@ namespace
 				std::vector<Durin::FArchiveFieldScope> Scopes;
 				for (Durin::uint32 Depth = 0; Depth < Durin::DefaultDeltaMaxDepth + 2; ++Depth)
 				{
-					Scopes.push_back(Ar.EnterField({Durin::FName("Tests::FDeepDelta"),
+					Scopes.push_back(Durin::EnterArchiveField(Ar, {Durin::FName("Tests::FDeepDelta"),
 						Durin::FName(std::format("Depth{}", Depth)),
 						Durin::FArchiveLogicalTypeDescriptor::Struct(Durin::FName("Tests::FDeepDelta"))}));
 				}
-				auto Leaf = Ar.EnterField({Durin::FName("Tests::FDeepDelta"), Durin::FName("Leaf"),
+				auto Leaf = Durin::EnterArchiveField(Ar, {Durin::FName("Tests::FDeepDelta"), Durin::FName("Leaf"),
 					Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32)});
 				Ar << NativeFirst;
 			}
 			if (bEmitOversizedArray)
 			{
-				auto Field = Ar.EnterField({Owner, Durin::FName("OversizedArray"),
+				auto Field = Durin::EnterArchiveField(Ar, {Owner, Durin::FName("OversizedArray"),
 					Durin::FArchiveLogicalTypeDescriptor::Array(
 						Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32))});
 				Durin::uint64 Count = Durin::DefaultDeltaMaxFields + 1;
@@ -1177,29 +1177,29 @@ namespace
 
 			const Durin::FName DeclaringType("Tests::DLifecycleReferenceOwnerForTest");
 			{
-				auto Field = Ar.EnterField({DeclaringType, Durin::FName("NativeScalar"),
+				auto Field = Durin::EnterArchiveField(Ar, {DeclaringType, Durin::FName("NativeScalar"),
 					Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32)});
 				Ar << NativeScalar;
 			}
 			{
-				auto Field = Ar.EnterField({DeclaringType, Durin::FName("NativeStruct"),
+				auto Field = Durin::EnterArchiveField(Ar, {DeclaringType, Durin::FName("NativeStruct"),
 					Durin::FArchiveLogicalTypeDescriptor::Struct(
 						Durin::FName("Tests::DLifecycleReferenceOwnerForTest::FNativeStruct"), 1)});
 				{
-					auto ValueField = Ar.EnterField({
+					auto ValueField = Durin::EnterArchiveField(Ar, {
 						Durin::FName("Tests::DLifecycleReferenceOwnerForTest::FNativeStruct"),
 						Durin::FName("Value"), Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32)});
 					Ar << NativeStruct.Value;
 				}
 				{
-					auto LabelField = Ar.EnterField({
+					auto LabelField = Durin::EnterArchiveField(Ar, {
 						Durin::FName("Tests::DLifecycleReferenceOwnerForTest::FNativeStruct"),
 						Durin::FName("Label"), Durin::FArchiveLogicalTypeDescriptor::Name()});
 					Ar << NativeStruct.Label;
 				}
 			}
 			{
-				auto Field = Ar.EnterField({DeclaringType, Durin::FName("NativeValues"),
+				auto Field = Durin::EnterArchiveField(Ar, {DeclaringType, Durin::FName("NativeValues"),
 					Durin::FArchiveLogicalTypeDescriptor::Array(
 						Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32))});
 				Durin::uint64 Count = static_cast<Durin::uint64>(NativeValues.size());
@@ -1224,19 +1224,19 @@ namespace
 				}
 			}
 			{
-				auto Field = Ar.EnterField({DeclaringType, Durin::FName("SerializedNativeReference"),
+				auto Field = Durin::EnterArchiveField(Ar, {DeclaringType, Durin::FName("SerializedNativeReference"),
 					Durin::FArchiveLogicalTypeDescriptor::Object(Durin::DObject::StaticClass()->GetQualifiedName())});
 				Durin::DObject* ReferenceValue = Ar.IsSaving()
 					? SerializedNativeReference : nullptr;
-				Ar.SerializeObjectReference(ReferenceValue);
+				Durin::SerializeArchiveObjectReference(Ar, ReferenceValue);
 				if (Ar.IsLoading() && !Ar.HasError()) SerializedNativeReference = ReferenceValue;
 			}
 			if (bEmitLateReference)
 			{
-				auto Field = Ar.EnterField({DeclaringType, Durin::FName("EmissionOnlyReference"),
+				auto Field = Durin::EnterArchiveField(Ar, {DeclaringType, Durin::FName("EmissionOnlyReference"),
 					Durin::FArchiveLogicalTypeDescriptor::Object(Durin::DObject::StaticClass()->GetQualifiedName())});
 				Durin::DObject* ReferenceValue = Ar.IsDiscovering() ? nullptr : EmissionOnlyReference;
-				Ar.SerializeObjectReference(ReferenceValue);
+				Durin::SerializeArchiveObjectReference(Ar, ReferenceValue);
 			}
 			if (bInjectSerializeFailure)
 				Ar.Fail(Durin::EArchiveFailureCode::MalformedSerializer,

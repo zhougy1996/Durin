@@ -565,32 +565,32 @@ Dependencies: none.
 
 Dependencies: revised Stage 0 inventory and byte baselines.
 
-- [ ] Extract archive direction, persistence, Cook state/target, editor-only
+- [x] Extract archive direction, persistence, Cook state/target, editor-only
   filtering, bulk-data policy, purpose/capabilities, canonical byte order,
   byte swapping, raw `Serialize(void*, size)` transfer, position, bounded
   regions, custom/format versions, and failure state into a generic `Core`
   archive layer.
-- [ ] Retain reflected field/object/path scopes, DObject reference behavior, and
+- [x] Retain reflected field/object/path scopes, DObject reference behavior, and
   object/package adapters in a CoreDObject object-aware archive layer on top of
   Core, following UE's `FArchive`/object-archive separation.
-- [ ] Define and qualify the repository customization convention: member
+- [x] Define and qualify the repository customization convention: member
   `Serialize(FArchive&)`, UE-style `Serialize(FArchive&, Owner/Context)`, or free
   `Serialize`/`operator<<`; direction-named save/load APIs are not a final
   customization point.
-- [ ] Add canonical little-endian span reader/writer, counting archive, hashing
+- [x] Add canonical little-endian span reader/writer, counting archive, hashing
   archive, alignment/padding helpers, bounded byte/string/sequence helpers, and
   const-correct save versus mutable load byte APIs.
-- [ ] Add authored package, DDC key/value, cooked package/payload, and bulk-data
+- [x] Add authored package, DDC key/value, cooked package/payload, and bulk-data
   purposes plus UE-style `IsPersistent`, `IsCooking`, `IsFilterEditorOnly`, and
   bulk policy queries without coupling Core to Engine asset families.
-- [ ] Migrate or adapt `DerivedDataCache::FWriter/FReader` so canonical primitive
+- [x] Migrate or adapt `DerivedDataCache::FWriter/FReader` so canonical primitive
   behavior has one implementation while preserving every existing cache byte.
-- [ ] Preserve source compatibility with forwarding headers or aliases only
+- [x] Preserve source compatibility with forwarding headers or aliases only
   while named consumers migrate; do not retain two archive implementations.
-- [ ] Qualify primitive endian bytes, span truncation, bounds, overflow,
+- [x] Qualify primitive endian bytes, span truncation, bounds, overflow,
   alignment, padding, counting/hash equivalence, version lookup, and structured
   failure paths.
-- [ ] Requalify DObject object-graph, property snapshot, duplication, authored
+- [x] Requalify DObject object-graph, property snapshot, duplication, authored
   package, PackageV4, and Cook bytes before completing the stage.
 
 #### Acceptance Gate
@@ -604,6 +604,17 @@ Dependencies: revised Stage 0 inventory and byte baselines.
 - The archive facilities required by asset, key, DDC-value, Cook and bulk-data
   serializers are public, documented, and qualified before any payload value is
   rewritten.
+
+Stage 1 handoff (2026-08-12): Core owns the only primitive/canonical byte
+implementation in `Serialization/Archive.h`; CoreDObject supplies the
+object-aware derived layer and forwarding include. `DerivedDataCache` delegates
+its frozen wire primitives to Core. `CoreUtilityTests`, `CoreFileSystemTests`,
+`CoreObjectTests`, `CorePropertyValueSnapshotTests`, `AssetPackageTests`,
+`AssetCookTests`, `AssetDerivedDataTests`, `TextureTests`,
+`TextureCookIntegrationTests`, `StaticMeshTests`, `SkeletalAssetTests`,
+`TerrainHeightmapTests`, and `TerrainHeightmapCookTests` reproduce the Stage 0
+bytes and lifecycle behavior. A complete `Win64-Debug-DurinEditor` `all` build
+also qualifies the cross-module public Archive export move.
 
 ### Stage 2: Complete the Texture2D vertical slice
 

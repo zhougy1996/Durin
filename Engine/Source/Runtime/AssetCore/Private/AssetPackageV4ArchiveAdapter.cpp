@@ -119,7 +119,7 @@ namespace Durin::Asset::Private
 			return true;
 		}
 
-		class FAuthoredLoadArchive final : public FArchive
+		class FAuthoredLoadArchive final : public FObjectArchive
 		{
 		public:
 			FAuthoredLoadArchive(
@@ -128,7 +128,7 @@ namespace Durin::Asset::Private
 				std::span<DObject* const> InObjects,
 				uint32 SourceVersion,
 				std::span<const FArchiveCustomVersion> CustomVersions)
-				: FArchive({EArchiveDirection::Load, EArchivePurpose::AuthoredPackage,
+				: FObjectArchive({EArchiveDirection::Load, EArchivePurpose::AuthoredPackage,
 					EArchiveCapability::StructuredFields | EArchiveCapability::RawBytes
 					| EArchiveCapability::ObjectReferences
 					| EArchiveCapability::SoftObjectReferences
@@ -570,7 +570,7 @@ namespace Durin::Asset::Private
 			bool bAssetErrorSet = false;
 		};
 
-		class FAuthoredCaptureArchive final : public FArchive
+		class FAuthoredCaptureArchive final : public FObjectArchive
 		{
 		public:
 			FAuthoredCaptureArchive(
@@ -578,7 +578,7 @@ namespace Durin::Asset::Private
 				const FAssetPackageSerializationOptions& InOptions,
 				bool bInCapturePayload,
 				uint32 TargetFormatVersion)
-				: FArchive({EArchiveDirection::Save,
+				: FObjectArchive({EArchiveDirection::Save,
 					bInCapturePayload ? EArchivePurpose::AuthoredPackage : EArchivePurpose::Discovery,
 					EArchiveCapability::None}, FArchiveVersionContext{
 						std::vector<FArchiveFormatVersion>{FArchiveFormatVersion{FName("DAST"), TargetFormatVersion}}, {}})
