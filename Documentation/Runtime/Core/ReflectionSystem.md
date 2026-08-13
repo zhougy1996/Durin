@@ -14,8 +14,9 @@ Durin reflection uses selected C++ headers as the source of truth. A module list
 Engine/Intermediate/Build/<Platform>/<RuntimeVariant>/<Module>/DHT
 ```
 
-Generated files are atomically replaced. DHT serializes commands that use the
-same platform and runtime variant. Debug, Release, and Profiling presets in one
+Generated files are atomically replaced. DHT serializes conflicting project
+metadata writers and commands that write the same module; independent modules
+may run concurrently. Debug, Release, and Profiling presets in one
 worktree share configuration-independent generated files.
 
 The current system supports:
@@ -24,7 +25,7 @@ The current system supports:
 - fully qualified runtime type identities, such as `Durin::AActor`
 - namespace-safe generated helper names, such as `Z_Construct_DClass_Durin_AActor`
 - module export files as thin reflected-symbol indexes
-- module manifests for incremental reflection generation
+- clean-surviving module phase state for incremental generation and output repair
 - generated `.gen.h` and `.gen.cpp` files
 - generated class registration into `DClass`
 - generated enum registration into `DEnum`
@@ -128,7 +129,7 @@ The build flow is:
 .dmodule and runtime-variant config
 -> generated module CMake metadata
 -> module export file
--> module reflection files and manifest
+-> module reflection files
 -> C++ compile/link
 ```
 
@@ -137,21 +138,20 @@ The build flow is:
 - `generate_module_export_file`
 - `generate_reflection_files`
 
-Each command exposes a stamp as its primary build output. The export, generated
-C++ files, and private manifests are declared CMake `BYPRODUCTS`; the stamp is
+Each command exposes a stamp as its primary build output. The public export and
+generated C++ files are declared CMake `BYPRODUCTS`; the stamp is
 touched only after DHT completes successfully. This lets Ninja repair any missing
 generated artifact while avoiding a repeated command when a semantic export or
 generated source remains byte-for-byte unchanged. In particular, an unchanged
 public `.export` keeps its timestamp so downstream modules are not regenerated.
 
-These disposable outputs are reconstructed from a versioned per-header cache at
-`<Project>/Intermediate/Build/<Platform>/<RuntimeVariant>/DHTCache/`. Export
-entries retain the raw symbol projection required for deterministic module
-resolution. Reflection entries retain generated header/source text,
-class/property counts, and resolved-symbol dependency snapshots. Entries are
-canonical checksummed JSON and are keyed by the current header plus the complete
-phase context; reflection also hashes the complete canonical available-symbol
-set. DHT validates an entry completely before publishing any cached output.
+These disposable outputs are reconstructed from two module phase bundles at
+`<Project>/Intermediate/Build/<Platform>/<RuntimeVariant>/DHTCache/<Module>/`:
+`export-state.json` retains raw symbol projections and
+`reflection-state.json` retains generated text, counts, dependency snapshots,
+output ownership, and output digests. Both are canonical, checksummed JSON with
+independent schemas. DHT validates the bundle envelope and phase context before
+reuse; an invalid per-header record reparses only that header.
 
 CMake clean does not own this cache, so a warm rebuild can rematerialize every
 missing generated output with zero parser calls. Project purge removes the
@@ -162,8 +162,8 @@ from already published entries on the next ordinary build.
 
 CMake computes a stable tool fingerprint from the DHT Python implementation and
 its pinned requirements. A tool input change triggers reconfiguration and both
-generation stages. DHT records the fingerprint in its manifests, so parser or
-writer changes invalidate the internal cache even when reflected headers have not
+generation stages. DHT records the fingerprint in each phase bundle, so parser
+or writer changes invalidate reusable state even when reflected headers have not
 changed.
 
 The export command runs before reflection generation so other modules can
@@ -179,7 +179,7 @@ DurinHeaderTool logs key build progress at `INFO` level:
 - export skip status, scan start/end, and symbol count
 - aggregate export cache hits, misses, materializations, parses, and miss reasons
 - export parse worker count when multiple headers require parsing
-- reflection manifest preparation
+- reflection phase-state preparation
 - number of regenerated/skipped headers
 - aggregate reflection cache hits, misses, materializations, parses, and miss reasons
 - reflection parse worker count when multiple headers require regeneration
@@ -241,50 +241,50 @@ Export files are intentionally thin. They are used for symbol resolution during 
 
 Export files should only change when the exported reflected-symbol contract changes. Whitespace-only edits in a reflected header may force the owning module's export command to run, but should not rewrite the public `.export` file if the symbol index is unchanged. This keeps downstream modules from regenerating purely because an upstream header timestamp changed.
 
-DurinHeaderTool stores export-generation input fingerprints in a private sibling cache:
+DurinHeaderTool stores export-generation reuse data in:
 
 ```text
-<Module>.export.manifest
+DHTCache/<Module>/export-state.json
 ```
 
-The module export manifest currently uses schema v7 and records the schema, tool
-version, tool fingerprint, options, runtime variant, platform, dependency-export
-content digests, reflected-header fingerprints, and a serializable raw symbol
-projection for each header. It lets `generate_module_export_file` skip entirely
+The export phase payload currently uses schema v1 inside a checksummed envelope.
+It records the tool and native-libclang fingerprints, parser context, runtime
+variant, platform, dependency-export content digests, SHA-256 reflected-header
+fingerprints, a serializable raw symbol projection for each header, and the
+resolved public-export digest. It lets `generate_module_export_file` skip entirely
 when no inputs changed. If only some headers changed, DurinHeaderTool reparses
 only those headers and reuses the other raw projections, including an empty
 projection for a header that exports no symbols. It then resolves bases against
 the complete current-module projection and dependency exports in deterministic
 header/name order before writing the unchanged thin public `.export` format.
-The reflected-header content identity is the stored MD5; timestamp and size are
-only a cheap guard that avoids
+The reflected-header content identity is SHA-256; timestamp and size are only a
+cheap guard that avoids
 rehashing an unchanged file. Touching a header therefore refreshes its cached
 filesystem metadata without invalidating export or reflection parsing when its
 content hash is unchanged. When multiple headers require parsing, the export
 generator parses them in a bounded worker pool and merges results in module
-header order. Other modules should not depend on or read this private manifest
+header order. Other modules should not depend on or read this private state
 directly.
 
 `CoreDObject` uses `DObject/MirrorExportTypes.h` under `_DHT_EXPORTS_PARSER` to publish intrinsic core types such as `Durin::DObject`, `Durin::DType`, `Durin::DStructBase`, and `Durin::DClass` without generating duplicate runtime class registration for those intrinsic types.
 
-## Manifest Files
+## Persistent Reflection Phase State
 
-Each reflected module writes:
+Each reflected module writes clean-surviving private reconstruction state:
 
 ```text
-<Module>.manifest
+DHTCache/<Module>/reflection-state.json
 ```
 
-The manifest currently uses schema v6 JSON and is private to DurinHeaderTool. It records:
+The reflection payload currently uses schema v1 inside the same canonical,
+checksummed envelope and is private to DurinHeaderTool. It records:
 
-- `SchemaVersion`
-- `ToolVersion`
 - `ToolFingerprint`
-- `SymbolNameScheme`
-- `ModuleName`
+- `NativeLibClangFingerprint`
+- `ContextDigest`, covering the symbol-name scheme and generator/parser options
+- `Module`
 - `RuntimeVariant`
 - `Platform`
-- `GeneratorOptionsHash`
 - reflected header fingerprints
 - `GeneratedOutputs`, the complete set of reflection outputs owned by the module
 - content digests for generated outputs, used to repair damaged files from a
@@ -293,20 +293,20 @@ The manifest currently uses schema v6 JSON and is private to DurinHeaderTool. It
 - dependency export content digests
 - resolved reflected-symbol dependencies per header
 
-Changing the tool version, tool fingerprint, schema, symbol-name scheme, runtime variant,
-platform, options hash, dependency exports, or reflected header fingerprints
-invalidates generated reflection outputs.
+Changing the tool fingerprint, schema, context digest, runtime variant,
+platform, resolved dependency symbols, or reflected header fingerprints
+invalidates the affected generated reflection outputs.
 
-Dependency export changes are filtered through resolved symbol dependencies. If an upstream export changes but a header does not reference the changed reflected symbols, that header can keep its existing generated files. Missing generated outputs still force regeneration for the affected header. A missing, truncated, or structurally invalid export or manifest is treated as a cache miss and regenerated.
+Dependency export changes are filtered through resolved symbol dependencies. If an upstream export changes but a header does not reference the changed reflected symbols, that header can keep its existing generated files. Missing or damaged generated outputs are rematerialized from stored generated text. A missing, truncated, checksum-invalid, or structurally invalid bundle is a typed state miss and is regenerated.
 
-After all new reflection outputs are committed, DHT writes the new manifest with
+After all new reflection outputs are committed, DHT writes the phase state with
 the difference between the old and new ownership sets in
 `PendingCleanupOutputs`. It then deletes only those named files and clears the
-pending list in a final atomic manifest write. An interrupted or failed deletion
+pending list in a final atomic state write. An interrupted or failed deletion
 is therefore retried by the next generation command, while a failed generation
-never removes outputs belonging to the last successful manifest. Manifests
-older than schema v5 derive their initial ownership set from `ReflectHeaders`
-while upgrading to the current schema.
+never removes outputs belonging to the last successful state. Old output
+manifests and per-header cache entries are deliberately treated as misses; an
+ordinary build regenerates the new bundle without requiring manual deletion.
 
 ## Generated Header Contract
 

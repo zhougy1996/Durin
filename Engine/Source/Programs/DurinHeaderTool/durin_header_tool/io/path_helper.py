@@ -1,9 +1,6 @@
 from pathlib import Path
 from durin_header_tool import config as configs
 
-def get_dht_tool_dir() -> Path:
-    return configs.environment.DHT_ROOT_DIR
-
 def get_project_dir(project_name: str) -> Path:
     project_config = configs.get_project_config(project_name)
     return project_config.project_dir
@@ -37,11 +34,6 @@ def get_dht_output_lock_dir() -> Path:
     )
 
 
-def get_dht_runtime_variant_lock_file_path() -> Path:
-    """Return the lock reserved for runtime-variant-wide indexes and cleanup."""
-    return get_dht_output_lock_dir() / "runtime-variant.lock"
-
-
 def get_dht_project_lock_file_path(project_name: str) -> Path:
     """Return the lock for generated project metadata."""
     return get_dht_output_lock_dir() / "projects" / f"{project_name}.lock"
@@ -61,9 +53,6 @@ def get_module_intermediate_build_dir(module_name: str) -> Path:
 def get_module_cmake_file_path(module_name: str) -> Path:
     return get_module_intermediate_build_dir(module_name) / f"{module_name}.module.cmake"
 
-def get_module_definitions_header_path(module_name: str) -> Path:
-    return get_module_intermediate_build_dir(module_name) / "Definitions.h"
-
 def get_module_dht_output_dir(module_name: str) -> Path:
     return get_module_intermediate_build_dir(module_name) / "DHT"
 
@@ -75,11 +64,3 @@ def get_module_export_file_path(module_name: str) -> Path:
     if not configs.get_module_config(module_name).has_export_file():
         return Path("")
     return get_module_dht_output_dir(module_name) / f"{module_name}.export"
-
-def get_module_export_manifest_file_path(module_name: str) -> Path:
-    if not configs.get_module_config(module_name).has_export_file():
-        return Path("")
-    return get_module_dht_output_dir(module_name) / f"{module_name}.export.manifest"
-    
-def get_module_manifest_file_path(module_name: str) -> Path:
-    return get_module_dht_output_dir(module_name) / f"{module_name}.manifest"

@@ -51,9 +51,6 @@ class DurinModuleConfig:
         instance.module_dir = instance.config_file_path.parent
         return instance
     
-    def get_reflect_header_paths(self) -> list[Path]:
-        return [(self.module_dir / header).resolve() for header in self.reflect_headers]
-    
     def has_export_file(self) -> bool:
         return len(self.reflect_headers) > 0
     
@@ -146,11 +143,6 @@ def is_module_enabled_for_active_runtime_variant(
         runtime_variant = configs.RUNTIME_VARIANT
     owning_project = get_module_config(module_name).owning_project
     return module_name in collect_enabled_modules_for_project(owning_project, runtime_variant)
-
-def collect_sorted_dependent_modules(module_name: str, runtime_variant: str | None = None) -> list[str]:
-    all_deps = collect_all_dependent_modules(module_name, runtime_variant)
-    sorted_deps = sorted(all_deps)
-    return sorted_deps
 
 # Collects all the dependencies of the module manifest file that have export files (self included).
 def collect_all_dependent_module_with_export_file(module_name: str, runtime_variant: str | None = None) -> list[str]:

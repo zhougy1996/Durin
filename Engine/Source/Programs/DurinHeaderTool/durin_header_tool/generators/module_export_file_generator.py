@@ -4,24 +4,18 @@ import logging
 import time
 
 from durin_header_tool import config as configs
-from durin_header_tool.cache.persistent_header_cache import (
-    CacheDiagnostics,
-    CacheEntryIdentity,
-    CachePhase,
-    ExportHeaderCachePayload,
-    PersistentHeaderCache,
+from durin_header_tool.cache.phase_state import (
+    ExportPhaseState,
     canonical_json_bytes,
     fingerprint_native_libclang,
-    make_persistent_header_cache,
+    load_export_phase_state,
+    save_export_phase_state,
     sha256_bytes,
 )
 from durin_header_tool.model.export_info import (
     ModuleExportInfo,
-    ModuleExportManifest,
     load_module_export_file,
-    load_module_export_manifest_file,
     save_module_export_file,
-    save_module_export_manifest_file,
 )
 from durin_header_tool.model.reflection_info import SYMBOL_NAME_SCHEME, TOOL_VERSION
 from durin_header_tool.parser.reflection_parser import PARSER_CONTEXT_VERSION
@@ -33,9 +27,6 @@ from durin_header_tool.extractors.export_symbol_extractor import resolve_module_
 
 
 _GENERATOR_OPTIONS_HASH = "default"
-_EMPTY_EXPORT_DEPENDENCY_DIGEST = sha256_bytes(canonical_json_bytes({}))
-
-
 def _export_cache_context_digest() -> str:
     return sha256_bytes(
         canonical_json_bytes(
@@ -48,11 +39,9 @@ def _export_cache_context_digest() -> str:
     )
 
 
-def _load_previous_export(module_name: str) -> tuple[ModuleExportInfo | None, ModuleExportManifest | None]:
+def _load_previous_export(module_name: str) -> tuple[ModuleExportInfo | None, ExportPhaseState | None]:
     export_file_path = utils.get_module_export_file_path(module_name)
-    export_manifest_path = utils.get_module_export_manifest_file_path(module_name)
     old_export_info = None
-    old_manifest = None
 
     if export_file_path.exists():
         try:
@@ -65,22 +54,7 @@ def _load_previous_export(module_name: str) -> tuple[ModuleExportInfo | None, Mo
                 error,
             )
 
-    if export_manifest_path.exists():
-        try:
-            old_manifest = load_module_export_manifest_file(export_manifest_path)
-        except (OSError, UnicodeError, ValueError, TypeError, AttributeError, KeyError) as error:
-            logging.warning(
-                "[DHT] Export %s: ignoring invalid manifest %s (%s)",
-                module_name,
-                export_manifest_path,
-                error,
-            )
-
-    # The export and its private manifest form one cache entry. Reuse neither
-    # half when the other half is missing or invalid.
-    if old_export_info is None or old_manifest is None:
-        return None, None
-    return old_export_info, old_manifest
+    return old_export_info, load_export_phase_state(module_name)
 
 
 def _parse_header_export_worker(args):
@@ -96,16 +70,15 @@ def _parse_header_export_worker(args):
     return header, symbols, elapsed_ms
 
 
-def _make_current_export_manifest(module_name: str, old_manifest: ModuleExportManifest = None) -> ModuleExportManifest:
+def _make_current_export_state(module_name: str, old_state: ExportPhaseState = None) -> ExportPhaseState:
     module_config = configs.get_module_config(module_name)
-    manifest = ModuleExportManifest(
-        Module=module_name,
-        RuntimeVariant=configs.RUNTIME_VARIANT,
-        Platform=configs.ARCH,
-        ToolVersion=TOOL_VERSION,
-        ToolFingerprint=configs.TOOL_FINGERPRINT or TOOL_VERSION,
-        SymbolNameScheme=SYMBOL_NAME_SCHEME,
-        GeneratorOptionsHash=_GENERATOR_OPTIONS_HASH,
+    state = ExportPhaseState(
+        module=module_name,
+        runtime_variant=configs.RUNTIME_VARIANT,
+        platform=configs.ARCH,
+        tool_fingerprint=configs.TOOL_FINGERPRINT or TOOL_VERSION,
+        native_libclang_fingerprint=fingerprint_native_libclang(),
+        context_digest=_export_cache_context_digest(),
     )
     for dep_module in configs.collect_all_dependent_module_with_export_file(module_name):
         if dep_module == module_name:
@@ -115,64 +88,57 @@ def _make_current_export_manifest(module_name: str, old_manifest: ModuleExportMa
             raise FileNotFoundError(
                 f"Export file for dependent module '{dep_module}' not found at expected path: {export_path}"
             )
-        manifest.DependencyExports[dep_module] = hashlib.sha256(export_path.read_bytes()).hexdigest()
+        state.dependency_exports[dep_module] = hashlib.sha256(export_path.read_bytes()).hexdigest()
     for header in module_config.reflect_headers:
         header_file_path = (module_config.module_dir / header).resolve()
         if not header_file_path.exists():
             raise FileNotFoundError(f"Reflect header file '{header}' for module '{module_name}' not found at expected path: {header_file_path}")
-        old_fingerprint = old_manifest.ReflectHeaders.get(header) if old_manifest else None
-        manifest.ReflectHeaders[header] = utils.get_file_fingerprint_with_old_cache(header_file_path, old_fingerprint)
-    return manifest
+        old_fingerprint = old_state.reflect_headers.get(header) if old_state else None
+        state.reflect_headers[header] = utils.get_file_fingerprint_with_old_cache(header_file_path, old_fingerprint)
+    return state
 
 
-def _is_export_current(old_manifest: ModuleExportManifest, new_manifest: ModuleExportManifest, export_exists: bool) -> bool:
-    if old_manifest is None or not export_exists:
+def _is_export_current(old_state: ExportPhaseState, new_state: ExportPhaseState, export_exists: bool) -> bool:
+    if old_state is None or not export_exists:
         return False
     return (
-        old_manifest.SchemaVersion == new_manifest.SchemaVersion
-        and old_manifest.ToolVersion == new_manifest.ToolVersion
-        and old_manifest.ToolFingerprint == new_manifest.ToolFingerprint
-        and old_manifest.SymbolNameScheme == new_manifest.SymbolNameScheme
-        and old_manifest.Module == new_manifest.Module
-        and old_manifest.RuntimeVariant == new_manifest.RuntimeVariant
-        and old_manifest.Platform == new_manifest.Platform
-        and old_manifest.GeneratorOptionsHash == new_manifest.GeneratorOptionsHash
-        and old_manifest.DependencyExports == new_manifest.DependencyExports
-        and old_manifest.ReflectHeaders == new_manifest.ReflectHeaders
-        and set(old_manifest.RawSymbolsByHeader) == set(new_manifest.ReflectHeaders)
+        _is_state_contract_compatible(old_state, new_state)
+        and old_state.dependency_exports == new_state.dependency_exports
+        and old_state.reflect_headers == new_state.reflect_headers
+        and set(old_state.raw_symbols_by_header) == set(new_state.reflect_headers)
+        and old_state.resolved_export_digest == utils.calc_sha256(utils.get_module_export_file_path(new_state.module))
     )
 
 
-def _is_manifest_contract_compatible(old_manifest: ModuleExportManifest, new_manifest: ModuleExportManifest) -> bool:
-    if old_manifest is None:
+def _is_state_contract_compatible(old_state: ExportPhaseState, new_state: ExportPhaseState) -> bool:
+    if old_state is None:
         return False
     return (
-        old_manifest.SchemaVersion == new_manifest.SchemaVersion
-        and old_manifest.ToolVersion == new_manifest.ToolVersion
-        and old_manifest.ToolFingerprint == new_manifest.ToolFingerprint
-        and old_manifest.SymbolNameScheme == new_manifest.SymbolNameScheme
-        and old_manifest.Module == new_manifest.Module
-        and old_manifest.RuntimeVariant == new_manifest.RuntimeVariant
-        and old_manifest.Platform == new_manifest.Platform
-        and old_manifest.GeneratorOptionsHash == new_manifest.GeneratorOptionsHash
+        old_state.schema_version == new_state.schema_version
+        and old_state.tool_fingerprint == new_state.tool_fingerprint
+        and old_state.native_libclang_fingerprint == new_state.native_libclang_fingerprint
+        and old_state.module == new_state.module
+        and old_state.runtime_variant == new_state.runtime_variant
+        and old_state.platform == new_state.platform
+        and old_state.context_digest == new_state.context_digest
     )
 
 
-def _is_header_current(old_manifest: ModuleExportManifest, new_manifest: ModuleExportManifest, header: str) -> bool:
+def _is_header_current(old_state: ExportPhaseState, new_state: ExportPhaseState, header: str) -> bool:
     return (
-        _is_manifest_contract_compatible(old_manifest, new_manifest)
-        and old_manifest.ReflectHeaders.get(header) == new_manifest.ReflectHeaders[header]
+        _is_state_contract_compatible(old_state, new_state)
+        and old_state.reflect_headers.get(header) == new_state.reflect_headers[header]
     )
 
 
 def _load_or_parse_header_export(
     module_name: str,
     header: str,
-    old_manifest: ModuleExportManifest,
-    new_manifest: ModuleExportManifest,
+    old_state: ExportPhaseState,
+    new_state: ExportPhaseState,
 ) -> dict:
-    if _is_header_current(old_manifest, new_manifest, header):
-        symbols = old_manifest.RawSymbolsByHeader.get(header)
+    if _is_header_current(old_state, new_state, header):
+        symbols = old_state.raw_symbols_by_header.get(header)
         if symbols is not None:
             logging.debug(
                 "[DHT] Export %s: reused %s from export (%d symbols)",
@@ -186,65 +152,20 @@ def _load_or_parse_header_export(
     return None
 
 
-def _make_export_cache_identity(
+def _build_module_export_from_state(
     module_name: str,
-    header: str,
-    native_libclang_fingerprint: str,
-) -> CacheEntryIdentity:
-    module_config = configs.get_module_config(module_name)
-    header_path = (module_config.module_dir / header).resolve()
-    return CacheEntryIdentity(
-        tool_fingerprint=configs.TOOL_FINGERPRINT or TOOL_VERSION,
-        native_libclang_fingerprint=native_libclang_fingerprint,
-        platform=configs.ARCH,
-        runtime_variant=configs.RUNTIME_VARIANT,
-        context_digest=_export_cache_context_digest(),
-        module=module_name,
-        logical_header=header,
-        header_content_digest=utils.calc_sha256(header_path),
-        dependency_digest=_EMPTY_EXPORT_DEPENDENCY_DIGEST,
-    )
-
-
-def _build_module_export_from_cache(
-    module_name: str,
-    old_manifest: ModuleExportManifest,
-    new_manifest: ModuleExportManifest,
+    old_state: ExportPhaseState,
+    new_state: ExportPhaseState,
     max_workers: int,
-    persistent_cache: PersistentHeaderCache,
-    native_libclang_fingerprint: str,
-    diagnostics: CacheDiagnostics,
 ) -> tuple[dict[str, dict], int]:
     module_config = configs.get_module_config(module_name)
     raw_symbols_by_header: dict[str, dict] = {}
     headers_to_parse: list[str] = []
-    cache_identities: dict[str, CacheEntryIdentity] = {}
 
     for header in module_config.reflect_headers:
-        symbols = _load_or_parse_header_export(module_name, header, old_manifest, new_manifest)
+        symbols = _load_or_parse_header_export(module_name, header, old_state, new_state)
         if symbols is None:
-            identity = _make_export_cache_identity(
-                module_name,
-                header,
-                native_libclang_fingerprint,
-            )
-            cache_identities[header] = identity
-            lookup = persistent_cache.read(CachePhase.EXPORT, identity)
-            diagnostics.record_lookup(lookup)
-            if lookup.is_hit:
-                payload = lookup.payload
-                if not isinstance(payload, ExportHeaderCachePayload):
-                    raise TypeError("Persistent export cache returned an incompatible payload.")
-                symbols = payload.symbols
-                diagnostics.record_materialization()
-                logging.debug(
-                    "[DHT] Export %s: reconstructed %s from persistent cache (%d symbols)",
-                    module_name,
-                    header,
-                    len(symbols),
-                )
-            else:
-                headers_to_parse.append(header)
+            headers_to_parse.append(header)
 
         if symbols is not None:
             raw_symbols_by_header[header] = symbols
@@ -284,14 +205,6 @@ def _build_module_export_from_cache(
                 elapsed_ms,
             )
 
-        diagnostics.record_parse(len(parsed_symbols_by_header))
-        for header, symbols in parsed_symbols_by_header.items():
-            persistent_cache.write(
-                CachePhase.EXPORT,
-                cache_identities[header],
-                ExportHeaderCachePayload(symbols=symbols),
-            )
-
         for header in module_config.reflect_headers:
             if header in parsed_symbols_by_header:
                 raw_symbols_by_header[header] = parsed_symbols_by_header[header]
@@ -306,38 +219,25 @@ def _build_module_export_from_cache(
 def generate_module_export_file(module_name: str, max_workers: int = 1) -> None:
     start_time = time.perf_counter()
     export_file_path = utils.get_module_export_file_path(module_name)
-    export_manifest_path = utils.get_module_export_manifest_file_path(module_name)
-    old_export_info, old_manifest = _load_previous_export(module_name)
-    new_manifest = _make_current_export_manifest(module_name, old_manifest)
-    persistent_cache = make_persistent_header_cache(module_name)
-    persistent_cache.cleanup_stale_headers(
-        CachePhase.EXPORT,
-        module_name,
-        list(new_manifest.ReflectHeaders),
-    )
-    if _is_export_current(old_manifest, new_manifest, old_export_info is not None):
-        new_manifest.RawSymbolsByHeader = old_manifest.RawSymbolsByHeader
-        save_module_export_manifest_file(new_manifest)
+    old_export_info, old_state = _load_previous_export(module_name)
+    new_state = _make_current_export_state(module_name, old_state)
+    if _is_export_current(old_state, new_state, old_export_info is not None):
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0
         logging.info(
             "[DHT] Export %s: up to date (%d headers, %d symbols) in %.0f ms",
             module_name,
-            len(new_manifest.ReflectHeaders),
+            len(new_state.reflect_headers),
             len(old_export_info.Symbols),
             elapsed_ms,
         )
         return
 
-    logging.debug("[DHT] Export %s: scanning %d reflected headers", module_name, len(new_manifest.ReflectHeaders))
-    diagnostics = CacheDiagnostics()
-    raw_symbols_by_header, parsed_header_count = _build_module_export_from_cache(
+    logging.debug("[DHT] Export %s: scanning %d reflected headers", module_name, len(new_state.reflect_headers))
+    raw_symbols_by_header, parsed_header_count = _build_module_export_from_state(
         module_name,
-        old_manifest,
-        new_manifest,
+        old_state,
+        new_state,
         max_workers,
-        persistent_cache,
-        fingerprint_native_libclang(),
-        diagnostics,
     )
     dependency_symbols = load_dependency_symbols(module_name)
     export_info = resolve_module_export_info(
@@ -345,16 +245,18 @@ def generate_module_export_file(module_name: str, max_workers: int = 1) -> None:
         raw_symbols_by_header,
         dependency_symbols,
     )
-    new_manifest.RawSymbolsByHeader = raw_symbols_by_header
+    new_state.raw_symbols_by_header = raw_symbols_by_header
     save_module_export_file(export_info)
-    save_module_export_manifest_file(new_manifest)
+    # The digest describes the atomically published bytes, including the host
+    # text newline convention, so the next invocation can validate the file.
+    new_state.resolved_export_digest = utils.calc_sha256(export_file_path)
+    save_export_phase_state(new_state)
     elapsed_ms = (time.perf_counter() - start_time) * 1000.0
-    diagnostics.log_summary(module_name, CachePhase.EXPORT, elapsed_ms)
     logging.info(
         "[DHT] Export %s: updated %d/%d headers, wrote %d symbols in %.0f ms",
         module_name,
         parsed_header_count,
-        len(new_manifest.ReflectHeaders),
+        len(new_state.reflect_headers),
         len(export_info.Symbols),
         elapsed_ms,
     )

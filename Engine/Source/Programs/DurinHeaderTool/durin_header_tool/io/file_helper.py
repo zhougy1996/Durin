@@ -5,25 +5,59 @@ import hashlib
 import os
 import tempfile
 
-@dataclass
+@dataclass(eq=False)
 class FileFingerprint:
     # Timestamp and size are only a cheap guard for reusing the stored hash.
     # Once a hash is available, content identity is defined by the hash alone.
     timestamp: float = field(default=0.0, compare=False)
     file_size: int = field(default=0, compare=False)
-    md5: str = ""
+    sha256: str = ""
+    legacy_md5: str = field(default="", compare=False, repr=False)
 
-def calc_md5(file_path: Path, chunk_size: int = 8192) -> str:
-    if not file_path.is_file():
-        raise FileNotFoundError(f"File {file_path} does not exist.")
-    try:
-        hash_obj = hashlib.md5()
-        with open(file_path, "rb") as f:
-            while chunk := f.read(chunk_size):
-                hash_obj.update(chunk)
-        return hash_obj.hexdigest()
-    except (PermissionError, OSError) as e:
-        raise IOError(f"Error reading file {file_path}: {e}")
+    def __eq__(self, other: object) -> bool:
+        return (
+            isinstance(other, FileFingerprint)
+            and bool(self.sha256)
+            and bool(other.sha256)
+            and self.sha256 == other.sha256
+        )
+
+    def to_json(self) -> dict[str, object]:
+        if len(self.sha256) != 64 or any(character not in "0123456789abcdef" for character in self.sha256):
+            raise ValueError("File fingerprint SHA256 must be a lowercase SHA-256 digest.")
+        return {
+            "Timestamp": self.timestamp,
+            "FileSize": self.file_size,
+            "SHA256": self.sha256,
+        }
+
+    @classmethod
+    def from_json(cls, data: object, *, allow_legacy_md5: bool = False) -> "FileFingerprint":
+        if not isinstance(data, dict):
+            raise ValueError("File fingerprint must be a JSON object.")
+        if set(data) == {"Timestamp", "FileSize", "SHA256"}:
+            timestamp = data["Timestamp"]
+            file_size = data["FileSize"]
+            digest = data["SHA256"]
+            if not isinstance(timestamp, (int, float)) or isinstance(timestamp, bool):
+                raise ValueError("File fingerprint Timestamp must be numeric.")
+            if not isinstance(file_size, int) or isinstance(file_size, bool) or file_size < 0:
+                raise ValueError("File fingerprint FileSize must be a non-negative integer.")
+            if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+                raise ValueError("File fingerprint SHA256 must be a lowercase SHA-256 digest.")
+            return cls(timestamp=float(timestamp), file_size=file_size, sha256=digest)
+        if allow_legacy_md5 and set(data) == {"Timestamp", "FileSize", "MD5"}:
+            timestamp = data["Timestamp"]
+            file_size = data["FileSize"]
+            digest = data["MD5"]
+            if not isinstance(timestamp, (int, float)) or isinstance(timestamp, bool):
+                raise ValueError("Legacy file fingerprint Timestamp must be numeric.")
+            if not isinstance(file_size, int) or isinstance(file_size, bool) or file_size < 0:
+                raise ValueError("Legacy file fingerprint FileSize must be a non-negative integer.")
+            if not isinstance(digest, str):
+                raise ValueError("Legacy file fingerprint MD5 must be a string.")
+            return cls(timestamp=float(timestamp), file_size=file_size, legacy_md5=digest)
+        raise ValueError("File fingerprint has an invalid JSON object shape.")
 
 
 def calc_sha256(file_path: Path, chunk_size: int = 8192) -> str:
@@ -47,11 +81,15 @@ def get_file_fingerprint_with_old_cache(file_path: Path, old_fingerprint: FileFi
         timestamp = stat.st_mtime
         file_size = stat.st_size
         
-        if old_fingerprint and timestamp == old_fingerprint.timestamp and file_size == old_fingerprint.file_size:
+        if (
+            old_fingerprint
+            and old_fingerprint.sha256
+            and timestamp == old_fingerprint.timestamp
+            and file_size == old_fingerprint.file_size
+        ):
             return old_fingerprint
         
-        md5_hash = calc_md5(file_path)
-        return FileFingerprint(timestamp=timestamp, file_size=file_size, md5=md5_hash)
+        return FileFingerprint(timestamp=timestamp, file_size=file_size, sha256=calc_sha256(file_path))
     except (PermissionError, OSError) as e:
         raise IOError(f"Error accessing file {file_path}: {e}")
 

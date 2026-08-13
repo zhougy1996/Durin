@@ -13,7 +13,6 @@ from .module_config import (
     collect_all_dependent_module_with_export_file,
     collect_all_dependent_modules,
     collect_enabled_modules_for_project,
-    collect_sorted_dependent_modules,
     get_module_config,
     is_module_enabled_for_active_runtime_variant,
 )
@@ -23,7 +22,6 @@ from .project_config import (
     DurinProjectRuntimeVariantConfig,
     find_module,
     get_project_config,
-    is_project_config_loaded,
     load_project_config_file,
 )
 

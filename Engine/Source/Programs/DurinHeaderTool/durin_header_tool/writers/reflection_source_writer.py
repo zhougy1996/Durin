@@ -6,7 +6,7 @@ from durin_header_tool.model.reflection_info import (
     ReflectedPropertyInfo,
     ReflectedStructInfo,
 )
-from durin_header_tool.parser.reflection_parser import _cpp_type_spelling
+from durin_header_tool.parser.property_parser import _cpp_type_spelling
 
 
 ExportedSymbols = dict[str, ExportedSymbolInfo]
@@ -38,93 +38,9 @@ PROPERTY_PARAM_BY_KIND = {
 TAB = "\t"
 
 
-def _cpp_string_literal(value: str) -> str:
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
-    return f'"{escaped}"'
-
-
-def generate_header_content(header: ReflectedHeaderInfo) -> str:
-    builder: list[str] = [
-        "// Generated code exported from DurinHeaderTool.\n\n",
-        "#pragma once\n\n",
-    ]
-
-    for class_info in header.classes:
-        builder.append(f"struct {class_info.generated_statics_name};\n")
-        builder.append(f"{class_info.api} Durin::DClass* {class_info.generated_helper_name}();\n")
-        builder.append(f"{class_info.api} Durin::DClass* {class_info.generated_helper_no_register_name}();\n\n")
-
-        if class_info.generated_body_line == 0:
-            continue
-
-        generated_body_id = f"{header.file_id}_{class_info.generated_body_line}"
-        no_pure_decls = f"{generated_body_id}_INCLASS_NO_PURE_DECLS"
-        enhanced_constructors = f"{generated_body_id}_ENHANCED_CONSTRUCTORS"
-        generated_body = f"{generated_body_id}_GENERATED_BODY"
-        constructor_mode = _constructor_mode(class_info)
-
-        _append_macro_line(builder, f"#define {no_pure_decls}")
-        _append_macro_line(builder, "private:", 1)
-        _append_macro_line(builder, f"friend struct ::{class_info.generated_statics_name};", 2)
-        _append_macro_line(builder, "static Durin::DClass* GetPrivateStaticClass();", 2)
-        _append_macro_line(builder, f"friend {class_info.api} Durin::DClass* ::{class_info.generated_helper_no_register_name}();", 2)
-        _append_macro_line(builder, "public:", 1)
-        _append_macro_line(
-            builder,
-            f"DECLARE_CLASS({class_info.short_name}, {_base_name_for_macro(class_info)}, ::{class_info.generated_helper_no_register_name})",
-            2,
-            True,
-        )
-        builder.append("\n")
-
-        _append_macro_line(builder, f"#define {enhanced_constructors}")
-        if not class_info.is_abstract and constructor_mode == "object_initializer" and not class_info.has_object_initializer_constructor:
-            _append_macro_line(builder, f"NO_API {class_info.short_name}(const Durin::FObjectInitializer& ObjectInitializer);", 1)
-        if not class_info.has_destructor:
-            _append_macro_line(builder, f"NO_API ~{class_info.short_name}() override = default;", 1)
-        _append_macro_line(builder, f"{class_info.short_name}({class_info.short_name}&&) = delete;", 1)
-        _append_macro_line(builder, f"{class_info.short_name}(const {class_info.short_name}&) = delete;", 1)
-        if not class_info.is_abstract:
-            if constructor_mode == "default":
-                _append_macro_line(builder, f"DEFINE_DEFAULT_CONSTRUCTOR_CALL({class_info.short_name})", 1, True)
-            else:
-                _append_macro_line(builder, f"DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL({class_info.short_name})", 1, True)
-        builder.append("\n")
-
-        _append_macro_line(builder, f"#define {generated_body}")
-        _append_macro_line(builder, "public:", 1)
-        _append_macro_line(builder, no_pure_decls, 2)
-        _append_macro_line(builder, enhanced_constructors, 2)
-        _append_macro_line(builder, "private:", 1, True)
-        builder.append("\n")
-
-    for struct_info in header.structs:
-        builder.append(f"struct {struct_info.generated_statics_name};\n")
-        builder.append(f"{struct_info.api} Durin::DStruct* {struct_info.generated_helper_name}();\n")
-        builder.append(f"{struct_info.api} Durin::DStruct* {struct_info.generated_helper_no_register_name}();\n\n")
-        if struct_info.generated_body_line == 0:
-            continue
-        generated_body_id = f"{header.file_id}_{struct_info.generated_body_line}"
-        generated_body = f"{generated_body_id}_GENERATED_BODY"
-        _append_macro_line(builder, f"#define {generated_body}")
-        _append_macro_line(builder, "private:", 1)
-        _append_macro_line(builder, f"friend struct ::{struct_info.generated_statics_name};", 2)
-        _append_macro_line(builder, f"friend {struct_info.api} Durin::DStruct* ::{struct_info.generated_helper_name}();", 2)
-        _append_macro_line(builder, "public:", 1)
-        _append_macro_line(builder, f"static Durin::DStruct* StaticStruct() {{ return ::{struct_info.generated_helper_name}(); }}", 2, True)
-        builder.append("\n")
-
-    for enum_info in header.enums:
-        builder.append(f"struct {enum_info.generated_statics_name};\n")
-        builder.append(f"{enum_info.api} Durin::DEnum* {enum_info.generated_helper_name}();\n")
-        builder.append(f"{enum_info.api} Durin::DEnum* {enum_info.generated_helper_no_register_name}();\n\n")
-
-    _append_lines_no_indent(
-        builder,
-        "#undef CURRENT_FILE_ID",
-        f"#define CURRENT_FILE_ID {header.file_id}",
-    )
-    return "".join(builder)
+from durin_header_tool.writers.reflection_header_writer import generate_header_content
+from durin_header_tool.writers.reflection_property_writer import _property_decls, _property_definitions
+from durin_header_tool.writers.reflection_writer_common import _base_name_for_macro, _bool_literal, _constructor_mode, _cpp_string_literal, _line
 
 
 def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) -> str:
@@ -318,8 +234,6 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
     return "".join(builder)
 
 
-def _append_macro_line(builder: list[str], content: str, indent: int = 0, last: bool = False) -> None:
-    builder.append((TAB * indent) + content + ("\n" if last else " \\\n"))
 
 
 def _append_line(builder: list[str], content: str = "", indent: int = 0) -> None:
@@ -331,27 +245,12 @@ def _append_lines(builder: list[str], *lines: tuple[str, int]) -> None:
         _append_line(builder, content, indent)
 
 
-def _append_lines_no_indent(builder: list[str], *lines: str) -> None:
-    for line in lines:
-        _append_line(builder, line)
 
 
-def _line(content: str = "", indent: int = 0) -> str:
-    return f"{TAB * indent}{content}\n"
 
 
-def _constructor_mode(class_info: ReflectedClassInfo) -> str:
-    if class_info.has_default_constructor:
-        return "default"
-    return "object_initializer"
 
 
-def _base_name_for_macro(class_info: ReflectedClassInfo) -> str:
-    return class_info.base_qualified_name or "Durin::DObject"
-
-
-def _bool_literal(value: bool) -> str:
-    return "true" if value else "false"
 
 
 def _enum_definitions(enum_info: ReflectedEnumInfo, package_path: str) -> str:
@@ -479,134 +378,10 @@ def _struct_definitions(struct_info: ReflectedStructInfo, symbols: ExportedSymbo
     return "".join(builder)
 
 
-def _property_decls(prop: ReflectedPropertyInfo) -> list[str]:
-    decls: list[str] = []
-    if prop.inner:
-        decls.extend(_property_decls(prop.inner))
-    if prop.key:
-        decls.extend(_property_decls(prop.key))
-    if prop.value:
-        decls.extend(_property_decls(prop.value))
-    if prop.metadata:
-        decls.append(_line(f"static const Durin::DurinCodeGen::FMetaDataPair NewProp_{prop.name}_MetaData[];", 1))
-    param_type = PROPERTY_PARAM_BY_KIND[prop.kind]
-    decls.append(_line(f"static const Durin::DurinCodeGen::{param_type} NewProp_{prop.name};", 1))
-    return decls
 
 
-def _property_definitions(class_info: ReflectedClassInfo, prop: ReflectedPropertyInfo, symbols: ExportedSymbols, nested: bool = False) -> str:
-    content = []
-    if prop.inner:
-        content.append(_property_definitions(class_info, prop.inner, symbols, True))
-    if prop.key:
-        content.append(_property_definitions(class_info, prop.key, symbols, True))
-    if prop.value:
-        content.append(_property_definitions(class_info, prop.value, symbols, True))
-    content.append(_property_definition(class_info, prop, symbols, nested))
-    return "".join(content)
 
 
-def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedPropertyInfo, symbols: ExportedSymbols, nested: bool) -> str:
-    content = ""
-    metadata_ref = "nullptr"
-    metadata_count = "0"
-    if prop.metadata:
-        metadata_name = f"{class_info.generated_statics_name}::NewProp_{prop.name}_MetaData"
-        entries = ", ".join(
-            f"{{ {_cpp_string_literal(key)}, {_cpp_string_literal(value)} }}" for key, value in prop.metadata
-        )
-        content += f"const Durin::DurinCodeGen::FMetaDataPair {metadata_name}[] = {{ {entries} }};\n"
-        metadata_ref = metadata_name
-        metadata_count = str(len(prop.metadata))
-    param_type = PROPERTY_PARAM_BY_KIND[prop.kind]
-    property_flags = prop.flags
-    if property_flags == "None":
-        property_flags = "Durin::EPropertyFlags::None"
-    offset = "0" if nested else f"static_cast<Durin::uint16>(STRUCT_OFFSET({class_info.qualified_name}, {prop.name}))"
-    if prop.kind == "Struct":
-        referenced_struct_helper = "nullptr"
-        if prop.referenced_struct_type:
-            referenced_symbol = symbols.get(prop.referenced_struct_type)
-            if referenced_symbol:
-                referenced_struct_helper = referenced_symbol.GeneratedHelperName
-        metadata_arguments = f", {metadata_ref}, {metadata_count}" if prop.metadata else ""
-        content += (
-            f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
-            f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}, {referenced_struct_helper}"
-            f"{metadata_arguments} }};\n"
-        )
-        return content
-    inner = f"&{class_info.generated_statics_name}::NewProp_{prop.inner.name}" if prop.inner else "nullptr"
-    key = f"&{class_info.generated_statics_name}::NewProp_{prop.key.name}" if prop.key else "nullptr"
-    value = f"&{class_info.generated_statics_name}::NewProp_{prop.value.name}" if prop.value else "nullptr"
-    value_type = (
-        _cpp_type_spelling(prop.type_name, symbols, class_info.namespace)
-        if nested
-        else f"std::remove_extent_t<decltype((({class_info.qualified_name}*)0)->{prop.name})>"
-    )
-    if prop.kind == "Array":
-        metadata_arguments = f", {metadata_ref}, {metadata_count}" if prop.metadata else ""
-        content += (
-            f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
-            f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}, {inner}, "
-            f"&Durin::ResolveArrayOps<{value_type}>{metadata_arguments} }};\n"
-        )
-        return content
-    if prop.kind == "Map":
-        metadata_arguments = f", {metadata_ref}, {metadata_count}" if prop.metadata else ""
-        content += (
-            f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
-            f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}, {key}, {value}, "
-            f"&Durin::ResolveMapOps<{value_type}>{metadata_arguments} }};\n"
-        )
-        return content
-    if prop.kind == "SoftObject":
-        referenced_class_helper = "nullptr"
-        if prop.referenced_type:
-            referenced_symbol = symbols.get(prop.referenced_type)
-            if referenced_symbol:
-                referenced_class_helper = referenced_symbol.GeneratedHelperName
-        metadata_arguments = f", {metadata_ref}, {metadata_count}" if prop.metadata else ""
-        content += (
-            f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
-            f"Durin::DurinCodeGen::{param_type}::Create<{value_type}>("
-            f"\"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}, "
-            f"{referenced_class_helper}{metadata_arguments});\n"
-        )
-        return content
-    metadata_arguments = f", {metadata_ref}, {metadata_count}" if prop.metadata else ""
-    if prop.kind == "Enum":
-        referenced_enum_helper = "nullptr"
-        if prop.referenced_enum_type:
-            referenced_symbol = symbols.get(prop.referenced_enum_type)
-            if referenced_symbol:
-                referenced_enum_helper = referenced_symbol.GeneratedHelperName
-        content += (
-            f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
-            f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}, "
-            f"{referenced_enum_helper}{metadata_arguments} }};\n"
-        )
-        return content
-    if prop.kind == "Object":
-        referenced_class_helper = "nullptr"
-        if prop.referenced_type:
-            referenced_symbol = symbols.get(prop.referenced_type)
-            if referenced_symbol:
-                referenced_class_helper = referenced_symbol.GeneratedHelperName
-        target_type = _cpp_type_spelling(prop.referenced_type, symbols)
-        factory = "ObjectPtr" if prop.is_object_ptr_wrapper else "Raw"
-        content += (
-            f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
-            f"Durin::DurinCodeGen::{param_type}::{factory}<{target_type}>("
-            f"\"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}, "
-            f"{referenced_class_helper}{metadata_arguments});\n"
-        )
-        return content
-    content += (
-        f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
-        f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}{metadata_arguments} }};\n"
-    )
-    return content
 
 
 def _collect_referenced_helpers(

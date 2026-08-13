@@ -1,1 +1,1 @@
-from .reflection_manifest import *
+"""Shared domain models for DurinHeaderTool."""

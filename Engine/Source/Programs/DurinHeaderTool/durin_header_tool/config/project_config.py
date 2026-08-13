@@ -70,9 +70,6 @@ class DurinProjectConfig:
         instance.project_dir = instance.config_file_path.parent
         return instance
 
-def is_project_config_loaded(project_name: str) -> bool:
-    return project_name in PROJECT_CONFIGS
-
 def _load_project_config_file(project_config_file_path: Path) -> DurinProjectConfig:
     return DurinProjectConfig.from_file(project_config_file_path)
 

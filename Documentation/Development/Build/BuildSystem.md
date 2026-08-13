@@ -72,21 +72,22 @@ variant, project, and module. Conflicting writers serialize while independent
 modules remain parallel. Presets in one worktree intentionally share
 configuration-independent metadata.
 
-Reflected modules also keep a persistent per-header parse cache under
-`<Project>/Intermediate/Build/<Platform>/<RuntimeVariant>/DHTCache/`. Export and
-reflection entries are separate, versioned, checksummed JSON records. Their
-identity includes the DHT and native-libclang fingerprints, platform, runtime
+Reflected modules also keep two persistent phase-state bundles under
+`<Project>/Intermediate/Build/<Platform>/<RuntimeVariant>/DHTCache/<Module>/`:
+`export-state.json` and `reflection-state.json`. They are separate, versioned,
+checksummed canonical JSON records. Their
+identity includes the DHT and native-libclang SHA-256 fingerprints, platform, runtime
 variant, module, normalized logical header, current header content, and the
 phase-specific parser/generator context. Reflection entries additionally key
 the complete canonical available-symbol export set. Ordinary included-header
 contents are intentionally absent because DHT parses each reflected header
 against its hermetic prelude and exported-symbol model.
 
-The cache is reconstruction data, not a generated compiler input. CMake owns
-the export, manifest, generated source, generated header, and command-stamp
-outputs, but does not list `DHTCache` as an output or byproduct. Consequently,
+The phase state is reconstruction data, not a generated compiler input. CMake
+owns the public export, generated source, generated header, and command-stamp
+outputs, but does not list `DHTCache` as an output, byproduct, or dependency. Consequently,
 `clean` and `rebuild` may delete every generated DHT output while retaining
-valid per-header entries; DHT rematerializes missing outputs without libclang
+valid bundle records; DHT rematerializes missing outputs without libclang
 parses. DurinDevTool project `purge` owns the enclosing runtime-variant
 intermediate root and removes the cache, so the next generation is deliberately
 cold.
@@ -101,14 +102,14 @@ and each uses at most four parser workers. `DURIN_DHT_JOB_POOL_SIZE` and
 `DURIN_DHT_WORKERS` are cache settings intended for measured preset or CI tuning;
 worker count is constrained to 1-8.
 
-DHT emits one INFO cache summary per module export/reflection command with hit,
+DHT emits one INFO state summary per module export/reflection command with hit,
 miss, materialized-output, and parser counts plus aggregated miss reasons.
 Per-header timing, dependency-loading, and worker details are DEBUG-only. A
-malformed, truncated, checksum-invalid, or incompatible entry is an ordinary
-miss; damaged entries additionally emit a warning before the parser fallback
-atomically replaces them. If cache publication or output materialization is
-interrupted, rerun the ordinary build: the previous complete entry remains
-usable, or DHT reparses and replaces the incomplete latest result. Manual cache
+malformed, truncated, checksum-invalid, or incompatible bundle is an ordinary
+miss; an invalid per-header record reparses only that header. If state publication
+or output materialization is interrupted, rerun the ordinary build: the previous
+complete bundle remains usable, or DHT reparses and replaces the incomplete
+latest result. Manual cache
 deletion is not a recovery step. Set `DURIN_DHT_LOG_LEVEL` to `DEBUG` for
 per-header diagnostics or `WARNING` for Ninja-only progress unless DHT reports
 a problem. Direct DHT invocations may pass `--quiet` to override `--log` and
@@ -138,12 +139,12 @@ outputs; it does not freeze the ordinary source list at configure time.
 During configuration, CMake hashes the tracked DHT Python package together with
 `requirements.txt` into `DHT.fingerprint`. Those files are configure dependencies,
 and export/reflection build commands depend on the resulting fingerprint. The
-fingerprint is also passed into DHT's private manifests and persistent entries,
+fingerprint is also passed into DHT's persistent phase bundles,
 so a tool implementation change invalidates both CMake's build edge and DHT's
 internal cache. Schema, parser/generator context, native-libclang content,
 platform, runtime variant, and current-header content changes likewise miss
-deterministically. Export semantic changes invalidate reflection entries whose
-complete available-symbol digest changed.
+deterministically. Export semantic changes invalidate only reflection records
+whose resolved-symbol dependency snapshots changed.
 
 ## Build Output Isolation
 

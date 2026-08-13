@@ -1,26 +1,20 @@
 from .json_helper import load_json_descriptor, load_json_file
 from .file_helper import (
     FileFingerprint,
-    calc_md5,
     calc_sha256,
     generate_file,
     get_file_fingerprint_with_old_cache,
 )
 from .output_lock import acquire_output_lock
 from .path_helper import (
-    get_dht_tool_dir,
     get_dht_module_lock_file_path,
     get_dht_output_lock_dir,
-    get_dht_runtime_variant_lock_file_path,
     get_dht_project_lock_file_path,
     get_module_cmake_file_path,
-    get_module_definitions_header_path,
     get_module_dht_output_dir,
     get_module_dht_cache_root,
     get_module_export_file_path,
-    get_module_export_manifest_file_path,
     get_module_intermediate_build_dir,
-    get_module_manifest_file_path,
     get_project_binary_dir,
     get_project_cmake_dir,
     get_project_cmake_file_path,

@@ -1,8 +1,8 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 import shutil
 from durin_header_tool import config as configs
 from durin_header_tool import io as utils
+from durin_header_tool.model.generated_output import generated_output_names
 
 def _append_module_configs_to_cmake_content(content: list[str], module_name: str) -> None:
     module_config: configs.DurinModuleConfig = configs.get_module_config(module_name)
@@ -69,13 +69,9 @@ def _append_module_paths_to_cmake_content(content: list[str], module_name: str) 
     content.append("# Paths related to this module\n")
     content.append(f"set(module_dir \"{module_config.module_dir.as_posix()}\")\n")
     content.append(f"set(module_config_file \"{module_config.config_file_path.as_posix()}\")\n")
-    content.append(f"set(module_definitions_header_dir \"{utils.get_module_definitions_header_path(module_name).parent.as_posix()}\")\n")
-    content.append(f"set(module_definitions_header \"{utils.get_module_definitions_header_path(module_name).as_posix()}\")\n")
     if module_config.has_export_file():
         content.append(f"set(module_dht_output_dir \"{utils.get_module_dht_output_dir(module_name).as_posix()}\")\n")
         content.append(f"set(module_export_file \"{utils.get_module_export_file_path(module_name).as_posix()}\")\n")
-        content.append(f"set(module_export_manifest_file \"{utils.get_module_export_manifest_file_path(module_name).as_posix()}\")\n")
-        content.append(f"set(module_manifest_file \"{utils.get_module_manifest_file_path(module_name).as_posix()}\")\n")
     content.append("\n")
 
 def _append_generated_sources(content: list[str], module_name: str) -> None:
@@ -84,14 +80,11 @@ def _append_generated_sources(content: list[str], module_name: str) -> None:
         return
     
     module_dht_output_dir = utils.get_module_dht_output_dir(module_name)
-    
+
     content.append("# Generated source files for this module\n")
     content.append("set(module_generated_srcs\n")
-    content.append(f"    \"{(module_dht_output_dir / f'{module_name}.module.gen.cpp').as_posix()}\"\n")
-    for header in module_config.reflect_headers:
-        filename_stem = Path(header).stem
-        content.append(f"    \"{(module_dht_output_dir / f'{filename_stem}.gen.cpp').as_posix()}\"\n")
-        content.append(f"    \"{(module_dht_output_dir / f'{filename_stem}.gen.h').as_posix()}\"\n")
+    for output_name in generated_output_names(module_name, module_config.reflect_headers):
+        content.append(f"    \"{(module_dht_output_dir / output_name).as_posix()}\"\n")
     content.append(")\n\n")
 
 def _make_module_cmake_file_content(module_name: str) -> str:
@@ -117,7 +110,6 @@ def generate_module_cmake_file(module_name: str) -> None:
     output_path = utils.get_module_cmake_file_path(module_name)
     utils.generate_file(output_path, content)
 
-# Generate the CMake files for all modules in a project parallely, to speed up the generation process. This is especially useful for projects with a large number of modules.
 def generate_all_module_cmake_files_for_project(project_name: str) -> None:
     project_config = configs.get_project_config(project_name)
     enabled_module_names = sorted(
@@ -130,12 +122,5 @@ def generate_all_module_cmake_files_for_project(project_name: str) -> None:
         if stale_module_build_dir.exists():
             shutil.rmtree(stale_module_build_dir)
 
-    # preload all module configs to avoid multiple loading of the same module config in different processes
     for module_name in enabled_module_names:
-        configs.get_module_config(module_name)
-        
-    with ThreadPoolExecutor() as executor:
-        futures_list = [executor.submit(generate_module_cmake_file, module_name) for module_name in enabled_module_names]
-
-        for future in as_completed(futures_list):
-            future.result()
+        generate_module_cmake_file(module_name)

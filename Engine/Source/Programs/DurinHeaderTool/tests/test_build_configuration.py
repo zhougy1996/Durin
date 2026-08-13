@@ -294,9 +294,6 @@ class TestIntermediateLayout:
             / "Core.lock"
         )
 
-    def test_runtime_variant_lock_uses_shared_intermediate_root(self):
-        assert utils.get_dht_runtime_variant_lock_file_path().name == "runtime-variant.lock"
-
     def test_module_locks_are_independent_within_a_runtime_variant(self):
         assert utils.get_dht_module_lock_file_path("Core") != utils.get_dht_module_lock_file_path(
             "Engine"
@@ -423,8 +420,7 @@ class TestIntermediateLayout:
         _, content = generate_file.call_args.args
         assert "module_public_srcs" not in content
         assert "module_private_srcs" not in content
-        assert "module_export_manifest_file" in content
-        assert "module_manifest_file" in content
+        assert "module_definitions_header" not in content
         assert "module_export_dependencies" in content
         assert "module_reflection_export_dependencies" in content
 
