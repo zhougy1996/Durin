@@ -111,6 +111,9 @@ namespace Durin::VulkanRHI
 
 		auto SetScissor(float MinX, float MinY, float Width, float Height) -> void;
 
+		auto SetDepthBias(float ConstantFactor, float Clamp,
+			float SlopeFactor) -> void;
+
 		auto SetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void;
 
 		auto PrepareForDraw(FVulkanCommandListContext& InContext) -> void;
@@ -146,6 +149,9 @@ namespace Durin::VulkanRHI
 		vk::Viewport Viewport;
 
 		vk::Rect2D Scissor;
+		float DepthBiasConstantFactor = 0.0f;
+		float DepthBiasClamp = 0.0f;
+		float DepthBiasSlopeFactor = 0.0f;
 
 		// Owns descriptor states by raw pointer; Reset deletes every value.
 		std::unordered_map<FVulkanGraphicsPipelineState*, FVulkanGraphicsPipelineDescriptorState*> PipelineStates;

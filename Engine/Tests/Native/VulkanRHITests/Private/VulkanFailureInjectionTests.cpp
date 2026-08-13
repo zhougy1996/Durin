@@ -1444,6 +1444,17 @@ namespace Durin::VulkanRHI
 		ASSERT_TRUE(PositiveZeroPipeline && NegativeZeroPipeline);
 		EXPECT_EQ(PositiveZeroPipeline.GetReference(),
 			NegativeZeroPipeline.GetReference());
+		FGraphicsPipelineStateInitializer NonzeroBiasInitializer =
+			PositiveZeroInitializer;
+		NonzeroBiasInitializer.RasterizerState.DepthBiasConstantFactor = 1.25f;
+		NonzeroBiasInitializer.RasterizerState.DepthBiasClamp = 4.0f;
+		NonzeroBiasInitializer.RasterizerState.DepthBiasSlopeFactor = 1.75f;
+		FGraphicsPipelineStateRHIRef NonzeroBiasPipeline =
+			GDynamicRHI->RHICreateGraphicsPipelineState(
+				"RecoverableGraphicsPipeline_NonzeroBias", NonzeroBiasInitializer);
+		ASSERT_TRUE(NonzeroBiasPipeline);
+		EXPECT_EQ(PositiveZeroPipeline.GetReference(),
+			NonzeroBiasPipeline.GetReference());
 
 		std::vector<FGraphicsPipelineStateRHIRef> StatePipelines;
 		auto CreateStatePipeline = [&](FGraphicsPipelineStateInitializer State,

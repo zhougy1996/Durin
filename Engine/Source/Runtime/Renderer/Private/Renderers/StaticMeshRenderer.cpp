@@ -253,22 +253,35 @@ namespace Durin
 			);
 		}
 
+		auto MakeShadowRasterizerState(const FRHIRasterizerState& Source)
+			-> FRHIRasterizerState
+		{
+			FRHIRasterizerState Result = Source;
+			Result.PolygonMode = ERHIPolygonMode::Fill;
+			const bool bPreparedBias = Result.bEnableDepthBias;
+			Result.bEnableDepthBias = true;
+			if (!bPreparedBias)
+			{
+				Result.DepthBiasConstantFactor =
+					DirectionalShadowDepthBiasConstant;
+				Result.DepthBiasSlopeFactor =
+					DirectionalShadowDepthBiasSlope;
+				Result.DepthBiasClamp = DirectionalShadowDepthBiasClamp;
+			}
+			return Result;
+		}
+
 		auto MakeShadowPipelineKey(
 			const FEffectiveStaticMeshPipelineKey& Source)
 			-> FEffectiveStaticMeshPipelineKey
 		{
 			FEffectiveStaticMeshPipelineKey Result = Source;
-			Result.Rasterizer.PolygonMode = ERHIPolygonMode::Fill;
-			const bool bPreparedBias = Result.Rasterizer.bEnableDepthBias;
-			Result.Rasterizer.bEnableDepthBias = true;
-			if (!bPreparedBias)
-			{
-				Result.Rasterizer.DepthBiasConstantFactor =
-					DirectionalShadowDepthBiasConstant;
-				Result.Rasterizer.DepthBiasSlopeFactor =
-					DirectionalShadowDepthBiasSlope;
-				Result.Rasterizer.DepthBiasClamp = DirectionalShadowDepthBiasClamp;
-			}
+			Result.Rasterizer = MakeShadowRasterizerState(Source.Rasterizer);
+			// Bias magnitudes are dynamic draw state and must not create a new
+			// renderer pipeline slot for every shadow-volume adjustment.
+			Result.Rasterizer.DepthBiasConstantFactor = 0.0f;
+			Result.Rasterizer.DepthBiasSlopeFactor = 0.0f;
+			Result.Rasterizer.DepthBiasClamp = 0.0f;
 			Result.Depth.bEnableTest = true;
 			Result.Depth.bEnableWrite = true;
 			Result.Depth.CompareOp = ERHIDepthCompareOp::Less;
@@ -1813,6 +1826,13 @@ namespace Durin
 		}
 
 		CommandList.SetGraphicsPipelineState(*Pipeline->PipelineState);
+		if (bShadowDepth)
+		{
+			const FRHIRasterizerState Rasterizer =
+				MakeShadowRasterizerState(Item.PipelineKey.Rasterizer);
+			CommandList.SetDepthBias(Rasterizer.DepthBiasConstantFactor,
+				Rasterizer.DepthBiasClamp, Rasterizer.DepthBiasSlopeFactor);
+		}
 
 		if (Primitive.VertexDomain == EVertexDeformationDomain::Spline)
 		{
@@ -2510,6 +2530,13 @@ namespace Durin
 			? PipelineEntry->Slot.GetPayload() : nullptr;
 		if (Base == nullptr || Pipeline == nullptr) return false;
 		CommandList.SetGraphicsPipelineState(*Pipeline->PipelineState);
+		if (bShadowDepth)
+		{
+			const FRHIRasterizerState Rasterizer =
+				MakeShadowRasterizerState(Item.PipelineKey.Rasterizer);
+			CommandList.SetDepthBias(Rasterizer.DepthBiasConstantFactor,
+				Rasterizer.DepthBiasClamp, Rasterizer.DepthBiasSlopeFactor);
+		}
 		FSkeletalMeshVertexShader::FParameters VertexParameters;
 		VertexParameters.Transform = TransformBuffer;
 		VertexParameters.SkinPalette = Primitive.PaletteRange;

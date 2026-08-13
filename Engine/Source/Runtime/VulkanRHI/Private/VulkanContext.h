@@ -33,6 +33,8 @@ namespace Durin::VulkanRHI
 		auto RHISetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void override;
 
 		auto RHISetScissor(float MinX, float MinY, float Width, float Height) -> void override;
+		auto RHISetDepthBias(float ConstantFactor, float Clamp,
+			float SlopeFactor) -> void override;
 
 		auto RHIBeginFrame(const FRHIBeginFrameArgs& Args) -> void override;
 

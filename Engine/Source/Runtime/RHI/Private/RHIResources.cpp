@@ -515,20 +515,13 @@ namespace Durin
 					< std::tie(B.Offset, B.Size, B.StageFlags);
 			});
 		Key.RasterizerState = Initializer.RasterizerState;
-		if (!Key.RasterizerState.bEnableDepthBias)
-		{
-			Key.RasterizerState.DepthBiasConstantFactor = 0.0f;
-			Key.RasterizerState.DepthBiasClamp = 0.0f;
-			Key.RasterizerState.DepthBiasSlopeFactor = 0.0f;
-		}
+		// Depth-bias values are dynamic draw state. Only whether the pipeline
+		// enables depth bias remains structural pipeline identity.
+		Key.RasterizerState.DepthBiasConstantFactor = 0.0f;
+		Key.RasterizerState.DepthBiasClamp = 0.0f;
+		Key.RasterizerState.DepthBiasSlopeFactor = 0.0f;
 		if (Key.RasterizerState.PolygonMode != ERHIPolygonMode::Line)
 			Key.RasterizerState.LineWidth = 1.0f;
-		Key.RasterizerState.DepthBiasConstantFactor = CanonicalizeNumericFloat(
-			Key.RasterizerState.DepthBiasConstantFactor);
-		Key.RasterizerState.DepthBiasClamp = CanonicalizeNumericFloat(
-			Key.RasterizerState.DepthBiasClamp);
-		Key.RasterizerState.DepthBiasSlopeFactor = CanonicalizeNumericFloat(
-			Key.RasterizerState.DepthBiasSlopeFactor);
 		Key.RasterizerState.LineWidth = CanonicalizeNumericFloat(
 			Key.RasterizerState.LineWidth);
 		Key.MultisampleState = Initializer.MultisampleState;

@@ -292,6 +292,14 @@ namespace Durin::VulkanRHI
 		SetScissorRect(static_cast<uint32>(MinX), static_cast<uint32>(MinY), static_cast<uint32>(Width), static_cast<uint32>(Height));
 	}
 
+	auto FVulkanPendingGraphicsState::SetDepthBias(float ConstantFactor,
+		float Clamp, float SlopeFactor) -> void
+	{
+		DepthBiasConstantFactor = ConstantFactor;
+		DepthBiasClamp = Clamp;
+		DepthBiasSlopeFactor = SlopeFactor;
+	}
+
 	auto FVulkanPendingGraphicsState::SetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void
 	{
 		// Shader resource state is scoped to the currently bound PSO descriptor state.
@@ -351,6 +359,8 @@ namespace Durin::VulkanRHI
 		FVulkanCommandBuffer* CmdBuffer = InContext.GetCommandBuffer();
 		CmdBuffer->GetHandle().setViewport(0, Viewport);
 		CmdBuffer->GetHandle().setScissor(0, Scissor);
+		CmdBuffer->GetHandle().setDepthBias(DepthBiasConstantFactor,
+			DepthBiasClamp, DepthBiasSlopeFactor);
 
 		FVulkanGraphicsPipelineDescriptorState::FDescriptorSetsForDraw DescriptorSetsForDraw = CurrentDescriptorState->GetOrCreateDescriptorSetsForDraw(Device, *CurrentPipelineState);
 		if (DescriptorSetsForDraw.DescriptorSets && !DescriptorSetsForDraw.DescriptorSets->empty())

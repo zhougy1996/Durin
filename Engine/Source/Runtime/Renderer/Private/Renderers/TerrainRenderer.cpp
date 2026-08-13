@@ -178,22 +178,33 @@ namespace Durin
 			return Result;
 		}
 
+		auto MakeShadowRasterizerState(const FRHIRasterizerState& Source)
+			-> FRHIRasterizerState
+		{
+			FRHIRasterizerState Result = Source;
+			Result.PolygonMode = ERHIPolygonMode::Fill;
+			const bool bPreparedBias = Result.bEnableDepthBias;
+			Result.bEnableDepthBias = true;
+			if (!bPreparedBias)
+			{
+				Result.DepthBiasConstantFactor =
+					DirectionalShadowDepthBiasConstant;
+				Result.DepthBiasSlopeFactor =
+					DirectionalShadowDepthBiasSlope;
+				Result.DepthBiasClamp = DirectionalShadowDepthBiasClamp;
+			}
+			return Result;
+		}
+
 		auto MakeShadowPipelineKey(
 			const FEffectiveStaticMeshPipelineKey& Source)
 			-> FEffectiveStaticMeshPipelineKey
 		{
 			FEffectiveStaticMeshPipelineKey Result = Source;
-			Result.Rasterizer.PolygonMode = ERHIPolygonMode::Fill;
-			const bool bPreparedBias = Result.Rasterizer.bEnableDepthBias;
-			Result.Rasterizer.bEnableDepthBias = true;
-			if (!bPreparedBias)
-			{
-				Result.Rasterizer.DepthBiasConstantFactor =
-					DirectionalShadowDepthBiasConstant;
-				Result.Rasterizer.DepthBiasSlopeFactor =
-					DirectionalShadowDepthBiasSlope;
-				Result.Rasterizer.DepthBiasClamp = DirectionalShadowDepthBiasClamp;
-			}
+			Result.Rasterizer = MakeShadowRasterizerState(Source.Rasterizer);
+			Result.Rasterizer.DepthBiasConstantFactor = 0.0f;
+			Result.Rasterizer.DepthBiasSlopeFactor = 0.0f;
+			Result.Rasterizer.DepthBiasClamp = 0.0f;
 			Result.Depth.bEnableTest = true;
 			Result.Depth.bEnableWrite = true;
 			Result.Depth.CompareOp = ERHIDepthCompareOp::Less;
@@ -685,6 +696,13 @@ namespace Durin
 		Material.UVRotations1 = FVector4f(Binding.UVRotations[4], Binding.UVRotations[5], Binding.UVRotations[6], Binding.UVRotations[7]);
 		const auto MaterialBuffer = CommandList.AllocateDynamicUniformBuffer(&Material, sizeof(Material));
 		CommandList.SetGraphicsPipelineState(*Pipeline->Pipeline);
+		if (bShadowDepth)
+		{
+			const FRHIRasterizerState Rasterizer =
+				MakeShadowRasterizerState(Draw.PipelineKey.Rasterizer);
+			CommandList.SetDepthBias(Rasterizer.DepthBiasConstantFactor,
+				Rasterizer.DepthBiasClamp, Rasterizer.DepthBiasSlopeFactor);
+		}
 		TopologyIt->second->VertexFactory.BindStreams(CommandList);
 		CommandList.BindIndexBuffer(TopologyIt->second->Indices, 0);
 		FTerrainVertexShader::FParameters VS;

@@ -302,7 +302,8 @@ namespace Durin::VulkanRHI
 
 		std::vector<vk::DynamicState> DynamicStates = {
 			vk::DynamicState::eViewport,
-			vk::DynamicState::eScissor
+			vk::DynamicState::eScissor,
+			vk::DynamicState::eDepthBias
 		};
 
 		vk::PipelineDynamicStateCreateInfo DynamicStateInfo;
@@ -377,9 +378,9 @@ namespace Durin::VulkanRHI
 			.setFrontFace(ToVulkan_FrontFace(
 				Initializer.RasterizerState.FrontFace))
 			.setDepthBiasEnable(Initializer.RasterizerState.bEnableDepthBias)
-			.setDepthBiasConstantFactor(Initializer.RasterizerState.DepthBiasConstantFactor)
-			.setDepthBiasClamp(Initializer.RasterizerState.DepthBiasClamp)
-			.setDepthBiasSlopeFactor(Initializer.RasterizerState.DepthBiasSlopeFactor);
+			.setDepthBiasConstantFactor(0.0f)
+			.setDepthBiasClamp(0.0f)
+			.setDepthBiasSlopeFactor(0.0f);
 
 		vk::PipelineMultisampleStateCreateInfo MultiSamplingInfo;
 		MultiSamplingInfo

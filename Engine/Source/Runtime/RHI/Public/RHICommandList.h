@@ -103,6 +103,8 @@ namespace Durin
 			int32 VertexOffset) -> void;
 		RHI_API auto SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void;
 		RHI_API auto SetScissor(float MinX, float MinY, float Width, float Height) -> void;
+		RHI_API auto SetDepthBias(float ConstantFactor, float Clamp,
+			float SlopeFactor) -> void;
 		RHI_API auto WriteBuffer(FRHIBuffer* Buffer, const void* Data, uint32 Size, uint32 OffsetBytes) -> void;
 		RHI_API auto UpdateUniformBuffer(FRHIBuffer* UniformBuffer, const void* Data, uint32 Size, uint32 Offset) -> void;
 		RHI_API auto InitializeTexture(FRHITexture* Texture) -> void;

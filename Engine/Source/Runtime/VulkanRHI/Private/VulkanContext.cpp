@@ -106,6 +106,13 @@ namespace Durin::VulkanRHI
 		PendingGfxState->SetScissor(MinX, MinY, Width, Height);
 	}
 
+	auto FVulkanCommandListContext::RHISetDepthBias(float ConstantFactor,
+		float Clamp, float SlopeFactor) -> void
+	{
+		CheckVulkanRHIThread();
+		PendingGfxState->SetDepthBias(ConstantFactor, Clamp, SlopeFactor);
+	}
+
 	auto FVulkanCommandListContext::RHIBeginFrame(
 		const FRHIBeginFrameArgs&) -> void
 	{

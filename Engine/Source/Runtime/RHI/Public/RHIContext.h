@@ -30,6 +30,8 @@ namespace Durin
 		virtual auto RHIEndDrawingViewport(FRHIViewport* InViewport, bool bInPresent, bool bInLockToVsync) -> void = 0;
 		virtual auto RHISetViewport(float InMinX, float InMinY, float InMinZ, float InMaxX, float InMaxY, float InMaxZ) -> void = 0;
 		virtual auto RHISetScissor(float InMinX, float InMinY, float InWidth, float InHeight) -> void = 0;
+		virtual auto RHISetDepthBias(float InConstantFactor, float InClamp,
+			float InSlopeFactor) -> void = 0;
 		virtual auto RHISetGraphicsPipelineState(FRHIGraphicsPipelineState& InGraphicsPipelineState) -> void = 0;
 		virtual auto RHISetComputePipelineState(FRHIComputePipelineState&) -> void
 		{

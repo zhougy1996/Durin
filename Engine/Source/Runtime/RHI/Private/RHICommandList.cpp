@@ -5,6 +5,8 @@
 #include "RHIThread.h"
 #include "Threading/RunnableThread.h"
 
+#include <cmath>
+
 namespace Durin
 {
 	namespace
@@ -930,6 +932,25 @@ namespace Durin
 			float MinX, MinY, Width, Height;
 		};
 
+		struct FSetDepthBiasCommand
+		{
+			FSetDepthBiasCommand(float InConstantFactor, float InClamp,
+				float InSlopeFactor)
+				: ConstantFactor(InConstantFactor), Clamp(InClamp),
+				  SlopeFactor(InSlopeFactor)
+			{
+			}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetGraphicsContext("SetDepthBias")
+					.RHISetDepthBias(ConstantFactor, Clamp, SlopeFactor);
+			}
+
+			float ConstantFactor, Clamp, SlopeFactor;
+		};
+
 		struct FPushConstantsCommand
 		{
 			FPushConstantsCommand(
@@ -1732,6 +1753,17 @@ namespace Durin
 		checkf(ActivePipeline == ERHIPipeline::Graphics,
 			"SetScissor requires an active graphics pipeline while recording.");
 		RecordCommand<FSetScissorCommand>(MinX, MinY, Width, Height);
+	}
+
+	auto FRHICommandListBase::SetDepthBias(float ConstantFactor, float Clamp,
+		float SlopeFactor) -> void
+	{
+		checkf(ActivePipeline == ERHIPipeline::Graphics,
+			"SetDepthBias requires an active graphics pipeline while recording.");
+		checkf(std::isfinite(ConstantFactor) && std::isfinite(Clamp)
+			&& std::isfinite(SlopeFactor),
+			"SetDepthBias requires finite values.");
+		RecordCommand<FSetDepthBiasCommand>(ConstantFactor, Clamp, SlopeFactor);
 	}
 
 	auto FRHICommandListBase::WriteBuffer(

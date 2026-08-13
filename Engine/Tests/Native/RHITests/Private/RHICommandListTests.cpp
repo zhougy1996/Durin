@@ -161,6 +161,11 @@ namespace Durin
 			{
 				Operations.emplace_back("Scissor" + std::to_string(static_cast<int>(MinX)));
 			}
+			auto RHISetDepthBias(float ConstantFactor, float, float) -> void override
+			{
+				Operations.emplace_back("DepthBias"
+					+ std::to_string(static_cast<int>(ConstantFactor)));
+			}
 			auto RHISetGraphicsPipelineState(FRHIGraphicsPipelineState&) -> void override
 			{
 				Operations.emplace_back("PipelineState");
@@ -1185,6 +1190,7 @@ namespace Durin
 		FRHICommandListImmediate& Immediate = Executor.GetImmediateCommandList();
 		Immediate.SwitchPipeline(ERHIPipeline::Graphics);
 		Immediate.SetViewport(1, 2, 0, 3, 4, 1);
+		Immediate.SetDepthBias(3, 4, 5);
 
 		FRHICommandList Inserted;
 		Inserted.SwitchPipeline(ERHIPipeline::Graphics);
@@ -1198,7 +1204,8 @@ namespace Durin
 		Executor.Submit({}, ERHISubmitFlags::None);
 
 		EXPECT_EQ(Context.Operations,
-			(std::vector<std::string>{"Viewport1", "Scissor2", "Draw3"}));
+			(std::vector<std::string>{
+				"Viewport1", "DepthBias3", "Scissor2", "Draw3"}));
 	}
 
 	TEST(FRHICommandListTests, AdditionalGraphicsListsAppendInArgumentOrder)
@@ -1894,7 +1901,7 @@ namespace Durin
 		EXPECT_NE(FirstKey, SecondKey);
 	}
 
-	TEST(FRHICommandListTests, GraphicsPipelineKeyCanonicalizesSignedZero)
+	TEST(FRHICommandListTests, GraphicsPipelineKeyCanonicalizesDynamicDepthBias)
 	{
 		FTestShader VertexShader(EShaderFrequency::Vertex, 13);
 		FTestShader FragmentShader(EShaderFrequency::Fragment, 14);
@@ -1927,7 +1934,9 @@ namespace Durin
 
 		Negative.RasterizerState.DepthBiasSlopeFactor = -1.0f;
 		ASSERT_TRUE(BuildGraphicsPipelineStateKey(Negative, nullptr, NegativeKey, Error)) << Error;
-		EXPECT_NE(PositiveKey, NegativeKey);
+		EXPECT_EQ(PositiveKey, NegativeKey);
+		EXPECT_EQ(FGraphicsPipelineStateKeyHasher{}(PositiveKey),
+			FGraphicsPipelineStateKeyHasher{}(NegativeKey));
 	}
 
 	TEST(FRHICommandListTests, GraphicsPipelineKeyValidatesVertexStreamRates)

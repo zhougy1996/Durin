@@ -22,11 +22,13 @@ hashes. This normalization remains private to graphics-key construction and
 does not define serialization or general-purpose floating-point identity.
 
 Rasterizer state includes polygon mode, front/back/none culling, winding,
-depth clamp, depth bias, and line width. Multisample state includes sample
-count and alpha-to-coverage. Depth/stencil state includes the standard compare
-operations, independent front/back stencil operations and masks, and the
-stencil reference. Each of the eight possible color attachments has
-independent color/alpha blending and RGBA write masks.
+depth clamp, depth-bias enablement, and line width. Depth-bias constant, clamp,
+and slope values are dynamic draw state: they do not participate in PSO
+identity and are submitted with `SetDepthBias` before affected draws.
+Multisample state includes sample count and alpha-to-coverage. Depth/stencil
+state includes the standard compare operations, independent front/back stencil
+operations and masks, and the stencil reference. Each of the eight possible
+color attachments has independent color/alpha blending and RGBA write masks.
 
 Validation rejects invalid enums, attachment/sample mismatches, unsupported
 device features, inconsistent vertex streams, and shader/layout mismatches
