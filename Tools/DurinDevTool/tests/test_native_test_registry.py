@@ -17,6 +17,7 @@ if str(PRODUCT_ROOT) not in sys.path:
 from durin_dev_tool.build.config import BuildToolError
 from durin_dev_tool.build.native_test_registry import (
     filter_targets,
+    is_test_set_selection,
     NativeTestRegistry,
     NativeTestTarget,
     load_native_test_registry,
@@ -85,6 +86,17 @@ def test_domain_shorthand_and_exact_target_precedence(registry: NativeTestRegist
         "VulkanViewportTests",
     )
     assert resolve_selection(registry, "MonaViewportTests").explanation == "exact target name"
+
+
+def test_fast_all_profile_excludes_integration_and_explicit_admission_kinds(
+    registry: NativeTestRegistry,
+) -> None:
+    resolved = resolve_selection(registry, "fast-all")
+    assert resolved.names == ("EngineViewportTests", "MonaViewportTests")
+    assert "integration excluded" in resolved.explanation
+    assert is_test_set_selection("fast-all")
+    assert is_test_set_selection("@viewport")
+    assert not is_test_set_selection("EngineViewportTests")
 
 
 def test_empty_and_characterization_selections_are_explicit(

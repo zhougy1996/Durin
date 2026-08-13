@@ -21,6 +21,7 @@ SELECTOR_DIMENSIONS = {
     "stack": "stacks",
 }
 VALUE_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
+FAST_ALL_TEST_KINDS = frozenset(("contract", "feature", "infrastructure"))
 
 
 @dataclass(frozen=True)
@@ -168,6 +169,10 @@ def _parse_selector(expression: str) -> dict[str, set[str]]:
     return predicates
 
 
+def is_test_set_selection(expression: str) -> bool:
+    return expression.startswith("@") or expression.casefold() == "fast-all"
+
+
 def resolve_selection(
     registry: NativeTestRegistry,
     expression: str,
@@ -188,6 +193,23 @@ def resolve_selection(
                 recovery=f"Rerun test {expression} --mode qualification.",
             )
         return ResolvedSelection(expression, (exact,), "exact target name")
+    if expression.casefold() == "fast-all":
+        matches = tuple(
+            target
+            for target in registry.targets
+            if target.kind in FAST_ALL_TEST_KINDS
+        )
+        if not matches:
+            raise BuildToolError(
+                'Native-test selection "fast-all" matched no configured targets.',
+                recovery="Run .\\DevTool.bat test list to inspect configured metadata.",
+            )
+        kinds = " + ".join(sorted(FAST_ALL_TEST_KINDS))
+        return ResolvedSelection(
+            expression,
+            matches,
+            f"fast-all profile: kind={kinds}; integration excluded",
+        )
     if not expression.startswith("@"):
         raise BuildToolError(
             f'Unknown native-test target "{expression}".',

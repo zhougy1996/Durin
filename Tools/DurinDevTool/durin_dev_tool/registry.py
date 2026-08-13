@@ -605,7 +605,7 @@ COMMAND_SPECS = (
                 "selection",
                 nargs="?",
                 default="",
-                help="target, @set selector, all, list [query], or explain <selection>",
+                help="target, fast-all, @set selector, all, list [query], or explain <selection>",
             ),
             _argument("case_filter", nargs="?", default=""),
             _argument(
@@ -671,6 +671,7 @@ COMMAND_SPECS = (
             "Common examples:\n"
             "  DevTool test CoreUtilityTests\n"
             "  DevTool test CoreUtilityTests Suite.Case\n"
+            "  DevTool test fast-all\n"
             "  DevTool test \"@viewport\"\n"
             "  DevTool test all"
         ),

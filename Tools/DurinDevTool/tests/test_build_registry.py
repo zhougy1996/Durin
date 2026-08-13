@@ -134,6 +134,9 @@ class TestBuildRegistry:
         assert focused.target == "CoreUtilityTests"
         assert focused.test_filter == "Suite.Case"
 
+        fast = handler.request_from_namespace(self.parse(["test", "fast-all"]))
+        assert fast.target == "fast-all"
+
         listing = handler.request_from_namespace(self.parse(["test", "list", "viewport"]))
         assert listing.test_operation == "list"
         assert listing.test_query == "viewport"

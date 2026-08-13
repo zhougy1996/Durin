@@ -258,19 +258,15 @@ durin_add_engine_functional_test(LevelAuthoringTests
 )
 
 durin_add_engine_functional_test(MaterialTests
-	KIND integration
+	KIND feature
 	DOMAINS material
 	MODULES engine material-editor renderer
-	BACKENDS vulkan
 	STACKS editor renderer
 	PRIVATE_SOURCE_OWNER MaterialEditor
 	PRIVATE_SOURCE_RATIONALE
 		"MaterialEditor-owned preview and panel white-box coverage avoids widening the editor module API."
-	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Exercises rendered material editing and preview lifecycle."
-	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this Vulkan-backed test."
-	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES
 		Private/Materials/MaterialSchemaAndEditingTests.cpp
 		Private/Materials/MaterialDependencyTests.cpp
@@ -282,6 +278,39 @@ durin_add_engine_functional_test(MaterialTests
 	PRIVATE_SOURCES
 		${_durin_material_editor_private}/Widgets/MaterialPreview.cpp
 		${_durin_material_editor_private}/Widgets/MaterialParameterPanelModel.cpp
+	LIBRARIES
+		ApplicationCore
+		AssetImportCore
+		RenderCore
+		Renderer
+		StandardAssetImport
+		MonaCore
+		Mona
+		MonaImGui
+		DurinEd
+		MaterialEditor
+		StaticMeshEditor
+		TextureEditor
+		EngineAssetBuild
+	DATA_DIRECTORIES
+		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
+		${CMAKE_CURRENT_SOURCE_DIR}/Data
+)
+
+durin_add_engine_functional_test(MaterialVulkanTests
+	KIND integration
+	DOMAINS material thumbnail
+	MODULES engine material-editor renderer static-mesh-editor texture-editor
+	BACKENDS vulkan
+	STACKS editor renderer
+	GPU
+	TIMEOUT 900
+	RUNTIME_STACK_RATIONALE
+		"Exercises rendered material and thumbnail behavior on Vulkan."
+	RUNTIME_ONLY_RATIONALE
+		"RHIInit selects VulkanRHI dynamically for the rendered material fixture."
+	RUNTIME_ONLY_TARGETS VulkanRHI
+	SOURCES Private/Materials/MaterialVulkanTests.cpp
 	LIBRARIES
 		ApplicationCore
 		AssetImportCore
@@ -363,13 +392,9 @@ durin_add_engine_functional_test(SkeletalSceneLifecycleTests
 	KIND integration
 	DOMAINS asset-import skeletal-mesh
 	MODULES engine skeletal-mesh-editor standard-asset-import
-	BACKENDS vulkan
-	STACKS editor renderer
-	GPU
+	STACKS editor
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises editor skeletal Scene import through cook and runtime-only load."
-	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for cold-DDC skeletal reimport resource validation."
-	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES
 		Private/SkeletalSceneLifecycleTests.cpp
 	LIBRARIES AssetImportCore StandardAssetImport RenderCore DurinEd SkeletalMeshEditor

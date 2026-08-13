@@ -96,7 +96,12 @@ from .runtime import (
     runtime_executable_path,
     test_executable_path,
 )
-from .native_test_registry import load_native_test_registry, registry_path, resolve_selection
+from .native_test_registry import (
+    is_test_set_selection,
+    load_native_test_registry,
+    registry_path,
+    resolve_selection,
+)
 from ..toolchain import (
     ToolchainError,
     capture_windows_environment,
@@ -535,7 +540,7 @@ def validate_request(request: CommandRequest, preset: ConfigurePreset) -> None:
                     "isolation mode requires a bounded selection and one case filter.",
                     recovery="Run test <target-or-@set> <suite.case> --mode isolation.",
                 )
-        elif request.test_filter and request.target.startswith("@"):
+        elif request.test_filter and is_test_set_selection(request.target):
             raise BuildToolError(
                 "A case filter on a set requires --mode isolation.",
                 recovery=f"Run test {request.target} {request.test_filter} --mode isolation.",
@@ -808,7 +813,7 @@ def execute_context(
         request.action is Action.TEST
         and request.test_operation == "run"
         and request.target.casefold() != "all"
-        and (request.target.startswith("@") or request.test_mode is not TestMode.ROUTINE)
+        and (is_test_set_selection(request.target) or request.test_mode is not TestMode.ROUTINE)
     ):
         registry = load_native_test_registry(context)
         resolved = resolve_selection(

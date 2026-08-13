@@ -21,14 +21,23 @@ Build and run a test executable through the root wrapper:
 ```powershell
 .\DevTool.bat test CoreUtilityTests
 .\DevTool.bat test CoreUtilityTests FJsonDocumentTests.ParseObjectFromString
+.\DevTool.bat test fast-all
 .\DevTool.bat test "@viewport"
 .\DevTool.bat test all
 ```
 
+`test fast-all` is the local feedback profile. It selects every configured
+`contract`, `feature`, and `infrastructure` target while excluding all
+`integration`, `characterization`, and `qualification` targets. It is a
+convenience selection rather than a new test kind: use the affected named
+target or domain when a change touches integration behavior, and retain
+`test all` for the complete ordinary correctness aggregate.
+
 The first command runs one target process. The second passes a GoogleTest
-filter. The third resolves a configured domain set, prints the exact target
-list, builds only those executables and their dependency closures, and runs
-their direct CTest registrations. A test executable has a 300-second timeout
+filter. The `@viewport` command resolves a configured domain set, prints the
+exact target list, builds only those executables and their dependency closures,
+and runs their direct CTest registrations. A test executable has a 300-second
+timeout
 by default; `--timeout <seconds>` changes it, and `--timeout 0` disables it for
 an intentionally long diagnostic run. The timeout starts after the target has
 finished building.
@@ -76,6 +85,8 @@ Choose validation by risk and preserve the resolved target names in the
 handoff or CI log:
 
 - Routine changes run the smallest named target that owns the changed behavior.
+- Broad local non-integration feedback runs `test fast-all`; it never replaces
+  an affected integration target or backend/domain set.
 - Cross-module behavior runs its feature domain, such as `test "@world"` or
   `test "@viewport"`; reproduce the result with the resolved named targets
   printed before execution.
@@ -86,7 +97,19 @@ handoff or CI log:
 - Performance and scale qualification selects `kind=qualification` and requires
   `--mode qualification`.
 - Shared discovery, registry, harness, locking, deployment, or aggregate
-  changes run `test --target all` at default target granularity.
+  changes run `test all` at default target granularity.
+
+Test kinds describe behavior, not expected duration:
+
+- `contract`: API, representation, validation, and state-machine boundaries.
+- `feature`: one coherent user-facing or runtime capability.
+- `infrastructure`: native-test discovery, isolation, deployment, or execution.
+- `integration`: real multi-system, runtime-lifecycle, backend, process, or
+  hardware composition.
+- `characterization`: explicitly admitted observation of exceptional or legacy
+  behavior.
+- `qualification`: explicitly admitted performance, scale, memory, or hardware
+  baselines.
 
 Scheduled/nightly repository validation owns the ordinary native aggregate.
 Release qualification owns that aggregate, the explicit qualification set,
@@ -95,14 +118,14 @@ diagnosed with its printed named targets and narrow case filters; local
 implementation and handoff validation remain risk-based and do not inherit the
 whole scheduled matrix.
 
-`--target all` builds the `DurinNativeTests` aggregate and then runs every
+`test all` builds the `DurinNativeTests` aggregate and then runs every
 ordinary target once through CTest. Characterization and qualification targets
 are neither built nor run by this aggregate. This `target` granularity is the
 default.
 Use `--granularity case` to run every discovered GoogleTest case in a separate
 process for isolation diagnosis and independence qualification. Do not run
-unfiltered `--target all --granularity case`; diagnose an ordinary aggregate
-failure with `--target <failed-target> --filter <suite.case>`, or use a narrow
+unfiltered `test all --granularity case`; diagnose an ordinary aggregate
+failure with `test <FailedTarget> <Suite.Case>`, or use a narrow
 case-name `--ctest-regex` when CTest-level isolation is required. After
 diagnosis, use default target granularity for the final full-suite validation
 unless the change specifically targets case isolation. `hybrid` is a
@@ -111,7 +134,7 @@ Native-test executables and GoogleTest are excluded from CMake's
 default `all` target, so routine `build` and `rebuild` commands do not compile
 tests even when the selected preset enables `BUILD_TESTING`.
 Its timeout applies to each CTest-registered test. GoogleTest `--filter` syntax
-is executable-specific and therefore cannot be combined with `--target all`.
+is executable-specific and therefore cannot be combined with `test all`.
 The compatibility options `--schedule-random` and `--output-junit <path>`
 retain their prior aggregate behavior. In target
 and hybrid modes the command also prints and forwards a GoogleTest shuffle seed
@@ -119,13 +142,13 @@ so order failures can be reproduced with `GTEST_RANDOM_SEED`. Use
 `--ctest-regex <regex>` only with case granularity for an isolated rerun of a
 matching case registration. `--include-direct` remains an accepted no-op
 compatibility alias in target mode and never duplicates a process. These
-options require `--target all`. `--target`, `--granularity`,
+options require `test all`. `--target`, `--granularity`,
 `--include-direct`, `--ctest-regex`, `--schedule-random`, and `--output-junit`
 remain temporarily accepted, emit a deprecation warning, and are hidden from
 routine help. Existing repository automation may keep them while it moves to
 positional selections and named modes.
 
-Use a focused `--target <Target> --filter <GoogleTestFilter>` command for the
+Use a focused `test <Target> <GoogleTestFilter>` command for the
 fastest failing-case iteration. It launches one target process with the filter;
 aggregate granularity does not change focused execution.
 
