@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Components/SceneComponent.h"
 #include "DObject/ObjectPtr.h"
 #include "Panels/LevelEditorPanel.h"
 #include "Panels/WorldOutlinerHierarchyModel.h"
@@ -42,6 +43,7 @@ namespace Durin::Editor::Level
 		auto DrawShortcuts(FLevelEditorContext& Context, std::string_view LevelName, bool& bRequestDelete) -> void;
 		auto DrawRenameDialog(FLevelEditorContext& Context, std::string_view LevelName) -> void;
 		auto DrawDeletePopup(FLevelEditorContext& Context) -> void;
+		auto DrawAttachmentRuleMenu() -> void;
 
 		std::array<char, 128> SearchText{};
 		std::array<char, 128> ActorTypeSearchText{};
@@ -56,6 +58,8 @@ namespace Durin::Editor::Level
 		bool bWasSearching = false;
 		bool bLevelSelected = false;
 		bool bRenamingLevel = false;
+		EAttachmentTransformRule AttachmentRule = EAttachmentTransformRule::KeepWorld;
+		EDetachmentTransformRule DetachmentRule = EDetachmentTransformRule::KeepWorld;
 		int ExpandRequest = 0;
 	};
 } // namespace Durin::Editor::Level

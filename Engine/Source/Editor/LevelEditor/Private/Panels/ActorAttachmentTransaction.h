@@ -2,6 +2,7 @@
 
 #include "Editor/Transaction.h"
 #include "Math/Transform.h"
+#include "Components/SceneComponent.h"
 #include "DObject/ObjectPtr.h"
 
 namespace Durin
@@ -39,4 +40,9 @@ namespace Durin::Editor::Level
 		std::vector<DPackage*> AffectedPackages;
 		bool bAttaching = false;
 	};
+
+	auto MakeActorAttachmentEntry(AActor& Actor, AActor& Parent,
+		EAttachmentTransformRule Rule) -> FActorAttachmentTransaction::FEntry;
+	auto MakeActorDetachmentEntry(AActor& Actor,
+		EDetachmentTransformRule Rule) -> FActorAttachmentTransaction::FEntry;
 }

@@ -31,6 +31,27 @@ namespace Durin::Editor::Level
 
 		constexpr auto ActorPayloadType = "DURIN_OUTLINER_ACTOR";
 
+		auto AttachmentRuleName(EAttachmentTransformRule Rule) -> const char*
+		{
+			switch (Rule)
+			{
+			case EAttachmentTransformRule::KeepWorld: return "Keep World";
+			case EAttachmentTransformRule::KeepRelative: return "Keep Relative";
+			case EAttachmentTransformRule::SnapToTarget: return "Snap to Target";
+			}
+			return "Unknown";
+		}
+
+		auto DetachmentRuleName(EDetachmentTransformRule Rule) -> const char*
+		{
+			switch (Rule)
+			{
+			case EDetachmentTransformRule::KeepWorld: return "Keep World";
+			case EDetachmentTransformRule::KeepRelative: return "Keep Relative";
+			}
+			return "Unknown";
+		}
+
 		auto MakeUniqueActorName(DLevel& Level, FName Requested, const AActor* Ignored = nullptr) -> FName
 		{
 			if (AActor* Existing = Level.FindActorByName(Requested); !Existing || Existing == Ignored) return Requested;
@@ -324,8 +345,7 @@ namespace Durin::Editor::Level
 				Entries.reserve(MoveActors.size());
 				for (AActor* Moving : MoveActors)
 				{
-					const FTransform Transform = Moving->GetActorTransform();
-					Entries.push_back({Moving, Moving->GetAttachParentActor(), Actor, Transform, Transform});
+					Entries.push_back(MakeActorAttachmentEntry(*Moving, *Actor, AttachmentRule));
 				}
 				if (!Entries.empty())
 				{
@@ -398,8 +418,7 @@ namespace Durin::Editor::Level
 				AActor* Actor = Selected.Get();
 				if (!Actor || !Actor->GetAttachParentActor()) continue;
 				if (HasSelectedAncestor(Context.GetSelectedActors(), Actor)) continue;
-				const FTransform Transform = Actor->GetActorTransform();
-				Entries.push_back({Actor, Actor->GetAttachParentActor(), nullptr, Transform, Transform});
+				Entries.push_back(MakeActorDetachmentEntry(*Actor, DetachmentRule));
 			}
 			if (!Entries.empty())
 			{
@@ -609,6 +628,30 @@ namespace Durin::Editor::Level
 		}
 	}
 
+	auto FWorldOutlinerPanel::DrawAttachmentRuleMenu() -> void
+	{
+		if (ImGui::Button(Icons::Link)) ImGui::OpenPopup("OutlinerAttachmentRules");
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+			ImGui::SetTooltip("Transform rules\nAttach: %s\nDetach: %s",
+				AttachmentRuleName(AttachmentRule), DetachmentRuleName(DetachmentRule));
+		if (!ImGui::BeginPopup("OutlinerAttachmentRules")) return;
+
+		ImGui::TextDisabled("Attach actors");
+		if (ImGui::MenuItem("Keep World", nullptr, AttachmentRule == EAttachmentTransformRule::KeepWorld))
+			AttachmentRule = EAttachmentTransformRule::KeepWorld;
+		if (ImGui::MenuItem("Keep Relative", nullptr, AttachmentRule == EAttachmentTransformRule::KeepRelative))
+			AttachmentRule = EAttachmentTransformRule::KeepRelative;
+		if (ImGui::MenuItem("Snap to Target", nullptr, AttachmentRule == EAttachmentTransformRule::SnapToTarget))
+			AttachmentRule = EAttachmentTransformRule::SnapToTarget;
+		ImGui::Separator();
+		ImGui::TextDisabled("Detach actors");
+		if (ImGui::MenuItem("Keep World##Detach", nullptr, DetachmentRule == EDetachmentTransformRule::KeepWorld))
+			DetachmentRule = EDetachmentTransformRule::KeepWorld;
+		if (ImGui::MenuItem("Keep Relative##Detach", nullptr, DetachmentRule == EDetachmentTransformRule::KeepRelative))
+			DetachmentRule = EDetachmentTransformRule::KeepRelative;
+		ImGui::EndPopup();
+	}
+
 	auto FWorldOutlinerPanel::Draw(FLevelEditorContext& Context) -> void
 	{
 		if (!::Durin::Editor::WorkspaceUI::BeginDockablePanel(Workspace::Type, "World Outliner", "WorldOutliner", GetOpenPtr()))
@@ -627,6 +670,8 @@ namespace Durin::Editor::Level
 		ImGui::SameLine();
 		if (ImGui::Button(Icons::Compress)) ExpandRequest = -1;
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Collapse all");
+		ImGui::SameLine();
+		DrawAttachmentRuleMenu();
 
 		ImGui::SetNextItemWidth(-1.0f);
 		ImGui::InputTextWithHint("###OutlinerSearch", "Search actors or types...", SearchText.data(), SearchText.size());

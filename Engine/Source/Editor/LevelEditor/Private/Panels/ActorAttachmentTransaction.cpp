@@ -31,6 +31,37 @@ namespace Durin::Editor::Level
 		}
 	}
 
+	auto MakeActorAttachmentEntry(AActor& Actor, AActor& Parent,
+		EAttachmentTransformRule Rule) -> FActorAttachmentTransaction::FEntry
+	{
+		const FTransform BeforeTransform = Actor.GetActorTransform();
+		FTransform AfterTransform = BeforeTransform;
+		switch (Rule)
+		{
+		case EAttachmentTransformRule::KeepWorld:
+			break;
+		case EAttachmentTransformRule::KeepRelative:
+			if (DSceneComponent* RootComponent = Actor.GetRootComponent())
+				AfterTransform = FTransform::Combine(
+					Parent.GetActorTransform(), RootComponent->GetRelativeTransform());
+			break;
+		case EAttachmentTransformRule::SnapToTarget:
+			AfterTransform = Parent.GetActorTransform();
+			break;
+		}
+		return {&Actor, Actor.GetAttachParentActor(), &Parent, BeforeTransform, AfterTransform};
+	}
+
+	auto MakeActorDetachmentEntry(AActor& Actor,
+		EDetachmentTransformRule Rule) -> FActorAttachmentTransaction::FEntry
+	{
+		const FTransform BeforeTransform = Actor.GetActorTransform();
+		const DSceneComponent* RootComponent = Actor.GetRootComponent();
+		const FTransform AfterTransform = Rule == EDetachmentTransformRule::KeepRelative && RootComponent
+			? RootComponent->GetRelativeTransform() : BeforeTransform;
+		return {&Actor, Actor.GetAttachParentActor(), nullptr, BeforeTransform, AfterTransform};
+	}
+
 	FActorAttachmentTransaction::FActorAttachmentTransaction(std::vector<FEntry> InEntries, bool bInAttaching)
 		: Entries(std::move(InEntries)), bAttaching(bInAttaching)
 	{

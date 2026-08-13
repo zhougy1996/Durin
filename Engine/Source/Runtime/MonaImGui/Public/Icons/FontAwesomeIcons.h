@@ -17,6 +17,7 @@ namespace Durin::Icons
 	inline constexpr auto Crosshairs = "\xef\x81\x9b";
 	inline constexpr auto Trash = "\xef\x87\xb8";
 	inline constexpr auto Copy = "\xef\x83\x85";
+	inline constexpr auto Link = "\xef\x83\x81";
 	inline constexpr auto Refresh = "\xef\x8b\xb9";
 	inline constexpr auto RotateLeft = "\xef\x8b\xaa";
 	inline constexpr auto EllipsisVertical = "\xef\x85\x82";
