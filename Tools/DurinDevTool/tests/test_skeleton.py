@@ -20,7 +20,7 @@ class TestRepositoryDiscovery:
 
     def test_rejects_directory_without_repository_markers(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
-        with pytest.raises(RuntimeError, match='Could not find'):
+        with mock.patch('durin_dev_tool.repository.is_repository_root', return_value=False), pytest.raises(RuntimeError, match='Could not find'):
             find_repository_root(Path(directory))
 
     def test_cli_uses_package_location_when_working_directory_is_unrelated(self, tmp_path_factory: pytest.TempPathFactory) -> None:
