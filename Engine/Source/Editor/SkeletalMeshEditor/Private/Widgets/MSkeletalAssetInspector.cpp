@@ -40,24 +40,24 @@ namespace Durin::Editor::SkeletalMesh
 			std::vector<std::string>& OutPaths)
 			-> DObject*
 		{
-			const AssetImport::FImportRecordInspection Inspection =
-				AssetImport::InspectImportRecordForOutput(
-					AssetPath, AssetImport::GetImportRecordIndex());
+			const Asset::Import::FImportRecordInspection Inspection =
+				Asset::Import::InspectImportRecordForOutput(
+					AssetPath, Asset::Import::GetImportRecordIndex());
 			if (!Inspection || !Inspection.Record) return nullptr;
-			std::vector<const AssetImport::FImportRecordOutput*> Candidates;
-			for (const AssetImport::FImportRecordOutput& Output : Inspection.Record->GetOutputs())
+			std::vector<const Asset::Import::FImportRecordOutput*> Candidates;
+			for (const Asset::Import::FImportRecordOutput& Output : Inspection.Record->GetOutputs())
 			{
 				const bool bWanted = Cast<DSkeletalMesh>(Asset)
 					? Output.AssetClassName == DAnimationClip::StaticClass()->GetQualifiedName().ToString()
 					: Cast<DAnimationClip>(Asset)
 						&& Output.AssetClassName == DSkeletalMesh::StaticClass()->GetQualifiedName().ToString();
-				if (bWanted && Output.Policy == AssetImport::EImportRecordOutputPolicy::Managed)
+				if (bWanted && Output.Policy == Asset::Import::EImportRecordOutputPolicy::Managed)
 					Candidates.push_back(&Output);
 			}
 			std::ranges::sort(Candidates, {}, [](const auto* Output) {
 				return Output->AssetPath.GetView();
 			});
-			for (const AssetImport::FImportRecordOutput* Candidate : Candidates)
+			for (const Asset::Import::FImportRecordOutput* Candidate : Candidates)
 			{
 				const std::string_view Expected = Cast<DSkeletalMesh>(Asset)
 					? Cast<DSkeletalMesh>(Asset)->GetSkeletonCompatibilityIdentity()

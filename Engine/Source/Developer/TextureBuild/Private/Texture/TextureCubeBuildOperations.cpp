@@ -7,7 +7,7 @@
 #include "Texture/TextureCubeBuilder.h"
 #include "Texture/TextureCubeDerivedData.h"
 
-namespace Durin::AssetBuild
+namespace Durin::Asset::Build
 {
 	namespace
 	{
@@ -105,7 +105,7 @@ namespace Durin::AssetBuild
 			uint32 SourceWidth,
 			uint32 SourceHeight,
 			const FXxHash128& Hash,
-			const FTextureCubePanoramaImportSettings& Settings,
+			const FTextureCubePanoramaBuildSettings& Settings,
 			FTextureCubeBuildProduct& OutProduct,
 			std::string& OutError) -> bool
 		{
@@ -138,7 +138,7 @@ namespace Durin::AssetBuild
 	auto BuildTextureCubePanorama(
 		TextureCubeBuilder::FTexturePanoramaImage Panorama,
 		const FXxHash128& SourceHash,
-		const FTextureCubePanoramaImportSettings& Settings,
+		const FTextureCubePanoramaBuildSettings& Settings,
 		FTextureCubeBuildProduct& OutProduct,
 		std::string& OutError) -> bool
 	{
@@ -236,7 +236,7 @@ namespace Durin::AssetBuild
 	auto BuildTextureCubePanorama(
 		TextureCubeBuilder::FTexturePanoramaFloatImage Panorama,
 		const FXxHash128& SourceHash,
-		const FTextureCubePanoramaImportSettings& Settings,
+		const FTextureCubePanoramaBuildSettings& Settings,
 		FTextureCubeBuildProduct& OutProduct,
 		std::string& OutError) -> bool
 	{
@@ -251,7 +251,7 @@ namespace Durin::AssetBuild
 	auto BuildTextureCubeFaces(
 		FTextureCubeSourceData SourceData,
 		const std::array<FXxHash128, TextureCubeFaceCount>& Hashes,
-		const FTextureCubeImportSettings& Settings,
+		const FTextureCubeFacesBuildSettings& Settings,
 		FTextureCubeBuildProduct& OutProduct,
 		std::string& OutError) -> bool
 	{

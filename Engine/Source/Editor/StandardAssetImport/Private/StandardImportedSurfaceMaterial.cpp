@@ -3,7 +3,7 @@
 #include "AssetSystem.h"
 #include "Materials/Material.h"
 
-namespace Durin
+namespace Durin::Asset::Import
 {
 	auto EnsureStandardImportedSurfaceMaterial(std::string& OutError) -> DMaterial*
 	{

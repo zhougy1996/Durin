@@ -49,6 +49,7 @@ class ReflectedEnumInfo:
     underlying_kind: str = "Unknown"
     underlying_size: int = 0
     display_name: str = ""
+    persistent_name: str = ""
     values: list[ReflectedEnumValueInfo] = field(default_factory=list)
 
     @property
@@ -99,6 +100,7 @@ class ReflectedClassInfo:
     no_class_default_object: bool = False
     display_name: str = ""
     default_object_name: str = ""
+    persistent_name: str = ""
     properties: list[ReflectedPropertyInfo] = field(default_factory=list)
 
     @property
@@ -123,6 +125,7 @@ class ReflectedStructInfo:
     header: str
     api: str
     generated_body_line: int = 0
+    persistent_name: str = ""
     properties: list[ReflectedPropertyInfo] = field(default_factory=list)
 
     @property

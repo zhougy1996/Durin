@@ -6,14 +6,15 @@
         "Core",
         "AetherCore",
         "Aether",
-        "ApplicationCore",
         "AssetCore",
         "CoreDObject",
         "MonaCore",
         "RenderCore",
         "RHI"
     ],
-    "PrivateDependencies": [],
+    "PrivateDependencies": [
+        "ApplicationCore"
+    ],
     "OptionalPrivateDependencies": [],
     "ReflectHeaders": [
         "Public/Engine/Actor.h",

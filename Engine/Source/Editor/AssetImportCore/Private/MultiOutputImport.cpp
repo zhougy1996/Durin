@@ -2,7 +2,7 @@
 
 #include "AssetSystem.h"
 
-namespace Durin::AssetImport
+namespace Durin::Asset::Import
 {
 	namespace
 	{

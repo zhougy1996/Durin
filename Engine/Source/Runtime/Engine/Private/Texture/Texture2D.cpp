@@ -6,7 +6,7 @@
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
-#include "Source/SourcePath.h"
+#include "Asset/MountedSource.h"
 #include "Serialization/Archive.h"
 #include "DynamicRHI.h"
 #include "Texture/Texture2DRenderResource.h"
@@ -268,31 +268,21 @@ namespace Durin
 		}
 
 		const Asset::FPackageLoadContext& LoadContext = Asset::GetPackageLoadContext();
-		std::filesystem::path PackagePath;
-		std::filesystem::path CompanionPath;
-		if (!GetPackage()
-			|| !Asset::ResolveCookedPackagePath(
-				LoadContext.CookRoot, GetPackage()->GetPackagePath(), PackagePath, &OutError)
-			|| !Asset::ResolveCookedCompanionPath(
-				LoadContext.CookRoot, PackagePath, CompanionPath, &OutError))
-		{
-			return FailCooked(
-				OutError.empty() ? "package companion path could not be resolved." : OutError);
-		}
-
-		Asset::FCookedBulkContainer Container;
-		if (!Asset::LoadCookedBulkFile(
-			CompanionPath,
+		if (!GetPackage())
+			return FailCooked("package companion path could not be resolved.");
+		Asset::FCookedPackagePayload LoadedPayload;
+		if (!Asset::LoadCookedPackagePayload(
+			LoadContext,
+			GetPackage()->GetPackagePath(),
+			CookedPayload,
 			Asset::ECookTargetPlatform::Win64,
 			Asset::ECookTargetProfile::Game,
-			Container,
+			LoadedPayload,
 			&OutError))
 		{
 			return FailCooked(OutError);
 		}
-		std::span<const uint8> Bytes;
-		if (!Asset::ResolveCookedPayload(Container, CookedPayload, Bytes, &OutError))
-			return FailCooked(OutError);
+		const std::span<const uint8> Bytes = LoadedPayload.Payload;
 
 		auto CandidatePlatformData = std::make_unique<FTexturePlatformData>();
 		FCanonicalMemoryReader PayloadAr(Bytes, EArchivePurpose::CookedPayload);

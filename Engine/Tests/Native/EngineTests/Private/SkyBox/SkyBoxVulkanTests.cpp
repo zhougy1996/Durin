@@ -1,4 +1,5 @@
 #include "SkyBoxTestSupport.h"
+#include "TextureCubeSourceTranslation.h"
 
 TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax)
 {
@@ -21,7 +22,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	});
 	Renderer.StartupModule();
 
-	Durin::FTextureCubeImportResult CubeResult = Durin::DTextureCube::ImportPanoramaAsset(
+	Durin::Asset::Import::FTextureCubeImportResult CubeResult = Durin::Asset::Import::ImportTextureCubePanorama(
 		GetSkyBoxPanoramaFixture("AnalyticalLDR.tga").generic_string(),
 		"/SkyBoxAssetTests/VulkanPanoramaLdr",
 		{.FaceDimension = 64});
@@ -29,7 +30,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	auto CubeReference = CubeResult.Asset->GetTextureReferenceRHI();
 	ASSERT_NE(CubeReference, nullptr);
 	auto PlatformData = std::make_shared<Durin::FTextureCubePlatformData>(*CubeResult.Asset->GetPlatformData());
-	Durin::FTextureCubeImportResult HdrCubeResult = Durin::DTextureCube::ImportPanoramaAsset(
+	Durin::Asset::Import::FTextureCubeImportResult HdrCubeResult = Durin::Asset::Import::ImportTextureCubePanorama(
 		GetSkyBoxPanoramaFixture("AnalyticalHDR.hdr").generic_string(),
 		"/SkyBoxAssetTests/VulkanPanoramaHdr",
 		{.FaceDimension = 64, .ExposureEV = 1.0f});

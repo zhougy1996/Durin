@@ -2,7 +2,7 @@
 
 #include "StandardAssetImportAPI.h"
 
-namespace Durin
+namespace Durin::Asset::Import
 {
 	// Registers the built-in Scene, StaticMesh, Texture2D, and TextureCube
 	// providers plus their exact-class imported-state handlers. Calls are idempotent.

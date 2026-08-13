@@ -5,12 +5,14 @@
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DAuthoringService.h"
 #include "Texture2DSourceTranslation.h"
+#include "TextureCubeSourceTranslation.h"
 
-namespace Durin::StandardAssetImport
+namespace Durin::Asset::Import
 {
 	namespace
 	{
 		Editor::FMountedSourceRelocationHandlerHandle GTexture2DRelocationHandler = 0;
+		Editor::FMountedSourceRelocationHandlerHandle GTextureCubeRelocationHandler = 0;
 	}
 
 	auto RegisterTexture2DSourceRelocation() -> bool
@@ -29,19 +31,64 @@ namespace Durin::StandardAssetImport
 					return false;
 				}
 				if (!ChangeTexture2DSourceReference(*Texture, To, OutError)) return false;
-				if (AssetBuild::WaitForTexture2DBuild(*Texture)) return true;
+				if (Asset::Build::WaitForTexture2DBuild(*Texture)) return true;
 				const std::string BuildError =
-					AssetBuild::GetTexture2DBuildDiagnostic(*Texture).Message;
+					Asset::Build::GetTexture2DBuildDiagnostic(*Texture).Message;
 				OutError = BuildError.empty()
 					? "Texture2D source relocation build did not complete."
 					: BuildError;
 				return false;
 			});
-		return GTexture2DRelocationHandler != 0;
+		if (GTexture2DRelocationHandler == 0) return false;
+		GTextureCubeRelocationHandler = Editor::RegisterMountedSourceRelocationHandler(
+			[](DObject& Asset,
+				std::string_view From,
+				std::string_view To,
+				std::string& OutError) -> std::optional<bool> {
+				auto* Cube = Cast<DTextureCube>(&Asset);
+				if (!Cube) return std::nullopt;
+				if (Cube->GetSourceLayout()
+					== ETextureCubeSourceLayout::EquirectangularPanorama)
+				{
+					if (Cube->GetPanoramaSourceFile() != From)
+					{
+						OutError = "TextureCube panorama no longer references the source being relocated.";
+						return false;
+					}
+					return ChangeTextureCubePanoramaSourceReference(*Cube, To, {
+						.FaceDimension = Cube->GetPanoramaFaceDimension(),
+						.ExposureEV = Cube->GetPanoramaExposureEV()}, OutError);
+				}
+				std::array<std::string, TextureCubeFaceCount> Paths;
+				bool bFound = false;
+				for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
+				{
+					Paths[Index] = Cube->GetSourceFile(
+						static_cast<ETextureCubeFace>(Index));
+					if (Paths[Index] == From)
+					{
+						Paths[Index] = To;
+						bFound = true;
+					}
+				}
+				if (!bFound)
+				{
+					OutError = "TextureCube faces no longer reference the source being relocated.";
+					return false;
+				}
+				return ChangeTextureCubeFaceSourceReferences(
+					*Cube, Paths, {.bSRGB = Cube->IsSRGB()}, OutError);
+			});
+		if (GTextureCubeRelocationHandler != 0) return true;
+		Editor::UnregisterMountedSourceRelocationHandler(GTexture2DRelocationHandler);
+		GTexture2DRelocationHandler = 0;
+		return false;
 	}
 
 	auto UnregisterTexture2DSourceRelocation() -> void
 	{
+		Editor::UnregisterMountedSourceRelocationHandler(GTextureCubeRelocationHandler);
+		GTextureCubeRelocationHandler = 0;
 		Editor::UnregisterMountedSourceRelocationHandler(GTexture2DRelocationHandler);
 		GTexture2DRelocationHandler = 0;
 	}

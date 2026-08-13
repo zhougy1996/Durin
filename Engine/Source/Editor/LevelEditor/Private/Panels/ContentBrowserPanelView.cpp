@@ -753,15 +753,15 @@ namespace Durin::Editor::Level
 		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
 			FAssetPath ItemPath;
-			AssetImport::FImportRecordInspection Inspection;
+			Asset::Import::FImportRecordInspection Inspection;
 			if (FAssetPath::TryCreate(Item.VirtualPath, ItemPath))
 			{
 				Inspection = Item.AssetClassName ==
-					AssetImport::DImportRecord::StaticClass()->GetQualifiedName().ToString()
-					? AssetImport::InspectImportRecord(
-						ItemPath, AssetImport::GetImportRecordIndex())
-					: AssetImport::InspectImportRecordForOutput(
-						ItemPath, AssetImport::GetImportRecordIndex());
+					Asset::Import::DImportRecord::StaticClass()->GetQualifiedName().ToString()
+					? Asset::Import::InspectImportRecord(
+						ItemPath, Asset::Import::GetImportRecordIndex())
+					: Asset::Import::InspectImportRecordForOutput(
+						ItemPath, Asset::Import::GetImportRecordIndex());
 			}
 			if (Inspection && Inspection.Record)
 			{
@@ -772,11 +772,11 @@ namespace Durin::Editor::Level
 					};
 				if (ImGui::BeginMenu("Reveal Managed Output"))
 				{
-					for (const AssetImport::FImportRecordManagement& Output : Inspection.Outputs)
+					for (const Asset::Import::FImportRecordManagement& Output : Inspection.Outputs)
 					{
 						const auto Recorded = std::ranges::find(
 							Inspection.Record->GetOutputs(), Output.OutputIdentity,
-							&AssetImport::FImportRecordOutput::StableIdentity);
+							&Asset::Import::FImportRecordOutput::StableIdentity);
 						if (Recorded != Inspection.Record->GetOutputs().end()
 							&& ImGui::MenuItem(Recorded->AssetPath.GetAssetName().data()))
 							DeferredContentAction = [this, Path = Recorded->AssetPath.ToString()] {
@@ -785,15 +785,15 @@ namespace Durin::Editor::Level
 					}
 					ImGui::EndMenu();
 				}
-				const AssetImport::FImportRecordCapabilitySet Capabilities =
-					AssetImport::QueryImportRecordCapabilities(
-						Inspection, AssetImport::GetImportRecordHandlerRegistry());
-				for (const AssetImport::EImportRecordAction Action : {
-					AssetImport::EImportRecordAction::Reimport,
-					AssetImport::EImportRecordAction::RecreateMissingOutputs,
-					AssetImport::EImportRecordAction::RepairManagedOutputs})
+				const Asset::Import::FImportRecordCapabilitySet Capabilities =
+					Asset::Import::QueryImportRecordCapabilities(
+						Inspection, Asset::Import::GetImportRecordHandlerRegistry());
+				for (const Asset::Import::EImportRecordAction Action : {
+					Asset::Import::EImportRecordAction::Reimport,
+					Asset::Import::EImportRecordAction::RecreateMissingOutputs,
+					Asset::Import::EImportRecordAction::RepairManagedOutputs})
 				{
-					const AssetImport::FImportRecordCapability* Capability = Capabilities.Find(Action);
+					const Asset::Import::FImportRecordCapability* Capability = Capabilities.Find(Action);
 					if (!Capability) continue;
 					if (ImGui::MenuItem(Capability->Label.c_str(), nullptr, false, Capability->bAvailable))
 						DeferredContentAction = [this, Item, Action] { ReimportAsset(Item, Action); };
@@ -804,19 +804,19 @@ namespace Durin::Editor::Level
 				if (bManagedByRecord && ImGui::MenuItem("Detach from Import Record"))
 				{
 					const auto Managed = std::ranges::find_if(
-						Inspection.Record->GetOutputs(), [&](const AssetImport::FImportRecordOutput& Output) {
+						Inspection.Record->GetOutputs(), [&](const Asset::Import::FImportRecordOutput& Output) {
 							return Output.AssetPath == Inspection.SelectedOutputPath;
 						});
 					if (Managed != Inspection.Record->GetOutputs().end())
 						DeferredContentAction = [this,
 							RecordPath = Inspection.RecordPath,
 							Identity = Managed->StableIdentity] {
-							AssetImport::DImportRecord* Record = nullptr;
+							Asset::Import::DImportRecord* Record = nullptr;
 							const Asset::FAssetResult Load = Asset::LoadAsset(RecordPath, Record);
 							if (!Load || !Record) { SetError(Load ? "Import record is unavailable." : Load.Message); return; }
-							const AssetImport::FImportRecordEditResult Result =
-								AssetImport::DetachImportRecordOutput(
-									*Record, Identity, AssetImport::GetImportRecordIndex());
+							const Asset::Import::FImportRecordEditResult Result =
+								Asset::Import::DetachImportRecordOutput(
+									*Record, Identity, Asset::Import::GetImportRecordIndex());
 							if (!Result) { SetError(Result.Message); return; }
 							PublishMountedContentMutation();
 							RevealAsset(Result.RevealPath.ToString());
@@ -824,12 +824,12 @@ namespace Durin::Editor::Level
 				}
 				if (Inspection.bConflicted && ImGui::MenuItem("Repair Record Identity"))
 					DeferredContentAction = [this, RecordPath = Inspection.RecordPath] {
-						AssetImport::DImportRecord* Record = nullptr;
+						Asset::Import::DImportRecord* Record = nullptr;
 						const Asset::FAssetResult Load = Asset::LoadAsset(RecordPath, Record);
 						if (!Load || !Record) { SetError(Load ? "Import record is unavailable." : Load.Message); return; }
-						const AssetImport::FImportRecordEditResult Result =
-							AssetImport::RepairDuplicatedImportRecord(
-								*Record, AssetImport::GetImportRecordIndex());
+						const Asset::Import::FImportRecordEditResult Result =
+							Asset::Import::RepairDuplicatedImportRecord(
+								*Record, Asset::Import::GetImportRecordIndex());
 						if (!Result) { SetError(Result.Message); return; }
 						PublishMountedContentMutation();
 						RevealAsset(Result.RevealPath.ToString());
@@ -839,28 +839,28 @@ namespace Durin::Editor::Level
 		}
 		if (Item.Kind == EContentBrowserItemKind::Asset
 			&& !bManagedByRecord
-			&& AssetImport::GetSingleAssetHandlerRegistry().Find(Item.AssetClassName))
+			&& Asset::Import::GetSingleAssetHandlerRegistry().Find(Item.AssetClassName))
 		{
 			FAssetPath CapabilityPath;
 			DObject* CapabilityAsset = nullptr;
 			const bool bLoadedForCapabilities = FAssetPath::TryCreate(Item.VirtualPath, CapabilityPath)
 				&& Asset::FAssetManager::Get().LoadAsset(CapabilityPath, CapabilityAsset);
-			const AssetImport::FSingleAssetCapability* ReimportCapability = nullptr;
-			AssetImport::FSingleAssetCapabilitySet CapabilitySet;
+			const Asset::Import::FSingleAssetCapability* ReimportCapability = nullptr;
+			Asset::Import::FSingleAssetCapabilitySet CapabilitySet;
 			if (bLoadedForCapabilities && CapabilityAsset)
 			{
-				CapabilitySet = AssetImport::QuerySingleAssetCapabilities(
-					*CapabilityAsset, AssetImport::GetProviderRegistry(),
-					AssetImport::GetSingleAssetHandlerRegistry());
+				CapabilitySet = Asset::Import::QuerySingleAssetCapabilities(
+					*CapabilityAsset, Asset::Import::GetProviderRegistry(),
+					Asset::Import::GetSingleAssetHandlerRegistry());
 				ReimportCapability = CapabilitySet.Find(
-					AssetImport::ESingleAssetImportCapability::ReimportCurrentSource);
+					Asset::Import::ESingleAssetImportCapability::ReimportCurrentSource);
 			}
 			const bool bCanSingleReimport = ReimportCapability && ReimportCapability->bAvailable;
 			if (ImGui::MenuItem(
 				bCanSingleReimport ? ReimportCapability->Label.c_str() : "Reimport from Current Source",
 				nullptr, false, bCanSingleReimport))
 				DeferredContentAction = [this, Item] {
-					ReimportAsset(Item, AssetImport::EImportRecordAction::Reimport);
+					ReimportAsset(Item, Asset::Import::EImportRecordAction::Reimport);
 				};
 			if (ReimportCapability && ImGui::IsItemHovered())
 				ImGui::SetTooltip("%s", ReimportCapability->ReplacedStateDescription.c_str());
@@ -871,7 +871,7 @@ namespace Durin::Editor::Level
 				&& !bCanSingleReimport
 				&& ImGui::MenuItem("Reimport Legacy Scene and Recreate Missing Outputs"))
 				DeferredContentAction = [this, Item] {
-					ReimportAsset(Item, AssetImport::EImportRecordAction::RecreateMissingOutputs);
+					ReimportAsset(Item, Asset::Import::EImportRecordAction::RecreateMissingOutputs);
 				};
 			if (!LastReimportOrphans.empty()
 				&& ImGui::BeginMenu("Reveal Last Reimport Orphan"))

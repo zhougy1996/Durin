@@ -7,7 +7,7 @@
 #include "Texture/TextureBuilder.h"
 #include "Texture2DSourceTranslation.h"
 
-namespace Durin::StandardAssetImport
+namespace Durin::Asset::Import
 {
 	namespace
 	{
@@ -22,7 +22,7 @@ namespace Durin::StandardAssetImport
 			if (!Texture || !Proposal.MemberProperty
 				|| !Proposal.DraftRootProperty || !Proposal.DraftRootContainer) return true;
 
-			AssetBuild::FTexture2DBuildSettings Settings =
+			Asset::Build::FTexture2DBuildSettings Settings =
 				MakeTexture2DBuildSettings(*Texture);
 			const FName PropertyName = Proposal.MemberProperty->NamePrivate;
 			if (PropertyName == FName("Usage"))
@@ -35,7 +35,7 @@ namespace Durin::StandardAssetImport
 				Settings.Usage = static_cast<ETextureUsage>(
 					static_cast<const FEnumProperty*>(Proposal.DraftRootProperty)->GetValueAsUInt64(
 						Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex));
-				Settings.bSRGB = AssetBuild::TextureBuilder::GetDefaultSRGB(Settings.Usage);
+				Settings.bSRGB = Asset::Build::TextureBuilder::GetDefaultSRGB(Settings.Usage);
 			}
 			else if (PropertyName == FName("bSRGB"))
 			{
@@ -92,10 +92,10 @@ namespace Durin::StandardAssetImport
 			}
 			else return true;
 
-			if (!AssetBuild::TextureBuilder::IsValidUsage(Settings.Usage)
-				|| !AssetBuild::TextureBuilder::IsValidCompressionQuality(Settings.CompressionQuality)
-				|| !AssetBuild::TextureBuilder::IsValidAlphaMipMode(Settings.AlphaMipMode)
-				|| !AssetBuild::TextureBuilder::IsValidAlphaCoverageThreshold(
+			if (!Asset::Build::TextureBuilder::IsValidUsage(Settings.Usage)
+				|| !Asset::Build::TextureBuilder::IsValidCompressionQuality(Settings.CompressionQuality)
+				|| !Asset::Build::TextureBuilder::IsValidAlphaMipMode(Settings.AlphaMipMode)
+				|| !Asset::Build::TextureBuilder::IsValidAlphaCoverageThreshold(
 					Settings.AlphaCoverageThreshold))
 			{
 				OutError = "Texture2D property proposal contains invalid build settings.";
@@ -116,7 +116,7 @@ namespace Durin::StandardAssetImport
 						*LiveTexture,
 						Settings,
 						Error,
-						AssetBuild::ETexture2DBuildPriority::Interactive,
+						Asset::Build::ETexture2DBuildPriority::Interactive,
 						Completion))
 					{
 						Completion(false, std::move(Error));
@@ -124,7 +124,7 @@ namespace Durin::StandardAssetImport
 					}
 					return FPropertyEditDeferredCancel([WeakTexture] {
 						if (DTexture2D* PendingTexture = WeakTexture.Get())
-							AssetBuild::CancelTexture2DBuild(*PendingTexture);
+							Asset::Build::CancelTexture2DBuild(*PendingTexture);
 					});
 				}))
 			{

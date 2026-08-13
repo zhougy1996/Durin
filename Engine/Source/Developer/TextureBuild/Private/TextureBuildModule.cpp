@@ -8,13 +8,13 @@ namespace Durin
 	public:
 		auto StartupModule() -> void override
 		{
-			checkf(AssetBuild::InitializeTextureBuildService(),
+			checkf(Asset::Build::InitializeTextureBuildService(),
 				"TextureBuild could not register its authoring service.");
 		}
 
 		auto ShutdownModule() -> void override
 		{
-			AssetBuild::ShutdownTextureBuildService();
+			Asset::Build::ShutdownTextureBuildService();
 		}
 	};
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Asset/SourcePath.h"
+#include "AssetImportCore.h"
 #include "StandardAssetImportAPI.h"
 #include "CoreFwd.h"
 #include "Hash/XxHash.h"
@@ -8,7 +9,7 @@
 #include "Animation/AnimationClip.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 
-namespace Durin::Asset
+namespace Durin::Asset::Import::Standard
 {
 	inline constexpr uint32 MaxImportedUVChannels = 4;
 	inline constexpr uint32 ImportedSceneParserVersion = 3;
@@ -44,8 +45,7 @@ namespace Durin::Asset
 	enum class EImportedSamplerWrap : uint8 { Repeat, MirroredRepeat, ClampToEdge };
 	enum class EImportedAlphaMode : uint8 { Opaque, Mask, Blend };
 	enum class EImportedDependencyRole : uint8 { RootScene, GeometryBuffer, Image };
-	enum class EImportDiagnosticSeverity : uint8 { Warning, Error };
-	enum class EImportDiagnosticCategory : uint8
+	enum class ESceneImportDiagnosticCategory : uint8
 	{
 		UnsupportedRequiredExtension,
 		UnsupportedOptionalExtension,
@@ -117,10 +117,10 @@ namespace Durin::Asset
 		uint64 ByteCount = 0;
 	};
 
-	struct FImportDiagnostic
+	struct FSceneImportDiagnostic
 	{
 		EImportDiagnosticSeverity Severity = EImportDiagnosticSeverity::Warning;
-		EImportDiagnosticCategory Category = EImportDiagnosticCategory::InvalidValue;
+		ESceneImportDiagnosticCategory Category = ESceneImportDiagnosticCategory::InvalidValue;
 		std::string SourceIdentity;
 		std::string Subject;
 		std::string Message;
@@ -203,7 +203,7 @@ namespace Durin::Asset
 		std::vector<FImportedSkeletalMeshData> SkeletalMeshes;
 		std::vector<FImportedAnimationClipData> AnimationClips;
 		std::vector<FImportedDependency> Dependencies;
-		std::vector<FImportDiagnostic> Diagnostics;
+		std::vector<FSceneImportDiagnostic> Diagnostics;
 	};
 
 	STANDARDASSETIMPORT_API auto ImportFromFile(

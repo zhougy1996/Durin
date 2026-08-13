@@ -4,15 +4,18 @@
 #include "DObject/Package.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
-#include "Source/SourcePath.h"
+#include "Asset/MountedSource.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshAuthoring.h"
-#include "Texture/TextureCube.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapPostLoad.h"
 
 namespace Durin::Editor
 {
+	using Asset::CommitMountedSourceRelocation;
+	using Asset::FMountedSourceRelocation;
+	using Asset::PrepareMountedSourceRelocation;
+	using Asset::RollbackMountedSourceRelocation;
 	namespace
 	{
 		std::mutex GSourceRelocationHandlersMutex;
@@ -84,43 +87,6 @@ namespace Durin::Editor
 					return false;
 				}
 				return InvokeTerrainHeightmapSourceChangeHandler(*Heightmap, To, OutError);
-			}
-			if (DTextureCube* Cube = Cast<DTextureCube>(Asset))
-			{
-				if (Cube->GetSourceLayout()
-					== ETextureCubeSourceLayout::EquirectangularPanorama)
-				{
-					if (Cube->GetPanoramaSourceFile() != From)
-					{
-						OutError = "TextureCube panorama no longer references the source being relocated.";
-						return false;
-					}
-					return Cube->ChangePanoramaSourceReference(
-						To,
-						{
-							.FaceDimension = Cube->GetPanoramaFaceDimension(),
-							.ExposureEV = Cube->GetPanoramaExposureEV()},
-						OutError);
-				}
-				std::array<std::string, TextureCubeFaceCount> Paths;
-				bool bFound = false;
-				for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
-				{
-					Paths[Index] =
-						Cube->GetSourceFile(static_cast<ETextureCubeFace>(Index));
-					if (Paths[Index] == From)
-					{
-						Paths[Index] = To;
-						bFound = true;
-					}
-				}
-				if (!bFound)
-				{
-					OutError = "TextureCube faces no longer reference the source being relocated.";
-					return false;
-				}
-				return Cube->ChangeSourceReferences(
-					Paths, {.bSRGB = Cube->IsSRGB()}, OutError);
 			}
 			OutError = "The source relocation contains an unsupported asset class.";
 			return false;

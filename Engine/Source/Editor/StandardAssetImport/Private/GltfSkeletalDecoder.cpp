@@ -3,7 +3,7 @@
 #include "AsyncImport.h"
 #include "Math/Operations.h"
 
-namespace Durin::Asset::Private
+namespace Durin::Asset::Import::Standard::Private
 {
 	namespace
 	{
@@ -319,19 +319,19 @@ namespace Durin::Asset::Private
 		private:
 			auto Malformed(std::string Subject, std::string Message) -> bool
 			{
-				return FailImport(Result, EImportDiagnosticCategory::MalformedSource,
+				return FailImport(Result, ESceneImportDiagnosticCategory::MalformedSource,
 					std::move(Subject), std::move(Message));
 			}
 
 			auto Unsupported(std::string Subject, std::string Message) -> bool
 			{
-				return FailImport(Result, EImportDiagnosticCategory::UnsupportedFeature,
+				return FailImport(Result, ESceneImportDiagnosticCategory::UnsupportedFeature,
 					std::move(Subject), std::move(Message));
 			}
 
 			auto Limit(std::string Subject, std::string Message) -> bool
 			{
-				return FailImport(Result, EImportDiagnosticCategory::ResourceLimitExceeded,
+				return FailImport(Result, ESceneImportDiagnosticCategory::ResourceLimitExceeded,
 					std::move(Subject), std::move(Message));
 			}
 
@@ -754,7 +754,7 @@ namespace Durin::Asset::Private
 			auto AddLossyWarning(std::string Subject, std::string Message) -> bool
 			{
 				return AddDiagnostic(Result.Scene, EImportDiagnosticSeverity::Warning,
-					EImportDiagnosticCategory::LossyNormalization,
+					ESceneImportDiagnosticCategory::LossyNormalization,
 					"root", std::move(Subject), std::move(Message))
 					|| Limit("diagnostics", "Import diagnostic limit exceeded.");
 			}

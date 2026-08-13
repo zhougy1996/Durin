@@ -116,6 +116,7 @@ def _make_enum(
         underlying_kind=_underlying_kind_from_type_spelling(underlying_type),
         underlying_size=max(int(enum_cursor.enum_type.get_size() or 0), 0),
         display_name=_string_metadata_from_annotation(annotation, "DisplayName"),
+        persistent_name=_string_metadata_from_annotation(annotation, "PersistentName"),
         values=values,
     )
 
@@ -151,7 +152,7 @@ def parse_reflection_header(
     def visit(parent: clang.cindex.Cursor) -> None:
         children = list(parent.get_children())
         pending_dclass_annotation = ""
-        pending_dstruct = False
+        pending_dstruct_annotation = ""
         pending_denum_annotation = ""
         for child in children:
             if child.location.file is None or Path(str(child.location.file)) != header_path:
@@ -162,14 +163,15 @@ def parse_reflection_header(
                 pending_dclass_annotation = annotation if annotation.startswith("DCLASS") else ""
                 continue
             if child.kind == clang.cindex.CursorKind.FUNCTION_DECL and child.spelling.startswith("DHT_STRUCT_"):
-                pending_dstruct = _get_annotation(child).startswith("DSTRUCT")
+                annotation = _get_annotation(child)
+                pending_dstruct_annotation = annotation if annotation.startswith("DSTRUCT") else ""
                 continue
             if child.kind == clang.cindex.CursorKind.FUNCTION_DECL and child.spelling.startswith("DHT_ENUM_"):
                 annotation = _get_annotation(child)
                 pending_denum_annotation = annotation if annotation.startswith("DENUM") else ""
                 continue
 
-            if pending_dstruct and child.kind == clang.cindex.CursorKind.STRUCT_DECL and child.spelling:
+            if pending_dstruct_annotation and child.kind == clang.cindex.CursorKind.STRUCT_DECL and child.spelling:
                 qualified_name = _qualified_name(child)
                 declaring_namespace = _semantic_namespace(child)
                 reflected_struct = ReflectedStructInfo(
@@ -180,6 +182,9 @@ def parse_reflection_header(
                     header=header,
                     api=module_config.api_macro,
                     generated_body_line=_scan_generated_body_line(source, child),
+                    persistent_name=_string_metadata_from_annotation(
+                        pending_dstruct_annotation, "PersistentName"
+                    ),
                 )
                 for member in child.get_children():
                     if member.kind == clang.cindex.CursorKind.FIELD_DECL:
@@ -201,7 +206,7 @@ def parse_reflection_header(
                         reflected_struct.properties.append(prop)
                         existing_property_names.add(prop.name)
                 structs.append(reflected_struct)
-                pending_dstruct = False
+                pending_dstruct_annotation = ""
                 continue
 
             if pending_dclass_annotation and child.kind in (clang.cindex.CursorKind.CLASS_DECL, clang.cindex.CursorKind.STRUCT_DECL) and child.spelling:
@@ -209,7 +214,7 @@ def parse_reflection_header(
                 declaring_namespace = _semantic_namespace(child)
                 helper_name = make_generated_helper_name(qualified_name)
                 class_payload = pending_dclass_annotation.split(",", 1)[1] if "," in pending_dclass_annotation else ""
-                is_abstract, no_class_default_object, display_name, default_object_name = _class_specifiers_from_payload(
+                is_abstract, no_class_default_object, display_name, default_object_name, persistent_name = _class_specifiers_from_payload(
                     class_payload, child.location.line, child.location.column
                 )
                 source_base_name = _source_base_name(source, child)
@@ -247,6 +252,7 @@ def parse_reflection_header(
                     no_class_default_object=no_class_default_object,
                     display_name=display_name,
                     default_object_name=default_object_name,
+                    persistent_name=persistent_name,
                 )
                 for member in child.get_children():
                     if _is_default_constructor(member):

@@ -1011,7 +1011,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage0Tests, Capt
 {
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
 	std::string Error;
-	DStaticMesh* Mesh = StandardAssetImport::CreateTransientStaticMeshFromFile(
+	DStaticMesh* Mesh = Asset::Import::CreateTransientStaticMeshFromFile(
 		Source.generic_string(), nullptr, "M3CollisionSourceFixture", Error);
 	ASSERT_NE(Mesh, nullptr) << Error;
 	const FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
@@ -1068,7 +1068,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage0Tests, Free
 
 DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage3Tests, ProductionKeyAndPayloadMatchFrozenGoldenBytes)
 {
-	const AssetBuild::FStaticMeshCollisionBuildKeyInput KeyInput{
+	const Asset::Build::FStaticMeshCollisionBuildKeyInput KeyInput{
 		.SourceContentHash = {0x0123456789abcdefull, 0xfedcba9876543210ull},
 		.GeometryHash = {0x1111222233334444ull, 0xaaaabbbbccccddddull},
 		.ImporterId = "Assimp",
@@ -1080,11 +1080,11 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage3Tests, Prod
 		.TargetPlatform = EStaticMeshTargetPlatform::Win64};
 	std::string Error;
 	const std::vector<uint8> KeyBytes =
-		AssetBuild::BuildStaticMeshCollisionDerivedDataKeyBytes(KeyInput, Error);
+		Asset::Build::BuildStaticMeshCollisionDerivedDataKeyBytes(KeyInput, Error);
 	ASSERT_TRUE(Error.empty()) << Error;
 	EXPECT_EQ(KeyBytes.size(), 75u);
 	EXPECT_EQ(FXxHash128::HashBuffer(KeyBytes).ToString(), "31049dc20de3b54a742c931cb587ce92");
-	EXPECT_EQ(AssetBuild::BuildStaticMeshCollisionDerivedDataKey(KeyInput, Error),
+	EXPECT_EQ(Asset::Build::BuildStaticMeshCollisionDerivedDataKey(KeyInput, Error),
 		"31049dc20de3b54a742c931cb587ce92");
 
 	const FCollisionSourceFixture Tetra = MakeTetrahedron();
@@ -1124,7 +1124,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage5Tests, Insp
 {
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
 	std::string Error;
-	DStaticMesh* Mesh = StandardAssetImport::CreateTransientStaticMeshFromFile(
+	DStaticMesh* Mesh = Asset::Import::CreateTransientStaticMeshFromFile(
 		Source.generic_string(), nullptr, "M3CollisionInspectionFixture", Error);
 	ASSERT_NE(Mesh, nullptr) << Error;
 	ASSERT_TRUE(Mesh->SetCollisionSourceMode(

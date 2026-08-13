@@ -1,5 +1,7 @@
 #include "Assets/TextureCubeImportDialog.h"
 
+#include "TextureCubeSourceTranslation.h"
+
 #include "Assets/AssetDestinationValidation.h"
 #include "Assets/MountedSourceImport.h"
 #include "AssetSystem.h"
@@ -447,20 +449,21 @@ namespace Durin::Editor::Level
 
 	auto FTextureCubeImportDialog::RevalidateSources() -> bool
 	{
-		FTextureCubeImportValidation Validation;
+		Asset::Import::FTextureCubeImportValidation Validation;
 		if (SourceLayout == ETextureCubeSourceLayout::SixFaces)
 		{
 			std::array<std::string, TextureCubeFaceCount> Faces;
 			for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 				Faces[Index] = FacePathBuffers[Index].data();
-			Validation = DTextureCube::ValidateImportSources(Faces);
+			Validation = Asset::Import::ValidateTextureCubeFaces(Faces);
 		}
 		else
 		{
-			const FTextureCubePanoramaImportSettings Settings{
+			const Asset::Import::FTextureCubePanoramaImportSettings Settings{
 				.FaceDimension = PanoramaFaceDimension,
 				.ExposureEV = IsRadianceHDRPath(PanoramaPathBuffer.data()) ? PanoramaExposureEV : 0.0f};
-			Validation = DTextureCube::ValidatePanoramaImportSource(PanoramaPathBuffer.data(), Settings);
+			Validation = Asset::Import::ValidateTextureCubePanorama(
+				PanoramaPathBuffer.data(), Settings);
 		}
 		bSourcesValid = static_cast<bool>(Validation);
 		SourceValidationMessage = Validation.Message;
@@ -477,7 +480,7 @@ namespace Durin::Editor::Level
 	{
 		Callbacks.Clear();
 		if (!RevalidateSources()) return false;
-		FTextureCubeImportResult Result;
+		Asset::Import::FTextureCubeImportResult Result;
 		if (SourceLayout == ETextureCubeSourceLayout::SixFaces)
 		{
 			std::array<std::string, TextureCubeFaceCount> Faces;
@@ -488,16 +491,16 @@ namespace Durin::Editor::Level
 				if (SourceMode == EMountedSourceImportMode::IngestExternal)
 					Destinations[Index] = FaceDestinationBuffers[Index].data();
 			}
-			Result = DTextureCube::ImportAsset(
+			Result = Asset::Import::ImportTextureCubeFaces(
 				Faces, Destination.GetPath(), {}, Destinations,
 				IsEngineAuthoringDestination(Destination.GetPath()));
 		}
 		else
 		{
-			const FTextureCubePanoramaImportSettings Settings{
+			const Asset::Import::FTextureCubePanoramaImportSettings Settings{
 				.FaceDimension = PanoramaFaceDimension,
 				.ExposureEV = bValidatedHDR ? PanoramaExposureEV : 0.0f};
-			Result = DTextureCube::ImportPanoramaAsset(
+			Result = Asset::Import::ImportTextureCubePanorama(
 				PanoramaPathBuffer.data(), Destination.GetPath(), Settings,
 				SourceMode == EMountedSourceImportMode::IngestExternal
 					? PanoramaDestinationBuffer.data() : std::string_view{},

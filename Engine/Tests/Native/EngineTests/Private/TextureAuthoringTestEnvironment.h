@@ -14,14 +14,14 @@ namespace Durin::Testing
 		auto SetUp() -> void override
 		{
 			InitializeDObjectSystem();
-			ASSERT_TRUE(AssetBuild::InitializeTextureBuildService());
-			ASSERT_TRUE(AssetBuild::InitializeBuildHost());
+			ASSERT_TRUE(Asset::Build::InitializeTextureBuildService());
+			ASSERT_TRUE(Asset::Build::InitializeBuildHost());
 		}
 
 		auto TearDown() -> void override
 		{
-			AssetBuild::ShutdownBuildHost();
-			AssetBuild::ShutdownTextureBuildService();
+			Asset::Build::ShutdownBuildHost();
+			Asset::Build::ShutdownTextureBuildService();
 		}
 	};
 

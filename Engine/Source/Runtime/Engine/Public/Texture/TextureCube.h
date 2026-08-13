@@ -81,36 +81,6 @@ namespace Durin
 			const FTexturePlatformSerializationContext& Context) -> void;
 	};
 
-	struct FTextureCubeImportSettings
-	{
-		bool bSRGB = true;
-	};
-
-	struct FTextureCubePanoramaImportSettings
-	{
-		// Zero derives the face dimension from one quarter of the panorama width.
-		uint32 FaceDimension = 0;
-		float ExposureEV = 0.0f;
-	};
-
-	// Summarizes a source after decode, projection, and platform-build validation.
-	struct FTextureCubeImportValidation
-	{
-		bool bValid = false;
-		std::string Message;
-		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
-		uint32 SourceWidth = 0;
-		uint32 SourceHeight = 0;
-		uint32 Dimension = 0;
-		uint32 MipCount = 0;
-		EPixelFormat PixelFormat = EPixelFormat::Unknown;
-		bool bHDR = false;
-
-		explicit operator bool() const { return bValid; }
-	};
-
-	struct FTextureCubeImportResult;
-
 	DCLASS()
 	class DTextureCube : public DTexture
 	{
@@ -152,33 +122,6 @@ namespace Durin
 			bool bRetainDiagnosticSourceMetadata = false) -> bool;
 		ENGINE_API auto RefreshBuildStatus() -> void;
 
-		ENGINE_API static auto ImportAsset(
-			const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
-			std::string_view AssetPath,
-			const FTextureCubeImportSettings& Settings = {},
-			const std::array<std::string, TextureCubeFaceCount>& SourceDestinations = {},
-			bool bEngineAuthoringContext = false)
-			-> FTextureCubeImportResult;
-		ENGINE_API static auto ValidateImportSources(
-			const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
-			const FTextureCubeImportSettings& Settings = {}) -> FTextureCubeImportValidation;
-		ENGINE_API static auto ImportPanoramaAsset(
-			std::string_view PanoramaFile,
-			std::string_view AssetPath,
-			const FTextureCubePanoramaImportSettings& Settings = {},
-			std::string_view SourceDestination = {},
-			bool bEngineAuthoringContext = false) -> FTextureCubeImportResult;
-		ENGINE_API static auto ValidatePanoramaImportSource(
-			std::string_view PanoramaFile,
-			const FTextureCubePanoramaImportSettings& Settings = {}) -> FTextureCubeImportValidation;
-		ENGINE_API auto ReimportPanorama(
-			std::string_view PanoramaFile,
-			const FTextureCubePanoramaImportSettings& Settings,
-			std::string& OutError) -> bool;
-		ENGINE_API auto ReimportSources(
-			const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
-			const FTextureCubeImportSettings& Settings,
-			std::string& OutError) -> bool;
 		// Atomically accepts a complete, validated authoring candidate. Engine owns
 		// the live object and render-resource transition; production stays external.
 		ENGINE_API auto PublishAuthoringCandidate(
@@ -198,24 +141,6 @@ namespace Durin
 			std::string InDerivedDataKey,
 			std::string& OutError) -> bool;
 		ENGINE_API auto ExchangeImportedState(DTextureCube& Other) noexcept -> void;
-		ENGINE_API auto ChangePanoramaSourceReference(
-			std::string_view SourceVirtualPath,
-			const FTextureCubePanoramaImportSettings& Settings,
-			std::string& OutError) -> bool;
-		ENGINE_API auto ChangeSourceReferences(
-			const std::array<std::string, TextureCubeFaceCount>& SourceVirtualPaths,
-			const FTextureCubeImportSettings& Settings,
-			std::string& OutError) -> bool;
-		ENGINE_API auto IngestAndChangePanoramaSource(
-			std::string_view FilePath,
-			std::string_view TargetSourceVirtualPath,
-			const FTextureCubePanoramaImportSettings& Settings,
-			std::string& OutError) -> bool;
-		ENGINE_API auto IngestAndChangeSources(
-			const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
-			const std::array<std::string, TextureCubeFaceCount>& TargetSourceVirtualPaths,
-			const FTextureCubeImportSettings& Settings,
-			std::string& OutError) -> bool;
 
 	protected:
 		auto CreateRenderResourceCandidate(
@@ -263,12 +188,4 @@ namespace Durin
 		auto LoadCookedPlatformData(std::string& OutError) -> bool;
 	};
 
-	struct FTextureCubeImportResult
-	{
-		bool bSucceeded = false;
-		std::string Message;
-		DTextureCube* Asset = nullptr;
-
-		explicit operator bool() const { return bSucceeded; }
-	};
 }

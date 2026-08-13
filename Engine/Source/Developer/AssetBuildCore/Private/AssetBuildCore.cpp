@@ -2,7 +2,7 @@
 #include "AssetBuild/BuildHost.h"
 #include "AssetBuild/BuildRegistry.h"
 
-namespace Durin::AssetBuild
+namespace Durin::Asset::Build
 {
 	namespace
 	{

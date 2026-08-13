@@ -3,17 +3,17 @@
 
 namespace Durin
 {
-	class FAssetBuildCoreModule final : public AssetBuild::IAssetBuildCoreModule
+	class FAssetBuildCoreModule final : public Asset::Build::IAssetBuildCoreModule
 	{
 	public:
 		auto InitializeHost(std::string* OutError) -> bool override
 		{
-			return AssetBuild::InitializeBuildHost(OutError);
+			return Asset::Build::InitializeBuildHost(OutError);
 		}
 
 		auto ShutdownHost() -> void override
 		{
-			AssetBuild::ShutdownBuildHost();
+			Asset::Build::ShutdownBuildHost();
 		}
 	};
 

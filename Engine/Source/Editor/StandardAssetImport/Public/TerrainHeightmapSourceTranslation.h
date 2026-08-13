@@ -8,7 +8,7 @@ namespace Durin
 	class DTerrainHeightmap;
 }
 
-namespace Durin::StandardAssetImport
+namespace Durin::Asset::Import
 {
 	STANDARDASSETIMPORT_API auto ImportTerrainHeightmapAsset(
 		std::string_view FilePath,

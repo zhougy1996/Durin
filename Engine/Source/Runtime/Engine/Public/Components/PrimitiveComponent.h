@@ -73,6 +73,9 @@ namespace Durin
 #endif
 
 	private:
+		auto MakePhysicsBodyDesc(
+			const FCollisionGeometryRef& Geometry,
+			const FTransform& Transform) const -> FPhysicsBodyDesc;
 		auto EnsurePrimitiveSceneId() -> FPrimitiveSceneId;
 		auto DestroyPhysicsState() -> void;
 		auto UpdatePhysicsState() -> void;

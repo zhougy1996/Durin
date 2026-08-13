@@ -9,7 +9,7 @@
 #include "Texture/TextureBuildOperations.h"
 #include "Texture2DSourceTranslation.h"
 
-namespace Durin::StandardAssetImport
+namespace Durin::Asset::Import
 {
 	namespace
 	{
@@ -66,7 +66,7 @@ namespace Durin::StandardAssetImport
 				.FileSize = SourceFileSize,
 				.LastWriteTimeTicks = SourceLastWriteTime,
 				.ContentHash = SourceHash.ToString()});
-			return AssetBuild::SubmitTexture2DBuild(Texture, {
+			return Asset::Build::SubmitTexture2DBuild(Texture, {
 				.SourceData = std::move(SourceData),
 				.SourceContentHashLow = SourceHash.HashLow,
 				.SourceContentHashHigh = SourceHash.HashHigh,
@@ -76,7 +76,7 @@ namespace Durin::StandardAssetImport
 				.DecoderVersion = 1,
 				.SourceFileSize = SourceFileSize,
 				.SourceLastWriteTime = SourceLastWriteTime,
-				.Priority = AssetBuild::ETexture2DBuildPriority::Background,
+				.Priority = Asset::Build::ETexture2DBuildPriority::Background,
 				.bPersistDerivedData = true,
 				.bMarkPackageDirty = bMetadataChanged,
 				.bReportLoadMutation = bMetadataChanged}, OutError);
@@ -140,7 +140,7 @@ namespace Durin::StandardAssetImport
 			if (bHasPersistedIdentity && (!bSourceAvailable || bSourceContentMatches))
 			{
 				std::string Key;
-				if (!AssetBuild::MakeTexture2DDerivedDataKey(Texture, Key, OutError))
+				if (!Asset::Build::MakeTexture2DDerivedDataKey(Texture, Key, OutError))
 					return FailLoad(
 						Texture,
 						ETextureDerivedDataStatus::Incompatible,
@@ -149,7 +149,7 @@ namespace Durin::StandardAssetImport
 				std::unique_ptr<FTexturePlatformData> PlatformData;
 				ETextureDerivedDataStatus CacheStatus = ETextureDerivedDataStatus::Missing;
 				std::string CacheMessage;
-				if (AssetBuild::LoadTexture2DDerivedData(
+				if (Asset::Build::LoadTexture2DDerivedData(
 						Key, PlatformData, CacheStatus, CacheMessage))
 					return Texture.PublishDerivedDataLoad(
 						std::move(PlatformData), std::move(Key), bSourceAvailable, OutError);

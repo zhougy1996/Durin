@@ -152,6 +152,45 @@ TEST(FCookedPathTests, ResolvesRelocatableCompanionAndRejectsTraversalAndWrongMo
 	EXPECT_FALSE(ResolveCookedPackagePath(std::filesystem::absolute(Root), "G:/Source/T", Package));
 }
 
+TEST(FCookedPathTests, LoadsDescriptorSelectedPayloadWithExplicitContainerLifetime)
+{
+	const std::filesystem::path Root = std::filesystem::absolute(
+		Durin::Testing::GetTestWorkDirectory() / "CookedPayloadLoad");
+	Durin::Testing::RemoveTestWorkDirectory(Root);
+	std::vector<FCookedPayloadDescriptor> Descriptors;
+	const std::vector<uint8> Bulk = MakeBulk(&Descriptors);
+	const std::filesystem::path Companion = Root / "Game/Textures/T.dbulk";
+	std::filesystem::create_directories(Companion.parent_path());
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(
+		std::as_bytes(std::span(Bulk)), Companion));
+
+	FCookedPackagePayload Loaded;
+	std::string Error;
+	ASSERT_TRUE(LoadCookedPackagePayload(
+		{EPackageLoadMode::CookedRuntime, Root},
+		"/Game/Textures/T",
+		Descriptors[1],
+		ECookTargetPlatform::Win64,
+		ECookTargetProfile::Game,
+		Loaded,
+		&Error)) << Error;
+	ASSERT_EQ(Loaded.Container.Payloads.size(), 2u);
+	EXPECT_TRUE(std::ranges::equal(Loaded.Payload, Loaded.Container.Payloads[1]));
+	EXPECT_EQ(Loaded.Payload.data(), Loaded.Container.Payloads[1].data());
+	EXPECT_EQ(Loaded.Payload.size(), Loaded.Container.Payloads[1].size());
+
+	const std::span<const uint8> Previous = Loaded.Payload;
+	EXPECT_FALSE(LoadCookedPackagePayload(
+		{EPackageLoadMode::CookedRuntime, Root},
+		"/Game/Textures/Missing",
+		Descriptors[0],
+		ECookTargetPlatform::Win64,
+		ECookTargetProfile::Game,
+		Loaded,
+		&Error));
+	EXPECT_EQ(Loaded.Payload.data(), Previous.data());
+}
+
 TEST(FCookedPathTests, ExplicitRuntimeContextRejectsFallbackAndPackageMutation)
 {
 	const std::filesystem::path Root = std::filesystem::absolute(

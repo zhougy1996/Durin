@@ -11,15 +11,15 @@ namespace Durin
 		auto StartupModule() -> void override
 		{
 			ReferenceStoreHandle = Asset::RegisterAssetReferenceStore(
-				&AssetImport::GetImportRecordIndex());
+				&Asset::Import::GetImportRecordIndex());
 		}
 
 		auto ShutdownModule() -> void override
 		{
 			Asset::UnregisterAssetReferenceStore(ReferenceStoreHandle);
 			ReferenceStoreHandle = 0;
-			AssetImport::CloseAsyncImportAdmission();
-			AssetImport::CancelAndDrainAllAsyncImports();
+			Asset::Import::CloseAsyncImportAdmission();
+			Asset::Import::CancelAndDrainAllAsyncImports();
 		}
 
 	private:

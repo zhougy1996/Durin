@@ -5,7 +5,7 @@
 #include "StaticMesh/StaticMeshAuthoring.h"
 #include "StaticMesh/StaticMeshResources.h"
 
-namespace Durin::AssetBuild
+namespace Durin::Asset::Build
 {
 	inline constexpr uint32 MaximumStaticMeshImportedUVChannels = 4;
 

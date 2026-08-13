@@ -1,37 +1,38 @@
 #pragma once
 
+#include "TextureCubeSourceTranslation.h"
 #include "Texture/TextureCubeBuildOperations.h"
 
-namespace Durin::StandardAssetImport
+namespace Durin::Asset::Import
 {
 	inline auto BuildAndPublishTextureCubePanorama(
 		DTextureCube& Texture,
-		AssetBuild::TextureCubeBuilder::FTexturePanoramaImage Panorama,
+		Asset::Build::TextureCubeBuilder::FTexturePanoramaImage Panorama,
 		const FXxHash128& SourceHash,
 		const FSourcePath& SourcePath,
 		const FTextureCubePanoramaImportSettings& Settings,
 		std::string& OutError) -> bool
 	{
-		AssetBuild::FTextureCubeBuildProduct Product;
-		if (!AssetBuild::BuildTextureCubePanorama(
+		Asset::Build::FTextureCubeBuildProduct Product;
+		if (!Asset::Build::BuildTextureCubePanorama(
 			std::move(Panorama), SourceHash, Settings, Product, OutError)) return false;
-		return AssetBuild::PublishTextureCubeProduct(Texture, std::move(Product), {
+		return Asset::Build::PublishTextureCubeProduct(Texture, std::move(Product), {
 			.PanoramaHash = SourceHash,
 			.PanoramaPath = SourcePath}, OutError);
 	}
 
 	inline auto BuildAndPublishTextureCubePanorama(
 		DTextureCube& Texture,
-		AssetBuild::TextureCubeBuilder::FTexturePanoramaFloatImage Panorama,
+		Asset::Build::TextureCubeBuilder::FTexturePanoramaFloatImage Panorama,
 		const FXxHash128& SourceHash,
 		const FSourcePath& SourcePath,
 		const FTextureCubePanoramaImportSettings& Settings,
 		std::string& OutError) -> bool
 	{
-		AssetBuild::FTextureCubeBuildProduct Product;
-		if (!AssetBuild::BuildTextureCubePanorama(
+		Asset::Build::FTextureCubeBuildProduct Product;
+		if (!Asset::Build::BuildTextureCubePanorama(
 			std::move(Panorama), SourceHash, Settings, Product, OutError)) return false;
-		return AssetBuild::PublishTextureCubeProduct(Texture, std::move(Product), {
+		return Asset::Build::PublishTextureCubeProduct(Texture, std::move(Product), {
 			.PanoramaHash = SourceHash,
 			.PanoramaPath = SourcePath}, OutError);
 	}
@@ -44,10 +45,10 @@ namespace Durin::StandardAssetImport
 		const FTextureCubeImportSettings& Settings,
 		std::string& OutError) -> bool
 	{
-		AssetBuild::FTextureCubeBuildProduct Product;
-		if (!AssetBuild::BuildTextureCubeFaces(
+		Asset::Build::FTextureCubeBuildProduct Product;
+		if (!Asset::Build::BuildTextureCubeFaces(
 			std::move(SourceData), SourceHashes, Settings, Product, OutError)) return false;
-		return AssetBuild::PublishTextureCubeProduct(Texture, std::move(Product), {
+		return Asset::Build::PublishTextureCubeProduct(Texture, std::move(Product), {
 			.FaceHashes = SourceHashes,
 			.FacePaths = SourcePaths}, OutError);
 	}

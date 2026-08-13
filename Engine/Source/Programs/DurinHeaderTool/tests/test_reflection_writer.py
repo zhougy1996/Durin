@@ -174,11 +174,19 @@ class TestReflectionWriterIntegration:
 
 
     def test_class_display_and_default_object_name_metadata(self):
-        assert '"Fixture::ASampleActor",' in self.generated_cpp
+        assert '"Legacy::ASampleActor",' in self.generated_cpp
         assert '"ASampleActor",' in self.generated_cpp
         assert '10,\n\t"Sample Actor",' in self.generated_cpp
         assert '"Sample Actor",' in self.generated_cpp
         assert '"SampleActor"' in self.generated_cpp
+
+
+    def test_persistent_names_change_runtime_identity_without_changing_cpp_symbols(self):
+        assert '"Legacy::ASampleActor"' in self.generated_cpp
+        assert '"Legacy::EFixtureMode"' in self.generated_cpp
+        assert '"Legacy::FCurvePoint"' in self.generated_cpp
+        assert "Fixture::ASampleActor::GetPrivateStaticClass()" in self.generated_cpp
+        assert "sizeof(Fixture::FCurvePoint)" in self.generated_cpp
 
 
     def test_enum_display_metadata_binds_to_type_and_values(self):
@@ -202,4 +210,3 @@ class TestReflectionWriterIntegration:
             ("LegacyFirst", 0, ""),
             ("LegacySecond", 4, ""),
         ]
-

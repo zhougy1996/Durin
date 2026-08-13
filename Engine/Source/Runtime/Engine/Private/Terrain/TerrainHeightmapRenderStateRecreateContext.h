@@ -1,7 +1,6 @@
 #pragma once
 
 #include "DObject/ObjectHandle.h"
-#include "EngineAPI.h"
 
 namespace Durin
 {
@@ -11,8 +10,8 @@ namespace Durin
 	class FTerrainHeightmapRenderStateRecreateContext final
 	{
 	public:
-		ENGINE_API explicit FTerrainHeightmapRenderStateRecreateContext(DTerrainHeightmap* Heightmap);
-		ENGINE_API ~FTerrainHeightmapRenderStateRecreateContext();
+		explicit FTerrainHeightmapRenderStateRecreateContext(DTerrainHeightmap* Heightmap);
+		~FTerrainHeightmapRenderStateRecreateContext();
 		FTerrainHeightmapRenderStateRecreateContext(const FTerrainHeightmapRenderStateRecreateContext&) = delete;
 		auto operator=(const FTerrainHeightmapRenderStateRecreateContext&) -> FTerrainHeightmapRenderStateRecreateContext& = delete;
 

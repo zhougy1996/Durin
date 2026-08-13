@@ -12,7 +12,7 @@ namespace Durin::Asset
 	struct FAssetResult;
 }
 
-namespace Durin::AssetImport
+namespace Durin::Asset::Import
 {
 	class DImportRecord;
 	ASSETIMPORTCORE_API auto CreateImportRecordAsset(
@@ -29,7 +29,7 @@ namespace Durin::AssetImport
 	inline constexpr uint32 MaximumImportRecordDetachedTombstones = 1024;
 	inline constexpr uint32 MaximumImportRecordAcceptedDiagnostics = 1024;
 
-	DSTRUCT()
+	DSTRUCT(PersistentName = "Durin::AssetImport::FImportRecordPayload")
 	struct FImportRecordPayload
 	{
 		GENERATED_BODY()
@@ -52,7 +52,7 @@ namespace Durin::AssetImport
 		auto operator==(const FImportRecordPayload&) const -> bool = default;
 	};
 
-	DSTRUCT()
+	DSTRUCT(PersistentName = "Durin::AssetImport::FImportRecordSource")
 	struct FImportRecordSource
 	{
 		GENERATED_BODY()
@@ -78,7 +78,7 @@ namespace Durin::AssetImport
 		auto operator==(const FImportRecordSource&) const -> bool = default;
 	};
 
-	DENUM()
+	DENUM(PersistentName = "Durin::AssetImport::EImportRecordOutputPolicy")
 	enum class EImportRecordOutputPolicy : uint8
 	{
 		Managed,
@@ -86,7 +86,7 @@ namespace Durin::AssetImport
 		Detached
 	};
 
-	DSTRUCT()
+	DSTRUCT(PersistentName = "Durin::AssetImport::FImportRecordOutput")
 	struct FImportRecordOutput
 	{
 		GENERATED_BODY()
@@ -114,7 +114,7 @@ namespace Durin::AssetImport
 		auto operator==(const FImportRecordOutput&) const -> bool = default;
 	};
 
-	DSTRUCT()
+	DSTRUCT(PersistentName = "Durin::AssetImport::FImportRecordDetachedTombstone")
 	struct FImportRecordDetachedTombstone
 	{
 		GENERATED_BODY()
@@ -136,7 +136,7 @@ namespace Durin::AssetImport
 		auto operator==(const FImportRecordDetachedTombstone&) const -> bool = default;
 	};
 
-	DSTRUCT()
+	DSTRUCT(PersistentName = "Durin::AssetImport::FImportRecordDiagnostic")
 	struct FImportRecordDiagnostic
 	{
 		GENERATED_BODY()
@@ -180,7 +180,7 @@ namespace Durin::AssetImport
 		auto operator==(const FImportRecordState&) const -> bool = default;
 	};
 
-	DCLASS()
+	DCLASS(PersistentName = "Durin::AssetImport::DImportRecord")
 	class DImportRecord : public DObject
 	{
 		GENERATED_BODY()
@@ -276,13 +276,13 @@ namespace Durin::AssetImport
 namespace Durin
 {
 	template<>
-	struct TDStructOpsTraits<AssetImport::FImportRecordOutput>
-		: TDStructOpsTraitsBase<AssetImport::FImportRecordOutput>
+	struct TDStructOpsTraits<Asset::Import::FImportRecordOutput>
+		: TDStructOpsTraitsBase<Asset::Import::FImportRecordOutput>
 	{
 		static constexpr bool bWithPostDeserialize = true;
 
 		static auto PostDeserialize(
-			AssetImport::FImportRecordOutput& Value,
+			Asset::Import::FImportRecordOutput& Value,
 			FDStructPostDeserializeContext& Context) -> bool
 		{
 			std::string Error;
@@ -293,13 +293,13 @@ namespace Durin
 	};
 
 	template<>
-	struct TDStructOpsTraits<AssetImport::FImportRecordDetachedTombstone>
-		: TDStructOpsTraitsBase<AssetImport::FImportRecordDetachedTombstone>
+	struct TDStructOpsTraits<Asset::Import::FImportRecordDetachedTombstone>
+		: TDStructOpsTraitsBase<Asset::Import::FImportRecordDetachedTombstone>
 	{
 		static constexpr bool bWithPostDeserialize = true;
 
 		static auto PostDeserialize(
-			AssetImport::FImportRecordDetachedTombstone& Value,
+			Asset::Import::FImportRecordDetachedTombstone& Value,
 			FDStructPostDeserializeContext& Context) -> bool
 		{
 			std::string Error;

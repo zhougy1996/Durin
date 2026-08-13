@@ -35,7 +35,12 @@ def _display_name_from_payload(payload: str, macro_name: str, line: int, column:
     entries = _macro_arguments(payload, location)
 
     display_name = ""
-    seen_display_name = False
+    seen_keys: set[str] = set()
+    allowed_keys = (
+        ("DisplayName", "PersistentName")
+        if macro_name in ("DSTRUCT", "DENUM")
+        else ("DisplayName",)
+    )
     for raw_entry in entries:
         entry = raw_entry.strip()
         if not entry:
@@ -44,11 +49,20 @@ def _display_name_from_payload(payload: str, macro_name: str, line: int, column:
         key = key.strip()
         if not separator:
             raise ValueError(f"{location}: metadata '{key}' requires = \"...\"")
-        if key != "DisplayName":
+        if key not in allowed_keys:
             raise ValueError(f"{location}: unsupported metadata key '{key}'")
-        if seen_display_name:
-            raise ValueError(f"{location}: duplicate DisplayName metadata")
-        seen_display_name = True
+        if key in seen_keys:
+            raise ValueError(f"{location}: duplicate {key} metadata")
+        seen_keys.add(key)
+        if key == "PersistentName":
+            raw_value = raw_value.strip()
+            match = re.fullmatch(r'"((?:\\.|[^"\\])*)"', raw_value)
+            if not match:
+                raise ValueError(f"{location}: PersistentName requires a quoted string")
+            persistent_name = _unescape_string_literal(match.group(1))
+            if not re.fullmatch(r'[A-Za-z_]\w*(?:::[A-Za-z_]\w*)+', persistent_name):
+                raise ValueError(f"{location}: PersistentName requires a qualified C++ identifier")
+            continue
 
         raw_value = raw_value.strip()
         match = re.fullmatch(r'"((?:\\.|[^"\\])*)"', raw_value)
@@ -60,10 +74,10 @@ def _display_name_from_payload(payload: str, macro_name: str, line: int, column:
 
 def _class_specifiers_from_payload(
     payload: str, line: int, column: int
-) -> tuple[bool, bool, str, str]:
+) -> tuple[bool, bool, str, str, str]:
     location = f"DCLASS at line {line}, column {column}"
     if not payload.strip():
-        return False, False, "", ""
+        return False, False, "", "", ""
 
     entries = _macro_arguments(payload, location)
 
@@ -89,7 +103,7 @@ def _class_specifiers_from_payload(
                 no_class_default_object = True
             continue
 
-        if key not in ("DisplayName", "DefaultObjectName"):
+        if key not in ("DisplayName", "DefaultObjectName", "PersistentName"):
             raise ValueError(f"{location}: unsupported class metadata key '{key}'")
         if key in metadata:
             raise ValueError(f"{location}: duplicate {key} class metadata")
@@ -98,12 +112,17 @@ def _class_specifiers_from_payload(
         if not match:
             raise ValueError(f"{location}: {key} requires a quoted string")
         metadata[key] = _unescape_string_literal(match.group(1))
+        if key == "PersistentName" and not re.fullmatch(
+            r'[A-Za-z_]\w*(?:::[A-Za-z_]\w*)+', metadata[key]
+        ):
+            raise ValueError(f"{location}: PersistentName requires a qualified C++ identifier")
 
     return (
         is_abstract,
         no_class_default_object,
         metadata.get("DisplayName", ""),
         metadata.get("DefaultObjectName", ""),
+        metadata.get("PersistentName", ""),
     )
 
 
@@ -161,13 +180,14 @@ def _make_dht_parse_source(source: str) -> tuple[str, dict[int, _DMetaUse]]:
         )
 
     source = _replace_macro_calls(source, "DCLASS", replace_dclass)
-    source = _replace_macro_calls(
-        source,
-        "DSTRUCT",
-        lambda payload, line, column:
+    def replace_dstruct(payload: str, line: int, column: int) -> str:
+        _display_name_from_payload(payload, "DSTRUCT", line, column)
+        return (
             f'__attribute__((annotate("{_annotation_payload("DSTRUCT", payload)}"))) '
-            f"void DHT_STRUCT_{line}_{column}();",
-    )
+            f"void DHT_STRUCT_{line}_{column}();"
+        )
+
+    source = _replace_macro_calls(source, "DSTRUCT", replace_dstruct)
 
     def replace_denum(payload: str, line: int, column: int) -> str:
         _display_name_from_payload(payload, "DENUM", line, column)

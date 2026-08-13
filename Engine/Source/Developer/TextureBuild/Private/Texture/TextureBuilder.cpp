@@ -3,7 +3,7 @@
 #include <bc7enc.h>
 #include <rgbcx.h>
 
-namespace Durin::AssetBuild::TextureBuilder
+namespace Durin::Asset::Build::TextureBuilder
 {
 	namespace
 	{

@@ -131,7 +131,7 @@ namespace Durin::Editor::Level
 		const std::filesystem::path Source(SourcePathBuffer.data());
 		const std::string SourceDestination = MakeDefaultImportedSourceVirtualPath(
 			Destination.GetPath(), "TerrainHeightmaps", Source.filename().generic_string());
-		const FTerrainHeightmapImportResult Result = StandardAssetImport::ImportTerrainHeightmapAsset(
+		const FTerrainHeightmapImportResult Result = Asset::Import::ImportTerrainHeightmapAsset(
 			Source.generic_string(), Destination.GetPath(),
 			{.SourceDestination = SourceDestination},
 			IsEngineAuthoringDestination(Destination.GetPath()));

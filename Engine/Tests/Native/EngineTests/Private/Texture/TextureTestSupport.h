@@ -38,17 +38,17 @@ inline auto InitializeTextureImportMount() -> void
 
 inline auto EnsureTextureBuildHost() -> bool
 {
-	return Durin::AssetBuild::InitializeTextureBuildService()
-		&& Durin::AssetBuild::InitializeBuildHost();
+	return Durin::Asset::Build::InitializeTextureBuildService()
+		&& Durin::Asset::Build::InitializeBuildHost();
 }
 
 inline auto RestartTextureBuildHost(
-	const Durin::AssetBuild::FTexture2DBuildCoordinatorConfig& Config = {}) -> bool
+	const Durin::Asset::Build::FTexture2DBuildCoordinatorConfig& Config = {}) -> bool
 {
-	Durin::AssetBuild::ShutdownBuildHost();
-	Durin::AssetBuild::ShutdownTextureBuildService();
-	return Durin::AssetBuild::InitializeTextureBuildService(Config)
-		&& Durin::AssetBuild::InitializeBuildHost();
+	Durin::Asset::Build::ShutdownBuildHost();
+	Durin::Asset::Build::ShutdownTextureBuildService();
+	return Durin::Asset::Build::InitializeTextureBuildService(Config)
+		&& Durin::Asset::Build::InitializeBuildHost();
 }
 
 namespace

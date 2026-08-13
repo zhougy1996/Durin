@@ -13,6 +13,14 @@ StaticMesh LOD resources and uses the same material/pass/LOD/lighting policy.
 This document defines the implemented static-mesh render-resource ownership,
 per-LOD lifecycle, vertex-factory boundary, and shader input contract.
 
+Engine keeps one `DStaticMesh` contract while separating its implementation by
+responsibility: `StaticMesh.cpp` owns lifecycle and publication,
+`StaticMeshCook.cpp` owns authored/Cooked transitions,
+`StaticMeshCollision.cpp` and `StaticMeshCollisionQuery.cpp` own collision
+state and CPU query acceleration, and `StaticMeshRenderResources.cpp` owns
+vertex/index/RHI resource mechanics. These are implementation partitions, not
+additional owners or forwarding layers.
+
 ## Resource Ownership
 
 `FStaticMeshRenderData` owns parallel per-LOD arrays. `LODResources` owns

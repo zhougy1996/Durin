@@ -6,7 +6,7 @@
 #include "DObject/AssetPath.h"
 #include "Hash/XxHash.h"
 
-namespace Durin::AssetImport
+namespace Durin::Asset::Import
 {
 	enum class EImportDiagnosticSeverity : uint8
 	{

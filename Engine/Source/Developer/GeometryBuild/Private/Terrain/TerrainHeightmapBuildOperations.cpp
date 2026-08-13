@@ -16,7 +16,7 @@ namespace Durin
 	};
 }
 
-namespace Durin::AssetBuild
+namespace Durin::Asset::Build
 {
 	namespace
 	{

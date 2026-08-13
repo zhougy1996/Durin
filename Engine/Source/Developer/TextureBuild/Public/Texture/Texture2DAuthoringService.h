@@ -4,7 +4,7 @@
 #include "Texture/Texture2DAuthoringCoordinator.h"
 #include "Texture/TextureBuildOperations.h"
 
-namespace Durin::AssetBuild
+namespace Durin::Asset::Build
 {
 	using FTexture2DAuthoringCompletion = std::function<void(bool, std::string)>;
 

@@ -10,7 +10,7 @@ namespace
 	public:
 		~FScopedStandardAssetImportProviders()
 		{
-			Durin::UnregisterStandardAssetImportProviders();
+			Durin::Asset::Import::UnregisterStandardAssetImportProviders();
 		}
 	};
 
@@ -108,7 +108,7 @@ TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 {
 	InitializeDObjectSystem();
 	std::string ProviderError;
-	ASSERT_TRUE(Durin::RegisterStandardAssetImportProviders(ProviderError)) << ProviderError;
+	ASSERT_TRUE(Durin::Asset::Import::RegisterStandardAssetImportProviders(ProviderError)) << ProviderError;
 	FScopedStandardAssetImportProviders Providers;
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "LevelReconstruction";

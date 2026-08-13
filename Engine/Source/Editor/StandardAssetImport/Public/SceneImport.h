@@ -5,7 +5,7 @@
 #include "AsyncImport.h"
 #include "StandardAssetImportAPI.h"
 #include "StaticMesh/StaticMesh.h"
-#include "Source/SourcePath.h"
+#include "Asset/MountedSource.h"
 
 namespace Durin
 {
@@ -15,7 +15,10 @@ namespace Durin
 	class DSkeleton;
 	class DSkeletalMesh;
 	class DAnimationClip;
+}
 
+namespace Durin::Asset::Import
+{
 	inline constexpr std::string_view SceneImportProviderId = "Durin.Scene";
 	inline constexpr uint32 SceneImportProviderContractVersion = 3;
 	inline constexpr std::string_view StandardImportedSurfaceMaterialPath =
@@ -28,14 +31,14 @@ namespace Durin
 		FSourcePath RootSource;
 		FAssetPath DestinationDirectory;
 		FStaticMeshImportSettings MeshSettings;
-		AssetImport::DImportRecord* ExistingRecord = nullptr;
+		DImportRecord* ExistingRecord = nullptr;
 		bool bRecreateMissingManagedOutputs = false;
-		AssetImport::IImportProgressReporter* Progress = nullptr;
+		IImportProgressReporter* Progress = nullptr;
 	};
 
 	struct FPreparedSceneSourceBundle
 	{
-		std::vector<FMountedSourceFile> Sources;
+		std::vector<Asset::FMountedSourceFile> Sources;
 		FSourcePath RootSource;
 	};
 	struct FSceneImportPlanResult;
@@ -45,21 +48,21 @@ namespace Durin
 	{
 	public:
 		auto GetMultiOutputPlan() const
-			-> const AssetImport::FMultiOutputImportPlan& { return MultiOutputPlan; }
+			-> const FMultiOutputImportPlan& { return MultiOutputPlan; }
 		auto GetWarnings() const -> std::span<const std::string> { return Warnings; }
 
 	private:
-		AssetImport::FMultiOutputImportPlan MultiOutputPlan;
+		FMultiOutputImportPlan MultiOutputPlan;
 		std::vector<std::string> Warnings;
 
 		friend STANDARDASSETIMPORT_API auto PlanSceneImport(
 			const FSceneImportRequest&) -> FSceneImportPlanResult;
 		friend auto FinalizeSceneImportPlan(
 			const FSceneImportRequest&,
-			AssetImport::FImportPlanResult) -> FSceneImportPlanResult;
+			FImportPlanResult) -> FSceneImportPlanResult;
 		friend STANDARDASSETIMPORT_API auto ExecuteSceneImport(
 			const FSceneImportPlan&,
-			const AssetImport::FMultiOutputExecutionOptions&)
+			const FMultiOutputExecutionOptions&)
 			-> FSceneImportExecutionResult;
 	};
 
@@ -68,7 +71,7 @@ namespace Durin
 		bool bSucceeded = false;
 		std::string Message;
 		FSceneImportPlan Plan;
-		std::vector<AssetImport::FImportDiagnostic> Diagnostics;
+		std::vector<FImportDiagnostic> Diagnostics;
 
 		explicit operator bool() const { return bSucceeded; }
 	};
@@ -77,7 +80,7 @@ namespace Durin
 	{
 		bool bSucceeded = false;
 		std::string Message;
-		AssetImport::DImportRecord* Record = nullptr;
+		DImportRecord* Record = nullptr;
 		std::vector<DStaticMesh*> Meshes;
 		std::vector<DSkeleton*> Skeletons;
 		std::vector<DSkeletalMesh*> SkeletalMeshes;
@@ -85,8 +88,8 @@ namespace Durin
 		std::vector<DMaterialInstance*> Materials;
 		std::vector<DTexture2D*> Textures;
 		std::vector<FAssetPath> OrphanedAssets;
-		std::vector<AssetImport::FImportDiagnostic> Diagnostics;
-		AssetImport::FProviderLease Provider;
+		std::vector<FImportDiagnostic> Diagnostics;
+		FProviderLease Provider;
 
 		explicit operator bool() const { return bSucceeded; }
 	};
@@ -99,11 +102,11 @@ namespace Durin
 			return GenericHandle.IsValid() || ImmediateResult.has_value();
 		}
 		explicit operator bool() const { return IsValid(); }
-		auto GetStatus() const -> AssetImport::EAsyncImportPlanStatus;
+		auto GetStatus() const -> EAsyncImportPlanStatus;
 
 	private:
 		FSceneImportRequest Request;
-		AssetImport::FAsyncImportPlanHandle GenericHandle;
+		FAsyncImportPlanHandle GenericHandle;
 		std::optional<FSceneImportPlanResult> ImmediateResult;
 		bool bConsumed = false;
 
@@ -112,7 +115,7 @@ namespace Durin
 			-> FSceneImportAsyncPlanHandle;
 		friend STANDARDASSETIMPORT_API auto PollSceneImportPlan(
 			FSceneImportAsyncPlanHandle&, FSceneImportPlanResult&)
-			-> AssetImport::EAsyncImportPlanStatus;
+			-> EAsyncImportPlanStatus;
 		friend STANDARDASSETIMPORT_API auto CancelAndDrainSceneImportPlan(
 			FSceneImportAsyncPlanHandle&) -> void;
 	};
@@ -125,7 +128,7 @@ namespace Durin
 	STANDARDASSETIMPORT_API auto PollSceneImportPlan(
 		FSceneImportAsyncPlanHandle& Handle,
 		FSceneImportPlanResult& OutResult)
-		-> AssetImport::EAsyncImportPlanStatus;
+		-> EAsyncImportPlanStatus;
 	STANDARDASSETIMPORT_API auto CancelAndDrainSceneImportPlan(
 		FSceneImportAsyncPlanHandle& Handle) -> void;
 	STANDARDASSETIMPORT_API auto PrepareSceneSourceBundle(
@@ -140,16 +143,16 @@ namespace Durin
 	STANDARDASSETIMPORT_API auto RollbackSceneSourceBundle(
 		FPreparedSceneSourceBundle& Bundle) -> void;
 	STANDARDASSETIMPORT_API auto PlanSceneReimport(
-		AssetImport::DImportRecord& Record,
+		DImportRecord& Record,
 		bool bRecreateMissingManagedOutputs = false,
-		AssetImport::IImportProgressReporter* Progress = nullptr) -> FSceneImportPlanResult;
+		IImportProgressReporter* Progress = nullptr) -> FSceneImportPlanResult;
 	STANDARDASSETIMPORT_API auto ExecuteSceneImport(
 		const FSceneImportPlan& Plan,
-		const AssetImport::FMultiOutputExecutionOptions& Options = {})
+		const FMultiOutputExecutionOptions& Options = {})
 		-> FSceneImportExecutionResult;
 	STANDARDASSETIMPORT_API auto FindSceneImportRecordForOutput(
 		const DObject& Output,
-		std::string& OutError) -> AssetImport::DImportRecord*;
+		std::string& OutError) -> DImportRecord*;
 	STANDARDASSETIMPORT_API auto EnsureStandardImportedSurfaceMaterial(
 		std::string& OutError) -> DMaterial*;
 }

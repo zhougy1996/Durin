@@ -118,15 +118,15 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 		Durin::PathUtilities::FScopedMountRegistryFixture Mounts(MountDefinitions);
 		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 		std::string Error;
-		ASSERT_TRUE(Durin::RegisterStandardAssetImportProviders(Error)) << Error;
+		ASSERT_TRUE(Durin::Asset::Import::RegisterStandardAssetImportProviders(Error)) << Error;
 		Durin::DMaterial* StandardMaterial =
-			Durin::EnsureStandardImportedSurfaceMaterial(Error);
+			Durin::Asset::Import::EnsureStandardImportedSurfaceMaterial(Error);
 		ASSERT_NE(StandardMaterial, nullptr) << Error;
 
 		const std::array<std::pair<std::string_view, std::string_view>, 2> Cases{{
 			{"DataUri", "Contract.gltf"},
 			{"Binary", "Contract.glb"}}};
-		std::array<Durin::FSceneImportExecutionResult, 2> Results;
+		std::array<Durin::Asset::Import::FSceneImportExecutionResult, 2> Results;
 		std::vector<std::vector<Durin::FSkeletonBone>> ReferenceSkeletons;
 		std::vector<Durin::FSkeletalMeshPayloadData> ReferenceMeshes;
 		std::vector<Durin::FAnimationClipPayloadData> ReferenceClips;
@@ -140,7 +140,7 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 			std::filesystem::copy_file(
 				SourceFixture, GameContent / "Scenes" / (std::string(Name) + Extension),
 				std::filesystem::copy_options::overwrite_existing);
-			const Durin::FSceneImportPlanResult Planned = Durin::PlanSceneImport({
+			const Durin::Asset::Import::FSceneImportPlanResult Planned = Durin::Asset::Import::PlanSceneImport({
 				.RootSource = {.Path = std::format("/Game/Scenes/{}{}", Name, Extension)},
 				.DestinationDirectory = MakeAssetPath(
 					std::format("/Game/Imports/{}", Name)),
@@ -148,8 +148,8 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 			ASSERT_TRUE(Planned) << Planned.Message;
 			ASSERT_EQ(
 				Planned.Plan.GetMultiOutputPlan().GetGenericPlan().GetOutputs().size(), 11u);
-			Results[CaseIndex] = Durin::ExecuteSceneImport(Planned.Plan);
-			const Durin::FSceneImportExecutionResult& Initial = Results[CaseIndex];
+			Results[CaseIndex] = Durin::Asset::Import::ExecuteSceneImport(Planned.Plan);
+			const Durin::Asset::Import::FSceneImportExecutionResult& Initial = Results[CaseIndex];
 			ASSERT_TRUE(Initial) << Initial.Message;
 			ASSERT_EQ(Initial.Skeletons.size(), 2u);
 			ASSERT_EQ(Initial.SkeletalMeshes.size(), 2u);
@@ -236,11 +236,11 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 				ClipKeys.push_back(Clip->GetDerivedDataKey());
 			for (size_t ReimportIndex = 0; ReimportIndex < 2; ++ReimportIndex)
 			{
-				const Durin::FSceneImportPlanResult ReimportPlan =
-					Durin::PlanSceneReimport(*Initial.Record);
+				const Durin::Asset::Import::FSceneImportPlanResult ReimportPlan =
+					Durin::Asset::Import::PlanSceneReimport(*Initial.Record);
 				ASSERT_TRUE(ReimportPlan) << ReimportPlan.Message;
-				const Durin::FSceneImportExecutionResult Reimported =
-					Durin::ExecuteSceneImport(ReimportPlan.Plan);
+				const Durin::Asset::Import::FSceneImportExecutionResult Reimported =
+					Durin::Asset::Import::ExecuteSceneImport(ReimportPlan.Plan);
 				ASSERT_TRUE(Reimported) << Reimported.Message;
 				EXPECT_EQ(Reimported.Record, Initial.Record);
 				EXPECT_EQ(Reimported.Record->GetFingerprint(), RecordFingerprint);
@@ -261,7 +261,7 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 				CookRoot, Durin::Asset::ECookTargetPlatform::Win64,
 				Durin::Asset::ECookTargetProfile::Game);
 			if (!AddPackageOnly(Context, *StandardMaterial, Error)) return false;
-			for (const Durin::FSceneImportExecutionResult& Result : Results)
+			for (const Durin::Asset::Import::FSceneImportExecutionResult& Result : Results)
 			{
 				for (Durin::DMaterialInstance* Material : Result.Materials)
 					if (!AddPackageOnly(Context, *Material, Error)) return false;
@@ -286,7 +286,7 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 		ASSERT_TRUE(ReadCookTree(SecondCookRoot, SecondTree));
 		EXPECT_FALSE(FirstTree.empty());
 		EXPECT_EQ(FirstTree, SecondTree);
-		for (const Durin::FSceneImportExecutionResult& Result : Results)
+		for (const Durin::Asset::Import::FSceneImportExecutionResult& Result : Results)
 		{
 			RecordPaths.push_back(MakeAssetPath(
 				Result.Record->GetPackage()->GetPackagePath()));
@@ -325,14 +325,14 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 		for (const Durin::FAssetPath& RecordPath : RecordPaths)
 		{
-			Durin::AssetImport::DImportRecord* Record = nullptr;
+			Durin::Asset::Import::DImportRecord* Record = nullptr;
 			ASSERT_TRUE(Durin::Asset::LoadAsset(RecordPath, Record));
 			ASSERT_NE(Record, nullptr);
-			const Durin::FSceneImportPlanResult ReimportPlan =
-				Durin::PlanSceneReimport(*Record);
+			const Durin::Asset::Import::FSceneImportPlanResult ReimportPlan =
+				Durin::Asset::Import::PlanSceneReimport(*Record);
 			ASSERT_TRUE(ReimportPlan) << ReimportPlan.Message;
-			const Durin::FSceneImportExecutionResult Reimported =
-				Durin::ExecuteSceneImport(ReimportPlan.Plan);
+			const Durin::Asset::Import::FSceneImportExecutionResult Reimported =
+				Durin::Asset::Import::ExecuteSceneImport(ReimportPlan.Plan);
 			ASSERT_TRUE(Reimported) << Reimported.Message;
 			for (Durin::DSkeletalMesh* Mesh : Reimported.SkeletalMeshes)
 				EXPECT_NE(Mesh->GetPayloadData(), nullptr);

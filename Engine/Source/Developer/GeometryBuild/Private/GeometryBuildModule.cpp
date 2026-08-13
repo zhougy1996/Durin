@@ -12,7 +12,7 @@ namespace Durin
 		// Module teardown owns this token explicitly. Keeping the module object trivially
 		// destructible avoids cross-DLL static-destruction calls when a test process exits
 		// without invoking FModuleManager::UnloadModulesAtShutdown().
-		AssetBuild::FBuildServiceRegistration* ServiceRegistration = nullptr;
+		Asset::Build::FBuildServiceRegistration* ServiceRegistration = nullptr;
 
 		static auto BuildStaticMeshCollision(
 			const FStaticMeshRenderData& RenderData,
@@ -22,14 +22,14 @@ namespace Durin
 			FStaticMeshCollisionAuthoringProduct& OutProduct,
 			std::string& OutError) -> bool
 		{
-			return AssetBuild::FStaticMeshBuildOperations::BuildCollisionProduct(
+			return Asset::Build::FStaticMeshBuildOperations::BuildCollisionProduct(
 				RenderData, SourceImportData, Mode, Policy, OutProduct, OutError);
 		}
 
 		auto StartupModule() -> void override
 		{
 			std::string Error;
-			auto Registration = AssetBuild::RegisterBuildServiceContribution({
+			auto Registration = Asset::Build::RegisterBuildServiceContribution({
 				.Identity = "Durin.GeometryBuild.Recipes",
 				.DrainOrder = 50,
 				.Start = [] { return true; },
@@ -40,14 +40,14 @@ namespace Durin
 				.Snapshot = [] { return std::tuple{0u, 0u, 0ull}; }}, &Error);
 			checkf(Registration.IsValid(),
 				"GeometryBuild could not register its recipe service: {}", Error);
-			ServiceRegistration = new AssetBuild::FBuildServiceRegistration(
+			ServiceRegistration = new Asset::Build::FBuildServiceRegistration(
 				std::move(Registration));
 			checkf(RegisterStaticMeshCollisionBuildHandler(
 				&BuildStaticMeshCollision),
 				"GeometryBuild could not register StaticMesh collision building.");
 			checkf(RegisterSkeletalAssetUncookedPayloadLoaders(
-				AssetBuild::LoadSkeletalMeshDerivedData,
-				AssetBuild::LoadAnimationClipDerivedData),
+				Asset::Build::LoadSkeletalMeshDerivedData,
+				Asset::Build::LoadAnimationClipDerivedData),
 				"GeometryBuild could not register skeletal DDC loading.");
 		}
 

@@ -382,6 +382,10 @@ metadata that points at the corresponding `DEnum`.
 - short class name
 - optional editor display name from `DCLASS(DisplayName = "...")`
 - optional default object name from `DCLASS(DefaultObjectName = "...")`
+- optional `PersistentName = "Qualified::Name"` on `DCLASS`, `DSTRUCT`, and
+  `DENUM` for a qualified C++ namespace move that must retain its serialized
+  reflection identity; the generated C++ symbol and helper names still follow
+  the declaration's current namespace
 - property parameter array
 - property count
 

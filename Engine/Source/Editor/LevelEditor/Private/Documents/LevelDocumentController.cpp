@@ -33,11 +33,11 @@ namespace Durin::Editor::Level
 			std::string& OutError) -> bool
 		{
 			const std::vector<DObject*> Assets(MissingAssets.begin(), MissingAssets.end());
-			std::vector<AssetImport::DImportRecord*> Records;
+			std::vector<Asset::Import::DImportRecord*> Records;
 			for (DObject* Asset : Assets)
 			{
 				std::string RecordError;
-				AssetImport::DImportRecord* Record = FindSceneImportRecordForOutput(
+				Asset::Import::DImportRecord* Record = Asset::Import::FindSceneImportRecordForOutput(
 					*Asset, RecordError);
 				if (!Record)
 				{
@@ -50,13 +50,13 @@ namespace Durin::Editor::Level
 					Records.push_back(Record);
 			}
 
-			for (AssetImport::DImportRecord* Record : Records)
+			for (Asset::Import::DImportRecord* Record : Records)
 			{
-				const AssetImport::FImportRecordActionResult Result =
-					AssetImport::ExecuteImportRecordAction(
+				const Asset::Import::FImportRecordActionResult Result =
+					Asset::Import::ExecuteImportRecordAction(
 						*Record,
-						AssetImport::EImportRecordAction::Reimport,
-						AssetImport::GetImportRecordHandlerRegistry());
+						Asset::Import::EImportRecordAction::Reimport,
+						Asset::Import::GetImportRecordHandlerRegistry());
 				if (!Result)
 				{
 					OutError = std::format(

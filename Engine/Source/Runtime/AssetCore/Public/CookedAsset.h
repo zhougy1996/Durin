@@ -114,6 +114,21 @@ namespace Durin::Asset
 		std::vector<std::vector<uint8>> Payloads;
 	};
 
+	// Keeps the decoded DBLK container alive for the lifetime of one selected
+	// opaque payload view. This object is intentionally non-copyable/non-movable
+	// so Payload cannot outlive or become detached from Container storage.
+	struct FCookedPackagePayload
+	{
+		FCookedBulkContainer Container;
+		std::span<const uint8> Payload;
+
+		FCookedPackagePayload() = default;
+		FCookedPackagePayload(const FCookedPackagePayload&) = delete;
+		FCookedPackagePayload(FCookedPackagePayload&&) = delete;
+		auto operator=(const FCookedPackagePayload&) -> FCookedPackagePayload& = delete;
+		auto operator=(FCookedPackagePayload&&) -> FCookedPackagePayload& = delete;
+	};
+
 	ASSETCORE_API auto EncodeCookedBulk(
 		std::span<const FCookedBulkPayload> Payloads,
 		ECookTargetPlatform TargetPlatform,
@@ -143,6 +158,18 @@ namespace Durin::Asset
 		const FCookedBulkContainer& Container,
 		const FCookedPayloadDescriptor& Descriptor,
 		std::span<const uint8>& OutPayload,
+		std::string* OutError = nullptr
+	) -> bool;
+
+	// Resolves the owning cooked package and DBLK companion, validates the
+	// requested target/profile, and selects one descriptor-matched opaque payload.
+	ASSETCORE_API auto LoadCookedPackagePayload(
+		const FPackageLoadContext& LoadContext,
+		std::string_view VirtualPackagePath,
+		const FCookedPayloadDescriptor& Descriptor,
+		ECookTargetPlatform ExpectedPlatform,
+		ECookTargetProfile ExpectedProfile,
+		FCookedPackagePayload& OutPayload,
 		std::string* OutError = nullptr
 	) -> bool;
 

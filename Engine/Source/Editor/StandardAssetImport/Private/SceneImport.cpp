@@ -22,11 +22,10 @@
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
 
-namespace Durin
+namespace Durin::Asset::Import
 {
 	namespace
 	{
-		using namespace AssetImport;
 
 		enum class ESceneOutputKind : uint8
 		{
@@ -53,7 +52,7 @@ namespace Durin
 		{
 			uint32 MaterialRole = 0;
 			std::string TextureIdentity;
-			Asset::FImportedTextureBinding Binding;
+			Standard::FImportedTextureBinding Binding;
 		};
 
 		struct FSceneOutputData
@@ -71,7 +70,7 @@ namespace Durin
 
 		struct FSceneProviderPlanData
 		{
-			Asset::FImportedSceneData Scene;
+			Standard::FImportedSceneData Scene;
 			FStaticMeshImportSettings MeshSettings;
 			std::vector<FSceneOutputData> Outputs;
 			std::vector<std::string> Warnings;
@@ -84,21 +83,21 @@ namespace Durin
 		};
 
 		auto MakeMaterialSamplerState(
-			const Asset::FImportedSampler& Sampler) -> FMaterialSamplerState
+			const Standard::FImportedSampler& Sampler) -> FMaterialSamplerState
 		{
 			FMaterialSamplerState Result;
 			Result.MinFilter = static_cast<EMaterialSamplerMinFilter>(Sampler.MinFilter);
-			Result.MagFilter = Sampler.MagFilter == Asset::EImportedSamplerFilter::Nearest
+			Result.MagFilter = Sampler.MagFilter == Standard::EImportedSamplerFilter::Nearest
 				? EMaterialSamplerMagFilter::Nearest
 				: EMaterialSamplerMagFilter::Linear;
-			auto ConvertAddress = [](Asset::EImportedSamplerWrap Wrap) {
+			auto ConvertAddress = [](Standard::EImportedSamplerWrap Wrap) {
 				switch (Wrap)
 				{
-				case Asset::EImportedSamplerWrap::MirroredRepeat:
+				case Standard::EImportedSamplerWrap::MirroredRepeat:
 					return EMaterialSamplerAddressMode::MirroredRepeat;
-				case Asset::EImportedSamplerWrap::ClampToEdge:
+				case Standard::EImportedSamplerWrap::ClampToEdge:
 					return EMaterialSamplerAddressMode::ClampToEdge;
-				case Asset::EImportedSamplerWrap::Repeat:
+				case Standard::EImportedSamplerWrap::Repeat:
 				default:
 					return EMaterialSamplerAddressMode::Repeat;
 				}
@@ -317,12 +316,12 @@ namespace Durin
 
 		auto MakeMeshImportOptions(
 			const FStaticMeshImportSettings& Settings,
-			const FSourcePath& RootSource) -> Asset::FMeshImportOptions
+			const FSourcePath& RootSource) -> Standard::FMeshImportOptions
 		{
 			const FVector3f Forward = ImportAxisVector(Settings.ForwardAxis);
 			const FVector3f Right = ImportAxisVector(Settings.RightAxis);
 			const FVector3f Up = ImportAxisVector(Settings.UpAxis);
-			Asset::FMeshImportOptions Options;
+			Standard::FMeshImportOptions Options;
 			for (uint32 Component = 0; Component < 3; ++Component)
 			{
 				Options.SourceToEngine[Component][0] = Forward[Component];
@@ -498,13 +497,13 @@ namespace Durin
 		auto DecodeSceneSnapshot(
 			const FSourceSnapshot& Snapshot,
 			const FStaticMeshImportSettings& Settings,
-			Asset::FImportedSceneData& OutScene,
+			Standard::FImportedSceneData& OutScene,
 			std::string& OutError) -> bool
 		{
 			FTemporarySceneFiles Files;
 			if (!Files.Stage(Snapshot, OutError)) return false;
 			const FSourceSnapshotEntry* Root = Snapshot.FindSource("root");
-			if (!Asset::ImportFromFile(Files.GetRoot().generic_string(), OutScene,
+			if (!Standard::ImportFromFile(Files.GetRoot().generic_string(), OutScene,
 				MakeMeshImportOptions(Settings, Root->SourcePath)))
 			{
 				OutError = "Captured Scene sources could not be decoded.";
@@ -605,7 +604,7 @@ namespace Durin
 					SkeletonIndex < Data->Scene.Skeletons.size(); ++SkeletonIndex)
 				{
 					if (CheckCanceled()) return false;
-					const Asset::FImportedSkeletonData& Skeleton =
+					const Standard::FImportedSkeletonData& Skeleton =
 						Data->Scene.Skeletons[SkeletonIndex];
 					FAssetPath SkeletonPath;
 					if (!MakeSceneOutputPath(Decoded.DestinationDirectory, "Skeletons",
@@ -629,7 +628,7 @@ namespace Durin
 						.SourceIndex = SkeletonIndex});
 				}
 				uint64 MeshBytes = 0;
-				for (const Asset::FImportedMeshData& Mesh : Data->Scene.Meshes)
+				for (const Standard::FImportedMeshData& Mesh : Data->Scene.Meshes)
 				{
 					if (CheckCanceled()) return false;
 					MeshBytes += Mesh.Positions.size() * sizeof(Mesh.Positions.front());
@@ -660,15 +659,15 @@ namespace Durin
 
 				std::unordered_set<uint32> UsedMaterialIndices;
 				std::vector<uint32> MaterialIndices;
-				for (const Asset::FImportedMaterialSlot& Slot : Data->Scene.MaterialSlots)
+				for (const Standard::FImportedMaterialSlot& Slot : Data->Scene.MaterialSlots)
 					if (UsedMaterialIndices.insert(Slot.SourceMaterialIndex).second)
 						MaterialIndices.push_back(Slot.SourceMaterialIndex);
-				for (const Asset::FImportedSkeletalMeshData& Mesh : Data->Scene.SkeletalMeshes)
+				for (const Standard::FImportedSkeletalMeshData& Mesh : Data->Scene.SkeletalMeshes)
 					for (const FSkeletalMeshMaterialSlotDefinition& Slot : Mesh.MaterialSlots)
 						if (UsedMaterialIndices.insert(Slot.SourceMaterialIndex).second)
 							MaterialIndices.push_back(Slot.SourceMaterialIndex);
 				std::unordered_map<std::string, uint32> MaterialNameCounts;
-				for (const Asset::FImportedMaterial& Material : Data->Scene.Materials)
+				for (const Standard::FImportedMaterial& Material : Data->Scene.Materials)
 					++MaterialNameCounts[FoldAscii(Material.SourceName)];
 				std::unordered_set<std::string> MaterialNames;
 				std::unordered_set<std::string> TextureNames;
@@ -678,7 +677,7 @@ namespace Durin
 					if (CheckCanceled()) return false;
 					const auto Material = std::ranges::find(
 						Data->Scene.Materials, MaterialIndex,
-						&Asset::FImportedMaterial::SourceMaterialIndex);
+						&Standard::FImportedMaterial::SourceMaterialIndex);
 					if (Material == Data->Scene.Materials.end()) return false;
 					const std::string MaterialKey = !Material->SourceName.empty()
 						&& MaterialNameCounts[FoldAscii(Material->SourceName)] == 1
@@ -694,13 +693,13 @@ namespace Durin
 						.StableIdentity = MaterialIdentity,
 						.Kind = ESceneOutputKind::MaterialInstance,
 						.SourceIndex = MaterialIndex};
-					auto AddTexture = [&](const Asset::FImportedTextureBinding& Binding,
+					auto AddTexture = [&](const Standard::FImportedTextureBinding& Binding,
 						uint32 MaterialRole, std::string_view Role, ETextureUsage Usage,
 						ESceneTextureDerivation Derivation = ESceneTextureDerivation::None,
 						float DerivationScale = 1.0f,
 						const FVector3f& DerivationColorScale = FVector3f(1.0f)) -> bool {
 						if (Binding.ImageIndex >= Data->Scene.Images.size()) return false;
-						const Asset::FImportedImage& Image = Data->Scene.Images[Binding.ImageIndex];
+						const Standard::FImportedImage& Image = Data->Scene.Images[Binding.ImageIndex];
 						const std::string TextureKey = std::format("{}:{}:{}:{}:{}:{}:{}",
 							Image.StableIdentity, Role, static_cast<uint32>(Derivation),
 							std::bit_cast<uint32>(DerivationScale),
@@ -742,37 +741,37 @@ namespace Durin
 							.Binding = Binding});
 						return true;
 					};
-					for (const Asset::FImportedTextureBinding& Binding : Material->TextureBindings)
+					for (const Standard::FImportedTextureBinding& Binding : Material->TextureBindings)
 					{
 						switch (Binding.Semantic)
 						{
-						case Asset::EImportedTextureSemantic::BaseColor:
+						case Standard::EImportedTextureSemantic::BaseColor:
 							if (!AddTexture(Binding, 0, "BaseColor", ETextureUsage::Color)) return false;
-							if (Material->AlphaMode == Asset::EImportedAlphaMode::Mask
-								|| Material->AlphaMode == Asset::EImportedAlphaMode::Blend)
+							if (Material->AlphaMode == Standard::EImportedAlphaMode::Mask
+								|| Material->AlphaMode == Standard::EImportedAlphaMode::Blend)
 								if (!AddTexture(Binding,
-									Material->AlphaMode == Asset::EImportedAlphaMode::Mask ? 7u : 6u,
-									Material->AlphaMode == Asset::EImportedAlphaMode::Mask
+									Material->AlphaMode == Standard::EImportedAlphaMode::Mask ? 7u : 6u,
+									Material->AlphaMode == Standard::EImportedAlphaMode::Mask
 										? "OpacityMask" : "Opacity",
 									ETextureUsage::DataMask, ESceneTextureDerivation::Alpha)) return false;
 							break;
-						case Asset::EImportedTextureSemantic::MetallicRoughness:
+						case Standard::EImportedTextureSemantic::MetallicRoughness:
 							if (!AddTexture(Binding, 2, "Metallic", ETextureUsage::DataMask,
 								ESceneTextureDerivation::Blue)
 								|| !AddTexture(Binding, 3, "Roughness", ETextureUsage::DataMask,
 									ESceneTextureDerivation::Green)) return false;
 							break;
-						case Asset::EImportedTextureSemantic::Normal:
+						case Standard::EImportedTextureSemantic::Normal:
 							if (!AddTexture(Binding, 1, "Normal", ETextureUsage::Normal,
 								Binding.Strength == 1.0f ? ESceneTextureDerivation::None
 									: ESceneTextureDerivation::ScaledNormal,
 								Binding.Strength)) return false;
 							break;
-						case Asset::EImportedTextureSemantic::Occlusion:
+						case Standard::EImportedTextureSemantic::Occlusion:
 							if (!AddTexture(Binding, 4, "AmbientOcclusion", ETextureUsage::DataMask,
 								ESceneTextureDerivation::Red)) return false;
 							break;
-						case Asset::EImportedTextureSemantic::Emissive:
+						case Standard::EImportedTextureSemantic::Emissive:
 							if (!AddTexture(Binding, 5, "Emissive", ETextureUsage::Color,
 								ESceneTextureDerivation::ScaledColor, 1.0f,
 								Material->EmissiveFactor)) return false;
@@ -797,11 +796,11 @@ namespace Durin
 					MeshIndex < Data->Scene.SkeletalMeshes.size(); ++MeshIndex)
 				{
 					if (CheckCanceled()) return false;
-					const Asset::FImportedSkeletalMeshData& Mesh =
+					const Standard::FImportedSkeletalMeshData& Mesh =
 						Data->Scene.SkeletalMeshes[MeshIndex];
 					if (!Mesh.Payload || Mesh.SkeletonIndex >= Data->Scene.Skeletons.size())
 						return false;
-					const Asset::FImportedSkeletonData& Skeleton =
+					const Standard::FImportedSkeletonData& Skeleton =
 						Data->Scene.Skeletons[Mesh.SkeletonIndex];
 					FAssetPath MeshPath;
 					if (!MakeSceneOutputPath(Decoded.DestinationDirectory, "SkeletalMeshes",
@@ -841,11 +840,11 @@ namespace Durin
 					ClipIndex < Data->Scene.AnimationClips.size(); ++ClipIndex)
 				{
 					if (CheckCanceled()) return false;
-					const Asset::FImportedAnimationClipData& Clip =
+					const Standard::FImportedAnimationClipData& Clip =
 						Data->Scene.AnimationClips[ClipIndex];
 					if (!Clip.Payload || Clip.SkeletonIndex >= Data->Scene.Skeletons.size())
 						return false;
-					const Asset::FImportedSkeletonData& Skeleton =
+					const Standard::FImportedSkeletonData& Skeleton =
 						Data->Scene.Skeletons[Clip.SkeletonIndex];
 					FAssetPath ClipPath;
 					if (!MakeSceneOutputPath(Decoded.DestinationDirectory, "Animations",
@@ -873,16 +872,16 @@ namespace Durin
 						.SourceIndex = ClipIndex,
 						.SkeletonIdentity = Skeleton.StableIdentity});
 				}
-				for (const Asset::FImportDiagnostic& Diagnostic : Data->Scene.Diagnostics)
+				for (const Standard::FSceneImportDiagnostic& Diagnostic : Data->Scene.Diagnostics)
 				{
-					if (Diagnostic.Severity != Asset::EImportDiagnosticSeverity::Warning) continue;
+					if (Diagnostic.Severity != EImportDiagnosticSeverity::Warning) continue;
 					Data->Warnings.push_back(Diagnostic.Message);
 					EImportDiagnosticCategory Category = EImportDiagnosticCategory::ProviderFailure;
-					if (Diagnostic.Category == Asset::EImportDiagnosticCategory::MissingDependency)
+					if (Diagnostic.Category == Standard::ESceneImportDiagnosticCategory::MissingDependency)
 						Category = EImportDiagnosticCategory::MissingDependency;
-					else if (Diagnostic.Category == Asset::EImportDiagnosticCategory::UnsafeDependencyPath)
+					else if (Diagnostic.Category == Standard::ESceneImportDiagnosticCategory::UnsafeDependencyPath)
 						Category = EImportDiagnosticCategory::UnsafeDependency;
-					else if (Diagnostic.Category == Asset::EImportDiagnosticCategory::ResourceLimitExceeded)
+					else if (Diagnostic.Category == Standard::ESceneImportDiagnosticCategory::ResourceLimitExceeded)
 						Category = EImportDiagnosticCategory::ResourceLimitExceeded;
 					OutDiagnostics.push_back({
 						.Severity = EImportDiagnosticSeverity::Warning,
@@ -1022,8 +1021,8 @@ namespace Durin
 
 		auto FindSnapshotImageBytes(
 			const FSourceSnapshot& Snapshot,
-			const Asset::FImportedSceneData& Scene,
-			const Asset::FImportedImage& Image,
+			const Standard::FImportedSceneData& Scene,
+			const Standard::FImportedImage& Image,
 			std::span<const uint8>& OutBytes,
 			FSourcePath& OutSource) -> bool
 		{
@@ -1049,22 +1048,22 @@ namespace Durin
 			return true;
 		}
 
-		auto EmbeddedImageExtension(Asset::EImportedImageEncoding Encoding)
+		auto EmbeddedImageExtension(Standard::EImportedImageEncoding Encoding)
 			-> std::string_view
 		{
 			switch (Encoding)
 			{
-			case Asset::EImportedImageEncoding::Png: return ".png";
-			case Asset::EImportedImageEncoding::Jpeg: return ".jpg";
-			case Asset::EImportedImageEncoding::Bmp: return ".bmp";
-			case Asset::EImportedImageEncoding::Tga: return ".tga";
+			case Standard::EImportedImageEncoding::Png: return ".png";
+			case Standard::EImportedImageEncoding::Jpeg: return ".jpg";
+			case Standard::EImportedImageEncoding::Bmp: return ".bmp";
+			case Standard::EImportedImageEncoding::Tga: return ".tga";
 			}
 			return ".image";
 		}
 
 		auto MakeEmbeddedImageSourcePath(
 			const FSourcePath& RootSource,
-			const Asset::FImportedImage& Image,
+			const Standard::FImportedImage& Image,
 			std::string_view TextureIdentity,
 			std::span<const uint8> Bytes) -> std::string
 		{
@@ -1281,7 +1280,9 @@ namespace Durin
 		FMountedSourceFile Root;
 		if (!PrepareMountedSourceFile(InputRoot, ReferencingContentPath,
 			ExternalIngestDestination, Root, OutError,
-			bEngineAuthoringContext)) return false;
+			bEngineAuthoringContext
+				? EMountedSourceMutationContext::EngineAuthoring
+				: EMountedSourceMutationContext::DependencySafe)) return false;
 		OutBundle.RootSource = Root.SourcePath;
 		OutBundle.Sources.push_back(std::move(Root));
 		const std::string Extension = FoldAscii(
@@ -1290,7 +1291,7 @@ namespace Durin
 
 		std::vector<uint8> RootBytes;
 		if (!FFileHelper::LoadFileToArray(RootBytes, InputRoot.generic_string())
-			|| RootBytes.size() > Asset::MaxImportedSceneSourceBytes)
+			|| RootBytes.size() > Standard::MaxImportedSceneSourceBytes)
 		{
 			RollbackSceneSourceBundle(OutBundle);
 			OutError = "The glTF root source cannot be read or exceeds the source limit.";
@@ -1316,7 +1317,9 @@ namespace Durin
 				if (!PrepareMountedSourceFile(
 					InputParent / Relative, ReferencingContentPath,
 					(TargetParent / Relative).generic_string(), Dependency, OutError,
-					bEngineAuthoringContext))
+					bEngineAuthoringContext
+						? EMountedSourceMutationContext::EngineAuthoring
+						: EMountedSourceMutationContext::DependencySafe))
 					return false;
 				OutBundle.Sources.push_back(std::move(Dependency));
 				return true;
@@ -1578,7 +1581,7 @@ namespace Durin
 			std::string_view StableIdentity,
 			std::string_view CompatibilityIdentity,
 			const FXxHash128& PayloadFingerprint) {
-			return AssetBuild::FSkeletalBuildKeyFields{
+			return Asset::Build::FSkeletalBuildKeyFields{
 				.ProviderIdentity = std::string(SceneImportProviderId),
 				.ProviderVersion = SceneImportProviderContractVersion,
 				.SourceClosureHash = SourceClosureHash,
@@ -1699,7 +1702,7 @@ namespace Durin
 			if (Descriptor->SourceIndex >= Data->Scene.Skeletons.size())
 				return FailPrepared("Scene Skeleton candidate mapping is invalid.");
 			auto* Skeleton = Cast<DSkeleton>(Output->Candidate->GetAsset());
-			const Asset::FImportedSkeletonData& Imported =
+			const Standard::FImportedSkeletonData& Imported =
 				Data->Scene.Skeletons[Descriptor->SourceIndex];
 			if (!Skeleton || !Skeleton->InitializeCanonicalBones(Imported.Bones, Error)
 				|| Skeleton->GetCompatibilityIdentity() != Imported.CompatibilityIdentity)
@@ -1726,7 +1729,7 @@ namespace Durin
 			{
 				return FailPrepared("Scene texture candidate mapping is invalid.");
 			}
-			const Asset::FImportedImage& Image = Data->Scene.Images[Descriptor->SourceIndex];
+			const Standard::FImportedImage& Image = Data->Scene.Images[Descriptor->SourceIndex];
 			std::span<const uint8> Bytes;
 			FSourcePath Source;
 			if (!FindSnapshotImageBytes(Plan.MultiOutputPlan.GetGenericPlan().GetSnapshot(),
@@ -1780,7 +1783,7 @@ namespace Durin
 				Source = EmbeddedSource.SourcePath;
 				EmbeddedSources.push_back(std::move(EmbeddedSource));
 			}
-			if (!StandardAssetImport::BuildTexture2DCandidateFromSource(*Texture, Bytes, Source,
+			if (!BuildTexture2DCandidateFromSource(*Texture, Bytes, Source,
 					{.Usage = Descriptor->TextureUsage,
 						.bSRGB = Descriptor->TextureUsage == ETextureUsage::Color}, Error))
 			{
@@ -1801,13 +1804,13 @@ namespace Durin
 			auto* Material = Cast<DMaterialInstance>(Output->Candidate->GetAsset());
 			const auto Imported = std::ranges::find(
 				Data->Scene.Materials, Descriptor->SourceIndex,
-				&Asset::FImportedMaterial::SourceMaterialIndex);
+				&Standard::FImportedMaterial::SourceMaterialIndex);
 			FMaterialStaticProperties StaticProperties = StandardMaterial->GetStaticProperties();
 			if (Imported != Data->Scene.Materials.end())
 			{
-				StaticProperties.BlendMode = Imported->AlphaMode == Asset::EImportedAlphaMode::Mask
+				StaticProperties.BlendMode = Imported->AlphaMode == Standard::EImportedAlphaMode::Mask
 					? EMaterialBlendMode::Masked
-					: Imported->AlphaMode == Asset::EImportedAlphaMode::Blend
+					: Imported->AlphaMode == Standard::EImportedAlphaMode::Blend
 						? EMaterialBlendMode::Translucent : EMaterialBlendMode::Opaque;
 				StaticProperties.bTwoSided = Imported->bDoubleSided;
 				StaticProperties.OpacityMaskThreshold = Imported->AlphaCutoff;
@@ -1829,8 +1832,8 @@ namespace Durin
 				return FailPrepared("Scene material candidate mapping failed.");
 			}
 			const auto Occlusion = std::ranges::find(
-				Imported->TextureBindings, Asset::EImportedTextureSemantic::Occlusion,
-				&Asset::FImportedTextureBinding::Semantic);
+				Imported->TextureBindings, Standard::EImportedTextureSemantic::Occlusion,
+				&Standard::FImportedTextureBinding::Semantic);
 			const bool bHasEmissiveTexture = std::ranges::any_of(
 				Descriptor->TextureBindings, [](const FSceneMaterialTextureBinding& Binding) {
 					return Binding.MaterialRole == 5;
@@ -1916,7 +1919,7 @@ namespace Durin
 			auto* ProspectiveSkeleton = ProspectiveSkeletonObject == ProspectiveObjects.end()
 				? nullptr : Cast<DSkeleton>(ProspectiveSkeletonObject->second);
 			auto* Mesh = Cast<DSkeletalMesh>(Output->Candidate->GetAsset());
-			const Asset::FImportedSkeletalMeshData& Imported =
+			const Standard::FImportedSkeletalMeshData& Imported =
 				Data->Scene.SkeletalMeshes[Descriptor->SourceIndex];
 			if (!FinalSkeleton || !ProspectiveSkeleton || !Mesh
 				|| Imported.SkeletonIndex >= Data->Scene.Skeletons.size())
@@ -1928,14 +1931,14 @@ namespace Durin
 				if (!Slot.DefaultMaterial)
 					return FailPrepared("Scene SkeletalMesh material relationship is invalid.");
 			}
-			const Asset::FImportedSkeletonData& ImportedSkeleton =
+			const Standard::FImportedSkeletonData& ImportedSkeleton =
 				Data->Scene.Skeletons[Imported.SkeletonIndex];
-			AssetBuild::FSkeletalMeshBuildKeyInput KeyInput;
-			static_cast<AssetBuild::FSkeletalBuildKeyFields&>(KeyInput) =
+			Asset::Build::FSkeletalMeshBuildKeyInput KeyInput;
+			static_cast<Asset::Build::FSkeletalBuildKeyFields&>(KeyInput) =
 				MakeDerivedDataKeyInput(
 					Identity, ImportedSkeleton.CompatibilityIdentity, {});
-			AssetBuild::FSkeletalMeshBuildProduct Product;
-			if (!AssetBuild::BuildSkeletalMeshProduct({
+			Asset::Build::FSkeletalMeshBuildProduct Product;
+			if (!Asset::Build::BuildSkeletalMeshProduct({
 					.SkeletonBoneCount = ProspectiveSkeleton->GetBoneCount(),
 					.SkeletonCompatibilityIdentity = ImportedSkeleton.CompatibilityIdentity,
 					.MeshNodeBindTransform = Imported.MeshNodeBindTransform,
@@ -1982,19 +1985,19 @@ namespace Durin
 			auto* ProspectiveSkeleton = ProspectiveSkeletonObject == ProspectiveObjects.end()
 				? nullptr : Cast<DSkeleton>(ProspectiveSkeletonObject->second);
 			auto* Clip = Cast<DAnimationClip>(Output->Candidate->GetAsset());
-			const Asset::FImportedAnimationClipData& Imported =
+			const Standard::FImportedAnimationClipData& Imported =
 				Data->Scene.AnimationClips[Descriptor->SourceIndex];
 			if (!FinalSkeleton || !ProspectiveSkeleton || !Clip
 				|| Imported.SkeletonIndex >= Data->Scene.Skeletons.size())
 				return FailPrepared("Scene AnimationClip Skeleton relationship is invalid.");
-			const Asset::FImportedSkeletonData& ImportedSkeleton =
+			const Standard::FImportedSkeletonData& ImportedSkeleton =
 				Data->Scene.Skeletons[Imported.SkeletonIndex];
-			AssetBuild::FAnimationClipBuildKeyInput KeyInput;
-			static_cast<AssetBuild::FSkeletalBuildKeyFields&>(KeyInput) =
+			Asset::Build::FAnimationClipBuildKeyInput KeyInput;
+			static_cast<Asset::Build::FSkeletalBuildKeyFields&>(KeyInput) =
 				MakeDerivedDataKeyInput(
 					Identity, ImportedSkeleton.CompatibilityIdentity, {});
-			AssetBuild::FAnimationClipBuildProduct Product;
-			if (!AssetBuild::BuildAnimationClipProduct({
+			Asset::Build::FAnimationClipBuildProduct Product;
+			if (!Asset::Build::BuildAnimationClipProduct({
 					.SkeletonBoneCount = ProspectiveSkeleton->GetBoneCount(),
 					.SkeletonCompatibilityIdentity = ImportedSkeleton.CompatibilityIdentity,
 					.ClipName = FName(Imported.SuggestedName),
@@ -2035,10 +2038,10 @@ namespace Durin
 			auto* Mesh = Cast<DStaticMesh>(MeshOutput->Candidate->GetAsset());
 			const FSourceSnapshotEntry* Root =
 				Plan.MultiOutputPlan.GetGenericPlan().GetSnapshot().FindSource("root");
-			AssetBuild::FStaticMeshBuildProduct Product;
+			Asset::Build::FStaticMeshBuildProduct Product;
 			if (!Mesh || !Root
-				|| !AssetBuild::FStaticMeshBuildOperations::BuildImportedProduct(
-					AssetBuild::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(*Mesh),
+				|| !Asset::Build::FStaticMeshBuildOperations::BuildImportedProduct(
+					Asset::Build::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(*Mesh),
 					MakeStaticMeshImportedData(Data->Scene),
 					{
 					.SourcePath = Root->SourcePath,
@@ -2047,7 +2050,7 @@ namespace Durin
 					.ImporterVersion = SceneImportProviderContractVersion,
 					.ImportSettings = Data->MeshSettings},
 					Root->SourcePath.Path, Product, Error)
-				|| !AssetBuild::FStaticMeshBuildOperations::PublishImportedProduct(
+				|| !Asset::Build::FStaticMeshBuildOperations::PublishImportedProduct(
 					*Mesh, std::move(Product), Error))
 			{
 				return FailPrepared(

@@ -79,6 +79,14 @@ gameplay module to [`Sandbox/Source/Runtime/Sandbox`](../../Sandbox/Source/Runti
 | Content Browser | `LevelEditor`, `DurinEd`, `AssetCore` | Asset-type editor/import modules for extensions |
 | importing assets | `AssetImportCore`, `StandardAssetImport` | `AssetBuildCore` for generic mechanics, `TextureBuild` or `GeometryBuild` for typed recipes, plus `AssetCore` and the destination runtime asset type |
 
+Engine public headers are a repository-owned module contract rather than an
+installed external SDK. They must include what they use and resolve through
+Engine's declared public dependencies. Native application/window integration
+is an Engine implementation dependency; consumers needing `ApplicationCore`
+declare it directly. `DMeshComponent` remains the reflected marker superclass
+for mesh-backed primitive components. Render-state recreate contexts are
+Engine-private implementation details and are not part of the public surface.
+
 After selecting modules, prefer targeted symbol searches such as:
 
 ```powershell

@@ -10,7 +10,7 @@
 
 namespace Durin
 {
-	namespace AssetBuild { class FStaticMeshBuildOperations; }
+	namespace Asset::Build { class FStaticMeshBuildOperations; }
 	class DMaterialInterface;
 	class DBodySetup;
 	class FCollisionGeometryRef;
@@ -366,7 +366,7 @@ namespace Durin
 			EStaticMeshRenderResourceState::Uninitialized, 1)};
 
 		friend class FStaticMeshImportedStateExchange;
-		friend class AssetBuild::FStaticMeshBuildOperations;
+		friend class Asset::Build::FStaticMeshBuildOperations;
 	};
 
 	class ENGINE_API FStaticMeshImportedStateExchange

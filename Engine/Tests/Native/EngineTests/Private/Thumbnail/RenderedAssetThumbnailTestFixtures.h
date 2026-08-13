@@ -1,4 +1,5 @@
 #pragma once
+#include "TextureCubeSourceTranslation.h"
 
 #include "AssetSystem.h"
 #include "Asset/AssetRetention.h"
@@ -303,7 +304,7 @@ namespace Durin::Tests
 	) -> bool
 	{
 		InitializeDObjectSystem();
-		if (!RegisterStandardAssetImportProviders(OutError)) return false;
+		if (!Asset::Import::RegisterStandardAssetImportProviders(OutError)) return false;
 		const std::filesystem::path Root = GetRenderedAssetThumbnailFixtureRoot();
 		static std::unordered_map<std::filesystem::path, FRenderedAssetThumbnailFixtureSet> CachedFixtures;
 		if (auto It = CachedFixtures.find(Root); It != CachedFixtures.end())
@@ -363,12 +364,12 @@ namespace Durin::Tests
 		}
 
 		const std::filesystem::path DataRoot = std::filesystem::path(DURIN_TEST_DATA_DIR) / "SkyBoxConvention";
-		const FTexture2DImportResult ParentTextureResult = StandardAssetImport::ImportTexture2DAsset(
+		const FTexture2DImportResult ParentTextureResult = Asset::Import::ImportTexture2DAsset(
 			(DataRoot / "PositiveX.png").generic_string(), ParentTexturePath.ToString());
 		if (!ParentTextureResult) return Fail(ParentTextureResult.Message);
 		OutFixtures.ParentTexture = ParentTextureResult.Asset;
 
-		const FTexture2DImportResult OverrideTextureResult = StandardAssetImport::ImportTexture2DAsset(
+		const FTexture2DImportResult OverrideTextureResult = Asset::Import::ImportTexture2DAsset(
 			(DataRoot / "NegativeX.png").generic_string(), OverrideTexturePath.ToString());
 		if (!OverrideTextureResult) return Fail(OverrideTextureResult.Message);
 		OutFixtures.OverrideTexture = OverrideTextureResult.Asset;
@@ -406,12 +407,12 @@ namespace Durin::Tests
 
 		Result = Asset::CreateAsset(StaticMeshPath, OutFixtures.StaticMesh);
 		if (!Result) return Fail(Result.Message);
-		AssetBuild::FStaticMeshImportedData ImportedMesh;
+		Asset::Build::FStaticMeshImportedData ImportedMesh;
 		ImportedMesh.MaterialSlots.push_back({
 			.Name = "Default",
 			.SourceMaterialIndex = 0,
 			.SourceName = "Default"});
-		AssetBuild::FStaticMeshImportedMesh& Mesh = ImportedMesh.Meshes.emplace_back();
+		Asset::Build::FStaticMeshImportedMesh& Mesh = ImportedMesh.Meshes.emplace_back();
 		Mesh.Name = "ThumbnailTetrahedron";
 		Mesh.Positions = {
 			FVector3f(-0.6f, -0.5f, -0.4f),
@@ -431,7 +432,7 @@ namespace Durin::Tests
 			.ImporterId = "RenderedThumbnailFixture",
 			.ImporterVersion = 1,
 			.ImportSettings = FStaticMeshImportSettings::MakeDurin()};
-		if (!AssetBuild::FStaticMeshBuildOperations::BuildAndPublishImported(
+		if (!Asset::Build::FStaticMeshBuildOperations::BuildAndPublishImported(
 				*OutFixtures.StaticMesh, ImportedMesh,
 				SourceImportData,
 				"Rendered thumbnail StaticMesh fixture",
@@ -449,7 +450,7 @@ namespace Durin::Tests
 		Result = Asset::SavePackage(OutFixtures.InvalidMaterialInstance->GetPackage());
 		if (!Result) return Fail(Result.Message);
 
-		const FTextureCubeImportResult CubeResult = DTextureCube::ImportAsset(
+		const Asset::Import::FTextureCubeImportResult CubeResult = Asset::Import::ImportTextureCubeFaces(
 			GetRenderedThumbnailDirectionalCubeFaces(),
 			FRenderedAssetThumbnailFixtureSet::DirectionalCubePath);
 		if (!CubeResult) return Fail(CubeResult.Message);

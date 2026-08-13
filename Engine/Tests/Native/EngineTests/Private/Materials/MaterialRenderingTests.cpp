@@ -34,12 +34,12 @@ namespace
 	public:
 		~FScopedStandardAssetImportProviders()
 		{
-			if (bRegistered) Durin::UnregisterStandardAssetImportProviders();
+			if (bRegistered) Durin::Asset::Import::UnregisterStandardAssetImportProviders();
 		}
 
 		auto Register(std::string& OutError) -> bool
 		{
-			bRegistered = Durin::RegisterStandardAssetImportProviders(OutError);
+			bRegistered = Durin::Asset::Import::RegisterStandardAssetImportProviders(OutError);
 			return bRegistered;
 		}
 

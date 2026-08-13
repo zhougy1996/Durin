@@ -6,7 +6,7 @@
 #include "Json/Json.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
-#include "Source/SourcePath.h"
+#include "Asset/MountedSource.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture.h"
 #include "Texture/Texture2D.h"
@@ -216,55 +216,56 @@ TEST(FSourcePathContractTests, SharedSourceOperationsClassifyIngestAndRollback)
 	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Mounts);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 
-	Durin::FMountedSourceFile Prepared;
+	Durin::Asset::FMountedSourceFile Prepared;
 	std::string Error;
-	ASSERT_TRUE(Durin::PrepareMountedSourceFile(
+	ASSERT_TRUE(Durin::Asset::PrepareMountedSourceFile(
 		EngineSource, "/Game/Textures/Asset", "/Game/Unused.bin", Prepared, Error)) << Error;
 	EXPECT_EQ(Prepared.SourcePath.Path, "/Engine/Textures/Shared.bin");
-	EXPECT_EQ(Prepared.Disposition, Durin::ESourceFileDisposition::ReferenceExisting);
+	EXPECT_EQ(Prepared.Disposition, Durin::Asset::ESourceFileDisposition::ReferenceExisting);
 	EXPECT_FALSE(Prepared.bCreatedFile);
 	EXPECT_FALSE(std::filesystem::exists(Root / "Game" / "Content" / "Unused.bin"));
 
-	ASSERT_TRUE(Durin::PrepareMountedSourceFile(
+	ASSERT_TRUE(Durin::Asset::PrepareMountedSourceFile(
 		ExternalSource, "/Game/Textures/Asset", "/Game/Textures/Ingested.bin",
 		Prepared, Error)) << Error;
 	EXPECT_EQ(Prepared.SourcePath.Path, "/Game/Textures/Ingested.bin");
-	EXPECT_EQ(Prepared.Disposition, Durin::ESourceFileDisposition::IngestedExternal);
+	EXPECT_EQ(Prepared.Disposition, Durin::Asset::ESourceFileDisposition::IngestedExternal);
 	ASSERT_TRUE(std::filesystem::is_regular_file(Prepared.PhysicalPath));
-	Durin::RollbackMountedSourceFile(Prepared);
+	Durin::Asset::RollbackMountedSourceFile(Prepared);
 	EXPECT_FALSE(std::filesystem::exists(
 		Root / "Game" / "Content" / "Textures" / "Ingested.bin"));
 
-	ASSERT_TRUE(Durin::PrepareMountedSourceFile(
+	ASSERT_TRUE(Durin::Asset::PrepareMountedSourceFile(
 		ExternalSource, "/Game/Textures/Asset", "/Game/Textures/Ingested.bin",
 		Prepared, Error)) << Error;
-	Durin::CommitMountedSourceFile(Prepared);
-	ASSERT_TRUE(Durin::PrepareMountedSourceFile(
+	Durin::Asset::CommitMountedSourceFile(Prepared);
+	ASSERT_TRUE(Durin::Asset::PrepareMountedSourceFile(
 		ExternalSource, "/Game/Textures/Other", "/Game/Textures/Ingested.bin",
 		Prepared, Error)) << Error;
-	EXPECT_EQ(Prepared.Disposition, Durin::ESourceFileDisposition::ReusedIdentical);
+	EXPECT_EQ(Prepared.Disposition, Durin::Asset::ESourceFileDisposition::ReusedIdentical);
 
-	EXPECT_FALSE(Durin::PrepareMountedSourceFile(
+	EXPECT_FALSE(Durin::Asset::PrepareMountedSourceFile(
 		ExternalSource, "/Engine/Models/Asset", "/Engine/Models/Ingested.bin",
 		Prepared, Error));
-	ASSERT_TRUE(Durin::PrepareMountedSourceFile(
+	ASSERT_TRUE(Durin::Asset::PrepareMountedSourceFile(
 		ExternalSource, "/Engine/Models/Asset", "/Engine/Models/Ingested.bin",
-		Prepared, Error, true)) << Error;
+		Prepared, Error,
+		Durin::Asset::EMountedSourceMutationContext::EngineAuthoring)) << Error;
 	EXPECT_EQ(Prepared.SourcePath.Path, "/Engine/Models/Ingested.bin");
-	EXPECT_EQ(Prepared.Disposition, Durin::ESourceFileDisposition::IngestedExternal);
-	Durin::RollbackMountedSourceFile(Prepared);
+	EXPECT_EQ(Prepared.Disposition, Durin::Asset::ESourceFileDisposition::IngestedExternal);
+	Durin::Asset::RollbackMountedSourceFile(Prepared);
 	EXPECT_FALSE(std::filesystem::exists(
 		Root / "Engine" / "Content" / "Models" / "Ingested.bin"));
 
-	Durin::FMountedSourceReplacement Replacement;
-	EXPECT_FALSE(Durin::PrepareMountedSourceReplacement(
+	Durin::Asset::FMountedSourceReplacement Replacement;
+	EXPECT_FALSE(Durin::Asset::PrepareMountedSourceReplacement(
 		ExternalSource, "/Game/Textures/Asset", "/Engine/Textures/Shared.bin",
 		Replacement, Error));
-	ASSERT_TRUE(Durin::PrepareMountedSourceReplacement(
+	ASSERT_TRUE(Durin::Asset::PrepareMountedSourceReplacement(
 		EngineSource, "/Game/Textures/Asset", "/Game/Textures/Ingested.bin",
 		Replacement, Error)) << Error;
 	EXPECT_TRUE(Replacement.bPublished);
-	Durin::RollbackMountedSourceReplacement(Replacement);
+	Durin::Asset::RollbackMountedSourceReplacement(Replacement);
 	std::ifstream Restored(
 		Root / "Game" / "Content" / "Textures" / "Ingested.bin",
 		std::ios::binary);

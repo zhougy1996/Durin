@@ -6,7 +6,7 @@
 #include <assimp/matrix3x3.h>
 #include <assimp/scene.h>
 
-namespace Durin::Asset::Private
+namespace Durin::Asset::Import::Standard::Private
 {
 	constexpr float TransformDeterminantTolerance = 1.0e-8f;
 
@@ -81,7 +81,7 @@ namespace Durin::Asset::Private
 		for (unsigned int VertexIndex = 0; VertexIndex < Mesh.mNumVertices; ++VertexIndex)
 		{
 			if ((VertexIndex & 0xfffu) == 0
-				&& AssetImport::IsImportCancellationRequested())
+				&& IsImportCancellationRequested())
 			{
 				OutError = "Scene geometry decoding was canceled.";
 				return false;
@@ -142,7 +142,7 @@ namespace Durin::Asset::Private
 		for (unsigned int FaceIndex = 0; FaceIndex < Mesh.mNumFaces; ++FaceIndex)
 		{
 			if ((FaceIndex & 0xfffu) == 0
-				&& AssetImport::IsImportCancellationRequested())
+				&& IsImportCancellationRequested())
 			{
 				OutError = "Scene geometry decoding was canceled.";
 				return false;
@@ -176,7 +176,7 @@ namespace Durin::Asset::Private
 		FImportedSceneData& OutScene,
 		std::string& OutError) -> bool
 	{
-		if (AssetImport::IsImportCancellationRequested())
+		if (IsImportCancellationRequested())
 		{
 			OutError = "Scene geometry decoding was canceled.";
 			return false;

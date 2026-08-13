@@ -1,11 +1,11 @@
-#include "Source/SourcePath.h"
+#include "Asset/MountedSource.h"
 
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 
 #include <fstream>
 
-namespace Durin
+namespace Durin::Asset
 {
 	namespace
 	{
@@ -113,7 +113,7 @@ namespace Durin
 		std::string_view ExternalIngestDestination,
 		FMountedSourceFile& OutSource,
 		std::string& OutError,
-		bool bEngineAuthoringContext) -> bool
+		EMountedSourceMutationContext MutationContext) -> bool
 	{
 		OutSource = {};
 		std::error_code Error;
@@ -154,7 +154,7 @@ namespace Durin
 		const PathUtilities::FMountPolicyResult Mutation =
 			PathUtilities::CheckAuthoringMutation(
 				ReferencingAssetPath, Destination.NormalizedVirtualPath,
-				bEngineAuthoringContext);
+				MutationContext == EMountedSourceMutationContext::EngineAuthoring);
 		if (!Mutation)
 		{
 			OutError = Mutation.Message;
@@ -315,7 +315,7 @@ namespace Durin
 		std::string_view SourceVirtualPath,
 		FMountedSourceReplacement& OutReplacement,
 		std::string& OutError,
-		bool bEngineAuthoringContext) -> bool
+		EMountedSourceMutationContext MutationContext) -> bool
 	{
 		OutReplacement = {};
 		std::error_code Error;
@@ -338,7 +338,8 @@ namespace Durin
 		}
 		const PathUtilities::FMountPolicyResult Mutation =
 			PathUtilities::CheckAuthoringMutation(
-				AuthoringAssetPath, Target.NormalizedVirtualPath, bEngineAuthoringContext);
+				AuthoringAssetPath, Target.NormalizedVirtualPath,
+				MutationContext == EMountedSourceMutationContext::EngineAuthoring);
 		if (!Mutation)
 		{
 			OutError = Mutation.Message;
@@ -427,7 +428,7 @@ namespace Durin
 		std::string_view DestinationSourceVirtualPath,
 		FMountedSourceRelocation& OutRelocation,
 		std::string& OutError,
-		bool bEngineAuthoringContext) -> bool
+		EMountedSourceMutationContext MutationContext) -> bool
 	{
 		OutRelocation = {};
 		const PathUtilities::FSourcePathResult Original =
@@ -456,7 +457,7 @@ namespace Durin
 		const PathUtilities::FMountPolicyResult OriginalMutation =
 			PathUtilities::CheckAuthoringMutation(
 				AuthoringAssetPath, Original.NormalizedVirtualPath,
-				bEngineAuthoringContext);
+				MutationContext == EMountedSourceMutationContext::EngineAuthoring);
 		if (!OriginalMutation)
 		{
 			OutError = OriginalMutation.Message;
@@ -465,7 +466,7 @@ namespace Durin
 		const PathUtilities::FMountPolicyResult DestinationMutation =
 			PathUtilities::CheckAuthoringMutation(
 				AuthoringAssetPath, Destination.NormalizedVirtualPath,
-				bEngineAuthoringContext);
+				MutationContext == EMountedSourceMutationContext::EngineAuthoring);
 		if (!DestinationMutation)
 		{
 			OutError = DestinationMutation.Message;

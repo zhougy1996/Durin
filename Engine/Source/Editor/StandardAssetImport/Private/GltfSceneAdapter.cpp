@@ -3,7 +3,7 @@
 
 #include "Json/Json.h"
 
-namespace Durin::Asset::Private
+namespace Durin::Asset::Import::Standard::Private
 {
 	constexpr uint32 GlbMagic = 0x46546C67;
 	constexpr uint32 GlbJsonChunk = 0x4E4F534A;
@@ -439,7 +439,7 @@ namespace Durin::Asset::Private
 		const FJsonNodeView RequiredNode = Root.GetView("extensionsRequired");
 		if (RequiredNode.IsValid() && !RequiredNode.IsArray())
 		{
-			return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 				"extensionsRequired", "glTF extensionsRequired must be an array.");
 		}
 		for (size_t Index = 0; Index < RequiredNode.Num(); ++Index)
@@ -448,7 +448,7 @@ namespace Durin::Asset::Private
 			const FJsonNodeView ExtensionNode = RequiredNode.GetView(Index);
 			if (!ExtensionNode.IsString())
 			{
-				return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+				return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 					"extensionsRequired", "glTF extensionsRequired contains a non-string value.");
 			}
 			const std::string Extension = ExtensionNode.GetString();
@@ -457,15 +457,15 @@ namespace Durin::Asset::Private
 			{
 				return FailImport(Result,
 					bSkeletalDocument
-						? EImportDiagnosticCategory::UnsupportedFeature
-						: EImportDiagnosticCategory::UnsupportedRequiredExtension,
+						? ESceneImportDiagnosticCategory::UnsupportedFeature
+						: ESceneImportDiagnosticCategory::UnsupportedRequiredExtension,
 					Extension, std::format("Required glTF extension '{}' is unsupported.", Extension));
 			}
 		}
 		const FJsonNodeView UsedNode = Root.GetView("extensionsUsed");
 		if (UsedNode.IsValid() && !UsedNode.IsArray())
 		{
-			return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 				"extensionsUsed", "glTF extensionsUsed must be an array.");
 		}
 		for (size_t Index = 0; Index < UsedNode.Num(); ++Index)
@@ -474,18 +474,18 @@ namespace Durin::Asset::Private
 			const FJsonNodeView ExtensionNode = UsedNode.GetView(Index);
 			if (!ExtensionNode.IsString())
 			{
-				return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+				return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 					"extensionsUsed", "glTF extensionsUsed contains a non-string value.");
 			}
 			const std::string Extension = ExtensionNode.GetString();
 			if (!IsSupportedGltfExtension(Extension) && !Required.contains(Extension))
 			{
 				if (!AddDiagnostic(Result.Scene, EImportDiagnosticSeverity::Warning,
-					EImportDiagnosticCategory::UnsupportedOptionalExtension,
+					ESceneImportDiagnosticCategory::UnsupportedOptionalExtension,
 					"root", Extension,
 					std::format("Optional glTF extension '{}' is unsupported; core fallback is used.", Extension)))
 				{
-					return FailImport(Result, EImportDiagnosticCategory::ResourceLimitExceeded,
+					return FailImport(Result, ESceneImportDiagnosticCategory::ResourceLimitExceeded,
 						"diagnostics", "Import diagnostic limit exceeded.");
 				}
 			}
@@ -503,7 +503,7 @@ namespace Durin::Asset::Private
 		const FJsonNodeView Buffers = Root.GetView("buffers");
 		if (Buffers.IsValid() && !Buffers.IsArray())
 		{
-			return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 				"buffers", "glTF buffers must be an array.");
 		}
 		Source.Buffers.resize(Buffers.Num());
@@ -515,7 +515,7 @@ namespace Durin::Asset::Private
 			if (!Buffer.IsObject() || DeclaredLength == std::numeric_limits<uint64>::max() ||
 				DeclaredLength > MaxImportedSceneSourceBytes)
 			{
-				return FailImport(Result, EImportDiagnosticCategory::ResourceLimitExceeded,
+				return FailImport(Result, ESceneImportDiagnosticCategory::ResourceLimitExceeded,
 					std::format("buffer:{}", Index), "glTF buffer byte length is invalid or exceeds the limit.");
 			}
 			const FJsonNodeView UriNode = Buffer.GetView("uri");
@@ -524,14 +524,14 @@ namespace Durin::Asset::Private
 			{
 				if (Index != 0 || Source.GlbBinaryChunkBytes.empty())
 				{
-					return FailImport(Result, EImportDiagnosticCategory::InvalidReference,
+					return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
 						std::format("buffer:{}", Index), "glTF buffer has no URI or GLB binary chunk.");
 				}
 				Bytes = Source.GlbBinaryChunkBytes;
 			}
 			else if (!UriNode.IsString())
 			{
-				return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+				return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 					std::format("buffer:{}", Index), "glTF buffer URI must be a string.");
 			}
 			else
@@ -542,7 +542,7 @@ namespace Durin::Asset::Private
 					std::string MimeType;
 					if (!DecodeDataUri(Uri, MaxImportedSceneSourceBytes, MimeType, Bytes))
 					{
-						return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+						return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 							std::format("buffer:{}", Index), "glTF buffer data URI is invalid.");
 					}
 				}
@@ -552,27 +552,27 @@ namespace Durin::Asset::Private
 					std::string NormalizedUri;
 					if (!ResolveDependencyPath(RootPath, Uri, DependencyPath, NormalizedUri))
 					{
-						return FailImport(Result, EImportDiagnosticCategory::UnsafeDependencyPath,
+						return FailImport(Result, ESceneImportDiagnosticCategory::UnsafeDependencyPath,
 							Uri, std::format("glTF buffer URI '{}' escapes the source directory.", Uri));
 					}
 					std::string Error;
 					if (!ReadFileBytes(DependencyPath, MaxImportedSceneSourceBytes, Bytes, Error))
 					{
-						return FailImport(Result, EImportDiagnosticCategory::MissingDependency,
+						return FailImport(Result, ESceneImportDiagnosticCategory::MissingDependency,
 							NormalizedUri, Error);
 					}
 					if (!AppendDependency(Result.Scene, EImportedDependencyRole::GeometryBuffer,
 						std::format("buffer:{}", NormalizedUri),
 						MakeDependencySourcePath(RootSourcePath, NormalizedUri), Bytes))
 					{
-						return FailImport(Result, EImportDiagnosticCategory::ResourceLimitExceeded,
+						return FailImport(Result, ESceneImportDiagnosticCategory::ResourceLimitExceeded,
 							"dependencies", "Imported dependency count exceeds the limit.");
 					}
 				}
 			}
 			if (Bytes.size() < DeclaredLength)
 			{
-				return FailImport(Result, EImportDiagnosticCategory::InvalidReference,
+				return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
 					std::format("buffer:{}", Index), "glTF buffer is shorter than its declared byte length.");
 			}
 		}
@@ -608,12 +608,12 @@ namespace Durin::Asset::Private
 		const FJsonNodeView Images = Root.GetView("images");
 		if (Images.IsValid() && !Images.IsArray())
 		{
-			return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 				"images", "glTF images must be an array.");
 		}
 		if (Images.Num() > MaxImportedImages)
 		{
-			return FailImport(Result, EImportDiagnosticCategory::ResourceLimitExceeded,
+			return FailImport(Result, ESceneImportDiagnosticCategory::ResourceLimitExceeded,
 				"images", "Imported image count exceeds the limit.");
 		}
 		uint64 EmbeddedByteCount = 0;
@@ -626,7 +626,7 @@ namespace Durin::Asset::Private
 			const FJsonNodeView Image = Images.GetView(Index);
 			if (!Image.IsObject())
 			{
-				return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+				return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 					std::format("image:{}", Index), "glTF image entry must be an object.");
 			}
 			FImportedImage Imported;
@@ -639,7 +639,7 @@ namespace Durin::Asset::Private
 			{
 				if (!UriNode.IsString())
 				{
-					return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+					return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 						std::format("image:{}", Index), "glTF image URI must be a string.");
 				}
 				const std::string Uri = UriNode.GetString();
@@ -650,7 +650,7 @@ namespace Durin::Asset::Private
 					if (!DecodeDataUri(Uri, MaxImportedImageEncodedBytes, DataMime, OwnedBytes) ||
 						(!DeclaredMime.empty() && DeclaredMime != DataMime))
 					{
-						return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+						return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 							std::format("image:{}", Index), "glTF image data URI or declared MIME type is invalid.");
 					}
 					EffectiveMime = std::move(DataMime);
@@ -663,13 +663,13 @@ namespace Durin::Asset::Private
 					std::string NormalizedUri;
 					if (!ResolveDependencyPath(RootPath, Uri, DependencyPath, NormalizedUri))
 					{
-						return FailImport(Result, EImportDiagnosticCategory::UnsafeDependencyPath,
+						return FailImport(Result, ESceneImportDiagnosticCategory::UnsafeDependencyPath,
 							Uri, std::format("glTF image URI '{}' escapes the source directory.", Uri));
 					}
 					Imported.StableIdentity = std::format("external:{}", NormalizedUri);
 					if (!ResolveImageEncoding(EffectiveMime, NormalizedUri, Imported.Encoding))
 					{
-						return FailImport(Result, EImportDiagnosticCategory::UnsupportedEncoding,
+						return FailImport(Result, ESceneImportDiagnosticCategory::UnsupportedEncoding,
 							NormalizedUri, "External image MIME type and extension are unsupported or disagree.");
 					}
 					if (const auto Existing = ImportedImageIndices.find(Imported.StableIdentity);
@@ -681,7 +681,7 @@ namespace Durin::Asset::Private
 					std::string Error;
 					if (!ReadFileBytes(DependencyPath, MaxImportedImageEncodedBytes, OwnedBytes, Error))
 					{
-						return FailImport(Result, EImportDiagnosticCategory::MissingDependency,
+						return FailImport(Result, ESceneImportDiagnosticCategory::MissingDependency,
 							NormalizedUri, Error);
 					}
 					uint32 DependencyIndex = 0;
@@ -689,7 +689,7 @@ namespace Durin::Asset::Private
 						std::format("image:{}", NormalizedUri),
 						MakeDependencySourcePath(RootSourcePath, NormalizedUri), OwnedBytes, &DependencyIndex))
 					{
-						return FailImport(Result, EImportDiagnosticCategory::ResourceLimitExceeded,
+						return FailImport(Result, ESceneImportDiagnosticCategory::ResourceLimitExceeded,
 							"dependencies", "Imported dependency count exceeds the limit.");
 					}
 					Imported.ExternalDependencyIndex = DependencyIndex;
@@ -698,7 +698,7 @@ namespace Durin::Asset::Private
 				if (!Imported.ExternalDependencyIndex.has_value() &&
 					!ResolveImageEncoding(EffectiveMime, Uri, Imported.Encoding))
 				{
-					return FailImport(Result, EImportDiagnosticCategory::UnsupportedEncoding,
+					return FailImport(Result, ESceneImportDiagnosticCategory::UnsupportedEncoding,
 						Imported.StableIdentity, "Embedded image encoding is unsupported.");
 				}
 			}
@@ -708,12 +708,12 @@ namespace Durin::Asset::Private
 				if (BufferViewIndex > std::numeric_limits<uint32>::max() ||
 					!GetBufferViewBytes(Root, Source, static_cast<uint32>(BufferViewIndex), EncodedBytes))
 				{
-					return FailImport(Result, EImportDiagnosticCategory::InvalidReference,
+					return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
 						std::format("image:{}", Index), "glTF image buffer view is invalid.");
 				}
 				if (!ResolveImageEncoding(DeclaredMime, {}, Imported.Encoding))
 				{
-					return FailImport(Result, EImportDiagnosticCategory::UnsupportedEncoding,
+					return FailImport(Result, ESceneImportDiagnosticCategory::UnsupportedEncoding,
 						std::format("image:{}", Index), "Buffer-view image MIME type is unsupported.");
 				}
 				Imported.StableIdentity = std::format("glb-buffer-view:{}", BufferViewIndex);
@@ -722,7 +722,7 @@ namespace Durin::Asset::Private
 				{
 					if (Result.Scene.Images[Existing->second].Encoding != Imported.Encoding)
 					{
-						return FailImport(Result, EImportDiagnosticCategory::UnsupportedEncoding,
+						return FailImport(Result, ESceneImportDiagnosticCategory::UnsupportedEncoding,
 							Imported.StableIdentity, "Repeated buffer-view image MIME types disagree.");
 					}
 					Source.ImageIndices[Index] = Existing->second;
@@ -733,7 +733,7 @@ namespace Durin::Asset::Private
 			std::string ImageError;
 			if (!ValidateImageBytes(Imported.Encoding, EncodedBytes, ImageError))
 			{
-				return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+				return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 					Imported.StableIdentity, ImageError);
 			}
 			Imported.EncodedByteCount = EncodedBytes.size();
@@ -742,7 +742,7 @@ namespace Durin::Asset::Private
 				EmbeddedByteCount += Imported.EncodedByteCount;
 				if (EmbeddedByteCount > MaxImportedEmbeddedImageBytes)
 				{
-					return FailImport(Result, EImportDiagnosticCategory::ResourceLimitExceeded,
+					return FailImport(Result, ESceneImportDiagnosticCategory::ResourceLimitExceeded,
 						"embedded-images", "Embedded image bytes exceed the aggregate limit.");
 				}
 				Imported.EmbeddedEncodedBytes = std::move(OwnedBytes);
@@ -793,14 +793,14 @@ namespace Durin::Asset::Private
 	{
 		if (!TextureInfo.IsObject())
 		{
-			return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 				std::string(Subject), "glTF texture info must be an object.");
 		}
 		const uint64 TextureIndex = TextureInfo.GetView("index").GetUInt(std::numeric_limits<uint64>::max());
 		const FJsonNodeView Textures = Root.GetView("textures");
 		if (!Textures.IsArray() || TextureIndex >= Textures.Num())
 		{
-			return FailImport(Result, EImportDiagnosticCategory::InvalidReference,
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
 				std::string(Subject), "glTF texture index is invalid.");
 		}
 		const FJsonNodeView Texture = Textures.GetView(static_cast<size_t>(TextureIndex));
@@ -808,7 +808,7 @@ namespace Durin::Asset::Private
 		if (ImageIndex >= SourceImageIndices.size() ||
 			SourceImageIndices[static_cast<size_t>(ImageIndex)] >= Result.Scene.Images.size())
 		{
-			return FailImport(Result, EImportDiagnosticCategory::InvalidReference,
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
 				std::string(Subject), "glTF texture source image index is invalid.");
 		}
 		OutBinding.Semantic = Semantic;
@@ -817,7 +817,7 @@ namespace Durin::Asset::Private
 		const uint64 UVChannel = TextureInfo.GetView("texCoord").GetUInt(0);
 		if (UVChannel >= MaxImportedUVChannels)
 		{
-			return FailImport(Result, EImportDiagnosticCategory::InvalidReference,
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
 				std::string(Subject), "glTF texture UV channel exceeds the imported UV limit.");
 		}
 		OutBinding.UVChannel = static_cast<uint32>(UVChannel);
@@ -831,7 +831,7 @@ namespace Durin::Asset::Private
 				!ReadFiniteVector(Transform, "scale", OutBinding.Scale) ||
 				!ReadFiniteFloat(Transform, "rotation", 0.0f, OutBinding.RotationRadians))
 			{
-				return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+				return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 					std::string(Subject), "KHR_texture_transform contains an invalid value.");
 			}
 			if (Transform.Contains("texCoord"))
@@ -840,7 +840,7 @@ namespace Durin::Asset::Private
 					std::numeric_limits<uint64>::max());
 				if (TransformedUVChannel >= MaxImportedUVChannels)
 				{
-					return FailImport(Result, EImportDiagnosticCategory::InvalidReference,
+					return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
 						std::string(Subject), "KHR_texture_transform UV channel is invalid.");
 				}
 				OutBinding.UVChannel = static_cast<uint32>(TransformedUVChannel);
@@ -854,37 +854,37 @@ namespace Durin::Asset::Private
 			const uint64 SamplerIndex = SamplerIndexNode.GetUInt(std::numeric_limits<uint64>::max());
 			if (!Samplers.IsArray() || SamplerIndex >= Samplers.Num())
 			{
-				return FailImport(Result, EImportDiagnosticCategory::InvalidReference,
+				return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
 					std::string(Subject), "glTF sampler index is invalid.");
 			}
 			const FJsonNodeView Sampler = Samplers.GetView(static_cast<size_t>(SamplerIndex));
 			if (!Sampler.IsObject())
 			{
-				return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+				return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 					std::string(Subject), "glTF sampler must be an object.");
 			}
 			if (Sampler.Contains("minFilter") &&
 				!ParseSamplerFilter(Sampler.GetView("minFilter").GetInt(-1), true, OutBinding.Sampler.MinFilter))
 			{
-				return FailImport(Result, EImportDiagnosticCategory::UnsupportedSampler,
+				return FailImport(Result, ESceneImportDiagnosticCategory::UnsupportedSampler,
 					std::string(Subject), "glTF minification filter is unsupported.");
 			}
 			if (Sampler.Contains("magFilter") &&
 				!ParseSamplerFilter(Sampler.GetView("magFilter").GetInt(-1), false, OutBinding.Sampler.MagFilter))
 			{
-				return FailImport(Result, EImportDiagnosticCategory::UnsupportedSampler,
+				return FailImport(Result, ESceneImportDiagnosticCategory::UnsupportedSampler,
 					std::string(Subject), "glTF magnification filter is unsupported.");
 			}
 			if (Sampler.Contains("wrapS") &&
 				!ParseSamplerWrap(Sampler.GetView("wrapS").GetInt(-1), OutBinding.Sampler.WrapU))
 			{
-				return FailImport(Result, EImportDiagnosticCategory::UnsupportedSampler,
+				return FailImport(Result, ESceneImportDiagnosticCategory::UnsupportedSampler,
 					std::string(Subject), "glTF U wrapping mode is unsupported.");
 			}
 			if (Sampler.Contains("wrapT") &&
 				!ParseSamplerWrap(Sampler.GetView("wrapT").GetInt(-1), OutBinding.Sampler.WrapV))
 			{
-				return FailImport(Result, EImportDiagnosticCategory::UnsupportedSampler,
+				return FailImport(Result, ESceneImportDiagnosticCategory::UnsupportedSampler,
 					std::string(Subject), "glTF V wrapping mode is unsupported.");
 			}
 		}
@@ -904,7 +904,7 @@ namespace Durin::Asset::Private
 		if (!TextureInfo.IsValid()) return true;
 		if (Material.TextureBindings.size() >= MaxImportedTextureBindingsPerMaterial)
 		{
-			return FailImport(Result, EImportDiagnosticCategory::ResourceLimitExceeded,
+			return FailImport(Result, ESceneImportDiagnosticCategory::ResourceLimitExceeded,
 				std::string(Subject), "Material texture binding count exceeds the limit.");
 		}
 		FImportedTextureBinding Binding;
@@ -923,12 +923,12 @@ namespace Durin::Asset::Private
 		const FJsonNodeView Materials = Root.GetView("materials");
 		if (Materials.IsValid() && !Materials.IsArray())
 		{
-			return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 				"materials", "glTF materials must be an array.");
 		}
 		if (Materials.Num() > MaxImportedSourceMaterials)
 		{
-			return FailImport(Result, EImportDiagnosticCategory::ResourceLimitExceeded,
+			return FailImport(Result, ESceneImportDiagnosticCategory::ResourceLimitExceeded,
 				"materials", "Source material count exceeds the limit.");
 		}
 		Result.Scene.Materials.reserve(Materials.Num());
@@ -938,7 +938,7 @@ namespace Durin::Asset::Private
 			const FJsonNodeView MaterialNode = Materials.GetView(Index);
 			if (!MaterialNode.IsObject())
 			{
-				return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+				return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 					std::format("material:{}", Index), "glTF material must be an object.");
 			}
 			FImportedMaterial Material;
@@ -947,7 +947,7 @@ namespace Durin::Asset::Private
 			const FJsonNodeView Pbr = MaterialNode.GetView("pbrMetallicRoughness");
 			if (Pbr.IsValid() && !Pbr.IsObject())
 			{
-				return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+				return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 					std::format("material:{}", Index), "pbrMetallicRoughness must be an object.");
 			}
 			if (!ReadFiniteVector(Pbr, "baseColorFactor", Material.BaseColorFactor) ||
@@ -956,7 +956,7 @@ namespace Durin::Asset::Private
 				!ReadFiniteVector(MaterialNode, "emissiveFactor", Material.EmissiveFactor) ||
 				!ReadFiniteFloat(MaterialNode, "alphaCutoff", 0.5f, Material.AlphaCutoff))
 			{
-				return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+				return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 					std::format("material:{}", Index), "glTF material contains a non-finite or malformed factor.");
 			}
 			const std::string AlphaMode = MaterialNode.GetView("alphaMode").GetString("OPAQUE");
@@ -965,7 +965,7 @@ namespace Durin::Asset::Private
 			else if (AlphaMode == "BLEND") Material.AlphaMode = EImportedAlphaMode::Blend;
 			else
 			{
-				return FailImport(Result, EImportDiagnosticCategory::UnsupportedAlphaMode,
+				return FailImport(Result, ESceneImportDiagnosticCategory::UnsupportedAlphaMode,
 					std::format("material:{}", Index), std::format("glTF alpha mode '{}' is unsupported.", AlphaMode));
 			}
 			Material.bDoubleSided = MaterialNode.GetView("doubleSided").GetBool(false);
@@ -975,7 +975,7 @@ namespace Durin::Asset::Private
 			if (!ReadFiniteFloat(MaterialNode.GetView("normalTexture"), "scale", 1.0f, NormalScale) ||
 				!ReadFiniteFloat(MaterialNode.GetView("occlusionTexture"), "strength", 1.0f, OcclusionStrength))
 			{
-				return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+				return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 					std::format("material:{}", Index), "glTF texture strength is non-finite.");
 			}
 			if (!AddGltfBinding(Root, SourceImageIndices,
@@ -1009,13 +1009,13 @@ namespace Durin::Asset::Private
 	{
 		if (MeshIndex >= Meshes.Num())
 		{
-			return FailImport(Result, EImportDiagnosticCategory::InvalidReference,
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
 				std::format("mesh:{}", MeshIndex), "glTF node references an invalid mesh index.");
 		}
 		const FJsonNodeView Primitives = Meshes.GetView(MeshIndex).GetView("primitives");
 		if (!Primitives.IsArray())
 		{
-			return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 				std::format("mesh:{}", MeshIndex), "glTF mesh primitives must be an array.");
 		}
 		for (size_t PrimitiveIndex = 0; PrimitiveIndex < Primitives.Num(); ++PrimitiveIndex)
@@ -1029,7 +1029,7 @@ namespace Durin::Asset::Private
 				{
 					if (Result.Scene.Materials.size() >= MaxImportedSourceMaterials)
 					{
-						return FailImport(Result, EImportDiagnosticCategory::ResourceLimitExceeded,
+						return FailImport(Result, ESceneImportDiagnosticCategory::ResourceLimitExceeded,
 							"materials", "The implicit glTF default material exceeds the material limit.");
 					}
 					Result.DefaultGltfMaterialIndex = static_cast<uint32>(Result.Scene.Materials.size());
@@ -1041,13 +1041,13 @@ namespace Durin::Asset::Private
 			}
 			else if (!Material.GetValue(MaterialIndex))
 			{
-				return FailImport(Result, EImportDiagnosticCategory::InvalidReference,
+				return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
 					std::format("mesh:{}:primitive:{}", MeshIndex, PrimitiveIndex),
 					"glTF primitive material index is invalid.");
 			}
 			if (MaterialIndex >= Result.Scene.Materials.size())
 			{
-				return FailImport(Result, EImportDiagnosticCategory::InvalidReference,
+				return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
 					std::format("mesh:{}:primitive:{}", MeshIndex, PrimitiveIndex),
 					"glTF primitive material index is invalid.");
 			}
@@ -1067,12 +1067,12 @@ namespace Durin::Asset::Private
 	{
 		if (NodeIndex >= Nodes.Num())
 		{
-			return FailImport(Result, EImportDiagnosticCategory::InvalidReference,
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
 				std::format("node:{}", NodeIndex), "glTF scene references an invalid node index.");
 		}
 		if (NodeStates[NodeIndex] == 1)
 		{
-			return FailImport(Result, EImportDiagnosticCategory::InvalidReference,
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
 				std::format("node:{}", NodeIndex), "glTF node hierarchy contains a cycle.");
 		}
 		if (NodeStates[NodeIndex] == 2) return true;
@@ -1081,7 +1081,7 @@ namespace Durin::Asset::Private
 		const FJsonNodeView Node = Nodes.GetView(NodeIndex);
 		if (!Node.IsObject())
 		{
-			return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 				std::format("node:{}", NodeIndex), "glTF node must be an object.");
 		}
 		const FJsonNodeView Mesh = Node.GetView("mesh");
@@ -1090,7 +1090,7 @@ namespace Durin::Asset::Private
 			uint64 MeshIndex = 0;
 			if (!Mesh.GetValue(MeshIndex) || MeshIndex >= SeenMeshes.size())
 			{
-				return FailImport(Result, EImportDiagnosticCategory::InvalidReference,
+				return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
 					std::format("node:{}", NodeIndex), "glTF node mesh index is invalid.");
 			}
 			if (!SeenMeshes[MeshIndex])
@@ -1107,7 +1107,7 @@ namespace Durin::Asset::Private
 		const FJsonNodeView Children = Node.GetView("children");
 		if (Children.IsValid() && !Children.IsArray())
 		{
-			return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 				std::format("node:{}", NodeIndex), "glTF node children must be an array.");
 		}
 		for (size_t ChildIndex = 0; ChildIndex < Children.Num(); ++ChildIndex)
@@ -1136,19 +1136,19 @@ namespace Durin::Asset::Private
 		const FJsonNodeView Scenes = Root.GetView("scenes");
 		if (!Meshes.IsArray() || !Nodes.IsArray() || !Scenes.IsArray())
 		{
-			return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 				"root", "glTF meshes, nodes, and scenes must be arrays.");
 		}
 		const uint64 SceneIndex = Root.GetView("scene").GetUInt(0);
 		if (SceneIndex >= Scenes.Num())
 		{
-			return FailImport(Result, EImportDiagnosticCategory::InvalidReference,
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
 				"scene", "glTF default scene index is invalid.");
 		}
 		const FJsonNodeView RootNodes = Scenes.GetView(SceneIndex).GetView("nodes");
 		if (!RootNodes.IsArray())
 		{
-			return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 				std::format("scene:{}", SceneIndex), "glTF scene nodes must be an array.");
 		}
 
@@ -1181,7 +1181,7 @@ namespace Durin::Asset::Private
 		FGltfSource Source;
 		std::string Error;
 		if (!LoadGltfDocument(RootBytes, bGlb, Source, Error))
-			return FailImport(Result, EImportDiagnosticCategory::InvalidValue, "root", Error);
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue, "root", Error);
 		const FJsonNodeView Root = Source.Document.GetRootView();
 		if (!(ValidateGltfExtensions(Root, Result) &&
 			LoadGltfBuffers(Root, RootPath, RootSourcePath, Source, Result) &&

@@ -13,7 +13,7 @@
 #include <limits>
 #include <unordered_map>
 
-namespace Durin::AssetBuild
+namespace Durin::Asset::Build
 {
 	namespace
 	{

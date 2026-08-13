@@ -13,14 +13,14 @@ namespace
 			InitializeDObjectSystem();
 			ASSERT_TRUE(EnsureTextureBuildHost());
 			std::string Error;
-			ASSERT_TRUE(Durin::RegisterStandardAssetImportProviders(Error)) << Error;
+			ASSERT_TRUE(Durin::Asset::Import::RegisterStandardAssetImportProviders(Error)) << Error;
 		}
 
 		auto TearDown() -> void override
 		{
-			Durin::UnregisterStandardAssetImportProviders();
-			Durin::AssetBuild::ShutdownBuildHost();
-			Durin::AssetBuild::ShutdownTextureBuildService();
+			Durin::Asset::Import::UnregisterStandardAssetImportProviders();
+			Durin::Asset::Build::ShutdownBuildHost();
+			Durin::Asset::Build::ShutdownTextureBuildService();
 		}
 	};
 

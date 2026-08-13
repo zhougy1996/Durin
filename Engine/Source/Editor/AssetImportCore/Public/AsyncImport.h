@@ -2,7 +2,7 @@
 
 #include "AssetImportCore.h"
 
-namespace Durin::AssetImport
+namespace Durin::Asset::Import
 {
 	struct FAsyncImportRequestState;
 	class FAsyncImportCoordinator;

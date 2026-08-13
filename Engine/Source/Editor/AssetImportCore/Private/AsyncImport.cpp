@@ -2,7 +2,7 @@
 
 #include "Threading/Task.h"
 
-namespace Durin::AssetImport
+namespace Durin::Asset::Import
 {
 	namespace
 	{

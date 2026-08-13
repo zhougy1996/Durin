@@ -93,7 +93,7 @@ TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDd
 	const std::array<Durin::uint16, 6> Samples{0, 17, 257, 4097, 32'768, 65'535};
 	const std::vector<Durin::uint8> Png = MakePng(Samples);
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Png)), Source));
-	const auto Imported = Durin::StandardAssetImport::ImportTerrainHeightmapAsset(
+	const auto Imported = Durin::Asset::Import::ImportTerrainHeightmapAsset(
 		Source.generic_string(), "/Game/Height");
 	ASSERT_TRUE(Imported) << Imported.Message;
 

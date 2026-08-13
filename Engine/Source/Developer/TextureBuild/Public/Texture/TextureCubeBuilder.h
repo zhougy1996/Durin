@@ -3,7 +3,7 @@
 #include "TextureBuildAPI.h"
 #include "Texture/TextureCube.h"
 
-namespace Durin::AssetBuild::TextureCubeBuilder
+namespace Durin::Asset::Build::TextureCubeBuilder
 {
 	inline constexpr uint64 MaximumPanoramaPixels = 32ull * 1024ull * 1024ull;
 	inline constexpr uint32 MaximumPanoramaDimension = 16384;

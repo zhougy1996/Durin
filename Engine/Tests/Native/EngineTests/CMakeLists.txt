@@ -369,6 +369,7 @@ durin_add_engine_functional_test(StaticMeshTests
 		${_durin_level_editor_private}/Customizations/StaticMeshMaterialSlotDetails.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
 	LIBRARIES AssetImportCore GeometryBuild StandardAssetImport RenderCore Renderer DurinEd StaticMeshEditor
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 

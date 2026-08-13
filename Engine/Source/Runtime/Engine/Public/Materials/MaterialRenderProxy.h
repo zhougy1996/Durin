@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include "Materials/MaterialRenderTypes.h"
 #include "Materials/MaterialTypes.h"
 #include "Templates/RefCounting.h"
 

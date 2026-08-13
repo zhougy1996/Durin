@@ -3,7 +3,7 @@
 
 #include "Misc/Paths.h"
 
-namespace Durin::AssetImport
+namespace Durin::Asset::Import
 {
 	namespace
 	{

@@ -2,7 +2,7 @@
 
 #include "Modules/ModuleManager.h"
 
-namespace Durin::AssetBuild
+namespace Durin::Asset::Build
 {
 	// Dynamic host-control surface for tools that must not import AssetBuildCore
 	// on package-only process paths.

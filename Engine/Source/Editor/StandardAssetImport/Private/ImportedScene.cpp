@@ -8,7 +8,7 @@
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
 
-namespace Durin::Asset
+namespace Durin::Asset::Import::Standard
 {
 	namespace
 	{
@@ -21,7 +21,7 @@ namespace Durin::Asset
 			{
 				return Private::FailImport(
 					Result,
-					EImportDiagnosticCategory::InvalidReference,
+					ESceneImportDiagnosticCategory::InvalidReference,
 					"meshes",
 					"Assimp geometry does not match the glTF primitive count.");
 			}
@@ -32,7 +32,7 @@ namespace Durin::Asset
 				{
 					return Private::FailImport(
 						Result,
-						EImportDiagnosticCategory::InvalidReference,
+						ESceneImportDiagnosticCategory::InvalidReference,
 						std::format("material:{}", SourceMaterialIndex),
 						"glTF primitive references a material outside the normalized material table.");
 				}
@@ -45,7 +45,7 @@ namespace Durin::Asset
 				{
 					return Private::FailImport(
 						Result,
-						EImportDiagnosticCategory::InvalidReference,
+						ESceneImportDiagnosticCategory::InvalidReference,
 						std::format("mesh:{}", MeshIndex),
 						"Assimp geometry contains a null mesh.");
 				}
@@ -63,7 +63,7 @@ namespace Durin::Asset
 			{
 				Private::FailImport(
 					Result,
-					EImportDiagnosticCategory::UnsafeDependencyPath,
+					ESceneImportDiagnosticCategory::UnsafeDependencyPath,
 					Options.RootSource.Path,
 					"Root source path is not a normalized mounted virtual path.");
 				return Result;
@@ -77,8 +77,8 @@ namespace Durin::Asset
 				Private::FailImport(
 					Result,
 					bExists
-						? EImportDiagnosticCategory::ResourceLimitExceeded
-						: EImportDiagnosticCategory::MissingDependency,
+						? ESceneImportDiagnosticCategory::ResourceLimitExceeded
+						: ESceneImportDiagnosticCategory::MissingDependency,
 					"root",
 					ReadError);
 				return Result;
@@ -92,7 +92,7 @@ namespace Durin::Asset
 			{
 				Private::FailImport(
 					Result,
-					EImportDiagnosticCategory::ResourceLimitExceeded,
+					ESceneImportDiagnosticCategory::ResourceLimitExceeded,
 					"dependencies",
 					"Imported dependency count exceeds the limit.");
 				return Result;
@@ -139,7 +139,7 @@ namespace Durin::Asset
 				if (ErrorMessage.empty()) ErrorMessage = "Unknown mesh import failure.";
 				Private::FailImport(
 					Result,
-					EImportDiagnosticCategory::InvalidValue,
+					ESceneImportDiagnosticCategory::InvalidValue,
 					"root",
 					ErrorMessage);
 				DURIN_ERROR("Asset import failed. (file: {}, error: {})", FilePath, ErrorMessage);
@@ -177,7 +177,7 @@ namespace Durin::Asset
 				const std::string ErrorMessage = Result.ErrorMessage;
 				Private::FailImport(
 					Result,
-					EImportDiagnosticCategory::InvalidReference,
+					ESceneImportDiagnosticCategory::InvalidReference,
 					"meshes",
 					ErrorMessage);
 				DURIN_ERROR(
@@ -197,7 +197,7 @@ namespace Durin::Asset
 				{
 					Private::FailImport(
 						Result,
-						EImportDiagnosticCategory::InvalidReference,
+						ESceneImportDiagnosticCategory::InvalidReference,
 						std::format("material:{}", Mesh.SourceMaterialIndex),
 						"Imported mesh references a source material that was not normalized.");
 					return Result;
@@ -256,8 +256,8 @@ namespace Durin::Asset
 		{
 			Private::FailImport(Result,
 				EncodedBytes.size() > MaxImportedSceneSourceBytes
-					? EImportDiagnosticCategory::ResourceLimitExceeded
-					: EImportDiagnosticCategory::UnsafeDependencyPath,
+					? ESceneImportDiagnosticCategory::ResourceLimitExceeded
+					: ESceneImportDiagnosticCategory::UnsafeDependencyPath,
 				"root", "Captured static-mesh source or mounted identity is invalid.");
 			OutData = std::move(Result.Scene);
 			return false;
@@ -265,7 +265,7 @@ namespace Durin::Asset
 		if (!Private::AppendDependency(Result.Scene, EImportedDependencyRole::RootScene,
 			"root", Options.RootSource.Path, EncodedBytes))
 		{
-			Private::FailImport(Result, EImportDiagnosticCategory::ResourceLimitExceeded,
+			Private::FailImport(Result, ESceneImportDiagnosticCategory::ResourceLimitExceeded,
 				"dependencies", "Imported dependency count exceeds the limit.");
 			OutData = std::move(Result.Scene);
 			return false;
@@ -287,7 +287,7 @@ namespace Durin::Asset
 		{
 			std::string Error = Importer.GetErrorString();
 			if (Error.empty()) Error = "Unknown in-memory geometry import failure.";
-			Private::FailImport(Result, EImportDiagnosticCategory::InvalidValue, "root", Error);
+			Private::FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue, "root", Error);
 			OutData = std::move(Result.Scene);
 			return false;
 		}
@@ -309,7 +309,7 @@ namespace Durin::Asset
 		if (!Private::ImportAssimpGeometry(
 			*Scene, Options, {}, Result.Scene, GeometryError))
 		{
-			Private::FailImport(Result, EImportDiagnosticCategory::InvalidReference,
+			Private::FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
 				"meshes", GeometryError);
 			OutData = std::move(Result.Scene);
 			return false;

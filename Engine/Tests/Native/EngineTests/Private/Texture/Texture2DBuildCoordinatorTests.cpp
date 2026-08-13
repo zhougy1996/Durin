@@ -9,23 +9,23 @@
 
 namespace
 {
-	auto IsTerminal(Durin::AssetBuild::ETexture2DBuildPhase Phase) -> bool
+	auto IsTerminal(Durin::Asset::Build::ETexture2DBuildPhase Phase) -> bool
 	{
-		return Phase == Durin::AssetBuild::ETexture2DBuildPhase::UploadPending
-			|| Phase == Durin::AssetBuild::ETexture2DBuildPhase::Failed
-			|| Phase == Durin::AssetBuild::ETexture2DBuildPhase::Cancelled;
+		return Phase == Durin::Asset::Build::ETexture2DBuildPhase::UploadPending
+			|| Phase == Durin::Asset::Build::ETexture2DBuildPhase::Failed
+			|| Phase == Durin::Asset::Build::ETexture2DBuildPhase::Cancelled;
 	}
 
 	auto MakeCoordinatorRequest(
 		std::span<const Durin::uint8> Bytes,
 		std::string Identity,
-		Durin::AssetBuild::ETexture2DBuildPriority Priority =
-			Durin::AssetBuild::ETexture2DBuildPriority::Background)
-			-> Durin::AssetBuild::FTexture2DQueuedBuildRequest
+		Durin::Asset::Build::ETexture2DBuildPriority Priority =
+			Durin::Asset::Build::ETexture2DBuildPriority::Background)
+			-> Durin::Asset::Build::FTexture2DQueuedBuildRequest
 	{
 		Durin::FTextureSourceData SourceData;
 		std::string Error;
-		if (!Durin::StandardAssetImport::TranslateTexture2DSource(
+		if (!Durin::Asset::Import::TranslateTexture2DSource(
 			Bytes, SourceData, Error)) return {};
 		const Durin::FXxHash128 SourceHash = Durin::FXxHash128::HashBuffer(Bytes);
 		return {
@@ -84,31 +84,31 @@ TEST(FBuildRecipeModuleTests, TextureAndGeometryCoexistDrainAndRestart)
 	InitializeDObjectSystem();
 	Durin::FModuleManager::Get().LoadModuleChecked("GeometryBuild");
 	ASSERT_TRUE(RestartTextureBuildHost({.MaxWorkers = 1}));
-	const Durin::AssetBuild::FBuildHostSnapshot Running =
-		Durin::AssetBuild::GetBuildHostSnapshot();
+	const Durin::Asset::Build::FBuildHostSnapshot Running =
+		Durin::Asset::Build::GetBuildHostSnapshot();
 	EXPECT_EQ(Running.ServiceCount, 2u);
 	EXPECT_TRUE(Running.bAcceptingRequests);
-	EXPECT_TRUE(Durin::AssetBuild::WaitForBuildHost(1.0));
-	Durin::AssetBuild::ShutdownBuildHost();
-	const Durin::AssetBuild::FBuildHostSnapshot Stopped =
-		Durin::AssetBuild::GetBuildHostSnapshot();
+	EXPECT_TRUE(Durin::Asset::Build::WaitForBuildHost(1.0));
+	Durin::Asset::Build::ShutdownBuildHost();
+	const Durin::Asset::Build::FBuildHostSnapshot Stopped =
+		Durin::Asset::Build::GetBuildHostSnapshot();
 	EXPECT_EQ(Stopped.ServiceCount, 2u);
 	EXPECT_FALSE(Stopped.bAcceptingRequests);
 	Durin::FModuleManager::Get().UnloadModule("GeometryBuild");
-	EXPECT_EQ(Durin::AssetBuild::GetBuildHostSnapshot().ServiceCount, 1u);
+	EXPECT_EQ(Durin::Asset::Build::GetBuildHostSnapshot().ServiceCount, 1u);
 	Durin::FModuleManager::Get().LoadModuleChecked("GeometryBuild");
 	EXPECT_TRUE(EnsureTextureBuildHost());
-	EXPECT_EQ(Durin::AssetBuild::GetBuildHostSnapshot().ServiceCount, 2u);
-	Durin::AssetBuild::FTexture2DBuildCoordinator* Coordinator =
-		Durin::AssetBuild::GetTexture2DBuildCoordinator();
+	EXPECT_EQ(Durin::Asset::Build::GetBuildHostSnapshot().ServiceCount, 2u);
+	Durin::Asset::Build::FTexture2DBuildCoordinator* Coordinator =
+		Durin::Asset::Build::GetTexture2DBuildCoordinator();
 	ASSERT_NE(Coordinator, nullptr);
 	bool bCompleted = false;
 	const Durin::uint64 RequestId = Coordinator->Submit(
 		MakeCoordinatorRequest(TransparentPngBytes, "/BuildHost/Restarted"),
-		[&](Durin::AssetBuild::FTexture2DQueuedBuildResult&& Result) {
+		[&](Durin::Asset::Build::FTexture2DQueuedBuildResult&& Result) {
 			EXPECT_EQ(
 				Result.Phase,
-				Durin::AssetBuild::ETexture2DBuildPhase::UploadPending);
+				Durin::Asset::Build::ETexture2DBuildPhase::UploadPending);
 			bCompleted = true;
 		});
 	ASSERT_NE(RequestId, 0u);
@@ -123,15 +123,15 @@ TEST(FTexture2DAuthoringCoordinatorTests, BuildsOwnedNormalizedRequestInBuildMod
 	ASSERT_TRUE(Durin::InitializeTaskScheduler(1));
 	Durin::FTextureSourceData SourceData;
 	std::string Error;
-	ASSERT_TRUE(Durin::StandardAssetImport::TranslateTexture2DSource(
+	ASSERT_TRUE(Durin::Asset::Import::TranslateTexture2DSource(
 		TransparentPngBytes, SourceData, Error)) << Error;
 	const Durin::FXxHash128 SourceHash =
 		Durin::FXxHash128::HashBuffer(TransparentPngBytes);
 	ASSERT_TRUE(RestartTextureBuildHost({.MaxWorkers = 1}));
-	Durin::AssetBuild::FTexture2DBuildCoordinator* Coordinator =
-		Durin::AssetBuild::GetTexture2DBuildCoordinator();
+	Durin::Asset::Build::FTexture2DBuildCoordinator* Coordinator =
+		Durin::Asset::Build::GetTexture2DBuildCoordinator();
 	ASSERT_NE(Coordinator, nullptr);
-	std::optional<Durin::AssetBuild::FTexture2DQueuedBuildResult> Completion;
+	std::optional<Durin::Asset::Build::FTexture2DQueuedBuildResult> Completion;
 	const Durin::uint64 RequestId = Coordinator->Submit({
 		.AssetIdentity = "/AuthoringCoordinator/Normalized",
 		.SourcePath = {.Path = "/TextureImportTests/Coordinator.png"},
@@ -145,15 +145,15 @@ TEST(FTexture2DAuthoringCoordinatorTests, BuildsOwnedNormalizedRequestInBuildMod
 		.EstimatedWidth = 2,
 		.EstimatedHeight = 1,
 		.bPersistDerivedData = false},
-		[&](Durin::AssetBuild::FTexture2DQueuedBuildResult&& Result) {
+		[&](Durin::Asset::Build::FTexture2DQueuedBuildResult&& Result) {
 			Completion.emplace(std::move(Result));
 		});
 	ASSERT_NE(RequestId, 0u);
 	ASSERT_TRUE(Coordinator->WaitForRequest(RequestId, 10.0));
-	EXPECT_EQ(Durin::AssetBuild::PumpBuildHostCompletions(), 1u);
+	EXPECT_EQ(Durin::Asset::Build::PumpBuildHostCompletions(), 1u);
 	ASSERT_TRUE(Completion.has_value());
 	EXPECT_EQ(Completion->Phase,
-		Durin::AssetBuild::ETexture2DBuildPhase::UploadPending);
+		Durin::Asset::Build::ETexture2DBuildPhase::UploadPending);
 	ASSERT_NE(Completion->SourceData, nullptr);
 	ASSERT_NE(Completion->PlatformData, nullptr);
 	EXPECT_TRUE(Completion->SourceData->IsValid());
@@ -172,10 +172,10 @@ TEST(FTexture2DBuildCoordinatorTests, WorkerResultMatchesSynchronousBuildAndRepo
 
 	Durin::FTextureSourceData BaselineSource;
 	std::string Error;
-	ASSERT_TRUE(Durin::StandardAssetImport::TranslateTexture2DSource(
+	ASSERT_TRUE(Durin::Asset::Import::TranslateTexture2DSource(
 		Bytes, BaselineSource, Error)) << Error;
 	Durin::FTexturePlatformData BaselinePlatform;
-	ASSERT_TRUE(Durin::AssetBuild::TextureBuilder::BuildMipChain(
+	ASSERT_TRUE(Durin::Asset::Build::TextureBuilder::BuildMipChain(
 		BaselineSource,
 		Durin::ETextureUsage::Color,
 		true,
@@ -184,12 +184,12 @@ TEST(FTexture2DBuildCoordinatorTests, WorkerResultMatchesSynchronousBuildAndRepo
 		0,
 		Durin::ETextureCompressionQuality::Low)) << Error;
 
-	Durin::AssetBuild::FTexture2DBuildCoordinator Coordinator({.MaxWorkers = 1});
+	Durin::Asset::Build::FTexture2DBuildCoordinator Coordinator({.MaxWorkers = 1});
 	std::mutex Mutex;
 	std::condition_variable Condition;
 	Durin::uint32 TerminalCount = 0;
-	std::optional<Durin::AssetBuild::FTexture2DQueuedBuildResult> Completion;
-	Coordinator.SetPhaseHookForTests([&](Durin::uint64, Durin::AssetBuild::ETexture2DBuildPhase Phase) {
+	std::optional<Durin::Asset::Build::FTexture2DQueuedBuildResult> Completion;
+	Coordinator.SetPhaseHookForTests([&](Durin::uint64, Durin::Asset::Build::ETexture2DBuildPhase Phase) {
 		if (!IsTerminal(Phase)) return;
 		std::lock_guard Lock(Mutex);
 		++TerminalCount;
@@ -197,14 +197,14 @@ TEST(FTexture2DBuildCoordinatorTests, WorkerResultMatchesSynchronousBuildAndRepo
 	});
 	const Durin::uint64 RequestId = Coordinator.Submit(
 		MakeCoordinatorRequest(Bytes, "/Coordinator/Equivalent"),
-		[&](Durin::AssetBuild::FTexture2DQueuedBuildResult&& Result) {
+		[&](Durin::Asset::Build::FTexture2DQueuedBuildResult&& Result) {
 			Completion.emplace(std::move(Result));
 		});
 	ASSERT_NE(RequestId, 0u);
 	ASSERT_TRUE(WaitForTerminalCount(Mutex, Condition, TerminalCount, 1));
 	EXPECT_EQ(Coordinator.PumpCompletions(), 1u);
 	ASSERT_TRUE(Completion.has_value());
-	ASSERT_EQ(Completion->Phase, Durin::AssetBuild::ETexture2DBuildPhase::UploadPending);
+	ASSERT_EQ(Completion->Phase, Durin::Asset::Build::ETexture2DBuildPhase::UploadPending);
 	ASSERT_NE(Completion->SourceData, nullptr);
 	ASSERT_NE(Completion->PlatformData, nullptr);
 	EXPECT_EQ(Completion->SourceData->Pixels, BaselineSource.Pixels);
@@ -212,20 +212,20 @@ TEST(FTexture2DBuildCoordinatorTests, WorkerResultMatchesSynchronousBuildAndRepo
 	EXPECT_GT(Completion->Metrics.PreparationNanoseconds, 0u);
 	EXPECT_GT(Completion->Metrics.PeakIntermediateBytes, 0u);
 	EXPECT_GT(Completion->Metrics.ResultBytes, 0u);
-	const Durin::AssetBuild::FTexture2DBuildDiagnostic Diagnostic = Coordinator.GetDiagnostic(RequestId);
+	const Durin::Asset::Build::FTexture2DBuildDiagnostic Diagnostic = Coordinator.GetDiagnostic(RequestId);
 	EXPECT_GT(Diagnostic.QueuedNanoseconds, 0u);
-	EXPECT_EQ(Diagnostic.FailurePhase, Durin::AssetBuild::ETexture2DBuildPhase::None);
+	EXPECT_EQ(Diagnostic.FailurePhase, Durin::Asset::Build::ETexture2DBuildPhase::None);
 }
 
 TEST(FTexture2DBuildCoordinatorTests, RejectsInvalidNormalizedSourceBeforeAdmission)
 {
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::InitializeTaskScheduler(1));
-	Durin::AssetBuild::FTexture2DBuildCoordinator Coordinator({.MaxWorkers = 1});
+	Durin::Asset::Build::FTexture2DBuildCoordinator Coordinator({.MaxWorkers = 1});
 	Durin::uint32 CompletionCount = 0;
 	const Durin::uint64 RequestId = Coordinator.Submit(
 		{.AssetIdentity = "/Coordinator/Invalid", .SourceHash = {.HashLow = 1}},
-		[&](Durin::AssetBuild::FTexture2DQueuedBuildResult&&) { ++CompletionCount; });
+		[&](Durin::Asset::Build::FTexture2DQueuedBuildResult&&) { ++CompletionCount; });
 	EXPECT_EQ(RequestId, 0u);
 	EXPECT_EQ(Coordinator.PumpCompletions(), 0u);
 	EXPECT_EQ(CompletionCount, 0u);
@@ -241,7 +241,7 @@ TEST(FTexture2DBuildCoordinatorTests, BoundsAdmissionAndPreventsBackgroundStarva
 	std::vector<Durin::uint8> Bytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, Source.generic_string()));
 
-	Durin::AssetBuild::FTexture2DBuildCoordinator Coordinator({
+	Durin::Asset::Build::FTexture2DBuildCoordinator Coordinator({
 		.MaxWorkers = 2,
 		.InteractiveBurstLimit = 4,
 		.InFlightByteBudget = 50});
@@ -250,9 +250,9 @@ TEST(FTexture2DBuildCoordinatorTests, BoundsAdmissionAndPreventsBackgroundStarva
 	bool bReleaseFirst = false;
 	Durin::uint32 TerminalCount = 0;
 	std::vector<Durin::uint64> PreparationOrder;
-	Coordinator.SetPhaseHookForTests([&](Durin::uint64 RequestId, Durin::AssetBuild::ETexture2DBuildPhase Phase) {
+	Coordinator.SetPhaseHookForTests([&](Durin::uint64 RequestId, Durin::Asset::Build::ETexture2DBuildPhase Phase) {
 		std::unique_lock Lock(Mutex);
-		if (Phase == Durin::AssetBuild::ETexture2DBuildPhase::Preparing)
+		if (Phase == Durin::Asset::Build::ETexture2DBuildPhase::Preparing)
 		{
 			PreparationOrder.push_back(RequestId);
 			Condition.notify_all();
@@ -268,8 +268,8 @@ TEST(FTexture2DBuildCoordinatorTests, BoundsAdmissionAndPreventsBackgroundStarva
 	std::vector<Durin::uint64> BackgroundIds;
 	std::vector<Durin::uint64> InteractiveIds;
 	Durin::uint32 CompletionCount = 0;
-	auto Complete = [&](Durin::AssetBuild::FTexture2DQueuedBuildResult&& Result) {
-		EXPECT_EQ(Result.Phase, Durin::AssetBuild::ETexture2DBuildPhase::UploadPending);
+	auto Complete = [&](Durin::Asset::Build::FTexture2DQueuedBuildResult&& Result) {
+		EXPECT_EQ(Result.Phase, Durin::Asset::Build::ETexture2DBuildPhase::UploadPending);
 		++CompletionCount;
 	};
 	BackgroundIds.push_back(Coordinator.Submit(
@@ -288,7 +288,7 @@ TEST(FTexture2DBuildCoordinatorTests, BoundsAdmissionAndPreventsBackgroundStarva
 			MakeCoordinatorRequest(
 				Bytes,
 				std::format("/Coordinator/Interactive{}", Index),
-				Durin::AssetBuild::ETexture2DBuildPriority::Interactive),
+				Durin::Asset::Build::ETexture2DBuildPriority::Interactive),
 			Complete));
 	}
 	EXPECT_EQ(Coordinator.GetRunningCount(), 1u);
@@ -320,20 +320,20 @@ TEST(FTexture2DBuildCoordinatorTests, CancelsRunningAndQueuedWorkExactlyOnceDuri
 	std::vector<Durin::uint8> Bytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, Source.generic_string()));
 
-	Durin::AssetBuild::FTexture2DBuildCoordinator Coordinator({.MaxWorkers = 1});
+	Durin::Asset::Build::FTexture2DBuildCoordinator Coordinator({.MaxWorkers = 1});
 	std::mutex Mutex;
 	std::condition_variable Condition;
 	bool bWorkerEntered = false;
 	bool bReleaseWorker = false;
-	Coordinator.SetPhaseHookForTests([&](Durin::uint64, Durin::AssetBuild::ETexture2DBuildPhase Phase) {
-		if (Phase != Durin::AssetBuild::ETexture2DBuildPhase::Preparing) return;
+	Coordinator.SetPhaseHookForTests([&](Durin::uint64, Durin::Asset::Build::ETexture2DBuildPhase Phase) {
+		if (Phase != Durin::Asset::Build::ETexture2DBuildPhase::Preparing) return;
 		std::unique_lock Lock(Mutex);
 		bWorkerEntered = true;
 		Condition.notify_all();
 		Condition.wait(Lock, [&] { return bReleaseWorker; });
 	});
-	std::vector<Durin::AssetBuild::ETexture2DBuildPhase> CompletionPhases;
-	auto Complete = [&](Durin::AssetBuild::FTexture2DQueuedBuildResult&& Result) {
+	std::vector<Durin::Asset::Build::ETexture2DBuildPhase> CompletionPhases;
+	auto Complete = [&](Durin::Asset::Build::FTexture2DQueuedBuildResult&& Result) {
 		CompletionPhases.push_back(Result.Phase);
 	};
 	const Durin::uint64 RunningId = Coordinator.Submit(
@@ -355,8 +355,8 @@ TEST(FTexture2DBuildCoordinatorTests, CancelsRunningAndQueuedWorkExactlyOnceDuri
 	}
 	Coordinator.Shutdown();
 	ASSERT_EQ(CompletionPhases.size(), 2u);
-	EXPECT_EQ(CompletionPhases[0], Durin::AssetBuild::ETexture2DBuildPhase::Cancelled);
-	EXPECT_EQ(CompletionPhases[1], Durin::AssetBuild::ETexture2DBuildPhase::Cancelled);
+	EXPECT_EQ(CompletionPhases[0], Durin::Asset::Build::ETexture2DBuildPhase::Cancelled);
+	EXPECT_EQ(CompletionPhases[1], Durin::Asset::Build::ETexture2DBuildPhase::Cancelled);
 	EXPECT_EQ(Coordinator.GetRunningCount(), 0u);
 	EXPECT_EQ(Coordinator.GetQueuedCount(), 0u);
 }
@@ -365,15 +365,15 @@ TEST(FTexture2DBuildCoordinatorTests, BuildModuleFramePumpAppliesAtMostSixtyFour
 {
 	InitializeDObjectSystem();
 	ASSERT_TRUE(EnsureTextureBuildHost());
-	Durin::AssetBuild::FTexture2DBuildCoordinator* Coordinator =
-		Durin::AssetBuild::GetTexture2DBuildCoordinator();
+	Durin::Asset::Build::FTexture2DBuildCoordinator* Coordinator =
+		Durin::Asset::Build::GetTexture2DBuildCoordinator();
 	ASSERT_NE(Coordinator, nullptr);
 	std::mutex Mutex;
 	std::condition_variable Condition;
 	Durin::uint32 TerminalCount = 0;
 	Durin::uint32 CompletionCount = 0;
 	Coordinator->SetPhaseHookForTests(
-		[&](Durin::uint64, Durin::AssetBuild::ETexture2DBuildPhase Phase) {
+		[&](Durin::uint64, Durin::Asset::Build::ETexture2DBuildPhase Phase) {
 			if (!IsTerminal(Phase)) return;
 			std::lock_guard Lock(Mutex);
 			++TerminalCount;
@@ -384,17 +384,17 @@ TEST(FTexture2DBuildCoordinatorTests, BuildModuleFramePumpAppliesAtMostSixtyFour
 		ASSERT_NE(Coordinator->Submit(
 			MakeCoordinatorRequest(
 				TransparentPngBytes, std::format("/Coordinator/FrameBudget{}", Index)),
-			[&](Durin::AssetBuild::FTexture2DQueuedBuildResult&&) {
+			[&](Durin::Asset::Build::FTexture2DQueuedBuildResult&&) {
 				EXPECT_TRUE(Durin::IsInGameThread());
 				++CompletionCount;
 			}), 0u);
 	}
 	ASSERT_TRUE(WaitForTerminalCount(Mutex, Condition, TerminalCount, 65));
-	Durin::AssetBuild::PumpBuildHostCompletions();
+	Durin::Asset::Build::PumpBuildHostCompletions();
 	EXPECT_EQ(CompletionCount, 64u);
-	Durin::AssetBuild::PumpBuildHostCompletions();
+	Durin::Asset::Build::PumpBuildHostCompletions();
 	EXPECT_EQ(CompletionCount, 65u);
-	Durin::AssetBuild::PumpBuildHostCompletions();
+	Durin::Asset::Build::PumpBuildHostCompletions();
 	EXPECT_EQ(CompletionCount, 65u);
 	Coordinator->SetPhaseHookForTests({});
 }
@@ -402,7 +402,7 @@ TEST(FTexture2DBuildCoordinatorTests, BuildModuleFramePumpAppliesAtMostSixtyFour
 TEST(FTexture2DBuildCoordinatorTests, ExplicitWaitLeavesCompletionForAnUnboundedPump)
 {
 	InitializeDObjectSystem();
-	Durin::AssetBuild::FTexture2DBuildCoordinator Coordinator({.MaxWorkers = 2});
+	Durin::Asset::Build::FTexture2DBuildCoordinator Coordinator({.MaxWorkers = 2});
 	Durin::uint32 CompletionCount = 0;
 	std::vector<Durin::uint64> RequestIds;
 	for (Durin::uint32 Index = 0; Index < 70; ++Index)
@@ -410,7 +410,7 @@ TEST(FTexture2DBuildCoordinatorTests, ExplicitWaitLeavesCompletionForAnUnbounded
 		RequestIds.push_back(Coordinator.Submit(
 			MakeCoordinatorRequest(
 				TransparentPngBytes, std::format("/Coordinator/ExplicitWait{}", Index)),
-			[&](Durin::AssetBuild::FTexture2DQueuedBuildResult&&) { ++CompletionCount; }));
+			[&](Durin::Asset::Build::FTexture2DQueuedBuildResult&&) { ++CompletionCount; }));
 		ASSERT_NE(RequestIds.back(), 0u);
 	}
 	for (const Durin::uint64 RequestId : RequestIds)
@@ -427,17 +427,17 @@ TEST(FAuthoringBuildServiceTests, OwnsRestartableProcessLifecycleAndDiagnosticSn
 	InitializeDObjectSystem();
 	ASSERT_TRUE(RestartTextureBuildHost(
 		{.MaxWorkers = 1, .InFlightByteBudget = 1024}));
-	const Durin::AssetBuild::FBuildHostSnapshot Running =
-		Durin::AssetBuild::GetBuildHostSnapshot();
+	const Durin::Asset::Build::FBuildHostSnapshot Running =
+		Durin::Asset::Build::GetBuildHostSnapshot();
 	EXPECT_TRUE(Running.bAcceptingRequests);
 	EXPECT_EQ(Running.QueuedRequestCount, 0u);
 	EXPECT_EQ(Running.RunningRequestCount, 0u);
 	EXPECT_EQ(Running.InFlightEstimatedBytes, 0u);
 
-	Durin::AssetBuild::ShutdownBuildHost();
-	Durin::AssetBuild::ShutdownTextureBuildService();
-	const Durin::AssetBuild::FBuildHostSnapshot Stopped =
-		Durin::AssetBuild::GetBuildHostSnapshot();
+	Durin::Asset::Build::ShutdownBuildHost();
+	Durin::Asset::Build::ShutdownTextureBuildService();
+	const Durin::Asset::Build::FBuildHostSnapshot Stopped =
+		Durin::Asset::Build::GetBuildHostSnapshot();
 	EXPECT_FALSE(Stopped.bAcceptingRequests);
 	EXPECT_EQ(Stopped.QueuedRequestCount, 0u);
 	EXPECT_EQ(Stopped.RunningRequestCount, 0u);
@@ -457,7 +457,7 @@ TEST(FTexture2DBuildCharacterization, ReportsBuildCostForRequestedDimensions)
 	{
 		const unsigned long Parsed = std::stoul(DimensionText);
 		ASSERT_GT(Parsed, 0u);
-		ASSERT_LE(Parsed, Durin::AssetBuild::TextureBuilder::MaxDimension);
+		ASSERT_LE(Parsed, Durin::Asset::Build::TextureBuilder::MaxDimension);
 		Dimensions.push_back(static_cast<Durin::uint32>(Parsed));
 	}
 	ASSERT_FALSE(Dimensions.empty());
@@ -473,7 +473,7 @@ TEST(FTexture2DBuildCharacterization, ReportsBuildCostForRequestedDimensions)
 		Source.Format = Durin::ETextureSourceFormat::RGBA8;
 		Source.Pixels.resize(
 			static_cast<size_t>(Dimension) * Dimension
-				* Durin::AssetBuild::TextureBuilder::ChannelCount);
+				* Durin::Asset::Build::TextureBuilder::ChannelCount);
 		for (size_t Offset = 0; Offset < Source.Pixels.size(); Offset += 4)
 		{
 			const Durin::uint8 Value = static_cast<Durin::uint8>((Offset / 4) * 37u);
@@ -493,12 +493,12 @@ TEST(FTexture2DBuildCharacterization, ReportsBuildCostForRequestedDimensions)
 				Durin::ETextureCompressionQuality::High})
 			{
 				Durin::FTexturePlatformData Platform;
-				Durin::AssetBuild::TextureBuilder::FBuildMipChainMetrics Metrics;
-				const Durin::AssetBuild::TextureBuilder::FBuildExecutionControl Control{
+				Durin::Asset::Build::TextureBuilder::FBuildMipChainMetrics Metrics;
+				const Durin::Asset::Build::TextureBuilder::FBuildExecutionControl Control{
 					.Metrics = &Metrics};
 				std::string Error;
 				const auto Start = std::chrono::steady_clock::now();
-				ASSERT_TRUE(Durin::AssetBuild::TextureBuilder::BuildMipChain(
+				ASSERT_TRUE(Durin::Asset::Build::TextureBuilder::BuildMipChain(
 					Source,
 					Usage,
 					Usage == Durin::ETextureUsage::Color,
@@ -543,11 +543,11 @@ TEST(FTexture2DBuildCharacterization, ReportsCompletionCallbackCost)
 		<< "dimension,outcome,completion_us\n";
 	for (const Durin::uint16 Dimension : {Durin::uint16{1024}, Durin::uint16{4096}})
 	{
-		Durin::AssetBuild::FTexture2DBuildCoordinator Coordinator({.MaxWorkers = 1});
+		Durin::Asset::Build::FTexture2DBuildCoordinator Coordinator({.MaxWorkers = 1});
 		auto Run = [&](std::string_view Outcome, std::vector<Durin::uint8> Bytes,
 			bool bCancel, bool bStale) {
 			std::unique_ptr<Durin::FTexturePlatformData> AcceptedPlatformData;
-			Durin::AssetBuild::FTexture2DQueuedBuildRequest Request = MakeCoordinatorRequest(
+			Durin::Asset::Build::FTexture2DQueuedBuildRequest Request = MakeCoordinatorRequest(
 				Bytes, std::format("/Coordinator/Characterization/{}/{}", Dimension, Outcome));
 			if (Outcome == "failed")
 				Request.Settings.Usage = static_cast<Durin::ETextureUsage>(255);
@@ -557,16 +557,16 @@ TEST(FTexture2DBuildCharacterization, ReportsCompletionCallbackCost)
 			const Durin::uint64 ExpectedGeneration = 1;
 			const Durin::uint64 RequestId = Coordinator.Submit(
 				std::move(Request),
-				[&](Durin::AssetBuild::FTexture2DQueuedBuildResult&& Result) {
+				[&](Durin::Asset::Build::FTexture2DQueuedBuildResult&& Result) {
 					if (Result.Generation != ExpectedGeneration) return;
-					if (Result.Phase == Durin::AssetBuild::ETexture2DBuildPhase::UploadPending)
+					if (Result.Phase == Durin::Asset::Build::ETexture2DBuildPhase::UploadPending)
 						AcceptedPlatformData = std::move(Result.PlatformData);
 				});
 			ASSERT_NE(RequestId, 0u);
 			if (bCancel) ASSERT_TRUE(Coordinator.Cancel(RequestId));
 			ASSERT_TRUE(Coordinator.WaitForRequest(RequestId, 60.0));
 			ASSERT_EQ(Coordinator.PumpCompletions(1), 1u);
-			const Durin::AssetBuild::FTexture2DBuildDiagnostic Diagnostic =
+			const Durin::Asset::Build::FTexture2DBuildDiagnostic Diagnostic =
 				Coordinator.GetDiagnostic(RequestId);
 			std::cout << Dimension << ',' << Outcome << ','
 				<< Diagnostic.Metrics.CompletionNanoseconds / 1000.0 << '\n';

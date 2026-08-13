@@ -4,12 +4,12 @@
 
 #include <fstream>
 
-namespace Durin::Asset::Private
+namespace Durin::Asset::Import::Standard::Private
 {
 	auto AddDiagnostic(
 		FImportedSceneData& Scene,
 		EImportDiagnosticSeverity Severity,
-		EImportDiagnosticCategory Category,
+		ESceneImportDiagnosticCategory Category,
 		std::string SourceIdentity,
 		std::string Subject,
 		std::string Message) -> bool
@@ -24,7 +24,7 @@ namespace Durin::Asset::Private
 		{
 			Scene.Diagnostics.back() = {
 				EImportDiagnosticSeverity::Error,
-				EImportDiagnosticCategory::ResourceLimitExceeded,
+				ESceneImportDiagnosticCategory::ResourceLimitExceeded,
 				"root",
 				"diagnostics",
 				"Import diagnostic limit exceeded."};
@@ -34,7 +34,7 @@ namespace Durin::Asset::Private
 
 	auto FailImport(
 		FSceneDecodeResult& Result,
-		EImportDiagnosticCategory Category,
+		ESceneImportDiagnosticCategory Category,
 		std::string Subject,
 		std::string Message,
 		std::string SourceIdentity) -> bool
@@ -53,8 +53,8 @@ namespace Durin::Asset::Private
 		FSceneDecodeResult& Result,
 		std::string_view Subject) -> bool
 	{
-		if (!AssetImport::IsImportCancellationRequested()) return false;
-		(void)FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+		if (!IsImportCancellationRequested()) return false;
+		(void)FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 			std::string(Subject), "Scene decoding was canceled.");
 		return true;
 	}
@@ -89,7 +89,7 @@ namespace Durin::Asset::Private
 		for (size_t Offset = 0; Offset < OutBytes.size();
 			Offset += CancellationChunkBytes)
 		{
-			if (AssetImport::IsImportCancellationRequested())
+			if (IsImportCancellationRequested())
 			{
 				OutError = "Scene source read was canceled.";
 				OutBytes.clear();

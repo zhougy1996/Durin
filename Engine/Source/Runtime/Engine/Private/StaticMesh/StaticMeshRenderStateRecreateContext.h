@@ -7,7 +7,7 @@ namespace Durin
 {
 	class DStaticMesh;
 
-	// Temporarily removes registered component render state while one mesh's
+	// Privately coordinates registered component render state while one mesh's
 	// current render data is replaced.
 	class FStaticMeshRenderStateRecreateContext
 	{

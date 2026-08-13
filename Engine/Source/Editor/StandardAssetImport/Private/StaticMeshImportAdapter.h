@@ -3,15 +3,15 @@
 #include "ImportedScene.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 
-namespace Durin
+namespace Durin::Asset::Import
 {
 	inline auto MakeStaticMeshImportedData(
-		const Asset::FImportedSceneData& Scene)
-		-> AssetBuild::FStaticMeshImportedData
+		const Standard::FImportedSceneData& Scene)
+		-> Asset::Build::FStaticMeshImportedData
 	{
-		AssetBuild::FStaticMeshImportedData Result;
+		Asset::Build::FStaticMeshImportedData Result;
 		Result.MaterialSlots.reserve(Scene.MaterialSlots.size());
-		for (const Asset::FImportedMaterialSlot& Slot : Scene.MaterialSlots)
+		for (const Standard::FImportedMaterialSlot& Slot : Scene.MaterialSlots)
 		{
 			Result.MaterialSlots.push_back({
 				.Name = Slot.Name,
@@ -19,15 +19,15 @@ namespace Durin
 				.SourceName = Slot.SourceName});
 		}
 		Result.Meshes.reserve(Scene.Meshes.size());
-		for (const Asset::FImportedMeshData& Mesh : Scene.Meshes)
+		for (const Standard::FImportedMeshData& Mesh : Scene.Meshes)
 		{
-			AssetBuild::FStaticMeshImportedMesh& Output = Result.Meshes.emplace_back();
+			Asset::Build::FStaticMeshImportedMesh& Output = Result.Meshes.emplace_back();
 			Output.Name = Mesh.Name;
 			Output.Positions.assign(Mesh.Positions.begin(), Mesh.Positions.end());
 			Output.Normals.assign(Mesh.Normals.begin(), Mesh.Normals.end());
 			Output.Tangents.assign(Mesh.Tangents.begin(), Mesh.Tangents.end());
 			for (uint32 Channel = 0;
-				Channel < AssetBuild::MaximumStaticMeshImportedUVChannels;
+				Channel < Asset::Build::MaximumStaticMeshImportedUVChannels;
 				++Channel)
 			{
 				Output.UVChannels[Channel].assign(

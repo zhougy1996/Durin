@@ -290,24 +290,17 @@ namespace Durin
 				return Fail(OutError, "Cooked environment-lighting descriptor is missing or incompatible.");
 			}
 			const Asset::FPackageLoadContext& LoadContext = Asset::GetPackageLoadContext();
-			std::filesystem::path PackagePath;
-			std::filesystem::path CompanionPath;
-			if (!GetPackage()
-				|| !Asset::ResolveCookedPackagePath(
-					LoadContext.CookRoot, GetPackage()->GetPackagePath(), PackagePath, &OutError)
-				|| !Asset::ResolveCookedCompanionPath(
-					LoadContext.CookRoot, PackagePath, CompanionPath, &OutError)) return false;
-			Asset::FCookedBulkContainer Container;
-			if (!Asset::LoadCookedBulkFile(
-					CompanionPath,
+			if (!GetPackage()) return false;
+			Asset::FCookedPackagePayload LoadedPayload;
+			if (!Asset::LoadCookedPackagePayload(
+					LoadContext,
+					GetPackage()->GetPackagePath(),
+					CookedPayload,
 					Asset::ECookTargetPlatform::Win64,
 					Asset::ECookTargetProfile::Game,
-					Container,
+					LoadedPayload,
 					&OutError)) return false;
-			std::span<const uint8> Payload;
-			if (!Asset::ResolveCookedPayload(Container, CookedPayload, Payload, &OutError))
-				return false;
-			PayloadBytes.assign(Payload.begin(), Payload.end());
+			PayloadBytes.assign(LoadedPayload.Payload.begin(), LoadedPayload.Payload.end());
 		}
 		else
 		{

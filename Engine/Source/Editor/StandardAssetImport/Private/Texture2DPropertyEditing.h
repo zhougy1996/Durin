@@ -1,6 +1,6 @@
 #pragma once
 
-namespace Durin::StandardAssetImport
+namespace Durin::Asset::Import
 {
 	auto RegisterTexture2DPropertyEditing() -> bool;
 	auto UnregisterTexture2DPropertyEditing() -> void;

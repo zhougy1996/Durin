@@ -3,7 +3,7 @@
 #include "TextureBuildAPI.h"
 #include "Texture/Texture2DAuthoringCoordinator.h"
 
-namespace Durin::AssetBuild
+namespace Durin::Asset::Build
 {
 	// Registers Texture coordination as one family-neutral authoring-host contribution.
 	TEXTUREBUILD_API auto InitializeTextureBuildService(

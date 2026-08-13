@@ -5,12 +5,12 @@
 #include "AssetSystem.h"
 #include "Misc/Paths.h"
 #include "Misc/FileHelper.h"
-#include "Source/SourcePath.h"
+#include "Asset/MountedSource.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapBuildOperations.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
 
-namespace Durin::StandardAssetImport
+namespace Durin::Asset::Import
 {
 	namespace
 	{
@@ -78,12 +78,12 @@ namespace Durin::StandardAssetImport
 				.MaximumEncodedBytes = MaximumTerrainHeightmapEncodedBytes,
 				.MaximumDecodedPixels = MaximumTerrainHeightmapSamples})) return false;
 			const FXxHash128 Hash = FXxHash128::HashBuffer(Bytes);
-			AssetBuild::FTerrainHeightmapBuildProduct Product;
-			return AssetBuild::BuildTerrainHeightmap({
+			Asset::Build::FTerrainHeightmapBuildProduct Product;
+			return Asset::Build::BuildTerrainHeightmap({
 				.Samples = std::move(Decoded.Samples), .Width = Decoded.Width,
 				.Height = Decoded.Height, .SourceContentHashLow = Hash.HashLow,
 				.SourceContentHashHigh = Hash.HashHigh}, Product, OutError)
-				&& AssetBuild::PublishTerrainHeightmapProduct(Heightmap, std::move(Product), {
+				&& Asset::Build::PublishTerrainHeightmapProduct(Heightmap, std::move(Product), {
 					.SourcePath = Source.SourcePath, .SourceFileSize = Bytes.size()}, OutError);
 		}
 	}
@@ -114,7 +114,10 @@ namespace Durin::StandardAssetImport
 			return {false, std::move(Error), nullptr};
 		FMountedSourceFile MountedSource;
 		if (!PrepareMountedSourceFile(Input, ParsedPath.ToString(), StoredSourcePath,
-			MountedSource, Error, bEngineAuthoringContext))
+			MountedSource, Error,
+			bEngineAuthoringContext
+				? EMountedSourceMutationContext::EngineAuthoring
+				: EMountedSourceMutationContext::DependencySafe))
 			return {false, std::move(Error), nullptr};
 		DTerrainHeightmap* Heightmap = nullptr;
 		const Asset::FAssetResult Created = Asset::CreateAsset(ParsedPath, Heightmap);

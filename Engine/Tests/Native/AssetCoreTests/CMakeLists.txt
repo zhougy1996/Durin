@@ -78,6 +78,13 @@ durin_add_asset_functional_test(AssetDerivedDataTests
 	SOURCES Private/DerivedDataObjectStoreTests.cpp
 )
 
+durin_add_asset_functional_test(AssetMountedSourceTests
+	KIND contract
+	DOMAINS asset-workflow
+	MODULES asset-core
+	SOURCES Private/MountedSourceTests.cpp
+)
+
 durin_add_asset_functional_test(AssetDecodeTests
 	KIND contract
 	DOMAINS asset-import

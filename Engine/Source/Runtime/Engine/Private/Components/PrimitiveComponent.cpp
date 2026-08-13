@@ -123,14 +123,7 @@ namespace Durin
 		FCollisionGeometryRef Geometry;
 		FTransform Transform;
 		if (!World || !BuildCollisionGeometry(Geometry, Transform)) return;
-		FPhysicsBodyDesc Desc;
-		Desc.Geometry = Geometry;
-		Desc.Transform = Transform;
-		Desc.Filter.ObjectChannel = static_cast<uint8>(BodyInstance.ObjectChannel);
-		for (uint8 Index = 0; Index < MaximumPhysicsChannels; ++Index)
-			Desc.Filter.Responses[Index] = ToPhysicsResponse(BodyInstance.Responses.Responses[Index]);
-		Desc.UserToken = reinterpret_cast<uint64>(this);
-		Desc.MotionType = BodyInstance.MotionType;
+		const FPhysicsBodyDesc Desc = MakePhysicsBodyDesc(Geometry, Transform);
 		BodyInstance.ActorHandle = World->GetPhysicsScene().AddBody(Desc);
 		BodyInstance.PublishedBodySetupRevision = BodyInstance.ActorHandle.IsValid()
 			? GetCollisionStateRevision() : 0;
@@ -159,18 +152,27 @@ namespace Durin
 			DestroyPhysicsState();
 			return;
 		}
+		const FPhysicsBodyDesc Desc = MakePhysicsBodyDesc(Geometry, Transform);
+		if (!World->GetPhysicsScene().UpdateBody(BodyInstance.ActorHandle, Desc))
+			RecreatePhysicsState();
+		else
+			BodyInstance.PublishedBodySetupRevision = GetCollisionStateRevision();
+	}
+
+	auto DPrimitiveComponent::MakePhysicsBodyDesc(
+		const FCollisionGeometryRef& Geometry,
+		const FTransform& Transform) const -> FPhysicsBodyDesc
+	{
 		FPhysicsBodyDesc Desc;
 		Desc.Geometry = Geometry;
 		Desc.Transform = Transform;
 		Desc.Filter.ObjectChannel = static_cast<uint8>(BodyInstance.ObjectChannel);
 		for (uint8 Index = 0; Index < MaximumPhysicsChannels; ++Index)
-			Desc.Filter.Responses[Index] = ToPhysicsResponse(BodyInstance.Responses.Responses[Index]);
+			Desc.Filter.Responses[Index] =
+				ToPhysicsResponse(BodyInstance.Responses.Responses[Index]);
 		Desc.UserToken = reinterpret_cast<uint64>(this);
 		Desc.MotionType = BodyInstance.MotionType;
-		if (!World->GetPhysicsScene().UpdateBody(BodyInstance.ActorHandle, Desc))
-			RecreatePhysicsState();
-		else
-			BodyInstance.PublishedBodySetupRevision = GetCollisionStateRevision();
+		return Desc;
 	}
 
 	auto DPrimitiveComponent::GetPhysicsWorld() const -> DWorld*

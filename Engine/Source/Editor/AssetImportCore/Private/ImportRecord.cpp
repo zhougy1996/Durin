@@ -4,7 +4,7 @@
 #include "AssetSystem.h"
 #include "Hash/XxHash.h"
 
-namespace Durin::AssetImport
+namespace Durin::Asset::Import
 {
 	namespace
 	{

@@ -16,7 +16,7 @@ namespace
 			InitializeDObjectSystem();
 			Durin::FModuleManager::Get().LoadModule("GeometryBuild");
 			std::string Error;
-			ASSERT_TRUE(Durin::RegisterStandardAssetImportProviders(Error)) << Error;
+			ASSERT_TRUE(Durin::Asset::Import::RegisterStandardAssetImportProviders(Error)) << Error;
 			ASSERT_EQ(
 				Durin::GetRenderCommandAdmissionState(),
 				Durin::ERenderCommandAdmissionState::Stopped);
@@ -30,7 +30,7 @@ namespace
 				Durin::ERenderCommandAdmissionState::Running);
 			Durin::FlushRenderingCommands();
 			Durin::ShutdownRenderingThread();
-			Durin::UnregisterStandardAssetImportProviders();
+			Durin::Asset::Import::UnregisterStandardAssetImportProviders();
 		}
 	};
 

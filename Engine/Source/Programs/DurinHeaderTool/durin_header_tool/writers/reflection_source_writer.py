@@ -102,7 +102,7 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
             ("{", 1),
             ("Durin::GetPrivateStaticClassBody(", 2),
             (f"\"{package_path}\",", 3),
-            (f"\"{class_info.qualified_name}\",", 3),
+            (f"\"{class_info.persistent_name or class_info.qualified_name}\",", 3),
             (f"{class_info.registration_info_name}.InnerSingleton,", 3),
             ("nullptr,", 3),
             (f"sizeof({class_info.qualified_name}),", 3),
@@ -155,7 +155,7 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
             builder,
             (f"const Durin::DurinCodeGen::FClassParams {generated_statics_name}::ClassParams = {{", 0),
             (f"{class_info.generated_helper_no_register_name},", 1),
-            (f"\"{class_info.qualified_name}\",", 1),
+            (f"\"{class_info.persistent_name or class_info.qualified_name}\",", 1),
             (f"\"{class_info.short_name}\",", 1),
             (f"{property_params},", 1),
             (f"{property_count},", 1),
@@ -195,7 +195,7 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
                 _append_line(
                     builder,
                     f"{{ {class_info.generated_helper_name}, {class_info.qualified_name}::StaticClass, "
-                    f"\"{class_info.qualified_name}\", &{class_info.registration_info_name} }},",
+                    f"\"{class_info.persistent_name or class_info.qualified_name}\", &{class_info.registration_info_name} }},",
                     2,
                 )
             _append_line(builder, "};", 1)
@@ -205,7 +205,7 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
                 _append_line(
                     builder,
                     f"{{ {enum_info.generated_helper_name}, {enum_info.generated_helper_no_register_name}, "
-                    f"\"{enum_info.qualified_name}\", &{enum_info.registration_info_name} }},",
+                    f"\"{enum_info.persistent_name or enum_info.qualified_name}\", &{enum_info.registration_info_name} }},",
                     2,
                 )
             _append_line(builder, "};", 1)
@@ -281,7 +281,7 @@ def _enum_definitions(enum_info: ReflectedEnumInfo, package_path: str) -> str:
         builder,
         (f"const Durin::DurinCodeGen::FEnumParams {generated_statics_name}::EnumParams = {{", 0),
         (f"{enum_info.generated_helper_no_register_name},", 1),
-        (f"\"{enum_info.qualified_name}\",", 1),
+        (f"\"{enum_info.persistent_name or enum_info.qualified_name}\",", 1),
         (f"\"{enum_info.short_name}\",", 1),
         (f"{_cpp_string_literal(enum_info.display_name) if enum_info.display_name else 'nullptr'},", 1),
         (f"{_bool_literal(enum_info.is_scoped)},", 1),
@@ -310,7 +310,7 @@ def _enum_definitions(enum_info: ReflectedEnumInfo, package_path: str) -> str:
         ("Singleton = new Durin::DEnum(", 2),
         ("Durin::EC_StaticConstructor,", 3),
         (f"Durin::FName(\"{enum_info.short_name}\"),", 3),
-        (f"Durin::FName(\"{enum_info.qualified_name}\"),", 3),
+        (f"Durin::FName(\"{enum_info.persistent_name or enum_info.qualified_name}\"),", 3),
         (f"Durin::FName(\"{enum_info.short_name}\"),", 3),
         (f"{generated_statics_name}::EnumParams.DisplayName ? {generated_statics_name}::EnumParams.DisplayName : \"\",", 3),
         (f"{generated_statics_name}::EnumParams.bIsScoped,", 3),
@@ -319,7 +319,7 @@ def _enum_definitions(enum_info: ReflectedEnumInfo, package_path: str) -> str:
         ("std::move(Values),", 3),
         ("Durin::EObjectFlags::NoFlags", 3),
         (");", 2),
-        (f"Singleton->Register(Durin::DEnum::StaticClass, \"{package_path}\", \"{enum_info.qualified_name}\");", 2),
+        (f"Singleton->Register(Durin::DEnum::StaticClass, \"{package_path}\", \"{enum_info.persistent_name or enum_info.qualified_name}\");", 2),
         ("}", 1),
         ("return Singleton;", 1),
         ("}", 0),
@@ -359,7 +359,7 @@ def _struct_definitions(struct_info: ReflectedStructInfo, symbols: ExportedSymbo
     prop_ref = f"{statics}::PropertyParams" if properties else "nullptr"
     builder.append(
         f"const Durin::DurinCodeGen::FStructParams {statics}::StructParams = {{ "
-        f"{struct_info.generated_helper_no_register_name}, \"{struct_info.qualified_name}\", \"{struct_info.short_name}\", "
+        f"{struct_info.generated_helper_no_register_name}, \"{struct_info.persistent_name or struct_info.qualified_name}\", \"{struct_info.short_name}\", "
         f"sizeof({struct_info.qualified_name}), alignof({struct_info.qualified_name}), {prop_ref}, {len(properties)}, "
         f"&Durin::GetDStructOps<{struct_info.qualified_name}>() }};\n\n"
     )
@@ -367,8 +367,8 @@ def _struct_definitions(struct_info: ReflectedStructInfo, symbols: ExportedSymbo
         f"Durin::DStruct* {struct_info.generated_helper_no_register_name}()\n{{\n"
         f"\tstatic Durin::DStruct* Singleton = nullptr;\n"
         f"\tif (!Singleton)\n\t{{\n"
-        f"\t\tSingleton = new Durin::DStruct(Durin::EC_StaticConstructor, Durin::FName(\"{struct_info.qualified_name}\"), Durin::FName(\"{struct_info.short_name}\"), sizeof({struct_info.qualified_name}), alignof({struct_info.qualified_name}), Durin::EObjectFlags::Intrinsic);\n"
-        f"\t\tSingleton->Register(Durin::DStruct::StaticClass, \"{package_path}\", \"{struct_info.qualified_name}\");\n"
+        f"\t\tSingleton = new Durin::DStruct(Durin::EC_StaticConstructor, Durin::FName(\"{struct_info.persistent_name or struct_info.qualified_name}\"), Durin::FName(\"{struct_info.short_name}\"), sizeof({struct_info.qualified_name}), alignof({struct_info.qualified_name}), Durin::EObjectFlags::Intrinsic);\n"
+        f"\t\tSingleton->Register(Durin::DStruct::StaticClass, \"{package_path}\", \"{struct_info.persistent_name or struct_info.qualified_name}\");\n"
         f"\t}}\n\treturn Singleton;\n}}\n\n"
         f"Durin::DStruct* {struct_info.generated_helper_name}()\n{{\n"
         f"\tstatic Durin::DStruct* Singleton = nullptr;\n"

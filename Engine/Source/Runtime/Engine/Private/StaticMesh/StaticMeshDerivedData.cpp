@@ -1,5 +1,6 @@
 #include "StaticMesh/StaticMeshDerivedData.h"
 
+#include "Serialization/EngineWire.h"
 #include "Serialization/Archive.h"
 
 #include "Misc/DerivedDataCache.h"
@@ -26,89 +27,8 @@ namespace Durin
 			uint64 UncompressedSize = 0;
 		};
 
-		class FPayloadWriter
-		{
-		public:
-			auto WriteU8(uint8 Value) -> void { Bytes.push_back(Value); }
-
-			auto WriteU16(uint16 Value) -> void
-			{
-				WriteU8(static_cast<uint8>(Value));
-				WriteU8(static_cast<uint8>(Value >> 8));
-			}
-
-			auto WriteU32(uint32 Value) -> void
-			{
-				for (uint32 Byte = 0; Byte < 4; ++Byte) WriteU8(static_cast<uint8>(Value >> (Byte * 8)));
-			}
-
-			auto WriteU64(uint64 Value) -> void
-			{
-				for (uint32 Byte = 0; Byte < 8; ++Byte) WriteU8(static_cast<uint8>(Value >> (Byte * 8)));
-			}
-
-			auto WriteFloat(float Value) -> void { WriteU32(std::bit_cast<uint32>(Value)); }
-			auto WriteBytes(std::span<const uint8> Value) -> void { Bytes.insert(Bytes.end(), Value.begin(), Value.end()); }
-			auto WriteZeroes(size_t Count) -> void { Bytes.insert(Bytes.end(), Count, 0); }
-			auto GetBytes() const -> const std::vector<uint8>& { return Bytes; }
-			auto TakeBytes() -> std::vector<uint8> { return std::move(Bytes); }
-
-		private:
-			std::vector<uint8> Bytes;
-		};
-
-		class FPayloadReader
-		{
-		public:
-			explicit FPayloadReader(std::span<const uint8> InBytes) : Bytes(InBytes) {}
-
-			auto ReadU8(uint8& Value) -> bool
-			{
-				if (Offset >= Bytes.size()) return false;
-				Value = Bytes[Offset++];
-				return true;
-			}
-
-			auto ReadU16(uint16& Value) -> bool
-			{
-				uint8 Low = 0;
-				uint8 High = 0;
-				if (!ReadU8(Low) || !ReadU8(High)) return false;
-				Value = static_cast<uint16>(Low | (static_cast<uint16>(High) << 8));
-				return true;
-			}
-
-			auto ReadU32(uint32& Value) -> bool
-			{
-				if (GetRemainingBytes() < 4) return false;
-				Value = 0;
-				for (uint32 Byte = 0; Byte < 4; ++Byte) Value |= static_cast<uint32>(Bytes[Offset++]) << (Byte * 8);
-				return true;
-			}
-
-			auto ReadU64(uint64& Value) -> bool
-			{
-				if (GetRemainingBytes() < 8) return false;
-				Value = 0;
-				for (uint32 Byte = 0; Byte < 8; ++Byte) Value |= static_cast<uint64>(Bytes[Offset++]) << (Byte * 8);
-				return true;
-			}
-
-			auto ReadFloat(float& Value) -> bool
-			{
-				uint32 Bits = 0;
-				if (!ReadU32(Bits)) return false;
-				Value = std::bit_cast<float>(Bits);
-				return true;
-			}
-
-			auto IsAtEnd() const -> bool { return Offset == Bytes.size(); }
-			auto GetRemainingBytes() const -> size_t { return Bytes.size() - Offset; }
-
-		private:
-			std::span<const uint8> Bytes;
-			size_t Offset = 0;
-		};
+		using FPayloadWriter = EngineWire::FWriter;
+		using FPayloadReader = EngineWire::FReader;
 
 		auto Fail(std::string& OutError, std::string Message) -> bool
 		{
@@ -471,21 +391,7 @@ namespace Durin
 			return true;
 		}
 
-		auto ReadU32At(std::span<const uint8> Bytes, size_t Offset, uint32& Value) -> bool
-		{
-			if (Offset > Bytes.size() || Bytes.size() - Offset < 4) return false;
-			Value = 0;
-			for (uint32 Byte = 0; Byte < 4; ++Byte) Value |= static_cast<uint32>(Bytes[Offset + Byte]) << (Byte * 8);
-			return true;
-		}
-
-		auto ReadU64At(std::span<const uint8> Bytes, size_t Offset, uint64& Value) -> bool
-		{
-			if (Offset > Bytes.size() || Bytes.size() - Offset < 8) return false;
-			Value = 0;
-			for (uint32 Byte = 0; Byte < 8; ++Byte) Value |= static_cast<uint64>(Bytes[Offset + Byte]) << (Byte * 8);
-			return true;
-		}
+		using EngineWire::ReadLittleEndianAt;
 
 		auto IsRequiredChunkType(uint32 Type) -> bool
 		{
@@ -495,7 +401,7 @@ namespace Durin
 
 		auto AlignPayloadOffset(uint64 Offset) -> uint64
 		{
-			return (Offset + StaticMeshPayloadAlignment - 1) & ~(static_cast<uint64>(StaticMeshPayloadAlignment) - 1);
+			return EngineWire::AlignUp(Offset, StaticMeshPayloadAlignment);
 		}
 	}
 
@@ -591,12 +497,12 @@ namespace Durin
 		uint64 TotalUncompressedSize = 0;
 		uint64 StoredSize = 0;
 		uint64 StoredHash = 0;
-		if (!ReadU32At(Bytes, 0, Magic) || !ReadU32At(Bytes, 4, SchemaVersion)
-			|| !ReadU32At(Bytes, 8, BuilderVersion) || !ReadU32At(Bytes, 12, Platform)
-			|| !ReadU32At(Bytes, 16, PayloadFlags) || !ReadU32At(Bytes, 20, HeaderSize)
-			|| !ReadU32At(Bytes, 24, ChunkCount) || !ReadU32At(Bytes, 28, Reserved)
-			|| !ReadU64At(Bytes, 32, ChunkTableOffset) || !ReadU64At(Bytes, 40, TotalUncompressedSize)
-			|| !ReadU64At(Bytes, 48, StoredSize) || !ReadU64At(Bytes, 56, StoredHash))
+		if (!ReadLittleEndianAt(Bytes, 0, Magic) || !ReadLittleEndianAt(Bytes, 4, SchemaVersion)
+			|| !ReadLittleEndianAt(Bytes, 8, BuilderVersion) || !ReadLittleEndianAt(Bytes, 12, Platform)
+			|| !ReadLittleEndianAt(Bytes, 16, PayloadFlags) || !ReadLittleEndianAt(Bytes, 20, HeaderSize)
+			|| !ReadLittleEndianAt(Bytes, 24, ChunkCount) || !ReadLittleEndianAt(Bytes, 28, Reserved)
+			|| !ReadLittleEndianAt(Bytes, 32, ChunkTableOffset) || !ReadLittleEndianAt(Bytes, 40, TotalUncompressedSize)
+			|| !ReadLittleEndianAt(Bytes, 48, StoredSize) || !ReadLittleEndianAt(Bytes, 56, StoredHash))
 			return Fail(OutError, "Static-mesh payload header is truncated.");
 		if (Magic != StaticMeshPayloadMagic) return Fail(OutError, "Static-mesh payload magic is invalid.");
 		if (SchemaVersion != StaticMeshPayloadSchemaVersion)
@@ -636,9 +542,9 @@ namespace Durin
 		{
 			const size_t EntryOffset = static_cast<size_t>(ChunkTableOffset + static_cast<uint64>(Index) * StaticMeshPayloadChunkEntrySize);
 			FStaticMeshPayloadChunk& Chunk = Chunks[Index];
-			if (!ReadU32At(Bytes, EntryOffset, Chunk.Type) || !ReadU32At(Bytes, EntryOffset + 4, Chunk.Flags)
-				|| !ReadU64At(Bytes, EntryOffset + 8, Chunk.Offset) || !ReadU64At(Bytes, EntryOffset + 16, Chunk.StoredSize)
-				|| !ReadU64At(Bytes, EntryOffset + 24, Chunk.UncompressedSize))
+			if (!ReadLittleEndianAt(Bytes, EntryOffset, Chunk.Type) || !ReadLittleEndianAt(Bytes, EntryOffset + 4, Chunk.Flags)
+				|| !ReadLittleEndianAt(Bytes, EntryOffset + 8, Chunk.Offset) || !ReadLittleEndianAt(Bytes, EntryOffset + 16, Chunk.StoredSize)
+				|| !ReadLittleEndianAt(Bytes, EntryOffset + 24, Chunk.UncompressedSize))
 				return Fail(OutError, "Static-mesh payload chunk table is truncated.");
 			if ((Chunk.Flags & ~StaticMeshChunkKnownFlags) != 0)
 			{
@@ -1073,13 +979,13 @@ namespace Durin
 		uint32 ChunkCount = 0, Alignment = 0, Mode = 0, Policy = 0, Reserved = 0;
 		uint64 StoredSize = 0, LogicalBytes = 0, Checksum = 0;
 		if (Bytes.size() < StaticMeshCollisionPayloadHeaderSize
-			|| !ReadU32At(Bytes, 0, Magic) || !ReadU32At(Bytes, 4, Schema)
-			|| !ReadU32At(Bytes, 8, Builder) || !ReadU32At(Bytes, 12, Platform)
-			|| !ReadU32At(Bytes, 16, Header) || !ReadU32At(Bytes, 20, ChunkCount)
-			|| !ReadU32At(Bytes, 24, Alignment) || !ReadU32At(Bytes, 28, Mode)
-			|| !ReadU64At(Bytes, 32, StoredSize) || !ReadU64At(Bytes, 40, LogicalBytes)
-			|| !ReadU64At(Bytes, 48, Checksum) || !ReadU32At(Bytes, 56, Policy)
-			|| !ReadU32At(Bytes, 60, Reserved))
+			|| !ReadLittleEndianAt(Bytes, 0, Magic) || !ReadLittleEndianAt(Bytes, 4, Schema)
+			|| !ReadLittleEndianAt(Bytes, 8, Builder) || !ReadLittleEndianAt(Bytes, 12, Platform)
+			|| !ReadLittleEndianAt(Bytes, 16, Header) || !ReadLittleEndianAt(Bytes, 20, ChunkCount)
+			|| !ReadLittleEndianAt(Bytes, 24, Alignment) || !ReadLittleEndianAt(Bytes, 28, Mode)
+			|| !ReadLittleEndianAt(Bytes, 32, StoredSize) || !ReadLittleEndianAt(Bytes, 40, LogicalBytes)
+			|| !ReadLittleEndianAt(Bytes, 48, Checksum) || !ReadLittleEndianAt(Bytes, 56, Policy)
+			|| !ReadLittleEndianAt(Bytes, 60, Reserved))
 			return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL header is truncated.");
 		if (Magic != StaticMeshCollisionPayloadMagic || Schema != StaticMeshCollisionPayloadSchemaVersion
 			|| Builder != StaticMeshCollisionBuilderVersion
@@ -1102,9 +1008,9 @@ namespace Durin
 				+ Chunk * StaticMeshCollisionPayloadChunkEntrySize;
 			uint32 Type = 0, Flags = 0;
 			uint64 Offset = 0, Size = 0, Count = 0;
-			if (!ReadU32At(Bytes, Entry, Type) || !ReadU32At(Bytes, Entry + 4, Flags)
-				|| !ReadU64At(Bytes, Entry + 8, Offset) || !ReadU64At(Bytes, Entry + 16, Size)
-				|| !ReadU64At(Bytes, Entry + 24, Count) || Type != Chunk + 1 || Flags != 1
+			if (!ReadLittleEndianAt(Bytes, Entry, Type) || !ReadLittleEndianAt(Bytes, Entry + 4, Flags)
+				|| !ReadLittleEndianAt(Bytes, Entry + 8, Offset) || !ReadLittleEndianAt(Bytes, Entry + 16, Size)
+				|| !ReadLittleEndianAt(Bytes, Entry + 24, Count) || Type != Chunk + 1 || Flags != 1
 				|| Offset % Alignment != 0 || Offset < PreviousEnd || Offset > Bytes.size()
 				|| Size > Bytes.size() - Offset || Count > std::numeric_limits<uint64>::max() / ElementSizes[Chunk]
 				|| Count * ElementSizes[Chunk] != Size)

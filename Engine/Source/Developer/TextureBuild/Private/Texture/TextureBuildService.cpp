@@ -4,7 +4,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "Threading/RunnableThread.h"
 
-namespace Durin::AssetBuild
+namespace Durin::Asset::Build
 {
 	namespace
 	{

@@ -42,6 +42,13 @@ Its public Texture2D translation/submission contract intentionally exposes
 public module dependency; geometry recipes are implementation-only and
 `GeometryBuild` is private.
 
+TextureCube follows the same boundary. `TextureCubeSourceTranslation.h` owns
+six-face and panorama validation, import/reimport, source-reference changes,
+ingestion, package save, and rollback. It decodes concrete image bytes, submits
+owned normalized requests to TextureBuild, and publishes only detached products
+through Engine's narrow TextureCube state exchange. Runtime Engine exposes no
+create/save/source workflow and no mutable TextureCube authoring registry.
+
 ## Source snapshots and plans
 
 Import first resolves a mounted `FSourcePath` and captures its bytes. A provider

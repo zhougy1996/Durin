@@ -182,7 +182,7 @@ namespace Durin
 
 				FTexturePlatformData Built;
 				std::string Error;
-				if (!AssetBuild::TextureBuilder::BuildMipChain(
+				if (!Asset::Build::TextureBuilder::BuildMipChain(
 					Source, Usage, bSrgb, Built, Error))
 				{
 					ADD_FAILURE() << Error;

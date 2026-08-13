@@ -182,7 +182,7 @@ namespace
 		std::string Error;
 		if (!DerivedDataKey.empty())
 		{
-			const bool bStored = Durin::AssetBuild::StoreSkeletalMeshDerivedData(
+			const bool bStored = Durin::Asset::Build::StoreSkeletalMeshDerivedData(
 				DerivedDataKey, {
 					.SkeletonBoneCount = Skeleton.GetBoneCount(),
 					.MaterialSlotCount = static_cast<Durin::uint32>(Data.MaterialSlots.size()),
@@ -236,7 +236,7 @@ namespace
 		std::string Error;
 		if (!DerivedDataKey.empty())
 		{
-			const bool bStored = Durin::AssetBuild::StoreAnimationClipDerivedData(
+			const bool bStored = Durin::Asset::Build::StoreAnimationClipDerivedData(
 				DerivedDataKey, {
 					.SkeletonBoneCount = Skeleton.GetBoneCount(),
 					.TargetPlatform = Durin::ESkeletalPayloadTargetPlatform::Win64,
@@ -255,8 +255,8 @@ namespace
 		InitializeDObjectSystem();
 		static const bool bRegistered =
 			Durin::RegisterSkeletalAssetUncookedPayloadLoaders(
-				Durin::AssetBuild::LoadSkeletalMeshDerivedData,
-				Durin::AssetBuild::LoadAnimationClipDerivedData);
+				Durin::Asset::Build::LoadSkeletalMeshDerivedData,
+				Durin::Asset::Build::LoadAnimationClipDerivedData);
 		(void)bRegistered;
 		const std::filesystem::path Root =
 			Durin::Testing::GetTestWorkDirectory() / "SkeletalAssets";
@@ -638,8 +638,8 @@ TEST(FSkeletalAssetTests, PayloadCodecsAreDeterministicAndRoundTripExactValues)
 	Durin::FXxHash128 ClipFingerprint;
 	MeshFingerprint = Durin::FXxHash128::HashBuffer(MeshBytes);
 	ClipFingerprint = Durin::FXxHash128::HashBuffer(ClipBytes);
-	Durin::AssetBuild::FSkeletalMeshBuildKeyInput MeshKeyInput;
-	auto& KeyInput = static_cast<Durin::AssetBuild::FSkeletalBuildKeyFields&>(MeshKeyInput);
+	Durin::Asset::Build::FSkeletalMeshBuildKeyInput MeshKeyInput;
+	auto& KeyInput = static_cast<Durin::Asset::Build::FSkeletalBuildKeyFields&>(MeshKeyInput);
 	KeyInput.ProviderIdentity = "Durin.Scene";
 	KeyInput.ProviderVersion = 3;
 	KeyInput.SourceClosureHash = Durin::FXxHash128::HashBuffer("sources");
@@ -650,16 +650,16 @@ TEST(FSkeletalAssetTests, PayloadCodecsAreDeterministicAndRoundTripExactValues)
 	KeyInput.SkeletonCompatibilityIdentity = Skeleton->GetCompatibilityIdentity();
 	KeyInput.TargetPlatform = Durin::ESkeletalPayloadTargetPlatform::Win64;
 	KeyInput.TargetProfile = Durin::ESkeletalPayloadTargetProfile::Game;
-	const std::string MeshKey = Durin::AssetBuild::BuildSkeletalMeshDerivedDataKey(
+	const std::string MeshKey = Durin::Asset::Build::BuildSkeletalMeshDerivedDataKey(
 		MeshKeyInput, Error);
 	EXPECT_EQ(MeshKey, "d4a4365a271f98c048d49b3491170eb3");
 	EXPECT_EQ(MeshKey.size(), 32u);
-	EXPECT_EQ(Durin::AssetBuild::BuildSkeletalMeshDerivedDataKey(MeshKeyInput, Error), MeshKey);
-	Durin::AssetBuild::FAnimationClipBuildKeyInput ClipKeyInput;
-	static_cast<Durin::AssetBuild::FSkeletalBuildKeyFields&>(ClipKeyInput) = KeyInput;
+	EXPECT_EQ(Durin::Asset::Build::BuildSkeletalMeshDerivedDataKey(MeshKeyInput, Error), MeshKey);
+	Durin::Asset::Build::FAnimationClipBuildKeyInput ClipKeyInput;
+	static_cast<Durin::Asset::Build::FSkeletalBuildKeyFields&>(ClipKeyInput) = KeyInput;
 	ClipKeyInput.PayloadInputFingerprint = ClipFingerprint;
 	ClipKeyInput.StableOutputIdentity = "animation-clip:animation/0/skin/0";
-	const std::string ClipKey = Durin::AssetBuild::BuildAnimationClipDerivedDataKey(
+	const std::string ClipKey = Durin::Asset::Build::BuildAnimationClipDerivedDataKey(
 		ClipKeyInput, Error);
 	EXPECT_EQ(ClipKey, "a8eb4f43273627152dd71bea93f6d2e9");
 	EXPECT_EQ(ClipKey.size(), 32u);

@@ -4,7 +4,7 @@
 
 struct aiScene;
 
-namespace Durin::Asset
+namespace Durin::Asset::Import::Standard
 {
 	struct FSceneDecodeResult
 	{
@@ -15,7 +15,7 @@ namespace Durin::Asset
 	};
 }
 
-namespace Durin::Asset::Private
+namespace Durin::Asset::Import::Standard::Private
 {
 	// Carries one authoritative source and result sink across a format adapter.
 	struct FImportedSceneContext
@@ -30,13 +30,13 @@ namespace Durin::Asset::Private
 	auto AddDiagnostic(
 		FImportedSceneData& Scene,
 		EImportDiagnosticSeverity Severity,
-		EImportDiagnosticCategory Category,
+		ESceneImportDiagnosticCategory Category,
 		std::string SourceIdentity,
 		std::string Subject,
 		std::string Message) -> bool;
 	auto FailImport(
 		FSceneDecodeResult& Result,
-		EImportDiagnosticCategory Category,
+		ESceneImportDiagnosticCategory Category,
 		std::string Subject,
 		std::string Message,
 		std::string SourceIdentity = "root") -> bool;

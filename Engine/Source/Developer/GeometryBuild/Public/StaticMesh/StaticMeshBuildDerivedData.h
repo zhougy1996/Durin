@@ -3,7 +3,7 @@
 #include "GeometryBuildAPI.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 
-namespace Durin::AssetBuild
+namespace Durin::Asset::Build
 {
 	struct FStaticMeshBuildKeyInput
 	{

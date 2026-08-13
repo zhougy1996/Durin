@@ -30,12 +30,12 @@ namespace
 		{
 			InitializeDObjectSystem();
 			std::string Error;
-			ASSERT_TRUE(Durin::RegisterStandardAssetImportProviders(Error)) << Error;
+			ASSERT_TRUE(Durin::Asset::Import::RegisterStandardAssetImportProviders(Error)) << Error;
 		}
 
 		auto TearDown() -> void override
 		{
-			Durin::UnregisterStandardAssetImportProviders();
+			Durin::Asset::Import::UnregisterStandardAssetImportProviders();
 		}
 	};
 
@@ -224,15 +224,15 @@ TEST(FTerrainHeightmapDerivedDataTests, KeyAndPayloadRoundTripAreStableAndCorrup
 	std::shared_ptr<const Durin::FTerrainHeightmapPayload> Payload;
 	std::string Error;
 	ASSERT_TRUE(Durin::BuildTerrainHeightmapPayload(4, 3, Samples, Payload, Error)) << Error;
-	Durin::AssetBuild::FTerrainHeightmapBuildKeyInput KeyInput{
+	Durin::Asset::Build::FTerrainHeightmapBuildKeyInput KeyInput{
 		.SourceContentHash = Durin::FXxHash128::HashBuffer(std::as_bytes(std::span(Samples))),
 		.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
 		.TargetProfile = Durin::Asset::ECookTargetProfile::Game};
 	std::string FirstKey;
 	std::string SecondKey;
-	FirstKey = Durin::AssetBuild::BuildTerrainHeightmapDerivedDataKey(KeyInput, Error);
+	FirstKey = Durin::Asset::Build::BuildTerrainHeightmapDerivedDataKey(KeyInput, Error);
 	ASSERT_FALSE(FirstKey.empty()) << Error;
-	SecondKey = Durin::AssetBuild::BuildTerrainHeightmapDerivedDataKey(KeyInput, Error);
+	SecondKey = Durin::Asset::Build::BuildTerrainHeightmapDerivedDataKey(KeyInput, Error);
 	ASSERT_FALSE(SecondKey.empty()) << Error;
 	EXPECT_EQ(FirstKey, SecondKey);
 	EXPECT_EQ(FirstKey, "7b5c3faf0186011b52e3ff3368519321");
@@ -285,12 +285,12 @@ TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndRollbackPreserveTheA
 	const std::filesystem::path Root = InitializeHeightmapTests();
 	FScopedDdcRoot Ddc(Root / "DDC");
 	std::string Error;
-	ASSERT_TRUE(Durin::RegisterStandardAssetImportProviders(Error)) << Error;
+	ASSERT_TRUE(Durin::Asset::Import::RegisterStandardAssetImportProviders(Error)) << Error;
 	const std::filesystem::path Source = Root / "Sources/Asymmetric.png";
 	const std::array<Durin::uint16, 6> Initial{0, 100, 200, 300, 400, 65'535};
 	WritePng(Source, 3, 2, Initial);
 	const Durin::FTerrainHeightmapImportResult Imported =
-		Durin::StandardAssetImport::ImportTerrainHeightmapAsset(
+		Durin::Asset::Import::ImportTerrainHeightmapAsset(
 			Source.generic_string(), "/TerrainHeightmap/Asymmetric");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	ASSERT_NE(Imported.Asset, nullptr);
@@ -315,28 +315,28 @@ TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndRollbackPreserveTheA
 	EXPECT_EQ(RetainedSnapshot->Samples, std::vector<Durin::uint16>(Initial.begin(), Initial.end()));
 
 	// Ordinary PNG import remains the Texture2D path even for a 16-bit grayscale source.
-	const Durin::FTexture2DImportResult TextureImport = Durin::StandardAssetImport::ImportTexture2DAsset(
+	const Durin::FTexture2DImportResult TextureImport = Durin::Asset::Import::ImportTexture2DAsset(
 		Source.generic_string(), "/TerrainHeightmap/DefaultPngTexture");
 	ASSERT_TRUE(TextureImport) << TextureImport.Message;
 	ASSERT_NE(TextureImport.Asset, nullptr);
 
-	auto Plan = Durin::AssetImport::CreateSingleAssetReimportPlan(
-		{.Asset = Imported.Asset}, Durin::AssetImport::GetProviderRegistry(),
-		Durin::AssetImport::GetSingleAssetHandlerRegistry());
+	auto Plan = Durin::Asset::Import::CreateSingleAssetReimportPlan(
+		{.Asset = Imported.Asset}, Durin::Asset::Import::GetProviderRegistry(),
+		Durin::Asset::Import::GetSingleAssetHandlerRegistry());
 	ASSERT_TRUE(Plan) << Plan.Message;
 	const Durin::uint64 InitialRevision = Imported.Asset->GetRevision();
-	const auto Noop = Durin::AssetImport::ExecuteSingleAssetImport(Plan.Plan);
+	const auto Noop = Durin::Asset::Import::ExecuteSingleAssetImport(Plan.Plan);
 	ASSERT_TRUE(Noop) << Noop.Message;
 	EXPECT_EQ(Imported.Asset->GetRevision(), InitialRevision);
 	EXPECT_FALSE(Imported.Asset->GetPackage()->IsDirty());
 
 	const std::array<Durin::uint16, 6> Changed{1, 2, 3, 4, 5, 6};
 	WritePng(Source, 3, 2, Changed);
-	Plan = Durin::AssetImport::CreateSingleAssetReimportPlan(
-		{.Asset = Imported.Asset}, Durin::AssetImport::GetProviderRegistry(),
-		Durin::AssetImport::GetSingleAssetHandlerRegistry());
+	Plan = Durin::Asset::Import::CreateSingleAssetReimportPlan(
+		{.Asset = Imported.Asset}, Durin::Asset::Import::GetProviderRegistry(),
+		Durin::Asset::Import::GetSingleAssetHandlerRegistry());
 	ASSERT_TRUE(Plan) << Plan.Message;
-	const auto Updated = Durin::AssetImport::ExecuteSingleAssetImport(Plan.Plan);
+	const auto Updated = Durin::Asset::Import::ExecuteSingleAssetImport(Plan.Plan);
 	ASSERT_TRUE(Updated) << Updated.Message;
 	EXPECT_EQ(Imported.Asset->GetRevision(), InitialRevision + 1);
 	EXPECT_EQ(Imported.Asset->GetMinimum(), 1);
@@ -347,11 +347,11 @@ TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndRollbackPreserveTheA
 	const auto BeforeFailurePayload = Imported.Asset->GetPayload();
 	const std::array<Durin::uint16, 6> FailedChange{9, 9, 9, 9, 9, 9};
 	WritePng(Source, 3, 2, FailedChange);
-	Plan = Durin::AssetImport::CreateSingleAssetReimportPlan(
-		{.Asset = Imported.Asset}, Durin::AssetImport::GetProviderRegistry(),
-		Durin::AssetImport::GetSingleAssetHandlerRegistry());
+	Plan = Durin::Asset::Import::CreateSingleAssetReimportPlan(
+		{.Asset = Imported.Asset}, Durin::Asset::Import::GetProviderRegistry(),
+		Durin::Asset::Import::GetSingleAssetHandlerRegistry());
 	ASSERT_TRUE(Plan) << Plan.Message;
-	const auto Failed = Durin::AssetImport::ExecuteSingleAssetImport(
+	const auto Failed = Durin::Asset::Import::ExecuteSingleAssetImport(
 		Plan.Plan, {.SaveOptions = {.ShouldFail = [](Durin::Asset::EAssetBundleSavePhase Phase, size_t) {
 			return Phase == Durin::Asset::EAssetBundleSavePhase::StagePackage;
 		}}});
@@ -369,7 +369,7 @@ TEST(FTerrainHeightmapImportTests, AuthoredReloadUsesWarmDdcWithoutReopeningSour
 	const std::array<Durin::uint16, 6> Samples{5, 4, 3, 2, 1, 0};
 	WritePng(Source, 3, 2, Samples);
 	const Durin::FTerrainHeightmapImportResult Imported =
-		Durin::StandardAssetImport::ImportTerrainHeightmapAsset(
+		Durin::Asset::Import::ImportTerrainHeightmapAsset(
 			Source.generic_string(), "/TerrainHeightmap/WarmReload");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	const std::string Key = Imported.Asset->GetDerivedDataKey();

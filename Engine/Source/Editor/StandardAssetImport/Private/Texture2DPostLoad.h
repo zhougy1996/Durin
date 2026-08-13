@@ -1,6 +1,6 @@
 #pragma once
 
-namespace Durin::StandardAssetImport
+namespace Durin::Asset::Import
 {
 	auto RegisterTexture2DPostLoadPolicy() -> bool;
 	auto UnregisterTexture2DPostLoadPolicy() -> void;

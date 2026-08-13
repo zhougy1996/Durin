@@ -4,7 +4,7 @@
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DAuthoringService.h"
 
-namespace Durin::StandardAssetImport
+namespace Durin::Asset::Import
 {
 	// Translates one concrete encoded image into Engine's normalized RGBA8 source value.
 	STANDARDASSETIMPORT_API auto TranslateTexture2DSource(
@@ -29,14 +29,14 @@ namespace Durin::StandardAssetImport
 		bool bEngineAuthoringContext = false) -> FTexture2DImportResult;
 
 	STANDARDASSETIMPORT_API auto MakeTexture2DBuildSettings(const DTexture2D& Texture)
-		-> AssetBuild::FTexture2DBuildSettings;
+		-> Asset::Build::FTexture2DBuildSettings;
 	STANDARDASSETIMPORT_API auto RebuildTexture2DFromCurrentSource(
 		DTexture2D& Texture,
-		const AssetBuild::FTexture2DBuildSettings& Settings,
+		const Asset::Build::FTexture2DBuildSettings& Settings,
 		std::string& OutError,
-		AssetBuild::ETexture2DBuildPriority Priority =
-			AssetBuild::ETexture2DBuildPriority::Interactive,
-		AssetBuild::FTexture2DAuthoringCompletion Completion = {}) -> bool;
+		Asset::Build::ETexture2DBuildPriority Priority =
+			Asset::Build::ETexture2DBuildPriority::Interactive,
+		Asset::Build::FTexture2DAuthoringCompletion Completion = {}) -> bool;
 	STANDARDASSETIMPORT_API auto ReimportTexture2DSource(
 		DTexture2D& Texture,
 		std::string_view FilePath,

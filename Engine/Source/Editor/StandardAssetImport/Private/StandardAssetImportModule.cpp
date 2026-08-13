@@ -9,12 +9,12 @@ namespace Durin
 		auto StartupModule() -> void override
 		{
 			std::string Error;
-			requiref(RegisterStandardAssetImportProviders(Error), "{}", Error);
+			requiref(Asset::Import::RegisterStandardAssetImportProviders(Error), "{}", Error);
 		}
 
 		auto ShutdownModule() -> void override
 		{
-			UnregisterStandardAssetImportProviders();
+			Asset::Import::UnregisterStandardAssetImportProviders();
 		}
 	};
 

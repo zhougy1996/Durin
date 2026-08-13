@@ -2,6 +2,7 @@
 
 #include "Misc/DerivedDataCache.h"
 #include "Serialization/Archive.h"
+#include "Serialization/EngineWire.h"
 #include "Texture/TextureCube.h"
 
 namespace Durin
@@ -53,8 +54,7 @@ namespace Durin
 
 		auto AlignPayloadOffset(uint64 Offset) -> uint64
 		{
-			return (Offset + TexturePayloadAlignment - 1)
-				& ~(static_cast<uint64>(TexturePayloadAlignment) - 1);
+			return EngineWire::AlignUp(Offset, TexturePayloadAlignment);
 		}
 
 		auto IsCompleteMipChain(const FTexturePlatformData& PlatformData) -> bool
@@ -93,23 +93,7 @@ namespace Durin
 			return true;
 		}
 
-		auto ReadU32At(std::span<const uint8> Bytes, size_t Offset, uint32& Value) -> bool
-		{
-			if (Offset > Bytes.size() || Bytes.size() - Offset < sizeof(uint32)) return false;
-			Value = 0;
-			for (uint32 Byte = 0; Byte < sizeof(uint32); ++Byte)
-				Value |= static_cast<uint32>(Bytes[Offset + Byte]) << (Byte * 8);
-			return true;
-		}
-
-		auto ReadU64At(std::span<const uint8> Bytes, size_t Offset, uint64& Value) -> bool
-		{
-			if (Offset > Bytes.size() || Bytes.size() - Offset < sizeof(uint64)) return false;
-			Value = 0;
-			for (uint32 Byte = 0; Byte < sizeof(uint64); ++Byte)
-				Value |= static_cast<uint64>(Bytes[Offset + Byte]) << (Byte * 8);
-			return true;
-		}
+		using EngineWire::ReadLittleEndianAt;
 	}
 
 	auto BuildTexture2DSerializedValue(
@@ -223,14 +207,14 @@ namespace Durin
 		uint64 StoredSize = 0;
 		uint64 StoredHash = 0;
 		uint64 Reserved = 0;
-		if (!ReadU32At(Bytes, 0, Magic) || !ReadU32At(Bytes, 4, SchemaVersion)
-			|| !ReadU32At(Bytes, 8, BuilderVersion) || !ReadU32At(Bytes, 12, Platform)
-			|| !ReadU32At(Bytes, 16, Profile) || !ReadU32At(Bytes, 20, Dimension)
-			|| !ReadU32At(Bytes, 24, StableFormat) || !ReadU32At(Bytes, 28, SliceCount)
-			|| !ReadU32At(Bytes, 32, MipCount) || !ReadU32At(Bytes, 36, HeaderSize)
-			|| !ReadU32At(Bytes, 40, RecordCount) || !ReadU32At(Bytes, 44, RecordSize)
-			|| !ReadU64At(Bytes, 48, RecordTableOffset) || !ReadU64At(Bytes, 56, StoredSize)
-			|| !ReadU64At(Bytes, 64, StoredHash) || !ReadU64At(Bytes, 72, Reserved))
+		if (!ReadLittleEndianAt(Bytes, 0, Magic) || !ReadLittleEndianAt(Bytes, 4, SchemaVersion)
+			|| !ReadLittleEndianAt(Bytes, 8, BuilderVersion) || !ReadLittleEndianAt(Bytes, 12, Platform)
+			|| !ReadLittleEndianAt(Bytes, 16, Profile) || !ReadLittleEndianAt(Bytes, 20, Dimension)
+			|| !ReadLittleEndianAt(Bytes, 24, StableFormat) || !ReadLittleEndianAt(Bytes, 28, SliceCount)
+			|| !ReadLittleEndianAt(Bytes, 32, MipCount) || !ReadLittleEndianAt(Bytes, 36, HeaderSize)
+			|| !ReadLittleEndianAt(Bytes, 40, RecordCount) || !ReadLittleEndianAt(Bytes, 44, RecordSize)
+			|| !ReadLittleEndianAt(Bytes, 48, RecordTableOffset) || !ReadLittleEndianAt(Bytes, 56, StoredSize)
+			|| !ReadLittleEndianAt(Bytes, 64, StoredHash) || !ReadLittleEndianAt(Bytes, 72, Reserved))
 			return Fail(OutError, "Texture payload header is truncated.");
 		if (Magic != TexturePayloadMagic) return Fail(OutError, "Texture payload magic is invalid.");
 		if (SchemaVersion != TexturePayloadSchemaVersion)
@@ -281,10 +265,10 @@ namespace Durin
 			uint32 RecordReserved = 0;
 			uint64 DataOffset = 0;
 			uint64 ByteCount = 0;
-			if (!ReadU32At(Bytes, Offset, Slice) || !ReadU32At(Bytes, Offset + 4, StoredMip)
-				|| !ReadU32At(Bytes, Offset + 8, Width) || !ReadU32At(Bytes, Offset + 12, Height)
-				|| !ReadU32At(Bytes, Offset + 16, RowPitch) || !ReadU32At(Bytes, Offset + 20, RecordReserved)
-				|| !ReadU64At(Bytes, Offset + 24, DataOffset) || !ReadU64At(Bytes, Offset + 32, ByteCount))
+			if (!ReadLittleEndianAt(Bytes, Offset, Slice) || !ReadLittleEndianAt(Bytes, Offset + 4, StoredMip)
+				|| !ReadLittleEndianAt(Bytes, Offset + 8, Width) || !ReadLittleEndianAt(Bytes, Offset + 12, Height)
+				|| !ReadLittleEndianAt(Bytes, Offset + 16, RowPitch) || !ReadLittleEndianAt(Bytes, Offset + 20, RecordReserved)
+				|| !ReadLittleEndianAt(Bytes, Offset + 24, DataOffset) || !ReadLittleEndianAt(Bytes, Offset + 32, ByteCount))
 				return Fail(OutError, "Texture payload subresource record is truncated.");
 			if (Slice != 0 || StoredMip != MipIndex || RecordReserved != 0
 				|| Width == 0 || Height == 0 || Width > MaximumTexture2DDimension
@@ -500,14 +484,14 @@ namespace Durin
 		uint64 StoredSize = 0;
 		uint64 StoredHash = 0;
 		uint64 Reserved = 0;
-		if (!ReadU32At(Bytes, 0, Magic) || !ReadU32At(Bytes, 4, SchemaVersion)
-			|| !ReadU32At(Bytes, 8, BuilderVersion) || !ReadU32At(Bytes, 12, Platform)
-			|| !ReadU32At(Bytes, 16, Profile) || !ReadU32At(Bytes, 20, Dimension)
-			|| !ReadU32At(Bytes, 24, StableFormat) || !ReadU32At(Bytes, 28, SliceCount)
-			|| !ReadU32At(Bytes, 32, MipCount) || !ReadU32At(Bytes, 36, HeaderSize)
-			|| !ReadU32At(Bytes, 40, RecordCount) || !ReadU32At(Bytes, 44, RecordSize)
-			|| !ReadU64At(Bytes, 48, RecordTableOffset) || !ReadU64At(Bytes, 56, StoredSize)
-			|| !ReadU64At(Bytes, 64, StoredHash) || !ReadU64At(Bytes, 72, Reserved))
+		if (!ReadLittleEndianAt(Bytes, 0, Magic) || !ReadLittleEndianAt(Bytes, 4, SchemaVersion)
+			|| !ReadLittleEndianAt(Bytes, 8, BuilderVersion) || !ReadLittleEndianAt(Bytes, 12, Platform)
+			|| !ReadLittleEndianAt(Bytes, 16, Profile) || !ReadLittleEndianAt(Bytes, 20, Dimension)
+			|| !ReadLittleEndianAt(Bytes, 24, StableFormat) || !ReadLittleEndianAt(Bytes, 28, SliceCount)
+			|| !ReadLittleEndianAt(Bytes, 32, MipCount) || !ReadLittleEndianAt(Bytes, 36, HeaderSize)
+			|| !ReadLittleEndianAt(Bytes, 40, RecordCount) || !ReadLittleEndianAt(Bytes, 44, RecordSize)
+			|| !ReadLittleEndianAt(Bytes, 48, RecordTableOffset) || !ReadLittleEndianAt(Bytes, 56, StoredSize)
+			|| !ReadLittleEndianAt(Bytes, 64, StoredHash) || !ReadLittleEndianAt(Bytes, 72, Reserved))
 			return Fail(OutError, "Texture payload header is truncated.");
 		if (Magic != TexturePayloadMagic) return Fail(OutError, "Texture payload magic is invalid.");
 		if (SchemaVersion != TexturePayloadSchemaVersion)
@@ -565,12 +549,12 @@ namespace Durin
 			uint32 RecordReserved = 0;
 			uint64 DataOffset = 0;
 			uint64 ByteCount = 0;
-			if (!ReadU32At(Bytes, Offset, Slice) || !ReadU32At(Bytes, Offset + 4, MipIndex)
-				|| !ReadU32At(Bytes, Offset + 8, Width) || !ReadU32At(Bytes, Offset + 12, Height)
-				|| !ReadU32At(Bytes, Offset + 16, RowPitch)
-				|| !ReadU32At(Bytes, Offset + 20, RecordReserved)
-				|| !ReadU64At(Bytes, Offset + 24, DataOffset)
-				|| !ReadU64At(Bytes, Offset + 32, ByteCount))
+			if (!ReadLittleEndianAt(Bytes, Offset, Slice) || !ReadLittleEndianAt(Bytes, Offset + 4, MipIndex)
+				|| !ReadLittleEndianAt(Bytes, Offset + 8, Width) || !ReadLittleEndianAt(Bytes, Offset + 12, Height)
+				|| !ReadLittleEndianAt(Bytes, Offset + 16, RowPitch)
+				|| !ReadLittleEndianAt(Bytes, Offset + 20, RecordReserved)
+				|| !ReadLittleEndianAt(Bytes, Offset + 24, DataOffset)
+				|| !ReadLittleEndianAt(Bytes, Offset + 32, ByteCount))
 				return Fail(OutError, "Texture payload subresource record is truncated.");
 			if (Slice != ExpectedSlice || MipIndex != ExpectedMip || RecordReserved != 0
 				|| Width == 0 || Height == 0 || Width != Height

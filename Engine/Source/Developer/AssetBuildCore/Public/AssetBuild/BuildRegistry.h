@@ -2,7 +2,7 @@
 
 #include "AssetBuild/BuildRequest.h"
 
-namespace Durin::AssetBuild
+namespace Durin::Asset::Build
 {
 	using FLocalBuildFunction = std::function<FBuildFunctionResult(
 		const FBuildDefinition&, const FBuildPolicy&, const FBuildRequestOwner&)>;

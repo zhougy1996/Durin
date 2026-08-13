@@ -4,7 +4,7 @@
 #include "Hash/XxHash.h"
 #include "Texture/TextureDerivedData.h"
 
-namespace Durin::AssetBuild
+namespace Durin::Asset::Build
 {
 	enum class ETextureCubeBuildSourceLayout : uint32
 	{

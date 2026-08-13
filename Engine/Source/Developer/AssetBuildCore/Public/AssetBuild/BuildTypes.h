@@ -3,7 +3,7 @@
 #include "AssetBuildCoreAPI.h"
 #include "Hash/XxHash.h"
 
-namespace Durin::AssetBuild
+namespace Durin::Asset::Build
 {
 	// Stable owner-qualified identity of one Build function.
 	struct FBuildFunctionIdentity

@@ -42,7 +42,7 @@ namespace
 		{
 			if (bBuildHost)
 				Durin::FModuleManager::LoadModuleChecked<
-					Durin::AssetBuild::IAssetBuildCoreModule>("AssetBuildCore").ShutdownHost();
+					Durin::Asset::Build::IAssetBuildCoreModule>("AssetBuildCore").ShutdownHost();
 			if (bTextureBuild)
 				Durin::FModuleManager::Get().ShutdownModule("TextureBuild");
 			if (bGeometryBuild)
@@ -119,7 +119,7 @@ int main(int ArgC, char** ArgV)
 		// Migration may deserialize uncooked Engine payloads. Select Build explicitly;
 		// the package-only audit path intentionally never loads this module.
 		auto& BuildCore = Durin::FModuleManager::LoadModuleChecked<
-			Durin::AssetBuild::IAssetBuildCoreModule>("AssetBuildCore");
+			Durin::Asset::Build::IAssetBuildCoreModule>("AssetBuildCore");
 		AuthoringModules.bAssetBuildCore = true;
 		if (!Durin::FModuleManager::Get().LoadModule("GeometryBuild"))
 		{
@@ -142,7 +142,7 @@ int main(int ArgC, char** ArgV)
 		AuthoringModules.bBuildHost = true;
 	}
 	(void)Durin::DLevel::StaticClass(); // Force the Engine reflection module into this process.
-	(void)Durin::AssetImport::DImportRecord::StaticClass(); // AssetImport packages are part of the authored corpus.
+	(void)Durin::Asset::Import::DImportRecord::StaticClass(); // AssetImport packages are part of the authored corpus.
 	if (Options.bApply && !Durin::Asset::RecoverInterruptedAssetMigrations(Error))
 	{
 		std::cerr << "Error: " << Error << '\n';

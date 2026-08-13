@@ -7,6 +7,15 @@ Modules: Engine, Renderer, RenderCore
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
 
+`Materials/MaterialTypes.h` is the authored/reflected parameter and static
+property surface. Renderer-facing layout, compatibility, immutable
+representation, builder, pipeline identity, and fallback declarations live in
+`Materials/MaterialRenderTypes.h`; `MaterialRenderProxy.h` includes that narrow
+surface directly. Their implementations are separated into canonical authored
+schema, layout compatibility, representation/builder, and diagnostics files.
+This split retains the exact v1/v2/v3 tables, GUIDs, payload sizes, error
+material, counters, and schema upgrades.
+
 ## Parameter Domain
 
 - `DMaterialInterface` is the common asset/component-facing contract. Persistent

@@ -360,21 +360,14 @@ namespace Durin
 				!= static_cast<uint32>(Asset::ECookedPayloadCompression::None))
 			return FailCooked("required THPL descriptor is missing or incompatible.");
 		const Asset::FPackageLoadContext& LoadContext = Asset::GetPackageLoadContext();
-		std::filesystem::path PackagePath;
-		std::filesystem::path CompanionPath;
-		if (!GetPackage() || !Asset::ResolveCookedPackagePath(
-			LoadContext.CookRoot, GetPackage()->GetPackagePath(), PackagePath, &OutError)
-			|| !Asset::ResolveCookedCompanionPath(
-				LoadContext.CookRoot, PackagePath, CompanionPath, &OutError))
+		if (!GetPackage()) return FailCooked(OutError);
+		Asset::FCookedPackagePayload LoadedPayload;
+		if (!Asset::LoadCookedPackagePayload(
+			LoadContext, GetPackage()->GetPackagePath(), CookedPayload,
+			Asset::ECookTargetPlatform::Win64,
+			Asset::ECookTargetProfile::Game, LoadedPayload, &OutError))
 			return FailCooked(OutError);
-		Asset::FCookedBulkContainer Container;
-		if (!Asset::LoadCookedBulkFile(
-			CompanionPath, Asset::ECookTargetPlatform::Win64,
-			Asset::ECookTargetProfile::Game, Container, &OutError))
-			return FailCooked(OutError);
-		std::span<const uint8> Bytes;
-		if (!Asset::ResolveCookedPayload(Container, CookedPayload, Bytes, &OutError))
-			return FailCooked(OutError);
+		const std::span<const uint8> Bytes = LoadedPayload.Payload;
 		auto MutableCandidate = std::make_shared<FTerrainHeightmapPayload>();
 		FCanonicalMemoryReader PayloadAr(Bytes, EArchivePurpose::CookedPayload);
 		MutableCandidate->Serialize(PayloadAr, Asset::ECookTargetPlatform::Win64,

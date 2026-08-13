@@ -81,6 +81,12 @@ bytes, and relocating a shared source are separate operations; shared mutation
 requires complete impact discovery and rolls source and packages back together
 on failure. See [Mounted Source Workflows](../../Editor/Guides/MountedSourceWorkflows.md).
 
+AssetCore owns these generic operations in `Asset/MountedSource.h`: mounted
+reference resolution, file/byte staging, replacement, relocation, commit, and
+rollback. Transaction results own their physical paths and publication state
+until the caller explicitly commits or rolls back. Asset-family import policy,
+translation, package mutation, and build publication remain outside AssetCore.
+
 ### Import-Time Build Policy
 
 Import is an editor authoring operation, not a cook. It creates or updates the
@@ -278,6 +284,16 @@ codec owns mip records and GPU block-compressed bytes, while a static-mesh codec
 owns vertex and index streams. `AssetCore` owns container lookup, bounded I/O,
 and descriptor validation but does not interpret those bytes. C++ object
 memory, STL layouts, pointers, and RHI handles are never serialized.
+
+Runtime asset loaders use `LoadCookedPackagePayload` for the common package
+path, `.dbulk` companion, target/profile, and exact-descriptor lookup. Its
+`FCookedPackagePayload` result owns the decoded container, so the selected
+opaque byte span remains valid for the result lifetime. Loaders validate their
+payload identity and schema before lookup, decode into detached candidates,
+and publish only after complete type-specific validation. Engine-private wire
+helpers provide bounded little-endian reads/writes and checked alignment to the
+StaticMesh, Skeletal, Texture, and Terrain codecs; their field order, chunks,
+limits, hashes, compatibility rules, and diagnostics remain locally owned.
 
 The initial texture payload uses no additional container compression because BC
 texture data is already compressed and must remain independently addressable by

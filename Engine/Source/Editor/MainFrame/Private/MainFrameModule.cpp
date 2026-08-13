@@ -118,7 +118,7 @@ namespace Durin::Editor::MainFrame
 				FModuleManager::Get().LoadModuleChecked("AssetBuildCore");
 				FModuleManager::Get().LoadModuleChecked("TextureBuild");
 				FModuleManager::Get().LoadModuleChecked("GeometryBuild");
-				checkf(AssetBuild::InitializeBuildHost(),
+				checkf(Asset::Build::InitializeBuildHost(),
 					"AssetBuildCore authoring host is unavailable.");
 				FModuleManager::Get().LoadModuleChecked("StandardAssetImport");
 				Editor::FRenderedAssetThumbnailService& ThumbnailService =
@@ -617,7 +617,7 @@ namespace Durin
 			const std::shared_ptr<FBootstrapContext> Context =
 				WeakContext.lock();
 			if (!Context) return;
-			AssetBuild::PumpBuildHostCompletions();
+			Asset::Build::PumpBuildHostCompletions();
 			ObserveHostWindowState(
 				*Context->HostSettings, *Context->RootWindow);
 			if (Context->State == EBootstrapState::Ready
@@ -669,7 +669,7 @@ namespace Durin
 
 	auto FMainFrameModule::DestroyDefaultFrame() -> void
 	{
-		AssetBuild::ShutdownBuildHost();
+		Asset::Build::ShutdownBuildHost();
 		BootstrapContext.reset();
 	}
 

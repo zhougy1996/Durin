@@ -1,6 +1,6 @@
 #pragma once
 
-namespace Durin::StandardAssetImport
+namespace Durin::Asset::Import
 {
 	auto RegisterTexture2DSourceRelocation() -> bool;
 	auto UnregisterTexture2DSourceRelocation() -> void;

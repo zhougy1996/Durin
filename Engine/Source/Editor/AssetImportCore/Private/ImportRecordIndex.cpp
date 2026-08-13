@@ -5,7 +5,7 @@
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
 
-namespace Durin::AssetImport
+namespace Durin::Asset::Import
 {
 	namespace
 	{

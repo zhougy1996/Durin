@@ -2,7 +2,7 @@
 
 #include "AssetBuild/BuildTypes.h"
 
-namespace Durin::AssetBuild
+namespace Durin::Asset::Build
 {
 	// Family-neutral workload contribution to the process authoring host.
 	struct FBuildServiceContribution

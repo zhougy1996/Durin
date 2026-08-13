@@ -1,6 +1,7 @@
 #include "StandardAssetImportProviders.h"
 #include "StaticMeshSourceTranslation.h"
 #include "Texture2DSourceTranslation.h"
+#include "TextureCubeSourceTranslation.h"
 #include "Texture2DPropertyEditing.h"
 #include "Texture2DPostLoad.h"
 #include "Texture2DSourceRelocation.h"
@@ -22,7 +23,7 @@
 #include "AsyncImport.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "SkeletalMesh/Skeleton.h"
-#include "Source/SourcePath.h"
+#include "Asset/MountedSource.h"
 #include "StaticMeshImportAdapter.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshAuthoring.h"
@@ -37,14 +38,13 @@
 #include "Terrain/TerrainHeightmapBuildOperations.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
 
-namespace Durin
+namespace Durin::Asset::Import
 {
 	namespace
 	{
-		using namespace AssetImport;
 
 		auto NormalizePanorama(Asset::FDecodedImage&& Image)
-			-> AssetBuild::TextureCubeBuilder::FTexturePanoramaImage
+			-> Asset::Build::TextureCubeBuilder::FTexturePanoramaImage
 		{
 			return {.Pixels = std::move(Image.Pixels), .Width = Image.Width,
 				.Height = Image.Height, .SourceChannelCount = Image.SourceChannelCount,
@@ -52,7 +52,7 @@ namespace Durin
 		}
 
 		auto NormalizePanorama(Asset::FDecodedFloatImage&& Image)
-			-> AssetBuild::TextureCubeBuilder::FTexturePanoramaFloatImage
+			-> Asset::Build::TextureCubeBuilder::FTexturePanoramaFloatImage
 		{
 			return {.Pixels = std::move(Image.Pixels), .Width = Image.Width,
 				.Height = Image.Height};
@@ -202,12 +202,12 @@ namespace Durin
 
 		auto MakeMeshImportOptions(
 			const FStaticMeshImportSettings& Settings,
-			const FSourcePath& RootSource) -> Asset::FMeshImportOptions
+			const FSourcePath& RootSource) -> Standard::FMeshImportOptions
 		{
 			const FVector3f Forward = ImportAxisVector(Settings.ForwardAxis);
 			const FVector3f Right = ImportAxisVector(Settings.RightAxis);
 			const FVector3f Up = ImportAxisVector(Settings.UpAxis);
-			Asset::FMeshImportOptions Options;
+			Standard::FMeshImportOptions Options;
 			for (uint32 Component = 0; Component < 3; ++Component)
 			{
 				Options.SourceToEngine[Component][0] = Forward[Component];
@@ -221,11 +221,11 @@ namespace Durin
 		auto DecodeStaticMeshSource(
 			std::string_view FilePath,
 			const FStaticMeshImportSettings& Settings,
-			AssetBuild::FStaticMeshImportedData& OutData,
+			Asset::Build::FStaticMeshImportedData& OutData,
 			std::string& OutError) -> bool
 		{
-			Asset::FImportedSceneData Scene;
-			if (Asset::ImportFromFile(
+			Standard::FImportedSceneData Scene;
+			if (Standard::ImportFromFile(
 				FilePath, Scene, MakeMeshImportOptions(Settings, {})))
 			{
 				OutData = MakeStaticMeshImportedData(Scene);
@@ -244,12 +244,12 @@ namespace Durin
 			FStaticMeshAuthoringProduct& OutProduct,
 			std::string& OutError) -> bool
 		{
-			AssetBuild::FStaticMeshImportedData ImportedData;
+			Asset::Build::FStaticMeshImportedData ImportedData;
 			if (!DecodeStaticMeshSource(
 				FilePath, SourceImportData.ImportSettings, ImportedData, OutError))
 				return false;
-			return AssetBuild::FStaticMeshBuildOperations::BuildImportedProduct(
-				AssetBuild::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(Mesh),
+			return Asset::Build::FStaticMeshBuildOperations::BuildImportedProduct(
+				Asset::Build::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(Mesh),
 				ImportedData, std::move(SourceImportData), SourceLabel,
 				OutProduct, OutError);
 		}
@@ -260,7 +260,7 @@ namespace Durin
 			std::string& OutError) -> bool
 		{
 			const FStaticMeshSourceDiagnostic SourceDiagnostic =
-				StandardAssetImport::InspectStaticMeshSource(Mesh);
+				InspectStaticMeshSource(Mesh);
 			if (SourceDiagnostic.Status == EStaticMeshSourceStatus::NoSource)
 			{
 				OutDiagnostic = {};
@@ -312,8 +312,8 @@ namespace Durin
 				EStaticMeshDerivedDataStatus::Missing;
 			std::string CacheMessage;
 			if (!bSourceMetadataStale
-				&& AssetBuild::FStaticMeshBuildOperations::LoadDerivedDataProduct(
-					AssetBuild::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(Mesh),
+				&& Asset::Build::FStaticMeshBuildOperations::LoadDerivedDataProduct(
+					Asset::Build::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(Mesh),
 					Source, bSourceAvailable, Product, CacheStatus,
 					CacheMessage, OutError))
 			{
@@ -626,8 +626,8 @@ namespace Durin
 				if (!Target || !Root || !MakeCandidatePath(Plan.GetAssetPath(), CandidatePath)
 					|| !Asset::CreateAsset(CandidatePath, Candidate)) return nullptr;
 				auto Result = std::make_unique<FEngineSingleAssetCandidate>(Candidate);
-				Asset::FImportedSceneData Scene;
-				if (!Asset::ImportGeometryFromMemory(
+				Standard::FImportedSceneData Scene;
+				if (!Standard::ImportGeometryFromMemory(
 					Root->GetBytes(), std::filesystem::path(Root->SourcePath.Path).extension().generic_string(),
 					Scene, MakeMeshImportOptions(Target->GetImportSettings(), Root->SourcePath)))
 				{
@@ -644,12 +644,12 @@ namespace Durin
 					.ImporterId = Plan.GetProvenance().ProviderId,
 					.ImporterVersion = Plan.GetProvenance().ProviderContractVersion,
 					.ImportSettings = Target->GetImportSettings()};
-				AssetBuild::FStaticMeshBuildProduct Product;
-				if (!AssetBuild::FStaticMeshBuildOperations::BuildImportedProduct(
-						AssetBuild::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(*Candidate),
+				Asset::Build::FStaticMeshBuildProduct Product;
+				if (!Asset::Build::FStaticMeshBuildOperations::BuildImportedProduct(
+						Asset::Build::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(*Candidate),
 						MakeStaticMeshImportedData(Scene), Provenance,
 						Root->SourcePath.Path, Product, Error)
-					|| !AssetBuild::FStaticMeshBuildOperations::PublishImportedProduct(
+					|| !Asset::Build::FStaticMeshBuildOperations::PublishImportedProduct(
 						*Candidate, std::move(Product), Error))
 				{
 					Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
@@ -681,7 +681,7 @@ namespace Durin
 				auto* Mesh = Cast<DStaticMesh>(&AssetObject);
 				std::string Error;
 				const bool bResult = Mesh && Sources.size() == 1
-					&& StandardAssetImport::ChangeStaticMeshSourceReference(
+					&& ChangeStaticMeshSourceReference(
 						*Mesh, Sources[0].Path, Error);
 				if (!bResult) Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
 					.Category = EImportDiagnosticCategory::InvalidSource,
@@ -735,7 +735,7 @@ namespace Durin
 					.MaxResolution = Target->GetMaxResolution(),
 					.bSRGB = Target->IsSRGB()};
 				std::string Error;
-				if (!StandardAssetImport::BuildTexture2DCandidateFromSource(
+				if (!BuildTexture2DCandidateFromSource(
 					*Candidate, Root->GetBytes(), Root->SourcePath, Settings, Error))
 				{
 					Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
@@ -760,7 +760,7 @@ namespace Durin
 				auto* Texture = Cast<DTexture2D>(&AssetObject);
 				std::string Error;
 				const bool bResult = Texture && Sources.size() == 1
-					&& StandardAssetImport::ChangeTexture2DSourceReference(
+					&& ChangeTexture2DSourceReference(
 						*Texture, Sources[0].Path, Error);
 				if (!bResult) Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
 					.Category = EImportDiagnosticCategory::InvalidSource,
@@ -837,8 +837,8 @@ namespace Durin
 						Asset::FDecodedFloatImage Panorama;
 						bBuilt = Asset::DecodeRadianceHDRFromMemory(
 							Root->GetBytes(), Panorama, Error,
-							{.MaximumDecodedPixels = AssetBuild::TextureCubeBuilder::MaximumPanoramaPixels})
-							&& StandardAssetImport::BuildAndPublishTextureCubePanorama(
+							{.MaximumDecodedPixels = Asset::Build::TextureCubeBuilder::MaximumPanoramaPixels})
+							&& BuildAndPublishTextureCubePanorama(
 								*Candidate, NormalizePanorama(std::move(Panorama)), Hash, Root->SourcePath, Settings, Error);
 					}
 					else
@@ -846,8 +846,8 @@ namespace Durin
 						Asset::FDecodedImage Panorama;
 						bBuilt = Asset::DecodeImageFromMemory(
 							Root->GetBytes(), Panorama, Error,
-							{.MaximumDecodedPixels = AssetBuild::TextureCubeBuilder::MaximumPanoramaPixels})
-							&& StandardAssetImport::BuildAndPublishTextureCubePanorama(
+							{.MaximumDecodedPixels = Asset::Build::TextureCubeBuilder::MaximumPanoramaPixels})
+							&& BuildAndPublishTextureCubePanorama(
 								*Candidate, NormalizePanorama(std::move(Panorama)), Hash, Root->SourcePath, Settings, Error);
 					}
 					if (!bBuilt)
@@ -869,7 +869,7 @@ namespace Durin
 						const FSourceSnapshotEntry* Entry = Plan.GetSnapshot().FindSource(
 							Index == 0 ? "root" : std::format("face-{}", Index));
 						if (!Entry) { Result->Abandon(); return nullptr; }
-						if (!StandardAssetImport::TranslateTexture2DSource(
+						if (!TranslateTexture2DSource(
 							Entry->GetBytes(), SourceData.Faces[Index], Error))
 						{
 							Result->Abandon();
@@ -878,7 +878,7 @@ namespace Durin
 						Hashes[Index] = FXxHash128::HashBuffer(Entry->GetBytes());
 						Paths[Index] = Entry->SourcePath;
 					}
-					if (!StandardAssetImport::BuildAndPublishTextureCubeFaces(
+					if (!BuildAndPublishTextureCubeFaces(
 						*Candidate, std::move(SourceData), Hashes, Paths, {Target->IsSRGB()}, Error))
 					{
 						Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
@@ -906,14 +906,16 @@ namespace Durin
 				bool bResult = false;
 				if (Cube && Cube->GetSourceLayout() == ETextureCubeSourceLayout::EquirectangularPanorama
 					&& Sources.size() == 1)
-					bResult = Cube->ChangePanoramaSourceReference(Sources[0].Path,
+					bResult = ChangeTextureCubePanoramaSourceReference(
+						*Cube, Sources[0].Path,
 						{Cube->GetPanoramaFaceDimension(), Cube->GetPanoramaExposureEV()}, Error);
 				else if (Cube && Sources.size() == TextureCubeFaceCount)
 				{
 					std::array<std::string, TextureCubeFaceCount> Paths;
 					for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
 						Paths[Index] = Sources[Index].Path;
-					bResult = Cube->ChangeSourceReferences(Paths, {Cube->IsSRGB()}, Error);
+					bResult = ChangeTextureCubeFaceSourceReferences(
+						*Cube, Paths, {Cube->IsSRGB()}, Error);
 				}
 				if (!bResult) Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,
 					.Category = EImportDiagnosticCategory::InvalidSource,
@@ -986,14 +988,14 @@ namespace Durin
 					return nullptr;
 				}
 				const FXxHash128 Hash = FXxHash128::HashBuffer(Root->GetBytes());
-				AssetBuild::FTerrainHeightmapBuildProduct Product;
-				if (!AssetBuild::BuildTerrainHeightmap({
+				Asset::Build::FTerrainHeightmapBuildProduct Product;
+				if (!Asset::Build::BuildTerrainHeightmap({
 					.Samples = std::move(Decoded.Samples),
 					.Width = Decoded.Width,
 					.Height = Decoded.Height,
 					.SourceContentHashLow = Hash.HashLow,
 					.SourceContentHashHigh = Hash.HashHigh}, Product, Error)
-					|| !AssetBuild::PublishTerrainHeightmapProduct(
+					|| !Asset::Build::PublishTerrainHeightmapProduct(
 						*Candidate, std::move(Product), {
 							.SourcePath = Root->SourcePath,
 							.SourceFileSize = Root->GetBytes().size()}, Error))
@@ -1031,7 +1033,7 @@ namespace Durin
 				auto* Heightmap = Cast<DTerrainHeightmap>(&AssetObject);
 				std::string Error;
 				const bool bResult = Heightmap && Sources.size() == 1
-					&& StandardAssetImport::ChangeTerrainHeightmapSourceReference(
+					&& ChangeTerrainHeightmapSourceReference(
 						*Heightmap, Sources[0].Path, Error);
 				if (!bResult) Diagnostics.push_back({
 					.Severity = EImportDiagnosticSeverity::Error,
@@ -1138,8 +1140,6 @@ namespace Durin
 		bool GRegistered = false;
 	}
 
-	namespace StandardAssetImport
-	{
 		auto InspectStaticMeshSource(
 			const DStaticMesh& Mesh) -> FStaticMeshSourceDiagnostic
 		{
@@ -1297,7 +1297,9 @@ namespace Durin
 			FMountedSourceFile MountedSource;
 			if (!PrepareMountedSourceFile(
 				Input, ParsedAssetPath.ToString(), StoredSourcePath, MountedSource, Error,
-				bEngineAuthoringContext))
+				bEngineAuthoringContext
+					? EMountedSourceMutationContext::EngineAuthoring
+					: EMountedSourceMutationContext::DependencySafe))
 				return {false, std::move(Error), nullptr};
 			Destination = MountedSource.PhysicalPath;
 			StoredSourcePath = MountedSource.SourcePath.Path;
@@ -1342,31 +1344,29 @@ namespace Durin
 			CommitMountedSourceFile(MountedSource);
 			return {true, {}, Mesh};
 		}
-	}
-
 	auto RegisterStandardAssetImportProviders(std::string& OutError) -> bool
 	{
 		std::lock_guard Lock(GRegistrationMutex);
 		if (GRegistered) { OutError.clear(); return true; }
-		AssetImport::OpenAsyncImportProviderAdmission(SceneImportProviderId);
-		AssetImport::OpenAsyncImportProviderAdmission("Assimp");
-		AssetImport::OpenAsyncImportProviderAdmission("DurinImage");
+		OpenAsyncImportProviderAdmission(SceneImportProviderId);
+		OpenAsyncImportProviderAdmission("Assimp");
+		OpenAsyncImportProviderAdmission("DurinImage");
 		if (!GStaticMeshAuthoringRegistered)
 		{
 			GStaticMeshAuthoringRegistered = RegisterStaticMeshAuthoringHandlers({
 				.BuildFileProduct = &BuildStaticMeshFileProduct,
 				.PostLoadUncooked = &PostLoadStaticMesh,
 				.ChangeSourceReference =
-					&StandardAssetImport::ChangeStaticMeshSourceReference});
+					&ChangeStaticMeshSourceReference});
 			if (!GStaticMeshAuthoringRegistered)
 			{
 				OutError = "Another StaticMesh authoring handler is already registered.";
 				return false;
 			}
 		}
-		auto& Providers = AssetImport::GetProviderRegistry();
-		auto& Handlers = AssetImport::GetSingleAssetHandlerRegistry();
-		auto& RecordHandlers = AssetImport::GetImportRecordHandlerRegistry();
+		auto& Providers = GetProviderRegistry();
+		auto& Handlers = GetSingleAssetHandlerRegistry();
+		auto& RecordHandlers = GetImportRecordHandlerRegistry();
 		if (!Providers.Register(CreateSceneImportProvider(), OutError)) return false;
 		if (!RecordHandlers.Register(std::make_shared<FSceneRecordHandler>(), OutError))
 		{
@@ -1408,29 +1408,29 @@ namespace Durin
 			Providers.Unregister(SceneImportProviderId);
 			return false;
 		}
-		if (!StandardAssetImport::RegisterTexture2DPostLoadPolicy())
+		if (!RegisterTexture2DPostLoadPolicy())
 		{
 			OutError = "Failed to register Texture2D uncooked load policy.";
 			return false;
 		}
-		if (!StandardAssetImport::RegisterTexture2DPropertyEditing())
+		if (!RegisterTexture2DPropertyEditing())
 		{
-			StandardAssetImport::UnregisterTexture2DPostLoadPolicy();
+			UnregisterTexture2DPostLoadPolicy();
 			OutError = "Failed to register Texture2D property authoring policy.";
 			return false;
 		}
-		if (!StandardAssetImport::RegisterTexture2DSourceRelocation())
+		if (!RegisterTexture2DSourceRelocation())
 		{
-			StandardAssetImport::UnregisterTexture2DPropertyEditing();
-			StandardAssetImport::UnregisterTexture2DPostLoadPolicy();
+			UnregisterTexture2DPropertyEditing();
+			UnregisterTexture2DPostLoadPolicy();
 			OutError = "Failed to register Texture2D source relocation policy.";
 			return false;
 		}
-		if (!StandardAssetImport::RegisterStage3PostLoadPolicies())
+		if (!RegisterStage3PostLoadPolicies())
 		{
-			StandardAssetImport::UnregisterTexture2DSourceRelocation();
-			StandardAssetImport::UnregisterTexture2DPropertyEditing();
-			StandardAssetImport::UnregisterTexture2DPostLoadPolicy();
+			UnregisterTexture2DSourceRelocation();
+			UnregisterTexture2DPropertyEditing();
+			UnregisterTexture2DPostLoadPolicy();
 			OutError = "Failed to register TextureCube/Terrain uncooked load policies.";
 			return false;
 		}
@@ -1443,20 +1443,20 @@ namespace Durin
 	{
 		std::lock_guard Lock(GRegistrationMutex);
 		if (!GRegistered) return;
-		StandardAssetImport::UnregisterStage3PostLoadPolicies();
-		StandardAssetImport::UnregisterTexture2DSourceRelocation();
-		StandardAssetImport::UnregisterTexture2DPropertyEditing();
-		StandardAssetImport::UnregisterTexture2DPostLoadPolicy();
-		AssetImport::CancelAndDrainAsyncImportsForProvider(SceneImportProviderId);
-		AssetImport::CancelAndDrainAsyncImportsForProvider("Assimp");
-		AssetImport::CancelAndDrainAsyncImportsForProvider("DurinImage");
-		auto& Handlers = AssetImport::GetSingleAssetHandlerRegistry();
+		UnregisterStage3PostLoadPolicies();
+		UnregisterTexture2DSourceRelocation();
+		UnregisterTexture2DPropertyEditing();
+		UnregisterTexture2DPostLoadPolicy();
+		CancelAndDrainAsyncImportsForProvider(SceneImportProviderId);
+		CancelAndDrainAsyncImportsForProvider("Assimp");
+		CancelAndDrainAsyncImportsForProvider("DurinImage");
+		auto& Handlers = GetSingleAssetHandlerRegistry();
 		Handlers.Unregister("Durin::DStaticMesh");
 		Handlers.Unregister("Durin::DTexture2D");
 		Handlers.Unregister("Durin::DTextureCube");
 		Handlers.Unregister("Durin::DTerrainHeightmap");
-		AssetImport::GetImportRecordHandlerRegistry().Unregister(SceneImportProviderId);
-		auto& Providers = AssetImport::GetProviderRegistry();
+		GetImportRecordHandlerRegistry().Unregister(SceneImportProviderId);
+		auto& Providers = GetProviderRegistry();
 		Providers.Unregister("DurinImage");
 		Providers.Unregister("Assimp");
 		Providers.Unregister(SceneImportProviderId);

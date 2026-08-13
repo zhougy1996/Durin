@@ -1,4 +1,5 @@
 #include "SkyBoxTestSupport.h"
+#include "TextureCubeSourceTranslation.h"
 #include "Editor/Transaction.h"
 #include "Math/Operations.h"
 #include "SkyBoxLevelAuthoring.h"
@@ -11,13 +12,13 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConf
 	Durin::FScene* Scene = Engine.CreateTestScene();
 	Durin::GEngine = &Engine;
 
-	Durin::FTextureCubeImportValidation Validation = Durin::DTextureCube::ValidateImportSources(
+	Durin::Asset::Import::FTextureCubeImportValidation Validation = Durin::Asset::Import::ValidateTextureCubeFaces(
 		GetSkyBoxConventionFaces());
 	ASSERT_TRUE(Validation) << Validation.Message;
 	EXPECT_EQ(Validation.Dimension, 128u);
 	EXPECT_EQ(Validation.MipCount, 8u);
 
-	Durin::FTextureCubeImportResult CubeResult = Durin::DTextureCube::ImportAsset(
+	Durin::Asset::Import::FTextureCubeImportResult CubeResult = Durin::Asset::Import::ImportTextureCubeFaces(
 		GetSkyBoxConventionFaces(), "/SkyBoxAssetTests/EditorWorkflowCube");
 	ASSERT_TRUE(CubeResult) << CubeResult.Message;
 	Durin::FAssetPath CubePath;
@@ -122,18 +123,18 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 
 	const std::filesystem::path Panorama = std::filesystem::path(DURIN_TEST_DATA_DIR) /
 		"EquirectangularPanorama" / "AnalyticalHDR.hdr";
-	const Durin::FTextureCubePanoramaImportSettings Settings{
+	const Durin::Asset::Import::FTextureCubePanoramaImportSettings Settings{
 		.FaceDimension = 2,
 		.ExposureEV = 1.0f};
-	const Durin::FTextureCubeImportValidation Validation =
-		Durin::DTextureCube::ValidatePanoramaImportSource(Panorama.generic_string(), Settings);
+	const Durin::Asset::Import::FTextureCubeImportValidation Validation =
+		Durin::Asset::Import::ValidateTextureCubePanorama(Panorama.generic_string(), Settings);
 	ASSERT_TRUE(Validation) << Validation.Message;
 	EXPECT_TRUE(Validation.bHDR);
 	EXPECT_EQ(Validation.SourceWidth, 8u);
 	EXPECT_EQ(Validation.SourceHeight, 4u);
 	EXPECT_EQ(Validation.Dimension, 2u);
 
-	Durin::FTextureCubeImportResult CubeResult = Durin::DTextureCube::ImportPanoramaAsset(
+	Durin::Asset::Import::FTextureCubeImportResult CubeResult = Durin::Asset::Import::ImportTextureCubePanorama(
 		Panorama.generic_string(), "/SkyBoxAssetTests/PanoramaWorkflowCube", Settings);
 	ASSERT_TRUE(CubeResult) << CubeResult.Message;
 	Durin::FAssetPath CubePath;

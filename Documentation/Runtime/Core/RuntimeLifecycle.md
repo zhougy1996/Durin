@@ -17,6 +17,12 @@ modules contribute through registration and never own the process host.
 Launch does not name an import or build module, and game products initialize
 none of this authoring lifecycle.
 
+TextureCube uncooked loading uses one narrow handler selected by
+StandardAssetImport; validation, import, source mutation, and Build invocation
+are direct StandardAssetImport/TextureBuild calls and are not registered in
+Runtime Engine. Provider shutdown removes the uncooked handler only after the
+generic authoring host has drained accepted work.
+
 ## Boot Flow
 
 Process entry is the minimal C runtime `main()` in

@@ -89,7 +89,7 @@ namespace
 
 TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 {
-	Durin::AssetBuild::FTexture2DBuildKeyInput Input{
+	Durin::Asset::Build::FTexture2DBuildKeyInput Input{
 		.SourceContentHash = {0x0123456789abcdefull, 0xfedcba9876543210ull},
 		.Usage = Durin::ETextureUsage::Color,
 		.bSRGB = true,
@@ -100,12 +100,12 @@ TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 		.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
 		.TargetProfile = Durin::Asset::ECookTargetProfile::Game};
 	const std::string Baseline =
-		Durin::AssetBuild::BuildTexture2DDerivedDataKey(Input);
+		Durin::Asset::Build::BuildTexture2DDerivedDataKey(Input);
 	EXPECT_EQ(Baseline, "ceabc87aee9e8db676c2f6c13020593f");
 	EXPECT_EQ(Baseline.size(), 32u);
 
-	auto ExpectChange = [&Baseline](const Durin::AssetBuild::FTexture2DBuildKeyInput& Changed) {
-		EXPECT_NE(Durin::AssetBuild::BuildTexture2DDerivedDataKey(
+	auto ExpectChange = [&Baseline](const Durin::Asset::Build::FTexture2DBuildKeyInput& Changed) {
+		EXPECT_NE(Durin::Asset::Build::BuildTexture2DDerivedDataKey(
 			Changed), Baseline);
 	};
 	auto Changed = Input;
@@ -250,8 +250,8 @@ TEST(FTextureDerivedDataTests, PayloadRejectsMalformedDataTransactionally)
 
 TEST(FTextureDerivedDataTests, CubeKeysCoverFaceOrderLayoutAndProjectionInputs)
 {
-	Durin::AssetBuild::FTextureCubeBuildKeyInput Input{
-		.SourceLayout = Durin::AssetBuild::ETextureCubeBuildSourceLayout::SixFaces,
+	Durin::Asset::Build::FTextureCubeBuildKeyInput Input{
+		.SourceLayout = Durin::Asset::Build::ETextureCubeBuildSourceLayout::SixFaces,
 		.bSRGB = true,
 		.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
 		.TargetProfile = Durin::Asset::ECookTargetProfile::Game};
@@ -259,7 +259,7 @@ TEST(FTextureDerivedDataTests, CubeKeysCoverFaceOrderLayoutAndProjectionInputs)
 		Input.FaceContentHashes[Index] = {Index + 1, Index + 101};
 	std::string Baseline;
 	std::string Error;
-	Baseline = Durin::AssetBuild::BuildTextureCubeDerivedDataKey(Input, Error);
+	Baseline = Durin::Asset::Build::BuildTextureCubeDerivedDataKey(Input, Error);
 	ASSERT_FALSE(Baseline.empty()) << Error;
 	EXPECT_EQ(Baseline, "61dec1a0575878952e205558f058bd2d");
 	EXPECT_EQ(Baseline.size(), 32u);
@@ -267,42 +267,42 @@ TEST(FTextureDerivedDataTests, CubeKeysCoverFaceOrderLayoutAndProjectionInputs)
 	auto Changed = Input;
 	std::swap(Changed.FaceContentHashes[0], Changed.FaceContentHashes[1]);
 	std::string Key;
-	Key = Durin::AssetBuild::BuildTextureCubeDerivedDataKey(Changed, Error);
+	Key = Durin::Asset::Build::BuildTextureCubeDerivedDataKey(Changed, Error);
 	ASSERT_FALSE(Key.empty()) << Error;
 	EXPECT_NE(Key, Baseline);
 	Changed = Input;
 	Changed.bSRGB = false;
-	Key = Durin::AssetBuild::BuildTextureCubeDerivedDataKey(Changed, Error);
+	Key = Durin::Asset::Build::BuildTextureCubeDerivedDataKey(Changed, Error);
 	ASSERT_FALSE(Key.empty()) << Error;
 	EXPECT_NE(Key, Baseline);
 	Changed = Input;
 	++Changed.ProjectionVersion;
-	Key = Durin::AssetBuild::BuildTextureCubeDerivedDataKey(Changed, Error);
+	Key = Durin::Asset::Build::BuildTextureCubeDerivedDataKey(Changed, Error);
 	ASSERT_FALSE(Key.empty()) << Error;
 	EXPECT_NE(Key, Baseline);
 
 	Changed = {};
-	Changed.SourceLayout = Durin::AssetBuild::ETextureCubeBuildSourceLayout::EquirectangularPanorama;
+	Changed.SourceLayout = Durin::Asset::Build::ETextureCubeBuildSourceLayout::EquirectangularPanorama;
 	Changed.PanoramaContentHash = {7, 11};
 	Changed.FaceDimension = 512;
 	Changed.ExposureEV = 1.0f;
 	Changed.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64;
 	Changed.TargetProfile = Durin::Asset::ECookTargetProfile::Game;
-	Baseline = Durin::AssetBuild::BuildTextureCubeDerivedDataKey(Changed, Error);
+	Baseline = Durin::Asset::Build::BuildTextureCubeDerivedDataKey(Changed, Error);
 	ASSERT_FALSE(Baseline.empty()) << Error;
 	auto ChangedPanorama = Changed;
 	ChangedPanorama.FaceDimension = 256;
-	Key = Durin::AssetBuild::BuildTextureCubeDerivedDataKey(ChangedPanorama, Error);
+	Key = Durin::Asset::Build::BuildTextureCubeDerivedDataKey(ChangedPanorama, Error);
 	ASSERT_FALSE(Key.empty()) << Error;
 	EXPECT_NE(Key, Baseline);
 	ChangedPanorama = Changed;
 	ChangedPanorama.ExposureEV = 2.0f;
-	Key = Durin::AssetBuild::BuildTextureCubeDerivedDataKey(ChangedPanorama, Error);
+	Key = Durin::Asset::Build::BuildTextureCubeDerivedDataKey(ChangedPanorama, Error);
 	ASSERT_FALSE(Key.empty()) << Error;
 	EXPECT_NE(Key, Baseline);
 	ChangedPanorama = Changed;
 	ChangedPanorama.ExposureEV = -0.0f;
-	EXPECT_TRUE(Durin::AssetBuild::BuildTextureCubeDerivedDataKey(
+	EXPECT_TRUE(Durin::Asset::Build::BuildTextureCubeDerivedDataKey(
 		ChangedPanorama, Error).empty());
 }
 

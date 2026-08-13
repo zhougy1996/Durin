@@ -5,8 +5,19 @@
 #include "Texture/TextureCube.h"
 #include "Texture/TextureCubeBuilder.h"
 
-namespace Durin::AssetBuild
+namespace Durin::Asset::Build
 {
+	struct FTextureCubeFacesBuildSettings
+	{
+		bool bSRGB = true;
+	};
+
+	struct FTextureCubePanoramaBuildSettings
+	{
+		uint32 FaceDimension = 0;
+		float ExposureEV = 0.0f;
+	};
+
 	// Detached TextureCube recipe output; publication is a separate GameThread operation.
 	struct FTextureCubeBuildProduct
 	{
@@ -35,19 +46,19 @@ namespace Durin::AssetBuild
 	TEXTUREBUILD_API auto BuildTextureCubePanorama(
 		TextureCubeBuilder::FTexturePanoramaImage Panorama,
 		const FXxHash128& SourceHash,
-		const FTextureCubePanoramaImportSettings& Settings,
+		const FTextureCubePanoramaBuildSettings& Settings,
 		FTextureCubeBuildProduct& OutProduct,
 		std::string& OutError) -> bool;
 	TEXTUREBUILD_API auto BuildTextureCubePanorama(
 		TextureCubeBuilder::FTexturePanoramaFloatImage Panorama,
 		const FXxHash128& SourceHash,
-		const FTextureCubePanoramaImportSettings& Settings,
+		const FTextureCubePanoramaBuildSettings& Settings,
 		FTextureCubeBuildProduct& OutProduct,
 		std::string& OutError) -> bool;
 	TEXTUREBUILD_API auto BuildTextureCubeFaces(
 		FTextureCubeSourceData SourceData,
 		const std::array<FXxHash128, TextureCubeFaceCount>& SourceHashes,
-		const FTextureCubeImportSettings& Settings,
+		const FTextureCubeFacesBuildSettings& Settings,
 		FTextureCubeBuildProduct& OutProduct,
 		std::string& OutError) -> bool;
 	TEXTUREBUILD_API auto PublishTextureCubeProduct(

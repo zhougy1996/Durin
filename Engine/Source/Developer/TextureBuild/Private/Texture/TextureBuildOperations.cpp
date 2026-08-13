@@ -4,12 +4,12 @@
 #include "Hash/XxHash.h"
 #include "Misc/Paths.h"
 #include "Serialization/Archive.h"
-#include "Source/SourcePath.h"
+#include "Asset/SourcePath.h"
 #include "Texture/TextureBuilder.h"
 #include "Texture/TextureDerivedData.h"
 #include "Texture/Texture2DDerivedData.h"
 
-namespace Durin::AssetBuild
+namespace Durin::Asset::Build
 {
 	namespace
 	{

@@ -2,7 +2,7 @@
 
 #include "RHIResources.h"
 
-namespace Durin::AssetBuild::TextureCubeBuilder
+namespace Durin::Asset::Build::TextureCubeBuilder
 {
 	namespace
 	{

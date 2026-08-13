@@ -1,6 +1,7 @@
 #include "SkeletalMesh/SkeletalDerivedData.h"
 
 #include "PayloadDecodeResult.h"
+#include "Serialization/EngineWire.h"
 #include "Serialization/Archive.h"
 
 namespace Durin
@@ -54,100 +55,8 @@ namespace Durin
 			Values = 4
 		};
 
-		class FWriter
-		{
-		public:
-			auto WriteU8(uint8 Value) -> void { Bytes.push_back(Value); }
-			auto WriteU16(uint16 Value) -> void
-			{
-				WriteU8(static_cast<uint8>(Value));
-				WriteU8(static_cast<uint8>(Value >> 8));
-			}
-			auto WriteU32(uint32 Value) -> void
-			{
-				for (uint32 Byte = 0; Byte < 4; ++Byte)
-					WriteU8(static_cast<uint8>(Value >> (Byte * 8)));
-			}
-			auto WriteU64(uint64 Value) -> void
-			{
-				for (uint32 Byte = 0; Byte < 8; ++Byte)
-					WriteU8(static_cast<uint8>(Value >> (Byte * 8)));
-			}
-			auto WriteFloat(float Value) -> void { WriteU32(std::bit_cast<uint32>(Value)); }
-			auto WriteString(std::string_view Value) -> void
-			{
-				WriteU32(static_cast<uint32>(Value.size()));
-				Bytes.insert(Bytes.end(), Value.begin(), Value.end());
-			}
-			auto WriteBytes(std::span<const uint8> Value) -> void
-			{
-				Bytes.insert(Bytes.end(), Value.begin(), Value.end());
-			}
-			auto WriteZeroes(size_t Count) -> void { Bytes.insert(Bytes.end(), Count, 0); }
-			auto GetBytes() const -> const std::vector<uint8>& { return Bytes; }
-			auto TakeBytes() -> std::vector<uint8> { return std::move(Bytes); }
-
-		private:
-			std::vector<uint8> Bytes;
-		};
-
-		class FReader
-		{
-		public:
-			explicit FReader(std::span<const uint8> InBytes) : Bytes(InBytes) {}
-			auto ReadU8(uint8& Value) -> bool
-			{
-				if (Offset >= Bytes.size()) return false;
-				Value = Bytes[Offset++];
-				return true;
-			}
-			auto ReadU16(uint16& Value) -> bool
-			{
-				uint8 Low = 0;
-				uint8 High = 0;
-				if (!ReadU8(Low) || !ReadU8(High)) return false;
-				Value = static_cast<uint16>(Low | static_cast<uint16>(High << 8));
-				return true;
-			}
-			auto ReadU32(uint32& Value) -> bool
-			{
-				if (Remaining() < 4) return false;
-				Value = 0;
-				for (uint32 Byte = 0; Byte < 4; ++Byte)
-					Value |= static_cast<uint32>(Bytes[Offset++]) << (Byte * 8);
-				return true;
-			}
-			auto ReadU64(uint64& Value) -> bool
-			{
-				if (Remaining() < 8) return false;
-				Value = 0;
-				for (uint32 Byte = 0; Byte < 8; ++Byte)
-					Value |= static_cast<uint64>(Bytes[Offset++]) << (Byte * 8);
-				return true;
-			}
-			auto ReadFloat(float& Value) -> bool
-			{
-				uint32 Bits = 0;
-				if (!ReadU32(Bits)) return false;
-				Value = std::bit_cast<float>(Bits);
-				return true;
-			}
-			auto ReadString(std::string& Value) -> bool
-			{
-				uint32 Count = 0;
-				if (!ReadU32(Count) || Count == 0 || Count > MaximumSkeletalPayloadNameBytes
-					|| Count > Remaining()) return false;
-				Value.assign(reinterpret_cast<const char*>(Bytes.data() + Offset), Count);
-				Offset += Count;
-				return Value.find('\0') == std::string::npos;
-			}
-			auto AtEnd() const -> bool { return Offset == Bytes.size(); }
-			auto Remaining() const -> size_t { return Bytes.size() - Offset; }
-
-		private:
-			std::span<const uint8> Bytes;
-			size_t Offset = 0;
-		};
+		using FWriter = EngineWire::FWriter;
+		using FReader = EngineWire::FReader;
 
 		struct FChunkBytes
 		{
@@ -179,23 +88,7 @@ namespace Durin
 			return true;
 		}
 
-		auto ReadU32At(std::span<const uint8> Bytes, size_t Offset, uint32& Value) -> bool
-		{
-			if (Offset > Bytes.size() || Bytes.size() - Offset < 4) return false;
-			Value = 0;
-			for (uint32 Byte = 0; Byte < 4; ++Byte)
-				Value |= static_cast<uint32>(Bytes[Offset + Byte]) << (Byte * 8);
-			return true;
-		}
-
-		auto ReadU64At(std::span<const uint8> Bytes, size_t Offset, uint64& Value) -> bool
-		{
-			if (Offset > Bytes.size() || Bytes.size() - Offset < 8) return false;
-			Value = 0;
-			for (uint32 Byte = 0; Byte < 8; ++Byte)
-				Value |= static_cast<uint64>(Bytes[Offset + Byte]) << (Byte * 8);
-			return true;
-		}
+		using EngineWire::ReadLittleEndianAt;
 
 		auto WriteVector(FWriter& Writer, const FVector2f& Value) -> void
 		{
@@ -353,12 +246,12 @@ namespace Durin
 			uint32 Magic = 0, Schema = 0, Producer = 0, Platform = 0, Profile = 0;
 			uint32 Flags = 0, HeaderSize = 0, ChunkCount = 0;
 			uint64 TableOffset = 0, TotalDecoded = 0, StoredSize = 0, BodyHash = 0;
-			if (!ReadU32At(Bytes, 0, Magic) || !ReadU32At(Bytes, 4, Schema)
-				|| !ReadU32At(Bytes, 8, Producer) || !ReadU32At(Bytes, 12, Platform)
-				|| !ReadU32At(Bytes, 16, Profile) || !ReadU32At(Bytes, 20, Flags)
-				|| !ReadU32At(Bytes, 24, HeaderSize) || !ReadU32At(Bytes, 28, ChunkCount)
-				|| !ReadU64At(Bytes, 32, TableOffset) || !ReadU64At(Bytes, 40, TotalDecoded)
-				|| !ReadU64At(Bytes, 48, StoredSize) || !ReadU64At(Bytes, 56, BodyHash))
+			if (!ReadLittleEndianAt(Bytes, 0, Magic) || !ReadLittleEndianAt(Bytes, 4, Schema)
+				|| !ReadLittleEndianAt(Bytes, 8, Producer) || !ReadLittleEndianAt(Bytes, 12, Platform)
+				|| !ReadLittleEndianAt(Bytes, 16, Profile) || !ReadLittleEndianAt(Bytes, 20, Flags)
+				|| !ReadLittleEndianAt(Bytes, 24, HeaderSize) || !ReadLittleEndianAt(Bytes, 28, ChunkCount)
+				|| !ReadLittleEndianAt(Bytes, 32, TableOffset) || !ReadLittleEndianAt(Bytes, 40, TotalDecoded)
+				|| !ReadLittleEndianAt(Bytes, 48, StoredSize) || !ReadLittleEndianAt(Bytes, 56, BodyHash))
 				return Fail(OutError, "Skeletal payload header is truncated.");
 			if (Magic != ExpectedMagic) return Fail(OutError, "Skeletal payload magic is invalid.");
 			if (Schema != ExpectedSchema)
@@ -397,11 +290,11 @@ namespace Durin
 				const size_t Entry = static_cast<size_t>(TableOffset
 					+ static_cast<uint64>(Index) * SkeletalPayloadChunkEntrySize);
 				FChunkRecord Chunk;
-				if (!ReadU32At(Bytes, Entry, Chunk.Type)
-					|| !ReadU32At(Bytes, Entry + 4, Chunk.Flags)
-					|| !ReadU64At(Bytes, Entry + 8, Chunk.Offset)
-					|| !ReadU64At(Bytes, Entry + 16, Chunk.StoredSize)
-					|| !ReadU64At(Bytes, Entry + 24, Chunk.DecodedSize))
+				if (!ReadLittleEndianAt(Bytes, Entry, Chunk.Type)
+					|| !ReadLittleEndianAt(Bytes, Entry + 4, Chunk.Flags)
+					|| !ReadLittleEndianAt(Bytes, Entry + 8, Chunk.Offset)
+					|| !ReadLittleEndianAt(Bytes, Entry + 16, Chunk.StoredSize)
+					|| !ReadLittleEndianAt(Bytes, Entry + 24, Chunk.DecodedSize))
 					return Fail(OutError, "Skeletal payload chunk table is truncated.");
 				if (!Types.insert(Chunk.Type).second)
 					return Fail(OutError, "Skeletal payload chunk types are duplicated.");
@@ -606,7 +499,7 @@ namespace Durin
 		for (FSkeletalMeshSection& Section : Candidate.Sections)
 		{
 			std::string Name;
-			if (!Sections.ReadString(Name) || !Sections.ReadU32(Section.FirstIndex)
+			if (!Sections.ReadString(Name, MaximumSkeletalPayloadNameBytes) || !Sections.ReadU32(Section.FirstIndex)
 				|| !Sections.ReadU32(Section.IndexCount)
 				|| !Sections.ReadU32(Section.MinVertexIndex)
 				|| !Sections.ReadU32(Section.MaxVertexIndex)

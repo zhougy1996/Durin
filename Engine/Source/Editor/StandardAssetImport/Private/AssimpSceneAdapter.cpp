@@ -3,7 +3,7 @@
 #include <assimp/material.h>
 #include <assimp/scene.h>
 
-namespace Durin::Asset::Private
+namespace Durin::Asset::Import::Standard::Private
 {
 	auto ImportAssimpImage(
 		const aiScene& Scene,
@@ -24,7 +24,7 @@ namespace Durin::Asset::Private
 		}
 		if (Result.Scene.Images.size() >= MaxImportedImages)
 		{
-			return FailImport(Result, EImportDiagnosticCategory::ResourceLimitExceeded,
+			return FailImport(Result, ESceneImportDiagnosticCategory::ResourceLimitExceeded,
 				"images", "Imported image count exceeds the limit.");
 		}
 
@@ -36,12 +36,12 @@ namespace Durin::Asset::Private
 		{
 			if (Embedded->mHeight != 0)
 			{
-				return FailImport(Result, EImportDiagnosticCategory::UnsupportedEncoding,
+				return FailImport(Result, ESceneImportDiagnosticCategory::UnsupportedEncoding,
 					TexturePath, "Uncompressed Assimp embedded textures are not accepted as encoded image sources.");
 			}
 			if (Embedded->mWidth > MaxImportedImageEncodedBytes)
 			{
-				return FailImport(Result, EImportDiagnosticCategory::ResourceLimitExceeded,
+				return FailImport(Result, ESceneImportDiagnosticCategory::ResourceLimitExceeded,
 					TexturePath, "Embedded image exceeds the per-image byte limit.");
 			}
 			OwnedBytes.assign(
@@ -51,7 +51,7 @@ namespace Durin::Asset::Private
 			EmbeddedByteCount += OwnedBytes.size();
 			if (EmbeddedByteCount > MaxImportedEmbeddedImageBytes)
 			{
-				return FailImport(Result, EImportDiagnosticCategory::ResourceLimitExceeded,
+				return FailImport(Result, ESceneImportDiagnosticCategory::ResourceLimitExceeded,
 					TexturePath, "Embedded image bytes exceed the aggregate limit.");
 			}
 			EncodingHint = Embedded->achFormatHint;
@@ -66,13 +66,13 @@ namespace Durin::Asset::Private
 			std::string NormalizedUri;
 			if (!ResolveDependencyPath(RootPath, TexturePath, DependencyPath, NormalizedUri))
 			{
-				return FailImport(Result, EImportDiagnosticCategory::UnsafeDependencyPath,
+				return FailImport(Result, ESceneImportDiagnosticCategory::UnsafeDependencyPath,
 					TexturePath, std::format("Material texture path '{}' escapes the source directory.", TexturePath));
 			}
 			std::string Error;
 			if (!ReadFileBytes(DependencyPath, MaxImportedImageEncodedBytes, OwnedBytes, Error))
 			{
-				return FailImport(Result, EImportDiagnosticCategory::MissingDependency,
+				return FailImport(Result, ESceneImportDiagnosticCategory::MissingDependency,
 					NormalizedUri, Error);
 			}
 			uint32 DependencyIndex = 0;
@@ -80,7 +80,7 @@ namespace Durin::Asset::Private
 				std::format("image:{}", NormalizedUri),
 				MakeDependencySourcePath(RootSourcePath, NormalizedUri), OwnedBytes, &DependencyIndex))
 			{
-				return FailImport(Result, EImportDiagnosticCategory::ResourceLimitExceeded,
+				return FailImport(Result, ESceneImportDiagnosticCategory::ResourceLimitExceeded,
 					"dependencies", "Imported dependency count exceeds the limit.");
 			}
 			Imported.StableIdentity = std::format("external:{}", NormalizedUri);
@@ -91,13 +91,13 @@ namespace Durin::Asset::Private
 		}
 		if (!EncodingFromMimeOrPath({}, EncodingHint, Imported.Encoding))
 		{
-			return FailImport(Result, EImportDiagnosticCategory::UnsupportedEncoding,
+			return FailImport(Result, ESceneImportDiagnosticCategory::UnsupportedEncoding,
 				TexturePath, "Material image encoding is unsupported.");
 		}
 		std::string ImageError;
 		if (!ValidateImageBytes(Imported.Encoding, EncodedBytes, ImageError))
 		{
-			return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+			return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 				TexturePath, ImageError);
 		}
 		Imported.EncodedByteCount = EncodedBytes.size();
@@ -134,7 +134,7 @@ namespace Durin::Asset::Private
 		if (AddDiagnostic(
 			Result.Scene,
 			EImportDiagnosticSeverity::Warning,
-			EImportDiagnosticCategory::UnsupportedMaterialProperty,
+			ESceneImportDiagnosticCategory::UnsupportedMaterialProperty,
 			std::format("material:{}", MaterialIndex),
 			bPhong ? "Phong" : "unmapped-material-properties",
 			bPhong
@@ -145,7 +145,7 @@ namespace Durin::Asset::Private
 		}
 		return FailImport(
 			Result,
-			EImportDiagnosticCategory::ResourceLimitExceeded,
+			ESceneImportDiagnosticCategory::ResourceLimitExceeded,
 			"diagnostics",
 			"Import diagnostic limit exceeded.");
 	}
@@ -158,7 +158,7 @@ namespace Durin::Asset::Private
 	{
 		if (Scene.mNumMaterials > MaxImportedSourceMaterials)
 		{
-			return FailImport(Result, EImportDiagnosticCategory::ResourceLimitExceeded,
+			return FailImport(Result, ESceneImportDiagnosticCategory::ResourceLimitExceeded,
 				"materials", "Source material count exceeds the limit.");
 		}
 		for (uint32 MaterialIndex = 0; MaterialIndex < Scene.mNumMaterials; ++MaterialIndex)
@@ -167,7 +167,7 @@ namespace Durin::Asset::Private
 			const aiMaterial* SourceMaterial = Scene.mMaterials[MaterialIndex];
 			if (SourceMaterial == nullptr)
 			{
-				return FailImport(Result, EImportDiagnosticCategory::InvalidReference,
+				return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
 					std::format("material:{}", MaterialIndex), "Assimp returned a null material.");
 			}
 			if (!AddAssimpShadingDiagnostic(*SourceMaterial, MaterialIndex, Result)) return false;
@@ -189,7 +189,7 @@ namespace Durin::Asset::Private
 			const aiMaterial* SourceMaterial = Scene.mMaterials[MaterialIndex];
 			if (SourceMaterial == nullptr)
 			{
-				return FailImport(Result, EImportDiagnosticCategory::InvalidReference,
+				return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
 					std::format("material:{}", MaterialIndex), "Assimp returned a null material.");
 			}
 			FImportedMaterial Material;
@@ -204,7 +204,7 @@ namespace Durin::Asset::Private
 				if (!std::isfinite(Diffuse.r) || !std::isfinite(Diffuse.g) ||
 					!std::isfinite(Diffuse.b) || !std::isfinite(Diffuse.a))
 				{
-					return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+					return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 						std::format("material:{}", MaterialIndex), "Material diffuse color is non-finite.");
 				}
 				Material.BaseColorFactor = {Diffuse.r, Diffuse.g, Diffuse.b, Diffuse.a};
@@ -214,7 +214,7 @@ namespace Durin::Asset::Private
 			{
 				if (!std::isfinite(Opacity))
 				{
-					return FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+					return FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 						std::format("material:{}", MaterialIndex), "Material opacity is non-finite.");
 				}
 				Material.BaseColorFactor.a *= Opacity;
@@ -229,11 +229,11 @@ namespace Durin::Asset::Private
 				SourceMaterial->GetTextureCount(aiTextureType_DIFFUSE) > 1)
 			{
 				if (!AddDiagnostic(Result.Scene, EImportDiagnosticSeverity::Warning,
-					EImportDiagnosticCategory::UnsupportedMaterialProperty,
+					ESceneImportDiagnosticCategory::UnsupportedMaterialProperty,
 					std::format("material:{}", MaterialIndex), "layered-diffuse-texture",
 					"Layered diffuse textures are not mapped to base color."))
 				{
-					return FailImport(Result, EImportDiagnosticCategory::ResourceLimitExceeded,
+					return FailImport(Result, ESceneImportDiagnosticCategory::ResourceLimitExceeded,
 						"diagnostics", "Import diagnostic limit exceeded.");
 				}
 			}
@@ -243,12 +243,12 @@ namespace Durin::Asset::Private
 				unsigned int UVChannel = 0;
 				if (SourceMaterial->GetTexture(TextureType, 0, &TexturePath, nullptr, &UVChannel) != aiReturn_SUCCESS)
 				{
-					return FailImport(Result, EImportDiagnosticCategory::InvalidReference,
+					return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
 						std::format("material:{}", MaterialIndex), "Assimp material texture reference is invalid.");
 				}
 				if (UVChannel >= MaxImportedUVChannels)
 				{
-					return FailImport(Result, EImportDiagnosticCategory::InvalidReference,
+					return FailImport(Result, ESceneImportDiagnosticCategory::InvalidReference,
 						TexturePath.C_Str(), "Material texture UV channel exceeds the imported UV limit.");
 				}
 				FImportedTextureBinding Binding;

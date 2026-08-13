@@ -2,10 +2,10 @@
 
 #include "TextureBuildAPI.h"
 #include "Hash/XxHash.h"
-#include "Source/SourcePath.h"
+#include "Asset/SourcePath.h"
 #include "Texture/Texture2D.h"
 
-namespace Durin::AssetBuild
+namespace Durin::Asset::Build
 {
 	// Identifies the externally visible phase of one editor Texture2D CPU build.
 	enum class ETexture2DBuildPhase : uint8

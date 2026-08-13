@@ -4,6 +4,9 @@ StaticMesh, Texture2D, and TextureCube assets keep source provenance as a
 complete virtual `FSourcePath`. Asset packages and authoring files resolve
 through the same mount `GetContentDir()`. Their typed identities remain
 distinct even when a source file and `.dasset` coexist in one directory.
+The filesystem transaction contract is owned by AssetCore's
+`Asset/MountedSource.h`; editor/import services compose those generic
+transactions with asset-family validation, package save, and build work.
 
 ## Import
 

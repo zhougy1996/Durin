@@ -6,7 +6,7 @@
 #include "Texture/TextureBuildService.h"
 #include "Texture/TextureBuilder.h"
 
-namespace Durin::AssetBuild
+namespace Durin::Asset::Build
 {
 	namespace
 	{

@@ -13,6 +13,11 @@ editor lifecycles but are excluded from the reflected package graph. See
 
 `DWorld` is a runtime or editor session container. It activates at most one level, forwards actor APIs to that level, and registers or unregisters the level's components when switching. Each active Level owns the non-owning registry for stable Actor and Component Tick functions; Level detachment clears that registry before the World endpoint is removed. Tick ownership, groups, mutation, and lifetime rules are defined by [Tick Scheduling](TickScheduling.md). Replacing a transient level structurally owned by the world marks that complete level hierarchy as garbage. A persistent packaged level is structurally owned by its package instead, so switching worlds does not destroy it; an object that must survive a transient world must likewise be explicitly reparented before world retirement.
 
+The single `DWorld` contract is implemented in three responsibility-focused
+translation units: `WorldCore.cpp` owns level/actor/render-scene ownership,
+`World.cpp` owns play, restart, tick, pause, and transition lifecycle, and
+`WorldCollision.cpp` owns physics queries and collision debug snapshots.
+
 Each World also owns one synchronous `FPhysicsScene`. Primitive components
 publish and retire their query bodies with the same registration lifecycle as
 their World membership, independently from render-scene presence. Gameplay

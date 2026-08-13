@@ -4,7 +4,7 @@
 
 #include "Json/Json.h"
 
-namespace Durin::Asset::Private
+namespace Durin::Asset::Import::Standard::Private
 {
 	auto ImportGltfSkeletalData(
 		FJsonNodeView Root,

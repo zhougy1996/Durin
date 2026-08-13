@@ -9,7 +9,7 @@
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::AssetBuild;
+	using namespace Durin::Asset::Build;
 
 	auto MakeDefinition(std::string Name = "Echo") -> FBuildDefinition
 	{

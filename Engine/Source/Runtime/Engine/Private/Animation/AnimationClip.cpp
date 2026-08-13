@@ -274,23 +274,15 @@ namespace Durin
 				!= static_cast<uint32>(Asset::ECookedPayloadCompression::None))
 			return FailCooked("required DANM descriptor is missing or incompatible.");
 		const Asset::FPackageLoadContext& Context = Asset::GetPackageLoadContext();
-		std::filesystem::path PackagePath;
-		std::filesystem::path CompanionPath;
-		if (!GetPackage()
-			|| !Asset::ResolveCookedPackagePath(
-				Context.CookRoot, GetPackage()->GetPackagePath(), PackagePath, &OutError)
-			|| !Asset::ResolveCookedCompanionPath(
-				Context.CookRoot, PackagePath, CompanionPath, &OutError))
-			return FailCooked(OutError.empty()
-				? "package companion path could not be resolved." : OutError);
-		Asset::FCookedBulkContainer Container;
-		if (!Asset::LoadCookedBulkFile(
-			CompanionPath, Asset::ECookTargetPlatform::Win64,
-			Asset::ECookTargetProfile::Game, Container, &OutError))
+		if (!GetPackage())
+			return FailCooked("package companion path could not be resolved.");
+		Asset::FCookedPackagePayload LoadedPayload;
+		if (!Asset::LoadCookedPackagePayload(
+			Context, GetPackage()->GetPackagePath(), CookedPayload,
+			Asset::ECookTargetPlatform::Win64,
+			Asset::ECookTargetProfile::Game, LoadedPayload, &OutError))
 			return FailCooked(OutError);
-		std::span<const uint8> Bytes;
-		if (!Asset::ResolveCookedPayload(Container, CookedPayload, Bytes, &OutError))
-			return FailCooked(OutError);
+		const std::span<const uint8> Bytes = LoadedPayload.Payload;
 		FAnimationClipPayloadData Candidate;
 		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::CookedPayload);
 		Candidate.Serialize(Ar, {

@@ -2,7 +2,7 @@
 
 #include "Serialization/Archive.h"
 
-namespace Durin::AssetBuild
+namespace Durin::Asset::Build
 {
 	auto FTerrainHeightmapBuildKeyInput::Serialize(FArchive& Ar) -> void
 	{

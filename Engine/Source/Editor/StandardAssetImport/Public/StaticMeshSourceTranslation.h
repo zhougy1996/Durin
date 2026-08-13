@@ -3,7 +3,7 @@
 #include "StandardAssetImportAPI.h"
 #include "StaticMesh/StaticMesh.h"
 
-namespace Durin::StandardAssetImport
+namespace Durin::Asset::Import
 {
 	STANDARDASSETIMPORT_API auto InspectStaticMeshSource(
 		const DStaticMesh& Mesh) -> FStaticMeshSourceDiagnostic;

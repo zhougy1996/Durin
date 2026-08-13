@@ -2,6 +2,7 @@
 
 #include "Misc/DerivedDataCache.h"
 #include "Serialization/Archive.h"
+#include "Serialization/EngineWire.h"
 #include "Terrain/TerrainHeightmap.h"
 
 namespace Durin
@@ -25,8 +26,7 @@ namespace Durin
 
 		auto Align(uint64 Value) -> uint64
 		{
-			return (Value + TerrainHeightmapPayloadAlignment - 1)
-				& ~(static_cast<uint64>(TerrainHeightmapPayloadAlignment) - 1);
+			return EngineWire::AlignUp(Value, TerrainHeightmapPayloadAlignment);
 		}
 
 		auto WriteU16(DerivedDataCache::FWriter& Writer, uint16 Value) -> void
@@ -35,31 +35,7 @@ namespace Durin
 			Writer.WriteU8(static_cast<uint8>(Value >> 8));
 		}
 
-		auto ReadU16At(std::span<const uint8> Bytes, uint64 Offset, uint16& OutValue) -> bool
-		{
-			if (Offset > Bytes.size() || Bytes.size() - static_cast<size_t>(Offset) < 2) return false;
-			OutValue = static_cast<uint16>(Bytes[static_cast<size_t>(Offset)])
-				| static_cast<uint16>(Bytes[static_cast<size_t>(Offset) + 1]) << 8;
-			return true;
-		}
-
-		auto ReadU32At(std::span<const uint8> Bytes, uint64 Offset, uint32& OutValue) -> bool
-		{
-			if (Offset > Bytes.size() || Bytes.size() - static_cast<size_t>(Offset) < 4) return false;
-			OutValue = 0;
-			for (uint32 Index = 0; Index < 4; ++Index)
-				OutValue |= static_cast<uint32>(Bytes[static_cast<size_t>(Offset) + Index]) << (Index * 8);
-			return true;
-		}
-
-		auto ReadU64At(std::span<const uint8> Bytes, uint64 Offset, uint64& OutValue) -> bool
-		{
-			if (Offset > Bytes.size() || Bytes.size() - static_cast<size_t>(Offset) < 8) return false;
-			OutValue = 0;
-			for (uint32 Index = 0; Index < 8; ++Index)
-				OutValue |= static_cast<uint64>(Bytes[static_cast<size_t>(Offset) + Index]) << (Index * 8);
-			return true;
-		}
+		using EngineWire::ReadLittleEndianAt;
 	}
 
 	auto BuildTerrainHeightmapSerializedValue(
@@ -153,16 +129,16 @@ namespace Durin
 		uint32 Width = 0, Height = 0, BaseRegion = 0, LevelCount = 0, NodeCount = 0;
 		uint32 Minimum = 0, Maximum = 0, HeaderSize = 0, LevelRecordSize = 0;
 		uint64 LevelOffset = 0, SampleOffset = 0, HierarchyOffset = 0, StoredSize = 0, StoredHash = 0;
-		if (!ReadU32At(Bytes, 0, Magic) || !ReadU32At(Bytes, 4, Schema)
-			|| !ReadU32At(Bytes, 8, Builder) || !ReadU32At(Bytes, 12, Platform)
-			|| !ReadU32At(Bytes, 16, Profile) || !ReadU32At(Bytes, 20, Width)
-			|| !ReadU32At(Bytes, 24, Height) || !ReadU32At(Bytes, 28, BaseRegion)
-			|| !ReadU32At(Bytes, 32, LevelCount) || !ReadU32At(Bytes, 36, NodeCount)
-			|| !ReadU32At(Bytes, 40, Minimum) || !ReadU32At(Bytes, 44, Maximum)
-			|| !ReadU32At(Bytes, 48, HeaderSize) || !ReadU32At(Bytes, 52, LevelRecordSize)
-			|| !ReadU64At(Bytes, 56, LevelOffset) || !ReadU64At(Bytes, 64, SampleOffset)
-			|| !ReadU64At(Bytes, 72, HierarchyOffset) || !ReadU64At(Bytes, 80, StoredSize)
-			|| !ReadU64At(Bytes, 88, StoredHash))
+		if (!ReadLittleEndianAt(Bytes, 0, Magic) || !ReadLittleEndianAt(Bytes, 4, Schema)
+			|| !ReadLittleEndianAt(Bytes, 8, Builder) || !ReadLittleEndianAt(Bytes, 12, Platform)
+			|| !ReadLittleEndianAt(Bytes, 16, Profile) || !ReadLittleEndianAt(Bytes, 20, Width)
+			|| !ReadLittleEndianAt(Bytes, 24, Height) || !ReadLittleEndianAt(Bytes, 28, BaseRegion)
+			|| !ReadLittleEndianAt(Bytes, 32, LevelCount) || !ReadLittleEndianAt(Bytes, 36, NodeCount)
+			|| !ReadLittleEndianAt(Bytes, 40, Minimum) || !ReadLittleEndianAt(Bytes, 44, Maximum)
+			|| !ReadLittleEndianAt(Bytes, 48, HeaderSize) || !ReadLittleEndianAt(Bytes, 52, LevelRecordSize)
+			|| !ReadLittleEndianAt(Bytes, 56, LevelOffset) || !ReadLittleEndianAt(Bytes, 64, SampleOffset)
+			|| !ReadLittleEndianAt(Bytes, 72, HierarchyOffset) || !ReadLittleEndianAt(Bytes, 80, StoredSize)
+			|| !ReadLittleEndianAt(Bytes, 88, StoredHash))
 			return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap payload header is truncated.");
 		if (Magic != TerrainHeightmapPayloadMagic)
 			return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap payload magic is invalid.");
@@ -199,11 +175,11 @@ namespace Durin
 			const uint64 Offset = LevelOffset + static_cast<uint64>(Index) * LevelRecordSize;
 			FTerrainHeightmapLevel Level;
 			uint32 Reserved = 0;
-			if (!ReadU32At(Bytes, Offset, Level.Width)
-				|| !ReadU32At(Bytes, Offset + 4, Level.Height)
-				|| !ReadU64At(Bytes, Offset + 8, Level.NodeOffset)
-				|| !ReadU32At(Bytes, Offset + 16, Level.SampleRegionSize)
-				|| !ReadU32At(Bytes, Offset + 20, Reserved)
+			if (!ReadLittleEndianAt(Bytes, Offset, Level.Width)
+				|| !ReadLittleEndianAt(Bytes, Offset + 4, Level.Height)
+				|| !ReadLittleEndianAt(Bytes, Offset + 8, Level.NodeOffset)
+				|| !ReadLittleEndianAt(Bytes, Offset + 16, Level.SampleRegionSize)
+				|| !ReadLittleEndianAt(Bytes, Offset + 20, Reserved)
 				|| Reserved != 0 || Level.Width == 0 || Level.Height == 0
 				|| Level.NodeOffset != ExpectedNodeOffset)
 				return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap level table is invalid.");
@@ -218,7 +194,7 @@ namespace Durin
 
 		std::vector<uint16> Samples(static_cast<size_t>(SampleCount));
 		for (uint64 Index = 0; Index < SampleCount; ++Index)
-			if (!ReadU16At(Bytes, SampleOffset + Index * 2, Samples[static_cast<size_t>(Index)]))
+			if (!ReadLittleEndianAt(Bytes, SampleOffset + Index * 2, Samples[static_cast<size_t>(Index)]))
 				return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap samples are truncated.");
 		std::shared_ptr<const FTerrainHeightmapPayload> Candidate;
 		std::string BuildError;
@@ -231,8 +207,8 @@ namespace Durin
 		{
 			uint16 NodeMinimum = 0;
 			uint16 NodeMaximum = 0;
-			if (!ReadU16At(Bytes, HierarchyOffset + Index * 4, NodeMinimum)
-				|| !ReadU16At(Bytes, HierarchyOffset + Index * 4 + 2, NodeMaximum)
+			if (!ReadLittleEndianAt(Bytes, HierarchyOffset + Index * 4, NodeMinimum)
+				|| !ReadLittleEndianAt(Bytes, HierarchyOffset + Index * 4 + 2, NodeMaximum)
 				|| Candidate->Nodes[static_cast<size_t>(Index)]
 					!= FTerrainHeightmapMinMaxNode{NodeMinimum, NodeMaximum})
 				return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap hierarchy extrema are inconsistent.");

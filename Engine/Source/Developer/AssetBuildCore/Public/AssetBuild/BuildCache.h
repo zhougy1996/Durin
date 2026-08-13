@@ -3,7 +3,7 @@
 #include "AssetBuild/BuildTypes.h"
 #include "DerivedDataObjectStore.h"
 
-namespace Durin::AssetBuild
+namespace Durin::Asset::Build
 {
 	enum class EBuildCacheQueryStatus : uint8
 	{

@@ -458,6 +458,48 @@ namespace Durin::Asset
 		return true;
 	}
 
+	auto LoadCookedPackagePayload(
+		const FPackageLoadContext& LoadContext,
+		std::string_view VirtualPackagePath,
+		const FCookedPayloadDescriptor& Descriptor,
+		ECookTargetPlatform ExpectedPlatform,
+		ECookTargetProfile ExpectedProfile,
+		FCookedPackagePayload& OutPayload,
+		std::string* OutError) -> bool
+	{
+		std::filesystem::path PackagePath;
+		std::filesystem::path CompanionPath;
+		if (!LoadContext.IsValid(OutError)
+			|| !ResolveCookedPackagePath(
+				LoadContext.CookRoot, VirtualPackagePath, PackagePath, OutError)
+			|| !ResolveCookedCompanionPath(
+				LoadContext.CookRoot, PackagePath, CompanionPath, OutError))
+		{
+			return false;
+		}
+
+		FCookedBulkContainer Candidate;
+		if (!LoadCookedBulkFile(
+			CompanionPath, ExpectedPlatform, ExpectedProfile, Candidate, OutError))
+		{
+			return false;
+		}
+		std::span<const uint8> CandidatePayload;
+		if (!ResolveCookedPayload(Candidate, Descriptor, CandidatePayload, OutError))
+			return false;
+
+		OutPayload.Payload = {};
+		OutPayload.Container = std::move(Candidate);
+		if (!ResolveCookedPayload(
+			OutPayload.Container, Descriptor, OutPayload.Payload, OutError))
+		{
+			OutPayload.Container = {};
+			OutPayload.Payload = {};
+			return false;
+		}
+		return true;
+	}
+
 	auto LoadCookedBulkFile(
 		const std::filesystem::path& Path,
 		ECookTargetPlatform ExpectedPlatform,

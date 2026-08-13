@@ -2,8 +2,8 @@
 
 #include "AssetImportCore.h"
 
-namespace Durin
+namespace Durin::Asset::Import
 {
 	auto CreateSceneImportProvider()
-		-> std::shared_ptr<AssetImport::IImportProvider>;
+		-> std::shared_ptr<IImportProvider>;
 }

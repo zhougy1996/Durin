@@ -2,7 +2,7 @@
 
 #include "AssetBuild/BuildTypes.h"
 
-namespace Durin::AssetBuild
+namespace Durin::Asset::Build
 {
 	// Aggregate state of one request owner without exposing its synchronization state.
 	struct FBuildRequestOwnerSnapshot
