@@ -3,38 +3,33 @@
 from __future__ import annotations
 
 import argparse
-import os
+from dataclasses import replace
 from pathlib import Path
-from typing import Callable, Sequence, TextIO
+from typing import Callable, TextIO
 
-from .build.config import (
-    BuildToolError,
-    OutputMode,
-    load_configure_presets,
-    load_local_config,
-    load_profiles,
-    select_preset,
-    select_profile,
-)
+from .build.config import BuildToolError, OutputMode
 from .build.output import BuildOutput
 from .build.process import run_command
-from .build.runtime import runtime_executable_path
+from .context import RepositoryContext
 from .errors import DevToolError
+from .runtime_program import (
+    ExecutableDescription,
+    RuntimeProcessPolicy,
+    invoke_runtime_program,
+    locate_executable,
+    resolve_project,
+    select_runtime,
+)
 
 
 def _editor_executable(namespace: argparse.Namespace, repository_root: Path) -> Path:
-    config = load_local_config()
-    profile = select_profile(
-        load_profiles(),
-        requested=str(getattr(namespace, "profile", "") or ""),
-        configured=config.default_build_profile,
+    repository = RepositoryContext.load().at_root(repository_root)
+    selection = select_runtime(
+        repository,
+        profile_name=str(getattr(namespace, "profile", "") or ""),
+        preset_name=str(getattr(namespace, "preset", "") or ""),
     )
-    preset = select_preset(
-        profile,
-        load_configure_presets(),
-        requested=str(getattr(namespace, "preset", "") or ""),
-    )
-    return runtime_executable_path(profile, preset, root=repository_root)
+    return locate_executable(selection, ExecutableDescription("Editor", "all"))
 
 
 def _command_arguments(namespace: argparse.Namespace, project: Path) -> list[str]:
@@ -72,18 +67,16 @@ def run(
     command_runner: Callable[..., None] = run_command,
     **_kwargs: object,
 ) -> int:
+    base_repository = RepositoryContext.load()
+    repository = base_repository.at_root(repository_root)
+    selection = select_runtime(
+        base_repository,
+        profile_name=str(getattr(namespace, "profile", "") or ""),
+        preset_name=str(getattr(namespace, "preset", "") or ""),
+    )
+    selection = replace(selection, repository=repository)
     executable = executable_resolver(namespace, repository_root)
-    if not executable.is_file():
-        raise DevToolError(
-            f'Editor executable was not found: "{executable}". '
-            "Build it with 'DevTool build --target all'."
-        )
-    project = Path(namespace.project_path)
-    if not project.is_absolute():
-        project = repository_root / project
-    project = project.resolve()
-    if not project.is_file():
-        raise DevToolError(f'Project descriptor was not found: "{project}".')
+    project = resolve_project(repository, Path(namespace.project_path))
     output_path = str(namespace.mounted_output)
     if not output_path.startswith("/") or output_path.endswith("/"):
         raise DevToolError("--output must be a complete mounted Level path.")
@@ -95,21 +88,21 @@ def run(
         stdout=stdout,
         stderr=stderr,
     )
-    command: Sequence[str] = [
-        str(executable),
-        *_command_arguments(namespace, project),
-    ]
     try:
-        command_runner(
-            command,
-            environment=os.environ,
+        invoke_runtime_program(
+            selection,
+            ExecutableDescription("Editor", "all"),
+            _command_arguments(namespace, project),
             output=output,
-            colorize_log_levels=True,
-            recovery_required_on_interrupt=False,
-            interruption_message="Graybox build was cancelled.",
-            timeout_seconds=int(namespace.timeout),
-            wait_for_descendants=True,
-            show_heartbeat=True,
+            policy=RuntimeProcessPolicy(
+                interruption_message="Graybox build was cancelled.",
+                timeout_seconds=int(namespace.timeout),
+                wait_for_descendants=True,
+                show_heartbeat=True,
+                colorize_log_levels=True,
+            ),
+            executable_override=executable,
+            command_runner=command_runner,
         )
     except BuildToolError as error:
         print(str(error), file=stderr)

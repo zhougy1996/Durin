@@ -1,4 +1,4 @@
-from __future__ import annotations
+from . import build_request_fixtures as request_fixtures
 import pytest
 import io
 import sys
@@ -10,11 +10,11 @@ if str(PRODUCT_ROOT) not in sys.path:
     sys.path.insert(0, str(PRODUCT_ROOT))
 from durin_dev_tool.build import handler
 from durin_dev_tool.build import operations as build_operations
-from durin_dev_tool.build.config import Action, BuildActionOptions, CommandRequest, CreateKind, LinkType, LocalConfig, LocationActionOptions, ModuleKind, OutputMode, OutputOptions, RequestContext
-from durin_dev_tool.configuration import FEATURE_NAMES
+from durin_dev_tool.build.config import Action, ConcreteRequest, CreateKind, LinkType, LocalConfig, ModuleKind, OutputMode, OutputOptions, RequestContext
 from durin_dev_tool.errors import DevToolError
 from durin_dev_tool.registry import CommandRegistry
-from durin_dev_tool.shell import normalize_compact_build_command, run_shell, split_shell_command
+from durin_dev_tool.build.requests import LocationRequest, SimpleRequest
+from durin_dev_tool.shell import run_shell, split_shell_command
 
 EXPECTED_LOCATION_CONTRACT = (
     ('root', ()),
@@ -25,10 +25,6 @@ EXPECTED_LOCATION_CONTRACT = (
     ('tests', ()),
     ('logs', ()),
 )
-DEPRECATED_OPEN_RUNTIME_WARNING = (
-    'Warning: "open-runtime" is deprecated; use "open runtime".'
-)
-
 class TestBuildRegistry:
 
     @pytest.fixture(autouse=True)
@@ -42,7 +38,7 @@ class TestBuildRegistry:
     @staticmethod
     def shell_context() -> mock.Mock:
         context = mock.Mock()
-        context.request = CommandRequest(Action.SHELL)
+        context.request = request_fixtures.command_request(Action.SHELL)
         context.preset.name = 'debug'
         context.current_host = 'windows'
         context.environment = None
@@ -65,24 +61,19 @@ class TestBuildRegistry:
             else:
                 assert specification.handler == 'durin_dev_tool.build.handler:run'
 
-    def test_repository_features_hide_disabled_command_groups(self) -> None:
-        features = {name: True for name in FEATURE_NAMES}
-        features['documentation'] = False
-        features['scaffolding'] = False
-        registry = CommandRegistry(enabled_features=features)
-        commands = {specification.name for specification in registry.specifications}
-        assert 'doc' not in commands
-        assert 'create' not in commands
-        assert 'build' in commands
-        with pytest.raises(DevToolError):
-            registry.parse(['doc', 'list'])
 
     def test_direct_and_shell_entry_paths_dispatch_identical_requests(self) -> None:
-        commands = ('stop --plain', 'presets --profile windows-msvc-x64 --preset win-msvc-x64-debug', 'preset win-msvc-x64-release --plain', 'status --jobs 8', 'path runtime --preset win-msvc-x64-debug', 'open runtime --preset win-msvc-x64-debug', 'configure --fresh --jobs 8', 'build --target Core --output compact', 'clean --plain', 'recover --cmake cmake', 'purge --all-presets --yes', 'rebuild --target all --agent', 'test --target CoreTests --filter Core.* --timeout 45', 'test --target all --granularity case --schedule-random --output-junit Build/results.xml --ctest-regex ^Core\\. --include-direct', 'run --project "Examples/Sandbox/Sandbox.dproject" --args --scene Sample', 'create module Sample --project Examples/Sandbox/Sandbox.dproject --kind editor --link static --public-dependency Core --enable base --dry-run', 'create project Sample --path Examples/Sample --dry-run')
+        commands = ('stop --plain', 'presets --profile windows-msvc-x64 --preset win-msvc-x64-debug', 'preset win-msvc-x64-release --plain', 'status --jobs 8', 'path runtime --preset win-msvc-x64-debug', 'open runtime --preset win-msvc-x64-debug', 'configure --fresh --jobs 8', 'build --target Core --output compact', 'clean --plain', 'recover --cmake cmake', 'purge --all-presets --yes', 'rebuild --target all --agent', 'test CoreTests Core.* --timeout 45', 'test all --granularity case --schedule-random --output-junit Build/results.xml --ctest-regex ^Core\\.', 'run --project "Examples/Sandbox/Sandbox.dproject" --args --scene Sample', 'create module Sample --project Examples/Sandbox/Sandbox.dproject --kind editor --link static --public-dependency Core --enable base --dry-run', 'create project Sample --path Examples/Sample --dry-run')
         stdout = io.StringIO()
         stderr = io.StringIO()
 
-        def acquire(request: CommandRequest, *, session_state: dict[str, object] | None):
+        def acquire(
+            request: ConcreteRequest,
+            *,
+            session: build_operations.BuildSession | None,
+            repository_context: object,
+        ):
+            del repository_context
             current_preset = request.preset or 'current'
             return build_operations.AcquiredRequest(request, mock.sentinel.context, current_preset)
 
@@ -97,7 +88,7 @@ class TestBuildRegistry:
                     stderr=stderr,
                 ) == 0
             direct_requests = [call.args[0].request for call in dispatch.call_args_list]
-            assert all(call.kwargs['session_state'] is None for call in acquire_context.call_args_list)
+            assert all(call.kwargs['session'] is None for call in acquire_context.call_args_list)
 
             dispatch.reset_mock()
             acquire_context.reset_mock()
@@ -114,7 +105,7 @@ class TestBuildRegistry:
             ) == 0
             shell_requests = [call.args[0].request for call in dispatch.call_args_list]
             assert all(
-                isinstance(call.kwargs['session_state'], dict)
+                isinstance(call.kwargs['session'], build_operations.BuildSession)
                 for call in acquire_context.call_args_list
             )
 
@@ -164,43 +155,30 @@ class TestBuildRegistry:
             'logs',
         )
         assert len(all_names) == len(set(all_names))
-        assert DEPRECATED_OPEN_RUNTIME_WARNING.endswith('use "open runtime".')
 
-    def test_open_runtime_alias_normalizes_to_canonical_open_request(self) -> None:
-        specification, namespace = self.registry.parse(['open-runtime'])
-        assert specification.name == 'open'
-        assert namespace.build_action == 'open'
-        assert namespace.location == 'runtime'
-        assert namespace._deprecation_warning == DEPRECATED_OPEN_RUNTIME_WARNING
-        request = handler.request_from_namespace(namespace)
-        assert request.action is Action.OPEN
-        assert request.options == LocationActionOptions(location='runtime')
 
     def test_discovery_commands_reject_child_output_mode(self) -> None:
         for command in ('presets', 'status', 'path root', 'open root', 'purge'):
             with pytest.raises(DevToolError, match='unrecognized arguments'):
                 self.registry.parse([*split_shell_command(command), '--output', 'full'])
 
-    def test_deprecated_alias_warns_once_per_registry(self) -> None:
-        stderr = io.StringIO()
-        with mock.patch.object(handler, 'execute_request', return_value=0):
-            for _ in range(2):
-                specification, namespace = self.registry.parse(['open-runtime'])
-                assert self.registry.execute(
-                    specification,
-                    namespace,
-                    repository_root=REPOSITORY_ROOT,
-                    stdout=io.StringIO(),
-                    stderr=stderr,
-                ) == 0
-        assert stderr.getvalue().splitlines() == [DEPRECATED_OPEN_RUNTIME_WARNING]
+    def test_removed_compatibility_inputs_are_rejected(self) -> None:
+        for command in ('open-runtime', 'test all --include-direct'):
+            with pytest.raises(DevToolError):
+                self.registry.parse(split_shell_command(command))
+
+    def test_shell_uses_the_shared_direct_command_grammar(self) -> None:
+        for command in ('build Core', 'rebuild Core', 'run --hidden-window'):
+            with pytest.raises(DevToolError):
+                self.registry.parse(split_shell_command(command))
+
 
     def test_path_request_requires_one_location_or_all(self) -> None:
-        assert handler.request_from_namespace(self.parse(['path', 'root'])).options == (
-            LocationActionOptions(location='root')
+        assert handler.request_from_namespace(self.parse(['path', 'root'])) == LocationRequest(
+            action=Action.PATH, location='root'
         )
-        assert handler.request_from_namespace(self.parse(['path', '--all'])).options == (
-            LocationActionOptions(all_locations=True)
+        assert handler.request_from_namespace(self.parse(['path', '--all'])) == LocationRequest(
+            action=Action.PATH, all_locations=True
         )
         with pytest.raises(build_operations.BuildToolError, match='either one location or --all'):
             handler.request_from_namespace(self.parse(['path']))
@@ -213,8 +191,8 @@ class TestBuildRegistry:
         assert namespace.command_path == ['worktree', 'add']
 
     def test_request_rejects_options_for_an_unrelated_action(self) -> None:
-        with pytest.raises(build_operations.BuildToolError, match='does not accept'):
-            CommandRequest(Action.STATUS, options=BuildActionOptions())
+        with pytest.raises(TypeError, match='options'):
+            SimpleRequest(action=Action.STATUS, options=request_fixtures.BuildActionOptions())
 
     def test_omitted_status_context_options_remain_empty(self) -> None:
         request = handler.request_from_namespace(self.parse(['status']))
@@ -225,15 +203,6 @@ class TestBuildRegistry:
         assert canonical == vars(self.parse(['BUILD', '--target', 'Core']))
         assert canonical == vars(self.parse(['/build', '--target', 'Core']))
 
-    def test_shell_compact_build_forms_normalize_to_canonical_requests(self) -> None:
-        pairs = (('build Core --plain', 'build --target Core --plain'), ('rebuild Core', 'rebuild --target Core'), ('test CoreTests Core.* --timeout 20', 'test --target CoreTests --filter Core.* --timeout 20'), ('test all', 'test --target all'), ('run --hidden-window', 'run --args --hidden-window'))
-        for compact, canonical in pairs:
-            compact_parts = normalize_compact_build_command(split_shell_command(compact))
-            compact_request = handler.request_from_namespace(self.parse(compact_parts))
-            canonical_request = handler.request_from_namespace(
-                self.parse(split_shell_command(canonical))
-            )
-            assert compact_request == canonical_request
 
     def test_build_namespace_constructs_typed_request_without_reparsing(self) -> None:
         spec, namespace = self.registry.parse(['create', 'module', 'Sample', '--project', 'Examples/Sandbox/Sandbox.dproject', '--kind', 'editor', '--link', 'static', '--enable', 'base', '--dry-run'])
@@ -278,7 +247,7 @@ class TestBuildRegistry:
 
     def test_shell_session_reuses_toolchain_after_preset_switch(self) -> None:
         base = mock.Mock()
-        base.request = CommandRequest(Action.SHELL)
+        base.request = request_fixtures.command_request(Action.SHELL)
         base.preset.name = 'debug'
         base.current_host = 'windows'
         base.environment = None
@@ -296,7 +265,7 @@ class TestBuildRegistry:
             context.cmake = 'cmake'
             context.jobs = 8
 
-        def derive(context: mock.Mock, request: CommandRequest) -> mock.Mock:
+        def derive(context: mock.Mock, request: ConcreteRequest) -> mock.Mock:
             child = mock.Mock()
             child.request = request
             child.preset.name = request.preset
@@ -307,17 +276,20 @@ class TestBuildRegistry:
             child.config = context.config
             return child
         state: dict[str, object] = {}
-        with mock.patch.object(build_operations, 'create_context', return_value=base), mock.patch.object(build_operations, 'prepare_toolchain_environment', side_effect=prepare_environment) as prepare_environment_context, mock.patch.object(build_operations, 'prepare_command_context', side_effect=prepare_command) as prepare_command_context, mock.patch.object(build_operations, 'derive_context', side_effect=derive), mock.patch.object(build_operations, 'execute_context') as execute:
+        with mock.patch.object(build_operations, 'create_build_context', return_value=base), mock.patch.object(build_operations, 'prepare_toolchain_environment', side_effect=prepare_environment) as prepare_environment_context, mock.patch.object(build_operations, 'prepare_command_context', side_effect=prepare_command) as prepare_command_context, mock.patch.object(build_operations, 'derive_build_context', side_effect=derive), mock.patch.object(build_operations, 'execute_context') as execute:
             for request in (
-                CommandRequest(Action.BUILD, output=OutputOptions(plain=True), options=BuildActionOptions(target='Core')),
-                CommandRequest(Action.PRESET, context=RequestContext(preset='release'), output=OutputOptions(plain=True)),
-                CommandRequest(Action.BUILD, output=OutputOptions(plain=True), options=BuildActionOptions(target='Core')),
+                request_fixtures.command_request(Action.BUILD, output=OutputOptions(plain=True), options=request_fixtures.BuildActionOptions(target='Core')),
+                request_fixtures.command_request(Action.PRESET, context=RequestContext(preset='release'), output=OutputOptions(plain=True)),
+                request_fixtures.command_request(Action.BUILD, output=OutputOptions(plain=True), options=request_fixtures.BuildActionOptions(target='Core')),
             ):
                 assert build_operations.execute_request(request, session_state=state, stdout=io.StringIO(), stderr=io.StringIO()) == 0
         prepare_environment_context.assert_called_once_with(base)
         prepare_command_context.assert_called_once()
         assert [call.args[0].preset.name for call in execute.call_args_list] == ['debug', 'release']
         assert all((call.args[0].environment is cached_environment for call in execute.call_args_list))
+        assert state == {
+            'build_session': build_operations.BuildSession(base, 'release'),
+        }
 
     def test_presets_lists_and_explicit_numeric_preset_selects(self) -> None:
         base = self.shell_context()
@@ -330,8 +302,8 @@ class TestBuildRegistry:
             prompts.append(prompt)
             return next(responses)
 
-        with mock.patch.object(build_operations, 'create_context', return_value=base), mock.patch.object(
-            build_operations, 'derive_context', return_value=base
+        with mock.patch.object(build_operations, 'create_build_context', return_value=base), mock.patch.object(
+            build_operations, 'derive_build_context', return_value=base
         ):
             assert run_shell(
                 registry=self.registry,
@@ -352,8 +324,8 @@ class TestBuildRegistry:
         stderr = io.StringIO()
         responses = iter(('presets', 'status', 'exit'))
 
-        with mock.patch.object(build_operations, 'create_context', return_value=base), mock.patch.object(
-            build_operations, 'derive_context', return_value=base
+        with mock.patch.object(build_operations, 'create_build_context', return_value=base), mock.patch.object(
+            build_operations, 'derive_build_context', return_value=base
         ), mock.patch.object(build_operations, 'show_status') as show_status:
             assert run_shell(
                 registry=self.registry,
@@ -370,12 +342,12 @@ class TestBuildRegistry:
         base = self.shell_context()
         stdout = io.StringIO()
         stderr = io.StringIO()
-        request = CommandRequest(
+        request = request_fixtures.command_request(
             Action.PRESET,
             context=RequestContext(preset='2'),
             output=OutputOptions(plain=True),
         )
-        with mock.patch.object(build_operations, 'create_context', return_value=base):
+        with mock.patch.object(build_operations, 'create_build_context', return_value=base):
             assert build_operations.execute_request(
                 request,
                 stdout=stdout,
@@ -387,13 +359,10 @@ class TestBuildRegistry:
     def test_nested_help_uses_registered_leaf_parser(self) -> None:
         build_help = self.registry.format_command_help(('build',))
         worktree_help = self.registry.format_command_help(('worktree', 'add'))
-        alias_help = self.registry.format_command_help(('open-runtime',))
         assert 'DevTool build' in build_help
         assert '--target' in build_help
         assert 'DevTool worktree add' in worktree_help
         assert '--branch' in worktree_help
-        assert 'DevTool open' in alias_help
-        assert 'location' in alias_help
 
     def test_shell_bare_group_displays_help_and_continues(self) -> None:
         stdout = io.StringIO()

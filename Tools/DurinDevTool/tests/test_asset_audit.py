@@ -1,10 +1,10 @@
-from __future__ import annotations
 
 import io
 import json
 import subprocess
 import sys
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from jsonschema import validate
@@ -32,7 +32,20 @@ def package(
     format_version: int = 4,
     code: str | None = None,
 ) -> dict[str, object]:
-    findings = [] if code is None else [{"code": code, "diagnostic": f"{code} diagnostic"}]
+    findings = [] if code is None else [{
+        "code": code,
+        "objectPath": "",
+        "classIdentity": "",
+        "declaringType": "",
+        "fieldName": "",
+        "storedKind": "",
+        "storedTypeSignature": "",
+        "expectedKind": "",
+        "expectedTypeSignature": "",
+        "payloadSize": 0,
+        "payloadOffset": 0,
+        "diagnostic": f"{code} diagnostic",
+    }]
     return {
         "packagePath": path,
         "physicalPath": f"C:/{path[1:]}.dasset",
@@ -71,6 +84,28 @@ def run_handler(tmp_path: Path, report_text: str, *fail_on: str, format_name: st
         process_runner=lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, report_text, ""),
     )
     return result, output.getvalue(), errors.getvalue()
+
+
+def test_asset_production_path_uses_runtime_program_service(tmp_path: Path) -> None:
+    executable = tmp_path / "DurinAssetTool.exe"
+    executable.touch()
+    project = tmp_path / "Test.dproject"
+    project.write_text("{}", encoding="utf-8")
+    namespace = type("Namespace", (), {
+        "asset_command": "audit",
+        "project_path": project,
+        "format_name": "json",
+        "fail_on": (),
+    })()
+    with mock.patch.object(asset, "invoke_runtime_program", return_value=report()) as invoke:
+        assert asset.run(
+            namespace,
+            repository_root=tmp_path,
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+            executable_resolver=lambda *_args: executable,
+        ) == 0
+    assert invoke.call_args.args[2] == [f"--project={project.resolve()}", "--format=json"]
 
 
 def test_registry_requires_project_and_validates_format() -> None:
@@ -280,10 +315,13 @@ def test_checked_in_schema_freezes_public_enum_names() -> None:
     package_properties = schema["$defs"]["package"]["properties"]
     finding_properties = schema["$defs"]["finding"]["properties"]
     assert schema["properties"]["schemaVersion"]["const"] == asset.SCHEMA_VERSION
-    assert set(package_properties["inspection"]["enum"]) == asset.INSPECTION_NAMES
-    assert set(package_properties["compatibility"]["enum"]) == asset.COMPATIBILITY_NAMES
-    assert set(package_properties["freshness"]["enum"]) == asset.FRESHNESS_NAMES
-    assert set(finding_properties["code"]["enum"]) == asset.FINDING_CODES
+    assert set(package_properties["inspection"]["enum"]) == {"NotChecked", "Ready", "Failed"}
+    assert set(package_properties["compatibility"]["enum"]) == {"Compatible", "Incompatible", "Unsupported"}
+    assert set(package_properties["freshness"]["enum"]) == {"Current", "Stale"}
+    assert set(finding_properties["code"]["enum"]) == {
+        "UnknownField", "IncompatibleFieldSignature", "UnavailableClass",
+        "UnsupportedPackageFormat", "InvalidObjectGraph", "CorruptPackage", "IoFailure",
+    }
 
 
 def test_checked_in_report_fixtures_match_their_schemas() -> None:
@@ -340,7 +378,7 @@ def test_human_output_groups_orthogonal_states(tmp_path: Path) -> None:
 def test_rejects_unstable_order_and_unknown_schema_names(tmp_path: Path) -> None:
     with pytest.raises(DevToolError, match="order"):
         run_handler(tmp_path, report(package("/Game/B"), package("/Game/A")))
-    with pytest.raises(DevToolError, match="finding code"):
+    with pytest.raises(DevToolError, match="NewCode"):
         run_handler(tmp_path, report(package("/Game/A", code="NewCode")))
 
 

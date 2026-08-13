@@ -6,27 +6,31 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Sequence
 
+from ..context import RepositoryContext
+
 from rich.markup import escape
 from rich.table import Table
 from rich.text import Text
 
 from .config import (
     Action,
+    BuildPaths,
     BuildContext,
     BuildToolError,
     CMAKE_ENV_VARS,
-    CommandRequest,
+    ConcreteRequest,
     JOBS_ENV_VAR,
-    REPO_ROOT,
+    default_build_paths,
     preset_cache_string,
 )
+from .requests import BaseRequest, SimpleRequest
 from .locations import resolve_all_locations, resolve_location
 from .opener import open_location
-from .core import (
-    create_context,
-    derive_context,
-    execute_context,
+from .build_context import create_build_context, derive_build_context
+from .core import execute_context
+from .toolchain_context import (
     prepare_command_context,
+    prepare_toolchain_context,
     prepare_toolchain_environment,
 )
 from .locking import stop_active_operation
@@ -39,43 +43,62 @@ from .native_test_registry import (
 )
 from .recovery import interruption_marker_path, recoverable_target, recovery_target
 
-TOOLCHAIN_ACTIONS = {
-    Action.CONFIGURE,
-    Action.BUILD,
-    Action.CLEAN,
-    Action.RECOVER,
-    Action.REBUILD,
-    Action.TEST,
-}
 CREATE_ACTIONS = {Action.CREATE_MODULE, Action.CREATE_PROJECT}
 
 
-def request_needs_toolchain(request: CommandRequest) -> bool:
-    return request.action in TOOLCHAIN_ACTIONS and not (
-        request.action is Action.TEST and request.test_operation in {"list", "explain"}
-    )
+def shell_request(request: BaseRequest) -> SimpleRequest:
+    return SimpleRequest(context=request.context, output=request.output, action=Action.SHELL)
+
+
+def request_needs_toolchain(request: ConcreteRequest) -> bool:
+    return request.requires_toolchain
 
 
 @dataclass(frozen=True)
 class AcquiredRequest:
-    request: CommandRequest
+    request: ConcreteRequest
     context: BuildContext | None
     current_preset: str = ""
     preset_selected: bool = False
 
 
+@dataclass
+class BuildSession:
+    context: BuildContext | None = None
+    preset: str = ""
+
+
 def execute_create_request(
-    request: CommandRequest,
+    request: ConcreteRequest,
     output: BuildOutput,
     *,
-    root: Path = REPO_ROOT,
+    repository: RepositoryContext | None = None,
+    root: Path | None = None,
 ) -> None:
     from .scaffolding import execute_plan, plan_module_creation, plan_project_creation
+    from .descriptors import descriptor_schema_directory
+    from .scaffolding_templates import TemplateRenderer
 
+    repository = repository or RepositoryContext.load()
+    workspace_root = root.resolve() if root is not None else repository.root
+    renderer = TemplateRenderer(
+        repository.resolve(repository.config.paths.scaffolding_templates)
+    )
+    schema_directory = descriptor_schema_directory(repository)
     plan = (
-        plan_project_creation(request, root)
+        plan_project_creation(
+            request,
+            workspace_root,
+            renderer=renderer,
+            schema_directory=schema_directory,
+        )
         if request.action is Action.CREATE_PROJECT
-        else plan_module_creation(request, root)
+        else plan_module_creation(
+            request,
+            workspace_root,
+            renderer=renderer,
+            schema_directory=schema_directory,
+        )
     )
     if request.dry_run:
         output.info(plan.format(plain=output.plain))
@@ -109,8 +132,6 @@ def confirm_purge(output: BuildOutput, paths: Sequence[Path], all_presets: bool)
         return False
 
 
-def print_shell_help(output: BuildOutput) -> None:
-    output.info(escape(shell_command_help()))
 def show_presets(output: BuildOutput, context: BuildContext, current_preset: str) -> None:
     if output.plain:
         for index, preset in enumerate(context.profile.presets, start=1):
@@ -169,7 +190,9 @@ def resolve_preset_selector(value: str, context: BuildContext) -> str:
 
 
 def show_status(output: BuildOutput, context: BuildContext) -> None:
-    marker = interruption_marker_path(context.preset.name)
+    paths = BuildPaths.from_repository(context.repository) if context.repository else default_build_paths()
+    repository_config = context.repository.config if context.repository else RepositoryContext.load().config
+    marker = interruption_marker_path(context.preset.name, paths.state_directory)
     recovery_required = marker.is_file()
     resumable_target = recoverable_target(marker) if recovery_required else None
     toolchain_resolved = context.environment is not None
@@ -199,6 +222,9 @@ def show_status(output: BuildOutput, context: BuildContext) -> None:
             "build",
             profile=context.profile,
             preset=context.preset,
+            root=paths.root,
+            runtime_binaries_directory=repository_config.paths.runtime_binaries_directory,
+            state_directory=repository_config.paths.state_directory,
         ).path,
         "Configuration": preset_cache_string(context.preset, "CMAKE_BUILD_TYPE"),
         "Preset role": preset_cache_string(
@@ -246,9 +272,14 @@ def show_status(output: BuildOutput, context: BuildContext) -> None:
 
 
 def show_locations(output: BuildOutput, context: BuildContext) -> None:
+    root = context.repository.root if context.repository else default_build_paths().root
+    repository_config = context.repository.config if context.repository else RepositoryContext.load().config
     locations = resolve_all_locations(
         profile=context.profile,
         preset=context.preset,
+        root=root,
+        runtime_binaries_directory=repository_config.paths.runtime_binaries_directory,
+        state_directory=repository_config.paths.state_directory,
     )
     if output.plain:
         for location in locations:
@@ -263,10 +294,12 @@ def show_locations(output: BuildOutput, context: BuildContext) -> None:
 
 
 def execute_location_request(
-    request: CommandRequest,
+    request: ConcreteRequest,
     context: BuildContext,
     output: BuildOutput,
 ) -> None:
+    root = context.repository.root if context.repository else default_build_paths().root
+    repository_config = context.repository.config if context.repository else RepositoryContext.load().config
     if request.action is Action.PATH and request.all_locations:
         show_locations(output, context)
         return
@@ -274,28 +307,32 @@ def execute_location_request(
         request.location,
         profile=context.profile,
         preset=context.preset,
+        root=root,
+        runtime_binaries_directory=repository_config.paths.runtime_binaries_directory,
+        state_directory=repository_config.paths.state_directory,
     )
     if request.action is Action.PATH:
         output.raw_line(str(location.path))
         return
-    open_location(location, current_host=context.current_host)
+    open_location(location, current_host=context.current_host, root=root)
     output.success(
         f'Opened {location.spec.name} directory: "{location.path}"'
     )
 
 
 def acquire_request_context(
-    request: CommandRequest,
+    request: ConcreteRequest,
     *,
-    session_state: dict[str, object] | None,
+    session: BuildSession | None,
+    repository_context: RepositoryContext | None = None,
 ) -> AcquiredRequest:
     if request.action in {Action.SHELL, Action.STOP, *CREATE_ACTIONS}:
         return AcquiredRequest(request, None)
-    if session_state is None:
+    if session is None:
         if request.action is Action.PRESET:
-            base = create_context(
-                request.with_preset("").with_action(Action.SHELL),
-                prepare_tools=False,
+            base = create_build_context(
+                shell_request(request.with_preset("")),
+                repository=repository_context or RepositoryContext.load(),
             )
             selected = (
                 resolve_preset_selector(request.preset, base)
@@ -308,24 +345,29 @@ def acquire_request_context(
                 selected,
                 preset_selected=bool(request.preset),
             )
-        context = create_context(
+        context = create_build_context(
             request,
-            prepare_tools=request_needs_toolchain(request),
+            repository=repository_context or RepositoryContext.load(),
         )
+        if request_needs_toolchain(request):
+            prepare_toolchain_context(context)
         return AcquiredRequest(request, context, context.preset.name)
 
-    base = session_state.get("build_context")
+    base = session.context
     if base is None:
         base_request = request.with_preset("") if request.action is Action.PRESET else request
-        base = create_context(base_request.with_action(Action.SHELL), prepare_tools=False)
-        session_state["build_context"] = base
-        session_state["build_preset"] = base.preset.name
-    current_preset = str(session_state["build_preset"])
+        base = create_build_context(
+            shell_request(base_request),
+            repository=repository_context or RepositoryContext.load(),
+        )
+        session.context = base
+        session.preset = base.preset.name
+    current_preset = session.preset
 
     if request.action is Action.PRESET:
         if request.preset:
             current_preset = resolve_preset_selector(request.preset, base)
-            session_state["build_preset"] = current_preset
+            session.preset = current_preset
         return AcquiredRequest(
             request.with_preset(current_preset),
             base,
@@ -339,20 +381,22 @@ def acquire_request_context(
         request.profile not in {"", session_profile}
         or request.environment_setup != base.request.environment_setup
         or (
-            request.action not in TOOLCHAIN_ACTIONS
+            not request.requires_toolchain
             and request.cmake != base.request.cmake
         )
     )
     if needs_independent_context:
-        context = create_context(
+        context = create_build_context(
             request,
-            prepare_tools=request_needs_toolchain(request),
+            repository=repository_context or RepositoryContext.load(),
         )
+        if request_needs_toolchain(request):
+            prepare_toolchain_context(context)
     else:
-        context = derive_context(base, request)
+        context = derive_build_context(base, request)
         if request_needs_toolchain(request) and base.environment is None:
             prepare_toolchain_environment(base)
-            context = derive_context(base, request)
+            context = derive_build_context(base, request)
         needs_command_preparation = (
             not context.cmake
             or not context.jobs
@@ -371,17 +415,23 @@ def acquire_request_context(
 def dispatch_request(
     acquired: AcquiredRequest,
     output: BuildOutput,
+    *,
+    repository: RepositoryContext,
 ) -> None:
     request = acquired.request
     context = acquired.context
     if request.action is Action.STOP:
-        if stop_active_operation():
+        paths = BuildPaths.from_repository(repository)
+        if stop_active_operation(
+            lock_directory=paths.lock_directory,
+            cwd=paths.root,
+        ):
             output.success("Stopped the active DurinDevTool build operation.")
         else:
             output.info("No active DurinDevTool build operation was found.")
         return
     if request.action in CREATE_ACTIONS:
-        execute_create_request(request, output)
+        execute_create_request(request, output, repository=repository)
         return
     if context is None:
         raise BuildToolError(
@@ -441,11 +491,12 @@ def dispatch_request(
 
 
 def execute_request(
-    request: CommandRequest,
+    request: ConcreteRequest,
     *,
     stdout: Any = None,
     stderr: Any = None,
     session_state: dict[str, object] | None = None,
+    repository_context: RepositoryContext | None = None,
 ) -> int:
     started = perf_counter()
     output = BuildOutput(
@@ -456,12 +507,19 @@ def execute_request(
     )
     context: BuildContext | None = None
     try:
+        repository = repository_context or RepositoryContext.load()
+        session = None
+        if session_state is not None:
+            session = session_state.setdefault("build_session", BuildSession())
+            if not isinstance(session, BuildSession):
+                raise BuildToolError("invalid build session state")
         acquired = acquire_request_context(
             request,
-            session_state=session_state,
+            session=session,
+            repository_context=repository,
         )
         context = acquired.context
-        dispatch_request(acquired, output)
+        dispatch_request(acquired, output, repository=repository)
         return 0
     except BuildToolError as exc:
         output.failure(

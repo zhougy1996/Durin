@@ -1,4 +1,4 @@
-from __future__ import annotations
+from . import build_request_fixtures as request_fixtures
 
 import io
 import sys
@@ -173,7 +173,7 @@ class TestBuildLocations:
             build_opener.open_location(location, current_host=current_host)
         popen.assert_called_once_with(
             [command, str(root)],
-            cwd=build_config.REPO_ROOT,
+            cwd=build_config.default_build_paths().root,
             stdout=build_opener.subprocess.DEVNULL,
             stderr=build_opener.subprocess.DEVNULL,
         )
@@ -204,9 +204,9 @@ class TestBuildLocations:
     def test_path_command_prints_exact_resolved_path(self) -> None:
         profile = make_profile()
         preset = make_preset()
-        request = build_config.CommandRequest(
+        request = request_fixtures.command_request(
             build_config.Action.PATH,
-            options=build_config.LocationActionOptions(location="runtime"),
+            options=request_fixtures.LocationActionOptions(location="runtime"),
         )
         context = build_config.BuildContext(
             request,
@@ -234,9 +234,9 @@ class TestBuildLocations:
     def test_open_command_uses_resolved_location(self) -> None:
         profile = make_profile()
         preset = make_preset()
-        request = build_config.CommandRequest(
+        request = request_fixtures.command_request(
             build_config.Action.OPEN,
-            options=build_config.LocationActionOptions(location="bin"),
+            options=request_fixtures.LocationActionOptions(location="bin"),
         )
         context = build_config.BuildContext(
             request,
@@ -259,16 +259,20 @@ class TestBuildLocations:
             return_value=location,
         ), mock.patch.object(build_operations, "open_location") as open_location:
             build_operations.execute_location_request(request, context, output)
-        open_location.assert_called_once_with(location, current_host="windows")
+        open_location.assert_called_once_with(
+            location,
+            current_host="windows",
+            root=build_config.default_build_paths().root,
+        )
         assert 'Opened binaries directory: "resolved\\binaries"' in stdout.getvalue()
 
     def test_path_all_plain_output_is_stable_tab_separated(self) -> None:
         profile = make_profile()
         preset = make_preset()
-        request = build_config.CommandRequest(
+        request = request_fixtures.command_request(
             build_config.Action.PATH,
             output=build_config.OutputOptions(plain=True),
-            options=build_config.LocationActionOptions(all_locations=True),
+            options=request_fixtures.LocationActionOptions(all_locations=True),
         )
         context = build_config.BuildContext(
             request,
@@ -283,7 +287,7 @@ class TestBuildLocations:
         build_operations.execute_location_request(request, context, output)
         lines = stdout.getvalue().splitlines()
         assert len(lines) == len(build_locations.LOCATION_SPECS)
-        assert lines[0] == f"root\t{build_config.REPO_ROOT}"
+        assert lines[0] == f"root\t{build_config.default_build_paths().root}"
         assert [line.partition("\t")[0] for line in lines] == list(
             build_locations.location_names()
         )

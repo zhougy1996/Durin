@@ -7,6 +7,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..errors import DevToolError
+
 from .changes import (
     DocumentChangeSet,
     FileChange,
@@ -19,11 +21,10 @@ from .changes import (
 )
 from .catalog import load_document_catalog, validate_documents
 from .model import DiagnosticSeverity
-from .plans import load_catalog as load_plan_catalog
-from .roadmaps import load_catalog as load_roadmap_catalog
+from .lifecycle import LifecycleConfig, LifecycleWorkspace, PLAN_LIFECYCLE, ROADMAP_LIFECYCLE
 
 
-class ArchiveError(RuntimeError):
+class ArchiveError(DevToolError):
     pass
 
 
@@ -55,13 +56,12 @@ def _prepare(
     documents_directory: Path,
     month: str,
     *,
-    document_kind: str,
+    config: LifecycleConfig,
 ) -> tuple[ArchivePreview, DocumentChangeSet | None]:
     month = parse_month(month)
-    catalog_loader = (
-        load_plan_catalog if document_kind == "plan" else load_roadmap_catalog
-    )
-    catalog = catalog_loader(documents_directory)
+    workspace = LifecycleWorkspace(documents_directory.parent.parent, config)
+    catalog = workspace.catalog()
+    document_kind = config.document_label
     if catalog.errors:
         raise ArchiveError(
             f"{document_kind} validation failed:\n- "
@@ -149,37 +149,37 @@ def _prepare(
     )
 
 
-def preview_archive(plans_directory: Path, month: str) -> ArchivePreview:
+def preview_lifecycle_archive(
+    documents_directory: Path,
+    month: str,
+    config: LifecycleConfig,
+) -> ArchivePreview:
     preview, _ = _prepare(
-        plans_directory.resolve(),
+        documents_directory.resolve(),
         month,
-        document_kind="plan",
+        config=config,
     )
     return preview
+
+
+def preview_archive(plans_directory: Path, month: str) -> ArchivePreview:
+    return preview_lifecycle_archive(plans_directory, month, PLAN_LIFECYCLE)
 
 
 def preview_roadmap_archive(
     roadmaps_directory: Path,
     month: str,
 ) -> ArchivePreview:
-    preview, _ = _prepare(
-        roadmaps_directory.resolve(),
-        month,
-        document_kind="roadmap",
-    )
-    return preview
+    return preview_lifecycle_archive(roadmaps_directory, month, ROADMAP_LIFECYCLE)
 
 
 def _validate_archive(
     documents_directory: Path,
     repository: Path,
     *,
-    document_kind: str,
+    config: LifecycleConfig,
 ) -> None:
-    catalog_loader = (
-        load_plan_catalog if document_kind == "plan" else load_roadmap_catalog
-    )
-    catalog = catalog_loader(documents_directory)
+    catalog = LifecycleWorkspace(repository, config).catalog()
     if catalog.errors:
         raise ArchiveError(
             "archive validation failed:\n- " + "\n- ".join(catalog.errors)
@@ -203,46 +203,37 @@ def _validate_archive(
         )
 
 
-def apply_archive(plans_directory: Path, month: str) -> ArchivePreview:
-    plans_directory = plans_directory.resolve()
-    repository = plans_directory.parent.parent
+def apply_lifecycle_archive(
+    documents_directory: Path,
+    month: str,
+    config: LifecycleConfig,
+) -> ArchivePreview:
+    documents_directory = documents_directory.resolve()
+    repository = documents_directory.parent.parent
     preview, change_set = _prepare(
-        plans_directory,
+        documents_directory,
         month,
-        document_kind="plan",
+        config=config,
     )
     if change_set is None:
         return preview
     apply_change_set(
         change_set,
         validator=lambda: _validate_archive(
-            plans_directory,
+            documents_directory,
             repository,
-            document_kind="plan",
+            config=config,
         ),
     )
     return preview
+
+
+def apply_archive(plans_directory: Path, month: str) -> ArchivePreview:
+    return apply_lifecycle_archive(plans_directory, month, PLAN_LIFECYCLE)
 
 
 def apply_roadmap_archive(
     roadmaps_directory: Path,
     month: str,
 ) -> ArchivePreview:
-    roadmaps_directory = roadmaps_directory.resolve()
-    repository = roadmaps_directory.parent.parent
-    preview, change_set = _prepare(
-        roadmaps_directory,
-        month,
-        document_kind="roadmap",
-    )
-    if change_set is None:
-        return preview
-    apply_change_set(
-        change_set,
-        validator=lambda: _validate_archive(
-            roadmaps_directory,
-            repository,
-            document_kind="roadmap",
-        ),
-    )
-    return preview
+    return apply_lifecycle_archive(roadmaps_directory, month, ROADMAP_LIFECYCLE)

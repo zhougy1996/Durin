@@ -33,7 +33,9 @@ Relevant implementation:
   `normalize_windows_lock_acl`, and `BuildToolLock`;
 - [`process.py`](../../Tools/DurinDevTool/durin_dev_tool/build/process.py),
   especially `run_command`;
-- [`test_build_core.py`](../../Tools/DurinDevTool/tests/test_build_core.py);
+- [`test_build_locking.py`](../../Tools/DurinDevTool/tests/test_build_locking.py)
+  and
+  [`test_build_recovery.py`](../../Tools/DurinDevTool/tests/test_build_recovery.py);
 - [`BuildAndRun.md`](../Development/Build/BuildAndRun.md#recovery).
 
 ## Verified Findings

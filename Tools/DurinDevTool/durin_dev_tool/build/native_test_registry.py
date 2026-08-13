@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from .config import BuildContext, BuildToolError, REPO_ROOT, preset_build_directory
+from .config import BuildContext, BuildToolError, default_build_paths, preset_build_directory
 
 
 SCHEMA_VERSION = 2
@@ -70,7 +70,9 @@ class ResolvedSelection:
 
 
 def registry_path(context: BuildContext) -> Path:
-    return preset_build_directory(context.preset) / REGISTRY_FILE_NAME
+    repository = getattr(context, "repository", None)
+    root = repository.root if repository else default_build_paths().root
+    return preset_build_directory(context.preset, root=root) / REGISTRY_FILE_NAME
 
 
 def _string_list(record: dict[str, object], key: str, *, target: str) -> tuple[str, ...]:
@@ -102,10 +104,12 @@ def load_native_test_registry(context: BuildContext) -> NativeTestRegistry:
             recovery=f"Run .\\DevTool.bat configure --fresh --preset {context.preset.name}.",
         )
     identity = document.get("identity")
-    expected_binary = str(preset_build_directory(context.preset).resolve()).casefold()
+    repository = getattr(context, "repository", None)
+    root = repository.root if repository else default_build_paths().root
+    expected_binary = str(preset_build_directory(context.preset, root=root).resolve()).casefold()
     if not isinstance(identity, dict) or (
         str(Path(str(identity.get("sourceDir", ""))).resolve()).casefold()
-        != str(REPO_ROOT.resolve()).casefold()
+        != str(root.resolve()).casefold()
         or str(Path(str(identity.get("binaryDir", ""))).resolve()).casefold()
         != expected_binary
         or str(identity.get("preset", "")) != context.preset.name

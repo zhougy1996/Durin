@@ -1,4 +1,3 @@
-from __future__ import annotations
 import pytest
 import io
 import subprocess
@@ -12,7 +11,8 @@ if str(PRODUCT_ROOT) not in sys.path:
 from durin_dev_tool import cli
 from durin_dev_tool.documentation import archive as archive_module
 from durin_dev_tool.documentation import changes as changes_module
-from durin_dev_tool.documentation import handler as handler_module
+from durin_dev_tool.documentation import lifecycle as lifecycle_module
+from durin_dev_tool.documentation import lifecycle_adapter
 from durin_dev_tool.documentation.archive import (
     apply_archive,
     apply_roadmap_archive,
@@ -21,11 +21,6 @@ from durin_dev_tool.documentation.archive import (
 )
 from durin_dev_tool.documentation.model import DocumentKind, DocumentRef
 from durin_dev_tool.documentation.plans import PlanStatus, load_catalog, parse_plan, render_listing
-from durin_dev_tool.documentation.roadmaps import (
-    RoadmapStatus,
-    load_catalog as load_roadmap_catalog,
-    parse_roadmap,
-)
 from durin_dev_tool.documentation.service import DocumentWorkspace, ListDocumentsRequest
 from durin_dev_tool.documentation.tasks import load_task_catalog, parse_task
 from durin_dev_tool.errors import DevToolError
@@ -173,11 +168,12 @@ class TestRoadmapCatalog:
             ),
             encoding='utf-8',
         )
-        roadmap, errors = parse_roadmap(path)
+        workspace = lifecycle_module.LifecycleWorkspace(tmp_path, lifecycle_module.ROADMAP_LIFECYCLE)
+        roadmap, errors = workspace.parse(path)
         assert errors == []
         assert roadmap is not None
-        assert roadmap.status == RoadmapStatus.COMPLETED
-        catalog = load_roadmap_catalog(roadmaps)
+        assert roadmap.status == PlanStatus.COMPLETED
+        catalog = workspace.catalog()
         assert catalog.errors == ()
         assert [item.title for item in catalog.completed] == ['Feature']
 
@@ -251,7 +247,7 @@ class TestArchive:
         assert reference.read_text(encoding='utf-8') == (
             '[Program](Documentation/Roadmaps/Archive/2026-07/Program.md)\n'
         )
-        assert load_roadmap_catalog(roadmaps).errors == ()
+        assert lifecycle_module.LifecycleWorkspace(self.repository, lifecycle_module.ROADMAP_LIFECYCLE).catalog().errors == ()
 
     def test_apply_rejects_stale_inputs_before_writing(self) -> None:
         original_apply = archive_module.apply_change_set
@@ -351,7 +347,7 @@ class TestUnifiedCommand:
     def test_list_defaults_to_markdown_direct_and_terminal_in_shell(self) -> None:
         direct_spec, direct = self.registry.parse(['doc', 'plan', 'list'])
         shell_spec, shell = self.registry.parse(['doc', 'plan', 'list'])
-        with mock.patch.object(handler_module, 'render_listing', return_value='result') as render:
+        with mock.patch.object(lifecycle_module, 'render_listing', return_value='result') as render:
             self.registry.execute(direct_spec, direct, repository_root=self.repository, stdout=io.StringIO(), stderr=io.StringIO())
             self.registry.execute(shell_spec, shell, repository_root=self.repository, stdout=io.StringIO(), stderr=io.StringIO(), session_state={})
         assert [call.kwargs['output_format'] for call in render.call_args_list] == ['markdown', 'terminal']
@@ -391,19 +387,19 @@ class TestUnifiedCommand:
 
     def test_archive_defaults_to_preview(self) -> None:
         spec, namespace = self.registry.parse(['doc', 'plan', 'archive', '2026-07'])
-        with mock.patch.object(handler_module, 'preview_archive') as preview:
+        with mock.patch.object(lifecycle_adapter, 'preview_lifecycle_archive') as preview:
             preview.return_value = mock.Mock(month='2026-07', moves=())
             result = self.registry.execute(spec, namespace, repository_root=self.repository, stdout=io.StringIO(), stderr=io.StringIO())
         assert result == 0
-        preview.assert_called_once_with(self.plans, '2026-07')
+        preview.assert_called_once_with(self.plans, '2026-07', lifecycle_module.PLAN_LIFECYCLE)
 
     def test_archive_apply_is_explicit(self) -> None:
         spec, namespace = self.registry.parse(['doc', 'plan', 'archive', '2026-07', '--apply'])
-        with mock.patch.object(handler_module, 'apply_archive') as apply:
+        with mock.patch.object(lifecycle_adapter, 'apply_lifecycle_archive') as apply:
             apply.return_value = mock.Mock(month='2026-07', moves=())
             result = self.registry.execute(spec, namespace, repository_root=self.repository, stdout=io.StringIO(), stderr=io.StringIO())
         assert result == 0
-        apply.assert_called_once_with(self.plans, '2026-07')
+        apply.assert_called_once_with(self.plans, '2026-07', lifecycle_module.PLAN_LIFECYCLE)
 
     def test_archive_listing_groups_plans_by_month(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         temporary = tmp_path_factory.mktemp('case')

@@ -229,7 +229,7 @@ reworking light ownership or view preparation.
   with an equal-angle hard edge that excludes the exact boundary.
 - Focused working results: `RendererSceneContractTests` 11/11,
   `MaterialTests` 79/79, and `WorldTests` 98/98.
-- Qualification: default-granularity `test --target all` passed after one
+- Qualification: default-granularity `test all` passed after one
   isolated Core concurrency rerun; `build --target all`, hidden eight-tick
   Sandbox editor smoke, documentation validation, and the 24-package DAST v4
   asset baseline passed on `Win64-Debug-DurinEditor`.

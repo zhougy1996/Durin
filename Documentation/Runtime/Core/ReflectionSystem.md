@@ -928,7 +928,7 @@ For C++ verification, build the registered Agent profile through the repository 
 Run the focused CoreDObject tests after lifecycle, GC, or serialization changes:
 
 ```powershell
-.\DevTool.bat test --target CoreObjectTests --plain
+.\DevTool.bat test CoreObjectTests --plain
 ```
 
 When adding new reflection behavior, validate both the DHT tests and a real C++ build. The generated files are part of the compile surface, and macro/friend/access errors often appear only during C++ compilation.

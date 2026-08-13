@@ -6,32 +6,51 @@ import shutil
 from pathlib import Path
 from typing import Sequence
 
-from ..configuration import load_repository_config
+from ..context import CommandIO, RepositoryContext
+from ..errors import DevToolError
 
 
-REPOSITORY_CONFIG = load_repository_config()
-CONFIG_RELATIVE_PATH = REPOSITORY_CONFIG.paths.local_build_config
-TEMPLATE_RELATIVE_PATH = REPOSITORY_CONFIG.paths.local_build_config_template
-
-
-class AgentConfigError(RuntimeError):
+class AgentConfigError(DevToolError):
     pass
 
 
-def config_path(repo_root: Path) -> Path:
-    return repo_root / CONFIG_RELATIVE_PATH
+def _repository(
+    repo_root: Path,
+    repository: RepositoryContext | None = None,
+) -> RepositoryContext:
+    return repository or RepositoryContext.load().at_root(repo_root)
 
 
-def template_path(repo_root: Path) -> Path:
-    return repo_root / TEMPLATE_RELATIVE_PATH
+def config_path(
+    repo_root: Path,
+    repository: RepositoryContext | None = None,
+) -> Path:
+    repository = _repository(repo_root, repository)
+    return repo_root / repository.config.paths.local_build_config
 
 
-def ensure_agent_config(repo_root: Path, *, dry_run: bool = False) -> Path:
-    target = config_path(repo_root)
-    template = template_path(repo_root)
+def template_path(
+    repo_root: Path,
+    repository: RepositoryContext | None = None,
+) -> Path:
+    repository = _repository(repo_root, repository)
+    return repo_root / repository.config.paths.local_build_config_template
+
+
+def ensure_agent_config(
+    repo_root: Path,
+    repository: RepositoryContext | None = None,
+    command_io: CommandIO | None = None,
+    *,
+    dry_run: bool = False,
+) -> Path:
+    repository = _repository(repo_root, repository)
+    command_io = command_io or CommandIO.system()
+    target = config_path(repo_root, repository)
+    template = template_path(repo_root, repository)
 
     if target.is_file() and not target.is_symlink():
-        print(f'Agent build config already exists: "{target}"')
+        command_io.out(f'Agent build config already exists: "{target}"')
         return target
     if target.exists() or target.is_symlink():
         raise AgentConfigError(f'Agent build config path is not a regular file: "{target}"')
@@ -39,24 +58,30 @@ def ensure_agent_config(repo_root: Path, *, dry_run: bool = False) -> Path:
         raise AgentConfigError(f'Agent build config template does not exist: "{template}"')
 
     if dry_run:
-        print(f'[dry-run] create Agent build config: "{target}" <- "{template}"')
+        command_io.out(f'[dry-run] create Agent build config: "{target}" <- "{template}"')
         return target
 
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(template, target)
-    print(f'Created Agent build config: "{target}"')
-    print("Optional fields may be filled when automatic tool or environment detection is not sufficient.")
+    command_io.out(f'Created Agent build config: "{target}"')
+    command_io.out(
+        "Optional fields may be filled when automatic tool or environment detection is not sufficient."
+    )
     return target
 
 
 def save_toolchain_config(
     repo_root: Path,
+    repository: RepositoryContext | None = None,
+    command_io: CommandIO | None = None,
     *,
     cmake_command: str,
     environment_script: Path,
     environment_arguments: Sequence[str],
 ) -> Path:
-    target = config_path(repo_root)
+    repository = _repository(repo_root, repository)
+    command_io = command_io or CommandIO.system()
+    target = config_path(repo_root, repository)
     if not target.is_file() or target.is_symlink():
         raise AgentConfigError(
             f'Agent build config is not a regular file: "{target}"'
@@ -90,5 +115,5 @@ def save_toolchain_config(
     finally:
         if temporary.exists():
             temporary.unlink()
-    print(f'Updated toolchain settings in Agent build config: "{target}"')
+    command_io.out(f'Updated toolchain settings in Agent build config: "{target}"')
     return target

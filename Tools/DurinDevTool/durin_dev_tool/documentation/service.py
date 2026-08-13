@@ -25,6 +25,8 @@ from .model import (
     DocumentKind,
     DocumentRef,
 )
+from .lifecycle import LifecycleConfig, LifecycleWorkspace
+from .tasks import TaskCatalog, load_task_catalog
 
 
 class ValidationScope(str, Enum):
@@ -56,12 +58,29 @@ class DocumentReferences:
 class DocumentWorkspace:
     def __init__(self, repository_root: Path) -> None:
         self.repository_root = repository_root.resolve()
+        self._catalogs: dict[bool, DocumentCatalog] = {}
+        self._task_catalog: TaskCatalog | None = None
+        self._lifecycles: dict[LifecycleConfig, LifecycleWorkspace] = {}
 
     def catalog(self, *, include_archive: bool = False) -> DocumentCatalog:
-        return load_document_catalog(
-            self.repository_root,
-            include_archive=include_archive,
-        )
+        if include_archive not in self._catalogs:
+            self._catalogs[include_archive] = load_document_catalog(
+                self.repository_root,
+                include_archive=include_archive,
+            )
+        return self._catalogs[include_archive]
+
+    def task_catalog(self) -> TaskCatalog:
+        if self._task_catalog is None:
+            self._task_catalog = load_task_catalog(
+                self.repository_root / "Documentation" / "Tasks"
+            )
+        return self._task_catalog
+
+    def lifecycle(self, config: LifecycleConfig) -> LifecycleWorkspace:
+        if config not in self._lifecycles:
+            self._lifecycles[config] = LifecycleWorkspace(self.repository_root, config)
+        return self._lifecycles[config]
 
     def list_documents(
         self,
@@ -213,6 +232,9 @@ class DocumentWorkspace:
                 )
 
         apply_change_set(change_set, validator=validate_after_change)
+        self._catalogs.clear()
+        self._task_catalog = None
+        self._lifecycles.clear()
 
     def _changed_document_paths(self) -> set[Path]:
         result = subprocess.run(

@@ -19,13 +19,5 @@
     "vscodeDirectory": ".vscode",
     "pythonEnvironment": ".venv",
     "externalDirectory": "Engine/External"
-  },
-  "features": {
-    "setup": true,
-    "build": true,
-    "scaffolding": true,
-    "dependencies": true,
-    "documentation": true,
-    "worktrees": true
   }
 }

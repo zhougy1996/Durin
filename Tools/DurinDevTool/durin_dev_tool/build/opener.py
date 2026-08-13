@@ -5,11 +5,16 @@ from __future__ import annotations
 import os
 import subprocess
 
-from .config import REPO_ROOT, BuildToolError
+from .config import BuildToolError, default_build_paths
 from .locations import ResolvedLocation
 
 
-def open_location(location: ResolvedLocation, *, current_host: str) -> None:
+def open_location(
+    location: ResolvedLocation,
+    *,
+    current_host: str,
+    root: Path | None = None,
+) -> None:
     if not location.is_directory:
         raise BuildToolError(
             f'{location.spec.name.capitalize()} directory was not found: '
@@ -23,7 +28,7 @@ def open_location(location: ResolvedLocation, *, current_host: str) -> None:
             opener = "open" if current_host == "macos" else "xdg-open"
             subprocess.Popen(
                 [opener, str(location.path)],
-                cwd=REPO_ROOT,
+                cwd=root or default_build_paths().root,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )

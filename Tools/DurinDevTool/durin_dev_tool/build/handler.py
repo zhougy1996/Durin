@@ -4,26 +4,33 @@ import argparse
 from pathlib import Path
 from typing import TextIO
 
+from ..context import CommandIO, RepositoryContext
+
 from .config import (
     Action,
-    BuildActionOptions,
     BuildToolError,
-    CommandRequest,
-    CreateActionOptions,
-    CreateKind,
     LinkType,
-    LocationActionOptions,
     ModuleKind,
-    OutputOptions,
     OutputMode,
-    PurgeActionOptions,
-    RequestContext,
-    RunActionOptions,
-    TestActionOptions,
     TestGranularity,
     TestMode,
 )
 from .operations import execute_request
+from .requests import (
+    BaseRequest,
+    BuildRequest,
+    ConfigureRequest,
+    LocationRequest,
+    ModuleCreationRequest,
+    NativeTestRequest,
+    OutputOptions,
+    ProjectCreationRequest,
+    PurgeRequest,
+    RebuildRequest,
+    RequestContext,
+    RunRequest,
+    SimpleRequest,
+)
 
 
 def namespace_value(
@@ -35,7 +42,7 @@ def namespace_value(
     return default if value is None else value
 
 
-def request_from_namespace(namespace: argparse.Namespace) -> CommandRequest:
+def request_from_namespace(namespace: argparse.Namespace) -> BaseRequest:
     action = Action(namespace.build_action)
     selected_preset = str(namespace_value(namespace, "selected_preset", ""))
     context = RequestContext(
@@ -58,13 +65,25 @@ def request_from_namespace(namespace: argparse.Namespace) -> CommandRequest:
         ),
         agent=agent,
     )
-    options = None
-    if action in {Action.CONFIGURE, Action.BUILD, Action.REBUILD}:
-        options = BuildActionOptions(
-            target=str(namespace_value(namespace, "target", "")),
+    if action is Action.CONFIGURE:
+        return ConfigureRequest(
+            context=context,
+            output=output,
             fresh=bool(namespace_value(namespace, "fresh", False)),
         )
-    elif action is Action.TEST:
+    if action is Action.BUILD:
+        return BuildRequest(
+            context=context,
+            output=output,
+            target=str(namespace_value(namespace, "target", "all")),
+        )
+    if action is Action.REBUILD:
+        return RebuildRequest(
+            context=context,
+            output=output,
+            target=str(namespace_value(namespace, "target", "all")),
+        )
+    if action is Action.TEST:
         positional_selection = str(namespace_value(namespace, "selection", ""))
         positional_filter = str(namespace_value(namespace, "case_filter", ""))
         compatibility_target = str(
@@ -85,60 +104,61 @@ def request_from_namespace(namespace: argparse.Namespace) -> CommandRequest:
             operation, query, target, test_filter = "explain", "", positional_filter, ""
         test_mode = TestMode(str(namespace_value(namespace, "mode", "routine")))
         report_path = namespace_value(namespace, "report", None)
-        options = TestActionOptions(
+        return NativeTestRequest(
+            context=context,
+            output=output,
             target=target,
-            filter=test_filter,
-            operation=operation,
-            query=query,
-            mode=test_mode,
-            report_path=report_path,
-            timeout_seconds=int(namespace_value(namespace, "timeout", 300)),
-            schedule_random=(
+            test_filter=test_filter,
+            test_operation=operation,
+            test_query=query,
+            test_mode=test_mode,
+            test_report_path=report_path,
+            test_timeout_seconds=int(namespace_value(namespace, "timeout", 300)),
+            test_schedule_random=(
                 test_mode is TestMode.STRESS
                 or bool(namespace_value(namespace, "schedule_random", False))
             ),
-            output_junit=(
+            test_output_junit=(
                 namespace_value(namespace, "output_junit", None)
                 or report_path
             ),
-            ctest_regex=str(namespace_value(namespace, "ctest_regex", "")),
-            include_direct=bool(
-                namespace_value(namespace, "include_direct", False)
-            ),
-            granularity=(
+            test_ctest_regex=str(namespace_value(namespace, "ctest_regex", "")),
+            test_granularity_value=(
                 TestGranularity(str(namespace_value(namespace, "granularity", "")))
                 if namespace_value(namespace, "granularity", None) is not None
                 else None
             ),
         )
-    elif action is Action.RUN:
-        options = RunActionOptions(
+    if action is Action.RUN:
+        return RunRequest(
+            context=context,
+            output=output,
             project_path=namespace_value(namespace, "project_path", None),
-            arguments=tuple(namespace_value(namespace, "run_arguments", ()) or ()),
+            run_arguments=tuple(namespace_value(namespace, "run_arguments", ()) or ()),
         )
-    elif action is Action.PURGE:
-        options = PurgeActionOptions(
+    if action is Action.PURGE:
+        return PurgeRequest(
+            context=context,
+            output=output,
             all_presets=bool(namespace_value(namespace, "all_presets", False)),
             yes=bool(namespace_value(namespace, "yes", False)),
         )
-    elif action in {Action.PATH, Action.OPEN}:
-        options = LocationActionOptions(
+    if action in {Action.PATH, Action.OPEN}:
+        return LocationRequest(
+            context=context,
+            output=output,
+            action=action,
             location=str(namespace_value(namespace, "location", "")),
             all_locations=bool(
                 namespace_value(namespace, "all_locations", False)
             ),
         )
     if action is Action.CREATE_MODULE:
-        create_kind = CreateKind.MODULE
-    elif action is Action.CREATE_PROJECT:
-        create_kind = CreateKind.PROJECT
-    else:
-        create_kind = None
-    if create_kind is not None:
         enablements = namespace_value(namespace, "enablements", None)
-        options = CreateActionOptions(
-            kind=create_kind,
-            name=str(namespace_value(namespace, "create_name", "")),
+        return ModuleCreationRequest(
+            context=context,
+            output=output,
+            create_name=str(namespace_value(namespace, "create_name", "")),
             project_path=namespace_value(namespace, "project_path", None),
             destination_path=namespace_value(namespace, "destination_path", None),
             module_kind=ModuleKind(
@@ -163,7 +183,15 @@ def request_from_namespace(namespace: argparse.Namespace) -> CommandRequest:
             enablements=None if enablements is None else tuple(enablements),
             dry_run=bool(namespace_value(namespace, "dry_run", False)),
         )
-    return CommandRequest(action, context=context, output=output, options=options)
+    if action is Action.CREATE_PROJECT:
+        return ProjectCreationRequest(
+            context=context,
+            output=output,
+            create_name=str(namespace_value(namespace, "create_name", "")),
+            destination_path=namespace_value(namespace, "destination_path", None),
+            dry_run=bool(namespace_value(namespace, "dry_run", False)),
+        )
+    return SimpleRequest(context=context, output=output, action=action)
 
 
 def run(
@@ -173,17 +201,18 @@ def run(
     repository_root: Path,
     stdout: TextIO,
     stderr: TextIO,
+    repository_context: RepositoryContext | None = None,
+    command_io: CommandIO | None = None,
     session_state: dict[str, object] | None = None,
 ) -> int:
-    del registry, repository_root
+    del registry, command_io
+    repository = repository_context or RepositoryContext.load(repository_root)
     if str(namespace_value(namespace, "build_action", "")) == Action.TEST.value:
         compatibility_warnings = []
         if namespace_value(namespace, "compatibility_target", ""):
             compatibility_warnings.append("--target is deprecated; use positional test <selection>.")
         if namespace_value(namespace, "granularity", None) is not None:
             compatibility_warnings.append("--granularity is compatibility-only; use --mode isolation when needed.")
-        if bool(namespace_value(namespace, "include_direct", False)):
-            compatibility_warnings.append("--include-direct is a deprecated no-op in target mode.")
         if namespace_value(namespace, "ctest_regex", ""):
             compatibility_warnings.append("--ctest-regex is compatibility-only; use a case filter with --mode isolation.")
         if bool(namespace_value(namespace, "schedule_random", False)):
@@ -198,4 +227,5 @@ def run(
         stdout=stdout,
         stderr=stderr,
         session_state=session_state,
+        repository_context=repository,
     )

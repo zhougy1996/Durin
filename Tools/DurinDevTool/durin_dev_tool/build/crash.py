@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Mapping, Sequence
 
-from .config import STATE_DIR
+from .config import default_build_paths
 from .process import command_log_path, prune_command_logs
 
 
@@ -221,8 +221,9 @@ def analyze_crash(
     cdb: Path | None = None,
     environment: Mapping[str, str] | None = None,
     timeout_seconds: int = 120,
-    state_dir: Path = STATE_DIR,
+    state_dir: Path | None = None,
 ) -> CrashAnalysis:
+    state_dir = state_dir or default_build_paths().state_directory
     if artifact.dump_path is None or not artifact.dump_path.is_file():
         return CrashAnalysis(None, "", "Minidump is missing; context remains available.")
     cdb = cdb or discover_cdb(environment)

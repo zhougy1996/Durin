@@ -11,7 +11,9 @@ import sys
 from pathlib import Path
 from typing import Mapping, Sequence
 
-from ..configuration import load_repository_config
+from ..context import CommandIO, RepositoryContext
+from ..errors import DevToolError
+from ..toolchain import find_command, find_vsdevcmd
 from ..build.config import (
     BuildToolError,
     host_name,
@@ -28,33 +30,49 @@ from .agent_config import (
     ensure_agent_config,
     save_toolchain_config,
 )
-from .dependencies import BootstrapError, DependencyRequest, prepare_dependencies
-from .preflight import (
+from .models import BootstrapError, DependencyRequest
+from .dependency_service import prepare_dependencies
+from .preflight import PreflightError, validate_prerequisites
+from .toolchain_selection import (
     DEFAULT_ENVIRONMENT_ARGUMENTS,
-    PreflightError,
     ToolchainSelection,
     configured_cmake_command,
     configured_visual_studio_environment,
     find_vsdevcmd,
     resolve_toolchain,
-    validate_prerequisites,
 )
 
 
-REPOSITORY_CONFIG = load_repository_config()
 MINIMUM_PYTHON = (3, 10)
-VSCODE_TEMPLATE_DIRECTORY = REPOSITORY_CONFIG.paths.vscode_templates
 VSCODE_TEMPLATE_FILES = ("settings.json", "extensions.json")
+
+
+def _repository(
+    repository: RepositoryContext | Path,
+) -> RepositoryContext:
+    if isinstance(repository, RepositoryContext):
+        return repository
+    return RepositoryContext.load().at_root(repository)
+
+
+def _command_io(command_io: CommandIO | None = None) -> CommandIO:
+    return command_io or CommandIO.system()
 
 
 def is_linked_worktree(repository_root: Path) -> bool:
     return (repository_root / ".git").is_file()
 
 
-def run_command(command: Sequence[str], *, cwd: Path) -> None:
-    print(f"[run] {' '.join(command)}")
+def run_command(command: Sequence[str], *, cwd: Path, command_io: CommandIO) -> None:
+    command_io.out(f"[run] {' '.join(command)}")
     try:
-        result = subprocess.run(list(command), cwd=cwd, check=False)
+        result = subprocess.run(
+            list(command),
+            cwd=cwd,
+            check=False,
+            stdout=command_io.stdout,
+            stderr=command_io.stderr,
+        )
     except OSError as exc:
         raise BootstrapError(f"Could not run {command[0]}: {exc}") from exc
     if result.returncode != 0:
@@ -64,9 +82,9 @@ def run_command(command: Sequence[str], *, cwd: Path) -> None:
 
 
 def _system_python_command() -> list[str]:
-    if sys.platform == "win32" and shutil.which("py"):
+    if sys.platform == "win32" and find_command("py"):
         return ["py", "-3"]
-    if executable := shutil.which("python"):
+    if executable := find_command("python"):
         return [executable]
     raise BootstrapError(
         "Python 3.10 or newer was not found. Install Python and enable "
@@ -74,14 +92,21 @@ def _system_python_command() -> list[str]:
     )
 
 
-def ensure_python_environment(repository_root: Path) -> Path:
-    environment = repository_root / REPOSITORY_CONFIG.worktrees.python_environment
+def ensure_python_environment(
+    repository: RepositoryContext | Path,
+    command_io: CommandIO | None = None,
+) -> Path:
+    repository = _repository(repository)
+    command_io = _command_io(command_io)
+    repository_root = repository.root
+    environment = repository_root / repository.config.worktrees.python_environment
     python = environment / "Scripts" / "python.exe"
     if not python.is_file():
-        print(f'Creating Python virtual environment at "{environment}"...')
+        command_io.out(f'Creating Python virtual environment at "{environment}"...')
         run_command(
             [*_system_python_command(), "-m", "venv", str(environment)],
             cwd=repository_root,
+            command_io=command_io,
         )
     if not python.is_file():
         raise BootstrapError(
@@ -94,11 +119,12 @@ def ensure_python_environment(repository_root: Path) -> Path:
             "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)",
         ],
         cwd=repository_root,
+        command_io=command_io,
     )
     requirements = repository_root / "requirements.txt"
     if not requirements.is_file():
         raise BootstrapError(f'Requirements file does not exist: "{requirements}"')
-    print(f'Installing Python dependencies from "{requirements}"...')
+    command_io.out(f'Installing Python dependencies from "{requirements}"...')
     run_command(
         [
             str(python),
@@ -110,6 +136,7 @@ def ensure_python_environment(repository_root: Path) -> Path:
             str(requirements),
         ],
         cwd=repository_root,
+        command_io=command_io,
     )
     run_command(
         [
@@ -123,21 +150,24 @@ def ensure_python_environment(repository_root: Path) -> Path:
             ),
         ],
         cwd=repository_root,
+        command_io=command_io,
     )
-    print(f'Python environment is ready: "{python}"')
+    command_io.out(f'Python environment is ready: "{python}"')
     return python
 
 
 def generate_vscode_launch_configuration(
-    repository_root: Path,
+    repository: RepositoryContext | Path,
     *,
     current_host: str | None = None,
     environment: Mapping[str, str] | None = None,
 ) -> dict[str, object]:
+    repository = _repository(repository)
+    repository_root = repository.root
     config = load_local_config(
-        repository_root / REPOSITORY_CONFIG.paths.local_build_config
+        repository_root / repository.config.paths.local_build_config
     )
-    profiles = load_profiles()
+    profiles = load_profiles(repository.resolve(repository.config.paths.build_profiles))
     profile = select_profile(
         profiles,
         configured=config.default_build_profile,
@@ -145,7 +175,7 @@ def generate_vscode_launch_configuration(
         current_host=current_host or host_name(),
     )
     presets = load_configure_presets(
-        repository_root / REPOSITORY_CONFIG.paths.cmake_presets
+        repository_root / repository.config.paths.cmake_presets
     )
     configurations: list[dict[str, object]] = []
     for preset_name in profile.presets:
@@ -158,7 +188,7 @@ def generate_vscode_launch_configuration(
         output_configuration = preset_output_configuration(preset)
         executable = (
             "${workspaceFolder}/"
-            f"{REPOSITORY_CONFIG.paths.runtime_binaries_directory.as_posix()}/"
+            f"{repository.config.paths.runtime_binaries_directory.as_posix()}/"
             f"{profile.platform}/{output_configuration}/Runtime/"
             f"{runtime_variant}/{runtime_variant}{profile.test_executable_suffix}"
         )
@@ -176,9 +206,15 @@ def generate_vscode_launch_configuration(
     return {"version": "0.2.0", "configurations": configurations}
 
 
-def ensure_vscode_configuration(repository_root: Path) -> Path:
-    target_directory = repository_root / REPOSITORY_CONFIG.worktrees.vscode_directory
-    template_directory = repository_root / VSCODE_TEMPLATE_DIRECTORY
+def ensure_vscode_configuration(
+    repository: RepositoryContext | Path,
+    command_io: CommandIO | None = None,
+) -> Path:
+    repository = _repository(repository)
+    command_io = _command_io(command_io)
+    repository_root = repository.root
+    target_directory = repository_root / repository.config.worktrees.vscode_directory
+    template_directory = repository.resolve(repository.config.paths.vscode_templates)
     if target_directory.exists() and not target_directory.is_dir():
         raise BootstrapError(
             f'VS Code configuration path is not a directory: "{target_directory}"'
@@ -195,14 +231,14 @@ def ensure_vscode_configuration(repository_root: Path) -> Path:
     launch_target = target_directory / "launch.json"
     launch_configuration: dict[str, object] | None = None
     if launch_target.is_file() and not launch_target.is_symlink():
-        print(f'VS Code configuration already exists: "{launch_target}"')
+        command_io.out(f'VS Code configuration already exists: "{launch_target}"')
     elif launch_target.exists() or launch_target.is_symlink():
         raise BootstrapError(
             f'VS Code configuration path is not a regular file: "{launch_target}"'
         )
     else:
         try:
-            launch_configuration = generate_vscode_launch_configuration(repository_root)
+            launch_configuration = generate_vscode_launch_configuration(repository)
         except BuildToolError as exc:
             raise BootstrapError(str(exc)) from exc
 
@@ -210,7 +246,7 @@ def ensure_vscode_configuration(repository_root: Path) -> Path:
     for file_name in VSCODE_TEMPLATE_FILES:
         target = target_directory / file_name
         if target.is_file() and not target.is_symlink():
-            print(f'VS Code configuration already exists: "{target}"')
+            command_io.out(f'VS Code configuration already exists: "{target}"')
             continue
         if target.exists() or target.is_symlink():
             raise BootstrapError(
@@ -218,13 +254,13 @@ def ensure_vscode_configuration(repository_root: Path) -> Path:
             )
         template = template_directory / file_name
         shutil.copy2(template, target)
-        print(f'Created VS Code configuration: "{target}"')
+        command_io.out(f'Created VS Code configuration: "{target}"')
     if launch_configuration is not None:
         launch_target.write_text(
             json.dumps(launch_configuration, indent=2) + "\n",
             encoding="utf-8",
         )
-        print(f'Created VS Code configuration: "{launch_target}"')
+        command_io.out(f'Created VS Code configuration: "{launch_target}"')
     return target_directory
 
 
@@ -240,16 +276,17 @@ def _prompt_value(label: str, default: str = "") -> str:
     return value or default
 
 
-def _confirm_toolchain(selection: ToolchainSelection) -> bool:
-    print("Automatically detected toolchain:")
-    print(f'  CMake: {selection.cmake_command}')
-    print(f'  VsDevCmd: {selection.environment_script}')
-    print(f'  Arguments: {" ".join(selection.environment_arguments)}')
+def _confirm_toolchain(selection: ToolchainSelection, command_io: CommandIO) -> bool:
+    command_io.out("Automatically detected toolchain:")
+    command_io.out(f'  CMake: {selection.cmake_command}')
+    command_io.out(f'  VsDevCmd: {selection.environment_script}')
+    command_io.out(f'  Arguments: {" ".join(selection.environment_arguments)}')
     return _prompt_value("Use these settings?", "Y").casefold() in {"y", "yes"}
 
 
 def _manual_toolchain_selection(
-    repository_root: Path,
+    repository: RepositoryContext,
+    command_io: CommandIO,
     *,
     default_cmake: str,
     default_script: Path | None,
@@ -262,7 +299,7 @@ def _manual_toolchain_selection(
             str(default_script) if default_script else "",
         )
         if not script_value:
-            print("VsDevCmd.bat path is required.")
+            command_io.out("VsDevCmd.bat path is required.")
             continue
         arguments_text = _prompt_value(
             "VsDevCmd.bat arguments",
@@ -271,33 +308,41 @@ def _manual_toolchain_selection(
         try:
             arguments = tuple(shlex.split(arguments_text, posix=False))
             selection = resolve_toolchain(
-                repository_root,
+                repository.root,
                 cmake_command=cmake_command,
                 environment_script=Path(script_value).expanduser().resolve(),
                 environment_arguments=arguments,
+                repository_context=repository,
             )
-        except (PreflightError, ValueError) as exc:
-            print(f"Toolchain settings are not usable: {exc}")
+        except (DevToolError, ValueError) as exc:
+            command_io.out(f"Toolchain settings are not usable: {exc}")
             continue
-        print(f'Validated CMake {selection.cmake_command}.')
+        command_io.out(f'Validated CMake {selection.cmake_command}.')
         return selection
 
 
 def select_setup_toolchain(
-    repository_root: Path,
+    repository: RepositoryContext | Path,
+    command_io: CommandIO | None = None,
     *,
     interactive: bool,
 ) -> ToolchainSelection:
-    config_exists = config_path(repository_root).is_file()
+    repository = _repository(repository)
+    command_io = _command_io(command_io)
+    repository_root = repository.root
+    config_exists = config_path(repository_root, repository).is_file()
     automatic_error = ""
     try:
-        selection = resolve_toolchain(repository_root)
-    except PreflightError as exc:
+        selection = resolve_toolchain(
+            repository_root,
+            repository_context=repository,
+        )
+    except DevToolError as exc:
         automatic_error = str(exc)
         selection = None
     if selection is not None and (config_exists or not interactive):
         return selection
-    if selection is not None and _confirm_toolchain(selection):
+    if selection is not None and _confirm_toolchain(selection, command_io):
         return selection
     if not interactive:
         detail = automatic_error if selection is None else "automatic settings were declined"
@@ -307,64 +352,90 @@ def select_setup_toolchain(
             '".agents/DevTool.user.json", then rerun with --non-interactive.'
         )
 
-    configured_script, configured_arguments = configured_visual_studio_environment(repository_root)
+    configured_script, configured_arguments = configured_visual_studio_environment(
+        repository_root,
+        repository_context=repository,
+    )
     if configured_script is None:
         try:
             configured_script = find_vsdevcmd(os.environ)
-        except PreflightError:
+        except DevToolError:
             pass
-    default_cmake = configured_cmake_command(repository_root)
+    default_cmake = configured_cmake_command(
+        repository_root,
+        repository_context=repository,
+    )
     if selection is not None:
         default_cmake = selection.cmake_command
         configured_script = selection.environment_script
         configured_arguments = list(selection.environment_arguments)
     if selection is None:
-        print(f"Automatic toolchain detection failed: {automatic_error}")
+        command_io.out(f"Automatic toolchain detection failed: {automatic_error}")
     return _manual_toolchain_selection(
-        repository_root,
+        repository,
+        command_io,
         default_cmake=default_cmake,
         default_script=configured_script,
         default_arguments=configured_arguments or DEFAULT_ENVIRONMENT_ARGUMENTS,
     )
 
 
-def setup_repository(repository_root: Path, *, interactive: bool = False) -> Path:
+def setup_repository(
+    repository: RepositoryContext | Path,
+    command_io: CommandIO | None = None,
+    *,
+    interactive: bool = False,
+) -> Path:
     """Prepare a main checkout in preflight-before-mutation order."""
-    repository_root = repository_root.resolve()
+    repository = _repository(repository)
+    command_io = _command_io(command_io)
+    repository_root = repository.root
     if is_linked_worktree(repository_root):
         raise BootstrapError(
             "DevTool setup only initializes the main checkout. "
             "Run 'DevTool worktree prepare' from this linked worktree instead."
         )
     try:
-        selection = select_setup_toolchain(repository_root, interactive=interactive)
-        validate_prerequisites(repository_root, selection=selection)
+        selection = select_setup_toolchain(
+            repository,
+            command_io,
+            interactive=interactive,
+        )
+        validate_prerequisites(
+            repository_root,
+            selection=selection,
+            repository_context=repository,
+            command_io=command_io,
+        )
         try:
-            ensure_agent_config(repository_root)
+            ensure_agent_config(repository_root, repository, command_io)
         except AgentConfigError as exc:
             raise BootstrapError(str(exc)) from exc
         try:
             save_toolchain_config(
                 repository_root,
+                repository,
+                command_io,
                 cmake_command=selection.cmake_command,
                 environment_script=selection.environment_script,
                 environment_arguments=selection.environment_arguments,
             )
         except AgentConfigError as exc:
             raise BootstrapError(str(exc)) from exc
-        ensure_vscode_configuration(repository_root)
-        python = ensure_python_environment(repository_root)
+        ensure_vscode_configuration(repository, command_io)
+        python = ensure_python_environment(repository, command_io)
         prepare_dependencies(
-            repository_root,
+            repository,
             DependencyRequest(
                 use_all=True,
                 with_tests=True,
                 with_development=True,
                 cmake_command=selection.cmake_command,
             ),
+            command_io=command_io,
             environment=selection.environment,
         )
     except OSError as exc:
         raise BootstrapError(str(exc)) from exc
-    print("Durin setup completed successfully.")
+    command_io.out("Durin setup completed successfully.")
     return python

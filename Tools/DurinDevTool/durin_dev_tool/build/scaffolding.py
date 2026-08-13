@@ -7,7 +7,7 @@ from typing import Sequence
 
 from .config import (
     BuildToolError,
-    CommandRequest,
+    ConcreteRequest,
     CreateKind,
     LinkType,
     ModuleKind,
@@ -18,7 +18,7 @@ from .descriptors import (
     load_workspace_descriptors,
     validate_create_request,
 )
-from .scaffolding_templates import TEMPLATE_DIR, TemplateRenderer
+from .scaffolding_templates import TemplateRenderer
 from .scaffolding_transaction import (
     PlanOperation,
     PlanOperationKind,
@@ -98,7 +98,7 @@ def _render_updated_project_descriptor(
 
 
 def _canonical_enablements(
-    request: CommandRequest,
+    request: ConcreteRequest,
     workspace: WorkspaceDescriptors,
 ) -> tuple[str, ...]:
     requested = request.enablements
@@ -185,16 +185,21 @@ def _render_module_files(
 
 
 def plan_module_creation(
-    request: CommandRequest,
+    request: ConcreteRequest,
     root: Path,
     *,
     renderer: TemplateRenderer | None = None,
+    schema_directory: Path | None = None,
 ) -> ScaffoldPlan:
     if request.create_kind is not CreateKind.MODULE:
         raise BuildToolError("Module scaffolding requires a create module request.")
     discovery = discover_workspace_projects(root)
     project_paths = tuple(project.descriptor.path for project in discovery.projects)
-    workspace = load_workspace_descriptors(discovery.root, project_paths=project_paths)
+    workspace = load_workspace_descriptors(
+        discovery.root,
+        project_paths=project_paths,
+        schema_directory=schema_directory,
+    )
     validate_create_request(request, workspace)
     assert request.project_path is not None
     requested_project_path = request.project_path
@@ -279,7 +284,11 @@ def plan_module_creation(
     )
 
     def validate_workspace_after_creation(_: ScaffoldPlan) -> None:
-        load_workspace_descriptors(discovery.root, project_paths=project_paths)
+        load_workspace_descriptors(
+            discovery.root,
+            project_paths=project_paths,
+            schema_directory=schema_directory,
+        )
 
     missing_directories: list[Path] = []
     candidate = module_directory
@@ -344,10 +353,11 @@ def _render_root_project_registration(
 
 
 def plan_project_creation(
-    request: CommandRequest,
+    request: ConcreteRequest,
     root: Path,
     *,
     renderer: TemplateRenderer | None = None,
+    schema_directory: Path | None = None,
 ) -> ScaffoldPlan:
     if request.create_kind is not CreateKind.PROJECT:
         raise BuildToolError("Project scaffolding requires a create project request.")
@@ -356,7 +366,11 @@ def plan_project_creation(
 
     discovery = discover_workspace_projects(root)
     project_paths = tuple(project.descriptor.path for project in discovery.projects)
-    workspace = load_workspace_descriptors(discovery.root, project_paths=project_paths)
+    workspace = load_workspace_descriptors(
+        discovery.root,
+        project_paths=project_paths,
+        schema_directory=schema_directory,
+    )
     validate_create_request(request, workspace)
     require_available_cmake_target(request.create_name, discovery)
     destination = validate_destination(
@@ -430,6 +444,7 @@ def plan_project_creation(
         updated_workspace = load_workspace_descriptors(
             discovery.root,
             project_paths=updated_paths,
+            schema_directory=schema_directory,
         )
         project = updated_workspace.find_project(request.create_name)
         module = updated_workspace.find_module(request.create_name)

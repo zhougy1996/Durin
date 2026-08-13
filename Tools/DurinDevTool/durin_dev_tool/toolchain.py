@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import os
+import shlex
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Mapping, Sequence
 
+from .errors import DevToolError
 
-class ToolchainError(RuntimeError):
+
+class ToolchainError(DevToolError):
     """A toolchain environment could not be discovered or captured."""
 
 
@@ -22,6 +26,11 @@ def environment_value(environment: Mapping[str, str], name: str) -> tuple[str, s
 
 def environment_path(environment: Mapping[str, str]) -> str:
     return environment_value(environment, "PATH")[1]
+
+
+def find_command(command: str, environment: Mapping[str, str] | None = None) -> str | None:
+    search_path = None if environment is None else environment_path(environment)
+    return shutil.which(command, path=search_path)
 
 
 def _program_files_roots(environment: Mapping[str, str]) -> tuple[Path, ...]:
@@ -171,3 +180,31 @@ def capture_windows_environment(
             f"Visual Studio x64 environment initialization failed ({result.returncode})."
         )
     return parse_environment_output(result.stdout, case_insensitive=True)
+
+
+def capture_setup_environment(
+    script: Path,
+    arguments: Sequence[str],
+    *,
+    current_host: str,
+    cwd: Path,
+) -> dict[str, str]:
+    if not script.is_file():
+        raise ToolchainError(f'Environment setup script does not exist: "{script}"')
+    if current_host == "windows":
+        if script.suffix.lower() not in {".bat", ".cmd"}:
+            raise ToolchainError("Windows environment setup scripts must use the .bat or .cmd extension.")
+        return capture_windows_environment(script, arguments, cwd=cwd)
+    argument_text = " ".join(shlex.quote(item) for item in [str(script), *arguments])
+    command = ["/bin/sh", "-c", f". {argument_text} >/dev/null && env -0"]
+    try:
+        result = subprocess.run(command, cwd=cwd, capture_output=True, text=True, check=False)
+    except OSError as exc:
+        raise ToolchainError(f'Could not initialize the environment with "{script}": {exc}') from exc
+    if result.returncode != 0:
+        details = result.stderr.strip()
+        raise ToolchainError(
+            f'Environment setup script failed with exit code {result.returncode}: "{script}"'
+            + (f"\n{details}" if details else "")
+        )
+    return parse_environment_output(result.stdout, case_insensitive=current_host == "windows")

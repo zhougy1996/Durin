@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Mapping
 
-from .config import LOCK_DIR, REPO_ROOT, BuildToolError
+from .config import BuildToolError, default_build_paths
 
 
 def state_file_component(value: str) -> str:
@@ -17,7 +17,8 @@ def state_file_component(value: str) -> str:
     return "".join(character if character in allowed else "_" for character in value)
 
 
-def lock_file_path(root: Path = LOCK_DIR) -> Path:
+def lock_file_path(root: Path | None = None) -> Path:
+    root = root or default_build_paths().lock_directory
     # Presets share final outputs and generated metadata, so ownership belongs to the checkout.
     return root / "checkout.lock"
 
@@ -74,13 +75,13 @@ def open_checkout_lock(path: Path) -> Any:
         raise BuildToolError(f'Could not open DurinDevTool checkout lock "{path}": {exc}') from exc
 
 
-def normalize_windows_lock_acl(path: Path) -> bool:
+def normalize_windows_lock_acl(path: Path, *, cwd: Path | None = None) -> bool:
     """Try to reset a lock file to the ACL inherited from the shared lock directory."""
     if os.name != "nt":
         return True
     result = subprocess.run(
         ["icacls", str(path), "/reset", "/q"],
-        cwd=REPO_ROOT,
+        cwd=cwd or default_build_paths().root,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         check=False,
@@ -163,9 +164,13 @@ def read_state_description(path: Path, *, locked: bool = False) -> str:
     return ", ".join(fields) if fields else f'Existing state file: "{path}"'
 
 
-def stop_active_operation() -> bool:
+def stop_active_operation(
+    *,
+    lock_directory: Path | None = None,
+    cwd: Path | None = None,
+) -> bool:
     """Stop the DurinDevTool process recorded in the checkout ownership lock."""
-    lock_path = lock_file_path()
+    lock_path = lock_file_path(lock_directory)
     if not lock_is_owned(lock_path):
         return False
     metadata = read_lock_metadata(lock_path)
@@ -179,7 +184,7 @@ def stop_active_operation() -> bool:
     if os.name == "nt":
         result = subprocess.run(
             ["taskkill", "/PID", str(pid), "/T", "/F"],
-            cwd=REPO_ROOT,
+            cwd=cwd or default_build_paths().root,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
@@ -197,9 +202,16 @@ def stop_active_operation() -> bool:
 
 
 class BuildToolLock:
-    def __init__(self, path: Path, metadata: Mapping[str, Any]):
+    def __init__(
+        self,
+        path: Path,
+        metadata: Mapping[str, Any],
+        *,
+        cwd: Path | None = None,
+    ):
         self.path = path
         self.metadata = dict(metadata)
+        self.cwd = cwd
         self.handle: Any = None
 
     def __enter__(self) -> "BuildToolLock":
@@ -225,7 +237,7 @@ class BuildToolLock:
                 "Another DurinDevTool operation already owns this checkout. "
                 + read_state_description(self.path, locked=True)
             ) from exc
-        normalize_windows_lock_acl(self.path)
+        normalize_windows_lock_acl(self.path, cwd=self.cwd)
         self.handle.seek(0)
         # Byte zero is reserved for ownership so other processes can read the JSON while it is locked.
         self.handle.truncate()

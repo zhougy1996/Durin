@@ -1,29 +1,21 @@
-from __future__ import annotations
 import pytest
-import argparse
 import io
 import json
 import os
-import shutil
-import subprocess
-import zipfile
-from dataclasses import replace
 from pathlib import Path
-from unittest import mock
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEV_TOOL_DIR = REPO_ROOT / 'Tools' / 'DurinDevTool'
 if str(DEV_TOOL_DIR) not in os.sys.path:
     os.sys.path.insert(0, str(DEV_TOOL_DIR))
 from durin_dev_tool.build import operations as build_cli
 from durin_dev_tool.build import config as build_config
-from durin_dev_tool.build import core as build_core
 from durin_dev_tool.build import descriptors as build_descriptors
 from durin_dev_tool.build import scaffolding as build_scaffolding
 from durin_dev_tool.build.handler import request_from_namespace
 from durin_dev_tool.build.output import BuildOutput
 from durin_dev_tool.registry import CommandRegistry
 
-def parse_build_request(arguments: list[str]) -> build_config.CommandRequest:
+def parse_build_request(arguments: list[str]) -> build_config.ConcreteRequest:
     _spec, namespace = CommandRegistry().parse(arguments)
     if getattr(namespace, 'selected_preset', ''):
         namespace.preset = namespace.selected_preset
@@ -102,11 +94,26 @@ class TestScaffoldingInfrastructure:
         for content in rendered_templates.values():
             assert b'{{' not in content
             assert str(REPO_ROOT).encode() not in content
-        assert (build_scaffolding.TEMPLATE_DIR / 'module' / 'descriptor.json.template').is_file()
+        assert (renderer.template_root / 'module' / 'descriptor.json.template').is_file()
         with pytest.raises(build_config.BuildToolError, match='missing MODULE_NAME_UPPER'):
             renderer.render('module/api.h.template', {'MODULE_NAME': 'Gameplay'})
         with pytest.raises(build_config.BuildToolError, match='unknown EXTRA'):
             renderer.render('module/CMakeLists.txt.template', {'MODULE_NAME': 'Gameplay', 'EXTRA': 'value'})
+
+    def test_template_renderers_keep_explicit_roots_isolated(self, tmp_path: Path) -> None:
+        first_root = tmp_path / 'first'
+        second_root = tmp_path / 'second'
+        first_root.mkdir()
+        second_root.mkdir()
+        (first_root / 'value.template').write_text('first {{VALUE}}', encoding='utf-8')
+        (second_root / 'value.template').write_text('second {{VALUE}}', encoding='utf-8')
+
+        first = build_scaffolding.TemplateRenderer(first_root)
+        second = build_scaffolding.TemplateRenderer(second_root)
+
+        assert first.render('value.template', {'VALUE': 'root'}) == b'first root'
+        assert second.render('value.template', {'VALUE': 'root'}) == b'second root'
+        assert not hasattr(build_scaffolding, 'TEMPLATE_DIR')
 
     def test_dry_run_format_is_stable_and_does_not_mutate(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')

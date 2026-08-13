@@ -13,7 +13,7 @@
     "summary": { "$ref": "#/$defs/summary" },
     "changedPaths": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": { "type": "string", "minLength": 1 }
     }
   },
   "$defs": {

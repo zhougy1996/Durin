@@ -17,10 +17,11 @@ from .config import (
     Action,
     BuildContext,
     BuildToolError,
-    CommandRequest,
+    ConcreteRequest,
     OutputMode,
     preset_build_directory,
 )
+from .requests import request_target
 
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 NINJA_PROGRESS_PATTERN = re.compile(r"^\[\d+/\d+(?:\s+[^\]]+)?\](?:\s|$)")
@@ -275,7 +276,7 @@ class BuildOutput:
         context: BuildContext | None,
         elapsed: float,
         *,
-        request: CommandRequest | None = None,
+        request: ConcreteRequest | None = None,
         preset: str = "",
     ) -> None:
         details = []
@@ -293,7 +294,7 @@ class BuildOutput:
                 [
                     ("Action", active_request.action.value),
                     ("Preset", preset or active_request.preset or "—"),
-                    ("Target", active_request.target or "—"),
+                    ("Target", request_target(active_request) or "—"),
                 ]
             )
         if error.command:

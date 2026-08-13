@@ -1,0 +1,52 @@
+import pytest
+import json
+import sys
+from pathlib import Path
+from unittest import mock
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+PRODUCT_ROOT = REPOSITORY_ROOT / 'Tools' / 'DurinDevTool'
+if str(PRODUCT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PRODUCT_ROOT))
+from durin_dev_tool.bootstrap import agent_config, application as bootstrap_application, handler, manifests as dependency_manifests, preflight, setup, toolchain_selection
+from durin_dev_tool.context import CommandIO, RepositoryContext
+from durin_dev_tool.worktree import terminal as worktree_terminal
+from durin_dev_tool.worktree.models import DetachedLink, Worktree, WorktreeToolError
+
+REPOSITORY = RepositoryContext.load(REPOSITORY_ROOT)
+
+
+class TestWorktreeTool:
+
+    def test_terminal_environment_uses_typed_local_config(
+        self,
+        tmp_path_factory: pytest.TempPathFactory,
+    ) -> None:
+        root = Path(tmp_path_factory.mktemp('case'))
+        script = root / 'toolchain' / 'setup.cmd'
+        script.parent.mkdir()
+        script.touch()
+        config_path = root / '.agents' / 'DevTool.user.json'
+        config_path.parent.mkdir()
+        config_path.write_text(
+            json.dumps(
+                {
+                    'version': 1,
+                    'toolchain': {
+                        'environmentScript': str(script),
+                        'environmentArguments': ['x64'],
+                    },
+                }
+            ),
+            encoding='utf-8',
+        )
+        assert worktree_terminal.environment_arguments(root, REPOSITORY, CommandIO.system()) == [str(script), 'x64']
+
+    def test_terminal_layout_returns_to_original_pane_before_the_fourth_split(self) -> None:
+        worktrees = [Worktree(Path(f'C:/repo-{index}'), f'branch-{index}') for index in range(4)]
+        with mock.patch.object(worktree_terminal, 'environment_arguments', return_value=[]):
+            arguments = worktree_terminal.terminal_arguments(worktrees, REPOSITORY, CommandIO.system())
+        focus_original = arguments.index('move-focus')
+        assert arguments[focus_original:focus_original + 6] == ['move-focus', 'previousInOrder', ';', 'move-focus', 'previousInOrder', ';']
+        assert arguments[focus_original + 6:focus_original + 8] == ['split-pane', '-H']
+        assert 'first' not in arguments
+

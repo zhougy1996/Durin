@@ -6,9 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from ..context import RepositoryContext
 from .config import (
-    REPO_ROOT,
-    REPOSITORY_CONFIG,
     BuildProfile,
     BuildToolError,
     ConfigurePreset,
@@ -18,7 +17,10 @@ from .config import (
 )
 
 
-LocationResolver = Callable[[Path, BuildProfile | None, ConfigurePreset | None], Path]
+LocationResolver = Callable[
+    [Path, BuildProfile | None, ConfigurePreset | None, Path, Path],
+    Path,
+]
 
 
 @dataclass(frozen=True)
@@ -53,6 +55,8 @@ def _root(
     root: Path,
     _profile: BuildProfile | None,
     _preset: ConfigurePreset | None,
+    _runtime_binaries: Path,
+    _state_directory: Path,
 ) -> Path:
     return root
 
@@ -61,6 +65,8 @@ def _build(
     root: Path,
     _profile: BuildProfile | None,
     preset: ConfigurePreset | None,
+    _runtime_binaries: Path,
+    _state_directory: Path,
 ) -> Path:
     return preset_build_directory(_require_preset(preset, "build"), root=root)
 
@@ -69,19 +75,23 @@ def _binaries(
     root: Path,
     _profile: BuildProfile | None,
     _preset: ConfigurePreset | None,
+    runtime_binaries: Path,
+    _state_directory: Path,
 ) -> Path:
-    return root / REPOSITORY_CONFIG.paths.runtime_binaries_directory
+    return root / runtime_binaries
 
 
 def _output(
     root: Path,
     profile: BuildProfile | None,
     preset: ConfigurePreset | None,
+    runtime_binaries: Path,
+    state_directory: Path,
 ) -> Path:
     selected_profile = _require_profile(profile, "output")
     selected_preset = _require_preset(preset, "output")
     return (
-        _binaries(root, profile, preset)
+        _binaries(root, profile, preset, runtime_binaries, state_directory)
         / selected_profile.platform
         / preset_output_configuration(selected_preset)
     )
@@ -91,10 +101,12 @@ def _runtime(
     root: Path,
     profile: BuildProfile | None,
     preset: ConfigurePreset | None,
+    runtime_binaries: Path,
+    state_directory: Path,
 ) -> Path:
     selected_preset = _require_preset(preset, "runtime")
     return (
-        _output(root, profile, selected_preset)
+        _output(root, profile, selected_preset, runtime_binaries, state_directory)
         / "Runtime"
         / preset_cache_string(selected_preset, "DURIN_RUNTIME_VARIANT")
     )
@@ -104,10 +116,12 @@ def _tests(
     root: Path,
     profile: BuildProfile | None,
     preset: ConfigurePreset | None,
+    runtime_binaries: Path,
+    state_directory: Path,
 ) -> Path:
     selected_preset = _require_preset(preset, "tests")
     return (
-        _output(root, profile, selected_preset)
+        _output(root, profile, selected_preset, runtime_binaries, state_directory)
         / "Tests"
         / preset_cache_string(selected_preset, "DURIN_RUNTIME_VARIANT")
         / "Bin"
@@ -118,32 +132,40 @@ def _saved(
     root: Path,
     profile: BuildProfile | None,
     preset: ConfigurePreset | None,
+    runtime_binaries: Path,
+    state_directory: Path,
 ) -> Path:
-    return _runtime(root, profile, preset) / "Saved"
+    return _runtime(root, profile, preset, runtime_binaries, state_directory) / "Saved"
 
 
 def _configs(
     root: Path,
     profile: BuildProfile | None,
     preset: ConfigurePreset | None,
+    runtime_binaries: Path,
+    state_directory: Path,
 ) -> Path:
-    return _saved(root, profile, preset) / "Configs"
+    return _saved(root, profile, preset, runtime_binaries, state_directory) / "Configs"
 
 
 def _runtime_logs(
     root: Path,
     profile: BuildProfile | None,
     preset: ConfigurePreset | None,
+    runtime_binaries: Path,
+    state_directory: Path,
 ) -> Path:
-    return _saved(root, profile, preset) / "Logs"
+    return _saved(root, profile, preset, runtime_binaries, state_directory) / "Logs"
 
 
 def _logs(
     root: Path,
     _profile: BuildProfile | None,
     _preset: ConfigurePreset | None,
+    _runtime_binaries: Path,
+    state_directory: Path,
 ) -> Path:
-    return root / REPOSITORY_CONFIG.paths.state_directory / "logs"
+    return root / state_directory / "logs"
 
 
 LOCATION_SPECS = (
@@ -223,13 +245,30 @@ def resolve_location(
     *,
     profile: BuildProfile | None = None,
     preset: ConfigurePreset | None = None,
-    root: Path = REPO_ROOT,
+    root: Path | None = None,
+    runtime_binaries_directory: Path | None = None,
+    state_directory: Path | None = None,
 ) -> ResolvedLocation:
+    repository = None
+    if root is None or runtime_binaries_directory is None or state_directory is None:
+        repository = RepositoryContext.load()
+    root = root or repository.root
+    runtime_binaries_directory = (
+        runtime_binaries_directory
+        or repository.config.paths.runtime_binaries_directory
+    )
+    state_directory = state_directory or repository.config.paths.state_directory
     spec = _LOCATIONS_BY_NAME.get(name.casefold())
     if spec is None:
         choices = ", ".join(location_names())
         raise BuildToolError(f'Unknown location "{name}". Available locations: {choices}.')
-    path = spec.resolver(root, profile, preset)
+    path = spec.resolver(
+        root,
+        profile,
+        preset,
+        runtime_binaries_directory,
+        state_directory,
+    )
     return ResolvedLocation(spec, path, path.is_dir())
 
 
@@ -237,14 +276,27 @@ def resolve_all_locations(
     *,
     profile: BuildProfile | None = None,
     preset: ConfigurePreset | None = None,
-    root: Path = REPO_ROOT,
+    root: Path | None = None,
+    runtime_binaries_directory: Path | None = None,
+    state_directory: Path | None = None,
 ) -> tuple[ResolvedLocation, ...]:
+    repository = None
+    if root is None or runtime_binaries_directory is None or state_directory is None:
+        repository = RepositoryContext.load()
+    root = root or repository.root
+    runtime_binaries_directory = (
+        runtime_binaries_directory
+        or repository.config.paths.runtime_binaries_directory
+    )
+    state_directory = state_directory or repository.config.paths.state_directory
     return tuple(
         resolve_location(
             spec.name,
             profile=profile,
             preset=preset,
             root=root,
+            runtime_binaries_directory=runtime_binaries_directory,
+            state_directory=state_directory,
         )
         for spec in LOCATION_SPECS
     )

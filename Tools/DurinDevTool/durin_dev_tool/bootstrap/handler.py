@@ -6,19 +6,15 @@ import argparse
 import os
 import subprocess
 import sys
-from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TextIO
+from typing import Callable, TextIO
 
+from ..context import CommandIO, RepositoryContext
 from ..errors import DevToolError
-from .dependencies import (
-    BootstrapError,
-    DependencyRequest,
-    prepare_dependencies,
-    validate_repository_manifests,
-)
+from .models import BootstrapError, DependencyRequest
+from . import application
 from .preflight import PreflightError
-from .setup import setup_repository
 
 
 def _enable_virtual_terminal(stream: TextIO) -> bool:
@@ -77,6 +73,7 @@ def _restart_prepared_shell(
     repository_root: Path,
     python: Path,
     session_state: dict[str, object],
+    command_io: CommandIO,
 ) -> None:
     try:
         same_interpreter = python.samefile(Path(sys.executable))
@@ -91,17 +88,71 @@ def _restart_prepared_shell(
         / "durin_dev_tool"
         / "__main__.py"
     )
-    print("Restarting the interactive shell in Durin's prepared environment...")
+    command_io.out("Restarting the interactive shell in Durin's prepared environment...")
     result = subprocess.run(
         [str(python), str(entrypoint), "shell"],
         cwd=repository_root,
         check=False,
+        stdout=command_io.stdout,
+        stderr=command_io.stderr,
     )
     if result.returncode != 0:
         raise BootstrapError(
             f"Prepared shell exited with code {result.returncode}."
         )
     session_state["exit_requested"] = True
+
+
+@dataclass(frozen=True)
+class _BootstrapCommand:
+    namespace: argparse.Namespace
+    repository: RepositoryContext
+    command_io: CommandIO
+    session_state: dict[str, object] | None
+    stdout: TextIO
+
+
+def _run_setup(command: _BootstrapCommand) -> None:
+    interactive = (
+        not getattr(command.namespace, "non_interactive", False)
+        and bool(getattr(sys.stdin, "isatty", lambda: False)())
+        and bool(getattr(command.stdout, "isatty", lambda: False)())
+    )
+    python = application.setup_checkout(command.repository, command.command_io, interactive=interactive)
+    if command.session_state is not None:
+        _restart_prepared_shell(
+            command.repository.root,
+            python,
+            command.session_state,
+            command.command_io,
+        )
+
+
+def _run_dependency_validate(command: _BootstrapCommand) -> None:
+    application.validate_dependencies(command.repository, command.command_io)
+
+
+def _run_dependency_prepare(command: _BootstrapCommand) -> None:
+    namespace = command.namespace
+    application.prepare_dependency_plan(
+        command.repository,
+        DependencyRequest(
+            use_all=namespace.all_dependencies,
+            libraries=namespace.libraries,
+            config=namespace.dependency_config,
+            with_tests=namespace.with_tests,
+            with_development=namespace.with_development,
+            cmake_command=namespace.dependency_cmake,
+        ),
+        command_io=command.command_io,
+    )
+
+
+_ACTIONS: dict[str, Callable[[_BootstrapCommand], None]] = {
+    "setup": _run_setup,
+    "dependency-validate": _run_dependency_validate,
+    "dependency-prepare": _run_dependency_prepare,
+}
 
 
 def run(
@@ -111,42 +162,25 @@ def run(
     stdout: TextIO,
     stderr: TextIO,
     session_state: dict[str, object] | None = None,
+    repository_context: RepositoryContext | None = None,
+    command_io: CommandIO | None = None,
     **_: object,
 ) -> int:
+    repository = repository_context or RepositoryContext.load(repository_root)
     styled_stdout = _BootstrapOutput(stdout, plain=getattr(namespace, "plain", False))
     styled_stderr = _BootstrapOutput(stderr, plain=getattr(namespace, "plain", False))
+    io = command_io or CommandIO(styled_stdout, styled_stderr, plain=getattr(namespace, "plain", False))
+    if command_io is not None:
+        io = CommandIO(
+            _BootstrapOutput(command_io.stdout, plain=command_io.plain),
+            _BootstrapOutput(command_io.stderr, plain=command_io.plain),
+            plain=command_io.plain,
+        )
     try:
-        with redirect_stdout(styled_stdout), redirect_stderr(styled_stderr):
-            if namespace.bootstrap_action == "setup":
-                interactive = (
-                    not getattr(namespace, "non_interactive", False)
-                    and bool(getattr(sys.stdin, "isatty", lambda: False)())
-                    and bool(getattr(stdout, "isatty", lambda: False)())
-                )
-                python = setup_repository(repository_root, interactive=interactive)
-                if session_state is not None:
-                    _restart_prepared_shell(
-                        repository_root,
-                        python,
-                        session_state,
-                    )
-                return 0
-            if namespace.bootstrap_action == "dependency-validate":
-                validate_repository_manifests(repository_root)
-                return 0
-            if namespace.bootstrap_action == "dependency-prepare":
-                prepare_dependencies(
-                    repository_root,
-                    DependencyRequest(
-                        use_all=namespace.all_dependencies,
-                        libraries=namespace.libraries,
-                        config=namespace.dependency_config,
-                        with_tests=namespace.with_tests,
-                        with_development=namespace.with_development,
-                        cmake_command=namespace.dependency_cmake,
-                    ),
-                )
-                return 0
-    except (BootstrapError, PreflightError) as exc:
-        raise DevToolError(str(exc)) from exc
-    raise DevToolError("a bootstrap command is required")
+        action = _ACTIONS.get(namespace.bootstrap_action)
+        if action is None:
+            raise DevToolError("a bootstrap command is required")
+        action(_BootstrapCommand(namespace, repository, io, session_state, stdout))
+        return 0
+    except (BootstrapError, PreflightError):
+        raise

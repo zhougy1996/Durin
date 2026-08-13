@@ -142,10 +142,8 @@ retain their prior aggregate behavior. In target
 and hybrid modes the command also prints and forwards a GoogleTest shuffle seed
 so order failures can be reproduced with `GTEST_RANDOM_SEED`. Use
 `--ctest-regex <regex>` only with case granularity for an isolated rerun of a
-matching case registration. `--include-direct` remains an accepted no-op
-compatibility alias in target mode and never duplicates a process. These
-options require `test all`. `--target`, `--granularity`,
-`--include-direct`, `--ctest-regex`, `--schedule-random`, and `--output-junit`
+matching case registration. These options require `test all`. `--target`,
+`--granularity`, `--ctest-regex`, `--schedule-random`, and `--output-junit`
 remain temporarily accepted, emit a deprecation warning, and are hidden from
 routine help. Existing repository automation may keep them while it moves to
 positional selections and named modes.

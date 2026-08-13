@@ -18,7 +18,8 @@ from .model import (
     infer_document_kind,
 )
 from .plans import parse_plan
-from .roadmaps import parse_roadmap
+from .lifecycle import ROADMAP_LIFECYCLE
+from .plans import parse_plan
 from .tasks import load_task_catalog
 
 
@@ -406,8 +407,10 @@ def validate_documents(
                 for message in plan_errors
             )
         if document.kind is DocumentKind.ROADMAP:
-            _, roadmap_errors = parse_roadmap(
-                catalog.repository_root / document.ref.path
+            _, roadmap_errors = parse_plan(
+                catalog.repository_root / document.ref.path,
+                title_suffix=ROADMAP_LIFECYCLE.title_suffix,
+                document_label=ROADMAP_LIFECYCLE.document_label,
             )
             diagnostics.extend(
                 Diagnostic(

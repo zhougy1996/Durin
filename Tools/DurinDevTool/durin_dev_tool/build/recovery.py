@@ -7,11 +7,12 @@ import os
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .config import STATE_DIR, Action, BuildToolError, BuildToolInterruptedError
+from .config import Action, BuildToolError, BuildToolInterruptedError, default_build_paths
 from .locking import read_state_description, state_file_component
 
 
-def interruption_marker_path(preset: str, root: Path = STATE_DIR) -> Path:
+def interruption_marker_path(preset: str, root: Path | None = None) -> Path:
+    root = root or default_build_paths().state_directory
     return root / f"{state_file_component(preset)}.interrupted.json"
 
 

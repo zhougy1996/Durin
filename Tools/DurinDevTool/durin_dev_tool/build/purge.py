@@ -7,11 +7,12 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 from .config import (
-    REPO_ROOT,
+    BuildPaths,
     BuildContext,
     BuildProfile,
     BuildToolError,
     ConfigurePreset,
+    default_build_paths,
     preset_build_directory,
     preset_cache_string,
     preset_install_directory,
@@ -21,7 +22,8 @@ from .output import BuildOutput
 from .recovery import interruption_marker_path
 
 
-def workspace_project_roots(root: Path = REPO_ROOT) -> list[Path]:
+def workspace_project_roots(root: Path | None = None) -> list[Path]:
+    root = root or default_build_paths().root
     return sorted({descriptor.parent for descriptor in root.glob("*/*.dproject")})
 
 
@@ -40,8 +42,9 @@ def collect_purge_paths(
     profile: BuildProfile,
     selected_presets: Sequence[ConfigurePreset],
     *,
-    root: Path = REPO_ROOT,
+    root: Path | None = None,
 ) -> list[Path]:
+    root = root or default_build_paths().root
     paths: set[Path] = set()
     output_configs: set[str] = set()
     third_party_configs: set[str] = set()
@@ -86,7 +89,8 @@ def collect_purge_paths(
     return sorted(paths, key=lambda path: (len(path.parts), str(path).lower()), reverse=True)
 
 
-def remove_purge_paths(paths: Sequence[Path], *, root: Path = REPO_ROOT) -> None:
+def remove_purge_paths(paths: Sequence[Path], *, root: Path | None = None) -> None:
+    root = root or default_build_paths().root
     checkout_root = root.resolve()
     for path in paths:
         resolved = path.resolve()
@@ -110,10 +114,19 @@ def execute_purge(
     output: BuildOutput,
     confirm: Callable[[Sequence[Path], bool], bool],
 ) -> None:
+    paths_config = BuildPaths.from_repository(context.repository) if context.repository else default_build_paths()
     selected = [context.preset]
     if context.request.all_presets:
         selected = [context.presets[name] for name in context.profile.presets]
-    paths = [path for path in collect_purge_paths(context.profile, selected) if path.exists() or path.is_symlink()]
+    paths = [
+        path
+        for path in collect_purge_paths(
+            context.profile,
+            selected,
+            root=paths_config.root,
+        )
+        if path.exists() or path.is_symlink()
+    ]
     if not paths:
         scope = "all registered presets" if context.request.all_presets else f'preset "{context.preset.name}"'
         output.warning(f"No build artifacts were found for {scope}.")
@@ -122,5 +135,5 @@ def execute_purge(
         output.cancelled("Purge cancelled.")
         return
     with output.stage("Purge"):
-        remove_purge_paths(paths)
+        remove_purge_paths(paths, root=paths_config.root)
     output.success(f"Purged {len(paths)} build artifact path(s).")

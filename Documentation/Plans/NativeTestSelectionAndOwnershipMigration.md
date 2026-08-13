@@ -157,9 +157,9 @@ After the plan:
   contract, not mandatory alignment with one production module.
 - Migrated cross-module feature targets link real production modules rather
   than compiling foreign production-private sources into the test executable.
-- Existing target names and focused `test --target <name>` commands continue to
+- Existing target names and focused `test <name>` commands continue to
   work throughout the compatibility period.
-- `test --target all` remains available as a low-frequency aggregate gate, not
+- `test all` remains available as a low-frequency aggregate gate, not
   a routine prerequisite for ordinary implementation changes.
 
 ## Scope
@@ -196,7 +196,7 @@ After the plan:
 - Making module boundaries the sole or primary test-organization dimension.
 - Prohibiting all white-box tests. Same-owner private implementation testing
   remains possible through an explicit module-owned seam.
-- Eliminating `test --target all`, case-granularity diagnosis, randomized
+- Eliminating `test all`, case-granularity diagnosis, randomized
   aggregate qualification, GPU locks, or characterization targets.
 - Requiring every pull request, local implementation, or agent handoff to run
   the complete native aggregate.
@@ -342,9 +342,9 @@ After the plan:
   translates it to a GoogleTest filter for one target or to the appropriate
   CTest discovered-case selection only in explicit isolation mode. Users are
   not normally asked to choose between `--filter` and `--ctest-regex`.
-- `hybrid` granularity and `--include-direct` are hidden compatibility inputs
-  during a documented deprecation window because target execution has already
-  replaced hybrid behavior and include-direct is a no-op. They do not appear in
+- `hybrid` granularity is a hidden compatibility input during a documented
+  deprecation window because target execution has already replaced hybrid
+  behavior. It does not appear in
   routine help or new examples.
 - `--schedule-random`, `--output-junit`, `--ctest-regex`, and explicit
   `--granularity` remain accepted for existing automation during the first
@@ -361,7 +361,7 @@ After the plan:
 
 - A full `all` build verifies repository-wide compilation/link integration and
   remains required by existing user-visible editor handoff rules.
-- `test --target all` verifies every ordinary native target and is reserved for
+- `test all` verifies every ordinary native target and is reserved for
   explicit plan/release gates, shared test/runtime infrastructure changes,
   changes crossing test targets whose impact cannot be bounded reliably,
   evidence of process-global leakage/order dependence, and scheduled CI.
@@ -399,7 +399,7 @@ After the plan:
 
 | Area | Existing foundation | Migration gap |
 | --- | --- | --- |
-| Target execution | Focused `test --target`, target-level aggregate registration, filtering, timeout, shuffle, and JUnit support are established. | No bounded multi-target selection other than the complete aggregate. |
+| Target execution | Focused positional `test <target>`, target-level aggregate registration, filtering, timeout, shuffle, and JUnit support are established. | No bounded multi-target selection other than the complete aggregate. |
 | Discovery policy | `DURIN_TEST_LABELS`, resource locks, lifecycle policy, and generated CTest property files already exist. | Labels are not validated into stable kind/domain/module/backend/stack dimensions. |
 | Source ownership | Configuration rejects unowned and duplicate native-test sources and suites. | It does not express semantic target classification or consistently reject foreign production-private source compilation. |
 | Runtime closure | Runtime DLL/file deployment derives from real target linkage with explicit runtime-only exceptions. | The broad Engine test helper adds a large common link/include baseline that obscures the minimum feature stack. |
@@ -429,7 +429,7 @@ After the plan:
   stress, and JUnit/report execution; map every current test flag to its new
   owner or compatibility-only status.
 - [x] Define the deprecation window and warning policy for `--target`,
-  `--granularity hybrid`, `--include-direct`, `--ctest-regex`,
+  `--granularity hybrid`, `--ctest-regex`,
   `--schedule-random`, and `--output-junit` without breaking existing CI in the
   first stage.
 - [x] Prototype help/list/explain output and verify that the four common tasks
@@ -509,7 +509,7 @@ After the plan:
   preset availability, build command composition, CTest command composition,
   compatibility aliases, help grouping, recovery suggestions, error behavior,
   and result reporting.
-- [x] Preserve `test --target <name>` and `test --target all` without semantic
+- [x] Preserve focused `test <name>` and `test all` without semantic
   changes.
 - [x] Because this stage changes shared test execution tooling, run its Python
   tests, the native policy probes, representative locked/GPU selections, and
@@ -634,7 +634,7 @@ After the plan:
 | Structured declaration | Valid kind/domain metadata becomes target properties, reserved labels, and one deterministic registry record | CMake unit/policy probes |
 | Invalid metadata | Missing kind/domain, invalid values, reserved-label injection, and characterization misuse fail at configure time | Negative CMake probes |
 | Registry identity | Registry matches the active preset/configuration and stale state is rejected | CMake generation and DurinDevTool tests |
-| Single target | Existing `test --target <name>` behavior remains unchanged | DurinDevTool regression tests |
+| Single target | Positional `test <name>` behavior remains unchanged | DurinDevTool regression tests |
 | Selected set | Predicate resolves visibly, builds only selected targets, and runs their CTest direct registrations | DurinDevTool and integration tests |
 | Routine UX | Batch and interactive `test <selection> [filter]` forms resolve identically and routine help contains the common workflows first | Registry/parser and shell tests |
 | Diagnostic UX | Isolation requires a narrow filter and maps it to case registrations without requiring ordinary users to supply granularity plus CTest regex | DurinDevTool command tests |
@@ -647,7 +647,7 @@ After the plan:
 | World pilot | Feature selection works with a low-dependency runtime lifecycle target | World focused and selected-set tests |
 | Launch pilot | Contract, process integration, and characterization are separated without compiling foreign private sources | Launch focused/process tests |
 | Viewport pilot | Module contracts, cross-module feature behavior, and Vulkan/system integration remain distinct and selectable | Viewport contract/feature/integration tests |
-| Aggregate | Shared infrastructure changes retain default target-granularity aggregate behavior and result reporting | `test --target all` plan gates |
+| Aggregate | Shared infrastructure changes retain default target-granularity aggregate behavior and result reporting | `test all` plan gates |
 | Long-tail migration | Remaining legacy targets are generated from configured state and new targets cannot enter legacy helpers | Repository policy and migration report |
 
 ## Definition of Done

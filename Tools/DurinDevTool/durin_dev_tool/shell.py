@@ -6,6 +6,7 @@ import shlex
 from pathlib import Path
 from typing import Callable, TextIO
 
+from .context import CommandIO, RepositoryContext
 from .errors import DevToolError
 from .registry import CommandRegistry
 
@@ -65,41 +66,19 @@ def split_shell_command(line: str) -> list[str]:
     )
 
 
-def normalize_compact_build_command(parts: list[str]) -> list[str]:
-    if not parts:
-        return parts
-    command = parts[0].removeprefix("/").lower()
-    values = parts[1:]
-    if command in {"build", "rebuild"} and values and not values[0].startswith("-"):
-        return [parts[0], "--target", values[0], *values[1:]]
-    run_options = {
-        "--profile",
-        "--preset",
-        "--plain",
-        "--output",
-        "--project",
-        "--args",
-    }
-    if (
-        command == "run"
-        and values
-        and values[0].partition("=")[0] not in run_options
-    ):
-        return [parts[0], "--args", *values]
-    return parts
-
-
 def run_shell(
     *,
     registry: CommandRegistry,
     repository_root: Path,
     stdout: TextIO,
     stderr: TextIO,
+    repository_context: RepositoryContext | None = None,
     input_func: Callable[[str], str] = input,
 ) -> int:
     print("Durin Developer Tool shell", file=stdout)
     print("Type help for available commands.", file=stdout)
     session_state: dict[str, object] = {}
+    repository = repository_context or RepositoryContext.load(repository_root)
     while True:
         try:
             line = input_func("DurinDevTool> ").strip()
@@ -112,7 +91,7 @@ def run_shell(
         if not line:
             continue
         try:
-            parts = normalize_compact_build_command(split_shell_command(line))
+            parts = split_shell_command(line)
         except ValueError as exc:
             print(f"Error: invalid command: {exc}", file=stderr)
             continue
@@ -126,12 +105,16 @@ def run_shell(
             continue
         try:
             spec, namespace = registry.parse(parts)
+            command_io = CommandIO(
+                stdout,
+                stderr,
+                plain=bool(getattr(namespace, "plain", False)),
+            )
             result = registry.execute(
                 spec,
                 namespace,
-                repository_root=repository_root,
-                stdout=stdout,
-                stderr=stderr,
+                repository_context=repository,
+                command_io=command_io,
                 session_state=session_state,
             )
             if session_state.get("exit_requested"):

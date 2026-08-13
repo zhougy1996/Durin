@@ -8,12 +8,7 @@ from .model import (
     DocumentRef,
 )
 from .plans import Plan, PlanCatalog, PlanStatus, load_catalog
-from .roadmaps import (
-    Roadmap,
-    RoadmapCatalog,
-    RoadmapStatus,
-    load_catalog as load_roadmap_catalog,
-)
+from .lifecycle import LifecycleConfig, LifecycleWorkspace, PLAN_LIFECYCLE, ROADMAP_LIFECYCLE
 from .service import (
     DocumentWorkspace,
     ListDocumentsRequest,
@@ -33,14 +28,14 @@ __all__ = [
     "Plan",
     "PlanCatalog",
     "PlanStatus",
-    "Roadmap",
-    "RoadmapCatalog",
-    "RoadmapStatus",
+    "LifecycleConfig",
+    "LifecycleWorkspace",
+    "PLAN_LIFECYCLE",
+    "ROADMAP_LIFECYCLE",
     "Task",
     "TaskCatalog",
     "ValidationResult",
     "ValidationScope",
     "load_catalog",
-    "load_roadmap_catalog",
     "load_task_catalog",
 ]

@@ -82,7 +82,7 @@ The generated file references
 `Tools/DurinDevTool/DevTool.user.schema.json` for editor completion and field
 documentation.
 
-Tracked DurinDevTool repository structure and command-group enablement live in
+Tracked DurinDevTool repository structure lives in
 `Tools/DurinDevTool/DevTool.json`. Its paths are repository-relative and are
 validated to stay inside the checkout. `DevTool.schema.json` beside it documents
 the supported fields. Module and project scaffolding assets live under
@@ -128,8 +128,8 @@ Use the root wrapper for configuration, builds, and tests:
 .\DevTool.bat build
 .\DevTool.bat build --target LevelEditor
 .\DevTool.bat run
-.\DevTool.bat test --target CoreConcurrencyTests --filter FTaskSchedulerTests.*
-.\DevTool.bat test --target all
+.\DevTool.bat test CoreConcurrencyTests FTaskSchedulerTests.*
+.\DevTool.bat test all
 .\DevTool.bat clean
 .\DevTool.bat recover
 .\DevTool.bat rebuild --target all
@@ -196,7 +196,7 @@ retained. Use `--output full` to stream every child-output line, or
 ```powershell
 .\DevTool.bat build --target all --output progress
 .\DevTool.bat build --target all --output compact
-.\DevTool.bat test --target CoreConcurrencyTests --output full
+.\DevTool.bat test CoreConcurrencyTests --output full
 ```
 
 Compact native-test runs also enable GoogleTest's brief output mode. Test
@@ -438,7 +438,7 @@ DurinDevTool> configure --fresh
 DurinDevTool> build
 DurinDevTool> recover
 DurinDevTool> rebuild --target DurinLauncher
-DurinDevTool> test --target CoreConcurrencyTests --filter FTaskSchedulerTests.* --timeout 300
+DurinDevTool> test CoreConcurrencyTests FTaskSchedulerTests.* --timeout 300
 DurinDevTool> run --project Sandbox\Sandbox.dproject --args --hidden-window
 DurinDevTool> path runtime
 DurinDevTool> open runtime
@@ -453,16 +453,14 @@ normal prompt. `preset` without an argument displays the current preset;
 <full-name>` selects a preset by its case-insensitive full name. Direct and
 interactive selection resolve the same entry, while only an interactive shell
 retains it for later commands. `build` and `rebuild` default to target `all`.
-Shell commands accept the same named options as their direct forms. The compact
-forms `build <target>`, `rebuild <target>`, `test <target>
-[filter]`, and `run [arguments...]` remain accepted for compatibility, while help
-shows the canonical named syntax. `run` launches the current preset's existing
+Shell commands use the same grammar as their direct forms. Native-test
+selection is positional (`test <target> [filter]`); build targets use
+`--target`, and runtime arguments follow `--args`. `run` launches the current preset's existing
 runtime executable and returns to the shell when it exits. Its typed
 `--project <descriptor>` option follows the same normalization and conflict
-rules as the direct command; place it before compact runtime arguments. `path`
+rules as the direct command; place it before `--args`. `path`
 prints a registered absolute path and `open` opens the same registered location
-in the platform file manager. The deprecated `open-runtime` spelling remains a
-hidden compatibility alias for `open runtime` and prints a migration warning.
+in the platform file manager.
 `status` reports the host build profile, preset, runtime variant, build
 directory, configuration, recovery
 state, and whether CMake, parallelism, and the toolchain environment are resolved
@@ -473,17 +471,17 @@ leading slash remains accepted for compatibility but is not required. A bare
 group without a selected safe default displays its group help and returns to the
 interactive prompt.
 
-`test --target all` defaults to one process per ordinary native-test target and
+`test all` defaults to one process per ordinary native-test target and
 excludes characterization and performance-qualification targets. Run a bounded
 `@kind=qualification` selection with `--mode qualification` when those
 measurements are required.
-Do not run unfiltered `--target all --granularity case`; use a focused target
-and GoogleTest filter for ordinary failure diagnosis. Case granularity remains
+Do not run unfiltered `test all --granularity case`; use a focused target
+and positional GoogleTest filter for ordinary failure diagnosis. Case granularity remains
 available with a narrow case-name `--ctest-regex` or for explicit isolation
 qualification. `--granularity hybrid` is retained for rollout compatibility
 and currently matches target mode. `--schedule-random` also
 shuffles cases inside batched target processes and prints the reproducible
-GoogleTest seed. A focused `test --target <Target> --filter <Filter>` always
+GoogleTest seed. A focused `test <Target> <Filter>` always
 launches one filtered target process. See
 [Native C++ Tests](NativeTests.md) for lifecycle, sandbox, and authoring rules.
 

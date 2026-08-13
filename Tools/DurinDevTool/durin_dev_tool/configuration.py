@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Mapping
+from typing import Any
 
 from .errors import DevToolError
+from .json_contract import JsonContractError, load_json_contract
 from .repository import discover_repository_root
 
 
@@ -24,14 +24,6 @@ PATH_FIELDS = {
     "vscodeTemplates": "vscode_templates",
     "scaffoldingTemplates": "scaffolding_templates",
     "thirdPartyManifests": "third_party_manifests",
-}
-FEATURE_NAMES = {
-    "setup",
-    "build",
-    "scaffolding",
-    "dependencies",
-    "documentation",
-    "worktrees",
 }
 WORKTREE_PATH_FIELDS = {
     "agentDirectory": "agent_directory",
@@ -82,64 +74,9 @@ class RepositoryConfig:
     repository_root: Path
     paths: RepositoryPaths
     worktrees: WorktreePaths
-    features: Mapping[str, bool]
 
     def resolve(self, path: Path) -> Path:
         return self.repository_root / path
-
-    def feature_enabled(self, name: str) -> bool:
-        if name not in FEATURE_NAMES:
-            raise RepositoryConfigError(f'Unknown DurinDevTool feature "{name}".')
-        return self.features[name]
-
-
-def _load_json_object(path: Path) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError as exc:
-        raise RepositoryConfigError(
-            f'DurinDevTool repository config was not found: "{path}"'
-        ) from exc
-    except json.JSONDecodeError as exc:
-        raise RepositoryConfigError(
-            "DurinDevTool repository config contains invalid JSON at "
-            f'line {exc.lineno}, column {exc.colno}: "{path}"'
-        ) from exc
-    except OSError as exc:
-        raise RepositoryConfigError(
-            f'Could not read DurinDevTool repository config "{path}": {exc}'
-        ) from exc
-    if not isinstance(value, dict):
-        raise RepositoryConfigError(
-            f'DurinDevTool repository config must contain a JSON object: "{path}"'
-        )
-    return value
-
-
-def _require_object(
-    container: Mapping[str, Any],
-    key: str,
-    *,
-    label: str,
-) -> dict[str, Any]:
-    value = container.get(key)
-    if not isinstance(value, dict):
-        raise RepositoryConfigError(f'{label} field "{key}" must be an object.')
-    return value
-
-
-def _reject_unknown(
-    container: Mapping[str, Any],
-    allowed: set[str],
-    *,
-    label: str,
-) -> None:
-    unknown = sorted(set(container) - allowed)
-    if unknown:
-        raise RepositoryConfigError(
-            f'{label} contains unknown field(s): {", ".join(unknown)}.'
-        )
-
 
 def _repository_path(value: Any, *, field: str) -> Path:
     if not isinstance(value, str) or not value.strip():
@@ -168,56 +105,22 @@ def load_repository_config(
     config_path = path or root / CONFIG_RELATIVE_PATH
     if not config_path.is_absolute():
         config_path = root / config_path
-    raw = _load_json_object(config_path)
-    _reject_unknown(
-        raw,
-        {"$schema", "version", "paths", "worktrees", "features"},
-        label="DurinDevTool repository config",
-    )
-    if raw.get("version") != 1:
-        raise RepositoryConfigError(
-            'DurinDevTool repository config field "version" must be 1.'
+    try:
+        raw = load_json_contract(
+            config_path,
+            label="DurinDevTool repository config",
+            schema_path=Path(__file__).resolve().parents[1] / "DevTool.schema.json",
         )
-
-    raw_paths = _require_object(
-        raw,
-        "paths",
-        label="DurinDevTool repository config",
-    )
-    _reject_unknown(
-        raw_paths,
-        set(PATH_FIELDS),
-        label="DurinDevTool repository config paths",
-    )
-    missing_paths = sorted(set(PATH_FIELDS) - set(raw_paths))
-    if missing_paths:
-        raise RepositoryConfigError(
-            "DurinDevTool repository config paths is missing field(s): "
-            + ", ".join(missing_paths)
-            + "."
-        )
+    except JsonContractError as exc:
+        raise RepositoryConfigError(str(exc)) from exc
+    assert isinstance(raw, dict)
+    raw_paths = raw["paths"]
     path_values = {
         attribute: _repository_path(raw_paths[field], field=f"paths.{field}")
         for field, attribute in PATH_FIELDS.items()
     }
 
-    raw_worktrees = _require_object(
-        raw,
-        "worktrees",
-        label="DurinDevTool repository config",
-    )
-    _reject_unknown(
-        raw_worktrees,
-        set(WORKTREE_PATH_FIELDS),
-        label="DurinDevTool repository config worktrees",
-    )
-    missing_worktrees = sorted(set(WORKTREE_PATH_FIELDS) - set(raw_worktrees))
-    if missing_worktrees:
-        raise RepositoryConfigError(
-            "DurinDevTool repository config worktrees is missing field(s): "
-            + ", ".join(missing_worktrees)
-            + "."
-        )
+    raw_worktrees = raw["worktrees"]
     worktree_values = {
         attribute: _repository_path(raw_worktrees[field], field=f"worktrees.{field}")
         for field, attribute in WORKTREE_PATH_FIELDS.items()
@@ -233,31 +136,8 @@ def load_repository_config(
             'be inside "worktrees.agentDirectory".'
         )
 
-    raw_features = _require_object(
-        raw,
-        "features",
-        label="DurinDevTool repository config",
-    )
-    _reject_unknown(
-        raw_features,
-        FEATURE_NAMES,
-        label="DurinDevTool repository config features",
-    )
-    missing_features = sorted(FEATURE_NAMES - set(raw_features))
-    if missing_features:
-        raise RepositoryConfigError(
-            "DurinDevTool repository config features is missing field(s): "
-            + ", ".join(missing_features)
-            + "."
-        )
-    if any(not isinstance(value, bool) for value in raw_features.values()):
-        raise RepositoryConfigError(
-            "Every DurinDevTool repository config feature must be a boolean."
-        )
-
     return RepositoryConfig(
         repository_root=root,
         paths=RepositoryPaths(**path_values),
         worktrees=worktrees,
-        features=dict(raw_features),
     )

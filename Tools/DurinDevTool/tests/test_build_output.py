@@ -1,29 +1,19 @@
-from __future__ import annotations
+from . import build_request_fixtures as request_fixtures
 import pytest
-import argparse
 import io
-import json
 import os
-import shutil
-import subprocess
-import zipfile
-from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEV_TOOL_DIR = REPO_ROOT / 'Tools' / 'DurinDevTool'
 if str(DEV_TOOL_DIR) not in os.sys.path:
     os.sys.path.insert(0, str(DEV_TOOL_DIR))
-from durin_dev_tool.build import operations as build_cli
 from durin_dev_tool.build import config as build_config
-from durin_dev_tool.build import core as build_core
-from durin_dev_tool.build import descriptors as build_descriptors
-from durin_dev_tool.build import scaffolding as build_scaffolding
 from durin_dev_tool.build.handler import request_from_namespace
 from durin_dev_tool.build.output import BuildOutput
 from durin_dev_tool.registry import CommandRegistry
 
-def parse_build_request(arguments: list[str]) -> build_config.CommandRequest:
+def parse_build_request(arguments: list[str]) -> build_config.ConcreteRequest:
     _spec, namespace = CommandRegistry().parse(arguments)
     if getattr(namespace, 'selected_preset', ''):
         namespace.preset = namespace.selected_preset
@@ -168,10 +158,10 @@ class TestOutput:
     def test_failure_without_derived_context_uses_available_request_details(self) -> None:
         stderr = io.StringIO()
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=stderr)
-        request = build_config.CommandRequest(
+        request = request_fixtures.command_request(
             build_config.Action.TEST,
             context=build_config.RequestContext(preset='debug'),
-            options=build_config.TestActionOptions(target='CoreTests'),
+            options=request_fixtures.TestActionOptions(target='CoreTests'),
         )
         output.failure(build_config.BuildToolError('validation failed'), None, 0.5, request=request)
         text = stderr.getvalue()

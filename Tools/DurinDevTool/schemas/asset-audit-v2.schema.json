@@ -15,7 +15,7 @@
       "additionalProperties": false,
       "required": ["packagePath", "physicalPath", "formatVersion", "inspection", "compatibility", "freshness", "fileSize", "lastWriteTimeTicks", "findings"],
       "properties": {
-        "packagePath": { "type": "string" },
+        "packagePath": { "type": "string", "minLength": 1 },
         "physicalPath": { "type": "string" },
         "formatVersion": { "type": "integer", "minimum": 0 },
         "inspection": { "enum": ["NotChecked", "Ready", "Failed"] },

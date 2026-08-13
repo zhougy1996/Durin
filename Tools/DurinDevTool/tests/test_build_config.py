@@ -1,37 +1,63 @@
-from __future__ import annotations
 import pytest
-import argparse
-import io
 import json
 import os
 import shutil
 import subprocess
-import zipfile
-from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEV_TOOL_DIR = REPO_ROOT / 'Tools' / 'DurinDevTool'
 if str(DEV_TOOL_DIR) not in os.sys.path:
     os.sys.path.insert(0, str(DEV_TOOL_DIR))
-from durin_dev_tool.build import operations as build_cli
 from durin_dev_tool.build import config as build_config
-from durin_dev_tool.build import core as build_core
-from durin_dev_tool.build import descriptors as build_descriptors
-from durin_dev_tool.build import scaffolding as build_scaffolding
 from durin_dev_tool.build.handler import request_from_namespace
-from durin_dev_tool.build.output import BuildOutput
-from durin_dev_tool.bootstrap import preflight
+from durin_dev_tool.bootstrap import preflight, toolchain_selection
+from durin_dev_tool import toolchain
 from durin_dev_tool import configuration
+from durin_dev_tool.context import RepositoryContext
+from durin_dev_tool.errors import DevToolError
 from durin_dev_tool.registry import CommandRegistry
 
-def parse_build_request(arguments: list[str]) -> build_config.CommandRequest:
+def parse_build_request(arguments: list[str]) -> build_config.ConcreteRequest:
     _spec, namespace = CommandRegistry().parse(arguments)
     if getattr(namespace, 'selected_preset', ''):
         namespace.preset = namespace.selected_preset
     return request_from_namespace(namespace)
 
 class TestBuildConfig:
+
+    def test_build_paths_are_derived_per_repository_context(self, tmp_path: Path) -> None:
+        repository = RepositoryContext.load(REPO_ROOT)
+        first = build_config.BuildPaths.from_repository(repository.at_root(tmp_path / 'first'))
+        second = build_config.BuildPaths.from_repository(repository.at_root(tmp_path / 'second'))
+
+        assert first.root == (tmp_path / 'first').resolve()
+        assert second.root == (tmp_path / 'second').resolve()
+        assert first.profile_file != second.profile_file
+        for legacy_name in ('REPO_ROOT', 'REPOSITORY_CONFIG', 'PROFILE_FILE', 'PRESET_FILE', 'LOCAL_CONFIG_FILE', 'STATE_DIR', 'LOCK_DIR'):
+            assert not hasattr(build_config, legacy_name)
+
+    def test_build_modules_import_without_loading_repository_context(self) -> None:
+        script = '''
+from durin_dev_tool.context import RepositoryContext
+def fail(cls, repository_root=None):
+    raise RuntimeError("repository context loaded during import")
+RepositoryContext.load = classmethod(fail)
+from durin_dev_tool.build import config, core, crash, locations, locking
+from durin_dev_tool.build import native_test_registry, opener, operations, process
+from durin_dev_tool.build import purge, recovery, runtime
+'''
+        environment = dict(os.environ)
+        environment['PYTHONPATH'] = str(DEV_TOOL_DIR)
+        completed = subprocess.run(
+            [os.sys.executable, '-c', script],
+            cwd=REPO_ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr
 
     def test_missing_config_uses_empty_overrides(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
@@ -57,16 +83,16 @@ class TestBuildConfig:
         directory = tmp_path_factory.mktemp('case')
         path = Path(directory) / 'config.json'
         path.write_text('{', encoding='utf-8')
-        with pytest.raises(build_config.BuildToolError, match='invalid JSON'):
+        with pytest.raises(build_config.BuildToolError, match='malformed JSON'):
             build_config.load_local_config(path)
         path.write_text(json.dumps({'version': 1, 'cmake': {'command': 42}}), encoding='utf-8')
-        with pytest.raises(build_config.BuildToolError, match='null or a non-empty string'):
+        with pytest.raises(build_config.BuildToolError, match=r'\$\.cmake\.command.*string.*null'):
             build_config.load_local_config(path)
         path.write_text(json.dumps({'version': 1, 'build': {'parallelJobs': 257}}), encoding='utf-8')
-        with pytest.raises(build_config.BuildToolError, match='integer from 1 to 256'):
+        with pytest.raises(build_config.BuildToolError, match=r'\$\.build\.parallelJobs'):
             build_config.load_local_config(path)
         path.write_text(json.dumps({'cmakeCommand': 'legacy-cmake'}), encoding='utf-8')
-        with pytest.raises(build_config.BuildToolError, match='unknown field'):
+        with pytest.raises(build_config.BuildToolError, match='cmakeCommand.*unexpected'):
             build_config.load_local_config(path)
 
     def test_repository_profiles_reference_existing_presets(self) -> None:
@@ -160,14 +186,14 @@ class TestBuildConfig:
         assert Path(resolved) == requested.resolve()
 
     def test_bare_cmake_command_uses_environment_path(self) -> None:
-        with mock.patch.object(build_config.shutil, 'which', return_value='custom/cmake') as which:
+        with mock.patch.object(build_config, 'find_command', return_value='custom/cmake') as which:
             resolved = build_config.resolve_cmake_command(
                 '',
                 '',
                 environment={'Path': 'custom-path'},
             )
         assert resolved == 'custom/cmake'
-        which.assert_called_once_with('cmake', path='custom-path')
+        which.assert_called_once_with('cmake', {'Path': 'custom-path'})
 
     def test_preset_build_path_cannot_escape_checkout(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         preset = build_config.ConfigurePreset('escape', {'binaryDir': '${sourceDir}/../outside'})
@@ -188,7 +214,6 @@ class TestRepositoryConfig:
         assert config.resolve(config.paths.local_build_config_template).is_file()
         assert config.paths.scaffolding_templates == Path('Templates/Scaffolding')
         assert config.resolve(config.paths.scaffolding_templates).is_dir()
-        assert config.feature_enabled('build')
 
     def test_repository_config_rejects_unknown_and_escaping_paths(
         self,
@@ -201,7 +226,7 @@ class TestRepositoryConfig:
         config_path = directory / 'DevTool.json'
         source['unexpected'] = True
         config_path.write_text(json.dumps(source), encoding='utf-8')
-        with pytest.raises(configuration.RepositoryConfigError, match='unknown field'):
+        with pytest.raises(configuration.RepositoryConfigError, match='unexpected'):
             configuration.load_repository_config(directory, path=config_path)
         del source['unexpected']
         source['paths']['stateDirectory'] = '../outside'
@@ -209,19 +234,6 @@ class TestRepositoryConfig:
         with pytest.raises(configuration.RepositoryConfigError, match='inside the repository'):
             configuration.load_repository_config(directory, path=config_path)
 
-    def test_repository_config_requires_explicit_boolean_features(
-        self,
-        tmp_path_factory: pytest.TempPathFactory,
-    ) -> None:
-        directory = Path(tmp_path_factory.mktemp('case'))
-        source = json.loads(
-            (REPO_ROOT / configuration.CONFIG_RELATIVE_PATH).read_text(encoding='utf-8')
-        )
-        source['features']['documentation'] = 'yes'
-        config_path = directory / 'DevTool.json'
-        config_path.write_text(json.dumps(source), encoding='utf-8')
-        with pytest.raises(configuration.RepositoryConfigError, match='must be a boolean'):
-            configuration.load_repository_config(directory, path=config_path)
 
 
 class TestCMakeCodeModelGuard:
@@ -235,10 +247,10 @@ class TestCMakeCodeModelGuard:
         ninja = preflight.find_ninja(environment)
         if not ninja and os.name == 'nt':
             try:
-                script, arguments = preflight.configured_visual_studio_environment(REPO_ROOT)
-                script = script or preflight.find_vsdevcmd(environment)
-                environment = preflight.capture_visual_studio_environment(script, arguments)
-            except preflight.PreflightError as exc:
+                script, arguments = toolchain_selection.configured_visual_studio_environment(REPO_ROOT)
+                script = script or toolchain.find_vsdevcmd(environment)
+                environment = toolchain.capture_windows_environment(script, arguments)
+            except DevToolError as exc:
                 pytest.skip(f'Visual Studio environment is not available: {exc}')
             ninja = preflight.find_ninja(environment)
         if not ninja:

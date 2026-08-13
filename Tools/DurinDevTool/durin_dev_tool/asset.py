@@ -3,120 +3,79 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
-import re
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence, TextIO
 
-from .build.config import (
-    load_configure_presets,
-    load_local_config,
-    load_profiles,
-    select_preset,
-    select_profile,
-)
-from .build.locations import resolve_location
+from .build.output import BuildOutput
+from .build.config import BuildToolError, OutputMode
+from .context import RepositoryContext
 from .errors import DevToolError
+from .json_contract import JsonContractError, parse_json_contract
+from .runtime_program import (
+    ExecutableDescription,
+    RuntimeProcessPolicy,
+    invoke_runtime_program,
+    locate_executable,
+    resolve_project,
+    select_runtime,
+)
 
 POLICY_EXIT_CODE = 3
 SCHEMA_VERSION = 2
 MIGRATION_SCHEMA_VERSION = 2
 CURRENT_ASSET_FORMAT_VERSION = 4
-INSPECTION_NAMES = {"NotChecked", "Ready", "Failed"}
-COMPATIBILITY_NAMES = {"Compatible", "Incompatible", "Unsupported"}
-FRESHNESS_NAMES = {"Current", "Stale"}
-FINDING_CODES = {
-    "UnknownField",
-    "IncompatibleFieldSignature",
-    "UnavailableClass",
-    "UnsupportedPackageFormat",
-    "InvalidObjectGraph",
-    "CorruptPackage",
-    "IoFailure",
-}
-MIGRATION_KINDS = {"PackageFormat"}
-MIGRATION_RISKS = {"Lossless", "DataLoss", "Unknown"}
-MIGRATION_STRATEGIES = {"LoadTransformWrite"}
-SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+SCHEMA_DIRECTORY = Path(__file__).resolve().parents[1] / "schemas"
 
 
 def _runtime_executable(
     namespace: argparse.Namespace, repository_root: Path
 ) -> Path:
-    config = load_local_config()
-    profile = select_profile(
-        load_profiles(),
-        requested=str(getattr(namespace, "profile", "") or ""),
-        configured=config.default_build_profile,
+    repository = RepositoryContext.load().at_root(repository_root)
+    selection = select_runtime(
+        repository,
+        profile_name=str(getattr(namespace, "profile", "") or ""),
+        preset_name=str(getattr(namespace, "preset", "") or ""),
     )
-    preset = select_preset(
-        profile,
-        load_configure_presets(),
-        requested=str(getattr(namespace, "preset", "") or ""),
+    return locate_executable(
+        selection,
+        ExecutableDescription("Asset audit", "DurinAssetTool", "DurinAssetTool"),
     )
-    directory = resolve_location(
-        "runtime", profile=profile, preset=preset, root=repository_root
-    ).path
-    return directory / f"DurinAssetTool{profile.test_executable_suffix}"
 
 
 def _validate_report(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict) or value.get("schemaVersion") != SCHEMA_VERSION:
-        raise DevToolError("Asset audit returned an unsupported report schema.")
-    packages = value.get("packages")
-    if not isinstance(packages, list):
-        raise DevToolError("Asset audit report field 'packages' must be an array.")
+    assert isinstance(value, dict)
+    packages = value["packages"]
     previous_path = ""
     for package in packages:
-        if not isinstance(package, dict):
-            raise DevToolError("Asset audit report contains an invalid package record.")
-        path = package.get("packagePath")
-        findings = package.get("findings")
-        if not isinstance(path, str) or not path or path < previous_path:
+        path = package["packagePath"]
+        if path < previous_path:
             raise DevToolError("Asset audit package order is not deterministic.")
         previous_path = path
-        format_version = package.get("formatVersion")
-        if not isinstance(format_version, int) or isinstance(format_version, bool) or format_version < 0:
-            raise DevToolError("Asset audit returned an invalid package format version.")
-        if package.get("inspection") not in INSPECTION_NAMES:
-            raise DevToolError("Asset audit returned an unknown inspection name.")
-        if package.get("compatibility") not in COMPATIBILITY_NAMES:
-            raise DevToolError("Asset audit returned an unknown compatibility name.")
-        if package.get("freshness") not in FRESHNESS_NAMES:
-            raise DevToolError("Asset audit returned an unknown freshness name.")
-        if not isinstance(findings, list) or any(
-            not isinstance(finding, dict)
-            or finding.get("code") not in FINDING_CODES
-            for finding in findings
-        ):
-            raise DevToolError("Asset audit returned an unknown finding code.")
     return value
 
 
 def _read_report(output: str) -> dict[str, Any]:
     try:
-        return _validate_report(json.loads(output))
-    except json.JSONDecodeError as exc:
-        raise DevToolError(
-            f"Asset audit returned invalid JSON at line {exc.lineno}, column {exc.colno}."
-        ) from exc
+        value = parse_json_contract(
+            output,
+            label="Asset audit report",
+            source="from DurinAssetTool",
+            schema_path=SCHEMA_DIRECTORY / "asset-audit-v2.schema.json",
+        )
+    except JsonContractError as exc:
+        raise DevToolError(str(exc)) from exc
+    return _validate_report(value)
 
 
 def _validate_migration_report(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict) or value.get("schemaVersion") != MIGRATION_SCHEMA_VERSION:
-        raise DevToolError("Asset migration returned an unsupported report schema.")
-    if set(value) != {"schemaVersion", "operation", "result", "packages", "summary", "changedPaths"}:
-        raise DevToolError("Asset migration returned unknown or missing report fields.")
-    operation = value.get("operation")
-    if operation not in {"Plan", "Apply"} or value.get("result") not in {
-        "Ready", "Succeeded", "Blocked", "Failed", "Cancelled", "RolledBack"
-    }:
-        raise DevToolError("Asset migration returned invalid operation or result names.")
-    packages = value.get("packages")
-    summary = value.get("summary")
-    if not isinstance(packages, list) or not isinstance(summary, dict):
-        raise DevToolError("Asset migration report has invalid package or summary fields.")
+    assert isinstance(value, dict)
+    operation = value["operation"]
+    packages = value["packages"]
+    summary = value["summary"]
     previous_path = ""
     counts = {name: 0 for name in ("planned", "migrated", "skipped", "blocked", "failed", "rolledBack")}
     status_to_count = {
@@ -124,24 +83,10 @@ def _validate_migration_report(value: Any) -> dict[str, Any]:
         "Blocked": "blocked", "Failed": "failed", "RolledBack": "rolledBack",
     }
     for package in packages:
-        if not isinstance(package, dict):
-            raise DevToolError("Asset migration report contains an invalid package record.")
-        if set(package) != {
-            "packagePath", "physicalPath", "status", "fingerprint",
-            "sourceFormatVersion", "targetFormatVersion", "readerPolicyFingerprint",
-            "steps", "diagnostics",
-        }:
-            raise DevToolError("Asset migration returned unknown or missing package fields.")
-        path = package.get("packagePath")
-        status = package.get("status")
-        fingerprint = package.get("fingerprint")
-        steps = package.get("steps")
-        diagnostics = package.get("diagnostics")
-        if (
-            not isinstance(path, str)
-            or not path
-            or (bool(previous_path) and path <= previous_path)
-        ):
+        path = package["packagePath"]
+        status = package["status"]
+        steps = package["steps"]
+        if previous_path and path <= previous_path:
             raise DevToolError("Asset migration package order is not deterministic.")
         previous_path = path
         allowed_statuses = {"Planned", "Skipped", "Blocked", "Failed"} if operation == "Plan" else {
@@ -150,64 +95,11 @@ def _validate_migration_report(value: Any) -> dict[str, Any]:
         if status not in allowed_statuses:
             raise DevToolError("Asset migration returned an unknown package status.")
         counts[status_to_count[status]] += 1
-        if (
-            not isinstance(package.get("physicalPath"), str)
-            or not package["physicalPath"]
-            or not isinstance(package.get("sourceFormatVersion"), int)
-            or isinstance(package["sourceFormatVersion"], bool)
-            or package["sourceFormatVersion"] < 0
-            or not isinstance(package.get("targetFormatVersion"), int)
-            or isinstance(package["targetFormatVersion"], bool)
-            or package["targetFormatVersion"] < 0
-            or not isinstance(package.get("readerPolicyFingerprint"), int)
-            or isinstance(package["readerPolicyFingerprint"], bool)
-            or package["readerPolicyFingerprint"] < 0
-        ):
-            raise DevToolError("Asset migration returned invalid package identity or versions.")
-        if (
-            not isinstance(fingerprint, dict)
-            or set(fingerprint) != {"fileSize", "lastWriteTimeTicks", "contentHash"}
-            or not isinstance(fingerprint.get("fileSize"), int)
-            or isinstance(fingerprint["fileSize"], bool)
-            or fingerprint["fileSize"] < 0
-            or not isinstance(fingerprint.get("lastWriteTimeTicks"), int)
-            or isinstance(fingerprint["lastWriteTimeTicks"], bool)
-            or not SHA256_PATTERN.fullmatch(str(fingerprint.get("contentHash", "")))
-        ):
-            raise DevToolError("Asset migration returned an invalid content fingerprint.")
-        if not isinstance(steps, list) or any(
-            not isinstance(step, dict)
-            or set(step) != {
-                "handlerId", "kind", "sourceVersion", "targetVersion",
-                "sourceCodecId", "targetCodecId", "strategy", "risk",
-            }
-            or not isinstance(step.get("handlerId"), str)
-            or not step["handlerId"]
-            or step.get("kind") not in MIGRATION_KINDS
-            or step.get("risk") not in MIGRATION_RISKS
-            or step.get("strategy") not in MIGRATION_STRATEGIES
-            or not isinstance(step.get("sourceCodecId"), str)
-            or not step["sourceCodecId"]
-            or not isinstance(step.get("targetCodecId"), str)
-            or not step["targetCodecId"]
-            or not isinstance(step.get("sourceVersion"), int)
-            or isinstance(step["sourceVersion"], bool)
-            or step["sourceVersion"] < 0
-            or not isinstance(step.get("targetVersion"), int)
-            or isinstance(step["targetVersion"], bool)
-            or step["targetVersion"] < 0
-            for step in steps
-        ):
-            raise DevToolError("Asset migration returned an invalid migration step.")
-        if not isinstance(diagnostics, list) or any(not isinstance(item, str) for item in diagnostics):
-            raise DevToolError("Asset migration returned invalid diagnostics.")
         if status == "Planned" and (
             not steps or any(step["risk"] != "Lossless" for step in steps)
         ):
             raise DevToolError("Asset migration planned a package without one lossless exact edge.")
     changed_paths = value.get("changedPaths")
-    if not isinstance(changed_paths, list) or any(not isinstance(path, str) or not path for path in changed_paths):
-        raise DevToolError("Asset migration returned invalid changed paths.")
     if operation == "Plan":
         expected_result = "Blocked" if counts["blocked"] or counts["failed"] else "Ready"
         if changed_paths or value["result"] != expected_result:
@@ -224,11 +116,15 @@ def _validate_migration_report(value: Any) -> dict[str, Any]:
 
 def _read_migration_report(output: str) -> dict[str, Any]:
     try:
-        return _validate_migration_report(json.loads(output))
-    except json.JSONDecodeError as exc:
-        raise DevToolError(
-            f"Asset migration returned invalid JSON at line {exc.lineno}, column {exc.colno}."
-        ) from exc
+        value = parse_json_contract(
+            output,
+            label="Asset migration report",
+            source="from DurinAssetTool",
+            schema_path=SCHEMA_DIRECTORY / "asset-migration-v2.schema.json",
+        )
+    except JsonContractError as exc:
+        raise DevToolError(str(exc)) from exc
+    return _validate_migration_report(value)
 
 
 def _render_human(report: Mapping[str, Any], stdout: TextIO) -> None:
@@ -329,39 +225,69 @@ def run(
     is_baseline = asset_command == "baseline"
     is_migrate = asset_command == "migrate"
     is_apply = is_migrate and getattr(namespace, "apply", False)
+    base_repository = RepositoryContext.load()
+    repository = base_repository.at_root(repository_root)
+    selection = select_runtime(
+        base_repository,
+        profile_name=str(getattr(namespace, "profile", "") or ""),
+        preset_name=str(getattr(namespace, "preset", "") or ""),
+    )
+    selection = replace(selection, repository=repository)
     executable = executable_resolver(namespace, repository_root)
-    if not executable.is_file():
-        raise DevToolError(
-            f'Asset audit executable was not found: "{executable}". '
-            "Build it with 'DevTool build --target DurinAssetTool'."
-        )
-    project = Path(namespace.project_path)
-    if not project.is_absolute():
-        project = repository_root / project
-    if not project.is_file():
-        raise DevToolError(f'Project descriptor was not found: "{project}".')
-    arguments = [str(executable), f"--project={project}", "--format=json"]
+    project = resolve_project(repository, Path(namespace.project_path))
+    arguments = [f"--project={project}", "--format=json"]
     if is_migrate:
         arguments.append("--operation=migrate")
         if is_apply:
             arguments.append("--apply")
         arguments.extend(f"--mount={value}" for value in getattr(namespace, "mounts", ()))
         arguments.extend(f"--package={value}" for value in getattr(namespace, "packages", ()))
-    completed = process_runner(
-        arguments,
-        cwd=repository_root,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if completed.returncode == 130:
-        print("Asset migration cancelled." if is_migrate else "Asset compatibility audit cancelled.", file=stderr)
-        return 130
-    if completed.returncode != 0:
-        diagnostic = completed.stderr.strip() or "native audit process failed"
-        operation = "migration apply" if is_apply else ("migration planning" if is_migrate else "compatibility audit")
-        raise DevToolError(f"Asset {operation} failed: {diagnostic}")
-    report = _read_migration_report(completed.stdout) if is_migrate else _read_report(completed.stdout)
+    if process_runner is subprocess.run:
+        process_output = BuildOutput(
+            plain=True,
+            output_mode=OutputMode.COMPACT,
+            stdout=io.StringIO(),
+            stderr=stderr,
+        )
+        try:
+            native_output = invoke_runtime_program(
+                selection,
+                ExecutableDescription("Asset audit", "DurinAssetTool", "DurinAssetTool"),
+                arguments,
+                output=process_output,
+                policy=RuntimeProcessPolicy(
+                    interruption_message=(
+                        "Asset migration cancelled."
+                        if is_migrate
+                        else "Asset compatibility audit cancelled."
+                    ),
+                    show_heartbeat=True,
+                    capture_output=True,
+                ),
+                executable_override=executable,
+            )
+        except BuildToolError as error:
+            if error.exit_code == 130:
+                print("Asset migration cancelled." if is_migrate else "Asset compatibility audit cancelled.", file=stderr)
+                return 130
+            raise
+    else:
+        completed = process_runner(
+            [str(executable), *arguments],
+            cwd=repository_root,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if completed.returncode == 130:
+            print("Asset migration cancelled." if is_migrate else "Asset compatibility audit cancelled.", file=stderr)
+            return 130
+        if completed.returncode != 0:
+            diagnostic = completed.stderr.strip() or "native audit process failed"
+            operation = "migration apply" if is_apply else ("migration planning" if is_migrate else "compatibility audit")
+            raise DevToolError(f"Asset {operation} failed: {diagnostic}")
+        native_output = completed.stdout
+    report = _read_migration_report(native_output) if is_migrate else _read_report(native_output)
     report_path_value = getattr(namespace, "report_path", None)
     if is_migrate and report_path_value is not None:
         report_path = Path(report_path_value)

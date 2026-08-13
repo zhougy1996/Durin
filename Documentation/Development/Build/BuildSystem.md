@@ -188,10 +188,27 @@ launcher. Shipping rejects the option.
 
 ## DurinDevTool Command Interface
 
+DurinDevTool is organized by dependency direction rather than by command size.
+Files under `durin_dev_tool/commands/*_specs.py` own declarative grammar and
+Python dependency metadata only. Command-family `handler.py` modules translate parsed
+namespaces and repository I/O into typed requests. Application services such as
+`build/core.py`, `bootstrap/application.py`, and `worktree/application.py`
+coordinate use cases; they do not own parser declarations. Domain state lives
+in each family's `models.py` or typed request modules, while infrastructure
+details stay in focused owners such as `build/process.py`, `build/locking.py`,
+`bootstrap/manifests.py`, `bootstrap/installer.py`, `worktree/git.py`, and
+`worktree/links.py`.
+
+Extend an existing command by changing its specification, adapter, and owning
+service separately. Add reusable behavior to the narrow owner module instead
+of re-exporting it through `build.core` or another compatibility facade. Tests
+should import and patch that same owner module. Lightweight architecture tests
+enforce the main adapter-to-service-to-model/infrastructure boundaries.
+
 DurinDevTool's direct parser and interactive shell share one command specification
-for command names, slash aliases, accepted options, compact shell operands,
-defaults, summaries, and help. Lowercase named syntax is canonical; interactive
-slash prefixes and compact operands remain compatibility forms.
+for command names, slash aliases, accepted options, defaults, summaries, and
+help. Lowercase named syntax is canonical; interactive slash prefixes remain a
+compatibility form.
 
 `build` and `rebuild` default to target `all`, while `test` requires an explicit
 target, `@` metadata set, or `all`. The batch and interactive forms both accept
@@ -201,9 +218,8 @@ overrides are not accepted by artifact-only commands such as `purge`, `run`,
 `path`, or `open`, and child-output selection is not accepted by discovery or
 external-opening commands. The direct `presets`, `status`, `path`, and `open`
 actions use the same display and context paths as their interactive counterparts.
-Registered aliases normalize through command metadata before dispatch;
-`open-runtime` is a hidden deprecated alias for `open runtime`, not a separate
-build action.
+Commands that need third-party Python packages declare those modules directly;
+pure discovery and standard-library commands run in the bootstrap interpreter.
 
 `presets` is list-only. Explicit `preset <number-or-full-name>` selection uses
 one resolver in direct and interactive entry paths. Bare `worktree` defaults to

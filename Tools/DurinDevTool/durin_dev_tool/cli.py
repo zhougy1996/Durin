@@ -4,9 +4,10 @@ import sys
 from pathlib import Path
 from typing import Sequence, TextIO
 
+from .context import CommandIO, RepositoryContext
+from .configuration import RepositoryConfigError
 from .errors import DevToolError
 from .registry import CommandRegistry
-from .repository import discover_repository_root
 
 
 def run(
@@ -17,17 +18,26 @@ def run(
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
 ) -> int:
-    active_registry = registry or CommandRegistry()
     output = stdout or sys.stdout
     errors = stderr or sys.stderr
-    root = repository_root or discover_repository_root()
+    try:
+        repository = RepositoryContext.load(repository_root)
+    except RepositoryConfigError:
+        if repository_root is None:
+            raise
+        repository = RepositoryContext.load().at_root(repository_root)
+    active_registry = registry or CommandRegistry()
     spec, namespace = active_registry.parse(arguments)
+    command_io = CommandIO(
+        output,
+        errors,
+        plain=bool(getattr(namespace, "plain", False)),
+    )
     return active_registry.execute(
         spec,
         namespace,
-        repository_root=root,
-        stdout=output,
-        stderr=errors,
+        repository_context=repository,
+        command_io=command_io,
     )
 
 

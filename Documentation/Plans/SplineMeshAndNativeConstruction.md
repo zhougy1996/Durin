@@ -563,7 +563,7 @@ manual component management.
   32-segment reconstruction p95, 0.04944 ms GPU p95 delta, 2.9709 ms collision
   p95, 800 bytes per component, and 1,736,704 retained collision bytes for 128
   segments.
-- `DevTool.bat doc validate` passed 101 files, `test --target all` passed the
+- `DevTool.bat doc validate` passed 101 files, `test all` passed the
   complete native target matrix, and `build --target all` passed for
   `Win64-Debug-DurinEditor`.
 - The validated `DurinEditor.exe` remained running for the 8-second hidden

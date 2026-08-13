@@ -4,7 +4,7 @@
   "title": "DurinDevTool repository configuration",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "paths", "worktrees", "features"],
+  "required": ["version", "paths", "worktrees"],
   "properties": {
     "$schema": {
       "type": "string"
@@ -56,26 +56,6 @@
         "vscodeDirectory": { "$ref": "#/$defs/repositoryPath" },
         "pythonEnvironment": { "$ref": "#/$defs/repositoryPath" },
         "externalDirectory": { "$ref": "#/$defs/repositoryPath" }
-      }
-    },
-    "features": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "setup",
-        "build",
-        "scaffolding",
-        "dependencies",
-        "documentation",
-        "worktrees"
-      ],
-      "properties": {
-        "setup": { "type": "boolean" },
-        "build": { "type": "boolean" },
-        "scaffolding": { "type": "boolean" },
-        "dependencies": { "type": "boolean" },
-        "documentation": { "type": "boolean" },
-        "worktrees": { "type": "boolean" }
       }
     }
   },

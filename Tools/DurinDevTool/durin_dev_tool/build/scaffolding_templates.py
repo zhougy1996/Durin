@@ -4,18 +4,21 @@ import re
 from pathlib import Path
 from typing import Mapping
 
-from .config import BuildToolError, REPOSITORY_CONFIG
+from ..context import RepositoryContext
+from .config import BuildToolError
 from .scaffolding_workspace import require_contained_path
 
 
-TEMPLATE_DIR = REPOSITORY_CONFIG.resolve(
-    REPOSITORY_CONFIG.paths.scaffolding_templates
-)
 TEMPLATE_VARIABLE_PATTERN = re.compile(r"\{\{([A-Z][A-Z0-9_]*)\}\}")
 
 
 class TemplateRenderer:
-    def __init__(self, template_root: Path = TEMPLATE_DIR):
+    def __init__(self, template_root: Path | None = None):
+        if template_root is None:
+            repository = RepositoryContext.load()
+            template_root = repository.resolve(
+                repository.config.paths.scaffolding_templates
+            )
         self.template_root = template_root.resolve()
 
     def render(self, template_name: str, variables: Mapping[str, str]) -> bytes:

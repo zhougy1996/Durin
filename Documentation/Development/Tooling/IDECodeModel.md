@@ -11,7 +11,7 @@ DurinDevTool:
 ```powershell
 .\DevTool.bat configure
 .\DevTool.bat build --target all
-.\DevTool.bat test --target CoreTests
+.\DevTool.bat test CoreTests
 ```
 
 An IDE may read an isolated CMake tree or a compilation database, and it may

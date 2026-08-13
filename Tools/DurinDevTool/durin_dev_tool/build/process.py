@@ -14,7 +14,7 @@ from pathlib import Path
 from time import perf_counter, sleep
 from typing import Any, Mapping, Sequence
 
-from .config import REPO_ROOT, STATE_DIR, BuildToolError, BuildToolInterruptedError
+from .config import BuildToolError, BuildToolInterruptedError, default_build_paths
 from .locking import state_file_component
 from .output import BuildOutput
 
@@ -62,7 +62,8 @@ class CommandTranscript:
         return "\n".join(line for line in self.tail if TEST_SUMMARY_PATTERN.search(line))
 
 
-def command_log_path(command: Sequence[str], root: Path = STATE_DIR) -> Path:
+def command_log_path(command: Sequence[str], root: Path | None = None) -> Path:
+    root = root or default_build_paths().state_directory
     log_directory = root / "logs"
     executable = state_file_component(Path(command[0]).stem or "command")
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
@@ -79,13 +80,17 @@ def prune_command_logs(log_directory: Path, keep: int = COMMAND_LOG_LIMIT) -> No
         return
 
 
-def terminate_process_tree(process: subprocess.Popen[Any]) -> None:
+def terminate_process_tree(
+    process: subprocess.Popen[Any],
+    *,
+    cwd: Path | None = None,
+) -> None:
     if process.poll() is not None:
         return
     if os.name == "nt":
         subprocess.run(
             ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-            cwd=REPO_ROOT,
+            cwd=cwd or default_build_paths().root,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
@@ -255,12 +260,19 @@ def run_command(
     timeout_seconds: int | None = None,
     wait_for_descendants: bool = False,
     show_heartbeat: bool = False,
-) -> None:
+    cwd: Path | None = None,
+    state_directory: Path | None = None,
+    capture_output: bool = False,
+) -> str:
     started_at_utc = datetime.now(timezone.utc)
     command_list = list(command)
     output.command(subprocess.list2cmdline(command_list))
-    log_path = command_log_path(command_list)
+    paths = default_build_paths() if cwd is None or state_directory is None else None
+    cwd = cwd or paths.root
+    state_directory = state_directory or paths.state_directory
+    log_path = command_log_path(command_list, root=state_directory)
     transcript = CommandTranscript()
+    captured: list[str] = []
     reader_error: list[OSError] = []
     popen_options: dict[str, Any] = {}
     if os.name == "nt":
@@ -282,7 +294,7 @@ def run_command(
     try:
         process = subprocess.Popen(
             command_list,
-            cwd=REPO_ROOT,
+            cwd=cwd,
             env=dict(environment),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -308,6 +320,8 @@ def run_command(
                 return
             with process.stdout:
                 for line in process.stdout:
+                    if capture_output:
+                        captured.append(line)
                     if not reader_error:
                         try:
                             log.write(line)
@@ -331,7 +345,7 @@ def run_command(
         try:
             process_job.assign(process)
         except BuildToolError:
-            terminate_process_tree(process)
+            terminate_process_tree(process, cwd=cwd)
             try:
                 log.close()
             except OSError:
@@ -350,7 +364,7 @@ def run_command(
                 if remaining <= 0:
                     if process_job:
                         process_job.terminate()
-                    terminate_process_tree(process)
+                    terminate_process_tree(process, cwd=cwd)
                     raise BuildToolError(
                         f'Command timed out after {timeout_seconds}s: "{command_list[0]}"',
                         command=command_list,
@@ -376,7 +390,7 @@ def run_command(
     except KeyboardInterrupt as exc:
         if process_job:
             process_job.terminate()
-        terminate_process_tree(process)
+        terminate_process_tree(process, cwd=cwd)
         reader.join()
         excerpt = transcript.excerpt() if output.compact else ""
         if not recovery_required_on_interrupt:
@@ -424,3 +438,4 @@ def run_command(
         if summary := transcript.success_summary():
             output.child_output(summary + "\n", colorize_test_output=colorize_test_output)
         output.info(f'Full output: "{log_path}"')
+    return "".join(captured)
