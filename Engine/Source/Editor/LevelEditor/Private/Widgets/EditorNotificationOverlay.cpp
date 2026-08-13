@@ -100,13 +100,73 @@ namespace Durin::Editor::Level
 	auto FEditorNotificationOverlay::Draw(FLevelEditorContext& Context) -> void
 	{
 		(void)Context;
+		if (bFocusHistoryRequested) ImGui::SetNextWindowFocus();
 		if (GEditor) DrawHistory(GEditor->GetNotificationManager(), GetOpenPtr());
+		bFocusHistoryRequested = false;
 	}
 
-	auto FEditorNotificationOverlay::DrawNotifications(::Durin::Editor::FNotificationManager& Notifications, ::Durin::Editor::FTransactionManager& Transactions) -> void
+	auto FEditorNotificationOverlay::UpdateNotifications(::Durin::Editor::FNotificationManager& Notifications, ::Durin::Editor::FTransactionManager& Transactions) -> void
 	{
 		PublishTransactionEvents(Notifications, Transactions);
 		Notifications.Tick(ImGui::GetIO().DeltaTime);
+	}
+
+	auto FEditorNotificationOverlay::GetStatusBarHeight() const -> float
+	{
+		return ImGui::GetFrameHeight() + MonaImGui::ScaleUI(MonaImGui::GetUIStyleMetrics().SpacingM) * 2.0f;
+	}
+
+	auto FEditorNotificationOverlay::DrawStatusBar(::Durin::Editor::FNotificationManager& Notifications) -> void
+	{
+		const float Height = GetStatusBarHeight();
+		if (ImGui::BeginChild("##EditorStatusBar", ImVec2(0.0f, Height), ImGuiChildFlags_Borders,
+			ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+		{
+			const ::Durin::Editor::FNotification* Status = Notifications.GetStatusNotification()
+				? &*Notifications.GetStatusNotification() : nullptr;
+			const char* ActivityLabel = Icons::List;
+			const float ActivityWidth = ImGui::CalcTextSize(ActivityLabel).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+			const float ActionWidth = Status && Status->Action
+				? ImGui::CalcTextSize(Status->Action->Label.c_str()).x + ImGui::GetStyle().FramePadding.x * 2.0f
+				: 0.0f;
+
+			if (ImGui::BeginTable("##EditorStatusLayout", 3, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings))
+			{
+				ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_WidthStretch);
+				ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed, ActionWidth);
+				ImGui::TableSetupColumn("Activity", ImGuiTableColumnFlags_WidthFixed, ActivityWidth);
+				ImGui::TableNextRow();
+				ImGui::TableNextColumn();
+				if (Status)
+				{
+					const ImVec4 Accent = MonaImGui::GetThemeColor(ThemeColor(Status->Type));
+					ImGui::PushStyleColor(ImGuiCol_Text, Accent);
+					ImGui::TextUnformatted(TypeIcon(Status->Type));
+					ImGui::PopStyleColor();
+					ImGui::SameLine();
+					ImGui::TextUnformatted(Status->Message.c_str());
+				}
+				else ImGui::TextDisabled("Ready");
+
+				ImGui::TableNextColumn();
+				if (Status && Status->Action) DrawActionButton(Notifications, *Status);
+
+				ImGui::TableNextColumn();
+				if (ImGui::Button(ActivityLabel))
+				{
+					SetOpen(true);
+					bFocusHistoryRequested = true;
+				}
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Activity History");
+				ImGui::EndTable();
+			}
+			if (Status) Notifications.SetHovered(Status->Id, ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem));
+		}
+		ImGui::EndChild();
+	}
+
+	auto FEditorNotificationOverlay::DrawToasts(::Durin::Editor::FNotificationManager& Notifications) -> void
+	{
 
 		const std::vector<::Durin::Editor::FNotification>& Active = Notifications.GetNotifications();
 		std::vector<const ::Durin::Editor::FNotification*> Visible;
@@ -298,6 +358,7 @@ namespace Durin::Editor::Level
 			default: Desc.Message = Event.Description; break;
 			}
 			Desc.Details = std::move(Event.Details);
+			Desc.Presentation = ::Durin::Editor::ENotificationPresentation::StatusBar;
 
 			const ::Durin::Editor::FTransactionId Id = Event.Id;
 			::Durin::Editor::FNotificationAction Action;

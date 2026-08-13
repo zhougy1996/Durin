@@ -16,10 +16,15 @@ namespace Durin::Editor::Level
 	public:
 		auto GetWindowName() const -> const char* override { return "Activity History"; }
 		auto Draw(FLevelEditorContext& Context) -> void override;
-		auto DrawNotifications(::Durin::Editor::FNotificationManager& Notifications, ::Durin::Editor::FTransactionManager& Transactions) -> void;
+		auto UpdateNotifications(::Durin::Editor::FNotificationManager& Notifications, ::Durin::Editor::FTransactionManager& Transactions) -> void;
+		auto GetStatusBarHeight() const -> float;
+		auto DrawStatusBar(::Durin::Editor::FNotificationManager& Notifications) -> void;
+		auto DrawToasts(::Durin::Editor::FNotificationManager& Notifications) -> void;
 
 	private:
 		static auto DrawHistory(::Durin::Editor::FNotificationManager& Notifications, bool* bOpen) -> void;
 		static auto PublishTransactionEvents(::Durin::Editor::FNotificationManager& Notifications, ::Durin::Editor::FTransactionManager& Transactions) -> void;
+
+		bool bFocusHistoryRequested = false;
 	};
 }

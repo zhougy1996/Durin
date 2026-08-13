@@ -16,6 +16,14 @@ namespace Durin::Editor
 		Progress,
 	};
 
+	// Selects where a notification is surfaced while every entry remains available in session history.
+	enum class ENotificationPresentation : uint8
+	{
+		Toast,
+		StatusBar,
+		HistoryOnly,
+	};
+
 	// Defines an optional user action attached to a notification.
 	struct FNotificationAction
 	{
@@ -34,6 +42,7 @@ namespace Durin::Editor
 		// Negative values select the type default, zero keeps the notification until dismissed.
 		float DurationSeconds = -1.0f;
 		std::optional<FNotificationAction> Action;
+		ENotificationPresentation Presentation = ENotificationPresentation::Toast;
 	};
 
 	// Describes a cancellable progress notification with optional progress.
@@ -43,6 +52,7 @@ namespace Durin::Editor
 		std::optional<float> Progress;
 		std::optional<FNotificationAction> Action;
 		std::function<void()> Cancel;
+		ENotificationPresentation Presentation = ENotificationPresentation::Toast;
 	};
 
 	// Stores game-thread notification state shared by overlays and history.
@@ -77,20 +87,23 @@ namespace Durin::Editor
 		DURINED_API auto InvokeAction(FNotificationId Id) -> bool;
 		DURINED_API auto RequestCancel(FNotificationId Id) -> bool;
 		auto GetNotifications() const -> const std::vector<FNotification>& { return Notifications; }
+		auto GetStatusNotification() const -> const std::optional<FNotification>& { return StatusNotification; }
 		auto GetHistory() const -> const std::vector<FNotification>& { return History; }
 		DURINED_API auto ClearHistory() -> void;
 
 	private:
 		auto Enqueue(std::function<void()> Command) -> void;
 		auto Find(FNotificationId Id) -> FNotification*;
+		auto FindStatus(FNotificationId Id) -> FNotification*;
 		auto FindHistory(FNotificationId Id) -> FNotification*;
-		auto UpdateBoth(FNotificationId Id, const std::function<void(FNotification&)>& Update) -> void;
+		auto UpdateAll(FNotificationId Id, const std::function<void(FNotification&)>& Update) -> void;
 		static auto ResolveDuration(ENotificationType Type, float RequestedSeconds) -> std::optional<float>;
 
 		std::atomic<FNotificationId> NextId = 1;
 		std::mutex PendingMutex;
 		std::vector<std::function<void()>> PendingCommands;
 		std::vector<FNotification> Notifications;
+		std::optional<FNotification> StatusNotification;
 		// History is session-only and intentionally independent from toast lifetime/dismissal.
 		std::vector<FNotification> History;
 	};

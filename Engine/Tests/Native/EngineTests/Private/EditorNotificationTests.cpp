@@ -111,3 +111,68 @@ TEST(FNotificationManagerTests, DismissalPreservesHistoryUntilExplicitlyCleared)
 	Manager.ClearHistory();
 	EXPECT_TRUE(Manager.GetHistory().empty());
 }
+
+TEST(FNotificationManagerTests, RoutesStatusAndHistoryOnlyPresentationsWithoutCreatingToasts)
+{
+	Durin::Editor::FNotificationManager Manager;
+	const Durin::Editor::FNotificationId StatusId = Manager.Post({
+		.Type = Durin::Editor::ENotificationType::Success,
+		.Message = "Changed Intensity",
+		.Presentation = Durin::Editor::ENotificationPresentation::StatusBar,
+	});
+	Manager.Post({
+		.Message = "Recorded only",
+		.Presentation = Durin::Editor::ENotificationPresentation::HistoryOnly,
+	});
+	Manager.Tick(0.0f);
+
+	EXPECT_TRUE(Manager.GetNotifications().empty());
+	ASSERT_TRUE(Manager.GetStatusNotification().has_value());
+	EXPECT_EQ(Manager.GetStatusNotification()->Id, StatusId);
+	EXPECT_EQ(Manager.GetStatusNotification()->Message, "Changed Intensity");
+	ASSERT_EQ(Manager.GetHistory().size(), 2);
+	EXPECT_EQ(Manager.GetHistory().back().Message, "Recorded only");
+
+	Manager.Tick(5.1f);
+	EXPECT_FALSE(Manager.GetStatusNotification().has_value());
+	EXPECT_EQ(Manager.GetHistory().size(), 2);
+}
+
+TEST(FNotificationManagerTests, ReplacesStatusFeedbackAndRetainsEachHistoryEntry)
+{
+	Durin::Editor::FNotificationManager Manager;
+	Manager.Post({.Message = "Moved Actor", .Presentation = Durin::Editor::ENotificationPresentation::StatusBar});
+	const Durin::Editor::FNotificationId LatestId = Manager.Post({
+		.Message = "Changed Rotation",
+		.Presentation = Durin::Editor::ENotificationPresentation::StatusBar,
+	});
+	Manager.Tick(0.0f);
+
+	ASSERT_TRUE(Manager.GetStatusNotification().has_value());
+	EXPECT_EQ(Manager.GetStatusNotification()->Id, LatestId);
+	EXPECT_EQ(Manager.GetStatusNotification()->Message, "Changed Rotation");
+	EXPECT_EQ(Manager.GetHistory().size(), 2);
+}
+
+TEST(FNotificationManagerTests, InvokesStatusActionAndDismissesStatusFeedback)
+{
+	Durin::Editor::FNotificationManager Manager;
+	int InvokeCount = 0;
+	const Durin::Editor::FNotificationId Id = Manager.Post({
+		.Message = "Changed Material",
+		.Action = Durin::Editor::FNotificationAction{
+			.Label = "Undo",
+			.Invoke = [&InvokeCount] { ++InvokeCount; },
+		},
+		.Presentation = Durin::Editor::ENotificationPresentation::StatusBar,
+	});
+	Manager.Tick(0.0f);
+
+	EXPECT_TRUE(Manager.InvokeAction(Id));
+	EXPECT_EQ(InvokeCount, 1);
+	Manager.Dismiss(Id);
+	Manager.Tick(0.0f);
+	EXPECT_FALSE(Manager.GetStatusNotification().has_value());
+	ASSERT_EQ(Manager.GetHistory().size(), 1);
+	EXPECT_EQ(Manager.GetHistory().front().Id, Id);
+}

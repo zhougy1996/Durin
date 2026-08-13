@@ -490,8 +490,15 @@ namespace Durin::Editor::Level
 			Context->bReadOnly = bPlaying;
 			Context->Synchronize(bPlaying ? GEditor->GetPlayWorld() : GEditor->GetEditorWorld());
 		}
+		if (NotificationOverlay && GEditor)
+		{
+			NotificationOverlay->UpdateNotifications(GEditor->GetNotificationManager(), GEditor->GetTransactionManager());
+		}
 
-		const ImVec2 DockSpaceSize = ImGui::GetContentRegionAvail();
+		ImVec2 DockSpaceSize = ImGui::GetContentRegionAvail();
+		if (NotificationOverlay && GEditor)
+			DockSpaceSize.y = std::max(0.0f, DockSpaceSize.y
+				- NotificationOverlay->GetStatusBarHeight() - ImGui::GetStyle().ItemSpacing.y);
 		const bool bNeedsDefaultLayout = ImGui::DockBuilderGetNode(DockSpaceId) == nullptr;
 		if (bNeedsDefaultLayout || bResetLayoutRequested)
 		{
@@ -500,6 +507,8 @@ namespace Durin::Editor::Level
 			bResetLayoutRequested = false;
 		}
 		::Durin::Editor::WorkspaceUI::SubmitDockSpace(Workspace::Type, Workspace::LayoutVersion, DockSpaceSize);
+		if (NotificationOverlay && GEditor)
+			NotificationOverlay->DrawStatusBar(GEditor->GetNotificationManager());
 		RootWindow.End();
 		if (RootWindowState.bCloseRequested)
 		{
@@ -540,7 +549,7 @@ namespace Durin::Editor::Level
 
 		if (NotificationOverlay && GEditor)
 		{
-			NotificationOverlay->DrawNotifications(GEditor->GetNotificationManager(), GEditor->GetTransactionManager());
+			NotificationOverlay->DrawToasts(GEditor->GetNotificationManager());
 		}
 
 		return RootWindowState.bFocused || RootWindowState.bActivated;
