@@ -706,13 +706,13 @@ the module templates.
 
 `clean` invokes the CMake clean target for the selected preset. It removes outputs known to that generated build graph, but keeps the configured CMake tree and may leave copied runtime files or generated metadata that CMake does not own.
 
-In particular, clean removes CMake-owned DHT exports, manifests, generated
-sources/headers, and stamps, but preserves the versioned per-header cache under
-`<Project>/Intermediate/Build/<Platform>/<RuntimeVariant>/DHTCache/`. An
+In particular, clean removes CMake-owned DHT exports, generated sources/headers,
+and stamps, but preserves each module's versioned phase state under
+`<Project>/Intermediate/Build/<Platform>/<RuntimeVariant>/<Module>/DHTState/`. An
 unchanged `rebuild --target all` can therefore reconstruct those outputs from
-validated cache entries without invoking libclang. DHT's INFO summaries report
-`hits`, `misses`, `materialized`, and `parsed`; an unchanged warm reconstruction
-should report zero parses.
+validated state records without invoking libclang. DHT's INFO summaries report
+parsed and rematerialized header counts; an unchanged warm reconstruction should
+report zero parses.
 
 `purge` removes the selected preset's configured build and install trees plus its project output and generated-metadata roots:
 
@@ -749,11 +749,12 @@ project `Binaries/<Platform>/<OutputConfig>/` roots, shared
 preserves bootstrapped dependencies such as `Build/ThirdParty` and
 `Engine/External`.
 
-Because `DHTCache` is inside the registered project runtime-variant intermediate
-root, purge removes it. The next DHT generation must therefore report cold
-`not-found` misses and reseed the cache. Do not delete individual cache files as
-a routine recovery action: invalid or interrupted entries fall back to parsing
-and are atomically replaced by an ordinary build rerun.
+Because each `DHTState` directory is inside its registered module's
+runtime-variant intermediate directory, purge removes it. The next DHT
+generation must therefore take the cold path and reseed phase state. Do not
+delete individual state files as a routine recovery action: invalid or
+interrupted records fall back to parsing and are atomically replaced by an
+ordinary build rerun.
 
 On non-Windows hosts, invoke
 `.venv/bin/python Tools/DurinDevTool/durin_dev_tool/__main__.py <arguments>`

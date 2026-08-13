@@ -146,7 +146,7 @@ generated source remains byte-for-byte unchanged. In particular, an unchanged
 public `.export` keeps its timestamp so downstream modules are not regenerated.
 
 These disposable outputs are reconstructed from two module phase bundles at
-`<Project>/Intermediate/Build/<Platform>/<RuntimeVariant>/DHTCache/<Module>/`:
+`<Project>/Intermediate/Build/<Platform>/<RuntimeVariant>/<Module>/DHTState/`:
 `export-state.json` retains raw symbol projections and
 `reflection-state.json` retains generated text, counts, dependency snapshots,
 output ownership, and output digests. Both are canonical, checksummed JSON with
@@ -244,7 +244,7 @@ Export files should only change when the exported reflected-symbol contract chan
 DurinHeaderTool stores export-generation reuse data in:
 
 ```text
-DHTCache/<Module>/export-state.json
+<Module>/DHTState/export-state.json
 ```
 
 The export phase payload currently uses schema v1 inside a checksummed envelope.
@@ -273,7 +273,7 @@ directly.
 Each reflected module writes clean-surviving private reconstruction state:
 
 ```text
-DHTCache/<Module>/reflection-state.json
+<Module>/DHTState/reflection-state.json
 ```
 
 The reflection payload currently uses schema v1 inside the same canonical,

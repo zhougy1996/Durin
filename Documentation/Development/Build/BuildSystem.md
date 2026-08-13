@@ -73,7 +73,7 @@ modules remain parallel. Presets in one worktree intentionally share
 configuration-independent metadata.
 
 Reflected modules also keep two persistent phase-state bundles under
-`<Project>/Intermediate/Build/<Platform>/<RuntimeVariant>/DHTCache/<Module>/`:
+`<Project>/Intermediate/Build/<Platform>/<RuntimeVariant>/<Module>/DHTState/`:
 `export-state.json` and `reflection-state.json`. They are separate, versioned,
 checksummed canonical JSON records. Their
 identity includes the DHT and native-libclang SHA-256 fingerprints, platform, runtime
@@ -85,7 +85,7 @@ against its hermetic prelude and exported-symbol model.
 
 The phase state is reconstruction data, not a generated compiler input. CMake
 owns the public export, generated source, generated header, and command-stamp
-outputs, but does not list `DHTCache` as an output, byproduct, or dependency. Consequently,
+outputs, but does not list `DHTState` as an output, byproduct, or dependency. Consequently,
 `clean` and `rebuild` may delete every generated DHT output while retaining
 valid bundle records; DHT rematerializes missing outputs without libclang
 parses. DurinDevTool project `purge` owns the enclosing runtime-variant

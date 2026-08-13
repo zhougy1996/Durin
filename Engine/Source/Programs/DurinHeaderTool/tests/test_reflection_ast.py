@@ -187,14 +187,14 @@ class TestReflectionAstAndState:
 
 
     def test_phase_state_records_generator_contract(self):
-        state_root = self.temp_root / "DHTCache"
+        state_dir = self.temp_root / "Fixture" / "DHTState"
         with (
             mock.patch.object(configs, "get_module_config", return_value=self.module_config),
             mock.patch.object(configs, "collect_all_dependent_module_with_export_file", return_value=[]),
             mock.patch.object(configs, "ARCH", "Win64"),
             mock.patch.object(configs, "RUNTIME_VARIANT", "DurinEditor"),
             mock.patch.object(configs, "TOOL_FINGERPRINT", "fixture-fingerprint"),
-            mock.patch.object(utils, "get_module_dht_cache_root", return_value=state_root),
+            mock.patch.object(utils, "get_module_dht_state_dir", return_value=state_dir),
         ):
             state = make_new_reflection_state("Fixture")
             content = save_reflection_phase_state(state)
@@ -213,4 +213,3 @@ class TestReflectionAstAndState:
         ]
         assert data["PendingCleanupOutputs"] == []
         assert data["GeneratedOutputDigests"] == {}
-

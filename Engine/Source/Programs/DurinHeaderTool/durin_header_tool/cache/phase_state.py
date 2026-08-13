@@ -208,11 +208,11 @@ class ReflectionPhaseState:
 
 
 def export_state_path(module_name: str) -> Path:
-    return utils.get_module_dht_cache_root(module_name) / module_name / "export-state.json"
+    return utils.get_module_dht_state_dir(module_name) / "export-state.json"
 
 
 def reflection_state_path(module_name: str) -> Path:
-    return utils.get_module_dht_cache_root(module_name) / module_name / "reflection-state.json"
+    return utils.get_module_dht_state_dir(module_name) / "reflection-state.json"
 
 
 def load_export_phase_state(module_name: str) -> ExportPhaseState | None:

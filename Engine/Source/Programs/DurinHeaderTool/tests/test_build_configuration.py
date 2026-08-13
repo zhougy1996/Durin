@@ -274,13 +274,9 @@ class TestIntermediateLayout:
             utils.get_project_intermediate_dir("Engine") / "Build" / "Win64" / "DurinEditor"
         )
 
-    def test_persistent_header_cache_uses_project_platform_runtime_root(self):
-        assert utils.get_module_dht_cache_root("Core") == (
-            utils.get_project_intermediate_dir("Engine")
-            / "Build"
-            / "Win64"
-            / "DurinEditor"
-            / "DHTCache"
+    def test_persistent_phase_state_is_local_to_the_module(self):
+        assert utils.get_module_dht_state_dir("Core") == (
+            utils.get_module_intermediate_build_dir("Core") / "DHTState"
         )
 
     def test_locks_use_shared_intermediate_root(self):

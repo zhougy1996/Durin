@@ -12,7 +12,7 @@ from .path_helper import (
     get_dht_project_lock_file_path,
     get_module_cmake_file_path,
     get_module_dht_output_dir,
-    get_module_dht_cache_root,
+    get_module_dht_state_dir,
     get_module_export_file_path,
     get_module_intermediate_build_dir,
     get_project_binary_dir,

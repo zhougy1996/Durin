@@ -24,7 +24,8 @@ writing, source writing, and property emission now have explicit module
 boundaries.
 
 Output-owned manifests and per-header persistent entries are replaced by
-checksummed schema-v1 `export-state.json` and `reflection-state.json` bundles.
+checksummed schema-v1 `DHTState/export-state.json` and
+`DHTState/reflection-state.json` bundles local to each module.
 After a purge, the Engine project uses 10 phase files totaling 735,126 bytes
 (largest 586,035), versus 140 private manifest/cache files totaling 992,681
 bytes in the baseline. Sandbox uses 2 files totaling 34,562 bytes versus 12
@@ -173,7 +174,7 @@ incidental concurrency are gone.
 
 ### Cache and publication
 
-- `DHTCache/<Module>/export-state.json` and `reflection-state.json` are the
+- `<Module>/DHTState/export-state.json` and `reflection-state.json` are the
   selected logical store. They are separate atomic phase bundles because export
   and reflection are separate ordered commands with different inputs and
   failure domains; sharing a cache root and storage implementation does not
@@ -250,7 +251,7 @@ incidental concurrency are gone.
   rewrite time for the selected modules.
 - [x] Verify the current Ninja graph reruns DHT when a formal byproduct is
   missing while its stamp exists, clean removes stamps/formal byproducts but not
-  `DHTCache`, and purge removes the enclosing persistent state root.
+  each module's `DHTState`, and purge removes the enclosing module intermediate root.
 - [x] Freeze the persistent phase-state layout, exact CMake ownership table,
   publication order, corrupt-bundle fallback scope, and migration disposition
   for old manifests and per-header entries.
@@ -353,7 +354,7 @@ Dependencies: Stage 2 shared models prevent new cross-file duplication.
 Dependencies: Stage 2 cache codecs and Stage 3 stable parser boundaries.
 
 - [x] Implement module-scoped `export-state.json` and
-  `reflection-state.json` under the existing clean-surviving `DHTCache` root,
+  `reflection-state.json` under each module's clean-surviving `DHTState` directory,
   using the Stage 2 atomic envelope and independent phase schemas.
 - [x] Move export manifest context, dependency-export digests, header
   fingerprints, `RawSymbolsByHeader`, and resolved public-export digest into

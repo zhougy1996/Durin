@@ -70,9 +70,10 @@ def _result() -> ReflectionHeaderGenerationResult:
 
 
 @pytest.fixture
-def isolated_state_root(tmp_path, monkeypatch):
-    monkeypatch.setattr(utils, "get_module_dht_cache_root", lambda _module: tmp_path / "DHTCache")
-    return tmp_path / "DHTCache"
+def isolated_state_dir(tmp_path, monkeypatch):
+    state_dir = tmp_path / "Fixture" / "DHTState"
+    monkeypatch.setattr(utils, "get_module_dht_state_dir", lambda _module: state_dir)
+    return state_dir
 
 
 def test_file_fingerprint_codec_uses_sha256_and_ignores_fast_path_metadata():
@@ -116,7 +117,7 @@ def test_generated_output_naming_is_centralized_and_collision_checked():
         validate_unique_reflected_header_stems(["Public/A/Actor.h", "Public/B/Actor.hpp"])
 
 
-def test_export_phase_bundle_round_trips_canonical_checked_state(isolated_state_root):
+def test_export_phase_bundle_round_trips_canonical_checked_state(isolated_state_dir):
     state = ExportPhaseState(
         module="Fixture",
         tool_fingerprint="tool",
@@ -133,12 +134,12 @@ def test_export_phase_bundle_round_trips_canonical_checked_state(isolated_state_
     content = save_export_phase_state(state)
     loaded = load_export_phase_state("Fixture")
 
-    assert export_state_path("Fixture") == isolated_state_root / "Fixture" / "export-state.json"
+    assert export_state_path("Fixture") == isolated_state_dir / "export-state.json"
     assert loaded == state
     assert content.encode("utf-8") == canonical_json_bytes(json.loads(content))
 
 
-def test_reflection_phase_bundle_round_trips_generated_content(isolated_state_root):
+def test_reflection_phase_bundle_round_trips_generated_content(isolated_state_dir):
     result = _result()
     state = ReflectionPhaseState(
         module="Fixture",
@@ -156,12 +157,12 @@ def test_reflection_phase_bundle_round_trips_generated_content(isolated_state_ro
     save_reflection_phase_state(state)
     loaded = load_reflection_phase_state("Fixture")
 
-    assert reflection_state_path("Fixture") == isolated_state_root / "Fixture" / "reflection-state.json"
+    assert reflection_state_path("Fixture") == isolated_state_dir / "reflection-state.json"
     assert loaded == state
     assert loaded.results_by_header[HEADER] == result
 
 
-def test_corrupt_bundle_is_a_typed_module_miss(isolated_state_root, caplog):
+def test_corrupt_bundle_is_a_typed_module_miss(isolated_state_dir, caplog):
     path = export_state_path("Fixture")
     path.parent.mkdir(parents=True)
     path.write_text('{"SchemaVersion":', encoding="utf-8")
@@ -170,7 +171,7 @@ def test_corrupt_bundle_is_a_typed_module_miss(isolated_state_root, caplog):
     assert "Ignoring invalid export phase state" in caplog.text
 
 
-def test_invalid_reflection_header_record_only_invalidates_that_record(isolated_state_root):
+def test_invalid_reflection_header_record_only_invalidates_that_record(isolated_state_dir):
     first = _result()
     second_header = "Public/Fixture/Pawn.h"
     second = ReflectionHeaderGenerationResult(
