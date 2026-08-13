@@ -1,0 +1,109 @@
+{
+  "schema": 1,
+  "date": "2026-08-14",
+  "selectedProductionDefault": "Medium",
+  "fallback": "Low",
+  "highDisposition": "rejected-motion",
+  "image": {
+    "shadowOnlyHighFrequencyFraction": {
+      "low": 0.018361,
+      "medium": 0.015372,
+      "high": 0.013730,
+      "mediumToLow": 0.837,
+      "highToMedium": 0.893
+    },
+    "maximumTransitionWidthPixels": {
+      "low": 40,
+      "medium": 40,
+      "high": 40
+    },
+    "q1MotionChangedPixelsAtTolerance2": {
+      "limit": 132,
+      "low": [76, 125],
+      "medium": [51, 76],
+      "high": [487, 563]
+    },
+    "q0LegacyMotionChangedPixelsAtTolerance2": {
+      "low": [22, 18, 58],
+      "medium": [74, 63, 140],
+      "high": [691, 662, 757],
+      "legacyLimits": ["pixelCount/8", "pixelCount/8", "pixelCount/4"]
+    },
+    "correctness": {
+      "mediumPlanarAcneMatchesLow": true,
+      "mediumMaskedMatchesOpaque": true,
+      "highMaskedMatchesOpaque": true,
+      "disabledMatchesAcrossTiers": true,
+      "validAndDefectiveGeometryRemainDistinct": true,
+      "guardBoundaryBrightPixels": {
+        "low": 57108,
+        "medium": 57108,
+        "high": 57102
+      }
+    }
+  },
+  "captures": {
+    "medium": {
+      "edge": "b92b38288f4fed148f3392d9a7a6c6a0",
+      "diagonal": "74de2e944917558f33e32797582e5ba4",
+      "thin": "44a781cef99f139b05d80de473ad4c53",
+      "masked": "46d37f1b357fd4d65f726384a3a4bc5f",
+      "guard": "6b4e162f2deff5007b8d890a78fda1fd",
+      "motionBase": "b92b38288f4fed148f3392d9a7a6c6a0",
+      "motionCamera": "f349d2fe0cce1ea1e3864e0b3d4bbd22",
+      "motionLight": "4544a9db49d246aa6854e379b66a4a92"
+    },
+    "high": {
+      "edge": "b7e73aaacc6bca481306157fb7c5de02",
+      "diagonal": "2a8b4ebe1c1cf4c228f8e8311dac175a",
+      "thin": "d9f9c82af7b47b63028b6f557556e68d",
+      "masked": "d1d196963045acb5ca52121cf2b4c622",
+      "guard": "b843d8806631623604685c6878afe6b4",
+      "motionBase": "b7e73aaacc6bca481306157fb7c5de02",
+      "motionCamera": "1f3a24a8c7d332539073cbf75558cf47",
+      "motionLight": "7904dec24b63669a2e0070f93f17d5a5"
+    },
+    "diagnostics": {
+      "mediumFootprint": "2b163cee21149cc5e917b9aaa03ec7cd",
+      "mediumTapValidity": "3ff57fab7e38ea692b4c8d5b95bb3c1e",
+      "mediumDifference": "29671e48f1c4d84d5a41e2cd5ac90a3f",
+      "highFootprint": "50414acd789dfe24723d89c2f702dac7",
+      "highTapValidity": "3ff57fab7e38ea692b4c8d5b95bb3c1e",
+      "highDifference": "4975ee5a1c6b48bbb487d270b1ecf401"
+    }
+  },
+  "performance": {
+    "gpu": "NVIDIA GeForce RTX 3090",
+    "driver": "591.86",
+    "vulkanApi": "1.4.325",
+    "output": [1920, 1080],
+    "warmupFrames": 30,
+    "measuredFrames": 120,
+    "medianNanoseconds": {
+      "disabledSceneColor": 7584,
+      "lowSceneColor": 11872,
+      "mediumSceneColor": 12640,
+      "highSceneColor": 13504,
+      "lowShadowDepth": 9600,
+      "mediumShadowDepth": 10240,
+      "highShadowDepth": 10816,
+      "mediumFilterDiagnosticSceneColor": 14208
+    },
+    "incrementsNanoseconds": {
+      "mediumSceneColorOverLow": 768,
+      "highSceneColorOverLow": 1632,
+      "mediumShadowDepthOverLow": 640,
+      "highShadowDepthOverLow": 1216,
+      "mediumFilterDiagnosticOverMedium": 1568
+    },
+    "budgetsNanoseconds": {
+      "mediumSceneColorOverLow": 200000,
+      "highSceneColorOverLow": 400000,
+      "shadowDepthOverLow": 20000
+    },
+    "logicalBytes": 16777216,
+    "backendBytes": 16777216,
+    "failedFrames": 0
+  },
+  "selectionRationale": "Medium passes the frozen edge, Q1 motion, correctness, byte, failure, and target-GPU gates. High improves the edge metric and passes performance, but is rejected because both Q1 motion comparisons exceed 132 pixels."
+}

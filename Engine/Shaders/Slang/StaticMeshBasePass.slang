@@ -56,6 +56,7 @@ struct LightingUniform
     float4 DirectionalShadowTexelBias;
     float4 DirectionalShadowRasterBias;
     float4 DirectionalShadowLightBounds;
+    float4 DirectionalShadowFilter;
     LocalLightUniform Local[4];
 };
 
@@ -336,6 +337,7 @@ float4 FragmentMain(VSOutput input) : SV_Target
             Lighting.DirectionalShadowTexelBias,
             Lighting.DirectionalShadowRasterBias,
             Lighting.DirectionalShadowLightBounds,
+            Lighting.DirectionalShadowFilter,
             DirectionalShadowTexture,
             DirectionalShadowSampler);
         if (Lighting.DirectionalShadowControl.y > 0.5)

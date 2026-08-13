@@ -22,6 +22,53 @@ bool IsValidShadowCoordinate(float3 coordinate)
         && coordinate.z >= 0.0 && coordinate.z <= 1.0;
 }
 
+float SampleDirectionalShadowKernel(
+    float3 coordinate,
+    float4 filter,
+    Texture2D<float> shadowTexture,
+    SamplerComparisonState shadowSampler,
+    out float validWeight)
+{
+    validWeight = 0.0;
+    if (!IsValidShadowCoordinate(coordinate))
+        return 1.0;
+    uint quality = min((uint)(filter.z + 0.5), 2u);
+    int radius = quality == 0u ? 0 : (quality == 1u ? 1 : 2);
+    float normalization = quality == 0u ? 1.0
+        : (quality == 1u ? 1.0 / 16.0 : 1.0 / 81.0);
+    float accumulated = 0.0;
+    [unroll]
+    for (int y = -2; y <= 2; ++y)
+    {
+        [unroll]
+        for (int x = -2; x <= 2; ++x)
+        {
+            if (abs(x) > radius || abs(y) > radius)
+                continue;
+            int axisWeightX = quality == 0u ? 1
+                : (quality == 1u ? (x == 0 ? 2 : 1) : (3 - abs(x)));
+            int axisWeightY = quality == 0u ? 1
+                : (quality == 1u ? (y == 0 ? 2 : 1) : (3 - abs(y)));
+            float weight = float(axisWeightX * axisWeightY);
+            float2 tap = coordinate.xy + float2(x, y) * filter.xy;
+            float2 halfTexel = filter.xy * 0.5;
+            bool tapValid = all(isfinite(tap))
+                && all(tap >= halfTexel)
+                && all(tap <= 1.0 - halfTexel);
+            if (tapValid)
+            {
+                accumulated += weight * shadowTexture.SampleCmpLevelZero(
+                    shadowSampler, tap, coordinate.z);
+                validWeight += weight;
+            }
+            else
+                accumulated += weight;
+        }
+    }
+    validWeight *= normalization;
+    return accumulated * normalization;
+}
+
 public FDirectionalShadowSample EvaluateDirectionalShadow(
     float3 worldPosition,
     float3 worldNormal,
@@ -30,6 +77,7 @@ public FDirectionalShadowSample EvaluateDirectionalShadow(
     float4 texelBias,
     float4 rasterBias,
     float4 lightBounds,
+    float4 filter,
     Texture2D<float> shadowTexture,
     SamplerComparisonState shadowSampler)
 {
@@ -47,6 +95,7 @@ public FDirectionalShadowSample EvaluateDirectionalShadow(
     uint width;
     uint height;
     shadowTexture.GetDimensions(width, height);
+    filter.xy = 1.0 / float2(width, height);
     int2 texel = clamp(int2(coordinate.xy * float2(width, height)),
         int2(0), int2(int(width) - 1, int(height) - 1));
     float storedDepth = shadowTexture.Load(int3(texel, 0));
@@ -80,10 +129,9 @@ public FDirectionalShadowSample EvaluateDirectionalShadow(
 		? ProjectShadow(worldPosition + toLight * receiverWorld
 			+ normal * normalWorld, worldToShadow)
 		: receiverCoordinate;
-	float finalComparison = IsValidShadowCoordinate(finalCoordinate)
-		? shadowTexture.SampleCmpLevelZero(
-			shadowSampler, finalCoordinate.xy, finalCoordinate.z)
-		: 1.0;
+	float validTapWeight = 0.0;
+	float finalComparison = SampleDirectionalShadowKernel(
+		finalCoordinate, filter, shadowTexture, shadowSampler, validTapWeight);
 	result.attenuation = finalComparison;
 
 	bool unbiasedDirect = coordinate.z <= storedDepth;
@@ -146,7 +194,41 @@ public FDirectionalShadowSample EvaluateDirectionalShadow(
 				? float3(1.0, 0.65, 0.0)
 				: (displaced && totalClamped ? float3(1.0, 0.25, 0.0)
 					: (finalDirect
-                        ? float3(1.0) : float3(0.0, 1.0, 0.0))));
+						? float3(1.0) : float3(0.0, 1.0, 0.0))));
+	}
+    else if (mode == 8u)
+    {
+        // R = bounded tier identity, G = effective footprint radius,
+        // B = normalized valid comparison weight at this receiver.
+        result.diagnosticColor = float3(
+            saturate(filter.z * 0.5),
+            saturate(filter.w / 2.5),
+            saturate(validTapWeight));
+    }
+    else if (mode == 9u)
+    {
+        // Green is fully valid, red is invalid normalized kernel weight.
+        result.diagnosticColor = float3(
+            saturate(1.0 - validTapWeight),
+            saturate(validTapWeight),
+            0.0);
+    }
+    else if (mode == 10u)
+    {
+        float unusedLowValidWeight;
+        float lowComparison = SampleDirectionalShadowKernel(
+            finalCoordinate,
+            float4(filter.xy, 0.0, 0.5),
+            shadowTexture,
+            shadowSampler,
+            unusedLowValidWeight);
+        float signedDifference = finalComparison - lowComparison;
+        float magnitude = saturate(abs(signedDifference) * 4.0);
+        // Red is darker than Low, blue is lighter, green is unchanged.
+        result.diagnosticColor = float3(
+            signedDifference < 0.0 ? magnitude : 0.0,
+            1.0 - magnitude,
+            signedDifference > 0.0 ? magnitude : 0.0);
     }
     return result;
 }

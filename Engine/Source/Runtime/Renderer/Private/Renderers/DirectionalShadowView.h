@@ -19,7 +19,9 @@ namespace Durin
 		* DirectionalShadowResolution * sizeof(float);
 	inline constexpr double DirectionalShadowDistance = 256.0;
 	inline constexpr double DirectionalShadowCasterExtrusion = 256.0;
-	inline constexpr uint32 DirectionalShadowGuardTexels = 2;
+	inline constexpr uint32 DirectionalShadowLowGuardTexels = 2;
+	inline constexpr uint32 DirectionalShadowMediumGuardTexels = 2;
+	inline constexpr uint32 DirectionalShadowHighGuardTexels = 3;
 	inline constexpr float DirectionalShadowDepthBiasConstant = 1.25f;
 	inline constexpr float DirectionalShadowDepthBiasSlope = 1.75f;
 	inline constexpr float DirectionalShadowDepthBiasClamp = 4.0f;
@@ -49,6 +51,16 @@ namespace Durin
 		FVector3 Maximum{0.0};
 	};
 
+	struct FDirectionalShadowFilter
+	{
+		EDirectionalShadowFilterQuality Quality =
+			EDirectionalShadowFilterQuality::Low;
+		uint32 ComparisonOperations = 1;
+		uint32 GuardTexels = DirectionalShadowLowGuardTexels;
+		float FootprintRadiusTexels = 0.5f;
+		bool bUsedInvalidQualityFallback = false;
+	};
+
 	// Value-only result for one selected directional light and fitted scene view.
 	struct FPreparedDirectionalShadowView
 	{
@@ -62,6 +74,7 @@ namespace Durin
 		std::array<FVector3, 8> ReceiverCorners{};
 		FVector2 TexelWorldSize{0.0};
 		FDirectionalShadowBias Bias;
+		FDirectionalShadowFilter Filter;
 		FVector3 LightDirection{0.0, 0.0, -1.0};
 		EDirectionalShadowDiagnosticMode DiagnosticMode =
 			EDirectionalShadowDiagnosticMode::Lit;
@@ -104,6 +117,8 @@ namespace Durin
 		bool bDisableCulling = false) -> FDirectionalShadowCasterCandidates;
 
 	RENDERER_API auto MakeDirectionalShadowSamplerDesc() -> FRHISamplerDesc;
+	RENDERER_API auto PrepareDirectionalShadowFilter(
+		EDirectionalShadowFilterQuality Quality) -> FDirectionalShadowFilter;
 	RENDERER_API auto CalculateDirectionalShadowBias(
 		const FVector2& TexelWorldSize,
 		double SurfaceLightCosine = 1.0) -> FDirectionalShadowBias;

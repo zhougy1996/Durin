@@ -115,7 +115,9 @@ durin_add_engine_functional_test(DirectionalShadowBaselineVulkanTests
 	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/DirectionalShadowBaselineVulkanTests.cpp
 	LIBRARIES ApplicationCore RenderCore Renderer
-	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data/DirectionalShadowQ0
+	DATA_DIRECTORIES
+		${CMAKE_CURRENT_SOURCE_DIR}/Data/DirectionalShadowQ0
+		${CMAKE_CURRENT_SOURCE_DIR}/Data/DirectionalShadowQ1
 )
 
 durin_add_engine_functional_test(EditorRenderingTests

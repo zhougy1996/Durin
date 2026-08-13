@@ -191,7 +191,12 @@ namespace Durin
 				static_cast<float>(Shadow->LightDirection.x),
 				static_cast<float>(Shadow->LightDirection.y),
 				static_cast<float>(Shadow->LightDirection.z),
-				static_cast<float>(DirectionalShadowGuardTexels)};
+				static_cast<float>(Shadow->Filter.GuardTexels)};
+			Result.DirectionalShadow.Filter = {
+				1.0f / static_cast<float>(DirectionalShadowResolution),
+				1.0f / static_cast<float>(DirectionalShadowResolution),
+				static_cast<float>(Shadow->Filter.Quality),
+				Shadow->Filter.FootprintRadiusTexels};
 		}
 		for (size_t Index = 0; Index < Lights.Local.size(); ++Index)
 		{

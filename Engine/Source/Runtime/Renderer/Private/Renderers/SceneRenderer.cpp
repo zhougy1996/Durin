@@ -421,6 +421,17 @@ namespace Durin
 					if (DiagnosticIndex
 						< PreparedView.Counters.ShadowDiagnosticViews.size())
 						++PreparedView.Counters.ShadowDiagnosticViews[DiagnosticIndex];
+					const size_t QualityIndex = static_cast<size_t>(
+						PreparedView.DirectionalShadow.Filter.Quality);
+					if (QualityIndex < PreparedView.Counters.ShadowQualityViews.size())
+						++PreparedView.Counters.ShadowQualityViews[QualityIndex];
+					PreparedView.Counters.ShadowComparisonOperations +=
+						PreparedView.DirectionalShadow.Filter.ComparisonOperations;
+					PreparedView.Counters.ShadowGuardTexels +=
+						PreparedView.DirectionalShadow.Filter.GuardTexels;
+					PreparedView.Counters.ShadowInvalidQualityFallbacks +=
+						PreparedView.DirectionalShadow.Filter
+							.bUsedInvalidQualityFallback ? 1u : 0u;
 					PreparedView.Counters.ShadowBiasFallbacks +=
 						PreparedView.DirectionalShadow.Bias.bUsedFallback ? 1u : 0u;
 					PreparedView.Counters.ShadowBiasClamps +=

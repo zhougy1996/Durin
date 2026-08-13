@@ -102,6 +102,8 @@ TEST(FRendererSceneContractTests, ViewSettingsDefaultToProductionVisibilityAndLO
 	const Durin::FSceneViewSettings Settings;
 	EXPECT_EQ(Settings.VisibilityMode, Durin::EViewVisibilityMode::Normal);
 	EXPECT_EQ(Settings.LODMode, Durin::EViewLODMode::Automatic);
+	EXPECT_EQ(Settings.DirectionalShadowFilterQuality,
+		Durin::EDirectionalShadowFilterQuality::Medium);
 }
 
 TEST(FRendererSceneContractTests, ViewRenderOptionsDefaultToNoEnvironmentOverride)

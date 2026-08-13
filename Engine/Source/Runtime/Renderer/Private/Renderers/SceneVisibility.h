@@ -123,6 +123,12 @@ namespace Durin
 		std::array<size_t,
 			static_cast<size_t>(EDirectionalShadowDiagnosticMode::Count)>
 			ShadowDiagnosticViews{};
+		std::array<size_t,
+			static_cast<size_t>(EDirectionalShadowFilterQuality::Count)>
+			ShadowQualityViews{};
+		size_t ShadowComparisonOperations = 0;
+		size_t ShadowGuardTexels = 0;
+		size_t ShadowInvalidQualityFallbacks = 0;
 		size_t ShadowBiasFallbacks = 0;
 		size_t ShadowBiasClamps = 0;
 		size_t OpaqueStaticMeshSections = 0;

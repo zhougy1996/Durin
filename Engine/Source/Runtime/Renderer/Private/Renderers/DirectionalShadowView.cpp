@@ -5,6 +5,33 @@
 
 namespace Durin
 {
+	auto PrepareDirectionalShadowFilter(
+		EDirectionalShadowFilterQuality Quality) -> FDirectionalShadowFilter
+	{
+		FDirectionalShadowFilter Result;
+		switch (Quality)
+		{
+		case EDirectionalShadowFilterQuality::Low:
+			break;
+		case EDirectionalShadowFilterQuality::Medium:
+			Result.Quality = Quality;
+			Result.ComparisonOperations = 9;
+			Result.GuardTexels = DirectionalShadowMediumGuardTexels;
+			Result.FootprintRadiusTexels = 1.5f;
+			break;
+		case EDirectionalShadowFilterQuality::High:
+			Result.Quality = Quality;
+			Result.ComparisonOperations = 25;
+			Result.GuardTexels = DirectionalShadowHighGuardTexels;
+			Result.FootprintRadiusTexels = 2.5f;
+			break;
+		default:
+			Result.bUsedInvalidQualityFallback = true;
+			break;
+		}
+		return Result;
+	}
+
 	auto CalculateDirectionalShadowBias(
 		const FVector2& TexelWorldSize,
 		double SurfaceLightCosine) -> FDirectionalShadowBias
@@ -178,6 +205,8 @@ namespace Durin
 			return false;
 
 		Candidate.LightId = LightId;
+		Candidate.Filter = PrepareDirectionalShadowFilter(
+			View.Settings.DirectionalShadowFilterQuality);
 		Candidate.CasterVolume.Forward = Math::Normalize(Light.Direction);
 		const FVector3 PreferredUp{0.0, 0.0, 1.0};
 		const FVector3 FallbackUp{0.0, 1.0, 0.0};
@@ -209,8 +238,8 @@ namespace Durin
 			|| RawWidth <= MatrixEpsilon || RawHeight <= MatrixEpsilon
 			|| Maximum.z - Minimum.z <= MatrixEpsilon)
 			return false;
-		constexpr double InnerResolution = static_cast<double>(
-			DirectionalShadowResolution - 2 * DirectionalShadowGuardTexels);
+		const double InnerResolution = static_cast<double>(
+			DirectionalShadowResolution - 2 * Candidate.Filter.GuardTexels);
 		double HalfX = RawWidth * 0.5 * DirectionalShadowResolution
 			/ InnerResolution;
 		double HalfY = RawHeight * 0.5 * DirectionalShadowResolution

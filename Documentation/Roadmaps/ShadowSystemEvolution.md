@@ -2,7 +2,7 @@
 
 Summary: Evolve the first directional shadow-map path into a stable, scalable production shadow system with diagnosable bias, filtered edges, and camera-range resolution.
 
-Last reviewed: 2026-08-13
+Last reviewed: 2026-08-14
 
 Status: Active
 Completed:
@@ -29,13 +29,24 @@ valid/defective modular controls, and sub-texel motion results. StaticMesh,
 SplineMesh, SkeletalMesh, Terrain, Masked material, supported views, resource
 recovery, shader ABI, full Debug build, and editor smoke are qualified.
 
-Q0 separates authored gaps and missing caster coverage from comparison/bias
-behavior, so the Q1 evidence entry condition is satisfied. No wider PCF tier is
-active yet: the next child plan must first freeze the exact 1-sample-linear and
-3x3-tent candidates, guard footprint, image/motion comparisons, and incremental
-GPU budget. Q2 cascaded directional shadows follows Q1. Contact shadows,
-variable-penumbra filtering, persistent caching, local-light shadows, and
-alternative representations remain conditional branches.
+Q1 is complete through the
+[Directional Shadow PCF Quality Tiers Plan](../Plans/DirectionalShadowPCFQualityTiers.md).
+Low, Medium, and High have exact immutable kernels, footprints, guards,
+diagnostics, counters, fallbacks, complete Q0/Q1 capture parity, and target-GPU
+evidence. The shadow-only frequency ratios are 0.837 for Medium/Low and 0.893
+for High/Medium. Medium passes the dedicated motion gate at 51/76 pixels and
+adds 768 ns median Scene Color over Low, so it is the production default. High
+is retained as a bounded tier but rejected as default by its 487/563 motion
+results. Low remains byte-identical, numeric zero, and the invalid/resource
+fallback.
+
+Q2 cascaded directional shadows is now the next required milestone. Its entry
+evidence is the selected Medium 3x3 tent: nine comparisons, 1.5-texel effective
+radius, two guard texels, unchanged 16,777,216-byte single-map allocation,
+12,640 ns Scene Color and 10,240 ns Shadow Depth medians on the frozen RTX 3090
+fixture, with Low fallback and High rejection recorded.
+Contact shadows, variable-penumbra filtering, persistent caching, local-light
+shadows, and alternative representations remain conditional branches.
 
 ## Outcome
 
@@ -210,7 +221,7 @@ flowchart LR
 | Milestone | Requirement | Proposed child plan | Dependencies | Deliverable | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- | --- | --- |
 | Q0: Diagnostics and bias correctness | Completed 2026-08-13 | `DirectionalShadowDiagnosticsAndBias` | Completed `DirectionalShadowPipeline`; current depth/bias RHI | Visual shadow-depth, comparison-error, coverage, texel-grid, and bias diagnostics; representative artifact fixtures; texel-scale-aware bounded bias model shared by all receivers. | Passed: named valid/defective, acne, contact, Masked, grazing, and motion entry evidence was frozen before defaults changed. | Passed: selected captures, exact fallbacks, geometry/view parity, motion, recovery, memory, timing, builds, and smoke meet the completed child-plan gate. |
-| Q1: PCF quality tiers | Required; entry evidence ready, not active | `DirectionalShadowPCFQualityTiers` | Completed Q0 bias/diagnostic contract | Deterministic low/medium/high directional filtering candidates, exact kernel/guard metadata, shared sampling helper, counters, image fixtures, and a selected default tier. | Satisfied by Q0 causal classification; the child plan must still freeze 1-sample-linear, 3x3 tent, guard, image, motion, and GPU candidates before implementation. | Selected tiers reduce quantified edge stair-stepping without new seam leaks, out-of-range darkening, unstable noise, or masked-material divergence; GPU and memory gates pass on the target fixture; low/failure behavior remains complete and fully bound. |
+| Q1: PCF quality tiers | Completed 2026-08-14; Medium selected, High rejected by motion | [DirectionalShadowPCFQualityTiers](../Plans/DirectionalShadowPCFQualityTiers.md) | Completed Q0 bias/diagnostic contract | Deterministic low/medium/high directional filtering candidates, exact kernel/guard metadata, shared sampling helper, counters, image fixtures, and a selected default tier. | Passed by Q0 causal classification; Stage 0 froze the 1-sample-linear, 3x3 tent, literal 5x5 tent, guards, image/motion metrics, and RTX 3090 GPU budgets without changing Low. | Passed: Medium reduces shadow-only high-frequency energy, passes motion/correctness/performance and is default; High is bounded but rejected by motion; Low and failure output remain exact and fully bound. |
 | Q2: Cascaded directional shadows | Required | `CascadedDirectionalShadows` | Q0-Q1; selected RHI texture-array or guarded-atlas contract | Camera-relative cascades, split computation, per-cascade fitting/stabilization/culling, resource ownership, selection/blending, diagnostics, quality-tier integration, and qualified default budgets. | A three-cascade entry candidate records exact resolution/format bytes, split policy, maximum distance, overlap, filter footprint, caster strategy, RHI representation, target-GPU gate, and comparison captures against Q1's single map. | Near/mid/far detail and motion captures pass frozen quality thresholds; no visible hard cascade seam or cross-tile/layer contamination occurs; all caster families, supported views, retries, invalidation, and sequential-view cases pass; logical/backend bytes and combined GPU increment remain within the selected default tier's gates. |
 
 Q0 through Q2 are the required roadmap. Each is implemented through a bounded
@@ -335,6 +346,7 @@ selected only from qualified tiers.
 ## Related Documentation
 
 - [Directional Shadow Pipeline Plan](../Plans/Archive/2026-08/DirectionalShadowPipeline.md)
+- [Directional Shadow PCF Quality Tiers Plan](../Plans/DirectionalShadowPCFQualityTiers.md)
 - [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md)
 - [Rendering Capability Expansion Roadmap](Archive/2026-08/RenderingCapabilityExpansion.md)
 - [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)

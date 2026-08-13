@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "filter": "Low",
+  "captures": [
+    {"name":"q1_edge_staircase_low","xxh128":"15061f4a024de65509e19730e2f23626","dark":13241,"mid":1703,"bright":51105},
+    {"name":"q1_diagonal_silhouette_low","xxh128":"34b1018e345d8d6861e0bace5fc30f9a","dark":13399,"mid":1603,"bright":51047},
+    {"name":"q1_thin_caster_low","xxh128":"f11a7e3c32c4bfa40ea0b06fcf5db193","dark":13113,"mid":917,"bright":52019},
+    {"name":"q1_masked_cutout_low","xxh128":"c3220dd46cf1558073e332ee1d452df2","dark":15506,"mid":1368,"bright":49175},
+    {"name":"q1_guard_boundary_low","xxh128":"233d85aa729d6a8c5c4e84373b1cdaeb","dark":8310,"mid":631,"bright":57108},
+    {"name":"q1_motion_subpixel_00_low","xxh128":"15061f4a024de65509e19730e2f23626","dark":13241,"mid":1703,"bright":51105},
+    {"name":"q1_motion_subpixel_01_low","xxh128":"dfbd0a52657bdc4ababcadbd2caf4ce6","dark":13242,"mid":1703,"bright":51104},
+    {"name":"q1_motion_light_01_low","xxh128":"417bd4397d90a46b93d7ad25a0465162","dark":13241,"mid":1702,"bright":51106}
+  ],
+  "motionChangedPixelsAtTolerance2": [76, 125],
+  "edgeMetrics": {
+    "legacyRawHorizontalHfeSuperseded": {
+      "q1_edge_staircase_low": {"highFrequencyEnergy": 44248, "transitionWidthPixels": 40},
+      "q1_diagonal_silhouette_low": {"highFrequencyEnergy": 53002, "transitionWidthPixels": 41}
+    },
+    "shadowOnlyHighFrequencyFraction": {
+      "disabledReferenceXxh128": "9dae114fe1d675583584a4a9a166248b",
+      "q1_edge_staircase_low": 0.018361
+    }
+  },
+  "q0SelectedPolicyMotionChangedPixelsAtTolerance2": [22, 18, 58],
+  "logicalBytes": 16777216,
+  "backendBytes": 16777216
+}

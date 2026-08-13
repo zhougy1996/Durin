@@ -1,0 +1,113 @@
+{
+  "schema": 1,
+  "capturePath": "FDirectionalShadowBaselineVulkanTests.CapturesFrozenLitArtifactsAndSubTexelMotion",
+  "entryBaseline": "../DirectionalShadowQ0/selected-metrics.json",
+  "productionFilter": "Medium",
+  "productionFilterChanged": true,
+  "target": {
+    "gpu": "NVIDIA GeForce RTX 3090",
+    "driver": "591.86",
+    "vulkanApi": "1.4.325",
+    "configuration": "Win64-Debug-DurinEditor",
+    "captureOutput": [257, 257],
+    "timingOutput": [1920, 1080],
+    "shadowMap": [2048, 2048],
+    "warmupFrames": 30,
+    "measuredFrames": 120
+  },
+  "kernels": [
+    {
+      "name": "L0",
+      "quality": "Low",
+      "numericIdentity": 0,
+      "offsetsPerAxisTexels": [0],
+      "weightsPerAxis": [1],
+      "weightSum": 1,
+      "normalization": "1/1",
+      "comparisonOperations": 1,
+      "effectiveFootprintRadiusTexels": 0.5,
+      "guardTexels": 2
+    },
+    {
+      "name": "M1",
+      "quality": "Medium",
+      "numericIdentity": 1,
+      "offsetsPerAxisTexels": [-1, 0, 1],
+      "weightsPerAxis": [1, 2, 1],
+      "weightSum": 16,
+      "normalization": "1/16",
+      "comparisonOperations": 9,
+      "effectiveFootprintRadiusTexels": 1.5,
+      "guardTexels": 2
+    },
+    {
+      "name": "H1",
+      "quality": "High",
+      "numericIdentity": 2,
+      "offsetsPerAxisTexels": [-2, -1, 0, 1, 2],
+      "weightsPerAxis": [1, 2, 3, 2, 1],
+      "weightSum": 81,
+      "normalization": "1/81",
+      "comparisonOperations": 25,
+      "effectiveFootprintRadiusTexels": 2.5,
+      "guardTexels": 3
+    }
+  ],
+  "sampling": {
+    "offsetSource": "float2(1.0 / width, 1.0 / height) from Texture2D.GetDimensions",
+    "accumulationOrder": "row-major increasing y, then increasing x, float accumulation",
+    "validRegion": "For each tap, the complete half-texel hardware footprint must remain inside the prepared guard-bounded region.",
+    "invalidTapContribution": 1.0,
+    "invalidReceiverContribution": 1.0,
+    "sampler": "linear clamp-to-border opaque-white LessOrEqual comparison",
+    "invalidIdentityFallback": "Low"
+  },
+  "fixtures": [
+    {"name": "q1_edge_staircase_low", "purpose": "17-degree deterministic edge staircase"},
+    {"name": "q1_edge_staircase_shadow_disabled", "purpose": "same-geometry fully lit reference used to isolate shadow attenuation"},
+    {"name": "q1_diagonal_silhouette_low", "purpose": "43-degree diagonal silhouette"},
+    {"name": "q1_thin_caster_low", "purpose": "0.036-world-unit thin caster"},
+    {"name": "q1_masked_cutout_low", "purpose": "Masked four-strip caster with an authored central opening"},
+    {"name": "q1_guard_boundary_low", "purpose": "caster crossing the fitted valid-region boundary"},
+    {"name": "q1_motion_subpixel_00_low", "cameraX": 0.0},
+    {"name": "q1_motion_subpixel_01_low", "cameraX": 0.0001220703125},
+    {"name": "q1_motion_light_01_low", "light": [0.35025, 0.2, -1.0]}
+  ],
+  "metrics": {
+    "channelTolerance": 2,
+    "edgeRoi": [32, 32, 225, 225],
+    "shadowOnlyHighFrequencyFraction": "For D=max(Ldisabled-Lenabled,0) where Ldisabled>=160 and L=(54R+183G+19B)/256, subtract the 193x193 ROI mean, zero-pad to 256x256, apply a deterministic 2D radix-2 DFT, and divide squared-magnitude energy above radial normalized frequency 0.30 by total non-DC energy.",
+    "mediumMaximumEdgeEnergyRatioToLow": 0.85,
+    "highMaximumEdgeEnergyRatioToMedium": 0.90,
+    "transitionWidth": "maximum contiguous pixels with luminance in [48,160) along each ROI row and column",
+    "mediumMaximumTransitionGrowthPixels": 4,
+    "highMaximumTransitionGrowthPixels": 8,
+    "validUnexplainedSeamWidthPixels": 1,
+    "defectiveGapMinimumWidthPixels": 8,
+    "maskedOpaqueEdgeMismatchMaximumPixels": 2,
+    "contactDetachmentMaximumPixels": 3,
+    "planarAcneInteriorCoverageMaximum": 0.0025,
+    "outsideDarkeningMaximumPixels": 0,
+    "motionChangedPixelLimit": 132,
+    "classificationRule": "Defective authored openings remain outside valid-geometry success metrics and must not narrow below the frozen minimum."
+  },
+  "performanceBudgets": {
+    "lowSceneColorMedianNs": 10464,
+    "lowShadowDepthMedianNs": 9248,
+    "lowCombinedIncrementNs": 11776,
+    "mediumMaximumSceneColorIncrementOverLowNs": 200000,
+    "highMaximumSceneColorIncrementOverLowNs": 400000,
+    "shadowDepthRegressionLimitNs": 20000,
+    "logicalBytes": 16777216,
+    "backendBytes": 16777216,
+    "failedFrames": 0
+  },
+  "implementationInventory": {
+    "viewIdentity": ["Engine/Source/Runtime/RenderCore/Public/SceneView.h", "Engine/Source/Runtime/Renderer/Private/Renderers/DirectionalShadowView.h", "Engine/Source/Runtime/Renderer/Private/Renderers/DirectionalShadowView.cpp"],
+    "forwardAbi": ["Engine/Source/Runtime/Renderer/Private/Renderers/ForwardLighting.h", "Engine/Source/Runtime/Renderer/Private/Renderers/ForwardLighting.cpp"],
+    "shaderHelper": ["Engine/Shaders/Slang/Lighting/DirectionalShadow.slang"],
+    "counters": ["Engine/Source/Runtime/Renderer/Private/Renderers/SceneVisibility.h", "Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.cpp"],
+    "reflection": ["Engine/Tests/Native/RenderCoreTests/Private/ShaderReflectionTests.cpp"],
+    "fixtures": ["Engine/Tests/Native/EngineTests/Private/DirectionalShadowBaselineVulkanTests.cpp", "Engine/Tests/Native/EngineTests/Data/DirectionalShadowQ1"]
+  }
+}

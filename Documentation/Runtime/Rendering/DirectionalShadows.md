@@ -1,5 +1,11 @@
 # Directional Shadows
 
+Summary: Defines the selected directional-light shadow map, deterministic PCF tiers, diagnostics, failure fallback, and qualification evidence.
+
+Modules: RenderCore, Renderer, Engine, VulkanRHI
+
+Last reviewed: 2026-08-14
+
 ## Ownership and selection
 
 `FDirectionalShadowRenderer` is a private `FSceneRenderer` feature owner. The
@@ -24,7 +30,10 @@ The fitted `FSceneView` supplies eight zero-to-one Vulkan clip corners. Receiver
 depth is limited to the nearer camera far extent or 256 world units. The
 normalized light direction is the light-space forward axis; world +Z is the
 preferred up reference and world +Y is the parallel fallback. Receiver XY is
-expanded by a two-texel guard and its center is snapped to whole shadow texels.
+expanded by the selected filter's guard and its center is snapped to whole
+shadow texels. Low and Medium use two guard texels; High uses three. The
+expansion is tier-local, so preparing High cannot alter a later Low or Medium
+view.
 The caster volume shares that XY interval and extrudes 256 units opposite light
 travel. Invalid inversion, basis, extents, or matrices disables the shadow.
 
@@ -57,11 +66,33 @@ samplers, material resources,
 geometry bindings, height resources, and palette ranges are prepared before
 the pass begins.
 
-## Forward sampling and failure
+## Filter tiers and forward sampling
 
-The reflected forward-lighting ABI is 448 bytes. Its aligned 128-byte shadow
+`FSceneViewSettings` selects one immutable deterministic filter tier. Medium is
+the production default. Low is numeric zero and remains the invalid-identity,
+resource-failure, and optional-tier fallback.
+
+- Low performs one linearly filtered comparison at offset `(0,0)`, has an
+  effective radius of 0.5 texels, and uses a two-texel guard.
+- Medium performs the Cartesian 3x3 offsets `{-1,0,1}` with per-axis tent
+  weights `[1,2,1]`, nine comparison operations, row-major accumulation, exact
+  `1/16` normalization, a 1.5-texel radius, and a two-texel guard.
+- High performs the Cartesian 5x5 offsets `{-2,-1,0,1,2}` with per-axis weights
+  `[1,2,3,2,1]`, 25 comparison operations, row-major accumulation, exact
+  `1/81` normalization, a 2.5-texel radius, and a three-texel guard. High is
+  available as a bounded tier but is not the default because it fails the
+  frozen motion gate.
+
+Offsets derive at runtime from `Texture2D.GetDimensions`; viewport size,
+nominal resolution constants, and world scale do not determine the sampling
+step. Every hardware-linear tap is accepted only when its complete half-texel
+footprint is valid. Invalid tap weight and an invalid receiver projection
+contribute fully lit output rather than clamping inward.
+
+The reflected forward-lighting ABI is 464 bytes. Its aligned 144-byte shadow
 block contains the world-to-shadow matrix followed by control, texel/bias,
-raster-bias, and light/bounds `float4` values at offsets 64, 80, 96, and 112.
+raster-bias, light/bounds, and filter `float4` values at offsets 64, 80, 96,
+112, and 128.
 C++ size/offset assertions and Slang compilation/reflection tests own this
 packing.
 
@@ -95,6 +126,14 @@ match their Lit references exactly. Per-view counters report selected mode and
 prepared bias fallback/clamp state; exact diagnostic image statistics own
 fragment-level comparison and classification evidence without GPU atomics.
 
+Q1 adds three filter modes. `FilterFootprint` encodes bounded tier identity,
+effective radius, and normalized valid comparison weight. `FilterTapValidity`
+encodes invalid weight in red and valid weight in green. `FilterDifference`
+compares the selected candidate against exact Low in the same fragment: red is
+darker, blue is lighter, and green is unchanged. Only the difference diagnostic
+performs the additional Low comparison; diagnostic-disabled production uses
+only the selected tier's nominal 1, 9, or 25 comparisons.
+
 Target/view/sampler or draw-resource failure disables the feature for that view
 and continues Scene Color unshadowed. Renderer release, device invalidation,
 manual retry, and shader reload use the existing resource coordinator; the
@@ -119,3 +158,30 @@ shadow tier records 7,936 ns disabled Scene Color, 10,464 ns enabled Scene
 Color, 9,248 ns Shadow Depth, and an 11,776 ns combined median increment.
 Classification records 10,528 ns Scene Color, a 64 ns median increment over
 Lit. Logical and backend shadow storage both remain 16,777,216 bytes.
+
+## Q1 qualification
+
+The checked-in `DirectionalShadowQ1` package preserves all Low hashes and adds
+complete Medium/High edge, diagonal, thin-caster, Masked, guard, camera/light
+motion, Q0 correctness-parity, and filter-diagnostic evidence. The shadow-only
+radial high-frequency fractions are 0.018361, 0.015372, and 0.013730 for Low,
+Medium, and High. Medium/Low is 0.837 against a maximum 0.85; High/Medium is
+0.893 against a maximum 0.90. Maximum transition width remains 40 pixels for
+all tiers.
+
+At channel tolerance two, the dedicated Q1 camera/light motion comparisons are
+76/125 pixels for Low, 51/76 for Medium, and 487/563 for High against a
+132-pixel limit. Medium also preserves the Q0 planar-acne output exactly,
+keeps Masked/Opaque controls equal, retains distinct valid/defective geometry,
+and matches the disabled reference. High is therefore rejected by motion even
+though its edge and performance evidence pass.
+
+On the RTX 3090, driver 591.86, Vulkan 1.4.325, 1920x1080 timing fixture with
+30 warm-up and 120 measured frames, Low/Medium/High Scene Color medians are
+11,872/12,640/13,504 ns and Shadow Depth medians are
+9,600/10,240/10,816 ns. Medium adds 768 ns Scene Color over Low against a
+200,000 ns budget; High adds 1,632 ns against 400,000 ns. Shadow Depth
+regressions are 640 and 1,216 ns against 20,000 ns. The Medium filter-difference
+diagnostic adds 1,568 ns over Medium Lit. Logical/backend bytes remain exactly
+16,777,216 and failed frames remain zero. These results select Medium as the
+production default while retaining Low fallback and bounded High availability.

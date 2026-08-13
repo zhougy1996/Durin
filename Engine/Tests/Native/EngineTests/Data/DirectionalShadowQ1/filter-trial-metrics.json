@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "date": "2026-08-14",
+  "metric": "shadowOnlyHighFrequencyFraction",
+  "radialNormalizedFrequencyCutoff": 0.30,
+  "captures": {
+    "shadowDisabled": "9dae114fe1d675583584a4a9a166248b",
+    "low": "15061f4a024de65509e19730e2f23626",
+    "medium": "b92b38288f4fed148f3392d9a7a6c6a0",
+    "high": "b7e73aaacc6bca481306157fb7c5de02"
+  },
+  "highFrequencyFraction": {
+    "low": 0.018361,
+    "medium": 0.015372,
+    "high": 0.013730
+  },
+  "ratios": {
+    "mediumToLow": 0.837,
+    "mediumMaximum": 0.85,
+    "mediumPassed": true,
+    "highToMedium": 0.893,
+    "highMaximum": 0.90,
+    "highPassed": true
+  },
+  "motionChangedPixelsAtTolerance2": {
+    "limit": 132,
+    "low": [76, 125],
+    "medium": [51, 76],
+    "high": [487, 563],
+    "mediumPassed": true,
+    "highPassed": false
+  },
+  "q0LegacyMotionChangedPixelsAtTolerance2": {
+    "low": [22, 18, 58],
+    "medium": [74, 63, 140],
+    "high": [691, 662, 757]
+  },
+  "selection": "Medium is the selected production default after complete correctness and target-GPU qualification. High remains rejected by the independent motion gate; Low remains the invalid-identity and failure fallback."
+}

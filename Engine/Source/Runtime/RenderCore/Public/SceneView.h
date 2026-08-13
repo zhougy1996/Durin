@@ -44,6 +44,18 @@ namespace Durin
 		TexelGrid,
 		BiasContributions,
 		Classification,
+		FilterFootprint,
+		FilterTapValidity,
+		FilterDifference,
+		Count,
+	};
+
+	// Selects one deterministic directional-shadow comparison kernel per view.
+	enum class EDirectionalShadowFilterQuality : uint8
+	{
+		Low,
+		Medium,
+		High,
 		Count,
 	};
 
@@ -59,6 +71,8 @@ namespace Durin
 		bool bShowTerrainLODOverlay = false;
 		EDirectionalShadowDiagnosticMode DirectionalShadowDiagnosticMode =
 			EDirectionalShadowDiagnosticMode::Lit;
+		EDirectionalShadowFilterQuality DirectionalShadowFilterQuality =
+			EDirectionalShadowFilterQuality::Medium;
 	};
 
 	// Supplies one submission-local cube environment without publishing scene state.

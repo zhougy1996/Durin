@@ -251,6 +251,40 @@ namespace Durin
 	}
 
 	TEST(FRendererSceneViewTests,
+		DirectionalShadowFilterTiersHaveExactMetadataAndInvalidFallback)
+	{
+		const FDirectionalShadowFilter Low = PrepareDirectionalShadowFilter(
+			EDirectionalShadowFilterQuality::Low);
+		EXPECT_EQ(Low.Quality, EDirectionalShadowFilterQuality::Low);
+		EXPECT_EQ(Low.ComparisonOperations, 1u);
+		EXPECT_EQ(Low.GuardTexels, 2u);
+		EXPECT_FLOAT_EQ(Low.FootprintRadiusTexels, 0.5f);
+		EXPECT_FALSE(Low.bUsedInvalidQualityFallback);
+
+		const FDirectionalShadowFilter Medium = PrepareDirectionalShadowFilter(
+			EDirectionalShadowFilterQuality::Medium);
+		EXPECT_EQ(Medium.Quality, EDirectionalShadowFilterQuality::Medium);
+		EXPECT_EQ(Medium.ComparisonOperations, 9u);
+		EXPECT_EQ(Medium.GuardTexels, 2u);
+		EXPECT_FLOAT_EQ(Medium.FootprintRadiusTexels, 1.5f);
+
+		const FDirectionalShadowFilter High = PrepareDirectionalShadowFilter(
+			EDirectionalShadowFilterQuality::High);
+		EXPECT_EQ(High.Quality, EDirectionalShadowFilterQuality::High);
+		EXPECT_EQ(High.ComparisonOperations, 25u);
+		EXPECT_EQ(High.GuardTexels, 3u);
+		EXPECT_FLOAT_EQ(High.FootprintRadiusTexels, 2.5f);
+
+		const FDirectionalShadowFilter Invalid = PrepareDirectionalShadowFilter(
+			static_cast<EDirectionalShadowFilterQuality>(255));
+		EXPECT_EQ(Invalid.Quality, EDirectionalShadowFilterQuality::Low);
+		EXPECT_EQ(Invalid.ComparisonOperations, 1u);
+		EXPECT_EQ(Invalid.GuardTexels, 2u);
+		EXPECT_FLOAT_EQ(Invalid.FootprintRadiusTexels, 0.5f);
+		EXPECT_TRUE(Invalid.bUsedInvalidQualityFallback);
+	}
+
+	TEST(FRendererSceneViewTests,
 		ForwardLightingPublishesShadowOnlyForMatchingSelectedLight)
 	{
 		FSceneView View;
@@ -272,6 +306,14 @@ namespace Durin
 		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Control.x, 1.0f);
 		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.TexelBias.z,
 			Shadow.Bias.ReceiverWorld);
+		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Filter.x,
+			1.0f / static_cast<float>(DirectionalShadowResolution));
+		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Filter.y,
+			1.0f / static_cast<float>(DirectionalShadowResolution));
+		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Filter.z,
+			static_cast<float>(EDirectionalShadowFilterQuality::Medium));
+		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Filter.w, 1.5f);
+		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.LightBounds.w, 2.0f);
 
 		Shadow.LightId = FLightSceneId(5);
 		const FForwardLightingUniform Mismatch = BuildForwardLightingUniform(
@@ -381,6 +423,42 @@ namespace Durin
 			View, FLightSceneId(1), Light, Invalid));
 		EXPECT_EQ(Invalid.DiagnosticMode,
 			EDirectionalShadowDiagnosticMode::Lit);
+	}
+
+	TEST(FRendererSceneViewTests,
+		DirectionalShadowFilterIdentityIsPreparedAndIsolatedPerView)
+	{
+		FSceneView View;
+		View.ProjectionMatrix = MakeOrthographicProjection(2.0, 1.0, 1.0, 11.0);
+		View.ViewProjectionMatrix = View.ProjectionMatrix;
+		View.ViewportWidth = 64;
+		View.ViewportHeight = 64;
+		FDirectionalLightSceneData Light;
+		Light.Direction = {0.0, 0.0, -1.0};
+
+		View.Settings.DirectionalShadowFilterQuality =
+			EDirectionalShadowFilterQuality::High;
+		FPreparedDirectionalShadowView High;
+		ASSERT_TRUE(TryPrepareDirectionalShadowView(
+			View, FLightSceneId(1), Light, High));
+		View.Settings.DirectionalShadowFilterQuality =
+			EDirectionalShadowFilterQuality::Low;
+		FPreparedDirectionalShadowView Low;
+		ASSERT_TRUE(TryPrepareDirectionalShadowView(
+			View, FLightSceneId(1), Light, Low));
+		View.Settings.DirectionalShadowFilterQuality =
+			static_cast<EDirectionalShadowFilterQuality>(255);
+		FPreparedDirectionalShadowView Invalid;
+		ASSERT_TRUE(TryPrepareDirectionalShadowView(
+			View, FLightSceneId(1), Light, Invalid));
+
+		EXPECT_EQ(High.Filter.Quality, EDirectionalShadowFilterQuality::High);
+		EXPECT_EQ(High.Filter.GuardTexels, 3u);
+		EXPECT_EQ(Low.Filter.Quality, EDirectionalShadowFilterQuality::Low);
+		EXPECT_EQ(Low.Filter.GuardTexels, 2u);
+		EXPECT_EQ(Invalid.Filter.Quality, EDirectionalShadowFilterQuality::Low);
+		EXPECT_TRUE(Invalid.Filter.bUsedInvalidQualityFallback);
+		EXPECT_NE(High.TexelWorldSize, Low.TexelWorldSize);
 	}
 
 	TEST(FRendererSceneViewTests, FrustumGoldensKeepContactAndRejectOnlyFullyOutsideBounds)

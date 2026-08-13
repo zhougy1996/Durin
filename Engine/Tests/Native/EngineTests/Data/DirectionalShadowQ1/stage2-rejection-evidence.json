@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "date": "2026-08-13",
+  "status": "superseded-by-shadow-only-frequency-metric",
+  "target": {
+    "gpu": "NVIDIA GeForce RTX 3090",
+    "driver": "591.86",
+    "vulkanApi": "1.4.325",
+    "captureOutput": [257, 257],
+    "shadowMap": [2048, 2048]
+  },
+  "implementation": {
+    "medium": "Exact M1 3x3 tent, row-major, 9 SampleCmpLevelZero operations, normalization 1/16",
+    "high": "Exact H1 5x5 tent, row-major, 25 SampleCmpLevelZero operations, normalization 1/81",
+    "invalidTapContribution": 1.0,
+    "retainedInProduction": false,
+    "productionFilterAfterRun": "Low"
+  },
+  "edgeStaircase": {
+    "low": {
+      "xxh128": "15061f4a024de65509e19730e2f23626",
+      "highFrequencyEnergy": 44246,
+      "transitionWidthPixels": 40
+    },
+    "medium": {
+      "xxh128": "b92b38288f4fed148f3392d9a7a6c6a0",
+      "highFrequencyEnergy": 42794,
+      "ratioToLow": 0.967183,
+      "requiredMaximumRatioToLow": 0.85,
+      "transitionWidthPixels": 40,
+      "accepted": false
+    },
+    "high": {
+      "xxh128": "b7e73aaacc6bca481306157fb7c5de02",
+      "highFrequencyEnergy": 61128,
+      "ratioToMedium": 1.428425,
+      "requiredMaximumRatioToMedium": 0.90,
+      "transitionWidthPixels": 40,
+      "accepted": false
+    }
+  },
+  "motionChangedPixelsAtTolerance2": {
+    "limit": 132,
+    "low": [76, 125],
+    "medium": [51, 76],
+    "high": [487, 563]
+  },
+  "supersededReason": "The raw horizontal second-difference HFE mixed visible caster geometry, shadow strength, edge orientation, and filter quality. The revised contract isolates shadow attenuation with a disabled-shadow reference and measures normalized two-dimensional high-frequency spectral energy.",
+  "replacementEvidence": "filter-trial-metrics.json"
+}
