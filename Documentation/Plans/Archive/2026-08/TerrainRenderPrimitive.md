@@ -4,7 +4,7 @@ Summary: Add a finite single-LOD terrain Actor/Component and Renderer primitive 
 
 Last reviewed: 2026-08-12
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-12
 
 ## Current Status
@@ -31,7 +31,7 @@ Focused evidence passes `TerrainRenderPrimitiveTests` (5),
 `TerrainHeightmapCookTests` (1), `RenderShaderContractTests` (29),
 `RendererSceneContractTests` (11), `EditorRenderingTests` (40), and
 `EditorAssetWorkflowTests` (80 passed, one skipped). Lasting behavior is in
-[Terrain Rendering](../Runtime/Rendering/TerrainRendering.md). The full `all`
+[Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md). The full `all`
 build, validation-enabled editor smoke, plan/roadmap validators, and diff check
 pass from the same Win64 Debug DurinEditor profile. T1 is complete; T3 receives
 the measured 1025x1025 single-LOD baseline and the rejected 4097x4097 evidence.
@@ -461,15 +461,15 @@ patch costs required by T3. It does not solve scalable LOD or crack control.
 
 ## Related Documentation
 
-- [Heightfield Terrain Roadmap](../Roadmaps/HeightfieldTerrain.md)
-- [Terrain Heightmap Asset](../Runtime/Terrain/TerrainHeightmapAsset.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Renderer Scene Representation](../Runtime/Rendering/SceneRepresentation.md)
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md)
-- [Rendering Capability Expansion](../Roadmaps/RenderingCapabilityExpansion.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Heightfield Terrain Roadmap](../../../Roadmaps/HeightfieldTerrain.md)
+- [Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [Rendering Capability Expansion](../../../Roadmaps/Archive/2026-08/RenderingCapabilityExpansion.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

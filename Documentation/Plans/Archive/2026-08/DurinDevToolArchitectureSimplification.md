@@ -4,7 +4,7 @@ Summary: Remove implicit repository state, compatibility facades, duplicated pro
 
 Last reviewed: 2026-08-13
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-13
 
 ## Current Status

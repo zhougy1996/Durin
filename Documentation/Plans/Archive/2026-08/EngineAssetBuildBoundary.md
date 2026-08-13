@@ -4,7 +4,7 @@ Summary: Standardize authored assets, build keys, DDC values, and cooked data on
 
 Last reviewed: 2026-08-13
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-13
 
 ## Current Status
@@ -1021,14 +1021,14 @@ not module count or API compatibility:
 
 ## Related Documentation
 
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Runtime Variants](../Development/Build/RuntimeVariants.md)
-- [Build System](../Development/Build/BuildSystem.md)
-- [Native Tests](../Development/Build/NativeTests.md)
-- [Code Modules](../Workspace/CodeModules.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Runtime Variants](../../../Development/Build/RuntimeVariants.md)
+- [Build System](../../../Development/Build/BuildSystem.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
 
 ## Related Code
 

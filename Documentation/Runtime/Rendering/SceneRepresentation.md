@@ -135,4 +135,4 @@ does not expose `FScene`, SceneInfo, prepared views, or render-thread state.
 - [Cube Textures](CubeTextures.md)
 - [Asset Thumbnails](../../Editor/Architecture/AssetThumbnails.md)
 - [RHI Command Execution](RHICommandExecution.md)
-- [Rendering Capability Expansion Roadmap](../../Roadmaps/RenderingCapabilityExpansion.md)
+- [Rendering Capability Expansion Roadmap](../../Roadmaps/Archive/2026-08/RenderingCapabilityExpansion.md)

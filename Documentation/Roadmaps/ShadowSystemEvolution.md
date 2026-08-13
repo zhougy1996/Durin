@@ -10,7 +10,7 @@ Completed:
 ## Current Status
 
 The completed
-[Directional Shadow Pipeline Plan](../Plans/DirectionalShadowPipeline.md)
+[Directional Shadow Pipeline Plan](../Plans/Archive/2026-08/DirectionalShadowPipeline.md)
 established the first production shadow path. The selected directional light
 renders Opaque and Masked StaticMesh, SplineMesh, SkeletalMesh, and Terrain
 casters into one reusable 2048x2048 D32 map, and the shared forward-lighting
@@ -332,9 +332,9 @@ selected only from qualified tiers.
 
 ## Related Documentation
 
-- [Directional Shadow Pipeline Plan](../Plans/DirectionalShadowPipeline.md)
+- [Directional Shadow Pipeline Plan](../Plans/Archive/2026-08/DirectionalShadowPipeline.md)
 - [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md)
-- [Rendering Capability Expansion Roadmap](RenderingCapabilityExpansion.md)
+- [Rendering Capability Expansion Roadmap](Archive/2026-08/RenderingCapabilityExpansion.md)
 - [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
 - [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
 - [Skeletal Mesh Rendering](../Runtime/Rendering/SkeletalMeshRendering.md)

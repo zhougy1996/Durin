@@ -866,7 +866,7 @@ Dependencies: Stages 0-4.
 ## Related Documentation
 
 - [Skeletal Mesh and Animation Roadmap](../../../Roadmaps/Archive/2026-08/SkeletalMeshAndAnimation.md)
-- [Rendering Capability Expansion Roadmap](../../../Roadmaps/RenderingCapabilityExpansion.md)
+- [Rendering Capability Expansion Roadmap](../../../Roadmaps/Archive/2026-08/RenderingCapabilityExpansion.md)
 - [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
 - [Mounted Source Workflows](../../../Editor/Guides/MountedSourceWorkflows.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)

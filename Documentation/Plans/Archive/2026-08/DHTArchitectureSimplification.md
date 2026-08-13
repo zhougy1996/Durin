@@ -4,7 +4,7 @@ Summary: Reduce DurinHeaderTool's code and state surface by deleting obsolete ge
 
 Last reviewed: 2026-08-13
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-13
 
 ## Current Status
@@ -487,13 +487,13 @@ Dependencies: Stages 1-4 and every focused acceptance gate.
 
 ## Related Documentation
 
-- [Generated Reflection System](../Runtime/Core/ReflectionSystem.md)
-- [Build System](../Development/Build/BuildSystem.md)
-- [Workspace And Projects](../Workspace/WorkspaceProjects.md)
-- [DHT And Ninja Parallelism Coordination](../Investigations/DHTNinjaParallelismCoordination.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Agent build and run workflow](../Agents/BuildAndRun.md)
-- [Agent testing workflow](../Agents/Testing.md)
+- [Generated Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Build System](../../../Development/Build/BuildSystem.md)
+- [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)
+- [DHT And Ninja Parallelism Coordination](../../../Investigations/DHTNinjaParallelismCoordination.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Agent build and run workflow](../../../Agents/BuildAndRun.md)
+- [Agent testing workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

@@ -4,7 +4,7 @@ Summary: Add a dedicated lossless 16-bit heightmap asset with transactional impo
 
 Last reviewed: 2026-08-12
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-12
 
 ## Current Status
@@ -17,8 +17,8 @@ load, source-reference integration, bounded reflected inspection, and a
 Content Browser import action.
 
 The lasting contract is
-[Terrain Heightmap Asset](../Runtime/Terrain/TerrainHeightmapAsset.md). The
-[Heightfield Terrain Roadmap](../Roadmaps/HeightfieldTerrain.md) records T0 as
+[Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md). The
+[Heightfield Terrain Roadmap](../../../Roadmaps/HeightfieldTerrain.md) records T0 as
 complete and makes T1/T2 ready for plan selection.
 
 ## Goal
@@ -428,15 +428,15 @@ inventing their own height authority.
 
 ## Related Documentation
 
-- [Heightfield Terrain Roadmap](../Roadmaps/HeightfieldTerrain.md)
-- [Texture System](../Runtime/Rendering/TextureSystem.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Versioning](../Runtime/Assets/Versioning.md)
-- [CPU Task System](../Runtime/Core/TaskSystem.md)
-- [Rendering Capability Expansion](../Roadmaps/RenderingCapabilityExpansion.md)
-- [Aether Physics Evolution](../Roadmaps/AetherPhysicsEvolution.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Heightfield Terrain Roadmap](../../../Roadmaps/HeightfieldTerrain.md)
+- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Versioning](../../../Runtime/Assets/Versioning.md)
+- [CPU Task System](../../../Runtime/Core/TaskSystem.md)
+- [Rendering Capability Expansion](../../../Roadmaps/Archive/2026-08/RenderingCapabilityExpansion.md)
+- [Aether Physics Evolution](../../../Roadmaps/AetherPhysicsEvolution.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

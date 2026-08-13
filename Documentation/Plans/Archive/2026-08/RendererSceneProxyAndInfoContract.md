@@ -442,7 +442,7 @@ ownership out of the existing feature renderers.
 
 ## Related Documentation
 
-- [Rendering Capability Expansion Roadmap](../../../Roadmaps/RenderingCapabilityExpansion.md)
+- [Rendering Capability Expansion Roadmap](../../../Roadmaps/Archive/2026-08/RenderingCapabilityExpansion.md)
 - [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
 - [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
 - [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)

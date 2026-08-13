@@ -4,7 +4,7 @@ Summary: Add renderer-owned directional, point, and spot light families with det
 
 Last reviewed: 2026-08-12
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-12
 
 ## Current Status
@@ -236,7 +236,7 @@ reworking light ownership or view preparation.
 - Mixed-light image evidence: `SkeletalMeshRenderResourcesVulkanTests` renders
   the same Lit geometry with zero lights and with one directional, one point,
   and one spot light; readbacks differ and selected-family counters are 1/1/1.
-- Lasting contract: [Forward Lighting](../Runtime/Rendering/ForwardLighting.md).
+- Lasting contract: [Forward Lighting](../../../Runtime/Rendering/ForwardLighting.md).
 
 ### Stage 0: Freeze light data, budgets, falloff, and baselines
 
@@ -464,17 +464,17 @@ reworking light ownership or view preparation.
 
 ## Related Documentation
 
-- [Rendering Capability Expansion Roadmap](../Roadmaps/RenderingCapabilityExpansion.md)
-- [Renderer Scene Representation](../Runtime/Rendering/SceneRepresentation.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Skeletal Mesh Rendering](../Runtime/Rendering/SkeletalMeshRendering.md)
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md)
-- [Renderer Scene Proxy and Info Contract Plan](Archive/2026-08/RendererSceneProxyAndInfoContract.md)
-- [Per-View Visibility and LOD Plan](Archive/2026-08/PerViewVisibilityAndLOD.md)
-- [Skeletal Mesh Rendering Plan](Archive/2026-08/SkeletalMeshRendering.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Rendering Capability Expansion Roadmap](../../../Roadmaps/Archive/2026-08/RenderingCapabilityExpansion.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [Renderer Scene Proxy and Info Contract Plan](RendererSceneProxyAndInfoContract.md)
+- [Per-View Visibility and LOD Plan](PerViewVisibilityAndLOD.md)
+- [Skeletal Mesh Rendering Plan](SkeletalMeshRendering.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

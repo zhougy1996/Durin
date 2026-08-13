@@ -4,7 +4,7 @@ Summary: Reduce Runtime Engine code, public surface, and authoring leakage while
 
 Last reviewed: 2026-08-13
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-13
 
 ## Current Status
@@ -820,18 +820,18 @@ test-count snapshot in this plan.
 
 ## Related Documentation
 
-- [Code Modules](../Workspace/CodeModules.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
 - [Engine Asset Serialization and Build Boundary Plan](EngineAssetBuildBoundary.md)
 - [Developer Asset Build Modularization Plan](DeveloperAssetBuildModularization.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [Cube Textures](../Runtime/Rendering/CubeTextures.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Terrain Heightmap Asset](../Runtime/Terrain/TerrainHeightmapAsset.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [Native C++ Tests](../Development/Build/NativeTests.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Cube Textures](../../../Runtime/Rendering/CubeTextures.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [Native C++ Tests](../../../Development/Build/NativeTests.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 

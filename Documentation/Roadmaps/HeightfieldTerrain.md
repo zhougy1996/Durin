@@ -289,7 +289,7 @@ It consumes rather than redefines asset, Renderer, and Aether contracts.
 
 ## Related Documentation
 
-- [Rendering Capability Expansion](RenderingCapabilityExpansion.md)
+- [Rendering Capability Expansion](Archive/2026-08/RenderingCapabilityExpansion.md)
 - [Aether Physics Evolution](AetherPhysicsEvolution.md)
 - [Texture System](../Runtime/Rendering/TextureSystem.md)
 - [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)

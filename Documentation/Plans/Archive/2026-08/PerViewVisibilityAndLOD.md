@@ -10,7 +10,7 @@ Completed: 2026-08-09
 ## Current Status
 
 This plan completed M3 for the
-[Rendering Capability Expansion Roadmap](../../../Roadmaps/RenderingCapabilityExpansion.md).
+[Rendering Capability Expansion Roadmap](../../../Roadmaps/Archive/2026-08/RenderingCapabilityExpansion.md).
 All stages are complete. Stage 6 started from
 `8027ccf99bc0e8241e5ca564cd9656129041c856`. M1 supplies
 detached primitive identity, transform, bounds, visibility, and typed scene
@@ -1020,7 +1020,7 @@ submission, and authored threshold UX already listed below.
 
 ## Related Documentation
 
-- [Rendering Capability Expansion Roadmap](../../../Roadmaps/RenderingCapabilityExpansion.md)
+- [Rendering Capability Expansion Roadmap](../../../Roadmaps/Archive/2026-08/RenderingCapabilityExpansion.md)
 - [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
 - [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
 - [Material System](../../../Runtime/Rendering/MaterialSystem.md)

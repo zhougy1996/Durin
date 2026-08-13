@@ -39,7 +39,7 @@ preview/playback through the production component, reference-pose SkeletalMesh
 thumbnails, and Debug Editor/Shipping Game qualification.
 
 Skeletal rendering is also the default second production primitive in the
-[Rendering Capability Expansion Roadmap](../../RenderingCapabilityExpansion.md).
+[Rendering Capability Expansion Roadmap](RenderingCapabilityExpansion.md).
 That roadmap owns the shared scene, pass, visibility, material, and shadow
 contracts. This roadmap owns skeletal data, pose, playback, and product
 behavior. The completed skeletal-rendering plan is one shared child of both
@@ -323,7 +323,7 @@ contract.
 - [Skeletal Asset and Import Foundation Plan](../../../Plans/Archive/2026-08/SkeletalAssetAndImportFoundation.md)
 - [Skeletal Mesh Rendering Plan](../../../Plans/Archive/2026-08/SkeletalMeshRendering.md)
 - [Skeletal Editor Workflow and Production Qualification Plan](../../../Plans/Archive/2026-08/SkeletalEditorWorkflowAndProductionQualification.md)
-- [Rendering Capability Expansion Roadmap](../../RenderingCapabilityExpansion.md)
+- [Rendering Capability Expansion Roadmap](RenderingCapabilityExpansion.md)
 - [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)

@@ -642,7 +642,7 @@ Dependencies: Stages 0-5 and their handoffs.
 
 ## Related Documentation
 
-- [Rendering Capability Expansion Roadmap](../../../Roadmaps/RenderingCapabilityExpansion.md)
+- [Rendering Capability Expansion Roadmap](../../../Roadmaps/Archive/2026-08/RenderingCapabilityExpansion.md)
 - [Skeletal Mesh and Animation Roadmap](../../../Roadmaps/Archive/2026-08/SkeletalMeshAndAnimation.md)
 - [Skeletal Asset and Import Foundation](SkeletalAssetAndImportFoundation.md)
 - [Skeletal Runtime Pose and Playback](SkeletalRuntimePoseAndPlayback.md)

@@ -4,7 +4,7 @@ Summary: Add structured native-test metadata and focused set selection, then mig
 
 Last reviewed: 2026-08-12
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-12
 
 ## Current Status
@@ -696,9 +696,9 @@ After the plan:
 
 ## Related Documentation
 
-- [Native C++ Tests](../Development/Build/NativeTests.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Code Modules](../Workspace/CodeModules.md)
+- [Native C++ Tests](../../../Development/Build/NativeTests.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
 - [Viewport Presentation Decoupling](ViewportPresentationDecoupling.md)
 
 ## Related Code

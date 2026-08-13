@@ -4,13 +4,13 @@ Summary: Add one bounded directional shadow-depth pass and forward-lighting samp
 
 Last reviewed: 2026-08-13
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-13
 
 ## Current Status
 
 Stages 0-6 and this plan are complete. M2 through M5 of the
-[Rendering Capability Expansion Roadmap](../Roadmaps/RenderingCapabilityExpansion.md)
+[Rendering Capability Expansion Roadmap](../../../Roadmaps/Archive/2026-08/RenderingCapabilityExpansion.md)
 are stable, the production renderer already prepares deterministic view-local
 geometry and one selected directional light, and the RHI exposes D32 depth
 targets, sampled texture views, comparison samplers, depth bias, and explicit
@@ -93,7 +93,7 @@ both 16,777,216 bytes. Focused RHI, shader ABI, scene/view, light, material,
 StaticMesh/SplineMesh, SkeletalMesh, Terrain, resource reload, Cook, and Vulkan
 tests passed; the 53-target `fast-all` set, Debug `all`, Shipping DurinGame
 `all`, all-plan validation, and the final editor smoke passed. Lasting behavior
-is documented in [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md).
+is documented in [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md).
 
 ## Goal
 
@@ -588,18 +588,18 @@ lighting result without a whole-device idle wait.
 
 ## Related Documentation
 
-- [Rendering Capability Expansion Roadmap](../Roadmaps/RenderingCapabilityExpansion.md)
-- [Forward Lighting](../Runtime/Rendering/ForwardLighting.md)
-- [Renderer Scene Representation](../Runtime/Rendering/SceneRepresentation.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Skeletal Mesh Rendering](../Runtime/Rendering/SkeletalMeshRendering.md)
-- [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md)
+- [Rendering Capability Expansion Roadmap](../../../Roadmaps/Archive/2026-08/RenderingCapabilityExpansion.md)
+- [Forward Lighting](../../../Runtime/Rendering/ForwardLighting.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
+- [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
 - [Renderer Light Scene Contract Plan](RendererLightSceneContract.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

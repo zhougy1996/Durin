@@ -394,7 +394,7 @@ gated extension of the semantic token payload.
 - [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
 - [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
 - [Skeletal Animation Playback](../../../Runtime/Animation/SkeletalAnimationPlayback.md)
-- [Rendering Capability Expansion Roadmap](../../RenderingCapabilityExpansion.md)
+- [Rendering Capability Expansion Roadmap](RenderingCapabilityExpansion.md)
 - [RHI and Vulkan Backend Evolution Roadmap](RHIAndVulkanEvolution.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 

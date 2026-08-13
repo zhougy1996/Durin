@@ -4,7 +4,7 @@ Summary: Decouple Engine scene-view production from Mona widget presentation thr
 
 Last reviewed: 2026-08-12
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-12
 
 ## Current Status
@@ -398,11 +398,11 @@ After the plan:
 
 ## Related Documentation
 
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Native Tests](../Development/Build/NativeTests.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code
 

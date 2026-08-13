@@ -4,7 +4,7 @@ Summary: Split Engine asset production into target-selected Developer infrastruc
 
 Last reviewed: 2026-08-13
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-13
 
 ## Current Status
@@ -845,15 +845,15 @@ selection, lifecycle and exportability rules are recorded in the owning docs.
 ## Related Documentation
 
 - [Engine Asset Serialization and Build Boundary Plan](EngineAssetBuildBoundary.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Workspace and Projects](../Workspace/WorkspaceProjects.md)
-- [Build System](../Development/Build/BuildSystem.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Runtime Variants](../Development/Build/RuntimeVariants.md)
-- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [CPU Task System](../Runtime/Core/TaskSystem.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Workspace and Projects](../../../Workspace/WorkspaceProjects.md)
+- [Build System](../../../Development/Build/BuildSystem.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Runtime Variants](../../../Development/Build/RuntimeVariants.md)
+- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [CPU Task System](../../../Runtime/Core/TaskSystem.md)
 
 ## Related Code
 

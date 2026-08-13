@@ -4,7 +4,7 @@ Summary: Add a production single-segment SplineMesh primitive and a reusable nat
 
 Last reviewed: 2026-08-12
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-12
 
 ## Current Status
@@ -629,21 +629,21 @@ manual component management.
 ## Related Documentation
 
 - [Stage 0 Handoff](SplineMeshAndNativeConstructionStage0.md)
-- [Spline System](../Runtime/World/SplineSystem.md)
-- [Level System](../Runtime/World/LevelSystem.md)
-- [Tick Scheduling](../Runtime/World/TickScheduling.md)
-- [Renderer Scene Representation](../Runtime/Rendering/SceneRepresentation.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [Runtime Collision](../Runtime/Physics/Collision.md)
-- [Viewport Editing Architecture](../Editor/Architecture/ViewportEditing.md)
-- [Reflected Property Editing](../Editor/Architecture/ReflectedPropertyEditing.md)
-- [Scene Viewport Navigation](../Editor/Guides/SceneViewportNavigation.md)
+- [Spline System](../../../Runtime/World/SplineSystem.md)
+- [Level System](../../../Runtime/World/LevelSystem.md)
+- [Tick Scheduling](../../../Runtime/World/TickScheduling.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Runtime Collision](../../../Runtime/Physics/Collision.md)
+- [Viewport Editing Architecture](../../../Editor/Architecture/ViewportEditing.md)
+- [Reflected Property Editing](../../../Editor/Architecture/ReflectedPropertyEditing.md)
+- [Scene Viewport Navigation](../../../Editor/Guides/SceneViewportNavigation.md)
 - [Renderer Light Scene Contract Plan](RendererLightSceneContract.md)
-- [Compute Renderer Integration Plan](ComputeRendererIntegration.md)
-- [Spline V2 and Viewport Editing Plan](Archive/2026-08/SplineV2AndViewportEditing.md)
-- [Actor Component System Plan](Archive/2026-07/ActorComponentSystem.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Compute Renderer Integration Plan](../../ComputeRendererIntegration.md)
+- [Spline V2 and Viewport Editing Plan](SplineV2AndViewportEditing.md)
+- [Actor Component System Plan](../2026-07/ActorComponentSystem.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

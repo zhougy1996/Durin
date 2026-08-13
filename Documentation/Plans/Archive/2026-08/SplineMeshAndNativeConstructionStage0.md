@@ -4,7 +4,7 @@ Summary: Freeze the implementation choices, affected ownership surfaces, referen
 
 Last reviewed: 2026-08-12
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-12
 
 ## Current Status

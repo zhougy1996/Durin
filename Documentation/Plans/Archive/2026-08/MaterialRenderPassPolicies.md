@@ -10,7 +10,7 @@ Completed: 2026-08-08
 ## Current Status
 
 This completed plan delivered M2 of the
-[Rendering Capability Expansion Roadmap](../../../Roadmaps/RenderingCapabilityExpansion.md)
+[Rendering Capability Expansion Roadmap](../../../Roadmaps/Archive/2026-08/RenderingCapabilityExpansion.md)
 and Material System milestone 4. Every accepted StaticMesh LOD 0 section now
 resolves once per view into command-local Opaque, Masked, or Translucent work
 with complete material, shader, graphics-state, and finite sort facts.
@@ -647,7 +647,7 @@ focused target failed. Open questions: none.
 
 ## Related Documentation
 
-- [Rendering Capability Expansion Roadmap](../../../Roadmaps/RenderingCapabilityExpansion.md)
+- [Rendering Capability Expansion Roadmap](../../../Roadmaps/Archive/2026-08/RenderingCapabilityExpansion.md)
 - [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
 - [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
 - [Material System](../../../Runtime/Rendering/MaterialSystem.md)

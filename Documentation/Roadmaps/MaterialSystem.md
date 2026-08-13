@@ -44,7 +44,7 @@ baseline.
 Milestones 2 through 4 are complete. The pass execution contract is recorded in
 [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md); M3
 visibility/LOD and M6 shadow-depth work extend it through the
-[Rendering Capability Expansion Roadmap](RenderingCapabilityExpansion.md).
+[Rendering Capability Expansion Roadmap](Archive/2026-08/RenderingCapabilityExpansion.md).
 
 ## Completed Foundations
 
@@ -178,7 +178,7 @@ owned by the texture roadmap and plans rather than this milestone.
   until a second module has a concrete feature-registration requirement.
 - Opaque, masked, and translucent pass execution, visibility preparation, and
   the second production primitive-family proof are coordinated by the
-  [Rendering Capability Expansion Roadmap](RenderingCapabilityExpansion.md).
+  [Rendering Capability Expansion Roadmap](Archive/2026-08/RenderingCapabilityExpansion.md).
   This roadmap continues to own material asset schema, static identity, and
   compilation sequencing.
 
