@@ -48,6 +48,13 @@ research in ignored `Documentation/Local/` or outside the repository.
 - Prefer links to the authoritative topic document over duplicated guidance.
 - Update direct links when documents move. Keep indexes local; do not create a
   master file catalog.
+- Active and completed documents require valid local links. Archived plans and
+  roadmaps are historical evidence: an explicit archive-inclusive audit reports
+  local targets removed by later repository evolution as warnings. Archive
+  transactions compare diagnostics before and after the move, tolerate those
+  pre-existing warnings, and roll back when they introduce a new diagnostic or
+  leave any error. Keep historical source locations as code-formatted paths
+  rather than live links when they are not expected to follow the current tree.
 - Start implemented Runtime and Editor contract documents with a concise
   `Summary:` line. Add a comma-separated `Modules:` line when source ownership
   is bounded; use registered module names and omit the field for genuinely

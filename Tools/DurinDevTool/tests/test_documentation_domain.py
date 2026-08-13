@@ -204,6 +204,44 @@ class TestArchive:
         assert self.reference.read_text(encoding='utf-8') == '[Feature](Documentation/Plans/Archive/2026-07/Feature.md)\n'
         assert load_catalog(self.plans).errors == ()
 
+    def test_existing_archived_missing_link_does_not_block_apply(self) -> None:
+        old_archive = self.plans / 'Archive' / '2026-06'
+        old_archive.mkdir(parents=True)
+        (old_archive / 'Old.md').write_text(
+            PLAN_TEMPLATE.format(
+                title='Old',
+                summary='Historical plan.',
+                status='Archived',
+                completed=' 2026-06-20',
+            ) + '\n[Removed source](../../../../Source/Removed.cpp)\n',
+            encoding='utf-8',
+        )
+
+        apply_archive(self.plans, '2026-07')
+
+        assert not self.plan.exists()
+        assert (
+            self.plans / 'Archive' / '2026-07' / 'Feature.md'
+        ).exists()
+
+    def test_new_missing_link_in_archived_plan_rolls_back(self) -> None:
+        self.plan.write_text(
+            self.plan.read_text(encoding='utf-8')
+            + '\n[Missing source](../../Source/Missing.cpp)\n',
+            encoding='utf-8',
+        )
+
+        with pytest.raises(
+            archive_module.ArchiveError,
+            match='documentation validation regressed after archive',
+        ):
+            apply_archive(self.plans, '2026-07')
+
+        assert self.plan.exists()
+        assert not (
+            self.plans / 'Archive' / '2026-07' / 'Feature.md'
+        ).exists()
+
     def test_apply_rolls_back_every_file_when_a_write_fails(self) -> None:
         original_write = changes_module.atomic_write
         calls = 0
@@ -670,6 +708,37 @@ class TestOrdinaryDocumentation:
         assert result == 1
         assert '"code": "doc.link.missing"' in output.getvalue()
         assert '"line": 3' in output.getvalue()
+
+    def test_archive_missing_link_is_an_audit_warning(self) -> None:
+        archive = self.documentation / 'Plans' / 'Archive' / '2026-07'
+        archive.mkdir(parents=True)
+        (archive / 'Historical.md').write_text(
+            PLAN_TEMPLATE.format(
+                title='Historical',
+                summary='Historical evidence.',
+                status='Archived',
+                completed=' 2026-07-20',
+            ) + '\n[Removed source](../../../../Source/Removed.cpp)\n',
+            encoding='utf-8',
+        )
+        output = io.StringIO()
+
+        result = cli.run(
+            [
+                'doc',
+                'validate',
+                '--include-archive',
+                '--format',
+                'json',
+            ],
+            repository_root=self.repository,
+            stdout=output,
+            stderr=io.StringIO(),
+        )
+
+        assert result == 0
+        assert '"code": "doc.link.missing"' in output.getvalue()
+        assert '"severity": "warning"' in output.getvalue()
 
     def test_create_is_preview_only_until_apply(self) -> None:
         path = self.documentation / 'Runtime' / 'Created.md'

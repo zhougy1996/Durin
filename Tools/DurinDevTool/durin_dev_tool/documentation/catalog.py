@@ -340,6 +340,12 @@ def validate_documents(
         )
 
     for document in selected:
+        path_parts = document.ref.path.parts
+        archived_document = (
+            len(path_parts) > 2
+            and path_parts[1:3]
+            in {("Plans", "Archive"), ("Roadmaps", "Archive")}
+        )
         for link in document.links:
             if link.external or link.target.startswith("#"):
                 continue
@@ -360,7 +366,11 @@ def validate_documents(
                 diagnostics.append(
                     Diagnostic(
                         code="doc.link.missing",
-                        severity=DiagnosticSeverity.ERROR,
+                        severity=(
+                            DiagnosticSeverity.WARNING
+                            if archived_document
+                            else DiagnosticSeverity.ERROR
+                        ),
                         message="referenced local path does not exist",
                         path=document.ref.path,
                         line=link.line,

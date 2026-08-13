@@ -20,7 +20,7 @@ from .changes import (
     rewrite_repository_paths as _rewrite_repository_paths,
 )
 from .catalog import load_document_catalog, validate_documents
-from .model import DiagnosticSeverity
+from .model import Diagnostic, DiagnosticSeverity
 from .lifecycle import LifecycleConfig, LifecycleWorkspace, PLAN_LIFECYCLE, ROADMAP_LIFECYCLE
 
 
@@ -173,33 +173,56 @@ def preview_roadmap_archive(
     return preview_lifecycle_archive(roadmaps_directory, month, ROADMAP_LIFECYCLE)
 
 
+def _document_diagnostics(repository: Path) -> tuple[Diagnostic, ...]:
+    document_catalog = load_document_catalog(
+        repository,
+        include_archive=True,
+    )
+    return tuple(validate_documents(document_catalog))
+
+
+def _diagnostic_identity(diagnostic: Diagnostic) -> tuple[object, ...]:
+    return (
+        diagnostic.code,
+        diagnostic.path,
+        diagnostic.line,
+        diagnostic.target,
+        diagnostic.message,
+    )
+
+
 def _validate_archive(
     documents_directory: Path,
     repository: Path,
     *,
     config: LifecycleConfig,
+    baseline_diagnostics: tuple[Diagnostic, ...],
 ) -> None:
     catalog = LifecycleWorkspace(repository, config).catalog()
     if catalog.errors:
         raise ArchiveError(
             "archive validation failed:\n- " + "\n- ".join(catalog.errors)
         )
-    document_catalog = load_document_catalog(
-        repository,
-        include_archive=True,
-    )
-    document_errors = [
+    baseline_identities = {
+        _diagnostic_identity(diagnostic)
+        for diagnostic in baseline_diagnostics
+    }
+    document_regressions = [
         diagnostic
-        for diagnostic in validate_documents(document_catalog)
-        if diagnostic.severity is DiagnosticSeverity.ERROR
+        for diagnostic in _document_diagnostics(repository)
+        if (
+            diagnostic.severity is DiagnosticSeverity.ERROR
+            or _diagnostic_identity(diagnostic) not in baseline_identities
+        )
     ]
-    if document_errors:
+    if document_regressions:
         details = "\n- ".join(
+            f"{diagnostic.severity.value}: "
             f"{diagnostic.path.as_posix()}: {diagnostic.message}"
-            for diagnostic in document_errors
+            for diagnostic in document_regressions
         )
         raise ArchiveError(
-            "documentation validation failed after archive:\n- " + details
+            "documentation validation regressed after archive:\n- " + details
         )
 
 
@@ -217,12 +240,14 @@ def apply_lifecycle_archive(
     )
     if change_set is None:
         return preview
+    baseline_diagnostics = _document_diagnostics(repository)
     apply_change_set(
         change_set,
         validator=lambda: _validate_archive(
             documents_directory,
             repository,
             config=config,
+            baseline_diagnostics=baseline_diagnostics,
         ),
     )
     return preview

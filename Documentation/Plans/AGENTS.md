@@ -111,6 +111,11 @@ Periodically batch completed plans by completion month:
 3. Review the generated diff, especially the referencing files reported by the
    script.
 
+The archive transaction rejects new broken links introduced by the move but
+does not make later batches responsible for local targets already removed from
+older archives. Use `doc validate --include-archive` to audit those historical
+targets as warnings.
+
 Use `.\DevTool.bat doc plan list --scope completed` to inspect the
 pending archive queue. The completion date, not the batch date, owns the archive
 month and is never changed by later maintenance. Do not maintain a shared

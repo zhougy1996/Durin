@@ -86,6 +86,11 @@ The tool moves matching roadmaps to `Archive/YYYY-MM/`, changes their status to
 runs roadmap plus repository-documentation validation transactionally. Review
 the generated diff, especially the reported referencing files.
 
+The transaction rejects new broken links introduced by the move but tolerates
+pre-existing missing targets in older archives. An explicit
+`doc validate --include-archive` audit reports those historical targets as
+warnings.
+
 The completion date owns the archive month and is never changed by later
 maintenance. Do not maintain a shared active or archive index; listings are
 generated from roadmap metadata. Archived roadmaps are historical evidence and
