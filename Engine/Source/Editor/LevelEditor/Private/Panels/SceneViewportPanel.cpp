@@ -32,6 +32,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "StaticMeshLevelAuthoring.h"
+#include "TerrainLevelAuthoring.h"
 #include "SkyBoxLevelAuthoring.h"
 #include "Texture/TextureCube.h"
 #include "Terrain/TerrainHeightmap.h"
@@ -240,13 +241,31 @@ namespace Durin::Editor::Level
 						}
 						else if (DTerrainHeightmap* Heightmap = Cast<DTerrainHeightmap>(Asset))
 						{
-							auto* TerrainActor = Context.Level->SpawnActor<ATerrainActor>(
-								MakeUniqueActorName(*Context.Level, FName(AssetPath.GetAssetName())));
-							if (TerrainActor)
-							{
-								TerrainActor->GetTerrainComponent()->SetHeightmap(Heightmap);
-								Actor = TerrainActor;
-							}
+							FTransform PlacementTransform;
+							FSceneView View;
+							uint32 Width = 0;
+							uint32 Height = 0;
+							FLevelEditorViewportClient::ResolveViewportExtent(
+								{VpMax.x - VpMin.x, VpMax.y - VpMin.y}, Width, Height);
+							ViewportClient->BuildViewMatrices(Width, Height, View);
+							const ImVec2 Mouse = ImGui::GetMousePos();
+							FVector3 Origin, Direction;
+							if (SceneViewProjection::BuildViewportRay(View,
+								{Mouse.x - VpMin.x, Mouse.y - VpMin.y}, Origin, Direction))
+								PlacementTransform.Translation = Origin + Direction * 5.0;
+							auto Request = FTerrainLevelAuthoringService::CaptureTarget(*Context.Level);
+							Request.bReadOnly = Context.bReadOnly;
+							Request.ActorName = MakeUniqueActorName(*Context.Level, FName(AssetPath.GetAssetName()));
+							Request.Heightmap = Heightmap;
+							Request.ExpectedHeightmapRevision = Heightmap->GetRevision();
+							Request.Transform = PlacementTransform;
+							const FTerrainPlacementResult Result = FTerrainLevelAuthoringService::Execute(
+								FTerrainLevelAuthoringService::Plan(Request), {
+									.OpenLevel = Context.Level,
+									.Transactions = GEditor ? &GEditor->GetTransactionManager() : nullptr,
+									.bReadOnly = Context.bReadOnly});
+							if (!Result) Context.SetError(Result.Diagnostic.Message);
+							else Actor = Result.Actor.Get();
 						}
 						else if (DTextureCube* TextureCube = Cast<DTextureCube>(Asset))
 						{
@@ -273,10 +292,12 @@ namespace Durin::Editor::Level
 							const ImVec2 Mouse = ImGui::GetMousePos();
 							FVector3 Origin, Direction;
 							if (!Actor->IsA<AStaticMeshActor>() && !Actor->IsA<ASkyBoxActor>()
+								&& !Actor->IsA<ATerrainActor>()
 								&& SceneViewProjection::BuildViewportRay(View, {Mouse.x - VpMin.x, Mouse.y - VpMin.y}, Origin, Direction)
 								&& Actor->GetRootComponent())
 								Actor->GetRootComponent()->SetWorldLocation(Origin + Direction * 5.0);
-							if (!Actor->IsA<AStaticMeshActor>() && !Actor->IsA<ASkyBoxActor>()) Context.InvalidatePackageSavedState(Actor->GetPackage());
+							if (!Actor->IsA<AStaticMeshActor>() && !Actor->IsA<ASkyBoxActor>()
+								&& !Actor->IsA<ATerrainActor>()) Context.InvalidatePackageSavedState(Actor->GetPackage());
 							Context.SelectActor(Actor);
 						}
 					}

@@ -326,6 +326,26 @@ namespace Durin::Editor
 			Job, AssetRevision, ResourceRevision, EncodedBytes);
 	}
 
+	auto FRenderedAssetThumbnailPipeline::CompleteGeneratedPixels(
+		FRenderedAssetThumbnailJob& Job,
+		uint64 AssetRevision,
+		std::span<const uint8> Pixels,
+		uint32 Width,
+		uint32 Height,
+		std::string_view Error) -> bool
+	{
+		if (Impl->Fail(Job, EAssetThumbnailState::Loading,
+				AssetRevision, AssetRevision, Error)) return false;
+		if (AssetRevision == 0
+			|| !Impl->Scheduler.Transition(Job.ScheduledJob,
+				EAssetThumbnailState::Loading, EAssetThumbnailState::Encoding,
+				AssetRevision, AssetRevision)) return false;
+		Job.AssetRevision = AssetRevision;
+		Job.ResourceRevision = AssetRevision;
+		return CompletePixels(Job, AssetRevision, AssetRevision,
+			Pixels, Width, Height);
+	}
+
 	auto FRenderedAssetThumbnailPipeline::Cancel(const FRenderedAssetThumbnailJob& Job) -> void
 	{
 		if (!Job.ScheduledJob.GenerationRequest.Cancellation.IsCancelled())

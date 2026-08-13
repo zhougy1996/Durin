@@ -196,6 +196,36 @@ TEST(FTerrainHeightmapPayloadTests, PreservesAsymmetricTopLeftRowMajorSamplesAnd
 	EXPECT_EQ(Payload->Nodes.front(), (Durin::FTerrainHeightmapMinMaxNode{0, 65'535}));
 }
 
+TEST(FTerrainHeightmapPayloadTests, FreezesGolden257By129OrientationAndFacts)
+{
+	constexpr Durin::uint32 Width = 257;
+	constexpr Durin::uint32 Height = 129;
+	std::vector<Durin::uint16> Samples(static_cast<size_t>(Width) * Height, 7'000);
+	Samples[0] = 101;
+	Samples[Width - 1] = 202;
+	Samples[static_cast<size_t>(Height - 1) * Width] = 303;
+	Samples.back() = 404;
+	Samples[static_cast<size_t>(37) * Width + 91] = 65'535;
+	const std::filesystem::path Source = InitializeHeightmapTests() / "Sources/Golden257x129.png";
+	WritePng(Source, Width, Height, Samples);
+	Durin::Asset::FDecodedImage Decoded;
+	std::string Error;
+	ASSERT_TRUE(Durin::Asset::DecodeImageFromFile(Source.generic_string(), Decoded, Error)) << Error;
+	EXPECT_EQ(Decoded.Width, Width);
+	EXPECT_EQ(Decoded.Height, Height);
+	std::shared_ptr<const Durin::FTerrainHeightmapPayload> Payload;
+	ASSERT_TRUE(Durin::BuildTerrainHeightmapPayload(Width, Height, Samples, Payload, Error)) << Error;
+	ASSERT_NE(Payload, nullptr);
+	EXPECT_EQ(Payload->Minimum, 101);
+	EXPECT_EQ(Payload->Maximum, 65'535);
+	EXPECT_EQ(Payload->Samples.front(), 101);
+	EXPECT_EQ(Payload->Samples[Width - 1], 202);
+	EXPECT_EQ(Payload->Samples[static_cast<size_t>(Height - 1) * Width], 303);
+	EXPECT_EQ(Payload->Samples.back(), 404);
+	EXPECT_EQ(Payload->Samples[static_cast<size_t>(37) * Width + 91], 65'535);
+	EXPECT_EQ(Payload->GetSampleBytes(), static_cast<Durin::uint64>(Width) * Height * sizeof(Durin::uint16));
+}
+
 TEST(FTerrainHeightmapPayloadTests, BuildsDeterministicOddEdgeHierarchyAndRejectsLimits)
 {
 	std::vector<Durin::uint16> Samples(65 * 67, 42);

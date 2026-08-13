@@ -403,6 +403,27 @@ namespace Durin
 	}
 
 #if DURIN_WITH_EDITOR
+	auto DTerrainComponent::CaptureEditorPickingSnapshot(
+		FTerrainPickingSnapshot& OutSnapshot) const -> bool
+	{
+		OutSnapshot = {};
+		std::string Error;
+		if (!IsRegistered() || !IsVisible() || !ValidateProperties(Error)
+			|| !Heightmap || Heightmap->GetStatus() != ETerrainHeightmapStatus::Ready) return false;
+		const std::shared_ptr<const FTerrainHeightmapPayload> Payload = Heightmap->GetPayload();
+		if (!Payload || !Payload->IsValid() || Payload->Width < 2 || Payload->Height < 2
+			|| Payload->Width > MaximumTerrainRenderSamples
+			|| Payload->Height > MaximumTerrainRenderSamples) return false;
+		OutSnapshot.Payload = Payload;
+		OutSnapshot.LocalToWorld = GetRenderMatrix();
+		OutSnapshot.SpacingX = SpacingX;
+		OutSnapshot.SpacingY = SpacingY;
+		OutSnapshot.HeightScale = HeightScale;
+		OutSnapshot.HeightOffset = HeightOffset;
+		OutSnapshot.AssetRevision = Heightmap->GetRevision();
+		return OutSnapshot.AssetRevision != 0;
+	}
+
 	auto DTerrainComponent::GetEditorPickingLocalBounds(
 		FBox& OutBounds, EEditorPickingPrimitiveFamily& OutFamily) const -> bool
 	{

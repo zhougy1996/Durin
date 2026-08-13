@@ -110,6 +110,7 @@ durin_add_engine_functional_test(LevelAuthoringTests
 		Private/Editor/WorldOutlinerActorAttachmentTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Authoring/StaticMeshLevelAuthoring.cpp
+		${_durin_level_editor_private}/Authoring/TerrainLevelAuthoring.cpp
 		${_durin_level_editor_private}/Authoring/GrayboxSceneAuthoring.cpp
 		${_durin_level_editor_private}/Panels/ActorAttachmentTransaction.cpp
 	LIBRARIES DurinEd

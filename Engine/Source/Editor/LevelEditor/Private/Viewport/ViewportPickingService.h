@@ -70,6 +70,13 @@ namespace Durin::Editor::Level
 		uint64 SkeletalBudgetFailures = 0;
 		uint64 SkinnedVertices = 0;
 		uint64 TestedTriangles = 0;
+		uint64 ApplicableTerrainTargets = 0;
+		uint64 InvalidTerrainTargets = 0;
+		uint64 TerrainBoundsRejects = 0;
+		uint64 TerrainNodeVisits = 0;
+		uint64 TerrainVisitedCells = 0;
+		uint64 TerrainTestedTriangles = 0;
+		uint64 TerrainParityMismatches = 0;
 	};
 
 	enum class EViewportPickingBackendPolicy : uint8

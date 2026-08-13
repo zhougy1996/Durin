@@ -1,9 +1,12 @@
 #include "ViewportTestSupport.h"
+#include "Actors/TerrainActor.h"
+#include "Components/TerrainComponent.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "Viewport/ViewportPickingSceneIndex.h"
 #include "Viewport/ViewportPickingService.h"
+#include "Terrain/TerrainHeightmap.h"
 
 #include <gtest/gtest.h>
 
@@ -284,4 +287,56 @@ TEST(FViewportPickingQualificationTests, TenThousandPrimitiveSparseFixtureMeetsS
 	RecordProperty("scene_accelerated_median_ns", std::to_string(AcceleratedNanoseconds));
 	RecordProperty("scene_reference_median_ns", std::to_string(ReferenceNanoseconds));
 	RecordProperty("scene_warm_node_visits", std::to_string(WarmNodeVisits));
+}
+
+TEST(FViewportPickingQualificationTests, MaximumTerrainMeetsCellParityAndRelativeTimeGates)
+{
+	FPickingFixture Fixture;
+	auto* Actor = Fixture.Level->SpawnActor<Durin::ATerrainActor>("QualifiedTerrain");
+	ASSERT_NE(Actor, nullptr);
+	auto* Heightmap = Durin::NewObject<Durin::DTerrainHeightmap>(Fixture.Level, "QualifiedHeightmap");
+	std::vector<Durin::uint16> Samples(1025u * 1025u, 0);
+	Samples[512u * 1025u + 512u] = 65'535;
+	std::string Error;
+	ASSERT_TRUE(Heightmap->InitializeFromSamples(1025, 1025, Samples, Error)) << Error;
+	auto* Component = Actor->GetTerrainComponent();
+	Component->SetHeightmap(Heightmap);
+	ASSERT_TRUE(Component->SetSampleSpacing(1.0, 1.0));
+	ASSERT_TRUE(Component->SetHeightRange(1.0, -0.5));
+	Durin::Editor::Level::FViewportPickingBackendRequest Request{
+		{1}, {10.5, 10.5, 4.0}, {0.0, 0.0, -1.0},
+		{{1, Component->GetPrimitiveSceneId(), Actor, Component, 1,
+			Component->GetRegistrationGeneration()}}};
+	auto Measure = [&Request](Durin::Editor::Level::EViewportPickingBackendPolicy Policy,
+		Durin::Editor::Level::FViewportPickingBackendCompletion& OutCompletion)
+	{
+		auto Backend = Durin::Editor::Level::MakeViewportPickingBackend(Policy);
+		std::array<Durin::uint64, 3> Times{};
+		for (Durin::uint64& Time : Times)
+		{
+			const auto Start = std::chrono::steady_clock::now();
+			OutCompletion = Backend->Submit(Request);
+			Time = static_cast<Durin::uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - Start).count());
+			if (!OutCompletion.Hit) throw std::runtime_error("timed Terrain query missed");
+		}
+		std::ranges::sort(Times);
+		return Times[1];
+	};
+	Durin::Editor::Level::FViewportPickingBackendCompletion Reference;
+	Durin::Editor::Level::FViewportPickingBackendCompletion Accelerated;
+	const Durin::uint64 ReferenceNs = Measure(
+		Durin::Editor::Level::EViewportPickingBackendPolicy::Reference, Reference);
+	const Durin::uint64 AcceleratedNs = Measure(
+		Durin::Editor::Level::EViewportPickingBackendPolicy::Accelerated, Accelerated);
+	EXPECT_LE(Accelerated.Diagnostics.TerrainVisitedCells, (1024u * 1024u) / 100u);
+	EXPECT_LE(AcceleratedNs, ReferenceNs / 4);
+	const auto Compared = Durin::Editor::Level::MakeViewportPickingBackend(
+		Durin::Editor::Level::EViewportPickingBackendPolicy::Compare)->Submit(Request);
+	ASSERT_TRUE(Compared.Hit);
+	EXPECT_EQ(Compared.Diagnostics.TerrainParityMismatches, 0u);
+	RecordProperty("terrain_reference_median_ns", std::to_string(ReferenceNs));
+	RecordProperty("terrain_accelerated_median_ns", std::to_string(AcceleratedNs));
+	RecordProperty("terrain_visited_cells", std::to_string(Accelerated.Diagnostics.TerrainVisitedCells));
+	RecordProperty("terrain_tested_triangles", std::to_string(Accelerated.Diagnostics.TerrainTestedTriangles));
 }

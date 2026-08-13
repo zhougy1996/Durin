@@ -91,6 +91,14 @@ namespace Durin::Editor
 			uint32 Height,
 			std::string_view Error = {},
 			std::function<std::string()> ValidateBeforePublication = {}) -> bool;
+		// Publishes canonical provider-generated pixels without a preview scene or render allowance.
+		DURINED_API auto CompleteGeneratedPixels(
+			FRenderedAssetThumbnailJob& Job,
+			uint64 AssetRevision,
+			std::span<const uint8> Pixels,
+			uint32 Width,
+			uint32 Height,
+			std::string_view Error = {}) -> bool;
 		DURINED_API auto Cancel(const FRenderedAssetThumbnailJob& Job) -> void;
 		DURINED_API auto RecordRetry() -> void;
 		DURINED_API auto InvalidatePersistentObject(std::string_view CacheKey) -> void;

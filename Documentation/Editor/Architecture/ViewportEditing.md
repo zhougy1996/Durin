@@ -103,7 +103,7 @@ invalid batch, Level replacement, or an index build that cannot satisfy its
 64 MiB budget makes the complete request use reference discovery; a stale
 partial candidate table is never queried.
 
-The index admits only registered visible StaticMesh and SkeletalMesh primitives
+The index admits registered visible StaticMesh, SkeletalMesh, and Terrain primitives
 with non-zero identity and finite current world bounds. It uses deterministic
 centroid splits and 10 percent fat update bounds with a 0.01 world-unit minimum.
 An update inside its fat bound changes only the exact leaf; an escape, add, or
@@ -148,6 +148,13 @@ failures, skinned vertices, and tested triangles without expanding the public
 result or producing per-click logs. Local hits are transformed back to world
 space before distance comparison, preserving ordering under rotation,
 non-uniform scale, and mirroring; singular transforms are skipped.
+
+Terrain surface providers use the committed full-resolution canonical payload
+and its regional extrema. Reference tests every cell, accelerated queries only
+regions whose conservative bounds survive, and compare records Terrain parity
+separately. The exact diagonal and row-major orientation match Renderer and
+Aether; render LOD and collision enablement never affect selection. See
+[Terrain Editing](TerrainEditing.md).
 
 Geometry and the prepared visualization candidate enter one resolver. A
 depth-independent visualization wins first. Otherwise the nearest finite world

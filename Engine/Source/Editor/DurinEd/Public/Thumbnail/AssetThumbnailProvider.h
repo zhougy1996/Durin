@@ -38,6 +38,15 @@ namespace Durin
 		virtual ~IAssetThumbnailGenerationInput() = default;
 	};
 
+	// Carries provider-generated canonical RGBA8 pixels through the shared cache pipeline.
+	struct FAssetThumbnailGeneratedPixels
+	{
+		std::vector<uint8> Pixels;
+		uint32 Width = 0;
+		uint32 Height = 0;
+		uint64 AssetRevision = 0;
+	};
+
 	// Keeps provider-owned request data behind a core-owned invalidation boundary.
 	// Copies share only DurinEd state; provider removal clears the input and session
 	// from every copy before the scoped registration handle returns.
@@ -71,6 +80,7 @@ namespace Durin
 		// Capture-only transfer slot. The registry moves this into ProviderLease
 		// before a request enters provider-neutral scheduling.
 		std::shared_ptr<const IAssetThumbnailGenerationInput> Input;
+		std::shared_ptr<const FAssetThumbnailGeneratedPixels> GeneratedPixels;
 		FAssetThumbnailGenerationLease ProviderLease;
 		FAssetThumbnailCancellation Cancellation;
 		uint64 ProviderGeneration = 0;

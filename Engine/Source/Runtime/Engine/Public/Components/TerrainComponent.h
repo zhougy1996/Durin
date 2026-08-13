@@ -53,6 +53,18 @@ namespace Durin
 		ECollisionGeometryBuildStatus BuildStatus = ECollisionGeometryBuildStatus::InvalidInput;
 	};
 
+	// Captures one immutable full-resolution Terrain generation for editor surface queries.
+	struct FTerrainPickingSnapshot
+	{
+		std::shared_ptr<const FTerrainHeightmapPayload> Payload;
+		FMatrix LocalToWorld{1.0};
+		double SpacingX = 0.0;
+		double SpacingY = 0.0;
+		double HeightScale = 0.0;
+		double HeightOffset = 0.0;
+		uint64 AssetRevision = 0;
+	};
+
 	// Binds an immutable heightmap revision to one finite full-density terrain primitive.
 	DCLASS(DisplayName = "Terrain Component")
 	class DTerrainComponent final : public DMeshComponent
@@ -84,6 +96,7 @@ namespace Durin
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 #if DURIN_WITH_EDITOR
 		ENGINE_API auto GetEditorPickingLocalBounds(FBox& OutBounds, EEditorPickingPrimitiveFamily& OutFamily) const -> bool override;
+		ENGINE_API auto CaptureEditorPickingSnapshot(FTerrainPickingSnapshot& OutSnapshot) const -> bool;
 #endif
 
 	private:

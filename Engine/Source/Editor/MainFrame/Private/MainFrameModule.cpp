@@ -64,7 +64,7 @@ namespace Durin::Editor::MainFrame
 			Editor::FRenderedAssetThumbnailService& ThumbnailService
 		) -> bool
 		{
-			if (!LevelEditorModule.RegisterLevelEditorWorkspace(WorkspaceManager)) return false;
+			if (!LevelEditorModule.RegisterLevelEditorWorkspace(WorkspaceManager, ThumbnailService)) return false;
 			if (!MaterialEditorModule.RegisterMaterialEditor(
 				WorkspaceManager, ThumbnailService))
 			{

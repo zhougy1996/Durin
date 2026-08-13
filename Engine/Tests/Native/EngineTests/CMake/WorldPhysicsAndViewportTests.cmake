@@ -119,6 +119,8 @@ set(_durin_viewport_private_sources
 	${_durin_level_editor_private}/Customizations/PlayerStartEditorCustomizations.cpp
 	${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
 	${_durin_level_editor_private}/Customizations/SplineEditorCustomizations.cpp
+	${_durin_level_editor_private}/Customizations/TerrainDetails.cpp
+	${_durin_level_editor_private}/Assets/TerrainHeightmapAssetThumbnail.cpp
 	${_durin_level_editor_private}/Settings/LevelViewportSessionSettings.cpp
 	${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
 )

@@ -2,7 +2,7 @@
 
 Summary: Deliver a finite authored heightfield terrain primitive through bounded asset, rendering, LOD, collision, and editor plans while preserving one authoritative height dataset.
 
-Last reviewed: 2026-08-13
+Last reviewed: 2026-08-14
 
 Status: Active
 Completed:
@@ -38,7 +38,8 @@ T3 patch LOD/crack control is complete through the
 error, selection, adjacency, index-only stitching, complete topology-key,
 counter, overlay, and qualification contracts are owned by
 [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md). T4 editor
-workflow is now the next required terrain milestone.
+workflow is active through the
+[Terrain Editor Workflow Plan](../Plans/TerrainEditorWorkflow.md).
 
 ## Outcome
 
@@ -200,7 +201,7 @@ flowchart LR
 | T1: Terrain render primitive | Required; complete | [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md) | T0, existing Renderer scene/visibility/material contracts | Actor/Component, proxy/info, patch resources, vertex factory/shader, PBR material mapping, single-LOD visible terrain | Complete | Exact single-LOD Terrain renders through shared PBR/output paths with conservative patch visibility, counted bounded resources, revision propagation, and editor placement |
 | T2: Heightfield collision | Required; completed 2026-08-13 | [Aether Heightfield Collision](../Plans/AetherHeightfieldCollision.md) | T0, existing Aether geometry/query facade | Immutable HeightField resource, cell acceleration, full Ray/Sweep/Overlap matrix, Cook/load, BodyInstance publication | Met: 1025² runtime-build layout, exact diagonal, bounded sparse query, World publication/sharing, source-free Cook construction, and debug sampling | Met: Production matches the qualified Reference/oracle matrix, visits local cells, atomically tracks asset revisions, exposes bounded facts/overlay, and passes Release Editor/Game gates |
 | T3: Patch LOD and crack control | Required; completed 2026-08-13 | [Terrain Patch LOD](../Plans/TerrainPatchLOD.md) | T1 | Deterministic patch LOD, adjacency resolution, stitched topology, regional bounds, counters and GPU qualification | Met: T1 has a correct single-LOD baseline and measured patch/draw/triangle costs | Met: exhaustive topology coverage, all-mask Vulkan execution, camera/shadow integration, bounded metadata/counters, 512-triangle flat far output, aggregate builds/tests, and Editor/Game smokes pass |
-| T4: Editor workflow and qualification | Required; proposed `TerrainEditorWorkflow` | T1-T3 | Placement, reflected properties, picking, reimport propagation, error presentation, final fixtures and lasting docs | Runtime/render/collision contracts are stable enough that editor actions do not define them implicitly | A user can import, place, configure, save, reload, Cook, run, select, and collide with terrain; all program validation rows pass |
+| T4: Editor workflow and qualification | Required; completed 2026-08-14 | [Terrain Editor Workflow](../Plans/TerrainEditorWorkflow.md) | T1-T3 | Transactional placement/properties, exact surface picking, reimport propagation, bounded presentation/diagnostics, final fixtures and lasting docs | Met: T0-T3 runtime, render, LOD, and collision contracts are stable | Met: atomic placement, exact bounded picking, canonical thumbnails, coherent Details, reimport/cooked-runtime coverage, aggregate gates, and lasting editor documentation pass |
 | T5: Terrain streaming | Conditional; proposed `TerrainStreamingAndResidency` | T4 plus concrete scale evidence | Partitioned height/render/collision residency with explicit budgets and failure behavior | Named world dimensions or measured memory/loading stalls exceed the finite component budgets | Selected working set and latency targets pass without incomplete collision or visible seam behavior |
 | T6: Sculpt and layer authoring | Conditional; proposed `TerrainAuthoringTools` | T4 plus product workflow | Transactional writable height regions, brushes, undo/redo, dirty-region rebuild, optional bounded material layers | A concrete editing workflow, layer count, brush size, latency budget, and persistence model are accepted | Authoring operations are transactional, bounded, Cook-compatible, and cannot desynchronize render/collision revisions |
 
@@ -235,7 +236,7 @@ Owns the LOD metric and policy, patch adjacency resolution, crack strategy,
 regional bounds across LODs, draw preparation, diagnostics, and measured
 quality/performance gates. It does not introduce streaming or writable terrain.
 
-### `TerrainEditorWorkflow`
+### [Terrain Editor Workflow](../Plans/TerrainEditorWorkflow.md)
 
 Owns user-facing placement, details, selection, reimport propagation,
 diagnostics presentation, final end-to-end fixtures, and lasting documentation.

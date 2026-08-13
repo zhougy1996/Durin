@@ -16,6 +16,8 @@ namespace Durin::Editor
 {
 	class FWorkspaceRegistrationHandle;
 	class FWorkspaceManager;
+	class FRenderedAssetThumbnailService;
+	class FAssetThumbnailProviderRegistrationHandle;
 }
 
 namespace Durin::Editor::Level
@@ -33,7 +35,8 @@ namespace Durin
 		LEVELEDITOR_API ~FLevelEditorModule() override;
 		LEVELEDITOR_API auto StartupModule() -> void override;
 		LEVELEDITOR_API auto ShutdownModule() -> void override;
-		LEVELEDITOR_API auto RegisterLevelEditorWorkspace(::Durin::Editor::FWorkspaceManager& WorkspaceManager) -> bool;
+		LEVELEDITOR_API auto RegisterLevelEditorWorkspace(::Durin::Editor::FWorkspaceManager& WorkspaceManager,
+			::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool;
 		LEVELEDITOR_API auto UnregisterLevelEditorWorkspace() -> void;
 		LEVELEDITOR_API auto OpenDefaultDocument() -> bool;
 		LEVELEDITOR_API auto RevealAssetInContentBrowser(const FAssetPath& AssetPath) -> bool;
@@ -47,5 +50,7 @@ namespace Durin
 			ProjectDefaultLevelReferenceStore;
 		uint64 ProjectDefaultLevelReferenceStoreHandle = 0;
 		uint64 GrayboxBuildStartupCommandHandle = 0;
+		std::unique_ptr<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>
+			TerrainThumbnailRegistration;
 	};
 }

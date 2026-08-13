@@ -19,7 +19,11 @@
 #include "StaticMeshMaterialSlotDetails.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/SkyBoxComponent.h"
+#include "Components/TerrainComponent.h"
 #include "SkyBoxDetails.h"
+#include "TerrainDetails.h"
+#include "TerrainHeightmapAssetThumbnail.h"
+#include "Thumbnail/RenderedAssetThumbnailService.h"
 #include "GrayboxSceneAuthoring.h"
 #include "Misc/StartupCommand.h"
 
@@ -56,6 +60,7 @@ namespace Durin
 		SplineEditModeHandle = RegisterSplineViewportEditMode();
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DStaticMeshComponent::StaticClass(), CreateStaticMeshComponentDetailsCustomization()));
 		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DSkyBoxComponent::StaticClass(), CreateSkyBoxDetailsCustomization()));
+		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DTerrainComponent::StaticClass(), CreateTerrainDetailsCustomization()));
 		checkf(std::ranges::all_of(CustomizationHandles, [](FLevelEditorCustomizationHandle Handle) { return static_cast<bool>(Handle); }), "LevelEditor built-in customizations must register exactly once");
 		GrayboxBuildStartupCommandHandle = RegisterStartupCommandHandler(
 			"graybox-build", RunGrayboxBuildStartupCommand);
@@ -78,9 +83,12 @@ namespace Durin
 		for (auto It = CustomizationHandles.rbegin(); It != CustomizationHandles.rend(); ++It) Registry.Unregister(*It);
 		CustomizationHandles.clear();
 		SessionSettings.reset();
+		TerrainThumbnailRegistration.reset();
 	}
 
-	LEVELEDITOR_API auto FLevelEditorModule::RegisterLevelEditorWorkspace(::Durin::Editor::FWorkspaceManager& WorkspaceManager) -> bool
+	LEVELEDITOR_API auto FLevelEditorModule::RegisterLevelEditorWorkspace(
+		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
+		::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool
 	{
 		if (WorkspaceRegistration && WorkspaceRegistration->IsValid()) return false;
 		WorkspaceRegistration.reset();
@@ -116,12 +124,24 @@ namespace Durin
 		});
 		if (!Registration) return false;
 		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
+		std::string Error;
+		auto ThumbnailHandle = ThumbnailService.RegisterScoped(
+			std::make_unique<FTerrainHeightmapAssetThumbnailProvider>(), Error);
+		if (!ThumbnailHandle)
+		{
+			WorkspaceRegistration.reset();
+			return false;
+		}
+		TerrainThumbnailRegistration = std::make_unique<
+			::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
+				std::move(ThumbnailHandle));
 		LevelEditorWorkspace = Workspace;
 		return true;
 	}
 
 	LEVELEDITOR_API auto FLevelEditorModule::UnregisterLevelEditorWorkspace() -> void
 	{
+		TerrainThumbnailRegistration.reset();
 		WorkspaceRegistration.reset();
 		LevelEditorWorkspace.reset();
 	}

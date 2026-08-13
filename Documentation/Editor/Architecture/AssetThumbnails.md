@@ -38,7 +38,11 @@ project content.
   route and thumbnail provider together. The provider never stores a mesh
   pointer in queued work; loading, resource readiness, and revision capture
   begin only after a persistent miss.
-- LevelEditor owns only Content Browser item presentation and the facade that
+- LevelEditor owns Content Browser item presentation, its facade, and the
+  exact-class canonical `DTerrainHeightmap` provider. That provider generates
+  fixed 256x256 grayscale pixels from the immutable payload, includes revision
+  and generator schema in identity, and uses no source image or Renderer state.
+  LevelEditor otherwise
   asks the live service for a source-image request or rendered authored-asset
   fingerprint. Unsupported
   classes issue no thumbnail job and retain their normal asset icon.

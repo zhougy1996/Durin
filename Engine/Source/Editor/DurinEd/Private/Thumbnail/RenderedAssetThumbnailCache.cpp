@@ -423,6 +423,26 @@ namespace Durin::Editor
 			if (auto It = Entries.find(Request.KeyInput.Asset.VirtualPath);
 				It != Entries.end())
 				It->second.bHasTransparency = Request.bHasTransparency;
+			if (Request.GeneratedPixels)
+			{
+				const auto& Generated = *Request.GeneratedPixels;
+				const uint64 ExpectedBytes = static_cast<uint64>(Generated.Width)
+					* Generated.Height * 4;
+				std::string Error;
+				if (Generated.Width != Request.KeyInput.Output.Width
+					|| Generated.Height != Request.KeyInput.Output.Height
+					|| Generated.Pixels.size() != ExpectedBytes
+					|| ExpectedBytes > Budgets.CpuPixelBudgetBytes)
+					Error = "Generated thumbnail pixels violate the requested output or CPU budget.";
+				if (Error.empty()
+					&& Pipeline.CompleteGeneratedPixels(Job, Generated.AssetRevision,
+						Generated.Pixels, Generated.Width, Generated.Height))
+					QueueUpload(Request, Generated.Pixels, Generated.Width, Generated.Height);
+				else if (!Error.empty())
+					Pipeline.CompleteLoad(Job, Generated.AssetRevision, Error);
+				ResetActive();
+				return;
+			}
 			std::string Error;
 			IRenderedAssetThumbnailGenerationSession* Session =
 				Request.BeginRenderedSession(Error);
