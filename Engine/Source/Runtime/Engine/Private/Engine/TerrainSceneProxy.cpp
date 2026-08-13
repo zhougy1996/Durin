@@ -17,6 +17,10 @@ namespace Durin
 		  LocalBounds(InLocalBounds), Material(std::move(InMaterial)),
 		  MaterialComponentRevision(InMaterialComponentRevision)
 	{
+		for (const FTerrainPatchDescriptor& Patch : Patches)
+			LODMetadataBytes += sizeof(Patch.LODSteps) + sizeof(Patch.LODErrors)
+				+ Patch.LODSteps.size() * sizeof(uint32)
+				+ Patch.LODErrors.size() * sizeof(double);
 	}
 
 	auto FTerrainSceneProxy::ResolveMaterialRenderData_RenderThread() const

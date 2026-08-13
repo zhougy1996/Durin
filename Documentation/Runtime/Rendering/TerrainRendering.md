@@ -1,10 +1,10 @@
 # Terrain Rendering
 
-Summary: Defines the finite single-LOD Terrain Actor, scene proxy, exact height resource, patch visibility, material, and lifecycle contracts.
+Summary: Defines finite Terrain ownership, deterministic patch LOD, crack-free stitched topology, exact height resources, materials, diagnostics, and lifecycle contracts.
 
 Modules: Engine, RenderCore, Renderer, LevelEditor
 
-Last reviewed: 2026-08-12
+Last reviewed: 2026-08-13
 
 ## Runtime ownership
 
@@ -32,7 +32,7 @@ transpose, half-texel offset, or observed-range normalization occurs. Negative
 height scale is supported; bounds order the converted minimum and maximum.
 UV0 is `(X / (Width - 1), Y / (Height - 1))`.
 
-Terrain uses one sample per vertex and one 64x64-cell maximum topology. Patch
+Terrain uses one sample per vertex and 64x64-cell maximum patches. Patch
 origins are emitted Y-major then X-major. Right and bottom patches use their
 exact remaining cell dimensions, adjacent patches repeat identical border
 sample coordinates, and no triangle extends beyond the authored sample plane.
@@ -42,14 +42,49 @@ classifies every patch once after the primitive visibility gate. Finite outside
 patches do not prepare resources or draw; invalid bounds remain visible and
 increment the fallback counter.
 
+## Patch LOD and crack control
+
+Every proxy patch stores stable Y-major grid coordinates plus immutable LOD
+steps and geometric errors derived transactionally from the same committed
+height payload revision. Legal steps are nested powers of two beginning at
+one. A step is retained only when it divides both exact patch cell dimensions;
+partial right or bottom patches therefore never clamp or move their authored
+boundary. The error for a step is the maximum absolute object-space Z
+deviation between every canonical height sample and bilinear reconstruction
+from that step's coarse cells. Errors are finite, monotonically accumulated,
+and bounded to 64 KiB of retained LOD metadata per proxy.
+
+Automatic selection projects each nonzero object-space error through the
+submitted view and local-to-world transform. A level is accepted only when its
+projected diameter is strictly below two pixels, so equality keeps the finer
+level. Flat zero-error levels select the coarsest legal step. `ForceLOD0`, an
+invalid view, transform, bounds, error sequence, or legal-step sequence selects
+step one; non-forced fallbacks increment a bounded diagnostic. Perspective and
+orthographic camera and directional-shadow views select independently, and no
+selection state survives the submission.
+
+All candidate patches, including patch-frustum-culled neighbors, participate
+in deterministic rectangular adjacency resolution. Stable east/south sweeps
+promote only a coarser neighbor until adjacent LOD indices differ by at most
+one. The result supplies every later draw fact. A fine patch next to a patch at
+twice its step records a four-bit stitch mask with `N/E/S/W = 1/2/4/8`.
+
+Topology is index-only: odd fine-edge coordinates are collapsed onto the
+neighbor's coarse coordinates, zero-area triangles are removed, and remaining
+triangles are normalized to the established positive sample-space winding.
+All vertices remain canonical height samples; there are no skirts, expanded
+height surfaces, outside-extent coordinates, or collision changes. The exact
+immutable topology cache key is `(CellCountX, CellCountY, LODStep,
+StitchMask)`.
+
 ## GPU and shading contract
 
 The Renderer shares a one-mip `R16_UINT` texture by immutable payload identity
 and dimensions. Upload pitch is exactly `Width * sizeof(uint16)`. Revisions are
 never updated in place. The cache admits at most 64 retained height revisions;
 an additional distinct revision is rejected without disturbing complete
-entries. Topology is shared by exact cell dimensions and admits at most 256
-variants.
+entries. Topology is shared by the complete LOD/stitch key and admits at most
+256 variants. Failed or illegal topology creation publishes no cache entry.
 
 `FTerrainVertexFactory` binds one `UShort2` patch-local grid coordinate. The
 Terrain shader performs integer texel loads and divides by 65535. Interior
@@ -72,14 +107,23 @@ StaticMesh and SkeletalMesh draws.
 The scene owns one authoritative typed Terrain SceneInfo list in addition to
 the all-primitive list. Command-local counters report visible Terrain
 primitives, candidate/visible/culled patches, invalid-bound fallbacks,
-pass-classified patches, triangles, resource attempts/results, draw
-attempts/results, exact height uploads/reuses/bytes, and topology
-creations/reuses/bytes. A 1025x1025 heightmap produces 256 patches, 2,097,152
-triangles, a 2,101,250-byte height upload, and at most 66,052 bytes for the
-shared 64x64 topology. A measured 4097x4097 candidate with 4,096 draws did not
+pass-classified patches, requested/resolved LOD histograms, LOD fallbacks,
+adjacency iterations/promotions, all 16 stitch-mask buckets, selected
+triangles, resource attempts/results, draw attempts/results, exact height
+uploads/reuses/bytes, and topology creations/reuses/bytes. Candidate,
+visibility, histogram, resource, and draw totals reconcile within one command
+snapshot. A 1025x1025 heightmap produces 256 patches and 2,097,152 triangles
+under `ForceLOD0`, a 2,101,250-byte height upload, and at most 66,052 bytes for
+the shared 64x64 step-one topology. A measured 4097x4097 candidate with 4,096 draws did not
 complete the Debug validation-layer gate within 300 seconds on the named GTX
 1060 adapter, so T1 deliberately rejects it. This is the correct single-LOD
 baseline for the later LOD plan, not a scalability target.
+
+`FSceneViewSettings::bShowTerrainLODOverlay` is a disabled-by-default
+development diagnostic. It adds only transient bounded patch rectangles to the
+existing editor-assistance line path: resolved levels range from green toward
+red and stitched edges are red and wider. It does not retain expanded terrain
+geometry or alter selection.
 
 The frozen qualification profile is Win64 Debug DurinEditor, threaded Vulkan
 with validation enabled, NVIDIA GeForce GTX 1060 6GB, Vulkan API 1.3.280,
@@ -89,6 +133,14 @@ with validation enabled, NVIDIA GeForce GTX 1060 6GB, Vulkan API 1.3.280,
 therefore uses explicit Debug characterization budgets of 5000 ms CPU and 50 ms
 GPU on this profile. These intentionally loose finite gates expose the urgent
 T3 draw-submission problem; they are not shipping performance targets.
+
+The T3 Win64 Debug validation-layer run on an NVIDIA GeForce RTX 3090 retained
+the same 17x17, two-warm-up/seven-measurement profile. `ForceLOD0` recorded
+1567.04 ms CPU median / 2100.17 ms p95 and 1.85901 ms Scene Color GPU median /
+3.39014 ms p95. The automatic flat far oracle selected step 64 for every patch
+and submitted 512 triangles instead of 2,097,152 while retaining all 256 draws;
+its single measured CPU preparation was 1547.17 ms. This qualifies triangle
+reduction and the forced comparison path, not draw-call scalability.
 
 Device invalidation and renderer shutdown release Terrain vertex factories,
 topology buffers, height textures, samplers, shader maps, and pipelines through

@@ -17,6 +17,11 @@ namespace Durin
 		FEffectiveStaticMeshPipelineKey PipelineKey;
 		FStaticMeshDrawSortKey SortKey;
 		EStaticMeshBasePass Pass = EStaticMeshBasePass::Opaque;
+		uint32 RequestedLOD = 0;
+		uint32 ResolvedLOD = 0;
+		uint32 LODStep = 1;
+		uint8 StitchMask = 0;
+		size_t TriangleCount = 0;
 		double TranslucentDistanceSquared = 0.0;
 		bool bResourcesReady = false;
 		FRHITexture* DirectionalShadowTexture = nullptr;
@@ -34,6 +39,13 @@ namespace Durin
 		size_t VisiblePatches = 0;
 		size_t CulledPatches = 0;
 		size_t InvalidBoundsFallbacks = 0;
+		size_t LODFallbacks = 0;
+		size_t LODResolutionFallbacks = 0;
+		size_t AdjacencyPromotions = 0;
+		size_t AdjacencyIterations = 0;
+		std::vector<size_t> RequestedLODHistogram;
+		std::vector<size_t> ResolvedLODHistogram;
+		std::array<size_t, 16> StitchMaskHistogram{};
 		size_t Triangles = 0;
 		size_t HeightUploadBytes = 0;
 		size_t HeightUploads = 0;

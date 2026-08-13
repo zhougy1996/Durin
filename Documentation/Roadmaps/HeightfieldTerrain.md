@@ -33,8 +33,12 @@ T1 is complete; its lasting contract is
 [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md). T2 is complete
 through the [Aether Heightfield Collision Plan](../Plans/AetherHeightfieldCollision.md);
 its lasting behavior is owned by [Runtime Collision](../Runtime/Physics/Collision.md).
-T3 patch LOD/crack control and T4 editor workflow remain the next required
-terrain milestones.
+T3 patch LOD/crack control is complete through the
+[Terrain Patch LOD Plan](../Plans/TerrainPatchLOD.md). Its lasting deterministic
+error, selection, adjacency, index-only stitching, complete topology-key,
+counter, overlay, and qualification contracts are owned by
+[Terrain Rendering](../Runtime/Rendering/TerrainRendering.md). T4 editor
+workflow is now the next required terrain milestone.
 
 ## Outcome
 
@@ -169,8 +173,8 @@ The required program delivers:
 | RHI data | Terrain owns exact R16 upload, shared patch topology, shaders, and bounded resource caches | No T2 gap; collision must remain independent from RHI storage | Complete in T1 |
 | Scene ownership | Terrain Actor/Component, detached proxy, typed SceneInfo, FIFO mutation, and atomic render/physics revision recreation are implemented | No T2 gap | Complete in T2 |
 | Surface rendering | Exact single-LOD Terrain uses shared PBR/material/output paths and signed height reconstruction | No T2 gap; collision must match its coordinate/cell contract without reading render state | Complete in T1 |
-| Visibility | Primitive and exact 64x64-cell patch visibility, regional bounds, conservative fallback, and counters are implemented | No LOD-aware bounds or adjacency selection | T3 |
-| LOD | StaticMesh projected-size selection and validated LOD policies | No patch adjacency, terrain error metric, crack policy, or stable patch LOD result | T3 |
+| Visibility | Primitive and exact 64x64-cell patch visibility, regional bounds, conservative fallback, LOD adjacency, and counters are implemented | No finite T3 gap | Complete in T3 |
+| LOD | Revision-bound error metadata, view-local selection, deterministic adjacency, index-only stitching, complete topology keys, and `ForceLOD0` are qualified | No finite T3 gap; temporal morphing and GPU-driven selection remain deferred | Complete in T3 |
 | Collision | Immutable shared HeightField geometry, local-cell hierarchy, complete Production/Reference queries, THPL runtime construction, BodyInstance publication, facts, and bounded debug overlay | No finite T2 gap; streaming/deformation remain explicitly deferred | Complete in T2 |
 | Editor | Content Browser, import/reimport providers, reflected details, viewport selection, undo transactions | No terrain asset presentation, placement, properties, picking, or diagnostics | T0, T1, T4 |
 | Streaming | Asset packages and ordinary complete-asset loading | No height/patch residency, world partition, or streaming ownership | Conditional T5 |
@@ -195,7 +199,7 @@ flowchart LR
 | T0: Heightmap asset foundation | Required; complete | [Terrain Heightmap Asset](../Runtime/Terrain/TerrainHeightmapAsset.md) | Existing AssetCore, Engine asset lifecycle, StandardAssetImport | Dedicated 16-bit asset with validated source import, derived/cooked data, load, reimport, inspection facts, and bounded tests | Complete | Editor and cooked runtime reproduce identical canonical samples and regional metadata without source/DDC |
 | T1: Terrain render primitive | Required; complete | [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md) | T0, existing Renderer scene/visibility/material contracts | Actor/Component, proxy/info, patch resources, vertex factory/shader, PBR material mapping, single-LOD visible terrain | Complete | Exact single-LOD Terrain renders through shared PBR/output paths with conservative patch visibility, counted bounded resources, revision propagation, and editor placement |
 | T2: Heightfield collision | Required; completed 2026-08-13 | [Aether Heightfield Collision](../Plans/AetherHeightfieldCollision.md) | T0, existing Aether geometry/query facade | Immutable HeightField resource, cell acceleration, full Ray/Sweep/Overlap matrix, Cook/load, BodyInstance publication | Met: 1025² runtime-build layout, exact diagonal, bounded sparse query, World publication/sharing, source-free Cook construction, and debug sampling | Met: Production matches the qualified Reference/oracle matrix, visits local cells, atomically tracks asset revisions, exposes bounded facts/overlay, and passes Release Editor/Game gates |
-| T3: Patch LOD and crack control | Required; proposed `TerrainPatchLOD` | T1 | Deterministic patch LOD, adjacency resolution, skirts or stitching, regional bounds, counters and GPU qualification | T1 has a correct single-LOD baseline and measured patch/draw/triangle costs | Camera motion and all neighbor transitions remain crack-free and deterministic within frozen CPU/GPU/memory budgets |
+| T3: Patch LOD and crack control | Required; completed 2026-08-13 | [Terrain Patch LOD](../Plans/TerrainPatchLOD.md) | T1 | Deterministic patch LOD, adjacency resolution, stitched topology, regional bounds, counters and GPU qualification | Met: T1 has a correct single-LOD baseline and measured patch/draw/triangle costs | Met: exhaustive topology coverage, all-mask Vulkan execution, camera/shadow integration, bounded metadata/counters, 512-triangle flat far output, aggregate builds/tests, and Editor/Game smokes pass |
 | T4: Editor workflow and qualification | Required; proposed `TerrainEditorWorkflow` | T1-T3 | Placement, reflected properties, picking, reimport propagation, error presentation, final fixtures and lasting docs | Runtime/render/collision contracts are stable enough that editor actions do not define them implicitly | A user can import, place, configure, save, reload, Cook, run, select, and collide with terrain; all program validation rows pass |
 | T5: Terrain streaming | Conditional; proposed `TerrainStreamingAndResidency` | T4 plus concrete scale evidence | Partitioned height/render/collision residency with explicit budgets and failure behavior | Named world dimensions or measured memory/loading stalls exceed the finite component budgets | Selected working set and latency targets pass without incomplete collision or visible seam behavior |
 | T6: Sculpt and layer authoring | Conditional; proposed `TerrainAuthoringTools` | T4 plus product workflow | Transactional writable height regions, brushes, undo/redo, dirty-region rebuild, optional bounded material layers | A concrete editing workflow, layer count, brush size, latency budget, and persistence model are accepted | Authoring operations are transactional, bounded, Cook-compatible, and cannot desynchronize render/collision revisions |
@@ -225,7 +229,7 @@ operation/pair algorithms, reference comparison, payload/versioning,
 BodySetup/BodyInstance publication, debug facts, and query performance. It does
 not read Renderer buffers or select visual LOD.
 
-### `TerrainPatchLOD`
+### [Terrain Patch LOD](../Plans/TerrainPatchLOD.md)
 
 Owns the LOD metric and policy, patch adjacency resolution, crack strategy,
 regional bounds across LODs, draw preparation, diagnostics, and measured

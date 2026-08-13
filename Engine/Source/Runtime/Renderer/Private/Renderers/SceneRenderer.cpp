@@ -1,4 +1,6 @@
 #include "Renderers/SceneRenderer.h"
+
+#include "Engine/TerrainSceneProxy.h"
 #include "Renderers/PreparedSceneView.h"
 #include "Renderers/ForwardLighting.h"
 #include "Renderers/DirectionalShadowView.h"
@@ -134,6 +136,13 @@ namespace Durin
 			Counters.VisibleTerrainPatches = Terrain.VisiblePatches;
 			Counters.CulledTerrainPatches = Terrain.CulledPatches;
 			Counters.InvalidTerrainPatchBounds = Terrain.InvalidBoundsFallbacks;
+			Counters.TerrainLODFallbacks = Terrain.LODFallbacks;
+			Counters.TerrainLODResolutionFallbacks = Terrain.LODResolutionFallbacks;
+			Counters.TerrainAdjacencyPromotions = Terrain.AdjacencyPromotions;
+			Counters.TerrainAdjacencyIterations = Terrain.AdjacencyIterations;
+			Counters.RequestedTerrainLODHistogram = Terrain.RequestedLODHistogram;
+			Counters.ResolvedTerrainLODHistogram = Terrain.ResolvedLODHistogram;
+			Counters.TerrainStitchMaskHistogram = Terrain.StitchMaskHistogram;
 			Counters.PreparedTerrainTriangles = Terrain.Triangles;
 			Counters.OpaqueTerrainPatches = Terrain.Opaque.size();
 			Counters.MaskedTerrainPatches = Terrain.Masked.size();
@@ -338,9 +347,6 @@ namespace Durin
 		}
 		const RenderTargetLayouts::EViewportOutput ViewportOutput =
 			GetViewportOutput(bPresentOutput);
-		const RendererEditorAssistance::FRequest EditorAssistanceRequest =
-			FEditorAssistanceRenderer::AnalyzeRequest(View, ViewportOutput);
-
 		if (!PostProcessRenderer.EnsureResources_RenderThread(CommandList))
 		{
 			return ERenderViewResult::RendererResourcesUnavailable;
@@ -366,7 +372,7 @@ namespace Durin
 		}
 		FRHITexture* SceneColor = SceneTargets->Color;
 
-		const FSceneView RenderView = FitViewToOutput(View, Width, Height);
+		FSceneView RenderView = FitViewToOutput(View, Width, Height);
 		PreparedView.View = RenderView;
 		if (Options.Environment)
 		{
@@ -475,6 +481,37 @@ namespace Durin
 			PreparedView.Terrains = PrepareTerrainView_RenderThread(
 				Visibility.TerrainSceneInfos, RenderView,
 				RenderView.Settings.RasterMode);
+			if (RenderView.Settings.bShowTerrainLODOverlay)
+			{
+				auto AddTerrainDrawOverlay = [&RenderView](const FPreparedTerrainDraw& Draw) {
+					if (!Draw.SceneInfo || !Draw.Patch) return;
+					const FBox& Bounds = Draw.Patch->LocalBounds;
+					const FMatrix& Transform = Draw.SceneInfo->GetTransform();
+					if (!Bounds.bIsValid || !Math::IsFinite(Transform)) return;
+					const std::array<FVector3, 4> Local{
+						FVector3{Bounds.Min.x, Bounds.Min.y, Bounds.Max.z},
+						FVector3{Bounds.Max.x, Bounds.Min.y, Bounds.Max.z},
+						FVector3{Bounds.Max.x, Bounds.Max.y, Bounds.Max.z},
+						FVector3{Bounds.Min.x, Bounds.Max.y, Bounds.Max.z}};
+					std::array<FVector3, 4> World;
+					for (size_t Index = 0; Index < 4; ++Index)
+						World[Index] = FVector3(Transform * FVector4(Local[Index], 1.0));
+					const float Level = std::min(1.0f, Draw.ResolvedLOD / 6.0f);
+					const FVector4f LevelColor{Level, 1.0f - Level, 0.2f, 0.9f};
+					for (uint8 Edge = 0; Edge < 4; ++Edge)
+					{
+						const bool bStitched = (Draw.StitchMask & (1u << Edge)) != 0;
+						RenderView.OverlayLines.push_back({
+							.Start = World[Edge],
+							.End = World[(Edge + 1) % 4],
+							.Color = bStitched ? FVector4f{1.0f, 0.1f, 0.1f, 1.0f} : LevelColor,
+							.WidthPixels = bStitched ? 3.0f : 2.0f});
+					}
+				};
+				for (const auto* Bucket : {&PreparedView.Terrains.Opaque,
+					&PreparedView.Terrains.Masked, &PreparedView.Terrains.Translucent})
+					for (const FPreparedTerrainDraw& Draw : *Bucket) AddTerrainDrawOverlay(Draw);
+			}
 		}
 		StaticMeshRenderer.PrepareResources_RenderThread(
 			CommandList, PreparedView.StaticMeshes);
@@ -571,6 +608,8 @@ namespace Durin
 			PreparedView.SkeletalMeshes, PreparedView.Counters);
 		CopyTerrainCounters(PreparedView.Terrains, PreparedView.Counters);
 
+		const RendererEditorAssistance::FRequest EditorAssistanceRequest =
+			FEditorAssistanceRenderer::AnalyzeRequest(RenderView, ViewportOutput);
 		RendererEditorAssistance::FPrepared PreparedEditorAssistance;
 		if (!EditorAssistanceRequest.IsEmpty())
 		{

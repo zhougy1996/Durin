@@ -41,6 +41,8 @@ namespace Durin
 		ERasterMode RasterMode = ERasterMode::Solid;
 		EViewVisibilityMode VisibilityMode = EViewVisibilityMode::Normal;
 		EViewLODMode LODMode = EViewLODMode::Automatic;
+		// Development diagnostic; emits bounded transient terrain patch/LOD lines.
+		bool bShowTerrainLODOverlay = false;
 	};
 
 	// Supplies one submission-local cube environment without publishing scene state.

@@ -46,6 +46,13 @@ namespace Durin
 		size_t VisibleTerrainPatches = 0;
 		size_t CulledTerrainPatches = 0;
 		size_t InvalidTerrainPatchBounds = 0;
+		size_t TerrainLODFallbacks = 0;
+		size_t TerrainLODResolutionFallbacks = 0;
+		size_t TerrainAdjacencyPromotions = 0;
+		size_t TerrainAdjacencyIterations = 0;
+		std::vector<size_t> RequestedTerrainLODHistogram;
+		std::vector<size_t> ResolvedTerrainLODHistogram;
+		std::array<size_t, 16> TerrainStitchMaskHistogram{};
 		size_t PreparedTerrainTriangles = 0;
 		size_t OpaqueTerrainPatches = 0;
 		size_t MaskedTerrainPatches = 0;

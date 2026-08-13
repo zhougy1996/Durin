@@ -79,15 +79,28 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 	MaximumPatches.reserve(256);
 	for (Durin::uint32 Y = 0; Y < 1024; Y += 64)
 		for (Durin::uint32 X = 0; X < 1024; X += 64)
-			MaximumPatches.push_back({X, Y, 64, 64,
-				Durin::FBox({X / 1024.0, Y / 1024.0, 0.25},
-					{(X + 64) / 1024.0, (Y + 64) / 1024.0, 0.25})});
+		{
+			Durin::FTerrainPatchDescriptor Patch;
+			Patch.OriginX = X;
+			Patch.OriginY = Y;
+			Patch.GridX = static_cast<Durin::uint16>(X / 64);
+			Patch.GridY = static_cast<Durin::uint16>(Y / 64);
+			Patch.CellCountX = 64;
+			Patch.CellCountY = 64;
+			Patch.LODSteps = {1, 2, 4, 8, 16, 32, 64};
+			Patch.LODErrors.assign(Patch.LODSteps.size(), 0.0);
+			Patch.LocalBounds = Durin::FBox({X / 1024.0, Y / 1024.0, 0.25},
+				{(X + 64) / 1024.0, (Y + 64) / 1024.0, 0.25});
+			MaximumPatches.push_back(std::move(Patch));
+		}
 	Durin::FScene Scene;
-	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(91),
-		std::make_unique<Durin::FTerrainSceneProxy>(MaximumPayload, 2,
+	auto MaximumProxy = std::make_unique<Durin::FTerrainSceneProxy>(MaximumPayload, 2,
 			1.0 / 1024.0, 1.0 / 1024.0, 0.5, 0.0,
 			std::move(MaximumPatches), Durin::FBox({0.0, 0.0, 0.25}, {1.0, 1.0, 0.25}),
-			Material, 1), Durin::FMatrix(1.0));
+			Material, 1);
+	EXPECT_LE(MaximumProxy->GetLODMetadataBytes(), 64u * 1024u);
+	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(91),
+		std::move(MaximumProxy), Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
 
 	constexpr Durin::uint32 WarmupFrames = 2;
@@ -109,6 +122,7 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 			View.ViewportHeight = 17;
 			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
 			View.Settings.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
+			View.Settings.LODMode = Durin::EViewLODMode::ForceLOD0;
 			for (Durin::uint32 Frame = 0; Frame < WarmupFrames + MeasuredFrames; ++Frame)
 			{
 				Durin::GRenderFrameCounterRenderThread++;
@@ -162,12 +176,49 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 			GpuMilliseconds.push_back(Result.DurationNanoseconds / 1'000'000.0);
 	}
 	std::ranges::sort(GpuMilliseconds);
+	if (!CpuMilliseconds.empty()) EXPECT_LE(CpuMilliseconds.back(), 5000.0);
+	if (!GpuMilliseconds.empty()) EXPECT_LE(GpuMilliseconds.back(), 50.0);
 	if (!CpuMilliseconds.empty() && !GpuMilliseconds.empty())
 		std::cout << "[ TERRAIN ] 1025x1025: cpu median="
 			<< CpuMilliseconds[CpuMilliseconds.size() / 2] << "ms p95="
 			<< CpuMilliseconds.back() << "ms; gpu median="
 			<< GpuMilliseconds[GpuMilliseconds.size() / 2] << "ms p95="
 			<< GpuMilliseconds.back() << "ms\n";
+
+	double AutomaticCpuMilliseconds = 0.0;
+	Durin::EnqueueRenderCommand<FTerrainQualificationCommand>(
+		[&Renderer, &Scene, &AutomaticCpuMilliseconds](Durin::FRHICommandListImmediate& CommandList) {
+			const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+				"MaximumTerrainAutomaticColor", 17, 17, Durin::EPixelFormat::SRGBA8_UNORM)
+				.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
+					| Durin::ETextureCreateFlags::ShaderResource);
+			Durin::FTextureRHIRef Target = Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+			Durin::FSceneView View;
+			View.ViewProjectionMatrix = Durin::FMatrix(1.0);
+			View.ViewportWidth = 17;
+			View.ViewportHeight = 17;
+			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
+			View.Settings.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
+			Durin::GRenderFrameCounterRenderThread++;
+			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+			const auto Begin = std::chrono::steady_clock::now();
+			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
+				Durin::ERenderViewResult::Success);
+			AutomaticCpuMilliseconds = std::chrono::duration<double, std::milli>(
+				std::chrono::steady_clock::now() - Begin).count();
+			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+		});
+	Durin::FlushRenderingCommands();
+	EXPECT_EQ(GCounters.PreparedTerrainTriangles, 512u);
+	ASSERT_EQ(GCounters.RequestedTerrainLODHistogram.size(), 7u);
+	EXPECT_EQ(GCounters.RequestedTerrainLODHistogram[6], 256u);
+	EXPECT_EQ(GCounters.ResolvedTerrainLODHistogram[6], 256u);
+	EXPECT_EQ(GCounters.TerrainLODFallbacks, 0u);
+	EXPECT_EQ(GCounters.TerrainLODResolutionFallbacks, 0u);
+	EXPECT_LE(AutomaticCpuMilliseconds, 5000.0);
+	std::cout << "[ TERRAIN ] 1025x1025 automatic flat: cpu="
+		<< AutomaticCpuMilliseconds << "ms; triangles="
+		<< GCounters.PreparedTerrainTriangles << "\n";
 
 	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(91));
 	Durin::FlushRenderingCommands();

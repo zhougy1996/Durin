@@ -13,6 +13,7 @@ namespace Durin
 	{
 		constexpr uint32 TerrainPatchCellCount = 64;
 		constexpr uint32 MaximumTerrainRenderSamples = 1025;
+		constexpr size_t MaximumTerrainLODMetadataBytes = 64u * 1024u;
 
 		auto IsValidTerrainProperties(
 			double SpacingX, double SpacingY, double HeightScale,
@@ -44,15 +45,56 @@ namespace Durin
 			const uint64 PatchCountX = (CellsX + TerrainPatchCellCount - 1) / TerrainPatchCellCount;
 			const uint64 PatchCountY = (CellsY + TerrainPatchCellCount - 1) / TerrainPatchCellCount;
 			OutPatches.reserve(static_cast<size_t>(PatchCountX * PatchCountY));
-			for (uint32 OriginY = 0; OriginY < CellsY; OriginY += TerrainPatchCellCount)
+			size_t MetadataBytes = 0;
+			uint16 GridY = 0;
+			for (uint32 OriginY = 0; OriginY < CellsY; OriginY += TerrainPatchCellCount, ++GridY)
 			{
-				for (uint32 OriginX = 0; OriginX < CellsX; OriginX += TerrainPatchCellCount)
+				uint16 GridX = 0;
+				for (uint32 OriginX = 0; OriginX < CellsX; OriginX += TerrainPatchCellCount, ++GridX)
 				{
 					FTerrainPatchDescriptor Patch;
 					Patch.OriginX = OriginX;
 					Patch.OriginY = OriginY;
+					Patch.GridX = GridX;
+					Patch.GridY = GridY;
 					Patch.CellCountX = std::min(TerrainPatchCellCount, CellsX - OriginX);
 					Patch.CellCountY = std::min(TerrainPatchCellCount, CellsY - OriginY);
+					Patch.LODSteps.clear();
+					Patch.LODErrors.clear();
+					for (uint32 Step = 1;
+						Step <= Patch.CellCountX && Step <= Patch.CellCountY
+						&& Patch.CellCountX % Step == 0 && Patch.CellCountY % Step == 0;
+						Step *= 2)
+					{
+						Patch.LODSteps.push_back(Step);
+						double MaximumError = 0.0;
+						for (uint32 Y = 0; Y <= Patch.CellCountY; ++Y)
+							for (uint32 X = 0; X <= Patch.CellCountX; ++X)
+							{
+								const uint32 X0 = (X / Step) * Step;
+								const uint32 Y0 = (Y / Step) * Step;
+								const uint32 X1 = std::min(X0 + Step, Patch.CellCountX);
+								const uint32 Y1 = std::min(Y0 + Step, Patch.CellCountY);
+								const double Tx = static_cast<double>(X - X0) / Step;
+								const double Ty = static_cast<double>(Y - Y0) / Step;
+								auto SampleHeight = [&](uint32 SX, uint32 SY) {
+									return HeightFromSample(Payload.Samples[static_cast<size_t>(OriginY + SY)
+										* Payload.Width + OriginX + SX], HeightScale, HeightOffset);
+								};
+								const double H0 = std::lerp(SampleHeight(X0, Y0), SampleHeight(X1, Y0), Tx);
+								const double H1 = std::lerp(SampleHeight(X0, Y1), SampleHeight(X1, Y1), Tx);
+								const double Error = std::abs(SampleHeight(X, Y) - std::lerp(H0, H1, Ty));
+								if (!std::isfinite(Error)) return false;
+								MaximumError = std::max(MaximumError, Error);
+							}
+						if (!Patch.LODErrors.empty()) MaximumError = std::max(MaximumError, Patch.LODErrors.back());
+						Patch.LODErrors.push_back(MaximumError);
+						if (Step > TerrainPatchCellCount / 2) break;
+					}
+					MetadataBytes += sizeof(Patch.LODSteps) + sizeof(Patch.LODErrors)
+						+ Patch.LODSteps.size() * sizeof(uint32)
+						+ Patch.LODErrors.size() * sizeof(double);
+					if (MetadataBytes > MaximumTerrainLODMetadataBytes) return false;
 					uint16 Minimum = 0;
 					uint16 Maximum = 0;
 					if (!Payload.QueryMinMax(OriginX, OriginY,

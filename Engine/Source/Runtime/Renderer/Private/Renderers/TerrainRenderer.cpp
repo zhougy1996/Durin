@@ -17,6 +17,8 @@
 #include "Shader/Shader.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "Terrain/TerrainHeightmap.h"
+#include "Terrain/TerrainLOD.h"
+#include "Terrain/TerrainTopology.h"
 #include "Terrain/TerrainVertexFactory.h"
 
 #include <glm/mat3x3.hpp>
@@ -233,8 +235,36 @@ namespace Durin
 			if (!Math::IsFinite(Transform)) continue;
 			const double Determinant = glm::determinant(glm::mat3(Transform));
 			if (!std::isfinite(Determinant)) continue;
-			for (const FTerrainPatchDescriptor& Patch : Proxy.GetPatches())
+			const auto Patches = Proxy.GetPatches();
+			std::vector<uint32> RequestedLODs;
+			RequestedLODs.reserve(Patches.size());
+			for (const FTerrainPatchDescriptor& Patch : Patches)
 			{
+				const FTerrainLODSelection Selection = SelectTerrainPatchLOD(View, Transform, Patch);
+				RequestedLODs.push_back(Selection.LODIndex);
+				Result.LODFallbacks += Selection.bFallback ? 1u : 0u;
+				if (Result.RequestedLODHistogram.size() <= Selection.LODIndex)
+					Result.RequestedLODHistogram.resize(Selection.LODIndex + 1);
+				++Result.RequestedLODHistogram[Selection.LODIndex];
+			}
+			FTerrainLODResolution Resolution = ResolveTerrainPatchAdjacency(Patches, RequestedLODs);
+			if (!Resolution.bValid)
+			{
+				++Result.LODResolutionFallbacks;
+				Resolution.ResolvedLODs.assign(Patches.size(), 0);
+				Resolution.StitchMasks.assign(Patches.size(), 0);
+			}
+			Result.AdjacencyPromotions += Resolution.Promotions;
+			Result.AdjacencyIterations += Resolution.Iterations;
+			for (uint32 LOD : Resolution.ResolvedLODs)
+			{
+				if (Result.ResolvedLODHistogram.size() <= LOD)
+					Result.ResolvedLODHistogram.resize(LOD + 1);
+				++Result.ResolvedLODHistogram[LOD];
+			}
+			for (size_t PatchIndex = 0; PatchIndex < Patches.size(); ++PatchIndex)
+			{
+				const FTerrainPatchDescriptor& Patch = Patches[PatchIndex];
 				++Result.PatchCandidates;
 				const FBox WorldBounds = TransformBounds(Patch.LocalBounds, Transform);
 				if (bCull && bValidView)
@@ -251,6 +281,16 @@ namespace Durin
 				FPreparedTerrainDraw Draw;
 				Draw.SceneInfo = Info;
 				Draw.Patch = &Patch;
+				Draw.RequestedLOD = RequestedLODs[PatchIndex];
+				Draw.ResolvedLOD = Resolution.ResolvedLODs[PatchIndex];
+				Draw.LODStep = Patch.LODSteps[Draw.ResolvedLOD];
+				Draw.StitchMask = Resolution.StitchMasks[PatchIndex];
+				const FTerrainTopologyKey TopologyKey{
+					static_cast<uint16>(Patch.CellCountX),
+					static_cast<uint16>(Patch.CellCountY),
+					static_cast<uint16>(Draw.LODStep), Draw.StitchMask};
+				Draw.TriangleCount = GetTerrainTopologyTriangleCount(TopologyKey);
+				if (Draw.TriangleCount == 0) continue;
 				Draw.Material = Proxy.ResolveMaterialRenderData_RenderThread();
 				if (!ResolveMaterialBinding(Draw)) continue;
 				Draw.PipelineKey.Material = Draw.Material.PipelineIdentity;
@@ -277,7 +317,8 @@ namespace Durin
 				const auto Bytes = Draw.Material.Representation.GetUniformPayload();
 				for (std::byte Byte : Bytes) Draw.SortKey.MaterialUniform.push_back(std::to_integer<uint8>(Byte));
 				++Result.VisiblePatches;
-				Result.Triangles += static_cast<size_t>(Patch.CellCountX) * Patch.CellCountY * 2;
+				Result.Triangles += Draw.TriangleCount;
+				++Result.StitchMaskHistogram[Draw.StitchMask];
 				auto& Bucket = Draw.Pass == EStaticMeshBasePass::Opaque ? Result.Opaque
 					: Draw.Pass == EStaticMeshBasePass::Masked ? Result.Masked : Result.Translucent;
 				Bucket.push_back(std::move(Draw));
@@ -325,7 +366,7 @@ namespace Durin
 			TShaderRef<FTerrainShadowFragmentShader> ShadowFragment;
 			FGraphicsPipelineStateRHIRef Pipeline;
 		};
-		std::unordered_map<uint64, std::unique_ptr<FTopology>> Topologies;
+		std::unordered_map<FTerrainTopologyKey, std::unique_ptr<FTopology>> Topologies;
 		std::unordered_map<const FTerrainHeightmapPayload*, FHeight> Heights;
 		std::unordered_map<size_t, FSamplerRHIRef> Samplers;
 		TRendererResourceSlotCache<FMaterialShaderMapIdentity, FShaderPayload> Shaders{
@@ -374,45 +415,32 @@ namespace Durin
 			HeightIt = State->Heights.emplace(Payload.get(), std::move(Candidate)).first;
 		}
 		else ++View.HeightReuses;
-		const uint64 TopologyKey = (static_cast<uint64>(Draw.Patch->CellCountX) << 32)
-			| Draw.Patch->CellCountY;
+		const FTerrainTopologyKey TopologyKey{
+			static_cast<uint16>(Draw.Patch->CellCountX),
+			static_cast<uint16>(Draw.Patch->CellCountY),
+			static_cast<uint16>(Draw.LODStep), Draw.StitchMask};
 		auto TopologyIt = State->Topologies.find(TopologyKey);
 		if (TopologyIt == State->Topologies.end())
 		{
 			if (State->Topologies.size() >= MaximumRetainedTerrainTopologies) return false;
-			const uint32 Width = Draw.Patch->CellCountX + 1;
-			const uint32 Height = Draw.Patch->CellCountY + 1;
-			std::vector<std::array<uint16, 2>> Vertices;
-			Vertices.reserve(static_cast<size_t>(Width) * Height);
-			for (uint16 Y = 0; Y < Height; ++Y)
-				for (uint16 X = 0; X < Width; ++X) Vertices.push_back({X, Y});
-			std::vector<uint16> Indices;
-			Indices.reserve(static_cast<size_t>(Draw.Patch->CellCountX) * Draw.Patch->CellCountY * 6);
-			for (uint16 Y = 0; Y < Draw.Patch->CellCountY; ++Y)
-				for (uint16 X = 0; X < Draw.Patch->CellCountX; ++X)
-				{
-					const uint16 A = static_cast<uint16>(Y * Width + X);
-					const uint16 B = static_cast<uint16>(A + 1);
-					const uint16 C = static_cast<uint16>(A + Width);
-					const uint16 D = static_cast<uint16>(C + 1);
-					Indices.insert(Indices.end(), {A, B, C, B, D, C});
-				}
+			FTerrainTopologyData TopologyData;
+			if (!BuildTerrainTopology(TopologyKey, TopologyData)) return false;
 			auto Candidate = std::make_unique<FState::FTopology>();
-			FRHIBufferCreateDesc VertexDesc = FRHIBufferCreateDesc::CreateVertex("TerrainGrid", static_cast<uint32>(Vertices.size() * sizeof(Vertices[0])));
+			FRHIBufferCreateDesc VertexDesc = FRHIBufferCreateDesc::CreateVertex("TerrainGrid", static_cast<uint32>(TopologyData.Vertices.size() * sizeof(TopologyData.Vertices[0])));
 			VertexDesc.Usage |= EBufferUsageFlags::Static;
-			VertexDesc.InitialData = {Vertices.data(), VertexDesc.Size};
+			VertexDesc.InitialData = {TopologyData.Vertices.data(), VertexDesc.Size};
 			Candidate->Vertices = GDynamicRHI->RHICreateBuffer(CommandList, VertexDesc);
-			FRHIBufferCreateDesc IndexDesc = FRHIBufferCreateDesc::CreateIndex("TerrainIndices", static_cast<uint32>(Indices.size() * sizeof(uint16)), sizeof(uint16));
+			FRHIBufferCreateDesc IndexDesc = FRHIBufferCreateDesc::CreateIndex("TerrainIndices", static_cast<uint32>(TopologyData.Indices.size() * sizeof(uint16)), sizeof(uint16));
 			IndexDesc.Usage |= EBufferUsageFlags::Static;
-			IndexDesc.InitialData = {Indices.data(), IndexDesc.Size};
+			IndexDesc.InitialData = {TopologyData.Indices.data(), IndexDesc.Size};
 			Candidate->Indices = GDynamicRHI->RHICreateBuffer(CommandList, IndexDesc);
-			Candidate->IndexCount = static_cast<uint32>(Indices.size());
+			Candidate->IndexCount = static_cast<uint32>(TopologyData.Indices.size());
 			if (!Candidate->Vertices || !Candidate->Indices
-				|| !Candidate->VertexFactory.Initialize(Candidate->Vertices, static_cast<uint32>(Vertices.size()))) return false;
+				|| !Candidate->VertexFactory.Initialize(Candidate->Vertices, static_cast<uint32>(TopologyData.Vertices.size()))) return false;
 			Candidate->VertexFactory.InitResource(CommandList);
 			if (!Candidate->VertexFactory.IsReady()) return false;
-			View.TopologyBytes += Vertices.size() * sizeof(Vertices[0])
-				+ Indices.size() * sizeof(uint16);
+			View.TopologyBytes += TopologyData.Vertices.size() * sizeof(TopologyData.Vertices[0])
+				+ TopologyData.Indices.size() * sizeof(uint16);
 			++View.TopologyCreations;
 			TopologyIt = State->Topologies.emplace(TopologyKey, std::move(Candidate)).first;
 		}
@@ -611,7 +639,10 @@ namespace Durin
 		const FTerrainSceneProxy& Proxy = Draw.SceneInfo->GetTerrainProxy();
 		const auto Payload = Proxy.GetPayload();
 		auto HeightIt = State->Heights.find(Payload.get());
-		const uint64 Key = (static_cast<uint64>(Draw.Patch->CellCountX) << 32) | Draw.Patch->CellCountY;
+		const FTerrainTopologyKey Key{
+			static_cast<uint16>(Draw.Patch->CellCountX),
+			static_cast<uint16>(Draw.Patch->CellCountY),
+			static_cast<uint16>(Draw.LODStep), Draw.StitchMask};
 		auto TopologyIt = State->Topologies.find(Key);
 		const FEffectiveStaticMeshPipelineKey EffectivePipelineKey =
 			bShadowDepth ? MakeShadowPipelineKey(Draw.PipelineKey)
@@ -621,6 +652,9 @@ namespace Durin
 			: State->Pipelines.Find(EffectivePipelineKey);
 		auto* Pipeline = PipelineEntry ? PipelineEntry->Slot.GetPayload() : nullptr;
 		if (HeightIt == State->Heights.end() || TopologyIt == State->Topologies.end() || !Pipeline) return false;
+		if (Draw.TriangleCount > std::numeric_limits<uint32>::max() / 3
+			|| TopologyIt->second->IndexCount != Draw.TriangleCount * 3) return false;
+		const uint32 PreparedIndexCount = static_cast<uint32>(Draw.TriangleCount * 3);
 		const FMatrix& LocalToWorld = Draw.SceneInfo->GetTransform();
 		FTransformUniform Transform;
 		Transform.LocalToClip = ToShaderMatrix(SceneView.ViewProjectionMatrix * LocalToWorld);
@@ -658,7 +692,7 @@ namespace Durin
 			&& Draw.PipelineKey.Material.ShaderMap.BlendMode
 				!= EMaterialBlendMode::Masked)
 		{
-			CommandList.DrawIndexed(TopologyIt->second->IndexCount, 0, 0);
+			CommandList.DrawIndexed(PreparedIndexCount, 0, 0);
 			return true;
 		}
 		FTerrainFragmentShader::FParameters PS;
@@ -687,7 +721,7 @@ namespace Durin
 			ShadowParameters.OpacityMaskSampler = Samplers[7];
 			SetShaderParameters(CommandList, Pipeline->ShadowFragment,
 				ShadowParameters);
-			CommandList.DrawIndexed(TopologyIt->second->IndexCount, 0, 0);
+			CommandList.DrawIndexed(PreparedIndexCount, 0, 0);
 			return true;
 		}
 		FRHITexture* Irradiance = EnvironmentLighting.GetIrradiance_RenderThread();
@@ -705,7 +739,7 @@ namespace Durin
 		PS.DirectionalShadowSampler = Draw.DirectionalShadowSampler != nullptr
 			? Draw.DirectionalShadowSampler : Samplers[0];
 		SetShaderParameters(CommandList, Pipeline->Fragment, PS);
-		CommandList.DrawIndexed(TopologyIt->second->IndexCount, 0, 0);
+		CommandList.DrawIndexed(PreparedIndexCount, 0, 0);
 		return true;
 	}
 
