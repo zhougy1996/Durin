@@ -131,18 +131,26 @@ namespace Durin::Asset::Import
 			std::filesystem::path Path;
 			const FSourcePath SourcePath = Heightmap.GetSourceImportData().SourcePath;
 			if (!LoadBytes(SourcePath, Bytes, Path, OutError)) return false;
-			Asset::FDecodedGrayscale16Image Decoded;
-			if (!Asset::DecodeGrayscale16PngFromMemory(Bytes, Decoded, OutError, {
-				.MaximumEncodedBytes = MaximumTerrainHeightmapEncodedBytes,
-				.MaximumDecodedPixels = MaximumTerrainHeightmapSamples})) return false;
+			FTerrainHeightmapDecodedSource Decoded;
+			if (!DecodeTerrainHeightmapSource(
+				Path.extension().generic_string(), Bytes, Decoded, OutError)) return false;
 			const FXxHash128 Hash = FXxHash128::HashBuffer(Bytes);
 			Asset::Build::FTerrainHeightmapBuildProduct Product;
 			return Asset::Build::BuildTerrainHeightmap({
 				.Samples = std::move(Decoded.Samples), .Width = Decoded.Width,
 				.Height = Decoded.Height, .SourceContentHashLow = Hash.HashLow,
-				.SourceContentHashHigh = Hash.HashHigh}, Product, OutError)
+				.SourceContentHashHigh = Hash.HashHigh,
+				.DecoderId = Decoded.DecoderId,
+				.DecoderVersion = Decoded.DecoderVersion,
+				.SourceFormat = Decoded.SourceFormat,
+				.SourceProfileVersion = Decoded.SourceProfileVersion}, Product, OutError)
 				&& Asset::Build::PublishTerrainHeightmapProduct(Heightmap, std::move(Product), {
-					.SourcePath = SourcePath, .SourceFileSize = Bytes.size(),
+					.SourcePath = SourcePath,
+					.DecoderId = Decoded.DecoderId,
+					.DecoderVersion = Decoded.DecoderVersion,
+					.SourceFormat = Decoded.SourceFormat,
+					.SourceProfileVersion = Decoded.SourceProfileVersion,
+					.SourceFileSize = Bytes.size(),
 					.bAdvanceRevision = false, .bMarkPackageDirty = false}, OutError);
 		}
 

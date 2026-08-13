@@ -12,6 +12,10 @@ namespace Durin::Asset::Build
 		uint32 Height = 0;
 		uint64 SourceContentHashLow = 0;
 		uint64 SourceContentHashHigh = 0;
+		std::string DecoderId;
+		uint32 DecoderVersion = 0;
+		ETerrainHeightmapSourceFormat SourceFormat = ETerrainHeightmapSourceFormat::Unknown;
+		uint32 SourceProfileVersion = 0;
 		bool bPersistDerivedData = true;
 	};
 
@@ -26,8 +30,10 @@ namespace Durin::Asset::Build
 	struct FTerrainHeightmapPublicationContext
 	{
 		FSourcePath SourcePath;
-		std::string DecoderId = "DurinImage";
-		uint32 DecoderVersion = 1;
+		std::string DecoderId;
+		uint32 DecoderVersion = 0;
+		ETerrainHeightmapSourceFormat SourceFormat = ETerrainHeightmapSourceFormat::Unknown;
+		uint32 SourceProfileVersion = 0;
 		uint64 SourceFileSize = 0;
 		int64 SourceLastWriteTime = 0;
 		bool bAdvanceRevision = true;

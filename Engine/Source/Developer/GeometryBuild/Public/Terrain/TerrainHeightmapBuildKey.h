@@ -2,6 +2,7 @@
 
 #include "GeometryBuildAPI.h"
 #include "Hash/XxHash.h"
+#include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
 
 namespace Durin::Asset::Build
@@ -9,6 +10,10 @@ namespace Durin::Asset::Build
 	struct FTerrainHeightmapBuildKeyInput
 	{
 		FXxHash128 SourceContentHash;
+		std::string DecoderId;
+		uint32 DecoderVersion = 0;
+		ETerrainHeightmapSourceFormat SourceFormat = ETerrainHeightmapSourceFormat::Unknown;
+		uint32 SourceProfileVersion = 0;
 		uint32 BuilderVersion = TerrainHeightmapBuilderVersion;
 		uint32 PayloadSchemaVersion = TerrainHeightmapPayloadSchemaVersion;
 		Asset::ECookTargetPlatform TargetPlatform = Asset::ECookTargetPlatform::Invalid;

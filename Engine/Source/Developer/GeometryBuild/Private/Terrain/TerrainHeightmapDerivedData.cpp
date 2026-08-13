@@ -12,6 +12,14 @@ namespace Durin::Asset::Build
 				"Terrain heightmap build-key input is save-only.");
 			return;
 		}
+		if (DecoderId.empty() || DecoderVersion == 0
+			|| SourceFormat == ETerrainHeightmapSourceFormat::Unknown
+			|| SourceProfileVersion == 0)
+		{
+			Ar.Fail(EArchiveFailureCode::InvalidData,
+				"Terrain heightmap derived-data key requires an explicit decoder profile.");
+			return;
+		}
 		if (TargetPlatform != Asset::ECookTargetPlatform::Win64
 			|| (TargetProfile != Asset::ECookTargetProfile::Game
 				&& TargetProfile != Asset::ECookTargetProfile::EditorValidation))
@@ -21,14 +29,16 @@ namespace Durin::Asset::Build
 			return;
 		}
 		uint32 KeySchemaVersion = TerrainHeightmapKeySchemaVersion;
-		std::string RecipeName = "Durin.TerrainHeightmap.Builder.V1";
+		std::string RecipeName = "Durin.TerrainHeightmap.Builder.V2";
 		uint32 SampleBits = 16;
 		uint32 Orientation = 1;
+		uint32 EncodedSourceFormat = static_cast<uint32>(SourceFormat);
 		uint32 EncodedPlatform = static_cast<uint32>(TargetPlatform);
 		uint32 EncodedProfile = static_cast<uint32>(TargetProfile);
 		uint32 BaseRegionSize = TerrainHeightmapBaseRegionSize;
 		Ar << KeySchemaVersion << RecipeName
 			<< SourceContentHash.HashLow << SourceContentHash.HashHigh
+			<< DecoderId << DecoderVersion << EncodedSourceFormat << SourceProfileVersion
 			<< SampleBits << Orientation << BaseRegionSize
 			<< BuilderVersion << PayloadSchemaVersion << EncodedPlatform << EncodedProfile;
 	}

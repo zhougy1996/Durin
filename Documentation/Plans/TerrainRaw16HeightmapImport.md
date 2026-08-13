@@ -4,23 +4,25 @@ Summary: Add exact Gaea/Unity-style square little-endian unsigned RAW16 sources 
 
 Last reviewed: 2026-08-14
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-14
 
 ## Current Status
 
-`DTerrainHeightmap` currently accepts only non-interlaced 16-bit grayscale PNG
-sources. The importer already separates source decoding from canonical payload
-construction: `StandardAssetImport` decodes source bytes, `GeometryBuild`
-builds the immutable row-major `uint16` payload and DDC object, Engine owns the
-asset and Cook contract, and LevelEditor owns the explicit import dialog.
+Completed on 2026-08-14. `DTerrainHeightmap` accepts strict PNG16 and the fixed
+square U16LE `.raw` profile through one source-format-neutral build,
+publication, reimport, DDC, Cook, renderer, and collision lifecycle. The RAW
+decoder uses bounded file admission, checked integer square inference, and
+explicit little-endian assembly without a third-party decoder. Persisted
+provenance and version-2 DDC keys carry decoder, format, and profile identity.
 
-Gaea 2.3 Community successfully emits square Unity heightfields such as a
-513x513 headerless RAW file containing exactly `Width * Height` little-endian
-unsigned 16-bit samples. This source needs no third-party library: bounded file
-I/O, checked integer arithmetic, an exact-square dimension test, and explicit
-little-endian loads are sufficient. No implementation work for this plan has
-started.
+Evidence: the generated asymmetric 513x513 fixture is exactly 526,338 bytes
+and records the Gaea 2.3 Unity RAW top-left row-major U16LE oracle. Focused
+`TerrainHeightmapTests` (9/9), `TerrainHeightmapCookTests` (1/1), the `@terrain`
+domain, the ordinary native `test all` aggregate, Editor and Game `all` builds,
+and hidden-window three-tick smoke runs for both variants passed. Changed
+documentation validation passed; final all-plan validation accompanies
+completion.
 
 ## Goal
 
@@ -152,13 +154,13 @@ For the initial qualified profile:
 
 ### Stage 0: Freeze the RAW profile and golden fixtures
 
-- [ ] Add a deterministic asymmetric square RAW fixture with known corners,
+- [x] Add a deterministic asymmetric square RAW fixture with known corners,
   interior samples, byte order, row order, dimensions, and exact byte count.
-- [ ] Compare the selected top-left row-major contract with one Gaea 2.3 Unity
+- [x] Compare the selected top-left row-major contract with one Gaea 2.3 Unity
   RAW oracle and record the result in the fixture generator or test provenance.
-- [ ] Freeze decoder ID, decoder version, source-format enum/profile, and exact
+- [x] Freeze decoder ID, decoder version, source-format enum/profile, and exact
   malformed-input diagnostics before changing persisted provenance or DDC keys.
-- [ ] Add fixture generation/checking that writes explicit bytes rather than
+- [x] Add fixture generation/checking that writes explicit bytes rather than
   depending on host endianness.
 
 #### Acceptance Gate
@@ -169,19 +171,19 @@ For the initial qualified profile:
 
 ### Stage 1: Add bounded RAW decoding and canonical build integration
 
-- [ ] Add a private or StandardAssetImport-owned RAW decode result parallel to
+- [x] Add a private or StandardAssetImport-owned RAW decode result parallel to
   the existing grayscale16 PNG result without introducing a public generic
   image-decoder dependency.
-- [ ] Implement checked square-dimension admission, one-allocation decoding,
+- [x] Implement checked square-dimension admission, one-allocation decoding,
   and explicit little-endian sample assembly under existing source/sample
   ceilings.
-- [ ] Refactor Terrain source translation to dispatch `.png` and `.raw` into
+- [x] Refactor Terrain source translation to dispatch `.png` and `.raw` into
   the same `BuildTerrainHeightmap` and publication path.
-- [ ] Preserve the source extension in default and explicit mounted-source
+- [x] Preserve the source extension in default and explicit mounted-source
   destinations and reject extension mismatches transactionally.
-- [ ] Persist decoder identity/version and add decoder/profile facts to the DDC
+- [x] Persist decoder identity/version and add decoder/profile facts to the DDC
   key ABI with an intentional builder/key version bump.
-- [ ] Cover exact samples, extrema, retained-byte facts, DDC miss/build/warm
+- [x] Cover exact samples, extrema, retained-byte facts, DDC miss/build/warm
   hit, and every malformed RAW admission failure.
 
 #### Acceptance Gate
@@ -194,17 +196,17 @@ For the initial qualified profile:
 
 ### Stage 2: Extend import, reimport, relocation, and editor workflow
 
-- [ ] Extend `FTerrainHeightmapImportSettings` only if the frozen fixed profile
+- [x] Extend `FTerrainHeightmapImportSettings` only if the frozen fixed profile
   requires an explicit source-format field; keep the settings payload empty if
   extension dispatch is sufficient.
-- [ ] Update the explicit import handler and Terrain dialog to accept `.png`
+- [x] Update the explicit import handler and Terrain dialog to accept `.png`
   and `.raw`, preserve the chosen extension, and present format-specific help.
-- [ ] Keep ordinary PNG-to-Texture2D routing unchanged and require an explicit
+- [x] Keep ordinary PNG-to-Texture2D routing unchanged and require an explicit
   Terrain Heightmap target for RAW.
-- [ ] Add RAW initial import, identical reimport, changed reimport, moved-source
+- [x] Add RAW initial import, identical reimport, changed reimport, moved-source
   reference, package-save rollback, missing source, corrupt source, and loaded
   renderer/collision consumer revision tests.
-- [ ] Expose persisted decoder/source-format facts through existing reflected
+- [x] Expose persisted decoder/source-format facts through existing reflected
   inspection without adding a dedicated asset editor.
 
 #### Acceptance Gate
@@ -216,15 +218,15 @@ For the initial qualified profile:
 
 ### Stage 3: Qualify Cooked Runtime and complete lasting documentation
 
-- [ ] Cook one RAW-authored heightmap, remove source and DDC, load the cooked
+- [x] Cook one RAW-authored heightmap, remove source and DDC, load the cooked
   package in Game, and verify exact dimensions, samples, hierarchy, revision,
   renderer proxy creation, and collision publication.
-- [ ] Prove THPL bytes/schema are unchanged for equal canonical payload and
+- [x] Prove THPL bytes/schema are unchanged for equal canonical payload and
   target facts regardless of whether the authoring source was PNG or RAW.
-- [ ] Update the Terrain Heightmap asset contract and Terrain workflow guide
+- [x] Update the Terrain Heightmap asset contract and Terrain workflow guide
   with the supported RAW profile, no-third-party design, limitations, and
   source-format-neutral Cook behavior.
-- [ ] Run focused Terrain import/Cook tests, Terrain domain tests, documentation
+- [x] Run focused Terrain import/Cook tests, Terrain domain tests, documentation
   validation, the ordinary native aggregate, required Editor/Game builds, and
   hidden-window smoke validation according to repository build/test guidance.
 

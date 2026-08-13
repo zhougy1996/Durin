@@ -6,8 +6,11 @@ Last reviewed: 2026-08-14
 
 ## Import And Place
 
-1. In Content Browser, choose Terrain Heightmap import and select a
-   non-interlaced 16-bit grayscale PNG.
+1. In Content Browser, choose Terrain Heightmap import and select either a
+   non-interlaced 16-bit grayscale PNG or a headerless square `.raw` containing
+   unsigned 16-bit little-endian samples. RAW dimensions are inferred from the
+   exact byte count; rectangular files and manual dimension entry are not
+   supported.
 2. Confirm the destination. The grayscale preview's white L identifies the
    canonical top-left corner.
 3. Drag the card into Scene Viewport. The editor creates one Terrain Actor at
@@ -42,7 +45,9 @@ nothing. Missing/corrupt source or save failure retains the complete revision
 and selection.
 
 Save Level and heightmap packages before Cook. Cooked Game loading uses the
-packaged canonical payload and requires neither source PNG nor local DDC.
+packaged canonical payload and requires neither the PNG/RAW source nor local
+DDC. Renderer and collision consumers see the same canonical sample plane for
+either authoring format.
 
 ## Supported Limits
 

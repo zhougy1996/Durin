@@ -34,6 +34,13 @@ namespace Durin::Asset::Build
 		std::string& OutError) -> bool
 	{
 		OutProduct = {};
+		if (Request.DecoderId.empty() || Request.DecoderVersion == 0
+			|| Request.SourceFormat == ETerrainHeightmapSourceFormat::Unknown
+			|| Request.SourceProfileVersion == 0)
+		{
+			OutError = "Terrain heightmap build requires an explicit source decoder profile.";
+			return false;
+		}
 		std::shared_ptr<const FTerrainHeightmapPayload> Payload;
 		if (!BuildTerrainHeightmapPayload(
 			Request.Width, Request.Height, Request.Samples, Payload, OutError)) return false;
@@ -41,6 +48,10 @@ namespace Durin::Asset::Build
 			.SourceContentHash = {
 				.HashLow = Request.SourceContentHashLow,
 				.HashHigh = Request.SourceContentHashHigh},
+			.DecoderId = Request.DecoderId,
+			.DecoderVersion = Request.DecoderVersion,
+			.SourceFormat = Request.SourceFormat,
+			.SourceProfileVersion = Request.SourceProfileVersion,
 			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
 			.TargetProfile = Asset::ECookTargetProfile::Game}, OutError);
 		if (Key.empty()) return false;
@@ -75,7 +86,10 @@ namespace Durin::Asset::Build
 		std::string& OutError) -> bool
 	{
 		if (!Product.Payload || !Product.Payload->IsValid()
-			|| Product.DerivedDataKey.empty() || Context.SourcePath.IsEmpty())
+			|| Product.DerivedDataKey.empty() || Context.SourcePath.IsEmpty()
+			|| Context.DecoderId.empty() || Context.DecoderVersion == 0
+			|| Context.SourceFormat == ETerrainHeightmapSourceFormat::Unknown
+			|| Context.SourceProfileVersion == 0)
 		{
 			OutError = "Terrain heightmap publication requires a complete product and provenance.";
 			return false;
@@ -85,7 +99,9 @@ namespace Durin::Asset::Build
 			.SourceContentHashLow = Product.SourceContentHashLow,
 			.SourceContentHashHigh = Product.SourceContentHashHigh,
 			.DecoderId = Context.DecoderId,
-			.DecoderVersion = Context.DecoderVersion},
+			.DecoderVersion = Context.DecoderVersion,
+			.SourceFormat = Context.SourceFormat,
+			.SourceProfileVersion = Context.SourceProfileVersion},
 			Context.SourceFileSize, Context.SourceLastWriteTime,
 			std::move(Product.Payload), std::move(Product.DerivedDataKey),
 			"Built canonical terrain heightmap payload from normalized height samples.",
@@ -108,6 +124,10 @@ namespace Durin::Asset::Build
 			.SourceContentHash = {
 				.HashLow = Source.SourceContentHashLow,
 				.HashHigh = Source.SourceContentHashHigh},
+			.DecoderId = Source.DecoderId,
+			.DecoderVersion = Source.DecoderVersion,
+			.SourceFormat = Source.SourceFormat,
+			.SourceProfileVersion = Source.SourceProfileVersion,
 			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
 			.TargetProfile = Asset::ECookTargetProfile::Game}, OutError);
 	}

@@ -36,15 +36,16 @@ namespace Durin::Editor::Level
 			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize
 				| ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings)) return;
 
-		ImGui::TextUnformatted("Create a Terrain Heightmap from a 16-bit grayscale PNG.");
-		ImGui::TextDisabled("Samples remain exact, top-left-origin, and row-major; no color conversion is applied.");
-		ImGui::SeparatorText("Source PNG");
+		ImGui::TextUnformatted("Create a Terrain Heightmap from PNG16 or square RAW16.");
+		ImGui::TextDisabled("PNG: non-interlaced grayscale 16-bit. RAW: headerless square unsigned U16LE.");
+		ImGui::TextDisabled("Samples remain exact, top-left-origin, and row-major; no conversion or resampling is applied.");
+		ImGui::SeparatorText("Source Heightmap");
 		const float BrowseButtonWidth = Metrics.StandardButtonWidth;
 		ImGui::SetNextItemWidth(
 			ImGui::GetContentRegionAvail().x - BrowseButtonWidth
 				- ImGui::GetStyle().ItemSpacing.x);
 		ImGui::InputTextWithHint(
-			"##TerrainHeightmapSource", "Choose a 16-bit grayscale PNG...",
+			"##TerrainHeightmapSource", "Choose a .png or .raw heightmap...",
 			SourcePathBuffer.data(), SourcePathBuffer.size(),
 			ImGuiInputTextFlags_ReadOnly);
 		ImGui::SameLine();
@@ -59,7 +60,7 @@ namespace Durin::Editor::Level
 		const std::filesystem::path Source(SourcePathBuffer.data());
 		std::string ValidationMessage;
 		if (SourcePathBuffer[0] == '\0')
-			ValidationMessage = "Select a 16-bit grayscale PNG to continue.";
+			ValidationMessage = "Select a PNG16 or square U16LE RAW heightmap to continue.";
 		else if (!std::filesystem::is_regular_file(Source))
 			ValidationMessage = "The selected source file no longer exists.";
 		else
@@ -68,7 +69,8 @@ namespace Durin::Editor::Level
 			std::ranges::transform(Extension, Extension.begin(), [](unsigned char Character) {
 				return static_cast<char>(std::tolower(Character));
 			});
-			if (Extension != ".png") ValidationMessage = "Terrain heightmaps require a PNG source.";
+			if (Extension != ".png" && Extension != ".raw")
+				ValidationMessage = "Terrain heightmaps require a .png or .raw source.";
 			else if (!DestinationValidation) ValidationMessage = DestinationValidation.Message;
 		}
 		DrawImportDialogWarning(ValidationMessage);
@@ -87,8 +89,12 @@ namespace Durin::Editor::Level
 	{
 		FFileDialogRequest Request;
 		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
-		Request.Title = "Select a Terrain Heightmap PNG";
-		Request.Filters = {{"16-bit grayscale PNG", "*.png"}, {"All Files", "*.*"}};
+		Request.Title = "Select a Terrain Heightmap Source";
+		Request.Filters = {
+			{"Terrain Heightmaps", "*.png;*.raw"},
+			{"16-bit grayscale PNG", "*.png"},
+			{"Square unsigned 16-bit little-endian RAW", "*.raw"},
+			{"All Files", "*.*"}};
 		if (const FProjectInfo* Project = GetCurrentProject())
 			Request.InitialDirectory = Project->ProjectDir;
 		const FFileDialogResult Result = OpenFileDialog(Request);

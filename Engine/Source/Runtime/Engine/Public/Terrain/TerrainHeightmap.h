@@ -19,6 +19,15 @@ namespace Durin
 		Failed
 	};
 
+	// Identifies the exact encoded source contract used to author a heightmap.
+	DENUM(DisplayName = "Terrain Heightmap Source Format")
+	enum class ETerrainHeightmapSourceFormat : uint8
+	{
+		Unknown,
+		Png16,
+		Raw16
+	};
+
 	// Stores portable source provenance for heightmap rebuild and reimport.
 	DSTRUCT()
 	struct FTerrainHeightmapSourceImportData
@@ -39,6 +48,12 @@ namespace Durin
 
 		DPROPERTY()
 		uint32 DecoderVersion = 0;
+
+		DPROPERTY()
+		ETerrainHeightmapSourceFormat SourceFormat = ETerrainHeightmapSourceFormat::Unknown;
+
+		DPROPERTY()
+		uint32 SourceProfileVersion = 0;
 
 		auto HasSource() const -> bool { return !SourcePath.IsEmpty(); }
 		auto HasContentHash() const -> bool

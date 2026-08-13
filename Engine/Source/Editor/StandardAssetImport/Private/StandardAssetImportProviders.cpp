@@ -973,11 +973,12 @@ namespace Durin::Asset::Import
 					|| !Asset::CreateAsset(CandidatePath, Candidate)) return nullptr;
 				auto Result = std::make_unique<FEngineSingleAssetCandidate>(Candidate);
 				std::string Error;
-				Asset::FDecodedGrayscale16Image Decoded;
-				if (!Asset::DecodeGrayscale16PngFromMemory(
-					Root->GetBytes(), Decoded, Error, {
-						.MaximumEncodedBytes = MaximumTerrainHeightmapEncodedBytes,
-						.MaximumDecodedPixels = MaximumTerrainHeightmapSamples}))
+				FTerrainHeightmapDecodedSource Decoded;
+				if (!DecodeTerrainHeightmapSource(
+					Root->SourcePath.Path.empty()
+						? std::string_view{}
+						: std::filesystem::path(Root->SourcePath.Path).extension().generic_string(),
+					Root->GetBytes(), Decoded, Error))
 				{
 					Diagnostics.push_back({
 						.Severity = EImportDiagnosticSeverity::Error,
@@ -994,10 +995,18 @@ namespace Durin::Asset::Import
 					.Width = Decoded.Width,
 					.Height = Decoded.Height,
 					.SourceContentHashLow = Hash.HashLow,
-					.SourceContentHashHigh = Hash.HashHigh}, Product, Error)
+					.SourceContentHashHigh = Hash.HashHigh,
+					.DecoderId = Decoded.DecoderId,
+					.DecoderVersion = Decoded.DecoderVersion,
+					.SourceFormat = Decoded.SourceFormat,
+					.SourceProfileVersion = Decoded.SourceProfileVersion}, Product, Error)
 					|| !Asset::Build::PublishTerrainHeightmapProduct(
 						*Candidate, std::move(Product), {
 							.SourcePath = Root->SourcePath,
+							.DecoderId = Decoded.DecoderId,
+							.DecoderVersion = Decoded.DecoderVersion,
+							.SourceFormat = Decoded.SourceFormat,
+							.SourceProfileVersion = Decoded.SourceProfileVersion,
 							.SourceFileSize = Root->GetBytes().size()}, Error))
 				{
 					Diagnostics.push_back({

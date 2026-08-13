@@ -11,8 +11,8 @@ namespace Durin
 
 	inline constexpr uint32 TerrainHeightmapPayloadMagic = 0x4C504854; // THPL
 	inline constexpr uint32 TerrainHeightmapPayloadSchemaVersion = 1;
-	inline constexpr uint32 TerrainHeightmapBuilderVersion = 1;
-	inline constexpr uint32 TerrainHeightmapKeySchemaVersion = 1;
+	inline constexpr uint32 TerrainHeightmapBuilderVersion = 2;
+	inline constexpr uint32 TerrainHeightmapKeySchemaVersion = 2;
 	inline constexpr uint32 TerrainHeightmapBaseRegionSize = 64;
 	inline constexpr uint32 TerrainHeightmapPayloadHeaderSize = 96;
 	inline constexpr uint32 TerrainHeightmapLevelRecordSize = 24;
