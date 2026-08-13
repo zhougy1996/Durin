@@ -28,6 +28,7 @@ not open the other rows or scan an entire directory.
 | Physics-framework long-term scaling, broadphase/narrowphase, cooked collision, dynamics, or backend evolution | [Aether physics evolution roadmap](Roadmaps/AetherPhysicsEvolution.md) |
 | CPU tasks, dependencies, cancellation, waiting, or worker-thread ownership | [CPU task system](Runtime/Core/TaskSystem.md) |
 | Scene viewport or window-backed rendering | [Viewport rendering](Runtime/Rendering/ViewportRendering.md) |
+| Shadow quality, bias, PCF, cascades, contact shadows, or future local-light shadow development | [Shadow system evolution roadmap](Roadmaps/ShadowSystemEvolution.md) |
 | Editor architecture, design, or user workflow | Use a targeted search under `Editor/Architecture/`, `Editor/Design/`, or `Editor/Guides/` |
 | Material-system long-term status, sequencing, or future milestones | [Material system roadmap](Roadmaps/MaterialSystem.md) |
 | Bounded implementation task or task selection | Run `.\DevTool.bat doc task list`, then open only the selected task |
