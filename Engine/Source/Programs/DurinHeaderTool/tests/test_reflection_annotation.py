@@ -279,6 +279,53 @@ namespace Fixture
         ):
             parse_reflection_header("Fixture", header)
 
+    def test_target_predefines_are_truthful_and_non_overlapping(self):
+        from durin_header_tool.parser.clang_context import _clang_args
+
+        config = DurinModuleConfig(module_name="Fixture", module_dir=self.module_dir)
+        with (
+            mock.patch.object(configs, "get_module_config", return_value=config),
+            mock.patch.object(configs, "collect_all_dependent_modules", return_value=set()),
+            mock.patch.object(configs, "ARCH", "Win64"),
+        ):
+            win64 = _clang_args("Fixture", False)
+        with (
+            mock.patch.object(configs, "get_module_config", return_value=config),
+            mock.patch.object(configs, "collect_all_dependent_modules", return_value=set()),
+            mock.patch.object(configs, "ARCH", "MacOS"),
+        ):
+            macos = _clang_args("Fixture", False)
+
+        assert "-D_WIN32=1" in win64
+        assert "-D_MSC_VER=1930" in win64
+        assert "--target=x86_64-pc-windows-msvc" in win64
+        assert "-D__APPLE__=1" not in win64
+        assert "-D__APPLE__=1" in macos
+        assert "-D__arm64__=1" in macos
+        assert "--target=arm64-apple-macos" in macos
+        assert "-D_WIN32=1" not in macos
+        assert "-D_MSC_VER=1930" not in macos
+
+    def test_macos_target_selects_apple_platform_branch(self):
+        header = "Public/MacOnly.h"
+        (self.module_dir / header).write_text(
+            "#if defined(__APPLE__) && !defined(_WIN32)\n"
+            "DCLASS() class FMacOnly {};\n"
+            "#endif\n",
+            encoding="utf-8",
+        )
+        config = DurinModuleConfig(
+            module_name="Fixture", module_dir=self.module_dir, reflect_headers=[header]
+        )
+        with (
+            mock.patch.object(configs, "get_module_config", return_value=config),
+            mock.patch.object(configs, "collect_all_dependent_modules", return_value=set()),
+            mock.patch.object(configs, "ARCH", "MacOS"),
+        ):
+            result = parse_reflection_header("Fixture", header)
+
+        assert [item.short_name for item in result.classes] == ["FMacOnly"]
+
 
     def test_dmeta_outside_reflected_enum_is_rejected(self):
         header = "Public/Misplaced.h"

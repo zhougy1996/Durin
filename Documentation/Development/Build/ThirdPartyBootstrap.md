@@ -135,6 +135,13 @@ Third-party manifests live under
 - optional `allow_unsupported_platform` behavior for host-specific tools
 - optional tool `version` and `repair_command` status metadata
 
+Before preparing selected dependencies, bootstrap validates required archive
+platform entries as one set. If a host lacks required metadata, the diagnostic
+enumerates every missing `source.platforms.<Platform>` and prebuilt-SDK
+`required_files_by_platform.<Platform>` entry before any acquisition starts.
+Such entries must not be added until the native archive URL, hash,
+architecture, install names, and runtime behavior have been verified.
+
 ## Notes
 
 - `--all` skips test-only dependencies unless `--with-tests` is supplied.

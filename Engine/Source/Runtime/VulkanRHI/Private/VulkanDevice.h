@@ -10,7 +10,7 @@ namespace Durin::VulkanRHI
 	{
 		vk::QueueFlags Flags;
 		uint32 QueueCount = 0;
-		bool bSupportsWin32Presentation = false;
+		bool bSupportsPresentation = false;
 	};
 
 	struct FVulkanPhysicalDeviceCandidateInput

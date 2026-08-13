@@ -123,6 +123,25 @@ from durin_dev_tool.build import purge, recovery, runtime
                     presets[preset_name], 'BUILD_TESTING'
                 ), preset_name
 
+    def test_macos_bootstrap_preset_is_arm64_debug_editor_only(self) -> None:
+        manifest = json.loads((REPO_ROOT / 'CMakePresets.json').read_text(encoding='utf-8'))
+        macos_presets = [
+            preset for preset in manifest['configurePresets']
+            if preset['name'].startswith('MacOS-')
+        ]
+        assert [preset['name'] for preset in macos_presets] == [
+            'MacOS-arm64-Debug-DurinEditor'
+        ]
+        preset = macos_presets[0]
+        assert preset['cacheVariables']['CMAKE_BUILD_TYPE'] == 'Debug'
+        assert preset['cacheVariables']['CMAKE_OSX_ARCHITECTURES'] == 'arm64'
+        assert preset['cacheVariables']['DURIN_RUNTIME_VARIANT'] == 'DurinEditor'
+        base = next(
+            item for item in manifest['configurePresets'] if item['name'] == 'macos-base'
+        )
+        assert base['architecture']['value'] == 'arm64'
+        assert base['cacheVariables']['BUILD_TESTING'] == 'ON'
+
     def test_profiling_presets_are_release_isolated_and_enable_tracy(self) -> None:
         presets = build_config.load_configure_presets()
         for runtime_variant in ('DurinEditor', 'DurinGame'):

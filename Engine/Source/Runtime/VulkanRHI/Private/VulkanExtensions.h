@@ -32,6 +32,21 @@ namespace Durin::VulkanRHI
 		bool bRequestDiagnostics = false;
 	};
 
+	struct FVulkanInstanceExtensionRequestInput
+	{
+		std::vector<std::string> SurfaceProviderRequiredExtensions;
+		bool bRequirePortabilityEnumeration = false;
+	};
+
+	struct FVulkanInstanceExtensionRequest
+	{
+		std::vector<std::string> RequiredExtensions;
+		bool bEnablePortabilityEnumeration = false;
+		std::string Diagnostic;
+
+		auto IsSuccess() const -> bool { return Diagnostic.empty(); }
+	};
+
 	struct FVulkanInstanceNegotiationResult
 	{
 		uint32 ApiVersion = 0;
@@ -53,6 +68,9 @@ namespace Durin::VulkanRHI
 		const char* ConfiguredMode,
 		bool bDebugBuild,
 		bool bShippingBuild) -> FVulkanValidationPolicy;
+	VULKANRHI_API auto BuildVulkanInstanceExtensionRequest(
+		const FVulkanInstanceExtensionRequestInput& Input)
+		-> FVulkanInstanceExtensionRequest;
 	VULKANRHI_API auto NegotiateVulkanInstance(const FVulkanInstanceNegotiationInput& Input)
 		-> FVulkanInstanceNegotiationResult;
 

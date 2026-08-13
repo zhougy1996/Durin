@@ -113,26 +113,30 @@
       "hidden": true,
       "generator": "Ninja",
       "architecture": {
-        "value": "x64",
+        "value": "arm64",
         "strategy": "external"
+      },
+      "vendor": {
+        "microsoft.com/VisualStudioSettings/CMake/1.0": {
+          "hostOS": [
+            "macOS"
+          ]
+        }
+      },
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "BUILD_TESTING": "ON"
       }
     },
     {
-      "name": "MacOS-Debug",
+      "name": "MacOS-arm64-Debug-DurinEditor",
       "inherits": "macos-base",
       "binaryDir": "${sourceDir}/Build/${presetName}",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}"
-      }
-    },
-    {
-      "name": "MacOS-Release",
-      "inherits": "macos-base",
-      "binaryDir": "${sourceDir}/Build/${presetName}",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}"
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "DURIN_RUNTIME_VARIANT": "DurinEditor"
       }
     }
   ]

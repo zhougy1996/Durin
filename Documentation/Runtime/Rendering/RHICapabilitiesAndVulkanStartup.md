@@ -63,7 +63,12 @@ layers into candidate-owned storage. Vulkan 1.1 is the required loader floor and
 activation, and one of these classes: required runtime, platform required,
 optional feature, optional diagnostic, or promoted core.
 
-On Win64, `VK_KHR_surface` and `VK_KHR_win32_surface` are platform requirements.
+The surface provider's required extension names and the backend portability
+policy are combined and deduplicated in stable input order before negotiation.
+An empty surface-provider requirement set fails before negotiation. On Win64,
+`VK_KHR_surface` and `VK_KHR_win32_surface` are platform requirements. A
+portability-enumeration policy additionally requires
+`VK_KHR_portability_enumeration` and enables the matching instance-create flag.
 Properties2 is satisfied by the Vulkan 1.1 core and its extension name is not
 requested. Surface maintenance activates only with its complete optional
 dependency. Required absence fails before `vkCreateInstance`; optional absence
@@ -82,7 +87,8 @@ are Vulkan 1.1, `VK_KHR_swapchain`, `fillModeNonSolid`,
 `shaderDrawParameters`, nonzero 2D/cube limits, at least six array layers,
 positive storage-buffer alignment/range and direct-dispatch group-count limits,
 and one queue family with queue
-zero, graphics and compute flags, and Win32 presentation support. Rejected
+zero, graphics and compute flags, and presentation support. On Win64 that fact
+is supplied by the focused native Win32 presentation adapter. Rejected
 devices never receive a ranking position.
 
 Suitable devices rank deterministically by device type, descending 2D limit,

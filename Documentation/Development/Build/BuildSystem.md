@@ -136,6 +136,13 @@ source or header therefore updates the Ninja graph during a normal build. DHT
 metadata only describes module configuration, reflection inputs, and generated
 outputs; it does not freeze the ordinary source list at configure time.
 
+Source discovery classifies `Windows`, `MacOS`, and `Linux` subtrees as
+platform-owned. Each module target compiles common sources plus exactly the
+subtree selected by `DURIN_TARGET_PLATFORM`; foreign implementation sources are
+excluded. Foreign headers remain `HEADER_FILE_ONLY` sources for IDE visibility.
+An unknown target platform fails configuration before a partial module graph is
+created.
+
 During configuration, CMake hashes the tracked DHT Python package together with
 `requirements.txt` into `DHT.fingerprint`. Those files are configure dependencies,
 and export/reflection build commands depend on the resulting fingerprint. The
@@ -145,6 +152,14 @@ internal cache. Schema, parser/generator context, native-libclang content,
 platform, runtime variant, and current-header content changes likewise miss
 deterministically. Export semantic changes invalidate only reflection records
 whose resolved-symbol dependency snapshots changed.
+
+DHT's hermetic parser context also derives predefined platform/compiler macros
+from its declared target. Win64 defines the repository's MSVC/Win32 parser
+assumptions; MacOS defines Apple, Mach, and arm64 identities without defining
+Win32 or MSVC. Each context also supplies an explicit Clang target triple so
+host built-ins cannot leak into synthetic target parsing. The parser-context
+version and phase-state platform identity
+invalidate cached parses when this contract changes.
 
 ## Build Output Isolation
 

@@ -243,6 +243,28 @@ namespace Durin::VulkanRHI
 		EXPECT_TRUE(Invalid.bRequestDiagnostics);
 	}
 
+	TEST(FVulkanInstanceNegotiationTests,
+		BuildsDeterministicSurfaceAndPortabilityRequirements)
+	{
+		FVulkanInstanceExtensionRequestInput Input;
+		EXPECT_FALSE(BuildVulkanInstanceExtensionRequest(Input).IsSuccess());
+
+		Input.SurfaceProviderRequiredExtensions = {
+			VK_KHR_SURFACE_EXTENSION_NAME,
+			VK_KHR_SURFACE_EXTENSION_NAME,
+			"VK_EXT_provider_surface"};
+		Input.bRequirePortabilityEnumeration = true;
+		const FVulkanInstanceExtensionRequest Result =
+			BuildVulkanInstanceExtensionRequest(Input);
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Diagnostic;
+		EXPECT_EQ(Result.RequiredExtensions,
+			(std::vector<std::string>{
+				VK_KHR_SURFACE_EXTENSION_NAME,
+				"VK_EXT_provider_surface",
+				VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME}));
+		EXPECT_TRUE(Result.bEnablePortabilityEnumeration);
+	}
+
 	TEST(FVulkanInstanceNegotiationTests, RejectsLoaderFloorAndMissingPlatformRequirement)
 	{
 		FVulkanInstanceNegotiationInput Input = MakeInstanceNegotiationInput();
@@ -333,8 +355,8 @@ namespace Durin::VulkanRHI
 			FCase{"maxComputeWorkGroupCount", [](auto& Input) {
 				Input.MaxComputeWorkGroupCount[1] = 0;
 			}},
-			FCase{"graphics, compute, and Win32 presentation", [](auto& Input) {
-				Input.QueueFamilies[0].bSupportsWin32Presentation = false;
+			FCase{"graphics, compute, and presentation", [](auto& Input) {
+				Input.QueueFamilies[0].bSupportsPresentation = false;
 			}},
 		};
 		for (const FCase& Case : Cases)

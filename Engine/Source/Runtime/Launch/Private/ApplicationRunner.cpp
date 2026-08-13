@@ -9,7 +9,7 @@
 #include "Misc/StartupCommand.h"
 #include "Misc/Version.h"
 #include "Profiling/Profiling.h"
-#include "Windows/WindowsProcessCrashHandler.h"
+#include "ProcessCrashServices.h"
 
 namespace Durin
 {
@@ -19,7 +19,7 @@ namespace Durin
 		class FProcessCrashHandlerGuard
 		{
 		public:
-			~FProcessCrashHandlerGuard() { UninstallWindowsProcessCrashHandler(); }
+			~FProcessCrashHandlerGuard() { UninstallProcessCrashHandler(); }
 		};
 
 		auto WriteArgumentError(const FLaunchArgumentError& Error) -> void
@@ -49,7 +49,7 @@ namespace Durin
 	{
 		InitializeProcessCrashContext(
 			DURIN_RUNTIME_VARIANT, DURIN_BUILD_TYPE_STRING, GetEngineVersionString());
-		if (!InstallWindowsProcessCrashHandler()) return 1;
+		if (!InstallProcessCrashHandler()) return 1;
 		FProcessCrashHandlerGuard CrashHandlerGuard;
 		DURIN_PROFILE_CPU_ZONE_NAMED("Startup.Process");
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::ProcessEntry);
@@ -67,18 +67,18 @@ namespace Durin
 		FLaunchRequest Request = std::move(*Parsed.Request);
 
 		FLaunchDiagnosticsRequest& Diagnostics = Request.Diagnostics;
-		ConfigureWindowsProcessCrashTestOptions(
+		ConfigureProcessCrashTestOptions(
 			Diagnostics.bDisableNativeCrashDump,
 			Diagnostics.bForceNativeCrashCollision,
 			Diagnostics.bFaultNativeCrashWriter);
 		if (Diagnostics.NativeCrashSavedRoot
-			&& !PublishWindowsProcessCrashRoot(*Diagnostics.NativeCrashSavedRoot, true))
+			&& !PublishProcessCrashRoot(*Diagnostics.NativeCrashSavedRoot, true))
 		{
 			std::fprintf(stderr, "Durin: --native-crash-saved could not publish the requested crash root.\n");
 			return 1;
 		}
 		if (IsProcessEntryCrash(Diagnostics)
-			&& RunWindowsProcessCrashFixture(*Diagnostics.NativeCrashFixture))
+			&& RunProcessCrashFixture(*Diagnostics.NativeCrashFixture))
 			return 1;
 
 		if (Request.ProcessCoordination.WaitForProcessId

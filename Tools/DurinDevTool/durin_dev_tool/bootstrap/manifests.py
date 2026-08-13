@@ -105,6 +105,27 @@ def configurations(value: str) -> tuple[str, ...]:
     return VALID_CONFIGS if value == "All" else (value,)
 
 
+def missing_platform_entries(
+    manifests: list[dict[str, Any]], platform_name: str
+) -> tuple[str, ...]:
+    missing: list[str] = []
+    for manifest in manifests:
+        source = manifest["source"]
+        if source["type"] != "archive" or manifest.get("allow_unsupported_platform", False):
+            continue
+        fields: list[str] = []
+        if platform_name not in source.get("platforms", {}):
+            fields.append(f"source.platforms.{platform_name}")
+        if (
+            manifest["kind"] == "prebuilt_sdk"
+            and platform_name not in manifest.get("required_files_by_platform", {})
+        ):
+            fields.append(f"required_files_by_platform.{platform_name}")
+        if fields:
+            missing.append(f"{manifest['name']}: {', '.join(fields)}")
+    return tuple(missing)
+
+
 def plan_dependencies(
     manifests: list[dict[str, Any]],
     request: DependencyRequest,

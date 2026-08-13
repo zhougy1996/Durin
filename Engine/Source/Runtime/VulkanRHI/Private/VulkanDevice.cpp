@@ -71,7 +71,7 @@ namespace Durin::VulkanRHI
 			const FVulkanQueueFamilyCandidate& Queue = Input.QueueFamilies[Index];
 			const vk::QueueFlags Required = vk::QueueFlagBits::eGraphics | vk::QueueFlagBits::eCompute;
 			if (Queue.QueueCount > 0 && (Queue.Flags & Required) == Required
-				&& Queue.bSupportsWin32Presentation)
+				&& Queue.bSupportsPresentation)
 			{
 				Result.GraphicsPresentQueueFamilyIndex = static_cast<int32>(Index);
 				break;
@@ -79,7 +79,7 @@ namespace Durin::VulkanRHI
 		}
 		if (Result.GraphicsPresentQueueFamilyIndex < 0)
 			Result.RejectionReasons.emplace_back(
-				"no queue family provides graphics, compute, and Win32 presentation");
+				"no queue family provides graphics, compute, and presentation");
 		if (!Result.IsSuitable()) return Result;
 
 		Result.EnabledExtensions.emplace_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);

@@ -4,7 +4,7 @@
 #include "Diagnostics/NativeGameplayLifecycleSmoke.h"
 #include "Diagnostics/ProcessCrashContext.h"
 #include "Diagnostics/TaskSchedulerLifecycleSmoke.h"
-#include "Windows/WindowsProcessCrashHandler.h"
+#include "ProcessCrashServices.h"
 
 #if DURIN_WITH_EDITOR
 	#include "Editor/EditorEngine.h"
@@ -27,14 +27,14 @@ namespace Durin
 	auto FApplicationDiagnostics::AtPreInitialization() const -> void
 	{
 		if (Request.NativeCrashPhase == ENativeCrashPhase::PreInitialization)
-			RunWindowsProcessCrashFixture(Request.NativeCrashFixture.value_or(""));
+			RunProcessCrashFixture(Request.NativeCrashFixture.value_or(""));
 	}
 
 	auto FApplicationDiagnostics::AfterLoggerStarted() const -> void
 	{
 		if (Request.NativeCrashPhase != ENativeCrashPhase::LoggerRunning) return;
 		FillCrashLogGap();
-		RunWindowsProcessCrashFixture(Request.NativeCrashFixture.value_or(""));
+		RunProcessCrashFixture(Request.NativeCrashFixture.value_or(""));
 	}
 
 	auto FApplicationDiagnostics::AfterEngineInitialized() -> void
@@ -42,7 +42,7 @@ namespace Durin
 		if (Request.NativeCrashPhase == ENativeCrashPhase::Running)
 		{
 			FillCrashLogGap();
-			RunWindowsProcessCrashFixture(Request.NativeCrashFixture.value_or(""));
+			RunProcessCrashFixture(Request.NativeCrashFixture.value_or(""));
 		}
 	}
 
@@ -88,6 +88,6 @@ namespace Durin
 	auto FApplicationDiagnostics::AtObjectCollection() const -> void
 	{
 		if (Request.NativeCrashPhase == ENativeCrashPhase::ObjectCollection)
-			RunWindowsProcessCrashFixture(Request.NativeCrashFixture.value_or(""));
+			RunProcessCrashFixture(Request.NativeCrashFixture.value_or(""));
 	}
 }

@@ -10,6 +10,17 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/NativeTestIsolationProbeTests)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/VulkanRHITests)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/EngineTests)
 
+add_test(
+	NAME Durin.PlatformSourceSelection
+	COMMAND ${CMAKE_COMMAND}
+		"-DDURIN_WORKSPACE_DIR=${DURIN_WORKSPACE_DIR}"
+		-P "${DURIN_WORKSPACE_DIR}/CMake/Tests/PlatformSourceSelectionTests.cmake"
+)
+set_tests_properties(Durin.PlatformSourceSelection PROPERTIES
+	LABELS "build;infrastructure;native-test-default"
+	TIMEOUT 30
+)
+
 durin_validate_native_test_source_ownership("${CMAKE_CURRENT_LIST_DIR}")
 durin_validate_native_test_repository_policy("${CMAKE_CURRENT_LIST_DIR}")
 

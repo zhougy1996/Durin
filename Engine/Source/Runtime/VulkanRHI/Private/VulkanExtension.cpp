@@ -49,6 +49,28 @@ namespace Durin::VulkanRHI
 		return Result;
 	}
 
+	auto BuildVulkanInstanceExtensionRequest(
+		const FVulkanInstanceExtensionRequestInput& Input)
+		-> FVulkanInstanceExtensionRequest
+	{
+		FVulkanInstanceExtensionRequest Result;
+		for (const std::string& Extension : Input.SurfaceProviderRequiredExtensions)
+		{
+			if (!Extension.empty()) AddUnique(Result.RequiredExtensions, Extension);
+		}
+		if (Result.RequiredExtensions.empty())
+		{
+			Result.Diagnostic =
+				"Vulkan surface provider reported no required instance extensions.";
+			return Result;
+		}
+		Result.bEnablePortabilityEnumeration = Input.bRequirePortabilityEnumeration;
+		if (Input.bRequirePortabilityEnumeration)
+			AddUnique(Result.RequiredExtensions,
+				VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+		return Result;
+	}
+
 	auto NegotiateVulkanInstance(const FVulkanInstanceNegotiationInput& Input)
 		-> FVulkanInstanceNegotiationResult
 	{

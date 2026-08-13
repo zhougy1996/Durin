@@ -1,4 +1,5 @@
 #include "VulkanDynamicRHI.h"
+#include "VulkanPresentationSupport.h"
 
 #include "VulkanContext.h"
 #include "VulkanCompletion.h"
@@ -391,18 +392,24 @@ namespace Durin::VulkanRHI
 			throw std::runtime_error(std::format(
 				"Vulkan instance requirement enumeration failed: {}", Exception.what()));
 		}
+		FVulkanInstanceExtensionRequestInput ExtensionRequestInput;
 #ifdef _WIN32
-		NegotiationInput.PlatformRequiredExtensions.emplace_back(VK_KHR_SURFACE_EXTENSION_NAME);
-		NegotiationInput.PlatformRequiredExtensions.emplace_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
+		ExtensionRequestInput.SurfaceProviderRequiredExtensions.emplace_back(
+			VK_KHR_SURFACE_EXTENSION_NAME);
+		ExtensionRequestInput.SurfaceProviderRequiredExtensions.emplace_back(
+			VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
 #endif
 		for (const char* RequiredExtension : GMonaRequiredVulkanInstanceExtensions)
-		{
-			if (std::ranges::find(NegotiationInput.PlatformRequiredExtensions, RequiredExtension)
-				== NegotiationInput.PlatformRequiredExtensions.end())
-			{
-				NegotiationInput.PlatformRequiredExtensions.emplace_back(RequiredExtension);
-			}
-		}
+			ExtensionRequestInput.SurfaceProviderRequiredExtensions.emplace_back(
+				RequiredExtension);
+#ifdef __APPLE__
+		ExtensionRequestInput.bRequirePortabilityEnumeration = true;
+#endif
+		const FVulkanInstanceExtensionRequest ExtensionRequest =
+			BuildVulkanInstanceExtensionRequest(ExtensionRequestInput);
+		if (!ExtensionRequest.IsSuccess())
+			throw std::runtime_error(ExtensionRequest.Diagnostic);
+		NegotiationInput.PlatformRequiredExtensions = ExtensionRequest.RequiredExtensions;
 		const FVulkanValidationPolicy ValidationPolicy = ResolveVulkanValidationPolicy(
 			std::getenv("DURIN_VULKAN_VALIDATION"), DURIN_BUILD_DEBUG != 0, DURIN_BUILD_SHIPPING != 0);
 		if (ValidationPolicy.bInvalidSetting)
@@ -444,9 +451,8 @@ namespace Durin::VulkanRHI
 		InstanceInfo.setPEnabledExtensionNames(ExtensionNames)
 			.setPEnabledLayerNames(LayerNames);
 
-#ifdef __APPLE__
-		InstanceInfo.flags |= vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR;
-#endif
+		if (ExtensionRequest.bEnablePortabilityEnumeration)
+			InstanceInfo.flags |= vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR;
 		FVulkanDiagnosticAvailability AvailabilityCandidate;
 		AvailabilityCandidate.bRequested = ValidationPolicy.bRequestDiagnostics;
 		AvailabilityCandidate.bDebugUtilsSupported = std::ranges::find(
@@ -607,9 +613,8 @@ namespace Durin::VulkanRHI
 				FVulkanQueueFamilyCandidate& Queue = Candidate.Input.QueueFamilies.emplace_back();
 				Queue.Flags = QueueFamilies[QueueIndex].queueFlags;
 				Queue.QueueCount = QueueFamilies[QueueIndex].queueCount;
-#ifdef _WIN32
-				Queue.bSupportsWin32Presentation = Gpu.getWin32PresentationSupportKHR(QueueIndex);
-#endif
+				Queue.bSupportsPresentation =
+					QueryNativeVulkanPresentationSupport(Gpu, QueueIndex);
 			}
 			Candidate.Evaluation = EvaluateVulkanPhysicalDeviceCandidate(Candidate.Input);
 			Candidates.push_back(std::move(Candidate));

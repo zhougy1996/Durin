@@ -40,6 +40,13 @@ def prepare_dependencies(
     manifests.validate_manifests(values)
     selected = manifests.select_manifests(values, request)
     platform = detect_platform_name()
+    missing_platform_entries = manifests.missing_platform_entries(selected, platform)
+    if missing_platform_entries:
+        raise BootstrapError(
+            f"Dependency manifests are incomplete for {platform}: "
+            + "; ".join(missing_platform_entries)
+            + ". Verify native artifact URLs, hashes, architectures, install names, and runtime behavior before adding these entries."
+        )
     effective_environment = environment
     cmake_command = request.cmake_command
     if any(manifest["kind"] == "shared_install" for manifest in selected):

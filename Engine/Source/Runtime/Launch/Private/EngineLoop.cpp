@@ -28,7 +28,7 @@
 #include "EngineFrame.h"
 #include "EngineFramePhases.h"
 #include "RuntimeStorage.h"
-#include "Windows/WindowsProcessCrashHandler.h"
+#include "ProcessCrashServices.h"
 
 #if DURIN_WITH_EDITOR
 	#include "Editor/EditorEngine.h"
@@ -58,7 +58,7 @@ namespace Durin
 		FPlatformMisc::AddRuntimeBinaryDirectory(FPaths::EngineThirdPartyRuntimeBinariesDir().c_str());
 
 		FRuntimeStoragePreparationResult RuntimeStorage = PrepareRuntimeStorage();
-		PublishWindowsProcessCrashRoot(FPaths::LaunchSavedDir());
+		PublishProcessCrashRoot(FPaths::LaunchSavedDir());
 		Diagnostics.AtPreInitialization();
 		LoadAppConfig(RuntimeStorage.AppConfigPath.string());
 

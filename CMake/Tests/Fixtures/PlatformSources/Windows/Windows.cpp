@@ -1,0 +1,1 @@
+// Windows source-selection fixture.

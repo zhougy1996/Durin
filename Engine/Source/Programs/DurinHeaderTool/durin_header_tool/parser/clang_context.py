@@ -9,9 +9,30 @@ from durin_header_tool.model.export_info import ExportedSymbolInfo
 from durin_header_tool.parser.annotation_rewriter import _DMetaUse, _make_dht_parse_source
 
 ExportedSymbols: TypeAlias = dict[str, ExportedSymbolInfo]
-PARSER_CONTEXT_VERSION = "hermetic-namespace-lookup-v2"
+PARSER_CONTEXT_VERSION = "target-predefines-v3"
 _INCLUDE_PATTERN = re.compile(r'^\s*#\s*include\b[^\r\n]*$', re.MULTILINE)
 _TYPE_DECLARATION_PATTERN = re.compile(r"\b(?:class|struct|enum(?:\s+class)?)\s+([A-Za-z_]\w*)")
+
+
+def _target_predefined_macros(target: str) -> list[str]:
+    if target == "Win64":
+        return [
+            "--target=x86_64-pc-windows-msvc",
+            "-D_MSC_VER=1930",
+            "-D_WIN32=1",
+            "-D_WIN64=1",
+        ]
+    if target == "MacOS":
+        return [
+            "--target=arm64-apple-macos",
+            "-D__APPLE__=1",
+            "-D__MACH__=1",
+            "-D__arm64__=1",
+            "-D__aarch64__=1",
+        ]
+    if target == "Linux":
+        return ["--target=x86_64-unknown-linux-gnu", "-D__linux__=1", "-D__x86_64__=1"]
+    raise ValueError(f"unsupported DHT target architecture '{target}'")
 
 
 def _clang_args(module_name: str, export_mode: bool) -> list[str]:
@@ -26,11 +47,10 @@ def _clang_args(module_name: str, export_mode: bool) -> list[str]:
         "-w",
         "-D_DHT_PARSER=1",
         "-DNDEBUG",
-        "-D_MSC_VER=1930",
-        "-D_WIN32=1",
         "-DFORCEINLINE=inline",
         f"-DDURIN_WITH_EDITOR={1 if configs.RUNTIME_VARIANT == 'DurinEditor' else 0}",
     ]
+    args.extend(_target_predefined_macros(configs.ARCH))
     if export_mode:
         args.append("-D_DHT_EXPORTS_PARSER=1")
 
@@ -49,6 +69,13 @@ def _validate_preprocessor_context(source: str) -> None:
         "NDEBUG",
         "_MSC_VER",
         "_WIN32",
+        "_WIN64",
+        "__APPLE__",
+        "__MACH__",
+        "__arm64__",
+        "__aarch64__",
+        "__linux__",
+        "__x86_64__",
     }
     locally_defined: set[str] = set()
     for line_number, line in enumerate(source.splitlines(), start=1):
@@ -162,4 +189,3 @@ def _parse_translation_unit(
         options=clang.cindex.TranslationUnit.PARSE_SKIP_FUNCTION_BODIES,
     )
     return translation_unit, dmeta_uses
-

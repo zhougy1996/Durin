@@ -3,6 +3,7 @@
 include_guard(GLOBAL)
 
 include("${CMAKE_CURRENT_LIST_DIR}/TargetDependencyClosure.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/PlatformSources.cmake")
 
 function(durin_module_log project_name module_name)
 	message(STATUS "[${project_name}] Module: ${module_name}")
@@ -114,6 +115,16 @@ function(add_durin_module module_name)
 		"${module_dir}/Private/*.hpp"
 		"${module_dir}/Private/*.inl"
 	)
+	durin_select_platform_sources(module_public_srcs _durin_foreign_public_headers
+		"${DURIN_TARGET_PLATFORM}" ${module_public_srcs})
+	durin_select_platform_sources(module_private_srcs _durin_foreign_private_headers
+		"${DURIN_TARGET_PLATFORM}" ${module_private_srcs})
+	if(_durin_foreign_public_headers OR _durin_foreign_private_headers)
+		set_source_files_properties(
+			${_durin_foreign_public_headers}
+			${_durin_foreign_private_headers}
+			PROPERTIES HEADER_FILE_ONLY TRUE)
+	endif()
 
 	if(module_reflect_headers)
 		set(_durin_module_export_stamp "${module_dht_output_dir}/${module_name}.export.stamp")

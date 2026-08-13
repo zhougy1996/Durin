@@ -1,0 +1,1 @@
+// Common source-selection fixture.

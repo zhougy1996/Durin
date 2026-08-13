@@ -37,6 +37,18 @@ class TestThirdPartyBootstrap:
         )
         assert [(item.name, item.configurations) for item in plan] == [('normal', ())]
 
+    def test_missing_platform_entries_are_enumerated_without_inventing_artifacts(self) -> None:
+        manifest = {
+            'name': 'slang',
+            'kind': 'prebuilt_sdk',
+            'source_dir': 'slang',
+            'source': {'type': 'archive', 'platforms': {'Win64': {}}},
+            'required_files_by_platform': {'Win64': ['bin/slang.dll']},
+        }
+        assert dependency_manifests.missing_platform_entries([manifest], 'MacOS') == (
+            'slang: source.platforms.MacOS, required_files_by_platform.MacOS',
+        )
+
     def test_explicit_development_dependency_preserves_requested_order(self) -> None:
         selected = dependency_manifests.select_manifests(self.make_manifests(), DependencyRequest(libraries='tracy,normal'))
         assert [manifest['name'] for manifest in selected] == ['tracy', 'normal']
@@ -148,4 +160,3 @@ class TestRelocatedManifest:
         manifest = next((item for item in dependency_manifests.load_manifests(REPOSITORY) if item['name'] == 'tracy-tools'))
         assert manifest['repair_command'] == 'DevTool.bat dependency prepare --libs tracy,tracy-tools'
         assert (REPOSITORY_ROOT / 'DevTool.bat').is_file()
-
