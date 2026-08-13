@@ -582,7 +582,10 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 
 		constexpr Durin::uint32 ShadowWarmupFrames = 30;
 		constexpr Durin::uint32 ShadowMeasuredFrames = 120;
-		auto ProfileShadowTier = [&](bool bEnabled, const char* TargetName) {
+		auto ProfileShadowTier = [&](
+			bool bEnabled,
+			Durin::EDirectionalShadowDiagnosticMode DiagnosticMode,
+			const char* TargetName) {
 			Directional.bCastShadows = bEnabled;
 			Scene.AddOrReplaceLight(Durin::FLightSceneId(10),
 				std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
@@ -594,7 +597,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			Durin::SetSceneColorTimingQuerySink(CaptureSceneColorTiming);
 			Durin::SetShadowDepthTimingQuerySink(CaptureShadowDepthTiming);
 			Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
-				[&Renderer, &Scene, TargetName](
+				[&Renderer, &Scene, DiagnosticMode, TargetName](
 					Durin::FRHICommandListImmediate& CommandList) {
 					const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
 						TargetName, 1920, 1080, Durin::EPixelFormat::SRGBA8_UNORM)
@@ -614,6 +617,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 					View.ViewportWidth = 1920;
 					View.ViewportHeight = 1080;
 					View.Settings.RenderMode = Durin::ERenderMode::Lit;
+					View.Settings.DirectionalShadowDiagnosticMode = DiagnosticMode;
 					View.Settings.VisibilityMode =
 						Durin::EViewVisibilityMode::FrustumCullingDisabled;
 					for (Durin::uint32 Frame = 0;
@@ -672,19 +676,31 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			return std::pair{Median(SceneQueries),
 				bEnabled ? Median(ShadowQueries) : Durin::uint64(0)};
 		};
-		const auto DisabledShadow = ProfileShadowTier(false, "ShadowDisabledProfile");
-		const auto EnabledShadow = ProfileShadowTier(true, "ShadowEnabledProfile");
+		const auto DisabledShadow = ProfileShadowTier(
+			false, Durin::EDirectionalShadowDiagnosticMode::Lit,
+			"ShadowDisabledProfile");
+		const auto EnabledShadow = ProfileShadowTier(
+			true, Durin::EDirectionalShadowDiagnosticMode::Lit,
+			"ShadowEnabledProfile");
+		const auto DiagnosticShadow = ProfileShadowTier(
+			true, Durin::EDirectionalShadowDiagnosticMode::Classification,
+			"ShadowDiagnosticProfile");
 		const Durin::uint64 SceneIncrement = EnabledShadow.first
 			> DisabledShadow.first ? EnabledShadow.first - DisabledShadow.first : 0;
 		const Durin::uint64 CombinedIncrement =
 			SceneIncrement + EnabledShadow.second;
+		const Durin::uint64 DiagnosticIncrement = DiagnosticShadow.first
+			> EnabledShadow.first
+			? DiagnosticShadow.first - EnabledShadow.first : 0;
 		std::cout << "Directional shadow profile: disabled-scene="
 			<< DisabledShadow.first << " ns, enabled-scene="
 			<< EnabledShadow.first << " ns, shadow-depth="
 			<< EnabledShadow.second << " ns, combined-increment="
 			<< CombinedIncrement << " ns, logical-bytes="
 			<< Durin::DirectionalShadowLogicalBytes << ", backend-bytes="
-			<< GLastCounters.ShadowTargetBackendBytes << "\n";
+			<< GLastCounters.ShadowTargetBackendBytes
+			<< ", diagnostic-scene=" << DiagnosticShadow.first
+			<< " ns, diagnostic-increment=" << DiagnosticIncrement << " ns\n";
 		EXPECT_LE(CombinedIncrement, 2'000'000u);
 	}
 	auto TranslatedPose = std::make_shared<Durin::FSkeletalPosePalette>(*Pose);

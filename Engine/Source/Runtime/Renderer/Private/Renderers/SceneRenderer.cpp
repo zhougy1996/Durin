@@ -416,6 +416,15 @@ namespace Durin
 						PreparedView.DirectionalShadow))
 				{
 					++PreparedView.Counters.ShadowValidReceiverViews;
+					const size_t DiagnosticIndex = static_cast<size_t>(
+						PreparedView.DirectionalShadow.DiagnosticMode);
+					if (DiagnosticIndex
+						< PreparedView.Counters.ShadowDiagnosticViews.size())
+						++PreparedView.Counters.ShadowDiagnosticViews[DiagnosticIndex];
+					PreparedView.Counters.ShadowBiasFallbacks +=
+						PreparedView.DirectionalShadow.Bias.bUsedFallback ? 1u : 0u;
+					PreparedView.Counters.ShadowBiasClamps +=
+						PreparedView.DirectionalShadow.Bias.bTotalClamped ? 1u : 0u;
 					const FDirectionalShadowCasterCandidates Casters =
 						PrepareDirectionalShadowCasterCandidates(
 							*Scene, PreparedView.DirectionalShadow);
@@ -438,6 +447,23 @@ namespace Durin
 						Casters.Terrains,
 						PreparedView.DirectionalShadow.CasterView,
 						ERasterMode::Solid);
+					auto ApplyRasterBias = [&PreparedView](auto& Geometry) {
+						for (auto* Bucket : {&Geometry.Opaque, &Geometry.Masked})
+							for (auto& Draw : *Bucket)
+							{
+								auto& Raster = Draw.PipelineKey.Rasterizer;
+								Raster.bEnableDepthBias = true;
+								Raster.DepthBiasConstantFactor =
+									PreparedView.DirectionalShadow.Bias.RasterConstant;
+								Raster.DepthBiasSlopeFactor =
+									PreparedView.DirectionalShadow.Bias.RasterSlope;
+								Raster.DepthBiasClamp =
+									PreparedView.DirectionalShadow.Bias.RasterClamp;
+							}
+					};
+					ApplyRasterBias(PreparedView.ShadowStaticMeshes);
+					ApplyRasterBias(PreparedView.ShadowSkeletalMeshes);
+					ApplyRasterBias(PreparedView.ShadowTerrains);
 					// Translucent surfaces never enter the M6 shadow draw lists.
 					PreparedView.ShadowStaticMeshes.SelectedSections -=
 						PreparedView.ShadowStaticMeshes.TranslucentSections;

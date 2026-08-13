@@ -1,0 +1,71 @@
+{
+  "schema": 1,
+  "capturePath": "FDirectionalShadowBaselineVulkanTests.CapturesFrozenLitArtifactsAndSubTexelMotion",
+  "renderMode": "Lit",
+  "backend": "Vulkan",
+  "camera": {
+    "kind": "orthographic",
+    "clipX": [-1.0, 1.0],
+    "clipY": [-1.0, 1.0],
+    "worldZToDepth": "1-z",
+    "baseTranslation": [0.0, 0.0, 0.0]
+  },
+  "material": {
+    "shadingModel": "Lit",
+    "baseColor": [0.72, 0.72, 0.72],
+    "twoSided": true,
+    "maskedThreshold": 0.4,
+    "maskedScalar": 1.0
+  },
+  "fixtures": [
+    {"name": "q0_planar_acne_valid", "classification": "valid", "purpose": "planar self-shadow acne", "light": [0.35, 0.2, -1.0]},
+    {"name": "q0_sloped_acne_valid", "classification": "valid", "purpose": "28-degree slope acne and grazing response", "light": [0.35, 0.2, -1.0]},
+    {"name": "q0_contact_detachment_valid", "classification": "valid", "purpose": "0.12-world-unit caster separation below the fixed receiver-bias visibility threshold", "light": [0.35, 0.2, -1.0]},
+    {"name": "q0_modular_seam_valid", "classification": "valid", "purpose": "two coincident floor boundaries under a crossing shadow", "light": [0.35, 0.2, -1.0]},
+    {"name": "q0_modular_gap_defective", "classification": "intentionally-defective", "purpose": "paired 0.08-world-unit authored floor gap", "light": [0.35, 0.2, -1.0]},
+    {"name": "q0_grazing_angle_valid", "classification": "valid", "purpose": "near-parallel directional illumination", "light": [0.995, 0.0, -0.1]},
+    {"name": "q0_masked_coverage_valid", "classification": "valid", "purpose": "Masked caster coverage parity", "light": [0.35, 0.2, -1.0]},
+    {"name": "q0_opaque_coverage_reference", "classification": "valid-reference", "purpose": "Opaque control for Masked coverage", "light": [0.35, 0.2, -1.0]},
+    {"name": "q0_shadow_disabled_reference", "classification": "fallback-reference", "purpose": "complete fully-lit binding with selected light and disabled shadow", "light": [0.35, 0.2, -1.0]},
+    {"name": "q0_motion_translate_00", "classification": "valid-motion", "cameraX": 0.0, "light": [0.35, 0.2, -1.0]},
+    {"name": "q0_motion_translate_01", "classification": "valid-motion", "cameraX": 0.000244140625, "light": [0.35, 0.2, -1.0]},
+    {"name": "q0_motion_translate_02", "classification": "valid-motion", "cameraX": 0.00048828125, "light": [0.35, 0.2, -1.0]},
+    {"name": "q0_motion_light_01", "classification": "valid-motion", "cameraX": 0.0, "light": [0.3505, 0.2, -1.0]}
+  ],
+  "entryGeometrySubset": {
+    "StaticMesh": "complete artifact matrix in this package",
+    "SplineMesh": "SkeletalMeshRenderResourcesVulkanTests identity/curved parity captures",
+    "SkeletalMesh": "SkeletalMeshRenderResourcesVulkanTests Lit and shadow capture",
+    "TerrainOpaqueMasked": "TerrainRenderVulkanTests and MaterialVulkanTests production capture paths"
+  },
+  "stage4ParityMatrix": {
+    "geometry": ["StaticMesh", "SplineMesh", "SkeletalMesh", "Terrain"],
+    "surface": ["horizontal", "vertical", "sloped", "grazing", "thin", "mirrored", "two-sided", "masked", "modular-valid", "modular-defective"],
+    "motion": ["camera-translation", "camera-rotation", "light-direction", "animation", "resize"],
+    "views": ["main", "auxiliary", "preview", "present", "offscreen", "fixed-aspect", "post-process", "editor-assistance"]
+  },
+  "measurement": {
+    "channelTolerance": 2,
+    "motionChangedPixelLimit": 132,
+    "validUnexplainedSeamWidthPixels": 1,
+    "defectiveGapMinimumWidthPixels": 8,
+    "planarAcneInteriorCoverageMaximum": 0.0025,
+    "contactDetachmentMaximumPixels": 3,
+    "maskedOpaqueEdgeMismatchMaximumPixels": 2,
+    "silhouetteExclusionPixels": 2,
+    "classificationRule": "Defective controls are excluded from valid-geometry success metrics and must preserve their authored opening."
+  },
+  "selectedPolicyEvidence": "selected-metrics.json",
+  "selectedPolicyCaptureCount": 23,
+  "diagnosticModes": [
+    "ShadowDepthCoverage",
+    "ReceiverUnbiased",
+    "ReceiverBiased",
+    "ReceiverNormalOffset",
+    "TexelGrid",
+    "BiasContributions",
+    "Classification"
+  ],
+  "diagnosticEvidencePrefix": "q0_diagnostic_",
+  "selectedLitEvidencePrefix": "selected_"
+}

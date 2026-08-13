@@ -269,17 +269,118 @@ namespace Durin
 			View, Light.Id, Light.Data, Shadow));
 		const FForwardLightingUniform Enabled = BuildForwardLightingUniform(
 			Lights, View, &Shadow);
-		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Params.x, 1.0f);
-		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Params.y,
-			DirectionalShadowReceiverBias);
+		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Control.x, 1.0f);
+		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.TexelBias.z,
+			Shadow.Bias.ReceiverWorld);
 
 		Shadow.LightId = FLightSceneId(5);
 		const FForwardLightingUniform Mismatch = BuildForwardLightingUniform(
 			Lights, View, &Shadow);
-		EXPECT_FLOAT_EQ(Mismatch.DirectionalShadow.Params.x, 0.0f);
+		EXPECT_FLOAT_EQ(Mismatch.DirectionalShadow.Control.x, 0.0f);
 		const FForwardLightingUniform Disabled = BuildForwardLightingUniform(
 			Lights, View, nullptr);
-		EXPECT_FLOAT_EQ(Disabled.DirectionalShadow.Params.x, 0.0f);
+		EXPECT_FLOAT_EQ(Disabled.DirectionalShadow.Control.x, 0.0f);
+	}
+
+	TEST(FRendererSceneViewTests,
+		DirectionalShadowBiasUsesBoundedTexelAndOrientationInputs)
+	{
+		const FDirectionalShadowBias Facing =
+			CalculateDirectionalShadowBias({0.125, 0.0625}, 1.0);
+		EXPECT_FLOAT_EQ(Facing.RasterConstant, 1.25f);
+		EXPECT_FLOAT_EQ(Facing.RasterSlope, 1.375f);
+		EXPECT_FLOAT_EQ(Facing.RasterClamp, 3.0f);
+		EXPECT_FLOAT_EQ(Facing.ReceiverWorld, 0.00625f);
+		EXPECT_FLOAT_EQ(Facing.NormalWorld, 0.025f);
+		EXPECT_FALSE(Facing.bUsedFallback);
+		EXPECT_FALSE(Facing.bTotalClamped);
+
+		const FDirectionalShadowBias Grazing =
+			CalculateDirectionalShadowBias({0.125, 0.0625}, 0.0);
+		EXPECT_FLOAT_EQ(Grazing.ReceiverWorld, 0.01875f);
+		EXPECT_FLOAT_EQ(Grazing.NormalWorld, 0.075f);
+		EXPECT_TRUE(Grazing.bTotalClamped);
+		EXPECT_LE(Grazing.ReceiverWorld + Grazing.NormalWorld, 0.09375f);
+
+		const FDirectionalShadowBias Maximum =
+			CalculateDirectionalShadowBias({0.25, 0.25}, 0.0);
+		EXPECT_FLOAT_EQ(Maximum.RasterConstant, 1.5f);
+		EXPECT_FLOAT_EQ(Maximum.RasterSlope, 1.5f);
+		EXPECT_FLOAT_EQ(Maximum.RasterClamp, 4.0f);
+		EXPECT_FLOAT_EQ(Maximum.ReceiverWorld, 0.02f);
+		EXPECT_FLOAT_EQ(Maximum.NormalWorld, 0.08f);
+		EXPECT_TRUE(Maximum.bTotalClamped);
+
+		const FDirectionalShadowBias Invalid = CalculateDirectionalShadowBias(
+			{std::numeric_limits<double>::quiet_NaN(), 0.125}, 1.0);
+		EXPECT_TRUE(Invalid.bUsedFallback);
+		EXPECT_FLOAT_EQ(Invalid.RasterConstant,
+			DirectionalShadowDepthBiasConstant);
+		EXPECT_FLOAT_EQ(Invalid.RasterSlope, DirectionalShadowDepthBiasSlope);
+		EXPECT_FLOAT_EQ(Invalid.RasterClamp, DirectionalShadowDepthBiasClamp);
+		EXPECT_FLOAT_EQ(Invalid.ReceiverWorld, 0.0f);
+		EXPECT_FLOAT_EQ(Invalid.NormalWorld, 0.0f);
+
+		constexpr std::array<double, 4> TexelSizes{
+			0.03125, 0.0625, 0.125, 0.25};
+		constexpr std::array<double, 4> SurfaceLightCosines{
+			1.0, 0.5, 0.1, 0.0};
+		for (const double TexelSize : TexelSizes)
+			for (const double SurfaceLightCosine : SurfaceLightCosines)
+			{
+				const FDirectionalShadowBias Bias =
+					CalculateDirectionalShadowBias(
+						{TexelSize, TexelSize * 0.5}, SurfaceLightCosine);
+				EXPECT_FALSE(Bias.bUsedFallback);
+				EXPECT_GE(Bias.RasterConstant, 1.0f);
+				EXPECT_LE(Bias.RasterConstant, 1.5f);
+				EXPECT_GE(Bias.RasterSlope, 1.25f);
+				EXPECT_LE(Bias.RasterSlope, 2.0f);
+				EXPECT_GE(Bias.RasterClamp, 2.0f);
+				EXPECT_LE(Bias.RasterClamp, 4.0f);
+				EXPECT_GE(Bias.ReceiverWorld, 0.0005f);
+				EXPECT_LE(Bias.ReceiverWorld,
+					DirectionalShadowMaximumReceiverWorldBias);
+				EXPECT_GE(Bias.NormalWorld, 0.0f);
+				EXPECT_LE(Bias.NormalWorld,
+					DirectionalShadowMaximumNormalOffset);
+				EXPECT_LE(Bias.ReceiverWorld + Bias.NormalWorld,
+					std::min(static_cast<float>(0.75 * TexelSize),
+						DirectionalShadowMaximumTotalWorldBias));
+			}
+	}
+
+	TEST(FRendererSceneViewTests,
+		DirectionalShadowDiagnosticIdentityIsPreparedPerView)
+	{
+		FSceneView View;
+		View.ProjectionMatrix = MakeOrthographicProjection(2.0, 1.0, 1.0, 11.0);
+		View.ViewProjectionMatrix = View.ProjectionMatrix;
+		View.ViewportWidth = 64;
+		View.ViewportHeight = 64;
+		FDirectionalLightSceneData Light;
+		Light.Direction = {0.0, 0.0, -1.0};
+		FPreparedDirectionalShadowView First;
+		View.Settings.DirectionalShadowDiagnosticMode =
+			EDirectionalShadowDiagnosticMode::ReceiverBiased;
+		ASSERT_TRUE(TryPrepareDirectionalShadowView(
+			View, FLightSceneId(1), Light, First));
+		FPreparedDirectionalShadowView Second;
+		View.Settings.DirectionalShadowDiagnosticMode =
+			EDirectionalShadowDiagnosticMode::TexelGrid;
+		ASSERT_TRUE(TryPrepareDirectionalShadowView(
+			View, FLightSceneId(1), Light, Second));
+		EXPECT_EQ(First.DiagnosticMode,
+			EDirectionalShadowDiagnosticMode::ReceiverBiased);
+		EXPECT_EQ(Second.DiagnosticMode,
+			EDirectionalShadowDiagnosticMode::TexelGrid);
+		FPreparedDirectionalShadowView Invalid;
+		View.Settings.DirectionalShadowDiagnosticMode =
+			static_cast<EDirectionalShadowDiagnosticMode>(255);
+		ASSERT_TRUE(TryPrepareDirectionalShadowView(
+			View, FLightSceneId(1), Light, Invalid));
+		EXPECT_EQ(Invalid.DiagnosticMode,
+			EDirectionalShadowDiagnosticMode::Lit);
 	}
 
 	TEST(FRendererSceneViewTests, FrustumGoldensKeepContactAndRejectOnlyFullyOutsideBounds)

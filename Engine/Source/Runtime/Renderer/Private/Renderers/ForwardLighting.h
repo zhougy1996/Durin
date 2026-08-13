@@ -61,8 +61,14 @@ namespace Durin
 	struct alignas(16) FForwardDirectionalShadowUniform
 	{
 		FMatrix4f WorldToShadow{1.0f};
-		// x = enabled, y = receiver bias, zw = texel world size.
-		FVector4f Params{0.0f};
+		// x = enabled, y = diagnostic mode, z = fallback, w = total clamped.
+		FVector4f Control{0.0f};
+		// xy = texel world size, z = receiver world bias, w = normal offset.
+		FVector4f TexelBias{0.0f};
+		// xyz = raster terms, w = normalized raster separation.
+		FVector4f RasterBias{0.0f};
+		// xyz = selected directional-light direction, w = guard texels.
+		FVector4f LightBounds{0.0f};
 	};
 
 	// Fixed reflected ABI uploaded exactly once for each rendered view.
@@ -77,9 +83,15 @@ namespace Durin
 
 	static_assert(sizeof(FForwardDirectionalLightUniform) == 32);
 	static_assert(sizeof(FForwardLocalLightUniform) == 64);
-	static_assert(sizeof(FForwardDirectionalShadowUniform) == 80);
-	static_assert(sizeof(FForwardLightingUniform) == 400);
+	static_assert(sizeof(FForwardDirectionalShadowUniform) == 128);
+	static_assert(offsetof(FForwardDirectionalShadowUniform, Control) == 64);
+	static_assert(offsetof(FForwardDirectionalShadowUniform, TexelBias) == 80);
+	static_assert(offsetof(FForwardDirectionalShadowUniform, RasterBias) == 96);
+	static_assert(offsetof(FForwardDirectionalShadowUniform, LightBounds) == 112);
+	static_assert(sizeof(FForwardLightingUniform) == 448);
 	static_assert(alignof(FForwardLightingUniform) == 16);
+	static_assert(offsetof(FForwardLightingUniform, DirectionalShadow) == 64);
+	static_assert(offsetof(FForwardLightingUniform, Local) == 192);
 
 	RENDERER_API auto PrepareLightView_RenderThread(
 		const FScene& Scene,

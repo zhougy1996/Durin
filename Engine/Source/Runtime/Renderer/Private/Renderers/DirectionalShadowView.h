@@ -24,6 +24,21 @@ namespace Durin
 	inline constexpr float DirectionalShadowDepthBiasSlope = 1.75f;
 	inline constexpr float DirectionalShadowDepthBiasClamp = 4.0f;
 	inline constexpr float DirectionalShadowReceiverBias = 0.0005f;
+	inline constexpr float DirectionalShadowMaximumReceiverWorldBias = 0.02f;
+	inline constexpr float DirectionalShadowMaximumNormalOffset = 0.10f;
+	inline constexpr float DirectionalShadowMaximumTotalWorldBias = 0.10f;
+
+	struct FDirectionalShadowBias
+	{
+		float RasterConstant = DirectionalShadowDepthBiasConstant;
+		float RasterSlope = DirectionalShadowDepthBiasSlope;
+		float RasterClamp = DirectionalShadowDepthBiasClamp;
+		float ReceiverWorld = 0.0f;
+		float NormalWorld = 0.0f;
+		float NormalizedRasterSeparation = 0.0f;
+		bool bUsedFallback = false;
+		bool bTotalClamped = false;
+	};
 
 	struct FDirectionalShadowVolume
 	{
@@ -46,6 +61,10 @@ namespace Durin
 		FDirectionalShadowVolume CasterVolume;
 		std::array<FVector3, 8> ReceiverCorners{};
 		FVector2 TexelWorldSize{0.0};
+		FDirectionalShadowBias Bias;
+		FVector3 LightDirection{0.0, 0.0, -1.0};
+		EDirectionalShadowDiagnosticMode DiagnosticMode =
+			EDirectionalShadowDiagnosticMode::Lit;
 		FSceneView CasterView;
 	};
 
@@ -85,4 +104,7 @@ namespace Durin
 		bool bDisableCulling = false) -> FDirectionalShadowCasterCandidates;
 
 	RENDERER_API auto MakeDirectionalShadowSamplerDesc() -> FRHISamplerDesc;
+	RENDERER_API auto CalculateDirectionalShadowBias(
+		const FVector2& TexelWorldSize,
+		double SurfaceLightCosine = 1.0) -> FDirectionalShadowBias;
 }

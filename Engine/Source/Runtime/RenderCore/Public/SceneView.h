@@ -33,6 +33,20 @@ namespace Durin
 		ForceLOD0
 	};
 
+	// Development-only directional-shadow evidence selected per submitted view.
+	enum class EDirectionalShadowDiagnosticMode : uint8
+	{
+		Lit,
+		ShadowDepthCoverage,
+		ReceiverUnbiased,
+		ReceiverBiased,
+		ReceiverNormalOffset,
+		TexelGrid,
+		BiasContributions,
+		Classification,
+		Count,
+	};
+
 	// Captures rendering behavior with the view submitted to the render thread.
 	struct FSceneViewSettings
 	{
@@ -43,6 +57,8 @@ namespace Durin
 		EViewLODMode LODMode = EViewLODMode::Automatic;
 		// Development diagnostic; emits bounded transient terrain patch/LOD lines.
 		bool bShowTerrainLODOverlay = false;
+		EDirectionalShadowDiagnosticMode DirectionalShadowDiagnosticMode =
+			EDirectionalShadowDiagnosticMode::Lit;
 	};
 
 	// Supplies one submission-local cube environment without publishing scene state.

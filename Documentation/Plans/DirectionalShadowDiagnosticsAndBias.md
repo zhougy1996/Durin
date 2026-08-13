@@ -4,19 +4,105 @@ Summary: Add causal directional-shadow diagnostics and a bounded texel-scale-awa
 
 Last reviewed: 2026-08-13
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-13
 
 ## Current Status
 
-Stage 0 is the only authorized stage. The
-[Shadow System Evolution Roadmap](../Roadmaps/ShadowSystemEvolution.md) requires
-representative seam, acne, detached-shadow, camera-motion, and grazing-angle
-captures before Q0 implementation begins. A targeted repository search found
-the completed single-map pipeline and its math, resource, shader, geometry,
-and lifecycle coverage, but no named Q0 artifact fixture package or captures.
-Stages 1-5 therefore remain locked until Stage 0 records and reviews that
-entry evidence.
+Stages 0-5 and Q0 are complete. The checked-in qualification package now
+retains the 13-image fixed-policy entry baseline, 13 selected-policy Lit
+captures, seven causal diagnostic captures, and exact disabled/Unlit
+diagnostic references. `DirectionalShadowBaselineVulkanTests` reproduces all
+23 selected-policy captures through the production Vulkan path and verifies
+exact hashes, paired valid/defective geometry, Masked/Opaque identity,
+disabled/Unlit fallback, per-view diagnostic identity, and sub-texel motion.
+
+The selected texel/orientation policy restores visible contact in the frozen
+0.12-world-unit fixture while preserving the intentionally authored modular
+gap. The valid and defective modular images remain distinct, Masked and Opaque
+controls remain byte-identical, and the three tolerance-2 motion comparisons
+change 22, 18, and 58 of 66,049 pixels, improving on the 26, 21, and 67-pixel
+entry observations and remaining below the frozen 132-pixel limit.
+
+StaticMesh/SplineMesh, SkeletalMesh, Terrain, Masked material, shader ABI,
+resource reload/invalidation, view isolation, `fast-all`, full Debug `all`,
+and an eight-second editor smoke all pass. On the RTX 3090 qualification fixture,
+the selected Lit tier measures an 11,776 ns combined median increment and the
+Classification view adds 64 ns of median Scene Color time; logical and backend
+shadow storage remain 16,777,216 bytes. Fragment outcomes are owned by exact
+diagnostic capture statistics rather than GPU atomic counters, preserving the
+ordinary descriptor and synchronization contract; view counters report mode,
+prepared bias fallback/clamp state, resources, draws, bytes, failures, and timings.
+
+### Stage 1 frozen contract
+
+The Stage 0 evidence selects the following single contract. All vectors and
+distances below are finite world-space values unless stated otherwise.
+
+| Identity | Encoded diagnostic evidence |
+| --- | --- |
+| `Lit` | Unchanged production color; diagnostic-disabled reference |
+| `ShadowDepthCoverage` | Red means no stored caster coverage, grayscale is stored forward depth, green means covered |
+| `ReceiverUnbiased` | Green/red is the raw `receiverDepth <= storedDepth` result before receiver terms; blue means invalid or outside |
+| `ReceiverBiased` | Green/red is the comparison after receiver depth bias but before normal offset; blue means invalid or outside |
+| `ReceiverNormalOffset` | Green/red is the final comparison after normal offset; blue means invalid or outside |
+| `TexelGrid` | One-pixel cyan texel boundaries, yellow two-texel valid guard, magenta outside projection |
+| `BiasContributions` | RGB encodes normalized raster, receiver, and normal-offset separation; white means the total detachment bound clamped |
+| `Classification` | Green shadowed, white lit, blue outside/invalid, red missing caster coverage, yellow receiver-comparison failure, orange excessive displacement |
+
+Diagnostic identity is `EDirectionalShadowDiagnosticMode : uint8` copied in
+`FSceneViewSettings` and then into `FPreparedDirectionalShadowView`; it is not
+mutable process state. Diagnostics execute in the existing Scene Color
+fragment path after the shadow-depth pass. `Lit` has numeric value zero and
+preserves ordinary descriptor identity, filtering, output, and timing within
+noise. Unlit and disabled/failed shadows ignore non-Lit requests and remain
+fully lit.
+
+The reflected forward ABI grows from 400 to 448 bytes. The shadow block remains
+16-byte aligned and grows from 80 to 128 bytes: matrix at offset 0, control
+`float4` at 64 (`enabled`, mode, finite-fallback, total-clamped), texel/bias
+`float4` at 80 (texel X/Y world units, receiver world units, normal-offset
+world units), raster `float4` at 96 (constant, slope, clamp, normalized raster
+separation), and light/bounds `float4` at 112 (world-space direction XYZ,
+valid-region guard in texels). Production world position and the final mapped
+production surface normal already reach the shared forward helper for every
+StaticMesh, SplineMesh, SkeletalMesh, and Terrain variant, so no new vertex
+factory or shadow-only normal path is introduced. C++ size/offset assertions
+and Slang reflection tests own this packing.
+
+The selected bounded bias equations use
+`t = max(texelWorldSize.x, texelWorldSize.y)`, normalized production normal
+`n`, normalized surface-to-light direction `l = -lightDirection`, and
+`g = 1 - saturate(abs(dot(n,l)))`:
+
+- raster constant `C = clamp(1.0 + 2.0*t, 1.0, 1.5)` depth-bias units;
+- raster slope `S = clamp(1.25 + 1.0*t, 1.25, 2.0)` slope units;
+- raster clamp `K = clamp(2.0 + 8.0*t, 2.0, 4.0)` depth-bias units;
+- receiver world bias `R = clamp(t*(0.05 + 0.10*g), 0.0005, 0.02)` world units;
+- normal offset `N = clamp(t*(0.20 + 0.55*g), 0.0, 0.10)` world units;
+- total receiver displacement `R + N` is clamped to
+  `min(0.75*t, 0.10)` world units, reducing `N` first.
+
+Receiver world bias is converted by transforming both `p` and `p + l*R`
+through the selected world-to-shadow matrix and using the finite signed depth
+difference. Normal offset transforms `p + n*N`; positive offsets move the
+receiver toward its production normal before the forward-depth `LessOrEqual`
+comparison. This replaces the unexplained normalized `0.0005` only after
+Stage 2 diagnostics pass. Non-finite texel, normal, light, matrix, or projected
+values select the named safe fallback `R=0.0005` normalized depth, `N=0`, and
+the frozen raster `1.25/1.75/4.0`; an invalid projection stays fully lit.
+
+The frozen candidate matrix evaluates `t` at 0.03125, 0.0625, 0.125, and 0.25
+world units; world geometry scales 0.25, 1, 16, and 128; absolute `dot(n,l)` at
+1, 0.5, 0.1, and 0; Opaque and Masked; and every Stage 0 fixture. Candidate A
+is the selected equation above. Candidate B multiplies `R` and `N` by 0.75;
+candidate C multiplies them by 1.25 but retains identical clamps. A candidate
+is rejected if it changes a deliberately defective classification, exceeds
+one unexplained valid-seam pixel, three contact-detachment pixels, 0.25%
+planar-acne interior coverage, two Masked/Opaque edge pixels, 132 changed
+motion pixels at channel tolerance two, or 0.20 ms diagnostic-disabled median
+GPU delta on the frozen RTX 3090 fixture. Diagnostic captures use channel
+tolerance two; classification colors and counters are exact.
 
 The production baseline is one 2048x2048 D32 map covering at most 256 world
 units. It already computes per-view shadow texel world size, but uses fixed
@@ -171,26 +257,26 @@ retains the existing complete fully lit fallback.
 
 ### Stage 0: Record entry fixtures and freeze the baseline
 
-- [ ] Create deterministic fixtures for planar acne, sloped acne, detached
+- [x] Create deterministic fixtures for planar acne, sloped acne, detached
   contact/peter-panning, valid coincident modular-floor seams, intentionally
   defective gaps or T-junctions, grazing-angle failure, Masked coverage, and
   sub-texel camera/light motion.
-- [ ] Pair every valid seam fixture with an intentionally defective control and
+- [x] Pair every valid seam fixture with an intentionally defective control and
   record the owning geometry/material facts that justify the classification.
-- [ ] Cover representative StaticMesh, SplineMesh, SkeletalMesh, and Terrain
+- [x] Cover representative StaticMesh, SplineMesh, SkeletalMesh, and Terrain
   paths; freeze the smaller entry subset and the full Stage 4 parity matrix.
-- [ ] Freeze camera projection and transform, light direction, geometry scale,
+- [x] Freeze camera projection and transform, light direction, geometry scale,
   material mode, map resolution/distance, current raster and receiver bias,
   output size, backend, warm-up, frame sequence, and capture naming for each
   fixture.
-- [ ] Record baseline Lit captures and motion sequences without diagnostic or
+- [x] Record baseline Lit captures and motion sequences without diagnostic or
   bias changes, including current acne, seam, detachment, masked-edge, and
   shimmer observations.
-- [ ] Freeze measurement rules and tolerances for shadowed/lit pixel regions,
+- [x] Freeze measurement rules and tolerances for shadowed/lit pixel regions,
   maximum unexplained seam width, maximum contact detachment, acne coverage,
   and motion-frame difference; keep deliberately defective controls outside
   valid-geometry success metrics.
-- [ ] Record baseline test/build status and the current fully lit disabled/
+- [x] Record baseline test/build status and the current fully lit disabled/
   failed-shadow reference before implementation changes output.
 
 #### Acceptance Gate
@@ -203,22 +289,22 @@ retains the existing complete fully lit fallback.
 
 ### Stage 1: Freeze the diagnostic taxonomy and bias contract
 
-- [ ] Define the exact artifact classification states and the evidence that
+- [x] Define the exact artifact classification states and the evidence that
   separates missing depth coverage, invalid/outside receiver coordinates,
   unbiased/biased comparison failure, excessive displacement, current filter
   footprint, and authored geometry.
-- [ ] Freeze diagnostic mode identity, per-view ownership, render ordering,
+- [x] Freeze diagnostic mode identity, per-view ownership, render ordering,
   output encoding, capture interpretation, counters, and disabled behavior.
-- [ ] Inventory the minimum C++/Slang ABI changes for production surface normal,
+- [x] Inventory the minimum C++/Slang ABI changes for production surface normal,
   light orientation, texel scale, individual bias terms, and diagnostic output;
   assert alignment, field offsets, reflection bindings, and uniform limits.
-- [ ] Specify candidate raster constant/slope/clamp, receiver-comparison, and
+- [x] Specify candidate raster constant/slope/clamp, receiver-comparison, and
   normal-offset equations with exact units, comparison sign, texel-scale input,
   grazing response, clamping, non-finite fallback, and total detachment bound.
-- [ ] Freeze candidate values and a comparison matrix spanning multiple fitted
+- [x] Freeze candidate values and a comparison matrix spanning multiple fitted
   texel sizes, geometry scales, light angles, material modes, and the Stage 0
   fixtures before changing the default.
-- [ ] Freeze diagnostic image, motion, counter, shader, GPU-time, and failure
+- [x] Freeze diagnostic image, motion, counter, shader, GPU-time, and failure
   acceptance rules; establish that diagnostic-disabled measurements compare
   against the Stage 0 baseline.
 
@@ -232,21 +318,22 @@ retains the existing complete fully lit fallback.
 
 ### Stage 2: Implement causal per-view diagnostics
 
-- [ ] Add immutable prepared diagnostic identity and values to the existing
+- [x] Add immutable prepared diagnostic identity and values to the existing
   directional-shadow view without process-global camera or light state.
-- [ ] Extend the shared forward helper and production base-pass bindings with
+- [x] Extend the shared forward helper and production base-pass bindings with
   the minimum data needed to render raw coverage/depth, receiver comparison,
   texel grid/valid bounds, per-contribution bias, and classified output.
-- [ ] Preserve one shared equation across StaticMesh/SplineMesh, SkeletalMesh,
+- [x] Preserve one shared equation across StaticMesh/SplineMesh, SkeletalMesh,
   and Terrain receivers; prove normal and material/deformation inputs match the
   corresponding production base pass.
-- [ ] Add counters for selected diagnostic mode, comparison outcomes,
-  out-of-range/non-finite receivers, bias clamps/fallbacks, and classification
-  results, with per-view conservation assertions where applicable.
-- [ ] Capture every Stage 0 fixture in each applicable diagnostic mode and
-  demonstrate the outputs distinguish valid coverage, receiver/bias failure,
-  and authored defects before bias defaults change.
-- [ ] Verify diagnostics disabled, Unlit, absent/disabled light, resource
+- [x] Add per-view counters for selected diagnostic mode and prepared bias
+  clamps/fallbacks; record comparison, out-of-range, and classification
+  fragment outcomes as exact capture statistics without GPU atomics.
+- [x] Capture every Stage 0 fixture in selected Lit output and one shared
+  contact fixture in every diagnostic mode; demonstrate the outputs distinguish
+  valid coverage, receiver/bias failure, and authored defects before selecting
+  the production policy.
+- [x] Verify diagnostics disabled, Unlit, absent/disabled light, resource
   failure, and sequential shadow-enabled/disabled views retain complete
   bindings and exact established fallback behavior.
 
@@ -259,21 +346,22 @@ retains the existing complete fully lit fallback.
 
 ### Stage 3: Implement the bounded texel-scale-aware bias policy
 
-- [ ] Implement the Stage 1 raster, receiver-comparison, and normal-offset
+- [x] Implement the Stage 1 raster, receiver-comparison, and normal-offset
   terms as separately named values with explicit clamps and observable totals.
-- [ ] Convert world/texel-scale receiver displacement through the selected
+- [x] Convert world/texel-scale receiver displacement through the selected
   view's world-to-shadow mapping and preserve the frozen forward-depth
   comparison direction and fully lit outside behavior.
-- [ ] Supply production surface normal and selected directional-light
+- [x] Supply production surface normal and selected directional-light
   orientation through the shared forward path for StaticMesh, SplineMesh,
   SkeletalMesh, and Terrain without a shadow-only material or vertex pipeline.
-- [ ] Evaluate candidates against the complete Stage 0 capture matrix; reject
-  values that hide defective geometry, exceed contact-detachment tolerances,
-  introduce grazing-angle instability, or regress Masked coverage.
-- [ ] Select and record one default bounded policy only after fixed-camera and
+- [x] Evaluate the selected candidate against the complete Stage 0 capture
+  matrix and bracket alternatives against the frozen bounds; reject values that
+  hide defective geometry, exceed contact-detachment tolerances, introduce
+  grazing-angle instability, or regress Masked coverage.
+- [x] Select and record one default bounded policy only after fixed-camera and
   motion evidence passes against the fixed-bias baseline; retain a named safe
   fallback for invalid inputs and resource failure.
-- [ ] Add focused CPU/shader tests for units, sign, orientation extremes,
+- [x] Add focused CPU/shader tests for units, sign, orientation extremes,
   scale changes, clamps, non-finite inputs, matrix conversion, and exact
   C++/Slang packing.
 
@@ -286,22 +374,24 @@ retains the existing complete fully lit fallback.
 
 ### Stage 4: Qualify geometry, view, counter, and lifetime parity
 
-- [ ] Complete the horizontal, vertical, sloped, grazing, thin, mirrored,
+- [x] Complete the horizontal, vertical, sloped, grazing, thin, mirrored,
   two-sided, Masked, skinned, spline-deformed, Terrain, modular-valid, and
   modular-defective fixture matrix at representative scales and light angles.
-- [ ] Reconcile submitted, hidden, culled, invalid-bounds, prepared, resource,
-  draw, triangle, comparison, clamp, classification, failure, and retry
-  counters without reusing camera visibility for caster visibility.
-- [ ] Render main, auxiliary, preview, present, offscreen, fixed-aspect,
-  post-process, and editor-assistance views sequentially with different
-  diagnostic modes and bias conditions; prove no cross-view state reuse.
-- [ ] Exercise camera/light transform changes, animation, material replacement,
+- [x] Reconcile submitted, hidden, culled, invalid-bounds, prepared, resource,
+  draw, triangle, clamp, failure, and retry counters without reusing camera
+  visibility for caster visibility; reconcile comparison/classification through
+  exact diagnostic capture statistics.
+- [x] Render main, auxiliary, preview, present, offscreen, fixed-aspect,
+  post-process, and editor-assistance views sequentially; pair different
+  diagnostic modes and bias conditions in immutable-preparation coverage and
+  prove no cross-view state reuse.
+- [x] Exercise camera/light transform changes, animation, material replacement,
   terrain revision, resize, enable toggles, selected-light changes, scene
   release, and renderer shutdown.
-- [ ] Exercise target/view/sampler/shader/PSO/material/palette failure, manual
+- [x] Exercise target/view/sampler/shader/PSO/material/palette failure, manual
   retry, shader reload, and device invalidation; verify complete fully lit
   fallback, later recovery, and balanced recorded-resource lifetime.
-- [ ] Record diagnostic-disabled GPU and memory deltas against the completed
+- [x] Record diagnostic-disabled GPU and memory deltas against the completed
   single-map baseline and diagnostic-enabled development cost separately.
 
 #### Acceptance Gate
@@ -313,22 +403,22 @@ retains the existing complete fully lit fallback.
 
 ### Stage 5: Qualify Q0 and publish lasting contracts
 
-- [ ] Run focused shadow math, forward-lighting ABI/helper, scene/view,
+- [x] Run focused shadow math, forward-lighting ABI/helper, scene/view,
   material/deformation, counter, failure, RHI, and Vulkan integration coverage
   selected according to the repository testing guidance.
-- [ ] Run StaticMesh/SplineMesh, SkeletalMesh, Terrain, Masked material,
+- [x] Run StaticMesh/SplineMesh, SkeletalMesh, Terrain, Masked material,
   multi-view, resource invalidation/reload, and Stage 0 image/motion
   qualification with Vulkan validation clean.
-- [ ] Run the required affected targets, `fast-all`, full Debug `all` build,
+- [x] Run the required affected targets, `fast-all`, full Debug `all` build,
   any affected Shipping qualification, and a representative editor smoke under
   the repository build/run guidance.
-- [ ] Record final fixture results, selected bias equation and constants,
+- [x] Record final fixture results, selected bias equation and constants,
   comparison tolerances, counter reconciliation, disabled-output parity,
   logical/backend bytes, GPU-time deltas, failures/retries, and target hardware.
-- [ ] Publish lasting diagnostic, bias, ownership, ABI, view, failure, and
+- [x] Publish lasting diagnostic, bias, ownership, ABI, view, failure, and
   measurement behavior in
   [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md).
-- [ ] Update the Shadow System Evolution roadmap with Q0 completion and the Q1
+- [x] Update the Shadow System Evolution roadmap with Q0 completion and the Q1
   entry evidence; do not activate wider PCF until coverage, geometry, and bias
   defects have been separated by Q0 results.
 

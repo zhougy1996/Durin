@@ -175,10 +175,23 @@ namespace Durin
 				for (uint32 Row = 0; Row < 4; ++Row)
 					Result.DirectionalShadow.WorldToShadow[Column][Row] =
 						static_cast<float>(Shadow->WorldToShadowMatrix[Row][Column]);
-			Result.DirectionalShadow.Params = {
-				1.0f, DirectionalShadowReceiverBias,
+			Result.DirectionalShadow.Control = {
+				1.0f, static_cast<float>(Shadow->DiagnosticMode),
+				Shadow->Bias.bUsedFallback ? 1.0f : 0.0f,
+				Shadow->Bias.bTotalClamped ? 1.0f : 0.0f};
+			Result.DirectionalShadow.TexelBias = {
 				static_cast<float>(Shadow->TexelWorldSize.x),
-				static_cast<float>(Shadow->TexelWorldSize.y)};
+				static_cast<float>(Shadow->TexelWorldSize.y),
+				Shadow->Bias.ReceiverWorld, Shadow->Bias.NormalWorld};
+			Result.DirectionalShadow.RasterBias = {
+				Shadow->Bias.RasterConstant, Shadow->Bias.RasterSlope,
+				Shadow->Bias.RasterClamp,
+				Shadow->Bias.NormalizedRasterSeparation};
+			Result.DirectionalShadow.LightBounds = {
+				static_cast<float>(Shadow->LightDirection.x),
+				static_cast<float>(Shadow->LightDirection.y),
+				static_cast<float>(Shadow->LightDirection.z),
+				static_cast<float>(DirectionalShadowGuardTexels)};
 		}
 		for (size_t Index = 0; Index < Lights.Local.size(); ++Index)
 		{

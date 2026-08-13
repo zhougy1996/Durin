@@ -52,7 +52,10 @@ struct LightingUniform
     float4 DirectionalDirection;
     float4 DirectionalColorIntensity;
     float4x4 DirectionalShadowWorldToTexture;
-    float4 DirectionalShadowParams;
+    float4 DirectionalShadowControl;
+    float4 DirectionalShadowTexelBias;
+    float4 DirectionalShadowRasterBias;
+    float4 DirectionalShadowLightBounds;
     LocalLightUniform Local[4];
 };
 
@@ -325,15 +328,21 @@ float4 FragmentMain(VSOutput input) : SV_Target
         float3 toLight = SafeNormal(-Lighting.DirectionalDirection.xyz);
         float3 radiance = Lighting.DirectionalColorIntensity.rgb
             * Lighting.DirectionalColorIntensity.a;
-        float shadow = SampleDirectionalShadow(
+        FDirectionalShadowSample shadow = EvaluateDirectionalShadow(
             input.worldPosition,
+            normal,
             Lighting.DirectionalShadowWorldToTexture,
-            Lighting.DirectionalShadowParams,
+            Lighting.DirectionalShadowControl,
+            Lighting.DirectionalShadowTexelBias,
+            Lighting.DirectionalShadowRasterBias,
+            Lighting.DirectionalShadowLightBounds,
             DirectionalShadowTexture,
             DirectionalShadowSampler);
+        if (Lighting.DirectionalShadowControl.y > 0.5)
+            return float4(shadow.diagnosticColor, opacity);
         direct += EvaluatePBRDirectLighting(
             baseColor, metallic, roughness, normal, toLight, toView, radiance)
-            * shadow;
+            * shadow.attenuation;
     }
     [unroll]
     for (uint lightIndex = 0u; lightIndex < 4u; ++lightIndex)

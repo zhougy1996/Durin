@@ -4,6 +4,7 @@
 
 #include "SceneView.h"
 
+#include <array>
 #include <cstddef>
 #include <vector>
 
@@ -119,6 +120,11 @@ namespace Durin
 		size_t ShadowAttemptedDraws = 0;
 		size_t ShadowSuccessfulDraws = 0;
 		size_t ShadowRejectedDraws = 0;
+		std::array<size_t,
+			static_cast<size_t>(EDirectionalShadowDiagnosticMode::Count)>
+			ShadowDiagnosticViews{};
+		size_t ShadowBiasFallbacks = 0;
+		size_t ShadowBiasClamps = 0;
 		size_t OpaqueStaticMeshSections = 0;
 		size_t MaskedStaticMeshSections = 0;
 		size_t TranslucentStaticMeshSections = 0;

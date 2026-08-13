@@ -100,6 +100,24 @@ durin_add_engine_functional_test(StaticMeshRenderPreparationVulkanTests
 	LIBRARIES ApplicationCore RenderCore Renderer
 )
 
+durin_add_engine_functional_test(DirectionalShadowBaselineVulkanTests
+	KIND qualification
+	DOMAINS renderer shadow
+	MODULES engine renderer
+	BACKENDS vulkan
+	STACKS renderer
+	GPU
+	TIMEOUT 900
+	RUNTIME_STACK_RATIONALE
+		"Captures the frozen Q0 directional-shadow Lit baseline through the production Vulkan renderer."
+	RUNTIME_ONLY_RATIONALE
+		"RHIInit selects VulkanRHI dynamically for the hardware-backed baseline captures."
+	RUNTIME_ONLY_TARGETS VulkanRHI
+	SOURCES Private/DirectionalShadowBaselineVulkanTests.cpp
+	LIBRARIES ApplicationCore RenderCore Renderer
+	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data/DirectionalShadowQ0
+)
+
 durin_add_engine_functional_test(EditorRenderingTests
 	KIND feature
 	DOMAINS renderer

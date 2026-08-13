@@ -259,12 +259,16 @@ namespace Durin
 		{
 			FEffectiveStaticMeshPipelineKey Result = Source;
 			Result.Rasterizer.PolygonMode = ERHIPolygonMode::Fill;
+			const bool bPreparedBias = Result.Rasterizer.bEnableDepthBias;
 			Result.Rasterizer.bEnableDepthBias = true;
-			Result.Rasterizer.DepthBiasConstantFactor =
-				DirectionalShadowDepthBiasConstant;
-			Result.Rasterizer.DepthBiasSlopeFactor =
-				DirectionalShadowDepthBiasSlope;
-			Result.Rasterizer.DepthBiasClamp = DirectionalShadowDepthBiasClamp;
+			if (!bPreparedBias)
+			{
+				Result.Rasterizer.DepthBiasConstantFactor =
+					DirectionalShadowDepthBiasConstant;
+				Result.Rasterizer.DepthBiasSlopeFactor =
+					DirectionalShadowDepthBiasSlope;
+				Result.Rasterizer.DepthBiasClamp = DirectionalShadowDepthBiasClamp;
+			}
 			Result.Depth.bEnableTest = true;
 			Result.Depth.bEnableWrite = true;
 			Result.Depth.CompareOp = ERHIDepthCompareOp::Less;

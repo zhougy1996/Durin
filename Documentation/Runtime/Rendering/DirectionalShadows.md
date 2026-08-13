@@ -45,8 +45,11 @@ palette range rather than uploading a second palette.
 
 The depth-only pass has no color attachment, clears D32 to 1.0, writes with
 `Less`, and exits in `ShaderReadOnly`/`GraphicsShaderRead`. It forces filled
-rasterization even for Wireframe camera views and uses constant/slope/clamp
-depth bias 1.25/1.75/4.0; Vulkan enables `depthBiasClamp` when the physical
+rasterization even for Wireframe camera views. For shadow texel world size
+`t = max(texel.x, texel.y)`, raster constant/slope/clamp bias is
+`clamp(1+2t,1,1.5)`, `clamp(1.25+t,1.25,2)`, and
+`clamp(2+8t,2,4)` respectively. Non-finite input retains the bounded
+1.25/1.75/4.0 fallback. Vulkan enables `depthBiasClamp` when the physical
 device exposes it. Opaque casters use a no-output depth fragment entry point,
 while Masked casters use a depth-only fragment entry point that performs
 opacity-mask rejection without declaring a color output. All shaders, PSOs,
@@ -56,14 +59,41 @@ the pass begins.
 
 ## Forward sampling and failure
 
-The reflected forward-lighting ABI contains one world-to-shadow matrix and
-params `(enabled, receiver bias, texel world size xy)`. One shared Slang helper
-rejects non-finite or out-of-range projected coordinates as fully lit and uses
-a receiver bias of 0.0005. Only the selected directional direct-light term is
-attenuated; local lights, environment/ambient, emissive, rim assistance, and
-Unlit output are unchanged. Every prepared base draw carries the feature's
-depth texture/comparison-sampler pair even when its lighting uniform disables
-sampling, preventing invalid or stale bindings across sequential views.
+The reflected forward-lighting ABI is 448 bytes. Its aligned 128-byte shadow
+block contains the world-to-shadow matrix followed by control, texel/bias,
+raster-bias, and light/bounds `float4` values at offsets 64, 80, 96, and 112.
+C++ size/offset assertions and Slang compilation/reflection tests own this
+packing.
+
+One shared Slang helper consumes production world position and the final
+mapped production normal. With normalized surface-to-light direction `l` and
+`g = 1-saturate(abs(dot(n,l)))`, it computes receiver world bias
+`R=clamp(t*(0.05+0.10g),0.0005,0.02)` and normal offset
+`N=clamp(t*(0.20+0.55g),0,0.10)`. `R+N` is limited to
+`min(0.75t,0.10)`, reducing `N` first. The helper transforms `p+lR+nN` through
+the selected world-to-shadow matrix, preserving forward-depth `LessOrEqual`.
+Non-finite bias input uses the old normalized-depth `0.0005` comparison with
+no normal offset; invalid or outside projection remains fully lit. Only the
+selected directional direct-light term is attenuated. Local lights,
+environment/ambient, emissive, rim assistance, and Unlit output are unchanged.
+
+## Causal diagnostics
+
+`EDirectionalShadowDiagnosticMode` is copied from `FSceneViewSettings` into the
+immutable prepared shadow value. `Lit` is zero and follows ordinary production
+output. Development modes visualize stored depth/coverage, unbiased receiver
+comparison, receiver-bias comparison, final normal-offset comparison, texel
+grid and guard, normalized bias contributions, or final classification.
+Missing coverage, outside/invalid coordinates, failed comparison, recovered
+comparison, excessive clamped displacement, lit, and shadowed results use
+distinct frozen colors recorded by the Q0 fixture package.
+
+Diagnostics execute only in the existing Scene Color fragment path and add no
+global mutable camera/light state, render target, pass, descriptor, or device
+wait. Disabled/failed shadows and Unlit views ignore diagnostic requests and
+match their Lit references exactly. Per-view counters report selected mode and
+prepared bias fallback/clamp state; exact diagnostic image statistics own
+fragment-level comparison and classification evidence without GPU atomics.
 
 Target/view/sampler or draw-resource failure disables the feature for that view
 and continues Scene Color unshadowed. Renderer release, device invalidation,
@@ -72,3 +102,20 @@ feature introduces no `WaitIdle` or whole-device flush. Counters report light
 and receiver selection, caster outcomes by family, resource outcomes, draws,
 logical/backend target bytes, and preparation failure. Optional GPU timing
 sinks expose Shadow Depth and Scene Color independently.
+
+## Q0 qualification
+
+The checked-in `DirectionalShadowQ0` package contains the 13-image fixed-bias
+entry baseline, 13 selected-policy Lit images, seven causal diagnostic images,
+and exact disabled/Unlit diagnostic references. On the RTX 3090, driver 591.86,
+Vulkan 1.4.325 fixture, Masked and Opaque controls are byte-identical, valid
+and intentionally defective modular boundaries remain distinct, and the
+0.12-world-unit contact case is no longer identical to the fully lit fallback.
+Tolerance-2 sub-texel motion changes 22, 18, and 58 of 66,049 pixels against a
+132-pixel limit.
+
+The 1920x1080 timing fixture uses 30 warm-up and 120 measured frames. The Lit
+shadow tier records 7,936 ns disabled Scene Color, 10,464 ns enabled Scene
+Color, 9,248 ns Shadow Depth, and an 11,776 ns combined median increment.
+Classification records 10,528 ns Scene Color, a 64 ns median increment over
+Lit. Logical and backend shadow storage both remain 16,777,216 bytes.
