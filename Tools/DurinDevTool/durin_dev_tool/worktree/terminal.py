@@ -64,7 +64,7 @@ def add_terminal_pane_arguments(
 ) -> None:
     arguments.append(action)
     if split_direction:
-        arguments.append(split_direction)
+        arguments.extend([split_direction, "--size", "0.5"])
     arguments.extend([
         "--startingDirectory", str(worktree), "--title", worktree.name,
         "cmd.exe", "/k", *environment,
@@ -76,7 +76,7 @@ def terminal_arguments(
     repository: RepositoryContext,
     command_io: CommandIO,
 ) -> list[str]:
-    arguments = ["-w", "new"]
+    arguments = ["-w", "new", "--maximized"]
     environments = {
         worktree.path: environment_arguments(worktree.path, repository, command_io)
         for worktree in worktrees
@@ -92,7 +92,7 @@ def terminal_arguments(
         elif position == 2:
             add_terminal_pane_arguments(arguments, action="split-pane", split_direction="-H", worktree=worktree.path, environment=environments[worktree.path])
         else:
-            arguments.extend(["move-focus", "previousInOrder", ";", "move-focus", "previousInOrder", ";"])
+            arguments.extend(["move-focus", "first", ";"])
             add_terminal_pane_arguments(arguments, action="split-pane", split_direction="-H", worktree=worktree.path, environment=environments[worktree.path])
     return arguments
 
@@ -106,7 +106,7 @@ def open_worktree_terminals(
     worktrees = ordered_worktrees(get_worktrees(repository, command_io))
     display_worktrees(worktrees, command_io=command_io)
     arguments = terminal_arguments(worktrees, repository, command_io)
-    command_io.out("Layout: up to four panes per tab (2 x 2).")
+    command_io.out("Layout: maximized window with up to four equal panes per tab (2 x 2).")
     if dry_run:
         command_io.out("Dry run complete; Windows Terminal was not opened.")
         return

@@ -41,12 +41,41 @@ class TestWorktreeTool:
         )
         assert worktree_terminal.environment_arguments(root, REPOSITORY, CommandIO.system()) == [str(script), 'x64']
 
-    def test_terminal_layout_returns_to_original_pane_before_the_fourth_split(self) -> None:
+    def test_terminal_layout_focuses_the_first_pane_before_the_fourth_split(self) -> None:
         worktrees = [Worktree(Path(f'C:/repo-{index}'), f'branch-{index}') for index in range(4)]
         with mock.patch.object(worktree_terminal, 'environment_arguments', return_value=[]):
             arguments = worktree_terminal.terminal_arguments(worktrees, REPOSITORY, CommandIO.system())
         focus_original = arguments.index('move-focus')
-        assert arguments[focus_original:focus_original + 6] == ['move-focus', 'previousInOrder', ';', 'move-focus', 'previousInOrder', ';']
-        assert arguments[focus_original + 6:focus_original + 8] == ['split-pane', '-H']
-        assert 'first' not in arguments
+        assert arguments[:3] == ['-w', 'new', '--maximized']
+        assert arguments[focus_original:focus_original + 3] == ['move-focus', 'first', ';']
+        assert arguments[focus_original + 3:focus_original + 7] == ['split-pane', '-H', '--size', '0.5']
 
+    def test_terminal_layout_repeats_the_same_balanced_grid_on_each_tab(self) -> None:
+        worktrees = [Worktree(Path(f'C:/repo-{index}'), f'branch-{index}') for index in range(8)]
+        with mock.patch.object(worktree_terminal, 'environment_arguments', return_value=[]):
+            arguments = worktree_terminal.terminal_arguments(worktrees, REPOSITORY, CommandIO.system())
+
+        commands: list[list[str]] = []
+        current: list[str] = []
+        for argument in arguments[3:]:
+            if argument == ';':
+                commands.append(current)
+                current = []
+            else:
+                current.append(argument)
+        commands.append(current)
+
+        assert [command[:2] for command in commands] == [
+            ['new-tab', '--startingDirectory'],
+            ['split-pane', '-V'],
+            ['split-pane', '-H'],
+            ['move-focus', 'first'],
+            ['split-pane', '-H'],
+            ['new-tab', '--startingDirectory'],
+            ['split-pane', '-V'],
+            ['split-pane', '-H'],
+            ['move-focus', 'first'],
+            ['split-pane', '-H'],
+        ]
+        split_commands = [command for command in commands if command[0] == 'split-pane']
+        assert all(command[2:4] == ['--size', '0.5'] for command in split_commands)
