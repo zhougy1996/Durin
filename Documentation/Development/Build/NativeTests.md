@@ -1,7 +1,9 @@
 # Native C++ Tests
 
-This document covers running native tests and adding test targets. Native tests
-are available from every registered build preset; the default is
+This is the complete native-test specification for test authors and test
+infrastructure work. Agents selecting routine task validation should first use
+the short [Agent Testing Workflow](../../Agents/Testing.md). Native tests are
+available from every registered build preset; the default is
 `Win64-Debug-DurinEditor`.
 
 ## Source Layout
@@ -426,5 +428,6 @@ the same source file.
 
 ## Related Docs
 
+- `Documentation/Agents/Testing.md`
 - `Documentation/Development/Build/BuildAndRun.md`
 - `Documentation/Development/Build/ThirdPartyBootstrap.md`

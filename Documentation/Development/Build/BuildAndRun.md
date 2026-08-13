@@ -1,6 +1,10 @@
 # Build And Run
 
-This is the operational guide for configuring, building, testing, and debugging Durin locally. For symptom-first fixes to common environment and command failures, see [Troubleshooting Setup, Builds, And Runs](Troubleshooting.md).
+This is the complete operational guide for configuring, building, testing, and
+debugging Durin locally. Agents performing routine task validation should first
+use the short [Agent Build And Run Workflow](../../Agents/BuildAndRun.md). For
+symptom-first fixes to common environment and command failures, see
+[Troubleshooting Setup, Builds, And Runs](Troubleshooting.md).
 
 ## Setup
 
@@ -847,6 +851,7 @@ The opt-in Release profiling workflow is documented in
 
 ## Related Docs
 
+- `Documentation/Agents/BuildAndRun.md`
 - `Documentation/Development/Build/ThirdPartyBootstrap.md`
 - `Documentation/Development/Build/NativeTests.md`
 - `Documentation/Development/Tooling/IDECodeModel.md`

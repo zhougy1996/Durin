@@ -9,13 +9,15 @@ not open the other rows or scan an entire directory.
 | Repository-owned C++ change | [C++ coding standards](Development/Standards/CodingStandards.md) |
 | Affected code module or ownership boundary is unknown | [Code modules](Workspace/CodeModules.md) |
 | Setup, build, test, worktree, or runtime problem | [Troubleshooting](Development/Build/Troubleshooting.md) |
-| Configure, build, run, output layout, or interrupted-build recovery | [Build and run](Development/Build/BuildAndRun.md) |
+| Configuring, building, running, or recovering for task validation | [Agent build and run workflow](Agents/BuildAndRun.md) |
+| Changing build/run workflows, output layout, setup, or recovery behavior | [Build and run](Development/Build/BuildAndRun.md) |
 | CMake metadata, target generation, or module binaries | [Build system](Development/Build/BuildSystem.md) |
 | Runtime variants or build presets | [Runtime variants](Development/Build/RuntimeVariants.md) |
 | Tracy or CPU profiling | [CPU profiling](Development/Build/Profiling.md) |
 | IDE code model or debugging | [IDE code model](Development/Tooling/IDECodeModel.md) |
 | Dependencies, bootstrap, or worktrees | [Third-party bootstrap](Development/Build/ThirdPartyBootstrap.md) |
-| Native tests | [Native tests](Development/Build/NativeTests.md) |
+| Selecting or running native tests for task validation | [Agent testing workflow](Agents/Testing.md) |
+| Adding, classifying, registering, or changing native-test infrastructure | [Native tests](Development/Build/NativeTests.md) |
 | Workspace, project, module, or runtime-variant ownership | [Workspace projects](Workspace/WorkspaceProjects.md) |
 | Runtime physical paths or atomic byte publication | [File I/O](Runtime/Core/FileIO.md) |
 | Runtime startup, shutdown, or frame lifecycle | [Runtime lifecycle](Runtime/Core/RuntimeLifecycle.md) |

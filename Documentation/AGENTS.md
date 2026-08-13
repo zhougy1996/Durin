@@ -15,6 +15,10 @@ These instructions apply under `Documentation/`.
 
 ## Document Boundaries
 
+- `Agents`: short, task-triggered operational guides for agents; keep only the
+  minimum decision path needed before an action and route detailed contracts,
+  authoring rules, and exceptional workflows to their authoritative domain
+  documents.
 - `Development`: build, test, tooling, standards, dependency, and
   version-control workflows; keep build contracts beside their operational
   guidance.
