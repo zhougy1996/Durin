@@ -457,8 +457,8 @@ namespace Durin::VulkanRHI
 		const uint32 ChunkSize = std::max(4u * 1024u * 1024u,
 			AlignUp(MinSize, GetAlignment()));
 		FRHIBufferCreateDesc Desc = FRHIBufferCreateDesc::Create(
-			"DynamicStorageBufferArena", ChunkSize, sizeof(float) * 16,
-			EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::ShaderResource
+			"DynamicStorageBufferArena", ChunkSize, 0,
+			EBufferUsageFlags::ByteAddressBuffer | EBufferUsageFlags::ShaderResource
 				| EBufferUsageFlags::Dynamic
 				| EBufferUsageFlags::Volatile);
 		return {TRefCountPtr<FVulkanBuffer>(new FVulkanBuffer(Device, Desc)), 0};

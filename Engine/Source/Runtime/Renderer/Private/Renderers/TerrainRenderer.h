@@ -2,6 +2,10 @@
 
 #include "Misc/CoreTypes.h"
 
+#include <array>
+#include <span>
+#include <vector>
+
 namespace Durin
 {
 	class FDefaultTextureResources;
@@ -9,6 +13,7 @@ namespace Durin
 	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
 	struct FPreparedTerrainDraw;
+	struct FPreparedTerrainBatch;
 	struct FPreparedTerrainView;
 	struct FRHIUniformBufferRange;
 	struct FSceneView;
@@ -52,7 +57,14 @@ namespace Durin
 		auto Draw_RenderThread(FRHICommandListImmediate& CommandList,
 			const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting,
 			ERenderMode RenderMode, const FPreparedTerrainDraw& Draw,
-			bool bShadowDepth = false) -> bool;
+			bool bShadowDepth = false,
+			std::span<const std::array<uint32, 2>> InstanceOrigins = {},
+			uint64* OutDynamicAllocationNanoseconds = nullptr) -> bool;
+		auto DrawBatch_RenderThread(FRHICommandListImmediate& CommandList,
+			const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting,
+			ERenderMode RenderMode, const std::vector<FPreparedTerrainDraw>& Draws,
+			const FPreparedTerrainBatch& Batch, bool bShadowDepth = false,
+			uint64* OutDynamicAllocationNanoseconds = nullptr) -> bool;
 		struct FState;
 		FRendererResourceCoordinator& Coordinator;
 		FDefaultTextureResources& DefaultTextures;

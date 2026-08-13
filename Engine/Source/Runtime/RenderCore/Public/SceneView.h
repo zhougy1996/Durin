@@ -81,6 +81,8 @@ namespace Durin
 		EViewLODMode LODMode = EViewLODMode::Automatic;
 		// Development diagnostic; emits bounded transient terrain patch/LOD lines.
 		bool bShowTerrainLODOverlay = false;
+		// Development comparison mode; emits one eligible Terrain patch per batch.
+		bool bDisableTerrainBatching = false;
 		EDirectionalShadowDiagnosticMode DirectionalShadowDiagnosticMode =
 			EDirectionalShadowDiagnosticMode::Lit;
 		EDirectionalShadowFilterQuality DirectionalShadowFilterQuality =

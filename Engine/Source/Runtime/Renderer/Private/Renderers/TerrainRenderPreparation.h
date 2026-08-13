@@ -28,6 +28,14 @@ namespace Durin
 		FRHISampler* DirectionalShadowSampler = nullptr;
 	};
 
+	// Execution-only grouping of compatible logical patches. DrawIndices retain
+	// stable patch identity for diagnostics and overlays.
+	struct FPreparedTerrainBatch
+	{
+		std::vector<uint32> DrawIndices;
+		bool bResourcesReady = false;
+	};
+
 	enum class EPreparedTerrainPhase : uint8 { Prepared, ResourcesPrepared, Executed };
 
 	struct FPreparedTerrainView
@@ -35,6 +43,8 @@ namespace Durin
 		std::vector<FPreparedTerrainDraw> Opaque;
 		std::vector<FPreparedTerrainDraw> Masked;
 		std::vector<FPreparedTerrainDraw> Translucent;
+		std::vector<FPreparedTerrainBatch> OpaqueBatches;
+		std::vector<FPreparedTerrainBatch> MaskedBatches;
 		size_t PatchCandidates = 0;
 		size_t VisiblePatches = 0;
 		size_t CulledPatches = 0;
@@ -56,12 +66,31 @@ namespace Durin
 		size_t ResourceAttemptedDraws = 0;
 		size_t ResourceSuccessfulDraws = 0;
 		size_t ResourceRejectedDraws = 0;
+		size_t PreparedBatches = 0;
+		size_t BatchChunks = 0;
+		size_t InstanceCount = 0;
+		size_t InstanceBytes = 0;
+		size_t InstanceAllocations = 0;
+		size_t ResourceAttemptedBatches = 0;
+		size_t ResourceSuccessfulBatches = 0;
+		size_t ResourceRejectedBatches = 0;
+		size_t SubmittedLogicalPatches = 0;
+		size_t ScalarTranslucentDraws = 0;
+		uint64 LogicalPreparationNanoseconds = 0;
+		uint64 BatchConstructionNanoseconds = 0;
+		uint64 ResourcePreparationNanoseconds = 0;
+		uint64 DynamicAllocationNanoseconds = 0;
+		uint64 CommandRecordingNanoseconds = 0;
 		size_t AttemptedDraws = 0;
 		size_t SuccessfulDraws = 0;
 		size_t RejectedDraws = 0;
 		EPreparedTerrainPhase Phase = EPreparedTerrainPhase::Prepared;
 
 		auto GetNumDraws() const -> size_t { return Opaque.size() + Masked.size() + Translucent.size(); }
+		auto GetNumHardwareDraws() const -> size_t
+		{
+			return OpaqueBatches.size() + MaskedBatches.size() + Translucent.size();
+		}
 	};
 
 	RENDERER_API auto PrepareTerrainView_RenderThread(

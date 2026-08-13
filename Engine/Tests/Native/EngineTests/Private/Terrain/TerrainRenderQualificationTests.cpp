@@ -161,9 +161,22 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 	EXPECT_EQ(GCounters.VisibleTerrainPatches, 256u);
 	EXPECT_EQ(GCounters.PreparedTerrainTriangles, 2'097'152u);
 	EXPECT_EQ(GCounters.TerrainHeightUploadBytes, 0u);
-	EXPECT_EQ(GCounters.TerrainHeightReuses, 256u);
-	EXPECT_EQ(GCounters.TerrainAttemptedDraws, 256u);
-	EXPECT_EQ(GCounters.TerrainSuccessfulDraws, 256u);
+	EXPECT_EQ(GCounters.TerrainHeightReuses, 1u);
+	EXPECT_EQ(GCounters.PreparedTerrainBatches, 1u);
+	EXPECT_EQ(GCounters.TerrainBatchChunks, 1u);
+	EXPECT_EQ(GCounters.TerrainInstances, 256u);
+	EXPECT_EQ(GCounters.TerrainInstanceBytes, 256u * sizeof(Durin::uint32) * 2u);
+	EXPECT_EQ(GCounters.TerrainInstanceAllocations, 1u);
+	EXPECT_EQ(GCounters.TerrainResourceAttemptedBatches, 1u);
+	EXPECT_EQ(GCounters.TerrainResourceSuccessfulBatches, 1u);
+	EXPECT_EQ(GCounters.TerrainSubmittedLogicalPatches, 256u);
+	EXPECT_EQ(GCounters.TerrainAttemptedDraws, 1u);
+	EXPECT_EQ(GCounters.TerrainSuccessfulDraws, 1u);
+	EXPECT_GT(GCounters.TerrainLogicalPreparationNanoseconds, 0u);
+	EXPECT_GT(GCounters.TerrainBatchConstructionNanoseconds, 0u);
+	EXPECT_GT(GCounters.TerrainResourcePreparationNanoseconds, 0u);
+	EXPECT_GT(GCounters.TerrainDynamicAllocationNanoseconds, 0u);
+	EXPECT_GT(GCounters.TerrainCommandRecordingNanoseconds, 0u);
 	EXPECT_EQ(CpuMilliseconds.size(), MeasuredFrames);
 	EXPECT_EQ(TimingQueries.size(), WarmupFrames + MeasuredFrames);
 	std::ranges::sort(CpuMilliseconds);
@@ -176,7 +189,11 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 			GpuMilliseconds.push_back(Result.DurationNanoseconds / 1'000'000.0);
 	}
 	std::ranges::sort(GpuMilliseconds);
-	if (!CpuMilliseconds.empty()) EXPECT_LE(CpuMilliseconds.back(), 5000.0);
+	if (!CpuMilliseconds.empty())
+	{
+		EXPECT_LE(CpuMilliseconds[CpuMilliseconds.size() / 2], 150.0);
+		EXPECT_LE(CpuMilliseconds.back(), 250.0);
+	}
 	if (!GpuMilliseconds.empty()) EXPECT_LE(GpuMilliseconds.back(), 50.0);
 	if (!CpuMilliseconds.empty() && !GpuMilliseconds.empty())
 		std::cout << "[ TERRAIN ] 1025x1025: cpu median="
@@ -215,7 +232,11 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 	EXPECT_EQ(GCounters.ResolvedTerrainLODHistogram[6], 256u);
 	EXPECT_EQ(GCounters.TerrainLODFallbacks, 0u);
 	EXPECT_EQ(GCounters.TerrainLODResolutionFallbacks, 0u);
-	EXPECT_LE(AutomaticCpuMilliseconds, 5000.0);
+	EXPECT_EQ(GCounters.PreparedTerrainBatches, 1u);
+	EXPECT_EQ(GCounters.TerrainInstances, 256u);
+	EXPECT_EQ(GCounters.TerrainSuccessfulDraws, 1u);
+	EXPECT_EQ(GCounters.TerrainSubmittedLogicalPatches, 256u);
+	EXPECT_LE(AutomaticCpuMilliseconds, 150.0);
 	std::cout << "[ TERRAIN ] 1025x1025 automatic flat: cpu="
 		<< AutomaticCpuMilliseconds << "ms; triangles="
 		<< GCounters.PreparedTerrainTriangles << "\n";

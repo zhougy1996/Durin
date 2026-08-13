@@ -265,10 +265,17 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 				View.ViewportHeight = 33;
 				View.Settings.RenderMode = Durin::ERenderMode::Unlit;
 				View.Settings.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
+				View.Settings.bDisableTerrainBatching = Mask == 0;
 				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
 					Durin::ERenderViewResult::Success);
 				EXPECT_GE(GCounters.TerrainStitchMaskHistogram[Mask], 1u);
-				EXPECT_EQ(GCounters.TerrainSuccessfulDraws, 9u);
+				EXPECT_EQ(GCounters.TerrainSuccessfulDraws,
+					GCounters.PreparedTerrainBatches);
+				EXPECT_EQ(GCounters.TerrainSubmittedLogicalPatches,
+					GCounters.VisibleTerrainPatches);
+				if (Mask == 0)
+					EXPECT_EQ(GCounters.PreparedTerrainBatches,
+						GCounters.VisibleTerrainPatches);
 				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			});
 	}

@@ -385,10 +385,12 @@ namespace Durin
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		const FCompiledShader& Vertex = Output.CompiledShaders[0];
 		EXPECT_EQ(GetSpirvInputLocations(Vertex), (std::set<uint32>{0}));
-		ASSERT_EQ(Vertex.Reflection.ResourceBindings.size(), 3u);
+		ASSERT_EQ(Vertex.Reflection.ResourceBindings.size(), 4u);
 		ExpectBinding(Vertex, "Transform", 0, ERHIBindingType::UniformBuffer, EShaderStageFlags::Vertex);
 		ExpectBinding(Vertex, "HeightTexture", 23, ERHIBindingType::Texture, EShaderStageFlags::Vertex);
 		ExpectBinding(Vertex, "Terrain", 24, ERHIBindingType::UniformBuffer, EShaderStageFlags::Vertex);
+		ExpectBinding(Vertex, "TerrainPatchOrigins", 27,
+			ERHIBindingType::StorageBuffer, EShaderStageFlags::Vertex);
 		EXPECT_EQ(Output.CompiledShaders[1].Reflection.ResourceBindings.size(), 24u);
 		ExpectBinding(Output.CompiledShaders[1], "DirectionalShadowTexture", 25,
 			ERHIBindingType::Texture, EShaderStageFlags::Fragment);

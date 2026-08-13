@@ -107,11 +107,12 @@ struct MaterialUniform
 #if DURIN_TERRAIN
 struct TerrainUniform
 {
-    uint4 SamplePatch; // width, height, origin x, origin y
+    uint4 SamplePatch; // width, height, reserved, reserved
     float4 SpacingHeight; // spacing x/y, signed height scale, height offset
 };
 [[vk::binding(23, 0)]] Texture2D<uint> HeightTexture;
 [[vk::binding(24, 0)]] ConstantBuffer<TerrainUniform> Terrain;
+[[vk::binding(27, 0)]] StructuredBuffer<uint2> TerrainPatchOrigins;
 #endif
 #if DURIN_SPLINE_MESH
 [[vk::binding(24, 0)]] ConstantBuffer<FSplineMeshUniform> SplineMesh;
@@ -121,7 +122,7 @@ struct TerrainUniform
 
 [shader("vertex")]
 #if DURIN_TERRAIN
-VSOutput VertexMain(FTerrainVertexFactoryInput input)
+VSOutput VertexMain(FTerrainVertexFactoryInput input, uint instanceID : SV_InstanceID)
 #elif DURIN_SKELETAL_MESH
 VSOutput VertexMain(FSkeletalMeshVertexFactoryInput input)
 #else
@@ -129,7 +130,7 @@ VSOutput VertexMain(FLocalVertexFactoryInput input)
 #endif
 {
 #if DURIN_TERRAIN
-    uint2 sampleCoordinate = Terrain.SamplePatch.zw + input.gridCoordinate;
+    uint2 sampleCoordinate = TerrainPatchOrigins[instanceID] + input.gridCoordinate;
     uint2 maximumCoordinate = Terrain.SamplePatch.xy - uint2(1u, 1u);
     uint2 leftCoordinate = uint2(sampleCoordinate.x > 0u ? sampleCoordinate.x - 1u : 0u, sampleCoordinate.y);
     uint2 rightCoordinate = uint2(min(sampleCoordinate.x + 1u, maximumCoordinate.x), sampleCoordinate.y);

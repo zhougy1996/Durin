@@ -4,36 +4,33 @@ Summary: Batch compatible finite-Terrain patches with direct hardware instancing
 
 Last reviewed: 2026-08-14
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-14
 
 ## Current Status
 
-The finite Terrain renderer is functionally complete through T1-T4: a
-1025x1025 heightmap produces 256 exact 64x64-cell patches, performs per-view
-frustum culling and deterministic LOD selection, resolves adjacency, uses
-crack-free stitched topology, and renders through the shared material,
-directional-shadow, and lifecycle contracts.
+Completed on 2026-08-14. Terrain now retains all logical patch visibility,
+LOD, adjacency, stitch, triangle, sorting, and overlay records while executing
+eligible opaque, masked, wireframe, and directional-shadow work as stable
+direct-instanced batches within one immutable proxy. The frozen chunk ceiling
+is 256 instances and the versioned instance ABI is one tightly packed unsigned
+`uint2` heightmap sample origin. Translucent Terrain remains scalar.
 
-T3 reduced a flat far 1025x1025 Terrain from 2,097,152 triangles to 512, but
-retained 256 prepared patches and 256 indexed draws. On the recorded Win64
-Debug validation-layer RTX 3090 profile, `ForceLOD0` took 1567.04 ms CPU median
-/ 2100.17 ms p95 and the automatic flat-far case still took 1547.17 ms for one
-measured preparation, while Scene Color GPU time was 1.85901 ms median. The
-near-identical CPU time after a 4096x triangle reduction is concrete evidence
-that patch-local preparation, dynamic uniform allocation, resource binding,
-and command recording dominate the finite 1025x1025 editor experience.
+The RTX 3090 Win64 Debug Vulkan-validation qualification retained 256 logical
+patches but reduced the homogeneous base pass from 256 hardware draws and 256
+resource preparations to one batch, one 2,048-byte origin allocation, and one
+draw. `ForceLOD0` retained 2,097,152 triangles and measured 12.94 ms CPU median
+/ 13.39 ms p95 plus 0.243 ms GPU median / 0.244 ms p95. Automatic flat-far
+retained exactly 512 triangles and measured 12.99 ms CPU. This exceeds the
+relative 10x gate by more than 100x against the recorded same-host T3 median.
 
-The current path constructs one `FPreparedTerrainDraw` per visible patch,
-resolves identical material data per patch, calls resource preparation per
-patch, allocates Transform, Terrain, and Material dynamic uniforms per patch,
-rebinds common pipeline/resources, and records one `DrawIndexed` per patch.
-RHI already exposes indexed direct instancing through `InstanceCount` and
-`FirstInstance`, and Renderer already has dynamic storage-buffer allocation.
-No new indirect-draw command is required to remove the demonstrated bottleneck.
-
-No implementation work for this plan has started. Stage 0 must reproduce and
-partition the current cost before batching changes the measured path.
+The Release qualification recorded 1.46 ms CPU median / 1.70 ms p95 and
+0.243 ms GPU median, comfortably inside the 16.67 ms frame budget. Focused
+Terrain, shader, RHI, Vulkan, and skeletal-storage tests, `fast-all`, full
+Debug/Release Editor/Game builds, and 30-tick normal-exit hidden-window smokes
+for all four configurations passed. Lasting ownership is published in Terrain
+Rendering. The development-only unbatched switch is disabled by default and
+production failure rejects a complete batch without scalar fallback.
 
 ## Goal
 
@@ -217,20 +214,20 @@ conservation remain mandatory.
 
 ### Stage 0: Reproduce, partition, and freeze the batching contract
 
-- [ ] Add bounded CPU timing scopes and counters for logical patch selection,
+- [x] Add bounded CPU timing scopes and counters for logical patch selection,
   material classification/sorting, batch construction, resource preparation,
   dynamic allocation, and command recording without changing rendering.
-- [ ] Reproduce `ForceLOD0` and automatic flat-far 1025x1025 results on the
+- [x] Reproduce `ForceLOD0` and automatic flat-far 1025x1025 results on the
   named Debug Vulkan validation profile, including warm-up policy, median/p95,
   256 patch/draw conservation, triangle totals, CPU phase split, GPU time,
   retained resources, and dynamic-uniform allocation/byte counts.
-- [ ] Record a Win64 Release editor-interaction baseline with fixed viewport,
+- [x] Record a Win64 Release editor-interaction baseline with fixed viewport,
   camera path, resolution, material, light/shadow configuration, frame count,
   warm-up, and whole-frame plus Terrain CPU/GPU measurements.
-- [ ] Query and freeze the maximum instance count, dynamic storage range,
+- [x] Query and freeze the maximum instance count, dynamic storage range,
   alignment, and selected Renderer instances-per-chunk ceiling; prove checked
   arithmetic for the maximum visible logical-patch count admitted in one view.
-- [ ] Specify the exact batch key, stable batch ordering, minimal instance ABI,
+- [x] Specify the exact batch key, stable batch ordering, minimal instance ABI,
   counter meanings, atomic rejection behavior, and unbatched comparison switch
   in tests before changing the shader or prepared representation.
 
@@ -245,17 +242,17 @@ conservation remain mandatory.
 
 ### Stage 1: Separate logical patch decisions from execution batches
 
-- [ ] Refactor Terrain preparation into immutable logical patch records plus
+- [x] Refactor Terrain preparation into immutable logical patch records plus
   per-proxy common render facts so material resolution, transform derivation,
   and shared identities are not recomputed for every patch.
-- [ ] Build deterministic opaque/masked/shadow batches from the frozen complete
+- [x] Build deterministic opaque/masked/shadow batches from the frozen complete
   key after visibility, LOD adjacency, pass classification, and sorting.
-- [ ] Preserve scalar translucent records and exact back-to-front ordering.
-- [ ] Add deterministic chunking and checked logical-patch-to-instance
+- [x] Preserve scalar translucent records and exact back-to-front ordering.
+- [x] Add deterministic chunking and checked logical-patch-to-instance
   mappings without allocating GPU resources during logical preparation.
-- [ ] Extend counters and invariants so candidates, logical patches, batches,
+- [x] Extend counters and invariants so candidates, logical patches, batches,
   chunks, instances, triangles, and eventual hardware draws reconcile.
-- [ ] Keep overlay generation sourced from logical patch records rather than
+- [x] Keep overlay generation sourced from logical patch records rather than
   batch bounds or instance ranges.
 
 #### Acceptance Gate
@@ -270,18 +267,18 @@ conservation remain mandatory.
 
 ### Stage 2: Add the Terrain instance ABI and direct-instanced execution
 
-- [ ] Extend the Terrain vertex input/shader contract with canonical instance
+- [x] Extend the Terrain vertex input/shader contract with canonical instance
   identity and a read-only storage range of patch sample origins.
-- [ ] Allocate and populate bounded per-view instance data with explicit
+- [x] Allocate and populate bounded per-view instance data with explicit
   alignment, lifetime retention, checked offsets, and chunk-local ranges.
-- [ ] Bind Transform, Terrain-wide, material, height, sampler, pipeline, and
+- [x] Bind Transform, Terrain-wide, material, height, sampler, pipeline, and
   topology state once per batch and issue indexed direct draws with the exact
   instance count and first-instance contract.
-- [ ] Prepare resources once per batch and report atomic batch readiness;
+- [x] Prepare resources once per batch and report atomic batch readiness;
   retain patch-level rejection attribution in bounded diagnostics.
-- [ ] Apply the same mechanism to Opaque, Masked, wireframe, opaque-shadow, and
+- [x] Apply the same mechanism to Opaque, Masked, wireframe, opaque-shadow, and
   masked-shadow paths while retaining scalar Translucent execution.
-- [ ] Extend RHI/Vulkan tests only where existing direct-instancing coverage is
+- [x] Extend RHI/Vulkan tests only where existing direct-instancing coverage is
   insufficient, especially nonzero `FirstInstance`, storage-range binding,
   command-list retention, and validation-layer cleanliness.
 
@@ -299,20 +296,20 @@ conservation remain mandatory.
 
 ### Stage 3: Integrate lifecycle, shadows, failures, and comparison coverage
 
-- [ ] Qualify directional-shadow cascades/views independently from camera
+- [x] Qualify directional-shadow cascades/views independently from camera
   batches, including different visibility, LOD, stitch masks, depth bias,
   opaque/masked materials, and resource identities.
-- [ ] Cover material replacement, heightmap changed/no-op/failed reimport,
+- [x] Cover material replacement, heightmap changed/no-op/failed reimport,
   visibility and transform edits, component removal, level reload, device
   invalidation, shader refresh, Renderer shutdown, and recorded-command
   lifetime with batches in flight.
-- [ ] Exercise instance allocation failure, chunk-limit boundaries, invalid
+- [x] Exercise instance allocation failure, chunk-limit boundaries, invalid
   key/range/offset data, topology/height/shader/pipeline failure, and recovery;
   prove affected batches reject atomically with bounded diagnostics.
-- [ ] Run batched-versus-unbatched comparison across camera motion, frustum
+- [x] Run batched-versus-unbatched comparison across camera motion, frustum
   boundaries, LOD equality, every stitch mask, solid/wireframe, Opaque/Masked,
   default/custom materials, signed height scale, and mirrored transforms.
-- [ ] Confirm collision identity, editor exact picking, Cooked Runtime proxy
+- [x] Confirm collision identity, editor exact picking, Cooked Runtime proxy
   creation, and source/DDC independence are unchanged.
 
 #### Acceptance Gate
@@ -328,24 +325,24 @@ conservation remain mandatory.
 
 ### Stage 4: Qualify interactive performance and publish lasting contracts
 
-- [ ] Run the frozen Debug validation and Release editor-interaction profiles
+- [x] Run the frozen Debug validation and Release editor-interaction profiles
   for `ForceLOD0`, automatic flat-far, mixed-LOD/stitch, partial visibility,
   masked material, wireframe, and directional-shadow cases.
-- [ ] Record median/p95 by CPU phase, whole-frame rate, GPU Scene Color/shadow
+- [x] Record median/p95 by CPU phase, whole-frame rate, GPU Scene Color/shadow
   time, candidates/visible/culled patches, batches/chunks/instances/draws,
   triangles, dynamic bytes/allocations, retained resources, and validation
   diagnostics.
-- [ ] Meet the absolute and relative performance gates in this plan without
+- [x] Meet the absolute and relative performance gates in this plan without
   changing the fixture, visibility, LOD threshold, output resolution, shadow
   policy, or validation setting after baseline capture.
-- [ ] Run focused Terrain/RHI/Vulkan suites, required aggregate native tests,
+- [x] Run focused Terrain/RHI/Vulkan suites, required aggregate native tests,
   full Debug and Release Editor/Game builds, and normal-exit editor/game smoke
   tests according to repository build and test guidance.
-- [ ] Update Terrain Rendering with implemented batch ABI, counter semantics,
+- [x] Update Terrain Rendering with implemented batch ABI, counter semantics,
   pass exclusions, lifecycle/failure behavior, and qualification evidence;
   update the Heightfield Terrain roadmap only if milestone sequencing or
   deferred boundaries materially change.
-- [ ] Mark this plan completed only after all gates pass and lasting behavior
+- [x] Mark this plan completed only after all gates pass and lasting behavior
   is owned outside the plan.
 
 #### Acceptance Gate
