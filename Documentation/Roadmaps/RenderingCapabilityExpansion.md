@@ -2,7 +2,7 @@
 
 Summary: Expand the current static-mesh forward renderer into a pass-classified, visibility-aware platform for additional primitive, lighting, and effect families.
 
-Last reviewed: 2026-08-12
+Last reviewed: 2026-08-13
 
 Status: Active
 Completed:
@@ -78,7 +78,17 @@ rejected the original `1 + 8` candidate at 1.748 ms incremental Scene Color;
 the production `1 + 4` tier passed at 0.602 ms incremental across 120 measured
 1920x1080 frames. Mixed-light Vulkan readback, aggregate tests, full build,
 asset baseline, and editor smoke pass. M6's M5 dependency gate is open; entry
-now requires selecting one directional-shadow quality and memory budget.
+now has a selected directional-shadow quality and memory candidate.
+
+M6 activated on 2026-08-13 through the
+[Directional Shadow Pipeline Plan](../Plans/DirectionalShadowPipeline.md).
+Stage 0 is freezing the exact fitting, caster-volume, bias, fixture, and
+measurement contracts around one 2048x2048 D32 map, a 16 MiB logical texture
+budget, a 256-world-unit receiver distance, one hardware linear comparison
+sample, and a 2.0 ms combined median incremental gate on the GTX 1060. Because
+Terrain became a production geometry family after this roadmap was drafted,
+M6 includes its Opaque and Masked patches beside StaticMesh, SplineMesh, and
+SkeletalMesh rather than leaving an undocumented caster/receiver exception.
 
 ## Outcome
 
@@ -281,7 +291,7 @@ flowchart LR
 | M3: Per-view visibility and LOD | Required; complete | [PerViewVisibilityAndLOD](../Plans/Archive/2026-08/PerViewVisibilityAndLOD.md) | M1 proxy bounds; M2 pass buckets | Frustum culling, deterministic LOD selection, prepared draw lists, sort/state keys, and counters. | Met: bounds semantics, pass inputs, projection/LOD policy, representative assets, and comparison views were frozen before production defaults. | Passed: invisible primitives issue no base-pass draw, LOD thresholds and ordering are deterministic, and counters reconcile submitted, culled, selected, prepared, resource, and execution work across qualified viewport paths. |
 | M4: Second production primitive family | Completed 2026-08-11 | [Skeletal Mesh Rendering](../Plans/Archive/2026-08/SkeletalMeshRendering.md) | M2-M3 shared pass and visibility contracts; Skeletal S1-S2; completed RHI Graphics State and Bindings handoff | GPU-skinned SkeletalMesh with coherent pose/bounds snapshots, bounded palette transport, a second vertex factory, and shared material/pass/viewport participation. | Met on 2026-08-10: prerequisites, selected family, budgets, fixtures, and gaps were frozen before implementation. | Passed: SkeletalMesh reuses scene mutation, visibility, pass, material, invalidation, and viewport contracts without a parallel frame renderer or whole-scene RTTI scan; Debug/Shipping Vulkan, full build, and editor smoke are green. |
 | M5: Renderer-owned multi-light scene | Required; complete | [RendererLightSceneContract](../Plans/RendererLightSceneContract.md) | M1 detached light mutation | Directional, point, and spot Proxy/SceneInfo types, typed collections, visibility inputs, bounded GPU-facing light data, and explicit versions only for independently reordered work. | Met on 2026-08-12: M1 removed component reads; GTX 1060 evidence rejected `1 + 8` and qualified one directional plus four combined local lights per view at 0.602 ms incremental. | Add/update/remove order is deterministic; no render-thread object read occurs; multiple view renders consume identical scene state; point/spot falloff has focused and image coverage. |
-| M6: Directional shadow pipeline | Required | `DirectionalShadowPipeline` | M2 pass state, M3 visibility/draw lists, M4 second-family participation, M5 light snapshots | Shadow-depth target/layout, caster classification, masked caster behavior, directional shadow matrices, bias/filtering, lifetime, diagnostics, and lighting sampling. | M2-M5 contracts are stable; one directional shadow quality/budget target is selected. | StaticMesh and the selected M4 family cast and receive deterministic shadows; masked coverage, camera/light motion, multi-view reuse, invalidation, and Vulkan validation pass without whole-device idle waits. |
+| M6: Directional shadow pipeline | Required; active | [DirectionalShadowPipeline](../Plans/DirectionalShadowPipeline.md) | M2 pass state, M3 visibility/draw lists, M4 second-family participation, M5 light snapshots | Shadow-depth target/layout, caster classification, masked caster behavior, directional shadow matrices, bias/filtering, lifetime, diagnostics, and lighting sampling. | Met on 2026-08-13: M2-M5 are stable and the active plan selected one 2048x2048 D32, 16 MiB candidate with a 2.0 ms target-GPU qualification gate. | StaticMesh, SplineMesh, SkeletalMesh, and Terrain cast and receive deterministic shadows; masked coverage, camera/light motion, multi-view reuse, invalidation, performance/memory gates, and Vulkan validation pass without whole-device idle waits. |
 
 M1 through M6 define the required roadmap. M4 intentionally requires one
 selected second family rather than SkeletalMesh by name: SkeletalMesh is the
@@ -357,7 +367,7 @@ tiled lighting unless the selected light-count target proves a simple bounded
 loop or light-volume approach inadequate. Light editor UX and authored asset
 workflows stay with their component/editor owners.
 
-### `DirectionalShadowPipeline`
+### [DirectionalShadowPipeline](../Plans/DirectionalShadowPipeline.md)
 
 This plan owns the first auxiliary geometry pass, its resources, view/light
 matrices, caster filtering, bias, filtering, cache/update policy, and sampling.
