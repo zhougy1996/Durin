@@ -47,8 +47,8 @@ namespace
 			new (Initializer.GetObj()) FNativeConstructionTestActor(Initializer);
 		};
 		auto Class = std::make_unique<Durin::DClass>(Durin::EC_StaticConstructor,
-			"NativeConstructionTestActor", sizeof(FNativeConstructionTestActor),
-			alignof(FNativeConstructionTestActor), Durin::EObjectFlags::Transient,
+			"NativeConstructionTestActor", static_cast<Durin::uint32>(sizeof(FNativeConstructionTestActor)),
+			static_cast<Durin::uint32>(alignof(FNativeConstructionTestActor)), Durin::EObjectFlags::Transient,
 			Durin::EClassFlags::None, Durin::EClassCastFlags::DClass, Constructor);
 		Class->SetSuperStructBase(Durin::AActor::StaticClass());
 		return Class;
