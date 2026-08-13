@@ -62,8 +62,6 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
-		if (!View.DirectionalShadow.bEnabled) return false;
-		++View.Counters.ShadowResourceAttempts;
 		using FResult = TRenderResourceCreateResult<FState::FResources>;
 		FState::FResources* Resources = State->Resources.Resolve(
 			Coordinator.GetGeneration_RenderThread(),
@@ -98,8 +96,14 @@ namespace Durin
 						"Target, exact views, or comparison sampler creation returned null.",
 						ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));
+				const std::array InitialTransition{FRHITextureTransition::Whole(
+					Candidate.Target, ERHIAccess::Discard,
+					ERHIAccess::GraphicsShaderRead)};
+				CommandList.TransitionTextures(InitialTransition);
 				return FResult::Success(std::move(Candidate));
 			}, ReportRendererResourceCreateDiagnostic);
+		if (!View.DirectionalShadow.bEnabled) return false;
+		++View.Counters.ShadowResourceAttempts;
 		if (Resources == nullptr)
 		{
 			++View.Counters.ShadowResourceFailures;

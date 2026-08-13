@@ -237,6 +237,25 @@ float3 BlendRNM(float3 baseNormal, float3 detailNormal)
 }
 
 [shader("fragment")]
+void OpaqueShadowFragmentMain(VSOutput input)
+{
+}
+
+[shader("fragment")]
+void ShadowFragmentMain(VSOutput input)
+{
+#if DURIN_MATERIAL_BLEND_MODE == 1
+    float opacityMaskSample = OpacityMaskTexture.Sample(
+        OpacityMaskSampler, GetMaterialUV(input, 7u)).r;
+    float opacityMask = saturate(Material.SurfaceParams.y * opacityMaskSample);
+    const float opacityMaskThreshold = saturate(asfloat(uint(
+        DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS)));
+    if (opacityMask < opacityMaskThreshold)
+        discard;
+#endif
+}
+
+[shader("fragment")]
 float4 FragmentMain(VSOutput input) : SV_Target
 {
     const float minVectorLengthSquared = 1.0e-8;

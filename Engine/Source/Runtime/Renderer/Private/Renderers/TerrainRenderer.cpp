@@ -76,6 +76,27 @@ namespace Durin
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment, "FragmentMain");
 		};
 
+		class FTerrainOpaqueShadowFragmentShader final : public FShader
+		{
+		public:
+			DURIN_DECLARE_SHADER(FTerrainOpaqueShadowFragmentShader, FShader,
+				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment,
+				"OpaqueShadowFragmentMain");
+		};
+
+		class FTerrainShadowFragmentShader final : public FShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FTerrainShadowFragmentShader)
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Material);
+				DURIN_SHADER_PARAMETER_TEXTURE(OpacityMaskTexture);
+				DURIN_SHADER_PARAMETER_SAMPLER(OpacityMaskSampler);
+			DURIN_END_SHADER_PARAMETERS();
+			DURIN_DECLARE_SHADER(FTerrainShadowFragmentShader, FShader,
+				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment,
+				"ShadowFragmentMain");
+		};
+
 		struct FTransformUniform
 		{
 			FMatrix4f LocalToClip{1.0f};
@@ -292,12 +313,16 @@ namespace Durin
 			std::shared_ptr<FShaderMapBase> Map;
 			TShaderRef<FTerrainVertexShader> Vertex;
 			TShaderRef<FTerrainFragmentShader> Fragment;
+			TShaderRef<FTerrainOpaqueShadowFragmentShader> OpaqueShadowFragment;
+			TShaderRef<FTerrainShadowFragmentShader> ShadowFragment;
 		};
 		struct FPipelinePayload
 		{
 			std::shared_ptr<FShaderMapBase> Map;
 			TShaderRef<FTerrainVertexShader> Vertex;
 			TShaderRef<FTerrainFragmentShader> Fragment;
+			TShaderRef<FTerrainOpaqueShadowFragmentShader> OpaqueShadowFragment;
+			TShaderRef<FTerrainShadowFragmentShader> ShadowFragment;
 			FGraphicsPipelineStateRHIRef Pipeline;
 		};
 		std::unordered_map<uint64, std::unique_ptr<FTopology>> Topologies;
@@ -305,6 +330,8 @@ namespace Durin
 		std::unordered_map<size_t, FSamplerRHIRef> Samplers;
 		TRendererResourceSlotCache<FMaterialShaderMapIdentity, FShaderPayload> Shaders{
 			ERenderResourceGenerationDependency::Shader};
+		TRendererResourceSlotCache<FMaterialShaderMapIdentity, FShaderPayload>
+			ShadowShaders{ERenderResourceGenerationDependency::Shader};
 		TRendererResourceSlotCache<FEffectiveStaticMeshPipelineKey, FPipelinePayload> Pipelines{
 			ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Device};
 		TRendererResourceSlotCache<FEffectiveStaticMeshPipelineKey, FPipelinePayload> ShadowPipelines{
@@ -391,10 +418,13 @@ namespace Durin
 		}
 		else ++View.TopologyReuses;
 
-		auto& ShaderEntry = State->Shaders.FindOrAdd(Draw.Material.PipelineIdentity.ShaderMap);
+		auto& ShaderCache = bShadowDepth
+			? State->ShadowShaders : State->Shaders;
+		auto& ShaderEntry = ShaderCache.FindOrAdd(
+			Draw.Material.PipelineIdentity.ShaderMap);
 		using FShaderResult = TRenderResourceCreateResult<FState::FShaderPayload>;
 		auto* Shader = ShaderEntry.Slot.Resolve(Coordinator.GetGeneration_RenderThread(),
-			[this, &Draw]() -> FShaderResult {
+			[this, &Draw, bShadowDepth]() -> FShaderResult {
 				const auto& Identity = Draw.Material.PipelineIdentity.ShaderMap;
 				FShaderCompileOptions Options;
 				Options.bForceRecompile = Coordinator.ShouldForceShaderRecompile_RenderThread();
@@ -404,18 +434,57 @@ namespace Durin
 				Options.Macros.emplace_back("DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", std::to_string(std::bit_cast<uint32>(Identity.OpacityMaskThreshold)));
 				FShaderType& VertexType = FTerrainVertexShader::StaticType();
 				FShaderType& FragmentType = FTerrainFragmentShader::StaticType();
-				const std::array<const FShaderType*, 2> Types{&VertexType, &FragmentType};
+				FShaderType& ShadowFragmentType =
+					FTerrainShadowFragmentShader::StaticType();
+				FShaderType& OpaqueShadowFragmentType =
+					FTerrainOpaqueShadowFragmentShader::StaticType();
+				std::vector<const FShaderType*> Types{&VertexType};
+				if (!bShadowDepth)
+					Types.push_back(&FragmentType);
+				else if (Identity.BlendMode == EMaterialBlendMode::Masked)
+					Types.push_back(&ShadowFragmentType);
+				else Types.push_back(&OpaqueShadowFragmentType);
 				auto Map = std::make_shared<FShaderMapBase>();
 				std::string Error;
 				if (!Map->InitializeFromShaderTypes(Types, Options, Error))
 					return FShaderResult::Failure(MakeRendererResourceCreateError(ERenderResourceCreateErrorCategory::ShaderCompile, "TerrainShaderMap", "terrain", std::move(Error), ERenderResourceGenerationDependency::Shader | ERenderResourceGenerationDependency::Manual));
 				auto* Vertex = static_cast<FTerrainVertexShader*>(Map->GetShader(&VertexType));
-				auto* Fragment = static_cast<FTerrainFragmentShader*>(Map->GetShader(&FragmentType));
-				if (!Vertex || !Fragment) return FShaderResult::Failure(MakeRendererResourceCreateError(ERenderResourceCreateErrorCategory::ShaderBinding, "TerrainShaderMap", "terrain", "Typed shaders are missing.", ERenderResourceGenerationDependency::Shader));
+				auto* Fragment = !bShadowDepth
+					? static_cast<FTerrainFragmentShader*>(
+						Map->GetShader(&FragmentType)) : nullptr;
+				auto* ShadowFragment = bShadowDepth
+					&& Identity.BlendMode == EMaterialBlendMode::Masked
+					? static_cast<FTerrainShadowFragmentShader*>(
+						Map->GetShader(&ShadowFragmentType)) : nullptr;
+				auto* OpaqueShadowFragment =
+					bShadowDepth && Identity.BlendMode != EMaterialBlendMode::Masked
+						? static_cast<FTerrainOpaqueShadowFragmentShader*>(
+							Map->GetShader(&OpaqueShadowFragmentType)) : nullptr;
+				if (!Vertex || (!bShadowDepth && !Fragment)) return FShaderResult::Failure(MakeRendererResourceCreateError(ERenderResourceCreateErrorCategory::ShaderBinding, "TerrainShaderMap", "terrain", "Typed shaders are missing.", ERenderResourceGenerationDependency::Shader));
+				if (bShadowDepth
+					&& Identity.BlendMode == EMaterialBlendMode::Masked && !ShadowFragment)
+					return FShaderResult::Failure(MakeRendererResourceCreateError(
+						ERenderResourceCreateErrorCategory::ShaderBinding,
+						"TerrainShaderMap", "terrain",
+						"Masked shadow fragment shader is missing.",
+						ERenderResourceGenerationDependency::Shader));
+				if (bShadowDepth && Identity.BlendMode != EMaterialBlendMode::Masked
+					&& !OpaqueShadowFragment)
+					return FShaderResult::Failure(MakeRendererResourceCreateError(
+						ERenderResourceCreateErrorCategory::ShaderBinding,
+						"TerrainShaderMap", "terrain",
+						"Opaque shadow fragment shader is missing.",
+						ERenderResourceGenerationDependency::Shader));
 				FState::FShaderPayload Candidate;
 				Candidate.Map = std::move(Map);
 				Candidate.Vertex = {Vertex, Candidate.Map.get()};
-				Candidate.Fragment = {Fragment, Candidate.Map.get()};
+				if (Fragment)
+					Candidate.Fragment = {Fragment, Candidate.Map.get()};
+				if (ShadowFragment)
+					Candidate.ShadowFragment = {ShadowFragment, Candidate.Map.get()};
+				if (OpaqueShadowFragment)
+					Candidate.OpaqueShadowFragment = {
+						OpaqueShadowFragment, Candidate.Map.get()};
 				return FShaderResult::Success(std::move(Candidate));
 			}, ReportRendererResourceCreateDiagnostic);
 		if (!Shader) return false;
@@ -436,12 +505,19 @@ namespace Durin
 				Candidate.Map = Shader->Map;
 				Candidate.Vertex = Shader->Vertex;
 				Candidate.Fragment = Shader->Fragment;
+				Candidate.ShadowFragment = Shader->ShadowFragment;
+				Candidate.OpaqueShadowFragment = Shader->OpaqueShadowFragment;
 				FGraphicsPipelineStateInitializer Initializer;
 				Initializer.RenderTargetLayout = bShadowDepth
 					? RenderTargetLayouts::MakeDirectionalShadowDepth()
 					: RenderTargetLayouts::MakeSceneTargets();
 				Initializer.BoundShaders.VertexShader = Candidate.Vertex.GetRHIShader();
-				Initializer.BoundShaders.FragmentShader = Candidate.Fragment.GetRHIShader();
+				Initializer.BoundShaders.FragmentShader = bShadowDepth
+					? (EffectivePipelineKey.Material.ShaderMap.BlendMode
+							== EMaterialBlendMode::Masked
+						? Candidate.ShadowFragment.GetRHIShader()
+						: Candidate.OpaqueShadowFragment.GetRHIShader())
+					: Candidate.Fragment.GetRHIShader();
 				Initializer.VertexDeclaration = TopologyIt->second->VertexFactory.GetDeclaration();
 				Initializer.RasterizerState = EffectivePipelineKey.Rasterizer;
 				Initializer.DepthStencilState = EffectivePipelineKey.Depth;
@@ -578,6 +654,13 @@ namespace Durin
 		VS.HeightTexture = HeightIt->second.Texture;
 		VS.Terrain = TerrainBuffer;
 		SetShaderParameters(CommandList, Pipeline->Vertex, VS);
+		if (bShadowDepth
+			&& Draw.PipelineKey.Material.ShaderMap.BlendMode
+				!= EMaterialBlendMode::Masked)
+		{
+			CommandList.DrawIndexed(TopologyIt->second->IndexCount, 0, 0);
+			return true;
+		}
 		FTerrainFragmentShader::FParameters PS;
 		PS.Lighting = Lighting;
 		PS.Material = MaterialBuffer;
@@ -594,6 +677,19 @@ namespace Durin
 		for (size_t Role = 0; Role < 8; ++Role) Samplers[Role] = State->Samplers.at(GetSamplerKey(Binding.Samplers[Role]));
 		PS.BaseColorSampler = Samplers[0]; PS.NormalSampler = Samplers[1]; PS.MetallicSampler = Samplers[2]; PS.RoughnessSampler = Samplers[3];
 		PS.AmbientOcclusionSampler = Samplers[4]; PS.EmissiveSampler = Samplers[5]; PS.OpacitySampler = Samplers[6]; PS.OpacityMaskSampler = Samplers[7];
+		if (bShadowDepth
+			&& Draw.PipelineKey.Material.ShaderMap.BlendMode
+				== EMaterialBlendMode::Masked)
+		{
+			FTerrainShadowFragmentShader::FParameters ShadowParameters;
+			ShadowParameters.Material = MaterialBuffer;
+			ShadowParameters.OpacityMaskTexture = PS.OpacityMaskTexture;
+			ShadowParameters.OpacityMaskSampler = Samplers[7];
+			SetShaderParameters(CommandList, Pipeline->ShadowFragment,
+				ShadowParameters);
+			CommandList.DrawIndexed(TopologyIt->second->IndexCount, 0, 0);
+			return true;
+		}
 		FRHITexture* Irradiance = EnvironmentLighting.GetIrradiance_RenderThread();
 		FRHITexture* Prefiltered = EnvironmentLighting.GetPrefiltered_RenderThread();
 		FRHITexture* Brdf = EnvironmentLighting.GetBrdfLut_RenderThread();
@@ -647,6 +743,7 @@ namespace Durin
 		State->Heights.clear();
 		State->Samplers.clear();
 		State->Shaders.Reset();
+		State->ShadowShaders.Reset();
 		State->Pipelines.Reset();
 		State->ShadowPipelines.Reset();
 	}

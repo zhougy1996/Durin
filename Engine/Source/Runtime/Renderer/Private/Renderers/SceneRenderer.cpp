@@ -486,11 +486,9 @@ namespace Durin
 			CommandList, StaticMeshRenderer, SkeletalMeshRenderer,
 			TerrainRenderer, PreparedView);
 		FRHITexture* DirectionalShadowTexture =
-			PreparedView.DirectionalShadow.bEnabled
-				? DirectionalShadowRenderer.GetTexture_RenderThread() : nullptr;
+			DirectionalShadowRenderer.GetTexture_RenderThread();
 		FRHISampler* DirectionalShadowSampler =
-			PreparedView.DirectionalShadow.bEnabled
-				? DirectionalShadowRenderer.GetSampler_RenderThread() : nullptr;
+			DirectionalShadowRenderer.GetSampler_RenderThread();
 		auto BindShadow = [DirectionalShadowTexture, DirectionalShadowSampler](
 			auto& PreparedGeometry) {
 			for (auto* Bucket : {&PreparedGeometry.Opaque,
@@ -514,7 +512,9 @@ namespace Durin
 		CopyTerrainCounters(PreparedView.Terrains, PreparedView.Counters);
 		const FForwardLightingUniform Lighting = BuildForwardLightingUniform(
 			PreparedView.Lights, RenderView,
-			DirectionalShadowTexture != nullptr && DirectionalShadowSampler != nullptr
+			PreparedView.DirectionalShadow.bEnabled
+				&& DirectionalShadowTexture != nullptr
+				&& DirectionalShadowSampler != nullptr
 				? &PreparedView.DirectionalShadow : nullptr);
 		PreparedView.Counters.PackedLightBytes = sizeof(Lighting);
 		PreparedView.LightingUniformBuffer =

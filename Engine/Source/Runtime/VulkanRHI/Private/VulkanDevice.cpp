@@ -384,6 +384,7 @@ namespace Durin::VulkanRHI
 		DeviceFeatures.fillModeNonSolid = AvailableFeatures.fillModeNonSolid;
 		DeviceFeatures.independentBlend = AvailableFeatures.independentBlend;
 		DeviceFeatures.depthClamp = AvailableFeatures.depthClamp;
+		DeviceFeatures.depthBiasClamp = AvailableFeatures.depthBiasClamp;
 		DeviceFeatures.wideLines = AvailableFeatures.wideLines;
 		vk::DeviceCreateInfo DeviceInfo;
 		vk::PhysicalDeviceVulkan11Features Vulkan11Features;
