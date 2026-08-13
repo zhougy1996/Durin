@@ -40,11 +40,14 @@ is retained as a bounded tier but rejected as default by its 487/563 motion
 results. Low remains byte-identical, numeric zero, and the invalid/resource
 fallback.
 
-Q2 cascaded directional shadows is now the next required milestone. Its entry
-evidence is the selected Medium 3x3 tent: nine comparisons, 1.5-texel effective
-radius, two guard texels, unchanged 16,777,216-byte single-map allocation,
-12,640 ns Scene Color and 10,240 ns Shadow Depth medians on the frozen RTX 3090
-fixture, with Low fallback and High rejection recorded.
+Q2 cascaded directional shadows is active through the
+[Cascaded Directional Shadows Plan](../Plans/CascadedDirectionalShadows.md).
+Its frozen entry candidate is three 2048x2048 D32 array layers (48 MiB logical),
+the existing 256-unit shadow distance, practical splits at lambda 0.65, bounded
+10% transitions, independent caster discovery, and the selected Medium 3x3
+tent with nine comparisons normally and eighteen during overlap. Stage 0 owns
+the exact RHI/Vulkan layer contract, image and motion thresholds, backend bytes,
+and target-GPU evidence before the current single-map default can change.
 Contact shadows, variable-penumbra filtering, persistent caching, local-light
 shadows, and alternative representations remain conditional branches.
 
@@ -194,15 +197,15 @@ contracts instead of treating them as implicit extensions of the first map.
 
 | Area | Existing foundation | Evolution gap |
 | --- | --- | --- |
-| Feature ownership | One private `FDirectionalShadowRenderer` owns target, views, sampler, shaders, PSOs, failure state, retry, invalidation, and release. | No multi-cascade resource record or quality-tier policy exists. |
+| Feature ownership | One private `FDirectionalShadowRenderer` owns target, views, sampler, shaders, PSOs, failure state, retry, invalidation, and release. | No atomic multi-cascade resource record or partial-layer failure policy exists. |
 | View fitting | Camera-relative receiver fitting, 256-unit clamp, conservative caster extrusion, two-texel guard, and whole-texel XY stabilization are qualified. | One projection distributes 2048 texels over the whole receiver volume; no split/blend contract exists. |
 | Bias | Q0 derives bounded raster, receiver, and normal-offset terms from texel world size and production surface/light orientation. | Q2 must apply the same contract independently per cascade. |
-| Filtering | One linear `LessOrEqual` comparison sample gives the minimum hardware-filtered edge. | No explicit wider PCF kernel, quality tier, maximum footprint, or per-tier sampling counter exists. |
+| Filtering | Exact Low/Medium/High PCF tiers, footprints, guards, diagnostics, and counters exist; Medium is the selected default. | Selection and blending must apply the chosen tier independently per cascade without cross-layer samples. |
 | Casters | Opaque/Masked StaticMesh, SplineMesh, SkeletalMesh, and Terrain reuse production visibility inputs, material coverage, deformation, culling, and LOD rules; Q0 adds valid/defective seam evidence. | Q2 must conserve the same caster meaning independently per cascade. |
 | Receivers | One shared Slang helper consumes production position/normal, applies the Q0 bias policy, attenuates only selected directional direct lighting, and emits causal diagnostics. | The helper has no cascade selection or blending. |
 | RHI/Vulkan | D32 attachments, exact sampled views, comparison samplers, depth bias, transitions, and recorded-resource retention are available. | Array-layer attachment/view support or guarded atlas policy must be selected and qualified before Q2. |
-| Diagnostics | Q0 adds immutable per-view depth/coverage, comparison, texel-grid, bias-contribution, and classification evidence with exact fixtures. | Q1 adds filter-footprint/sample diagnostics; Q2 adds cascade selection/blending diagnostics. |
-| Performance | The tier remains 16 MiB; Q0 records an 0.011776 ms combined median increment and 0.000064 ms Classification-over-Lit increment on its RTX 3090 fixture. | Wider kernels and multiple maps need independent enabled/disabled deltas and a selected production budget. |
+| Diagnostics | Q0/Q1 provide immutable coverage, comparison, bias, classification, filter-footprint, tap-validity, and tier-difference evidence. | Q2 adds cascade index, transition weight, per-layer coverage, split, and candidate-difference diagnostics. |
+| Performance | Q1 Medium records 16 MiB, 12,640 ns Scene Color, 10,240 ns Shadow Depth, and zero failed measured frames on its RTX 3090 fixture. | Three maps need exact logical/backend bytes, per-layer depth cost, overlap sampling cost, and a selected production budget. |
 
 ## Milestone Map
 
@@ -222,7 +225,7 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- | --- |
 | Q0: Diagnostics and bias correctness | Completed 2026-08-13 | `DirectionalShadowDiagnosticsAndBias` | Completed `DirectionalShadowPipeline`; current depth/bias RHI | Visual shadow-depth, comparison-error, coverage, texel-grid, and bias diagnostics; representative artifact fixtures; texel-scale-aware bounded bias model shared by all receivers. | Passed: named valid/defective, acne, contact, Masked, grazing, and motion entry evidence was frozen before defaults changed. | Passed: selected captures, exact fallbacks, geometry/view parity, motion, recovery, memory, timing, builds, and smoke meet the completed child-plan gate. |
 | Q1: PCF quality tiers | Completed 2026-08-14; Medium selected, High rejected by motion | [DirectionalShadowPCFQualityTiers](../Plans/DirectionalShadowPCFQualityTiers.md) | Completed Q0 bias/diagnostic contract | Deterministic low/medium/high directional filtering candidates, exact kernel/guard metadata, shared sampling helper, counters, image fixtures, and a selected default tier. | Passed by Q0 causal classification; Stage 0 froze the 1-sample-linear, 3x3 tent, literal 5x5 tent, guards, image/motion metrics, and RTX 3090 GPU budgets without changing Low. | Passed: Medium reduces shadow-only high-frequency energy, passes motion/correctness/performance and is default; High is bounded but rejected by motion; Low and failure output remain exact and fully bound. |
-| Q2: Cascaded directional shadows | Required | `CascadedDirectionalShadows` | Q0-Q1; selected RHI texture-array or guarded-atlas contract | Camera-relative cascades, split computation, per-cascade fitting/stabilization/culling, resource ownership, selection/blending, diagnostics, quality-tier integration, and qualified default budgets. | A three-cascade entry candidate records exact resolution/format bytes, split policy, maximum distance, overlap, filter footprint, caster strategy, RHI representation, target-GPU gate, and comparison captures against Q1's single map. | Near/mid/far detail and motion captures pass frozen quality thresholds; no visible hard cascade seam or cross-tile/layer contamination occurs; all caster families, supported views, retries, invalidation, and sequential-view cases pass; logical/backend bytes and combined GPU increment remain within the selected default tier's gates. |
+| Q2: Cascaded directional shadows | Active 2026-08-14 | [CascadedDirectionalShadows](../Plans/CascadedDirectionalShadows.md) | Q0-Q1; selected RHI texture-array or guarded-atlas contract | Camera-relative cascades, split computation, per-cascade fitting/stabilization/culling, resource ownership, selection/blending, diagnostics, quality-tier integration, and qualified default budgets. | Passed for plan activation: the entry candidate freezes three 2048 D32 layers, 48 MiB logical bytes, lambda-0.65 practical splits, 256-unit maximum distance, 10% overlap, Medium's 1.5-texel footprint/two-texel guard, independent casters, preferred array representation, and exact RTX 3090 memory/time gates; Stage 0 must prove the remaining backend and comparison-capture evidence before production changes. | Near/mid/far detail and motion captures pass frozen quality thresholds; no visible hard cascade seam or cross-tile/layer contamination occurs; all caster families, supported views, retries, invalidation, and sequential-view cases pass; logical/backend bytes and combined GPU increment remain within the selected default tier's gates. |
 
 Q0 through Q2 are the required roadmap. Each is implemented through a bounded
 child plan created only when its entry gate is satisfied. A child plan may
