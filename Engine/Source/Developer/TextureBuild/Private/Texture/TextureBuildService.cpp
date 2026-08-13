@@ -31,7 +31,7 @@ namespace Durin::AssetBuild
 		State->Registration = RegisterBuildServiceContribution({
 			.Identity = "Durin.TextureBuild.Coordinator",
 			.DrainOrder = 100,
-			.Start = [] { return true; },
+			.Start = [Coordinator] { return Coordinator->Start(); },
 			.StopAdmission = [Coordinator] { Coordinator->Shutdown(); },
 			.PumpCompletions = [Coordinator](uint32 MaximumCount) {
 				return Coordinator->PumpCompletions(MaximumCount);

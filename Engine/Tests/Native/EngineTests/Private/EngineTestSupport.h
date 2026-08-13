@@ -11,7 +11,10 @@
 inline auto InitializeDObjectSystem() -> void
 {
 	static const bool bInitialized = []() {
-		Durin::InitializeTaskScheduler();
+		// CTest already parallelizes whole test processes. Keep each process's
+		// scheduler bounded so a 14-job aggregate does not multiply the host's
+		// hardware thread count across every Engine test executable.
+		Durin::InitializeTaskScheduler(2);
 		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::InitializeEngineAssetServices();
 		return true;

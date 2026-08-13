@@ -1,4 +1,5 @@
 #include "TextureTestSupport.h"
+#include "StandardAssetImportProviders.h"
 
 namespace
 {
@@ -11,10 +12,13 @@ namespace
 		{
 			InitializeDObjectSystem();
 			ASSERT_TRUE(EnsureTextureBuildHost());
+			std::string Error;
+			ASSERT_TRUE(Durin::RegisterStandardAssetImportProviders(Error)) << Error;
 		}
 
 		auto TearDown() -> void override
 		{
+			Durin::UnregisterStandardAssetImportProviders();
 			Durin::AssetBuild::ShutdownBuildHost();
 			Durin::AssetBuild::ShutdownTextureBuildService();
 		}

@@ -99,6 +99,22 @@ TEST(FBuildRecipeModuleTests, TextureAndGeometryCoexistDrainAndRestart)
 	Durin::FModuleManager::Get().LoadModuleChecked("GeometryBuild");
 	EXPECT_TRUE(EnsureTextureBuildHost());
 	EXPECT_EQ(Durin::AssetBuild::GetBuildHostSnapshot().ServiceCount, 2u);
+	Durin::AssetBuild::FTexture2DBuildCoordinator* Coordinator =
+		Durin::AssetBuild::GetTexture2DBuildCoordinator();
+	ASSERT_NE(Coordinator, nullptr);
+	bool bCompleted = false;
+	const Durin::uint64 RequestId = Coordinator->Submit(
+		MakeCoordinatorRequest(TransparentPngBytes, "/BuildHost/Restarted"),
+		[&](Durin::AssetBuild::FTexture2DQueuedBuildResult&& Result) {
+			EXPECT_EQ(
+				Result.Phase,
+				Durin::AssetBuild::ETexture2DBuildPhase::UploadPending);
+			bCompleted = true;
+		});
+	ASSERT_NE(RequestId, 0u);
+	ASSERT_TRUE(Coordinator->WaitForRequest(RequestId, 10.0));
+	EXPECT_EQ(Coordinator->PumpCompletions(), 1u);
+	EXPECT_TRUE(bCompleted);
 }
 
 TEST(FTexture2DAuthoringCoordinatorTests, BuildsOwnedNormalizedRequestInBuildModule)

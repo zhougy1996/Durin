@@ -23,6 +23,25 @@
 
 namespace
 {
+	class FTerrainHeightmapTestEnvironment final : public testing::Environment
+	{
+	public:
+		auto SetUp() -> void override
+		{
+			InitializeDObjectSystem();
+			std::string Error;
+			ASSERT_TRUE(Durin::RegisterStandardAssetImportProviders(Error)) << Error;
+		}
+
+		auto TearDown() -> void override
+		{
+			Durin::UnregisterStandardAssetImportProviders();
+		}
+	};
+
+	[[maybe_unused]] testing::Environment* GTerrainHeightmapTestEnvironment =
+		testing::AddGlobalTestEnvironment(new FTerrainHeightmapTestEnvironment);
+
 	auto AppendBigU32(std::vector<Durin::uint8>& Bytes, Durin::uint32 Value) -> void
 	{
 		Bytes.push_back(static_cast<Durin::uint8>(Value >> 24));

@@ -473,6 +473,21 @@ namespace Durin::AssetBuild
 				[&] { return Job->bCompletionQueued; });
 		}
 
+		auto Start() -> bool
+		{
+			std::lock_guard Lock(Mutex);
+			if (bAccepting) return true;
+			if (RunningCount != 0 || !InteractiveQueue.empty()
+				|| !BackgroundQueue.empty() || !Completions.empty())
+			{
+				return false;
+			}
+			bShutdown = false;
+			bAccepting = true;
+			ConsecutiveInteractive = 0;
+			return true;
+		}
+
 		auto Shutdown() -> void
 		{
 			std::vector<FTaskHandle> Tasks;
@@ -606,6 +621,11 @@ namespace Durin::AssetBuild
 	auto FTexture2DBuildCoordinator::PumpCompletions(uint32 MaximumCount) -> uint32
 	{
 		return State ? State->Pump(MaximumCount) : 0;
+	}
+
+	auto FTexture2DBuildCoordinator::Start() -> bool
+	{
+		return State && State->Start();
 	}
 
 	auto FTexture2DBuildCoordinator::WaitForRequest(

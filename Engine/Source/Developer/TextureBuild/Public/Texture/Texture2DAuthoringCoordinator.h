@@ -136,6 +136,9 @@ namespace Durin::AssetBuild
 		TEXTUREBUILD_API auto SetPhaseHookForTests(
 			std::function<void(uint64, ETexture2DBuildPhase)> Hook) -> void;
 
+		// Reopens admission after a completed Shutdown so the owning build host
+		// can honor its restartable process-lifecycle contract.
+		TEXTUREBUILD_API auto Start() -> bool;
 		// Applies completed callbacks on the GameThread and returns the number pumped.
 		TEXTUREBUILD_API auto PumpCompletions(uint32 MaximumCount = 64) -> uint32;
 		// Explicit blocking boundary for save, cook, tools, and deterministic tests.
