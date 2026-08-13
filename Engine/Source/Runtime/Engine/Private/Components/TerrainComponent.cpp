@@ -82,8 +82,10 @@ namespace Durin
 	{
 		if (Heightmap == InHeightmap) return;
 		Heightmap = InHeightmap;
+		++CollisionRevision;
 		MarkPackageDirty();
 		MarkRenderStateDirty();
+		RecreatePhysicsState();
 	}
 
 	auto DTerrainComponent::SetSampleSpacing(double InSpacingX, double InSpacingY) -> bool
@@ -93,8 +95,10 @@ namespace Durin
 		if (SpacingX == InSpacingX && SpacingY == InSpacingY) return true;
 		SpacingX = InSpacingX;
 		SpacingY = InSpacingY;
+		++CollisionRevision;
 		MarkPackageDirty();
 		MarkRenderStateDirty();
+		RecreatePhysicsState();
 		return true;
 	}
 
@@ -104,8 +108,10 @@ namespace Durin
 		if (HeightScale == InScale && HeightOffset == InOffset) return true;
 		HeightScale = InScale;
 		HeightOffset = InOffset;
+		++CollisionRevision;
 		MarkPackageDirty();
 		MarkRenderStateDirty();
+		RecreatePhysicsState();
 		return true;
 	}
 
@@ -179,6 +185,15 @@ namespace Durin
 		Super::PostEditChangeProperty(Event);
 		if (!Event.MemberProperty) return;
 		if (Event.MemberProperty->NamePrivate == FName("Material")) ++MaterialComponentRevision;
+		if (Event.MemberProperty->NamePrivate == FName("Heightmap")
+			|| Event.MemberProperty->NamePrivate == FName("SpacingX")
+			|| Event.MemberProperty->NamePrivate == FName("SpacingY")
+			|| Event.MemberProperty->NamePrivate == FName("HeightScale")
+			|| Event.MemberProperty->NamePrivate == FName("HeightOffset"))
+		{
+			++CollisionRevision;
+			RecreatePhysicsState();
+		}
 		MarkRenderStateDirty();
 	}
 
@@ -235,6 +250,86 @@ namespace Durin
 				: GetDefaultMaterialRenderProxy(), MaterialComponentRevision);
 	}
 
+	auto DTerrainComponent::SetCollisionFailure(
+		ETerrainCollisionStatus Status, std::string Diagnostic) const -> bool
+	{
+		auto* Mutable = const_cast<DTerrainComponent*>(this);
+		Mutable->CollisionStatus = Status;
+		Mutable->LastCollisionDiagnostic = std::move(Diagnostic);
+		CachedTerrainCollision = {};
+		CachedCollisionPayload.reset();
+		CachedHeightmapRevision = 0;
+		CachedCollisionDiagnostics = {};
+		return false;
+	}
+
+	auto DTerrainComponent::GetCollisionFacts() const -> FTerrainCollisionFacts
+	{
+		FTerrainCollisionFacts Facts;
+		Facts.Status = CollisionStatus;
+		Facts.AssetRevision = Heightmap ? Heightmap->GetRevision() : 0;
+		Facts.CollisionRevision = CollisionRevision;
+		Facts.ResourceIdentity = CachedTerrainCollision.GetIdentity();
+		Facts.RetainedBytes = CachedTerrainCollision.GetRetainedBytes();
+		Facts.EstimatedPeakBytes = CachedCollisionDiagnostics.EstimatedPeakBytes;
+		Facts.Width = CachedTerrainCollision.GetHeightFieldWidth();
+		Facts.Height = CachedTerrainCollision.GetHeightFieldHeight();
+		Facts.Cells = Facts.Width > 0 && Facts.Height > 0
+			? (Facts.Width - 1) * (Facts.Height - 1) : 0;
+		Facts.Nodes = CachedTerrainCollision.GetNodeCount();
+		Facts.MaximumDepth = CachedCollisionDiagnostics.MaximumDepth;
+		Facts.BuildStatus = CachedCollisionDiagnostics.Status;
+		return Facts;
+	}
+
+	auto DTerrainComponent::BuildCollisionGeometry(
+		FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool
+	{
+		OutGeometry = {};
+		std::string Error;
+		if (!ValidateProperties(Error))
+			return SetCollisionFailure(ETerrainCollisionStatus::InvalidProperties, std::move(Error));
+		if (!Heightmap)
+			return SetCollisionFailure(ETerrainCollisionStatus::MissingHeightmap,
+				"Terrain collision requires an assigned heightmap.");
+		const std::shared_ptr<const FTerrainHeightmapPayload> Payload = Heightmap->GetPayload();
+		if (!Payload || !Payload->IsValid() || Payload->Width < 2 || Payload->Height < 2)
+			return SetCollisionFailure(ETerrainCollisionStatus::InvalidPayload,
+				"Terrain collision requires a valid heightmap with at least two samples on each axis.");
+		if (Payload->Width > MaximumTerrainRenderSamples || Payload->Height > MaximumTerrainRenderSamples)
+			return SetCollisionFailure(ETerrainCollisionStatus::ExtentRejected, std::format(
+				"Terrain heightmap {}x{} exceeds the T2 collision ceiling of {}x{} samples.",
+				Payload->Width, Payload->Height, MaximumTerrainRenderSamples, MaximumTerrainRenderSamples));
+		const uint64 HeightmapRevision = Heightmap->GetRevision();
+		const bool bCacheMatches = CachedTerrainCollision.IsValid()
+			&& CachedCollisionPayload == Payload && CachedHeightmapRevision == HeightmapRevision
+			&& CachedCollisionSpacingX == SpacingX && CachedCollisionSpacingY == SpacingY
+			&& CachedCollisionHeightScale == HeightScale && CachedCollisionHeightOffset == HeightOffset;
+		if (!bCacheMatches)
+		{
+			FCollisionGeometryBuildDiagnostics Diagnostics;
+			CachedTerrainCollision = FCollisionGeometryRef::BuildHeightField(
+				Payload->Width, Payload->Height, Payload->Samples, SpacingX, SpacingY,
+				HeightScale, HeightOffset, &Diagnostics);
+			if (!CachedTerrainCollision.IsValid())
+				return SetCollisionFailure(ETerrainCollisionStatus::BuildFailed, std::format(
+					"Terrain collision build failed with status {}.", static_cast<uint32>(Diagnostics.Status)));
+			CachedCollisionDiagnostics = Diagnostics;
+			CachedCollisionPayload = Payload;
+			CachedHeightmapRevision = HeightmapRevision;
+			CachedCollisionSpacingX = SpacingX;
+			CachedCollisionSpacingY = SpacingY;
+			CachedCollisionHeightScale = HeightScale;
+			CachedCollisionHeightOffset = HeightOffset;
+		}
+		OutGeometry = CachedTerrainCollision;
+		OutWorldTransform = GetWorldTransform();
+		auto* Mutable = const_cast<DTerrainComponent*>(this);
+		Mutable->CollisionStatus = ETerrainCollisionStatus::Ready;
+		Mutable->LastCollisionDiagnostic.clear();
+		return true;
+	}
+
 	auto DTerrainComponent::BuildMaterialRenderProxyBindingUpdate(
 		FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool
 	{
@@ -251,7 +346,18 @@ namespace Durin
 	auto DTerrainComponent::HandleHeightmapRevisionChanged(
 		DTerrainHeightmap* ChangedHeightmap) -> void
 	{
-		if (ChangedHeightmap == Heightmap.Get()) MarkRenderStateDirty();
+		if (ChangedHeightmap == Heightmap.Get())
+		{
+			++CollisionRevision;
+			MarkRenderStateDirty();
+			RecreatePhysicsState();
+		}
+	}
+
+	auto DTerrainComponent::PrepareForHeightmapRevisionChange() -> void
+	{
+		DestroyRenderState();
+		DestroyPhysicsState();
 	}
 
 #if DURIN_WITH_EDITOR

@@ -1189,6 +1189,8 @@ namespace Durin
 		SaturatingAdd(Target.GeometryFeatureTests, Source.GeometryFeatureTests);
 		SaturatingAdd(Target.AssetNodeTests, Source.AssetNodeTests);
 		SaturatingAdd(Target.AssetLeafTests, Source.AssetLeafTests);
+		SaturatingAdd(Target.HeightFieldCellTests, Source.HeightFieldCellTests);
+		SaturatingAdd(Target.HeightFieldTriangleTests, Source.HeightFieldTriangleTests);
 		SaturatingAdd(Target.CompoundChildrenTested, Source.CompoundChildrenTested);
 		SaturatingAdd(Target.AnalyticDispatches, Source.AnalyticDispatches);
 		SaturatingAdd(Target.GenericDispatches, Source.GenericDispatches);
@@ -1219,6 +1221,8 @@ namespace Durin
 		SaturatingAdd(Target.GeometryFeatureTests, Source.FeatureTests);
 		SaturatingAdd(Target.AssetNodeTests, Source.AssetNodeTests);
 		SaturatingAdd(Target.AssetLeafTests, Source.AssetLeafTests);
+		SaturatingAdd(Target.HeightFieldCellTests, Source.HeightFieldCellTests);
+		SaturatingAdd(Target.HeightFieldTriangleTests, Source.HeightFieldTriangleTests);
 		SaturatingAdd(Target.CompoundChildrenTested, Source.CompoundChildren);
 		SaturatingAdd(Target.AnalyticDispatches, Source.AnalyticDispatches);
 		SaturatingAdd(Target.GenericDispatches, Source.GenericDispatches);
@@ -1303,7 +1307,8 @@ namespace Durin
 	{
 		if (!Desc.Geometry.IsValid()) return false;
 		if (Desc.Geometry.GetKind() == ECollisionGeometryKind::ConvexHull
-			|| Desc.Geometry.GetKind() == ECollisionGeometryKind::TriangleMesh)
+			|| Desc.Geometry.GetKind() == ECollisionGeometryKind::TriangleMesh
+			|| Desc.Geometry.GetKind() == ECollisionGeometryKind::HeightField)
 		{
 			FVector3 LocalMinimum;
 			FVector3 LocalMaximum;

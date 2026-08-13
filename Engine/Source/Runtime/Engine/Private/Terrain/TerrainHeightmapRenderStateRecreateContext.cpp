@@ -25,7 +25,7 @@ namespace Durin
 		for (FObjectHandle Handle : ComponentHandles)
 			if (auto* Component = Cast<DTerrainComponent>(ResolveObjectHandle(Handle));
 				IsValid(Component) && Component->GetHeightmap() == Heightmap)
-				Component->DestroyRenderState();
+				Component->PrepareForHeightmapRevisionChange();
 	}
 
 	FTerrainHeightmapRenderStateRecreateContext::~FTerrainHeightmapRenderStateRecreateContext()

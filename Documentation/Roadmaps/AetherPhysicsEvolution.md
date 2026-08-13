@@ -2,7 +2,7 @@
 
 Summary: Evolve Aether from a deterministic query-only reference scene into a scalable collision and physics foundation without changing Engine-facing World, component, or asset ownership.
 
-Last reviewed: 2026-08-12
+Last reviewed: 2026-08-13
 
 Status: Active
 Completed:
@@ -59,6 +59,15 @@ debug facts, and shared identity across 10,000 bodies. The 100,352-triangle
 qualification mesh retains 4,270,912 bytes with a 23,147,864-byte estimated
 builder peak; sparse Production work is one node and zero features versus
 100,352 Reference features, with zero qualified mismatch or fallback.
+
+Terrain T2 completed on 2026-08-13 through the
+[Aether Heightfield Collision Plan](../Plans/AetherHeightfieldCollision.md).
+AetherCore now owns immutable exact-sample HeightFields, deterministic 8x8-cell
+hierarchies, complete Reference/Production Ray/Sweep/Overlap, bounded work
+counters, and weak interning. Engine atomically republishes Terrain render and
+physics revisions across Worlds and builds collision from source-free THPL.
+The 1025x1025 Release fixture retains 3,412,178 bytes, builds in 6.841 ms, and
+averages 21.9 microseconds per sparse Production ray with zero exceptional path.
 
 ## Outcome
 
@@ -256,7 +265,7 @@ consumer and validation matrix exist.
 | Correctness oracle | Retained flat Reference, Production/Compare policy, complete-output comparator, fixed-seed and scale parity | Future geometry algorithms must continue qualifying against the same oracle | M0-M3 complete |
 | Body storage | Generation-checked slots over dense records; LIFO reuse and swap-remove repair; explicit motion values; immutable shared versioned geometry references | Simulation state remains evidence-gated | M1-M3 complete; conditional M4 |
 | Broad phase | Deterministic static BVH plus incremental moving fat-AABB tree; bounded traversal, pruning, fallback, and diagnostics | No batch queries, worker traversal, or simulation-pair generation | M1 complete; conditional M4/M6 |
-| Narrow phase | Complete primitive/compound/hull/mesh facade, analytic and feature paths, bounded casts, statuses, and reconciled diagnostics | Heightfields and deformable geometry remain outside current consumers | M2-M3 complete |
+| Narrow phase | Complete primitive/compound/hull/mesh/HeightField facade, analytic and feature paths, bounded casts, statuses, and reconciled diagnostics | Deformable geometry remains deferred | M2-M3 and Terrain T2 complete |
 | Geometry ownership | Immutable primitive/compound/hull/mesh references, one BodySetup identity per revision, deterministic asset BVH, and independently versioned DCOL payload | Writable/multiple-hull authoring and streaming partitions remain deferred | M2-M3 complete |
 | Static world collision | Explicit simple/complex StaticMesh policy, transactional DDC/reimport/Cook/load, render-independent publication, bounded debug and inspection | Automatic generation and writable collision editing are intentionally absent | M3 complete |
 | Simulation | World already distinguishes query availability from simulation enable/pause state | No dynamic state, fixed step, mass/inertia, contacts, solver, sleeping, or CCD | Conditional M4 |
@@ -345,8 +354,9 @@ This plan owns the Engine/AssetCore-to-Aether cook boundary, BodySetup cook
 settings and version, immutable convex/triangle payloads, asset BVH, derived
 data, serialization, import invalidation, runtime memory, and inspection. It
 does not reuse render BVHs as collision truth, add dynamic mesh deformation,
-or introduce rigid-body simulation. Heightfields require a concrete terrain
-consumer and may become a separate child plan rather than expanding this one.
+or introduce rigid-body simulation. Heightfields are now owned by the separate
+[Aether Heightfield Collision](../Plans/AetherHeightfieldCollision.md) plan and
+its concrete Terrain consumer rather than expanding this completed milestone.
 
 ### `AetherRigidBodySimulation`
 

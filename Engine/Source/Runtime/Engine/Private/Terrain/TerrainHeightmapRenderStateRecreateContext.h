@@ -6,7 +6,7 @@ namespace Durin
 {
 	class DTerrainHeightmap;
 
-	// Replaces registered Terrain proxies around one atomic heightmap publication.
+	// Replaces registered Terrain render and physics state around one atomic heightmap publication.
 	class FTerrainHeightmapRenderStateRecreateContext final
 	{
 	public:

@@ -42,6 +42,8 @@ namespace Durin
 		uint64 GeometryFeatureTests = 0;
 		uint64 AssetNodeTests = 0;
 		uint64 AssetLeafTests = 0;
+		uint64 HeightFieldCellTests = 0;
+		uint64 HeightFieldTriangleTests = 0;
 		uint64 CompoundChildrenTested = 0;
 		uint64 AnalyticDispatches = 0;
 		uint64 GenericDispatches = 0;

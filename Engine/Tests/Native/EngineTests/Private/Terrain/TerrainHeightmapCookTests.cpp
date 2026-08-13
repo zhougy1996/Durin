@@ -9,6 +9,8 @@
 #include "Terrain/TerrainHeightmapBuildOperations.h"
 #include "TerrainHeightmapSourceTranslation.h"
 #include "Components/TerrainComponent.h"
+#include "Collision/CollisionGeometry.h"
+#include "Physics/PhysicsTypes.h"
 #include "Engine/TerrainSceneProxy.h"
 
 #include <gtest/gtest.h>
@@ -130,9 +132,22 @@ TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDd
 	EXPECT_TRUE(Cooked->GetDerivedDataKey().empty());
 	auto* Component = Durin::NewObject<Durin::DTerrainComponent>(nullptr, "CookedTerrainComponent");
 	Component->SetHeightmap(Cooked);
+	Durin::FCollisionGeometryRef Collision;
+	Durin::FTransform CollisionTransform;
+	ASSERT_TRUE(Component->BuildCollisionGeometry(Collision, CollisionTransform));
+	EXPECT_EQ(Collision.GetKind(), Durin::ECollisionGeometryKind::HeightField);
+	Durin::FCollisionGeometryRef SharedCollision;
+	ASSERT_TRUE(Component->BuildCollisionGeometry(SharedCollision, CollisionTransform));
+	EXPECT_EQ(SharedCollision.GetIdentity(), Collision.GetIdentity());
+	// Collision construction is intentionally independent of renderer resource initialization.
 	std::unique_ptr<Durin::FPrimitiveSceneProxy> Proxy = Component->CreateSceneProxy();
 	ASSERT_NE(Proxy, nullptr);
 	EXPECT_EQ(Proxy->GetKind(), Durin::EPrimitiveSceneProxyKind::Terrain);
 	EXPECT_EQ(static_cast<Durin::FTerrainSceneProxy&>(*Proxy).GetPayload(), Cooked->GetPayload());
+	Durin::FPhysicsQueryHit Hit;
+	EXPECT_EQ(Durin::CollisionGeometry::Raycast({0.0, 0.0, 2000.0},
+		{0.0, 0.0, -2000.0}, Collision, CollisionTransform,
+		Durin::CollisionGeometry::ECollisionQueryAlgorithm::Production, Hit),
+		Durin::CollisionGeometry::ECollisionQueryStatus::Hit);
 	Durin::FPaths::SetDerivedDataCacheDirForTests(PreviousDdc);
 }

@@ -1,8 +1,11 @@
 #include "ViewportTestSupport.h"
 #include "Math/Operations.h"
 #include "Actors/SplineMeshActor.h"
+#include "Actors/TerrainActor.h"
 #include "Components/SplineMeshComponent.h"
+#include "Components/TerrainComponent.h"
 #include "StaticMesh/StaticMesh.h"
+#include "Terrain/TerrainHeightmap.h"
 
 TEST(FSplineComponentVisualizerTests, EmitsSelectableCurveLinesAndControlPointBoxes)
 {
@@ -395,6 +398,53 @@ TEST(FEditorVisualizationCollectorTests, UsesTheSameLinesForRenderingAndPicking)
 	EXPECT_EQ(Hit.Actor, Actor);
 	EXPECT_EQ(Hit.Component, Actor->GetCameraComponent());
 	EXPECT_EQ(Collector.HitTest(View, ScreenCenter + Durin::FVector2f(0.0f, 50.0f)).Actor, nullptr);
+}
+
+TEST(FLevelEditorViewportClientTests, AppendsBoundedHeightFieldCollisionTriangles)
+{
+	InitializeDObjectSystem();
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "HeightFieldOverlayWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "HeightFieldOverlayLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	auto* Heightmap = Durin::NewObject<Durin::DTerrainHeightmap>(World, "HeightFieldOverlayAsset");
+	const std::array<Durin::uint16, 4> Samples{0, 0, 0, 65535};
+	std::string Error;
+	ASSERT_TRUE(Heightmap->InitializeFromSamples(2, 2, Samples, Error)) << Error;
+	auto* Actor = Level->SpawnActor<Durin::ATerrainActor>("HeightFieldOverlayTerrain");
+	ASSERT_NE(Actor, nullptr);
+	auto* Component = Actor->GetTerrainComponent();
+	ASSERT_NE(Component, nullptr);
+	ASSERT_TRUE(Component->SetSampleSpacing(1.0, 1.0));
+	ASSERT_TRUE(Component->SetHeightRange(1.0, 0.0));
+	Component->SetHeightmap(Heightmap);
+	ASSERT_TRUE(Component->SetCollisionProfileName(Durin::CollisionProfile::WorldStatic));
+	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Client.InitializeForLevel(Level);
+	Durin::FSceneView View;
+	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
+	const size_t BaselinePrimitives = View.OverlayPrimitives.size();
+	const auto CountWireBoxes = [](const Durin::FSceneView& Candidate) {
+		return std::ranges::count(Candidate.OverlayPrimitives,
+			Durin::EViewOverlayShape::WireBox, &Durin::FViewOverlayPrimitive::Shape);
+	};
+	const auto BaselineWireBoxes = CountWireBoxes(View);
+	EXPECT_TRUE(View.OverlayLines.empty());
+	World->SetCollisionDebugDrawEnabled(true);
+	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
+	EXPECT_EQ(View.OverlayLines.size(), 6u);
+	ASSERT_EQ(View.OverlayPrimitives.size(), BaselinePrimitives + 1u);
+	EXPECT_EQ(CountWireBoxes(View), BaselineWireBoxes + 1);
+	EXPECT_TRUE(std::ranges::all_of(View.OverlayLines, [](const auto& Line) {
+		return Line.WidthPixels == 1.5f;
+	}));
+
+	World->SetCollisionDebugDrawEnabled(false);
+	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
+	EXPECT_TRUE(View.OverlayLines.empty());
+	EXPECT_EQ(View.OverlayPrimitives.size(), BaselinePrimitives);
+	EXPECT_EQ(CountWireBoxes(View), BaselineWireBoxes);
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
 }
 
 TEST(FLevelEditorViewportClientTests, PublishesWorldGridStateToTheSceneView)

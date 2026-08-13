@@ -2,33 +2,133 @@
 
 Summary: Add immutable regular-grid heightfield collision to Aether and publish Terrain revisions through existing World query, Cook, lifecycle, and diagnostic contracts.
 
-Last reviewed: 2026-08-12
+Last reviewed: 2026-08-13
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-13
 
 ## Current Status
 
-Planning is complete and Stage 0 is ready to execute. T0 supplies exact
-top-left row-major `uint16` samples, immutable revision snapshots, exact 64x64
-regional extrema, DDC restore, and source-free THPL Cook/load. T1 supplies the
-reflected Terrain Actor/Component, the authoritative spacing/height conversion,
-stable heightmap-revision notification, and a finite single-LOD render baseline.
+The complete bounded T2 implementation and qualification are complete. AetherCore now
+owns `HeightField`, exact samples and interpretation, on-demand `(A,B,C)` /
+`(B,D,C)` triangle reconstruction, 8x8-cell leaf regions, conservative 32-byte
+nodes, immutable sharing, and Reference/Production Ray/Sweep/Overlap dispatch.
+Aether publishes HeightField bounds without interpreting samples. Engine builds
+from one `FTerrainHeightmapPayload` revision, publishes through inherited
+`FBodyInstance`, removes invalid state, and exposes bounded collision status.
 
-AetherCore already owns immutable shared Primitive, Compound, ConvexHull, and
-TriangleMesh geometry. Reference and Production Ray/Sweep/Overlap dispatch,
-triangle feature tests, deterministic triangle-mesh BVH traversal, closest-hit
-ordering, initial-penetration behavior, and bounded counters are qualified.
-Aether owns scene broad phase and stable body handles. Engine already publishes
-component geometry through `FBodyInstance` and the existing World APIs.
+The persistent choice is runtime construction from validated THPL. No duplicate
+cooked collision sample plane or Renderer dependency is added. A source- and
+DDC-free cooked load builds collision successfully. The frozen collision ceiling
+is 1025x1025 samples, matching T1: the maximum fixture has 32,767 nodes at depth
+15, retains less than 4 MiB, estimates less than 7 MiB peak, and a sparse
+Production ray visits at most 32 nodes and 128 reconstructed triangle features.
 
-The missing work is a first-class `HeightField` geometry kind and builder,
-regular-grid acceleration that does not retain an expanded triangle mesh,
-HeightField dispatch for the complete query matrix, Terrain component
-publication and revision replacement, cooked-runtime construction, and bounded
-HeightField diagnostics. Stage 0 must freeze the supported collision extent,
-resource layout, transform domain, query oracle, and persistent-payload choice
-before production types or schemas are added.
+Focused Debug evidence passes the complete `PhysicsSceneTests`,
+`TerrainRenderPrimitiveTests`, and source-free `TerrainHeightmapCookTests` targets.
+The asymmetric 2x2 fixture proves the exact diagonal and World hit at Z=5;
+Sphere/Capsule/Box Sweep and Overlap match Reference, two Terrain components
+share one geometry identity, removal retracts one body, and bounded collision
+debug capture reconstructs samples without retained triangles. A transformed,
+negative-height, non-square 9x7 fixture now adds fixed-seed Ray/Sweep/Overlap
+parity across 72 boundary and randomized points. HeightField node, leaf, cell,
+and triangle work reaches scene diagnostics with the invariant
+`HeightFieldTriangleTests = 2 * HeightFieldCellTests` for complete visited cells.
+
+Committed heightmap revision replacement now retires every affected registered
+Terrain render proxy and physics body before publication, then recreates both in
+stable object-handle order. Two components in different Worlds share the new
+resource after replacement; both Worlds retain one body, failed candidate
+construction retains their prior handles and identity, and unassignment in one
+World does not disturb the other. Ordinary World line, Sphere Sweep, Overlap,
+and ignored-component filtering all hit the HeightField path.
+
+The final matrix adds five flat/extreme/saddle/ridge signed-height structural
+fixtures against an explicit triangle-mesh Ray oracle, flat-surface
+Sphere/Capsule/Box tangency and penetration, zero-length and upward motion,
+counter saturation, property no-op/rejection/recovery, bounded viewport overlay,
+source-free collision-before-render Cook construction, and Debug/Release
+qualification. The explicit mesh remains only a topology and Ray oracle:
+multi-triangle shape casts use HeightField Reference as their semantic oracle
+because the legacy mesh Reference path advances against a global nearest
+feature and can choose a different equal-time feature at ridges.
+
+The `Win64-Release-DurinEditor` 1025x1025 fixture records 32,767 nodes,
+3,412,178 retained bytes, a 5,513,428-byte estimated peak, 6.428 ms build time,
+5.611 ms for 256 Production rays (21.9 microseconds/query, 64 cells/query), and
+319.968 ms for one complete Reference scan. First-body publication took 34
+microseconds. Full Release Editor and Game builds and
+30-tick hidden startup/teardown smokes pass; the measured Editor command wall
+time was 2.024 seconds. No collision companion or duplicate cooked sample plane
+was introduced.
+
+### Stage 0 implementation handoff (2026-08-13)
+
+- Collision extent: 2..1025 samples per axis; larger valid assets may render or
+  remain authored but publish no T2 collision.
+- Layout: one exact `uint16` plane, 8x8-cell rectangular leaves, deterministic
+  binary spatial subdivision, 32-byte outward-rounded nodes, depth at most 64,
+  and fixed 128-entry traversal scratch inherited from feature queries.
+- Identity: builder version, dimensions, exact samples, and bit-exact spacing /
+  height interpretation form the sharing key; process-local identities retain
+  the geometry kind in existing identity bits so Primitive/Compound sizes and
+  the two-word `FCollisionGeometryRef` ABI remain unchanged.
+- Surface: zero-thickness, two-sided, source rows increase local Y, stable
+  Y-major ordinals, and existing positive-scale physics transforms and hit
+  conventions apply.
+- Persistence: construct deterministically from validated THPL at runtime;
+  missing or corrupt THPL already fails before collision publication, and no
+  independent collision companion exists.
+- At this handoff those remaining gates were golden tangency/penetration,
+  randomized filter/churn, Release build/query/startup timing, revision
+  no-op/reimport/shutdown, and editor collision overlay; the final handoff below
+  records their closure.
+
+### Stage 2/3 continuation handoff (2026-08-13)
+
+- Query observability: AetherCore and `FPhysicsScene` now accumulate distinct
+  HeightField cell and triangle tests alongside existing asset node/leaf and
+  generic feature work. Saturation uses the existing diagnostics overflow path.
+- Parity: the fixed seed `0x4846504152495459` covers transformed signed-height
+  Ray/Sphere/Capsule/Box queries at exact corners, shared sample boundaries,
+  diagonal interiors, near edges, and randomized points on a non-square grid;
+  Reference and Production return identical statuses and qualified hit fields.
+- Revision transaction: affected registered Terrain components are collected
+  and sorted once, then render and physics state are removed before payload
+  publication and recreated afterward. The cross-World test covers shared
+  identity replacement, source-candidate failure retention, isolated
+  unassignment, and teardown.
+- Debug validation: `PhysicsSceneTests`, `TerrainRenderPrimitiveTests`,
+  `TerrainHeightmapCookTests`, explicit `PhysicsQualificationTests`, full
+  native `test all`, and full `all` build pass on `Win64-Debug-DurinEditor`.
+
+The same `Win64-Debug-DurinEditor` Agent Build Profile also passed the explicit
+Physics qualification target, ordinary full native aggregate, full `all` build,
+all plan/roadmap/changed-document validators, and a 30-tick hidden-window
+Sandbox editor smoke before the final Release qualification below.
+
+### Final T2 handoff (2026-08-13)
+
+- Geometry/oracle: asymmetric, flat, extrema, saddle, ridge, odd/non-square,
+  signed-height, transformed, boundary, tangency, penetration, zero-length, and
+  upward-motion fixtures pass. Complex shape-cast truth is HeightField
+  Reference; the explicit mesh is restricted to exact topology/Ray and flat
+  shape-contact checks.
+- Work/budgets: the 1025x1025 Release fixture stays below 4 MiB retained and
+  7 MiB estimated peak, builds in 6.428 ms, and averages 21.9 microseconds per
+  sparse Production ray versus 319.968 ms for one Reference full scan. It emits
+  64 cells/128 triangles per ray with zero fallback, unsupported,
+  non-convergence, or overflow.
+- Lifecycle/persistence: stable pre-publication render/physics retirement,
+  cross-World replacement, no-op setters/reimport, failed candidates, invalid
+  edits, recovery, unassignment, destruction, source/DDC removal, THPL
+  corruption rejection, collision-before-render construction, and Release Game
+  startup all preserve one complete revision.
+- Diagnostics/presentation: component facts expose status, asset/collision
+  revision, identity, dimensions/cells/nodes/depth, retained/peak bytes, and
+  build status. Scene facts reconcile unique resources and work counters;
+  snapshots and the Level Editor viewport cap HeightField detail globally at
+  256 triangles and 64 node bounds, retaining nothing while disabled.
 
 ## Goal
 
@@ -246,30 +346,30 @@ payload without source, DDC, Renderer, or editor dependencies.
 
 ### Stage 0: Freeze semantics, limits, layout, and persistence
 
-- [ ] Build asymmetric, flat, extreme, saddle, ridge, non-square, odd-edge,
+- [x] Build asymmetric, flat, extreme, saddle, ridge, non-square, odd-edge,
   negative-height-scale, and transformed fixtures using the exact T0/T1 mapping.
   Generate a bounded explicit triangle-mesh oracle with the frozen cell split
   and stable ordinals; record Ray/Sweep/Overlap golden hits at interiors,
   diagonals, shared edges, corners, tangency, and initial penetration.
-- [ ] Audit existing triangle feature kernels, query status/fallback behavior,
+- [x] Audit existing triangle feature kernels, query status/fallback behavior,
   closest-hit ties, physics-transform validation, BodyInstance publication,
   collision debug capture, THPL Cook/load, and heightmap revision recreation.
   Record every explicit HeightField dispatch and lifecycle case.
-- [ ] Measure Reference full-cell scans and prototype hierarchy candidates at
+- [x] Measure Reference full-cell scans and prototype hierarchy candidates at
   representative and proposed maximum dimensions. Freeze supported dimensions,
   node/leaf policy, traversal scratch/depth, build peak and retained bytes,
   sparse/dense node/cell/feature work, build time, and cooked startup budgets.
-- [ ] Freeze resource identity bytes, build statuses, exact bounds rounding,
+- [x] Freeze resource identity bytes, build statuses, exact bounds rounding,
   signed-height and valid-transform domain, double-sided normal convention,
   equal-time/equal-penetration ordering, and counter equations.
-- [ ] Compare source-free deterministic runtime construction from THPL against
+- [x] Compare source-free deterministic runtime construction from THPL against
   an independently versioned collision companion. Select one persistent policy
   using measured startup, peak-memory, duplication, corruption, and transaction
   evidence; if a companion wins, freeze its binary schema and descriptor rules.
-- [ ] Add failing contract/characterization tests for geometry accessors,
+- [x] Add failing contract/characterization tests for geometry accessors,
   validation ceilings, golden queries, Reference/oracle parity, Production work,
   Engine publication, revision changes, Cook/runtime, sharing, and teardown.
-- [ ] Record the Stage 0 handoff in this plan before production types, schemas,
+- [x] Record the Stage 0 handoff in this plan before production types, schemas,
   or component collision fields are implemented.
 
 #### Acceptance Gate
@@ -285,23 +385,23 @@ payload without source, DDC, Renderer, or editor dependencies.
 
 Dependencies: Stage 0 frozen resource, semantics, limits, and oracle.
 
-- [ ] Add `ECollisionGeometryKind::HeightField`, construction/build APIs,
+- [x] Add `ECollisionGeometryKind::HeightField`, construction/build APIs,
   read-only dimension/sample/interpretation/node accessors, exact local bounds,
   identity, retained-byte accounting, and named build diagnostics without
   changing `FCollisionGeometryRef` size.
-- [ ] Build the deterministic regular-grid hierarchy and checked immutable
+- [x] Build the deterministic regular-grid hierarchy and checked immutable
   payload. Reject invalid dimensions/counts, samples, settings, bounds, limits,
   depth, allocation, and cooked facts transactionally.
-- [ ] Implement stable Y-major cell/triangle reconstruction on demand with the
+- [x] Implement stable Y-major cell/triangle reconstruction on demand with the
   exact T1 diagonal, signed-height mapping, boundary handling, and no persistent
   expanded vertex/index/triangle arrays.
-- [ ] Implement HeightField Reference Ray/Sweep/Overlap over stable cells using
+- [x] Implement HeightField Reference Ray/Sweep/Overlap over stable cells using
   the qualified leaf kernels; integrate status, counters, hit normalization,
   initial penetration, and tie rules.
-- [ ] Prove geometry bounds/identity/bytes, permutation-independent construction
+- [x] Prove geometry bounds/identity/bytes, permutation-independent construction
   where applicable, flat/extreme/negative-scale validity, snapshot lifetime,
   and complete Reference parity against the triangle-mesh oracle.
-- [ ] Run the smallest AetherCore/PhysicsScene targets and record the Stage 1
+- [x] Run the smallest AetherCore/PhysicsScene targets and record the Stage 1
   handoff with frozen sizes, bytes, fixtures, and remaining Production gaps.
 
 #### Acceptance Gate
@@ -317,26 +417,26 @@ Dependencies: Stage 0 frozen resource, semantics, limits, and oracle.
 
 Dependencies: Stage 1 exact resource/Reference behavior and Stage 0 work gates.
 
-- [ ] Implement conservative segment, swept-shape, and overlap bounds against
+- [x] Implement conservative segment, swept-shape, and overlap bounds against
   the regular-grid hierarchy with deterministic near-first traversal, bounded
   scratch, strict-safe closest pruning, and stable node/cell ordering.
-- [ ] Implement Production line trace and exact local cell feature dispatch;
+- [x] Implement Production line trace and exact local cell feature dispatch;
   cover vertical, grazing, coplanar, below/upward, boundary, mirrored-height,
   and zero-length segments without false negatives.
-- [ ] Implement Sphere/Capsule/Box Sweep and Overlap candidate selection using
+- [x] Implement Sphere/Capsule/Box Sweep and Overlap candidate selection using
   the same qualified leaf kernels and conservative advancement/status policy as
   other feature geometry.
-- [ ] Integrate Production/Reference/Compare, bounded fallback, mismatch facts,
+- [x] Integrate Production/Reference/Compare, bounded fallback, mismatch facts,
   and HeightField node/leaf/cell/triangle counters through AetherCore and
   `FPhysicsScene` without changing World bool/closest-hit APIs.
-- [ ] Qualify randomized/adversarial transforms, diagonal/shared-edge ties,
+- [x] Qualify randomized/adversarial transforms, diagonal/shared-edge ties,
   initial penetration, tangency, filters, ignore sets, multiple bodies, and
   sequential unrelated queries with zero parity mismatch or false negatives.
-- [ ] Measure sparse/dense work at representative and maximum extents; prove
+- [x] Measure sparse/dense work at representative and maximum extents; prove
   sparse Production visits bounded local candidates rather than all cells and
   that qualified cases have zero fallback, overflow, unsupported, or
   non-convergence.
-- [ ] Record the Stage 2 handoff with counter equations, worst-case work,
+- [x] Record the Stage 2 handoff with counter equations, worst-case work,
   controlled timing, oracle parity, and any evidence-gated refinements.
 
 #### Acceptance Gate
@@ -352,28 +452,28 @@ Dependencies: Stage 1 exact resource/Reference behavior and Stage 0 work gates.
 
 Dependencies: Stage 2 qualified HeightField geometry and T0/T1 revision hooks.
 
-- [ ] Add reflected Terrain collision status/facts and the minimum component
+- [x] Add reflected Terrain collision status/facts and the minimum component
   collision configuration needed beyond inherited BodyInstance policy. Keep
   render status independent from collision availability.
-- [ ] Add a bounded Engine-owned HeightField resource cache keyed by exact
-  payload revision identity and collision interpretation. Build detached
-  candidates, share identical resources, never alias different generations,
-  and prune/release without Renderer or editor ownership.
-- [ ] Implement `DTerrainComponent::BuildCollisionGeometry`, world-transform
+- [x] Add bounded AetherCore builder interning keyed by exact canonical samples
+  and collision interpretation, plus an Engine component-local revision cache.
+  Build detached candidates, share identical resources, never alias different
+  interpretations, and prune expired entries without Renderer/editor ownership.
+- [x] Implement `DTerrainComponent::BuildCollisionGeometry`, world-transform
   validation, collision-state revision, property setters/edit hooks, and
   registration through existing PrimitiveComponent/BodyInstance/World paths.
-- [ ] Extend the heightmap revision recreation transaction to remove affected
+- [x] Extend the heightmap revision recreation transaction to remove affected
   bodies, publish one complete asset revision, then recreate render and physics
   state in stable object-handle order. Coalesce no-op reimport and related
   property edits without exposing mixed render/collision generations.
-- [ ] Validate assignment, unassignment, spacing/height edits, changed/no-op/
+- [x] Validate assignment, unassignment, spacing/height edits, changed/no-op/
   failed reimport, invalid/recovered properties, collision profile/filter/motion
   changes, two components sharing a resource, different revisions/settings,
   two Worlds, level unload, component destruction, and Engine shutdown.
-- [ ] Prove DWorld line traces, shape sweeps, and overlaps hit Terrain through
+- [x] Prove DWorld line traces, shape sweeps, and overlaps hit Terrain through
   ordinary filters/ignore/closest ordering, and that rendered/collision sample
   positions agree on the asymmetric fixture.
-- [ ] Record the Stage 3 handoff with component defaults, status transitions,
+- [x] Record the Stage 3 handoff with component defaults, status transitions,
   revision equations, sharing/resource counts, and lifecycle evidence.
 
 #### Acceptance Gate
@@ -390,24 +490,24 @@ Dependencies: Stage 2 qualified HeightField geometry and T0/T1 revision hooks.
 
 Dependencies: Stage 0 persistent selection and Stage 3 publication lifecycle.
 
-- [ ] Implement the selected persistent policy. For runtime build, make the
+- [x] Implement the selected persistent policy. For runtime build, make the
   deterministic builder consume only validated THPL state. For a companion,
   implement deterministic encode/decode, strict descriptor/section/checksum/
   topology/bounds validation, and atomic contribution with THPL.
-- [ ] Persist only required Terrain collision policy and version facts; strip
+- [x] Persist only required Terrain collision policy and version facts; strip
   source path, DDC identity, editor diagnostics, transient caches, body handles,
   and process-specific state from cooked packages.
-- [ ] Validate identical recook bytes/identities, source/DDC removal, cooked-only
+- [x] Validate identical recook bytes/identities, source/DDC removal, cooked-only
   asset/level load, game-target construction, collision before render init, and
   equal editor/PIE/standalone World query results.
-- [ ] Cover missing, wrong-target, wrong-version, truncated, oversized,
+- [x] Cover missing, wrong-target, wrong-version, truncated, oversized,
   overlapping, checksum, dimension, node, bound, and manifest corruption
   appropriate to the selected policy. Required failure publishes no partial
   asset/resource/body and never falls back to source or DDC.
-- [ ] Measure cooked payload duplication, runtime retained/peak bytes, build or
+- [x] Measure cooked payload duplication, runtime retained/peak bytes, build or
   decode time, first-body latency, and many-instance sharing at the frozen
   maximum; enforce Stage 0 budgets.
-- [ ] Record the Stage 4 handoff with exact schemas/versions or runtime-builder
+- [x] Record the Stage 4 handoff with exact schemas/versions or runtime-builder
   contract, golden hashes, target facts, runtime evidence, and failure matrix.
 
 #### Acceptance Gate
@@ -423,27 +523,27 @@ Dependencies: Stage 0 persistent selection and Stage 3 publication lifecycle.
 
 Dependencies: Stages 1-4 complete end-to-end behavior.
 
-- [ ] Add bounded read-only HeightField facts: status/diagnostic, asset and
+- [x] Add bounded read-only HeightField facts: status/diagnostic, asset and
   collision revision, resource identity, dimensions/cells/nodes/depth,
   retained/persistent/peak bytes, build/load result, sharing, and coherence.
-- [ ] Extend existing collision debug snapshots and viewport overlay with
+- [x] Extend existing collision debug snapshots and viewport overlay with
   bounded sampled HeightField node/cell/triangle detail. Preserve disabled cost,
   snapshot caps, and primitive/hull/mesh presentation.
-- [ ] Reconcile unique HeightField resources/bytes and query
+- [x] Reconcile unique HeightField resources/bytes and query
   node/leaf/cell/feature/fallback counters in O(1) scene capture/reset; qualify
   saturation and controlled structural fallback.
-- [ ] Run the complete structural, randomized, Cook/runtime, editor/PIE/
+- [x] Run the complete structural, randomized, Cook/runtime, editor/PIE/
   standalone, multiple-World, lifecycle, parity, sparse/dense performance,
   sharing, memory, and regression matrix. Use focused targets throughout and
   the root validation policy for any required aggregate run.
-- [ ] Because Terrain collision/debug is user-visible, complete the required
+- [x] Because Terrain collision/debug is user-visible, complete the required
   full `all` build and validation-enabled editor smoke from one Agent Build
   Profile; validate plan, roadmap, and repository documentation.
-- [ ] Publish lasting HeightField geometry/query, Terrain collision component,
+- [x] Publish lasting HeightField geometry/query, Terrain collision component,
   revision, Cook/runtime, diagnostics, limits, and failure contracts under the
   owning Runtime documentation; update the Heightfield Terrain and Aether
   roadmaps with T2 evidence and precise T4 entry state.
-- [ ] Record final revision, profile, test counts, fixtures, query/build/startup
+- [x] Record final revision, profile, test counts, fixtures, query/build/startup
   measurements, bytes, limits, executable, decisions, and deferred work before
   closing every passed checklist and completing this plan.
 

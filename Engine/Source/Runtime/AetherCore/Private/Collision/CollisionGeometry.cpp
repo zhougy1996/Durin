@@ -25,6 +25,21 @@ namespace Durin
 		std::vector<FCollisionHullHalfEdge> HullHalfEdges;
 		std::vector<FCollisionHullFace> HullFaces;
 	};
+
+	class FHeightFieldCollisionGeometry final : public FCollisionGeometry
+	{
+	public:
+		std::vector<uint16> Samples;
+		std::vector<FCollisionGeometryNode> Nodes;
+		std::vector<FCollisionHeightFieldRegion> Regions;
+		uint32 Width = 0;
+		uint32 Height = 0;
+		double SpacingX = 0.0;
+		double SpacingY = 0.0;
+		double HeightScale = 0.0;
+		double HeightOffset = 0.0;
+		uint32 MaximumDepth = 0;
+	};
 	static_assert(sizeof(FCollisionGeometryNode) == 32);
 	static_assert(sizeof(FCollisionHullPlane) == 16);
 	static_assert(sizeof(FCollisionHullHalfEdge) == 16);
@@ -35,19 +50,73 @@ namespace Durin
 		std::atomic<uint64> GNextCollisionGeometryIdentity = 1;
 		constexpr uint32 MaximumConvexHullVertices = 256;
 		constexpr uint32 MaximumCollisionTriangles = 2'000'000;
+		constexpr uint32 MaximumHeightFieldSamplesPerAxis = 1025;
+		constexpr uint32 HeightFieldLeafCells = 8;
+		constexpr size_t MaximumHeightFieldCacheKeys = 1024;
 		constexpr double FeatureTolerance = 1.0e-10;
+		std::mutex GHeightFieldCacheMutex;
+		std::unordered_map<uint64, std::vector<std::weak_ptr<const FCollisionGeometry>>>
+			GHeightFieldCache;
 
-		auto AllocateCollisionGeometryIdentity() -> uint64
+		auto AllocateCollisionGeometryIdentity(ECollisionGeometryKind Kind) -> uint64
 		{
-			uint64 Identity = GNextCollisionGeometryIdentity.fetch_add(1, std::memory_order_relaxed);
-			if (Identity == 0) Identity = GNextCollisionGeometryIdentity.fetch_add(1, std::memory_order_relaxed);
-			return Identity;
+			uint64 Sequence = GNextCollisionGeometryIdentity.fetch_add(1, std::memory_order_relaxed);
+			if (Sequence == 0) Sequence = GNextCollisionGeometryIdentity.fetch_add(1, std::memory_order_relaxed);
+			return (Sequence << 3) | static_cast<uint8>(Kind);
+		}
+
+		auto GetEncodedGeometryKind(const FCollisionGeometry* Payload) -> ECollisionGeometryKind
+		{
+			return Payload ? static_cast<ECollisionGeometryKind>(Payload->Identity & 0x7u)
+				: ECollisionGeometryKind::Primitive;
+		}
+
+		auto HashHeightField(
+			uint32 Width, uint32 Height, std::span<const uint16> Samples,
+			double SpacingX, double SpacingY, double HeightScale, double HeightOffset) -> uint64
+		{
+			uint64 Hash = 1469598103934665603ull;
+			auto Add = [&](uint64 Value) {
+				for (uint32 Byte = 0; Byte < 8; ++Byte)
+				{
+					Hash ^= (Value >> (Byte * 8)) & 0xffu;
+					Hash *= 1099511628211ull;
+				}
+			};
+			Add(1);
+			Add(Width);
+			Add(Height);
+			Add(std::bit_cast<uint64>(SpacingX));
+			Add(std::bit_cast<uint64>(SpacingY));
+			Add(std::bit_cast<uint64>(HeightScale));
+			Add(std::bit_cast<uint64>(HeightOffset));
+			for (uint16 Sample : Samples) Add(Sample);
+			return Hash;
+		}
+
+		auto MatchesHeightField(
+			const FHeightFieldCollisionGeometry& Payload,
+			uint32 Width, uint32 Height, std::span<const uint16> Samples,
+			double SpacingX, double SpacingY, double HeightScale, double HeightOffset) -> bool
+		{
+			return Payload.Width == Width && Payload.Height == Height
+				&& Payload.SpacingX == SpacingX && Payload.SpacingY == SpacingY
+				&& Payload.HeightScale == HeightScale && Payload.HeightOffset == HeightOffset
+				&& std::ranges::equal(Payload.Samples, Samples);
 		}
 
 		auto GetFeaturePayload(const FCollisionGeometry* Payload) -> const FFeatureCollisionGeometry*
 		{
-			return Payload && Payload->Children.empty()
+			const ECollisionGeometryKind Kind = GetEncodedGeometryKind(Payload);
+			return Payload && (Kind == ECollisionGeometryKind::ConvexHull
+				|| Kind == ECollisionGeometryKind::TriangleMesh)
 				? static_cast<const FFeatureCollisionGeometry*>(Payload) : nullptr;
+		}
+
+		auto GetHeightFieldPayload(const FCollisionGeometry* Payload) -> const FHeightFieldCollisionGeometry*
+		{
+			return Payload && GetEncodedGeometryKind(Payload) == ECollisionGeometryKind::HeightField
+				? static_cast<const FHeightFieldCollisionGeometry*>(Payload) : nullptr;
 		}
 
 		auto ValidateFeatureInput(
@@ -170,7 +239,7 @@ namespace Durin
 				Payload->LocalMin = Math::Min(Payload->LocalMin, Vertex);
 				Payload->LocalMax = Math::Max(Payload->LocalMax, Vertex);
 			}
-			Payload->Identity = AllocateCollisionGeometryIdentity();
+			Payload->Identity = AllocateCollisionGeometryIdentity(Kind);
 			Payload->RetainedBytes = sizeof(FFeatureCollisionGeometry)
 				+ Payload->Vertices.capacity() * sizeof(FVector3)
 				+ Payload->Triangles.capacity() * sizeof(FCollisionGeometryTriangle)
@@ -359,7 +428,8 @@ namespace Durin
 			}
 			Payload->Children.push_back(Child);
 		}
-		Payload->Identity = AllocateCollisionGeometryIdentity();
+		Payload->Identity = AllocateCollisionGeometryIdentity(Children.size() > 1
+			? ECollisionGeometryKind::Compound : ECollisionGeometryKind::Primitive);
 		Payload->RetainedBytes = sizeof(FCollisionGeometry)
 			+ Payload->Children.capacity() * sizeof(FCollisionGeometryChild);
 		return FCollisionGeometryRef(std::move(Payload));
@@ -738,10 +808,195 @@ namespace Durin
 		}
 	}
 
+	auto FCollisionGeometryRef::BuildHeightField(
+		uint32 Width, uint32 Height, std::span<const uint16> Samples,
+		double SpacingX, double SpacingY, double HeightScale, double HeightOffset,
+		FCollisionGeometryBuildDiagnostics* Diagnostics) -> FCollisionGeometryRef
+	{
+		FCollisionGeometryBuildDiagnostics Result;
+		const uint64 SampleCount = static_cast<uint64>(Width) * Height;
+		const uint64 TriangleCount = Width >= 2 && Height >= 2
+			? static_cast<uint64>(Width - 1) * (Height - 1) * 2 : 0;
+		Result.SourceVertices = SampleCount <= std::numeric_limits<uint32>::max()
+			? static_cast<uint32>(SampleCount) : std::numeric_limits<uint32>::max();
+		Result.SourceTriangles = TriangleCount <= std::numeric_limits<uint32>::max()
+			? static_cast<uint32>(TriangleCount) : std::numeric_limits<uint32>::max();
+		auto Finish = [&](ECollisionGeometryBuildStatus Status) {
+			Result.Status = Status;
+			if (Diagnostics) *Diagnostics = Result;
+		};
+		if (Width < 2 || Height < 2 || Width > MaximumHeightFieldSamplesPerAxis
+			|| Height > MaximumHeightFieldSamplesPerAxis || SampleCount != Samples.size()
+			|| !std::isfinite(SpacingX) || SpacingX <= 0.0
+			|| !std::isfinite(SpacingY) || SpacingY <= 0.0
+			|| !std::isfinite(HeightScale) || !std::isfinite(HeightOffset))
+		{
+			Finish((Width > MaximumHeightFieldSamplesPerAxis
+				|| Height > MaximumHeightFieldSamplesPerAxis)
+				? ECollisionGeometryBuildStatus::LimitExceeded
+				: ECollisionGeometryBuildStatus::InvalidInput);
+			return {};
+		}
+		const double MaximumX = static_cast<double>(Width - 1) * SpacingX;
+		const double MaximumY = static_cast<double>(Height - 1) * SpacingY;
+		if (!std::isfinite(MaximumX) || !std::isfinite(MaximumY))
+		{
+			Finish(ECollisionGeometryBuildStatus::InvalidInput);
+			return {};
+		}
+		const uint64 CacheKey = HashHeightField(
+			Width, Height, Samples, SpacingX, SpacingY, HeightScale, HeightOffset);
+		auto PopulateSuccess = [&](const FHeightFieldCollisionGeometry& Payload) {
+			Result.RetainedVertices = static_cast<uint32>(SampleCount);
+			Result.RetainedTriangles = static_cast<uint32>(TriangleCount);
+			Result.NodeCount = static_cast<uint32>(Payload.Nodes.size());
+			Result.MaximumDepth = Payload.MaximumDepth;
+			Result.RetainedBytes = Payload.RetainedBytes;
+			Result.EstimatedPeakBytes = Payload.RetainedBytes + Samples.size_bytes();
+		};
+		{
+			std::scoped_lock Lock(GHeightFieldCacheMutex);
+			auto Found = GHeightFieldCache.find(CacheKey);
+			if (Found != GHeightFieldCache.end())
+			{
+				auto& Entries = Found->second;
+				for (auto Iterator = Entries.begin(); Iterator != Entries.end();)
+				{
+					std::shared_ptr<const FCollisionGeometry> Shared = Iterator->lock();
+					if (!Shared)
+					{
+						Iterator = Entries.erase(Iterator);
+						continue;
+					}
+					const auto* Existing = GetHeightFieldPayload(Shared.get());
+					if (Existing && MatchesHeightField(*Existing, Width, Height, Samples,
+						SpacingX, SpacingY, HeightScale, HeightOffset))
+					{
+						PopulateSuccess(*Existing);
+						Finish(ECollisionGeometryBuildStatus::Success);
+						return FCollisionGeometryRef(std::move(Shared));
+					}
+					++Iterator;
+				}
+				if (Entries.empty()) GHeightFieldCache.erase(Found);
+			}
+		}
+		try
+		{
+			auto Payload = std::make_shared<FHeightFieldCollisionGeometry>();
+			Payload->Width = Width;
+			Payload->Height = Height;
+			Payload->SpacingX = SpacingX;
+			Payload->SpacingY = SpacingY;
+			Payload->HeightScale = HeightScale;
+			Payload->HeightOffset = HeightOffset;
+			Payload->Samples.assign(Samples.begin(), Samples.end());
+			const uint32 TileCountX = (Width - 1 + HeightFieldLeafCells - 1) / HeightFieldLeafCells;
+			const uint32 TileCountY = (Height - 1 + HeightFieldLeafCells - 1) / HeightFieldLeafCells;
+			Payload->Nodes.reserve(static_cast<size_t>(TileCountX) * TileCountY * 2);
+			Payload->Regions.reserve(static_cast<size_t>(TileCountX) * TileCountY);
+			auto SampleHeight = [&](uint32 X, uint32 Y) {
+				return HeightOffset + static_cast<double>(Payload->Samples[
+					static_cast<size_t>(Y) * Width + X]) / 65535.0 * HeightScale;
+			};
+			std::function<uint32(uint32, uint32, uint32, uint32, uint32)> Build =
+				[&](uint32 OriginX, uint32 OriginY, uint32 CountX, uint32 CountY, uint32 Depth) -> uint32
+			{
+				Result.MaximumDepth = std::max(Result.MaximumDepth, Depth);
+				const uint32 NodeIndex = static_cast<uint32>(Payload->Nodes.size());
+				Payload->Nodes.emplace_back();
+				if (CountX <= HeightFieldLeafCells && CountY <= HeightFieldLeafCells)
+				{
+					double MinimumZ = SampleHeight(OriginX, OriginY);
+					double MaximumZ = MinimumZ;
+					for (uint32 Y = OriginY; Y <= OriginY + CountY; ++Y)
+						for (uint32 X = OriginX; X <= OriginX + CountX; ++X)
+						{
+							const double Z = SampleHeight(X, Y);
+							MinimumZ = std::min(MinimumZ, Z);
+							MaximumZ = std::max(MaximumZ, Z);
+						}
+					FCollisionGeometryNode& Node = Payload->Nodes[NodeIndex];
+					Node.Minimum = FVector3f(OutwardMinimum(OriginX * SpacingX),
+						OutwardMinimum(OriginY * SpacingY), OutwardMinimum(MinimumZ));
+					Node.Maximum = FVector3f(OutwardMaximum((OriginX + CountX) * SpacingX),
+						OutwardMaximum((OriginY + CountY) * SpacingY), OutwardMaximum(MaximumZ));
+					Node.First = static_cast<uint32>(Payload->Regions.size());
+					Node.CountOrSecond = 0x80000001u;
+					Payload->Regions.push_back({OriginX, OriginY, CountX, CountY});
+					return NodeIndex;
+				}
+				uint32 Left = 0;
+				uint32 Right = 0;
+				if (CountX >= CountY && CountX > HeightFieldLeafCells)
+				{
+					const uint32 LeftCount = CountX / 2;
+					Left = Build(OriginX, OriginY, LeftCount, CountY, Depth + 1);
+					Right = Build(OriginX + LeftCount, OriginY, CountX - LeftCount, CountY, Depth + 1);
+				}
+				else
+				{
+					const uint32 TopCount = CountY / 2;
+					Left = Build(OriginX, OriginY, CountX, TopCount, Depth + 1);
+					Right = Build(OriginX, OriginY + TopCount, CountX, CountY - TopCount, Depth + 1);
+				}
+				FCollisionGeometryNode& Node = Payload->Nodes[NodeIndex];
+				const FCollisionGeometryNode& LeftNode = Payload->Nodes[Left];
+				const FCollisionGeometryNode& RightNode = Payload->Nodes[Right];
+				Node.Minimum = Math::Min(LeftNode.Minimum, RightNode.Minimum);
+				Node.Maximum = Math::Max(LeftNode.Maximum, RightNode.Maximum);
+				Node.First = Left;
+				Node.CountOrSecond = Right;
+				return NodeIndex;
+			};
+			Build(0, 0, Width - 1, Height - 1, 1);
+			Payload->MaximumDepth = Result.MaximumDepth;
+			Payload->LocalMin = {0.0, 0.0, std::min(SampleHeight(0, 0), SampleHeight(0, 0))};
+			Payload->LocalMax = {MaximumX, MaximumY, Payload->LocalMin.z};
+			for (uint16 Sample : Payload->Samples)
+			{
+				const double Z = HeightOffset + static_cast<double>(Sample) / 65535.0 * HeightScale;
+				Payload->LocalMin.z = std::min(Payload->LocalMin.z, Z);
+				Payload->LocalMax.z = std::max(Payload->LocalMax.z, Z);
+			}
+			if (!Math::IsFinite(Payload->LocalMin) || !Math::IsFinite(Payload->LocalMax))
+			{
+				Finish(ECollisionGeometryBuildStatus::InvalidInput);
+				return {};
+			}
+			Payload->Identity = AllocateCollisionGeometryIdentity(ECollisionGeometryKind::HeightField);
+			Payload->RetainedBytes = sizeof(FHeightFieldCollisionGeometry)
+				+ Payload->Samples.capacity() * sizeof(uint16)
+				+ Payload->Nodes.capacity() * sizeof(FCollisionGeometryNode)
+				+ Payload->Regions.capacity() * sizeof(FCollisionHeightFieldRegion);
+			{
+				std::scoped_lock Lock(GHeightFieldCacheMutex);
+				if (GHeightFieldCache.size() >= MaximumHeightFieldCacheKeys)
+					std::erase_if(GHeightFieldCache, [](const auto& Entry) {
+						return std::ranges::all_of(Entry.second,
+							[](const auto& Weak) { return Weak.expired(); });
+					});
+				auto Found = GHeightFieldCache.find(CacheKey);
+				if (Found != GHeightFieldCache.end()) Found->second.push_back(Payload);
+				else if (GHeightFieldCache.size() < MaximumHeightFieldCacheKeys)
+					GHeightFieldCache.emplace(CacheKey,
+						std::vector<std::weak_ptr<const FCollisionGeometry>>{Payload});
+			}
+			FCollisionGeometryRef Geometry(Payload);
+			PopulateSuccess(*Payload);
+			Finish(ECollisionGeometryBuildStatus::Success);
+			return Geometry;
+		}
+		catch (const std::bad_alloc&)
+		{
+			Finish(ECollisionGeometryBuildStatus::AllocationFailed);
+			return {};
+		}
+	}
+
 	auto FCollisionGeometryRef::GetKind() const -> ECollisionGeometryKind
 	{
-		if (const FFeatureCollisionGeometry* Feature = GetFeaturePayload(Payload.get())) return Feature->Kind;
-		return GetChildCount() > 1 ? ECollisionGeometryKind::Compound : ECollisionGeometryKind::Primitive;
+		return GetEncodedGeometryKind(Payload.get());
 	}
 
 	auto FCollisionGeometryRef::GetIdentity() const -> uint64
@@ -773,6 +1028,8 @@ namespace Durin
 
 	auto FCollisionGeometryRef::GetTriangleCount() const -> uint32
 	{
+		if (const FHeightFieldCollisionGeometry* HeightField = GetHeightFieldPayload(Payload.get()))
+			return (HeightField->Width - 1) * (HeightField->Height - 1) * 2;
 		const FFeatureCollisionGeometry* Feature = GetFeaturePayload(Payload.get());
 		return Feature ? static_cast<uint32>(Feature->Triangles.size()) : 0;
 	}
@@ -783,14 +1040,65 @@ namespace Durin
 		return Feature && Index < Feature->Triangles.size() ? &Feature->Triangles[Index] : nullptr;
 	}
 
+	auto FCollisionGeometryRef::GetTriangleVertices(
+		uint32 Index, FVector3& OutFirst, FVector3& OutSecond, FVector3& OutThird,
+		uint32* OutSourceOrdinal) const -> bool
+	{
+		if (const FFeatureCollisionGeometry* Feature = GetFeaturePayload(Payload.get()))
+		{
+			if (Index >= Feature->Triangles.size()) return false;
+			const FCollisionGeometryTriangle& Triangle = Feature->Triangles[Index];
+			OutFirst = Feature->Vertices[Triangle.First];
+			OutSecond = Feature->Vertices[Triangle.Second];
+			OutThird = Feature->Vertices[Triangle.Third];
+			if (OutSourceOrdinal) *OutSourceOrdinal = Triangle.SourceOrdinal;
+			return true;
+		}
+		const FHeightFieldCollisionGeometry* HeightField = GetHeightFieldPayload(Payload.get());
+		if (!HeightField || Index >= GetTriangleCount()) return false;
+		const uint32 CellsX = HeightField->Width - 1;
+		const uint32 Cell = Index / 2;
+		const uint32 X = Cell % CellsX;
+		const uint32 Y = Cell / CellsX;
+		auto Vertex = [&](uint32 SampleX, uint32 SampleY) {
+			const uint16 Sample = HeightField->Samples[
+				static_cast<size_t>(SampleY) * HeightField->Width + SampleX];
+			return FVector3(SampleX * HeightField->SpacingX, SampleY * HeightField->SpacingY,
+				HeightField->HeightOffset + static_cast<double>(Sample) / 65535.0
+					* HeightField->HeightScale);
+		};
+		const FVector3 A = Vertex(X, Y);
+		const FVector3 B = Vertex(X + 1, Y);
+		const FVector3 C = Vertex(X, Y + 1);
+		const FVector3 D = Vertex(X + 1, Y + 1);
+		if ((Index & 1u) == 0)
+		{
+			OutFirst = A;
+			OutSecond = B;
+			OutThird = C;
+		}
+		else
+		{
+			OutFirst = B;
+			OutSecond = D;
+			OutThird = C;
+		}
+		if (OutSourceOrdinal) *OutSourceOrdinal = Index;
+		return true;
+	}
+
 	auto FCollisionGeometryRef::GetNodeCount() const -> uint32
 	{
+		if (const FHeightFieldCollisionGeometry* HeightField = GetHeightFieldPayload(Payload.get()))
+			return static_cast<uint32>(HeightField->Nodes.size());
 		const FFeatureCollisionGeometry* Feature = GetFeaturePayload(Payload.get());
 		return Feature ? static_cast<uint32>(Feature->Nodes.size()) : 0;
 	}
 
 	auto FCollisionGeometryRef::GetNode(uint32 Index) const -> const FCollisionGeometryNode*
 	{
+		if (const FHeightFieldCollisionGeometry* HeightField = GetHeightFieldPayload(Payload.get()))
+			return Index < HeightField->Nodes.size() ? &HeightField->Nodes[Index] : nullptr;
 		const FFeatureCollisionGeometry* Feature = GetFeaturePayload(Payload.get());
 		return Feature && Index < Feature->Nodes.size() ? &Feature->Nodes[Index] : nullptr;
 	}
@@ -806,6 +1114,60 @@ namespace Durin
 		const FFeatureCollisionGeometry* Feature = GetFeaturePayload(Payload.get());
 		return Feature && Index < Feature->LeafTriangles.size()
 			? Feature->LeafTriangles[Index] : std::numeric_limits<uint32>::max();
+	}
+
+	auto FCollisionGeometryRef::GetHeightFieldWidth() const -> uint32
+	{
+		const auto* HeightField = GetHeightFieldPayload(Payload.get());
+		return HeightField ? HeightField->Width : 0;
+	}
+
+	auto FCollisionGeometryRef::GetHeightFieldHeight() const -> uint32
+	{
+		const auto* HeightField = GetHeightFieldPayload(Payload.get());
+		return HeightField ? HeightField->Height : 0;
+	}
+
+	auto FCollisionGeometryRef::GetHeightFieldSample(
+		uint32 X, uint32 Y, uint16& OutSample) const -> bool
+	{
+		const auto* HeightField = GetHeightFieldPayload(Payload.get());
+		if (!HeightField || X >= HeightField->Width || Y >= HeightField->Height) return false;
+		OutSample = HeightField->Samples[static_cast<size_t>(Y) * HeightField->Width + X];
+		return true;
+	}
+
+	auto FCollisionGeometryRef::GetHeightFieldSpacing(double& OutX, double& OutY) const -> bool
+	{
+		const auto* HeightField = GetHeightFieldPayload(Payload.get());
+		if (!HeightField) return false;
+		OutX = HeightField->SpacingX;
+		OutY = HeightField->SpacingY;
+		return true;
+	}
+
+	auto FCollisionGeometryRef::GetHeightFieldHeightRange(
+		double& OutScale, double& OutOffset) const -> bool
+	{
+		const auto* HeightField = GetHeightFieldPayload(Payload.get());
+		if (!HeightField) return false;
+		OutScale = HeightField->HeightScale;
+		OutOffset = HeightField->HeightOffset;
+		return true;
+	}
+
+	auto FCollisionGeometryRef::GetHeightFieldRegionCount() const -> uint32
+	{
+		const auto* HeightField = GetHeightFieldPayload(Payload.get());
+		return HeightField ? static_cast<uint32>(HeightField->Regions.size()) : 0;
+	}
+
+	auto FCollisionGeometryRef::GetHeightFieldRegion(uint32 Index) const
+		-> const FCollisionHeightFieldRegion*
+	{
+		const auto* HeightField = GetHeightFieldPayload(Payload.get());
+		return HeightField && Index < HeightField->Regions.size()
+			? &HeightField->Regions[Index] : nullptr;
 	}
 
 	auto FCollisionGeometryRef::GetHullPlaneCount() const -> uint32
@@ -1528,6 +1890,55 @@ namespace Durin::CollisionGeometry
 			const FCollisionGeometryRef& Geometry, uint32 Index, const FTransform& Transform,
 			FVector3& OutA, FVector3& OutB, FVector3& OutC, uint32& OutOrdinal) -> bool
 		{
+			if (Geometry.GetKind() == ECollisionGeometryKind::HeightField)
+			{
+				const uint32 Width = Geometry.GetHeightFieldWidth();
+				const uint32 Height = Geometry.GetHeightFieldHeight();
+				const uint32 CellsX = Width > 0 ? Width - 1 : 0;
+				if (CellsX == 0 || Height < 2 || Index >= CellsX * (Height - 1) * 2) return false;
+				const uint32 Cell = Index / 2;
+				const uint32 X = Cell % CellsX;
+				const uint32 Y = Cell / CellsX;
+				double SpacingX = 0.0;
+				double SpacingY = 0.0;
+				double HeightScale = 0.0;
+				double HeightOffset = 0.0;
+				uint16 SampleA = 0;
+				uint16 SampleB = 0;
+				uint16 SampleC = 0;
+				uint16 SampleD = 0;
+				if (!Geometry.GetHeightFieldSpacing(SpacingX, SpacingY)
+					|| !Geometry.GetHeightFieldHeightRange(HeightScale, HeightOffset)
+					|| !Geometry.GetHeightFieldSample(X, Y, SampleA)
+					|| !Geometry.GetHeightFieldSample(X + 1, Y, SampleB)
+					|| !Geometry.GetHeightFieldSample(X, Y + 1, SampleC)
+					|| !Geometry.GetHeightFieldSample(X + 1, Y + 1, SampleD)
+					|| !IsValidPhysicsTransform(Transform)) return false;
+				auto MakeVertex = [&](uint32 SampleX, uint32 SampleY, uint16 Sample) {
+					const FVector3 Local(SampleX * SpacingX, SampleY * SpacingY,
+						HeightOffset + static_cast<double>(Sample) / 65535.0 * HeightScale);
+					return Transform.Translation + Math::RotateVector(
+						NormalizedRotation(Transform.Rotation), Transform.Scale3D * Local);
+				};
+				const FVector3 A = MakeVertex(X, Y, SampleA);
+				const FVector3 B = MakeVertex(X + 1, Y, SampleB);
+				const FVector3 C = MakeVertex(X, Y + 1, SampleC);
+				const FVector3 D = MakeVertex(X + 1, Y + 1, SampleD);
+				if ((Index & 1u) == 0)
+				{
+					OutA = A;
+					OutB = B;
+					OutC = C;
+				}
+				else
+				{
+					OutA = B;
+					OutB = D;
+					OutC = C;
+				}
+				OutOrdinal = Index;
+				return Math::IsFinite(OutA) && Math::IsFinite(OutB) && Math::IsFinite(OutC);
+			}
 			const FCollisionGeometryTriangle* Triangle = Geometry.GetTriangle(Index);
 			if (!Triangle) return false;
 			OutOrdinal = Triangle->SourceOrdinal;
@@ -1697,6 +2108,16 @@ namespace Durin::CollisionGeometry
 			return true;
 		}
 
+		auto RecordHeightFieldTriangle(
+			const FCollisionGeometryRef& Target, uint32 TriangleIndex,
+			FCollisionGeometryCounters* Counters) -> void
+		{
+			if (!Counters || Target.GetKind() != ECollisionGeometryKind::HeightField) return;
+			AddCounter(Counters->HeightFieldTriangleTests, 1, Counters->bOverflowed);
+			if ((TriangleIndex & 1u) == 0)
+				AddCounter(Counters->HeightFieldCellTests, 1, Counters->bOverflowed);
+		}
+
 		auto FeatureDistance(
 			const FCollisionShape& Query, const FTransform& QueryTransform,
 			const FCollisionGeometryRef& Target, const FTransform& TargetTransform,
@@ -1706,6 +2127,7 @@ namespace Durin::CollisionGeometry
 			bool bFound = false;
 			for (uint32 Index = 0; Index < Target.GetTriangleCount(); ++Index)
 			{
+				RecordHeightFieldTriangle(Target, Index, Counters);
 				FVector3 A;
 				FVector3 B;
 				FVector3 C;
@@ -1780,11 +2202,87 @@ namespace Durin::CollisionGeometry
 			return true;
 		}
 
+		auto SweepTriangleFeature(
+			const FCollisionShape& Query, const FTransform& QueryTransform, const FVector3& Delta,
+			const FVector3& A, const FVector3& B, const FVector3& C,
+			FPhysicsQueryHit& OutHit, FCollisionGeometryCounters* Counters) -> ECollisionQueryStatus
+		{
+			double Time = 0.0;
+			for (uint32 Iteration = 0; Iteration < 32; ++Iteration)
+			{
+				RecordGeometryWork(Counters, 0, 1);
+				FTransform Moved = QueryTransform;
+				Moved.Translation += Delta * Time;
+				FLeafDistance Distance;
+				if (!TriangleDistance(Query, Moved, A, B, C, Distance, Counters))
+					return ECollisionQueryStatus::Unsupported;
+				if (Distance.Separation <= ContactTolerance)
+				{
+					if (Distance.Separation >= -ContactTolerance
+						&& Math::Dot(Delta, Distance.Normal) >= -ContactTolerance)
+						return ECollisionQueryStatus::Miss;
+					OutHit = {};
+					OutHit.Time = std::clamp(Time, 0.0, 1.0);
+					OutHit.Location = Moved.Translation;
+					OutHit.ImpactPoint = Distance.TargetPoint;
+					OutHit.ImpactNormal = Math::NormalizeOr(Distance.Normal, -Delta);
+					if (Time == 0.0 && Distance.Separation < -ContactTolerance)
+					{
+						OutHit.bStartPenetrating = true;
+						OutHit.PenetrationDepth = -Distance.Separation;
+					}
+					return ECollisionQueryStatus::Hit;
+				}
+				const double ClosingSpeed = -Math::Dot(Delta, Distance.Normal);
+				if (ClosingSpeed <= ContactTolerance) return ECollisionQueryStatus::Miss;
+				const double Step = Distance.Separation / ClosingSpeed;
+				if (!std::isfinite(Step) || Step <= 1.0e-12)
+					return ECollisionQueryStatus::NonConverged;
+				Time += Step;
+				if (Time > 1.0 + ContactTolerance) return ECollisionQueryStatus::Miss;
+			}
+			return ECollisionQueryStatus::NonConverged;
+		}
+
 		auto FeatureSweep(
 			const FCollisionShape& Query, const FTransform& QueryTransform, const FVector3& Delta,
 			const FCollisionGeometryRef& Target, const FTransform& TargetTransform,
 			FPhysicsQueryHit& OutHit, FCollisionGeometryCounters* Counters) -> ECollisionQueryStatus
 		{
+			if (Target.GetKind() == ECollisionGeometryKind::HeightField)
+			{
+				if (FeatureOverlap(Query, QueryTransform, Target, TargetTransform, OutHit, Counters))
+					return ECollisionQueryStatus::Hit;
+				if (Math::LengthSquared(Delta) <= ContactTolerance * ContactTolerance)
+					return ECollisionQueryStatus::Miss;
+				bool bFound = false;
+				uint32 Winner = 0;
+				ECollisionQueryStatus Failure = ECollisionQueryStatus::Miss;
+				for (uint32 Index = 0; Index < Target.GetTriangleCount(); ++Index)
+				{
+					RecordHeightFieldTriangle(Target, Index, Counters);
+					FVector3 A;
+					FVector3 B;
+					FVector3 C;
+					uint32 Ordinal = 0;
+					if (!GetWorldTriangle(Target, Index, TargetTransform, A, B, C, Ordinal))
+						return ECollisionQueryStatus::Invalid;
+					FPhysicsQueryHit Candidate;
+					const ECollisionQueryStatus Status = SweepTriangleFeature(
+						Query, QueryTransform, Delta, A, B, C, Candidate, Counters);
+					if (Status == ECollisionQueryStatus::Hit
+						&& (!bFound || Candidate.Time < OutHit.Time
+							|| (Candidate.Time == OutHit.Time && Ordinal < Winner)))
+					{
+						OutHit = Candidate;
+						Winner = Ordinal;
+						bFound = true;
+					}
+					else if (Status == ECollisionQueryStatus::Unsupported
+						|| Status == ECollisionQueryStatus::NonConverged) Failure = Status;
+				}
+				return bFound ? ECollisionQueryStatus::Hit : Failure;
+			}
 			if (FeatureOverlap(Query, QueryTransform, Target, TargetTransform, OutHit, Counters))
 				return ECollisionQueryStatus::Hit;
 			if (Math::LengthSquared(Delta) <= ContactTolerance * ContactTolerance)
@@ -1912,6 +2410,27 @@ namespace Durin::CollisionGeometry
 		}
 
 		template<typename TVisitor>
+		auto VisitHeightFieldRegion(
+			const FCollisionGeometryRef& Target, uint32 RegionIndex,
+			FCollisionGeometryCounters* Counters, TVisitor&& Visitor) -> bool
+		{
+			const FCollisionHeightFieldRegion* Region = Target.GetHeightFieldRegion(RegionIndex);
+			const uint32 CellsX = Target.GetHeightFieldWidth() - 1;
+			if (!Region || CellsX == 0) return false;
+			for (uint32 Y = Region->OriginY; Y < Region->OriginY + Region->CellCountY; ++Y)
+				for (uint32 X = Region->OriginX; X < Region->OriginX + Region->CellCountX; ++X)
+				{
+					const uint32 FirstTriangle = 2 * (Y * CellsX + X);
+					for (uint32 Triangle = FirstTriangle; Triangle < FirstTriangle + 2; ++Triangle)
+					{
+						RecordHeightFieldTriangle(Target, Triangle, Counters);
+						if (!Visitor(Triangle)) return false;
+					}
+				}
+			return true;
+		}
+
+		template<typename TVisitor>
 		auto VisitBvh(
 			const FCollisionGeometryRef& Target,
 			const FVector3& QueryMinimum,
@@ -1934,6 +2453,11 @@ namespace Durin::CollisionGeometry
 				if (Node->IsLeaf())
 				{
 					if (Counters) AddCounter(Counters->AssetLeafTests, 1, Counters->bOverflowed);
+					if (Target.GetKind() == ECollisionGeometryKind::HeightField)
+					{
+						if (!VisitHeightFieldRegion(Target, Node->First, Counters, Visitor)) return false;
+						continue;
+					}
 					for (uint32 Offset = 0; Offset < Node->GetLeafCount(); ++Offset)
 					{
 						const uint32 Triangle = Target.GetLeafTriangle(Node->First + Offset);
@@ -2027,6 +2551,36 @@ namespace Durin::CollisionGeometry
 			FVector3 LocalMaximum;
 			if (!WorldBoundsToTargetLocal(WorldMinimum, WorldMaximum, TargetTransform,
 				LocalMinimum, LocalMaximum)) return ECollisionQueryStatus::Invalid;
+			if (Target.GetKind() == ECollisionGeometryKind::HeightField)
+			{
+				bool bFound = false;
+				uint32 Winner = 0;
+				ECollisionQueryStatus Failure = ECollisionQueryStatus::Miss;
+				const bool bTraversalValid = VisitBvh(Target, LocalMinimum, LocalMaximum, Counters,
+					[&](uint32 Index) {
+						FVector3 A;
+						FVector3 B;
+						FVector3 C;
+						uint32 Ordinal = 0;
+						if (!GetWorldTriangle(Target, Index, TargetTransform, A, B, C, Ordinal)) return false;
+						FPhysicsQueryHit Candidate;
+						const ECollisionQueryStatus Status = SweepTriangleFeature(
+							Query, QueryTransform, Delta, A, B, C, Candidate, Counters);
+						if (Status == ECollisionQueryStatus::Hit
+							&& (!bFound || Candidate.Time < OutHit.Time
+								|| (Candidate.Time == OutHit.Time && Ordinal < Winner)))
+						{
+							OutHit = Candidate;
+							Winner = Ordinal;
+							bFound = true;
+						}
+						else if (Status == ECollisionQueryStatus::Unsupported
+							|| Status == ECollisionQueryStatus::NonConverged) Failure = Status;
+						return true;
+					});
+				if (!bTraversalValid) return ECollisionQueryStatus::Unsupported;
+				return bFound ? ECollisionQueryStatus::Hit : Failure;
+			}
 			double Time = 0.0;
 			for (uint32 Iteration = 0; Iteration < 32; ++Iteration)
 			{
@@ -2114,30 +2668,38 @@ namespace Durin::CollisionGeometry
 				if (Node->IsLeaf())
 				{
 					if (Counters) AddCounter(Counters->AssetLeafTests, 1, Counters->bOverflowed);
-					for (uint32 Offset = 0; Offset < Node->GetLeafCount(); ++Offset)
+					auto TestTriangle = [&](uint32 Index) {
+						FVector3 A;
+						FVector3 B;
+						FVector3 C;
+						uint32 Ordinal = 0;
+						if (!GetWorldTriangle(Target, Index, TargetTransform, A, B, C, Ordinal))
+							return false;
+						if (Counters)
+						{
+							AddCounter(Counters->FeatureTests, 1, Counters->bOverflowed);
+							AddCounter(Counters->LeafTests, 1, Counters->bOverflowed);
+						}
+						FPhysicsQueryHit Candidate;
+						if (RaycastTriangle(Start, End, A, B, C, Candidate)
+							&& (!bFound || Candidate.Time < OutHit.Time
+								|| (Candidate.Time == OutHit.Time && Ordinal < Winner)))
+						{
+							OutHit = Candidate;
+							Winner = Ordinal;
+							bFound = true;
+						}
+						return true;
+					};
+					if (Target.GetKind() == ECollisionGeometryKind::HeightField)
 					{
-						const uint32 Index = Target.GetLeafTriangle(Node->First + Offset);
-					FVector3 A;
-					FVector3 B;
-					FVector3 C;
-					uint32 Ordinal = 0;
-					if (!GetWorldTriangle(Target, Index, TargetTransform, A, B, C, Ordinal))
-						return ECollisionQueryStatus::Invalid;
-					if (Counters)
-					{
-						AddCounter(Counters->FeatureTests, 1, Counters->bOverflowed);
-						AddCounter(Counters->LeafTests, 1, Counters->bOverflowed);
+						if (!VisitHeightFieldRegion(Target, Node->First, Counters, TestTriangle))
+							return ECollisionQueryStatus::Invalid;
 					}
-					FPhysicsQueryHit Candidate;
-					if (RaycastTriangle(Start, End, A, B, C, Candidate)
-						&& (!bFound || Candidate.Time < OutHit.Time
-							|| (Candidate.Time == OutHit.Time && Ordinal < Winner)))
-					{
-						OutHit = Candidate;
-						Winner = Ordinal;
-						bFound = true;
-					}
-					}
+					else
+						for (uint32 Offset = 0; Offset < Node->GetLeafCount(); ++Offset)
+							if (!TestTriangle(Target.GetLeafTriangle(Node->First + Offset)))
+								return ECollisionQueryStatus::Invalid;
 					continue;
 				}
 				const FCollisionGeometryNode* Left = Target.GetNode(Node->First);
@@ -2180,6 +2742,7 @@ namespace Durin::CollisionGeometry
 			uint32 Winner = 0;
 			for (uint32 Index = 0; Index < Target.GetTriangleCount(); ++Index)
 			{
+				RecordHeightFieldTriangle(Target, Index, Counters);
 				FVector3 A;
 				FVector3 B;
 				FVector3 C;
@@ -2370,11 +2933,13 @@ namespace Durin::CollisionGeometry
 		if (!Math::IsFinite(Start) || !Math::IsFinite(End) || !Target.IsValid()
 			|| !IsValidPhysicsTransform(TargetTransform)) return ECollisionQueryStatus::Invalid;
 		if (Target.GetKind() == ECollisionGeometryKind::ConvexHull
-			|| Target.GetKind() == ECollisionGeometryKind::TriangleMesh)
+			|| Target.GetKind() == ECollisionGeometryKind::TriangleMesh
+			|| Target.GetKind() == ECollisionGeometryKind::HeightField)
 		{
 			if (Counters) AddSimpleCounter(Counters->GenericDispatches, Counters);
 			if (Algorithm == ECollisionQueryAlgorithm::Production
-				&& Target.GetKind() == ECollisionGeometryKind::TriangleMesh
+				&& (Target.GetKind() == ECollisionGeometryKind::TriangleMesh
+					|| Target.GetKind() == ECollisionGeometryKind::HeightField)
 				&& Target.GetNodeCount() > 0)
 			{
 				const ECollisionQueryStatus Status = RaycastFeatureProduction(
@@ -2383,7 +2948,8 @@ namespace Durin::CollisionGeometry
 				if (Counters) AddSimpleCounter(Counters->ReferenceFallbacks, Counters);
 			}
 			else if (Algorithm == ECollisionQueryAlgorithm::Production
-				&& Target.GetKind() == ECollisionGeometryKind::TriangleMesh && Counters)
+				&& (Target.GetKind() == ECollisionGeometryKind::TriangleMesh
+					|| Target.GetKind() == ECollisionGeometryKind::HeightField) && Counters)
 				AddSimpleCounter(Counters->ReferenceFallbacks, Counters);
 			return RaycastFeature(Start, End, Target, TargetTransform, OutHit, Counters);
 		}
@@ -2433,12 +2999,14 @@ namespace Durin::CollisionGeometry
 		if (!Query.IsValid() || !IsValidPhysicsTransform(QueryTransform) || !Math::IsFinite(Delta)
 			|| !Target.IsValid() || !IsValidPhysicsTransform(TargetTransform)) return ECollisionQueryStatus::Invalid;
 		if (Target.GetKind() == ECollisionGeometryKind::ConvexHull
-			|| Target.GetKind() == ECollisionGeometryKind::TriangleMesh)
+			|| Target.GetKind() == ECollisionGeometryKind::TriangleMesh
+			|| Target.GetKind() == ECollisionGeometryKind::HeightField)
 		{
 			if (Counters) AddSimpleCounter(Counters->GenericDispatches, Counters);
 			ECollisionQueryStatus Status;
 			if (Algorithm == ECollisionQueryAlgorithm::Production
-				&& Target.GetKind() == ECollisionGeometryKind::TriangleMesh
+				&& (Target.GetKind() == ECollisionGeometryKind::TriangleMesh
+					|| Target.GetKind() == ECollisionGeometryKind::HeightField)
 				&& Target.GetNodeCount() > 0)
 			{
 				Status = FeatureSweepProduction(
@@ -2453,7 +3021,8 @@ namespace Durin::CollisionGeometry
 			else
 			{
 				if (Algorithm == ECollisionQueryAlgorithm::Production
-					&& Target.GetKind() == ECollisionGeometryKind::TriangleMesh && Counters)
+					&& (Target.GetKind() == ECollisionGeometryKind::TriangleMesh
+						|| Target.GetKind() == ECollisionGeometryKind::HeightField) && Counters)
 					AddSimpleCounter(Counters->ReferenceFallbacks, Counters);
 				Status = FeatureSweep(
 					Query, QueryTransform, Delta, Target, TargetTransform, OutHit, Counters);
@@ -2523,16 +3092,19 @@ namespace Durin::CollisionGeometry
 		if (!Query.IsValid() || !IsValidPhysicsTransform(QueryTransform)
 			|| !Target.IsValid() || !IsValidPhysicsTransform(TargetTransform)) return ECollisionQueryStatus::Invalid;
 		if (Target.GetKind() == ECollisionGeometryKind::ConvexHull
-			|| Target.GetKind() == ECollisionGeometryKind::TriangleMesh)
+			|| Target.GetKind() == ECollisionGeometryKind::TriangleMesh
+			|| Target.GetKind() == ECollisionGeometryKind::HeightField)
 		{
 			if (Counters) AddSimpleCounter(Counters->GenericDispatches, Counters);
 			if (Algorithm == ECollisionQueryAlgorithm::Production
-				&& Target.GetKind() == ECollisionGeometryKind::TriangleMesh
+				&& (Target.GetKind() == ECollisionGeometryKind::TriangleMesh
+					|| Target.GetKind() == ECollisionGeometryKind::HeightField)
 				&& Target.GetNodeCount() > 0)
 				return FeatureOverlapProduction(
 					Query, QueryTransform, Target, TargetTransform, OutHit, Counters);
 			if (Algorithm == ECollisionQueryAlgorithm::Production
-				&& Target.GetKind() == ECollisionGeometryKind::TriangleMesh && Counters)
+				&& (Target.GetKind() == ECollisionGeometryKind::TriangleMesh
+					|| Target.GetKind() == ECollisionGeometryKind::HeightField) && Counters)
 				AddSimpleCounter(Counters->ReferenceFallbacks, Counters);
 			return FeatureOverlap(Query, QueryTransform, Target, TargetTransform, OutHit, Counters)
 				? ECollisionQueryStatus::Hit : ECollisionQueryStatus::Miss;

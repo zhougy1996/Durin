@@ -52,6 +52,25 @@ Mesh collision is double-sided; ties use source triangle ordinal. Production
 traversal falls back to the complete Reference path on structural overflow and
 records that exceptional path explicitly.
 
+HeightField payloads retain one exact top-left row-major `uint16` sample plane,
+dimensions, positive XY spacing, finite signed height scale/offset, exact local
+bounds, and a deterministic hierarchy of rectangular cell regions. They never
+retain expanded vertices, indices, or triangles. A cell uses `(A,B,C)` and
+`(B,D,C)` with stable Y-major triangle ordinals. Reference reconstructs cells in
+ordinal order; Production traverses outward-rounded 32-byte nodes and 8x8-cell
+leaves with the same bounded feature kernels. HeightField is a zero-thickness,
+double-sided query surface and accepts the existing positive-scale physics
+transform domain.
+
+An explicit triangle mesh is a bounded topology and Ray oracle, not the
+shipping HeightField representation or the semantic oracle for complex shape
+casts. At multi-triangle ridges the legacy mesh Reference cast advances against
+one global nearest feature and may select a different equal-time contact than
+stable per-triangle HeightField traversal. HeightField Sphere/Capsule/Box Sweep
+and Overlap therefore qualify Production against HeightField Reference; the
+explicit mesh oracle covers exact vertices, diagonals, ordinals, Ray, and
+flat-surface shape contact.
+
 Sweeps report normalized time,
 distance, location, impact point and normal, and bounded initial penetration.
 Equal-time results use the monotonically assigned scene handle as their stable
@@ -122,6 +141,28 @@ bytes, below the 8 ms and 32 MiB gates.
 `DSphereComponent`, and `DCapsuleComponent` publish analytic geometry without
 render ownership.
 
+`DTerrainComponent` also defaults to `NoCollision`. When enabled, it captures
+one valid `DTerrainHeightmap` payload revision and builds a HeightField through
+the AetherCore builder from exact samples and component interpretation. The T2
+collision ceiling is 1025x1025 samples. Assignment, spacing, height range, and
+committed heightmap revision changes collect affected registered components in
+stable object-handle order, retire their render proxies and physics bodies
+before payload publication, then recreate both against the complete revision;
+missing, invalid, or oversized inputs publish no stale body and expose a named
+collision status independently from render status. Bit-identical samples and
+interpretation are weakly interned across components without Renderer or editor
+ownership.
+
+`DTerrainComponent::GetCollisionFacts` exposes bounded read-only status,
+asset/collision revision, resource identity, dimensions/cells/nodes/depth,
+retained and estimated peak bytes, and build status. The diagnostic string is
+separately bounded by the component contract. These facts retain no source,
+Renderer state, expanded triangles, or mutable scene storage.
+
+Cooked Terrain collision is constructed deterministically from validated THPL
+state. It adds no collision companion or duplicate sample plane and requires no
+source, DDC, Renderer resource, or editor module.
+
 ## Profiles, queries, and results
 
 Built-in profiles are `NoCollision`, `BlockAll`, `WorldStatic`, `Pawn`, and
@@ -191,6 +232,9 @@ Candidates = IgnoredBodies + FilterRejectedBodies + NarrowPhasePairTests
 RawHits <= NarrowPhasePairTests
 ReturnedResults <= RawHits
 Fallbacks >= CompareMismatches
+
+HeightFieldTriangleTests = 2 * HeightFieldCellTests
+    for every complete HeightField cell visitation
 
 AddCalls = AddSuccesses + AddRejected
 UpdateCalls = UpdateSuccesses + UpdateRejected
@@ -268,17 +312,28 @@ bodies share one resource identity and retained-byte charge. The full Release
 PhysicsScene matrix passes with zero mismatch, false negative, unsupported,
 non-convergence, overflow, or ordinary fallback.
 
+The T2 `Win64-Release-DurinEditor` maximum fixture is 1025x1025 samples with
+32,767 HeightField nodes at depth 15. It retains 3,412,178 bytes and estimates a
+5,513,428-byte builder peak. On the recorded 2026-08-13 host it built in
+6.428 ms; 256 sparse Production rays took 5.611 ms total (21.9 microseconds per
+query), each visiting 64 cells and 128 reconstructed triangles, while one
+Reference full scan took 319.968 ms and first-body publication took 34
+microseconds. Qualification records these measurements
+as test properties and enforces portable byte/work ceilings rather than a
+hardware-specific absolute timing threshold.
+
 ## Debugging and current limits
 
 Collision debugging is disabled by default. When enabled,
 `CaptureCollisionDebugSnapshot` returns at most 4096 current shapes together
-with transforms, channels, owners, and the last blocking hit/normal. When
+with transforms, channels, owners, resource identity/bytes, HeightField
+dimensions/nodes/regions, and the last blocking hit/normal. When
 disabled, the capture path returns immediately without walking scene bodies.
 The Level Editor viewport's **View mode > Overlays > Collision** toggle consumes
 the renderer-independent snapshot to draw Box, Sphere, and Capsule wire shapes
-plus hull/mesh feature lines and the latest blocking impact normal without
+plus bounded hull/mesh/HeightField feature lines and the latest blocking impact normal without
 exposing mutable scene storage. Feature detail is globally capped at 256
-triangles per snapshot. StaticMesh Inspector reports mode/policy/status, source
+triangles and 64 HeightField node bounds per snapshot. StaticMesh Inspector reports mode/policy/status, source
 and retained counts, node/depth/bounds, payload/runtime bytes, versions,
 revision, key, and diagnostics without providing mutation controls.
 
@@ -286,7 +341,7 @@ The implementation is synchronous and query-only. Programmatic low-level
 compounds are qualified; reflected compound authoring is deferred. Writable
 collision editing, multiple hulls, convex decomposition, per-feature materials,
 public feature IDs, dynamic rigid bodies, forces, constraints, asynchronous
-stepping, moving platforms, heightfields, overlap events, and project-defined
+stepping, moving platforms, overlap events, and project-defined
 profiles remain future work.
 The cross-plan sequencing for scalable queries, geometry, cooked collision,
 and evidence-gated simulation or backend work is maintained in the

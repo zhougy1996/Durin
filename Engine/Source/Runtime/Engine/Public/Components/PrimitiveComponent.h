@@ -68,6 +68,7 @@ namespace Durin
 		ENGINE_API virtual auto BuildMaterialRenderProxyBindingUpdate(
 			FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool;
 		ENGINE_API virtual auto GetCollisionStateRevision() const -> uint64 { return 0; }
+		auto DestroyPhysicsState() -> void;
 #if DURIN_WITH_EDITOR
 		auto NotifyEditorPickingMutation(bool bRetired = false) -> void;
 #endif
@@ -77,7 +78,6 @@ namespace Durin
 			const FCollisionGeometryRef& Geometry,
 			const FTransform& Transform) const -> FPhysicsBodyDesc;
 		auto EnsurePrimitiveSceneId() -> FPrimitiveSceneId;
-		auto DestroyPhysicsState() -> void;
 		auto UpdatePhysicsState() -> void;
 		auto GetPhysicsWorld() const -> DWorld*;
 
