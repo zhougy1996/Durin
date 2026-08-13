@@ -317,10 +317,12 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			Durin::MaterialParameters::BaseColorTextureName(), TextureResult.Asset));
 		Durin::FlushRenderingCommands();
 
-		auto Capture = [&](Durin::DMaterialInterface* Material) {
+		auto Capture = [&](
+			Durin::DMaterialInterface* Material,
+			const Durin::FTransform& Transform = Durin::FTransform()) {
 			std::vector<Durin::uint8> Pixels;
 			EXPECT_TRUE(Pool.SetMaterial(
-				CaptureMesh, Material, Durin::FTransform(), Error)) << Error;
+				CaptureMesh, Material, Transform, Error)) << Error;
 			EXPECT_TRUE(Pool.BeginCapture(Error, false)) << Error;
 			Durin::FlushRenderingCommands();
 			EXPECT_EQ(
@@ -331,6 +333,18 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		};
 		const std::vector<Durin::uint8> MaterialPixels =
 			Capture(CaptureMaterial);
+		Durin::FMaterialStaticProperties TwoSidedProperties =
+			CaptureMaterial->GetStaticProperties();
+		TwoSidedProperties.bTwoSided = true;
+		ASSERT_TRUE(CaptureMaterial->SetStaticProperties(TwoSidedProperties));
+		const std::vector<Durin::uint8> TwoSidedFrontPixels =
+			Capture(CaptureMaterial);
+		Durin::FTransform BackFaceTransform;
+		BackFaceTransform.Scale3D.z = -1.0;
+		const std::vector<Durin::uint8> TwoSidedBackPixels =
+			Capture(CaptureMaterial, BackFaceTransform);
+		TwoSidedProperties.bTwoSided = false;
+		ASSERT_TRUE(CaptureMaterial->SetStaticProperties(TwoSidedProperties));
 		const std::vector<Durin::uint8> InstancePixels =
 			Capture(CaptureInstance);
 		const std::vector<Durin::uint8> InheritedBeforePixels =
@@ -995,6 +1009,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			Durin::Editor::ERenderedAssetThumbnailCaptureState::Ready) << Error;
 		Pool.Reset();
 		ASSERT_EQ(MaterialPixels.size(), 64u * 64u * 4u);
+		EXPECT_EQ(TwoSidedBackPixels, TwoSidedFrontPixels);
 		ASSERT_EQ(InstancePixels.size(), MaterialPixels.size());
 		ASSERT_EQ(UntexturedPixels.size(), MaterialPixels.size());
 		const size_t Corner = 0;

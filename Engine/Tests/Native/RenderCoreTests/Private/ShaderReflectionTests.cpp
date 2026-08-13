@@ -79,6 +79,53 @@ namespace Durin
 			return InputLocations;
 		}
 
+		auto HasSpirvInputBuiltIn(
+			const FCompiledShader& Shader,
+			uint32 BuiltIn) -> bool
+		{
+			constexpr uint16 OpDecorate = 71;
+			constexpr uint16 OpVariable = 59;
+			constexpr uint32 DecorationBuiltIn = 11;
+			constexpr uint32 StorageClassInput = 1;
+			std::vector<uint32> Words(
+				Shader.Code->size() / sizeof(uint32));
+			std::memcpy(
+				Words.data(),
+				Shader.Code->data(),
+				Shader.Code->size());
+
+			std::set<uint32> BuiltInIds;
+			std::set<uint32> InputIds;
+			for (size_t Offset = 5; Offset < Words.size();)
+			{
+				const uint32 Instruction = Words[Offset];
+				const uint16 WordCount =
+					static_cast<uint16>(Instruction >> 16);
+				const uint16 OpCode =
+					static_cast<uint16>(Instruction & 0xffffu);
+				if (WordCount == 0
+					|| Offset + WordCount > Words.size())
+				{
+					return false;
+				}
+				if (OpCode == OpDecorate && WordCount >= 4
+					&& Words[Offset + 2] == DecorationBuiltIn
+					&& Words[Offset + 3] == BuiltIn)
+				{
+					BuiltInIds.insert(Words[Offset + 1]);
+				}
+				else if (OpCode == OpVariable && WordCount >= 4
+					&& Words[Offset + 3] == StorageClassInput)
+				{
+					InputIds.insert(Words[Offset + 2]);
+				}
+				Offset += WordCount;
+			}
+			return std::ranges::any_of(
+				BuiltInIds,
+				[&InputIds](uint32 Id) { return InputIds.contains(Id); });
+		}
+
 		auto ExpectBinding(
 			const FCompiledShader& Shader,
 			std::string_view Name,
@@ -171,6 +218,9 @@ namespace Durin
 		EXPECT_EQ(FragmentShader.SourceEntryPoint, "FragmentMain");
 		EXPECT_EQ(VertexShader.BinaryEntryPoint, "main");
 		EXPECT_EQ(FragmentShader.BinaryEntryPoint, "main");
+		// SPIR-V BuiltIn 17 is FrontFacing. The base pass needs it to orient
+		// the tangent frame for rasterized back faces of two-sided materials.
+		EXPECT_TRUE(HasSpirvInputBuiltIn(FragmentShader, 17u));
 		EXPECT_EQ(
 			GetSpirvInputLocations(VertexShader),
 			(std::set<uint32>{0, 1, 2, 3, 4, 5, 6, 7}));

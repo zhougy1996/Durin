@@ -260,7 +260,9 @@ void ShadowFragmentMain(VSOutput input)
 }
 
 [shader("fragment")]
-float4 FragmentMain(VSOutput input) : SV_Target
+float4 FragmentMain(
+    VSOutput input,
+    bool isFrontFace : SV_IsFrontFace) : SV_Target
 {
     const float minVectorLengthSquared = 1.0e-8;
     float4 baseColorSample = BaseColorTexture.Sample(BaseColorSampler, GetMaterialUV(input, 0u));
@@ -293,6 +295,10 @@ float4 FragmentMain(VSOutput input) : SV_Target
     float3 geometricNormal = normalLengthSquared > minVectorLengthSquared
         ? input.worldNormal * rsqrt(normalLengthSquared)
         : float3(0.0, 0.0, 1.0);
+    // Back faces are only rasterized by two-sided material pipelines. Orient
+    // their tangent frame toward the visible side before applying normal maps.
+    if (!isFrontFace)
+        geometricNormal = -geometricNormal;
     float3 tangent = input.worldTangent.xyz
         - geometricNormal * dot(geometricNormal, input.worldTangent.xyz);
     float tangentLengthSquared = dot(tangent, tangent);
