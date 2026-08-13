@@ -2,6 +2,7 @@
 
 #include "Renderers/SceneRenderer.h"
 #include "Renderers/PreparedSceneView.h"
+#include "Renderers/DirectionalShadowView.h"
 #include "Renderers/ViewPreparationMath.h"
 
 namespace Durin
@@ -160,6 +161,125 @@ namespace Durin
 			Orthographic * FVector4(1.0, 0.0, 1.0, 1.0);
 		EXPECT_NEAR(OrthographicRight.x, 1.0, 1.0e-12);
 		EXPECT_NEAR(OrthographicUp.y, -1.0, 1.0e-12);
+	}
+
+	TEST(FRendererSceneViewTests,
+		DirectionalShadowFitsZeroToOneReceiverAndConservativeCasterVolume)
+	{
+		FSceneView View;
+		View.ProjectionMatrix = MakePerspectiveProjection(90.0, 2.0, 1.0, 11.0);
+		View.ViewProjectionMatrix = View.ProjectionMatrix;
+		View.ViewportWidth = 1920;
+		View.ViewportHeight = 1080;
+		FDirectionalLightSceneData Light;
+		Light.Direction = {0.0, 0.0, -1.0};
+		Light.Intensity = 1.0f;
+		FPreparedDirectionalShadowView Shadow;
+		ASSERT_TRUE(TryPrepareDirectionalShadowView(
+			View, FLightSceneId(7), Light, Shadow));
+		EXPECT_TRUE(Shadow.bEnabled);
+		EXPECT_EQ(Shadow.LightId.Value, 7u);
+		EXPECT_EQ(Shadow.CasterView.ViewportWidth, DirectionalShadowResolution);
+		EXPECT_EQ(Shadow.CasterView.Settings.RasterMode, ERasterMode::Solid);
+		EXPECT_TRUE(Math::IsFinite(Shadow.WorldToShadowMatrix));
+		EXPECT_GT(Shadow.TexelWorldSize.x, 0.0);
+		EXPECT_GT(Shadow.TexelWorldSize.y, 0.0);
+		for (const FVector3& Corner : Shadow.ReceiverCorners)
+		{
+			const FVector4 Projected =
+				Shadow.WorldToShadowMatrix * FVector4(Corner, 1.0);
+			ASSERT_GT(std::abs(Projected.w), 1.0e-8);
+			const FVector3 Coordinate = FVector3(Projected) / Projected.w;
+			EXPECT_GE(Coordinate.x, -1.0e-9);
+			EXPECT_LE(Coordinate.x, 1.0 + 1.0e-9);
+			EXPECT_GE(Coordinate.y, -1.0e-9);
+			EXPECT_LE(Coordinate.y, 1.0 + 1.0e-9);
+			EXPECT_GE(Coordinate.z, 0.0);
+			EXPECT_LE(Coordinate.z, 1.0 + 1.0e-9);
+		}
+		EXPECT_EQ(ClassifyDirectionalShadowCasterBounds(
+			Shadow, FBox({2.0, -0.25, -0.25}, {3.0, 0.25, 0.25})),
+			EDirectionalShadowBoundsClassification::InsideOrIntersecting);
+		EXPECT_EQ(ClassifyDirectionalShadowCasterBounds(
+			Shadow, FBox({2.0, 1000.0, 1000.0}, {3.0, 1001.0, 1001.0})),
+			EDirectionalShadowBoundsClassification::Outside);
+		EXPECT_EQ(ClassifyDirectionalShadowCasterBounds(Shadow, FBox{}),
+			EDirectionalShadowBoundsClassification::InvalidBoundsFallback);
+	}
+
+	TEST(FRendererSceneViewTests,
+		DirectionalShadowSupportsOrthographicClampAndRejectsInvalidInputs)
+	{
+		FSceneView View;
+		View.ProjectionMatrix = MakeOrthographicProjection(2.0, 1.0, 1.0, 600.0);
+		View.ViewProjectionMatrix = View.ProjectionMatrix;
+		View.ViewportWidth = 800;
+		View.ViewportHeight = 400;
+		FDirectionalLightSceneData Light;
+		Light.Direction = {-0.5, -0.5, -1.0};
+		Light.Intensity = 1.0f;
+		FPreparedDirectionalShadowView Shadow;
+		ASSERT_TRUE(TryPrepareDirectionalShadowView(
+			View, FLightSceneId(1), Light, Shadow));
+		for (uint32 Corner = 0; Corner < 4; ++Corner)
+		{
+			EXPECT_NEAR(Math::Length(Shadow.ReceiverCorners[Corner + 4]
+				- Shadow.ReceiverCorners[Corner]), DirectionalShadowDistance, 1.0e-8);
+		}
+		Light.bCastShadows = false;
+		EXPECT_FALSE(TryPrepareDirectionalShadowView(
+			View, FLightSceneId(1), Light, Shadow));
+		Light.bCastShadows = true;
+		View.ViewProjectionMatrix[0][0] =
+			std::numeric_limits<double>::quiet_NaN();
+		EXPECT_FALSE(TryPrepareDirectionalShadowView(
+			View, FLightSceneId(1), Light, Shadow));
+	}
+
+	TEST(FRendererSceneViewTests, DirectionalShadowSamplerUsesFrozenComparisonTier)
+	{
+		const FRHISamplerDesc Sampler = MakeDirectionalShadowSamplerDesc();
+		EXPECT_EQ(Sampler.MinFilter, ESamplerFilter::Linear);
+		EXPECT_EQ(Sampler.MagFilter, ESamplerFilter::Linear);
+		EXPECT_EQ(Sampler.AddressU, ESamplerAddressMode::ClampToBorder);
+		EXPECT_EQ(Sampler.AddressV, ESamplerAddressMode::ClampToBorder);
+		EXPECT_TRUE(Sampler.bEnableCompare);
+		EXPECT_EQ(Sampler.CompareOp, ESamplerCompareOp::LessOrEqual);
+		EXPECT_EQ(Sampler.BorderColor, ESamplerBorderColor::FloatOpaqueWhite);
+		EXPECT_FLOAT_EQ(Sampler.MinLod, 0.0f);
+		EXPECT_FLOAT_EQ(Sampler.MaxLod, 0.0f);
+	}
+
+	TEST(FRendererSceneViewTests,
+		ForwardLightingPublishesShadowOnlyForMatchingSelectedLight)
+	{
+		FSceneView View;
+		View.ProjectionMatrix = MakeOrthographicProjection(2.0, 1.0, 1.0, 11.0);
+		View.ViewProjectionMatrix = View.ProjectionMatrix;
+		View.ViewportWidth = 64;
+		View.ViewportHeight = 64;
+		FPreparedLightView Lights;
+		FPreparedDirectionalLight Light;
+		Light.Id = FLightSceneId(4);
+		Light.Data.Intensity = 1.0f;
+		Light.Data.Direction = {0.0, 0.0, -1.0};
+		Lights.Directional.push_back(Light);
+		FPreparedDirectionalShadowView Shadow;
+		ASSERT_TRUE(TryPrepareDirectionalShadowView(
+			View, Light.Id, Light.Data, Shadow));
+		const FForwardLightingUniform Enabled = BuildForwardLightingUniform(
+			Lights, View, &Shadow);
+		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Params.x, 1.0f);
+		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Params.y,
+			DirectionalShadowReceiverBias);
+
+		Shadow.LightId = FLightSceneId(5);
+		const FForwardLightingUniform Mismatch = BuildForwardLightingUniform(
+			Lights, View, &Shadow);
+		EXPECT_FLOAT_EQ(Mismatch.DirectionalShadow.Params.x, 0.0f);
+		const FForwardLightingUniform Disabled = BuildForwardLightingUniform(
+			Lights, View, nullptr);
+		EXPECT_FLOAT_EQ(Disabled.DirectionalShadow.Params.x, 0.0f);
 	}
 
 	TEST(FRendererSceneViewTests, FrustumGoldensKeepContactAndRejectOnlyFullyOutsideBounds)

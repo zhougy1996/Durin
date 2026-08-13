@@ -3,6 +3,7 @@
 #include "Renderers/SkeletalMeshRenderPreparation.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "Renderers/ViewPreparationMath.h"
+#include "Renderers/DirectionalShadowView.h"
 
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "RendererResourceSlotCache.h"
@@ -94,6 +95,8 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentPrefiltered);
 				DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentBrdfLut);
 				DURIN_SHADER_PARAMETER_SAMPLER(EnvironmentSampler);
+				DURIN_SHADER_PARAMETER_TEXTURE(DirectionalShadowTexture);
+				DURIN_SHADER_PARAMETER_SAMPLER(DirectionalShadowSampler);
 			DURIN_END_SHADER_PARAMETERS();
 
 			DURIN_DECLARE_SHADER(
@@ -218,6 +221,25 @@ namespace Durin
 				static_cast<uint8>(Identity.ShadingModel),
 				std::bit_cast<uint32>(Identity.OpacityMaskThreshold)
 			);
+		}
+
+		auto MakeShadowPipelineKey(
+			const FEffectiveStaticMeshPipelineKey& Source)
+			-> FEffectiveStaticMeshPipelineKey
+		{
+			FEffectiveStaticMeshPipelineKey Result = Source;
+			Result.Rasterizer.PolygonMode = ERHIPolygonMode::Fill;
+			Result.Rasterizer.bEnableDepthBias = true;
+			Result.Rasterizer.DepthBiasConstantFactor =
+				DirectionalShadowDepthBiasConstant;
+			Result.Rasterizer.DepthBiasSlopeFactor =
+				DirectionalShadowDepthBiasSlope;
+			Result.Rasterizer.DepthBiasClamp = DirectionalShadowDepthBiasClamp;
+			Result.Depth.bEnableTest = true;
+			Result.Depth.bEnableWrite = true;
+			Result.Depth.CompareOp = ERHIDepthCompareOp::Less;
+			Result.ColorBlend = {};
+			return Result;
 		}
 
 		auto GetIdentityText(
@@ -477,6 +499,12 @@ namespace Durin
 				ERenderResourceGenerationDependency::Shader
 				| ERenderResourceGenerationDependency::Device
 			};
+		TRendererResourceSlotCache<
+			FEffectiveStaticMeshPipelineKey,
+			FPipelinePayload>
+			ShadowPipelines{
+				ERenderResourceGenerationDependency::Shader
+				| ERenderResourceGenerationDependency::Device};
 	};
 
 	struct FSkeletalMeshRenderer::FState
@@ -507,6 +535,10 @@ namespace Durin
 			FPipelinePayload> Pipelines{
 				ERenderResourceGenerationDependency::Shader
 					| ERenderResourceGenerationDependency::Device};
+		TRendererResourceSlotCache<FEffectiveStaticMeshPipelineKey,
+			FPipelinePayload> ShadowPipelines{
+			ERenderResourceGenerationDependency::Shader
+				| ERenderResourceGenerationDependency::Device};
 	};
 
 	auto PrepareStaticMeshView_RenderThread(
@@ -1193,9 +1225,74 @@ namespace Durin
 		return PreparedView.ResourcePreparationRejectedDraws == 0;
 	}
 
+	auto FStaticMeshRenderer::PrepareShadowResources_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		FPreparedStaticMeshView& PreparedView) -> bool
+	{
+		check(!CommandList.IsInsideRenderPass());
+		check(PreparedView.Phase == EPreparedStaticMeshPhase::Prepared);
+		check(PreparedView.Translucent.empty());
+		PreparedView.ResourcePreparationAttemptedDraws =
+			PreparedView.GetNumSections();
+		if (!EnsureBaseResources_RenderThread())
+		{
+			PreparedView.ResourcePreparationRejectedDraws =
+				PreparedView.ResourcePreparationAttemptedDraws;
+			PreparedView.Phase = EPreparedStaticMeshPhase::ResourcesPrepared;
+			return false;
+		}
+		for (auto* Bucket : {&PreparedView.Opaque, &PreparedView.Masked})
+		{
+			for (FPreparedStaticMeshDraw& Draw : *Bucket)
+			{
+				const FPreparedStaticMeshPrimitive* Primitive =
+					PreparedView.GetPrimitive(Draw);
+				Draw.bResourcesReady = Primitive != nullptr
+					&& EnsureSectionResources_RenderThread(*Primitive, Draw, true);
+				PreparedView.ResourcePreparationSuccessfulDraws +=
+					Draw.bResourcesReady ? 1u : 0u;
+			}
+		}
+		PreparedView.ResourcePreparationRejectedDraws =
+			PreparedView.ResourcePreparationAttemptedDraws
+				- PreparedView.ResourcePreparationSuccessfulDraws;
+		PreparedView.Phase = EPreparedStaticMeshPhase::ResourcesPrepared;
+		return PreparedView.ResourcePreparationRejectedDraws == 0;
+	}
+
+	auto FStaticMeshRenderer::ExecuteShadow_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		const FSceneView& ShadowView,
+		const FRHIUniformBufferRange& FallbackLighting,
+		FPreparedStaticMeshView& PreparedView) -> void
+	{
+		check(CommandList.IsInsideRenderPass());
+		check(PreparedView.Phase == EPreparedStaticMeshPhase::ResourcesPrepared);
+		for (const auto* Bucket : {&PreparedView.Opaque, &PreparedView.Masked})
+		{
+			for (const FPreparedStaticMeshDraw& Draw : *Bucket)
+			{
+				++PreparedView.AttemptedDraws;
+				const FPreparedStaticMeshPrimitive* Primitive =
+					PreparedView.GetPrimitive(Draw);
+				if (Primitive != nullptr && Draw.bResourcesReady
+					&& DrawSection_RenderThread(
+						CommandList, ShadowView, FallbackLighting,
+						ERenderMode::Unlit, *Primitive, Draw, true))
+					++PreparedView.SuccessfulDraws;
+				else
+					++PreparedView.RejectedDraws;
+			}
+		}
+		PreparedView.Phase = EPreparedStaticMeshPhase::Executed;
+		check(PreparedView.AttemptedDraws
+			== PreparedView.SuccessfulDraws + PreparedView.RejectedDraws);
+	}
+
 	auto FStaticMeshRenderer::EnsureSectionResources_RenderThread(
 		const FPreparedStaticMeshPrimitive& Primitive,
-		const FPreparedStaticMeshDraw& Item) -> bool
+		const FPreparedStaticMeshDraw& Item,
+		bool bShadowDepth) -> bool
 	{
 		check(IsInRenderingThread());
 		FState::FBaseResources* BaseResources =
@@ -1302,24 +1399,31 @@ namespace Durin
 
 		using FPipelineResult =
 			TRenderResourceCreateResult<FState::FPipelinePayload>;
-		auto& PipelineEntry = State->Pipelines.FindOrAdd(Item.PipelineKey);
+		const FEffectiveStaticMeshPipelineKey EffectivePipelineKey =
+			bShadowDepth ? MakeShadowPipelineKey(Item.PipelineKey)
+				: Item.PipelineKey;
+		auto& PipelineCache = bShadowDepth
+			? State->ShadowPipelines : State->Pipelines;
+		auto& PipelineEntry = PipelineCache.FindOrAdd(EffectivePipelineKey);
 		FRenderResourceGeneration PipelineGeneration =
 			Coordinator.GetGeneration_RenderThread();
 		PipelineGeneration.Shader =
 			ShaderMapEntry.Slot.GetPayloadGeneration().Shader;
 		FState::FPipelinePayload* Pipeline = PipelineEntry.Slot.Resolve(
 			PipelineGeneration,
-			[&Item, &PipelineEntry, ShaderMapPayload,
+			[&PipelineEntry, ShaderMapPayload, &EffectivePipelineKey,
+			 bShadowDepth,
 			 &VertexFactory]() -> FPipelineResult {
-				const FEffectiveStaticMeshPipelineKey& Identity = Item.PipelineKey;
+				const FEffectiveStaticMeshPipelineKey& Identity = EffectivePipelineKey;
 				FState::FPipelinePayload Candidate;
 				Candidate.ShaderMap = ShaderMapPayload->ShaderMap;
 				Candidate.VertexShader = ShaderMapPayload->VertexShader;
 				Candidate.SplineVertexShader = ShaderMapPayload->SplineVertexShader;
 				Candidate.FragmentShader = ShaderMapPayload->FragmentShader;
 				FGraphicsPipelineStateInitializer Initializer;
-				Initializer.RenderTargetLayout =
-					RenderTargetLayouts::MakeSceneTargets();
+				Initializer.RenderTargetLayout = bShadowDepth
+					? RenderTargetLayouts::MakeDirectionalShadowDepth()
+					: RenderTargetLayouts::MakeSceneTargets();
 				Initializer.BoundShaders.VertexShader = Identity.VertexDomain == EVertexDeformationDomain::Spline
 					? Candidate.SplineVertexShader.GetRHIShader()
 					: Candidate.VertexShader.GetRHIShader();
@@ -1328,7 +1432,8 @@ namespace Durin
 				Initializer.VertexDeclaration = VertexFactory.GetDeclaration();
 				Initializer.RasterizerState = Identity.Rasterizer;
 				Initializer.DepthStencilState = Identity.Depth;
-				Initializer.ColorBlendStates[0] = Identity.ColorBlend;
+				if (!bShadowDepth)
+					Initializer.ColorBlendStates[0] = Identity.ColorBlend;
 				Initializer.PipelineLayout =
 					Candidate.ShaderMap->GetMergedPipelineLayout();
 				Candidate.PipelineState =
@@ -1526,7 +1631,8 @@ namespace Durin
 		const FRHIUniformBufferRange& Lighting,
 		ERenderMode RenderMode,
 		const FPreparedStaticMeshPrimitive& Primitive,
-		const FPreparedStaticMeshDraw& Item
+		const FPreparedStaticMeshDraw& Item,
+		bool bShadowDepth
 	) -> bool
 	{
 		check(IsInRenderingThread());
@@ -1573,7 +1679,12 @@ namespace Durin
 			return false;
 		}
 
-		auto* PipelineEntry = State->Pipelines.Find(Item.PipelineKey);
+		const FEffectiveStaticMeshPipelineKey EffectivePipelineKey =
+			bShadowDepth ? MakeShadowPipelineKey(Item.PipelineKey)
+				: Item.PipelineKey;
+		auto* PipelineEntry = bShadowDepth
+			? State->ShadowPipelines.Find(EffectivePipelineKey)
+			: State->Pipelines.Find(EffectivePipelineKey);
 		FState::FPipelinePayload* Pipeline = PipelineEntry != nullptr
 			? PipelineEntry->Slot.GetPayload() : nullptr;
 		if (Pipeline == nullptr)
@@ -1702,6 +1813,13 @@ namespace Durin
 		FragmentShaderParameters.EnvironmentPrefiltered = bHasCompleteEnvironment ? EnvironmentPrefiltered : DefaultTextures.GetCube_RenderThread();
 		FragmentShaderParameters.EnvironmentBrdfLut = bHasCompleteEnvironment ? EnvironmentBrdfLut : DefaultTextures.Get_RenderThread(EDefaultTexture::Black);
 		FragmentShaderParameters.EnvironmentSampler = bHasCompleteEnvironment ? EnvironmentSampler : MaterialSamplers[0];
+		FragmentShaderParameters.DirectionalShadowTexture =
+			Item.DirectionalShadowTexture != nullptr
+				? Item.DirectionalShadowTexture
+				: DefaultTextures.Get_RenderThread(EDefaultTexture::White);
+		FragmentShaderParameters.DirectionalShadowSampler =
+			Item.DirectionalShadowSampler != nullptr
+				? Item.DirectionalShadowSampler : MaterialSamplers[0];
 		SetShaderParameters(
 			CommandList,
 			Pipeline->FragmentShader,
@@ -1721,6 +1839,7 @@ namespace Durin
 		State->BaseResources.Reset();
 		State->ShaderMaps.Reset();
 		State->Pipelines.Reset();
+		State->ShadowPipelines.Reset();
 	}
 
 	FSkeletalMeshRenderer::FSkeletalMeshRenderer(
@@ -1746,7 +1865,8 @@ namespace Durin
 
 	auto FSkeletalMeshRenderer::EnsureSectionResources_RenderThread(
 		const FPreparedSkeletalMeshPrimitive& Primitive,
-		const FPreparedSkeletalMeshDraw& Item) -> bool
+		const FPreparedSkeletalMeshDraw& Item,
+		bool bShadowDepth) -> bool
 	{
 		FState::FBaseResources* Base = State->BaseResources.GetPayload();
 		if (Base == nullptr || Primitive.VertexFactory == nullptr) return false;
@@ -1812,28 +1932,37 @@ namespace Durin
 		if (ShaderPayload == nullptr) return false;
 
 		using FPipelineResult = TRenderResourceCreateResult<FState::FPipelinePayload>;
-		auto& PipelineEntry = State->Pipelines.FindOrAdd(Item.PipelineKey);
+		const FEffectiveStaticMeshPipelineKey EffectivePipelineKey =
+			bShadowDepth ? MakeShadowPipelineKey(Item.PipelineKey)
+				: Item.PipelineKey;
+		auto& PipelineCache = bShadowDepth
+			? State->ShadowPipelines : State->Pipelines;
+		auto& PipelineEntry = PipelineCache.FindOrAdd(EffectivePipelineKey);
 		FRenderResourceGeneration Generation =
 			Coordinator.GetGeneration_RenderThread();
 		Generation.Shader = ShaderEntry.Slot.GetPayloadGeneration().Shader;
 		FState::FPipelinePayload* Pipeline = PipelineEntry.Slot.Resolve(
 			Generation,
-			[&Item, &PipelineEntry, ShaderPayload,
+			[&EffectivePipelineKey, &PipelineEntry, ShaderPayload,
+			 bShadowDepth,
 				VertexFactory = Primitive.VertexFactory]() -> FPipelineResult {
 				FState::FPipelinePayload Candidate;
 				Candidate.ShaderMap = ShaderPayload->ShaderMap;
 				Candidate.VertexShader = ShaderPayload->VertexShader;
 				Candidate.FragmentShader = ShaderPayload->FragmentShader;
 				FGraphicsPipelineStateInitializer Initializer;
-				Initializer.RenderTargetLayout = RenderTargetLayouts::MakeSceneTargets();
+				Initializer.RenderTargetLayout = bShadowDepth
+					? RenderTargetLayouts::MakeDirectionalShadowDepth()
+					: RenderTargetLayouts::MakeSceneTargets();
 				Initializer.BoundShaders.VertexShader =
 					Candidate.VertexShader.GetRHIShader();
 				Initializer.BoundShaders.FragmentShader =
 					Candidate.FragmentShader.GetRHIShader();
 				Initializer.VertexDeclaration = VertexFactory->GetDeclaration();
-				Initializer.RasterizerState = Item.PipelineKey.Rasterizer;
-				Initializer.DepthStencilState = Item.PipelineKey.Depth;
-				Initializer.ColorBlendStates[0] = Item.PipelineKey.ColorBlend;
+				Initializer.RasterizerState = EffectivePipelineKey.Rasterizer;
+				Initializer.DepthStencilState = EffectivePipelineKey.Depth;
+				if (!bShadowDepth)
+					Initializer.ColorBlendStates[0] = EffectivePipelineKey.ColorBlend;
 				Initializer.PipelineLayout =
 					Candidate.ShaderMap->GetMergedPipelineLayout();
 				Candidate.PipelineState = GDynamicRHI->RHICreateGraphicsPipelineState(
@@ -1842,7 +1971,7 @@ namespace Durin
 				if (Candidate.PipelineState == nullptr)
 					return FPipelineResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::GraphicsPipeline,
-						"SkeletalMeshPipeline", GetIdentityText(Item.PipelineKey),
+						"SkeletalMeshPipeline", GetIdentityText(EffectivePipelineKey),
 						"Graphics pipeline creation returned null.",
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device));
@@ -1965,6 +2094,86 @@ namespace Durin
 		return PreparedView.ResourcePreparationRejectedDraws == 0;
 	}
 
+	auto FSkeletalMeshRenderer::PrepareShadowResources_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		const FPreparedSkeletalMeshView& BaseView,
+		FPreparedSkeletalMeshView& PreparedView) -> bool
+	{
+		check(!CommandList.IsInsideRenderPass());
+		check(BaseView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
+		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::Prepared);
+		check(PreparedView.Translucent.empty());
+		EnsureBaseResources_RenderThread();
+		for (FPreparedSkeletalMeshPrimitive& Primitive : PreparedView.Primitives)
+		{
+			const auto Match = std::ranges::find_if(
+				BaseView.Primitives,
+				[&Primitive](const FPreparedSkeletalMeshPrimitive& Candidate) {
+					return Candidate.PrimitiveId == Primitive.PrimitiveId
+						&& Candidate.Pose != nullptr && Primitive.Pose != nullptr
+						&& Candidate.Pose->Revision == Primitive.Pose->Revision;
+				});
+			if (Match != BaseView.Primitives.end()
+				&& Match->PaletteRange.Buffer != nullptr)
+			{
+				Primitive.PaletteRange = Match->PaletteRange;
+				++PreparedView.ReusedPalettes;
+			}
+			else
+			{
+				++PreparedView.RejectedPalettes;
+			}
+		}
+		for (auto* Bucket : {&PreparedView.Opaque, &PreparedView.Masked})
+		{
+			for (FPreparedSkeletalMeshDraw& Draw : *Bucket)
+			{
+				++PreparedView.ResourcePreparationAttemptedDraws;
+				const FPreparedSkeletalMeshPrimitive* Primitive =
+					PreparedView.GetPrimitive(Draw);
+				Draw.bResourcesReady = Primitive != nullptr
+					&& Primitive->PaletteRange.Buffer != nullptr
+					&& EnsureSectionResources_RenderThread(*Primitive, Draw, true);
+				PreparedView.ResourcePreparationSuccessfulDraws +=
+					Draw.bResourcesReady ? 1u : 0u;
+			}
+		}
+		PreparedView.ResourcePreparationRejectedDraws =
+			PreparedView.ResourcePreparationAttemptedDraws
+				- PreparedView.ResourcePreparationSuccessfulDraws;
+		PreparedView.Phase = EPreparedSkeletalMeshPhase::ResourcesPrepared;
+		return PreparedView.ResourcePreparationRejectedDraws == 0;
+	}
+
+	auto FSkeletalMeshRenderer::ExecuteShadow_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		const FSceneView& ShadowView,
+		const FRHIUniformBufferRange& FallbackLighting,
+		FPreparedSkeletalMeshView& PreparedView) -> void
+	{
+		check(CommandList.IsInsideRenderPass());
+		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
+		for (const auto* Bucket : {&PreparedView.Opaque, &PreparedView.Masked})
+		{
+			for (const FPreparedSkeletalMeshDraw& Draw : *Bucket)
+			{
+				++PreparedView.AttemptedDraws;
+				const FPreparedSkeletalMeshPrimitive* Primitive =
+					PreparedView.GetPrimitive(Draw);
+				if (Primitive != nullptr && Draw.bResourcesReady
+					&& DrawSection_RenderThread(
+						CommandList, ShadowView, FallbackLighting,
+						ERenderMode::Unlit, *Primitive, Draw, true))
+					++PreparedView.SuccessfulDraws;
+				else
+					++PreparedView.RejectedDraws;
+			}
+		}
+		PreparedView.Phase = EPreparedSkeletalMeshPhase::Executed;
+		check(PreparedView.AttemptedDraws
+			== PreparedView.SuccessfulDraws + PreparedView.RejectedDraws);
+	}
+
 	auto FSkeletalMeshRenderer::Execute_RenderThread(
 		FRHICommandListImmediate& CommandList, const FSceneView& View,
 		const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode,
@@ -2070,7 +2279,8 @@ namespace Durin
 		FRHICommandListImmediate& CommandList, const FSceneView& View,
 		const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode,
 		const FPreparedSkeletalMeshPrimitive& Primitive,
-		const FPreparedSkeletalMeshDraw& Item) -> bool
+		const FPreparedSkeletalMeshDraw& Item,
+		bool bShadowDepth) -> bool
 	{
 		const FSkeletalMeshRenderData& Data = *Primitive.RenderData;
 		const FSkeletalMeshRenderSection& Section = *Item.Section;
@@ -2092,7 +2302,12 @@ namespace Durin
 		Primitive.VertexFactory->BindStreams(CommandList);
 		CommandList.BindIndexBuffer(Data.IndexBuffer.GetRHI(), 0);
 		FState::FBaseResources* Base = State->BaseResources.GetPayload();
-		auto* PipelineEntry = State->Pipelines.Find(Item.PipelineKey);
+		const FEffectiveStaticMeshPipelineKey EffectivePipelineKey =
+			bShadowDepth ? MakeShadowPipelineKey(Item.PipelineKey)
+				: Item.PipelineKey;
+		auto* PipelineEntry = bShadowDepth
+			? State->ShadowPipelines.Find(EffectivePipelineKey)
+			: State->Pipelines.Find(EffectivePipelineKey);
 		FState::FPipelinePayload* Pipeline = PipelineEntry != nullptr
 			? PipelineEntry->Slot.GetPayload() : nullptr;
 		if (Base == nullptr || Pipeline == nullptr) return false;
@@ -2176,6 +2391,13 @@ namespace Durin
 			? Brdf : DefaultTextures.Get_RenderThread(EDefaultTexture::Black);
 		FragmentParameters.EnvironmentSampler = bEnvironment
 			? EnvironmentSampler : Samplers[0];
+		FragmentParameters.DirectionalShadowTexture =
+			Item.DirectionalShadowTexture != nullptr
+				? Item.DirectionalShadowTexture
+				: DefaultTextures.Get_RenderThread(EDefaultTexture::White);
+		FragmentParameters.DirectionalShadowSampler =
+			Item.DirectionalShadowSampler != nullptr
+				? Item.DirectionalShadowSampler : Samplers[0];
 		SetShaderParameters(CommandList, Pipeline->FragmentShader,
 			FragmentParameters);
 		CommandList.DrawIndexed(Section.IndexCount, Section.FirstIndex, 0);
@@ -2187,5 +2409,6 @@ namespace Durin
 		State->BaseResources.Reset();
 		State->ShaderMaps.Reset();
 		State->Pipelines.Reset();
+		State->ShadowPipelines.Reset();
 	}
 } // namespace Durin

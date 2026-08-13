@@ -11,6 +11,7 @@ import VertexFactory.SplineMeshVertexFactory;
 import VertexFactory.SkeletalMeshVertexFactory;
 #endif
 import Lighting.PBRLighting;
+import Lighting.DirectionalShadow;
 
 // Static mesh material foundation shader.
 
@@ -50,6 +51,8 @@ struct LightingUniform
     uint4 Counts;
     float4 DirectionalDirection;
     float4 DirectionalColorIntensity;
+    float4x4 DirectionalShadowWorldToTexture;
+    float4 DirectionalShadowParams;
     LocalLightUniform Local[4];
 };
 
@@ -110,6 +113,8 @@ struct TerrainUniform
 #if DURIN_SPLINE_MESH
 [[vk::binding(24, 0)]] ConstantBuffer<FSplineMeshUniform> SplineMesh;
 #endif
+[[vk::binding(25, 0)]] Texture2D<float> DirectionalShadowTexture;
+[[vk::binding(26, 0)]] SamplerComparisonState DirectionalShadowSampler;
 
 [shader("vertex")]
 #if DURIN_TERRAIN
@@ -301,8 +306,15 @@ float4 FragmentMain(VSOutput input) : SV_Target
         float3 toLight = SafeNormal(-Lighting.DirectionalDirection.xyz);
         float3 radiance = Lighting.DirectionalColorIntensity.rgb
             * Lighting.DirectionalColorIntensity.a;
+        float shadow = SampleDirectionalShadow(
+            input.worldPosition,
+            Lighting.DirectionalShadowWorldToTexture,
+            Lighting.DirectionalShadowParams,
+            DirectionalShadowTexture,
+            DirectionalShadowSampler);
         direct += EvaluatePBRDirectLighting(
-            baseColor, metallic, roughness, normal, toLight, toView, radiance);
+            baseColor, metallic, roughness, normal, toLight, toView, radiance)
+            * shadow;
     }
     [unroll]
     for (uint lightIndex = 0u; lightIndex < 4u; ++lightIndex)

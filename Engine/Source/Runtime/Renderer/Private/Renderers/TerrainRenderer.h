@@ -26,6 +26,14 @@ namespace Durin
 
 		auto PrepareResources_RenderThread(FRHICommandListImmediate& CommandList,
 			FPreparedTerrainView& View) -> bool;
+		auto PrepareShadowResources_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			FPreparedTerrainView& View) -> bool;
+		auto ExecuteShadow_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			const FSceneView& ShadowView,
+			const FRHIUniformBufferRange& FallbackLighting,
+			FPreparedTerrainView& View) -> void;
 		auto ExecutePass_RenderThread(FRHICommandListImmediate& CommandList,
 			const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting,
 			ERenderMode RenderMode, EStaticMeshBasePass Pass,
@@ -39,10 +47,12 @@ namespace Durin
 
 	private:
 		auto EnsureDrawResources_RenderThread(FRHICommandListImmediate& CommandList,
-			FPreparedTerrainDraw& Draw, FPreparedTerrainView& View) -> bool;
+			FPreparedTerrainDraw& Draw, FPreparedTerrainView& View,
+			bool bShadowDepth = false) -> bool;
 		auto Draw_RenderThread(FRHICommandListImmediate& CommandList,
 			const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting,
-			ERenderMode RenderMode, const FPreparedTerrainDraw& Draw) -> bool;
+			ERenderMode RenderMode, const FPreparedTerrainDraw& Draw,
+			bool bShadowDepth = false) -> bool;
 		struct FState;
 		FRendererResourceCoordinator& Coordinator;
 		FDefaultTextureResources& DefaultTextures;

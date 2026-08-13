@@ -37,6 +37,14 @@ namespace Durin
 		auto PrepareResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			FPreparedStaticMeshView& PreparedView) -> bool;
+		auto PrepareShadowResources_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			FPreparedStaticMeshView& PreparedView) -> bool;
+		auto ExecuteShadow_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			const FSceneView& ShadowView,
+			const FRHIUniformBufferRange& FallbackLighting,
+			FPreparedStaticMeshView& PreparedView) -> void;
 		auto Execute_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
@@ -64,12 +72,14 @@ namespace Durin
 			const FRHIUniformBufferRange& Lighting,
 			ERenderMode RenderMode,
 			const FPreparedStaticMeshPrimitive& Primitive,
-			const FPreparedStaticMeshDraw& Item
+			const FPreparedStaticMeshDraw& Item,
+			bool bShadowDepth = false
 		) -> bool;
 		auto EnsureBaseResources_RenderThread() -> bool;
 		auto EnsureSectionResources_RenderThread(
 			const FPreparedStaticMeshPrimitive& Primitive,
-			const FPreparedStaticMeshDraw& Item) -> bool;
+			const FPreparedStaticMeshDraw& Item,
+			bool bShadowDepth = false) -> bool;
 		struct FState;
 
 		FRendererResourceCoordinator& Coordinator;

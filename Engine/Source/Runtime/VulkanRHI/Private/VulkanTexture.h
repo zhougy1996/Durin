@@ -39,6 +39,10 @@ namespace Durin::VulkanRHI
 		{
 			return Allocation.Class;
 		}
+		auto GetBackendAllocationBytes() const -> uint64 override
+		{
+			return static_cast<uint64>(Allocation.GetSize());
+		}
 		VULKANRHI_API auto GetMemoryPropertyFlags() const -> vk::MemoryPropertyFlags;
 
 		vk::Image Image{};

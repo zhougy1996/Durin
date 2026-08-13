@@ -33,6 +33,8 @@ namespace Durin
 		FStaticMeshDrawSortKey SortKey;
 		bool bCastsShadow = false;
 		bool bResourcesReady = false;
+		FRHITexture* DirectionalShadowTexture = nullptr;
+		FRHISampler* DirectionalShadowSampler = nullptr;
 	};
 
 	enum class EPreparedSkeletalMeshPhase : uint8

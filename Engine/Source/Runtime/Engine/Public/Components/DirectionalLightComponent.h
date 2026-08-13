@@ -19,6 +19,7 @@ namespace Durin
 		ENGINE_API auto SetIntensity(float InIntensity) -> void;
 		ENGINE_API auto SetAmbientIntensity(float InIntensity) -> void;
 		ENGINE_API auto SetRimLightIntensity(float InIntensity) -> void;
+		ENGINE_API auto SetCastShadows(bool bInCastShadows) -> void;
 
 	protected:
 		auto CreateSceneProxy() const -> std::unique_ptr<FLightSceneProxy> override;
@@ -32,6 +33,9 @@ namespace Durin
 
 		DPROPERTY(Edit)
 		float AmbientIntensity = 0.08f;
+
+		DPROPERTY(Edit)
+		bool bCastShadows = true;
 
 		// Editor preview assistance. Runtime directional lights leave this disabled.
 		float RimLightIntensity = 0.0f;

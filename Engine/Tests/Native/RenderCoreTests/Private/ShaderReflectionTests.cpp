@@ -184,7 +184,7 @@ namespace Durin
 			ERHIBindingType::UniformBuffer,
 			EShaderStageFlags::Vertex);
 		ASSERT_EQ(
-			FragmentShader.Reflection.ResourceBindings.size(), 22u);
+			FragmentShader.Reflection.ResourceBindings.size(), 24u);
 		ExpectBinding(
 			FragmentShader,
 			"Lighting",
@@ -249,6 +249,10 @@ namespace Durin
 			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
 		ExpectBinding(FragmentShader, "EnvironmentSampler", 22,
 			ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "DirectionalShadowTexture", 25,
+			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "DirectionalShadowSampler", 26,
+			ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
 
 		FPipelineLayoutDesc PipelineLayout;
 		std::string ErrorMessage;
@@ -259,15 +263,15 @@ namespace Durin
 		ASSERT_EQ(PipelineLayout.BindingLayouts.size(), 1u);
 		const auto& SetLayout =
 			PipelineLayout.BindingLayouts[0].BindingLayouts;
-		ASSERT_EQ(SetLayout.size(), 23u);
-		for (uint32 BindingIndex = 0;
-			BindingIndex < SetLayout.size();
-			++BindingIndex)
+		ASSERT_EQ(SetLayout.size(), 25u);
+		for (uint32 BindingIndex = 0; BindingIndex <= 22; ++BindingIndex)
 		{
 			EXPECT_EQ(
 				SetLayout[BindingIndex].Slot,
 				BindingIndex);
 		}
+		EXPECT_EQ(SetLayout[23].Slot, 25u);
+		EXPECT_EQ(SetLayout[24].Slot, 26u);
 		EXPECT_EQ(
 			SetLayout[0].Type,
 			ERHIBindingType::UniformBuffer);
@@ -305,6 +309,10 @@ namespace Durin
 		}
 		EXPECT_EQ(SetLayout[22].Type, ERHIBindingType::Sampler);
 		EXPECT_EQ(SetLayout[22].StageFlags, EShaderStageFlags::Fragment);
+		EXPECT_EQ(SetLayout[23].Type, ERHIBindingType::Texture);
+		EXPECT_EQ(SetLayout[23].StageFlags, EShaderStageFlags::Fragment);
+		EXPECT_EQ(SetLayout[24].Type, ERHIBindingType::Sampler);
+		EXPECT_EQ(SetLayout[24].StageFlags, EShaderStageFlags::Fragment);
 		EXPECT_TRUE(PipelineLayout.PushConstantRanges.empty());
 	}
 
@@ -331,6 +339,10 @@ namespace Durin
 		ExpectBinding(Vertex, "Transform", 0, ERHIBindingType::UniformBuffer, EShaderStageFlags::Vertex);
 		ExpectBinding(Vertex, "HeightTexture", 23, ERHIBindingType::Texture, EShaderStageFlags::Vertex);
 		ExpectBinding(Vertex, "Terrain", 24, ERHIBindingType::UniformBuffer, EShaderStageFlags::Vertex);
-		EXPECT_EQ(Output.CompiledShaders[1].Reflection.ResourceBindings.size(), 22u);
+		EXPECT_EQ(Output.CompiledShaders[1].Reflection.ResourceBindings.size(), 24u);
+		ExpectBinding(Output.CompiledShaders[1], "DirectionalShadowTexture", 25,
+			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Output.CompiledShaders[1], "DirectionalShadowSampler", 26,
+			ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
 	}
 } // namespace Durin

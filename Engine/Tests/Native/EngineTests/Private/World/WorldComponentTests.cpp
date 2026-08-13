@@ -7,6 +7,7 @@ TEST(FDirectionalLightTests, SceneDataRemainsDarkUntilPopulatedByAComponent)
 	Durin::FDirectionalLightSceneData SceneData;
 	EXPECT_FLOAT_EQ(SceneData.Intensity, 0.0f);
 	EXPECT_FLOAT_EQ(SceneData.AmbientIntensity, 0.0f);
+	EXPECT_TRUE(SceneData.bCastShadows);
 
 	Durin::DWorld* World = CreateWorld();
 	Durin::ADirectionalLightActor* Light = World->SpawnActor<Durin::ADirectionalLightActor>("DirectionalLight");
@@ -14,6 +15,7 @@ TEST(FDirectionalLightTests, SceneDataRemainsDarkUntilPopulatedByAComponent)
 	SceneData = Light->GetLightComponent()->GetSceneData();
 	EXPECT_FLOAT_EQ(SceneData.Intensity, 1.0f);
 	EXPECT_FLOAT_EQ(SceneData.AmbientIntensity, 0.08f);
+	EXPECT_TRUE(SceneData.bCastShadows);
 	EXPECT_EQ(SceneData.Color, Durin::FVector3f(1.0f));
 
 	Durin::FProperty* ColorProperty = Durin::DDirectionalLightComponent::StaticClass()->FindPropertyByName("Color");
@@ -23,6 +25,12 @@ TEST(FDirectionalLightTests, SceneDataRemainsDarkUntilPopulatedByAComponent)
 	*Color = Durin::FLinearColor(-0.25f, 0.25f, 1.25f, 0.1f);
 	SceneData = Light->GetLightComponent()->GetSceneData();
 	EXPECT_EQ(SceneData.Color, Durin::FVector3f(0.0f, 0.25f, 1.0f));
+	Light->GetLightComponent()->SetCastShadows(false);
+	EXPECT_FALSE(Light->GetLightComponent()->GetSceneData().bCastShadows);
+	EXPECT_NE(
+		Durin::DDirectionalLightComponent::StaticClass()->FindPropertyByName(
+			"bCastShadows"),
+		nullptr);
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
@@ -48,6 +56,7 @@ TEST(FDirectionalLightTests, LinearColorRoundTripsThroughLevelAssets)
 	Durin::FProperty* ColorProperty = Durin::DDirectionalLightComponent::StaticClass()->FindPropertyByName("Color");
 	ASSERT_NE(ColorProperty, nullptr);
 	*ColorProperty->ContainerPtrToValuePtr<Durin::FLinearColor>(Light->GetLightComponent()) = Durin::FLinearColor(0.1f, 0.35f, 0.8f, 1.0f);
+	Light->GetLightComponent()->SetCastShadows(false);
 
 	ASSERT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
@@ -60,6 +69,7 @@ TEST(FDirectionalLightTests, LinearColorRoundTripsThroughLevelAssets)
 	EXPECT_NEAR(SceneData.Color.r, 0.1f, 1.e-6f);
 	EXPECT_NEAR(SceneData.Color.g, 0.35f, 1.e-6f);
 	EXPECT_NEAR(SceneData.Color.b, 0.8f, 1.e-6f);
+	EXPECT_FALSE(SceneData.bCastShadows);
 	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
 }
 

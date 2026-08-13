@@ -49,6 +49,8 @@ namespace Durin
 		float AmbientIntensity = 0.0f;
 		// Optional view-facing edge light used by editor preview scenes.
 		float RimLightIntensity = 0.0f;
+		// Authored participation copied through the detached render-scene snapshot.
+		bool bCastShadows = true;
 	};
 
 	// Captures renderer-facing point-light state in world space.

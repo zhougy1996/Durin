@@ -4,12 +4,13 @@ Summary: Expand the current static-mesh forward renderer into a pass-classified,
 
 Last reviewed: 2026-08-13
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-13
 
 ## Current Status
 
-Durin has two production scene-geometry paths: StaticMesh through
+M1 through M6 and this roadmap are complete. Durin has two production
+scene-geometry paths: StaticMesh through
 `FStaticMeshSceneProxy`/`FLocalVertexFactory` and SkeletalMesh through
 `FSkeletalMeshSceneProxy`/`FSkeletalMeshVertexFactory`. Both are prepared and
 executed by the shared scene renderer and family-owned renderer resources.
@@ -80,15 +81,19 @@ the production `1 + 4` tier passed at 0.602 ms incremental across 120 measured
 asset baseline, and editor smoke pass. M6's M5 dependency gate is open; entry
 now has a selected directional-shadow quality and memory candidate.
 
-M6 activated on 2026-08-13 through the
+M6 completed on 2026-08-13 through the
 [Directional Shadow Pipeline Plan](../Plans/DirectionalShadowPipeline.md).
-Stage 0 is freezing the exact fitting, caster-volume, bias, fixture, and
-measurement contracts around one 2048x2048 D32 map, a 16 MiB logical texture
-budget, a 256-world-unit receiver distance, one hardware linear comparison
-sample, and a 2.0 ms combined median incremental gate on the GTX 1060. Because
-Terrain became a production geometry family after this roadmap was drafted,
-M6 includes its Opaque and Masked patches beside StaticMesh, SplineMesh, and
-SkeletalMesh rather than leaving an undocumented caster/receiver exception.
+One 2048x2048 D32 map casts and samples Opaque/Masked StaticMesh, SplineMesh,
+SkeletalMesh, and Terrain through detached per-view preparation. Its 16 MiB
+logical and backend allocation passed, and the frozen 120-frame GTX 1060
+fixture measured a 0.031 ms combined median increment against the 2.0 ms gate.
+Perspective/orthographic fitting, off-camera casters, masked coverage,
+deformation, sequential views, recovery, Vulkan validation, Debug/Shipping
+builds, Cook, and editor smoke passed. Lasting behavior is recorded in
+[Directional Shadows](../Runtime/Rendering/DirectionalShadows.md).
+All conditional feature and scalable-frame branches below remain explicitly
+deferred behind their recorded product/profile activation evidence; none was
+required to close the bounded forward-rendering program.
 
 ## Outcome
 
@@ -291,7 +296,7 @@ flowchart LR
 | M3: Per-view visibility and LOD | Required; complete | [PerViewVisibilityAndLOD](../Plans/Archive/2026-08/PerViewVisibilityAndLOD.md) | M1 proxy bounds; M2 pass buckets | Frustum culling, deterministic LOD selection, prepared draw lists, sort/state keys, and counters. | Met: bounds semantics, pass inputs, projection/LOD policy, representative assets, and comparison views were frozen before production defaults. | Passed: invisible primitives issue no base-pass draw, LOD thresholds and ordering are deterministic, and counters reconcile submitted, culled, selected, prepared, resource, and execution work across qualified viewport paths. |
 | M4: Second production primitive family | Completed 2026-08-11 | [Skeletal Mesh Rendering](../Plans/Archive/2026-08/SkeletalMeshRendering.md) | M2-M3 shared pass and visibility contracts; Skeletal S1-S2; completed RHI Graphics State and Bindings handoff | GPU-skinned SkeletalMesh with coherent pose/bounds snapshots, bounded palette transport, a second vertex factory, and shared material/pass/viewport participation. | Met on 2026-08-10: prerequisites, selected family, budgets, fixtures, and gaps were frozen before implementation. | Passed: SkeletalMesh reuses scene mutation, visibility, pass, material, invalidation, and viewport contracts without a parallel frame renderer or whole-scene RTTI scan; Debug/Shipping Vulkan, full build, and editor smoke are green. |
 | M5: Renderer-owned multi-light scene | Required; complete | [RendererLightSceneContract](../Plans/RendererLightSceneContract.md) | M1 detached light mutation | Directional, point, and spot Proxy/SceneInfo types, typed collections, visibility inputs, bounded GPU-facing light data, and explicit versions only for independently reordered work. | Met on 2026-08-12: M1 removed component reads; GTX 1060 evidence rejected `1 + 8` and qualified one directional plus four combined local lights per view at 0.602 ms incremental. | Add/update/remove order is deterministic; no render-thread object read occurs; multiple view renders consume identical scene state; point/spot falloff has focused and image coverage. |
-| M6: Directional shadow pipeline | Required; active | [DirectionalShadowPipeline](../Plans/DirectionalShadowPipeline.md) | M2 pass state, M3 visibility/draw lists, M4 second-family participation, M5 light snapshots | Shadow-depth target/layout, caster classification, masked caster behavior, directional shadow matrices, bias/filtering, lifetime, diagnostics, and lighting sampling. | Met on 2026-08-13: M2-M5 are stable and the active plan selected one 2048x2048 D32, 16 MiB candidate with a 2.0 ms target-GPU qualification gate. | StaticMesh, SplineMesh, SkeletalMesh, and Terrain cast and receive deterministic shadows; masked coverage, camera/light motion, multi-view reuse, invalidation, performance/memory gates, and Vulkan validation pass without whole-device idle waits. |
+| M6: Directional shadow pipeline | Required; complete | [DirectionalShadowPipeline](../Plans/DirectionalShadowPipeline.md) | M2 pass state, M3 visibility/draw lists, M4 second-family participation, M5 light snapshots | Shadow-depth target/layout, caster classification, masked caster behavior, directional shadow matrices, bias/filtering, lifetime, diagnostics, and lighting sampling. | Met on 2026-08-13: M2-M5 were stable and the plan selected one 2048x2048 D32, 16 MiB candidate with a 2.0 ms target-GPU qualification gate. | Passed on 2026-08-13: all four geometry families cast/receive; recovery and Vulkan gates pass; the GTX 1060 combined increment is 0.031 ms and logical/backend bytes are 16 MiB. |
 
 M1 through M6 define the required roadmap. M4 intentionally requires one
 selected second family rather than SkeletalMesh by name: SkeletalMesh is the

@@ -8,6 +8,7 @@
 #include "RenderingThread.h"
 #include "Renderers/SceneVisibility.h"
 #include "Renderers/ForwardLighting.h"
+#include "Renderers/DirectionalShadowView.h"
 #include "Scene.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -113,6 +114,54 @@ TEST(FRendererSceneContractTests, ViewRenderOptionsDefaultToNoEnvironmentOverrid
 	EXPECT_EQ(Environment.Rotation, Durin::FQuat(1.0, 0.0, 0.0, 0.0));
 	EXPECT_EQ(Environment.Tint, Durin::FVector3f(1.0f));
 	EXPECT_EQ(Environment.Intensity, 1.0f);
+}
+
+TEST(FRendererSceneContractTests,
+	DirectionalShadowCandidatesStartFromSceneAndKeepRelevantOffCameraCasters)
+{
+	FRenderingThreadScope RenderingThread;
+	Durin::FScene Scene;
+	Durin::FStaticMeshRenderData RenderData;
+	RenderData.LocalBounds = Durin::FBox(
+		Durin::FVector3(-0.25), Durin::FVector3(0.25));
+	auto Add = [&](Durin::uint64 Id, const Durin::FVector3& Position) {
+		Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(Id),
+			std::make_unique<Durin::FStaticMeshSceneProxy>(
+				&RenderData, std::vector<Durin::FMaterialRenderProxyRef>{}, 0),
+			glm::translate(Durin::FMatrix(1.0), Position));
+	};
+	Add(1, {3.0, 0.0, 0.0});
+	Add(2, {3.0, 10.0, 0.0});
+	Add(3, {3.0, 1000.0, 0.0});
+	Durin::FlushRenderingCommands();
+	Durin::FSceneView View;
+	View.ProjectionMatrix = MakePerspectiveProjection();
+	View.ViewProjectionMatrix = View.ProjectionMatrix;
+	View.ViewportWidth = 1920;
+	View.ViewportHeight = 1080;
+	Durin::FViewRenderCounters CameraCounters;
+	const Durin::FSceneVisibilityResult Camera =
+		Durin::PrepareSceneVisibility(Scene, View, CameraCounters);
+	ASSERT_EQ(Camera.StaticMeshSceneInfos.size(), 1u);
+	EXPECT_EQ(Camera.StaticMeshSceneInfos.front()->GetId().Value, 1u);
+
+	Durin::FDirectionalLightSceneData Light;
+	Light.Direction = {0.0, 0.0, -1.0};
+	Light.Intensity = 1.0f;
+	Durin::FPreparedDirectionalShadowView Shadow;
+	ASSERT_TRUE(Durin::TryPrepareDirectionalShadowView(
+		View, Durin::FLightSceneId(8), Light, Shadow));
+	const Durin::FDirectionalShadowCasterCandidates Casters =
+		Durin::PrepareDirectionalShadowCasterCandidates(Scene, Shadow);
+	ASSERT_EQ(Casters.StaticMeshes.size(), 2u);
+	EXPECT_EQ(Casters.StaticMeshes[0]->GetId().Value, 1u);
+	EXPECT_EQ(Casters.StaticMeshes[1]->GetId().Value, 2u);
+	EXPECT_EQ(Casters.Culled, 1u);
+	const Durin::FDirectionalShadowCasterCandidates Comparison =
+		Durin::PrepareDirectionalShadowCasterCandidates(Scene, Shadow, true);
+	EXPECT_EQ(Comparison.StaticMeshes.size(), 3u);
+	Scene.Release();
+	Durin::FlushRenderingCommands();
 }
 
 TEST(FRendererSceneContractTests, PrimitiveMembershipOwnsClassificationBoundsAndFifoLifetime)

@@ -600,6 +600,8 @@ namespace Durin
 		auto GetNumMips() const -> uint8 { return NumMips; }
 		auto GetNumSamples() const -> uint8 { return NumSamples; }
 		auto GetFlags() const -> ETextureCreateFlags { return Flags; }
+		// Backend allocation including alignment when the implementation exposes it.
+		virtual auto GetBackendAllocationBytes() const -> uint64 { return 0; }
 
 	protected:
 		explicit FRHITexture(ERHIResourceType InResourceType)

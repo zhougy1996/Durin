@@ -30,6 +30,22 @@ namespace Durin
 		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.FinalAccess, ERHIAccess::ColorAttachmentReadWrite);
 	}
 
+	TEST(FRendererRenderTargetLayoutTests,
+		DirectionalShadowDepthPublishesStoredD32ForFragmentSampling)
+	{
+		const FRHIRenderTargetLayout Layout = MakeDirectionalShadowDepth();
+		EXPECT_EQ(Layout.NumColorRenderTargets, 0u);
+		ASSERT_TRUE(Layout.bHasDepthStencil);
+		const FRHIAttachmentLayout& Depth = Layout.DepthStencilAttachment;
+		EXPECT_EQ(Depth.Format, EPixelFormat::D32);
+		EXPECT_EQ(Depth.LoadAction, ERHIRenderTargetLoadAction::Clear);
+		EXPECT_EQ(Depth.StoreAction, ERHIRenderTargetStoreAction::Store);
+		EXPECT_EQ(Depth.InitialLayout, ERHITextureLayout::Undefined);
+		EXPECT_EQ(Depth.InitialAccess, ERHIAccess::None);
+		EXPECT_EQ(Depth.FinalLayout, ERHITextureLayout::ShaderReadOnly);
+		EXPECT_EQ(Depth.FinalAccess, ERHIAccess::GraphicsShaderRead);
+	}
+
 	TEST(FRendererRenderTargetLayoutTests, FinalScenePostProcessOwnsOutputTransition)
 	{
 		const FRHIRenderTargetLayout Offscreen =

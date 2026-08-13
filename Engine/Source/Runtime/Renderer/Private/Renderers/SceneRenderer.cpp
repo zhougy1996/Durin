@@ -1,6 +1,7 @@
 #include "Renderers/SceneRenderer.h"
 #include "Renderers/PreparedSceneView.h"
 #include "Renderers/ForwardLighting.h"
+#include "Renderers/DirectionalShadowView.h"
 #include "Renderers/TerrainRenderPreparation.h"
 #include "Renderers/SceneRendererProfiling.h"
 
@@ -160,6 +161,7 @@ namespace Durin
 	FSceneRenderer::FSceneRenderer()
 		: DefaultTextures(Coordinator)
 		, EnvironmentLighting(Coordinator)
+		, DirectionalShadowRenderer(Coordinator)
 		, StaticMeshRenderer(Coordinator, DefaultTextures, EnvironmentLighting)
 		, TerrainRenderer(Coordinator, DefaultTextures, EnvironmentLighting)
 		, SkeletalMeshRenderer(Coordinator, DefaultTextures, EnvironmentLighting)
@@ -220,6 +222,7 @@ namespace Durin
 		StaticMeshRenderer.ReleaseResources_RenderThread();
 		TerrainRenderer.ReleaseResources_RenderThread();
 		SkeletalMeshRenderer.ReleaseResources_RenderThread();
+		DirectionalShadowRenderer.ReleaseResources_RenderThread();
 		Coordinator.ReleaseResources_RenderThread();
 		SkyBoxRenderer.ReleaseResources_RenderThread();
 		EditorAssistanceRenderer.ReleaseResources_RenderThread();
@@ -285,6 +288,7 @@ namespace Durin
 						StaticMeshRenderer.ReleaseResources_RenderThread();
 						TerrainRenderer.ReleaseResources_RenderThread();
 						SkeletalMeshRenderer.ReleaseResources_RenderThread();
+						DirectionalShadowRenderer.ReleaseResources_RenderThread();
 						SkyBoxRenderer.ReleaseResources_RenderThread();
 						PostProcessRenderer.ReleaseResources_RenderThread();
 						EditorAssistanceRenderer.
@@ -396,6 +400,69 @@ namespace Durin
 			}
 			PreparedView.Lights = PrepareLightView_RenderThread(
 				*Scene, RenderView, PreparedView.Counters);
+			if (!PreparedView.Lights.Directional.empty())
+			{
+				++PreparedView.Counters.ShadowSelectedLights;
+				const FPreparedDirectionalLight& Selected =
+					PreparedView.Lights.Directional.front();
+				if (TryPrepareDirectionalShadowView(
+						RenderView, Selected.Id, Selected.Data,
+						PreparedView.DirectionalShadow))
+				{
+					++PreparedView.Counters.ShadowValidReceiverViews;
+					const FDirectionalShadowCasterCandidates Casters =
+						PrepareDirectionalShadowCasterCandidates(
+							*Scene, PreparedView.DirectionalShadow);
+					PreparedView.Counters.ShadowSubmittedCasters = Casters.Submitted;
+					PreparedView.Counters.ShadowHiddenCasters = Casters.Hidden;
+					PreparedView.Counters.ShadowCulledCasters = Casters.Culled;
+					PreparedView.Counters.ShadowInvalidBoundsFallbacks =
+						Casters.InvalidBoundsFallbacks;
+					PreparedView.ShadowStaticMeshes =
+						PrepareStaticMeshView_RenderThread(
+							CommandList, Casters.StaticMeshes,
+							PreparedView.DirectionalShadow.CasterView,
+							ERasterMode::Solid, Casters.SplineMeshes);
+					PreparedView.ShadowSkeletalMeshes =
+						PrepareSkeletalMeshView_RenderThread(
+							CommandList, Casters.SkeletalMeshes,
+							PreparedView.DirectionalShadow.CasterView,
+							ERasterMode::Solid);
+					PreparedView.ShadowTerrains = PrepareTerrainView_RenderThread(
+						Casters.Terrains,
+						PreparedView.DirectionalShadow.CasterView,
+						ERasterMode::Solid);
+					// Translucent surfaces never enter the M6 shadow draw lists.
+					PreparedView.ShadowStaticMeshes.SelectedSections -=
+						PreparedView.ShadowStaticMeshes.TranslucentSections;
+					PreparedView.ShadowStaticMeshes.SelectedTriangles -=
+						PreparedView.ShadowStaticMeshes.TranslucentTriangles;
+					PreparedView.ShadowStaticMeshes.Translucent.clear();
+					PreparedView.ShadowStaticMeshes.TranslucentSections = 0;
+					PreparedView.ShadowStaticMeshes.TranslucentTriangles = 0;
+					PreparedView.ShadowSkeletalMeshes.SelectedSections -=
+						PreparedView.ShadowSkeletalMeshes.TranslucentSections;
+					PreparedView.ShadowSkeletalMeshes.SelectedTriangles -=
+						PreparedView.ShadowSkeletalMeshes.TranslucentTriangles;
+					PreparedView.ShadowSkeletalMeshes.Translucent.clear();
+					PreparedView.ShadowSkeletalMeshes.TranslucentSections = 0;
+					PreparedView.ShadowSkeletalMeshes.TranslucentTriangles = 0;
+					PreparedView.ShadowTerrains.Translucent.clear();
+					PreparedView.Counters.ShadowPreparedStaticMeshCasters =
+						PreparedView.ShadowStaticMeshes.PreparedLocalPrimitives;
+					PreparedView.Counters.ShadowPreparedSplineMeshCasters =
+						PreparedView.ShadowStaticMeshes.PreparedSplinePrimitives;
+					PreparedView.Counters.ShadowPreparedSkeletalMeshCasters =
+						PreparedView.ShadowSkeletalMeshes.Primitives.size();
+					PreparedView.Counters.ShadowPreparedTerrainCasters =
+						PreparedView.ShadowTerrains.Opaque.size()
+						+ PreparedView.ShadowTerrains.Masked.size();
+				}
+				else if (Selected.Data.bCastShadows)
+				{
+					++PreparedView.Counters.ShadowInvalidReceiverViews;
+				}
+			}
 			PreparedView.StaticMeshes = PrepareStaticMeshView_RenderThread(
 				CommandList,
 				Visibility.StaticMeshSceneInfos,
@@ -415,6 +482,28 @@ namespace Durin
 			CommandList, PreparedView.SkeletalMeshes);
 		TerrainRenderer.PrepareResources_RenderThread(
 			CommandList, PreparedView.Terrains);
+		DirectionalShadowRenderer.PrepareResources_RenderThread(
+			CommandList, StaticMeshRenderer, SkeletalMeshRenderer,
+			TerrainRenderer, PreparedView);
+		FRHITexture* DirectionalShadowTexture =
+			PreparedView.DirectionalShadow.bEnabled
+				? DirectionalShadowRenderer.GetTexture_RenderThread() : nullptr;
+		FRHISampler* DirectionalShadowSampler =
+			PreparedView.DirectionalShadow.bEnabled
+				? DirectionalShadowRenderer.GetSampler_RenderThread() : nullptr;
+		auto BindShadow = [DirectionalShadowTexture, DirectionalShadowSampler](
+			auto& PreparedGeometry) {
+			for (auto* Bucket : {&PreparedGeometry.Opaque,
+				&PreparedGeometry.Masked, &PreparedGeometry.Translucent})
+				for (auto& Draw : *Bucket)
+				{
+					Draw.DirectionalShadowTexture = DirectionalShadowTexture;
+					Draw.DirectionalShadowSampler = DirectionalShadowSampler;
+				}
+		};
+		BindShadow(PreparedView.StaticMeshes);
+		BindShadow(PreparedView.SkeletalMeshes);
+		BindShadow(PreparedView.Terrains);
 		PrepareCombinedTranslucentGeometry(PreparedView);
 		PreparedView.Counters.CombinedTranslucentGeometryDraws =
 			PreparedView.TranslucentGeometry.size();
@@ -424,7 +513,9 @@ namespace Durin
 			PreparedView.SkeletalMeshes, PreparedView.Counters);
 		CopyTerrainCounters(PreparedView.Terrains, PreparedView.Counters);
 		const FForwardLightingUniform Lighting = BuildForwardLightingUniform(
-			PreparedView.Lights, RenderView);
+			PreparedView.Lights, RenderView,
+			DirectionalShadowTexture != nullptr && DirectionalShadowSampler != nullptr
+				? &PreparedView.DirectionalShadow : nullptr);
 		PreparedView.Counters.PackedLightBytes = sizeof(Lighting);
 		PreparedView.LightingUniformBuffer =
 			CommandList.AllocateDynamicUniformBuffer(&Lighting, sizeof(Lighting));
@@ -433,6 +524,11 @@ namespace Durin
 		{
 			return ERenderViewResult::RendererResourcesUnavailable;
 		}
+
+		// Every enabled view regenerates the shared fixed target before Scene Color.
+		DirectionalShadowRenderer.Render_RenderThread(
+			CommandList, StaticMeshRenderer, SkeletalMeshRenderer,
+			TerrainRenderer, PreparedView);
 
 		FRHIRenderPassInfo ScenePassInfo{};
 		ScenePassInfo.RenderTargetLayout =

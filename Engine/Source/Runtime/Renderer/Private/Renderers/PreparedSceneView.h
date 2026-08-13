@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Renderers/SceneVisibility.h"
+#include "Renderers/DirectionalShadowView.h"
 #include "Renderers/SkeletalMeshRenderPreparation.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "Renderers/TerrainRenderPreparation.h"
@@ -38,6 +39,10 @@ namespace Durin
 	{
 		FSceneView View;
 		FPreparedLightView Lights;
+		FPreparedDirectionalShadowView DirectionalShadow;
+		FPreparedStaticMeshView ShadowStaticMeshes;
+		FPreparedSkeletalMeshView ShadowSkeletalMeshes;
+		FPreparedTerrainView ShadowTerrains;
 		FRHIUniformBufferRange LightingUniformBuffer;
 		FSkyBoxSceneData SkyBox;
 		bool bHasSkyBox = false;

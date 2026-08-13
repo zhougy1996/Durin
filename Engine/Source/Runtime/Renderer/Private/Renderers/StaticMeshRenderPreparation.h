@@ -98,6 +98,8 @@ namespace Durin
 		FEffectiveStaticMeshPipelineKey PipelineKey;
 		FStaticMeshDrawSortKey SortKey;
 		bool bResourcesReady = false;
+		FRHITexture* DirectionalShadowTexture = nullptr;
+		FRHISampler* DirectionalShadowSampler = nullptr;
 	};
 
 	struct FPreparedStaticMeshView

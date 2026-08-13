@@ -10,6 +10,8 @@
 #include "RendererModule.h"
 #include "Renderers/SceneVisibility.h"
 #include "Renderers/SceneRendererProfiling.h"
+#include "Renderers/DirectionalShadowView.h"
+#include "Renderers/DirectionalShadowRenderer.h"
 #include "Scene.h"
 #include "SceneView.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
@@ -46,9 +48,16 @@ namespace
 {
 	Durin::FViewRenderCounters GLastCounters;
 	std::vector<Durin::FGPUTimingQueryRHIRef>* GSceneColorTimingQueries = nullptr;
+	std::vector<Durin::FGPUTimingQueryRHIRef>* GShadowDepthTimingQueries = nullptr;
 	auto CaptureCounters(const Durin::FViewRenderCounters& Counters) -> void
 	{
 		GLastCounters = Counters;
+	}
+	auto CaptureShadowDepthTiming(
+		const Durin::FGPUTimingQueryRHIRef& Query) -> void
+	{
+		if (GShadowDepthTimingQueries != nullptr)
+			GShadowDepthTimingQueries->push_back(Query);
 	}
 	auto CaptureSceneColorTiming(
 		const Durin::FGPUTimingQueryRHIRef& Query) -> void
@@ -453,6 +462,15 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	EXPECT_EQ(GLastCounters.SelectedDirectionalLights, 1u);
 	EXPECT_EQ(GLastCounters.SelectedPointLights, 1u);
 	EXPECT_EQ(GLastCounters.SelectedSpotLights, 1u);
+	EXPECT_EQ(GLastCounters.ShadowSelectedLights, 1u);
+	EXPECT_EQ(GLastCounters.ShadowValidReceiverViews, 1u);
+	EXPECT_EQ(GLastCounters.ShadowResourceSuccesses, 1u);
+	EXPECT_EQ(GLastCounters.ShadowTargetLogicalBytes,
+		Durin::DirectionalShadowLogicalBytes);
+	EXPECT_EQ(GLastCounters.ShadowPreparedSkeletalMeshCasters, 1u);
+	EXPECT_EQ(GLastCounters.ShadowAttemptedDraws, 2u);
+	EXPECT_EQ(GLastCounters.ShadowSuccessfulDraws, 2u);
+	EXPECT_EQ(GLastCounters.UploadedSkeletalPalettes, 1u);
 	if (std::getenv("DURIN_RUN_LIGHTING_PROFILE") != nullptr)
 	{
 		Scene.RemoveLight(Durin::FLightSceneId(11));
@@ -561,6 +579,113 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			<< " ns, 1+4=" << MultiLightMedian << " ns, incremental="
 			<< Incremental << " ns\n";
 		EXPECT_LE(Incremental, 1'000'000u);
+
+		constexpr Durin::uint32 ShadowWarmupFrames = 30;
+		constexpr Durin::uint32 ShadowMeasuredFrames = 120;
+		auto ProfileShadowTier = [&](bool bEnabled, const char* TargetName) {
+			Directional.bCastShadows = bEnabled;
+			Scene.AddOrReplaceLight(Durin::FLightSceneId(10),
+				std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
+			Durin::FlushRenderingCommands();
+			std::vector<Durin::FGPUTimingQueryRHIRef> SceneQueries;
+			std::vector<Durin::FGPUTimingQueryRHIRef> ShadowQueries;
+			GSceneColorTimingQueries = &SceneQueries;
+			GShadowDepthTimingQueries = &ShadowQueries;
+			Durin::SetSceneColorTimingQuerySink(CaptureSceneColorTiming);
+			Durin::SetShadowDepthTimingQuerySink(CaptureShadowDepthTiming);
+			Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
+				[&Renderer, &Scene, TargetName](
+					Durin::FRHICommandListImmediate& CommandList) {
+					const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+						TargetName, 1920, 1080, Durin::EPixelFormat::SRGBA8_UNORM)
+						.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
+							| Durin::ETextureCreateFlags::ShaderResource);
+					Durin::FTextureRHIRef Target =
+						Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+					ASSERT_NE(Target, nullptr);
+					Durin::FSceneView View;
+					View.ProjectionMatrix = Durin::FMatrix(0.0);
+					View.ProjectionMatrix[1][0] = 0.5625;
+					View.ProjectionMatrix[2][1] = -1.0;
+					View.ProjectionMatrix[0][2] = 257.0 / 256.0;
+					View.ProjectionMatrix[3][2] = -257.0 / 256.0;
+					View.ProjectionMatrix[0][3] = 1.0;
+					View.ViewProjectionMatrix = View.ProjectionMatrix;
+					View.ViewportWidth = 1920;
+					View.ViewportHeight = 1080;
+					View.Settings.RenderMode = Durin::ERenderMode::Lit;
+					View.Settings.VisibilityMode =
+						Durin::EViewVisibilityMode::FrustumCullingDisabled;
+					for (Durin::uint32 Frame = 0;
+						Frame < ShadowWarmupFrames + ShadowMeasuredFrames; ++Frame)
+					{
+						Durin::GRenderFrameCounterRenderThread++;
+						Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+						EXPECT_EQ(Renderer.RenderView(
+							CommandList, &Scene, View, Target, false, {}),
+							Durin::ERenderViewResult::Success);
+						Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+					}
+				});
+			Durin::FlushRenderingCommands();
+			Durin::SetSceneColorTimingQuerySink(nullptr);
+			Durin::SetShadowDepthTimingQuerySink(nullptr);
+			GSceneColorTimingQueries = nullptr;
+			GShadowDepthTimingQueries = nullptr;
+			for (Durin::uint32 Attempt = 0; Attempt < 100; ++Attempt)
+			{
+				const bool bSceneReady = SceneQueries.size()
+					== ShadowWarmupFrames + ShadowMeasuredFrames
+					&& std::ranges::all_of(SceneQueries, [](const auto& Query) {
+						return Query->GetResult().State
+							== Durin::ERHIGPUTimingResultState::Ready;
+					});
+				const bool bShadowReady = !bEnabled
+					|| (ShadowQueries.size()
+						== ShadowWarmupFrames + ShadowMeasuredFrames
+						&& std::ranges::all_of(ShadowQueries, [](const auto& Query) {
+							return Query->GetResult().State
+								== Durin::ERHIGPUTimingResultState::Ready;
+						}));
+				if (bSceneReady && bShadowReady) break;
+				Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
+					[](Durin::FRHICommandListImmediate& CommandList) {
+						Durin::GRenderFrameCounterRenderThread++;
+						Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+						Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+					});
+				Durin::FlushRenderingCommands();
+				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			}
+			auto Median = [](const auto& Queries) {
+				std::vector<Durin::uint64> Values;
+				for (size_t Index = ShadowWarmupFrames;
+					Index < Queries.size(); ++Index)
+					if (const auto Result = Queries[Index]->GetResult();
+						Result.State == Durin::ERHIGPUTimingResultState::Ready)
+						Values.push_back(Result.DurationNanoseconds);
+				std::ranges::sort(Values);
+				EXPECT_EQ(Values.size(), ShadowMeasuredFrames);
+				return Values.empty() ? Durin::uint64(0)
+					: Values[Values.size() / 2];
+			};
+			return std::pair{Median(SceneQueries),
+				bEnabled ? Median(ShadowQueries) : Durin::uint64(0)};
+		};
+		const auto DisabledShadow = ProfileShadowTier(false, "ShadowDisabledProfile");
+		const auto EnabledShadow = ProfileShadowTier(true, "ShadowEnabledProfile");
+		const Durin::uint64 SceneIncrement = EnabledShadow.first
+			> DisabledShadow.first ? EnabledShadow.first - DisabledShadow.first : 0;
+		const Durin::uint64 CombinedIncrement =
+			SceneIncrement + EnabledShadow.second;
+		std::cout << "Directional shadow profile: disabled-scene="
+			<< DisabledShadow.first << " ns, enabled-scene="
+			<< EnabledShadow.first << " ns, shadow-depth="
+			<< EnabledShadow.second << " ns, combined-increment="
+			<< CombinedIncrement << " ns, logical-bytes="
+			<< Durin::DirectionalShadowLogicalBytes << ", backend-bytes="
+			<< GLastCounters.ShadowTargetBackendBytes << "\n";
+		EXPECT_LE(CombinedIncrement, 2'000'000u);
 	}
 	auto TranslatedPose = std::make_shared<Durin::FSkeletalPosePalette>(*Pose);
 	TranslatedPose->Revision = 2;

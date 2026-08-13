@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Renderers/EditorAssistance/EditorAssistanceRenderer.h"
+#include "Renderers/DirectionalShadowRenderer.h"
 #include "Renderers/PostProcessRenderer.h"
 #include "Renderers/SkyBoxRenderer.h"
 #include "Renderers/SkeletalMeshRenderer.h"
@@ -74,6 +75,7 @@ namespace Durin
 		FDefaultTextureResources DefaultTextures;
 		FEnvironmentLightingResources EnvironmentLighting;
 		FFullscreenGeometryResources FullscreenGeometry;
+		FDirectionalShadowRenderer DirectionalShadowRenderer;
 		FStaticMeshRenderer StaticMeshRenderer;
 		FTerrainRenderer TerrainRenderer;
 		FSkeletalMeshRenderer SkeletalMeshRenderer;

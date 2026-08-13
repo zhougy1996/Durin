@@ -2,6 +2,7 @@
 
 #include "Renderers/SceneVisibility.h"
 #include "Renderers/ViewPreparationMath.h"
+#include "Renderers/DirectionalShadowView.h"
 
 #include "Math/Operations.h"
 #include "Scene.h"
@@ -153,7 +154,8 @@ namespace Durin
 
 	auto BuildForwardLightingUniform(
 		const FPreparedLightView& Lights,
-		const FSceneView& View) -> FForwardLightingUniform
+		const FSceneView& View,
+		const FPreparedDirectionalShadowView* Shadow) -> FForwardLightingUniform
 	{
 		FForwardLightingUniform Result;
 		Result.ViewPosition = FVector4f(FVector3f(View.ViewLocation), 0.0f);
@@ -164,6 +166,19 @@ namespace Durin
 			const auto& Light = Lights.Directional.front().Data;
 			Result.Directional.Direction = FVector4f(FVector3f(Light.Direction), 0.0f);
 			Result.Directional.ColorIntensity = FVector4f(Light.Color, Light.Intensity);
+		}
+		if (Shadow != nullptr && Shadow->bEnabled
+			&& !Lights.Directional.empty()
+			&& Shadow->LightId == Lights.Directional.front().Id)
+		{
+			for (uint32 Column = 0; Column < 4; ++Column)
+				for (uint32 Row = 0; Row < 4; ++Row)
+					Result.DirectionalShadow.WorldToShadow[Column][Row] =
+						static_cast<float>(Shadow->WorldToShadowMatrix[Row][Column]);
+			Result.DirectionalShadow.Params = {
+				1.0f, DirectionalShadowReceiverBias,
+				static_cast<float>(Shadow->TexelWorldSize.x),
+				static_cast<float>(Shadow->TexelWorldSize.y)};
 		}
 		for (size_t Index = 0; Index < Lights.Local.size(); ++Index)
 		{

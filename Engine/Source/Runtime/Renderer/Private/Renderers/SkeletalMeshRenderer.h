@@ -33,6 +33,15 @@ namespace Durin
 		auto PrepareResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			FPreparedSkeletalMeshView& PreparedView) -> bool;
+		auto PrepareShadowResources_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			const FPreparedSkeletalMeshView& BaseView,
+			FPreparedSkeletalMeshView& PreparedView) -> bool;
+		auto ExecuteShadow_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			const FSceneView& ShadowView,
+			const FRHIUniformBufferRange& FallbackLighting,
+			FPreparedSkeletalMeshView& PreparedView) -> void;
 		auto Execute_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
@@ -56,14 +65,16 @@ namespace Durin
 		auto EnsureBaseResources_RenderThread() -> bool;
 		auto EnsureSectionResources_RenderThread(
 			const FPreparedSkeletalMeshPrimitive& Primitive,
-			const FPreparedSkeletalMeshDraw& Item) -> bool;
+			const FPreparedSkeletalMeshDraw& Item,
+			bool bShadowDepth = false) -> bool;
 		auto DrawSection_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
 			const FRHIUniformBufferRange& Lighting,
 			ERenderMode RenderMode,
 			const FPreparedSkeletalMeshPrimitive& Primitive,
-			const FPreparedSkeletalMeshDraw& Item) -> bool;
+			const FPreparedSkeletalMeshDraw& Item,
+			bool bShadowDepth = false) -> bool;
 		struct FState;
 
 		FRendererResourceCoordinator& Coordinator;

@@ -4,12 +4,12 @@ Summary: Add one bounded directional shadow-depth pass and forward-lighting samp
 
 Last reviewed: 2026-08-13
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-13
 
 ## Current Status
 
-Stage 0 is active. M2 through M5 of the
+Stages 0-6 and this plan are complete. M2 through M5 of the
 [Rendering Capability Expansion Roadmap](../Roadmaps/RenderingCapabilityExpansion.md)
 are stable, the production renderer already prepares deterministic view-local
 geometry and one selected directional light, and the RHI exposes D32 depth
@@ -32,6 +32,68 @@ Opaque and Masked Terrain patches to the first shadow caster and receiver set
 so that a current production geometry family does not become an undocumented
 exception. Point/spot shadows, cascades, persistent shadow contents, and
 translucent shadowing remain outside M6.
+
+Stage 0 froze the production candidate at baseline commit
+`0e755edb2d69e8c082be4478b797bffc03791951`. The affected inventory follows
+the component -> `FDirectionalLightSceneData` -> Light Proxy/SceneInfo ->
+`FPreparedLightView` path; `FForwardLightingUniform` and
+`StaticMeshBasePass.slang`; the StaticMesh/Spline, SkeletalMesh, and Terrain
+preparation/execution paths; `RenderTargetLayouts`; renderer coordinator
+release/retry/device invalidation; `FViewRenderCounters`; RendererScene,
+RendererSceneView, RHI resource-view/transition, Vulkan RHI, material, and the
+three geometry-family Vulkan fixtures; and the main, auxiliary, preview,
+offscreen/present, fixed-aspect, post-process, and editor-assistance view paths.
+
+The frozen fitting contract reconstructs the eight Vulkan zero-to-one clip
+corners from the inverse fitted view-projection matrix. Perspective far corners
+are clamped along rays from `ViewLocation`; orthographic far corners are
+clamped along each near-to-far segment. Both use the nearer authored far extent
+or 256 world units. Light-space forward is the normalized authored direction
+of travel, the preferred up axis is world +Z, and directions within `1e-4` of
+parallel use world +Y. XY encloses the receiver with a two-texel guard on every
+edge, then its center is snapped to whole 2048-map texels. The caster volume
+uses the same guarded XY interval and extends 256 units opposite light travel
+from the receiver minimum depth. Boundary contact and invalid finite bounds are
+conservatively included, with invalid bounds counted separately. Degenerate or
+non-finite inverse, basis, extent, or matrix construction disables the shadow
+for that view rather than publishing an identity matrix.
+
+The frozen raster/sample constants are fill mode; authored two-sided/mirrored
+culling; `Less` depth write; constant bias `1.25`, slope bias `1.75`, clamp
+`4.0`; receiver depth bias `0.0005`; and one linear `LessOrEqual` comparison
+sample from a clamp-to-border opaque-white sampler. The clip-to-texture mapping
+is `(x,y) * 0.5 + 0.5` with zero-to-one Z unchanged. Outside/non-finite
+coordinates are fully lit. Opaque and Masked Local StaticMesh, SplineMesh,
+SkeletalMesh, and Terrain cast; Translucent never casts; camera Wireframe does
+not change filled shadow rasterization.
+
+The qualification fixture is the NVIDIA GeForce GTX 1060 6GB (driver 560.94),
+1920x1080, identical disabled/enabled scenes, 30 warm-up frames, then 120
+measured frames. It reports Shadow Depth and Scene Color medians separately and
+requires their combined enabled-minus-disabled median increment to be at most
+2.0 ms. Failed/retry frames are excluded from the timing window and reported
+separately. Logical target bytes are `2048 * 2048 * 4 = 16,777,216`; backend
+allocation bytes are recorded independently and do not redefine this budget.
+The no-shadow baseline owns zero shadow-target bytes.
+
+Baseline evidence on 2026-08-13: the Debug `all` build and plan validator
+passed; RHI resource-view 3/3, RHI transition 6/6, RendererSceneContract 12/12,
+VulkanRHIIntegration 55/55, and the StaticMesh, SkeletalMesh, Terrain, and
+Material Vulkan image targets 1/1 each passed. Existing reference images and
+Vulkan validation were clean. The built editor remained healthy through an
+eight-second smoke run. The implementation will add named shadow fixtures and
+record target allocation/performance evidence in Stage 6.
+
+Final qualification on 2026-08-13 passed the frozen GTX 1060 6GB fixture. A
+30-frame warm-up followed by 120 measured 1920x1080 frames produced a disabled
+Scene Color median of 24,608 ns, enabled Scene Color median of 30,560 ns,
+Shadow Depth median of 25,120 ns, and combined increment of 31,072 ns (0.031
+ms), below the 2.0 ms gate. Logical and Vulkan backend target allocations were
+both 16,777,216 bytes. Focused RHI, shader ABI, scene/view, light, material,
+StaticMesh/SplineMesh, SkeletalMesh, Terrain, resource reload, Cook, and Vulkan
+tests passed; the 53-target `fast-all` set, Debug `all`, Shipping DurinGame
+`all`, all-plan validation, and the final editor smoke passed. Lasting behavior
+is documented in [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md).
 
 ## Goal
 
@@ -265,26 +327,26 @@ lighting result without a whole-device idle wait.
 
 ### Stage 0: Freeze quality, fitting, bias, fixtures, and baselines
 
-- [ ] Inventory every affected directional-light publisher, Proxy/SceneInfo
+- [x] Inventory every affected directional-light publisher, Proxy/SceneInfo
   value, prepared-light field, forward-light uniform, shader declaration,
   geometry-family draw path, render-target layout, invalidation hook, counter,
   test double, serialization fixture, and editor/runtime viewport path.
-- [ ] Freeze the 2048x2048 D32, 16 MiB, 256-unit, one-linear-comparison-sample
+- [x] Freeze the 2048x2048 D32, 16 MiB, 256-unit, one-linear-comparison-sample
   candidate and document exact logical/backend byte accounting.
-- [ ] Freeze perspective and orthographic receiver reconstruction, camera far
+- [x] Freeze perspective and orthographic receiver reconstruction, camera far
   clamping, caster extrusion, guard band, preferred/fallback light up axes,
   texel snapping, clip-to-texture transform, and invalid-matrix fallback with
   numeric golden cases.
-- [ ] Select constant depth bias, slope bias, clamp, receiver bias, comparison
+- [x] Select constant depth bias, slope bias, clamp, receiver bias, comparison
   direction, and border result using acne, peter-panning, grazing-angle,
   contact, mirrored, two-sided, thin masked, and large-coordinate fixtures.
-- [ ] Freeze caster policy: Local StaticMesh, SplineMesh, SkeletalMesh, and
+- [x] Freeze caster policy: Local StaticMesh, SplineMesh, SkeletalMesh, and
   Terrain Opaque/Masked participate; Translucent does not; shadow rasterization
   remains filled under camera Wireframe.
-- [ ] Freeze the GTX 1060 fixture, baseline/candidate toggles, 1920x1080 output,
+- [x] Freeze the GTX 1060 fixture, baseline/candidate toggles, 1920x1080 output,
   warm-up, 120-frame measurement window, separate Shadow Depth/Scene Color
   timestamps, combined 2.0 ms median gate, and failure/retry measurement rules.
-- [ ] Record baseline focused test counts, full-build status, Vulkan validation
+- [x] Record baseline focused test counts, full-build status, Vulkan validation
   status, reference images, logical/actual target bytes, and clean editor smoke.
 
 #### Acceptance Gate
@@ -296,20 +358,20 @@ lighting result without a whole-device idle wait.
 
 ### Stage 1: Qualify sampled shadow-depth RHI contracts
 
-- [ ] Add a depth-only shadow render-target layout with D32 clear/store,
+- [x] Add a depth-only shadow render-target layout with D32 clear/store,
   `Undefined`/`None` entry, and `ShaderReadOnly`/`GraphicsShaderRead` exit.
-- [ ] Validate creation of a single-sample D32 texture carrying both
+- [x] Validate creation of a single-sample D32 texture carrying both
   `DepthStencilTargetable` and `ShaderResource`, plus exact sampled and
   depth-attachment views.
-- [ ] Create and validate the frozen clamp-to-border, opaque-white,
+- [x] Create and validate the frozen clamp-to-border, opaque-white,
   `LessOrEqual`, linear comparison sampler contract through public RHI values
   and Vulkan mapping.
-- [ ] Prove a no-color depth pipeline with depth write/test, color-write
+- [x] Prove a no-color depth pipeline with depth write/test, color-write
   absence, complete raster/depth-bias PSO identity, and nullable creation.
-- [ ] Add focused transition validation for depth attachment writes followed by
+- [x] Add focused transition validation for depth attachment writes followed by
   fragment-shader comparison reads, including repeated sequential write/read
   cycles and incompatible access/usage rejection.
-- [ ] Add Vulkan readback or sampled-output coverage that distinguishes lit,
+- [x] Add Vulkan readback or sampled-output coverage that distinguishes lit,
   shadowed, boundary, and opaque-white-border comparison outcomes under the
   selected zero-to-one convention.
 
@@ -321,23 +383,23 @@ lighting result without a whole-device idle wait.
 
 ### Stage 2: Prepare one deterministic directional shadow view
 
-- [ ] Extend directional scene/prepared data with detached authored shadow
+- [x] Extend directional scene/prepared data with detached authored shadow
   enable state and update add/replace/remove, serialization, property-change,
   component-retirement, and test-double coverage.
-- [ ] Add value-only shadow configuration, selected-light identity, receiver
+- [x] Add value-only shadow configuration, selected-light identity, receiver
   volume, caster volume, light view/projection/world-to-shadow matrices, texel
   scale, and fallback state to the prepared scene view.
-- [ ] Implement the frozen perspective/orthographic receiver reconstruction,
+- [x] Implement the frozen perspective/orthographic receiver reconstruction,
   light-axis fallback, orthographic fitting, guard band, texel snapping, caster
   extrusion, and finite-value validation with Stage 0 golden cases.
-- [ ] Classify authoritative StaticMesh/SplineMesh, SkeletalMesh, and Terrain
+- [x] Classify authoritative StaticMesh/SplineMesh, SkeletalMesh, and Terrain
   SceneInfo inputs independently against the shadow caster volume; keep a
   culling-disabled comparison seam and conserved submitted/culled/rejected
   outcomes.
-- [ ] Select shadow-view LOD/resources and build immutable Opaque/Masked caster
+- [x] Select shadow-view LOD/resources and build immutable Opaque/Masked caster
   records with stable sort/state keys, material snapshots, vertex-domain facts,
   primitive identity, and triangle counts.
-- [ ] Demonstrate that an object outside the camera frustum but inside the
+- [x] Demonstrate that an object outside the camera frustum but inside the
   conservative caster volume is prepared, while a caster unable to affect the
   receiving volume is rejected.
 
@@ -351,24 +413,24 @@ lighting result without a whole-device idle wait.
 
 ### Stage 3: Execute Opaque and Masked shadow depth
 
-- [ ] Add Renderer-private `FDirectionalShadowRenderer` ownership for target,
+- [x] Add Renderer-private `FDirectionalShadowRenderer` ownership for target,
   views, sampler, shaders, pipelines, material resources, creation/retry state,
   counters, invalidation, and release.
-- [ ] Add Local/Spline, Skeletal, and Terrain shadow vertex entry points that
+- [x] Add Local/Spline, Skeletal, and Terrain shadow vertex entry points that
   reuse production deformation and coordinate conventions without copying base
   renderer orchestration.
-- [ ] Add an Opaque depth-only program and a Masked depth program whose opacity
+- [x] Add an Opaque depth-only program and a Masked depth program whose opacity
   composition, textures, samplers, UVs, and strict threshold match the base
   material contract.
-- [ ] Prepare every shader, pipeline, material resource, geometry binding,
+- [x] Prepare every shader, pipeline, material resource, geometry binding,
   height resource, and palette range before the shadow render pass begins;
   execution consumes only `ResourcesPrepared` draws.
-- [ ] Share one frame-local skeletal pose palette allocation between shadow and
+- [x] Share one frame-local skeletal pose palette allocation between shadow and
   base-pass execution and prove no duplicate upload or range-budget charge.
-- [ ] Execute the shadow pass before Scene Color with frozen filled raster,
+- [x] Execute the shadow pass before Scene Color with frozen filled raster,
   cull/winding, depth write/test, bias, viewport/scissor, clear/store, and final
   shader-read state.
-- [ ] Add focused execution counters and deterministic images for Opaque,
+- [x] Add focused execution counters and deterministic images for Opaque,
   Masked, mirrored, two-sided, spline-deformed, GPU-skinned, and terrain
   casters.
 
@@ -382,22 +444,22 @@ lighting result without a whole-device idle wait.
 
 ### Stage 4: Sample the shadow in shared forward lighting
 
-- [ ] Extend the C++ and Slang forward-lighting ABI with one aligned shadow
+- [x] Extend the C++ and Slang forward-lighting ABI with one aligned shadow
   record and assert field offsets, total byte size, reflection bindings, and
   uniform-range margin.
-- [ ] Bind the sampled depth view, comparison sampler, and a complete fully-lit
+- [x] Bind the sampled depth view, comparison sampler, and a complete fully-lit
   fallback through StaticMesh, SkeletalMesh, and Terrain base-pass resource
   preparation and execution.
-- [ ] Implement one shared world-to-shadow projection and comparison helper
+- [x] Implement one shared world-to-shadow projection and comparison helper
   with finite checks, XY/depth range rejection, frozen bias, and fully-lit
   outside behavior.
-- [ ] Apply the result only to the selected directional direct-light term;
+- [x] Apply the result only to the selected directional direct-light term;
   preserve point/spot accumulation, ambient/environment, emissive, preview rim,
   Unlit, material surface, blend, depth, and output behavior.
-- [ ] Verify Lit Opaque, Masked, and Translucent receivers across Local/Spline,
+- [x] Verify Lit Opaque, Masked, and Translucent receivers across Local/Spline,
   Skeletal, and Terrain paths, plus Unlit and zero/disabled/overflow
   directional-light cases.
-- [ ] Prove descriptor and shader identity cannot reuse shadow-enabled bindings
+- [x] Prove descriptor and shader identity cannot reuse shadow-enabled bindings
   for a later shadow-disabled or failed view.
 
 #### Acceptance Gate
@@ -409,22 +471,22 @@ lighting result without a whole-device idle wait.
 
 ### Stage 5: Qualify multi-view, recovery, diagnostics, and lifetime
 
-- [ ] Render main, auxiliary, window-backed, offscreen, fixed-aspect, asset
+- [x] Render main, auxiliary, window-backed, offscreen, fixed-aspect, asset
   preview, and editor-assistance views sequentially at different dimensions
   and settings; verify each shadow-enabled view regenerates contents before
   sampling and bars/overlays remain outside the shadow composition.
-- [ ] Exercise camera/light transform changes, enable toggles, add/replace/
+- [x] Exercise camera/light transform changes, enable toggles, add/replace/
   remove ordering, selected-light changes, component retirement, primitive
   removal, material replacement, skeletal pose replacement, terrain revision,
   and scene release without stale shadow state.
-- [ ] Exercise target/view/sampler/shader/PSO/material/palette failure,
+- [x] Exercise target/view/sampler/shader/PSO/material/palette failure,
   last-known-good shader reload, manual retry, device invalidation, and renderer
   shutdown; verify fallback rendering and later recovery.
-- [ ] Publish conserved per-view shadow counters for light selection, receiver
+- [x] Publish conserved per-view shadow counters for light selection, receiver
   validity, submitted/culled/rejected/prepared casters by family, Opaque/Masked
   draws and triangles, resource attempts/results, target logical/actual bytes,
   fallback reason, and Shadow Depth/Scene Color GPU timing.
-- [ ] Verify recorded commands retain all referenced resources and ordinary
+- [x] Verify recorded commands retain all referenced resources and ordinary
   mutation, invalidation, sequential rendering, and shutdown introduce no
   whole-device idle wait or renderer-thread read of reflected objects.
 
@@ -437,23 +499,23 @@ lighting result without a whole-device idle wait.
 
 ### Stage 6: Qualify the production tier and close M6
 
-- [ ] Run the frozen target-GPU fixture against identical disabled/enabled
+- [x] Run the frozen target-GPU fixture against identical disabled/enabled
   captures, report Shadow Depth, Scene Color, combined median increment, target
   logical/actual bytes, draws, triangles, and material/family mix across 120
   post-warm-up 1920x1080 frames.
-- [ ] Pass the 2.0 ms combined median gate and 16 MiB logical texture budget, or
+- [x] Pass the 2.0 ms combined median gate and 16 MiB logical texture budget, or
   record and requalify a reviewed replacement tier before enabling production
   defaults.
-- [ ] Complete focused RHI, Vulkan, scene/view, light, material, static/spline,
+- [x] Complete focused RHI, Vulkan, scene/view, light, material, static/spline,
   skeletal, terrain, renderer-resource, reload, image, and lifecycle coverage
   selected according to the repository testing guidance.
-- [ ] Complete Debug and Shipping qualification required by affected targets,
+- [x] Complete Debug and Shipping qualification required by affected targets,
   the repository full `all` build, representative Cook/asset baseline, and a
   clean editor smoke with Vulkan validation enabled.
-- [ ] Publish lasting directional-shadow ownership, fitting, caster, material,
+- [x] Publish lasting directional-shadow ownership, fitting, caster, material,
   shader, target, view, failure, diagnostics, and performance contracts under
   `Documentation/Runtime/Rendering/`.
-- [ ] Update the Rendering Capability Expansion roadmap with M6 completion,
+- [x] Update the Rendering Capability Expansion roadmap with M6 completion,
   dispose every conditional branch as completed, active, or explicitly
   deferred with activation evidence, and close the roadmap only when its full
   completion criteria pass.

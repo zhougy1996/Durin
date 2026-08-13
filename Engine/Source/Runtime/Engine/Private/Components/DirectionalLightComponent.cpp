@@ -14,6 +14,7 @@ namespace Durin
 		Result.Intensity = NormalizeLightIntensity(Intensity);
 		Result.AmbientIntensity = FMath::Max(0.0f, AmbientIntensity);
 		Result.RimLightIntensity = FMath::Max(0.0f, RimLightIntensity);
+		Result.bCastShadows = bCastShadows;
 		return Result;
 	}
 
@@ -32,6 +33,12 @@ namespace Durin
 	auto DDirectionalLightComponent::SetRimLightIntensity(float InIntensity) -> void
 	{
 		RimLightIntensity = FMath::Max(0.0f, InIntensity);
+		MarkLightRenderStateDirty();
+	}
+
+	auto DDirectionalLightComponent::SetCastShadows(bool bInCastShadows) -> void
+	{
+		bCastShadows = bInCastShadows;
 		MarkLightRenderStateDirty();
 	}
 

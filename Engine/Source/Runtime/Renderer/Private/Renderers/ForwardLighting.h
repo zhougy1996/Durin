@@ -9,6 +9,7 @@
 
 namespace Durin
 {
+	struct FPreparedDirectionalShadowView;
 	class FScene;
 	struct FSceneView;
 	struct FViewRenderCounters;
@@ -57,18 +58,27 @@ namespace Durin
 		FVector4f SpotCone{0.0f};
 	};
 
+	struct alignas(16) FForwardDirectionalShadowUniform
+	{
+		FMatrix4f WorldToShadow{1.0f};
+		// x = enabled, y = receiver bias, zw = texel world size.
+		FVector4f Params{0.0f};
+	};
+
 	// Fixed reflected ABI uploaded exactly once for each rendered view.
 	struct alignas(16) FForwardLightingUniform
 	{
 		FVector4f ViewPosition{0.0f};
 		alignas(16) std::array<uint32, 4> Counts{};
 		FForwardDirectionalLightUniform Directional;
+		FForwardDirectionalShadowUniform DirectionalShadow;
 		std::array<FForwardLocalLightUniform, MaxPreparedLocalLights> Local{};
 	};
 
 	static_assert(sizeof(FForwardDirectionalLightUniform) == 32);
 	static_assert(sizeof(FForwardLocalLightUniform) == 64);
-	static_assert(sizeof(FForwardLightingUniform) == 320);
+	static_assert(sizeof(FForwardDirectionalShadowUniform) == 80);
+	static_assert(sizeof(FForwardLightingUniform) == 400);
 	static_assert(alignof(FForwardLightingUniform) == 16);
 
 	RENDERER_API auto PrepareLightView_RenderThread(
@@ -77,5 +87,7 @@ namespace Durin
 		FViewRenderCounters& Counters) -> FPreparedLightView;
 	RENDERER_API auto BuildForwardLightingUniform(
 		const FPreparedLightView& Lights,
-		const FSceneView& View) -> FForwardLightingUniform;
+		const FSceneView& View,
+		const FPreparedDirectionalShadowView* Shadow = nullptr)
+		-> FForwardLightingUniform;
 }

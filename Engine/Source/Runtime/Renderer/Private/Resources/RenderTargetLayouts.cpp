@@ -53,6 +53,25 @@ namespace Durin::RenderTargetLayouts
 		return Layout;
 	}
 
+	auto MakeDirectionalShadowDepth() -> FRHIRenderTargetLayout
+	{
+		FRHIRenderTargetLayout Layout;
+		Layout.bHasDepthStencil = true;
+		Layout.DepthStencilAttachment.Format = EPixelFormat::D32;
+		Layout.DepthStencilAttachment.LoadAction =
+			ERHIRenderTargetLoadAction::Clear;
+		Layout.DepthStencilAttachment.StoreAction =
+			ERHIRenderTargetStoreAction::Store;
+		Layout.DepthStencilAttachment.InitialLayout =
+			ERHITextureLayout::Undefined;
+		Layout.DepthStencilAttachment.InitialAccess = ERHIAccess::None;
+		Layout.DepthStencilAttachment.FinalLayout =
+			ERHITextureLayout::ShaderReadOnly;
+		Layout.DepthStencilAttachment.FinalAccess =
+			ERHIAccess::GraphicsShaderRead;
+		return Layout;
+	}
+
 	auto MakeScenePostProcessOutput() -> FRHIRenderTargetLayout
 	{
 		FRHIRenderTargetLayout Layout;

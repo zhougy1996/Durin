@@ -1,5 +1,10 @@
 # Forward Lighting
 
+Directional direct lighting may be attenuated by the selected view-local
+shadow described in [Directional Shadows](DirectionalShadows.md). The shadow
+record is part of the fixed reflected lighting ABI; all other lighting terms
+retain the behavior documented below.
+
 ## Scene ownership
 
 Directional, point, and spot lights cross the game/render boundary as detached

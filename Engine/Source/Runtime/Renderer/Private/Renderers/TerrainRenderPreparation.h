@@ -19,6 +19,8 @@ namespace Durin
 		EStaticMeshBasePass Pass = EStaticMeshBasePass::Opaque;
 		double TranslucentDistanceSquared = 0.0;
 		bool bResourcesReady = false;
+		FRHITexture* DirectionalShadowTexture = nullptr;
+		FRHISampler* DirectionalShadowSampler = nullptr;
 	};
 
 	enum class EPreparedTerrainPhase : uint8 { Prepared, ResourcesPrepared, Executed };

@@ -124,4 +124,34 @@ namespace Durin
 		EXPECT_FALSE(ValidateTextureTransition(
 			FRHITextureTransition::Whole(nullptr, ERHIAccess::Discard, ERHIAccess::TransferWrite), Error));
 	}
+
+	TEST(FRHIResourceTransitionValidationTests,
+		DirectionalShadowDepthSupportsRepeatedAttachmentAndComparisonReadCycles)
+	{
+		FRHITexture Shadow(FRHITextureCreateDesc::Create2D(
+			"DirectionalShadow", 2048, 2048, EPixelFormat::D32)
+			.SetFlags(ETextureCreateFlags::DepthStencilTargetable
+				| ETextureCreateFlags::ShaderResource));
+		std::string Error;
+		const FRHITextureTransition FirstWrite = FRHITextureTransition::Whole(
+			&Shadow, ERHIAccess::Discard, ERHIAccess::DepthStencilReadWrite);
+		const FRHITextureTransition FirstRead = FRHITextureTransition::Whole(
+			&Shadow, ERHIAccess::DepthStencilReadWrite,
+			ERHIAccess::GraphicsShaderRead);
+		const FRHITextureTransition Rewrite = FRHITextureTransition::Whole(
+			&Shadow, ERHIAccess::GraphicsShaderRead,
+			ERHIAccess::DepthStencilReadWrite);
+		EXPECT_TRUE(ValidateTextureTransition(FirstWrite, Error)) << Error;
+		EXPECT_TRUE(ValidateTextureTransition(FirstRead, Error)) << Error;
+		EXPECT_TRUE(ValidateTextureTransition(Rewrite, Error)) << Error;
+
+		FRHITexture Invalid(FRHITextureCreateDesc::Create2D(
+			"InvalidShadow", 16, 16, EPixelFormat::D32)
+			.SetFlags(ETextureCreateFlags::DepthStencilTargetable));
+		EXPECT_FALSE(ValidateTextureTransition(
+			FRHITextureTransition::Whole(
+				&Invalid, ERHIAccess::DepthStencilReadWrite,
+				ERHIAccess::GraphicsShaderRead),
+			Error));
+	}
 } // namespace Durin

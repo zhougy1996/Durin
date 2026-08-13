@@ -13,6 +13,9 @@ namespace Durin::RenderTargetLayouts
 	};
 
 	RENDERER_API auto MakeSceneTargets() -> FRHIRenderTargetLayout;
+	// One D32 depth attachment that is cleared for shadow rendering and
+	// published for fragment-shader comparison sampling when the pass ends.
+	RENDERER_API auto MakeDirectionalShadowDepth() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeScenePostProcessOutput() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeFinalScenePostProcessOutput(EViewportOutput Output)
 		-> FRHIRenderTargetLayout;
