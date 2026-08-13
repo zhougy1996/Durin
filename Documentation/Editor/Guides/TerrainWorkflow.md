@@ -28,11 +28,14 @@ collision settings, and transform through ordinary reflected controls. Spacing
 must be positive and finite; other numeric values must be finite. Invalid
 values do not alter the object or transaction history.
 
-Read-only groups below the controls show asset, render, and collision health.
-`Ready` means that consumer published a complete generation. Missing heightmap,
-invalid payload/properties, extent rejection, and collision-build failures
-include a bounded diagnostic. Collision facts include revision, resource
-identity, cells, hierarchy nodes/depth, and retained/peak bytes.
+Read-only rows below the controls show component render and collision health.
+Inspect the referenced Terrain Heightmap asset for its dimensions, revision,
+retained bytes, and asset diagnostic. `Ready` means that consumer published a
+complete generation; collision set to `No Collision` is reported as disabled.
+Missing heightmap, invalid payload/properties, extent rejection, and collision-
+build failures include a bounded diagnostic. Ready collision facts include
+heightmap and component revisions, resource identity, cells, hierarchy nodes/
+depth, and retained/peak bytes.
 
 Clicking the surface selects the exact Terrain Actor/component at full
 resolution. Picking does not require collision and does not follow visual LOD.

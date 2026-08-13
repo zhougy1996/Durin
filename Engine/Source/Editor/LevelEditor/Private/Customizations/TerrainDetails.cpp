@@ -4,7 +4,6 @@
 #include "DObject/Class.h"
 #include "LevelEditorCustomizations.h"
 #include "MonaImGui.h"
-#include "Terrain/TerrainHeightmap.h"
 
 namespace Durin::Editor::Level
 {
@@ -69,21 +68,6 @@ namespace Durin::Editor::Level
 					if (FProperty* Property = Component->GetClass()->FindPropertyByName(Name))
 						Builder.HideProperty(Property);
 
-				Builder.AddCustomRow("Terrain Asset Heightmap Width Height Samples Revision Retained Bytes",
-					[Component](::Durin::Editor::FPropertyView&,
-						const ::Durin::Editor::FPropertyViewContext&)
-					{
-						DTerrainHeightmap* Heightmap = Component->GetHeightmap();
-						DrawFact("Asset facts", Heightmap ? std::format(
-							"{} x {} samples | revision {} | {} retained bytes",
-							Heightmap->GetWidth(), Heightmap->GetHeight(), Heightmap->GetRevision(),
-							Heightmap->GetPayload() ? Heightmap->GetPayload()->GetRetainedBytes() : 0)
-							: "No heightmap assigned");
-						if (Heightmap && !Heightmap->GetLastDiagnostic().empty())
-							DrawFact("Asset diagnostic", Bounded(Heightmap->GetLastDiagnostic()));
-						return false;
-					});
-
 				Builder.AddCustomRow("Terrain Render Status Diagnostic Resource Revision",
 					[Component](::Durin::Editor::FPropertyView&,
 						const ::Durin::Editor::FPropertyViewContext&)
@@ -99,13 +83,22 @@ namespace Durin::Editor::Level
 						const ::Durin::Editor::FPropertyViewContext&)
 					{
 						const FTerrainCollisionFacts Facts = Component->GetCollisionFacts();
-						DrawFact("Collision status", std::format("{} | revision {} | resource {}",
-							CollisionStatusText(Facts.Status), Facts.CollisionRevision, Facts.ResourceIdentity));
-						DrawFact("Collision facts", std::format(
-							"{} x {} | {} cells | {} nodes | depth {} | {} retained bytes | {} peak bytes",
-							Facts.Width, Facts.Height, Facts.Cells, Facts.Nodes, Facts.MaximumDepth,
-							Facts.RetainedBytes, Facts.EstimatedPeakBytes));
-						if (!Component->GetLastCollisionDiagnostic().empty())
+						if (Component->GetCollisionEnabled() == ECollisionEnabled::NoCollision)
+						{
+							DrawFact("Collision status", "Disabled");
+							return false;
+						}
+						DrawFact("Collision status", std::format(
+							"{} | heightmap revision {} | component revision {} | resource {}",
+							CollisionStatusText(Facts.Status), Facts.AssetRevision,
+							Facts.CollisionRevision, Facts.ResourceIdentity));
+						if (Facts.Status == ETerrainCollisionStatus::Ready)
+							DrawFact("Collision geometry", std::format(
+								"{} x {} samples | {} cells | {} nodes | depth {} | {} retained bytes | {} peak bytes",
+								Facts.Width, Facts.Height, Facts.Cells, Facts.Nodes, Facts.MaximumDepth,
+								Facts.RetainedBytes, Facts.EstimatedPeakBytes));
+						if (Facts.Status != ETerrainCollisionStatus::Ready
+							&& !Component->GetLastCollisionDiagnostic().empty())
 							DrawFact("Collision diagnostic", Bounded(Component->GetLastCollisionDiagnostic()));
 						return false;
 					});

@@ -205,7 +205,9 @@ namespace Durin
 			return;
 		}
 		if (Event.MemberProperty->NamePrivate != FName("BodyInstance")) return;
-		if (!BodyInstance.ProfileName.IsNone())
+		const bool bProfileNameChanged = Event.LeafProperty
+			&& Event.LeafProperty->NamePrivate == FName("ProfileName");
+		if (bProfileNameChanged && !BodyInstance.ProfileName.IsNone())
 		{
 			CollisionProfile::FProfile Profile;
 			if (CollisionProfile::Resolve(BodyInstance.ProfileName, Profile))
@@ -214,6 +216,12 @@ namespace Durin
 				BodyInstance.ObjectChannel = Profile.ObjectChannel;
 				BodyInstance.Responses = Profile.Responses;
 			}
+		}
+		else if (!bProfileNameChanged)
+		{
+			// Directly edited filter fields are custom settings. Keeping the old
+			// preset name would immediately overwrite the user's value.
+			BodyInstance.ProfileName = FName();
 		}
 		RecreatePhysicsState();
 	}

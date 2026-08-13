@@ -37,7 +37,7 @@ TEST(FSplineComponentVisualizerTests, EmitsSelectableCurveLinesAndControlPointBo
 	Durin::CollectGarbage();
 }
 
-TEST(FTerrainDetailsCustomizationTests, HidesRawStatusAndAddsBoundedFactGroups)
+TEST(FTerrainDetailsCustomizationTests, HidesRawStatusAndAddsComponentFactGroups)
 {
 	InitializeDObjectSystem();
 	auto* Actor = Durin::NewObject<Durin::ATerrainActor>(nullptr, "TerrainDetailsActor");
@@ -55,7 +55,7 @@ TEST(FTerrainDetailsCustomizationTests, HidesRawStatusAndAddsBoundedFactGroups)
 		ASSERT_NE(Property, nullptr);
 		EXPECT_TRUE(Builder.IsPropertyHidden(*Property));
 	}
-	EXPECT_EQ(Builder.GetVisibleRowCount(), 3u);
+	EXPECT_EQ(Builder.GetVisibleRowCount(), 2u);
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
 	Durin::CollectGarbage();
 }

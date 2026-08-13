@@ -64,11 +64,13 @@ accelerated median must be at most one quarter of the full-cell oracle median.
 ## Details And Diagnostics
 
 Terrain Details leaves authored controls editable while hiding raw transient
-status fields. Three read-only groups summarize asset dimensions/revision/
-bytes, render status, and collision status/revision/resource/geometry facts.
-Status text maps stable runtime enums. Every displayed diagnostic is capped at
-2,048 bytes. Details never makes a derived resource authoritative or retains a
-status history.
+status fields. Heightmap asset dimensions, revision, retained bytes, and asset
+diagnostics belong to the heightmap asset rather than the component panel. The
+component panel summarizes render status and collision status/revision/resource/
+geometry facts; disabled collision is reported as disabled rather than as an
+unavailable derived resource. Status text maps stable runtime enums. Every
+displayed diagnostic is capped at 2,048 bytes. Details never makes a derived
+resource authoritative or retains a status history.
 
 ## Canonical Heightmap Thumbnail
 

@@ -5,7 +5,9 @@
 #include "Components/ShapeComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/TerrainComponent.h"
+#include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/Property.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "Math/Operations.h"
@@ -60,6 +62,38 @@ namespace
 		Box->SetWorldLocation(Center);
 		return Box;
 	}
+}
+
+TEST(FPrimitiveComponentCollisionEditingTests, DirectFilterEditsLeaveThePreviousProfile)
+{
+	Durin::Testing::InitializeDObjectSystemForTests();
+	auto* Actor = Durin::NewObject<Durin::ATerrainActor>(nullptr, "CollisionEditingTerrain");
+	auto* Component = Actor->GetTerrainComponent();
+	ASSERT_NE(Component, nullptr);
+	Durin::FProperty* BodyProperty = Component->GetClass()->FindPropertyByName("BodyInstance");
+	ASSERT_NE(BodyProperty, nullptr);
+	auto* BodyStructProperty = static_cast<Durin::FStructProperty*>(BodyProperty);
+	Durin::FProperty* EnabledProperty = BodyStructProperty->GetStruct()->FindPropertyByName(
+		Durin::FName("CollisionEnabled"));
+	ASSERT_NE(EnabledProperty, nullptr);
+	auto* Body = BodyProperty->ContainerPtrToValuePtr<Durin::FBodyInstance>(Component);
+	ASSERT_NE(Body, nullptr);
+	ASSERT_EQ(Body->ProfileName, Durin::CollisionProfile::NoCollision);
+
+	Body->CollisionEnabled = Durin::ECollisionEnabled::QueryOnly;
+	const std::array Path{
+		Durin::FPropertyPathSegment{BodyProperty},
+		Durin::FPropertyPathSegment{EnabledProperty}
+	};
+	Component->PostEditChangeProperty({
+		BodyProperty, EnabledProperty, Path, Durin::EPropertyChangePhase::Committed,
+		Durin::EPropertyChangeKind::ValueSet, Durin::EPropertyChangeOrigin::Edit
+	});
+
+	EXPECT_EQ(Component->GetCollisionEnabled(), Durin::ECollisionEnabled::QueryOnly);
+	EXPECT_TRUE(Component->GetCollisionProfileName().IsNone());
+	Durin::MarkObjectHierarchyAsGarbage(Actor);
+	Durin::CollectGarbage();
 }
 
 TEST(FPhysicsPublicContractTests, FreezesCompleteNamesAndReflectionIdentities)
