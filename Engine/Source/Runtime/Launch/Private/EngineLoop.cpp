@@ -142,6 +142,7 @@ namespace Durin
 
 	auto FEngineLoop::FailInitializationAfterRHI() -> bool
 	{
+		if (GEngine) GEngine->PrepareForShutdown();
 		ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		bGameThreadDeferredExecutorStarted = false;
 		bTaskSchedulerStarted = false;
@@ -301,6 +302,7 @@ namespace Durin
 
 		Diagnostics.BeforeAssetServiceShutdown();
 		SetProcessCrashPhase(EProcessCrashPhase::AssetServiceShutdown);
+		GEngine->PrepareForShutdown();
 		SetProcessCrashPhase(EProcessCrashPhase::TaskSystemShutdown);
 		ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		Diagnostics.AfterTaskSystemShutdown();

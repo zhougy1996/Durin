@@ -1,7 +1,9 @@
 #include "Modules/ModuleManager.h"
+#include "Authoring/AuthoringBuildService.h"
+#include "Skeletal/SkeletalBuildOperations.h"
+#include "SkeletalMesh/SkeletalAssetPostLoad.h"
 #include "StaticMesh/StaticMeshAuthoring.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
-#include "Texture/Texture2DAuthoringCoordinator.h"
 
 namespace Durin
 {
@@ -21,17 +23,22 @@ namespace Durin
 
 		auto StartupModule() -> void override
 		{
-			checkf(AssetBuild::InitializeTexture2DBuildCoordinator(),
-				"EngineAssetBuild could not initialize its Texture2D coordinator.");
+			checkf(AssetBuild::InitializeAuthoringBuildService(),
+				"EngineAssetBuild could not initialize its authoring build service.");
 			checkf(RegisterStaticMeshCollisionBuildHandler(
 				&BuildStaticMeshCollision),
 				"EngineAssetBuild could not register StaticMesh collision building.");
+			checkf(RegisterSkeletalAssetUncookedPayloadLoaders(
+				AssetBuild::LoadSkeletalMeshDerivedData,
+				AssetBuild::LoadAnimationClipDerivedData),
+				"EngineAssetBuild could not register skeletal DDC loading.");
 		}
 
 		auto ShutdownModule() -> void override
 		{
+			UnregisterSkeletalAssetUncookedPayloadLoaders();
 			UnregisterStaticMeshCollisionBuildHandler();
-			AssetBuild::ShutdownTexture2DBuildCoordinator();
+			AssetBuild::ShutdownAuthoringBuildService();
 		}
 	};
 

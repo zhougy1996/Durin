@@ -9,6 +9,8 @@
 
 namespace Durin
 {
+	struct FSkeletalPayloadSerializationContext;
+
 	inline constexpr uint32 MaximumAnimationClipTracks = 65536;
 	inline constexpr uint32 MaximumAnimationKeysPerTrack = 16777216;
 	inline constexpr uint32 MaximumAnimationKeysPerClip = 100000000;
@@ -64,10 +66,15 @@ namespace Durin
 		float DurationSeconds = 0.0f;
 		std::vector<FAnimationTrackData> Tracks;
 
+		ENGINE_API auto Serialize(
+			FArchive& Ar,
+			const FSkeletalPayloadSerializationContext& Context) -> void;
+
 		auto operator==(const FAnimationClipPayloadData&) const -> bool = default;
 	};
 
-	struct FAnimationClipImportedData
+	// Complete main-thread candidate accepted by the Runtime publication seam.
+	struct FAnimationClipPublicationCandidate
 	{
 		DSkeleton* Skeleton = nullptr;
 		// Optional prospective state for failure-atomic multi-asset publication.
@@ -77,11 +84,16 @@ namespace Durin
 		std::shared_ptr<const FAnimationClipPayloadData> Payload;
 		Asset::FCookedPayloadDescriptor CookedPayload;
 		std::string DerivedDataKey;
+		std::string DiagnosticMessage;
 	};
 
 	ENGINE_API auto ValidateAnimationClipPayload(
 		const FAnimationClipPayloadData& Payload,
 		const DSkeleton& Skeleton,
+		std::string& OutError) -> bool;
+	ENGINE_API auto ValidateAnimationClipPayload(
+		const FAnimationClipPayloadData& Payload,
+		uint32 SkeletonBoneCount,
 		std::string& OutError) -> bool;
 
 	class FAnimationClipImportedStateExchange;
@@ -103,8 +115,8 @@ namespace Durin
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
 		auto GetPayloadStorageDiagnostic() const -> const std::string& { return PayloadStorageDiagnostic; }
 
-		ENGINE_API auto InitializeFromImportedData(
-			FAnimationClipImportedData InData,
+		ENGINE_API auto PublishBuiltProduct(
+			FAnimationClipPublicationCandidate Candidate,
 			std::string& OutError) -> bool;
 		ENGINE_API auto Validate(std::string& OutError) const -> bool;
 		ENGINE_API auto ValidateAgainstSkeleton(

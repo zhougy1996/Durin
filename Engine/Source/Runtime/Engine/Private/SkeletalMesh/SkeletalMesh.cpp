@@ -6,6 +6,8 @@
 #include "DynamicRHI.h"
 #include "Math/Operations.h"
 #include "RenderingThread.h"
+#include "Serialization/Archive.h"
+#include "SkeletalMesh/SkeletalAssetPostLoad.h"
 #include "SkeletalMesh/SkeletalDerivedData.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
 
@@ -81,7 +83,7 @@ namespace Durin
 
 	auto ValidateSkeletalMeshPayload(
 		const FSkeletalMeshPayloadData& Payload,
-		const DSkeleton& Skeleton,
+		uint32 SkeletonBoneCount,
 		uint32 MaterialSlotCount,
 		std::string& OutError) -> bool
 	{
@@ -134,13 +136,13 @@ namespace Durin
 
 		if (Payload.PaletteBoneIndices.empty()
 			|| Payload.PaletteBoneIndices.size() != Payload.InverseBindMatrices.size()
-			|| Payload.PaletteBoneIndices.size() > Skeleton.GetBoneCount())
+			|| Payload.PaletteBoneIndices.size() > SkeletonBoneCount)
 			return Fail(&OutError, "Skeletal-mesh palette and inverse-bind counts are invalid.");
 		std::unordered_set<uint16> Palette;
 		for (size_t PaletteIndex = 0; PaletteIndex < Payload.PaletteBoneIndices.size(); ++PaletteIndex)
 		{
 			const uint16 BoneIndex = Payload.PaletteBoneIndices[PaletteIndex];
-			if (BoneIndex >= Skeleton.GetBoneCount() || !Palette.insert(BoneIndex).second)
+			if (BoneIndex >= SkeletonBoneCount || !Palette.insert(BoneIndex).second)
 				return Fail(&OutError, "Skeletal-mesh palette contains an invalid or duplicate bone index.");
 			if (!IsFinite(Payload.InverseBindMatrices[PaletteIndex]))
 				return Fail(&OutError, "Skeletal-mesh payload contains a non-finite inverse-bind matrix.");
@@ -202,6 +204,16 @@ namespace Durin
 			return Fail(&OutError, "Skeletal-mesh sections do not cover the complete index buffer.");
 		OutError.clear();
 		return true;
+	}
+
+	auto ValidateSkeletalMeshPayload(
+		const FSkeletalMeshPayloadData& Payload,
+		const DSkeleton& Skeleton,
+		uint32 MaterialSlotCount,
+		std::string& OutError) -> bool
+	{
+		return ValidateSkeletalMeshPayload(
+			Payload, Skeleton.GetBoneCount(), MaterialSlotCount, OutError);
 	}
 
 	DSkeletalMesh::DSkeletalMesh(const FObjectInitializer& ObjectInitializer)
@@ -317,8 +329,8 @@ namespace Durin
 			});
 	}
 
-	auto DSkeletalMesh::InitializeFromImportedData(
-		FSkeletalMeshImportedData InData,
+	auto DSkeletalMesh::PublishBuiltProduct(
+		FSkeletalMeshPublicationCandidate InData,
 		std::string& OutError) -> bool
 	{
 		if (!InData.Skeleton || !InData.Payload)
@@ -367,25 +379,10 @@ namespace Durin
 		RenderData = std::move(RenderDataCandidate);
 		RenderResourceState.store(ERenderResourceState::Uninitialized, std::memory_order_release);
 		bLoadedFromDerivedDataCache = false;
-		PayloadStorageDiagnostic.clear();
-		if (!DerivedDataKey.empty())
-		{
-			std::vector<uint8> Bytes;
-			std::string CacheError;
-			if (EncodeSkeletalMeshPayload(
-					*PayloadData, *ValidationSkeleton,
-					static_cast<uint32>(MaterialSlots.size()),
-					ESkeletalPayloadTargetPlatform::Win64,
-					ESkeletalPayloadTargetProfile::Game,
-					Bytes, CacheError)
-				&& StoreSkeletalMeshDerivedData(DerivedDataKey, Bytes, CacheError))
-				PayloadStorageDiagnostic = std::format(
-					"Stored SkeletalMesh DDC key {}.", DerivedDataKey);
-			else
-				PayloadStorageDiagnostic = std::format(
-					"SkeletalMesh DDC write failed for key {}: {}",
-					DerivedDataKey, CacheError);
-		}
+		PayloadStorageDiagnostic = std::move(InData.DiagnosticMessage);
+		if (PayloadStorageDiagnostic.empty() && !DerivedDataKey.empty())
+			PayloadStorageDiagnostic = std::format(
+				"Published built SkeletalMesh key {}.", DerivedDataKey);
 		MarkPackageDirty();
 		OutError.clear();
 		return true;
@@ -471,23 +468,18 @@ namespace Durin
 
 	auto DSkeletalMesh::LoadDerivedDataPayload(std::string& OutError) -> bool
 	{
-		std::vector<uint8> Bytes;
 		std::string CacheMessage;
-		if (!LoadSkeletalMeshDerivedData(DerivedDataKey, Bytes, CacheMessage))
+		FSkeletalMeshPayloadData Candidate;
+		const FSkeletalPayloadSerializationContext SerializationContext{
+			.SkeletonBoneCount = Skeleton->GetBoneCount(),
+			.MaterialSlotCount = static_cast<uint32>(MaterialSlots.size()),
+			.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
+			.TargetProfile = ESkeletalPayloadTargetProfile::Game};
+		if (!InvokeSkeletalMeshUncookedPayloadLoader(
+			DerivedDataKey, SerializationContext, Candidate, CacheMessage))
 		{
 			PayloadStorageDiagnostic = std::format(
 				"SkeletalMesh DDC miss for key {}: {}", DerivedDataKey, CacheMessage);
-			return Fail(&OutError, PayloadStorageDiagnostic);
-		}
-		FSkeletalMeshPayloadData Candidate;
-		const FPayloadDecodeResult Decoded = DecodeSkeletalMeshPayload(
-			Bytes, *Skeleton, static_cast<uint32>(MaterialSlots.size()),
-			ESkeletalPayloadTargetPlatform::Win64,
-			ESkeletalPayloadTargetProfile::Game, Candidate);
-		if (!Decoded)
-		{
-			PayloadStorageDiagnostic = std::format(
-				"SkeletalMesh DDC object {} is invalid: {}", DerivedDataKey, Decoded.Message);
 			return Fail(&OutError, PayloadStorageDiagnostic);
 		}
 		if (Candidate.Positions.size() != Summary.VertexCount
@@ -542,11 +534,13 @@ namespace Durin
 		if (!Asset::ResolveCookedPayload(Container, CookedPayload, Bytes, &OutError))
 			return FailCooked(OutError);
 		FSkeletalMeshPayloadData Candidate;
-		const FPayloadDecodeResult Decoded = DecodeSkeletalMeshPayload(
-			Bytes, *Skeleton, static_cast<uint32>(MaterialSlots.size()),
-			ESkeletalPayloadTargetPlatform::Win64,
-			ESkeletalPayloadTargetProfile::Game, Candidate);
-		if (!Decoded) return FailCooked(Decoded.Message);
+		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::CookedPayload);
+		Candidate.Serialize(Ar, {
+			.SkeletonBoneCount = Skeleton->GetBoneCount(),
+			.MaterialSlotCount = static_cast<uint32>(MaterialSlots.size()),
+			.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
+			.TargetProfile = ESkeletalPayloadTargetProfile::Game});
+		if (Ar.HasError()) return FailCooked(Ar.GetFailure()->Message);
 		if (Candidate.Positions.size() != Summary.VertexCount
 			|| Candidate.Indices.size() != Summary.IndexCount
 			|| Candidate.Sections.size() != Summary.SectionCount
@@ -574,11 +568,13 @@ namespace Durin
 		if (!PayloadData && !PostLoad(OutError)) return false;
 		if (!PayloadData) return Fail(&OutError, "SkeletalMesh has no CPU payload to cook.");
 		std::vector<uint8> PayloadBytes;
-		if (!EncodeSkeletalMeshPayload(
-			*PayloadData, *Skeleton, static_cast<uint32>(MaterialSlots.size()),
-			ESkeletalPayloadTargetPlatform::Win64,
-			ESkeletalPayloadTargetProfile::Game, PayloadBytes, OutError))
-			return false;
+		FCanonicalMemoryWriter Ar(PayloadBytes, EArchivePurpose::CookedPayload);
+		const_cast<FSkeletalMeshPayloadData&>(*PayloadData).Serialize(Ar, {
+			.SkeletonBoneCount = Skeleton->GetBoneCount(),
+			.MaterialSlotCount = static_cast<uint32>(MaterialSlots.size()),
+			.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
+			.TargetProfile = ESkeletalPayloadTargetProfile::Game});
+		if (Ar.HasError()) return Fail(&OutError, Ar.GetFailure()->Message);
 		Asset::FCookedBulkPayload BulkPayload{
 			.PayloadId = SkeletalMeshPrimaryCookedPayloadId,
 			.Flags = 1,

@@ -23,6 +23,21 @@ namespace Durin::StandardAssetImport
 	{
 		bool GRegistered = false;
 
+		auto NormalizePanorama(Asset::FDecodedImage&& Image)
+			-> AssetBuild::TextureCubeBuilder::FTexturePanoramaImage
+		{
+			return {.Pixels = std::move(Image.Pixels), .Width = Image.Width,
+				.Height = Image.Height, .SourceChannelCount = Image.SourceChannelCount,
+				.bHasTransparency = Image.bHasTransparency};
+		}
+
+		auto NormalizePanorama(Asset::FDecodedFloatImage&& Image)
+			-> AssetBuild::TextureCubeBuilder::FTexturePanoramaFloatImage
+		{
+			return {.Pixels = std::move(Image.Pixels), .Width = Image.Width,
+				.Height = Image.Height};
+		}
+
 		auto LoadBytes(const FSourcePath& Source, std::vector<uint8>& OutBytes,
 			std::filesystem::path& OutPath, std::string& OutError) -> bool
 		{
@@ -67,13 +82,13 @@ namespace Durin::StandardAssetImport
 					Asset::FDecodedFloatImage Panorama;
 					return Asset::DecodeRadianceHDRFromMemory(Bytes, Panorama, OutError,
 						{.MaximumDecodedPixels = AssetBuild::TextureCubeBuilder::MaximumPanoramaPixels})
-						&& AssetBuild::BuildTextureCubePanorama(Texture, std::move(Panorama),
+						&& AssetBuild::BuildTextureCubePanorama(Texture, NormalizePanorama(std::move(Panorama)),
 							Hash, Source.Panorama.SourcePath, Settings, OutError);
 				}
 				Asset::FDecodedImage Panorama;
 				return Asset::DecodeImageFromMemory(Bytes, Panorama, OutError,
 					{.MaximumDecodedPixels = AssetBuild::TextureCubeBuilder::MaximumPanoramaPixels})
-					&& AssetBuild::BuildTextureCubePanorama(Texture, std::move(Panorama),
+					&& AssetBuild::BuildTextureCubePanorama(Texture, NormalizePanorama(std::move(Panorama)),
 						Hash, Source.Panorama.SourcePath, Settings, OutError);
 			}
 
@@ -193,7 +208,7 @@ namespace Durin::StandardAssetImport
 				if (!Asset::DecodeRadianceHDRFromMemory(Bytes, Panorama, Error,
 					{.MaximumDecodedPixels = AssetBuild::TextureCubeBuilder::MaximumPanoramaPixels})
 					|| !AssetBuild::TextureCubeBuilder::ProjectEquirectangularTextureCube(
-						Panorama, {Settings.FaceDimension, Settings.ExposureEV}, SourceData, Error))
+						NormalizePanorama(std::move(Panorama)), {Settings.FaceDimension, Settings.ExposureEV}, SourceData, Error))
 					return {false, Error};
 				Width = Panorama.Width;
 				Height = Panorama.Height;
@@ -204,7 +219,7 @@ namespace Durin::StandardAssetImport
 				if (!Asset::DecodeImageFromMemory(Bytes, Panorama, Error,
 					{.MaximumDecodedPixels = AssetBuild::TextureCubeBuilder::MaximumPanoramaPixels})
 					|| !AssetBuild::TextureCubeBuilder::ProjectEquirectangularTextureCube(
-						Panorama, {Settings.FaceDimension, Settings.ExposureEV}, SourceData, Error))
+						NormalizePanorama(std::move(Panorama)), {Settings.FaceDimension, Settings.ExposureEV}, SourceData, Error))
 					return {false, Error};
 				Width = Panorama.Width;
 				Height = Panorama.Height;
@@ -230,13 +245,13 @@ namespace Durin::StandardAssetImport
 					Asset::FDecodedFloatImage Panorama;
 					return Asset::DecodeRadianceHDRFromMemory(Bytes, Panorama, OutError,
 						{.MaximumDecodedPixels = AssetBuild::TextureCubeBuilder::MaximumPanoramaPixels})
-						&& AssetBuild::BuildTextureCubePanorama(Texture, std::move(Panorama), Hash,
+						&& AssetBuild::BuildTextureCubePanorama(Texture, NormalizePanorama(std::move(Panorama)), Hash,
 							Source.Panorama.SourcePath, Settings, OutError);
 				}
 				Asset::FDecodedImage Panorama;
 				return Asset::DecodeImageFromMemory(Bytes, Panorama, OutError,
 					{.MaximumDecodedPixels = AssetBuild::TextureCubeBuilder::MaximumPanoramaPixels})
-					&& AssetBuild::BuildTextureCubePanorama(Texture, std::move(Panorama), Hash,
+					&& AssetBuild::BuildTextureCubePanorama(Texture, NormalizePanorama(std::move(Panorama)), Hash,
 						Source.Panorama.SourcePath, Settings, OutError);
 			}
 			std::array<std::vector<uint8>, TextureCubeFaceCount> OwnedBytes;
@@ -278,7 +293,7 @@ namespace Durin::StandardAssetImport
 					return false;
 				}
 				return AssetBuild::BuildTextureCubePanorama(
-					Texture, std::move(Panorama), Hash, SourcePath, Settings, OutError);
+					Texture, NormalizePanorama(std::move(Panorama)), Hash, SourcePath, Settings, OutError);
 			}
 			Asset::FDecodedImage Panorama;
 			if (!Asset::DecodeImageFromMemory(Bytes, Panorama, OutError,
@@ -288,7 +303,7 @@ namespace Durin::StandardAssetImport
 				return false;
 			}
 			return AssetBuild::BuildTextureCubePanorama(
-				Texture, std::move(Panorama), Hash, SourcePath, Settings, OutError);
+				Texture, NormalizePanorama(std::move(Panorama)), Hash, SourcePath, Settings, OutError);
 		}
 
 		auto BuildCubeFacesEncoded(

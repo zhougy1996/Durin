@@ -30,18 +30,11 @@ namespace Durin
 		std::vector<uint16> BrdfLut;
 
 		ENGINE_API auto IsValid() const -> bool;
+		ENGINE_API auto Serialize(FArchive& Ar) -> void;
 		auto operator==(const FEnvironmentLightingData&) const -> bool = default;
 	};
 
 	ENGINE_API auto BuildDefaultStudioEnvironmentData() -> FEnvironmentLightingData;
-	ENGINE_API auto EncodeEnvironmentLightingPayload(
-		const FEnvironmentLightingData& Data,
-		std::vector<uint8>& OutBytes,
-		std::string& OutError) -> bool;
-	ENGINE_API auto DecodeEnvironmentLightingPayload(
-		std::span<const uint8> Bytes,
-		std::shared_ptr<const FEnvironmentLightingData>& OutData,
-		std::string& OutError) -> bool;
 
 	DCLASS()
 	class DEnvironmentLighting : public DObject

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "EngineAssetBuildAPI.h"
-#include "ImageDecoder.h"
 #include "Texture/TextureCube.h"
 
 namespace Durin::AssetBuild::TextureCubeBuilder
@@ -11,6 +10,22 @@ namespace Durin::AssetBuild::TextureCubeBuilder
 	inline constexpr uint32 MaximumProjectedCubeFaceDimension = 4096;
 	inline constexpr float MinimumPanoramaExposureEV = -16.0f;
 	inline constexpr float MaximumPanoramaExposureEV = 16.0f;
+
+	struct FTexturePanoramaImage
+	{
+		std::vector<uint8> Pixels;
+		uint32 Width = 0;
+		uint32 Height = 0;
+		uint8 SourceChannelCount = 0;
+		bool bHasTransparency = false;
+	};
+
+	struct FTexturePanoramaFloatImage
+	{
+		std::vector<float> Pixels;
+		uint32 Width = 0;
+		uint32 Height = 0;
+	};
 
 	// Selects output resolution and the offline HDR exposure transform.
 	struct FEquirectangularTextureCubeProjectionSettings
@@ -26,13 +41,12 @@ namespace Durin::AssetBuild::TextureCubeBuilder
 		uint32& OutFaceDimension, std::string& OutError) -> bool;
 
 	// Projects top-left-origin sRGB RGBA8 panorama pixels into the canonical six-face source boundary.
-	ENGINEASSETBUILD_API auto ProjectEquirectangularTextureCube(const Asset::FDecodedImage& Panorama,
+	ENGINEASSETBUILD_API auto ProjectEquirectangularTextureCube(const FTexturePanoramaImage& Panorama,
 		const FEquirectangularTextureCubeProjectionSettings& Settings,
 		FTextureCubeSourceData& OutSourceData, std::string& OutError) -> bool;
 
 	// Applies exposure and the fixed filmic curve while projecting a linear Radiance HDR panorama.
-	ENGINEASSETBUILD_API auto ProjectEquirectangularTextureCube(const Asset::FDecodedFloatImage& Panorama,
+	ENGINEASSETBUILD_API auto ProjectEquirectangularTextureCube(const FTexturePanoramaFloatImage& Panorama,
 		const FEquirectangularTextureCubeProjectionSettings& Settings,
 		FTextureCubeSourceData& OutSourceData, std::string& OutError) -> bool;
 }
-

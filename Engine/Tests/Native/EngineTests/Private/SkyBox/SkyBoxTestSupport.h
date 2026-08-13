@@ -15,6 +15,7 @@
 #include "Engine/SkyBoxSceneProxy.h"
 #include "Materials/Material.h"
 #include "Misc/Paths.h"
+#include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
 #include "RendererModule.h"
 #include "RHIGlobals.h"
@@ -105,6 +106,8 @@ namespace
 	auto InitializeSkyBoxAssetMount() -> std::filesystem::path
 	{
 		InitializeDObjectSystem();
+		Durin::FModuleManager::Get().LoadModuleChecked("EngineAssetBuild");
+		Durin::FModuleManager::Get().LoadModuleChecked("StandardAssetImport");
 		const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "SkyBoxAssets";
 		static std::unordered_set<std::filesystem::path> InitializedRoots;
 		if (InitializedRoots.insert(Root).second)

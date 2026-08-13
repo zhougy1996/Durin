@@ -1,8 +1,6 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "Hash/XxHash.h"
-#include "PayloadDecodeResult.h"
 #include "Animation/AnimationClip.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 
@@ -12,18 +10,15 @@ namespace Durin
 	inline constexpr uint32 AnimationClipPayloadMagic = 0x4D4E4144; // DANM
 	inline constexpr uint32 SkeletalMeshPayloadSchemaVersion = 1;
 	inline constexpr uint32 AnimationClipPayloadSchemaVersion = 1;
-	inline constexpr uint32 SkeletalMeshBuilderVersion = 1;
-	inline constexpr uint32 AnimationClipBuilderVersion = 1;
-	inline constexpr uint32 SkeletalPayloadKeySchemaVersion = 1;
+	// Retained in the version-1 wire header for byte compatibility; it is not a
+	// runtime compatibility gate for future Build recipe revisions.
+	inline constexpr uint32 SkeletalMeshPayloadProducerVersion = 1;
+	inline constexpr uint32 AnimationClipPayloadProducerVersion = 1;
 	inline constexpr uint32 SkeletalPayloadAlignment = 16;
 	inline constexpr uint32 SkeletalPayloadHeaderSize = 64;
 	inline constexpr uint32 SkeletalPayloadChunkEntrySize = 32;
 	inline constexpr uint32 MaximumSkeletalPayloadChunks = 64;
 	inline constexpr uint32 MaximumSkeletalPayloadNameBytes = 1024;
-	inline constexpr std::string_view SkeletalMeshBuilderIdentity =
-		"Durin.SkeletalMesh.Builder.V1";
-	inline constexpr std::string_view AnimationClipBuilderIdentity =
-		"Durin.AnimationClip.Builder.V1";
 	inline const FGuid SkeletalMeshPrimaryCookedPayloadId{
 		0x716b7891, 0x4ce54f80, 0xa8c6d1b2, 0x173fa049};
 	inline const FGuid AnimationClipPrimaryCookedPayloadId{
@@ -41,18 +36,15 @@ namespace Durin
 		Game = 1
 	};
 
-	struct FSkeletalDerivedDataKeyInput
+	// Supplies stable owner facts needed to validate a detached skeletal payload.
+	struct FSkeletalPayloadSerializationContext
 	{
-		std::string ProviderIdentity;
-		uint32 ProviderVersion = 0;
-		FXxHash128 SourceClosureHash;
-		FXxHash128 SettingsHash;
-		FXxHash128 ProviderStateHash;
-		FXxHash128 PayloadInputFingerprint;
-		std::string StableOutputIdentity;
-		std::string SkeletonCompatibilityIdentity;
-		ESkeletalPayloadTargetPlatform TargetPlatform = ESkeletalPayloadTargetPlatform::Unknown;
-		ESkeletalPayloadTargetProfile TargetProfile = ESkeletalPayloadTargetProfile::Unknown;
+		uint32 SkeletonBoneCount = 0;
+		uint32 MaterialSlotCount = 0;
+		ESkeletalPayloadTargetPlatform TargetPlatform =
+			ESkeletalPayloadTargetPlatform::Unknown;
+		ESkeletalPayloadTargetProfile TargetProfile =
+			ESkeletalPayloadTargetProfile::Unknown;
 	};
 
 	// Records a load-time DDC failure for every active repair scope.
@@ -81,71 +73,4 @@ namespace Durin
 
 	ENGINE_API auto IsSkeletalDerivedDataRepairLoadActive() -> bool;
 
-	ENGINE_API auto BuildSkeletalMeshDerivedDataKeyBytes(
-		const FSkeletalDerivedDataKeyInput& Input) -> std::vector<uint8>;
-	ENGINE_API auto BuildSkeletalMeshDerivedDataKey(
-		const FSkeletalDerivedDataKeyInput& Input) -> std::string;
-	ENGINE_API auto BuildAnimationClipDerivedDataKeyBytes(
-		const FSkeletalDerivedDataKeyInput& Input) -> std::vector<uint8>;
-	ENGINE_API auto BuildAnimationClipDerivedDataKey(
-		const FSkeletalDerivedDataKeyInput& Input) -> std::string;
-
-	ENGINE_API auto EncodeSkeletalMeshPayload(
-		const FSkeletalMeshPayloadData& Payload,
-		const DSkeleton& Skeleton,
-		uint32 MaterialSlotCount,
-		ESkeletalPayloadTargetPlatform TargetPlatform,
-		ESkeletalPayloadTargetProfile TargetProfile,
-		std::vector<uint8>& OutBytes,
-		std::string& OutError) -> bool;
-	ENGINE_API auto DecodeSkeletalMeshPayload(
-		std::span<const uint8> Bytes,
-		const DSkeleton& Skeleton,
-		uint32 MaterialSlotCount,
-		ESkeletalPayloadTargetPlatform ExpectedPlatform,
-		ESkeletalPayloadTargetProfile ExpectedProfile,
-		FSkeletalMeshPayloadData& OutPayload) -> FPayloadDecodeResult;
-
-	ENGINE_API auto EncodeAnimationClipPayload(
-		const FAnimationClipPayloadData& Payload,
-		const DSkeleton& Skeleton,
-		ESkeletalPayloadTargetPlatform TargetPlatform,
-		ESkeletalPayloadTargetProfile TargetProfile,
-		std::vector<uint8>& OutBytes,
-		std::string& OutError) -> bool;
-	ENGINE_API auto DecodeAnimationClipPayload(
-		std::span<const uint8> Bytes,
-		const DSkeleton& Skeleton,
-		ESkeletalPayloadTargetPlatform ExpectedPlatform,
-		ESkeletalPayloadTargetProfile ExpectedProfile,
-		FAnimationClipPayloadData& OutPayload) -> FPayloadDecodeResult;
-
-	ENGINE_API auto ComputeSkeletalMeshPayloadInputFingerprint(
-		const FSkeletalMeshPayloadData& Payload,
-		const DSkeleton& Skeleton,
-		uint32 MaterialSlotCount,
-		FXxHash128& OutFingerprint,
-		std::string& OutError) -> bool;
-	ENGINE_API auto ComputeAnimationClipPayloadInputFingerprint(
-		const FAnimationClipPayloadData& Payload,
-		const DSkeleton& Skeleton,
-		FXxHash128& OutFingerprint,
-		std::string& OutError) -> bool;
-
-	ENGINE_API auto LoadSkeletalMeshDerivedData(
-		std::string_view Key,
-		std::vector<uint8>& OutBytes,
-		std::string& OutMessage) -> bool;
-	ENGINE_API auto StoreSkeletalMeshDerivedData(
-		std::string_view Key,
-		std::span<const uint8> Bytes,
-		std::string& OutError) -> bool;
-	ENGINE_API auto LoadAnimationClipDerivedData(
-		std::string_view Key,
-		std::vector<uint8>& OutBytes,
-		std::string& OutMessage) -> bool;
-	ENGINE_API auto StoreAnimationClipDerivedData(
-		std::string_view Key,
-		std::span<const uint8> Bytes,
-		std::string& OutError) -> bool;
 }

@@ -30,13 +30,6 @@ namespace Durin::AssetBuild::TextureBuilder
 	ENGINEASSETBUILD_API auto IsValidAlphaCoverageThreshold(float Threshold) -> bool;
 	ENGINEASSETBUILD_API auto SelectPixelFormat(ETextureUsage Usage, bool bSRGB, bool bHasTransparency) -> EPixelFormat;
 
-	// Decodes a supported source image into the canonical top-left-origin RGBA8 representation.
-	ENGINEASSETBUILD_API auto DecodeRGBA8(std::string_view PhysicalFilePath, FTextureSourceData& OutSourceData, std::string& OutError) -> bool;
-	ENGINEASSETBUILD_API auto DecodeRGBA8(
-		std::span<const uint8> EncodedBytes,
-		FTextureSourceData& OutSourceData,
-		std::string& OutError) -> bool;
-
 	// Builds and platform-compresses the complete mip chain used by both 2D and cube textures.
 	ENGINEASSETBUILD_API auto BuildMipChain(const FTextureSourceData& SourceData, ETextureUsage Usage, bool bSRGB,
 		FTexturePlatformData& OutPlatformData, std::string& OutError, uint32 MaxResolution = 0,
@@ -45,4 +38,3 @@ namespace Durin::AssetBuild::TextureBuilder
 		float AlphaCoverageThreshold = 0.5f,
 		const FBuildExecutionControl* ExecutionControl = nullptr) -> bool;
 }
-

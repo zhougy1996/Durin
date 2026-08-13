@@ -82,6 +82,7 @@ namespace Durin
 		DURINED_API auto Init(const FEngineInitContext& Context)
 			-> FEngineInitializationResult override;
 		DURINED_API auto Tick(float DeltaSeconds, bool bIdleMode) -> void override;
+		DURINED_API auto PrepareForShutdown() -> void override;
 		DURINED_API auto BeginDestroy() -> void override;
 		DURINED_API auto GetTransactionManager() -> Editor::FTransactionManager&;
 		DURINED_API auto GetNotificationManager() -> Editor::FNotificationManager&;

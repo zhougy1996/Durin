@@ -5,6 +5,7 @@
 #include "Misc/DerivedDataCache.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Serialization/Archive.h"
 
 namespace Durin
 {
@@ -88,7 +89,7 @@ namespace Durin
 			* EnvironmentBrdfLutDimension * 4;
 	}
 
-	auto EncodeEnvironmentLightingPayload(
+	static auto BuildEnvironmentLightingSerializedValue(
 		const FEnvironmentLightingData& Data,
 		std::vector<uint8>& OutBytes,
 		std::string& OutError) -> bool
@@ -122,7 +123,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DecodeEnvironmentLightingPayload(
+	static auto ParseEnvironmentLightingSerializedValue(
 		std::span<const uint8> Bytes,
 		std::shared_ptr<const FEnvironmentLightingData>& OutData,
 		std::string& OutError) -> bool
@@ -137,10 +138,14 @@ namespace Durin
 		uint32 BrdfLutDimension = 0;
 		uint64 ElementCount = 0;
 		uint64 StoredHash = 0;
-		if (!Reader.ReadAndValidateHeader(
-				EnvironmentLightingPayloadMagic,
-				EnvironmentLightingPayloadSchemaVersion,
-				DefaultStudioEnvironmentBuilderVersion)
+		uint32 Magic = 0;
+		uint32 SchemaVersion = 0;
+		uint32 ProducerVersion = 0;
+		uint32 SerializationMarker = 0;
+		if (!Reader.ReadU32(Magic)
+			|| !Reader.ReadU32(SchemaVersion)
+			|| !Reader.ReadU32(ProducerVersion)
+			|| !Reader.ReadU32(SerializationMarker)
 			|| !Reader.ReadU32(PixelFormat)
 			|| !Reader.ReadU32(IrradianceDimension)
 			|| !Reader.ReadU32(PrefilterDimension)
@@ -151,7 +156,10 @@ namespace Durin
 		{
 			return Fail(OutError, "Environment-lighting payload header is invalid.");
 		}
-		if (PixelFormat != EnvironmentLightingStablePixelFormatRgba16Float
+		if (Magic != EnvironmentLightingPayloadMagic
+			|| SchemaVersion != EnvironmentLightingPayloadSchemaVersion
+			|| SerializationMarker != DerivedDataCache::SerializationMarker
+			|| PixelFormat != EnvironmentLightingStablePixelFormatRgba16Float
 			|| IrradianceDimension != EnvironmentIrradianceDimension
 			|| PrefilterDimension != EnvironmentPrefilterDimension
 			|| PrefilterMipCount != EnvironmentPrefilterMipCount
@@ -160,6 +168,9 @@ namespace Durin
 		{
 			return Fail(OutError, "Environment-lighting payload layout is incompatible.");
 		}
+		// Producer identity is diagnostic metadata. Runtime compatibility is owned
+		// by the schema and stable value identifiers.
+		(void)ProducerVersion;
 		const uint64 ExpectedBodyBytes = ElementCount * sizeof(uint16);
 		if (ExpectedBodyBytes != Reader.GetRemainingBytes())
 			return Fail(OutError, "Environment-lighting payload size is invalid.");
@@ -196,6 +207,49 @@ namespace Durin
 		}
 		OutData = std::move(Candidate);
 		return true;
+	}
+
+	auto FEnvironmentLightingData::Serialize(FArchive& Ar) -> void
+	{
+		if (Ar.HasError()) return;
+		if (Ar.IsSaving())
+		{
+			std::vector<uint8> Bytes;
+			std::string Error;
+			if (!BuildEnvironmentLightingSerializedValue(*this, Bytes, Error))
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData, Error);
+				return;
+			}
+			Ar.WriteBytes(std::as_bytes(std::span<const uint8>(Bytes)));
+			return;
+		}
+
+		const uint64 ByteCount = Ar.GetRemainingPayloadBytes();
+		if (ByteCount == std::numeric_limits<uint64>::max())
+		{
+			Ar.Fail(EArchiveFailureCode::UnsupportedCapability,
+				"Environment-lighting data requires a bounded input archive.");
+			return;
+		}
+		if (ByteCount > ExpectedElementCount() * sizeof(uint16) + 64
+			|| ByteCount > static_cast<uint64>(std::vector<uint8>().max_size()))
+		{
+			Ar.Fail(EArchiveFailureCode::LimitExceeded,
+				"Environment-lighting payload exceeds its stored-size limit.");
+			return;
+		}
+		std::vector<uint8> Bytes(static_cast<size_t>(ByteCount));
+		Ar.ReadBytes(std::as_writable_bytes(std::span<uint8>(Bytes)));
+		if (Ar.HasError()) return;
+		std::shared_ptr<const FEnvironmentLightingData> Candidate;
+		std::string Error;
+		if (!ParseEnvironmentLightingSerializedValue(Bytes, Candidate, Error))
+		{
+			Ar.Fail(EArchiveFailureCode::InvalidData, Error);
+			return;
+		}
+		*this = *Candidate;
 	}
 
 	DEnvironmentLighting::DEnvironmentLighting(const FObjectInitializer& ObjectInitializer)
@@ -261,7 +315,16 @@ namespace Durin
 				|| !LoadAuthoringPayload(GetPackage()->GetPackagePath(), PayloadBytes, OutError))
 				return false;
 		}
-		return DecodeEnvironmentLightingPayload(PayloadBytes, Data, OutError);
+		auto Candidate = std::make_shared<FEnvironmentLightingData>();
+		FCanonicalMemoryReader PayloadAr(PayloadBytes,
+			Asset::GetPackageLoadContext().Mode == Asset::EPackageLoadMode::CookedRuntime
+				? EArchivePurpose::CookedPayload : EArchivePurpose::DerivedDataPayload);
+		Candidate->Serialize(PayloadAr);
+		if (PayloadAr.HasError())
+			return Fail(OutError, PayloadAr.GetFailure()->Message);
+		Data = std::move(Candidate);
+		OutError.clear();
+		return true;
 	}
 
 	auto DEnvironmentLighting::AddToCook(
@@ -277,8 +340,10 @@ namespace Durin
 		if (!GetPackage()) return Fail(OutError, "Environment-lighting asset has no package.");
 		std::vector<uint8> PayloadBytes;
 		if (!LoadAuthoringPayload(GetPackage()->GetPackagePath(), PayloadBytes, OutError)) return false;
-		std::shared_ptr<const FEnvironmentLightingData> Validated;
-		if (!DecodeEnvironmentLightingPayload(PayloadBytes, Validated, OutError)) return false;
+		FEnvironmentLightingData Validated;
+		FCanonicalMemoryReader PayloadAr(PayloadBytes, EArchivePurpose::CookedPayload);
+		Validated.Serialize(PayloadAr);
+		if (PayloadAr.HasError()) return Fail(OutError, PayloadAr.GetFailure()->Message);
 
 		Asset::FCookedBulkPayload BulkPayload{
 			.PayloadId = EnvironmentLightingPrimaryCookedPayloadId,

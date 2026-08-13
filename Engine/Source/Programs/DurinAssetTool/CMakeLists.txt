@@ -9,6 +9,11 @@ add_executable(DurinAssetTool "Private/AssetToolMain.cpp")
 durin_target_enable_windows_long_paths(DurinAssetTool)
 durin_target_apply_common_definitions(DurinAssetTool "DurinAssetTool")
 target_link_libraries(DurinAssetTool PRIVATE AssetCore Engine AssetImportCore)
+# Keep the optional Build DLL available for migrate operations without adding
+# it to the package-only audit process import closure.
+if(TARGET EngineAssetBuild)
+    add_dependencies(DurinAssetTool EngineAssetBuild)
+endif()
 if(DURIN_ENABLE_PCH)
     target_precompile_headers(DurinAssetTool REUSE_FROM SharedPCH_Core)
 else()

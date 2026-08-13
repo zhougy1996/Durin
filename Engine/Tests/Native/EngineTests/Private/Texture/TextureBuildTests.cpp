@@ -568,7 +568,7 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 			},
 			false);
 	};
-	ASSERT_TRUE(Durin::AssetBuild::InitializeTexture2DBuildCoordinator());
+	ASSERT_TRUE(Durin::AssetBuild::InitializeAuthoringBuildService());
 	Durin::AssetBuild::FTexture2DBuildCoordinator* Coordinator =
 		Durin::AssetBuild::GetTexture2DBuildCoordinator();
 	ASSERT_NE(Coordinator, nullptr);

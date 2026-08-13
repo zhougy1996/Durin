@@ -28,9 +28,13 @@ namespace Durin::AssetBuild::TextureCubeBuilder
 
 	TEST(FEquirectangularTextureCubeTests, ProjectsLDRPrincipalAxesSeamAndPoles)
 	{
-		Asset::FDecodedImage Panorama;
+		Asset::FDecodedImage Decoded;
 		std::string Error;
-		ASSERT_TRUE(Asset::DecodeImageFromFile(FixturePath("AnalyticalLDR.tga"), Panorama, Error)) << Error;
+		ASSERT_TRUE(Asset::DecodeImageFromFile(FixturePath("AnalyticalLDR.tga"), Decoded, Error)) << Error;
+		FTexturePanoramaImage Panorama{.Pixels = std::move(Decoded.Pixels),
+			.Width = Decoded.Width, .Height = Decoded.Height,
+			.SourceChannelCount = Decoded.SourceChannelCount,
+			.bHasTransparency = Decoded.bHasTransparency};
 		ASSERT_EQ(Panorama.Width, 8u);
 		ASSERT_EQ(Panorama.Height, 4u);
 
@@ -48,7 +52,7 @@ namespace Durin::AssetBuild::TextureCubeBuilder
 
 	TEST(FEquirectangularTextureCubeTests, InterpolatesLDRInLinearSpaceAndWrapsTheLongitudeSeam)
 	{
-		Asset::FDecodedImage Panorama;
+		FTexturePanoramaImage Panorama;
 		Panorama.Width = 2;
 		Panorama.Height = 1;
 		Panorama.SourceChannelCount = 4;
@@ -65,9 +69,11 @@ namespace Durin::AssetBuild::TextureCubeBuilder
 
 	TEST(FEquirectangularTextureCubeTests, ProjectsRadianceGoldenValuesAndExposure)
 	{
-		Asset::FDecodedFloatImage Panorama;
+		Asset::FDecodedFloatImage Decoded;
 		std::string Error;
-		ASSERT_TRUE(Asset::DecodeRadianceHDRFromFile(FixturePath("AnalyticalHDR.hdr"), Panorama, Error)) << Error;
+		ASSERT_TRUE(Asset::DecodeRadianceHDRFromFile(FixturePath("AnalyticalHDR.hdr"), Decoded, Error)) << Error;
+		FTexturePanoramaFloatImage Panorama{.Pixels = std::move(Decoded.Pixels),
+			.Width = Decoded.Width, .Height = Decoded.Height};
 
 		FEquirectangularTextureCubeProjectionSettings Settings;
 		Settings.FaceDimension = 1;
@@ -105,7 +111,7 @@ namespace Durin::AssetBuild::TextureCubeBuilder
 		EXPECT_FALSE(ValidateEquirectangularTextureCubeProjection(8, 4, Settings, false, FaceDimension, Error));
 		EXPECT_NE(Error.find("4096"), std::string::npos);
 
-		Asset::FDecodedImage LDR;
+		FTexturePanoramaImage LDR;
 		LDR.Width = 8;
 		LDR.Height = 4;
 		FTextureCubeSourceData Cube;
@@ -113,7 +119,7 @@ namespace Durin::AssetBuild::TextureCubeBuilder
 		EXPECT_TRUE(Cube.Faces[0].Pixels.empty());
 		EXPECT_NE(Error.find("storage"), std::string::npos);
 
-		Asset::FDecodedFloatImage HDR;
+		FTexturePanoramaFloatImage HDR;
 		HDR.Width = 2;
 		HDR.Height = 1;
 		HDR.Pixels.assign(6, 1.0f);
@@ -131,7 +137,7 @@ namespace Durin::AssetBuild::TextureCubeBuilder
 
 	TEST(FEquirectangularTextureCubeTests, PropagatesProjectedTransparency)
 	{
-		Asset::FDecodedImage Panorama;
+		FTexturePanoramaImage Panorama;
 		Panorama.Width = 2;
 		Panorama.Height = 1;
 		Panorama.SourceChannelCount = 4;

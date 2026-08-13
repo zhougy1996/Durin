@@ -11,6 +11,12 @@ and cancellation. `AssetImportCore` owns the generic contracts;
 Scene providers, including the bounded glTF skeletal path. Runtime targets
 depend on neither module.
 
+Concrete translation terminates at normalized owned values. Standard providers
+do not pass encoded PNG, HDR, glTF, FBX, or Assimp input into
+`EngineAssetBuild`. Build requests contain no decoder type or mutable
+`DObject`; detached products publish on the main thread through narrow Engine
+state exchanges and AssetCore transactions.
+
 ## Ownership and layering
 
 The dependency direction is `Core/CoreDObject -> AssetCore -> AssetImportCore

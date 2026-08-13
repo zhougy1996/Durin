@@ -148,9 +148,4 @@ namespace Durin::AssetBuild
 		std::shared_ptr<FState> State;
 	};
 
-	ENGINEASSETBUILD_API auto InitializeTexture2DBuildCoordinator(
-		const FTexture2DBuildCoordinatorConfig& Config = {}) -> bool;
-	ENGINEASSETBUILD_API auto GetTexture2DBuildCoordinator() -> FTexture2DBuildCoordinator*;
-	ENGINEASSETBUILD_API auto PumpTexture2DBuildCompletions(uint32 MaximumCount = 64) -> uint32;
-	ENGINEASSETBUILD_API auto ShutdownTexture2DBuildCoordinator() -> void;
 }

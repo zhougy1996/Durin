@@ -1,5 +1,6 @@
 #include "Texture/Texture2DAuthoringService.h"
 
+#include "Authoring/AuthoringBuildService.h"
 #include "DObject/DObjectGlobals.h"
 #include "Threading/RunnableThread.h"
 #include "Texture/TextureBuilder.h"
@@ -108,7 +109,7 @@ namespace Durin::AssetBuild
 			OutError = "Texture2D authoring submission requires normalized source and provenance.";
 			return false;
 		}
-		if (!InitializeTexture2DBuildCoordinator())
+		if (!InitializeAuthoringBuildService())
 		{
 			OutError = "The EngineAssetBuild Texture2D coordinator is unavailable.";
 			return false;
@@ -233,7 +234,7 @@ namespace Durin::AssetBuild
 		if (RequestId == 0) return true;
 		FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator();
 		if (!Coordinator || !Coordinator->WaitForRequest(RequestId, TimeoutSeconds)) return false;
-		PumpTexture2DBuildCompletions(std::numeric_limits<uint32>::max());
+		PumpAuthoringBuildCompletions(std::numeric_limits<uint32>::max());
 		bool bFailed = false;
 		{
 			std::lock_guard Lock(GTexture2DAuthoringMutex);

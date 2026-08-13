@@ -2,7 +2,6 @@
 
 #include "DerivedDataObjectStore.h"
 #include "Hash/XxHash.h"
-#include "ImageDecoder.h"
 #include "Serialization/Archive.h"
 #include "Texture/TextureBuilder.h"
 #include "Texture/TextureCubeBuilder.h"
@@ -146,7 +145,7 @@ namespace Durin::AssetBuild
 
 	auto BuildTextureCubePanorama(
 		DTextureCube& Texture,
-		Asset::FDecodedImage Panorama,
+		TextureCubeBuilder::FTexturePanoramaImage Panorama,
 		const FXxHash128& SourceHash,
 		const FSourcePath& SourcePath,
 		const FTextureCubePanoramaImportSettings& Settings,
@@ -245,7 +244,7 @@ namespace Durin::AssetBuild
 
 	auto BuildTextureCubePanorama(
 		DTextureCube& Texture,
-		Asset::FDecodedFloatImage Panorama,
+		TextureCubeBuilder::FTexturePanoramaFloatImage Panorama,
 		const FXxHash128& SourceHash,
 		const FSourcePath& SourcePath,
 		const FTextureCubePanoramaImportSettings& Settings,

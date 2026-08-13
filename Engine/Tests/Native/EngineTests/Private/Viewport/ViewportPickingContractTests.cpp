@@ -160,7 +160,7 @@ namespace
 			Payload->InverseBindMatrices = {Durin::FMatrix4f(1.0f), Durin::FMatrix4f(1.0f)};
 
 			Mesh = Durin::NewObject<Durin::DSkeletalMesh>(Level, "SkeletalPickingMesh");
-			if (!Mesh->InitializeFromImportedData({.Skeleton = Skeleton,
+			if (!Mesh->PublishBuiltProduct({.Skeleton = Skeleton,
 				.SkeletonCompatibilityIdentity = Skeleton->GetCompatibilityIdentity(),
 				.MeshNodeBindTransform = MatrixTransform(Durin::FMatrix(1.0)),
 				.MaterialSlots = {{.Name = Durin::FName("Body"), .SourceMaterialIndex = 0}},
@@ -473,7 +473,7 @@ TEST(FViewportPickingContractTests, CurrentAnimationPoseAddsAndRemovesSurfaceHit
 		.Times = {0.0f, 1.0f}, .VectorValues = {{0.0f, 0.0f, 0.0f}, {4.0f, 0.0f, 0.0f}}});
 	auto* Clip = Durin::NewObject<Durin::DAnimationClip>(Fixture.Level, "SkeletalPickingClip");
 	std::string Error;
-	ASSERT_TRUE(Clip->InitializeFromImportedData({.Skeleton = Fixture.Skeleton,
+	ASSERT_TRUE(Clip->PublishBuiltProduct({.Skeleton = Fixture.Skeleton,
 		.SkeletonCompatibilityIdentity = Fixture.Skeleton->GetCompatibilityIdentity(),
 		.ClipName = Durin::FName("Move"), .Payload = std::move(ClipPayload)}, Error)) << Error;
 	auto* Component = Fixture.Actor->GetSkeletalMeshComponent();

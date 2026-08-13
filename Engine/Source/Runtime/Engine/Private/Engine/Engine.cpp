@@ -179,6 +179,10 @@ namespace Durin
 		GameInputState.FinishGameTick();
 	}
 
+	auto DEngine::PrepareForShutdown() -> void
+	{
+	}
+
 	auto DEngine::RedrawViewports() -> void
 	{
 		auto RenderTargetViewport = [this](const std::shared_ptr<FSceneViewport>& SceneViewport, bool bAllowCameraFallback) {

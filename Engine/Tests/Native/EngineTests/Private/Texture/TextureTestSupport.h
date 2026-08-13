@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AssetSystem.h"
+#include "Authoring/AuthoringBuildService.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Package.h"

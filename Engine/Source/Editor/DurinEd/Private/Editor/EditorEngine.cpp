@@ -180,6 +180,11 @@ namespace Durin
 		DEngine::Tick(DeltaSeconds, bIdleMode);
 	}
 
+	auto DEditorEngine::PrepareForShutdown() -> void
+	{
+		if (MainFrameModule) MainFrameModule->DestroyDefaultFrame();
+	}
+
 	auto DEditorEngine::BeginDestroy() -> void
 	{
 		if (MainFrameModule)

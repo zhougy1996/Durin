@@ -90,7 +90,7 @@ namespace Durin::AssetBuild::TextureCubeBuilder
 			Face.Pixels.resize(static_cast<size_t>(FaceDimension) * FaceDimension * LDRChannelCount);
 		}
 
-		auto ValidateLDRPanorama(const Asset::FDecodedImage& Panorama, std::string& OutError) -> bool
+		auto ValidateLDRPanorama(const FTexturePanoramaImage& Panorama, std::string& OutError) -> bool
 		{
 			const uint64 PixelCount = static_cast<uint64>(Panorama.Width) * Panorama.Height;
 			if (PixelCount > std::numeric_limits<size_t>::max() / LDRChannelCount
@@ -102,7 +102,7 @@ namespace Durin::AssetBuild::TextureCubeBuilder
 			return true;
 		}
 
-		auto ValidateHDRPanorama(const Asset::FDecodedFloatImage& Panorama, std::string& OutError) -> bool
+		auto ValidateHDRPanorama(const FTexturePanoramaFloatImage& Panorama, std::string& OutError) -> bool
 		{
 			const uint64 PixelCount = static_cast<uint64>(Panorama.Width) * Panorama.Height;
 			if (PixelCount > std::numeric_limits<size_t>::max() / HDRChannelCount
@@ -179,7 +179,7 @@ namespace Durin::AssetBuild::TextureCubeBuilder
 		return true;
 	}
 
-	auto ProjectEquirectangularTextureCube(const Asset::FDecodedImage& Panorama,
+	auto ProjectEquirectangularTextureCube(const FTexturePanoramaImage& Panorama,
 		const FEquirectangularTextureCubeProjectionSettings& Settings,
 		FTextureCubeSourceData& OutSourceData, std::string& OutError) -> bool
 	{
@@ -230,7 +230,7 @@ namespace Durin::AssetBuild::TextureCubeBuilder
 		return true;
 	}
 
-	auto ProjectEquirectangularTextureCube(const Asset::FDecodedFloatImage& Panorama,
+	auto ProjectEquirectangularTextureCube(const FTexturePanoramaFloatImage& Panorama,
 		const FEquirectangularTextureCubeProjectionSettings& Settings,
 		FTextureCubeSourceData& OutSourceData, std::string& OutError) -> bool
 	{
@@ -283,4 +283,3 @@ namespace Durin::AssetBuild::TextureCubeBuilder
 		return true;
 	}
 }
-

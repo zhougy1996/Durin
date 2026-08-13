@@ -10,6 +10,7 @@
 #include "Misc/Name.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
+#include "Modules/ModuleManager.h"
 
 #include <csignal>
 #include <iostream>
@@ -27,6 +28,17 @@ namespace
 		bool bApply = false;
 		std::vector<std::string> Mounts;
 		std::vector<std::string> Packages;
+	};
+
+	struct FSelectedAuthoringModules
+	{
+		bool bEngineAssetBuild = false;
+
+		~FSelectedAuthoringModules()
+		{
+			if (bEngineAssetBuild)
+				Durin::FModuleManager::Get().ShutdownModule("EngineAssetBuild");
+		}
 	};
 
 	auto ParseOptions(int ArgC, char** ArgV, FOptions& OutOptions, std::string& OutError) -> bool
@@ -90,6 +102,18 @@ int main(int ArgC, char** ArgV)
 	}
 	Durin::DObjectInit();
 	Durin::InitializeEngineAssetServices();
+	FSelectedAuthoringModules AuthoringModules;
+	if (Options.bMigrate)
+	{
+		// Migration may deserialize uncooked Engine payloads. Select Build explicitly;
+		// the package-only audit path intentionally never loads this module.
+		if (!Durin::FModuleManager::Get().LoadModule("EngineAssetBuild"))
+		{
+			std::cerr << "Error: EngineAssetBuild is unavailable for migration.\n";
+			return 1;
+		}
+		AuthoringModules.bEngineAssetBuild = true;
+	}
 	(void)Durin::DLevel::StaticClass(); // Force the Engine reflection module into this process.
 	(void)Durin::AssetImport::DImportRecord::StaticClass(); // AssetImport packages are part of the authored corpus.
 	if (Options.bApply && !Durin::Asset::RecoverInterruptedAssetMigrations(Error))

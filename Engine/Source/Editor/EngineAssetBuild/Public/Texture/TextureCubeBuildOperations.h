@@ -2,21 +2,21 @@
 
 #include "EngineAssetBuildAPI.h"
 #include "Hash/XxHash.h"
-#include "ImageDecoder.h"
 #include "Texture/TextureCube.h"
+#include "Texture/TextureCubeBuilder.h"
 
 namespace Durin::AssetBuild
 {
 	ENGINEASSETBUILD_API auto BuildTextureCubePanorama(
 		DTextureCube& Texture,
-		Asset::FDecodedImage Panorama,
+		TextureCubeBuilder::FTexturePanoramaImage Panorama,
 		const FXxHash128& SourceHash,
 		const FSourcePath& SourcePath,
 		const FTextureCubePanoramaImportSettings& Settings,
 		std::string& OutError) -> bool;
 	ENGINEASSETBUILD_API auto BuildTextureCubePanorama(
 		DTextureCube& Texture,
-		Asset::FDecodedFloatImage Panorama,
+		TextureCubeBuilder::FTexturePanoramaFloatImage Panorama,
 		const FXxHash128& SourceHash,
 		const FSourcePath& SourcePath,
 		const FTextureCubePanoramaImportSettings& Settings,

@@ -3,6 +3,8 @@
 #include "AssetSystem.h"
 #include "DObject/Property.h"
 #include "Math/Operations.h"
+#include "Serialization/Archive.h"
+#include "SkeletalMesh/SkeletalAssetPostLoad.h"
 #include "SkeletalMesh/SkeletalDerivedData.h"
 
 namespace Durin
@@ -45,7 +47,7 @@ namespace Durin
 
 	auto ValidateAnimationClipPayload(
 		const FAnimationClipPayloadData& Payload,
-		const DSkeleton& Skeleton,
+		uint32 SkeletonBoneCount,
 		std::string& OutError) -> bool
 	{
 		if (!std::isfinite(Payload.DurationSeconds) || Payload.DurationSeconds < 0.0f)
@@ -63,7 +65,7 @@ namespace Durin
 			if ((Track.Path != EAnimationTrackPath::Translation
 					&& Track.Path != EAnimationTrackPath::Rotation
 					&& Track.Path != EAnimationTrackPath::Scale)
-				|| Track.BoneIndex >= Skeleton.GetBoneCount()
+				|| Track.BoneIndex >= SkeletonBoneCount
 				|| !TrackIdentities.emplace(Track.BoneIndex, Track.Path).second)
 				return Fail(OutError, "Animation payload contains an invalid or duplicate track target.");
 			if (Track.Interpolation != EAnimationInterpolation::Step
@@ -122,11 +124,20 @@ namespace Durin
 		return true;
 	}
 
+	auto ValidateAnimationClipPayload(
+		const FAnimationClipPayloadData& Payload,
+		const DSkeleton& Skeleton,
+		std::string& OutError) -> bool
+	{
+		return ValidateAnimationClipPayload(
+			Payload, Skeleton.GetBoneCount(), OutError);
+	}
+
 	DAnimationClip::DAnimationClip(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer) {}
 
-	auto DAnimationClip::InitializeFromImportedData(
-		FAnimationClipImportedData InData,
+	auto DAnimationClip::PublishBuiltProduct(
+		FAnimationClipPublicationCandidate InData,
 		std::string& OutError) -> bool
 	{
 		if (!InData.Skeleton || !InData.Payload || InData.ClipName.IsNone())
@@ -150,24 +161,10 @@ namespace Durin
 		DerivedDataKey = std::move(InData.DerivedDataKey);
 		PayloadData = std::move(InData.Payload);
 		bLoadedFromDerivedDataCache = false;
-		PayloadStorageDiagnostic.clear();
-		if (!DerivedDataKey.empty())
-		{
-			std::vector<uint8> Bytes;
-			std::string CacheError;
-			if (EncodeAnimationClipPayload(
-					*PayloadData, *ValidationSkeleton,
-					ESkeletalPayloadTargetPlatform::Win64,
-					ESkeletalPayloadTargetProfile::Game,
-					Bytes, CacheError)
-				&& StoreAnimationClipDerivedData(DerivedDataKey, Bytes, CacheError))
-				PayloadStorageDiagnostic = std::format(
-					"Stored AnimationClip DDC key {}.", DerivedDataKey);
-			else
-				PayloadStorageDiagnostic = std::format(
-					"AnimationClip DDC write failed for key {}: {}",
-					DerivedDataKey, CacheError);
-		}
+		PayloadStorageDiagnostic = std::move(InData.DiagnosticMessage);
+		if (PayloadStorageDiagnostic.empty() && !DerivedDataKey.empty())
+			PayloadStorageDiagnostic = std::format(
+				"Published built AnimationClip key {}.", DerivedDataKey);
 		MarkPackageDirty();
 		OutError.clear();
 		return true;
@@ -231,22 +228,17 @@ namespace Durin
 
 	auto DAnimationClip::LoadDerivedDataPayload(std::string& OutError) -> bool
 	{
-		std::vector<uint8> Bytes;
 		std::string CacheMessage;
-		if (!LoadAnimationClipDerivedData(DerivedDataKey, Bytes, CacheMessage))
+		FAnimationClipPayloadData Candidate;
+		const FSkeletalPayloadSerializationContext SerializationContext{
+			.SkeletonBoneCount = Skeleton->GetBoneCount(),
+			.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
+			.TargetProfile = ESkeletalPayloadTargetProfile::Game};
+		if (!InvokeAnimationClipUncookedPayloadLoader(
+			DerivedDataKey, SerializationContext, Candidate, CacheMessage))
 		{
 			PayloadStorageDiagnostic = std::format(
 				"AnimationClip DDC miss for key {}: {}", DerivedDataKey, CacheMessage);
-			return Fail(OutError, PayloadStorageDiagnostic);
-		}
-		FAnimationClipPayloadData Candidate;
-		const FPayloadDecodeResult Decoded = DecodeAnimationClipPayload(
-			Bytes, *Skeleton, ESkeletalPayloadTargetPlatform::Win64,
-			ESkeletalPayloadTargetProfile::Game, Candidate);
-		if (!Decoded)
-		{
-			PayloadStorageDiagnostic = std::format(
-				"AnimationClip DDC object {} is invalid: {}", DerivedDataKey, Decoded.Message);
 			return Fail(OutError, PayloadStorageDiagnostic);
 		}
 		uint64 KeyCount = 0;
@@ -300,10 +292,12 @@ namespace Durin
 		if (!Asset::ResolveCookedPayload(Container, CookedPayload, Bytes, &OutError))
 			return FailCooked(OutError);
 		FAnimationClipPayloadData Candidate;
-		const FPayloadDecodeResult Decoded = DecodeAnimationClipPayload(
-			Bytes, *Skeleton, ESkeletalPayloadTargetPlatform::Win64,
-			ESkeletalPayloadTargetProfile::Game, Candidate);
-		if (!Decoded) return FailCooked(Decoded.Message);
+		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::CookedPayload);
+		Candidate.Serialize(Ar, {
+			.SkeletonBoneCount = Skeleton->GetBoneCount(),
+			.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
+			.TargetProfile = ESkeletalPayloadTargetProfile::Game});
+		if (Ar.HasError()) return FailCooked(Ar.GetFailure()->Message);
 		uint64 KeyCount = 0;
 		for (const FAnimationTrackData& Track : Candidate.Tracks) KeyCount += Track.Times.size();
 		if (Candidate.DurationSeconds != Summary.DurationSeconds
@@ -331,9 +325,12 @@ namespace Durin
 		if (!PayloadData && !PostLoad(OutError)) return false;
 		if (!PayloadData) return Fail(OutError, "AnimationClip has no CPU payload to cook.");
 		std::vector<uint8> PayloadBytes;
-		if (!EncodeAnimationClipPayload(
-			*PayloadData, *Skeleton, ESkeletalPayloadTargetPlatform::Win64,
-			ESkeletalPayloadTargetProfile::Game, PayloadBytes, OutError)) return false;
+		FCanonicalMemoryWriter Ar(PayloadBytes, EArchivePurpose::CookedPayload);
+		const_cast<FAnimationClipPayloadData&>(*PayloadData).Serialize(Ar, {
+			.SkeletonBoneCount = Skeleton->GetBoneCount(),
+			.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
+			.TargetProfile = ESkeletalPayloadTargetProfile::Game});
+		if (Ar.HasError()) return Fail(OutError, Ar.GetFailure()->Message);
 		Asset::FCookedBulkPayload BulkPayload{
 			.PayloadId = AnimationClipPrimaryCookedPayloadId,
 			.Flags = 1,

@@ -66,6 +66,8 @@ namespace Durin
 			-> FEngineInitializationResult;
 
 		ENGINE_API virtual auto Tick(float DeltaSeconds, bool bIdleMode) -> void;
+		// Detaches host-owned consumers while the task system and objects are still alive.
+		ENGINE_API virtual auto PrepareForShutdown() -> void;
 
 		ENGINE_API virtual auto RedrawViewports() -> void;
 

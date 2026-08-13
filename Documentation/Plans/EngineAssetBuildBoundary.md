@@ -4,15 +4,17 @@ Summary: Standardize authored assets, build keys, DDC values, and cooked data on
 
 Last reviewed: 2026-08-13
 
-Status: Active
-Completed: Stages 0-4
+Status: Completed
+Completed: 2026-08-13
 
 ## Current Status
 
-Stages 0-4 are complete. Canonical archive support and the Texture2D,
-TextureCube, TerrainHeightmap, and StaticMesh vertical slices now follow the
-type-owned serialization, normalized translation, detached Build product, and
-narrow publication model. Stage 5 is the next implementation boundary.
+Stages 0-7 are complete. Canonical archive support and the Texture2D,
+TextureCube, TerrainHeightmap, StaticMesh, SkeletalMesh, and AnimationClip
+vertical slices now follow the type-owned serialization, normalized
+translation, detached Build product, narrow publication, and Build-owned
+authoring lifecycle model. The final seam removal and product-boundary
+qualification are complete.
 
 ## Goal
 
@@ -716,22 +718,37 @@ Acceptance is covered by `StaticMeshTests`, `SceneImportTests`, `TextureTests`
 
 Dependencies: StaticMesh chunked Serialize and Scene import pattern.
 
-- [ ] Define normalized Build requests for skeleton relationships, skeletal
+- [x] Define normalized Build requests for skeleton relationships, skeletal
   geometry/influences and animation tracks without exposing provider-specific
   Scene objects or mutable assets to workers.
-- [ ] Keep glTF/Assimp/source policy and normalized Scene reconciliation in
+- [x] Keep glTF/Assimp/source policy and normalized Scene reconciliation in
   StandardAssetImport.
-- [ ] Move skeletal/animation preparation, key recipes, builder versions, DDC
+- [x] Move skeletal/animation preparation, key recipes, builder versions, DDC
   decisions, fingerprints and authoring diagnostics to EngineAssetBuild.
-- [ ] Make skeletal render/payload values and animation clip values own
+- [x] Make skeletal render/payload values and animation clip values own
   Engine-resident `Serialize(FArchive&, Owner/Context)` operations for DDC and
   Cooked layouts, and make their Build key inputs own canonical `Serialize`,
   while preserving strict relationship and skeleton compatibility validation.
-- [ ] Preserve runtime payload/value types, skeleton references, Cook
+- [x] Preserve runtime payload/value types, skeleton references, Cook
   descriptors, sampling, render-resource creation and imported-state exchanges
   in Engine.
-- [ ] Remove asset-owned rebuild/DDC/source operations and remaining complete
+- [x] Remove asset-owned rebuild/DDC/source operations and remaining complete
   imported intermediates after all single/Scene/Cook callers migrate.
+
+Stage 5 completed (2026-08-13): Runtime SkeletalMesh and AnimationClip payload
+values own their DSKM/DANM `Serialize` entry points and runtime validation,
+while EngineAssetBuild owns normalized object-free requests, canonical key
+inputs, builder versions, fingerprints, DDC policy and detached products.
+StandardAssetImport retains glTF/Assimp translation, Scene reconciliation and
+main-thread relationship publication through narrow built-product seams.
+Runtime direction-named codecs, Build keys, DDC stores, broad imported-state
+initializers and worker-visible object references are removed. Producer
+metadata remains byte-compatible but is no longer a Runtime schema gate.
+
+Acceptance is covered by `SkeletalAssetTests` (34 tests: golden values/keys,
+hostile inputs, compatibility, DDC, Cook, sampling and rollback),
+`SkeletalSceneLifecycleTests` (Scene/reimport/Cook/source-free runtime and
+Vulkan resources), and `ViewportTests` (85 consumer and interaction tests).
 
 #### Acceptance Gate
 
@@ -745,23 +762,42 @@ Dependencies: StaticMesh chunked Serialize and Scene import pattern.
 
 Dependencies: all asset-family vertical slices complete.
 
-- [ ] Consolidate common request ownership, admission budgets, priorities,
+- [x] Consolidate common request ownership, admission budgets, priorities,
   cancellation, completion mailboxes, waits and diagnostic snapshots without
   erasing asset-family request types or creating a mutable global asset API.
-- [ ] Bind editor startup/tick, save waits, project/source relocation, provider
+- [x] Bind editor startup/tick, save waits, project/source relocation, provider
   unload, task drain and shutdown to EngineAssetBuild after the task system and
   before dependent authoring modules unload.
-- [ ] Make asset editors query and invoke Build capabilities only for explicit
+- [x] Make asset editors query and invoke Build capabilities only for explicit
   rebuild/status UI; import-only hosts continue through AssetImportCore and
   providers.
-- [ ] Make Cook and `DurinAssetTool` explicitly select EngineAssetBuild for
+- [x] Make Cook and `DurinAssetTool` explicitly select EngineAssetBuild for
   build/migrate/repair commands while keeping package-only audit paths free of
   translators and offline compressors.
-- [ ] Load StandardAssetImport only where concrete source translation is
+- [x] Load StandardAssetImport only where concrete source translation is
   required; do not make Cook or tools depend on it for source-free operations.
-- [ ] Remove Runtime Engine initialize/pump/wait/shutdown branches for asset
+- [x] Remove Runtime Engine initialize/pump/wait/shutdown branches for asset
   builds and qualify that no callback crosses provider, build-module, object,
   render or task-system teardown.
+
+Stage 6 completed (2026-08-13): EngineAssetBuild now owns a restartable common
+authoring service host around asset-family-specific request/coordinator types,
+including bounded admission state, frame pumping, waits, diagnostic snapshots,
+cancellation and drain. MainFrame starts and pumps that host; the editor engine
+detaches it before task-system and object teardown; StandardAssetImport waits
+before provider unload. Runtime Launch exposes only a generic engine consumer
+detachment hook and contains no Build-module dependency or authoring branch.
+`DurinAssetTool` dynamically selects EngineAssetBuild only for migration while
+package-only audit retains its minimal link/load closure, and concrete-source
+tests now load StandardAssetImport explicitly instead of relying on incidental
+linkage. The DurinGame target configures and builds with the existing closure
+gate excluding Build, import and offline-compressor modules.
+
+Acceptance is covered by `TextureTests` (authoring service, coordinator,
+latest-wins, cancellation, waits and transactions), `LaunchProcessBoundaryTests`,
+`EditorShellTests`, `AssetPackageTests`, explicit SceneImport/SkyBox Vulkan
+module-selection tests, the complete native-test target gate, and a successful
+`Win64-Debug-DurinGame` `DurinLauncher` build.
 
 #### Acceptance Gate
 
@@ -775,27 +811,46 @@ Dependencies: all asset-family vertical slices complete.
 
 Dependencies: consolidated hosts and lifecycle.
 
-- [ ] Remove all obsolete Runtime source decoders, build algorithms, DDC key/
+- [x] Remove all obsolete Runtime source decoders, build algorithms, DDC key/
   write policy, authoring diagnostics, build coordinators, forwarding wrappers,
   editor-only builder fields and `DURIN_WITH_EDITOR` authoring branches.
-- [ ] Remove all direction-named payload readers/writers, duplicated field-order
+- [x] Remove all direction-named payload readers/writers, duplicated field-order
   implementations, and transitional archive compatibility layers after
   repository-wide consumer proof.
-- [ ] Reduce Engine public headers to runtime/authored schema, type-owned
+- [x] Reduce Engine public headers to runtime/authored schema, type-owned
   `Serialize` contracts, payload access, detached publication seams,
   consumption status and render resources.
-- [ ] Inspect module binaries, third-party links and deployed files for editor,
+- [x] Inspect module binaries, third-party links and deployed files for editor,
   game, Cook, tools and focused tests.
-- [ ] Run focused Archive, CoreDObject, AssetCore, Engine asset, builder, import,
+- [x] Run focused Archive, CoreDObject, AssetCore, Engine asset, builder, import,
   Cook, editor, tool, renderer/Vulkan and runtime-process tests.
-- [ ] Because the change crosses Core serialization and multiple native-test
+- [x] Because the change crosses Core serialization and multiple native-test
   targets, run the final full native-test gate at default target granularity
   after focused diagnosis.
-- [ ] Complete clean full `all` builds for the selected editor and game Agent
+- [x] Complete clean full `all` builds for the selected editor and game Agent
   Build Profiles and run source/DDC-free cooked game smoke validation.
-- [ ] Move lasting Archive/Serialize, build, import, DDC-value, Cook, lifecycle
+- [x] Move lasting Archive/Serialize, build, import, DDC-value, Cook, lifecycle
   and runtime-independence rules into owning documentation, then complete this
   plan.
+
+Stage 7 completed (2026-08-13): the final public EnvironmentLighting payload
+codec wrappers were replaced by `FEnvironmentLightingData::Serialize`, with
+transactional load and producer-version/schema separation. EngineAssetBuild no
+longer includes or exports a concrete image decoder: Texture2D decoding remains
+in StandardAssetImport and TextureCube translation now hands Build-owned
+normalized LDR/float panorama values to the projection recipe. Redundant
+editor compile branches were removed from the editor-only Build module, and
+the lasting serialization, translator/build, lifecycle, and runtime
+independence rules are recorded in their owning documentation.
+
+Focused Archive/CoreDObject, AssetCore/package, asset-family, Build, import,
+Cook, editor, tool, Vulkan and process tests passed, followed by the complete
+native target aggregate. Clean `Win64-Debug-DurinEditor` and
+`Win64-Debug-DurinGame` `all` builds passed their configure-time dependency
+closure gates; deployment inspection found no authoring/import modules,
+Assimp, or offline compressor binaries in the game directory. Source/DDC-free
+cooked payload tests and a hidden bounded DurinGame process smoke passed, and
+the package-only DurinAssetTool audit completed without loading a translator.
 
 #### Acceptance Gate
 

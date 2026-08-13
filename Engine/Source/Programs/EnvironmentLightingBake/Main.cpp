@@ -7,6 +7,7 @@
 #include "Misc/DerivedDataCache.h"
 #include "Misc/Name.h"
 #include "Misc/Paths.h"
+#include "Serialization/Archive.h"
 
 #include <iostream>
 
@@ -54,12 +55,16 @@ auto main(int ArgumentCount, char** Arguments) -> int
 	Durin::Asset::FAssetManager::Get().Initialize();
 
 	std::cout << "Generating default studio environment...\n";
-	const Durin::FEnvironmentLightingData Data =
+	Durin::FEnvironmentLightingData Data =
 		Durin::BuildDefaultStudioEnvironmentData();
 	std::vector<Durin::uint8> PayloadBytes;
-	if (!Durin::EncodeEnvironmentLightingPayload(Data, PayloadBytes, Error))
+	Durin::FCanonicalMemoryWriter PayloadAr(
+		PayloadBytes, Durin::EArchivePurpose::DerivedDataPayload);
+	Data.Serialize(PayloadAr);
+	if (PayloadAr.HasError())
 	{
-		std::cerr << "Failed to encode environment lighting: " << Error << '\n';
+		std::cerr << "Failed to serialize environment lighting: "
+			<< PayloadAr.GetFailure()->Message << '\n';
 		return 1;
 	}
 

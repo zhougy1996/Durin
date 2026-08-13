@@ -11,6 +11,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "SceneImportInternal.h"
+#include "Skeletal/SkeletalBuildOperations.h"
 #include "SkeletalMesh/SkeletalDerivedData.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "SkeletalMesh/Skeleton.h"
@@ -1577,7 +1578,7 @@ namespace Durin
 			std::string_view StableIdentity,
 			std::string_view CompatibilityIdentity,
 			const FXxHash128& PayloadFingerprint) {
-			return FSkeletalDerivedDataKeyInput{
+			return AssetBuild::FSkeletalBuildKeyFields{
 				.ProviderIdentity = std::string(SceneImportProviderId),
 				.ProviderVersion = SceneImportProviderContractVersion,
 				.SourceClosureHash = SourceClosureHash,
@@ -1929,22 +1930,28 @@ namespace Durin
 			}
 			const Asset::FImportedSkeletonData& ImportedSkeleton =
 				Data->Scene.Skeletons[Imported.SkeletonIndex];
-			FXxHash128 PayloadFingerprint;
-			if (!ComputeSkeletalMeshPayloadInputFingerprint(
-				*Imported.Payload, *ProspectiveSkeleton,
-				static_cast<uint32>(MaterialSlots.size()), PayloadFingerprint, Error))
+			AssetBuild::FSkeletalMeshBuildKeyInput KeyInput;
+			static_cast<AssetBuild::FSkeletalBuildKeyFields&>(KeyInput) =
+				MakeDerivedDataKeyInput(
+					Identity, ImportedSkeleton.CompatibilityIdentity, {});
+			AssetBuild::FSkeletalMeshBuildProduct Product;
+			if (!AssetBuild::BuildSkeletalMeshProduct({
+					.SkeletonBoneCount = ProspectiveSkeleton->GetBoneCount(),
+					.SkeletonCompatibilityIdentity = ImportedSkeleton.CompatibilityIdentity,
+					.MeshNodeBindTransform = Imported.MeshNodeBindTransform,
+					.MaterialSlotCount = static_cast<uint32>(MaterialSlots.size()),
+					.Payload = Imported.Payload,
+					.KeyInput = std::move(KeyInput)}, Product, Error))
 				return FailPrepared(std::move(Error));
-			const std::string DerivedDataKey = BuildSkeletalMeshDerivedDataKey(
-				MakeDerivedDataKeyInput(Identity, ImportedSkeleton.CompatibilityIdentity,
-					PayloadFingerprint));
-			if (!Mesh->InitializeFromImportedData({
+			if (!Mesh->PublishBuiltProduct({
 					.Skeleton = FinalSkeleton,
 					.ValidationSkeleton = ProspectiveSkeleton,
 					.SkeletonCompatibilityIdentity = ImportedSkeleton.CompatibilityIdentity,
-					.MeshNodeBindTransform = Imported.MeshNodeBindTransform,
+					.MeshNodeBindTransform = Product.MeshNodeBindTransform,
 					.MaterialSlots = std::move(MaterialSlots),
-					.Payload = Imported.Payload,
-					.DerivedDataKey = DerivedDataKey}, Error))
+					.Payload = std::move(Product.Payload),
+					.DerivedDataKey = std::move(Product.DerivedDataKey),
+					.DiagnosticMessage = std::move(Product.Diagnostic)}, Error))
 			{
 				return FailPrepared(Error.empty()
 					? "Scene SkeletalMesh candidate failed." : std::move(Error));
@@ -1982,20 +1989,26 @@ namespace Durin
 				return FailPrepared("Scene AnimationClip Skeleton relationship is invalid.");
 			const Asset::FImportedSkeletonData& ImportedSkeleton =
 				Data->Scene.Skeletons[Imported.SkeletonIndex];
-			FXxHash128 PayloadFingerprint;
-			if (!ComputeAnimationClipPayloadInputFingerprint(
-				*Imported.Payload, *ProspectiveSkeleton, PayloadFingerprint, Error))
-				return FailPrepared(std::move(Error));
-			const std::string DerivedDataKey = BuildAnimationClipDerivedDataKey(
-				MakeDerivedDataKeyInput(Identity, ImportedSkeleton.CompatibilityIdentity,
-					PayloadFingerprint));
-			if (!Clip->InitializeFromImportedData({
-					.Skeleton = FinalSkeleton,
-					.ValidationSkeleton = ProspectiveSkeleton,
+			AssetBuild::FAnimationClipBuildKeyInput KeyInput;
+			static_cast<AssetBuild::FSkeletalBuildKeyFields&>(KeyInput) =
+				MakeDerivedDataKeyInput(
+					Identity, ImportedSkeleton.CompatibilityIdentity, {});
+			AssetBuild::FAnimationClipBuildProduct Product;
+			if (!AssetBuild::BuildAnimationClipProduct({
+					.SkeletonBoneCount = ProspectiveSkeleton->GetBoneCount(),
 					.SkeletonCompatibilityIdentity = ImportedSkeleton.CompatibilityIdentity,
 					.ClipName = FName(Imported.SuggestedName),
 					.Payload = Imported.Payload,
-					.DerivedDataKey = DerivedDataKey}, Error))
+					.KeyInput = std::move(KeyInput)}, Product, Error))
+				return FailPrepared(std::move(Error));
+			if (!Clip->PublishBuiltProduct({
+					.Skeleton = FinalSkeleton,
+					.ValidationSkeleton = ProspectiveSkeleton,
+					.SkeletonCompatibilityIdentity = ImportedSkeleton.CompatibilityIdentity,
+					.ClipName = Product.ClipName,
+					.Payload = std::move(Product.Payload),
+					.DerivedDataKey = std::move(Product.DerivedDataKey),
+					.DiagnosticMessage = std::move(Product.Diagnostic)}, Error))
 			{
 				return FailPrepared(Error.empty()
 					? "Scene AnimationClip candidate failed." : std::move(Error));

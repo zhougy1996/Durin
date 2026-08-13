@@ -1,6 +1,7 @@
 #include "SkeletalMesh/SkeletalDerivedData.h"
 
-#include "DerivedDataObjectStore.h"
+#include "PayloadDecodeResult.h"
+#include "Serialization/Archive.h"
 
 namespace Durin
 {
@@ -34,9 +35,6 @@ namespace Durin
 	namespace
 	{
 		inline constexpr uint32 ChunkRequired = 1;
-		inline constexpr uint64 SkeletalDerivedDataBudgetBytes = 32ull * 1024ull * 1024ull * 1024ull;
-		inline constexpr uint32 SkeletalDerivedDataCleanupDeleteLimit = 256;
-
 		enum class EMeshChunk : uint32
 		{
 			Metadata = 1,
@@ -253,10 +251,10 @@ namespace Durin
 			return true;
 		}
 
-		auto EncodeContainer(
+		auto BuildContainer(
 			uint32 Magic,
 			uint32 SchemaVersion,
-			uint32 BuilderVersion,
+			uint32 ProducerVersion,
 			ESkeletalPayloadTargetPlatform TargetPlatform,
 			ESkeletalPayloadTargetProfile TargetProfile,
 			std::span<const FChunkBytes> ChunkBytes,
@@ -314,7 +312,7 @@ namespace Durin
 			FWriter Result;
 			Result.WriteU32(Magic);
 			Result.WriteU32(SchemaVersion);
-			Result.WriteU32(BuilderVersion);
+			Result.WriteU32(ProducerVersion);
 			Result.WriteU32(static_cast<uint32>(TargetPlatform));
 			Result.WriteU32(static_cast<uint32>(TargetProfile));
 			Result.WriteU32(0);
@@ -330,11 +328,10 @@ namespace Durin
 			return true;
 		}
 
-		auto DecodeContainer(
+		auto ParseContainer(
 			std::span<const uint8> Bytes,
 			uint32 ExpectedMagic,
 			uint32 ExpectedSchema,
-			uint32 ExpectedBuilder,
 			ESkeletalPayloadTargetPlatform ExpectedPlatform,
 			ESkeletalPayloadTargetProfile ExpectedProfile,
 			uint32 RequiredChunkCount,
@@ -353,22 +350,24 @@ namespace Durin
 				return Fail(OutError, "A concrete skeletal payload target and profile are required.");
 			}
 
-			uint32 Magic = 0, Schema = 0, Builder = 0, Platform = 0, Profile = 0;
+			uint32 Magic = 0, Schema = 0, Producer = 0, Platform = 0, Profile = 0;
 			uint32 Flags = 0, HeaderSize = 0, ChunkCount = 0;
 			uint64 TableOffset = 0, TotalDecoded = 0, StoredSize = 0, BodyHash = 0;
 			if (!ReadU32At(Bytes, 0, Magic) || !ReadU32At(Bytes, 4, Schema)
-				|| !ReadU32At(Bytes, 8, Builder) || !ReadU32At(Bytes, 12, Platform)
+				|| !ReadU32At(Bytes, 8, Producer) || !ReadU32At(Bytes, 12, Platform)
 				|| !ReadU32At(Bytes, 16, Profile) || !ReadU32At(Bytes, 20, Flags)
 				|| !ReadU32At(Bytes, 24, HeaderSize) || !ReadU32At(Bytes, 28, ChunkCount)
 				|| !ReadU64At(Bytes, 32, TableOffset) || !ReadU64At(Bytes, 40, TotalDecoded)
 				|| !ReadU64At(Bytes, 48, StoredSize) || !ReadU64At(Bytes, 56, BodyHash))
 				return Fail(OutError, "Skeletal payload header is truncated.");
 			if (Magic != ExpectedMagic) return Fail(OutError, "Skeletal payload magic is invalid.");
-			if (Schema != ExpectedSchema || Builder != ExpectedBuilder)
+			if (Schema != ExpectedSchema)
 			{
 				OutCode = EPayloadDecodeError::Incompatible;
-				return Fail(OutError, "Skeletal payload schema or builder version is unsupported.");
+				return Fail(OutError, "Skeletal payload schema is unsupported.");
 			}
+			if (Producer == 0)
+				return Fail(OutError, "Skeletal payload producer metadata is invalid.");
 			if (Platform != static_cast<uint32>(ExpectedPlatform)
 				|| Profile != static_cast<uint32>(ExpectedProfile))
 			{
@@ -446,104 +445,22 @@ namespace Durin
 			return true;
 		}
 
-		auto MakeKeyBytes(
-			const FSkeletalDerivedDataKeyInput& Input,
-			std::string_view BuilderIdentity,
-			uint32 BuilderVersion,
-			uint32 PayloadVersion) -> std::vector<uint8>
-		{
-			FWriter Writer;
-			Writer.WriteU32(SkeletalPayloadKeySchemaVersion);
-			Writer.WriteString(BuilderIdentity);
-			Writer.WriteU32(BuilderVersion);
-			Writer.WriteU32(PayloadVersion);
-			Writer.WriteU32(static_cast<uint32>(Input.TargetPlatform));
-			Writer.WriteU32(static_cast<uint32>(Input.TargetProfile));
-			Writer.WriteString(Input.ProviderIdentity);
-			Writer.WriteU32(Input.ProviderVersion);
-			for (const FXxHash128& Hash : {Input.SourceClosureHash, Input.SettingsHash,
-				Input.ProviderStateHash, Input.PayloadInputFingerprint})
-			{
-				Writer.WriteU64(Hash.HashLow);
-				Writer.WriteU64(Hash.HashHigh);
-			}
-			Writer.WriteString(Input.StableOutputIdentity);
-			Writer.WriteString(Input.SkeletonCompatibilityIdentity);
-			return Writer.TakeBytes();
-		}
-
-		auto GetSkeletalMeshStore() -> Asset::FDerivedDataObjectStore&
-		{
-			static Asset::FDerivedDataObjectStore Store(
-				std::filesystem::path("SkeletalMesh/Objects"), MaximumSkeletalMeshPayloadBytes);
-			return Store;
-		}
-
-		auto GetAnimationClipStore() -> Asset::FDerivedDataObjectStore&
-		{
-			static Asset::FDerivedDataObjectStore Store(
-				std::filesystem::path("AnimationClip/Objects"), MaximumAnimationClipPayloadBytes);
-			return Store;
-		}
-
-		auto StoreDerivedData(
-			Asset::FDerivedDataObjectStore& Store,
-			std::string_view Key,
-			std::span<const uint8> Bytes,
-			std::string& OutError) -> bool
-		{
-			if (!Store.Write(Key, Bytes, &OutError)) return false;
-			const Asset::FDerivedDataObjectCleanupResult Cleanup = Store.CleanupToBudget(
-				SkeletalDerivedDataBudgetBytes, SkeletalDerivedDataCleanupDeleteLimit);
-			if (!Cleanup.Message.empty())
-				DURIN_WARN("Skeletal DDC cleanup: {}", Cleanup.Message);
-			OutError.clear();
-			return true;
-		}
 	}
 
-	auto BuildSkeletalMeshDerivedDataKeyBytes(
-		const FSkeletalDerivedDataKeyInput& Input) -> std::vector<uint8>
-	{
-		return MakeKeyBytes(Input, SkeletalMeshBuilderIdentity,
-			SkeletalMeshBuilderVersion, SkeletalMeshPayloadSchemaVersion);
-	}
-
-	auto BuildSkeletalMeshDerivedDataKey(
-		const FSkeletalDerivedDataKeyInput& Input) -> std::string
-	{
-		return FXxHash128::HashBuffer(BuildSkeletalMeshDerivedDataKeyBytes(Input)).ToString();
-	}
-
-	auto BuildAnimationClipDerivedDataKeyBytes(
-		const FSkeletalDerivedDataKeyInput& Input) -> std::vector<uint8>
-	{
-		return MakeKeyBytes(Input, AnimationClipBuilderIdentity,
-			AnimationClipBuilderVersion, AnimationClipPayloadSchemaVersion);
-	}
-
-	auto BuildAnimationClipDerivedDataKey(
-		const FSkeletalDerivedDataKeyInput& Input) -> std::string
-	{
-		return FXxHash128::HashBuffer(BuildAnimationClipDerivedDataKeyBytes(Input)).ToString();
-	}
-
-	auto EncodeSkeletalMeshPayload(
+	auto BuildSkeletalMeshSerializedValue(
 		const FSkeletalMeshPayloadData& Payload,
-		const DSkeleton& Skeleton,
-		uint32 MaterialSlotCount,
-		ESkeletalPayloadTargetPlatform TargetPlatform,
-		ESkeletalPayloadTargetProfile TargetProfile,
+		const FSkeletalPayloadSerializationContext& Context,
 		std::vector<uint8>& OutBytes,
 		std::string& OutError) -> bool
 	{
-		if (!ValidateSkeletalMeshPayload(Payload, Skeleton, MaterialSlotCount, OutError))
+		if (!ValidateSkeletalMeshPayload(
+			Payload, Context.SkeletonBoneCount, Context.MaterialSlotCount, OutError))
 			return false;
 		std::vector<FChunkBytes> Chunks;
 		Chunks.reserve(7);
 
 		FWriter Metadata;
-		Metadata.WriteU32(MaterialSlotCount);
+		Metadata.WriteU32(Context.MaterialSlotCount);
 		Metadata.WriteU32(static_cast<uint32>(Payload.Positions.size()));
 		Metadata.WriteU32(static_cast<uint32>(Payload.Normals.size()));
 		Metadata.WriteU32(static_cast<uint32>(Payload.Tangents.size()));
@@ -627,26 +544,25 @@ namespace Durin
 					Palette.WriteFloat(Matrix[Row][Column]);
 		Chunks.push_back({static_cast<uint32>(EMeshChunk::PaletteAndInverseBinds), Palette.TakeBytes()});
 
-		return EncodeContainer(
+		return BuildContainer(
 			SkeletalMeshPayloadMagic, SkeletalMeshPayloadSchemaVersion,
-			SkeletalMeshBuilderVersion, TargetPlatform, TargetProfile, Chunks,
+			SkeletalMeshPayloadProducerVersion, Context.TargetPlatform,
+			Context.TargetProfile, Chunks,
 			MaximumSkeletalMeshPayloadBytes, OutBytes, OutError);
 	}
 
-	auto DecodeSkeletalMeshPayload(
+	auto ParseSkeletalMeshSerializedValue(
 		std::span<const uint8> Bytes,
-		const DSkeleton& Skeleton,
-		uint32 MaterialSlotCount,
-		ESkeletalPayloadTargetPlatform ExpectedPlatform,
-		ESkeletalPayloadTargetProfile ExpectedProfile,
+		const FSkeletalPayloadSerializationContext& Context,
 		FSkeletalMeshPayloadData& OutPayload) -> FPayloadDecodeResult
 	{
 		std::vector<std::span<const uint8>> Chunks;
 		std::string Error;
 		EPayloadDecodeError Code = EPayloadDecodeError::Corrupt;
-		if (!DecodeContainer(Bytes, SkeletalMeshPayloadMagic,
-			SkeletalMeshPayloadSchemaVersion, SkeletalMeshBuilderVersion,
-			ExpectedPlatform, ExpectedProfile, 7, MaximumSkeletalMeshPayloadBytes,
+		if (!ParseContainer(Bytes, SkeletalMeshPayloadMagic,
+			SkeletalMeshPayloadSchemaVersion,
+			Context.TargetPlatform, Context.TargetProfile, 7,
+			MaximumSkeletalMeshPayloadBytes,
 			Chunks, Error, Code)) return {Code, std::move(Error)};
 
 		FSkeletalMeshPayloadData Candidate;
@@ -667,7 +583,7 @@ namespace Durin
 			if (!Metadata.ReadU32(Count))
 				return {EPayloadDecodeError::Corrupt, "Skeletal-mesh metadata UV counts are truncated."};
 		if (!ReadBox(Metadata, Candidate.LocalBounds) || !Metadata.AtEnd()
-			|| EncodedMaterialSlots != MaterialSlotCount
+			|| EncodedMaterialSlots != Context.MaterialSlotCount
 			|| PositionCount == 0 || PositionCount > MaximumSkeletalMeshVertices
 			|| NormalCount != PositionCount || TangentCount != PositionCount
 			|| InfluenceCount != PositionCount
@@ -675,7 +591,7 @@ namespace Durin
 			|| IndexCount == 0 || IndexCount > MaximumSkeletalMeshIndices
 			|| SectionCount == 0 || SectionCount > MaximumSkeletalMeshSections
 			|| PaletteCount == 0 || PaletteCount != InverseBindCount
-			|| PaletteCount > Skeleton.GetBoneCount()
+			|| PaletteCount > Context.SkeletonBoneCount
 			|| UVChannelCount != MaximumSkeletalMeshUVChannels
 			|| std::ranges::any_of(UVCounts, [PositionCount](uint32 Count) {
 				return Count != 0 && Count != PositionCount;
@@ -808,21 +724,21 @@ namespace Durin
 					if (!Palette.ReadFloat(Matrix[Row][Column]))
 						return {EPayloadDecodeError::Corrupt, "Skeletal-mesh inverse-bind data is truncated."};
 
-		if (!ValidateSkeletalMeshPayload(Candidate, Skeleton, MaterialSlotCount, Error))
+		if (!ValidateSkeletalMeshPayload(
+			Candidate, Context.SkeletonBoneCount, Context.MaterialSlotCount, Error))
 			return {EPayloadDecodeError::Corrupt, std::move(Error)};
 		OutPayload = std::move(Candidate);
 		return {};
 	}
 
-	auto EncodeAnimationClipPayload(
+	auto BuildAnimationClipSerializedValue(
 		const FAnimationClipPayloadData& Payload,
-		const DSkeleton& Skeleton,
-		ESkeletalPayloadTargetPlatform TargetPlatform,
-		ESkeletalPayloadTargetProfile TargetProfile,
+		const FSkeletalPayloadSerializationContext& Context,
 		std::vector<uint8>& OutBytes,
 		std::string& OutError) -> bool
 	{
-		if (!ValidateAnimationClipPayload(Payload, Skeleton, OutError)) return false;
+		if (!ValidateAnimationClipPayload(
+			Payload, Context.SkeletonBoneCount, OutError)) return false;
 		uint64 KeyCount = 0;
 		for (const FAnimationTrackData& Track : Payload.Tracks) KeyCount += Track.Times.size();
 		std::vector<FChunkBytes> Chunks;
@@ -870,25 +786,25 @@ namespace Durin
 		}
 		Chunks.push_back({static_cast<uint32>(EAnimationChunk::Values), Values.TakeBytes()});
 
-		return EncodeContainer(
+		return BuildContainer(
 			AnimationClipPayloadMagic, AnimationClipPayloadSchemaVersion,
-			AnimationClipBuilderVersion, TargetPlatform, TargetProfile, Chunks,
+			AnimationClipPayloadProducerVersion, Context.TargetPlatform,
+			Context.TargetProfile, Chunks,
 			MaximumAnimationClipPayloadBytes, OutBytes, OutError);
 	}
 
-	auto DecodeAnimationClipPayload(
+	auto ParseAnimationClipSerializedValue(
 		std::span<const uint8> Bytes,
-		const DSkeleton& Skeleton,
-		ESkeletalPayloadTargetPlatform ExpectedPlatform,
-		ESkeletalPayloadTargetProfile ExpectedProfile,
+		const FSkeletalPayloadSerializationContext& Context,
 		FAnimationClipPayloadData& OutPayload) -> FPayloadDecodeResult
 	{
 		std::vector<std::span<const uint8>> Chunks;
 		std::string Error;
 		EPayloadDecodeError Code = EPayloadDecodeError::Corrupt;
-		if (!DecodeContainer(Bytes, AnimationClipPayloadMagic,
-			AnimationClipPayloadSchemaVersion, AnimationClipBuilderVersion,
-			ExpectedPlatform, ExpectedProfile, 4, MaximumAnimationClipPayloadBytes,
+		if (!ParseContainer(Bytes, AnimationClipPayloadMagic,
+			AnimationClipPayloadSchemaVersion,
+			Context.TargetPlatform, Context.TargetProfile, 4,
+			MaximumAnimationClipPayloadBytes,
 			Chunks, Error, Code)) return {Code, std::move(Error)};
 
 		FAnimationClipPayloadData Candidate;
@@ -976,76 +892,93 @@ namespace Durin
 			}
 			Candidate.Tracks.push_back(std::move(Track));
 		}
-		if (!ValidateAnimationClipPayload(Candidate, Skeleton, Error))
+		if (!ValidateAnimationClipPayload(Candidate, Context.SkeletonBoneCount, Error))
 			return {EPayloadDecodeError::Corrupt, std::move(Error)};
 		OutPayload = std::move(Candidate);
 		return {};
 	}
 
-	auto ComputeSkeletalMeshPayloadInputFingerprint(
-		const FSkeletalMeshPayloadData& Payload,
-		const DSkeleton& Skeleton,
-		uint32 MaterialSlotCount,
-		FXxHash128& OutFingerprint,
-		std::string& OutError) -> bool
+	auto FSkeletalMeshPayloadData::Serialize(
+		FArchive& Ar,
+		const FSkeletalPayloadSerializationContext& Context) -> void
 	{
-		std::vector<uint8> Bytes;
-		if (!EncodeSkeletalMeshPayload(Payload, Skeleton, MaterialSlotCount,
-			ESkeletalPayloadTargetPlatform::Win64, ESkeletalPayloadTargetProfile::Game,
-			Bytes, OutError)) return false;
-		OutFingerprint = FXxHash128::HashBuffer(Bytes);
-		return true;
+		if (Ar.IsSaving())
+		{
+			std::vector<uint8> Bytes;
+			std::string Error;
+			if (!BuildSkeletalMeshSerializedValue(
+				*this, Context, Bytes, Error))
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData, Error);
+				return;
+			}
+			Ar.Serialize(Bytes.data(), Bytes.size());
+			return;
+		}
+		const uint64 ByteCount = Ar.GetRemainingPayloadBytes();
+		if (ByteCount > MaximumSkeletalMeshPayloadBytes
+			|| ByteCount > std::numeric_limits<size_t>::max())
+		{
+			Ar.Fail(EArchiveFailureCode::LimitExceeded,
+				"SkeletalMesh payload exceeds the runtime byte limit.");
+			return;
+		}
+		std::vector<uint8> Bytes(static_cast<size_t>(ByteCount));
+		Ar.Serialize(Bytes.data(), Bytes.size());
+		if (Ar.HasError()) return;
+		FSkeletalMeshPayloadData Candidate;
+		const FPayloadDecodeResult Result = ParseSkeletalMeshSerializedValue(
+			Bytes, Context, Candidate);
+		if (!Result)
+		{
+			Ar.Fail(Result.Code == EPayloadDecodeError::Incompatible
+				? EArchiveFailureCode::UnsupportedVersion
+				: EArchiveFailureCode::InvalidData,
+				Result.Message);
+			return;
+		}
+		*this = std::move(Candidate);
 	}
 
-	auto ComputeAnimationClipPayloadInputFingerprint(
-		const FAnimationClipPayloadData& Payload,
-		const DSkeleton& Skeleton,
-		FXxHash128& OutFingerprint,
-		std::string& OutError) -> bool
+	auto FAnimationClipPayloadData::Serialize(
+		FArchive& Ar,
+		const FSkeletalPayloadSerializationContext& Context) -> void
 	{
-		std::vector<uint8> Bytes;
-		if (!EncodeAnimationClipPayload(Payload, Skeleton,
-			ESkeletalPayloadTargetPlatform::Win64, ESkeletalPayloadTargetProfile::Game,
-			Bytes, OutError)) return false;
-		OutFingerprint = FXxHash128::HashBuffer(Bytes);
-		return true;
-	}
-
-	auto LoadSkeletalMeshDerivedData(
-		std::string_view Key,
-		std::vector<uint8>& OutBytes,
-		std::string& OutMessage) -> bool
-	{
-		const Asset::FDerivedDataObjectReadResult Result =
-			GetSkeletalMeshStore().Read(Key, OutBytes);
-		OutMessage = Result.Message;
-		return static_cast<bool>(Result);
-	}
-
-	auto StoreSkeletalMeshDerivedData(
-		std::string_view Key,
-		std::span<const uint8> Bytes,
-		std::string& OutError) -> bool
-	{
-		return StoreDerivedData(GetSkeletalMeshStore(), Key, Bytes, OutError);
-	}
-
-	auto LoadAnimationClipDerivedData(
-		std::string_view Key,
-		std::vector<uint8>& OutBytes,
-		std::string& OutMessage) -> bool
-	{
-		const Asset::FDerivedDataObjectReadResult Result =
-			GetAnimationClipStore().Read(Key, OutBytes);
-		OutMessage = Result.Message;
-		return static_cast<bool>(Result);
-	}
-
-	auto StoreAnimationClipDerivedData(
-		std::string_view Key,
-		std::span<const uint8> Bytes,
-		std::string& OutError) -> bool
-	{
-		return StoreDerivedData(GetAnimationClipStore(), Key, Bytes, OutError);
+		if (Ar.IsSaving())
+		{
+			std::vector<uint8> Bytes;
+			std::string Error;
+			if (!BuildAnimationClipSerializedValue(
+				*this, Context, Bytes, Error))
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData, Error);
+				return;
+			}
+			Ar.Serialize(Bytes.data(), Bytes.size());
+			return;
+		}
+		const uint64 ByteCount = Ar.GetRemainingPayloadBytes();
+		if (ByteCount > MaximumAnimationClipPayloadBytes
+			|| ByteCount > std::numeric_limits<size_t>::max())
+		{
+			Ar.Fail(EArchiveFailureCode::LimitExceeded,
+				"AnimationClip payload exceeds the runtime byte limit.");
+			return;
+		}
+		std::vector<uint8> Bytes(static_cast<size_t>(ByteCount));
+		Ar.Serialize(Bytes.data(), Bytes.size());
+		if (Ar.HasError()) return;
+		FAnimationClipPayloadData Candidate;
+		const FPayloadDecodeResult Result = ParseAnimationClipSerializedValue(
+			Bytes, Context, Candidate);
+		if (!Result)
+		{
+			Ar.Fail(Result.Code == EPayloadDecodeError::Incompatible
+				? EArchiveFailureCode::UnsupportedVersion
+				: EArchiveFailureCode::InvalidData,
+				Result.Message);
+			return;
+		}
+		*this = std::move(Candidate);
 	}
 }

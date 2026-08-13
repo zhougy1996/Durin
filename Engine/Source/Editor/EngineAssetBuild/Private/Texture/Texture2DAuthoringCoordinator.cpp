@@ -619,40 +619,4 @@ namespace Durin::AssetBuild
 		if (State) State->Shutdown();
 	}
 
-	namespace
-	{
-		std::mutex GTexture2DBuildCoordinatorMutex;
-		std::unique_ptr<FTexture2DBuildCoordinator> GTexture2DBuildCoordinator;
-	}
-
-	auto InitializeTexture2DBuildCoordinator(
-		const FTexture2DBuildCoordinatorConfig& Config) -> bool
-	{
-		std::lock_guard Lock(GTexture2DBuildCoordinatorMutex);
-		if (GTexture2DBuildCoordinator) return true;
-		GTexture2DBuildCoordinator = std::make_unique<FTexture2DBuildCoordinator>(Config);
-		return true;
-	}
-
-	auto GetTexture2DBuildCoordinator() -> FTexture2DBuildCoordinator*
-	{
-		std::lock_guard Lock(GTexture2DBuildCoordinatorMutex);
-		return GTexture2DBuildCoordinator.get();
-	}
-
-	auto PumpTexture2DBuildCompletions(uint32 MaximumCount) -> uint32
-	{
-		FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator();
-		return Coordinator ? Coordinator->PumpCompletions(MaximumCount) : 0;
-	}
-
-	auto ShutdownTexture2DBuildCoordinator() -> void
-	{
-		std::unique_ptr<FTexture2DBuildCoordinator> Coordinator;
-		{
-			std::lock_guard Lock(GTexture2DBuildCoordinatorMutex);
-			Coordinator = std::move(GTexture2DBuildCoordinator);
-		}
-		if (Coordinator) Coordinator->Shutdown();
-	}
 }

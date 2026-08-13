@@ -8,6 +8,21 @@ Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
 merely whether a file contains binary bytes.
 
+## Serialization and production ownership
+
+Persistent values use the common archive protocol rather than paired
+direction-named codecs. Runtime `Engine` values own their bidirectional
+`Serialize(FArchive&)` field order and validation for DDC and cooked payloads;
+`EngineAssetBuild` owns normalized, source-independent recipes and canonical
+build-key inputs; `StandardAssetImport` adapts standard concrete source formats
+into those normalized values. `AssetCore` stores DDC values opaquely and owns
+package, descriptor, container, manifest, and atomic-publication formats
+without interpreting Engine payloads.
+
+Builder and translator versions invalidate production identity. Payload schema
+and stable value identifiers determine runtime readability, so a producer
+version change does not by itself make a compatible payload unreadable.
+
 ## Storage Classes
 
 | Class | Typical location | Suffix | Authoritative for | May be deleted locally |

@@ -12,6 +12,7 @@
 namespace Durin
 {
 	class DMaterialInterface;
+	struct FSkeletalPayloadSerializationContext;
 	struct FSkeletalMeshRenderData;
 
 	// Reports the semantic skeletal render-resource state to nonblocking consumers.
@@ -150,6 +151,10 @@ namespace Durin
 		std::vector<FMatrix4f> InverseBindMatrices;
 		FBox LocalBounds;
 
+		ENGINE_API auto Serialize(
+			FArchive& Ar,
+			const FSkeletalPayloadSerializationContext& Context) -> void;
+
 		auto operator==(const FSkeletalMeshPayloadData& Other) const -> bool
 		{
 			return Positions == Other.Positions && Normals == Other.Normals
@@ -164,7 +169,8 @@ namespace Durin
 		}
 	};
 
-	struct FSkeletalMeshImportedData
+	// Complete main-thread candidate accepted by the Runtime publication seam.
+	struct FSkeletalMeshPublicationCandidate
 	{
 		DSkeleton* Skeleton = nullptr;
 		// Optional prospective state for failure-atomic multi-asset publication.
@@ -175,11 +181,17 @@ namespace Durin
 		std::shared_ptr<const FSkeletalMeshPayloadData> Payload;
 		Asset::FCookedPayloadDescriptor CookedPayload;
 		std::string DerivedDataKey;
+		std::string DiagnosticMessage;
 	};
 
 	ENGINE_API auto ValidateSkeletalMeshPayload(
 		const FSkeletalMeshPayloadData& Payload,
 		const DSkeleton& Skeleton,
+		uint32 MaterialSlotCount,
+		std::string& OutError) -> bool;
+	ENGINE_API auto ValidateSkeletalMeshPayload(
+		const FSkeletalMeshPayloadData& Payload,
+		uint32 SkeletonBoneCount,
 		uint32 MaterialSlotCount,
 		std::string& OutError) -> bool;
 
@@ -213,8 +225,8 @@ namespace Durin
 			-> FSkeletalMeshRenderResourceStatus;
 		ENGINE_API auto InitResources() -> void;
 
-		ENGINE_API auto InitializeFromImportedData(
-			FSkeletalMeshImportedData InData,
+		ENGINE_API auto PublishBuiltProduct(
+			FSkeletalMeshPublicationCandidate Candidate,
 			std::string& OutError) -> bool;
 		ENGINE_API auto Validate(std::string& OutError) const -> bool;
 		ENGINE_API auto ValidateAgainstSkeleton(

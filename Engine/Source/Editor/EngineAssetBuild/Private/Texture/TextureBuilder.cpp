@@ -1,15 +1,10 @@
 #include "Texture/TextureBuilder.h"
 
-#if DURIN_WITH_EDITOR
-	#include "ImageDecoder.h"
-
-	#include <bc7enc.h>
-	#include <rgbcx.h>
-#endif
+#include <bc7enc.h>
+#include <rgbcx.h>
 
 namespace Durin::AssetBuild::TextureBuilder
 {
-#if DURIN_WITH_EDITOR
 	namespace
 	{
 		constexpr uint32 BlockWidth = 4;
@@ -312,7 +307,6 @@ namespace Durin::AssetBuild::TextureBuilder
 			return true;
 		}
 	}
-#endif
 
 	auto IsValidUsage(ETextureUsage Usage) -> bool
 	{
@@ -357,75 +351,11 @@ namespace Durin::AssetBuild::TextureBuilder
 		}
 	}
 
-	auto DecodeRGBA8(std::string_view PhysicalFilePath, FTextureSourceData& OutSourceData, std::string& OutError) -> bool
-	{
-#if DURIN_WITH_EDITOR
-		Asset::FDecodedImage DecodedImage;
-		if (!Asset::DecodeImageFromFile(PhysicalFilePath, DecodedImage, OutError)) return false;
-		OutSourceData = {};
-		if (DecodedImage.Width > MaxDimension || DecodedImage.Height > MaxDimension)
-		{
-			OutError = std::format("Texture dimensions {}x{} exceed the {} pixel limit.",
-				DecodedImage.Width, DecodedImage.Height, MaxDimension);
-			return false;
-		}
-		OutSourceData.Pixels = std::move(DecodedImage.Pixels);
-		OutSourceData.Width = DecodedImage.Width;
-		OutSourceData.Height = DecodedImage.Height;
-		OutSourceData.SourceChannelCount = DecodedImage.SourceChannelCount;
-		OutSourceData.Format = ETextureSourceFormat::RGBA8;
-		OutSourceData.bHasTransparency = DecodedImage.bHasTransparency;
-		if (OutSourceData.IsValid()) return true;
-		OutSourceData = {};
-		OutError = "Decoded texture source data is invalid.";
-		return false;
-#else
-		(void)PhysicalFilePath;
-		OutSourceData = {};
-		OutError = "Texture source decoding is unavailable in runtime-only builds.";
-		return false;
-#endif
-	}
-
-	auto DecodeRGBA8(
-		std::span<const uint8> EncodedBytes,
-		FTextureSourceData& OutSourceData,
-		std::string& OutError) -> bool
-	{
-#if DURIN_WITH_EDITOR
-		Asset::FDecodedImage DecodedImage;
-		if (!Asset::DecodeImageFromMemory(EncodedBytes, DecodedImage, OutError)) return false;
-		OutSourceData = {};
-		if (DecodedImage.Width > MaxDimension || DecodedImage.Height > MaxDimension)
-		{
-			OutError = std::format("Texture dimensions {}x{} exceed the {} pixel limit.",
-				DecodedImage.Width, DecodedImage.Height, MaxDimension);
-			return false;
-		}
-		OutSourceData.Pixels = std::move(DecodedImage.Pixels);
-		OutSourceData.Width = DecodedImage.Width;
-		OutSourceData.Height = DecodedImage.Height;
-		OutSourceData.SourceChannelCount = DecodedImage.SourceChannelCount;
-		OutSourceData.Format = ETextureSourceFormat::RGBA8;
-		OutSourceData.bHasTransparency = DecodedImage.bHasTransparency;
-		if (OutSourceData.IsValid()) return true;
-		OutSourceData = {};
-		OutError = "Decoded texture source data is invalid.";
-		return false;
-#else
-		(void)EncodedBytes;
-		OutSourceData = {};
-		OutError = "Texture source decoding is unavailable in runtime-only builds.";
-		return false;
-#endif
-	}
-
 	auto BuildMipChain(const FTextureSourceData& SourceData, ETextureUsage Usage, bool bSRGB,
 		FTexturePlatformData& OutPlatformData, std::string& OutError, uint32 MaxResolution,
 		ETextureCompressionQuality CompressionQuality, ETextureAlphaMipMode AlphaMipMode,
 		float AlphaCoverageThreshold, const FBuildExecutionControl* ExecutionControl) -> bool
 	{
-#if DURIN_WITH_EDITOR
 		using FClock = std::chrono::steady_clock;
 		auto IsCancelled = [ExecutionControl] {
 			return ExecutionControl && ExecutionControl->ShouldCancel
@@ -565,19 +495,5 @@ namespace Durin::AssetBuild::TextureBuilder
 		OutPlatformData = {};
 		OutError = "Failed to build texture platform data.";
 		return false;
-#else
-		(void)SourceData;
-		(void)Usage;
-		(void)bSRGB;
-		(void)MaxResolution;
-		(void)CompressionQuality;
-		(void)AlphaMipMode;
-		(void)AlphaCoverageThreshold;
-		(void)ExecutionControl;
-		OutPlatformData = {};
-		OutError = "Offline texture compression is unavailable in runtime-only builds.";
-		return false;
-#endif
 	}
 }
-

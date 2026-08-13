@@ -373,9 +373,12 @@ durin_add_engine_functional_test(SkeletalAssetTests
 	KIND feature
 	DOMAINS skeletal-mesh
 	MODULES engine
+	RUNTIME_STACK_RATIONALE
+		"Exercises uncooked skeletal DDC publication through the editor-only EngineAssetBuild module."
 	SOURCES
 		Private/SkeletalAssetTests.cpp
 		Private/SkeletalAnimationTests.cpp
+	LIBRARIES EngineAssetBuild
 )
 
 durin_add_engine_functional_test(SkeletalMeshEditorTests
@@ -830,6 +833,8 @@ durin_add_engine_functional_test(PhysicsSceneTests
 	DOMAINS physics
 	MODULES aether engine engine-asset-build
 	STACKS editor
+	RUNTIME_STACK_RATIONALE
+		"Exercises editor-only StaticMesh collision authoring registration through EngineAssetBuild."
 	SOURCES
 		Private/Physics/PhysicsSceneTests.cpp
 		Private/Physics/PhysicsQueryObservabilityTests.cpp
@@ -1044,7 +1049,7 @@ durin_add_engine_functional_test(SplineQualificationTests
 durin_add_engine_functional_test(SkyBoxTests
 	KIND feature
 	DOMAINS sky-box
-	MODULES engine level-editor renderer
+	MODULES engine engine-asset-build level-editor renderer standard-asset-import
 	STACKS editor renderer
 	PRIVATE_SOURCE_OWNER LevelEditor
 	PRIVATE_SOURCE_RATIONALE
@@ -1058,23 +1063,23 @@ durin_add_engine_functional_test(SkyBoxTests
 		${_durin_level_editor_private}/Authoring/SkyBoxLevelAuthoring.cpp
 		${_durin_level_editor_private}/Customizations/SkyBoxDetails.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
-	LIBRARIES RenderCore Renderer DurinEd
+	LIBRARIES EngineAssetBuild StandardAssetImport RenderCore Renderer DurinEd
 	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
 durin_add_engine_functional_test(SkyBoxVulkanIntegrationTests
 	KIND integration
 	DOMAINS sky-box
-	MODULES engine renderer
+	MODULES engine engine-asset-build renderer standard-asset-import
 	BACKENDS vulkan
-	STACKS renderer
+	STACKS editor renderer
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Owns the Vulkan-backed sky-box integration lifecycle."
 	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this Vulkan-backed test."
 	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/SkyBox/SkyBoxVulkanTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd
+	LIBRARIES ApplicationCore EngineAssetBuild StandardAssetImport RenderCore Renderer DurinEd
 	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 

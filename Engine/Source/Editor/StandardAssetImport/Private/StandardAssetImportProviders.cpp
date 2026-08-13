@@ -41,6 +41,21 @@ namespace Durin
 	namespace
 	{
 		using namespace AssetImport;
+
+		auto NormalizePanorama(Asset::FDecodedImage&& Image)
+			-> AssetBuild::TextureCubeBuilder::FTexturePanoramaImage
+		{
+			return {.Pixels = std::move(Image.Pixels), .Width = Image.Width,
+				.Height = Image.Height, .SourceChannelCount = Image.SourceChannelCount,
+				.bHasTransparency = Image.bHasTransparency};
+		}
+
+		auto NormalizePanorama(Asset::FDecodedFloatImage&& Image)
+			-> AssetBuild::TextureCubeBuilder::FTexturePanoramaFloatImage
+		{
+			return {.Pixels = std::move(Image.Pixels), .Width = Image.Width,
+				.Height = Image.Height};
+		}
 		inline constexpr uint32 StaticMeshAssimpImporterVersion = 3;
 		inline constexpr std::string_view StaticMeshImporterId = "Assimp";
 		inline constexpr std::string_view StaticMeshSourceRoot = "Models";
@@ -820,7 +835,7 @@ namespace Durin
 							Root->GetBytes(), Panorama, Error,
 							{.MaximumDecodedPixels = AssetBuild::TextureCubeBuilder::MaximumPanoramaPixels})
 							&& AssetBuild::BuildTextureCubePanorama(
-								*Candidate, std::move(Panorama), Hash, Root->SourcePath, Settings, Error);
+								*Candidate, NormalizePanorama(std::move(Panorama)), Hash, Root->SourcePath, Settings, Error);
 					}
 					else
 					{
@@ -829,7 +844,7 @@ namespace Durin
 							Root->GetBytes(), Panorama, Error,
 							{.MaximumDecodedPixels = AssetBuild::TextureCubeBuilder::MaximumPanoramaPixels})
 							&& AssetBuild::BuildTextureCubePanorama(
-								*Candidate, std::move(Panorama), Hash, Root->SourcePath, Settings, Error);
+								*Candidate, NormalizePanorama(std::move(Panorama)), Hash, Root->SourcePath, Settings, Error);
 					}
 					if (!bBuilt)
 					{
