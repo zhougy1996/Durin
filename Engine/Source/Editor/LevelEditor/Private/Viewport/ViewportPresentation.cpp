@@ -32,6 +32,29 @@ namespace Durin::Editor::Level
 			TViewportModeOption{ERasterMode::Wireframe, "Wireframe"}
 		};
 
+		constexpr std::array DirectionalShadowBiasDiagnosticOptions = {
+			TViewportModeOption{EDirectionalShadowDiagnosticMode::ShadowDepthCoverage, "Shadow Depth Coverage"},
+			TViewportModeOption{EDirectionalShadowDiagnosticMode::ReceiverUnbiased, "Receiver Unbiased"},
+			TViewportModeOption{EDirectionalShadowDiagnosticMode::ReceiverBiased, "Receiver Biased"},
+			TViewportModeOption{EDirectionalShadowDiagnosticMode::ReceiverNormalOffset, "Receiver Normal Offset"},
+			TViewportModeOption{EDirectionalShadowDiagnosticMode::TexelGrid, "Texel Grid"},
+			TViewportModeOption{EDirectionalShadowDiagnosticMode::BiasContributions, "Bias Contributions"},
+			TViewportModeOption{EDirectionalShadowDiagnosticMode::Classification, "Classification"}
+		};
+
+		constexpr std::array DirectionalShadowFilterDiagnosticOptions = {
+			TViewportModeOption{EDirectionalShadowDiagnosticMode::FilterFootprint, "Filter Footprint"},
+			TViewportModeOption{EDirectionalShadowDiagnosticMode::FilterTapValidity, "Filter Tap Validity"},
+			TViewportModeOption{EDirectionalShadowDiagnosticMode::FilterDifference, "Filter Difference"}
+		};
+
+		constexpr std::array DirectionalShadowCascadeDiagnosticOptions = {
+			TViewportModeOption{EDirectionalShadowDiagnosticMode::CascadeIndex, "Cascade Index"},
+			TViewportModeOption{EDirectionalShadowDiagnosticMode::CascadeTransition, "Cascade Transition"},
+			TViewportModeOption{EDirectionalShadowDiagnosticMode::CascadeCoverage, "Cascade Coverage"},
+			TViewportModeOption{EDirectionalShadowDiagnosticMode::CascadeDifference, "Cascade Difference"}
+		};
+
 		template<typename T, size_t Size>
 		auto GetModeLabel(T CurrentMode, const std::array<TViewportModeOption<T>, Size>& Options) -> const char*
 		{
@@ -49,6 +72,33 @@ namespace Durin::Editor::Level
 			{
 				if (ImGui::RadioButton(Option.Label, Option.Value == CurrentMode)) SetMode(Option.Value);
 			}
+		}
+
+		auto DrawDirectionalShadowDiagnosticOptions(FLevelEditorViewportClient* ViewportClient) -> void
+		{
+			if (ViewportClient == nullptr) return;
+			const EDirectionalShadowDiagnosticMode CurrentMode =
+				ViewportClient->GetViewSettings().DirectionalShadowDiagnosticMode;
+			auto SetMode = [ViewportClient](EDirectionalShadowDiagnosticMode Mode) {
+				FSceneViewSettings Settings = ViewportClient->GetViewSettings();
+				Settings.DirectionalShadowDiagnosticMode = Mode;
+				ViewportClient->SetViewSettings(Settings);
+			};
+
+			if (ImGui::RadioButton("Lit (Off)",
+				CurrentMode == EDirectionalShadowDiagnosticMode::Lit))
+			{
+				SetMode(EDirectionalShadowDiagnosticMode::Lit);
+			}
+			ImGui::Separator();
+			ImGui::TextDisabled("Coverage and Bias");
+			DrawModeOptions(CurrentMode, DirectionalShadowBiasDiagnosticOptions, SetMode);
+			ImGui::Separator();
+			ImGui::TextDisabled("Filtering");
+			DrawModeOptions(CurrentMode, DirectionalShadowFilterDiagnosticOptions, SetMode);
+			ImGui::Separator();
+			ImGui::TextDisabled("Cascades");
+			DrawModeOptions(CurrentMode, DirectionalShadowCascadeDiagnosticOptions, SetMode);
 		}
 
 		auto Add(const ImVec2& A, const ImVec2& B) -> ImVec2 { return ImVec2(A.x + B.x, A.y + B.y); }
@@ -567,6 +617,17 @@ namespace Durin::Editor::Level
 				{
 					if (Preset != 1.0f) ImGui::SameLine();
 					if (ImGui::SmallButton(std::format("{:g}##FlySpeed", Preset).c_str())) ViewportClient->SetMovementSpeed(Preset);
+				}
+			}
+			ImGui::Separator();
+			ImGui::TextDisabled("Diagnostics");
+			if (ViewportClient != nullptr)
+			{
+				if (ImGui::BeginMenu("Directional Shadow"))
+				{
+					ImGui::TextDisabled("Visible in Lit mode");
+					DrawDirectionalShadowDiagnosticOptions(ViewportClient);
+					ImGui::EndMenu();
 				}
 			}
 			ImGui::Separator();
