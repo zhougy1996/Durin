@@ -550,6 +550,8 @@ namespace Durin
 			Params.DisplayName ? Params.DisplayName : "",
 			Params.DefaultObjectName ? Params.DefaultObjectName : ""
 		);
+		Private::RegisterLegacyClassNames(
+			Class, std::span(Params.LegacyNames, Params.NumLegacyNames));
 
 		if (!Class->ChildProperties && Params.PropertyParams && Params.NumProperties > 0)
 		{
@@ -580,6 +582,8 @@ namespace Durin
 
 		DObjectForceRegistration(Enum);
 		Private::RegisterQualifiedEnum(Enum);
+		Private::RegisterLegacyEnumNames(
+			Enum, std::span(Params.LegacyNames, Params.NumLegacyNames));
 
 		return Enum;
 	}
@@ -589,6 +593,8 @@ namespace Durin
 		DStruct* Struct = Params.StructNoRegisterFunc();
 		DObjectForceRegistration(Struct);
 		Private::RegisterQualifiedStruct(Struct);
+		Private::RegisterLegacyStructNames(
+			Struct, std::span(Params.LegacyNames, Params.NumLegacyNames));
 		Struct->InitializeOps(Params.Ops);
 		if (!Struct->ChildProperties && Params.PropertyParams && Params.NumProperties > 0)
 		{

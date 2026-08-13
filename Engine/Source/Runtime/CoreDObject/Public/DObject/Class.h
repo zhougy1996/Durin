@@ -359,9 +359,15 @@ namespace Durin
 	) -> DClass*;
 
 	COREDOBJECT_API auto FindClassByQualifiedName(FName QualifiedName) -> DClass*;
+	// Resolves a serialized class identity through current names and read-only legacy aliases.
+	COREDOBJECT_API auto FindClassBySerializedName(FName SerializedName) -> DClass*;
 	COREDOBJECT_API auto GetDerivedClasses(const DClass* BaseClass, bool bIncludeBase = false) -> std::vector<DClass*>;
 	COREDOBJECT_API auto FindStructByQualifiedName(FName QualifiedName) -> DStruct*;
+	// Resolves a serialized struct identity through current names and read-only legacy aliases.
+	COREDOBJECT_API auto FindStructBySerializedName(FName SerializedName) -> DStruct*;
 	COREDOBJECT_API auto FindEnumByQualifiedName(FName QualifiedName) -> DEnum*;
+	// Resolves a serialized enum identity through current names and read-only legacy aliases.
+	COREDOBJECT_API auto FindEnumBySerializedName(FName SerializedName) -> DEnum*;
 	COREDOBJECT_API auto FindClassByPath(std::string_view ObjectPath) -> DClass*;
 	COREDOBJECT_API auto FindStructByPath(std::string_view ObjectPath) -> DStruct*;
 	COREDOBJECT_API auto FindEnumByPath(std::string_view ObjectPath) -> DEnum*;

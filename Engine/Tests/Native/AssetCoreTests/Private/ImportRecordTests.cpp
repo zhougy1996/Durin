@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "AssetImportCore.h"
+#include "AssetPackageV4Reader.h"
 #include "AssetSystem.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectArray.h"
@@ -502,18 +503,107 @@ TEST(FImportRecordFrameworkTests, StructRepairRestoresOutputAndTombstonePaths)
 	EXPECT_FALSE(Error.empty());
 }
 
-TEST(FImportRecordFrameworkTests, NamespaceMovePreservesSerializedReflectionIdentity)
+TEST(FImportRecordFrameworkTests, NamespaceMoveUsesCurrentIdentityAndReadOnlyLegacyAliases)
 {
 	InitializeImportRecordTests();
+	Durin::DClass* RecordClass = Durin::Asset::Import::DImportRecord::StaticClass();
+	Durin::DStruct* OutputStruct = Durin::Asset::Import::FImportRecordOutput::StaticStruct();
+	Durin::DEnum* OutputPolicy = Z_Construct_DEnum_Durin_Asset_Import_EImportRecordOutputPolicy();
 	EXPECT_EQ(
-		Durin::Asset::Import::DImportRecord::StaticClass()->GetQualifiedName().ToString(),
-		"Durin::AssetImport::DImportRecord");
+		RecordClass->GetQualifiedName().ToString(),
+		"Durin::Asset::Import::DImportRecord");
 	EXPECT_EQ(
-		Durin::Asset::Import::FImportRecordOutput::StaticStruct()->GetQualifiedName().ToString(),
-		"Durin::AssetImport::FImportRecordOutput");
+		OutputStruct->GetQualifiedName().ToString(),
+		"Durin::Asset::Import::FImportRecordOutput");
 	EXPECT_EQ(
-		Z_Construct_DEnum_Durin_Asset_Import_EImportRecordOutputPolicy()->GetQualifiedName().ToString(),
-		"Durin::AssetImport::EImportRecordOutputPolicy");
+		OutputPolicy->GetQualifiedName().ToString(),
+		"Durin::Asset::Import::EImportRecordOutputPolicy");
+
+	EXPECT_EQ(Durin::FindClassByQualifiedName("Durin::AssetImport::DImportRecord"), nullptr);
+	EXPECT_EQ(Durin::FindStructByQualifiedName("Durin::AssetImport::FImportRecordOutput"), nullptr);
+	EXPECT_EQ(Durin::FindEnumByQualifiedName("Durin::AssetImport::EImportRecordOutputPolicy"), nullptr);
+	EXPECT_EQ(Durin::FindClassBySerializedName("Durin::AssetImport::DImportRecord"), RecordClass);
+	EXPECT_EQ(Durin::FindStructBySerializedName("Durin::AssetImport::FImportRecordOutput"), OutputStruct);
+	EXPECT_EQ(Durin::FindEnumBySerializedName("Durin::AssetImport::EImportRecordOutputPolicy"), OutputPolicy);
+}
+
+TEST(FImportRecordFrameworkTests, LegacyNamespaceLoadsCanonicallyAndResavesCurrentNames)
+{
+	InitializeImportRecordTests();
+	FScenario Scenario = BuildScenario("LegacyNamespaceMigration");
+	const std::array Mounts = {MakeMount(Scenario.Root)};
+	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
+	ConfigureScenario(Scenario);
+	Durin::Asset::Import::FImportRecordIndex Index;
+	const auto Published = PublishInitial(Scenario, Index, 29);
+	ASSERT_TRUE(Published) << Published.Message;
+	ASSERT_NE(Published.Record, nullptr);
+
+	std::vector<Durin::uint8> CurrentBytes;
+	const Durin::Asset::FAssetResult Serialized = Durin::Asset::SerializeAssetPackageBytes(
+		Published.Record->GetPackage(), CurrentBytes);
+	ASSERT_TRUE(Serialized) << Serialized.Message;
+
+	namespace DastV4 = Durin::Asset::DastV4;
+	DastV4::FDecodedPackage LegacyPackage;
+	DastV4::FReaderDiagnostic Diagnostic;
+	ASSERT_TRUE(DastV4::DecodePackage(CurrentBytes, LegacyPackage, {}, &Diagnostic))
+		<< Diagnostic.Message;
+	const std::string CurrentPrefix = "Durin::Asset::Import::";
+	const std::string LegacyPrefix = "Durin::AssetImport::";
+	auto MakeLegacy = [&](std::string& Name) {
+		if (Name.starts_with(CurrentPrefix))
+			Name.replace(0, CurrentPrefix.size(), LegacyPrefix);
+	};
+	MakeLegacy(LegacyPackage.Header.AssetClass);
+	for (auto& Object : LegacyPackage.Objects) MakeLegacy(Object.ClassName);
+	for (auto& Schema : LegacyPackage.Schemas) MakeLegacy(Schema.QualifiedName);
+	for (auto& Type : LegacyPackage.Types) MakeLegacy(Type.QualifiedName);
+
+	const bool bHasLegacyStruct = std::ranges::any_of(LegacyPackage.Types, [&](const auto& Type) {
+		return Type.Opcode == DastV4::ETypeOpcode::Struct
+			&& Type.QualifiedName.starts_with(LegacyPrefix);
+	});
+	const bool bHasLegacyEnum = std::ranges::any_of(LegacyPackage.Types, [&](const auto& Type) {
+		return Type.Opcode == DastV4::ETypeOpcode::Enum
+			&& Type.QualifiedName.starts_with(LegacyPrefix);
+	});
+	ASSERT_TRUE(bHasLegacyStruct);
+	ASSERT_TRUE(bHasLegacyEnum);
+
+	std::vector<Durin::uint8> LegacyBytes;
+	ASSERT_TRUE(DastV4::ReencodePackage(LegacyPackage, LegacyBytes, &Diagnostic))
+		<< Diagnostic.Message;
+	DastV4::FValidatedHeader Header;
+	ASSERT_TRUE(DastV4::ReadHeader(LegacyBytes, Header, {}, &Diagnostic)) << Diagnostic.Message;
+	EXPECT_EQ(Header.AssetClass, "Durin::Asset::Import::DImportRecord");
+
+	DastV4::FLoadedAssetPackage Loaded;
+	const Durin::FAssetPath LoadPath = MakePath(
+		"/ImportRecordTests/LegacyNamespaceMigration/Upgraded");
+	const Durin::Asset::FAssetResult LoadedResult = DastV4::LoadAssetPackage(
+		LegacyBytes, LoadPath, Loaded, nullptr, {}, {}, &Diagnostic);
+	ASSERT_TRUE(LoadedResult) << LoadedResult.Message << ": " << Diagnostic.Message;
+	ASSERT_NE(Loaded.GetPackage(), nullptr);
+	ASSERT_NE(Loaded.GetPackage()->GetAsset(), nullptr);
+	EXPECT_EQ(
+		Loaded.GetPackage()->GetAsset()->GetClass()->GetQualifiedName().ToString(),
+		"Durin::Asset::Import::DImportRecord");
+
+	std::vector<Durin::uint8> UpgradedBytes;
+	const Durin::Asset::FAssetResult Upgraded = Durin::Asset::SerializeAssetPackageBytes(
+		Loaded.GetPackage(), UpgradedBytes);
+	ASSERT_TRUE(Upgraded) << Upgraded.Message;
+	DastV4::FDecodedPackage UpgradedPackage;
+	ASSERT_TRUE(DastV4::DecodePackage(UpgradedBytes, UpgradedPackage, {}, &Diagnostic))
+		<< Diagnostic.Message;
+	EXPECT_EQ(UpgradedPackage.Header.AssetClass, "Durin::Asset::Import::DImportRecord");
+	for (const auto& Object : UpgradedPackage.Objects)
+		EXPECT_FALSE(Object.ClassName.starts_with(LegacyPrefix));
+	for (const auto& Schema : UpgradedPackage.Schemas)
+		EXPECT_FALSE(Schema.QualifiedName.starts_with(LegacyPrefix));
+	for (const auto& Type : UpgradedPackage.Types)
+		EXPECT_FALSE(Type.QualifiedName.starts_with(LegacyPrefix));
 }
 
 TEST(FImportRecordFrameworkTests, PersistsHeterogeneousPeersAcrossReloadMoveAndProviderUnload)

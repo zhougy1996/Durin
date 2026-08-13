@@ -382,14 +382,15 @@ metadata that points at the corresponding `DEnum`.
 - short class name
 - optional editor display name from `DCLASS(DisplayName = "...")`
 - optional default object name from `DCLASS(DefaultObjectName = "...")`
-- optional `PersistentName = "Qualified::Name"` on `DCLASS`, `DSTRUCT`, and
-  `DENUM` for a qualified C++ namespace move that must retain its serialized
-  reflection identity; the generated C++ symbol and helper names still follow
-  the declaration's current namespace
+- optional `LegacyNames = "Former::QualifiedName;Older::QualifiedName"` on `DCLASS`,
+  `DSTRUCT`, and `DENUM` for read-only compatibility with serialized identities
+  emitted before a qualified C++ namespace move; generated and runtime identity
+  always follow the declaration's current namespace, and recognized legacy
+  names are canonicalized at the asset read boundary
 - property parameter array
 - property count
 
-`DClass` keeps runtime identity, C++ spelling, editor presentation, and instance naming separate. `QualifiedName` remains the stable serialized/type-lookup identity and `ShortName` remains the C++ class spelling. `DisplayName` is used by editor UI, while `DefaultObjectName` is used when an instance is created without an explicit name. When metadata is omitted, Durin removes the conventional `A`/`D` prefix when followed by an uppercase letter; display names additionally split CamelCase words. For example, `AStaticMeshActor` defaults to display name `Static Mesh Actor` and object name `StaticMeshActor`.
+`DClass` keeps runtime identity, C++ spelling, editor presentation, and instance naming separate. `QualifiedName` is the current serialized/type-lookup identity and `ShortName` remains the C++ class spelling. Legacy aliases are accepted only by serialized-name lookup and never by ordinary qualified-name lookup or new saves. `DisplayName` is used by editor UI, while `DefaultObjectName` is used when an instance is created without an explicit name. When metadata is omitted, Durin removes the conventional `A`/`D` prefix when followed by an uppercase letter; display names additionally split CamelCase words. For example, `AStaticMeshActor` defaults to display name `Static Mesh Actor` and object name `StaticMeshActor`.
 
 `ConstructDClass(...)` forces class registration, then creates `FProperty` nodes from generated property parameters and attaches top-level fields to `DStructBase::ChildProperties`. Container inner/key/value properties are constructed recursively and owned by their containing `FArrayProperty` or `FMapProperty`; they are not inserted into the class property chain.
 

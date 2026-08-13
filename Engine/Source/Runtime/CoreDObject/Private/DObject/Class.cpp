@@ -17,6 +17,9 @@ namespace
 		std::unordered_map<Durin::FName, Durin::DClass*> Classes;
 		std::unordered_map<Durin::FName, Durin::DStruct*> Structs;
 		std::unordered_map<Durin::FName, Durin::DEnum*> Enums;
+		std::unordered_map<Durin::FName, Durin::DClass*> LegacyClasses;
+		std::unordered_map<Durin::FName, Durin::DStruct*> LegacyStructs;
+		std::unordered_map<Durin::FName, Durin::DEnum*> LegacyEnums;
 	};
 
 	auto GetQualifiedTypeRegistry() -> FQualifiedTypeRegistry&
@@ -27,13 +30,69 @@ namespace
 		return Registry;
 	}
 
+	auto IsLegacyQualifiedName(const FQualifiedTypeRegistry& Registry, Durin::FName Name) -> bool
+	{
+		return Registry.LegacyClasses.contains(Name)
+			|| Registry.LegacyStructs.contains(Name)
+			|| Registry.LegacyEnums.contains(Name);
+	}
+
+	auto IsCurrentQualifiedName(const FQualifiedTypeRegistry& Registry, Durin::FName Name) -> bool
+	{
+		return Registry.Classes.contains(Name)
+			|| Registry.Structs.contains(Name)
+			|| Registry.Enums.contains(Name);
+	}
+
 	template<typename T>
-	auto RegisterQualifiedType(std::unordered_map<Durin::FName, T*>& Types, Durin::FName QualifiedName, T* Type) -> void
+	auto RegisterQualifiedType(std::unordered_map<Durin::FName, T*>& Types,
+		const std::unordered_map<Durin::FName, T*>& LegacyTypes,
+		Durin::FName QualifiedName, T* Type) -> void
 	{
 		check(Type);
 		check(!QualifiedName.IsNone());
+		check(!LegacyTypes.contains(QualifiedName) && "Current reflected names must not collide with legacy aliases.");
 		auto [It, bInserted] = Types.emplace(QualifiedName, Type);
 		check((bInserted || It->second == Type) && "Reflected qualified names must be unique.");
+	}
+
+	auto ValidateLegacyTypeNames(const FQualifiedTypeRegistry& Registry,
+		std::span<const char* const> LegacyNames) -> void
+	{
+		for (const char* LegacyNameString : LegacyNames)
+		{
+			const Durin::FName LegacyName(LegacyNameString ? LegacyNameString : "");
+			check(!LegacyName.IsNone());
+			check(!IsCurrentQualifiedName(Registry, LegacyName)
+				&& "Legacy reflected names must not collide with current names.");
+			check(!IsLegacyQualifiedName(Registry, LegacyName)
+				&& "Legacy reflected names must be globally unique.");
+		}
+	}
+
+	template<typename T>
+	auto RegisterLegacyTypeNames(const std::unordered_map<Durin::FName, T*>& Types,
+		std::unordered_map<Durin::FName, T*>& LegacyTypes, T* Type,
+		std::span<const char* const> LegacyNames) -> void
+	{
+		check(Type);
+		for (const char* LegacyNameString : LegacyNames)
+		{
+			const Durin::FName LegacyName(LegacyNameString ? LegacyNameString : "");
+			check(!LegacyName.IsNone());
+			check(!Types.contains(LegacyName) && "Legacy reflected names must not collide with current names.");
+			auto [It, bInserted] = LegacyTypes.emplace(LegacyName, Type);
+			check((bInserted || It->second == Type) && "Legacy reflected names must be unique.");
+		}
+	}
+
+	template<typename T>
+	auto FindSerializedType(const std::unordered_map<Durin::FName, T*>& Types,
+		const std::unordered_map<Durin::FName, T*>& LegacyTypes, Durin::FName Name) -> T*
+	{
+		if (const auto It = Types.find(Name); It != Types.end()) return It->second;
+		const auto Legacy = LegacyTypes.find(Name);
+		return Legacy != LegacyTypes.end() ? Legacy->second : nullptr;
 	}
 
 	auto MakeDefaultObjectName(std::string_view ShortName) -> std::string
@@ -365,23 +424,54 @@ namespace Durin
 
 		auto UpdateQualifiedClassName(DClass* Class, FName PreviousName) -> void
 		{
-			auto& Classes = GetQualifiedTypeRegistry().Classes;
+			auto& Registry = GetQualifiedTypeRegistry();
+			auto& Classes = Registry.Classes;
 			if (!PreviousName.IsNone() && PreviousName != Class->GetQualifiedName())
 			{
 				auto Previous = Classes.find(PreviousName);
 				if (Previous != Classes.end() && Previous->second == Class) Classes.erase(Previous);
 			}
-			RegisterQualifiedType(Classes, Class->GetQualifiedName(), Class);
+			check(!IsLegacyQualifiedName(Registry, Class->GetQualifiedName())
+				&& "Current reflected names must not collide with legacy aliases.");
+			RegisterQualifiedType(Classes, Registry.LegacyClasses,
+				Class->GetQualifiedName(), Class);
 		}
 
 		auto RegisterQualifiedStruct(DStruct* Struct) -> void
 		{
-			RegisterQualifiedType(GetQualifiedTypeRegistry().Structs, Struct->GetQualifiedName(), Struct);
+			auto& Registry = GetQualifiedTypeRegistry();
+			check(!IsLegacyQualifiedName(Registry, Struct->GetQualifiedName())
+				&& "Current reflected names must not collide with legacy aliases.");
+			RegisterQualifiedType(Registry.Structs, Registry.LegacyStructs, Struct->GetQualifiedName(), Struct);
 		}
 
 		auto RegisterQualifiedEnum(DEnum* Enum) -> void
 		{
-			RegisterQualifiedType(GetQualifiedTypeRegistry().Enums, Enum->GetQualifiedName(), Enum);
+			auto& Registry = GetQualifiedTypeRegistry();
+			check(!IsLegacyQualifiedName(Registry, Enum->GetQualifiedName())
+				&& "Current reflected names must not collide with legacy aliases.");
+			RegisterQualifiedType(Registry.Enums, Registry.LegacyEnums, Enum->GetQualifiedName(), Enum);
+		}
+
+		auto RegisterLegacyClassNames(DClass* Class, std::span<const char* const> LegacyNames) -> void
+		{
+			auto& Registry = GetQualifiedTypeRegistry();
+			ValidateLegacyTypeNames(Registry, LegacyNames);
+			RegisterLegacyTypeNames(Registry.Classes, Registry.LegacyClasses, Class, LegacyNames);
+		}
+
+		auto RegisterLegacyStructNames(DStruct* Struct, std::span<const char* const> LegacyNames) -> void
+		{
+			auto& Registry = GetQualifiedTypeRegistry();
+			ValidateLegacyTypeNames(Registry, LegacyNames);
+			RegisterLegacyTypeNames(Registry.Structs, Registry.LegacyStructs, Struct, LegacyNames);
+		}
+
+		auto RegisterLegacyEnumNames(DEnum* Enum, std::span<const char* const> LegacyNames) -> void
+		{
+			auto& Registry = GetQualifiedTypeRegistry();
+			ValidateLegacyTypeNames(Registry, LegacyNames);
+			RegisterLegacyTypeNames(Registry.Enums, Registry.LegacyEnums, Enum, LegacyNames);
 		}
 
 		auto CreateDStructDefaultsForBatch(std::span<DStruct* const> Structs) -> bool
@@ -583,6 +673,12 @@ namespace Durin
 		return It != Classes.end() ? It->second : nullptr;
 	}
 
+	auto FindClassBySerializedName(FName SerializedName) -> DClass*
+	{
+		const auto& Registry = GetQualifiedTypeRegistry();
+		return FindSerializedType(Registry.Classes, Registry.LegacyClasses, SerializedName);
+	}
+
 	auto DClass::IsChildOf(const DClass* InClass) const -> bool
 	{
 		for (const DClass* Class = this; Class; Class = Class->GetSuperClass())
@@ -703,11 +799,23 @@ namespace Durin
 		return It != Structs.end() ? It->second : nullptr;
 	}
 
+	auto FindStructBySerializedName(FName SerializedName) -> DStruct*
+	{
+		const auto& Registry = GetQualifiedTypeRegistry();
+		return FindSerializedType(Registry.Structs, Registry.LegacyStructs, SerializedName);
+	}
+
 	auto FindEnumByQualifiedName(FName QualifiedName) -> DEnum*
 	{
 		auto& Enums = GetQualifiedTypeRegistry().Enums;
 		auto It = Enums.find(QualifiedName);
 		return It != Enums.end() ? It->second : nullptr;
+	}
+
+	auto FindEnumBySerializedName(FName SerializedName) -> DEnum*
+	{
+		const auto& Registry = GetQualifiedTypeRegistry();
+		return FindSerializedType(Registry.Enums, Registry.LegacyEnums, SerializedName);
 	}
 
 	template<typename T>

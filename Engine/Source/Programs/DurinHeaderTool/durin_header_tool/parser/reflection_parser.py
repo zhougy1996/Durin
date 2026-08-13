@@ -54,6 +54,7 @@ from durin_header_tool.parser.property_parser import (
     _normalize_type_spelling,
     _scan_source_properties_for_class,
     _string_metadata_from_annotation,
+    _string_list_metadata_from_annotation,
     _underlying_kind_from_type_spelling,
     _validate_explicit_container_spelling,
     _validate_soft_object_spelling,
@@ -116,7 +117,7 @@ def _make_enum(
         underlying_kind=_underlying_kind_from_type_spelling(underlying_type),
         underlying_size=max(int(enum_cursor.enum_type.get_size() or 0), 0),
         display_name=_string_metadata_from_annotation(annotation, "DisplayName"),
-        persistent_name=_string_metadata_from_annotation(annotation, "PersistentName"),
+        legacy_names=_string_list_metadata_from_annotation(annotation, "LegacyNames"),
         values=values,
     )
 
@@ -182,8 +183,8 @@ def parse_reflection_header(
                     header=header,
                     api=module_config.api_macro,
                     generated_body_line=_scan_generated_body_line(source, child),
-                    persistent_name=_string_metadata_from_annotation(
-                        pending_dstruct_annotation, "PersistentName"
+                    legacy_names=_string_list_metadata_from_annotation(
+                        pending_dstruct_annotation, "LegacyNames"
                     ),
                 )
                 for member in child.get_children():
@@ -214,7 +215,7 @@ def parse_reflection_header(
                 declaring_namespace = _semantic_namespace(child)
                 helper_name = make_generated_helper_name(qualified_name)
                 class_payload = pending_dclass_annotation.split(",", 1)[1] if "," in pending_dclass_annotation else ""
-                is_abstract, no_class_default_object, display_name, default_object_name, persistent_name = _class_specifiers_from_payload(
+                class_specifiers = _class_specifiers_from_payload(
                     class_payload, child.location.line, child.location.column
                 )
                 source_base_name = _source_base_name(source, child)
@@ -248,11 +249,11 @@ def parse_reflection_header(
                     api=module_config.api_macro,
                     base_qualified_name=base_qualified_name,
                     generated_body_line=_scan_generated_body_line(source, child),
-                    is_abstract=is_abstract,
-                    no_class_default_object=no_class_default_object,
-                    display_name=display_name,
-                    default_object_name=default_object_name,
-                    persistent_name=persistent_name,
+                    is_abstract=class_specifiers.is_abstract,
+                    no_class_default_object=class_specifiers.no_class_default_object,
+                    display_name=class_specifiers.display_name,
+                    default_object_name=class_specifiers.default_object_name,
+                    legacy_names=list(class_specifiers.legacy_names),
                 )
                 for member in child.get_children():
                     if _is_default_constructor(member):

@@ -11,6 +11,16 @@ class _DMetaUse:
     line: int
     column: int
 
+
+@dataclass(frozen=True)
+class _ClassSpecifiers:
+    is_abstract: bool = False
+    no_class_default_object: bool = False
+    display_name: str = ""
+    default_object_name: str = ""
+    legacy_names: tuple[str, ...] = ()
+
+
 def _annotation_payload(prefix: str, payload: str) -> str:
     payload = payload.strip().replace("\\", "\\\\").replace('"', '\\"')
     return f'{prefix},{payload}' if payload else prefix
@@ -27,6 +37,22 @@ def _unescape_string_literal(value: str) -> str:
     return CppSourceScanner.unescape_string_literal(value)
 
 
+def _qualified_name_list(raw_value: str, key: str, location: str) -> list[str]:
+    match = re.fullmatch(r'"((?:\\.|[^"\\])*)"', raw_value.strip())
+    if not match:
+        raise ValueError(f"{location}: {key} requires a quoted semicolon-separated list")
+    entries = _unescape_string_literal(match.group(1)).split(";")
+    names: list[str] = []
+    for raw_entry in entries:
+        name = raw_entry.strip()
+        if not re.fullmatch(r'[A-Za-z_]\w*(?:::[A-Za-z_]\w*)+', name):
+            raise ValueError(f"{location}: {key} entries require qualified C++ identifiers")
+        if name in names:
+            raise ValueError(f"{location}: duplicate {key} entry '{name}'")
+        names.append(name)
+    return names
+
+
 def _display_name_from_payload(payload: str, macro_name: str, line: int, column: int) -> str:
     location = f"{macro_name} at line {line}, column {column}"
     if not payload.strip():
@@ -37,7 +63,7 @@ def _display_name_from_payload(payload: str, macro_name: str, line: int, column:
     display_name = ""
     seen_keys: set[str] = set()
     allowed_keys = (
-        ("DisplayName", "PersistentName")
+        ("DisplayName", "LegacyNames")
         if macro_name in ("DSTRUCT", "DENUM")
         else ("DisplayName",)
     )
@@ -54,14 +80,8 @@ def _display_name_from_payload(payload: str, macro_name: str, line: int, column:
         if key in seen_keys:
             raise ValueError(f"{location}: duplicate {key} metadata")
         seen_keys.add(key)
-        if key == "PersistentName":
-            raw_value = raw_value.strip()
-            match = re.fullmatch(r'"((?:\\.|[^"\\])*)"', raw_value)
-            if not match:
-                raise ValueError(f"{location}: PersistentName requires a quoted string")
-            persistent_name = _unescape_string_literal(match.group(1))
-            if not re.fullmatch(r'[A-Za-z_]\w*(?:::[A-Za-z_]\w*)+', persistent_name):
-                raise ValueError(f"{location}: PersistentName requires a qualified C++ identifier")
+        if key == "LegacyNames":
+            _qualified_name_list(raw_value, key, location)
             continue
 
         raw_value = raw_value.strip()
@@ -74,16 +94,18 @@ def _display_name_from_payload(payload: str, macro_name: str, line: int, column:
 
 def _class_specifiers_from_payload(
     payload: str, line: int, column: int
-) -> tuple[bool, bool, str, str, str]:
+) -> _ClassSpecifiers:
     location = f"DCLASS at line {line}, column {column}"
     if not payload.strip():
-        return False, False, "", "", ""
+        return _ClassSpecifiers()
 
     entries = _macro_arguments(payload, location)
 
     is_abstract = False
     no_class_default_object = False
     metadata: dict[str, str] = {}
+    legacy_names: list[str] = []
+    seen_metadata: set[str] = set()
     for raw_entry in entries:
         entry = raw_entry.strip()
         if not entry:
@@ -103,26 +125,26 @@ def _class_specifiers_from_payload(
                 no_class_default_object = True
             continue
 
-        if key not in ("DisplayName", "DefaultObjectName", "PersistentName"):
+        if key not in ("DisplayName", "DefaultObjectName", "LegacyNames"):
             raise ValueError(f"{location}: unsupported class metadata key '{key}'")
-        if key in metadata:
+        if key in seen_metadata:
             raise ValueError(f"{location}: duplicate {key} class metadata")
+        seen_metadata.add(key)
+        if key == "LegacyNames":
+            legacy_names = _qualified_name_list(raw_value, key, location)
+            continue
         raw_value = raw_value.strip()
         match = re.fullmatch(r'"((?:\\.|[^"\\])*)"', raw_value)
         if not match:
             raise ValueError(f"{location}: {key} requires a quoted string")
         metadata[key] = _unescape_string_literal(match.group(1))
-        if key == "PersistentName" and not re.fullmatch(
-            r'[A-Za-z_]\w*(?:::[A-Za-z_]\w*)+', metadata[key]
-        ):
-            raise ValueError(f"{location}: PersistentName requires a qualified C++ identifier")
 
-    return (
-        is_abstract,
-        no_class_default_object,
-        metadata.get("DisplayName", ""),
-        metadata.get("DefaultObjectName", ""),
-        metadata.get("PersistentName", ""),
+    return _ClassSpecifiers(
+        is_abstract=is_abstract,
+        no_class_default_object=no_class_default_object,
+        display_name=metadata.get("DisplayName", ""),
+        default_object_name=metadata.get("DefaultObjectName", ""),
+        legacy_names=tuple(legacy_names),
     )
 
 

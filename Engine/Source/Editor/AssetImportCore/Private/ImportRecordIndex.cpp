@@ -63,8 +63,8 @@ namespace Durin::Asset::Import
 			if (OutDescriptors) OutDescriptors->clear();
 
 			std::vector<FAssetPath> RecordPaths;
-			constexpr std::string_view RecordClass =
-				"Durin::AssetImport::DImportRecord";
+			const std::string RecordClass =
+				DImportRecord::StaticClass()->GetQualifiedName().ToString();
 			for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
 				if (Data.EntryKind == Asset::EAssetRegistryEntryKind::Asset
 					&& Data.AssetClassName == RecordClass)
@@ -227,7 +227,8 @@ namespace Durin::Asset::Import
 		std::unordered_set<FAssetPath> ConflictedRecords;
 		std::vector<FImportRecordIndexDiagnostic> Diagnostics;
 		std::unordered_map<FGuid, std::vector<FAssetPath>> RecordsById;
-		constexpr std::string_view RecordClass = "Durin::AssetImport::DImportRecord";
+		const std::string RecordClass =
+			DImportRecord::StaticClass()->GetQualifiedName().ToString();
 
 		for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
 		{

@@ -107,6 +107,18 @@ def _string_metadata_from_annotation(annotation: str, key: str) -> str:
     return ""
 
 
+def _string_list_metadata_from_annotation(annotation: str, key: str) -> list[str]:
+    for raw_entry in _annotation_entries(annotation):
+        entry_key, separator, raw_value = raw_entry.strip().partition("=")
+        if not separator or entry_key.strip() != key:
+            continue
+        match = re.fullmatch(r'"((?:\\.|[^"\\])*)"', raw_value.strip())
+        if not match:
+            return []
+        return [item.strip() for item in _unescape_string_literal(match.group(1)).split(";")]
+    return []
+
+
 def _property_metadata_from_annotation(annotation: str) -> list[tuple[str, str]]:
     payload = _string_metadata_from_annotation(annotation, "MetaData")
     if not payload:

@@ -225,6 +225,8 @@ namespace Durin
 			uint16 UnderlyingSize;
 			const FEnumValueParams* Values;
 			size_t NumValues;
+			const char* const* LegacyNames = nullptr;
+			size_t NumLegacyNames = 0;
 		};
 
 		struct FClassParams
@@ -236,6 +238,8 @@ namespace Durin
 			size_t NumProperties;
 			const char* DisplayName = nullptr;
 			const char* DefaultObjectName = nullptr;
+			const char* const* LegacyNames = nullptr;
+			size_t NumLegacyNames = 0;
 		};
 
 		struct FMetaDataPair
@@ -816,6 +820,8 @@ namespace Durin
 			const FPropertyParamsBase* const* PropertyParams;
 			size_t NumProperties;
 			const FDStructOps* Ops = nullptr;
+			const char* const* LegacyNames = nullptr;
+			size_t NumLegacyNames = 0;
 		};
 
 		COREDOBJECT_API auto ConstructDClass(const FClassParams& Params) -> DClass*;

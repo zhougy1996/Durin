@@ -99,7 +99,7 @@ namespace Fixture
     using Durin::int32;
     using FFloatVector = std::vector<float>;
 
-    DENUM(DisplayName = "Fixture Mode", PersistentName = "Legacy::EFixtureMode")
+    DENUM(DisplayName = "Fixture Mode", LegacyNames = "Legacy::EFixtureMode")
     enum class EFixtureMode : int
     {
         Disabled DMETA(DisplayName = "Not Enabled") = -1,
@@ -114,7 +114,7 @@ namespace Fixture
         LegacySecond = 4
     };
 
-    DCLASS(DisplayName = "Sample Actor", DefaultObjectName = "SampleActor", PersistentName = "Legacy::ASampleActor")
+    DCLASS(DisplayName = "Sample Actor", DefaultObjectName = "SampleActor", LegacyNames = "Legacy::ASampleActor;Older::ASampleActor")
     class ASampleActor : public Durin::DObject
     {
         GENERATED_BODY()
@@ -162,7 +162,7 @@ namespace Fixture
         GENERATED_BODY()
     };
 
-    DSTRUCT(PersistentName = "Legacy::FCurvePoint")
+    DSTRUCT(LegacyNames = "Legacy::FCurvePoint")
     struct FCurvePoint
     {
         GENERATED_BODY()

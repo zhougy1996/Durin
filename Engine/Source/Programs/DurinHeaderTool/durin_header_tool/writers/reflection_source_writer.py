@@ -102,7 +102,7 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
             ("{", 1),
             ("Durin::GetPrivateStaticClassBody(", 2),
             (f"\"{package_path}\",", 3),
-            (f"\"{class_info.persistent_name or class_info.qualified_name}\",", 3),
+            (f"\"{class_info.qualified_name}\",", 3),
             (f"{class_info.registration_info_name}.InnerSingleton,", 3),
             ("nullptr,", 3),
             (f"sizeof({class_info.qualified_name}),", 3),
@@ -133,6 +133,8 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
         builder.append(f"struct {generated_statics_name}\n")
         builder.append("{\n")
         _append_line(builder, "static const Durin::DurinCodeGen::FClassParams ClassParams;", 1)
+        if class_info.legacy_names:
+            _append_line(builder, "static const char* const LegacyNames[];", 1)
         for prop in properties:
             builder.extend(_property_decls(prop))
         if has_properties:
@@ -151,16 +153,24 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
         property_count = len(properties)
         display_name = _cpp_string_literal(class_info.display_name) if class_info.display_name else "nullptr"
         default_object_name = _cpp_string_literal(class_info.default_object_name) if class_info.default_object_name else "nullptr"
+        if class_info.legacy_names:
+            builder.append(f"const char* const {generated_statics_name}::LegacyNames[] = {{\n")
+            for legacy_name in class_info.legacy_names:
+                _append_line(builder, f"{_cpp_string_literal(legacy_name)},", 1)
+            builder.append("};\n\n")
+        legacy_names = f"{generated_statics_name}::LegacyNames" if class_info.legacy_names else "nullptr"
         _append_lines(
             builder,
             (f"const Durin::DurinCodeGen::FClassParams {generated_statics_name}::ClassParams = {{", 0),
             (f"{class_info.generated_helper_no_register_name},", 1),
-            (f"\"{class_info.persistent_name or class_info.qualified_name}\",", 1),
+            (f"\"{class_info.qualified_name}\",", 1),
             (f"\"{class_info.short_name}\",", 1),
             (f"{property_params},", 1),
             (f"{property_count},", 1),
             (f"{display_name},", 1),
-            (default_object_name, 1),
+            (f"{default_object_name},", 1),
+            (f"{legacy_names},", 1),
+            (str(len(class_info.legacy_names)), 1),
             ("};", 0),
             ("", 0),
         )
@@ -195,7 +205,7 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
                 _append_line(
                     builder,
                     f"{{ {class_info.generated_helper_name}, {class_info.qualified_name}::StaticClass, "
-                    f"\"{class_info.persistent_name or class_info.qualified_name}\", &{class_info.registration_info_name} }},",
+                    f"\"{class_info.qualified_name}\", &{class_info.registration_info_name} }},",
                     2,
                 )
             _append_line(builder, "};", 1)
@@ -205,7 +215,7 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
                 _append_line(
                     builder,
                     f"{{ {enum_info.generated_helper_name}, {enum_info.generated_helper_no_register_name}, "
-                    f"\"{enum_info.persistent_name or enum_info.qualified_name}\", &{enum_info.registration_info_name} }},",
+                    f"\"{enum_info.qualified_name}\", &{enum_info.registration_info_name} }},",
                     2,
                 )
             _append_line(builder, "};", 1)
@@ -263,6 +273,8 @@ def _enum_definitions(enum_info: ReflectedEnumInfo, package_path: str) -> str:
     builder.append("{\n")
     if enum_info.values:
         _append_line(builder, f"static const Durin::DurinCodeGen::FEnumValueParams {values_name}[];", 1)
+    if enum_info.legacy_names:
+        _append_line(builder, "static const char* const LegacyNames[];", 1)
     _append_line(builder, "static const Durin::DurinCodeGen::FEnumParams EnumParams;", 1)
     builder.append("};\n\n")
 
@@ -277,18 +289,27 @@ def _enum_definitions(enum_info: ReflectedEnumInfo, package_path: str) -> str:
             )
         builder.append("};\n\n")
 
+    if enum_info.legacy_names:
+        builder.append(f"const char* const {generated_statics_name}::LegacyNames[] = {{\n")
+        for legacy_name in enum_info.legacy_names:
+            _append_line(builder, f"{_cpp_string_literal(legacy_name)},", 1)
+        builder.append("};\n\n")
+    legacy_names = f"{generated_statics_name}::LegacyNames" if enum_info.legacy_names else "nullptr"
+
     _append_lines(
         builder,
         (f"const Durin::DurinCodeGen::FEnumParams {generated_statics_name}::EnumParams = {{", 0),
         (f"{enum_info.generated_helper_no_register_name},", 1),
-        (f"\"{enum_info.persistent_name or enum_info.qualified_name}\",", 1),
+        (f"\"{enum_info.qualified_name}\",", 1),
         (f"\"{enum_info.short_name}\",", 1),
         (f"{_cpp_string_literal(enum_info.display_name) if enum_info.display_name else 'nullptr'},", 1),
         (f"{_bool_literal(enum_info.is_scoped)},", 1),
         (f"Durin::DurinCodeGen::EEnumUnderlyingType::{enum_info.underlying_kind},", 1),
         (f"static_cast<Durin::uint16>({enum_info.underlying_size}),", 1),
         (f"{values_ref},", 1),
-        (str(len(enum_info.values)), 1),
+        (f"{len(enum_info.values)},", 1),
+        (f"{legacy_names},", 1),
+        (str(len(enum_info.legacy_names)), 1),
         ("};", 0),
         ("", 0),
     )
@@ -310,7 +331,7 @@ def _enum_definitions(enum_info: ReflectedEnumInfo, package_path: str) -> str:
         ("Singleton = new Durin::DEnum(", 2),
         ("Durin::EC_StaticConstructor,", 3),
         (f"Durin::FName(\"{enum_info.short_name}\"),", 3),
-        (f"Durin::FName(\"{enum_info.persistent_name or enum_info.qualified_name}\"),", 3),
+        (f"Durin::FName(\"{enum_info.qualified_name}\"),", 3),
         (f"Durin::FName(\"{enum_info.short_name}\"),", 3),
         (f"{generated_statics_name}::EnumParams.DisplayName ? {generated_statics_name}::EnumParams.DisplayName : \"\",", 3),
         (f"{generated_statics_name}::EnumParams.bIsScoped,", 3),
@@ -319,7 +340,7 @@ def _enum_definitions(enum_info: ReflectedEnumInfo, package_path: str) -> str:
         ("std::move(Values),", 3),
         ("Durin::EObjectFlags::NoFlags", 3),
         (");", 2),
-        (f"Singleton->Register(Durin::DEnum::StaticClass, \"{package_path}\", \"{enum_info.persistent_name or enum_info.qualified_name}\");", 2),
+        (f"Singleton->Register(Durin::DEnum::StaticClass, \"{package_path}\", \"{enum_info.qualified_name}\");", 2),
         ("}", 1),
         ("return Singleton;", 1),
         ("}", 0),
@@ -344,6 +365,8 @@ def _struct_definitions(struct_info: ReflectedStructInfo, symbols: ExportedSymbo
     properties = struct_info.properties
     builder.append(f"struct {statics}\n{{\n")
     builder.append("\tstatic const Durin::DurinCodeGen::FStructParams StructParams;\n")
+    if struct_info.legacy_names:
+        builder.append("\tstatic const char* const LegacyNames[];\n")
     for prop in properties:
         builder.extend(_property_decls(prop))
     if properties:
@@ -357,18 +380,24 @@ def _struct_definitions(struct_info: ReflectedStructInfo, symbols: ExportedSymbo
             builder.append(f"\t&{statics}::NewProp_{prop.name},\n")
         builder.append("};\n\n")
     prop_ref = f"{statics}::PropertyParams" if properties else "nullptr"
+    if struct_info.legacy_names:
+        builder.append(f"const char* const {statics}::LegacyNames[] = {{\n")
+        for legacy_name in struct_info.legacy_names:
+            builder.append(f"\t{_cpp_string_literal(legacy_name)},\n")
+        builder.append("};\n\n")
+    legacy_names = f"{statics}::LegacyNames" if struct_info.legacy_names else "nullptr"
     builder.append(
         f"const Durin::DurinCodeGen::FStructParams {statics}::StructParams = {{ "
-        f"{struct_info.generated_helper_no_register_name}, \"{struct_info.persistent_name or struct_info.qualified_name}\", \"{struct_info.short_name}\", "
+        f"{struct_info.generated_helper_no_register_name}, \"{struct_info.qualified_name}\", \"{struct_info.short_name}\", "
         f"sizeof({struct_info.qualified_name}), alignof({struct_info.qualified_name}), {prop_ref}, {len(properties)}, "
-        f"&Durin::GetDStructOps<{struct_info.qualified_name}>() }};\n\n"
+        f"&Durin::GetDStructOps<{struct_info.qualified_name}>(), {legacy_names}, {len(struct_info.legacy_names)} }};\n\n"
     )
     builder.append(
         f"Durin::DStruct* {struct_info.generated_helper_no_register_name}()\n{{\n"
         f"\tstatic Durin::DStruct* Singleton = nullptr;\n"
         f"\tif (!Singleton)\n\t{{\n"
-        f"\t\tSingleton = new Durin::DStruct(Durin::EC_StaticConstructor, Durin::FName(\"{struct_info.persistent_name or struct_info.qualified_name}\"), Durin::FName(\"{struct_info.short_name}\"), sizeof({struct_info.qualified_name}), alignof({struct_info.qualified_name}), Durin::EObjectFlags::Intrinsic);\n"
-        f"\t\tSingleton->Register(Durin::DStruct::StaticClass, \"{package_path}\", \"{struct_info.persistent_name or struct_info.qualified_name}\");\n"
+        f"\t\tSingleton = new Durin::DStruct(Durin::EC_StaticConstructor, Durin::FName(\"{struct_info.qualified_name}\"), Durin::FName(\"{struct_info.short_name}\"), sizeof({struct_info.qualified_name}), alignof({struct_info.qualified_name}), Durin::EObjectFlags::Intrinsic);\n"
+        f"\t\tSingleton->Register(Durin::DStruct::StaticClass, \"{package_path}\", \"{struct_info.qualified_name}\");\n"
         f"\t}}\n\treturn Singleton;\n}}\n\n"
         f"Durin::DStruct* {struct_info.generated_helper_name}()\n{{\n"
         f"\tstatic Durin::DStruct* Singleton = nullptr;\n"

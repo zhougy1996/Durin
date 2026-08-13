@@ -29,7 +29,7 @@ namespace Durin::Asset::Import
 	inline constexpr uint32 MaximumImportRecordDetachedTombstones = 1024;
 	inline constexpr uint32 MaximumImportRecordAcceptedDiagnostics = 1024;
 
-	DSTRUCT(PersistentName = "Durin::AssetImport::FImportRecordPayload")
+	DSTRUCT(LegacyNames = "Durin::AssetImport::FImportRecordPayload")
 	struct FImportRecordPayload
 	{
 		GENERATED_BODY()
@@ -52,7 +52,7 @@ namespace Durin::Asset::Import
 		auto operator==(const FImportRecordPayload&) const -> bool = default;
 	};
 
-	DSTRUCT(PersistentName = "Durin::AssetImport::FImportRecordSource")
+	DSTRUCT(LegacyNames = "Durin::AssetImport::FImportRecordSource")
 	struct FImportRecordSource
 	{
 		GENERATED_BODY()
@@ -78,7 +78,7 @@ namespace Durin::Asset::Import
 		auto operator==(const FImportRecordSource&) const -> bool = default;
 	};
 
-	DENUM(PersistentName = "Durin::AssetImport::EImportRecordOutputPolicy")
+	DENUM(LegacyNames = "Durin::AssetImport::EImportRecordOutputPolicy")
 	enum class EImportRecordOutputPolicy : uint8
 	{
 		Managed,
@@ -86,7 +86,7 @@ namespace Durin::Asset::Import
 		Detached
 	};
 
-	DSTRUCT(PersistentName = "Durin::AssetImport::FImportRecordOutput")
+	DSTRUCT(LegacyNames = "Durin::AssetImport::FImportRecordOutput")
 	struct FImportRecordOutput
 	{
 		GENERATED_BODY()
@@ -114,7 +114,7 @@ namespace Durin::Asset::Import
 		auto operator==(const FImportRecordOutput&) const -> bool = default;
 	};
 
-	DSTRUCT(PersistentName = "Durin::AssetImport::FImportRecordDetachedTombstone")
+	DSTRUCT(LegacyNames = "Durin::AssetImport::FImportRecordDetachedTombstone")
 	struct FImportRecordDetachedTombstone
 	{
 		GENERATED_BODY()
@@ -136,7 +136,7 @@ namespace Durin::Asset::Import
 		auto operator==(const FImportRecordDetachedTombstone&) const -> bool = default;
 	};
 
-	DSTRUCT(PersistentName = "Durin::AssetImport::FImportRecordDiagnostic")
+	DSTRUCT(LegacyNames = "Durin::AssetImport::FImportRecordDiagnostic")
 	struct FImportRecordDiagnostic
 	{
 		GENERATED_BODY()
@@ -180,7 +180,7 @@ namespace Durin::Asset::Import
 		auto operator==(const FImportRecordState&) const -> bool = default;
 	};
 
-	DCLASS(PersistentName = "Durin::AssetImport::DImportRecord")
+	DCLASS(LegacyNames = "Durin::AssetImport::DImportRecord")
 	class DImportRecord : public DObject
 	{
 		GENERATED_BODY()

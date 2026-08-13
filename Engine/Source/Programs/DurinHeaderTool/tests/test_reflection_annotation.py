@@ -79,12 +79,24 @@ class TestReflectionAnnotation:
                 "unsupported metadata key 'ToolTip'",
             ),
             (
+                'DENUM(PersistentName = "Legacy::E") enum E { A };',
+                "unsupported metadata key 'PersistentName'",
+            ),
+            (
                 'DENUM(DisplayName = Bare) enum E { A };',
                 "DisplayName requires a quoted string",
             ),
             (
                 'DENUM(DisplayName = "Broken) enum E { A };',
                 "missing closing ')'",
+            ),
+            (
+                'DENUM(LegacyNames = Legacy::E) enum E { A };',
+                "LegacyNames requires a quoted semicolon-separated list",
+            ),
+            (
+                'DENUM(LegacyNames = "Legacy::E;Legacy::E") enum E { A };',
+                "duplicate LegacyNames entry 'Legacy::E'",
             ),
             (
                 'DENUM(DisplayName = "Missing"',
@@ -98,8 +110,11 @@ class TestReflectionAnnotation:
         ids=[
             "duplicate-enum-metadata",
             "unsupported-enum-metadata",
+            "persistent-name-is-unsupported",
             "unquoted-enum-display-name",
             "unterminated-enum-string",
+            "legacy-names-require-list",
+            "duplicate-legacy-name",
             "unterminated-enum-annotation",
             "duplicate-enumerator-metadata",
         ],
@@ -330,4 +345,3 @@ namespace Fixture
         ):
             with pytest.raises(ValueError, match="DMETA at line 11, column 18"):
                 parse_reflection_header("Fixture", header)
-

@@ -793,16 +793,13 @@ test-count snapshot in this plan.
 
 ## Deferred Follow-ups
 
-- Replace the Stage 3.5 `PersistentName` bridge with a separately qualified
-  read-only reflected-type alias mechanism such as `LegacyNames` or
-  `FormerlySerializedAs`. New saves would then emit the current
-  `Durin::Asset::Import` identities, old authored packages would resolve their
-  `Durin::AssetImport` class, struct, enum, declaring-type, and property-type
-  names during the supported compatibility window, and re-save would perform
-  the explicit content upgrade. This intentionally changes save-load-save
-  bytes and therefore requires its own versioning, DAST v4 compatibility, and
-  golden migration gate before the `PersistentName` annotations can be
-  removed.
+- Resolved on 2026-08-13: DHT `LegacyNames` now supplies separately registered,
+  read-only reflected-type aliases, while current qualified C++ names remain
+  the only runtime and write identities. DAST v4 canonicalizes legacy class,
+  struct, enum, declaring-type, and property-type identities at semantic read
+  boundaries, and the ImportRecord migration gate proves old namespace bytes
+  load and re-save with `Durin::Asset::Import` identities. The temporary
+  `PersistentName` feature and annotations were removed.
 - Consider broader reuse of import, Build, storage, parser, and wire diagnostic
   result types only after this plan completes and concrete lossless mappings
   justify it; Stage 3.5 resolves names and exact collisions but does not create

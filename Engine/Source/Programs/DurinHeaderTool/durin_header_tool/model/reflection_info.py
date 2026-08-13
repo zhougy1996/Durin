@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 SYMBOL_NAME_SCHEME = "qualified-underscore-v1"
-TOOL_VERSION = "20"
+TOOL_VERSION = "21"
 
 
 def qualified_name_to_helper_suffix(qualified_name: str) -> str:
@@ -49,7 +49,7 @@ class ReflectedEnumInfo:
     underlying_kind: str = "Unknown"
     underlying_size: int = 0
     display_name: str = ""
-    persistent_name: str = ""
+    legacy_names: list[str] = field(default_factory=list)
     values: list[ReflectedEnumValueInfo] = field(default_factory=list)
 
     @property
@@ -100,7 +100,7 @@ class ReflectedClassInfo:
     no_class_default_object: bool = False
     display_name: str = ""
     default_object_name: str = ""
-    persistent_name: str = ""
+    legacy_names: list[str] = field(default_factory=list)
     properties: list[ReflectedPropertyInfo] = field(default_factory=list)
 
     @property
@@ -125,7 +125,7 @@ class ReflectedStructInfo:
     header: str
     api: str
     generated_body_line: int = 0
-    persistent_name: str = ""
+    legacy_names: list[str] = field(default_factory=list)
     properties: list[ReflectedPropertyInfo] = field(default_factory=list)
 
     @property

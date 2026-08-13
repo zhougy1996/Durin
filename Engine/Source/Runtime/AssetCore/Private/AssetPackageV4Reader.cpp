@@ -1294,6 +1294,55 @@ namespace Durin::Asset::DastV4
 			}
 			return true;
 		}
+
+		auto CanonicalizeSerializedClassName(std::string& Name) -> void
+		{
+			if (DClass* Class = FindClassBySerializedName(FName(Name)))
+				Name = Class->GetQualifiedName().ToString();
+		}
+
+		auto CanonicalizeSerializedSchemaName(std::string& Name) -> void
+		{
+			if (DClass* Class = FindClassBySerializedName(FName(Name)))
+			{
+				Name = Class->GetQualifiedName().ToString();
+				return;
+			}
+			if (DStruct* Struct = FindStructBySerializedName(FName(Name)))
+				Name = Struct->GetQualifiedName().ToString();
+		}
+
+		auto CanonicalizeSerializedTypeName(FDecodedType& Type) -> void
+		{
+			if (Type.QualifiedName.empty()) return;
+			if (Type.Opcode == ETypeOpcode::Enum)
+			{
+				if (DEnum* Enum = FindEnumBySerializedName(FName(Type.QualifiedName)))
+					Type.QualifiedName = Enum->GetQualifiedName().ToString();
+			}
+			else if (Type.Opcode == ETypeOpcode::Struct)
+			{
+				if (DStruct* Struct = FindStructBySerializedName(FName(Type.QualifiedName)))
+					Type.QualifiedName = Struct->GetQualifiedName().ToString();
+			}
+			else if (Type.Opcode == ETypeOpcode::HardRef || Type.Opcode == ETypeOpcode::SoftRef)
+			{
+				CanonicalizeSerializedClassName(Type.QualifiedName);
+			}
+		}
+
+		// Converts recognized compatibility aliases at the bytes-to-runtime boundary.
+		// The raw DecodePackage/ReencodePackage contract remains byte-preserving.
+		auto CanonicalizeSerializedReflectionNames(FDecodedPackage& Package) -> void
+		{
+			CanonicalizeSerializedClassName(Package.Header.AssetClass);
+			for (FDecodedObject& Object : Package.Objects)
+				CanonicalizeSerializedClassName(Object.ClassName);
+			for (FDecodedSchema& Schema : Package.Schemas)
+				CanonicalizeSerializedSchemaName(Schema.QualifiedName);
+			for (FDecodedType& Type : Package.Types)
+				CanonicalizeSerializedTypeName(Type);
+		}
 	}
 
 	auto ReadHeader(std::span<const uint8> Bytes, FValidatedHeader& OutHeader,
@@ -1301,7 +1350,11 @@ namespace Durin::Asset::DastV4
 	{
 		FReaderDiagnostic Diagnostic; FValidatedHeader Result;
 		const bool Success = DecodeHeaderInner(Bytes, Result, Limits, Diagnostic);
-		if (Success) OutHeader = std::move(Result);
+		if (Success)
+		{
+			CanonicalizeSerializedClassName(Result.AssetClass);
+			OutHeader = std::move(Result);
+		}
 		if (OutDiagnostic) *OutDiagnostic = std::move(Diagnostic);
 		return Success;
 	}
@@ -1394,6 +1447,7 @@ namespace Durin::Asset::DastV4
 		}
 		if (!DecodePackage(Bytes, Decoded, Limits, &Diagnostic))
 			return Finish({EAssetError::CorruptFile, Diagnostic.Message});
+		CanonicalizeSerializedReflectionNames(Decoded);
 		if (Decoded.Objects.empty() || Decoded.Objects.front().ClassName != Decoded.Header.AssetClass)
 		{
 			Fail(Diagnostic, EReaderFailure::InvalidTopology, "Main object class differs from the public summary.");
@@ -1621,6 +1675,7 @@ namespace Durin::Asset::DastV4
 			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
 			return {EAssetError::CorruptFile, Diagnostic.Message};
 		}
+		CanonicalizeSerializedReflectionNames(Package);
 		FAssetPackageInspection Inspection;
 		if (!BuildInspection(Package, Bytes, Inspection, Diagnostic))
 		{
@@ -1648,6 +1703,7 @@ namespace Durin::Asset::DastV4
 			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
 			return {EAssetError::CorruptFile, Diagnostic.Message};
 		}
+		CanonicalizeSerializedReflectionNames(Package);
 		const FAssetPackageFingerprint Fingerprint{.FileSize = Bytes.size(),
 			.ContentHash = FXxHash128::HashBuffer(Bytes), .ReaderVersion = Version};
 		std::vector<FAssetReferenceEdge> References;
@@ -1697,6 +1753,7 @@ namespace Durin::Asset::DastV4
 			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
 			return {EAssetError::CorruptFile, Diagnostic.Message};
 		}
+		CanonicalizeSerializedReflectionNames(Package);
 		FAssetPackageCompatibilityRecord Record{
 			.PackagePath = PackagePath,
 			.Fingerprint = {.FileSize = Bytes.size(), .ContentHash = FXxHash128::HashBuffer(Bytes),
