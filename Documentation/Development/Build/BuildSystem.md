@@ -167,9 +167,15 @@ Shared module naming is part of the runtime contract. Current outputs follow
 
 - `DurinEditor-Core.dll`
 - `DurinEditor-RenderCore.dll`
+- `DurinEditor-AssetBuildCore.dll`
+- `DurinEditor-TextureBuild.dll`
+- `DurinEditor-GeometryBuild.dll`
 - `DurinGame-Core.dll`
 
 The runtime module loader expects that naming convention.
+Developer recipe modules are emitted only for selected authoring targets;
+their absence from the `DurinGame` target and deployment closure is enforced
+during configuration.
 
 ## Optional Profiling Linkage
 
@@ -211,6 +217,14 @@ The resolved toolchain environment is cached by the shell and reused across
 preset switches; operation locking remains scoped to command execution, so an
 idle shell does not own the checkout lock. Status output distinguishes unresolved
 session defaults from a validated toolchain context.
+
+## Module Scaffolding Kinds
+
+Module scaffolding accepts runtime, editor, and developer kinds. Developer
+modules default to `Source/Developer/<ModuleName>` and the `DurinEditor` root;
+generated descriptors and the project's `ModuleDirs`/root lists remain the
+only build classification. Custom `--path` and explicit `--enable` values take
+precedence, and no `DurinDeveloper` runtime variant exists.
 
 ## Related Docs
 

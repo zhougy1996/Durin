@@ -125,3 +125,4 @@ TEST(FSourceReferenceIndexTests, RelocatesSharedSourceAndAllReferencingPackages)
 	EXPECT_TRUE(Index.FindReferences(OriginalVirtualPath).empty());
 	EXPECT_EQ(Index.FindReferences(DestinationVirtualPath).size(), 2u);
 }
+#include "TextureAuthoringTestEnvironment.h"

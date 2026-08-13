@@ -42,7 +42,8 @@ if(TARGET AssetCore)
 	durin_assert_target_dependency_closure_excludes(AssetCore
 		Engine
 		AssetImportCore
-		EngineAssetBuild
+		GeometryBuild
+		TextureBuild
 		StandardAssetImport
 		assimp::assimp
 		bc7enc_rdo::bc7enc_rdo
@@ -53,7 +54,8 @@ endif()
 if(TARGET AssetImportCore)
 	durin_assert_target_dependency_closure_excludes(AssetImportCore
 		Engine
-		EngineAssetBuild
+		GeometryBuild
+		TextureBuild
 		StandardAssetImport
 		assimp::assimp
 		bc7enc_rdo::bc7enc_rdo
@@ -64,28 +66,65 @@ endif()
 if(TARGET Engine)
 	durin_assert_target_dependency_closure_excludes(Engine
 		AssetImportCore
-		EngineAssetBuild
+		GeometryBuild
+		TextureBuild
 		StandardAssetImport
 		assimp::assimp
 	)
 endif()
 
-if(TARGET EngineAssetBuild)
-	durin_assert_target_dependency_closure_includes(EngineAssetBuild
+if(TARGET TextureBuild)
+	durin_assert_target_dependency_closure_includes(TextureBuild
+		AssetBuildCore
 		Engine
 		bc7enc_rdo::bc7enc_rdo
 	)
-	durin_assert_target_dependency_closure_excludes(EngineAssetBuild
+	durin_assert_target_dependency_closure_excludes(TextureBuild
 		AssetImportCore
+		GeometryBuild
 		StandardAssetImport
 		assimp::assimp
+	)
+endif()
+
+if(TARGET GeometryBuild)
+	durin_assert_target_dependency_closure_includes(GeometryBuild
+		AssetBuildCore
+		Engine
+	)
+	durin_assert_target_dependency_closure_excludes(GeometryBuild
+		AssetImportCore
+		TextureBuild
+		StandardAssetImport
+		assimp::assimp
+		bc7enc_rdo::bc7enc_rdo
+		rgbcx
+	)
+endif()
+
+if(TARGET AssetBuildCore)
+	durin_assert_target_dependency_closure_includes(AssetBuildCore
+		AssetCore
+		Core
+	)
+	durin_assert_target_dependency_closure_excludes(AssetBuildCore
+		Engine
+		AssetImportCore
+		GeometryBuild
+		TextureBuild
+		StandardAssetImport
+		RHI
+		assimp::assimp
+		bc7enc_rdo::bc7enc_rdo
+		rgbcx
 	)
 endif()
 
 if(TARGET StandardAssetImport)
 	durin_assert_target_dependency_closure_includes(StandardAssetImport
 		AssetImportCore
-		EngineAssetBuild
+		GeometryBuild
+		TextureBuild
 		assimp::assimp
 	)
 endif()
@@ -102,7 +141,9 @@ if(DURIN_PROFILE_NAME STREQUAL "DurinGame")
 		AssetImport
 		AssetImportCore
 		# Derived builders and offline compressors.
-		EngineAssetBuild
+		GeometryBuild
+		AssetBuildCore
+		TextureBuild
 		bc7enc_rdo::bc7enc_rdo
 		rgbcx
 		# Concrete source translators and their SDKs.

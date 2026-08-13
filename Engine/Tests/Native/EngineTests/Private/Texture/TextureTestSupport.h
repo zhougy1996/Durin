@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AssetSystem.h"
-#include "Authoring/AuthoringBuildService.h"
+#include "AssetBuild/BuildHost.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Package.h"
@@ -15,6 +15,7 @@
 #include "Texture/TextureBuildOperations.h"
 #include "Texture/TextureBuilder.h"
 #include "Texture/Texture2DAuthoringService.h"
+#include "Texture/TextureBuildService.h"
 #include "Texture2DSourceTranslation.h"
 
 #include <bc7decomp.h>
@@ -33,6 +34,21 @@ inline auto InitializeTextureImportMount() -> void
 		Durin::PathUtilities::RegisterMountPointForTests(
 			"/TextureImportTests/", (Root / "Content").generic_string() + "/");
 	}
+}
+
+inline auto EnsureTextureBuildHost() -> bool
+{
+	return Durin::AssetBuild::InitializeTextureBuildService()
+		&& Durin::AssetBuild::InitializeBuildHost();
+}
+
+inline auto RestartTextureBuildHost(
+	const Durin::AssetBuild::FTexture2DBuildCoordinatorConfig& Config = {}) -> bool
+{
+	Durin::AssetBuild::ShutdownBuildHost();
+	Durin::AssetBuild::ShutdownTextureBuildService();
+	return Durin::AssetBuild::InitializeTextureBuildService(Config)
+		&& Durin::AssetBuild::InitializeBuildHost();
 }
 
 namespace

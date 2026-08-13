@@ -1,0 +1,14 @@
+{
+    "ModuleName": "GeometryBuild",
+    "LinkType": "Shared",
+    "PCH": "Self",
+    "PrivateDependencies": [
+        "Core"
+    ],
+    "PublicDependencies": [
+        "AssetBuildCore",
+        "Engine"
+    ],
+    "OptionalPrivateDependencies": [],
+    "OptionalPublicDependencies": []
+}

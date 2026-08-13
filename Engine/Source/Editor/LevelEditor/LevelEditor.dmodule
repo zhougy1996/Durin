@@ -14,7 +14,8 @@
         "AssetCore",
         "AssetImportCore",
         "StandardAssetImport",
-        "EngineAssetBuild",
+        "GeometryBuild",
+        "TextureBuild",
         "DurinEd"
     ]
 }

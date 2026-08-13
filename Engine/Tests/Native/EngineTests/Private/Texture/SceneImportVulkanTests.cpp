@@ -91,7 +91,8 @@ namespace
 TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 {
 	InitializeDObjectSystem();
-	Durin::FModuleManager::Get().LoadModuleChecked("EngineAssetBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("GeometryBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("StandardAssetImport");
 	Durin::PathUtilities::FScopedMountRegistryFixture SavedMountRegistry;
 	Durin::PathUtilities::InitDefaultMountPoints();

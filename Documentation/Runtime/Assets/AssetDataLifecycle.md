@@ -13,15 +13,25 @@ merely whether a file contains binary bytes.
 Persistent values use the common archive protocol rather than paired
 direction-named codecs. Runtime `Engine` values own their bidirectional
 `Serialize(FArchive&)` field order and validation for DDC and cooked payloads;
-`EngineAssetBuild` owns normalized, source-independent recipes and canonical
-build-key inputs; `StandardAssetImport` adapts standard concrete source formats
-into those normalized values. `AssetCore` stores DDC values opaquely and owns
+Developer `TextureBuild` and `GeometryBuild` own normalized,
+source-independent recipes and canonical build-key inputs;
+`StandardAssetImport` adapts standard concrete source formats into those
+normalized values. `AssetBuildCore` provides family-neutral cache policy over
+the opaque store. `AssetCore` stores DDC values opaquely and owns
 package, descriptor, container, manifest, and atomic-publication formats
 without interpreting Engine payloads.
 
 Builder and translator versions invalidate production identity. Payload schema
 and stable value identifiers determine runtime readability, so a producer
 version change does not by itself make a compatible payload unreadable.
+
+`AssetBuildCore` definitions are portable only when every named input is an
+owned immutable value and `bExportable` remains true. Functions that capture
+process-local services, objects or callbacks are explicitly local-only and use
+the local registry without claiming transportability. A future remote executor
+may consume the same exportable definition/value contract; it is an additive
+transport and scheduling layer, not a reason to move runtime serialization,
+typed recipe ownership or publication back across module boundaries.
 
 ## Storage Classes
 

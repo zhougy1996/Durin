@@ -1,5 +1,6 @@
 #include "AssetCompatibility.h"
 #include "AssetMigration.h"
+#include "AssetBuild/AssetBuildCoreModule.h"
 #include "ImportRecord.h"
 
 #include "CoreGlobals.h"
@@ -32,12 +33,22 @@ namespace
 
 	struct FSelectedAuthoringModules
 	{
-		bool bEngineAssetBuild = false;
+		bool bAssetBuildCore = false;
+		bool bGeometryBuild = false;
+		bool bTextureBuild = false;
+		bool bBuildHost = false;
 
 		~FSelectedAuthoringModules()
 		{
-			if (bEngineAssetBuild)
-				Durin::FModuleManager::Get().ShutdownModule("EngineAssetBuild");
+			if (bBuildHost)
+				Durin::FModuleManager::LoadModuleChecked<
+					Durin::AssetBuild::IAssetBuildCoreModule>("AssetBuildCore").ShutdownHost();
+			if (bTextureBuild)
+				Durin::FModuleManager::Get().ShutdownModule("TextureBuild");
+			if (bGeometryBuild)
+				Durin::FModuleManager::Get().ShutdownModule("GeometryBuild");
+			if (bAssetBuildCore)
+				Durin::FModuleManager::Get().ShutdownModule("AssetBuildCore");
 		}
 	};
 
@@ -107,12 +118,28 @@ int main(int ArgC, char** ArgV)
 	{
 		// Migration may deserialize uncooked Engine payloads. Select Build explicitly;
 		// the package-only audit path intentionally never loads this module.
-		if (!Durin::FModuleManager::Get().LoadModule("EngineAssetBuild"))
+		auto& BuildCore = Durin::FModuleManager::LoadModuleChecked<
+			Durin::AssetBuild::IAssetBuildCoreModule>("AssetBuildCore");
+		AuthoringModules.bAssetBuildCore = true;
+		if (!Durin::FModuleManager::Get().LoadModule("GeometryBuild"))
 		{
-			std::cerr << "Error: EngineAssetBuild is unavailable for migration.\n";
+			std::cerr << "Error: GeometryBuild is unavailable for migration.\n";
 			return 1;
 		}
-		AuthoringModules.bEngineAssetBuild = true;
+		AuthoringModules.bGeometryBuild = true;
+		if (!Durin::FModuleManager::Get().LoadModule("TextureBuild"))
+		{
+			std::cerr << "Error: TextureBuild is unavailable for migration.\n";
+			return 1;
+		}
+		AuthoringModules.bTextureBuild = true;
+		if (!BuildCore.InitializeHost(&Error))
+		{
+			std::cerr << "Error: AssetBuildCore host is unavailable for migration: "
+				<< Error << '\n';
+			return 1;
+		}
+		AuthoringModules.bBuildHost = true;
 	}
 	(void)Durin::DLevel::StaticClass(); // Force the Engine reflection module into this process.
 	(void)Durin::AssetImport::DImportRecord::StaticClass(); // AssetImport packages are part of the authored corpus.

@@ -72,6 +72,15 @@ Each `.dproject` file defines `BaseModules` plus optional per-runtime-variant
 DurinHeaderTool treats those entries as the root module set for the active
 runtime variant and resolves transitive dependencies from there.
 
+The `developer` module-creation kind is not a runtime variant. It defaults a
+new module to the `DurinEditor` root and `Source/Developer`, while the project
+descriptor roots and dependency closure still decide whether that module is
+present. Developer modules required by headless programs are selected
+explicitly by those programs; `DurinGame` does not gain a Developer branch.
+The Engine editor currently selects `AssetBuildCore`, `TextureBuild`, and
+`GeometryBuild`; package-only tools select none, while migration mode loads
+those three dynamically and owns the generic host lifetime.
+
 ## Adding A New Runtime Variant
 
 Minimum steps:

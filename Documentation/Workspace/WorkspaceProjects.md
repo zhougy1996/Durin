@@ -176,8 +176,10 @@ resolution or gameplay bootstrap fails.
 Most new gameplay or editor work should start as a module, not a new project.
 
 Use `DurinDevTool create module` to create and register one. By default the command
-writes runtime and editor modules beneath `Source/Runtime` and `Source/Editor`,
-respectively. These are generator conventions rather than architectural
+writes runtime, editor, and developer modules beneath `Source/Runtime`,
+`Source/Editor`, and `Source/Developer`, respectively. Runtime defaults to a
+base root; editor and developer default to the `DurinEditor` root. These are
+generator and root-selection conventions rather than architectural
 categories: `--path <ProjectRelativePath>` may place a module anywhere inside
 its owning project, for example `Source/Game/Combat`,
 `Source/Features/Inventory`, or `Source/Tools/WorldTools`.
@@ -187,6 +189,14 @@ module root. `BaseModules` and `ExtraModules.<RuntimeVariant>.Modules`, not the 
 directory name, determine where the module is enabled. Within each module root,
 ordinary source discovery still uses its recursive `Public/` and `Private/`
 trees as the visibility boundary.
+
+Developer is not a third runtime variant and a `Source/Developer` path does
+not make a module authoring-only by itself. Programs such as Cook or migration
+tools explicitly select the Developer modules they require, while a game root
+that does not select them never receives them through directory discovery.
+For asset authoring, editor and migration roots select `AssetBuildCore` and the
+needed `TextureBuild`/`GeometryBuild` recipes explicitly; package-only audit
+and game roots select none of them.
 
 Creation adds the selected relative directory to `ModuleDirs` and appends the
 selected enablement roots without reordering existing entries. Module names and

@@ -13,6 +13,7 @@
 #include "Texture/TextureCubeAuthoring.h"
 #include "Texture/TextureCubeBuildOperations.h"
 #include "Texture/TextureCubeBuilder.h"
+#include "TextureCubeBuildAdapter.h"
 #include "Texture/TextureCubePostLoad.h"
 #include "Texture/TextureBuilder.h"
 #include "Texture2DSourceTranslation.h"
@@ -82,13 +83,13 @@ namespace Durin::StandardAssetImport
 					Asset::FDecodedFloatImage Panorama;
 					return Asset::DecodeRadianceHDRFromMemory(Bytes, Panorama, OutError,
 						{.MaximumDecodedPixels = AssetBuild::TextureCubeBuilder::MaximumPanoramaPixels})
-						&& AssetBuild::BuildTextureCubePanorama(Texture, NormalizePanorama(std::move(Panorama)),
+						&& StandardAssetImport::BuildAndPublishTextureCubePanorama(Texture, NormalizePanorama(std::move(Panorama)),
 							Hash, Source.Panorama.SourcePath, Settings, OutError);
 				}
 				Asset::FDecodedImage Panorama;
 				return Asset::DecodeImageFromMemory(Bytes, Panorama, OutError,
 					{.MaximumDecodedPixels = AssetBuild::TextureCubeBuilder::MaximumPanoramaPixels})
-					&& AssetBuild::BuildTextureCubePanorama(Texture, NormalizePanorama(std::move(Panorama)),
+					&& StandardAssetImport::BuildAndPublishTextureCubePanorama(Texture, NormalizePanorama(std::move(Panorama)),
 						Hash, Source.Panorama.SourcePath, Settings, OutError);
 			}
 
@@ -106,7 +107,7 @@ namespace Durin::StandardAssetImport
 				Hashes[Index] = FXxHash128::HashBuffer(Bytes);
 				Paths[Index] = Face.SourcePath;
 			}
-			return AssetBuild::BuildTextureCubeFaces(Texture, std::move(SourceData),
+			return StandardAssetImport::BuildAndPublishTextureCubeFaces(Texture, std::move(SourceData),
 				Hashes, Paths, {.bSRGB = Texture.IsSRGB()}, OutError);
 		}
 
@@ -245,13 +246,13 @@ namespace Durin::StandardAssetImport
 					Asset::FDecodedFloatImage Panorama;
 					return Asset::DecodeRadianceHDRFromMemory(Bytes, Panorama, OutError,
 						{.MaximumDecodedPixels = AssetBuild::TextureCubeBuilder::MaximumPanoramaPixels})
-						&& AssetBuild::BuildTextureCubePanorama(Texture, NormalizePanorama(std::move(Panorama)), Hash,
+						&& StandardAssetImport::BuildAndPublishTextureCubePanorama(Texture, NormalizePanorama(std::move(Panorama)), Hash,
 							Source.Panorama.SourcePath, Settings, OutError);
 				}
 				Asset::FDecodedImage Panorama;
 				return Asset::DecodeImageFromMemory(Bytes, Panorama, OutError,
 					{.MaximumDecodedPixels = AssetBuild::TextureCubeBuilder::MaximumPanoramaPixels})
-					&& AssetBuild::BuildTextureCubePanorama(Texture, NormalizePanorama(std::move(Panorama)), Hash,
+					&& StandardAssetImport::BuildAndPublishTextureCubePanorama(Texture, NormalizePanorama(std::move(Panorama)), Hash,
 						Source.Panorama.SourcePath, Settings, OutError);
 			}
 			std::array<std::vector<uint8>, TextureCubeFaceCount> OwnedBytes;
@@ -272,7 +273,7 @@ namespace Durin::StandardAssetImport
 					return false;
 				Hashes[Index] = FXxHash128::HashBuffer(Bytes[Index]);
 			}
-			return AssetBuild::BuildTextureCubeFaces(Texture, std::move(SourceData),
+			return StandardAssetImport::BuildAndPublishTextureCubeFaces(Texture, std::move(SourceData),
 				Hashes, Paths, {.bSRGB = Texture.IsSRGB()}, OutError);
 		}
 
@@ -292,7 +293,7 @@ namespace Durin::StandardAssetImport
 					OutError = std::format("TextureCube panorama decode failed: {}", OutError);
 					return false;
 				}
-				return AssetBuild::BuildTextureCubePanorama(
+				return StandardAssetImport::BuildAndPublishTextureCubePanorama(
 					Texture, NormalizePanorama(std::move(Panorama)), Hash, SourcePath, Settings, OutError);
 			}
 			Asset::FDecodedImage Panorama;
@@ -302,7 +303,7 @@ namespace Durin::StandardAssetImport
 				OutError = std::format("TextureCube panorama decode failed: {}", OutError);
 				return false;
 			}
-			return AssetBuild::BuildTextureCubePanorama(
+			return StandardAssetImport::BuildAndPublishTextureCubePanorama(
 				Texture, NormalizePanorama(std::move(Panorama)), Hash, SourcePath, Settings, OutError);
 		}
 
@@ -321,7 +322,7 @@ namespace Durin::StandardAssetImport
 					return false;
 				Hashes[Index] = FXxHash128::HashBuffer(Bytes[Index]);
 			}
-			return AssetBuild::BuildTextureCubeFaces(
+			return StandardAssetImport::BuildAndPublishTextureCubeFaces(
 				Texture, std::move(SourceData), Hashes, Paths, Settings, OutError);
 		}
 	}

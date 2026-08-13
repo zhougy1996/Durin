@@ -2038,7 +2038,8 @@ namespace Durin
 			AssetBuild::FStaticMeshBuildProduct Product;
 			if (!Mesh || !Root
 				|| !AssetBuild::FStaticMeshBuildOperations::BuildImportedProduct(
-					*Mesh, MakeStaticMeshImportedData(Data->Scene),
+					AssetBuild::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(*Mesh),
+					MakeStaticMeshImportedData(Data->Scene),
 					{
 					.SourcePath = Root->SourcePath,
 					.SourceContentHash = Root->ContentHash.ToString(),

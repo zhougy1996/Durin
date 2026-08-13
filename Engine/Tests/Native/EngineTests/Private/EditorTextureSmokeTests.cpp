@@ -479,3 +479,4 @@ namespace Durin
 		EXPECT_EQ(GetNumPendingRenderCommands(), 0u);
 	}
 } // namespace Durin
+#include "TextureAuthoringTestEnvironment.h"

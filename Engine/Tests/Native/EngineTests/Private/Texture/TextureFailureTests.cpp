@@ -1,5 +1,5 @@
 #include "TextureTestSupport.h"
-#include "Authoring/AuthoringBuildService.h"
+#include "AssetBuild/BuildHost.h"
 #include "Texture/Texture2DRenderResource.h"
 #include "Texture/Texture2DAuthoringCoordinator.h"
 #include "Texture/TextureCubeRenderResource.h"
@@ -289,7 +289,7 @@ TEST(FTexture2DTests, PendingReimportPreservesLastGoodAndCannotCommitAfterUnload
 	const Durin::FTexturePlatformData LastGood = *Texture->GetPlatformData();
 	const Durin::uint64 LastGoodRevision = Texture->GetBuildRevision();
 
-	ASSERT_TRUE(Durin::AssetBuild::InitializeAuthoringBuildService());
+	ASSERT_TRUE(EnsureTextureBuildHost());
 	Durin::AssetBuild::FTexture2DBuildCoordinator* Coordinator =
 		Durin::AssetBuild::GetTexture2DBuildCoordinator();
 	ASSERT_NE(Coordinator, nullptr);

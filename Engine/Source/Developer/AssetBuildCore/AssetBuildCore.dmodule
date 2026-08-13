@@ -1,0 +1,12 @@
+{
+    "ModuleName": "AssetBuildCore",
+    "LinkType": "Shared",
+    "PCH": "SharedPCH_Core",
+    "PrivateDependencies": [],
+    "PublicDependencies": [
+        "AssetCore",
+        "Core"
+    ],
+    "OptionalPrivateDependencies": [],
+    "OptionalPublicDependencies": []
+}

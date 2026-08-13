@@ -106,7 +106,7 @@ namespace
 	auto InitializeSkyBoxAssetMount() -> std::filesystem::path
 	{
 		InitializeDObjectSystem();
-		Durin::FModuleManager::Get().LoadModuleChecked("EngineAssetBuild");
+		Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 		Durin::FModuleManager::Get().LoadModuleChecked("StandardAssetImport");
 		const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "SkyBoxAssets";
 		static std::unordered_set<std::filesystem::path> InitializedRoots;

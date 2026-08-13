@@ -249,6 +249,11 @@ class TestBuildRegistry:
         assert request.output_mode is OutputMode.AUTO
         assert request.enablements == ('base',)
 
+    def test_developer_module_kind_is_typed(self) -> None:
+        _spec, namespace = self.registry.parse(['create', 'module', 'Recipes', '--project', 'Engine/Engine.dproject', '--kind', 'developer', '--dry-run'])
+        request = handler.request_from_namespace(namespace)
+        assert request.module_kind is ModuleKind.DEVELOPER
+
     def test_agent_build_preset_selects_plain_compact_output_and_allows_override(self) -> None:
         request = handler.request_from_namespace(self.parse(['build', '--agent']))
         assert request.agent

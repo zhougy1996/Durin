@@ -257,6 +257,34 @@ class TestModuleScaffolding:
         assert project['ExtraModules']['DurinEditor']['Modules'] == ['WorldTools']
         assert 'WorldTools' not in project['BaseModules']
 
+    def test_developer_defaults_to_developer_path_and_editor_enablement(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        directory = tmp_path_factory.mktemp('case')
+        root = Path(directory)
+        _, sandbox_project = self.create_workspace(root)
+        request = parse_build_request(['create', 'module', 'AssetRecipes', '--project', 'Sandbox/Sandbox.dproject', '--kind', 'developer'])
+        plan = build_scaffolding.plan_module_creation(request, root)
+        assert 'Source/Developer/AssetRecipes/AssetRecipes.dmodule' in plan.format(plain=True)
+        build_scaffolding.execute_plan(plan)
+        module_root = root / 'Sandbox' / 'Source' / 'Developer' / 'AssetRecipes'
+        project = json.loads(sandbox_project.read_text(encoding='utf-8'))
+        assert (module_root / 'AssetRecipes.dmodule').is_file()
+        assert project['ModuleDirs']['AssetRecipes'] == 'Source/Developer/AssetRecipes'
+        assert project['ExtraModules']['DurinEditor']['Modules'] == ['AssetRecipes']
+        assert 'AssetRecipes' not in project['BaseModules']
+        assert project['ExtraModules']['DurinGame']['Modules'] == []
+
+    def test_developer_custom_path_and_enablement_remain_authoritative(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        directory = tmp_path_factory.mktemp('case')
+        root = Path(directory)
+        _, sandbox_project = self.create_workspace(root)
+        request = parse_build_request(['create', 'module', 'HeadlessRecipes', '--project', 'Sandbox/Sandbox.dproject', '--kind', 'developer', '--path', 'Source/Tools/HeadlessRecipes', '--enable', 'none'])
+        build_scaffolding.execute_plan(build_scaffolding.plan_module_creation(request, root))
+        project = json.loads(sandbox_project.read_text(encoding='utf-8'))
+        assert project['ModuleDirs']['HeadlessRecipes'] == 'Source/Tools/HeadlessRecipes'
+        assert 'HeadlessRecipes' not in project['BaseModules']
+        assert project['ExtraModules']['DurinEditor']['Modules'] == []
+        assert project['ExtraModules']['DurinGame']['Modules'] == []
+
     def test_custom_path_rejects_outside_and_existing_module_overlap(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
         root = Path(directory)

@@ -210,7 +210,11 @@ def plan_module_creation(
     require_available_cmake_target(request.create_name, discovery)
 
     if request.destination_path is None:
-        kind_directory = "Runtime" if request.module_kind is ModuleKind.RUNTIME else "Editor"
+        kind_directory = {
+            ModuleKind.RUNTIME: "Runtime",
+            ModuleKind.EDITOR: "Editor",
+            ModuleKind.DEVELOPER: "Developer",
+        }[request.module_kind]
         requested_module_directory = (
             workspace_project.root / "Source" / kind_directory / request.create_name
         )

@@ -1,7 +1,8 @@
 #include "TextureTestSupport.h"
 
 #include "Misc/FileHelper.h"
-#include "Authoring/AuthoringBuildService.h"
+#include "AssetBuild/BuildHost.h"
+#include "Modules/ModuleManager.h"
 #include "Texture/Texture2DAuthoringCoordinator.h"
 #include "Threading/RunnableThread.h"
 #include "Threading/Task.h"
@@ -78,6 +79,28 @@ namespace
 	}
 }
 
+TEST(FBuildRecipeModuleTests, TextureAndGeometryCoexistDrainAndRestart)
+{
+	InitializeDObjectSystem();
+	Durin::FModuleManager::Get().LoadModuleChecked("GeometryBuild");
+	ASSERT_TRUE(RestartTextureBuildHost({.MaxWorkers = 1}));
+	const Durin::AssetBuild::FBuildHostSnapshot Running =
+		Durin::AssetBuild::GetBuildHostSnapshot();
+	EXPECT_EQ(Running.ServiceCount, 2u);
+	EXPECT_TRUE(Running.bAcceptingRequests);
+	EXPECT_TRUE(Durin::AssetBuild::WaitForBuildHost(1.0));
+	Durin::AssetBuild::ShutdownBuildHost();
+	const Durin::AssetBuild::FBuildHostSnapshot Stopped =
+		Durin::AssetBuild::GetBuildHostSnapshot();
+	EXPECT_EQ(Stopped.ServiceCount, 2u);
+	EXPECT_FALSE(Stopped.bAcceptingRequests);
+	Durin::FModuleManager::Get().UnloadModule("GeometryBuild");
+	EXPECT_EQ(Durin::AssetBuild::GetBuildHostSnapshot().ServiceCount, 1u);
+	Durin::FModuleManager::Get().LoadModuleChecked("GeometryBuild");
+	EXPECT_TRUE(EnsureTextureBuildHost());
+	EXPECT_EQ(Durin::AssetBuild::GetBuildHostSnapshot().ServiceCount, 2u);
+}
+
 TEST(FTexture2DAuthoringCoordinatorTests, BuildsOwnedNormalizedRequestInBuildModule)
 {
 	InitializeDObjectSystem();
@@ -88,8 +111,7 @@ TEST(FTexture2DAuthoringCoordinatorTests, BuildsOwnedNormalizedRequestInBuildMod
 		TransparentPngBytes, SourceData, Error)) << Error;
 	const Durin::FXxHash128 SourceHash =
 		Durin::FXxHash128::HashBuffer(TransparentPngBytes);
-	ASSERT_TRUE(Durin::AssetBuild::InitializeAuthoringBuildService(
-		{.Texture2D = {.MaxWorkers = 1}}));
+	ASSERT_TRUE(RestartTextureBuildHost({.MaxWorkers = 1}));
 	Durin::AssetBuild::FTexture2DBuildCoordinator* Coordinator =
 		Durin::AssetBuild::GetTexture2DBuildCoordinator();
 	ASSERT_NE(Coordinator, nullptr);
@@ -112,7 +134,7 @@ TEST(FTexture2DAuthoringCoordinatorTests, BuildsOwnedNormalizedRequestInBuildMod
 		});
 	ASSERT_NE(RequestId, 0u);
 	ASSERT_TRUE(Coordinator->WaitForRequest(RequestId, 10.0));
-	EXPECT_EQ(Durin::AssetBuild::PumpAuthoringBuildCompletions(), 1u);
+	EXPECT_EQ(Durin::AssetBuild::PumpBuildHostCompletions(), 1u);
 	ASSERT_TRUE(Completion.has_value());
 	EXPECT_EQ(Completion->Phase,
 		Durin::AssetBuild::ETexture2DBuildPhase::UploadPending);
@@ -326,7 +348,7 @@ TEST(FTexture2DBuildCoordinatorTests, CancelsRunningAndQueuedWorkExactlyOnceDuri
 TEST(FTexture2DBuildCoordinatorTests, BuildModuleFramePumpAppliesAtMostSixtyFourExactlyOnce)
 {
 	InitializeDObjectSystem();
-	ASSERT_TRUE(Durin::AssetBuild::InitializeAuthoringBuildService());
+	ASSERT_TRUE(EnsureTextureBuildHost());
 	Durin::AssetBuild::FTexture2DBuildCoordinator* Coordinator =
 		Durin::AssetBuild::GetTexture2DBuildCoordinator();
 	ASSERT_NE(Coordinator, nullptr);
@@ -352,11 +374,11 @@ TEST(FTexture2DBuildCoordinatorTests, BuildModuleFramePumpAppliesAtMostSixtyFour
 			}), 0u);
 	}
 	ASSERT_TRUE(WaitForTerminalCount(Mutex, Condition, TerminalCount, 65));
-	Durin::AssetBuild::PumpAuthoringBuildCompletions();
+	Durin::AssetBuild::PumpBuildHostCompletions();
 	EXPECT_EQ(CompletionCount, 64u);
-	Durin::AssetBuild::PumpAuthoringBuildCompletions();
+	Durin::AssetBuild::PumpBuildHostCompletions();
 	EXPECT_EQ(CompletionCount, 65u);
-	Durin::AssetBuild::PumpAuthoringBuildCompletions();
+	Durin::AssetBuild::PumpBuildHostCompletions();
 	EXPECT_EQ(CompletionCount, 65u);
 	Coordinator->SetPhaseHookForTests({});
 }
@@ -387,23 +409,23 @@ TEST(FTexture2DBuildCoordinatorTests, ExplicitWaitLeavesCompletionForAnUnbounded
 TEST(FAuthoringBuildServiceTests, OwnsRestartableProcessLifecycleAndDiagnosticSnapshot)
 {
 	InitializeDObjectSystem();
-	Durin::AssetBuild::ShutdownAuthoringBuildService();
-	ASSERT_TRUE(Durin::AssetBuild::InitializeAuthoringBuildService(
-		{.Texture2D = {.MaxWorkers = 1, .InFlightByteBudget = 1024}}));
-	const Durin::AssetBuild::FAuthoringBuildServiceSnapshot Running =
-		Durin::AssetBuild::GetAuthoringBuildServiceSnapshot();
+	ASSERT_TRUE(RestartTextureBuildHost(
+		{.MaxWorkers = 1, .InFlightByteBudget = 1024}));
+	const Durin::AssetBuild::FBuildHostSnapshot Running =
+		Durin::AssetBuild::GetBuildHostSnapshot();
 	EXPECT_TRUE(Running.bAcceptingRequests);
 	EXPECT_EQ(Running.QueuedRequestCount, 0u);
 	EXPECT_EQ(Running.RunningRequestCount, 0u);
 	EXPECT_EQ(Running.InFlightEstimatedBytes, 0u);
 
-	Durin::AssetBuild::ShutdownAuthoringBuildService();
-	const Durin::AssetBuild::FAuthoringBuildServiceSnapshot Stopped =
-		Durin::AssetBuild::GetAuthoringBuildServiceSnapshot();
+	Durin::AssetBuild::ShutdownBuildHost();
+	Durin::AssetBuild::ShutdownTextureBuildService();
+	const Durin::AssetBuild::FBuildHostSnapshot Stopped =
+		Durin::AssetBuild::GetBuildHostSnapshot();
 	EXPECT_FALSE(Stopped.bAcceptingRequests);
 	EXPECT_EQ(Stopped.QueuedRequestCount, 0u);
 	EXPECT_EQ(Stopped.RunningRequestCount, 0u);
-	ASSERT_TRUE(Durin::AssetBuild::InitializeAuthoringBuildService());
+	ASSERT_TRUE(EnsureTextureBuildHost());
 }
 
 TEST(FTexture2DBuildCharacterization, ReportsBuildCostForRequestedDimensions)

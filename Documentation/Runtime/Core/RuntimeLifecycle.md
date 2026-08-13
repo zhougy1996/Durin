@@ -8,10 +8,12 @@ This document defines Durin's process startup, runtime ownership, world tick
 lifecycle, logging guarantees, module loading, and validation expectations.
 
 Runtime lifecycle never discovers or pumps asset-authoring capabilities.
-Editor and headless authoring hosts explicitly select `EngineAssetBuild`, start
-its service after the task system, pump completions while dependent objects are
-alive, and drain it before providers, objects, modules, and tasks are torn
-down. `DEngine::PrepareForShutdown()` is the generic consumer-detachment hook;
+Editor and headless authoring roots explicitly select `AssetBuildCore` plus the
+required `TextureBuild`/`GeometryBuild` recipe modules, start one generic host
+after the task system, pump completions while dependent objects are alive, and
+drain it before providers, objects, modules, and tasks are torn down. Recipe
+modules contribute through registration and never own the process host.
+`DEngine::PrepareForShutdown()` is the generic consumer-detachment hook;
 Launch does not name an import or build module, and game products initialize
 none of this authoring lifecycle.
 

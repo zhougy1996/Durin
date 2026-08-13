@@ -12,6 +12,7 @@
         "AssetCore",
         "AssetImportCore",
         "StandardAssetImport",
+        "TextureBuild",
         "MonaImGui",
         "MonaCore",
         "DurinEd"

@@ -32,6 +32,7 @@
 #include "Texture/TextureCube.h"
 #include "Texture/TextureCubeBuildOperations.h"
 #include "Texture/TextureCubeBuilder.h"
+#include "TextureCubeBuildAdapter.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapBuildOperations.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
@@ -248,7 +249,8 @@ namespace Durin
 				FilePath, SourceImportData.ImportSettings, ImportedData, OutError))
 				return false;
 			return AssetBuild::FStaticMeshBuildOperations::BuildImportedProduct(
-				Mesh, ImportedData, std::move(SourceImportData), SourceLabel,
+				AssetBuild::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(Mesh),
+				ImportedData, std::move(SourceImportData), SourceLabel,
 				OutProduct, OutError);
 		}
 
@@ -311,7 +313,8 @@ namespace Durin
 			std::string CacheMessage;
 			if (!bSourceMetadataStale
 				&& AssetBuild::FStaticMeshBuildOperations::LoadDerivedDataProduct(
-					Mesh, Source, bSourceAvailable, Product, CacheStatus,
+					AssetBuild::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(Mesh),
+					Source, bSourceAvailable, Product, CacheStatus,
 					CacheMessage, OutError))
 			{
 				return Mesh.PublishImportedProduct(std::move(Product), OutError);
@@ -643,7 +646,8 @@ namespace Durin
 					.ImportSettings = Target->GetImportSettings()};
 				AssetBuild::FStaticMeshBuildProduct Product;
 				if (!AssetBuild::FStaticMeshBuildOperations::BuildImportedProduct(
-						*Candidate, MakeStaticMeshImportedData(Scene), Provenance,
+						AssetBuild::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(*Candidate),
+						MakeStaticMeshImportedData(Scene), Provenance,
 						Root->SourcePath.Path, Product, Error)
 					|| !AssetBuild::FStaticMeshBuildOperations::PublishImportedProduct(
 						*Candidate, std::move(Product), Error))
@@ -834,7 +838,7 @@ namespace Durin
 						bBuilt = Asset::DecodeRadianceHDRFromMemory(
 							Root->GetBytes(), Panorama, Error,
 							{.MaximumDecodedPixels = AssetBuild::TextureCubeBuilder::MaximumPanoramaPixels})
-							&& AssetBuild::BuildTextureCubePanorama(
+							&& StandardAssetImport::BuildAndPublishTextureCubePanorama(
 								*Candidate, NormalizePanorama(std::move(Panorama)), Hash, Root->SourcePath, Settings, Error);
 					}
 					else
@@ -843,7 +847,7 @@ namespace Durin
 						bBuilt = Asset::DecodeImageFromMemory(
 							Root->GetBytes(), Panorama, Error,
 							{.MaximumDecodedPixels = AssetBuild::TextureCubeBuilder::MaximumPanoramaPixels})
-							&& AssetBuild::BuildTextureCubePanorama(
+							&& StandardAssetImport::BuildAndPublishTextureCubePanorama(
 								*Candidate, NormalizePanorama(std::move(Panorama)), Hash, Root->SourcePath, Settings, Error);
 					}
 					if (!bBuilt)
@@ -874,7 +878,7 @@ namespace Durin
 						Hashes[Index] = FXxHash128::HashBuffer(Entry->GetBytes());
 						Paths[Index] = Entry->SourcePath;
 					}
-					if (!AssetBuild::BuildTextureCubeFaces(
+					if (!StandardAssetImport::BuildAndPublishTextureCubeFaces(
 						*Candidate, std::move(SourceData), Hashes, Paths, {Target->IsSRGB()}, Error))
 					{
 						Diagnostics.push_back({.Severity = EImportDiagnosticSeverity::Error,

@@ -598,13 +598,21 @@ may be relative to the workspace root or absolute:
 ```powershell
 .\DevTool.bat create module Gameplay --project Sandbox\Sandbox.dproject --kind runtime --private-dependency Core --private-dependency Engine
 .\DevTool.bat create module SceneEditor --project Sandbox\Sandbox.dproject --kind editor --private-dependency DurinEd
+.\DevTool.bat create module AssetRecipes --project Sandbox\Sandbox.dproject --kind developer --private-dependency Core
 ```
 
 Without `--path`, runtime modules are created under
 `Source/Runtime/<ModuleName>` and added to `BaseModules`; editor modules are
 created under `Source/Editor/<ModuleName>` and added to
-`ExtraModules.DurinEditor.Modules`. The directory names are scaffolding
-defaults, not build-system classification. Use `--path <ProjectRelativePath>`
+`ExtraModules.DurinEditor.Modules`; developer modules are created under
+`Source/Developer/<ModuleName>` and also default to
+`ExtraModules.DurinEditor.Modules`. Developer is a scaffolding/selection
+default for non-game tools and recipes, not a runtime variant or a property
+inferred from the path. The directory names are scaffolding defaults, not
+build-system classification. The built-in asset-authoring example is
+`AssetBuildCore` plus the independently selectable `TextureBuild` and
+`GeometryBuild` recipes; explicit host roots own startup, pumping and drain.
+Use `--path <ProjectRelativePath>`
 to place the module elsewhere inside its owning project:
 
 ```powershell

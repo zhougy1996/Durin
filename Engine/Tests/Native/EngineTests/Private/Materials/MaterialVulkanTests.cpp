@@ -1107,3 +1107,4 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 	Durin::FRHICommandListImmediate::Get().SwitchPipeline(Durin::ERHIPipeline::None);
 	Durin::RHIExit();
 }
+#include "TextureAuthoringTestEnvironment.h"

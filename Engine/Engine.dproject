@@ -26,7 +26,9 @@
         "DurinLauncher": "Source/Editor/DurinLauncher",
         "StandardAssetImport": "Source/Editor/StandardAssetImport",
         "AssetImportCore": "Source/Editor/AssetImportCore",
-        "EngineAssetBuild": "Source/Editor/EngineAssetBuild"
+        "GeometryBuild": "Source/Developer/GeometryBuild",
+        "AssetBuildCore": "Source/Developer/AssetBuildCore",
+        "TextureBuild": "Source/Developer/TextureBuild"
     },
     "BaseModules": [
         "DurinLauncher",
@@ -45,7 +47,9 @@
                 "SkeletalMeshEditor",
                 "StandardAssetImport",
                 "AssetImportCore",
-                "EngineAssetBuild"
+                "GeometryBuild",
+                "AssetBuildCore",
+                "TextureBuild"
             ]
         },
         "DurinGame": {

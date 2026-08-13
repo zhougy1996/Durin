@@ -13,7 +13,7 @@ depend on neither module.
 
 Concrete translation terminates at normalized owned values. Standard providers
 do not pass encoded PNG, HDR, glTF, FBX, or Assimp input into
-`EngineAssetBuild`. Build requests contain no decoder type or mutable
+`TextureBuild` or `GeometryBuild`. Build requests contain no decoder type or mutable
 `DObject`; detached products publish on the main thread through narrow Engine
 state exchanges and AssetCore transactions.
 
@@ -37,6 +37,10 @@ The dependency direction is `Core/CoreDObject -> AssetCore -> AssetImportCore
 `StandardAssetImport` is the default aggregate for built-in providers and the
 only owner of their Assimp and editor image-decoder dependencies. Runtime Engine
 assets contain only runtime state and lightweight single-asset provenance.
+Its public Texture2D translation/submission contract intentionally exposes
+`TextureBuild` settings and completion values, so `TextureBuild` remains a
+public module dependency; geometry recipes are implementation-only and
+`GeometryBuild` is private.
 
 ## Source snapshots and plans
 

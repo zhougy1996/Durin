@@ -15,7 +15,9 @@ set(_durin_editor_test_modules
 	DurinEd
 	Mona
 	MonaImGui
-	EngineAssetBuild
+	GeometryBuild
+	AssetBuildCore
+	TextureBuild
 	StandardAssetImport
 )
 
@@ -154,6 +156,18 @@ function(durin_add_engine_functional_test target_name)
 	durin_discover_tests(${target_name})
 endfunction()
 
+durin_add_engine_functional_test(AssetBuildCoreTests
+	EDITOR_ONLY
+	KIND contract
+	DOMAINS derived-data
+	MODULES asset-build-core
+	RUNTIME_STACK_RATIONALE
+		"Exercises the Developer-only generic Build registry, cache and host contracts."
+	SOURCES
+		Private/AssetBuildCoreTests.cpp
+	LIBRARIES AssetBuildCore
+)
+
 durin_add_engine_functional_test(EditorPropertyTests
 	KIND feature
 	DOMAINS property-editor
@@ -202,7 +216,7 @@ durin_add_engine_functional_test(EditorAssetWorkflowTests
 		${_durin_level_editor_private}/Panels/ContentBrowserOperations.cpp
 		${_durin_level_editor_private}/Panels/ContentBrowserRefreshCoordinator.cpp
 		${_durin_level_editor_private}/Panels/ContentDeletionTransaction.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd EngineAssetBuild StandardAssetImport
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd GeometryBuild StandardAssetImport bc7enc_rdo::bc7enc_rdo
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -291,7 +305,7 @@ durin_add_engine_functional_test(MaterialTests
 		MaterialEditor
 		StaticMeshEditor
 		TextureEditor
-		EngineAssetBuild
+		GeometryBuild
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -324,7 +338,7 @@ durin_add_engine_functional_test(MaterialVulkanTests
 		MaterialEditor
 		StaticMeshEditor
 		TextureEditor
-		EngineAssetBuild
+		GeometryBuild
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -354,7 +368,7 @@ durin_add_engine_functional_test(StaticMeshTests
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Customizations/StaticMeshMaterialSlotDetails.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
-	LIBRARIES AssetImportCore EngineAssetBuild StandardAssetImport RenderCore Renderer DurinEd StaticMeshEditor
+	LIBRARIES AssetImportCore GeometryBuild StandardAssetImport RenderCore Renderer DurinEd StaticMeshEditor
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
@@ -365,7 +379,7 @@ durin_add_engine_functional_test(StaticMeshCollisionQualificationTests
 	STACKS editor renderer
 	RUNTIME_STACK_RATIONALE "Measures the large cooked-collision prototype while preserving its frozen helper model."
 	SOURCES Private/StaticMeshCollisionQualificationTests.cpp
-	LIBRARIES AssetImportCore EngineAssetBuild StandardAssetImport RenderCore Renderer DurinEd StaticMeshEditor
+	LIBRARIES AssetImportCore GeometryBuild StandardAssetImport RenderCore Renderer DurinEd StaticMeshEditor
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
@@ -374,11 +388,11 @@ durin_add_engine_functional_test(SkeletalAssetTests
 	DOMAINS skeletal-mesh
 	MODULES engine
 	RUNTIME_STACK_RATIONALE
-		"Exercises uncooked skeletal DDC publication through the editor-only EngineAssetBuild module."
+		"Exercises uncooked skeletal DDC publication through the editor-only GeometryBuild module."
 	SOURCES
 		Private/SkeletalAssetTests.cpp
 		Private/SkeletalAnimationTests.cpp
-	LIBRARIES EngineAssetBuild
+	LIBRARIES GeometryBuild
 )
 
 durin_add_engine_functional_test(SkeletalMeshEditorTests
@@ -429,7 +443,8 @@ set(_durin_texture_test_libraries
 	AssetCore
 	Engine
 	AssetImportCore
-	EngineAssetBuild
+	GeometryBuild
+	TextureBuild
 	StandardAssetImport
 	RenderCore
 	Renderer
@@ -438,6 +453,7 @@ set(_durin_texture_test_libraries
 
 if(DURIN_WITH_EDITOR)
 	add_durin_test(TextureTests
+		Private/Texture/TextureTestEnvironment.cpp
 		Private/Texture/TextureImportAndCacheTests.cpp
 		Private/Texture/TextureDerivedDataTests.cpp
 		Private/Texture/TextureBuildTests.cpp
@@ -451,6 +467,7 @@ if(DURIN_WITH_EDITOR)
 		${_durin_texture_test_include_directories})
 	target_link_libraries(TextureTests PRIVATE
 		${_durin_texture_test_libraries})
+	target_link_libraries(TextureTests PRIVATE bc7enc_rdo::bc7enc_rdo)
 	set_target_properties(TextureTests PROPERTIES
 		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 		DURIN_TEST_HEAVY_RUNTIME_RATIONALE
@@ -468,7 +485,7 @@ if(DURIN_WITH_EDITOR)
 	durin_finalize_native_test(TextureTests
 		KIND feature
 		DOMAINS texture
-		MODULES engine engine-asset-build standard-asset-import
+		MODULES engine texture-build standard-asset-import
 		STACKS editor
 	)
 	durin_discover_tests(TextureTests)
@@ -479,7 +496,8 @@ if(DURIN_WITH_EDITOR)
 	target_include_directories(SceneImportTests PRIVATE
 		${_durin_texture_test_include_directories})
 	target_link_libraries(SceneImportTests PRIVATE
-		${_durin_texture_test_libraries})
+		${_durin_texture_test_libraries}
+		bc7enc_rdo::bc7enc_rdo)
 	set_target_properties(SceneImportTests PROPERTIES
 		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 		DURIN_TEST_HEAVY_RUNTIME_RATIONALE
@@ -501,6 +519,7 @@ else()
 	durin_exclude_native_test_sources(
 		RATIONALE "Texture authoring and scene import require editor-only Build and StandardAssetImport services."
 		SOURCES
+			Private/Texture/TextureTestEnvironment.cpp
 			Private/Texture/TextureImportAndCacheTests.cpp
 			Private/Texture/TextureDerivedDataTests.cpp
 			Private/Texture/TextureBuildTests.cpp
@@ -516,24 +535,24 @@ endif()
 durin_add_engine_functional_test(TerrainHeightmapTests
 	KIND feature
 	DOMAINS terrain
-	MODULES engine engine-asset-build standard-asset-import
+	MODULES engine geometry-build standard-asset-import
 	STACKS editor
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises heightmap import, DDC, package, and source-index integration."
 	SOURCES Private/Terrain/TerrainHeightmapTests.cpp
-	LIBRARIES AssetImportCore StandardAssetImport DurinEd EngineAssetBuild
+	LIBRARIES AssetImportCore StandardAssetImport DurinEd GeometryBuild
 )
 
 durin_add_engine_functional_test(TerrainHeightmapCookTests
 	KIND integration
 	DOMAINS asset-cook terrain
-	MODULES engine engine-asset-build standard-asset-import
+	MODULES engine geometry-build standard-asset-import
 	STACKS editor
 	EDITOR_ONLY
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises source-free cooked heightmap package loading."
 	SOURCES Private/Terrain/TerrainHeightmapCookTests.cpp
-	LIBRARIES EngineAssetBuild StandardAssetImport
+	LIBRARIES GeometryBuild StandardAssetImport
 )
 
 durin_add_engine_functional_test(TerrainRenderPrimitiveTests
@@ -703,7 +722,7 @@ durin_add_engine_functional_test(SceneImportVulkanTests
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Owns the Vulkan-backed static-model import acceptance lifecycle."
 	SOURCES Private/Texture/SceneImportVulkanTests.cpp
-	LIBRARIES ApplicationCore AssetImportCore EngineAssetBuild StandardAssetImport RenderCore Renderer DurinEd TextureEditor VulkanRHI Vulkan::Vulkan
+	LIBRARIES ApplicationCore AssetImportCore GeometryBuild StandardAssetImport RenderCore Renderer DurinEd TextureEditor VulkanRHI Vulkan::Vulkan bc7enc_rdo::bc7enc_rdo
 	INCLUDE_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Source/Editor/StandardAssetImport/Private
 		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
@@ -732,7 +751,7 @@ durin_add_engine_functional_test(ThumbnailTests
 		${_durin_level_editor_private}/Assets/ContentBrowserThumbnailCache.cpp
 		${_durin_level_editor_private}/Assets/SourceImageThumbnailDecoder.cpp
 		${_durin_level_editor_private}/Assets/SourceImageThumbnailDiskCache.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd EngineAssetBuild StandardAssetImport StaticMeshEditor TextureEditor
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd GeometryBuild StandardAssetImport StaticMeshEditor TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -746,7 +765,7 @@ durin_add_engine_functional_test(MaterialThumbnailTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises the MaterialEditor-owned Material and MaterialInstance thumbnail extensions."
 	SOURCES Private/MaterialAssetThumbnailTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd EngineAssetBuild StandardAssetImport MaterialEditor TextureEditor
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd GeometryBuild StandardAssetImport MaterialEditor TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -760,7 +779,7 @@ durin_add_engine_functional_test(TextureThumbnailTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises the TextureEditor-owned Texture2D and TextureCube thumbnail extensions."
 	SOURCES Private/TextureAssetThumbnailTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd EngineAssetBuild StandardAssetImport TextureEditor
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd GeometryBuild StandardAssetImport TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -782,7 +801,7 @@ durin_add_engine_functional_test(StaticMeshThumbnailTests
 		${_durin_level_editor_private}/Assets/ContentBrowserThumbnailCache.cpp
 		${_durin_level_editor_private}/Assets/SourceImageThumbnailDecoder.cpp
 		${_durin_level_editor_private}/Assets/SourceImageThumbnailDiskCache.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd EngineAssetBuild StandardAssetImport MaterialEditor StaticMeshEditor TextureEditor
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd GeometryBuild StandardAssetImport MaterialEditor StaticMeshEditor TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -831,14 +850,14 @@ endif()
 durin_add_engine_functional_test(PhysicsSceneTests
 	KIND feature
 	DOMAINS physics
-	MODULES aether engine engine-asset-build
+	MODULES aether engine geometry-build
 	STACKS editor
 	RUNTIME_STACK_RATIONALE
-		"Exercises editor-only StaticMesh collision authoring registration through EngineAssetBuild."
+		"Exercises editor-only StaticMesh collision authoring registration through GeometryBuild."
 	SOURCES
 		Private/Physics/PhysicsSceneTests.cpp
 		Private/Physics/PhysicsQueryObservabilityTests.cpp
-	LIBRARIES AetherCore Aether EngineAssetBuild
+	LIBRARIES AetherCore Aether GeometryBuild
 )
 
 durin_add_engine_functional_test(PhysicsQualificationTests
@@ -938,7 +957,7 @@ if(DURIN_WITH_EDITOR)
 		AssetCore
 		AssetImportCore
 		StandardAssetImport
-		EngineAssetBuild
+		GeometryBuild
 		DurinEd
 	)
 	set_target_properties(ViewportTests PROPERTIES
@@ -983,7 +1002,7 @@ if(DURIN_WITH_EDITOR)
 		AssetCore
 		AssetImportCore
 		StandardAssetImport
-		EngineAssetBuild
+		GeometryBuild
 		DurinEd
 	)
 	set_target_properties(ViewportQualificationTests PROPERTIES
@@ -1049,7 +1068,7 @@ durin_add_engine_functional_test(SplineQualificationTests
 durin_add_engine_functional_test(SkyBoxTests
 	KIND feature
 	DOMAINS sky-box
-	MODULES engine engine-asset-build level-editor renderer standard-asset-import
+	MODULES engine geometry-build level-editor renderer standard-asset-import
 	STACKS editor renderer
 	PRIVATE_SOURCE_OWNER LevelEditor
 	PRIVATE_SOURCE_RATIONALE
@@ -1063,14 +1082,14 @@ durin_add_engine_functional_test(SkyBoxTests
 		${_durin_level_editor_private}/Authoring/SkyBoxLevelAuthoring.cpp
 		${_durin_level_editor_private}/Customizations/SkyBoxDetails.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
-	LIBRARIES EngineAssetBuild StandardAssetImport RenderCore Renderer DurinEd
+	LIBRARIES GeometryBuild StandardAssetImport RenderCore Renderer DurinEd
 	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
 durin_add_engine_functional_test(SkyBoxVulkanIntegrationTests
 	KIND integration
 	DOMAINS sky-box
-	MODULES engine engine-asset-build renderer standard-asset-import
+	MODULES engine geometry-build renderer standard-asset-import
 	BACKENDS vulkan
 	STACKS editor renderer
 	GPU
@@ -1079,7 +1098,7 @@ durin_add_engine_functional_test(SkyBoxVulkanIntegrationTests
 	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this Vulkan-backed test."
 	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/SkyBox/SkyBoxVulkanTests.cpp
-	LIBRARIES ApplicationCore EngineAssetBuild StandardAssetImport RenderCore Renderer DurinEd
+	LIBRARIES ApplicationCore GeometryBuild StandardAssetImport RenderCore Renderer DurinEd
 	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
@@ -1127,7 +1146,7 @@ durin_add_engine_functional_test(EditorRenderingTests
 		Private/RendererRenderTargetLayoutTests.cpp
 		Private/RendererSceneViewTests.cpp
 		Private/EditorTextureSmokeTests.cpp
-	LIBRARIES ApplicationCore AssetImportCore StandardAssetImport RenderCore Renderer DurinEd MaterialEditor EngineAssetBuild
+	LIBRARIES ApplicationCore AssetImportCore StandardAssetImport RenderCore Renderer DurinEd MaterialEditor GeometryBuild
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -1175,7 +1194,7 @@ durin_add_engine_functional_test(ExternalToolTests
 durin_add_engine_functional_test(TextureCookIntegrationTests
 	KIND integration
 	DOMAINS asset-cook texture
-	MODULES engine engine-asset-build renderer standard-asset-import
+	MODULES engine geometry-build renderer standard-asset-import
 	BACKENDS vulkan
 	STACKS editor renderer
 	EDITOR_ONLY
@@ -1185,5 +1204,5 @@ durin_add_engine_functional_test(TextureCookIntegrationTests
 	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this Vulkan-backed test."
 	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/Texture/TextureCookTests.cpp
-	LIBRARIES EngineAssetBuild StandardAssetImport RenderCore Renderer
+	LIBRARIES GeometryBuild StandardAssetImport RenderCore Renderer
 )

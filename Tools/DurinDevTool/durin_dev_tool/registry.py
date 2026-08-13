@@ -159,7 +159,12 @@ CREATE_MODULE = _build_command(
         _argument("create_name", metavar="NAME"),
         _argument("--project", dest="project_path", type=Path, required=True),
         _argument("--path", dest="destination_path", type=Path, default=None),
-        _argument("--kind", dest="module_kind", choices=("runtime", "editor"), default="runtime"),
+        _argument(
+            "--kind",
+            dest="module_kind",
+            choices=("runtime", "editor", "developer"),
+            default="runtime",
+        ),
         _argument("--link", dest="link_type", choices=("shared", "static"), default="shared"),
         _argument("--pch", default=""),
         _argument("--public-dependency", dest="public_dependencies", action="append", default=None),

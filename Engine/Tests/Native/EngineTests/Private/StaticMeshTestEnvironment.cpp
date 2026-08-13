@@ -14,7 +14,7 @@ namespace
 		auto SetUp() -> void override
 		{
 			InitializeDObjectSystem();
-			Durin::FModuleManager::Get().LoadModule("EngineAssetBuild");
+			Durin::FModuleManager::Get().LoadModule("GeometryBuild");
 			std::string Error;
 			ASSERT_TRUE(Durin::RegisterStandardAssetImportProviders(Error)) << Error;
 			ASSERT_EQ(

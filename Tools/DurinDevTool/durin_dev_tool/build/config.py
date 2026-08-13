@@ -86,6 +86,7 @@ class CreateKind(str, Enum):
 class ModuleKind(str, Enum):
     RUNTIME = "runtime"
     EDITOR = "editor"
+    DEVELOPER = "developer"
 
 
 class LinkType(str, Enum):

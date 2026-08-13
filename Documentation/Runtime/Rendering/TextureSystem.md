@@ -107,8 +107,10 @@ fallback.
 
 ## Asynchronous Editor Build Coordination
 
-`EngineAssetBuild` initializes `FTexture2DBuildCoordinator` after the process
-task system and shuts it down before task-system admission closes. It
+`TextureBuild` registers `FTexture2DBuildCoordinator` with the family-neutral
+`AssetBuildCore` host. The editor or headless authoring root starts that host
+after the process task system and drains it before task-system admission
+closes. The coordinator
 owns two worker admissions and a conservative 1 GiB estimated in-flight byte
 budget. Requests are FIFO within background and interactive classes. At most
 four interactive requests are admitted consecutively while background work is

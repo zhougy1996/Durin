@@ -11,7 +11,7 @@
 #include "LevelEditorModule.h"
 #include "MaterialEditorModule.h"
 #include "TextureEditorModule.h"
-#include "Authoring/AuthoringBuildService.h"
+#include "AssetBuild/BuildHost.h"
 #include "StaticMeshEditorModule.h"
 #include "SkeletalMeshEditorModule.h"
 #include "Thumbnail/RenderedAssetThumbnailService.h"
@@ -115,9 +115,11 @@ namespace Durin::Editor::MainFrame
 			bool bWorkspaceReady = false;
 			{
 				DURIN_PROFILE_CPU_ZONE_NAMED("Startup.WorkspaceRegistration");
-				FModuleManager::Get().LoadModuleChecked("EngineAssetBuild");
-				checkf(AssetBuild::InitializeAuthoringBuildService(),
-					"EngineAssetBuild authoring services are unavailable.");
+				FModuleManager::Get().LoadModuleChecked("AssetBuildCore");
+				FModuleManager::Get().LoadModuleChecked("TextureBuild");
+				FModuleManager::Get().LoadModuleChecked("GeometryBuild");
+				checkf(AssetBuild::InitializeBuildHost(),
+					"AssetBuildCore authoring host is unavailable.");
 				FModuleManager::Get().LoadModuleChecked("StandardAssetImport");
 				Editor::FRenderedAssetThumbnailService& ThumbnailService =
 					Editor::GetDefaultRenderedAssetThumbnailService();
@@ -615,7 +617,7 @@ namespace Durin
 			const std::shared_ptr<FBootstrapContext> Context =
 				WeakContext.lock();
 			if (!Context) return;
-			AssetBuild::PumpAuthoringBuildCompletions();
+			AssetBuild::PumpBuildHostCompletions();
 			ObserveHostWindowState(
 				*Context->HostSettings, *Context->RootWindow);
 			if (Context->State == EBootstrapState::Ready
@@ -667,7 +669,7 @@ namespace Durin
 
 	auto FMainFrameModule::DestroyDefaultFrame() -> void
 	{
-		AssetBuild::ShutdownAuthoringBuildService();
+		AssetBuild::ShutdownBuildHost();
 		BootstrapContext.reset();
 	}
 

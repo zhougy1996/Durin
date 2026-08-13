@@ -45,10 +45,20 @@ direction.
 | `MaterialEditor` | Material asset editor and material-specific editing UI | [source](../../Engine/Source/Editor/MaterialEditor) |
 | `TextureEditor` | Texture asset editor, import/build-setting UI, preview, and texture-specific diagnostics | [source](../../Engine/Source/Editor/TextureEditor) |
 | `StaticMeshEditor` | Static-mesh inspector, preview, material overrides, and mesh-specific editor tools | [source](../../Engine/Source/Editor/StaticMeshEditor) |
-| `EngineAssetBuild` | Authoring-only Engine asset builders, asset-specific DDC policy, build coordination, and diagnostics | [source](../../Engine/Source/Editor/EngineAssetBuild) |
 | `AssetImportCore` | Format-neutral asset-import requests, policies, results, and extension interfaces | [source](../../Engine/Source/Editor/AssetImportCore) |
 | `StandardAssetImport` | Built-in image, mesh, material, texture, and skeletal import implementations | [source](../../Engine/Source/Editor/StandardAssetImport) |
 | `DurinLauncher` | Minimal executable entrypoint for the configured editor or game runtime variant | [source](../../Engine/Source/Editor/DurinLauncher) |
+
+## Developer Modules
+
+Developer modules are target-selected authoring/tool infrastructure. Their
+physical root communicates ownership but does not select them for a target.
+
+| Module | Primary responsibility | Source root |
+| --- | --- | --- |
+| `AssetBuildCore` | Provider-neutral immutable Build definitions/values, explicit policy, local function/request registration, opaque cache access, service contributions, and authoring-host lifecycle | [source](../../Engine/Source/Developer/AssetBuildCore) |
+| `TextureBuild` | Texture2D/TextureCube recipes, private offline compression, diagnostics, and asynchronous coordination | [source](../../Engine/Source/Developer/TextureBuild) |
+| `GeometryBuild` | StaticMesh/collision, skeletal/animation, and terrain recipes, keys, DDC policy, diagnostics, and Runtime registration adapters | [source](../../Engine/Source/Developer/GeometryBuild) |
 
 ## Project Modules
 
@@ -67,7 +77,7 @@ gameplay module to [`Sandbox/Source/Runtime/Sandbox`](../../Sandbox/Source/Runti
 | Vulkan capability, device, pipeline, descriptor, swapchain | `VulkanRHI` | `RHI` for backend-neutral contract; `Renderer` only for consumer behavior |
 | editor workspace, reflected details, thumbnail service | `DurinEd` | The owning feature editor or `LevelEditor` |
 | Content Browser | `LevelEditor`, `DurinEd`, `AssetCore` | Asset-type editor/import modules for extensions |
-| importing assets | `AssetImportCore`, `StandardAssetImport` | `EngineAssetBuild` for Engine-asset production, plus `AssetCore` and the destination runtime asset type |
+| importing assets | `AssetImportCore`, `StandardAssetImport` | `AssetBuildCore` for generic mechanics, `TextureBuild` or `GeometryBuild` for typed recipes, plus `AssetCore` and the destination runtime asset type |
 
 After selecting modules, prefer targeted symbol searches such as:
 

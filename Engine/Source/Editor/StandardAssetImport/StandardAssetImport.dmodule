@@ -2,14 +2,16 @@
     "ModuleName": "StandardAssetImport",
     "LinkType": "Shared",
     "PCH": "Self",
-    "PrivateDependencies": [],
+	"PrivateDependencies": [
+		"GeometryBuild"
+	],
     "PublicDependencies": [
 		"AssetImportCore",
         "AssetCore",
         "Core",
         "CoreDObject",
 		"Engine",
-		"EngineAssetBuild",
+		"TextureBuild",
 		"DurinEd"
     ],
 	"ReflectHeaders": [],

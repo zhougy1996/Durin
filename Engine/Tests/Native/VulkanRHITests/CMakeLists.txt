@@ -25,7 +25,7 @@ target_link_libraries(VulkanRHIIntegrationTests PRIVATE
 	CoreDObject
 	AssetCore
 	Engine
-	EngineAssetBuild
+	TextureBuild
 	RHI
 	RenderCore
 	VulkanRHI
