@@ -102,21 +102,25 @@ namespace Durin::Editor::Level
 		}
 		SynchronizeMountedContentMutation();
 		RefreshMountSnapshot();
-		if (!::Durin::Editor::WorkspaceUI::BeginDockablePanel(Workspace::Type, "Content Browser", "ContentBrowser", GetOpenPtr()))
+		const ImVec2 PanelPadding(ImGui::GetStyle().WindowPadding.x, MonaImGui::ScaleUI(4.0f));
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, PanelPadding);
+		const bool bPanelVisible = ::Durin::Editor::WorkspaceUI::BeginDockablePanel(
+			Workspace::Type, "Content Browser", "ContentBrowser", GetOpenPtr());
+		ImGui::PopStyleVar();
+		if (!bPanelVisible)
 		{
 			ImGui::End();
 			return;
 		}
 		DrawToolbar();
 
-		const float StatusHeight = ImGui::GetTextLineHeightWithSpacing();
 		const float AvailableWidth = ImGui::GetContentRegionAvail().x;
 		const MonaImGui::FUIStyleMetrics Metrics = MonaImGui::GetUIStyleMetrics();
 		const float SplitterWidth = Metrics.SplitterThickness;
 		const float ScaledMinimumTreeWidth = MonaImGui::ScaleUI(MinimumTreeWidth);
 		const float ScaledMinimumContentWidth = MonaImGui::ScaleUI(MinimumContentWidth);
 		const float TreeWidth = std::clamp(AvailableWidth * DirectoryTreeWidth, ScaledMinimumTreeWidth, std::max(ScaledMinimumTreeWidth, AvailableWidth - ScaledMinimumContentWidth));
-		const float ContentHeight = std::max(MonaImGui::ScaleUI(MinimumContentHeight), ImGui::GetContentRegionAvail().y - StatusHeight);
+		const float ContentHeight = std::max(MonaImGui::ScaleUI(MinimumContentHeight), ImGui::GetContentRegionAvail().y);
 		if (ImGui::BeginChild("ContentBrowserTree", ImVec2(TreeWidth, ContentHeight), ImGuiChildFlags_Borders)) DrawDirectoryTree();
 		ImGui::EndChild();
 		ImGui::SameLine();
@@ -132,7 +136,6 @@ namespace Durin::Editor::Level
 			DeferredContentAction = {};
 			Action();
 		}
-		DrawStatusBar();
 		DrawDialogs();
 
 		SessionSettings.SetContentBrowserState(static_cast<uint8>(ViewMode), IconSize, bIconSizeLocked, DirectoryTreeWidth, Model.IsShowingHiddenFiles(), Model.GetCurrentPhysicalPath());
@@ -1147,51 +1150,6 @@ namespace Durin::Editor::Level
 			if (ImGui::MenuItem("Refresh", "F5")) Refresh(true);
 			if (ImGui::MenuItem("Show in Explorer")) ShowInExplorer(Model.GetCurrentPhysicalPath());
 			ImGui::EndPopup();
-		}
-	}
-
-	auto FContentBrowserPanel::DrawStatusBar() -> void
-	{
-		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + MonaImGui::GetUIStyleMetrics().SpacingM);
-		ImGui::Text("%zu item%s", Model.GetItems().size(), Model.GetItems().size() == 1 ? "" : "s");
-		if (!Selection.empty())
-		{
-			ImGui::SameLine();
-			ImGui::TextDisabled("| %zu selected", Selection.size());
-		}
-		if (!Asset::GetAssetRegistry().GetScanErrors().empty())
-		{
-			ImGui::SameLine();
-			ImGui::PushStyleColor(ImGuiCol_Text, MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Warning));
-			ImGui::Text("| %zu asset scan error(s)", Asset::GetAssetRegistry().GetScanErrors().size());
-			ImGui::PopStyleColor();
-			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Asset::GetAssetRegistry().GetScanErrors().front().Message.c_str());
-		}
-		if (!Model.GetEnumerationDiagnostics().empty())
-		{
-			const size_t ErrorCount = Model.GetEnumerationDiagnostics().size()
-				+ Model.GetSuppressedEnumerationDiagnosticCount();
-			ImGui::SameLine();
-			ImGui::PushStyleColor(
-				ImGuiCol_Text,
-				MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Warning));
-			ImGui::Text("| %zu enumeration warning(s)", ErrorCount);
-			ImGui::PopStyleColor();
-			if (ImGui::IsItemHovered())
-			{
-				const FContentBrowserModel::FEnumerationDiagnostic& First =
-					Model.GetEnumerationDiagnostics().front();
-				const std::string Tooltip = std::format(
-					"{}\n{}{}",
-					First.PhysicalPath,
-					First.Message,
-					Model.GetSuppressedEnumerationDiagnosticCount() == 0
-						? ""
-						: std::format(
-							"\n{} additional warning(s) suppressed.",
-							Model.GetSuppressedEnumerationDiagnosticCount()));
-				ImGui::SetTooltip("%s", Tooltip.c_str());
-			}
 		}
 	}
 

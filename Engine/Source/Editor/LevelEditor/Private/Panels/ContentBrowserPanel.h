@@ -86,7 +86,6 @@ namespace Durin::Editor::Level
 		auto DrawImportMenu(std::string_view VirtualDirectory) -> void;
 		auto DrawDirectoryContextMenu(std::string_view PhysicalDirectory, bool bMountRoot) -> void;
 		auto DrawBackgroundContextMenu() -> void;
-		auto DrawStatusBar() -> void;
 		auto PrepareSelectionDetails() -> void;
 		auto DrawSelectionDetails() -> void;
 		auto DrawDialogs() -> void;

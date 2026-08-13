@@ -113,12 +113,14 @@ namespace Durin::Editor::Level
 
 	auto FEditorNotificationOverlay::GetStatusBarHeight() const -> float
 	{
-		return ImGui::GetFrameHeight() + MonaImGui::ScaleUI(MonaImGui::GetUIStyleMetrics().SpacingM) * 2.0f;
+		return ImGui::GetFrameHeight() + ImGui::GetStyle().ChildBorderSize * 2.0f;
 	}
 
 	auto FEditorNotificationOverlay::DrawStatusBar(::Durin::Editor::FNotificationManager& Notifications) -> void
 	{
 		const float Height = GetStatusBarHeight();
+		const ImVec2 StatusPadding(ImGui::GetStyle().WindowPadding.x, 0.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, StatusPadding);
 		if (ImGui::BeginChild("##EditorStatusBar", ImVec2(0.0f, Height), ImGuiChildFlags_Borders,
 			ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
 		{
@@ -163,6 +165,7 @@ namespace Durin::Editor::Level
 			if (Status) Notifications.SetHovered(Status->Id, ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem));
 		}
 		ImGui::EndChild();
+		ImGui::PopStyleVar();
 	}
 
 	auto FEditorNotificationOverlay::DrawToasts(::Durin::Editor::FNotificationManager& Notifications) -> void
