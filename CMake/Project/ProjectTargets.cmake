@@ -241,6 +241,11 @@ function(add_durin_test target_name)
 		${ARGN}
 		"${_durin_native_test_main}"
 	)
+	if(MSVC)
+		# Native-test executables are runtime artifacts; keeping one incremental
+		# linker database per target makes the shared test Bin grow rapidly.
+		target_link_options(${target_name} PRIVATE "/INCREMENTAL:NO")
+	endif()
 	durin_target_enable_windows_long_paths(${target_name})
 	target_link_libraries(${target_name} PRIVATE NativeTestSupport)
 

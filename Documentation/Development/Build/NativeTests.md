@@ -12,6 +12,13 @@ available from every registered build preset; the default is
 - Target-owned checked-in inputs: `Engine/Tests/Native/<TargetName>/Data/`
 - Checked-in inputs shared by multiple targets: `Engine/Tests/Data/<FixtureName>/`
 
+A large target composition may keep its shared declaration helper in the owning
+`CMakeLists.txt` and include domain-oriented fragments from a target-local
+`CMake/` directory. The owning root includes those fragments exactly once in
+registry/discovery order; each complete target declaration, including links,
+runtime dependencies, execution properties, finalization, and discovery,
+stays together in one fragment.
+
 Keep target-owned inputs beside the target that owns them. Promote an input to
 the shared data directory only when multiple test targets depend on the same
 fixture.
@@ -328,6 +335,9 @@ editor-only offline build services must be guarded by `DURIN_WITH_EDITOR`.
 When a mixed-capability integration target remains useful in runtime-only
 builds, keep its runtime cases registered and explicitly skip only the case
 whose documented prerequisite is unavailable.
+Guard that case's editor-only headers, helper implementations, and link edges
+with the same capability condition so the runtime target does not acquire an
+authoring or Build dependency merely to compile a skipped case.
 
 An owning test helper may expose an `EDITOR_ONLY` option when the prerequisite
 is not represented by an editor-module link edge, such as source decoding or

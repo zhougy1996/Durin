@@ -7,6 +7,9 @@
 
 namespace Durin::Asset
 {
+	using Import::EImportDiagnosticSeverity;
+	using namespace Import::Standard;
+
 	namespace
 	{
 		auto ExpectVec3Eq(const FVector3f& Expected, const FVector3f& Actual) -> void
@@ -108,10 +111,10 @@ namespace Durin::Asset
 		auto HasDiagnostic(
 			const FImportedSceneData& Scene,
 			EImportDiagnosticSeverity Severity,
-			EImportDiagnosticCategory Category,
+			ESceneImportDiagnosticCategory Category,
 			std::string_view Subject) -> bool
 		{
-			return std::ranges::any_of(Scene.Diagnostics, [=](const FImportDiagnostic& Diagnostic) {
+			return std::ranges::any_of(Scene.Diagnostics, [=](const FSceneImportDiagnostic& Diagnostic) {
 				return Diagnostic.Severity == Severity &&
 					Diagnostic.Category == Category &&
 					Diagnostic.Subject == Subject;
@@ -561,27 +564,27 @@ namespace Durin::Asset
 		struct FCase
 		{
 			std::string_view File;
-			EImportDiagnosticCategory Category;
+			ESceneImportDiagnosticCategory Category;
 		};
 		const std::array Cases = {
-			FCase{"CyclicHierarchy.gltf", EImportDiagnosticCategory::MalformedSource},
-			FCase{"DisconnectedHierarchy.gltf", EImportDiagnosticCategory::MalformedSource},
-			FCase{"CountMismatch.gltf", EImportDiagnosticCategory::MalformedSource},
-			FCase{"InvalidAnimationTarget.gltf", EImportDiagnosticCategory::MalformedSource},
-			FCase{"UnsupportedCubicSpline.gltf", EImportDiagnosticCategory::UnsupportedFeature},
-			FCase{"UnsupportedSecondaryInfluences.gltf", EImportDiagnosticCategory::UnsupportedFeature},
-			FCase{"UnsupportedRequiredExtension.gltf", EImportDiagnosticCategory::UnsupportedFeature},
-			FCase{"ResourceLimit.gltf", EImportDiagnosticCategory::ResourceLimitExceeded},
-			FCase{"SparseAccessor.gltf", EImportDiagnosticCategory::UnsupportedFeature},
-			FCase{"TruncatedAccessor.gltf", EImportDiagnosticCategory::MalformedSource},
-			FCase{"AnimatedNonJoint.gltf", EImportDiagnosticCategory::UnsupportedFeature},
-			FCase{"MorphTargets.gltf", EImportDiagnosticCategory::UnsupportedFeature},
-			FCase{"InvalidJointIndex.gltf", EImportDiagnosticCategory::MalformedSource},
-			FCase{"ZeroWeights.gltf", EImportDiagnosticCategory::MalformedSource},
-			FCase{"NaNWeights.gltf", EImportDiagnosticCategory::MalformedSource},
-			FCase{"NonFiniteInverseBind.gltf", EImportDiagnosticCategory::MalformedSource},
-			FCase{"UnorderedKeyTimes.gltf", EImportDiagnosticCategory::MalformedSource},
-			FCase{"DuplicateKeyTimes.gltf", EImportDiagnosticCategory::MalformedSource}};
+			FCase{"CyclicHierarchy.gltf", ESceneImportDiagnosticCategory::MalformedSource},
+			FCase{"DisconnectedHierarchy.gltf", ESceneImportDiagnosticCategory::MalformedSource},
+			FCase{"CountMismatch.gltf", ESceneImportDiagnosticCategory::MalformedSource},
+			FCase{"InvalidAnimationTarget.gltf", ESceneImportDiagnosticCategory::MalformedSource},
+			FCase{"UnsupportedCubicSpline.gltf", ESceneImportDiagnosticCategory::UnsupportedFeature},
+			FCase{"UnsupportedSecondaryInfluences.gltf", ESceneImportDiagnosticCategory::UnsupportedFeature},
+			FCase{"UnsupportedRequiredExtension.gltf", ESceneImportDiagnosticCategory::UnsupportedFeature},
+			FCase{"ResourceLimit.gltf", ESceneImportDiagnosticCategory::ResourceLimitExceeded},
+			FCase{"SparseAccessor.gltf", ESceneImportDiagnosticCategory::UnsupportedFeature},
+			FCase{"TruncatedAccessor.gltf", ESceneImportDiagnosticCategory::MalformedSource},
+			FCase{"AnimatedNonJoint.gltf", ESceneImportDiagnosticCategory::UnsupportedFeature},
+			FCase{"MorphTargets.gltf", ESceneImportDiagnosticCategory::UnsupportedFeature},
+			FCase{"InvalidJointIndex.gltf", ESceneImportDiagnosticCategory::MalformedSource},
+			FCase{"ZeroWeights.gltf", ESceneImportDiagnosticCategory::MalformedSource},
+			FCase{"NaNWeights.gltf", ESceneImportDiagnosticCategory::MalformedSource},
+			FCase{"NonFiniteInverseBind.gltf", ESceneImportDiagnosticCategory::MalformedSource},
+			FCase{"UnorderedKeyTimes.gltf", ESceneImportDiagnosticCategory::MalformedSource},
+			FCase{"DuplicateKeyTimes.gltf", ESceneImportDiagnosticCategory::MalformedSource}};
 		for (const FCase& Case : Cases)
 		{
 			SCOPED_TRACE(Case.File);
@@ -591,7 +594,7 @@ namespace Durin::Asset
 			EXPECT_TRUE(Scene.Skeletons.empty());
 			EXPECT_TRUE(Scene.SkeletalMeshes.empty());
 			EXPECT_TRUE(Scene.AnimationClips.empty());
-			EXPECT_TRUE(std::ranges::any_of(Scene.Diagnostics, [&](const FImportDiagnostic& Diagnostic) {
+			EXPECT_TRUE(std::ranges::any_of(Scene.Diagnostics, [&](const FSceneImportDiagnostic& Diagnostic) {
 				return Diagnostic.Severity == EImportDiagnosticSeverity::Error
 					&& Diagnostic.Category == Case.Category;
 			}));
@@ -801,7 +804,7 @@ namespace Durin::Asset
 		EXPECT_EQ(Scene.MaterialSlots[1].Name, "Shared_1");
 		EXPECT_EQ(Scene.MaterialSlots[2].Name, "Blend");
 		EXPECT_TRUE(HasDiagnostic(Scene, EImportDiagnosticSeverity::Warning,
-			EImportDiagnosticCategory::UnsupportedOptionalExtension, "EXT_fixture_optional"));
+			ESceneImportDiagnosticCategory::UnsupportedOptionalExtension, "EXT_fixture_optional"));
 	}
 
 	TEST(FAssetImportTests, ImportsFrozenEmbeddedImageForms)
@@ -829,14 +832,14 @@ namespace Durin::Asset
 		struct FCase
 		{
 			std::string FileName;
-			EImportDiagnosticCategory Category;
+			ESceneImportDiagnosticCategory Category;
 			std::string Subject;
 		};
 		for (const FCase& Case : {
 			FCase{"StaticModelMaterials/RequiredExtension.gltf",
-				EImportDiagnosticCategory::UnsupportedRequiredExtension, "EXT_fixture_required"},
+				ESceneImportDiagnosticCategory::UnsupportedRequiredExtension, "EXT_fixture_required"},
 			FCase{"StaticModelMaterials/UnsupportedDccMaterial.fbx",
-				EImportDiagnosticCategory::MissingDependency, "Textures/albedo.png"}})
+				ESceneImportDiagnosticCategory::MissingDependency, "Textures/albedo.png"}})
 		{
 			SCOPED_TRACE(Case.FileName);
 			FImportedSceneData Scene;
@@ -857,12 +860,12 @@ namespace Durin::Asset
 		EXPECT_TRUE(HasDiagnostic(
 			Scene,
 			EImportDiagnosticSeverity::Warning,
-			EImportDiagnosticCategory::UnsupportedMaterialProperty,
+			ESceneImportDiagnosticCategory::UnsupportedMaterialProperty,
 			"unmapped-material-properties"));
 		EXPECT_TRUE(HasDiagnostic(
 			Scene,
 			EImportDiagnosticSeverity::Error,
-			EImportDiagnosticCategory::MissingDependency,
+			ESceneImportDiagnosticCategory::MissingDependency,
 			"Textures/albedo.png"));
 	}
 
@@ -875,7 +878,7 @@ namespace Durin::Asset
 		ASSERT_NE(It, Scene.Materials.end());
 		ExpectVec4Eq({0.5f, 0.25f, 0.25f, 0.5f}, It->BaseColorFactor);
 		EXPECT_TRUE(HasDiagnostic(Scene, EImportDiagnosticSeverity::Warning,
-			EImportDiagnosticCategory::UnsupportedMaterialProperty, "Phong"));
+			ESceneImportDiagnosticCategory::UnsupportedMaterialProperty, "Phong"));
 	}
 
 	TEST(FAssetImportTests, RejectsMalformedReferenceAndMaterialBudgetBeforeAssimpPublication)
@@ -899,7 +902,7 @@ namespace Durin::Asset
 		EXPECT_TRUE(InvalidScene.Images.empty());
 		EXPECT_TRUE(InvalidScene.Materials.empty());
 		EXPECT_TRUE(HasDiagnostic(InvalidScene, EImportDiagnosticSeverity::Error,
-			EImportDiagnosticCategory::InvalidReference, "material:0:baseColorTexture"));
+			ESceneImportDiagnosticCategory::InvalidReference, "material:0:baseColorTexture"));
 
 		const std::filesystem::path OverBudget = Root / "OverBudget.gltf";
 		{
@@ -916,7 +919,7 @@ namespace Durin::Asset
 		EXPECT_FALSE(ImportFromFile(OverBudget.generic_string(), OverBudgetScene));
 		EXPECT_TRUE(OverBudgetScene.Materials.empty());
 		EXPECT_TRUE(HasDiagnostic(OverBudgetScene, EImportDiagnosticSeverity::Error,
-			EImportDiagnosticCategory::ResourceLimitExceeded, "materials"));
+			ESceneImportDiagnosticCategory::ResourceLimitExceeded, "materials"));
 	}
 
 	TEST(FAssetImportTests, AppliesSourceCoordinateSystemToAllMeshAttributes)

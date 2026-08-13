@@ -75,7 +75,7 @@ namespace Durin
 	{
 		InitializeDObjectSystem();
 		std::string ProviderError;
-		ASSERT_TRUE(RegisterStandardAssetImportProviders(ProviderError))
+		ASSERT_TRUE(Asset::Import::RegisterStandardAssetImportProviders(ProviderError))
 			<< ProviderError;
 		InitRenderingThread();
 		const std::filesystem::path Root =
@@ -259,8 +259,8 @@ namespace Durin
 	{
 		InitializeDObjectSystem();
 		std::string ProviderError;
-		ASSERT_TRUE(RegisterStandardAssetImportProviders(ProviderError)) << ProviderError;
-		ASSERT_TRUE(RegisterStandardAssetImportProviders(ProviderError)) << ProviderError;
+		ASSERT_TRUE(Asset::Import::RegisterStandardAssetImportProviders(ProviderError)) << ProviderError;
+		ASSERT_TRUE(Asset::Import::RegisterStandardAssetImportProviders(ProviderError)) << ProviderError;
 		EXPECT_TRUE(ProviderError.empty());
 		InitRenderingThread();
 		const std::filesystem::path Root = Testing::GetTestWorkDirectory() / "EditorTextureSmoke";

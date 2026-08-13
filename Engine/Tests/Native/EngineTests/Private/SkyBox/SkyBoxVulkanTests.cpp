@@ -3,7 +3,25 @@
 
 TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax)
 {
-	InitializeSkyBoxAssetMount();
+	InitializeDObjectSystem();
+	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints());
+	std::vector<Durin::PathUtilities::FMountPoint> MountDefinitions(
+		Durin::PathUtilities::GetRegisteredMountPoints().begin(),
+		Durin::PathUtilities::GetRegisteredMountPoints().end());
+	const std::filesystem::path AssetRoot =
+		Durin::Testing::GetTestWorkDirectory() / "SkyBoxAssets";
+	Durin::Testing::RemoveTestWorkDirectory(AssetRoot);
+	std::filesystem::create_directories(AssetRoot);
+	MountDefinitions.push_back({
+		.VirtualRoot = "/SkyBoxAssetTests/",
+		.Owner = Durin::PathUtilities::EMountOwner::Test,
+		.Root = AssetRoot,
+		.bAutoScan = true,
+		.bAuthoringWritable = true});
+	Durin::PathUtilities::FScopedMountRegistryFixture Mounts(MountDefinitions);
+	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
+	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("StandardAssetImport");
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	Durin::RHIInit();
@@ -38,6 +56,15 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	auto HdrCubeReference = HdrCubeResult.Asset->GetTextureReferenceRHI();
 	ASSERT_NE(HdrCubeReference, nullptr);
 	auto HdrPlatformData = std::make_shared<Durin::FTextureCubePlatformData>(*HdrCubeResult.Asset->GetPlatformData());
+	std::array<std::array<Durin::uint8, 4>, Durin::TextureCubeFaceCount> SourceColors;
+	std::array<std::array<Durin::uint8, 4>, Durin::TextureCubeFaceCount> HdrSourceColors;
+	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
+	{
+		SourceColors[FaceIndex] = GetSourceColor(
+			*CubeResult.Asset, static_cast<Durin::ETextureCubeFace>(FaceIndex), 32, 32);
+		HdrSourceColors[FaceIndex] = GetSourceColor(
+			*HdrCubeResult.Asset, static_cast<Durin::ETextureCubeFace>(FaceIndex), 32, 32);
+	}
 	auto* OcclusionMesh = Durin::DStaticMesh::CreateDebugTriangle();
 	auto* OcclusionMaterial = Durin::NewObject<Durin::DMaterial>(nullptr, "SkyBoxOcclusionMaterial");
 	Durin::FMaterialStaticProperties OcclusionProperties;
@@ -338,14 +365,14 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 				17,
 				8,
 				8,
-				GetSourceColor(*CubeResult.Asset, static_cast<Durin::ETextureCubeFace>(FaceIndex), 32, 32),
+				SourceColors[FaceIndex],
 				12);
 			ExpectRgbNear(
 				Result->HdrPrincipalAxes[FaceIndex],
 				17,
 				8,
 				8,
-				GetSourceColor(*HdrCubeResult.Asset, static_cast<Durin::ETextureCubeFace>(FaceIndex), 32, 32),
+				HdrSourceColors[FaceIndex],
 				12);
 		}
 		ExpectRgbMatch(Result->LongitudeSeam[0], Result->LongitudeSeam[1], 17, 8, 8, 12);

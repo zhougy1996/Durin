@@ -25,13 +25,15 @@ target_link_libraries(VulkanRHIIntegrationTests PRIVATE
 	CoreDObject
 	AssetCore
 	Engine
-	TextureBuild
 	RHI
 	RenderCore
 	VulkanRHI
 	Vulkan::Vulkan
 	Slang_Imported
 )
+if(DURIN_WITH_EDITOR)
+	target_link_libraries(VulkanRHIIntegrationTests PRIVATE TextureBuild)
+endif()
 durin_test_deploy_directory_to_data(VulkanRHIIntegrationTests "${CMAKE_CURRENT_SOURCE_DIR}/Data")
 
 set_target_properties(VulkanRHIIntegrationTests PROPERTIES

@@ -10,7 +10,9 @@
 #include "RenderingThread.h"
 #include "Shader/SlangShaderCompiler.h"
 #include "Shader/Shader.h"
+#if DURIN_WITH_EDITOR
 #include "Texture/TextureBuilder.h"
+#endif
 #include "VulkanDynamicRHI.h"
 #include "VulkanDiagnostics.h"
 #include "VulkanRHIPrivate.h"
@@ -161,6 +163,7 @@ namespace Durin
 			return Texture;
 		}
 
+#if DURIN_WITH_EDITOR
 		auto BuildSolidCompressedMipChain(
 			ETextureUsage Usage,
 			bool bSrgb,
@@ -233,6 +236,7 @@ namespace Durin
 			}
 			return Texture;
 		}
+#endif
 
 		auto ExpectColorNear(
 			const FFloat4& Actual,
@@ -258,7 +262,7 @@ namespace Durin
 	{
 #if !DURIN_WITH_EDITOR
 		GTEST_SKIP() << "Offline texture compression is an editor-only capability.";
-#endif
+#else
 		struct FInlineRHIScope
 		{
 			FInlineRHIScope()
@@ -500,6 +504,7 @@ namespace Durin
 		RHICmdList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 		RHICmdList.SwitchPipeline(ERHIPipeline::None);
 		RHIExit();
+#endif
 	}
 
 	TEST(FVulkanTextureSamplingTests, ThreadedResourceCreationAndUniformOverflowStayRHIThreadOwned)

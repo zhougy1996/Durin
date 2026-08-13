@@ -4,8 +4,8 @@ Summary: Reduce Runtime Engine code, public surface, and authoring leakage while
 
 Last reviewed: 2026-08-13
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-13
 
 ## Current Status
 
@@ -134,6 +134,27 @@ chunks, hashes, limits, and error mapping must evolve together. MaterialTests
 78/78, StaticMeshTests 68/68, WorldTests 102/102, and PhysicsSceneTests 38/38
 passed.
 
+Stage 6 and this plan completed on 2026-08-13. `EngineTests/CMakeLists.txt`
+retains the sole shared helper and includes six target-local domain fragments
+in the original registry/discovery order; a mechanical reconstruction matched
+all 1,209 original declaration lines. Configuration retained exact ownership,
+metadata, private-source rationale, runtime dependencies, locks, timeouts, and
+deployment policy. Rebase qualification also removed stale pre-namespace test
+calls and made the mixed Vulkan integration target compile its offline texture
+compression case only in Editor configurations, keeping the Game closure free
+of TextureBuild. `EngineViewportHeaderTests`, `AssetImportTests`, the bounded
+`@asset-cook` set, `fast-all`, Editor and Game ordinary aggregates, focused
+Editor/Game Vulkan targets, and clean Editor/Game builds passed. The Game
+Cooked domain passed with a deployment containing only Runtime modules and no
+AssetBuildCore, AssetImportCore, GeometryBuild, TextureBuild,
+StandardAssetImport, editor module, Assimp, or offline compressor binary.
+
+All stages and acceptance gates are complete. Lasting ownership rules now live
+in the Asset lifecycle, reflection, rendering, world, module, and native-test
+documentation. The plan is eligible for the repository's monthly archive
+transaction; that batch operation remains separate because it also archives
+other completed August plans.
+
 Before Stage 4, the plan now normalizes the Asset namespace family without
 changing module ownership: AssetCore remains `Durin::Asset`, AssetBuildCore and
 typed Build modules move from `Durin::AssetBuild` to `Durin::Asset::Build`, and
@@ -144,7 +165,7 @@ may use `Durin::Asset::Import::Standard`. The framework import diagnostic stays
 canonical; scene-parser diagnostics receive scene-specific names instead of
 triggering a broader diagnostic-model redesign.
 
-The highest-value gaps are:
+The Stage 0 baseline gaps were:
 
 - AssetCore, AssetBuildCore/TextureBuild, and
   AssetImportCore/StandardAssetImport form one dependency family but expose
@@ -678,27 +699,27 @@ obsolete structure.
 
 Dependencies: all production stages complete.
 
-- [ ] Split `EngineTests/CMakeLists.txt` into domain-oriented included fragments
+- [x] Split `EngineTests/CMakeLists.txt` into domain-oriented included fragments
   while retaining one source owner, one suite owner, exact target metadata,
   links, runtime-only dependencies, resource locks, timeouts, and discovery
   order.
-- [ ] Keep production-private-source exceptions explicitly owned and justified;
+- [x] Keep production-private-source exceptions explicitly owned and justified;
   do not broaden include paths or export production symbols solely for the
   CMake split.
-- [ ] Verify source-ownership, exclusion, registry, discovery, deployment, and
+- [x] Verify source-ownership, exclusion, registry, discovery, deployment, and
   aggregate policy after the composition move.
-- [ ] Run the smallest affected targets during migration, the relevant
+- [x] Run the smallest affected targets during migration, the relevant
   bounded domains after each cross-module stage, `fast-all` for broad ordinary
   feedback, and the full ordinary native aggregate because shared runtime and
   test infrastructure changed.
-- [ ] Complete clean editor and game builds using the repository Build and Run
+- [x] Complete clean editor and game builds using the repository Build and Run
   workflow; inspect the final Runtime/Developer/Editor dependency closures and
   deployed binaries.
-- [ ] Run Cooked runtime validation without authoring modules, source files,
+- [x] Run Cooked runtime validation without authoring modules, source files,
   translators, offline compressors, or DDC builders in the game closure.
-- [ ] Move lasting decisions from this plan to the owning module, asset,
+- [x] Move lasting decisions from this plan to the owning module, asset,
   rendering, source-transaction, build, and native-test documentation.
-- [ ] Update `Current Status`, stage checklists, `Last reviewed`, lifecycle
+- [x] Update `Current Status`, stage checklists, `Last reviewed`, lifecycle
   metadata, and archive eligibility only after every acceptance gate has
   evidence.
 
