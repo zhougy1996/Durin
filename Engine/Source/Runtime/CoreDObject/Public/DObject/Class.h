@@ -368,6 +368,20 @@ namespace Durin
 	COREDOBJECT_API auto FindEnumByQualifiedName(FName QualifiedName) -> DEnum*;
 	// Resolves a serialized enum identity through current names and read-only legacy aliases.
 	COREDOBJECT_API auto FindEnumBySerializedName(FName SerializedName) -> DEnum*;
+
+	// Immutable value projection used by package inspectors. Legacy aliases remain
+	// read-only serialization identities and are never added to qualified lookup.
+	enum class ESerializedReflectedKind : uint8 { Class, Struct, Enum };
+	struct FSerializedReflectionAlias
+	{
+		std::string StoredName;
+		std::string CurrentName;
+		ESerializedReflectedKind Kind = ESerializedReflectedKind::Class;
+
+		auto operator==(const FSerializedReflectionAlias&) const -> bool = default;
+	};
+	COREDOBJECT_API auto CaptureSerializedReflectionAliases()
+		-> std::vector<FSerializedReflectionAlias>;
 	COREDOBJECT_API auto FindClassByPath(std::string_view ObjectPath) -> DClass*;
 	COREDOBJECT_API auto FindStructByPath(std::string_view ObjectPath) -> DStruct*;
 	COREDOBJECT_API auto FindEnumByPath(std::string_view ObjectPath) -> DEnum*;

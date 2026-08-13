@@ -96,6 +96,13 @@ Record reimport starts from the record and reconciles every managed output. It
 reports removed outputs as orphans and never silently deletes or adopts an
 occupied path. Detach, recreate, and repair are explicit record actions.
 
+Canonical resave is not an import action. A selected record or any managed
+output can route to the record package through the index, but AssetImportCore
+performs no serialization of its own: AssetCore's generic package planner,
+ordinary writer, atomic publication, and post-write probe own the operation.
+Provider state, settings, output fingerprints, managed assets, source files,
+and reconciliation policy remain unchanged.
+
 ### glTF Skeletal Scene Contract
 
 The version-1 path accepts glTF 2.0 `.gltf` and `.glb` roots with contained

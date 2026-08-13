@@ -30,6 +30,7 @@ namespace Durin
 		auto GetPackagePath() const -> const std::string& { return PackagePath; }
 		auto GetAsset() const -> DObject* { return Asset.Get(); }
 		auto IsDirty() const -> bool { return bDirty; }
+		auto IsCanonicalResaveRecommended() const -> bool { return bCanonicalResaveRecommended; }
 		auto GetEditRevision() const -> uint64 { return EditRevision; }
 		auto GetPackageFlags() const -> EPackageFlags { return PackageFlags; }
 		auto IsAssetPackage() const -> bool { return EnumHasAnyFlags(PackageFlags, EPackageFlags::Asset); }
@@ -49,6 +50,10 @@ namespace Durin
 			++EditRevision;
 		}
 		auto ClearDirty() -> void { bDirty = false; }
+		auto SetCanonicalResaveRecommended(bool bRecommended) -> void
+		{
+			bCanonicalResaveRecommended = IsAssetPackage() && bRecommended;
+		}
 
 	private:
 		// Global registry key, using an asset path or the /Cpp/<Module> namespace.
@@ -64,6 +69,10 @@ namespace Durin
 		// Tracks unsaved asset-package changes; compiled-in packages never become dirty.
 		DPROPERTY(Transient)
 		bool bDirty = false;
+
+		// Maintenance state is deliberately independent from authored Dirty state.
+		DPROPERTY(Transient)
+		bool bCanonicalResaveRecommended = false;
 
 		// Monotonic process-local token for optimistic editor plans. Unlike dirty
 		// state, repeated edits remain distinguishable before the next save.

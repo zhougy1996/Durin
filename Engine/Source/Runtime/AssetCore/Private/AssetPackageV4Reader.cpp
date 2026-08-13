@@ -1331,6 +1331,97 @@ namespace Durin::Asset::DastV4
 			}
 		}
 
+		auto GatherCanonicalizationEvidence(
+			const FDecodedPackage& Package,
+			const FAssetPath& PackagePath,
+			const FReflectionCompatibilityCatalog* Catalog = nullptr)
+			-> std::vector<FAssetCanonicalizationEvidence>
+		{
+			std::vector<FAssetCanonicalizationEvidence> Result;
+			auto AddClass = [&](std::string_view Stored, EAssetSerializedIdentityLocation Location,
+				std::string LogicalPath) {
+				if (Catalog)
+				{
+					const FReflectionSerializedAlias* Alias = Catalog->FindSerializedAlias(Stored);
+					if (Alias && Alias->Kind == EAssetReflectedIdentityKind::Class)
+						Result.push_back({PackagePath, std::string(Stored), Alias->CurrentIdentity,
+							Alias->Kind, Location, std::move(LogicalPath)});
+					return;
+				}
+				if (DClass* Class = FindClassBySerializedName(FName(Stored));
+					Class && Class->GetQualifiedName().ToString() != Stored)
+					Result.push_back({PackagePath, std::string(Stored),
+						Class->GetQualifiedName().ToString(), EAssetReflectedIdentityKind::Class,
+						Location, std::move(LogicalPath)});
+			};
+			auto AddStruct = [&](std::string_view Stored, EAssetSerializedIdentityLocation Location,
+				std::string LogicalPath) {
+				if (Catalog)
+				{
+					const FReflectionSerializedAlias* Alias = Catalog->FindSerializedAlias(Stored);
+					if (Alias && Alias->Kind == EAssetReflectedIdentityKind::Struct)
+						Result.push_back({PackagePath, std::string(Stored), Alias->CurrentIdentity,
+							Alias->Kind, Location, std::move(LogicalPath)});
+					return;
+				}
+				if (DStruct* Struct = FindStructBySerializedName(FName(Stored));
+					Struct && Struct->GetQualifiedName().ToString() != Stored)
+					Result.push_back({PackagePath, std::string(Stored),
+						Struct->GetQualifiedName().ToString(), EAssetReflectedIdentityKind::Struct,
+						Location, std::move(LogicalPath)});
+			};
+			auto AddEnum = [&](std::string_view Stored, EAssetSerializedIdentityLocation Location,
+				std::string LogicalPath) {
+				if (Catalog)
+				{
+					const FReflectionSerializedAlias* Alias = Catalog->FindSerializedAlias(Stored);
+					if (Alias && Alias->Kind == EAssetReflectedIdentityKind::Enum)
+						Result.push_back({PackagePath, std::string(Stored), Alias->CurrentIdentity,
+							Alias->Kind, Location, std::move(LogicalPath)});
+					return;
+				}
+				if (DEnum* Enum = FindEnumBySerializedName(FName(Stored));
+					Enum && Enum->GetQualifiedName().ToString() != Stored)
+					Result.push_back({PackagePath, std::string(Stored),
+						Enum->GetQualifiedName().ToString(), EAssetReflectedIdentityKind::Enum,
+						Location, std::move(LogicalPath)});
+			};
+
+			AddClass(Package.Header.AssetClass, EAssetSerializedIdentityLocation::PackageHeader,
+				"header.assetClass");
+			for (size_t Index = 0; Index < Package.Objects.size(); ++Index)
+				AddClass(Package.Objects[Index].ClassName, EAssetSerializedIdentityLocation::ObjectRecord,
+					std::format("objects[{}].class", Index));
+			for (size_t Index = 0; Index < Package.Schemas.size(); ++Index)
+			{
+				const std::string& Stored = Package.Schemas[Index].QualifiedName;
+				const size_t Before = Result.size();
+				AddClass(Stored, EAssetSerializedIdentityLocation::Schema,
+					std::format("schemas[{}].identity", Index));
+				if (Result.size() == Before)
+					AddStruct(Stored, EAssetSerializedIdentityLocation::Schema,
+						std::format("schemas[{}].identity", Index));
+			}
+			for (size_t Index = 0; Index < Package.Types.size(); ++Index)
+			{
+				const FDecodedType& Type = Package.Types[Index];
+				const std::string Path = std::format("types[{}].identity", Index);
+				switch (Type.Opcode)
+				{
+				case ETypeOpcode::Enum: AddEnum(Type.QualifiedName, EAssetSerializedIdentityLocation::TypeDescriptor, Path); break;
+				case ETypeOpcode::Struct: AddStruct(Type.QualifiedName, EAssetSerializedIdentityLocation::TypeDescriptor, Path); break;
+				case ETypeOpcode::HardRef:
+				case ETypeOpcode::SoftRef: AddClass(Type.QualifiedName, EAssetSerializedIdentityLocation::TypeDescriptor, Path); break;
+				default: break;
+				}
+			}
+			std::ranges::sort(Result, [](const auto& Left, const auto& Right) {
+				return std::tie(Left.Location, Left.LogicalPath, Left.Kind, Left.StoredIdentity, Left.CurrentIdentity)
+					< std::tie(Right.Location, Right.LogicalPath, Right.Kind, Right.StoredIdentity, Right.CurrentIdentity);
+			});
+			return Result;
+		}
+
 		// Converts recognized compatibility aliases at the bytes-to-runtime boundary.
 		// The raw DecodePackage/ReencodePackage contract remains byte-preserving.
 		auto CanonicalizeSerializedReflectionNames(FDecodedPackage& Package) -> void
@@ -1447,6 +1538,8 @@ namespace Durin::Asset::DastV4
 		}
 		if (!DecodePackage(Bytes, Decoded, Limits, &Diagnostic))
 			return Finish({EAssetError::CorruptFile, Diagnostic.Message});
+		std::vector<FAssetCanonicalizationEvidence> CanonicalizationEvidence =
+			GatherCanonicalizationEvidence(Decoded, PackagePath);
 		CanonicalizeSerializedReflectionNames(Decoded);
 		if (Decoded.Objects.empty() || Decoded.Objects.front().ClassName != Decoded.Header.AssetClass)
 		{
@@ -1551,7 +1644,8 @@ namespace Durin::Asset::DastV4
 		std::vector<FArchiveCustomVersion> CustomVersions;
 		for (const FCustomVersion& Version : Decoded.CustomVersions)
 			CustomVersions.push_back({Version.Guid, static_cast<int32>(Version.Value)});
-		FAssetLoadReport Report{.PackagePath = PackagePath};
+		FAssetLoadReport Report{.PackagePath = PackagePath,
+			.CanonicalizationEvidence = std::move(CanonicalizationEvidence)};
 		for (size_t ObjectIndex = 0; ObjectIndex < Objects.size(); ++ObjectIndex)
 		{
 			if (ShouldFail(Options, ELiveLoadPhase::ApplyValues, ObjectIndex))
@@ -1662,6 +1756,7 @@ namespace Durin::Asset::DastV4
 		}
 		AddToRoot(Package);
 		OutPackage = FLoadedAssetPackage(Package);
+		Package->SetCanonicalResaveRecommended(!Report.CanonicalizationEvidence.empty());
 		if (OutReport) *OutReport = std::move(Report);
 		Diagnostic.Reset(); return Finish({});
 	}
@@ -1753,15 +1848,19 @@ namespace Durin::Asset::DastV4
 			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
 			return {EAssetError::CorruptFile, Diagnostic.Message};
 		}
+		std::vector<FAssetCanonicalizationEvidence> CanonicalizationEvidence =
+			GatherCanonicalizationEvidence(Package, PackagePath, &Catalog);
 		CanonicalizeSerializedReflectionNames(Package);
 		FAssetPackageCompatibilityRecord Record{
 			.PackagePath = PackagePath,
 			.Fingerprint = {.FileSize = Bytes.size(), .ContentHash = FXxHash128::HashBuffer(Bytes),
 				.ReaderVersion = Version},
 			.FormatVersion = Version,
+			.EntryKind = Package.Header.EntryKind,
 			.Inspection = EAssetCompatibilityInspection::Ready,
 			.Compatibility = EAssetPackageCompatibility::Compatible,
-			.Freshness = EAssetCompatibilityFreshness::Current};
+			.Freshness = EAssetCompatibilityFreshness::Current,
+			.CanonicalizationEvidence = std::move(CanonicalizationEvidence)};
 		for (const std::string& Dependency : Package.Header.Dependencies)
 		{
 			FAssetPath Path; if (FAssetPath::TryCreate(Dependency, Path)) Record.Dependencies.push_back(std::move(Path));

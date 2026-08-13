@@ -44,6 +44,15 @@ namespace Durin::Asset
 		auto operator==(const FReflectionCompatibilityClass&) const -> bool = default;
 	};
 
+	struct FReflectionSerializedAlias
+	{
+		std::string StoredIdentity;
+		std::string CurrentIdentity;
+		EAssetReflectedIdentityKind Kind = EAssetReflectedIdentityKind::Class;
+
+		auto operator==(const FReflectionSerializedAlias&) const -> bool = default;
+	};
+
 	// Value-only reflection snapshot. Capture on the game thread after type registration,
 	// then copy or share it freely with compatibility workers.
 	class FReflectionCompatibilityCatalog
@@ -56,9 +65,13 @@ namespace Durin::Asset
 			std::string_view DeclaringType,
 			std::string_view Name) const -> const FReflectionCompatibilityField*;
 		auto GetClasses() const -> std::span<const FReflectionCompatibilityClass> { return Classes; }
+		ASSETCORE_API auto FindSerializedAlias(std::string_view StoredIdentity) const
+			-> const FReflectionSerializedAlias*;
+		auto GetSerializedAliases() const -> std::span<const FReflectionSerializedAlias> { return SerializedAliases; }
 
 	private:
 		std::vector<FReflectionCompatibilityClass> Classes;
+		std::vector<FReflectionSerializedAlias> SerializedAliases;
 	};
 
 	struct FAssetCompatibilityFinding
@@ -86,11 +99,13 @@ namespace Durin::Asset
 		FAssetPackageFingerprint Fingerprint;
 		std::string ReportContentHash;
 		uint32 FormatVersion = 0;
+		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
 		std::vector<FAssetPath> Dependencies;
 		EAssetCompatibilityInspection Inspection = EAssetCompatibilityInspection::NotChecked;
 		EAssetPackageCompatibility Compatibility = EAssetPackageCompatibility::Unsupported;
 		EAssetCompatibilityFreshness Freshness = EAssetCompatibilityFreshness::Current;
 		std::vector<FAssetCompatibilityFinding> Findings;
+		std::vector<FAssetCanonicalizationEvidence> CanonicalizationEvidence;
 
 		auto operator==(const FAssetPackageCompatibilityRecord&) const -> bool = default;
 	};

@@ -381,6 +381,42 @@ changing output bytes. Version-specific decoded packages remain inside their
 codec adapter; shared transactions consume neutral headers, inspections,
 reference edges, load handles, and byte results.
 
+### Canonical Reflected-Identity Resave
+
+Canonical resave is current-format package maintenance, not package-format
+migration or reimport. The v4 metadata probe records every registered legacy
+class, struct, or enum identity in the package header, object records, schemas,
+and recursive type descriptors. Each finding carries the package, stored and
+current identity, reflected kind, stable location, and logical path. The same
+evidence is attached to a live `FAssetLoadReport`; a successfully loaded package
+exposes `IsCanonicalResaveRecommended()` without becoming Dirty.
+
+`PlanAssetCanonicalResaves` deterministically selects packages, folders,
+mounts, or an explicit project scope and captures the physical fingerprint,
+format, entry kind, residency, Dirty conflict, compatibility state, and
+evidence. It blocks stale inputs, non-current formats, redirectors, incompatible
+payloads, dirty loaded packages, and non-authoring mounts. A package with no
+evidence is skipped unless an interactive caller explicitly requests a plain
+package resave.
+
+Apply revalidates each fingerprint, loads through the ordinary current-format
+reader when necessary, and publishes one bounded atomic package unit through
+`SavePackagesAtomically`. It never invokes an import provider or source-data
+workflow. The published bytes are reread through the compatibility probe;
+success requires the current writer, compatible inspection, and zero remaining
+legacy identities. Verification or registry-reconciliation failure restores
+the prior authored bytes. Batch admission stops at cancellation and retains
+terminal results for completed units; project maintenance does not claim
+project-wide atomicity.
+
+`DurinAssetTool --operation=canonical-resave` is dry-run by default. Selection
+uses `--package`, `--folder`, `--mount`, or explicit `--project-scope`; `--apply`
+writes, `--format=human` selects a compact human report, and the default is a
+deterministic JSON report. `--ci` is read-only, cannot be combined with apply,
+and fails when selected compatible content still has registered legacy
+identities. This operation is separate from the exact-edge migration command
+below.
+
 ### Explicit Package Migration
 
 `DevTool asset migrate` is the only package-format migration boundary. The

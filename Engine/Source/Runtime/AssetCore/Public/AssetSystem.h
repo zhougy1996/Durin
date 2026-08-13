@@ -141,6 +141,28 @@ namespace Durin::Asset
 		EAssetLoadMutationKind Kind = EAssetLoadMutationKind::NonUpgrade;
 	};
 
+	// Stable string names for these values are part of canonical-resave reports.
+	enum class EAssetReflectedIdentityKind : uint8 { Class, Struct, Enum };
+	enum class EAssetSerializedIdentityLocation : uint8
+	{
+		PackageHeader,
+		ObjectRecord,
+		Schema,
+		TypeDescriptor
+	};
+
+	struct FAssetCanonicalizationEvidence
+	{
+		FAssetPath PackagePath;
+		std::string StoredIdentity;
+		std::string CurrentIdentity;
+		EAssetReflectedIdentityKind Kind = EAssetReflectedIdentityKind::Class;
+		EAssetSerializedIdentityLocation Location = EAssetSerializedIdentityLocation::PackageHeader;
+		std::string LogicalPath;
+
+		auto operator==(const FAssetCanonicalizationEvidence&) const -> bool = default;
+	};
+
 	// Carries structured compatibility results for one loaded package.
 	struct FAssetLoadReport
 	{
@@ -149,6 +171,7 @@ namespace Durin::Asset
 		uint64 PackageFileReadCount = 0;
 		std::vector<FAssetCompatibilityIssue> CompatibilityIssues;
 		std::vector<FAssetLoadMutation> Mutations;
+		std::vector<FAssetCanonicalizationEvidence> CanonicalizationEvidence;
 
 		auto HasCompatibilityIssues() const -> bool { return !CompatibilityIssues.empty(); }
 		ASSETCORE_API auto HasNonUpgradeMutations() const -> bool;

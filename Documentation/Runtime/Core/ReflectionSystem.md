@@ -392,6 +392,16 @@ metadata that points at the corresponding `DEnum`.
 
 `DClass` keeps runtime identity, C++ spelling, editor presentation, and instance naming separate. `QualifiedName` is the current serialized/type-lookup identity and `ShortName` remains the C++ class spelling. Legacy aliases are accepted only by serialized-name lookup and never by ordinary qualified-name lookup or new saves. `DisplayName` is used by editor UI, while `DefaultObjectName` is used when an instance is created without an explicit name. When metadata is omitted, Durin removes the conventional `A`/`D` prefix when followed by an uppercase letter; display names additionally split CamelCase words. For example, `AStaticMeshActor` defaults to display name `Static Mesh Actor` and object name `StaticMeshActor`.
 
+After reflection registration, `CaptureSerializedReflectionAliases()` freezes a
+deterministically ordered, value-only catalog of every class, struct, and enum
+alias and its current identity. Package workers consume the copied catalog;
+they never consult or mutate the live qualified-name maps. A registered alias
+is compatible canonical-resave debt, while an identity absent from both current
+metadata and this catalog remains an unavailable-type compatibility failure.
+Aliases may be removed only after every supported authored-content baseline has
+zero findings, canonical-resave CI passes, authored diffs have been reviewed,
+and the compatibility policy for external content has been recorded separately.
+
 `ConstructDClass(...)` forces class registration, then creates `FProperty` nodes from generated property parameters and attaches top-level fields to `DStructBase::ChildProperties`. Container inner/key/value properties are constructed recursively and owned by their containing `FArrayProperty` or `FMapProperty`; they are not inserted into the class property chain.
 
 ### Class Default Objects

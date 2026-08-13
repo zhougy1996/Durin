@@ -340,7 +340,12 @@ namespace Durin::Editor::MainFrame
 		) -> void
 		{
 			if (!ImGui::BeginMenu("Tools")) return;
-			if (ImGui::MenuItem("Asset Compatibility Audit")) bAssetCompatibilityOpen = true;
+			if (ImGui::BeginMenu("Asset Maintenance"))
+			{
+				if (ImGui::MenuItem("Compatibility Audit")) bAssetCompatibilityOpen = true;
+				if (ImGui::MenuItem("Canonical Resave")) bAssetCompatibilityOpen = true;
+				ImGui::EndMenu();
+			}
 			ImGui::Separator();
 			if (ImGui::BeginMenu("Profiling"))
 			{

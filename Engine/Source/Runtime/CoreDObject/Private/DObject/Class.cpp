@@ -818,6 +818,28 @@ namespace Durin
 		return FindSerializedType(Registry.Enums, Registry.LegacyEnums, SerializedName);
 	}
 
+	auto CaptureSerializedReflectionAliases() -> std::vector<FSerializedReflectionAlias>
+	{
+		const auto& Registry = GetQualifiedTypeRegistry();
+		std::vector<FSerializedReflectionAlias> Result;
+		Result.reserve(Registry.LegacyClasses.size() + Registry.LegacyStructs.size()
+			+ Registry.LegacyEnums.size());
+		auto Append = [&]<typename T>(const std::unordered_map<FName, T*>& Aliases,
+			ESerializedReflectedKind Kind)
+		{
+			for (const auto& [StoredName, Type] : Aliases)
+				Result.push_back({StoredName.ToString(), Type->GetQualifiedName().ToString(), Kind});
+		};
+		Append(Registry.LegacyClasses, ESerializedReflectedKind::Class);
+		Append(Registry.LegacyStructs, ESerializedReflectedKind::Struct);
+		Append(Registry.LegacyEnums, ESerializedReflectedKind::Enum);
+		std::ranges::sort(Result, [](const auto& Left, const auto& Right) {
+			return std::tie(Left.StoredName, Left.CurrentName, Left.Kind)
+				< std::tie(Right.StoredName, Right.CurrentName, Right.Kind);
+		});
+		return Result;
+	}
+
 	template<typename T>
 	static auto FindTypeByPath(std::string_view ObjectPath) -> T*
 	{

@@ -355,6 +355,14 @@ namespace Durin::Asset
 	auto FReflectionCompatibilityCatalog::Capture() -> FReflectionCompatibilityCatalog
 	{
 		FReflectionCompatibilityCatalog Result;
+		for (const FSerializedReflectionAlias& Alias : CaptureSerializedReflectionAliases())
+		{
+			EAssetReflectedIdentityKind Kind = EAssetReflectedIdentityKind::Class;
+			if (Alias.Kind == ESerializedReflectedKind::Struct) Kind = EAssetReflectedIdentityKind::Struct;
+			else if (Alias.Kind == ESerializedReflectedKind::Enum) Kind = EAssetReflectedIdentityKind::Enum;
+			Result.SerializedAliases.push_back({Alias.StoredName, Alias.CurrentName, Kind});
+		}
+		std::ranges::sort(Result.SerializedAliases, {}, &FReflectionSerializedAlias::StoredIdentity);
 		for (DClass* Class : GetDerivedClasses(DObject::StaticClass(), true))
 		{
 			if (!Class || Class->GetQualifiedName().IsNone()) continue;
@@ -381,6 +389,14 @@ namespace Durin::Asset
 		}
 		std::ranges::sort(Result.Classes, {}, &FReflectionCompatibilityClass::QualifiedName);
 		return Result;
+	}
+
+	auto FReflectionCompatibilityCatalog::FindSerializedAlias(std::string_view StoredIdentity) const
+		-> const FReflectionSerializedAlias*
+	{
+		const auto It = std::ranges::lower_bound(
+			SerializedAliases, StoredIdentity, {}, &FReflectionSerializedAlias::StoredIdentity);
+		return It != SerializedAliases.end() && It->StoredIdentity == StoredIdentity ? &*It : nullptr;
 	}
 
 	auto FReflectionCompatibilityCatalog::FindClass(std::string_view QualifiedName) const -> const FReflectionCompatibilityClass*
@@ -646,6 +662,34 @@ namespace Durin::Asset
 					JsonEscape(Finding.DeclaringType), JsonEscape(Finding.FieldName), PropertyKindName(Finding.StoredKind),
 					JsonEscape(Finding.StoredTypeSignature), PropertyKindName(Finding.ExpectedKind), JsonEscape(Finding.ExpectedTypeSignature),
 					Finding.PayloadSize, Finding.PayloadOffset, JsonEscape(Finding.Diagnostic));
+			}
+			Json += "],\"canonicalizationEvidence\":[";
+			for (size_t EvidenceIndex = 0; EvidenceIndex < Record.CanonicalizationEvidence.size(); ++EvidenceIndex)
+			{
+				if (EvidenceIndex != 0) Json += ',';
+				const auto& Evidence = Record.CanonicalizationEvidence[EvidenceIndex];
+				auto KindName = [](EAssetReflectedIdentityKind Kind) -> std::string_view {
+					switch (Kind)
+					{
+					case EAssetReflectedIdentityKind::Class: return "Class";
+					case EAssetReflectedIdentityKind::Struct: return "Struct";
+					case EAssetReflectedIdentityKind::Enum: return "Enum";
+					}
+					return "Class";
+				};
+				auto LocationName = [](EAssetSerializedIdentityLocation Location) -> std::string_view {
+					switch (Location)
+					{
+					case EAssetSerializedIdentityLocation::PackageHeader: return "PackageHeader";
+					case EAssetSerializedIdentityLocation::ObjectRecord: return "ObjectRecord";
+					case EAssetSerializedIdentityLocation::Schema: return "Schema";
+					case EAssetSerializedIdentityLocation::TypeDescriptor: return "TypeDescriptor";
+					}
+					return "PackageHeader";
+				};
+				Json += std::format("{{\"storedIdentity\":\"{}\",\"currentIdentity\":\"{}\",\"kind\":\"{}\",\"location\":\"{}\",\"logicalPath\":\"{}\"}}",
+					JsonEscape(Evidence.StoredIdentity), JsonEscape(Evidence.CurrentIdentity),
+					KindName(Evidence.Kind), LocationName(Evidence.Location), JsonEscape(Evidence.LogicalPath));
 			}
 			Json += "]}";
 		}

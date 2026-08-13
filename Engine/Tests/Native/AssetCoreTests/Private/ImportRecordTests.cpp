@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
 #include "AssetImportCore.h"
+#include "AssetCanonicalResave.h"
+#include "AssetCompatibility.h"
 #include "AssetPackageV4Reader.h"
 #include "AssetSystem.h"
 #include "CoreGlobals.h"
@@ -8,6 +10,7 @@
 #include "ImportRecord.h"
 #include "ImportRecordIndex.h"
 #include "Misc/DerivedDataCache.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "MultiOutputImport.h"
 #include "NativeTestSupport.h"
@@ -525,6 +528,19 @@ TEST(FImportRecordFrameworkTests, NamespaceMoveUsesCurrentIdentityAndReadOnlyLeg
 	EXPECT_EQ(Durin::FindClassBySerializedName("Durin::AssetImport::DImportRecord"), RecordClass);
 	EXPECT_EQ(Durin::FindStructBySerializedName("Durin::AssetImport::FImportRecordOutput"), OutputStruct);
 	EXPECT_EQ(Durin::FindEnumBySerializedName("Durin::AssetImport::EImportRecordOutputPolicy"), OutputPolicy);
+	const auto Aliases = Durin::CaptureSerializedReflectionAliases();
+	const auto ClassAlias = std::ranges::find(
+		Aliases, std::string("Durin::AssetImport::DImportRecord"),
+		&Durin::FSerializedReflectionAlias::StoredName);
+	ASSERT_NE(ClassAlias, Aliases.end());
+	EXPECT_EQ(ClassAlias->CurrentName, "Durin::Asset::Import::DImportRecord");
+	EXPECT_EQ(ClassAlias->Kind, Durin::ESerializedReflectedKind::Class);
+	const Durin::Asset::FReflectionCompatibilityCatalog Catalog =
+		Durin::Asset::FReflectionCompatibilityCatalog::Capture();
+	const auto* EnumAlias = Catalog.FindSerializedAlias(
+		"Durin::AssetImport::EImportRecordOutputPolicy");
+	ASSERT_NE(EnumAlias, nullptr);
+	EXPECT_EQ(EnumAlias->Kind, Durin::Asset::EAssetReflectedIdentityKind::Enum);
 }
 
 TEST(FImportRecordFrameworkTests, LegacyNamespaceLoadsCanonicallyAndResavesCurrentNames)
@@ -581,14 +597,25 @@ TEST(FImportRecordFrameworkTests, LegacyNamespaceLoadsCanonicallyAndResavesCurre
 	DastV4::FLoadedAssetPackage Loaded;
 	const Durin::FAssetPath LoadPath = MakePath(
 		"/ImportRecordTests/LegacyNamespaceMigration/Upgraded");
+	Durin::Asset::FAssetLoadReport LoadReport;
 	const Durin::Asset::FAssetResult LoadedResult = DastV4::LoadAssetPackage(
-		LegacyBytes, LoadPath, Loaded, nullptr, {}, {}, &Diagnostic);
+		LegacyBytes, LoadPath, Loaded, &LoadReport, {}, {}, &Diagnostic);
 	ASSERT_TRUE(LoadedResult) << LoadedResult.Message << ": " << Diagnostic.Message;
 	ASSERT_NE(Loaded.GetPackage(), nullptr);
 	ASSERT_NE(Loaded.GetPackage()->GetAsset(), nullptr);
 	EXPECT_EQ(
 		Loaded.GetPackage()->GetAsset()->GetClass()->GetQualifiedName().ToString(),
 		"Durin::Asset::Import::DImportRecord");
+	EXPECT_FALSE(Loaded.GetPackage()->IsDirty());
+	EXPECT_TRUE(Loaded.GetPackage()->IsCanonicalResaveRecommended());
+	EXPECT_FALSE(LoadReport.CanonicalizationEvidence.empty());
+	const Durin::Asset::FReflectionCompatibilityCatalog Catalog =
+		Durin::Asset::FReflectionCompatibilityCatalog::Capture();
+	Durin::Asset::FAssetPackageCompatibilityRecord ProbeRecord;
+	ASSERT_TRUE(DastV4::ProbeCompatibility(
+		LegacyBytes, LoadPath, Catalog, ProbeRecord)) << Diagnostic.Message;
+	EXPECT_EQ(ProbeRecord.CanonicalizationEvidence, LoadReport.CanonicalizationEvidence);
+	EXPECT_EQ(ProbeRecord.Compatibility, Durin::Asset::EAssetPackageCompatibility::Compatible);
 
 	std::vector<Durin::uint8> UpgradedBytes;
 	const Durin::Asset::FAssetResult Upgraded = Durin::Asset::SerializeAssetPackageBytes(
@@ -604,6 +631,103 @@ TEST(FImportRecordFrameworkTests, LegacyNamespaceLoadsCanonicallyAndResavesCurre
 		EXPECT_FALSE(Schema.QualifiedName.starts_with(LegacyPrefix));
 	for (const auto& Type : UpgradedPackage.Types)
 		EXPECT_FALSE(Type.QualifiedName.starts_with(LegacyPrefix));
+	Durin::Asset::FAssetPackageCompatibilityRecord CanonicalProbe;
+	ASSERT_TRUE(DastV4::ProbeCompatibility(
+		UpgradedBytes, LoadPath, Catalog, CanonicalProbe));
+	EXPECT_TRUE(CanonicalProbe.CanonicalizationEvidence.empty());
+
+	Loaded.Reset();
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Scenario.RecordPath));
+	const std::filesystem::path RecordFile = Scenario.Root / "Content"
+		/ "LegacyNamespaceMigration" / "Source_Import.dasset";
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
+		std::as_bytes(std::span(LegacyBytes)), RecordFile));
+	const auto Snapshot = Durin::Asset::CaptureMountedAssetPackageSnapshot();
+	ASSERT_EQ(Snapshot.Status, Durin::Asset::EAssetPackageSnapshotStatus::Completed);
+	const auto Input = std::ranges::find(
+		Snapshot.Packages, Scenario.RecordPath,
+		&Durin::Asset::FAssetPackageCompatibilityProbeInput::PackagePath);
+	ASSERT_NE(Input, Snapshot.Packages.end());
+	auto Probed = Durin::Asset::ProbeAssetPackageCompatibility(*Input, Catalog);
+	ASSERT_TRUE(Probed.Record);
+	const std::array Records = {*Probed.Record};
+	const Durin::Asset::FAssetCanonicalResaveSelection Selection{
+		.Packages = {Scenario.RecordPath}};
+	auto Plan = Durin::Asset::PlanAssetCanonicalResaves(Records, Selection);
+	ASSERT_EQ(Plan.Packages.size(), 1u);
+	ASSERT_EQ(Plan.Packages.front().Status,
+		Durin::Asset::EAssetCanonicalResavePackageStatus::Ready)
+		<< Durin::Asset::SerializeAssetCanonicalResavePlanReport(Plan);
+	auto Applied = Durin::Asset::ApplyAssetCanonicalResaves(Plan, Catalog);
+	ASSERT_EQ(Applied.Status, Durin::Asset::EAssetCanonicalResaveApplyStatus::Succeeded)
+		<< Durin::Asset::SerializeAssetCanonicalResaveApplyReport(Applied);
+	EXPECT_EQ(Applied.Plan.Packages.front().Status,
+		Durin::Asset::EAssetCanonicalResavePackageStatus::Resaved);
+	std::vector<Durin::uint8> PublishedBytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(PublishedBytes, RecordFile.generic_string()));
+	Durin::Asset::FAssetPackageCompatibilityRecord PublishedProbe;
+	ASSERT_TRUE(DastV4::ProbeCompatibility(
+		PublishedBytes, Scenario.RecordPath, Catalog, PublishedProbe));
+	EXPECT_TRUE(PublishedProbe.CanonicalizationEvidence.empty());
+
+	auto StaleApply = Durin::Asset::ApplyAssetCanonicalResaves(Plan, Catalog);
+	EXPECT_EQ(StaleApply.Status, Durin::Asset::EAssetCanonicalResaveApplyStatus::Blocked);
+	EXPECT_TRUE(StaleApply.Diagnostic.starts_with("CanonicalResaveRegistryStale:"));
+	const auto FreshSnapshot = Durin::Asset::CaptureMountedAssetPackageSnapshot();
+	ASSERT_EQ(FreshSnapshot.Status, Durin::Asset::EAssetPackageSnapshotStatus::Completed);
+	const auto FreshInput = std::ranges::find(
+		FreshSnapshot.Packages, Scenario.RecordPath,
+		&Durin::Asset::FAssetPackageCompatibilityProbeInput::PackagePath);
+	ASSERT_NE(FreshInput, FreshSnapshot.Packages.end());
+	auto FreshProbed = Durin::Asset::ProbeAssetPackageCompatibility(*FreshInput, Catalog);
+	ASSERT_TRUE(FreshProbed.Record);
+	const std::array FreshRecords = {*FreshProbed.Record};
+	const auto NoOpPlan = Durin::Asset::PlanAssetCanonicalResaves(FreshRecords, Selection);
+	ASSERT_EQ(NoOpPlan.Packages.front().Status,
+		Durin::Asset::EAssetCanonicalResavePackageStatus::Skipped);
+	EXPECT_EQ(Durin::Asset::SerializeAssetCanonicalResavePlanReport(NoOpPlan),
+		Durin::Asset::SerializeAssetCanonicalResavePlanReport(NoOpPlan));
+	const auto NoOpApply = Durin::Asset::ApplyAssetCanonicalResaves(NoOpPlan, Catalog);
+	EXPECT_EQ(NoOpApply.Status, Durin::Asset::EAssetCanonicalResaveApplyStatus::Succeeded);
+	EXPECT_TRUE(NoOpApply.ChangedPaths.empty());
+
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
+		std::as_bytes(std::span(LegacyBytes)), RecordFile));
+	const std::array FailurePhases = {
+		Durin::Asset::EAssetCanonicalResaveApplyPhase::Revalidate,
+		Durin::Asset::EAssetCanonicalResaveApplyPhase::LoadPackage,
+		Durin::Asset::EAssetCanonicalResaveApplyPhase::SerializePackage,
+		Durin::Asset::EAssetCanonicalResaveApplyPhase::StagePackage,
+		Durin::Asset::EAssetCanonicalResaveApplyPhase::PublishPackage,
+		Durin::Asset::EAssetCanonicalResaveApplyPhase::PublishRegistry,
+		Durin::Asset::EAssetCanonicalResaveApplyPhase::VerifyPackage,
+		Durin::Asset::EAssetCanonicalResaveApplyPhase::ReconcileRegistry};
+	for (const auto FailurePhase : FailurePhases)
+	{
+		const auto FailureSnapshot = Durin::Asset::CaptureMountedAssetPackageSnapshot();
+		ASSERT_EQ(FailureSnapshot.Status, Durin::Asset::EAssetPackageSnapshotStatus::Completed);
+		const auto FailureInput = std::ranges::find(
+			FailureSnapshot.Packages, Scenario.RecordPath,
+			&Durin::Asset::FAssetPackageCompatibilityProbeInput::PackagePath);
+		ASSERT_NE(FailureInput, FailureSnapshot.Packages.end());
+		auto FailureProbed = Durin::Asset::ProbeAssetPackageCompatibility(*FailureInput, Catalog);
+		ASSERT_TRUE(FailureProbed.Record);
+		const std::array FailureRecords = {*FailureProbed.Record};
+		const auto FailurePlan = Durin::Asset::PlanAssetCanonicalResaves(FailureRecords, Selection);
+		const auto Failed = Durin::Asset::ApplyAssetCanonicalResaves(
+			FailurePlan, Catalog,
+			{.ShouldFail = [=](Durin::Asset::EAssetCanonicalResaveApplyPhase Phase, size_t) {
+				return Phase == FailurePhase;
+			}});
+		EXPECT_EQ(Failed.Status, Durin::Asset::EAssetCanonicalResaveApplyStatus::Failed);
+		std::vector<Durin::uint8> RestoredBytes;
+		ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(RestoredBytes, RecordFile.generic_string()));
+		EXPECT_EQ(RestoredBytes, LegacyBytes);
+	}
+
+	const auto CancelledPlan = Durin::Asset::PlanAssetCanonicalResaves(
+		Records, Selection, [] { return true; });
+	EXPECT_EQ(CancelledPlan.Status, Durin::Asset::EAssetCanonicalResavePlanStatus::Cancelled);
 }
 
 TEST(FImportRecordFrameworkTests, PersistsHeterogeneousPeersAcrossReloadMoveAndProviderUnload)

@@ -4,26 +4,32 @@ Summary: Add package-level canonical resave detection, interactive actions, and 
 
 Last reviewed: 2026-08-13
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-13
 
 ## Current Status
 
-`DCLASS`, `DSTRUCT`, and `DENUM` accept read-only `LegacyNames` aliases. Asset
-loading resolves those serialized aliases to the current reflected identity, and
-the current writer emits the current identity on the next serialization.
-`DImportRecord` and its durable value types use this mechanism for the
-`Durin::AssetImport` to `Durin::Asset::Import` namespace move, with native tests
-covering legacy load and canonical reserialization.
+All stages are complete. CoreDObject publishes a value-only class/struct/enum
+alias catalog; DAST v4 probe and live load produce identical deterministic
+evidence for package headers, object records, schemas, and recursive type
+descriptors. Loaded packages expose a non-Dirty canonical-resave recommendation.
 
-The editor has no package-level resave action, no persistent distinction between
-ordinary authored changes and a clean package that should be canonically
-rewritten, and no bounded scan that identifies which packages actually contain
-legacy reflected identities. Users can reveal an import record from one of its
-managed outputs, but reimport is currently the only prominent write-oriented
-action and is semantically too broad for identity canonicalization.
+AssetCore owns deterministic plan/apply/report APIs, current-format and authoring
+blockers, registry and physical-fingerprint revalidation, bounded one-package
+atomic publication units, cancellation, failure injection, write-back
+verification, and prior-byte restoration. Content Browser exposes generic save,
+single/selection resave, and import-record routes. The Asset Maintenance window
+provides cancelable audit/preview, filters, evidence details, package/folder/
+mount/project recommended application, progress, and terminal diagnostics.
+DurinAssetTool provides explicit package/folder/mount/project dry-run/apply,
+human/JSON reports, SIGINT cancellation, and read-only CI enforcement.
 
-No implementation stage has started.
+The repository's two legacy `DImportRecord` baselines were upgraded through the
+new project-scope command. A second CI scan reported 0 ready and 0 blocked across
+24 packages, and a second apply resaved 0 packages. Focused AssetImportCore,
+AssetPackage, and EditorAssetWorkflow tests pass; the complete non-
+characterization/non-qualification native matrix, changed/all documentation,
+all-plan validation, and the full editor `all` build also pass.
 
 ## Goal
 
@@ -148,18 +154,18 @@ maintenance workflow that:
 
 ### Stage 0: Freeze The Maintenance Contract And Fixtures
 
-- [ ] Define stable reflected-kind and serialized-location values for class,
+- [x] Define stable reflected-kind and serialized-location values for class,
   struct, and enum alias evidence in package headers, object records, schemas,
   and recursive type descriptors.
-- [ ] Define a canonical-resave probe result with orthogonal inspection,
+- [x] Define a canonical-resave probe result with orthogonal inspection,
   recommendation, freshness, and blocker states; do not overload
   `EAssetPackageCompatibility` with authored-maintenance meaning.
-- [ ] Define deterministic plan/apply report schemas and terminal package states
+- [x] Define deterministic plan/apply report schemas and terminal package states
   for skipped, ready, resaved, blocked, failed, cancelled, and stale inputs.
-- [ ] Freeze current-format fixtures containing legacy root class, nested object
+- [x] Freeze current-format fixtures containing legacy root class, nested object
   class, struct, enum, and mixed current/legacy identities, including an
   `DImportRecord` fixture.
-- [ ] Record the selected bounded-batch publication and recovery policy, maximum
+- [x] Record the selected bounded-batch publication and recovery policy, maximum
   work limits, cancellation points, and registry reconciliation boundary.
 
 #### Acceptance Gate
@@ -171,21 +177,21 @@ maintenance workflow that:
 
 ### Stage 1: Add Exact Legacy-Identity Evidence
 
-- [ ] Expose an immutable serialized-identity catalog containing current class,
+- [x] Expose an immutable serialized-identity catalog containing current class,
   struct, and enum names plus their registered legacy aliases; capture it after
   reflection registration for worker-safe inspection.
-- [ ] Extend DAST v4 read telemetry so successful alias resolution records the
+- [x] Extend DAST v4 read telemetry so successful alias resolution records the
   stored identity, canonical identity, reflected kind, serialized location, and
   owning package without changing decoded runtime identity.
-- [ ] Add a bounded current-format metadata probe that finds registered legacy
+- [x] Add a bounded current-format metadata probe that finds registered legacy
   identities without constructing assets, loading dependencies, invoking
   `PostLoad`, changing Dirty state, or writing files.
-- [ ] Publish structured per-package canonicalization evidence in load reports and
+- [x] Publish structured per-package canonicalization evidence in load reports and
   expose a non-Dirty loaded-package `IsCanonicalResaveRecommended` query.
-- [ ] Preserve exact failure semantics for unknown identities: a registered
+- [x] Preserve exact failure semantics for unknown identities: a registered
   legacy alias is maintenance debt, while an unavailable type remains a
   compatibility blocker.
-- [ ] Make evidence ordering and diagnostics deterministic and bounded.
+- [x] Make evidence ordering and diagnostics deterministic and bounded.
 
 #### Acceptance Gate
 
@@ -195,24 +201,24 @@ maintenance workflow that:
 
 ### Stage 2: Implement The Generic Canonical Resave Service
 
-- [ ] Add read-only planning APIs for one package and deterministic selections,
+- [x] Add read-only planning APIs for one package and deterministic selections,
   capturing registry version, physical fingerprint, recommendation evidence,
   authoring policy, format version, residency, Dirty state, and compatibility
   blockers.
-- [ ] Add an apply API that revalidates the plan, loads through the ordinary
+- [x] Add an apply API that revalidates the plan, loads through the ordinary
   current-format path when needed, serializes with the ordinary writer, and uses
   existing atomic save primitives without invoking import providers.
-- [ ] Preserve caller-owned loaded residency and authored Dirty state on every
+- [x] Preserve caller-owned loaded residency and authored Dirty state on every
   pre-publication failure; reject unrelated dirty loaded packages instead of
   silently overwriting them.
-- [ ] Stage bounded batches deterministically, stop admission on cancellation,
+- [x] Stage bounded batches deterministically, stop admission on cancellation,
   finish or compensate the active atomic publication unit, and retain explicit
   results for already completed packages.
-- [ ] Verify published bytes and fresh metadata-probe results before clearing the
+- [x] Verify published bytes and fresh metadata-probe results before clearing the
   recommendation and publishing registry changes.
-- [ ] Ensure a no-evidence package is skipped by maintenance apply unless an
+- [x] Ensure a no-evidence package is skipped by maintenance apply unless an
   interactive caller explicitly requested a plain package resave.
-- [ ] Add failure injection for load, stale revalidation, serialization, staging,
+- [x] Add failure injection for load, stale revalidation, serialization, staging,
   publication, verification, registry reconciliation, and compensation.
 
 #### Acceptance Gate
@@ -225,20 +231,20 @@ maintenance workflow that:
 
 ### Stage 3: Add Content Browser And Import Record Actions
 
-- [ ] Add generic `Save Package` and `Resave Package` actions for an authorable
+- [x] Add generic `Save Package` and `Resave Package` actions for an authorable
   asset, with multi-selection `Resave Selected Packages` routed through the
   shared planner.
-- [ ] Enable `Save Package` only for ordinary Dirty state; allow explicit
+- [x] Enable `Save Package` only for ordinary Dirty state; allow explicit
   `Resave Package` for a clean compatible current-format package, and surface
   exact disabled reasons from shared preflight.
-- [ ] Present `Resave recommended` separately from unsaved/Dirty decoration in
+- [x] Present `Resave recommended` separately from unsaved/Dirty decoration in
   asset details and context actions.
-- [ ] Add `Resave Import Record` beside `Reveal Import Record` for a managed
+- [x] Add `Resave Import Record` beside `Reveal Import Record` for a managed
   output and for a selected record, resolving the association through the
   import-record index before invoking the generic service.
-- [ ] Keep `Reimport`, `Recreate Missing Outputs`, repair, detach, and resave
+- [x] Keep `Reimport`, `Recreate Missing Outputs`, repair, detach, and resave
   labels and confirmations semantically distinct.
-- [ ] Refresh registry, Content Browser snapshots, selected details, and
+- [x] Refresh registry, Content Browser snapshots, selected details, and
   associated-record inspection only after verified publication.
 
 #### Acceptance Gate
@@ -250,20 +256,20 @@ maintenance workflow that:
 
 ### Stage 4: Add Explicit Batch Maintenance And CI Enforcement
 
-- [ ] Add `Tools > Asset Maintenance > Canonical Resave` with read-only scan,
+- [x] Add `Tools > Asset Maintenance > Canonical Resave` with read-only scan,
   filters, counts, evidence details, Content Browser navigation, explicit scope,
   preview, apply, progress, cancellation, and terminal results.
-- [ ] Support selected packages, folders, mounts, and an explicitly confirmed
+- [x] Support selected packages, folders, mounts, and an explicitly confirmed
   whole-project scope; default to recommended packages rather than every package.
-- [ ] Add a separate command-line canonical-resave command with dry-run default,
+- [x] Add a separate command-line canonical-resave command with dry-run default,
   explicit `--apply`, deterministic human/JSON reports, package/mount/project
   selection, cancellation, and failure exit policies.
-- [ ] Reject batch apply while an incompatible audit state, dirty package,
+- [x] Reject batch apply while an incompatible audit state, dirty package,
   non-current format, read-only mount, or stale fingerprint blocks a selected
   package, while allowing the report to enumerate all independent blockers.
-- [ ] Add a CI mode that fails when selected supported content contains registered
+- [x] Add a CI mode that fails when selected supported content contains registered
   legacy identities, without writing content.
-- [ ] Add interruption/recovery and repeat-run coverage; a successful second scan
+- [x] Add interruption/recovery and repeat-run coverage; a successful second scan
   after apply must be empty and a second apply must be a no-op.
 
 #### Acceptance Gate
@@ -275,20 +281,20 @@ maintenance workflow that:
 
 ### Stage 5: Document The Contract And Establish Alias Retirement Gates
 
-- [ ] Update the reflection contract with alias evidence, canonical-resave
+- [x] Update the reflection contract with alias evidence, canonical-resave
   recommendation semantics, and the rule that ordinary qualified lookup remains
   current-only.
-- [ ] Update asset-package documentation with canonical resave authorization,
+- [x] Update asset-package documentation with canonical resave authorization,
   publication, verification, blocker, and command-line boundaries, keeping it
   distinct from package-format migration and incompatible-schema recovery.
-- [ ] Update Content Browser and import framework documentation with generic
+- [x] Update Content Browser and import framework documentation with generic
   resave actions and managed-output routing.
-- [ ] Add a user guide for individual, selected, and project maintenance flows,
+- [x] Add a user guide for individual, selected, and project maintenance flows,
   including source-control review and blocked-package diagnostics.
-- [ ] Record a `LegacyNames` retirement checklist requiring zero findings across
+- [x] Record a `LegacyNames` retirement checklist requiring zero findings across
   every supported content baseline, passing CI enforcement, reviewed authored
   diffs, and a compatibility-policy decision for external content.
-- [ ] Run the full documentation, native-test, editor integration, and applicable
+- [x] Run the full documentation, native-test, editor integration, and applicable
   command-line validation matrix before completing the plan.
 
 #### Acceptance Gate

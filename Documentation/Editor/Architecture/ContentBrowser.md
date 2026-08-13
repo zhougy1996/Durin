@@ -55,6 +55,22 @@ Files reported as owned by AssetCore's registered companion contributors cannot
 be renamed or deleted independently; the owning asset operation must be used.
 A shared filename stem alone does not establish companion ownership.
 
+Every authorable asset uses AssetCore's package-level save actions. `Save
+Package` is enabled only for a loaded Dirty package. `Resave Package` may be
+used on a clean compatible current-format package and is labeled recommended
+when live load observed a registered legacy reflected identity. Multi-selection
+routes `Resave Selected Packages` through the same deterministic planner; exact
+preflight failures are reported without writing other selected packages.
+Presentation never turns a resave recommendation into an unsaved-change
+decoration or close prompt. Registry and item snapshots refresh only after
+verified publication.
+
+A managed output exposes `Resave Import Record` beside `Reveal Import Record`.
+The Content Browser resolves the association through the import-record index
+and passes only the record package to the generic service. Reimport, recreate,
+repair, detach, and resave remain distinct actions; canonical resave reads no
+source and invokes no provider.
+
 Double-click routing is resolved by the live `Editor::FWorkspaceManager` exact-class
 route table. `MaterialEditor`, `TextureEditor`, and `StaticMeshEditor` own their
 respective asset routes; StaticMesh opens a closable per-resource document in
@@ -198,4 +214,5 @@ unrelated global history commands do not steal Content Browser focus.
 - [Asset Import Framework](AssetImportFramework.md)
 - [Asset Thumbnails](AssetThumbnails.md)
 - [Mounted Source Workflows](../Guides/MountedSourceWorkflows.md)
+- [Canonical Resave](../Guides/CanonicalResave.md)
 - [StaticMesh Inspector](../Guides/StaticMeshInspector.md)

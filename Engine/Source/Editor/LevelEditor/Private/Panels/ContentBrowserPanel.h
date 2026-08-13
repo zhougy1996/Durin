@@ -104,6 +104,8 @@ namespace Durin::Editor::Level
 		auto ReimportAsset(
 			const FContentBrowserItem& Item,
 			Asset::Import::EImportRecordAction Action) -> void;
+		auto SaveAssetPackage(const FAssetPath& Path) -> void;
+		auto ResaveAssetPackages(std::vector<FAssetPath> Paths) -> void;
 		auto FixUpRedirector(const FContentBrowserItem& Item) -> void;
 		auto FixUpFolder(std::string_view VirtualDirectory) -> void;
 		auto FixUpProject() -> void;

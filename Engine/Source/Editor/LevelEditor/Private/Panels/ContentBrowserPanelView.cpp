@@ -752,6 +752,35 @@ namespace Durin::Editor::Level
 		bool bManagedByRecord = false;
 		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
+			FAssetPath PackagePath;
+			if (FAssetPath::TryCreate(Item.VirtualPath, PackagePath))
+			{
+				DPackage* LoadedPackage = Asset::FAssetManager::Get().FindLoadedPackage(PackagePath);
+				const bool bCanSave = LoadedPackage && LoadedPackage->IsDirty();
+				if (ImGui::MenuItem("Save Package", nullptr, false, bCanSave))
+					DeferredContentAction = [this, PackagePath] { SaveAssetPackage(PackagePath); };
+				if (!bCanSave && ImGui::IsItemHovered())
+					ImGui::SetTooltip("Available only for a loaded package with authored changes.");
+				if (ImGui::MenuItem(LoadedPackage && LoadedPackage->IsCanonicalResaveRecommended()
+					? "Resave Package (recommended)" : "Resave Package"))
+					DeferredContentAction = [this, PackagePath] { ResaveAssetPackages({PackagePath}); };
+				if (Selection.size() > 1 && ImGui::MenuItem("Resave Selected Packages"))
+				{
+					std::vector<FAssetPath> SelectedPaths;
+					for (const FContentBrowserItem& SelectedItem : Model.GetItems())
+						if (SelectedItem.Kind == EContentBrowserItemKind::Asset
+							&& Selection.contains(SelectedItem.StableId()))
+						{
+							FAssetPath SelectedPath;
+							if (FAssetPath::TryCreate(SelectedItem.VirtualPath, SelectedPath))
+								SelectedPaths.push_back(std::move(SelectedPath));
+						}
+					DeferredContentAction = [this, Paths = std::move(SelectedPaths)]() mutable {
+						ResaveAssetPackages(std::move(Paths));
+					};
+				}
+				ImGui::Separator();
+			}
 			FAssetPath ItemPath;
 			Asset::Import::FImportRecordInspection Inspection;
 			if (FAssetPath::TryCreate(Item.VirtualPath, ItemPath))
@@ -769,6 +798,10 @@ namespace Durin::Editor::Level
 				if (bManagedByRecord && ImGui::MenuItem("Reveal Import Record"))
 					DeferredContentAction = [this, Path = Inspection.RecordPath.ToString()] {
 						RevealAsset(Path);
+					};
+				if (ImGui::MenuItem("Resave Import Record"))
+					DeferredContentAction = [this, Path = Inspection.RecordPath] {
+						ResaveAssetPackages({Path});
 					};
 				if (ImGui::BeginMenu("Reveal Managed Output"))
 				{

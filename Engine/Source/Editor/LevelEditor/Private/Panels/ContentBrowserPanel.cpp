@@ -1,6 +1,8 @@
 #include "Panels/ContentBrowserPanel.h"
 
 #include "AssetImportCore.h"
+#include "AssetCanonicalResave.h"
+#include "AssetCompatibility.h"
 #include "SceneImport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "AssetSystem.h"
@@ -15,6 +17,63 @@
 
 namespace Durin::Editor::Level
 {
+	auto FContentBrowserPanel::SaveAssetPackage(const FAssetPath& Path) -> void
+	{
+		DPackage* Package = Asset::FAssetManager::Get().FindLoadedPackage(Path);
+		if (!Package || !Package->IsDirty())
+		{
+			SetError("Save Package is available only for a loaded package with authored changes.");
+			return;
+		}
+		const Asset::FAssetResult Save = Asset::SavePackage(Package);
+		if (!Save) { SetError(Save.Message); return; }
+		PublishMountedContentMutation();
+	}
+
+	auto FContentBrowserPanel::ResaveAssetPackages(std::vector<FAssetPath> Paths) -> void
+	{
+		std::ranges::sort(Paths, {}, &FAssetPath::ToString);
+		Paths.erase(std::unique(Paths.begin(), Paths.end()), Paths.end());
+		const Asset::FAssetPackageDiscoverySnapshot Snapshot =
+			Asset::CaptureMountedAssetPackageSnapshot();
+		if (Snapshot.Status != Asset::EAssetPackageSnapshotStatus::Completed)
+		{
+			SetError(Snapshot.Error.empty() ? "Canonical-resave discovery did not complete." : Snapshot.Error);
+			return;
+		}
+		const Asset::FReflectionCompatibilityCatalog Catalog =
+			Asset::FReflectionCompatibilityCatalog::Capture();
+		std::vector<Asset::FAssetPackageCompatibilityRecord> Records;
+		for (const FAssetPath& Path : Paths)
+		{
+			const auto Input = std::ranges::find(Snapshot.Packages, Path,
+				&Asset::FAssetPackageCompatibilityProbeInput::PackagePath);
+			if (Input == Snapshot.Packages.end())
+			{
+				SetError(std::format("Package {} is not in an authoring-mounted snapshot.", Path.ToString()));
+				return;
+			}
+			auto Probe = Asset::ProbeAssetPackageCompatibility(*Input, Catalog);
+			if (!Probe.Record)
+			{
+				SetError(std::format("Package {} could not be inspected.", Path.ToString()));
+				return;
+			}
+			Records.push_back(std::move(*Probe.Record));
+		}
+		Asset::FAssetCanonicalResaveSelection Selection{
+			.Packages = std::move(Paths), .bAllowPlainResave = true};
+		auto Plan = Asset::PlanAssetCanonicalResaves(Records, Selection);
+		auto Applied = Asset::ApplyAssetCanonicalResaves(std::move(Plan), Catalog);
+		if (Applied.Status != Asset::EAssetCanonicalResaveApplyStatus::Succeeded)
+		{
+			SetError(Applied.Diagnostic.empty()
+				? Asset::SerializeAssetCanonicalResaveApplyReport(Applied) : Applied.Diagnostic);
+			return;
+		}
+		PublishMountedContentMutation();
+	}
+
 	FContentBrowserPanel::FContentBrowserPanel(
 		FLevelEditorSessionSettings& InSessionSettings,
 		FOpenAsset InOpenAsset,
