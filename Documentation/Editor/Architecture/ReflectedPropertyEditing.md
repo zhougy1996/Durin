@@ -352,15 +352,16 @@ UI presents those slots through shared non-resizable array helpers, and the
 shared asset picker reserves a persistent trailing reset action. Edits still
 submit the stable reflected override root through the host property view.
 
-When the primary Level Editor Actor changes, Details targets its RootComponent
-by default when one exists; a rootless Actor targets the Actor itself. This is a
-presentation choice and never creates a component. The component tree retains
-separate Actor and component targets, so explicitly selecting the Actor keeps
-Actor details and Actor-specific customizations visible until another target or
-primary Actor is selected. If an inspected component stops belonging to the
-current Actor, Details applies the same RootComponent-or-Actor default. These
-target transitions continue through the property view's owner-context handling
-so an active preview is committed or restored before its owner changes.
+Ordinary Level Editor Actor selection targets its RootComponent by default when
+one exists; this includes selecting an already-selected Actor again. A rootless
+Actor targets the Actor itself. This is a presentation choice and never creates
+a component. The component tree retains separate Actor and component targets,
+so explicitly selecting the Actor keeps Actor details and Actor-specific
+customizations visible until another target or ordinary Actor selection. If an
+inspected component stops belonging to the current Actor, Details applies the
+same RootComponent-or-Actor default. These target transitions continue through
+the property view's owner-context handling so an active preview is committed or
+restored before its owner changes.
 
 Generated components are inspection-only derived state. Selecting one keeps its
 tree row visible but presents a read-only Details view; rename, duplication,

@@ -48,6 +48,7 @@ namespace Durin::Editor::Level
 			SelectedActors.emplace_back(Actor);
 			PrimarySelectedActor = Actor;
 			SelectionAnchor = Actor;
+			SelectedComponent = Actor->GetRootComponent();
 		}
 	}
 

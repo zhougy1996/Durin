@@ -63,6 +63,32 @@ TEST(FDetailsPanelTargetingTests, PreservesExplicitActorSelectionAndRecoversInva
 	Durin::CollectGarbage();
 }
 
+TEST(FLevelEditorContextSelectionTests, ActorSelectionDefaultsToRootComponentAndPreservesExplicitActorTarget)
+{
+	InitializeDObjectSystem();
+	auto* World = Durin::NewObject<Durin::DWorld>(nullptr, "SharedSelectionWorld");
+	auto* Level = Durin::NewObject<Durin::DLevel>(World, "SharedSelectionLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	auto* Actor = Level->SpawnActor<Durin::AActor>("SelectedActor");
+	ASSERT_NE(Actor, nullptr);
+	auto* RootComponent = Durin::Cast<Durin::DSceneComponent>(
+		Actor->AddInstanceComponent(Durin::DSceneComponent::StaticClass(), "Root"));
+	ASSERT_NE(RootComponent, nullptr);
+	Durin::Editor::Level::FLevelEditorContext Context;
+	Context.Synchronize(World);
+	Context.SelectActor(Actor);
+	EXPECT_EQ(Context.GetSelectedComponent(), RootComponent);
+	Context.SelectComponent(nullptr);
+	EXPECT_EQ(Context.GetSelectedComponent(), nullptr);
+	Context.SelectActor(Actor);
+	EXPECT_EQ(Context.GetSelectedComponent(), RootComponent);
+
+	auto* RootlessActor = Level->SpawnActor<Durin::AActor>("RootlessSelectedActor");
+	ASSERT_NE(RootlessActor, nullptr);
+	Context.SelectActor(RootlessActor);
+	EXPECT_EQ(Context.GetSelectedComponent(), nullptr);
+}
+
 TEST(FLevelEditorContextSelectionTests, SharesComponentAndRepairsTypedSubElementSelection)
 {
 	InitializeDObjectSystem();
