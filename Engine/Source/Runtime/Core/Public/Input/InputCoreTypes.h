@@ -144,6 +144,7 @@ namespace Durin
 		KeypadPlus,
 		KeypadMinus,
 		KeypadEquals,
+		KeypadEnter,
 	};
 
 	enum class EKeyAction : uint8

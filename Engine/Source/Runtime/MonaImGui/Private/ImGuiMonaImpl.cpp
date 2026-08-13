@@ -792,6 +792,7 @@ namespace Durin::MonaImGui
 		case EKey::KeypadPlus:		return ImGuiKey_KeypadAdd;
 		case EKey::KeypadMinus:		return ImGuiKey_KeypadSubtract;
 		case EKey::KeypadEquals:	return ImGuiKey_KeypadEqual;
+		case EKey::KeypadEnter:		return ImGuiKey_KeypadEnter;
 
 		default: return ImGuiKey_None;
 		}

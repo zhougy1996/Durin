@@ -113,6 +113,7 @@ namespace Durin
 			{GLFW_KEY_KP_ADD, EKey::KeypadPlus},
 			{GLFW_KEY_KP_SUBTRACT, EKey::KeypadMinus},
 			{GLFW_KEY_KP_EQUAL, EKey::KeypadEquals},
+			{GLFW_KEY_KP_ENTER, EKey::KeypadEnter},
 		};
 
 		auto FromGlfw_Key(int32 GlfwKey) -> EKey
