@@ -16,6 +16,8 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
   targets, read `Documentation/Agents/BuildAndRun.md`.
 - Before selecting or running native tests, read
   `Documentation/Agents/Testing.md`.
+- Before creating, moving, removing, validating, completing, or archiving
+  repository documentation, read `Documentation/Agents/Documentation.md`.
 - Do not start another build while an earlier CMake, Ninja, compiler, or linker
   process tree may still be running.
 
