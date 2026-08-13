@@ -4,6 +4,7 @@
 #include "Viewport/TransformGizmo.h"
 #include "LevelEditorViewportEditing.h"
 #include "Widgets/MWidget.h"
+#include "Console/ConsoleCommand.h"
 
 struct ImVec2;
 
@@ -50,6 +51,8 @@ namespace Durin::Editor::Level
 		auto GetEditModeManager() -> FLevelViewportEditModeManager& { return EditModeManager; }
 		auto IsGridVisible() const -> bool;
 		auto SetGridVisible(bool bVisible) -> void;
+		auto GetCameraMovementSpeed() const -> float;
+		auto SetCameraMovementSpeed(float Speed) -> void;
 		auto FocusActor(const AActor* Actor) -> void;
 
 	private:
@@ -57,6 +60,7 @@ namespace Durin::Editor::Level
 		auto UpdateCameraPreview(FLevelEditorContext& Context) -> void;
 		auto UpdateViewportSize() -> void;
 		auto UpdateViewportInput(FLevelEditorContext& Context, const FViewportToolbarLayout& ToolbarLayout) -> void;
+		auto RegisterCameraConsoleCommands() -> void;
 
 		std::unique_ptr<FLevelEditorViewportClient> ViewportClient;
 		std::shared_ptr<MViewport> ViewportWidget;
@@ -69,5 +73,6 @@ namespace Durin::Editor::Level
 		bool bViewportFocused = false;
 		::Durin::Editor::EPlayStartLocation PreferredPlayStartLocation;
 		::Durin::Editor::EPlayDestination PreferredPlayDestination;
+		std::vector<FConsoleCommandHandle> CameraConsoleCommandHandles;
 	};
 } // namespace Durin::Editor::Level

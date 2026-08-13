@@ -523,7 +523,7 @@ namespace Durin::Editor::Level
 		DrawList->PopClipRect();
 		if (Context.bReadOnly) ImGui::BeginDisabled();
 
-		if (DrawToolbarButton("##ViewModeButton", Layout.ViewModeButtonPosition, Layout.ViewModeButtonSize, Layout.ViewModeLabel.c_str(), EViewportToolbarIcon::ChevronDown, false, "Viewport shading and raster mode"))
+		if (DrawToolbarButton("##ViewModeButton", Layout.ViewModeButtonPosition, Layout.ViewModeButtonSize, Layout.ViewModeLabel.c_str(), EViewportToolbarIcon::ChevronDown, false, "Viewport settings"))
 		{
 			ImGui::OpenPopup("ViewModePopup");
 		}
@@ -556,6 +556,17 @@ namespace Durin::Editor::Level
 					FSceneViewSettings Settings = ViewportClient->GetViewSettings();
 					Settings.bEnableFXAA = bEnableFXAA;
 					ViewportClient->SetViewSettings(Settings);
+				}
+				ImGui::Separator();
+				ImGui::TextDisabled("Navigation");
+				float MovementSpeed = ViewportClient->GetMovementSpeed();
+				ImGui::SetNextItemWidth(MonaImGui::ScaleUI(180.0f));
+				if (ImGui::DragFloat("Fly speed", &MovementSpeed, 0.25f, 0.05f, 10000.0f, "%.2f units/s", ImGuiSliderFlags_AlwaysClamp))
+					ViewportClient->SetMovementSpeed(MovementSpeed);
+				for (const float Preset : {1.0f, 5.0f, 25.0f, 100.0f})
+				{
+					if (Preset != 1.0f) ImGui::SameLine();
+					if (ImGui::SmallButton(std::format("{:g}##FlySpeed", Preset).c_str())) ViewportClient->SetMovementSpeed(Preset);
 				}
 			}
 			ImGui::Separator();
@@ -784,6 +795,24 @@ namespace Durin::Editor::Level
 			const ImVec2 TextSize = ImGui::CalcTextSize(AxisLabels[AxisIndex]);
 			DrawAxisText(DrawList, Add(End, Add(Mul(AxisDirections[AxisIndex], MonaImGui::ScaleUI(5.0f)), ImVec2(-TextSize.x * 0.5f, -TextSize.y * 0.5f))), AxisColors[AxisIndex], AxisLabels[AxisIndex]);
 		}
+		DrawList->PopClipRect();
+	}
+
+	auto DrawViewportCameraSpeedOverlay(const FLevelEditorViewportClient* ViewportClient, const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void
+	{
+		if (ViewportClient == nullptr || !ViewportClient->IsFlyNavigating()) return;
+		const std::string Label = std::format("Fly speed  {:.2f} units/s", ViewportClient->GetMovementSpeed());
+		const ImVec2 TextSize = ImGui::CalcTextSize(Label.c_str());
+		const ImVec2 Padding(MonaImGui::ScaleUI(8.0f), MonaImGui::ScaleUI(4.0f));
+		const ImVec2 BadgeSize(TextSize.x + Padding.x * 2.0f, TextSize.y + Padding.y * 2.0f);
+		const ImVec2 BadgeMin((ViewportMin.x + ViewportMax.x - BadgeSize.x) * 0.5f, ViewportMax.y - BadgeSize.y - MonaImGui::ScaleUI(10.0f));
+		const ImVec2 BadgeMax(BadgeMin.x + BadgeSize.x, BadgeMin.y + BadgeSize.y);
+		ImDrawList* DrawList = ImGui::GetWindowDrawList();
+		DrawList->PushClipRect(ViewportMin, ViewportMax, true);
+		ImVec4 BadgeColor = ImGui::GetStyleColorVec4(ImGuiCol_PopupBg);
+		BadgeColor.w = 0.88f;
+		DrawList->AddRectFilled(BadgeMin, BadgeMax, ImGui::GetColorU32(BadgeColor), BadgeMax.y - BadgeMin.y);
+		DrawList->AddText(ImVec2(BadgeMin.x + Padding.x, BadgeMin.y + Padding.y), ImGui::GetColorU32(ImGuiCol_Text), Label.c_str());
 		DrawList->PopClipRect();
 	}
 

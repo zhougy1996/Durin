@@ -43,6 +43,12 @@ namespace Durin::Editor::Level
 	{
 		auto Add(const ImVec2& A, const ImVec2& B) -> ImVec2 { return ImVec2(A.x + B.x, A.y + B.y); }
 
+		auto TryParseFloat(std::string_view Text, float& OutValue) -> bool
+		{
+			const auto [End, Error] = std::from_chars(Text.data(), Text.data() + Text.size(), OutValue);
+			return Error == std::errc{} && End == Text.data() + Text.size() && std::isfinite(OutValue);
+		}
+
 		auto MakeUniqueActorName(DLevel& Level, FName Requested) -> FName
 		{
 			if (!Level.FindActorByName(Requested)) return Requested;
@@ -75,13 +81,63 @@ namespace Durin::Editor::Level
 		CameraPreviewSceneViewport = FSceneViewport::CreateOffscreen(CameraPreviewViewportClient.get());
 		CameraPreviewViewportWidget->SetDisplaySource(CameraPreviewSceneViewport);
 		if (GEngine != nullptr) GEngine->RegisterAuxiliarySceneViewport(CameraPreviewSceneViewport);
+		RegisterCameraConsoleCommands();
 	}
 
 	FSceneViewportPanel::~FSceneViewportPanel()
 	{
+		for (const FConsoleCommandHandle Handle : CameraConsoleCommandHandles)
+			FConsoleCommandRegistry::Get().UnregisterCommand(Handle);
 		if (GEngine != nullptr) GEngine->UnregisterAuxiliarySceneViewport(CameraPreviewSceneViewport.get());
 		CameraPreviewSceneViewport.reset();
 		if (GEngine != nullptr) GEngine->SetMainSceneViewport(nullptr);
+	}
+
+	auto FSceneViewportPanel::RegisterCameraConsoleCommands() -> void
+	{
+		auto RegisterCommand = [this](FConsoleCommandDesc Desc) {
+			if (const FConsoleCommandHandle Handle = FConsoleCommandRegistry::Get().RegisterCommand(std::move(Desc)))
+				CameraConsoleCommandHandles.push_back(Handle);
+		};
+		RegisterCommand({"viewport.camera.speed", "Gets or sets the editor viewport fly speed.", "viewport.camera.speed [unitsPerSecond]", [this](std::span<const std::string> Args) {
+			if (ViewportClient == nullptr || Args.size() > 1) return FConsoleCommandResult::Failure("Usage: viewport.camera.speed [unitsPerSecond]");
+			if (!Args.empty())
+			{
+				float Speed = 0.0f;
+				if (!TryParseFloat(Args[0], Speed) || Speed <= 0.0f) return FConsoleCommandResult::Failure("Fly speed must be a positive finite number.");
+				ViewportClient->SetMovementSpeed(Speed);
+			}
+			return FConsoleCommandResult::Success(std::format("Editor viewport fly speed: {:.2f} units/s", ViewportClient->GetMovementSpeed()));
+		}});
+		RegisterCommand({"viewport.camera.move", "Moves the editor camera along its local forward, right, and up axes.", "viewport.camera.move <forward> [right] [up]", [this](std::span<const std::string> Args) {
+			if (ViewportClient == nullptr || Args.empty() || Args.size() > 3) return FConsoleCommandResult::Failure("Usage: viewport.camera.move <forward> [right] [up]");
+			FVector3 Delta(0.0);
+			for (size_t Index = 0; Index < Args.size(); ++Index)
+			{
+				float Value = 0.0f;
+				if (!TryParseFloat(Args[Index], Value)) return FConsoleCommandResult::Failure("Camera movement values must be finite numbers.");
+				Delta[Index] = static_cast<FReal>(Value);
+			}
+			ViewportClient->MoveCameraLocal(Delta);
+			const FVector3& Location = ViewportClient->GetCameraTransform().GetLocation();
+			return FConsoleCommandResult::Success(std::format("Editor camera position: {:.3f} {:.3f} {:.3f}", Location.x, Location.y, Location.z));
+		}});
+		RegisterCommand({"viewport.camera.position", "Gets or sets the editor camera world position.", "viewport.camera.position [x y z]", [this](std::span<const std::string> Args) {
+			if (ViewportClient == nullptr || (!Args.empty() && Args.size() != 3)) return FConsoleCommandResult::Failure("Usage: viewport.camera.position [x y z]");
+			if (!Args.empty())
+			{
+				FVector3 Location(0.0);
+				for (size_t Index = 0; Index < Args.size(); ++Index)
+				{
+					float Value = 0.0f;
+					if (!TryParseFloat(Args[Index], Value)) return FConsoleCommandResult::Failure("Camera position values must be finite numbers.");
+					Location[Index] = static_cast<FReal>(Value);
+				}
+				ViewportClient->SetCameraLocation(Location);
+			}
+			const FVector3& Location = ViewportClient->GetCameraTransform().GetLocation();
+			return FConsoleCommandResult::Success(std::format("Editor camera position: {:.3f} {:.3f} {:.3f}", Location.x, Location.y, Location.z));
+		}});
 	}
 
 	auto FSceneViewportPanel::CaptureCameraState(DLevel* Level, FLevelViewportCameraState& OutState) const -> bool
@@ -130,6 +186,16 @@ namespace Durin::Editor::Level
 	auto FSceneViewportPanel::SetGridVisible(bool bVisible) -> void
 	{
 		if (ViewportClient != nullptr) ViewportClient->SetGridVisible(bVisible);
+	}
+
+	auto FSceneViewportPanel::GetCameraMovementSpeed() const -> float
+	{
+		return ViewportClient != nullptr ? ViewportClient->GetMovementSpeed() : 5.0f;
+	}
+
+	auto FSceneViewportPanel::SetCameraMovementSpeed(float Speed) -> void
+	{
+		if (ViewportClient != nullptr) ViewportClient->SetMovementSpeed(Speed);
 	}
 
 	auto FSceneViewportPanel::FocusActor(const AActor* Actor) -> void
@@ -349,6 +415,7 @@ namespace Durin::Editor::Level
 				ViewportToolbar->Draw(Context, ViewportClient.get(), &EditModeManager, PreferredPlayStartLocation, PreferredPlayDestination, ToolbarLayout);
 				DrawCameraPreview(VpMin, VpMax);
 				DrawViewportOrientationOverlay(ViewportClient.get(), VpMin, VpMax);
+				DrawViewportCameraSpeedOverlay(ViewportClient.get(), VpMin, VpMax);
 				DrawViewportFPSOverlay(VpMin, VpMax);
 				if (Context.bReadOnly)
 				{

@@ -45,7 +45,12 @@ namespace Durin::Editor::Level
 		GizmoTranslationSnap = static_cast<float>(Gizmo.GetView("TranslationSnap").GetDouble(0.5));
 		GizmoRotationSnap = static_cast<float>(Gizmo.GetView("RotationSnap").GetDouble(15.0));
 		GizmoScaleSnap = static_cast<float>(Gizmo.GetView("ScaleSnap").GetDouble(0.1));
-		bShowWorldGrid = Root.GetView("SceneViewport").GetView("ShowWorldGrid").GetBool(true);
+		const FYamlNodeView SceneViewport = Root.GetView("SceneViewport");
+		bShowWorldGrid = SceneViewport.GetView("ShowWorldGrid").GetBool(true);
+		const double LoadedCameraMovementSpeed = SceneViewport.GetView("CameraMovementSpeed").GetDouble(5.0);
+		CameraMovementSpeed = std::isfinite(LoadedCameraMovementSpeed)
+			? static_cast<float>(std::clamp(LoadedCameraMovementSpeed, 0.05, 10000.0))
+			: 5.0f;
 
 		const FYamlNodeView ContentBrowser = Root.GetView("ContentBrowser");
 		ContentBrowserViewMode = static_cast<uint8>(std::clamp<int64>(ContentBrowser.GetView("ViewMode").GetInt(0), 0, 1));
@@ -117,6 +122,7 @@ namespace Durin::Editor::Level
 		}
 		FYamlNodeRef SceneViewportNode = Root.AddMap("SceneViewport");
 		SceneViewportNode.SetChildValue("ShowWorldGrid", SceneViewportPanel ? SceneViewportPanel->IsGridVisible() : bShowWorldGrid);
+		SceneViewportNode.SetChildValue("CameraMovementSpeed", static_cast<double>(SceneViewportPanel ? SceneViewportPanel->GetCameraMovementSpeed() : CameraMovementSpeed));
 
 		FYamlNodeRef ContentBrowserNode = Root.AddMap("ContentBrowser");
 		ContentBrowserNode.SetChildValue("ViewMode", static_cast<int64>(ContentBrowserViewMode));
@@ -146,6 +152,7 @@ namespace Durin::Editor::Level
 			Gizmo->GetSnapSettings() = {bGizmoSnapEnabled, GizmoTranslationSnap, GizmoRotationSnap, GizmoScaleSnap};
 		}
 		SceneViewportPanel.SetGridVisible(bShowWorldGrid);
+		SceneViewportPanel.SetCameraMovementSpeed(CameraMovementSpeed);
 	}
 
 	auto FLevelEditorSessionSettings::CaptureViewportState(const FLevelEditorContext& Context, const FSceneViewportPanel& SceneViewportPanel) -> void

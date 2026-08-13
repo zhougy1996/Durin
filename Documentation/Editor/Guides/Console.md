@@ -34,6 +34,9 @@ commands:
 | --- | --- | --- |
 | `help` | `help [command]` | Lists every registered command, or shows the description and usage of one command. |
 | `clear` | `clear` | Clears records displayed in the Console. It does not delete or truncate the log file. |
+| `viewport.camera.speed` | `viewport.camera.speed [unitsPerSecond]` | Queries or sets the editor viewport fly speed. |
+| `viewport.camera.move` | `viewport.camera.move <forward> [right] [up]` | Moves the editor camera along its local axes. |
+| `viewport.camera.position` | `viewport.camera.position [x y z]` | Queries or sets the editor camera world position. |
 
 Other runtime or editor modules may register commands while they are loaded.
 Use `help` in the Console for the authoritative list available in the current

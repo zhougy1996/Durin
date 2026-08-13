@@ -23,6 +23,16 @@ Hold the right mouse button to enter free-fly navigation:
 
 Movement keys can be combined. For example, holding `W` and `D` moves the view forward and to the right.
 
+The current speed appears at the bottom of the viewport while free-fly navigation is active. Open the viewport settings menu at the left side of the toolbar to enter an exact speed or choose a preset. The selected speed is restored in later editor sessions.
+
+For large coordinate changes, the editor Console also provides:
+
+| Command | Action |
+| --- | --- |
+| `viewport.camera.speed [unitsPerSecond]` | Query or set the free-fly speed. |
+| `viewport.camera.move <forward> [right] [up]` | Move by local camera-axis distances. |
+| `viewport.camera.position [x y z]` | Query or set the absolute world position. |
+
 Starting a right-drag in the Scene Viewport also dismisses an open popup menu and returns focus to the viewport, so camera navigation continues with the same gesture.
 
 ## Orbit, Pan, And Dolly

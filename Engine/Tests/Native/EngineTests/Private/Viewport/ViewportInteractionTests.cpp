@@ -211,6 +211,36 @@ TEST(FLevelEditorViewportClientTests, CapsFlyMovementAcrossAnAbnormallyLongFrame
 	EXPECT_LE(Distance, 5.0 / 30.0);
 }
 
+TEST(FLevelEditorViewportClientTests, AdjustsAndClampsFlySpeed)
+{
+	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	Client.SetMovementSpeed(10.0f);
+	EXPECT_FLOAT_EQ(Client.GetMovementSpeed(), 10.0f);
+	Durin::Editor::Level::FLevelEditorViewportInput Input;
+	Input.bHovered = true;
+	Input.bFocused = true;
+	Input.bRightMousePressed = true;
+	Input.bRightMouseDown = true;
+	Input.MouseWheel = 1.0f;
+	Client.Update(nullptr, nullptr, Input);
+	EXPECT_FLOAT_EQ(Client.GetMovementSpeed(), 12.0f);
+	Client.SetMovementSpeed(-1.0f);
+	EXPECT_FLOAT_EQ(Client.GetMovementSpeed(), 0.05f);
+	Client.SetMovementSpeed(20000.0f);
+	EXPECT_FLOAT_EQ(Client.GetMovementSpeed(), 10000.0f);
+}
+
+TEST(FLevelEditorViewportClientTests, SupportsDirectLocalAndWorldCameraMovement)
+{
+	Durin::Editor::Level::FLevelEditorViewportClient Client;
+	const Durin::FVector3 InitialLocation = Client.GetCameraTransform().GetLocation();
+	const Durin::FVector3 Forward = Client.GetCameraTransform().GetForwardVector();
+	Client.MoveCameraLocal({25.0, 0.0, 0.0});
+	ExpectVectorNear(Client.GetCameraTransform().GetLocation(), InitialLocation + Forward * 25.0);
+	Client.SetCameraLocation({100.0, 200.0, 300.0});
+	ExpectVectorNear(Client.GetCameraTransform().GetLocation(), {100.0, 200.0, 300.0});
+}
+
 TEST(FLevelEditorViewportClientTests, PicksVisualizerForActorWithoutStaticMesh)
 {
 	InitializeDObjectSystem();

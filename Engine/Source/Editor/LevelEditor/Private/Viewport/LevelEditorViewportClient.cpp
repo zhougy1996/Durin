@@ -311,6 +311,32 @@ namespace Durin::Editor::Level
 		InvalidatePreparedSceneView();
 	}
 
+	auto FLevelEditorViewportClient::SetMovementSpeed(float Speed) -> void
+	{
+		if (!std::isfinite(Speed)) return;
+		MovementSpeed = std::clamp(Speed, kMinMovementSpeed, kMaxMovementSpeed);
+	}
+
+	auto FLevelEditorViewportClient::SetCameraLocation(const FVector3& WorldLocation) -> void
+	{
+		if (!Math::IsFinite(WorldLocation)) return;
+		FLevelViewportCameraState State = CameraTransform.GetState();
+		const FVector3 Delta = WorldLocation - State.Location;
+		State.Location = WorldLocation;
+		State.OrbitPivot += Delta;
+		CameraTransform.SetState(State);
+		ResetFlyMotion();
+		InvalidatePreparedSceneView();
+	}
+
+	auto FLevelEditorViewportClient::MoveCameraLocal(const FVector3& LocalDelta) -> void
+	{
+		if (!Math::IsFinite(LocalDelta)) return;
+		CameraTransform.MoveLocal(LocalDelta);
+		ResetFlyMotion();
+		InvalidatePreparedSceneView();
+	}
+
 	auto FLevelEditorViewportClient::AppendSelectionBounds(FSceneView& View) const -> void
 	{
 		for (const TObjectPtr<AActor>& ActorPtr : SelectedActors)

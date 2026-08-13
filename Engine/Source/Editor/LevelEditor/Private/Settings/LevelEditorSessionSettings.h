@@ -56,6 +56,7 @@ namespace Durin::Editor::Level
 		uint8 GizmoMode = 0;
 		uint8 GizmoSpace = 0;
 		bool bShowWorldGrid = true;
+		float CameraMovementSpeed = 5.0f;
 		uint8 ContentBrowserViewMode = 0;
 		float ContentBrowserIconSize = DefaultContentBrowserIconSize;
 		bool bContentBrowserIconSizeLocked = false;

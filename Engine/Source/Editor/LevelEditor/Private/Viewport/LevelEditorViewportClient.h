@@ -75,6 +75,11 @@ namespace Durin::Editor::Level
 		auto InitializeForLevel(DLevel* Level, const FLevelViewportCameraState* SavedState = nullptr) -> void;
 		auto GetViewMatrix() const -> FMatrix { return CameraTransform.GetViewMatrix(); }
 		auto GetCameraTransform() const -> const FViewportCameraTransform& { return CameraTransform; }
+		auto GetMovementSpeed() const -> float { return MovementSpeed; }
+		auto SetMovementSpeed(float Speed) -> void;
+		auto SetCameraLocation(const FVector3& WorldLocation) -> void;
+		auto MoveCameraLocal(const FVector3& LocalDelta) -> void;
+		auto IsFlyNavigating() const -> bool { return bFlyNavigation; }
 		auto GetCurrentLevel() const -> DLevel* { return CurrentLevel; }
 		auto BuildPickingRay(const FVector2f& ViewportPosition, const FVector2f& ViewportSize, FVector3& OutOrigin, FVector3& OutDirection) const -> bool;
 		auto SubmitViewportPick(DLevel* Level, const FSceneView& View, const FVector2f& ViewportPosition,
