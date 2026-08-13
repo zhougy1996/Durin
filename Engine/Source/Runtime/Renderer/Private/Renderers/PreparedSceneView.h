@@ -40,9 +40,12 @@ namespace Durin
 		FSceneView View;
 		FPreparedLightView Lights;
 		FPreparedDirectionalShadowView DirectionalShadow;
-		FPreparedStaticMeshView ShadowStaticMeshes;
-		FPreparedSkeletalMeshView ShadowSkeletalMeshes;
-		FPreparedTerrainView ShadowTerrains;
+		std::array<FPreparedStaticMeshView,
+			DirectionalShadowCascadeCount> ShadowStaticMeshes;
+		std::array<FPreparedSkeletalMeshView,
+			DirectionalShadowCascadeCount> ShadowSkeletalMeshes;
+		std::array<FPreparedTerrainView,
+			DirectionalShadowCascadeCount> ShadowTerrains;
 		FRHIUniformBufferRange LightingUniformBuffer;
 		FSkyBoxSceneData SkyBox;
 		bool bHasSkyBox = false;

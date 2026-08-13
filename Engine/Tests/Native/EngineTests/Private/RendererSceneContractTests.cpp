@@ -139,6 +139,8 @@ TEST(FRendererSceneContractTests,
 	Durin::FSceneView View;
 	View.ProjectionMatrix = MakePerspectiveProjection();
 	View.ViewProjectionMatrix = View.ProjectionMatrix;
+	View.Settings.DirectionalShadowCandidate =
+		Durin::EDirectionalShadowCandidate::SingleMap;
 	View.ViewportWidth = 1920;
 	View.ViewportHeight = 1080;
 	Durin::FViewRenderCounters CameraCounters;
@@ -154,13 +156,15 @@ TEST(FRendererSceneContractTests,
 	ASSERT_TRUE(Durin::TryPrepareDirectionalShadowView(
 		View, Durin::FLightSceneId(8), Light, Shadow));
 	const Durin::FDirectionalShadowCasterCandidates Casters =
-		Durin::PrepareDirectionalShadowCasterCandidates(Scene, Shadow);
+		Durin::PrepareDirectionalShadowCasterCandidates(
+			Scene, Shadow.Cascades[0]);
 	ASSERT_EQ(Casters.StaticMeshes.size(), 2u);
 	EXPECT_EQ(Casters.StaticMeshes[0]->GetId().Value, 1u);
 	EXPECT_EQ(Casters.StaticMeshes[1]->GetId().Value, 2u);
 	EXPECT_EQ(Casters.Culled, 1u);
 	const Durin::FDirectionalShadowCasterCandidates Comparison =
-		Durin::PrepareDirectionalShadowCasterCandidates(Scene, Shadow, true);
+		Durin::PrepareDirectionalShadowCasterCandidates(
+			Scene, Shadow.Cascades[0], true);
 	EXPECT_EQ(Comparison.StaticMeshes.size(), 3u);
 	Scene.Release();
 	Durin::FlushRenderingCommands();

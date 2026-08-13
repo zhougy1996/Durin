@@ -53,7 +53,7 @@ spot submitted = rejected + frustum culled + selected + overflow
 
 ## Fixed forward ABI
 
-One view allocates one 16-byte-aligned, 320-byte dynamic uniform range. StaticMesh
+One view allocates one 16-byte-aligned, 768-byte dynamic uniform range. StaticMesh
 and SkeletalMesh opaque, masked, and translucent draws bind the same range.
 
 | Field | Layout | Bytes |
@@ -61,10 +61,11 @@ and SkeletalMesh opaque, masked, and translucent draws bind the same range.
 | View position | `float4` | 16 |
 | Counts | `uint4` (`x` directional, `y` local) | 16 |
 | Directional record | direction `float4`, color/intensity `float4` | 32 |
+| Directional shadow record | control, depth/splits/transition, three matrix/bias/filter/valid-region cascade records | 448 |
 | Four local records | position/inverse-range, direction/type, color/intensity, spot terms; four `float4` each | 256 |
-| Total | 16-byte aligned | 320 |
+| Total | 16-byte aligned | 768 |
 
-The Vulkan dynamic-upload page is 4 MiB, leaving 4,193,984 bytes after one
+The Vulkan dynamic-upload page is 4 MiB, leaving 4,193,536 bytes after one
 lighting payload before alignment and other allocations. A null or wrong-sized
 range fails the view before Scene Color; there is no previous-view fallback or
 persistent lighting resource.

@@ -419,6 +419,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 				View.ViewportWidth = 33;
 				View.ViewportHeight = 33;
 				View.Settings.RenderMode = Durin::ERenderMode::Lit;
+				View.Settings.DirectionalShadowCandidate =
+					Durin::EDirectionalShadowCandidate::SingleMap;
 				View.Settings.VisibilityMode =
 					Durin::EViewVisibilityMode::FrustumCullingDisabled;
 				EXPECT_EQ(Renderer.RenderView(
@@ -586,6 +588,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			bool bEnabled,
 			Durin::EDirectionalShadowDiagnosticMode DiagnosticMode,
 			Durin::EDirectionalShadowFilterQuality FilterQuality,
+			Durin::EDirectionalShadowCandidate Candidate,
 			const char* TargetName) {
 			Directional.bCastShadows = bEnabled;
 			Scene.AddOrReplaceLight(Durin::FLightSceneId(10),
@@ -598,7 +601,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			Durin::SetSceneColorTimingQuerySink(CaptureSceneColorTiming);
 			Durin::SetShadowDepthTimingQuerySink(CaptureShadowDepthTiming);
 			Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
-				[&Renderer, &Scene, DiagnosticMode, FilterQuality, TargetName](
+				[&Renderer, &Scene, DiagnosticMode, FilterQuality, Candidate, TargetName](
 					Durin::FRHICommandListImmediate& CommandList) {
 					const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
 						TargetName, 1920, 1080, Durin::EPixelFormat::SRGBA8_UNORM)
@@ -620,6 +623,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 					View.Settings.RenderMode = Durin::ERenderMode::Lit;
 					View.Settings.DirectionalShadowDiagnosticMode = DiagnosticMode;
 					View.Settings.DirectionalShadowFilterQuality = FilterQuality;
+					View.Settings.DirectionalShadowCandidate = Candidate;
 					View.Settings.VisibilityMode =
 						Durin::EViewVisibilityMode::FrustumCullingDisabled;
 					for (Durin::uint32 Frame = 0;
@@ -681,23 +685,39 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		const auto DisabledShadow = ProfileShadowTier(
 			false, Durin::EDirectionalShadowDiagnosticMode::Lit,
 			Durin::EDirectionalShadowFilterQuality::Low,
+			Durin::EDirectionalShadowCandidate::SingleMap,
 			"ShadowDisabledProfile");
+		const auto SingleMediumShadow = ProfileShadowTier(
+			true, Durin::EDirectionalShadowDiagnosticMode::Lit,
+			Durin::EDirectionalShadowFilterQuality::Medium,
+			Durin::EDirectionalShadowCandidate::SingleMap,
+			"ShadowSingleMediumProfile");
 		const auto LowShadow = ProfileShadowTier(
 			true, Durin::EDirectionalShadowDiagnosticMode::Lit,
 			Durin::EDirectionalShadowFilterQuality::Low,
+			Durin::EDirectionalShadowCandidate::ThreeCascades,
 			"ShadowLowProfile");
 		const auto MediumShadow = ProfileShadowTier(
 			true, Durin::EDirectionalShadowDiagnosticMode::Lit,
 			Durin::EDirectionalShadowFilterQuality::Medium,
+			Durin::EDirectionalShadowCandidate::ThreeCascades,
 			"ShadowMediumProfile");
 		const auto HighShadow = ProfileShadowTier(
 			true, Durin::EDirectionalShadowDiagnosticMode::Lit,
 			Durin::EDirectionalShadowFilterQuality::High,
+			Durin::EDirectionalShadowCandidate::ThreeCascades,
 			"ShadowHighProfile");
 		const auto DiagnosticShadow = ProfileShadowTier(
 			true, Durin::EDirectionalShadowDiagnosticMode::FilterDifference,
 			Durin::EDirectionalShadowFilterQuality::Medium,
+			Durin::EDirectionalShadowCandidate::ThreeCascades,
 			"ShadowFilterDiagnosticProfile");
+		const Durin::uint64 SingleCombined =
+			SingleMediumShadow.first + SingleMediumShadow.second;
+		const Durin::uint64 CandidateCombined =
+			MediumShadow.first + MediumShadow.second;
+		const Durin::uint64 CascadeIncrement = CandidateCombined > SingleCombined
+			? CandidateCombined - SingleCombined : 0;
 		const Durin::uint64 SceneIncrement = LowShadow.first
 			> DisabledShadow.first ? LowShadow.first - DisabledShadow.first : 0;
 		const Durin::uint64 CombinedIncrement =
@@ -731,12 +751,16 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			<< " ns, medium-shadow-depth=" << MediumShadow.second
 			<< " ns, high-shadow-depth=" << HighShadow.second
 			<< " ns, diagnostic-scene=" << DiagnosticShadow.first
-			<< " ns, diagnostic-increment=" << DiagnosticIncrement << " ns\n";
+			<< " ns, diagnostic-increment=" << DiagnosticIncrement
+			<< " ns, single-medium-combined=" << SingleCombined
+			<< " ns, cascade-medium-combined=" << CandidateCombined
+			<< " ns, cascade-increment=" << CascadeIncrement << " ns\n";
 		EXPECT_LE(CombinedIncrement, 2'000'000u);
 		EXPECT_LE(MediumSceneIncrement, 200'000u);
 		EXPECT_LE(HighSceneIncrement, 400'000u);
 		EXPECT_LE(MediumShadowDepthRegression, 20'000u);
 		EXPECT_LE(HighShadowDepthRegression, 20'000u);
+		EXPECT_LE(CascadeIncrement, 1'000'000u);
 	}
 	auto TranslatedPose = std::make_shared<Durin::FSkeletalPosePalette>(*Pose);
 	TranslatedPose->Revision = 2;

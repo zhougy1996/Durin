@@ -1177,7 +1177,9 @@ namespace Durin::VulkanRHI
 		ASSERT_NE(Capabilities, nullptr);
 		EXPECT_EQ(Capabilities->FeatureLevel, ERHIFeatureLevel::ES3_1);
 		EXPECT_EQ(Capabilities->SupportedTextureDimensions,
-			ERHITextureDimensionFlags::Texture2D | ERHITextureDimensionFlags::TextureCube);
+			ERHITextureDimensionFlags::Texture2D
+				| ERHITextureDimensionFlags::Texture2DArray
+				| ERHITextureDimensionFlags::TextureCube);
 		EXPECT_GE(Capabilities->MaxTextureDimension2D, 1u);
 		EXPECT_GE(Capabilities->MaxTextureDimensionCube, 1u);
 		EXPECT_GE(Capabilities->MaxTextureArrayLayers,
@@ -1198,12 +1200,16 @@ namespace Durin::VulkanRHI
 		FRHITextureCreateDesc TextureCube = FRHITextureCreateDesc::CreateCube(
 			"SupportedCube").SetExtent(4).SetFormat(EPixelFormat::RGBA8_UNORM)
 			.SetFlags(ETextureCreateFlags::ShaderResource);
+		FRHITextureCreateDesc Texture2DArray =
+			FRHITextureCreateDesc::Create2DArray("Supported2DArray")
+				.SetExtent(4, 4).SetArraySize(3)
+				.SetFormat(EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::ShaderResource);
 		EXPECT_TRUE(GDynamicRHI->RHIIsTextureSupported(Texture2D));
+		EXPECT_TRUE(GDynamicRHI->RHIIsTextureSupported(Texture2DArray));
 		EXPECT_TRUE(GDynamicRHI->RHIIsTextureSupported(TextureCube));
 
 		const std::array DeferredDescriptions{
-			FRHITextureCreateDesc::Create2DArray("Deferred2DArray")
-				.SetArraySize(2).SetFormat(EPixelFormat::RGBA8_UNORM),
 			FRHITextureCreateDesc::Create3D("Deferred3D")
 				.SetDepth(4).SetFormat(EPixelFormat::RGBA8_UNORM),
 			FRHITextureCreateDesc::CreateCubeArray("DeferredCubeArray")
@@ -1226,10 +1232,14 @@ namespace Durin::VulkanRHI
 		EXPECT_FALSE(GDynamicRHI->RHIIsTextureSupported(Oversized));
 
 		FTextureRHIRef Created2D = GDynamicRHI->RHICreateTexture(RHICmdList, Texture2D);
+		FTextureRHIRef Created2DArray =
+			GDynamicRHI->RHICreateTexture(RHICmdList, Texture2DArray);
 		FTextureRHIRef CreatedCube = GDynamicRHI->RHICreateTexture(RHICmdList, TextureCube);
 		EXPECT_TRUE(Created2D);
+		EXPECT_TRUE(Created2DArray);
 		EXPECT_TRUE(CreatedCube);
 		Created2D = nullptr;
+		Created2DArray = nullptr;
 		CreatedCube = nullptr;
 		RHICmdList.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
 	}

@@ -169,6 +169,8 @@ namespace Durin
 		FSceneView View;
 		View.ProjectionMatrix = MakePerspectiveProjection(90.0, 2.0, 1.0, 11.0);
 		View.ViewProjectionMatrix = View.ProjectionMatrix;
+		View.Settings.DirectionalShadowCandidate =
+			EDirectionalShadowCandidate::SingleMap;
 		View.ViewportWidth = 1920;
 		View.ViewportHeight = 1080;
 		FDirectionalLightSceneData Light;
@@ -179,15 +181,17 @@ namespace Durin
 			View, FLightSceneId(7), Light, Shadow));
 		EXPECT_TRUE(Shadow.bEnabled);
 		EXPECT_EQ(Shadow.LightId.Value, 7u);
-		EXPECT_EQ(Shadow.CasterView.ViewportWidth, DirectionalShadowResolution);
-		EXPECT_EQ(Shadow.CasterView.Settings.RasterMode, ERasterMode::Solid);
-		EXPECT_TRUE(Math::IsFinite(Shadow.WorldToShadowMatrix));
-		EXPECT_GT(Shadow.TexelWorldSize.x, 0.0);
-		EXPECT_GT(Shadow.TexelWorldSize.y, 0.0);
-		for (const FVector3& Corner : Shadow.ReceiverCorners)
+		ASSERT_EQ(Shadow.CascadeCount, 1u);
+		const auto& Cascade = Shadow.Cascades[0];
+		EXPECT_EQ(Cascade.CasterView.ViewportWidth, DirectionalShadowResolution);
+		EXPECT_EQ(Cascade.CasterView.Settings.RasterMode, ERasterMode::Solid);
+		EXPECT_TRUE(Math::IsFinite(Cascade.WorldToShadowMatrix));
+		EXPECT_GT(Cascade.TexelWorldSize.x, 0.0);
+		EXPECT_GT(Cascade.TexelWorldSize.y, 0.0);
+		for (const FVector3& Corner : Cascade.ReceiverCorners)
 		{
 			const FVector4 Projected =
-				Shadow.WorldToShadowMatrix * FVector4(Corner, 1.0);
+				Cascade.WorldToShadowMatrix * FVector4(Corner, 1.0);
 			ASSERT_GT(std::abs(Projected.w), 1.0e-8);
 			const FVector3 Coordinate = FVector3(Projected) / Projected.w;
 			EXPECT_GE(Coordinate.x, -1.0e-9);
@@ -198,12 +202,12 @@ namespace Durin
 			EXPECT_LE(Coordinate.z, 1.0 + 1.0e-9);
 		}
 		EXPECT_EQ(ClassifyDirectionalShadowCasterBounds(
-			Shadow, FBox({2.0, -0.25, -0.25}, {3.0, 0.25, 0.25})),
+			Cascade, FBox({2.0, -0.25, -0.25}, {3.0, 0.25, 0.25})),
 			EDirectionalShadowBoundsClassification::InsideOrIntersecting);
 		EXPECT_EQ(ClassifyDirectionalShadowCasterBounds(
-			Shadow, FBox({2.0, 1000.0, 1000.0}, {3.0, 1001.0, 1001.0})),
+			Cascade, FBox({2.0, 1000.0, 1000.0}, {3.0, 1001.0, 1001.0})),
 			EDirectionalShadowBoundsClassification::Outside);
-		EXPECT_EQ(ClassifyDirectionalShadowCasterBounds(Shadow, FBox{}),
+		EXPECT_EQ(ClassifyDirectionalShadowCasterBounds(Cascade, FBox{}),
 			EDirectionalShadowBoundsClassification::InvalidBoundsFallback);
 	}
 
@@ -213,6 +217,8 @@ namespace Durin
 		FSceneView View;
 		View.ProjectionMatrix = MakeOrthographicProjection(2.0, 1.0, 1.0, 600.0);
 		View.ViewProjectionMatrix = View.ProjectionMatrix;
+		View.Settings.DirectionalShadowCandidate =
+			EDirectionalShadowCandidate::SingleMap;
 		View.ViewportWidth = 800;
 		View.ViewportHeight = 400;
 		FDirectionalLightSceneData Light;
@@ -223,8 +229,9 @@ namespace Durin
 			View, FLightSceneId(1), Light, Shadow));
 		for (uint32 Corner = 0; Corner < 4; ++Corner)
 		{
-			EXPECT_NEAR(Math::Length(Shadow.ReceiverCorners[Corner + 4]
-				- Shadow.ReceiverCorners[Corner]), DirectionalShadowDistance, 1.0e-8);
+			EXPECT_NEAR(Math::Length(Shadow.Cascades[0].ReceiverCorners[Corner + 4]
+				- Shadow.Cascades[0].ReceiverCorners[Corner]),
+				DirectionalShadowDistance, 1.0e-8);
 		}
 		Light.bCastShadows = false;
 		EXPECT_FALSE(TryPrepareDirectionalShadowView(
@@ -248,6 +255,94 @@ namespace Durin
 		EXPECT_EQ(Sampler.BorderColor, ESamplerBorderColor::FloatOpaqueWhite);
 		EXPECT_FLOAT_EQ(Sampler.MinLod, 0.0f);
 		EXPECT_FLOAT_EQ(Sampler.MaxLod, 0.0f);
+	}
+
+	TEST(FRendererSceneViewTests,
+		DirectionalShadowCascadesUseFrozenSplitsOverlapAndSelection)
+	{
+		FSceneView View;
+		View.ProjectionMatrix = MakePerspectiveProjection(90.0, 2.0, 1.0, 600.0);
+		View.ViewProjectionMatrix = View.ProjectionMatrix;
+		View.Settings.DirectionalShadowCandidate =
+			EDirectionalShadowCandidate::ThreeCascades;
+		FDirectionalLightSceneData Light;
+		Light.Direction = {0.0, 0.0, -1.0};
+		FPreparedDirectionalShadowView Shadow;
+		ASSERT_TRUE(TryPrepareDirectionalShadowView(
+			View, FLightSceneId(9), Light, Shadow));
+		ASSERT_EQ(Shadow.CascadeCount, DirectionalShadowCascadeCount);
+		EXPECT_EQ(Shadow.Candidate,
+			EDirectionalShadowCandidate::ThreeCascades);
+		EXPECT_DOUBLE_EQ(Shadow.SplitDepths[0], 1.0);
+		EXPECT_DOUBLE_EQ(Shadow.SplitDepths[3], DirectionalShadowDistance);
+		for (uint32 Boundary = 1; Boundary < 3; ++Boundary)
+		{
+			const double P = static_cast<double>(Boundary) / 3.0;
+			const double Expected = DirectionalShadowSplitLambda
+				* std::pow(DirectionalShadowDistance, P)
+				+ (1.0 - DirectionalShadowSplitLambda)
+					* (1.0 + (DirectionalShadowDistance - 1.0) * P);
+			EXPECT_NEAR(Shadow.SplitDepths[Boundary], Expected, 1.0e-10);
+			EXPECT_LT(Shadow.SplitDepths[Boundary - 1],
+				Shadow.SplitDepths[Boundary]);
+		}
+		for (uint32 CascadeIndex = 0;
+			CascadeIndex < DirectionalShadowCascadeCount; ++CascadeIndex)
+		{
+			const auto& Cascade = Shadow.Cascades[CascadeIndex];
+			EXPECT_TRUE(Cascade.bEnabled);
+			EXPECT_EQ(Cascade.Layer, CascadeIndex);
+			EXPECT_GT(Cascade.TexelWorldSize.x, 0.0);
+			EXPECT_GT(Cascade.TexelWorldSize.y, 0.0);
+			EXPECT_EQ(Cascade.Filter.ComparisonOperations, 9u);
+			EXPECT_EQ(Cascade.Filter.GuardTexels, 2u);
+		}
+
+		const auto& Mid = Shadow.Cascades[1];
+		const double TransitionMiddle =
+			(Mid.TransitionStartDepth + Mid.NearDepth) * 0.5;
+		uint32 Selected = 0;
+		uint32 Near = 0;
+		double Weight = 0.0;
+		ASSERT_TRUE(SelectDirectionalShadowCascade(
+			Shadow, TransitionMiddle, Selected, Near, Weight));
+		EXPECT_EQ(Near, 0u);
+		EXPECT_EQ(Selected, 1u);
+		EXPECT_NEAR(Weight, 0.5, 1.0e-12);
+		ASSERT_TRUE(SelectDirectionalShadowCascade(
+			Shadow, Shadow.SplitDepths[2] + 1.0, Selected, Near, Weight));
+		EXPECT_EQ(Selected, 2u);
+		EXPECT_EQ(Near, 2u);
+		EXPECT_DOUBLE_EQ(Weight, 0.0);
+		EXPECT_FALSE(SelectDirectionalShadowCascade(
+			Shadow, DirectionalShadowDistance + 1.0, Selected, Near, Weight));
+	}
+
+	TEST(FRendererSceneViewTests,
+		DirectionalShadowOrthographicSplitsAreUniformAndInvalidIdentityFallsBack)
+	{
+		FSceneView View;
+		View.ProjectionMatrix = MakeOrthographicProjection(2.0, 1.0, 1.0, 600.0);
+		View.ViewProjectionMatrix = View.ProjectionMatrix;
+		View.Settings.DirectionalShadowCandidate =
+			static_cast<EDirectionalShadowCandidate>(255);
+		FDirectionalLightSceneData Light;
+		Light.Direction = {0.0, -1.0, -1.0};
+		FPreparedDirectionalShadowView Single;
+		ASSERT_TRUE(TryPrepareDirectionalShadowView(
+			View, FLightSceneId(11), Light, Single));
+		EXPECT_EQ(Single.Candidate, EDirectionalShadowCandidate::SingleMap);
+		EXPECT_EQ(Single.CascadeCount, 1u);
+
+		View.Settings.DirectionalShadowCandidate =
+			EDirectionalShadowCandidate::ThreeCascades;
+		FPreparedDirectionalShadowView Cascaded;
+		ASSERT_TRUE(TryPrepareDirectionalShadowView(
+			View, FLightSceneId(11), Light, Cascaded));
+		EXPECT_DOUBLE_EQ(Cascaded.SplitDepths[0], 1.0);
+		EXPECT_DOUBLE_EQ(Cascaded.SplitDepths[1], 86.0);
+		EXPECT_DOUBLE_EQ(Cascaded.SplitDepths[2], 171.0);
+		EXPECT_DOUBLE_EQ(Cascaded.SplitDepths[3], 256.0);
 	}
 
 	TEST(FRendererSceneViewTests,
@@ -304,16 +399,17 @@ namespace Durin
 		const FForwardLightingUniform Enabled = BuildForwardLightingUniform(
 			Lights, View, &Shadow);
 		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Control.x, 1.0f);
-		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.TexelBias.z,
-			Shadow.Bias.ReceiverWorld);
-		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Filter.x,
+		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Cascades[0].TexelBias.z,
+			Shadow.Cascades[0].Bias.ReceiverWorld);
+		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Cascades[0].Filter.x,
 			1.0f / static_cast<float>(DirectionalShadowResolution));
-		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Filter.y,
+		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Cascades[0].Filter.y,
 			1.0f / static_cast<float>(DirectionalShadowResolution));
-		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Filter.z,
+		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Cascades[0].Filter.z,
 			static_cast<float>(EDirectionalShadowFilterQuality::Medium));
-		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Filter.w, 1.5f);
-		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.LightBounds.w, 2.0f);
+		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Cascades[0].Filter.w, 1.5f);
+		EXPECT_FLOAT_EQ(Enabled.DirectionalShadow.Cascades[0].ValidRegion.x,
+			2.0f / static_cast<float>(DirectionalShadowResolution));
 
 		Shadow.LightId = FLightSceneId(5);
 		const FForwardLightingUniform Mismatch = BuildForwardLightingUniform(
@@ -452,13 +548,17 @@ namespace Durin
 		ASSERT_TRUE(TryPrepareDirectionalShadowView(
 			View, FLightSceneId(1), Light, Invalid));
 
-		EXPECT_EQ(High.Filter.Quality, EDirectionalShadowFilterQuality::High);
-		EXPECT_EQ(High.Filter.GuardTexels, 3u);
-		EXPECT_EQ(Low.Filter.Quality, EDirectionalShadowFilterQuality::Low);
-		EXPECT_EQ(Low.Filter.GuardTexels, 2u);
-		EXPECT_EQ(Invalid.Filter.Quality, EDirectionalShadowFilterQuality::Low);
-		EXPECT_TRUE(Invalid.Filter.bUsedInvalidQualityFallback);
-		EXPECT_NE(High.TexelWorldSize, Low.TexelWorldSize);
+		EXPECT_EQ(High.Cascades[0].Filter.Quality,
+			EDirectionalShadowFilterQuality::High);
+		EXPECT_EQ(High.Cascades[0].Filter.GuardTexels, 3u);
+		EXPECT_EQ(Low.Cascades[0].Filter.Quality,
+			EDirectionalShadowFilterQuality::Low);
+		EXPECT_EQ(Low.Cascades[0].Filter.GuardTexels, 2u);
+		EXPECT_EQ(Invalid.Cascades[0].Filter.Quality,
+			EDirectionalShadowFilterQuality::Low);
+		EXPECT_TRUE(Invalid.Cascades[0].Filter.bUsedInvalidQualityFallback);
+		EXPECT_NE(High.Cascades[0].TexelWorldSize,
+			Low.Cascades[0].TexelWorldSize);
 	}
 
 	TEST(FRendererSceneViewTests, FrustumGoldensKeepContactAndRejectOnlyFullyOutsideBounds)

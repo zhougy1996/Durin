@@ -72,6 +72,27 @@ namespace Durin
 			return Texture;
 		}
 
+		auto CreateSolidArrayTexture(
+			FRHICommandListImmediate& CommandList,
+			const char* DebugName) -> FTextureRHIRef
+		{
+			FRHITextureCreateDesc Desc =
+				FRHITextureCreateDesc::Create2DArray(DebugName)
+					.SetExtent(1)
+					.SetArraySize(3)
+					.SetFormat(EPixelFormat::RGBA8_UNORM)
+					.SetFlags(ETextureCreateFlags::ShaderResource);
+			FTextureRHIRef Texture =
+				GDynamicRHI->RHICreateTexture(CommandList, Desc);
+			if (Texture != nullptr)
+			{
+				const std::array Transition{FRHITextureTransition::Whole(
+					Texture, ERHIAccess::Discard, ERHIAccess::GraphicsShaderRead)};
+				CommandList.TransitionTextures(Transition);
+			}
+			return Texture;
+		}
+
 		auto CreateFlatNormalTexture(
 			FRHICommandListImmediate& CommandList) -> FTextureRHIRef
 		{
@@ -119,9 +140,12 @@ namespace Durin
 				Candidate.FlatNormal = CreateFlatNormalTexture(CommandList);
 				Candidate.BlackCube = CreateSolidCubeTexture(
 					CommandList, "DefaultBlackCube", {0, 0, 0, 255});
+				Candidate.WhiteArray = CreateSolidArrayTexture(
+					CommandList, "DefaultWhiteArray");
 				if (Candidate.White == nullptr || Candidate.Black == nullptr
 					|| Candidate.FlatNormal == nullptr
-					|| Candidate.BlackCube == nullptr)
+					|| Candidate.BlackCube == nullptr
+					|| Candidate.WhiteArray == nullptr)
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::RHIResource,
@@ -156,6 +180,13 @@ namespace Durin
 		check(IsInRenderingThread());
 		const FPayload* Payload = Slot.GetPayload();
 		return Payload != nullptr ? Payload->BlackCube.GetReference() : nullptr;
+	}
+
+	auto FDefaultTextureResources::GetArray_RenderThread() const -> FRHITexture*
+	{
+		check(IsInRenderingThread());
+		const FPayload* Payload = Slot.GetPayload();
+		return Payload != nullptr ? Payload->WhiteArray.GetReference() : nullptr;
 	}
 
 	auto FDefaultTextureResources::ReleaseResources_RenderThread() -> void
@@ -202,5 +233,11 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		return GetDefaultTextureResources().GetCube_RenderThread();
+	}
+
+	auto GetDefaultArrayTexture_RenderThread() -> FRHITexture*
+	{
+		check(IsInRenderingThread());
+		return GetDefaultTextureResources().GetArray_RenderThread();
 	}
 } // namespace Durin

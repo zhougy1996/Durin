@@ -32,6 +32,30 @@ namespace Durin
 			EPrimitiveVisibilityClassification::Invalid;
 	};
 
+	// Reconciles one cascade's independent caster, draw, and fitting outcomes.
+	struct FDirectionalShadowCascadeCounters
+	{
+		double NearDepth = 0.0;
+		double FarDepth = 0.0;
+		double TransitionStartDepth = 0.0;
+		double TexelWorldSizeX = 0.0;
+		double TexelWorldSizeY = 0.0;
+		size_t SubmittedCasters = 0;
+		size_t HiddenCasters = 0;
+		size_t CulledCasters = 0;
+		size_t InvalidBoundsFallbacks = 0;
+		size_t PreparedStaticMeshCasters = 0;
+		size_t PreparedSplineMeshCasters = 0;
+		size_t PreparedSkeletalMeshCasters = 0;
+		size_t PreparedTerrainCasters = 0;
+		size_t PreparedTriangles = 0;
+		size_t AttemptedDraws = 0;
+		size_t SuccessfulDraws = 0;
+		size_t RejectedDraws = 0;
+		size_t ComparisonOperations = 0;
+		size_t GuardTexels = 0;
+	};
+
 	struct FViewRenderCounters
 	{
 		size_t SubmittedPrimitives = 0;
@@ -101,6 +125,11 @@ namespace Durin
 		size_t OverflowSpotLights = 0;
 		size_t PackedLightBytes = 0;
 		size_t ShadowSelectedLights = 0;
+		EDirectionalShadowCandidate ShadowCandidate =
+			EDirectionalShadowCandidate::SingleMap;
+		size_t ShadowCascadeCount = 0;
+		std::array<FDirectionalShadowCascadeCounters, 3>
+			ShadowCascades{};
 		size_t ShadowValidReceiverViews = 0;
 		size_t ShadowInvalidReceiverViews = 0;
 		size_t ShadowSubmittedCasters = 0;
@@ -111,6 +140,7 @@ namespace Durin
 		size_t ShadowPreparedSplineMeshCasters = 0;
 		size_t ShadowPreparedSkeletalMeshCasters = 0;
 		size_t ShadowPreparedTerrainCasters = 0;
+		size_t ShadowPreparedTriangles = 0;
 		size_t ShadowResourceAttempts = 0;
 		size_t ShadowResourceSuccesses = 0;
 		size_t ShadowResourceFailures = 0;
@@ -127,6 +157,7 @@ namespace Durin
 			static_cast<size_t>(EDirectionalShadowFilterQuality::Count)>
 			ShadowQualityViews{};
 		size_t ShadowComparisonOperations = 0;
+		size_t ShadowTransitionComparisonOperations = 0;
 		size_t ShadowGuardTexels = 0;
 		size_t ShadowInvalidQualityFallbacks = 0;
 		size_t ShadowBiasFallbacks = 0;

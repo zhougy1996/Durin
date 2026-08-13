@@ -6,6 +6,15 @@ public struct FDirectionalShadowSample
     public float3 diagnosticColor;
 };
 
+public struct FDirectionalShadowCascadeUniform
+{
+    public float4x4 WorldToShadow;
+    public float4 TexelBias;
+    public float4 RasterBias;
+    public float4 Filter;
+    public float4 ValidRegion;
+};
+
 float3 ProjectShadow(float3 worldPosition, float4x4 worldToShadow)
 {
     float4 projected = mul(worldToShadow, float4(worldPosition, 1.0));
@@ -25,7 +34,9 @@ bool IsValidShadowCoordinate(float3 coordinate)
 float SampleDirectionalShadowKernel(
     float3 coordinate,
     float4 filter,
-    Texture2D<float> shadowTexture,
+    float4 validRegion,
+    uint layer,
+    Texture2DArray<float> shadowTexture,
     SamplerComparisonState shadowSampler,
     out float validWeight)
 {
@@ -53,12 +64,12 @@ float SampleDirectionalShadowKernel(
             float2 tap = coordinate.xy + float2(x, y) * filter.xy;
             float2 halfTexel = filter.xy * 0.5;
             bool tapValid = all(isfinite(tap))
-                && all(tap >= halfTexel)
-                && all(tap <= 1.0 - halfTexel);
+                && all(tap >= max(halfTexel, validRegion.xy))
+                && all(tap <= min(1.0 - halfTexel, validRegion.zw));
             if (tapValid)
             {
                 accumulated += weight * shadowTexture.SampleCmpLevelZero(
-                    shadowSampler, tap, coordinate.z);
+                    shadowSampler, float3(tap, float(layer)), coordinate.z);
                 validWeight += weight;
             }
             else
@@ -69,16 +80,14 @@ float SampleDirectionalShadowKernel(
     return accumulated * normalization;
 }
 
-public FDirectionalShadowSample EvaluateDirectionalShadow(
+FDirectionalShadowSample EvaluateDirectionalShadowCascade(
     float3 worldPosition,
     float3 worldNormal,
-    float4x4 worldToShadow,
     float4 control,
-    float4 texelBias,
-    float4 rasterBias,
-    float4 lightBounds,
-    float4 filter,
-    Texture2D<float> shadowTexture,
+    float3 lightDirection,
+    FDirectionalShadowCascadeUniform cascade,
+    uint layer,
+    Texture2DArray<float> shadowTexture,
     SamplerComparisonState shadowSampler)
 {
     FDirectionalShadowSample result;
@@ -86,6 +95,12 @@ public FDirectionalShadowSample EvaluateDirectionalShadow(
     result.diagnosticColor = float3(1.0);
     if (control.x < 0.5)
         return result;
+    float4x4 worldToShadow = cascade.WorldToShadow;
+    float4 texelBias = cascade.TexelBias;
+    float4 rasterBias = cascade.RasterBias;
+    float4 filter = cascade.Filter;
+    float4 validRegion = cascade.ValidRegion;
+    float4 lightBounds = float4(lightDirection, validRegion.x * 2048.0);
     float3 coordinate = ProjectShadow(worldPosition, worldToShadow);
     if (!IsValidShadowCoordinate(coordinate))
     {
@@ -94,11 +109,12 @@ public FDirectionalShadowSample EvaluateDirectionalShadow(
     }
     uint width;
     uint height;
-    shadowTexture.GetDimensions(width, height);
+    uint layers;
+    shadowTexture.GetDimensions(width, height, layers);
     filter.xy = 1.0 / float2(width, height);
     int2 texel = clamp(int2(coordinate.xy * float2(width, height)),
         int2(0), int2(int(width) - 1, int(height) - 1));
-    float storedDepth = shadowTexture.Load(int3(texel, 0));
+    float storedDepth = shadowTexture.Load(int4(texel, int(layer), 0));
     bool covered = storedDepth < 0.999999;
 	float normalLengthSquared = dot(worldNormal, worldNormal);
 	float lightLengthSquared = dot(lightBounds.xyz, lightBounds.xyz);
@@ -131,7 +147,8 @@ public FDirectionalShadowSample EvaluateDirectionalShadow(
 		: receiverCoordinate;
 	float validTapWeight = 0.0;
 	float finalComparison = SampleDirectionalShadowKernel(
-		finalCoordinate, filter, shadowTexture, shadowSampler, validTapWeight);
+		finalCoordinate, filter, validRegion, layer,
+		shadowTexture, shadowSampler, validTapWeight);
 	result.attenuation = finalComparison;
 
 	bool unbiasedDirect = coordinate.z <= storedDepth;
@@ -142,7 +159,7 @@ public FDirectionalShadowSample EvaluateDirectionalShadow(
 			int2(receiverCoordinate.xy * float2(width, height)),
 			int2(0), int2(int(width) - 1, int(height) - 1));
 		receiverDirect = receiverCoordinate.z
-			<= shadowTexture.Load(int3(receiverTexel, 0));
+			<= shadowTexture.Load(int4(receiverTexel, int(layer), 0));
 	}
 	bool finalDirect = true;
 	if (IsValidShadowCoordinate(finalCoordinate))
@@ -151,7 +168,7 @@ public FDirectionalShadowSample EvaluateDirectionalShadow(
 			int2(finalCoordinate.xy * float2(width, height)),
 			int2(0), int2(int(width) - 1, int(height) - 1));
 		finalDirect = finalCoordinate.z
-			<= shadowTexture.Load(int3(finalTexel, 0));
+			<= shadowTexture.Load(int4(finalTexel, int(layer), 0));
 	}
 
     uint mode = (uint)(control.y + 0.5);
@@ -219,12 +236,124 @@ public FDirectionalShadowSample EvaluateDirectionalShadow(
         float lowComparison = SampleDirectionalShadowKernel(
             finalCoordinate,
             float4(filter.xy, 0.0, 0.5),
+            validRegion,
+            layer,
             shadowTexture,
             shadowSampler,
             unusedLowValidWeight);
         float signedDifference = finalComparison - lowComparison;
         float magnitude = saturate(abs(signedDifference) * 4.0);
         // Red is darker than Low, blue is lighter, green is unchanged.
+        result.diagnosticColor = float3(
+            signedDifference < 0.0 ? magnitude : 0.0,
+            1.0 - magnitude,
+            signedDifference > 0.0 ? magnitude : 0.0);
+    }
+    return result;
+}
+
+public FDirectionalShadowSample EvaluateDirectionalShadow(
+    float3 worldPosition,
+    float3 worldNormal,
+    float4 control,
+    float4 viewDepthTransform,
+    float4 splitDepths,
+    float4 lightTransition,
+    FDirectionalShadowCascadeUniform cascades[3],
+    Texture2DArray<float> shadowTexture,
+    SamplerComparisonState shadowSampler)
+{
+    FDirectionalShadowSample result;
+    result.attenuation = 1.0;
+    result.diagnosticColor = float3(1.0);
+    uint cascadeCount = min((uint)(control.z + 0.5), 3u);
+    bool cascadedCandidate = control.w > 0.5;
+    float receiverDepth = dot(viewDepthTransform, float4(worldPosition, 1.0));
+    if (control.x < 0.5 || cascadeCount == 0u
+        || (cascadedCandidate && (!isfinite(receiverDepth)
+            || receiverDepth < splitDepths[0]
+            || receiverDepth > splitDepths[cascadeCount])))
+        return result;
+
+    uint nearCascade = cascadeCount - 1u;
+    [unroll]
+    for (uint index = 0u; index < 3u; ++index)
+    {
+        if (index < cascadeCount && receiverDepth <= splitDepths[index + 1u])
+        {
+            nearCascade = index;
+            break;
+        }
+    }
+    uint farCascade = nearCascade;
+    float transitionWeight = 0.0;
+    if (nearCascade + 1u < cascadeCount)
+    {
+        float boundary = splitDepths[nearCascade + 1u];
+        float nextBoundary = splitDepths[nearCascade + 2u];
+        float transitionStart = boundary
+            - lightTransition.w * (nextBoundary - boundary);
+        if (receiverDepth >= transitionStart)
+        {
+            farCascade = nearCascade + 1u;
+            transitionWeight = saturate(
+                (receiverDepth - transitionStart) / (boundary - transitionStart));
+        }
+    }
+
+    uint mode = (uint)(control.y + 0.5);
+    float4 localControl = control;
+    if (mode >= 11u)
+        localControl.y = 0.0;
+    FDirectionalShadowSample nearSample = EvaluateDirectionalShadowCascade(
+        worldPosition, worldNormal, localControl, lightTransition.xyz,
+        cascades[nearCascade], nearCascade, shadowTexture, shadowSampler);
+    FDirectionalShadowSample farSample = nearSample;
+    if (farCascade != nearCascade)
+    {
+        farSample = EvaluateDirectionalShadowCascade(
+            worldPosition, worldNormal, localControl, lightTransition.xyz,
+            cascades[farCascade], farCascade, shadowTexture, shadowSampler);
+    }
+    result.attenuation = lerp(
+        nearSample.attenuation, farSample.attenuation, transitionWeight);
+    result.diagnosticColor = lerp(
+        nearSample.diagnosticColor, farSample.diagnosticColor, transitionWeight);
+
+    if (mode == 11u)
+    {
+        const float3 cascadeColors[3] = {
+            float3(1.0, 0.1, 0.1),
+            float3(0.1, 1.0, 0.1),
+            float3(0.1, 0.25, 1.0)};
+        result.diagnosticColor = lerp(
+            cascadeColors[nearCascade], cascadeColors[farCascade],
+            transitionWeight);
+    }
+    else if (mode == 12u)
+        result.diagnosticColor = float3(transitionWeight);
+    else if (mode == 13u)
+    {
+        float4 coverageControl = control;
+        coverageControl.y = 1.0;
+        FDirectionalShadowSample nearCoverage = EvaluateDirectionalShadowCascade(
+            worldPosition, worldNormal, coverageControl, lightTransition.xyz,
+            cascades[nearCascade], nearCascade, shadowTexture, shadowSampler);
+        FDirectionalShadowSample farCoverage = nearCoverage;
+        if (farCascade != nearCascade)
+        {
+            farCoverage = EvaluateDirectionalShadowCascade(
+                worldPosition, worldNormal, coverageControl, lightTransition.xyz,
+                cascades[farCascade], farCascade, shadowTexture, shadowSampler);
+        }
+        result.diagnosticColor = lerp(
+            nearCoverage.diagnosticColor, farCoverage.diagnosticColor,
+            transitionWeight);
+    }
+    else if (mode == 14u)
+    {
+        float signedDifference = farSample.attenuation - nearSample.attenuation;
+        float magnitude = saturate(abs(signedDifference) * 4.0);
         result.diagnosticColor = float3(
             signedDifference < 0.0 ? magnitude : 0.0,
             1.0 - magnitude,

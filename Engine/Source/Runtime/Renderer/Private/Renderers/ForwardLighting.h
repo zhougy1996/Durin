@@ -58,19 +58,31 @@ namespace Durin
 		FVector4f SpotCone{0.0f};
 	};
 
-	struct alignas(16) FForwardDirectionalShadowUniform
+	struct alignas(16) FForwardDirectionalShadowCascadeUniform
 	{
 		FMatrix4f WorldToShadow{1.0f};
-		// x = enabled, y = diagnostic mode, z = fallback, w = total clamped.
-		FVector4f Control{0.0f};
 		// xy = texel world size, z = receiver world bias, w = normal offset.
 		FVector4f TexelBias{0.0f};
 		// xyz = raster terms, w = normalized raster separation.
 		FVector4f RasterBias{0.0f};
-		// xyz = selected directional-light direction, w = guard texels.
-		FVector4f LightBounds{0.0f};
 		// xy = texture texel step, z = quality identity, w = footprint radius.
 		FVector4f Filter{0.0f};
+		// xy = minimum valid UV, zw = maximum valid UV.
+		FVector4f ValidRegion{0.0f};
+	};
+
+	struct alignas(16) FForwardDirectionalShadowUniform
+	{
+		// x = enabled, y = diagnostic mode, z = cascade count, w = candidate.
+		FVector4f Control{0.0f};
+		// View-matrix forward row; its dot with world position is receiver depth.
+		FVector4f ViewDepthTransform{0.0f};
+		// Four ordered boundaries; unused entries repeat the far boundary.
+		FVector4f SplitDepths{0.0f};
+		// xyz = selected light travel direction, w = transition fraction.
+		FVector4f LightTransition{0.0f};
+		std::array<FForwardDirectionalShadowCascadeUniform,
+			3> Cascades{};
 	};
 
 	// Fixed reflected ABI uploaded exactly once for each rendered view.
@@ -85,16 +97,17 @@ namespace Durin
 
 	static_assert(sizeof(FForwardDirectionalLightUniform) == 32);
 	static_assert(sizeof(FForwardLocalLightUniform) == 64);
-	static_assert(sizeof(FForwardDirectionalShadowUniform) == 144);
-	static_assert(offsetof(FForwardDirectionalShadowUniform, Control) == 64);
-	static_assert(offsetof(FForwardDirectionalShadowUniform, TexelBias) == 80);
-	static_assert(offsetof(FForwardDirectionalShadowUniform, RasterBias) == 96);
-	static_assert(offsetof(FForwardDirectionalShadowUniform, LightBounds) == 112);
-	static_assert(offsetof(FForwardDirectionalShadowUniform, Filter) == 128);
-	static_assert(sizeof(FForwardLightingUniform) == 464);
+	static_assert(sizeof(FForwardDirectionalShadowCascadeUniform) == 128);
+	static_assert(offsetof(FForwardDirectionalShadowCascadeUniform, TexelBias) == 64);
+	static_assert(offsetof(FForwardDirectionalShadowCascadeUniform, RasterBias) == 80);
+	static_assert(offsetof(FForwardDirectionalShadowCascadeUniform, Filter) == 96);
+	static_assert(offsetof(FForwardDirectionalShadowCascadeUniform, ValidRegion) == 112);
+	static_assert(sizeof(FForwardDirectionalShadowUniform) == 448);
+	static_assert(offsetof(FForwardDirectionalShadowUniform, Cascades) == 64);
+	static_assert(sizeof(FForwardLightingUniform) == 768);
 	static_assert(alignof(FForwardLightingUniform) == 16);
 	static_assert(offsetof(FForwardLightingUniform, DirectionalShadow) == 64);
-	static_assert(offsetof(FForwardLightingUniform, Local) == 208);
+	static_assert(offsetof(FForwardLightingUniform, Local) == 512);
 
 	RENDERER_API auto PrepareLightView_RenderThread(
 		const FScene& Scene,

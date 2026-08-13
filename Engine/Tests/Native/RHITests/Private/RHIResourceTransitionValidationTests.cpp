@@ -128,19 +128,24 @@ namespace Durin
 	TEST(FRHIResourceTransitionValidationTests,
 		DirectionalShadowDepthSupportsRepeatedAttachmentAndComparisonReadCycles)
 	{
-		FRHITexture Shadow(FRHITextureCreateDesc::Create2D(
-			"DirectionalShadow", 2048, 2048, EPixelFormat::D32)
+		FRHITexture Shadow(FRHITextureCreateDesc::Create2DArray(
+			"DirectionalShadowArray")
+			.SetExtent(2048, 2048)
+			.SetArraySize(3)
+			.SetFormat(EPixelFormat::D32)
 			.SetFlags(ETextureCreateFlags::DepthStencilTargetable
 				| ETextureCreateFlags::ShaderResource));
 		std::string Error;
-		const FRHITextureTransition FirstWrite = FRHITextureTransition::Whole(
-			&Shadow, ERHIAccess::Discard, ERHIAccess::DepthStencilReadWrite);
+		const FRHITextureTransition FirstWrite{
+			&Shadow, {ERHITextureAspect::Depth, 0, 1, 0, 1},
+			ERHIAccess::Discard, ERHIAccess::DepthStencilReadWrite};
 		const FRHITextureTransition FirstRead = FRHITextureTransition::Whole(
 			&Shadow, ERHIAccess::DepthStencilReadWrite,
 			ERHIAccess::GraphicsShaderRead);
-		const FRHITextureTransition Rewrite = FRHITextureTransition::Whole(
-			&Shadow, ERHIAccess::GraphicsShaderRead,
-			ERHIAccess::DepthStencilReadWrite);
+		const FRHITextureTransition Rewrite{
+			&Shadow, {ERHITextureAspect::Depth, 0, 1, 2, 1},
+			ERHIAccess::GraphicsShaderRead,
+			ERHIAccess::DepthStencilReadWrite};
 		EXPECT_TRUE(ValidateTextureTransition(FirstWrite, Error)) << Error;
 		EXPECT_TRUE(ValidateTextureTransition(FirstRead, Error)) << Error;
 		EXPECT_TRUE(ValidateTextureTransition(Rewrite, Error)) << Error;

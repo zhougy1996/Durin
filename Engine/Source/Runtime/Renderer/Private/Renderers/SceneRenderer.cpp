@@ -421,85 +421,126 @@ namespace Durin
 					if (DiagnosticIndex
 						< PreparedView.Counters.ShadowDiagnosticViews.size())
 						++PreparedView.Counters.ShadowDiagnosticViews[DiagnosticIndex];
-					const size_t QualityIndex = static_cast<size_t>(
-						PreparedView.DirectionalShadow.Filter.Quality);
+					PreparedView.Counters.ShadowCandidate =
+						PreparedView.DirectionalShadow.Candidate;
+					PreparedView.Counters.ShadowCascadeCount =
+						PreparedView.DirectionalShadow.CascadeCount;
+					const FDirectionalShadowFilter& Filter =
+						PreparedView.DirectionalShadow.Cascades[0].Filter;
+					const size_t QualityIndex = static_cast<size_t>(Filter.Quality);
 					if (QualityIndex < PreparedView.Counters.ShadowQualityViews.size())
 						++PreparedView.Counters.ShadowQualityViews[QualityIndex];
 					PreparedView.Counters.ShadowComparisonOperations +=
-						PreparedView.DirectionalShadow.Filter.ComparisonOperations;
+						Filter.ComparisonOperations;
+					PreparedView.Counters.ShadowTransitionComparisonOperations +=
+						PreparedView.DirectionalShadow.CascadeCount > 1
+							? 2u * Filter.ComparisonOperations
+							: Filter.ComparisonOperations;
 					PreparedView.Counters.ShadowGuardTexels +=
-						PreparedView.DirectionalShadow.Filter.GuardTexels;
+						Filter.GuardTexels;
 					PreparedView.Counters.ShadowInvalidQualityFallbacks +=
-						PreparedView.DirectionalShadow.Filter
-							.bUsedInvalidQualityFallback ? 1u : 0u;
-					PreparedView.Counters.ShadowBiasFallbacks +=
-						PreparedView.DirectionalShadow.Bias.bUsedFallback ? 1u : 0u;
-					PreparedView.Counters.ShadowBiasClamps +=
-						PreparedView.DirectionalShadow.Bias.bTotalClamped ? 1u : 0u;
-					const FDirectionalShadowCasterCandidates Casters =
-						PrepareDirectionalShadowCasterCandidates(
-							*Scene, PreparedView.DirectionalShadow);
-					PreparedView.Counters.ShadowSubmittedCasters = Casters.Submitted;
-					PreparedView.Counters.ShadowHiddenCasters = Casters.Hidden;
-					PreparedView.Counters.ShadowCulledCasters = Casters.Culled;
-					PreparedView.Counters.ShadowInvalidBoundsFallbacks =
-						Casters.InvalidBoundsFallbacks;
-					PreparedView.ShadowStaticMeshes =
-						PrepareStaticMeshView_RenderThread(
-							CommandList, Casters.StaticMeshes,
-							PreparedView.DirectionalShadow.CasterView,
+						Filter.bUsedInvalidQualityFallback ? 1u : 0u;
+					for (uint32 CascadeIndex = 0;
+						CascadeIndex < PreparedView.DirectionalShadow.CascadeCount;
+						++CascadeIndex)
+					{
+						const auto& Cascade =
+							PreparedView.DirectionalShadow.Cascades[CascadeIndex];
+						auto& CascadeCounters =
+							PreparedView.Counters.ShadowCascades[CascadeIndex];
+						CascadeCounters.NearDepth = Cascade.NearDepth;
+						CascadeCounters.FarDepth = Cascade.FarDepth;
+						CascadeCounters.TransitionStartDepth =
+							Cascade.TransitionStartDepth;
+						CascadeCounters.TexelWorldSizeX = Cascade.TexelWorldSize.x;
+						CascadeCounters.TexelWorldSizeY = Cascade.TexelWorldSize.y;
+						CascadeCounters.ComparisonOperations =
+							Cascade.Filter.ComparisonOperations;
+						CascadeCounters.GuardTexels = Cascade.Filter.GuardTexels;
+						PreparedView.Counters.ShadowBiasFallbacks +=
+							Cascade.Bias.bUsedFallback ? 1u : 0u;
+						PreparedView.Counters.ShadowBiasClamps +=
+							Cascade.Bias.bTotalClamped ? 1u : 0u;
+						const FDirectionalShadowCasterCandidates Casters =
+							PrepareDirectionalShadowCasterCandidates(*Scene, Cascade);
+						CascadeCounters.SubmittedCasters = Casters.Submitted;
+						CascadeCounters.HiddenCasters = Casters.Hidden;
+						CascadeCounters.CulledCasters = Casters.Culled;
+						CascadeCounters.InvalidBoundsFallbacks =
+							Casters.InvalidBoundsFallbacks;
+						PreparedView.Counters.ShadowSubmittedCasters += Casters.Submitted;
+						PreparedView.Counters.ShadowHiddenCasters += Casters.Hidden;
+						PreparedView.Counters.ShadowCulledCasters += Casters.Culled;
+						PreparedView.Counters.ShadowInvalidBoundsFallbacks +=
+							Casters.InvalidBoundsFallbacks;
+						auto& StaticMeshes =
+							PreparedView.ShadowStaticMeshes[CascadeIndex];
+						auto& SkeletalMeshes =
+							PreparedView.ShadowSkeletalMeshes[CascadeIndex];
+						auto& Terrains = PreparedView.ShadowTerrains[CascadeIndex];
+						StaticMeshes = PrepareStaticMeshView_RenderThread(
+							CommandList, Casters.StaticMeshes, Cascade.CasterView,
 							ERasterMode::Solid, Casters.SplineMeshes);
-					PreparedView.ShadowSkeletalMeshes =
-						PrepareSkeletalMeshView_RenderThread(
-							CommandList, Casters.SkeletalMeshes,
-							PreparedView.DirectionalShadow.CasterView,
+						SkeletalMeshes = PrepareSkeletalMeshView_RenderThread(
+							CommandList, Casters.SkeletalMeshes, Cascade.CasterView,
 							ERasterMode::Solid);
-					PreparedView.ShadowTerrains = PrepareTerrainView_RenderThread(
-						Casters.Terrains,
-						PreparedView.DirectionalShadow.CasterView,
-						ERasterMode::Solid);
-					auto ApplyRasterBias = [&PreparedView](auto& Geometry) {
+						Terrains = PrepareTerrainView_RenderThread(
+							Casters.Terrains, Cascade.CasterView, ERasterMode::Solid);
+						auto ApplyRasterBias = [&Cascade](auto& Geometry) {
 						for (auto* Bucket : {&Geometry.Opaque, &Geometry.Masked})
 							for (auto& Draw : *Bucket)
 							{
 								auto& Raster = Draw.PipelineKey.Rasterizer;
 								Raster.bEnableDepthBias = true;
 								Raster.DepthBiasConstantFactor =
-									PreparedView.DirectionalShadow.Bias.RasterConstant;
+									Cascade.Bias.RasterConstant;
 								Raster.DepthBiasSlopeFactor =
-									PreparedView.DirectionalShadow.Bias.RasterSlope;
+									Cascade.Bias.RasterSlope;
 								Raster.DepthBiasClamp =
-									PreparedView.DirectionalShadow.Bias.RasterClamp;
+									Cascade.Bias.RasterClamp;
 							}
-					};
-					ApplyRasterBias(PreparedView.ShadowStaticMeshes);
-					ApplyRasterBias(PreparedView.ShadowSkeletalMeshes);
-					ApplyRasterBias(PreparedView.ShadowTerrains);
+						};
+						ApplyRasterBias(StaticMeshes);
+						ApplyRasterBias(SkeletalMeshes);
+						ApplyRasterBias(Terrains);
 					// Translucent surfaces never enter the M6 shadow draw lists.
-					PreparedView.ShadowStaticMeshes.SelectedSections -=
-						PreparedView.ShadowStaticMeshes.TranslucentSections;
-					PreparedView.ShadowStaticMeshes.SelectedTriangles -=
-						PreparedView.ShadowStaticMeshes.TranslucentTriangles;
-					PreparedView.ShadowStaticMeshes.Translucent.clear();
-					PreparedView.ShadowStaticMeshes.TranslucentSections = 0;
-					PreparedView.ShadowStaticMeshes.TranslucentTriangles = 0;
-					PreparedView.ShadowSkeletalMeshes.SelectedSections -=
-						PreparedView.ShadowSkeletalMeshes.TranslucentSections;
-					PreparedView.ShadowSkeletalMeshes.SelectedTriangles -=
-						PreparedView.ShadowSkeletalMeshes.TranslucentTriangles;
-					PreparedView.ShadowSkeletalMeshes.Translucent.clear();
-					PreparedView.ShadowSkeletalMeshes.TranslucentSections = 0;
-					PreparedView.ShadowSkeletalMeshes.TranslucentTriangles = 0;
-					PreparedView.ShadowTerrains.Translucent.clear();
-					PreparedView.Counters.ShadowPreparedStaticMeshCasters =
-						PreparedView.ShadowStaticMeshes.PreparedLocalPrimitives;
-					PreparedView.Counters.ShadowPreparedSplineMeshCasters =
-						PreparedView.ShadowStaticMeshes.PreparedSplinePrimitives;
-					PreparedView.Counters.ShadowPreparedSkeletalMeshCasters =
-						PreparedView.ShadowSkeletalMeshes.Primitives.size();
-					PreparedView.Counters.ShadowPreparedTerrainCasters =
-						PreparedView.ShadowTerrains.Opaque.size()
-						+ PreparedView.ShadowTerrains.Masked.size();
+						StaticMeshes.SelectedSections -= StaticMeshes.TranslucentSections;
+						StaticMeshes.SelectedTriangles -= StaticMeshes.TranslucentTriangles;
+						StaticMeshes.Translucent.clear();
+						StaticMeshes.TranslucentSections = 0;
+						StaticMeshes.TranslucentTriangles = 0;
+						SkeletalMeshes.SelectedSections -= SkeletalMeshes.TranslucentSections;
+						SkeletalMeshes.SelectedTriangles -= SkeletalMeshes.TranslucentTriangles;
+						SkeletalMeshes.Translucent.clear();
+						SkeletalMeshes.TranslucentSections = 0;
+						SkeletalMeshes.TranslucentTriangles = 0;
+						Terrains.Translucent.clear();
+						CascadeCounters.PreparedStaticMeshCasters =
+							StaticMeshes.PreparedLocalPrimitives;
+						CascadeCounters.PreparedSplineMeshCasters =
+							StaticMeshes.PreparedSplinePrimitives;
+						CascadeCounters.PreparedSkeletalMeshCasters =
+							SkeletalMeshes.Primitives.size();
+						CascadeCounters.PreparedTerrainCasters =
+							Terrains.Opaque.size() + Terrains.Masked.size();
+						size_t TerrainShadowTriangles = 0;
+						for (const auto* Bucket : {&Terrains.Opaque, &Terrains.Masked})
+							for (const FPreparedTerrainDraw& Draw : *Bucket)
+								TerrainShadowTriangles += Draw.TriangleCount;
+						CascadeCounters.PreparedTriangles =
+							StaticMeshes.SelectedTriangles
+							+ SkeletalMeshes.SelectedTriangles + TerrainShadowTriangles;
+						PreparedView.Counters.ShadowPreparedStaticMeshCasters +=
+							CascadeCounters.PreparedStaticMeshCasters;
+						PreparedView.Counters.ShadowPreparedSplineMeshCasters +=
+							CascadeCounters.PreparedSplineMeshCasters;
+						PreparedView.Counters.ShadowPreparedSkeletalMeshCasters +=
+							CascadeCounters.PreparedSkeletalMeshCasters;
+						PreparedView.Counters.ShadowPreparedTerrainCasters +=
+							CascadeCounters.PreparedTerrainCasters;
+						PreparedView.Counters.ShadowPreparedTriangles +=
+							CascadeCounters.PreparedTriangles;
+					}
 				}
 				else if (Selected.Data.bCastShadows)
 				{

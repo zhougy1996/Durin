@@ -104,20 +104,31 @@ namespace Durin
 	TEST(FRHIResourceViewValidationTests,
 		ValidatesDirectionalShadowDepthAttachmentAndSampledViews)
 	{
-		FRHITexture Shadow(FRHITextureCreateDesc::Create2D(
-			"DirectionalShadow", 2048, 2048, EPixelFormat::D32)
+		FRHITexture Shadow(FRHITextureCreateDesc::Create2DArray(
+			"DirectionalShadowArray")
+			.SetExtent(2048, 2048)
+			.SetArraySize(3)
+			.SetFormat(EPixelFormat::D32)
 			.SetFlags(ETextureCreateFlags::DepthStencilTargetable
 				| ETextureCreateFlags::ShaderResource));
 		std::string Error;
 		const FRHITextureViewDesc Sampled = MakeDefaultTextureViewDesc(
 			Shadow, ERHITextureViewUsage::Sampled);
-		const FRHITextureViewDesc Attachment = MakeDefaultTextureViewDesc(
-			Shadow, ERHITextureViewUsage::DepthStencilAttachment);
 		EXPECT_EQ(Sampled.Range, (FRHITextureSubresourceRange{
-			ERHITextureAspect::Depth, 0, 1, 0, 1}));
-		EXPECT_EQ(Attachment.Range, Sampled.Range);
+			ERHITextureAspect::Depth, 0, 1, 0, 3}));
+		EXPECT_EQ(Sampled.Dimension, ERHITextureViewDimension::Texture2DArray);
 		EXPECT_TRUE(ValidateTextureViewDesc(&Shadow, Sampled, Error)) << Error;
-		EXPECT_TRUE(ValidateTextureViewDesc(&Shadow, Attachment, Error)) << Error;
+		for (uint32 Layer = 0; Layer < 3; ++Layer)
+		{
+			FRHITextureViewDesc Attachment = MakeDefaultTextureViewDesc(
+				Shadow, ERHITextureViewUsage::DepthStencilAttachment);
+			Attachment.Dimension = ERHITextureViewDimension::Texture2D;
+			Attachment.Range.FirstArrayLayer = Layer;
+			Attachment.Range.NumArrayLayers = 1;
+			EXPECT_EQ(Attachment.Range, (FRHITextureSubresourceRange{
+				ERHITextureAspect::Depth, 0, 1, Layer, 1}));
+			EXPECT_TRUE(ValidateTextureViewDesc(&Shadow, Attachment, Error)) << Error;
+		}
 
 		FRHITexture SampleOnly(FRHITextureCreateDesc::Create2D(
 			"SampleOnlyDepth", 16, 16, EPixelFormat::D32)

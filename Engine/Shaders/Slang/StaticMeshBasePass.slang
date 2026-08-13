@@ -51,12 +51,11 @@ struct LightingUniform
     uint4 Counts;
     float4 DirectionalDirection;
     float4 DirectionalColorIntensity;
-    float4x4 DirectionalShadowWorldToTexture;
     float4 DirectionalShadowControl;
-    float4 DirectionalShadowTexelBias;
-    float4 DirectionalShadowRasterBias;
-    float4 DirectionalShadowLightBounds;
-    float4 DirectionalShadowFilter;
+    float4 DirectionalShadowViewDepthTransform;
+    float4 DirectionalShadowSplitDepths;
+    float4 DirectionalShadowLightTransition;
+    FDirectionalShadowCascadeUniform DirectionalShadowCascades[3];
     LocalLightUniform Local[4];
 };
 
@@ -117,7 +116,7 @@ struct TerrainUniform
 #if DURIN_SPLINE_MESH
 [[vk::binding(24, 0)]] ConstantBuffer<FSplineMeshUniform> SplineMesh;
 #endif
-[[vk::binding(25, 0)]] Texture2D<float> DirectionalShadowTexture;
+[[vk::binding(25, 0)]] Texture2DArray<float> DirectionalShadowTexture;
 [[vk::binding(26, 0)]] SamplerComparisonState DirectionalShadowSampler;
 
 [shader("vertex")]
@@ -338,12 +337,11 @@ float4 FragmentMain(
         FDirectionalShadowSample shadow = EvaluateDirectionalShadow(
             input.worldPosition,
             normal,
-            Lighting.DirectionalShadowWorldToTexture,
             Lighting.DirectionalShadowControl,
-            Lighting.DirectionalShadowTexelBias,
-            Lighting.DirectionalShadowRasterBias,
-            Lighting.DirectionalShadowLightBounds,
-            Lighting.DirectionalShadowFilter,
+            Lighting.DirectionalShadowViewDepthTransform,
+            Lighting.DirectionalShadowSplitDepths,
+            Lighting.DirectionalShadowLightTransition,
+            Lighting.DirectionalShadowCascades,
             DirectionalShadowTexture,
             DirectionalShadowSampler);
         if (Lighting.DirectionalShadowControl.y > 0.5)

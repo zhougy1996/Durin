@@ -14,11 +14,15 @@ namespace Durin
 	class FPrimitiveSceneInfo;
 	class FScene;
 	inline constexpr uint32 DirectionalShadowResolution = 2048;
+	inline constexpr uint32 DirectionalShadowCascadeCount = 3;
 	inline constexpr uint64 DirectionalShadowLogicalBytes =
 		static_cast<uint64>(DirectionalShadowResolution)
-		* DirectionalShadowResolution * sizeof(float);
+		* DirectionalShadowResolution * sizeof(float)
+		* DirectionalShadowCascadeCount;
 	inline constexpr double DirectionalShadowDistance = 256.0;
 	inline constexpr double DirectionalShadowCasterExtrusion = 256.0;
+	inline constexpr double DirectionalShadowSplitLambda = 0.65;
+	inline constexpr double DirectionalShadowTransitionFraction = 0.10;
 	inline constexpr uint32 DirectionalShadowLowGuardTexels = 2;
 	inline constexpr uint32 DirectionalShadowMediumGuardTexels = 2;
 	inline constexpr uint32 DirectionalShadowHighGuardTexels = 3;
@@ -61,11 +65,14 @@ namespace Durin
 		bool bUsedInvalidQualityFallback = false;
 	};
 
-	// Value-only result for one selected directional light and fitted scene view.
-	struct FPreparedDirectionalShadowView
+	// Owns one independently fitted receiver slice and its caster-view contract.
+	struct FPreparedDirectionalShadowCascade
 	{
-		FLightSceneId LightId = InvalidLightSceneId;
 		bool bEnabled = false;
+		uint32 Layer = 0;
+		double NearDepth = 0.0;
+		double FarDepth = 0.0;
+		double TransitionStartDepth = 0.0;
 		FMatrix LightViewMatrix{1.0};
 		FMatrix LightProjectionMatrix{1.0};
 		FMatrix LightViewProjectionMatrix{1.0};
@@ -75,10 +82,24 @@ namespace Durin
 		FVector2 TexelWorldSize{0.0};
 		FDirectionalShadowBias Bias;
 		FDirectionalShadowFilter Filter;
+		FSceneView CasterView;
+	};
+
+	// Value-only result for one selected light and one immutable cascade candidate.
+	struct FPreparedDirectionalShadowView
+	{
+		FLightSceneId LightId = InvalidLightSceneId;
+		bool bEnabled = false;
+		EDirectionalShadowCandidate Candidate =
+			EDirectionalShadowCandidate::SingleMap;
+		uint32 CascadeCount = 0;
+		std::array<double, DirectionalShadowCascadeCount + 1> SplitDepths{};
+		FVector4 ViewDepthTransform{0.0};
 		FVector3 LightDirection{0.0, 0.0, -1.0};
 		EDirectionalShadowDiagnosticMode DiagnosticMode =
 			EDirectionalShadowDiagnosticMode::Lit;
-		FSceneView CasterView;
+		std::array<FPreparedDirectionalShadowCascade,
+			DirectionalShadowCascadeCount> Cascades{};
 	};
 
 	struct FDirectionalShadowCasterCandidates
@@ -107,14 +128,21 @@ namespace Durin
 		FPreparedDirectionalShadowView& OutShadow) -> bool;
 
 	RENDERER_API auto ClassifyDirectionalShadowCasterBounds(
-		const FPreparedDirectionalShadowView& Shadow,
+		const FPreparedDirectionalShadowCascade& Cascade,
 		const FBox& WorldBounds) -> EDirectionalShadowBoundsClassification;
 
 	// Starts from authoritative scene collections rather than camera visibility.
 	RENDERER_API auto PrepareDirectionalShadowCasterCandidates(
 		const FScene& Scene,
-		const FPreparedDirectionalShadowView& Shadow,
+		const FPreparedDirectionalShadowCascade& Cascade,
 		bool bDisableCulling = false) -> FDirectionalShadowCasterCandidates;
+
+	RENDERER_API auto SelectDirectionalShadowCascade(
+		const FPreparedDirectionalShadowView& Shadow,
+		double ReceiverDepth,
+		uint32& OutCascade,
+		uint32& OutNearCascade,
+		double& OutTransitionWeight) -> bool;
 
 	RENDERER_API auto MakeDirectionalShadowSamplerDesc() -> FRHISamplerDesc;
 	RENDERER_API auto PrepareDirectionalShadowFilter(

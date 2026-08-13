@@ -4,8 +4,8 @@ Summary: Evolve the first directional shadow-map path into a stable, scalable pr
 
 Last reviewed: 2026-08-14
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-14
 
 ## Current Status
 
@@ -40,14 +40,17 @@ is retained as a bounded tier but rejected as default by its 487/563 motion
 results. Low remains byte-identical, numeric zero, and the invalid/resource
 fallback.
 
-Q2 cascaded directional shadows is active through the
+Q2 cascaded directional shadows is complete through the
 [Cascaded Directional Shadows Plan](../Plans/CascadedDirectionalShadows.md).
 Its frozen entry candidate is three 2048x2048 D32 array layers (48 MiB logical),
 the existing 256-unit shadow distance, practical splits at lambda 0.65, bounded
 10% transitions, independent caster discovery, and the selected Medium 3x3
 tent with nine comparisons normally and eighteen during overlap. Stage 0 owns
 the exact RHI/Vulkan layer contract, image and motion thresholds, backend bytes,
-and target-GPU evidence before the current single-map default can change.
+and target-GPU evidence. The array contract is validation-clean, logical and
+backend bytes are 50,331,648, and the measured Medium combined increment over
+SingleMap Medium is 12,608 ns against the 1,000,000 ns gate. Three cascades
+with Medium are now the production default.
 Contact shadows, variable-penumbra filtering, persistent caching, local-light
 shadows, and alternative representations remain conditional branches.
 
@@ -225,7 +228,7 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- | --- |
 | Q0: Diagnostics and bias correctness | Completed 2026-08-13 | `DirectionalShadowDiagnosticsAndBias` | Completed `DirectionalShadowPipeline`; current depth/bias RHI | Visual shadow-depth, comparison-error, coverage, texel-grid, and bias diagnostics; representative artifact fixtures; texel-scale-aware bounded bias model shared by all receivers. | Passed: named valid/defective, acne, contact, Masked, grazing, and motion entry evidence was frozen before defaults changed. | Passed: selected captures, exact fallbacks, geometry/view parity, motion, recovery, memory, timing, builds, and smoke meet the completed child-plan gate. |
 | Q1: PCF quality tiers | Completed 2026-08-14; Medium selected, High rejected by motion | [DirectionalShadowPCFQualityTiers](../Plans/DirectionalShadowPCFQualityTiers.md) | Completed Q0 bias/diagnostic contract | Deterministic low/medium/high directional filtering candidates, exact kernel/guard metadata, shared sampling helper, counters, image fixtures, and a selected default tier. | Passed by Q0 causal classification; Stage 0 froze the 1-sample-linear, 3x3 tent, literal 5x5 tent, guards, image/motion metrics, and RTX 3090 GPU budgets without changing Low. | Passed: Medium reduces shadow-only high-frequency energy, passes motion/correctness/performance and is default; High is bounded but rejected by motion; Low and failure output remain exact and fully bound. |
-| Q2: Cascaded directional shadows | Active 2026-08-14 | [CascadedDirectionalShadows](../Plans/CascadedDirectionalShadows.md) | Q0-Q1; selected RHI texture-array or guarded-atlas contract | Camera-relative cascades, split computation, per-cascade fitting/stabilization/culling, resource ownership, selection/blending, diagnostics, quality-tier integration, and qualified default budgets. | Passed for plan activation: the entry candidate freezes three 2048 D32 layers, 48 MiB logical bytes, lambda-0.65 practical splits, 256-unit maximum distance, 10% overlap, Medium's 1.5-texel footprint/two-texel guard, independent casters, preferred array representation, and exact RTX 3090 memory/time gates; Stage 0 must prove the remaining backend and comparison-capture evidence before production changes. | Near/mid/far detail and motion captures pass frozen quality thresholds; no visible hard cascade seam or cross-tile/layer contamination occurs; all caster families, supported views, retries, invalidation, and sequential-view cases pass; logical/backend bytes and combined GPU increment remain within the selected default tier's gates. |
+| Q2: Cascaded directional shadows | Completed 2026-08-14 | [CascadedDirectionalShadows](../Plans/CascadedDirectionalShadows.md) | Q0-Q1; selected RHI texture-array contract | Three camera-relative cascades with deterministic splitting, independent fitting/stabilization/culling, array ownership, selection/blending, diagnostics, quality-tier integration, and qualified default budgets. | Passed: three 2048 D32 layers, 50,331,648 logical/backend bytes, lambda-0.65 practical splits, 256-unit maximum distance, 10% overlap, Medium's 1.5-texel footprint/two-texel guard, independent casters, exact Vulkan layer views, and RTX 3090 memory/time gates are frozen. | Passed: split/selection goldens, three-layer Vulkan captures, caster families, supported views, retry/reload, sequential-view isolation, 50,331,648 bytes, and a 12,608 ns combined increment all pass; ThreeCascades Medium is the default. |
 
 Q0 through Q2 are the required roadmap. Each is implemented through a bounded
 child plan created only when its entry gate is satisfied. A child plan may

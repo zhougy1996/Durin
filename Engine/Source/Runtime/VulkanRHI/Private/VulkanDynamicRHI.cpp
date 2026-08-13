@@ -64,7 +64,9 @@ namespace Durin::VulkanRHI
 		FRHICapabilities CapabilityCandidate;
 		CapabilityCandidate.FeatureLevel = ERHIFeatureLevel::ES3_1;
 		CapabilityCandidate.SupportedTextureDimensions =
-			ERHITextureDimensionFlags::Texture2D | ERHITextureDimensionFlags::TextureCube;
+			ERHITextureDimensionFlags::Texture2D
+			| ERHITextureDimensionFlags::Texture2DArray
+			| ERHITextureDimensionFlags::TextureCube;
 		CapabilityCandidate.MaxTextureDimension2D = Limits.maxImageDimension2D;
 		CapabilityCandidate.MaxTextureDimensionCube = Limits.maxImageDimensionCube;
 		CapabilityCandidate.MaxTextureArrayLayers = Limits.maxImageArrayLayers;

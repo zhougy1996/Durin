@@ -757,7 +757,7 @@ namespace Durin
 		PS.EnvironmentSampler = Complete ? EnvironmentSampler : Samplers[0];
 		PS.DirectionalShadowTexture = Draw.DirectionalShadowTexture != nullptr
 			? Draw.DirectionalShadowTexture
-			: DefaultTextures.Get_RenderThread(EDefaultTexture::White);
+			: DefaultTextures.GetArray_RenderThread();
 		PS.DirectionalShadowSampler = Draw.DirectionalShadowSampler != nullptr
 			? Draw.DirectionalShadowSampler : Samplers[0];
 		SetShaderParameters(CommandList, Pipeline->Fragment, PS);

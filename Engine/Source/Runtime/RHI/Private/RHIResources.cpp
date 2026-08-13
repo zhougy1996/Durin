@@ -886,7 +886,10 @@ namespace Durin
 			.Usage = Usage,
 			.Dimension = !bAttachment && Texture.GetDimension() == ETextureDimension::TextureCube
 				? ERHITextureViewDimension::TextureCube
-				: ERHITextureViewDimension::Texture2D,
+				: (!bAttachment
+						&& Texture.GetDimension() == ETextureDimension::Texture2DArray
+					? ERHITextureViewDimension::Texture2DArray
+					: ERHITextureViewDimension::Texture2D),
 			.Format = Texture.GetFormat(),
 			.Range = {
 				.Aspects = GetTextureAspects(Texture.GetFormat()),
@@ -987,9 +990,15 @@ namespace Durin
 		else if (Desc.Dimension == ERHITextureViewDimension::Texture2D)
 		{
 			if ((Texture->GetDimension() != ETextureDimension::Texture2D
+				&& Texture->GetDimension() != ETextureDimension::Texture2DArray
 				&& Texture->GetDimension() != ETextureDimension::TextureCube)
 				|| Desc.Range.NumArrayLayers != 1)
-				return Fail("Texture2D views require one layer of a 2D or cube parent.");
+				return Fail("Texture2D views require one layer of a 2D, array, or cube parent.");
+		}
+		else if (Desc.Dimension == ERHITextureViewDimension::Texture2DArray)
+		{
+			if (Texture->GetDimension() != ETextureDimension::Texture2DArray)
+				return Fail("Texture2DArray views require a 2D-array parent.");
 		}
 		else
 		{

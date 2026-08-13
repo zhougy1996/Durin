@@ -4,26 +4,32 @@ Summary: Add three stabilized directional-shadow cascades with deterministic spl
 
 Last reviewed: 2026-08-14
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-14
 
 ## Current Status
 
-Q0 diagnostics and bounded texel-scale bias are complete. Q1 has selected the
-Medium 3x3 tent filter as the production default, retained exact Low fallback,
-and rejected High as the default because of motion instability. The Q2 entry
-candidate is now frozen below so implementation can begin without changing the
-current single-map production output.
+Q2 is complete. The selected production path uses three 2048x2048 D32 layers
+in one `Texture2DArray`, 50,331,648 logical/backend bytes, the existing
+256-world-unit distance, practical perspective splits at lambda 0.65, uniform
+orthographic splits, and 10% adjacent transitions. Every cascade owns its fit,
+snapping, conservative casters, bias, valid region, and the selected Medium
+filter's nine comparisons outside overlap or 18 inside.
 
-The entry candidate uses three 2048x2048 D32 layers in one `Texture2DArray`,
-48 MiB logical storage, the existing 256-world-unit authored shadow distance,
-a practical split with lambda 0.65, and a transition width equal to 10% of each
-non-near cascade interval. Every cascade uses the selected Medium filter's
-nine comparisons, 1.5-texel footprint, and two-texel guard. Casters are
-discovered conservatively from authoritative scene collections independently
-for each cascade. Stage 0 must prove the required RHI/Vulkan layer views and
-freeze comparison images, counters, backend bytes, and timing gates before any
-multi-cascade candidate can replace the single-map default.
+The RHI/Vulkan proof covers sampled-array and exact single-layer views,
+layer-range transitions, three ordered depth passes, comparison sampling,
+descriptor completeness, failure injection, retry/reload, and release. On the
+RTX 3090, driver 591.86, Vulkan 1.4.325, the 1920x1080 fixture with 30 warm-up
+and 120 measured frames records 19,328 ns combined for SingleMap Medium and
+31,936 ns for ThreeCascades Medium: a 12,608 ns increment against the
+1,000,000 ns gate, with zero failed measured frames. The required per-draw
+dynamic depth-bias fix from `dev` was rebased before hashes and motion evidence
+were re-frozen. ThreeCascades Medium is now the default.
+
+The live `CascadeDifference` diagnostic compares neighboring cascade results.
+Exact candidate-versus-single comparison remains an offline qualification
+operation because retaining a second production depth target would violate the
+no-extra-target invariant.
 
 ## Goal
 
@@ -200,29 +206,29 @@ fully lit fallback.
 
 ### Stage 0: Freeze Q2 entry evidence and the resource contract
 
-- [ ] Preserve Q1 Medium single-map images, hashes, motion values, counters,
+- [x] Preserve Q1 Medium single-map images, hashes, motion values, counters,
   logical/backend bytes, timings, hardware, driver, Vulkan version, warm-up,
   measured-frame count, and failed-frame facts as the comparison baseline.
-- [ ] Add deterministic near/mid/far receivers, split-aligned silhouettes,
+- [x] Add deterministic near/mid/far receivers, split-aligned silhouettes,
   transition bands, thin and Masked casters, guard/layer boundaries, valid and
   defective modular geometry, and camera/light/split-motion entry captures
   without changing production cascade count.
-- [ ] Freeze exact ROI metrics and limits for near/mid/far high-frequency
+- [x] Freeze exact ROI metrics and limits for near/mid/far high-frequency
   energy, transition discontinuity and width, contact detachment, acne,
   valid-seam leakage, defective-gap preservation, Masked/Opaque mismatch,
   outside darkening, and tolerance-based motion-frame differences.
-- [ ] Prove or reject one 3x2048x2048 D32 `Texture2DArray` with an exact sampled
+- [x] Prove or reject one 3x2048x2048 D32 `Texture2DArray` with an exact sampled
   array view, three single-layer depth views, layer-range transitions, clears,
   comparison sampling, descriptor completeness, resource retention, and
   injected partial failure under RHI validation and Vulkan.
-- [ ] Freeze the practical-split and overlap equations, perspective and
+- [x] Freeze the practical-split and overlap equations, perspective and
   orthographic goldens, 256-unit clamp, degenerate behavior, Medium 9/18 sample
   counts, two-texel guards, per-cascade caster strategy, and all diagnostic
   encodings.
-- [ ] Measure the entry candidate or an isolated equivalent workload to confirm
+- [x] Measure the entry candidate or an isolated equivalent workload to confirm
   the 64 MiB memory and 1,000,000 ns combined-increment gates are credible;
   record any replacement target fixture or tighter budget before Stage 1.
-- [ ] Inventory the smallest C++/Slang ABI, reflection, resource, transition,
+- [x] Inventory the smallest C++/Slang ABI, reflection, resource, transition,
   pass-recording, counter, fixture, and lasting-document changes.
 
 #### Acceptance Gate
@@ -235,22 +241,22 @@ fully lit fallback.
 
 ### Stage 1: Add immutable cascade identity, math, and array ownership
 
-- [ ] Add bounded candidate identity and three-cascade immutable prepared-view
+- [x] Add bounded candidate identity and three-cascade immutable prepared-view
   storage, sanitizing invalid identity to the existing single-map/failure
   behavior without global mutable state.
-- [ ] Implement and unit-test perspective practical splits, orthographic
+- [x] Implement and unit-test perspective practical splits, orthographic
   uniform splits, overlap intervals, receiver-depth selection, degenerate
   rejection, and deterministic per-cascade fitting/snapping.
-- [ ] Extend `FDirectionalShadowRenderer` with the selected array texture,
+- [x] Extend `FDirectionalShadowRenderer` with the selected array texture,
   sampled view, three attachment views, exact logical/backend accounting, and
   atomic create/publish/failure/retry/release behavior.
-- [ ] Extend the forward ABI with the minimum frozen matrices, split/overlap,
+- [x] Extend the forward ABI with the minimum frozen matrices, split/overlap,
   valid-region, texel/bias/filter, and diagnostic data; assert C++ sizes/offsets
   and Slang reflection.
-- [ ] Preserve the single-map Medium path, disabled/Unlit output, invalid
+- [x] Preserve the single-map Medium path, disabled/Unlit output, invalid
   projection, invalid candidate, resource failure, and sequential mixed-view
   behavior exactly.
-- [ ] Add per-view/per-cascade preparation, split, fit, resource, fallback,
+- [x] Add per-view/per-cascade preparation, split, fit, resource, fallback,
   byte, and identity counters with reconciliation tests.
 
 #### Acceptance Gate
@@ -261,21 +267,21 @@ fully lit fallback.
 
 ### Stage 2: Record independent cascade depth passes and conserve casters
 
-- [ ] Prepare conservative caster candidates independently for each cascade
+- [x] Prepare conservative caster candidates independently for each cascade
   from authoritative scene collections, including boundary contact and invalid
   finite bounds without reusing camera visibility.
-- [ ] Record three ordered depth-only passes with exact layer views, clears,
+- [x] Record three ordered depth-only passes with exact layer views, clears,
   viewport/scissor, transitions, raster bias, retained resources, and final
   sampled state; reject partial publication.
-- [ ] Reuse production Opaque/Masked StaticMesh, SplineMesh, SkeletalMesh, and
+- [x] Reuse production Opaque/Masked StaticMesh, SplineMesh, SkeletalMesh, and
   Terrain positions, masks, normals, winding, deformation, height, and palette
   resources for every cascade.
-- [ ] Derive raster, receiver, and normal-offset values from each cascade's
+- [x] Derive raster, receiver, and normal-offset values from each cascade's
   texel world size and preserve its tier-specific filter guard.
-- [ ] Reconcile submitted, hidden, invalid, outside, intersecting, contained,
+- [x] Reconcile submitted, hidden, invalid, outside, intersecting, contained,
   prepared, resource, draw, triangle, layer, transition, retry, and failure
   outcomes independently per cascade.
-- [ ] Exercise material/palette/height/target/view/sampler/shader/PSO failure,
+- [x] Exercise material/palette/height/target/view/sampler/shader/PSO failure,
   retry, reload, invalidation, release, and shutdown without stale layers or a
   whole-device wait.
 
@@ -288,19 +294,19 @@ fully lit fallback.
 
 ### Stage 3: Implement receiver selection, blending, and diagnostics
 
-- [ ] Extend the shared Slang helper to choose one cascade outside overlap and
+- [x] Extend the shared Slang helper to choose one cascade outside overlap and
   exactly two neighbors inside overlap from immutable receiver depth.
-- [ ] Apply each chosen cascade's matrix, valid region, texel-scale bias, guard,
+- [x] Apply each chosen cascade's matrix, valid region, texel-scale bias, guard,
   and exact Low/Medium/High kernel before blending comparison results.
-- [ ] Implement the frozen cascade-index, transition-weight, per-layer coverage,
+- [x] Implement the frozen cascade-index, transition-weight, per-layer coverage,
   and candidate-minus-single-map diagnostics without new targets, passes,
   storage buffers, atomics, history, or mutable globals.
-- [ ] Prove no sample crosses a texture layer or atlas tile and that invalid
+- [x] Prove no sample crosses a texture layer or atlas tile and that invalid
   projection/taps contribute fully lit without inward clamping.
-- [ ] Capture the full Q0/Q1 correctness package plus near/mid/far, transition,
+- [x] Capture the full Q0/Q1 correctness package plus near/mid/far, transition,
   boundary, split-motion, and cross-layer controls under single-map and cascade
   candidates with exact hashes/statistics.
-- [ ] Measure candidate image, motion, memory, Scene Color, combined Shadow
+- [x] Measure candidate image, motion, memory, Scene Color, combined Shadow
   Depth, diagnostic-only cost, failed frames, and counters on the frozen target
   fixture; select or reject cascades as production default from every gate.
 
@@ -313,21 +319,21 @@ fully lit fallback.
 
 ### Stage 4: Qualify geometry, views, motion, counters, and lifetime
 
-- [ ] Qualify horizontal, vertical, diagonal, sloped, grazing, thin, mirrored,
+- [x] Qualify horizontal, vertical, diagonal, sloped, grazing, thin, mirrored,
   two-sided, Masked, skinned, spline-deformed, Terrain, valid modular, and
   intentionally defective geometry in near, mid, far, and transition regions.
-- [ ] Exercise main, auxiliary, preview, present, offscreen, fixed-aspect,
+- [x] Exercise main, auxiliary, preview, present, offscreen, fixed-aspect,
   perspective, orthographic, post-process, and editor-assistance views
   sequentially with mixed single/cascade candidates and filter tiers.
-- [ ] Exercise camera translation/rotation, split crossing, light motion,
+- [x] Exercise camera translation/rotation, split crossing, light motion,
   animation, material replacement, Terrain revision, resize, enable toggles,
   selected-light changes, and far-distance clamp.
-- [ ] Exercise target/array-view/layer-view/sampler/shader/PSO/material/palette
+- [x] Exercise target/array-view/layer-view/sampler/shader/PSO/material/palette
   failure, partial allocation, manual retry, shader reload, device invalidation,
   scene release, and shutdown.
-- [ ] Reconcile per-view/per-cascade caster, draw, triangle, split, tier, sample,
+- [x] Reconcile per-view/per-cascade caster, draw, triangle, split, tier, sample,
   guard, diagnostic, resource, failure, retry, byte, and timing evidence.
-- [ ] Record diagnostic-disabled production cost and each diagnostic's
+- [x] Record diagnostic-disabled production cost and each diagnostic's
   development cost separately, with no target or storage allocation beyond the
   selected resource representation.
 
@@ -340,23 +346,23 @@ fully lit fallback.
 
 ### Stage 5: Qualify Q2 and publish lasting contracts
 
-- [ ] Run focused split/fitting/filter math, shader ABI/helper, RHI array/layer,
+- [x] Run focused split/fitting/filter math, shader ABI/helper, RHI array/layer,
   scene/view, material/deformation, counter, failure, and Vulkan coverage under
   repository testing guidance.
-- [ ] Run directional-shadow image/motion qualification plus StaticMesh/
+- [x] Run directional-shadow image/motion qualification plus StaticMesh/
   SplineMesh, SkeletalMesh, Terrain, Masked material, multi-view, invalidation,
   reload, and cross-layer targets with Vulkan validation clean.
-- [ ] Run affected targets, `fast-all`, full Debug `all`, any affected Shipping
+- [x] Run affected targets, `fast-all`, full Debug `all`, any affected Shipping
   qualification, documentation validation, and representative editor smoke
   under repository guidance.
-- [ ] Record the final cascade count/resolution/format, split/overlap equations,
+- [x] Record the final cascade count/resolution/format, split/overlap equations,
   distance, resource layout, bytes, per-cascade fits/guards/bias/filter samples,
   image metrics, motion, counters, GPU medians, failures, retries, hardware,
   driver, and Vulkan version.
-- [ ] Publish lasting cascade ownership, resource, split, fit, selection,
+- [x] Publish lasting cascade ownership, resource, split, fit, selection,
   blending, diagnostic, counter, ABI, view, failure, fallback, and measurement
   behavior in [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md).
-- [ ] Update the Shadow System Evolution roadmap with the Q2 result and
+- [x] Update the Shadow System Evolution roadmap with the Q2 result and
   disposition every conditional branch from recorded activation evidence.
 
 #### Acceptance Gate

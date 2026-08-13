@@ -114,42 +114,129 @@ namespace Durin
 			return Math::IsFinite(Out);
 		}
 
-		auto TryBuildReceiverCorners(
-			const FSceneView& View, std::array<FVector3, 8>& OutCorners) -> bool
+		struct FReceiverFrustum
+		{
+			bool bPerspective = false;
+			double NearDepth = 0.0;
+			double FarDepth = 0.0;
+			double FittedFarDepth = 0.0;
+			FVector4 DepthTransform{0.0};
+			std::array<FVector3, 8> Corners{};
+		};
+
+		auto GetRow(const FMatrix& Matrix, uint32 Row) -> FVector4
+		{
+			return {Matrix[0][Row], Matrix[1][Row], Matrix[2][Row], Matrix[3][Row]};
+		}
+
+		auto TryBuildReceiverFrustum(
+			const FSceneView& View, FReceiverFrustum& OutFrustum) -> bool
 		{
 			const bool bPerspective = IsPerspectiveProjection(View.ProjectionMatrix);
 			if (!bPerspective && !IsOrthographicProjection(View.ProjectionMatrix))
 				return false;
+			if (!Math::IsFinite(View.ViewMatrix)) return false;
 			FMatrix ClipToWorld;
 			if (!Math::TryInverse(
 					View.ViewProjectionMatrix, ClipToWorld, MatrixEpsilon))
 				return false;
+			OutFrustum.bPerspective = bPerspective;
+			OutFrustum.DepthTransform = GetRow(View.ViewMatrix, 0);
+			double NearMinimum = std::numeric_limits<double>::max();
+			double NearMaximum = std::numeric_limits<double>::lowest();
+			double FarMinimum = std::numeric_limits<double>::max();
+			double FarMaximum = std::numeric_limits<double>::lowest();
 			for (uint32 Corner = 0; Corner < 4; ++Corner)
 			{
 				const double X = (Corner & 1u) != 0 ? 1.0 : -1.0;
 				const double Y = (Corner & 2u) != 0 ? 1.0 : -1.0;
 				if (!TryTransformPoint(
 						ClipToWorld, FVector4(X, Y, 0.0, 1.0),
-						OutCorners[Corner])
+						OutFrustum.Corners[Corner])
 					|| !TryTransformPoint(
 						ClipToWorld, FVector4(X, Y, 1.0, 1.0),
-						OutCorners[Corner + 4]))
+						OutFrustum.Corners[Corner + 4]))
 					return false;
+				const FVector4 NearView = View.ViewMatrix
+					* FVector4(OutFrustum.Corners[Corner], 1.0);
+				const FVector4 FarView = View.ViewMatrix
+					* FVector4(OutFrustum.Corners[Corner + 4], 1.0);
+				if (!Math::IsFinite(NearView) || !Math::IsFinite(FarView)) return false;
+				NearMinimum = std::min(NearMinimum, NearView.x);
+				NearMaximum = std::max(NearMaximum, NearView.x);
+				FarMinimum = std::min(FarMinimum, FarView.x);
+				FarMaximum = std::max(FarMaximum, FarView.x);
+			}
+			const double Scale = std::max({1.0, std::abs(NearMinimum),
+				std::abs(NearMaximum), std::abs(FarMinimum), std::abs(FarMaximum)});
+			if (!std::isfinite(NearMinimum) || !std::isfinite(FarMinimum)
+				|| NearMinimum <= MatrixEpsilon
+				|| FarMinimum <= NearMaximum + MatrixEpsilon
+				|| NearMaximum - NearMinimum > Scale * 1.0e-6
+				|| FarMaximum - FarMinimum > Scale * 1.0e-6)
+				return false;
+			OutFrustum.NearDepth = (NearMinimum + NearMaximum) * 0.5;
+			OutFrustum.FittedFarDepth = (FarMinimum + FarMaximum) * 0.5;
+			OutFrustum.FarDepth = std::min(
+				OutFrustum.FittedFarDepth, DirectionalShadowDistance);
+			if (OutFrustum.FarDepth <= OutFrustum.NearDepth + MatrixEpsilon)
+				return false;
+			return true;
+		}
 
+		auto TryBuildLegacyReceiverCorners(
+			const FSceneView& View,
+			std::array<FVector3, 8>& OutCorners) -> bool
+		{
+			const bool bPerspective = IsPerspectiveProjection(View.ProjectionMatrix);
+			if (!bPerspective && !IsOrthographicProjection(View.ProjectionMatrix))
+				return false;
+			FMatrix ClipToWorld;
+			if (!Math::TryInverse(
+					View.ViewProjectionMatrix, ClipToWorld, MatrixEpsilon)) return false;
+			for (uint32 Corner = 0; Corner < 4; ++Corner)
+			{
+				const double X = (Corner & 1u) != 0 ? 1.0 : -1.0;
+				const double Y = (Corner & 2u) != 0 ? 1.0 : -1.0;
+				if (!TryTransformPoint(ClipToWorld,
+						FVector4(X, Y, 0.0, 1.0), OutCorners[Corner])
+					|| !TryTransformPoint(ClipToWorld,
+						FVector4(X, Y, 1.0, 1.0), OutCorners[Corner + 4]))
+					return false;
 				const FVector3 Origin = bPerspective
 					? View.ViewLocation : OutCorners[Corner];
 				const FVector3 Delta = OutCorners[Corner + 4] - Origin;
 				const double Length = Math::Length(Delta);
 				if (!Math::IsFinite(Origin) || !Math::IsFinite(Delta)
-					|| !std::isfinite(Length) || Length <= MatrixEpsilon)
-					return false;
+					|| !std::isfinite(Length) || Length <= MatrixEpsilon) return false;
 				const double ClampedLength = std::min(
 					Length, DirectionalShadowDistance);
-				OutCorners[Corner + 4] = Origin + Delta * (ClampedLength / Length);
-				if (Math::LengthSquared(
-						OutCorners[Corner + 4] - OutCorners[Corner])
-					<= MatrixEpsilon * MatrixEpsilon)
+				OutCorners[Corner + 4] = Origin
+					+ Delta * (ClampedLength / Length);
+			}
+			return true;
+		}
+
+		auto BuildReceiverSlice(
+			const FReceiverFrustum& Frustum,
+			double NearDepth,
+			double FarDepth,
+			std::array<FVector3, 8>& OutCorners) -> bool
+		{
+			for (uint32 Corner = 0; Corner < 4; ++Corner)
+			{
+				const FVector3& FullNear = Frustum.Corners[Corner];
+				const FVector3& FullFar = Frustum.Corners[Corner + 4];
+				const double Denominator =
+					Frustum.FittedFarDepth - Frustum.NearDepth;
+				if (!std::isfinite(Denominator) || Denominator <= MatrixEpsilon)
 					return false;
+				const double NearAlpha = (NearDepth - Frustum.NearDepth) / Denominator;
+				const double FarAlpha = (FarDepth - Frustum.NearDepth) / Denominator;
+				OutCorners[Corner] = FullNear + (FullFar - FullNear) * NearAlpha;
+				OutCorners[Corner + 4] = FullNear + (FullFar - FullNear) * FarAlpha;
+				if (!Math::IsFinite(OutCorners[Corner])
+					|| !Math::IsFinite(OutCorners[Corner + 4])) return false;
 			}
 			return true;
 		}
@@ -189,6 +276,88 @@ namespace Durin
 			SetRow(Result, 1, {0.0, 0.5, 0.0, 0.5});
 			return Result;
 		}
+
+		auto TryFitCascade(
+			const std::array<FVector3, 8>& ReceiverCorners,
+			const FDirectionalShadowFilter& Filter,
+			const FVector3& Right,
+			const FVector3& Up,
+			const FVector3& Forward,
+			uint32 Layer,
+			double NearDepth,
+			double FarDepth,
+			double TransitionStartDepth,
+			FPreparedDirectionalShadowCascade& OutCascade) -> bool
+		{
+			FPreparedDirectionalShadowCascade Candidate;
+			Candidate.Layer = Layer;
+			Candidate.NearDepth = NearDepth;
+			Candidate.FarDepth = FarDepth;
+			Candidate.TransitionStartDepth = TransitionStartDepth;
+			Candidate.Filter = Filter;
+			Candidate.ReceiverCorners = ReceiverCorners;
+			Candidate.CasterVolume.Right = Right;
+			Candidate.CasterVolume.Up = Up;
+			Candidate.CasterVolume.Forward = Forward;
+			FVector3 Minimum(std::numeric_limits<double>::max());
+			FVector3 Maximum(std::numeric_limits<double>::lowest());
+			for (const FVector3& Corner : Candidate.ReceiverCorners)
+			{
+				const FVector3 LightSpace{
+					glm::dot(Right, Corner), glm::dot(Up, Corner),
+					glm::dot(Forward, Corner)};
+				Minimum = glm::min(Minimum, LightSpace);
+				Maximum = glm::max(Maximum, LightSpace);
+			}
+			const double RawWidth = Maximum.x - Minimum.x;
+			const double RawHeight = Maximum.y - Minimum.y;
+			if (!Math::IsFinite(Minimum) || !Math::IsFinite(Maximum)
+				|| RawWidth <= MatrixEpsilon || RawHeight <= MatrixEpsilon
+				|| Maximum.z - Minimum.z <= MatrixEpsilon)
+				return false;
+			const double InnerResolution = static_cast<double>(
+				DirectionalShadowResolution - 2 * Filter.GuardTexels);
+			double HalfX = RawWidth * 0.5 * DirectionalShadowResolution
+				/ InnerResolution;
+			double HalfY = RawHeight * 0.5 * DirectionalShadowResolution
+				/ InnerResolution;
+			Candidate.TexelWorldSize = {
+				2.0 * HalfX / DirectionalShadowResolution,
+				2.0 * HalfY / DirectionalShadowResolution};
+			Candidate.Bias = CalculateDirectionalShadowBias(
+				Candidate.TexelWorldSize);
+			double CenterX = (Minimum.x + Maximum.x) * 0.5;
+			double CenterY = (Minimum.y + Maximum.y) * 0.5;
+			CenterX = std::round(CenterX / Candidate.TexelWorldSize.x)
+				* Candidate.TexelWorldSize.x;
+			CenterY = std::round(CenterY / Candidate.TexelWorldSize.y)
+				* Candidate.TexelWorldSize.y;
+			Minimum.x = CenterX - HalfX;
+			Maximum.x = CenterX + HalfX;
+			Minimum.y = CenterY - HalfY;
+			Maximum.y = CenterY + HalfY;
+			Minimum.z -= DirectionalShadowCasterExtrusion;
+			Candidate.CasterVolume.Minimum = Minimum;
+			Candidate.CasterVolume.Maximum = Maximum;
+			Candidate.LightViewMatrix = BuildWorldToLight(Right, Up, Forward);
+			Candidate.LightProjectionMatrix = BuildLightProjection(Minimum, Maximum);
+			Candidate.LightViewProjectionMatrix =
+				Candidate.LightProjectionMatrix * Candidate.LightViewMatrix;
+			Candidate.WorldToShadowMatrix = BuildClipToTexture()
+				* Candidate.LightViewProjectionMatrix;
+			if (!Math::IsFinite(Candidate.LightViewProjectionMatrix)
+				|| !Math::IsFinite(Candidate.WorldToShadowMatrix)) return false;
+			Candidate.CasterView.ViewMatrix = Candidate.LightViewMatrix;
+			Candidate.CasterView.ProjectionMatrix = Candidate.LightProjectionMatrix;
+			Candidate.CasterView.ViewProjectionMatrix =
+				Candidate.LightViewProjectionMatrix;
+			Candidate.CasterView.ViewportWidth = DirectionalShadowResolution;
+			Candidate.CasterView.ViewportHeight = DirectionalShadowResolution;
+			Candidate.CasterView.Settings.RasterMode = ERasterMode::Solid;
+			Candidate.bEnabled = true;
+			OutCascade = Candidate;
+			return true;
+		}
 	}
 
 	auto TryPrepareDirectionalShadowView(
@@ -198,105 +367,104 @@ namespace Durin
 		FPreparedDirectionalShadowView& OutShadow) -> bool
 	{
 		FPreparedDirectionalShadowView Candidate;
+		FReceiverFrustum ReceiverFrustum;
+		const EDirectionalShadowCandidate RequestedCandidate =
+			View.Settings.DirectionalShadowCandidate
+			== EDirectionalShadowCandidate::ThreeCascades
+			? EDirectionalShadowCandidate::ThreeCascades
+			: EDirectionalShadowCandidate::SingleMap;
 		if (!Light.bCastShadows || LightId == InvalidLightSceneId
 			|| !Math::IsFinite(Light.Direction)
-			|| Math::LengthSquared(Light.Direction) <= MatrixEpsilon * MatrixEpsilon
-			|| !TryBuildReceiverCorners(View, Candidate.ReceiverCorners))
+			|| Math::LengthSquared(Light.Direction) <= MatrixEpsilon * MatrixEpsilon)
 			return false;
+		std::array<FVector3, 8> LegacyCorners;
+		if (RequestedCandidate == EDirectionalShadowCandidate::ThreeCascades)
+		{
+			if (!TryBuildReceiverFrustum(View, ReceiverFrustum)) return false;
+		}
+		else if (!TryBuildLegacyReceiverCorners(View, LegacyCorners)) return false;
 
 		Candidate.LightId = LightId;
-		Candidate.Filter = PrepareDirectionalShadowFilter(
+		Candidate.Candidate = RequestedCandidate;
+		Candidate.CascadeCount = Candidate.Candidate
+			== EDirectionalShadowCandidate::ThreeCascades
+			? DirectionalShadowCascadeCount : 1u;
+		Candidate.ViewDepthTransform = RequestedCandidate
+			== EDirectionalShadowCandidate::ThreeCascades
+			? ReceiverFrustum.DepthTransform : FVector4{0.0};
+		const FDirectionalShadowFilter Filter = PrepareDirectionalShadowFilter(
 			View.Settings.DirectionalShadowFilterQuality);
-		Candidate.CasterVolume.Forward = Math::Normalize(Light.Direction);
+		const FVector3 Forward = Math::Normalize(Light.Direction);
 		const FVector3 PreferredUp{0.0, 0.0, 1.0};
 		const FVector3 FallbackUp{0.0, 1.0, 0.0};
 		const FVector3 ReferenceUp = std::abs(glm::dot(
-			Candidate.CasterVolume.Forward, PreferredUp))
+			Forward, PreferredUp))
 			> 1.0 - ParallelAxisEpsilon ? FallbackUp : PreferredUp;
-		Candidate.CasterVolume.Right = Math::Normalize(glm::cross(
-			ReferenceUp, Candidate.CasterVolume.Forward));
-		Candidate.CasterVolume.Up = Math::Normalize(glm::cross(
-			Candidate.CasterVolume.Forward, Candidate.CasterVolume.Right));
-		if (!Math::IsFinite(Candidate.CasterVolume.Right)
-			|| !Math::IsFinite(Candidate.CasterVolume.Up))
+		const FVector3 Right = Math::Normalize(glm::cross(ReferenceUp, Forward));
+		const FVector3 Up = Math::Normalize(glm::cross(Forward, Right));
+		if (!Math::IsFinite(Right) || !Math::IsFinite(Up))
 			return false;
-
-		FVector3 Minimum(std::numeric_limits<double>::max());
-		FVector3 Maximum(std::numeric_limits<double>::lowest());
-		for (const FVector3& Corner : Candidate.ReceiverCorners)
-		{
-			const FVector3 LightSpace{
-				glm::dot(Candidate.CasterVolume.Right, Corner),
-				glm::dot(Candidate.CasterVolume.Up, Corner),
-				glm::dot(Candidate.CasterVolume.Forward, Corner)};
-			Minimum = glm::min(Minimum, LightSpace);
-			Maximum = glm::max(Maximum, LightSpace);
-		}
-		const double RawWidth = Maximum.x - Minimum.x;
-		const double RawHeight = Maximum.y - Minimum.y;
-		if (!Math::IsFinite(Minimum) || !Math::IsFinite(Maximum)
-			|| RawWidth <= MatrixEpsilon || RawHeight <= MatrixEpsilon
-			|| Maximum.z - Minimum.z <= MatrixEpsilon)
-			return false;
-		const double InnerResolution = static_cast<double>(
-			DirectionalShadowResolution - 2 * Candidate.Filter.GuardTexels);
-		double HalfX = RawWidth * 0.5 * DirectionalShadowResolution
-			/ InnerResolution;
-		double HalfY = RawHeight * 0.5 * DirectionalShadowResolution
-			/ InnerResolution;
-		Candidate.TexelWorldSize = {
-			2.0 * HalfX / DirectionalShadowResolution,
-			2.0 * HalfY / DirectionalShadowResolution};
-		Candidate.Bias = CalculateDirectionalShadowBias(
-			Candidate.TexelWorldSize);
 		Candidate.LightDirection = Light.Direction;
 		Candidate.DiagnosticMode = static_cast<size_t>(
 			View.Settings.DirectionalShadowDiagnosticMode)
 			< static_cast<size_t>(EDirectionalShadowDiagnosticMode::Count)
 			? View.Settings.DirectionalShadowDiagnosticMode
 			: EDirectionalShadowDiagnosticMode::Lit;
-		double CenterX = (Minimum.x + Maximum.x) * 0.5;
-		double CenterY = (Minimum.y + Maximum.y) * 0.5;
-		CenterX = std::round(CenterX / Candidate.TexelWorldSize.x)
-			* Candidate.TexelWorldSize.x;
-		CenterY = std::round(CenterY / Candidate.TexelWorldSize.y)
-			* Candidate.TexelWorldSize.y;
-		Minimum.x = CenterX - HalfX;
-		Maximum.x = CenterX + HalfX;
-		Minimum.y = CenterY - HalfY;
-		Maximum.y = CenterY + HalfY;
-		Minimum.z -= DirectionalShadowCasterExtrusion;
-		Candidate.CasterVolume.Minimum = Minimum;
-		Candidate.CasterVolume.Maximum = Maximum;
-		Candidate.LightViewMatrix = BuildWorldToLight(
-			Candidate.CasterVolume.Right, Candidate.CasterVolume.Up,
-			Candidate.CasterVolume.Forward);
-		Candidate.LightProjectionMatrix = BuildLightProjection(Minimum, Maximum);
-		Candidate.LightViewProjectionMatrix =
-			Candidate.LightProjectionMatrix * Candidate.LightViewMatrix;
-		Candidate.WorldToShadowMatrix = BuildClipToTexture()
-			* Candidate.LightViewProjectionMatrix;
-		if (!Math::IsFinite(Candidate.LightViewProjectionMatrix)
-			|| !Math::IsFinite(Candidate.WorldToShadowMatrix))
-			return false;
-
-		Candidate.CasterView.ViewMatrix = Candidate.LightViewMatrix;
-		Candidate.CasterView.ProjectionMatrix = Candidate.LightProjectionMatrix;
-		Candidate.CasterView.ViewProjectionMatrix =
-			Candidate.LightViewProjectionMatrix;
-		Candidate.CasterView.ViewportWidth = DirectionalShadowResolution;
-		Candidate.CasterView.ViewportHeight = DirectionalShadowResolution;
-		Candidate.CasterView.Settings.RasterMode = ERasterMode::Solid;
+		Candidate.SplitDepths[0] = RequestedCandidate
+			== EDirectionalShadowCandidate::ThreeCascades
+			? ReceiverFrustum.NearDepth : 0.0;
+		Candidate.SplitDepths[Candidate.CascadeCount] = RequestedCandidate
+			== EDirectionalShadowCandidate::ThreeCascades
+			? ReceiverFrustum.FarDepth : DirectionalShadowDistance;
+		for (uint32 Boundary = 1; Boundary < Candidate.CascadeCount; ++Boundary)
+		{
+			const double P = static_cast<double>(Boundary)
+				/ static_cast<double>(Candidate.CascadeCount);
+			const double Uniform = ReceiverFrustum.NearDepth
+				+ (ReceiverFrustum.FarDepth - ReceiverFrustum.NearDepth) * P;
+			const double Logarithmic = ReceiverFrustum.bPerspective
+				? ReceiverFrustum.NearDepth * std::pow(
+					ReceiverFrustum.FarDepth / ReceiverFrustum.NearDepth, P)
+				: Uniform;
+			Candidate.SplitDepths[Boundary] = ReceiverFrustum.bPerspective
+				? DirectionalShadowSplitLambda * Logarithmic
+					+ (1.0 - DirectionalShadowSplitLambda) * Uniform
+				: Uniform;
+		}
+		for (uint32 CascadeIndex = 0;
+			CascadeIndex < Candidate.CascadeCount; ++CascadeIndex)
+		{
+			const double NearDepth = Candidate.SplitDepths[CascadeIndex];
+			const double FarDepth = Candidate.SplitDepths[CascadeIndex + 1];
+			if (!std::isfinite(NearDepth) || !std::isfinite(FarDepth)
+				|| FarDepth <= NearDepth + MatrixEpsilon) return false;
+			std::array<FVector3, 8> SliceCorners{};
+			if (RequestedCandidate == EDirectionalShadowCandidate::ThreeCascades)
+			{
+				if (!BuildReceiverSlice(
+						ReceiverFrustum, NearDepth, FarDepth, SliceCorners)) return false;
+			}
+			else
+			{
+				SliceCorners = LegacyCorners;
+			}
+			const double TransitionStart = CascadeIndex == 0 ? NearDepth
+				: NearDepth - DirectionalShadowTransitionFraction
+					* (FarDepth - NearDepth);
+			if (!TryFitCascade(SliceCorners, Filter, Right, Up, Forward,
+					CascadeIndex, NearDepth, FarDepth, TransitionStart,
+					Candidate.Cascades[CascadeIndex])) return false;
+		}
 		Candidate.bEnabled = true;
 		OutShadow = Candidate;
 		return true;
 	}
 
 	auto ClassifyDirectionalShadowCasterBounds(
-		const FPreparedDirectionalShadowView& Shadow,
+		const FPreparedDirectionalShadowCascade& Cascade,
 		const FBox& WorldBounds) -> EDirectionalShadowBoundsClassification
 	{
-		if (!Shadow.bEnabled || !WorldBounds.bIsValid
+		if (!Cascade.bEnabled || !WorldBounds.bIsValid
 			|| !Math::IsFinite(WorldBounds.Min) || !Math::IsFinite(WorldBounds.Max)
 			|| glm::any(glm::greaterThan(WorldBounds.Min, WorldBounds.Max)))
 			return EDirectionalShadowBoundsClassification::InvalidBoundsFallback;
@@ -309,9 +477,9 @@ namespace Durin
 				(Corner & 2u) != 0 ? WorldBounds.Max.y : WorldBounds.Min.y,
 				(Corner & 4u) != 0 ? WorldBounds.Max.z : WorldBounds.Min.z};
 			const FVector3 LightSpace{
-				glm::dot(Shadow.CasterVolume.Right, World),
-				glm::dot(Shadow.CasterVolume.Up, World),
-				glm::dot(Shadow.CasterVolume.Forward, World)};
+				glm::dot(Cascade.CasterVolume.Right, World),
+				glm::dot(Cascade.CasterVolume.Up, World),
+				glm::dot(Cascade.CasterVolume.Forward, World)};
 			Minimum = glm::min(Minimum, LightSpace);
 			Maximum = glm::max(Maximum, LightSpace);
 		}
@@ -326,12 +494,12 @@ namespace Durin
 			AbsoluteMaximum.y,
 			AbsoluteMaximum.z});
 		const double Epsilon = BoundsContactEpsilon * Scale;
-		const bool bOutside = Maximum.x < Shadow.CasterVolume.Minimum.x - Epsilon
-			|| Minimum.x > Shadow.CasterVolume.Maximum.x + Epsilon
-			|| Maximum.y < Shadow.CasterVolume.Minimum.y - Epsilon
-			|| Minimum.y > Shadow.CasterVolume.Maximum.y + Epsilon
-			|| Maximum.z < Shadow.CasterVolume.Minimum.z - Epsilon
-			|| Minimum.z > Shadow.CasterVolume.Maximum.z + Epsilon;
+		const bool bOutside = Maximum.x < Cascade.CasterVolume.Minimum.x - Epsilon
+			|| Minimum.x > Cascade.CasterVolume.Maximum.x + Epsilon
+			|| Maximum.y < Cascade.CasterVolume.Minimum.y - Epsilon
+			|| Minimum.y > Cascade.CasterVolume.Maximum.y + Epsilon
+			|| Maximum.z < Cascade.CasterVolume.Minimum.z - Epsilon
+			|| Minimum.z > Cascade.CasterVolume.Maximum.z + Epsilon;
 		return bOutside ? EDirectionalShadowBoundsClassification::Outside
 			: EDirectionalShadowBoundsClassification::InsideOrIntersecting;
 	}
@@ -352,7 +520,7 @@ namespace Durin
 
 	auto PrepareDirectionalShadowCasterCandidates(
 		const FScene& Scene,
-		const FPreparedDirectionalShadowView& Shadow,
+		const FPreparedDirectionalShadowCascade& Cascade,
 		bool bDisableCulling) -> FDirectionalShadowCasterCandidates
 	{
 		FDirectionalShadowCasterCandidates Result;
@@ -370,7 +538,7 @@ namespace Durin
 				bDisableCulling
 					? EDirectionalShadowBoundsClassification::InsideOrIntersecting
 					: ClassifyDirectionalShadowCasterBounds(
-						Shadow, Info->GetWorldBounds());
+						Cascade, Info->GetWorldBounds());
 			if (Classification == EDirectionalShadowBoundsClassification::Outside)
 			{
 				++Result.Culled;
@@ -399,5 +567,49 @@ namespace Durin
 			+ Result.StaticMeshes.size() + Result.SplineMeshes.size()
 			+ Result.SkeletalMeshes.size() + Result.Terrains.size());
 		return Result;
+	}
+
+	auto SelectDirectionalShadowCascade(
+		const FPreparedDirectionalShadowView& Shadow,
+		double ReceiverDepth,
+		uint32& OutCascade,
+		uint32& OutNearCascade,
+		double& OutTransitionWeight) -> bool
+	{
+		OutCascade = 0;
+		OutNearCascade = 0;
+		OutTransitionWeight = 0.0;
+		if (!Shadow.bEnabled || Shadow.CascadeCount == 0
+			|| Shadow.CascadeCount > DirectionalShadowCascadeCount
+			|| !std::isfinite(ReceiverDepth)
+			|| ReceiverDepth < Shadow.SplitDepths[0]
+			|| ReceiverDepth > Shadow.SplitDepths[Shadow.CascadeCount])
+			return false;
+		uint32 Primary = Shadow.CascadeCount - 1;
+		for (uint32 Index = 0; Index < Shadow.CascadeCount; ++Index)
+		{
+			if (ReceiverDepth <= Shadow.SplitDepths[Index + 1])
+			{
+				Primary = Index;
+				break;
+			}
+		}
+		OutCascade = Primary;
+		OutNearCascade = Primary;
+		if (Primary + 1 < Shadow.CascadeCount)
+		{
+			const auto& FarCascade = Shadow.Cascades[Primary + 1];
+			if (ReceiverDepth >= FarCascade.TransitionStartDepth)
+			{
+				const double Width = FarCascade.NearDepth
+					- FarCascade.TransitionStartDepth;
+				if (!std::isfinite(Width) || Width <= MatrixEpsilon) return false;
+				OutCascade = Primary + 1;
+				OutTransitionWeight = std::clamp(
+					(ReceiverDepth - FarCascade.TransitionStartDepth) / Width,
+					0.0, 1.0);
+			}
+		}
+		return true;
 	}
 }

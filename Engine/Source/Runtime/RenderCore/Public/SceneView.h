@@ -47,6 +47,10 @@ namespace Durin
 		FilterFootprint,
 		FilterTapValidity,
 		FilterDifference,
+		CascadeIndex,
+		CascadeTransition,
+		CascadeCoverage,
+		CascadeDifference,
 		Count,
 	};
 
@@ -56,6 +60,14 @@ namespace Durin
 		Low,
 		Medium,
 		High,
+		Count,
+	};
+
+	// Selects the bounded directional-shadow representation prepared for one view.
+	enum class EDirectionalShadowCandidate : uint8
+	{
+		SingleMap,
+		ThreeCascades,
 		Count,
 	};
 
@@ -73,6 +85,8 @@ namespace Durin
 			EDirectionalShadowDiagnosticMode::Lit;
 		EDirectionalShadowFilterQuality DirectionalShadowFilterQuality =
 			EDirectionalShadowFilterQuality::Medium;
+		EDirectionalShadowCandidate DirectionalShadowCandidate =
+			EDirectionalShadowCandidate::ThreeCascades;
 	};
 
 	// Supplies one submission-local cube environment without publishing scene state.

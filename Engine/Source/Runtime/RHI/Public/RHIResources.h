@@ -1619,6 +1619,7 @@ namespace Durin
 	enum class ERHITextureViewDimension : uint8
 	{
 		Texture2D,
+		Texture2DArray,
 		TextureCube
 	};
 

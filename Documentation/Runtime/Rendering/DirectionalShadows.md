@@ -1,6 +1,6 @@
 # Directional Shadows
 
-Summary: Defines the selected directional-light shadow map, deterministic PCF tiers, diagnostics, failure fallback, and qualification evidence.
+Summary: Defines the selected three-cascade directional-light shadow path, deterministic PCF tiers, diagnostics, failure fallback, and qualification evidence.
 
 Modules: RenderCore, Renderer, Engine, VulkanRHI
 
@@ -15,25 +15,29 @@ component, proxy, SceneInfo, and prepared-light path copy this value; render
 code never reads a component. Missing, invalid, disabled, or failed shadow
 state leaves the existing directional light fully unshadowed.
 
-The feature owns one reusable 2048x2048 D32 texture, an exact sampled view, an
-exact depth-attachment view, and a linear clamp-to-border opaque-white
-`LessOrEqual` comparison sampler. The complete depth/comparison pair is created
-on first scene-view demand and remains the legal fully-lit binding when a
-particular view has shadows disabled. Logical storage is 16,777,216 bytes.
-Backend allocation bytes are reported independently. The target is cleared and
-regenerated before Scene Color for every enabled main, auxiliary, preview,
-present, or offscreen view; its dimensions do not follow viewport resize.
+The selected representation is one reusable three-layer 2048x2048 D32
+`Texture2DArray`, one sampled array view, three exact single-layer 2D depth
+views, and one linear clamp-to-border opaque-white `LessOrEqual` comparison
+sampler. Creation publishes only a complete target/view/sampler aggregate.
+Logical and measured RTX 3090 backend storage are both 50,331,648 bytes. Each
+enabled view regenerates all of its prepared layers before Scene Color; target
+dimensions do not follow viewport resize. `SingleMap` remains a bounded
+per-view comparison candidate and uses layer zero of the same complete array.
 
 ## Fitting and caster preparation
 
 The fitted `FSceneView` supplies eight zero-to-one Vulkan clip corners. Receiver
-depth is limited to the nearer camera far extent or 256 world units. The
+depth is limited to the nearer camera far extent or 256 world units. Perspective
+views use three practical split intervals with lambda 0.65; orthographic views
+use three uniform intervals. Invalid, non-finite, inverted, or zero-width
+intervals disable the shadow for that view. The
 normalized light direction is the light-space forward axis; world +Z is the
 preferred up reference and world +Y is the parallel fallback. Receiver XY is
 expanded by the selected filter's guard and its center is snapped to whole
 shadow texels. Low and Medium use two guard texels; High uses three. The
-expansion is tier-local, so preparing High cannot alter a later Low or Medium
-view.
+expansion is cascade- and tier-local, so one cascade or quality tier cannot
+move another. Each slice independently fits and snaps its center to its own
+whole-texel grid.
 The caster volume shares that XY interval and extrudes 256 units opposite light
 travel. Invalid inversion, basis, extents, or matrices disables the shadow.
 
@@ -52,8 +56,9 @@ skeletal palettes, terrain height resources, two-sided state, and mirrored
 winding. Skeletal shadow draws reuse the base view's matching frame-local
 palette range rather than uploading a second palette.
 
-The depth-only pass has no color attachment, clears D32 to 1.0, writes with
-`Less`, and exits in `ShaderReadOnly`/`GraphicsShaderRead`. It forces filled
+Three ordered depth-only passes have no color attachment. Each binds and clears
+only its exact layer view to 1.0, writes with `Less`, and leaves the array ready
+for `GraphicsShaderRead` before Scene Color. They force filled
 rasterization even for Wireframe camera views. For shadow texel world size
 `t = max(texel.x, texel.y)`, raster constant/slope/clamp bias is
 `clamp(1+2t,1,1.5)`, `clamp(1.25+t,1.25,2)`, and
@@ -83,16 +88,17 @@ resource-failure, and optional-tier fallback.
   available as a bounded tier but is not the default because it fails the
   frozen motion gate.
 
-Offsets derive at runtime from `Texture2D.GetDimensions`; viewport size,
+Offsets derive at runtime from `Texture2DArray.GetDimensions`; viewport size,
 nominal resolution constants, and world scale do not determine the sampling
 step. Every hardware-linear tap is accepted only when its complete half-texel
 footprint is valid. Invalid tap weight and an invalid receiver projection
 contribute fully lit output rather than clamping inward.
 
-The reflected forward-lighting ABI is 464 bytes. Its aligned 144-byte shadow
-block contains the world-to-shadow matrix followed by control, texel/bias,
-raster-bias, light/bounds, and filter `float4` values at offsets 64, 80, 96,
-112, and 128.
+The reflected forward-lighting ABI is 768 bytes. Its aligned 448-byte shadow
+block starts at offset 64, carries control, view-depth transform, four split
+boundaries, light/transition data, and three 128-byte cascade records. Each
+cascade record contains one matrix plus texel/bias, raster-bias, filter, and
+valid-region vectors. Local lights begin at offset 512.
 C++ size/offset assertions and Slang compilation/reflection tests own this
 packing.
 
@@ -134,6 +140,21 @@ darker, blue is lighter, and green is unchanged. Only the difference diagnostic
 performs the additional Low comparison; diagnostic-disabled production uses
 only the selected tier's nominal 1, 9, or 25 comparisons.
 
+Q2 adds `CascadeIndex`, `CascadeTransition`, `CascadeCoverage`, and
+`CascadeDifference`. Index uses fixed red/green/blue layer colors; transition
+is a grayscale adjacent-layer weight; coverage reuses the selected layers'
+coverage evidence; difference shows the signed attenuation difference between
+neighboring cascade results. Candidate-versus-single comparisons remain an
+offline qualification operation, avoiding a second production target solely
+for a live diagnostic.
+
+Receiver selection uses positive view-space depth. Outside a transition it
+samples one layer; in the final 10% before an interior split it samples exactly
+the two neighboring layers and blends their independently validated results.
+Medium therefore has nine nominal comparisons outside overlap and 18 inside.
+Invalid projections and taps contribute fully lit and never clamp into another
+layer.
+
 Target/view/sampler or draw-resource failure disables the feature for that view
 and continues Scene Color unshadowed. Renderer release, device invalidation,
 manual retry, and shader reload use the existing resource coordinator; the
@@ -169,12 +190,15 @@ Medium, and High. Medium/Low is 0.837 against a maximum 0.85; High/Medium is
 0.893 against a maximum 0.90. Maximum transition width remains 40 pixels for
 all tiers.
 
-At channel tolerance two, the dedicated Q1 camera/light motion comparisons are
-76/125 pixels for Low, 51/76 for Medium, and 487/563 for High against a
-132-pixel limit. Medium also preserves the Q0 planar-acne output exactly,
+After rebasing the per-draw dynamic raster-bias fix, the frozen channel-
+tolerance-two camera/light motion values are 71/117 pixels for Low, 48/88 for
+Medium, and 32/49 for High against a 132-pixel limit. Medium remains the Q1
+policy selected before Q2; the prerequisite fix did not reopen filter policy.
+Medium also preserves the Q0 planar-acne output exactly,
 keeps Masked/Opaque controls equal, retains distinct valid/defective geometry,
-and matches the disabled reference. High is therefore rejected by motion even
-though its edge and performance evidence pass.
+and matches the disabled reference. The original Q1 evidence rejected High by
+motion; the later prerequisite fix improves those captures but does not reopen
+the already selected Medium policy inside Q2.
 
 On the RTX 3090, driver 591.86, Vulkan 1.4.325, 1920x1080 timing fixture with
 30 warm-up and 120 measured frames, Low/Medium/High Scene Color medians are
@@ -185,3 +209,23 @@ regressions are 640 and 1,216 ns against 20,000 ns. The Medium filter-difference
 diagnostic adds 1,568 ns over Medium Lit. Logical/backend bytes remain exactly
 16,777,216 and failed frames remain zero. These results select Medium as the
 production default while retaining Low fallback and bounded High availability.
+
+## Q2 qualification
+
+The selected production candidate is three independently fitted 2048x2048 D32
+cascades, practical perspective splits at lambda 0.65, uniform orthographic
+splits, a 256-unit maximum distance, 10% adjacent overlap, and the Medium 3x3
+tent filter. CPU goldens own split ordering, clamp, overlap, selection, and
+degenerate behavior. RHI and Vulkan tests own array creation, sampled-array and
+exact layer views, layer transitions, comparison sampling, descriptor
+completeness, injected creation failure, and release/retry behavior. Vulkan
+captures exercise the three-pass candidate and cascade-index receiver path.
+
+On the RTX 3090, driver 591.86, Vulkan 1.4.325, the 1920x1080 fixture uses 30
+warm-up and 120 measured frames. SingleMap Medium records 19,328 ns combined
+Scene Color plus Shadow Depth; ThreeCascades Medium records 31,936 ns, an
+increment of 12,608 ns against the 1,000,000 ns gate. Logical/backend bytes are
+50,331,648 against the 67,108,864-byte gate and measured-frame failures are
+zero. Static/Spline, Skeletal, Terrain, Opaque/Masked, resource reload,
+sequential-view, fully lit fallback, and Vulkan validation suites pass. These
+results select `ThreeCascades` plus Medium as the production default.

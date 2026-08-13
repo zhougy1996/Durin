@@ -77,6 +77,9 @@ namespace
 		Durin::ERenderMode RenderMode = Durin::ERenderMode::Lit;
 		Durin::EDirectionalShadowFilterQuality FilterQuality =
 			Durin::EDirectionalShadowFilterQuality::Low;
+		Durin::EDirectionalShadowCandidate Candidate =
+			Durin::EDirectionalShadowCandidate::SingleMap;
+		bool bPerspective = false;
 	};
 
 	Durin::FViewRenderCounters GLastCounters;
@@ -637,90 +640,102 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 			Fixtures.push_back(std::move(Diagnostic));
 		}
 	}
+	const size_t CascadeFixtureStart = Fixtures.size();
+	Fixtures.push_back({
+		.Name = "q2_cascades_index_perspective",
+		.Primitives = {
+			{{24.0, 0.0, 0.0}, {7.0, 7.0, 1.0}, 90.0},
+			{{22.0, 0.5, 0.0}, {2.0, 2.0, 1.0}, 90.0}},
+		.LightDirection = {-1.0, 0.2, -0.25},
+		.DiagnosticMode =
+			Durin::EDirectionalShadowDiagnosticMode::CascadeIndex,
+		.FilterQuality = Durin::EDirectionalShadowFilterQuality::Medium,
+		.Candidate = Durin::EDirectionalShadowCandidate::ThreeCascades,
+		.bPerspective = true});
 	constexpr std::array<std::string_view, 13> ExpectedHashes{
 		"d2cc1b606edb268b4bcc68a18d624b4d",
 		"4d0ac6bb59200618b95c72e76bae8ea1",
-		"3148cb2469690824c8b1fd4c6d28c802",
-		"56f6263d3bfcfd7916549eae4f9e5e12",
-		"ab5d52758cae1d9a3ae54c082b623fb7",
+		"4716da464b254091bff21a415d29746b",
+		"ef4254ba0cc13f8091880e8e8a43009e",
+		"7df3b3bbc15a476d7ca4de9d05a5829c",
 		"0d107e2f124f290e5baa6025a821c543",
-		"303a0d4d212b4f40760efcbcc593100e",
-		"303a0d4d212b4f40760efcbcc593100e",
+		"f7a7f271bb3021e8ad31e8185f06649f",
+		"f7a7f271bb3021e8ad31e8185f06649f",
 		"1fa526cb259e748e81027df9fe529c1d",
-		"56f6263d3bfcfd7916549eae4f9e5e12",
-		"de843aa6186a499fb1b8eecbd316ad7e",
-		"a7cb654c08677766bdfba5cfd63f0103",
-		"ead3a108ecf314d076bad9828f92de33"};
+		"ef4254ba0cc13f8091880e8e8a43009e",
+		"5891f7df7f3ad74783af20de9770b0ad",
+		"ff0221d5364d85c40017f28c055e9950",
+		"61c8ceb1abfc94637e596ac47c0478b4"};
 	constexpr std::array<std::string_view, 8> Q1EntryExpectedHashes{
-		"15061f4a024de65509e19730e2f23626",
-		"34b1018e345d8d6861e0bace5fc30f9a",
-		"f11a7e3c32c4bfa40ea0b06fcf5db193",
-		"c3220dd46cf1558073e332ee1d452df2",
-		"233d85aa729d6a8c5c4e84373b1cdaeb",
-		"15061f4a024de65509e19730e2f23626",
-		"dfbd0a52657bdc4ababcadbd2caf4ce6",
-		"417bd4397d90a46b93d7ad25a0465162"};
+		"65442374e4fc52b725e06e7e9b691a0f",
+		"9144c3d82814438293c0afde761a85ce",
+		"0a646b78fd9d4663b287810a21b69d0a",
+		"6ba21b78c791536aa3262888cc8b451e",
+		"e80d091ce711644c6dda8042d75ce63d",
+		"65442374e4fc52b725e06e7e9b691a0f",
+		"0d8fab92144a4b211e495727535d2805",
+		"1e3f0976eb32480d09f4d4323852363a"};
 	constexpr std::array<std::string_view, 9> Q1FilterTrialExpectedHashes{
 		"9dae114fe1d675583584a4a9a166248b",
-		"b92b38288f4fed148f3392d9a7a6c6a0",
-		"b92b38288f4fed148f3392d9a7a6c6a0",
-		"f349d2fe0cce1ea1e3864e0b3d4bbd22",
-		"4544a9db49d246aa6854e379b66a4a92",
-		"b7e73aaacc6bca481306157fb7c5de02",
-		"b7e73aaacc6bca481306157fb7c5de02",
-		"1f3a24a8c7d332539073cbf75558cf47",
-		"7904dec24b63669a2e0070f93f17d5a5"};
+		"ac8d347978e0b3f3c7ec91972a481bba",
+		"ac8d347978e0b3f3c7ec91972a481bba",
+		"bc8987bd55fdee3a1ac13d37f9382fa9",
+		"804d5f71bdf4ce3df495866f46b4e90b",
+		"7b44b7b2d484552f9166311dcffa1a8d",
+		"7b44b7b2d484552f9166311dcffa1a8d",
+		"02787f7de37d46f5c02e561e7596dd60",
+		"02aa76870a2302c67b8124ab6fdee797"};
 	constexpr std::array<std::string_view, 21> MediumParityExpectedHashes{
 		"d2cc1b606edb268b4bcc68a18d624b4d",
-		"082f86e044b0914a56899e576244fd49",
-		"dd46e812d50875e95d3b38f564064f8d",
-		"559fa883d4b72a0d6ad728304d647963",
-		"0f19039ec90faf1c53f1de2b372f59d6",
-		"91a07b2f7752882d5c3b5c0d7c64866a",
-		"c890b3de0c89fa135fd999a022791248",
-		"c890b3de0c89fa135fd999a022791248",
+		"4d0ac6bb59200618b95c72e76bae8ea1",
+		"918f30f75e740100eb7284e47d4dd0b3",
+		"8d3329bc1f35eba94950ee5a847a225b",
+		"a560c34cd242a773860755e1b35a96d6",
+		"0d107e2f124f290e5baa6025a821c543",
+		"76d05bb24c3c7939a9c4f67a6975a3a6",
+		"76d05bb24c3c7939a9c4f67a6975a3a6",
 		"1fa526cb259e748e81027df9fe529c1d",
-		"559fa883d4b72a0d6ad728304d647963",
-		"eb1cb2d998611c308e2dd44120849951",
-		"b3bec99a8a87e4382cd32d6076b24d6e",
-		"4514426961958647458cbf98a135d3ca",
-		"b92b38288f4fed148f3392d9a7a6c6a0",
-		"74de2e944917558f33e32797582e5ba4",
-		"44a781cef99f139b05d80de473ad4c53",
-		"46d37f1b357fd4d65f726384a3a4bc5f",
-		"6b4e162f2deff5007b8d890a78fda1fd",
-		"b92b38288f4fed148f3392d9a7a6c6a0",
-		"f349d2fe0cce1ea1e3864e0b3d4bbd22",
-		"4544a9db49d246aa6854e379b66a4a92"};
+		"8d3329bc1f35eba94950ee5a847a225b",
+		"407664acbdc037b7c36429b224a1ff55",
+		"b86c2543320ea7e6d415dbf928282929",
+		"8615e32c62160dd06675c9f754ca572d",
+		"ac8d347978e0b3f3c7ec91972a481bba",
+		"d629a304092d939fe15eee90dc497416",
+		"796debb8a36fc0189d51646a4643e2bb",
+		"3d28a9b1a4c1fef0c72efbbec511d651",
+		"b307d0dce5c0be4098b4221c21d57893",
+		"ac8d347978e0b3f3c7ec91972a481bba",
+		"bc8987bd55fdee3a1ac13d37f9382fa9",
+		"804d5f71bdf4ce3df495866f46b4e90b"};
 	constexpr std::array<std::string_view, 21> HighParityExpectedHashes{
-		"7dd935586f61485f7764b34ed5830e30",
-		"5ce59fd1d5c8e8567c3f838290b9285d",
-		"c56007c556c2d52337e3fa70cf722680",
-		"fad1676b2ef02846a406d669ecc007dd",
-		"9f90b415c66a20e084959155395d78c4",
-		"98a3bbe7899a07453960d53c4f9b9694",
-		"3e79374d053f695c16669de861c0ff53",
-		"3e79374d053f695c16669de861c0ff53",
+		"d2cc1b606edb268b4bcc68a18d624b4d",
+		"4d0ac6bb59200618b95c72e76bae8ea1",
+		"7752648680d3994c0dbb1b0758925828",
+		"26ef659c55d60078d373521f530bebbd",
+		"73a9763514ea4165d2219311e3f206d3",
+		"0d107e2f124f290e5baa6025a821c543",
+		"808a725d07ed715b24425da144f7d034",
+		"808a725d07ed715b24425da144f7d034",
 		"1fa526cb259e748e81027df9fe529c1d",
-		"fad1676b2ef02846a406d669ecc007dd",
-		"d7b28516db9d91771dd1e1acaeebe786",
-		"9b8b0d778990effca943967ffba220d1",
-		"2d38657d31caaa3324b9eb36b6cacfd3",
-		"b7e73aaacc6bca481306157fb7c5de02",
-		"2a8b4ebe1c1cf4c228f8e8311dac175a",
-		"d9f9c82af7b47b63028b6f557556e68d",
-		"d1d196963045acb5ca52121cf2b4c622",
-		"b843d8806631623604685c6878afe6b4",
-		"b7e73aaacc6bca481306157fb7c5de02",
-		"1f3a24a8c7d332539073cbf75558cf47",
-		"7904dec24b63669a2e0070f93f17d5a5"};
+		"26ef659c55d60078d373521f530bebbd",
+		"680f8e5eef73336136c033f9bd499637",
+		"7ea836cd60ec15fcf534cebd990ef7f3",
+		"f70ccbe2af270b04f83db00f17592be9",
+		"7b44b7b2d484552f9166311dcffa1a8d",
+		"588bc073eb419a13f0609661d63fc86c",
+		"0277328a81c9696b1fe7711ecdb85017",
+		"869b2dea1ce9f0e4f7e594ccaa25d32f",
+		"b2e7368a90842f4a2fab0b14f30a0a08",
+		"7b44b7b2d484552f9166311dcffa1a8d",
+		"02787f7de37d46f5c02e561e7596dd60",
+		"02aa76870a2302c67b8124ab6fdee797"};
 	constexpr std::array<std::string_view, 6> FilterDiagnosticExpectedHashes{
 		"2b163cee21149cc5e917b9aaa03ec7cd",
 		"3ff57fab7e38ea692b4c8d5b95bb3c1e",
-		"29671e48f1c4d84d5a41e2cd5ac90a3f",
+		"f85d64a0139c37dceb83d47d94a4acad",
 		"50414acd789dfe24723d89c2f702dac7",
 		"3ff57fab7e38ea692b4c8d5b95bb3c1e",
-		"4975ee5a1c6b48bbb487d270b1ecf401"};
+		"89b0ea59feaea35995c2ef8330a7fb47"};
 
 	const std::filesystem::path OutputDirectory =
 		Durin::Testing::CreateTestFixtureDirectory("DirectionalShadowQ0Baseline");
@@ -770,9 +785,27 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 				View.ViewLocation = {Fixture.CameraTranslationX, 0.0, 0.0};
 				View.ViewMatrix = glm::translate(Durin::FMatrix(1.0),
 					Durin::FVector3(-Fixture.CameraTranslationX, 0.0, 0.0));
-				View.ProjectionMatrix = Durin::FMatrix(1.0);
-				View.ProjectionMatrix[2][2] = -1.0;
-				View.ProjectionMatrix[3][2] = 1.0;
+				if (Fixture.bPerspective)
+				{
+					const double YScale = 1.0 / std::tan(
+						Durin::Math::DegreesToRadians(60.0) * 0.5);
+					constexpr double NearClip = 1.0;
+					constexpr double FarClip = 300.0;
+					View.ProjectionMatrix = Durin::FMatrix(0.0);
+					View.ProjectionMatrix[1][0] = YScale;
+					View.ProjectionMatrix[2][1] = -YScale;
+					View.ProjectionMatrix[0][2] =
+						FarClip / (FarClip - NearClip);
+					View.ProjectionMatrix[3][2] =
+						-NearClip * FarClip / (FarClip - NearClip);
+					View.ProjectionMatrix[0][3] = 1.0;
+				}
+				else
+				{
+					View.ProjectionMatrix = Durin::FMatrix(1.0);
+					View.ProjectionMatrix[2][2] = -1.0;
+					View.ProjectionMatrix[3][2] = 1.0;
+				}
 				View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
 				View.ViewportWidth = CaptureWidth;
 				View.ViewportHeight = CaptureHeight;
@@ -783,6 +816,7 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 					Fixture.DiagnosticMode;
 				View.Settings.DirectionalShadowFilterQuality =
 					Fixture.FilterQuality;
+				View.Settings.DirectionalShadowCandidate = Fixture.Candidate;
 				EXPECT_EQ(Renderer.RenderView(
 					CommandList, &Scene, View, Target, false, {}),
 					Durin::ERenderViewResult::Success);
@@ -808,6 +842,27 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 				ExpectedFilter.ComparisonOperations);
 			EXPECT_EQ(GLastCounters.ShadowGuardTexels,
 				ExpectedFilter.GuardTexels);
+			if (Fixture.Candidate
+				== Durin::EDirectionalShadowCandidate::ThreeCascades)
+			{
+				EXPECT_EQ(GLastCounters.ShadowCandidate, Fixture.Candidate);
+				EXPECT_EQ(GLastCounters.ShadowCascadeCount,
+					Durin::DirectionalShadowCascadeCount);
+				EXPECT_EQ(GLastCounters.ShadowComparisonOperations, 9u);
+				EXPECT_EQ(
+					GLastCounters.ShadowTransitionComparisonOperations, 18u);
+				EXPECT_EQ(GLastCounters.ShadowTargetLogicalBytes,
+					Durin::DirectionalShadowLogicalBytes);
+				EXPECT_GE(GLastCounters.ShadowTargetBackendBytes,
+					GLastCounters.ShadowTargetLogicalBytes);
+				EXPECT_LE(GLastCounters.ShadowTargetBackendBytes, 64ull * 1024 * 1024);
+				size_t CascadeAttempts = 0;
+				for (Durin::uint32 Cascade = 0;
+					Cascade < Durin::DirectionalShadowCascadeCount; ++Cascade)
+					CascadeAttempts +=
+						GLastCounters.ShadowCascades[Cascade].AttemptedDraws;
+				EXPECT_EQ(CascadeAttempts, GLastCounters.ShadowAttemptedDraws);
+			}
 		}
 		else
 		{
@@ -861,6 +916,7 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 			FilterDiagnosticExpectedHashes[Index])
 			<< Statistics[FilterDiagnosticStart + Index].Name;
 	}
+	EXPECT_NE(Captures[CascadeFixtureStart], Captures[8]);
 	const std::array<size_t, 3> MotionChangedPixels{
 		CountChangedPixels(Captures[9], Captures[10], 2),
 		CountChangedPixels(Captures[10], Captures[11], 2),
@@ -913,8 +969,8 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 	EXPECT_LT(MediumQ0Motion[0], CaptureWidth * CaptureHeight / 8u);
 	EXPECT_LT(MediumQ0Motion[1], CaptureWidth * CaptureHeight / 8u);
 	EXPECT_LT(MediumQ0Motion[2], CaptureWidth * CaptureHeight / 4u);
-	EXPECT_EQ(HighMotion[0], 487u);
-	EXPECT_EQ(HighMotion[1], 563u);
+	EXPECT_EQ(HighMotion[0], 32u);
+	EXPECT_EQ(HighMotion[1], 49u);
 	EXPECT_LE(ShadowOnlyHighFrequencyFraction[1],
 		ShadowOnlyHighFrequencyFraction[0] * 0.85);
 	EXPECT_LE(ShadowOnlyHighFrequencyFraction[2],

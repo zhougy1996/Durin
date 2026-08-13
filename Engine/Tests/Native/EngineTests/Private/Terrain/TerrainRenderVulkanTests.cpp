@@ -204,8 +204,8 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 	EXPECT_EQ(GCounters.TerrainTopologyCreations, 1u);
 	EXPECT_EQ(GCounters.TerrainTopologyReuses, 1u);
 	EXPECT_EQ(GCounters.TerrainSuccessfulDraws, 2u);
-	EXPECT_EQ(GCounters.ShadowPreparedTerrainCasters, 2u);
-	EXPECT_EQ(GCounters.ShadowSuccessfulDraws, 2u);
+	EXPECT_EQ(GCounters.ShadowPreparedTerrainCasters, 6u);
+	EXPECT_EQ(GCounters.ShadowSuccessfulDraws, 6u);
 
 	Scene.RemoveLight(Durin::FLightSceneId(10));
 	std::vector<Durin::uint16> MaskSamples(7u * 7u, 65535);

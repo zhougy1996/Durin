@@ -18,6 +18,7 @@ namespace Durin
 			-> bool;
 		auto Get_RenderThread(EDefaultTexture Texture) const -> FRHITexture*;
 		auto GetCube_RenderThread() const -> FRHITexture*;
+		auto GetArray_RenderThread() const -> FRHITexture*;
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:
@@ -27,6 +28,7 @@ namespace Durin
 			FTextureRHIRef Black;
 			FTextureRHIRef FlatNormal;
 			FTextureRHIRef BlackCube;
+			FTextureRHIRef WhiteArray;
 		};
 
 		FRendererResourceCoordinator& Coordinator;

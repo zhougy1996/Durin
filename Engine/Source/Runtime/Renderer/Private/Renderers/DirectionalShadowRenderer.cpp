@@ -30,7 +30,8 @@ namespace Durin
 		{
 			FTextureRHIRef Target;
 			FTextureViewRHIRef SampledView;
-			FTextureViewRHIRef DepthAttachmentView;
+			std::array<FTextureViewRHIRef,
+				DirectionalShadowCascadeCount> DepthAttachmentViews;
 			FSamplerRHIRef Sampler;
 		};
 
@@ -67,9 +68,12 @@ namespace Durin
 			Coordinator.GetGeneration_RenderThread(),
 			[&CommandList]() -> FResult {
 				FState::FResources Candidate;
-				FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D(
-					"DirectionalShadowDepth", DirectionalShadowResolution,
-					DirectionalShadowResolution, EPixelFormat::D32)
+				FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2DArray(
+					"DirectionalShadowDepthArray")
+					.SetExtent(DirectionalShadowResolution,
+						DirectionalShadowResolution)
+					.SetArraySize(DirectionalShadowCascadeCount)
+					.SetFormat(EPixelFormat::D32)
 					.SetFlags(ETextureCreateFlags::DepthStencilTargetable
 						| ETextureCreateFlags::ShaderResource)
 					.SetClearValue(FClearValueBinding(1.0f, 0u));
@@ -81,19 +85,31 @@ namespace Durin
 						Candidate.Target,
 						MakeDefaultTextureViewDesc(
 							*Candidate.Target, ERHITextureViewUsage::Sampled));
-					Candidate.DepthAttachmentView = GDynamicRHI->RHICreateTextureView(
-						Candidate.Target,
-						MakeDefaultTextureViewDesc(*Candidate.Target,
-							ERHITextureViewUsage::DepthStencilAttachment));
+					for (uint32 Layer = 0;
+						Layer < DirectionalShadowCascadeCount; ++Layer)
+					{
+						FRHITextureViewDesc Attachment = MakeDefaultTextureViewDesc(
+							*Candidate.Target,
+							ERHITextureViewUsage::DepthStencilAttachment);
+						Attachment.Dimension = ERHITextureViewDimension::Texture2D;
+						Attachment.Range.FirstArrayLayer = Layer;
+						Attachment.Range.NumArrayLayers = 1;
+						Candidate.DepthAttachmentViews[Layer] =
+							GDynamicRHI->RHICreateTextureView(
+								Candidate.Target, Attachment);
+					}
 				}
 				Candidate.Sampler = RHICreateSampler(
 					MakeDirectionalShadowSamplerDesc());
+				const bool bHasAllAttachmentViews = std::ranges::all_of(
+					Candidate.DepthAttachmentViews,
+					[](const FTextureViewRHIRef& View) { return View != nullptr; });
 				if (!Candidate.Target || !Candidate.SampledView
-					|| !Candidate.DepthAttachmentView || !Candidate.Sampler)
+					|| !bHasAllAttachmentViews || !Candidate.Sampler)
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::RHIResource,
-						"DirectionalShadow", "2048-D32",
-						"Target, exact views, or comparison sampler creation returned null.",
+						"DirectionalShadow", "3x2048-D32-array",
+						"Array target, exact views, or comparison sampler creation returned null.",
 						ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));
 				const std::array InitialTransition{FRHITextureTransition::Whole(
@@ -118,14 +134,18 @@ namespace Durin
 		const FForwardLightingUniform FullyUnlit{};
 		State->FallbackLighting = CommandList.AllocateDynamicUniformBuffer(
 			&FullyUnlit, sizeof(FullyUnlit));
-		const bool bStaticReady = StaticMeshes.PrepareShadowResources_RenderThread(
-			CommandList, View.ShadowStaticMeshes);
-		const bool bSkeletalReady = SkeletalMeshes.PrepareShadowResources_RenderThread(
-			CommandList, View.SkeletalMeshes, View.ShadowSkeletalMeshes);
-		const bool bTerrainReady = Terrains.PrepareShadowResources_RenderThread(
-			CommandList, View.ShadowTerrains);
-		const bool bReady = State->FallbackLighting.Buffer != nullptr
-			&& bStaticReady && bSkeletalReady && bTerrainReady;
+		bool bReady = State->FallbackLighting.Buffer != nullptr;
+		for (uint32 Cascade = 0;
+			Cascade < View.DirectionalShadow.CascadeCount; ++Cascade)
+		{
+			bReady = StaticMeshes.PrepareShadowResources_RenderThread(
+				CommandList, View.ShadowStaticMeshes[Cascade]) && bReady;
+			bReady = SkeletalMeshes.PrepareShadowResources_RenderThread(
+				CommandList, View.SkeletalMeshes,
+				View.ShadowSkeletalMeshes[Cascade]) && bReady;
+			bReady = Terrains.PrepareShadowResources_RenderThread(
+				CommandList, View.ShadowTerrains[Cascade]) && bReady;
+		}
 		if (!bReady)
 		{
 			++View.Counters.ShadowPreparationFailures;
@@ -145,10 +165,6 @@ namespace Durin
 		FState::FResources* Resources = State->Resources.GetPayload();
 		if (!View.DirectionalShadow.bEnabled || Resources == nullptr
 			|| Resources->Target == nullptr) return false;
-		FRHIRenderPassInfo Pass{};
-		Pass.RenderTargetLayout = RenderTargetLayouts::MakeDirectionalShadowDepth();
-		Pass.DepthStencilRenderTarget = Resources->Target;
-		Pass.DepthStencilClearValue = FClearValueBinding(1.0f, 0u);
 		FGPUTimingQueryRHIRef TimingQuery;
 		const FShadowDepthTimingQuerySink Sink =
 			GShadowDepthTimingQuerySink.load(std::memory_order_acquire);
@@ -157,36 +173,54 @@ namespace Durin
 			TimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
 			if (TimingQuery) CommandList.BeginGPUTimingQuery(TimingQuery);
 		}
-		CommandList.BeginRenderPass(Pass, "DirectionalShadowDepthRenderPass");
-		CommandList.SetViewport(0.0f, 0.0f, 0.0f,
-			static_cast<float>(DirectionalShadowResolution),
-			static_cast<float>(DirectionalShadowResolution), 1.0f);
-		CommandList.SetScissor(0.0f, 0.0f,
-			static_cast<float>(DirectionalShadowResolution),
-			static_cast<float>(DirectionalShadowResolution));
-		StaticMeshes.ExecuteShadow_RenderThread(
-			CommandList, View.DirectionalShadow.CasterView,
-			State->FallbackLighting, View.ShadowStaticMeshes);
-		SkeletalMeshes.ExecuteShadow_RenderThread(
-			CommandList, View.DirectionalShadow.CasterView,
-			State->FallbackLighting, View.ShadowSkeletalMeshes);
-		Terrains.ExecuteShadow_RenderThread(
-			CommandList, View.DirectionalShadow.CasterView,
-			State->FallbackLighting, View.ShadowTerrains);
-		CommandList.EndRenderPass();
+		for (uint32 CascadeIndex = 0;
+			CascadeIndex < View.DirectionalShadow.CascadeCount; ++CascadeIndex)
+		{
+			const auto& Cascade = View.DirectionalShadow.Cascades[CascadeIndex];
+			FRHIRenderPassInfo Pass{};
+			Pass.RenderTargetLayout =
+				RenderTargetLayouts::MakeDirectionalShadowDepth();
+			Pass.DepthStencilRenderTarget = Resources->Target;
+			Pass.DepthStencilRenderTargetView =
+				Resources->DepthAttachmentViews[CascadeIndex];
+			Pass.DepthStencilClearValue = FClearValueBinding(1.0f, 0u);
+			CommandList.BeginRenderPass(Pass,
+				"DirectionalShadowCascadeDepthRenderPass");
+			CommandList.SetViewport(0.0f, 0.0f, 0.0f,
+				static_cast<float>(DirectionalShadowResolution),
+				static_cast<float>(DirectionalShadowResolution), 1.0f);
+			CommandList.SetScissor(0.0f, 0.0f,
+				static_cast<float>(DirectionalShadowResolution),
+				static_cast<float>(DirectionalShadowResolution));
+			StaticMeshes.ExecuteShadow_RenderThread(
+				CommandList, Cascade.CasterView, State->FallbackLighting,
+				View.ShadowStaticMeshes[CascadeIndex]);
+			SkeletalMeshes.ExecuteShadow_RenderThread(
+				CommandList, Cascade.CasterView, State->FallbackLighting,
+				View.ShadowSkeletalMeshes[CascadeIndex]);
+			Terrains.ExecuteShadow_RenderThread(
+				CommandList, Cascade.CasterView, State->FallbackLighting,
+				View.ShadowTerrains[CascadeIndex]);
+			CommandList.EndRenderPass();
+			auto& Counters = View.Counters.ShadowCascades[CascadeIndex];
+			Counters.AttemptedDraws =
+				View.ShadowStaticMeshes[CascadeIndex].AttemptedDraws
+				+ View.ShadowSkeletalMeshes[CascadeIndex].AttemptedDraws
+				+ View.ShadowTerrains[CascadeIndex].AttemptedDraws;
+			Counters.SuccessfulDraws =
+				View.ShadowStaticMeshes[CascadeIndex].SuccessfulDraws
+				+ View.ShadowSkeletalMeshes[CascadeIndex].SuccessfulDraws
+				+ View.ShadowTerrains[CascadeIndex].SuccessfulDraws;
+			Counters.RejectedDraws =
+				Counters.AttemptedDraws - Counters.SuccessfulDraws;
+			View.Counters.ShadowAttemptedDraws += Counters.AttemptedDraws;
+			View.Counters.ShadowSuccessfulDraws += Counters.SuccessfulDraws;
+		}
 		if (TimingQuery)
 		{
 			CommandList.EndGPUTimingQuery(TimingQuery);
 			Sink(TimingQuery);
 		}
-		View.Counters.ShadowAttemptedDraws =
-			View.ShadowStaticMeshes.AttemptedDraws
-			+ View.ShadowSkeletalMeshes.AttemptedDraws
-			+ View.ShadowTerrains.AttemptedDraws;
-		View.Counters.ShadowSuccessfulDraws =
-			View.ShadowStaticMeshes.SuccessfulDraws
-			+ View.ShadowSkeletalMeshes.SuccessfulDraws
-			+ View.ShadowTerrains.SuccessfulDraws;
 		View.Counters.ShadowRejectedDraws =
 			View.Counters.ShadowAttemptedDraws
 				- View.Counters.ShadowSuccessfulDraws;

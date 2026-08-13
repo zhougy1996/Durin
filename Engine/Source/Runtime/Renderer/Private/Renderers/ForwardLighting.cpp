@@ -171,32 +171,58 @@ namespace Durin
 			&& !Lights.Directional.empty()
 			&& Shadow->LightId == Lights.Directional.front().Id)
 		{
-			for (uint32 Column = 0; Column < 4; ++Column)
-				for (uint32 Row = 0; Row < 4; ++Row)
-					Result.DirectionalShadow.WorldToShadow[Column][Row] =
-						static_cast<float>(Shadow->WorldToShadowMatrix[Row][Column]);
 			Result.DirectionalShadow.Control = {
 				1.0f, static_cast<float>(Shadow->DiagnosticMode),
-				Shadow->Bias.bUsedFallback ? 1.0f : 0.0f,
-				Shadow->Bias.bTotalClamped ? 1.0f : 0.0f};
-			Result.DirectionalShadow.TexelBias = {
-				static_cast<float>(Shadow->TexelWorldSize.x),
-				static_cast<float>(Shadow->TexelWorldSize.y),
-				Shadow->Bias.ReceiverWorld, Shadow->Bias.NormalWorld};
-			Result.DirectionalShadow.RasterBias = {
-				Shadow->Bias.RasterConstant, Shadow->Bias.RasterSlope,
-				Shadow->Bias.RasterClamp,
-				Shadow->Bias.NormalizedRasterSeparation};
-			Result.DirectionalShadow.LightBounds = {
+				static_cast<float>(Shadow->CascadeCount),
+				static_cast<float>(Shadow->Candidate)};
+			Result.DirectionalShadow.ViewDepthTransform = FVector4f(
+				Shadow->ViewDepthTransform);
+			Result.DirectionalShadow.SplitDepths = {
+				static_cast<float>(Shadow->SplitDepths[0]),
+				static_cast<float>(Shadow->SplitDepths[1]),
+				static_cast<float>(Shadow->SplitDepths[2]),
+				static_cast<float>(Shadow->SplitDepths[3])};
+			if (Shadow->CascadeCount == 1)
+			{
+				Result.DirectionalShadow.SplitDepths.z =
+					Result.DirectionalShadow.SplitDepths.y;
+				Result.DirectionalShadow.SplitDepths.w =
+					Result.DirectionalShadow.SplitDepths.y;
+			}
+			Result.DirectionalShadow.LightTransition = {
 				static_cast<float>(Shadow->LightDirection.x),
 				static_cast<float>(Shadow->LightDirection.y),
 				static_cast<float>(Shadow->LightDirection.z),
-				static_cast<float>(Shadow->Filter.GuardTexels)};
-			Result.DirectionalShadow.Filter = {
-				1.0f / static_cast<float>(DirectionalShadowResolution),
-				1.0f / static_cast<float>(DirectionalShadowResolution),
-				static_cast<float>(Shadow->Filter.Quality),
-				Shadow->Filter.FootprintRadiusTexels};
+				static_cast<float>(DirectionalShadowTransitionFraction)};
+			for (uint32 CascadeIndex = 0;
+				CascadeIndex < Shadow->CascadeCount; ++CascadeIndex)
+			{
+				const auto& Cascade = Shadow->Cascades[CascadeIndex];
+				auto& Packed = Result.DirectionalShadow.Cascades[CascadeIndex];
+				for (uint32 Column = 0; Column < 4; ++Column)
+					for (uint32 Row = 0; Row < 4; ++Row)
+						Packed.WorldToShadow[Column][Row] = static_cast<float>(
+							Cascade.WorldToShadowMatrix[Row][Column]);
+				Packed.TexelBias = {
+					static_cast<float>(Cascade.TexelWorldSize.x),
+					static_cast<float>(Cascade.TexelWorldSize.y),
+					Cascade.Bias.ReceiverWorld, Cascade.Bias.NormalWorld};
+				Packed.RasterBias = {
+					Cascade.Bias.RasterConstant, Cascade.Bias.RasterSlope,
+					Cascade.Bias.RasterClamp,
+					Cascade.Bias.NormalizedRasterSeparation};
+				Packed.Filter = {
+					1.0f / static_cast<float>(DirectionalShadowResolution),
+					1.0f / static_cast<float>(DirectionalShadowResolution),
+					static_cast<float>(Cascade.Filter.Quality),
+					Cascade.Filter.FootprintRadiusTexels};
+				const float Guard = Shadow->Candidate
+					== EDirectionalShadowCandidate::ThreeCascades
+					? static_cast<float>(Cascade.Filter.GuardTexels)
+						/ static_cast<float>(DirectionalShadowResolution)
+					: 0.0f;
+				Packed.ValidRegion = {Guard, Guard, 1.0f - Guard, 1.0f - Guard};
+			}
 		}
 		for (size_t Index = 0; Index < Lights.Local.size(); ++Index)
 		{

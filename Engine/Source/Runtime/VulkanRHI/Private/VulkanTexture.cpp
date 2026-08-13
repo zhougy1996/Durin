@@ -38,6 +38,7 @@ namespace Durin::VulkanRHI
 		-> vk::ImageCreateInfo
 	{
 		check(CreateDesc.Dimension == ETextureDimension::Texture2D
+			|| CreateDesc.Dimension == ETextureDimension::Texture2DArray
 			|| CreateDesc.Dimension == ETextureDimension::TextureCube);
 		vk::ImageUsageFlags Usage{};
 		if (EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::ShaderResource))
@@ -269,10 +270,15 @@ namespace Durin::VulkanRHI
 		const FRHICapabilities* Capabilities = RHIGetCapabilities();
 		if (Capabilities == nullptr) return false;
 		const bool bTexture2D = CreateDesc.Dimension == ETextureDimension::Texture2D;
+		const bool bTexture2DArray =
+			CreateDesc.Dimension == ETextureDimension::Texture2DArray;
 		const bool bTextureCube = CreateDesc.Dimension == ETextureDimension::TextureCube;
-		if ((!bTexture2D && !bTextureCube)
+		if ((!bTexture2D && !bTexture2DArray && !bTextureCube)
 			|| (bTexture2D && !EnumHasAnyFlags(Capabilities->SupportedTextureDimensions,
 				ERHITextureDimensionFlags::Texture2D))
+			|| (bTexture2DArray && !EnumHasAnyFlags(
+				Capabilities->SupportedTextureDimensions,
+				ERHITextureDimensionFlags::Texture2DArray))
 			|| (bTextureCube && !EnumHasAnyFlags(Capabilities->SupportedTextureDimensions,
 				ERHITextureDimensionFlags::TextureCube)))
 		{

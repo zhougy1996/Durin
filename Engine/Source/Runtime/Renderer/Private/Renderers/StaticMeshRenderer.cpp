@@ -1976,7 +1976,7 @@ namespace Durin
 		FragmentShaderParameters.DirectionalShadowTexture =
 			Item.DirectionalShadowTexture != nullptr
 				? Item.DirectionalShadowTexture
-				: DefaultTextures.Get_RenderThread(EDefaultTexture::White);
+				: DefaultTextures.GetArray_RenderThread();
 		FragmentShaderParameters.DirectionalShadowSampler =
 			Item.DirectionalShadowSampler != nullptr
 				? Item.DirectionalShadowSampler : MaterialSamplers[0];
@@ -2639,7 +2639,7 @@ namespace Durin
 		FragmentParameters.DirectionalShadowTexture =
 			Item.DirectionalShadowTexture != nullptr
 				? Item.DirectionalShadowTexture
-				: DefaultTextures.Get_RenderThread(EDefaultTexture::White);
+				: DefaultTextures.GetArray_RenderThread();
 		FragmentParameters.DirectionalShadowSampler =
 			Item.DirectionalShadowSampler != nullptr
 				? Item.DirectionalShadowSampler : Samplers[0];
