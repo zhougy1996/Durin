@@ -1,5 +1,7 @@
 #include "Panels/WorldOutlinerPanel.h"
 
+#include "Panels/ActorAttachmentTransaction.h"
+
 #include "Actors/CameraActor.h"
 #include "Actors/DirectionalLightActor.h"
 #include "Actors/StaticMeshActor.h"
@@ -318,11 +320,21 @@ namespace Durin::Editor::Level
 					if (HasSelectedAncestor(Context.GetSelectedActors(), Candidate)) continue;
 					MoveActors.push_back(Candidate);
 				}
+				std::vector<FActorAttachmentTransaction::FEntry> Entries;
+				Entries.reserve(MoveActors.size());
 				for (AActor* Moving : MoveActors)
-					if (!Moving->AttachToActor(Actor, EAttachmentTransformRule::KeepWorld))
-						Context.SetError(std::format("Failed to attach '{}' to '{}'.", Moving->GetName(), Actor->GetName()));
-					else
-						Context.InvalidatePackageSavedState(Moving->GetPackage());
+				{
+					const FTransform Transform = Moving->GetActorTransform();
+					Entries.push_back({Moving, Moving->GetAttachParentActor(), Actor, Transform, Transform});
+				}
+				if (!Entries.empty())
+				{
+					auto Transaction = std::make_unique<FActorAttachmentTransaction>(std::move(Entries), true);
+					const bool bSucceeded = GEditor
+						? GEditor->GetTransactionManager().Execute(std::move(Transaction))
+						: Transaction->Redo();
+					if (!bSucceeded) Context.SetError(std::format("Failed to attach selected actors to '{}'.", Actor->GetName()));
+				}
 			}
 			ImGui::EndDragDropTarget();
 		}
@@ -380,15 +392,22 @@ namespace Durin::Editor::Level
 		if (Context.bReadOnly || !ImGui::BeginDragDropTarget()) return;
 		if (ImGui::AcceptDragDropPayload(ActorPayloadType))
 		{
+			std::vector<FActorAttachmentTransaction::FEntry> Entries;
 			for (const TObjectPtr<AActor>& Selected : Context.GetSelectedActors())
 			{
 				AActor* Actor = Selected.Get();
 				if (!Actor || !Actor->GetAttachParentActor()) continue;
 				if (HasSelectedAncestor(Context.GetSelectedActors(), Actor)) continue;
-				if (!Actor->DetachFromActor(EDetachmentTransformRule::KeepWorld))
-					Context.SetError(std::format("Failed to detach '{}'.", Actor->GetName()));
-				else
-					Context.InvalidatePackageSavedState(Actor->GetPackage());
+				const FTransform Transform = Actor->GetActorTransform();
+				Entries.push_back({Actor, Actor->GetAttachParentActor(), nullptr, Transform, Transform});
+			}
+			if (!Entries.empty())
+			{
+				auto Transaction = std::make_unique<FActorAttachmentTransaction>(std::move(Entries), false);
+				const bool bSucceeded = GEditor
+					? GEditor->GetTransactionManager().Execute(std::move(Transaction))
+					: Transaction->Redo();
+				if (!bSucceeded) Context.SetError("Failed to detach selected actors.");
 			}
 		}
 		ImGui::EndDragDropTarget();
