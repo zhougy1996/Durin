@@ -24,13 +24,13 @@ namespace Durin
 				: &*It;
 		}
 
-		auto GetSpirvInputLocations(
-			const FCompiledShader& Shader) -> std::set<uint32>
+		auto GetSpirvInterfaceLocations(
+			const FCompiledShader& Shader,
+			uint32 StorageClass) -> std::set<uint32>
 		{
 			constexpr uint16 OpDecorate = 71;
 			constexpr uint16 OpVariable = 59;
 			constexpr uint32 DecorationLocation = 30;
-			constexpr uint32 StorageClassInput = 1;
 			std::vector<uint32> Words(
 				Shader.Code->size() / sizeof(uint32));
 			std::memcpy(
@@ -60,7 +60,7 @@ namespace Durin
 						Words[Offset + 3]);
 				}
 				else if (OpCode == OpVariable && WordCount >= 4
-					&& Words[Offset + 3] == StorageClassInput)
+					&& Words[Offset + 3] == StorageClass)
 				{
 					InputIds.insert(Words[Offset + 2]);
 				}
@@ -77,6 +77,20 @@ namespace Durin
 				}
 			}
 			return InputLocations;
+		}
+
+		auto GetSpirvInputLocations(
+			const FCompiledShader& Shader) -> std::set<uint32>
+		{
+			constexpr uint32 StorageClassInput = 1;
+			return GetSpirvInterfaceLocations(Shader, StorageClassInput);
+		}
+
+		auto GetSpirvOutputLocations(
+			const FCompiledShader& Shader) -> std::set<uint32>
+		{
+			constexpr uint32 StorageClassOutput = 3;
+			return GetSpirvInterfaceLocations(Shader, StorageClassOutput);
 		}
 
 		auto HasSpirvInputBuiltIn(
@@ -396,5 +410,30 @@ namespace Durin
 			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
 		ExpectBinding(Output.CompiledShaders[1], "DirectionalShadowSampler", 26,
 			ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
+	}
+
+	TEST(FShaderReflectionTests,
+		TerrainOpaqueShadowOmitsUnconsumedVertexOutputs)
+	{
+		const std::filesystem::path ShaderPath =
+			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
+			/ "StaticMeshBasePass.slang";
+		FShaderCompileOptions Options;
+		Options.VirtualShaderPath = "/Engine/StaticMeshBasePass";
+		Options.EntryPoints = {"VertexMain", "OpaqueShadowFragmentMain"};
+		Options.Frequencies = {
+			EShaderFrequency::Vertex,
+			EShaderFrequency::Fragment};
+		Options.Macros.emplace_back("DURIN_TERRAIN", "1");
+		Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", "0");
+		Options.Macros.emplace_back("DURIN_OPAQUE_SHADOW_DEPTH", "1");
+
+		FSlangShaderCompiler Compiler;
+		const FShaderCompilerOutput Output =
+			Compiler.Compile(ShaderPath.string(), Options);
+		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
+		EXPECT_TRUE(GetSpirvOutputLocations(Output.CompiledShaders[0]).empty());
+		EXPECT_TRUE(GetSpirvInputLocations(Output.CompiledShaders[1]).empty());
 	}
 } // namespace Durin

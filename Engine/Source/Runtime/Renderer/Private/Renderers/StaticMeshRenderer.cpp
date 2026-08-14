@@ -1405,6 +1405,12 @@ namespace Durin
 						"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS",
 						std::to_string(std::bit_cast<uint32>(
 							Identity.OpacityMaskThreshold)));
+					if (bShadowDepth
+						&& Identity.BlendMode != EMaterialBlendMode::Masked)
+					{
+						CompileOptions.Macros.emplace_back(
+							"DURIN_OPAQUE_SHADOW_DEPTH", "1");
+					}
 					if (Domain == EVertexDeformationDomain::Spline)
 						CompileOptions.Macros.emplace_back("DURIN_SPLINE_MESH", "1");
 					FShaderType& VertexShaderType = Domain == EVertexDeformationDomain::Spline
@@ -2062,6 +2068,12 @@ namespace Durin
 					"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS",
 					std::to_string(std::bit_cast<uint32>(
 						Identity.OpacityMaskThreshold)));
+				if (bShadowDepth
+					&& Identity.BlendMode != EMaterialBlendMode::Masked)
+				{
+					Options.Macros.emplace_back(
+						"DURIN_OPAQUE_SHADOW_DEPTH", "1");
+				}
 				FShaderType& VertexType = FSkeletalMeshVertexShader::StaticType();
 				FShaderType& FragmentType = FStaticMeshFragmentShader::StaticType();
 				FShaderType& ShadowFragmentType =

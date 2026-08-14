@@ -31,6 +31,11 @@ struct VSOutput
 #endif
 };
 
+struct OpaqueShadowVSOutput
+{
+    float4 pos : SV_Position;
+};
+
 struct TransformUniform
 {
     float4x4 LocalToClip;
@@ -133,11 +138,23 @@ struct TerrainInstanceData
 
 [shader("vertex")]
 #if DURIN_TERRAIN
+#if DURIN_OPAQUE_SHADOW_DEPTH
+OpaqueShadowVSOutput VertexMain(FTerrainVertexFactoryInput input, uint instanceID : SV_InstanceID)
+#else
 VSOutput VertexMain(FTerrainVertexFactoryInput input, uint instanceID : SV_InstanceID)
+#endif
 #elif DURIN_SKELETAL_MESH
+#if DURIN_OPAQUE_SHADOW_DEPTH
+OpaqueShadowVSOutput VertexMain(FSkeletalMeshVertexFactoryInput input)
+#else
 VSOutput VertexMain(FSkeletalMeshVertexFactoryInput input)
+#endif
+#else
+#if DURIN_OPAQUE_SHADOW_DEPTH
+OpaqueShadowVSOutput VertexMain(FLocalVertexFactoryInput input)
 #else
 VSOutput VertexMain(FLocalVertexFactoryInput input)
+#endif
 #endif
 {
 #if DURIN_TERRAIN
@@ -173,6 +190,15 @@ VSOutput VertexMain(FLocalVertexFactoryInput input)
     FLocalVertexFactoryIntermediates vertex =
         GetLocalVertexFactoryIntermediates(input);
 #endif
+#if DURIN_OPAQUE_SHADOW_DEPTH
+    OpaqueShadowVSOutput output;
+#if DURIN_TERRAIN
+    output.pos = instance.AnchorClip
+        + mul(Transform.LocalToClip, float4(patchLocalPosition, 0.0));
+#else
+    output.pos = mul(Transform.LocalToClip, float4(vertex.localPosition, 1.0));
+#endif
+#else
     VSOutput output;
 #if DURIN_TERRAIN
     output.pos = instance.AnchorClip
@@ -203,6 +229,7 @@ VSOutput VertexMain(FLocalVertexFactoryInput input)
     output.uv1 = vertex.texCoords[1];
     output.uv2 = vertex.texCoords[2];
     output.uv3 = vertex.texCoords[3];
+#endif
 #endif
     return output;
 }

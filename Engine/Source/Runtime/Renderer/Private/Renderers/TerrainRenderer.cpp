@@ -645,6 +645,12 @@ namespace Durin
 				Options.Macros.emplace_back("DURIN_MATERIAL_BLEND_MODE", std::to_string(static_cast<uint8>(Identity.BlendMode)));
 				Options.Macros.emplace_back("DURIN_MATERIAL_SHADING_MODEL", std::to_string(static_cast<uint8>(Identity.ShadingModel)));
 				Options.Macros.emplace_back("DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", std::to_string(std::bit_cast<uint32>(Identity.OpacityMaskThreshold)));
+				if (bShadowDepth
+					&& Identity.BlendMode != EMaterialBlendMode::Masked)
+				{
+					Options.Macros.emplace_back(
+						"DURIN_OPAQUE_SHADOW_DEPTH", "1");
+				}
 				FShaderType& VertexType = FTerrainVertexShader::StaticType();
 				FShaderType& FragmentType = FTerrainFragmentShader::StaticType();
 				FShaderType& ShadowFragmentType =
