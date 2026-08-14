@@ -12,7 +12,7 @@ namespace Durin::SceneViewProjection
 	auto IsValidPerspectiveClipRange(double NearClip, double FarClip) -> bool
 	{
 		return std::isfinite(NearClip) && std::isfinite(FarClip)
-			&& NearClip >= 0.001 && FarClip > NearClip
+			&& NearClip >= MinimumPerspectiveNearClip && FarClip > NearClip
 			&& FarClip <= MaximumPerspectiveFarClip;
 	}
 
@@ -20,8 +20,10 @@ namespace Durin::SceneViewProjection
 		double AspectRatio, double NearClip, double FarClip,
 		ESceneDepthConvention DepthConvention, FMatrix& OutProjection) -> bool
 	{
-		if (!std::isfinite(FieldOfViewDegrees) || FieldOfViewDegrees < 1.0
-			|| FieldOfViewDegrees > 170.0 || !std::isfinite(AspectRatio)
+		if (!std::isfinite(FieldOfViewDegrees)
+			|| FieldOfViewDegrees < MinimumPerspectiveFieldOfViewDegrees
+			|| FieldOfViewDegrees > MaximumPerspectiveFieldOfViewDegrees
+			|| !std::isfinite(AspectRatio)
 			|| AspectRatio < 0.001 || !IsValidPerspectiveClipRange(NearClip, FarClip))
 			return false;
 		const double YScale = 1.0 / std::tan(

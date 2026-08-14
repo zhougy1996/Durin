@@ -77,15 +77,13 @@ namespace Durin
 
 	auto DCameraComponent::SetProjectionParameters(float InFieldOfViewDegrees, float InNearClip, float InFarClip) -> void
 	{
-		if (!std::isfinite(InFieldOfViewDegrees)) InFieldOfViewDegrees = 60.0f;
-		if (!std::isfinite(InNearClip)) InNearClip = 0.1f;
-		if (!std::isfinite(InFarClip))
-			InFarClip = static_cast<float>(SceneViewProjection::DefaultPerspectiveFarClip);
-		ProjectionSettings.FieldOfViewDegrees = std::clamp(InFieldOfViewDegrees, 1.0f, 170.0f);
-		ProjectionSettings.NearClip = std::max(InNearClip, 0.001f);
-		ProjectionSettings.FarClip = std::clamp(InFarClip,
-			ProjectionSettings.NearClip + 1.0f,
-			static_cast<float>(SceneViewProjection::MaximumPerspectiveFarClip));
+		ProjectionSettings.FieldOfViewDegrees = static_cast<float>(
+			SceneViewProjection::ClampFieldOfViewDegrees(InFieldOfViewDegrees));
+		double NearClip = 0.0;
+		double FarClip = 0.0;
+		SceneViewProjection::ClampPerspectiveClipRange(InNearClip, InFarClip, NearClip, FarClip);
+		ProjectionSettings.NearClip = static_cast<float>(NearClip);
+		ProjectionSettings.FarClip = static_cast<float>(FarClip);
 		SetTerrainDistance(ProjectionSettings.TerrainFadeStart,
 			ProjectionSettings.TerrainRenderDistance);
 		MarkPackageDirty();
@@ -94,18 +92,12 @@ namespace Durin
 	auto DCameraComponent::SetTerrainDistance(float InFadeStart,
 		float InRenderDistance) -> void
 	{
-		if (!std::isfinite(InFadeStart))
-			InFadeStart = static_cast<float>(SceneViewProjection::DefaultTerrainFadeStart);
-		if (!std::isfinite(InRenderDistance))
-			InRenderDistance = static_cast<float>(SceneViewProjection::DefaultTerrainRenderDistance);
-		const float MaximumDistance = std::max(1.0f, ProjectionSettings.FarClip
-			- static_cast<float>(SceneViewProjection::GetTerrainFarPlaneSafetyMargin(
-				ProjectionSettings.FarClip)));
-		ProjectionSettings.TerrainRenderDistance = std::clamp(
-			InRenderDistance, 1.0f, MaximumDistance);
-		ProjectionSettings.TerrainFadeStart = std::clamp(
-			InFadeStart, 0.0f,
-			std::max(0.0f, ProjectionSettings.TerrainRenderDistance - 1.0f));
+		double FadeStart = 0.0;
+		double RenderDistance = 0.0;
+		SceneViewProjection::ClampTerrainDistances(ProjectionSettings.FarClip,
+			InFadeStart, InRenderDistance, FadeStart, RenderDistance);
+		ProjectionSettings.TerrainFadeStart = static_cast<float>(FadeStart);
+		ProjectionSettings.TerrainRenderDistance = static_cast<float>(RenderDistance);
 		MarkPackageDirty();
 	}
 
@@ -146,28 +138,21 @@ namespace Durin
 			|| Proposal.DraftRootProperty != Proposal.MemberProperty || !Proposal.DraftRootContainer) return true;
 		auto* Settings = Proposal.DraftRootProperty->ContainerPtrToValuePtr<FCameraProjectionSettings>(
 			Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
-		if (!std::isfinite(Settings->FieldOfViewDegrees)) Settings->FieldOfViewDegrees = 60.0f;
-		if (!std::isfinite(Settings->NearClip)) Settings->NearClip = 0.1f;
-		if (!std::isfinite(Settings->FarClip)) Settings->FarClip =
-			static_cast<float>(SceneViewProjection::DefaultPerspectiveFarClip);
-		Settings->FieldOfViewDegrees = std::clamp(Settings->FieldOfViewDegrees, 1.0f, 170.0f);
-		Settings->NearClip = std::max(Settings->NearClip, 0.001f);
-		Settings->FarClip = std::clamp(Settings->FarClip,
-			Settings->NearClip + 1.0f,
-			static_cast<float>(SceneViewProjection::MaximumPerspectiveFarClip));
-		if (!std::isfinite(Settings->TerrainRenderDistance))
-			Settings->TerrainRenderDistance = static_cast<float>(
-				SceneViewProjection::DefaultTerrainRenderDistance);
-		if (!std::isfinite(Settings->TerrainFadeStart))
-			Settings->TerrainFadeStart = static_cast<float>(
-				SceneViewProjection::DefaultTerrainFadeStart);
-		const float MaximumTerrainDistance = std::max(1.0f, Settings->FarClip
-			- static_cast<float>(SceneViewProjection::GetTerrainFarPlaneSafetyMargin(
-				Settings->FarClip)));
-		Settings->TerrainRenderDistance = std::clamp(
-			Settings->TerrainRenderDistance, 1.0f, MaximumTerrainDistance);
-		Settings->TerrainFadeStart = std::clamp(Settings->TerrainFadeStart, 0.0f,
-			std::max(0.0f, Settings->TerrainRenderDistance - 1.0f));
+		Settings->FieldOfViewDegrees = static_cast<float>(
+			SceneViewProjection::ClampFieldOfViewDegrees(Settings->FieldOfViewDegrees));
+		double NearClip = 0.0;
+		double FarClip = 0.0;
+		SceneViewProjection::ClampPerspectiveClipRange(
+			Settings->NearClip, Settings->FarClip, NearClip, FarClip);
+		Settings->NearClip = static_cast<float>(NearClip);
+		Settings->FarClip = static_cast<float>(FarClip);
+		double FadeStart = 0.0;
+		double RenderDistance = 0.0;
+		SceneViewProjection::ClampTerrainDistances(Settings->FarClip,
+			Settings->TerrainFadeStart, Settings->TerrainRenderDistance,
+			FadeStart, RenderDistance);
+		Settings->TerrainFadeStart = static_cast<float>(FadeStart);
+		Settings->TerrainRenderDistance = static_cast<float>(RenderDistance);
 		Settings->CustomAspectRatio = std::clamp(Settings->CustomAspectRatio, 0.1f, 10.0f);
 		return true;
 	}

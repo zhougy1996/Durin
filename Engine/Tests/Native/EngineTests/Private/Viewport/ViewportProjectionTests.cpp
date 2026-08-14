@@ -1,6 +1,8 @@
 #include "ViewportTestSupport.h"
 #include "Math/Operations.h"
 
+#include <limits>
+
 TEST(FLevelEditorViewportClientTests, NavigationDoesNotDirtyTheLevelPackage)
 {
 	InitializeDObjectSystem();
@@ -106,4 +108,34 @@ TEST(FSceneViewProjectionTests, ProjectsAndBuildsRayFromSceneView)
 	ExpectVectorNear(Direction, {0.0, 0.0, 1.0});
 	View.ViewProjectionMatrix = Durin::FMatrix(0.0);
 	EXPECT_FALSE(Durin::SceneViewProjection::BuildViewportRay(View, ViewportPosition, Origin, Direction));
+}
+
+TEST(FSceneViewProjectionTests, ClampsSharedProjectionPolicyConsistently)
+{
+	using namespace Durin::SceneViewProjection;
+
+	EXPECT_DOUBLE_EQ(ClampFieldOfViewDegrees(200.0), MaximumPerspectiveFieldOfViewDegrees);
+	EXPECT_DOUBLE_EQ(ClampFieldOfViewDegrees(-5.0), MinimumPerspectiveFieldOfViewDegrees);
+	EXPECT_DOUBLE_EQ(ClampFieldOfViewDegrees(std::numeric_limits<double>::quiet_NaN()),
+		DefaultPerspectiveFieldOfViewDegrees);
+
+	double Near = 0.0;
+	double Far = 0.0;
+	ClampPerspectiveClipRange(-5.0, -1.0, Near, Far);
+	EXPECT_DOUBLE_EQ(Near, MinimumPerspectiveNearClip);
+	EXPECT_DOUBLE_EQ(Far, 1.001);
+
+	ClampPerspectiveClipRange(25.0, 1.0, Near, Far);
+	EXPECT_DOUBLE_EQ(Near, 25.0);
+	EXPECT_DOUBLE_EQ(Far, 26.0);
+
+	ClampPerspectiveClipRange(std::numeric_limits<double>::quiet_NaN(), -1.0, Near, Far);
+	EXPECT_DOUBLE_EQ(Near, DefaultPerspectiveNearClip);
+	EXPECT_DOUBLE_EQ(Far, 1.1);
+
+	double Fade = 0.0;
+	double Render = 0.0;
+	ClampTerrainDistances(1000.0, 200000.0, 50000.0, Fade, Render);
+	EXPECT_DOUBLE_EQ(Render, 950.0);
+	EXPECT_DOUBLE_EQ(Fade, 949.0);
 }

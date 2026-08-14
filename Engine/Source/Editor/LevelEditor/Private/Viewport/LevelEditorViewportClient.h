@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Client/ViewportClient.h"
+#include "SceneViewProjection.h"
 #include "Viewport/TransformGizmo.h"
 #include "Viewport/ViewportCameraTransform.h"
 #include "LevelEditorCustomizations.h"
@@ -61,10 +62,10 @@ namespace Durin::Editor::Level
 	class FLevelEditorViewportClient final : public FViewportClient
 	{
 	public:
-		static constexpr float DefaultNearClip = 0.1f;
-		static constexpr float DefaultFarClip = 500000.0f;
-		static constexpr float DefaultTerrainFadeStart = 180000.0f;
-		static constexpr float DefaultTerrainRenderDistance = 200000.0f;
+		static constexpr float DefaultNearClip = static_cast<float>(SceneViewProjection::DefaultPerspectiveNearClip);
+		static constexpr float DefaultFarClip = static_cast<float>(SceneViewProjection::DefaultPerspectiveFarClip);
+		static constexpr float DefaultTerrainFadeStart = static_cast<float>(SceneViewProjection::DefaultTerrainFadeStart);
+		static constexpr float DefaultTerrainRenderDistance = static_cast<float>(SceneViewProjection::DefaultTerrainRenderDistance);
 
 		FLevelEditorViewportClient();
 		~FLevelEditorViewportClient() override;

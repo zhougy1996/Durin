@@ -312,9 +312,11 @@ namespace Durin::Editor::Level
 		float InFarClip) -> void
 	{
 		if (!std::isfinite(InNearClip) || !std::isfinite(InFarClip)) return;
-		NearClip = std::max(0.001f, InNearClip);
-		FarClip = std::clamp(InFarClip, NearClip + 1.0f,
-			static_cast<float>(SceneViewProjection::MaximumPerspectiveFarClip));
+		double ClampedNear = 0.0;
+		double ClampedFar = 0.0;
+		SceneViewProjection::ClampPerspectiveClipRange(InNearClip, InFarClip, ClampedNear, ClampedFar);
+		NearClip = static_cast<float>(ClampedNear);
+		FarClip = static_cast<float>(ClampedFar);
 		SetTerrainDistance(TerrainFadeStart, TerrainRenderDistance);
 		InvalidatePreparedSceneView();
 	}
@@ -323,11 +325,12 @@ namespace Durin::Editor::Level
 		float InRenderDistance) -> void
 	{
 		if (!std::isfinite(InFadeStart) || !std::isfinite(InRenderDistance)) return;
-		const float MaximumDistance = std::max(1.0f, FarClip - static_cast<float>(
-			SceneViewProjection::GetTerrainFarPlaneSafetyMargin(FarClip)));
-		TerrainRenderDistance = std::clamp(InRenderDistance, 1.0f, MaximumDistance);
-		TerrainFadeStart = std::clamp(InFadeStart, 0.0f,
-			std::max(0.0f, TerrainRenderDistance - 1.0f));
+		double ClampedFadeStart = 0.0;
+		double ClampedRenderDistance = 0.0;
+		SceneViewProjection::ClampTerrainDistances(FarClip, InFadeStart, InRenderDistance,
+			ClampedFadeStart, ClampedRenderDistance);
+		TerrainRenderDistance = static_cast<float>(ClampedRenderDistance);
+		TerrainFadeStart = static_cast<float>(ClampedFadeStart);
 		InvalidatePreparedSceneView();
 	}
 

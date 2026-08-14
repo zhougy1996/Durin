@@ -3,10 +3,17 @@
 #include "RenderCoreAPI.h"
 #include "SceneView.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace Durin::SceneViewProjection
 {
 	inline constexpr double DefaultPerspectiveNearClip = 0.1;
 	inline constexpr double DefaultPerspectiveFarClip = 500000.0;
+	inline constexpr double DefaultPerspectiveFieldOfViewDegrees = 60.0;
+	inline constexpr double MinimumPerspectiveFieldOfViewDegrees = 1.0;
+	inline constexpr double MaximumPerspectiveFieldOfViewDegrees = 170.0;
+	inline constexpr double MinimumPerspectiveNearClip = 0.001;
 	inline constexpr double DefaultTerrainFadeStart = 180000.0;
 	inline constexpr double DefaultTerrainRenderDistance = 200000.0;
 	inline constexpr double MinimumTerrainFarPlaneSafetyMargin = 10000.0;
@@ -23,6 +30,43 @@ namespace Durin::SceneViewProjection
 	{
 		return std::min(MinimumTerrainFarPlaneSafetyMargin,
 			std::max(1.0, FarClip * 0.05));
+	}
+
+	// Highest terrain render distance a far plane admits; matches the clamp applied by
+	// ClampTerrainDistances so UI bounds and stored values cannot drift apart.
+	inline auto GetMaximumTerrainRenderDistance(double FarClip) -> double
+	{
+		return std::max(1.0, FarClip - GetTerrainFarPlaneSafetyMargin(FarClip));
+	}
+
+	// Normalizes field of view to the bounded policy shared by runtime and editor cameras.
+	inline auto ClampFieldOfViewDegrees(double FieldOfViewDegrees) -> double
+	{
+		if (!std::isfinite(FieldOfViewDegrees)) FieldOfViewDegrees = DefaultPerspectiveFieldOfViewDegrees;
+		return std::clamp(FieldOfViewDegrees,
+			MinimumPerspectiveFieldOfViewDegrees,
+			MaximumPerspectiveFieldOfViewDegrees);
+	}
+
+	// Normalizes near/far clip planes: finite inputs, near >= 0.001, and far >= near + 1
+	// up to the maximum representable far plane.
+	inline auto ClampPerspectiveClipRange(double NearClip, double FarClip,
+		double& OutNearClip, double& OutFarClip) -> void
+	{
+		if (!std::isfinite(NearClip)) NearClip = DefaultPerspectiveNearClip;
+		if (!std::isfinite(FarClip)) FarClip = DefaultPerspectiveFarClip;
+		OutNearClip = std::max(NearClip, MinimumPerspectiveNearClip);
+		OutFarClip = std::clamp(FarClip, OutNearClip + 1.0, MaximumPerspectiveFarClip);
+	}
+
+	// Normalizes terrain fade/render distances against a validated far plane.
+	inline auto ClampTerrainDistances(double FarClip, double FadeStart, double RenderDistance,
+		double& OutFadeStart, double& OutRenderDistance) -> void
+	{
+		if (!std::isfinite(FadeStart)) FadeStart = DefaultTerrainFadeStart;
+		if (!std::isfinite(RenderDistance)) RenderDistance = DefaultTerrainRenderDistance;
+		OutRenderDistance = std::clamp(RenderDistance, 1.0, GetMaximumTerrainRenderDistance(FarClip));
+		OutFadeStart = std::clamp(FadeStart, 0.0, std::max(0.0, OutRenderDistance - 1.0));
 	}
 
 	// Builds the engine's x-forward Vulkan perspective matrix after bounded validation.

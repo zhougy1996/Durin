@@ -136,9 +136,8 @@ namespace Durin::Editor::Level
 				DrawValue(PropertyView, ViewContext, Camera, Reflection, "Terrain Render Distance",
 					Reflection.TerrainRenderDistance, 100.0f,
 					Camera.GetProjectionSettings().TerrainFadeStart + 1.0f,
-					Camera.GetFarClip() - static_cast<float>(
-						SceneViewProjection::GetTerrainFarPlaneSafetyMargin(
-							Camera.GetFarClip())), "%.1f");
+					static_cast<float>(SceneViewProjection::GetMaximumTerrainRenderDistance(
+						Camera.GetFarClip())), "%.1f");
 				DrawAspectRatioMode(PropertyView, ViewContext, Camera, Reflection);
 				if (Camera.GetAspectRatioMode() == ECameraAspectRatioMode::Custom)
 					DrawValue(PropertyView, ViewContext, Camera, Reflection, "Custom Ratio", Reflection.CustomAspectRatio,

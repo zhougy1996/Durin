@@ -782,8 +782,8 @@ namespace Durin::Editor::Level
 						0.0f, RenderDistance - 1.0f, "%.1f"))
 						ViewportClient->SetTerrainDistance(FadeStart, RenderDistance);
 					if (ImGui::DragFloat("Terrain Render Distance", &RenderDistance,
-						100.0f, FadeStart + 1.0f, FarClip - static_cast<float>(
-							SceneViewProjection::GetTerrainFarPlaneSafetyMargin(FarClip)),
+						100.0f, FadeStart + 1.0f, static_cast<float>(
+							SceneViewProjection::GetMaximumTerrainRenderDistance(FarClip)),
 						"%.1f"))
 						ViewportClient->SetTerrainDistance(FadeStart, RenderDistance);
 					ImGui::Separator();
