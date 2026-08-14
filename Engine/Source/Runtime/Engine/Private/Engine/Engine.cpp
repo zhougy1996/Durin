@@ -198,13 +198,19 @@ namespace Durin
 			if (RenderTargetRHI == nullptr) return;
 			IScene* Scene = SceneViewport->GetRenderScene() != nullptr ? SceneViewport->GetRenderScene() : MainScene.get();
 			ENQUEUE_RENDER_COMMAND(RenderSceneRenderTarget)(
-				[RenderTargetRHI, View, Scene, RendererModule = RendererModule](FRHICommandListImmediate& CommandList) {
+				[RenderTargetRHI, View, Scene, SceneViewport,
+					RendererModule = RendererModule](FRHICommandListImmediate& CommandList) {
 					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
+					FSceneViewStatistics Statistics;
+					ERenderViewResult Result = ERenderViewResult::RendererResourcesUnavailable;
 					if (RendererModule != nullptr)
 					{
-						(void)RendererModule->RenderView(
-							CommandList, Scene, View, RenderTargetRHI, false, {});
+						Result = RendererModule->RenderView(
+							CommandList, Scene, View, RenderTargetRHI, false, {},
+							&Statistics);
 					}
+					SceneViewport->PublishRenderStatistics_RenderThread(
+						Statistics, Result == ERenderViewResult::Success);
 				}
 			);
 		};
@@ -225,23 +231,31 @@ namespace Durin
 				FSceneView View;
 				if (BuildSceneView(MainSceneViewport.get(), ViewWidth, ViewHeight, true, View))
 				{
+					const std::shared_ptr<FSceneViewport> SceneViewport = MainSceneViewport;
 					ENQUEUE_RENDER_COMMAND(RenderMainSceneViewport)(
-						[ViewportRHI, View, Scene = MainScene.get(), RendererModule = RendererModule](FRHICommandListImmediate& CommandList) {
+						[ViewportRHI, View, SceneViewport, Scene = MainScene.get(),
+							RendererModule = RendererModule](FRHICommandListImmediate& CommandList) {
 							CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 							CommandList.BeginDrawingViewport(ViewportRHI, nullptr);
 
 							FTextureRHIRef BackBuffer = GDynamicRHI->RHIGetViewportBackBuffer(ViewportRHI);
 							if (BackBuffer == nullptr)
 							{
+								SceneViewport->PublishRenderStatistics_RenderThread({}, false);
 								CommandList.EndDrawingViewport(ViewportRHI, false, false);
 								return;
 							}
 
+							FSceneViewStatistics Statistics;
+							ERenderViewResult Result = ERenderViewResult::RendererResourcesUnavailable;
 							if (RendererModule != nullptr)
 							{
-								(void)RendererModule->RenderView(
-									CommandList, Scene, View, BackBuffer, true, {});
+								Result = RendererModule->RenderView(
+									CommandList, Scene, View, BackBuffer, true, {},
+									&Statistics);
 							}
+							SceneViewport->PublishRenderStatistics_RenderThread(
+								Statistics, Result == ERenderViewResult::Success);
 
 							CommandList.EndDrawingViewport(ViewportRHI, true, false);
 						}

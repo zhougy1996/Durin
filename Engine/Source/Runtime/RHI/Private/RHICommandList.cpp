@@ -1346,6 +1346,7 @@ namespace Durin
 		, RenderPassDiagnosticRegionDepth(Other.RenderPassDiagnosticRegionDepth)
 		, ActiveGPUTimingQuery(Other.ActiveGPUTimingQuery)
 		, ActiveGPUTimingReservation(std::move(Other.ActiveGPUTimingReservation))
+		, NumRecordedDrawCommands(Other.NumRecordedDrawCommands)
 	{
 		Other.RecordingState = ERecordingState::MovedFrom;
 		Other.ActivePipeline = ERHIPipeline::None;
@@ -1354,6 +1355,7 @@ namespace Durin
 		Other.DiagnosticRegionDepth = 0;
 		Other.RenderPassDiagnosticRegionDepth = 0;
 		Other.ActiveGPUTimingQuery = nullptr;
+		Other.NumRecordedDrawCommands = 0;
 	}
 
 	auto FRHICommandListBase::operator=(FRHICommandListBase&& Other) noexcept
@@ -1373,6 +1375,7 @@ namespace Durin
 			RenderPassDiagnosticRegionDepth = Other.RenderPassDiagnosticRegionDepth;
 			ActiveGPUTimingQuery = Other.ActiveGPUTimingQuery;
 			ActiveGPUTimingReservation = std::move(Other.ActiveGPUTimingReservation);
+			NumRecordedDrawCommands = Other.NumRecordedDrawCommands;
 			Other.RecordingState = ERecordingState::MovedFrom;
 			Other.ActivePipeline = ERHIPipeline::None;
 			Other.ActiveComputePipelineState = nullptr;
@@ -1380,6 +1383,7 @@ namespace Durin
 			Other.DiagnosticRegionDepth = 0;
 			Other.RenderPassDiagnosticRegionDepth = 0;
 			Other.ActiveGPUTimingQuery = nullptr;
+			Other.NumRecordedDrawCommands = 0;
 		}
 		return *this;
 	}
@@ -1440,6 +1444,11 @@ namespace Durin
 	auto FRHICommandListBase::GetNumRecordedCommands() const -> size_t
 	{
 		return Storage ? Storage->GetCommandCount() : 0;
+	}
+
+	auto FRHICommandListBase::GetNumRecordedDrawCommands() const -> uint64
+	{
+		return NumRecordedDrawCommands;
 	}
 
 	auto FRHICommandListBase::RecordInvalidDiagnosticRegion() -> void
@@ -1700,6 +1709,8 @@ namespace Durin
 			"Draw requires an active graphics pipeline while recording.");
 		if (Arguments.VertexCount == 0 || Arguments.InstanceCount == 0) return;
 		RecordCommand<FDrawCommand>(Arguments);
+		if (NumRecordedDrawCommands != std::numeric_limits<uint64>::max())
+			++NumRecordedDrawCommands;
 	}
 
 	auto FRHICommandListBase::DrawIndexed(
@@ -1709,6 +1720,8 @@ namespace Durin
 			"DrawIndexed requires an active graphics pipeline while recording.");
 		if (Arguments.IndexCount == 0 || Arguments.InstanceCount == 0) return;
 		RecordCommand<FDrawIndexedCommand>(Arguments);
+		if (NumRecordedDrawCommands != std::numeric_limits<uint64>::max())
+			++NumRecordedDrawCommands;
 	}
 
 	auto FRHICommandListBase::DrawIndexed(uint32 IndexCount,

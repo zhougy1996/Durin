@@ -26,6 +26,13 @@ namespace Durin
 	{
 		std::atomic<FSceneColorTimingQuerySink> GSceneColorTimingQuerySink = nullptr;
 
+		auto AddSaturated(uint64 A, uint64 B) -> uint64
+		{
+			return B > std::numeric_limits<uint64>::max() - A
+				? std::numeric_limits<uint64>::max()
+				: A + B;
+		}
+
 		auto GetViewportOutput(bool bPresent)
 			-> RenderTargetLayouts::EViewportOutput
 		{
@@ -176,6 +183,42 @@ namespace Durin
 			Counters.TerrainTopologyBytes = Terrain.TopologyBytes;
 		}
 	} // namespace
+
+	auto BuildSceneViewStatistics(const FViewRenderCounters& Counters)
+		-> FSceneViewStatistics
+	{
+		FSceneViewStatistics Result;
+		Result.SubmittedPrimitives = Counters.SubmittedPrimitives;
+		Result.VisiblePrimitives = Counters.VisiblePrimitives;
+		Result.StaticMeshPrimitives = Counters.PreparedStaticMeshPrimitives;
+		Result.SplineMeshPrimitives = Counters.PreparedSplineMeshPrimitives;
+		Result.SkeletalMeshPrimitives = Counters.PreparedSkeletalMeshPrimitives;
+		Result.VisibleTerrainPatches = Counters.VisibleTerrainPatches;
+
+		Result.SplineMeshTriangles = Counters.PreparedSplineMeshTriangles;
+		Result.StaticMeshTriangles = Counters.PreparedStaticMeshTriangles
+			- std::min(Counters.PreparedStaticMeshTriangles,
+				Counters.PreparedSplineMeshTriangles);
+		Result.SkeletalMeshTriangles = Counters.PreparedSkeletalMeshTriangles;
+		Result.TerrainTriangles = Counters.PreparedTerrainTriangles;
+		Result.Triangles = AddSaturated(
+			AddSaturated(Result.StaticMeshTriangles, Result.SplineMeshTriangles),
+			AddSaturated(Result.SkeletalMeshTriangles, Result.TerrainTriangles));
+		Result.ShadowTriangles = Counters.ShadowPreparedTriangles;
+
+		Result.StaticMeshDrawCalls = Counters.StaticMeshSuccessfulDraws;
+		Result.SkeletalMeshDrawCalls = Counters.SkeletalMeshSuccessfulDraws;
+		Result.TerrainDrawCalls = Counters.TerrainSuccessfulDraws;
+		Result.ShadowDrawCalls = Counters.ShadowSuccessfulDraws;
+		Result.DirectionalLights = Counters.SelectedDirectionalLights;
+		Result.PointLights = Counters.SelectedPointLights;
+		Result.SpotLights = Counters.SelectedSpotLights;
+		Result.ShadowCascades = static_cast<uint32>(std::min<size_t>(
+			Counters.ShadowCascadeCount, std::numeric_limits<uint32>::max()));
+		Result.bShadowEnabled = Counters.ShadowValidReceiverViews != 0
+			&& Counters.ShadowCascadeCount != 0;
+		return Result;
+	}
 
 	auto SetSceneColorTimingQuerySink(FSceneColorTimingQuerySink Sink) -> void
 	{
@@ -339,7 +382,8 @@ namespace Durin
 		const FSceneView& View,
 		FRHITexture* OutputTarget,
 		bool bPresentOutput,
-		const FSceneViewRenderOptions& Options) -> ERenderViewResult
+		const FSceneViewRenderOptions& Options,
+		FSceneViewStatistics* OutStatistics) -> ERenderViewResult
 	{
 		check(IsInRenderingThread());
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.RenderView");
@@ -347,11 +391,14 @@ namespace Durin
 		struct FCounterSnapshotScope
 		{
 			const FViewRenderCounters& Counters;
+			FSceneViewStatistics* OutStatistics = nullptr;
 			~FCounterSnapshotScope()
 			{
 				EmitViewRenderCounterSnapshot(Counters);
+				if (OutStatistics != nullptr)
+					*OutStatistics = BuildSceneViewStatistics(Counters);
 			}
-		} CounterSnapshotScope{PreparedView.Counters};
+		} CounterSnapshotScope{PreparedView.Counters, OutStatistics};
 		const uint32 Width =
 			OutputTarget != nullptr ? OutputTarget->GetSizeX() : 0;
 		const uint32 Height =

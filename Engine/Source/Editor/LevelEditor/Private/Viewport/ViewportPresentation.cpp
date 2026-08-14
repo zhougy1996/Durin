@@ -1,6 +1,7 @@
 #include "Viewport/ViewportPresentation.h"
 
 #include "Editor/EditorEngine.h"
+#include "Client/SceneViewport.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Math/Vector.h"
@@ -929,21 +930,134 @@ namespace Durin::Editor::Level
 		DrawList->PopClipRect();
 	}
 
-	auto DrawViewportFPSOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void
+	auto DrawViewportStatisticsOverlay(
+		const ImVec2& ViewportMin,
+		const ImVec2& ViewportMax,
+		const FSceneViewportStatisticsSnapshot& Snapshot,
+		bool& bExpanded) -> FViewportStatisticsOverlayLayout
 	{
+		FViewportStatisticsOverlayLayout Layout =
+			CalculateViewportStatisticsOverlayLayout(
+				ViewportMin, ViewportMax, bExpanded);
+		const ImVec2 SavedCursor = ImGui::GetCursorScreenPos();
+		ImGui::SetCursorScreenPos(Layout.BadgeMin);
+		ImGui::PushClipRect(ViewportMin, ViewportMax, true);
+		const ImVec2 BadgeSize(
+			Layout.BadgeMax.x - Layout.BadgeMin.x,
+			Layout.BadgeMax.y - Layout.BadgeMin.y);
+		const bool bActivated = ImGui::InvisibleButton(
+			"##ViewportStatisticsToggle", BadgeSize);
+		const bool bBadgeHovered = ImGui::IsItemHovered();
+		if (bActivated)
+		{
+			bExpanded = !bExpanded;
+			Layout = CalculateViewportStatisticsOverlayLayout(
+				ViewportMin, ViewportMax, bExpanded);
+		}
+		if (bBadgeHovered)
+		{
+			ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+			ImGui::SetTooltip("%s rendering statistics",
+				bExpanded ? "Hide" : "Show");
+		}
+		ImGui::SetCursorScreenPos(SavedCursor);
+
 		char FpsText[32];
 		snprintf(FpsText, sizeof(FpsText), "%.0f FPS", ImGui::GetIO().Framerate);
-		const ImVec2 TextSize = ImGui::CalcTextSize(FpsText);
-		const ImVec2 Padding(MonaImGui::ScaleUI(7.0f), MonaImGui::ScaleUI(3.0f));
-		const ImVec2 BadgeMax(ViewportMax.x - MonaImGui::ScaleUI(10.0f), ViewportMin.y + MonaImGui::ScaleUI(8.0f) + TextSize.y + Padding.y * 2.0f);
-		const ImVec2 BadgeMin(BadgeMax.x - TextSize.x - Padding.x * 2.0f, ViewportMin.y + MonaImGui::ScaleUI(8.0f));
 		ImDrawList* DrawList = ImGui::GetWindowDrawList();
-		DrawList->PushClipRect(ViewportMin, ViewportMax, true);
 		ImVec4 BadgeColor = ImGui::GetStyleColorVec4(ImGuiCol_PopupBg);
-		BadgeColor.w = 0.72f;
-		DrawList->AddRectFilled(BadgeMin, BadgeMax, ImGui::GetColorU32(BadgeColor), MonaImGui::ScaleUI(5.0f));
-		DrawList->AddRect(BadgeMin, BadgeMax, ImGui::GetColorU32(ImGuiCol_Border), MonaImGui::ScaleUI(5.0f));
-		DrawList->AddText(Add(BadgeMin, Padding), MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::ViewportText), FpsText);
-		DrawList->PopClipRect();
+		BadgeColor.w = bBadgeHovered ? 0.9f : 0.72f;
+		const ImVec2 BadgePadding(
+			MonaImGui::ScaleUI(7.0f), MonaImGui::ScaleUI(3.0f));
+		DrawList->AddRectFilled(Layout.BadgeMin, Layout.BadgeMax,
+			ImGui::GetColorU32(BadgeColor), MonaImGui::ScaleUI(5.0f));
+		DrawList->AddRect(Layout.BadgeMin, Layout.BadgeMax,
+			ImGui::GetColorU32(bExpanded ? ImGuiCol_CheckMark : ImGuiCol_Border),
+			MonaImGui::ScaleUI(5.0f));
+		DrawList->AddText(Add(Layout.BadgeMin, BadgePadding),
+			MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::ViewportText),
+			FpsText);
+
+		if (Layout.bPanelVisible)
+		{
+			ImVec4 PanelColor = ImGui::GetStyleColorVec4(ImGuiCol_PopupBg);
+			PanelColor.w = 0.94f;
+			const float Rounding = MonaImGui::ScaleUI(6.0f);
+			DrawList->AddRectFilled(Layout.PanelMin, Layout.PanelMax,
+				ImGui::GetColorU32(PanelColor), Rounding);
+			DrawList->AddRect(Layout.PanelMin, Layout.PanelMax,
+				ImGui::GetColorU32(ImGuiCol_Border), Rounding);
+
+			const float HorizontalPadding = MonaImGui::ScaleUI(12.0f);
+			const float RowHeight = MonaImGui::ScaleUI(20.0f);
+			float Y = Layout.PanelMin.y + MonaImGui::ScaleUI(10.0f);
+			const ImU32 LabelColor = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+			const ImU32 ValueColor = MonaImGui::GetThemeColorU32(
+				MonaImGui::EUIThemeColor::ViewportText);
+			DrawList->AddText(ImVec2(Layout.PanelMin.x + HorizontalPadding, Y),
+				ValueColor, "Rendering Statistics");
+			Y += RowHeight + MonaImGui::ScaleUI(3.0f);
+			DrawList->AddLine(
+				ImVec2(Layout.PanelMin.x + HorizontalPadding, Y),
+				ImVec2(Layout.PanelMax.x - HorizontalPadding, Y),
+				ImGui::GetColorU32(ImGuiCol_Border));
+			Y += MonaImGui::ScaleUI(7.0f);
+
+			auto DrawRow = [&](const char* Label, std::string Value) {
+				DrawList->AddText(
+					ImVec2(Layout.PanelMin.x + HorizontalPadding, Y),
+					LabelColor, Label);
+				const ImVec2 ValueSize = ImGui::CalcTextSize(Value.c_str());
+				DrawList->AddText(
+					ImVec2(Layout.PanelMax.x - HorizontalPadding - ValueSize.x, Y),
+					ValueColor, Value.c_str());
+				Y += RowHeight;
+			};
+
+			if (!Snapshot.bAvailable)
+			{
+				DrawList->AddText(
+					ImVec2(Layout.PanelMin.x + HorizontalPadding, Y),
+					LabelColor, "Statistics unavailable");
+			}
+			else
+			{
+				const FSceneViewStatistics& Statistics = Snapshot.Statistics;
+				DrawRow("Visible primitives", std::format("{} / {}",
+					FormatViewportStatistic(Statistics.VisiblePrimitives),
+					FormatViewportStatistic(Statistics.SubmittedPrimitives)));
+				DrawRow("Triangles", FormatViewportStatistic(Statistics.Triangles));
+				DrawRow("Draw calls", FormatViewportStatistic(Statistics.DrawCalls));
+				Y += MonaImGui::ScaleUI(3.0f);
+				DrawRow("Static mesh", FormatViewportStatistic(Statistics.StaticMeshTriangles));
+				DrawRow("Spline mesh", FormatViewportStatistic(Statistics.SplineMeshTriangles));
+				DrawRow("Skeletal mesh", FormatViewportStatistic(Statistics.SkeletalMeshTriangles));
+				DrawRow("Terrain", FormatViewportStatistic(Statistics.TerrainTriangles));
+				DrawRow("Shadow", Statistics.bShadowEnabled
+					? FormatViewportStatistic(Statistics.ShadowTriangles) : "Off");
+				DrawRow("Lights (D / P / S)", std::format("{} / {} / {}",
+					Statistics.DirectionalLights, Statistics.PointLights,
+					Statistics.SpotLights));
+
+				if (ImGui::IsMouseHoveringRect(Layout.PanelMin, Layout.PanelMax))
+				{
+					ImGui::SetTooltip(
+						"Exact values\nPrimitives: %llu / %llu\nTriangles: %llu\n"
+						"Draw calls: %llu\nStatic draws: %llu\nSkeletal draws: %llu\n"
+						"Terrain draws: %llu\nShadow draws: %llu\nShadow cascades: %u",
+						static_cast<unsigned long long>(Statistics.VisiblePrimitives),
+						static_cast<unsigned long long>(Statistics.SubmittedPrimitives),
+						static_cast<unsigned long long>(Statistics.Triangles),
+						static_cast<unsigned long long>(Statistics.DrawCalls),
+						static_cast<unsigned long long>(Statistics.StaticMeshDrawCalls),
+						static_cast<unsigned long long>(Statistics.SkeletalMeshDrawCalls),
+						static_cast<unsigned long long>(Statistics.TerrainDrawCalls),
+						static_cast<unsigned long long>(Statistics.ShadowDrawCalls),
+						Statistics.ShadowCascades);
+				}
+			}
+		}
+		ImGui::PopClipRect();
+		return Layout;
 	}
 } // namespace Durin::Editor::Level

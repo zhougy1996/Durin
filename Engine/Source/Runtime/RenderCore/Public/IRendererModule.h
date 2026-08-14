@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SceneView.h"
+#include "ViewRenderStatistics.h"
 
 namespace Durin
 {
@@ -28,6 +29,7 @@ namespace Durin
 			const FSceneView& View,
 			FRHITexture* OutputTarget,
 			bool bPresentOutput,
-			const FSceneViewRenderOptions& Options) -> ERenderViewResult = 0;
+			const FSceneViewRenderOptions& Options,
+			FSceneViewStatistics* OutStatistics = nullptr) -> ERenderViewResult = 0;
 	};
 }

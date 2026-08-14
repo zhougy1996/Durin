@@ -3,6 +3,7 @@
 #include "RendererAPI.h"
 
 #include "SceneView.h"
+#include "ViewRenderStatistics.h"
 
 #include <array>
 #include <cstddef>
@@ -235,6 +236,9 @@ namespace Durin
 	RENDERER_API auto SetViewRenderCounterSink(FViewRenderCounterSink Sink) -> void;
 	RENDERER_API auto EmitViewRenderCounterSnapshot(
 		const FViewRenderCounters& Counters) -> void;
+	// Reduces Renderer-private counters to the stable editor-facing summary.
+	RENDERER_API auto BuildSceneViewStatistics(
+		const FViewRenderCounters& Counters) -> FSceneViewStatistics;
 
 	struct FSceneVisibilityResult
 	{

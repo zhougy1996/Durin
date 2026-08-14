@@ -4,6 +4,7 @@
 #include "Math/Operations.h"
 #include "MonaImGui.h"
 #include "Runtime/MonaImGui/Private/ImGuiMonaImpl.h"
+#include "Viewport/ViewportPresentation.h"
 #include "Window/GenericWindow.h"
 
 namespace
@@ -99,6 +100,52 @@ TEST(FMonaImGuiInputTests, KeepsCapturedVirtualMouseEventsOutOfTheUI)
 	EXPECT_FLOAT_EQ(IO.MousePos.x, 12.0f);
 	EXPECT_FLOAT_EQ(IO.MousePos.y, 24.0f);
 
+	ImGui::DestroyContext(Context);
+}
+
+TEST(FViewportStatisticsOverlayTests, FormatsBoundedCountsCompactly)
+{
+	using Durin::Editor::Level::FormatViewportStatistic;
+	EXPECT_EQ(FormatViewportStatistic(0), "0");
+	EXPECT_EQ(FormatViewportStatistic(999), "999");
+	EXPECT_EQ(FormatViewportStatistic(1'250), "1.2K");
+	EXPECT_EQ(FormatViewportStatistic(1'250'000), "1.25M");
+	EXPECT_EQ(FormatViewportStatistic(2'500'000'000), "2.50B");
+}
+
+TEST(FViewportStatisticsOverlayTests, AnchorsBelowBadgeAndSuppressesUnreadablePanel)
+{
+	ImGuiContext* Context = ImGui::CreateContext();
+	ASSERT_NE(Context, nullptr);
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.IniFilename = nullptr;
+	IO.DisplaySize = ImVec2(1000.0f, 700.0f);
+	IO.DeltaTime = 1.0f / 60.0f;
+	IO.Fonts->Build();
+	ImGui::NewFrame();
+
+	const auto Layout =
+		Durin::Editor::Level::CalculateViewportStatisticsOverlayLayout(
+			ImVec2(100.0f, 50.0f), ImVec2(900.0f, 650.0f), true);
+	EXPECT_TRUE(Layout.bPanelVisible);
+	EXPECT_FLOAT_EQ(Layout.PanelMax.x, Layout.BadgeMax.x);
+	EXPECT_GT(Layout.PanelMin.y, Layout.BadgeMax.y);
+	EXPECT_TRUE(Layout.Contains(ImVec2(
+		(Layout.BadgeMin.x + Layout.BadgeMax.x) * 0.5f,
+		(Layout.BadgeMin.y + Layout.BadgeMax.y) * 0.5f)));
+	EXPECT_TRUE(Layout.Contains(ImVec2(
+		(Layout.PanelMin.x + Layout.PanelMax.x) * 0.5f,
+		(Layout.PanelMin.y + Layout.PanelMax.y) * 0.5f)));
+
+	const auto Narrow =
+		Durin::Editor::Level::CalculateViewportStatisticsOverlayLayout(
+			ImVec2(0.0f, 0.0f), ImVec2(180.0f, 500.0f), true);
+	EXPECT_FALSE(Narrow.bPanelVisible);
+	EXPECT_TRUE(Narrow.Contains(ImVec2(
+		(Narrow.BadgeMin.x + Narrow.BadgeMax.x) * 0.5f,
+		(Narrow.BadgeMin.y + Narrow.BadgeMax.y) * 0.5f)));
+
+	ImGui::EndFrame();
 	ImGui::DestroyContext(Context);
 }
 

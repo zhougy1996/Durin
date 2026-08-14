@@ -163,6 +163,9 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			Durin::ERenderViewResult::Success;
 		Durin::ERenderViewResult MissingEnvironmentResult =
 			Durin::ERenderViewResult::Success;
+		Durin::FSceneViewStatistics FirstViewStatistics;
+		Durin::FSceneViewStatistics InvalidViewStatistics;
+		bool bCapturedFirstViewStatistics = false;
 	};
 	auto Result = std::make_shared<FValidationResult>();
 
@@ -244,18 +247,25 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 				return;
 			}
 
-			auto RenderWithOptions = [&](const Durin::FSceneView& View,
+				auto RenderWithOptions = [&](const Durin::FSceneView& View,
 				std::vector<Durin::uint8>& OutPixels,
 				const Durin::FSceneViewRenderOptions& Options) {
 				Durin::FSceneView RenderView = View;
 				RenderView.Settings.RenderMode = Durin::ERenderMode::Unlit;
+				Durin::FSceneViewStatistics Statistics;
 				if (Renderer.RenderView(
-						CommandList, &Scene, RenderView, Color, false, Options)
+						CommandList, &Scene, RenderView, Color, false, Options,
+						&Statistics)
 					!= Durin::ERenderViewResult::Success)
 				{
 					Result->bSucceeded = false;
 					Result->Error = "The validation view did not render successfully.";
 					return false;
+				}
+				if (!Result->bCapturedFirstViewStatistics)
+				{
+					Result->FirstViewStatistics = Statistics;
+					Result->bCapturedFirstViewStatistics = true;
 				}
 				if (!Durin::GDynamicRHI->RHIReadTexture2D(CommandList, Color, 0, 0, OutPixels))
 				{
@@ -308,13 +318,16 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 					MakePrincipalAxisView(Directions[0], {}, 17, 17),
 					Result->ExplicitOverride,
 					OverrideOptions)) return;
+			Result->InvalidViewStatistics.Triangles = 999;
+			Result->InvalidViewStatistics.DrawCalls = 999;
 			Result->InvalidOutputResult = Renderer.RenderView(
 				CommandList,
 				&Scene,
 				MakePrincipalAxisView(Directions[0], {}, 17, 17),
 				nullptr,
 				false,
-				{});
+				{},
+				&Result->InvalidViewStatistics);
 			Durin::FSceneViewRenderOptions MissingEnvironment;
 			MissingEnvironment.Environment = Durin::FViewEnvironmentOverride{};
 			Result->MissingEnvironmentResult = Renderer.RenderView(
@@ -356,6 +369,11 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		EXPECT_EQ(
 			Result->MissingEnvironmentResult,
 			Durin::ERenderViewResult::RequiredEnvironmentUnavailable);
+		EXPECT_TRUE(Result->bCapturedFirstViewStatistics);
+		EXPECT_EQ(Result->FirstViewStatistics.VisiblePrimitives, 0u);
+		EXPECT_EQ(Result->FirstViewStatistics.Triangles, 0u);
+		EXPECT_GT(Result->FirstViewStatistics.DrawCalls, 0u);
+		EXPECT_EQ(Result->InvalidViewStatistics, Durin::FSceneViewStatistics{});
 		EXPECT_EQ(Result->ExplicitOverride, Result->PrincipalAxes[0]);
 		for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
 		{

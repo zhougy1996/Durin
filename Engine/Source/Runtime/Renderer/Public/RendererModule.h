@@ -22,7 +22,8 @@ namespace Durin
 			const FSceneView& View,
 			FRHITexture* OutputTarget,
 			bool bPresentOutput,
-			const FSceneViewRenderOptions& Options) -> ERenderViewResult override;
+			const FSceneViewRenderOptions& Options,
+			FSceneViewStatistics* OutStatistics = nullptr) -> ERenderViewResult override;
 
 	private:
 		std::unique_ptr<FSceneRenderer> SceneRenderer;

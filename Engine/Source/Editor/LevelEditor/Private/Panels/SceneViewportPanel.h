@@ -53,6 +53,8 @@ namespace Durin::Editor::Level
 		auto SetGridVisible(bool bVisible) -> void;
 		auto GetCameraMovementSpeed() const -> float;
 		auto SetCameraMovementSpeed(float Speed) -> void;
+		auto IsStatisticsVisible() const -> bool { return bShowStatistics; }
+		auto SetStatisticsVisible(bool bVisible) -> void { bShowStatistics = bVisible; }
 		auto FocusActor(const AActor* Actor) -> void;
 
 	private:
@@ -64,6 +66,7 @@ namespace Durin::Editor::Level
 
 		std::unique_ptr<FLevelEditorViewportClient> ViewportClient;
 		std::shared_ptr<MViewport> ViewportWidget;
+		std::shared_ptr<FSceneViewport> SceneViewport;
 		std::unique_ptr<FCameraPreviewViewportClient> CameraPreviewViewportClient;
 		std::shared_ptr<MViewport> CameraPreviewViewportWidget;
 		std::shared_ptr<FSceneViewport> CameraPreviewSceneViewport;
@@ -71,6 +74,7 @@ namespace Durin::Editor::Level
 		FLevelViewportEditModeManager EditModeManager;
 		bool bViewportHovered = false;
 		bool bViewportFocused = false;
+		bool bShowStatistics = false;
 		::Durin::Editor::EPlayStartLocation PreferredPlayStartLocation;
 		::Durin::Editor::EPlayDestination PreferredPlayDestination;
 		std::vector<FConsoleCommandHandle> CameraConsoleCommandHandles;

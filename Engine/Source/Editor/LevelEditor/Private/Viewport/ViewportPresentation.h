@@ -1,7 +1,13 @@
 #pragma once
 
 #include "SceneView.h"
+#include "MonaImGui.h"
 #include "ThirdParty/ImGui/imgui.h"
+
+namespace Durin
+{
+	struct FSceneViewportStatisticsSnapshot;
+}
 
 namespace Durin::Editor
 {
@@ -46,6 +52,71 @@ namespace Durin::Editor::Level
 		bool bOverflow = false;
 	};
 
+	// Describes the FPS badge and optional statistics panel within one viewport.
+	struct FViewportStatisticsOverlayLayout
+	{
+		ImVec2 BadgeMin;
+		ImVec2 BadgeMax;
+		ImVec2 PanelMin;
+		ImVec2 PanelMax;
+		bool bPanelVisible = false;
+
+		auto Contains(const ImVec2& Position) const -> bool
+		{
+			const bool bInsideBadge = Position.x >= BadgeMin.x
+				&& Position.x <= BadgeMax.x && Position.y >= BadgeMin.y
+				&& Position.y <= BadgeMax.y;
+			const bool bInsidePanel = bPanelVisible && Position.x >= PanelMin.x
+				&& Position.x <= PanelMax.x && Position.y >= PanelMin.y
+				&& Position.y <= PanelMax.y;
+			return bInsideBadge || bInsidePanel;
+		}
+	};
+
+	inline auto FormatViewportStatistic(uint64 Value) -> std::string
+	{
+		if (Value < 1000) return std::to_string(Value);
+		if (Value < 1'000'000)
+			return std::format("{:.1f}K", static_cast<double>(Value) / 1000.0);
+		if (Value < 1'000'000'000)
+			return std::format("{:.2f}M", static_cast<double>(Value) / 1'000'000.0);
+		return std::format("{:.2f}B", static_cast<double>(Value) / 1'000'000'000.0);
+	}
+
+	inline auto CalculateViewportStatisticsOverlayLayout(
+		const ImVec2& ViewportMin,
+		const ImVec2& ViewportMax,
+		bool bExpanded) -> FViewportStatisticsOverlayLayout
+	{
+		char FpsText[32];
+		snprintf(FpsText, sizeof(FpsText), "%.0f FPS", ImGui::GetIO().Framerate);
+		const ImVec2 TextSize = ImGui::CalcTextSize(FpsText);
+		const ImVec2 Padding(MonaImGui::ScaleUI(7.0f), MonaImGui::ScaleUI(3.0f));
+		FViewportStatisticsOverlayLayout Layout;
+		Layout.BadgeMax = ImVec2(
+			ViewportMax.x - MonaImGui::ScaleUI(10.0f),
+			ViewportMin.y + MonaImGui::ScaleUI(8.0f) + TextSize.y
+				+ Padding.y * 2.0f);
+		Layout.BadgeMin = ImVec2(
+			Layout.BadgeMax.x - TextSize.x - Padding.x * 2.0f,
+			ViewportMin.y + MonaImGui::ScaleUI(8.0f));
+
+		const float Margin = MonaImGui::ScaleUI(10.0f);
+		const float Gap = MonaImGui::ScaleUI(5.0f);
+		const float AvailableWidth = ViewportMax.x - ViewportMin.x - Margin * 2.0f;
+		const float PanelWidth = std::min(MonaImGui::ScaleUI(248.0f), AvailableWidth);
+		const float PanelHeight = MonaImGui::ScaleUI(270.0f);
+		Layout.PanelMax = ImVec2(
+			Layout.BadgeMax.x, Layout.BadgeMax.y + Gap + PanelHeight);
+		Layout.PanelMin = ImVec2(
+			Layout.PanelMax.x - PanelWidth, Layout.BadgeMax.y + Gap);
+		Layout.bPanelVisible = bExpanded
+			&& PanelWidth >= MonaImGui::ScaleUI(190.0f)
+			&& Layout.PanelMin.x >= ViewportMin.x + Margin
+			&& Layout.PanelMax.y <= ViewportMax.y - Margin;
+		return Layout;
+	}
+
 	// Draws viewport toolbar controls without owning editor or viewport state.
 	class FViewportToolbar final
 	{
@@ -64,5 +135,9 @@ namespace Durin::Editor::Level
 	auto DrawViewportPlayStateBorder(const ImVec2& ViewportMin, const ImVec2& ViewportMax, bool bPaused) -> void;
 	auto DrawViewportOrientationOverlay(const FLevelEditorViewportClient* ViewportClient, const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void;
 	auto DrawViewportCameraSpeedOverlay(const FLevelEditorViewportClient* ViewportClient, const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void;
-	auto DrawViewportFPSOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void;
+	auto DrawViewportStatisticsOverlay(
+		const ImVec2& ViewportMin,
+		const ImVec2& ViewportMax,
+		const FSceneViewportStatisticsSnapshot& Snapshot,
+		bool& bExpanded) -> FViewportStatisticsOverlayLayout;
 } // namespace Durin::Editor::Level

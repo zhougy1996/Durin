@@ -3,6 +3,7 @@
 #include "Engine/StaticMeshSceneProxy.h"
 #include "Engine/LightSceneProxy.h"
 #include "CoreGlobals.h"
+#include "Client/SceneViewport.h"
 #include "HAL/PlatformLTS.h"
 #include "NativeTestSupport.h"
 #include "RenderingThread.h"
@@ -12,9 +13,12 @@
 #include "Scene.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
 #include "StaticMesh/StaticMeshResources.h"
+#include "ViewRenderStatistics.h"
 
 #include <gtest/gtest.h>
 #include <glm/gtc/matrix_transform.hpp>
+
+#include <thread>
 
 namespace
 {
@@ -116,6 +120,174 @@ TEST(FRendererSceneContractTests, ViewRenderOptionsDefaultToNoEnvironmentOverrid
 	EXPECT_EQ(Environment.Rotation, Durin::FQuat(1.0, 0.0, 0.0, 0.0));
 	EXPECT_EQ(Environment.Tint, Durin::FVector3f(1.0f));
 	EXPECT_EQ(Environment.Intensity, 1.0f);
+}
+
+TEST(FRendererSceneContractTests, ViewStatisticsDefaultToAnEmptyBoundedSummary)
+{
+	const Durin::FSceneViewStatistics Statistics;
+	EXPECT_EQ(Statistics.SubmittedPrimitives, 0u);
+	EXPECT_EQ(Statistics.VisiblePrimitives, 0u);
+	EXPECT_EQ(Statistics.Triangles, 0u);
+	EXPECT_EQ(Statistics.DrawCalls, 0u);
+	EXPECT_FALSE(Statistics.bShadowEnabled);
+}
+
+TEST(FRendererSceneContractTests, ViewStatisticsPreserveStableMetricSemantics)
+{
+	Durin::FViewRenderCounters Counters;
+	Counters.SubmittedPrimitives = 13;
+	Counters.VisiblePrimitives = 8;
+	Counters.PreparedStaticMeshPrimitives = 4;
+	Counters.PreparedSplineMeshPrimitives = 1;
+	Counters.PreparedSkeletalMeshPrimitives = 2;
+	Counters.VisibleTerrainPatches = 3;
+	Counters.PreparedStaticMeshTriangles = 120;
+	Counters.PreparedSplineMeshTriangles = 20;
+	Counters.PreparedSkeletalMeshTriangles = 40;
+	Counters.PreparedTerrainTriangles = 60;
+	Counters.ShadowPreparedTriangles = 500;
+	Counters.StaticMeshSuccessfulDraws = 5;
+	Counters.SkeletalMeshSuccessfulDraws = 2;
+	Counters.TerrainSuccessfulDraws = 1;
+	Counters.ShadowSuccessfulDraws = 7;
+	Counters.SelectedDirectionalLights = 1;
+	Counters.SelectedPointLights = 3;
+	Counters.SelectedSpotLights = 2;
+	Counters.ShadowValidReceiverViews = 1;
+	Counters.ShadowCascadeCount = 3;
+
+	const Durin::FSceneViewStatistics Statistics =
+		Durin::BuildSceneViewStatistics(Counters);
+	EXPECT_EQ(Statistics.SubmittedPrimitives, 13u);
+	EXPECT_EQ(Statistics.VisiblePrimitives, 8u);
+	EXPECT_EQ(Statistics.StaticMeshTriangles, 100u);
+	EXPECT_EQ(Statistics.SplineMeshTriangles, 20u);
+	EXPECT_EQ(Statistics.SkeletalMeshTriangles, 40u);
+	EXPECT_EQ(Statistics.TerrainTriangles, 60u);
+	EXPECT_EQ(Statistics.Triangles, 220u);
+	EXPECT_EQ(Statistics.ShadowTriangles, 500u);
+	EXPECT_EQ(Statistics.StaticMeshDrawCalls, 5u);
+	EXPECT_EQ(Statistics.SkeletalMeshDrawCalls, 2u);
+	EXPECT_EQ(Statistics.TerrainDrawCalls, 1u);
+	EXPECT_EQ(Statistics.ShadowDrawCalls, 7u);
+	EXPECT_TRUE(Statistics.bShadowEnabled);
+	EXPECT_EQ(Statistics.ShadowCascades, 3u);
+}
+
+TEST(FRendererSceneContractTests, SceneViewportStatisticsAreCoherentAndIsolated)
+{
+	FRenderingThreadScope RenderingThread;
+	const std::shared_ptr<Durin::FSceneViewport> Main =
+		Durin::FSceneViewport::CreateOffscreen(nullptr);
+	const std::shared_ptr<Durin::FSceneViewport> Auxiliary =
+		Durin::FSceneViewport::CreateOffscreen(nullptr);
+
+	Durin::FSceneViewStatistics MainStatistics;
+	MainStatistics.VisiblePrimitives = 4;
+	MainStatistics.Triangles = 120;
+	MainStatistics.DrawCalls = 7;
+	Durin::FSceneViewStatistics AuxiliaryStatistics;
+	AuxiliaryStatistics.VisiblePrimitives = 1;
+	AuxiliaryStatistics.Triangles = 12;
+	AuxiliaryStatistics.DrawCalls = 3;
+
+	struct FPublishViewportStatisticsCommand
+	{
+		static constexpr auto GetName() -> const char*
+		{
+			return "PublishViewportStatistics";
+		}
+	};
+	Durin::EnqueueRenderCommand<FPublishViewportStatisticsCommand>(
+		[Main, Auxiliary, MainStatistics, AuxiliaryStatistics](
+			Durin::FRHICommandListImmediate&) {
+			Main->PublishRenderStatistics_RenderThread(MainStatistics, true);
+			Auxiliary->PublishRenderStatistics_RenderThread(
+				AuxiliaryStatistics, true);
+		});
+	Durin::FlushRenderingCommands();
+
+	Durin::FSceneViewportStatisticsSnapshot MainSnapshot =
+		Main->GetRenderStatisticsSnapshot();
+	const Durin::FSceneViewportStatisticsSnapshot AuxiliarySnapshot =
+		Auxiliary->GetRenderStatisticsSnapshot();
+	EXPECT_TRUE(MainSnapshot.bAvailable);
+	EXPECT_EQ(MainSnapshot.Revision, 1u);
+	EXPECT_EQ(MainSnapshot.Statistics, MainStatistics);
+	EXPECT_TRUE(AuxiliarySnapshot.bAvailable);
+	EXPECT_EQ(AuxiliarySnapshot.Revision, 1u);
+	EXPECT_EQ(AuxiliarySnapshot.Statistics, AuxiliaryStatistics);
+
+	Durin::EnqueueRenderCommand<FPublishViewportStatisticsCommand>(
+		[Main](Durin::FRHICommandListImmediate&) {
+			Main->PublishRenderStatistics_RenderThread({}, false);
+		});
+	Durin::FlushRenderingCommands();
+	MainSnapshot = Main->GetRenderStatisticsSnapshot();
+	EXPECT_FALSE(MainSnapshot.bAvailable);
+	EXPECT_EQ(MainSnapshot.Revision, 2u);
+	EXPECT_EQ(MainSnapshot.Statistics, Durin::FSceneViewStatistics{});
+	EXPECT_EQ(Auxiliary->GetRenderStatisticsSnapshot(), AuxiliarySnapshot);
+}
+
+TEST(FRendererSceneContractTests, SceneViewportStatisticsPublishDuringConcurrentReads)
+{
+	FRenderingThreadScope RenderingThread;
+	auto Viewport = Durin::FSceneViewport::CreateOffscreen(nullptr);
+	std::atomic<bool> bReaderReady = false;
+	std::atomic<bool> bStopReader = false;
+	std::atomic<bool> bObservedMixedSnapshot = false;
+	std::atomic<Durin::uint64> ReadCount = 0;
+	std::jthread Reader([&] {
+		bReaderReady.store(true, std::memory_order_release);
+		while (!bStopReader.load(std::memory_order_acquire))
+		{
+			const auto Snapshot = Viewport->GetRenderStatisticsSnapshot();
+			if (Snapshot.bAvailable
+				&& Snapshot.Statistics.Triangles != Snapshot.Statistics.DrawCalls)
+				bObservedMixedSnapshot.store(true, std::memory_order_relaxed);
+			ReadCount.fetch_add(1, std::memory_order_relaxed);
+		}
+	});
+	while (!bReaderReady.load(std::memory_order_acquire))
+		std::this_thread::yield();
+
+	struct FPublishConcurrentViewportStatisticsCommand
+	{
+		static constexpr auto GetName() -> const char*
+		{
+			return "PublishConcurrentViewportStatistics";
+		}
+	};
+	Durin::EnqueueRenderCommand<FPublishConcurrentViewportStatisticsCommand>(
+		[Viewport](Durin::FRHICommandListImmediate&) {
+			for (Durin::uint64 Value = 1; Value <= 1000; ++Value)
+			{
+				Durin::FSceneViewStatistics Statistics;
+				Statistics.Triangles = Value;
+				Statistics.DrawCalls = Value;
+				Viewport->PublishRenderStatistics_RenderThread(Statistics, true);
+			}
+		});
+	Durin::FlushRenderingCommands();
+	bStopReader.store(true, std::memory_order_release);
+	Reader.join();
+
+	EXPECT_GT(ReadCount.load(std::memory_order_relaxed), 0u);
+	EXPECT_FALSE(bObservedMixedSnapshot.load(std::memory_order_relaxed));
+	const auto Snapshot = Viewport->GetRenderStatisticsSnapshot();
+	EXPECT_EQ(Snapshot.Revision, 1000u);
+	EXPECT_EQ(Snapshot.Statistics.Triangles, 1000u);
+	EXPECT_EQ(Snapshot.Statistics.DrawCalls, 1000u);
+
+	std::weak_ptr<Durin::FSceneViewport> WeakViewport = Viewport;
+	Durin::EnqueueRenderCommand<FPublishConcurrentViewportStatisticsCommand>(
+		[Viewport](Durin::FRHICommandListImmediate&) {
+			Viewport->PublishRenderStatistics_RenderThread({}, false);
+		});
+	Viewport.reset();
+	Durin::FlushRenderingCommands();
+	EXPECT_TRUE(WeakViewport.expired());
 }
 
 TEST(FRendererSceneContractTests,

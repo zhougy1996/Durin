@@ -201,6 +201,39 @@ does not add a stale-size frame.
 
 The Level Editor finalizes one scene-view snapshot after all of its panels have submitted UI for the logic frame. Matrix construction is independent from editor-overlay generation: navigation, gizmo interaction, projection, and picking use the lightweight view, while component visualizers traverse the level once to populate the final render snapshot. `FLevelEditorViewportClient::CalcSceneView()` reuses that snapshot when the renderer requests the same frame and quantized extent. Hover and visualization picking use the previous rendered collector with current matrices, matching the image on which the input occurred; weak object handles make cached hits harmless after object retirement. Hover color is stored on visualization primitives and resolved during composition, so changing hover does not rerun component visualizers.
 
+### Viewport Rendering Statistics
+
+Every `IRendererModule::RenderView` invocation may produce one bounded
+`FSceneViewStatistics` value. Renderer reduces its private visibility,
+geometry, light, terrain, and shadow diagnostics only after command recording
+has completed successfully. RHI supplies the total draw-call value from the
+monotonic number of non-empty `Draw` and `DrawIndexed` commands recorded inside
+that exact invocation; the value therefore includes SkyBox, shadow, scene,
+post-process, and editor-assistance graphics passes, but not ImGui or compute
+dispatches.
+
+Headline triangles count selected main-pass static, spline, skeletal, and
+terrain geometry once at the rendered LOD. Shadow triangle submissions remain
+a separate field so changing shadow cascade count does not redefine scene
+geometric complexity. Failed or incomplete renders do not publish partial
+statistics.
+
+Engine render commands capture the exact `FSceneViewport` whose output they
+render and publish a coherent latest-only snapshot after `RenderView` returns.
+The snapshot carries an availability flag and revision and is synchronized for
+render-thread publication and UI-thread reads without flushing render commands.
+Main, window-backed, and auxiliary viewports own independent snapshots; camera
+preview rendering cannot overwrite the Level Editor main-view statistics.
+
+The Level Editor FPS badge is the statistics entry point. Activating the badge
+toggles a themed panel right-aligned directly below it. The full badge/panel
+rectangle is excluded from drag/drop, selection, gizmo editing, camera
+navigation, wheel input, and embedded-PIE capture before those paths evaluate
+the viewport. The panel is suppressed when its minimum readable size cannot fit
+inside the viewport, while the FPS badge remains available. Expansion is an
+editor session preference under `SceneViewport.ShowStatistics`; it defaults to
+collapsed and never dirties level or asset packages.
+
 The Level Editor camera preview uses this auxiliary path. Selecting an actor with a camera component supplies a camera-backed `FViewportClient`; the resulting target follows the camera's reflected aspect-ratio mode and is drawn as a non-interactive overlay in the main scene panel. The preview stays dormant when no camera is selected, the panel is hidden, or PIE owns the active scene.
 
 Camera aspect ratios support viewport-driven framing, common fixed presets, and a custom numeric ratio. Fixed ratios produce a centered content rectangle inside a mismatched output target. The scene pass clears the complete target first, so the unused area remains black instead of stretching the camera image. `FSceneView::ViewportX/Y/Width/Height` describe this content rectangle and must be respected by projection helpers and renderer viewport/scissor setup.

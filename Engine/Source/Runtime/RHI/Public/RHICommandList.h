@@ -65,6 +65,8 @@ namespace Durin
 
 		RHI_API auto IsRecording() const -> bool;
 		RHI_API auto GetNumRecordedCommands() const -> size_t;
+		// Returns the monotonic number of non-empty graphics draws recorded by this list.
+		RHI_API auto GetNumRecordedDrawCommands() const -> uint64;
 		auto IsInsideRenderPass() const -> bool { return bInsideRenderPass; }
 		auto GetDiagnosticRegionDepth() const -> uint32 { return DiagnosticRegionDepth; }
 		RHI_API static auto GetInvalidDiagnosticRegionCount() -> uint64;
@@ -183,6 +185,7 @@ namespace Durin
 		uint32 RenderPassDiagnosticRegionDepth = 0;
 		FRHIGPUTimingQuery* ActiveGPUTimingQuery = nullptr;
 		std::shared_ptr<void> ActiveGPUTimingReservation;
+		uint64 NumRecordedDrawCommands = 0;
 
 		friend class FRHICommandList;
 		friend class FRHICommandListExecutor;

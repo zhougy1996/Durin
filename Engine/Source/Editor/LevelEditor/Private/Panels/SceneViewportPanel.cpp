@@ -69,7 +69,7 @@ namespace Durin::Editor::Level
 		ViewportClient = std::make_unique<FLevelEditorViewportClient>();
 		ViewportToolbar = std::make_unique<FViewportToolbar>();
 		ViewportWidget = std::make_shared<MViewport>();
-		const std::shared_ptr<FSceneViewport> SceneViewport = FSceneViewport::CreateOffscreen(ViewportClient.get());
+		SceneViewport = FSceneViewport::CreateOffscreen(ViewportClient.get());
 		ViewportWidget->SetDisplaySource(SceneViewport);
 		if (GEngine != nullptr)
 		{
@@ -91,6 +91,7 @@ namespace Durin::Editor::Level
 		if (GEngine != nullptr) GEngine->UnregisterAuxiliarySceneViewport(CameraPreviewSceneViewport.get());
 		CameraPreviewSceneViewport.reset();
 		if (GEngine != nullptr) GEngine->SetMainSceneViewport(nullptr);
+		SceneViewport.reset();
 	}
 
 	auto FSceneViewportPanel::RegisterCameraConsoleCommands() -> void
@@ -246,7 +247,19 @@ namespace Durin::Editor::Level
 			{
 				const ImVec2 VpMin = ImGui::GetItemRectMin();
 				const ImVec2 VpMax = ImGui::GetItemRectMax();
-				if (!Context.bReadOnly && ImGui::BeginDragDropTarget())
+				const bool bViewportImageHovered = ImGui::IsItemHovered();
+				const bool bViewportImageHoveredAllowBlocked =
+					ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
+				const FSceneViewportStatisticsSnapshot StatisticsSnapshot = SceneViewport
+					? SceneViewport->GetRenderStatisticsSnapshot()
+					: FSceneViewportStatisticsSnapshot{};
+				const FViewportStatisticsOverlayLayout InitialStatisticsLayout =
+					CalculateViewportStatisticsOverlayLayout(
+						VpMin, VpMax, bShowStatistics);
+				const bool bStatisticsInitiallyHovered =
+					InitialStatisticsLayout.Contains(ImGui::GetMousePos());
+				if (!Context.bReadOnly && !bStatisticsInitiallyHovered
+					&& ImGui::BeginDragDropTarget())
 				{
 					if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(ContentBrowserAssetPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(FContentBrowserAssetPayload))
 					{
@@ -371,15 +384,22 @@ namespace Durin::Editor::Level
 				}
 				EditModeManager.Synchronize(Context);
 				const FViewportToolbarLayout ToolbarLayout = ViewportToolbar->CalculateLayout(ViewportClient.get(), &EditModeManager, VpMin, VpMax);
-				bViewportHovered = ImGui::IsItemHovered();
+				const FViewportStatisticsOverlayLayout StatisticsLayout =
+					DrawViewportStatisticsOverlay(
+						VpMin, VpMax, StatisticsSnapshot, bShowStatistics);
+				const bool bStatisticsHovered =
+					StatisticsLayout.Contains(ImGui::GetMousePos());
+				bViewportHovered = bViewportImageHovered && !bStatisticsHovered;
 				const bool bToolbarHovered = ImGui::IsMouseHoveringRect(ToolbarLayout.BackgroundMin, ToolbarLayout.BackgroundMax)
-					|| ImGui::IsMouseHoveringRect(ToolbarLayout.PlayBackgroundMin, ToolbarLayout.PlayBackgroundMax);
+					|| ImGui::IsMouseHoveringRect(ToolbarLayout.PlayBackgroundMin, ToolbarLayout.PlayBackgroundMax)
+					|| bStatisticsHovered;
 				const bool bPopupOpen = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
 				const bool bRightMousePressed = ImGui::IsMouseClicked(ImGuiMouseButton_Right);
 				const bool bNavigationMousePressed = bRightMousePressed || ImGui::IsMouseClicked(ImGuiMouseButton_Middle) || (ImGui::GetIO().KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left));
 				const bool bPopupDismissRightPressHovered = bRightMousePressed
 					&& ImGui::GetTopMostPopupModal() == nullptr
-					&& ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
+					&& bViewportImageHoveredAllowBlocked
+					&& !bStatisticsHovered;
 				if ((bViewportHovered && bNavigationMousePressed) || bPopupDismissRightPressHovered)
 				{
 					ImGui::SetWindowFocus();
@@ -416,7 +436,6 @@ namespace Durin::Editor::Level
 				DrawCameraPreview(VpMin, VpMax);
 				DrawViewportOrientationOverlay(ViewportClient.get(), VpMin, VpMax);
 				DrawViewportCameraSpeedOverlay(ViewportClient.get(), VpMin, VpMax);
-				DrawViewportFPSOverlay(VpMin, VpMax);
 				if (Context.bReadOnly)
 				{
 					ImDrawList* DrawList = ImGui::GetWindowDrawList();

@@ -1237,18 +1237,35 @@ namespace Durin
 		FRHICommandListImmediate& Immediate = Executor.GetImmediateCommandList();
 		Immediate.SwitchPipeline(ERHIPipeline::Graphics);
 		const size_t BeforeNoOps = Immediate.GetNumRecordedCommands();
+		const uint64 DrawsBeforeNoOps = Immediate.GetNumRecordedDrawCommands();
 		Immediate.Draw({.VertexCount = 0, .InstanceCount = 4});
 		Immediate.DrawIndexed({.IndexCount = 4, .InstanceCount = 0});
 		EXPECT_EQ(Immediate.GetNumRecordedCommands(), BeforeNoOps);
+		EXPECT_EQ(Immediate.GetNumRecordedDrawCommands(), DrawsBeforeNoOps);
 
 		const FRHIDrawArguments DrawArguments{7, 3, 2, 5};
 		const FRHIDrawIndexedArguments IndexedArguments{9, 4, 6, -2, 8};
 		Immediate.Draw(DrawArguments);
 		Immediate.DrawIndexed(IndexedArguments);
+		EXPECT_EQ(Immediate.GetNumRecordedDrawCommands(), DrawsBeforeNoOps + 2);
 		Executor.Submit({}, ERHISubmitFlags::None);
+		EXPECT_EQ(Immediate.GetNumRecordedDrawCommands(), DrawsBeforeNoOps + 2);
 
 		EXPECT_EQ(Context.ObservedDrawArguments, DrawArguments);
 		EXPECT_EQ(Context.ObservedDrawIndexedArguments, IndexedArguments);
+	}
+
+	TEST(FRHICommandListTests, RecordedDrawCountMovesWithFiniteCommandList)
+	{
+		FRHICommandList Source;
+		Source.SwitchPipeline(ERHIPipeline::Graphics);
+		Source.Draw({.VertexCount = 3});
+		Source.DrawIndexed({.IndexCount = 6, .InstanceCount = 2});
+		EXPECT_EQ(Source.GetNumRecordedDrawCommands(), 2u);
+
+		FRHICommandList Destination(std::move(Source));
+		EXPECT_EQ(Destination.GetNumRecordedDrawCommands(), 2u);
+		EXPECT_EQ(Source.GetNumRecordedDrawCommands(), 0u);
 	}
 
 	TEST(FRHICommandListTests, GraphicsPayloadsAreOwnedUntilReplay)

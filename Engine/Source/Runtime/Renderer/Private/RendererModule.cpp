@@ -74,16 +74,29 @@ namespace Durin
 		const FSceneView& View,
 		FRHITexture* OutputTarget,
 		bool bPresentOutput,
-		const FSceneViewRenderOptions& Options) -> ERenderViewResult
+		const FSceneViewRenderOptions& Options,
+		FSceneViewStatistics* OutStatistics) -> ERenderViewResult
 	{
+		if (OutStatistics != nullptr) *OutStatistics = {};
 		auto* RendererScene = dynamic_cast<FScene*>(Scene);
-		return SceneRenderer->RenderView_RenderThread(
+		const uint64 DrawsBefore = CommandList.GetNumRecordedDrawCommands();
+		const ERenderViewResult Result = SceneRenderer->RenderView_RenderThread(
 			CommandList,
 			RendererScene,
 			View,
 			OutputTarget,
 			bPresentOutput,
-			Options);
+			Options,
+			OutStatistics);
+		if (OutStatistics != nullptr)
+		{
+			if (Result == ERenderViewResult::Success)
+				OutStatistics->DrawCalls =
+					CommandList.GetNumRecordedDrawCommands() - DrawsBefore;
+			else
+				*OutStatistics = {};
+		}
+		return Result;
 	}
 
 	IMPLEMENT_MODULE(FRendererModule, Renderer)

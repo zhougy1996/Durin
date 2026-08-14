@@ -4,6 +4,7 @@
 #include "Rendering/MonaRenderer.h"
 #include "Widgets/MWindow.h"
 #include "RHICommandList.h"
+#include "RenderingThread.h"
 
 namespace Durin
 {
@@ -98,6 +99,27 @@ namespace Durin
 	auto FSceneViewport::GetDisplayTexture() const -> const FTextureRHIRef&
 	{
 		return RenderTargetRHI;
+	}
+
+	auto FSceneViewport::PublishRenderStatistics_RenderThread(
+		const FSceneViewStatistics& Statistics,
+		bool bAvailable) -> void
+	{
+		check(IsInRenderingThread());
+		std::scoped_lock Lock(StatisticsMutex);
+		if (StatisticsSnapshot.Revision != std::numeric_limits<uint64>::max())
+			++StatisticsSnapshot.Revision;
+		StatisticsSnapshot.bAvailable = bAvailable;
+		StatisticsSnapshot.Statistics = bAvailable
+			? Statistics
+			: FSceneViewStatistics{};
+	}
+
+	auto FSceneViewport::GetRenderStatisticsSnapshot() const
+		-> FSceneViewportStatisticsSnapshot
+	{
+		std::scoped_lock Lock(StatisticsMutex);
+		return StatisticsSnapshot;
 	}
 
 	auto FSceneViewport::SanitizeDisplayExtent(const FVector2f& DesiredSize) -> FVector2f
