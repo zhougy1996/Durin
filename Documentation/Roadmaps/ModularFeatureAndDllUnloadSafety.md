@@ -4,24 +4,19 @@ Summary: Establish typed modular services, explicit asynchronous abort semantics
 
 Last reviewed: 2026-08-15
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-15
 
 ## Current Status
 
-Milestones 1 and 2 are complete. Core now separates typed synchronous feature
-retirement from explicit asynchronous operation cancellation and proves task,
-typed-result, Worker-wrapper, and selected Game Thread callable quiescence before
-native release. Module-manager tests cover successful cooperative cancellation
-and fail-closed async timeout in addition to the synchronous retirement matrix.
-
-Milestone 3 is complete. All six Runtime Engine authoring callback families use
-typed modular features owned by StandardAssetImport or GeometryBuild, and
-Terrain asynchronous work uses a module-owned operation group. Milestone 4 is
-complete: every specialized registry and callback disposition is owner-bound
-or construction-bounded, broad regression passes, and the lasting Runtime Core
-contract owns the rules. Milestone 5 is active with the real-DLL unload and
-reload qualification fixture.
+All five milestones are complete. Core separates synchronous feature
+retirement, explicit asynchronous operation drain, and native image lifetime;
+the six Runtime Engine authoring families use typed modular features; and every
+audited specialized callback registry is owner-bound or construction-bounded.
+A production-loaded test DLL proves successful physical unmap and fresh reload
+identity, while isolated failure injection proves that every required
+quiescence failure leaves the module stopped and mapped. Repeated stress also
+passes under Windows Application Verifier.
 
 | Milestone | Status | Active child plan |
 | --- | --- | --- |
@@ -29,7 +24,7 @@ reload qualification fixture.
 | 2. Explicit asynchronous operation drain | Complete | [Module Async Operation Drain](../Plans/ModuleAsyncOperationDrain.md) |
 | 3. Engine authoring feature migration | Complete | [Engine Authoring Modular Feature Migration](../Plans/EngineAuthoringModularFeatureMigration.md) |
 | 4. Specialized registry integration and callback audit | Complete | [Dynamic Module Registry Safety Audit](../Plans/DynamicModuleRegistrySafetyAudit.md) |
-| 5. Dynamic DLL unload qualification | Active | [Dynamic DLL Unload Qualification](../Plans/DynamicDllUnloadQualification.md) |
+| 5. Dynamic DLL unload qualification | Complete | [Dynamic DLL Unload Qualification](../Plans/DynamicDllUnloadQualification.md) |
 
 ## Outcome
 
@@ -314,7 +309,7 @@ to become active.
 | [Module Async Operation Drain](../Plans/ModuleAsyncOperationDrain.md) | Milestone 2 task ownership, explicit abort, GT drain, and callable destruction proof | Complete; exit gate passed |
 | [Engine Authoring Modular Feature Migration](../Plans/EngineAuthoringModularFeatureMigration.md) | Milestone 3 contracts, providers, consumers, and legacy API deletion | Complete; exit gate passed |
 | [Dynamic Module Registry Safety Audit](../Plans/DynamicModuleRegistrySafetyAudit.md) | Milestone 4 inventory, classification, and specialized-registry integration | Complete; exit gate passed |
-| [Dynamic DLL Unload Qualification](../Plans/DynamicDllUnloadQualification.md) | Milestone 5 real DLL fixture, stress testing, and lasting documentation | Active; Milestone 4 exit gate passed |
+| [Dynamic DLL Unload Qualification](../Plans/DynamicDllUnloadQualification.md) | Milestone 5 real DLL fixture, stress testing, and lasting documentation | Complete; exit gate passed |
 
 ## Program Validation Matrix
 

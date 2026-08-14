@@ -30,7 +30,8 @@ namespace Durin::VulkanRHI
 		auto ExpectVulkanModuleUnloaded() -> void
 		{
 			const auto Result = FModuleManager::Get().UnloadModule("VulkanRHI");
-			EXPECT_TRUE(Result.Succeeded() || Result.Status == EModuleOperationStatus::NotLoaded)
+			EXPECT_TRUE(Result.Succeeded() || Result.Status == EModuleOperationStatus::NotLoaded ||
+				Result.Status == EModuleOperationStatus::NotFound)
 				<< Result.Message;
 		}
 

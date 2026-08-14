@@ -187,6 +187,34 @@ shutdown marker, stops the RHI thread, deletes `GDynamicRHI`, and only then asks
 the module manager to unload `VulkanRHI`. Failure leaves the backend module
 mapped.
 
+## Physical DLL Qualification
+
+The unload contract is qualified with a test-only Windows DLL loaded through
+the production `FModuleManager::LoadModule` path. Host-side observation uses
+process-resident feature interfaces, POD lifecycle events, manager-owned owner
+generations, host-assigned fixture instance serials, and `GetModuleHandleW`.
+The host never retains a function pointer into the fixture after unload.
+
+Successful qualification proves that an admitted synchronous call completes
+while late admission is rejected, a Worker-to-Game-Thread chain and its
+destructor-sensitive capture drain before module destruction, and the native
+image is absent after `UnloadModule`. Reload produces a higher owner generation
+and a distinct fixture instance. Thirty-two additional serialized cycles prove
+that earlier instances publish no later events and every successfully retired
+image is physically unmapped.
+
+Failure qualification runs irreversible cases in a separate process with one
+logical module record per scenario. Invocation timeout, retained owner
+resource, active worker, retained typed result, retained deferred callable,
+reflected-object rejection, shutdown exception, wrong-thread request, and
+recursive owned execution all produce their categorized unload result without
+destroying or releasing the affected module image. Successful stress also runs
+under Windows Application Verifier with Heaps, Handles, Locks, and TLS checks.
+
+The dedicated native targets are `DynamicDllUnloadQualificationTests` and
+`DynamicDllUnloadFailureQualificationTests`; both require explicit
+`--mode qualification` admission and are excluded from ordinary aggregates.
+
 ## Bounded Exemptions
 
 Owner attribution is unnecessary only when construction proves that no

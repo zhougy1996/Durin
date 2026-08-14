@@ -118,3 +118,73 @@ durin_finalize_native_test(CoreConcurrencyQualificationTests
 	MODULES core
 )
 durin_discover_tests(CoreConcurrencyQualificationTests)
+
+if(WIN32)
+	set(_durin_dynamic_unload_fixture_dir
+		"${DURIN_PROJECT_ROOT_DIR}/Tests/Fixtures/DynamicDllUnload")
+	add_library(DynamicUnloadFixture MODULE
+		"${_durin_dynamic_unload_fixture_dir}/DynamicUnloadFixtureModule.cpp"
+	)
+	durin_target_apply_common_definitions(
+		DynamicUnloadFixture DynamicUnloadFixture)
+	target_include_directories(DynamicUnloadFixture PRIVATE
+		"${_durin_dynamic_unload_fixture_dir}"
+	)
+	target_link_libraries(DynamicUnloadFixture PRIVATE Core)
+	set_target_properties(DynamicUnloadFixture PROPERTIES
+		OUTPUT_NAME "${DURIN_RUNTIME_VARIANT}-DynamicUnloadFixture"
+		FOLDER "Tests/Fixtures"
+	)
+	durin_target_set_runtime_outputs(DynamicUnloadFixture)
+	if(DURIN_ENABLE_PCH AND TARGET SharedPCH_Core)
+		target_precompile_headers(DynamicUnloadFixture REUSE_FROM SharedPCH_Core)
+	endif()
+
+	add_durin_test(DynamicDllUnloadQualificationTests
+		Private/DynamicDllUnloadQualificationTests.cpp
+	)
+	target_include_directories(DynamicDllUnloadQualificationTests PRIVATE
+		"${_durin_dynamic_unload_fixture_dir}"
+	)
+	target_link_libraries(DynamicDllUnloadQualificationTests PRIVATE Core)
+	durin_test_register_runtime_only_dependencies(
+		DynamicDllUnloadQualificationTests
+		RATIONALE
+			"The production module manager delay-loads the real unload fixture DLL by module name."
+		TARGETS DynamicUnloadFixture
+	)
+	set_target_properties(DynamicDllUnloadQualificationTests PROPERTIES
+		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+	)
+	durin_finalize_native_test(DynamicDllUnloadQualificationTests
+		KIND qualification
+		DOMAINS core
+		MODULES core
+		STACKS process
+	)
+	durin_discover_tests(DynamicDllUnloadQualificationTests)
+
+	add_durin_test(DynamicDllUnloadFailureQualificationTests
+		Private/DynamicDllUnloadFailureQualificationTests.cpp
+	)
+	target_include_directories(DynamicDllUnloadFailureQualificationTests PRIVATE
+		"${_durin_dynamic_unload_fixture_dir}"
+	)
+	target_link_libraries(DynamicDllUnloadFailureQualificationTests PRIVATE Core)
+	durin_test_register_runtime_only_dependencies(
+		DynamicDllUnloadFailureQualificationTests
+		RATIONALE
+			"The production module manager delay-loads the real failure-injection fixture DLL by module name."
+		TARGETS DynamicUnloadFixture
+	)
+	set_target_properties(DynamicDllUnloadFailureQualificationTests PROPERTIES
+		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+	)
+	durin_finalize_native_test(DynamicDllUnloadFailureQualificationTests
+		KIND qualification
+		DOMAINS core
+		MODULES core
+		STACKS process
+	)
+	durin_discover_tests(DynamicDllUnloadFailureQualificationTests)
+endif()
