@@ -34,7 +34,8 @@ namespace
 			InitializeDObjectSystem();
 			ASSERT_TRUE(Durin::Tests::InstallStandardAssetAuthoringFeatures());
 			std::string Error;
-			ASSERT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(Error)) << Error;
+			ASSERT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(
+				Error, GetEngineTestModuleCallbackGate())) << Error;
 		}
 
 		auto TearDown() -> void override
@@ -529,7 +530,8 @@ TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndRollbackPreserveTheA
 	const std::filesystem::path Root = InitializeHeightmapTests();
 	FScopedDdcRoot Ddc(Root / "DDC");
 	std::string Error;
-	ASSERT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(Error)) << Error;
+	ASSERT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(
+		Error, GetEngineTestModuleCallbackGate())) << Error;
 	const std::filesystem::path Source = Root / "Sources/Asymmetric.png";
 	const std::array<Durin::uint16, 6> Initial{0, 100, 200, 300, 400, 65'535};
 	WritePng(Source, 3, 2, Initial);

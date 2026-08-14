@@ -40,6 +40,15 @@ namespace Durin
 			return Detail::CreateAsyncOperationGroup(Owner, GroupName, Options);
 		}
 
+		// Creates one owner-bound admission and retained-resource audit domain for
+		// a semantically specialized registry.
+		auto CreateOwnedCallbackRegistration(FName DomainName)
+			-> FModuleOwnedCallbackRegistration
+		{
+			return FModularFeatureRegistry::Get().RegisterOwnedCallback(
+				Owner, std::move(DomainName));
+		}
+
 		[[nodiscard]] auto GetModuleName() const -> FName { return ModuleName; }
 
 	private:
@@ -201,7 +210,8 @@ namespace Durin
 		CORE_API auto StartProcessingNewlyLoadedObjects() -> void;
 		CORE_API auto SetProcessLoadedObjectsCallback(std::function<void()> Callback) -> void;
 		CORE_API auto SetPreShutdownModuleCallback(std::function<bool(FName)> Callback) -> void;
-		CORE_API auto UnloadModulesAtShutdown() -> void;
+		CORE_API auto UnloadModulesAtShutdown(
+			std::span<const FName> DeferredModules = {}) -> void;
 
 	private:
 		FModuleManager();

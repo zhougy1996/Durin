@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Thumbnail/AssetThumbnailProvider.h"
+#include "Threading/Task.h"
 
 namespace Durin::Editor { class FRenderedAssetThumbnailCache; }
 
@@ -23,7 +24,9 @@ namespace Durin::Editor::Level
 	class FContentBrowserThumbnailCache
 	{
 	public:
+		// Test/local caches may use the source cache's local task scope.
 		FContentBrowserThumbnailCache();
+		explicit FContentBrowserThumbnailCache(FTaskScopeToken ThumbnailTaskScope);
 		~FContentBrowserThumbnailCache();
 
 		FContentBrowserThumbnailCache(const FContentBrowserThumbnailCache&) = delete;

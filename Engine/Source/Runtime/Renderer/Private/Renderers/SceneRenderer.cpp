@@ -257,7 +257,9 @@ namespace Durin
 
 	FSceneRenderer::~FSceneRenderer() = default;
 
-	auto FSceneRenderer::Start(FConsoleCommandRegistry& Registry) -> bool
+	auto FSceneRenderer::Start(
+		FConsoleCommandRegistry& Registry,
+		FModuleOwnedCallbackGate OwnerGate) -> bool
 	{
 		FAssetPath EnvironmentPath;
 		DEnvironmentLighting* EnvironmentAsset = nullptr;
@@ -283,7 +285,7 @@ namespace Durin
 			Registry,
 			[this](ERendererResourceInvalidationCause Cause) {
 				EnqueueResourceInvalidation(Cause);
-			});
+			}, std::move(OwnerGate));
 	}
 
 	auto FSceneRenderer::Stop() -> void

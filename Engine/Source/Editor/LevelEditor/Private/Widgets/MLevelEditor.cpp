@@ -49,9 +49,14 @@ namespace Durin::Editor::Level
 	} // namespace
 
 	// MLevelEditor is the composition root for the editor-specific controllers.
-	MLevelEditor::MLevelEditor(FLevelEditorSessionSettings& InSessionSettings, ::Durin::Editor::FWorkspaceManager& InWorkspaceManager)
+	MLevelEditor::MLevelEditor(FLevelEditorSessionSettings& InSessionSettings,
+		::Durin::Editor::FWorkspaceManager& InWorkspaceManager,
+		FModuleOwnedCallbackGate InOwnerGate,
+		FTaskScopeToken InThumbnailTaskScope)
 		: SessionSettings(InSessionSettings)
 		, WorkspaceManager(InWorkspaceManager)
+		, OwnerGate(std::move(InOwnerGate))
+		, ThumbnailTaskScope(std::move(InThumbnailTaskScope))
 	{
 	}
 
@@ -121,7 +126,7 @@ namespace Durin::Editor::Level
 
 	auto MLevelEditor::CreatePanels() -> void
 	{
-		auto SceneViewport = std::make_unique<FSceneViewportPanel>();
+		auto SceneViewport = std::make_unique<FSceneViewportPanel>(OwnerGate);
 		SceneViewportPanel = SceneViewport.get();
 		Context->FocusActor = [this](AActor* Actor) {
 			if (SceneViewportPanel) SceneViewportPanel->FocusActor(Actor);
@@ -132,7 +137,7 @@ namespace Durin::Editor::Level
 		auto Details = std::make_unique<FDetailsPanel>(SessionSettings);
 		DetailsPanel = Details.get();
 		Panels.emplace_back(std::move(Details));
-		Panels.emplace_back(std::make_unique<FConsolePanel>());
+		Panels.emplace_back(std::make_unique<FConsolePanel>(OwnerGate));
 	}
 
 	auto MLevelEditor::CreateDocumentServices() -> void
@@ -141,7 +146,8 @@ namespace Durin::Editor::Level
 			*Context,
 			SessionSettings,
 			*SceneViewportPanel,
-			GEditor->GetTransactionManager()
+			GEditor->GetTransactionManager(),
+			OwnerGate
 		);
 
 		DocumentController = std::make_unique<FLevelDocumentController>(
@@ -243,7 +249,8 @@ namespace Durin::Editor::Level
 				if (GEditor)
 					GEditor->GetTransactionManager().NotifyMountedContentMutation();
 			},
-			MountedContentReconciliationState
+			MountedContentReconciliationState,
+			ThumbnailTaskScope
 		);
 		ContentBrowserPanel = ContentBrowser.get();
 		Panels.emplace_back(std::move(ContentBrowser));

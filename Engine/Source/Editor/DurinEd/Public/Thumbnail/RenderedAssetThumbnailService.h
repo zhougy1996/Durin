@@ -16,7 +16,14 @@ namespace Durin::Editor
 
 		DURINED_API auto RegisterScoped(
 			std::unique_ptr<IAssetThumbnailProvider> Provider,
+			FModuleOwnedCallbackGate OwnerGate,
 			std::string& OutError) -> FAssetThumbnailProviderRegistrationHandle;
+		// Process-owned/test providers only; unloadable modules must pass an owner gate.
+		auto RegisterScoped(std::unique_ptr<IAssetThumbnailProvider> Provider,
+			std::string& OutError) -> FAssetThumbnailProviderRegistrationHandle
+		{
+			return RegisterScoped(std::move(Provider), {}, OutError);
+		}
 		DURINED_API auto Find(std::string_view AssetClassName) const
 			-> FAssetThumbnailProviderHandle;
 		DURINED_API auto UsesSourceImage(std::string_view AssetClassName) const -> bool;

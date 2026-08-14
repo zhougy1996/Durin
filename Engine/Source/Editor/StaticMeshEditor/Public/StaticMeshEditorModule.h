@@ -26,6 +26,7 @@ namespace Durin
 		STATICMESHEDITOR_API auto UnregisterStaticMeshEditor() -> void;
 
 	private:
+		FModuleOwnedCallbackRegistration EditorExtensionCallbacks;
 		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
 		std::unique_ptr<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle> ThumbnailRegistration;
 	};

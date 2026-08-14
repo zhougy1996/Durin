@@ -288,7 +288,9 @@ namespace Durin::Asset::Import
 
 	struct FProviderLeaseState
 	{
+		FModuleOwnedResourceLease RegistryResource;
 		std::shared_ptr<IImportProvider> Provider;
+		FModuleOwnedCallbackGate OwnerGate;
 		std::string ProviderId;
 		uint32 ContractVersion = 0;
 	};
@@ -315,6 +317,11 @@ namespace Durin::Asset::Import
 		return State ? State->ContractVersion : 0;
 	}
 
+	auto FProviderLease::TryEnter() const -> FModuleOwnedCallbackInvocation
+	{
+		return State ? State->OwnerGate.TryEnter() : FModuleOwnedCallbackInvocation{};
+	}
+
 	struct FProviderRegistry::FImpl
 	{
 		std::map<std::string, std::shared_ptr<FProviderLeaseState>, std::less<>> Providers;
@@ -331,9 +338,11 @@ namespace Durin::Asset::Import
 
 	auto FProviderRegistry::Register(
 		std::shared_ptr<IImportProvider> Provider,
+		FModuleOwnedCallbackGate OwnerGate,
 		std::string& OutError) -> bool
 	{
-		if (!Provider || !IsStableIdentifier(Provider->GetProviderId())
+		auto Invocation = OwnerGate.TryEnter();
+		if (!Provider || !Invocation || !IsStableIdentifier(Provider->GetProviderId())
 			|| Provider->GetContractVersion() == 0)
 		{
 			OutError = "Import provider identity or contract version is invalid.";
@@ -357,8 +366,16 @@ namespace Durin::Asset::Import
 			OutError = std::format("Import provider {} is already registered.", Id);
 			return false;
 		}
+		auto Resource = OwnerGate.RetainResource();
+		if (!Resource)
+		{
+			OutError = "Import provider owner is retiring.";
+			return false;
+		}
 		Impl->Providers.emplace(Id, std::make_shared<FProviderLeaseState>(FProviderLeaseState{
+			.RegistryResource = std::move(Resource),
 			.Provider = std::move(Provider),
+			.OwnerGate = std::move(OwnerGate),
 			.ProviderId = Id,
 			.ContractVersion = ContractVersion}));
 		++Impl->Revision;
@@ -379,7 +396,13 @@ namespace Durin::Asset::Import
 	auto FProviderRegistry::Find(std::string_view ProviderId) const -> FProviderLease
 	{
 		const auto It = Impl->Providers.find(ProviderId);
-		return It == Impl->Providers.end() ? FProviderLease{} : FProviderLease(It->second);
+		if (It == Impl->Providers.end()) return {};
+		auto Invocation = It->second->OwnerGate.TryEnter();
+		auto Resource = It->second->OwnerGate.RetainResource();
+		if (!Invocation || !Resource) return {};
+		FProviderLease Lease(It->second);
+		Lease.ResourceLease = std::make_shared<FModuleOwnedResourceLease>(std::move(Resource));
+		return Lease;
 	}
 
 	auto FProviderRegistry::FindMatching(
@@ -389,7 +412,13 @@ namespace Durin::Asset::Import
 		for (const auto& [Id, State] : Impl->Providers)
 		{
 			(void)Id;
-			if (State->Provider->CanImport(Source)) Result.emplace_back(FProviderLease(State));
+			auto Invocation = State->OwnerGate.TryEnter();
+			if (!Invocation || !State->Provider->CanImport(Source)) continue;
+			auto Resource = State->OwnerGate.RetainResource();
+			if (!Resource) continue;
+			FProviderLease Lease(State);
+			Lease.ResourceLease = std::make_shared<FModuleOwnedResourceLease>(std::move(Resource));
+			Result.emplace_back(std::move(Lease));
 		}
 		return Result;
 	}
@@ -771,7 +800,8 @@ namespace Durin::Asset::Import
 				Impl->Limits.MaximumSourceCount,
 				Impl->Limits.MaximumBytesPerSource,
 				Impl->Limits.MaximumEmbeddedBytes - Impl->EmbeddedBytes);
-			if (!Provider.GetProvider()->DiscoverDependencies(
+			auto Invocation = Provider.TryEnter();
+			if (!Invocation || !Provider.GetProvider()->DiscoverDependencies(
 				Impl->Sources, Sink, OutDiagnostics) || HasError(OutDiagnostics)) return false;
 			bool bCapturedNewSource = false;
 			for (FDependencyRequest& Request : Requests)
@@ -954,7 +984,9 @@ namespace Durin::Asset::Import
 			return Result;
 		}
 		FImportPlanBuilder Builder;
-		if (!Provider.GetProvider()->Plan(*Snapshot, Settings, Builder, Result.Diagnostics)
+		auto ProviderInvocation = Provider.TryEnter();
+		if (!ProviderInvocation
+			|| !Provider.GetProvider()->Plan(*Snapshot, Settings, Builder, Result.Diagnostics)
 			|| HasError(Result.Diagnostics))
 		{
 			Result.Message = Result.Diagnostics.empty()
@@ -1119,7 +1151,8 @@ namespace Durin::Asset::Import
 					EImportProgressState::Failed, "root", "request", 0, 0, Result.Message);
 				return Result;
 			}
-			if (!Provider.GetProvider()->CanImport(Recognition))
+			auto ProviderInvocation = Provider.TryEnter();
+			if (!ProviderInvocation || !Provider.GetProvider()->CanImport(Recognition))
 			{
 				Result.Message = std::format(
 					"Import provider {} does not recognize the selected source.", Request.ProviderId);
@@ -1154,18 +1187,23 @@ namespace Durin::Asset::Import
 
 		FImportPayload Settings;
 		if (Request.Settings) Settings = *Request.Settings;
-		else if (!Provider.GetProvider()->CaptureSettings(Settings, Result.Diagnostics))
+		else
 		{
-			Result.Message = Result.Diagnostics.empty()
-				? "Import provider settings capture failed." : Result.Diagnostics.back().Message;
-			if (Result.Diagnostics.empty())
-				AddDiagnostic(Result.Diagnostics, EImportDiagnosticSeverity::Error,
-					EImportDiagnosticCategory::ProviderFailure, "settings-capture", "root",
-					Result.Message);
-			FinalizeImportDiagnostics(Result.Diagnostics, "settings-capture");
-			ReportImportProgress(Request.Progress, EImportPhase::Snapshot,
-				EImportProgressState::Failed, "root", "request", 0, 0, Result.Message);
-			return Result;
+			auto ProviderInvocation = Provider.TryEnter();
+			if (!ProviderInvocation
+				|| !Provider.GetProvider()->CaptureSettings(Settings, Result.Diagnostics))
+			{
+				Result.Message = Result.Diagnostics.empty()
+					? "Import provider settings capture failed." : Result.Diagnostics.back().Message;
+				if (Result.Diagnostics.empty())
+					AddDiagnostic(Result.Diagnostics, EImportDiagnosticSeverity::Error,
+						EImportDiagnosticCategory::ProviderFailure, "settings-capture", "root",
+						Result.Message);
+				FinalizeImportDiagnostics(Result.Diagnostics, "settings-capture");
+				ReportImportProgress(Request.Progress, EImportPhase::Snapshot,
+					EImportProgressState::Failed, "root", "request", 0, 0, Result.Message);
+				return Result;
+			}
 		}
 		if (AddCancellationDiagnostic(Result, "settings-capture")) return Result;
 		std::string PayloadError;
@@ -1216,8 +1254,14 @@ namespace Durin::Asset::Import
 
 	struct FSingleAssetHandlerRegistry::FImpl
 	{
+		struct FEntry
+		{
+			FModuleOwnedResourceLease RegistryResource;
+			std::shared_ptr<ISingleAssetImportHandler> Handler;
+			FModuleOwnedCallbackGate OwnerGate;
+		};
 		mutable std::mutex Mutex;
-		std::map<std::string, std::shared_ptr<ISingleAssetImportHandler>, std::less<>> Handlers;
+		std::map<std::string, FEntry, std::less<>> Handlers;
 		uint64 Revision = 1;
 	};
 
@@ -1227,9 +1271,11 @@ namespace Durin::Asset::Import
 
 	auto FSingleAssetHandlerRegistry::Register(
 		std::shared_ptr<ISingleAssetImportHandler> Handler,
+		FModuleOwnedCallbackGate OwnerGate,
 		std::string& OutError) -> bool
 	{
-		if (!Handler || Handler->GetAssetClassName().empty()
+		auto Invocation = OwnerGate.TryEnter();
+		if (!Handler || !Invocation || Handler->GetAssetClassName().empty()
 			|| !IsStableIdentifier(Handler->GetProviderId()))
 		{
 			OutError = "Single-asset import handler identity is invalid.";
@@ -1243,7 +1289,14 @@ namespace Durin::Asset::Import
 				"A single-asset import handler is already registered for {}.", ClassName);
 			return false;
 		}
-		Impl->Handlers.emplace(ClassName, std::move(Handler));
+		auto Resource = OwnerGate.RetainResource();
+		if (!Resource)
+		{
+			OutError = "Single-asset import handler owner is retiring.";
+			return false;
+		}
+		Impl->Handlers.emplace(ClassName, FImpl::FEntry{
+			std::move(Resource), std::move(Handler), std::move(OwnerGate)});
 		++Impl->Revision;
 		OutError.clear();
 		return true;
@@ -1264,7 +1317,19 @@ namespace Durin::Asset::Import
 	{
 		std::lock_guard Lock(Impl->Mutex);
 		const auto It = Impl->Handlers.find(AssetClassName);
-		return It == Impl->Handlers.end() ? nullptr : It->second;
+		if (It == Impl->Handlers.end()) return nullptr;
+		auto Invocation = It->second.OwnerGate.TryEnter();
+		auto Resource = It->second.OwnerGate.RetainResource();
+		if (!Invocation || !Resource) return nullptr;
+		struct FLease
+		{
+			FModuleOwnedResourceLease Resource;
+			std::shared_ptr<ISingleAssetImportHandler> Handler;
+		};
+		auto Lease = std::make_shared<FLease>(FLease{
+			std::move(Resource), It->second.Handler});
+		return std::shared_ptr<const ISingleAssetImportHandler>(
+			std::move(Lease), It->second.Handler.get());
 	}
 
 	auto FSingleAssetHandlerRegistry::GetRevision() const -> uint64

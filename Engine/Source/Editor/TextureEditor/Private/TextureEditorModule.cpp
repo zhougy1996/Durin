@@ -17,8 +17,11 @@ namespace Durin
 
 	FTextureEditorModule::~FTextureEditorModule() = default;
 
-	auto FTextureEditorModule::StartupModule(FModuleContext&) -> void
+	auto FTextureEditorModule::StartupModule(FModuleContext& Context) -> void
 	{
+		EditorExtensionCallbacks =
+			Context.CreateOwnedCallbackRegistration("Editor.ExtensionRegistries");
+		require(EditorExtensionCallbacks.IsValid());
 	}
 
 	auto FTextureEditorModule::ShutdownModule(FModuleShutdownContext&) -> void
@@ -61,12 +64,13 @@ namespace Durin
 					.bClosable = true,
 				},
 			},
-		});
+		}, EditorExtensionCallbacks.GetGate());
 		if (!Registration) return false;
 		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
 		std::string Error;
 		auto Texture2DHandle = ThumbnailService.RegisterScoped(
-			std::make_unique<FTexture2DAssetThumbnailProvider>(), Error);
+			std::make_unique<FTexture2DAssetThumbnailProvider>(),
+			EditorExtensionCallbacks.GetGate(), Error);
 		if (!Texture2DHandle)
 		{
 			WorkspaceRegistration.reset();
@@ -76,7 +80,8 @@ namespace Durin
 			std::make_unique<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
 				std::move(Texture2DHandle));
 		auto TextureCubeHandle = ThumbnailService.RegisterScoped(
-			std::make_unique<FTextureCubeAssetThumbnailProvider>(), Error);
+			std::make_unique<FTextureCubeAssetThumbnailProvider>(),
+			EditorExtensionCallbacks.GetGate(), Error);
 		if (!TextureCubeHandle)
 		{
 			Texture2DThumbnailRegistration.reset();

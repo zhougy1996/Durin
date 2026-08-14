@@ -5,6 +5,7 @@
 #include "AssetImportCoreAPI.h"
 #include "DObject/AssetPath.h"
 #include "Hash/XxHash.h"
+#include "Modules/ModularFeature.h"
 
 namespace Durin::Asset::Import
 {
@@ -364,12 +365,14 @@ namespace Durin::Asset::Import
 		auto GetProvider() const -> const IImportProvider*;
 		auto GetProviderId() const -> std::string_view;
 		auto GetContractVersion() const -> uint32;
+		auto TryEnter() const -> FModuleOwnedCallbackInvocation;
 
 	private:
 		explicit FProviderLease(std::shared_ptr<const FProviderLeaseState> InState)
 			: State(std::move(InState)) {}
 
 		std::shared_ptr<const FProviderLeaseState> State;
+		std::shared_ptr<FModuleOwnedResourceLease> ResourceLease;
 
 		friend class FProviderRegistry;
 	};
@@ -382,7 +385,8 @@ namespace Durin::Asset::Import
 		FProviderRegistry(const FProviderRegistry&) = delete;
 		auto operator=(const FProviderRegistry&) -> FProviderRegistry& = delete;
 
-		auto Register(std::shared_ptr<IImportProvider> Provider, std::string& OutError) -> bool;
+		auto Register(std::shared_ptr<IImportProvider> Provider,
+			FModuleOwnedCallbackGate OwnerGate, std::string& OutError) -> bool;
 		auto Unregister(std::string_view ProviderId) -> bool;
 		auto Find(std::string_view ProviderId) const -> FProviderLease;
 		auto FindMatching(const FImportSourceRecognition& Source) const -> std::vector<FProviderLease>;
@@ -663,7 +667,8 @@ namespace Durin::Asset::Import
 		FSingleAssetHandlerRegistry(const FSingleAssetHandlerRegistry&) = delete;
 		auto operator=(const FSingleAssetHandlerRegistry&) -> FSingleAssetHandlerRegistry& = delete;
 
-		auto Register(std::shared_ptr<ISingleAssetImportHandler> Handler, std::string& OutError) -> bool;
+		auto Register(std::shared_ptr<ISingleAssetImportHandler> Handler,
+			FModuleOwnedCallbackGate OwnerGate, std::string& OutError) -> bool;
 		auto Unregister(std::string_view AssetClassName) -> bool;
 		auto Find(std::string_view AssetClassName) const -> std::shared_ptr<const ISingleAssetImportHandler>;
 		auto GetRevision() const -> uint64;

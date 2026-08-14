@@ -30,7 +30,7 @@ namespace Durin::Asset::Build
 
 		friend ASSETBUILDCORE_API auto RegisterLocalBuildFunction(
 			FBuildFunctionIdentity, FLocalBuildFunction,
-			std::shared_ptr<FBuildRequestOwner>, std::string*)
+			FModuleOwnedCallbackGate, std::shared_ptr<FBuildRequestOwner>, std::string*)
 			-> FBuildFunctionRegistration;
 	};
 
@@ -38,6 +38,7 @@ namespace Durin::Asset::Build
 	ASSETBUILDCORE_API auto RegisterLocalBuildFunction(
 		FBuildFunctionIdentity Identity,
 		FLocalBuildFunction Function,
+		FModuleOwnedCallbackGate OwnerGate,
 		std::shared_ptr<FBuildRequestOwner> Owner = {},
 		std::string* OutError = nullptr) -> FBuildFunctionRegistration;
 

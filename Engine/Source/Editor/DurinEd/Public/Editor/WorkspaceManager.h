@@ -2,6 +2,7 @@
 
 #include "DurinEdAPI.h"
 #include "Editor/Workspace.h"
+#include "Modules/ModularFeature.h"
 
 namespace Durin::Editor
 {
@@ -60,7 +61,15 @@ namespace Durin::Editor
 		FWorkspaceManager(const FWorkspaceManager&) = delete;
 		auto operator=(const FWorkspaceManager&) -> FWorkspaceManager& = delete;
 
-		DURINED_API auto RegisterBatch(FWorkspaceRegistrationBatch Batch) -> FWorkspaceRegistrationHandle;
+		DURINED_API auto RegisterBatch(
+			FWorkspaceRegistrationBatch Batch,
+			FModuleOwnedCallbackGate OwnerGate) -> FWorkspaceRegistrationHandle;
+		// Process-owned/test workspaces only; unloadable modules must pass an owner gate.
+		auto RegisterBatch(FWorkspaceRegistrationBatch Batch)
+			-> FWorkspaceRegistrationHandle
+		{
+			return RegisterBatch(std::move(Batch), {});
+		}
 		DURINED_API auto OpenDocument(FDocumentRequest Request) -> FDocumentId;
 		DURINED_API auto CompleteDeferredDocumentOpen(FDocumentId DocumentId, bool bSucceeded) -> bool;
 		DURINED_API auto OpenAsset(std::string ResourceId, std::string_view AssetClassName) -> bool;

@@ -174,11 +174,14 @@ namespace Durin::Asset::Build
 		auto Launch(const std::shared_ptr<FJob>& Job) -> void
 		{
 			const std::shared_ptr<FState> Self = shared_from_this();
+			FTaskLaunchOptions Options;
+			Options.CancellationToken = Config.OwnerCancellationToken;
+			Options.Scope = Config.OwnerTaskScope;
 			FTaskHandle Task = LaunchCancelableTask(
 				"Texture2D.Build",
 				[Self, Job](const FTaskCancellationToken& Token) {
 					Self->RunWorker(Job, Token);
-				});
+				}, Options);
 			if (!Task.IsValid())
 			{
 				FTexture2DQueuedBuildResult Result = MakeFailureResult(

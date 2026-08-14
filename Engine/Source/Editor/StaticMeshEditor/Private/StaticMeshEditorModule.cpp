@@ -15,8 +15,11 @@ namespace Durin
 
 	FStaticMeshEditorModule::~FStaticMeshEditorModule() = default;
 
-	auto FStaticMeshEditorModule::StartupModule(FModuleContext&) -> void
+	auto FStaticMeshEditorModule::StartupModule(FModuleContext& Context) -> void
 	{
+		EditorExtensionCallbacks =
+			Context.CreateOwnedCallbackRegistration("Editor.ExtensionRegistries");
+		require(EditorExtensionCallbacks.IsValid());
 	}
 
 	auto FStaticMeshEditorModule::ShutdownModule(FModuleShutdownContext&) -> void
@@ -55,14 +58,15 @@ namespace Durin
 					.bClosable = true,
 				},
 			},
-		});
+		}, EditorExtensionCallbacks.GetGate());
 		if (!Registration) return false;
 		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
 
 		std::string Error;
 		::Durin::Editor::FAssetThumbnailProviderRegistrationHandle ThumbnailHandle =
 			ThumbnailService.RegisterScoped(
-				std::make_unique<FStaticMeshAssetThumbnailProvider>(), Error);
+				std::make_unique<FStaticMeshAssetThumbnailProvider>(),
+				EditorExtensionCallbacks.GetGate(), Error);
 		if (!ThumbnailHandle)
 		{
 			WorkspaceRegistration.reset();

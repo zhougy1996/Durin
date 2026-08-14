@@ -30,8 +30,11 @@ namespace Durin
 
 	FRendererModule::~FRendererModule() = default;
 
-	auto FRendererModule::StartupModule(FModuleContext&) -> void
+	auto FRendererModule::StartupModule(FModuleContext& Context) -> void
 	{
+		ConsoleCallbacks =
+			Context.CreateOwnedCallbackRegistration("Core.ConsoleCommands");
+		require(ConsoleCallbacks.IsValid());
 		check(SceneRenderer == nullptr);
 		SceneRenderer = std::make_unique<FSceneRenderer>();
 		SetActiveRendererResourceCoordinator(
@@ -39,7 +42,8 @@ namespace Durin
 		SetActiveDefaultTextureResources(
 			&SceneRenderer->GetDefaultTextures());
 		const bool bCommandsRegistered =
-			SceneRenderer->Start(FConsoleCommandRegistry::Get());
+			SceneRenderer->Start(
+				FConsoleCommandRegistry::Get(), ConsoleCallbacks.GetGate());
 		checkf(
 			bCommandsRegistered,
 			"Failed to register renderer resource invalidation commands");

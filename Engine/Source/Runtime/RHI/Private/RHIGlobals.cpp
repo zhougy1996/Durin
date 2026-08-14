@@ -8,6 +8,7 @@ namespace Durin
 {
 	static std::unique_ptr<FRHIThread> RHIThreadOwner;
 	static std::string LastRHIInitializationDiagnostic;
+	static bool GOwnsBackendModule = false;
 
 	namespace
 	{
@@ -94,6 +95,7 @@ namespace Durin
 				const auto Result = FModuleManager::Get().UnloadModule("VulkanRHI");
 				if (!Result.Succeeded()) DURIN_ERROR(STR("Failed to unload VulkanRHI after initialization failure: {}"), Result.Message);
 			}
+			GOwnsBackendModule = false;
 		}
 
 		auto InitializeRHI(
@@ -123,6 +125,7 @@ namespace Durin
 			}
 
 			GDynamicRHI = Backend;
+			GOwnsBackendModule = bOwnsBackendModule;
 			if (bThreaded)
 			{
 				RHIThreadOwner = std::make_unique<FRHIThread>();
@@ -270,5 +273,12 @@ namespace Durin
 		}
 		delete GDynamicRHI;
 		GDynamicRHI = nullptr;
+		if (std::exchange(GOwnsBackendModule, false))
+		{
+			const auto Result = FModuleManager::Get().UnloadModule("VulkanRHI");
+			checkf(Result.Succeeded(),
+				"VulkanRHI must unload after its backend and RHI thread are destroyed: {}",
+				Result.Message);
+		}
 	}
 }

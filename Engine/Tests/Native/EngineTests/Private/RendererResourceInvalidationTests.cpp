@@ -51,8 +51,7 @@ namespace Durin
 
 		EXPECT_FALSE(
 			Registry.Execute("renderer.reload-shaders changed").bSuccess);
-		const std::array<std::string, 1> ChangedArgs{"changed"};
-		EXPECT_FALSE(CopiedReload.Execute(ChangedArgs).bSuccess);
+		EXPECT_FALSE(CopiedReload.Execute);
 		EXPECT_EQ(QueuedCauses.size(), Expected.size());
 	}
 

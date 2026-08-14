@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreAPI.h"
+#include "Modules/ModularFeature.h"
 
 namespace Durin
 {
@@ -14,7 +15,8 @@ namespace Durin
 		std::string* OutError = nullptr) -> bool;
 	CORE_API auto RegisterStartupCommandHandler(
 		std::string Name,
-		FStartupCommandHandler Handler) -> uint64;
+		FStartupCommandHandler Handler,
+		FModuleOwnedCallbackGate OwnerGate) -> uint64;
 	CORE_API auto UnregisterStartupCommandHandler(uint64 Handle) -> void;
 	CORE_API auto HasPendingStartupCommand() -> bool;
 	// Without bRequireHandler, a not-yet-loaded feature module leaves the command pending.

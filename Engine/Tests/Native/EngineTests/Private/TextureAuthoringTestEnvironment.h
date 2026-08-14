@@ -14,7 +14,8 @@ namespace Durin::Testing
 		auto SetUp() -> void override
 		{
 			InitializeDObjectSystem();
-			ASSERT_TRUE(Asset::Build::InitializeTextureBuildService());
+			ASSERT_TRUE(Asset::Build::InitializeTextureBuildService(
+				GetEngineTestModuleCallbackGate()));
 			ASSERT_TRUE(Asset::Build::InitializeBuildHost());
 		}
 

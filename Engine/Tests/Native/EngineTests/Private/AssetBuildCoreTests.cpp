@@ -4,12 +4,22 @@
 #include "AssetBuild/BuildHost.h"
 #include "AssetBuild/BuildRegistry.h"
 #include "Misc/Paths.h"
+#include "Modules/ModuleTestContext.h"
 #include "NativeTestSupport.h"
 
 namespace
 {
 	using namespace Durin;
 	using namespace Durin::Asset::Build;
+
+	auto GetBuildRegistryTestGate() -> FModuleOwnedCallbackGate
+	{
+		static auto Context = FModuleTestContextFactory::CreateStartupContext(
+			"AssetBuildCoreTests.Registry");
+		static auto Registration = Context.CreateOwnedCallbackRegistration(
+			"AssetBuildCoreTests.Registry");
+		return Registration.GetGate();
+	}
 
 	auto MakeDefinition(std::string Name = "Echo") -> FBuildDefinition
 	{
@@ -75,7 +85,7 @@ TEST(FAssetBuildCoreTests, RegistryRejectsDuplicatesAndRunsIndependentFunctions)
 				.Values = {FBuildValue::FromOwned(
 					"Output", std::vector<uint8>(Definition.Inputs[0].GetBytes().begin(),
 						Definition.Inputs[0].GetBytes().end()))}};
-		}, {}, &Error);
+		}, GetBuildRegistryTestGate(), {}, &Error);
 	ASSERT_TRUE(Echo.IsValid()) << Error;
 	auto Sum = RegisterLocalBuildFunction(
 		{"Durin.Tests", "Sum"},
@@ -83,12 +93,12 @@ TEST(FAssetBuildCoreTests, RegistryRejectsDuplicatesAndRunsIndependentFunctions)
 			return FBuildFunctionResult{
 				.bSucceeded = true,
 				.Values = {FBuildValue::FromOwned("Output", {6})}};
-		}, {}, &Error);
+		}, GetBuildRegistryTestGate(), {}, &Error);
 	ASSERT_TRUE(Sum.IsValid()) << Error;
 	auto Duplicate = RegisterLocalBuildFunction(
 		{"Durin.Tests", "Echo"}, [](const auto&, const auto&, const auto&) {
 			return FBuildFunctionResult{};
-		}, {}, &Error);
+		}, GetBuildRegistryTestGate(), {}, &Error);
 	EXPECT_FALSE(Duplicate.IsValid());
 	EXPECT_EQ(GetRegisteredLocalBuildFunctionCount(), 2u);
 
@@ -125,7 +135,7 @@ TEST(FAssetBuildCoreTests, RequestOwnersCancelAndBoundWaits)
 			return FBuildFunctionResult{
 				.bSucceeded = !RequestOwner.IsCanceled(),
 				.bCanceled = RequestOwner.IsCanceled()};
-		}, Owner, &Error);
+		}, GetBuildRegistryTestGate(), Owner, &Error);
 	ASSERT_TRUE(Registration.IsValid()) << Error;
 	FBuildFunctionResult Result;
 	std::thread Worker([&] {
@@ -175,6 +185,7 @@ TEST(FAssetBuildCoreTests, HostAcceptsMultipleServicesAndDrainsInDeclaredOrder)
 		return FBuildServiceContribution{
 			.Identity = std::move(Identity),
 			.DrainOrder = DrainOrder,
+			.OwnerGate = GetBuildRegistryTestGate(),
 			.Start = [&Events, Name = CallbackIdentity] { Events.push_back("start:" + Name); return true; },
 			.StopAdmission = [&Events, Name = CallbackIdentity] { Events.push_back("stop:" + Name); },
 			.PumpCompletions = [&Pumped](uint32 Maximum) { const uint32 Count = std::min(Maximum, 1u); Pumped += Count; return Count; },
@@ -217,6 +228,7 @@ TEST(FAssetBuildCoreTests, HostRollsBackPartialStartupAndAllowsRetry)
 	auto First = RegisterBuildServiceContribution({
 		.Identity = "Durin.Tests.RollbackA",
 		.DrainOrder = 1,
+		.OwnerGate = GetBuildRegistryTestGate(),
 		.Start = [&] { ++Starts; return true; },
 		.StopAdmission = [&] { ++Stops; },
 		.Wait = [](double) { return true; },
@@ -224,6 +236,7 @@ TEST(FAssetBuildCoreTests, HostRollsBackPartialStartupAndAllowsRetry)
 	auto Second = RegisterBuildServiceContribution({
 		.Identity = "Durin.Tests.RollbackB",
 		.DrainOrder = 2,
+		.OwnerGate = GetBuildRegistryTestGate(),
 		.Start = [&] { ++Starts; return bAllowSecond; }}, &Error);
 	ASSERT_TRUE(First.IsValid() && Second.IsValid()) << Error;
 	EXPECT_FALSE(InitializeBuildHost(&Error));
@@ -235,6 +248,40 @@ TEST(FAssetBuildCoreTests, HostRollsBackPartialStartupAndAllowsRetry)
 	ShutdownBuildHost();
 }
 
+TEST(FAssetBuildCoreTests, HostOwnerRetirementRejectsLaterCallbacksAndDestroysCaptures)
+{
+	ShutdownBuildHost();
+	auto Context = FModuleTestContextFactory::CreateStartupContext(
+		"AssetBuildCoreTests.HostRetirement");
+	auto OwnerRegistration = Context.CreateOwnedCallbackRegistration(
+		"AssetBuildCore.BuildHost");
+	auto Capture = std::make_shared<int>(7);
+	const std::weak_ptr<int> WeakCapture = Capture;
+	uint32 PumpCount = 0;
+	std::string Error;
+	auto Service = RegisterBuildServiceContribution({
+		.Identity = "Durin.Tests.Retirement",
+		.OwnerGate = OwnerRegistration.GetGate(),
+		.Start = [] { return true; },
+		.PumpCompletions = [Capture, &PumpCount](uint32) {
+			++PumpCount;
+			return static_cast<uint32>(*Capture);
+		}}, &Error);
+	Capture.reset();
+	ASSERT_TRUE(Service.IsValid()) << Error;
+	ASSERT_TRUE(InitializeBuildHost(&Error)) << Error;
+	EXPECT_EQ(PumpBuildHostCompletions(), 7u);
+	EXPECT_EQ(PumpCount, 1u);
+	const auto Retiring = OwnerRegistration.Retire();
+	EXPECT_EQ(0u, Retiring.InFlightInvocationCount);
+	EXPECT_EQ(PumpBuildHostCompletions(), 0u);
+	EXPECT_EQ(PumpCount, 1u);
+	Service.Reset();
+	EXPECT_TRUE(WeakCapture.expired());
+	EXPECT_TRUE(OwnerRegistration.Reset().Succeeded());
+	ShutdownBuildHost();
+}
+
 TEST(FAssetBuildCoreTests, FunctionCallbackMayReenterAndUnloadRegistration)
 {
 	std::string Error;
@@ -242,7 +289,7 @@ TEST(FAssetBuildCoreTests, FunctionCallbackMayReenterAndUnloadRegistration)
 		{"Durin.Tests", "Reentrant"},
 		[](const FBuildDefinition&, const FBuildPolicy&, const FBuildRequestOwner&) {
 			return FBuildFunctionResult{.bSucceeded = true};
-		}, {}, &Error);
+		}, GetBuildRegistryTestGate(), {}, &Error);
 	ASSERT_TRUE(Registration.IsValid()) << Error;
 	FBuildFunctionResult Result;
 	ASSERT_TRUE(ExecuteLocalBuildFunction(MakeDefinition("Reentrant"), {}, Result,
@@ -265,7 +312,7 @@ TEST(FAssetBuildCoreTests, UnloadingFunctionCancelsAndDrainsActiveRequest)
 			Entered = true;
 			while (!RequestOwner.IsCanceled()) std::this_thread::yield();
 			return FBuildFunctionResult{.bCanceled = true};
-		}, Owner, &WorkerError);
+		}, GetBuildRegistryTestGate(), Owner, &WorkerError);
 	ASSERT_TRUE(Registration.IsValid()) << WorkerError;
 	FBuildFunctionResult Result;
 	std::thread Worker([&] {
@@ -306,7 +353,7 @@ TEST(FAssetBuildCoreTests, AssetFamilyFreeLocalFunctionUsesPortableValuesOnly)
 			std::ranges::reverse(Bytes);
 			return FBuildFunctionResult{.bSucceeded = true,
 				.Values = {FBuildValue::FromOwned("Reversed", std::move(Bytes))}};
-		}, {}, &Error);
+		}, GetBuildRegistryTestGate(), {}, &Error);
 	ASSERT_TRUE(Registration.IsValid()) << Error;
 	FBuildDefinition Definition = MakeDefinition();
 	Definition.Function = {"Durin.Sample", "ReverseBytes"};

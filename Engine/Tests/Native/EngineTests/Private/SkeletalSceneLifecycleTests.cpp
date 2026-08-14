@@ -120,7 +120,8 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 		std::string Error;
 		ASSERT_TRUE(Durin::Tests::InstallStandardAssetAuthoringFeatures());
-		ASSERT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(Error)) << Error;
+		ASSERT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(
+			Error, GetEngineTestModuleCallbackGate())) << Error;
 		Durin::DMaterial* StandardMaterial =
 			Durin::Asset::Import::Standard::EnsureStandardImportedSurfaceMaterial(Error);
 		ASSERT_NE(StandardMaterial, nullptr) << Error;

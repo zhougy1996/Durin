@@ -63,7 +63,8 @@ namespace
 	{
 		InitializeDObjectSystem();
 		std::string Error;
-		EXPECT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(Error)) << Error;
+		EXPECT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(
+			Error, GetEngineTestModuleCallbackGate())) << Error;
 		const std::filesystem::path Root =
 			Durin::Testing::GetTestWorkDirectory() / "SceneImport" / std::string(Name);
 		Durin::Testing::RemoveTestWorkDirectory(Root);

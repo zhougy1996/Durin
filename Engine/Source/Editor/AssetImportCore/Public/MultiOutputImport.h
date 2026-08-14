@@ -230,7 +230,7 @@ namespace Durin::Asset::Import
 			-> FImportRecordHandlerRegistry& = delete;
 
 		auto Register(std::shared_ptr<IImportRecordHandler> Handler,
-			std::string& OutError) -> bool;
+			FModuleOwnedCallbackGate OwnerGate, std::string& OutError) -> bool;
 		auto Unregister(std::string_view ProviderId) -> bool;
 		auto Find(std::string_view ProviderId) const
 			-> std::shared_ptr<const IImportRecordHandler>;

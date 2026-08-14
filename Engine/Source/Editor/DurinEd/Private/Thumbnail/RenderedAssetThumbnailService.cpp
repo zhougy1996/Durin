@@ -11,9 +11,11 @@ namespace Durin::Editor
 
 	auto FRenderedAssetThumbnailService::RegisterScoped(
 		std::unique_ptr<IAssetThumbnailProvider> Provider,
+		FModuleOwnedCallbackGate OwnerGate,
 		std::string& OutError) -> FAssetThumbnailProviderRegistrationHandle
 	{
-		return Registry.RegisterScoped(std::move(Provider), OutError);
+		return Registry.RegisterScoped(
+			std::move(Provider), std::move(OwnerGate), OutError);
 	}
 
 	auto FRenderedAssetThumbnailService::Find(std::string_view AssetClassName) const

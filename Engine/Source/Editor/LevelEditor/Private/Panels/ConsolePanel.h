@@ -14,7 +14,7 @@ namespace Durin::Editor::Level
 	class FConsolePanel final : public ILevelEditorPanel
 	{
 	public:
-		FConsolePanel();
+		explicit FConsolePanel(FModuleOwnedCallbackGate OwnerGate = {});
 		~FConsolePanel() override;
 
 		auto GetWindowName() const -> const char* override { return "Console"; }

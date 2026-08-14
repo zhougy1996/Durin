@@ -22,6 +22,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "StandardAssetImportProviders.h"
+#include "StandardAssetAuthoringTestSupport.h"
 #include "StaticMeshSourceTranslation.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
@@ -74,8 +75,10 @@ namespace Durin
 		OrdinaryV4GraphRendersReloadsAndResavesDeterministically)
 	{
 		InitializeDObjectSystem();
+		ASSERT_TRUE(Tests::InstallStandardAssetAuthoringFeatures());
 		std::string ProviderError;
-		ASSERT_TRUE(Asset::Import::Standard::RegisterStandardAssetImportProviders(ProviderError))
+		ASSERT_TRUE(Asset::Import::Standard::RegisterStandardAssetImportProviders(
+			ProviderError, GetEngineTestModuleCallbackGate()))
 			<< ProviderError;
 		InitRenderingThread();
 		const std::filesystem::path Root =
@@ -258,9 +261,12 @@ namespace Durin
 		MaterialSnapshotSurvivesTextureReplacementProxyClosureAndAssetUnload)
 	{
 		InitializeDObjectSystem();
+		ASSERT_TRUE(Tests::InstallStandardAssetAuthoringFeatures());
 		std::string ProviderError;
-		ASSERT_TRUE(Asset::Import::Standard::RegisterStandardAssetImportProviders(ProviderError)) << ProviderError;
-		ASSERT_TRUE(Asset::Import::Standard::RegisterStandardAssetImportProviders(ProviderError)) << ProviderError;
+		ASSERT_TRUE(Asset::Import::Standard::RegisterStandardAssetImportProviders(
+			ProviderError, GetEngineTestModuleCallbackGate())) << ProviderError;
+		ASSERT_TRUE(Asset::Import::Standard::RegisterStandardAssetImportProviders(
+			ProviderError, GetEngineTestModuleCallbackGate())) << ProviderError;
 		EXPECT_TRUE(ProviderError.empty());
 		InitRenderingThread();
 		const std::filesystem::path Root = Testing::GetTestWorkDirectory() / "EditorTextureSmoke";

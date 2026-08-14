@@ -300,7 +300,8 @@ namespace Durin
 				"Owned asynchronous operations failed the final callable and result audit.", Retirement.Snapshot, AsyncAudit);
 		}
 		const auto Audit = FModularFeatureRegistry::Get().SnapshotOwner(ModuleInfo->FeatureOwner);
-		if (Audit.PublishedCount != 0 || Audit.InFlightInvocationCount != 0)
+		if (Audit.PublishedCount != 0 || Audit.InFlightInvocationCount != 0
+			|| Audit.RetainedResourceCount != 0)
 		{
 			return MakeShutdownFailure(ModuleInfo, EModuleOperationStatus::OutstandingFeatureAudit,
 				"Owned feature registrations failed the final synchronous retirement audit.", Audit);
@@ -379,7 +380,8 @@ namespace Durin
 		PreShutdownModuleCallback = std::move(Callback);
 	}
 
-	auto FModuleManager::UnloadModulesAtShutdown() -> void
+	auto FModuleManager::UnloadModulesAtShutdown(
+		std::span<const FName> DeferredModules) -> void
 	{
 		std::vector<FModuleInfoPtr> ModulesToStop;
 		{
@@ -392,6 +394,8 @@ namespace Durin
 		});
 		for (const auto& ModuleInfo : ModulesToStop)
 		{
+			if (std::ranges::find(DeferredModules, ModuleInfo->ModuleName)
+				!= DeferredModules.end()) continue;
 			if (ModuleInfo->State.load() != EModuleState::Active) continue;
 			const auto Result = ShutdownModule(ModuleInfo->ModuleName);
 			if (!Result.Succeeded())

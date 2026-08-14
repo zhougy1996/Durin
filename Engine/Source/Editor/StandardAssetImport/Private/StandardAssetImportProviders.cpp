@@ -1350,7 +1350,8 @@ namespace Durin::Asset::Import::Standard
 		return PostLoadTextureCubeFeature(Texture, OutError);
 	}
 
-	auto RegisterStandardAssetImportProviders(std::string& OutError) -> bool
+	auto RegisterStandardAssetImportProviders(
+		std::string& OutError, FModuleOwnedCallbackGate OwnerGate) -> bool
 	{
 		std::lock_guard Lock(GRegistrationMutex);
 		if (GRegistered) { OutError.clear(); return true; }
@@ -1370,12 +1371,13 @@ namespace Durin::Asset::Import::Standard
 			Providers.Unregister("Assimp");
 			Providers.Unregister(SceneImportProviderId);
 		};
-		if (!Providers.Register(CreateSceneImportProvider(), OutError))
+		if (!Providers.Register(CreateSceneImportProvider(), OwnerGate, OutError))
 		{
 			RollbackFrameworkRegistrations();
 			return false;
 		}
-		if (!RecordHandlers.Register(std::make_shared<FSceneRecordHandler>(), OutError))
+		if (!RecordHandlers.Register(
+			std::make_shared<FSceneRecordHandler>(), OwnerGate, OutError))
 		{
 			RollbackFrameworkRegistrations();
 			return false;
@@ -1383,13 +1385,14 @@ namespace Durin::Asset::Import::Standard
 		if (!Providers.Register(std::make_shared<FIdentityProvider>("Assimp", 3,
 			std::vector<std::string>{
 				".obj", ".fbx", ".gltf", ".glb", ".dae", ".3ds", ".ply", ".stl"}),
-			OutError))
+			OwnerGate, OutError))
 		{
 			RollbackFrameworkRegistrations();
 			return false;
 		}
 		if (!Providers.Register(std::make_shared<FIdentityProvider>("DurinImage", 1,
-			std::vector<std::string>{".png", ".jpg", ".jpeg", ".bmp", ".tga", ".hdr"}), OutError))
+			std::vector<std::string>{".png", ".jpg", ".jpeg", ".bmp", ".tga", ".hdr"}),
+			OwnerGate, OutError))
 		{
 			RollbackFrameworkRegistrations();
 			return false;
@@ -1401,7 +1404,7 @@ namespace Durin::Asset::Import::Standard
 			std::make_shared<FTerrainHeightmapHandler>()};
 		for (const auto& Handler : Builtins)
 		{
-			if (Handlers.Register(Handler, OutError)) continue;
+			if (Handlers.Register(Handler, OwnerGate, OutError)) continue;
 			RollbackFrameworkRegistrations();
 			return false;
 		}
@@ -1442,10 +1445,6 @@ namespace Durin::Asset::Import::Standard
 		Providers.Unregister("DurinImage");
 		Providers.Unregister("Assimp");
 		Providers.Unregister(SceneImportProviderId);
-		checkf(Providers.GetOutstandingLeaseCount("DurinImage") == 0
-			&& Providers.GetOutstandingLeaseCount("Assimp") == 0
-			&& Providers.GetOutstandingLeaseCount(SceneImportProviderId) == 0,
-			"StandardAssetImport cannot unload while import plans, candidates, or results retain provider leases.");
 		GRegistered = false;
 	}
 }

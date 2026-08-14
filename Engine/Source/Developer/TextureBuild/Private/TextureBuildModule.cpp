@@ -6,11 +6,23 @@ namespace Durin
 	class FTextureBuildModule final : public IModuleInterface
 	{
 	public:
-		auto StartupModule(FModuleContext&) -> void override
+		auto StartupModule(FModuleContext& Context) -> void override
 		{
-			checkf(Asset::Build::InitializeTextureBuildService(),
+			BuildHostCallbackRegistration =
+				Context.CreateOwnedCallbackRegistration("AssetBuildCore.BuildHost");
+			BuildOperations = Context.CreateAsyncOperationGroup("TextureBuild.Operations");
+			require(BuildOperations.IsValid());
+			Asset::Build::FTexture2DBuildCoordinatorConfig Config;
+			Config.OwnerCancellationToken = BuildOperations.GetCancellationToken();
+			Config.OwnerTaskScope = BuildOperations.GetTaskScope();
+			checkf(Asset::Build::InitializeTextureBuildService(
+				BuildHostCallbackRegistration.GetGate(), Config),
 				"TextureBuild could not register its authoring service.");
 		}
+
+	private:
+		FModuleOwnedCallbackRegistration BuildHostCallbackRegistration;
+		FAsyncOperationGroup BuildOperations;
 
 		auto ShutdownModule(FModuleShutdownContext&) -> void override
 		{

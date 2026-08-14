@@ -16,6 +16,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 #include "StandardAssetImportProviders.h"
+#include "StandardAssetAuthoringFeatures.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
 #include "Thumbnail/StaticMeshAssetThumbnail.h"
 #include "Thumbnail/TextureCubeAssetThumbnail.h"
@@ -304,7 +305,20 @@ namespace Durin::Tests
 	) -> bool
 	{
 		InitializeDObjectSystem();
-		if (!Asset::Import::Standard::RegisterStandardAssetImportProviders(OutError)) return false;
+		static auto AuthoringContext = FModuleTestContextFactory::CreateStartupContext(
+			"RenderedAssetThumbnailFixtures.Authoring");
+		static Asset::Import::Standard::FStandardAssetAuthoringFeatures AuthoringFeatures;
+		static auto StaticMeshAuthoring =
+			AuthoringContext.RegisterFeature<IStaticMeshAuthoringFeature>(AuthoringFeatures);
+		static auto Texture2DAuthoring =
+			AuthoringContext.RegisterFeature<ITexture2DAuthoringFeature>(AuthoringFeatures);
+		static auto TextureCubeAuthoring =
+			AuthoringContext.RegisterFeature<ITextureCubeAuthoringFeature>(AuthoringFeatures);
+		(void)StaticMeshAuthoring;
+		(void)Texture2DAuthoring;
+		(void)TextureCubeAuthoring;
+		if (!Asset::Import::Standard::RegisterStandardAssetImportProviders(
+			OutError, GetEngineTestModuleCallbackGate())) return false;
 		const std::filesystem::path Root = GetRenderedAssetThumbnailFixtureRoot();
 		static std::unordered_map<std::filesystem::path, FRenderedAssetThumbnailFixtureSet> CachedFixtures;
 		if (auto It = CachedFixtures.find(Root); It != CachedFixtures.end())

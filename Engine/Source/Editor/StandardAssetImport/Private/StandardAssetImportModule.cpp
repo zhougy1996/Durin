@@ -8,8 +8,11 @@ namespace Durin
 	class FStandardAssetImportModule final : public IModuleInterface
 	{
 	public:
-		auto StartupModule(FModuleContext& Context) -> void override
+			auto StartupModule(FModuleContext& Context) -> void override
 		{
+			ImportRegistryCallbackRegistration =
+				Context.CreateOwnedCallbackRegistration("AssetImportCore.Registries");
+			require(ImportRegistryCallbackRegistration.IsValid());
 			StaticMeshRegistration = Context.RegisterFeature<IStaticMeshAuthoringFeature>(AuthoringFeatures);
 			Texture2DRegistration = Context.RegisterFeature<ITexture2DAuthoringFeature>(AuthoringFeatures);
 			TextureCubeRegistration = Context.RegisterFeature<ITextureCubeAuthoringFeature>(AuthoringFeatures);
@@ -22,7 +25,8 @@ namespace Durin
 			TerrainRegistration = Context.RegisterFeature<ITerrainHeightmapAuthoringFeature>(*TerrainFeatures);
 			require(TerrainRegistration.IsValid());
 			std::string Error;
-			requiref(Asset::Import::Standard::RegisterStandardAssetImportProviders(Error), "{}", Error);
+			requiref(Asset::Import::Standard::RegisterStandardAssetImportProviders(
+				Error, ImportRegistryCallbackRegistration.GetGate()), "{}", Error);
 		}
 
 		auto ShutdownModule(FModuleShutdownContext&) -> void override
@@ -38,6 +42,7 @@ namespace Durin
 		FModularFeatureRegistration TextureCubeRegistration;
 		std::unique_ptr<Asset::Import::Standard::FStandardTerrainAuthoringFeature> TerrainFeatures;
 		FModularFeatureRegistration TerrainRegistration;
+		FModuleOwnedCallbackRegistration ImportRegistryCallbackRegistration;
 	};
 
 	IMPLEMENT_MODULE(FStandardAssetImportModule, StandardAssetImport)

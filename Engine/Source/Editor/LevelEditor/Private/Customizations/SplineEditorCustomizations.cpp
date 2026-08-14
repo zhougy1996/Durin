@@ -679,12 +679,13 @@ namespace Durin::Editor::Level
 	auto CreateSplineComponentVisualizer() -> std::shared_ptr<IComponentEditorVisualizer> { return std::make_shared<FSplineComponentVisualizer>(); }
 	auto CreateSplineDetailsCustomization() -> std::shared_ptr<IObjectDetailsCustomization> { return std::make_shared<FSplineDetailsCustomization>(); }
 	auto CreateSplineMeshActorDetailsCustomization() -> std::shared_ptr<IObjectDetailsCustomization> { return std::make_shared<FSplineMeshActorDetailsCustomization>(); }
-	auto RegisterSplineViewportEditMode() -> FLevelViewportEditModeHandle
+	auto RegisterSplineViewportEditMode(
+		FModuleOwnedCallbackGate OwnerGate) -> FLevelViewportEditModeHandle
 	{
 		return FLevelViewportEditModeRegistry::Get().Register({
 			.Id = "Spline", .DisplayName = "Spline", .Priority = 100,
 			.CanActivate = [](const FLevelEditorContext& Context) { return !Context.bReadOnly && Cast<DSplineComponent>(Context.GetSelectedComponent()) != nullptr; },
 			.Factory = [] { return std::make_unique<FSplineViewportEditMode>(); },
-		});
+		}, std::move(OwnerGate));
 	}
 } // namespace Durin::Editor::Level

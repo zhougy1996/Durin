@@ -13,12 +13,22 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "MultiOutputImport.h"
+#include "Modules/ModuleTestContext.h"
 #include "NativeTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "Threading/RunnableThread.h"
 
 namespace
 {
+	auto GetImportRecordRegistryTestGate() -> Durin::FModuleOwnedCallbackGate
+	{
+		static auto Context = Durin::FModuleTestContextFactory::CreateStartupContext(
+			"ImportRecordTests.Registry");
+		static auto Registration = Context.CreateOwnedCallbackRegistration(
+			"ImportRecordTests.Registry");
+		return Registration.GetGate();
+	}
+
 	auto RelocateAssetForTest(
 		const Durin::FAssetPath& Source,
 		const Durin::FAssetPath& Destination
@@ -381,6 +391,7 @@ namespace
 		std::string Error;
 		ASSERT_TRUE(Durin::Asset::Import::GetProviderRegistry().Register(
 			std::make_shared<FRecordProvider>(Scenario.ProviderId, Scenario.OutputRoot),
+			GetImportRecordRegistryTestGate(),
 			Error
 		)) << Error;
 		const auto Generic = Durin::Asset::Import::CreateImportPlan(

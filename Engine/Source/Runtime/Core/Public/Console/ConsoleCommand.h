@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreAPI.h"
+#include "Modules/ModularFeature.h"
 
 namespace Durin
 {
@@ -32,15 +33,24 @@ namespace Durin
 		CORE_API FConsoleCommandRegistry();
 
 		CORE_API static auto Get() -> FConsoleCommandRegistry&;
-		CORE_API auto RegisterCommand(FConsoleCommandDesc Desc) -> FConsoleCommandHandle;
+		CORE_API auto RegisterCommand(
+			FConsoleCommandDesc Desc,
+			FModuleOwnedCallbackGate OwnerGate = {}) -> FConsoleCommandHandle;
 		CORE_API auto UnregisterCommand(FConsoleCommandHandle Handle) -> void;
 		CORE_API auto Execute(std::string_view CommandLine) const -> FConsoleCommandResult;
 		CORE_API auto FindCompletions(std::string_view Prefix) const -> std::vector<std::string>;
 		CORE_API auto GetCommands() const -> std::vector<FConsoleCommandDesc>;
 
 	private:
+		struct FEntry
+		{
+			FConsoleCommandHandle Handle = 0;
+			FModuleOwnedResourceLease OwnerResource;
+			FConsoleCommandDesc Desc;
+			FModuleOwnedCallbackGate OwnerGate;
+		};
 		mutable std::mutex Mutex;
-		std::unordered_map<std::string, std::pair<FConsoleCommandHandle, FConsoleCommandDesc>> Commands;
+		std::unordered_map<std::string, FEntry> Commands;
 		std::atomic<FConsoleCommandHandle> NextHandle = 1;
 	};
 } // namespace Durin

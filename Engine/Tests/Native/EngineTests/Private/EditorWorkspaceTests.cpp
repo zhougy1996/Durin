@@ -6,6 +6,7 @@
 #include "Texture/Texture.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
+#include "Modules/ModuleTestContext.h"
 
 #include <gtest/gtest.h>
 
@@ -114,6 +115,29 @@ TEST(FEditorWorkspaceManagerTests, CommitsWorkspaceAndAssetEditorsAsOneBatch)
 	EXPECT_TRUE(Manager.OpenAsset("/Game/Materials/M_Stone", "Material"));
 	ASSERT_EQ(Manager.GetDocuments().size(), 1);
 	EXPECT_EQ(Manager.GetDocuments().front().Label, "M_Stone");
+}
+
+TEST(FEditorWorkspaceManagerTests, OwnerRetirementRejectsEscapedWorkspaceCallsAndAuditsLease)
+{
+	auto Context = Durin::FModuleTestContextFactory::CreateStartupContext(
+		"EditorWorkspaceTests.Owner");
+	auto Owner = Context.CreateOwnedCallbackRegistration("Editor.Workspaces");
+	Durin::Editor::FWorkspaceManager Manager;
+	auto Workspace = std::make_shared<FTestWorkspace>("OwnedEditor");
+	auto Registration = Manager.RegisterBatch({
+		.Workspaces = {MakeWorkspaceRegistration(Workspace)}}, Owner.GetGate());
+	ASSERT_TRUE(Registration);
+	auto Escaped = Manager.FindWorkspace(
+		Durin::Editor::FWorkspaceTypeId("OwnedEditor"));
+	ASSERT_TRUE(Escaped);
+
+	const auto Snapshot = Owner.Retire();
+	EXPECT_EQ(Snapshot.RetainedResourceCount, 1u);
+	EXPECT_EQ(Escaped->OpenDocument({}),
+		Durin::Editor::EDocumentOpenResult::Rejected);
+	Registration.Reset();
+	Escaped.reset();
+	EXPECT_TRUE(Owner.Reset(std::chrono::milliseconds(0)).Succeeded());
 }
 
 TEST(FEditorWorkspaceManagerTests, RejectsDuplicatesBeforeApplyingAnyBatchEntry)

@@ -192,10 +192,17 @@ namespace Durin::Asset
 			return Relocators;
 		}
 
-		auto GetMoveObservers()
-			-> std::map<FAssetMoveObserverHandle, IAssetMoveObserver*>&
+		struct FRegisteredAssetMoveObserver
 		{
-			static std::map<FAssetMoveObserverHandle, IAssetMoveObserver*> Observers;
+			FModuleOwnedResourceLease OwnerResource;
+			IAssetMoveObserver* Observer = nullptr;
+			FModuleOwnedCallbackGate OwnerGate;
+		};
+
+		auto GetMoveObservers()
+			-> std::map<FAssetMoveObserverHandle, FRegisteredAssetMoveObserver>&
+		{
+			static std::map<FAssetMoveObserverHandle, FRegisteredAssetMoveObserver> Observers;
 			return Observers;
 		}
 
@@ -207,7 +214,13 @@ namespace Durin::Asset
 
 		struct FAssetReferenceStoreRegistry
 		{
-			std::map<FAssetReferenceStoreHandle, IAssetReferenceStore*> Stores;
+			struct FEntry
+			{
+				FModuleOwnedResourceLease OwnerResource;
+				IAssetReferenceStore* Store = nullptr;
+				FModuleOwnedCallbackGate OwnerGate;
+			};
+			std::map<FAssetReferenceStoreHandle, FEntry> Stores;
 			FAssetReferenceStoreHandle NextHandle = 1;
 			uint64 Revision = 1;
 		};
@@ -2747,13 +2760,21 @@ namespace Durin::Asset
 				Class, std::move(Relocator));
 	}
 
-	auto RegisterAssetMoveObserver(IAssetMoveObserver* Observer)
+	auto RegisterAssetMoveObserver(
+		IAssetMoveObserver* Observer,
+		FModuleOwnedCallbackGate OwnerGate)
 		-> FAssetMoveObserverHandle
 	{
+		auto Call = OwnerGate.TryEnter();
+		if (OwnerGate.IsValid() && !Call) return 0;
 		if (!Observer) return 0;
 		auto& NextHandle = NextMoveObserverHandle();
 		const FAssetMoveObserverHandle Handle = NextHandle++;
-		GetMoveObservers().emplace(Handle, Observer);
+		FModuleOwnedResourceLease Resource = OwnerGate.RetainResource();
+		if (OwnerGate.IsValid() && !Resource) return 0;
+		GetMoveObservers().emplace(Handle,
+			FRegisteredAssetMoveObserver{
+				std::move(Resource), Observer, std::move(OwnerGate)});
 		return Handle;
 	}
 
@@ -2762,13 +2783,21 @@ namespace Durin::Asset
 		if (Handle != 0) GetMoveObservers().erase(Handle);
 	}
 
-	auto RegisterAssetReferenceStore(IAssetReferenceStore* Store)
+	auto RegisterAssetReferenceStore(
+		IAssetReferenceStore* Store,
+		FModuleOwnedCallbackGate OwnerGate)
 		-> FAssetReferenceStoreHandle
 	{
+		auto Call = OwnerGate.TryEnter();
+		if (OwnerGate.IsValid() && !Call) return 0;
 		if (!Store) return 0;
 		auto& Registry = GetAssetReferenceStoreRegistry();
 		const FAssetReferenceStoreHandle Handle = Registry.NextHandle++;
-		Registry.Stores.emplace(Handle, Store);
+		FModuleOwnedResourceLease Resource = OwnerGate.RetainResource();
+		if (OwnerGate.IsValid() && !Resource) return 0;
+		Registry.Stores.emplace(Handle,
+			FAssetReferenceStoreRegistry::FEntry{
+				std::move(Resource), Store, std::move(OwnerGate)});
 		++Registry.Revision;
 		return Handle;
 	}
@@ -3350,10 +3379,13 @@ namespace Durin::Asset
 		Pending.reserve(Roots.size());
 		for (const FAssetPath& Root : Roots)
 			Pending.push_back({Root, {}, "explicit Cook root"});
-		for (const auto& [Handle, Store] : GetAssetReferenceStoreRegistry().Stores)
+		for (const auto& [Handle, Entry] : GetAssetReferenceStoreRegistry().Stores)
 		{
 			(void)Handle;
+			IAssetReferenceStore* Store = Entry.Store;
 			if (!Store) continue;
+			auto Call = Entry.OwnerGate.TryEnter();
+			if (Entry.OwnerGate.IsValid() && !Call) continue;
 			FAssetReferenceStoreSnapshot Snapshot;
 			FAssetResult StoreResult = Store->CaptureSnapshot(Snapshot);
 			if (!StoreResult)
@@ -4742,10 +4774,12 @@ namespace Durin::Asset
 		State.ExpectedAssets = Registry.Assets;
 		State.Journal.State = EAssetMutationState::Committed;
 		WriteMutationJournalState(State.Journal);
-		for (const auto& [Handle, Observer] : GetMoveObservers())
+		for (const auto& [Handle, Entry] : GetMoveObservers())
 		{
 			(void)Handle;
-			if (Observer) Observer->OnAssetsRelocated(State.Mappings);
+			auto Call = Entry.OwnerGate.TryEnter();
+			if (Entry.Observer && (!Entry.OwnerGate.IsValid() || Call))
+				Entry.Observer->OnAssetsRelocated(State.Mappings);
 		}
 		return {};
 	}
@@ -4888,10 +4922,12 @@ namespace Durin::Asset
 			Inverse.push_back({
 				.SourcePath = Mapping.DestinationPath,
 				.DestinationPath = Mapping.SourcePath});
-		for (const auto& [Handle, Observer] : GetMoveObservers())
+		for (const auto& [Handle, Entry] : GetMoveObservers())
 		{
 			(void)Handle;
-			if (Observer) Observer->OnAssetsRelocated(Inverse);
+			auto Call = Entry.OwnerGate.TryEnter();
+			if (Entry.Observer && (!Entry.OwnerGate.IsValid() || Call))
+				Entry.Observer->OnAssetsRelocated(Inverse);
 		}
 		return {};
 	}
@@ -4914,6 +4950,8 @@ namespace Durin::Asset
 
 		struct FFixupStoreState
 		{
+			FModuleOwnedResourceLease OwnerResource;
+			FModuleOwnedCallbackGate OwnerGate;
 			FAssetReferenceStoreHandle Handle = 0;
 			IAssetReferenceStore* Store = nullptr;
 			FAssetReferenceStoreSnapshot Snapshot;
@@ -5256,12 +5294,25 @@ namespace Durin::Asset
 
 		auto& StoreRegistry = GetAssetReferenceStoreRegistry();
 		State->ExpectedStoreRevision = StoreRegistry.Revision;
-		for (const auto& [Handle, Store] : StoreRegistry.Stores)
+		for (const auto& [Handle, Entry] : StoreRegistry.Stores)
 		{
+			IAssetReferenceStore* Store = Entry.Store;
 			if (!Store)
 				return Error(EAssetError::StaleData,
 					"A registered asset reference store is unavailable.");
-			FFixupStoreState StoreState{.Handle = Handle, .Store = Store};
+			auto Call = Entry.OwnerGate.TryEnter();
+			if (Entry.OwnerGate.IsValid() && !Call)
+				return Error(EAssetError::StaleData,
+					"An asset reference store owner is retiring.");
+			FModuleOwnedResourceLease Resource = Entry.OwnerGate.RetainResource();
+			if (Entry.OwnerGate.IsValid() && !Resource)
+				return Error(EAssetError::StaleData,
+					"An asset reference store owner is retiring.");
+			FFixupStoreState StoreState{
+				.OwnerResource = std::move(Resource),
+				.OwnerGate = Entry.OwnerGate,
+				.Handle = Handle,
+				.Store = Store};
 			FAssetResult Result = Store->CaptureSnapshot(StoreState.Snapshot);
 			if (!Result) return Result;
 			if (StoreState.Snapshot.ProviderId.empty()
@@ -5433,9 +5484,14 @@ namespace Durin::Asset
 		for (const FFixupStoreState& StoreState : State.Stores)
 		{
 			const auto Current = Stores.Stores.find(StoreState.Handle);
-			if (Current == Stores.Stores.end() || Current->second != StoreState.Store)
+			if (Current == Stores.Stores.end()
+				|| Current->second.Store != StoreState.Store)
 				return Error(EAssetError::StaleData,
 					"An asset reference store became unavailable.");
+			auto Call = StoreState.OwnerGate.TryEnter();
+			if (StoreState.OwnerGate.IsValid() && !Call)
+				return Error(EAssetError::StaleData,
+					"An asset reference store owner is retiring.");
 			FAssetReferenceStoreSnapshot Snapshot;
 			FAssetResult Result = StoreState.Store->CaptureSnapshot(Snapshot);
 			if (!Result) return Result;
@@ -5547,6 +5603,9 @@ namespace Durin::Asset
 			for (auto It = State.Stores.rbegin(); It != State.Stores.rend(); ++It)
 			{
 				if (!It->bApplied) continue;
+				auto Call = It->OwnerGate.TryEnter();
+				if (It->OwnerGate.IsValid() && !Call)
+					return EnterRecovery("reference-store owner retired before compensation.");
 				if (ConsumeFixupFailure(
 						EAssetRedirectorFixupFailurePoint::CompensateStore))
 					return EnterRecovery("reference-store compensation was interrupted.");
@@ -5588,6 +5647,10 @@ namespace Durin::Asset
 		for (FFixupStoreState& Store : State.Stores)
 		{
 			if (Store.Contribution.Rewrites.empty()) continue;
+			auto Call = Store.OwnerGate.TryEnter();
+			if (Store.OwnerGate.IsValid() && !Call)
+				return Compensate(Error(EAssetError::StaleData,
+					"An asset reference store owner is retiring."));
 			if (ConsumeFixupFailure(EAssetRedirectorFixupFailurePoint::ApplyStore))
 				return Compensate(Error(EAssetError::IoError,
 					"Injected Fix Up store-publication failure."));
@@ -5631,6 +5694,10 @@ namespace Durin::Asset
 					Edge.SourcePackage.ToString(), Edge.DisplayRoute)));
 		for (FFixupStoreState& Store : State.Stores)
 		{
+			auto Call = Store.OwnerGate.TryEnter();
+			if (Store.OwnerGate.IsValid() && !Call)
+				return Compensate(Error(EAssetError::StaleData,
+					"An asset reference store owner is retiring."));
 			if (Store.Contribution.Verify)
 			{
 				Result = Store.Contribution.Verify();
@@ -5943,12 +6010,14 @@ namespace Durin::Asset
 		auto& StoreRegistry = GetAssetReferenceStoreRegistry();
 		if (!SortedPaths.empty())
 		{
-			for (const auto& [Handle, Store] : StoreRegistry.Stores)
+			for (const auto& [Handle, Entry] : StoreRegistry.Stores)
 			{
 				(void)Handle;
 				FAssetReferenceStoreSnapshot Snapshot;
-				const FAssetResult SnapshotResult = Store
-					? Store->CaptureSnapshot(Snapshot)
+				auto Call = Entry.OwnerGate.TryEnter();
+				const bool bAdmitted = !Entry.OwnerGate.IsValid() || Call;
+				const FAssetResult SnapshotResult = Entry.Store && bAdmitted
+					? Entry.Store->CaptureSnapshot(Snapshot)
 					: Error(EAssetError::StaleData,
 						"A registered asset reference store is unavailable.");
 				if (!SnapshotResult)

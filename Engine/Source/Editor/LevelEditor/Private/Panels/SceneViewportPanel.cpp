@@ -62,8 +62,9 @@ namespace Durin::Editor::Level
 	} // namespace
 
 
-	FSceneViewportPanel::FSceneViewportPanel()
-		: PreferredPlayStartLocation(::Durin::Editor::EPlayStartLocation::LevelStart)
+	FSceneViewportPanel::FSceneViewportPanel(FModuleOwnedCallbackGate InOwnerGate)
+		: OwnerGate(std::move(InOwnerGate))
+		, PreferredPlayStartLocation(::Durin::Editor::EPlayStartLocation::LevelStart)
 		, PreferredPlayDestination(::Durin::Editor::EPlayDestination::EmbeddedViewport)
 	{
 		ViewportClient = std::make_unique<FLevelEditorViewportClient>();
@@ -97,7 +98,8 @@ namespace Durin::Editor::Level
 	auto FSceneViewportPanel::RegisterCameraConsoleCommands() -> void
 	{
 		auto RegisterCommand = [this](FConsoleCommandDesc Desc) {
-			if (const FConsoleCommandHandle Handle = FConsoleCommandRegistry::Get().RegisterCommand(std::move(Desc)))
+			if (const FConsoleCommandHandle Handle = FConsoleCommandRegistry::Get().RegisterCommand(
+				std::move(Desc), OwnerGate))
 				CameraConsoleCommandHandles.push_back(Handle);
 		};
 		RegisterCommand({"viewport.camera.speed", "Gets or sets the editor viewport fly speed.", "viewport.camera.speed [unitsPerSecond]", [this](std::span<const std::string> Args) {

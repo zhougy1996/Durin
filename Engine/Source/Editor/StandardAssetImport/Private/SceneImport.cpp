@@ -1418,10 +1418,9 @@ namespace Durin::Asset::Import::Standard
 				"Scene import requires a mounted root source and destination directory.";
 			return Invalid;
 		}
-		std::string Error;
-		if (!RegisterStandardAssetImportProviders(Error))
+		if (!GetProviderRegistry().Find(SceneImportProviderId))
 		{
-			Invalid.Message = std::move(Error);
+			Invalid.Message = "The StandardAssetImport Scene provider is unavailable.";
 			return Invalid;
 		}
 		FImportPayload Settings;
@@ -1461,10 +1460,9 @@ namespace Durin::Asset::Import::Standard
 			Handle.ImmediateResult = std::move(Invalid);
 			return Handle;
 		}
-		std::string Error;
-		if (!RegisterStandardAssetImportProviders(Error))
+		if (!GetProviderRegistry().Find(SceneImportProviderId))
 		{
-			Invalid.Message = std::move(Error);
+			Invalid.Message = "The StandardAssetImport Scene provider is unavailable.";
 			Handle.ImmediateResult = std::move(Invalid);
 			return Handle;
 		}

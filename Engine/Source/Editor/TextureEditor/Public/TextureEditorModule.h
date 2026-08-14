@@ -26,6 +26,7 @@ namespace Durin
 		TEXTUREEDITOR_API auto UnregisterTextureEditor() -> void;
 
 	private:
+		FModuleOwnedCallbackRegistration EditorExtensionCallbacks;
 		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
 		std::unique_ptr<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle> Texture2DThumbnailRegistration;
 		std::unique_ptr<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle> TextureCubeThumbnailRegistration;

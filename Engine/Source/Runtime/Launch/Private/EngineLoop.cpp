@@ -155,7 +155,8 @@ namespace Durin
 		CollectGarbage();
 		if (GRenderingThread) FlushRenderingCommands();
 		CollectGarbage();
-		FModuleManager::Get().UnloadModulesAtShutdown();
+		const std::array DeferredModules{FName("VulkanRHI")};
+		FModuleManager::Get().UnloadModulesAtShutdown(DeferredModules);
 		ShutdownRenderingThread();
 		RHIExit();
 		ShutdownApplicationCore();
@@ -336,7 +337,8 @@ namespace Durin
 		AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::DeferredDestroyAudit);
 		CheckNoDeferredDestroyObjects("shutdown object destruction");
 		SetProcessCrashPhase(EProcessCrashPhase::ModuleShutdown);
-		FModuleManager::Get().UnloadModulesAtShutdown();
+		const std::array DeferredModules{FName("VulkanRHI")};
+		FModuleManager::Get().UnloadModulesAtShutdown(DeferredModules);
 		AddProcessCrashBreadcrumb(EProcessCrashBreadcrumbEvent::ModulesUnloaded);
 		SetProcessCrashPhase(EProcessCrashPhase::RenderingShutdown);
 		ShutdownRenderingThread();

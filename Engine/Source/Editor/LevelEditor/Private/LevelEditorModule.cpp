@@ -35,8 +35,14 @@ namespace Durin
 
 	FLevelEditorModule::~FLevelEditorModule() = default;
 
-	LEVELEDITOR_API auto FLevelEditorModule::StartupModule(FModuleContext&) -> void
+	LEVELEDITOR_API auto FLevelEditorModule::StartupModule(FModuleContext& Context) -> void
 	{
+		EditorExtensionCallbacks =
+			Context.CreateOwnedCallbackRegistration("Editor.ExtensionRegistries");
+		require(EditorExtensionCallbacks.IsValid());
+		ThumbnailOperations =
+			Context.CreateAsyncOperationGroup("SourceImageThumbnail.Decodes");
+		require(ThumbnailOperations.IsValid());
 		ProjectDefaultLevelReferenceStore =
 			std::make_unique<FProjectDefaultLevelReferenceStore>(
 				[this](const FAssetPath& Path) {
@@ -46,24 +52,27 @@ namespace Durin
 				});
 		ProjectDefaultLevelReferenceStoreHandle =
 			Asset::RegisterAssetReferenceStore(
-				ProjectDefaultLevelReferenceStore.get());
+				ProjectDefaultLevelReferenceStore.get(),
+				EditorExtensionCallbacks.GetGate());
 		SessionSettings = std::make_unique<FLevelEditorSessionSettings>();
 		SessionSettings->Load();
 		auto& Registry = FLevelEditorCustomizationRegistry::Get();
-		CustomizationHandles.push_back(Registry.RegisterActorVisualizer(APlayerStart::StaticClass(), CreatePlayerStartActorVisualizer()));
-		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DCameraComponent::StaticClass(), CreateCameraComponentVisualizer()));
-		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DDirectionalLightComponent::StaticClass(), CreateDirectionalLightComponentVisualizer()));
-		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DCameraComponent::StaticClass(), CreateCameraDetailsCustomization()));
-		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DSplineComponent::StaticClass(), CreateSplineComponentVisualizer()));
-		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DSplineComponent::StaticClass(), CreateSplineDetailsCustomization()));
-		CustomizationHandles.push_back(Registry.RegisterObjectDetails(ASplineMeshActor::StaticClass(), CreateSplineMeshActorDetailsCustomization()));
-		SplineEditModeHandle = RegisterSplineViewportEditMode();
-		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DStaticMeshComponent::StaticClass(), CreateStaticMeshComponentDetailsCustomization()));
-		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DSkyBoxComponent::StaticClass(), CreateSkyBoxDetailsCustomization()));
-		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DTerrainComponent::StaticClass(), CreateTerrainDetailsCustomization()));
+		const FModuleOwnedCallbackGate ExtensionGate = EditorExtensionCallbacks.GetGate();
+		CustomizationHandles.push_back(Registry.RegisterActorVisualizer(APlayerStart::StaticClass(), CreatePlayerStartActorVisualizer(), ExtensionGate));
+		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DCameraComponent::StaticClass(), CreateCameraComponentVisualizer(), ExtensionGate));
+		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DDirectionalLightComponent::StaticClass(), CreateDirectionalLightComponentVisualizer(), ExtensionGate));
+		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DCameraComponent::StaticClass(), CreateCameraDetailsCustomization(), ExtensionGate));
+		CustomizationHandles.push_back(Registry.RegisterComponentVisualizer(DSplineComponent::StaticClass(), CreateSplineComponentVisualizer(), ExtensionGate));
+		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DSplineComponent::StaticClass(), CreateSplineDetailsCustomization(), ExtensionGate));
+		CustomizationHandles.push_back(Registry.RegisterObjectDetails(ASplineMeshActor::StaticClass(), CreateSplineMeshActorDetailsCustomization(), ExtensionGate));
+		SplineEditModeHandle = RegisterSplineViewportEditMode(ExtensionGate);
+		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DStaticMeshComponent::StaticClass(), CreateStaticMeshComponentDetailsCustomization(), ExtensionGate));
+		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DSkyBoxComponent::StaticClass(), CreateSkyBoxDetailsCustomization(), ExtensionGate));
+		CustomizationHandles.push_back(Registry.RegisterObjectDetails(DTerrainComponent::StaticClass(), CreateTerrainDetailsCustomization(), ExtensionGate));
 		checkf(std::ranges::all_of(CustomizationHandles, [](FLevelEditorCustomizationHandle Handle) { return static_cast<bool>(Handle); }), "LevelEditor built-in customizations must register exactly once");
 		GrayboxBuildStartupCommandHandle = RegisterStartupCommandHandler(
-			"graybox-build", RunGrayboxBuildStartupCommand);
+			"graybox-build", RunGrayboxBuildStartupCommand,
+			EditorExtensionCallbacks.GetGate());
 		checkf(GrayboxBuildStartupCommandHandle != 0,
 			"LevelEditor graybox-build startup command must register exactly once");
 	}
@@ -95,12 +104,15 @@ namespace Durin
 		TerrainThumbnailRegistration.reset();
 		std::string Error;
 		auto ThumbnailHandle = ThumbnailService.RegisterScoped(
-			std::make_unique<FTerrainHeightmapAssetThumbnailProvider>(), Error);
+			std::make_unique<FTerrainHeightmapAssetThumbnailProvider>(),
+			EditorExtensionCallbacks.GetGate(), Error);
 		if (!ThumbnailHandle) return false;
 
 		// Content Browser captures thumbnail routing while the workspace is constructed,
 		// so feature-owned providers must already be visible to the shared service.
-		std::shared_ptr<MLevelEditor> Workspace = std::make_shared<MLevelEditor>(*SessionSettings, WorkspaceManager);
+		std::shared_ptr<MLevelEditor> Workspace = std::make_shared<MLevelEditor>(
+			*SessionSettings, WorkspaceManager, EditorExtensionCallbacks.GetGate(),
+			ThumbnailOperations.GetTaskScope());
 		Workspace->Construct();
 		::Durin::Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
 			.Workspaces = {
@@ -129,7 +141,7 @@ namespace Durin
 					.bClosable = true,
 				},
 			},
-		});
+		}, EditorExtensionCallbacks.GetGate());
 		if (!Registration) return false;
 		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
 		TerrainThumbnailRegistration = std::make_unique<

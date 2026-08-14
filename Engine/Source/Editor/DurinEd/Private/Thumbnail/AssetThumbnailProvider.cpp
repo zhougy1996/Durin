@@ -9,6 +9,8 @@ namespace Durin::Editor
 	{
 		struct FAssetThumbnailGenerationLeaseState
 		{
+			FModuleOwnedResourceLease OwnerResource;
+			FModuleOwnedCallbackGate OwnerGate;
 			FAssetThumbnailCancellation Cancellation;
 			std::shared_ptr<const IAssetThumbnailGenerationInput> Input;
 			std::shared_ptr<IRenderedAssetThumbnailExtension> Extension;
@@ -41,7 +43,9 @@ namespace Durin::Editor
 		{
 			struct FEntry
 			{
+				FModuleOwnedResourceLease OwnerResource;
 				std::shared_ptr<IAssetThumbnailProvider> Provider;
+				FModuleOwnedCallbackGate OwnerGate;
 				std::vector<std::weak_ptr<FAssetThumbnailGenerationLeaseState>> Leases;
 				uint64 Generation = 0;
 			};
@@ -87,8 +91,15 @@ namespace Durin::Editor
 		auto RegisterProvider(
 			const std::shared_ptr<Detail::FAssetThumbnailProviderRegistryState>& State,
 			std::shared_ptr<IAssetThumbnailProvider> Provider,
+			FModuleOwnedCallbackGate OwnerGate,
 			std::string& OutError) -> uint64
 		{
+			auto Invocation = OwnerGate.TryEnter();
+			if (OwnerGate.IsValid() && !Invocation)
+			{
+				OutError = "Thumbnail provider owner is retiring.";
+				return 0;
+			}
 			if (State->bShuttingDown)
 			{
 				OutError = "Thumbnail provider registration is closed during shutdown.";
@@ -115,10 +126,18 @@ namespace Durin::Editor
 				return 0;
 			}
 			const uint64 Generation = State->NextGeneration++;
+			FModuleOwnedResourceLease Resource = OwnerGate.RetainResource();
+			if (OwnerGate.IsValid() && !Resource)
+			{
+				OutError = "Thumbnail provider owner is retiring.";
+				return 0;
+			}
 			State->Providers.emplace(
 				Registration.AssetClassName,
 				Detail::FAssetThumbnailProviderRegistryState::FEntry{
+					.OwnerResource = std::move(Resource),
 					.Provider = std::move(Provider),
+					.OwnerGate = std::move(OwnerGate),
 					.Generation = Generation});
 			OutError.clear();
 			return Generation;
@@ -175,6 +194,12 @@ namespace Durin::Editor
 		if (!LeaseState || !LeaseState->bActive.load(std::memory_order_acquire))
 		{
 			OutError = "The thumbnail provider registration is no longer active.";
+			return nullptr;
+		}
+		auto Invocation = LeaseState->OwnerGate.TryEnter();
+		if (LeaseState->OwnerGate.IsValid() && !Invocation)
+		{
+			OutError = "The thumbnail provider owner is retiring.";
 			return nullptr;
 		}
 		if (LeaseState->Session)
@@ -259,19 +284,23 @@ namespace Durin::Editor
 
 	auto FAssetThumbnailProviderRegistry::Register(
 		std::shared_ptr<IAssetThumbnailProvider> Provider,
+		FModuleOwnedCallbackGate OwnerGate,
 		std::string& OutError
 	) -> bool
 	{
-		return RegisterProvider(State, std::move(Provider), OutError) != 0;
+		return RegisterProvider(
+			State, std::move(Provider), std::move(OwnerGate), OutError) != 0;
 	}
 
 	auto FAssetThumbnailProviderRegistry::RegisterScoped(
 		std::unique_ptr<IAssetThumbnailProvider> Provider,
+		FModuleOwnedCallbackGate OwnerGate,
 		std::string& OutError) -> FAssetThumbnailProviderRegistrationHandle
 	{
 		std::shared_ptr<IAssetThumbnailProvider> SharedProvider = std::move(Provider);
 		const uint64 RegistrationId =
-			RegisterProvider(State, std::move(SharedProvider), OutError);
+			RegisterProvider(State, std::move(SharedProvider),
+				std::move(OwnerGate), OutError);
 		return RegistrationId != 0
 			? FAssetThumbnailProviderRegistrationHandle(State, RegistrationId)
 			: FAssetThumbnailProviderRegistrationHandle{};
@@ -317,6 +346,12 @@ namespace Durin::Editor
 			OutError.clear();
 			return false;
 		}
+		auto Invocation = It->second.OwnerGate.TryEnter();
+		if (It->second.OwnerGate.IsValid() && !Invocation)
+		{
+			OutError = "The thumbnail provider owner is retiring.";
+			return false;
+		}
 		return It->second.Provider->CaptureSourceImage(Asset, OutSource, OutError);
 	}
 
@@ -324,7 +359,9 @@ namespace Durin::Editor
 		std::string_view AssetClassName) const -> bool
 	{
 		const auto It = State->Providers.find(std::string(AssetClassName));
-		return It != State->Providers.end()
+		if (It == State->Providers.end()) return false;
+		auto Invocation = It->second.OwnerGate.TryEnter();
+		return (!It->second.OwnerGate.IsValid() || Invocation)
 			&& It->second.Provider->UsesSourceImage();
 	}
 
@@ -344,6 +381,12 @@ namespace Durin::Editor
 			return false;
 		}
 		Detail::FAssetThumbnailProviderRegistryState::FEntry& Entry = It->second;
+		auto Invocation = Entry.OwnerGate.TryEnter();
+		if (Entry.OwnerGate.IsValid() && !Invocation)
+		{
+			OutError = "The thumbnail provider owner is retiring.";
+			return false;
+		}
 		if (!Entry.Provider->CaptureGenerationRequest(
 				Request, ProviderGeneration, OutRequest, OutError))
 			return false;
@@ -351,6 +394,13 @@ namespace Durin::Editor
 		OutRegistration = Entry.Provider->GetRegistration();
 		auto LeaseState =
 			std::make_shared<Detail::FAssetThumbnailGenerationLeaseState>();
+		LeaseState->OwnerResource = Entry.OwnerGate.RetainResource();
+		if (Entry.OwnerGate.IsValid() && !LeaseState->OwnerResource)
+		{
+			OutError = "The thumbnail provider owner is retiring.";
+			return false;
+		}
+		LeaseState->OwnerGate = Entry.OwnerGate;
 		LeaseState->Cancellation = OutRequest.Cancellation;
 		LeaseState->Input = std::move(OutRequest.Input);
 		LeaseState->Extension =

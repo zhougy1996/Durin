@@ -10,6 +10,7 @@
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
 #include "StandardAssetImportProviders.h"
+#include "StandardAssetAuthoringTestSupport.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
@@ -39,7 +40,8 @@ namespace
 
 		auto Register(std::string& OutError) -> bool
 		{
-			bRegistered = Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(OutError);
+			bRegistered = Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(
+				OutError, GetEngineTestModuleCallbackGate());
 			return bRegistered;
 		}
 
@@ -572,6 +574,7 @@ TEST(FMaterialTests, DebugStaticMeshProvidesCompleteSplitVertexAttributes)
 
 TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 {
+	ASSERT_TRUE(Durin::Tests::InstallStandardAssetAuthoringFeatures());
 	FScopedStandardAssetImportProviders Providers;
 	std::string ProviderError;
 	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
@@ -610,6 +613,7 @@ TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 
 TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionAndTeardown)
 {
+	ASSERT_TRUE(Durin::Tests::InstallStandardAssetAuthoringFeatures());
 	FScopedStandardAssetImportProviders Providers;
 	std::string ProviderError;
 	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;

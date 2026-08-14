@@ -11,6 +11,14 @@ namespace Durin::Editor::Level
 	{
 	}
 
+	FContentBrowserThumbnailCache::FContentBrowserThumbnailCache(
+		FTaskScopeToken ThumbnailTaskScope)
+		: SourceImages(std::make_unique<FSourceImageThumbnailCache>(
+			std::move(ThumbnailTaskScope)))
+		, RenderedAssets(std::make_unique<::Durin::Editor::FRenderedAssetThumbnailCache>())
+	{
+	}
+
 	FContentBrowserThumbnailCache::~FContentBrowserThumbnailCache()
 	{
 		Clear();

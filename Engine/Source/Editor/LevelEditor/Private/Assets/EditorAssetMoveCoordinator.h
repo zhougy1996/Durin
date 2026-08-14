@@ -29,7 +29,8 @@ namespace Durin::Editor::Level
 			FLevelEditorContext& InContext,
 			FLevelEditorSessionSettings& InSessionSettings,
 			FSceneViewportPanel& InSceneViewportPanel,
-			::Durin::Editor::FTransactionManager& InTransactions
+			::Durin::Editor::FTransactionManager& InTransactions,
+			FModuleOwnedCallbackGate OwnerGate
 		);
 		~FEditorAssetMoveCoordinator();
 

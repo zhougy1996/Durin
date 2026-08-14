@@ -15,7 +15,8 @@ namespace
 			ASSERT_TRUE(EnsureTextureBuildHost());
 			std::string Error;
 			ASSERT_TRUE(Durin::Tests::InstallStandardAssetAuthoringFeatures());
-			ASSERT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(Error)) << Error;
+			ASSERT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(
+				Error, GetEngineTestModuleCallbackGate())) << Error;
 		}
 
 		auto TearDown() -> void override

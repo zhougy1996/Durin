@@ -4,11 +4,21 @@
 #include "AsyncImport.h"
 #include "AssetSystem.h"
 #include "Misc/Paths.h"
+#include "Modules/ModuleTestContext.h"
 #include "NativeTestSupport.h"
 #include "Threading/Task.h"
 
 namespace
 {
+	auto GetImportRegistryTestGate() -> Durin::FModuleOwnedCallbackGate
+	{
+		static auto Context = Durin::FModuleTestContextFactory::CreateStartupContext(
+			"AssetImportCoreTests.Registry");
+		static auto Registration = Context.CreateOwnedCallbackRegistration(
+			"AssetImportCoreTests.Registry");
+		return Registration.GetGate();
+	}
+
 	auto WriteSource(const std::filesystem::path& Path, std::string_view Bytes) -> void
 	{
 		std::filesystem::create_directories(Path.parent_path());
@@ -38,8 +48,11 @@ namespace
 	class FGraphProvider final : public Durin::Asset::Import::IImportProvider
 	{
 	public:
-		explicit FGraphProvider(std::string InId = "Tests.Graph", bool bInMatches = true)
-			: Id(std::move(InId)), bMatches(bInMatches) {}
+		explicit FGraphProvider(
+			std::string InId = "Tests.Graph", bool bInMatches = true,
+			std::shared_ptr<std::atomic_bool> InDestroyed = {})
+			: Id(std::move(InId)), bMatches(bInMatches), Destroyed(std::move(InDestroyed)) {}
+		~FGraphProvider() override { if (Destroyed) *Destroyed = true; }
 
 		auto GetProviderId() const -> std::string_view override { return Id; }
 		auto GetContractVersion() const -> Durin::uint32 override { return 1; }
@@ -133,6 +146,7 @@ namespace
 	private:
 		std::string Id;
 		bool bMatches = true;
+		std::shared_ptr<std::atomic_bool> Destroyed;
 	};
 
 	class FTaskSchedulerGuard
@@ -244,8 +258,36 @@ namespace
 	{
 		std::string Error;
 		ASSERT_TRUE(Registry.Register(
-			std::make_shared<FGraphProvider>(std::string(Id)), Error)) << Error;
+			std::make_shared<FGraphProvider>(std::string(Id)),
+			GetImportRegistryTestGate(), Error)) << Error;
 	}
+}
+
+TEST(FAssetImportCoreTests, ProviderOwnerRetirementRejectsLookupAndAuditsLeaseDestruction)
+{
+	auto Context = Durin::FModuleTestContextFactory::CreateStartupContext(
+		"AssetImportCoreTests.ProviderRetirement");
+	auto Registration = Context.CreateOwnedCallbackRegistration(
+		"AssetImportCore.ProviderRegistry");
+	Durin::Asset::Import::FProviderRegistry Registry;
+	auto Destroyed = std::make_shared<std::atomic_bool>(false);
+	std::string Error;
+	ASSERT_TRUE(Registry.Register(
+		std::make_shared<FGraphProvider>("Tests.Retirement", true, Destroyed),
+		Registration.GetGate(), Error)) << Error;
+	auto Lease = Registry.Find("Tests.Retirement");
+	ASSERT_TRUE(Lease);
+	const auto Retiring = Registration.Retire();
+	// One lease represents registry storage and one represents the escaped provider.
+	EXPECT_EQ(2u, Retiring.RetainedResourceCount);
+	EXPECT_FALSE(Registry.Find("Tests.Retirement"));
+	EXPECT_TRUE(Registry.Unregister("Tests.Retirement"));
+	EXPECT_FALSE(Destroyed->load());
+	EXPECT_EQ(Durin::EModularFeatureRetirementStatus::TimedOut,
+		Registration.Reset(std::chrono::milliseconds(1)).Status);
+	Lease = {};
+	EXPECT_TRUE(Destroyed->load());
+	EXPECT_TRUE(Registration.Reset().Succeeded());
 }
 
 TEST(FAssetImportCoreTests, CapturedBytesRemainImmutableAfterPhysicalSourceChanges)
@@ -533,7 +575,8 @@ TEST(FAssetImportCoreTests, AsyncPreparationMatchesSynchronousPlan)
 	Durin::Asset::Import::OpenAsyncImportProviderAdmission(ProviderId);
 	std::string Error;
 	ASSERT_TRUE(Registry.Register(
-		std::make_shared<FGraphProvider>(ProviderId), Error)) << Error;
+		std::make_shared<FGraphProvider>(ProviderId),
+		GetImportRegistryTestGate(), Error)) << Error;
 
 	Durin::Asset::Import::FImportPlanRequest Request{
 		.RootSource = {.Path = "/ImportCoreTests/Root.graph"},
@@ -603,7 +646,8 @@ TEST(FAssetImportCoreTests, NewOwnerSerialSupersedesOlderMailboxResult)
 	Durin::Asset::Import::OpenAsyncImportProviderAdmission(ProviderId);
 	std::string Error;
 	ASSERT_TRUE(Registry.Register(
-		std::make_shared<FGraphProvider>(ProviderId), Error)) << Error;
+		std::make_shared<FGraphProvider>(ProviderId),
+		GetImportRegistryTestGate(), Error)) << Error;
 	const Durin::Asset::Import::FImportPlanRequest Request{
 		.RootSource = {.Path = "/ImportCoreTests/Root.graph"},
 		.ProviderId = ProviderId};
@@ -640,7 +684,8 @@ TEST(FAssetImportCoreTests, ProviderBarrierCancelsWorkerAndReleasesLeaseBeforeUn
 	const auto BlockingState = std::make_shared<FBlockingProviderState>();
 	std::string Error;
 	ASSERT_TRUE(Registry.Register(
-		std::make_shared<FBlockingGraphProvider>(ProviderId, BlockingState), Error))
+		std::make_shared<FBlockingGraphProvider>(ProviderId, BlockingState),
+		GetImportRegistryTestGate(), Error))
 		<< Error;
 	const auto Handle = Durin::Asset::Import::LaunchAsyncImportPlan({
 		.RootSource = {.Path = "/ImportCoreTests/Root.graph"},
@@ -679,7 +724,8 @@ TEST(FAssetImportCoreTests, OwnerBarrierCancelsRequestAndReachesScopeQuiescence)
 	const auto BlockingState = std::make_shared<FBlockingProviderState>();
 	std::string Error;
 	ASSERT_TRUE(Registry.Register(
-		std::make_shared<FBlockingGraphProvider>(ProviderId, BlockingState), Error))
+		std::make_shared<FBlockingGraphProvider>(ProviderId, BlockingState),
+		GetImportRegistryTestGate(), Error))
 		<< Error;
 	const auto Handle = Durin::Asset::Import::LaunchAsyncImportPlan({
 		.RootSource = {.Path = "/ImportCoreTests/Root.graph"},

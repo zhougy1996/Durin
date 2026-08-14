@@ -25,6 +25,7 @@ namespace Durin
 			IModularFeature* Implementation = nullptr;
 			EEntryState State = EEntryState::Published;
 			uint32 InFlightCount = 0;
+			uint32 RetainedResourceCount = 0;
 		};
 	}
 
@@ -67,6 +68,7 @@ namespace Durin
 				if (Entry->Owner != Owner) continue;
 				++Snapshot.RegistrationCount;
 				Snapshot.InFlightInvocationCount += Entry->InFlightCount;
+				Snapshot.RetainedResourceCount += Entry->RetainedResourceCount;
 				if (Entry->State == Detail::EEntryState::Published) ++Snapshot.PublishedCount;
 				if (Entry->State == Detail::EEntryState::Retiring) ++Snapshot.RetiringCount;
 			}
@@ -86,6 +88,7 @@ namespace Durin
 			if (Entry == State.Entries.end()) return Snapshot;
 			Snapshot.RegistrationCount = 1;
 			Snapshot.InFlightInvocationCount = Selected->InFlightCount;
+			Snapshot.RetainedResourceCount = Selected->RetainedResourceCount;
 			Snapshot.PublishedCount = Selected->State == Detail::EEntryState::Published ? 1u : 0u;
 			Snapshot.RetiringCount = Selected->State == Detail::EEntryState::Retiring ? 1u : 0u;
 			return Snapshot;
@@ -95,7 +98,8 @@ namespace Durin
 		{
 			for (const auto& Entry : State.Entries)
 			{
-				if (Entry->State == Detail::EEntryState::Retiring && Entry->InFlightCount == 0)
+				if (Entry->State == Detail::EEntryState::Retiring
+					&& Entry->InFlightCount == 0 && Entry->RetainedResourceCount == 0)
 				{
 					Entry->State = Detail::EEntryState::Retired;
 					Entry->Implementation = nullptr;
@@ -159,6 +163,96 @@ namespace Durin
 		check(GActiveFeatureOwners.back() == Entry->Owner.get());
 		GActiveFeatureOwners.pop_back();
 		bEntered = false;
+	}
+
+	FModuleOwnedResourceLease::~FModuleOwnedResourceLease() { Release(); }
+
+	FModuleOwnedResourceLease::FModuleOwnedResourceLease(
+		FModuleOwnedResourceLease&& Other) noexcept
+		: Entry(std::move(Other.Entry))
+	{
+	}
+
+	auto FModuleOwnedResourceLease::operator=(FModuleOwnedResourceLease&& Other) noexcept
+		-> FModuleOwnedResourceLease&
+	{
+		if (this == &Other) return *this;
+		Release();
+		Entry = std::move(Other.Entry);
+		return *this;
+	}
+
+	auto FModuleOwnedResourceLease::Release() -> void
+	{
+		if (!Entry) return;
+		auto& State = GetRegistryState();
+		{
+			std::lock_guard Lock(State.Mutex);
+			check(Entry->RetainedResourceCount > 0);
+			--Entry->RetainedResourceCount;
+			RetireCompletedEntriesLocked(State);
+			State.Quiescence.notify_all();
+		}
+		Entry.reset();
+	}
+
+	auto FModuleOwnedCallbackGate::IsValid() const -> bool
+	{
+		return Entry != nullptr;
+	}
+
+	auto FModuleOwnedCallbackGate::TryEnter() const -> FModuleOwnedCallbackInvocation
+	{
+		auto Invocation = FModularFeatureRegistry::Get().BeginInvokeEntry(Entry);
+		return Invocation.IsValid()
+			? FModuleOwnedCallbackInvocation(std::move(Invocation))
+			: FModuleOwnedCallbackInvocation{};
+	}
+
+	auto FModuleOwnedCallbackGate::RetainResource() const -> FModuleOwnedResourceLease
+	{
+		return FModularFeatureRegistry::Get().RetainEntryResource(Entry);
+	}
+
+	FModuleOwnedCallbackRegistration::~FModuleOwnedCallbackRegistration() { Retire(); }
+
+	FModuleOwnedCallbackRegistration::FModuleOwnedCallbackRegistration(
+		FModuleOwnedCallbackRegistration&& Other) noexcept
+		: Entry(std::move(Other.Entry))
+	{
+	}
+
+	auto FModuleOwnedCallbackRegistration::operator=(
+		FModuleOwnedCallbackRegistration&& Other) noexcept
+		-> FModuleOwnedCallbackRegistration&
+	{
+		if (this == &Other) return *this;
+		Retire();
+		Entry = std::move(Other.Entry);
+		return *this;
+	}
+
+	auto FModuleOwnedCallbackRegistration::IsValid() const -> bool
+	{
+		return Entry != nullptr;
+	}
+
+	auto FModuleOwnedCallbackRegistration::Retire() -> FModularFeatureRetirementSnapshot
+	{
+		if (!Entry) return {};
+		return FModularFeatureRegistry::Get().RetireEntry(Entry);
+	}
+
+	auto FModuleOwnedCallbackRegistration::Reset(std::chrono::milliseconds Timeout)
+		-> FModularFeatureRetirementResult
+	{
+		if (!Entry)
+			return {EModularFeatureRetirementStatus::InvalidRegistration, {},
+				"The callback registration token is empty or moved-from."};
+		Retire();
+		auto Result = FModularFeatureRegistry::Get().WaitEntry(Entry, Timeout);
+		if (Result.Succeeded()) Entry.reset();
+		return Result;
 	}
 
 	FModularFeatureRegistration::FModularFeatureRegistration(std::shared_ptr<Detail::FModularFeatureEntryState> InEntry)
@@ -246,6 +340,24 @@ namespace Durin
 		return FModularFeatureRegistration(std::move(Entry));
 	}
 
+	auto FModularFeatureRegistry::RegisterOwnedCallback(
+		const std::shared_ptr<Detail::FModularFeatureOwnerState>& Owner,
+		FName DomainName) -> FModuleOwnedCallbackRegistration
+	{
+		if (!Owner || DomainName.IsNone()) return {};
+		auto Entry = std::make_shared<Detail::FModularFeatureEntryState>();
+		Entry->Owner = Owner;
+		Entry->FeatureIdentity = {std::move(DomainName), 0};
+		auto& State = GetRegistryState();
+		{
+			std::lock_guard Lock(State.Mutex);
+			if (Owner->bFeatureAdmissionRetired.load(std::memory_order_acquire)) return {};
+			Entry->Identity = State.NextEntryIdentity++;
+			State.Entries.push_back(Entry);
+		}
+		return FModuleOwnedCallbackRegistration(std::move(Entry));
+	}
+
 	auto FModularFeatureRegistry::BeginInvoke(const FModularFeatureIdentity& Identity)
 		-> std::vector<Detail::FModularFeatureInvocation>
 	{
@@ -259,6 +371,30 @@ namespace Durin
 			Result.push_back(Detail::FModularFeatureInvocation(Entry));
 		}
 		return Result;
+	}
+
+	auto FModularFeatureRegistry::BeginInvokeEntry(
+		const std::shared_ptr<Detail::FModularFeatureEntryState>& Entry)
+		-> Detail::FModularFeatureInvocation
+	{
+		if (!Entry) return {};
+		auto& State = GetRegistryState();
+		std::lock_guard Lock(State.Mutex);
+		if (Entry->State != Detail::EEntryState::Published) return {};
+		++Entry->InFlightCount;
+		return Detail::FModularFeatureInvocation(Entry);
+	}
+
+	auto FModularFeatureRegistry::RetainEntryResource(
+		const std::shared_ptr<Detail::FModularFeatureEntryState>& Entry)
+		-> FModuleOwnedResourceLease
+	{
+		if (!Entry) return {};
+		auto& State = GetRegistryState();
+		std::lock_guard Lock(State.Mutex);
+		if (Entry->State != Detail::EEntryState::Published) return {};
+		++Entry->RetainedResourceCount;
+		return FModuleOwnedResourceLease(Entry);
 	}
 
 	auto FModularFeatureRegistry::RetireEntry(const std::shared_ptr<Detail::FModularFeatureEntryState>& Entry)
@@ -284,7 +420,9 @@ namespace Durin
 			return {EModularFeatureRetirementStatus::SelfWait, MakeEntrySnapshotLocked(State, Entry),
 				"Retirement cannot wait from inside the matching feature invocation."};
 		}
-		const bool bDrained = State.Quiescence.wait_for(Lock, Timeout, [&]() { return Entry->InFlightCount == 0; });
+		const bool bDrained = State.Quiescence.wait_for(Lock, Timeout, [&]() {
+			return Entry->InFlightCount == 0 && Entry->RetainedResourceCount == 0;
+		});
 		RetireCompletedEntriesLocked(State);
 		return {
 			bDrained ? EModularFeatureRetirementStatus::Succeeded : EModularFeatureRetirementStatus::TimedOut,

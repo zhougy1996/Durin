@@ -5,6 +5,7 @@
 #include "Panels/ContentBrowserOperations.h"
 #include "Panels/ContentBrowserItemView.h"
 #include "Panels/ContentBrowserRefreshCoordinator.h"
+#include "Threading/Task.h"
 
 #include <array>
 #include <unordered_set>
@@ -55,7 +56,8 @@ namespace Durin::Editor::Level
 			FGetMountedContentMutationRevision InGetMountedContentMutationRevision,
 			FNotifyMountedContentMutation InNotifyMountedContentMutation,
 			std::shared_ptr<FMountedContentReconciliationState>
-				InMountedContentReconciliationState);
+				InMountedContentReconciliationState,
+			FTaskScopeToken InThumbnailTaskScope);
 		~FContentBrowserPanel() override;
 
 		auto GetWindowName() const -> const char* override { return "Content Browser"; }

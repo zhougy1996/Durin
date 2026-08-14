@@ -32,7 +32,8 @@ namespace
 		}();
 		(void)Initialized;
 		std::string Error;
-		EXPECT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(Error)) << Error;
+		EXPECT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(
+			Error, GetEngineTestModuleCallbackGate())) << Error;
 		return Root;
 	}
 

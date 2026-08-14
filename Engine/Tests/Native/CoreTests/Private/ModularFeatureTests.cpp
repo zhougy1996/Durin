@@ -95,6 +95,20 @@ namespace Durin::Tests
 		bool& bDestroyed;
 	};
 
+	class FOwnedCallbackTestModule final : public IModuleInterface
+	{
+	public:
+		auto StartupModule(FModuleContext& Context) -> void override
+		{
+			Registration = Context.CreateOwnedCallbackRegistration("Tests.SpecializedRegistry");
+			Gate = Registration.GetGate();
+		}
+
+		FModuleOwnedCallbackGate Gate;
+	private:
+		FModuleOwnedCallbackRegistration Registration;
+	};
+
 	TEST(FModularFeatureTests, UsesDeclaredNameAndVersionAndRejectsInvalidIdentity)
 	{
 		auto Context = FModuleTestContextFactory::CreateStartupContext("FeatureIdentityTest");
@@ -241,6 +255,50 @@ namespace Durin::Tests
 		});
 		EXPECT_EQ(EFeatureInvokeStatus::VisitorFailed, Failure.Status);
 		EXPECT_TRUE(FailureRegistration.Reset().Succeeded());
+	}
+
+	TEST(FModularFeatureTests, OwnedCallbackGateRetiresCallsAndAuditsResources)
+	{
+		auto Context = FModuleTestContextFactory::CreateStartupContext("OwnedCallbackGate");
+		auto Registration = Context.CreateOwnedCallbackRegistration("Tests.Registry");
+		ASSERT_TRUE(Registration.IsValid());
+		const FModuleOwnedCallbackGate Gate = Registration.GetGate();
+		{
+			auto Invocation = Gate.TryEnter();
+			ASSERT_TRUE(Invocation);
+			const auto Retiring = Registration.Retire();
+			EXPECT_EQ(1u, Retiring.InFlightInvocationCount);
+			EXPECT_FALSE(Gate.TryEnter());
+		}
+		EXPECT_TRUE(Registration.Reset().Succeeded());
+
+		auto ResourceContext = FModuleTestContextFactory::CreateStartupContext("OwnedCallbackResource");
+		auto ResourceRegistration = ResourceContext.CreateOwnedCallbackRegistration("Tests.Registry");
+		const auto ResourceGate = ResourceRegistration.GetGate();
+		auto Resource = ResourceGate.RetainResource();
+		ASSERT_TRUE(Resource);
+		const auto Retiring = ResourceRegistration.Retire();
+		EXPECT_EQ(1u, Retiring.RetainedResourceCount);
+		EXPECT_FALSE(ResourceGate.RetainResource());
+		EXPECT_EQ(EModularFeatureRetirementStatus::TimedOut,
+			ResourceRegistration.Reset(std::chrono::milliseconds(1)).Status);
+		Resource = {};
+		EXPECT_TRUE(ResourceRegistration.Reset().Succeeded());
+	}
+
+	TEST(FModuleManagerRetirementTests, RetainedOwnedResourceFailsClosedBeforeModuleDestruction)
+	{
+		auto Module = std::make_unique<FOwnedCallbackTestModule>();
+		auto* ModulePointer = Module.get();
+		ASSERT_NE(nullptr, FModuleTestContextFactory::InstallStartedModule(
+			"ManagedModuleRetainedResource", std::move(Module)));
+		auto Resource = ModulePointer->Gate.RetainResource();
+		ASSERT_TRUE(Resource);
+		const auto Result = FModuleManager::Get().UnloadModule("ManagedModuleRetainedResource");
+		EXPECT_EQ(EModuleOperationStatus::OutstandingFeatureAudit, Result.Status);
+		EXPECT_EQ(1u, Result.RetirementSnapshot.RetainedResourceCount);
+		EXPECT_NE(nullptr, FModuleManager::Get().FindModule(
+			"ManagedModuleRetainedResource")->Module.get());
 	}
 
 	TEST(FModuleManagerRetirementTests, SuccessfulUnloadRetiresFeaturesBeforeDestroyingModule)

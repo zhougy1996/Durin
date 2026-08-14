@@ -135,7 +135,7 @@ namespace Durin::Editor::Level
 		}
 	} // namespace
 
-	FConsolePanel::FConsolePanel()
+	FConsolePanel::FConsolePanel(FModuleOwnedCallbackGate OwnerGate)
 		: State(std::make_shared<FConsolePanelState>())
 	{
 		const std::weak_ptr<FConsolePanelState> WeakState = State;
@@ -146,7 +146,7 @@ namespace Durin::Editor::Level
 																					 SharedState->bClearRequested.store(true, std::memory_order_release);
 																				 }
 																				 return FConsoleCommandResult::Success();
-																			 }});
+														 }}, std::move(OwnerGate));
 	}
 
 	FConsolePanel::~FConsolePanel()

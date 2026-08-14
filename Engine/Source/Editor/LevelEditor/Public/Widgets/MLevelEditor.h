@@ -4,6 +4,8 @@
 #include "DObject/SoftObjectPtr.h"
 #include "Editor/Workspace.h"
 #include "Editor/WorkspaceRootWindow.h"
+#include "Modules/ModularFeature.h"
+#include "Threading/Task.h"
 
 namespace Durin
 {
@@ -41,7 +43,10 @@ namespace Durin::Editor::Level
 	class MLevelEditor final : public ::Durin::Editor::IWorkspace
 	{
 	public:
-		MLevelEditor(FLevelEditorSessionSettings& InSessionSettings, ::Durin::Editor::FWorkspaceManager& InWorkspaceManager);
+		MLevelEditor(FLevelEditorSessionSettings& InSessionSettings,
+			::Durin::Editor::FWorkspaceManager& InWorkspaceManager,
+			FModuleOwnedCallbackGate InOwnerGate,
+			FTaskScopeToken InThumbnailTaskScope);
 		LEVELEDITOR_API ~MLevelEditor() override;
 		LEVELEDITOR_API auto Construct() -> void;
 		LEVELEDITOR_API auto OpenDefaultDocument() -> bool;
@@ -92,6 +97,8 @@ namespace Durin::Editor::Level
 		// Module-owned services outlive this registered workspace.
 		FLevelEditorSessionSettings& SessionSettings;
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager;
+		FModuleOwnedCallbackGate OwnerGate;
+		FTaskScopeToken ThumbnailTaskScope;
 		std::unique_ptr<FLevelDocumentController> DocumentController;
 		std::unique_ptr<FEditorAssetMoveCoordinator> AssetMoveCoordinator;
 		std::unique_ptr<FSceneImportDialog> SceneImportDialog;

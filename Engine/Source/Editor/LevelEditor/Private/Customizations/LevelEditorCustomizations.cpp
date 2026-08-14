@@ -11,6 +11,53 @@ namespace Durin::Editor::Level
 {
 	namespace
 	{
+		class FOwnedActorVisualizer final : public IActorEditorVisualizer
+		{
+		public:
+			FOwnedActorVisualizer(std::shared_ptr<IActorEditorVisualizer> InValue,
+				FModuleOwnedCallbackGate InGate, FModuleOwnedResourceLease InResource)
+				: Resource(std::move(InResource)), Value(std::move(InValue)), Gate(std::move(InGate)) {}
+			auto DrawVisualization(AActor* Actor, const FEditorVisualizationContext& Context,
+				FEditorVisualizationCollector& Collector) const -> void override
+			{ auto Call = Gate.TryEnter(); if (Call) Value->DrawVisualization(Actor, Context, Collector); }
+		private:
+			FModuleOwnedResourceLease Resource;
+			std::shared_ptr<IActorEditorVisualizer> Value;
+			FModuleOwnedCallbackGate Gate;
+		};
+
+		class FOwnedComponentVisualizer final : public IComponentEditorVisualizer
+		{
+		public:
+			FOwnedComponentVisualizer(std::shared_ptr<IComponentEditorVisualizer> InValue,
+				FModuleOwnedCallbackGate InGate, FModuleOwnedResourceLease InResource)
+				: Resource(std::move(InResource)), Value(std::move(InValue)), Gate(std::move(InGate)) {}
+			auto DrawVisualization(DActorComponent* Component, const FEditorVisualizationContext& Context,
+				FEditorVisualizationCollector& Collector) const -> void override
+			{ auto Call = Gate.TryEnter(); if (Call) Value->DrawVisualization(Component, Context, Collector); }
+		private:
+			FModuleOwnedResourceLease Resource;
+			std::shared_ptr<IComponentEditorVisualizer> Value;
+			FModuleOwnedCallbackGate Gate;
+		};
+
+		class FOwnedObjectDetails final : public IObjectDetailsCustomization
+		{
+		public:
+			FOwnedObjectDetails(std::shared_ptr<IObjectDetailsCustomization> InValue,
+				FModuleOwnedCallbackGate InGate, FModuleOwnedResourceLease InResource)
+				: Resource(std::move(InResource)), Value(std::move(InValue)), Gate(std::move(InGate)) {}
+			auto CustomizeDetails(FLevelEditorContext& Context, DObject* Object,
+				FObjectPropertyViewBuilder& Builder) -> void override
+			{ auto Call = Gate.TryEnter(); if (Call) Value->CustomizeDetails(Context, Object, Builder); }
+		private:
+			FModuleOwnedResourceLease Resource;
+			std::shared_ptr<IObjectDetailsCustomization> Value;
+			FModuleOwnedCallbackGate Gate;
+		};
+	}
+	namespace
+	{
 		auto DistanceToSegment(const FVector2f& Point, const FVector2f& A, const FVector2f& B, float& OutT) -> float
 		{
 			const FVector2f Segment = B - A;
@@ -285,25 +332,58 @@ namespace Durin::Editor::Level
 		return Registry;
 	}
 
-	auto FLevelEditorCustomizationRegistry::RegisterComponentVisualizer(DClass* Class, std::shared_ptr<IComponentEditorVisualizer> Visualizer) -> FLevelEditorCustomizationHandle
+	auto FLevelEditorCustomizationRegistry::RegisterComponentVisualizer(
+		DClass* Class, std::shared_ptr<IComponentEditorVisualizer> Visualizer,
+		FModuleOwnedCallbackGate OwnerGate) -> FLevelEditorCustomizationHandle
 	{
+		auto Call = OwnerGate.TryEnter();
+		if (OwnerGate.IsValid() && !Call) return {};
 		if (!Class || !Visualizer || ComponentVisualizers.contains(Class)) return {};
+		if (OwnerGate.IsValid())
+		{
+			auto Resource = OwnerGate.RetainResource();
+			if (!Resource) return {};
+			Visualizer = std::make_shared<FOwnedComponentVisualizer>(
+				std::move(Visualizer), OwnerGate, std::move(Resource));
+		}
 		const uint64 Id = NextHandleId++;
 		ComponentVisualizers.emplace(Class, TEntry<IComponentEditorVisualizer>{Id, std::move(Visualizer)});
 		return {Id, ELevelEditorCustomizationKind::ComponentVisualizer};
 	}
 
-	auto FLevelEditorCustomizationRegistry::RegisterActorVisualizer(DClass* Class, std::shared_ptr<IActorEditorVisualizer> Visualizer) -> FLevelEditorCustomizationHandle
+	auto FLevelEditorCustomizationRegistry::RegisterActorVisualizer(
+		DClass* Class, std::shared_ptr<IActorEditorVisualizer> Visualizer,
+		FModuleOwnedCallbackGate OwnerGate) -> FLevelEditorCustomizationHandle
 	{
+		auto Call = OwnerGate.TryEnter();
+		if (OwnerGate.IsValid() && !Call) return {};
 		if (!Class || !Visualizer || ActorVisualizers.contains(Class)) return {};
+		if (OwnerGate.IsValid())
+		{
+			auto Resource = OwnerGate.RetainResource();
+			if (!Resource) return {};
+			Visualizer = std::make_shared<FOwnedActorVisualizer>(
+				std::move(Visualizer), OwnerGate, std::move(Resource));
+		}
 		const uint64 Id = NextHandleId++;
 		ActorVisualizers.emplace(Class, TEntry<IActorEditorVisualizer>{Id, std::move(Visualizer)});
 		return {Id, ELevelEditorCustomizationKind::ActorVisualizer};
 	}
 
-	auto FLevelEditorCustomizationRegistry::RegisterObjectDetails(DClass* Class, std::shared_ptr<IObjectDetailsCustomization> Customization) -> FLevelEditorCustomizationHandle
+	auto FLevelEditorCustomizationRegistry::RegisterObjectDetails(
+		DClass* Class, std::shared_ptr<IObjectDetailsCustomization> Customization,
+		FModuleOwnedCallbackGate OwnerGate) -> FLevelEditorCustomizationHandle
 	{
+		auto Call = OwnerGate.TryEnter();
+		if (OwnerGate.IsValid() && !Call) return {};
 		if (!Class || !Customization || ObjectDetails.contains(Class)) return {};
+		if (OwnerGate.IsValid())
+		{
+			auto Resource = OwnerGate.RetainResource();
+			if (!Resource) return {};
+			Customization = std::make_shared<FOwnedObjectDetails>(
+				std::move(Customization), OwnerGate, std::move(Resource));
+		}
 		const uint64 Id = NextHandleId++;
 		ObjectDetails.emplace(Class, TEntry<IObjectDetailsCustomization>{Id, std::move(Customization)});
 		return {Id, ELevelEditorCustomizationKind::ObjectDetails};

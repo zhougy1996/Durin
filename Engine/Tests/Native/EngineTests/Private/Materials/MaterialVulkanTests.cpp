@@ -11,6 +11,7 @@
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
 #include "StandardAssetImportProviders.h"
+#include "StandardAssetAuthoringFeatures.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
@@ -40,7 +41,8 @@ namespace
 
 		auto Register(std::string& OutError) -> bool
 		{
-			bRegistered = Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(OutError);
+			bRegistered = Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(
+				OutError, GetEngineTestModuleCallbackGate());
 			return bRegistered;
 		}
 
@@ -80,6 +82,18 @@ namespace
 
 TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDifferences)
 {
+	static auto AuthoringContext = Durin::FModuleTestContextFactory::CreateStartupContext(
+		"MaterialVulkanTests.Authoring");
+	static Durin::Asset::Import::Standard::FStandardAssetAuthoringFeatures AuthoringFeatures;
+	static auto StaticMeshAuthoring =
+		AuthoringContext.RegisterFeature<Durin::IStaticMeshAuthoringFeature>(AuthoringFeatures);
+	static auto Texture2DAuthoring =
+		AuthoringContext.RegisterFeature<Durin::ITexture2DAuthoringFeature>(AuthoringFeatures);
+	static auto TextureCubeAuthoring =
+		AuthoringContext.RegisterFeature<Durin::ITextureCubeAuthoringFeature>(AuthoringFeatures);
+	(void)StaticMeshAuthoring;
+	(void)Texture2DAuthoring;
+	(void)TextureCubeAuthoring;
 	FScopedStandardAssetImportProviders Providers;
 	std::string ProviderError;
 	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;

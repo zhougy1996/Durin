@@ -123,3 +123,86 @@ manager repeats this owner-wide proof after `ShutdownModule` and before the
 final feature audit. `AsyncOperationDrainTimeout`, `AsyncOperationSelfWait`,
 `AsyncOperationUnsupportedThread`, and `OutstandingAsyncOperationAudit` all
 leave the module `UnloadBlocked` and its native library mapped.
+
+## Specialized Registries
+
+Domain registries whose selection depends on provider identity, asset class,
+ranking, provenance, route, or build key remain specialized. They do not expose
+their providers through generic modular-feature cardinality. An unloadable
+module instead creates an `FModuleOwnedCallbackRegistration` during startup and
+passes its copyable gate to every foreign registry that retains its callable,
+virtual provider, raw observer, factory, or custom deleter.
+
+A retained entry follows all of these rules:
+
+- registration first admits through the owner gate and retains a persistent
+  `FModuleOwnedResourceLease` for the full storage lifetime;
+- invocation enters `FModuleOwnedCallbackInvocation` and, when provider or
+  callable storage is copied beyond the registry lock, retains a temporary
+  resource lease until that copy is destroyed;
+- metadata enumeration strips executable callbacks instead of returning a
+  callable snapshot;
+- a plan, session, workspace proxy, customization instance, viewport mode, or
+  other escaped object retains a resource lease until its Plugin-owned state is
+  destroyed;
+- removal uses an identity- and generation-bearing handle so a stale owner
+  cannot remove its replacement; and
+- `ShutdownModule` destroys registrations and escaped instances before the
+  manager performs its final owner audit.
+
+The manager's synchronous retirement closes all gates before module shutdown.
+Late registration and invocation therefore fail, already admitted calls finish,
+and any forgotten stored entry or escaped instance leaves a non-zero retained
+resource count that blocks native release. A `shared_ptr` alone is never DLL
+lifetime evidence because its deleter and virtual destructor may be Plugin code.
+
+This contract currently covers asset-import providers and handlers, build-host
+contributions and local build functions, Editor workspaces and routes, rendered
+thumbnail providers, customizations, viewport modes, startup and console
+commands, asset-reference stores, and asset-move observers. Each registry keeps
+its existing domain-specific matching and ordering behavior.
+
+## External and Deferred Execution
+
+A callback invocation that launches work must attach the root task to an
+owner-created `FAsyncOperationGroup` before returning. The module may keep task
+result handles during normal operation, but `ShutdownModule` must cancel or
+wait them and destroy those handles before the manager's final async drain.
+Local task scopes remain valid for native tests and objects whose code is not
+unloadable; they are not a production substitute for module attribution.
+
+Render commands are bounded submissions rather than registry entries, but
+their callable storage still contains producer code. Every unloadable producer
+must stop admission and call `FlushRenderingCommands` while its DLL and the RHI
+backend remain mapped. If an object owns worker-produced GPU uploads, its
+shutdown first cancels and waits the worker handles, then flushes accepted
+render commands, then destroys publication state.
+
+Process shutdown preserves this ordering mechanically. The general reverse-load
+pass shuts down and unloads render-command producers while the rendering and RHI
+threads are alive. `VulkanRHI` is explicitly deferred from that pass. After all
+producer shutdown callbacks have flushed, Launch stops the rendering thread and
+calls `RHIExit`; RHI exit flushes the RHI queue, completes the terminal backend
+shutdown marker, stops the RHI thread, deletes `GDynamicRHI`, and only then asks
+the module manager to unload `VulkanRHI`. Failure leaves the backend module
+mapped.
+
+## Bounded Exemptions
+
+Owner attribution is unnecessary only when construction proves that no
+unloadable code can remain callable or destructible:
+
+- a predicate, visitor, serializer hook, or failure callback is created,
+  invoked, and destroyed within one synchronous stack;
+- a static C callback is owned by the same library as the external object and
+  that object clears the callback during its own destruction;
+- the provider code belongs to a process-resident foundation library with no
+  dynamic `IModuleInterface` entry;
+- a registration or local scope exists only inside a bounded native test; or
+- repository search establishes that the service has definitions but no
+  production registration, as with the current timer and file-watcher classes.
+
+An exemption must name the storage owner, provider code location, and lifetime
+boundary in the owning plan or contract. A load-order assumption, raw pointer,
+module-loaded query, or generation invalidation without callable destruction is
+not an exemption.

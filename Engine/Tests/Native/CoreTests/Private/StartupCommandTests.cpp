@@ -1,15 +1,20 @@
 #include <gtest/gtest.h>
 
 #include "Misc/StartupCommand.h"
+#include "Modules/ModuleTestContext.h"
 
 TEST(FStartupCommandTests, DispatchesOneOpaqueCommandAfterHandlerRegistration)
 {
+	static auto Context = Durin::FModuleTestContextFactory::CreateStartupContext(
+		"StartupCommandTests");
+	static auto Registration = Context.CreateOwnedCallbackRegistration(
+		"Tests.StartupCommands");
 	std::vector<std::string> Received;
 	const Durin::uint64 Handle = Durin::RegisterStartupCommandHandler(
 		"test.opaque", [&Received](std::span<const std::string> Arguments) {
 			Received.assign(Arguments.begin(), Arguments.end());
 			return 17;
-		});
+		}, Registration.GetGate());
 	ASSERT_NE(Handle, 0u);
 	std::string Error;
 	ASSERT_TRUE(Durin::ConfigureStartupCommand(

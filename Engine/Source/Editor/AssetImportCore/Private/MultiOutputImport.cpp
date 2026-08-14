@@ -859,7 +859,14 @@ namespace Durin::Asset::Import
 
 	struct FImportRecordHandlerRegistry::FImpl
 	{
-		std::map<std::string, std::shared_ptr<IImportRecordHandler>, std::less<>> Handlers;
+		struct FEntry
+		{
+			FModuleOwnedResourceLease RegistryResource;
+			std::shared_ptr<IImportRecordHandler> Handler;
+			FModuleOwnedCallbackGate OwnerGate;
+		};
+		mutable std::mutex Mutex;
+		std::map<std::string, FEntry, std::less<>> Handlers;
 		uint64 Revision = 1;
 	};
 
@@ -869,15 +876,25 @@ namespace Durin::Asset::Import
 
 	auto FImportRecordHandlerRegistry::Register(
 		std::shared_ptr<IImportRecordHandler> Handler,
+		FModuleOwnedCallbackGate OwnerGate,
 		std::string& OutError) -> bool
 	{
-		if (!Handler || Handler->GetProviderId().empty())
+		auto Invocation = OwnerGate.TryEnter();
+		if (!Handler || !Invocation || Handler->GetProviderId().empty())
 		{
 			OutError = "Import-record handler identity is invalid.";
 			return false;
 		}
 		const std::string Id(Handler->GetProviderId());
-		if (!Impl->Handlers.emplace(Id, std::move(Handler)).second)
+		std::lock_guard Lock(Impl->Mutex);
+		auto Resource = OwnerGate.RetainResource();
+		if (!Resource)
+		{
+			OutError = "Import-record handler owner is retiring.";
+			return false;
+		}
+		if (!Impl->Handlers.emplace(Id, FImpl::FEntry{
+			std::move(Resource), std::move(Handler), std::move(OwnerGate)}).second)
 		{
 			OutError = std::format("Import-record handler {} is already registered.", Id);
 			return false;
@@ -889,6 +906,7 @@ namespace Durin::Asset::Import
 
 	auto FImportRecordHandlerRegistry::Unregister(std::string_view ProviderId) -> bool
 	{
+		std::lock_guard Lock(Impl->Mutex);
 		if (Impl->Handlers.erase(std::string(ProviderId)) == 0) return false;
 		++Impl->Revision;
 		return true;
@@ -897,12 +915,26 @@ namespace Durin::Asset::Import
 	auto FImportRecordHandlerRegistry::Find(std::string_view ProviderId) const
 		-> std::shared_ptr<const IImportRecordHandler>
 	{
+		std::lock_guard Lock(Impl->Mutex);
 		const auto It = Impl->Handlers.find(ProviderId);
-		return It == Impl->Handlers.end() ? nullptr : It->second;
+		if (It == Impl->Handlers.end()) return nullptr;
+		auto Invocation = It->second.OwnerGate.TryEnter();
+		auto Resource = It->second.OwnerGate.RetainResource();
+		if (!Invocation || !Resource) return nullptr;
+		struct FLease
+		{
+			FModuleOwnedResourceLease Resource;
+			std::shared_ptr<IImportRecordHandler> Handler;
+		};
+		auto Lease = std::make_shared<FLease>(FLease{
+			std::move(Resource), It->second.Handler});
+		return std::shared_ptr<const IImportRecordHandler>(
+			std::move(Lease), It->second.Handler.get());
 	}
 
 	auto FImportRecordHandlerRegistry::GetRevision() const -> uint64
 	{
+		std::lock_guard Lock(Impl->Mutex);
 		return Impl->Revision;
 	}
 

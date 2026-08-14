@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Modules/ModularFeature.h"
+
 #include "AssetCoreAPI.h"
 #include "CookedAsset.h"
 #include "Delegates/Delegate.h"
@@ -636,7 +638,9 @@ namespace Durin::Asset
 	};
 
 	using FAssetReferenceStoreHandle = uint64;
-	ASSETCORE_API auto RegisterAssetReferenceStore(IAssetReferenceStore* Store)
+	ASSETCORE_API auto RegisterAssetReferenceStore(
+		IAssetReferenceStore* Store,
+		FModuleOwnedCallbackGate OwnerGate = {})
 		-> FAssetReferenceStoreHandle;
 	ASSETCORE_API auto UnregisterAssetReferenceStore(
 		FAssetReferenceStoreHandle Handle) -> void;
@@ -727,7 +731,9 @@ namespace Durin::Asset
 	};
 
 	using FAssetMoveObserverHandle = uint64;
-	ASSETCORE_API auto RegisterAssetMoveObserver(IAssetMoveObserver* Observer)
+	ASSETCORE_API auto RegisterAssetMoveObserver(
+		IAssetMoveObserver* Observer,
+		FModuleOwnedCallbackGate OwnerGate = {})
 		-> FAssetMoveObserverHandle;
 	ASSETCORE_API auto UnregisterAssetMoveObserver(
 		FAssetMoveObserverHandle Handle) -> void;

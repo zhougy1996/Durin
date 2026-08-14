@@ -83,7 +83,8 @@ namespace Durin::Editor::Level
 		FGetMountedContentMutationRevision InGetMountedContentMutationRevision,
 		FNotifyMountedContentMutation InNotifyMountedContentMutation,
 		std::shared_ptr<FMountedContentReconciliationState>
-			InMountedContentReconciliationState)
+			InMountedContentReconciliationState,
+		FTaskScopeToken InThumbnailTaskScope)
 		: SessionSettings(InSessionSettings)
 		, OpenAsset(std::move(InOpenAsset))
 		, RequestImport(std::move(InRequestImport))
@@ -103,7 +104,8 @@ namespace Durin::Editor::Level
 		, DirectoryTreeWidth(InSessionSettings.GetContentBrowserTreeWidth())
 	{
 		Model.RefreshMountSnapshot();
-		ThumbnailCache = std::make_unique<FContentBrowserThumbnailCache>();
+		ThumbnailCache = std::make_unique<FContentBrowserThumbnailCache>(
+			std::move(InThumbnailTaskScope));
 		ViewMode = static_cast<EContentBrowserViewMode>(
 			SessionSettings.GetContentBrowserViewMode());
 		bIconSizeLocked = SessionSettings.IsContentBrowserIconSizeLocked();

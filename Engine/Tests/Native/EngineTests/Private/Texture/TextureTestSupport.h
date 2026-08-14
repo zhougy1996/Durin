@@ -38,7 +38,8 @@ inline auto InitializeTextureImportMount() -> void
 
 inline auto EnsureTextureBuildHost() -> bool
 {
-	return Durin::Asset::Build::InitializeTextureBuildService()
+	return Durin::Asset::Build::InitializeTextureBuildService(
+		GetEngineTestModuleCallbackGate())
 		&& Durin::Asset::Build::InitializeBuildHost();
 }
 
@@ -47,7 +48,8 @@ inline auto RestartTextureBuildHost(
 {
 	Durin::Asset::Build::ShutdownBuildHost();
 	Durin::Asset::Build::ShutdownTextureBuildService();
-	return Durin::Asset::Build::InitializeTextureBuildService(Config)
+	return Durin::Asset::Build::InitializeTextureBuildService(
+		GetEngineTestModuleCallbackGate(), Config)
 		&& Durin::Asset::Build::InitializeBuildHost();
 }
 

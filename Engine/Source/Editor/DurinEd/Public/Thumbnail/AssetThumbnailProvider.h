@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Thumbnail/AssetThumbnailKey.h"
+#include "Modules/ModularFeature.h"
 
 namespace Durin
 {
@@ -188,10 +189,24 @@ namespace Durin
 
 		DURINED_API auto Register(
 			std::shared_ptr<IAssetThumbnailProvider> Provider,
+			FModuleOwnedCallbackGate OwnerGate,
 			std::string& OutError) -> bool;
+		// Process-owned/test providers only; unloadable modules must pass an owner gate.
+		auto Register(std::shared_ptr<IAssetThumbnailProvider> Provider,
+			std::string& OutError) -> bool
+		{
+			return Register(std::move(Provider), {}, OutError);
+		}
 		DURINED_API auto RegisterScoped(
 			std::unique_ptr<IAssetThumbnailProvider> Provider,
+			FModuleOwnedCallbackGate OwnerGate,
 			std::string& OutError) -> FAssetThumbnailProviderRegistrationHandle;
+		// Process-owned/test providers only; unloadable modules must pass an owner gate.
+		auto RegisterScoped(std::unique_ptr<IAssetThumbnailProvider> Provider,
+			std::string& OutError) -> FAssetThumbnailProviderRegistrationHandle
+		{
+			return RegisterScoped(std::move(Provider), {}, OutError);
+		}
 		DURINED_API auto Unregister(std::string_view AssetClassName, std::string& OutError) -> bool;
 		DURINED_API auto Find(std::string_view AssetClassName) const -> FAssetThumbnailProviderHandle;
 		DURINED_API auto UsesSourceImage(std::string_view AssetClassName) const -> bool;

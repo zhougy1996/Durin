@@ -93,6 +93,7 @@ namespace Durin
 		uint32 PublishedCount = 0;
 		uint32 RetiringCount = 0;
 		uint32 InFlightInvocationCount = 0;
+		uint32 RetainedResourceCount = 0;
 	};
 
 	// Categorizes bounded synchronous retirement and unsupported self-waits.
@@ -129,6 +130,7 @@ namespace Durin
 			auto operator=(const FModularFeatureInvocation&) -> FModularFeatureInvocation& = delete;
 			CORE_API ~FModularFeatureInvocation();
 
+			[[nodiscard]] auto IsValid() const -> bool { return Entry != nullptr; }
 			CORE_API auto GetImplementation() const -> IModularFeature*;
 			CORE_API auto Enter() -> void;
 			CORE_API auto Leave() -> void;
@@ -141,6 +143,101 @@ namespace Durin
 			friend class ::Durin::FModularFeatureRegistry;
 		};
 	}
+
+	class FModuleOwnedCallbackGate;
+
+	// Marks one bounded call through a specialized cross-DLL registry.
+	class FModuleOwnedCallbackInvocation final
+	{
+	public:
+		FModuleOwnedCallbackInvocation() = default;
+		FModuleOwnedCallbackInvocation(FModuleOwnedCallbackInvocation&&) noexcept = default;
+		auto operator=(FModuleOwnedCallbackInvocation&&) noexcept
+			-> FModuleOwnedCallbackInvocation& = default;
+		FModuleOwnedCallbackInvocation(const FModuleOwnedCallbackInvocation&) = delete;
+		auto operator=(const FModuleOwnedCallbackInvocation&)
+			-> FModuleOwnedCallbackInvocation& = delete;
+		[[nodiscard]] explicit operator bool() const { return bAdmitted; }
+
+	private:
+		explicit FModuleOwnedCallbackInvocation(Detail::FModularFeatureInvocation InInvocation)
+			: Invocation(std::move(InInvocation)), bAdmitted(true) { Invocation.Enter(); }
+		Detail::FModularFeatureInvocation Invocation;
+		bool bAdmitted = false;
+
+		friend class FModuleOwnedCallbackGate;
+	};
+
+	// Counts provider objects, plans, sessions, or other Plugin-owned resources
+	// that may execute Plugin destruction after their originating call returns.
+	class FModuleOwnedResourceLease final
+	{
+	public:
+		FModuleOwnedResourceLease() = default;
+		CORE_API ~FModuleOwnedResourceLease();
+		FModuleOwnedResourceLease(const FModuleOwnedResourceLease&) = delete;
+		auto operator=(const FModuleOwnedResourceLease&) -> FModuleOwnedResourceLease& = delete;
+		CORE_API FModuleOwnedResourceLease(FModuleOwnedResourceLease&& Other) noexcept;
+		CORE_API auto operator=(FModuleOwnedResourceLease&& Other) noexcept
+			-> FModuleOwnedResourceLease&;
+		[[nodiscard]] explicit operator bool() const { return Entry != nullptr; }
+
+	private:
+		explicit FModuleOwnedResourceLease(std::shared_ptr<Detail::FModularFeatureEntryState> InEntry)
+			: Entry(std::move(InEntry)) {}
+		CORE_API auto Release() -> void;
+		std::shared_ptr<Detail::FModularFeatureEntryState> Entry;
+
+		friend class FModuleOwnedCallbackGate;
+		friend class FModularFeatureRegistry;
+	};
+
+	// Copyable admission capability stored beside specialized registry entries.
+	class FModuleOwnedCallbackGate final
+	{
+	public:
+		FModuleOwnedCallbackGate() = default;
+		[[nodiscard]] CORE_API auto IsValid() const -> bool;
+		[[nodiscard]] CORE_API auto TryEnter() const -> FModuleOwnedCallbackInvocation;
+		[[nodiscard]] CORE_API auto RetainResource() const -> FModuleOwnedResourceLease;
+
+	private:
+		explicit FModuleOwnedCallbackGate(std::shared_ptr<Detail::FModularFeatureEntryState> InEntry)
+			: Entry(std::move(InEntry)) {}
+		std::shared_ptr<Detail::FModularFeatureEntryState> Entry;
+
+		friend class FModuleOwnedCallbackRegistration;
+	};
+
+	// Module-owned token for one specialized-registry admission domain.
+	class FModuleOwnedCallbackRegistration final
+	{
+	public:
+		FModuleOwnedCallbackRegistration() = default;
+		CORE_API ~FModuleOwnedCallbackRegistration();
+		FModuleOwnedCallbackRegistration(const FModuleOwnedCallbackRegistration&) = delete;
+		auto operator=(const FModuleOwnedCallbackRegistration&)
+			-> FModuleOwnedCallbackRegistration& = delete;
+		CORE_API FModuleOwnedCallbackRegistration(FModuleOwnedCallbackRegistration&& Other) noexcept;
+		CORE_API auto operator=(FModuleOwnedCallbackRegistration&& Other) noexcept
+			-> FModuleOwnedCallbackRegistration&;
+		[[nodiscard]] CORE_API auto IsValid() const -> bool;
+		[[nodiscard]] auto GetGate() const -> FModuleOwnedCallbackGate
+		{
+			return FModuleOwnedCallbackGate(Entry);
+		}
+		CORE_API auto Retire() -> FModularFeatureRetirementSnapshot;
+		CORE_API auto Reset(std::chrono::milliseconds Timeout = std::chrono::seconds(5))
+			-> FModularFeatureRetirementResult;
+
+	private:
+		explicit FModuleOwnedCallbackRegistration(
+			std::shared_ptr<Detail::FModularFeatureEntryState> InEntry)
+			: Entry(std::move(InEntry)) {}
+		std::shared_ptr<Detail::FModularFeatureEntryState> Entry;
+
+		friend class FModularFeatureRegistry;
+	};
 
 	// Owns the move-only identity token for one exact feature registration.
 	class FModularFeatureRegistration final
@@ -254,7 +351,16 @@ namespace Durin
 			FModularFeatureIdentity Identity,
 			IModularFeature& Implementation
 		) -> FModularFeatureRegistration;
+		CORE_API auto RegisterOwnedCallback(
+			const std::shared_ptr<Detail::FModularFeatureOwnerState>& Owner,
+			FName DomainName) -> FModuleOwnedCallbackRegistration;
 		CORE_API auto BeginInvoke(const FModularFeatureIdentity& Identity) -> std::vector<Detail::FModularFeatureInvocation>;
+		CORE_API auto BeginInvokeEntry(
+			const std::shared_ptr<Detail::FModularFeatureEntryState>& Entry)
+			-> Detail::FModularFeatureInvocation;
+		CORE_API auto RetainEntryResource(
+			const std::shared_ptr<Detail::FModularFeatureEntryState>& Entry)
+			-> FModuleOwnedResourceLease;
 		CORE_API auto CreateOwner(FName OwnerName, uint64 Generation) -> std::shared_ptr<Detail::FModularFeatureOwnerState>;
 		CORE_API auto RetireOwner(
 			const std::shared_ptr<Detail::FModularFeatureOwnerState>& Owner,
@@ -271,5 +377,8 @@ namespace Durin
 		friend class FModuleManager;
 		friend class FModuleTestContextFactory;
 		friend class FModularFeatureRegistration;
+		friend class FModuleOwnedCallbackGate;
+		friend class FModuleOwnedCallbackRegistration;
+		friend class FModuleOwnedResourceLease;
 	};
 }

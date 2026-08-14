@@ -3,6 +3,7 @@
 #include "TextureBuildAPI.h"
 #include "Hash/XxHash.h"
 #include "Asset/SourcePath.h"
+#include "Threading/Task.h"
 #include "Texture/Texture2D.h"
 
 namespace Durin::Asset::Build
@@ -108,6 +109,8 @@ namespace Durin::Asset::Build
 		uint32 MaxWorkers = 2;
 		uint32 InteractiveBurstLimit = 4;
 		uint64 InFlightByteBudget = 1024ull * 1024ull * 1024ull;
+		FTaskCancellationToken OwnerCancellationToken;
+		FTaskScopeToken OwnerTaskScope;
 	};
 
 	using FTexture2DBuildCompletion = std::function<void(FTexture2DQueuedBuildResult&&)>;

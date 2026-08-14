@@ -16,8 +16,11 @@ namespace Durin
 
 	FMaterialEditorModule::~FMaterialEditorModule() = default;
 
-	auto FMaterialEditorModule::StartupModule(FModuleContext&) -> void
+	auto FMaterialEditorModule::StartupModule(FModuleContext& Context) -> void
 	{
+		EditorExtensionCallbacks =
+			Context.CreateOwnedCallbackRegistration("Editor.ExtensionRegistries");
+		require(EditorExtensionCallbacks.IsValid());
 	}
 
 	auto FMaterialEditorModule::ShutdownModule(FModuleShutdownContext&) -> void
@@ -65,13 +68,14 @@ namespace Durin
 					.bClosable = true,
 				},
 			},
-		});
+		}, EditorExtensionCallbacks.GetGate());
 		if (!Registration) return false;
 		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
 		std::string Error;
 		auto MaterialHandle = ThumbnailService.RegisterScoped(
 			std::make_unique<FMaterialAssetThumbnailProvider>(
-				DMaterial::StaticClass()->GetQualifiedName().ToString()), Error);
+				DMaterial::StaticClass()->GetQualifiedName().ToString()),
+			EditorExtensionCallbacks.GetGate(), Error);
 		if (!MaterialHandle)
 		{
 			WorkspaceRegistration.reset();
@@ -82,7 +86,8 @@ namespace Durin
 				std::move(MaterialHandle));
 		auto InstanceHandle = ThumbnailService.RegisterScoped(
 			std::make_unique<FMaterialAssetThumbnailProvider>(
-				DMaterialInstance::StaticClass()->GetQualifiedName().ToString()), Error);
+				DMaterialInstance::StaticClass()->GetQualifiedName().ToString()),
+			EditorExtensionCallbacks.GetGate(), Error);
 		if (!InstanceHandle)
 		{
 			MaterialThumbnailRegistration.reset();

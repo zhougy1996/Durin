@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Thumbnail/AssetThumbnailProvider.h"
+#include "Threading/Task.h"
 
 namespace Durin::Editor::Level
 {
@@ -18,7 +19,10 @@ namespace Durin::Editor::Level
 	class FSourceImageThumbnailCache
 	{
 	public:
+		// Test/local caches may be unscoped; production LevelEditor construction
+		// supplies its module-owned task scope.
 		FSourceImageThumbnailCache();
+		explicit FSourceImageThumbnailCache(FTaskScopeToken TaskScope);
 		~FSourceImageThumbnailCache();
 
 		FSourceImageThumbnailCache(const FSourceImageThumbnailCache&) = delete;

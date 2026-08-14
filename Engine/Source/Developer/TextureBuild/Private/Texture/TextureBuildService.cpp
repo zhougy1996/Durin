@@ -19,6 +19,7 @@ namespace Durin::Asset::Build
 	}
 
 	auto InitializeTextureBuildService(
+		FModuleOwnedCallbackGate OwnerGate,
 		const FTexture2DBuildCoordinatorConfig& Config) -> bool
 	{
 		CheckGameThread();
@@ -31,6 +32,7 @@ namespace Durin::Asset::Build
 		State->Registration = RegisterBuildServiceContribution({
 			.Identity = "Durin.TextureBuild.Coordinator",
 			.DrainOrder = 100,
+			.OwnerGate = std::move(OwnerGate),
 			.Start = [Coordinator] { return Coordinator->Start(); },
 			.StopAdmission = [Coordinator] { Coordinator->Shutdown(); },
 			.PumpCompletions = [Coordinator](uint32 MaximumCount) {

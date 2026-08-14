@@ -5,6 +5,7 @@
 #include "Editor/PropertyView.h"
 #include "SceneView.h"
 #include "LevelEditorSelection.h"
+#include "Modules/ModularFeature.h"
 
 namespace Durin
 {
@@ -219,9 +220,9 @@ namespace Durin::Editor::Level
 	{
 	public:
 		LEVELEDITOR_API static auto Get() -> FLevelEditorCustomizationRegistry&;
-		LEVELEDITOR_API auto RegisterActorVisualizer(DClass* Class, std::shared_ptr<IActorEditorVisualizer> Visualizer) -> FLevelEditorCustomizationHandle;
-		LEVELEDITOR_API auto RegisterComponentVisualizer(DClass* Class, std::shared_ptr<IComponentEditorVisualizer> Visualizer) -> FLevelEditorCustomizationHandle;
-		LEVELEDITOR_API auto RegisterObjectDetails(DClass* Class, std::shared_ptr<IObjectDetailsCustomization> Customization) -> FLevelEditorCustomizationHandle;
+		LEVELEDITOR_API auto RegisterActorVisualizer(DClass* Class, std::shared_ptr<IActorEditorVisualizer> Visualizer, FModuleOwnedCallbackGate OwnerGate = {}) -> FLevelEditorCustomizationHandle;
+		LEVELEDITOR_API auto RegisterComponentVisualizer(DClass* Class, std::shared_ptr<IComponentEditorVisualizer> Visualizer, FModuleOwnedCallbackGate OwnerGate = {}) -> FLevelEditorCustomizationHandle;
+		LEVELEDITOR_API auto RegisterObjectDetails(DClass* Class, std::shared_ptr<IObjectDetailsCustomization> Customization, FModuleOwnedCallbackGate OwnerGate = {}) -> FLevelEditorCustomizationHandle;
 		LEVELEDITOR_API auto Unregister(FLevelEditorCustomizationHandle Handle) -> bool;
 		LEVELEDITOR_API auto FindActorVisualizer(const DClass* Class) const -> std::shared_ptr<IActorEditorVisualizer>;
 		LEVELEDITOR_API auto FindComponentVisualizer(const DClass* Class) const -> std::shared_ptr<IComponentEditorVisualizer>;

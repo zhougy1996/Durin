@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AssetBuild/BuildTypes.h"
+#include "Modules/ModularFeature.h"
 
 namespace Durin::Asset::Build
 {
@@ -9,6 +10,7 @@ namespace Durin::Asset::Build
 	{
 		std::string Identity;
 		int32 DrainOrder = 0;
+		FModuleOwnedCallbackGate OwnerGate;
 		std::function<bool()> Start;
 		std::function<void()> StopAdmission;
 		std::function<uint32(uint32)> PumpCompletions;

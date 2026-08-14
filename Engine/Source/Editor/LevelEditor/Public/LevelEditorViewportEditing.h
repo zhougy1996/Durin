@@ -3,6 +3,7 @@
 #include "LevelEditorAPI.h"
 #include "LevelEditorTransformTargets.h"
 #include "SceneView.h"
+#include "Modules/ModularFeature.h"
 
 namespace Durin::Editor
 {
@@ -47,15 +48,25 @@ namespace Durin::Editor::Level
 	{
 	public:
 		LEVELEDITOR_API static auto Get() -> FLevelViewportEditModeRegistry&;
-		LEVELEDITOR_API auto Register(FLevelViewportEditModeDescriptor Descriptor) -> FLevelViewportEditModeHandle;
+		LEVELEDITOR_API auto Register(
+			FLevelViewportEditModeDescriptor Descriptor,
+			FModuleOwnedCallbackGate OwnerGate = {}) -> FLevelViewportEditModeHandle;
 		LEVELEDITOR_API auto Unregister(FLevelViewportEditModeHandle Handle) -> bool;
 		LEVELEDITOR_API auto Find(std::string_view Id) const -> const FLevelViewportEditModeDescriptor*;
 		LEVELEDITOR_API auto GetAvailable(const FLevelEditorContext& Context) const -> std::vector<const FLevelViewportEditModeDescriptor*>;
 
 	private:
 		uint64 NextHandleId = 1;
-		struct FEntry { uint64 HandleId = 0; FLevelViewportEditModeDescriptor Descriptor; };
+		struct FEntry
+		{
+			uint64 HandleId = 0;
+			FModuleOwnedResourceLease OwnerResource;
+			FModuleOwnedCallbackGate OwnerGate;
+			FLevelViewportEditModeDescriptor Descriptor;
+		};
+		auto FindEntry(std::string_view Id) const -> const FEntry*;
 		std::vector<FEntry> Entries;
+		friend class FLevelViewportEditModeManager;
 	};
 
 	class FLevelViewportEditModeManager
@@ -73,6 +84,8 @@ namespace Durin::Editor::Level
 
 	private:
 		std::string ActiveId;
+		FModuleOwnedResourceLease ActiveOwnerResource;
+		FModuleOwnedCallbackGate ActiveOwnerGate;
 		std::unique_ptr<ILevelViewportEditMode> ActiveMode;
 		FLevelEditorContext* LastContext = nullptr;
 	};

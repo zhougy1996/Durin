@@ -25,8 +25,10 @@ namespace Durin::Asset::Build
 
 		struct FRegisteredFunction
 		{
+			std::shared_ptr<FModuleOwnedResourceLease> RegistryResource;
 			FLocalBuildFunction Function;
 			std::shared_ptr<FBuildRequestOwner> Owner;
+			FModuleOwnedCallbackGate OwnerGate;
 			uint64 Generation = 0;
 		};
 
@@ -36,6 +38,7 @@ namespace Durin::Asset::Build
 
 		struct FRegisteredService
 		{
+			FModuleOwnedResourceLease RegistryResource;
 			FBuildServiceContribution Contribution;
 			uint64 Generation = 0;
 			bool bStarted = false;
@@ -213,18 +216,26 @@ namespace Durin::Asset::Build
 
 	auto RegisterLocalBuildFunction(
 		FBuildFunctionIdentity Identity, FLocalBuildFunction Function,
+		FModuleOwnedCallbackGate OwnerGate,
 		std::shared_ptr<FBuildRequestOwner> Owner, std::string* OutError)
 		-> FBuildFunctionRegistration
 	{
 		if (!IsValidBuildFunctionIdentity(Identity, OutError)) return {};
 		if (!Function) return SetError(OutError, "Local Build function is empty."), FBuildFunctionRegistration{};
+		if (!OwnerGate.IsValid())
+			return SetError(OutError, "Local Build function module owner gate is invalid."), FBuildFunctionRegistration{};
 		if (!Owner) Owner = std::make_shared<FBuildRequestOwner>();
 		const std::string Key = BuildFunctionIdentityString(Identity);
 		std::lock_guard Lock(GFunctionMutex);
 		if (GFunctions.contains(Key))
 			return SetError(OutError, "Build function identity is already registered."), FBuildFunctionRegistration{};
+		auto Resource = OwnerGate.RetainResource();
+		if (!Resource)
+			return SetError(OutError, "Local Build function owner is retiring."), FBuildFunctionRegistration{};
 		const uint64 Generation = GNextFunctionGeneration++;
-		GFunctions.emplace(Key, FRegisteredFunction{std::move(Function), Owner, Generation});
+		GFunctions.emplace(Key, FRegisteredFunction{
+			std::make_shared<FModuleOwnedResourceLease>(std::move(Resource)),
+			std::move(Function), Owner, std::move(OwnerGate), Generation});
 		FBuildFunctionRegistration Registration;
 		Registration.Identity = std::move(Identity);
 		Registration.Generation = Generation;
@@ -239,12 +250,17 @@ namespace Durin::Asset::Build
 	{
 		if (!ValidateBuildDefinition(Definition, OutError)) return false;
 		FRegisteredFunction Entry;
+		FModuleOwnedResourceLease Lifetime;
 		{
 			std::lock_guard Lock(GFunctionMutex);
 			const auto It = GFunctions.find(BuildFunctionIdentityString(Definition.Function));
 			if (It == GFunctions.end()) return SetError(OutError, "Build function is not registered.");
+			Lifetime = It->second.OwnerGate.RetainResource();
+			if (!Lifetime) return SetError(OutError, "Build function owner is retiring.");
 			Entry = It->second;
 		}
+		auto Invocation = Entry.OwnerGate.TryEnter();
+		if (!Invocation) return SetError(OutError, "Build function owner is retiring.");
 		if (!BeginBuildRequest(*Entry.Owner)) return SetError(OutError, "Build request owner is not accepting requests.");
 		try
 		{
@@ -259,6 +275,7 @@ namespace Durin::Asset::Build
 			OutResult = {.Diagnostic = "Local Build function threw an unknown exception."};
 		}
 		CompleteBuildRequest(*Entry.Owner, OutResult.Diagnostic);
+		Entry.Function = {};
 		if (TerminalCallback) TerminalCallback(OutResult);
 		return true;
 	}
@@ -355,15 +372,22 @@ namespace Durin::Asset::Build
 	{
 		if (!IsCanonicalIdentityPart(Contribution.Identity))
 			return SetError(OutError, "Build service identity is not canonical."), FBuildServiceRegistration{};
+		if (!Contribution.OwnerGate.IsValid())
+			return SetError(OutError, "Build service module owner gate is invalid."), FBuildServiceRegistration{};
 		std::lock_guard Lock(GHostMutex);
 		if (GServices.contains(Contribution.Identity))
 			return SetError(OutError, "Build service identity is already registered."), FBuildServiceRegistration{};
+		FModuleOwnedResourceLease Resource = Contribution.OwnerGate.RetainResource();
+		if (!Resource)
+			return SetError(OutError, "Build service module owner is retiring."), FBuildServiceRegistration{};
 		const uint64 Generation = GNextServiceGeneration++;
 		const std::string Identity = Contribution.Identity;
-		FRegisteredService Service{std::move(Contribution), Generation, false};
+		FRegisteredService Service{
+			std::move(Resource), std::move(Contribution), Generation, false};
 		if (GHostRunning && Service.Contribution.Start)
 		{
-			if (!Service.Contribution.Start())
+			auto Invocation = Service.Contribution.OwnerGate.TryEnter();
+			if (!Invocation || !Service.Contribution.Start())
 				return SetError(OutError, "Build service failed to start."), FBuildServiceRegistration{};
 			Service.bStarted = true;
 		}
@@ -381,7 +405,8 @@ namespace Durin::Asset::Build
 		std::vector<FRegisteredService*> Started;
 		for (auto& [Identity, Service] : GServices)
 		{
-			if (Service.Contribution.Start && !Service.Contribution.Start())
+			auto Invocation = Service.Contribution.OwnerGate.TryEnter();
+			if (!Invocation || (Service.Contribution.Start && !Service.Contribution.Start()))
 			{
 				for (FRegisteredService* Item : Started)
 				{
@@ -400,39 +425,63 @@ namespace Durin::Asset::Build
 
 	auto PumpBuildHostCompletions(uint32 MaximumCount) -> uint32
 	{
-		std::vector<std::function<uint32(uint32)>> Pumps;
+		struct FPump
+		{
+			FModuleOwnedResourceLease Lifetime;
+			FModuleOwnedCallbackGate Gate;
+			std::function<uint32(uint32)> Callback;
+		};
+		std::vector<FPump> Pumps;
 		{
 			std::lock_guard Lock(GHostMutex);
 			if (!GHostRunning) return 0;
 			for (const auto& [Identity, Service] : GServices)
 				if (Service.bStarted && Service.Contribution.PumpCompletions)
-					Pumps.push_back(Service.Contribution.PumpCompletions);
+				{
+					auto Lifetime = Service.Contribution.OwnerGate.RetainResource();
+					if (Lifetime) Pumps.push_back({std::move(Lifetime),
+						Service.Contribution.OwnerGate, Service.Contribution.PumpCompletions});
+				}
 		}
 		uint32 Pumped = 0;
-		for (const auto& Pump : Pumps)
+		for (auto& Pump : Pumps)
 		{
 			if (Pumped >= MaximumCount) break;
-			Pumped += Pump(MaximumCount - Pumped);
+			auto Invocation = Pump.Gate.TryEnter();
+			if (Invocation) Pumped += Pump.Callback(MaximumCount - Pumped);
+			Pump.Callback = {};
 		}
 		return Pumped;
 	}
 
 	auto WaitForBuildHost(double TimeoutSeconds) -> bool
 	{
-		std::vector<std::function<bool(double)>> Waits;
+		struct FWait
+		{
+			FModuleOwnedResourceLease Lifetime;
+			FModuleOwnedCallbackGate Gate;
+			std::function<bool(double)> Callback;
+		};
+		std::vector<FWait> Waits;
 		{
 			std::lock_guard Lock(GHostMutex);
 			for (const auto& [Identity, Service] : GServices)
 				if (Service.bStarted && Service.Contribution.Wait)
-					Waits.push_back(Service.Contribution.Wait);
+				{
+					auto Lifetime = Service.Contribution.OwnerGate.RetainResource();
+					if (Lifetime) Waits.push_back({std::move(Lifetime),
+						Service.Contribution.OwnerGate, Service.Contribution.Wait});
+				}
 		}
 		const auto Deadline = std::chrono::steady_clock::now()
 			+ std::chrono::duration<double>(std::max(TimeoutSeconds, 0.0));
-		for (const auto& Wait : Waits)
+		for (auto& Wait : Waits)
 		{
 			const double Remaining = std::chrono::duration<double>(
 				Deadline - std::chrono::steady_clock::now()).count();
-			if (Remaining < 0.0 || !Wait(Remaining)) return false;
+			auto Invocation = Wait.Gate.TryEnter();
+			if (Remaining < 0.0 || !Invocation || !Wait.Callback(Remaining)) return false;
+			Wait.Callback = {};
 		}
 		return true;
 	}
@@ -446,6 +495,8 @@ namespace Durin::Asset::Build
 		for (const auto& [Identity, Service] : GServices)
 		{
 			if (!Service.bStarted || !Service.Contribution.Snapshot) continue;
+			auto Invocation = Service.Contribution.OwnerGate.TryEnter();
+			if (!Invocation) continue;
 			const auto [Queued, Running, Bytes] = Service.Contribution.Snapshot();
 			Result.QueuedRequestCount += Queued;
 			Result.RunningRequestCount += Running;
@@ -456,25 +507,47 @@ namespace Durin::Asset::Build
 
 	auto ShutdownBuildHost() -> void
 	{
-		std::vector<FBuildServiceContribution> Services;
+		struct FShutdownService
+		{
+			FModuleOwnedResourceLease Lifetime;
+			FBuildServiceContribution Contribution;
+		};
+		std::vector<FShutdownService> Services;
 		{
 			std::lock_guard Lock(GHostMutex);
 			if (!GHostRunning) return;
 			GHostRunning = false;
 			for (auto& [Identity, Service] : GServices)
 			{
-				if (Service.bStarted) Services.push_back(Service.Contribution);
+				if (Service.bStarted)
+				{
+					auto Lifetime = Service.Contribution.OwnerGate.RetainResource();
+					if (Lifetime) Services.push_back({std::move(Lifetime), Service.Contribution});
+				}
 				Service.bStarted = false;
 			}
 		}
 		std::ranges::sort(Services, [](const auto& Left, const auto& Right) {
-			return Left.DrainOrder > Right.DrainOrder;
+			return Left.Contribution.DrainOrder > Right.Contribution.DrainOrder;
 		});
-		for (const auto& Service : Services)
-			if (Service.StopAdmission) Service.StopAdmission();
-		for (const auto& Service : Services)
-			if (Service.Wait) Service.Wait(30.0);
-		for (const auto& Service : Services)
-			if (Service.Drain) Service.Drain();
+		for (auto& Service : Services)
+		{
+			auto Invocation = Service.Contribution.OwnerGate.TryEnter();
+			if (Invocation && Service.Contribution.StopAdmission)
+				Service.Contribution.StopAdmission();
+		}
+		for (auto& Service : Services)
+		{
+			auto Invocation = Service.Contribution.OwnerGate.TryEnter();
+			if (Invocation && Service.Contribution.Wait)
+				Service.Contribution.Wait(30.0);
+		}
+		for (auto& Service : Services)
+		{
+			auto Invocation = Service.Contribution.OwnerGate.TryEnter();
+			if (Invocation && Service.Contribution.Drain)
+				Service.Contribution.Drain();
+			Service.Contribution = {};
+		}
 	}
 }

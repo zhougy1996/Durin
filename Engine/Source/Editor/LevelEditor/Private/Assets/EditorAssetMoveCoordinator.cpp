@@ -13,14 +13,15 @@ namespace Durin::Editor::Level
 		FLevelEditorContext& InContext,
 		FLevelEditorSessionSettings& InSessionSettings,
 		FSceneViewportPanel& InSceneViewportPanel,
-		::Durin::Editor::FTransactionManager& InTransactions
+		::Durin::Editor::FTransactionManager& InTransactions,
+		FModuleOwnedCallbackGate OwnerGate
 	)
 		: Context(InContext)
 		, SessionSettings(InSessionSettings)
 		, SceneViewportPanel(InSceneViewportPanel)
 		, Transactions(InTransactions)
 	{
-		ObserverHandle = Asset::RegisterAssetMoveObserver(this);
+		ObserverHandle = Asset::RegisterAssetMoveObserver(this, std::move(OwnerGate));
 	}
 
 	FEditorAssetMoveCoordinator::~FEditorAssetMoveCoordinator()

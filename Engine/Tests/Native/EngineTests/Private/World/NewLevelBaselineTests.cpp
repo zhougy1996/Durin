@@ -2,6 +2,7 @@
 
 #include "DObject/Package.h"
 #include "StandardAssetImportProviders.h"
+#include "StandardAssetAuthoringTestSupport.h"
 
 namespace
 {
@@ -107,8 +108,10 @@ namespace
 TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 {
 	InitializeDObjectSystem();
+	ASSERT_TRUE(Durin::Tests::InstallStandardAssetAuthoringFeatures());
 	std::string ProviderError;
-	ASSERT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(ProviderError)) << ProviderError;
+	ASSERT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(
+		ProviderError, GetEngineTestModuleCallbackGate())) << ProviderError;
 	FScopedStandardAssetImportProviders Providers;
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "LevelReconstruction";

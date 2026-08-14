@@ -5,6 +5,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "EngineAssetServices.h"
 #include "Misc/Name.h"
+#include "Modules/ModuleTestContext.h"
 #include "NativeDObjectTestSupport.h"
 #include "Threading/Task.h"
 
@@ -20,6 +21,15 @@ inline auto InitializeDObjectSystem() -> void
 		return true;
 	}();
 	(void)bInitialized;
+}
+
+inline auto GetEngineTestModuleCallbackGate() -> Durin::FModuleOwnedCallbackGate
+{
+	static auto Context = Durin::FModuleTestContextFactory::CreateStartupContext(
+		"EngineTests.SpecializedRegistries");
+	static auto Registration = Context.CreateOwnedCallbackRegistration(
+		"EngineTests.SpecializedRegistries");
+	return Registration.GetGate();
 }
 
 // Test cleanup follows the production target-plus-alias closure contract while

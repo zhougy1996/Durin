@@ -18,6 +18,7 @@ namespace Durin
 		Asset::Build::FBuildServiceRegistration* ServiceRegistration = nullptr;
 		FModularFeatureRegistration CollisionFeatureRegistration;
 		FModularFeatureRegistration SkeletalFeatureRegistration;
+		FModuleOwnedCallbackRegistration BuildHostCallbackRegistration;
 
 		auto BuildCollisionProduct(
 			const FStaticMeshRenderData& RenderData,
@@ -55,6 +56,8 @@ namespace Durin
 			auto Registration = Asset::Build::RegisterBuildServiceContribution({
 				.Identity = "Durin.GeometryBuild.Recipes",
 				.DrainOrder = 50,
+				.OwnerGate = (BuildHostCallbackRegistration =
+					Context.CreateOwnedCallbackRegistration("AssetBuildCore.BuildHost")).GetGate(),
 				.Start = [] { return true; },
 				.StopAdmission = [] {},
 				.PumpCompletions = [](uint32) { return 0; },

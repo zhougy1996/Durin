@@ -26,6 +26,7 @@ namespace Durin
 			FSceneViewStatistics* OutStatistics = nullptr) -> ERenderViewResult override;
 
 	private:
+		FModuleOwnedCallbackRegistration ConsoleCallbacks;
 		std::unique_ptr<FSceneRenderer> SceneRenderer;
 	};
 }

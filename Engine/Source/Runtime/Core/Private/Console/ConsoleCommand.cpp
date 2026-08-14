@@ -89,14 +89,21 @@ namespace Durin
 		return Registry;
 	}
 
-	auto FConsoleCommandRegistry::RegisterCommand(FConsoleCommandDesc Desc) -> FConsoleCommandHandle
+	auto FConsoleCommandRegistry::RegisterCommand(
+		FConsoleCommandDesc Desc,
+		FModuleOwnedCallbackGate OwnerGate) -> FConsoleCommandHandle
 	{
+		auto Invocation = OwnerGate.TryEnter();
+		if (OwnerGate.IsValid() && !Invocation) return 0;
 		if (Desc.Name.empty() || !Desc.Execute || std::ranges::any_of(Desc.Name, [](unsigned char C) { return std::isspace(C); })) return 0;
 		const std::string Key = ToLower(Desc.Name);
 		std::scoped_lock Lock(Mutex);
 		if (Commands.contains(Key)) return 0;
+		FModuleOwnedResourceLease Resource = OwnerGate.RetainResource();
+		if (OwnerGate.IsValid() && !Resource) return 0;
 		const FConsoleCommandHandle Handle = NextHandle.fetch_add(1, std::memory_order_relaxed);
-		Commands.emplace(Key, std::pair{Handle, std::move(Desc)});
+		Commands.emplace(Key, FEntry{
+			Handle, std::move(Resource), std::move(Desc), std::move(OwnerGate)});
 		return Handle;
 	}
 
@@ -104,7 +111,9 @@ namespace Durin
 	{
 		if (Handle == 0) return;
 		std::scoped_lock Lock(Mutex);
-		std::erase_if(Commands, [Handle](const auto& Entry) { return Entry.second.first == Handle; });
+		std::erase_if(Commands, [Handle](const auto& Entry) {
+			return Entry.second.Handle == Handle;
+		});
 	}
 
 	auto FConsoleCommandRegistry::Execute(std::string_view CommandLine) const -> FConsoleCommandResult
@@ -113,11 +122,21 @@ namespace Durin
 		if (FConsoleCommandResult ParseResult = ParseCommandLine(CommandLine, Tokens); !ParseResult.bSuccess) return ParseResult;
 		if (Tokens.empty()) return FConsoleCommandResult::Success();
 		FConsoleCommandDesc Command;
+		FModuleOwnedResourceLease Resource;
+		FModuleOwnedCallbackInvocation Invocation;
 		{
 			std::scoped_lock Lock(Mutex);
 			const auto It = Commands.find(ToLower(Tokens.front()));
 			if (It == Commands.end()) return FConsoleCommandResult::Failure(std::format("Unknown command '{}'. Type 'help' for a list of commands.", Tokens.front()));
-			Command = It->second.second;
+			Invocation = It->second.OwnerGate.TryEnter();
+			if (It->second.OwnerGate.IsValid() && !Invocation)
+				return FConsoleCommandResult::Failure(
+					std::format("Command '{}' is unavailable because its owner is retiring.", Tokens.front()));
+			Resource = It->second.OwnerGate.RetainResource();
+			if (It->second.OwnerGate.IsValid() && !Resource)
+				return FConsoleCommandResult::Failure(
+					std::format("Command '{}' is unavailable because its owner is retiring.", Tokens.front()));
+			Command = It->second.Desc;
 		}
 		try
 		{
@@ -138,7 +157,8 @@ namespace Durin
 		const std::string Key = ToLower(Prefix);
 		std::vector<std::string> Result;
 		std::scoped_lock Lock(Mutex);
-		for (const auto& [Name, Entry] : Commands) if (Name.starts_with(Key)) Result.push_back(Entry.second.Name);
+		for (const auto& [Name, Entry] : Commands)
+			if (Name.starts_with(Key)) Result.push_back(Entry.Desc.Name);
 		std::ranges::sort(Result, {}, [](const std::string& Name) { return ToLower(Name); });
 		return Result;
 	}
@@ -147,7 +167,12 @@ namespace Durin
 	{
 		std::vector<FConsoleCommandDesc> Result;
 		std::scoped_lock Lock(Mutex);
-		for (const auto& [Name, Entry] : Commands) Result.push_back(Entry.second);
+		for (const auto& [Name, Entry] : Commands)
+		{
+			FConsoleCommandDesc Metadata = Entry.Desc;
+			Metadata.Execute = {};
+			Result.push_back(std::move(Metadata));
+		}
 		std::ranges::sort(Result, {}, [](const FConsoleCommandDesc& Desc) { return ToLower(Desc.Name); });
 		return Result;
 	}
