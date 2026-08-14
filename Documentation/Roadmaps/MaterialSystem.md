@@ -58,9 +58,8 @@ visibility/LOD and M6 shadow-depth work extend it through the
   coalesced publication, lazy parent resolution, startup replay, and stale
   update rejection.
 - Versioned, Engine-owned material render layouts with validated compact
-  uniform/resource payloads, separate persistent asset-schema compatibility,
-  complete deterministic fallbacks, and stable layout identity in shader-map
-  cache keys.
+  uniform/resource payloads, complete deterministic fallbacks, and stable
+  layout identity in shader-map cache keys.
 - StaticMesh Renderer consumption through the v1 compact binding contract;
   unsupported layouts report ShaderBinding diagnostics before shader-map or
   pipeline selection, while texture fallback and Vulkan resource reload remain
@@ -87,8 +86,8 @@ visibility/LOD and M6 shadow-depth work extend it through the
 Milestone 2 completion evidence is recorded in the linked plan. The landed
 contract is `FMaterialRenderRepresentation` v1 identified by
 `MaterialRenderLayoutV1Id`, with Engine-side GUID compilation, exact compact
-binding validation, separate persistent asset-schema versioning, deterministic
-fallback, stable proxy publication, and no fixed material-value fields in
+binding validation, deterministic fallback, stable proxy publication, and no
+fixed material-value fields in
 `FMaterialRenderData`. StaticMesh draws preserve the existing uniform ABI and
 texture fallback, and the aggregate native/Vulkan/reload coverage plus full
 `all` build and editor smoke passed before this roadmap was marked complete.

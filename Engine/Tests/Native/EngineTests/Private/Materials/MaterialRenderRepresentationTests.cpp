@@ -524,33 +524,3 @@ TEST(FMaterialRenderRepresentationTests, V3CompilationCanonicalizesEveryInputCla
 	Durin::MarkAsGarbage(Material);
 	Durin::CollectGarbage();
 }
-
-TEST(FMaterialRenderRepresentationTests, AssetSchemaVersionIsSeparateAndBounded)
-{
-	Durin::FMaterialParameterSchemaVersion Version = 0;
-	std::string Warning;
-	std::string Error;
-	EXPECT_TRUE(Durin::UpgradeMaterialParameterSchemaVersion(Version, Warning, Error));
-	EXPECT_EQ(Version, Durin::CurrentMaterialParameterSchemaVersion);
-	EXPECT_FALSE(Warning.empty());
-	EXPECT_TRUE(Error.empty());
-
-	Version = Durin::CurrentMaterialParameterSchemaVersion;
-	Warning.clear();
-	Error.clear();
-	EXPECT_TRUE(Durin::UpgradeMaterialParameterSchemaVersion(Version, Warning, Error));
-	EXPECT_TRUE(Warning.empty());
-	EXPECT_TRUE(Error.empty());
-
-	Version = Durin::CurrentMaterialParameterSchemaVersion - 1;
-	Warning.clear();
-	Error.clear();
-	EXPECT_TRUE(Durin::UpgradeMaterialParameterSchemaVersion(Version, Warning, Error));
-	EXPECT_EQ(Version, Durin::CurrentMaterialParameterSchemaVersion);
-	EXPECT_FALSE(Warning.empty());
-	EXPECT_TRUE(Error.empty());
-
-	Version = Durin::CurrentMaterialParameterSchemaVersion + 1;
-	EXPECT_FALSE(Durin::UpgradeMaterialParameterSchemaVersion(Version, Warning, Error));
-	EXPECT_FALSE(Error.empty());
-}

@@ -63,15 +63,6 @@ namespace Durin
 		Disabled,
 	};
 
-	using FMaterialParameterSchemaVersion = uint32;
-	inline constexpr FMaterialParameterSchemaVersion CurrentMaterialParameterSchemaVersion = 4;
-
-	ENGINE_API auto UpgradeMaterialParameterSchemaVersion(
-		FMaterialParameterSchemaVersion& InOutVersion,
-		std::string& OutWarning,
-		std::string& OutError
-	) -> bool;
-
 	// Defines base-material properties that participate in shader and pipeline identity.
 	DSTRUCT()
 	struct FMaterialStaticProperties
@@ -239,8 +230,6 @@ namespace Durin
 		ENGINE_API auto BaseColorName() -> const FName&;
 		ENGINE_API auto BaseColorTextureName() -> const FName&;
 		ENGINE_API auto OpacityName() -> const FName&;
-		ENGINE_API auto SpecularStrengthName() -> const FName&;
-		ENGINE_API auto ShininessName() -> const FName&;
 		ENGINE_API auto NormalName() -> const FName&;
 		ENGINE_API auto NormalTextureName() -> const FName&;
 		ENGINE_API auto MetallicName() -> const FName&;

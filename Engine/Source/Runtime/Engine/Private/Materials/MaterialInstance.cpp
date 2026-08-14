@@ -75,7 +75,6 @@ namespace Durin
 
 	DMaterialInstance::DMaterialInstance(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
-		, ParameterSchemaVersion(CurrentMaterialParameterSchemaVersion)
 	{
 		if (!IsTemplateConstructionPurpose(ObjectInitializer.Purpose)) PublishMaterialRenderProxyState();
 	}
@@ -173,7 +172,6 @@ namespace Durin
 	{
 		if (&Other == this) return;
 		std::swap(Parent, Other.Parent);
-		std::swap(ParameterSchemaVersion, Other.ParameterSchemaVersion);
 		std::swap(ParameterOverrides, Other.ParameterOverrides);
 		std::swap(bOverrideStaticProperties, Other.bOverrideStaticProperties);
 		std::swap(StaticPropertiesOverride, Other.StaticPropertiesOverride);
@@ -402,14 +400,6 @@ namespace Durin
 	auto DMaterialInstance::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
-		const FMaterialParameterSchemaVersion LoadedSchemaVersion = ParameterSchemaVersion;
-		const bool bLegacySchema = ParameterSchemaVersion < CurrentMaterialParameterSchemaVersion;
-		std::string SchemaWarning;
-		if (!UpgradeMaterialParameterSchemaVersion(
-				ParameterSchemaVersion, SchemaWarning, OutError))
-		{
-			return false;
-		}
 		std::unordered_set<FGuid> OverrideIds;
 		for (FMaterialParameterOverride& Override : ParameterOverrides)
 		{
@@ -434,19 +424,6 @@ namespace Durin
 			}
 			const FMaterialParameterDefinition* Definition =
 				FindParameterDefinition(Override.ParameterId);
-			if (bLegacySchema && Definition != nullptr
-				&& Override.ParameterId != MaterialParameters::SpecularStrengthId
-				&& Override.ParameterId != MaterialParameters::ShininessId)
-			{
-				if (LoadedSchemaVersion >= 2
-					&& Override.Type == EMaterialParameterType::Vector
-					&& Definition->Type == EMaterialParameterType::Vector2)
-				{
-					Override.Value = FMaterialParameterValue::MakeVector2(
-						FVector2(Override.Value.VectorValue));
-				}
-				Override.Type = Definition->Type;
-			}
 			if (Definition != nullptr && Override.Type != Definition->Type)
 			{
 				OutError = std::format(

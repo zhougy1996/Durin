@@ -3,41 +3,6 @@
 
 namespace Durin
 {
-	auto UpgradeMaterialParameterSchemaVersion(
-		FMaterialParameterSchemaVersion& InOutVersion,
-		std::string& OutWarning,
-		std::string& OutError) -> bool
-	{
-		OutWarning.clear();
-		OutError.clear();
-		if (InOutVersion == 0)
-		{
-			InOutVersion = 1;
-			OutWarning = "Material parameter schema version was missing; assumed version 1 and upgraded to the current version.";
-		}
-		if (InOutVersion == 1)
-		{
-			InOutVersion = 2;
-			if (OutWarning.empty()) OutWarning = "Material parameter schema version 1 was upgraded to version 2; base SpecularStrength and Shininess values were discarded while instance overrides remain orphans.";
-		}
-		if (InOutVersion == 2)
-		{
-			InOutVersion = 3;
-			if (OutWarning.empty()) OutWarning = "Material parameter schema version 2 was upgraded to version 3; UV transform values were migrated to Vector2.";
-		}
-		if (InOutVersion == 3)
-		{
-			InOutVersion = 4;
-			if (OutWarning.empty()) OutWarning = "Material parameter schema version 3 was upgraded to version 4; UV rotation and per-texture sampler defaults were added.";
-			return true;
-		}
-		if (InOutVersion == CurrentMaterialParameterSchemaVersion) return true;
-		OutError = std::format(
-			"Material parameter schema version {} is unsupported; expected {}.",
-			InOutVersion, CurrentMaterialParameterSchemaVersion);
-		return false;
-	}
-
 	auto FMaterialParameterValue::MakeScalar(float Value) -> FMaterialParameterValue
 	{
 		FMaterialParameterValue Result;
@@ -83,18 +48,6 @@ namespace Durin
 		auto OpacityName() -> const FName&
 		{
 			static const FName Name("Opacity");
-			return Name;
-		}
-
-		auto SpecularStrengthName() -> const FName&
-		{
-			static const FName Name("SpecularStrength");
-			return Name;
-		}
-
-		auto ShininessName() -> const FName&
-		{
-			static const FName Name("Shininess");
 			return Name;
 		}
 

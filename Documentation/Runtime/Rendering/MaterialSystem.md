@@ -14,7 +14,7 @@ representation, builder, pipeline identity, and fallback declarations live in
 surface directly. Their implementations are separated into canonical authored
 schema, layout compatibility, representation/builder, and diagnostics files.
 This split retains the exact v1/v2/v3 tables, GUIDs, payload sizes, error
-material, counters, and schema upgrades.
+material, and counters.
 
 ## Parameter Domain
 
@@ -62,8 +62,7 @@ magnification, mip filtering, and independent U/V addressing.
 Their GUIDs are permanent because serialized overrides must survive renames.
 Engine resolution compiles the declarations into the versioned v3 render
 layout identified by `MaterialRenderLayoutV3Id`; the layout owns compact
-uniform offsets and eight resource indices, while the asset schema version
-remains a separate persistent compatibility boundary. User-authored
+uniform offsets and eight resource indices. User-authored
 declarations and compiled layouts remain deferred work.
 
 ## Renderer Boundary
@@ -182,11 +181,7 @@ reflected object or raw texture pointer.
 
 `FMaterialRenderProxy` resolves parent and local layers into a copied builder,
 publishes only a complete representation, and keeps the existing cache,
-coalescing, stale-update, startup-replay, and counted-resource contracts. A
-material schema version on `DMaterial` and `DMaterialInstance` upgrades missing
-v0 state to the current asset schema and rejects unsupported future versions;
-that persistent version is intentionally not the transient render-layout
-identity.
+coalescing, stale-update, startup-replay, and counted-resource contracts.
 
 ## Dependency And Invalidation Model
 
@@ -229,11 +224,9 @@ identity.
 
 Legacy scalar/vector/texture maps have no compatibility properties or implicit
 migration. The asset loader skips their incompatible field records with a
-warning. Material schema v1 upgrades copy BaseColor, BaseColorTexture, and
-Opacity by their permanent GUIDs into the current canonical schema. Removed base
-SpecularStrength and Shininess values are discarded with a warning; instance
-overrides for those GUIDs remain explicit unresolved orphans. They are never
-reinterpreted as Metallic or Roughness.
+warning. Material assets carry no persistent parameter-schema version or
+upgrade chain; a package written under an older parameter schema fails
+canonical-schema validation on load rather than being migrated.
 
 Static-mesh components persist only the positional `OverrideMaterials`
 collection, and StaticMesh slots persist no GUID or slot-schema version. The

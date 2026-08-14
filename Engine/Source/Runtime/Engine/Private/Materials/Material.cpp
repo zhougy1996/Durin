@@ -4,7 +4,6 @@ namespace Durin
 {
 	DMaterial::DMaterial(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
-		, ParameterSchemaVersion(CurrentMaterialParameterSchemaVersion)
 		, ParameterDefinitions(MakeCanonicalMaterialParameterDefinitions())
 	{
 		if (!IsTemplateConstructionPurpose(ObjectInitializer.Purpose)) PublishMaterialRenderProxyState();
@@ -140,47 +139,6 @@ namespace Durin
 	auto DMaterial::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
-		const FMaterialParameterSchemaVersion LoadedSchemaVersion = ParameterSchemaVersion;
-		const bool bUpgradeDefinitions = ParameterSchemaVersion < CurrentMaterialParameterSchemaVersion;
-		std::string SchemaWarning;
-		if (!UpgradeMaterialParameterSchemaVersion(
-				ParameterSchemaVersion, SchemaWarning, OutError))
-		{
-			return false;
-		}
-		if (bUpgradeDefinitions)
-		{
-			std::vector<FMaterialParameterDefinition> Upgraded = MakeCanonicalMaterialParameterDefinitions();
-			if (LoadedSchemaVersion >= 2)
-			{
-				for (FMaterialParameterDefinition& New : Upgraded)
-				{
-					const auto Old = std::ranges::find(ParameterDefinitions, New.Id, &FMaterialParameterDefinition::Id);
-					if (Old == ParameterDefinitions.end()) continue;
-					if (Old->Type == New.Type)
-					{
-						New.Value = Old->Value;
-					}
-					else if (Old->Type == EMaterialParameterType::Vector
-						&& New.Type == EMaterialParameterType::Vector2)
-					{
-						New.Value = FMaterialParameterValue::MakeVector2(
-							FVector2(Old->Value.VectorValue));
-					}
-				}
-			}
-			else
-			{
-				for (const FGuid& PreservedId : {MaterialParameters::BaseColorId, MaterialParameters::BaseColorTextureId, MaterialParameters::OpacityId})
-				{
-					const auto Old = std::ranges::find(ParameterDefinitions, PreservedId, &FMaterialParameterDefinition::Id);
-					const auto New = std::ranges::find(Upgraded, PreservedId, &FMaterialParameterDefinition::Id);
-					if (Old != ParameterDefinitions.end() && New != Upgraded.end() && Old->Type == New->Type)
-						New->Value = Old->Value;
-				}
-			}
-			ParameterDefinitions = std::move(Upgraded);
-		}
 		if (!ValidateCanonicalMaterialParameterDefinitions(
 				ParameterDefinitions, OutError)
 			|| !ValidateMaterialStaticProperties(
