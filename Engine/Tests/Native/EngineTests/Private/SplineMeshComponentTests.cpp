@@ -277,9 +277,9 @@ TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsD
 	ASSERT_TRUE(FAssetPath::TryCreate("/SplineMeshComponentTests/RoundTrip", Path));
 	DLevel* Level = nullptr;
 	std::string ProviderError;
-	ASSERT_TRUE(Asset::Import::RegisterStandardAssetImportProviders(ProviderError)) << ProviderError;
+	ASSERT_TRUE(Asset::Import::Standard::RegisterStandardAssetImportProviders(ProviderError)) << ProviderError;
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "Triangle.obj";
-	FStaticMeshImportResult MeshImport = Asset::Import::ImportStaticMeshAsset(
+	FStaticMeshImportResult MeshImport = Asset::Import::Standard::ImportStaticMeshAsset(
 		Source.generic_string(), "/SplineMeshComponentTests/SourceMesh");
 	ASSERT_TRUE(MeshImport) << MeshImport.Message;
 	ASSERT_TRUE(Asset::CreateAsset(Path, Level));
@@ -311,7 +311,7 @@ TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsD
 	EXPECT_EQ(State->Params, Loaded->GetSplineMeshParams());
 	EXPECT_EQ(State->DeformedLOD0Positions.size(), 3u);
 	EXPECT_TRUE(Asset::UnloadPackage(Path));
-	Asset::Import::UnregisterStandardAssetImportProviders();
+	Asset::Import::Standard::UnregisterStandardAssetImportProviders();
 }
 
 TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)

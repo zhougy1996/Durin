@@ -6,7 +6,7 @@ TEST(FTexture2DTests, StandardTranslationFeedsDetachedNormalizedBuildProduct)
 		Durin::Testing::GetTestWorkDirectory() / "NormalizedTexture2DBuildDdc");
 	Durin::FTextureSourceData SourceData;
 	std::string Error;
-	ASSERT_TRUE(Durin::Asset::Import::TranslateTexture2DSource(
+	ASSERT_TRUE(Durin::Asset::Import::Standard::TranslateTexture2DSource(
 		TransparentPngBytes, SourceData, Error)) << Error;
 	ASSERT_TRUE(SourceData.IsValid());
 	EXPECT_EQ(SourceData.Width, 2u);
@@ -36,13 +36,13 @@ TEST(FTexture2DTests, BuildOwnedAuthoringServicePublishesLatestNormalizedProduct
 		Durin::Testing::GetTestWorkDirectory() / "Texture2DAuthoringService.png";
 	WriteTextureFixture(Source);
 	Durin::FTexture2DImportResult Imported =
-		Durin::Asset::Import::ImportTexture2DAsset(
+		Durin::Asset::Import::Standard::ImportTexture2DAsset(
 			Source.generic_string(), "/TextureImportTests/AuthoringService");
 	ASSERT_TRUE(Imported) << Imported.Message;
 
 	Durin::FTextureSourceData SourceData;
 	std::string Error;
-	ASSERT_TRUE(Durin::Asset::Import::TranslateTexture2DSource(
+	ASSERT_TRUE(Durin::Asset::Import::Standard::TranslateTexture2DSource(
 		TransparentPngBytes, SourceData, Error)) << Error;
 	const Durin::FXxHash128 SourceHash =
 		Durin::FXxHash128::HashBuffer(TransparentPngBytes);
@@ -88,7 +88,7 @@ TEST(FTexture2DTests, UsagePresetsChooseColorSpaceAndMipFilter)
 		Durin::FTexture2DImportSettings Settings;
 		Settings.Usage = Preset.Usage;
 		const std::string AssetPathString = std::format("/TextureImportTests/{}", Preset.AssetName);
-		Durin::FTexture2DImportResult Result = Durin::Asset::Import::ImportTexture2DAsset(Source.generic_string(), AssetPathString, Settings);
+		Durin::FTexture2DImportResult Result = Durin::Asset::Import::Standard::ImportTexture2DAsset(Source.generic_string(), AssetPathString, Settings);
 		ASSERT_TRUE(Result) << Result.Message;
 		ASSERT_NE(Result.Asset, nullptr);
 		EXPECT_EQ(Result.Asset->GetUsage(), Preset.Usage);
@@ -121,7 +121,7 @@ TEST(FTexture2DTests, BuildsCompleteNpotMipChainWithoutDroppingEdges)
 	WriteNpotTextureFixture(Source);
 	Durin::FTexture2DImportSettings Settings;
 	Settings.Usage = Durin::ETextureUsage::DataMask;
-	Durin::FTexture2DImportResult Result = Durin::Asset::Import::ImportTexture2DAsset(Source.generic_string(), "/TextureImportTests/Npot", Settings);
+	Durin::FTexture2DImportResult Result = Durin::Asset::Import::Standard::ImportTexture2DAsset(Source.generic_string(), "/TextureImportTests/Npot", Settings);
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset, nullptr);
 	const Durin::FTexturePlatformData* PlatformData = Result.Asset->GetPlatformData();
@@ -139,7 +139,7 @@ TEST(FTexture2DTests, BuildsCompleteNpotMipChainWithoutDroppingEdges)
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
 
-	Durin::FTexture2DImportResult ColorResult = Durin::Asset::Import::ImportTexture2DAsset(
+	Durin::FTexture2DImportResult ColorResult = Durin::Asset::Import::Standard::ImportTexture2DAsset(
 		Source.generic_string(), "/TextureImportTests/NpotColor");
 	ASSERT_TRUE(ColorResult) << ColorResult.Message;
 	ASSERT_NE(ColorResult.Asset, nullptr);
@@ -162,7 +162,7 @@ TEST(FTexture2DTests, MaximumResolutionSelectsMipAlignedBaseLevel)
 	Settings.CompressionQuality = Durin::ETextureCompressionQuality::Low;
 	Settings.AlphaMipMode = Durin::ETextureAlphaMipMode::PreserveCoverage;
 	Settings.AlphaCoverageThreshold = 0.4f;
-	Durin::FTexture2DImportResult Result = Durin::Asset::Import::ImportTexture2DAsset(
+	Durin::FTexture2DImportResult Result = Durin::Asset::Import::Standard::ImportTexture2DAsset(
 		Source.generic_string(), "/TextureImportTests/Limited", Settings);
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset, nullptr);
@@ -322,7 +322,7 @@ TEST(FTexture2DTests, PreservesLinearBuildSettingAndRebuildsColorSpace)
 	WriteTextureFixture(Source);
 	Durin::FTexture2DImportSettings Settings;
 	Settings.bSRGB = false;
-	Durin::FTexture2DImportResult Result = Durin::Asset::Import::ImportTexture2DAsset(Source.generic_string(), "/TextureImportTests/Linear", Settings);
+	Durin::FTexture2DImportResult Result = Durin::Asset::Import::Standard::ImportTexture2DAsset(Source.generic_string(), "/TextureImportTests/Linear", Settings);
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset, nullptr);
 	EXPECT_FALSE(Result.Asset->IsSRGB());
@@ -343,7 +343,7 @@ TEST(FTexture2DTests, PreservesLinearBuildSettingAndRebuildsColorSpace)
 
 	const std::vector<Durin::uint8> LinearTail = Loaded->GetPlatformData()->Mips.back().Pixels;
 	std::string Error;
-	ASSERT_TRUE(Durin::Asset::Import::SetTexture2DSRGB(*Loaded, true, Error)) << Error;
+	ASSERT_TRUE(Durin::Asset::Import::Standard::SetTexture2DSRGB(*Loaded, true, Error)) << Error;
 	ASSERT_TRUE(Durin::Asset::Build::WaitForTexture2DBuild(*Loaded, 10.0))
 		<< Durin::Asset::Build::GetTexture2DBuildDiagnostic(*Loaded).Message;
 	EXPECT_TRUE(Loaded->IsSRGB());
@@ -351,7 +351,7 @@ TEST(FTexture2DTests, PreservesLinearBuildSettingAndRebuildsColorSpace)
 	EXPECT_NE(Loaded->GetPlatformData()->Mips.back().Pixels, LinearTail);
 	ExpectPixelNear(DecodeFirstCompressedPixel(Loaded->GetPlatformData()->PixelFormat,
 		Loaded->GetPlatformData()->Mips.back().Pixels), {188, 0, 0, 128});
-	ASSERT_TRUE(Durin::Asset::Import::SetTexture2DUsage(
+	ASSERT_TRUE(Durin::Asset::Import::Standard::SetTexture2DUsage(
 		*Loaded, Durin::ETextureUsage::Normal, Error)) << Error;
 	ASSERT_TRUE(Durin::Asset::Build::WaitForTexture2DBuild(*Loaded, 10.0))
 		<< Durin::Asset::Build::GetTexture2DBuildDiagnostic(*Loaded).Message;
@@ -369,7 +369,7 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	InitializeDObjectSystem();
 	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "TransactionalTextureSource.png";
 	WriteTextureFixture(Source);
-	Durin::FTexture2DImportResult Result = Durin::Asset::Import::ImportTexture2DAsset(
+	Durin::FTexture2DImportResult Result = Durin::Asset::Import::Standard::ImportTexture2DAsset(
 		Source.generic_string(), "/TextureImportTests/Transactional");
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTexture2D* Texture = Result.Asset;
@@ -545,7 +545,7 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 	const std::filesystem::path Source =
 		Durin::Testing::GetTestWorkDirectory() / "AsyncTransactionalTextureSource.png";
 	WriteTextureFixture(Source);
-	const Durin::FTexture2DImportResult Imported = Durin::Asset::Import::ImportTexture2DAsset(
+	const Durin::FTexture2DImportResult Imported = Durin::Asset::Import::Standard::ImportTexture2DAsset(
 		Source.generic_string(), "/TextureImportTests/AsyncTransactional");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	Durin::DTexture2D* Texture = Imported.Asset;

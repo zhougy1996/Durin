@@ -47,8 +47,8 @@ namespace Durin::Editor::Level
 		EMountedSourceImportMode SourceMode =
 			EMountedSourceImportMode::IngestExternal;
 		std::string PreviewKey;
-		std::optional<Asset::Import::FSceneImportPlanResult> Preview;
-		std::optional<Asset::Import::FSceneImportAsyncPlanHandle> PreviewRequest;
-		std::optional<Asset::Import::FSceneImportAsyncPlanHandle> ImportRequest;
+		std::optional<Asset::Import::Standard::FSceneImportPlanResult> Preview;
+		std::optional<Asset::Import::Standard::FSceneImportAsyncPlanHandle> PreviewRequest;
+		std::optional<Asset::Import::Standard::FSceneImportAsyncPlanHandle> ImportRequest;
 	};
 } // namespace Durin::Editor::Level

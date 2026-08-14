@@ -7,7 +7,7 @@
 #include "Texture2DSourceTranslation.h"
 #include "TextureCubeSourceTranslation.h"
 
-namespace Durin::Asset::Import
+namespace Durin::Asset::Import::Standard
 {
 	namespace
 	{

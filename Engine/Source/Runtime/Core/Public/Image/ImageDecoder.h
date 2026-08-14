@@ -1,9 +1,9 @@
 #pragma once
 
-#include "AssetCoreAPI.h"
+#include "CoreAPI.h"
 #include "HAL/Platform.h"
 
-namespace Durin::Asset
+namespace Durin::Image
 {
 	// Bounds encoded input and decoded output before image memory is allocated.
 	struct FImageDecodeLimits
@@ -51,24 +51,24 @@ namespace Durin::Asset
 		uint32 Height = 0;
 	};
 
-	ASSETCORE_API auto IsSupportedImageExtension(std::string_view Extension) -> bool;
-	ASSETCORE_API auto IsRadianceHDRExtension(std::string_view Extension) -> bool;
-	ASSETCORE_API auto DecodeImageFromMemory(std::span<const uint8> EncodedBytes, FDecodedImage& OutImage, std::string& OutError,
+	CORE_API auto IsSupportedImageExtension(std::string_view Extension) -> bool;
+	CORE_API auto IsRadianceHDRExtension(std::string_view Extension) -> bool;
+	CORE_API auto DecodeImageFromMemory(std::span<const uint8> EncodedBytes, FDecodedImage& OutImage, std::string& OutError,
 		const FImageDecodeLimits& Limits = {}) -> bool;
-	ASSETCORE_API auto DecodeImageFromFile(std::string_view FilePath, FDecodedImage& OutImage, std::string& OutError,
+	CORE_API auto DecodeImageFromFile(std::string_view FilePath, FDecodedImage& OutImage, std::string& OutError,
 		const FImageDecodeLimits& Limits = {}) -> bool;
-	ASSETCORE_API auto DecodeGrayscale16PngFromMemory(
+	CORE_API auto DecodeGrayscale16PngFromMemory(
 		std::span<const uint8> EncodedBytes,
 		FDecodedGrayscale16Image& OutImage,
 		std::string& OutError,
 		const FImageDecodeLimits& Limits = {}) -> bool;
-	ASSETCORE_API auto DecodeGrayscale16PngFromFile(
+	CORE_API auto DecodeGrayscale16PngFromFile(
 		std::string_view FilePath,
 		FDecodedGrayscale16Image& OutImage,
 		std::string& OutError,
 		const FImageDecodeLimits& Limits = {}) -> bool;
-	ASSETCORE_API auto DecodeRadianceHDRFromMemory(std::span<const uint8> EncodedBytes, FDecodedFloatImage& OutImage,
+	CORE_API auto DecodeRadianceHDRFromMemory(std::span<const uint8> EncodedBytes, FDecodedFloatImage& OutImage,
 		std::string& OutError, const FRadianceHDRDecodeLimits& Limits = {}) -> bool;
-	ASSETCORE_API auto DecodeRadianceHDRFromFile(std::string_view FilePath, FDecodedFloatImage& OutImage,
+	CORE_API auto DecodeRadianceHDRFromFile(std::string_view FilePath, FDecodedFloatImage& OutImage,
 		std::string& OutError, const FRadianceHDRDecodeLimits& Limits = {}) -> bool;
-} // namespace Durin::Asset
+} // namespace Durin::Image

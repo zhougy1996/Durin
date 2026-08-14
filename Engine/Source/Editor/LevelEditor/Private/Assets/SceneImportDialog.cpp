@@ -55,7 +55,7 @@ namespace Durin::Editor::Level
 		Preview.reset();
 		DestinationDirectory.Reset(InDestinationDirectory);
 		std::string Error;
-		if (!Asset::Import::EnsureStandardImportedSurfaceMaterial(Error)) SetError(std::move(Error));
+		if (!Asset::Import::Standard::EnsureStandardImportedSurfaceMaterial(Error)) SetError(std::move(Error));
 		ModalState.RequestOpen();
 	}
 
@@ -167,7 +167,7 @@ namespace Durin::Editor::Level
 		{
 			if (PreviewRequest)
 			{
-				Asset::Import::CancelAndDrainSceneImportPlan(*PreviewRequest);
+				Asset::Import::Standard::CancelAndDrainSceneImportPlan(*PreviewRequest);
 				PreviewRequest.reset();
 			}
 			PreviewKey.clear();
@@ -399,7 +399,7 @@ namespace Durin::Editor::Level
 			static_cast<int32>(ImportSettings.UpAxis));
 		if (Key != PreviewKey)
 		{
-			if (PreviewRequest) Asset::Import::CancelAndDrainSceneImportPlan(*PreviewRequest);
+			if (PreviewRequest) Asset::Import::Standard::CancelAndDrainSceneImportPlan(*PreviewRequest);
 			PreviewRequest.reset();
 			Preview.reset();
 			PreviewKey = Key;
@@ -408,19 +408,19 @@ namespace Durin::Editor::Level
 				PathUtilities::ClassifySourcePath(SourcePathBuffer.data());
 			if (!Source)
 			{
-				Preview = Asset::Import::FSceneImportPlanResult{.Message = Source.Message};
+				Preview = Asset::Import::Standard::FSceneImportPlanResult{.Message = Source.Message};
 				return;
 			}
-			PreviewRequest = Asset::Import::BeginSceneImportPlan({
+			PreviewRequest = Asset::Import::Standard::BeginSceneImportPlan({
 				.RootSource = {.Path = Source.NormalizedVirtualPath},
 				.DestinationDirectory = InDestinationDirectory,
 				.MeshSettings = ImportSettings},
 				"LevelEditor.SceneImportDialog.Preview");
 		}
 		if (!PreviewRequest) return;
-		Asset::Import::FSceneImportPlanResult Completed;
+		Asset::Import::Standard::FSceneImportPlanResult Completed;
 		const Asset::Import::EAsyncImportPlanStatus Status =
-			Asset::Import::PollSceneImportPlan(*PreviewRequest, Completed);
+			Asset::Import::Standard::PollSceneImportPlan(*PreviewRequest, Completed);
 		if (Status != Asset::Import::EAsyncImportPlanStatus::Pending)
 		{
 			Preview = std::move(Completed);
@@ -440,8 +440,8 @@ namespace Durin::Editor::Level
 			SetError(std::move(Error));
 			return false;
 		}
-		Asset::Import::FPreparedSceneSourceBundle Sources;
-		if (!Asset::Import::PrepareSceneSourceBundle(
+		Asset::Import::Standard::FPreparedSceneSourceBundle Sources;
+		if (!Asset::Import::Standard::PrepareSceneSourceBundle(
 			SourcePathBuffer.data(), OutputDirectory.ToString(),
 			SourceMode == EMountedSourceImportMode::IngestExternal
 				? std::string_view(SourceDestinationBuffer.data()) : std::string_view{},
@@ -452,8 +452,8 @@ namespace Durin::Editor::Level
 		}
 		// Source ingestion is an explicit authoring operation and remains even if
 		// the subsequent asset publication is rejected or fails.
-		Asset::Import::CommitSceneSourceBundle(Sources);
-		ImportRequest = Asset::Import::BeginSceneImportPlan({
+		Asset::Import::Standard::CommitSceneSourceBundle(Sources);
+		ImportRequest = Asset::Import::Standard::BeginSceneImportPlan({
 			.RootSource = Sources.RootSource,
 			.DestinationDirectory = OutputDirectory,
 			.MeshSettings = ImportSettings},
@@ -464,9 +464,9 @@ namespace Durin::Editor::Level
 	auto FSceneImportDialog::PollImport() -> bool
 	{
 		if (!ImportRequest) return false;
-		Asset::Import::FSceneImportPlanResult Planned;
+		Asset::Import::Standard::FSceneImportPlanResult Planned;
 		const Asset::Import::EAsyncImportPlanStatus Status =
-			Asset::Import::PollSceneImportPlan(*ImportRequest, Planned);
+			Asset::Import::Standard::PollSceneImportPlan(*ImportRequest, Planned);
 		if (Status == Asset::Import::EAsyncImportPlanStatus::Pending) return false;
 		ImportRequest.reset();
 		if (!Planned)
@@ -474,7 +474,7 @@ namespace Durin::Editor::Level
 			SetError(Planned.Message);
 			return false;
 		}
-		const Asset::Import::FSceneImportExecutionResult Result = Asset::Import::ExecuteSceneImport(Planned.Plan);
+		const Asset::Import::Standard::FSceneImportExecutionResult Result = Asset::Import::Standard::ExecuteSceneImport(Planned.Plan);
 		if (!Result)
 		{
 			SetError(Result.Message);
@@ -490,8 +490,8 @@ namespace Durin::Editor::Level
 
 	auto FSceneImportDialog::CancelRequests() -> void
 	{
-		if (PreviewRequest) Asset::Import::CancelAndDrainSceneImportPlan(*PreviewRequest);
-		if (ImportRequest) Asset::Import::CancelAndDrainSceneImportPlan(*ImportRequest);
+		if (PreviewRequest) Asset::Import::Standard::CancelAndDrainSceneImportPlan(*PreviewRequest);
+		if (ImportRequest) Asset::Import::Standard::CancelAndDrainSceneImportPlan(*ImportRequest);
 		PreviewRequest.reset();
 		ImportRequest.reset();
 	}

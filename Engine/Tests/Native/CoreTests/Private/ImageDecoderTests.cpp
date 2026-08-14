@@ -1,9 +1,9 @@
 #include <gtest/gtest.h>
 
-#include "ImageDecoder.h"
+#include "Image/ImageDecoder.h"
 #include "NativeTestSupport.h"
 
-namespace Durin::Asset
+namespace Durin::Image
 {
 	namespace
 	{
@@ -73,7 +73,7 @@ namespace Durin::Asset
 
 	TEST(FImageDecoderTests, DecodesFileThroughSharedPath)
 	{
-		const std::filesystem::path Path = WriteFixture("AssetCoreTransparent.png", TransparentPngBytes);
+		const std::filesystem::path Path = WriteFixture("CoreTransparent.png", TransparentPngBytes);
 		FDecodedImage Image;
 		std::string Error;
 		ASSERT_TRUE(DecodeImageFromFile(Path.generic_string(), Image, Error)) << Error;
@@ -176,4 +176,4 @@ namespace Durin::Asset
 		EXPECT_TRUE(Image.Pixels.empty());
 		EXPECT_NE(Error.find("configured limit"), std::string::npos);
 	}
-} // namespace Durin::Asset
+} // namespace Durin::Image

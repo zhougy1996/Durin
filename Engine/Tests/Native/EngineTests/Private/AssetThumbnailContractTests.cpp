@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "EngineTestSupport.h"
-#include "ImageDecoder.h"
+#include "Image/ImageDecoder.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
@@ -1282,8 +1282,8 @@ namespace Durin
 			.ObjectExtension = ".png"});
 		std::vector<uint8> Encoded;
 		ASSERT_EQ(Store.Load(CacheKey, Encoded), Editor::EAssetThumbnailObjectLoadResult::Hit);
-		Asset::FDecodedImage Decoded;
-		ASSERT_TRUE(Asset::DecodeImageFromMemory(Encoded, Decoded, Error)) << Error;
+		Image::FDecodedImage Decoded;
+		ASSERT_TRUE(Image::DecodeImageFromMemory(Encoded, Decoded, Error)) << Error;
 		EXPECT_EQ(Decoded.Width, 2u);
 		EXPECT_EQ(Decoded.Height, 1u);
 		EXPECT_EQ(Decoded.Pixels, std::vector<uint8>(Pixels.begin(), Pixels.end()));

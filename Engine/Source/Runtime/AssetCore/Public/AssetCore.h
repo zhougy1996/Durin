@@ -9,4 +9,3 @@
 #include "AssetRedirector.h"
 #include "AssetSystem.h"
 #include "CookedAsset.h"
-#include "ImageDecoder.h"

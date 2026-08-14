@@ -304,7 +304,7 @@ namespace Durin::Tests
 	) -> bool
 	{
 		InitializeDObjectSystem();
-		if (!Asset::Import::RegisterStandardAssetImportProviders(OutError)) return false;
+		if (!Asset::Import::Standard::RegisterStandardAssetImportProviders(OutError)) return false;
 		const std::filesystem::path Root = GetRenderedAssetThumbnailFixtureRoot();
 		static std::unordered_map<std::filesystem::path, FRenderedAssetThumbnailFixtureSet> CachedFixtures;
 		if (auto It = CachedFixtures.find(Root); It != CachedFixtures.end())
@@ -364,12 +364,12 @@ namespace Durin::Tests
 		}
 
 		const std::filesystem::path DataRoot = std::filesystem::path(DURIN_TEST_DATA_DIR) / "SkyBoxConvention";
-		const FTexture2DImportResult ParentTextureResult = Asset::Import::ImportTexture2DAsset(
+		const FTexture2DImportResult ParentTextureResult = Asset::Import::Standard::ImportTexture2DAsset(
 			(DataRoot / "PositiveX.png").generic_string(), ParentTexturePath.ToString());
 		if (!ParentTextureResult) return Fail(ParentTextureResult.Message);
 		OutFixtures.ParentTexture = ParentTextureResult.Asset;
 
-		const FTexture2DImportResult OverrideTextureResult = Asset::Import::ImportTexture2DAsset(
+		const FTexture2DImportResult OverrideTextureResult = Asset::Import::Standard::ImportTexture2DAsset(
 			(DataRoot / "NegativeX.png").generic_string(), OverrideTexturePath.ToString());
 		if (!OverrideTextureResult) return Fail(OverrideTextureResult.Message);
 		OutFixtures.OverrideTexture = OverrideTextureResult.Asset;
@@ -450,7 +450,7 @@ namespace Durin::Tests
 		Result = Asset::SavePackage(OutFixtures.InvalidMaterialInstance->GetPackage());
 		if (!Result) return Fail(Result.Message);
 
-		const Asset::Import::FTextureCubeImportResult CubeResult = Asset::Import::ImportTextureCubeFaces(
+		const Asset::Import::Standard::FTextureCubeImportResult CubeResult = Asset::Import::Standard::ImportTextureCubeFaces(
 			GetRenderedThumbnailDirectionalCubeFaces(),
 			FRenderedAssetThumbnailFixtureSet::DirectionalCubePath);
 		if (!CubeResult) return Fail(CubeResult.Message);

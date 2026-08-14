@@ -1,11 +1,11 @@
-#include "ImageDecoder.h"
+#include "Image/ImageDecoder.h"
 
 #include "Misc/FileHelper.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "ThirdParty/stb/stb_image.h"
 
-namespace Durin::Asset
+namespace Durin::Image
 {
 	namespace
 	{
@@ -293,13 +293,13 @@ namespace Durin::Asset
 		if (EncodedBytes.size() > Limits.MaximumEncodedBytes
 			|| EncodedBytes.size() > static_cast<size_t>(std::numeric_limits<int>::max()))
 		{
-			OutError = "The encoded heightmap PNG exceeds the configured limit.";
+			OutError = "The encoded grayscale16 PNG exceeds the configured limit.";
 			return false;
 		}
 		if (EncodedBytes.size() < 33
 			|| !std::equal(Signature.begin(), Signature.end(), EncodedBytes.begin()))
 		{
-			OutError = "The heightmap source is not a complete PNG header.";
+			OutError = "The grayscale16 source is not a complete PNG header.";
 			return false;
 		}
 		uint32 IhdrSize = 0;
@@ -310,24 +310,24 @@ namespace Durin::Asset
 			|| !ReadPngU32(EncodedBytes, 16, Width)
 			|| !ReadPngU32(EncodedBytes, 20, Height))
 		{
-			OutError = "The heightmap PNG IHDR is missing or invalid.";
+			OutError = "The grayscale16 PNG IHDR is missing or invalid.";
 			return false;
 		}
 		if (EncodedBytes[24] != 16 || EncodedBytes[25] != 0)
 		{
-			OutError = "Heightmaps require PNG color type 0 with exactly 16 bits per grayscale sample.";
+			OutError = "Grayscale16 decoding requires PNG color type 0 with exactly 16 bits per sample.";
 			return false;
 		}
 		if (EncodedBytes[26] != 0 || EncodedBytes[27] != 0 || EncodedBytes[28] != 0)
 		{
-			OutError = "Heightmaps require standard PNG compression/filtering and non-interlaced rows.";
+			OutError = "Grayscale16 decoding requires standard PNG compression/filtering and non-interlaced rows.";
 			return false;
 		}
 		const uint64 PixelCount = static_cast<uint64>(Width) * Height;
 		if (Width == 0 || Height == 0 || PixelCount > Limits.MaximumDecodedPixels
 			|| PixelCount > std::numeric_limits<size_t>::max() / sizeof(uint16))
 		{
-			OutError = "The decoded heightmap dimensions exceed the configured limit.";
+			OutError = "The decoded grayscale16 dimensions exceed the configured limit.";
 			return false;
 		}
 
@@ -341,7 +341,7 @@ namespace Durin::Asset
 			|| DecodedHeight != static_cast<int>(Height) || Channels != 1)
 		{
 			if (Decoded) stbi_image_free(Decoded);
-			OutError = "The heightmap PNG is malformed or could not be decoded losslessly.";
+			OutError = "The grayscale16 PNG is malformed or could not be decoded losslessly.";
 			return false;
 		}
 		FDecodedGrayscale16Image Candidate;
@@ -365,13 +365,13 @@ namespace Durin::Asset
 			std::filesystem::path(FilePath), ErrorCode);
 		if (ErrorCode || FileSize == 0 || FileSize > Limits.MaximumEncodedBytes)
 		{
-			OutError = "The heightmap PNG file is unavailable, empty, or too large.";
+			OutError = "The grayscale16 PNG file is unavailable, empty, or too large.";
 			return false;
 		}
 		std::vector<uint8> EncodedBytes;
 		if (!FFileHelper::LoadFileToArray(EncodedBytes, FilePath))
 		{
-			OutError = "Unable to read the heightmap PNG file.";
+			OutError = "Unable to read the grayscale16 PNG file.";
 			return false;
 		}
 		return DecodeGrayscale16PngFromMemory(EncodedBytes, OutImage, OutError, Limits);
@@ -521,4 +521,4 @@ namespace Durin::Asset
 		}
 		return DecodeRadianceHDRFromMemory(EncodedBytes, OutImage, OutError, Limits);
 	}
-} // namespace Durin::Asset
+} // namespace Durin::Image

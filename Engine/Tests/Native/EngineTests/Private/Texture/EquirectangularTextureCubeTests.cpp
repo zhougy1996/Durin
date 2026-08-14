@@ -1,4 +1,4 @@
-#include "ImageDecoder.h"
+#include "Image/ImageDecoder.h"
 #include "Texture/TextureCubeBuilder.h"
 
 #include <gtest/gtest.h>
@@ -28,9 +28,9 @@ namespace Durin::Asset::Build::TextureCubeBuilder
 
 	TEST(FEquirectangularTextureCubeTests, ProjectsLDRPrincipalAxesSeamAndPoles)
 	{
-		Asset::FDecodedImage Decoded;
+		Image::FDecodedImage Decoded;
 		std::string Error;
-		ASSERT_TRUE(Asset::DecodeImageFromFile(FixturePath("AnalyticalLDR.tga"), Decoded, Error)) << Error;
+		ASSERT_TRUE(Image::DecodeImageFromFile(FixturePath("AnalyticalLDR.tga"), Decoded, Error)) << Error;
 		FTexturePanoramaImage Panorama{.Pixels = std::move(Decoded.Pixels),
 			.Width = Decoded.Width, .Height = Decoded.Height,
 			.SourceChannelCount = Decoded.SourceChannelCount,
@@ -69,9 +69,9 @@ namespace Durin::Asset::Build::TextureCubeBuilder
 
 	TEST(FEquirectangularTextureCubeTests, ProjectsRadianceGoldenValuesAndExposure)
 	{
-		Asset::FDecodedFloatImage Decoded;
+		Image::FDecodedFloatImage Decoded;
 		std::string Error;
-		ASSERT_TRUE(Asset::DecodeRadianceHDRFromFile(FixturePath("AnalyticalHDR.hdr"), Decoded, Error)) << Error;
+		ASSERT_TRUE(Image::DecodeRadianceHDRFromFile(FixturePath("AnalyticalHDR.hdr"), Decoded, Error)) << Error;
 		FTexturePanoramaFloatImage Panorama{.Pixels = std::move(Decoded.Pixels),
 			.Width = Decoded.Width, .Height = Decoded.Height};
 

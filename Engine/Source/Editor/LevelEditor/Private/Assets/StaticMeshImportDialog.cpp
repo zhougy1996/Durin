@@ -364,7 +364,7 @@ namespace Durin::Editor::Level
 	auto FStaticMeshImportDialog::Import() -> bool
 	{
 		Callbacks.Clear();
-		const FStaticMeshImportResult Result = Asset::Import::ImportStaticMeshAsset(
+		const FStaticMeshImportResult Result = Asset::Import::Standard::ImportStaticMeshAsset(
 			SourcePathBuffer.data(), Destination.GetPath(), ImportSettings,
 			SourceMode == EMountedSourceImportMode::IngestExternal
 				? std::string_view(SourceDestinationBuffer.data()) : std::string_view{},

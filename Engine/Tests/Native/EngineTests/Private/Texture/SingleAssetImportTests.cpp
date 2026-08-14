@@ -1,4 +1,5 @@
 #include "AssetImportCore.h"
+#include "ImportedScene.h"
 #include "TextureCubeSourceTranslation.h"
 #include "AssetSystem.h"
 #include "EngineTestSupport.h"
@@ -12,6 +13,7 @@
 #include "Texture2DSourceTranslation.h"
 #include "Texture/TextureCube.h"
 #include "TextureTestSupport.h"
+#include "TerrainHeightmapSourceTranslation.h"
 
 #include <gtest/gtest.h>
 
@@ -30,7 +32,7 @@ namespace
 		}();
 		(void)Initialized;
 		std::string Error;
-		EXPECT_TRUE(Durin::Asset::Import::RegisterStandardAssetImportProviders(Error)) << Error;
+		EXPECT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(Error)) << Error;
 		return Root;
 	}
 
@@ -44,6 +46,23 @@ namespace
 	}
 }
 
+TEST(FStandardImageSourcePolicyTests, KeepsCodecCapabilitySeparateFromAssetAdmission)
+{
+	using namespace Durin::Asset::Import::Standard;
+	EXPECT_TRUE(IsTexture2DSourceExtension(".PNG"));
+	EXPECT_FALSE(IsTexture2DSourceExtension(".hdr"));
+	EXPECT_TRUE(IsTextureCubeFaceSourceExtension(".tga"));
+	EXPECT_FALSE(IsTextureCubeFaceSourceExtension(".hdr"));
+	EXPECT_TRUE(IsTextureCubePanoramaSourceExtension(".hdr"));
+	EXPECT_FALSE(IsTextureCubePanoramaSourceExtension(".gif"));
+	EXPECT_TRUE(IsTerrainHeightmapSourceExtension(".png"));
+	EXPECT_TRUE(IsTerrainHeightmapSourceExtension(".RAW"));
+	EXPECT_FALSE(IsTerrainHeightmapSourceExtension(".jpg"));
+	EXPECT_TRUE(IsSceneSurfaceImageEncodingSupported(EImportedImageEncoding::Png));
+	EXPECT_FALSE(IsSceneSurfaceImageEncodingSupported(
+		static_cast<EImportedImageEncoding>(255)));
+}
+
 TEST(FSingleAssetImportTests, Texture2DRestoresAuthoredAndRuntimeStateWhenSaveFails)
 {
 	InitializeSingleAssetImportTests();
@@ -52,7 +71,7 @@ TEST(FSingleAssetImportTests, Texture2DRestoresAuthoredAndRuntimeStateWhenSaveFa
 	const std::filesystem::path Source =
 		Durin::Testing::GetTestWorkDirectory() / "SingleAssetTexture2D.png";
 	WriteTextureFixture(Source);
-	Durin::FTexture2DImportResult Imported = Durin::Asset::Import::ImportTexture2DAsset(
+	Durin::FTexture2DImportResult Imported = Durin::Asset::Import::Standard::ImportTexture2DAsset(
 		Source.generic_string(), "/SingleAssetStage2/Texture2D");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	Durin::DTexture2D* Identity = Imported.Asset;
@@ -91,7 +110,7 @@ TEST(FSingleAssetImportTests, RejectsStalePackageRevisionBeforeExchange)
 	const std::filesystem::path Source =
 		Durin::Testing::GetTestWorkDirectory() / "SingleAssetStale.png";
 	WriteTextureFixture(Source);
-	Durin::FTexture2DImportResult Imported = Durin::Asset::Import::ImportTexture2DAsset(
+	Durin::FTexture2DImportResult Imported = Durin::Asset::Import::Standard::ImportTexture2DAsset(
 		Source.generic_string(), "/SingleAssetStage2/StaleTexture");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	auto PlanResult = PlanCurrent(Imported.Asset);
@@ -113,7 +132,7 @@ TEST(FSingleAssetImportTests, ReimportsGeometryWithoutAnImportRecord)
 		Durin::Testing::GetTestWorkDirectory() / "SingleAssetStaticMeshDdc");
 	const std::filesystem::path Source =
 		std::filesystem::path(DURIN_TEST_DATA_DIR) / "Triangle.obj";
-	Durin::FStaticMeshImportResult Imported = Durin::Asset::Import::ImportStaticMeshAsset(
+	Durin::FStaticMeshImportResult Imported = Durin::Asset::Import::Standard::ImportStaticMeshAsset(
 		Source.generic_string(), "/SingleAssetStage2/Geometry");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	auto PlanResult = PlanCurrent(Imported.Asset);
@@ -131,7 +150,7 @@ TEST(FSingleAssetImportTests, ReimportsPanoramaTextureCubeFromCapturedBytes)
 		Durin::Testing::GetTestWorkDirectory() / "SingleAssetTextureCubeDdc");
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR)
 		/ "EquirectangularPanorama" / "AnalyticalLDR.tga";
-	Durin::Asset::Import::FTextureCubeImportResult Imported = Durin::Asset::Import::ImportTextureCubePanorama(
+	Durin::Asset::Import::Standard::FTextureCubeImportResult Imported = Durin::Asset::Import::Standard::ImportTextureCubePanorama(
 		Source.generic_string(), "/SingleAssetStage2/Panorama");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	auto PlanResult = PlanCurrent(Imported.Asset);

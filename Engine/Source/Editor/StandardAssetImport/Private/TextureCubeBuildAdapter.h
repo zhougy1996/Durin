@@ -3,7 +3,7 @@
 #include "TextureCubeSourceTranslation.h"
 #include "Texture/TextureCubeBuildOperations.h"
 
-namespace Durin::Asset::Import
+namespace Durin::Asset::Import::Standard
 {
 	inline auto BuildAndPublishTextureCubePanorama(
 		DTextureCube& Texture,
@@ -35,6 +35,20 @@ namespace Durin::Asset::Import
 		return Asset::Build::PublishTextureCubeProduct(Texture, std::move(Product), {
 			.PanoramaHash = SourceHash,
 			.PanoramaPath = SourcePath}, OutError);
+	}
+
+	inline auto BuildAndPublishTextureCubePanorama(
+		DTextureCube& Texture,
+		FTextureCubePanoramaSourceData Panorama,
+		const FXxHash128& SourceHash,
+		const FSourcePath& SourcePath,
+		const FTextureCubePanoramaImportSettings& Settings,
+		std::string& OutError) -> bool
+	{
+		return std::visit([&](auto&& Source) {
+			return BuildAndPublishTextureCubePanorama(
+				Texture, std::move(Source), SourceHash, SourcePath, Settings, OutError);
+		}, std::move(Panorama));
 	}
 
 	inline auto BuildAndPublishTextureCubeFaces(

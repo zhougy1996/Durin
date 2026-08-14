@@ -860,7 +860,7 @@ namespace Durin::Editor::Texture
 	{
 		if (!Texture) return;
 		std::string Error;
-		if (!Asset::Import::ReimportTexture2DSource(*Texture, {}, Error))
+		if (!Asset::Import::Standard::ReimportTexture2DSource(*Texture, {}, Error))
 			SetError(std::move(Error));
 	}
 
@@ -895,7 +895,7 @@ namespace Durin::Editor::Texture
 			return;
 		}
 		std::string Error;
-		if (!Asset::Import::ChangeTexture2DSourceReference(
+		if (!Asset::Import::Standard::ChangeTexture2DSourceReference(
 			*Texture, Classified.NormalizedVirtualPath, Error))
 		{
 			SetError(std::move(Error));
@@ -959,7 +959,7 @@ namespace Durin::Editor::Texture
 			return;
 		}
 		std::string Error;
-		if (!Asset::Import::IngestAndChangeTexture2DSource(
+		if (!Asset::Import::Standard::IngestAndChangeTexture2DSource(
 			*Texture, Input.FilePath, ClassifiedDestination.NormalizedVirtualPath, Error))
 		{
 			SetError(std::move(Error));
@@ -986,7 +986,7 @@ namespace Durin::Editor::Texture
 			return;
 		}
 		std::string Error;
-		if (!Asset::Import::RepairTexture2DSourcePath(
+		if (!Asset::Import::Standard::RepairTexture2DSourcePath(
 			*Texture, Result.FilePath, Error))
 		{
 			SetError(std::move(Error));
@@ -1068,13 +1068,13 @@ namespace Durin::Editor::Texture
 			{
 				SetError(std::move(Error));
 			}
-			else if (!Asset::Import::ReimportTexture2DSource(*Texture, {}, Error)
+			else if (!Asset::Import::Standard::ReimportTexture2DSource(*Texture, {}, Error)
 				|| !Asset::Build::WaitForTexture2DBuild(*Texture)
 				|| !SaveTexture(Texture))
 			{
 				RollbackMountedSourceReplacement(Replacement);
 				std::string RestoreError;
-				Asset::Import::ReimportTexture2DSource(*Texture, {}, RestoreError);
+				Asset::Import::Standard::ReimportTexture2DSource(*Texture, {}, RestoreError);
 				Asset::Build::WaitForTexture2DBuild(*Texture);
 				if (!Error.empty()) SetError(std::move(Error));
 			}
@@ -1260,7 +1260,7 @@ namespace Durin::Editor::Texture
 		}
 		const std::string SourceDestination = Classified.RelativePath.generic_string();
 		std::string Error;
-		if (!Asset::Import::ChangeTexture2DSourceLocation(
+		if (!Asset::Import::Standard::ChangeTexture2DSourceLocation(
 			*Texture, SourceDestination, Error))
 			SetError(std::move(Error));
 	}

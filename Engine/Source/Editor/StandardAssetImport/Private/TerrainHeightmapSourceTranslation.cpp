@@ -1,16 +1,15 @@
 #include "TerrainHeightmapSourceTranslation.h"
 
-#include "Hash/XxHash.h"
-#include "ImageDecoder.h"
+#include "EncodedSourceSnapshot.h"
+#include "Image/ImageDecoder.h"
 #include "AssetSystem.h"
 #include "Misc/Paths.h"
-#include "Misc/FileHelper.h"
 #include "Asset/MountedSource.h"
 #include "Terrain/TerrainHeightmap.h"
-#include "Terrain/TerrainHeightmapBuildOperations.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
+#include "TerrainHeightmapBuildAdapter.h"
 
-namespace Durin::Asset::Import
+namespace Durin::Asset::Import::Standard
 {
 	namespace
 	{
@@ -85,61 +84,38 @@ namespace Durin::Asset::Import
 			const FMountedSourceFile& Source,
 			std::string& OutError) -> bool
 		{
-			std::error_code FileSizeError;
-			const uintmax_t FileSize = std::filesystem::file_size(
-				Source.PhysicalPath, FileSizeError);
-			if (FileSizeError || FileSize > MaximumTerrainHeightmapEncodedBytes)
-			{
-				OutError = FileSizeError
-					? "Failed to inspect the terrain heightmap source size."
-					: "Terrain heightmap source exceeds the 512 MiB encoded-source limit.";
-				return false;
-			}
-			std::vector<uint8> Bytes;
-			if (!FFileHelper::LoadFileToArray(Bytes, Source.PhysicalPath.generic_string()))
-			{
-				OutError = "Failed to read the terrain heightmap source.";
-				return false;
-			}
-			FTerrainHeightmapDecodedSource Decoded;
-			if (!DecodeTerrainHeightmapSource(
-				Source.PhysicalPath.extension().generic_string(), Bytes, Decoded, OutError)) return false;
-			const FXxHash128 Hash = FXxHash128::HashBuffer(Bytes);
-			Asset::Build::FTerrainHeightmapBuildProduct Product;
-			if (!Asset::Build::BuildTerrainHeightmap({
-				.Samples = std::move(Decoded.Samples), .Width = Decoded.Width,
-				.Height = Decoded.Height, .SourceContentHashLow = Hash.HashLow,
-				.SourceContentHashHigh = Hash.HashHigh,
-				.DecoderId = Decoded.DecoderId,
-				.DecoderVersion = Decoded.DecoderVersion,
-				.SourceFormat = Decoded.SourceFormat,
-				.SourceProfileVersion = Decoded.SourceProfileVersion}, Product, OutError)) return false;
+			FEncodedSourceSnapshot Snapshot;
+			if (!CaptureEncodedSource(
+				Source, Snapshot, OutError, MaximumTerrainHeightmapEncodedBytes)) return false;
+			FTerrainHeightmapSourceData SourceData;
+			if (!TranslateTerrainHeightmapSource(
+				Source.PhysicalPath.extension().generic_string(), Snapshot.GetBytes(),
+				SourceData, OutError)) return false;
 			const std::shared_ptr<const FTerrainHeightmapPayload> ExistingPayload = Heightmap.GetPayload();
 			const bool bSamplesChanged = !ExistingPayload
-				|| ExistingPayload->Samples != Product.Payload->Samples;
-			return Asset::Build::PublishTerrainHeightmapProduct(Heightmap, std::move(Product), {
-					.SourcePath = Source.SourcePath,
-					.DecoderId = Decoded.DecoderId,
-					.DecoderVersion = Decoded.DecoderVersion,
-					.SourceFormat = Decoded.SourceFormat,
-					.SourceProfileVersion = Decoded.SourceProfileVersion,
-					.SourceFileSize = Bytes.size(),
-					.bAdvanceRevision = bSamplesChanged}, OutError);
+				|| ExistingPayload->Samples != SourceData.Samples;
+			return BuildTerrainHeightmapFromSource(
+				Heightmap, std::move(SourceData), Snapshot, OutError, bSamplesChanged);
 		}
 	}
 
-	auto DecodeTerrainHeightmapSource(
+	auto IsTerrainHeightmapSourceExtension(std::string_view Extension) -> bool
+	{
+		return IsSupportedHeightmapExtension(NormalizeExtension(Extension));
+	}
+
+	auto TranslateTerrainHeightmapSource(
 		std::string_view Extension,
-		std::span<const uint8> Bytes,
-		FTerrainHeightmapDecodedSource& OutSource,
+		std::span<const uint8> EncodedBytes,
+		FTerrainHeightmapSourceData& OutSource,
 		std::string& OutError) -> bool
 	{
 		OutSource = {};
 		const std::string NormalizedExtension = NormalizeExtension(Extension);
 		if (NormalizedExtension == ".png")
 		{
-			Asset::FDecodedGrayscale16Image Decoded;
-			if (!Asset::DecodeGrayscale16PngFromMemory(Bytes, Decoded, OutError, {
+			Image::FDecodedGrayscale16Image Decoded;
+			if (!Image::DecodeGrayscale16PngFromMemory(EncodedBytes, Decoded, OutError, {
 				.MaximumEncodedBytes = MaximumTerrainHeightmapEncodedBytes,
 				.MaximumDecodedPixels = MaximumTerrainHeightmapSamples})) return false;
 			OutSource = {
@@ -150,30 +126,36 @@ namespace Durin::Asset::Import
 				.DecoderVersion = 1,
 				.SourceFormat = ETerrainHeightmapSourceFormat::Png16,
 				.SourceProfileVersion = TerrainSourceProfileVersion};
-			OutError.clear();
-			return true;
+			if (OutSource.IsValid())
+			{
+				OutError.clear();
+				return true;
+			}
+			OutSource = {};
+			OutError = "Decoded terrain heightmap source is invalid.";
+			return false;
 		}
 		if (NormalizedExtension != ".raw")
 		{
 			OutError = "Terrain heightmap source extension must be .png or .raw.";
 			return false;
 		}
-		if (Bytes.size() > MaximumTerrainHeightmapEncodedBytes)
+		if (EncodedBytes.size() > MaximumTerrainHeightmapEncodedBytes)
 		{
 			OutError = "RAW16 terrain heightmap exceeds the 512 MiB encoded-source limit.";
 			return false;
 		}
-		if (Bytes.size() < 8)
+		if (EncodedBytes.size() < 8)
 		{
 			OutError = "RAW16 terrain heightmap must contain at least four samples (8 bytes).";
 			return false;
 		}
-		if ((Bytes.size() & 1u) != 0)
+		if ((EncodedBytes.size() & 1u) != 0)
 		{
 			OutError = "RAW16 terrain heightmap byte count must be even.";
 			return false;
 		}
-		const uint64 SampleCount = Bytes.size() / sizeof(uint16);
+		const uint64 SampleCount = EncodedBytes.size() / sizeof(uint16);
 		uint64 Low = 2;
 		uint64 High = MaximumTerrainHeightmapDimension;
 		uint64 Dimension = 0;
@@ -201,8 +183,8 @@ namespace Durin::Asset::Import
 		{
 			const size_t ByteOffset = Index * 2;
 			OutSource.Samples[Index] = static_cast<uint16>(
-				static_cast<uint16>(Bytes[ByteOffset])
-				| (static_cast<uint16>(Bytes[ByteOffset + 1]) << 8));
+				static_cast<uint16>(EncodedBytes[ByteOffset])
+					| (static_cast<uint16>(EncodedBytes[ByteOffset + 1]) << 8));
 		}
 		OutSource.Width = static_cast<uint32>(Dimension);
 		OutSource.Height = static_cast<uint32>(Dimension);
@@ -223,7 +205,7 @@ namespace Durin::Asset::Import
 		const std::filesystem::path Input = std::filesystem::absolute(FilePath).lexically_normal();
 		std::string Extension = Input.extension().generic_string();
 		Extension = NormalizeExtension(Extension);
-		if (!std::filesystem::is_regular_file(Input) || !IsSupportedHeightmapExtension(Extension))
+		if (!std::filesystem::is_regular_file(Input) || !IsTerrainHeightmapSourceExtension(Extension))
 			return {false, "Terrain heightmap import requires an existing .png or .raw source.", nullptr};
 		FAssetPath ParsedPath;
 		std::string Error;

@@ -1,7 +1,7 @@
 #include "Thumbnail/Texture2DAssetThumbnail.h"
 
 #include "AssetSystem.h"
-#include "ImageDecoder.h"
+#include "Image/ImageDecoder.h"
 #include "Misc/Paths.h"
 #include "Texture/Texture2D.h"
 
@@ -23,7 +23,7 @@ namespace Durin::Editor::Texture
 				if (!It->is_regular_file(Error)
 					|| It->path().stem() != PathWithoutExtension.filename())
 					continue;
-				if (Asset::IsSupportedImageExtension(
+				if (Image::IsSupportedImageExtension(
 						It->path().extension().generic_string()))
 					return It->path();
 			}
@@ -53,7 +53,7 @@ namespace Durin::Editor::Texture
 						PathUtilities::ResolveSourcePath(
 							SourceImportData.Source.SourcePath.Path);
 					if (Resolved
-						&& Asset::IsSupportedImageExtension(
+						&& Image::IsSupportedImageExtension(
 							Resolved.PhysicalPath.extension().generic_string()))
 						return Resolved.PhysicalPath;
 				}

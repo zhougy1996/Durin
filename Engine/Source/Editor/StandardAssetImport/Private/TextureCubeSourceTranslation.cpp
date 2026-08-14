@@ -3,15 +3,15 @@
 #include "Asset/MountedSource.h"
 #include "AssetSystem.h"
 #include "DObject/DObjectGlobals.h"
-#include "Hash/XxHash.h"
-#include "ImageDecoder.h"
+#include "EncodedSourceSnapshot.h"
+#include "Image/ImageDecoder.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Texture/TextureCubeBuilder.h"
 #include "TextureCubeBuildAdapter.h"
 #include "Texture2DSourceTranslation.h"
 
-namespace Durin::Asset::Import
+namespace Durin::Asset::Import::Standard
 {
 	namespace
 	{
@@ -28,7 +28,7 @@ namespace Durin::Asset::Import
 				: Asset::EMountedSourceMutationContext::DependencySafe;
 		}
 
-		auto NormalizePanorama(Asset::FDecodedImage&& Image)
+		auto NormalizePanorama(Image::FDecodedImage&& Image)
 			-> Asset::Build::TextureCubeBuilder::FTexturePanoramaImage
 		{
 			return {.Pixels = std::move(Image.Pixels), .Width = Image.Width,
@@ -36,7 +36,7 @@ namespace Durin::Asset::Import
 				.bHasTransparency = Image.bHasTransparency};
 		}
 
-		auto NormalizePanorama(Asset::FDecodedFloatImage&& Image)
+		auto NormalizePanorama(Image::FDecodedFloatImage&& Image)
 			-> Asset::Build::TextureCubeBuilder::FTexturePanoramaFloatImage
 		{
 			return {.Pixels = std::move(Image.Pixels), .Width = Image.Width,
@@ -98,43 +98,18 @@ namespace Durin::Asset::Import
 			const FTextureCubePanoramaImportSettings& Settings,
 			std::string& OutError) -> bool
 		{
-			std::vector<uint8> Bytes;
-			if (!FFileHelper::LoadFileToArray(Bytes, Source.PhysicalPath.generic_string()))
+			FEncodedSourceSnapshot Snapshot;
+			if (!CaptureEncodedSource(Source, Snapshot, OutError)) return false;
+			FTextureCubePanoramaSourceData Panorama;
+			if (!TranslateTextureCubePanoramaSource(
+				Snapshot.GetBytes(), Snapshot.PhysicalPath.extension().generic_string(),
+				Panorama, OutError))
 			{
-				OutError = std::format(
-					"Failed to read mounted TextureCube panorama '{}'.",
-					Source.SourcePath.Path);
+				OutError = std::format("TextureCube panorama decode failed: {}", OutError);
 				return false;
 			}
-			const FXxHash128 Hash = FXxHash128::HashBuffer(Bytes);
-			if (Asset::IsRadianceHDRExtension(
-				Source.PhysicalPath.extension().generic_string()))
-			{
-				Asset::FDecodedFloatImage Panorama;
-				if (!Asset::DecodeRadianceHDRFromMemory(Bytes, Panorama, OutError,
-					{.MaximumDecodedPixels =
-						Asset::Build::TextureCubeBuilder::MaximumPanoramaPixels}))
-				{
-					OutError = std::format(
-						"TextureCube panorama decode failed: {}", OutError);
-					return false;
-				}
-				return BuildAndPublishTextureCubePanorama(Texture,
-						NormalizePanorama(std::move(Panorama)), Hash,
-						Source.SourcePath, Settings, OutError);
-			}
-			Asset::FDecodedImage Panorama;
-			if (!Asset::DecodeImageFromMemory(Bytes, Panorama, OutError,
-				{.MaximumDecodedPixels =
-					Asset::Build::TextureCubeBuilder::MaximumPanoramaPixels}))
-			{
-				OutError = std::format(
-					"TextureCube panorama decode failed: {}", OutError);
-				return false;
-			}
-			return BuildAndPublishTextureCubePanorama(Texture,
-					NormalizePanorama(std::move(Panorama)), Hash,
-					Source.SourcePath, Settings, OutError);
+			return BuildAndPublishTextureCubePanorama(Texture, std::move(Panorama),
+				Snapshot.ContentHash, Snapshot.SourcePath, Settings, OutError);
 		}
 
 		auto BuildFaces(
@@ -146,20 +121,21 @@ namespace Durin::Asset::Import
 			FTextureCubeSourceData SourceData;
 			std::array<FXxHash128, TextureCubeFaceCount> Hashes;
 			std::array<FSourcePath, TextureCubeFaceCount> Paths;
+			std::array<FEncodedSourceSnapshot, TextureCubeFaceCount> Snapshots;
+			std::array<std::span<const uint8>, TextureCubeFaceCount> EncodedFaces;
 			for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
 			{
-				std::vector<uint8> Bytes;
-				if (!FFileHelper::LoadFileToArray(
-						Bytes, Sources[Index].PhysicalPath.generic_string())
-					|| !TranslateTexture2DSource(Bytes, SourceData.Faces[Index], OutError))
+				if (!CaptureEncodedSource(Sources[Index], Snapshots[Index], OutError))
 				{
-					if (OutError.empty())
-						OutError = std::format("Failed to read {} TextureCube face.", FaceNames[Index]);
+					OutError = std::format("Failed to capture {} TextureCube face: {}",
+						FaceNames[Index], OutError);
 					return false;
 				}
-				Hashes[Index] = FXxHash128::HashBuffer(Bytes);
-				Paths[Index] = Sources[Index].SourcePath;
+				EncodedFaces[Index] = Snapshots[Index].GetBytes();
+				Hashes[Index] = Snapshots[Index].ContentHash;
+				Paths[Index] = Snapshots[Index].SourcePath;
 			}
+			if (!TranslateTextureCubeFaceSources(EncodedFaces, SourceData, OutError)) return false;
 			return BuildAndPublishTextureCubeFaces(
 				Texture, std::move(SourceData), Hashes, Paths, Settings, OutError);
 		}
@@ -201,22 +177,86 @@ namespace Durin::Asset::Import
 		}
 	}
 
+	auto IsTextureCubeFaceSourceExtension(std::string_view Extension) -> bool
+	{
+		return IsTexture2DSourceExtension(Extension);
+	}
+
+	auto IsTextureCubePanoramaSourceExtension(std::string_view Extension) -> bool
+	{
+		return IsTextureCubeFaceSourceExtension(Extension)
+			|| Image::IsRadianceHDRExtension(Extension);
+	}
+
+	auto TranslateTextureCubePanoramaSource(
+		std::span<const uint8> EncodedBytes,
+		std::string_view ExtensionHint,
+		FTextureCubePanoramaSourceData& OutSource,
+		std::string& OutError) -> bool
+	{
+		if (!IsTextureCubePanoramaSourceExtension(ExtensionHint))
+		{
+			OutError = "Unsupported TextureCube panorama source format.";
+			return false;
+		}
+		if (Image::IsRadianceHDRExtension(ExtensionHint))
+		{
+			Image::FDecodedFloatImage Panorama;
+			if (!Image::DecodeRadianceHDRFromMemory(EncodedBytes, Panorama, OutError,
+				{.MaximumDecodedPixels = Asset::Build::TextureCubeBuilder::MaximumPanoramaPixels}))
+				return false;
+			OutSource = NormalizePanorama(std::move(Panorama));
+			return true;
+		}
+		Image::FDecodedImage Panorama;
+		if (!Image::DecodeImageFromMemory(EncodedBytes, Panorama, OutError,
+			{.MaximumDecodedPixels = Asset::Build::TextureCubeBuilder::MaximumPanoramaPixels}))
+			return false;
+		OutSource = NormalizePanorama(std::move(Panorama));
+		return true;
+	}
+
+	auto TranslateTextureCubeFaceSources(
+		const std::array<std::span<const uint8>, TextureCubeFaceCount>& EncodedFaces,
+		FTextureCubeSourceData& OutSource,
+		std::string& OutError) -> bool
+	{
+		OutSource = {};
+		for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
+		{
+			if (!TranslateTexture2DSource(EncodedFaces[Index], OutSource.Faces[Index], OutError))
+			{
+				OutError = std::format("{} TextureCube face decode failed: {}",
+					FaceNames[Index], OutError);
+				OutSource = {};
+				return false;
+			}
+		}
+		return true;
+	}
+
 	auto ValidateTextureCubeFaces(
 		const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 		const FTextureCubeImportSettings& Settings) -> FTextureCubeImportValidation
 	{
 		FTextureCubeSourceData SourceData;
 		std::array<FXxHash128, TextureCubeFaceCount> Hashes;
+		std::array<std::vector<uint8>, TextureCubeFaceCount> Bytes;
+		std::array<std::span<const uint8>, TextureCubeFaceCount> EncodedFaces;
 		std::string Error;
 		for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
-			std::vector<uint8> Bytes;
-			if (!FFileHelper::LoadFileToArray(Bytes, FaceFiles[Index])
-				|| !TranslateTexture2DSource(Bytes, SourceData.Faces[Index], Error))
+			if (!IsTextureCubeFaceSourceExtension(
+				std::filesystem::path(FaceFiles[Index]).extension().generic_string()))
+				return {false, std::format("{} face source format is unsupported.", FaceNames[Index])};
+			if (!FFileHelper::LoadFileToArray(Bytes[Index], FaceFiles[Index]))
 				return {false, std::format("{} face decode failed: {}", FaceNames[Index],
 					Error.empty() ? "source is unavailable" : Error)};
-			Hashes[Index] = FXxHash128::HashBuffer(Bytes);
+			EncodedFaces[Index] = Bytes[Index];
+			Hashes[Index] = FXxHash128::HashBuffer(Bytes[Index]);
 		}
+		if (!TranslateTextureCubeFaceSources(EncodedFaces, SourceData, Error))
+			return {false, std::move(Error)};
 		Asset::Build::FTextureCubeBuildProduct Product;
 		if (!Asset::Build::BuildTextureCubeFaces(
 			std::move(SourceData), Hashes, Settings, Product, Error))
@@ -228,32 +268,24 @@ namespace Durin::Asset::Import
 		std::string_view PanoramaFile,
 		const FTextureCubePanoramaImportSettings& Settings) -> FTextureCubeImportValidation
 	{
+		if (!IsTextureCubePanoramaSourceExtension(
+			std::filesystem::path(PanoramaFile).extension().generic_string()))
+			return {false, "Panorama source format is unsupported."};
 		std::vector<uint8> Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, PanoramaFile))
 			return {false, "Panorama source is unavailable."};
 		const FXxHash128 Hash = FXxHash128::HashBuffer(Bytes);
 		std::string Error;
 		Asset::Build::FTextureCubeBuildProduct Product;
-		const bool bHDR = Asset::IsRadianceHDRExtension(
+		const bool bHDR = Image::IsRadianceHDRExtension(
 			std::filesystem::path(PanoramaFile).extension().generic_string());
-		if (bHDR)
-		{
-			Asset::FDecodedFloatImage Panorama;
-			if (!Asset::DecodeRadianceHDRFromMemory(Bytes, Panorama, Error,
-				{.MaximumDecodedPixels = Asset::Build::TextureCubeBuilder::MaximumPanoramaPixels})
-				|| !Asset::Build::BuildTextureCubePanorama(
-					NormalizePanorama(std::move(Panorama)), Hash, Settings, Product, Error))
-				return {false, std::move(Error)};
-		}
-		else
-		{
-			Asset::FDecodedImage Panorama;
-			if (!Asset::DecodeImageFromMemory(Bytes, Panorama, Error,
-				{.MaximumDecodedPixels = Asset::Build::TextureCubeBuilder::MaximumPanoramaPixels})
-				|| !Asset::Build::BuildTextureCubePanorama(
-					NormalizePanorama(std::move(Panorama)), Hash, Settings, Product, Error))
-				return {false, std::move(Error)};
-		}
+		FTextureCubePanoramaSourceData Panorama;
+		if (!TranslateTextureCubePanoramaSource(Bytes,
+			std::filesystem::path(PanoramaFile).extension().generic_string(), Panorama, Error)
+			|| !std::visit([&](auto&& Source) {
+				return Asset::Build::BuildTextureCubePanorama(
+					std::move(Source), Hash, Settings, Product, Error);
+			}, std::move(Panorama))) return {false, std::move(Error)};
 		return MakeValidation(Product, bHDR);
 	}
 
@@ -266,7 +298,8 @@ namespace Durin::Asset::Import
 	{
 		const std::filesystem::path Input =
 			std::filesystem::absolute(PanoramaFile).lexically_normal();
-		if (!std::filesystem::is_regular_file(Input))
+		if (!std::filesystem::is_regular_file(Input)
+			|| !IsTextureCubePanoramaSourceExtension(Input.extension().generic_string()))
 			return {false, "Panorama source is unavailable.", nullptr};
 		FAssetPath ParsedAssetPath;
 		std::string Error;
@@ -324,7 +357,8 @@ namespace Durin::Asset::Import
 		{
 			const std::filesystem::path Input =
 				std::filesystem::absolute(FaceFiles[Index]).lexically_normal();
-			if (!std::filesystem::is_regular_file(Input))
+			if (!std::filesystem::is_regular_file(Input)
+				|| !IsTextureCubeFaceSourceExtension(Input.extension().generic_string()))
 			{
 				Rollback();
 				return {false, std::format("{} face source is unavailable.", FaceNames[Index]), nullptr};

@@ -10,6 +10,19 @@
 
 namespace Durin::Asset::Import::Standard
 {
+	auto IsSceneSurfaceImageEncodingSupported(EImportedImageEncoding Encoding) -> bool
+	{
+		switch (Encoding)
+		{
+		case EImportedImageEncoding::Png:
+		case EImportedImageEncoding::Jpeg:
+		case EImportedImageEncoding::Bmp:
+		case EImportedImageEncoding::Tga:
+			return true;
+		}
+		return false;
+	}
+
 	namespace
 	{
 		auto ValidateGltfMaterialProjection(

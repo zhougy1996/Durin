@@ -35,12 +35,12 @@ namespace
 	public:
 		~FScopedStandardAssetImportProviders()
 		{
-			if (bRegistered) Durin::Asset::Import::UnregisterStandardAssetImportProviders();
+			if (bRegistered) Durin::Asset::Import::Standard::UnregisterStandardAssetImportProviders();
 		}
 
 		auto Register(std::string& OutError) -> bool
 		{
-			bRegistered = Durin::Asset::Import::RegisterStandardAssetImportProviders(OutError);
+			bRegistered = Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(OutError);
 			return bRegistered;
 		}
 
@@ -270,7 +270,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MaterialThumbnailVulkan/T_Preview", CaptureTexturePath));
 		const Durin::FTexture2DImportResult TextureResult =
-			Durin::Asset::Import::ImportTexture2DAsset(
+			Durin::Asset::Import::Standard::ImportTexture2DAsset(
 				TextureSource.generic_string(), CaptureTexturePath.ToString());
 		ASSERT_TRUE(TextureResult) << TextureResult.Message;
 		ASSERT_NE(TextureResult.Asset->GetPlatformData(), nullptr);
@@ -282,10 +282,10 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MaterialThumbnailVulkan/T_Data", DataTexturePath));
 		const Durin::FTexture2DImportResult DataTextureResult =
-			Durin::Asset::Import::ImportTexture2DAsset(
+			Durin::Asset::Import::Standard::ImportTexture2DAsset(
 				TextureSource.generic_string(), DataTexturePath.ToString());
 		ASSERT_TRUE(DataTextureResult) << DataTextureResult.Message;
-		ASSERT_TRUE(Durin::Asset::Import::SetTexture2DUsage(
+		ASSERT_TRUE(Durin::Asset::Import::Standard::SetTexture2DUsage(
 			*DataTextureResult.Asset, Durin::ETextureUsage::DataMask, Error)) << Error;
 		ASSERT_TRUE(Durin::Asset::Build::WaitForTexture2DBuild(
 			*DataTextureResult.Asset, 10.0))
@@ -299,10 +299,10 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MaterialThumbnailVulkan/T_Normal", NormalTexturePath));
 		const Durin::FTexture2DImportResult NormalTextureResult =
-			Durin::Asset::Import::ImportTexture2DAsset(
+			Durin::Asset::Import::Standard::ImportTexture2DAsset(
 				TextureSource.generic_string(), NormalTexturePath.ToString());
 		ASSERT_TRUE(NormalTextureResult) << NormalTextureResult.Message;
-		ASSERT_TRUE(Durin::Asset::Import::SetTexture2DUsage(
+		ASSERT_TRUE(Durin::Asset::Import::Standard::SetTexture2DUsage(
 			*NormalTextureResult.Asset, Durin::ETextureUsage::Normal, Error)) << Error;
 		ASSERT_TRUE(Durin::Asset::Build::WaitForTexture2DBuild(
 			*NormalTextureResult.Asset, 10.0))
@@ -809,8 +809,8 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MaterialThumbnailVulkan/TC_Preview", CaptureCubePath));
-		const Durin::Asset::Import::FTextureCubeImportResult CubeResult =
-			Durin::Asset::Import::ImportTextureCubeFaces(
+		const Durin::Asset::Import::Standard::FTextureCubeImportResult CubeResult =
+			Durin::Asset::Import::Standard::ImportTextureCubeFaces(
 				Durin::Tests::GetRenderedThumbnailDirectionalCubeFaces(),
 				CaptureCubePath.ToString());
 		ASSERT_TRUE(CubeResult) << CubeResult.Message;

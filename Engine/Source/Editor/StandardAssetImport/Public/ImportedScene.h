@@ -206,6 +206,9 @@ namespace Durin::Asset::Import::Standard
 		std::vector<FSceneImportDiagnostic> Diagnostics;
 	};
 
+	STANDARDASSETIMPORT_API auto IsSceneSurfaceImageEncodingSupported(
+		EImportedImageEncoding Encoding) -> bool;
+
 	STANDARDASSETIMPORT_API auto ImportFromFile(
 		std::string_view FilePath,
 		FImportedSceneData& OutData,

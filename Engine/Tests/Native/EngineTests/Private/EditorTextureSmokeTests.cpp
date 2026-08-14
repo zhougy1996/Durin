@@ -75,7 +75,7 @@ namespace Durin
 	{
 		InitializeDObjectSystem();
 		std::string ProviderError;
-		ASSERT_TRUE(Asset::Import::RegisterStandardAssetImportProviders(ProviderError))
+		ASSERT_TRUE(Asset::Import::Standard::RegisterStandardAssetImportProviders(ProviderError))
 			<< ProviderError;
 		InitRenderingThread();
 		const std::filesystem::path Root =
@@ -98,12 +98,12 @@ namespace Durin
 		const std::filesystem::path TextureSource =
 			Root / "VisibleTexture.png";
 		WriteTextureSmokeFixture(TextureSource);
-		const FTexture2DImportResult TextureImport = Asset::Import::ImportTexture2DAsset(
+		const FTexture2DImportResult TextureImport = Asset::Import::Standard::ImportTexture2DAsset(
 			TextureSource.generic_string(), "/EditorMixedV4/Textures/BaseColor");
 		ASSERT_TRUE(TextureImport) << TextureImport.Message;
 		const std::filesystem::path MeshSource =
 			std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-		const FStaticMeshImportResult MeshImport = Asset::Import::ImportStaticMeshAsset(
+		const FStaticMeshImportResult MeshImport = Asset::Import::Standard::ImportStaticMeshAsset(
 			MeshSource.generic_string(), "/EditorMixedV4/Meshes/VisibleMesh");
 		ASSERT_TRUE(MeshImport) << MeshImport.Message;
 		FAssetPath MaterialPath;
@@ -259,8 +259,8 @@ namespace Durin
 	{
 		InitializeDObjectSystem();
 		std::string ProviderError;
-		ASSERT_TRUE(Asset::Import::RegisterStandardAssetImportProviders(ProviderError)) << ProviderError;
-		ASSERT_TRUE(Asset::Import::RegisterStandardAssetImportProviders(ProviderError)) << ProviderError;
+		ASSERT_TRUE(Asset::Import::Standard::RegisterStandardAssetImportProviders(ProviderError)) << ProviderError;
+		ASSERT_TRUE(Asset::Import::Standard::RegisterStandardAssetImportProviders(ProviderError)) << ProviderError;
 		EXPECT_TRUE(ProviderError.empty());
 		InitRenderingThread();
 		const std::filesystem::path Root = Testing::GetTestWorkDirectory() / "EditorTextureSmoke";
@@ -273,14 +273,14 @@ namespace Durin
 
 		const std::filesystem::path TextureSource = Testing::GetTestWorkDirectory() / "EditorTextureSmoke.png";
 		WriteTextureSmokeFixture(TextureSource);
-		const FTexture2DImportResult TextureImport = Asset::Import::ImportTexture2DAsset(TextureSource.generic_string(), "/EditorTextureSmoke/Textures/BaseColor");
+		const FTexture2DImportResult TextureImport = Asset::Import::Standard::ImportTexture2DAsset(TextureSource.generic_string(), "/EditorTextureSmoke/Textures/BaseColor");
 		ASSERT_TRUE(TextureImport) << TextureImport.Message;
 		ASSERT_NE(TextureImport.Asset, nullptr);
 		ASSERT_NE(TextureImport.Asset->GetSourceData(), nullptr);
 		EXPECT_EQ(TextureImport.Asset->GetSourceData()->Pixels.size(), 8u);
 
 		const std::filesystem::path MeshSource = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-		const FStaticMeshImportResult MeshImport = Asset::Import::ImportStaticMeshAsset(MeshSource.generic_string(), "/EditorTextureSmoke/Meshes/VisibleMesh");
+		const FStaticMeshImportResult MeshImport = Asset::Import::Standard::ImportStaticMeshAsset(MeshSource.generic_string(), "/EditorTextureSmoke/Meshes/VisibleMesh");
 		ASSERT_TRUE(MeshImport) << MeshImport.Message;
 		ASSERT_NE(MeshImport.Asset, nullptr);
 
@@ -342,7 +342,7 @@ namespace Durin
 			TextureImport.Asset->GetTextureReferenceRHI().GetReference();
 		ASSERT_NE(StableTextureReference, nullptr);
 		std::string RebuildError;
-		ASSERT_TRUE(Asset::Import::SetTexture2DSRGB(
+		ASSERT_TRUE(Asset::Import::Standard::SetTexture2DSRGB(
 			*TextureImport.Asset, !TextureImport.Asset->IsSRGB(), RebuildError)) << RebuildError;
 		ASSERT_TRUE(Asset::Build::WaitForTexture2DBuild(*TextureImport.Asset, 10.0))
 			<< Asset::Build::GetTexture2DBuildDiagnostic(*TextureImport.Asset).Message;
@@ -429,7 +429,7 @@ namespace Durin
 		const std::filesystem::path Source =
 			Testing::GetTestWorkDirectory() / "TextureOwnershipSmoke.png";
 		WriteTextureSmokeFixture(Source);
-		const FTexture2DImportResult Import = Asset::Import::ImportTexture2DAsset(
+		const FTexture2DImportResult Import = Asset::Import::Standard::ImportTexture2DAsset(
 			Source.generic_string(), "/TextureOwnershipSmoke/Texture");
 		ASSERT_TRUE(Import) << Import.Message;
 		ASSERT_NE(Import.Asset, nullptr);

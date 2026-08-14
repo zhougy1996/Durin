@@ -1,19 +1,19 @@
 #include "Texture2DSourceTranslation.h"
+#include "EncodedSourceSnapshot.h"
+#include "Texture2DBuildAdapter.h"
 #include "Texture2DPropertyEditing.h"
 #include "Texture2DPostLoad.h"
 #include "Texture2DSourceRelocation.h"
 
 #include "AssetSystem.h"
 #include "Hash/XxHash.h"
-#include "ImageDecoder.h"
-#include "Misc/DerivedDataCache.h"
-#include "Misc/FileHelper.h"
+#include "Image/ImageDecoder.h"
 #include "Misc/Paths.h"
 #include "Asset/MountedSource.h"
 #include "Texture/TextureBuildOperations.h"
 #include "Texture/TextureBuilder.h"
 
-namespace Durin::Asset::Import
+namespace Durin::Asset::Import::Standard
 {
 	namespace
 	{
@@ -94,14 +94,6 @@ namespace Durin::Asset::Import
 			return true;
 		}
 
-		auto GetLastWriteTime(const std::filesystem::path& Path) -> int64
-		{
-			std::error_code Error;
-			const std::filesystem::file_time_type LastWriteTime =
-				std::filesystem::last_write_time(Path, Error);
-			return Error ? 0 : DerivedDataCache::FileTimeToStableTicks(LastWriteTime);
-		}
-
 		auto SubmitTexture2DFromMountedSource(
 			DTexture2D& Texture,
 			const FMountedSourceFile& Source,
@@ -110,30 +102,32 @@ namespace Durin::Asset::Import
 			Asset::Build::ETexture2DBuildPriority Priority,
 			Asset::Build::FTexture2DAuthoringCompletion Completion = {}) -> bool
 		{
-			std::vector<uint8> EncodedBytes;
-			if (!FFileHelper::LoadFileToArray(
-				EncodedBytes, Source.PhysicalPath.generic_string()))
-			{
-				OutError = std::format(
-					"Failed to read texture source file: {}",
-					Source.PhysicalPath.generic_string());
-				return false;
-			}
+			FEncodedSourceSnapshot Snapshot;
+			if (!CaptureEncodedSource(Source, Snapshot, OutError)) return false;
 			FTextureSourceData SourceData;
-			if (!TranslateTexture2DSource(EncodedBytes, SourceData, OutError)) return false;
-			const FXxHash128 SourceHash = FXxHash128::HashBuffer(EncodedBytes);
+			if (!TranslateTexture2DSource(Snapshot.GetBytes(), SourceData, OutError)) return false;
 			return Asset::Build::SubmitTexture2DBuild(Texture, {
 				.SourceData = std::move(SourceData),
-				.SourceContentHashLow = SourceHash.HashLow,
-				.SourceContentHashHigh = SourceHash.HashHigh,
-				.SourcePath = Source.SourcePath,
+				.SourceContentHashLow = Snapshot.ContentHash.HashLow,
+				.SourceContentHashHigh = Snapshot.ContentHash.HashHigh,
+				.SourcePath = Snapshot.SourcePath,
 				.Settings = Settings,
 				.DecoderId = "DurinImage",
 				.DecoderVersion = 1,
-				.SourceFileSize = EncodedBytes.size(),
-				.SourceLastWriteTime = GetLastWriteTime(Source.PhysicalPath),
+				.SourceFileSize = Snapshot.FileSize,
+				.SourceLastWriteTime = Snapshot.LastWriteTime,
 				.Priority = Priority}, OutError, std::move(Completion));
 		}
+	}
+
+	auto IsTexture2DSourceExtension(std::string_view Extension) -> bool
+	{
+		std::string Lowercase(Extension);
+		std::ranges::transform(Lowercase, Lowercase.begin(), [](unsigned char Character) {
+			return static_cast<char>(std::tolower(Character));
+		});
+		return Lowercase == ".png" || Lowercase == ".jpg" || Lowercase == ".jpeg"
+			|| Lowercase == ".bmp" || Lowercase == ".tga";
 	}
 
 	auto TranslateTexture2DSource(
@@ -141,8 +135,8 @@ namespace Durin::Asset::Import
 		FTextureSourceData& OutSourceData,
 		std::string& OutError) -> bool
 	{
-		Asset::FDecodedImage DecodedImage;
-		if (!Asset::DecodeImageFromMemory(
+		Image::FDecodedImage DecodedImage;
+		if (!Image::DecodeImageFromMemory(
 			EncodedBytes,
 			DecodedImage,
 			OutError,
@@ -175,14 +169,30 @@ namespace Durin::Asset::Import
 		std::string& OutError,
 		int64 SourceLastWriteTime) -> bool
 	{
+		auto Bytes = std::make_shared<const std::vector<uint8>>(
+			EncodedBytes.begin(), EncodedBytes.end());
+		FEncodedSourceSnapshot Source{
+			.SourcePath = SourcePath,
+			.Bytes = std::move(Bytes),
+			.FileSize = EncodedBytes.size(),
+			.LastWriteTime = SourceLastWriteTime};
+		Source.ContentHash = FXxHash128::HashBuffer(Source.GetBytes());
+		return BuildTexture2DCandidateFromSnapshot(Texture, Source, Settings, OutError);
+	}
+
+	auto BuildTexture2DCandidateFromSnapshot(
+		DTexture2D& Texture,
+		const FEncodedSourceSnapshot& Source,
+		const FTexture2DImportSettings& Settings,
+		std::string& OutError) -> bool
+	{
 		FTextureSourceData SourceData;
-		if (!TranslateTexture2DSource(EncodedBytes, SourceData, OutError)) return false;
-		const FXxHash128 SourceHash = FXxHash128::HashBuffer(EncodedBytes);
+		if (!TranslateTexture2DSource(Source.GetBytes(), SourceData, OutError)) return false;
 		Asset::Build::FTexture2DBuildProduct Product;
 		if (!Asset::Build::BuildTexture2D({
 			.SourceData = std::move(SourceData),
-			.SourceContentHashLow = SourceHash.HashLow,
-			.SourceContentHashHigh = SourceHash.HashHigh,
+			.SourceContentHashLow = Source.ContentHash.HashLow,
+			.SourceContentHashHigh = Source.ContentHash.HashHigh,
 			.Settings = {
 				.Usage = Settings.Usage,
 				.CompressionQuality = Settings.CompressionQuality,
@@ -191,11 +201,11 @@ namespace Durin::Asset::Import
 				.MaxResolution = Settings.MaxResolution,
 				.bSRGB = Settings.bSRGB}}, Product, OutError)) return false;
 		return Asset::Build::PublishTexture2DProduct(Texture, std::move(Product), {
-			.SourcePath = SourcePath,
+			.SourcePath = Source.SourcePath,
 			.DecoderId = "DurinImage",
 			.DecoderVersion = 1,
-			.SourceFileSize = EncodedBytes.size(),
-			.SourceLastWriteTime = SourceLastWriteTime}, OutError);
+			.SourceFileSize = Source.FileSize,
+			.SourceLastWriteTime = Source.LastWriteTime}, OutError);
 	}
 
 	auto ImportTexture2DAsset(
@@ -212,7 +222,7 @@ namespace Durin::Asset::Import
 			std::filesystem::absolute(FilePath).lexically_normal();
 		if (!std::filesystem::is_regular_file(Input))
 			return {false, "Source file does not exist.", nullptr};
-		if (!Asset::IsSupportedImageExtension(Input.extension().generic_string()))
+		if (!IsTexture2DSourceExtension(Input.extension().generic_string()))
 			return {false, "Unsupported texture source format.", nullptr};
 		if (Settings.Usage != ETextureUsage::Color
 			&& Settings.Usage != ETextureUsage::Normal
@@ -260,12 +270,11 @@ namespace Durin::Asset::Import
 				: EMountedSourceMutationContext::DependencySafe))
 			return {false, std::move(Error), nullptr};
 
-		std::vector<uint8> EncodedBytes;
-		if (!FFileHelper::LoadFileToArray(
-			EncodedBytes, MountedSource.PhysicalPath.generic_string()))
+		FEncodedSourceSnapshot Snapshot;
+		if (!CaptureEncodedSource(MountedSource, Snapshot, Error))
 		{
 			RollbackMountedSourceFile(MountedSource);
-			return {false, "Failed to read the mounted texture source.", nullptr};
+			return {false, std::move(Error), nullptr};
 		}
 
 		DTexture2D* Texture = nullptr;
@@ -275,13 +284,11 @@ namespace Durin::Asset::Import
 			RollbackMountedSourceFile(MountedSource);
 			return {false, CreateResult.Message, nullptr};
 		}
-		if (!BuildTexture2DCandidateFromSource(
+		if (!BuildTexture2DCandidateFromSnapshot(
 			*Texture,
-			EncodedBytes,
-			MountedSource.SourcePath,
+			Snapshot,
 			Settings,
-			Error,
-			GetLastWriteTime(MountedSource.PhysicalPath)))
+			Error))
 		{
 			RollbackMountedSourceFile(MountedSource);
 			Asset::UnloadPackage(ParsedAssetPath);

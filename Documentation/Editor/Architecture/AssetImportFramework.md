@@ -34,13 +34,22 @@ The dependency direction is `Core/CoreDObject -> AssetCore -> AssetImportCore
 - Editor hosts query framework capabilities. A concrete asset class alone does
   not imply that import or reimport is available.
 
-`StandardAssetImport` is the default aggregate for built-in providers and the
-only owner of their Assimp and editor image-decoder dependencies. Runtime Engine
-assets contain only runtime state and lightweight single-asset provenance.
+`StandardAssetImport` is the default aggregate for built-in providers and owns
+their Assimp and concrete source-translation policy. Asset-independent image
+decoding lives in Core; StandardAssetImport alone decides which technically
+decodable inputs are admitted for Texture2D, TextureCube, Scene, and Terrain.
+Runtime Engine assets contain only runtime state and lightweight single-asset provenance.
 Its public Texture2D translation/submission contract intentionally exposes
 `TextureBuild` settings and completion values, so `TextureBuild` remains a
 public module dependency; geometry recipes are implementation-only and
 `GeometryBuild` is private.
+
+Public framework contracts supplied by `AssetImportCore` remain in
+`Durin::Asset::Import`. Built-in provider registration, direct authoring APIs,
+format admission, and typed translators supplied by StandardAssetImport live in
+`Durin::Asset::Import::Standard`. Implementation-only build composition and
+uncooked policies remain private to the physical module; no compatibility alias
+flattens standard APIs into the framework namespace.
 
 TextureCube follows the same boundary. `TextureCubeSourceTranslation.h` owns
 six-face and panorama validation, import/reimport, source-reference changes,
@@ -61,6 +70,14 @@ keys consume the same snapshot bytes. No later phase reopens a physical source.
 A plan is mutation-free, canonically ordered, and records target revisions and
 management preconditions. Publication rejects a stale plan before changing any
 loaded identity or package.
+
+Direct authoring, source-reference changes, repair, and uncooked PostLoad use
+the same StandardAssetImport encoded-source snapshot contract. Texture2D,
+TextureCube, and Terrain each have one typed translation authority. Provider
+candidate and uncooked-policy orchestration never decode image formats.
+`TextureCubePostLoadPolicy` and `TerrainHeightmapAuthoringPolicy` register
+independently; aggregate startup installs them in declaration order and rolls
+back or tears them down in strict reverse order.
 
 ## Single-asset and record reimport
 
@@ -213,8 +230,9 @@ runtime packages and payloads into cooked ownership. Skeleton is package-only.
 Skeletal meshes and clips retain their hard Skeleton reference and structural
 compatibility identity.
 A runtime-only target loads
-cooked outputs without `AssetImportCore`, `StandardAssetImport`, Assimp, an
-editor image decoder, source files, or DDC fallback.
+cooked outputs without `AssetImportCore`, `StandardAssetImport`, Assimp,
+authoring source files, or DDC fallback. Core may contain the generic codec,
+but cooked loading never invokes source decoding or admits authoring policy.
 
 For skeletal Scene outputs, candidate construction hashes the exact ordered
 source closure plus normalized Scene settings, typed provider state, stable

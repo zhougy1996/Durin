@@ -119,6 +119,12 @@ uses a reversible whole-state exchange, preserves object identity, rolls back
 on save failure, and updates reflected `FSourcePath` provenance for the source
 reference index and relocation workflow.
 
+`TranslateTerrainHeightmapSource` is the sole encoded-PNG interpretation
+authority. Direct import, provider candidates, source changes, repair, and the
+independently reversible `TerrainHeightmapAuthoringPolicy` consume one immutable
+source capture and pass exact owned samples to GeometryBuild. Provider and
+PostLoad orchestration do not decode or hash the source themselves.
+
 Generic reflected inspection exposes source format facts, dimensions, global
 range, revision, sample/hierarchy/retained bytes, status, DDC identity, cooked
 descriptor versions, and a diagnostic capped at 2,048 bytes. The asset has no

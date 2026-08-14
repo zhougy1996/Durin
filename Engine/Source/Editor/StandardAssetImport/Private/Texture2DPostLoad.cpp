@@ -1,4 +1,5 @@
 #include "Texture2DPostLoad.h"
+#include "Texture2DBuildAdapter.h"
 
 #include "Hash/XxHash.h"
 #include "Misc/DerivedDataCache.h"
@@ -9,7 +10,7 @@
 #include "Texture/TextureBuildOperations.h"
 #include "Texture2DSourceTranslation.h"
 
-namespace Durin::Asset::Import
+namespace Durin::Asset::Import::Standard
 {
 	namespace
 	{

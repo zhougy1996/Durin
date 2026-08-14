@@ -37,7 +37,7 @@ namespace Durin::Editor::Level
 			for (DObject* Asset : Assets)
 			{
 				std::string RecordError;
-				Asset::Import::DImportRecord* Record = Asset::Import::FindSceneImportRecordForOutput(
+				Asset::Import::DImportRecord* Record = Asset::Import::Standard::FindSceneImportRecordForOutput(
 					*Asset, RecordError);
 				if (!Record)
 				{

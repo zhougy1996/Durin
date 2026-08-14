@@ -3,15 +3,15 @@
 #include "ImportedScene.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 
-namespace Durin::Asset::Import
+namespace Durin::Asset::Import::Standard
 {
 	inline auto MakeStaticMeshImportedData(
-		const Standard::FImportedSceneData& Scene)
+		const FImportedSceneData& Scene)
 		-> Asset::Build::FStaticMeshImportedData
 	{
 		Asset::Build::FStaticMeshImportedData Result;
 		Result.MaterialSlots.reserve(Scene.MaterialSlots.size());
-		for (const Standard::FImportedMaterialSlot& Slot : Scene.MaterialSlots)
+		for (const FImportedMaterialSlot& Slot : Scene.MaterialSlots)
 		{
 			Result.MaterialSlots.push_back({
 				.Name = Slot.Name,
@@ -19,7 +19,7 @@ namespace Durin::Asset::Import
 				.SourceName = Slot.SourceName});
 		}
 		Result.Meshes.reserve(Scene.Meshes.size());
-		for (const Standard::FImportedMeshData& Mesh : Scene.Meshes)
+		for (const FImportedMeshData& Mesh : Scene.Meshes)
 		{
 			Asset::Build::FStaticMeshImportedMesh& Output = Result.Meshes.emplace_back();
 			Output.Name = Mesh.Name;

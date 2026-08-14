@@ -4,8 +4,10 @@
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DAuthoringService.h"
 
-namespace Durin::Asset::Import
+namespace Durin::Asset::Import::Standard
 {
+	STANDARDASSETIMPORT_API auto IsTexture2DSourceExtension(
+		std::string_view Extension) -> bool;
 	// Translates one concrete encoded image into Engine's normalized RGBA8 source value.
 	STANDARDASSETIMPORT_API auto TranslateTexture2DSource(
 		std::span<const uint8> EncodedBytes,
@@ -14,13 +16,6 @@ namespace Durin::Asset::Import
 
 	// Standard image-provider adapter: translate, build a detached product, then
 	// publish it to a main-thread candidate object.
-	STANDARDASSETIMPORT_API auto BuildTexture2DCandidateFromSource(
-		DTexture2D& Texture,
-		std::span<const uint8> EncodedBytes,
-		const FSourcePath& SourcePath,
-		const FTexture2DImportSettings& Settings,
-		std::string& OutError,
-		int64 SourceLastWriteTime = 0) -> bool;
 
 	STANDARDASSETIMPORT_API auto ImportTexture2DAsset(
 		std::string_view FilePath,
@@ -28,15 +23,6 @@ namespace Durin::Asset::Import
 		const FTexture2DImportSettings& Settings = {},
 		bool bEngineAuthoringContext = false) -> FTexture2DImportResult;
 
-	STANDARDASSETIMPORT_API auto MakeTexture2DBuildSettings(const DTexture2D& Texture)
-		-> Asset::Build::FTexture2DBuildSettings;
-	STANDARDASSETIMPORT_API auto RebuildTexture2DFromCurrentSource(
-		DTexture2D& Texture,
-		const Asset::Build::FTexture2DBuildSettings& Settings,
-		std::string& OutError,
-		Asset::Build::ETexture2DBuildPriority Priority =
-			Asset::Build::ETexture2DBuildPriority::Interactive,
-		Asset::Build::FTexture2DAuthoringCompletion Completion = {}) -> bool;
 	STANDARDASSETIMPORT_API auto ReimportTexture2DSource(
 		DTexture2D& Texture,
 		std::string_view FilePath,

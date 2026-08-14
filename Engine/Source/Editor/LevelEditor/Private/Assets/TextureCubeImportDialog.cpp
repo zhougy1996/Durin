@@ -449,20 +449,20 @@ namespace Durin::Editor::Level
 
 	auto FTextureCubeImportDialog::RevalidateSources() -> bool
 	{
-		Asset::Import::FTextureCubeImportValidation Validation;
+		Asset::Import::Standard::FTextureCubeImportValidation Validation;
 		if (SourceLayout == ETextureCubeSourceLayout::SixFaces)
 		{
 			std::array<std::string, TextureCubeFaceCount> Faces;
 			for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 				Faces[Index] = FacePathBuffers[Index].data();
-			Validation = Asset::Import::ValidateTextureCubeFaces(Faces);
+			Validation = Asset::Import::Standard::ValidateTextureCubeFaces(Faces);
 		}
 		else
 		{
-			const Asset::Import::FTextureCubePanoramaImportSettings Settings{
+			const Asset::Import::Standard::FTextureCubePanoramaImportSettings Settings{
 				.FaceDimension = PanoramaFaceDimension,
 				.ExposureEV = IsRadianceHDRPath(PanoramaPathBuffer.data()) ? PanoramaExposureEV : 0.0f};
-			Validation = Asset::Import::ValidateTextureCubePanorama(
+			Validation = Asset::Import::Standard::ValidateTextureCubePanorama(
 				PanoramaPathBuffer.data(), Settings);
 		}
 		bSourcesValid = static_cast<bool>(Validation);
@@ -480,7 +480,7 @@ namespace Durin::Editor::Level
 	{
 		Callbacks.Clear();
 		if (!RevalidateSources()) return false;
-		Asset::Import::FTextureCubeImportResult Result;
+		Asset::Import::Standard::FTextureCubeImportResult Result;
 		if (SourceLayout == ETextureCubeSourceLayout::SixFaces)
 		{
 			std::array<std::string, TextureCubeFaceCount> Faces;
@@ -491,16 +491,16 @@ namespace Durin::Editor::Level
 				if (SourceMode == EMountedSourceImportMode::IngestExternal)
 					Destinations[Index] = FaceDestinationBuffers[Index].data();
 			}
-			Result = Asset::Import::ImportTextureCubeFaces(
+			Result = Asset::Import::Standard::ImportTextureCubeFaces(
 				Faces, Destination.GetPath(), {}, Destinations,
 				IsEngineAuthoringDestination(Destination.GetPath()));
 		}
 		else
 		{
-			const Asset::Import::FTextureCubePanoramaImportSettings Settings{
+			const Asset::Import::Standard::FTextureCubePanoramaImportSettings Settings{
 				.FaceDimension = PanoramaFaceDimension,
 				.ExposureEV = bValidatedHDR ? PanoramaExposureEV : 0.0f};
-			Result = Asset::Import::ImportTextureCubePanorama(
+			Result = Asset::Import::Standard::ImportTextureCubePanorama(
 				PanoramaPathBuffer.data(), Destination.GetPath(), Settings,
 				SourceMode == EMountedSourceImportMode::IngestExternal
 					? PanoramaDestinationBuffer.data() : std::string_view{},

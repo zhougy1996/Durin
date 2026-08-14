@@ -4,7 +4,6 @@
 #include "Assets/MountedSourceImport.h"
 #include "AssetSystem.h"
 #include "Dialogs/FileDialog.h"
-#include "ImageDecoder.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "Misc/StringConvert.h"
@@ -83,7 +82,9 @@ namespace Durin::Editor::Level
 		const std::filesystem::path SourcePath(SourcePathBuffer.data());
 		const bool bHasSource = SourcePathBuffer[0] != '\0';
 		const bool bSourceExists = bHasSource && std::filesystem::is_regular_file(SourcePath);
-		const bool bSupportedSource = bHasSource && Asset::IsSupportedImageExtension(SourcePath.extension().generic_string());
+		const bool bSupportedSource = bHasSource
+			&& Asset::Import::Standard::IsTexture2DSourceExtension(
+				SourcePath.extension().generic_string());
 		if (bHasSource) ImGui::TextDisabled("%s", SourcePath.filename().generic_string().c_str());
 
 		ImGui::Spacing();
@@ -317,7 +318,7 @@ namespace Durin::Editor::Level
 		if (SourceMode == EMountedSourceImportMode::IngestExternal)
 			Settings.SourceDestination = SourceDestinationBuffer.data();
 		Settings.Usage = Usage;
-		FTexture2DImportResult Result = Asset::Import::ImportTexture2DAsset(
+		FTexture2DImportResult Result = Asset::Import::Standard::ImportTexture2DAsset(
 			SourcePathBuffer.data(), Destination.GetPath(), Settings,
 			IsEngineAuthoringDestination(Destination.GetPath()));
 		if (!Result) { SetError(Result.Message); return false; }

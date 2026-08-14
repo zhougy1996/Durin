@@ -4,28 +4,49 @@ Summary: Move source-image decoding into a Core-owned codec boundary, distinguis
 
 Last reviewed: 2026-08-14
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-14
 
 ## Current Status
 
-The plan is selected but implementation has not begun. `AssetCore` currently
-owns `ImageDecoder`, even though its byte-to-pixel API is also consumed by
-TextureEditor, LevelEditor, and DurinEd thumbnail paths. `AssetImportCore` and
-the concrete `StandardAssetImport` implementation both publish canonical APIs
-under `Durin::Asset::Import`, while only some standard-provider intermediate
-types use `Durin::Asset::Import::Standard`.
+The migration is complete. Core owns the asset-independent image codec under
+`Durin::Image`; AssetCore no longer compiles or exposes it. Generic framework
+contracts remain under `Durin::Asset::Import`, while built-in provider,
+translator, validation, and direct authoring APIs use
+`Durin::Asset::Import::Standard`.
 
-TerrainHeightmap, TextureCube, and Texture2D already hand normalized values to
-typed Build modules, but concrete source decoding, hashing, and publication
-orchestration remain repeated across direct import, provider candidate,
-reimport, uncooked PostLoad, and repair paths. The private
-`Stage3PostLoad.cpp` name records the completed Stage 3 of the earlier Engine
-asset-build boundary work rather than a lasting load phase or ownership
-concept.
+Texture2D, TextureCube, TerrainHeightmap, and Scene consume immutable encoded
+source snapshots. Named translators own concrete image interpretation, provider
+and uncooked-policy orchestration no longer decode image formats, and typed
+Build modules remain encoded-source independent. `Stage3PostLoad` was replaced
+by independently reversible TextureCube and Terrain authoring policies.
 
-No production code, package format, DDC identity, or import behavior has been
-changed by this plan yet.
+Package formats, TXPL/THPL bytes, DDC key recipes, provider and Import Record
+identities, source orientation, cooked deployment, and runtime publication
+semantics remain unchanged.
+
+## Completion Evidence
+
+- The pre-change baseline passed `AssetDecodeTests`, `TextureTests`,
+  `TerrainHeightmapTests`, `AssetImportTests`, `TextureThumbnailTests`,
+  `TextureCookIntegrationTests`, and `TerrainHeightmapCookTests`.
+- Final focused validation passed `ImageCodecTests`, `TextureTests`,
+  `TerrainHeightmapTests`, `AssetImportTests`, `SceneImportTests`,
+  `TextureThumbnailTests`, and `ThumbnailTests`.
+- Final broad and integration validation passed `test fast-all`, the exact
+  AssetImport/SceneImport/TextureCook/TerrainCook targets, and the ordinary
+  `test all` aggregate.
+- Complete `Win64-Debug-DurinEditor` and `Win64-Debug-DurinGame` target graphs
+  built successfully. The Game deployment contains no AssetImportCore,
+  StandardAssetImport, TextureBuild, GeometryBuild, or Assimp binary.
+- `STB_IMAGE_IMPLEMENTATION` has one production owner in
+  `Core/Private/Image/ImageDecoder.cpp`. The retained pre-migration AssetCore
+  object measured 1,237,766 bytes and the final Core object measured 1,237,590
+  bytes, a 176-byte decrease for the relocated translation unit. Final Debug
+  Core and AssetCore DLLs measure 5,721,088 and 5,463,552 bytes respectively;
+  their declared module closure did not gain a dependency edge.
+- Lasting contracts now live in Core image-codec, Editor import-framework,
+  TextureCube, Texture2D, and TerrainHeightmap documentation.
 
 ## Goal
 
@@ -202,21 +223,21 @@ repository source migration with no forwarding aliases.
 
 Dependencies: none.
 
-- [ ] Inventory every production and test consumer of `ImageDecoder.h`, its
+- [x] Inventory every production and test consumer of `ImageDecoder.h`, its
   decoded value types, extension predicates, memory operations, and file
   convenience operations.
-- [ ] Record the exact LDR RGBA8, Radiance HDR linear RGB float, and
+- [x] Record the exact LDR RGBA8, Radiance HDR linear RGB float, and
   grayscale16 PNG output contracts, including channel metadata, transparency,
   dimensions, row orientation, and failure-state clearing.
-- [ ] Freeze accepted technical extensions and all encoded-size, pixel-count,
+- [x] Freeze accepted technical extensions and all encoded-size, pixel-count,
   dimension, malformed-input, truncation, and interlace limits in focused
   tests.
-- [ ] Confirm `STB_IMAGE_IMPLEMENTATION` has exactly one production owner and
+- [x] Confirm `STB_IMAGE_IMPLEMENTATION` has exactly one production owner and
   record the Core and AssetCore target/link closure before relocation.
-- [ ] Confirm Texture and Terrain DDC keys, TXPL/THPL bytes, Import Record
+- [x] Confirm Texture and Terrain DDC keys, TXPL/THPL bytes, Import Record
   identities, provider IDs, and Cooked Game deployment do not derive identity
   from the decoder's module, header path, C++ namespace, or diagnostics.
-- [ ] Record representative Core, Editor, and Cooked Game binary/dependency
+- [x] Record representative Core, Editor, and Cooked Game binary/dependency
   baselines so the relocation has an auditable cost comparison.
 
 #### Acceptance Gate
@@ -231,25 +252,25 @@ Dependencies: none.
 
 Dependencies: Stage 0 baseline.
 
-- [ ] Move `ImageDecoder.h/.cpp` to `Core/Public/Image` and
+- [x] Move `ImageDecoder.h/.cpp` to `Core/Public/Image` and
   `Core/Private/Image`, preserving one stb implementation translation unit.
-- [ ] Change exported declarations and decoded values from `Durin::Asset` and
+- [x] Change exported declarations and decoded values from `Durin::Asset` and
   `ASSETCORE_API` to `Durin::Image` and `CORE_API`.
-- [ ] Update Core private include/link configuration for stb without exposing
+- [x] Update Core private include/link configuration for stb without exposing
   stb headers through the public API.
-- [ ] Remove `ImageDecoder.h` from the AssetCore umbrella and remove all
+- [x] Remove `ImageDecoder.h` from the AssetCore umbrella and remove all
   AssetCore source/build ownership for the implementation.
-- [ ] Update every production and test consumer to include
+- [x] Update every production and test consumer to include
   `Image/ImageDecoder.h` explicitly and use `Image::` types and operations.
-- [ ] Remove a module's direct AssetCore dependency only when the dependency
+- [x] Remove a module's direct AssetCore dependency only when the dependency
   audit proves image decoding was its sole AssetCore use; retain explicit Core
   dependencies rather than relying on transitive inclusion.
-- [ ] Rewrite codec diagnostics that say `heightmap` or otherwise prescribe an
+- [x] Rewrite codec diagnostics that say `heightmap` or otherwise prescribe an
   asset-family policy as generic image-format diagnostics, while preserving
   failure categories and limits.
-- [ ] Keep memory operations authoritative. Retain file convenience operations
+- [x] Keep memory operations authoritative. Retain file convenience operations
   only as thin Core file-read wrappers used by non-import callers.
-- [ ] Move decoder cases out of AssetCoreTests into a cohesive
+- [x] Move decoder cases out of AssetCoreTests into a cohesive
   `ImageCodecTests` contract target with `image-codec` domain and `core` module
   metadata.
 
@@ -271,23 +292,23 @@ Dependencies: Stage 0 baseline.
 
 Dependencies: Stage 1 codec boundary.
 
-- [ ] Classify every public StandardAssetImport declaration as either a
+- [x] Classify every public StandardAssetImport declaration as either a
   format-neutral framework contract, a concrete standard-provider API, or an
   implementation detail.
-- [ ] Keep only AssetImportCore framework contracts in
+- [x] Keep only AssetImportCore framework contracts in
   `Durin::Asset::Import`.
-- [ ] Move concrete Texture2D, TextureCube, TerrainHeightmap, StaticMesh,
+- [x] Move concrete Texture2D, TextureCube, TerrainHeightmap, StaticMesh,
   SkeletalMesh, AnimationClip, Scene translator, validation, direct import,
   reimport, and standard-provider registration declarations to
   `Durin::Asset::Import::Standard` where they remain public.
-- [ ] Move implementation-only helpers to StandardAssetImport private headers
+- [x] Move implementation-only helpers to StandardAssetImport private headers
   instead of exporting them for convenience.
-- [ ] Update all production, test, and generated/customization consumers in one
+- [x] Update all production, test, and generated/customization consumers in one
   source migration; do not add aliases, dual registrations, or old-namespace
   shims.
-- [ ] Preserve physical module names, API macros, provider IDs, record and
+- [x] Preserve physical module names, API macros, provider IDs, record and
   reflected identities, diagnostics contracts, and serialized values.
-- [ ] Document the lasting framework/standard namespace rule in the owning
+- [x] Document the lasting framework/standard namespace rule in the owning
   Editor architecture documentation once the source migration is proven.
 
 #### Acceptance Gate
@@ -305,29 +326,29 @@ Dependencies: Stage 1 codec boundary.
 
 Dependencies: Stage 2 namespace ownership.
 
-- [ ] Define or reuse one immutable encoded-source snapshot carrying the exact
+- [x] Define or reuse one immutable encoded-source snapshot carrying the exact
   bytes, content hash, file size, last-write fingerprint when applicable, and
   mounted source path needed by authoring workflows.
-- [ ] Make source capture the only file-I/O boundary for import, reimport,
+- [x] Make source capture the only file-I/O boundary for import, reimport,
   repair, provider candidate, and uncooked PostLoad paths.
-- [ ] Ensure hash, decode, diagnostics, and Build request composition consume
+- [x] Ensure hash, decode, diagnostics, and Build request composition consume
   the same captured bytes and never reopen the source during one operation.
-- [ ] Make `Standard::TranslateTexture2DSource` the only Texture2D encoded-image
+- [x] Make `Standard::TranslateTexture2DSource` the only Texture2D encoded-image
   interpretation path.
-- [ ] Make TextureCube source translation own the only six-face LDR,
+- [x] Make TextureCube source translation own the only six-face LDR,
   panorama-LDR, and panorama-HDR interpretation paths; reuse it from direct
   import, provider candidates, reimport, validation, and uncooked PostLoad.
-- [ ] Add one `Standard::TranslateTerrainHeightmapSource` operation that
+- [x] Add one `Standard::TranslateTerrainHeightmapSource` operation that
   produces owned width, height, and exact row-major `uint16` samples without
   building or publishing an asset.
-- [ ] Reuse the Terrain translator from direct import, source-reference change,
+- [x] Reuse the Terrain translator from direct import, source-reference change,
   reimport, provider candidate, repair, and uncooked PostLoad.
-- [ ] Centralize typed composition from normalized Terrain source value plus
+- [x] Centralize typed composition from normalized Terrain source value plus
   captured source identity into `BuildTerrainHeightmap` without hiding
   caller-specific revision, dirty-state, rollback, or publication policy.
-- [ ] Keep Scene surface-image translation routed through its typed standard
+- [x] Keep Scene surface-image translation routed through its typed standard
   translator rather than through provider orchestration.
-- [ ] Remove direct image decode and duplicate source hashing from provider and
+- [x] Remove direct image decode and duplicate source hashing from provider and
   PostLoad orchestration files.
 
 #### Acceptance Gate
@@ -346,21 +367,21 @@ Dependencies: Stage 2 namespace ownership.
 
 Dependencies: Stage 3 translator consolidation.
 
-- [ ] Remove `Stage3PostLoad.cpp/.h`,
+- [x] Remove `Stage3PostLoad.cpp/.h`,
   `RegisterStage3PostLoadPolicies`, and
   `UnregisterStage3PostLoadPolicies`.
-- [ ] Add `TextureCubePostLoadPolicy.cpp/.h` for TextureCube uncooked DDC load,
+- [x] Add `TextureCubePostLoadPolicy.cpp/.h` for TextureCube uncooked DDC load,
   source rebuild through the shared translator, registration, and teardown.
-- [ ] Add `TerrainHeightmapAuthoringPolicy.cpp/.h` for Terrain uncooked DDC
+- [x] Add `TerrainHeightmapAuthoringPolicy.cpp/.h` for Terrain uncooked DDC
   load, source rebuild through the shared translator, source-reference change
   registration, and teardown.
-- [ ] Give each policy independent idempotent registration state and complete
+- [x] Give each policy independent idempotent registration state and complete
   partial-failure rollback.
-- [ ] Make aggregate Standard provider startup install the asset-specific
+- [x] Make aggregate Standard provider startup install the asset-specific
   policies in a declared order and uninstall them in strict reverse order.
-- [ ] Keep Runtime Engine PostLoad handler seams limited to validation and
+- [x] Keep Runtime Engine PostLoad handler seams limited to validation and
   dispatch; do not return source decoding or Build policy to Runtime Engine.
-- [ ] Remove historical stage-number terminology from production filenames,
+- [x] Remove historical stage-number terminology from production filenames,
   symbols, errors, and comments.
 
 #### Acceptance Gate
@@ -375,19 +396,19 @@ Dependencies: Stage 3 translator consolidation.
 
 Dependencies: Stage 4 durable policy boundaries.
 
-- [ ] Audit every `StandardAssetImport/Public` declaration for a real
+- [x] Audit every `StandardAssetImport/Public` declaration for a real
   cross-module consumer and move provider-only candidate/build composition to
   private headers.
-- [ ] Keep public direct import/reimport operations only where editor modules
+- [x] Keep public direct import/reimport operations only where editor modules
   intentionally use them as supported authoring entry points.
-- [ ] Split codec capability predicates from asset-source admission predicates;
+- [x] Split codec capability predicates from asset-source admission predicates;
   name and test Texture, TextureCube, Scene, and Terrain source policies
   independently.
-- [ ] Remove exports introduced only to let tests bypass the production
+- [x] Remove exports introduced only to let tests bypass the production
   boundary; use supported APIs or a narrowly justified module-owned test seam.
-- [ ] Audit direct module dependencies after the public-surface reduction and
+- [x] Audit direct module dependencies after the public-surface reduction and
   remove only proven redundant edges.
-- [ ] Publish lasting codec, import namespace, translator, and uncooked-policy
+- [x] Publish lasting codec, import namespace, translator, and uncooked-policy
   ownership rules in Core and Editor architecture documentation.
 
 #### Acceptance Gate
@@ -403,18 +424,18 @@ Dependencies: Stage 4 durable policy boundaries.
 
 Dependencies: Stages 1-5.
 
-- [ ] Run focused Core image codec contract validation.
-- [ ] Run Texture2D, TextureCube, TerrainHeightmap, Scene surface-image,
+- [x] Run focused Core image codec contract validation.
+- [x] Run Texture2D, TextureCube, TerrainHeightmap, Scene surface-image,
   thumbnail, source relocation, import transaction, DDC, and Cook validation.
-- [ ] Run the repository's broad non-integration validation and the exact
+- [x] Run the repository's broad non-integration validation and the exact
   affected integration targets.
-- [ ] Run the complete ordinary native-test aggregate because Core ownership
+- [x] Run the complete ordinary native-test aggregate because Core ownership
   and native-test registration changed.
-- [ ] Build the complete Editor and Game target graph and verify deployment
+- [x] Build the complete Editor and Game target graph and verify deployment
   closure for both authoring and Cooked runtime profiles.
-- [ ] Compare final binary sizes and dependency closures with Stage 0 and
+- [x] Compare final binary sizes and dependency closures with Stage 0 and
   explain any material change.
-- [ ] Move lasting contracts from this plan into the owning Core image codec,
+- [x] Move lasting contracts from this plan into the owning Core image codec,
   Editor import architecture, and Terrain/Texture documents before marking the
   plan complete.
 
@@ -516,8 +537,8 @@ versioning, diagnostics, and failure-isolation contracts.
 
 ## Related Code
 
-- `Engine/Source/Runtime/AssetCore/Public/ImageDecoder.h`
-- `Engine/Source/Runtime/AssetCore/Private/ImageDecoder.cpp`
+- `Engine/Source/Runtime/Core/Public/Image/ImageDecoder.h`
+- `Engine/Source/Runtime/Core/Private/Image/ImageDecoder.cpp`
 - `Engine/Source/Runtime/AssetCore/Public/AssetCore.h`
 - `Engine/Source/Runtime/Core/CMakeLists.txt`
 - `Engine/Source/Editor/AssetImportCore`
@@ -533,8 +554,9 @@ versioning, diagnostics, and failure-isolation contracts.
 - `Engine/Source/Editor/StandardAssetImport/Private/TextureCubeSourceTranslation.cpp`
 - `Engine/Source/Editor/StandardAssetImport/Private/TerrainHeightmapSourceTranslation.cpp`
 - `Engine/Source/Editor/StandardAssetImport/Private/Texture2DPostLoad.cpp`
-- `Engine/Source/Editor/StandardAssetImport/Private/Stage3PostLoad.cpp`
+- `Engine/Source/Editor/StandardAssetImport/Private/TextureCubePostLoadPolicy.cpp`
+- `Engine/Source/Editor/StandardAssetImport/Private/TerrainHeightmapAuthoringPolicy.cpp`
 - `Engine/Source/Developer/TextureBuild`
 - `Engine/Source/Developer/GeometryBuild`
-- `Engine/Tests/Native/AssetCoreTests/Private/ImageDecoderTests.cpp`
+- `Engine/Tests/Native/CoreTests/Private/ImageDecoderTests.cpp`
 - `Engine/Tests/Native/CoreTests/CMakeLists.txt`

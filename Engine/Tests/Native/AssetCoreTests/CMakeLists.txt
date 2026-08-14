@@ -85,13 +85,6 @@ durin_add_asset_functional_test(AssetMountedSourceTests
 	SOURCES Private/MountedSourceTests.cpp
 )
 
-durin_add_asset_functional_test(AssetDecodeTests
-	KIND contract
-	DOMAINS asset-import
-	MODULES asset-core
-	SOURCES Private/ImageDecoderTests.cpp
-)
-
 if(DURIN_WITH_EDITOR)
 	durin_add_asset_functional_test(AssetImportTests
 		KIND integration

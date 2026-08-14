@@ -1,13 +1,13 @@
 #include "Assets/SourceImageThumbnailDecoder.h"
 
-#include "ImageDecoder.h"
+#include "Image/ImageDecoder.h"
 
 namespace Durin::Editor::Level
 {
 	namespace
 	{
 		// Thumbnail requests run concurrently, so bound the full-resolution intermediate rather than relying on the much larger import limit.
-		constexpr Asset::FImageDecodeLimits ThumbnailDecodeLimits{32ull * 1024ull * 1024ull, 16ull * 1024ull * 1024ull};
+		constexpr Image::FImageDecodeLimits ThumbnailDecodeLimits{32ull * 1024ull * 1024ull, 16ull * 1024ull * 1024ull};
 
 		auto ResizeBilinear(const uint8* Source, uint32 SourceWidth, uint32 SourceHeight, uint32 DestinationWidth, uint32 DestinationHeight) -> std::vector<uint8>
 		{
@@ -42,7 +42,7 @@ namespace Durin::Editor::Level
 
 	auto IsSupportedSourceImageExtension(std::string_view Extension) -> bool
 	{
-		return Asset::IsSupportedImageExtension(Extension);
+		return Image::IsSupportedImageExtension(Extension);
 	}
 
 	auto DecodeSourceImageThumbnail(std::string_view FilePath, uint32 MaximumDimension, FDecodedSourceImageThumbnail& OutThumbnail, std::string& OutError) -> bool
@@ -55,8 +55,8 @@ namespace Durin::Editor::Level
 			return false;
 		}
 
-		Asset::FDecodedImage SourceImage;
-		if (!Asset::DecodeImageFromFile(FilePath, SourceImage, OutError, ThumbnailDecodeLimits)) return false;
+		Image::FDecodedImage SourceImage;
+		if (!Image::DecodeImageFromFile(FilePath, SourceImage, OutError, ThumbnailDecodeLimits)) return false;
 
 		const uint32 SourceWidth = SourceImage.Width;
 		const uint32 SourceHeight = SourceImage.Height;

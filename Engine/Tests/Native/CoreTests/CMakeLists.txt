@@ -40,6 +40,18 @@ durin_add_core_functional_test(CoreUtilityTests
 	Private/XxHashTests.cpp
 )
 
+add_durin_test(ImageCodecTests Private/ImageDecoderTests.cpp)
+set_target_properties(ImageCodecTests PROPERTIES
+	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+)
+target_link_libraries(ImageCodecTests PRIVATE Core)
+durin_finalize_native_test(ImageCodecTests
+	KIND contract
+	DOMAINS image-codec
+	MODULES core
+)
+durin_discover_tests(ImageCodecTests)
+
 set(_durin_assertion_fixture_dir
 	"${DURIN_WORKSPACE_DIR}/CMake/Tests/Fixtures/AssertionHeader")
 target_include_directories(CoreUtilityTests PRIVATE

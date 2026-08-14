@@ -1,4 +1,5 @@
 #include "Texture2DPropertyEditing.h"
+#include "Texture2DBuildAdapter.h"
 
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Property.h"
@@ -7,7 +8,7 @@
 #include "Texture/TextureBuilder.h"
 #include "Texture2DSourceTranslation.h"
 
-namespace Durin::Asset::Import
+namespace Durin::Asset::Import::Standard
 {
 	namespace
 	{

@@ -8,10 +8,12 @@ namespace Durin
 	class DTerrainHeightmap;
 }
 
-namespace Durin::Asset::Import
+namespace Durin::Asset::Import::Standard
 {
-	// Carries one admitted Terrain source into the source-format-neutral canonical builder.
-	struct FTerrainHeightmapDecodedSource
+	STANDARDASSETIMPORT_API auto IsTerrainHeightmapSourceExtension(
+		std::string_view Extension) -> bool;
+	// Carries one admitted terrain source into the source-format-neutral canonical builder.
+	struct FTerrainHeightmapSourceData
 	{
 		std::vector<uint16> Samples;
 		uint32 Width = 0;
@@ -20,12 +22,18 @@ namespace Durin::Asset::Import
 		uint32 DecoderVersion = 0;
 		ETerrainHeightmapSourceFormat SourceFormat = ETerrainHeightmapSourceFormat::Unknown;
 		uint32 SourceProfileVersion = 0;
+
+		auto IsValid() const -> bool
+		{
+			return Width != 0 && Height != 0
+				&& Samples.size() == static_cast<size_t>(Width) * Height;
+		}
 	};
 
-	STANDARDASSETIMPORT_API auto DecodeTerrainHeightmapSource(
+	STANDARDASSETIMPORT_API auto TranslateTerrainHeightmapSource(
 		std::string_view Extension,
-		std::span<const uint8> Bytes,
-		FTerrainHeightmapDecodedSource& OutSource,
+		std::span<const uint8> EncodedBytes,
+		FTerrainHeightmapSourceData& OutSource,
 		std::string& OutError) -> bool;
 	STANDARDASSETIMPORT_API auto ImportTerrainHeightmapAsset(
 		std::string_view FilePath,

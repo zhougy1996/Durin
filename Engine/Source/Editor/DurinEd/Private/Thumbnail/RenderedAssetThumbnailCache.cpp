@@ -1,7 +1,7 @@
 #include "Thumbnail/RenderedAssetThumbnailCache.h"
 
 #include "DynamicRHI.h"
-#include "ImageDecoder.h"
+#include "Image/ImageDecoder.h"
 #include "MonaCoreGlobals.h"
 #include "MonaUIBackend.h"
 #include "RHICommandList.h"
@@ -201,9 +201,9 @@ namespace Durin::Editor
 			const FAssetThumbnailGenerationRequest& Request,
 			std::span<const uint8> EncodedBytes) -> bool
 		{
-			Asset::FDecodedImage Image;
+			Image::FDecodedImage Image;
 			std::string Error;
-			if (!Asset::DecodeImageFromMemory(EncodedBytes, Image, Error))
+			if (!Image::DecodeImageFromMemory(EncodedBytes, Image, Error))
 			{
 				if (auto It = Entries.find(Request.KeyInput.Asset.VirtualPath);
 					It != Entries.end())

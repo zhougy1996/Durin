@@ -1,7 +1,7 @@
 #include "Assets/SourceImageThumbnailDiskCache.h"
 
 #include "Hash/XxHash.h"
-#include "ImageDecoder.h"
+#include "Image/ImageDecoder.h"
 #include "Misc/DerivedDataCache.h"
 #include "Misc/Paths.h"
 #include "Thumbnail/AssetThumbnailObjectStore.h"
@@ -133,8 +133,8 @@ namespace Durin::Editor::Level
 		auto DecodeCachedPng(std::span<const uint8> Bytes, uint32 MaximumDimension,
 			FDecodedSourceImageThumbnail& OutThumbnail, std::string& OutError) -> bool
 		{
-			Asset::FDecodedImage Image;
-			if (!Asset::DecodeImageFromMemory(Bytes, Image, OutError,
+			Image::FDecodedImage Image;
+			if (!Image::DecodeImageFromMemory(Bytes, Image, OutError,
 				{MaximumEncodedObjectBytes, static_cast<uint64>(MaximumDimension) * MaximumDimension * 4}))
 				return false;
 			if (Image.Width == 0 || Image.Height == 0 || Image.Width > MaximumDimension || Image.Height > MaximumDimension)

@@ -17,7 +17,7 @@ namespace Durin
 	class DAnimationClip;
 }
 
-namespace Durin::Asset::Import
+namespace Durin::Asset::Import::Standard
 {
 	inline constexpr std::string_view SceneImportProviderId = "Durin.Scene";
 	inline constexpr uint32 SceneImportProviderContractVersion = 3;

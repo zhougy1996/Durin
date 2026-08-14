@@ -4,11 +4,28 @@
 #include "Texture/TextureCube.h"
 #include "Texture/TextureCubeBuildOperations.h"
 
-namespace Durin::Asset::Import
+namespace Durin::Asset::Import::Standard
 {
 	using FTextureCubeImportSettings = Asset::Build::FTextureCubeFacesBuildSettings;
 	using FTextureCubePanoramaImportSettings =
 		Asset::Build::FTextureCubePanoramaBuildSettings;
+	using FTextureCubePanoramaSourceData = std::variant<
+		Asset::Build::TextureCubeBuilder::FTexturePanoramaImage,
+		Asset::Build::TextureCubeBuilder::FTexturePanoramaFloatImage>;
+	STANDARDASSETIMPORT_API auto IsTextureCubeFaceSourceExtension(
+		std::string_view Extension) -> bool;
+	STANDARDASSETIMPORT_API auto IsTextureCubePanoramaSourceExtension(
+		std::string_view Extension) -> bool;
+
+	STANDARDASSETIMPORT_API auto TranslateTextureCubePanoramaSource(
+		std::span<const uint8> EncodedBytes,
+		std::string_view ExtensionHint,
+		FTextureCubePanoramaSourceData& OutSource,
+		std::string& OutError) -> bool;
+	STANDARDASSETIMPORT_API auto TranslateTextureCubeFaceSources(
+		const std::array<std::span<const uint8>, TextureCubeFaceCount>& EncodedFaces,
+		FTextureCubeSourceData& OutSource,
+		std::string& OutError) -> bool;
 
 	struct FTextureCubeImportValidation
 	{
