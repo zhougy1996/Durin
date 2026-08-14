@@ -10,6 +10,7 @@
 #include "NativeTestSupport.h"
 #include "StandardAssetImportProviders.h"
 #include "Source/SourceReferenceIndex.h"
+#include "StandardAssetAuthoringTestSupport.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapPostLoad.h"
 #include "Terrain/TerrainHeightmapBuildOperations.h"
@@ -31,6 +32,7 @@ namespace
 		auto SetUp() -> void override
 		{
 			InitializeDObjectSystem();
+			ASSERT_TRUE(Durin::Tests::InstallStandardAssetAuthoringFeatures());
 			std::string Error;
 			ASSERT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(Error)) << Error;
 		}
@@ -672,6 +674,7 @@ TEST(FTerrainHeightmapImportTests, AsyncLoadHandlesWarmDdcCorruptionRecoveryAndM
 	}
 	ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
 	ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
+	ASSERT_TRUE(Durin::Tests::EnsureStandardTerrainAuthoringOperationGroup());
 	Durin::DTerrainHeightmap* Reloaded = nullptr;
 	Durin::Asset::FAssetResult Loaded = Durin::Asset::LoadAsset(Path, Reloaded);
 	ASSERT_TRUE(Loaded) << Loaded.Message;

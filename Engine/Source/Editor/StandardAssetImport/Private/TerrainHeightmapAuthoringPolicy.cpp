@@ -1,4 +1,4 @@
-#include "TerrainHeightmapAuthoringPolicy.h"
+#include "StandardTerrainAuthoringFeature.h"
 
 #include "DObject/ObjectHandle.h"
 #include "EncodedSourceSnapshot.h"
@@ -34,7 +34,6 @@ namespace Durin::Asset::Import::Standard
 		{
 			std::mutex Mutex;
 			FTerrainAuthoringLoadResult Result;
-			FTaskCancellationSource Cancellation;
 			FTaskHandle Worker;
 			std::string CoalescingKey;
 		};
@@ -46,10 +45,18 @@ namespace Durin::Asset::Import::Standard
 			uint64 Generation = 0;
 		};
 
-		std::mutex GTerrainLoadMutex;
-		std::unordered_map<std::string, std::weak_ptr<FTerrainAuthoringLoadWork>> GTerrainLoadsByKey;
-		std::unordered_map<uint64, FTerrainAuthoringLoadPending> GTerrainPendingByObject;
-		bool GTerrainHeightmapAuthoringPolicyRegistered = false;
+	}
+
+	struct FStandardTerrainAuthoringState
+	{
+		std::mutex Mutex;
+		std::unordered_map<std::string, std::weak_ptr<FTerrainAuthoringLoadWork>> LoadsByKey;
+		std::unordered_map<uint64, FTerrainAuthoringLoadPending> PendingByObject;
+		FAsyncOperationGroup OperationGroup;
+	};
+
+	namespace
+	{
 
 		auto ObjectKey(FObjectHandle Handle) -> uint64
 		{
@@ -161,6 +168,7 @@ namespace Durin::Asset::Import::Standard
 		}
 
 		auto PublishTerrainLoad(
+			FStandardTerrainAuthoringState& State,
 			FObjectHandle HeightmapHandle, uint64 Generation,
 			const std::shared_ptr<FTerrainAuthoringLoadWork>& Work,
 			std::string* OutError = nullptr) -> bool
@@ -187,15 +195,16 @@ namespace Durin::Asset::Import::Standard
 				(void)Heightmap->FailAuthoringLoad(
 					Generation, Result.FailureStatus, std::move(Result.Diagnostic));
 			}
-			std::lock_guard Lock(GTerrainLoadMutex);
-			GTerrainPendingByObject.erase(ObjectKey(HeightmapHandle));
-			if (auto Found = GTerrainLoadsByKey.find(Work->CoalescingKey);
-				Found != GTerrainLoadsByKey.end() && Found->second.lock() == Work)
-				GTerrainLoadsByKey.erase(Found);
+			std::lock_guard Lock(State.Mutex);
+			State.PendingByObject.erase(ObjectKey(HeightmapHandle));
+			if (auto Found = State.LoadsByKey.find(Work->CoalescingKey);
+				Found != State.LoadsByKey.end() && Found->second.lock() == Work)
+				State.LoadsByKey.erase(Found);
 			return bPublished;
 		}
 
 		auto StartAsyncTerrainLoad(
+			FStandardTerrainAuthoringState& State,
 			DTerrainHeightmap& Heightmap, std::string Key, std::string& OutError) -> bool
 		{
 			const FObjectHandle Handle = MakeObjectHandle(&Heightmap);
@@ -208,13 +217,13 @@ namespace Durin::Asset::Import::Standard
 					: "Terrain heightmap payload is loading asynchronously.");
 			std::shared_ptr<FTerrainAuthoringLoadWork> Work;
 			{
-				std::lock_guard Lock(GTerrainLoadMutex);
-				std::erase_if(GTerrainLoadsByKey, [](const auto& Entry) { return Entry.second.expired(); });
-				if (auto Found = GTerrainLoadsByKey.find(CoalescingKey); Found != GTerrainLoadsByKey.end())
+				std::lock_guard Lock(State.Mutex);
+				std::erase_if(State.LoadsByKey, [](const auto& Entry) { return Entry.second.expired(); });
+				if (auto Found = State.LoadsByKey.find(CoalescingKey); Found != State.LoadsByKey.end())
 					Work = Found->second.lock();
 				if (!Work)
 				{
-					if (GTerrainLoadsByKey.size() >= MaximumConcurrentTerrainLoads)
+					if (State.LoadsByKey.size() >= MaximumConcurrentTerrainLoads)
 					{
 						OutError = "Terrain heightmap load admission reached its two-request byte bound.";
 						(void)Heightmap.FailAuthoringLoad(Generation, ETerrainHeightmapStatus::Failed, OutError);
@@ -224,7 +233,8 @@ namespace Durin::Asset::Import::Standard
 					Work->CoalescingKey = CoalescingKey;
 					const FTerrainHeightmapSourceImportData Source = Heightmap.GetSourceImportData();
 					FTaskLaunchOptions Options;
-					Options.CancellationToken = Work->Cancellation.GetToken();
+					Options.CancellationToken = State.OperationGroup.GetCancellationToken();
+					Options.Scope = State.OperationGroup.GetTaskScope();
 					static const FTaskAttribution Attribution =
 						RegisterTaskAttribution("TerrainHeightmap", "LoadPayload");
 					Options.Attribution = Attribution;
@@ -240,31 +250,33 @@ namespace Durin::Asset::Import::Standard
 						(void)Heightmap.FailAuthoringLoad(Generation, ETerrainHeightmapStatus::Failed, OutError);
 						return false;
 					}
-					GTerrainLoadsByKey[CoalescingKey] = Work;
+					State.LoadsByKey[CoalescingKey] = Work;
 				}
-				if (GTerrainPendingByObject.size() >= MaximumTerrainLoadSubscribers)
+				if (State.PendingByObject.size() >= MaximumTerrainLoadSubscribers)
 				{
 					OutError = "Terrain heightmap load subscriber bound was reached.";
 					(void)Heightmap.FailAuthoringLoad(Generation, ETerrainHeightmapStatus::Failed, OutError);
 					return false;
 				}
-				GTerrainPendingByObject[ObjectKey(Handle)] = {.Work = Work, .Generation = Generation};
+				State.PendingByObject[ObjectKey(Handle)] = {.Work = Work, .Generation = Generation};
 			}
 
 			FTaskContinuationOptions PublishOptions;
 			PublishOptions.Target = ETaskTarget::GameThreadDeferred;
+			PublishOptions.CancellationToken = State.OperationGroup.GetCancellationToken();
+			PublishOptions.Scope = State.OperationGroup.GetTaskScope();
 			PublishOptions.EstimatedPayloadBytes = sizeof(FObjectHandle) + sizeof(uint64) + sizeof(std::shared_ptr<void>);
 			FTerrainAuthoringLoadPending* Pending = nullptr;
 			{
-				std::lock_guard Lock(GTerrainLoadMutex);
-				Pending = &GTerrainPendingByObject.at(ObjectKey(Handle));
+				std::lock_guard Lock(State.Mutex);
+				Pending = &State.PendingByObject.at(ObjectKey(Handle));
 				Pending->Publisher = ThenOutcome(Work->Worker, "TerrainHeightmap.PublishPayload",
-					[Handle, Generation, Work](FTaskOutcome<void>) {
-						(void)PublishTerrainLoad(Handle, Generation, Work);
+					[&State, Handle, Generation, Work](FTaskOutcome<void>) {
+						(void)PublishTerrainLoad(State, Handle, Generation, Work);
 					}, PublishOptions);
 				if (!Pending->Publisher.IsValid())
 				{
-					GTerrainPendingByObject.erase(ObjectKey(Handle));
+					State.PendingByObject.erase(ObjectKey(Handle));
 					OutError = "The GameThread executor rejected Terrain heightmap publication.";
 					(void)Heightmap.FailAuthoringLoad(Generation, ETerrainHeightmapStatus::Failed, OutError);
 					return false;
@@ -274,13 +286,16 @@ namespace Durin::Asset::Import::Standard
 			return true;
 		}
 
-		auto PostLoadTerrainHeightmap(DTerrainHeightmap& Heightmap, std::string& OutError) -> bool
+		auto PostLoadTerrainHeightmap(
+			FStandardTerrainAuthoringState& State,
+			DTerrainHeightmap& Heightmap, std::string& OutError) -> bool
 		{
 			std::string Key = Asset::Build::MakeTerrainHeightmapDerivedDataKey(Heightmap, OutError);
 			const FGameThreadDeferredWorkQueueDiagnostics Deferred =
 				GetGameThreadDeferredWorkQueueDiagnostics();
-			if (IsTaskSchedulerRunning() && Deferred.bInstalled && Deferred.bAccepting)
-				return StartAsyncTerrainLoad(Heightmap, std::move(Key), OutError);
+			if (State.OperationGroup.IsValid()
+				&& IsTaskSchedulerRunning() && Deferred.bInstalled && Deferred.bAccepting)
+				return StartAsyncTerrainLoad(State, Heightmap, std::move(Key), OutError);
 
 			if (!Key.empty())
 			{
@@ -305,14 +320,16 @@ namespace Durin::Asset::Import::Standard
 					OutError, false, false);
 		}
 
-		auto WaitForTerrainLoad(DTerrainHeightmap& Heightmap, std::string& OutError) -> bool
+		auto WaitForTerrainLoad(
+			FStandardTerrainAuthoringState& State,
+			DTerrainHeightmap& Heightmap, std::string& OutError) -> bool
 		{
 			const FObjectHandle Handle = MakeObjectHandle(&Heightmap);
 			FTerrainAuthoringLoadPending Pending;
 			{
-				std::lock_guard Lock(GTerrainLoadMutex);
-				const auto Found = GTerrainPendingByObject.find(ObjectKey(Handle));
-				if (Found == GTerrainPendingByObject.end())
+				std::lock_guard Lock(State.Mutex);
+				const auto Found = State.PendingByObject.find(ObjectKey(Handle));
+				if (Found == State.PendingByObject.end())
 				{
 					if (Heightmap.GetStatus() == ETerrainHeightmapStatus::Ready) return true;
 					OutError = Heightmap.GetLastDiagnostic();
@@ -325,53 +342,93 @@ namespace Durin::Asset::Import::Standard
 				OutError = "Terrain heightmap worker did not complete successfully.";
 				return false;
 			}
-			return PublishTerrainLoad(Handle, Pending.Generation, Pending.Work, &OutError);
+			const bool bPublished = PublishTerrainLoad(
+				State, Handle, Pending.Generation, Pending.Work, &OutError);
+			(void)CancelTask(Pending.Publisher);
+			return bPublished;
 		}
 	}
 
-	auto RegisterTerrainHeightmapAuthoringPolicy() -> bool
+	FStandardTerrainAuthoringFeature::FStandardTerrainAuthoringFeature()
+		: State(std::make_unique<FStandardTerrainAuthoringState>())
 	{
-		if (GTerrainHeightmapAuthoringPolicyRegistered) return true;
-		if (!RegisterTerrainHeightmapUncookedPostLoadHandler(PostLoadTerrainHeightmap)) return false;
-		if (!RegisterTerrainHeightmapAuthoringLoadWaitHandler(WaitForTerrainLoad))
-		{
-			UnregisterTerrainHeightmapUncookedPostLoadHandler();
-			return false;
-		}
-		if (!RegisterTerrainHeightmapSourceChangeHandler(ChangeTerrainHeightmapSourceReference))
-		{
-			UnregisterTerrainHeightmapAuthoringLoadWaitHandler();
-			UnregisterTerrainHeightmapUncookedPostLoadHandler();
-			return false;
-		}
-		GTerrainHeightmapAuthoringPolicyRegistered = true;
+	}
+
+	FStandardTerrainAuthoringFeature::~FStandardTerrainAuthoringFeature()
+	{
+		Shutdown();
+	}
+
+	auto FStandardTerrainAuthoringFeature::SetOperationGroup(FAsyncOperationGroup Group) -> bool
+	{
+		if (!Group.IsValid()) return false;
+		std::lock_guard Lock(State->Mutex);
+		if (State->OperationGroup.IsValid() || !State->LoadsByKey.empty()
+			|| !State->PendingByObject.empty()) return false;
+		State->OperationGroup = std::move(Group);
 		return true;
 	}
 
-	auto UnregisterTerrainHeightmapAuthoringPolicy() -> void
+	auto FStandardTerrainAuthoringFeature::Shutdown() -> void
 	{
-		if (!GTerrainHeightmapAuthoringPolicyRegistered) return;
 		std::vector<std::shared_ptr<FTerrainAuthoringLoadWork>> Works;
 		std::vector<FTaskHandle> Publishers;
 		{
-			std::lock_guard Lock(GTerrainLoadMutex);
-			for (auto& [Key, Weak] : GTerrainLoadsByKey)
+			std::lock_guard Lock(State->Mutex);
+			for (auto& [Key, Weak] : State->LoadsByKey)
 				if (auto Work = Weak.lock()) Works.push_back(std::move(Work));
-			for (auto& [Key, Pending] : GTerrainPendingByObject)
+			for (auto& [Key, Pending] : State->PendingByObject)
 				Publishers.push_back(Pending.Publisher);
-			GTerrainPendingByObject.clear();
-			GTerrainLoadsByKey.clear();
+			State->PendingByObject.clear();
+			State->LoadsByKey.clear();
 		}
 		for (const auto& Work : Works)
-		{
-			Work->Cancellation.RequestCancellation();
 			(void)CancelTask(Work->Worker);
-		}
-		for (const auto& Work : Works) (void)WaitTask(Work->Worker);
 		for (const FTaskHandle& Publisher : Publishers) (void)CancelTask(Publisher);
-		UnregisterTerrainHeightmapSourceChangeHandler();
-		UnregisterTerrainHeightmapAuthoringLoadWaitHandler();
-		UnregisterTerrainHeightmapUncookedPostLoadHandler();
-		GTerrainHeightmapAuthoringPolicyRegistered = false;
+	}
+
+	auto FStandardTerrainAuthoringFeature::PostLoadUncooked(
+		DTerrainHeightmap& Heightmap, std::string& OutError) -> bool
+	{
+		return PostLoadTerrainHeightmap(*State, Heightmap, OutError);
+	}
+
+	auto FStandardTerrainAuthoringFeature::WaitForAuthoringLoad(
+		DTerrainHeightmap& Heightmap, std::string& OutError) -> bool
+	{
+		return WaitForTerrainLoad(*State, Heightmap, OutError);
+	}
+
+	auto FStandardTerrainAuthoringFeature::ChangeSourceReference(
+		DTerrainHeightmap& Heightmap,
+		std::string_view SourceVirtualPath,
+		std::string& OutError) -> bool
+	{
+		const FObjectHandle Handle = MakeObjectHandle(&Heightmap);
+		std::shared_ptr<FTerrainAuthoringLoadWork> Work;
+		FTaskHandle Publisher;
+		bool bWorkHasOtherSubscribers = false;
+		{
+			std::lock_guard Lock(State->Mutex);
+			if (const auto Found = State->PendingByObject.find(ObjectKey(Handle));
+				Found != State->PendingByObject.end())
+			{
+				Work = Found->second.Work;
+				Publisher = Found->second.Publisher;
+				State->PendingByObject.erase(Found);
+				if (auto KeyFound = State->LoadsByKey.find(Work->CoalescingKey);
+					KeyFound != State->LoadsByKey.end() && KeyFound->second.lock() == Work)
+				{
+					bWorkHasOtherSubscribers = std::ranges::any_of(
+						State->PendingByObject, [&](const auto& Entry) {
+							return Entry.second.Work == Work;
+						});
+					if (!bWorkHasOtherSubscribers) State->LoadsByKey.erase(KeyFound);
+				}
+			}
+		}
+		if (Work && !bWorkHasOtherSubscribers) (void)CancelTask(Work->Worker);
+		if (Publisher.IsValid()) (void)CancelTask(Publisher);
+		return ChangeTerrainHeightmapSourceReference(Heightmap, SourceVirtualPath, OutError);
 	}
 }

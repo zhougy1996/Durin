@@ -2,7 +2,7 @@
 
 Summary: Define authored, derived, cooked, and runtime asset-data ownership and transitions.
 
-Modules: AssetCore, Engine
+Modules: AssetCore, Engine, GeometryBuild, StandardAssetImport
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -119,6 +119,32 @@ Win64 Game platform/profile variant eagerly so the editor has immediately
 usable data. This is a platform build stored under rebuildable DDC ownership;
 it is not cooked publication. Cook may later validate and reuse equivalent
 payload bytes, but only an explicit cook places them under `Cooked/` ownership.
+
+### Optional Authoring Feature Boundary
+
+Runtime Engine owns asset state and the six typed optional authoring contracts:
+`IStaticMeshAuthoringFeature`, `IStaticMeshCollisionBuildFeature`,
+`ITexture2DAuthoringFeature`, `ITextureCubeAuthoringFeature`,
+`ITerrainHeightmapAuthoringFeature`, and `ISkeletalDerivedDataFeature`.
+Runtime consumers invoke exactly one provider through a bounded modular-feature
+visitor. No provider reference or provider-authored callable escapes that
+visitor; zero providers is an explicit unavailable result and multiple
+providers is an explicit ambiguity rather than registration-order selection.
+
+`StandardAssetImport` owns the static-mesh, texture, and Terrain authoring
+providers. `GeometryBuild` owns collision construction and skeletal/animation
+derived-data loading. Each module instance owns its provider objects and
+generation-bound registration tokens, so owner retirement rejects new calls
+and waits for admitted visitors before provider state is destroyed.
+
+Terrain post-load is the asynchronous exception to the otherwise synchronous
+boundary. Its coalesced workers and Game Thread publishers belong to the
+StandardAssetImport-owned `TerrainAuthoringLoads` operation group before the
+feature visitor returns. Source-reference mutation cancels only superseded
+per-asset publication and an unshared worker; module retirement closes the
+whole group with module-shutdown cancellation. Unload may proceed only after
+the group reports no active tasks, retained results, or deferred/worker
+callables. Cooked loads never invoke these authoring features.
 
 ### Skeletal Authored State
 

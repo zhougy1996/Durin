@@ -9,6 +9,7 @@
 #include "EngineTestSupport.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Modules/ModuleTestContext.h"
 #include "NativeTestSupport.h"
 #include "Serialization/Archive.h"
 #include "Skeletal/SkeletalBuildOperations.h"
@@ -19,6 +20,28 @@
 
 namespace
 {
+	class FTestSkeletalDerivedDataFeature final : public Durin::ISkeletalDerivedDataFeature
+	{
+	public:
+		auto LoadSkeletalMeshPayload(
+			std::string_view Key,
+			const Durin::FSkeletalPayloadSerializationContext& Context,
+			Durin::FSkeletalMeshPayloadData& OutPayload,
+			std::string& OutMessage) -> bool override
+		{
+			return Durin::Asset::Build::LoadSkeletalMeshDerivedData(Key, Context, OutPayload, OutMessage);
+		}
+
+		auto LoadAnimationClipPayload(
+			std::string_view Key,
+			const Durin::FSkeletalPayloadSerializationContext& Context,
+			Durin::FAnimationClipPayloadData& OutPayload,
+			std::string& OutMessage) -> bool override
+		{
+			return Durin::Asset::Build::LoadAnimationClipDerivedData(Key, Context, OutPayload, OutMessage);
+		}
+	};
+
 	auto SerializeMeshPayload(
 		const Durin::FSkeletalMeshPayloadData& Payload,
 		const Durin::DSkeleton& Skeleton,
@@ -253,11 +276,10 @@ namespace
 	auto InitializeAssetMount() -> std::filesystem::path
 	{
 		InitializeDObjectSystem();
-		static const bool bRegistered =
-			Durin::RegisterSkeletalAssetUncookedPayloadLoaders(
-				Durin::Asset::Build::LoadSkeletalMeshDerivedData,
-				Durin::Asset::Build::LoadAnimationClipDerivedData);
-		(void)bRegistered;
+		static auto Context = Durin::FModuleTestContextFactory::CreateStartupContext("SkeletalAssetTests");
+		static FTestSkeletalDerivedDataFeature Feature;
+		static auto Registration = Context.RegisterFeature<Durin::ISkeletalDerivedDataFeature>(Feature);
+		check(Registration.IsValid());
 		const std::filesystem::path Root =
 			Durin::Testing::GetTestWorkDirectory() / "SkeletalAssets";
 		Durin::Testing::RemoveTestWorkDirectory(Root);

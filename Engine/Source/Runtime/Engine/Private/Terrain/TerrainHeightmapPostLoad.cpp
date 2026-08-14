@@ -4,90 +4,35 @@ namespace Durin
 {
 	namespace
 	{
-		std::mutex GMutex;
-		FTerrainHeightmapUncookedPostLoadHandler GHandler;
-		FTerrainHeightmapSourceChangeHandler GSourceChangeHandler;
-		FTerrainHeightmapAuthoringLoadWaitHandler GWaitHandler;
-	}
-
-	auto RegisterTerrainHeightmapAuthoringLoadWaitHandler(
-		FTerrainHeightmapAuthoringLoadWaitHandler Handler) -> bool
-	{
-		if (!Handler) return false;
-		std::lock_guard Lock(GMutex);
-		if (GWaitHandler) return false;
-		GWaitHandler = std::move(Handler);
-		return true;
-	}
-
-	auto UnregisterTerrainHeightmapAuthoringLoadWaitHandler() -> void
-	{
-		std::lock_guard Lock(GMutex);
-		GWaitHandler = {};
+		template<typename F>
+		auto InvokeTerrainFeature(F&& Visitor, std::string_view Unavailable, std::string& OutError) -> bool
+		{
+			const auto Result = FModularFeatureRegistry::Get().InvokeSingle<ITerrainHeightmapAuthoringFeature>(
+				std::forward<F>(Visitor));
+			if (Result.Status == EFeatureInvokeStatus::Invoked && Result.Value) return *Result.Value;
+			if (Result.Status == EFeatureInvokeStatus::Unavailable) OutError = Unavailable;
+			else if (Result.Status == EFeatureInvokeStatus::Ambiguous)
+				OutError = "TerrainHeightmap authoring capability is ambiguous.";
+			else if (Result.Status == EFeatureInvokeStatus::VisitorFailed)
+				OutError = "TerrainHeightmap authoring provider failed.";
+			return false;
+		}
 	}
 
 	auto WaitForTerrainHeightmapAuthoringLoad(
 		DTerrainHeightmap& Heightmap, std::string& OutError) -> bool
 	{
-		FTerrainHeightmapAuthoringLoadWaitHandler Handler;
-		{
-			std::lock_guard Lock(GMutex);
-			Handler = GWaitHandler;
-		}
-		if (!Handler)
-		{
-			OutError = "No TerrainHeightmap authoring-load wait policy is registered.";
-			return false;
-		}
-		return Handler(Heightmap, OutError);
-	}
-
-	auto RegisterTerrainHeightmapUncookedPostLoadHandler(
-		FTerrainHeightmapUncookedPostLoadHandler Handler) -> bool
-	{
-		if (!Handler) return false;
-		std::lock_guard Lock(GMutex);
-		if (GHandler) return false;
-		GHandler = std::move(Handler);
-		return true;
-	}
-
-	auto UnregisterTerrainHeightmapUncookedPostLoadHandler() -> void
-	{
-		std::lock_guard Lock(GMutex);
-		GHandler = {};
+		return InvokeTerrainFeature([&](ITerrainHeightmapAuthoringFeature& Feature) {
+			return Feature.WaitForAuthoringLoad(Heightmap, OutError);
+		}, "No TerrainHeightmap authoring-load wait policy is registered.", OutError);
 	}
 
 	auto InvokeTerrainHeightmapUncookedPostLoadHandler(
 		DTerrainHeightmap& Heightmap, std::string& OutError) -> bool
 	{
-		FTerrainHeightmapUncookedPostLoadHandler Handler;
-		{
-			std::lock_guard Lock(GMutex);
-			Handler = GHandler;
-		}
-		if (!Handler)
-		{
-			OutError = "No uncooked TerrainHeightmap load policy is registered.";
-			return false;
-		}
-		return Handler(Heightmap, OutError);
-	}
-
-	auto RegisterTerrainHeightmapSourceChangeHandler(
-		FTerrainHeightmapSourceChangeHandler Handler) -> bool
-	{
-		if (!Handler) return false;
-		std::lock_guard Lock(GMutex);
-		if (GSourceChangeHandler) return false;
-		GSourceChangeHandler = std::move(Handler);
-		return true;
-	}
-
-	auto UnregisterTerrainHeightmapSourceChangeHandler() -> void
-	{
-		std::lock_guard Lock(GMutex);
-		GSourceChangeHandler = {};
+		return InvokeTerrainFeature([&](ITerrainHeightmapAuthoringFeature& Feature) {
+			return Feature.PostLoadUncooked(Heightmap, OutError);
+		}, "No uncooked TerrainHeightmap load policy is registered.", OutError);
 	}
 
 	auto InvokeTerrainHeightmapSourceChangeHandler(
@@ -95,16 +40,8 @@ namespace Durin
 		std::string_view SourceVirtualPath,
 		std::string& OutError) -> bool
 	{
-		FTerrainHeightmapSourceChangeHandler Handler;
-		{
-			std::lock_guard Lock(GMutex);
-			Handler = GSourceChangeHandler;
-		}
-		if (!Handler)
-		{
-			OutError = "No TerrainHeightmap source-change policy is registered.";
-			return false;
-		}
-		return Handler(Heightmap, SourceVirtualPath, OutError);
+		return InvokeTerrainFeature([&](ITerrainHeightmapAuthoringFeature& Feature) {
+			return Feature.ChangeSourceReference(Heightmap, SourceVirtualPath, OutError);
+		}, "No TerrainHeightmap source-change policy is registered.", OutError);
 	}
 }

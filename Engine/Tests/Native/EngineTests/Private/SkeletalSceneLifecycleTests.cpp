@@ -14,6 +14,7 @@
 #include "SkeletalMesh/SkeletalMeshResources.h"
 #include "SkeletalMesh/Skeleton.h"
 #include "StandardAssetImportProviders.h"
+#include "StandardAssetAuthoringTestSupport.h"
 #include "Thumbnail/SkeletalMeshAssetThumbnail.h"
 #include "Thumbnail/RenderedAssetThumbnailCache.h"
 
@@ -118,6 +119,7 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 		Durin::PathUtilities::FScopedMountRegistryFixture Mounts(MountDefinitions);
 		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 		std::string Error;
+		ASSERT_TRUE(Durin::Tests::InstallStandardAssetAuthoringFeatures());
 		ASSERT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(Error)) << Error;
 		Durin::DMaterial* StandardMaterial =
 			Durin::Asset::Import::Standard::EnsureStandardImportedSurfaceMaterial(Error);

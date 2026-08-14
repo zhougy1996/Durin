@@ -1,7 +1,11 @@
 #pragma once
 
+namespace Durin
+{
+	class DTextureCube;
+}
+
 namespace Durin::Asset::Import::Standard
 {
-	auto RegisterTextureCubePostLoadPolicy() -> bool;
-	auto UnregisterTextureCubePostLoadPolicy() -> void;
+	auto PostLoadTextureCubeFeature(DTextureCube& Texture, std::string& OutError) -> bool;
 }

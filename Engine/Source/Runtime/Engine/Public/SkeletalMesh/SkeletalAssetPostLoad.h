@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include "Modules/ModularFeature.h"
 
 namespace Durin
 {
@@ -8,22 +9,22 @@ namespace Durin
 	struct FSkeletalMeshPayloadData;
 	struct FSkeletalPayloadSerializationContext;
 
-	using FSkeletalMeshUncookedPayloadLoader = std::function<bool(
-		std::string_view,
-		const FSkeletalPayloadSerializationContext&,
-		FSkeletalMeshPayloadData&,
-		std::string&)>;
-	using FAnimationClipUncookedPayloadLoader = std::function<bool(
-		std::string_view,
-		const FSkeletalPayloadSerializationContext&,
-		FAnimationClipPayloadData&,
-		std::string&)>;
-
-	// Installs authoring-only DDC policy without exposing the store to Runtime Engine.
-	ENGINE_API auto RegisterSkeletalAssetUncookedPayloadLoaders(
-		FSkeletalMeshUncookedPayloadLoader MeshLoader,
-		FAnimationClipUncookedPayloadLoader ClipLoader) -> bool;
-	ENGINE_API auto UnregisterSkeletalAssetUncookedPayloadLoaders() -> void;
+	class ISkeletalDerivedDataFeature : public IModularFeature
+	{
+	public:
+		static constexpr std::string_view FeatureName = "Engine.SkeletalDerivedData";
+		static constexpr uint32 FeatureVersion = 1;
+		virtual auto LoadSkeletalMeshPayload(
+			std::string_view Key,
+			const FSkeletalPayloadSerializationContext& Context,
+			FSkeletalMeshPayloadData& OutPayload,
+			std::string& OutMessage) -> bool = 0;
+		virtual auto LoadAnimationClipPayload(
+			std::string_view Key,
+			const FSkeletalPayloadSerializationContext& Context,
+			FAnimationClipPayloadData& OutPayload,
+			std::string& OutMessage) -> bool = 0;
+	};
 	ENGINE_API auto InvokeSkeletalMeshUncookedPayloadLoader(
 		std::string_view Key,
 		const FSkeletalPayloadSerializationContext& Context,

@@ -4,46 +4,58 @@ namespace Durin
 {
 	namespace
 	{
-		std::mutex GStaticMeshAuthoringMutex;
-		FStaticMeshAuthoringHandlers GStaticMeshAuthoringHandlers;
+		template<typename F>
+		auto InvokeStaticMeshFeature(F&& Visitor, std::string_view Unavailable, std::string& OutError) -> bool
+		{
+			const auto Result = FModularFeatureRegistry::Get().InvokeSingle<IStaticMeshAuthoringFeature>(
+				std::forward<F>(Visitor));
+			if (Result.Status == EFeatureInvokeStatus::Invoked && Result.Value) return *Result.Value;
+			if (Result.Status == EFeatureInvokeStatus::Unavailable) OutError = Unavailable;
+			else if (Result.Status == EFeatureInvokeStatus::Ambiguous)
+				OutError = "StaticMesh authoring capability is ambiguous.";
+			else if (Result.Status == EFeatureInvokeStatus::VisitorFailed)
+				OutError = "StaticMesh authoring provider failed.";
+			return false;
+		}
 	}
 
-	auto RegisterStaticMeshAuthoringHandlers(
-		FStaticMeshAuthoringHandlers Handlers) -> bool
+	auto InvokeStaticMeshPostLoadFeature(
+		DStaticMesh& Mesh,
+		FStaticMeshDerivedDataDiagnostic& OutDiagnostic,
+		std::string& OutError) -> bool
 	{
-		if (!Handlers.BuildFileProduct || !Handlers.PostLoadUncooked
-			|| !Handlers.ChangeSourceReference) return false;
-		std::lock_guard Lock(GStaticMeshAuthoringMutex);
-		if (GStaticMeshAuthoringHandlers.BuildFileProduct) return false;
-		GStaticMeshAuthoringHandlers.BuildFileProduct = std::move(Handlers.BuildFileProduct);
-		GStaticMeshAuthoringHandlers.PostLoadUncooked = std::move(Handlers.PostLoadUncooked);
-		GStaticMeshAuthoringHandlers.ChangeSourceReference =
-			std::move(Handlers.ChangeSourceReference);
-		return true;
+		const bool bSucceeded = InvokeStaticMeshFeature([&](IStaticMeshAuthoringFeature& Feature) {
+			return Feature.PostLoadUncooked(Mesh, OutDiagnostic, OutError);
+		}, "StaticMesh uncooked load policy is unavailable.", OutError);
+		if (!bSucceeded && OutError == "StaticMesh uncooked load policy is unavailable.")
+		{
+			OutDiagnostic.Status = EStaticMeshDerivedDataStatus::SourceUnavailable;
+			OutDiagnostic.Message = OutError;
+		}
+		return bSucceeded;
 	}
 
-	auto UnregisterStaticMeshAuthoringHandlers() -> void
+	auto InvokeStaticMeshCollisionBuildFeature(
+		const FStaticMeshRenderData& RenderData,
+		const FStaticMeshSourceImportData& SourceImportData,
+		EBodySetupCollisionSourceMode Mode,
+		EBodySetupCollisionQueryPolicy Policy,
+		FStaticMeshCollisionAuthoringProduct& OutProduct,
+		std::string& OutError) -> bool
 	{
-		std::lock_guard Lock(GStaticMeshAuthoringMutex);
-		GStaticMeshAuthoringHandlers.BuildFileProduct = {};
-		GStaticMeshAuthoringHandlers.PostLoadUncooked = {};
-		GStaticMeshAuthoringHandlers.ChangeSourceReference = {};
-	}
-
-	auto RegisterStaticMeshCollisionBuildHandler(
-		FStaticMeshCollisionBuildHandler Handler) -> bool
-	{
-		if (!Handler) return false;
-		std::lock_guard Lock(GStaticMeshAuthoringMutex);
-		if (GStaticMeshAuthoringHandlers.BuildCollisionProduct) return false;
-		GStaticMeshAuthoringHandlers.BuildCollisionProduct = std::move(Handler);
-		return true;
-	}
-
-	auto UnregisterStaticMeshCollisionBuildHandler() -> void
-	{
-		std::lock_guard Lock(GStaticMeshAuthoringMutex);
-		GStaticMeshAuthoringHandlers.BuildCollisionProduct = {};
+		const auto Result = FModularFeatureRegistry::Get().InvokeSingle<IStaticMeshCollisionBuildFeature>(
+			[&](IStaticMeshCollisionBuildFeature& Feature) {
+				return Feature.BuildCollisionProduct(
+					RenderData, SourceImportData, Mode, Policy, OutProduct, OutError);
+			});
+		if (Result.Status == EFeatureInvokeStatus::Invoked && Result.Value) return *Result.Value;
+		if (Result.Status == EFeatureInvokeStatus::Unavailable)
+			OutError = "StaticMesh collision build capability is unavailable.";
+		else if (Result.Status == EFeatureInvokeStatus::Ambiguous)
+			OutError = "StaticMesh collision build capability is ambiguous.";
+		else if (Result.Status == EFeatureInvokeStatus::VisitorFailed)
+			OutError = "StaticMesh collision build provider failed.";
+		return false;
 	}
 
 	auto InvokeStaticMeshSourceChangeHandler(
@@ -51,22 +63,8 @@ namespace Durin
 		std::string_view SourceVirtualPath,
 		std::string& OutError) -> bool
 	{
-		FStaticMeshSourceChangeHandler Handler;
-		{
-			std::lock_guard Lock(GStaticMeshAuthoringMutex);
-			Handler = GStaticMeshAuthoringHandlers.ChangeSourceReference;
-		}
-		if (!Handler)
-		{
-			OutError = "StaticMesh source translation is unavailable.";
-			return false;
-		}
-		return Handler(Mesh, SourceVirtualPath, OutError);
-	}
-
-	auto GetStaticMeshAuthoringHandlers() -> FStaticMeshAuthoringHandlers
-	{
-		std::lock_guard Lock(GStaticMeshAuthoringMutex);
-		return GStaticMeshAuthoringHandlers;
+		return InvokeStaticMeshFeature([&](IStaticMeshAuthoringFeature& Feature) {
+			return Feature.ChangeSourceReference(Mesh, SourceVirtualPath, OutError);
+		}, "StaticMesh source translation is unavailable.", OutError);
 	}
 }

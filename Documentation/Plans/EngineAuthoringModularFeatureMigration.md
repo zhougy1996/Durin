@@ -4,17 +4,56 @@ Summary: Replace six Runtime Engine process-global authoring callback families w
 
 Last reviewed: 2026-08-15
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-15
 
 ## Current Status
 
-Milestones 1 and 2 provide bounded typed invocation, manager-owned module
-generations, synchronous feature retirement, asynchronous operation groups,
-selected Game Thread drain, and fail-closed native unload. Runtime Engine still
-stores Plugin callables for static mesh, texture, terrain, and skeletal uncooked
-authoring. Stage 0 will freeze the six feature interfaces and exact legacy
-cutover map before provider code moves into module instances.
+Stage 0 is complete. The six callback families map one-to-one to the feature
+contracts and provider modules in the inventory below. Terrain worker and Game
+Thread publication work will use one StandardAssetImport-owned
+`TerrainAuthoringLoads` operation group; source change uses the group's explicit
+per-request supersession cancellation while module retirement closes the group
+with the stable module-shutdown abort reason.
+
+Stage 1 is complete. Runtime Engine now defines and invokes
+`IStaticMeshCollisionBuildFeature` and `ISkeletalDerivedDataFeature` without
+retaining provider callbacks. `FGeometryBuildModule` implements both interfaces
+and owns their move-only registrations. The GeometryBuild target compiles; the
+focused functional validation is complete: all 34 SkeletalAsset tests and all
+68 StaticMesh tests pass, while the existing Core registry suite supplies the
+zero/one/many and retirement concurrency matrix. Stage 2 is ready to migrate
+the synchronous StandardAssetImport feature families.
+
+Stage 2 is complete. Runtime Engine now invokes typed StaticMesh, Texture2D,
+and TextureCube authoring features; all related callback bundles, handler
+globals, registration functions, parameterless unregister functions, and
+copying accessors are deleted. `FStandardAssetImportModule` owns one provider
+object and three generation-bound registration tokens. Native test processes
+that do not start the module install the same provider behind an isolated test
+owner. StaticMeshTests pass 68/68, TextureTests pass all enabled tests, and the
+five-target `asset-import` domain passes.
+
+Stage 3 is complete. Runtime Engine now invokes one
+`ITerrainHeightmapAuthoringFeature` for post-load, wait, and source mutation.
+StandardAssetImport owns the provider, pending/coalesced maps, registration,
+and `TerrainAuthoringLoads` group. Worker roots and Game Thread publishers use
+the group scope and cancellation token; source mutation cancels only the
+superseded subscriber and an unshared worker. TerrainHeightmapTests pass 11/11,
+StaticMeshTests pass 68/68, TextureTests pass all 66 enabled tests, and the
+five-target `asset-import` domain passes. The Core async-operation-group tests
+continue to cover cancel/drain and retained callable/result destruction. Stage
+4 is ready for the deletion audit and lasting contract handoff.
+
+Stage 4 and the plan are complete. Targeted repository searches find none of
+the frozen callback types, registration APIs, parameterless unregister APIs,
+or process-global authoring storage in live code. All six consumers use
+bounded `InvokeSingle<T>` calls. Engine, GeometryBuild, and StandardAssetImport
+build; SkeletalAssetTests pass 34/34, StaticMeshTests pass 68/68,
+TerrainHeightmapTests pass 11/11, TextureTests pass all 66 enabled tests, and
+the five-target `asset-import` domain passes. The lasting ownership and Terrain
+async boundary is recorded in Asset Data Lifecycle and the Milestone 4 child
+plan is active.
 
 ## Goal
 
@@ -70,28 +109,28 @@ retained in process-global Engine storage.
 - Each legacy callback family has one cutover commit state: consumer and
   provider use the typed feature and the old storage/API is deleted together.
 
-## Current Foundations and Gaps
+## Completed Cutover Inventory
 
-| Family | Current boundary | Provider | Gap |
+| Family | Removed boundary | Provider | Resolution |
 | --- | --- | --- | --- |
-| Static mesh authoring | `FStaticMeshAuthoringHandlers` global bundle | StandardAssetImport | Three copied Plugin callables and parameterless unregister |
-| Static mesh collision | Global collision function pointer/callback | GeometryBuild | Provider lifetime is not owner attributed |
-| Texture2D | Global uncooked post-load handler plus editor adapters | StandardAssetImport | Runtime retains Plugin callback |
-| TextureCube | Global uncooked post-load handler | StandardAssetImport | Runtime retains Plugin callback |
-| Terrain | Global post-load, wait, and source-change handlers | StandardAssetImport | Async work and three callback slots require one owned contract |
-| Skeletal payloads | Global mesh and animation loader functions | GeometryBuild | Pair is identity-free and copied across DLL boundary |
+| Static mesh authoring | `FStaticMeshAuthoringHandlers` global bundle | StandardAssetImport | Typed feature and module-owned registration |
+| Static mesh collision | Global collision callback | GeometryBuild | Typed feature and owner-attributed provider |
+| Texture2D | Global uncooked post-load handler | StandardAssetImport | Typed feature and module-owned registration |
+| TextureCube | Global uncooked post-load handler | StandardAssetImport | Typed feature and module-owned registration |
+| Terrain | Global post-load, wait, and source-change handlers | StandardAssetImport | Owned feature state plus operation group |
+| Skeletal payloads | Global mesh and animation loader functions | GeometryBuild | One typed owner-attributed feature |
 
 ## Implementation Stages
 
 ### Stage 0: Freeze interfaces and cutover inventory
 
-- [ ] Record every declaration, definition, provider registration, consumer,
+- [x] Record every declaration, definition, provider registration, consumer,
   test, and documentation reference for the six legacy families.
-- [ ] Define feature names, version 1 method signatures, result/error mapping,
+- [x] Define feature names, version 1 method signatures, result/error mapping,
   cardinality, thread rules, and synchronous versus asynchronous ownership.
-- [ ] Identify Terrain worker roots, Game Thread continuations, result handles,
+- [x] Identify Terrain worker roots, Game Thread continuations, result handles,
   and shutdown releases that must use a StandardAssetImport operation group.
-- [ ] Freeze a deletion checklist for every migrated legacy symbol.
+- [x] Freeze a deletion checklist for every migrated legacy symbol.
 
 #### Acceptance Gate
 
@@ -102,13 +141,13 @@ retained in process-global Engine storage.
 
 ### Stage 1: Migrate GeometryBuild feature families
 
-- [ ] Add `IStaticMeshCollisionBuildFeature` and
+- [x] Add `IStaticMeshCollisionBuildFeature` and
   `ISkeletalDerivedDataFeature` Runtime Engine contracts.
-- [ ] Make `FGeometryBuildModule` own provider implementations, registration
+- [x] Make `FGeometryBuildModule` own provider implementations, registration
   tokens, and any required operation group.
-- [ ] Convert static-mesh collision, skeletal-mesh, and animation-clip consumers
+- [x] Convert static-mesh collision, skeletal-mesh, and animation-clip consumers
   to bounded typed invocation with explicit unavailable/ambiguous results.
-- [ ] Delete the legacy collision and skeletal loader registration APIs and add
+- [x] Delete the legacy collision and skeletal loader registration APIs and add
   focused provider-present, unavailable, ambiguous, and retirement tests.
 
 #### Acceptance Gate
@@ -119,13 +158,13 @@ retained in process-global Engine storage.
 
 ### Stage 2: Migrate synchronous StandardAssetImport feature families
 
-- [ ] Add `IStaticMeshAuthoringFeature`, `ITexture2DAuthoringFeature`, and
+- [x] Add `IStaticMeshAuthoringFeature`, `ITexture2DAuthoringFeature`, and
   `ITextureCubeAuthoringFeature` contracts.
-- [ ] Move provider behavior behind StandardAssetImport module-instance feature
+- [x] Move provider behavior behind StandardAssetImport module-instance feature
   implementations and owner registration tokens.
-- [ ] Convert Runtime Engine consumers and editor adapters without retaining
+- [x] Convert Runtime Engine consumers and editor adapters without retaining
   visitor references or copied callbacks.
-- [ ] Delete static-mesh and texture legacy globals/APIs and update focused
+- [x] Delete static-mesh and texture legacy globals/APIs and update focused
   post-load, source-reference, import, and authoring tests.
 
 #### Acceptance Gate
@@ -136,13 +175,13 @@ retained in process-global Engine storage.
 
 ### Stage 3: Migrate Terrain with explicit async ownership
 
-- [ ] Add `ITerrainHeightmapAuthoringFeature` covering uncooked post-load, load
+- [x] Add `ITerrainHeightmapAuthoringFeature` covering uncooked post-load, load
   wait, and source-reference mutation without exposing provider callables.
-- [ ] Move Terrain pending-work maps and cancellation policy into owned
+- [x] Move Terrain pending-work maps and cancellation policy into owned
   StandardAssetImport provider state.
-- [ ] Associate worker roots and Game Thread publication continuations with the
+- [x] Associate worker roots and Game Thread publication continuations with the
   module operation group and stable abort reasons.
-- [ ] Delete all three Terrain callback globals/APIs and add deterministic
+- [x] Delete all three Terrain callback globals/APIs and add deterministic
   completion, cancellation, source-change, shutdown-drain, and capture-
   destruction tests.
 
@@ -155,13 +194,13 @@ retained in process-global Engine storage.
 
 ### Stage 4: Regression, audit, and handoff
 
-- [ ] Run a repository search proving all frozen legacy symbols and storage are
+- [x] Run a repository search proving all frozen legacy symbols and storage are
   deleted and all six feature consumers use bounded invocation.
-- [ ] Build affected Runtime, Developer, Editor, and test targets and run their
+- [x] Build affected Runtime, Developer, Editor, and test targets and run their
   focused native suites under the repository workflows.
-- [ ] Publish the lasting Runtime Engine authoring contract and update the
+- [x] Publish the lasting Runtime Engine authoring contract and update the
   parent roadmap with evidence.
-- [ ] Create `Documentation/Plans/DynamicModuleRegistrySafetyAudit.md` only
+- [x] Create `Documentation/Plans/DynamicModuleRegistrySafetyAudit.md` only
   after the Milestone 3 exit gate passes.
 
 #### Acceptance Gate

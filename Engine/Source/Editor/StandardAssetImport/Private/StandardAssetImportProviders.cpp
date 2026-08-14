@@ -1,4 +1,5 @@
 #include "StandardAssetImportProviders.h"
+#include "StandardAssetAuthoringFeatures.h"
 #include "StaticMeshSourceTranslation.h"
 #include "Texture2DSourceTranslation.h"
 #include "Texture2DBuildAdapter.h"
@@ -6,7 +7,6 @@
 #include "Texture2DPropertyEditing.h"
 #include "Texture2DPostLoad.h"
 #include "Texture2DSourceRelocation.h"
-#include "TerrainHeightmapAuthoringPolicy.h"
 #include "TextureCubePostLoadPolicy.h"
 #include "TerrainHeightmapSourceTranslation.h"
 
@@ -335,7 +335,6 @@ namespace Durin::Asset::Import::Standard
 			return Mesh.PublishImportedProduct(std::move(Product), OutError);
 		}
 
-		bool GStaticMeshAuthoringRegistered = false;
 
 		auto MakeTexture2DSettings(const DTexture2D& Texture) -> FImportPayload
 		{
@@ -1311,6 +1310,46 @@ namespace Durin::Asset::Import::Standard
 			CommitMountedSourceFile(MountedSource);
 			return {true, {}, Mesh};
 		}
+	auto FStandardAssetAuthoringFeatures::BuildFileProduct(
+		DStaticMesh& Mesh,
+		std::string_view SourcePath,
+		FStaticMeshSourceImportData SourceImportData,
+		std::string_view SourceContentHash,
+		FStaticMeshAuthoringProduct& OutProduct,
+		std::string& OutError) -> bool
+	{
+		return BuildStaticMeshFileProduct(
+			Mesh, SourcePath, std::move(SourceImportData), SourceContentHash, OutProduct, OutError);
+	}
+
+	auto FStandardAssetAuthoringFeatures::PostLoadUncooked(
+		DStaticMesh& Mesh,
+		FStaticMeshDerivedDataDiagnostic& OutDiagnostic,
+		std::string& OutError) -> bool
+	{
+		return PostLoadStaticMesh(Mesh, OutDiagnostic, OutError);
+	}
+
+	auto FStandardAssetAuthoringFeatures::ChangeSourceReference(
+		DStaticMesh& Mesh,
+		std::string_view SourceVirtualPath,
+		std::string& OutError) -> bool
+	{
+		return ChangeStaticMeshSourceReference(Mesh, SourceVirtualPath, OutError);
+	}
+
+	auto FStandardAssetAuthoringFeatures::PostLoadUncooked(
+		DTexture2D& Texture, std::string& OutError) -> bool
+	{
+		return PostLoadTexture2DFeature(Texture, OutError);
+	}
+
+	auto FStandardAssetAuthoringFeatures::PostLoadUncooked(
+		DTextureCube& Texture, std::string& OutError) -> bool
+	{
+		return PostLoadTextureCubeFeature(Texture, OutError);
+	}
+
 	auto RegisterStandardAssetImportProviders(std::string& OutError) -> bool
 	{
 		std::lock_guard Lock(GRegistrationMutex);
@@ -1318,19 +1357,6 @@ namespace Durin::Asset::Import::Standard
 		OpenAsyncImportProviderAdmission(SceneImportProviderId);
 		OpenAsyncImportProviderAdmission("Assimp");
 		OpenAsyncImportProviderAdmission("DurinImage");
-		if (!GStaticMeshAuthoringRegistered)
-		{
-			GStaticMeshAuthoringRegistered = RegisterStaticMeshAuthoringHandlers({
-				.BuildFileProduct = &BuildStaticMeshFileProduct,
-				.PostLoadUncooked = &PostLoadStaticMesh,
-				.ChangeSourceReference =
-					&ChangeStaticMeshSourceReference});
-			if (!GStaticMeshAuthoringRegistered)
-			{
-				OutError = "Another StaticMesh authoring handler is already registered.";
-				return false;
-			}
-		}
 		auto& Providers = GetProviderRegistry();
 		auto& Handlers = GetSingleAssetHandlerRegistry();
 		auto& RecordHandlers = GetImportRecordHandlerRegistry();
@@ -1343,11 +1369,6 @@ namespace Durin::Asset::Import::Standard
 			Providers.Unregister("DurinImage");
 			Providers.Unregister("Assimp");
 			Providers.Unregister(SceneImportProviderId);
-			if (GStaticMeshAuthoringRegistered)
-			{
-				UnregisterStaticMeshAuthoringHandlers();
-				GStaticMeshAuthoringRegistered = false;
-			}
 		};
 		if (!Providers.Register(CreateSceneImportProvider(), OutError))
 		{
@@ -1384,15 +1405,8 @@ namespace Durin::Asset::Import::Standard
 			RollbackFrameworkRegistrations();
 			return false;
 		}
-		if (!RegisterTexture2DPostLoadPolicy())
-		{
-			RollbackFrameworkRegistrations();
-			OutError = "Failed to register Texture2D uncooked load policy.";
-			return false;
-		}
 		if (!RegisterTexture2DPropertyEditing())
 		{
-			UnregisterTexture2DPostLoadPolicy();
 			RollbackFrameworkRegistrations();
 			OutError = "Failed to register Texture2D property authoring policy.";
 			return false;
@@ -1400,28 +1414,8 @@ namespace Durin::Asset::Import::Standard
 		if (!RegisterTexture2DSourceRelocation())
 		{
 			UnregisterTexture2DPropertyEditing();
-			UnregisterTexture2DPostLoadPolicy();
 			RollbackFrameworkRegistrations();
 			OutError = "Failed to register Texture2D source relocation policy.";
-			return false;
-		}
-		if (!RegisterTextureCubePostLoadPolicy())
-		{
-			UnregisterTexture2DSourceRelocation();
-			UnregisterTexture2DPropertyEditing();
-			UnregisterTexture2DPostLoadPolicy();
-			RollbackFrameworkRegistrations();
-			OutError = "Failed to register TextureCube uncooked load policy.";
-			return false;
-		}
-		if (!RegisterTerrainHeightmapAuthoringPolicy())
-		{
-			UnregisterTextureCubePostLoadPolicy();
-			UnregisterTexture2DSourceRelocation();
-			UnregisterTexture2DPropertyEditing();
-			UnregisterTexture2DPostLoadPolicy();
-			RollbackFrameworkRegistrations();
-			OutError = "Failed to register TerrainHeightmap authoring policy.";
 			return false;
 		}
 		GRegistered = true;
@@ -1433,11 +1427,8 @@ namespace Durin::Asset::Import::Standard
 	{
 		std::lock_guard Lock(GRegistrationMutex);
 		if (!GRegistered) return;
-		UnregisterTerrainHeightmapAuthoringPolicy();
-		UnregisterTextureCubePostLoadPolicy();
 		UnregisterTexture2DSourceRelocation();
 		UnregisterTexture2DPropertyEditing();
-		UnregisterTexture2DPostLoadPolicy();
 		CancelAndDrainAsyncImportsForProvider(SceneImportProviderId);
 		CancelAndDrainAsyncImportsForProvider("Assimp");
 		CancelAndDrainAsyncImportsForProvider("DurinImage");
@@ -1455,8 +1446,6 @@ namespace Durin::Asset::Import::Standard
 			&& Providers.GetOutstandingLeaseCount("Assimp") == 0
 			&& Providers.GetOutstandingLeaseCount(SceneImportProviderId) == 0,
 			"StandardAssetImport cannot unload while import plans, candidates, or results retain provider leases.");
-		UnregisterStaticMeshAuthoringHandlers();
-		GStaticMeshAuthoringRegistered = false;
 		GRegistered = false;
 	}
 }

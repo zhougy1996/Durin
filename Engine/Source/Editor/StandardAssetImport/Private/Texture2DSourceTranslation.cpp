@@ -214,8 +214,7 @@ namespace Durin::Asset::Import::Standard
 		const FTexture2DImportSettings& Settings,
 		bool bEngineAuthoringContext) -> FTexture2DImportResult
 	{
-		if (!RegisterTexture2DPostLoadPolicy()
-			|| !RegisterTexture2DPropertyEditing()
+		if (!RegisterTexture2DPropertyEditing()
 			|| !RegisterTexture2DSourceRelocation())
 			return {false, "Texture2D editor authoring policy is unavailable.", nullptr};
 		const std::filesystem::path Input =

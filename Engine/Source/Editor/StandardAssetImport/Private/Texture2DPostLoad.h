@@ -1,7 +1,11 @@
 #pragma once
 
+namespace Durin
+{
+	class DTexture2D;
+}
+
 namespace Durin::Asset::Import::Standard
 {
-	auto RegisterTexture2DPostLoadPolicy() -> bool;
-	auto UnregisterTexture2DPostLoadPolicy() -> void;
+	auto PostLoadTexture2DFeature(DTexture2D& Texture, std::string& OutError) -> bool;
 }

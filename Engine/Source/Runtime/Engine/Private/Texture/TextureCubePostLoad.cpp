@@ -2,41 +2,18 @@
 
 namespace Durin
 {
-	namespace
-	{
-		std::mutex GMutex;
-		FTextureCubeUncookedPostLoadHandler GHandler;
-	}
-
-	auto RegisterTextureCubeUncookedPostLoadHandler(
-		FTextureCubeUncookedPostLoadHandler Handler) -> bool
-	{
-		if (!Handler) return false;
-		std::lock_guard Lock(GMutex);
-		if (GHandler) return false;
-		GHandler = std::move(Handler);
-		return true;
-	}
-
-	auto UnregisterTextureCubeUncookedPostLoadHandler() -> void
-	{
-		std::lock_guard Lock(GMutex);
-		GHandler = {};
-	}
-
 	auto InvokeTextureCubeUncookedPostLoadHandler(
 		DTextureCube& Texture, std::string& OutError) -> bool
 	{
-		FTextureCubeUncookedPostLoadHandler Handler;
-		{
-			std::lock_guard Lock(GMutex);
-			Handler = GHandler;
-		}
-		if (!Handler)
-		{
+		const auto Result = FModularFeatureRegistry::Get().InvokeSingle<ITextureCubeAuthoringFeature>(
+			[&](ITextureCubeAuthoringFeature& Feature) { return Feature.PostLoadUncooked(Texture, OutError); });
+		if (Result.Status == EFeatureInvokeStatus::Invoked && Result.Value) return *Result.Value;
+		if (Result.Status == EFeatureInvokeStatus::Unavailable)
 			OutError = "No uncooked TextureCube load policy is registered.";
-			return false;
-		}
-		return Handler(Texture, OutError);
+		else if (Result.Status == EFeatureInvokeStatus::Ambiguous)
+			OutError = "TextureCube authoring capability is ambiguous.";
+		else if (Result.Status == EFeatureInvokeStatus::VisitorFailed)
+			OutError = "TextureCube authoring provider failed.";
+		return false;
 	}
 }

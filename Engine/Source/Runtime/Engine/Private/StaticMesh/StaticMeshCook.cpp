@@ -86,15 +86,7 @@ namespace Durin
 			return true;
 		}
 
-		const FStaticMeshAuthoringHandlers Handlers = GetStaticMeshAuthoringHandlers();
-		if (!Handlers.PostLoadUncooked)
-		{
-			OutError = "StaticMesh uncooked load policy is unavailable.";
-			DerivedDataDiagnostic.Status = EStaticMeshDerivedDataStatus::SourceUnavailable;
-			DerivedDataDiagnostic.Message = OutError;
-			return false;
-		}
-		return Handlers.PostLoadUncooked(*this, DerivedDataDiagnostic, OutError);
+		return InvokeStaticMeshPostLoadFeature(*this, DerivedDataDiagnostic, OutError);
 	}
 	auto DStaticMesh::LoadCookedRenderData(std::string& OutError) -> bool
 	{

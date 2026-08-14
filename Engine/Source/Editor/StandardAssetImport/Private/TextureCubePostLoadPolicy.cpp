@@ -11,9 +11,7 @@ namespace Durin::Asset::Import::Standard
 {
 	namespace
 	{
-		bool GTextureCubePostLoadPolicyRegistered = false;
-
-		auto PostLoadTextureCube(DTextureCube& Texture, std::string& OutError) -> bool
+		auto PostLoadTextureCubeImpl(DTextureCube& Texture, std::string& OutError) -> bool
 		{
 			std::string Key = Asset::Build::MakeTextureCubeDerivedDataKey(Texture, OutError);
 			if (!Key.empty())
@@ -60,18 +58,8 @@ namespace Durin::Asset::Import::Standard
 		}
 	}
 
-	auto RegisterTextureCubePostLoadPolicy() -> bool
+	auto PostLoadTextureCubeFeature(DTextureCube& Texture, std::string& OutError) -> bool
 	{
-		if (GTextureCubePostLoadPolicyRegistered) return true;
-		if (!RegisterTextureCubeUncookedPostLoadHandler(PostLoadTextureCube)) return false;
-		GTextureCubePostLoadPolicyRegistered = true;
-		return true;
-	}
-
-	auto UnregisterTextureCubePostLoadPolicy() -> void
-	{
-		if (!GTextureCubePostLoadPolicyRegistered) return;
-		UnregisterTextureCubeUncookedPostLoadHandler();
-		GTextureCubePostLoadPolicyRegistered = false;
+		return PostLoadTextureCubeImpl(Texture, OutError);
 	}
 }

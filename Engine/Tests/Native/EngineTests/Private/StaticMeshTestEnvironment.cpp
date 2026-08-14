@@ -1,6 +1,7 @@
 #include "EngineTestSupport.h"
 #include "Modules/ModuleManager.h"
 #include "RenderingThread.h"
+#include "StandardAssetAuthoringTestSupport.h"
 #include "StandardAssetImportProviders.h"
 
 #include <gtest/gtest.h>
@@ -16,6 +17,7 @@ namespace
 			InitializeDObjectSystem();
 			Durin::FModuleManager::Get().LoadModule("GeometryBuild");
 			std::string Error;
+			ASSERT_TRUE(Durin::Tests::InstallStandardAssetAuthoringFeatures());
 			ASSERT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(Error)) << Error;
 			ASSERT_EQ(
 				Durin::GetRenderCommandAdmissionState(),

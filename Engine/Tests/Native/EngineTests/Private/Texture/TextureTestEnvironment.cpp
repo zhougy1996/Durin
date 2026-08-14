@@ -1,4 +1,5 @@
 #include "TextureTestSupport.h"
+#include "StandardAssetAuthoringTestSupport.h"
 #include "StandardAssetImportProviders.h"
 
 namespace
@@ -13,6 +14,7 @@ namespace
 			InitializeDObjectSystem();
 			ASSERT_TRUE(EnsureTextureBuildHost());
 			std::string Error;
+			ASSERT_TRUE(Durin::Tests::InstallStandardAssetAuthoringFeatures());
 			ASSERT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(Error)) << Error;
 		}
 

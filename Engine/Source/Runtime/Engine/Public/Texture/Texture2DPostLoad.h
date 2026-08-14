@@ -1,19 +1,20 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include "Modules/ModularFeature.h"
 
 namespace Durin
 {
 	class DTexture2D;
 
-	using FTexture2DUncookedPostLoadHandler =
-		std::function<bool(DTexture2D&, std::string&)>;
+	class ITexture2DAuthoringFeature : public IModularFeature
+	{
+	public:
+		static constexpr std::string_view FeatureName = "Engine.Texture2DAuthoring";
+		static constexpr uint32 FeatureVersion = 1;
+		virtual auto PostLoadUncooked(DTexture2D& Texture, std::string& OutError) -> bool = 0;
+	};
 
-	// Installs the editor-authoring policy used for uncooked Texture2D loads.
-	// Runtime cooked loading remains owned by DTexture2D.
-	ENGINE_API auto RegisterTexture2DUncookedPostLoadHandler(
-		FTexture2DUncookedPostLoadHandler Handler) -> bool;
-	ENGINE_API auto UnregisterTexture2DUncookedPostLoadHandler() -> void;
 	ENGINE_API auto InvokeTexture2DUncookedPostLoadHandler(
 		DTexture2D& Texture, std::string& OutError) -> bool;
 }

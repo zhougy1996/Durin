@@ -7,26 +7,49 @@
 
 namespace Durin
 {
-	class FGeometryBuildModule final : public IModuleInterface
+	class FGeometryBuildModule final
+		: public IModuleInterface
+		, public IStaticMeshCollisionBuildFeature
+		, public ISkeletalDerivedDataFeature
 	{
 		// Module teardown owns this token explicitly. Keeping the module object trivially
 		// destructible avoids cross-DLL static-destruction calls when a test process exits
 		// without invoking FModuleManager::UnloadModulesAtShutdown().
 		Asset::Build::FBuildServiceRegistration* ServiceRegistration = nullptr;
+		FModularFeatureRegistration CollisionFeatureRegistration;
+		FModularFeatureRegistration SkeletalFeatureRegistration;
 
-		static auto BuildStaticMeshCollision(
+		auto BuildCollisionProduct(
 			const FStaticMeshRenderData& RenderData,
 			const FStaticMeshSourceImportData& SourceImportData,
 			EBodySetupCollisionSourceMode Mode,
 			EBodySetupCollisionQueryPolicy Policy,
 			FStaticMeshCollisionAuthoringProduct& OutProduct,
-			std::string& OutError) -> bool
+			std::string& OutError) -> bool override
 		{
 			return Asset::Build::FStaticMeshBuildOperations::BuildCollisionProduct(
 				RenderData, SourceImportData, Mode, Policy, OutProduct, OutError);
 		}
 
-		auto StartupModule(FModuleContext&) -> void override
+		auto LoadSkeletalMeshPayload(
+			std::string_view Key,
+			const FSkeletalPayloadSerializationContext& Context,
+			FSkeletalMeshPayloadData& OutPayload,
+			std::string& OutMessage) -> bool override
+		{
+			return Asset::Build::LoadSkeletalMeshDerivedData(Key, Context, OutPayload, OutMessage);
+		}
+
+		auto LoadAnimationClipPayload(
+			std::string_view Key,
+			const FSkeletalPayloadSerializationContext& Context,
+			FAnimationClipPayloadData& OutPayload,
+			std::string& OutMessage) -> bool override
+		{
+			return Asset::Build::LoadAnimationClipDerivedData(Key, Context, OutPayload, OutMessage);
+		}
+
+		auto StartupModule(FModuleContext& Context) -> void override
 		{
 			std::string Error;
 			auto Registration = Asset::Build::RegisterBuildServiceContribution({
@@ -42,19 +65,16 @@ namespace Durin
 				"GeometryBuild could not register its recipe service: {}", Error);
 			ServiceRegistration = new Asset::Build::FBuildServiceRegistration(
 				std::move(Registration));
-			checkf(RegisterStaticMeshCollisionBuildHandler(
-				&BuildStaticMeshCollision),
+			CollisionFeatureRegistration = Context.RegisterFeature<IStaticMeshCollisionBuildFeature>(*this);
+			SkeletalFeatureRegistration = Context.RegisterFeature<ISkeletalDerivedDataFeature>(*this);
+			checkf(CollisionFeatureRegistration.IsValid(),
 				"GeometryBuild could not register StaticMesh collision building.");
-			checkf(RegisterSkeletalAssetUncookedPayloadLoaders(
-				Asset::Build::LoadSkeletalMeshDerivedData,
-				Asset::Build::LoadAnimationClipDerivedData),
+			checkf(SkeletalFeatureRegistration.IsValid(),
 				"GeometryBuild could not register skeletal DDC loading.");
 		}
 
 		auto ShutdownModule(FModuleShutdownContext&) -> void override
 		{
-			UnregisterSkeletalAssetUncookedPayloadLoaders();
-			UnregisterStaticMeshCollisionBuildHandler();
 			delete std::exchange(ServiceRegistration, nullptr);
 		}
 	};

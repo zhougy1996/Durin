@@ -34,15 +34,8 @@ namespace Durin
 		uint64& OutPayloadBytes,
 		std::string& OutError) const -> bool
 	{
-		const FStaticMeshAuthoringHandlers Handlers =
-			GetStaticMeshAuthoringHandlers();
-		if (!Handlers.BuildCollisionProduct)
-		{
-			OutError = "StaticMesh collision build capability is unavailable.";
-			return false;
-		}
 		FStaticMeshCollisionAuthoringProduct Product;
-		if (!Handlers.BuildCollisionProduct(
+		if (!InvokeStaticMeshCollisionBuildFeature(
 			SourceRenderData, SourceImportData, Mode, Policy, Product, OutError))
 			return false;
 		OutSimple = std::move(Product.Simple);

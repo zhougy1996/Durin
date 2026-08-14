@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include "Modules/ModularFeature.h"
 #include "Physics/BodySetup.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -44,42 +45,54 @@ namespace Durin
 		uint64 PayloadBytes = 0;
 	};
 
-	using FStaticMeshFileBuildHandler = std::function<bool(
-		DStaticMesh&,
-		std::string_view,
-		FStaticMeshSourceImportData,
-		std::string_view,
-		FStaticMeshAuthoringProduct&,
-		std::string&)>;
-	using FStaticMeshPostLoadHandler = std::function<bool(
-		DStaticMesh&, FStaticMeshDerivedDataDiagnostic&, std::string&)>;
-	using FStaticMeshSourceChangeHandler = std::function<bool(
-		DStaticMesh&, std::string_view, std::string&)>;
-	using FStaticMeshCollisionBuildHandler = std::function<bool(
-		const FStaticMeshRenderData&,
-		const FStaticMeshSourceImportData&,
-		EBodySetupCollisionSourceMode,
-		EBodySetupCollisionQueryPolicy,
-		FStaticMeshCollisionAuthoringProduct&,
-		std::string&)>;
-
-	struct FStaticMeshAuthoringHandlers
+	class IStaticMeshAuthoringFeature : public IModularFeature
 	{
-		FStaticMeshFileBuildHandler BuildFileProduct;
-		FStaticMeshPostLoadHandler PostLoadUncooked;
-		FStaticMeshSourceChangeHandler ChangeSourceReference;
-		FStaticMeshCollisionBuildHandler BuildCollisionProduct;
+	public:
+		static constexpr std::string_view FeatureName = "Engine.StaticMeshAuthoring";
+		static constexpr uint32 FeatureVersion = 1;
+		virtual auto BuildFileProduct(
+			DStaticMesh& Mesh,
+			std::string_view SourcePath,
+			FStaticMeshSourceImportData SourceImportData,
+			std::string_view SourceContentHash,
+			FStaticMeshAuthoringProduct& OutProduct,
+			std::string& OutError) -> bool = 0;
+		virtual auto PostLoadUncooked(
+			DStaticMesh& Mesh,
+			FStaticMeshDerivedDataDiagnostic& OutDiagnostic,
+			std::string& OutError) -> bool = 0;
+		virtual auto ChangeSourceReference(
+			DStaticMesh& Mesh,
+			std::string_view SourceVirtualPath,
+			std::string& OutError) -> bool = 0;
+	};
+	class IStaticMeshCollisionBuildFeature : public IModularFeature
+	{
+	public:
+		static constexpr std::string_view FeatureName = "Engine.StaticMeshCollisionBuild";
+		static constexpr uint32 FeatureVersion = 1;
+		virtual auto BuildCollisionProduct(
+			const FStaticMeshRenderData& RenderData,
+			const FStaticMeshSourceImportData& SourceImportData,
+			EBodySetupCollisionSourceMode Mode,
+			EBodySetupCollisionQueryPolicy Policy,
+			FStaticMeshCollisionAuthoringProduct& OutProduct,
+			std::string& OutError) -> bool = 0;
 	};
 
-	ENGINE_API auto RegisterStaticMeshAuthoringHandlers(
-		FStaticMeshAuthoringHandlers Handlers) -> bool;
-	ENGINE_API auto UnregisterStaticMeshAuthoringHandlers() -> void;
-	ENGINE_API auto RegisterStaticMeshCollisionBuildHandler(
-		FStaticMeshCollisionBuildHandler Handler) -> bool;
-	ENGINE_API auto UnregisterStaticMeshCollisionBuildHandler() -> void;
+	ENGINE_API auto InvokeStaticMeshPostLoadFeature(
+		DStaticMesh& Mesh,
+		FStaticMeshDerivedDataDiagnostic& OutDiagnostic,
+		std::string& OutError) -> bool;
+	ENGINE_API auto InvokeStaticMeshCollisionBuildFeature(
+		const FStaticMeshRenderData& RenderData,
+		const FStaticMeshSourceImportData& SourceImportData,
+		EBodySetupCollisionSourceMode Mode,
+		EBodySetupCollisionQueryPolicy Policy,
+		FStaticMeshCollisionAuthoringProduct& OutProduct,
+		std::string& OutError) -> bool;
 	ENGINE_API auto InvokeStaticMeshSourceChangeHandler(
 		DStaticMesh& Mesh,
 		std::string_view SourceVirtualPath,
 		std::string& OutError) -> bool;
-	ENGINE_API auto GetStaticMeshAuthoringHandlers() -> FStaticMeshAuthoringHandlers;
 }

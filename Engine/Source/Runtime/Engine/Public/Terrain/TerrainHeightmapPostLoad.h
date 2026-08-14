@@ -1,30 +1,28 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include "Modules/ModularFeature.h"
 
 namespace Durin
 {
 	class DTerrainHeightmap;
-	using FTerrainHeightmapUncookedPostLoadHandler =
-		std::function<bool(DTerrainHeightmap&, std::string&)>;
-	using FTerrainHeightmapSourceChangeHandler =
-		std::function<bool(DTerrainHeightmap&, std::string_view, std::string&)>;
-	using FTerrainHeightmapAuthoringLoadWaitHandler =
-		std::function<bool(DTerrainHeightmap&, std::string&)>;
+	class ITerrainHeightmapAuthoringFeature : public IModularFeature
+	{
+	public:
+		static constexpr std::string_view FeatureName = "Engine.TerrainHeightmapAuthoring";
+		static constexpr uint32 FeatureVersion = 1;
+		virtual auto PostLoadUncooked(DTerrainHeightmap& Heightmap, std::string& OutError) -> bool = 0;
+		virtual auto WaitForAuthoringLoad(DTerrainHeightmap& Heightmap, std::string& OutError) -> bool = 0;
+		virtual auto ChangeSourceReference(
+			DTerrainHeightmap& Heightmap,
+			std::string_view SourceVirtualPath,
+			std::string& OutError) -> bool = 0;
+	};
 
-	ENGINE_API auto RegisterTerrainHeightmapUncookedPostLoadHandler(
-		FTerrainHeightmapUncookedPostLoadHandler Handler) -> bool;
-	ENGINE_API auto UnregisterTerrainHeightmapUncookedPostLoadHandler() -> void;
 	ENGINE_API auto InvokeTerrainHeightmapUncookedPostLoadHandler(
 		DTerrainHeightmap& Heightmap, std::string& OutError) -> bool;
-	ENGINE_API auto RegisterTerrainHeightmapAuthoringLoadWaitHandler(
-		FTerrainHeightmapAuthoringLoadWaitHandler Handler) -> bool;
-	ENGINE_API auto UnregisterTerrainHeightmapAuthoringLoadWaitHandler() -> void;
 	ENGINE_API auto WaitForTerrainHeightmapAuthoringLoad(
 		DTerrainHeightmap& Heightmap, std::string& OutError) -> bool;
-	ENGINE_API auto RegisterTerrainHeightmapSourceChangeHandler(
-		FTerrainHeightmapSourceChangeHandler Handler) -> bool;
-	ENGINE_API auto UnregisterTerrainHeightmapSourceChangeHandler() -> void;
 	ENGINE_API auto InvokeTerrainHeightmapSourceChangeHandler(
 		DTerrainHeightmap& Heightmap,
 		std::string_view SourceVirtualPath,

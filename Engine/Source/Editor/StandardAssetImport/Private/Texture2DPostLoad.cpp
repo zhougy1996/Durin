@@ -14,8 +14,6 @@ namespace Durin::Asset::Import::Standard
 {
 	namespace
 	{
-		bool GTexture2DPostLoadPolicyRegistered = false;
-
 		auto IsCanonicalTextureHash(std::string_view Hash) -> bool
 		{
 			return Hash.size() == 32 && std::ranges::all_of(Hash, [](char Character) {
@@ -83,7 +81,7 @@ namespace Durin::Asset::Import::Standard
 				.bReportLoadMutation = bMetadataChanged}, OutError);
 		}
 
-		auto PostLoadTexture2D(DTexture2D& Texture, std::string& OutError) -> bool
+		auto PostLoadTexture2DImpl(DTexture2D& Texture, std::string& OutError) -> bool
 		{
 			if (!Texture.GetSourceImportData().HasSource())
 				return FailLoad(
@@ -182,18 +180,8 @@ namespace Durin::Asset::Import::Standard
 		}
 	}
 
-	auto RegisterTexture2DPostLoadPolicy() -> bool
+	auto PostLoadTexture2DFeature(DTexture2D& Texture, std::string& OutError) -> bool
 	{
-		if (GTexture2DPostLoadPolicyRegistered) return true;
-		GTexture2DPostLoadPolicyRegistered =
-			RegisterTexture2DUncookedPostLoadHandler(PostLoadTexture2D);
-		return GTexture2DPostLoadPolicyRegistered;
-	}
-
-	auto UnregisterTexture2DPostLoadPolicy() -> void
-	{
-		if (!GTexture2DPostLoadPolicyRegistered) return;
-		UnregisterTexture2DUncookedPostLoadHandler();
-		GTexture2DPostLoadPolicyRegistered = false;
+		return PostLoadTexture2DImpl(Texture, OutError);
 	}
 }
