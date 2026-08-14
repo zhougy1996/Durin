@@ -13,7 +13,9 @@ namespace Durin
 	auto FModuleTestContextFactory::CreateShutdownContext(const FModuleContext& StartupContext) -> FModuleShutdownContext
 	{
 		auto Retirement = FModularFeatureRegistry::Get().RetireOwner(StartupContext.Owner, std::chrono::seconds(5));
-		return FModuleShutdownContext(StartupContext.ModuleName, std::move(Retirement.Snapshot));
+		Detail::BeginRetireAsyncOperationOwner(StartupContext.Owner);
+		return FModuleShutdownContext(
+			StartupContext.ModuleName, std::move(Retirement.Snapshot), StartupContext.Owner);
 	}
 
 	auto FModuleTestContextFactory::InstallStartedModule(

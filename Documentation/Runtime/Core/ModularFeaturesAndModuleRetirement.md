@@ -1,6 +1,6 @@
 # Modular Features and Module Retirement
 
-Summary: Define typed modular-feature invocation, synchronous retirement, and fail-closed native module shutdown.
+Summary: Define typed feature invocation, owner-bound asynchronous drain, and fail-closed native module shutdown.
 
 Modules: Core
 
@@ -65,13 +65,18 @@ Stopped or blocked modules are never returned as active by `LoadModule` or
 Shutdown performs this fixed sequence:
 
 1. transition `Active` to `Retiring`;
-2. retire the module owner and wait for synchronous visitors;
-3. run the reflected-object drain callback while the library is mapped;
-4. call `ShutdownModule(FModuleShutdownContext&)` without Core locks;
-5. audit that no owned entry is published or in flight;
-6. transition to `StoppedMapped`;
-7. for explicit unload, destroy the module instance and release the library;
-8. publish `Unloaded` only after native release.
+2. retire feature admission and wait for synchronous visitors;
+3. close every owner-bound asynchronous operation group using its declared
+   drain or cancel shutdown policy;
+4. run the reflected-object drain callback while the library is mapped;
+5. call `ShutdownModule(FModuleShutdownContext&)` without Core locks so the
+   module can release result handles and inspect or drain its closing groups;
+6. drain all owned asynchronous operations and audit active tasks, result
+   handles, Worker callables, and Game Thread callables;
+7. audit that no owned feature entry is published or in flight;
+8. transition to `StoppedMapped`;
+9. for explicit unload, destroy the module instance and release the library;
+10. publish `Unloaded` only after native release.
 
 Wrong-thread, self-owned execution, timeout, reflected-object rejection,
 shutdown-callback failure, and final-audit failure return categorized evidence.
@@ -89,11 +94,32 @@ callback paths release the module-map lock before entering the registry, and
 all registry and module-map locks are released before logging or calling
 feature, reflected-object, startup, or shutdown code.
 
-## Deferred Asynchronous Boundary
+## Asynchronous Operation Boundary
 
 Returning from a feature visitor does not prove that work submitted by the
-implementation has finished. Explicit operation ownership, abort reasons,
-Game Thread continuation drain, and callable-destruction proof belong to the
-asynchronous operation-drain contract. Until that contract is implemented, a
-module remains responsible for draining such work inside its shutdown callback
-before the synchronous final audit can authorize native unload.
+implementation has finished. A module creates `FAsyncOperationGroup` instances
+through its startup `FModuleContext`. Each group owns one task scope, explicit
+cancellation source, stable abort reason, close policy, and diagnostic identity
+under the module load generation. A root task explicitly selects the group's
+scope and cancellation token; accepted descendants and continuations inherit
+the scope under the Task System rules.
+
+Closing a group is irreversible. `Drain` rejects later roots and lets accepted
+work finish; `Cancel` additionally requests cooperative cancellation and records
+the first explicit abort reason. A call to `Drain` from one of the group's own
+tasks returns `SelfWait`. A non-Game Thread drain that encounters retained
+`GameThreadDeferred` work returns `UnsupportedThread`. Timeouts preserve the
+closing state and their evidence; they never reopen admission.
+
+Game Thread drain selects only entries belonging to the closing task scope.
+Drain-mode entries execute without pumping unrelated queues. Cancel-mode and
+stale entries publish cancellation, detach from the queue, and destroy their
+callable storage before success. Worker queue ownership tags similarly remain
+outstanding until the erased wrapper and discard callback are destroyed.
+
+Successful group drain requires zero active tasks, zero retained typed-result
+states, zero selected deferred callables, and zero Worker wrappers. The module
+manager repeats this owner-wide proof after `ShutdownModule` and before the
+final feature audit. `AsyncOperationDrainTimeout`, `AsyncOperationSelfWait`,
+`AsyncOperationUnsupportedThread`, and `OutstandingAsyncOperationAudit` all
+leave the module `UnloadBlocked` and its native library mapped.

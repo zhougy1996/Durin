@@ -15,6 +15,7 @@ namespace Durin
 			std::string Name;
 			std::unique_ptr<FQueuedWorkFunction> Function;
 			FQueuedWorkDiscardFunction Discard;
+			uint64 OwnerTag = 0;
 		};
 
 		thread_local const void* GCurrentQueuedThreadPool = nullptr;
@@ -169,7 +170,12 @@ namespace Durin
 			bAcceptingWork = false;
 		}
 
-		auto Enqueue(const char* TaskName, FQueuedWorkFunction&& Work, FQueuedWorkDiscardFunction&& Discard) -> bool
+		auto Enqueue(
+			const char* TaskName,
+			FQueuedWorkFunction&& Work,
+			FQueuedWorkDiscardFunction&& Discard,
+			uint64 OwnerTag
+		) -> bool
 		{
 			if (!Work)
 			{
@@ -188,7 +194,9 @@ namespace Durin
 					TaskName ? TaskName : "QueuedWork",
 					std::move(WorkOwner),
 					std::move(Discard),
+					OwnerTag,
 				});
+				if (OwnerTag != 0) ++OutstandingOwnerTags[OwnerTag];
 			}
 
 			WorkAvailableCV.notify_one();
@@ -205,6 +213,24 @@ namespace Durin
 
 			ExecuteQueuedWork(std::move(Work));
 			return true;
+		}
+
+		auto WaitForOwnerTagIdle(uint64 OwnerTag, double TimeoutSeconds) -> bool
+		{
+			if (OwnerTag == 0) return true;
+			if (GCurrentQueuedThreadPool == this) return false;
+			std::unique_lock Lock(Mutex);
+			return OwnerIdleCV.wait_for(Lock, std::chrono::duration<double>(std::max(0.0, TimeoutSeconds)), [&]() {
+				return !OutstandingOwnerTags.contains(OwnerTag);
+			});
+		}
+
+		auto GetOwnerTagOutstandingCount(uint64 OwnerTag) const -> uint32
+		{
+			if (OwnerTag == 0) return 0;
+			std::lock_guard Lock(Mutex);
+			const auto Iterator = OutstandingOwnerTags.find(OwnerTag);
+			return Iterator == OutstandingOwnerTags.end() ? 0u : Iterator->second;
 		}
 
 		auto WaitForIdle() -> bool
@@ -329,10 +355,13 @@ namespace Durin
 				DURIN_ERROR("Queued task escaped its callable boundary with an unknown exception. (task: {})", Work.Name);
 			}
 			DURIN_TRACE("Queued task finished. (task: {}, thread: {}, id: {})", Work.Name, GetCurrentThreadName(), FPlatformLTS::GetCurrentThreadId());
+			Work.Function.reset();
+			Work.Discard = {};
 
 			{
 				std::lock_guard Lock(Mutex);
 				--ActiveTaskCount;
+				ReleaseOwnerTagLocked(Work.OwnerTag);
 				NotifyIdleIfNeeded();
 			}
 		}
@@ -341,23 +370,37 @@ namespace Durin
 		{
 			for (FQueuedWork& Work : WorkItems)
 			{
-				if (!Work.Discard)
+				if (Work.Discard)
 				{
-					continue;
+					try
+					{
+						Work.Discard();
+					}
+					catch (const std::exception& Exception)
+					{
+						DURIN_ERROR("Queued task discard callback failed. (task: {}, error: {})", Work.Name, Exception.what());
+					}
+					catch (...)
+					{
+						DURIN_ERROR("Queued task discard callback failed with an unknown exception. (task: {})", Work.Name);
+					}
 				}
+				Work.Function.reset();
+				Work.Discard = {};
+				std::lock_guard Lock(Mutex);
+				ReleaseOwnerTagLocked(Work.OwnerTag);
+			}
+		}
 
-				try
-				{
-					Work.Discard();
-				}
-				catch (const std::exception& Exception)
-				{
-					DURIN_ERROR("Queued task discard callback failed. (task: {}, error: {})", Work.Name, Exception.what());
-				}
-				catch (...)
-				{
-					DURIN_ERROR("Queued task discard callback failed with an unknown exception. (task: {})", Work.Name);
-				}
+		auto ReleaseOwnerTagLocked(uint64 OwnerTag) -> void
+		{
+			if (OwnerTag == 0) return;
+			auto Iterator = OutstandingOwnerTags.find(OwnerTag);
+			require(Iterator != OutstandingOwnerTags.end() && Iterator->second > 0);
+			if (--Iterator->second == 0)
+			{
+				OutstandingOwnerTags.erase(Iterator);
+				OwnerIdleCV.notify_all();
 			}
 		}
 
@@ -372,7 +415,9 @@ namespace Durin
 		mutable std::mutex Mutex;
 		std::condition_variable WorkAvailableCV;
 		std::condition_variable IdleCV;
+		std::condition_variable OwnerIdleCV;
 		std::deque<FQueuedWork> Queue;
+		std::unordered_map<uint64, uint32> OutstandingOwnerTags;
 
 		std::vector<std::unique_ptr<FWorkerRunnable>> WorkerRunnables;
 		std::vector<std::unique_ptr<FRunnableThread>> WorkerThreads;
@@ -407,14 +452,29 @@ namespace Durin
 		Impl->StopAcceptingWork();
 	}
 
-	auto FQueuedThreadPool::Enqueue(const char* TaskName, FQueuedWorkFunction&& Work, FQueuedWorkDiscardFunction&& Discard) -> bool
+	auto FQueuedThreadPool::Enqueue(
+		const char* TaskName,
+		FQueuedWorkFunction&& Work,
+		FQueuedWorkDiscardFunction&& Discard,
+		uint64 OwnerTag
+	) -> bool
 	{
-		return Impl->Enqueue(TaskName, std::move(Work), std::move(Discard));
+		return Impl->Enqueue(TaskName, std::move(Work), std::move(Discard), OwnerTag);
 	}
 
 	auto FQueuedThreadPool::TryExecuteOneQueuedTask() -> bool
 	{
 		return Impl->TryExecuteOneQueuedTask();
+	}
+
+	auto FQueuedThreadPool::WaitForOwnerTagIdle(uint64 OwnerTag, double TimeoutSeconds) -> bool
+	{
+		return Impl->WaitForOwnerTagIdle(OwnerTag, TimeoutSeconds);
+	}
+
+	auto FQueuedThreadPool::GetOwnerTagOutstandingCount(uint64 OwnerTag) const -> uint32
+	{
+		return Impl->GetOwnerTagOutstandingCount(OwnerTag);
 	}
 
 	auto FQueuedThreadPool::WaitForIdle() -> bool

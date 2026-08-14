@@ -529,6 +529,20 @@ namespace Durin
 		}
 
 		auto GetScopeId() const -> uint64 { return ScopeId; }
+		auto PinScheduler() const -> std::shared_ptr<FTaskScheduler> { return Scheduler.lock(); }
+		auto ChargeRetainedResult() -> void
+		{
+			std::lock_guard Lock(Mutex);
+			++CurrentRetainedResultCount;
+			PeakRetainedResultCount = std::max(PeakRetainedResultCount, CurrentRetainedResultCount);
+		}
+		auto ReleaseRetainedResult() -> void
+		{
+			std::lock_guard Lock(Mutex);
+			require(CurrentRetainedResultCount > 0);
+			--CurrentRetainedResultCount;
+			CV.notify_all();
+		}
 
 	private:
 		mutable std::mutex Mutex;
@@ -545,6 +559,8 @@ namespace Durin
 		uint64 CanceledCount = 0;
 		uint64 CurrentActiveCount = 0;
 		uint64 PeakActiveCount = 0;
+		uint64 CurrentRetainedResultCount = 0;
+		uint64 PeakRetainedResultCount = 0;
 	};
 
 	class FTaskGenerationState
@@ -623,6 +639,7 @@ namespace Durin
 			{
 				const uint64 PreviousResultCount = LifetimeAccounting->RetainedTerminalResultCount.fetch_sub(1, std::memory_order::acq_rel);
 				require(PreviousResultCount > 0);
+				if (Scope) Scope->ReleaseRetainedResult();
 			}
 		}
 
@@ -1002,6 +1019,8 @@ namespace Durin
 			Snapshot.CanceledCount = CanceledCount;
 			Snapshot.CurrentActiveCount = CurrentActiveCount;
 			Snapshot.PeakActiveCount = PeakActiveCount;
+			Snapshot.CurrentRetainedResultCount = CurrentRetainedResultCount;
+			Snapshot.PeakRetainedResultCount = PeakRetainedResultCount;
 			Tasks.reserve(std::min<size_t>(64, ActiveTasks.size()));
 			for (const auto& [TaskId, Task] : ActiveTasks)
 			{
@@ -1362,7 +1381,8 @@ namespace Durin
 				},
 				[State]() {
 					State->RequestCancellation("Task was discarded during scheduler shutdown.", ETaskTerminalReason::ShutdownCanceled);
-				}
+				},
+				State->GetScope() ? State->GetScope()->GetScopeId() : 0
 			);
 
 			if (!bAccepted)
@@ -1379,6 +1399,7 @@ namespace Durin
 		{
 			if (!State->TryMarkRunning())
 			{
+				Function = {};
 				return;
 			}
 			OnTaskStarted(State->GetAccountingSnapshot());
@@ -1399,14 +1420,17 @@ namespace Durin
 			try
 			{
 				Function(State->MakeCancellationToken());
+				Function = {};
 				State->MarkSucceeded();
 			}
 			catch (const std::exception& Exception)
 			{
+				Function = {};
 				State->MarkFailed(Exception.what());
 			}
 			catch (...)
 			{
+				Function = {};
 				State->MarkFailed("Task callable threw an unknown exception.");
 			}
 
@@ -1691,6 +1715,14 @@ namespace Durin
 		}
 
 		auto GetLifetimeAccounting() const -> const std::shared_ptr<FTaskSchedulerLifetimeAccounting>& { return LifetimeAccounting; }
+		auto WaitForScopeWorkerCallables(uint64 ScopeId, double TimeoutSeconds) -> bool
+		{
+			return Pool.WaitForOwnerTagIdle(ScopeId, TimeoutSeconds);
+		}
+		auto GetScopeWorkerCallableCount(uint64 ScopeId) const -> uint32
+		{
+			return Pool.GetOwnerTagOutstandingCount(ScopeId);
+		}
 
 	private:
 		FQueuedThreadPool Pool;
@@ -1984,6 +2016,123 @@ namespace Durin
 			});
 		}
 
+		auto ProcessScope(
+			const std::shared_ptr<FTaskScopeState>& Scope,
+			bool bCancel,
+			const FGameThreadDeferredPumpBudget& Budget
+		) -> Private::FTaskScopeDeferredPumpResult
+		{
+			CheckGameThread();
+			Private::FTaskScopeDeferredPumpResult Result;
+			{
+				std::lock_guard Lock(Mutex);
+				if (bPumping)
+				{
+					++Diagnostics.ReentrantPumpCount;
+					Result.bReentrant = true;
+					return Result;
+				}
+				bPumping = true;
+				GIsPumpingGameThreadDeferred = true;
+			}
+
+			const auto Start = std::chrono::steady_clock::now();
+			for (;;)
+			{
+				if (!Budget.bUnlimited
+					&& Result.ExecutedCallbacks + Result.CanceledCallbacks + Result.DestroyedCallables >= Budget.MaxCallbacks)
+				{
+					break;
+				}
+
+				std::shared_ptr<FEntry> Entry;
+				bool bTerminalEntry = false;
+				bool bExpiredGeneration = false;
+				{
+					std::lock_guard Lock(Mutex);
+					for (auto& Queue : Queues)
+					{
+						const auto Iterator = std::ranges::find_if(Queue, [&](const std::shared_ptr<FEntry>& Candidate) {
+							return Candidate->bReserved && Candidate->State->GetScope() == Scope;
+						});
+						if (Iterator == Queue.end()) continue;
+						Entry = std::move(*Iterator);
+						Queue.erase(Iterator);
+						bTerminalEntry = IsTerminalState(Entry->State->GetState());
+						bExpiredGeneration = !bTerminalEntry && !Entry->GenerationToken.IsCurrent();
+						ReleaseReservationLocked(*Entry);
+						if (bExpiredGeneration) ++Diagnostics.ExpiredGenerationCount;
+						RefreshDepthDiagnosticsLocked();
+						break;
+					}
+				}
+				if (!Entry) break;
+
+				if (bTerminalEntry)
+				{
+					Entry->Function = {};
+					++Result.DestroyedCallables;
+				}
+				else if (bCancel || bExpiredGeneration)
+				{
+					Entry->State->RequestCancellation(
+						bExpiredGeneration
+							? "GameThread deferred task generation expired during selected drain."
+							: "GameThread deferred task was canceled by its operation group.",
+						bExpiredGeneration ? ETaskTerminalReason::StaleGeneration : ETaskTerminalReason::CancellationRequested);
+					Entry->Function = {};
+					++Result.CanceledCallbacks;
+					++Result.DestroyedCallables;
+				}
+				else
+				{
+					if (std::shared_ptr<FTaskScheduler> Scheduler = Entry->State->PinScheduler())
+					{
+						Scheduler->ExecuteTask(Entry->State, std::move(Entry->Function), false);
+					}
+					else
+					{
+						Entry->State->RequestCancellation(
+							"Task scheduler was unavailable during selected GameThread dispatch.",
+							ETaskTerminalReason::DispatchRejected);
+					}
+					++Result.ExecutedCallbacks;
+					++Result.DestroyedCallables;
+				}
+
+				if (!Budget.bUnlimited
+					&& std::chrono::duration<double>(std::chrono::steady_clock::now() - Start).count() >= Budget.MaxSeconds)
+				{
+					break;
+				}
+			}
+
+			{
+				std::lock_guard Lock(Mutex);
+				bPumping = false;
+				GIsPumpingGameThreadDeferred = false;
+			}
+			return Result;
+		}
+
+		auto GetScopeSnapshot(
+			const std::shared_ptr<FTaskScopeState>& Scope
+		) -> Private::FTaskScopeDeferredWorkSnapshot
+		{
+			Private::FTaskScopeDeferredWorkSnapshot Result;
+			std::lock_guard Lock(Mutex);
+			for (const auto& Queue : Queues)
+			{
+				for (const std::shared_ptr<FEntry>& Entry : Queue)
+				{
+					if (!Entry->bReserved || Entry->State->GetScope() != Scope) continue;
+					++Result.RetainedCallableCount;
+					Result.RetainedCallableBytes += Entry->Function.GetStorageBytes();
+				}
+			}
+			return Result;
+		}
+
 		auto CloseAdmission() -> void
 		{
 			std::lock_guard Lock(Mutex);
@@ -2137,6 +2286,61 @@ namespace Durin
 		return Queue && Queue->Enqueue(State, std::move(Function));
 	}
 
+	auto Private::IsExecutingTaskScope(const FTaskScopeToken& Scope) -> bool
+	{
+		const std::shared_ptr<FTaskScopeState>& State = FTaskScopeAccess::GetState(Scope);
+		return State && GCurrentTaskState && GCurrentTaskState->GetScope() == State;
+	}
+
+	auto Private::ProcessGameThreadDeferredScope(
+		const FTaskScopeToken& Scope,
+		bool bCancel,
+		const FGameThreadDeferredPumpBudget& Budget
+	) -> FTaskScopeDeferredPumpResult
+	{
+		const std::shared_ptr<FTaskScopeState>& State = FTaskScopeAccess::GetState(Scope);
+		if (!State) return {};
+		std::shared_ptr<FGameThreadDeferredWorkQueue> Queue;
+		{
+			std::lock_guard Lock(GGameThreadDeferredQueueMutex);
+			Queue = GGameThreadDeferredQueue;
+		}
+		return Queue ? Queue->ProcessScope(State, bCancel, Budget) : FTaskScopeDeferredPumpResult{};
+	}
+
+	auto Private::GetGameThreadDeferredScopeSnapshot(
+		const FTaskScopeToken& Scope
+	) -> FTaskScopeDeferredWorkSnapshot
+	{
+		const std::shared_ptr<FTaskScopeState>& State = FTaskScopeAccess::GetState(Scope);
+		if (!State) return {};
+		std::shared_ptr<FGameThreadDeferredWorkQueue> Queue;
+		{
+			std::lock_guard Lock(GGameThreadDeferredQueueMutex);
+			Queue = GGameThreadDeferredQueue;
+		}
+		return Queue ? Queue->GetScopeSnapshot(State) : FTaskScopeDeferredWorkSnapshot{};
+	}
+
+	auto Private::WaitForTaskScopeWorkerCallables(
+		const FTaskScopeToken& Scope,
+		double TimeoutSeconds
+	) -> bool
+	{
+		const std::shared_ptr<FTaskScopeState>& State = FTaskScopeAccess::GetState(Scope);
+		if (!State) return true;
+		const std::shared_ptr<FTaskScheduler> Scheduler = State->PinScheduler();
+		return !Scheduler || Scheduler->WaitForScopeWorkerCallables(State->GetScopeId(), TimeoutSeconds);
+	}
+
+	auto Private::GetTaskScopeWorkerCallableCount(const FTaskScopeToken& Scope) -> uint32
+	{
+		const std::shared_ptr<FTaskScopeState>& State = FTaskScopeAccess::GetState(Scope);
+		if (!State) return 0;
+		const std::shared_ptr<FTaskScheduler> Scheduler = State->PinScheduler();
+		return Scheduler ? Scheduler->GetScopeWorkerCallableCount(State->GetScopeId()) : 0;
+	}
+
 	auto FTaskStateData::PublishTerminalLocked(
 		ETaskState TerminalState,
 		std::string InDiagnostic,
@@ -2194,6 +2398,8 @@ namespace Durin
 		}
 		InvokeTaskTerminalPublicationTestHook(TaskId);
 		if (Function) Function(TerminalState);
+		Function = {};
+		PendingFunction.reset();
 		FinishTerminalPublication(TerminalState, std::move(DependentsToNotify));
 		return true;
 	}
@@ -2213,6 +2419,7 @@ namespace Durin
 			{
 				LifetimeAccounting->RetainedTerminalResultCount.fetch_add(1, std::memory_order::acq_rel);
 				bTerminalResultLifetimeCharged = true;
+				if (Scope) Scope->ChargeRetainedResult();
 			}
 			bTerminalPublicationFinished = true;
 		}

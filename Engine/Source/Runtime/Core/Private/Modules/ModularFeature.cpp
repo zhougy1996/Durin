@@ -1,5 +1,7 @@
 #include "Modules/ModularFeature.h"
 
+#include "Modules/ModuleOwnerState.h"
+
 #include <algorithm>
 #include <condition_variable>
 #include <mutex>
@@ -13,13 +15,6 @@ namespace Durin
 			Published,
 			Retiring,
 			Retired,
-		};
-
-		struct FModularFeatureOwnerState
-		{
-			FName Name;
-			uint64 Generation = 0;
-			bool bRetired = false;
 		};
 
 		struct FModularFeatureEntryState
@@ -214,6 +209,9 @@ namespace Durin
 
 	auto FModularFeatureRegistry::Get() -> FModularFeatureRegistry&
 	{
+		// The state must outlive module-manager teardown because fail-closed module
+		// instances can release their registration handles during static destruction.
+		(void)GetRegistryState();
 		static FModularFeatureRegistry Registry;
 		return Registry;
 	}
@@ -241,7 +239,7 @@ namespace Durin
 		auto& State = GetRegistryState();
 		{
 			std::lock_guard Lock(State.Mutex);
-			if (Owner->bRetired) return {};
+			if (Owner->bFeatureAdmissionRetired.load(std::memory_order_acquire)) return {};
 			Entry->Identity = State.NextEntryIdentity++;
 			State.Entries.push_back(Entry);
 		}
@@ -303,7 +301,7 @@ namespace Durin
 		if (!Owner) return {EModularFeatureRetirementStatus::InvalidRegistration, {}, "The module owner is invalid."};
 		auto& State = GetRegistryState();
 		std::unique_lock Lock(State.Mutex);
-		Owner->bRetired = true;
+		Owner->bFeatureAdmissionRetired.store(true, std::memory_order_release);
 		for (const auto& Entry : State.Entries)
 		{
 			if (Entry->Owner == Owner && Entry->State == Detail::EEntryState::Published)

@@ -215,6 +215,29 @@ before executor teardown. This is a safety net, not an owner-lifetime policy:
 production owners close publication and scope admission at their own explicit
 shutdown boundary and wait only where their thread contract permits it.
 
+### Module-owned operation groups
+
+`FAsyncOperationGroup` is the Core module-lifecycle facade over a task scope.
+It is created only from `FModuleContext`, binds the scope to one module owner
+generation, supplies a cancellation token and stable abort reason, and adds the
+storage audit required for DLL unload. Ordinary subsystem scopes remain valid
+without a module owner and retain their existing active-task-only wait contract.
+
+Terminal execution and retained storage are separate observations. A scoped
+typed task increments `CurrentRetainedResultCount` when terminal result storage
+is published and decrements it only when the final task state/result handle is
+destroyed. Worker queue entries carry the numeric scope id until both execution
+and erased callable destruction finish. The Game Thread queue exposes an
+internal selected-scope snapshot and drain/cancel pass; it does not expose a
+general public filtered pump.
+
+An operation-group drain succeeds only after active task count, retained result
+count, Worker tagged-callable count, and Game Thread selected-callable count are
+all zero. On Game Thread it may execute or cancel only matching deferred entries.
+On another thread it rejects a drain that needs Game Thread work. A task running
+in the same scope receives `SelfWait` instead of blocking. These stronger rules
+are an unload authorization boundary and do not change `FTaskScope::Wait()`.
+
 ## Cancellation
 
 `CancelTask()` requests cancellation for one task.

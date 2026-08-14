@@ -34,8 +34,21 @@ namespace Durin
 
 	auto FModuleManager::Get() -> FModuleManager&
 	{
+		// Construct the registry first so retained module instances may safely
+		// release registrations when the manager is destroyed at process exit.
+		(void)FModularFeatureRegistry::Get();
 		static FModuleManager Instance;
 		return Instance;
+	}
+
+	auto FModuleShutdownContext::GetAsyncOperationSnapshot() const -> FAsyncOperationOwnerSnapshot
+	{
+		return Detail::SnapshotAsyncOperationOwner(Owner);
+	}
+
+	auto FModuleShutdownContext::DrainAsyncOperations(std::chrono::milliseconds Timeout) -> FAsyncOperationDrainResult
+	{
+		return Detail::DrainAsyncOperationOwner(Owner, Timeout);
 	}
 
 	auto FModuleManager::IsControlThread() const -> bool
@@ -158,7 +171,10 @@ namespace Durin
 		{
 			const auto Retirement = FModularFeatureRegistry::Get().RetireOwner(
 				ModuleInfo->FeatureOwner, FeatureRetirementTimeout);
-			if (!Retirement.Succeeded())
+			Detail::BeginRetireAsyncOperationOwner(ModuleInfo->FeatureOwner);
+			const auto AsyncRetirement = Detail::DrainAsyncOperationOwner(
+				ModuleInfo->FeatureOwner, FeatureRetirementTimeout);
+			if (!Retirement.Succeeded() || !AsyncRetirement.Succeeded())
 			{
 				ModuleInfo->State = EModuleState::UnloadBlocked;
 				DURIN_ERROR(STR("Module {} startup failed and its features could not retire."), InModuleName.ToString());
@@ -182,7 +198,8 @@ namespace Durin
 		const FModuleInfoPtr& ModuleInfo,
 		EModuleOperationStatus Status,
 		std::string Message,
-		FModularFeatureRetirementSnapshot Snapshot
+		FModularFeatureRetirementSnapshot Snapshot,
+		FAsyncOperationOwnerSnapshot AsyncSnapshot
 	) -> FModuleShutdownResult
 	{
 		if (ModuleInfo) ModuleInfo->State = EModuleState::UnloadBlocked;
@@ -191,7 +208,8 @@ namespace Durin
 			ModuleInfo ? ModuleInfo->ModuleName : FName(),
 			ModuleInfo ? ModuleInfo->State.load() : EModuleState::Registered,
 			std::move(Message),
-			std::move(Snapshot)
+			std::move(Snapshot),
+			std::move(AsyncSnapshot)
 		};
 	}
 
@@ -236,6 +254,7 @@ namespace Durin
 			return MakeShutdownFailure(ModuleInfo, EModuleOperationStatus::FeatureInvocationDrainTimeout,
 				"Timed out draining admitted synchronous feature invocations.", Retirement.Snapshot);
 		}
+		Detail::BeginRetireAsyncOperationOwner(ModuleInfo->FeatureOwner);
 
 		bool bReflectedObjectsDrained = true;
 		try
@@ -252,7 +271,7 @@ namespace Durin
 				"Reflected objects owned by the module did not drain.", Retirement.Snapshot);
 		}
 
-		FModuleShutdownContext Context(InModuleName, Retirement.Snapshot);
+		FModuleShutdownContext Context(InModuleName, Retirement.Snapshot, ModuleInfo->FeatureOwner);
 		try
 		{
 			ModuleInfo->Module->ShutdownModule(Context);
@@ -260,7 +279,25 @@ namespace Durin
 		catch (...)
 		{
 			return MakeShutdownFailure(ModuleInfo, EModuleOperationStatus::ShutdownCallbackFailure,
-				"The module shutdown callback failed; the native library remains mapped.", Retirement.Snapshot);
+				"The module shutdown callback failed; the native library remains mapped.", Retirement.Snapshot,
+				Detail::SnapshotAsyncOperationOwner(ModuleInfo->FeatureOwner));
+		}
+
+		const auto AsyncDrain = Detail::DrainAsyncOperationOwner(ModuleInfo->FeatureOwner, FeatureRetirementTimeout);
+		if (!AsyncDrain.Succeeded())
+		{
+			EModuleOperationStatus Status = EModuleOperationStatus::OutstandingAsyncOperationAudit;
+			if (AsyncDrain.Status == EAsyncOperationDrainStatus::TimedOut) Status = EModuleOperationStatus::AsyncOperationDrainTimeout;
+			else if (AsyncDrain.Status == EAsyncOperationDrainStatus::SelfWait) Status = EModuleOperationStatus::AsyncOperationSelfWait;
+			else if (AsyncDrain.Status == EAsyncOperationDrainStatus::UnsupportedThread) Status = EModuleOperationStatus::AsyncOperationUnsupportedThread;
+			return MakeShutdownFailure(ModuleInfo, Status, AsyncDrain.Message, Retirement.Snapshot, AsyncDrain.Snapshot);
+		}
+		const auto AsyncAudit = Detail::SnapshotAsyncOperationOwner(ModuleInfo->FeatureOwner);
+		if (AsyncAudit.ActiveTaskCount != 0 || AsyncAudit.RetainedResultCount != 0
+			|| AsyncAudit.RetainedDeferredCallableCount != 0 || AsyncAudit.GroupsWithWorkerCallables != 0)
+		{
+			return MakeShutdownFailure(ModuleInfo, EModuleOperationStatus::OutstandingAsyncOperationAudit,
+				"Owned asynchronous operations failed the final callable and result audit.", Retirement.Snapshot, AsyncAudit);
 		}
 		const auto Audit = FModularFeatureRegistry::Get().SnapshotOwner(ModuleInfo->FeatureOwner);
 		if (Audit.PublishedCount != 0 || Audit.InFlightInvocationCount != 0)
@@ -272,7 +309,7 @@ namespace Durin
 		ModuleInfo->State = EModuleState::StoppedMapped;
 		DURIN_DEBUG(STR("Module shutdown: {}"), InModuleName.ToString());
 		return {EModuleOperationStatus::Succeeded, InModuleName, EModuleState::StoppedMapped,
-			"Module stopped and remains mapped.", Audit};
+			"Module stopped and remains mapped.", Audit, AsyncAudit};
 	}
 
 	auto FModuleManager::UnloadModule(const FName& InModuleName) -> FModuleUnloadResult
@@ -300,7 +337,8 @@ namespace Durin
 			const auto Shutdown = ShutdownModule(InModuleName);
 			if (!Shutdown.Succeeded())
 			{
-				return {Shutdown.Status, InModuleName, Shutdown.ObservedState, Shutdown.Message, Shutdown.RetirementSnapshot};
+				return {Shutdown.Status, InModuleName, Shutdown.ObservedState, Shutdown.Message,
+					Shutdown.RetirementSnapshot, Shutdown.AsyncOperationSnapshot};
 			}
 		}
 		if (ModuleInfo->State.load() != EModuleState::StoppedMapped)
@@ -311,6 +349,7 @@ namespace Durin
 		}
 
 		const auto Snapshot = FModularFeatureRegistry::Get().SnapshotOwner(ModuleInfo->FeatureOwner);
+		const auto AsyncSnapshot = Detail::SnapshotAsyncOperationOwner(ModuleInfo->FeatureOwner);
 		ModuleInfo->Module.reset();
 		if (ModuleInfo->Handle)
 		{
@@ -320,7 +359,8 @@ namespace Durin
 		ModuleInfo->FeatureOwner.reset();
 		ModuleInfo->State = EModuleState::Unloaded;
 		DURIN_DEBUG(STR("Module unloaded: {}"), InModuleName.ToString());
-		return {EModuleOperationStatus::Succeeded, InModuleName, EModuleState::Unloaded, "Module library unloaded.", Snapshot};
+		return {EModuleOperationStatus::Succeeded, InModuleName, EModuleState::Unloaded,
+			"Module library unloaded.", Snapshot, AsyncSnapshot};
 	}
 
 	auto FModuleManager::StartProcessingNewlyLoadedObjects() -> void

@@ -26,8 +26,16 @@ namespace Durin
 		CORE_API auto Destroy(bool bWaitForQueuedWork = true) -> void;
 
 		// Discard is invoked exactly once when accepted work is removed without execution.
-		CORE_API auto Enqueue(const char* TaskName, FQueuedWorkFunction&& Work, FQueuedWorkDiscardFunction&& Discard = {}) -> bool;
+		CORE_API auto Enqueue(
+			const char* TaskName,
+			FQueuedWorkFunction&& Work,
+			FQueuedWorkDiscardFunction&& Discard = {},
+			uint64 OwnerTag = 0
+		) -> bool;
 		CORE_API auto TryExecuteOneQueuedTask() -> bool;
+		// Waits until queued and executing work carrying OwnerTag has released its callable storage.
+		CORE_API auto WaitForOwnerTagIdle(uint64 OwnerTag, double TimeoutSeconds) -> bool;
+		CORE_API auto GetOwnerTagOutstandingCount(uint64 OwnerTag) const -> uint32;
 
 		// Returns false instead of deadlocking when called by one of this pool's workers.
 		CORE_API auto WaitForIdle() -> bool;

@@ -4,15 +4,26 @@ Summary: Add explicit module-owned asynchronous operation groups, abort semantic
 
 Last reviewed: 2026-08-15
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-15
 
 ## Current Status
 
-Milestone 1 provides stable manager-created owner generations, fail-closed
-module retirement, and synchronous modular-feature quiescence. Stage 0 is ready
-to bind asynchronous work to that owner without changing feature availability
-into an abort signal.
+All stages are complete. Core now provides owner-bound asynchronous operation
+groups, irreversible drain/cancel close, stable abort reasons, inherited task
+scope ownership, selected Game Thread processing, and separate active-task,
+typed-result, deferred-callable, and Worker-wrapper diagnostics. Module shutdown
+closes groups before reflected-object teardown, permits mapped-library cleanup
+through `FModuleShutdownContext`, then performs an owner-wide async audit before
+the final feature audit and native release gate.
+
+Six focused asynchronous retirement tests cover closed descendant admission,
+stable cancellation reason, self-wait, selected Game Thread execution and
+cancellation, destruction-sensitive Worker and Game Thread captures, retained
+typed results, successful module cancellation, and fail-closed module timeout.
+The complete `CoreConcurrencyTests` target passes 136 tests. The lasting Task
+System and modular retirement contracts now own the implemented behavior, and
+the parent roadmap activates the Engine authoring feature migration.
 
 ## Goal
 
@@ -67,11 +78,11 @@ accounting so module shutdown can prove quiescence before native release.
 
 ### Stage 0: Freeze operation identity, state, and drain policy
 
-- [ ] Define operation-group identity, owner binding, state, abort reason,
+- [x] Define operation-group identity, owner binding, state, abort reason,
   result, and diagnostic snapshot types.
-- [ ] Specify inheritance across root tasks, child tasks, and continuations.
-- [ ] Define Game Thread selected-drain ordering and self-wait rules.
-- [ ] Inventory Core callable-storage sites participating in the audit.
+- [x] Specify inheritance across root tasks, child tasks, and continuations.
+- [x] Define Game Thread selected-drain ordering and self-wait rules.
+- [x] Inventory Core callable-storage sites participating in the audit.
 
 #### Acceptance Gate
 
@@ -82,11 +93,11 @@ accounting so module shutdown can prove quiescence before native release.
 
 ### Stage 1: Implement Core operation groups
 
-- [ ] Add closing-aware root admission, descendant inheritance, and exact
+- [x] Add closing-aware root admission, descendant inheritance, and exact
   outstanding-operation accounting.
-- [ ] Add explicit drain/cancel request and stable abort-reason propagation.
-- [ ] Track retained callable storage through destruction completion.
-- [ ] Add deterministic worker concurrency, dynamic-child, timeout, and
+- [x] Add explicit drain/cancel request and stable abort-reason propagation.
+- [x] Track retained callable storage through destruction completion.
+- [x] Add deterministic worker concurrency, dynamic-child, timeout, and
   self-wait tests.
 
 #### Acceptance Gate
@@ -98,11 +109,11 @@ accounting so module shutdown can prove quiescence before native release.
 
 ### Stage 2: Integrate selected Game Thread continuation drain
 
-- [ ] Attribute deferred continuations to their operation group and owner.
-- [ ] Add owner/scope-selected pumping or cancellation without running unrelated
+- [x] Attribute deferred continuations to their operation group and owner.
+- [x] Add owner/scope-selected pumping or cancellation without running unrelated
   deferred work.
-- [ ] Detach and destroy canceled callable captures before reporting success.
-- [ ] Test worker-to-Game-Thread chains, recursive pumping, supersession, and
+- [x] Detach and destroy canceled callable captures before reporting success.
+- [x] Test worker-to-Game-Thread chains, recursive pumping, supersession, and
   destruction-sensitive captures.
 
 #### Acceptance Gate
@@ -113,13 +124,13 @@ accounting so module shutdown can prove quiescence before native release.
 
 ### Stage 3: Integrate module shutdown and validate
 
-- [ ] Expose operation closure and diagnostics through
+- [x] Expose operation closure and diagnostics through
   `FModuleShutdownContext`.
-- [ ] Insert async drain/audit before the existing final feature audit and
+- [x] Insert async drain/audit before the existing final feature audit and
   native release gate.
-- [ ] Add module-manager tests for cancel, drain, timeout, self-wait, and
-  retained-callable failure.
-- [ ] Build affected targets, run focused native tests, publish the lasting
+- [x] Add module-manager tests for cancel and timeout plus group-level drain,
+  self-wait, retained-result, and retained-callable failure tests.
+- [x] Build affected targets, run focused native tests, publish the lasting
   Core contract, and update the parent roadmap.
 
 #### Acceptance Gate

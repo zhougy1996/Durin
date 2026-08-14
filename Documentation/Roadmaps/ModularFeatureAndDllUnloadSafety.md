@@ -9,21 +9,21 @@ Completed:
 
 ## Current Status
 
-Milestone 1 is complete. Core now owns typed feature identity, bounded visitor
-invocation, manager-created owner generations, synchronous retirement, explicit
-module states, and categorized fail-closed shutdown/unload. Concurrency and
-manager tests cover stale identity, invoke/retire races, timeout, self-unload,
-wrong-thread calls, reflected-object rejection, and successful unload.
+Milestones 1 and 2 are complete. Core now separates typed synchronous feature
+retirement from explicit asynchronous operation cancellation and proves task,
+typed-result, Worker-wrapper, and selected Game Thread callable quiescence before
+native release. Module-manager tests cover successful cooperative cancellation
+and fail-closed async timeout in addition to the synchronous retirement matrix.
 
-Milestone 2 is active. It adds explicit asynchronous operation ownership,
-abort policy, selected Game Thread drain, and retained-callable destruction
-proof without changing feature retirement into cancellation.
+Milestone 3 is active. It migrates the six Runtime Engine authoring callback
+families to typed modular features and removes the corresponding process-global
+Plugin callable storage.
 
 | Milestone | Status | Active child plan |
 | --- | --- | --- |
 | 1. Modular feature registry and module retirement | Complete | [Modular Feature Registry and Module Retirement](../Plans/ModularFeatureRegistryAndModuleRetirement.md) |
-| 2. Explicit asynchronous operation drain | Active | [Module Async Operation Drain](../Plans/ModuleAsyncOperationDrain.md) |
-| 3. Engine authoring feature migration | Blocked on Milestones 1 and 2 | None |
+| 2. Explicit asynchronous operation drain | Complete | [Module Async Operation Drain](../Plans/ModuleAsyncOperationDrain.md) |
+| 3. Engine authoring feature migration | Active | [Engine Authoring Modular Feature Migration](../Plans/EngineAuthoringModularFeatureMigration.md) |
 | 4. Specialized registry integration and callback audit | Blocked on Milestone 3 | None |
 | 5. Dynamic DLL unload qualification | Blocked on Milestones 1-4 | None |
 
@@ -307,8 +307,8 @@ to become active.
 | Proposed child plan | Owns | Entry gate |
 | --- | --- | --- |
 | [Modular Feature Registry and Module Retirement](../Plans/ModularFeatureRegistryAndModuleRetirement.md) | Milestone 1 Core API, state machine, manager integration, and tests | Complete; exit gate passed |
-| [Module Async Operation Drain](../Plans/ModuleAsyncOperationDrain.md) | Milestone 2 task ownership, explicit abort, GT drain, and callable destruction proof | Active; Milestone 1 exit gate passed |
-| `Documentation/Plans/EngineAuthoringModularFeatureMigration.md` | Milestone 3 contracts, providers, consumers, and legacy API deletion | Milestone 2 exit gate passes |
+| [Module Async Operation Drain](../Plans/ModuleAsyncOperationDrain.md) | Milestone 2 task ownership, explicit abort, GT drain, and callable destruction proof | Complete; exit gate passed |
+| [Engine Authoring Modular Feature Migration](../Plans/EngineAuthoringModularFeatureMigration.md) | Milestone 3 contracts, providers, consumers, and legacy API deletion | Active; Milestone 2 exit gate passed |
 | `Documentation/Plans/DynamicModuleRegistrySafetyAudit.md` | Milestone 4 inventory, classification, and specialized-registry integration | Milestone 3 exit gate passes |
 | `Documentation/Plans/DynamicDllUnloadQualification.md` | Milestone 5 real DLL fixture, stress testing, and lasting documentation | Milestone 4 exit gate passes |
 

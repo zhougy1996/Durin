@@ -225,6 +225,8 @@ namespace Durin
 		uint64 CanceledCount = 0;
 		uint64 CurrentActiveCount = 0;
 		uint64 PeakActiveCount = 0;
+		uint64 CurrentRetainedResultCount = 0;
+		uint64 PeakRetainedResultCount = 0;
 		std::vector<FTaskDiagnostics> NonterminalTasks;
 		uint64 NonterminalSnapshotTruncationCount = 0;
 	};
@@ -474,6 +476,40 @@ namespace Durin
 
 		std::shared_ptr<FTaskScopeState> State;
 	};
+
+	namespace Private
+	{
+		// Reports callable storage retained by GameThreadDeferred for one task scope.
+		struct FTaskScopeDeferredWorkSnapshot
+		{
+			uint32 RetainedCallableCount = 0;
+			uint64 RetainedCallableBytes = 0;
+		};
+
+		// Reports one bounded selected-scope Game Thread pump or cancellation pass.
+		struct FTaskScopeDeferredPumpResult
+		{
+			uint32 ExecutedCallbacks = 0;
+			uint32 CanceledCallbacks = 0;
+			uint32 DestroyedCallables = 0;
+			bool bReentrant = false;
+		};
+
+		CORE_API auto IsExecutingTaskScope(const FTaskScopeToken& Scope) -> bool;
+		CORE_API auto ProcessGameThreadDeferredScope(
+			const FTaskScopeToken& Scope,
+			bool bCancel,
+			const FGameThreadDeferredPumpBudget& Budget
+		) -> FTaskScopeDeferredPumpResult;
+		CORE_API auto GetGameThreadDeferredScopeSnapshot(
+			const FTaskScopeToken& Scope
+		) -> FTaskScopeDeferredWorkSnapshot;
+		CORE_API auto WaitForTaskScopeWorkerCallables(
+			const FTaskScopeToken& Scope,
+			double TimeoutSeconds
+		) -> bool;
+		CORE_API auto GetTaskScopeWorkerCallableCount(const FTaskScopeToken& Scope) -> uint32;
+	}
 
 	// Observes both ParallelFor group cancellation and caller-provided cancellation.
 	class FParallelForCancellationToken

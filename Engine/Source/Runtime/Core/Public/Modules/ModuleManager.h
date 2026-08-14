@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreAPI.h"
+#include "Modules/AsyncOperationGroup.h"
 #include "Modules/ModularFeature.h"
 #include "Templates/SmartPointers.h"
 
@@ -30,6 +31,15 @@ namespace Durin
 				Implementation);
 		}
 
+		// Creates one owner-bound task admission and shutdown drain boundary.
+		auto CreateAsyncOperationGroup(
+			FName GroupName,
+			FAsyncOperationGroupOptions Options = {}
+		) -> FAsyncOperationGroup
+		{
+			return Detail::CreateAsyncOperationGroup(Owner, GroupName, Options);
+		}
+
 		[[nodiscard]] auto GetModuleName() const -> FName { return ModuleName; }
 
 	private:
@@ -54,13 +64,19 @@ namespace Durin
 
 		[[nodiscard]] auto GetModuleName() const -> FName { return ModuleName; }
 		[[nodiscard]] auto GetFeatureRetirementSnapshot() const -> const FModularFeatureRetirementSnapshot& { return Snapshot; }
+		[[nodiscard]] auto GetAsyncOperationSnapshot() const -> FAsyncOperationOwnerSnapshot;
+		auto DrainAsyncOperations(std::chrono::milliseconds Timeout = std::chrono::seconds(5)) -> FAsyncOperationDrainResult;
 
 	private:
-		FModuleShutdownContext(FName InModuleName, FModularFeatureRetirementSnapshot InSnapshot)
-			: ModuleName(InModuleName), Snapshot(std::move(InSnapshot)) {}
+		FModuleShutdownContext(
+			FName InModuleName,
+			FModularFeatureRetirementSnapshot InSnapshot,
+			std::shared_ptr<Detail::FModularFeatureOwnerState> InOwner)
+			: ModuleName(InModuleName), Snapshot(std::move(InSnapshot)), Owner(std::move(InOwner)) {}
 
 		FName ModuleName;
 		FModularFeatureRetirementSnapshot Snapshot;
+		std::shared_ptr<Detail::FModularFeatureOwnerState> Owner;
 
 		friend class FModuleManager;
 		friend class FModuleTestContextFactory;
@@ -100,6 +116,10 @@ namespace Durin
 		FeatureInvocationDrainTimeout,
 		ReflectedObjectDrainRejected,
 		ShutdownCallbackFailure,
+		AsyncOperationDrainTimeout,
+		AsyncOperationSelfWait,
+		AsyncOperationUnsupportedThread,
+		OutstandingAsyncOperationAudit,
 		OutstandingFeatureAudit,
 		UnloadBlocked,
 	};
@@ -112,6 +132,7 @@ namespace Durin
 		EModuleState ObservedState = EModuleState::Registered;
 		std::string Message;
 		FModularFeatureRetirementSnapshot RetirementSnapshot;
+		FAsyncOperationOwnerSnapshot AsyncOperationSnapshot;
 
 		[[nodiscard]] auto Succeeded() const -> bool
 		{
@@ -127,6 +148,7 @@ namespace Durin
 		EModuleState ObservedState = EModuleState::Registered;
 		std::string Message;
 		FModularFeatureRetirementSnapshot RetirementSnapshot;
+		FAsyncOperationOwnerSnapshot AsyncOperationSnapshot;
 
 		[[nodiscard]] auto Succeeded() const -> bool { return Status == EModuleOperationStatus::Succeeded; }
 	};
@@ -188,7 +210,8 @@ namespace Durin
 			const FModuleInfoPtr& ModuleInfo,
 			EModuleOperationStatus Status,
 			std::string Message,
-			FModularFeatureRetirementSnapshot Snapshot = {}
+			FModularFeatureRetirementSnapshot Snapshot = {},
+			FAsyncOperationOwnerSnapshot AsyncSnapshot = {}
 		) -> FModuleShutdownResult;
 
 		FModuleMap Modules;
