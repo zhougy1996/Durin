@@ -91,14 +91,16 @@ namespace Durin::Editor::Level
 		char FpsText[32];
 		snprintf(FpsText, sizeof(FpsText), "%.0f FPS", ImGui::GetIO().Framerate);
 		const ImVec2 TextSize = ImGui::CalcTextSize(FpsText);
-		const ImVec2 Padding(MonaImGui::ScaleUI(7.0f), MonaImGui::ScaleUI(3.0f));
+		const float OverlayHeight = std::max(
+			MonaImGui::ScaleUI(30.0f),
+			ImGui::GetFontSize() + MonaImGui::ScaleUI(12.0f));
+		const float HorizontalPadding = MonaImGui::ScaleUI(7.0f);
 		FViewportStatisticsOverlayLayout Layout;
 		Layout.BadgeMax = ImVec2(
 			ViewportMax.x - MonaImGui::ScaleUI(10.0f),
-			ViewportMin.y + MonaImGui::ScaleUI(8.0f) + TextSize.y
-				+ Padding.y * 2.0f);
+			ViewportMin.y + MonaImGui::ScaleUI(8.0f) + OverlayHeight);
 		Layout.BadgeMin = ImVec2(
-			Layout.BadgeMax.x - TextSize.x - Padding.x * 2.0f,
+			Layout.BadgeMax.x - TextSize.x - HorizontalPadding * 2.0f,
 			ViewportMin.y + MonaImGui::ScaleUI(8.0f));
 
 		const float Margin = MonaImGui::ScaleUI(10.0f);

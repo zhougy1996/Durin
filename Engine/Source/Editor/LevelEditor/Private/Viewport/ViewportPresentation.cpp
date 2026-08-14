@@ -200,16 +200,17 @@ namespace Durin::Editor::Level
 				}
 			case EViewportToolbarIcon::Camera:
 				{
+					const ImVec2 OpticalCenter(Center.x, Center.y + 1.0f * Scale);
 					const float HalfWidth = 7.0f * Scale;
 					const float HalfHeight = 4.5f * Scale;
 					DrawList->AddRect(
-						ImVec2(Center.x - HalfWidth, Center.y - HalfHeight),
-						ImVec2(Center.x + HalfWidth, Center.y + HalfHeight),
+						ImVec2(OpticalCenter.x - HalfWidth, OpticalCenter.y - HalfHeight),
+						ImVec2(OpticalCenter.x + HalfWidth, OpticalCenter.y + HalfHeight),
 						Color, 1.5f * Scale, 0, Thickness);
-					DrawList->AddCircle(Center, 2.6f * Scale, Color, 12, Thickness);
+					DrawList->AddCircle(OpticalCenter, 2.6f * Scale, Color, 12, Thickness);
 					DrawList->AddRectFilled(
-						ImVec2(Center.x - 4.5f * Scale, Center.y - HalfHeight - 2.0f * Scale),
-						ImVec2(Center.x - 0.5f * Scale, Center.y - HalfHeight),
+						ImVec2(OpticalCenter.x - 4.5f * Scale, OpticalCenter.y - HalfHeight - 2.0f * Scale),
+						ImVec2(OpticalCenter.x - 0.5f * Scale, OpticalCenter.y - HalfHeight),
 						Color, Scale);
 					break;
 				}
@@ -231,6 +232,29 @@ namespace Durin::Editor::Level
 			ImVec4 BorderColor = Style.Colors[ImGuiCol_Border];
 			BorderColor.w *= 0.40f;
 			DrawList->AddRectFilled(Min, Max, ImGui::GetColorU32(ToolbarColor), Rounding);
+			DrawList->AddRect(Min, Max, ImGui::GetColorU32(BorderColor), Rounding);
+		}
+
+		auto DrawViewportTopScrim(ImDrawList* DrawList, const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void
+		{
+			const float ScrimHeight = MonaImGui::ScaleUI(48.0f);
+			const ImU32 TopColor = ImGui::GetColorU32(ImVec4(0.0f, 0.0f, 0.0f, 0.22f));
+			const ImU32 BottomColor = ImGui::GetColorU32(ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+			DrawList->AddRectFilledMultiColor(
+				ViewportMin,
+				ImVec2(ViewportMax.x, FMath::Min(ViewportMax.y, ViewportMin.y + ScrimHeight)),
+				TopColor, TopColor, BottomColor, BottomColor);
+		}
+
+		auto DrawViewportHudSurface(const ImVec2& Min, const ImVec2& Max) -> void
+		{
+			ImVec4 SurfaceColor = ImGui::GetStyleColorVec4(ImGuiCol_PopupBg);
+			SurfaceColor.w = 0.46f;
+			ImVec4 BorderColor = ImGui::GetStyleColorVec4(ImGuiCol_Border);
+			BorderColor.w *= 0.18f;
+			ImDrawList* DrawList = ImGui::GetWindowDrawList();
+			const float Rounding = MonaImGui::ScaleUI(5.0f);
+			DrawList->AddRectFilled(Min, Max, ImGui::GetColorU32(SurfaceColor), Rounding);
 			DrawList->AddRect(Min, Max, ImGui::GetColorU32(BorderColor), Rounding);
 		}
 
@@ -288,7 +312,7 @@ namespace Durin::Editor::Level
 			DrawList->AddRectFilled(Min, Max, ImGui::GetColorU32(Background), ImGui::GetStyle().FrameRounding, Rounding);
 		}
 
-		auto DrawToolbarButton(const char* Id, const ImVec2& Position, const ImVec2& Size, const char* Label, EViewportToolbarIcon Icon, bool bSelected, const char* Tooltip, bool bButtonSurface = false, bool bSuccessIcon = false) -> bool
+		auto DrawToolbarButton(const char* Id, const ImVec2& Position, const ImVec2& Size, const char* Label, EViewportToolbarIcon Icon, bool bSelected, const char* Tooltip, bool bButtonSurface = false, bool bSuccessIcon = false, bool bStrongContent = false) -> bool
 		{
 			ImGui::SetCursorScreenPos(Position);
 			const bool bPressed = ImGui::InvisibleButton(Id, Size);
@@ -298,7 +322,8 @@ namespace Durin::Editor::Level
 			const ImVec2 Max(Position.x + Size.x, Position.y + Size.y);
 			DrawToolbarButtonBackground(DrawList, Position, Max, bSelected, bButtonSurface, bHovered, bHeld);
 
-			const ImU32 TextColor = ImGui::GetColorU32(bSelected || bButtonSurface || bHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+			const ImU32 TextColor = ImGui::GetColorU32(
+				bStrongContent || bSelected || bButtonSurface || bHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
 			// Play is an action, not a persistent selection: keep the standard button surface
 			// and carry its meaning with the semantic success color on the icon alone.
 			const ImU32 IconColor = bSuccessIcon ? MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::Success)
@@ -580,6 +605,7 @@ namespace Durin::Editor::Level
 
 		ImDrawList* DrawList = ImGui::GetWindowDrawList();
 		DrawList->PushClipRect(ViewportMin, ViewportMax, true);
+		DrawViewportTopScrim(DrawList, ViewportMin, ViewportMax);
 		DrawToolbarSurface(Layout.BackgroundMin, Layout.BackgroundMax);
 		DrawToolbarSurface(Layout.PlayBackgroundMin, Layout.PlayBackgroundMax);
 		const float ViewSeparatorX = Layout.ViewModeButtonPosition.x + Layout.ViewModeButtonSize.x + Layout.Gap * 0.5f;
@@ -594,33 +620,68 @@ namespace Durin::Editor::Level
 			char FpsText[32];
 			snprintf(FpsText, sizeof(FpsText), "%.0f FPS", ImGui::GetIO().Framerate);
 			const float FpsWidth = ImGui::CalcTextSize(FpsText).x + MonaImGui::ScaleUI(14.0f);
-			const std::string SpeedLabel = std::format("{:g}", ViewportClient->GetMovementSpeed());
+			const float CurrentSpeed = ViewportClient->GetMovementSpeed();
+			const std::string SpeedLabel = CurrentSpeed >= 1.0f
+				? std::format("{:.0f}", CurrentSpeed)
+				: std::format("{:.1f}", CurrentSpeed);
 			const float SpeedWidth = FMath::Max(
-				MonaImGui::ScaleUI(70.0f),
+				MonaImGui::ScaleUI(58.0f),
 				ImGui::CalcTextSize(SpeedLabel.c_str()).x + MonaImGui::ScaleUI(38.0f));
 			const ImVec2 SpeedPosition(
 				ViewportMax.x - MonaImGui::ScaleUI(10.0f) - FpsWidth - MonaImGui::ScaleUI(6.0f) - SpeedWidth,
 				Layout.ViewModeButtonPosition.y);
 			const ImVec2 SpeedSize(SpeedWidth, Layout.Height);
-
-			DrawToolbarSurface(
+			DrawList->PushClipRect(ViewportMin, ViewportMax, true);
+			DrawViewportHudSurface(
 				ImVec2(SpeedPosition.x - MonaImGui::ScaleUI(3.0f), SpeedPosition.y - MonaImGui::ScaleUI(3.0f)),
-				ImVec2(SpeedPosition.x + SpeedSize.x + MonaImGui::ScaleUI(3.0f), SpeedPosition.y + SpeedSize.y + MonaImGui::ScaleUI(3.0f)));
+				ImVec2(ViewportMax.x - MonaImGui::ScaleUI(7.0f), SpeedPosition.y + SpeedSize.y + MonaImGui::ScaleUI(3.0f)));
+			const float HudSeparatorX = SpeedPosition.x + SpeedSize.x + MonaImGui::ScaleUI(3.0f);
+			DrawToolbarSeparator(DrawList, HudSeparatorX, SpeedPosition.y, SpeedSize.y);
+			DrawList->PopClipRect();
+
 			if (Context.bReadOnly) ImGui::BeginDisabled();
 			if (DrawToolbarButton(
 				"##CameraSpeedButton", SpeedPosition, SpeedSize, SpeedLabel.c_str(),
-				EViewportToolbarIcon::Camera, ImGui::IsPopupOpen("CameraSpeedPopup"), "Camera fly speed"))
+				EViewportToolbarIcon::Camera, ImGui::IsPopupOpen("CameraSpeedPopup"),
+				"Camera position and fly speed", false, false, true))
 			{
 				ImGui::OpenPopup("CameraSpeedPopup");
 			}
 			SetNextToolbarPopupPosition(SpeedPosition, SpeedSize);
-			ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(230.0f), 0.0f), ImGuiCond_Appearing);
+			ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(310.0f), 0.0f), ImGuiCond_Appearing);
 			if (ImGui::BeginPopup("CameraSpeedPopup"))
 			{
-				ImGui::TextDisabled("Camera Navigation");
+				ImGui::TextUnformatted("Camera");
+				ImGui::Separator();
+				ImGui::TextDisabled("Position");
+				FVector3 CameraLocation = ViewportClient->GetCameraTransform().GetLocation();
+				bool bLocationChanged = false;
+				if (ImGui::BeginTable("##CameraPosition", 3, ImGuiTableFlags_SizingStretchSame))
+				{
+					constexpr std::array AxisLabels = {"X", "Y", "Z"};
+					for (int AxisIndex = 0; AxisIndex < 3; ++AxisIndex)
+					{
+						ImGui::TableNextColumn();
+						ImGui::PushID(AxisIndex);
+						ImGui::TextDisabled("%s", AxisLabels[AxisIndex]);
+						ImGui::SetNextItemWidth(-FLT_MIN);
+						bLocationChanged |= ImGui::DragScalar(
+							"##Position", ImGuiDataType_Double, &CameraLocation[AxisIndex],
+							0.25f, nullptr, nullptr, "%.1f", ImGuiSliderFlags_NoRoundToFormat);
+						if (ImGui::IsItemHovered())
+							ImGui::SetTooltip("Drag to move; Ctrl+click to enter an exact coordinate.");
+						ImGui::PopID();
+					}
+					ImGui::EndTable();
+				}
+				if (bLocationChanged) ViewportClient->SetCameraLocation(CameraLocation);
+				ImGui::Spacing();
+				ImGui::TextDisabled("Fly Speed");
 				float MovementSpeed = ViewportClient->GetMovementSpeed();
 				ImGui::SetNextItemWidth(-FLT_MIN);
-				if (ImGui::DragFloat("##FlySpeed", &MovementSpeed, 0.25f, 0.05f, 10000.0f, "%.2f units/s", ImGuiSliderFlags_AlwaysClamp))
+				const char* SpeedFormat = MovementSpeed >= 1.0f ? "%.0f units/s" : "%.1f units/s";
+				if (ImGui::DragFloat("##FlySpeed", &MovementSpeed, 0.25f, 0.05f, 10000.0f, SpeedFormat,
+					ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
 					ViewportClient->SetMovementSpeed(MovementSpeed);
 				for (const float Preset : {1.0f, 5.0f, 25.0f, 100.0f})
 				{
@@ -940,44 +1001,26 @@ namespace Durin::Editor::Level
 			CalculateViewportStatisticsOverlayLayout(
 				ViewportMin, ViewportMax, bExpanded);
 		const ImVec2 SavedCursor = ImGui::GetCursorScreenPos();
-		ImGui::SetCursorScreenPos(Layout.BadgeMin);
 		ImGui::PushClipRect(ViewportMin, ViewportMax, true);
 		const ImVec2 BadgeSize(
 			Layout.BadgeMax.x - Layout.BadgeMin.x,
 			Layout.BadgeMax.y - Layout.BadgeMin.y);
-		const bool bActivated = ImGui::InvisibleButton(
-			"##ViewportStatisticsToggle", BadgeSize);
-		const bool bBadgeHovered = ImGui::IsItemHovered();
+		char FpsText[32];
+		snprintf(FpsText, sizeof(FpsText), "%.0f FPS", ImGui::GetIO().Framerate);
+		const bool bActivated = DrawToolbarButton(
+			"##ViewportStatisticsToggle", Layout.BadgeMin, BadgeSize, FpsText,
+			EViewportToolbarIcon::None, bExpanded,
+			bExpanded ? "Hide rendering statistics" : "Show rendering statistics",
+			false, false, true);
 		if (bActivated)
 		{
 			bExpanded = !bExpanded;
 			Layout = CalculateViewportStatisticsOverlayLayout(
 				ViewportMin, ViewportMax, bExpanded);
 		}
-		if (bBadgeHovered)
-		{
-			ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-			ImGui::SetTooltip("%s rendering statistics",
-				bExpanded ? "Hide" : "Show");
-		}
 		ImGui::SetCursorScreenPos(SavedCursor);
 
-		char FpsText[32];
-		snprintf(FpsText, sizeof(FpsText), "%.0f FPS", ImGui::GetIO().Framerate);
 		ImDrawList* DrawList = ImGui::GetWindowDrawList();
-		ImVec4 BadgeColor = ImGui::GetStyleColorVec4(ImGuiCol_PopupBg);
-		BadgeColor.w = bBadgeHovered ? 0.9f : 0.72f;
-		const ImVec2 BadgePadding(
-			MonaImGui::ScaleUI(7.0f), MonaImGui::ScaleUI(3.0f));
-		DrawList->AddRectFilled(Layout.BadgeMin, Layout.BadgeMax,
-			ImGui::GetColorU32(BadgeColor), MonaImGui::ScaleUI(5.0f));
-		DrawList->AddRect(Layout.BadgeMin, Layout.BadgeMax,
-			ImGui::GetColorU32(bExpanded ? ImGuiCol_CheckMark : ImGuiCol_Border),
-			MonaImGui::ScaleUI(5.0f));
-		DrawList->AddText(Add(Layout.BadgeMin, BadgePadding),
-			MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::ViewportText),
-			FpsText);
-
 		if (Layout.bPanelVisible)
 		{
 			ImVec4 PanelColor = ImGui::GetStyleColorVec4(ImGuiCol_PopupBg);

@@ -385,8 +385,8 @@ namespace Durin::Editor::Level
 				EditModeManager.Synchronize(Context);
 				const FViewportToolbarLayout ToolbarLayout = ViewportToolbar->CalculateLayout(ViewportClient.get(), &EditModeManager, VpMin, VpMax);
 				const FViewportStatisticsOverlayLayout StatisticsLayout =
-					DrawViewportStatisticsOverlay(
-						VpMin, VpMax, StatisticsSnapshot, bShowStatistics);
+					CalculateViewportStatisticsOverlayLayout(
+						VpMin, VpMax, bShowStatistics);
 				const bool bStatisticsHovered =
 					StatisticsLayout.Contains(ImGui::GetMousePos());
 				bViewportHovered = bViewportImageHovered && !bStatisticsHovered;
@@ -436,6 +436,8 @@ namespace Durin::Editor::Level
 				DrawCameraPreview(VpMin, VpMax);
 				DrawViewportOrientationOverlay(ViewportClient.get(), VpMin, VpMax);
 				DrawViewportCameraSpeedOverlay(ViewportClient.get(), VpMin, VpMax);
+				DrawViewportStatisticsOverlay(
+					VpMin, VpMax, StatisticsSnapshot, bShowStatistics);
 				if (Context.bReadOnly)
 				{
 					ImDrawList* DrawList = ImGui::GetWindowDrawList();
