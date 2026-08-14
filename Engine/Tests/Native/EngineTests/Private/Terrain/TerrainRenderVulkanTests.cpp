@@ -429,8 +429,8 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 			View.ViewportHeight = 33;
 			View.DepthConvention = Durin::ESceneDepthConvention::ReversedZ;
 			View.FarClipDistance = 20000.0;
-			View.TerrainFadeStart = 4.0;
-			View.TerrainRenderDistance = 6.0;
+			View.ViewFadeStart = 4.0;
+			View.ViewRenderDistance = 6.0;
 			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
 			View.Settings.VisibilityMode =
 				Durin::EViewVisibilityMode::FrustumCullingDisabled;

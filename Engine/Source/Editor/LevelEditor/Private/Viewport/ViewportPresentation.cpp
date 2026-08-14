@@ -770,22 +770,22 @@ namespace Durin::Editor::Level
 				{
 					float NearClip = ViewportClient->GetNearClip();
 					float FarClip = ViewportClient->GetFarClip();
-					float FadeStart = ViewportClient->GetTerrainFadeStart();
-					float RenderDistance = ViewportClient->GetTerrainRenderDistance();
+					float FadeStart = ViewportClient->GetViewFadeStart();
+					float RenderDistance = ViewportClient->GetViewRenderDistance();
 					if (ImGui::DragFloat("Near Clip", &NearClip, 0.01f, 0.001f,
 						FarClip - 1.0f, "%.3f"))
 						ViewportClient->SetClipDistances(NearClip, FarClip);
 					if (ImGui::DragFloat("Far Clip", &FarClip, 100.0f,
 						NearClip + 1.0f, 10000000.0f, "%.1f"))
 						ViewportClient->SetClipDistances(NearClip, FarClip);
-					if (ImGui::DragFloat("Terrain Fade Start", &FadeStart, 100.0f,
+					if (ImGui::DragFloat("Fade Start", &FadeStart, 100.0f,
 						0.0f, RenderDistance - 1.0f, "%.1f"))
-						ViewportClient->SetTerrainDistance(FadeStart, RenderDistance);
-					if (ImGui::DragFloat("Terrain Render Distance", &RenderDistance,
+						ViewportClient->SetViewDistance(FadeStart, RenderDistance);
+					if (ImGui::DragFloat("Render Distance", &RenderDistance,
 						100.0f, FadeStart + 1.0f, static_cast<float>(
-							SceneViewProjection::GetMaximumTerrainRenderDistance(FarClip)),
+							SceneViewProjection::GetMaximumViewRenderDistance(FarClip)),
 						"%.1f"))
-						ViewportClient->SetTerrainDistance(FadeStart, RenderDistance);
+						ViewportClient->SetViewDistance(FadeStart, RenderDistance);
 					ImGui::Separator();
 					if (ImGui::Button("Restore Defaults"))
 						ViewportClient->ResetViewDistances();

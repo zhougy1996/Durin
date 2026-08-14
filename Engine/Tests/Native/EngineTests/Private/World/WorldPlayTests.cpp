@@ -262,6 +262,30 @@ TEST(FCameraComponentTests, ProjectionParametersAreUpdatedAtomicallyAndClamped)
 	Durin::CollectGarbage();
 }
 
+TEST(FCameraComponentTests, ViewDistanceIsIndependentAndReclampedAgainstFarClip)
+{
+	Durin::DWorld* World = CreateWorld();
+	Durin::ACameraActor* CameraActor = World->SpawnActor<Durin::ACameraActor>("Camera");
+	ASSERT_NE(CameraActor, nullptr);
+	Durin::DCameraComponent* Camera = CameraActor->GetCameraComponent();
+	ASSERT_NE(Camera, nullptr);
+
+	Camera->SetProjectionParameters(60.0f, 0.1f, 1000.0f);
+	Camera->SetViewDistance(500.0f, 900.0f);
+	EXPECT_FLOAT_EQ(Camera->GetViewFadeStart(), 500.0f);
+	EXPECT_FLOAT_EQ(Camera->GetViewRenderDistance(), 900.0f);
+
+	// View distance is stored independently from projection, but a far-plane shrink
+	// re-clamps it so it always ends before the projection far plane.
+	Camera->SetFarClip(100.0f);
+	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 100.0f);
+	EXPECT_LT(Camera->GetViewRenderDistance(), 100.0f);
+	EXPECT_LT(Camera->GetViewFadeStart(), Camera->GetViewRenderDistance());
+
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
 TEST(FCameraEditingTests, SharedTransactionsPreserveAtomicProjectionSemanticsAndStablePaths)
 {
 	InitializeDObjectSystem();

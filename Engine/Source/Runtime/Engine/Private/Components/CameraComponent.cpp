@@ -84,21 +84,39 @@ namespace Durin
 		SceneViewProjection::ClampPerspectiveClipRange(InNearClip, InFarClip, NearClip, FarClip);
 		ProjectionSettings.NearClip = static_cast<float>(NearClip);
 		ProjectionSettings.FarClip = static_cast<float>(FarClip);
-		SetTerrainDistance(ProjectionSettings.TerrainFadeStart,
-			ProjectionSettings.TerrainRenderDistance);
+		SetViewDistance(ViewDistance.FadeStart, ViewDistance.RenderDistance);
 		MarkPackageDirty();
 	}
 
-	auto DCameraComponent::SetTerrainDistance(float InFadeStart,
-		float InRenderDistance) -> void
+	auto DCameraComponent::GetViewDistance() const -> const FViewDistanceSettings&
+	{
+		return ViewDistance;
+	}
+
+	auto DCameraComponent::SetViewDistance(const FViewDistanceSettings& InSettings) -> void
+	{
+		SetViewDistance(InSettings.FadeStart, InSettings.RenderDistance);
+	}
+
+	auto DCameraComponent::SetViewDistance(float InFadeStart, float InRenderDistance) -> void
 	{
 		double FadeStart = 0.0;
 		double RenderDistance = 0.0;
-		SceneViewProjection::ClampTerrainDistances(ProjectionSettings.FarClip,
+		SceneViewProjection::ClampViewDistances(ProjectionSettings.FarClip,
 			InFadeStart, InRenderDistance, FadeStart, RenderDistance);
-		ProjectionSettings.TerrainFadeStart = static_cast<float>(FadeStart);
-		ProjectionSettings.TerrainRenderDistance = static_cast<float>(RenderDistance);
+		ViewDistance.FadeStart = static_cast<float>(FadeStart);
+		ViewDistance.RenderDistance = static_cast<float>(RenderDistance);
 		MarkPackageDirty();
+	}
+
+	auto DCameraComponent::GetViewFadeStart() const -> float
+	{
+		return ViewDistance.FadeStart;
+	}
+
+	auto DCameraComponent::GetViewRenderDistance() const -> float
+	{
+		return ViewDistance.RenderDistance;
 	}
 
 	auto DCameraComponent::GetAspectRatioMode() const -> ECameraAspectRatioMode
@@ -126,34 +144,43 @@ namespace Durin
 	auto DCameraComponent::SetProjectionSettings(const FCameraProjectionSettings& InSettings) -> void
 	{
 		SetProjectionParameters(InSettings.FieldOfViewDegrees, InSettings.NearClip, InSettings.FarClip);
-		SetTerrainDistance(InSettings.TerrainFadeStart,
-			InSettings.TerrainRenderDistance);
 		SetAspectRatio(InSettings.AspectRatioMode, InSettings.CustomAspectRatio);
 	}
 
 	auto DCameraComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
 	{
 		if (!Super::PreEditChangeProperty(Proposal, OutError)) return false;
-		if (!Proposal.MemberProperty || Proposal.MemberProperty->NamePrivate != FName("ProjectionSettings")
-			|| Proposal.DraftRootProperty != Proposal.MemberProperty || !Proposal.DraftRootContainer) return true;
-		auto* Settings = Proposal.DraftRootProperty->ContainerPtrToValuePtr<FCameraProjectionSettings>(
-			Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
-		Settings->FieldOfViewDegrees = static_cast<float>(
-			SceneViewProjection::ClampFieldOfViewDegrees(Settings->FieldOfViewDegrees));
-		double NearClip = 0.0;
-		double FarClip = 0.0;
-		SceneViewProjection::ClampPerspectiveClipRange(
-			Settings->NearClip, Settings->FarClip, NearClip, FarClip);
-		Settings->NearClip = static_cast<float>(NearClip);
-		Settings->FarClip = static_cast<float>(FarClip);
-		double FadeStart = 0.0;
-		double RenderDistance = 0.0;
-		SceneViewProjection::ClampTerrainDistances(Settings->FarClip,
-			Settings->TerrainFadeStart, Settings->TerrainRenderDistance,
-			FadeStart, RenderDistance);
-		Settings->TerrainFadeStart = static_cast<float>(FadeStart);
-		Settings->TerrainRenderDistance = static_cast<float>(RenderDistance);
-		Settings->CustomAspectRatio = std::clamp(Settings->CustomAspectRatio, 0.1f, 10.0f);
+		if (!Proposal.MemberProperty || Proposal.DraftRootProperty != Proposal.MemberProperty || !Proposal.DraftRootContainer) return true;
+
+		if (Proposal.MemberProperty->NamePrivate == FName("ProjectionSettings"))
+		{
+			auto* Settings = Proposal.DraftRootProperty->ContainerPtrToValuePtr<FCameraProjectionSettings>(
+				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
+			Settings->FieldOfViewDegrees = static_cast<float>(
+				SceneViewProjection::ClampFieldOfViewDegrees(Settings->FieldOfViewDegrees));
+			double NearClip = 0.0;
+			double FarClip = 0.0;
+			SceneViewProjection::ClampPerspectiveClipRange(
+				Settings->NearClip, Settings->FarClip, NearClip, FarClip);
+			Settings->NearClip = static_cast<float>(NearClip);
+			Settings->FarClip = static_cast<float>(FarClip);
+			Settings->CustomAspectRatio = std::clamp(Settings->CustomAspectRatio, 0.1f, 10.0f);
+			return true;
+		}
+
+		if (Proposal.MemberProperty->NamePrivate == FName("ViewDistance"))
+		{
+			auto* Settings = Proposal.DraftRootProperty->ContainerPtrToValuePtr<FViewDistanceSettings>(
+				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
+			double FadeStart = 0.0;
+			double RenderDistance = 0.0;
+			SceneViewProjection::ClampViewDistances(ProjectionSettings.FarClip,
+				Settings->FadeStart, Settings->RenderDistance, FadeStart, RenderDistance);
+			Settings->FadeStart = static_cast<float>(FadeStart);
+			Settings->RenderDistance = static_cast<float>(RenderDistance);
+			return true;
+		}
+
 		return true;
 	}
 

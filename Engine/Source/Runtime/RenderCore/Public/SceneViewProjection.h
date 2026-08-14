@@ -14,8 +14,8 @@ namespace Durin::SceneViewProjection
 	inline constexpr double MinimumPerspectiveFieldOfViewDegrees = 1.0;
 	inline constexpr double MaximumPerspectiveFieldOfViewDegrees = 170.0;
 	inline constexpr double MinimumPerspectiveNearClip = 0.001;
-	inline constexpr double DefaultTerrainFadeStart = 180000.0;
-	inline constexpr double DefaultTerrainRenderDistance = 200000.0;
+	inline constexpr double DefaultViewFadeStart = 180000.0;
+	inline constexpr double DefaultViewRenderDistance = 200000.0;
 	inline constexpr double MinimumTerrainFarPlaneSafetyMargin = 10000.0;
 	inline constexpr double MaximumPerspectiveFarClip = 10000000.0;
 	inline auto GetNearDeviceDepth(ESceneDepthConvention DepthConvention) -> double
@@ -32,9 +32,9 @@ namespace Durin::SceneViewProjection
 			std::max(1.0, FarClip * 0.05));
 	}
 
-	// Highest terrain render distance a far plane admits; matches the clamp applied by
-	// ClampTerrainDistances so UI bounds and stored values cannot drift apart.
-	inline auto GetMaximumTerrainRenderDistance(double FarClip) -> double
+	// Highest view render distance a far plane admits; matches the clamp applied by
+	// ClampViewDistances so UI bounds and stored values cannot drift apart.
+	inline auto GetMaximumViewRenderDistance(double FarClip) -> double
 	{
 		return std::max(1.0, FarClip - GetTerrainFarPlaneSafetyMargin(FarClip));
 	}
@@ -59,13 +59,13 @@ namespace Durin::SceneViewProjection
 		OutFarClip = std::clamp(FarClip, OutNearClip + 1.0, MaximumPerspectiveFarClip);
 	}
 
-	// Normalizes terrain fade/render distances against a validated far plane.
-	inline auto ClampTerrainDistances(double FarClip, double FadeStart, double RenderDistance,
+	// Normalizes view fade/render distances against a validated far plane.
+	inline auto ClampViewDistances(double FarClip, double FadeStart, double RenderDistance,
 		double& OutFadeStart, double& OutRenderDistance) -> void
 	{
-		if (!std::isfinite(FadeStart)) FadeStart = DefaultTerrainFadeStart;
-		if (!std::isfinite(RenderDistance)) RenderDistance = DefaultTerrainRenderDistance;
-		OutRenderDistance = std::clamp(RenderDistance, 1.0, GetMaximumTerrainRenderDistance(FarClip));
+		if (!std::isfinite(FadeStart)) FadeStart = DefaultViewFadeStart;
+		if (!std::isfinite(RenderDistance)) RenderDistance = DefaultViewRenderDistance;
+		OutRenderDistance = std::clamp(RenderDistance, 1.0, GetMaximumViewRenderDistance(FarClip));
 		OutFadeStart = std::clamp(FadeStart, 0.0, std::max(0.0, OutRenderDistance - 1.0));
 	}
 

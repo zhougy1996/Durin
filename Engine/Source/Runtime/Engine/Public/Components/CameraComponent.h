@@ -34,12 +34,6 @@ namespace Durin
 		DPROPERTY(Edit)
 		float FarClip = 500000.0f;
 
-		DPROPERTY(Edit)
-		float TerrainFadeStart = 180000.0f;
-
-		DPROPERTY(Edit)
-		float TerrainRenderDistance = 200000.0f;
-
 		// Preserve the historical viewport-driven framing unless a camera explicitly opts into a fixed output shape.
 		DPROPERTY(Edit)
 		ECameraAspectRatioMode AspectRatioMode = ECameraAspectRatioMode::Viewport;
@@ -49,6 +43,22 @@ namespace Durin
 		float CustomAspectRatio = 16.0f / 9.0f;
 
 		auto operator==(const FCameraProjectionSettings&) const -> bool = default;
+	};
+
+	// View-level distance policy: where distance-based fade begins and geometry is culled.
+	// Kept separate from projection because it is a view policy, not a camera intrinsic.
+	DSTRUCT()
+	struct FViewDistanceSettings
+	{
+		GENERATED_BODY()
+
+		DPROPERTY(Edit)
+		float FadeStart = 180000.0f;
+
+		DPROPERTY(Edit)
+		float RenderDistance = 200000.0f;
+
+		auto operator==(const FViewDistanceSettings&) const -> bool = default;
 	};
 
 	// Provides a scene transform plus validated perspective projection and view matrices.
@@ -66,8 +76,12 @@ namespace Durin
 		ENGINE_API auto GetFarClip() const -> float;
 		ENGINE_API auto SetFarClip(float InFarClip) -> void;
 		ENGINE_API auto SetProjectionParameters(float InFieldOfViewDegrees, float InNearClip, float InFarClip) -> void;
-		ENGINE_API auto SetTerrainDistance(float InFadeStart,
-			float InRenderDistance) -> void;
+
+		ENGINE_API auto GetViewDistance() const -> const FViewDistanceSettings&;
+		ENGINE_API auto SetViewDistance(const FViewDistanceSettings& InSettings) -> void;
+		ENGINE_API auto SetViewDistance(float InFadeStart, float InRenderDistance) -> void;
+		ENGINE_API auto GetViewFadeStart() const -> float;
+		ENGINE_API auto GetViewRenderDistance() const -> float;
 
 		ENGINE_API auto GetAspectRatioMode() const -> ECameraAspectRatioMode;
 		ENGINE_API auto GetCustomAspectRatio() const -> float;
@@ -84,5 +98,8 @@ namespace Durin
 	private:
 		DPROPERTY(Edit)
 		FCameraProjectionSettings ProjectionSettings;
+
+		DPROPERTY(Edit)
+		FViewDistanceSettings ViewDistance;
 	};
 }

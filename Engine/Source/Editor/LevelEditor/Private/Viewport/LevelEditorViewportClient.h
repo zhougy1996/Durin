@@ -64,8 +64,8 @@ namespace Durin::Editor::Level
 	public:
 		static constexpr float DefaultNearClip = static_cast<float>(SceneViewProjection::DefaultPerspectiveNearClip);
 		static constexpr float DefaultFarClip = static_cast<float>(SceneViewProjection::DefaultPerspectiveFarClip);
-		static constexpr float DefaultTerrainFadeStart = static_cast<float>(SceneViewProjection::DefaultTerrainFadeStart);
-		static constexpr float DefaultTerrainRenderDistance = static_cast<float>(SceneViewProjection::DefaultTerrainRenderDistance);
+		static constexpr float DefaultViewFadeStart = static_cast<float>(SceneViewProjection::DefaultViewFadeStart);
+		static constexpr float DefaultViewRenderDistance = static_cast<float>(SceneViewProjection::DefaultViewRenderDistance);
 
 		FLevelEditorViewportClient();
 		~FLevelEditorViewportClient() override;
@@ -108,10 +108,10 @@ namespace Durin::Editor::Level
 		auto SetGridVisible(bool bVisible) -> void;
 		auto GetNearClip() const -> float { return NearClip; }
 		auto GetFarClip() const -> float { return FarClip; }
-		auto GetTerrainFadeStart() const -> float { return TerrainFadeStart; }
-		auto GetTerrainRenderDistance() const -> float { return TerrainRenderDistance; }
+		auto GetViewFadeStart() const -> float { return ViewFadeStart; }
+		auto GetViewRenderDistance() const -> float { return ViewRenderDistance; }
 		auto SetClipDistances(float InNearClip, float InFarClip) -> void;
-		auto SetTerrainDistance(float InFadeStart, float InRenderDistance) -> void;
+		auto SetViewDistance(float InFadeStart, float InRenderDistance) -> void;
 		auto ResetViewDistances() -> void;
 
 	private:
@@ -144,8 +144,8 @@ namespace Durin::Editor::Level
 		float FieldOfViewDegrees = 60.0f;
 		float NearClip = DefaultNearClip;
 		float FarClip = DefaultFarClip;
-		float TerrainFadeStart = DefaultTerrainFadeStart;
-		float TerrainRenderDistance = DefaultTerrainRenderDistance;
+		float ViewFadeStart = DefaultViewFadeStart;
+		float ViewRenderDistance = DefaultViewRenderDistance;
 		float MovementSpeed = 5.0f;
 		FVector2f FlyLookVelocity{0.0f};
 		FVector3 FlyMovementVelocity{0.0};

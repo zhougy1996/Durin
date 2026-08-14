@@ -166,8 +166,8 @@ namespace Durin
 
 		struct FTerrainDistancePolicy
 		{
-			double FadeStart = SceneViewProjection::DefaultTerrainFadeStart;
-			double RenderDistance = SceneViewProjection::DefaultTerrainRenderDistance;
+			double FadeStart = SceneViewProjection::DefaultViewFadeStart;
+			double RenderDistance = SceneViewProjection::DefaultViewRenderDistance;
 			bool bFallback = false;
 		};
 
@@ -175,7 +175,7 @@ namespace Durin
 			-> FTerrainDistancePolicy
 		{
 			FTerrainDistancePolicy Result{
-				View.TerrainFadeStart, View.TerrainRenderDistance, false};
+				View.ViewFadeStart, View.ViewRenderDistance, false};
 			const bool bValid = std::isfinite(Result.FadeStart)
 				&& std::isfinite(Result.RenderDistance) && Result.FadeStart >= 0.0
 				&& Result.FadeStart < Result.RenderDistance

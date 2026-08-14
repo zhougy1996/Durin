@@ -181,15 +181,15 @@ namespace Durin::Editor::Level
 		OutView.DepthConvention = ESceneDepthConvention::ReversedZ;
 		OutView.NearClipDistance = NearClip;
 		OutView.FarClipDistance = FarClip;
-		OutView.TerrainFadeStart = TerrainFadeStart;
-		OutView.TerrainRenderDistance = TerrainRenderDistance;
+		OutView.ViewFadeStart = ViewFadeStart;
+		OutView.ViewRenderDistance = ViewRenderDistance;
 		const ImVec4& GridColor = MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::ViewportText);
 		const ImVec4& AxisXColor = MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::AxisX);
 		const ImVec4& AxisYColor = MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::AxisY);
 		OutView.EditorGrid = {
 			.bVisible = bShowGrid,
 			.Height = 0.0,
-			.FadeDistance = static_cast<float>(OutView.TerrainRenderDistance),
+			.FadeDistance = static_cast<float>(OutView.ViewRenderDistance),
 			.MinorColor = {GridColor.x, GridColor.y, GridColor.z, GridColor.w * 0.14f},
 			.MajorColor = {GridColor.x, GridColor.y, GridColor.z, GridColor.w * 0.32f},
 			.AxisXColor = {AxisXColor.x, AxisXColor.y, AxisXColor.z, AxisXColor.w * 0.82f},
@@ -317,20 +317,20 @@ namespace Durin::Editor::Level
 		SceneViewProjection::ClampPerspectiveClipRange(InNearClip, InFarClip, ClampedNear, ClampedFar);
 		NearClip = static_cast<float>(ClampedNear);
 		FarClip = static_cast<float>(ClampedFar);
-		SetTerrainDistance(TerrainFadeStart, TerrainRenderDistance);
+		SetViewDistance(ViewFadeStart, ViewRenderDistance);
 		InvalidatePreparedSceneView();
 	}
 
-	auto FLevelEditorViewportClient::SetTerrainDistance(float InFadeStart,
+	auto FLevelEditorViewportClient::SetViewDistance(float InFadeStart,
 		float InRenderDistance) -> void
 	{
 		if (!std::isfinite(InFadeStart) || !std::isfinite(InRenderDistance)) return;
 		double ClampedFadeStart = 0.0;
 		double ClampedRenderDistance = 0.0;
-		SceneViewProjection::ClampTerrainDistances(FarClip, InFadeStart, InRenderDistance,
+		SceneViewProjection::ClampViewDistances(FarClip, InFadeStart, InRenderDistance,
 			ClampedFadeStart, ClampedRenderDistance);
-		TerrainRenderDistance = static_cast<float>(ClampedRenderDistance);
-		TerrainFadeStart = static_cast<float>(ClampedFadeStart);
+		ViewRenderDistance = static_cast<float>(ClampedRenderDistance);
+		ViewFadeStart = static_cast<float>(ClampedFadeStart);
 		InvalidatePreparedSceneView();
 	}
 
@@ -338,8 +338,8 @@ namespace Durin::Editor::Level
 	{
 		NearClip = DefaultNearClip;
 		FarClip = DefaultFarClip;
-		TerrainFadeStart = DefaultTerrainFadeStart;
-		TerrainRenderDistance = DefaultTerrainRenderDistance;
+		ViewFadeStart = DefaultViewFadeStart;
+		ViewRenderDistance = DefaultViewRenderDistance;
 		InvalidatePreparedSceneView();
 	}
 

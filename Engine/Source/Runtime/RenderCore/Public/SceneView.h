@@ -189,9 +189,9 @@ namespace Durin
 		ESceneDepthConvention DepthConvention = ESceneDepthConvention::ForwardZ;
 		double NearClipDistance = 0.1;
 		double FarClipDistance = 500000.0;
-		// Horizontal radial Terrain policy; the transition ends before the projection far plane.
-		double TerrainFadeStart = 180000.0;
-		double TerrainRenderDistance = 200000.0;
+		// Horizontal radial distance policy; the transition ends before the projection far plane.
+		double ViewFadeStart = 180000.0;
+		double ViewRenderDistance = 200000.0;
 		FVector4f ClearColor{0.0f, 0.0f, 0.0f, 1.0f};
 		uint32 ViewportX = 0;
 		uint32 ViewportY = 0;

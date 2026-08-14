@@ -6,6 +6,7 @@
 #include "Actors/CameraActor.h"
 #include "Actors/PlayerController.h"
 #include "Components/CameraComponent.h"
+#include "SceneViewProjection.h"
 #include "Client/ViewportClient.h"
 #include "DObject/DObjectGlobals.h"
 #include "IRendererModule.h"
@@ -383,10 +384,11 @@ namespace Durin
 				OutView.DepthConvention = ESceneDepthConvention::ReversedZ;
 				OutView.NearClipDistance = CameraComponent->GetNearClip();
 				OutView.FarClipDistance = CameraComponent->GetFarClip();
-				const FCameraProjectionSettings& Projection =
-					CameraComponent->GetProjectionSettings();
-				OutView.TerrainFadeStart = Projection.TerrainFadeStart;
-				OutView.TerrainRenderDistance = Projection.TerrainRenderDistance;
+				const FViewDistanceSettings& ViewDistance =
+					CameraComponent->GetViewDistance();
+				SceneViewProjection::ClampViewDistances(OutView.FarClipDistance,
+					ViewDistance.FadeStart, ViewDistance.RenderDistance,
+					OutView.ViewFadeStart, OutView.ViewRenderDistance);
 				return true;
 			}
 		}

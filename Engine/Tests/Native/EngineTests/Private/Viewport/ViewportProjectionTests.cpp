@@ -62,13 +62,13 @@ TEST(FLevelEditorViewportClientTests, RestoresDocumentedViewDistanceDefaults)
 	using FViewportClient = Durin::Editor::Level::FLevelEditorViewportClient;
 	FViewportClient Client;
 	Client.SetClipDistances(0.001f, 10000.0f);
-	Client.SetTerrainDistance(100.0f, 1000.0f);
+	Client.SetViewDistance(100.0f, 1000.0f);
 	Client.ResetViewDistances();
 
 	EXPECT_FLOAT_EQ(Client.GetNearClip(), FViewportClient::DefaultNearClip);
 	EXPECT_FLOAT_EQ(Client.GetFarClip(), FViewportClient::DefaultFarClip);
-	EXPECT_FLOAT_EQ(Client.GetTerrainFadeStart(), FViewportClient::DefaultTerrainFadeStart);
-	EXPECT_FLOAT_EQ(Client.GetTerrainRenderDistance(), FViewportClient::DefaultTerrainRenderDistance);
+	EXPECT_FLOAT_EQ(Client.GetViewFadeStart(), FViewportClient::DefaultViewFadeStart);
+	EXPECT_FLOAT_EQ(Client.GetViewRenderDistance(), FViewportClient::DefaultViewRenderDistance);
 }
 
 TEST(FLevelEditorViewportClientTests, FocusesTheSelectedActorFromViewportInput)
@@ -135,7 +135,7 @@ TEST(FSceneViewProjectionTests, ClampsSharedProjectionPolicyConsistently)
 
 	double Fade = 0.0;
 	double Render = 0.0;
-	ClampTerrainDistances(1000.0, 200000.0, 50000.0, Fade, Render);
+	ClampViewDistances(1000.0, 200000.0, 50000.0, Fade, Render);
 	EXPECT_DOUBLE_EQ(Render, 950.0);
 	EXPECT_DOUBLE_EQ(Fade, 949.0);
 }

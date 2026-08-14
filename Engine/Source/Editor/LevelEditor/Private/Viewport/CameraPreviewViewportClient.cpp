@@ -2,6 +2,7 @@
 
 #include "Components/CameraComponent.h"
 #include "SceneView.h"
+#include "SceneViewProjection.h"
 
 namespace Durin::Editor::Level
 {
@@ -24,8 +25,11 @@ namespace Durin::Editor::Level
 			CameraComponent->GetProjectionSettings();
 		OutView.NearClipDistance = Projection.NearClip;
 		OutView.FarClipDistance = Projection.FarClip;
-		OutView.TerrainFadeStart = Projection.TerrainFadeStart;
-		OutView.TerrainRenderDistance = Projection.TerrainRenderDistance;
+		const FViewDistanceSettings& ViewDistance =
+			CameraComponent->GetViewDistance();
+		SceneViewProjection::ClampViewDistances(OutView.FarClipDistance,
+			ViewDistance.FadeStart, ViewDistance.RenderDistance,
+			OutView.ViewFadeStart, OutView.ViewRenderDistance);
 		return true;
 	}
 }
