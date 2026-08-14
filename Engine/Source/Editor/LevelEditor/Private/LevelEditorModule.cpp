@@ -92,6 +92,14 @@ namespace Durin
 	{
 		if (WorkspaceRegistration && WorkspaceRegistration->IsValid()) return false;
 		WorkspaceRegistration.reset();
+		TerrainThumbnailRegistration.reset();
+		std::string Error;
+		auto ThumbnailHandle = ThumbnailService.RegisterScoped(
+			std::make_unique<FTerrainHeightmapAssetThumbnailProvider>(), Error);
+		if (!ThumbnailHandle) return false;
+
+		// Content Browser captures thumbnail routing while the workspace is constructed,
+		// so feature-owned providers must already be visible to the shared service.
 		std::shared_ptr<MLevelEditor> Workspace = std::make_shared<MLevelEditor>(*SessionSettings, WorkspaceManager);
 		Workspace->Construct();
 		::Durin::Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
@@ -124,14 +132,6 @@ namespace Durin
 		});
 		if (!Registration) return false;
 		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
-		std::string Error;
-		auto ThumbnailHandle = ThumbnailService.RegisterScoped(
-			std::make_unique<FTerrainHeightmapAssetThumbnailProvider>(), Error);
-		if (!ThumbnailHandle)
-		{
-			WorkspaceRegistration.reset();
-			return false;
-		}
 		TerrainThumbnailRegistration = std::make_unique<
 			::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
 				std::move(ThumbnailHandle));
