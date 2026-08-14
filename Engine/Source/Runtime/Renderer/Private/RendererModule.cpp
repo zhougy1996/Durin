@@ -30,7 +30,7 @@ namespace Durin
 
 	FRendererModule::~FRendererModule() = default;
 
-	auto FRendererModule::StartupModule() -> void
+	auto FRendererModule::StartupModule(FModuleContext&) -> void
 	{
 		check(SceneRenderer == nullptr);
 		SceneRenderer = std::make_unique<FSceneRenderer>();
@@ -59,7 +59,7 @@ namespace Durin
 		}
 	}
 
-	auto FRendererModule::ShutdownModule() -> void
+	auto FRendererModule::ShutdownModule(FModuleShutdownContext&) -> void
 	{
 		if (SceneRenderer == nullptr)
 		{

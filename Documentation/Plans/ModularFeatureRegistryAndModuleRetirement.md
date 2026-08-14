@@ -4,20 +4,25 @@ Summary: Implement Core-owned typed feature registration, bounded synchronous in
 
 Last reviewed: 2026-08-15
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-15
 
 ## Current Status
 
-Stage 0 is ready to begin. The parent roadmap has selected the architectural
-boundary: this plan owns feature availability, synchronous invocation
-quiescence, and module retirement only. It deliberately does not introduce a
-module lease as an abort signal and does not attempt to drain asynchronous task
-graphs or Game Thread continuations.
+All stages are complete. Core now provides typed name/version feature identity,
+bounded visitor invocation, move-only generation-safe registration, deterministic
+synchronous retirement, context-bearing module lifecycle, explicit module
+states, and categorized fail-closed shutdown/unload.
 
-No production code has been changed. The initial implementation must first
-stabilize the public Core types and test seams because the module lifecycle
-context affects every `IModuleInterface` implementation.
+Twelve focused Core tests cover identity/version separation, cardinality,
+token movement and stale generations, deterministic invoke/retire races,
+timeout, visitor failure, wrong-thread access, reflected-object rejection,
+self-unload, shutdown failure, and successful instance destruction. The
+non-rendering GeometryBuild unload/reload regression and the VulkanRHI
+initialization rollback/unload regression pass. All affected lifecycle test
+targets and the full editor runtime build compile, and changed/all lifecycle
+documentation validators pass. The parent roadmap records Milestone 1 complete
+and activates `ModuleAsyncOperationDrain.md`.
 
 ## Goal
 
@@ -270,14 +275,14 @@ entry gate lock; no code path may acquire them in the reverse order.
   feature/module leases.
 - [x] Select explicit manager-created owner identity and context-bearing module
   lifecycle.
-- [ ] Define the exact public feature identity, invoke result, registration,
+- [x] Define the exact public feature identity, invoke result, registration,
   retirement snapshot, module state, shutdown result, and unload result types.
-- [ ] Define the manager/registry/entry lock order and the control-thread rule.
-- [ ] Inventory every `IModuleInterface` implementation and every direct
+- [x] Define the manager/registry/entry lock order and the control-thread rule.
+- [x] Inventory every `IModuleInterface` implementation and every direct
   `StartupModule`/`ShutdownModule` call that needs a test context.
-- [ ] Identify current `UnloadModule` callers whose expectations depend on the
+- [x] Identify current `UnloadModule` callers whose expectations depend on the
   old `void` result or immediate reload behavior.
-- [ ] Add or select Core-private test seams for deterministic invocation and
+- [x] Add or select Core-private test seams for deterministic invocation and
   retirement barriers without exposing owner construction publicly.
 
 #### Acceptance Gate
@@ -292,19 +297,19 @@ entry gate lock; no code path may acquire them in the reverse order.
 
 ### Stage 1: Implement the typed modular feature registry
 
-- [ ] Add the Core public feature marker, feature identity concept, invocation
+- [x] Add the Core public feature marker, feature identity concept, invocation
   result types, registration token, retirement snapshot, and registry facade.
-- [ ] Add Core-private registry, owner, entry, invocation-gate, and generation
+- [x] Add Core-private registry, owner, entry, invocation-gate, and generation
   state with no Plugin-owned callable storage.
-- [ ] Implement identity-checked register, retire, reset, owner-wide retirement,
+- [x] Implement identity-checked register, retire, reset, owner-wide retirement,
   bounded wait, and diagnostics.
-- [ ] Implement `InvokeSingle` and `InvokeAll` with explicit cardinality results
+- [x] Implement `InvokeSingle` and `InvokeAll` with explicit cardinality results
   and no callback execution under registry locks.
-- [ ] Ensure visitor failure or exception paths release in-flight accounting in
+- [x] Ensure visitor failure or exception paths release in-flight accounting in
   Core after Plugin invocation has returned.
-- [ ] Detect attempted synchronous wait from the currently active matching
+- [x] Detect attempted synchronous wait from the currently active matching
   feature invocation and return a self-wait result.
-- [ ] Add focused Core tests for identity/version validation, duplicate entries,
+- [x] Add focused Core tests for identity/version validation, duplicate entries,
   ambiguity, stale tokens, moves, idempotent reset, concurrent invoke/retire,
   timeout, and visitor failure.
 
@@ -319,24 +324,24 @@ entry gate lock; no code path may acquire them in the reverse order.
 
 ### Stage 2: Integrate owner retirement into the module manager
 
-- [ ] Add one Core-owned owner generation and explicit lifecycle state to each
+- [x] Add one Core-owned owner generation and explicit lifecycle state to each
   module record.
-- [ ] Add startup and shutdown context types and update `IModuleInterface`.
-- [ ] Update `IMPLEMENT_MODULE` integration without transferring native-handle
+- [x] Add startup and shutdown context types and update `IModuleInterface`.
+- [x] Update `IMPLEMENT_MODULE` integration without transferring native-handle
   ownership into Plugin code.
-- [ ] Implement structured shutdown and unload results and update manager
+- [x] Implement structured shutdown and unload results and update manager
   callers to inspect or deliberately assert them.
-- [ ] Retire owner features and wait for synchronous invocations before the
+- [x] Retire owner features and wait for synchronous invocations before the
   reflected-object callback and module shutdown callback.
-- [ ] Preserve the existing reflected-object rejection behavior and map it to a
+- [x] Preserve the existing reflected-object rejection behavior and map it to a
   fail-closed module state/result.
-- [ ] Add self-unload detection based on the currently executing feature owner.
-- [ ] Keep the module record and native handle when any retirement or audit gate
+- [x] Add self-unload detection based on the currently executing feature owner.
+- [x] Keep the module record and native handle when any retirement or audit gate
   fails.
-- [ ] Define `UnloadModulesAtShutdown()` behavior through the same retirement
+- [x] Define `UnloadModulesAtShutdown()` behavior through the same retirement
   and shutdown state transitions while preserving its process-exit decision not
   to physically release libraries.
-- [ ] Correct stopped/blocked module lookup so `LoadModule()` never returns a
+- [x] Correct stopped/blocked module lookup so `LoadModule()` never returns a
   non-active module instance as if it were ready.
 
 #### Acceptance Gate
@@ -351,15 +356,15 @@ entry gate lock; no code path may acquire them in the reverse order.
 
 ### Stage 3: Migrate module implementations and direct lifecycle callers
 
-- [ ] Update every Runtime, Editor, Developer, and sample-project module
+- [x] Update every Runtime, Editor, Developer, and sample-project module
   implementation to the context-bearing lifecycle signature.
-- [ ] Store contexts only for their documented dynamic extent; modules retain
+- [x] Store contexts only for their documented dynamic extent; modules retain
   owner-scoped registration tokens, not context references.
-- [ ] Update tests that directly instantiate module classes to use the Core test
+- [x] Update tests that directly instantiate module classes to use the Core test
   context/factory or an appropriate manager path.
-- [ ] Update existing unload/reload callers for structured results and the
+- [x] Update existing unload/reload callers for structured results and the
   stopped-mapped failure contract.
-- [ ] Verify module descriptors and public dependencies only where the new Core
+- [x] Verify module descriptors and public dependencies only where the new Core
   header surface requires them; do not add higher-level module dependencies to
   Core.
 
@@ -374,17 +379,17 @@ entry gate lock; no code path may acquire them in the reverse order.
 
 ### Stage 4: Validate retirement and publish the lasting Core contract
 
-- [ ] Run the focused Core modular-feature and module-manager tests.
-- [ ] Run existing non-rendering module load/unload tests selected by the test
+- [x] Run the focused Core modular-feature and module-manager tests.
+- [x] Run existing non-rendering module load/unload tests selected by the test
   workflow.
-- [ ] Run the smallest Vulkan RHI unload/reload regression slice when its
+- [x] Run the smallest Vulkan RHI unload/reload regression slice when its
   prerequisites are available.
-- [ ] Build all affected module targets and the applicable editor runtime
+- [x] Build all affected module targets and the applicable editor runtime
   variant according to the build workflow.
-- [ ] Add the implemented modular-feature and module-retirement contract to the
+- [x] Add the implemented modular-feature and module-retirement contract to the
   Runtime Core documentation and update the Module Loader section of Runtime
   Lifecycle.
-- [ ] Update the parent roadmap status and activate the async-operation child
+- [x] Update the parent roadmap status and activate the async-operation child
   plan only after this plan's definition of done is satisfied.
 
 #### Acceptance Gate

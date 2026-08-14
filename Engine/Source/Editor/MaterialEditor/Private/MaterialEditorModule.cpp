@@ -16,11 +16,11 @@ namespace Durin
 
 	FMaterialEditorModule::~FMaterialEditorModule() = default;
 
-	auto FMaterialEditorModule::StartupModule() -> void
+	auto FMaterialEditorModule::StartupModule(FModuleContext&) -> void
 	{
 	}
 
-	auto FMaterialEditorModule::ShutdownModule() -> void
+	auto FMaterialEditorModule::ShutdownModule(FModuleShutdownContext&) -> void
 	{
 		UnregisterMaterialEditor();
 	}

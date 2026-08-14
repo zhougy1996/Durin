@@ -1,5 +1,7 @@
 #include "Modules/ModuleManager.h"
 
+#include "CoreGlobals.h"
+#include "HAL/PlatformLTS.h"
 #include "Misc/Build.h"
 #include "Misc/Paths.h"
 
@@ -17,6 +19,17 @@ namespace Durin
 			return GDefaultRuntimeVariant;
 #endif
 		}
+
+		auto GetDurinModuleFileName(const FName& InModuleName) -> std::string
+		{
+			return std::string(FPlatformMisc::FLibraryPrefix) + std::string(GetConfiguredRuntimeVariant())
+				+ "-" + InModuleName.ToString() + FPlatformMisc::FLibraryExtension;
+		}
+	}
+
+	FModuleManager::FModuleManager()
+		: ControlThreadId(FPlatformLTS::GetCurrentThreadId())
+	{
 	}
 
 	auto FModuleManager::Get() -> FModuleManager&
@@ -25,42 +38,33 @@ namespace Durin
 		return Instance;
 	}
 
+	auto FModuleManager::IsControlThread() const -> bool
+	{
+		const uint32 ExpectedThread = GIsGameThreadIdInitialized ? GGameThreadId : ControlThreadId;
+		return FPlatformLTS::GetCurrentThreadId() == ExpectedThread;
+	}
+
 	auto FModuleManager::AddModule(const FName& InModuleName, const std::string& FileName) -> void
 	{
-		static uint32 ModuleIndex = 0;
-
-		auto ModuleInfoPtr = std::make_shared<FModuleInfo>();
-		ModuleInfoPtr->ModuleName = InModuleName;
-		ModuleInfoPtr->FileName = FileName;
-		ModuleInfoPtr->LoadOrder = ModuleIndex++;
-		Modules.emplace(InModuleName, ModuleInfoPtr);
+		std::lock_guard Lock(ModuleMapMutex);
+		if (Modules.contains(InModuleName)) return;
+		auto ModuleInfo = std::make_shared<FModuleInfo>();
+		ModuleInfo->ModuleName = InModuleName;
+		ModuleInfo->FileName = FileName;
+		Modules.emplace(InModuleName, std::move(ModuleInfo));
 	}
 
 	auto FModuleManager::FindModule(const FName& InModuleName) -> FModuleInfoPtr
 	{
-		auto Iter = Modules.find(InModuleName);
-		if (Iter == Modules.end())
-		{
-			return nullptr;
-		}
-
-		return Iter->second;
+		std::lock_guard Lock(ModuleMapMutex);
+		const auto Iter = Modules.find(InModuleName);
+		return Iter == Modules.end() ? nullptr : Iter->second;
 	}
 
 	auto FModuleManager::IsModuleLoaded(const FName& InModuleName) -> bool
 	{
-		auto ModuleInfo = FindModule(InModuleName);
-
-		// If the module is not found, it is not loaded.
-		if (ModuleInfo == nullptr) { return false; }
-
-		// Only if the module is loaded and the module interface is not null, the module is considered loaded.
-		if (ModuleInfo->Module != nullptr)
-		{
-			return true;
-		}
-
-		return false;
+		const auto ModuleInfo = FindModule(InModuleName);
+		return ModuleInfo && ModuleInfo->Module && ModuleInfo->State.load() == EModuleState::Active;
 	}
 
 	auto FModuleManager::LoadModuleChecked(const FName& InModuleName) -> IModuleInterface&
@@ -72,139 +76,256 @@ namespace Durin
 
 	auto FModuleManager::GetModule(const FName& InModuleName) -> IModuleInterface*
 	{
-		auto ModuleInfo = FindModule(InModuleName);
-		if (ModuleInfo == nullptr)
-		{
-			return nullptr;
-		}
-
-		if (ModuleInfo->bIsReady)
-		{
-			return ModuleInfo->Module.get();
-		}
-
-		// If the module is not ready, it is not loaded.
-		DURIN_ERROR(STR("Module {} is not ready when trying to get it."), InModuleName.ToString());
-
+		const auto ModuleInfo = FindModule(InModuleName);
+		if (ModuleInfo && ModuleInfo->State.load() == EModuleState::Active) return ModuleInfo->Module.get();
+		DURIN_ERROR(STR("Module {} is not active when trying to get it."), InModuleName.ToString());
 		return nullptr;
-	}
-
-	static constexpr auto GetDurinModuleFileName(const FName& InModuleName) -> std::string
-	{
-		return std::string(FPlatformMisc::FLibraryPrefix) + std::string(GetConfiguredRuntimeVariant()) + "-" + InModuleName.ToString() + FPlatformMisc::FLibraryExtension;
 	}
 
 	auto FModuleManager::LoadModule(const FName& InModuleName) -> IModuleInterface*
 	{
-		IModuleInterface* LoadedModule = nullptr;
-		FModuleInfoPtr FoundModuleInfo = FindModule(InModuleName);
-
-		if (FoundModuleInfo)
+		if (!IsControlThread())
 		{
-			LoadedModule = FoundModuleInfo->Module.get();
-			if (LoadedModule)
-			{
-				DURIN_DEBUG(STR("Module {} is already loaded."), InModuleName.ToString());
-				return LoadedModule;
-			}
+			DURIN_ERROR(STR("Module {} load was requested from the wrong control thread."), InModuleName.ToString());
+			return nullptr;
 		}
 
-		if (FoundModuleInfo == nullptr)
+		auto ModuleInfo = FindModule(InModuleName);
+		if (!ModuleInfo)
 		{
 			AddModule(InModuleName, GetDurinModuleFileName(InModuleName));
-			FoundModuleInfo = FindModule(InModuleName);
+			ModuleInfo = FindModule(InModuleName);
 		}
-		DURIN_TRACE(STR("Try load: {}"), FoundModuleInfo->FileName);
-		FModuleHandle ModuleHandle = FPlatformMisc::LoadLibrary(FoundModuleInfo->FileName);
+
+		const EModuleState ExistingState = ModuleInfo->State.load();
+		if (ExistingState == EModuleState::Active) return ModuleInfo->Module.get();
+		if (ExistingState == EModuleState::StoppedMapped || ExistingState == EModuleState::UnloadBlocked
+			|| ExistingState == EModuleState::Retiring || ExistingState == EModuleState::Loading)
+		{
+			DURIN_ERROR(STR("Module {} cannot load from lifecycle state {}."),
+				InModuleName.ToString(), static_cast<uint32>(ExistingState));
+			return nullptr;
+		}
+
+		ModuleInfo->State = EModuleState::Loading;
+		DURIN_TRACE(STR("Try load: {}"), ModuleInfo->FileName);
+		FModuleHandle ModuleHandle = FPlatformMisc::LoadLibrary(ModuleInfo->FileName);
 		if (!ModuleHandle && !FPaths::ProjectDir().empty())
 		{
 			const std::filesystem::path ProjectModule = std::filesystem::path(FPaths::ProjectDir())
 				/ "Binaries" / DURIN_BUILD_PLATFORM_STRING / DURIN_BUILD_TYPE_STRING
-				/ "Runtime" / GetConfiguredRuntimeVariant() / FoundModuleInfo->FileName;
+				/ "Runtime" / GetConfiguredRuntimeVariant() / ModuleInfo->FileName;
 			DURIN_TRACE(STR("Try active-project module: {}"), ProjectModule.generic_string());
 			ModuleHandle = FPlatformMisc::LoadLibrary(ProjectModule.generic_string());
-			if (ModuleHandle) FoundModuleInfo->FileName = ProjectModule.generic_string();
+			if (ModuleHandle) ModuleInfo->FileName = ProjectModule.generic_string();
 		}
 		if (!ModuleHandle)
 		{
+			ModuleInfo->State = EModuleState::LoadFailed;
 			DURIN_ERROR(STR("Failed to load module \"{}\"."), InModuleName.ToString());
 			return nullptr;
 		}
-		IModuleInterface* Result = nullptr;
 
-		// InitializeModule is defined by the macro IMPLEMENT_MODULE in the module's source file.
-		InitializeModuleFunc InitializeModuleFunctionPtr = (InitializeModuleFunc)FPlatformMisc::GetProcAddress(ModuleHandle, "InitializeModule");
-
-		if (!InitializeModuleFunctionPtr)
+		const auto InitializeModuleFunction = reinterpret_cast<InitializeModuleFunc>(
+			FPlatformMisc::GetProcAddress(ModuleHandle, "InitializeModule"));
+		if (!InitializeModuleFunction)
 		{
-			DURIN_ERROR(STR("Failed to get module interface from module."));
 			FPlatformMisc::FreeLibrary(ModuleHandle);
+			ModuleInfo->State = EModuleState::LoadFailed;
+			DURIN_ERROR("Failed to get module interface from module.");
 			return nullptr;
 		}
 
-		FoundModuleInfo->Handle = ModuleHandle;
-		Result = InitializeModuleFunctionPtr();
-		FoundModuleInfo->Module = std::unique_ptr<IModuleInterface>(Result);
+		ModuleInfo->Handle = ModuleHandle;
+		ModuleInfo->Module.reset(InitializeModuleFunction());
+		if (!ModuleInfo->Module)
+		{
+			FPlatformMisc::FreeLibrary(ModuleHandle);
+			ModuleInfo->Handle = nullptr;
+			ModuleInfo->State = EModuleState::LoadFailed;
+			return nullptr;
+		}
+
+		ModuleInfo->OwnerGeneration = NextOwnerGeneration++;
+		ModuleInfo->FeatureOwner = FModularFeatureRegistry::Get().CreateOwner(InModuleName, ModuleInfo->OwnerGeneration);
+		if (bCanProcessNewlyLoadedObjects && ProcessLoadedObjectsCallback) ProcessLoadedObjectsCallback();
+		FModuleContext Context(InModuleName, ModuleInfo->FeatureOwner);
+		try
+		{
+			ModuleInfo->Module->StartupModule(Context);
+		}
+		catch (...)
+		{
+			const auto Retirement = FModularFeatureRegistry::Get().RetireOwner(
+				ModuleInfo->FeatureOwner, FeatureRetirementTimeout);
+			if (!Retirement.Succeeded())
+			{
+				ModuleInfo->State = EModuleState::UnloadBlocked;
+				DURIN_ERROR(STR("Module {} startup failed and its features could not retire."), InModuleName.ToString());
+				return nullptr;
+			}
+			ModuleInfo->Module.reset();
+			FPlatformMisc::FreeLibrary(ModuleHandle);
+			ModuleInfo->Handle = nullptr;
+			ModuleInfo->FeatureOwner.reset();
+			ModuleInfo->State = EModuleState::LoadFailed;
+			DURIN_ERROR(STR("Module {} startup callback failed."), InModuleName.ToString());
+			return nullptr;
+		}
+		ModuleInfo->LoadOrder = NextLoadOrder++;
+		ModuleInfo->State = EModuleState::Active;
 		DURIN_DEBUG(STR("Module loaded: {}"), InModuleName.ToString());
-
-		if (bCanProcessNewlyLoadedObjects)
-		{
-			ProcessLoadedObjectsCallback();
-		}
-
-		// Call the module's startup function.
-		Result->StartupModule();
-		FoundModuleInfo->bIsReady = true;
-
-		return Result;
+		return ModuleInfo->Module.get();
 	}
 
-	auto FModuleManager::ShutdownModule(const FName& InModuleName) -> void
+	auto FModuleManager::MakeShutdownFailure(
+		const FModuleInfoPtr& ModuleInfo,
+		EModuleOperationStatus Status,
+		std::string Message,
+		FModularFeatureRetirementSnapshot Snapshot
+	) -> FModuleShutdownResult
 	{
-		const FModuleInfoPtr ModuleInfo = FindModule(InModuleName);
-		if (!ModuleInfo || !ModuleInfo->Module || !ModuleInfo->bIsReady)
-		{
-			return;
-		}
-		if (PreShutdownModuleCallback && !PreShutdownModuleCallback(InModuleName))
-		{
-			DURIN_ERROR(STR("Module {} shutdown was rejected because its reflected objects did not drain."),
-				InModuleName.ToString());
-			return;
-		}
-		ModuleInfo->bIsReady = false;
+		if (ModuleInfo) ModuleInfo->State = EModuleState::UnloadBlocked;
+		return {
+			Status,
+			ModuleInfo ? ModuleInfo->ModuleName : FName(),
+			ModuleInfo ? ModuleInfo->State.load() : EModuleState::Registered,
+			std::move(Message),
+			std::move(Snapshot)
+		};
+	}
 
-		ModuleInfo->Module->ShutdownModule();
+	auto FModuleManager::ShutdownModule(const FName& InModuleName) -> FModuleShutdownResult
+	{
+		const auto ModuleInfo = FindModule(InModuleName);
+		if (!ModuleInfo)
+		{
+			return {EModuleOperationStatus::NotFound, InModuleName, EModuleState::Registered, "Module metadata was not found.", {}};
+		}
+		if (!IsControlThread())
+		{
+			return {EModuleOperationStatus::WrongControlThread, InModuleName, ModuleInfo->State.load(),
+				"Module shutdown must run on the module-control thread.", {}};
+		}
+
+		const EModuleState State = ModuleInfo->State.load();
+		if (State == EModuleState::StoppedMapped)
+		{
+			return {EModuleOperationStatus::AlreadyStopped, InModuleName, State, "Module is already stopped and mapped.",
+				FModularFeatureRegistry::Get().SnapshotOwner(ModuleInfo->FeatureOwner)};
+		}
+		if (State == EModuleState::UnloadBlocked)
+		{
+			return {EModuleOperationStatus::UnloadBlocked, InModuleName, State, "Module retirement previously failed and is irreversible.",
+				FModularFeatureRegistry::Get().SnapshotOwner(ModuleInfo->FeatureOwner)};
+		}
+		if (State != EModuleState::Active || !ModuleInfo->Module)
+		{
+			return {EModuleOperationStatus::NotLoaded, InModuleName, State, "Module does not have an active instance.", {}};
+		}
+
+		ModuleInfo->State = EModuleState::Retiring;
+		auto Retirement = FModularFeatureRegistry::Get().RetireOwner(ModuleInfo->FeatureOwner, FeatureRetirementTimeout);
+		if (Retirement.Status == EModularFeatureRetirementStatus::SelfWait)
+		{
+			return MakeShutdownFailure(ModuleInfo, EModuleOperationStatus::RecursiveOwnedExecution,
+				"Module shutdown was requested recursively from its own feature invocation.", Retirement.Snapshot);
+		}
+		if (Retirement.Status == EModularFeatureRetirementStatus::TimedOut)
+		{
+			return MakeShutdownFailure(ModuleInfo, EModuleOperationStatus::FeatureInvocationDrainTimeout,
+				"Timed out draining admitted synchronous feature invocations.", Retirement.Snapshot);
+		}
+
+		bool bReflectedObjectsDrained = true;
+		try
+		{
+			bReflectedObjectsDrained = !PreShutdownModuleCallback || PreShutdownModuleCallback(InModuleName);
+		}
+		catch (...)
+		{
+			bReflectedObjectsDrained = false;
+		}
+		if (!bReflectedObjectsDrained)
+		{
+			return MakeShutdownFailure(ModuleInfo, EModuleOperationStatus::ReflectedObjectDrainRejected,
+				"Reflected objects owned by the module did not drain.", Retirement.Snapshot);
+		}
+
+		FModuleShutdownContext Context(InModuleName, Retirement.Snapshot);
+		try
+		{
+			ModuleInfo->Module->ShutdownModule(Context);
+		}
+		catch (...)
+		{
+			return MakeShutdownFailure(ModuleInfo, EModuleOperationStatus::ShutdownCallbackFailure,
+				"The module shutdown callback failed; the native library remains mapped.", Retirement.Snapshot);
+		}
+		const auto Audit = FModularFeatureRegistry::Get().SnapshotOwner(ModuleInfo->FeatureOwner);
+		if (Audit.PublishedCount != 0 || Audit.InFlightInvocationCount != 0)
+		{
+			return MakeShutdownFailure(ModuleInfo, EModuleOperationStatus::OutstandingFeatureAudit,
+				"Owned feature registrations failed the final synchronous retirement audit.", Audit);
+		}
+
+		ModuleInfo->State = EModuleState::StoppedMapped;
 		DURIN_DEBUG(STR("Module shutdown: {}"), InModuleName.ToString());
+		return {EModuleOperationStatus::Succeeded, InModuleName, EModuleState::StoppedMapped,
+			"Module stopped and remains mapped.", Audit};
 	}
 
-	auto FModuleManager::UnloadModule(const FName& InModuleName) -> void
+	auto FModuleManager::UnloadModule(const FName& InModuleName) -> FModuleUnloadResult
 	{
-		auto ModuleIt = Modules.find(InModuleName);
-		if (ModuleIt == Modules.end())
+		const auto ModuleInfo = FindModule(InModuleName);
+		if (!ModuleInfo)
 		{
-			return;
+			return {EModuleOperationStatus::NotFound, InModuleName, EModuleState::Registered, "Module metadata was not found.", {}};
+		}
+		if (!IsControlThread())
+		{
+			return {EModuleOperationStatus::WrongControlThread, InModuleName, ModuleInfo->State.load(),
+				"Module unload must run on the module-control thread.", {}};
+		}
+		if ((ModuleInfo->State.load() == EModuleState::Unloaded
+			|| ModuleInfo->State.load() == EModuleState::Registered
+			|| ModuleInfo->State.load() == EModuleState::LoadFailed) && !ModuleInfo->Module)
+		{
+			return {EModuleOperationStatus::NotLoaded, InModuleName, ModuleInfo->State.load(),
+				"Module does not have a mapped instance to unload.", {}};
 		}
 
-		FModuleInfoPtr ModuleInfo = ModuleIt->second;
-		ShutdownModule(InModuleName);
-		if (ModuleInfo->bIsReady) return;
+		if (ModuleInfo->State.load() == EModuleState::Active)
+		{
+			const auto Shutdown = ShutdownModule(InModuleName);
+			if (!Shutdown.Succeeded())
+			{
+				return {Shutdown.Status, InModuleName, Shutdown.ObservedState, Shutdown.Message, Shutdown.RetirementSnapshot};
+			}
+		}
+		if (ModuleInfo->State.load() != EModuleState::StoppedMapped)
+		{
+			return {EModuleOperationStatus::UnloadBlocked, InModuleName, ModuleInfo->State.load(),
+				"Native unload is allowed only after successful synchronous retirement and shutdown.",
+				FModularFeatureRegistry::Get().SnapshotOwner(ModuleInfo->FeatureOwner)};
+		}
 
+		const auto Snapshot = FModularFeatureRegistry::Get().SnapshotOwner(ModuleInfo->FeatureOwner);
 		ModuleInfo->Module.reset();
 		if (ModuleInfo->Handle)
 		{
 			FPlatformMisc::FreeLibrary(ModuleInfo->Handle);
 			ModuleInfo->Handle = nullptr;
 		}
-
-		Modules.erase(ModuleIt);
+		ModuleInfo->FeatureOwner.reset();
+		ModuleInfo->State = EModuleState::Unloaded;
 		DURIN_DEBUG(STR("Module unloaded: {}"), InModuleName.ToString());
+		return {EModuleOperationStatus::Succeeded, InModuleName, EModuleState::Unloaded, "Module library unloaded.", Snapshot};
 	}
 
 	auto FModuleManager::StartProcessingNewlyLoadedObjects() -> void
 	{
-		// Make sure only called once
-		check(bCanProcessNewlyLoadedObjects == false);
+		check(!bCanProcessNewlyLoadedObjects);
 		bCanProcessNewlyLoadedObjects = true;
 	}
 
@@ -213,35 +334,31 @@ namespace Durin
 		ProcessLoadedObjectsCallback = std::move(Callback);
 	}
 
-	auto FModuleManager::SetPreShutdownModuleCallback(
-		std::function<bool(FName)> Callback
-	) -> void
+	auto FModuleManager::SetPreShutdownModuleCallback(std::function<bool(FName)> Callback) -> void
 	{
 		PreShutdownModuleCallback = std::move(Callback);
 	}
 
 	auto FModuleManager::UnloadModulesAtShutdown() -> void
 	{
-		std::vector<FModuleInfoPtr> ModulesToUnload;
-
-		ModulesToUnload.reserve(Modules.size());
-		for (const auto& ModuleInfo : Modules | std::views::values)
+		std::vector<FModuleInfoPtr> ModulesToStop;
 		{
-			ModulesToUnload.push_back(ModuleInfo);
+			std::lock_guard Lock(ModuleMapMutex);
+			ModulesToStop.reserve(Modules.size());
+			for (const auto& ModuleInfo : Modules | std::views::values) ModulesToStop.push_back(ModuleInfo);
 		}
-
-		std::ranges::sort(ModulesToUnload, [](const FModuleInfoPtr& A, const FModuleInfoPtr& B) {
+		std::ranges::sort(ModulesToStop, [](const FModuleInfoPtr& A, const FModuleInfoPtr& B) {
 			return A->LoadOrder > B->LoadOrder;
 		});
-
-		for (const auto& ModuleInfo : ModulesToUnload)
+		for (const auto& ModuleInfo : ModulesToStop)
 		{
-			ShutdownModule(ModuleInfo->ModuleName);
+			if (ModuleInfo->State.load() != EModuleState::Active) continue;
+			const auto Result = ShutdownModule(ModuleInfo->ModuleName);
+			if (!Result.Succeeded())
+			{
+				DURIN_ERROR(STR("Module {} failed process-shutdown retirement: {}"),
+					ModuleInfo->ModuleName.ToString(), Result.Message);
+			}
 		}
-
-		ModulesToUnload.clear();
-		std::erase_if(Modules, [](const auto& Entry) {
-			return !Entry.second->bIsReady;
-		});
 	}
-} // namespace Durin
+}

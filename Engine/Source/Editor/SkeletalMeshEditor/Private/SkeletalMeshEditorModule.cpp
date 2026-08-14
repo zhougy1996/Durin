@@ -16,8 +16,8 @@ namespace Durin
 	IMPLEMENT_MODULE(FSkeletalMeshEditorModule, SkeletalMeshEditor)
 
 	FSkeletalMeshEditorModule::~FSkeletalMeshEditorModule() = default;
-	auto FSkeletalMeshEditorModule::StartupModule() -> void {}
-	auto FSkeletalMeshEditorModule::ShutdownModule() -> void { UnregisterSkeletalMeshEditor(); }
+	auto FSkeletalMeshEditorModule::StartupModule(FModuleContext&) -> void {}
+	auto FSkeletalMeshEditorModule::ShutdownModule(FModuleShutdownContext&) -> void { UnregisterSkeletalMeshEditor(); }
 
 	auto FSkeletalMeshEditorModule::RegisterSkeletalMeshEditor(
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager,

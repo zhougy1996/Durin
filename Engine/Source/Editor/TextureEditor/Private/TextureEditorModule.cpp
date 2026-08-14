@@ -17,11 +17,11 @@ namespace Durin
 
 	FTextureEditorModule::~FTextureEditorModule() = default;
 
-	auto FTextureEditorModule::StartupModule() -> void
+	auto FTextureEditorModule::StartupModule(FModuleContext&) -> void
 	{
 	}
 
-	auto FTextureEditorModule::ShutdownModule() -> void
+	auto FTextureEditorModule::ShutdownModule(FModuleShutdownContext&) -> void
 	{
 		UnregisterTextureEditor();
 		FTexturePreview::ReleaseSharedResources();

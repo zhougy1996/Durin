@@ -5,6 +5,7 @@
 #include "Engine/StaticMeshSceneProxy.h"
 #include "HAL/PlatformLTS.h"
 #include "Modules/ModuleManager.h"
+#include "Modules/ModuleTestContext.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "RendererModule.h"
@@ -214,7 +215,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	EXPECT_GE(Capabilities->MaxStorageBufferRange, sizeof(Durin::FMatrix4f));
 	Durin::InitRenderingThread();
 	Durin::FRendererModule Renderer;
-	Renderer.StartupModule();
+	auto RendererContext = Durin::FModuleTestContextFactory::CreateStartupContext("SkeletalMeshRendererTest");
+	Renderer.StartupModule(RendererContext);
 	Durin::SetViewRenderCounterSink(CaptureCounters);
 
 	auto Complete = MakeRenderData();
@@ -1065,7 +1067,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			CpuSplineSource->ReleaseResources();
 		});
 	Durin::FlushRenderingCommands();
-	Renderer.ShutdownModule();
+	auto RendererShutdownContext = Durin::FModuleTestContextFactory::CreateShutdownContext(RendererContext);
+	Renderer.ShutdownModule(RendererShutdownContext);
 	Durin::SetViewRenderCounterSink(nullptr);
 	Durin::ShutdownRenderingThread();
 	Durin::RHIExit();

@@ -18,8 +18,8 @@ namespace Durin
 	{
 	public:
 		TEXTUREEDITOR_API ~FTextureEditorModule() override;
-		TEXTUREEDITOR_API auto StartupModule() -> void override;
-		TEXTUREEDITOR_API auto ShutdownModule() -> void override;
+		TEXTUREEDITOR_API auto StartupModule(FModuleContext& Context) -> void override;
+		TEXTUREEDITOR_API auto ShutdownModule(FModuleShutdownContext& Context) -> void override;
 		TEXTUREEDITOR_API auto RegisterTextureEditor(
 			::Durin::Editor::FWorkspaceManager& WorkspaceManager,
 			::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool;

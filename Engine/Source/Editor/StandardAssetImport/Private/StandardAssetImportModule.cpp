@@ -6,13 +6,13 @@ namespace Durin
 	class FStandardAssetImportModule final : public IModuleInterface
 	{
 	public:
-		auto StartupModule() -> void override
+		auto StartupModule(FModuleContext&) -> void override
 		{
 			std::string Error;
 			requiref(Asset::Import::Standard::RegisterStandardAssetImportProviders(Error), "{}", Error);
 		}
 
-		auto ShutdownModule() -> void override
+		auto ShutdownModule(FModuleShutdownContext&) -> void override
 		{
 			Asset::Import::Standard::UnregisterStandardAssetImportProviders();
 		}

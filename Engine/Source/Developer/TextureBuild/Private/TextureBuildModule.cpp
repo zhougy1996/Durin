@@ -6,13 +6,13 @@ namespace Durin
 	class FTextureBuildModule final : public IModuleInterface
 	{
 	public:
-		auto StartupModule() -> void override
+		auto StartupModule(FModuleContext&) -> void override
 		{
 			checkf(Asset::Build::InitializeTextureBuildService(),
 				"TextureBuild could not register its authoring service.");
 		}
 
-		auto ShutdownModule() -> void override
+		auto ShutdownModule(FModuleShutdownContext&) -> void override
 		{
 			Asset::Build::ShutdownTextureBuildService();
 		}

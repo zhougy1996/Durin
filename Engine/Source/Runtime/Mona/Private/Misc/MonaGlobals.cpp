@@ -11,7 +11,7 @@ namespace Durin
 	class FMonaModule final : public IModuleInterface
 	{
 	public:
-		auto StartupModule() -> void override
+		auto StartupModule(FModuleContext&) -> void override
 		{
 			Mona::FMonaApplication::Create();
 			Mona::FMonaApplication::Get().Initialize();
@@ -23,10 +23,11 @@ namespace Durin
 			DURIN_DEBUG(STR("Mona initialized successfully."));
 		}
 
-		auto ShutdownModule() -> void override
+		auto ShutdownModule(FModuleShutdownContext&) -> void override
 		{
 #if DURIN_WITH_EDITOR
-			FModuleManager::Get().UnloadModule("MonaImGui");
+			const auto Result = FModuleManager::Get().UnloadModule("MonaImGui");
+			if (!Result.Succeeded()) DURIN_ERROR(STR("Failed to unload MonaImGui during Mona shutdown: {}"), Result.Message);
 #endif
 
 			Mona::FMonaApplication::Shutdown();

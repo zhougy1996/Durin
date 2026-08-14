@@ -26,7 +26,7 @@ namespace Durin
 				RenderData, SourceImportData, Mode, Policy, OutProduct, OutError);
 		}
 
-		auto StartupModule() -> void override
+		auto StartupModule(FModuleContext&) -> void override
 		{
 			std::string Error;
 			auto Registration = Asset::Build::RegisterBuildServiceContribution({
@@ -51,7 +51,7 @@ namespace Durin
 				"GeometryBuild could not register skeletal DDC loading.");
 		}
 
-		auto ShutdownModule() -> void override
+		auto ShutdownModule(FModuleShutdownContext&) -> void override
 		{
 			UnregisterSkeletalAssetUncookedPayloadLoaders();
 			UnregisterStaticMeshCollisionBuildHandler();

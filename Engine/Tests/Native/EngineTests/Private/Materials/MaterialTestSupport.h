@@ -27,6 +27,7 @@
 #include "Materials/MaterialInstance.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Modules/ModuleTestContext.h"
 #include "RenderingThread.h"
 #include "RendererModule.h"
 #include "Scene.h"
@@ -375,6 +376,7 @@ namespace
 	{
 	public:
 		FMaterialPreviewHarness()
+			: RendererContext(Durin::FModuleTestContextFactory::CreateStartupContext("MaterialPreviewRendererTest"))
 		{
 			InitializeDObjectSystem();
 			bOwnsRenderingThread =
@@ -386,7 +388,7 @@ namespace
 			{
 				Durin::InitializeDefaultMaterialService();
 			}
-			RendererModule.StartupModule();
+			RendererModule.StartupModule(RendererContext);
 			Engine.SetTestRendererModule(&RendererModule);
 			Durin::GEngine = &Engine;
 		}
@@ -394,7 +396,8 @@ namespace
 		~FMaterialPreviewHarness()
 		{
 			Durin::GEngine = nullptr;
-			RendererModule.ShutdownModule();
+			auto ShutdownContext = Durin::FModuleTestContextFactory::CreateShutdownContext(RendererContext);
+			RendererModule.ShutdownModule(ShutdownContext);
 			WaitForRenderingThread();
 			Durin::ShutdownDefaultMaterialService();
 			if (bOwnsRenderingThread) Durin::ShutdownRenderingThread();
@@ -402,6 +405,7 @@ namespace
 
 		FMaterialTestEngine Engine;
 		Durin::FRendererModule RendererModule;
+		Durin::FModuleContext RendererContext;
 		bool bOwnsRenderingThread = false;
 	};
 

@@ -27,6 +27,13 @@ namespace Durin::VulkanRHI
 {
 	namespace
 	{
+		auto ExpectVulkanModuleUnloaded() -> void
+		{
+			const auto Result = FModuleManager::Get().UnloadModule("VulkanRHI");
+			EXPECT_TRUE(Result.Succeeded() || Result.Status == EModuleOperationStatus::NotLoaded)
+				<< Result.Message;
+		}
+
 		struct FDebugMessageCapture
 		{
 			EVulkanDebugMessageSeverity Severity =
@@ -126,7 +133,7 @@ namespace Durin::VulkanRHI
 				{
 					RHIExit();
 				}
-				FModuleManager::Get().UnloadModule("VulkanRHI");
+				ExpectVulkanModuleUnloaded();
 				ResetVulkanCreateFailures();
 				_putenv_s("DURIN_RHI_EXECUTION",
 					PreviousExecutionMode ? PreviousExecutionMode->c_str() : "");
@@ -490,7 +497,7 @@ namespace Durin::VulkanRHI
 		EXPECT_TRUE(GetLastRHIInitializationDiagnostic().empty());
 		EXPECT_TRUE(FModuleManager::Get().IsModuleLoaded("VulkanRHI"));
 		RHIExit();
-		FModuleManager::Get().UnloadModule("VulkanRHI");
+		ExpectVulkanModuleUnloaded();
 	}
 
 	TEST_F(FVulkanCreateFailureInjectionTests,
@@ -504,7 +511,7 @@ namespace Durin::VulkanRHI
 		EXPECT_FALSE(VulkanRHI->GetDiagnosticAvailability().bDebugUtilsActive);
 		EXPECT_FALSE(VulkanRHI->GetDiagnosticAvailability().bMessengerActive);
 		RHIExit();
-		FModuleManager::Get().UnloadModule("VulkanRHI");
+		ExpectVulkanModuleUnloaded();
 
 		_putenv_s("DURIN_VULKAN_VALIDATION", "on");
 		ResetVulkanDebugMessengerTestStats();
@@ -517,7 +524,7 @@ namespace Durin::VulkanRHI
 		EXPECT_FALSE(VulkanRHI->GetDiagnosticAvailability().bMessengerActive);
 		EXPECT_EQ(GetVulkanDebugMessengerTestStats().ActiveCount, 0u);
 		RHIExit();
-		FModuleManager::Get().UnloadModule("VulkanRHI");
+		ExpectVulkanModuleUnloaded();
 
 		ResetVulkanDebugMessengerTestStats();
 		ASSERT_TRUE(RHIInit());
@@ -528,7 +535,7 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(Statistics.CreatedCount, 1u);
 		EXPECT_EQ(Statistics.ActiveCount, 1u);
 		RHIExit();
-		FModuleManager::Get().UnloadModule("VulkanRHI");
+		ExpectVulkanModuleUnloaded();
 
 		Statistics = GetVulkanDebugMessengerTestStats();
 		EXPECT_EQ(Statistics.CreatedCount, 1u);
@@ -754,7 +761,7 @@ namespace Durin::VulkanRHI
 			EXPECT_EQ(GetVulkanGPUTimingStatisticsForTest(
 				*static_cast<FVulkanDynamicRHI*>(GDynamicRHI)).LiveIntervals, 0u);
 			RHIExit();
-			FModuleManager::Get().UnloadModule("VulkanRHI");
+			ExpectVulkanModuleUnloaded();
 		}
 	}
 
@@ -908,7 +915,7 @@ namespace Durin::VulkanRHI
 			FRHICommandListImmediate::Get().ImmediateFlush(
 				EImmediateFlushType::FlushRHIThreadFlushResources);
 			RHIExit();
-			FModuleManager::Get().UnloadModule("VulkanRHI");
+			ExpectVulkanModuleUnloaded();
 		}
 
 		EXPECT_EQ(Snapshots[0].Availability.bRequested,
@@ -1131,7 +1138,7 @@ namespace Durin::VulkanRHI
 			Commands.ImmediateFlush(
 				EImmediateFlushType::FlushRHIThreadFlushResources);
 			RHIExit();
-			FModuleManager::Get().UnloadModule("VulkanRHI");
+			ExpectVulkanModuleUnloaded();
 		}
 
 		EXPECT_EQ(ModePixels[0], ModePixels[1]);

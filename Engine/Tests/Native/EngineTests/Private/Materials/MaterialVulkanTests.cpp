@@ -154,7 +154,8 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 
 	FMaterialTestEngine Engine;
 	Durin::FRendererModule Renderer;
-	Renderer.StartupModule();
+	auto RendererContext = Durin::FModuleTestContextFactory::CreateStartupContext("MaterialRendererTest");
+	Renderer.StartupModule(RendererContext);
 	Engine.SetTestRendererModule(&Renderer);
 	Durin::GEngine = &Engine;
 
@@ -1115,7 +1116,8 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			Durin::FRHICommandListImmediate&) {});
 	Durin::FlushRenderingCommands();
 	Durin::CollectGarbage();
-	Renderer.ShutdownModule();
+	auto RendererShutdownContext = Durin::FModuleTestContextFactory::CreateShutdownContext(RendererContext);
+	Renderer.ShutdownModule(RendererShutdownContext);
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
 	// The native suite may create another RHI in the same process; force the

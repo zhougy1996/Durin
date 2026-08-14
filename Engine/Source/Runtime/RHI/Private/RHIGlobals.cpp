@@ -91,7 +91,8 @@ namespace Durin
 			GDynamicRHI = nullptr;
 			if (bUnloadBackendModule)
 			{
-				FModuleManager::Get().UnloadModule("VulkanRHI");
+				const auto Result = FModuleManager::Get().UnloadModule("VulkanRHI");
+				if (!Result.Succeeded()) DURIN_ERROR(STR("Failed to unload VulkanRHI after initialization failure: {}"), Result.Message);
 			}
 		}
 
@@ -109,7 +110,8 @@ namespace Durin
 				DURIN_ERROR("Failed to create dynamic RHI");
 				if (bOwnsBackendModule)
 				{
-					FModuleManager::Get().UnloadModule("VulkanRHI");
+					const auto Result = FModuleManager::Get().UnloadModule("VulkanRHI");
+					if (!Result.Succeeded()) DURIN_ERROR(STR("Failed to unload VulkanRHI after backend creation failure: {}"), Result.Message);
 				}
 				return false;
 			}

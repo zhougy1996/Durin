@@ -15,11 +15,11 @@ namespace Durin
 
 	FStaticMeshEditorModule::~FStaticMeshEditorModule() = default;
 
-	auto FStaticMeshEditorModule::StartupModule() -> void
+	auto FStaticMeshEditorModule::StartupModule(FModuleContext&) -> void
 	{
 	}
 
-	auto FStaticMeshEditorModule::ShutdownModule() -> void
+	auto FStaticMeshEditorModule::ShutdownModule(FModuleShutdownContext&) -> void
 	{
 		UnregisterStaticMeshEditor();
 	}

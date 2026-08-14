@@ -298,7 +298,11 @@ namespace Durin
 		SetProcessCrashPhase(EProcessCrashPhase::ConsumerDetachment);
 		Diagnostics.BeginConsumerDetachment();
 
-		FModuleManager::Get().ShutdownModule("Mona");
+		const auto MonaShutdown = FModuleManager::Get().ShutdownModule("Mona");
+		if (!MonaShutdown.Succeeded())
+		{
+			DURIN_ERROR(STR("Mona module shutdown failed: {}"), MonaShutdown.Message);
+		}
 
 		Diagnostics.BeforeAssetServiceShutdown();
 		SetProcessCrashPhase(EProcessCrashPhase::AssetServiceShutdown);

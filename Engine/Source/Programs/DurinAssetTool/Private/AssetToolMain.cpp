@@ -50,11 +50,20 @@ namespace
 				Durin::FModuleManager::LoadModuleChecked<
 					Durin::Asset::Build::IAssetBuildCoreModule>("AssetBuildCore").ShutdownHost();
 			if (bTextureBuild)
-				Durin::FModuleManager::Get().ShutdownModule("TextureBuild");
+			{
+				const auto Result = Durin::FModuleManager::Get().ShutdownModule("TextureBuild");
+				if (!Result.Succeeded()) std::cerr << "TextureBuild shutdown failed: " << Result.Message << '\n';
+			}
 			if (bGeometryBuild)
-				Durin::FModuleManager::Get().ShutdownModule("GeometryBuild");
+			{
+				const auto Result = Durin::FModuleManager::Get().ShutdownModule("GeometryBuild");
+				if (!Result.Succeeded()) std::cerr << "GeometryBuild shutdown failed: " << Result.Message << '\n';
+			}
 			if (bAssetBuildCore)
-				Durin::FModuleManager::Get().ShutdownModule("AssetBuildCore");
+			{
+				const auto Result = Durin::FModuleManager::Get().ShutdownModule("AssetBuildCore");
+				if (!Result.Succeeded()) std::cerr << "AssetBuildCore shutdown failed: " << Result.Message << '\n';
+			}
 		}
 	};
 

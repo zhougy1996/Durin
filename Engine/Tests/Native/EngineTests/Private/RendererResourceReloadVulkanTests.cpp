@@ -5,6 +5,7 @@
 #include "DynamicRHI.h"
 #include "HAL/PlatformLTS.h"
 #include "Modules/ModuleManager.h"
+#include "Modules/ModuleTestContext.h"
 #include "NativeTestSupport.h"
 #include "RHI.h"
 #include "RHICommandList.h"
@@ -231,7 +232,8 @@ float4 FragmentMain() : SV_Target
 			});
 
 		FRendererModule Renderer;
-		Renderer.StartupModule();
+		auto RendererContext = Durin::FModuleTestContextFactory::CreateStartupContext("RendererResourceReloadTest");
+		Renderer.StartupModule(RendererContext);
 		TRenderResourceCreationSlot<FReloadTestPayload> Slot{
 			ERenderResourceGenerationDependency::Shader
 				| ERenderResourceGenerationDependency::Device};
@@ -582,7 +584,8 @@ float4 FragmentMain() : SV_Target
 				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			});
 		FlushRenderingCommands();
-		Renderer.ShutdownModule();
+		auto RendererShutdownContext = Durin::FModuleTestContextFactory::CreateShutdownContext(RendererContext);
+		Renderer.ShutdownModule(RendererShutdownContext);
 		ShutdownRenderingThread();
 		FRHICommandListImmediate::Get().SwitchPipeline(
 			ERHIPipeline::None);

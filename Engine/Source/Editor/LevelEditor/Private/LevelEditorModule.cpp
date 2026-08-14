@@ -35,7 +35,7 @@ namespace Durin
 
 	FLevelEditorModule::~FLevelEditorModule() = default;
 
-	LEVELEDITOR_API auto FLevelEditorModule::StartupModule() -> void
+	LEVELEDITOR_API auto FLevelEditorModule::StartupModule(FModuleContext&) -> void
 	{
 		ProjectDefaultLevelReferenceStore =
 			std::make_unique<FProjectDefaultLevelReferenceStore>(
@@ -68,7 +68,7 @@ namespace Durin
 			"LevelEditor graybox-build startup command must register exactly once");
 	}
 
-	LEVELEDITOR_API auto FLevelEditorModule::ShutdownModule() -> void
+	LEVELEDITOR_API auto FLevelEditorModule::ShutdownModule(FModuleShutdownContext&) -> void
 	{
 		UnregisterLevelEditorWorkspace();
 		UnregisterStartupCommandHandler(GrayboxBuildStartupCommandHandle);

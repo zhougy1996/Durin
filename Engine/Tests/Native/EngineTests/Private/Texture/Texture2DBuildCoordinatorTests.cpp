@@ -94,7 +94,8 @@ TEST(FBuildRecipeModuleTests, TextureAndGeometryCoexistDrainAndRestart)
 		Durin::Asset::Build::GetBuildHostSnapshot();
 	EXPECT_EQ(Stopped.ServiceCount, 2u);
 	EXPECT_FALSE(Stopped.bAcceptingRequests);
-	Durin::FModuleManager::Get().UnloadModule("GeometryBuild");
+	const auto GeometryUnload = Durin::FModuleManager::Get().UnloadModule("GeometryBuild");
+	ASSERT_TRUE(GeometryUnload.Succeeded()) << GeometryUnload.Message;
 	EXPECT_EQ(Durin::Asset::Build::GetBuildHostSnapshot().ServiceCount, 1u);
 	Durin::FModuleManager::Get().LoadModuleChecked("GeometryBuild");
 	EXPECT_TRUE(EnsureTextureBuildHost());

@@ -11,13 +11,13 @@ namespace Durin
 	class FRenderCoreModule : public FDefaultModuleImpl
 	{
 	public:
-		auto StartupModule() -> void override
+		auto StartupModule(FModuleContext&) -> void override
 		{
 			FShaderPaths::InitDefaultMountPoints();
 			InitShaderCompileService();
 		}
 
-		auto ShutdownModule() -> void override
+		auto ShutdownModule(FModuleShutdownContext&) -> void override
 		{
 			ClearShaderMapResourceCache();
 			ShutdownShaderCompileService();

@@ -5,6 +5,7 @@
 #include "Hash/XxHash.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Modules/ModuleManager.h"
+#include "Modules/ModuleTestContext.h"
 #include "NativeTestSupport.h"
 #include "RHICommandList.h"
 #include "RendererModule.h"
@@ -420,7 +421,8 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
 	Durin::FRendererModule Renderer;
-	Renderer.StartupModule();
+	auto RendererContext = Durin::FModuleTestContextFactory::CreateStartupContext("DirectionalShadowRendererTest");
+	Renderer.StartupModule(RendererContext);
 	Durin::SetViewRenderCounterSink(CaptureCounters);
 
 	auto Quad = MakeQuadRenderData();
@@ -1020,7 +1022,8 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 		<< Q1EntryMotionChangedPixels[1] << '\n';
 
 	Durin::SetViewRenderCounterSink(nullptr);
-	Renderer.ShutdownModule();
+	auto RendererShutdownContext = Durin::FModuleTestContextFactory::CreateShutdownContext(RendererContext);
+	Renderer.ShutdownModule(RendererShutdownContext);
 	Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
 		[&](Durin::FRHICommandListImmediate&) { Quad->ReleaseResources(); });
 	Durin::FlushRenderingCommands();

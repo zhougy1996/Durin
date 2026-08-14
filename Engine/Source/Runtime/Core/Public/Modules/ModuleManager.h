@@ -1,43 +1,153 @@
 #pragma once
 
 #include "CoreAPI.h"
-
+#include "Modules/ModularFeature.h"
 #include "Templates/SmartPointers.h"
+
+#include <atomic>
+#include <chrono>
+#include <mutex>
 
 namespace Durin
 {
-	// Defines the startup and shutdown hooks implemented by dynamically loaded modules.
+	class FModuleTestContextFactory;
+
+	// Exposes the current load generation's owner-scoped registration surface during startup.
+	class FModuleContext final
+	{
+	public:
+		FModuleContext(FModuleContext&&) noexcept = default;
+		auto operator=(FModuleContext&&) noexcept -> FModuleContext& = default;
+		FModuleContext(const FModuleContext&) = delete;
+		auto operator=(const FModuleContext&) -> FModuleContext& = delete;
+
+		template<CModularFeature T>
+		auto RegisterFeature(T& Implementation) -> FModularFeatureRegistration
+		{
+			return FModularFeatureRegistry::Get().Register(
+				Owner,
+				{FName(std::string_view(T::FeatureName)), static_cast<uint32>(T::FeatureVersion)},
+				Implementation);
+		}
+
+		[[nodiscard]] auto GetModuleName() const -> FName { return ModuleName; }
+
+	private:
+		FModuleContext(FName InModuleName, std::shared_ptr<Detail::FModularFeatureOwnerState> InOwner)
+			: ModuleName(InModuleName), Owner(std::move(InOwner)) {}
+
+		FName ModuleName;
+		std::shared_ptr<Detail::FModularFeatureOwnerState> Owner;
+
+		friend class FModuleManager;
+		friend class FModuleTestContextFactory;
+	};
+
+	// Exposes mapped-library retirement evidence during the shutdown callback.
+	class FModuleShutdownContext final
+	{
+	public:
+		FModuleShutdownContext(FModuleShutdownContext&&) noexcept = default;
+		auto operator=(FModuleShutdownContext&&) noexcept -> FModuleShutdownContext& = default;
+		FModuleShutdownContext(const FModuleShutdownContext&) = delete;
+		auto operator=(const FModuleShutdownContext&) -> FModuleShutdownContext& = delete;
+
+		[[nodiscard]] auto GetModuleName() const -> FName { return ModuleName; }
+		[[nodiscard]] auto GetFeatureRetirementSnapshot() const -> const FModularFeatureRetirementSnapshot& { return Snapshot; }
+
+	private:
+		FModuleShutdownContext(FName InModuleName, FModularFeatureRetirementSnapshot InSnapshot)
+			: ModuleName(InModuleName), Snapshot(std::move(InSnapshot)) {}
+
+		FName ModuleName;
+		FModularFeatureRetirementSnapshot Snapshot;
+
+		friend class FModuleManager;
+		friend class FModuleTestContextFactory;
+	};
+
+	// Defines context-bearing lifecycle hooks for one native module instance.
 	class IModuleInterface
 	{
 	public:
 		virtual ~IModuleInterface() = default;
-
-		virtual void StartupModule() {};
-		virtual void ShutdownModule() {};
+		virtual auto StartupModule(FModuleContext& Context) -> void {}
+		virtual auto ShutdownModule(FModuleShutdownContext& Context) -> void {}
 	};
 
-	// Owns one loaded module instance and the native handle backing it.
+	// Describes metadata, mapped-instance, retirement, and native-release lifecycle states.
+	enum class EModuleState : uint8
+	{
+		Registered,
+		Loading,
+		Active,
+		Retiring,
+		StoppedMapped,
+		UnloadBlocked,
+		LoadFailed,
+		Unloaded,
+	};
+
+	// Categorizes shutdown and unload completion or fail-closed rejection.
+	enum class EModuleOperationStatus : uint8
+	{
+		Succeeded,
+		NotFound,
+		NotLoaded,
+		AlreadyStopped,
+		WrongControlThread,
+		RecursiveOwnedExecution,
+		FeatureInvocationDrainTimeout,
+		ReflectedObjectDrainRejected,
+		ShutdownCallbackFailure,
+		OutstandingFeatureAudit,
+		UnloadBlocked,
+	};
+
+	// Reports shutdown state, diagnostic text, and synchronous retirement evidence.
+	struct FModuleShutdownResult
+	{
+		EModuleOperationStatus Status = EModuleOperationStatus::NotFound;
+		FName ModuleName;
+		EModuleState ObservedState = EModuleState::Registered;
+		std::string Message;
+		FModularFeatureRetirementSnapshot RetirementSnapshot;
+
+		[[nodiscard]] auto Succeeded() const -> bool
+		{
+			return Status == EModuleOperationStatus::Succeeded || Status == EModuleOperationStatus::AlreadyStopped;
+		}
+	};
+
+	// Reports physical unload state and the evidence that authorized or rejected it.
+	struct FModuleUnloadResult
+	{
+		EModuleOperationStatus Status = EModuleOperationStatus::NotFound;
+		FName ModuleName;
+		EModuleState ObservedState = EModuleState::Registered;
+		std::string Message;
+		FModularFeatureRetirementSnapshot RetirementSnapshot;
+
+		[[nodiscard]] auto Succeeded() const -> bool { return Status == EModuleOperationStatus::Succeeded; }
+	};
+
+	// Owns one logical module record and its current load generation resources.
 	class FModuleInfo
 	{
 	public:
 		FName ModuleName;
-
 		std::string FileName;
-
 		FModuleHandle Handle = nullptr;
-
 		std::unique_ptr<IModuleInterface> Module;
-
-		// This flag is used to check if the module's startup function has been called.
-		std::atomic<bool> bIsReady = false;
-
-		// This is used to record the order in which the modules are loaded, so that we can call their shutdown functions in the reverse order of loading.
+		std::atomic<EModuleState> State = EModuleState::Registered;
 		uint32 LoadOrder = 0;
+		uint64 OwnerGeneration = 0;
+		std::shared_ptr<Detail::FModularFeatureOwnerState> FeatureOwner;
 	};
 
 	using InitializeModuleFunc = IModuleInterface* (*)();
 
-	// Loads modules on demand and shuts initialized modules down in reverse load order.
+	// Serializes native module lifecycle and prevents unload before owner quiescence.
 	class FModuleManager
 	{
 	public:
@@ -55,60 +165,50 @@ namespace Durin
 		template<typename TModuleInterface>
 		static auto LoadModuleChecked(const FName& InModuleName) -> TModuleInterface&
 		{
-			IModuleInterface& Module = Get().LoadModuleChecked(InModuleName);
-			return static_cast<TModuleInterface&>(Module);
+			return static_cast<TModuleInterface&>(Get().LoadModuleChecked(InModuleName));
 		}
 
 		CORE_API auto AddModule(const FName& InModuleName, const std::string& FileName) -> void;
-
 		CORE_API auto FindModule(const FName& InModuleName) -> FModuleInfoPtr;
-
 		CORE_API auto LoadModule(const FName& InModuleName) -> IModuleInterface*;
-
 		CORE_API auto LoadModuleChecked(const FName& InModuleName) -> IModuleInterface&;
-
 		CORE_API auto IsModuleLoaded(const FName& InModuleName) -> bool;
-
 		CORE_API auto GetModule(const FName& InModuleName) -> IModuleInterface*;
-
-		// Runs a module's shutdown callback without releasing its instance or native library.
-		CORE_API auto ShutdownModule(const FName& InModuleName) -> void;
-
-		CORE_API auto UnloadModule(const FName& InModuleName) -> void;
-
+		CORE_API auto ShutdownModule(const FName& InModuleName) -> FModuleShutdownResult;
+		CORE_API auto UnloadModule(const FName& InModuleName) -> FModuleUnloadResult;
 		CORE_API auto StartProcessingNewlyLoadedObjects() -> void;
-
 		CORE_API auto SetProcessLoadedObjectsCallback(std::function<void()> Callback) -> void;
-		CORE_API auto SetPreShutdownModuleCallback(
-			std::function<bool(FName)> Callback
-		) -> void;
-
-		// Does not actually unload the modules, but calls their shutdown functions in the reverse order of loading. The modules will be unloaded when the process exits.
+		CORE_API auto SetPreShutdownModuleCallback(std::function<bool(FName)> Callback) -> void;
 		CORE_API auto UnloadModulesAtShutdown() -> void;
 
 	private:
+		FModuleManager();
+		auto IsControlThread() const -> bool;
+		auto MakeShutdownFailure(
+			const FModuleInfoPtr& ModuleInfo,
+			EModuleOperationStatus Status,
+			std::string Message,
+			FModularFeatureRetirementSnapshot Snapshot = {}
+		) -> FModuleShutdownResult;
+
 		FModuleMap Modules;
-
+		mutable std::mutex ModuleMapMutex;
+		uint32 ControlThreadId = 0;
+		uint32 NextLoadOrder = 0;
+		uint64 NextOwnerGeneration = 1;
+		std::chrono::milliseconds FeatureRetirementTimeout = std::chrono::seconds(5);
 		bool bCanProcessNewlyLoadedObjects = false;
-
 		std::function<void()> ProcessLoadedObjectsCallback;
-
 		std::function<bool(FName)> PreShutdownModuleCallback;
+
+		friend class FModuleTestContextFactory;
 	};
 
-	/**
-	 * A default implementation of IModuleInterface that does nothing at startup or shutdown.
-	 */
+	// Supplies no-op context-bearing lifecycle hooks for modules without custom work.
 	class FDefaultModuleImpl : public IModuleInterface
 	{
 	};
 }
-/**
- * This template function is used to load a module from a DLL.
- * class FDefaultModuleImpl is the default implementation of IModuleInterface.
- * This function will be called by FModuleManager::LoadModule.
- * @return The module interface.
- */
 
 // clang-format off
 #define IMPLEMENT_MODULE(ModuleImplClass, ModuleName) \

@@ -13,8 +13,8 @@ namespace Durin
 		RENDERER_API FRendererModule();
 		RENDERER_API ~FRendererModule() override;
 
-		RENDERER_API auto StartupModule() -> void override;
-		RENDERER_API auto ShutdownModule() -> void override;
+		RENDERER_API auto StartupModule(FModuleContext& Context) -> void override;
+		RENDERER_API auto ShutdownModule(FModuleShutdownContext& Context) -> void override;
 		RENDERER_API auto CreateScene() -> FScenePtr override;
 		RENDERER_API auto RenderView(
 			FRHICommandListImmediate& CommandList,

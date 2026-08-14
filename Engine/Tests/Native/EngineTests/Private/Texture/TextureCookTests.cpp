@@ -11,6 +11,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
+#include "Modules/ModuleTestContext.h"
 #include "NativeTestSupport.h"
 #include "RendererModule.h"
 #include "RHICommandList.h"
@@ -328,7 +329,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		CookedTexture->GetTextureReferenceRHI();
 	ASSERT_NE(TextureReference, nullptr);
 	Durin::FRendererModule Renderer;
-	Renderer.StartupModule();
+	auto RendererContext = Durin::FModuleTestContextFactory::CreateStartupContext("TextureCookRendererTest");
+	Renderer.StartupModule(RendererContext);
 	Durin::FScenePtr SceneOwner = Renderer.CreateScene();
 	auto& Scene = static_cast<Durin::FScene&>(*SceneOwner);
 	auto* SampleMesh = Durin::DStaticMesh::CreateDebugTriangle();
@@ -453,7 +455,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		[Reference = std::move(TextureReference)](
 			Durin::FRHICommandListImmediate&) {});
 	Durin::FlushRenderingCommands();
-	Renderer.ShutdownModule();
+	auto RendererShutdownContext = Durin::FModuleTestContextFactory::CreateShutdownContext(RendererContext);
+	Renderer.ShutdownModule(RendererShutdownContext);
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
 	Durin::FRHICommandListImmediate::Get().SwitchPipeline(Durin::ERHIPipeline::None);

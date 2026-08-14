@@ -8,13 +8,13 @@ namespace Durin
 	class FAssetImportCoreModule final : public IModuleInterface
 	{
 	public:
-		auto StartupModule() -> void override
+		auto StartupModule(FModuleContext&) -> void override
 		{
 			ReferenceStoreHandle = Asset::RegisterAssetReferenceStore(
 				&Asset::Import::GetImportRecordIndex());
 		}
 
-		auto ShutdownModule() -> void override
+		auto ShutdownModule(FModuleShutdownContext&) -> void override
 		{
 			Asset::UnregisterAssetReferenceStore(ReferenceStoreHandle);
 			ReferenceStoreHandle = 0;

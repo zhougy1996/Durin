@@ -1,4 +1,5 @@
 #include "SkyBoxTestSupport.h"
+#include "Modules/ModuleTestContext.h"
 #include "TextureCubeSourceTranslation.h"
 
 TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax)
@@ -39,7 +40,8 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		CommandList.SwitchPipeline(Durin::ERHIPipeline::Graphics);
 		Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 	});
-	Renderer.StartupModule();
+	auto RendererContext = Durin::FModuleTestContextFactory::CreateStartupContext("SkyBoxRendererTest");
+	Renderer.StartupModule(RendererContext);
 
 	Durin::Asset::Import::Standard::FTextureCubeImportResult CubeResult = Durin::Asset::Import::Standard::ImportTextureCubePanorama(
 		GetSkyBoxPanoramaFixture("AnalyticalLDR.tga").generic_string(),
@@ -437,7 +439,8 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			HdrReference = std::move(HdrCubeReference)](
 			Durin::FRHICommandListImmediate&) {});
 	Durin::FlushRenderingCommands();
-	Renderer.ShutdownModule();
+	auto RendererShutdownContext = Durin::FModuleTestContextFactory::CreateShutdownContext(RendererContext);
+	Renderer.ShutdownModule(RendererShutdownContext);
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
 	Durin::RHIExit();

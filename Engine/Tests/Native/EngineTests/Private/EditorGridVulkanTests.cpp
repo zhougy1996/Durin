@@ -6,6 +6,7 @@
 #include "HAL/PlatformLTS.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Modules/ModuleManager.h"
+#include "Modules/ModuleTestContext.h"
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
@@ -136,7 +137,8 @@ namespace Durin
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 		FRendererModule Renderer;
-		Renderer.StartupModule();
+		auto RendererContext = Durin::FModuleTestContextFactory::CreateStartupContext("EditorGridRendererTest");
+		Renderer.StartupModule(RendererContext);
 		const std::array<uint16, 9> Samples{};
 		std::shared_ptr<const FTerrainHeightmapPayload> Payload;
 		std::string Error;
@@ -209,7 +211,8 @@ namespace Durin
 			Renderer, &OccluderScene, CameraDirections.front());
 		EXPECT_EQ(CountVisiblePixels(OccludedPixels), 0u);
 
-		Renderer.ShutdownModule();
+		auto RendererShutdownContext = Durin::FModuleTestContextFactory::CreateShutdownContext(RendererContext);
+		Renderer.ShutdownModule(RendererShutdownContext);
 		ShutdownRenderingThread();
 		FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
 		RHIExit();

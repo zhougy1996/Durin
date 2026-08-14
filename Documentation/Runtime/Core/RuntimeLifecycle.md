@@ -298,23 +298,25 @@ into retained history.
 
 ## Module Loader
 
-The runtime module loader lives in:
+Modules load by logical name and use
+`<RuntimeVariant>-<ModuleName>.dll`. Each successful load generation receives a
+Core-created owner identity through `FModuleContext`, and only an `Active`
+record is returned to callers. Startup and shutdown callbacks run without the
+module-map lock.
 
-- `Engine/Source/Runtime/Core/Private/Modules/ModuleManager.cpp`
-- `Engine/Source/Runtime/Core/Public/Modules/ModuleManager.h`
+Shutdown transitions the module to `Retiring`, closes all typed modular-feature
+admission for its owner, and waits for admitted synchronous visitors before
+the CoreDObject pre-shutdown hook drains the module's `/Cpp/<Module>` package.
+It then calls the context-bearing shutdown callback and audits feature
+quiescence. Success leaves the instance `StoppedMapped`; explicit unload alone
+destroys the instance and releases the library. Wrong-thread, recursive,
+timeout, reflected-object, callback, or audit failure leaves the module
+`UnloadBlocked` and mapped. Process shutdown preserves reverse load order and
+uses the same retirement path without physically releasing libraries.
 
-Behavior summary:
-
-- modules load by logical name
-- filenames derive from the active runtime variant
-- filenames follow `<RuntimeVariant>-<ModuleName>.dll`
-- shutdown order is reverse load order
-- before a ready module's shutdown callback, Core invokes the CoreDObject
-  pre-shutdown hook to release and drain class defaults owned by that module's
-  `/Cpp/<Module>` package; a failed drain rejects shutdown/unload
-- a module may run its shutdown callback early while its instance remains
-  available through the object drain; the final module pass releases instances,
-  while native libraries remain mapped until process exit
+The typed visitor API, state machine, lock order, failure categories, and the
+synchronous/asynchronous boundary are defined by
+[Modular Features and Module Retirement](ModularFeaturesAndModuleRetirement.md).
 
 When changing cross-module behavior, verify both CMake dependencies and runtime
 load order expectations.
