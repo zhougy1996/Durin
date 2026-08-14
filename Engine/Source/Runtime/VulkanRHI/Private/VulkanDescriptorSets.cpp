@@ -119,7 +119,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanDescriptorPool::FVulkanDescriptorPool(FVulkanDevice* InDevice, const FVulkanDescriptorRequirements& InRequirements)
 		: Device(InDevice)
-		, MaxDescriptorSets(std::max(256u, InRequirements.MaxSets * 2u))
+		, MaxDescriptorSets(InRequirements.MaxSets)
 		, NumAllocatedDescriptorSets(0)
 		, PeakAllocatedDescriptorSets(0)
 	{
@@ -127,9 +127,8 @@ namespace Durin::VulkanRHI
 		PoolSizes.reserve(InRequirements.DescriptorCounts.size());
 		for (const auto& [Type, Count] : InRequirements.DescriptorCounts)
 		{
-			const uint32 Capacity = std::max(256u, Count * 2u);
-			DescriptorCapacities.emplace(Type, Capacity);
-			PoolSizes.emplace_back(Type, Capacity);
+			DescriptorCapacities.emplace(Type, Count);
+			PoolSizes.emplace_back(Type, Count);
 		}
 
 		vk::DescriptorPoolCreateInfo CreateInfo;
@@ -222,15 +221,11 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanGlobalDescriptorPool::CreatePool(
 		const FVulkanDescriptorRequirements& Requirements,
-		uint32 GrowthMaxSets) -> FVulkanDescriptorPool&
+		uint32 TargetMaxSets) -> FVulkanDescriptorPool&
 	{
 		constexpr uint32 MaxPoolsPerBatch = 32;
-		FVulkanDescriptorRequirements PoolRequirements = Requirements;
-		PoolRequirements.MaxSets = std::max(PoolRequirements.MaxSets, GrowthMaxSets);
-		for (auto& [Type, Count] : PoolRequirements.DescriptorCounts)
-		{
-			Count = std::max(Count, 128u);
-		}
+		const FVulkanDescriptorRequirements PoolRequirements =
+			Requirements.ScaleToSetCapacity(TargetMaxSets);
 
 		FPoolBatch& Batch = GetActiveBatch();
 		auto& Pools = Batch.Pools;
@@ -292,12 +287,13 @@ namespace Durin::VulkanRHI
 			}
 		}
 
-		uint32 GrowthMaxSets = 256;
+		uint32 TargetMaxSets = kInitialDescriptorPoolSetCapacity;
 		if (!Pools.empty())
 		{
-			GrowthMaxSets = Pools.back()->GetMaxSets() * 2u;
+			TargetMaxSets = GetNextDescriptorPoolSetCapacity(
+				Pools.back()->GetMaxSets());
 		}
-		FVulkanDescriptorPool& NewPool = CreatePool(Requirements, GrowthMaxSets);
+		FVulkanDescriptorPool& NewPool = CreatePool(Requirements, TargetMaxSets);
 		vk::DescriptorSetAllocateInfo AllocateInfo;
 		AllocateInfo
 			.setDescriptorPool(NewPool.GetHandle())

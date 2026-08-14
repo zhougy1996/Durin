@@ -12,6 +12,32 @@ namespace Durin::VulkanRHI
 		uint32 MaxSets = 0;
 		std::unordered_map<vk::DescriptorType, uint32> DescriptorCounts;
 
+		auto ScaleToSetCapacity(uint32 TargetSetCapacity) const
+			-> FVulkanDescriptorRequirements
+		{
+			check(MaxSets > 0);
+			const uint64 AllocationCapacity =
+				(std::max(TargetSetCapacity, MaxSets) + static_cast<uint64>(MaxSets) - 1)
+				/ MaxSets;
+			const uint64 ScaledSetCapacity = AllocationCapacity * MaxSets;
+			checkf(ScaledSetCapacity <= std::numeric_limits<uint32>::max(),
+				"Vulkan descriptor pool set capacity overflow: requestedSets={}, targetSets={}",
+				MaxSets, TargetSetCapacity);
+
+			FVulkanDescriptorRequirements Result;
+			Result.MaxSets = static_cast<uint32>(ScaledSetCapacity);
+			for (const auto& [Type, Count] : DescriptorCounts)
+			{
+				const uint64 ScaledCount = AllocationCapacity * Count;
+				checkf(ScaledCount <= std::numeric_limits<uint32>::max(),
+					"Vulkan descriptor pool type capacity overflow: type={}, requestedDescriptors={}, allocations={}",
+					vk::to_string(Type), Count, AllocationCapacity);
+				Result.DescriptorCounts.emplace(
+					Type, static_cast<uint32>(ScaledCount));
+			}
+			return Result;
+		}
+
 		auto Add(const FVulkanDescriptorRequirements& Other) -> void
 		{
 			MaxSets += Other.MaxSets;
@@ -21,6 +47,17 @@ namespace Durin::VulkanRHI
 			}
 		}
 	};
+
+	inline constexpr uint32 kInitialDescriptorPoolSetCapacity = 512;
+	inline constexpr uint32 kMaxDescriptorPoolSetCapacity = 65536;
+
+	constexpr auto GetNextDescriptorPoolSetCapacity(uint32 CurrentCapacity)
+		-> uint32
+	{
+		return CurrentCapacity >= kMaxDescriptorPoolSetCapacity
+			? kMaxDescriptorPoolSetCapacity
+			: std::min(kMaxDescriptorPoolSetCapacity, CurrentCapacity * 2u);
+	}
 
 	// Describes the array of descriptor set layouts which will be used to create pipeline layouts.
 	// Only describe the information, does not hold any runtime object
@@ -270,7 +307,7 @@ namespace Durin::VulkanRHI
 			uint32 ExpansionCount = 0;
 		};
 		auto CreatePool(const FVulkanDescriptorRequirements& Requirements,
-			uint32 GrowthMaxSets) -> FVulkanDescriptorPool&;
+			uint32 TargetMaxSets) -> FVulkanDescriptorPool&;
 		auto GetActiveBatch() -> FPoolBatch&;
 
 		FVulkanDevice& Device;

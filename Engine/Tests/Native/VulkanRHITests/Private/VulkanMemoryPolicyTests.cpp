@@ -7,6 +7,7 @@
 #include "VulkanCompletion.h"
 #include "VulkanBuffer.h"
 #include "VulkanDiagnostics.h"
+#include "VulkanDescriptorSets.h"
 #include "VulkanDevice.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanMemory.h"
@@ -16,6 +17,43 @@
 
 namespace Durin::VulkanRHI
 {
+	TEST(FVulkanDescriptorPoolGrowthTests,
+		ScalesEveryDescriptorTypeWithAllocationCapacity)
+	{
+		FVulkanDescriptorRequirements Requirements{
+			.MaxSets = 1,
+			.DescriptorCounts = {
+				{vk::DescriptorType::eSampledImage, 1},
+				{vk::DescriptorType::eSampler, 2}}};
+
+		const FVulkanDescriptorRequirements Scaled =
+			Requirements.ScaleToSetCapacity(512);
+
+		EXPECT_EQ(Scaled.MaxSets, 512u);
+		EXPECT_EQ(Scaled.DescriptorCounts.at(
+			vk::DescriptorType::eSampledImage), 512u);
+		EXPECT_EQ(Scaled.DescriptorCounts.at(
+			vk::DescriptorType::eSampler), 1024u);
+	}
+
+	TEST(FVulkanDescriptorPoolGrowthTests,
+		RoundsToWholeAllocationsAndBoundsGeometricGrowth)
+	{
+		FVulkanDescriptorRequirements Requirements{
+			.MaxSets = 3,
+			.DescriptorCounts = {{vk::DescriptorType::eUniformBuffer, 5}}};
+
+		const FVulkanDescriptorRequirements Scaled =
+			Requirements.ScaleToSetCapacity(512);
+
+		EXPECT_EQ(Scaled.MaxSets, 513u);
+		EXPECT_EQ(Scaled.DescriptorCounts.at(
+			vk::DescriptorType::eUniformBuffer), 855u);
+		EXPECT_EQ(GetNextDescriptorPoolSetCapacity(512), 1024u);
+		EXPECT_EQ(GetNextDescriptorPoolSetCapacity(
+			kMaxDescriptorPoolSetCapacity), kMaxDescriptorPoolSetCapacity);
+	}
+
 	TEST(FVulkanCompletionWatermarkTests,
 		AdvancesOnlyAcrossContiguousObservedTokens)
 	{
