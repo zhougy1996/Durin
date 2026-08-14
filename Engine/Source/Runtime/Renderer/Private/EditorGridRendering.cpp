@@ -8,6 +8,12 @@ namespace Durin::EditorGridRendering
 	{
 		constexpr double MatrixInverseEpsilon = 1.e-8;
 
+		auto PositiveModulo(double Value, double Period) -> double
+		{
+			double Result = std::fmod(Value, Period);
+			return Result < 0.0 ? Result + Period : Result;
+		}
+
 		auto IsFinite(const FMatrix4f& Matrix) -> bool
 		{
 			for (uint32 ColumnIndex = 0; ColumnIndex < 4; ++ColumnIndex)
@@ -35,19 +41,53 @@ namespace Durin::EditorGridRendering
 
 	auto BuildUniform(const FSceneView& View, FEditorGridUniform& OutUniform) -> bool
 	{
-		FMatrix ClipToWorldMatrix;
-		if (!Math::TryInverse(View.ViewProjectionMatrix, ClipToWorldMatrix, MatrixInverseEpsilon)) return false;
+		FMatrix RelativeViewMatrix = View.ViewMatrix;
+		RelativeViewMatrix[3][0] = 0.0;
+		RelativeViewMatrix[3][1] = 0.0;
+		RelativeViewMatrix[3][2] = 0.0;
+		const FMatrix RelativeWorldToClipMatrix =
+			View.ProjectionMatrix * RelativeViewMatrix;
+		FMatrix ClipToRelativeWorldMatrix;
+		if (!Math::TryInverse(
+				RelativeWorldToClipMatrix,
+				ClipToRelativeWorldMatrix,
+				MatrixInverseEpsilon))
+		{
+			return false;
+		}
 
-		const FMatrix4f WorldToClip = ToShaderMatrix(View.ViewProjectionMatrix);
-		const FMatrix4f ClipToWorld = ToShaderMatrix(ClipToWorldMatrix);
-		if (!IsFinite(WorldToClip) || !IsFinite(ClipToWorld)) return false;
+		const FMatrix4f RelativeWorldToClip =
+			ToShaderMatrix(RelativeWorldToClipMatrix);
+		const FMatrix4f ClipToRelativeWorld =
+			ToShaderMatrix(ClipToRelativeWorldMatrix);
+		if (!IsFinite(RelativeWorldToClip)
+			|| !IsFinite(ClipToRelativeWorld))
+		{
+			return false;
+		}
+
+		const double RelativeGridHeight =
+			View.EditorGrid.Height - View.ViewLocation.z;
+		if (!std::isfinite(RelativeGridHeight)) return false;
 
 		const float FadeDistance = std::max(1.0f, View.EditorGrid.FadeDistance);
-		OutUniform.WorldToClip = WorldToClip;
-		OutUniform.ClipToWorld = ClipToWorld;
+		OutUniform.RelativeWorldToClip = RelativeWorldToClip;
+		OutUniform.ClipToRelativeWorld = ClipToRelativeWorld;
 		OutUniform.GridPlane = {
-			static_cast<float>(View.EditorGrid.Height), GridDepthBias, 0.0f, 0.0f};
+			static_cast<float>(RelativeGridHeight), GridViewRayDepthBias, 0.0f, 0.0f};
 		OutUniform.ViewPositionFadeDistance = FVector4f(FVector3f(View.ViewLocation), FadeDistance);
+		for (int32 Exponent = MinimumGridExponent;
+			Exponent <= MaximumGridExponent;
+			++Exponent)
+		{
+			const double Spacing = std::pow(10.0, Exponent);
+			const uint32 Index = static_cast<uint32>(Exponent - MinimumGridExponent);
+			OutUniform.GridPhases[Index] = {
+				static_cast<float>(PositiveModulo(View.ViewLocation.x, Spacing) / Spacing),
+				static_cast<float>(PositiveModulo(View.ViewLocation.y, Spacing) / Spacing),
+				0.0f,
+				0.0f};
+		}
 		OutUniform.MinorColor = View.EditorGrid.MinorColor;
 		OutUniform.MajorColor = View.EditorGrid.MajorColor;
 		OutUniform.AxisXColor = View.EditorGrid.AxisXColor;

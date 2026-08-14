@@ -17,12 +17,13 @@ struct GridFragmentOutput
 
 struct GridUniform
 {
-    float4x4 WorldToClip;
-    float4x4 ClipToWorld;
-    // x is the horizontal grid plane's world-space height; y is the normalized
-    // depth bias that keeps coplanar scene geometry in front; zw are reserved.
+    float4x4 RelativeWorldToClip;
+    float4x4 ClipToRelativeWorld;
+    // x is the horizontal grid plane's height relative to the view origin; y is the
+    // small view-ray distance used only for coplanar depth ordering; zw are reserved.
     float4 GridPlane;
     float4 ViewPositionFadeDistance;
+    float4 GridPhases[13];
     float4 MinorColor;
     float4 MajorColor;
     float4 AxisXColor;
@@ -55,9 +56,13 @@ bool IsFinite(float4 value)
     return !any(isnan(value)) && !any(isinf(value));
 }
 
-float GridLine(float2 worldPosition, float spacing, float2 worldPositionWidth)
+float GridLine(
+    float2 relativeWorldPosition,
+    float spacing,
+    float2 worldPositionWidth,
+    float2 cameraPhase)
 {
-    float2 coordinate = worldPosition / spacing;
+    float2 coordinate = relativeWorldPosition / spacing + cameraPhase;
     float2 width = max(worldPositionWidth / spacing, float2(1.0e-5));
     float2 distanceToLine = abs(frac(coordinate - 0.5) - 0.5) / width;
     return 1.0 - min(min(distanceToLine.x, distanceToLine.y), 1.0);
@@ -71,8 +76,8 @@ float AxisLine(float coordinate)
 [shader("fragment")]
 GridFragmentOutput FragmentMain(GridVSOutput input)
 {
-    float4 nearHomogeneous = mul(Grid.ClipToWorld, float4(input.clipPosition, 0.0, 1.0));
-    float4 farHomogeneous = mul(Grid.ClipToWorld, float4(input.clipPosition, 1.0, 1.0));
+    float4 nearHomogeneous = mul(Grid.ClipToRelativeWorld, float4(input.clipPosition, 0.0, 1.0));
+    float4 farHomogeneous = mul(Grid.ClipToRelativeWorld, float4(input.clipPosition, 1.0, 1.0));
     if (!IsFinite(nearHomogeneous) || !IsFinite(farHomogeneous)
         || abs(nearHomogeneous.w) <= 1.0e-6 || abs(farHomogeneous.w) <= 1.0e-6)
         discard;
@@ -95,17 +100,16 @@ GridFragmentOutput FragmentMain(GridVSOutput input)
     if (!IsFinite(rayDistance) || rayDistance < 0.0)
         discard;
 
-    float3 worldPosition = nearPosition + rayDirection * rayDistance;
-    float4 hitClip = mul(Grid.WorldToClip, float4(worldPosition, 1.0));
-    if (!IsFinite(worldPosition) || !IsFinite(hitClip) || abs(hitClip.w) <= 1.0e-6)
+    float3 relativeWorldPosition = nearPosition + rayDirection * rayDistance;
+    float4 hitClip = mul(Grid.RelativeWorldToClip, float4(relativeWorldPosition, 1.0));
+    if (!IsFinite(relativeWorldPosition) || !IsFinite(hitClip) || abs(hitClip.w) <= 1.0e-6)
         discard;
 
     float hitDepth = hitClip.z / hitClip.w;
     if (!IsFinite(hitDepth) || hitDepth < 0.0 || hitDepth > 1.0)
         discard;
 
-    float3 toView = Grid.ViewPositionFadeDistance.xyz - worldPosition;
-    float distanceToView = length(toView);
+    float distanceToView = length(relativeWorldPosition);
     // Reject only after the smooth distance fade has reached zero. Keeping this hard
     // bound outside the visible interval prevents an early clip edge near the far range.
     if (!IsFinite(distanceToView) || distanceToView >= fadeDistance)
@@ -116,20 +120,25 @@ GridFragmentOutput FragmentMain(GridVSOutput input)
     // disappear before the projected cells collapse into a noisy horizon band.
     float angleFade = smoothstep(0.025, 0.16, abs(rayDirection.z));
 
-    float2 worldPositionDx = ddx(worldPosition.xy);
-    float2 worldPositionDy = ddy(worldPosition.xy);
+    float2 worldPositionDx = ddx(relativeWorldPosition.xy);
+    float2 worldPositionDy = ddy(relativeWorldPosition.xy);
     // Evaluate derivatives before selecting the discrete decade spacing. Taking fwidth()
     // after that selection lets a 2x2 pixel quad straddle a 10x LOD jump and produces a
     // false sawtooth line along the transition boundary.
     float2 worldPositionWidth = max(abs(worldPositionDx) + abs(worldPositionDy), float2(1.0e-5));
     float worldUnitsPerPixel = max(length(worldPositionDx), length(worldPositionDy));
     float logarithmicSpacing = log10(max(worldUnitsPerPixel * 24.0, 1.0e-4));
-    float lowerSpacing = pow(10.0, floor(logarithmicSpacing));
+    int lowerExponent = clamp((int)floor(logarithmicSpacing), -4, 6);
+    float lowerSpacing = pow(10.0, (float)lowerExponent);
     float transition = smoothstep(0.15, 0.85, frac(logarithmicSpacing));
 
-    float lowerLine = GridLine(worldPosition.xy, lowerSpacing, worldPositionWidth);
-    float upperLine = GridLine(worldPosition.xy, lowerSpacing * 10.0, worldPositionWidth);
-    float nextMajorLine = GridLine(worldPosition.xy, lowerSpacing * 100.0, worldPositionWidth);
+    int phaseIndex = lowerExponent + 4;
+    float lowerLine = GridLine(
+        relativeWorldPosition.xy, lowerSpacing, worldPositionWidth, Grid.GridPhases[phaseIndex].xy);
+    float upperLine = GridLine(
+        relativeWorldPosition.xy, lowerSpacing * 10.0, worldPositionWidth, Grid.GridPhases[phaseIndex + 1].xy);
+    float nextMajorLine = GridLine(
+        relativeWorldPosition.xy, lowerSpacing * 100.0, worldPositionWidth, Grid.GridPhases[phaseIndex + 2].xy);
     float minorAmount = lowerLine * (1.0 - transition);
     float upperMinorAmount = upperLine * transition;
     float majorAmount = upperLine * (1.0 - transition) + nextMajorLine * transition;
@@ -143,8 +152,10 @@ GridFragmentOutput FragmentMain(GridVSOutput input)
     color.a = neutralAlpha;
 
     // The red X axis lies on y=0; the green Y axis lies on x=0.
-    float xAxis = AxisLine(worldPosition.y);
-    float yAxis = AxisLine(worldPosition.x);
+    float2 worldPositionForAxes =
+        relativeWorldPosition.xy + Grid.ViewPositionFadeDistance.xy;
+    float xAxis = AxisLine(worldPositionForAxes.y);
+    float yAxis = AxisLine(worldPositionForAxes.x);
     color.rgb = lerp(color.rgb, Grid.AxisXColor.rgb, xAxis);
     color.rgb = lerp(color.rgb, Grid.AxisYColor.rgb, yAxis);
     color.a = max(color.a, max(xAxis * Grid.AxisXColor.a, yAxis * Grid.AxisYColor.a));
@@ -154,6 +165,17 @@ GridFragmentOutput FragmentMain(GridVSOutput input)
 
     GridFragmentOutput output;
     output.color = color;
-    output.depth = saturate(hitDepth + Grid.GridPlane.y);
+    float3 depthBiasedPosition = relativeWorldPosition
+        + rayDirection * Grid.GridPlane.y;
+    float4 depthBiasedClip = mul(
+        Grid.RelativeWorldToClip, float4(depthBiasedPosition, 1.0));
+    float depthBiasedValue = abs(depthBiasedClip.w) > 1.0e-6
+        ? saturate(depthBiasedClip.z / depthBiasedClip.w)
+        : hitDepth;
+    // Retain a two-value D32 floor when the fixed world-sized separation falls below
+    // depth-buffer resolution at distance.
+    output.depth = depthBiasedValue >= 1.0
+        ? 1.0
+        : min(asfloat(asuint(max(depthBiasedValue, 0.0)) + 2u), 1.0);
     return output;
 }
