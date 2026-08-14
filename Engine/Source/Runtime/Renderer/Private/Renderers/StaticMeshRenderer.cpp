@@ -1580,7 +1580,15 @@ namespace Durin
 				Initializer.RasterizerState = Identity.Rasterizer;
 				Initializer.DepthStencilState = Identity.Depth;
 				if (!bShadowDepth)
+				{
 					Initializer.ColorBlendStates[0] = Identity.ColorBlend;
+					if (Identity.Material.ShaderMap.BlendMode
+						== EMaterialBlendMode::Translucent)
+					{
+						Initializer.ColorBlendStates[1].ColorWriteMask =
+							ERHIColorWriteMask::None;
+					}
+				}
 				Initializer.PipelineLayout =
 					Candidate.ShaderMap->GetMergedPipelineLayout();
 				Candidate.PipelineState =
@@ -2200,7 +2208,15 @@ namespace Durin
 				Initializer.RasterizerState = EffectivePipelineKey.Rasterizer;
 				Initializer.DepthStencilState = EffectivePipelineKey.Depth;
 				if (!bShadowDepth)
+				{
 					Initializer.ColorBlendStates[0] = EffectivePipelineKey.ColorBlend;
+					if (EffectivePipelineKey.Material.ShaderMap.BlendMode
+						== EMaterialBlendMode::Translucent)
+					{
+						Initializer.ColorBlendStates[1].ColorWriteMask =
+							ERHIColorWriteMask::None;
+					}
+				}
 				Initializer.PipelineLayout =
 					Candidate.ShaderMap->GetMergedPipelineLayout();
 				Candidate.PipelineState = GDynamicRHI->RHICreateGraphicsPipelineState(

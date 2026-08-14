@@ -96,6 +96,11 @@ namespace Durin
 			EDirectionalShadowFilterQuality::Medium;
 		EDirectionalShadowCandidate DirectionalShadowCandidate =
 			EDirectionalShadowCandidate::ThreeCascades;
+		// Screen-space contact-shadow supplement for the selected directional
+		// light; enabled only when the directional shadow is prepared.
+		bool bEnableContactShadows = true;
+		// Development overlay that visualizes the contact-shadow occlusion.
+		bool bShowContactShadowDebug = false;
 	};
 
 	// Supplies one submission-local cube environment without publishing scene state.

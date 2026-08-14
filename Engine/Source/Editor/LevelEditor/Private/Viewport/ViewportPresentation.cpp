@@ -85,18 +85,30 @@ namespace Durin::Editor::Level
 		auto DrawDirectionalShadowDiagnosticOptions(FLevelEditorViewportClient* ViewportClient) -> void
 		{
 			if (ViewportClient == nullptr) return;
+			const FSceneViewSettings CurrentSettings = ViewportClient->GetViewSettings();
 			const EDirectionalShadowDiagnosticMode CurrentMode =
-				ViewportClient->GetViewSettings().DirectionalShadowDiagnosticMode;
+				CurrentSettings.DirectionalShadowDiagnosticMode;
 			auto SetMode = [ViewportClient](EDirectionalShadowDiagnosticMode Mode) {
 				FSceneViewSettings Settings = ViewportClient->GetViewSettings();
 				Settings.DirectionalShadowDiagnosticMode = Mode;
+				Settings.bShowContactShadowDebug = false;
 				ViewportClient->SetViewSettings(Settings);
 			};
 
 			if (ImGui::RadioButton("Default (Lit / Diagnostics Off)",
-				CurrentMode == EDirectionalShadowDiagnosticMode::Lit))
+				CurrentMode == EDirectionalShadowDiagnosticMode::Lit
+				&& !CurrentSettings.bShowContactShadowDebug))
 			{
 				SetMode(EDirectionalShadowDiagnosticMode::Lit);
+			}
+			if (ImGui::RadioButton("Contact Shadow Contribution",
+				CurrentSettings.bShowContactShadowDebug))
+			{
+				FSceneViewSettings Settings = ViewportClient->GetViewSettings();
+				Settings.DirectionalShadowDiagnosticMode = EDirectionalShadowDiagnosticMode::Lit;
+				Settings.bEnableContactShadows = true;
+				Settings.bShowContactShadowDebug = true;
+				ViewportClient->SetViewSettings(Settings);
 			}
 			ImGui::Separator();
 			ImGui::TextDisabled("Coverage and Bias");
@@ -769,6 +781,16 @@ namespace Durin::Editor::Level
 			{
 				ImGui::TextDisabled("Directional Shadows");
 				DrawDirectionalShadowQualityOptions(ViewportClient);
+				bool bEnableContactShadows =
+					ViewportClient->GetViewSettings().bEnableContactShadows;
+				if (ImGui::Checkbox("Contact Shadows", &bEnableContactShadows))
+				{
+					FSceneViewSettings Settings = ViewportClient->GetViewSettings();
+					Settings.bEnableContactShadows = bEnableContactShadows;
+					if (!bEnableContactShadows)
+						Settings.bShowContactShadowDebug = false;
+					ViewportClient->SetViewSettings(Settings);
+				}
 				ImGui::Separator();
 				ImGui::TextDisabled("Post Processing");
 				bool bEnableFXAA = Layout.bEnableFXAA;
@@ -1121,6 +1143,8 @@ namespace Durin::Editor::Level
 				DrawRow("Terrain", FormatViewportStatistic(Statistics.TerrainTriangles));
 				DrawRow("Shadow", Statistics.bShadowEnabled
 					? FormatViewportStatistic(Statistics.ShadowTriangles) : "Off");
+				DrawRow("Contact shadow",
+					Statistics.bContactShadowEnabled ? "On" : "Off");
 				DrawRow("Lights (D / P / S)", std::format("{} / {} / {}",
 					Statistics.DirectionalLights, Statistics.PointLights,
 					Statistics.SpotLights));

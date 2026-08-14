@@ -232,6 +232,7 @@ namespace Durin
 			Counters.ShadowCascadeCount, std::numeric_limits<uint32>::max()));
 		Result.bShadowEnabled = Counters.ShadowValidReceiverViews != 0
 			&& Counters.ShadowCascadeCount != 0;
+		Result.bContactShadowEnabled = Counters.ContactShadowEnabledViews != 0;
 		return Result;
 	}
 
@@ -249,6 +250,7 @@ namespace Durin
 		, SkeletalMeshRenderer(Coordinator, DefaultTextures, EnvironmentLighting)
 		, SkyBoxRenderer(Coordinator, DefaultTextures)
 		, PostProcessRenderer(Coordinator, FullscreenGeometry)
+		, ContactShadowRenderer(Coordinator, FullscreenGeometry)
 		, EditorAssistanceRenderer(Coordinator, FullscreenGeometry)
 	{
 	}
@@ -309,6 +311,7 @@ namespace Durin
 		SkyBoxRenderer.ReleaseResources_RenderThread();
 		EditorAssistanceRenderer.ReleaseResources_RenderThread();
 		PostProcessRenderer.ReleaseResources_RenderThread();
+		ContactShadowRenderer.ReleaseResources_RenderThread();
 		FullscreenGeometry.ReleaseResources_RenderThread();
 	}
 
@@ -373,6 +376,7 @@ namespace Durin
 						DirectionalShadowRenderer.ReleaseResources_RenderThread();
 						SkyBoxRenderer.ReleaseResources_RenderThread();
 						PostProcessRenderer.ReleaseResources_RenderThread();
+						ContactShadowRenderer.ReleaseResources_RenderThread();
 						EditorAssistanceRenderer.
 							ReleaseResources_RenderThread();
 						FullscreenGeometry.ReleaseResources_RenderThread();
@@ -443,7 +447,8 @@ namespace Durin
 		FPostProcessRenderer::FSceneTargets* SceneTargets =
 			PostProcessRenderer.EnsureSceneTargets_RenderThread(Width, Height);
 		if (SceneTargets == nullptr || SceneTargets->Color == nullptr
-			|| SceneTargets->Depth == nullptr)
+			|| SceneTargets->Depth == nullptr
+			|| SceneTargets->DirectionalDirect == nullptr)
 		{
 			return ERenderViewResult::RendererResourcesUnavailable;
 		}
@@ -726,12 +731,15 @@ namespace Durin
 		ScenePassInfo.RenderTargetLayout =
 			RenderTargetLayouts::MakeSceneTargets();
 		ScenePassInfo.ColorRenderTargets[0] = SceneColor;
+		ScenePassInfo.ColorRenderTargets[1] = SceneTargets->DirectionalDirect;
 		ScenePassInfo.DepthStencilRenderTarget = SceneTargets->Depth;
 		ScenePassInfo.ColorClearValues[0] = FClearValueBinding(
 			View.ClearColor.r,
 			View.ClearColor.g,
 			View.ClearColor.b,
 			View.ClearColor.a);
+		ScenePassInfo.ColorClearValues[1] =
+			FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f);
 		ScenePassInfo.DepthStencilClearValue = FClearValueBinding(
 			View.DepthConvention == ESceneDepthConvention::ReversedZ ? 0.0f : 1.0f,
 			0u);
@@ -765,6 +773,32 @@ namespace Durin
 			PreparedView.SkeletalMeshes, PreparedView.Counters);
 		CopyTerrainCounters(PreparedView.Terrains, PreparedView.Counters);
 
+		FRHITexture* PostProcessInput = SceneColor;
+		if (RenderView.Settings.bEnableContactShadows
+			&& PreparedView.DirectionalShadow.bEnabled
+			&& SceneTargets->ContactColor != nullptr)
+		{
+			if (ContactShadowRenderer.Render_RenderThread(
+					CommandList,
+					SceneColor,
+					SceneTargets->DirectionalDirect,
+					SceneTargets->Depth,
+					SceneTargets->ContactColor,
+					RenderView,
+					PreparedView.DirectionalShadow.LightDirection,
+					RenderView.Settings.bShowContactShadowDebug,
+					Width,
+					Height))
+			{
+				PostProcessInput = SceneTargets->ContactColor;
+				++PreparedView.Counters.ContactShadowEnabledViews;
+			}
+			else
+			{
+				++PreparedView.Counters.ContactShadowPassFailures;
+			}
+		}
+
 		const RendererEditorAssistance::FRequest EditorAssistanceRequest =
 			FEditorAssistanceRenderer::AnalyzeRequest(RenderView, ViewportOutput);
 		RendererEditorAssistance::FPrepared PreparedEditorAssistance;
@@ -797,7 +831,7 @@ namespace Durin
 				: "PostProcessOffscreenRenderPass");
 		PostProcessRenderer.Draw_RenderThread(
 			CommandList,
-			SceneColor,
+			PostProcessInput,
 			Width,
 			Height,
 			bPresentOutput,

@@ -31,8 +31,8 @@ namespace Durin
 	inline constexpr float DirectionalShadowDepthBiasClamp = 4.0f;
 	inline constexpr float DirectionalShadowReceiverBias = 0.0005f;
 	inline constexpr float DirectionalShadowMaximumReceiverWorldBias = 0.02f;
-	inline constexpr float DirectionalShadowMaximumNormalOffset = 0.10f;
-	inline constexpr float DirectionalShadowMaximumTotalWorldBias = 0.10f;
+	inline constexpr float DirectionalShadowMaximumNormalOffset = 0.06f;
+	inline constexpr float DirectionalShadowMaximumTotalWorldBias = 0.08f;
 
 	struct FDirectionalShadowBias
 	{

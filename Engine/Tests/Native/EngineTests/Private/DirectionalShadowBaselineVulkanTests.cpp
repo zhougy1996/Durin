@@ -128,14 +128,16 @@ namespace
 	}
 
 	auto MakeMaterial(Durin::EMaterialBlendMode BlendMode,
-		const Durin::FVector3& BaseColor) -> Durin::FMaterialRenderProxyRef
+		const Durin::FVector3& BaseColor,
+		Durin::EMaterialShadingModel ShadingModel =
+			Durin::EMaterialShadingModel::Lit) -> Durin::FMaterialRenderProxyRef
 	{
 		auto Proxy = Durin::MakeRefCount<Durin::FMaterialRenderProxy>();
 		Durin::FMaterialRenderProxyPublication Publication;
 		Publication.LocalVersion = 1;
 		Publication.LocalLayer.StaticProperties = Durin::FMaterialStaticProperties{
 			.BlendMode = BlendMode,
-			.ShadingModel = Durin::EMaterialShadingModel::Lit,
+			.ShadingModel = ShadingModel,
 			.bTwoSided = true,
 			.OpacityMaskThreshold = 0.4f};
 		Publication.LocalLayer.Parameters.push_back({
@@ -817,6 +819,8 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 				View.Settings.DirectionalShadowFilterQuality =
 					Fixture.FilterQuality;
 				View.Settings.DirectionalShadowCandidate = Fixture.Candidate;
+				// Contact-shadow supplement stays off for the shadow-map-only baseline.
+				View.Settings.bEnableContactShadows = false;
 				EXPECT_EQ(Renderer.RenderView(
 					CommandList, &Scene, View, Target, false, {}),
 					Durin::ERenderViewResult::Success);
@@ -1014,6 +1018,212 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 		<< "Directional shadow Q1 Low entry motion pixels: "
 		<< Q1EntryMotionChangedPixels[0] << ", "
 		<< Q1EntryMotionChangedPixels[1] << '\n';
+
+	Durin::SetViewRenderCounterSink(nullptr);
+	Renderer.ShutdownModule();
+	Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
+		[&](Durin::FRHICommandListImmediate&) { Quad->ReleaseResources(); });
+	Durin::FlushRenderingCommands();
+	Durin::ShutdownRenderingThread();
+	Durin::RHIExit();
+}
+
+TEST(FDirectionalShadowBaselineVulkanTests,
+	ContactShadowRunsAndDarkensNearFieldBounded)
+{
+	if (!Durin::GIsGameThreadIdInitialized)
+	{
+		Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
+		Durin::GIsGameThreadIdInitialized = true;
+	}
+	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
+	Durin::FModuleManager::Get().LoadModule("RenderCore");
+	Durin::RHIInit();
+	ASSERT_NE(Durin::GDynamicRHI, nullptr);
+	Durin::InitRenderingThread();
+	Durin::FRendererModule Renderer;
+	Renderer.StartupModule();
+	Durin::SetViewRenderCounterSink(CaptureCounters);
+
+	auto Quad = MakeQuadRenderData();
+	Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
+		[&](Durin::FRHICommandListImmediate& CommandList) {
+			ASSERT_TRUE(Quad->InitResources(CommandList));
+		});
+	Durin::FlushRenderingCommands();
+	auto Opaque = MakeMaterial(
+		Durin::EMaterialBlendMode::Opaque, {0.72, 0.72, 0.72});
+
+	// Ground quad plus a floating occluder: the exact contact-detachment
+	// scenario where necessary bias leaves a detached shadow the screen-space
+	// supplement should refill.
+	Durin::FScene Scene;
+	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(1),
+		std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(),
+			std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1),
+		MakeTransform({.Translation = {0.0, 0.0, -0.5},
+			.Scale = {0.82, 0.82, 1.0}}));
+	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(2),
+		std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(),
+			std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1),
+		MakeTransform({.Translation = {-0.18, 0.08, -0.4},
+			.Scale = {0.22, 0.18, 1.0}}));
+	// A vertical wall whose visible face is back-facing relative to the light:
+	// the screen-space supplement must NOT self-occlude it. The camera looks
+	// toward -z (projection maps smaller z to nearer), so the floor at negative
+	// z presents its +z face, which faces the light.
+	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(3),
+		std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(),
+			std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1),
+		MakeTransform({.Translation = {-0.35, 0.0, -0.45},
+			.Scale = {0.25, 0.25, 1.0}, .RotationYDegrees = 90.0}));
+	Durin::FDirectionalLightSceneData Directional;
+	Directional.Direction = {0.35, 0.2, -1.0};
+	Directional.Color = {1.0f, 1.0f, 1.0f};
+	Directional.Intensity = 3.0f;
+	Directional.bCastShadows = true;
+	Scene.AddOrReplaceLight(Durin::FLightSceneId(100),
+		std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
+	Durin::FlushRenderingCommands();
+
+	auto RenderCapture = [&](bool bEnableContactShadows,
+		bool bShowContactShadowDebug,
+		std::vector<Durin::uint8>& OutPixels) -> Durin::FViewRenderCounters
+	{
+		auto Pixels = std::make_shared<std::vector<Durin::uint8>>();
+		Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
+			[&Renderer, &Scene, bEnableContactShadows,
+				bShowContactShadowDebug, Pixels](
+				Durin::FRHICommandListImmediate& CommandList) {
+				Durin::GRenderFrameCounterRenderThread++;
+				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+				const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+					"ContactShadowCapture", CaptureWidth, CaptureHeight,
+					Durin::EPixelFormat::SRGBA8_UNORM)
+					.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
+						| Durin::ETextureCreateFlags::ShaderResource
+						| Durin::ETextureCreateFlags::CPUReadback);
+				Durin::FTextureRHIRef Target =
+					Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+				ASSERT_NE(Target, nullptr);
+				Durin::FSceneView View;
+				View.ViewMatrix = Durin::FMatrix(1.0);
+				View.ProjectionMatrix = Durin::FMatrix(1.0);
+				View.ProjectionMatrix[2][2] = -1.0;
+				View.ProjectionMatrix[3][2] = 0.0;
+				View.ViewProjectionMatrix =
+					View.ProjectionMatrix * View.ViewMatrix;
+				View.ViewportWidth = CaptureWidth;
+				View.ViewportHeight = CaptureHeight;
+				View.Settings.VisibilityMode =
+					Durin::EViewVisibilityMode::FrustumCullingDisabled;
+				View.Settings.DirectionalShadowCandidate =
+					Durin::EDirectionalShadowCandidate::SingleMap;
+				View.Settings.DirectionalShadowFilterQuality =
+					Durin::EDirectionalShadowFilterQuality::Low;
+				View.Settings.bEnableContactShadows = bEnableContactShadows;
+				View.Settings.bShowContactShadowDebug =
+					bShowContactShadowDebug;
+				EXPECT_EQ(Renderer.RenderView(
+					CommandList, &Scene, View, Target, false, {}),
+					Durin::ERenderViewResult::Success);
+				ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
+					CommandList, Target, 0, 0, *Pixels));
+				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+			});
+		Durin::FlushRenderingCommands();
+		EXPECT_EQ(Pixels->size(),
+			static_cast<size_t>(CaptureWidth) * CaptureHeight * 4u);
+		OutPixels = std::move(*Pixels);
+		return GLastCounters;
+	};
+
+	std::vector<Durin::uint8> PixelsOff;
+	const Durin::FViewRenderCounters CountersOff =
+		RenderCapture(false, false, PixelsOff);
+	std::vector<Durin::uint8> PixelsOn;
+	const Durin::FViewRenderCounters CountersOn =
+		RenderCapture(true, false, PixelsOn);
+
+	// The pass must run exactly once when enabled, zero when disabled, and
+	// never report a resource/input failure.
+	EXPECT_EQ(CountersOff.ContactShadowEnabledViews, 0u);
+	EXPECT_EQ(CountersOn.ContactShadowEnabledViews, 1u);
+	EXPECT_EQ(CountersOn.ContactShadowPassFailures, 0u);
+
+	// The enabled image must differ from the disabled one and the difference
+	// must stay bounded (near-field contact, not a whole-frame darkening).
+	EXPECT_NE(PixelsOn, PixelsOff);
+	const size_t ChangedPixels = CountChangedPixels(PixelsOn, PixelsOff, 2);
+	EXPECT_GT(ChangedPixels, 0u);
+	EXPECT_LT(ChangedPixels, CaptureWidth * CaptureHeight / 2u);
+
+	// The editor's contact-contribution diagnostic is a bounded red mask, not
+	// another lighting mode. Keep it covered by the same near-field fixture.
+	std::vector<Durin::uint8> DebugPixels;
+	const Durin::FViewRenderCounters DebugCounters =
+		RenderCapture(true, true, DebugPixels);
+	EXPECT_EQ(DebugCounters.ContactShadowEnabledViews, 1u);
+	EXPECT_EQ(DebugCounters.ContactShadowPassFailures, 0u);
+	size_t DebugContributionPixels = 0;
+	for (size_t Pixel = 0; Pixel + 3 < DebugPixels.size(); Pixel += 4)
+	{
+		if (DebugPixels[Pixel] > 2)
+		{
+			++DebugContributionPixels;
+			EXPECT_LE(DebugPixels[Pixel + 1], 2u);
+			EXPECT_LE(DebugPixels[Pixel + 2], 2u);
+		}
+	}
+	EXPECT_GT(DebugContributionPixels, 0u);
+	EXPECT_LT(DebugContributionPixels, CaptureWidth * CaptureHeight / 2u);
+
+	const FCaptureStatistics StatsOff =
+		CalculateStatistics("contact_off", PixelsOff, CountersOff);
+	const FCaptureStatistics StatsOn =
+		CalculateStatistics("contact_on", PixelsOn, CountersOn);
+	const std::filesystem::path OutputDirectory =
+		Durin::Testing::CreateTestFixtureDirectory(
+			"DirectionalContactShadow");
+	WritePpm(OutputDirectory / "contact_shadow_off.ppm", PixelsOff);
+	WritePpm(OutputDirectory / "contact_shadow_on.ppm", PixelsOn);
+	std::cout << "Contact shadow changed pixels: " << ChangedPixels
+		<< " (off dark/mid/bright " << StatsOff.DarkPixels << "/"
+		<< StatsOff.MidPixels << "/" << StatsOff.BrightPixels
+		<< ", on " << StatsOn.DarkPixels << "/" << StatsOn.MidPixels << "/"
+		<< StatsOn.BrightPixels << ")\n";
+
+	// Contact shadows may only attenuate the selected directional direct term.
+	// Preserve the same depth and occluder configuration while rendering it
+	// unlit: the pass still runs, but it has no contribution to remove.
+	auto Unlit = MakeMaterial(
+		Durin::EMaterialBlendMode::Opaque,
+		{0.35, 0.22, 0.12},
+		Durin::EMaterialShadingModel::Unlit);
+	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(1),
+		std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(),
+			std::vector<Durin::FMaterialRenderProxyRef>{Unlit}, 1),
+		MakeTransform({.Translation = {0.0, 0.0, -0.5},
+			.Scale = {0.82, 0.82, 1.0}}));
+	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(2),
+		std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(),
+			std::vector<Durin::FMaterialRenderProxyRef>{Unlit}, 1),
+		MakeTransform({.Translation = {-0.18, 0.08, -0.4},
+			.Scale = {0.22, 0.18, 1.0}}));
+	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(3),
+		std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(),
+			std::vector<Durin::FMaterialRenderProxyRef>{Unlit}, 1),
+		MakeTransform({.Translation = {-0.35, 0.0, -0.45},
+			.Scale = {0.25, 0.25, 1.0}, .RotationYDegrees = 90.0}));
+	Durin::FlushRenderingCommands();
+	std::vector<Durin::uint8> UnlitOff;
+	std::vector<Durin::uint8> UnlitOn;
+	RenderCapture(false, false, UnlitOff);
+	const Durin::FViewRenderCounters UnlitCounters =
+		RenderCapture(true, false, UnlitOn);
+	EXPECT_EQ(UnlitCounters.ContactShadowEnabledViews, 1u);
+	EXPECT_EQ(UnlitCounters.ContactShadowPassFailures, 0u);
+	EXPECT_EQ(UnlitOn, UnlitOff);
 
 	Durin::SetViewRenderCounterSink(nullptr);
 	Renderer.ShutdownModule();

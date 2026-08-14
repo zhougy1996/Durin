@@ -12,11 +12,16 @@ namespace Durin::RenderTargetLayouts
 		Present,
 	};
 
+	// Scene Color plus the selected directional light's post-shadow direct
+	// contribution, followed by the preserved scene depth attachment.
 	RENDERER_API auto MakeSceneTargets() -> FRHIRenderTargetLayout;
 	// One D32 depth attachment that is cleared for shadow rendering and
 	// published for fragment-shader comparison sampling when the pass ends.
 	RENDERER_API auto MakeDirectionalShadowDepth() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeScenePostProcessOutput() -> FRHIRenderTargetLayout;
+	// One color-only SRGBA8 target that is cleared and published for shader
+	// sampling; used by the contact-shadow pass writing corrected Scene Color.
+	RENDERER_API auto MakeContactShadowOutput() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeFinalScenePostProcessOutput(EViewportOutput Output)
 		-> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeEditorAssistanceOutput(EViewportOutput Output) -> FRHIRenderTargetLayout;

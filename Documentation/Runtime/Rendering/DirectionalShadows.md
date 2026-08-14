@@ -4,7 +4,7 @@ Summary: Defines the selected three-cascade directional-light shadow path, deter
 
 Modules: RenderCore, Renderer, Engine, VulkanRHI
 
-Last reviewed: 2026-08-14
+Last reviewed: 2026-08-15
 
 ## Ownership and selection
 
@@ -106,13 +106,61 @@ One shared Slang helper consumes production world position and the final
 mapped production normal. With normalized surface-to-light direction `l` and
 `g = 1-saturate(abs(dot(n,l)))`, it computes receiver world bias
 `R=clamp(t*(0.05+0.10g),0.0005,0.02)` and normal offset
-`N=clamp(t*(0.20+0.55g),0,0.10)`. `R+N` is limited to
-`min(0.75t,0.10)`, reducing `N` first. The helper transforms `p+lR+nN` through
+`N=clamp(t*(0.05+0.70g),0,0.06)`. `R+N` is limited to
+`min(0.75t,0.08)`, reducing `N` first. The helper transforms `p+lR+nN` through
 the selected world-to-shadow matrix, preserving forward-depth `LessOrEqual`.
 Non-finite bias input uses the old normalized-depth `0.0005` comparison with
 no normal offset; invalid or outside projection remains fully lit. Only the
 selected directional direct-light term is attenuated. Local lights,
 environment/ambient, emissive, rim assistance, and Unlit output are unchanged.
+
+## Screen-space contact supplement
+
+The optional contact-shadow pass supplements the selected directional result
+after Scene Color without treating the completed scene as one lighting term.
+The base pass writes a second R11G11B10 attachment containing only the selected
+directional light's direct contribution after shadow-map attenuation. The
+contact pass subtracts only an occluded fraction of that attachment; local
+lights, environment lighting, emissive output, Unlit materials, and pixels with
+no remaining directional contribution are unchanged.
+
+The pass reconstructs receiver positions from D32 scene depth and marches 24
+fixed steps toward the selected light. It is bounded to 0.75 world units and 96
+screen pixels, starts 0.01 world units from the receiver, and accepts only
+foreground depth whose reconstructed position lies within a 0.08-world-unit
+ray thickness. Depth is fetched with exact texel loads. Linear depth filtering
+and one-sided unbounded device-depth tests are forbidden because they create
+intermediate silhouette depths and detached false occlusion. Hits inside the
+0.08-world-unit bias-repair interval remove the remaining selected directional
+direct term completely, matching the shadow-map result while preserving all
+indirect and local lighting. The contribution then fades smoothly to zero at
+the 0.75-world-unit bound. Because the method cannot represent off-screen
+occluders, contribution also fades through the outer 5% of the viewport,
+clamped to 16-64 pixels, and a ray stops once it leaves the viewport. This
+prevents hard cuts and stretched contact shadows at close-up screen edges.
+At close range, hit thickness is capped to the reconstructed world footprint
+of eight pixels, and the world march extent contracts when its projection
+would exceed the 96-pixel budget. These projection-aware bounds prevent fixed
+world thickness and steps from expanding into broad or skipped screen bands.
+The 24-step baseline grows to at most 64 steps when required to keep projected
+spacing near 1.5 pixels. The first hit is refined with four binary iterations
+between the preceding miss and hit, then terminates the ray; this removes
+close-up grazing-angle quantization without paying the maximum loop cost after
+a contact has already been found. A receiver plane reconstructed from the
+nearest valid depth neighbor on each screen axis rejects hits that remain
+within a 1.5-pixel plane-distance tolerance, clamped to 0.001-0.005 world
+units. Nearest-side selection keeps reconstruction on one surface at depth
+discontinuities. This prevents both grazing wall self-occlusion and alternating
+wall-floor rejection while retaining perpendicular and object-ground contact.
+
+Missing targets, invalid light or matrix input, or resource creation failure
+skips the pass and preserves Scene Color. The viewport View menu exposes a
+`Contact Shadows` checkbox. Its mutually exclusive `Shadow Debug Views >
+Contact Shadow Contribution` mode enables the pass and displays the computed
+contribution as a red mask; selecting another diagnostic clears that mode.
+Per-view counters distinguish enabled passes
+from pass failures. The method remains screen-space: off-screen casters are not
+represented and contact shadows do not replace cascade coverage.
 
 ## Causal diagnostics
 

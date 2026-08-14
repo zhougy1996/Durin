@@ -57,7 +57,7 @@ namespace Durin
 			Texel * (0.05 + 0.10 * Grazing), 0.0005,
 			static_cast<double>(DirectionalShadowMaximumReceiverWorldBias)));
 		Result.NormalWorld = static_cast<float>(std::clamp(
-			Texel * (0.20 + 0.55 * Grazing), 0.0,
+			Texel * (0.05 + 0.70 * Grazing), 0.0,
 			static_cast<double>(DirectionalShadowMaximumNormalOffset)));
 		const float MaximumTotal = static_cast<float>(std::min(
 			0.75 * Texel,

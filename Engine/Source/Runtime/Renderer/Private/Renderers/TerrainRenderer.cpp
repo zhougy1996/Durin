@@ -749,7 +749,15 @@ namespace Durin
 				Initializer.RasterizerState = EffectivePipelineKey.Rasterizer;
 				Initializer.DepthStencilState = EffectivePipelineKey.Depth;
 				if (!bShadowDepth)
+				{
 					Initializer.ColorBlendStates[0] = EffectivePipelineKey.ColorBlend;
+					if (EffectivePipelineKey.Material.ShaderMap.BlendMode
+						== EMaterialBlendMode::Translucent)
+					{
+						Initializer.ColorBlendStates[1].ColorWriteMask =
+							ERHIColorWriteMask::None;
+					}
+				}
 				Initializer.PipelineLayout = Candidate.Map->GetMergedPipelineLayout();
 				Candidate.Pipeline = GDynamicRHI->RHICreateGraphicsPipelineState(FName(std::format("TerrainPipeline_{}", PipelineEntry.Index)), Initializer);
 				return Candidate.Pipeline ? FPipelineResult::Success(std::move(Candidate))

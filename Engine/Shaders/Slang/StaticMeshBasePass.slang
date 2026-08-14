@@ -307,11 +307,19 @@ void ShadowFragmentMain(VSOutput input)
 #endif
 }
 
-[shader("fragment")]
-float4 FragmentMain(
-    VSOutput input,
-    bool isFrontFace : SV_IsFrontFace) : SV_Target
+struct BasePassFragmentOutput
 {
+    float4 color : SV_Target0;
+    float4 directionalDirect : SV_Target1;
+};
+
+[shader("fragment")]
+BasePassFragmentOutput FragmentMain(
+    VSOutput input,
+    bool isFrontFace : SV_IsFrontFace)
+{
+	BasePassFragmentOutput output;
+	output.directionalDirect = float4(0.0);
 #if DURIN_TERRAIN && DURIN_MATERIAL_BLEND_MODE != 2
     static const float coverageThresholds[16] =
     {
@@ -349,7 +357,10 @@ float4 FragmentMain(
     opacity = saturate(opacity + Material.SurfaceParams.w * (ambientOcclusion + opacityMask));
     float3 emissive = max(Material.EmissiveMetallic.xyz, 0.0) + max(emissiveSample, 0.0);
     if (Material.SurfaceParams.z < 0.5)
-        return float4(baseColor + emissive, opacity);
+	{
+		output.color = float4(baseColor + emissive, opacity);
+		return output;
+	}
 
     float normalLengthSquared = dot(input.worldNormal, input.worldNormal);
     float3 geometricNormal = normalLengthSquared > minVectorLengthSquared
@@ -390,6 +401,7 @@ float4 FragmentMain(
     float metallic = saturate(Material.EmissiveMetallic.w) * saturate(metallicSample);
     float roughness = clamp(saturate(Material.NormalRoughness.w) * saturate(roughnessSample), 0.045, 1.0);
     float3 direct = float3(0.0);
+	float3 directionalDirect = float3(0.0);
     if (Lighting.Counts.x > 0u)
     {
         float3 toLight = SafeNormal(-Lighting.DirectionalDirection.xyz);
@@ -406,10 +418,14 @@ float4 FragmentMain(
             DirectionalShadowTexture,
             DirectionalShadowSampler);
         if (Lighting.DirectionalShadowControl.y > 0.5)
-            return float4(shadow.diagnosticColor, opacity);
-        direct += EvaluatePBRDirectLighting(
+		{
+			output.color = float4(shadow.diagnosticColor, opacity);
+			return output;
+		}
+		directionalDirect = EvaluatePBRDirectLighting(
             baseColor, metallic, roughness, normal, toLight, toView, radiance)
             * shadow.attenuation;
+		direct += directionalDirect;
     }
     [unroll]
     for (uint lightIndex = 0u; lightIndex < 4u; ++lightIndex)
@@ -464,5 +480,7 @@ float4 FragmentMain(
         irradiance,
         prefiltered,
         environmentBrdf);
-    return float4(direct + environment + emissive, opacity);
+	output.color = float4(direct + environment + emissive, opacity);
+	output.directionalDirect = float4(directionalDirect, 0.0);
+	return output;
 }

@@ -17,6 +17,18 @@ namespace Durin::RenderTargetLayouts
 			return Layout;
 		}
 
+		auto MakeDirectionalDirectAttachment() -> FRHIAttachmentLayout
+		{
+			FRHIAttachmentLayout Layout;
+			Layout.Format = EPixelFormat::R11G11B10_FLOAT;
+			Layout.LoadAction = ERHIRenderTargetLoadAction::Clear;
+			Layout.InitialLayout = ERHITextureLayout::Undefined;
+			Layout.InitialAccess = ERHIAccess::None;
+			Layout.FinalLayout = ERHITextureLayout::ShaderReadOnly;
+			Layout.FinalAccess = ERHIAccess::GraphicsShaderRead;
+			return Layout;
+		}
+
 		auto MakePreservedDepthAttachment(ERHIRenderTargetLoadAction LoadAction) -> FRHIAttachmentLayout
 		{
 			FRHIAttachmentLayout Layout;
@@ -40,7 +52,7 @@ namespace Durin::RenderTargetLayouts
 	auto MakeSceneTargets() -> FRHIRenderTargetLayout
 	{
 		FRHIRenderTargetLayout Layout;
-		Layout.NumColorRenderTargets = 1;
+		Layout.NumColorRenderTargets = 2;
 		Layout.ColorAttachments[0].RenderTarget = MakeColorAttachment(
 			ERHIRenderTargetLoadAction::Clear,
 			ERHITextureLayout::Undefined,
@@ -48,6 +60,8 @@ namespace Durin::RenderTargetLayouts
 			ERHITextureLayout::ShaderReadOnly,
 			ERHIAccess::GraphicsShaderRead
 		);
+		Layout.ColorAttachments[1].RenderTarget =
+			MakeDirectionalDirectAttachment();
 		Layout.bHasDepthStencil = true;
 		Layout.DepthStencilAttachment = MakePreservedDepthAttachment(ERHIRenderTargetLoadAction::Clear);
 		return Layout;
@@ -69,6 +83,20 @@ namespace Durin::RenderTargetLayouts
 			ERHITextureLayout::ShaderReadOnly;
 		Layout.DepthStencilAttachment.FinalAccess =
 			ERHIAccess::GraphicsShaderRead;
+		return Layout;
+	}
+
+	auto MakeContactShadowOutput() -> FRHIRenderTargetLayout
+	{
+		FRHIRenderTargetLayout Layout;
+		Layout.NumColorRenderTargets = 1;
+		Layout.ColorAttachments[0].RenderTarget = MakeColorAttachment(
+			ERHIRenderTargetLoadAction::Clear,
+			ERHITextureLayout::Undefined,
+			ERHIAccess::None,
+			ERHITextureLayout::ShaderReadOnly,
+			ERHIAccess::GraphicsShaderRead
+		);
 		return Layout;
 	}
 

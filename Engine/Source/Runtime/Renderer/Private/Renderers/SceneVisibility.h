@@ -192,6 +192,8 @@ namespace Durin
 		size_t ShadowInvalidQualityFallbacks = 0;
 		size_t ShadowBiasFallbacks = 0;
 		size_t ShadowBiasClamps = 0;
+		size_t ContactShadowEnabledViews = 0;
+		size_t ContactShadowPassFailures = 0;
 		size_t OpaqueStaticMeshSections = 0;
 		size_t MaskedStaticMeshSections = 0;
 		size_t TranslucentStaticMeshSections = 0;

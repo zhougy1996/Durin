@@ -132,8 +132,8 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
 	float receiverWorld = biasInputsValid
 		? clamp(texelWorld * (0.05 + 0.10 * grazing), 0.0005, 0.02) : 0.0;
 	float normalWorld = biasInputsValid
-		? clamp(texelWorld * (0.20 + 0.55 * grazing), 0.0, 0.10) : 0.0;
-	float maximumTotal = min(0.75 * texelWorld, 0.10);
+		? clamp(texelWorld * (0.05 + 0.70 * grazing), 0.0, 0.06) : 0.0;
+	float maximumTotal = min(0.75 * texelWorld, 0.08);
 	bool totalClamped = biasInputsValid
 		&& receiverWorld + normalWorld > maximumTotal;
 	if (totalClamped)
@@ -201,7 +201,7 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
     else if (mode == 6u)
 		result.diagnosticColor = totalClamped ? float3(1.0)
 			: float3(saturate(rasterBias.w),
-				saturate(receiverWorld / 0.02), saturate(normalWorld / 0.10));
+				saturate(receiverWorld / 0.02), saturate(normalWorld / 0.06));
 	else if (mode == 7u)
 	{
 		bool displaced = IsValidShadowCoordinate(finalCoordinate)

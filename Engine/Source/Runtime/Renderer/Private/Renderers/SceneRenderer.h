@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Renderers/ContactShadowRenderer.h"
 #include "Renderers/EditorAssistance/EditorAssistanceRenderer.h"
 #include "Renderers/DirectionalShadowRenderer.h"
 #include "Renderers/PostProcessRenderer.h"
@@ -82,6 +83,7 @@ namespace Durin
 		FSkeletalMeshRenderer SkeletalMeshRenderer;
 		FSkyBoxRenderer SkyBoxRenderer;
 		FPostProcessRenderer PostProcessRenderer;
+		FScreenSpaceContactShadowRenderer ContactShadowRenderer;
 		FEditorAssistanceRenderer EditorAssistanceRenderer;
 	};
 } // namespace Durin

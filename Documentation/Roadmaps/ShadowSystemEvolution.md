@@ -2,7 +2,7 @@
 
 Summary: Evolve the first directional shadow-map path into a stable, scalable production shadow system with diagnosable bias, filtered edges, and camera-range resolution.
 
-Last reviewed: 2026-08-14
+Last reviewed: 2026-08-15
 
 Status: Completed
 Completed: 2026-08-14
@@ -51,8 +51,10 @@ and target-GPU evidence. The array contract is validation-clean, logical and
 backend bytes are 50,331,648, and the measured Medium combined increment over
 SingleMap Medium is 12,608 ns against the 1,000,000 ns gate. Three cascades
 with Medium are now the production default.
-Contact shadows, variable-penumbra filtering, persistent caching, local-light
-shadows, and alternative representations remain conditional branches.
+Screen-space contact shadows are active through the
+[DirectionalContactShadows](../Plans/DirectionalContactShadows.md) plan.
+Variable-penumbra filtering, persistent caching, local-light shadows, and
+alternative representations remain conditional branches.
 
 ## Outcome
 
@@ -217,7 +219,7 @@ flowchart LR
     B["Completed baseline: one directional shadow map"] --> Q0["Q0: Diagnostics and bias correctness"]
     Q0 --> Q1["Q1: PCF quality tiers"]
     Q1 --> Q2["Q2: Cascaded directional shadows"]
-    Q0 --> C["Conditional: contact shadows"]
+    Q0 --> C["Active: contact shadows"]
     Q2 --> S["Conditional: variable-penumbra soft shadows"]
     Q2 --> P["Conditional: persistent caching and scheduling"]
     Q2 --> L["Conditional: point and spot shadows"]
@@ -287,7 +289,7 @@ selected only from qualified tiers.
 
 | Branch | Proposed child plan | Activation evidence | Boundary |
 | --- | --- | --- | --- |
-| Screen-space contact shadows | `DirectionalContactShadows` | Q0/Q2 captures show short-range contact loss from necessary bias after valid geometry and cascade resolution are ruled out; scene depth and target-GPU cost support bounded ray marching. | Supplements only the near-field selected directional result; cannot represent off-screen casters or repair geometry gaps; owns explicit maximum world/screen distance and failure fallback. |
+| Screen-space contact shadows | [DirectionalContactShadows](../Plans/DirectionalContactShadows.md) | Activated 2026-08-15; Q0/Q2 captures show short-range contact loss from necessary bias after valid geometry and cascade resolution are ruled out; scene depth and target-GPU cost support bounded ray marching. | Supplements only the near-field selected directional result; cannot represent off-screen casters or repair geometry gaps; owns explicit maximum world/screen distance and failure fallback. |
 | Variable-penumbra directional softness | `DirectionalShadowPCSS` | A product lighting requirement supplies source angular size, desired penumbra behavior, representative blocker/receiver scenes, and budget beyond Q1 PCF. | Owns blocker search and variable kernel; builds on Q2 and does not change caster visibility or cascade ownership. |
 | Persistent shadow caching and scheduling | `ShadowCacheAndScheduling` | Shadow-depth profiling, static-scene captures, or multi-view workloads show regeneration cost is material; stable scene/light/caster revision facts are available. | Cache keys include scene, light, caster/material/deformation, quality, and view/cascade facts; no stale cross-view contents or dimension-only identity. |
 | Point and spot shadows | `LocalLightShadowScheduling` | A product scene specifies shadowed light counts, ranges, update frequency, selection priority, atlas/cube memory, and target-GPU budget. | Extends renderer-owned light snapshots and bounded selection; does not let arbitrary visible lights allocate unbounded maps. Point cube maps and spot projections retain distinct fitting tests. |

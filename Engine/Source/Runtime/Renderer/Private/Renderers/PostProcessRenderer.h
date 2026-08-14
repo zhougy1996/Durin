@@ -18,6 +18,12 @@ namespace Durin
 		{
 			FTextureRHIRef Color;
 			FTextureRHIRef Depth;
+			// Stores only the selected directional light's direct contribution so
+			// contact shadows cannot attenuate unrelated lighting.
+			FTextureRHIRef DirectionalDirect;
+			// Holds contact-shadow-corrected Scene Color; read by the post
+			// process when contact shadows are enabled.
+			FTextureRHIRef ContactColor;
 		};
 
 		FPostProcessRenderer(

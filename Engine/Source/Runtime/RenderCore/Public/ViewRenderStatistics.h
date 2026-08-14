@@ -32,6 +32,7 @@ namespace Durin
 		uint64 SpotLights = 0;
 		uint32 ShadowCascades = 0;
 		bool bShadowEnabled = false;
+		bool bContactShadowEnabled = false;
 
 		auto operator==(const FSceneViewStatistics&) const -> bool = default;
 	};

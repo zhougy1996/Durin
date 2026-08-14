@@ -11,6 +11,15 @@ namespace Durin
 		const FRHIRenderTargetLayout Layout = MakeSceneTargets();
 
 		ASSERT_TRUE(Layout.IsValid());
+		ASSERT_EQ(Layout.NumColorRenderTargets, 2u);
+		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.Format,
+			EPixelFormat::SRGBA8_UNORM);
+		EXPECT_EQ(Layout.ColorAttachments[1].RenderTarget.Format,
+			EPixelFormat::R11G11B10_FLOAT);
+		EXPECT_EQ(Layout.ColorAttachments[1].RenderTarget.FinalLayout,
+			ERHITextureLayout::ShaderReadOnly);
+		EXPECT_EQ(Layout.ColorAttachments[1].RenderTarget.FinalAccess,
+			ERHIAccess::GraphicsShaderRead);
 		ASSERT_TRUE(Layout.bHasDepthStencil);
 		EXPECT_EQ(Layout.DepthStencilAttachment.Format, EPixelFormat::D32);
 		EXPECT_EQ(Layout.DepthStencilAttachment.LoadAction, ERHIRenderTargetLoadAction::Clear);

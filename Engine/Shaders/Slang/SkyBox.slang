@@ -10,6 +10,12 @@ struct SkyBoxUniform
     float4 TintIntensity;
 };
 
+struct SkyBoxFragmentOutput
+{
+    float4 Color : SV_Target0;
+    float4 DirectionalDirect : SV_Target1;
+};
+
 [[vk::binding(0, 0)]] TextureCube<float4> SkyTexture;
 [[vk::binding(1, 0)]] SamplerState SkySampler;
 [[vk::binding(2, 0)]] ConstantBuffer<SkyBoxUniform> Sky;
@@ -30,7 +36,7 @@ SkyBoxVSOutput VertexMain(uint vertexId : SV_VulkanVertexID)
 }
 
 [shader("fragment")]
-float4 FragmentMain(SkyBoxVSOutput input) : SV_Target
+SkyBoxFragmentOutput FragmentMain(SkyBoxVSOutput input)
 {
     // Camera translation is removed in double precision on the CPU. Keeping
     // the GPU path direction-only prevents near-clip changes at large world
@@ -38,5 +44,9 @@ float4 FragmentMain(SkyBoxVSOutput input) : SV_Target
     float3 sampleDirection = normalize(mul(
         Sky.ClipToSkyDirection, float4(input.ClipPosition, 1.0, 1.0)).xyz);
     float3 linearColor = SkyTexture.Sample(SkySampler, sampleDirection).rgb;
-    return float4(linearColor * Sky.TintIntensity.rgb * Sky.TintIntensity.a, 1.0);
+    SkyBoxFragmentOutput output;
+    output.Color = float4(
+        linearColor * Sky.TintIntensity.rgb * Sky.TintIntensity.a, 1.0);
+    output.DirectionalDirect = float4(0.0);
+    return output;
 }
