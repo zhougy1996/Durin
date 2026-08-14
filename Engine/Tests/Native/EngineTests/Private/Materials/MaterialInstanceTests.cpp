@@ -152,9 +152,6 @@ TEST(FMaterialTests, SceneCommandsPreserveLatestTransformAndReleaseAllProxies)
 	Durin::MarkAsGarbage(Component);
 	Durin::MarkAsGarbage(Mesh);
 
-	Harness.Scene->Release();
-	WaitForRenderingThread();
-	EXPECT_EQ(CaptureScene(Harness.Scene).ProxyCount, 0);
 	Harness.Shutdown();
 	Durin::CollectGarbage();
 }

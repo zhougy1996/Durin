@@ -211,9 +211,9 @@ namespace
 
 		auto CreateTestScene() -> Durin::FScene*
 		{
-			auto Scene = std::make_unique<Durin::FScene>();
-			Durin::FScene* Result = Scene.get();
-			MainScene = std::move(Scene);
+			Durin::FRendererModule SceneFactory;
+			MainScene = SceneFactory.CreateScene();
+			auto* Result = static_cast<Durin::FScene*>(MainScene.get());
 			return Result;
 		}
 
@@ -337,9 +337,8 @@ namespace
 			Engine.SetWorld(nullptr);
 			if (Scene != nullptr)
 			{
-				Scene->Release();
-				WaitForRenderingThread();
 				Engine.ResetTestScene();
+				WaitForRenderingThread();
 				Scene = nullptr;
 			}
 			if (World)

@@ -2,6 +2,7 @@
 
 #include "DurinEdAPI.h"
 #include "DObject/ObjectPtr.h"
+#include "SceneOwnership.h"
 
 namespace Durin
 {
@@ -33,7 +34,7 @@ namespace Durin::Editor
 		DURINED_API auto EndPlay() -> void;
 
 	private:
-		std::unique_ptr<IScene> RenderScene;
+		FScenePtr RenderScene;
 		TObjectPtr<DWorld> World;
 		TObjectPtr<DLevel> Level;
 		std::string Error;

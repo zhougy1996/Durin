@@ -877,8 +877,6 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 		Statistics.push_back(
 			CalculateStatistics(Fixture.Name, *Pixels, GLastCounters));
 		Captures.push_back(std::move(*Pixels));
-		Scene.Release();
-		Durin::FlushRenderingCommands();
 	}
 
 	ASSERT_EQ(Captures.size(), Fixtures.size());

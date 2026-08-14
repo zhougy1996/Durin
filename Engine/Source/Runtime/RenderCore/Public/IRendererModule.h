@@ -1,5 +1,6 @@
 #pragma once
 
+#include "SceneOwnership.h"
 #include "SceneView.h"
 #include "ViewRenderStatistics.h"
 
@@ -22,7 +23,7 @@ namespace Durin
 	class IRendererModule : public IModuleInterface
 	{
 	public:
-		virtual auto CreateScene() -> std::unique_ptr<IScene> = 0;
+		virtual auto CreateScene() -> FScenePtr = 0;
 		virtual auto RenderView(
 			FRHICommandListImmediate& CommandList,
 			IScene* Scene,

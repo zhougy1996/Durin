@@ -8,7 +8,9 @@
 #include "NativeTestSupport.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
+#include "RendererModule.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
+#include "Scene.h"
 #include "StaticMesh/StaticMeshResources.h"
 
 #include <gtest/gtest.h>
@@ -189,7 +191,9 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 		}
 	);
 	Durin::FlushRenderingCommands();
-	Durin::FScene SplineScene;
+	Durin::FRendererModule SceneFactory;
+	Durin::FScenePtr SplineSceneOwner = SceneFactory.CreateScene();
+	auto& SplineScene = static_cast<Durin::FScene&>(*SplineSceneOwner);
 	Durin::FSplineMeshRenderDynamicData SplineDynamic{
 		.Params = {},
 		.LocalBounds = Durin::FBox({-2.0, -2.0, -1.0}, {120.0, 40.0, 20.0}),
@@ -218,9 +222,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 				Durin::EVertexDeformationDomain::Spline);
 		});
 	Durin::FlushRenderingCommands();
-	SplineScene.Release();
+	SplineSceneOwner.reset();
 	Durin::FlushRenderingCommands();
-
 	const Durin::FPrimitiveSceneId Id(71);
 	Scene.AddOrReplacePrimitive(Id, std::make_unique<Durin::FStaticMeshSceneProxy>(RenderData.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1), glm::scale(Durin::FMatrix(1.0), Durin::FVector3(-1.0, 1.0, 1.0)));
 	Durin::FlushRenderingCommands();

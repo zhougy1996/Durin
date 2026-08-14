@@ -29,7 +29,8 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::InitRenderingThread();
 
 	Durin::FRendererModule Renderer;
-	Durin::FScene Scene;
+	Durin::FScenePtr SceneOwner = Renderer.CreateScene();
+	auto& Scene = static_cast<Durin::FScene&>(*SceneOwner);
 	struct FBeginSkyBoxValidationFrame
 	{
 		static constexpr auto GetName() -> const char* { return "BeginSkyBoxValidationFrame"; }
@@ -402,7 +403,8 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		ExpectRgbNear(Result->Occluded, 17, 8, 8, {255, 0, 0, 255}, 8);
 	}
 
-	Scene.Release();
+	SceneOwner.reset();
+	Durin::FlushRenderingCommands();
 	Durin::FAssetPath CubePath;
 	if (Durin::FAssetPath::TryCreate("/SkyBoxAssetTests/VulkanPanoramaLdr", CubePath))
 	{

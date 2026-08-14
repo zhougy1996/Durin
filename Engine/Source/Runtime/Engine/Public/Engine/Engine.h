@@ -3,6 +3,7 @@
 #include "EngineAPI.h"
 #include "DObject/CoreDObject.h"
 #include "Input/GameInputState.h"
+#include "SceneOwnership.h"
 
 #include "Engine.gen.h"
 
@@ -100,7 +101,7 @@ namespace Durin
 		virtual auto HandleGameInputMouseDown(const std::shared_ptr<FGenericWindow>& Window, EMouseButton Button) -> bool { return false; }
 
 		IRendererModule* RendererModule = nullptr;
-		std::unique_ptr<IScene> MainScene;
+		FScenePtr MainScene;
 		std::shared_ptr<FSceneViewport> MainSceneViewport;
 		std::vector<std::shared_ptr<FSceneViewport>> AuxiliarySceneViewports;
 		std::unique_ptr<FRenderCommandFence> DestroyFence;

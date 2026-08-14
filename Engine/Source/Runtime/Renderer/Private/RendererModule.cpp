@@ -11,6 +11,21 @@
 
 namespace Durin
 {
+	namespace
+	{
+		auto DestroyScene(IScene* Scene) -> void
+		{
+			check(Scene != nullptr);
+			checkf(IsInGameThread() || IsInRenderingThread(),
+				"Renderer scenes must be destroyed from the game or rendering thread.");
+			ENQUEUE_RENDER_COMMAND(DestroyScene)(
+				[Scene](FRHICommandListImmediate&) {
+					check(IsInRenderingThread());
+					delete Scene;
+				});
+		}
+	}
+
 	FRendererModule::FRendererModule() = default;
 
 	FRendererModule::~FRendererModule() = default;
@@ -62,10 +77,10 @@ namespace Durin
 		SceneRenderer.reset();
 	}
 
-	auto FRendererModule::CreateScene() -> std::unique_ptr<IScene>
+	auto FRendererModule::CreateScene() -> FScenePtr
 	{
 		check(IsInGameThread());
-		return std::make_unique<FScene>();
+		return FScenePtr(new FScene(), FSceneDeleter(&DestroyScene));
 	}
 
 	auto FRendererModule::RenderView(

@@ -65,16 +65,16 @@ namespace
 
 		auto CreateTestScene() -> Durin::FScene*
 		{
-			auto Scene = std::make_unique<Durin::FScene>();
-			Durin::FScene* Result = Scene.get();
-			MainScene = std::move(Scene);
+			Durin::FRendererModule SceneFactory;
+			MainScene = SceneFactory.CreateScene();
+			auto* Result = static_cast<Durin::FScene*>(MainScene.get());
 			return Result;
 		}
 
 		auto ResetTestScene() -> void { MainScene.reset(); }
 	};
 
-	auto ObserveSkyBoxes(const Durin::FScene& Scene) -> FSkyBoxObservation
+	auto ObserveSkyBoxes(const Durin::IScene& Scene) -> FSkyBoxObservation
 	{
 		auto Result = std::make_shared<FSkyBoxObservation>();
 		Durin::EnqueueRenderCommand<FObserveSkyBoxCommand>([&Scene, Result](Durin::FRHICommandListImmediate&) {

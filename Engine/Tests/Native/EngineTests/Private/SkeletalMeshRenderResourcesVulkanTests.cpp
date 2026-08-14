@@ -967,7 +967,9 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 				ASSERT_TRUE(RoadSource->InitResources(CommandList));
 			});
 		Durin::FlushRenderingCommands();
-		Durin::FScene ProfileScene;
+		Durin::FScenePtr ProfileSceneOwner = Renderer.CreateScene();
+		auto& ProfileScene =
+			static_cast<Durin::FScene&>(*ProfileSceneOwner);
 		auto SegmentTransform = [](Durin::uint32 Index) {
 			const double X = -0.9 + static_cast<double>(Index % 8) * 0.24;
 			const double Y = -0.9 + static_cast<double>(Index / 8) * 0.48;
@@ -1047,7 +1049,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		std::cout << "Spline profile: static_p95=" << StaticP95
 			<< " ns, spline_p95=" << SplineP95 << " ns, delta=" << Delta << " ns\n";
 		EXPECT_LE(Delta, 350'000u);
-		ProfileScene.Release(); Durin::FlushRenderingCommands();
+		ProfileSceneOwner.reset();
+		Durin::FlushRenderingCommands();
 		Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
 			[&RoadSource](Durin::FRHICommandListImmediate&) { RoadSource->ReleaseResources(); });
 		Durin::FlushRenderingCommands();

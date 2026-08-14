@@ -54,12 +54,7 @@ namespace Durin::Editor
 		}
 		Level = nullptr;
 
-		if (RenderScene)
-		{
-			RenderScene->Release();
-			if (GRenderingThread) FlushRenderingCommands();
-			RenderScene.reset();
-		}
+		RenderScene.reset();
 
 		if (World)
 		{

@@ -145,7 +145,7 @@ namespace Durin
 		SetWorld(nullptr);
 		if (MainScene != nullptr)
 		{
-			MainScene->Release();
+			MainScene.reset();
 		}
 		ShutdownDefaultMaterialService();
 		if (GRenderingThread)
@@ -165,7 +165,6 @@ namespace Durin
 	auto DEngine::FinishDestroy() -> void
 	{
 		check(!DestroyFence || DestroyFence->IsFenceComplete());
-		MainScene.reset();
 		DestroyFence.reset();
 		RendererModule = nullptr;
 		Super::FinishDestroy();

@@ -29,6 +29,28 @@ namespace Durin
 		}
 	}
 
+	FScene::~FScene()
+	{
+		if (IsInRenderingThread()) return;
+
+		checkf(IsInGameThread(),
+			"Renderer scenes must be destroyed from the game or rendering thread.");
+		if (GetRenderCommandAdmissionState()
+			!= ERenderCommandAdmissionState::Running)
+		{
+			checkf(GetRenderCommandAdmissionState()
+					== ERenderCommandAdmissionState::Stopped
+					&& GetNumPendingRenderCommands() == 0,
+				"A renderer scene was destroyed while render commands were draining.");
+			return;
+		}
+		ENQUEUE_RENDER_COMMAND(ClearSceneBeforeSynchronousDestruction)(
+			[this](FRHICommandListImmediate&) { Clear_RenderThread(); });
+		FRenderCommandFence Fence;
+		Fence.BeginFence();
+		Fence.Wait();
+	}
+
 	FLightSceneInfo::FLightSceneInfo(FScene& InScene, FLightSceneId InId,
 		std::shared_ptr<FLightSceneProxy> InProxy)
 		: Scene(&InScene), Id(InId), Proxy(std::move(InProxy)), Kind(Proxy->GetKind())
@@ -249,16 +271,14 @@ namespace Durin
 			});
 	}
 
-	auto FScene::Release() -> void
+	auto FScene::Clear_RenderThread() -> void
 	{
-		ENQUEUE_RENDER_COMMAND(ReleaseScene)([this](FRHICommandListImmediate&) {
-			CheckRenderingThread();
-			PrimitiveSceneInfos.clear(); StaticMeshSceneInfos.clear(); SkeletalMeshSceneInfos.clear();
-			TerrainSceneInfos.clear(); SplineMeshSceneInfos.clear(); PrimitiveInfosById.clear();
-			DirectionalLightSceneInfos.clear(); PointLightSceneInfos.clear();
-			SpotLightSceneInfos.clear(); LightInfosById.clear();
-			SkyBoxSceneInfos.clear(); SkyBoxInfosById.clear();
-		});
+		CheckRenderingThread();
+		PrimitiveSceneInfos.clear(); StaticMeshSceneInfos.clear(); SkeletalMeshSceneInfos.clear();
+		TerrainSceneInfos.clear(); SplineMeshSceneInfos.clear(); PrimitiveInfosById.clear();
+		DirectionalLightSceneInfos.clear(); PointLightSceneInfos.clear();
+		SpotLightSceneInfos.clear(); LightInfosById.clear();
+		SkyBoxSceneInfos.clear(); SkyBoxInfosById.clear();
 	}
 
 	auto FScene::AttachLight(FLightSceneInfo& Info) -> void

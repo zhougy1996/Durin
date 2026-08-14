@@ -101,6 +101,7 @@ namespace Durin
 	class FScene : public IScene
 	{
 	public:
+		RENDERER_API ~FScene() override;
 		RENDERER_API auto AddOrReplacePrimitive(FPrimitiveSceneId PrimitiveId, std::unique_ptr<FPrimitiveSceneProxy> Proxy, const FMatrix& Transform, bool bVisible = true) -> void override;
 		RENDERER_API auto RemovePrimitive(FPrimitiveSceneId PrimitiveId) -> void override;
 		RENDERER_API auto UpdatePrimitiveTransform(FPrimitiveSceneId PrimitiveId, const FMatrix& Transform) -> void override;
@@ -112,7 +113,6 @@ namespace Durin
 		RENDERER_API auto UpdateSplineMeshDynamicData(
 			FPrimitiveSceneId PrimitiveId,
 			FSplineMeshRenderDynamicData DynamicData) -> void override;
-		RENDERER_API auto Release() -> void override;
 		RENDERER_API auto AddOrReplaceLight(FLightSceneId LightId, std::unique_ptr<FLightSceneProxy> Proxy) -> void override;
 		RENDERER_API auto RemoveLight(FLightSceneId LightId) -> void override;
 		RENDERER_API auto AddOrReplaceSkyBox(FSkyBoxSceneId SkyBoxId, FGuid PersistentId, std::string SelectionKey, std::unique_ptr<FSkyBoxSceneProxy> Proxy) -> void override;
@@ -131,6 +131,7 @@ namespace Durin
 		RENDERER_API auto GetActiveSkyBoxSceneInfo_RenderThread() const -> const FSkyBoxSceneInfo*;
 
 	private:
+		auto Clear_RenderThread() -> void;
 		auto DetachPrimitive(FPrimitiveSceneInfo& Info) -> void;
 		auto AttachLight(FLightSceneInfo& Info) -> void;
 		auto DetachLight(FLightSceneInfo& Info) -> void;

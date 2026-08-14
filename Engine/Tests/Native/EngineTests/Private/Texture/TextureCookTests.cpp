@@ -328,8 +328,9 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		CookedTexture->GetTextureReferenceRHI();
 	ASSERT_NE(TextureReference, nullptr);
 	Durin::FRendererModule Renderer;
-	Durin::FScene Scene;
 	Renderer.StartupModule();
+	Durin::FScenePtr SceneOwner = Renderer.CreateScene();
+	auto& Scene = static_cast<Durin::FScene&>(*SceneOwner);
 	auto* SampleMesh = Durin::DStaticMesh::CreateDebugTriangle();
 	for (Durin::FVector2f& TexCoord :
 		Durin::FStaticMeshTestAccess::GetMutableRenderData(SampleMesh)
@@ -435,7 +436,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		EXPECT_GT(UploadResult->SamplePixels[Center + 2], 180u);
 	}
 
-	Scene.Release();
+	SceneOwner.reset();
+	Durin::FlushRenderingCommands();
 	Durin::MarkAsGarbage(SampleComponent);
 	Durin::MarkAsGarbage(SampleMesh);
 	Durin::MarkAsGarbage(SampleMaterial);

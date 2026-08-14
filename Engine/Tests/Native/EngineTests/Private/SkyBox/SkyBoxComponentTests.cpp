@@ -23,7 +23,9 @@ TEST(FSkyBoxTests, SceneSelectsSmallestStableIdAndAppliesFifoMutation)
 {
 	InitializeDObjectSystem();
 	Durin::InitRenderingThread();
-	Durin::FScene Scene;
+	Durin::FRendererModule SceneFactory;
+	Durin::FScenePtr SceneOwner = SceneFactory.CreateScene();
+	auto& Scene = static_cast<Durin::FScene&>(*SceneOwner);
 	const Durin::FGuid SmallerId(1, 0, 0, 0);
 	const Durin::FGuid LargerId(2, 0, 0, 0);
 
@@ -67,10 +69,8 @@ TEST(FSkyBoxTests, SceneSelectsSmallestStableIdAndAppliesFifoMutation)
 	EXPECT_EQ(Observation.Count, 1u);
 	EXPECT_EQ(Observation.Active.SceneId, LargerId);
 
-	Scene.Release();
-	Observation = ObserveSkyBoxes(Scene);
-	EXPECT_FALSE(Observation.bHasActive);
-	EXPECT_EQ(Observation.Count, 0u);
+	SceneOwner.reset();
+	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
 }
 
@@ -158,9 +158,8 @@ TEST(FSkyBoxTests, ComponentSynchronizesRegistrationVisibilityTransformAndProper
 	EXPECT_FALSE(ObserveSkyBoxes(*Scene).bHasActive);
 
 	Engine.SetWorld(nullptr);
-	Scene->Release();
-	Durin::FlushRenderingCommands();
 	Engine.ResetTestScene();
+	Durin::FlushRenderingCommands();
 	Durin::GEngine = nullptr;
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::MarkAsGarbage(Cube);
@@ -174,7 +173,8 @@ TEST(FSkyBoxTests, WorldSceneEndpointIsIndependentOfGlobalEngine)
 	Durin::InitRenderingThread();
 	FSkyBoxTestEngine Engine;
 	Durin::FScene* MainScene = Engine.CreateTestScene();
-	auto AuxiliaryScene = std::make_unique<Durin::FScene>();
+	Durin::FRendererModule SceneFactory;
+	auto AuxiliaryScene = SceneFactory.CreateScene();
 	Durin::GEngine = &Engine;
 
 	auto* World = Durin::NewObject<Durin::DWorld>(&Engine, "AuxiliarySkyBoxWorld");
@@ -190,11 +190,9 @@ TEST(FSkyBoxTests, WorldSceneEndpointIsIndependentOfGlobalEngine)
 	EXPECT_FALSE(ObserveSkyBoxes(*AuxiliaryScene).bHasActive);
 	World->SetRenderScene(nullptr);
 
-	AuxiliaryScene->Release();
-	MainScene->Release();
-	Durin::FlushRenderingCommands();
 	AuxiliaryScene.reset();
 	Engine.ResetTestScene();
+	Durin::FlushRenderingCommands();
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
 	Durin::ShutdownRenderingThread();

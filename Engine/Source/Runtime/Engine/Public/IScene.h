@@ -120,8 +120,6 @@ namespace Durin
 			FPrimitiveSceneId PrimitiveId,
 			FSplineMeshRenderDynamicData DynamicData) -> void = 0;
 
-		virtual auto Release() -> void = 0;
-
 		virtual auto AddOrReplaceLight(
 			FLightSceneId LightId,
 			std::unique_ptr<FLightSceneProxy> Proxy) -> void = 0;

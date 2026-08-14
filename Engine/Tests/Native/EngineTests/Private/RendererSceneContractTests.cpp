@@ -10,6 +10,7 @@
 #include "Renderers/SceneVisibility.h"
 #include "Renderers/ForwardLighting.h"
 #include "Renderers/DirectionalShadowView.h"
+#include "RendererModule.h"
 #include "Scene.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -18,6 +19,7 @@
 #include <gtest/gtest.h>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <atomic>
 #include <thread>
 
 namespace
@@ -72,6 +74,33 @@ namespace
 		~FRenderingThreadScope() { Durin::ShutdownRenderingThread(); }
 	};
 
+	class FTrackedStaticMeshSceneProxy final
+		: public Durin::FStaticMeshSceneProxy
+	{
+	public:
+		FTrackedStaticMeshSceneProxy(
+			const Durin::FStaticMeshRenderData* RenderData,
+			std::shared_ptr<std::atomic<bool>> InDestroyed,
+			std::shared_ptr<std::atomic<bool>> InDestroyedOnRenderingThread)
+			: FStaticMeshSceneProxy(RenderData, {}, 0)
+			, Destroyed(std::move(InDestroyed))
+			, DestroyedOnRenderingThread(
+				std::move(InDestroyedOnRenderingThread))
+		{
+		}
+
+		~FTrackedStaticMeshSceneProxy() override
+		{
+			DestroyedOnRenderingThread->store(
+				Durin::IsInRenderingThread(), std::memory_order_release);
+			Destroyed->store(true, std::memory_order_release);
+		}
+
+	private:
+		std::shared_ptr<std::atomic<bool>> Destroyed;
+		std::shared_ptr<std::atomic<bool>> DestroyedOnRenderingThread;
+	};
+
 	auto MakePerspectiveProjection() -> Durin::FMatrix
 	{
 		Durin::FMatrix Projection(0.0);
@@ -82,6 +111,51 @@ namespace
 		Projection[0][3] = 1.0;
 		return Projection;
 	}
+}
+
+TEST(FRendererSceneContractTests, OwningScenePointerDefersDeletionBehindQueuedCommands)
+{
+	FRenderingThreadScope RenderingThread;
+	Durin::FRendererModule RendererModule;
+	Durin::FStaticMeshRenderData RenderData;
+	RenderData.LocalBounds = Durin::FBox(
+		Durin::FVector3(-1.0), Durin::FVector3(1.0));
+	auto Destroyed = std::make_shared<std::atomic<bool>>(false);
+	auto DestroyedOnRenderingThread =
+		std::make_shared<std::atomic<bool>>(false);
+	auto ObservedQueuedMutation = std::make_shared<std::atomic<bool>>(false);
+
+	Durin::FScenePtr Scene = RendererModule.CreateScene();
+	auto* ConcreteScene = static_cast<Durin::FScene*>(Scene.get());
+	ConcreteScene->AddOrReplacePrimitive(
+		Durin::FPrimitiveSceneId(1),
+		std::make_unique<FTrackedStaticMeshSceneProxy>(
+			&RenderData, Destroyed, DestroyedOnRenderingThread),
+		Durin::FMatrix(1.0));
+	struct FObserveQueuedSceneMutationCommand
+	{
+		static constexpr auto GetName() -> const char*
+		{
+			return "ObserveQueuedSceneMutation";
+		}
+	};
+	Durin::EnqueueRenderCommand<FObserveQueuedSceneMutationCommand>(
+		[ConcreteScene, ObservedQueuedMutation](
+			Durin::FRHICommandListImmediate&) {
+			ObservedQueuedMutation->store(
+				ConcreteScene->GetPrimitiveSceneInfos().size() == 1,
+				std::memory_order_release);
+		});
+
+	Scene.reset();
+	Durin::FRenderCommandFence Fence;
+	Fence.BeginFence();
+	Fence.Wait();
+
+	EXPECT_TRUE(ObservedQueuedMutation->load(std::memory_order_acquire));
+	EXPECT_TRUE(Destroyed->load(std::memory_order_acquire));
+	EXPECT_TRUE(
+		DestroyedOnRenderingThread->load(std::memory_order_acquire));
 }
 
 TEST(FRendererSceneContractTests, CounterSnapshotSeamDeliversOneImmutableValue)
@@ -338,8 +412,6 @@ TEST(FRendererSceneContractTests,
 		Durin::PrepareDirectionalShadowCasterCandidates(
 			Scene, Shadow.Cascades[0], true);
 	EXPECT_EQ(Comparison.StaticMeshes.size(), 3u);
-	Scene.Release();
-	Durin::FlushRenderingCommands();
 }
 
 TEST(FRendererSceneContractTests, PrimitiveMembershipOwnsClassificationBoundsAndFifoLifetime)
@@ -395,9 +467,6 @@ TEST(FRendererSceneContractTests, PrimitiveMembershipOwnsClassificationBoundsAnd
 	Durin::FlushRenderingCommands();
 	EXPECT_EQ(Scene.GetStaticMeshSceneInfos().size(), 1u);
 
-	Scene.Release();
-	Durin::FlushRenderingCommands();
-	EXPECT_TRUE(Scene.GetPrimitiveSceneInfos().empty());
 }
 
 TEST(FRendererSceneContractTests, VisibilityClassifiesOnceAndKeepsFallbacksVisible)
@@ -460,8 +529,6 @@ TEST(FRendererSceneContractTests, VisibilityClassifiesOnceAndKeepsFallbacksVisib
 	EXPECT_EQ(InvalidViewCounters.InvalidViewFallbacks, 3u);
 	EXPECT_EQ(InvalidView.StaticMeshSceneInfos.size(), 3u);
 
-	Scene.Release();
-	Durin::FlushRenderingCommands();
 }
 
 TEST(FRendererSceneContractTests, VisibilityPolicyAndSequentialViewsAreIndependent)
@@ -523,8 +590,6 @@ TEST(FRendererSceneContractTests, VisibilityPolicyAndSequentialViewsAreIndepende
 		*ObservedMode,
 		Durin::EViewVisibilityMode::FrustumCullingDisabled);
 
-	Scene.Release();
-	Durin::FlushRenderingCommands();
 }
 
 TEST(FRendererSceneContractTests, DirectionalLightProxyOutlivesPublisherAndUsesFifoReplacement)
@@ -557,8 +622,6 @@ TEST(FRendererSceneContractTests, DirectionalLightProxyOutlivesPublisherAndUsesF
 	Observed = ObserveLight(Scene);
 	ASSERT_TRUE(Observed.bPresent);
 	EXPECT_EQ(Observed.Data.Intensity, 5.0f);
-	Scene.Release();
-	Durin::FlushRenderingCommands();
 }
 
 TEST(FRendererSceneContractTests, LightFamiliesReplaceTypedMembershipAtomically)
@@ -577,8 +640,6 @@ TEST(FRendererSceneContractTests, LightFamiliesReplaceTypedMembershipAtomically)
 	EXPECT_TRUE(Scene.GetPointLightSceneInfos().empty());
 	ASSERT_EQ(Scene.GetSpotLightSceneInfos().size(), 1u);
 	EXPECT_EQ(Scene.GetSpotLightSceneInfos().front()->GetId().Value, 77u);
-	Scene.Release();
-	Durin::FlushRenderingCommands();
 }
 
 TEST(FRendererSceneContractTests, PreparedLightsUseStableIdAndSharedLocalBudget)
@@ -642,8 +703,6 @@ TEST(FRendererSceneContractTests, PreparedLightsUseStableIdAndSharedLocalBudget)
 	EXPECT_EQ(Observed->Counters.OverflowSpotLights, 3u);
 	EXPECT_EQ(Observed->Counters.PackedLightBytes,
 		sizeof(Durin::FForwardLightingUniform));
-	Scene.Release();
-	Durin::FlushRenderingCommands();
 }
 
 TEST(FRendererSceneContractTests, PreparedLightsCullOnlyOutsideLocalInfluenceBounds)
@@ -679,8 +738,6 @@ TEST(FRendererSceneContractTests, PreparedLightsCullOnlyOutsideLocalInfluenceBou
 	ASSERT_EQ(Observed->first.Local.size(), 1u);
 	EXPECT_EQ(Observed->first.Local.front().Id.Value, 1u);
 	EXPECT_EQ(Observed->second.FrustumCulledPointLights, 1u);
-	Scene.Release();
-	Durin::FlushRenderingCommands();
 }
 
 TEST(FRendererSceneContractTests, SkeletalPoseAndBoundsUpdateAtomicallyInTypedMembership)
@@ -719,8 +776,6 @@ TEST(FRendererSceneContractTests, SkeletalPoseAndBoundsUpdateAtomicallyInTypedMe
 		Durin::PrepareSceneVisibility(Scene, View, Counters);
 	EXPECT_EQ(Visibility.SkeletalMeshSceneInfos.size(), 1u);
 	EXPECT_EQ(Counters.VisibleSkeletalMeshCandidates, 1u);
-	Scene.Release();
-	Durin::FlushRenderingCommands();
 }
 
 TEST(FRendererSceneContractTests, SplineDeformationAndBoundsUpdateAtomicallyInTypedMembership)
@@ -771,6 +826,4 @@ TEST(FRendererSceneContractTests, SplineDeformationAndBoundsUpdateAtomicallyInTy
 		Durin::PrepareSceneVisibility(Scene, View, Counters);
 	EXPECT_EQ(Visibility.SplineMeshSceneInfos.size(), 1u);
 	EXPECT_EQ(Counters.VisibleSplineMeshCandidates, 1u);
-	Scene.Release();
-	Durin::FlushRenderingCommands();
 }

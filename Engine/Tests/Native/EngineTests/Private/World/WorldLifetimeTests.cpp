@@ -47,10 +47,6 @@ namespace
 		{
 		}
 
-		auto Release() -> void override
-		{
-		}
-
 		auto AddOrReplaceLight(Durin::FLightSceneId, std::unique_ptr<Durin::FLightSceneProxy>) -> void override
 		{
 		}
