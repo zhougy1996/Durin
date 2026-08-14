@@ -123,6 +123,7 @@ namespace Durin::Editor::Level
 			Pause,
 			Step,
 			Stop,
+			Camera,
 			ChevronDown
 		};
 
@@ -194,6 +195,21 @@ namespace Durin::Editor::Level
 				{
 					const float Radius = 5.0f * Scale;
 					DrawList->AddRectFilled(ImVec2(Center.x - Radius, Center.y - Radius), ImVec2(Center.x + Radius, Center.y + Radius), Color, 1.5f * Scale);
+					break;
+				}
+			case EViewportToolbarIcon::Camera:
+				{
+					const float HalfWidth = 7.0f * Scale;
+					const float HalfHeight = 4.5f * Scale;
+					DrawList->AddRect(
+						ImVec2(Center.x - HalfWidth, Center.y - HalfHeight),
+						ImVec2(Center.x + HalfWidth, Center.y + HalfHeight),
+						Color, 1.5f * Scale, 0, Thickness);
+					DrawList->AddCircle(Center, 2.6f * Scale, Color, 12, Thickness);
+					DrawList->AddRectFilled(
+						ImVec2(Center.x - 4.5f * Scale, Center.y - HalfHeight - 2.0f * Scale),
+						ImVec2(Center.x - 0.5f * Scale, Center.y - HalfHeight),
+						Color, Scale);
 					break;
 				}
 			case EViewportToolbarIcon::ChevronDown:
@@ -571,6 +587,53 @@ namespace Durin::Editor::Level
 		DrawToolbarSeparator(DrawList, ViewSeparatorX, Layout.ViewModeButtonPosition.y, Layout.Height);
 		DrawToolbarSeparator(DrawList, TransformSeparatorX, Layout.ViewModeButtonPosition.y, Layout.Height);
 		DrawList->PopClipRect();
+
+		if (ViewportClient != nullptr)
+		{
+			char FpsText[32];
+			snprintf(FpsText, sizeof(FpsText), "%.0f FPS", ImGui::GetIO().Framerate);
+			const float FpsWidth = ImGui::CalcTextSize(FpsText).x + MonaImGui::ScaleUI(14.0f);
+			const std::string SpeedLabel = std::format("{:g}", ViewportClient->GetMovementSpeed());
+			const float SpeedWidth = FMath::Max(
+				MonaImGui::ScaleUI(70.0f),
+				ImGui::CalcTextSize(SpeedLabel.c_str()).x + MonaImGui::ScaleUI(38.0f));
+			const ImVec2 SpeedPosition(
+				ViewportMax.x - MonaImGui::ScaleUI(10.0f) - FpsWidth - MonaImGui::ScaleUI(6.0f) - SpeedWidth,
+				Layout.ViewModeButtonPosition.y);
+			const ImVec2 SpeedSize(SpeedWidth, Layout.Height);
+
+			DrawToolbarSurface(
+				ImVec2(SpeedPosition.x - MonaImGui::ScaleUI(3.0f), SpeedPosition.y - MonaImGui::ScaleUI(3.0f)),
+				ImVec2(SpeedPosition.x + SpeedSize.x + MonaImGui::ScaleUI(3.0f), SpeedPosition.y + SpeedSize.y + MonaImGui::ScaleUI(3.0f)));
+			if (Context.bReadOnly) ImGui::BeginDisabled();
+			if (DrawToolbarButton(
+				"##CameraSpeedButton", SpeedPosition, SpeedSize, SpeedLabel.c_str(),
+				EViewportToolbarIcon::Camera, ImGui::IsPopupOpen("CameraSpeedPopup"), "Camera fly speed"))
+			{
+				ImGui::OpenPopup("CameraSpeedPopup");
+			}
+			SetNextToolbarPopupPosition(SpeedPosition, SpeedSize);
+			ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(230.0f), 0.0f), ImGuiCond_Appearing);
+			if (ImGui::BeginPopup("CameraSpeedPopup"))
+			{
+				ImGui::TextDisabled("Camera Navigation");
+				float MovementSpeed = ViewportClient->GetMovementSpeed();
+				ImGui::SetNextItemWidth(-FLT_MIN);
+				if (ImGui::DragFloat("##FlySpeed", &MovementSpeed, 0.25f, 0.05f, 10000.0f, "%.2f units/s", ImGuiSliderFlags_AlwaysClamp))
+					ViewportClient->SetMovementSpeed(MovementSpeed);
+				for (const float Preset : {1.0f, 5.0f, 25.0f, 100.0f})
+				{
+					if (Preset != 1.0f) ImGui::SameLine();
+					if (ImGui::SmallButton(std::format("{:g}##CameraSpeedPreset", Preset).c_str()))
+						ViewportClient->SetMovementSpeed(Preset);
+				}
+				ImGui::Separator();
+				ImGui::TextDisabled("Hold the navigation mouse button and scroll to adjust.");
+				ImGui::EndPopup();
+			}
+			if (Context.bReadOnly) ImGui::EndDisabled();
+		}
+
 		if (Context.bReadOnly) ImGui::BeginDisabled();
 
 		if (DrawToolbarButton("##ViewModeButton", Layout.ViewModeButtonPosition, Layout.ViewModeButtonSize, Layout.ViewModeLabel.c_str(), EViewportToolbarIcon::ChevronDown, false, "Viewport settings"))
@@ -606,17 +669,6 @@ namespace Durin::Editor::Level
 					FSceneViewSettings Settings = ViewportClient->GetViewSettings();
 					Settings.bEnableFXAA = bEnableFXAA;
 					ViewportClient->SetViewSettings(Settings);
-				}
-				ImGui::Separator();
-				ImGui::TextDisabled("Navigation");
-				float MovementSpeed = ViewportClient->GetMovementSpeed();
-				ImGui::SetNextItemWidth(MonaImGui::ScaleUI(180.0f));
-				if (ImGui::DragFloat("Fly speed", &MovementSpeed, 0.25f, 0.05f, 10000.0f, "%.2f units/s", ImGuiSliderFlags_AlwaysClamp))
-					ViewportClient->SetMovementSpeed(MovementSpeed);
-				for (const float Preset : {1.0f, 5.0f, 25.0f, 100.0f})
-				{
-					if (Preset != 1.0f) ImGui::SameLine();
-					if (ImGui::SmallButton(std::format("{:g}##FlySpeed", Preset).c_str())) ViewportClient->SetMovementSpeed(Preset);
 				}
 			}
 			ImGui::Separator();
