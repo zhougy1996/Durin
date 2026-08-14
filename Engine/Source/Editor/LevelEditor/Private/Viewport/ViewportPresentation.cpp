@@ -710,6 +710,29 @@ namespace Durin::Editor::Level
 						ViewportClient->SetMovementSpeed(Preset);
 				}
 				ImGui::Separator();
+				ImGui::TextDisabled("View Distance");
+				float NearClip = ViewportClient->GetNearClip();
+				float FarClip = ViewportClient->GetFarClip();
+				float FadeStart = ViewportClient->GetViewFadeStart();
+				float RenderDistance = ViewportClient->GetViewRenderDistance();
+				if (ImGui::DragFloat("Near Clip", &NearClip, 0.01f, 0.001f, FarClip - 1.0f, "%.3f"))
+					ViewportClient->SetClipDistances(NearClip, FarClip);
+				if (ImGui::DragFloat("Far Clip", &FarClip, 100.0f, NearClip + 1.0f, 10000000.0f, "%.1f"))
+					ViewportClient->SetClipDistances(NearClip, FarClip);
+				if (ImGui::DragFloat("Fade Start", &FadeStart, 100.0f, 0.0f, RenderDistance - 1.0f, "%.1f"))
+					ViewportClient->SetViewDistance(FadeStart, RenderDistance);
+				if (ImGui::DragFloat("Render Distance", &RenderDistance, 100.0f, FadeStart + 1.0f,
+					static_cast<float>(SceneViewProjection::GetMaximumViewRenderDistance(FarClip)), "%.1f"))
+					ViewportClient->SetViewDistance(FadeStart, RenderDistance);
+				ImGui::Separator();
+				if (ImGui::Button("Restore Defaults"))
+					ViewportClient->ResetViewDistances();
+				ImGui::SameLine();
+				ImGui::TextDisabled("Near %.1f / Far %.0f",
+					FLevelEditorViewportClient::DefaultNearClip,
+					FLevelEditorViewportClient::DefaultFarClip);
+				ImGui::TextDisabled("Main scene depth: Reversed Z");
+				ImGui::Separator();
 				ImGui::TextDisabled("Hold the navigation mouse button and scroll to adjust.");
 				ImGui::EndPopup();
 			}
@@ -742,65 +765,18 @@ namespace Durin::Editor::Level
 				ViewportClient->SetViewSettings(Settings);
 			});
 			ImGui::Separator();
-			ImGui::TextDisabled("Directional Shadows");
-			if (ViewportClient != nullptr && ImGui::BeginMenu("Quality"))
-			{
-				DrawDirectionalShadowQualityOptions(ViewportClient);
-				ImGui::Separator();
-				ImGui::TextDisabled("Medium is the renderer default.");
-				ImGui::EndMenu();
-			}
-			ImGui::Separator();
-			ImGui::TextDisabled("Post Processing");
 			if (ViewportClient != nullptr)
 			{
+				ImGui::TextDisabled("Directional Shadows");
+				DrawDirectionalShadowQualityOptions(ViewportClient);
+				ImGui::Separator();
+				ImGui::TextDisabled("Post Processing");
 				bool bEnableFXAA = Layout.bEnableFXAA;
 				if (ImGui::Checkbox("FXAA", &bEnableFXAA))
 				{
 					FSceneViewSettings Settings = ViewportClient->GetViewSettings();
 					Settings.bEnableFXAA = bEnableFXAA;
 					ViewportClient->SetViewSettings(Settings);
-				}
-			}
-			ImGui::Separator();
-			ImGui::TextDisabled("Diagnostics");
-			if (ViewportClient != nullptr)
-			{
-				if (ImGui::BeginMenu("View Distance"))
-				{
-					float NearClip = ViewportClient->GetNearClip();
-					float FarClip = ViewportClient->GetFarClip();
-					float FadeStart = ViewportClient->GetViewFadeStart();
-					float RenderDistance = ViewportClient->GetViewRenderDistance();
-					if (ImGui::DragFloat("Near Clip", &NearClip, 0.01f, 0.001f,
-						FarClip - 1.0f, "%.3f"))
-						ViewportClient->SetClipDistances(NearClip, FarClip);
-					if (ImGui::DragFloat("Far Clip", &FarClip, 100.0f,
-						NearClip + 1.0f, 10000000.0f, "%.1f"))
-						ViewportClient->SetClipDistances(NearClip, FarClip);
-					if (ImGui::DragFloat("Fade Start", &FadeStart, 100.0f,
-						0.0f, RenderDistance - 1.0f, "%.1f"))
-						ViewportClient->SetViewDistance(FadeStart, RenderDistance);
-					if (ImGui::DragFloat("Render Distance", &RenderDistance,
-						100.0f, FadeStart + 1.0f, static_cast<float>(
-							SceneViewProjection::GetMaximumViewRenderDistance(FarClip)),
-						"%.1f"))
-						ViewportClient->SetViewDistance(FadeStart, RenderDistance);
-					ImGui::Separator();
-					if (ImGui::Button("Restore Defaults"))
-						ViewportClient->ResetViewDistances();
-					ImGui::SameLine();
-					ImGui::TextDisabled("Near %.1f / Far %.0f",
-						FLevelEditorViewportClient::DefaultNearClip,
-						FLevelEditorViewportClient::DefaultFarClip);
-					ImGui::TextDisabled("Main scene depth: Reversed Z");
-					ImGui::EndMenu();
-				}
-				if (ImGui::BeginMenu("Directional Shadow"))
-				{
-					ImGui::TextDisabled("Temporary diagnostic view; choose Default to restore.");
-					DrawDirectionalShadowDiagnosticOptions(ViewportClient);
-					ImGui::EndMenu();
 				}
 			}
 			ImGui::Separator();
@@ -815,6 +791,14 @@ namespace Durin::Editor::Level
 					if (ImGui::Checkbox("Collision", &bShowCollision))
 						Context.World->SetCollisionDebugDrawEnabled(bShowCollision);
 				}
+			}
+			ImGui::Separator();
+			ImGui::TextDisabled("Diagnostics");
+			if (ViewportClient != nullptr && ImGui::BeginMenu("Shadow Debug Views"))
+			{
+				ImGui::TextDisabled("Temporary diagnostic view; choose Default to restore.");
+				DrawDirectionalShadowDiagnosticOptions(ViewportClient);
+				ImGui::EndMenu();
 			}
 			ImGui::EndPopup();
 		}
