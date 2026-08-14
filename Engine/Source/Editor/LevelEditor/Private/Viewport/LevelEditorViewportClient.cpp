@@ -11,6 +11,7 @@
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "Math/Operations.h"
+#include "SceneViewProjection.h"
 #include "SceneView.h"
 #include "SceneViewProjection.h"
 #include "StaticMesh/StaticMesh.h"
@@ -169,30 +170,26 @@ namespace Durin::Editor::Level
 		if ((GEditor && GEditor->IsPlaying()) || Width == 0 || Height == 0) return false;
 		OutView = {};
 		const float AspectRatio = Height > 0 ? static_cast<float>(Width) / static_cast<float>(Height) : 1.0f;
-		const float HalfFovRadians = Math::DegreesToRadians(FieldOfViewDegrees) * 0.5f;
-		const float YScale = 1.0f / std::tan(HalfFovRadians);
-		const float XScale = YScale / std::max(AspectRatio, 0.001f);
-		const float DepthScale = FarClip / (FarClip - NearClip);
-		const float DepthBias = -NearClip * FarClip / (FarClip - NearClip);
-
 		OutView.ViewportWidth = Width;
 		OutView.ViewportHeight = Height;
 		OutView.ViewMatrix = CameraTransform.GetViewMatrix();
-		OutView.ProjectionMatrix = FMatrix(0.0f);
-		OutView.ProjectionMatrix[1][0] = XScale;
-		OutView.ProjectionMatrix[2][1] = -YScale;
-		OutView.ProjectionMatrix[0][2] = DepthScale;
-		OutView.ProjectionMatrix[3][2] = DepthBias;
-		OutView.ProjectionMatrix[0][3] = 1.0f;
+		if (!SceneViewProjection::BuildPerspectiveProjection(FieldOfViewDegrees,
+			AspectRatio, NearClip, FarClip, ESceneDepthConvention::ReversedZ,
+			OutView.ProjectionMatrix)) return false;
 		OutView.ViewProjectionMatrix = OutView.ProjectionMatrix * OutView.ViewMatrix;
 		OutView.ViewLocation = CameraTransform.GetLocation();
+		OutView.DepthConvention = ESceneDepthConvention::ReversedZ;
+		OutView.NearClipDistance = NearClip;
+		OutView.FarClipDistance = FarClip;
+		OutView.TerrainFadeStart = TerrainFadeStart;
+		OutView.TerrainRenderDistance = TerrainRenderDistance;
 		const ImVec4& GridColor = MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::ViewportText);
 		const ImVec4& AxisXColor = MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::AxisX);
 		const ImVec4& AxisYColor = MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::AxisY);
 		OutView.EditorGrid = {
 			.bVisible = bShowGrid,
 			.Height = 0.0,
-			.FadeDistance = FarClip * 0.95f,
+			.FadeDistance = static_cast<float>(OutView.TerrainRenderDistance),
 			.MinorColor = {GridColor.x, GridColor.y, GridColor.z, GridColor.w * 0.14f},
 			.MajorColor = {GridColor.x, GridColor.y, GridColor.z, GridColor.w * 0.32f},
 			.AxisXColor = {AxisXColor.x, AxisXColor.y, AxisXColor.z, AxisXColor.w * 0.82f},
@@ -308,6 +305,29 @@ namespace Durin::Editor::Level
 	{
 		if (bShowGrid == bVisible) return;
 		bShowGrid = bVisible;
+		InvalidatePreparedSceneView();
+	}
+
+	auto FLevelEditorViewportClient::SetClipDistances(float InNearClip,
+		float InFarClip) -> void
+	{
+		if (!std::isfinite(InNearClip) || !std::isfinite(InFarClip)) return;
+		NearClip = std::max(0.001f, InNearClip);
+		FarClip = std::clamp(InFarClip, NearClip + 1.0f,
+			static_cast<float>(SceneViewProjection::MaximumPerspectiveFarClip));
+		SetTerrainDistance(TerrainFadeStart, TerrainRenderDistance);
+		InvalidatePreparedSceneView();
+	}
+
+	auto FLevelEditorViewportClient::SetTerrainDistance(float InFadeStart,
+		float InRenderDistance) -> void
+	{
+		if (!std::isfinite(InFadeStart) || !std::isfinite(InRenderDistance)) return;
+		const float MaximumDistance = std::max(1.0f, FarClip - static_cast<float>(
+			SceneViewProjection::GetTerrainFarPlaneSafetyMargin(FarClip)));
+		TerrainRenderDistance = std::clamp(InRenderDistance, 1.0f, MaximumDistance);
+		TerrainFadeStart = std::clamp(InFadeStart, 0.0f,
+			std::max(0.0f, TerrainRenderDistance - 1.0f));
 		InvalidatePreparedSceneView();
 	}
 

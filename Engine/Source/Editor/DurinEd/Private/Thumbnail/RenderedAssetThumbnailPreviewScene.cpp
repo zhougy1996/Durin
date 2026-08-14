@@ -11,6 +11,7 @@
 #include "Preview/PreviewScene.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
+#include "SceneViewProjection.h"
 
 namespace Durin::Editor
 {
@@ -67,19 +68,15 @@ namespace Durin::Editor
 
 			const float AspectRatio = static_cast<float>(Output.Width)
 				/ static_cast<float>(Output.Height);
-			const float YScale = 1.0f / std::tan(
-				Math::DegreesToRadians(Preview.VerticalFieldOfViewDegrees) * 0.5f);
-			const float XScale = YScale / std::max(AspectRatio, 0.001f);
 			const float NearClip = static_cast<float>(Preview.NearClipDistance);
 			const float FarClip = static_cast<float>(Preview.FarClipDistance);
-			const float DepthScale = FarClip / (FarClip - NearClip);
-			const float DepthBias = -NearClip * FarClip / (FarClip - NearClip);
-			View.ProjectionMatrix = FMatrix(0.0f);
-			View.ProjectionMatrix[1][0] = XScale;
-			View.ProjectionMatrix[2][1] = -YScale;
-			View.ProjectionMatrix[0][2] = DepthScale;
-			View.ProjectionMatrix[3][2] = DepthBias;
-			View.ProjectionMatrix[0][3] = 1.0f;
+			const bool bValidProjection = SceneViewProjection::BuildPerspectiveProjection(
+				Preview.VerticalFieldOfViewDegrees, AspectRatio, NearClip, FarClip,
+				ESceneDepthConvention::ReversedZ, View.ProjectionMatrix);
+			check(bValidProjection);
+			View.NearClipDistance = NearClip;
+			View.FarClipDistance = FarClip;
+			View.DepthConvention = ESceneDepthConvention::ReversedZ;
 			View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
 			View.ViewportWidth = Output.Width;
 			View.ViewportHeight = Output.Height;

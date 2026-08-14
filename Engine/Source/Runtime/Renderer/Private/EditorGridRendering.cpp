@@ -69,12 +69,21 @@ namespace Durin::EditorGridRendering
 		const double RelativeGridHeight =
 			View.EditorGrid.Height - View.ViewLocation.z;
 		if (!std::isfinite(RelativeGridHeight)) return false;
+		const FVector4 ClipPlane = glm::transpose(ClipToRelativeWorldMatrix)
+			* FVector4(0.0, 0.0, 1.0, -RelativeGridHeight);
+		if (!std::isfinite(ClipPlane.x) || !std::isfinite(ClipPlane.y)
+			|| !std::isfinite(ClipPlane.z) || !std::isfinite(ClipPlane.w))
+		{
+			return false;
+		}
 
 		const float FadeDistance = std::max(1.0f, View.EditorGrid.FadeDistance);
 		OutUniform.RelativeWorldToClip = RelativeWorldToClip;
 		OutUniform.ClipToRelativeWorld = ClipToRelativeWorld;
 		OutUniform.GridPlane = {
-			static_cast<float>(RelativeGridHeight), GridViewRayDepthBias, 0.0f, 0.0f};
+			static_cast<float>(RelativeGridHeight), 0.0f,
+			View.DepthConvention == ESceneDepthConvention::ReversedZ ? 1.0f : 0.0f,
+			0.0f};
 		OutUniform.ViewPositionFadeDistance = FVector4f(FVector3f(View.ViewLocation), FadeDistance);
 		for (int32 Exponent = MinimumGridExponent;
 			Exponent <= MaximumGridExponent;
@@ -92,6 +101,7 @@ namespace Durin::EditorGridRendering
 		OutUniform.MajorColor = View.EditorGrid.MajorColor;
 		OutUniform.AxisXColor = View.EditorGrid.AxisXColor;
 		OutUniform.AxisYColor = View.EditorGrid.AxisYColor;
+		OutUniform.ClipPlane = FVector4f(ClipPlane);
 		return true;
 	}
 }

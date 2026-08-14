@@ -9,6 +9,7 @@
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Renderers/ViewPreparationMath.h"
 #include "Renderers/DirectionalShadowView.h"
+#include "SceneViewProjection.h"
 #include "RenderingThread.h"
 #include "Resources/DefaultTextureResources.h"
 #include "Resources/EnvironmentLightingResources.h"
@@ -36,12 +37,14 @@ namespace Durin
 		constexpr size_t MaximumRetainedTerrainTopologies = 256;
 		constexpr uint32 MaximumTerrainInstancesPerChunk = 256;
 
-		struct alignas(8) FTerrainInstanceOrigin
+		struct alignas(16) FTerrainInstanceData
 		{
-			uint32 X = 0;
-			uint32 Y = 0;
+			std::array<uint32, 2> SampleOrigin{};
+			FVector2f Padding{0.0f};
+			FVector4f AnchorClip{0.0f};
+			FVector4f AnchorRelativeWorld{0.0f};
 		};
-		static_assert(sizeof(FTerrainInstanceOrigin) == 8);
+		static_assert(sizeof(FTerrainInstanceData) == TerrainInstanceDataBytes);
 		class FTerrainVertexShader final : public FShader
 		{
 		public:
@@ -121,6 +124,7 @@ namespace Durin
 		{
 			std::array<uint32, 4> SamplePatch{};
 			FVector4f SpacingHeight{1.0f, 1.0f, 1.0f, 0.0f};
+			FVector4f DistanceTransition{0.0f};
 		};
 
 		struct FMaterialUniform
@@ -158,6 +162,49 @@ namespace Durin
 				Result.AddPoint(FVector3(Transform * FVector4(Point, 1.0)));
 			}
 			return Result;
+		}
+
+		struct FTerrainDistancePolicy
+		{
+			double FadeStart = SceneViewProjection::DefaultTerrainFadeStart;
+			double RenderDistance = SceneViewProjection::DefaultTerrainRenderDistance;
+			bool bFallback = false;
+		};
+
+		auto ResolveTerrainDistancePolicy(const FSceneView& View)
+			-> FTerrainDistancePolicy
+		{
+			FTerrainDistancePolicy Result{
+				View.TerrainFadeStart, View.TerrainRenderDistance, false};
+			const bool bValid = std::isfinite(Result.FadeStart)
+				&& std::isfinite(Result.RenderDistance) && Result.FadeStart >= 0.0
+				&& Result.FadeStart < Result.RenderDistance
+				&& Result.RenderDistance
+					+ SceneViewProjection::GetTerrainFarPlaneSafetyMargin(
+						View.FarClipDistance)
+					< View.FarClipDistance;
+			if (bValid) return Result;
+			Result = {};
+			Result.RenderDistance = std::min(Result.RenderDistance,
+				std::max(1.0, View.FarClipDistance
+					- SceneViewProjection::GetTerrainFarPlaneSafetyMargin(
+						View.FarClipDistance)));
+			Result.FadeStart = std::min(Result.FadeStart,
+				Result.RenderDistance * 0.9);
+			Result.bFallback = true;
+			return Result;
+		}
+
+		auto GetClosestHorizontalDistance(const FBox& Bounds,
+			const FVector3& Location) -> double
+		{
+			const double DeltaX = Location.x < Bounds.Min.x
+				? Bounds.Min.x - Location.x
+				: Location.x > Bounds.Max.x ? Location.x - Bounds.Max.x : 0.0;
+			const double DeltaY = Location.y < Bounds.Min.y
+				? Bounds.Min.y - Location.y
+				: Location.y > Bounds.Max.y ? Location.y - Bounds.Max.y : 0.0;
+			return std::hypot(DeltaX, DeltaY);
 		}
 
 		auto GetSamplerKey(const FMaterialSamplerState& State) -> size_t
@@ -283,6 +330,12 @@ namespace Durin
 		FViewFrustum Frustum;
 		const bool bCull = View.Settings.VisibilityMode == EViewVisibilityMode::Normal;
 		const bool bValidView = !bCull || TryBuildViewFrustum(View, Frustum);
+		const bool bApplyDistance =
+			View.DepthConvention == ESceneDepthConvention::ReversedZ;
+		const FTerrainDistancePolicy DistancePolicy =
+			ResolveTerrainDistancePolicy(View);
+		Result.InvalidDistanceSettingFallbacks +=
+			bApplyDistance && DistancePolicy.bFallback ? 1u : 0u;
 		for (const FPrimitiveSceneInfo* Info : SceneInfos)
 		{
 			if (!Info || Info->GetKind() != EPrimitiveSceneProxyKind::Terrain) continue;
@@ -305,6 +358,10 @@ namespace Durin
 			CommonDraw.PipelineKey.Rasterizer.FrontFace = Determinant < 0.0
 				? ERHIFrontFace::CounterClockwise : ERHIFrontFace::Clockwise;
 			CommonDraw.PipelineKey.Depth.bEnableTest = true;
+			CommonDraw.PipelineKey.Depth.CompareOp =
+				View.DepthConvention == ESceneDepthConvention::ReversedZ
+					? ERHIDepthCompareOp::GreaterOrEqual
+					: ERHIDepthCompareOp::Less;
 			const auto CommonBlend =
 				CommonDraw.Material.PipelineIdentity.ShaderMap.BlendMode;
 			CommonDraw.Pass = CommonBlend == EMaterialBlendMode::Masked
@@ -352,6 +409,18 @@ namespace Durin
 				const FTerrainPatchDescriptor& Patch = Patches[PatchIndex];
 				++Result.PatchCandidates;
 				const FBox WorldBounds = TransformBounds(Patch.LocalBounds, Transform);
+				if (bApplyDistance && WorldBounds.bIsValid
+					&& Math::IsFinite(WorldBounds.Min)
+					&& Math::IsFinite(WorldBounds.Max))
+				{
+					const double Distance = GetClosestHorizontalDistance(
+						WorldBounds, View.ViewLocation);
+					if (Distance > DistancePolicy.RenderDistance)
+					{
+						++Result.RadialRejectedPatches;
+						continue;
+					}
+				}
 				if (bCull && bValidView)
 				{
 					const auto Classification = ClassifyWorldBounds(Frustum, WorldBounds);
@@ -369,6 +438,20 @@ namespace Durin
 				Draw.ResolvedLOD = Resolution.ResolvedLODs[PatchIndex];
 				Draw.LODStep = Patch.LODSteps[Draw.ResolvedLOD];
 				Draw.StitchMask = Resolution.StitchMasks[PatchIndex];
+				if (bApplyDistance && WorldBounds.bIsValid
+					&& Math::IsFinite(WorldBounds.Min)
+					&& Math::IsFinite(WorldBounds.Max))
+				{
+					const double Distance = GetClosestHorizontalDistance(
+						WorldBounds, View.ViewLocation);
+					if (Distance <= DistancePolicy.FadeStart)
+						++Result.InnerPatches;
+					else
+					{
+						++Result.TransitionPatches;
+					}
+				}
+				else ++Result.InnerPatches;
 				const FTerrainTopologyKey TopologyKey{
 					static_cast<uint16>(Patch.CellCountX),
 					static_cast<uint16>(Patch.CellCountY),
@@ -413,6 +496,10 @@ namespace Durin
 		Result.BatchChunks = Result.PreparedBatches;
 		for (const auto* Batches : {&Result.OpaqueBatches, &Result.MaskedBatches})
 			for (const auto& Batch : *Batches) Result.InstanceCount += Batch.DrawIndices.size();
+		check(Result.PatchCandidates == Result.VisiblePatches
+			+ Result.CulledPatches + Result.RadialRejectedPatches);
+		check(Result.VisiblePatches == Result.InnerPatches
+			+ Result.TransitionPatches);
 		const auto BatchEnd = std::chrono::steady_clock::now();
 		Result.LogicalPreparationNanoseconds = std::chrono::duration_cast<
 			std::chrono::nanoseconds>(LogicalEnd - LogicalBegin).count();
@@ -768,7 +855,7 @@ namespace Durin
 				++View.AttemptedDraws;
 				++View.InstanceAllocations;
 				View.InstanceBytes += Batch.DrawIndices.size()
-					* sizeof(FTerrainInstanceOrigin);
+					* sizeof(FTerrainInstanceData);
 				uint64 DynamicNanoseconds = 0;
 				if (DrawBatch_RenderThread(CommandList, ShadowView, FallbackLighting,
 					ERenderMode::Unlit, *Draws, Batch, true, &DynamicNanoseconds))
@@ -819,20 +906,39 @@ namespace Durin
 			InstanceOrigins = std::span<const std::array<uint32, 2>>(
 				&ScalarOrigin, 1);
 		if (InstanceOrigins.size() > MaximumTerrainInstancesPerChunk
-			|| InstanceOrigins.size() > std::numeric_limits<uint32>::max()
-			|| InstanceOrigins.size_bytes() > std::numeric_limits<uint32>::max())
+			|| InstanceOrigins.size() > std::numeric_limits<uint32>::max())
 			return false;
+		const FMatrix& LocalToWorld = Draw.SceneInfo->GetTransform();
+		const FMatrix LocalToClip = SceneView.ViewProjectionMatrix * LocalToWorld;
+		std::vector<FTerrainInstanceData> Instances;
+		Instances.reserve(InstanceOrigins.size());
+		for (const auto& Origin : InstanceOrigins)
+		{
+			const FVector4 LocalAnchor(
+				static_cast<double>(Origin[0]) * Proxy.GetSpacingX(),
+				static_cast<double>(Origin[1]) * Proxy.GetSpacingY(), 0.0, 1.0);
+			const FVector4 WorldAnchor = LocalToWorld * LocalAnchor;
+			const FVector4 ClipAnchor = SceneView.ViewProjectionMatrix * WorldAnchor;
+			const FVector3 RelativeAnchor = FVector3(WorldAnchor) - SceneView.ViewLocation;
+			Instances.push_back({
+				.SampleOrigin = Origin,
+				.AnchorClip = FVector4f(ClipAnchor),
+				.AnchorRelativeWorld = FVector4f(FVector3f(RelativeAnchor), 0.0f)});
+		}
+		if (Instances.size() * sizeof(FTerrainInstanceData)
+			> std::numeric_limits<uint32>::max()) return false;
 		const auto DynamicBegin = std::chrono::steady_clock::now();
 		const auto InstanceRange = CommandList.AllocateDynamicStorageBuffer(
-			InstanceOrigins.data(), static_cast<uint32>(InstanceOrigins.size_bytes()));
+			Instances.data(), static_cast<uint32>(Instances.size()
+				* sizeof(FTerrainInstanceData)));
 		if (OutDynamicAllocationNanoseconds)
 			*OutDynamicAllocationNanoseconds = std::chrono::duration_cast<
 				std::chrono::nanoseconds>(std::chrono::steady_clock::now() - DynamicBegin).count();
-		if (!InstanceRange.Buffer || InstanceRange.Size != InstanceOrigins.size_bytes())
+		if (!InstanceRange.Buffer || InstanceRange.Size != Instances.size()
+			* sizeof(FTerrainInstanceData))
 			return false;
-		const FMatrix& LocalToWorld = Draw.SceneInfo->GetTransform();
 		FTransformUniform Transform;
-		Transform.LocalToClip = ToShaderMatrix(SceneView.ViewProjectionMatrix * LocalToWorld);
+		Transform.LocalToClip = ToShaderMatrix(LocalToClip);
 		Transform.LocalToWorld = ToShaderMatrix(LocalToWorld);
 		Transform.NormalToWorld = ToShaderMatrix(Math::Transpose(Math::Inverse(LocalToWorld)));
 		Transform.TransformParams.x = glm::determinant(glm::mat3(LocalToWorld)) < 0.0 ? -1.0f : 1.0f;
@@ -840,6 +946,11 @@ namespace Durin
 		FTerrainUniform Terrain;
 		Terrain.SamplePatch = {Payload->Width, Payload->Height, 0, 0};
 		Terrain.SpacingHeight = FVector4f(static_cast<float>(Proxy.GetSpacingX()), static_cast<float>(Proxy.GetSpacingY()), static_cast<float>(Proxy.GetHeightScale()), static_cast<float>(Proxy.GetHeightOffset()));
+		const FTerrainDistancePolicy DistancePolicy =
+			ResolveTerrainDistancePolicy(SceneView);
+		Terrain.DistanceTransition = FVector4f(
+			static_cast<float>(DistancePolicy.FadeStart),
+			static_cast<float>(DistancePolicy.RenderDistance), 0.0f, 0.0f);
 		const auto TerrainBuffer = CommandList.AllocateDynamicUniformBuffer(&Terrain, sizeof(Terrain));
 		FMaterialUniform Material;
 		const auto& Binding = Draw.MaterialBinding;
@@ -962,7 +1073,7 @@ namespace Durin
 		++View.ScalarTranslucentDraws;
 		++View.InstanceAllocations;
 		++View.InstanceCount;
-		View.InstanceBytes += sizeof(FTerrainInstanceOrigin);
+		View.InstanceBytes += sizeof(FTerrainInstanceData);
 		uint64 DynamicNanoseconds = 0;
 		if (Draw_RenderThread(CommandList, SceneView, Lighting, RenderMode, Draw,
 			false, {}, &DynamicNanoseconds))
@@ -989,7 +1100,7 @@ namespace Durin
 			const auto Begin = std::chrono::steady_clock::now();
 			++View.AttemptedDraws;
 			++View.InstanceAllocations;
-			View.InstanceBytes += Batch.DrawIndices.size() * sizeof(FTerrainInstanceOrigin);
+			View.InstanceBytes += Batch.DrawIndices.size() * sizeof(FTerrainInstanceData);
 			uint64 DynamicNanoseconds = 0;
 			if (DrawBatch_RenderThread(CommandList, SceneView, Lighting, RenderMode,
 				Draws, Batch, false, &DynamicNanoseconds))

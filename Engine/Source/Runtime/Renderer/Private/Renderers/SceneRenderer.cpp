@@ -142,6 +142,11 @@ namespace Durin
 			Counters.TerrainPatchCandidates = Terrain.PatchCandidates;
 			Counters.VisibleTerrainPatches = Terrain.VisiblePatches;
 			Counters.CulledTerrainPatches = Terrain.CulledPatches;
+			Counters.InnerTerrainPatches = Terrain.InnerPatches;
+			Counters.TransitionTerrainPatches = Terrain.TransitionPatches;
+			Counters.RadialRejectedTerrainPatches = Terrain.RadialRejectedPatches;
+			Counters.InvalidTerrainDistanceSettingFallbacks =
+				Terrain.InvalidDistanceSettingFallbacks;
 			Counters.InvalidTerrainPatchBounds = Terrain.InvalidBoundsFallbacks;
 			Counters.TerrainLODFallbacks = Terrain.LODFallbacks;
 			Counters.TerrainLODResolutionFallbacks = Terrain.LODResolutionFallbacks;
@@ -727,7 +732,9 @@ namespace Durin
 			View.ClearColor.g,
 			View.ClearColor.b,
 			View.ClearColor.a);
-		ScenePassInfo.DepthStencilClearValue = FClearValueBinding(1.0f, 0u);
+		ScenePassInfo.DepthStencilClearValue = FClearValueBinding(
+			View.DepthConvention == ESceneDepthConvention::ReversedZ ? 0.0f : 1.0f,
+			0u);
 		FGPUTimingQueryRHIRef SceneColorTimingQuery;
 		const FSceneColorTimingQuerySink TimingSink =
 			GSceneColorTimingQuerySink.load(std::memory_order_acquire);

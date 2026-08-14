@@ -189,6 +189,7 @@ namespace Durin
 			.Feature = EFeature::EditorGrid,
 			.Output = Output,
 			.DepthMode = EDepthMode::Visible,
+			.DepthConvention = View.DepthConvention,
 		};
 		auto EntryIt = std::ranges::find(
 			State->Pipelines, Key, &FState::FPipelineEntry::Key);
@@ -219,6 +220,8 @@ namespace Durin
 					FRHIColorBlendState::StraightAlpha();
 				Initializer.RasterizerState.CullMode = ERHICullMode::None;
 				Initializer.DepthStencilState.bEnableTest = true;
+				Initializer.DepthStencilState.CompareOp =
+					GetVisibleDepthCompareOp(Key.DepthConvention);
 				Initializer.PipelineLayout =
 					Base->ShaderMap->GetMergedPipelineLayout();
 				const std::string PipelineName = std::format(

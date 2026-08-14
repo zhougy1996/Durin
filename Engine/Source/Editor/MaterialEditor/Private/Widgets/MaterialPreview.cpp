@@ -14,6 +14,7 @@
 #include "MonaImGui.h"
 #include "Preview/PreviewScene.h"
 #include "SceneView.h"
+#include "SceneViewProjection.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Widgets/MViewport.h"
 
@@ -90,16 +91,12 @@ namespace Durin::Editor::Material
 				OutView.ViewMatrix[3][2] = -Math::Dot(Up, Eye);
 
 				const float AspectRatio = static_cast<float>(Width) / static_cast<float>(Height);
-				const float YScale = 1.0f / std::tan(Math::DegreesToRadians(FieldOfViewDegrees) * 0.5f);
-				const float XScale = YScale / std::max(AspectRatio, 0.001f);
-				const float DepthScale = FarClip / (FarClip - NearClip);
-				const float DepthBias = -NearClip * FarClip / (FarClip - NearClip);
-				OutView.ProjectionMatrix = FMatrix(0.0f);
-				OutView.ProjectionMatrix[1][0] = XScale;
-				OutView.ProjectionMatrix[2][1] = -YScale;
-				OutView.ProjectionMatrix[0][2] = DepthScale;
-				OutView.ProjectionMatrix[3][2] = DepthBias;
-				OutView.ProjectionMatrix[0][3] = 1.0f;
+				if (!SceneViewProjection::BuildPerspectiveProjection(FieldOfViewDegrees,
+					AspectRatio, NearClip, FarClip, ESceneDepthConvention::ReversedZ,
+					OutView.ProjectionMatrix)) return false;
+				OutView.NearClipDistance = NearClip;
+				OutView.FarClipDistance = FarClip;
+				OutView.DepthConvention = ESceneDepthConvention::ReversedZ;
 				OutView.ViewProjectionMatrix = OutView.ProjectionMatrix * OutView.ViewMatrix;
 				return true;
 			}

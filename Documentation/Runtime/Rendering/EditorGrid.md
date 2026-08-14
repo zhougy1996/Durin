@@ -40,7 +40,7 @@ Level Editor builds FSceneView
   -> fragment shader reconstructs one camera-relative ray
   -> ray intersects the horizontal plane
   -> derivatives select and antialias decimal grid levels
-  -> the shader emits color plus a depth-only coplanar separation
+  -> the shader emits color plus minimal coplanar depth priority
   -> preserved scene depth occludes the grid
 ```
 
@@ -56,7 +56,7 @@ The scene and post-process phases complete before editor assistance. The final
 assistance pass loads final color and preserved D32 scene depth, restores the
 view's fitted viewport and scissor, then draws the grid before gizmos, overlay
 lines, and overlay icons. The grid pipeline uses straight-alpha blending, no
-culling, `Less` depth comparison, and disabled depth writes. The grid therefore
+culling, the main view's `GreaterOrEqual` reversed-Z comparison, and disabled depth writes. The grid therefore
 participates in scene occlusion but never changes the depth observed by later
 editor assistance.
 
@@ -138,25 +138,32 @@ camera position back to the relative hit.
 The vertex shader forwards the shared fullscreen triangle's clip XY and emits
 it directly as `SV_Position`. It does not construct world-space grid vertices.
 
-For each covered pixel, the fragment shader unprojects clip depths `0` and `1`
-through `ClipToRelativeWorld`, performs homogeneous division, and forms a
-normalized ray from the near point toward the far point. The Engine convention
-is standard depth: near is `0`, far is `1`.
+For each covered pixel, the fragment shader unprojects the convention-selected
+near depth and device depth `0.5` through `ClipToRelativeWorld`, performs
+homogeneous division, and forms a normalized ray. Any two depths define the
+same view ray; the middle sample avoids the large float magnitude and precision
+loss of a very long or infinite far endpoint. Main reversed-Z perspective views
+select near depth `1`.
+
+The CPU also transforms the relative horizontal plane into homogeneous clip
+space. The shader solves this plane equation at the pixel's NDC XY, then
+unprojects that solved depth to obtain the relative hit position.
 
 The shader rejects a fragment when:
 
 - either homogeneous point is non-finite or has unusable `w`;
-- the near/far points do not form a finite ray;
+- the near/middle points do not form a finite ray;
 - the ray is effectively parallel to the horizontal plane;
-- the plane intersection is behind the near point;
-- the reprojected hit is outside depth range `0..1`;
+- the clip plane cannot be solved at the pixel;
+- the solved hit is outside depth range `0..1` or cannot be unprojected;
 - the hit reaches or exceeds the configured fade distance.
 
 For an accepted ray:
 
 ```text
-t = (RelativeGridHeight - NearRelative.z) / RayDirection.z
-RelativeHit = NearRelative + RayDirection * t
+HitDepth = -(ClipPlane.x * NdcX + ClipPlane.y * NdcY + ClipPlane.w)
+           / ClipPlane.z
+RelativeHit = ClipToRelativeWorld * (NdcX, NdcY, HitDepth, 1)
 ```
 
 `RelativeHit` is the authoritative visual grid position. All line derivatives,
@@ -211,44 +218,33 @@ directions. Minor and major alpha are combined before world-axis color takes
 priority. The red X axis is `world Y = 0`; the green Y axis is
 `world X = 0`.
 
-## Depth ordering and coplanar separation
+## Depth ordering and coplanar priority
 
-The visual intersection is reprojected through `RelativeWorldToClip` to obtain
-its real plane depth. That depth is validated before appearance work is
-accepted. Color always represents the exact plane; only the separately emitted
-depth receives a small ordering adjustment.
+The CPU transforms the world grid plane into homogeneous clip space in double
+precision. The fragment shader solves that clip-plane equation directly at the
+pixel's NDC coordinate, then unprojects the solved hit for line appearance.
+Planar depth therefore follows the same screen-space interpolation model as
+scene triangles without accumulating ray-intersection/reprojection error.
 
 Scene geometry is already present in the loaded D32 depth attachment. Exact
 coplanarity cannot rely on bit-identical depth because scene meshes obtain
 depth through vertex projection and raster interpolation, while the grid uses
-fragment ray intersection and reprojection. A small rounding difference can
-otherwise let alternating grid fragments pass, producing apparent z-fighting.
+fragment plane evaluation. The grid therefore moves only its submitted D32
+value through a bounded window of 1024 representable float steps toward the
+camera. Reversed-Z increments the positive float depth value; forward-Z
+decrements it. For normalized positive floats this is approximately `1.2e-4`
+relative depth.
 
-The current separation has two parts:
+This bounded priority covers the numerical disagreement observed while a
+camera rotates over coplanar Terrain without moving the plane by a world-space
+distance. Geometry with a meaningfully closer depth still occludes the grid,
+and depth writes remain disabled. The design deliberately avoids both a fixed
+normalized offset and a world-space view-ray offset: either can represent an
+unexpectedly large separation at some distance and suppress the grid across a
+broad surface.
 
-1. Reproject a point `0.05` world units farther along the view ray. This is a
-   fixed geometric separation used only for depth; it does not move the line
-   pattern or plane intersection.
-2. Move that result two representable positive D32 float values toward the far
-   plane. This is the minimum depth-resolution floor when the fixed geometric
-   separation becomes smaller than one stored depth step.
-
-With standard Z and `Less`, larger depth is farther, so coplanar scene geometry
-wins. Depth writes remain disabled.
-
-The design deliberately does not add a fixed normalized depth such as
-`1e-5`. Near D32 depth `1`, that value is roughly 168 float ULPs. Because
-perspective depth is nonlinear, the same normalized offset represents about
-one world unit at distance 100, about 111 units at distance 1000, and about
-1286 units at distance 3000 for the Level Editor's `Near = 0.1` and
-`Far = 10000`. Large scenes can then let geometry physically behind the plane
-incorrectly occlude the grid. A small world-sized view-ray separation plus a
-two-ULP floor avoids that uncontrolled distance amplification.
-
-The bit-increment rule depends on the current D32, standard-Z contract. A
-future reversed-Z projection must move toward smaller depth instead; a fixed
-point or integer depth format requires a format-specific representable-step
-policy.
+A fixed-point or integer depth format requires a format-specific
+representable-step policy.
 
 ## Problems solved by the current design
 
@@ -273,12 +269,12 @@ Continuous-position derivatives are evaluated before discrete spacing
 selection, and adjacent decimal levels cross-fade through shared world lines.
 This avoids whole-region scale pops and false derivative boundaries.
 
-### Coplanar scene z-fighting
+### Coplanar grid disappearance and z-fighting
 
-The visual plane remains exact, while only emitted depth moves by a bounded
-world-sized amount with a D32-resolution floor. Scene surfaces standing on the
-grid therefore win consistently without pushing the visible grid far behind
-unrelated geometry.
+The visual plane remains exact, while its emitted depth receives a bounded D32
+camera-side tolerance. Direct clip-plane depth plus that tolerance keeps the
+grid stable across camera rotation on a coplanar Terrain surface without
+allowing it to pass genuinely closer geometry.
 
 ### Scene and post-process interaction
 
@@ -317,7 +313,7 @@ Use the symptom to isolate the responsible stage:
 | --- | --- |
 | Lines fragment at large absolute coordinates but not near origin | Camera-relative matrices and decimal phase upload/indexing |
 | Entire distant region disappears | Fade distance, grazing fade, projected depth range, and far-plane saturation |
-| Only intersections with scene surfaces flicker | Coplanar depth separation, D32 format, and `Less` comparison |
+| Only intersections with scene surfaces flicker | Coplanar depth separation, D32 format, and the submitted depth convention |
 | Scale changes as a sharp band | Derivatives occurring after LOD selection or broken decimal transition continuity |
 | Grid moves when the camera translates | Missing or incorrect per-spacing world phase |
 | Grid has a hard outer edge | Early hard discard or accidental finite geometry/scissor mismatch |
@@ -336,10 +332,12 @@ A useful rendering isolation order is:
 
 Focused CPU tests verify mutually inverse camera-relative transforms, relative
 height, finite failure behavior, and positive decimal phases at million-scale
-positive and negative camera coordinates. A full editor build verifies the C++
-uniform layout. Real Vulkan startup must compile `/Engine/EditorGrid`, create
-the demanded pipeline, render a first frame, and produce no Shader, Pipeline,
-or Validation error.
+positive and negative camera coordinates. The hardware-backed Vulkan regression
+compares empty and coplanar-Terrain captures across rotated reversed-Z views,
+then verifies that meaningfully closer Terrain still occludes the grid. A full
+editor build verifies the C++ uniform layout. Real Vulkan startup must compile
+`/Engine/EditorGrid`, create the demanded pipeline, render a first frame, and
+produce no Shader, Pipeline, or Validation error.
 
 Visual validation should retain the same camera while toggling Terrain or
 other geometry, then cover near/far views, large positive and negative world
@@ -365,3 +363,4 @@ outputs, and FXAA on/off.
 - `Engine/Source/Runtime/Renderer/Private/Resources/RenderTargetLayouts.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Viewport/LevelEditorViewportClient.cpp`
 - `Engine/Tests/Native/EngineTests/Private/EditorGridRenderingTests.cpp`
+- `Engine/Tests/Native/EngineTests/Private/EditorGridVulkanTests.cpp`

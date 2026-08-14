@@ -94,9 +94,13 @@ entries. Topology is shared by the complete LOD/stitch key and admits at most
 256 variants. Failed or illegal topology creation publishes no cache entry.
 
 `FTerrainVertexFactory` binds one `UShort2` patch-local grid coordinate. The
-Terrain vertex shader also binds a read-only, tightly packed `uint2` storage
-array of heightmap sample origins and indexes it with the canonical instance
-identity. Width, height, spacing, signed height scale, transform, height
+Terrain vertex shader also binds a read-only 48-byte instance record containing
+the exact heightmap sample origin, a double-prepared patch clip anchor, and a
+camera-relative world anchor. Clip reconstruction adds bounded patch-local
+sample offsets to that anchor instead of forming a large float world position
+before camera cancellation. Canonical integer texel identity, UVs, normals,
+topology keys, collision, and authored bounds remain unchanged. Width, height,
+spacing, signed height scale, transform, height
 texture, material, pipeline, and topology remain batch-wide state. The shader
 performs integer texel loads and divides by 65535. Interior
 normals use central differences; terrain edges use the available one-sided
@@ -130,9 +134,26 @@ never activated by production failure.
 
 ## Visibility, counters, and lifecycle
 
+Main-scene Terrain visibility uses horizontal radial distance from
+`FSceneView::ViewLocation`, independently of camera rotation. A finite patch is
+rejected only when the closest point of its conservative world AABB is beyond
+`TerrainRenderDistance`; equality remains selected. Bounds at or before
+`TerrainFadeStart` are inner, while intersecting bounds through the distance
+endpoint remain submitted as transition patches. Ordinary screen-frustum
+rejection still applies after radial selection, and LOD adjacency is resolved
+from the complete patch set before either rejection can remove a draw.
+
+Opaque and masked transition geometry uses deterministic 4x4 coverage
+dithering from a per-fragment horizontal distance. This preserves depth-writing
+material behavior and requires neither translucency sorting nor temporal
+history. Invalid/non-finite distance settings resolve to bounded defaults under
+the far-plane safety margin and increment a fallback counter. Forward-Z shadow
+views do not apply the main-view radial policy.
+
 The scene owns one authoritative typed Terrain SceneInfo list in addition to
 the all-primitive list. Command-local counters report visible Terrain
-primitives, candidate/visible/culled patches, invalid-bound fallbacks,
+primitives, candidate/visible/frustum-culled patches, inner/transition/radial-
+rejected patches, invalid-distance and invalid-bound fallbacks,
 pass-classified patches, requested/resolved LOD histograms, LOD fallbacks,
 adjacency iterations/promotions, all 16 stitch-mask buckets, selected
 triangles, prepared batches/chunks, instances/bytes/allocations, batch and
@@ -175,13 +196,20 @@ reduction and the forced comparison path, not draw-call scalability.
 The direct-instancing qualification on 2026-08-14 used the same RTX 3090,
 Win64 Debug threaded Vulkan validation, 17x17 output, two warm-up frames, and
 seven measured frames. One homogeneous 1025x1025 Terrain retained 256 logical
-patches but submitted one 256-instance hardware draw and 2,048 logical
+patches but submitted one 256-instance hardware draw and 12,288 logical
 instance bytes. `ForceLOD0` retained 2,097,152 triangles and recorded 12.94 ms
 CPU median / 13.39 ms p95 plus 0.243 ms Scene Color GPU median / 0.244 ms p95.
 Automatic flat-far retained 512 triangles and recorded 12.99 ms CPU. This is
 more than a 100x CPU improvement against the same-host T3 medians and is
 enforced by the 150 ms median / 250 ms p95 Debug CPU gates and inherited 50 ms
 GPU ceiling.
+
+The reversed-Z and 48-byte camera-relative instance migration was requalified
+on 2026-08-14 with the Win64 Debug threaded Vulkan profile on a GTX 1060:
+44.28 ms CPU median / 45.52 ms p95 and 1.04 ms Scene Color GPU median /
+1.32 ms p95. Automatic flat-far retained 512 triangles. This cross-adapter
+result remains below the existing Debug gates and is not compared directly to
+the RTX 3090 timing baseline.
 
 The activation first-use qualification on 2026-08-14 used Win64 Debug,
 threaded Vulkan validation, an NVIDIA GeForce GTX 1060 6GB, a 17x17 output,

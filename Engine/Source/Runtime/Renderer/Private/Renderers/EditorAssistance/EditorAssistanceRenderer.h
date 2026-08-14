@@ -47,6 +47,8 @@ namespace Durin::RendererEditorAssistance
 		RenderTargetLayouts::EViewportOutput Output =
 			RenderTargetLayouts::EViewportOutput::Offscreen;
 		EDepthMode DepthMode = EDepthMode::Visible;
+		ESceneDepthConvention DepthConvention =
+			ESceneDepthConvention::ForwardZ;
 		EGizmoTopology GizmoTopology = EGizmoTopology::NotApplicable;
 
 		auto operator==(const FPipelineKey&) const -> bool = default;
@@ -56,6 +58,8 @@ namespace Durin::RendererEditorAssistance
 	{
 		RenderTargetLayouts::EViewportOutput Output =
 			RenderTargetLayouts::EViewportOutput::Offscreen;
+		ESceneDepthConvention DepthConvention =
+			ESceneDepthConvention::ForwardZ;
 		bool bEditorGrid = false;
 		bool bSolidGizmos = false;
 		bool bWireGizmos = false;
@@ -68,6 +72,14 @@ namespace Durin::RendererEditorAssistance
 				&& !bOverlayLines && !bOverlayIcons;
 		}
 	};
+
+	inline auto GetVisibleDepthCompareOp(
+		ESceneDepthConvention DepthConvention) -> ERHIDepthCompareOp
+	{
+		return DepthConvention == ESceneDepthConvention::ReversedZ
+			? ERHIDepthCompareOp::GreaterOrEqual
+			: ERHIDepthCompareOp::Less;
+	}
 
 	enum class EDrawOperation : uint8
 	{

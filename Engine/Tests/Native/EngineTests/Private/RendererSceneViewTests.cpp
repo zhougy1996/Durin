@@ -4,6 +4,7 @@
 #include "Renderers/PreparedSceneView.h"
 #include "Renderers/DirectionalShadowView.h"
 #include "Renderers/ViewPreparationMath.h"
+#include "SceneViewProjection.h"
 
 namespace Durin
 {
@@ -161,6 +162,76 @@ namespace Durin
 			Orthographic * FVector4(1.0, 0.0, 1.0, 1.0);
 		EXPECT_NEAR(OrthographicRight.x, 1.0, 1.0e-12);
 		EXPECT_NEAR(OrthographicUp.y, -1.0, 1.0e-12);
+	}
+
+	TEST(FRendererSceneViewTests,
+		FiniteReversedZProjectionMatchesFrozenDepthOracle)
+	{
+		EXPECT_EQ(SceneViewProjection::GetNearDeviceDepth(
+			ESceneDepthConvention::ForwardZ), 0.0);
+		EXPECT_EQ(SceneViewProjection::GetFarDeviceDepth(
+			ESceneDepthConvention::ForwardZ), 1.0);
+		EXPECT_EQ(SceneViewProjection::GetNearDeviceDepth(
+			ESceneDepthConvention::ReversedZ), 1.0);
+		EXPECT_EQ(SceneViewProjection::GetFarDeviceDepth(
+			ESceneDepthConvention::ReversedZ), 0.0);
+		FMatrix Projection;
+		ASSERT_TRUE(SceneViewProjection::BuildPerspectiveProjection(
+			90.0, 2.0, 1.0, 1001.0,
+			ESceneDepthConvention::ReversedZ, Projection));
+		auto DepthAt = [&Projection](double Distance) {
+			const FVector4 Clip = Projection
+				* FVector4(Distance, 0.0, 0.0, 1.0);
+			return Clip.z / Clip.w;
+		};
+		EXPECT_NEAR(DepthAt(1.0), 1.0, 1.0e-12);
+		EXPECT_NEAR(DepthAt(1001.0), 0.0, 1.0e-12);
+		EXPECT_GT(DepthAt(500.0), DepthAt(900.0));
+		EXPECT_FALSE(SceneViewProjection::BuildPerspectiveProjection(
+			90.0, 2.0, 0.0, 1001.0,
+			ESceneDepthConvention::ReversedZ, Projection));
+		EXPECT_FALSE(SceneViewProjection::BuildPerspectiveProjection(
+			90.0, 2.0, 1001.0, 1001.0,
+			ESceneDepthConvention::ReversedZ, Projection));
+	}
+
+	TEST(FRendererSceneViewTests,
+		DirectionalShadowReconstructsReversedZSingleAndCascadedReceivers)
+	{
+		FSceneView View;
+		ASSERT_TRUE(SceneViewProjection::BuildPerspectiveProjection(
+			75.0, 16.0 / 9.0, 0.1, 500000.0,
+			ESceneDepthConvention::ReversedZ, View.ProjectionMatrix));
+		View.ViewProjectionMatrix = View.ProjectionMatrix;
+		View.DepthConvention = ESceneDepthConvention::ReversedZ;
+		View.ViewportWidth = 1920;
+		View.ViewportHeight = 1080;
+		FDirectionalLightSceneData Light;
+		Light.Direction = {-0.5, -0.5, -1.0};
+		Light.Intensity = 1.0f;
+
+		for (const EDirectionalShadowCandidate Candidate : {
+				EDirectionalShadowCandidate::SingleMap,
+				EDirectionalShadowCandidate::ThreeCascades})
+		{
+			View.Settings.DirectionalShadowCandidate = Candidate;
+			FPreparedDirectionalShadowView Shadow;
+			ASSERT_TRUE(TryPrepareDirectionalShadowView(
+				View, FLightSceneId(9), Light, Shadow));
+			EXPECT_TRUE(Shadow.bEnabled);
+			EXPECT_EQ(Shadow.CascadeCount,
+				Candidate == EDirectionalShadowCandidate::ThreeCascades
+					? DirectionalShadowCascadeCount : 1u);
+			for (uint32 CascadeIndex = 0;
+				CascadeIndex < Shadow.CascadeCount; ++CascadeIndex)
+			{
+				const auto& Cascade = Shadow.Cascades[CascadeIndex];
+				EXPECT_TRUE(Cascade.bEnabled);
+				EXPECT_EQ(Cascade.CasterView.DepthConvention,
+					ESceneDepthConvention::ForwardZ);
+				EXPECT_GT(Cascade.FarDepth, Cascade.NearDepth);
+			}
+		}
 	}
 
 	TEST(FRendererSceneViewTests,

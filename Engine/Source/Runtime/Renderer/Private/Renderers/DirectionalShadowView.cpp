@@ -1,5 +1,7 @@
 #include "Renderers/DirectionalShadowView.h"
 
+#include "SceneViewProjection.h"
+
 #include "Math/Operations.h"
 #include "Scene.h"
 
@@ -142,6 +144,10 @@ namespace Durin
 				return false;
 			OutFrustum.bPerspective = bPerspective;
 			OutFrustum.DepthTransform = GetRow(View.ViewMatrix, 0);
+			const double NearDeviceDepth =
+				SceneViewProjection::GetNearDeviceDepth(View.DepthConvention);
+			const double FarDeviceDepth =
+				SceneViewProjection::GetFarDeviceDepth(View.DepthConvention);
 			double NearMinimum = std::numeric_limits<double>::max();
 			double NearMaximum = std::numeric_limits<double>::lowest();
 			double FarMinimum = std::numeric_limits<double>::max();
@@ -151,10 +157,10 @@ namespace Durin
 				const double X = (Corner & 1u) != 0 ? 1.0 : -1.0;
 				const double Y = (Corner & 2u) != 0 ? 1.0 : -1.0;
 				if (!TryTransformPoint(
-						ClipToWorld, FVector4(X, Y, 0.0, 1.0),
+						ClipToWorld, FVector4(X, Y, NearDeviceDepth, 1.0),
 						OutFrustum.Corners[Corner])
 					|| !TryTransformPoint(
-						ClipToWorld, FVector4(X, Y, 1.0, 1.0),
+						ClipToWorld, FVector4(X, Y, FarDeviceDepth, 1.0),
 						OutFrustum.Corners[Corner + 4]))
 					return false;
 				const FVector4 NearView = View.ViewMatrix
@@ -194,14 +200,18 @@ namespace Durin
 			FMatrix ClipToWorld;
 			if (!Math::TryInverse(
 					View.ViewProjectionMatrix, ClipToWorld, MatrixEpsilon)) return false;
+			const double NearDeviceDepth =
+				SceneViewProjection::GetNearDeviceDepth(View.DepthConvention);
+			const double FarDeviceDepth =
+				SceneViewProjection::GetFarDeviceDepth(View.DepthConvention);
 			for (uint32 Corner = 0; Corner < 4; ++Corner)
 			{
 				const double X = (Corner & 1u) != 0 ? 1.0 : -1.0;
 				const double Y = (Corner & 2u) != 0 ? 1.0 : -1.0;
 				if (!TryTransformPoint(ClipToWorld,
-						FVector4(X, Y, 0.0, 1.0), OutCorners[Corner])
+						FVector4(X, Y, NearDeviceDepth, 1.0), OutCorners[Corner])
 					|| !TryTransformPoint(ClipToWorld,
-						FVector4(X, Y, 1.0, 1.0), OutCorners[Corner + 4]))
+						FVector4(X, Y, FarDeviceDepth, 1.0), OutCorners[Corner + 4]))
 					return false;
 				const FVector3 Origin = bPerspective
 					? View.ViewLocation : OutCorners[Corner];
@@ -353,6 +363,7 @@ namespace Durin
 				Candidate.LightViewProjectionMatrix;
 			Candidate.CasterView.ViewportWidth = DirectionalShadowResolution;
 			Candidate.CasterView.ViewportHeight = DirectionalShadowResolution;
+			Candidate.CasterView.DepthConvention = ESceneDepthConvention::ForwardZ;
 			Candidate.CasterView.Settings.RasterMode = ERasterMode::Solid;
 			Candidate.bEnabled = true;
 			OutCascade = Candidate;

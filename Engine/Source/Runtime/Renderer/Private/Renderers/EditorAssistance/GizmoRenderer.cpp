@@ -480,6 +480,7 @@ namespace Durin
 					.Feature = EFeature::Gizmo,
 					.Output = Request.Output,
 					.DepthMode = DepthMode,
+					.DepthConvention = Request.DepthConvention,
 					.GizmoTopology = Topology,
 				};
 				auto EntryIt = std::ranges::find(
@@ -526,6 +527,8 @@ namespace Durin
 							ERHICullMode::None;
 						Initializer.DepthStencilState.bEnableTest =
 							Key.DepthMode == EDepthMode::Visible;
+						Initializer.DepthStencilState.CompareOp =
+							GetVisibleDepthCompareOp(Key.DepthConvention);
 						Initializer.PipelineLayout =
 							Base->ShaderMap->GetMergedPipelineLayout();
 						FGraphicsPipelineStateRHIRef Candidate =

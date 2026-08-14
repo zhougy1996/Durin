@@ -71,6 +71,10 @@ namespace Durin
 		size_t TerrainPatchCandidates = 0;
 		size_t VisibleTerrainPatches = 0;
 		size_t CulledTerrainPatches = 0;
+		size_t InnerTerrainPatches = 0;
+		size_t TransitionTerrainPatches = 0;
+		size_t RadialRejectedTerrainPatches = 0;
+		size_t InvalidTerrainDistanceSettingFallbacks = 0;
 		size_t InvalidTerrainPatchBounds = 0;
 		size_t TerrainLODFallbacks = 0;
 		size_t TerrainLODResolutionFallbacks = 0;

@@ -33,6 +33,13 @@ namespace Durin
 		ForceLOD0
 	};
 
+	// Defines how normalized device depth maps the validated view clip interval.
+	enum class ESceneDepthConvention : uint8
+	{
+		ForwardZ,
+		ReversedZ
+	};
+
 	// Development-only directional-shadow evidence selected per submitted view.
 	enum class EDirectionalShadowDiagnosticMode : uint8
 	{
@@ -179,6 +186,12 @@ namespace Durin
 		FMatrix ProjectionMatrix{1.0};
 		FMatrix ViewProjectionMatrix{1.0};
 		FVector3 ViewLocation{0.0};
+		ESceneDepthConvention DepthConvention = ESceneDepthConvention::ForwardZ;
+		double NearClipDistance = 0.1;
+		double FarClipDistance = 500000.0;
+		// Horizontal radial Terrain policy; the transition ends before the projection far plane.
+		double TerrainFadeStart = 180000.0;
+		double TerrainRenderDistance = 200000.0;
 		FVector4f ClearColor{0.0f, 0.0f, 0.0f, 1.0f};
 		uint32 ViewportX = 0;
 		uint32 ViewportY = 0;

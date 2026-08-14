@@ -19,8 +19,8 @@ struct GridUniform
 {
     float4x4 RelativeWorldToClip;
     float4x4 ClipToRelativeWorld;
-    // x is the horizontal grid plane's height relative to the view origin; y is the
-    // small view-ray distance used only for coplanar depth ordering; zw are reserved.
+    // x is the horizontal grid plane's height relative to the view origin; z selects
+    // reversed-Z endpoint ordering; yw are reserved.
     float4 GridPlane;
     float4 ViewPositionFadeDistance;
     float4 GridPhases[13];
@@ -28,9 +28,15 @@ struct GridUniform
     float4 MajorColor;
     float4 AxisXColor;
     float4 AxisYColor;
+    // The world grid plane transformed into homogeneous clip space on the CPU.
+    float4 ClipPlane;
 };
 
 [[vk::binding(0, 0)]] ConstantBuffer<GridUniform> Grid;
+
+// Bounded to roughly 1.2e-4 relative depth for normalized positive floats. This
+// absorbs independent plane/raster evaluation without turning the grid into X-ray.
+static const uint CoplanarDepthPrioritySteps = 1024u;
 
 [shader("vertex")]
 GridVSOutput VertexMain(GridVSInput input)
@@ -76,17 +82,25 @@ float AxisLine(float coordinate)
 [shader("fragment")]
 GridFragmentOutput FragmentMain(GridVSOutput input)
 {
-    float4 nearHomogeneous = mul(Grid.ClipToRelativeWorld, float4(input.clipPosition, 0.0, 1.0));
-    float4 farHomogeneous = mul(Grid.ClipToRelativeWorld, float4(input.clipPosition, 1.0, 1.0));
-    if (!IsFinite(nearHomogeneous) || !IsFinite(farHomogeneous)
-        || abs(nearHomogeneous.w) <= 1.0e-6 || abs(farHomogeneous.w) <= 1.0e-6)
+    float nearDepth = Grid.GridPlane.z > 0.5 ? 1.0 : 0.0;
+    // Any two device-depth samples define the same view ray. Avoid the far endpoint:
+    // with a very long or infinite projection its unprojected magnitude loses enough
+    // float precision to make a grazing plane intersection unstable while rotating.
+    float raySampleDepth = 0.5;
+    float4 nearHomogeneous = mul(
+        Grid.ClipToRelativeWorld, float4(input.clipPosition, nearDepth, 1.0));
+    float4 raySampleHomogeneous = mul(
+        Grid.ClipToRelativeWorld, float4(input.clipPosition, raySampleDepth, 1.0));
+    if (!IsFinite(nearHomogeneous) || !IsFinite(raySampleHomogeneous)
+        || abs(nearHomogeneous.w) <= 1.0e-6 || abs(raySampleHomogeneous.w) <= 1.0e-6)
         discard;
 
     float3 nearPosition = nearHomogeneous.xyz / nearHomogeneous.w;
-    float3 farPosition = farHomogeneous.xyz / farHomogeneous.w;
-    float3 rayDelta = farPosition - nearPosition;
+    float3 raySamplePosition = raySampleHomogeneous.xyz / raySampleHomogeneous.w;
+    float3 rayDelta = raySamplePosition - nearPosition;
     float rayLength = length(rayDelta);
-    if (!IsFinite(nearPosition) || !IsFinite(farPosition) || !IsFinite(rayLength) || rayLength <= 1.0e-6)
+    if (!IsFinite(nearPosition) || !IsFinite(raySamplePosition)
+        || !IsFinite(rayLength) || rayLength <= 1.0e-6)
         discard;
 
     float3 rayDirection = rayDelta / rayLength;
@@ -95,18 +109,26 @@ GridFragmentOutput FragmentMain(GridVSOutput input)
     if (!IsFinite(rayDirection) || abs(rayDirection.z) <= 1.0e-6)
         discard;
 
-    float rayDistance = (Grid.GridPlane.x - nearPosition.z) / rayDirection.z;
     float fadeDistance = max(Grid.ViewPositionFadeDistance.w, 1.0);
-    if (!IsFinite(rayDistance) || rayDistance < 0.0)
-        discard;
 
-    float3 relativeWorldPosition = nearPosition + rayDirection * rayDistance;
-    float4 hitClip = mul(Grid.RelativeWorldToClip, float4(relativeWorldPosition, 1.0));
-    if (!IsFinite(relativeWorldPosition) || !IsFinite(hitClip) || abs(hitClip.w) <= 1.0e-6)
+    // Depth over a projected plane is affine in screen space. Solve the homogeneous
+    // clip-plane equation directly so this value follows the same planar interpolation
+    // as scene triangles instead of accumulating ray/intersection/reprojection error.
+    if (!IsFinite(Grid.ClipPlane) || abs(Grid.ClipPlane.z) <= 1.0e-8)
         discard;
-
-    float hitDepth = hitClip.z / hitClip.w;
+    float hitDepth = -(
+        Grid.ClipPlane.x * input.clipPosition.x
+        + Grid.ClipPlane.y * input.clipPosition.y
+        + Grid.ClipPlane.w) / Grid.ClipPlane.z;
     if (!IsFinite(hitDepth) || hitDepth < 0.0 || hitDepth > 1.0)
+        discard;
+
+    float4 hitHomogeneous = mul(
+        Grid.ClipToRelativeWorld, float4(input.clipPosition, hitDepth, 1.0));
+    if (!IsFinite(hitHomogeneous) || abs(hitHomogeneous.w) <= 1.0e-6)
+        discard;
+    float3 relativeWorldPosition = hitHomogeneous.xyz / hitHomogeneous.w;
+    if (!IsFinite(relativeWorldPosition))
         discard;
 
     float distanceToView = length(relativeWorldPosition);
@@ -165,17 +187,20 @@ GridFragmentOutput FragmentMain(GridVSOutput input)
 
     GridFragmentOutput output;
     output.color = color;
-    float3 depthBiasedPosition = relativeWorldPosition
-        + rayDirection * Grid.GridPlane.y;
-    float4 depthBiasedClip = mul(
-        Grid.RelativeWorldToClip, float4(depthBiasedPosition, 1.0));
-    float depthBiasedValue = abs(depthBiasedClip.w) > 1.0e-6
-        ? saturate(depthBiasedClip.z / depthBiasedClip.w)
-        : hitDepth;
-    // Retain a two-value D32 floor when the fixed world-sized separation falls below
-    // depth-buffer resolution at distance.
-    output.depth = depthBiasedValue >= 1.0
-        ? 1.0
-        : min(asfloat(asuint(max(depthBiasedValue, 0.0)) + 2u), 1.0);
+    // Give the editor reference plane bounded coplanar priority without moving it in
+    // world space. Reversed-Z grows toward the camera; forward-Z shrinks toward it.
+    uint depthBits = asuint(hitDepth);
+    if (Grid.GridPlane.z > 0.5)
+    {
+        output.depth = asfloat(min(
+            depthBits + CoplanarDepthPrioritySteps, asuint(1.0)));
+    }
+    else
+    {
+        output.depth = asfloat(
+            depthBits > CoplanarDepthPrioritySteps
+                ? depthBits - CoplanarDepthPrioritySteps
+                : 0u);
+    }
     return output;
 }

@@ -140,6 +140,23 @@ durin_add_engine_functional_test(EditorRenderingTests
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
+durin_add_engine_functional_test(EditorGridVulkanTests
+	KIND integration
+	DOMAINS renderer viewport
+	MODULES engine renderer
+	BACKENDS vulkan
+	STACKS editor renderer
+	GPU
+	TIMEOUT 900
+	RUNTIME_STACK_RATIONALE
+		"Exercises the production editor-grid shader and assistance pass through the Vulkan renderer."
+	RUNTIME_ONLY_RATIONALE
+		"RHIInit selects VulkanRHI dynamically for the offscreen editor-grid capture."
+	RUNTIME_ONLY_TARGETS VulkanRHI
+	SOURCES Private/EditorGridVulkanTests.cpp
+	LIBRARIES ApplicationCore RenderCore Renderer
+)
+
 durin_add_engine_functional_test(EditorShellTests
 	KIND feature
 	DOMAINS editor-shell

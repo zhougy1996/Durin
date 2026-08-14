@@ -8,6 +8,7 @@
 #include "RHI.h"
 #include "RendererModule.h"
 #include "Renderers/SceneVisibility.h"
+#include "Renderers/TerrainRenderPreparation.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "RenderingThread.h"
 #include "Scene.h"
@@ -179,7 +180,8 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 	EXPECT_EQ(GCounters.PreparedTerrainBatches, 1u);
 	EXPECT_EQ(GCounters.TerrainBatchChunks, 1u);
 	EXPECT_EQ(GCounters.TerrainInstances, 256u);
-	EXPECT_EQ(GCounters.TerrainInstanceBytes, 256u * sizeof(Durin::uint32) * 2u);
+	EXPECT_EQ(GCounters.TerrainInstanceBytes,
+		256u * Durin::TerrainInstanceDataBytes);
 	EXPECT_EQ(GCounters.TerrainInstanceAllocations, 1u);
 	EXPECT_EQ(GCounters.TerrainResourceAttemptedBatches, 1u);
 	EXPECT_EQ(GCounters.TerrainResourceSuccessfulBatches, 1u);

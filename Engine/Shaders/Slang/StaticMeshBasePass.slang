@@ -26,6 +26,9 @@ struct VSOutput
     float2 uv1 : TEXCOORD4;
     float2 uv2 : TEXCOORD5;
     float2 uv3 : TEXCOORD6;
+#if DURIN_TERRAIN
+    float terrainTransition : TEXCOORD7;
+#endif
 };
 
 struct TransformUniform
@@ -109,10 +112,18 @@ struct TerrainUniform
 {
     uint4 SamplePatch; // width, height, reserved, reserved
     float4 SpacingHeight; // spacing x/y, signed height scale, height offset
+    float4 DistanceTransition; // fade start, render distance, reserved, reserved
 };
 [[vk::binding(23, 0)]] Texture2D<uint> HeightTexture;
 [[vk::binding(24, 0)]] ConstantBuffer<TerrainUniform> Terrain;
-[[vk::binding(27, 0)]] StructuredBuffer<uint2> TerrainPatchOrigins;
+struct TerrainInstanceData
+{
+    uint2 SampleOrigin;
+    float2 Padding;
+    float4 AnchorClip;
+    float4 AnchorRelativeWorld;
+};
+[[vk::binding(27, 0)]] StructuredBuffer<TerrainInstanceData> TerrainPatchOrigins;
 #endif
 #if DURIN_SPLINE_MESH
 [[vk::binding(24, 0)]] ConstantBuffer<FSplineMeshUniform> SplineMesh;
@@ -130,7 +141,8 @@ VSOutput VertexMain(FLocalVertexFactoryInput input)
 #endif
 {
 #if DURIN_TERRAIN
-    uint2 sampleCoordinate = TerrainPatchOrigins[instanceID] + input.gridCoordinate;
+    TerrainInstanceData instance = TerrainPatchOrigins[instanceID];
+    uint2 sampleCoordinate = instance.SampleOrigin + input.gridCoordinate;
     uint2 maximumCoordinate = Terrain.SamplePatch.xy - uint2(1u, 1u);
     uint2 leftCoordinate = uint2(sampleCoordinate.x > 0u ? sampleCoordinate.x - 1u : 0u, sampleCoordinate.y);
     uint2 rightCoordinate = uint2(min(sampleCoordinate.x + 1u, maximumCoordinate.x), sampleCoordinate.y);
@@ -145,6 +157,9 @@ VSOutput VertexMain(FLocalVertexFactoryInput input)
     float spanX = max((float)(rightCoordinate.x - leftCoordinate.x) * Terrain.SpacingHeight.x, 1.0e-8);
     float spanY = max((float)(downCoordinate.y - upCoordinate.y) * Terrain.SpacingHeight.y, 1.0e-8);
     float3 localNormal = normalize(float3(-(rightHeight - leftHeight) / spanX, -(downHeight - upHeight) / spanY, 1.0));
+    float3 patchLocalPosition = float3(
+        (float)input.gridCoordinate.x * Terrain.SpacingHeight.x,
+        (float)input.gridCoordinate.y * Terrain.SpacingHeight.y, height);
     float3 localPosition = float3(
         (float)sampleCoordinate.x * Terrain.SpacingHeight.x,
         (float)sampleCoordinate.y * Terrain.SpacingHeight.y, height);
@@ -160,12 +175,18 @@ VSOutput VertexMain(FLocalVertexFactoryInput input)
 #endif
     VSOutput output;
 #if DURIN_TERRAIN
-    output.pos = mul(Transform.LocalToClip, float4(localPosition, 1.0));
+    output.pos = instance.AnchorClip
+        + mul(Transform.LocalToClip, float4(patchLocalPosition, 0.0));
     output.color = float4(1.0);
     output.worldPosition = mul(Transform.LocalToWorld, float4(localPosition, 1.0)).xyz;
     output.worldNormal = mul(Transform.NormalToWorld, float4(localNormal, 0.0)).xyz;
     float3 worldTangent = mul(Transform.LocalToWorld, float4(1.0, 0.0, 0.0, 0.0)).xyz;
     output.worldTangent = float4(worldTangent, Transform.TransformParams.x);
+    float3 relativeWorldPosition = instance.AnchorRelativeWorld.xyz
+        + mul(Transform.LocalToWorld, float4(patchLocalPosition, 0.0)).xyz;
+    output.terrainTransition = saturate(
+        (length(relativeWorldPosition.xy) - Terrain.DistanceTransition.x)
+        / max(Terrain.DistanceTransition.y - Terrain.DistanceTransition.x, 1.0));
     float2 uv = float2(sampleCoordinate) / float2(maximumCoordinate);
     output.uv0 = uv;
     output.uv1 = uv;
@@ -264,6 +285,18 @@ float4 FragmentMain(
     VSOutput input,
     bool isFrontFace : SV_IsFrontFace) : SV_Target
 {
+#if DURIN_TERRAIN && DURIN_MATERIAL_BLEND_MODE != 2
+    static const float coverageThresholds[16] =
+    {
+        0.03125, 0.53125, 0.15625, 0.65625,
+        0.78125, 0.28125, 0.90625, 0.40625,
+        0.21875, 0.71875, 0.09375, 0.59375,
+        0.96875, 0.46875, 0.84375, 0.34375
+    };
+    uint2 coveragePixel = uint2(input.pos.xy) & uint2(3u, 3u);
+    if (input.terrainTransition >= coverageThresholds[coveragePixel.y * 4u + coveragePixel.x])
+        discard;
+#endif
     const float minVectorLengthSquared = 1.0e-8;
     float4 baseColorSample = BaseColorTexture.Sample(BaseColorSampler, GetMaterialUV(input, 0u));
     float3 normalSample = DecodeTextureNormal(

@@ -100,6 +100,12 @@ namespace Durin::Editor::Level
 		auto GetTransformGizmo() const -> const FTransformGizmo& { return TransformGizmo; }
 		auto IsGridVisible() const -> bool { return bShowGrid; }
 		auto SetGridVisible(bool bVisible) -> void;
+		auto GetNearClip() const -> float { return NearClip; }
+		auto GetFarClip() const -> float { return FarClip; }
+		auto GetTerrainFadeStart() const -> float { return TerrainFadeStart; }
+		auto GetTerrainRenderDistance() const -> float { return TerrainRenderDistance; }
+		auto SetClipDistances(float InNearClip, float InFarClip) -> void;
+		auto SetTerrainDistance(float InFadeStart, float InRenderDistance) -> void;
 
 	private:
 		// Retains the last rendered editor view and its richer hit-test data across logic frames.
@@ -130,7 +136,9 @@ namespace Durin::Editor::Level
 		// Perspective values are stored in degrees and world-space distance units.
 		float FieldOfViewDegrees = 60.0f;
 		float NearClip = 0.1f;
-		float FarClip = 10000.0f;
+		float FarClip = 500000.0f;
+		float TerrainFadeStart = 180000.0f;
+		float TerrainRenderDistance = 200000.0f;
 		float MovementSpeed = 5.0f;
 		FVector2f FlyLookVelocity{0.0f};
 		FVector3 FlyMovementVelocity{0.0};

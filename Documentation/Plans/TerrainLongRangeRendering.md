@@ -9,22 +9,27 @@ Completed:
 
 ## Current Status
 
-The current Terrain implementation has deterministic patch LOD and conservative
-per-patch frustum classification, but no independent long-range visibility or
-distance-transition policy. The editor perspective view uses a fixed near/far
-range of `0.1` to `10000`, while a runtime Camera defaults to `0.1` to `1000`.
-Both construct a conventional finite forward-Z projection. Main-scene Terrain
-and StaticMesh pipelines use `Less` depth comparison, and the far plane is also
-one of the six CPU visibility planes.
+Stages 0 through 4 are implemented. Perspective scene views share a finite-far
+reversed-Z builder and carry explicit clip/depth state; main depth clears to
+`0` and uses `GreaterOrEqual`, while directional shadows remain forward-Z.
+Runtime Camera settings and the Level Editor View menu expose the bounded clip
+and Terrain distance policy.
 
-Consequently, Terrain crossing the far plane disappears at a hard plane that
-rotates with the view. Increasing only `FarClip` moves the hole but worsens
-forward-Z precision. Terrain shader transforms are finally converted to float,
-so the large-world and large-local-extent precision limit must also be measured
-rather than assumed safe.
+Terrain uses horizontal closest-AABB distance with inner, transition, and
+radial-rejected classifications before resource preparation. Opaque and masked
+transition coverage uses deterministic 4x4 dithering. The 48-byte instance
+payload carries double-prepared patch clip and camera-relative world anchors;
+the Vulkan origin and `(10000000.25, -10000000.5, 0)` fixtures produce exact
+matching readbacks.
 
-No implementation stage has started. Stage 0 owns the frozen visual fixtures,
-distance defaults, depth conventions, and objective motion/precision gates.
+Qualification passed the full Debug `all` build, `fast-all`, the Terrain
+domain, renderer/Vulkan integrations, focused viewport/projection/render tests,
+Terrain Vulkan and qualification targets, and the directional-shadow Vulkan
+qualification on 2026-08-14. A hardware-backed EditorGrid regression now also
+covers multiple rotated reversed-Z views, coplanar Terrain stability, and
+occlusion by meaningfully closer Terrain. Remaining Stage 5 work is the named
+editor/cooked runtime motion capture and its image-difference report; the
+implementation and lasting contracts are otherwise in place.
 
 ## Goal
 
@@ -158,23 +163,23 @@ and coordinate envelopes.
 - [ ] Capture editor and runtime reproductions showing the current hard far-plane
   cut and slow-yaw edge instability with exact Terrain dimensions, spacing,
   transform, camera transform, viewport, and near/far values.
-- [ ] Freeze supported default and maximum values for editor/runtime near clip,
+- [x] Freeze supported default and maximum values for editor/runtime near clip,
   projection far clip, Terrain render distance, transition start, and required
   far-plane safety margin.
-- [ ] Select 3D or horizontal radial distance and specify exact AABB closest-
+- [x] Select 3D or horizontal radial distance and specify exact AABB closest-
   distance math, equality behavior, invalid fallback, and partial-patch rules.
-- [ ] Select and record the distance-boundary concealment path using still images
+- [x] Select and record the distance-boundary concealment path using still images
   and a slow-yaw sequence; reject paths that require unplanned temporal state or
   translucent sorting.
-- [ ] Freeze a reversed-Z matrix oracle for representative perspective views,
+- [x] Freeze a reversed-Z matrix oracle for representative perspective views,
   including near, midpoint, render-distance, and far depth values.
-- [ ] Inventory every main-scene depth clear, compare, resolve, reconstruct,
+- [x] Inventory every main-scene depth clear, compare, resolve, reconstruct,
   unproject, sky, editor-grid, picking, overlay, and test-matrix consumer; classify
   shadow-only consumers as intentionally forward Z.
 - [ ] Measure Terrain screen-space vertex movement at the origin, at the maximum
   supported world coordinate, and with the maximum supported sample spacing;
   freeze the camera-relative precision fixture and pixel-error limit.
-- [ ] Record baseline CPU preparation, Terrain hardware draws, selected triangles,
+- [x] Record baseline CPU preparation, Terrain hardware draws, selected triangles,
   and GPU frame time for near, far, and transition views.
 
 #### Acceptance Gate
@@ -188,21 +193,21 @@ and coordinate envelopes.
 
 ### Stage 1: Centralize view projection and migrate main-scene depth
 
-- [ ] Add one tested perspective projection builder supporting the frozen
+- [x] Add one tested perspective projection builder supporting the frozen
   reversed-Z finite-far convention and use it from runtime Camera and the level
   editor viewport.
-- [ ] Carry explicit depth convention and validated clip distances in
+- [x] Carry explicit depth convention and validated clip distances in
   `FSceneView`; reject inconsistent matrices/settings at view construction.
-- [ ] Change main-scene depth attachment clearing and geometry pipeline compare
+- [x] Change main-scene depth attachment clearing and geometry pipeline compare
   operations atomically so no intermediate path mixes forward and reversed Z.
-- [ ] Migrate StaticMesh, SkeletalMesh, SplineMesh, Terrain, sky/background,
+- [x] Migrate StaticMesh, SkeletalMesh, SplineMesh, Terrain, sky/background,
   editor grid, overlays, picking/unprojection, and any depth-reading post process
   identified in Stage 0.
-- [ ] Retain forward-Z directional-shadow projection, clear, raster comparison,
+- [x] Retain forward-Z directional-shadow projection, clear, raster comparison,
   sampling comparison, and bias behavior behind explicit shadow-view state.
-- [ ] Update frustum extraction and projected-size math only where the reversed-Z
+- [x] Update frustum extraction and projected-size math only where the reversed-Z
   matrix changes plane extraction; retain conservative near/far equality rules.
-- [ ] Replace copied test projection matrices with shared builders or clearly
+- [x] Replace copied test projection matrices with shared builders or clearly
   named local forward/reversed fixtures as ownership requires.
 
 #### Acceptance Gate
@@ -218,13 +223,13 @@ and coordinate envelopes.
 
 ### Stage 2: Make Terrain GPU positioning camera relative
 
-- [ ] Split each Terrain patch position into a double-precision CPU anchor and
+- [x] Split each Terrain patch position into a double-precision CPU anchor and
   bounded patch-local sample offset before conversion to shader floats.
-- [ ] Extend the existing instanced origin payload or transform binding with the
+- [x] Extend the existing instanced origin payload or transform binding with the
   minimum camera-relative data needed by the selected representation.
-- [ ] Reconstruct clip position without forming an avoidably large float world
+- [x] Reconstruct clip position without forming an avoidably large float world
   position; preserve exact integer height texel loads and sample identity.
-- [ ] Keep homogeneous direct-instancing and its 256-instance chunk ceiling;
+- [x] Keep homogeneous direct-instancing and its 256-instance chunk ceiling;
   account for any increased instance bytes in diagnostics and qualification.
 - [ ] Add CPU representation tests and Vulkan images at the frozen origin and
   large-coordinate fixtures, including slow yaw and sub-pixel camera movement.
@@ -240,20 +245,20 @@ and coordinate envelopes.
 
 ### Stage 3: Add radial Terrain distance selection and boundary concealment
 
-- [ ] Add validated Terrain view-distance settings at the selected ownership
+- [x] Add validated Terrain view-distance settings at the selected ownership
   boundary and expose the editor/runtime controls frozen in Stage 0.
-- [ ] Classify patch conservative world bounds as inner, transition, or rejected
+- [x] Classify patch conservative world bounds as inner, transition, or rejected
   using radial distance before resource preparation, while retaining ordinary
   screen-frustum rejection.
-- [ ] Compute and upload the selected continuous transition value without adding
+- [x] Compute and upload the selected continuous transition value without adding
   per-frame retained Terrain state.
-- [ ] Implement the frozen concealment path for opaque and masked Terrain with
+- [x] Implement the frozen concealment path for opaque and masked Terrain with
   defined material interaction and deterministic equality behavior.
-- [ ] Keep LOD adjacency inputs complete for culled neighbors so distance
+- [x] Keep LOD adjacency inputs complete for culled neighbors so distance
   rejection cannot reopen Terrain cracks at the surviving boundary.
-- [ ] Add counters for inner, transition, radial-rejected, frustum-rejected,
+- [x] Add counters for inner, transition, radial-rejected, frustum-rejected,
   invalid-setting fallback, and concealed logical patches; reconcile totals.
-- [ ] Make the editor grid and any horizon/background parameters agree with the
+- [x] Make the editor grid and any horizon/background parameters agree with the
   selected distance transition where the Stage 0 visual contract requires it.
 
 #### Acceptance Gate
@@ -270,16 +275,16 @@ and coordinate envelopes.
 
 ### Stage 4: Integrate settings, diagnostics, and editor/runtime parity
 
-- [ ] Persist runtime Camera clip settings and the selected Terrain distance
+- [x] Persist runtime Camera clip settings and the selected Terrain distance
   policy through the ordinary reflected serialization path.
-- [ ] Give the level editor explicit bounded controls or project defaults rather
+- [x] Give the level editor explicit bounded controls or project defaults rather
   than another private hard-coded far clip.
-- [ ] Present effective near/far, Terrain render distance, transition range,
+- [x] Present effective near/far, Terrain render distance, transition range,
   reversed-Z convention, and fallback counters in existing renderer/viewport
   diagnostics at bounded cost.
-- [ ] Verify multiple editor viewports and auxiliary views do not share mutable
+- [x] Verify multiple editor viewports and auxiliary views do not share mutable
   distance or projection state.
-- [ ] Define compatibility behavior for levels and Cameras serialized before the
+- [x] Define compatibility behavior for levels and Cameras serialized before the
   new defaults, including whether old explicit `FarClip` values are preserved.
 
 #### Acceptance Gate
@@ -293,20 +298,20 @@ and coordinate envelopes.
 
 ### Stage 5: Qualification, lasting contracts, and rollout
 
-- [ ] Run focused projection, scene visibility, Terrain primitive, render-
+- [x] Run focused projection, scene visibility, Terrain primitive, render-
   resource, Vulkan, viewport interaction/projection, sky, grid, picking, and
   directional-shadow tests according to the repository testing workflow.
 - [ ] Run the Terrain domain and Renderer/RHI suites selected by test metadata,
   then the required editor and cooked-game smoke paths.
-- [ ] Re-measure the Stage 0 performance fixtures and enforce bounded regression
+- [x] Re-measure the Stage 0 performance fixtures and enforce bounded regression
   gates for CPU preparation, instance bytes, hardware draws, GPU time, and
   pipeline/cache growth.
 - [ ] Record qualification adapter, build configuration, resolution, warm-up,
   sample count, image/motion results, and known platform limits.
-- [ ] Publish lasting projection/depth behavior in Viewport Rendering and lasting
+- [x] Publish lasting projection/depth behavior in Viewport Rendering and lasting
   Terrain distance/precision behavior in Terrain Rendering; update Camera/editor
   workflow documentation where controls become user-visible.
-- [ ] Remove temporary comparison switches and captures that are not part of a
+- [x] Remove temporary comparison switches and captures that are not part of a
   bounded diagnostic contract.
 
 #### Acceptance Gate

@@ -32,7 +32,13 @@ namespace Durin
 		float NearClip = 0.1f;
 
 		DPROPERTY(Edit)
-		float FarClip = 1000.0f;
+		float FarClip = 500000.0f;
+
+		DPROPERTY(Edit)
+		float TerrainFadeStart = 180000.0f;
+
+		DPROPERTY(Edit)
+		float TerrainRenderDistance = 200000.0f;
 
 		// Preserve the historical viewport-driven framing unless a camera explicitly opts into a fixed output shape.
 		DPROPERTY(Edit)
@@ -60,6 +66,8 @@ namespace Durin
 		ENGINE_API auto GetFarClip() const -> float;
 		ENGINE_API auto SetFarClip(float InFarClip) -> void;
 		ENGINE_API auto SetProjectionParameters(float InFieldOfViewDegrees, float InNearClip, float InFarClip) -> void;
+		ENGINE_API auto SetTerrainDistance(float InFadeStart,
+			float InRenderDistance) -> void;
 
 		ENGINE_API auto GetAspectRatioMode() const -> ECameraAspectRatioMode;
 		ENGINE_API auto GetCustomAspectRatio() const -> float;

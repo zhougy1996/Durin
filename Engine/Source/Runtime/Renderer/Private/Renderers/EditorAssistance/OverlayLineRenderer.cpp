@@ -395,6 +395,7 @@ namespace Durin
 				.Feature = EFeature::OverlayLine,
 				.Output = Output,
 				.DepthMode = DepthMode,
+				.DepthConvention = View.DepthConvention,
 			};
 			auto EntryIt = std::ranges::find(
 				State->Pipelines, Key, &FState::FPipelineEntry::Key);
@@ -432,6 +433,8 @@ namespace Durin
 					Initializer.RasterizerState.CullMode = ERHICullMode::None;
 					Initializer.DepthStencilState.bEnableTest =
 						Key.DepthMode == EDepthMode::Visible;
+					Initializer.DepthStencilState.CompareOp =
+						GetVisibleDepthCompareOp(Key.DepthConvention);
 					Initializer.PipelineLayout =
 						Base->ShaderMap->GetMergedPipelineLayout();
 					FGraphicsPipelineStateRHIRef Candidate =

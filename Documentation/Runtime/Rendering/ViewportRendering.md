@@ -238,6 +238,24 @@ The Level Editor camera preview uses this auxiliary path. Selecting an actor wit
 
 Camera aspect ratios support viewport-driven framing, common fixed presets, and a custom numeric ratio. Fixed ratios produce a centered content rectangle inside a mismatched output target. The scene pass clears the complete target first, so the unused area remains black instead of stretching the camera image. `FSceneView::ViewportX/Y/Width/Height` describe this content rectangle and must be respected by projection helpers and renderer viewport/scissor setup.
 
+Perspective scene views use the shared finite-far reversed-Z projection
+builder. `FSceneView` carries the depth convention and validated near/far
+distances explicitly. Reversed-Z scene depth clears to `0`; opaque and masked
+geometry plus depth-tested editor assistance use `GreaterOrEqual`. Viewport
+ray construction selects clip endpoints from the explicit convention, and
+CPU frustum/projected-size code does not infer the convention from matrix
+coefficients. Directional-shadow caster views remain explicitly forward-Z,
+clear to `1`, and compare with `Less`, so shadow bias and comparison sampling
+are isolated from the main-scene migration.
+
+Runtime Cameras serialize near/far clip, Terrain fade start, and Terrain render
+distance in their reflected projection settings. The Level Editor View menu
+exposes independently bounded clip and Terrain distance controls per viewport.
+The defaults are near `0.1`, far `500000`, fade start `180000`, and Terrain
+distance `200000`. The far-plane safety margin is five percent of the clip
+range capped at `10000` world units, preserving older explicitly short camera
+ranges without allowing Terrain distance to meet the projection boundary.
+
 Renderer scene-color and depth intermediates are cached by viewport dimensions. This allows the main editor view and a smaller camera preview to render sequentially without recreating the shared intermediate targets twice every frame. The cache is deliberately bounded so interactive resizing does not retain every transient dimension.
 
 When a scene has an active skybox, the renderer draws it into Scene Color using

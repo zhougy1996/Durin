@@ -9,6 +9,7 @@
 #include "Math/Operations.h"
 #include "Workspace/LevelEditorContext.h"
 #include "MonaImGui.h"
+#include "SceneViewProjection.h"
 
 namespace Durin::Editor::Level
 {
@@ -129,6 +130,15 @@ namespace Durin::Editor::Level
 					0.01f, 0.001f, std::numeric_limits<float>::max(), "%.3f");
 				DrawValue(PropertyView, ViewContext, Camera, Reflection, "Far Clip", Reflection.FarClip,
 					1.0f, Camera.GetNearClip() + 1.0f, std::numeric_limits<float>::max(), "%.1f");
+				DrawValue(PropertyView, ViewContext, Camera, Reflection, "Terrain Fade Start",
+					Reflection.TerrainFadeStart, 100.0f, 0.0f,
+					Camera.GetProjectionSettings().TerrainRenderDistance - 1.0f, "%.1f");
+				DrawValue(PropertyView, ViewContext, Camera, Reflection, "Terrain Render Distance",
+					Reflection.TerrainRenderDistance, 100.0f,
+					Camera.GetProjectionSettings().TerrainFadeStart + 1.0f,
+					Camera.GetFarClip() - static_cast<float>(
+						SceneViewProjection::GetTerrainFarPlaneSafetyMargin(
+							Camera.GetFarClip())), "%.1f");
 				DrawAspectRatioMode(PropertyView, ViewContext, Camera, Reflection);
 				if (Camera.GetAspectRatioMode() == ECameraAspectRatioMode::Custom)
 					DrawValue(PropertyView, ViewContext, Camera, Reflection, "Custom Ratio", Reflection.CustomAspectRatio,
@@ -143,12 +153,16 @@ namespace Durin::Editor::Level
 				FProperty* FieldOfView = nullptr;
 				FProperty* NearClip = nullptr;
 				FProperty* FarClip = nullptr;
+				FProperty* TerrainFadeStart = nullptr;
+				FProperty* TerrainRenderDistance = nullptr;
 				FProperty* AspectRatioMode = nullptr;
 				FProperty* CustomAspectRatio = nullptr;
 
 				auto IsValid() const -> bool
 				{
-					return Projection && FieldOfView && NearClip && FarClip && AspectRatioMode && CustomAspectRatio;
+					return Projection && FieldOfView && NearClip && FarClip
+						&& TerrainFadeStart && TerrainRenderDistance
+						&& AspectRatioMode && CustomAspectRatio;
 				}
 				auto GetSettings(DCameraComponent& Camera) const -> FCameraProjectionSettings*
 				{
@@ -187,6 +201,10 @@ namespace Durin::Editor::Level
 				Result.FieldOfView = Struct->FindPropertyByName(FName("FieldOfViewDegrees"));
 				Result.NearClip = Struct->FindPropertyByName(FName("NearClip"));
 				Result.FarClip = Struct->FindPropertyByName(FName("FarClip"));
+				Result.TerrainFadeStart = Struct->FindPropertyByName(
+					FName("TerrainFadeStart"));
+				Result.TerrainRenderDistance = Struct->FindPropertyByName(
+					FName("TerrainRenderDistance"));
 				Result.AspectRatioMode = Struct->FindPropertyByName(FName("AspectRatioMode"));
 				Result.CustomAspectRatio = Struct->FindPropertyByName(FName("CustomAspectRatio"));
 				return Result;

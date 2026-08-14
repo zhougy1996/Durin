@@ -9,8 +9,6 @@ namespace Durin::EditorGridRendering
 	inline constexpr int32 MaximumGridExponent = 8;
 	inline constexpr uint32 GridPhaseCount =
 		MaximumGridExponent - MinimumGridExponent + 1;
-	// Keeps coplanar scene geometry in front without a distance-amplified NDC offset.
-	inline constexpr float GridViewRayDepthBias = 0.05f;
 
 	// Mirrors the editor-grid shader uniform layout uploaded for each view.
 	struct FEditorGridUniform
@@ -24,6 +22,7 @@ namespace Durin::EditorGridRendering
 		FVector4f MajorColor{1.0f};
 		FVector4f AxisXColor{1.0f};
 		FVector4f AxisYColor{1.0f};
+		FVector4f ClipPlane{0.0f};
 	};
 
 	static_assert(offsetof(FEditorGridUniform, RelativeWorldToClip) == 0);
@@ -35,7 +34,8 @@ namespace Durin::EditorGridRendering
 	static_assert(offsetof(FEditorGridUniform, MajorColor) == 384);
 	static_assert(offsetof(FEditorGridUniform, AxisXColor) == 400);
 	static_assert(offsetof(FEditorGridUniform, AxisYColor) == 416);
-	static_assert(sizeof(FEditorGridUniform) == 432);
+	static_assert(offsetof(FEditorGridUniform, ClipPlane) == 432);
+	static_assert(sizeof(FEditorGridUniform) == 448);
 
 	RENDERER_API auto BuildUniform(const FSceneView& View, FEditorGridUniform& OutUniform) -> bool;
 }

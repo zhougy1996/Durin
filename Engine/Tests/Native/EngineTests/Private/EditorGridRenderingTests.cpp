@@ -38,8 +38,8 @@ namespace Durin
 		ExpectIdentity(glm::transpose(Uniform.RelativeWorldToClip)
 			* glm::transpose(Uniform.ClipToRelativeWorld));
 		EXPECT_FLOAT_EQ(Uniform.GridPlane.x, -10.5f);
-		EXPECT_FLOAT_EQ(
-			Uniform.GridPlane.y, EditorGridRendering::GridViewRayDepthBias);
+		EXPECT_FLOAT_EQ(Uniform.GridPlane.y, 0.0f);
+		EXPECT_FLOAT_EQ(Uniform.GridPlane.z, 0.0f);
 		EXPECT_EQ(Uniform.ViewPositionFadeDistance,
 			FVector4f(1000000.25f, -2000000.75f, 13.0f, 750.0f));
 		const uint32 UnitPhaseIndex = static_cast<uint32>(
@@ -49,6 +49,17 @@ namespace Durin
 		EXPECT_FLOAT_EQ(Uniform.GridPhases[UnitPhaseIndex + 2].x, 0.0025f);
 		EXPECT_FLOAT_EQ(Uniform.GridPhases[UnitPhaseIndex + 2].y, 0.9925f);
 		EXPECT_EQ(Uniform.MinorColor, View.EditorGrid.MinorColor);
+		EXPECT_TRUE(std::isfinite(Uniform.ClipPlane.x));
+		EXPECT_TRUE(std::isfinite(Uniform.ClipPlane.y));
+		EXPECT_TRUE(std::isfinite(Uniform.ClipPlane.z));
+		EXPECT_TRUE(std::isfinite(Uniform.ClipPlane.w));
+		EXPECT_FLOAT_EQ(Uniform.ClipPlane.x, 0.0f);
+		EXPECT_FLOAT_EQ(Uniform.ClipPlane.y, 0.0f);
+		EXPECT_FLOAT_EQ(Uniform.ClipPlane.z, 0.25f);
+		EXPECT_FLOAT_EQ(Uniform.ClipPlane.w, 10.5f);
+		View.DepthConvention = ESceneDepthConvention::ReversedZ;
+		ASSERT_TRUE(EditorGridRendering::BuildUniform(View, Uniform));
+		EXPECT_FLOAT_EQ(Uniform.GridPlane.z, 1.0f);
 	}
 
 	TEST(FEditorGridRenderingTests, RejectsInvalidTransformsBeforeUniformUploadAndDraw)

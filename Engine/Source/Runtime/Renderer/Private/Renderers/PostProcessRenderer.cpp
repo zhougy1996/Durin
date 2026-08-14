@@ -393,7 +393,7 @@ namespace Durin
 				Height,
 				EPixelFormat::D32);
 		SceneDepthDesc.SetFlags(ETextureCreateFlags::DepthStencilTargetable);
-		SceneDepthDesc.SetClearValue(FClearValueBinding(1.0f, 0u));
+		SceneDepthDesc.SetClearValue(FClearValueBinding(0.0f, 0u));
 
 		using FResult = TRenderResourceCreateResult<FSceneTargets>;
 		auto& Entry = State->SceneTargetsBySize.FindOrAdd(Key);

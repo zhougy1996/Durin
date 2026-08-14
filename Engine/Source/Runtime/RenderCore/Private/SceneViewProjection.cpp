@@ -9,6 +9,36 @@ namespace Durin::SceneViewProjection
 		constexpr double ProjectionEpsilon = 1.e-8;
 	}
 
+	auto IsValidPerspectiveClipRange(double NearClip, double FarClip) -> bool
+	{
+		return std::isfinite(NearClip) && std::isfinite(FarClip)
+			&& NearClip >= 0.001 && FarClip > NearClip
+			&& FarClip <= MaximumPerspectiveFarClip;
+	}
+
+	auto BuildPerspectiveProjection(double FieldOfViewDegrees,
+		double AspectRatio, double NearClip, double FarClip,
+		ESceneDepthConvention DepthConvention, FMatrix& OutProjection) -> bool
+	{
+		if (!std::isfinite(FieldOfViewDegrees) || FieldOfViewDegrees < 1.0
+			|| FieldOfViewDegrees > 170.0 || !std::isfinite(AspectRatio)
+			|| AspectRatio < 0.001 || !IsValidPerspectiveClipRange(NearClip, FarClip))
+			return false;
+		const double YScale = 1.0 / std::tan(
+			Math::DegreesToRadians(FieldOfViewDegrees) * 0.5);
+		const double Range = FarClip - NearClip;
+		FMatrix Projection(0.0);
+		Projection[1][0] = YScale / AspectRatio;
+		Projection[2][1] = -YScale;
+		Projection[0][2] = DepthConvention == ESceneDepthConvention::ReversedZ
+			? -NearClip / Range : FarClip / Range;
+		Projection[3][2] = DepthConvention == ESceneDepthConvention::ReversedZ
+			? NearClip * FarClip / Range : -NearClip * FarClip / Range;
+		Projection[0][3] = 1.0;
+		OutProjection = Projection;
+		return true;
+	}
+
 	auto ProjectWorldToViewport(const FSceneView& View, const FVector3& WorldPosition, FVector2f& OutPosition) -> bool
 	{
 		if (View.ViewportWidth == 0 || View.ViewportHeight == 0) return false;
@@ -32,8 +62,10 @@ namespace Durin::SceneViewProjection
 		if (!Math::TryInverse(View.ViewProjectionMatrix, ClipToWorld, ProjectionEpsilon)) return false;
 		const double NdcX = (static_cast<double>(ViewportPosition.x) - View.ViewportX) / View.ViewportWidth * 2.0 - 1.0;
 		const double NdcY = (static_cast<double>(ViewportPosition.y) - View.ViewportY) / View.ViewportHeight * 2.0 - 1.0;
-		FVector4 Near = ClipToWorld * FVector4(NdcX, NdcY, 0.0, 1.0);
-		FVector4 Far = ClipToWorld * FVector4(NdcX, NdcY, 1.0, 1.0);
+		const double NearDepth = GetNearDeviceDepth(View.DepthConvention);
+		const double FarDepth = GetFarDeviceDepth(View.DepthConvention);
+		FVector4 Near = ClipToWorld * FVector4(NdcX, NdcY, NearDepth, 1.0);
+		FVector4 Far = ClipToWorld * FVector4(NdcX, NdcY, FarDepth, 1.0);
 		if (std::abs(Near.w) <= ProjectionEpsilon || std::abs(Far.w) <= ProjectionEpsilon) return false;
 		Near /= Near.w;
 		Far /= Far.w;

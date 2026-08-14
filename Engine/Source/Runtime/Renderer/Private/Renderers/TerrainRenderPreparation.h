@@ -6,6 +6,8 @@
 
 namespace Durin
 {
+	inline constexpr size_t TerrainInstanceDataBytes = 48;
+
 	struct FTerrainPatchDescriptor;
 
 	struct FPreparedTerrainDraw
@@ -48,6 +50,10 @@ namespace Durin
 		size_t PatchCandidates = 0;
 		size_t VisiblePatches = 0;
 		size_t CulledPatches = 0;
+		size_t InnerPatches = 0;
+		size_t TransitionPatches = 0;
+		size_t RadialRejectedPatches = 0;
+		size_t InvalidDistanceSettingFallbacks = 0;
 		size_t InvalidBoundsFallbacks = 0;
 		size_t LODFallbacks = 0;
 		size_t LODResolutionFallbacks = 0;

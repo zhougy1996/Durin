@@ -12,6 +12,7 @@ namespace Durin
 	using RendererEditorAssistance::EGizmoTopology;
 	using RendererEditorAssistance::FPipelineKey;
 	using RendererEditorAssistance::FRequest;
+	using RendererEditorAssistance::GetVisibleDepthCompareOp;
 	using RenderTargetLayouts::EViewportOutput;
 
 	namespace
@@ -64,6 +65,35 @@ namespace Durin
 			.Output = EViewportOutput::Offscreen,
 			.DepthMode = EDepthMode::Visible,
 		}));
+	}
+
+	TEST(FRendererEditorAssistanceTests,
+		DepthConventionSelectsIndependentVisiblePipelines)
+	{
+		FSceneView View;
+		View.EditorGrid.bVisible = true;
+		View.DepthConvention = ESceneDepthConvention::ReversedZ;
+		const FRequest ReversedRequest =
+			FEditorAssistanceRenderer::AnalyzeRequest(
+				View, EViewportOutput::Offscreen);
+		const std::vector<FPipelineKey> ReversedKeys =
+			FEditorAssistanceRenderer::GetRequiredPipelineKeys(ReversedRequest);
+		ASSERT_EQ(ReversedKeys.size(), 1);
+		EXPECT_EQ(ReversedRequest.DepthConvention,
+			ESceneDepthConvention::ReversedZ);
+		EXPECT_EQ(ReversedKeys[0].DepthConvention,
+			ESceneDepthConvention::ReversedZ);
+		EXPECT_EQ(GetVisibleDepthCompareOp(ReversedKeys[0].DepthConvention),
+			ERHIDepthCompareOp::GreaterOrEqual);
+
+		FRequest ForwardRequest = ReversedRequest;
+		ForwardRequest.DepthConvention = ESceneDepthConvention::ForwardZ;
+		const std::vector<FPipelineKey> ForwardKeys =
+			FEditorAssistanceRenderer::GetRequiredPipelineKeys(ForwardRequest);
+		ASSERT_EQ(ForwardKeys.size(), 1);
+		EXPECT_EQ(GetVisibleDepthCompareOp(ForwardKeys[0].DepthConvention),
+			ERHIDepthCompareOp::Less);
+		EXPECT_NE(ForwardKeys[0], ReversedKeys[0]);
 	}
 
 	TEST(FRendererEditorAssistanceTests, SolidGizmoDoesNotRequestWirePipelines)

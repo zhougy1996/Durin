@@ -178,7 +178,10 @@ namespace Durin
 			{
 				return {1.0f, EProjectedScreenSizeStatus::InvalidView};
 			}
-			if (Clip.w <= CrossingEpsilon || Clip.z <= CrossingEpsilon)
+			const double NearPlaneDistance =
+				View.DepthConvention == ESceneDepthConvention::ReversedZ
+					? Clip.w - Clip.z : Clip.z;
+			if (Clip.w <= CrossingEpsilon || NearPlaneDistance <= CrossingEpsilon)
 			{
 				return {
 					1.0f,

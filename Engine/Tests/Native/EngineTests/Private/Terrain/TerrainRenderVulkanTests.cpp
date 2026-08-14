@@ -233,6 +233,45 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 	EXPECT_EQ(GCounters.TerrainPipelineCreations, 1u);
 	EXPECT_EQ(GCounters.TerrainSuccessfulDraws, 1u);
 
+	const Durin::FVector3 LargeWorldOrigin{10000000.25, -10000000.5, 0.0};
+	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(91),
+		std::make_unique<Durin::FTerrainSceneProxy>(Payload, 1, 0.5, 0.5,
+			0.5, 0.0, std::vector<Durin::FTerrainPatchDescriptor>{Patch},
+			Patch.LocalBounds, Material, 1),
+		Durin::Math::TranslationMatrix(LargeWorldOrigin));
+	Durin::FlushRenderingCommands();
+	auto LargeCoordinateReadback = std::make_shared<std::vector<Durin::uint8>>();
+	Durin::EnqueueRenderCommand<FTerrainRenderCommand>(
+		[&Renderer, &Scene, LargeCoordinateReadback, LargeWorldOrigin](
+			Durin::FRHICommandListImmediate& CommandList) {
+			Durin::GRenderFrameCounterRenderThread++;
+			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+			const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+				"TerrainLargeCoordinate", 65, 65, Durin::EPixelFormat::SRGBA8_UNORM)
+				.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
+					| Durin::ETextureCreateFlags::ShaderResource
+					| Durin::ETextureCreateFlags::CPUReadback);
+			Durin::FTextureRHIRef Target =
+				Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+			Durin::FSceneView View;
+			View.ViewMatrix = Durin::Math::TranslationMatrix(-LargeWorldOrigin);
+			View.ViewProjectionMatrix = View.ViewMatrix;
+			View.ViewLocation = LargeWorldOrigin;
+			View.ViewportWidth = 65;
+			View.ViewportHeight = 65;
+			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
+			View.Settings.VisibilityMode =
+				Durin::EViewVisibilityMode::FrustumCullingDisabled;
+			View.Settings.LODMode = Durin::EViewLODMode::ForceLOD0;
+			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
+				Durin::ERenderViewResult::Success);
+			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
+				CommandList, Target, 0, 0, *LargeCoordinateReadback));
+			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+		});
+	Durin::FlushRenderingCommands();
+	EXPECT_EQ(*LargeCoordinateReadback, *Readback);
+
 	const std::array<Durin::uint16, 15> MixedSamples{
 		65535, 65535, 65535, 65535, 65535,
 		65535, 65535, 65535, 65535, 65535,
@@ -373,6 +412,49 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			});
 	}
+	Durin::FlushRenderingCommands();
+	Durin::EnqueueRenderCommand<FTerrainRenderCommand>(
+		[&Renderer, &Scene](Durin::FRHICommandListImmediate& CommandList) {
+			Durin::GRenderFrameCounterRenderThread++;
+			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+			const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+				"TerrainRadialDistance", 33, 33, Durin::EPixelFormat::SRGBA8_UNORM)
+				.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
+					| Durin::ETextureCreateFlags::ShaderResource);
+			Durin::FTextureRHIRef Target =
+				Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+			Durin::FSceneView View;
+			View.ViewProjectionMatrix = Durin::FMatrix(1.0);
+			View.ViewportWidth = 33;
+			View.ViewportHeight = 33;
+			View.DepthConvention = Durin::ESceneDepthConvention::ReversedZ;
+			View.FarClipDistance = 20000.0;
+			View.TerrainFadeStart = 4.0;
+			View.TerrainRenderDistance = 6.0;
+			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
+			View.Settings.VisibilityMode =
+				Durin::EViewVisibilityMode::FrustumCullingDisabled;
+			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
+				Durin::ERenderViewResult::Success);
+			const size_t SelectedAtFirstYaw = GCounters.VisibleTerrainPatches;
+			EXPECT_EQ(GCounters.RadialRejectedTerrainPatches, 0u);
+			EXPECT_GT(GCounters.TransitionTerrainPatches, 0u);
+			View.ViewMatrix = Durin::Math::RotationMatrix(
+				Durin::Math::MakeQuaternionFromAxisAngleRadians(
+					Durin::Math::Pi<double>(), Durin::FVectorConstants::Up));
+			View.ViewProjectionMatrix = View.ViewMatrix;
+			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
+				Durin::ERenderViewResult::Success);
+			EXPECT_EQ(GCounters.VisibleTerrainPatches, SelectedAtFirstYaw);
+			View.ViewLocation = {-10.0, 0.0, 0.0};
+			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
+				Durin::ERenderViewResult::Success);
+			EXPECT_EQ(GCounters.VisibleTerrainPatches, 0u);
+			EXPECT_EQ(GCounters.RadialRejectedTerrainPatches,
+				GCounters.TerrainPatchCandidates);
+			EXPECT_EQ(GCounters.TerrainResourceAttemptedDraws, 0u);
+			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+		});
 	Durin::FlushRenderingCommands();
 	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(91));
 	Durin::FlushRenderingCommands();

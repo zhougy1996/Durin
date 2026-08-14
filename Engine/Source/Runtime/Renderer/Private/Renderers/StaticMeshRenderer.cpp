@@ -791,6 +791,10 @@ namespace Durin
 					Item.Material.PipelineIdentity.bTwoSided ? ERHICullMode::None : ERHICullMode::Back;
 				Item.PipelineKey.Rasterizer.FrontFace = Determinant < 0.0 ? ERHIFrontFace::CounterClockwise : ERHIFrontFace::Clockwise;
 				Item.PipelineKey.Depth.bEnableTest = true;
+				Item.PipelineKey.Depth.CompareOp =
+					View.DepthConvention == ESceneDepthConvention::ReversedZ
+						? ERHIDepthCompareOp::GreaterOrEqual
+						: ERHIDepthCompareOp::Less;
 				const EMaterialBlendMode BlendMode =
 					Item.Material.PipelineIdentity.ShaderMap.BlendMode;
 				Item.Pass = BlendMode == EMaterialBlendMode::Masked ? EStaticMeshBasePass::Masked : BlendMode == EMaterialBlendMode::Translucent ? EStaticMeshBasePass::Translucent :
@@ -1116,6 +1120,10 @@ namespace Durin
 				Item.PipelineKey.Rasterizer.FrontFace = Determinant < 0.0
 					? ERHIFrontFace::CounterClockwise : ERHIFrontFace::Clockwise;
 				Item.PipelineKey.Depth.bEnableTest = true;
+				Item.PipelineKey.Depth.CompareOp =
+					View.DepthConvention == ESceneDepthConvention::ReversedZ
+						? ERHIDepthCompareOp::GreaterOrEqual
+						: ERHIDepthCompareOp::Less;
 				const EMaterialBlendMode BlendMode =
 					Item.Material.PipelineIdentity.ShaderMap.BlendMode;
 				Item.Pass = BlendMode == EMaterialBlendMode::Masked

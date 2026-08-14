@@ -6,6 +6,7 @@
 #include "Engine/World.h"
 #include "Math/Vector.h"
 #include "MonaImGui.h"
+#include "SceneViewProjection.h"
 #include "Viewport/LevelEditorViewportClient.h"
 #include "LevelEditorViewportEditing.h"
 #include "Workspace/LevelEditorContext.h"
@@ -737,6 +738,29 @@ namespace Durin::Editor::Level
 			ImGui::TextDisabled("Diagnostics");
 			if (ViewportClient != nullptr)
 			{
+				if (ImGui::BeginMenu("View Distance"))
+				{
+					float NearClip = ViewportClient->GetNearClip();
+					float FarClip = ViewportClient->GetFarClip();
+					float FadeStart = ViewportClient->GetTerrainFadeStart();
+					float RenderDistance = ViewportClient->GetTerrainRenderDistance();
+					if (ImGui::DragFloat("Near Clip", &NearClip, 0.01f, 0.001f,
+						FarClip - 1.0f, "%.3f"))
+						ViewportClient->SetClipDistances(NearClip, FarClip);
+					if (ImGui::DragFloat("Far Clip", &FarClip, 100.0f,
+						NearClip + 1.0f, 10000000.0f, "%.1f"))
+						ViewportClient->SetClipDistances(NearClip, FarClip);
+					if (ImGui::DragFloat("Terrain Fade Start", &FadeStart, 100.0f,
+						0.0f, RenderDistance - 1.0f, "%.1f"))
+						ViewportClient->SetTerrainDistance(FadeStart, RenderDistance);
+					if (ImGui::DragFloat("Terrain Render Distance", &RenderDistance,
+						100.0f, FadeStart + 1.0f, FarClip - static_cast<float>(
+							SceneViewProjection::GetTerrainFarPlaneSafetyMargin(FarClip)),
+						"%.1f"))
+						ViewportClient->SetTerrainDistance(FadeStart, RenderDistance);
+					ImGui::TextDisabled("Main scene depth: Reversed Z");
+					ImGui::EndMenu();
+				}
 				if (ImGui::BeginMenu("Directional Shadow"))
 				{
 					ImGui::TextDisabled("Visible in Lit mode");

@@ -12,6 +12,7 @@
 #include "MonaImGui.h"
 #include "Preview/PreviewScene.h"
 #include "SceneView.h"
+#include "SceneViewProjection.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "Widgets/MViewport.h"
 
@@ -101,14 +102,12 @@ namespace Durin::Editor::SkeletalMesh
 			OutView.ViewMatrix[2][2] = Up.z; OutView.ViewMatrix[3][2] = -Math::Dot(Up, Eye);
 			const float NearClip = static_cast<float>(std::max(0.001, Controller.GetDistance() * 0.001));
 			const float FarClip = static_cast<float>(std::max(100.0, Controller.GetDistance() * 20.0));
-			const float YScale = 1.0f / std::tan(static_cast<float>(Math::DegreesToRadians(FieldOfViewDegrees * 0.5)));
-			const float XScale = YScale / std::max(static_cast<float>(Width) / static_cast<float>(Height), 0.001f);
-			const float DepthScale = FarClip / (FarClip - NearClip);
-			OutView.ProjectionMatrix = FMatrix(0.0f);
-			OutView.ProjectionMatrix[1][0] = XScale; OutView.ProjectionMatrix[2][1] = -YScale;
-			OutView.ProjectionMatrix[0][2] = DepthScale;
-			OutView.ProjectionMatrix[3][2] = -NearClip * DepthScale;
-			OutView.ProjectionMatrix[0][3] = 1.0f;
+			if (!SceneViewProjection::BuildPerspectiveProjection(FieldOfViewDegrees,
+				static_cast<double>(Width) / Height, NearClip, FarClip,
+				ESceneDepthConvention::ReversedZ, OutView.ProjectionMatrix)) return false;
+			OutView.NearClipDistance = NearClip;
+			OutView.FarClipDistance = FarClip;
+			OutView.DepthConvention = ESceneDepthConvention::ReversedZ;
 			OutView.ViewProjectionMatrix = OutView.ProjectionMatrix * OutView.ViewMatrix;
 			return true;
 		}

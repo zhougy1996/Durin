@@ -381,6 +381,13 @@ namespace Durin
 				OutView.ProjectionMatrix = CameraComponent->GetProjectionMatrix(AspectRatio);
 				OutView.ViewProjectionMatrix = OutView.ProjectionMatrix * OutView.ViewMatrix;
 				OutView.ViewLocation = CameraComponent->GetWorldLocation();
+				OutView.DepthConvention = ESceneDepthConvention::ReversedZ;
+				OutView.NearClipDistance = CameraComponent->GetNearClip();
+				OutView.FarClipDistance = CameraComponent->GetFarClip();
+				const FCameraProjectionSettings& Projection =
+					CameraComponent->GetProjectionSettings();
+				OutView.TerrainFadeStart = Projection.TerrainFadeStart;
+				OutView.TerrainRenderDistance = Projection.TerrainRenderDistance;
 				return true;
 			}
 		}

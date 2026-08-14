@@ -32,6 +32,7 @@ namespace Durin
 				.Feature = Feature,
 				.Output = Request.Output,
 				.DepthMode = DepthMode,
+				.DepthConvention = Request.DepthConvention,
 				.GizmoTopology = GizmoTopology,
 			};
 		}
@@ -58,6 +59,7 @@ namespace Durin
 	{
 		FRequest Request;
 		Request.Output = Output;
+		Request.DepthConvention = View.DepthConvention;
 		Request.bEditorGrid = View.EditorGrid.bVisible;
 		Request.bOverlayLines = !View.OverlayLines.empty();
 		Request.bOverlayIcons = !View.OverlayIcons.empty();

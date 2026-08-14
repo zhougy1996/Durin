@@ -320,18 +320,18 @@ TEST(FCameraEditingTests, SharedTransactionsPreserveAtomicProjectionSemanticsAnd
 	Transactions.Clear();
 	ASSERT_TRUE(SubmitFloat(NearClip, 2000.0f, true));
 	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 2000.0f);
-	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 2001.0f);
+	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 500000.0f);
 	View.FinishActiveEdit(&Context, true);
 	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 0.1f);
-	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 1000.0f);
+	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 500000.0f);
 	EXPECT_FALSE(Transactions.CanUndo());
 
 	ASSERT_TRUE(SubmitFloat(NearClip, -5.0f, false));
 	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 0.001f);
-	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 1000.0f);
+	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 500000.0f);
 	ASSERT_TRUE(Transactions.Undo());
 	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 0.1f);
-	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 1000.0f);
+	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 500000.0f);
 
 	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, MakeTarget(AspectRatioMode),
 		[&](Durin::FProperty* ScratchProperty, void* ScratchContainer, Durin::uint32 ScratchArrayIndex) {
