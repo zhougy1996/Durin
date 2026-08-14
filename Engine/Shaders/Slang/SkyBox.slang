@@ -6,9 +6,7 @@ struct SkyBoxVSOutput
 
 struct SkyBoxUniform
 {
-    float4x4 ClipToWorld;
-    float4x4 WorldToSky;
-    float4 ViewPosition;
+    float4x4 ClipToSkyDirection;
     float4 TintIntensity;
 };
 
@@ -34,12 +32,11 @@ SkyBoxVSOutput VertexMain(uint vertexId : SV_VulkanVertexID)
 [shader("fragment")]
 float4 FragmentMain(SkyBoxVSOutput input) : SV_Target
 {
-    float4 worldPositionH = mul(Sky.ClipToWorld, float4(input.ClipPosition, 1.0, 1.0));
-    float3 worldPosition = worldPositionH.xyz / worldPositionH.w;
-    // Subtracting the view position removes camera translation while retaining
-    // camera rotation and the current projection's field of view.
-    float3 worldDirection = normalize(worldPosition - Sky.ViewPosition.xyz);
-    float3 sampleDirection = normalize(mul(Sky.WorldToSky, float4(worldDirection, 0.0)).xyz);
+    // Camera translation is removed in double precision on the CPU. Keeping
+    // the GPU path direction-only prevents near-clip changes at large world
+    // coordinates from destabilizing cubemap derivatives and mip selection.
+    float3 sampleDirection = normalize(mul(
+        Sky.ClipToSkyDirection, float4(input.ClipPosition, 1.0, 1.0)).xyz);
     float3 linearColor = SkyTexture.Sample(SkySampler, sampleDirection).rgb;
     return float4(linearColor * Sky.TintIntensity.rgb * Sky.TintIntensity.a, 1.0);
 }

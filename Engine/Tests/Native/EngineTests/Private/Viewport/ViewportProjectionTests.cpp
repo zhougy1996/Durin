@@ -55,6 +55,20 @@ TEST(FLevelEditorViewportClientTests, BuildsCenterPickingRayAndRejectsInvalidVie
 	ExpectVectorNear(Direction, Client.GetCameraTransform().GetForwardVector(), 1.e-6);
 }
 
+TEST(FLevelEditorViewportClientTests, RestoresDocumentedViewDistanceDefaults)
+{
+	using FViewportClient = Durin::Editor::Level::FLevelEditorViewportClient;
+	FViewportClient Client;
+	Client.SetClipDistances(0.001f, 10000.0f);
+	Client.SetTerrainDistance(100.0f, 1000.0f);
+	Client.ResetViewDistances();
+
+	EXPECT_FLOAT_EQ(Client.GetNearClip(), FViewportClient::DefaultNearClip);
+	EXPECT_FLOAT_EQ(Client.GetFarClip(), FViewportClient::DefaultFarClip);
+	EXPECT_FLOAT_EQ(Client.GetTerrainFadeStart(), FViewportClient::DefaultTerrainFadeStart);
+	EXPECT_FLOAT_EQ(Client.GetTerrainRenderDistance(), FViewportClient::DefaultTerrainRenderDistance);
+}
+
 TEST(FLevelEditorViewportClientTests, FocusesTheSelectedActorFromViewportInput)
 {
 	InitializeDObjectSystem();

@@ -331,6 +331,15 @@ namespace Durin::Editor::Level
 		InvalidatePreparedSceneView();
 	}
 
+	auto FLevelEditorViewportClient::ResetViewDistances() -> void
+	{
+		NearClip = DefaultNearClip;
+		FarClip = DefaultFarClip;
+		TerrainFadeStart = DefaultTerrainFadeStart;
+		TerrainRenderDistance = DefaultTerrainRenderDistance;
+		InvalidatePreparedSceneView();
+	}
+
 	auto FLevelEditorViewportClient::SetMovementSpeed(float Speed) -> void
 	{
 		if (!std::isfinite(Speed)) return;

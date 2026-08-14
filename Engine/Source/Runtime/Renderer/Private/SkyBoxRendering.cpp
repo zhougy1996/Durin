@@ -41,14 +41,13 @@ namespace Durin::SkyBoxRendering
 			|| !Math::TryNormalize(SkyBox.Rotation, NormalizedRotation, MatrixInverseEpsilon)) return false;
 
 		const FMatrix WorldToSky = Math::RotationMatrix(Math::Inverse(NormalizedRotation));
-		OutUniform.ClipToWorld = ToShaderMatrix(ClipToWorld);
-		OutUniform.WorldToSky = ToShaderMatrix(WorldToSky);
-		if (!IsFinite(OutUniform.ClipToWorld) || !IsFinite(OutUniform.WorldToSky)) return false;
+		const FMatrix RemoveViewTranslation = Math::TranslationMatrix(-View.ViewLocation);
+		const FMatrix ClipToSkyDirection = WorldToSky * RemoveViewTranslation * ClipToWorld;
+		OutUniform.ClipToSkyDirection = ToShaderMatrix(ClipToSkyDirection);
+		if (!IsFinite(OutUniform.ClipToSkyDirection)) return false;
 
-		OutUniform.ViewPosition = FVector4f(FVector3f(View.ViewLocation), 0.0f);
 		OutUniform.TintIntensity = FVector4f(SkyBox.Tint, std::max(0.0f, SkyBox.Intensity));
-		return std::isfinite(OutUniform.ViewPosition.x) && std::isfinite(OutUniform.ViewPosition.y)
-			&& std::isfinite(OutUniform.ViewPosition.z) && std::isfinite(OutUniform.TintIntensity.x)
+		return std::isfinite(OutUniform.TintIntensity.x)
 			&& std::isfinite(OutUniform.TintIntensity.y) && std::isfinite(OutUniform.TintIntensity.z)
 			&& std::isfinite(OutUniform.TintIntensity.w);
 	}

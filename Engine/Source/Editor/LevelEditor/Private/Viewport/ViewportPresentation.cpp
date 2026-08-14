@@ -34,6 +34,12 @@ namespace Durin::Editor::Level
 			TViewportModeOption{ERasterMode::Wireframe, "Wireframe"}
 		};
 
+		constexpr std::array DirectionalShadowQualityOptions = {
+			TViewportModeOption{EDirectionalShadowFilterQuality::Low, "Low"},
+			TViewportModeOption{EDirectionalShadowFilterQuality::Medium, "Medium (Default)"},
+			TViewportModeOption{EDirectionalShadowFilterQuality::High, "High"}
+		};
+
 		constexpr std::array DirectionalShadowBiasDiagnosticOptions = {
 			TViewportModeOption{EDirectionalShadowDiagnosticMode::ShadowDepthCoverage, "Shadow Depth Coverage"},
 			TViewportModeOption{EDirectionalShadowDiagnosticMode::ReceiverUnbiased, "Receiver Unbiased"},
@@ -87,7 +93,7 @@ namespace Durin::Editor::Level
 				ViewportClient->SetViewSettings(Settings);
 			};
 
-			if (ImGui::RadioButton("Lit (Off)",
+			if (ImGui::RadioButton("Default (Lit / Diagnostics Off)",
 				CurrentMode == EDirectionalShadowDiagnosticMode::Lit))
 			{
 				SetMode(EDirectionalShadowDiagnosticMode::Lit);
@@ -101,6 +107,19 @@ namespace Durin::Editor::Level
 			ImGui::Separator();
 			ImGui::TextDisabled("Cascades");
 			DrawModeOptions(CurrentMode, DirectionalShadowCascadeDiagnosticOptions, SetMode);
+		}
+
+		auto DrawDirectionalShadowQualityOptions(FLevelEditorViewportClient* ViewportClient) -> void
+		{
+			if (ViewportClient == nullptr) return;
+			const EDirectionalShadowFilterQuality CurrentQuality =
+				ViewportClient->GetViewSettings().DirectionalShadowFilterQuality;
+			DrawModeOptions(CurrentQuality, DirectionalShadowQualityOptions,
+				[ViewportClient](EDirectionalShadowFilterQuality Quality) {
+					FSceneViewSettings Settings = ViewportClient->GetViewSettings();
+					Settings.DirectionalShadowFilterQuality = Quality;
+					ViewportClient->SetViewSettings(Settings);
+				});
 		}
 
 		auto Add(const ImVec2& A, const ImVec2& B) -> ImVec2 { return ImVec2(A.x + B.x, A.y + B.y); }
@@ -723,6 +742,15 @@ namespace Durin::Editor::Level
 				ViewportClient->SetViewSettings(Settings);
 			});
 			ImGui::Separator();
+			ImGui::TextDisabled("Directional Shadows");
+			if (ViewportClient != nullptr && ImGui::BeginMenu("Quality"))
+			{
+				DrawDirectionalShadowQualityOptions(ViewportClient);
+				ImGui::Separator();
+				ImGui::TextDisabled("Medium is the renderer default.");
+				ImGui::EndMenu();
+			}
+			ImGui::Separator();
 			ImGui::TextDisabled("Post Processing");
 			if (ViewportClient != nullptr)
 			{
@@ -758,12 +786,19 @@ namespace Durin::Editor::Level
 							SceneViewProjection::GetTerrainFarPlaneSafetyMargin(FarClip)),
 						"%.1f"))
 						ViewportClient->SetTerrainDistance(FadeStart, RenderDistance);
+					ImGui::Separator();
+					if (ImGui::Button("Restore Defaults"))
+						ViewportClient->ResetViewDistances();
+					ImGui::SameLine();
+					ImGui::TextDisabled("Near %.1f / Far %.0f",
+						FLevelEditorViewportClient::DefaultNearClip,
+						FLevelEditorViewportClient::DefaultFarClip);
 					ImGui::TextDisabled("Main scene depth: Reversed Z");
 					ImGui::EndMenu();
 				}
 				if (ImGui::BeginMenu("Directional Shadow"))
 				{
-					ImGui::TextDisabled("Visible in Lit mode");
+					ImGui::TextDisabled("Temporary diagnostic view; choose Default to restore.");
 					DrawDirectionalShadowDiagnosticOptions(ViewportClient);
 					ImGui::EndMenu();
 				}

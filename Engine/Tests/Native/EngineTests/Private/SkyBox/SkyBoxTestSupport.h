@@ -121,13 +121,10 @@ namespace
 	auto ReconstructSampleDirection(const Durin::SkyBoxRendering::FSkyBoxUniform& Uniform, const Durin::FVector2& ClipPosition)
 		-> Durin::FVector3
 	{
-		const Durin::FMatrix ClipToWorld = glm::transpose(Durin::FMatrix(Uniform.ClipToWorld));
-		const Durin::FMatrix WorldToSky = glm::transpose(Durin::FMatrix(Uniform.WorldToSky));
-		const Durin::FVector4 WorldPositionH = ClipToWorld * Durin::FVector4(ClipPosition, 1.0, 1.0);
-		const Durin::FVector3 WorldPosition = Durin::FVector3(WorldPositionH) / WorldPositionH.w;
-		const Durin::FVector3 ViewPosition(Uniform.ViewPosition);
-		return glm::normalize(Durin::FVector3(WorldToSky * Durin::FVector4(
-			glm::normalize(WorldPosition - ViewPosition), 0.0)));
+		const Durin::FMatrix ClipToSkyDirection =
+			glm::transpose(Durin::FMatrix(Uniform.ClipToSkyDirection));
+		return glm::normalize(Durin::FVector3(ClipToSkyDirection
+			* Durin::FVector4(ClipPosition, 1.0, 1.0)));
 	}
 
 	auto MakePrincipalAxisView(

@@ -61,6 +61,11 @@ namespace Durin::Editor::Level
 	class FLevelEditorViewportClient final : public FViewportClient
 	{
 	public:
+		static constexpr float DefaultNearClip = 0.1f;
+		static constexpr float DefaultFarClip = 500000.0f;
+		static constexpr float DefaultTerrainFadeStart = 180000.0f;
+		static constexpr float DefaultTerrainRenderDistance = 200000.0f;
+
 		FLevelEditorViewportClient();
 		~FLevelEditorViewportClient() override;
 		auto CalcSceneView(uint32 Width, uint32 Height, FSceneView& OutView) const -> bool override;
@@ -106,6 +111,7 @@ namespace Durin::Editor::Level
 		auto GetTerrainRenderDistance() const -> float { return TerrainRenderDistance; }
 		auto SetClipDistances(float InNearClip, float InFarClip) -> void;
 		auto SetTerrainDistance(float InFadeStart, float InRenderDistance) -> void;
+		auto ResetViewDistances() -> void;
 
 	private:
 		// Retains the last rendered editor view and its richer hit-test data across logic frames.
@@ -135,10 +141,10 @@ namespace Durin::Editor::Level
 		FEditorVisualizationHit HoveredVisualization;
 		// Perspective values are stored in degrees and world-space distance units.
 		float FieldOfViewDegrees = 60.0f;
-		float NearClip = 0.1f;
-		float FarClip = 500000.0f;
-		float TerrainFadeStart = 180000.0f;
-		float TerrainRenderDistance = 200000.0f;
+		float NearClip = DefaultNearClip;
+		float FarClip = DefaultFarClip;
+		float TerrainFadeStart = DefaultTerrainFadeStart;
+		float TerrainRenderDistance = DefaultTerrainRenderDistance;
 		float MovementSpeed = 5.0f;
 		FVector2f FlyLookVelocity{0.0f};
 		FVector3 FlyMovementVelocity{0.0};

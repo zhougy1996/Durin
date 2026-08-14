@@ -1,5 +1,6 @@
 #include "SkyBoxTestSupport.h"
 #include "Math/Operations.h"
+#include "SceneViewProjection.h"
 
 TEST(FSkyBoxRenderingTests, ReconstructsTranslationInvariantDirectionAndInverseComponentRotation)
 {
@@ -52,4 +53,27 @@ TEST(FSkyBoxRenderingTests, RejectsInvalidTransformsAndClampsIntensity)
 	SkyBox.Intensity = -3.0f;
 	ASSERT_TRUE(Durin::SkyBoxRendering::BuildUniform(View, SkyBox, Uniform));
 	EXPECT_FLOAT_EQ(Uniform.TintIntensity.w, 0.0f);
+}
+
+TEST(FSkyBoxRenderingTests, KeepsDirectionsStableForTinyNearClipAtLargeWorldCoordinates)
+{
+	constexpr double NearClip = 0.001;
+	constexpr double FarClip = 500000.0;
+	Durin::FSceneView View;
+	View.ViewLocation = {4.0e7, -3.0e7, 2.0e7};
+	View.ViewMatrix = Durin::Math::TranslationMatrix(-View.ViewLocation);
+	ASSERT_TRUE(Durin::SceneViewProjection::BuildPerspectiveProjection(
+		60.0, 16.0 / 9.0, NearClip, FarClip,
+		Durin::ESceneDepthConvention::ReversedZ, View.ProjectionMatrix));
+	View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
+
+	Durin::SkyBoxRendering::FSkyBoxUniform Uniform;
+	ASSERT_TRUE(Durin::SkyBoxRendering::BuildUniform(
+		View, Durin::FSkyBoxSceneData{}, Uniform));
+	const Durin::FVector3 Center = ReconstructSampleDirection(Uniform, {0.0, 0.0});
+	const Durin::FVector3 Neighbor = ReconstructSampleDirection(Uniform, {0.001, 0.0});
+	EXPECT_GT(glm::dot(Center, Neighbor), 0.999999);
+	EXPECT_NEAR(Center.x, 1.0, 1.e-6);
+	EXPECT_NEAR(Center.y, 0.0, 1.e-5);
+	EXPECT_NEAR(Center.z, 0.0, 1.e-5);
 }
