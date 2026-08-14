@@ -21,13 +21,15 @@ namespace Durin
 	auto DPrimitiveComponent::OnRegister() -> void
 	{
 		Super::OnRegister();
+		++PhysicsRegistrationGeneration;
 		EnsurePrimitiveSceneId();
 		MarkRenderStateDirty();
-		RecreatePhysicsState();
+		ApplyPhysicsStateCreationPolicy();
 	}
 
 	auto DPrimitiveComponent::OnUnregister() -> void
 	{
+		++PhysicsRegistrationGeneration;
 		DestroyPhysicsState();
 		DestroyRenderState();
 #if DURIN_WITH_EDITOR
@@ -45,7 +47,7 @@ namespace Durin
 		BodyInstance.ObjectChannel = Profile.ObjectChannel;
 		BodyInstance.Responses = Profile.Responses;
 		MarkPackageDirty();
-		RecreatePhysicsState();
+		OnCollisionSettingsChanged();
 		return true;
 	}
 
@@ -55,7 +57,7 @@ namespace Durin
 		BodyInstance.CollisionEnabled = Enabled;
 		BodyInstance.ProfileName = FName();
 		MarkPackageDirty();
-		RecreatePhysicsState();
+		OnCollisionSettingsChanged();
 	}
 
 	auto DPrimitiveComponent::SetCollisionObjectType(ECollisionChannel Channel) -> void
@@ -63,7 +65,7 @@ namespace Durin
 		BodyInstance.ObjectChannel = Channel;
 		BodyInstance.ProfileName = FName();
 		MarkPackageDirty();
-		RecreatePhysicsState();
+		OnCollisionSettingsChanged();
 	}
 
 	auto DPrimitiveComponent::SetCollisionResponseToChannel(
@@ -72,7 +74,7 @@ namespace Durin
 		BodyInstance.Responses.SetResponse(Channel, Response);
 		BodyInstance.ProfileName = FName();
 		MarkPackageDirty();
-		RecreatePhysicsState();
+		OnCollisionSettingsChanged();
 	}
 
 	auto DPrimitiveComponent::SetPhysicsBodyMotionType(EPhysicsBodyMotionType MotionType) -> void
@@ -129,6 +131,39 @@ namespace Durin
 			? GetCollisionStateRevision() : 0;
 	}
 
+	auto DPrimitiveComponent::RequestPhysicsStateCreation(bool) -> bool
+	{
+		RecreatePhysicsState();
+		return BodyInstance.CollisionEnabled == ECollisionEnabled::NoCollision
+			|| BodyInstance.ActorHandle.IsValid();
+	}
+
+	auto DPrimitiveComponent::GetPhysicsStateCreationPolicy() const -> EPhysicsStateCreationPolicy
+	{
+		return EPhysicsStateCreationPolicy::Eager;
+	}
+
+	auto DPrimitiveComponent::OnCollisionSettingsChanged() -> void
+	{
+		ApplyPhysicsStateCreationPolicy();
+	}
+
+	auto DPrimitiveComponent::ApplyPhysicsStateCreationPolicy() -> void
+	{
+		switch (GetPhysicsStateCreationPolicy())
+		{
+		case EPhysicsStateCreationPolicy::Eager:
+			RecreatePhysicsState();
+			break;
+		case EPhysicsStateCreationPolicy::OnDemand:
+			DestroyPhysicsState();
+			break;
+		case EPhysicsStateCreationPolicy::DeferredRequired:
+			(void)RequestPhysicsStateCreation(false);
+			break;
+		}
+	}
+
 	auto DPrimitiveComponent::DestroyPhysicsState() -> void
 	{
 		if (!BodyInstance.ActorHandle.IsValid()) return;
@@ -141,7 +176,7 @@ namespace Durin
 	{
 		if (!BodyInstance.ActorHandle.IsValid())
 		{
-			RecreatePhysicsState();
+			ApplyPhysicsStateCreationPolicy();
 			return;
 		}
 		DWorld* World = GetPhysicsWorld();
@@ -223,7 +258,7 @@ namespace Durin
 			// preset name would immediately overwrite the user's value.
 			BodyInstance.ProfileName = FName();
 		}
-		RecreatePhysicsState();
+		OnCollisionSettingsChanged();
 	}
 
 	auto DPrimitiveComponent::CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy>

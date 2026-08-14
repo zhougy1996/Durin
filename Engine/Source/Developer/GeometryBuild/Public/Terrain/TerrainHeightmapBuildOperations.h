@@ -40,6 +40,14 @@ namespace Durin::Asset::Build
 		bool bMarkPackageDirty = true;
 	};
 
+	struct FTerrainHeightmapDerivedDataLoadDiagnostics
+	{
+		uint64 QueryNanoseconds = 0;
+		uint64 ReadNanoseconds = 0;
+		uint64 DecodeNanoseconds = 0;
+		bool bHit = false;
+	};
+
 	GEOMETRYBUILD_API auto BuildTerrainHeightmap(
 		FTerrainHeightmapBuildRequest Request,
 		FTerrainHeightmapBuildProduct& OutProduct,
@@ -55,6 +63,7 @@ namespace Durin::Asset::Build
 	GEOMETRYBUILD_API auto LoadTerrainHeightmapDerivedData(
 		std::string_view Key,
 		std::shared_ptr<const FTerrainHeightmapPayload>& OutPayload,
-		std::string& OutError) -> bool;
+		std::string& OutError,
+		FTerrainHeightmapDerivedDataLoadDiagnostics* Diagnostics = nullptr) -> bool;
 
 }

@@ -10,6 +10,13 @@ namespace Durin
 {
 	class DWorld;
 	enum class EEditorPickingPrimitiveFamily : uint8;
+	// Selects when a registered primitive may create and publish its physics body.
+	enum class EPhysicsStateCreationPolicy : uint8
+	{
+		Eager,
+		OnDemand,
+		DeferredRequired
+	};
 	// Selects the renderer-side state that must be synchronized for a primitive.
 	enum class EPrimitiveRenderStateDirtyFlags : uint8
 	{
@@ -51,12 +58,15 @@ namespace Durin
 		auto GetPhysicsActorHandle() const -> FPhysicsActorHandle { return BodyInstance.ActorHandle; }
 		auto GetPhysicsBodyMotionType() const -> EPhysicsBodyMotionType { return BodyInstance.MotionType; }
 		auto GetPublishedBodySetupRevision() const -> uint64 { return BodyInstance.PublishedBodySetupRevision; }
+		auto GetPhysicsRegistrationGeneration() const -> uint64 { return PhysicsRegistrationGeneration; }
 		// Migrates an existing scene body between spatial partitions without exposing index state.
 		ENGINE_API auto SetPhysicsBodyMotionType(EPhysicsBodyMotionType MotionType) -> void;
 		ENGINE_API virtual auto BuildCollisionShape(FCollisionShape& OutShape, FTransform& OutWorldTransform) const -> bool;
 		ENGINE_API virtual auto BuildCollisionGeometry(
 			FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool;
 		ENGINE_API auto RecreatePhysicsState() -> void;
+		// Requests policy-owned creation; a required request may block only at an explicit lifecycle barrier.
+		ENGINE_API virtual auto RequestPhysicsStateCreation(bool bWaitUntilReady = false) -> bool;
 
 #if DURIN_WITH_EDITOR
 		// Produces finite local bounds and a supported picking family for the editor scene index.
@@ -68,7 +78,10 @@ namespace Durin
 		ENGINE_API virtual auto BuildMaterialRenderProxyBindingUpdate(
 			FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool;
 		ENGINE_API virtual auto GetCollisionStateRevision() const -> uint64 { return 0; }
+		ENGINE_API virtual auto GetPhysicsStateCreationPolicy() const -> EPhysicsStateCreationPolicy;
+		ENGINE_API virtual auto OnCollisionSettingsChanged() -> void;
 		auto DestroyPhysicsState() -> void;
+		auto GetPhysicsWorld() const -> DWorld*;
 #if DURIN_WITH_EDITOR
 		auto NotifyEditorPickingMutation(bool bRetired = false) -> void;
 #endif
@@ -79,9 +92,10 @@ namespace Durin
 			const FTransform& Transform) const -> FPhysicsBodyDesc;
 		auto EnsurePrimitiveSceneId() -> FPrimitiveSceneId;
 		auto UpdatePhysicsState() -> void;
-		auto GetPhysicsWorld() const -> DWorld*;
+		auto ApplyPhysicsStateCreationPolicy() -> void;
 
 		FPrimitiveSceneId PrimitiveSceneId = InvalidPrimitiveSceneId;
+		uint64 PhysicsRegistrationGeneration = 0;
 		mutable FCollisionGeometryRef CachedCollisionGeometry;
 		DPROPERTY(Edit)
 		bool bVisible = true;

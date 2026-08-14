@@ -482,7 +482,8 @@ namespace Durin
 		if (!Draw.SceneInfo || !Draw.Patch || GDynamicRHI == nullptr) return false;
 		const FTerrainSceneProxy& Proxy = Draw.SceneInfo->GetTerrainProxy();
 		const auto Payload = Proxy.GetPayload();
-		if (!Payload || !Payload->IsValid()) return false;
+		if (!Payload || !Payload->HasValidLayout()) return false;
+		const auto HeightBegin = std::chrono::steady_clock::now();
 		auto HeightIt = State->Heights.find(Payload.get());
 		if (HeightIt == State->Heights.end())
 		{
@@ -501,6 +502,10 @@ namespace Durin
 			HeightIt = State->Heights.emplace(Payload.get(), std::move(Candidate)).first;
 		}
 		else ++View.HeightReuses;
+		View.HeightPreparationNanoseconds += std::chrono::duration_cast<
+			std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - HeightBegin).count();
+		const auto TopologyBegin = std::chrono::steady_clock::now();
 		const FTerrainTopologyKey TopologyKey{
 			static_cast<uint16>(Draw.Patch->CellCountX),
 			static_cast<uint16>(Draw.Patch->CellCountY),
@@ -531,14 +536,21 @@ namespace Durin
 			TopologyIt = State->Topologies.emplace(TopologyKey, std::move(Candidate)).first;
 		}
 		else ++View.TopologyReuses;
+		View.TopologyPreparationNanoseconds += std::chrono::duration_cast<
+			std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - TopologyBegin).count();
 
+		const auto ShaderBegin = std::chrono::steady_clock::now();
 		auto& ShaderCache = bShadowDepth
 			? State->ShadowShaders : State->Shaders;
 		auto& ShaderEntry = ShaderCache.FindOrAdd(
 			Draw.Material.PipelineIdentity.ShaderMap);
 		using FShaderResult = TRenderResourceCreateResult<FState::FShaderPayload>;
+		bool bShaderCreated = false;
+		++View.ShaderLookups;
 		auto* Shader = ShaderEntry.Slot.Resolve(Coordinator.GetGeneration_RenderThread(),
-			[this, &Draw, bShadowDepth]() -> FShaderResult {
+			[this, &Draw, bShadowDepth, &bShaderCreated]() -> FShaderResult {
+				bShaderCreated = true;
 				const auto& Identity = Draw.Material.PipelineIdentity.ShaderMap;
 				FShaderCompileOptions Options;
 				Options.bForceRecompile = Coordinator.ShouldForceShaderRecompile_RenderThread();
@@ -602,7 +614,12 @@ namespace Durin
 				return FShaderResult::Success(std::move(Candidate));
 			}, ReportRendererResourceCreateDiagnostic);
 		if (!Shader) return false;
+		bShaderCreated ? ++View.ShaderCreations : ++View.ShaderReuses;
+		View.ShaderPreparationNanoseconds += std::chrono::duration_cast<
+			std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - ShaderBegin).count();
 
+		const auto PipelineBegin = std::chrono::steady_clock::now();
 		const FEffectiveStaticMeshPipelineKey EffectivePipelineKey =
 			bShadowDepth ? MakeShadowPipelineKey(Draw.PipelineKey)
 				: Draw.PipelineKey;
@@ -612,9 +629,12 @@ namespace Durin
 		using FPipelineResult = TRenderResourceCreateResult<FState::FPipelinePayload>;
 		FRenderResourceGeneration Generation = Coordinator.GetGeneration_RenderThread();
 		Generation.Shader = ShaderEntry.Slot.GetPayloadGeneration().Shader;
+		bool bPipelineCreated = false;
+		++View.PipelineLookups;
 		auto* Pipeline = PipelineEntry.Slot.Resolve(Generation,
 			[&EffectivePipelineKey, &PipelineEntry, Shader, &TopologyIt,
-			 bShadowDepth]() -> FPipelineResult {
+			 bShadowDepth, &bPipelineCreated]() -> FPipelineResult {
+				bPipelineCreated = true;
 				FState::FPipelinePayload Candidate;
 				Candidate.Map = Shader->Map;
 				Candidate.Vertex = Shader->Vertex;
@@ -643,6 +663,10 @@ namespace Durin
 					: FPipelineResult::Failure(MakeRendererResourceCreateError(ERenderResourceCreateErrorCategory::GraphicsPipeline, "TerrainPipeline", "terrain", "Pipeline creation returned null.", ERenderResourceGenerationDependency::Device));
 			}, ReportRendererResourceCreateDiagnostic);
 		if (!Pipeline) return false;
+		bPipelineCreated ? ++View.PipelineCreations : ++View.PipelineReuses;
+		View.PipelinePreparationNanoseconds += std::chrono::duration_cast<
+			std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - PipelineBegin).count();
 		for (const auto& Sampler : Draw.MaterialBinding.Samplers)
 		{
 			const size_t Key = GetSamplerKey(Sampler);

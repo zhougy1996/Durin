@@ -7,6 +7,39 @@ namespace Durin
 		std::mutex GMutex;
 		FTerrainHeightmapUncookedPostLoadHandler GHandler;
 		FTerrainHeightmapSourceChangeHandler GSourceChangeHandler;
+		FTerrainHeightmapAuthoringLoadWaitHandler GWaitHandler;
+	}
+
+	auto RegisterTerrainHeightmapAuthoringLoadWaitHandler(
+		FTerrainHeightmapAuthoringLoadWaitHandler Handler) -> bool
+	{
+		if (!Handler) return false;
+		std::lock_guard Lock(GMutex);
+		if (GWaitHandler) return false;
+		GWaitHandler = std::move(Handler);
+		return true;
+	}
+
+	auto UnregisterTerrainHeightmapAuthoringLoadWaitHandler() -> void
+	{
+		std::lock_guard Lock(GMutex);
+		GWaitHandler = {};
+	}
+
+	auto WaitForTerrainHeightmapAuthoringLoad(
+		DTerrainHeightmap& Heightmap, std::string& OutError) -> bool
+	{
+		FTerrainHeightmapAuthoringLoadWaitHandler Handler;
+		{
+			std::lock_guard Lock(GMutex);
+			Handler = GWaitHandler;
+		}
+		if (!Handler)
+		{
+			OutError = "No TerrainHeightmap authoring-load wait policy is registered.";
+			return false;
+		}
+		return Handler(Heightmap, OutError);
 	}
 
 	auto RegisterTerrainHeightmapUncookedPostLoadHandler(

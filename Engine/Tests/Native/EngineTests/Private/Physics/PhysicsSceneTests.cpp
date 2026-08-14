@@ -18,8 +18,10 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 #include "Terrain/TerrainHeightmap.h"
+#include "Threading/Task.h"
 
 #include <gtest/gtest.h>
+#include <iostream>
 #include <random>
 
 namespace
@@ -611,6 +613,8 @@ TEST(FPhysicsTerrainTests, PublishesSharedRevisionThroughOrdinaryWorldQueries)
 	Second->SetHeightmap(Heightmap);
 	ASSERT_TRUE(First->SetCollisionProfileName(Durin::CollisionProfile::WorldStatic));
 	ASSERT_TRUE(Second->SetCollisionProfileName(Durin::CollisionProfile::WorldStatic));
+	ASSERT_TRUE(First->RequestPhysicsStateCreation(true));
+	ASSERT_TRUE(Second->RequestPhysicsStateCreation(true));
 	EXPECT_EQ(World->GetPhysicsScene().GetBodyCount(), 2u);
 	EXPECT_EQ(First->GetCollisionStatus(), Durin::ETerrainCollisionStatus::Ready);
 	EXPECT_EQ(Second->GetCollisionStatus(), Durin::ETerrainCollisionStatus::Ready);
@@ -680,6 +684,8 @@ TEST(FPhysicsTerrainTests, PublishesSharedRevisionThroughOrdinaryWorldQueries)
 	const Durin::uint64 PreviousIdentity = FirstGeometry.GetIdentity();
 	const std::array<Durin::uint16, 4> RaisedSamples{65535, 65535, 65535, 65535};
 	ASSERT_TRUE(Heightmap->InitializeFromSamples(2, 2, RaisedSamples, Error)) << Error;
+	ASSERT_TRUE(First->RequestPhysicsStateCreation(true));
+	ASSERT_TRUE(Second->RequestPhysicsStateCreation(true));
 	EXPECT_EQ(World->GetPhysicsScene().GetBodyCount(), 2u);
 	ASSERT_TRUE(First->BuildCollisionGeometry(FirstGeometry, FirstTransform));
 	EXPECT_NE(FirstGeometry.GetIdentity(), PreviousIdentity);
@@ -691,6 +697,49 @@ TEST(FPhysicsTerrainTests, PublishesSharedRevisionThroughOrdinaryWorldQueries)
 	EXPECT_EQ(First->GetCollisionStatus(), Durin::ETerrainCollisionStatus::MissingHeightmap);
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
+}
+
+TEST(FPhysicsTerrainTests, ReportsSeparatedBuildPhasesFor513And1025Fixtures)
+{
+	for (const Durin::uint32 Dimension : {513u, 1025u})
+	{
+		std::vector<Durin::uint16> Samples(static_cast<size_t>(Dimension) * Dimension);
+		for (size_t Index = 0; Index < Samples.size(); ++Index)
+			Samples[Index] = static_cast<Durin::uint16>((Index * 2654435761ull + Dimension) & 0xffffu);
+		Durin::FCollisionGeometryBuildDiagnostics ColdDiagnostics;
+		const Durin::FCollisionGeometryRef Geometry = Durin::FCollisionGeometryRef::BuildHeightField(
+			Dimension, Dimension, Samples, 100.0, 100.0, 1000.0, -200.0, &ColdDiagnostics);
+		ASSERT_TRUE(Geometry.IsValid());
+		EXPECT_FALSE(ColdDiagnostics.bCacheHit);
+		EXPECT_GT(ColdDiagnostics.HashNanoseconds, 0u);
+		EXPECT_GT(ColdDiagnostics.MatchNanoseconds, 0u);
+		EXPECT_GT(ColdDiagnostics.SampleCopyNanoseconds, 0u);
+		EXPECT_GT(ColdDiagnostics.TreeBuildNanoseconds, 0u);
+
+		Durin::FPhysicsScene Scene;
+		Durin::FPhysicsBodyDesc Desc;
+		Desc.Geometry = Geometry;
+		const auto InsertionStart = std::chrono::steady_clock::now();
+		ASSERT_TRUE(Scene.AddBody(Desc).IsValid());
+		const Durin::uint64 InsertionNanoseconds = static_cast<Durin::uint64>(
+			std::chrono::duration_cast<std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - InsertionStart).count());
+		EXPECT_GT(InsertionNanoseconds, 0u);
+
+		Durin::FCollisionGeometryBuildDiagnostics WarmDiagnostics;
+		const Durin::FCollisionGeometryRef WarmGeometry = Durin::FCollisionGeometryRef::BuildHeightField(
+			Dimension, Dimension, Samples, 100.0, 100.0, 1000.0, -200.0, &WarmDiagnostics);
+		ASSERT_TRUE(WarmGeometry.IsValid());
+		EXPECT_TRUE(WarmDiagnostics.bCacheHit);
+		EXPECT_EQ(WarmGeometry.GetIdentity(), Geometry.GetIdentity());
+		std::cout << "TerrainCollisionFixture " << Dimension << 'x' << Dimension
+			<< " hash_us=" << ColdDiagnostics.HashNanoseconds / 1000
+			<< " match_us=" << ColdDiagnostics.MatchNanoseconds / 1000
+			<< " copy_us=" << ColdDiagnostics.SampleCopyNanoseconds / 1000
+			<< " tree_us=" << ColdDiagnostics.TreeBuildNanoseconds / 1000
+			<< " insert_us=" << InsertionNanoseconds / 1000
+			<< " warm_match_us=" << WarmDiagnostics.MatchNanoseconds / 1000 << '\n';
+	}
 }
 
 TEST(FPhysicsTerrainTests, ReplacesSharedHeightmapAcrossTwoWorldsAndRetainsBodiesOnFailure)
@@ -716,6 +765,7 @@ TEST(FPhysicsTerrainTests, ReplacesSharedHeightmapAcrossTwoWorldsAndRetainsBodie
 		EXPECT_TRUE(Component->SetHeightRange(10.0, 0.0));
 		Component->SetHeightmap(Heightmap);
 		EXPECT_TRUE(Component->SetCollisionProfileName(Durin::CollisionProfile::WorldStatic));
+		EXPECT_TRUE(Component->RequestPhysicsStateCreation(true));
 		return Component;
 	};
 	Durin::DTerrainComponent* First = AddTerrain(*FirstWorld, "FirstWorldTerrain");
@@ -737,6 +787,8 @@ TEST(FPhysicsTerrainTests, ReplacesSharedHeightmapAcrossTwoWorldsAndRetainsBodie
 
 	const std::array<Durin::uint16, 4> RaisedSamples{65535, 65535, 65535, 65535};
 	ASSERT_TRUE(Heightmap->InitializeFromSamples(2, 2, RaisedSamples, Error)) << Error;
+	ASSERT_TRUE(First->RequestPhysicsStateCreation(true));
+	ASSERT_TRUE(Second->RequestPhysicsStateCreation(true));
 	EXPECT_GT(Heightmap->GetRevision(), InitialRevision);
 	EXPECT_EQ(FirstWorld->GetPhysicsScene().GetBodyCount(), 1u);
 	EXPECT_EQ(SecondWorld->GetPhysicsScene().GetBodyCount(), 1u);
@@ -794,6 +846,7 @@ TEST(FPhysicsTerrainTests, PropertyTransactionsCoalesceNoOpsRejectInvalidEditsAn
 	ASSERT_TRUE(Component->SetHeightRange(10.0, -2.0));
 	Component->SetHeightmap(Heightmap);
 	ASSERT_TRUE(Component->SetCollisionProfileName(Durin::CollisionProfile::WorldStatic));
+	ASSERT_TRUE(Component->RequestPhysicsStateCreation(true));
 	ASSERT_EQ(World->GetPhysicsScene().GetBodyCount(), 1u);
 
 	Durin::FCollisionGeometryRef Geometry;
@@ -815,12 +868,14 @@ TEST(FPhysicsTerrainTests, PropertyTransactionsCoalesceNoOpsRejectInvalidEditsAn
 	EXPECT_EQ(World->GetPhysicsScene().GetBodyCount(), 1u);
 
 	ASSERT_TRUE(Component->SetSampleSpacing(4.0, 3.0));
+	ASSERT_TRUE(Component->RequestPhysicsStateCreation(true));
 	EXPECT_NE(Component->GetPhysicsActorHandle(), InitialHandle);
 	const Durin::FPhysicsActorHandle SpacingHandle = Component->GetPhysicsActorHandle();
 	ASSERT_TRUE(Component->BuildCollisionGeometry(Geometry, Transform));
 	EXPECT_NE(Geometry.GetIdentity(), InitialIdentity);
 	const Durin::uint64 SpacingIdentity = Geometry.GetIdentity();
 	ASSERT_TRUE(Component->SetHeightRange(-10.0, 8.0));
+	ASSERT_TRUE(Component->RequestPhysicsStateCreation(true));
 	EXPECT_NE(Component->GetPhysicsActorHandle(), SpacingHandle);
 	ASSERT_TRUE(Component->BuildCollisionGeometry(Geometry, Transform));
 	EXPECT_NE(Geometry.GetIdentity(), SpacingIdentity);
@@ -834,9 +889,92 @@ TEST(FPhysicsTerrainTests, PropertyTransactionsCoalesceNoOpsRejectInvalidEditsAn
 	EXPECT_EQ(World->GetPhysicsScene().GetBodyCount(), 0u);
 	EXPECT_EQ(Component->GetCollisionStatus(), Durin::ETerrainCollisionStatus::MissingHeightmap);
 	Component->SetHeightmap(Heightmap);
+	ASSERT_TRUE(Component->RequestPhysicsStateCreation(true));
 	EXPECT_EQ(World->GetPhysicsScene().GetBodyCount(), 1u);
 	EXPECT_EQ(Component->GetCollisionStatus(), Durin::ETerrainCollisionStatus::Ready);
 
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
+TEST(FPhysicsTerrainTests, EditorRegistrationStaysDormantAndExplicitDebugRequestPublishesAsync)
+{
+	if (!Durin::GIsGameThreadIdInitialized)
+	{
+		Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
+		Durin::GIsGameThreadIdInitialized = true;
+	}
+	ASSERT_TRUE(Durin::InitializeTaskScheduler(1));
+	ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
+	Durin::DWorld* World = CreatePhysicsWorld();
+	World->SetWorldType(Durin::EWorldType::Editor);
+	constexpr Durin::uint32 Dimension = 513;
+	std::vector<Durin::uint16> Samples(static_cast<size_t>(Dimension) * Dimension, 32768);
+	auto* Heightmap = Durin::NewObject<Durin::DTerrainHeightmap>(World, "EditorDormantHeightmap");
+	std::string Error;
+	ASSERT_TRUE(Heightmap->InitializeFromSamples(Dimension, Dimension, Samples, Error)) << Error;
+	auto* Actor = World->SpawnActor<Durin::ATerrainActor>("EditorDormantTerrain");
+	ASSERT_NE(Actor, nullptr);
+	Durin::DTerrainComponent* Component = Actor->GetTerrainComponent();
+	ASSERT_NE(Component, nullptr);
+	Component->SetHeightmap(Heightmap);
+	ASSERT_TRUE(Component->SetCollisionProfileName(Durin::CollisionProfile::WorldStatic));
+	EXPECT_EQ(Component->GetCollisionStatus(), Durin::ETerrainCollisionStatus::Dormant);
+	EXPECT_EQ(World->GetPhysicsScene().GetBodyCount(), 0u);
+
+	World->SetCollisionDebugDrawEnabled(true);
+	EXPECT_EQ(Component->GetCollisionStatus(), Durin::ETerrainCollisionStatus::Building);
+	EXPECT_EQ(World->GetPhysicsScene().GetBodyCount(), 0u);
+	ASSERT_TRUE(Component->RequestPhysicsStateCreation(true));
+	EXPECT_EQ(Component->GetCollisionStatus(), Durin::ETerrainCollisionStatus::Ready);
+	EXPECT_EQ(World->GetPhysicsScene().GetBodyCount(), 1u);
+	const Durin::FTerrainCollisionFacts InitialFacts = Component->GetCollisionFacts();
+	EXPECT_GT(InitialFacts.HashNanoseconds, 0u);
+	EXPECT_GT(InitialFacts.SampleCopyNanoseconds, 0u);
+	EXPECT_GT(InitialFacts.TreeBuildNanoseconds, 0u);
+	EXPECT_GT(InitialFacts.PhysicsInsertionNanoseconds, 0u);
+
+	World->SetWorldType(Durin::EWorldType::PlayInEditor);
+	ASSERT_TRUE(Component->SetSampleSpacing(2.0, 2.0));
+	EXPECT_EQ(Component->GetCollisionStatus(), Durin::ETerrainCollisionStatus::Building);
+	const Durin::FWorldPlayResult PlayResult = World->BeginPlay({});
+	ASSERT_TRUE(PlayResult) << PlayResult.Message;
+	EXPECT_EQ(Component->GetCollisionStatus(), Durin::ETerrainCollisionStatus::Ready);
+	EXPECT_EQ(World->GetPhysicsScene().GetBodyCount(), 1u);
+	World->EndPlay();
+
+	World->SetWorldType(Durin::EWorldType::Editor);
+	ASSERT_TRUE(Component->SetHeightRange(500.0, 10.0));
+	EXPECT_EQ(Component->GetCollisionStatus(), Durin::ETerrainCollisionStatus::Dormant);
+	EXPECT_EQ(World->GetPhysicsScene().GetBodyCount(), 0u);
+	ASSERT_TRUE(Component->RequestPhysicsStateCreation(false));
+	EXPECT_EQ(Component->GetCollisionStatus(), Durin::ETerrainCollisionStatus::Building);
+	Component->SetCollisionResponseToChannel(
+		Durin::ECollisionChannel::Pawn, Durin::ECollisionResponse::Ignore);
+	EXPECT_EQ(Component->GetCollisionStatus(), Durin::ETerrainCollisionStatus::Dormant);
+	ASSERT_TRUE(Component->RequestPhysicsStateCreation(false));
+	EXPECT_EQ(Component->GetCollisionStatus(), Durin::ETerrainCollisionStatus::Building);
+	ASSERT_TRUE(World->SetCurrentLevel(
+		Durin::NewObject<Durin::DLevel>(World, "ReplacementAfterTerrainBuild")));
+	EXPECT_EQ(Component->GetCollisionStatus(), Durin::ETerrainCollisionStatus::Unavailable);
+	EXPECT_EQ(World->GetPhysicsScene().GetBodyCount(), 0u);
+
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+	Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Cancel);
+}
+
+TEST(FPhysicsTerrainTests, BeginPlayRejectsMissingRequiredTerrainCollision)
+{
+	Durin::DWorld* World = CreatePhysicsWorld();
+	auto* Actor = World->SpawnActor<Durin::ATerrainActor>("MissingCollisionTerrain");
+	ASSERT_NE(Actor, nullptr);
+	ASSERT_TRUE(Actor->GetTerrainComponent()->SetCollisionProfileName(
+		Durin::CollisionProfile::WorldStatic));
+	const Durin::FWorldPlayResult Result = World->BeginPlay({});
+	EXPECT_EQ(Result.Error, Durin::EWorldPlayError::CollisionNotReady);
+	EXPECT_FALSE(Result.Message.empty());
+	EXPECT_FALSE(World->HasBegunPlay());
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
 }

@@ -1,6 +1,7 @@
 #include "Actors/TerrainActor.h"
 #include "Components/TerrainComponent.h"
 #include "DObject/ObjectLifecycle.h"
+#include "Engine/Level.h"
 #include "Engine/TerrainSceneProxy.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainLOD.h"
@@ -112,6 +113,47 @@ namespace
 		EXPECT_DOUBLE_EQ(Patch.LODErrors.front(), 0.0);
 		EXPECT_TRUE(std::ranges::is_sorted(Patch.LODErrors));
 		EXPECT_GT(Patch.LODErrors.back(), 0.0);
+	}
+
+	TEST(TerrainRenderPrimitive, ReusesDerivedPatchesAndInvalidatesChangedParameters)
+	{
+		constexpr Durin::uint32 Size = 65;
+		std::vector<Durin::uint16> Samples(Size * Size, 0);
+		Samples.back() = 65'535;
+		auto* Heightmap = Durin::NewObject<Durin::DTerrainHeightmap>(nullptr,
+			"TerrainDerivedCacheHeightmap");
+		std::string Error;
+		ASSERT_TRUE(Heightmap->InitializeFromSamples(Size, Size, Samples, Error)) << Error;
+		auto* Component = Durin::NewObject<Durin::DTerrainComponent>(nullptr,
+			"TerrainDerivedCacheComponent");
+		Component->SetHeightmap(Heightmap);
+		ASSERT_TRUE(Component->SetSampleSpacing(2.0, 3.0));
+		ASSERT_TRUE(Component->SetHeightRange(100.0, 10.0));
+
+		auto First = Component->CreateSceneProxy();
+		ASSERT_NE(First, nullptr);
+		EXPECT_EQ(Component->GetRenderDerivedDataBuildCount(), 1u);
+		auto Second = Component->CreateSceneProxy();
+		ASSERT_NE(Second, nullptr);
+		EXPECT_EQ(Component->GetRenderDerivedDataBuildCount(), 1u);
+		EXPECT_EQ(static_cast<Durin::FTerrainSceneProxy&>(*First).GetPatches().size(),
+			static_cast<Durin::FTerrainSceneProxy&>(*Second).GetPatches().size());
+#if DURIN_WITH_EDITOR
+		Durin::FBox PickingBounds;
+		Durin::EEditorPickingPrimitiveFamily Family{};
+		ASSERT_TRUE(Component->GetEditorPickingLocalBounds(PickingBounds, Family));
+		EXPECT_EQ(Component->GetRenderDerivedDataBuildCount(), 1u);
+		EXPECT_EQ(Family, Durin::EEditorPickingPrimitiveFamily::Terrain);
+		EXPECT_EQ(PickingBounds.Min, First->GetLocalBounds().Min);
+		EXPECT_EQ(PickingBounds.Max, First->GetLocalBounds().Max);
+#endif
+
+		ASSERT_TRUE(Component->SetHeightRange(200.0, -50.0));
+		auto Changed = Component->CreateSceneProxy();
+		ASSERT_NE(Changed, nullptr);
+		EXPECT_EQ(Component->GetRenderDerivedDataBuildCount(), 2u);
+		EXPECT_NE(Changed->GetLocalBounds().Min.z, First->GetLocalBounds().Min.z);
+		EXPECT_NE(Changed->GetLocalBounds().Max.z, First->GetLocalBounds().Max.z);
 	}
 
 	TEST(TerrainRenderPrimitive, ResolvesAdjacencyByStableCoarsePromotion)

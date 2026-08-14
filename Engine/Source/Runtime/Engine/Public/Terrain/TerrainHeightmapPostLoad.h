@@ -9,11 +9,18 @@ namespace Durin
 		std::function<bool(DTerrainHeightmap&, std::string&)>;
 	using FTerrainHeightmapSourceChangeHandler =
 		std::function<bool(DTerrainHeightmap&, std::string_view, std::string&)>;
+	using FTerrainHeightmapAuthoringLoadWaitHandler =
+		std::function<bool(DTerrainHeightmap&, std::string&)>;
 
 	ENGINE_API auto RegisterTerrainHeightmapUncookedPostLoadHandler(
 		FTerrainHeightmapUncookedPostLoadHandler Handler) -> bool;
 	ENGINE_API auto UnregisterTerrainHeightmapUncookedPostLoadHandler() -> void;
 	ENGINE_API auto InvokeTerrainHeightmapUncookedPostLoadHandler(
+		DTerrainHeightmap& Heightmap, std::string& OutError) -> bool;
+	ENGINE_API auto RegisterTerrainHeightmapAuthoringLoadWaitHandler(
+		FTerrainHeightmapAuthoringLoadWaitHandler Handler) -> bool;
+	ENGINE_API auto UnregisterTerrainHeightmapAuthoringLoadWaitHandler() -> void;
+	ENGINE_API auto WaitForTerrainHeightmapAuthoringLoad(
 		DTerrainHeightmap& Heightmap, std::string& OutError) -> bool;
 	ENGINE_API auto RegisterTerrainHeightmapSourceChangeHandler(
 		FTerrainHeightmapSourceChangeHandler Handler) -> bool;

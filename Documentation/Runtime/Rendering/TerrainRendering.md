@@ -23,6 +23,13 @@ and recreates them in object-handle order after the complete new revision is
 visible. Failed and semantic no-op reimports do not replace the published
 render generation.
 
+An uncooked authoring asset may be published temporarily as `Loading` or
+`Rebuilding` while immutable DDC/source work runs on CPU workers. Terrain
+components publish no proxy for that incomplete generation. GameThread payload
+publication uses the ordinary revision context and atomically makes the complete
+render-derived generation available; stale or failed work never publishes a
+partial proxy.
+
 ## Coordinates and patches
 
 Sample `(X,Y)` maps to component-local position
@@ -131,8 +138,9 @@ adjacency iterations/promotions, all 16 stitch-mask buckets, selected
 triangles, prepared batches/chunks, instances/bytes/allocations, batch and
 logical resource attempts/results, submitted logical patches, scalar
 translucent draws, logical preparation/batch/resource/allocation/command CPU
-scopes, hardware draw attempts/results, exact height
-uploads/reuses/bytes, and topology creations/reuses/bytes. Candidate,
+scopes, hardware draw attempts/results, exact height uploads/reuses/bytes,
+topology creations/reuses/bytes, shader and pipeline lookups/creations/reuses,
+and separate height/topology/shader/pipeline resource-preparation CPU scopes. Candidate,
 visibility, histogram, resource, and draw totals reconcile within one command
 snapshot. A 1025x1025 heightmap produces 256 patches and 2,097,152 triangles
 under `ForceLOD0`, a 2,101,250-byte height upload, and at most 66,052 bytes for
@@ -174,6 +182,28 @@ Automatic flat-far retained 512 triangles and recorded 12.99 ms CPU. This is
 more than a 100x CPU improvement against the same-host T3 medians and is
 enforced by the 150 ms median / 250 ms p95 Debug CPU gates and inherited 50 ms
 GPU ceiling.
+
+The activation first-use qualification on 2026-08-14 used Win64 Debug,
+threaded Vulkan validation, an NVIDIA GeForce GTX 1060 6GB, a 17x17 output,
+one 1025x1025 immutable payload, and 256 logical patches batched into one draw.
+The cold first Terrain frame took 87.11 ms CPU: height preparation/upload was
+1.25 ms, topology lookup/creation 6.79 ms, shader lookup/creation 3.30 ms,
+pipeline lookup/creation 14.46 ms, and command recording 0.73 ms. After two
+warm-up frames, seven samples recorded 14.94 ms CPU median / 15.60 ms p95 and
+1.043 ms Scene Color GPU p95. This first-frame work is intentionally reported
+separately from editor-visible asset and component activation. It remains below
+the frozen 5000 ms cold characterization ceiling and the warm 150 ms median /
+250 ms p95 CPU plus 50 ms GPU gates, so no speculative Terrain warm-up queue is
+owned by the renderer.
+
+Height textures remain keyed by immutable payload-generation identity and
+topology buffers by the complete topology key. Removing a scene proxy does not
+discard these bounded renderer-lifetime resources; reopening the unchanged
+payload therefore records reuse and performs no upload or topology creation.
+The caches retain at most 64 height revisions and 256 topology keys. Shader and
+pipeline slots similarly report exact lookup/create/reuse conservation. Device
+invalidation and renderer shutdown release every retained Terrain resource;
+the next accepted draw reconstructs a complete generation on demand.
 
 Device invalidation and renderer shutdown release Terrain vertex factories,
 topology buffers, height textures, samplers, shader maps, and pipelines through

@@ -37,6 +37,13 @@ build failures include a bounded diagnostic. Ready collision facts include
 heightmap and component revisions, resource identity, cells, hierarchy nodes/
 depth, and retained/peak bytes.
 
+An enabled Terrain in the authoring world normally reports `Dormant`: opening a
+level does not construct its physics body. Exact surface picking, selection,
+transform editing, and render inspection remain available. Enabling collision
+debug visualization explicitly requests an asynchronous build and exposes
+`Building`, `Ready`, or a diagnostic failure in Details. World traces query only
+published bodies and never force a synchronous editor build.
+
 Clicking the surface selects the exact Terrain Actor/component at full
 resolution. Picking does not require collision and does not follow visual LOD.
 
@@ -51,6 +58,11 @@ Save Level and heightmap packages before Cook. Cooked Game loading uses the
 packaged canonical payload and requires neither the PNG/RAW source nor local
 DDC. Renderer and collision consumers see the same canonical sample plane for
 either authoring format.
+
+Play and Simulate schedule required Terrain collision before gameplay and do
+not dispatch BeginPlay until every enabled Terrain body is Ready. A failed
+required build rejects the transition with a Terrain diagnostic rather than
+starting with missing collision.
 
 ## Supported Limits
 

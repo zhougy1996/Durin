@@ -55,9 +55,10 @@ The frozen limits are:
 
 The maximum canonical sample plane is 536,870,912 bytes. Its 64×64 hierarchy
 contains 87,381 nodes (349,524 bytes) plus nine in-memory level records. The
-maximum retained canonical payload is 537,220,652 bytes. Decode and hierarchy
-construction are synchronous inside the detached import candidate; no DObject
-is visible in a partial state and no texture build coordinator is involved.
+maximum retained canonical payload is 537,220,652 bytes. Direct import and
+reimport build inside a detached candidate. Uncooked package reload instead
+stages DDC and source recovery through the CPU task system; no worker accesses a
+DObject and no texture build coordinator is involved.
 
 ## Regional Min/Max Hierarchy
 
@@ -87,6 +88,23 @@ version-1 PNG entries. A warm hit validates and restores the immutable payload
 without opening source. A missing, corrupt, or incompatible object rebuilds
 only when mounted source is available; otherwise PostLoad reports
 `SourceUnavailable` and does not invent a flat payload.
+
+Uncooked PostLoad publishes the reflected object graph immediately in `Loading`
+and moves DDC query, object read, payload decode, source capture/decode, canonical
+build, and DDC store to worker execution. Query, read, decode, capture, and
+build/store timings remain separate in the bounded diagnostic. Publication is
+always deferred to GameThread and revalidates the object handle and authoring
+load generation. A normal publication drives the existing payload revision
+context, so registered render and collision consumers rebuild through their
+ordinary invalidation path.
+
+Requests with the same derived-data key coalesce onto one worker. Admission is
+bounded to two distinct retained load works and 64 subscribers, which bounds the
+worst-case canonical result retention to approximately 1,026 MiB. Unload,
+replacement, a newer publication, provider shutdown, or task-system shutdown
+invalidates or cancels stale work. Editor rendering reports payload loading and
+publishes no partial proxy. Required gameplay collision waits at its explicit
+activation barrier; missing/corrupt payload recovery failure rejects play.
 
 ## THPL Payload and Cook
 

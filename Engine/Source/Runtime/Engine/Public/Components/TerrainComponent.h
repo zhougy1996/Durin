@@ -9,6 +9,8 @@ namespace Durin
 	class DMaterialInterface;
 	class DTerrainHeightmap;
 	struct FTerrainHeightmapPayload;
+	struct FTerrainRenderDerivedData;
+	struct FTerrainCollisionBuildState;
 	class FTerrainHeightmapRenderStateRecreateContext;
 
 	// Reports why the component can or cannot publish a complete Terrain proxy.
@@ -16,6 +18,7 @@ namespace Durin
 	enum class ETerrainRenderStatus : uint8
 	{
 		Unavailable,
+		PayloadLoading,
 		Ready,
 		InvalidProperties,
 		MissingHeightmap,
@@ -28,6 +31,8 @@ namespace Durin
 	enum class ETerrainCollisionStatus : uint8
 	{
 		Unavailable,
+		Dormant,
+		Building,
 		Ready,
 		InvalidProperties,
 		MissingHeightmap,
@@ -45,12 +50,18 @@ namespace Durin
 		uint64 ResourceIdentity = 0;
 		uint64 RetainedBytes = 0;
 		uint64 EstimatedPeakBytes = 0;
+		uint64 HashNanoseconds = 0;
+		uint64 MatchNanoseconds = 0;
+		uint64 SampleCopyNanoseconds = 0;
+		uint64 TreeBuildNanoseconds = 0;
+		uint64 PhysicsInsertionNanoseconds = 0;
 		uint32 Width = 0;
 		uint32 Height = 0;
 		uint32 Cells = 0;
 		uint32 Nodes = 0;
 		uint32 MaximumDepth = 0;
 		ECollisionGeometryBuildStatus BuildStatus = ECollisionGeometryBuildStatus::InvalidInput;
+		bool bCacheHit = false;
 	};
 
 	// Captures one immutable full-resolution Terrain generation for editor surface queries.
@@ -72,6 +83,8 @@ namespace Durin
 		GENERATED_BODY()
 	public:
 		ENGINE_API explicit DTerrainComponent(const FObjectInitializer& ObjectInitializer);
+		ENGINE_API auto OnRegister() -> void override;
+		ENGINE_API auto OnUnregister() -> void override;
 
 		ENGINE_API auto SetHeightmap(DTerrainHeightmap* InHeightmap) -> void;
 		auto GetHeightmap() const -> DTerrainHeightmap* { return Heightmap.Get(); }
@@ -85,12 +98,14 @@ namespace Durin
 		auto GetMaterial() const -> DMaterialInterface* { return Material.Get(); }
 		auto GetRenderStatus() const -> ETerrainRenderStatus { return RenderStatus; }
 		auto GetLastRenderDiagnostic() const -> const std::string& { return LastRenderDiagnostic; }
-		auto GetCollisionStatus() const -> ETerrainCollisionStatus { return CollisionStatus; }
+		auto GetRenderDerivedDataBuildCount() const -> uint64 { return RenderDerivedDataBuildCount; }
+		ENGINE_API auto GetCollisionStatus() const -> ETerrainCollisionStatus;
 		auto GetLastCollisionDiagnostic() const -> const std::string& { return LastCollisionDiagnostic; }
 		ENGINE_API auto GetCollisionFacts() const -> FTerrainCollisionFacts;
 		ENGINE_API auto CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy> override;
 		ENGINE_API auto BuildCollisionGeometry(
 			FCollisionGeometryRef& OutGeometry, FTransform& OutWorldTransform) const -> bool override;
+		ENGINE_API auto RequestPhysicsStateCreation(bool bWaitUntilReady = false) -> bool override;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
@@ -106,7 +121,15 @@ namespace Durin
 		ENGINE_API auto BuildMaterialRenderProxyBindingUpdate(FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool override;
 		auto ValidateProperties(std::string& OutError) const -> bool;
 		auto GetCollisionStateRevision() const -> uint64 override { return CollisionRevision; }
+		auto GetPhysicsStateCreationPolicy() const -> EPhysicsStateCreationPolicy override;
+		auto OnCollisionSettingsChanged() -> void override;
 		auto SetCollisionFailure(ETerrainCollisionStatus Status, std::string Diagnostic) const -> bool;
+		auto InvalidateCollisionGeneration() -> void;
+		auto CancelCollisionBuild() -> void;
+		auto PublishCompletedCollisionBuild(const std::shared_ptr<FTerrainCollisionBuildState>& Build) -> bool;
+		auto GetOrBuildRenderDerivedData(
+			const std::shared_ptr<const FTerrainHeightmapPayload>& Payload,
+			uint64 HeightmapRevision) const -> std::shared_ptr<const FTerrainRenderDerivedData>;
 
 		DPROPERTY(Edit)
 		TObjectPtr<DTerrainHeightmap> Heightmap;
@@ -142,6 +165,8 @@ namespace Durin
 
 		uint64 MaterialComponentRevision = 1;
 		uint64 CollisionRevision = 1;
+		mutable uint64 RenderDerivedDataBuildCount = 0;
+		mutable std::shared_ptr<const FTerrainRenderDerivedData> CachedRenderDerivedData;
 		mutable uint64 CachedHeightmapRevision = 0;
 		mutable std::shared_ptr<const FTerrainHeightmapPayload> CachedCollisionPayload;
 		mutable FCollisionGeometryRef CachedTerrainCollision;
@@ -150,5 +175,7 @@ namespace Durin
 		mutable double CachedCollisionSpacingY = 0.0;
 		mutable double CachedCollisionHeightScale = 0.0;
 		mutable double CachedCollisionHeightOffset = 0.0;
+		mutable uint64 LastPhysicsInsertionNanoseconds = 0;
+		std::shared_ptr<FTerrainCollisionBuildState> ActiveCollisionBuild;
 	};
 } // namespace Durin

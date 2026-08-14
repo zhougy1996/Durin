@@ -1,6 +1,7 @@
 #include "Engine/World.h"
 
 #include "Components/PrimitiveComponent.h"
+#include "Components/TerrainComponent.h"
 #include "Engine/Actor.h"
 
 namespace Durin
@@ -125,7 +126,19 @@ namespace Durin
 	auto DWorld::SetCollisionDebugDrawEnabled(bool bEnabled) -> void
 	{
 		bCollisionDebugDrawEnabled = bEnabled;
-		if (!bEnabled) LastCollisionDebugHit.reset();
+		if (!bEnabled)
+		{
+			LastCollisionDebugHit.reset();
+			return;
+		}
+		if (!CurrentLevel) return;
+		for (const TObjectPtr<AActor>& Actor : CurrentLevel->GetActors())
+		{
+			if (!Actor) continue;
+			for (const TObjectPtr<DActorComponent>& Component : Actor->GetOwnedComponents())
+				if (auto* Terrain = Cast<DTerrainComponent>(Component.Get()); Terrain && Terrain->IsRegistered())
+					(void)Terrain->RequestPhysicsStateCreation(false);
+		}
 	}
 
 	auto DWorld::CaptureCollisionDebugSnapshot() const -> FCollisionDebugSnapshot

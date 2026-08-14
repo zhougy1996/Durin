@@ -24,6 +24,7 @@ namespace Durin::Editor::Level
 			switch (Status)
 			{
 			case ETerrainRenderStatus::Unavailable: return "Unavailable";
+			case ETerrainRenderStatus::PayloadLoading: return "Payload loading";
 			case ETerrainRenderStatus::Ready: return "Ready";
 			case ETerrainRenderStatus::InvalidProperties: return "Invalid properties";
 			case ETerrainRenderStatus::MissingHeightmap: return "Missing heightmap";
@@ -38,6 +39,8 @@ namespace Durin::Editor::Level
 			switch (Status)
 			{
 			case ETerrainCollisionStatus::Unavailable: return "Unavailable";
+			case ETerrainCollisionStatus::Dormant: return "Dormant";
+			case ETerrainCollisionStatus::Building: return "Building";
 			case ETerrainCollisionStatus::Ready: return "Ready";
 			case ETerrainCollisionStatus::InvalidProperties: return "Invalid properties";
 			case ETerrainCollisionStatus::MissingHeightmap: return "Missing heightmap";
@@ -93,10 +96,17 @@ namespace Durin::Editor::Level
 							CollisionStatusText(Facts.Status), Facts.AssetRevision,
 							Facts.CollisionRevision, Facts.ResourceIdentity));
 						if (Facts.Status == ETerrainCollisionStatus::Ready)
+						{
 							DrawFact("Collision geometry", std::format(
 								"{} x {} samples | {} cells | {} nodes | depth {} | {} retained bytes | {} peak bytes",
 								Facts.Width, Facts.Height, Facts.Cells, Facts.Nodes, Facts.MaximumDepth,
 								Facts.RetainedBytes, Facts.EstimatedPeakBytes));
+							DrawFact("Collision timings", std::format(
+								"hash {} us | match {} us | copy {} us | tree {} us | insert {} us | cache {}",
+								Facts.HashNanoseconds / 1000, Facts.MatchNanoseconds / 1000,
+								Facts.SampleCopyNanoseconds / 1000, Facts.TreeBuildNanoseconds / 1000,
+								Facts.PhysicsInsertionNanoseconds / 1000, Facts.bCacheHit ? "hit" : "miss"));
+						}
 						if (Facts.Status != ETerrainCollisionStatus::Ready
 							&& !Component->GetLastCollisionDiagnostic().empty())
 							DrawFact("Collision diagnostic", Bounded(Component->GetLastCollisionDiagnostic()));

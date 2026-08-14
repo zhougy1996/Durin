@@ -844,8 +844,11 @@ namespace Durin
 			Finish(ECollisionGeometryBuildStatus::InvalidInput);
 			return {};
 		}
+		const auto HashStart = std::chrono::steady_clock::now();
 		const uint64 CacheKey = HashHeightField(
 			Width, Height, Samples, SpacingX, SpacingY, HeightScale, HeightOffset);
+		Result.HashNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+			std::chrono::steady_clock::now() - HashStart).count());
 		auto PopulateSuccess = [&](const FHeightFieldCollisionGeometry& Payload) {
 			Result.RetainedVertices = static_cast<uint32>(SampleCount);
 			Result.RetainedTriangles = static_cast<uint32>(TriangleCount);
@@ -854,6 +857,7 @@ namespace Durin
 			Result.RetainedBytes = Payload.RetainedBytes;
 			Result.EstimatedPeakBytes = Payload.RetainedBytes + Samples.size_bytes();
 		};
+		const auto MatchStart = std::chrono::steady_clock::now();
 		{
 			std::scoped_lock Lock(GHeightFieldCacheMutex);
 			auto Found = GHeightFieldCache.find(CacheKey);
@@ -872,6 +876,9 @@ namespace Durin
 					if (Existing && MatchesHeightField(*Existing, Width, Height, Samples,
 						SpacingX, SpacingY, HeightScale, HeightOffset))
 					{
+						Result.bCacheHit = true;
+						Result.MatchNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+							std::chrono::steady_clock::now() - MatchStart).count());
 						PopulateSuccess(*Existing);
 						Finish(ECollisionGeometryBuildStatus::Success);
 						return FCollisionGeometryRef(std::move(Shared));
@@ -881,6 +888,8 @@ namespace Durin
 				if (Entries.empty()) GHeightFieldCache.erase(Found);
 			}
 		}
+		Result.MatchNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+			std::chrono::steady_clock::now() - MatchStart).count());
 		try
 		{
 			auto Payload = std::make_shared<FHeightFieldCollisionGeometry>();
@@ -890,7 +899,10 @@ namespace Durin
 			Payload->SpacingY = SpacingY;
 			Payload->HeightScale = HeightScale;
 			Payload->HeightOffset = HeightOffset;
+			const auto CopyStart = std::chrono::steady_clock::now();
 			Payload->Samples.assign(Samples.begin(), Samples.end());
+			Result.SampleCopyNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - CopyStart).count());
 			const uint32 TileCountX = (Width - 1 + HeightFieldLeafCells - 1) / HeightFieldLeafCells;
 			const uint32 TileCountY = (Height - 1 + HeightFieldLeafCells - 1) / HeightFieldLeafCells;
 			Payload->Nodes.reserve(static_cast<size_t>(TileCountX) * TileCountY * 2);
@@ -949,7 +961,10 @@ namespace Durin
 				Node.CountOrSecond = Right;
 				return NodeIndex;
 			};
+			const auto TreeStart = std::chrono::steady_clock::now();
 			Build(0, 0, Width - 1, Height - 1, 1);
+			Result.TreeBuildNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - TreeStart).count());
 			Payload->MaximumDepth = Result.MaximumDepth;
 			Payload->LocalMin = {0.0, 0.0, std::min(SampleHeight(0, 0), SampleHeight(0, 0))};
 			Payload->LocalMax = {MaximumX, MaximumY, Payload->LocalMin.z};

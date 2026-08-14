@@ -138,8 +138,47 @@ namespace Durin
 		return true;
 	}
 
+	auto FTerrainHeightmapPayload::HasValidLayout() const -> bool
+	{
+		const uint64 SampleCount = static_cast<uint64>(Width) * Height;
+		if (Width < 2 || Height < 2 || Width > MaximumTerrainHeightmapDimension
+			|| Height > MaximumTerrainHeightmapDimension
+			|| SampleCount > MaximumTerrainHeightmapSamples
+			|| SampleCount != Samples.size() || Levels.empty() || Nodes.empty()
+			|| Minimum > Maximum) return false;
+
+		uint32 LevelWidth = (Width + TerrainHeightmapBaseRegionSize - 1)
+			/ TerrainHeightmapBaseRegionSize;
+		uint32 LevelHeight = (Height + TerrainHeightmapBaseRegionSize - 1)
+			/ TerrainHeightmapBaseRegionSize;
+		uint32 RegionSize = TerrainHeightmapBaseRegionSize;
+		uint64 NodeOffset = 0;
+		for (size_t LevelIndex = 0; LevelIndex < Levels.size(); ++LevelIndex)
+		{
+			const FTerrainHeightmapLevel& Level = Levels[LevelIndex];
+			if (Level.Width != LevelWidth || Level.Height != LevelHeight
+				|| Level.NodeOffset != NodeOffset || Level.SampleRegionSize != RegionSize)
+				return false;
+			const uint64 LevelNodes = static_cast<uint64>(LevelWidth) * LevelHeight;
+			if (NodeOffset > Nodes.size() || LevelNodes > Nodes.size() - NodeOffset) return false;
+			NodeOffset += LevelNodes;
+			if (LevelWidth == 1 && LevelHeight == 1)
+			{
+				if (LevelIndex + 1 != Levels.size() || NodeOffset != Nodes.size()) return false;
+				const FTerrainHeightmapMinMaxNode& Root = Nodes.back();
+				return Root.Minimum == Minimum && Root.Maximum == Maximum;
+			}
+			LevelWidth = (LevelWidth + 1) / 2;
+			LevelHeight = (LevelHeight + 1) / 2;
+			if (RegionSize > std::numeric_limits<uint32>::max() / 2) return false;
+			RegionSize *= 2;
+		}
+		return false;
+	}
+
 	auto FTerrainHeightmapPayload::IsValid() const -> bool
 	{
+		if (!HasValidLayout()) return false;
 		std::shared_ptr<const FTerrainHeightmapPayload> Canonical;
 		std::string Error;
 		if (!BuildTerrainHeightmapPayload(Width, Height, Samples, Canonical, Error)) return false;
@@ -246,6 +285,7 @@ namespace Durin
 
 	auto DTerrainHeightmap::BeginDestroy() -> void
 	{
+		++AuthoringLoadGeneration;
 		Payload.reset();
 		Status = ETerrainHeightmapStatus::Unavailable;
 		Super::BeginDestroy();
@@ -292,6 +332,7 @@ namespace Durin
 		bool bMarkPackageDirty,
 		bool bInLoadedFromDerivedDataCache) -> void
 	{
+		++AuthoringLoadGeneration;
 		SourceImportData = std::move(InSourceImportData);
 		SourceFileSize = InSourceFileSize;
 		SourceLastWriteTime = InSourceLastWriteTime;
@@ -302,6 +343,33 @@ namespace Durin
 		PublishPayload(std::move(InPayload), bAdvanceRevision);
 		SetBoundedDiagnostic(LastDiagnostic, std::move(InDiagnostic));
 		if (bMarkPackageDirty) MarkPackageDirty();
+	}
+
+	auto DTerrainHeightmap::BeginAuthoringLoad(bool bRebuilding, std::string Diagnostic) -> uint64
+	{
+		++AuthoringLoadGeneration;
+		Status = bRebuilding ? ETerrainHeightmapStatus::Rebuilding : ETerrainHeightmapStatus::Loading;
+		SetBoundedDiagnostic(LastDiagnostic, std::move(Diagnostic));
+		return AuthoringLoadGeneration;
+	}
+
+	auto DTerrainHeightmap::IsAuthoringLoadCurrent(uint64 Generation) const -> bool
+	{
+		return Generation != 0 && Generation == AuthoringLoadGeneration
+			&& (Status == ETerrainHeightmapStatus::Loading
+				|| Status == ETerrainHeightmapStatus::Rebuilding);
+	}
+
+	auto DTerrainHeightmap::FailAuthoringLoad(
+		uint64 Generation, ETerrainHeightmapStatus FailureStatus, std::string Diagnostic) -> bool
+	{
+		if (!IsAuthoringLoadCurrent(Generation)
+			|| (FailureStatus != ETerrainHeightmapStatus::SourceUnavailable
+				&& FailureStatus != ETerrainHeightmapStatus::Failed)) return false;
+		++AuthoringLoadGeneration;
+		Status = FailureStatus;
+		SetBoundedDiagnostic(LastDiagnostic, std::move(Diagnostic));
+		return true;
 	}
 
 	auto DTerrainHeightmap::InitializeFromSamples(

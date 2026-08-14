@@ -99,6 +99,10 @@ namespace Durin
 		uint64 TerrainLogicalPreparationNanoseconds = 0;
 		uint64 TerrainBatchConstructionNanoseconds = 0;
 		uint64 TerrainResourcePreparationNanoseconds = 0;
+		uint64 TerrainHeightPreparationNanoseconds = 0;
+		uint64 TerrainTopologyPreparationNanoseconds = 0;
+		uint64 TerrainShaderPreparationNanoseconds = 0;
+		uint64 TerrainPipelinePreparationNanoseconds = 0;
 		uint64 TerrainDynamicAllocationNanoseconds = 0;
 		uint64 TerrainCommandRecordingNanoseconds = 0;
 		size_t TerrainAttemptedDraws = 0;
@@ -110,6 +114,12 @@ namespace Durin
 		size_t TerrainTopologyCreations = 0;
 		size_t TerrainTopologyReuses = 0;
 		size_t TerrainTopologyBytes = 0;
+		size_t TerrainShaderLookups = 0;
+		size_t TerrainShaderCreations = 0;
+		size_t TerrainShaderReuses = 0;
+		size_t TerrainPipelineLookups = 0;
+		size_t TerrainPipelineCreations = 0;
+		size_t TerrainPipelineReuses = 0;
 		size_t VisibleSplineMeshCandidates = 0;
 		size_t PreparedSplineMeshPrimitives = 0;
 		size_t RejectedSplineMeshPrimitives = 0;

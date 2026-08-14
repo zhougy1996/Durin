@@ -477,6 +477,9 @@ TEST(FLevelEditorViewportClientTests, AppendsBoundedHeightFieldCollisionTriangle
 	const auto BaselineWireBoxes = CountWireBoxes(View);
 	EXPECT_TRUE(View.OverlayLines.empty());
 	World->SetCollisionDebugDrawEnabled(true);
+	ASSERT_TRUE(Component->RequestPhysicsStateCreation(true));
+	EXPECT_EQ(Component->GetCollisionStatus(),
+		Durin::ETerrainCollisionStatus::Ready);
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
 	EXPECT_EQ(View.OverlayLines.size(), 6u);
 	ASSERT_EQ(View.OverlayPrimitives.size(), BaselinePrimitives + 1u);

@@ -14,6 +14,8 @@ namespace Durin
 	enum class ETerrainHeightmapStatus : uint8
 	{
 		Unavailable,
+		Loading,
+		Rebuilding,
 		Ready,
 		SourceUnavailable,
 		Failed
@@ -99,6 +101,9 @@ namespace Durin
 			Asset::ECookTargetPlatform TargetPlatform,
 			Asset::ECookTargetProfile TargetProfile) -> void;
 
+		// Checks bounded container and hierarchy layout without rebuilding canonical data.
+		ENGINE_API auto HasValidLayout() const -> bool;
+		// Rebuilds canonical data and verifies exact sample-derived extrema and hierarchy.
 		ENGINE_API auto IsValid() const -> bool;
 		ENGINE_API auto GetSample(uint32 X, uint32 Y, uint16& OutSample) const -> bool;
 		// Queries an exact half-open sample rectangle; empty/out-of-range rectangles fail.
@@ -153,6 +158,11 @@ namespace Durin
 		auto GetLastDiagnostic() const -> const std::string& { return LastDiagnostic; }
 		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
+		auto GetAuthoringLoadGeneration() const -> uint64 { return AuthoringLoadGeneration; }
+		ENGINE_API auto BeginAuthoringLoad(bool bRebuilding, std::string Diagnostic) -> uint64;
+		ENGINE_API auto IsAuthoringLoadCurrent(uint64 Generation) const -> bool;
+		ENGINE_API auto FailAuthoringLoad(
+			uint64 Generation, ETerrainHeightmapStatus FailureStatus, std::string Diagnostic) -> bool;
 		ENGINE_API auto GetSample(uint32 X, uint32 Y, uint16& OutSample) const -> bool;
 		ENGINE_API auto QueryMinMax(
 			uint32 MinX, uint32 MinY, uint32 MaxX, uint32 MaxY,
@@ -242,6 +252,7 @@ namespace Durin
 
 		std::shared_ptr<const FTerrainHeightmapPayload> Payload;
 		bool bLoadedFromDerivedDataCache = false;
+		uint64 AuthoringLoadGeneration = 0;
 	};
 
 	ENGINE_API auto BuildTerrainHeightmapPayload(

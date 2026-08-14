@@ -9,6 +9,7 @@
 #include "RendererModule.h"
 #include "Renderers/SceneVisibility.h"
 #include "Renderers/SceneRendererProfiling.h"
+#include "Resources/RendererResourceCoordinator.h"
 #include "RenderingThread.h"
 #include "Scene.h"
 #include "SceneView.h"
@@ -126,6 +127,18 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 	ASSERT_EQ(GCounterSnapshots.size(), 2u);
 	EXPECT_EQ(GCounterSnapshots[0].PreparedTerrainTriangles, 8u);
 	EXPECT_EQ(GCounterSnapshots[0].TerrainHeightUploadBytes, 18u);
+	EXPECT_EQ(GCounterSnapshots[0].TerrainHeightUploads, 1u);
+	EXPECT_EQ(GCounterSnapshots[0].TerrainTopologyCreations, 1u);
+	EXPECT_EQ(GCounterSnapshots[0].TerrainShaderLookups, 1u);
+	EXPECT_EQ(GCounterSnapshots[0].TerrainShaderCreations, 1u);
+	EXPECT_EQ(GCounterSnapshots[0].TerrainShaderReuses, 0u);
+	EXPECT_EQ(GCounterSnapshots[0].TerrainPipelineLookups, 1u);
+	EXPECT_EQ(GCounterSnapshots[0].TerrainPipelineCreations, 1u);
+	EXPECT_EQ(GCounterSnapshots[0].TerrainPipelineReuses, 0u);
+	EXPECT_GT(GCounterSnapshots[0].TerrainHeightPreparationNanoseconds, 0u);
+	EXPECT_GT(GCounterSnapshots[0].TerrainTopologyPreparationNanoseconds, 0u);
+	EXPECT_GT(GCounterSnapshots[0].TerrainShaderPreparationNanoseconds, 0u);
+	EXPECT_GT(GCounterSnapshots[0].TerrainPipelinePreparationNanoseconds, 0u);
 	EXPECT_EQ(GCounterSnapshots[0].RequestedTerrainLODHistogram,
 		(std::vector<size_t>{1u}));
 	EXPECT_EQ(GCounters.VisibleTerrainCandidates, 1u);
@@ -140,6 +153,85 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 	EXPECT_EQ(GCounters.TerrainAttemptedDraws, 1u);
 	EXPECT_EQ(GCounters.TerrainSuccessfulDraws, 1u);
 	EXPECT_EQ(GCounters.TerrainRejectedDraws, 0u);
+	EXPECT_EQ(GCounters.TerrainShaderLookups,
+		GCounters.TerrainShaderCreations + GCounters.TerrainShaderReuses);
+	EXPECT_EQ(GCounters.TerrainPipelineLookups,
+		GCounters.TerrainPipelineCreations + GCounters.TerrainPipelineReuses);
+
+	// Closing and reopening the same immutable generation in one renderer lifetime
+	// must not repeat height, topology, shader, or pipeline creation.
+	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(91));
+	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(91),
+		std::make_unique<Durin::FTerrainSceneProxy>(Payload, 1, 0.5, 0.5,
+			0.5, 0.0, std::vector<Durin::FTerrainPatchDescriptor>{Patch},
+			Patch.LocalBounds, Material, 1),
+		Durin::FMatrix(1.0));
+	Durin::FlushRenderingCommands();
+	Durin::EnqueueRenderCommand<FTerrainRenderCommand>(
+		[&Renderer, &Scene](Durin::FRHICommandListImmediate& CommandList) {
+			Durin::GRenderFrameCounterRenderThread++;
+			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+			const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+				"TerrainReopenColor", 65, 65, Durin::EPixelFormat::SRGBA8_UNORM)
+				.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
+					| Durin::ETextureCreateFlags::ShaderResource);
+			Durin::FTextureRHIRef Target =
+				Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+			Durin::FSceneView View;
+			View.ViewProjectionMatrix = Durin::FMatrix(1.0);
+			View.ViewportWidth = 65;
+			View.ViewportHeight = 65;
+			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
+			View.Settings.VisibilityMode =
+				Durin::EViewVisibilityMode::FrustumCullingDisabled;
+			View.Settings.LODMode = Durin::EViewLODMode::ForceLOD0;
+			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
+				Durin::ERenderViewResult::Success);
+			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+		});
+	Durin::FlushRenderingCommands();
+	EXPECT_EQ(GCounters.TerrainHeightUploads, 0u);
+	EXPECT_EQ(GCounters.TerrainHeightReuses, 1u);
+	EXPECT_EQ(GCounters.TerrainTopologyCreations, 0u);
+	EXPECT_EQ(GCounters.TerrainTopologyReuses, 1u);
+	EXPECT_EQ(GCounters.TerrainShaderCreations, 0u);
+	EXPECT_EQ(GCounters.TerrainShaderReuses, 1u);
+	EXPECT_EQ(GCounters.TerrainPipelineCreations, 0u);
+	EXPECT_EQ(GCounters.TerrainPipelineReuses, 1u);
+
+	// Device invalidation deliberately drops every dependent retained resource;
+	// the next draw reconstructs a complete set on demand.
+	ASSERT_TRUE(Durin::RequestRendererDeviceInvalidation().bSuccess);
+	Durin::FlushRenderingCommands();
+	Durin::EnqueueRenderCommand<FTerrainRenderCommand>(
+		[&Renderer, &Scene](Durin::FRHICommandListImmediate& CommandList) {
+			Durin::GRenderFrameCounterRenderThread++;
+			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+			const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+				"TerrainDeviceRecoveryColor", 65, 65,
+				Durin::EPixelFormat::SRGBA8_UNORM)
+				.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
+					| Durin::ETextureCreateFlags::ShaderResource);
+			Durin::FTextureRHIRef Target =
+				Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+			Durin::FSceneView View;
+			View.ViewProjectionMatrix = Durin::FMatrix(1.0);
+			View.ViewportWidth = 65;
+			View.ViewportHeight = 65;
+			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
+			View.Settings.VisibilityMode =
+				Durin::EViewVisibilityMode::FrustumCullingDisabled;
+			View.Settings.LODMode = Durin::EViewLODMode::ForceLOD0;
+			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
+				Durin::ERenderViewResult::Success);
+			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+		});
+	Durin::FlushRenderingCommands();
+	EXPECT_EQ(GCounters.TerrainHeightUploads, 1u);
+	EXPECT_EQ(GCounters.TerrainTopologyCreations, 1u);
+	EXPECT_EQ(GCounters.TerrainShaderCreations, 1u);
+	EXPECT_EQ(GCounters.TerrainPipelineCreations, 1u);
+	EXPECT_EQ(GCounters.TerrainSuccessfulDraws, 1u);
 
 	const std::array<Durin::uint16, 15> MixedSamples{
 		65535, 65535, 65535, 65535, 65535,
@@ -201,8 +293,10 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 	EXPECT_EQ(GCounters.TerrainStitchMaskHistogram[
 		static_cast<Durin::uint8>(Durin::ETerrainStitchEdge::West)], 1u);
 	EXPECT_EQ(GCounters.TerrainAdjacencyPromotions, 0u);
-	EXPECT_EQ(GCounters.TerrainTopologyCreations, 1u);
-	EXPECT_EQ(GCounters.TerrainTopologyReuses, 1u);
+	// The preceding device invalidation cleared both topology keys; this mixed
+	// view rebuilds each exact key once.
+	EXPECT_EQ(GCounters.TerrainTopologyCreations, 2u);
+	EXPECT_EQ(GCounters.TerrainTopologyReuses, 0u);
 	EXPECT_EQ(GCounters.TerrainSuccessfulDraws, 2u);
 	EXPECT_EQ(GCounters.ShadowPreparedTerrainCasters, 6u);
 	EXPECT_EQ(GCounters.ShadowSuccessfulDraws, 6u);

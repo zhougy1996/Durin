@@ -63,6 +63,12 @@ namespace Durin
 		size_t TopologyCreations = 0;
 		size_t TopologyReuses = 0;
 		size_t TopologyBytes = 0;
+		size_t ShaderLookups = 0;
+		size_t ShaderCreations = 0;
+		size_t ShaderReuses = 0;
+		size_t PipelineLookups = 0;
+		size_t PipelineCreations = 0;
+		size_t PipelineReuses = 0;
 		size_t ResourceAttemptedDraws = 0;
 		size_t ResourceSuccessfulDraws = 0;
 		size_t ResourceRejectedDraws = 0;
@@ -79,6 +85,10 @@ namespace Durin
 		uint64 LogicalPreparationNanoseconds = 0;
 		uint64 BatchConstructionNanoseconds = 0;
 		uint64 ResourcePreparationNanoseconds = 0;
+		uint64 HeightPreparationNanoseconds = 0;
+		uint64 TopologyPreparationNanoseconds = 0;
+		uint64 ShaderPreparationNanoseconds = 0;
+		uint64 PipelinePreparationNanoseconds = 0;
 		uint64 DynamicAllocationNanoseconds = 0;
 		uint64 CommandRecordingNanoseconds = 0;
 		size_t AttemptedDraws = 0;

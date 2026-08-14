@@ -98,6 +98,11 @@ namespace Durin
 		uint32 MaximumDepth = 0;
 		uint64 RetainedBytes = 0;
 		uint64 EstimatedPeakBytes = 0;
+		uint64 HashNanoseconds = 0;
+		uint64 MatchNanoseconds = 0;
+		uint64 SampleCopyNanoseconds = 0;
+		uint64 TreeBuildNanoseconds = 0;
+		bool bCacheHit = false;
 	};
 
 	class FCollisionGeometry;

@@ -19,11 +19,13 @@
 namespace
 {
 	Durin::FViewRenderCounters GCounters;
+	std::vector<Durin::FViewRenderCounters> GCounterSnapshots;
 	std::vector<Durin::FGPUTimingQueryRHIRef>* GTimingQueries = nullptr;
 
 	auto CaptureCounters(const Durin::FViewRenderCounters& Counters) -> void
 	{
 		GCounters = Counters;
+		GCounterSnapshots.push_back(Counters);
 	}
 
 	auto CaptureTiming(const Durin::FGPUTimingQueryRHIRef& Query) -> void
@@ -107,10 +109,13 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 	constexpr Durin::uint32 MeasuredFrames = 7;
 	std::vector<Durin::FGPUTimingQueryRHIRef> TimingQueries;
 	std::vector<double> CpuMilliseconds;
+	double FirstFrameCpuMilliseconds = 0.0;
+	GCounterSnapshots.clear();
 	GTimingQueries = &TimingQueries;
 	Durin::SetSceneColorTimingQuerySink(CaptureTiming);
 	Durin::EnqueueRenderCommand<FTerrainQualificationCommand>(
-		[&Renderer, &Scene, &CpuMilliseconds](Durin::FRHICommandListImmediate& CommandList) {
+		[&Renderer, &Scene, &CpuMilliseconds, &FirstFrameCpuMilliseconds](
+			Durin::FRHICommandListImmediate& CommandList) {
 			const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
 				"MaximumTerrainQualificationColor", 17, 17, Durin::EPixelFormat::SRGBA8_UNORM)
 				.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
@@ -131,6 +136,9 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
 					Durin::ERenderViewResult::Success);
 				const auto End = std::chrono::steady_clock::now();
+				if (Frame == 0)
+					FirstFrameCpuMilliseconds = std::chrono::duration<double, std::milli>(
+						End - Begin).count();
 				if (Frame >= WarmupFrames)
 					CpuMilliseconds.push_back(
 						std::chrono::duration<double, std::milli>(End - Begin).count());
@@ -162,6 +170,12 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 	EXPECT_EQ(GCounters.PreparedTerrainTriangles, 2'097'152u);
 	EXPECT_EQ(GCounters.TerrainHeightUploadBytes, 0u);
 	EXPECT_EQ(GCounters.TerrainHeightReuses, 1u);
+	EXPECT_EQ(GCounters.TerrainTopologyCreations, 0u);
+	EXPECT_EQ(GCounters.TerrainTopologyReuses, 1u);
+	EXPECT_EQ(GCounters.TerrainShaderCreations, 0u);
+	EXPECT_EQ(GCounters.TerrainShaderReuses, 1u);
+	EXPECT_EQ(GCounters.TerrainPipelineCreations, 0u);
+	EXPECT_EQ(GCounters.TerrainPipelineReuses, 1u);
 	EXPECT_EQ(GCounters.PreparedTerrainBatches, 1u);
 	EXPECT_EQ(GCounters.TerrainBatchChunks, 1u);
 	EXPECT_EQ(GCounters.TerrainInstances, 256u);
@@ -172,6 +186,28 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 	EXPECT_EQ(GCounters.TerrainSubmittedLogicalPatches, 256u);
 	EXPECT_EQ(GCounters.TerrainAttemptedDraws, 1u);
 	EXPECT_EQ(GCounters.TerrainSuccessfulDraws, 1u);
+	ASSERT_EQ(GCounterSnapshots.size(), WarmupFrames + MeasuredFrames);
+	const Durin::FViewRenderCounters& FirstFrame = GCounterSnapshots.front();
+	EXPECT_EQ(FirstFrame.TerrainHeightUploads, 1u);
+	EXPECT_EQ(FirstFrame.TerrainHeightUploadBytes,
+		static_cast<size_t>(MaximumSamples) * MaximumSamples * sizeof(Durin::uint16));
+	EXPECT_EQ(FirstFrame.TerrainTopologyCreations, 1u);
+	EXPECT_EQ(FirstFrame.TerrainShaderLookups,
+		FirstFrame.TerrainShaderCreations + FirstFrame.TerrainShaderReuses);
+	EXPECT_EQ(FirstFrame.TerrainPipelineLookups,
+		FirstFrame.TerrainPipelineCreations + FirstFrame.TerrainPipelineReuses);
+	EXPECT_EQ(FirstFrame.TerrainShaderCreations, 1u);
+	EXPECT_EQ(FirstFrame.TerrainPipelineCreations, 1u);
+	EXPECT_GT(FirstFrame.TerrainHeightPreparationNanoseconds, 0u);
+	EXPECT_GT(FirstFrame.TerrainTopologyPreparationNanoseconds, 0u);
+	EXPECT_GT(FirstFrame.TerrainShaderPreparationNanoseconds, 0u);
+	EXPECT_GT(FirstFrame.TerrainPipelinePreparationNanoseconds, 0u);
+	EXPECT_LE(FirstFrame.TerrainHeightPreparationNanoseconds
+			+ FirstFrame.TerrainTopologyPreparationNanoseconds
+			+ FirstFrame.TerrainShaderPreparationNanoseconds
+			+ FirstFrame.TerrainPipelinePreparationNanoseconds,
+		FirstFrame.TerrainResourcePreparationNanoseconds);
+	EXPECT_LE(FirstFrameCpuMilliseconds, 5000.0);
 	EXPECT_GT(GCounters.TerrainLogicalPreparationNanoseconds, 0u);
 	EXPECT_GT(GCounters.TerrainBatchConstructionNanoseconds, 0u);
 	EXPECT_GT(GCounters.TerrainResourcePreparationNanoseconds, 0u);
@@ -201,6 +237,18 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 			<< CpuMilliseconds.back() << "ms; gpu median="
 			<< GpuMilliseconds[GpuMilliseconds.size() / 2] << "ms p95="
 			<< GpuMilliseconds.back() << "ms\n";
+	std::cout << "[ TERRAIN ] 1025x1025 first frame: cpu="
+		<< FirstFrameCpuMilliseconds << "ms; height="
+		<< FirstFrame.TerrainHeightPreparationNanoseconds / 1'000'000.0
+		<< "ms topology="
+		<< FirstFrame.TerrainTopologyPreparationNanoseconds / 1'000'000.0
+		<< "ms shader="
+		<< FirstFrame.TerrainShaderPreparationNanoseconds / 1'000'000.0
+		<< "ms pipeline="
+		<< FirstFrame.TerrainPipelinePreparationNanoseconds / 1'000'000.0
+		<< "ms command="
+		<< FirstFrame.TerrainCommandRecordingNanoseconds / 1'000'000.0
+		<< "ms\n";
 
 	double AutomaticCpuMilliseconds = 0.0;
 	Durin::EnqueueRenderCommand<FTerrainQualificationCommand>(

@@ -116,6 +116,13 @@ mesh, shape, and profile changes synchronize that handle. A no-collision compone
 component without valid body geometry has no scene entry and can recover after
 a later valid edit.
 
+Physics-state creation has an explicit primitive/world policy. `Eager` creates
+the body during registration, `OnDemand` leaves registration body-free until a
+tool requests readiness, and `DeferredRequired` schedules immutable CPU work
+while requiring an owning-thread readiness barrier before gameplay. Analytic
+and ordinary mesh primitives remain Eager. Policy selection is a component
+contract rather than a Terrain branch in primitive registration.
+
 `DSplineMeshComponent` adds an explicit
 `ESplineMeshCollisionMode::{Disabled,DeformedTriangleMesh}` policy. Disabled is
 the default and builds or retains no collision BVH. DeformedTriangleMesh builds
@@ -144,14 +151,31 @@ render ownership.
 `DTerrainComponent` also defaults to `NoCollision`. When enabled, it captures
 one valid `DTerrainHeightmap` payload revision and builds a HeightField through
 the AetherCore builder from exact samples and component interpretation. The T2
-collision ceiling is 1025x1025 samples. Assignment, spacing, height range, and
-committed heightmap revision changes collect affected registered components in
-stable object-handle order, retire their render proxies and physics bodies
-before payload publication, then recreate both against the complete revision;
-missing, invalid, or oversized inputs publish no stale body and expose a named
-collision status independently from render status. Bit-identical samples and
-interpretation are weakly interned across components without Renderer or editor
-ownership.
+collision ceiling is 1025x1025 samples. Editor and Preview worlds select
+`OnDemand`: registration reports `Dormant` and performs no hashing, sample copy,
+tree construction, or scene insertion. Collision debug visualization and other
+explicit tools request an asynchronous transition through `Building` to
+`Ready` or `BuildFailed`. Ordinary World traces do not trigger hidden work and
+therefore query only currently published bodies; exact editor Terrain picking
+continues to use the immutable heightmap directly.
+
+PlayInEditor and Game worlds select `DeferredRequired`. Registration schedules
+worker construction, and `DWorld::BeginPlay` waits at an explicit Terrain
+readiness barrier before dispatching any BeginPlay callback. A required failure
+returns `EWorldPlayError::CollisionNotReady` with the component diagnostic.
+Workers capture only immutable payload and scalar settings. Game-thread
+publication revalidates component and World object handles, registration
+generation, asset and collision revisions, and every scalar setting before
+inserting a body. Assignment, spacing, height range, committed heightmap
+revision, level replacement, unregistration, and shutdown cancel or discard the
+request, remove the prior body immediately, and cannot publish into a retired
+scene. The explicit readiness barrier retains a synchronous fallback when the
+task scheduler is unavailable in an isolated test/runtime boundary.
+
+Bit-identical samples and interpretation remain weakly interned across
+components without Renderer or editor ownership. Build diagnostics separately
+report heightfield hashing, cache matching, sample copying, hierarchy
+construction, cache-hit state, and physics-scene insertion time.
 
 `DTerrainComponent::GetCollisionFacts` exposes bounded read-only status,
 asset/collision revision, resource identity, dimensions/cells/nodes/depth,

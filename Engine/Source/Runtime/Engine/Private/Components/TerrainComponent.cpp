@@ -1,14 +1,54 @@
 #include "Components/TerrainComponent.h"
 
 #include "DObject/DurinPropertyTypes.h"
+#include "DObject/ObjectHandle.h"
 #include "Engine/TerrainSceneProxy.h"
 #include "Engine/Level.h"
+#include "Engine/World.h"
 #include "Materials/DefaultMaterialService.h"
 #include "Materials/MaterialInterface.h"
 #include "Terrain/TerrainHeightmap.h"
+#include "Terrain/TerrainHeightmapPostLoad.h"
+#include "Threading/Task.h"
 
 namespace Durin
 {
+	// Owns one worker-only heightfield build and the token required for game-thread publication.
+	struct FTerrainCollisionBuildState
+	{
+		FObjectHandle ComponentHandle;
+		FObjectHandle WorldHandle;
+		uint64 RegistrationGeneration = 0;
+		uint64 AssetRevision = 0;
+		uint64 CollisionRevision = 0;
+		std::shared_ptr<const FTerrainHeightmapPayload> Payload;
+		double SpacingX = 0.0;
+		double SpacingY = 0.0;
+		double HeightScale = 0.0;
+		double HeightOffset = 0.0;
+		FTaskCancellationSource Cancellation;
+		FTaskHandle Worker;
+		FTaskHandle Publisher;
+		std::mutex ResultMutex;
+		FCollisionGeometryRef Geometry;
+		FCollisionGeometryBuildDiagnostics Diagnostics;
+		bool bWorkerCompleted = false;
+		bool bCanceled = false;
+	};
+
+	// Retains one complete render and picking metadata generation for a component key.
+	struct FTerrainRenderDerivedData
+	{
+		std::shared_ptr<const FTerrainHeightmapPayload> Payload;
+		uint64 HeightmapRevision = 0;
+		double SpacingX = 0.0;
+		double SpacingY = 0.0;
+		double HeightScale = 0.0;
+		double HeightOffset = 0.0;
+		std::vector<FTerrainPatchDescriptor> Patches;
+		FBox LocalBounds;
+	};
+
 	namespace
 	{
 		constexpr uint32 TerrainPatchCellCount = 64;
@@ -37,7 +77,7 @@ namespace Durin
 		{
 			OutPatches.clear();
 			OutBounds.Reset();
-			if (!Payload.IsValid() || Payload.Width < 2 || Payload.Height < 2
+			if (!Payload.HasValidLayout() || Payload.Width < 2 || Payload.Height < 2
 				|| Payload.Width > MaximumTerrainRenderSamples
 				|| Payload.Height > MaximumTerrainRenderSamples) return false;
 			const uint32 CellsX = Payload.Width - 1;
@@ -120,14 +160,34 @@ namespace Durin
 	{
 	}
 
+	auto DTerrainComponent::OnRegister() -> void
+	{
+		Super::OnRegister();
+		if (IsRegistered()
+			&& GetPhysicsStateCreationPolicy() == EPhysicsStateCreationPolicy::OnDemand
+			&& GetCollisionEnabled() != ECollisionEnabled::NoCollision)
+		{
+			CollisionStatus = ETerrainCollisionStatus::Dormant;
+			LastCollisionDiagnostic.clear();
+		}
+	}
+
+	auto DTerrainComponent::OnUnregister() -> void
+	{
+		CancelCollisionBuild();
+		Super::OnUnregister();
+		CollisionStatus = ETerrainCollisionStatus::Unavailable;
+	}
+
 	auto DTerrainComponent::SetHeightmap(DTerrainHeightmap* InHeightmap) -> void
 	{
 		if (Heightmap == InHeightmap) return;
 		Heightmap = InHeightmap;
+		CachedRenderDerivedData.reset();
 		++CollisionRevision;
 		MarkPackageDirty();
 		MarkRenderStateDirty();
-		RecreatePhysicsState();
+		InvalidateCollisionGeneration();
 	}
 
 	auto DTerrainComponent::SetSampleSpacing(double InSpacingX, double InSpacingY) -> bool
@@ -137,10 +197,11 @@ namespace Durin
 		if (SpacingX == InSpacingX && SpacingY == InSpacingY) return true;
 		SpacingX = InSpacingX;
 		SpacingY = InSpacingY;
+		CachedRenderDerivedData.reset();
 		++CollisionRevision;
 		MarkPackageDirty();
 		MarkRenderStateDirty();
-		RecreatePhysicsState();
+		InvalidateCollisionGeneration();
 		return true;
 	}
 
@@ -150,10 +211,11 @@ namespace Durin
 		if (HeightScale == InScale && HeightOffset == InOffset) return true;
 		HeightScale = InScale;
 		HeightOffset = InOffset;
+		CachedRenderDerivedData.reset();
 		++CollisionRevision;
 		MarkPackageDirty();
 		MarkRenderStateDirty();
-		RecreatePhysicsState();
+		InvalidateCollisionGeneration();
 		return true;
 	}
 
@@ -233,10 +295,38 @@ namespace Durin
 			|| Event.MemberProperty->NamePrivate == FName("HeightScale")
 			|| Event.MemberProperty->NamePrivate == FName("HeightOffset"))
 		{
+			CachedRenderDerivedData.reset();
 			++CollisionRevision;
-			RecreatePhysicsState();
+			InvalidateCollisionGeneration();
 		}
 		MarkRenderStateDirty();
+	}
+
+	auto DTerrainComponent::GetOrBuildRenderDerivedData(
+		const std::shared_ptr<const FTerrainHeightmapPayload>& Payload,
+		uint64 HeightmapRevision) const -> std::shared_ptr<const FTerrainRenderDerivedData>
+	{
+		if (CachedRenderDerivedData
+			&& CachedRenderDerivedData->Payload == Payload
+			&& CachedRenderDerivedData->HeightmapRevision == HeightmapRevision
+			&& CachedRenderDerivedData->SpacingX == SpacingX
+			&& CachedRenderDerivedData->SpacingY == SpacingY
+			&& CachedRenderDerivedData->HeightScale == HeightScale
+			&& CachedRenderDerivedData->HeightOffset == HeightOffset)
+			return CachedRenderDerivedData;
+
+		auto Candidate = std::make_shared<FTerrainRenderDerivedData>();
+		Candidate->Payload = Payload;
+		Candidate->HeightmapRevision = HeightmapRevision;
+		Candidate->SpacingX = SpacingX;
+		Candidate->SpacingY = SpacingY;
+		Candidate->HeightScale = HeightScale;
+		Candidate->HeightOffset = HeightOffset;
+		if (!BuildTerrainPatches(*Payload, SpacingX, SpacingY, HeightScale,
+			HeightOffset, Candidate->Patches, Candidate->LocalBounds)) return nullptr;
+		++RenderDerivedDataBuildCount;
+		CachedRenderDerivedData = Candidate;
+		return Candidate;
 	}
 
 	auto DTerrainComponent::CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy>
@@ -254,8 +344,15 @@ namespace Durin
 			LastRenderDiagnostic = "Terrain rendering requires an assigned heightmap.";
 			return nullptr;
 		}
+		if (Heightmap->GetStatus() == ETerrainHeightmapStatus::Loading
+			|| Heightmap->GetStatus() == ETerrainHeightmapStatus::Rebuilding)
+		{
+			RenderStatus = ETerrainRenderStatus::PayloadLoading;
+			LastRenderDiagnostic = "Terrain rendering is waiting for the asynchronous heightmap payload.";
+			return nullptr;
+		}
 		std::shared_ptr<const FTerrainHeightmapPayload> Payload = Heightmap->GetPayload();
-		if (!Payload || !Payload->IsValid() || Payload->Width < 2 || Payload->Height < 2)
+		if (!Payload || !Payload->HasValidLayout() || Payload->Width < 2 || Payload->Height < 2)
 		{
 			RenderStatus = ETerrainRenderStatus::InvalidPayload;
 			LastRenderDiagnostic = "Terrain rendering requires a valid heightmap with at least two samples on each axis.";
@@ -271,10 +368,8 @@ namespace Durin
 				MaximumTerrainRenderSamples);
 			return nullptr;
 		}
-		std::vector<FTerrainPatchDescriptor> Patches;
-		FBox Bounds;
-		if (!BuildTerrainPatches(*Payload, SpacingX, SpacingY, HeightScale,
-			HeightOffset, Patches, Bounds))
+		const auto DerivedData = GetOrBuildRenderDerivedData(Payload, Heightmap->GetRevision());
+		if (!DerivedData)
 		{
 			RenderStatus = ETerrainRenderStatus::InvalidPayload;
 			LastRenderDiagnostic = "Terrain patch construction rejected the current payload or bounds.";
@@ -287,9 +382,270 @@ namespace Durin
 		LastRenderDiagnostic.clear();
 		return std::make_unique<FTerrainSceneProxy>(
 			std::move(Payload), Heightmap->GetRevision(), SpacingX, SpacingY,
-			HeightScale, HeightOffset, std::move(Patches), Bounds,
+			HeightScale, HeightOffset, DerivedData->Patches, DerivedData->LocalBounds,
 			AssignedMaterial ? AssignedMaterial->GetMaterialRenderProxy()
 				: GetDefaultMaterialRenderProxy(), MaterialComponentRevision);
+	}
+
+	auto DTerrainComponent::GetPhysicsStateCreationPolicy() const -> EPhysicsStateCreationPolicy
+	{
+		const DWorld* World = GetPhysicsWorld();
+		if (World && (World->GetWorldType() == EWorldType::Editor
+			|| World->GetWorldType() == EWorldType::Preview))
+			return EPhysicsStateCreationPolicy::OnDemand;
+		return EPhysicsStateCreationPolicy::DeferredRequired;
+	}
+
+	auto DTerrainComponent::GetCollisionStatus() const -> ETerrainCollisionStatus
+	{
+		if (GetCollisionEnabled() == ECollisionEnabled::NoCollision)
+			return ETerrainCollisionStatus::Unavailable;
+		if (IsRegistered()
+			&& GetPhysicsStateCreationPolicy() == EPhysicsStateCreationPolicy::OnDemand
+			&& !GetPhysicsActorHandle().IsValid()
+			&& CollisionStatus != ETerrainCollisionStatus::Building
+			&& CollisionStatus != ETerrainCollisionStatus::BuildFailed)
+			return ETerrainCollisionStatus::Dormant;
+		return CollisionStatus;
+	}
+
+	auto DTerrainComponent::CancelCollisionBuild() -> void
+	{
+		std::shared_ptr<FTerrainCollisionBuildState> Build = std::move(ActiveCollisionBuild);
+		if (!Build) return;
+		Build->Cancellation.RequestCancellation();
+		(void)CancelTask(Build->Worker);
+		(void)CancelTask(Build->Publisher);
+	}
+
+	auto DTerrainComponent::OnCollisionSettingsChanged() -> void
+	{
+		CancelCollisionBuild();
+		DestroyPhysicsState();
+		CollisionStatus = IsRegistered() && GetCollisionEnabled() != ECollisionEnabled::NoCollision
+			? ETerrainCollisionStatus::Dormant : ETerrainCollisionStatus::Unavailable;
+		LastCollisionDiagnostic.clear();
+		if (IsRegistered() && GetCollisionEnabled() != ECollisionEnabled::NoCollision
+			&& GetPhysicsStateCreationPolicy() == EPhysicsStateCreationPolicy::DeferredRequired)
+			(void)RequestPhysicsStateCreation(false);
+	}
+
+	auto DTerrainComponent::InvalidateCollisionGeneration() -> void
+	{
+		CancelCollisionBuild();
+		DestroyPhysicsState();
+		CachedTerrainCollision = {};
+		CachedCollisionPayload.reset();
+		CachedHeightmapRevision = 0;
+		CachedCollisionDiagnostics = {};
+		CollisionStatus = IsRegistered() && GetCollisionEnabled() != ECollisionEnabled::NoCollision
+			? ETerrainCollisionStatus::Dormant : ETerrainCollisionStatus::Unavailable;
+		LastCollisionDiagnostic.clear();
+		if (IsRegistered() && GetCollisionEnabled() != ECollisionEnabled::NoCollision
+			&& GetPhysicsStateCreationPolicy() == EPhysicsStateCreationPolicy::DeferredRequired)
+			(void)RequestPhysicsStateCreation(false);
+	}
+
+	auto DTerrainComponent::RequestPhysicsStateCreation(bool bWaitUntilReady) -> bool
+	{
+		if (GetCollisionEnabled() == ECollisionEnabled::NoCollision)
+		{
+			CancelCollisionBuild();
+			DestroyPhysicsState();
+			CollisionStatus = ETerrainCollisionStatus::Unavailable;
+			LastCollisionDiagnostic.clear();
+			return true;
+		}
+		if (!IsRegistered() || !GetPhysicsWorld())
+			return SetCollisionFailure(ETerrainCollisionStatus::BuildFailed,
+				"Terrain collision cannot be requested before component registration.");
+		if (GetPhysicsActorHandle().IsValid()
+			&& GetPublishedBodySetupRevision() == CollisionRevision
+			&& CollisionStatus == ETerrainCollisionStatus::Ready) return true;
+
+		if (ActiveCollisionBuild)
+		{
+			if (!bWaitUntilReady) return true;
+			const std::shared_ptr<FTerrainCollisionBuildState> Build = ActiveCollisionBuild;
+			const ETaskState State = WaitTask(Build->Worker);
+			if (State == ETaskState::Succeeded)
+				return PublishCompletedCollisionBuild(Build);
+			CancelCollisionBuild();
+			return SetCollisionFailure(ETerrainCollisionStatus::BuildFailed,
+				"Terrain collision worker did not complete successfully.");
+		}
+
+		std::string Error;
+		if (!ValidateProperties(Error))
+			return SetCollisionFailure(ETerrainCollisionStatus::InvalidProperties, std::move(Error));
+		if (!Heightmap)
+			return SetCollisionFailure(ETerrainCollisionStatus::MissingHeightmap,
+				"Terrain collision requires an assigned heightmap.");
+		if (Heightmap->GetStatus() == ETerrainHeightmapStatus::Loading
+			|| Heightmap->GetStatus() == ETerrainHeightmapStatus::Rebuilding)
+		{
+			if (!bWaitUntilReady)
+			{
+				CollisionStatus = ETerrainCollisionStatus::Building;
+				LastCollisionDiagnostic = "Terrain collision is waiting for the asynchronous heightmap payload.";
+				return true;
+			}
+			if (!WaitForTerrainHeightmapAuthoringLoad(*Heightmap, Error))
+				return SetCollisionFailure(ETerrainCollisionStatus::BuildFailed, std::move(Error));
+			return RequestPhysicsStateCreation(true);
+		}
+		const std::shared_ptr<const FTerrainHeightmapPayload> Payload = Heightmap->GetPayload();
+		if (!Payload || !Payload->HasValidLayout() || Payload->Width < 2 || Payload->Height < 2)
+			return SetCollisionFailure(ETerrainCollisionStatus::InvalidPayload,
+				"Terrain collision requires a valid heightmap with at least two samples on each axis.");
+		if (Payload->Width > MaximumTerrainRenderSamples || Payload->Height > MaximumTerrainRenderSamples)
+			return SetCollisionFailure(ETerrainCollisionStatus::ExtentRejected, std::format(
+				"Terrain heightmap {}x{} exceeds the T2 collision ceiling of {}x{} samples.",
+				Payload->Width, Payload->Height, MaximumTerrainRenderSamples, MaximumTerrainRenderSamples));
+
+		const uint64 AssetRevision = Heightmap->GetRevision();
+		const bool bCacheMatches = CachedTerrainCollision.IsValid()
+			&& CachedCollisionPayload == Payload && CachedHeightmapRevision == AssetRevision
+			&& CachedCollisionSpacingX == SpacingX && CachedCollisionSpacingY == SpacingY
+			&& CachedCollisionHeightScale == HeightScale && CachedCollisionHeightOffset == HeightOffset;
+		if (bCacheMatches)
+		{
+			DPrimitiveComponent::RecreatePhysicsState();
+			return GetPhysicsActorHandle().IsValid();
+		}
+		if (!IsTaskSchedulerRunning())
+		{
+			if (bWaitUntilReady) return DPrimitiveComponent::RequestPhysicsStateCreation(true);
+			return SetCollisionFailure(ETerrainCollisionStatus::BuildFailed,
+				"The CPU task scheduler is not running for the required Terrain collision build.");
+		}
+
+		auto Build = std::make_shared<FTerrainCollisionBuildState>();
+		Build->ComponentHandle = MakeObjectHandle(this);
+		Build->WorldHandle = MakeObjectHandle(GetPhysicsWorld());
+		Build->RegistrationGeneration = GetPhysicsRegistrationGeneration();
+		Build->AssetRevision = AssetRevision;
+		Build->CollisionRevision = CollisionRevision;
+		Build->Payload = Payload;
+		Build->SpacingX = SpacingX;
+		Build->SpacingY = SpacingY;
+		Build->HeightScale = HeightScale;
+		Build->HeightOffset = HeightOffset;
+
+		static const FTaskAttribution BuildAttribution =
+			RegisterTaskAttribution("TerrainCollision", "BuildHeightField");
+		FTaskLaunchOptions BuildOptions;
+		BuildOptions.CancellationToken = Build->Cancellation.GetToken();
+		BuildOptions.Attribution = BuildAttribution;
+		Build->Worker = LaunchCancelableTask("TerrainCollision.BuildHeightField",
+			[Build](const FTaskCancellationToken& Token) {
+				if (Token.IsCancellationRequested())
+				{
+					std::lock_guard Lock(Build->ResultMutex);
+					Build->bCanceled = true;
+					return;
+				}
+				FCollisionGeometryBuildDiagnostics Diagnostics;
+				FCollisionGeometryRef Geometry = FCollisionGeometryRef::BuildHeightField(
+					Build->Payload->Width, Build->Payload->Height, Build->Payload->Samples,
+					Build->SpacingX, Build->SpacingY, Build->HeightScale, Build->HeightOffset,
+					&Diagnostics);
+				std::lock_guard Lock(Build->ResultMutex);
+				Build->bCanceled = Token.IsCancellationRequested();
+				Build->Geometry = Build->bCanceled ? FCollisionGeometryRef{} : std::move(Geometry);
+				Build->Diagnostics = Diagnostics;
+				Build->bWorkerCompleted = true;
+			}, BuildOptions);
+		if (!Build->Worker.IsValid())
+		{
+			if (bWaitUntilReady) return DPrimitiveComponent::RequestPhysicsStateCreation(true);
+			return SetCollisionFailure(ETerrainCollisionStatus::BuildFailed,
+				"The CPU task scheduler rejected the Terrain collision build.");
+		}
+
+		ActiveCollisionBuild = Build;
+		CollisionStatus = ETerrainCollisionStatus::Building;
+		LastCollisionDiagnostic.clear();
+		FTaskContinuationOptions PublishOptions;
+		PublishOptions.Target = ETaskTarget::GameThreadDeferred;
+		PublishOptions.EstimatedPayloadBytes = sizeof(FObjectHandle) + sizeof(std::weak_ptr<FTerrainCollisionBuildState>);
+		PublishOptions.Attribution = BuildAttribution;
+		const std::weak_ptr<FTerrainCollisionBuildState> WeakBuild = Build;
+		Build->Publisher = ThenOutcome(Build->Worker, "TerrainCollision.PublishHeightField",
+			[WeakBuild](FTaskOutcome<void>) {
+				const std::shared_ptr<FTerrainCollisionBuildState> Completed = WeakBuild.lock();
+				if (!Completed) return;
+				auto* Component = Cast<DTerrainComponent>(ResolveObjectHandle(Completed->ComponentHandle));
+				if (IsValid(Component)) (void)Component->PublishCompletedCollisionBuild(Completed);
+			}, PublishOptions);
+		if (!Build->Publisher.IsValid() && !bWaitUntilReady)
+		{
+			CancelCollisionBuild();
+			return SetCollisionFailure(ETerrainCollisionStatus::BuildFailed,
+				"The GameThread executor rejected Terrain collision publication.");
+		}
+		if (!bWaitUntilReady) return true;
+		const ETaskState State = WaitTask(Build->Worker);
+		if (State == ETaskState::Succeeded) return PublishCompletedCollisionBuild(Build);
+		CancelCollisionBuild();
+		return SetCollisionFailure(ETerrainCollisionStatus::BuildFailed,
+			"Terrain collision worker did not complete successfully.");
+	}
+
+	auto DTerrainComponent::PublishCompletedCollisionBuild(
+		const std::shared_ptr<FTerrainCollisionBuildState>& Build) -> bool
+	{
+		if (!Build || ActiveCollisionBuild != Build) return false;
+		if (!IsRegistered()
+			|| GetPhysicsRegistrationGeneration() != Build->RegistrationGeneration
+			|| ResolveObjectHandle(Build->WorldHandle) != GetPhysicsWorld()
+			|| !Heightmap || Heightmap->GetPayload() != Build->Payload
+			|| Heightmap->GetRevision() != Build->AssetRevision
+			|| CollisionRevision != Build->CollisionRevision
+			|| SpacingX != Build->SpacingX || SpacingY != Build->SpacingY
+			|| HeightScale != Build->HeightScale || HeightOffset != Build->HeightOffset
+			|| GetCollisionEnabled() == ECollisionEnabled::NoCollision)
+		{
+			ActiveCollisionBuild.reset();
+			CollisionStatus = ETerrainCollisionStatus::Dormant;
+			return false;
+		}
+
+		FCollisionGeometryRef Geometry;
+		FCollisionGeometryBuildDiagnostics Diagnostics;
+		bool bCompleted = false;
+		bool bCanceled = false;
+		{
+			std::lock_guard Lock(Build->ResultMutex);
+			Geometry = Build->Geometry;
+			Diagnostics = Build->Diagnostics;
+			bCompleted = Build->bWorkerCompleted;
+			bCanceled = Build->bCanceled;
+		}
+		ActiveCollisionBuild.reset();
+		if (!bCompleted || bCanceled || !Geometry.IsValid())
+			return SetCollisionFailure(ETerrainCollisionStatus::BuildFailed,
+				bCanceled ? "Terrain collision build was canceled."
+					: std::format("Terrain collision build failed with status {}.", static_cast<uint32>(Diagnostics.Status)));
+
+		CachedTerrainCollision = std::move(Geometry);
+		CachedCollisionDiagnostics = Diagnostics;
+		CachedCollisionPayload = Build->Payload;
+		CachedHeightmapRevision = Build->AssetRevision;
+		CachedCollisionSpacingX = Build->SpacingX;
+		CachedCollisionSpacingY = Build->SpacingY;
+		CachedCollisionHeightScale = Build->HeightScale;
+		CachedCollisionHeightOffset = Build->HeightOffset;
+		const auto InsertionStart = std::chrono::steady_clock::now();
+		DPrimitiveComponent::RecreatePhysicsState();
+		LastPhysicsInsertionNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+			std::chrono::steady_clock::now() - InsertionStart).count());
+		if (!GetPhysicsActorHandle().IsValid())
+			return SetCollisionFailure(ETerrainCollisionStatus::BuildFailed,
+				"Terrain collision geometry was built but physics-scene insertion failed.");
+		CollisionStatus = ETerrainCollisionStatus::Ready;
+		LastCollisionDiagnostic.clear();
+		return true;
 	}
 
 	auto DTerrainComponent::SetCollisionFailure(
@@ -308,12 +664,17 @@ namespace Durin
 	auto DTerrainComponent::GetCollisionFacts() const -> FTerrainCollisionFacts
 	{
 		FTerrainCollisionFacts Facts;
-		Facts.Status = CollisionStatus;
+		Facts.Status = GetCollisionStatus();
 		Facts.AssetRevision = Heightmap ? Heightmap->GetRevision() : 0;
 		Facts.CollisionRevision = CollisionRevision;
 		Facts.ResourceIdentity = CachedTerrainCollision.GetIdentity();
 		Facts.RetainedBytes = CachedTerrainCollision.GetRetainedBytes();
 		Facts.EstimatedPeakBytes = CachedCollisionDiagnostics.EstimatedPeakBytes;
+		Facts.HashNanoseconds = CachedCollisionDiagnostics.HashNanoseconds;
+		Facts.MatchNanoseconds = CachedCollisionDiagnostics.MatchNanoseconds;
+		Facts.SampleCopyNanoseconds = CachedCollisionDiagnostics.SampleCopyNanoseconds;
+		Facts.TreeBuildNanoseconds = CachedCollisionDiagnostics.TreeBuildNanoseconds;
+		Facts.PhysicsInsertionNanoseconds = LastPhysicsInsertionNanoseconds;
 		Facts.Width = CachedTerrainCollision.GetHeightFieldWidth();
 		Facts.Height = CachedTerrainCollision.GetHeightFieldHeight();
 		Facts.Cells = Facts.Width > 0 && Facts.Height > 0
@@ -321,6 +682,7 @@ namespace Durin
 		Facts.Nodes = CachedTerrainCollision.GetNodeCount();
 		Facts.MaximumDepth = CachedCollisionDiagnostics.MaximumDepth;
 		Facts.BuildStatus = CachedCollisionDiagnostics.Status;
+		Facts.bCacheHit = CachedCollisionDiagnostics.bCacheHit;
 		return Facts;
 	}
 
@@ -335,7 +697,7 @@ namespace Durin
 			return SetCollisionFailure(ETerrainCollisionStatus::MissingHeightmap,
 				"Terrain collision requires an assigned heightmap.");
 		const std::shared_ptr<const FTerrainHeightmapPayload> Payload = Heightmap->GetPayload();
-		if (!Payload || !Payload->IsValid() || Payload->Width < 2 || Payload->Height < 2)
+		if (!Payload || !Payload->HasValidLayout() || Payload->Width < 2 || Payload->Height < 2)
 			return SetCollisionFailure(ETerrainCollisionStatus::InvalidPayload,
 				"Terrain collision requires a valid heightmap with at least two samples on each axis.");
 		if (Payload->Width > MaximumTerrainRenderSamples || Payload->Height > MaximumTerrainRenderSamples)
@@ -390,16 +752,25 @@ namespace Durin
 	{
 		if (ChangedHeightmap == Heightmap.Get())
 		{
+			CachedRenderDerivedData.reset();
 			++CollisionRevision;
 			MarkRenderStateDirty();
-			RecreatePhysicsState();
+			InvalidateCollisionGeneration();
 		}
 	}
 
 	auto DTerrainComponent::PrepareForHeightmapRevisionChange() -> void
 	{
+		CachedRenderDerivedData.reset();
+		CancelCollisionBuild();
 		DestroyRenderState();
 		DestroyPhysicsState();
+		CachedTerrainCollision = {};
+		CachedCollisionPayload.reset();
+		CachedHeightmapRevision = 0;
+		CachedCollisionDiagnostics = {};
+		CollisionStatus = GetCollisionEnabled() == ECollisionEnabled::NoCollision
+			? ETerrainCollisionStatus::Unavailable : ETerrainCollisionStatus::Dormant;
 	}
 
 #if DURIN_WITH_EDITOR
@@ -411,7 +782,7 @@ namespace Durin
 		if (!IsRegistered() || !IsVisible() || !ValidateProperties(Error)
 			|| !Heightmap || Heightmap->GetStatus() != ETerrainHeightmapStatus::Ready) return false;
 		const std::shared_ptr<const FTerrainHeightmapPayload> Payload = Heightmap->GetPayload();
-		if (!Payload || !Payload->IsValid() || Payload->Width < 2 || Payload->Height < 2
+		if (!Payload || !Payload->HasValidLayout() || Payload->Width < 2 || Payload->Height < 2
 			|| Payload->Width > MaximumTerrainRenderSamples
 			|| Payload->Height > MaximumTerrainRenderSamples) return false;
 		OutSnapshot.Payload = Payload;
@@ -429,9 +800,10 @@ namespace Durin
 	{
 		if (!Heightmap) return false;
 		auto Payload = Heightmap->GetPayload();
-		std::vector<FTerrainPatchDescriptor> Patches;
-		if (!Payload || !BuildTerrainPatches(*Payload, SpacingX, SpacingY,
-			HeightScale, HeightOffset, Patches, OutBounds)) return false;
+		const auto DerivedData = Payload
+			? GetOrBuildRenderDerivedData(Payload, Heightmap->GetRevision()) : nullptr;
+		if (!DerivedData) return false;
+		OutBounds = DerivedData->LocalBounds;
 		OutFamily = EEditorPickingPrimitiveFamily::Terrain;
 		return true;
 	}

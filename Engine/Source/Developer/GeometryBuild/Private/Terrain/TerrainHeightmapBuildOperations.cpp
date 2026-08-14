@@ -135,26 +135,54 @@ namespace Durin::Asset::Build
 	auto LoadTerrainHeightmapDerivedData(
 		std::string_view Key,
 		std::shared_ptr<const FTerrainHeightmapPayload>& OutPayload,
-		std::string& OutError) -> bool
+		std::string& OutError,
+		FTerrainHeightmapDerivedDataLoadDiagnostics* Diagnostics) -> bool
 	{
-		const FBuildCacheQueryResult Read = FBuildCacheClient(GetTerrainHeightmapStore()).Query(
-			Key, "TerrainHeightmapPayload", {});
-		if (Read.Status != EBuildCacheQueryStatus::Hit)
+		FTerrainHeightmapDerivedDataLoadDiagnostics Result;
+		const auto QueryStart = std::chrono::steady_clock::now();
+		std::filesystem::path ObjectPath;
+		std::string PathError;
+		const bool bValidPath = GetTerrainHeightmapStore().GetObjectPath(Key, ObjectPath, &PathError);
+		std::error_code FileError;
+		const bool bExists = bValidPath && std::filesystem::is_regular_file(ObjectPath, FileError);
+		Result.QueryNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+			std::chrono::steady_clock::now() - QueryStart).count());
+		if (!bExists)
 		{
-			OutError = Read.Diagnostic;
+			OutError = bValidPath ? "Derived-data object is missing." : std::move(PathError);
+			if (Diagnostics) *Diagnostics = Result;
 			return false;
 		}
+		const auto ReadStart = std::chrono::steady_clock::now();
+		std::vector<uint8> Bytes;
+		const Asset::FDerivedDataObjectReadResult Read = GetTerrainHeightmapStore().Read(Key, Bytes);
+		Result.ReadNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+			std::chrono::steady_clock::now() - ReadStart).count());
+		if (!Read)
+		{
+			OutError = Read.Message;
+			if (Diagnostics) *Diagnostics = Result;
+			return false;
+		}
+		const auto DecodeStart = std::chrono::steady_clock::now();
 		auto Candidate = std::make_shared<FTerrainHeightmapPayload>();
-		FCanonicalMemoryReader Ar(Read.Value.GetBytes(), EArchivePurpose::DerivedDataPayload);
+		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::DerivedDataPayload);
 		Candidate->Serialize(Ar, Asset::ECookTargetPlatform::Win64,
 			Asset::ECookTargetProfile::Game);
 		if (Ar.HasError())
 		{
 			OutError = Ar.GetFailure()->Message;
+			Result.DecodeNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - DecodeStart).count());
+			if (Diagnostics) *Diagnostics = Result;
 			return false;
 		}
+		Result.DecodeNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+			std::chrono::steady_clock::now() - DecodeStart).count());
+		Result.bHit = true;
 		OutPayload = std::move(Candidate);
 		OutError.clear();
+		if (Diagnostics) *Diagnostics = Result;
 		return true;
 	}
 }

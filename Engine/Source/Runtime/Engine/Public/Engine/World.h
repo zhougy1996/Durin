@@ -40,6 +40,7 @@ namespace Durin
 		None,
 		InvalidState,
 		MissingLevel,
+		CollisionNotReady,
 		InvalidGameModeClass,
 		GameModeSpawnFailed,
 		InvalidPlayerControllerClass,

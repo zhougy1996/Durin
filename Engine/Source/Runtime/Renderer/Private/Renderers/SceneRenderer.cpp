@@ -170,6 +170,10 @@ namespace Durin
 			Counters.TerrainLogicalPreparationNanoseconds = Terrain.LogicalPreparationNanoseconds;
 			Counters.TerrainBatchConstructionNanoseconds = Terrain.BatchConstructionNanoseconds;
 			Counters.TerrainResourcePreparationNanoseconds = Terrain.ResourcePreparationNanoseconds;
+			Counters.TerrainHeightPreparationNanoseconds = Terrain.HeightPreparationNanoseconds;
+			Counters.TerrainTopologyPreparationNanoseconds = Terrain.TopologyPreparationNanoseconds;
+			Counters.TerrainShaderPreparationNanoseconds = Terrain.ShaderPreparationNanoseconds;
+			Counters.TerrainPipelinePreparationNanoseconds = Terrain.PipelinePreparationNanoseconds;
 			Counters.TerrainDynamicAllocationNanoseconds = Terrain.DynamicAllocationNanoseconds;
 			Counters.TerrainCommandRecordingNanoseconds = Terrain.CommandRecordingNanoseconds;
 			Counters.TerrainAttemptedDraws = Terrain.AttemptedDraws;
@@ -181,6 +185,12 @@ namespace Durin
 			Counters.TerrainTopologyCreations = Terrain.TopologyCreations;
 			Counters.TerrainTopologyReuses = Terrain.TopologyReuses;
 			Counters.TerrainTopologyBytes = Terrain.TopologyBytes;
+			Counters.TerrainShaderLookups = Terrain.ShaderLookups;
+			Counters.TerrainShaderCreations = Terrain.ShaderCreations;
+			Counters.TerrainShaderReuses = Terrain.ShaderReuses;
+			Counters.TerrainPipelineLookups = Terrain.PipelineLookups;
+			Counters.TerrainPipelineCreations = Terrain.PipelineCreations;
+			Counters.TerrainPipelineReuses = Terrain.PipelineReuses;
 		}
 	} // namespace
 

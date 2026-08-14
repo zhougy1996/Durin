@@ -11,6 +11,7 @@
 #include "StandardAssetImportProviders.h"
 #include "Source/SourceReferenceIndex.h"
 #include "Terrain/TerrainHeightmap.h"
+#include "Terrain/TerrainHeightmapPostLoad.h"
 #include "Terrain/TerrainHeightmapBuildOperations.h"
 #include "TerrainHeightmapSourceTranslation.h"
 #include "Terrain/TerrainHeightmapBuildKey.h"
@@ -18,6 +19,7 @@
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
 #include "Texture2DSourceTranslation.h"
+#include "Threading/Task.h"
 
 #include <gtest/gtest.h>
 
@@ -267,6 +269,27 @@ TEST(FTerrainHeightmapPayloadTests, BuildsDeterministicOddEdgeHierarchyAndReject
 	EXPECT_EQ(First->Nodes, Second->Nodes);
 	EXPECT_FALSE(Durin::BuildTerrainHeightmapPayload(1, 2, Samples, Second, Error));
 	EXPECT_EQ(First->GetSampleBytes(), Samples.size() * sizeof(Durin::uint16));
+}
+
+TEST(FTerrainHeightmapPayloadTests, SeparatesTrustedLayoutFromExactCanonicalValidation)
+{
+	const std::array<Durin::uint16, 12> Samples{
+		1, 2, 3, 4, 10, 20, 30, 40, 100, 200, 300, 400};
+	std::shared_ptr<const Durin::FTerrainHeightmapPayload> Canonical;
+	std::string Error;
+	ASSERT_TRUE(Durin::BuildTerrainHeightmapPayload(4, 3, Samples, Canonical, Error)) << Error;
+	ASSERT_TRUE(Canonical->HasValidLayout());
+	ASSERT_TRUE(Canonical->IsValid());
+
+	Durin::FTerrainHeightmapPayload ChangedSample = *Canonical;
+	ChangedSample.Samples[0] = 500;
+	EXPECT_TRUE(ChangedSample.HasValidLayout());
+	EXPECT_FALSE(ChangedSample.IsValid());
+
+	Durin::FTerrainHeightmapPayload BrokenLayout = *Canonical;
+	BrokenLayout.Levels.front().NodeOffset = 1;
+	EXPECT_FALSE(BrokenLayout.HasValidLayout());
+	EXPECT_FALSE(BrokenLayout.IsValid());
 }
 
 TEST(FTerrainHeightmapDerivedDataTests, KeyAndPayloadRoundTripAreStableAndCorruptionSafe)
@@ -617,4 +640,79 @@ TEST(FTerrainHeightmapImportTests, AuthoredReloadUsesWarmDdcWithoutReopeningSour
 	Reloaded = nullptr;
 	const Durin::Asset::FAssetResult Failed = Durin::Asset::LoadAsset(Path, Reloaded);
 	EXPECT_FALSE(Failed);
+}
+
+TEST(FTerrainHeightmapImportTests, AsyncLoadHandlesWarmDdcCorruptionRecoveryAndMissingSource)
+{
+	const std::filesystem::path Root = InitializeHeightmapTests();
+	FScopedDdcRoot Ddc(Root / "AsyncReloadDDC");
+	const std::filesystem::path Source = Root / "Sources/AsyncReload.raw";
+	std::vector<Durin::uint8> Bytes(513u * 513u * sizeof(Durin::uint16));
+	for (size_t Index = 0; Index < Bytes.size() / 2; ++Index)
+	{
+		const Durin::uint16 Value = static_cast<Durin::uint16>(Index);
+		Bytes[Index * 2] = static_cast<Durin::uint8>(Value);
+		Bytes[Index * 2 + 1] = static_cast<Durin::uint8>(Value >> 8);
+	}
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
+		std::as_bytes(std::span(Bytes)), Source));
+	const Durin::FTerrainHeightmapImportResult Imported =
+		Durin::Asset::Import::Standard::ImportTerrainHeightmapAsset(
+			Source.generic_string(), "/TerrainHeightmap/AsyncReload");
+	ASSERT_TRUE(Imported) << Imported.Message;
+	const std::string Key = Imported.Asset->GetDerivedDataKey();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TerrainHeightmap/AsyncReload", Path));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+
+	if (!Durin::GIsGameThreadIdInitialized)
+	{
+		Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
+		Durin::GIsGameThreadIdInitialized = true;
+	}
+	ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
+	ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
+	Durin::DTerrainHeightmap* Reloaded = nullptr;
+	Durin::Asset::FAssetResult Loaded = Durin::Asset::LoadAsset(Path, Reloaded);
+	ASSERT_TRUE(Loaded) << Loaded.Message;
+	ASSERT_NE(Reloaded, nullptr);
+	EXPECT_EQ(Reloaded->GetStatus(), Durin::ETerrainHeightmapStatus::Loading);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	Reloaded = nullptr;
+	Loaded = Durin::Asset::LoadAsset(Path, Reloaded);
+	ASSERT_TRUE(Loaded) << Loaded.Message;
+	ASSERT_NE(Reloaded, nullptr);
+	EXPECT_EQ(Reloaded->GetStatus(), Durin::ETerrainHeightmapStatus::Loading);
+	std::string Error;
+	ASSERT_TRUE(Durin::WaitForTerrainHeightmapAuthoringLoad(*Reloaded, Error)) << Error;
+	EXPECT_EQ(Reloaded->GetStatus(), Durin::ETerrainHeightmapStatus::Ready);
+	EXPECT_TRUE(Reloaded->WasLoadedFromDerivedDataCache());
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+
+	Durin::Asset::FDerivedDataObjectStore Store(
+		"TerrainHeightmap/Objects", Durin::MaximumTerrainHeightmapPayloadBytes);
+	std::filesystem::path CachePath;
+	ASSERT_TRUE(Store.GetObjectPath(Key, CachePath, &Error)) << Error;
+	const std::array<Durin::uint8, 4> Corrupt{1, 2, 3, 4};
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
+		std::as_bytes(std::span(Corrupt)), CachePath));
+	Reloaded = nullptr;
+	Loaded = Durin::Asset::LoadAsset(Path, Reloaded);
+	ASSERT_TRUE(Loaded) << Loaded.Message;
+	ASSERT_TRUE(Durin::WaitForTerrainHeightmapAuthoringLoad(*Reloaded, Error)) << Error;
+	EXPECT_FALSE(Reloaded->WasLoadedFromDerivedDataCache());
+	EXPECT_NE(Reloaded->GetLastDiagnostic().find("Rebuilt terrain heightmap"), std::string::npos);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
+		std::as_bytes(std::span(Corrupt)), CachePath));
+	std::error_code ErrorCode;
+	std::filesystem::remove(Source, ErrorCode);
+	Reloaded = nullptr;
+	Loaded = Durin::Asset::LoadAsset(Path, Reloaded);
+	ASSERT_TRUE(Loaded) << Loaded.Message;
+	EXPECT_FALSE(Durin::WaitForTerrainHeightmapAuthoringLoad(*Reloaded, Error));
+	EXPECT_EQ(Reloaded->GetStatus(), Durin::ETerrainHeightmapStatus::SourceUnavailable);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);
 }
