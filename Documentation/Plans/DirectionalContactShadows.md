@@ -1,270 +1,378 @@
-# Directional Contact Shadows Plan
+# Deferred Contact Visibility Integration Plan
 
-Summary: Add a bounded screen-space contact-shadow pass that supplements the near-field directional result to recover contact lost to necessary bias, without replacing the shadow map or repairing geometry.
+Summary: Move directional contact shadows into deferred Lit-opaque visibility, consume GBuffer receiver data, and retire post-scene HDR subtraction plus its permanent intermediate targets.
 
-Last reviewed: 2026-08-15
+Last reviewed: 2026-08-16
 
 Status: Active
 Completed:
 
 ## Current Status
 
-Stages 0-2 are implemented. The initial whole-SceneColor approximation exposed
-false silhouette occlusion and attenuated backlit/indirect lighting in the
-graybox review, so the selected design now records the post-shadow selected
-directional direct contribution in an R11G11B10 MRT and removes only that
-contribution in the contact pass. The detail trace was simplified after review
-showed that its adaptive 24-64-step march, four-neighbor receiver-plane
-reconstruction, endpoint contraction, viewport-edge mask, and binary hit
-refinement added cost and extra view-dependent rejection without overcoming
-single-layer scene-depth limitations. The selected opt-in path now uses exact
-texel `Load`, 16 fixed midpoint samples, a 0.01-world-unit start, a
-0.20-world-unit extent, 0.012-world-unit hit thickness, and a 48-pixel bound
-whose final 25% fades smoothly. Contact shadows default off. Stage 3 is partial:
-basic counters
-(`ContactShadowEnabledViews`/`ContactShadowPassFailures`) and a `bShowContactShadowDebug`
-overlay are wired. The viewport View menu exposes a production toggle and a
-mutually exclusive red contribution diagnostic, and the viewport statistics
-panel reports contact-shadow enable state.
+The existing opt-in implementation works but is not a qualified production
+tier. It runs after complete scene composition, marches 16 fixed midpoint
+samples through final `SceneDepth`, reads the selected directional contribution
+from `DirectionalDirect`, and subtracts the occluded portion into the
+`RGBA16_FLOAT` `ContactColor` ping-pong target. Focused Vulkan coverage proves
+bounded near-field darkening, byte-identical Unlit-view output, one enabled
+pass, and zero pass failures. Contact shadows remain disabled by default;
+user-scene motion review and target-GPU evidence remain open.
 
-A focused Vulkan test
-(`FDirectionalShadowBaselineVulkanTests.ContactShadowRunsAndDarkensNearFieldBounded`)
-passes after the simplification: with contact shadows enabled the pass runs
-exactly once with zero failures, changes a bounded near-field region in both
-orthographic and perspective captures, and an added Unlit capture with the same
-depth/occluder layout remains byte-identical to the disabled reference. The
-full DurinEditor build, the opt-in default contract, and the focused Vulkan
-qualification pass after the simplification; a five-second editor smoke remains
-running until intentionally terminated. Earlier Renderer scene contracts and
-Static, Skeletal, Terrain, SkyBox targets also pass. User-scene visual
-confirmation and target-GPU measurement remain open.
+That ownership predates the production hybrid renderer. Lit solid
+opaque/masked surfaces now have one GBuffer plus deferred-lighting owner, while
+Unlit opaque/masked and translucent surfaces compose later through retained
+forward. A contact pass after retained forward can therefore observe depth and
+HDR that no longer describe the deferred receiver stored in
+`DirectionalDirect`. It also ignores available GBuffer validity and normal
+data, while the scene-target cache permanently allocates both
+`R11G11B10_FLOAT` `DirectionalDirect` and `RGBA16_FLOAT` `ContactColor` even
+when the feature is disabled.
 
-The complete `DirectionalShadowBaselineVulkanTests` target passes, including
-the shadow-map-only baseline with contact shadows disabled. Image/motion and
-target-GPU qualification plus graybox visual confirmation remain open.
+This revision supersedes qualification of that post-scene subtraction design.
+The selected architecture computes scalar contact visibility from the current
+view's GBuffer and depth before deferred lighting, applies it only to the
+selected directional term inside deferred lighting, then records retained
+forward. Disabled or unavailable visibility is factor one. After parity is
+established, production `DirectionalDirect`, post-scene contact composition,
+and the permanent `ContactColor` dependency are removed.
 
-The activation evidence is recorded: after the texel/orientation bias reduction,
-the graybox feet-contact fixture still shows short-range contact loss caused by
-the remaining necessary bias, with valid geometry and near-field cascade
-resolution ruled out. Scene depth is written by the Scene Color pass and is
-available for a bounded screen-space supplement.
-
-### Stage 0 frozen contract
-
-- Depth read: `SceneDepth` (D32, single-sampled, no resolve) gains
-  `ETextureCreateFlags::ShaderResource` and is sampled through a non-comparison
-  linear sampler as `Texture2D<float>` (`.r`), matching the existing
-  depth-as-resource precedent.
-- Ray march: exactly 16 fixed midpoint samples toward the selected directional
-  light over a 0.20-world-unit maximum distance, with a 0.01-world-unit start,
-  0.012-world-unit hit thickness, and 48-pixel maximum displacement. World
-  distance fades the contribution, and the final 25% of the screen-distance
-  budget fades before termination. Rays stop when they leave the viewport.
-  Fixed start bias and finite thickness are the only self-hit controls; there
-  is no adaptive step growth, neighboring-depth plane classification, endpoint
-  contraction, viewport-edge mask, or binary refinement.
-- Occlusion test: exact point texel loads, convention-aware device-depth
-  ordering, and a finite reconstructed world-space separation. Filtered depth
-  and unbounded foreground-depth matches are invalid because both create
-  silhouette halos.
-- Insertion point: a dedicated full-screen pass after Scene Color and before
-  Post Process, writing a new `ContactColor` ping-pong target in
-  `FSceneTargets`; Post Process reads `ContactColor` when enabled and
-  `SceneColor` otherwise.
-- Fallback: missing depth/light/matrix/resource or a failed inverse skips the
-  pass and leaves Scene Color byte-identical to the no-contact-shadow path.
-- Lighting composition: Scene Color writes a second R11G11B10 target containing
-  only the selected directional direct term after shadow-map attenuation. The
-  contact pass subtracts only the occluded portion of that target, leaving
-  environment, local, emissive, Unlit, and already-shadowed output unchanged.
-- The shader has a fixed worst-case budget of 16 marched depth queries per lit
-  receiver pixel; pass time and target-GPU acceptance remain open for Stage 3.
+Single-layer screen-space limitations remain explicit: off-screen casters,
+hidden depth layers, and authored geometry gaps cannot be recovered by this
+technique. The plan improves ownership, silhouette rejection, scale behavior,
+memory, and bandwidth without claiming otherwise.
 
 ## Goal
 
-Recover short-range contact between shadow casters and receivers in the near
-field where the necessary directional bias detaches the shadow, using a bounded
-screen-space ray march against scene depth. The result supplements the existing
-cascaded directional result (it only removes light in the contact region) and
-degrades to the unchanged shadow-map output whenever depth, light, or matrices
-are unavailable.
+Make directional contact shadowing a bounded, optional deferred visibility
+term for standard-Lit opaque/masked receivers. Use current-view GBuffer data to
+reduce invalid receiver and depth-discontinuity hits, preserve the directional
+and cascade-shadow contracts, remove post-scene HDR subtraction, and eliminate
+its permanent intermediates while meeting explicit image, motion, failure,
+memory, and RTX 3090 performance gates.
 
 ## Scope
 
-- One screen-space pass per supported view that reads the Scene Color pass's
-  depth, reconstructs world position, and marches toward the selected
-  directional light to detect contact occlusion.
-- Attenuates only the selected directional direct-lighting term, mirroring the
-  existing shadow helper's receiver set (Opaque and Masked).
-- A bounded maximum world and screen distance so the supplement stays in the
-  near field and never generalizes into a second shadow system.
-- An explicit failure fallback (missing depth/light/matrix, invalid
-  reconstruction, or resource failure) that leaves Scene Color unchanged.
-- Development-only diagnostic and counters that separate contact-shadow
-  contribution from the shadow-map result and from a real geometry gap.
+- Produce scalar contact visibility for valid standard-Lit GBuffer receivers
+  from current-view depth, normal, matrices, and selected light direction.
+- Record visibility after complete GBuffer production and before deferred
+  lighting; consume it before retained-forward composition.
+- Multiply only the selected directional contribution by contact visibility
+  after cascade attenuation. Preserve local, environment, emissive, Unlit,
+  translucent, and already-shadowed contributions.
+- Preserve a short bounded trace, exact point-depth reads, explicit world- and
+  screen-distance limits, opt-in default, contribution diagnostics, and
+  conservative factor-one fallback.
+- Select a bounded receiver bias/thickness formula using receiver normal,
+  light angle, depth, and pixel footprint only if captured evidence beats the
+  fixed baseline.
+- Allocate visibility only for an enabled or diagnostic view and bind a
+  complete factor-one fallback otherwise.
+- Remove production `DirectionalDirect`, post-scene contact composition, and
+  permanent `ContactColor` after deferred parity is proven.
+- Give GBuffer diagnostics a separately owned on-demand output instead of
+  retaining `ContactColor` as unrelated scratch storage.
+- Preserve current-view isolation for main, auxiliary, preview, thumbnail,
+  Present, and offscreen rendering and renderer resource generations.
 
 ## Non-Goals
 
-- Representing off-screen casters or repairing authored geometry gaps.
-- Replacing, widening, or re-biasing the cascaded directional shadow map.
-- Variable-penumbra softness, temporal history, stochastic kernels, or moment
-  representations.
-- Contact shadows for local (point/spot) lights.
-- A persistent project-wide graphics-settings UX before the budget and
-  artifacts are qualified; the editor viewport's local development toggle and
-  diagnostic remain in scope.
+- Representing off-screen casters, hidden depth layers, or repairing authored
+  geometry gaps.
+- Changing cascade selection, bias, filtering, transitions, or diagnostics.
+- Contact shadows for point, spot, translucent, Unlit, or special-forward
+  surfaces.
+- Variable-penumbra softness, stochastic or ray-traced shadows, or a second
+  general shadow system.
+- Adding motion vectors, temporal history, HZB, asynchronous compute, a render
+  graph, or transient-allocation infrastructure solely for this feature.
+- Enabling contact shadows by default before target-GPU and motion gates pass.
+- Restoring rejected neighboring-depth plane reconstruction, adaptive 24-64
+  steps, endpoint contraction, edge heuristics, or binary refinement without
+  new activation evidence.
 
 ## Design Decisions and Invariants
 
-- Correctness before softness: the pass only darkens (adds occlusion); it never
-  removes the shadow map's attenuation, so a defect cannot brighten an
-  otherwise shadowed surface.
-- Supplements the near field only. The maximum ray distance is a frozen
-  world-space bound and a screen-space bound; beyond it the supplement outputs
-  no occlusion. It must not become a general soft-shadow feature.
-- Conservative failure. Missing, invalid, or failed depth/light/matrix/resource
-  state skips the pass and leaves the existing directional result unchanged; no
-  whole-device wait, no global mutable state, and no new descriptor that can
-  fail the Scene Color pass.
-- Reuses the same prepared directional light direction and the same view
-  matrices as the shadow map; it does not introduce an independent light
-  selection.
-- Screen-space ray marching samples scene depth only. It cannot see casters
-  outside the depth buffer, so the plan owns explicit distance bounds and treats
-  depth discontinuities as a documented limitation rather than repairing them.
-- Ownership, thread, and lifetime follow the existing private feature-owner
-  pattern (`FScreenSpaceContactShadowRenderer` owned by `FSceneRenderer`),
-  render-thread-only, per-view, with existing resource-coordinator lifetime.
+### Deferred visibility ownership
+
+The production Lit solid sequence becomes:
+
+```text
+GBuffer + D32
+  -> optional directional contact visibility
+  -> SkyBox/clear HDR bootstrap
+  -> deferred lighting with cascade visibility * contact visibility
+  -> retained-forward Unlit opaque/masked + sorted translucent
+  -> display and editor assistance
+```
+
+Visibility is `1.0` for unoccluded or unavailable and approaches `0.0` only
+for a qualified short-range hit. The pass reads or writes no Scene Color.
+Only `GBufferStandardLitFlag` pixels are receivers. GBuffer normal and light
+direction may reject or fade invalid backfacing and grazing cases, but contact
+visibility may never brighten a cascade-shadowed result:
+
+```text
+finalDirectionalVisibility = cascadeVisibility * contactVisibility
+```
+
+### Visibility resource and fallback
+
+The selected representation is a single-channel normalized target, preferably
+`R8_UNORM`. Stage 0 must confirm Vulkan render-target and sampled-texture
+support; `R16_FLOAT` is the recorded fallback if R8 fails layout or precision
+tests. The texture is scoped to one extent and resource generation and is
+resolved only for enabled or diagnostic views.
+
+A disabled feature, invalid light or matrix, missing target, shader/pipeline
+failure, or failed contact pass binds a complete white fallback and continues
+the same deferred path. Failure may increment a counter but may not fail the
+view, expose a partial target, change lighting owner, reuse another view's
+visibility, or rerender through forward.
+
+### Trace and receiver classification
+
+Exact texel `Load`, convention-aware device-depth ordering, finite world
+separation, a 16-step upper bound, 0.20-world-unit maximum extent, and 48-pixel
+maximum displacement remain the comparison baseline. Linear depth filtering
+and unbounded one-sided depth matches remain forbidden.
+
+Stage 0 freezes one candidate formula for start offset, thickness, and
+grazing-angle fade from near/far, orthographic/perspective, scale, and
+silhouette captures. It must have explicit minima and maxima, remain within
+the existing trace bounds, and not invent a receiver plane from neighboring
+depth. If every artifact gate is not equal or better, fixed constants remain.
+
+### Target and layout retirement
+
+Once deferred lighting consumes visibility, `DirectionalDirect` has no
+production consumer. Its MRT shader output, scene-target allocation,
+bootstrap/retained layouts, and attachment ABI are removed only after an
+intermediate parity gate. The post-scene renderer and production
+`ContactColor` are then removed. Diagnostics receive a separately named,
+on-demand target and cannot keep production intermediates alive.
+
+### Ordering, thread, and lifetime
+
+`FSceneRenderer` coordinates the feature on the render thread. Visibility is
+produced and consumed within one current-view command; resource cache entries
+follow device, shader, retry, release, and extent generations. Constrained
+views reuse deferred lighting's absolute attachment coordinates and
+viewport-local reconstruction. No view may sample prior-view depth, normal,
+visibility, matrices, or extent.
 
 ## Current Foundations and Gaps
 
-| Area | Existing foundation | Gap |
+| Area | Current foundation | Refactor gap |
 | --- | --- | --- |
-| Depth | Scene Color writes `SceneDepth` (D32, depth-stencil targetable) with the view's depth convention. | The depth texture is created without `ETextureCreateFlags::ShaderResource`, so it cannot yet be sampled by a full-screen pass. |
-| Full-screen infra | `FPostProcessRenderer` already runs a full-screen copy/FXAA pass after Scene Color. | No full-screen pass consumes depth or a contact-shadow uniform. |
-| Light/matrices | `FPreparedDirectionalShadowView` and `RenderView` carry light direction, view/projection, and depth convention. | No inverse-view-projection/world-position reconstruction contract exists for a post-SceneColor pass. |
-| Shadow result | `EvaluateDirectionalShadow` already attenuates the selected directional term. | Contact shadow has no hook to supplement (darken) that term in the near field. |
-| Diagnostics | Q0-Q2 diagnostic modes and counters exist for the shadow map. | No contact-shadow contribution/distance/budget diagnostic exists. |
+| Receiver data | GBuffer stores material flags, normals, surface data, emissive, and D32 | Contact reads only final D32 and cannot identify the deferred receiver reliably |
+| Directional ownership | Deferred lighting owns cascade attenuation and directional BRDF | Contact later subtracts copied directional light from composed HDR |
+| Ordering | Unified scene entry owns deferred then retained-forward | Contact remains outside it after retained-forward |
+| Trace | Exact point loads and bounds prevent the worst halos | Fixed world constants are scale-sensitive; normal and pixel footprint are unused |
+| Failure | Missing contact resources preserve no-contact Scene Color | Factor-one fallback is implicit rather than a deferred input |
+| Targets | Scene targets provide HDR, D32, `DirectionalDirect`, and `ContactColor` | Two permanent color targets mainly serve an opt-in post-scene effect |
+| Diagnostics | Contribution view and enabled/failure counters exist | Rejection, distance, budget, pass-time, and on-demand-target evidence are absent |
+| Qualification | Focused darkening and Unlit tests pass | Motion, scale, silhouette, memory, and RTX 3090 gates remain open |
 
 ## Implementation Stages
 
-### Stage 0: Frozen contract and feasibility
+### Stage 0: Freeze migration evidence and the visibility contract
 
-- [x] Confirm whether `SceneDepth` becomes directly sampleable by adding
-      `ETextureCreateFlags::ShaderResource` (D32 linear read), or whether a
-      readable depth copy is required; record the selected path and its
-      transition.
-- [x] Freeze the ray-march algorithm (fixed world-space steps vs. depth
-      refinement), maximum world distance, screen distance, step count, and
-      thickness/bias values.
-- [x] Freeze the pass insertion point (a dedicated full-screen pass between
-      Scene Color and Post Process, or an input extension of
-      `FPostProcessRenderer::Draw_RenderThread`).
-- [x] Freeze the target-GPU budget (Scene Color increment) and the failure
-      fallback contract.
-- [x] Select the diagnostic mode/counter set that separates contact-shadow
-      contribution from the shadow-map result and from a geometry gap.
-
-#### Acceptance Gate
-
-- [x] Recorded decisions for algorithm, distance bounds, depth-read path,
-      insertion point, budget, and diagnostics; feasibility evidence for the
-      depth read and the no-resolve path.
-
-### Stage 1: Shader and RHI resources
-
-- [x] Add the contact-shadow Slang entry point (world-position reconstruction,
-      light-direction march, depth comparison, bounded attenuation).
-- [x] Add the full-screen vertex shader/PSO and the depth read descriptor
-      (sampled depth view + sampler).
-- [x] Pack and assert the contact-shadow uniform ABI (matrices, light
-      direction, distance bounds, thickness, viewport).
+- [ ] Capture legacy enabled/disabled outputs for near/far and scaled contact,
+      orthographic/perspective cameras, silhouettes, grazing receivers,
+      defective geometry, viewport edges, mixed retained-forward surfaces,
+      constrained viewports, and alternating extents.
+- [ ] Record legacy target bytes, pass count, worst-case query count,
+      render-thread timing, and validation-enabled RTX 3090 1920x1080 GPU
+      intervals.
+- [ ] Inventory every `DirectionalDirect`, `ContactColor`, renderer, layout,
+      shader-output, capture, test, and documentation dependency with its
+      replacement owner.
+- [ ] Confirm `R8_UNORM` target/sample support and clear/load behavior; select
+      `R16_FLOAT` only if the recorded R8 gate fails.
+- [ ] Freeze visibility semantics, white fallback, viewport mapping, optional
+      lifetime, failure counters, diagnostics, and one bounded parameter
+      formula or retain the fixed constants based on captured comparisons.
+- [ ] Freeze numeric GPU, active/retained byte, motion, and artifact thresholds
+      before changing production output.
 
 #### Acceptance Gate
 
-- [x] Shader compiles and reflection/ABI tests pass; depth read and full-screen
-      PSO are created and bound without validation errors.
+- The legacy path has reproducible image, motion, memory, pass, and target-GPU
+  evidence; every removable dependency has a disposition; one format,
+  parameter formula, failure contract, and numeric gate is selected.
 
-### Stage 2: Renderer integration and fallback
+### Stage 1: Produce GBuffer-owned contact visibility
 
-- [x] Add `FScreenSpaceContactShadowRenderer` and drive it after Scene Color
-      completes, before post process, for every supported view.
-- [x] Transition depth to shader-read, run the pass, and transition back; skip
-      cleanly on missing/invalid depth, light, or matrices.
-- [x] Ensure Unlit views match their existing references exactly.
-- [ ] Ensure disabled-shadow and resource-failure views match their existing
-      references exactly.
-
-#### Acceptance Gate
-
-- [ ] Contact shadow visibly darkens only the near-field contact region in the
-      graybox fixture; failure/disabled paths are byte-identical to the
-      no-contact-shadow reference.
-
-### Stage 3: Diagnostics, budget, and validation
-
-- [x] Add the contact-shadow contribution view, viewport control, and
-      enabled/failure counters.
-- [ ] Add marched-distance, step-budget, and pass-time evidence.
-- [ ] Record image, motion, memory, and target-GPU evidence for the selected
-      opt-in tier against the no-contact-shadow default.
-- [x] Run the required build, focused tests, Vulkan validation, and editor smoke.
+- [ ] Add a visibility shader reading current-view flags, normal, D32,
+      matrices, depth convention, viewport, and light direction without Scene
+      Color.
+- [ ] Restrict receivers to valid standard-Lit pixels and implement the frozen
+      facing, offset, thickness, distance, and fade rules.
+- [ ] Add the single-channel layout, bindings, ABI assertions, pipeline,
+      optional per-extent resource slot, and complete white fallback.
+- [ ] Rename or replace `FScreenSpaceContactShadowRenderer` so its API produces
+      visibility rather than composed HDR color.
+- [ ] Add contribution, hit-distance, receiver-rejection, and step-budget
+      diagnostics without affecting normal production output.
+- [ ] Add reflection, layout, depth-convention, viewport-origin, failure,
+      retry, release, resize, and cross-view tests.
 
 #### Acceptance Gate
 
-- [ ] Frozen image/motion/memory/GPU gates pass; valid contact is recovered
-      without new acne, shimmer, or off-screen artifacts; intentionally
-      defective geometry remains visibly distinct (not concealed).
+- Enabled views produce a bounded scalar mask only for valid deferred Lit
+  receivers; disabled and failed views resolve factor one; Vulkan validation
+  reports no layout, transition, binding, or lifetime errors.
+
+### Stage 2: Apply visibility inside deferred lighting
+
+- [ ] Extend deferred inputs with current contact visibility and enabled state.
+- [ ] Record visibility after GBuffer and before deferred lighting inside the
+      unified scene-composition workflow.
+- [ ] Multiply only the selected directional contribution after cascade
+      evaluation and before final surface composition.
+- [ ] Preserve local lights, environment, emissive, opacity, GTAO, Unlit,
+      translucency, SkyBox, diagnostics, display, FXAA, and assistance.
+- [ ] Bind factor one on contact failure and continue the same deferred view
+      without partial output or route change.
+- [ ] Migrate focused Vulkan tests to deferred visibility ownership, including
+      mixed retained-forward scenes.
+
+#### Acceptance Gate
+
+- Contact-enabled images attenuate exactly one deferred directional term.
+  Disabled, failed, Unlit, retained-forward-only, and unrelated lighting terms
+  match frozen references, with current-view-only visibility.
+
+### Stage 3: Retire post-scene composition and intermediates
+
+- [ ] Remove `DirectionalDirect` from deferred outputs, SkyBox/bootstrap,
+      special/retained-forward layouts, shaders, scene targets, descriptors,
+      and captures.
+- [ ] Remove post-scene Scene Color and directional sampling, HDR subtraction,
+      and the production `ContactColor` ping-pong path.
+- [ ] Give diagnostics a separately named on-demand output and prove they do
+      not force production allocation.
+- [ ] Simplify post-process ownership to Scene Color except for an explicitly
+      active diagnostic result.
+- [ ] Remove obsolete pipelines, samplers, counters, tests, and documentation.
+- [ ] Prove disabled production retains neither retired target and records no
+      contact pass.
+
+#### Acceptance Gate
+
+- Production contains no `DirectionalDirect` or production `ContactColor`
+  allocation, MRT write, read, pipeline, or capture. Disabled contact adds no
+  target/pass; enabled contact adds at most one single-channel target and pass.
+
+### Stage 4: Qualify image stability, failures, and cost
+
+- [ ] Run fixed-camera comparisons across lighting, distance, scale, camera
+      type, reversed-Z bounds, silhouettes, grazing angles, edges, and defective
+      geometry.
+- [ ] Run camera/object motion sequences measuring changed pixels, mask
+      instability, halos, acne, detached contact, and bound transitions.
+- [ ] Prove off-screen and hidden-layer cases remain bounded limitations rather
+      than false coverage or unbounded darkening.
+- [ ] Inject target, shader, pipeline, uniform, light, matrix, and retry
+      failures and prove factor-one fallback and later-view recovery.
+- [ ] Run focused geometry, shadow, GBuffer, GTAO, retained-forward,
+      post-process, layout, shader, lifecycle, Present/offscreen, preview, and
+      thumbnail tests through repository workflows.
+- [ ] Run native aggregates, required build, Vulkan validation, and editor
+      smoke, then re-run the RTX 3090 fixture against Stage 0 gates.
+
+#### Acceptance Gate
+
+- Image, motion, failure, lifecycle, build, aggregate, Vulkan, memory, and RTX
+  3090 gates pass without new acne, halos, retained-forward corruption,
+  cross-view reuse, or concealment of real geometry defects.
+
+### Stage 5: Publish the deferred contact contract
+
+- [ ] Update directional-shadow, deferred, GBuffer, forward, HDR/display, and
+      viewport contracts with lasting ownership, ordering, fallback, format,
+      memory, diagnostics, and limitations.
+- [ ] Record final target removal, metrics, bytes, GPU intervals, and validation
+      evidence in Current Status.
+- [ ] Remove superseded post-scene language and align the hybrid roadmap with
+      the implemented Runtime contract.
+- [ ] Run changed-document and all-plan validation and complete this plan only
+      after every gate passes.
+
+#### Acceptance Gate
+
+- Runtime documentation is authoritative, no active document presents the
+  retired subtraction path as production, validators pass, and final evidence
+  is reproducible.
 
 ## Validation Matrix
 
-| Contract | Required stages | Validation outcome |
-| --- | --- | --- |
-| Contact recovery | 2-3 | Fixed-camera and motion captures show near-field contact restored without over-darkening beyond the bounded distance. |
-| No-replace | 2-3 | The cascaded shadow-map result is unchanged outside the contact bound; the pass only adds occlusion. |
-| Off-screen limit | 2-3 | Off-screen or depth-discontinuity casters do not produce false contact; distance bounds hold. |
-| Failure fallback | 2-3 | Disabled shadow, Unlit, missing depth, and injected resource failure are byte-identical to the no-contact-shadow reference. |
-| Geometry gap | 3 | Intentionally defective modular seams remain visibly distinct; the supplement does not hide real gaps. |
-| View isolation | 2-3 | Main/auxiliary/preview/offscreen sequences cannot consume another view's depth, matrix, or contact-shadow state. |
-| Memory and performance | 3 | Pass time, samples, and enabled-minus-disabled delta meet the frozen target-GPU budget. |
-| Build and handoff | 3 | Follow repository build/test guidance; required builds, focused tests, Vulkan validation, and editor smoke pass before the opt-in tier is supported. |
+| Contract | Required evidence |
+| --- | --- |
+| Receiver ownership | Only standard-Lit opaque/masked GBuffer pixels receive contact visibility |
+| Directional composition | Visibility changes only selected directional light after cascade attenuation |
+| Bounds and artifacts | Distance, scale, silhouette, grazing, edge, camera-mode, and motion fixtures meet frozen gates |
+| Disabled/failure parity | Disabled and every injected failure are byte-identical to the no-contact reference |
+| View isolation | Alternating views/extents and all output modes never reuse visibility inputs |
+| Target retirement | Production `DirectionalDirect` and `ContactColor` allocation/write/read counts are zero |
+| Diagnostics | Contribution, distance, rejection, and budget views use current-view on-demand resources |
+| Lifecycle | Resize, reload, device generation, retry, release, and shutdown preserve fallback and release resources |
+| Memory/performance | Disabled costs zero target/pass; enabled bytes and RTX 3090 intervals meet Stage 0 gates |
+| Publication | Focused/aggregate tests, build, Vulkan, smoke, Runtime docs, and document validators pass |
 
 ## Definition of Done
 
-- Stage 0-3 acceptance gates pass in an independently executable plan.
-- The opt-in tier recovers near-field detail without new acne, shimmer, or
-  off-screen artifacts, and degrades to the unchanged shadow-map output on any
-  failure; the production default remains the shadow-map-only path.
-- Diagnostics and counters distinguish contact-shadow contribution from the
-  shadow-map result and from authored geometry gaps.
-- The supplement stays within its frozen world/screen distance bounds and does
-  not become a second shadow system.
-- Lasting behavior moves to Runtime Rendering documentation; this plan no longer
-  remains the sole source for the implemented contract.
+- Directional contact shadowing is optional deferred visibility owned by valid
+  standard-Lit opaque/masked GBuffer receivers.
+- It reads no Scene Color, performs no post-scene HDR subtraction, and runs
+  before retained-forward composition.
+- Production `DirectionalDirect` and permanent `ContactColor` no longer exist;
+  disabled contact allocates no visibility resource or pass.
+- Enabled contact uses one bounded single-channel current-view mask and every
+  optional failure degrades to explicit factor one.
+- Fixed-camera, motion, silhouette, scale, failure, lifecycle, memory, and RTX
+  3090 gates pass without claiming off-screen or multilayer coverage.
+- Lasting behavior and limitations are published in Runtime documentation.
 
 ## Deferred Follow-ups
 
-- Variable-penumbra softness, temporal filtering, local-light contact shadows,
-  and hierarchical depth (HZB) acceleration remain out of scope until their own
-  activation evidence exists.
+- Motion-vector temporal filtering after a renderer-wide velocity contract.
+- HZB acceleration or half-resolution tracing after profiling proves need.
+- Local-light contact shadows after separate shadow ownership and activation.
+- Multi-layer or ray-traced visibility for off-screen and hidden casters.
+- Variable penumbra or stochastic sampling under a qualified quality tier.
 
 ## Related Documentation
 
-- [Shadow System Evolution Roadmap](../Roadmaps/Archive/2026-08/ShadowSystemEvolution.md)
+- [Hybrid Deferred Rendering Roadmap](../Roadmaps/HybridDeferredRendering.md)
 - [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md)
+- [Deferred Directional Lighting](../Runtime/Rendering/DeferredDirectionalLighting.md)
+- [Minimal GBuffer Contract](../Runtime/Rendering/GBuffer.md)
+- [Forward Lighting](../Runtime/Rendering/ForwardLighting.md)
+- [HDR Scene Color and Display Mapping](../Runtime/Rendering/HDRSceneColorAndDisplayMapping.md)
 - [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
+- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../Agents/Testing.md)
 
 ## Related Code
 
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.h`
-- `Engine/Source/Runtime/Renderer/Private/Renderers/PostProcessRenderer.h`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/ContactShadowRenderer.cpp`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/ContactShadowRenderer.h`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/DeferredDirectionalLightingRenderer.cpp`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/DeferredDirectionalLightingRenderer.h`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/PostProcessRenderer.cpp`
-- `Engine/Source/Runtime/Renderer/Private/Renderers/RenderTargetLayouts.cpp`
-- `Engine/Source/Runtime/Renderer/Private/Renderers/ForwardLighting.h`
-- `Engine/Source/Runtime/Renderer/Private/Renderers/ForwardLighting.cpp`
-- `Engine/Source/Runtime/Renderer/Private/Renderers/DirectionalShadowView.h`
-- `Engine/Source/Runtime/Renderer/Private/Renderers/DirectionalShadowView.cpp`
-- `Engine/Source/Runtime/Renderer/Private/Renderers/PreparedSceneView.h`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/PostProcessRenderer.h`
+- `Engine/Source/Runtime/Renderer/Private/Resources/RenderTargetLayouts.cpp`
+- `Engine/Source/Runtime/Renderer/Private/Resources/RenderTargetLayouts.h`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/SceneVisibility.h`
 - `Engine/Source/Runtime/RenderCore/Public/SceneView.h`
-- `Engine/Shaders/Slang/Lighting/DirectionalShadow.slang`
+- `Engine/Shaders/Slang/ContactShadow.slang`
+- `Engine/Shaders/Slang/DeferredDirectionalLighting.slang`
+- `Engine/Shaders/Slang/Material/GBufferDecode.slang`
+- `Engine/Tests/Native/EngineTests/Private/DirectionalShadowBaselineVulkanTests.cpp`
+- `Engine/Tests/Native/EngineTests/Private/EditorGridVulkanTests.cpp`
+- `Engine/Tests/Native/EngineTests/Private/GBufferQualificationTests.cpp`
+- `Engine/Tests/Native/EngineTests/Private/RendererRenderTargetLayoutTests.cpp`
+- `Engine/Tests/Native/RenderCoreTests/Private/ShaderReflectionTests.cpp`
