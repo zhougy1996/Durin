@@ -17,14 +17,10 @@ namespace Durin
 
 		ASSERT_TRUE(Layout.IsValid());
 		ASSERT_EQ(Layout.NumColorRenderTargets, 2u);
-		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.Format,
-			EPixelFormat::RGBA16_FLOAT);
-		EXPECT_EQ(Layout.ColorAttachments[1].RenderTarget.Format,
-			EPixelFormat::R11G11B10_FLOAT);
-		EXPECT_EQ(Layout.ColorAttachments[1].RenderTarget.FinalLayout,
-			ERHITextureLayout::ShaderReadOnly);
-		EXPECT_EQ(Layout.ColorAttachments[1].RenderTarget.FinalAccess,
-			ERHIAccess::GraphicsShaderRead);
+		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.Format, EPixelFormat::RGBA16_FLOAT);
+		EXPECT_EQ(Layout.ColorAttachments[1].RenderTarget.Format, EPixelFormat::R11G11B10_FLOAT);
+		EXPECT_EQ(Layout.ColorAttachments[1].RenderTarget.FinalLayout, ERHITextureLayout::ShaderReadOnly);
+		EXPECT_EQ(Layout.ColorAttachments[1].RenderTarget.FinalAccess, ERHIAccess::GraphicsShaderRead);
 		ASSERT_TRUE(Layout.bHasDepthStencil);
 		EXPECT_EQ(Layout.DepthStencilAttachment.Format, EPixelFormat::D32);
 		EXPECT_EQ(Layout.DepthStencilAttachment.LoadAction, ERHIRenderTargetLoadAction::Clear);
@@ -38,55 +34,36 @@ namespace Durin
 		const FRHIRenderTargetLayout Layout = MakeContactShadowOutput();
 		ASSERT_TRUE(Layout.IsValid());
 		ASSERT_EQ(Layout.NumColorRenderTargets, 1u);
-		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.Format,
-			EPixelFormat::RGBA16_FLOAT);
-		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.FinalLayout,
-			ERHITextureLayout::ShaderReadOnly);
-		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.FinalAccess,
-			ERHIAccess::GraphicsShaderRead);
+		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.Format, EPixelFormat::RGBA16_FLOAT);
+		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.FinalLayout, ERHITextureLayout::ShaderReadOnly);
+		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.FinalAccess, ERHIAccess::GraphicsShaderRead);
 	}
 
-	TEST(FRendererRenderTargetLayoutTests,
-		GBufferTargetsFreezeFormatsStatesAndByteBudget)
+	TEST(FRendererRenderTargetLayoutTests, GBufferTargetsFreezeFormatsStatesAndByteBudget)
 	{
 		const FRHIRenderTargetLayout Layout = MakeGBufferTargets();
 		ASSERT_TRUE(Layout.IsValid());
 		ASSERT_EQ(Layout.NumColorRenderTargets, 4u);
 		for (uint32 Index = 0; Index < 3; ++Index)
 		{
-			EXPECT_EQ(Layout.ColorAttachments[Index].RenderTarget.Format,
-				EPixelFormat::RGBA8_UNORM);
-			EXPECT_EQ(Layout.ColorAttachments[Index].RenderTarget.LoadAction,
-				ERHIRenderTargetLoadAction::Clear);
-			EXPECT_EQ(Layout.ColorAttachments[Index].RenderTarget.StoreAction,
-				ERHIRenderTargetStoreAction::Store);
-			EXPECT_EQ(Layout.ColorAttachments[Index].RenderTarget.FinalLayout,
-				ERHITextureLayout::ShaderReadOnly);
-			EXPECT_EQ(Layout.ColorAttachments[Index].RenderTarget.FinalAccess,
-				ERHIAccess::GraphicsShaderRead);
+			EXPECT_EQ(Layout.ColorAttachments[Index].RenderTarget.Format, EPixelFormat::RGBA8_UNORM);
+			EXPECT_EQ(Layout.ColorAttachments[Index].RenderTarget.LoadAction, ERHIRenderTargetLoadAction::Clear);
+			EXPECT_EQ(Layout.ColorAttachments[Index].RenderTarget.StoreAction, ERHIRenderTargetStoreAction::Store);
+			EXPECT_EQ(Layout.ColorAttachments[Index].RenderTarget.FinalLayout, ERHITextureLayout::ShaderReadOnly);
+			EXPECT_EQ(Layout.ColorAttachments[Index].RenderTarget.FinalAccess, ERHIAccess::GraphicsShaderRead);
 		}
-		EXPECT_EQ(Layout.ColorAttachments[3].RenderTarget.Format,
-			EPixelFormat::R11G11B10_FLOAT);
+		EXPECT_EQ(Layout.ColorAttachments[3].RenderTarget.Format, EPixelFormat::R11G11B10_FLOAT);
 		ASSERT_TRUE(Layout.bHasDepthStencil);
 		EXPECT_EQ(Layout.DepthStencilAttachment.Format, EPixelFormat::D32);
-		EXPECT_EQ(Layout.DepthStencilAttachment.StoreAction,
-			ERHIRenderTargetStoreAction::Store);
-		EXPECT_EQ(Layout.DepthStencilAttachment.FinalLayout,
-			ERHITextureLayout::ShaderReadOnly);
-		EXPECT_EQ(Layout.DepthStencilAttachment.FinalAccess,
-			ERHIAccess::GraphicsShaderRead);
+		EXPECT_EQ(Layout.DepthStencilAttachment.StoreAction, ERHIRenderTargetStoreAction::Store);
+		EXPECT_EQ(Layout.DepthStencilAttachment.FinalLayout, ERHITextureLayout::ShaderReadOnly);
+		EXPECT_EQ(Layout.DepthStencilAttachment.FinalAccess, ERHIAccess::GraphicsShaderRead);
 
 		EXPECT_EQ(FGBufferRenderer::BytesPerPixel, 16u);
-		EXPECT_EQ(FGBufferRenderer::CalculateTargetBytes(1920, 1080),
-			33'177'600u);
-		EXPECT_GE(FGBufferRenderer::MaximumRetainedBytes,
-			4u * FGBufferRenderer::CalculateTargetBytes(1920, 1080));
-		EXPECT_LT(FGBufferRenderer::MaximumRetainedBytes,
-			5u * FGBufferRenderer::CalculateTargetBytes(1920, 1080));
-		EXPECT_EQ(FGBufferRenderer::CalculateTargetBytes(
-				std::numeric_limits<uint32>::max(),
-				std::numeric_limits<uint32>::max()),
-			std::numeric_limits<uint64>::max());
+		EXPECT_EQ(FGBufferRenderer::CalculateTargetBytes(1920, 1080), 33'177'600u);
+		EXPECT_GE(FGBufferRenderer::MaximumRetainedBytes, 4u * FGBufferRenderer::CalculateTargetBytes(1920, 1080));
+		EXPECT_LT(FGBufferRenderer::MaximumRetainedBytes, 5u * FGBufferRenderer::CalculateTargetBytes(1920, 1080));
+		EXPECT_EQ(FGBufferRenderer::CalculateTargetBytes(std::numeric_limits<uint32>::max(), std::numeric_limits<uint32>::max()), std::numeric_limits<uint64>::max());
 	}
 
 	TEST(FRendererRenderTargetLayoutTests, SceneTargetByteBudgetIsFormatAware)
@@ -94,22 +71,26 @@ namespace Durin
 		EXPECT_EQ(FPostProcessRenderer::SceneTargetBytesPerPixel, 24u);
 		EXPECT_EQ(
 			FPostProcessRenderer::CalculateSceneTargetBytes(1920, 1080),
-			49'766'400u);
+			49'766'400u
+		);
 		EXPECT_GE(
 			FPostProcessRenderer::MaximumRetainedSceneTargetBytes,
-			4u * FPostProcessRenderer::CalculateSceneTargetBytes(1920, 1080));
+			4u * FPostProcessRenderer::CalculateSceneTargetBytes(1920, 1080)
+		);
 		EXPECT_LT(
 			FPostProcessRenderer::MaximumRetainedSceneTargetBytes,
-			5u * FPostProcessRenderer::CalculateSceneTargetBytes(1920, 1080));
+			5u * FPostProcessRenderer::CalculateSceneTargetBytes(1920, 1080)
+		);
 		EXPECT_EQ(
 			FPostProcessRenderer::CalculateSceneTargetBytes(
 				std::numeric_limits<uint32>::max(),
-				std::numeric_limits<uint32>::max()),
-			std::numeric_limits<uint64>::max());
+				std::numeric_limits<uint32>::max()
+			),
+			std::numeric_limits<uint64>::max()
+		);
 	}
 
-	TEST(FRendererRenderTargetLayoutTests,
-		DeferredDirectionalTargetFreezesLayoutUniformAndByteBudget)
+	TEST(FRendererRenderTargetLayoutTests, DeferredDirectionalTargetFreezesLayoutUniformAndByteBudget)
 	{
 		const FRHIRenderTargetLayout Layout =
 			MakeDeferredDirectionalOutput();
@@ -123,22 +104,36 @@ namespace Durin
 		EXPECT_EQ(Color.StoreAction, ERHIRenderTargetStoreAction::Store);
 		EXPECT_EQ(Color.FinalLayout, ERHITextureLayout::ShaderReadOnly);
 		EXPECT_EQ(Color.FinalAccess, ERHIAccess::GraphicsShaderRead);
-		EXPECT_EQ(sizeof(FDeferredDirectionalLightingRenderer::FViewUniform),
-			160u);
+		EXPECT_EQ(sizeof(FDeferredDirectionalLightingRenderer::FViewUniform), 160u);
 		EXPECT_EQ(FDeferredDirectionalLightingRenderer::BytesPerPixel, 8u);
-		EXPECT_EQ(FDeferredDirectionalLightingRenderer::CalculateTargetBytes(
-				1920, 1080),
-			16'588'800u);
-		EXPECT_GE(FDeferredDirectionalLightingRenderer::MaximumRetainedBytes,
-			4u * FDeferredDirectionalLightingRenderer::CalculateTargetBytes(
-				1920, 1080));
-		EXPECT_LT(FDeferredDirectionalLightingRenderer::MaximumRetainedBytes,
-			5u * FDeferredDirectionalLightingRenderer::CalculateTargetBytes(
-				1920, 1080));
-		EXPECT_EQ(FDeferredDirectionalLightingRenderer::CalculateTargetBytes(
-				std::numeric_limits<uint32>::max(),
-				std::numeric_limits<uint32>::max()),
-			std::numeric_limits<uint64>::max());
+		EXPECT_EQ(FDeferredDirectionalLightingRenderer::CalculateTargetBytes(1920, 1080), 16'588'800u);
+		EXPECT_GE(FDeferredDirectionalLightingRenderer::MaximumRetainedBytes, 4u * FDeferredDirectionalLightingRenderer::CalculateTargetBytes(1920, 1080));
+		EXPECT_LT(FDeferredDirectionalLightingRenderer::MaximumRetainedBytes, 5u * FDeferredDirectionalLightingRenderer::CalculateTargetBytes(1920, 1080));
+		EXPECT_EQ(FDeferredDirectionalLightingRenderer::CalculateTargetBytes(std::numeric_limits<uint32>::max(), std::numeric_limits<uint32>::max()), std::numeric_limits<uint64>::max());
+	}
+
+	TEST(FRendererRenderTargetLayoutTests, HybridProductionLayoutsPreserveGBufferDepthAndLoadSceneColor)
+	{
+		const FRHIRenderTargetLayout Bootstrap = MakeHybridSceneBootstrap();
+		const FRHIRenderTargetLayout Deferred = MakeHybridDeferredOutput();
+		const FRHIRenderTargetLayout Retained = MakeHybridRetainedForward();
+		ASSERT_TRUE(Bootstrap.IsValid());
+		ASSERT_TRUE(Deferred.IsValid());
+		ASSERT_TRUE(Retained.IsValid());
+		EXPECT_EQ(Bootstrap.NumColorRenderTargets, 2u);
+		EXPECT_EQ(Bootstrap.ColorAttachments[0].RenderTarget.LoadAction, ERHIRenderTargetLoadAction::Clear);
+		EXPECT_TRUE(Bootstrap.bHasDepthStencil);
+		EXPECT_EQ(Bootstrap.DepthStencilAttachment.LoadAction, ERHIRenderTargetLoadAction::Load);
+		EXPECT_EQ(Bootstrap.DepthStencilAttachment.FinalLayout, ERHITextureLayout::ShaderReadOnly);
+		EXPECT_EQ(Deferred.NumColorRenderTargets, 2u);
+		EXPECT_FALSE(Deferred.bHasDepthStencil);
+		for (uint32 Index = 0; Index < 2; ++Index)
+			EXPECT_EQ(Deferred.ColorAttachments[Index].RenderTarget.LoadAction, ERHIRenderTargetLoadAction::Load);
+		EXPECT_TRUE(Retained.bHasDepthStencil);
+		EXPECT_EQ(Retained.DepthStencilAttachment.LoadAction, ERHIRenderTargetLoadAction::Load);
+		EXPECT_EQ(Retained.DepthStencilAttachment.FinalLayout, ERHITextureLayout::DepthStencilAttachment);
+		EXPECT_EQ(Retained.DepthStencilAttachment.FinalAccess, ERHIAccess::DepthStencilReadWrite);
+		EXPECT_EQ(Retained.ColorAttachments[0].RenderTarget.FinalLayout, ERHITextureLayout::ShaderReadOnly);
 	}
 
 	TEST(FRendererRenderTargetLayoutTests, ScenePostProcessLeavesColorReadyForEditorAssistance)
@@ -152,8 +147,7 @@ namespace Durin
 		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.FinalAccess, ERHIAccess::ColorAttachmentReadWrite);
 	}
 
-	TEST(FRendererRenderTargetLayoutTests,
-		DirectionalShadowDepthPublishesStoredD32ForFragmentSampling)
+	TEST(FRendererRenderTargetLayoutTests, DirectionalShadowDepthPublishesStoredD32ForFragmentSampling)
 	{
 		const FRHIRenderTargetLayout Layout = MakeDirectionalShadowDepth();
 		EXPECT_EQ(Layout.NumColorRenderTargets, 0u);
@@ -175,14 +169,10 @@ namespace Durin
 		const FRHIRenderTargetLayout Present =
 			MakeFinalScenePostProcessOutput(EViewportOutput::Present);
 
-		EXPECT_EQ(Offscreen.ColorAttachments[0].RenderTarget.FinalLayout,
-			ERHITextureLayout::ShaderReadOnly);
-		EXPECT_EQ(Offscreen.ColorAttachments[0].RenderTarget.FinalAccess,
-			ERHIAccess::GraphicsShaderRead);
-		EXPECT_EQ(Present.ColorAttachments[0].RenderTarget.FinalLayout,
-			ERHITextureLayout::Present);
-		EXPECT_EQ(Present.ColorAttachments[0].RenderTarget.FinalAccess,
-			ERHIAccess::Present);
+		EXPECT_EQ(Offscreen.ColorAttachments[0].RenderTarget.FinalLayout, ERHITextureLayout::ShaderReadOnly);
+		EXPECT_EQ(Offscreen.ColorAttachments[0].RenderTarget.FinalAccess, ERHIAccess::GraphicsShaderRead);
+		EXPECT_EQ(Present.ColorAttachments[0].RenderTarget.FinalLayout, ERHITextureLayout::Present);
+		EXPECT_EQ(Present.ColorAttachments[0].RenderTarget.FinalAccess, ERHIAccess::Present);
 	}
 
 	TEST(FRendererRenderTargetLayoutTests, EditorAssistanceOutputLoadsPreservedColorAndDepth)

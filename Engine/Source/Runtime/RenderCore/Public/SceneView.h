@@ -140,11 +140,19 @@ namespace Durin
 		Disabled,
 		DecodedMaterial,
 		Directional,
+		Local,
 		Environment,
 		Emissive,
 		Alpha,
 		Final,
 		Count,
+	};
+
+	enum class EHybridOpaqueRoute : uint8
+	{
+		ForwardReference,
+		DeferredWithForwardFallback,
+		DeferredRequired,
 	};
 
 	// Carries optional value-owned content overrides for one renderer submission.
@@ -155,11 +163,16 @@ namespace Durin
 		// minimal GBuffer before the unchanged forward scene pass.
 		bool bEnableGBufferQualification = false;
 		EGBufferDebugMode GBufferDebugMode = EGBufferDebugMode::Disabled;
-		// Development-only M3 route. Produces an isolated deferred directional,
-		// shadow, environment, and emissive result before unchanged forward Scene Color.
+		// Development-only M3/M4 route. Produces an isolated deferred directional,
+		// local, shadow, environment, and emissive result before unchanged forward
+		// Scene Color.
 		bool bEnableDeferredDirectionalQualification = false;
 		EDeferredDirectionalDebugMode DeferredDirectionalDebugMode =
 			EDeferredDirectionalDebugMode::Disabled;
+		// Explicit route for tests and product callers. Product entry points select
+		// DeferredRequired; the value default remains the test-only A/B reference.
+		EHybridOpaqueRoute HybridOpaqueRoute =
+			EHybridOpaqueRoute::ForwardReference;
 	};
 
 	// Identifies a procedural editor-assistance shape rendered over a scene view.
@@ -254,4 +267,4 @@ namespace Durin
 		std::vector<FViewOverlayLine> OverlayLines;
 		std::vector<FViewOverlayIcon> OverlayIcons;
 	};
-}
+} // namespace Durin

@@ -37,16 +37,17 @@ namespace Durin
 		FSceneRenderer(const FSceneRenderer&) = delete;
 		auto operator=(const FSceneRenderer&) -> FSceneRenderer& = delete;
 
-		auto Start(FConsoleCommandRegistry& Registry,
-			FModuleOwnedCallbackGate OwnerGate = {}) -> bool;
+		auto Start(FConsoleCommandRegistry& Registry, FModuleOwnedCallbackGate OwnerGate = {}) -> bool;
 		auto Stop() -> void;
 		auto InitializeStartupResources_RenderThread(
-			FRHICommandListImmediate& CommandList) -> void;
+			FRHICommandListImmediate& CommandList
+		) -> void;
 		auto ReleaseResources_RenderThread() -> void;
 		RENDERER_API static auto FitViewToOutput(
 			const FSceneView& View,
 			uint32 Width,
-			uint32 Height) -> FSceneView;
+			uint32 Height
+		) -> FSceneView;
 		auto RenderView_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			FScene* Scene,
@@ -54,7 +55,8 @@ namespace Durin
 			FRHITexture* OutputTarget,
 			bool bPresentOutput,
 			const FSceneViewRenderOptions& Options,
-			FSceneViewStatistics* OutStatistics) -> ERenderViewResult;
+			FSceneViewStatistics* OutStatistics
+		) -> ERenderViewResult;
 
 		auto GetResourceCoordinator() -> FRendererResourceCoordinator&
 		{
@@ -68,14 +70,26 @@ namespace Durin
 
 	private:
 		auto EnqueueResourceInvalidation(
-			ERendererResourceInvalidationCause Cause) -> void;
+			ERendererResourceInvalidationCause Cause
+		) -> void;
 		auto ApplyResourceInvalidation_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			ERendererResourceInvalidationCause Cause) -> void;
+			ERendererResourceInvalidationCause Cause
+		) -> void;
 		auto RenderScene_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			struct FPreparedSceneView& PreparedView,
-			FRHITexture* RenderTarget) -> bool;
+			FRHITexture* RenderTarget
+		) -> bool;
+		auto RenderHybridScene_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			struct FPreparedSceneView& PreparedView,
+			FRHITexture* SceneColor,
+			FRHITexture* DirectionalDirect,
+			FRHITexture* Depth,
+			const FDeferredDirectionalLightingRenderer::FRenderParameters&
+				DeferredParameters
+		) -> bool;
 
 		FRendererResourceCoordinator Coordinator;
 		FDefaultTextureResources DefaultTextures;

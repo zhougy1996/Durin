@@ -365,7 +365,9 @@ namespace Durin::Editor
 		IScene* Scene = Impl->PreviewScene->GetRenderScene();
 		FTextureRHIRef RenderTarget = Impl->RenderTarget;
 		const FSceneView View = Impl->View;
-		const FSceneViewRenderOptions Options{.Environment = Impl->Environment};
+		const FSceneViewRenderOptions Options{
+			.Environment = Impl->Environment,
+			.HybridOpaqueRoute = EHybridOpaqueRoute::DeferredRequired};
 		ENQUEUE_RENDER_COMMAND(RenderAssetThumbnailPreview)(
 			[Capture, Generation, Renderer, Scene, RenderTarget, View, Options](
 				FRHICommandListImmediate& CommandList) {

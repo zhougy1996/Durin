@@ -205,8 +205,11 @@ namespace Durin
 					ERenderViewResult Result = ERenderViewResult::RendererResourcesUnavailable;
 					if (RendererModule != nullptr)
 					{
+						const FSceneViewRenderOptions Options{
+							.HybridOpaqueRoute =
+								EHybridOpaqueRoute::DeferredRequired};
 						Result = RendererModule->RenderView(
-							CommandList, Scene, View, RenderTargetRHI, false, {},
+							CommandList, Scene, View, RenderTargetRHI, false, Options,
 							&Statistics);
 					}
 					SceneViewport->PublishRenderStatistics_RenderThread(
@@ -250,8 +253,11 @@ namespace Durin
 							ERenderViewResult Result = ERenderViewResult::RendererResourcesUnavailable;
 							if (RendererModule != nullptr)
 							{
+								const FSceneViewRenderOptions Options{
+									.HybridOpaqueRoute =
+										EHybridOpaqueRoute::DeferredRequired};
 								Result = RendererModule->RenderView(
-									CommandList, Scene, View, BackBuffer, true, {},
+									CommandList, Scene, View, BackBuffer, true, Options,
 									&Statistics);
 							}
 							SceneViewport->PublishRenderStatistics_RenderThread(

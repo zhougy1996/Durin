@@ -25,54 +25,39 @@ namespace Durin
 	class FTerrainRenderer final
 	{
 	public:
-		FTerrainRenderer(FRendererResourceCoordinator& InCoordinator,
-			FDefaultTextureResources& InDefaultTextures,
-			FEnvironmentLightingResources& InEnvironmentLighting);
+		FTerrainRenderer(FRendererResourceCoordinator& InCoordinator, FDefaultTextureResources& InDefaultTextures, FEnvironmentLightingResources& InEnvironmentLighting);
 		~FTerrainRenderer();
 
-		auto PrepareResources_RenderThread(FRHICommandListImmediate& CommandList,
-			FPreparedTerrainView& View) -> bool;
+		auto PrepareResources_RenderThread(FRHICommandListImmediate& CommandList, FPreparedTerrainView& View) -> bool;
+		auto PrepareHybridRetainedResources_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			FPreparedTerrainView& View
+		) -> bool;
 		auto PrepareShadowResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			FPreparedTerrainView& View) -> bool;
+			FPreparedTerrainView& View
+		) -> bool;
 		auto ExecuteShadow_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& ShadowView,
 			const FRHIUniformBufferRange& FallbackLighting,
-			FPreparedTerrainView& View) -> void;
-		auto ExecutePass_RenderThread(FRHICommandListImmediate& CommandList,
-			const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting,
-			ERenderMode RenderMode, EStaticMeshBasePass Pass,
-			FPreparedTerrainView& View) -> void;
-		auto ExecutePreparedDraw_RenderThread(FRHICommandListImmediate& CommandList,
-			const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting,
-			ERenderMode RenderMode, const FPreparedTerrainDraw& Draw,
-			FPreparedTerrainView& View) -> void;
+			FPreparedTerrainView& View
+		) -> void;
+		auto ExecutePass_RenderThread(FRHICommandListImmediate& CommandList, const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EStaticMeshBasePass Pass, FPreparedTerrainView& View) -> void;
+		auto ExecutePreparedDraw_RenderThread(FRHICommandListImmediate& CommandList, const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, const FPreparedTerrainDraw& Draw, FPreparedTerrainView& View, bool bHybridRetained = false) -> void;
 		auto FinalizeExecution_RenderThread(FPreparedTerrainView& View) -> void;
 		auto ExecuteGBuffer_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& SceneView,
 			FGBufferRenderer& GBuffer,
-			FPreparedTerrainView& View) -> void;
+			FPreparedTerrainView& View
+		) -> void;
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:
-		auto EnsureDrawResources_RenderThread(FRHICommandListImmediate& CommandList,
-			FPreparedTerrainDraw& Draw, FPreparedTerrainView& View,
-			bool bShadowDepth = false) -> bool;
-		auto Draw_RenderThread(FRHICommandListImmediate& CommandList,
-			const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting,
-			ERenderMode RenderMode, const FPreparedTerrainDraw& Draw,
-			bool bShadowDepth = false,
-			std::span<const std::array<uint32, 2>> InstanceOrigins = {},
-			uint64* OutDynamicAllocationNanoseconds = nullptr,
-			FGBufferRenderer* GBuffer = nullptr) -> bool;
-		auto DrawBatch_RenderThread(FRHICommandListImmediate& CommandList,
-			const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting,
-			ERenderMode RenderMode, const std::vector<FPreparedTerrainDraw>& Draws,
-			const FPreparedTerrainBatch& Batch, bool bShadowDepth = false,
-			uint64* OutDynamicAllocationNanoseconds = nullptr,
-			FGBufferRenderer* GBuffer = nullptr) -> bool;
+		auto EnsureDrawResources_RenderThread(FRHICommandListImmediate& CommandList, FPreparedTerrainDraw& Draw, FPreparedTerrainView& View, bool bShadowDepth = false, bool bHybridRetained = false) -> bool;
+		auto Draw_RenderThread(FRHICommandListImmediate& CommandList, const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, const FPreparedTerrainDraw& Draw, bool bShadowDepth = false, std::span<const std::array<uint32, 2>> InstanceOrigins = {}, uint64* OutDynamicAllocationNanoseconds = nullptr, FGBufferRenderer* GBuffer = nullptr, bool bHybridRetained = false) -> bool;
+		auto DrawBatch_RenderThread(FRHICommandListImmediate& CommandList, const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, const std::vector<FPreparedTerrainDraw>& Draws, const FPreparedTerrainBatch& Batch, bool bShadowDepth = false, uint64* OutDynamicAllocationNanoseconds = nullptr, FGBufferRenderer* GBuffer = nullptr) -> bool;
 		struct FState;
 		FRendererResourceCoordinator& Coordinator;
 		FDefaultTextureResources& DefaultTextures;

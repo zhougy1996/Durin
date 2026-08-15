@@ -4,8 +4,7 @@ namespace Durin::RenderTargetLayouts
 {
 	namespace
 	{
-		auto MakeColorAttachment(EPixelFormat Format, ERHIRenderTargetLoadAction LoadAction, ERHITextureLayout InitialLayout, ERHIAccess InitialAccess,
-			ERHITextureLayout FinalLayout, ERHIAccess FinalAccess) -> FRHIAttachmentLayout
+		auto MakeColorAttachment(EPixelFormat Format, ERHIRenderTargetLoadAction LoadAction, ERHITextureLayout InitialLayout, ERHIAccess InitialAccess, ERHITextureLayout FinalLayout, ERHIAccess FinalAccess) -> FRHIAttachmentLayout
 		{
 			FRHIAttachmentLayout Layout;
 			Layout.Format = Format;
@@ -34,20 +33,14 @@ namespace Durin::RenderTargetLayouts
 			FRHIAttachmentLayout Layout;
 			Layout.Format = EPixelFormat::D32;
 			Layout.LoadAction = LoadAction;
-			Layout.StoreAction = LoadAction == ERHIRenderTargetLoadAction::Load
-				? ERHIRenderTargetStoreAction::DontCare
-				: ERHIRenderTargetStoreAction::Store;
-			Layout.InitialLayout = LoadAction == ERHIRenderTargetLoadAction::Load
-				? ERHITextureLayout::DepthStencilAttachment
-				: ERHITextureLayout::Undefined;
-			Layout.InitialAccess = LoadAction == ERHIRenderTargetLoadAction::Load
-				? ERHIAccess::DepthStencilReadWrite
-				: ERHIAccess::None;
+			Layout.StoreAction = LoadAction == ERHIRenderTargetLoadAction::Load ? ERHIRenderTargetStoreAction::DontCare : ERHIRenderTargetStoreAction::Store;
+			Layout.InitialLayout = LoadAction == ERHIRenderTargetLoadAction::Load ? ERHITextureLayout::DepthStencilAttachment : ERHITextureLayout::Undefined;
+			Layout.InitialAccess = LoadAction == ERHIRenderTargetLoadAction::Load ? ERHIAccess::DepthStencilReadWrite : ERHIAccess::None;
 			Layout.FinalLayout = ERHITextureLayout::DepthStencilAttachment;
 			Layout.FinalAccess = ERHIAccess::DepthStencilReadWrite;
 			return Layout;
 		}
-	}
+	} // namespace
 
 	auto MakeSceneTargets() -> FRHIRenderTargetLayout
 	{
@@ -80,7 +73,8 @@ namespace Durin::RenderTargetLayouts
 				ERHITextureLayout::Undefined,
 				ERHIAccess::None,
 				ERHITextureLayout::ShaderReadOnly,
-				ERHIAccess::GraphicsShaderRead);
+				ERHIAccess::GraphicsShaderRead
+			);
 		}
 		Layout.ColorAttachments[3].RenderTarget = MakeColorAttachment(
 			EPixelFormat::R11G11B10_FLOAT,
@@ -88,10 +82,11 @@ namespace Durin::RenderTargetLayouts
 			ERHITextureLayout::Undefined,
 			ERHIAccess::None,
 			ERHITextureLayout::ShaderReadOnly,
-			ERHIAccess::GraphicsShaderRead);
+			ERHIAccess::GraphicsShaderRead
+		);
 		Layout.bHasDepthStencil = true;
 		Layout.DepthStencilAttachment = MakeDirectionalShadowDepth()
-			.DepthStencilAttachment;
+											.DepthStencilAttachment;
 		return Layout;
 	}
 
@@ -139,7 +134,105 @@ namespace Durin::RenderTargetLayouts
 			ERHITextureLayout::Undefined,
 			ERHIAccess::None,
 			ERHITextureLayout::ShaderReadOnly,
-			ERHIAccess::GraphicsShaderRead);
+			ERHIAccess::GraphicsShaderRead
+		);
+		return Layout;
+	}
+
+	auto MakeHybridSceneBootstrap() -> FRHIRenderTargetLayout
+	{
+		FRHIRenderTargetLayout Layout;
+		Layout.NumColorRenderTargets = 2;
+		Layout.ColorAttachments[0].RenderTarget = MakeColorAttachment(
+			EPixelFormat::RGBA16_FLOAT,
+			ERHIRenderTargetLoadAction::Clear,
+			ERHITextureLayout::Undefined,
+			ERHIAccess::None,
+			ERHITextureLayout::ColorAttachment,
+			ERHIAccess::ColorAttachmentReadWrite
+		);
+		Layout.ColorAttachments[1].RenderTarget = MakeColorAttachment(
+			EPixelFormat::R11G11B10_FLOAT,
+			ERHIRenderTargetLoadAction::Clear,
+			ERHITextureLayout::Undefined,
+			ERHIAccess::None,
+			ERHITextureLayout::ColorAttachment,
+			ERHIAccess::ColorAttachmentReadWrite
+		);
+		Layout.bHasDepthStencil = true;
+		Layout.DepthStencilAttachment.Format = EPixelFormat::D32;
+		Layout.DepthStencilAttachment.LoadAction =
+			ERHIRenderTargetLoadAction::Load;
+		Layout.DepthStencilAttachment.StoreAction =
+			ERHIRenderTargetStoreAction::Store;
+		Layout.DepthStencilAttachment.InitialLayout =
+			ERHITextureLayout::ShaderReadOnly;
+		Layout.DepthStencilAttachment.InitialAccess =
+			ERHIAccess::GraphicsShaderRead;
+		Layout.DepthStencilAttachment.FinalLayout =
+			ERHITextureLayout::ShaderReadOnly;
+		Layout.DepthStencilAttachment.FinalAccess =
+			ERHIAccess::GraphicsShaderRead;
+		return Layout;
+	}
+
+	auto MakeHybridDeferredOutput() -> FRHIRenderTargetLayout
+	{
+		FRHIRenderTargetLayout Layout;
+		Layout.NumColorRenderTargets = 2;
+		Layout.ColorAttachments[0].RenderTarget = MakeColorAttachment(
+			EPixelFormat::RGBA16_FLOAT,
+			ERHIRenderTargetLoadAction::Load,
+			ERHITextureLayout::ColorAttachment,
+			ERHIAccess::ColorAttachmentReadWrite,
+			ERHITextureLayout::ColorAttachment,
+			ERHIAccess::ColorAttachmentReadWrite
+		);
+		Layout.ColorAttachments[1].RenderTarget = MakeColorAttachment(
+			EPixelFormat::R11G11B10_FLOAT,
+			ERHIRenderTargetLoadAction::Load,
+			ERHITextureLayout::ColorAttachment,
+			ERHIAccess::ColorAttachmentReadWrite,
+			ERHITextureLayout::ColorAttachment,
+			ERHIAccess::ColorAttachmentReadWrite
+		);
+		return Layout;
+	}
+
+	auto MakeHybridRetainedForward() -> FRHIRenderTargetLayout
+	{
+		FRHIRenderTargetLayout Layout;
+		Layout.NumColorRenderTargets = 2;
+		Layout.ColorAttachments[0].RenderTarget = MakeColorAttachment(
+			EPixelFormat::RGBA16_FLOAT,
+			ERHIRenderTargetLoadAction::Load,
+			ERHITextureLayout::ColorAttachment,
+			ERHIAccess::ColorAttachmentReadWrite,
+			ERHITextureLayout::ShaderReadOnly,
+			ERHIAccess::GraphicsShaderRead
+		);
+		Layout.ColorAttachments[1].RenderTarget = MakeColorAttachment(
+			EPixelFormat::R11G11B10_FLOAT,
+			ERHIRenderTargetLoadAction::Load,
+			ERHITextureLayout::ColorAttachment,
+			ERHIAccess::ColorAttachmentReadWrite,
+			ERHITextureLayout::ShaderReadOnly,
+			ERHIAccess::GraphicsShaderRead
+		);
+		Layout.bHasDepthStencil = true;
+		Layout.DepthStencilAttachment.Format = EPixelFormat::D32;
+		Layout.DepthStencilAttachment.LoadAction =
+			ERHIRenderTargetLoadAction::Load;
+		Layout.DepthStencilAttachment.StoreAction =
+			ERHIRenderTargetStoreAction::Store;
+		Layout.DepthStencilAttachment.InitialLayout =
+			ERHITextureLayout::ShaderReadOnly;
+		Layout.DepthStencilAttachment.InitialAccess =
+			ERHIAccess::GraphicsShaderRead;
+		Layout.DepthStencilAttachment.FinalLayout =
+			ERHITextureLayout::DepthStencilAttachment;
+		Layout.DepthStencilAttachment.FinalAccess =
+			ERHIAccess::DepthStencilReadWrite;
 		return Layout;
 	}
 

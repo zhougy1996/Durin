@@ -44,7 +44,8 @@ namespace Durin
 		}
 
 		auto CapturePostProcessTiming(
-			const FGPUTimingQueryRHIRef& Query) -> void
+			const FGPUTimingQueryRHIRef& Query
+		) -> void
 		{
 			if (GPostProcessTimingQueries != nullptr)
 				GPostProcessTimingQueries->push_back(Query);
@@ -76,10 +77,12 @@ namespace Durin
 
 		auto BuildViewMatrix(
 			const FVector3& Location,
-			const FVector3& Forward) -> FMatrix
+			const FVector3& Forward
+		) -> FMatrix
 		{
 			const FVector3 Right = Math::Normalize(
-				Math::Cross(FVectorConstants::Up, Forward));
+				Math::Cross(FVectorConstants::Up, Forward)
+			);
 			const FVector3 Up = Math::Normalize(Math::Cross(Forward, Right));
 			FMatrix View(1.0);
 			View[0][0] = Forward.x;
@@ -105,7 +108,8 @@ namespace Durin
 			EXPECT_TRUE(SceneViewProjection::BuildPerspectiveProjection(
 				60.0, 1.0, 0.1, 500000.0,
 				ESceneDepthConvention::ReversedZ,
-				View.ProjectionMatrix));
+				View.ProjectionMatrix
+			));
 			View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
 			View.ViewportWidth = 129;
 			View.ViewportHeight = 129;
@@ -131,43 +135,54 @@ namespace Durin
 			for (size_t Offset = 0; Offset + 3 < Pixels.size(); Offset += 4)
 			{
 				Result += Pixels[Offset] > 16
-					|| Pixels[Offset + 1] > 16
-					|| Pixels[Offset + 2] > 16 ? 1u : 0u;
+								  || Pixels[Offset + 1] > 16
+								  || Pixels[Offset + 2] > 16 ?
+							  1u :
+							  0u;
 			}
 			return Result;
 		}
 
 		auto MakeGBufferVertexDeclaration(
-			EGBufferVertexDomain Domain) -> FVertexDeclarationRHIRef
+			EGBufferVertexDomain Domain
+		) -> FVertexDeclarationRHIRef
 		{
 			FVertexDeclarationElementList Elements{};
 			if (Domain == EGBufferVertexDomain::Terrain)
 			{
 				Elements[0] = FVertexElement(
-					0, 0, EVertexElementType::UShort2, 0, 4);
+					0, 0, EVertexElementType::UShort2, 0, 4
+				);
 				return GDynamicRHI->RHICreateVertexDeclaration(Elements);
 			}
 			Elements[0] = FVertexElement(
-				0, 0, EVertexElementType::Float3, 0, 12);
+				0, 0, EVertexElementType::Float3, 0, 12
+			);
 			Elements[1] = FVertexElement(
-				1, 0, EVertexElementType::Short4N, 1, 16);
+				1, 0, EVertexElementType::Short4N, 1, 16
+			);
 			Elements[2] = FVertexElement(
-				1, 8, EVertexElementType::Short4N, 2, 16);
+				1, 8, EVertexElementType::Short4N, 2, 16
+			);
 			for (uint8 Channel = 0; Channel < 4; ++Channel)
 			{
 				Elements[3 + Channel] = FVertexElement(
 					2, static_cast<uint16>(Channel * 8),
 					EVertexElementType::Float2,
-					static_cast<uint8>(3 + Channel), 32);
+					static_cast<uint8>(3 + Channel), 32
+				);
 			}
 			Elements[7] = FVertexElement(
-				3, 0, EVertexElementType::UByte4N, 7, 4);
+				3, 0, EVertexElementType::UByte4N, 7, 4
+			);
 			if (Domain == EGBufferVertexDomain::Skeletal)
 			{
 				Elements[8] = FVertexElement(
-					4, 0, EVertexElementType::UShort4, 8, 24);
+					4, 0, EVertexElementType::UShort4, 8, 24
+				);
 				Elements[9] = FVertexElement(
-					4, 8, EVertexElementType::Float4, 9, 24);
+					4, 8, EVertexElementType::Float4, 9, 24
+				);
 			}
 			return GDynamicRHI->RHICreateVertexDeclaration(Elements);
 		}
@@ -175,36 +190,43 @@ namespace Durin
 		auto RenderGridCapture(
 			FRendererModule& Renderer,
 			FScene* Scene,
-			const FVector3& Forward) -> std::vector<uint8>
+			const FVector3& Forward,
+			bool bLit = false,
+			EHybridOpaqueRoute HybridRoute =
+				EHybridOpaqueRoute::ForwardReference
+		) -> std::vector<uint8>
 		{
 			auto Pixels = std::make_shared<std::vector<uint8>>();
 			EnqueueRenderCommand<FRenderEditorGridCapture>(
-				[&Renderer, Scene, Forward, Pixels](
-					FRHICommandListImmediate& CommandList) {
+				[&Renderer, Scene, Forward, Pixels, bLit, HybridRoute](
+					FRHICommandListImmediate& CommandList
+				) {
 					GRenderFrameCounterRenderThread++;
 					GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 					const auto Desc = FRHITextureCreateDesc::Create2D(
-						"EditorGridValidationColor", 129, 129,
-						EPixelFormat::SRGBA8_UNORM)
-						.SetFlags(ETextureCreateFlags::RenderTargetable
-							| ETextureCreateFlags::ShaderResource
-							| ETextureCreateFlags::CPUReadback);
+										  "EditorGridValidationColor", 129, 129,
+										  EPixelFormat::SRGBA8_UNORM
+					)
+										  .SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback);
 					FTextureRHIRef Target =
 						GDynamicRHI->RHICreateTexture(CommandList, Desc);
 					ASSERT_NE(Target, nullptr);
 
-					const FSceneView View = MakeGridView(Forward);
-					EXPECT_EQ(Renderer.RenderView(
-						CommandList, Scene, View, Target, false, {}),
-						ERenderViewResult::Success);
+					FSceneView View = MakeGridView(Forward);
+					if (bLit) View.Settings.RenderMode = ERenderMode::Lit;
+					FSceneViewRenderOptions Options;
+					Options.HybridOpaqueRoute = HybridRoute;
+					EXPECT_EQ(Renderer.RenderView(CommandList, Scene, View, Target, false, Options), ERenderViewResult::Success);
 					ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
-						CommandList, Target, 0, 0, *Pixels));
+						CommandList, Target, 0, 0, *Pixels
+					));
 					GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
-				});
+				}
+			);
 			FlushRenderingCommands();
 			return std::move(*Pixels);
 		}
-	}
+	} // namespace
 
 	TEST(FEditorGridVulkanTests, ReversedZGridRemainsStableAcrossCoplanarRotatedViews)
 	{
@@ -227,52 +249,60 @@ namespace Durin
 		auto FailurePixelsBefore = std::make_shared<std::vector<uint8>>();
 		auto FailurePixelsAfter = std::make_shared<std::vector<uint8>>();
 		VulkanRHI::ArmVulkanCreateFailure(
-			VulkanRHI::EVulkanCreateFailurePoint::GraphicsPipeline);
+			VulkanRHI::EVulkanCreateFailurePoint::GraphicsPipeline
+		);
 		EnqueueRenderCommand<FFailDisplayPayloadContract>(
 			[&Renderer, FailureResults, FailurePixelsBefore, FailurePixelsAfter](
-				FRHICommandListImmediate& CommandList) {
+				FRHICommandListImmediate& CommandList
+			) {
 				GRenderFrameCounterRenderThread++;
 				GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 				const auto Desc = FRHITextureCreateDesc::Create2D(
-					"FailedDisplayPayloadOutput", 1, 1,
-					EPixelFormat::SRGBA8_UNORM)
-					.SetFlags(ETextureCreateFlags::RenderTargetable
-						| ETextureCreateFlags::ShaderResource
-						| ETextureCreateFlags::CPUReadback);
+									  "FailedDisplayPayloadOutput", 1, 1,
+									  EPixelFormat::SRGBA8_UNORM
+				)
+									  .SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback);
 				FTextureRHIRef Output =
 					GDynamicRHI->RHICreateTexture(CommandList, Desc);
 				ASSERT_NE(Output, nullptr);
 				FRHIRenderPassInfo SentinelPass{};
 				SentinelPass.RenderTargetLayout =
 					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
-						RenderTargetLayouts::EViewportOutput::Offscreen);
+						RenderTargetLayouts::EViewportOutput::Offscreen
+					);
 				SentinelPass.ColorRenderTargets[0] = Output;
 				SentinelPass.ColorClearValues[0] =
 					FClearValueBinding(0.25f, 0.5f, 0.75f, 1.0f);
 				CommandList.BeginRenderPass(
-					SentinelPass, "FailedDisplayPayloadSentinelPass");
+					SentinelPass, "FailedDisplayPayloadSentinelPass"
+				);
 				CommandList.EndRenderPass();
 				ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
-					CommandList, Output, 0, 0, *FailurePixelsBefore));
+					CommandList, Output, 0, 0, *FailurePixelsBefore
+				));
 				FSceneView View;
 				View.ClearColor = {4.0f, 2.0f, 1.0f, 1.0f};
 				View.Settings.bEnableFXAA = false;
 				(*FailureResults)[0] = Renderer.RenderView(
-					CommandList, nullptr, View, Output, false, {});
+					CommandList, nullptr, View, Output, false, {}
+				);
 				(*FailureResults)[1] = Renderer.RenderView(
-					CommandList, nullptr, View, Output, false, {});
+					CommandList, nullptr, View, Output, false, {}
+				);
 				ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
-					CommandList, Output, 0, 0, *FailurePixelsAfter));
+					CommandList, Output, 0, 0, *FailurePixelsAfter
+				));
 				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
-			});
+			}
+		);
 		FlushRenderingCommands();
-		EXPECT_EQ((*FailureResults)[0],
-			ERenderViewResult::RendererResourcesUnavailable);
-		EXPECT_EQ((*FailureResults)[1],
-			ERenderViewResult::RendererResourcesUnavailable);
+		EXPECT_EQ((*FailureResults)[0], ERenderViewResult::RendererResourcesUnavailable);
+		EXPECT_EQ((*FailureResults)[1], ERenderViewResult::RendererResourcesUnavailable);
 		EXPECT_EQ(*FailurePixelsAfter, *FailurePixelsBefore);
 		EXPECT_TRUE(FConsoleCommandRegistry::Get().Execute(
-			"renderer.retry-resources").bSuccess);
+													  "renderer.retry-resources"
+		)
+						.bSuccess);
 		FlushRenderingCommands();
 
 		auto HDRPixels = std::make_shared<std::vector<uint8>>();
@@ -283,15 +313,15 @@ namespace Durin
 		SetPostProcessTimingQuerySink(CapturePostProcessTiming);
 		EnqueueRenderCommand<FCaptureHDRDisplayContract>(
 			[&Renderer, HDRPixels, DefaultExposurePixels, LowExposurePixels](
-				FRHICommandListImmediate& CommandList) {
+				FRHICommandListImmediate& CommandList
+			) {
 				GRenderFrameCounterRenderThread++;
 				GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 				const auto HDRDesc = FRHITextureCreateDesc::Create2D(
-					"HDRPreservationValidation", 1, 1,
-					EPixelFormat::RGBA16_FLOAT)
-					.SetFlags(ETextureCreateFlags::RenderTargetable
-						| ETextureCreateFlags::ShaderResource
-						| ETextureCreateFlags::CPUReadback);
+										 "HDRPreservationValidation", 1, 1,
+										 EPixelFormat::RGBA16_FLOAT
+				)
+										 .SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback);
 				FTextureRHIRef HDRTarget =
 					GDynamicRHI->RHICreateTexture(CommandList, HDRDesc);
 				ASSERT_NE(HDRTarget, nullptr);
@@ -304,15 +334,15 @@ namespace Durin
 				CommandList.BeginRenderPass(HDRPass, "HDRPreservationValidationPass");
 				CommandList.EndRenderPass();
 				ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
-					CommandList, HDRTarget, 0, 0, *HDRPixels));
+					CommandList, HDRTarget, 0, 0, *HDRPixels
+				));
 
 				auto CaptureDisplay = [&](const char* Name, float ExposureEV,
-					std::vector<uint8>& Pixels) {
+										  std::vector<uint8>& Pixels) {
 					const auto OutputDesc = FRHITextureCreateDesc::Create2D(
-						Name, 1, 1, EPixelFormat::SRGBA8_UNORM)
-						.SetFlags(ETextureCreateFlags::RenderTargetable
-							| ETextureCreateFlags::ShaderResource
-							| ETextureCreateFlags::CPUReadback);
+												Name, 1, 1, EPixelFormat::SRGBA8_UNORM
+					)
+												.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback);
 					FTextureRHIRef Output =
 						GDynamicRHI->RHICreateTexture(CommandList, OutputDesc);
 					EXPECT_NE(Output, nullptr);
@@ -320,46 +350,50 @@ namespace Durin
 					View.ClearColor = {4.0f, 2.0f, 0.5f, 0.5f};
 					View.Settings.bEnableFXAA = false;
 					View.Settings.ExposureEV = ExposureEV;
-					EXPECT_EQ(Renderer.RenderView(
-						CommandList, nullptr, View, Output, false, {}),
-						ERenderViewResult::Success);
+					EXPECT_EQ(Renderer.RenderView(CommandList, nullptr, View, Output, false, {}), ERenderViewResult::Success);
 					EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(
-						CommandList, Output, 0, 0, Pixels));
+						CommandList, Output, 0, 0, Pixels
+					));
 				};
 				CaptureDisplay(
 					"DefaultExposureValidation", 0.0f,
-					*DefaultExposurePixels);
+					*DefaultExposurePixels
+				);
 				CaptureDisplay(
 					"LowExposureValidation", -2.0f,
-					*LowExposurePixels);
+					*LowExposurePixels
+				);
 				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
-			});
+			}
+		);
 		FlushRenderingCommands();
 		SetPostProcessTimingQuerySink(nullptr);
 		GPostProcessTimingQueries = nullptr;
 		for (uint32 Attempt = 0; Attempt < 100; ++Attempt)
 		{
 			const bool bReady = PostProcessTimingQueries.size() == 2
-				&& std::ranges::all_of(
-					PostProcessTimingQueries,
-					[](const FGPUTimingQueryRHIRef& Query) {
-						return Query->GetResult().State
-							== ERHIGPUTimingResultState::Ready;
-					});
+								&& std::ranges::all_of(
+									PostProcessTimingQueries,
+									[](const FGPUTimingQueryRHIRef& Query) {
+										return Query->GetResult().State
+											   == ERHIGPUTimingResultState::Ready;
+									}
+								);
 			if (bReady) break;
 			EnqueueRenderCommand<FCaptureHDRDisplayContract>(
 				[](FRHICommandListImmediate& CommandList) {
 					GRenderFrameCounterRenderThread++;
 					GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 					GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
-				});
+				}
+			);
 			FlushRenderingCommands();
 		}
 		ASSERT_EQ(HDRPixels->size(), 8u);
 		auto ReadHalfBits = [&HDRPixels](size_t Channel) {
 			const size_t Offset = Channel * 2;
 			return static_cast<uint16>((*HDRPixels)[Offset])
-				| static_cast<uint16>((*HDRPixels)[Offset + 1] << 8);
+				   | static_cast<uint16>((*HDRPixels)[Offset + 1] << 8);
 		};
 		EXPECT_EQ(ReadHalfBits(0), 0x4400u); // 4.0
 		EXPECT_EQ(ReadHalfBits(1), 0x4000u); // 2.0
@@ -391,23 +425,23 @@ namespace Durin
 			FViewRouteCase{"MainView", 128, 72, 0.0f, false},
 			FViewRouteCase{"AuxiliaryView", 64, 64, -2.0f, true},
 			FViewRouteCase{"CameraPreview", 80, 45, 1.0f, false},
-			FViewRouteCase{"AssetThumbnail", 96, 96, 0.0f, true}};
-		auto CaptureViewRoute = [&Renderer](const FViewRouteCase& Route,
-			bool bGBufferDebug = false) {
+			FViewRouteCase{"AssetThumbnail", 96, 96, 0.0f, true}
+		};
+		auto CaptureViewRoute = [&Renderer](const FViewRouteCase& Route, bool bGBufferDebug = false, bool bHybridProduction = false) {
 			auto Pixels = std::make_shared<std::vector<uint8>>();
 			EnqueueRenderCommand<FCaptureHDRDisplayContract>(
-				[&Renderer, Route, Pixels, bGBufferDebug](
-					FRHICommandListImmediate& CommandList) {
+				[&Renderer, Route, Pixels, bGBufferDebug, bHybridProduction](
+					FRHICommandListImmediate& CommandList
+				) {
 					++GRenderFrameCounterRenderThread;
 					GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 					const auto Desc = FRHITextureCreateDesc::Create2D(
-						Route.Name,
-						Route.Width,
-						Route.Height,
-						EPixelFormat::SRGBA8_UNORM)
-						.SetFlags(ETextureCreateFlags::RenderTargetable
-							| ETextureCreateFlags::ShaderResource
-							| ETextureCreateFlags::CPUReadback);
+										  Route.Name,
+										  Route.Width,
+										  Route.Height,
+										  EPixelFormat::SRGBA8_UNORM
+					)
+										  .SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback);
 					FTextureRHIRef Output =
 						GDynamicRHI->RHICreateTexture(CommandList, Desc);
 					ASSERT_NE(Output, nullptr);
@@ -418,18 +452,17 @@ namespace Durin
 					View.Settings.ExposureEV = Route.ExposureEV;
 					View.Settings.bEnableFXAA = Route.bEnableFXAA;
 					FSceneViewRenderOptions Options;
-					Options.GBufferDebugMode = bGBufferDebug
-						? EGBufferDebugMode::Flags
-						: EGBufferDebugMode::Disabled;
+					Options.GBufferDebugMode = bGBufferDebug ? EGBufferDebugMode::Flags : EGBufferDebugMode::Disabled;
 					Options.bEnableDeferredDirectionalQualification =
 						bGBufferDebug;
-					EXPECT_EQ(Renderer.RenderView(
-						CommandList, nullptr, View, Output, false, Options),
-						ERenderViewResult::Success);
+					Options.HybridOpaqueRoute = bHybridProduction ? EHybridOpaqueRoute::DeferredRequired : EHybridOpaqueRoute::ForwardReference;
+					EXPECT_EQ(Renderer.RenderView(CommandList, nullptr, View, Output, false, Options), ERenderViewResult::Success);
 					EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(
-						CommandList, Output, 0, 0, *Pixels));
+						CommandList, Output, 0, 0, *Pixels
+					));
 					GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
-				});
+				}
+			);
 			FlushRenderingCommands();
 			return std::move(*Pixels);
 		};
@@ -437,9 +470,7 @@ namespace Durin
 		for (size_t Index = 0; Index < ViewRouteCases.size(); ++Index)
 		{
 			RoutePixels[Index] = CaptureViewRoute(ViewRouteCases[Index]);
-			EXPECT_EQ(RoutePixels[Index].size(),
-				static_cast<size_t>(ViewRouteCases[Index].Width)
-					* ViewRouteCases[Index].Height * 4u);
+			EXPECT_EQ(RoutePixels[Index].size(), static_cast<size_t>(ViewRouteCases[Index].Width) * ViewRouteCases[Index].Height * 4u);
 			ASSERT_GE(RoutePixels[Index].size(), 4u);
 			EXPECT_NEAR(RoutePixels[Index][3], 128u, 1u);
 		}
@@ -452,31 +483,39 @@ namespace Durin
 			CaptureViewRoute(ViewRouteCases.front());
 		EXPECT_EQ(MainAfterOtherViews, RoutePixels.front());
 		SetViewRenderCounterSink(CaptureViewCounters);
+		for (size_t Index = 0; Index < ViewRouteCases.size(); ++Index)
+		{
+			const std::vector<uint8> HybridPixels =
+				CaptureViewRoute(ViewRouteCases[Index], false, true);
+			EXPECT_EQ(HybridPixels, RoutePixels[Index]);
+			EXPECT_EQ(GLastViewCounters.HybridDeferredEnabledViews, 1u);
+			EXPECT_EQ(GLastViewCounters.HybridDeferredFallbackViews, 0u);
+			EXPECT_EQ(GLastViewCounters.HybridDeferredUnavailableViews, 0u);
+		}
 		const std::array<size_t, 5> GBufferRouteOrder{3u, 1u, 2u, 0u, 3u};
 		std::vector<uint8> FirstThumbnailDebug;
 		for (size_t OrderIndex = 0;
-			OrderIndex < GBufferRouteOrder.size(); ++OrderIndex)
+			 OrderIndex < GBufferRouteOrder.size(); ++OrderIndex)
 		{
 			const FViewRouteCase& Route =
 				ViewRouteCases[GBufferRouteOrder[OrderIndex]];
 			const std::vector<uint8> DebugPixels =
 				CaptureViewRoute(Route, true);
-			EXPECT_EQ(DebugPixels.size(),
-				static_cast<size_t>(Route.Width) * Route.Height * 4u);
+			EXPECT_EQ(DebugPixels.size(), static_cast<size_t>(Route.Width) * Route.Height * 4u);
 			EXPECT_EQ(GLastViewCounters.GBufferEnabledViews, 1u);
 			EXPECT_EQ(GLastViewCounters.GBufferDebugViews, 1u);
 			EXPECT_EQ(GLastViewCounters.GBufferDebugFailures, 0u);
 			EXPECT_EQ(
-				GLastViewCounters.DeferredDirectionalEnabledViews, 1u);
+				GLastViewCounters.DeferredDirectionalEnabledViews, 1u
+			);
 			EXPECT_EQ(
-				GLastViewCounters.DeferredDirectionalUnavailableViews, 0u);
+				GLastViewCounters.DeferredDirectionalUnavailableViews, 0u
+			);
 			EXPECT_EQ(
-				GLastViewCounters.DeferredDirectionalPassFailures, 0u);
-			EXPECT_EQ(GLastViewCounters.DeferredDirectionalOutputBytes,
-				FDeferredDirectionalLightingRenderer::CalculateTargetBytes(
-					Route.Width, Route.Height));
-			EXPECT_EQ(GLastViewCounters.GBufferAttachmentBytes,
-				FGBufferRenderer::CalculateTargetBytes(Route.Width, Route.Height));
+				GLastViewCounters.DeferredDirectionalPassFailures, 0u
+			);
+			EXPECT_EQ(GLastViewCounters.DeferredDirectionalOutputBytes, FDeferredDirectionalLightingRenderer::CalculateTargetBytes(Route.Width, Route.Height));
+			EXPECT_EQ(GLastViewCounters.GBufferAttachmentBytes, FGBufferRenderer::CalculateTargetBytes(Route.Width, Route.Height));
 			if (OrderIndex == 0u)
 				FirstThumbnailDebug = DebugPixels;
 			if (OrderIndex + 1u == GBufferRouteOrder.size())
@@ -488,18 +527,17 @@ namespace Durin
 		std::shared_ptr<const FTerrainHeightmapPayload> Payload;
 		std::string Error;
 		ASSERT_TRUE(BuildTerrainHeightmapPayload(
-			3, 3, Samples, Payload, Error)) << Error;
+			3, 3, Samples, Payload, Error
+		)) << Error;
 		auto Material = MakeRefCount<FMaterialRenderProxy>();
 		FMaterialRenderProxyPublication Publication;
 		Publication.LocalVersion = 1;
 		Publication.LocalLayer.StaticProperties = FMaterialStaticProperties{
 			.BlendMode = EMaterialBlendMode::Opaque,
 			.ShadingModel = EMaterialShadingModel::Unlit,
-			.bTwoSided = true};
-		Publication.LocalLayer.Parameters.push_back({
-			.Id = MaterialParameters::BaseColorId,
-			.Type = EMaterialParameterType::Vector,
-			.VectorValue = {0.0f, 0.0f, 0.0f}});
+			.bTwoSided = true
+		};
+		Publication.LocalLayer.Parameters.push_back({.Id = MaterialParameters::BaseColorId, .Type = EMaterialParameterType::Vector, .VectorValue = {0.0f, 0.0f, 0.0f}});
 		ASSERT_TRUE(Material->QueuePublication_GameThread(std::move(Publication)));
 		FlushRenderingCommands();
 		constexpr double TerrainExtent = 4000.0;
@@ -511,25 +549,25 @@ namespace Durin
 			.LODSteps = {1},
 			.LODErrors = {0.0},
 			.LocalBounds = FBox(
-				{0.0, 0.0, 0.0}, {TerrainExtent, TerrainExtent, 0.0})};
+				{0.0, 0.0, 0.0}, {TerrainExtent, TerrainExtent, 0.0}
+			)
+		};
 		FScene Scene;
 		Scene.AddOrReplacePrimitive(
 			FPrimitiveSceneId(1),
-			std::make_unique<FTerrainSceneProxy>(Payload, 1,
-				TerrainExtent * 0.5, TerrainExtent * 0.5,
-				1.0, 0.0, std::vector<FTerrainPatchDescriptor>{Patch},
-				Patch.LocalBounds, Material, 1),
+			std::make_unique<FTerrainSceneProxy>(Payload, 1, TerrainExtent * 0.5, TerrainExtent * 0.5, 1.0, 0.0, std::vector<FTerrainPatchDescriptor>{Patch}, Patch.LocalBounds, Material, 1),
 			Math::TranslationMatrix(FVector3{
-				-TerrainExtent * 0.5, -TerrainExtent * 0.5, 0.0}));
+				-TerrainExtent * 0.5, -TerrainExtent * 0.5, 0.0
+			})
+		);
 		FScene OccluderScene;
 		OccluderScene.AddOrReplacePrimitive(
 			FPrimitiveSceneId(2),
-			std::make_unique<FTerrainSceneProxy>(Payload, 1,
-				TerrainExtent * 0.5, TerrainExtent * 0.5,
-				1.0, 0.0, std::vector<FTerrainPatchDescriptor>{Patch},
-				Patch.LocalBounds, Material, 1),
+			std::make_unique<FTerrainSceneProxy>(Payload, 1, TerrainExtent * 0.5, TerrainExtent * 0.5, 1.0, 0.0, std::vector<FTerrainPatchDescriptor>{Patch}, Patch.LocalBounds, Material, 1),
 			Math::TranslationMatrix(FVector3{
-				-TerrainExtent * 0.5, -TerrainExtent * 0.5, 0.25}));
+				-TerrainExtent * 0.5, -TerrainExtent * 0.5, 0.25
+			})
+		);
 		FlushRenderingCommands();
 
 		const std::array<FVector3, 5> CameraDirections = {{
@@ -553,8 +591,22 @@ namespace Durin
 			EXPECT_GE(TerrainVisible, EmptyVisible * 99u / 100u);
 		}
 		const std::vector<uint8> OccludedPixels = RenderGridCapture(
-			Renderer, &OccluderScene, CameraDirections.front());
+			Renderer, &OccluderScene, CameraDirections.front()
+		);
 		EXPECT_EQ(CountVisiblePixels(OccludedPixels), 0u);
+		const std::vector<uint8> TerrainForwardLit = RenderGridCapture(
+			Renderer, &Scene, CameraDirections.front(), true
+		);
+		SetViewRenderCounterSink(CaptureViewCounters);
+		const std::vector<uint8> TerrainHybridLit = RenderGridCapture(
+			Renderer, &Scene, CameraDirections.front(), true,
+			EHybridOpaqueRoute::DeferredRequired
+		);
+		SetViewRenderCounterSink(nullptr);
+		EXPECT_EQ(TerrainHybridLit, TerrainForwardLit);
+		EXPECT_EQ(GLastViewCounters.HybridDeferredEnabledViews, 1u);
+		EXPECT_EQ(GLastViewCounters.HybridDeferredFallbackViews, 0u);
+		EXPECT_EQ(GLastViewCounters.GBufferTerrainSkippedDraws, 1u);
 
 		RendererLifecycle.Shutdown();
 		ShutdownRenderingThread();
@@ -562,8 +614,7 @@ namespace Durin
 		RHIExit();
 	}
 
-	TEST(FEditorGridVulkanTests,
-		GBufferTargetsRecoverAtomicallyAfterInjectedImageFailure)
+	TEST(FEditorGridVulkanTests, GBufferTargetsRecoverAtomicallyAfterInjectedImageFailure)
 	{
 		if (!GIsGameThreadIdInitialized)
 		{
@@ -587,21 +638,26 @@ namespace Durin
 		auto PipelineResults =
 			std::make_shared<std::array<bool, 13>>();
 		VulkanRHI::ArmVulkanCreateFailure(
-			VulkanRHI::EVulkanCreateFailurePoint::Image);
+			VulkanRHI::EVulkanCreateFailurePoint::Image
+		);
 		VulkanRHI::ArmVulkanCreateFailure(
-			VulkanRHI::EVulkanCreateFailurePoint::ShaderModule);
+			VulkanRHI::EVulkanCreateFailurePoint::ShaderModule
+		);
 		VulkanRHI::ArmVulkanCreateFailure(
-			VulkanRHI::EVulkanCreateFailurePoint::GraphicsPipeline);
+			VulkanRHI::EVulkanCreateFailurePoint::GraphicsPipeline
+		);
 		EnqueueRenderCommand<FFailDisplayPayloadContract>(
 			[&Coordinator, &GBuffer, bFailed, bSuppressed,
-				RecoveredTargets, AlternateTargets, PipelineResults](
-					FRHICommandListImmediate&) {
+			 RecoveredTargets, AlternateTargets, PipelineResults](
+				FRHICommandListImmediate&
+			) {
 				*bFailed = GBuffer.EnsureTargets_RenderThread(64, 32) == nullptr;
 				*bSuppressed =
 					GBuffer.EnsureTargets_RenderThread(64, 32) == nullptr;
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
-					FRendererResourceInvalidationTargets{});
+					FRendererResourceInvalidationTargets{}
+				);
 				const auto* Recovered =
 					GBuffer.EnsureTargets_RenderThread(64, 32);
 				ASSERT_NE(Recovered, nullptr);
@@ -622,7 +678,8 @@ namespace Durin
 					EGBufferVertexDomain::Local,
 					EGBufferVertexDomain::Spline,
 					EGBufferVertexDomain::Skeletal,
-					EGBufferVertexDomain::Terrain};
+					EGBufferVertexDomain::Terrain
+				};
 				std::array<FVertexDeclarationRHIRef, 4> Declarations;
 				for (size_t Index = 0; Index < Domains.size(); ++Index)
 				{
@@ -636,7 +693,8 @@ namespace Durin
 						.Rasterizer = FRHIRasterizerState{},
 						.Depth = Depth,
 						.VertexDeclaration = Declarations[Index],
-						.VertexDomain = Domains[Index]};
+						.VertexDomain = Domains[Index]
+					};
 				};
 				const auto LocalRequest = MakeRequest(0);
 				(*PipelineResults)[0] =
@@ -645,48 +703,54 @@ namespace Durin
 					GBuffer.EnsurePipeline_RenderThread(LocalRequest) == nullptr;
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
-					FRendererResourceInvalidationTargets{});
+					FRendererResourceInvalidationTargets{}
+				);
 				(*PipelineResults)[2] =
 					GBuffer.EnsurePipeline_RenderThread(LocalRequest) == nullptr;
 				(*PipelineResults)[3] =
 					GBuffer.EnsurePipeline_RenderThread(LocalRequest) == nullptr;
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
-					FRendererResourceInvalidationTargets{});
+					FRendererResourceInvalidationTargets{}
+				);
 				(*PipelineResults)[4] =
 					GBuffer.EnsurePipeline_RenderThread(LocalRequest) != nullptr;
 				for (size_t Index = 1; Index < Domains.size(); ++Index)
 				{
 					(*PipelineResults)[4 + Index] =
 						GBuffer.EnsurePipeline_RenderThread(
-							MakeRequest(Index)) != nullptr;
+							MakeRequest(Index)
+						)
+						!= nullptr;
 				}
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ShaderChanged,
-					FRendererResourceInvalidationTargets{});
+					FRendererResourceInvalidationTargets{}
+				);
 				(*PipelineResults)[8] =
 					GBuffer.EnsurePipeline_RenderThread(LocalRequest) != nullptr;
 				FRHITexture* BeforeDevice =
 					RecoveredTargets->Material.GetReference();
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::Device,
-					FRendererResourceInvalidationTargets{});
+					FRendererResourceInvalidationTargets{}
+				);
 				const auto* DeviceTargets =
 					GBuffer.EnsureTargets_RenderThread(64, 32);
 				(*PipelineResults)[9] = DeviceTargets != nullptr
-					&& DeviceTargets->Material.GetReference() != BeforeDevice;
+										&& DeviceTargets->Material.GetReference() != BeforeDevice;
 				(*PipelineResults)[10] =
 					GBuffer.EnsurePipeline_RenderThread(LocalRequest) != nullptr;
-				FRHITexture* BeforeRelease = DeviceTargets != nullptr
-					? DeviceTargets->Material.GetReference() : nullptr;
+				FRHITexture* BeforeRelease = DeviceTargets != nullptr ? DeviceTargets->Material.GetReference() : nullptr;
 				GBuffer.ReleaseResources_RenderThread();
 				const auto* ReleasedTargets =
 					GBuffer.EnsureTargets_RenderThread(64, 32);
 				(*PipelineResults)[11] = ReleasedTargets != nullptr
-					&& ReleasedTargets->Material.GetReference() != BeforeRelease;
+										 && ReleasedTargets->Material.GetReference() != BeforeRelease;
 				(*PipelineResults)[12] =
 					GBuffer.EnsurePipeline_RenderThread(LocalRequest) != nullptr;
-			});
+			}
+		);
 		FlushRenderingCommands();
 
 		EXPECT_TRUE(*bFailed);
@@ -699,8 +763,7 @@ namespace Durin
 		EXPECT_EQ(Targets.Material->GetFormat(), EPixelFormat::RGBA8_UNORM);
 		EXPECT_EQ(Targets.Normals->GetFormat(), EPixelFormat::RGBA8_UNORM);
 		EXPECT_EQ(Targets.Surface->GetFormat(), EPixelFormat::RGBA8_UNORM);
-		EXPECT_EQ(Targets.Emissive->GetFormat(),
-			EPixelFormat::R11G11B10_FLOAT);
+		EXPECT_EQ(Targets.Emissive->GetFormat(), EPixelFormat::R11G11B10_FLOAT);
 		EXPECT_EQ(Targets.Material->GetSizeX(), 64u);
 		EXPECT_EQ(Targets.Material->GetSizeY(), 32u);
 		ASSERT_NE(AlternateTargets->Material, nullptr);
@@ -713,19 +776,121 @@ namespace Durin
 
 		EnqueueRenderCommand<FCaptureHDRDisplayContract>(
 			[&GBuffer, RecoveredTargets, AlternateTargets](
-				FRHICommandListImmediate&) {
+				FRHICommandListImmediate&
+			) {
 				GBuffer.ReleaseResources_RenderThread();
 				*RecoveredTargets = {};
 				*AlternateTargets = {};
-			});
+			}
+		);
 		FlushRenderingCommands();
 		ShutdownRenderingThread();
 		FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
 		RHIExit();
 	}
 
-	TEST(FEditorGridVulkanTests,
-		DeferredDirectionalResourcesRecoverAcrossFailureAndGenerationChanges)
+	TEST(FEditorGridVulkanTests, HybridProductionFallsBackOrFailsRequiredWhenGBufferIsUnavailable)
+	{
+		if (!GIsGameThreadIdInitialized)
+		{
+			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+			GIsGameThreadIdInitialized = true;
+		}
+		ASSERT_EQ(GDynamicRHI, nullptr);
+		FModuleManager::Get().LoadModule("RenderCore");
+		RHIInit();
+		ASSERT_NE(GDynamicRHI, nullptr);
+		InitRenderingThread();
+		FRendererModule Renderer;
+		auto RendererContext = FModuleTestContextFactory::CreateStartupContext(
+			"HybridProductionFallbackTest"
+		);
+		Renderer.StartupModule(RendererContext);
+
+		auto Output = std::make_shared<FTextureRHIRef>();
+		auto ForwardPixels = std::make_shared<std::vector<uint8>>();
+		auto FallbackPixels = std::make_shared<std::vector<uint8>>();
+		auto ForwardResult = std::make_shared<ERenderViewResult>();
+		auto FallbackResult = std::make_shared<ERenderViewResult>();
+		auto RequiredResult = std::make_shared<ERenderViewResult>();
+		auto FallbackCounters = std::make_shared<FViewRenderCounters>();
+		auto RequiredCounters = std::make_shared<FViewRenderCounters>();
+		EnqueueRenderCommand<FCaptureHDRDisplayContract>(
+			[&Renderer, Output, ForwardPixels, FallbackPixels,
+			 ForwardResult, FallbackResult, RequiredResult,
+			 FallbackCounters, RequiredCounters](
+				FRHICommandListImmediate& CommandList
+			) {
+				++GRenderFrameCounterRenderThread;
+				GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+				const auto Desc = FRHITextureCreateDesc::Create2D(
+									  "HybridFallbackOutput", 64, 32,
+									  EPixelFormat::SRGBA8_UNORM
+				)
+									  .SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback);
+				*Output = GDynamicRHI->RHICreateTexture(CommandList, Desc);
+				ASSERT_NE(*Output, nullptr);
+				FSceneView View;
+				View.ViewportWidth = 64;
+				View.ViewportHeight = 32;
+				View.ClearColor = {0.25f, 0.5f, 1.0f, 0.75f};
+				*ForwardResult = Renderer.RenderView(
+					CommandList, nullptr, View, *Output, false, {}
+				);
+				ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
+					CommandList, *Output, 0, 0, *ForwardPixels
+				));
+
+				VulkanRHI::ArmVulkanCreateFailure(
+					VulkanRHI::EVulkanCreateFailurePoint::Image
+				);
+				FSceneViewRenderOptions FallbackOptions;
+				FallbackOptions.HybridOpaqueRoute =
+					EHybridOpaqueRoute::DeferredWithForwardFallback;
+				SetViewRenderCounterSink(CaptureViewCounters);
+				*FallbackResult = Renderer.RenderView(CommandList, nullptr, View, *Output, false, FallbackOptions);
+				*FallbackCounters = GLastViewCounters;
+				ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
+					CommandList, *Output, 0, 0, *FallbackPixels
+				));
+
+				FSceneViewRenderOptions RequiredOptions;
+				RequiredOptions.HybridOpaqueRoute =
+					EHybridOpaqueRoute::DeferredRequired;
+				*RequiredResult = Renderer.RenderView(CommandList, nullptr, View, *Output, false, RequiredOptions);
+				*RequiredCounters = GLastViewCounters;
+				SetViewRenderCounterSink(nullptr);
+				VulkanRHI::ResetVulkanCreateFailures();
+				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+			}
+		);
+		FlushRenderingCommands();
+
+		EXPECT_EQ(*ForwardResult, ERenderViewResult::Success);
+		EXPECT_EQ(*FallbackResult, ERenderViewResult::Success);
+		EXPECT_EQ(*FallbackPixels, *ForwardPixels);
+		EXPECT_EQ(FallbackCounters->HybridDeferredEnabledViews, 0u);
+		EXPECT_EQ(FallbackCounters->HybridDeferredFallbackViews, 1u);
+		EXPECT_EQ(FallbackCounters->HybridDeferredUnavailableViews, 1u);
+		EXPECT_EQ(*RequiredResult, ERenderViewResult::RendererResourcesUnavailable);
+		EXPECT_EQ(RequiredCounters->HybridDeferredEnabledViews, 0u);
+		EXPECT_EQ(RequiredCounters->HybridDeferredFallbackViews, 0u);
+		EXPECT_EQ(RequiredCounters->HybridDeferredUnavailableViews, 1u);
+
+		EnqueueRenderCommand<FCaptureHDRDisplayContract>(
+			[Output](FRHICommandListImmediate&) { *Output = nullptr; }
+		);
+		FlushRenderingCommands();
+		auto ShutdownContext =
+			FModuleTestContextFactory::CreateShutdownContext(RendererContext);
+		Renderer.ShutdownModule(ShutdownContext);
+		FlushRenderingCommands();
+		ShutdownRenderingThread();
+		FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
+		RHIExit();
+	}
+
+	TEST(FEditorGridVulkanTests, DeferredDirectionalResourcesRecoverAcrossFailureAndGenerationChanges)
 	{
 		if (!GIsGameThreadIdInitialized)
 		{
@@ -741,28 +906,33 @@ namespace Durin
 		FRendererResourceCoordinator Coordinator;
 		FFullscreenGeometryResources FullscreenGeometry;
 		FDeferredDirectionalLightingRenderer Deferred(
-			Coordinator, FullscreenGeometry);
+			Coordinator, FullscreenGeometry
+		);
 		auto Results = std::make_shared<std::array<bool, 16>>();
 		auto FirstTarget = std::make_shared<
 			FDeferredDirectionalLightingRenderer::FTargets>();
 		auto AlternateTarget = std::make_shared<
 			FDeferredDirectionalLightingRenderer::FTargets>();
 		VulkanRHI::ArmVulkanCreateFailure(
-			VulkanRHI::EVulkanCreateFailurePoint::Image);
+			VulkanRHI::EVulkanCreateFailurePoint::Image
+		);
 		VulkanRHI::ArmVulkanCreateFailure(
-			VulkanRHI::EVulkanCreateFailurePoint::ShaderModule);
+			VulkanRHI::EVulkanCreateFailurePoint::ShaderModule
+		);
 		VulkanRHI::ArmVulkanCreateFailure(
-			VulkanRHI::EVulkanCreateFailurePoint::GraphicsPipeline);
+			VulkanRHI::EVulkanCreateFailurePoint::GraphicsPipeline
+		);
 		EnqueueRenderCommand<FFailDisplayPayloadContract>(
 			[&Coordinator, &FullscreenGeometry, &Deferred, Results,
-				FirstTarget, AlternateTarget](FRHICommandListImmediate& CommandList) {
+			 FirstTarget, AlternateTarget](FRHICommandListImmediate& CommandList) {
 				(*Results)[0] =
 					Deferred.EnsureTargets_RenderThread(64, 32) == nullptr;
 				(*Results)[1] =
 					Deferred.EnsureTargets_RenderThread(64, 32) == nullptr;
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
-					FRendererResourceInvalidationTargets{});
+					FRendererResourceInvalidationTargets{}
+				);
 				const auto* Recovered =
 					Deferred.EnsureTargets_RenderThread(64, 32);
 				(*Results)[2] = Recovered != nullptr;
@@ -776,44 +946,48 @@ namespace Durin
 				(*Results)[5] = !Deferred.EnsureResources_RenderThread(CommandList);
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
-					FRendererResourceInvalidationTargets{});
+					FRendererResourceInvalidationTargets{}
+				);
 				(*Results)[6] = !Deferred.EnsureResources_RenderThread(CommandList);
 				(*Results)[7] = !Deferred.EnsureResources_RenderThread(CommandList);
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
-					FRendererResourceInvalidationTargets{});
+					FRendererResourceInvalidationTargets{}
+				);
 				(*Results)[8] = Deferred.EnsureResources_RenderThread(CommandList);
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ShaderChanged,
-					FRendererResourceInvalidationTargets{});
+					FRendererResourceInvalidationTargets{}
+				);
 				(*Results)[9] = Deferred.EnsureResources_RenderThread(CommandList);
 
 				FRHITexture* BeforeDevice = FirstTarget->Color.GetReference();
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::Device,
-					FRendererResourceInvalidationTargets{});
+					FRendererResourceInvalidationTargets{}
+				);
 				const auto* DeviceTarget =
 					Deferred.EnsureTargets_RenderThread(64, 32);
 				(*Results)[10] = DeviceTarget != nullptr
-					&& DeviceTarget->Color.GetReference() != BeforeDevice;
+								 && DeviceTarget->Color.GetReference() != BeforeDevice;
 				(*Results)[11] =
 					Deferred.EnsureResources_RenderThread(CommandList);
 
-				FRHITexture* BeforeRelease = DeviceTarget != nullptr
-					? DeviceTarget->Color.GetReference() : nullptr;
+				FRHITexture* BeforeRelease = DeviceTarget != nullptr ? DeviceTarget->Color.GetReference() : nullptr;
 				Deferred.ReleaseResources_RenderThread();
 				FullscreenGeometry.ReleaseResources_RenderThread();
 				const auto* ReleasedTarget =
 					Deferred.EnsureTargets_RenderThread(64, 32);
 				(*Results)[12] = ReleasedTarget != nullptr
-					&& ReleasedTarget->Color.GetReference() != BeforeRelease;
+								 && ReleasedTarget->Color.GetReference() != BeforeRelease;
 				(*Results)[13] =
 					Deferred.EnsureResources_RenderThread(CommandList);
 				(*Results)[14] = ReleasedTarget != nullptr
-					&& ReleasedTarget->Color->GetFormat()
-						== EPixelFormat::RGBA16_FLOAT;
+								 && ReleasedTarget->Color->GetFormat()
+										== EPixelFormat::RGBA16_FLOAT;
 				(*Results)[15] = AlternateTarget->Color != FirstTarget->Color;
-			});
+			}
+		);
 		FlushRenderingCommands();
 
 		for (size_t Index = 0; Index < Results->size(); ++Index)
@@ -827,20 +1001,21 @@ namespace Durin
 
 		EnqueueRenderCommand<FCaptureHDRDisplayContract>(
 			[&Deferred, &FullscreenGeometry, FirstTarget, AlternateTarget](
-				FRHICommandListImmediate&) {
+				FRHICommandListImmediate&
+			) {
 				Deferred.ReleaseResources_RenderThread();
 				FullscreenGeometry.ReleaseResources_RenderThread();
 				*FirstTarget = {};
 				*AlternateTarget = {};
-			});
+			}
+		);
 		FlushRenderingCommands();
 		ShutdownRenderingThread();
 		FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
 		RHIExit();
 	}
 
-	TEST(FEditorGridVulkanTests,
-		WindowBackedPresentPreservesDisplaySettingsAcrossResizeAndToggles)
+	TEST(FEditorGridVulkanTests, WindowBackedPresentPreservesDisplaySettingsAcrossResizeAndToggles)
 	{
 		class FTestApplication final : public FGenericApplication
 		{
@@ -854,9 +1029,9 @@ namespace Durin
 				-> std::shared_ptr<FGenericWindow> override
 			{
 				return Window != nullptr
-					&& Window->GetOSNativeWindowHandle() == NativeWindowHandle
-					? Window
-					: nullptr;
+							   && Window->GetOSNativeWindowHandle() == NativeWindowHandle ?
+						   Window :
+						   nullptr;
 			}
 
 			std::shared_ptr<FGenericWindow> Window;
@@ -882,7 +1057,8 @@ namespace Durin
 		FRendererModule Renderer;
 		auto RendererContext =
 			FModuleTestContextFactory::CreateStartupContext(
-				"HDRDisplayMappingPresentTest");
+				"HDRDisplayMappingPresentTest"
+			);
 		Renderer.StartupModule(RendererContext);
 
 		TRefCountPtr<FRHIViewport> Viewport = GDynamicRHI->RHICreateViewport(
@@ -891,32 +1067,35 @@ namespace Durin
 			64,
 			false,
 			EPixelFormat::SRGBA8_UNORM,
-			EViewportPresentModePolicy::MainWindow);
+			EViewportPresentModePolicy::MainWindow
+		);
 		ASSERT_NE(Viewport, nullptr);
 		auto RenderPresent = [&Renderer, &Viewport](
-			uint32 Width,
-			uint32 Height,
-			float ExposureEV,
-			bool bEnableFXAA,
-			bool bEnableContactShadows,
-			bool bEditorAssistance,
-			bool bGBufferDebug = false) {
+								 uint32 Width,
+								 uint32 Height,
+								 float ExposureEV,
+								 bool bEnableFXAA,
+								 bool bEnableContactShadows,
+								 bool bEditorAssistance,
+								 bool bGBufferDebug = false,
+								 bool bHybridProduction = false
+							 ) {
 			auto Result = std::make_shared<ERenderViewResult>(
-				ERenderViewResult::RendererResourcesUnavailable);
+				ERenderViewResult::RendererResourcesUnavailable
+			);
 			EnqueueRenderCommand<FCaptureHDRDisplayContract>(
 				[&Renderer, Viewport, Width, Height, ExposureEV,
-					bEnableFXAA, bEnableContactShadows,
-					bEditorAssistance, bGBufferDebug, Result](
-					FRHICommandListImmediate& CommandList) {
+				 bEnableFXAA, bEnableContactShadows,
+				 bEditorAssistance, bGBufferDebug, bHybridProduction, Result](
+					FRHICommandListImmediate& CommandList
+				) {
 					++GRenderFrameCounterRenderThread;
 					GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 					CommandList.BeginDrawingViewport(Viewport, nullptr);
 					FTextureRHIRef BackBuffer =
 						GDynamicRHI->RHIGetViewportBackBuffer(Viewport);
 					ASSERT_NE(BackBuffer, nullptr);
-					FSceneView View = bEditorAssistance
-						? MakeGridView({1.0, 1.0, -0.5})
-						: FSceneView{};
+					FSceneView View = bEditorAssistance ? MakeGridView({1.0, 1.0, -0.5}) : FSceneView{};
 					View.ViewportWidth = Width;
 					View.ViewportHeight = Height;
 					View.ClearColor = {4.0f, 2.0f, 0.5f, 0.5f};
@@ -925,41 +1104,41 @@ namespace Durin
 					View.Settings.bEnableContactShadows =
 						bEnableContactShadows;
 					FSceneViewRenderOptions Options;
-					Options.GBufferDebugMode = bGBufferDebug
-						? EGBufferDebugMode::ReconstructionError
-						: EGBufferDebugMode::Disabled;
+					Options.GBufferDebugMode = bGBufferDebug ? EGBufferDebugMode::ReconstructionError : EGBufferDebugMode::Disabled;
 					Options.bEnableDeferredDirectionalQualification =
 						bGBufferDebug;
+					Options.HybridOpaqueRoute = bHybridProduction ? EHybridOpaqueRoute::DeferredRequired : EHybridOpaqueRoute::ForwardReference;
 					*Result = Renderer.RenderView(
-						CommandList, nullptr, View, BackBuffer, true, Options);
+						CommandList, nullptr, View, BackBuffer, true, Options
+					);
 					CommandList.EndDrawingViewport(Viewport, true, false);
 					GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
-				});
+				}
+			);
 			FlushRenderingCommands();
 			return *Result;
 		};
 
-		EXPECT_EQ(RenderPresent(96, 64, 0.0f, false, false, false),
-			ERenderViewResult::Success);
+		EXPECT_EQ(RenderPresent(96, 64, 0.0f, false, false, false), ERenderViewResult::Success);
 		GDynamicRHI->RHIResizeViewport(Viewport, 128, 72, false);
 		FlushRenderingCommands();
-		EXPECT_EQ(RenderPresent(128, 72, -2.0f, true, true, false),
-			ERenderViewResult::Success);
+		EXPECT_EQ(RenderPresent(128, 72, -2.0f, true, true, false), ERenderViewResult::Success);
 		GDynamicRHI->RHIResizeViewport(Viewport, 96, 64, false);
 		FlushRenderingCommands();
-		EXPECT_EQ(RenderPresent(96, 64, 1.0f, false, false, false),
-			ERenderViewResult::Success);
+		EXPECT_EQ(RenderPresent(96, 64, 1.0f, false, false, false), ERenderViewResult::Success);
 		GDynamicRHI->RHIResizeViewport(Viewport, 129, 129, false);
 		FlushRenderingCommands();
 		SetViewRenderCounterSink(CaptureViewCounters);
-		EXPECT_EQ(RenderPresent(129, 129, 0.0f, true, false, true, true),
-			ERenderViewResult::Success);
+		EXPECT_EQ(RenderPresent(129, 129, 0.0f, true, false, false, false, true), ERenderViewResult::Success);
+		EXPECT_EQ(GLastViewCounters.HybridDeferredEnabledViews, 1u);
+		EXPECT_EQ(GLastViewCounters.HybridDeferredFallbackViews, 0u);
+		EXPECT_EQ(GLastViewCounters.HybridDeferredUnavailableViews, 0u);
+		EXPECT_EQ(RenderPresent(129, 129, 0.0f, true, false, true, true), ERenderViewResult::Success);
 		EXPECT_EQ(GLastViewCounters.DeferredDirectionalEnabledViews, 1u);
 		EXPECT_EQ(GLastViewCounters.DeferredDirectionalUnavailableViews, 0u);
 		EXPECT_EQ(GLastViewCounters.DeferredDirectionalPassFailures, 0u);
 		EXPECT_GT(GLastViewCounters.DeferredDirectionalOutputBytes, 0u);
-		EXPECT_EQ(GLastViewCounters.GBufferAttachmentBytes,
-			GLastViewCounters.DeferredDirectionalOutputBytes * 2u);
+		EXPECT_EQ(GLastViewCounters.GBufferAttachmentBytes, GLastViewCounters.DeferredDirectionalOutputBytes * 2u);
 		SetViewRenderCounterSink(nullptr);
 
 		Viewport = nullptr;

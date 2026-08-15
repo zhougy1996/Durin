@@ -18,7 +18,8 @@ namespace Durin
 	public:
 		FSkyBoxRenderer(
 			FRendererResourceCoordinator& InCoordinator,
-			FDefaultTextureResources& InDefaultTextures);
+			FDefaultTextureResources& InDefaultTextures
+		);
 		~FSkyBoxRenderer();
 
 		FSkyBoxRenderer(const FSkyBoxRenderer&) = delete;
@@ -28,12 +29,16 @@ namespace Durin
 		auto Draw_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
-			const FSkyBoxSceneData& SkyBox) -> void;
+			const FSkyBoxSceneData& SkyBox,
+			bool bHybridBootstrap = false
+		) -> void;
 		auto DrawTexture_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
 			FRHITexture* Texture,
-			const FSkyBoxSceneData& SkyBox) -> bool;
+			const FSkyBoxSceneData& SkyBox,
+			bool bHybridBootstrap = false
+		) -> bool;
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:

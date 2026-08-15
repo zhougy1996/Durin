@@ -630,7 +630,9 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		auto Capture = [&](
 			Durin::DStaticMesh* Mesh,
 			Durin::DMaterialInterface* Material,
-			bool bForceLOD0 = false) {
+			bool bForceLOD0 = false,
+			Durin::Editor::ERenderedAssetThumbnailCaptureState ExpectedState =
+				Durin::Editor::ERenderedAssetThumbnailCaptureState::Ready) {
 			std::vector<Durin::uint8> Pixels;
 			Pool.SetForceLOD0(bForceLOD0);
 			EXPECT_TRUE(Pool.SetMaterial(
@@ -639,7 +641,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			Durin::FlushRenderingCommands();
 			EXPECT_EQ(
 				Pool.PollCapture(Pixels, Error),
-				Durin::Editor::ERenderedAssetThumbnailCaptureState::Ready) << Error;
+				ExpectedState) << Error;
 			Pool.Reset();
 			return Pixels;
 		};
@@ -672,16 +674,17 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		EXPECT_EQ(
 			Durin::FXxHash128::HashBuffer(
 				AutomaticLODPixels).ToString(),
-			"de874ea4cc2d71f8817147eb7ed5d20d");
+			"9e2160e1063369b0d3df307dc94734c1");
 		EXPECT_EQ(
 			Durin::FXxHash128::HashBuffer(
 				ForcedLOD0Pixels).ToString(),
-			"e57edff03c389092946c3d45f091bc06");
+			"a1dbc786ec12b9cf870c07b0d5ea55b8");
 		Durin::VulkanRHI::ArmVulkanCreateFailure(
 			Durin::VulkanRHI::EVulkanCreateFailurePoint::Sampler);
 		const std::vector<Durin::uint8> FailedResourcePixels =
-			Capture(ReloadedMesh, FailedResourceMaterial);
-		ASSERT_EQ(FailedResourcePixels.size(), ImportedPixels.size());
+			Capture(ReloadedMesh, FailedResourceMaterial, false,
+				Durin::Editor::ERenderedAssetThumbnailCaptureState::Failed);
+		EXPECT_TRUE(FailedResourcePixels.empty());
 		ASSERT_EQ(CounterSnapshots.size(), 6u);
 		const std::array<size_t, 5> ExpectedSections{1u, 1u, 1u, 1u, 4u};
 		for (size_t Index = 0; Index < ExpectedSections.size(); ++Index)
@@ -700,11 +703,13 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			EXPECT_EQ(Counters.StaticMeshResourceSuccessfulDraws,
 				ExpectedSections[Index]);
 			EXPECT_EQ(Counters.StaticMeshResourceRejectedDraws, 0u);
-			EXPECT_EQ(
-				Counters.StaticMeshAttemptedDraws, ExpectedSections[Index]);
-			EXPECT_EQ(
-				Counters.StaticMeshSuccessfulDraws, ExpectedSections[Index]);
+			EXPECT_EQ(Counters.StaticMeshAttemptedDraws, 0u);
+			EXPECT_EQ(Counters.StaticMeshSuccessfulDraws, 0u);
 			EXPECT_EQ(Counters.StaticMeshRejectedDraws, 0u);
+			EXPECT_EQ(Counters.GBufferAttemptedDraws, ExpectedSections[Index]);
+			EXPECT_EQ(Counters.GBufferSuccessfulDraws, ExpectedSections[Index]);
+			EXPECT_EQ(Counters.GBufferRejectedDraws, 0u);
+			EXPECT_EQ(Counters.HybridDeferredEnabledViews, 1u);
 		}
 		const Durin::FViewRenderCounters& FailedResourceCounters =
 			CounterSnapshots.back();
@@ -715,9 +720,13 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			FailedResourceCounters.StaticMeshResourceSuccessfulDraws, 0u);
 		EXPECT_EQ(
 			FailedResourceCounters.StaticMeshResourceRejectedDraws, 1u);
-		EXPECT_EQ(FailedResourceCounters.StaticMeshAttemptedDraws, 1u);
+		EXPECT_EQ(FailedResourceCounters.StaticMeshAttemptedDraws, 0u);
 		EXPECT_EQ(FailedResourceCounters.StaticMeshSuccessfulDraws, 0u);
-		EXPECT_EQ(FailedResourceCounters.StaticMeshRejectedDraws, 1u);
+		EXPECT_EQ(FailedResourceCounters.StaticMeshRejectedDraws, 0u);
+		EXPECT_EQ(FailedResourceCounters.GBufferAttemptedDraws, 1u);
+		EXPECT_EQ(FailedResourceCounters.GBufferSuccessfulDraws, 0u);
+		EXPECT_EQ(FailedResourceCounters.GBufferRejectedDraws, 1u);
+		EXPECT_EQ(FailedResourceCounters.HybridDeferredUnavailableViews, 1u);
 
 		struct FEndSceneImportFrame
 		{

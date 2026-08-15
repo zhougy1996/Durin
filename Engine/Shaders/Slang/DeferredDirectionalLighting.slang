@@ -26,8 +26,23 @@ struct FDeferredDirectionalViewUniform
     float4 ProjectionRow3;
     float4x4 ViewToWorld;
     float4 ClearColor;
-    float4 Params; // xy = inverse viewport, z = diagnostic, w = reserved zero
+    float4 Params; // xy = inverse viewport, z = diagnostic, w = preserve background
 };
+
+struct FDeferredLightingOutput
+{
+    float4 Color : SV_Target0;
+    float3 DirectionalDirect : SV_Target1;
+};
+
+FDeferredLightingOutput MakeDeferredLightingOutput(
+    float4 color, float3 directionalDirect)
+{
+    FDeferredLightingOutput output;
+    output.Color = color;
+    output.DirectionalDirect = directionalDirect;
+    return output;
+}
 
 [[vk::binding(0, 0)]] Texture2D<float4> GBufferMaterial;
 [[vk::binding(1, 0)]] Texture2D<float4> GBufferNormals;
@@ -52,8 +67,7 @@ VSOutput VertexMain(VSInput input)
     return output;
 }
 
-[shader("fragment")]
-float4 FragmentMain(VSOutput input) : SV_Target
+FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
 {
     int2 pixel = int2(input.pos.xy);
     FGBufferRecord record = DecodeGBuffer(
@@ -62,7 +76,11 @@ float4 FragmentMain(VSOutput input) : SV_Target
         GBufferSurface.Load(int3(pixel, 0)),
         GBufferEmissive.Load(int3(pixel, 0)));
     if ((record.flags & GBufferStandardLitFlag) == 0u)
-        return View.ClearColor;
+    {
+        if (View.Params.w > 0.5)
+            discard;
+        return MakeDeferredLightingOutput(View.ClearColor, float3(0.0));
+    }
 
     float depth = SceneDepth.Load(int3(pixel, 0));
     uint targetWidth;
@@ -85,12 +103,18 @@ float4 FragmentMain(VSOutput input) : SV_Target
             depth,
             viewPosition))
     {
-        return View.ClearColor;
+        if (View.Params.w > 0.5)
+            discard;
+        return MakeDeferredLightingOutput(View.ClearColor, float3(0.0));
     }
     float4 worldPositionH = mul(
         View.ViewToWorld, float4(viewPosition, 1.0));
     if (!all(isfinite(worldPositionH)) || abs(worldPositionH.w) <= 1.0e-8)
-        return View.ClearColor;
+    {
+        if (View.Params.w > 0.5)
+            discard;
+        return MakeDeferredLightingOutput(View.ClearColor, float3(0.0));
+    }
     float3 worldPosition = worldPositionH.xyz / worldPositionH.w;
     FSurfaceLightingFrame frame = BuildSurfaceLightingFrame(
         worldPosition, record.shadingNormal, Lighting.ViewPosition.xyz);
@@ -116,7 +140,9 @@ float4 FragmentMain(VSOutput input) : SV_Target
             DirectionalShadowTexture,
             DirectionalShadowSampler);
         if (Lighting.DirectionalShadowControl.y > 0.5)
-            return float4(shadow.diagnosticColor, record.effectiveOpacity);
+            return MakeDeferredLightingOutput(
+                float4(shadow.diagnosticColor, record.effectiveOpacity),
+                float3(0.0));
         directional = EvaluateSurfaceDirectionalLighting(
             record.baseColor,
             record.metallic,
@@ -125,6 +151,21 @@ float4 FragmentMain(VSOutput input) : SV_Target
             toLight,
             radiance,
             shadow.attenuation);
+    }
+
+    float3 local = float3(0.0);
+    [unroll]
+    for (uint lightIndex = 0u; lightIndex < 4u; ++lightIndex)
+    {
+        if (lightIndex >= Lighting.Counts.y)
+            break;
+        local += EvaluateSurfaceLocalLighting(
+            record.baseColor,
+            record.metallic,
+            record.roughness,
+            worldPosition,
+            frame,
+            Lighting.Local[lightIndex]);
     }
 
     float3 environment = EvaluateSurfaceEnvironmentLighting(
@@ -138,17 +179,41 @@ float4 FragmentMain(VSOutput input) : SV_Target
         EnvironmentBrdfLut,
         EnvironmentSampler);
     float4 composed = ComposeSurfaceLighting(
-        directional, environment, record.emissive, record.effectiveOpacity);
+        directional + local,
+        environment,
+        record.emissive,
+        record.effectiveOpacity);
     uint diagnostic = (uint)round(View.Params.z);
     if (diagnostic == 1u)
-        return float4(record.baseColor, record.metallic);
+        return MakeDeferredLightingOutput(
+            float4(record.baseColor, record.metallic), directional);
     if (diagnostic == 2u)
-        return float4(directional, record.effectiveOpacity);
+        return MakeDeferredLightingOutput(
+            float4(directional, record.effectiveOpacity), directional);
     if (diagnostic == 3u)
-        return float4(environment, record.effectiveOpacity);
+        return MakeDeferredLightingOutput(
+            float4(local, record.effectiveOpacity), directional);
     if (diagnostic == 4u)
-        return float4(record.emissive, record.effectiveOpacity);
+        return MakeDeferredLightingOutput(
+            float4(environment, record.effectiveOpacity), directional);
     if (diagnostic == 5u)
-        return float4(record.effectiveOpacity.xxx, record.effectiveOpacity);
-    return composed;
+        return MakeDeferredLightingOutput(
+            float4(record.emissive, record.effectiveOpacity), directional);
+    if (diagnostic == 6u)
+        return MakeDeferredLightingOutput(
+            float4(record.effectiveOpacity.xxx, record.effectiveOpacity),
+            directional);
+    return MakeDeferredLightingOutput(composed, directional);
+}
+
+[shader("fragment")]
+float4 FragmentMain(VSOutput input) : SV_Target0
+{
+    return EvaluateDeferredLighting(input).Color;
+}
+
+[shader("fragment")]
+FDeferredLightingOutput ProductionFragmentMain(VSOutput input)
+{
+    return EvaluateDeferredLighting(input);
 }

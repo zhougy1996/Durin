@@ -25,7 +25,8 @@ namespace Durin
 		FSkeletalMeshRenderer(
 			FRendererResourceCoordinator& InCoordinator,
 			FDefaultTextureResources& InDefaultTextures,
-			FEnvironmentLightingResources& InEnvironmentLighting);
+			FEnvironmentLightingResources& InEnvironmentLighting
+		);
 		~FSkeletalMeshRenderer();
 		FSkeletalMeshRenderer(const FSkeletalMeshRenderer&) = delete;
 		auto operator=(const FSkeletalMeshRenderer&)
@@ -33,38 +34,43 @@ namespace Durin
 
 		auto PrepareResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			FPreparedSkeletalMeshView& PreparedView) -> bool;
+			FPreparedSkeletalMeshView& PreparedView
+		) -> bool;
+		auto PrepareHybridRetainedResources_RenderThread(
+			FPreparedSkeletalMeshView& PreparedView
+		) -> bool;
 		auto PrepareShadowResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FPreparedSkeletalMeshView& BaseView,
-			FPreparedSkeletalMeshView& PreparedView) -> bool;
+			FPreparedSkeletalMeshView& PreparedView
+		) -> bool;
 		auto ExecuteShadow_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& ShadowView,
 			const FRHIUniformBufferRange& FallbackLighting,
-			FPreparedSkeletalMeshView& PreparedView) -> void;
+			FPreparedSkeletalMeshView& PreparedView
+		) -> void;
 		auto Execute_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
 			const FRHIUniformBufferRange& Lighting,
 			ERenderMode RenderMode,
-			FPreparedSkeletalMeshView& PreparedView) -> void;
+			FPreparedSkeletalMeshView& PreparedView
+		) -> void;
 		auto ExecutePass_RenderThread(
-			FRHICommandListImmediate& CommandList, const FSceneView& View,
-			const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode,
-			EStaticMeshBasePass Pass, FPreparedSkeletalMeshView& PreparedView) -> void;
+			FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EStaticMeshBasePass Pass, FPreparedSkeletalMeshView& PreparedView
+		) -> void;
 		auto ExecutePreparedDraw_RenderThread(
-			FRHICommandListImmediate& CommandList, const FSceneView& View,
-			const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode,
-			EStaticMeshBasePass Pass, const FPreparedSkeletalMeshDraw& Draw,
-			FPreparedSkeletalMeshView& PreparedView) -> void;
+			FRHICommandListImmediate& CommandList, const FSceneView& View, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, EStaticMeshBasePass Pass, const FPreparedSkeletalMeshDraw& Draw, FPreparedSkeletalMeshView& PreparedView, bool bHybridRetained = false
+		) -> void;
 		auto FinalizeExecution_RenderThread(FPreparedSkeletalMeshView& PreparedView)
 			-> void;
 		auto ExecuteGBuffer_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
 			FGBufferRenderer& GBuffer,
-			FPreparedSkeletalMeshView& PreparedView) -> void;
+			FPreparedSkeletalMeshView& PreparedView
+		) -> void;
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:
@@ -72,7 +78,9 @@ namespace Durin
 		auto EnsureSectionResources_RenderThread(
 			const FPreparedSkeletalMeshPrimitive& Primitive,
 			const FPreparedSkeletalMeshDraw& Item,
-			bool bShadowDepth = false) -> bool;
+			bool bShadowDepth = false,
+			bool bHybridRetained = false
+		) -> bool;
 		auto DrawSection_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
@@ -80,13 +88,16 @@ namespace Durin
 			ERenderMode RenderMode,
 			const FPreparedSkeletalMeshPrimitive& Primitive,
 			const FPreparedSkeletalMeshDraw& Item,
-			bool bShadowDepth = false) -> bool;
+			bool bShadowDepth = false,
+			bool bHybridRetained = false
+		) -> bool;
 		auto DrawGBufferSection_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
 			FGBufferRenderer& GBuffer,
 			const FPreparedSkeletalMeshPrimitive& Primitive,
-			const FPreparedSkeletalMeshDraw& Item) -> bool;
+			const FPreparedSkeletalMeshDraw& Item
+		) -> bool;
 		struct FState;
 
 		FRendererResourceCoordinator& Coordinator;
@@ -94,4 +105,4 @@ namespace Durin
 		FEnvironmentLightingResources& EnvironmentLighting;
 		std::unique_ptr<FState> State;
 	};
-}
+} // namespace Durin

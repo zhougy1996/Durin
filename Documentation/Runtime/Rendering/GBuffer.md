@@ -14,11 +14,13 @@ forward, sky, and editor-assistance surfaces do not publish records. Masked
 rejection and Terrain dithered-LOD rejection occur before any attachment
 write.
 
-During M2 the route is development-only and requires
-`FSceneViewRenderOptions::bEnableGBufferQualification`. The existing forward
-scene pass remains the production owner and still produces the displayed
-result. Debug replacement is separately selected by `GBufferDebugMode`; it is
-not a fallback or a second production renderer.
+Production `DeferredRequired` views always execute this pass, and it is the
+sole depth/material owner for eligible Lit opaque/masked records. Explicit A/B
+tests may still request the M2 qualification route with
+`FSceneViewRenderOptions::bEnableGBufferQualification`; that isolated capture
+does not replace the selected product result. Debug replacement is separately
+selected by `GBufferDebugMode`; it is not a fallback or a second production
+renderer.
 
 ## Record Encoding
 
@@ -73,8 +75,10 @@ Target publication is transactional. A partially created extent is not
 published. Shader or pipeline refresh retains a same-device last-known-good
 payload when permitted by the renderer resource coordinator. Device
 invalidation, explicit release, and shutdown clear dependent resources before
-retry. A failed qualification pass increments its per-family attempted/skipped
-counters and leaves the unchanged production forward result authoritative; no
+retry. A failed isolated qualification pass increments its per-family
+attempted/skipped counters and leaves the selected result authoritative. A
+failed production pass returns `RendererResourcesUnavailable`; it does not
+present a partial image or silently select the test-only forward reference. No
 view may sample stale attachments from another view or extent.
 
 The size-keyed GBuffer cache retains the current extent and evicts oldest

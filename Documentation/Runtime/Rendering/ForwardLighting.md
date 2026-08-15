@@ -5,6 +5,24 @@ shadow described in [Directional Shadows](DirectionalShadows.md). The shadow
 record is part of the fixed reflected lighting ABI; all other lighting terms
 retain the behavior documented below.
 
+## Production surface ownership
+
+The production hybrid renderer evaluates Lit opaque/masked StaticMesh,
+SplineMesh, SkeletalMesh, and Terrain records after the GBuffer. Forward owns
+only Unlit opaque/masked surfaces, the globally sorted translucent list,
+wireframe or another explicitly named special mode, SkyBox bootstrap, and the
+test-only complete forward reference. Dedicated retained-forward pipeline
+variants load existing HDR Scene Color, directional-direct, and GBuffer depth;
+they never clear or display-map those attachments. No product caller silently
+falls back to generic Lit opaque forward rendering.
+
+The fixed lighting ABI and the shared helpers below remain common to deferred
+Lit evaluation and retained forward translucency. The selected four local
+records therefore keep the same stable order, attenuation, BRDF, environment,
+emissive, and shadow semantics across the composition boundary. See
+[Deferred Directional Lighting](DeferredDirectionalLighting.md) for the
+authoritative production ordering and failure contract.
+
 ## Scene ownership
 
 Directional, point, and spot lights cross the game/render boundary as detached

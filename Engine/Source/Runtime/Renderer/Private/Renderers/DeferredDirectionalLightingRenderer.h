@@ -24,12 +24,11 @@ namespace Durin
 			64ull * 1024ull * 1024ull;
 		static constexpr auto CalculateTargetBytes(
 			uint32 Width,
-			uint32 Height) -> uint64
+			uint32 Height
+		) -> uint64
 		{
 			const uint64 Pixels = static_cast<uint64>(Width) * Height;
-			return Pixels > std::numeric_limits<uint64>::max() / BytesPerPixel
-				? std::numeric_limits<uint64>::max()
-				: Pixels * BytesPerPixel;
+			return Pixels > std::numeric_limits<uint64>::max() / BytesPerPixel ? std::numeric_limits<uint64>::max() : Pixels * BytesPerPixel;
 		}
 
 		struct alignas(16) FViewUniform
@@ -65,24 +64,41 @@ namespace Durin
 
 		FDeferredDirectionalLightingRenderer(
 			FRendererResourceCoordinator& InCoordinator,
-			FFullscreenGeometryResources& InFullscreenGeometry);
+			FFullscreenGeometryResources& InFullscreenGeometry
+		);
 		~FDeferredDirectionalLightingRenderer();
 
 		FDeferredDirectionalLightingRenderer(
-			const FDeferredDirectionalLightingRenderer&) = delete;
+			const FDeferredDirectionalLightingRenderer&
+		) = delete;
 		auto operator=(const FDeferredDirectionalLightingRenderer&)
 			-> FDeferredDirectionalLightingRenderer& = delete;
 
 		auto EnsureResources_RenderThread(
-			FRHICommandListImmediate& CommandList) -> bool;
+			FRHICommandListImmediate& CommandList
+		) -> bool;
 		auto EnsureTargets_RenderThread(uint32 Width, uint32 Height) -> FTargets*;
 		auto Render_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			FTargets& Targets,
-			const FRenderParameters& Parameters) -> bool;
+			const FRenderParameters& Parameters
+		) -> bool;
+		auto RenderProduction_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			FRHITexture* SceneColor,
+			FRHITexture* DirectionalDirect,
+			const FRenderParameters& Parameters
+		) -> bool;
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:
+		auto RenderInternal_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			FRHITexture* SceneColor,
+			FRHITexture* DirectionalDirect,
+			const FRenderParameters& Parameters,
+			bool bProduction
+		) -> bool;
 		struct FState;
 
 		FRendererResourceCoordinator& Coordinator;
@@ -90,8 +106,6 @@ namespace Durin
 		std::unique_ptr<FState> State;
 	};
 
-	static_assert(sizeof(FDeferredDirectionalLightingRenderer::FViewUniform)
-		== 160);
-	static_assert(alignof(FDeferredDirectionalLightingRenderer::FViewUniform)
-		== 16);
+	static_assert(sizeof(FDeferredDirectionalLightingRenderer::FViewUniform) == 160);
+	static_assert(alignof(FDeferredDirectionalLightingRenderer::FViewUniform) == 16);
 } // namespace Durin

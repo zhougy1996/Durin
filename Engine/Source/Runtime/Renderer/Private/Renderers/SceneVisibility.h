@@ -180,11 +180,9 @@ namespace Durin
 		size_t ShadowAttemptedDraws = 0;
 		size_t ShadowSuccessfulDraws = 0;
 		size_t ShadowRejectedDraws = 0;
-		std::array<size_t,
-			static_cast<size_t>(EDirectionalShadowDiagnosticMode::Count)>
+		std::array<size_t, static_cast<size_t>(EDirectionalShadowDiagnosticMode::Count)>
 			ShadowDiagnosticViews{};
-		std::array<size_t,
-			static_cast<size_t>(EDirectionalShadowFilterQuality::Count)>
+		std::array<size_t, static_cast<size_t>(EDirectionalShadowFilterQuality::Count)>
 			ShadowQualityViews{};
 		size_t ShadowComparisonOperations = 0;
 		size_t ShadowTransitionComparisonOperations = 0;
@@ -224,6 +222,9 @@ namespace Durin
 		size_t DeferredDirectionalPassFailures = 0;
 		size_t DeferredDirectionalDebugViews = 0;
 		size_t DeferredDirectionalOutputBytes = 0;
+		size_t HybridDeferredEnabledViews = 0;
+		size_t HybridDeferredFallbackViews = 0;
+		size_t HybridDeferredUnavailableViews = 0;
 		size_t OpaqueStaticMeshSections = 0;
 		size_t MaskedStaticMeshSections = 0;
 		size_t TranslucentStaticMeshSections = 0;
@@ -281,10 +282,12 @@ namespace Durin
 	// per RenderView invocation and is never retained by Renderer.
 	RENDERER_API auto SetViewRenderCounterSink(FViewRenderCounterSink Sink) -> void;
 	RENDERER_API auto EmitViewRenderCounterSnapshot(
-		const FViewRenderCounters& Counters) -> void;
+		const FViewRenderCounters& Counters
+	) -> void;
 	// Reduces Renderer-private counters to the stable editor-facing summary.
 	RENDERER_API auto BuildSceneViewStatistics(
-		const FViewRenderCounters& Counters) -> FSceneViewStatistics;
+		const FViewRenderCounters& Counters
+	) -> FSceneViewStatistics;
 
 	struct FSceneVisibilityResult
 	{
@@ -299,5 +302,6 @@ namespace Durin
 	RENDERER_API auto PrepareSceneVisibility(
 		const FScene& Scene,
 		const FSceneView& View,
-		FViewRenderCounters& Counters) -> FSceneVisibilityResult;
+		FViewRenderCounters& Counters
+	) -> FSceneVisibilityResult;
 } // namespace Durin

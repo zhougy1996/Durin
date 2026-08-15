@@ -391,7 +391,6 @@ BasePassFragmentOutput FragmentMain(
         normalFrame.shadingNormal,
         Lighting.ViewPosition.xyz);
     float3 normal = lightingFrame.normal;
-    float3 toView = lightingFrame.toView;
     float3 direct = float3(0.0);
 	float3 directionalDirect = float3(0.0);
     if (Lighting.Counts.x > 0u)
@@ -426,37 +425,9 @@ BasePassFragmentOutput FragmentMain(
     {
         if (lightIndex >= Lighting.Counts.y)
             break;
-        float3 lightVector = Lighting.Local[lightIndex].PositionInverseRange.xyz
-            - input.worldPosition;
-        float distanceSquared = dot(lightVector, lightVector);
-        float3 toLight = distanceSquared > 1.0e-8
-            ? lightVector * rsqrt(distanceSquared) : float3(0.0);
-        float inverseRange = Lighting.Local[lightIndex].PositionInverseRange.w;
-        float normalizedDistance = sqrt(max(distanceSquared, 0.0)) * inverseRange;
-        float rangeBase = 1.0 - saturate(normalizedDistance * normalizedDistance);
-        float rangeAttenuation = rangeBase * rangeBase;
-        float inverseSquare = 1.0 / max(distanceSquared, 0.0025);
-        float coneAttenuation = 1.0;
-        if (Lighting.Local[lightIndex].DirectionType.w > 0.5)
-        {
-            float angleCosine = dot(
-                Lighting.Local[lightIndex].DirectionType.xyz, -toLight);
-            float4 cone = Lighting.Local[lightIndex].SpotCone;
-            if (cone.w > 0.5)
-                coneAttenuation = angleCosine > cone.y ? 1.0 : 0.0;
-            else
-            {
-                float coneValue = saturate((angleCosine - cone.y) * cone.z);
-                coneAttenuation = coneValue * coneValue
-                    * (3.0 - 2.0 * coneValue);
-            }
-        }
-        float3 radiance = Lighting.Local[lightIndex].ColorIntensity.rgb
-            * Lighting.Local[lightIndex].ColorIntensity.a
-            * inverseSquare * rangeAttenuation * coneAttenuation;
-        direct += EvaluatePBRDirectLighting(
+        direct += EvaluateSurfaceLocalLighting(
             surface.baseColor, surface.metallic, surface.roughness,
-            normal, toLight, toView, radiance);
+            input.worldPosition, lightingFrame, Lighting.Local[lightIndex]);
     }
     float3 environment = EvaluateSurfaceEnvironmentLighting(
         surface.baseColor,

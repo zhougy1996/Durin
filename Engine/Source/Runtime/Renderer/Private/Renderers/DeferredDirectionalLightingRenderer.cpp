@@ -19,34 +19,44 @@ namespace Durin
 		class FDeferredDirectionalVertexShader final : public FShader
 		{
 		public:
-			DURIN_DECLARE_SHADER(FDeferredDirectionalVertexShader, FShader,
-				"/Engine/DeferredDirectionalLighting",
-				EShaderFrequency::Vertex, "VertexMain");
+			DURIN_DECLARE_SHADER(FDeferredDirectionalVertexShader, FShader, "/Engine/DeferredDirectionalLighting", EShaderFrequency::Vertex, "VertexMain");
 		};
+
+#define DURIN_DEFERRED_FRAGMENT_PARAMETERS()                  \
+	DURIN_SHADER_PARAMETER_TEXTURE(GBufferMaterial);          \
+	DURIN_SHADER_PARAMETER_TEXTURE(GBufferNormals);           \
+	DURIN_SHADER_PARAMETER_TEXTURE(GBufferSurface);           \
+	DURIN_SHADER_PARAMETER_TEXTURE(GBufferEmissive);          \
+	DURIN_SHADER_PARAMETER_TEXTURE(SceneDepth);               \
+	DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentIrradiance);    \
+	DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentPrefiltered);   \
+	DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentBrdfLut);       \
+	DURIN_SHADER_PARAMETER_SAMPLER(EnvironmentSampler);       \
+	DURIN_SHADER_PARAMETER_TEXTURE(DirectionalShadowTexture); \
+	DURIN_SHADER_PARAMETER_SAMPLER(DirectionalShadowSampler); \
+	DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(View);      \
+	DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Lighting);
 
 		class FDeferredDirectionalFragmentShader final : public FShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FDeferredDirectionalFragmentShader)
-				DURIN_SHADER_PARAMETER_TEXTURE(GBufferMaterial);
-				DURIN_SHADER_PARAMETER_TEXTURE(GBufferNormals);
-				DURIN_SHADER_PARAMETER_TEXTURE(GBufferSurface);
-				DURIN_SHADER_PARAMETER_TEXTURE(GBufferEmissive);
-				DURIN_SHADER_PARAMETER_TEXTURE(SceneDepth);
-				DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentIrradiance);
-				DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentPrefiltered);
-				DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentBrdfLut);
-				DURIN_SHADER_PARAMETER_SAMPLER(EnvironmentSampler);
-				DURIN_SHADER_PARAMETER_TEXTURE(DirectionalShadowTexture);
-				DURIN_SHADER_PARAMETER_SAMPLER(DirectionalShadowSampler);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(View);
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Lighting);
+				DURIN_DEFERRED_FRAGMENT_PARAMETERS()
 			DURIN_END_SHADER_PARAMETERS();
 
-			DURIN_DECLARE_SHADER(FDeferredDirectionalFragmentShader, FShader,
-				"/Engine/DeferredDirectionalLighting",
-				EShaderFrequency::Fragment, "FragmentMain");
+			DURIN_DECLARE_SHADER(FDeferredDirectionalFragmentShader, FShader, "/Engine/DeferredDirectionalLighting", EShaderFrequency::Fragment, "FragmentMain");
 		};
+
+		class FDeferredProductionFragmentShader final : public FShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FDeferredProductionFragmentShader)
+				DURIN_DEFERRED_FRAGMENT_PARAMETERS()
+			DURIN_END_SHADER_PARAMETERS();
+			DURIN_DECLARE_SHADER(FDeferredProductionFragmentShader, FShader, "/Engine/DeferredDirectionalLighting", EShaderFrequency::Fragment, "ProductionFragmentMain");
+		};
+
+#undef DURIN_DEFERRED_FRAGMENT_PARAMETERS
 	} // namespace
 
 	struct FDeferredDirectionalLightingRenderer::FState
@@ -56,33 +66,38 @@ namespace Durin
 			std::shared_ptr<FShaderMapBase> ShaderMap;
 			TShaderRef<FDeferredDirectionalVertexShader> VertexShader;
 			TShaderRef<FDeferredDirectionalFragmentShader> FragmentShader;
+			TShaderRef<FDeferredProductionFragmentShader> ProductionFragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
 			FGraphicsPipelineStateRHIRef PipelineState;
+			FGraphicsPipelineStateRHIRef ProductionPipelineState;
 			FSamplerRHIRef FallbackEnvironmentSampler;
 			FSamplerRHIRef FallbackShadowSampler;
 		};
 
 		TRenderResourceCreationSlot<FPayload> Resources{
 			ERenderResourceGenerationDependency::Shader
-				| ERenderResourceGenerationDependency::Device};
+			| ERenderResourceGenerationDependency::Device
+		};
 		TRendererResourceSlotCache<uint64, FTargets> TargetsBySize{
-			ERenderResourceGenerationDependency::Device};
+			ERenderResourceGenerationDependency::Device
+		};
 	};
 
 	FDeferredDirectionalLightingRenderer::FDeferredDirectionalLightingRenderer(
 		FRendererResourceCoordinator& InCoordinator,
-		FFullscreenGeometryResources& InFullscreenGeometry)
+		FFullscreenGeometryResources& InFullscreenGeometry
+	)
 		: Coordinator(InCoordinator)
 		, FullscreenGeometry(InFullscreenGeometry)
 		, State(std::make_unique<FState>())
 	{
 	}
 
-	FDeferredDirectionalLightingRenderer::~FDeferredDirectionalLightingRenderer()
-		= default;
+	FDeferredDirectionalLightingRenderer::~FDeferredDirectionalLightingRenderer() = default;
 
 	auto FDeferredDirectionalLightingRenderer::EnsureResources_RenderThread(
-		FRHICommandListImmediate& CommandList) -> bool
+		FRHICommandListImmediate& CommandList
+	) -> bool
 	{
 		using FPayload = FState::FPayload;
 		using FResult = TRenderResourceCreateResult<FPayload>;
@@ -96,46 +111,58 @@ namespace Durin
 					FDeferredDirectionalVertexShader::StaticType();
 				FShaderType& FragmentType =
 					FDeferredDirectionalFragmentShader::StaticType();
-				const std::array<const FShaderType*, 2> Types{
-					&VertexType, &FragmentType};
+				FShaderType& ProductionFragmentType =
+					FDeferredProductionFragmentShader::StaticType();
+				const std::array<const FShaderType*, 3> Types{
+					&VertexType, &FragmentType, &ProductionFragmentType
+				};
 				FPayload Candidate;
 				Candidate.ShaderMap = std::make_shared<FShaderMapBase>();
 				std::string Error;
 				if (!Candidate.ShaderMap->InitializeFromShaderTypes(
-						Types, CompileOptions, Error))
+						Types, CompileOptions, Error
+					))
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderCompile,
 						"DeferredDirectionalLighting", "shader",
 						std::move(Error),
 						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual));
+							| ERenderResourceGenerationDependency::Manual
+					));
 				}
 				auto* Vertex = static_cast<FDeferredDirectionalVertexShader*>(
-					Candidate.ShaderMap->GetShader(&VertexType));
+					Candidate.ShaderMap->GetShader(&VertexType)
+				);
 				auto* Fragment = static_cast<FDeferredDirectionalFragmentShader*>(
-					Candidate.ShaderMap->GetShader(&FragmentType));
-				if (Vertex == nullptr || Fragment == nullptr)
+					Candidate.ShaderMap->GetShader(&FragmentType)
+				);
+				auto* ProductionFragment =
+					static_cast<FDeferredProductionFragmentShader*>(
+						Candidate.ShaderMap->GetShader(&ProductionFragmentType)
+					);
+				if (Vertex == nullptr || Fragment == nullptr
+					|| ProductionFragment == nullptr)
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderBinding,
 						"DeferredDirectionalLighting", "shader",
 						"Compiled shader map is missing a typed shader.",
 						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual));
+							| ERenderResourceGenerationDependency::Manual
+					));
 				}
 				Candidate.VertexShader = {Vertex, Candidate.ShaderMap.get()};
 				Candidate.FragmentShader = {Fragment, Candidate.ShaderMap.get()};
+				Candidate.ProductionFragmentShader = {
+					ProductionFragment, Candidate.ShaderMap.get()
+				};
 
 				FVertexDeclarationElementList Elements;
 				constexpr uint32 Stride =
 					sizeof(FFullscreenGeometryResources::FVertex);
-				Elements[0] = FVertexElement(0,
-					offsetof(FFullscreenGeometryResources::FVertex, Position),
-					EVertexElementType::Float2, 0, Stride);
-				Elements[1] = FVertexElement(0,
-					offsetof(FFullscreenGeometryResources::FVertex, UV),
-					EVertexElementType::Float2, 1, Stride);
+				Elements[0] = FVertexElement(0, offsetof(FFullscreenGeometryResources::FVertex, Position), EVertexElementType::Float2, 0, Stride);
+				Elements[1] = FVertexElement(0, offsetof(FFullscreenGeometryResources::FVertex, UV), EVertexElementType::Float2, 1, Stride);
 				Candidate.VertexDeclaration =
 					GDynamicRHI->RHICreateVertexDeclaration(Elements);
 				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
@@ -145,14 +172,18 @@ namespace Durin
 						"DeferredDirectionalLighting", "fullscreen-geometry",
 						"Shared fullscreen geometry is unavailable.",
 						ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
+							| ERenderResourceGenerationDependency::Manual
+					));
 				}
 				FRHIShader* VertexRHI =
 					Candidate.VertexShader.GetRHIShader(false);
 				FRHIShader* FragmentRHI =
 					Candidate.FragmentShader.GetRHIShader(false);
+				FRHIShader* ProductionFragmentRHI =
+					Candidate.ProductionFragmentShader.GetRHIShader(false);
 				if (Candidate.VertexDeclaration == nullptr
-					|| VertexRHI == nullptr || FragmentRHI == nullptr)
+					|| VertexRHI == nullptr || FragmentRHI == nullptr
+					|| ProductionFragmentRHI == nullptr)
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::RHIResource,
@@ -160,7 +191,8 @@ namespace Durin
 						"RHI shader or vertex declaration creation returned null.",
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
+							| ERenderResourceGenerationDependency::Manual
+					));
 				}
 				FGraphicsPipelineStateInitializer Initializer;
 				Initializer.RenderTargetLayout =
@@ -173,7 +205,15 @@ namespace Durin
 					Candidate.ShaderMap->GetMergedPipelineLayout();
 				Candidate.PipelineState =
 					GDynamicRHI->RHICreateGraphicsPipelineState(
-						"DeferredDirectionalLightingPipeline", Initializer);
+						"DeferredDirectionalLightingPipeline", Initializer
+					);
+				Initializer.RenderTargetLayout =
+					RenderTargetLayouts::MakeHybridDeferredOutput();
+				Initializer.BoundShaders.FragmentShader = ProductionFragmentRHI;
+				Candidate.ProductionPipelineState =
+					GDynamicRHI->RHICreateGraphicsPipelineState(
+						"DeferredProductionLightingPipeline", Initializer
+					);
 				Candidate.FallbackEnvironmentSampler =
 					RHICreateSampler(FRHISamplerDesc::LinearClamp());
 				FRHISamplerDesc ShadowDesc = FRHISamplerDesc::LinearClamp();
@@ -185,6 +225,7 @@ namespace Durin
 				ShadowDesc.CompareOp = ESamplerCompareOp::LessOrEqual;
 				Candidate.FallbackShadowSampler = RHICreateSampler(ShadowDesc);
 				if (Candidate.PipelineState == nullptr
+					|| Candidate.ProductionPipelineState == nullptr
 					|| Candidate.FallbackEnvironmentSampler == nullptr
 					|| Candidate.FallbackShadowSampler == nullptr)
 				{
@@ -194,27 +235,29 @@ namespace Durin
 						"Graphics pipeline or fallback sampler creation returned null.",
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
+							| ERenderResourceGenerationDependency::Manual
+					));
 				}
 				return FResult::Success(std::move(Candidate));
 			},
-			ReportRendererResourceCreateDiagnostic);
+			ReportRendererResourceCreateDiagnostic
+		);
 		return Payload != nullptr;
 	}
 
 	auto FDeferredDirectionalLightingRenderer::EnsureTargets_RenderThread(
 		uint32 Width,
-		uint32 Height) -> FTargets*
+		uint32 Height
+	) -> FTargets*
 	{
 		if (Width == 0 || Height == 0) return nullptr;
 		const uint64 Key = (static_cast<uint64>(Width) << 32) | Height;
 		const FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D(
-			"DeferredDirectionalColor", Width, Height,
-			EPixelFormat::RGBA16_FLOAT)
-			.SetFlags(ETextureCreateFlags::RenderTargetable
-				| ETextureCreateFlags::ShaderResource
-				| ETextureCreateFlags::SourceCopy)
-			.SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f));
+											   "DeferredDirectionalColor", Width, Height,
+											   EPixelFormat::RGBA16_FLOAT
+		)
+											   .SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy)
+											   .SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f));
 		using FResult = TRenderResourceCreateResult<FTargets>;
 		auto& Entry = State->TargetsBySize.FindOrAdd(Key);
 		FTargets* Targets = Entry.Slot.Resolve(
@@ -229,22 +272,26 @@ namespace Durin
 						"DeferredDirectionalTarget", std::to_string(Key),
 						"RGBA16_FLOAT target creation returned null.",
 						ERenderResourceGenerationDependency::Device
-							| ERenderResourceGenerationDependency::Manual));
+							| ERenderResourceGenerationDependency::Manual
+					));
 				}
 				return FResult::Success(std::move(Candidate));
 			},
-			ReportRendererResourceCreateDiagnostic);
+			ReportRendererResourceCreateDiagnostic
+		);
 		const bool bResolved = Targets != nullptr;
 		auto GetRetainedBytes = [this]() {
 			return State->TargetsBySize.GetRetainedPayloadWeight(
 				[](uint64 SizeKey, const FTargets&) {
 					return CalculateTargetBytes(
 						static_cast<uint32>(SizeKey >> 32),
-						static_cast<uint32>(SizeKey));
-				});
+						static_cast<uint32>(SizeKey)
+					);
+				}
+			);
 		};
 		while (State->TargetsBySize.Num() > 1
-			&& GetRetainedBytes() > MaximumRetainedBytes)
+			   && GetRetainedBytes() > MaximumRetainedBytes)
 		{
 			if (!State->TargetsBySize.EvictOldestExcept(Key)) break;
 		}
@@ -256,12 +303,39 @@ namespace Durin
 	auto FDeferredDirectionalLightingRenderer::Render_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FTargets& Targets,
-		const FRenderParameters& Parameters) -> bool
+		const FRenderParameters& Parameters
+	) -> bool
+	{
+		return RenderInternal_RenderThread(
+			CommandList, Targets.Color, nullptr, Parameters, false
+		);
+	}
+
+	auto FDeferredDirectionalLightingRenderer::RenderProduction_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		FRHITexture* SceneColor,
+		FRHITexture* DirectionalDirect,
+		const FRenderParameters& Parameters
+	) -> bool
+	{
+		return RenderInternal_RenderThread(
+			CommandList, SceneColor, DirectionalDirect, Parameters, true
+		);
+	}
+
+	auto FDeferredDirectionalLightingRenderer::RenderInternal_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		FRHITexture* SceneColor,
+		FRHITexture* DirectionalDirect,
+		const FRenderParameters& Parameters,
+		bool bProduction
+	) -> bool
 	{
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
 		const FSceneView* View = Parameters.View;
-		if (Targets.Color == nullptr || View == nullptr
+		if (SceneColor == nullptr || (bProduction && DirectionalDirect == nullptr)
+			|| View == nullptr
 			|| View->ViewportWidth == 0 || View->ViewportHeight == 0
 			|| Parameters.Material == nullptr || Parameters.Normals == nullptr
 			|| Parameters.Surface == nullptr || Parameters.Emissive == nullptr
@@ -276,7 +350,10 @@ namespace Durin
 		}
 		if (!EnsureResources_RenderThread(CommandList)) return false;
 		FState::FPayload* Payload = State->Resources.GetPayload();
-		if (Payload == nullptr || Payload->PipelineState == nullptr
+		if (Payload == nullptr)
+			return false;
+		FGraphicsPipelineStateRHIRef& Pipeline = bProduction ? Payload->ProductionPipelineState : Payload->PipelineState;
+		if (Pipeline == nullptr
 			|| FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
 			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr)
 		{
@@ -302,61 +379,74 @@ namespace Durin
 			1.0f / static_cast<float>(View->ViewportWidth),
 			1.0f / static_cast<float>(View->ViewportHeight),
 			static_cast<float>(Parameters.DiagnosticMode),
-			0.0f};
+			bProduction ? 1.0f : 0.0f
+		};
 		const FRHIUniformBufferRange ViewUniform =
 			CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
 		if (ViewUniform.Buffer == nullptr || ViewUniform.Size != sizeof(Uniform))
 			return false;
 
 		FRHIRenderPassInfo PassInfo{};
-		PassInfo.RenderTargetLayout =
-			RenderTargetLayouts::MakeDeferredDirectionalOutput();
-		PassInfo.ColorRenderTargets[0] = Targets.Color;
+		PassInfo.RenderTargetLayout = bProduction ? RenderTargetLayouts::MakeHybridDeferredOutput() : RenderTargetLayouts::MakeDeferredDirectionalOutput();
+		PassInfo.ColorRenderTargets[0] = SceneColor;
+		if (bProduction)
+			PassInfo.ColorRenderTargets[1] = DirectionalDirect;
 		PassInfo.ColorClearValues[0] = FClearValueBinding(
 			View->ClearColor.r, View->ClearColor.g,
-			View->ClearColor.b, View->ClearColor.a);
-		CommandList.BeginRenderPass(
-			PassInfo, "DeferredDirectionalQualificationRenderPass");
-		CommandList.SetGraphicsPipelineState(*Payload->PipelineState);
+			View->ClearColor.b, View->ClearColor.a
+		);
+		CommandList.BeginRenderPass(PassInfo, bProduction ? "DeferredProductionLightingRenderPass" : "DeferredDirectionalQualificationRenderPass");
+		CommandList.SetGraphicsPipelineState(*Pipeline);
 		CommandList.SetViewport(
 			static_cast<float>(View->ViewportX),
 			static_cast<float>(View->ViewportY), 0.0f,
 			static_cast<float>(View->ViewportX + View->ViewportWidth),
-			static_cast<float>(View->ViewportY + View->ViewportHeight), 1.0f);
+			static_cast<float>(View->ViewportY + View->ViewportHeight), 1.0f
+		);
 		CommandList.SetScissor(
 			static_cast<float>(View->ViewportX),
 			static_cast<float>(View->ViewportY),
 			static_cast<float>(View->ViewportWidth),
-			static_cast<float>(View->ViewportHeight));
-		CommandList.BindVertexBuffer(0,
-			FullscreenGeometry.GetVertexBuffer_RenderThread(), 0);
+			static_cast<float>(View->ViewportHeight)
+		);
+		CommandList.BindVertexBuffer(0, FullscreenGeometry.GetVertexBuffer_RenderThread(), 0);
 		CommandList.BindIndexBuffer(
-			FullscreenGeometry.GetIndexBuffer_RenderThread(), 0);
+			FullscreenGeometry.GetIndexBuffer_RenderThread(), 0
+		);
 
-		FDeferredDirectionalFragmentShader::FParameters ShaderParameters;
-		ShaderParameters.GBufferMaterial = Parameters.Material;
-		ShaderParameters.GBufferNormals = Parameters.Normals;
-		ShaderParameters.GBufferSurface = Parameters.Surface;
-		ShaderParameters.GBufferEmissive = Parameters.Emissive;
-		ShaderParameters.SceneDepth = Parameters.Depth;
-		ShaderParameters.EnvironmentIrradiance =
-			Parameters.EnvironmentIrradiance;
-		ShaderParameters.EnvironmentPrefiltered =
-			Parameters.EnvironmentPrefiltered;
-		ShaderParameters.EnvironmentBrdfLut = Parameters.EnvironmentBrdfLut;
-		ShaderParameters.EnvironmentSampler = Parameters.EnvironmentSampler
-			? Parameters.EnvironmentSampler
-			: Payload->FallbackEnvironmentSampler.GetReference();
-		ShaderParameters.DirectionalShadowTexture =
-			Parameters.DirectionalShadowTexture;
-		ShaderParameters.DirectionalShadowSampler =
-			Parameters.DirectionalShadowSampler
-			? Parameters.DirectionalShadowSampler
-			: Payload->FallbackShadowSampler.GetReference();
-		ShaderParameters.View = ViewUniform;
-		ShaderParameters.Lighting = Parameters.Lighting;
-		SetShaderParameters(
-			CommandList, Payload->FragmentShader, ShaderParameters);
+		auto FillShaderParameters = [&](auto& ShaderParameters) {
+			ShaderParameters.GBufferMaterial = Parameters.Material;
+			ShaderParameters.GBufferNormals = Parameters.Normals;
+			ShaderParameters.GBufferSurface = Parameters.Surface;
+			ShaderParameters.GBufferEmissive = Parameters.Emissive;
+			ShaderParameters.SceneDepth = Parameters.Depth;
+			ShaderParameters.EnvironmentIrradiance =
+				Parameters.EnvironmentIrradiance;
+			ShaderParameters.EnvironmentPrefiltered =
+				Parameters.EnvironmentPrefiltered;
+			ShaderParameters.EnvironmentBrdfLut = Parameters.EnvironmentBrdfLut;
+			ShaderParameters.EnvironmentSampler = Parameters.EnvironmentSampler ? Parameters.EnvironmentSampler : Payload->FallbackEnvironmentSampler.GetReference();
+			ShaderParameters.DirectionalShadowTexture =
+				Parameters.DirectionalShadowTexture;
+			ShaderParameters.DirectionalShadowSampler =
+				Parameters.DirectionalShadowSampler ? Parameters.DirectionalShadowSampler : Payload->FallbackShadowSampler.GetReference();
+			ShaderParameters.View = ViewUniform;
+			ShaderParameters.Lighting = Parameters.Lighting;
+		};
+		if (bProduction)
+		{
+			FDeferredProductionFragmentShader::FParameters ShaderParameters;
+			FillShaderParameters(ShaderParameters);
+			SetShaderParameters(CommandList, Payload->ProductionFragmentShader, ShaderParameters);
+		}
+		else
+		{
+			FDeferredDirectionalFragmentShader::FParameters ShaderParameters;
+			FillShaderParameters(ShaderParameters);
+			SetShaderParameters(
+				CommandList, Payload->FragmentShader, ShaderParameters
+			);
+		}
 		CommandList.DrawIndexed(3, 0, 0);
 		CommandList.EndRenderPass();
 		return true;

@@ -1,6 +1,7 @@
 module SurfaceLighting;
 
 import Lighting.PBRLighting;
+import Lighting.ForwardLightingUniform;
 
 public struct FSurfaceLightingFrame
 {
@@ -41,6 +42,45 @@ public float3 EvaluateSurfaceDirectionalLighting(
     return EvaluatePBRDirectLighting(
         baseColor, metallic, roughness, frame.normal,
         toLight, frame.toView, radiance) * shadowAttenuation;
+}
+
+public float3 EvaluateSurfaceLocalLighting(
+    float3 baseColor,
+    float metallic,
+    float roughness,
+    float3 worldPosition,
+    FSurfaceLightingFrame frame,
+    FForwardLocalLightUniform light)
+{
+    float3 lightVector = light.PositionInverseRange.xyz - worldPosition;
+    float distanceSquared = dot(lightVector, lightVector);
+    float3 toLight = distanceSquared > 1.0e-8
+        ? lightVector * rsqrt(distanceSquared) : float3(0.0);
+    float normalizedDistance = sqrt(max(distanceSquared, 0.0))
+        * light.PositionInverseRange.w;
+    float rangeBase = 1.0 - saturate(
+        normalizedDistance * normalizedDistance);
+    float rangeAttenuation = rangeBase * rangeBase;
+    float inverseSquare = 1.0 / max(distanceSquared, 0.0025);
+    float coneAttenuation = 1.0;
+    if (light.DirectionType.w > 0.5)
+    {
+        float angleCosine = dot(light.DirectionType.xyz, -toLight);
+        if (light.SpotCone.w > 0.5)
+            coneAttenuation = angleCosine > light.SpotCone.y ? 1.0 : 0.0;
+        else
+        {
+            float coneValue = saturate(
+                (angleCosine - light.SpotCone.y) * light.SpotCone.z);
+            coneAttenuation = coneValue * coneValue
+                * (3.0 - 2.0 * coneValue);
+        }
+    }
+    float3 radiance = light.ColorIntensity.rgb * light.ColorIntensity.a
+        * inverseSquare * rangeAttenuation * coneAttenuation;
+    return EvaluatePBRDirectLighting(
+        baseColor, metallic, roughness, frame.normal,
+        toLight, frame.toView, radiance);
 }
 
 public float3 EvaluateSurfaceEnvironmentLighting(

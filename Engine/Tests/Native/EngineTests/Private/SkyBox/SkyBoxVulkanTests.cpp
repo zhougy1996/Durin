@@ -1,6 +1,19 @@
 #include "SkyBoxTestSupport.h"
 #include "Modules/ModuleTestSupport.h"
+#include "Renderers/SceneVisibility.h"
 #include "TextureCubeSourceTranslation.h"
+
+namespace
+{
+	Durin::FViewRenderCounters GHybridSkyCounters;
+
+	auto CaptureHybridSkyCounters(
+		const Durin::FViewRenderCounters& Counters
+	) -> void
+	{
+		GHybridSkyCounters = Counters;
+	}
+} // namespace
 
 TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax)
 {
@@ -9,17 +22,13 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog());
 	std::vector<Durin::PathUtilities::FMountPoint> MountDefinitions(
 		Durin::PathUtilities::GetRegisteredMountPoints().begin(),
-		Durin::PathUtilities::GetRegisteredMountPoints().end());
+		Durin::PathUtilities::GetRegisteredMountPoints().end()
+	);
 	const std::filesystem::path AssetRoot =
 		Durin::Testing::GetTestWorkDirectory() / "SkyBoxAssets";
 	Durin::Testing::RemoveTestWorkDirectory(AssetRoot);
 	std::filesystem::create_directories(AssetRoot);
-	MountDefinitions.push_back({
-		.VirtualRoot = "/SkyBoxAssetTests/",
-		.Owner = Durin::PathUtilities::EMountOwner::Test,
-		.Root = AssetRoot,
-		.bAutoScan = true,
-		.bAuthoringWritable = true});
+	MountDefinitions.push_back({.VirtualRoot = "/SkyBoxAssetTests/", .Owner = Durin::PathUtilities::EMountOwner::Test, .Root = AssetRoot, .bAutoScan = true, .bAuthoringWritable = true});
 	Durin::PathUtilities::FScopedMountRegistryFixture Mounts(MountDefinitions);
 	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
@@ -47,7 +56,8 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::Asset::Import::Standard::FTextureCubeImportResult CubeResult = Durin::Asset::Import::Standard::ImportTextureCubePanorama(
 		GetSkyBoxPanoramaFixture("AnalyticalLDR.tga").generic_string(),
 		"/SkyBoxAssetTests/VulkanPanoramaLdr",
-		{.FaceDimension = 64});
+		{.FaceDimension = 64}
+	);
 	ASSERT_TRUE(CubeResult) << CubeResult.Message;
 	auto CubeReference = CubeResult.Asset->GetTextureReferenceRHI();
 	ASSERT_NE(CubeReference, nullptr);
@@ -55,7 +65,8 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::Asset::Import::Standard::FTextureCubeImportResult HdrCubeResult = Durin::Asset::Import::Standard::ImportTextureCubePanorama(
 		GetSkyBoxPanoramaFixture("AnalyticalHDR.hdr").generic_string(),
 		"/SkyBoxAssetTests/VulkanPanoramaHdr",
-		{.FaceDimension = 64, .ExposureEV = 1.0f});
+		{.FaceDimension = 64, .ExposureEV = 1.0f}
+	);
 	ASSERT_TRUE(HdrCubeResult) << HdrCubeResult.Message;
 	auto HdrCubeReference = HdrCubeResult.Asset->GetTextureReferenceRHI();
 	ASSERT_NE(HdrCubeReference, nullptr);
@@ -65,9 +76,11 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
 	{
 		SourceColors[FaceIndex] = GetSourceColor(
-			*CubeResult.Asset, static_cast<Durin::ETextureCubeFace>(FaceIndex), 32, 32);
+			*CubeResult.Asset, static_cast<Durin::ETextureCubeFace>(FaceIndex), 32, 32
+		);
 		HdrSourceColors[FaceIndex] = GetSourceColor(
-			*HdrCubeResult.Asset, static_cast<Durin::ETextureCubeFace>(FaceIndex), 32, 32);
+			*HdrCubeResult.Asset, static_cast<Durin::ETextureCubeFace>(FaceIndex), 32, 32
+		);
 		SourceColors[FaceIndex] =
 			MapSrgbReferenceThroughDisplay(SourceColors[FaceIndex]);
 		HdrSourceColors[FaceIndex] =
@@ -83,7 +96,8 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	OcclusionComponent->SetStaticMesh(OcclusionMesh);
 	OcclusionComponent->SetMaterial(OcclusionMaterial);
 	auto OcclusionProxy = std::make_shared<std::unique_ptr<Durin::FPrimitiveSceneProxy>>(
-		OcclusionComponent->CreateSceneProxy());
+		OcclusionComponent->CreateSceneProxy()
+	);
 	ASSERT_NE(*OcclusionProxy, nullptr);
 
 	Durin::FSkyBoxSceneData SkyBox;
@@ -113,11 +127,14 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	};
 	Durin::EnqueueRenderCommand<FObserveInitialCubeTarget>(
 		[CubeReference, ObservedCubeTarget](
-			Durin::FRHICommandListImmediate&) {
+			Durin::FRHICommandListImmediate&
+		) {
 			ObservedCubeTarget->store(
 				CubeReference->GetReferencedTexture_RenderThread(),
-				std::memory_order_release);
-		});
+				std::memory_order_release
+			);
+		}
+	);
 	Durin::FlushRenderingCommands();
 	Durin::FRHITexture* InitialCubeTarget =
 		ObservedCubeTarget->load(std::memory_order_acquire);
@@ -130,10 +147,12 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::FlushRenderingCommands();
 	EXPECT_EQ(
 		CubeResult.Asset->GetRenderResourceState(),
-		Durin::ERenderResourceState::Ready);
+		Durin::ERenderResourceState::Ready
+	);
 	EXPECT_EQ(
 		CubeResult.Asset->GetAppliedRenderRevision(),
-		CubeResult.Asset->GetBuildRevision());
+		CubeResult.Asset->GetBuildRevision()
+	);
 	struct FObserveReplacementCubeTarget
 	{
 		static constexpr auto GetName() -> const char*
@@ -143,11 +162,14 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	};
 	Durin::EnqueueRenderCommand<FObserveReplacementCubeTarget>(
 		[CubeReference, ObservedCubeTarget](
-			Durin::FRHICommandListImmediate&) {
+			Durin::FRHICommandListImmediate&
+		) {
 			ObservedCubeTarget->store(
 				CubeReference->GetReferencedTexture_RenderThread(),
-				std::memory_order_release);
-		});
+				std::memory_order_release
+			);
+		}
+	);
 	Durin::FlushRenderingCommands();
 	Durin::FRHITexture* ReplacementCubeTarget =
 		ObservedCubeTarget->load(std::memory_order_acquire);
@@ -167,6 +189,9 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		std::vector<Durin::uint8> ExplicitOverride;
 		std::vector<Durin::uint8> Letterboxed;
 		std::vector<Durin::uint8> Occluded;
+		std::vector<Durin::uint8> ForwardLitSky;
+		std::vector<Durin::uint8> HybridLitSky;
+		Durin::FViewRenderCounters HybridSkyCounters;
 		Durin::ERenderViewResult InvalidOutputResult =
 			Durin::ERenderViewResult::Success;
 		Durin::ERenderViewResult MissingEnvironmentResult =
@@ -183,8 +208,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	};
 	Durin::EnqueueRenderCommand<FRenderSkyBoxValidationFrame>(
 		[&Renderer, &Scene, CubeReference, PlatformData,
-			HdrCubeReference, HdrPlatformData, Result, OcclusionProxy]
-		(Durin::FRHICommandListImmediate& CommandList) {
+		 HdrCubeReference, HdrPlatformData, Result, OcclusionProxy](Durin::FRHICommandListImmediate& CommandList) {
 			Durin::GRenderFrameCounterRenderThread++;
 			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 			struct FEndFrameGuard
@@ -207,12 +231,14 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 				{
 					std::vector<Durin::uint8> MipPixels;
 					if (!Durin::GDynamicRHI->RHIReadTexture2D(
-						CommandList, CubeTexture, MipIndex, FaceIndex, MipPixels)
+							CommandList, CubeTexture, MipIndex, FaceIndex, MipPixels
+						)
 						|| MipPixels != PlatformData->Faces[FaceIndex].Mips[MipIndex].Pixels)
 					{
 						Result->bSucceeded = false;
 						Result->Error = std::format(
-							"Cube readback mismatch for face {} mip {}.", FaceIndex, MipIndex);
+							"Cube readback mismatch for face {} mip {}.", FaceIndex, MipIndex
+						);
 						return;
 					}
 				}
@@ -231,22 +257,23 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 				{
 					std::vector<Durin::uint8> MipPixels;
 					if (!Durin::GDynamicRHI->RHIReadTexture2D(
-						CommandList, HdrCubeTexture, MipIndex, FaceIndex, MipPixels)
+							CommandList, HdrCubeTexture, MipIndex, FaceIndex, MipPixels
+						)
 						|| MipPixels != HdrPlatformData->Faces[FaceIndex].Mips[MipIndex].Pixels)
 					{
 						Result->bSucceeded = false;
 						Result->Error = std::format(
-							"HDR-derived cube readback mismatch for face {} mip {}.", FaceIndex, MipIndex);
+							"HDR-derived cube readback mismatch for face {} mip {}.", FaceIndex, MipIndex
+						);
 						return;
 					}
 				}
 			}
 
 			Durin::FRHITextureCreateDesc ColorDesc = Durin::FRHITextureCreateDesc::Create2D(
-				"SkyBoxValidationColor", 17, 17, Durin::EPixelFormat::SRGBA8_UNORM)
-				.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
-					| Durin::ETextureCreateFlags::ShaderResource
-					| Durin::ETextureCreateFlags::CPUReadback);
+														 "SkyBoxValidationColor", 17, 17, Durin::EPixelFormat::SRGBA8_UNORM
+			)
+														 .SetFlags(Durin::ETextureCreateFlags::RenderTargetable | Durin::ETextureCreateFlags::ShaderResource | Durin::ETextureCreateFlags::CPUReadback);
 			Durin::FTextureRHIRef Color = Durin::GDynamicRHI->RHICreateTexture(CommandList, ColorDesc);
 			if (Color == nullptr)
 			{
@@ -255,15 +282,17 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 				return;
 			}
 
-				auto RenderWithOptions = [&](const Durin::FSceneView& View,
-				std::vector<Durin::uint8>& OutPixels,
-				const Durin::FSceneViewRenderOptions& Options) {
+			auto RenderWithOptions = [&](const Durin::FSceneView& View,
+										 std::vector<Durin::uint8>& OutPixels,
+										 const Durin::FSceneViewRenderOptions& Options,
+										 Durin::ERenderMode RenderMode = Durin::ERenderMode::Unlit) {
 				Durin::FSceneView RenderView = View;
-				RenderView.Settings.RenderMode = Durin::ERenderMode::Unlit;
+				RenderView.Settings.RenderMode = RenderMode;
 				Durin::FSceneViewStatistics Statistics;
 				if (Renderer.RenderView(
 						CommandList, &Scene, RenderView, Color, false, Options,
-						&Statistics)
+						&Statistics
+					)
 					!= Durin::ERenderViewResult::Success)
 				{
 					Result->bSucceeded = false;
@@ -284,7 +313,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 				return true;
 			};
 			auto Render = [&](const Durin::FSceneView& View,
-				std::vector<Durin::uint8>& OutPixels) {
+							  std::vector<Durin::uint8>& OutPixels) {
 				return RenderWithOptions(View, OutPixels, {});
 			};
 
@@ -321,11 +350,13 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			PublishSkyBox(Scene, RotatedSky);
 			Durin::FSceneViewRenderOptions OverrideOptions;
 			OverrideOptions.Environment = Durin::FViewEnvironmentOverride{
-				.TextureReference = CubeReference};
+				.TextureReference = CubeReference
+			};
 			if (!RenderWithOptions(
 					MakePrincipalAxisView(Directions[0], {}, 17, 17),
 					Result->ExplicitOverride,
-					OverrideOptions)) return;
+					OverrideOptions
+				)) return;
 			Result->InvalidViewStatistics.Triangles = 999;
 			Result->InvalidViewStatistics.DrawCalls = 999;
 			Result->InvalidOutputResult = Renderer.RenderView(
@@ -335,7 +366,8 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 				nullptr,
 				false,
 				{},
-				&Result->InvalidViewStatistics);
+				&Result->InvalidViewStatistics
+			);
 			Durin::FSceneViewRenderOptions MissingEnvironment;
 			MissingEnvironment.Environment = Durin::FViewEnvironmentOverride{};
 			Result->MissingEnvironmentResult = Renderer.RenderView(
@@ -344,11 +376,11 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 				MakePrincipalAxisView(Directions[0], {}, 17, 17),
 				Color,
 				false,
-				MissingEnvironment);
+				MissingEnvironment
+			);
 			for (size_t FaceIndex = 0; FaceIndex < Directions.size(); ++FaceIndex)
 			{
-				if (!Render(MakePrincipalAxisView(
-					Directions[FaceIndex], {}, 17, 17), Result->HdrPrincipalAxes[FaceIndex])) return;
+				if (!Render(MakePrincipalAxisView(Directions[FaceIndex], {}, 17, 17), Result->HdrPrincipalAxes[FaceIndex])) return;
 			}
 
 			RotatedSky.TextureReference = CubeReference;
@@ -359,13 +391,27 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 
 			RotatedSky.Rotation = glm::identity<Durin::FQuat>();
 			PublishSkyBox(Scene, RotatedSky);
+			const Durin::FSceneView HybridSkyView =
+				MakePrincipalAxisView(Directions[4], {}, 17, 17);
+			if (!RenderWithOptions(HybridSkyView, Result->ForwardLitSky, {}, Durin::ERenderMode::Lit)) return;
+			Durin::FSceneViewRenderOptions HybridSkyOptions;
+			HybridSkyOptions.HybridOpaqueRoute =
+				Durin::EHybridOpaqueRoute::DeferredRequired;
+			Durin::SetViewRenderCounterSink(CaptureHybridSkyCounters);
+			const bool bRenderedHybridSky = RenderWithOptions(HybridSkyView, Result->HybridLitSky, HybridSkyOptions, Durin::ERenderMode::Lit);
+			Result->HybridSkyCounters = GHybridSkyCounters;
+			Durin::SetViewRenderCounterSink(nullptr);
+			if (!bRenderedHybridSky) return;
 			Durin::FMatrix OccluderTransform = glm::translate(
-				Durin::FMatrix(1.0), Durin::FVector3(0.0, 0.0, 0.5));
+				Durin::FMatrix(1.0), Durin::FVector3(0.0, 0.0, 0.5)
+			);
 			OccluderTransform = glm::rotate(
-				OccluderTransform, glm::pi<double>(), Durin::FVectorConstants::Right);
+				OccluderTransform, glm::pi<double>(), Durin::FVectorConstants::Right
+			);
 			Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(1), std::move(*OcclusionProxy), OccluderTransform);
 			Render(MakePrincipalAxisView(Directions[4], {}, 17, 17), Result->Occluded);
-		});
+		}
+	);
 	Durin::FlushRenderingCommands();
 
 	EXPECT_TRUE(Result->bSucceeded) << Result->Error;
@@ -373,16 +419,22 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	{
 		EXPECT_EQ(
 			Result->InvalidOutputResult,
-			Durin::ERenderViewResult::InvalidOutput);
+			Durin::ERenderViewResult::InvalidOutput
+		);
 		EXPECT_EQ(
 			Result->MissingEnvironmentResult,
-			Durin::ERenderViewResult::RequiredEnvironmentUnavailable);
+			Durin::ERenderViewResult::RequiredEnvironmentUnavailable
+		);
 		EXPECT_TRUE(Result->bCapturedFirstViewStatistics);
 		EXPECT_EQ(Result->FirstViewStatistics.VisiblePrimitives, 0u);
 		EXPECT_EQ(Result->FirstViewStatistics.Triangles, 0u);
 		EXPECT_GT(Result->FirstViewStatistics.DrawCalls, 0u);
 		EXPECT_EQ(Result->InvalidViewStatistics, Durin::FSceneViewStatistics{});
 		EXPECT_EQ(Result->ExplicitOverride, Result->PrincipalAxes[0]);
+		EXPECT_EQ(Result->HybridLitSky, Result->ForwardLitSky);
+		EXPECT_EQ(Result->HybridSkyCounters.HybridDeferredEnabledViews, 1u);
+		EXPECT_EQ(Result->HybridSkyCounters.HybridDeferredFallbackViews, 0u);
+		EXPECT_EQ(Result->HybridSkyCounters.HybridDeferredUnavailableViews, 0u);
 		for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
 		{
 			SCOPED_TRACE(std::format("principal face {}", FaceIndex));
@@ -392,14 +444,16 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 				8,
 				8,
 				SourceColors[FaceIndex],
-				12);
+				12
+			);
 			ExpectRgbNear(
 				Result->HdrPrincipalAxes[FaceIndex],
 				17,
 				8,
 				8,
 				HdrSourceColors[FaceIndex],
-				12);
+				12
+			);
 		}
 		ExpectRgbMatch(Result->LongitudeSeam[0], Result->LongitudeSeam[1], 17, 8, 8, 12);
 		ExpectRgbMatch(Result->FaceBoundary[0], Result->FaceBoundary[1], 17, 8, 8, 16);
@@ -407,8 +461,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		EXPECT_EQ(FindClosestCenterRgb(Result->ComponentRotated, Result->PrincipalAxes, 17), 3u);
 		ExpectRgbNear(Result->Letterboxed, 17, 1, 8, {0, 0, 0, 255}, 2);
 		EXPECT_EQ(FindClosestCenterRgb(Result->Letterboxed, Result->PrincipalAxes, 17), 0u);
-		ExpectRgbNear(Result->Occluded, 17, 8, 8,
-			MapSrgbReferenceThroughDisplay({255, 0, 0, 255}), 8);
+		ExpectRgbNear(Result->Occluded, 17, 8, 8, MapSrgbReferenceThroughDisplay({255, 0, 0, 255}), 8);
 	}
 
 	SceneOwner.reset();
@@ -442,8 +495,10 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	};
 	Durin::EnqueueRenderCommand<FRetireSkyBoxValidationResource>(
 		[Reference = std::move(CubeReference),
-			HdrReference = std::move(HdrCubeReference)](
-			Durin::FRHICommandListImmediate&) {});
+		 HdrReference = std::move(HdrCubeReference)](
+			Durin::FRHICommandListImmediate&
+		) {}
+	);
 	Durin::FlushRenderingCommands();
 	RendererLifecycle.Shutdown();
 	Durin::FlushRenderingCommands();

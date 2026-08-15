@@ -23,7 +23,8 @@ namespace Durin
 				FShader,
 				"/Engine/SkyBox",
 				EShaderFrequency::Vertex,
-				"VertexMain");
+				"VertexMain"
+			);
 		};
 
 		class FSkyBoxFragmentShader : public FShader
@@ -40,7 +41,8 @@ namespace Durin
 				FShader,
 				"/Engine/SkyBox",
 				EShaderFrequency::Fragment,
-				"FragmentMain");
+				"FragmentMain"
+			);
 		};
 	} // namespace
 
@@ -53,18 +55,21 @@ namespace Durin
 			TShaderRef<FSkyBoxFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
 			FGraphicsPipelineStateRHIRef PipelineState;
+			FGraphicsPipelineStateRHIRef HybridBootstrapPipelineState;
 			FBufferRHIRef IndexBuffer;
 			FSamplerRHIRef Sampler;
 		};
 
 		TRenderResourceCreationSlot<FPayload> Slot{
 			ERenderResourceGenerationDependency::Shader
-				| ERenderResourceGenerationDependency::Device};
+			| ERenderResourceGenerationDependency::Device
+		};
 	};
 
 	FSkyBoxRenderer::FSkyBoxRenderer(
 		FRendererResourceCoordinator& InCoordinator,
-		FDefaultTextureResources& InDefaultTextures)
+		FDefaultTextureResources& InDefaultTextures
+	)
 		: Coordinator(InCoordinator)
 		, DefaultTextures(InDefaultTextures)
 		, State(std::make_unique<FState>())
@@ -90,13 +95,15 @@ namespace Durin
 					FSkyBoxFragmentShader::StaticType();
 				const std::array<const FShaderType*, 2> ShaderTypes = {
 					&VertexShaderType,
-					&FragmentShaderType};
+					&FragmentShaderType
+				};
 				auto ShaderMap = std::make_shared<FShaderMapBase>();
 				std::string ErrorMessage;
 				if (!ShaderMap->InitializeFromShaderTypes(
 						ShaderTypes,
 						CompileOptions,
-						ErrorMessage))
+						ErrorMessage
+					))
 				{
 					return FResult::Failure(
 						MakeRendererResourceCreateError(
@@ -105,13 +112,17 @@ namespace Durin
 							"default",
 							std::move(ErrorMessage),
 							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual));
+								| ERenderResourceGenerationDependency::Manual
+						)
+					);
 				}
 
 				auto* VertexShader = static_cast<FSkyBoxVertexShader*>(
-					ShaderMap->GetShader(&VertexShaderType));
+					ShaderMap->GetShader(&VertexShaderType)
+				);
 				auto* FragmentShader = static_cast<FSkyBoxFragmentShader*>(
-					ShaderMap->GetShader(&FragmentShaderType));
+					ShaderMap->GetShader(&FragmentShaderType)
+				);
 				if (VertexShader == nullptr || FragmentShader == nullptr)
 				{
 					return FResult::Failure(
@@ -121,17 +132,21 @@ namespace Durin
 							"default",
 							"Compiled shader map is missing a typed shader.",
 							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual));
+								| ERenderResourceGenerationDependency::Manual
+						)
+					);
 				}
 
 				FPayload Candidate;
 				Candidate.ShaderMap = std::move(ShaderMap);
 				Candidate.VertexShader = TShaderRef<FSkyBoxVertexShader>(
 					VertexShader,
-					Candidate.ShaderMap.get());
+					Candidate.ShaderMap.get()
+				);
 				Candidate.FragmentShader = TShaderRef<FSkyBoxFragmentShader>(
 					FragmentShader,
-					Candidate.ShaderMap.get());
+					Candidate.ShaderMap.get()
+				);
 				FRHIShader* VertexRHI =
 					Candidate.VertexShader.GetRHIShader(false);
 				FRHIShader* FragmentRHI =
@@ -146,13 +161,16 @@ namespace Durin
 							"RHI shader creation returned null.",
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual));
+								| ERenderResourceGenerationDependency::Manual
+						)
+					);
 				}
 
 				const FVertexDeclarationElementList EmptyVertexElements{};
 				Candidate.VertexDeclaration =
 					GDynamicRHI->RHICreateVertexDeclaration(
-						EmptyVertexElements);
+						EmptyVertexElements
+					);
 
 				FGraphicsPipelineStateInitializer Initializer;
 				Initializer.RenderTargetLayout =
@@ -169,18 +187,27 @@ namespace Durin
 				Candidate.PipelineState =
 					GDynamicRHI->RHICreateGraphicsPipelineState(
 						"SkyBoxPipeline",
-						Initializer);
+						Initializer
+					);
+				Initializer.RenderTargetLayout =
+					RenderTargetLayouts::MakeHybridSceneBootstrap();
+				Candidate.HybridBootstrapPipelineState =
+					GDynamicRHI->RHICreateGraphicsPipelineState(
+						"SkyBoxHybridBootstrapPipeline", Initializer
+					);
 
 				const std::array<uint32, 3> FullscreenIndices = {0, 1, 2};
 				FRHIBufferCreateDesc IndexBufferDesc =
 					FRHIBufferCreateDesc::CreateIndex(
 						"SkyBoxFullscreenIndexBuffer",
 						sizeof(FullscreenIndices),
-						sizeof(uint32));
+						sizeof(uint32)
+					);
 				IndexBufferDesc.Usage |= EBufferUsageFlags::Static;
 				IndexBufferDesc.InitialData = {
 					FullscreenIndices.data(),
-					sizeof(FullscreenIndices)};
+					sizeof(FullscreenIndices)
+				};
 				Candidate.IndexBuffer = RHICreateBuffer(IndexBufferDesc);
 				Candidate.Sampler =
 					RHICreateSampler(FRHISamplerDesc::LinearClamp());
@@ -196,9 +223,12 @@ namespace Durin
 							"RHI resource creation returned null.",
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual));
+								| ERenderResourceGenerationDependency::Manual
+						)
+					);
 				}
-				if (Candidate.PipelineState == nullptr)
+				if (Candidate.PipelineState == nullptr
+					|| Candidate.HybridBootstrapPipelineState == nullptr)
 				{
 					return FResult::Failure(
 						MakeRendererResourceCreateError(
@@ -208,38 +238,46 @@ namespace Durin
 							"RHI graphics pipeline creation returned null.",
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual));
+								| ERenderResourceGenerationDependency::Manual
+						)
+					);
 				}
 				return FResult::Success(std::move(Candidate));
 			},
-			ReportRendererResourceCreateDiagnostic);
+			ReportRendererResourceCreateDiagnostic
+		);
 		return Payload != nullptr;
 	}
 
 	auto FSkyBoxRenderer::Draw_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneView& View,
-		const FSkyBoxSceneData& SkyBox) -> void
+		const FSkyBoxSceneData& SkyBox,
+		bool bHybridBootstrap
+	) -> void
 	{
-		FRHITexture* Texture = SkyBox.TextureReference != nullptr
-			? SkyBox.TextureReference->GetReferencedTexture_RenderThread()
-			: nullptr;
+		FRHITexture* Texture = SkyBox.TextureReference != nullptr ? SkyBox.TextureReference->GetReferencedTexture_RenderThread() : nullptr;
 		if (Texture == nullptr)
 		{
 			Texture = DefaultTextures.GetCube_RenderThread();
 		}
-		DrawTexture_RenderThread(CommandList, View, Texture, SkyBox);
+		DrawTexture_RenderThread(
+			CommandList, View, Texture, SkyBox, bHybridBootstrap
+		);
 	}
 
-		auto FSkyBoxRenderer::DrawTexture_RenderThread(
+	auto FSkyBoxRenderer::DrawTexture_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneView& View,
 		FRHITexture* Texture,
-		const FSkyBoxSceneData& SkyBox) -> bool
+		const FSkyBoxSceneData& SkyBox,
+		bool bHybridBootstrap
+	) -> bool
 	{
 		const FState::FPayload* Payload = State->Slot.GetPayload();
+		FRHIGraphicsPipelineState* Pipeline = Payload != nullptr ? (bHybridBootstrap ? Payload->HybridBootstrapPipelineState.GetReference() : Payload->PipelineState.GetReference()) : nullptr;
 		if (Texture == nullptr || Payload == nullptr
-			|| Payload->PipelineState == nullptr
+			|| Pipeline == nullptr
 			|| Payload->Sampler == nullptr
 			|| !Payload->VertexShader
 			|| !Payload->FragmentShader
@@ -254,18 +292,20 @@ namespace Durin
 			return false;
 		}
 
-		CommandList.SetGraphicsPipelineState(*Payload->PipelineState);
+		CommandList.SetGraphicsPipelineState(*Pipeline);
 		CommandList.BindIndexBuffer(Payload->IndexBuffer, 0);
 		FSkyBoxFragmentShader::FParameters Parameters;
 		Parameters.SkyTexture = Texture;
 		Parameters.SkySampler = Payload->Sampler;
 		Parameters.Sky = CommandList.AllocateDynamicUniformBuffer(
 			&Uniform,
-			sizeof(Uniform));
+			sizeof(Uniform)
+		);
 		SetShaderParameters(
 			CommandList,
 			Payload->FragmentShader,
-			Parameters);
+			Parameters
+		);
 		CommandList.DrawIndexed(3, 0, 0);
 		return true;
 	}

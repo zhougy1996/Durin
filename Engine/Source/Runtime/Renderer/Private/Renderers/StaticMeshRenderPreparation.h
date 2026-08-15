@@ -43,6 +43,7 @@ namespace Durin
 		FRHIDepthStencilState Depth;
 		FRHIColorBlendState ColorBlend;
 		EVertexDeformationDomain VertexDomain = EVertexDeformationDomain::Local;
+		bool bHybridRetained = false;
 
 		auto operator==(const FEffectiveStaticMeshPipelineKey&) const
 			-> bool = default;
@@ -167,8 +168,7 @@ namespace Durin
 		auto GetPrimitive(const FPreparedStaticMeshDraw& Draw) const
 			-> const FPreparedStaticMeshPrimitive*
 		{
-			return Draw.PrimitiveIndex < Primitives.size()
-				? &Primitives[Draw.PrimitiveIndex] : nullptr;
+			return Draw.PrimitiveIndex < Primitives.size() ? &Primitives[Draw.PrimitiveIndex] : nullptr;
 		}
 	};
 
