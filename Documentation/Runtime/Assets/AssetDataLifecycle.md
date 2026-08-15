@@ -17,7 +17,9 @@ Developer `TextureBuild` and `GeometryBuild` own normalized,
 source-independent recipes and canonical build-key inputs;
 `StandardAssetImport` adapts standard concrete source formats into those
 normalized values. `AssetBuildCore` provides family-neutral cache policy over
-the opaque store. `AssetCore` stores DDC values opaquely and owns
+the opaque store; its physical ObjectStore adapter is private implementation,
+and recipe modules reach cache query/store only through `FBuildSession`.
+`AssetCore` stores DDC values opaquely and owns
 package, descriptor, container, manifest, and atomic-publication formats
 without interpreting Engine payloads.
 
@@ -35,9 +37,12 @@ executed phase. It does not own worker threads, priorities,
 callbacks, dependency graphs, remote execution, or typed asset interpretation.
 
 GeometryBuild registers the StaticMesh render/collision, SkeletalMesh,
-AnimationClip, and TerrainHeightmap functions; TextureBuild registers the
-Texture2D and TextureCube functions. Their DMSH, collision, TXPL, DSKM, DANM,
-and terrain keys, cache roots, value bytes, and codecs remain family-owned and unchanged.
+AnimationClip, and TerrainHeightmap functions as one atomic module-owned
+transaction; TextureBuild does the same for Texture2D and TextureCube. Each
+transaction rolls back registrations acquired by a failed attempt and resets
+the complete set in reverse order during owner retirement. Their DMSH,
+collision, TXPL, DSKM, DANM, and terrain keys, cache roots, value bytes, and
+codecs remain family-owned and unchanged.
 TextureBuild's coordinator calls the synchronous session from its existing
 worker and retains cancellation, supersession, metrics, and main-thread
 publication ownership. StandardAssetImport likewise retains TextureCube source

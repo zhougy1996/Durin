@@ -1,6 +1,6 @@
-#include "AssetBuild/BuildCache.h"
 #include "AssetBuild/BuildSession.h"
 #include "AssetBuild/BuildHost.h"
+#include "DerivedDataObjectStore.h"
 
 namespace Durin::Asset::Build
 {
@@ -11,6 +11,63 @@ namespace Durin::Asset::Build
 			if (OutError) *OutError = std::move(Message);
 			return false;
 		}
+
+		enum class EBuildCacheQueryStatus : uint8
+		{
+			Hit,
+			Missing,
+			StorageError,
+			Skipped
+		};
+
+		struct FBuildCacheQueryResult
+		{
+			EBuildCacheQueryStatus Status = EBuildCacheQueryStatus::Skipped;
+			FBuildValue Value;
+			std::string Diagnostic;
+		};
+
+		// Adapts one session's opaque values to the physical AssetCore object store.
+		class FBuildCacheClient
+		{
+		public:
+			explicit FBuildCacheClient(Asset::FDerivedDataObjectStore& InStore)
+				: StoreTarget(&InStore)
+			{
+			}
+
+			auto Query(
+				std::string_view Key, std::string ValueName,
+				const FBuildCachePolicy& Policy) const -> FBuildCacheQueryResult
+			{
+				if (!Policy.bQueryCache) return {};
+				std::vector<uint8> Bytes;
+				const Asset::FDerivedDataObjectReadResult Read = StoreTarget->Read(Key, Bytes);
+				if (Read.Status == Asset::EDerivedDataObjectReadStatus::Hit)
+					return {EBuildCacheQueryStatus::Hit,
+						FBuildValue::FromOwned(std::move(ValueName), std::move(Bytes)), {}};
+				if (Read.Status == Asset::EDerivedDataObjectReadStatus::Missing)
+					return {EBuildCacheQueryStatus::Missing, {}, Read.Message};
+				return {EBuildCacheQueryStatus::StorageError, {}, Read.Message};
+			}
+
+			auto Store(
+				std::string_view Key, const FBuildValue& Value,
+				const FBuildCachePolicy& Policy, std::string* OutError = nullptr) const -> bool
+			{
+				if (!Policy.bStoreBuildResult) return true;
+				std::string Error;
+				const bool bStored = Value.IsValid()
+					&& StoreTarget->Write(Key, Value.GetBytes(), &Error);
+				if (!bStored && Policy.bRequireStoreSuccess)
+					return SetError(OutError, std::move(Error));
+				if (!bStored && OutError) *OutError = std::move(Error);
+				return bStored || !Policy.bRequireStoreSuccess;
+			}
+
+		private:
+			Asset::FDerivedDataObjectStore* StoreTarget = nullptr;
+		};
 
 		auto IsCanonicalIdentityPart(std::string_view Value) -> bool
 		{
@@ -114,6 +171,13 @@ namespace Durin::Asset::Build
 		for (const auto& [FactName, Value] : TargetFacts)
 			if (FactName == Name) return Value;
 		return std::nullopt;
+	}
+
+	auto ParseBuildTargetFactUInt32(std::string_view Text, uint32& OutValue) -> bool
+	{
+		const auto [End, Error] = std::from_chars(
+			Text.data(), Text.data() + Text.size(), OutValue);
+		return Error == std::errc{} && End == Text.data() + Text.size();
 	}
 
 	FBuildDefinitionBuilder::FBuildDefinitionBuilder(
@@ -422,38 +486,6 @@ namespace Durin::Asset::Build
 		}
 		if (Policy.bReturnData) Result.Value = std::move(BuiltValue);
 		return Result;
-	}
-
-	FBuildCacheClient::FBuildCacheClient(Asset::FDerivedDataObjectStore& InStore)
-		: StoreTarget(&InStore)
-	{
-	}
-
-	auto FBuildCacheClient::Query(
-		std::string_view Key, std::string ValueName,
-		const FBuildCachePolicy& Policy) const -> FBuildCacheQueryResult
-	{
-		if (!Policy.bQueryCache) return {};
-		std::vector<uint8> Bytes;
-		const Asset::FDerivedDataObjectReadResult Read = StoreTarget->Read(Key, Bytes);
-		if (Read.Status == Asset::EDerivedDataObjectReadStatus::Hit)
-			return {EBuildCacheQueryStatus::Hit,
-				FBuildValue::FromOwned(std::move(ValueName), std::move(Bytes)), {}};
-		if (Read.Status == Asset::EDerivedDataObjectReadStatus::Missing)
-			return {EBuildCacheQueryStatus::Missing, {}, Read.Message};
-		return {EBuildCacheQueryStatus::StorageError, {}, Read.Message};
-	}
-
-	auto FBuildCacheClient::Store(
-		std::string_view Key, const FBuildValue& Value,
-		const FBuildCachePolicy& Policy, std::string* OutError) const -> bool
-	{
-		if (!Policy.bStoreBuildResult) return true;
-		std::string Error;
-		const bool bStored = Value.IsValid() && StoreTarget->Write(Key, Value.GetBytes(), &Error);
-		if (!bStored && Policy.bRequireStoreSuccess) return SetError(OutError, std::move(Error));
-		if (!bStored && OutError) *OutError = std::move(Error);
-		return bStored || !Policy.bRequireStoreSuccess;
 	}
 
 	FBuildServiceRegistration::~FBuildServiceRegistration() { Reset(); }

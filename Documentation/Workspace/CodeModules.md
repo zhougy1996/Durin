@@ -56,9 +56,9 @@ physical root communicates ownership but does not select them for a target.
 
 | Module | Primary responsibility | Source root |
 | --- | --- | --- |
-| `AssetBuildCore` | Family-neutral immutable build definitions/values/policy, synchronous local build sessions, opaque DDC access, function/service registrations, and authoring-host lifecycle | [source](../../Engine/Source/Developer/AssetBuildCore) |
-| `TextureBuild` | Texture2D/TextureCube recipes, private offline compression, diagnostics, and asynchronous coordination | [source](../../Engine/Source/Developer/TextureBuild) |
-| `GeometryBuild` | StaticMesh/collision, skeletal/animation, and terrain recipes, keys, DDC policy, diagnostics, and Runtime registration adapters | [source](../../Engine/Source/Developer/GeometryBuild) |
+| `AssetBuildCore` | Family-neutral immutable build definitions/values/policy, synchronous local build sessions, private opaque DDC adaptation, function/service registrations, and authoring-host lifecycle; `FBuildSession` is its only public cache request path | [source](../../Engine/Source/Developer/AssetBuildCore) |
+| `TextureBuild` | Texture2D/TextureCube keys, private codecs/functions, one module-owned registration transaction, typed recipes, offline compression, diagnostics, and asynchronous coordination | [source](../../Engine/Source/Developer/TextureBuild) |
+| `GeometryBuild` | StaticMesh/collision, skeletal/animation, and terrain keys, private codecs/functions, one module-owned registration transaction, typed recipes, DDC policy, diagnostics, and Runtime adapters | [source](../../Engine/Source/Developer/GeometryBuild) |
 
 ## Project Modules
 

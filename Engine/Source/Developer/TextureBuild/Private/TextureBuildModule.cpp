@@ -1,16 +1,6 @@
 #include "Modules/ModuleManager.h"
-#include "AssetBuild/BuildFunction.h"
+#include "Texture/TextureBuildFunctionRegistry.h"
 #include "Texture/TextureBuildService.h"
-
-namespace Durin::Asset::Build
-{
-	TEXTUREBUILD_API auto InitializeTexture2DBuildFunction(
-		FModuleOwnedCallbackGate Gate, std::string* OutError = nullptr) -> bool;
-	TEXTUREBUILD_API auto ShutdownTexture2DBuildFunction() -> void;
-	TEXTUREBUILD_API auto InitializeTextureCubeBuildFunction(
-		FModuleOwnedCallbackGate Gate, std::string* OutError = nullptr) -> bool;
-	TEXTUREBUILD_API auto ShutdownTextureCubeBuildFunction() -> void;
-}
 
 namespace Durin
 {
@@ -24,15 +14,9 @@ namespace Durin
 			BuildOperations = FModuleStartup::CreateAsyncOperationGroup("TextureBuild.Operations");
 			require(BuildOperations.IsValid());
 			std::string Error;
-			checkf(Asset::Build::InitializeTexture2DBuildFunction(
+			checkf(Asset::Build::InitializeTextureBuildFunctions(
 				BuildHostCallbackRegistration.GetGate(), &Error),
-				"TextureBuild could not register Texture2D build function: {}", Error);
-			if (!Asset::Build::InitializeTextureCubeBuildFunction(
-				BuildHostCallbackRegistration.GetGate(), &Error))
-			{
-				Asset::Build::ShutdownTexture2DBuildFunction();
-				checkf(false, "TextureBuild could not register TextureCube build function: {}", Error);
-			}
+				"TextureBuild could not register its build functions: {}", Error);
 			Asset::Build::FTexture2DBuildCoordinatorConfig Config;
 			Config.OwnerCancellationToken = BuildOperations.GetCancellationToken();
 			Config.OwnerTaskScope = BuildOperations.GetTaskScope();
@@ -48,8 +32,7 @@ namespace Durin
 		auto ShutdownModule() -> void override
 		{
 			Asset::Build::ShutdownTextureBuildService();
-			Asset::Build::ShutdownTextureCubeBuildFunction();
-			Asset::Build::ShutdownTexture2DBuildFunction();
+			Asset::Build::ShutdownTextureBuildFunctions();
 		}
 	};
 

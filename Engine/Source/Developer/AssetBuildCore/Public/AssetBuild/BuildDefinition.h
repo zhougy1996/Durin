@@ -41,4 +41,8 @@ namespace Durin::Asset::Build
 		std::vector<uint8> KeyInput;
 		std::string Error;
 	};
+
+	// Parses the exact unsigned-decimal syntax used by numeric Build target facts.
+	ASSETBUILDCORE_API auto ParseBuildTargetFactUInt32(
+		std::string_view Text, uint32& OutValue) -> bool;
 }
