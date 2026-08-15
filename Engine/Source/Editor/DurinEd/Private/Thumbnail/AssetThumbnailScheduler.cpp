@@ -171,12 +171,32 @@ namespace Durin::Editor
 
 	auto FAssetThumbnailScheduler::TakeNext() -> std::optional<FAssetThumbnailScheduledJob>
 	{
+		return TakeNext(false);
+	}
+
+	auto FAssetThumbnailScheduler::TakeNextGeneratedPixels()
+		-> std::optional<FAssetThumbnailScheduledJob>
+	{
+		return TakeNext(true);
+	}
+
+	auto FAssetThumbnailScheduler::TakeNext(bool bGeneratedPixelsOnly)
+		-> std::optional<FAssetThumbnailScheduledJob>
+	{
 		if (Impl->bShuttingDown || Impl->Queue.empty()) return std::nullopt;
-		auto Selected = std::ranges::find(
+		auto IsEligible = [bGeneratedPixelsOnly](
+			const FAssetThumbnailScheduledJob& Job) {
+			return !bGeneratedPixelsOnly || Job.GenerationRequest.GeneratedPixels != nullptr;
+		};
+		auto Selected = std::ranges::find_if(
 			Impl->Queue,
-			EAssetThumbnailPriority::Visible,
-			&FAssetThumbnailScheduledJob::Priority);
-		if (Selected == Impl->Queue.end()) Selected = Impl->Queue.begin();
+			[&](const FAssetThumbnailScheduledJob& Job) {
+				return IsEligible(Job)
+					&& Job.Priority == EAssetThumbnailPriority::Visible;
+			});
+		if (Selected == Impl->Queue.end())
+			Selected = std::ranges::find_if(Impl->Queue, IsEligible);
+		if (Selected == Impl->Queue.end()) return std::nullopt;
 		FAssetThumbnailScheduledJob Job = std::move(*Selected);
 		Impl->Queue.erase(Selected);
 		const std::string AssetPath = Job.GenerationRequest.KeyInput.Asset.VirtualPath.ToString();
@@ -196,7 +216,7 @@ namespace Durin::Editor
 		{
 			Job.GenerationRequest.Cancellation.Cancel();
 			if (bMatchesCurrentEntry) Impl->Entries.erase(Entry);
-			return TakeNext();
+			return TakeNext(bGeneratedPixelsOnly);
 		}
 		Entry->second.State = EAssetThumbnailState::Loading;
 		return Job;

@@ -71,9 +71,11 @@ namespace Durin
 		public:
 			explicit FTestThumbnailProvider(
 				Editor::FAssetThumbnailProviderRegistration InRegistration,
-				bool bInCaptureSucceeds = true)
+				bool bInCaptureSucceeds = true,
+				bool bInGeneratesPixels = false)
 				: Registration(std::move(InRegistration))
 				, bCaptureSucceeds(bInCaptureSucceeds)
+				, bGeneratesPixels(bInGeneratesPixels)
 			{
 			}
 
@@ -99,6 +101,16 @@ namespace Durin
 				OutRequest.KeyInput.GeneratorSchemaVersion = Registration.GeneratorSchemaVersion;
 				OutRequest.ProviderGeneration = ProviderGeneration;
 				OutRequest.RequestSerial = Request.RequestSerial;
+				if (bGeneratesPixels)
+				{
+					auto Pixels = std::make_shared<Editor::FAssetThumbnailGeneratedPixels>();
+					Pixels->Pixels = {32, 32, 32, 255};
+					Pixels->Width = 1;
+					Pixels->Height = 1;
+					Pixels->AssetRevision = 1;
+					OutRequest.KeyInput.Output = {.Width = 1, .Height = 1};
+					OutRequest.GeneratedPixels = std::move(Pixels);
+				}
 				OutError.clear();
 				return true;
 			}
@@ -106,6 +118,7 @@ namespace Durin
 		private:
 			Editor::FAssetThumbnailProviderRegistration Registration;
 			bool bCaptureSucceeds = true;
+			bool bGeneratesPixels = false;
 		};
 
 		struct FFakeRenderedExtensionState
@@ -1356,6 +1369,45 @@ namespace Durin
 		EXPECT_EQ(Scheduler.Find(Request.Asset.VirtualPath).State,
 			Editor::EAssetThumbnailState::Ready);
 		EXPECT_EQ(Pipeline.GetStats().Renders, 0u);
+	}
+
+	TEST(FAssetThumbnailContractTests, GeneratedPixelsBypassResourceBoundRenderedJob)
+	{
+		const std::filesystem::path Root = MakeObjectStoreRoot("GeneratedPixelsFastLane");
+		Editor::FAssetThumbnailProviderRegistry Registry;
+		std::string Error;
+		ASSERT_TRUE(Registry.Register(std::make_shared<FTestThumbnailProvider>(
+			Editor::FAssetThumbnailProviderRegistration{
+				.AssetClassName = "DWaitingRenderedAsset",
+				.ProviderName = "WaitingRenderedThumbnail",
+				.GeneratorSchemaVersion = 1}), Error)) << Error;
+		ASSERT_TRUE(Registry.Register(std::make_shared<FTestThumbnailProvider>(
+			Editor::FAssetThumbnailProviderRegistration{
+				.AssetClassName = "DTerrainHeightmap",
+				.ProviderName = "TerrainHeightmapCanonicalThumbnail",
+				.GeneratorSchemaVersion = 1}, true, true), Error)) << Error;
+		Editor::FAssetThumbnailScheduler Scheduler(Registry);
+		Editor::FRenderedAssetThumbnailPipeline Pipeline(
+			Scheduler, {.CacheRoot = Root, .ObjectExtension = ".png"});
+		const Editor::FAssetThumbnailRequest Waiting = MakeThumbnailRequest(
+			"/ThumbnailTests/WaitingRendered", "DWaitingRenderedAsset", 1);
+		const Editor::FAssetThumbnailRequest Terrain = MakeThumbnailRequest(
+			"/ThumbnailTests/GeneratedTerrainFastLane", "DTerrainHeightmap", 1);
+		ASSERT_TRUE(Scheduler.Request(Waiting, Error)) << Error;
+		ASSERT_TRUE(Scheduler.Request(Terrain, Error)) << Error;
+		Pipeline.BeginFrame();
+		ASSERT_TRUE(Pipeline.StartNext());
+		auto Generated = Pipeline.StartNextGeneratedPixelsDetailed();
+		ASSERT_TRUE(Generated.ColdJob);
+		ASSERT_TRUE(Generated.ColdJob->ScheduledJob.GenerationRequest.GeneratedPixels);
+		const auto& Pixels = *Generated.ColdJob->ScheduledJob.GenerationRequest.GeneratedPixels;
+		ASSERT_TRUE(Pipeline.CompleteGeneratedPixels(
+			*Generated.ColdJob, Pixels.AssetRevision,
+			Pixels.Pixels, Pixels.Width, Pixels.Height));
+		EXPECT_EQ(Scheduler.Find(Waiting.Asset.VirtualPath).State,
+			Editor::EAssetThumbnailState::Loading);
+		EXPECT_EQ(Scheduler.Find(Terrain.Asset.VirtualPath).State,
+			Editor::EAssetThumbnailState::Ready);
 	}
 
 	TEST(FAssetThumbnailContractTests, RenderedPipelineBoundsRendersAndRejectsStaleCompletions)

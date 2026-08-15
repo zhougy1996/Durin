@@ -26,6 +26,9 @@ namespace Durin::Editor
 		DURINED_API auto Request(const FAssetThumbnailRequest& Request, std::string& OutError) -> bool;
 		DURINED_API auto Find(const FAssetPath& AssetPath) const -> FAssetThumbnailView;
 		DURINED_API auto TakeNext() -> std::optional<FAssetThumbnailScheduledJob>;
+		// Selects provider-generated pixels without waiting behind a resource-bound rendered job.
+		DURINED_API auto TakeNextGeneratedPixels()
+			-> std::optional<FAssetThumbnailScheduledJob>;
 		// Advances a captured job only while its key, provider generation, serial, identity, and revisions remain current.
 		DURINED_API auto Transition(
 			const FAssetThumbnailScheduledJob& Job,
@@ -41,6 +44,9 @@ namespace Durin::Editor
 		DURINED_API auto IsShuttingDown() const -> bool;
 
 	private:
+		auto TakeNext(bool bGeneratedPixelsOnly)
+			-> std::optional<FAssetThumbnailScheduledJob>;
+
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
 	};

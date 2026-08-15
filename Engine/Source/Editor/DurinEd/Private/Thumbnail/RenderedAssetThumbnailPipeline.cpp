@@ -154,8 +154,22 @@ namespace Durin::Editor
 	auto FRenderedAssetThumbnailPipeline::StartNextDetailed()
 		-> FRenderedAssetThumbnailStartResult
 	{
+		return StartNextDetailed(false);
+	}
+
+	auto FRenderedAssetThumbnailPipeline::StartNextGeneratedPixelsDetailed()
+		-> FRenderedAssetThumbnailStartResult
+	{
+		return StartNextDetailed(true);
+	}
+
+	auto FRenderedAssetThumbnailPipeline::StartNextDetailed(
+		bool bGeneratedPixelsOnly) -> FRenderedAssetThumbnailStartResult
+	{
 		FRenderedAssetThumbnailStartResult Result;
-		std::optional<FAssetThumbnailScheduledJob> ScheduledJob = Impl->Scheduler.TakeNext();
+		std::optional<FAssetThumbnailScheduledJob> ScheduledJob = bGeneratedPixelsOnly
+			? Impl->Scheduler.TakeNextGeneratedPixels()
+			: Impl->Scheduler.TakeNext();
 		if (!ScheduledJob) return Result;
 		++Impl->Stats.Jobs;
 

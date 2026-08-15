@@ -55,6 +55,9 @@ namespace Durin::Editor
 		DURINED_API auto StartNext() -> std::optional<FRenderedAssetThumbnailJob>;
 		// Returns encoded warm-hit bytes to the UI upload path while preserving the cold-only convenience API.
 		DURINED_API auto StartNextDetailed() -> FRenderedAssetThumbnailStartResult;
+		// Starts only provider-generated pixels so they can bypass a resource-bound rendered job.
+		DURINED_API auto StartNextGeneratedPixelsDetailed()
+			-> FRenderedAssetThumbnailStartResult;
 		DURINED_API auto CompleteLoad(
 			FRenderedAssetThumbnailJob& Job, uint64 AssetRevision, std::string_view Error = {}) -> bool;
 		// Leaves the job waiting when resources are not ready and consumes no render allowance.
@@ -105,6 +108,9 @@ namespace Durin::Editor
 		DURINED_API auto GetStats() const -> FRenderedAssetThumbnailPipelineStats;
 
 	private:
+		auto StartNextDetailed(bool bGeneratedPixelsOnly)
+			-> FRenderedAssetThumbnailStartResult;
+
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
 	};

@@ -197,6 +197,38 @@ namespace Durin::Editor
 				});
 		}
 
+		auto ProcessGeneratedPixels(FRenderedAssetThumbnailJob& Job) -> void
+		{
+			FAssetThumbnailGenerationRequest& Request =
+				Job.ScheduledJob.GenerationRequest;
+			if (auto It = Entries.find(Request.KeyInput.Asset.VirtualPath);
+				It != Entries.end())
+				It->second.bHasTransparency = Request.bHasTransparency;
+			const std::shared_ptr<const FAssetThumbnailGeneratedPixels> Generated =
+				Request.GeneratedPixels;
+			if (!Generated)
+			{
+				Pipeline.CompleteLoad(Job, 0,
+					"The generated-thumbnail fast lane received rendered work.");
+				return;
+			}
+			const uint64 ExpectedBytes = static_cast<uint64>(Generated->Width)
+				* Generated->Height * 4;
+			std::string Error;
+			if (Generated->Width != Request.KeyInput.Output.Width
+				|| Generated->Height != Request.KeyInput.Output.Height
+				|| Generated->Pixels.size() != ExpectedBytes
+				|| ExpectedBytes > Budgets.CpuPixelBudgetBytes)
+				Error = "Generated thumbnail pixels violate the requested output or CPU budget.";
+			if (Error.empty()
+				&& Pipeline.CompleteGeneratedPixels(Job, Generated->AssetRevision,
+					Generated->Pixels, Generated->Width, Generated->Height))
+				QueueUpload(Request, Generated->Pixels,
+					Generated->Width, Generated->Height);
+			else if (!Error.empty())
+				Pipeline.CompleteLoad(Job, Generated->AssetRevision, Error);
+		}
+
 		auto DecodeAndQueueUpload(
 			const FAssetThumbnailGenerationRequest& Request,
 			std::span<const uint8> EncodedBytes) -> bool
@@ -381,9 +413,11 @@ namespace Durin::Editor
 			ResetActive();
 		}
 
-		auto StartNext() -> void
+		auto StartNext(bool bGeneratedPixelsOnly = false) -> void
 		{
-			FRenderedAssetThumbnailStartResult Start = Pipeline.StartNextDetailed();
+			FRenderedAssetThumbnailStartResult Start = bGeneratedPixelsOnly
+				? Pipeline.StartNextGeneratedPixelsDetailed()
+				: Pipeline.StartNextDetailed();
 			if (Start.WarmJob)
 			{
 				FAssetThumbnailScheduledJob& WarmJob = *Start.WarmJob;
@@ -416,6 +450,12 @@ namespace Durin::Editor
 				return;
 			}
 			if (!Start.ColdJob) return;
+			if (bGeneratedPixelsOnly)
+			{
+				FRenderedAssetThumbnailJob Job = std::move(*Start.ColdJob);
+				ProcessGeneratedPixels(Job);
+				return;
+			}
 			ActiveJob = std::move(Start.ColdJob);
 			FRenderedAssetThumbnailJob& Job = *ActiveJob;
 			FAssetThumbnailGenerationRequest& Request =
@@ -425,21 +465,7 @@ namespace Durin::Editor
 				It->second.bHasTransparency = Request.bHasTransparency;
 			if (Request.GeneratedPixels)
 			{
-				const auto& Generated = *Request.GeneratedPixels;
-				const uint64 ExpectedBytes = static_cast<uint64>(Generated.Width)
-					* Generated.Height * 4;
-				std::string Error;
-				if (Generated.Width != Request.KeyInput.Output.Width
-					|| Generated.Height != Request.KeyInput.Output.Height
-					|| Generated.Pixels.size() != ExpectedBytes
-					|| ExpectedBytes > Budgets.CpuPixelBudgetBytes)
-					Error = "Generated thumbnail pixels violate the requested output or CPU budget.";
-				if (Error.empty()
-					&& Pipeline.CompleteGeneratedPixels(Job, Generated.AssetRevision,
-						Generated.Pixels, Generated.Width, Generated.Height))
-					QueueUpload(Request, Generated.Pixels, Generated.Width, Generated.Height);
-				else if (!Error.empty())
-					Pipeline.CompleteLoad(Job, Generated.AssetRevision, Error);
+				ProcessGeneratedPixels(Job);
 				ResetActive();
 				return;
 			}
@@ -595,6 +621,8 @@ namespace Durin::Editor
 			Impl->PollActive();
 		else
 			Impl->StartNext();
+		if (Impl->ActiveJob)
+			Impl->StartNext(true);
 		Impl->EvictToBudget();
 	}
 
