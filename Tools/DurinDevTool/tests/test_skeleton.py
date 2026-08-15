@@ -100,3 +100,29 @@ class TestLauncher:
         assert 'EnableDelayedExpansion' in content
         assert content.count('exit /b !ERRORLEVEL!') >= 3
         assert 'Tools\\DurinDevTool\\durin_dev_tool\\__main__.py' in content
+
+    def test_posix_launcher_prefers_prepared_python_and_preserves_arguments(self) -> None:
+        launcher = REPOSITORY_ROOT / 'DevTool'
+        content = launcher.read_text(encoding='utf-8')
+        assert content.startswith('#!/bin/sh\n')
+        assert launcher.stat().st_mode & 0o111
+        assert content.index('if [ -x "$VENV_PYTHON" ]') < content.index(
+            'for PYTHON_NAME in python3'
+        )
+        assert 'exec "$VENV_PYTHON" "$ENTRY_POINT" "$@"' in content
+        assert 'exec "$PYTHON_COMMAND" "$ENTRY_POINT" "$@"' in content
+        assert 'python3.12' in content
+        assert 'Tools/DurinDevTool/durin_dev_tool/__main__.py' in content
+
+    def test_posix_launcher_runs_from_outside_the_repository(
+        self, tmp_path_factory: pytest.TempPathFactory
+    ) -> None:
+        completed = subprocess.run(
+            [str(REPOSITORY_ROOT / 'DevTool'), 'help'],
+            cwd=tmp_path_factory.mktemp('case'),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr
+        assert 'DurinDevTool commands:' in completed.stdout

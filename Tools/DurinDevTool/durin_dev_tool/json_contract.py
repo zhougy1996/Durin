@@ -7,8 +7,6 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
 
-from jsonschema import validators
-
 from .errors import DevToolError
 
 
@@ -43,6 +41,13 @@ def json_path(parts: Iterable[Any]) -> str:
 
 @lru_cache(maxsize=None)
 def schema_validator(schema_path: Path):
+    try:
+        from jsonschema import validators
+    except ModuleNotFoundError as exc:
+        raise JsonContractError(
+            "JSON Schema validation requires Durin's prepared Python environment. "
+            "Run 'DevTool setup' in the main checkout."
+        ) from exc
     resolved = schema_path.resolve()
     try:
         schema = json.loads(

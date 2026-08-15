@@ -10,6 +10,7 @@ DEV_TOOL_DIR = REPO_ROOT / 'Tools' / 'DurinDevTool'
 if str(DEV_TOOL_DIR) not in os.sys.path:
     os.sys.path.insert(0, str(DEV_TOOL_DIR))
 from durin_dev_tool.build import config as build_config
+from durin_dev_tool.build import config_io as build_config_io
 from durin_dev_tool.build.handler import request_from_namespace
 from durin_dev_tool.bootstrap import preflight, toolchain_selection
 from durin_dev_tool import toolchain
@@ -222,6 +223,35 @@ from durin_dev_tool.build import purge, recovery, runtime
 
 class TestRepositoryConfig:
 
+    def test_bootstrap_config_validators_match_editor_schemas(self) -> None:
+        repository_schema = json.loads(
+            (DEV_TOOL_DIR / 'DevTool.schema.json').read_text(encoding='utf-8')
+        )
+        assert set(repository_schema['required']) == configuration.CONFIG_FIELDS
+        assert set(repository_schema['properties']) == (
+            configuration.CONFIG_FIELDS | configuration.CONFIG_OPTIONAL_FIELDS
+        )
+        assert set(repository_schema['properties']['paths']['required']) == set(
+            configuration.PATH_FIELDS
+        )
+        assert set(repository_schema['properties']['worktrees']['required']) == set(
+            configuration.WORKTREE_PATH_FIELDS
+        )
+
+        local_schema = json.loads(
+            (DEV_TOOL_DIR / 'DevTool.user.schema.json').read_text(encoding='utf-8')
+        )
+        assert set(local_schema['properties']) == build_config_io.LOCAL_CONFIG_FIELDS
+        assert set(local_schema['properties']['build']['properties']) == (
+            build_config_io.LOCAL_BUILD_FIELDS
+        )
+        assert set(local_schema['properties']['cmake']['properties']) == (
+            build_config_io.LOCAL_CMAKE_FIELDS
+        )
+        assert set(local_schema['properties']['toolchain']['properties']) == (
+            build_config_io.LOCAL_TOOLCHAIN_FIELDS
+        )
+
     def test_repository_config_resolves_tracked_layout(self) -> None:
         config = configuration.load_repository_config(REPO_ROOT)
         assert config.paths.local_build_config == Path('.agents/DevTool.user.json')
@@ -252,6 +282,70 @@ class TestRepositoryConfig:
         config_path.write_text(json.dumps(source), encoding='utf-8')
         with pytest.raises(configuration.RepositoryConfigError, match='inside the repository'):
             configuration.load_repository_config(directory, path=config_path)
+
+    def test_repository_and_local_config_load_without_jsonschema(
+        self, tmp_path_factory: pytest.TempPathFactory
+    ) -> None:
+        directory = Path(tmp_path_factory.mktemp('case'))
+        local_config = directory / 'DevTool.user.json'
+        local_config.write_text(
+            json.dumps(
+                {
+                    'version': 1,
+                    'build': {'parallelJobs': 'auto'},
+                    'cmake': {'command': None},
+                    'toolchain': {
+                        'environmentScript': None,
+                        'environmentArguments': [],
+                    },
+                }
+            ),
+            encoding='utf-8',
+        )
+        real_import = __import__
+
+        def reject_jsonschema(name: str, *args: object, **kwargs: object) -> object:
+            if name == 'jsonschema' or name.startswith('jsonschema.'):
+                raise ModuleNotFoundError(name)
+            return real_import(name, *args, **kwargs)
+
+        with mock.patch('builtins.__import__', side_effect=reject_jsonschema):
+            assert configuration.load_repository_config(REPO_ROOT).repository_root == REPO_ROOT
+            assert build_config.load_local_config(local_config) == build_config.LocalConfig()
+
+    @pytest.mark.parametrize(
+        ('mutation', 'diagnostic'),
+        (
+            (lambda value: value.update({'unexpected': True}), 'unexpected'),
+            (lambda value: value.update({'version': 2}), 'version'),
+            (lambda value: value.update({'$schema': 1}), '\\$schema'),
+            (
+                lambda value: value.setdefault('build', {}).update(
+                    {'parallelJobs': 0}
+                ),
+                'parallelJobs',
+            ),
+            (
+                lambda value: value.setdefault('toolchain', {}).update(
+                    {'environmentArguments': ['valid', 1]}
+                ),
+                'environmentArguments',
+            ),
+        ),
+    )
+    def test_local_config_bootstrap_validation_is_strict(
+        self,
+        tmp_path_factory: pytest.TempPathFactory,
+        mutation: object,
+        diagnostic: str,
+    ) -> None:
+        directory = Path(tmp_path_factory.mktemp('case'))
+        path = directory / 'DevTool.user.json'
+        value: dict[str, object] = {'version': 1}
+        mutation(value)
+        path.write_text(json.dumps(value), encoding='utf-8')
+        with pytest.raises(build_config.BuildToolError, match=diagnostic):
+            build_config.load_local_config(path)
 
 
 

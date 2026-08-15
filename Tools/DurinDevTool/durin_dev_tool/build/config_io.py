@@ -4,9 +4,15 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
-from ..json_contract import JsonContractError, load_json_contract
+from ..json_contract import JsonContractError, decode_json_contract
 from .config import BuildToolError
 from .models import BuildProfile, ConfigurePreset, EnvironmentProvider, EnvironmentSetup, LocalConfig
+
+
+LOCAL_CONFIG_FIELDS = {"$schema", "version", "build", "cmake", "toolchain"}
+LOCAL_BUILD_FIELDS = {"defaultProfile", "parallelJobs"}
+LOCAL_CMAKE_FIELDS = {"command"}
+LOCAL_TOOLCHAIN_FIELDS = {"environmentScript", "environmentArguments"}
 
 
 def load_json_object(path: Path, *, label: str) -> dict[str, Any]:
@@ -41,24 +47,74 @@ def optional_string(container: Mapping[str, Any], key: str, *, label: str) -> st
     return value.strip()
 
 
+def _strict_config_object(
+    value: Any,
+    *,
+    label: str,
+    allowed: set[str],
+) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise BuildToolError(f"{label} must be an object.")
+    if unexpected := sorted(set(value) - allowed):
+        raise BuildToolError(f"{label} contains unexpected fields: {unexpected}.")
+    return value
+
+
 def load_local_config(path: Path) -> LocalConfig:
     if not path.is_file():
         return LocalConfig()
-    schema_path = Path(__file__).resolve().parents[2] / "DevTool.user.schema.json"
     try:
-        raw = load_json_contract(path, label="DurinDevTool config", schema_path=schema_path)
-    except JsonContractError as exc:
+        raw = decode_json_contract(
+            path.read_text(encoding="utf-8"),
+            label="DurinDevTool config",
+            source=f'"{path}"',
+        )
+    except (OSError, UnicodeError, JsonContractError) as exc:
         raise BuildToolError(str(exc)) from exc
-    assert isinstance(raw, dict)
-    build = raw.get("build", {})
+    raw = _strict_config_object(
+        raw,
+        label="DurinDevTool config",
+        allowed=LOCAL_CONFIG_FIELDS,
+    )
+    if type(raw.get("version")) is not int or raw["version"] != 1:
+        raise BuildToolError('DurinDevTool config field "version" must be 1.')
+    if "$schema" in raw and not isinstance(raw["$schema"], str):
+        raise BuildToolError(
+            'DurinDevTool config field "$schema" must be a string.'
+        )
+    build = _strict_config_object(
+        raw.get("build", {}),
+        label="DurinDevTool config build",
+        allowed=LOCAL_BUILD_FIELDS,
+    )
     jobs = build.get("parallelJobs", "auto")
     if jobs == "auto":
         resolved_jobs = 0
-    else:
+    elif type(jobs) is int and 1 <= jobs <= 256:
         resolved_jobs = jobs
-    cmake = raw.get("cmake", {})
-    toolchain = raw.get("toolchain", {})
+    else:
+        raise BuildToolError(
+            'DurinDevTool config build field "parallelJobs" must be "auto" '
+            "or an integer from 1 through 256."
+        )
+    cmake = _strict_config_object(
+        raw.get("cmake", {}),
+        label="DurinDevTool config cmake",
+        allowed=LOCAL_CMAKE_FIELDS,
+    )
+    toolchain = _strict_config_object(
+        raw.get("toolchain", {}),
+        label="DurinDevTool config toolchain",
+        allowed=LOCAL_TOOLCHAIN_FIELDS,
+    )
     arguments = toolchain.get("environmentArguments", [])
+    if not isinstance(arguments, list) or not all(
+        isinstance(argument, str) for argument in arguments
+    ):
+        raise BuildToolError(
+            'DurinDevTool config toolchain field "environmentArguments" '
+            "must be an array of strings."
+        )
     return LocalConfig(
         cmake_command=optional_nullable_string(cmake, "command", label="DurinDevTool config cmake"),
         default_build_profile=optional_nullable_string(build, "defaultProfile", label="DurinDevTool config build"),

@@ -7,11 +7,13 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .errors import DevToolError
-from .json_contract import JsonContractError, load_json_contract
+from .json_contract import JsonContractError, decode_json_contract
 from .repository import discover_repository_root
 
 
 CONFIG_RELATIVE_PATH = Path("Tools") / "DurinDevTool" / "DevTool.json"
+CONFIG_FIELDS = {"version", "paths", "worktrees"}
+CONFIG_OPTIONAL_FIELDS = {"$schema"}
 PATH_FIELDS = {
     "cmakePresets": "cmake_presets",
     "buildProfiles": "build_profiles",
@@ -35,6 +37,23 @@ WORKTREE_PATH_FIELDS = {
 
 class RepositoryConfigError(DevToolError):
     pass
+
+
+def _strict_object(
+    value: Any,
+    *,
+    label: str,
+    required: set[str],
+    optional: set[str] = frozenset(),
+) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise RepositoryConfigError(f"{label} must be an object.")
+    keys = set(value)
+    if missing := sorted(required - keys):
+        raise RepositoryConfigError(f"{label} is missing required fields: {missing}.")
+    if unexpected := sorted(keys - required - optional):
+        raise RepositoryConfigError(f"{label} contains unexpected fields: {unexpected}.")
+    return value
 
 
 @dataclass(frozen=True)
@@ -106,21 +125,43 @@ def load_repository_config(
     if not config_path.is_absolute():
         config_path = root / config_path
     try:
-        raw = load_json_contract(
-            config_path,
+        text = config_path.read_text(encoding="utf-8")
+        decoded = decode_json_contract(
+            text,
             label="DurinDevTool repository config",
-            schema_path=Path(__file__).resolve().parents[1] / "DevTool.schema.json",
+            source=f'"{config_path}"',
         )
-    except JsonContractError as exc:
+    except (OSError, UnicodeError, JsonContractError) as exc:
         raise RepositoryConfigError(str(exc)) from exc
-    assert isinstance(raw, dict)
-    raw_paths = raw["paths"]
+    raw = _strict_object(
+        decoded,
+        label="DurinDevTool repository config",
+        required=CONFIG_FIELDS,
+        optional=CONFIG_OPTIONAL_FIELDS,
+    )
+    if type(raw["version"]) is not int or raw["version"] != 1:
+        raise RepositoryConfigError(
+            'DurinDevTool repository config field "version" must be 1.'
+        )
+    if "$schema" in raw and not isinstance(raw["$schema"], str):
+        raise RepositoryConfigError(
+            'DurinDevTool repository config field "$schema" must be a string.'
+        )
+    raw_paths = _strict_object(
+        raw["paths"],
+        label='DurinDevTool repository config field "paths"',
+        required=set(PATH_FIELDS),
+    )
     path_values = {
         attribute: _repository_path(raw_paths[field], field=f"paths.{field}")
         for field, attribute in PATH_FIELDS.items()
     }
 
-    raw_worktrees = raw["worktrees"]
+    raw_worktrees = _strict_object(
+        raw["worktrees"],
+        label='DurinDevTool repository config field "worktrees"',
+        required=set(WORKTREE_PATH_FIELDS),
+    )
     worktree_values = {
         attribute: _repository_path(raw_worktrees[field], field=f"worktrees.{field}")
         for field, attribute in WORKTREE_PATH_FIELDS.items()
