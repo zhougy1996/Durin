@@ -4,13 +4,13 @@ Summary: Promote the qualified deferred opaque slice into production, add the cu
 
 Last reviewed: 2026-08-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-15
 
 ## Current Status
 
 M1-M3 of the
-[Hybrid Deferred Rendering Roadmap](../Roadmaps/HybridDeferredRendering.md)
+[Hybrid Deferred Rendering Roadmap](../../../Roadmaps/Archive/2026-08/HybridDeferredRendering.md)
 are complete. HDR Scene Color and display mapping, the four-attachment minimal
 GBuffer, and the isolated deferred directional/environment/emissive/shadow
 slice have lasting contracts. The validation-enabled RTX 3090 M3 fixture
@@ -372,8 +372,8 @@ and editor assistance in their established composition domains.
 
 ## Related Documentation
 
-- [Hybrid Deferred Rendering Roadmap](../Roadmaps/HybridDeferredRendering.md)
-- [Deferred Directional Lighting](../Runtime/Rendering/DeferredDirectionalLighting.md)
-- [Minimal GBuffer Contract](../Runtime/Rendering/GBuffer.md)
-- [Forward Lighting](../Runtime/Rendering/ForwardLighting.md)
-- [HDR Scene Color and Display Mapping](../Runtime/Rendering/HDRSceneColorAndDisplayMapping.md)
+- [Hybrid Deferred Rendering Roadmap](../../../Roadmaps/Archive/2026-08/HybridDeferredRendering.md)
+- [Deferred Directional Lighting](../../../Runtime/Rendering/DeferredDirectionalLighting.md)
+- [Minimal GBuffer Contract](../../../Runtime/Rendering/GBuffer.md)
+- [Forward Lighting](../../../Runtime/Rendering/ForwardLighting.md)
+- [HDR Scene Color and Display Mapping](../../../Runtime/Rendering/HDRSceneColorAndDisplayMapping.md)

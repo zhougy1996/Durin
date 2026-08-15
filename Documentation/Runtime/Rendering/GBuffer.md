@@ -138,4 +138,4 @@ packing without an explicit contract and qualification rebaseline.
 - [Forward Lighting](ForwardLighting.md)
 - [HDR Scene Color and Display Mapping](HDRSceneColorAndDisplayMapping.md)
 - [Viewport Rendering](ViewportRendering.md)
-- [Hybrid Deferred Rendering Roadmap](../../Roadmaps/HybridDeferredRendering.md)
+- [Hybrid Deferred Rendering Roadmap](../../Roadmaps/Archive/2026-08/HybridDeferredRendering.md)

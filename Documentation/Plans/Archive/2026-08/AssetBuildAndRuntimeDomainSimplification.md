@@ -4,13 +4,13 @@ Summary: Reduce AssetBuildCore to production-used cache and host behavior and co
 
 Last reviewed: 2026-08-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-16
 
 ## Current Status
 
 This is the completed M4 child plan of the
-[Asset Architecture Simplification Roadmap](../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md).
+[Asset Architecture Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md).
 M2 already separated deterministic package decode from asset-specific
 post-load work. Stage 0 freezes the real cache, host, runtime-domain, payload,
 startup, and test consumers before deleting speculative Build execution APIs.
@@ -251,17 +251,17 @@ all required documentation validators pass in the final M5 handoff.
 
 ## Related Documentation
 
-- [Asset Architecture Simplification Roadmap](../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Asset Architecture Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`BuildCache.h`](../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildCache.h)
-- [`BuildHost.h`](../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildHost.h)
-- [`AssetBuildCore.cpp`](../../Engine/Source/Developer/AssetBuildCore/Private/AssetBuildCore.cpp)
-- [`CookedAsset.h`](../../Engine/Source/Runtime/AssetCore/Public/CookedAsset.h)
-- [`AssetLoad.h`](../../Engine/Source/Runtime/AssetCore/Public/AssetLoad.h)
-- [`AssetSystem.cpp`](../../Engine/Source/Runtime/AssetCore/Private/AssetSystem.cpp)
+- [`BuildCache.h`](../../../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildCache.h)
+- [`BuildHost.h`](../../../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildHost.h)
+- [`AssetBuildCore.cpp`](../../../../Engine/Source/Developer/AssetBuildCore/Private/AssetBuildCore.cpp)
+- [`CookedAsset.h`](../../../../Engine/Source/Runtime/AssetCore/Public/CookedAsset.h)
+- [`AssetLoad.h`](../../../../Engine/Source/Runtime/AssetCore/Public/AssetLoad.h)
+- [`AssetSystem.cpp`](../../../../Engine/Source/Runtime/AssetCore/Private/AssetSystem.cpp)

@@ -4,7 +4,7 @@ Summary: Preserve scene-linear HDR radiance through scene rendering and add one 
 
 Last reviewed: 2026-08-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-15
 
 ## Current Status
@@ -23,7 +23,7 @@ oldest other extents above `192 MiB`; one 1920x1080 extent is `49,766,400`
 bytes, so four fit and five do not.
 
 HDR is sequenced first. The active
-[Compute Renderer Integration](ComputeRendererIntegration.md) plan is
+[Compute Renderer Integration](../../ComputeRendererIntegration.md) plan is
 rebaselined to read HDR Scene Color, apply the published transform per FXAA
 sample, write a bounded display-linear `RGBA16_FLOAT` intermediate, and use a
 non-mapping graphics copy into sRGB output.
@@ -114,7 +114,7 @@ resource changes, and pass frozen image, memory, and RTX 3090 performance gates.
 
 - A GBuffer, deferred light pass, forward/deferred migration, or other child
   milestone from the
-  [Hybrid Deferred Rendering Roadmap](../Roadmaps/HybridDeferredRendering.md).
+  [Hybrid Deferred Rendering Roadmap](../../../Roadmaps/Archive/2026-08/HybridDeferredRendering.md).
 - Automatic eye adaptation, luminance histograms, local exposure, bloom,
   color grading, LUTs, vignette, depth of field, motion blur, or temporal AA.
 - HDR monitor output, scRGB/PQ/HLG transfer, wide-gamut output, display
@@ -219,7 +219,7 @@ resource changes, and pass frozen image, memory, and RTX 3090 performance gates.
       consumer, diagnostic, and readback of `SceneColor`, `ContactColor`, and
       final viewport output; classify each color domain.
 - [x] Record the implementation order with
-      [Compute Renderer Integration](ComputeRendererIntegration.md) and update
+      [Compute Renderer Integration](../../ComputeRendererIntegration.md) and update
       that plan if its FXAA input, intermediate, route, or pipeline assumptions
       are superseded.
 - [x] Freeze the tone-mapping equation and constants, exposure EV range and
@@ -324,8 +324,8 @@ resource changes, and pass frozen image, memory, and RTX 3090 performance gates.
 
 - [x] Run focused RenderCore/Engine/Vulkan owners, required aggregate coverage,
       and the full build through the root
-      [build and run](../Development/Build/BuildAndRun.md) and
-      [testing](../Agents/Testing.md) workflows.
+      [build and run](../../../Development/Build/BuildAndRun.md) and
+      [testing](../../../Agents/Testing.md) workflows.
 - [x] Capture the frozen RTX 3090 1920x1080 copy/FXAA matrix after warm-up;
       record adapter, driver, build profile, sample count, median, p95, route,
       target bytes, peak retained bytes, and comparison to the version 1
@@ -336,7 +336,7 @@ resource changes, and pass frozen image, memory, and RTX 3090 performance gates.
 - [x] Publish Scene Color, exposure, tone-mapping, alpha, FXAA, editor-
       assistance, failure, and output rules under
       `Documentation/Runtime/Rendering/`; update the PBR-gap finding and
-      [Hybrid Deferred Rendering Roadmap](../Roadmaps/HybridDeferredRendering.md)
+      [Hybrid Deferred Rendering Roadmap](../../../Roadmaps/Archive/2026-08/HybridDeferredRendering.md)
       with evidence.
 - [x] Re-review the proposed minimal-GBuffer milestone against the measured HDR
       memory/bandwidth baseline before activating its child plan.
@@ -392,14 +392,14 @@ resource changes, and pass frozen image, memory, and RTX 3090 performance gates.
 
 ## Related Documentation
 
-- [Hybrid Deferred Rendering Roadmap](../Roadmaps/HybridDeferredRendering.md)
-- [PBR Pipeline Production Gaps](../Investigations/PBRPipelineProductionGaps.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Forward Lighting](../Runtime/Rendering/ForwardLighting.md)
-- [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md)
-- [Compute Renderer Integration](ComputeRendererIntegration.md)
-- [Directional Contact Shadows](DirectionalContactShadows.md)
+- [Hybrid Deferred Rendering Roadmap](../../../Roadmaps/Archive/2026-08/HybridDeferredRendering.md)
+- [PBR Pipeline Production Gaps](../../../Investigations/PBRPipelineProductionGaps.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Forward Lighting](../../../Runtime/Rendering/ForwardLighting.md)
+- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
+- [Compute Renderer Integration](../../ComputeRendererIntegration.md)
+- [Directional Contact Shadows](../../DirectionalContactShadows.md)
 
 ## Related Code
 

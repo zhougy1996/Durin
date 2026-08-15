@@ -4,13 +4,13 @@ Summary: Reconcile the completed asset simplification milestones, remove remaini
 
 Last reviewed: 2026-08-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-16
 
 ## Current Status
 
 M0-M4 of the
-[Asset Architecture Simplification Roadmap](../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md)
+[Asset Architecture Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md)
 are complete. M5 has reconciled the final cross-module surface, qualification,
 lasting-contract handoff, and roadmap completion.
 
@@ -124,8 +124,8 @@ expanding this task's mutation scope.
 
 ## Related Documentation
 
-- [Asset Architecture Simplification Roadmap](../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
-- [Content Browser](../Editor/Architecture/ContentBrowser.md)
+- [Asset Architecture Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)

@@ -4,7 +4,7 @@ Summary: Evolve the current forward renderer into an HDR-first hybrid renderer w
 
 Last reviewed: 2026-08-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-16
 
 ## Current Status
@@ -18,7 +18,7 @@ independent shading and geometric normals, while deferred lighting shares the
 forward BRDF, environment, attenuation, and shadow facilities.
 
 The completed
-[Ground Truth Ambient Occlusion](../Plans/GroundTruthAmbientOcclusion.md) plan
+[Ground Truth Ambient Occlusion](../../../Plans/Archive/2026-08/GroundTruthAmbientOcclusion.md) plan
 closes M5 with deterministic full-resolution horizon occlusion and non-temporal
 bilateral stabilization. GTAO multiplies only material AO at the deferred
 environment-light input, degrades optional failure to factor one per view, and
@@ -167,11 +167,11 @@ evidence appears and do not block this roadmap's completion.
 
 | Milestone | Requirement | Dependencies | Deliverable | Entry gate | Exit gate | Child plan |
 | --- | --- | --- | --- | --- | --- | --- |
-| M1. HDR Scene Color and display mapping | Required; completed 2026-08-15 | Current post-process and PBR contracts | HDR scene intermediate, fixed exposure, selected tone mapper, SDR output, and consistent view ordering | PBR clipping is verified; compute/post-process overlap is identified | Passed: values above one survive production scene/contact rendering; display, lifecycle, view isolation, full build/native aggregate, editor smoke, and frozen RTX 3090 memory/GPU gates pass | [HDR Scene Color and Display Mapping](../Plans/HDRSceneColorAndDisplayMapping.md) — Completed |
-| M2. Minimal GBuffer contract and geometry proof | Required; completed 2026-08-15 | M1 complete | Measured attachment layout, opaque/masked geometry pass, debug views, and forward A/B fixture | Met 2026-08-15: HDR output is stable and the child plan owns the required field inventory | Passed: all supported opaque/masked primitive families encode deterministic data within frozen reconstruction, bandwidth, memory, lifecycle, and RTX 3090 budgets | [Minimal GBuffer and Geometry Pass](../Plans/MinimalGBufferAndGeometryPass.md) — Completed |
-| M3. Deferred directional lighting parity | Required; completed 2026-08-15 | M2 complete | Full-screen directional/IBL/emissive composition using shared shading and shadow code | Met 2026-08-15: GBuffer data, reconstruction error, ownership, lifecycle, and cost are qualified | Passed: forward/deferred references meet frozen tolerances across materials, cascades, views, lifecycle, memory, and RTX 3090 gates | [Deferred Directional Lighting](../Plans/DeferredDirectionalLighting.md) — Completed |
-| M4. Deferred opaque production parity and rollout | Required; completed 2026-08-15 | M3 complete | Current local-light tier, retained forward translucency, supported primitive parity, and one default opaque owner | Met 2026-08-15: directional slice, shared inputs, lifecycle, memory, and representative fixtures are stable | Passed: `1 + 4` lighting, retained composition, views/lifecycle, memory, aggregate/runtime, and RTX 3090 gates pass with deferred as the one generic opaque owner | [Hybrid Renderer Production Rollout](../Plans/HybridRendererProductionRollout.md) — Completed |
-| M5. Depth/normal grounding | Required; completed 2026-08-16 | M4 complete | GTAO-class indirect occlusion with documented non-temporal policy | Met 2026-08-15: stable D32, geometric/shading normals, HDR indirect-light composition, view/lifecycle, memory, and GPU seams are published | Passed: grounding, non-interference, diagnostics, view/lifecycle, memory, aggregate/runtime, and RTX 3090 gates pass | [Ground Truth Ambient Occlusion](../Plans/GroundTruthAmbientOcclusion.md) — Completed |
+| M1. HDR Scene Color and display mapping | Required; completed 2026-08-15 | Current post-process and PBR contracts | HDR scene intermediate, fixed exposure, selected tone mapper, SDR output, and consistent view ordering | PBR clipping is verified; compute/post-process overlap is identified | Passed: values above one survive production scene/contact rendering; display, lifecycle, view isolation, full build/native aggregate, editor smoke, and frozen RTX 3090 memory/GPU gates pass | [HDR Scene Color and Display Mapping](../../../Plans/Archive/2026-08/HDRSceneColorAndDisplayMapping.md) — Completed |
+| M2. Minimal GBuffer contract and geometry proof | Required; completed 2026-08-15 | M1 complete | Measured attachment layout, opaque/masked geometry pass, debug views, and forward A/B fixture | Met 2026-08-15: HDR output is stable and the child plan owns the required field inventory | Passed: all supported opaque/masked primitive families encode deterministic data within frozen reconstruction, bandwidth, memory, lifecycle, and RTX 3090 budgets | [Minimal GBuffer and Geometry Pass](../../../Plans/Archive/2026-08/MinimalGBufferAndGeometryPass.md) — Completed |
+| M3. Deferred directional lighting parity | Required; completed 2026-08-15 | M2 complete | Full-screen directional/IBL/emissive composition using shared shading and shadow code | Met 2026-08-15: GBuffer data, reconstruction error, ownership, lifecycle, and cost are qualified | Passed: forward/deferred references meet frozen tolerances across materials, cascades, views, lifecycle, memory, and RTX 3090 gates | [Deferred Directional Lighting](../../../Plans/Archive/2026-08/DeferredDirectionalLighting.md) — Completed |
+| M4. Deferred opaque production parity and rollout | Required; completed 2026-08-15 | M3 complete | Current local-light tier, retained forward translucency, supported primitive parity, and one default opaque owner | Met 2026-08-15: directional slice, shared inputs, lifecycle, memory, and representative fixtures are stable | Passed: `1 + 4` lighting, retained composition, views/lifecycle, memory, aggregate/runtime, and RTX 3090 gates pass with deferred as the one generic opaque owner | [Hybrid Renderer Production Rollout](../../../Plans/Archive/2026-08/HybridRendererProductionRollout.md) — Completed |
+| M5. Depth/normal grounding | Required; completed 2026-08-16 | M4 complete | GTAO-class indirect occlusion with documented non-temporal policy | Met 2026-08-15: stable D32, geometric/shading normals, HDR indirect-light composition, view/lifecycle, memory, and GPU seams are published | Passed: grounding, non-interference, diagnostics, view/lifecycle, memory, aggregate/runtime, and RTX 3090 gates pass | [Ground Truth Ambient Occlusion](../../../Plans/Archive/2026-08/GroundTruthAmbientOcclusion.md) — Completed |
 | M6. Scalable and optional consumers | Evidence-gated | M4 complete; M5 inputs where applicable | Tiled/clustered lights, decals, and/or normal-aware contact-shadow revision | A measured scene or product feature exceeds the required path's capability | The selected extension passes its own image, fallback, memory, and GPU gates | Create separate plans only for selected consumers |
 
 ## Child Plan Boundaries
@@ -186,7 +186,7 @@ evidence appears and do not block this roadmap's completion.
 | Optional consumer plans | One measured extension each | Bundled renderer modernization | Declined for this roadmap: no candidate met its measured entry gate |
 
 The existing
-[Directional Contact Shadows](../Plans/DirectionalContactShadows.md) plan
+[Directional Contact Shadows](../../../Plans/DirectionalContactShadows.md) plan
 remains separate. Its depth-only implementation is an opt-in detail experiment,
 not an M1-M4 dependency. Any geometry-normal revision belongs to a later
 evidence-backed plan update after M3 rather than a new depth-neighbor patch in
@@ -206,8 +206,8 @@ the current forward path.
 | RTX 3090 1920x1080 GPU and memory qualification | Required | Required | Required | Required | Required per selected default |
 
 Child plans follow the root
-[build and run](../Development/Build/BuildAndRun.md) and
-[testing](../Agents/Testing.md) workflows rather than duplicating
+[build and run](../../../Development/Build/BuildAndRun.md) and
+[testing](../../../Agents/Testing.md) workflows rather than duplicating
 commands here.
 
 ## Risks and Control Gates
@@ -250,14 +250,14 @@ commands here.
 
 ## Related Documentation
 
-- [PBR Pipeline Production Gaps](../Investigations/PBRPipelineProductionGaps.md)
-- [Forward Lighting](../Runtime/Rendering/ForwardLighting.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md)
-- [Material System Roadmap](MaterialSystem.md)
-- [Compute Shader Pipeline Roadmap](ComputeShaderPipeline.md)
-- [Ground Truth Ambient Occlusion](../Runtime/Rendering/GroundTruthAmbientOcclusion.md)
+- [PBR Pipeline Production Gaps](../../../Investigations/PBRPipelineProductionGaps.md)
+- [Forward Lighting](../../../Runtime/Rendering/ForwardLighting.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
+- [Material System Roadmap](../../MaterialSystem.md)
+- [Compute Shader Pipeline Roadmap](../../ComputeShaderPipeline.md)
+- [Ground Truth Ambient Occlusion](../../../Runtime/Rendering/GroundTruthAmbientOcclusion.md)
 
 ## Related Code
 

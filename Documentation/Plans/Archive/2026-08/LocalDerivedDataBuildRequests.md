@@ -4,7 +4,7 @@ Summary: Add a production-used local derived-data Build request model and migrat
 
 Last reviewed: 2026-08-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-16
 
 ## Current Status
@@ -405,8 +405,8 @@ Dependencies: Stages 2 and 3 complete.
 
 ## Validation Matrix
 
-Follow [Agent Build And Run](../Agents/BuildAndRun.md) and
-[Agent Testing](../Agents/Testing.md); select the smallest named targets first
+Follow [Agent Build And Run](../../../Agents/BuildAndRun.md) and
+[Agent Testing](../../../Agents/Testing.md); select the smallest named targets first
 and do not overlap build process trees.
 
 | Concern | Required evidence |
@@ -458,28 +458,28 @@ and do not overlap build process trees.
 
 ## Related Documentation
 
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Code Modules](../Workspace/CodeModules.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
 - [Asset Build And Runtime Domain Simplification Plan](AssetBuildAndRuntimeDomainSimplification.md)
-- [Agent Build And Run](../Agents/BuildAndRun.md)
-- [Agent Testing](../Agents/Testing.md)
+- [Agent Build And Run](../../../Agents/BuildAndRun.md)
+- [Agent Testing](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`BuildTypes.h`](../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildTypes.h)
-- [`BuildCache.h`](../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildCache.h)
-- [`BuildHost.h`](../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildHost.h)
-- [`AssetBuildCore.cpp`](../../Engine/Source/Developer/AssetBuildCore/Private/AssetBuildCore.cpp)
-- [`StaticMeshBuildOperations.h`](../../Engine/Source/Developer/GeometryBuild/Public/StaticMesh/StaticMeshBuildOperations.h)
-- [`StaticMeshBuildOperations.cpp`](../../Engine/Source/Developer/GeometryBuild/Private/StaticMesh/StaticMeshBuildOperations.cpp)
-- [`StaticMeshBuildDerivedData.h`](../../Engine/Source/Developer/GeometryBuild/Public/StaticMesh/StaticMeshBuildDerivedData.h)
-- [`TextureBuildOperations.h`](../../Engine/Source/Developer/TextureBuild/Public/Texture/TextureBuildOperations.h)
-- [`TextureBuildOperations.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/TextureBuildOperations.cpp)
-- [`Texture2DDerivedData.h`](../../Engine/Source/Developer/TextureBuild/Public/Texture/Texture2DDerivedData.h)
-- [`Texture2DAuthoringCoordinator.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DAuthoringCoordinator.cpp)
-- [`StandardAssetImportProviders.cpp`](../../Engine/Source/Editor/StandardAssetImport/Private/StandardAssetImportProviders.cpp)
-- [`Texture2DSourceTranslation.cpp`](../../Engine/Source/Editor/StandardAssetImport/Private/Texture2DSourceTranslation.cpp)
-- [`AssetBuildCoreTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/AssetBuildCoreTests.cpp)
-- [`StaticMeshDerivedDataCacheTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/StaticMeshDerivedDataCacheTests.cpp)
-- [`TextureBuildTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Texture/TextureBuildTests.cpp)
-- [`TextureDerivedDataTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Texture/TextureDerivedDataTests.cpp)
+- [`BuildTypes.h`](../../../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildTypes.h)
+- [`BuildCache.h`](../../../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildCache.h)
+- [`BuildHost.h`](../../../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildHost.h)
+- [`AssetBuildCore.cpp`](../../../../Engine/Source/Developer/AssetBuildCore/Private/AssetBuildCore.cpp)
+- [`StaticMeshBuildOperations.h`](../../../../Engine/Source/Developer/GeometryBuild/Public/StaticMesh/StaticMeshBuildOperations.h)
+- [`StaticMeshBuildOperations.cpp`](../../../../Engine/Source/Developer/GeometryBuild/Private/StaticMesh/StaticMeshBuildOperations.cpp)
+- [`StaticMeshBuildDerivedData.h`](../../../../Engine/Source/Developer/GeometryBuild/Public/StaticMesh/StaticMeshBuildDerivedData.h)
+- [`TextureBuildOperations.h`](../../../../Engine/Source/Developer/TextureBuild/Public/Texture/TextureBuildOperations.h)
+- [`TextureBuildOperations.cpp`](../../../../Engine/Source/Developer/TextureBuild/Private/Texture/TextureBuildOperations.cpp)
+- [`Texture2DDerivedData.h`](../../../../Engine/Source/Developer/TextureBuild/Public/Texture/Texture2DDerivedData.h)
+- [`Texture2DAuthoringCoordinator.cpp`](../../../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DAuthoringCoordinator.cpp)
+- [`StandardAssetImportProviders.cpp`](../../../../Engine/Source/Editor/StandardAssetImport/Private/StandardAssetImportProviders.cpp)
+- [`Texture2DSourceTranslation.cpp`](../../../../Engine/Source/Editor/StandardAssetImport/Private/Texture2DSourceTranslation.cpp)
+- [`AssetBuildCoreTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/AssetBuildCoreTests.cpp)
+- [`StaticMeshDerivedDataCacheTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/StaticMeshDerivedDataCacheTests.cpp)
+- [`TextureBuildTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Texture/TextureBuildTests.cpp)
+- [`TextureDerivedDataTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Texture/TextureDerivedDataTests.cpp)

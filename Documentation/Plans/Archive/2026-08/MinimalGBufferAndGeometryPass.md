@@ -4,7 +4,7 @@ Summary: Freeze and implement the smallest measured geometry-buffer contract for
 
 Last reviewed: 2026-08-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-15
 
 ## Current Status
@@ -77,7 +77,7 @@ and an 8-second hidden-editor startup/shutdown smoke pass. The first aggregate
 run had one transient parallel `VulkanRHIIntegrationTests` process crash; its
 58 tests passed in isolation and the unchanged aggregate passed on immediate
 rerun. The lasting
-[Minimal GBuffer Contract](../Runtime/Rendering/GBuffer.md) now owns encoding,
+[Minimal GBuffer Contract](../../../Runtime/Rendering/GBuffer.md) now owns encoding,
 reconstruction, resource, failure, memory, diagnostics, and the M3 input seam.
 Production forward rendering remains unchanged. M3 is activated through
 [Deferred Directional Lighting](DeferredDirectionalLighting.md), whose Stage 0
@@ -390,11 +390,11 @@ material or lighting model.
 
 ## Related Documentation
 
-- [Hybrid Deferred Rendering Roadmap](../Roadmaps/HybridDeferredRendering.md)
+- [Hybrid Deferred Rendering Roadmap](../../../Roadmaps/Archive/2026-08/HybridDeferredRendering.md)
 - [HDR Scene Color and Display Mapping](HDRSceneColorAndDisplayMapping.md)
-- [Forward Lighting](../Runtime/Rendering/ForwardLighting.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
+- [Forward Lighting](../../../Runtime/Rendering/ForwardLighting.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
 
 ## Related Code
 

@@ -4,13 +4,13 @@ Summary: Add a bounded GTAO-class indirect-occlusion path over the production de
 
 Last reviewed: 2026-08-16
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-16
 
 ## Current Status
 
 M5 of the
-[Hybrid Deferred Rendering Roadmap](../Roadmaps/HybridDeferredRendering.md)
+[Hybrid Deferred Rendering Roadmap](../../../Roadmaps/Archive/2026-08/HybridDeferredRendering.md)
 completed on 2026-08-16. Production solid Lit `DeferredRequired` views now run
 the deterministic full-resolution three-slice/four-step GTAO horizon pass and
 the non-temporal radius-two bilateral pair before deferred composition. The
@@ -29,7 +29,7 @@ the frozen `75,000 ns` median gate. `EditorRenderingTests`, the Vulkan renderer
 integration set, `fast-all`, the ordinary native aggregate, full `all` build,
 HDR/native-window qualification matrix, and the 30-tick hidden DurinEditor
 startup/runtime/shutdown smoke pass. Lasting behavior is published in
-[Ground Truth Ambient Occlusion](../Runtime/Rendering/GroundTruthAmbientOcclusion.md).
+[Ground Truth Ambient Occlusion](../../../Runtime/Rendering/GroundTruthAmbientOcclusion.md).
 
 M6 candidates remain unselected: no measured product scene exceeds the
 qualified `1 + 4` light tier, no selected decal requirement exists, and the
@@ -382,12 +382,12 @@ forward, display, and editor-assistance semantics.
 
 ## Related Documentation
 
-- [Hybrid Deferred Rendering Roadmap](../Roadmaps/HybridDeferredRendering.md)
-- [Deferred Directional Lighting](../Runtime/Rendering/DeferredDirectionalLighting.md)
-- [Minimal GBuffer Contract](../Runtime/Rendering/GBuffer.md)
-- [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md)
-- [Directional Contact Shadows](DirectionalContactShadows.md)
-- [HDR Scene Color and Display Mapping](../Runtime/Rendering/HDRSceneColorAndDisplayMapping.md)
+- [Hybrid Deferred Rendering Roadmap](../../../Roadmaps/Archive/2026-08/HybridDeferredRendering.md)
+- [Deferred Directional Lighting](../../../Runtime/Rendering/DeferredDirectionalLighting.md)
+- [Minimal GBuffer Contract](../../../Runtime/Rendering/GBuffer.md)
+- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
+- [Directional Contact Shadows](../../DirectionalContactShadows.md)
+- [HDR Scene Color and Display Mapping](../../../Runtime/Rendering/HDRSceneColorAndDisplayMapping.md)
 
 ## Related Code
 

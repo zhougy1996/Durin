@@ -4,13 +4,13 @@ Summary: Consolidate provider registration and import orchestration behind one s
 
 Last reviewed: 2026-08-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-15
 
 ## Current Status
 
 This is the completed M3 child plan of the
-[Asset Architecture Simplification Roadmap](../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md).
+[Asset Architecture Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md).
 M1 owns resident authoring publication and M2 owns strict package compatibility.
 Stage 0 freezes every importer registration, execution path, editor caller, and
 failure/lifetime gate before public registries are consolidated.
@@ -296,20 +296,20 @@ records, all 16 roadmaps, and all 113 active repository documents validated.
 
 ## Related Documentation
 
-- [Asset Architecture Simplification Roadmap](../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md)
-- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Asset Architecture Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md)
+- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`AssetImportCore.h`](../../Engine/Source/Editor/AssetImportCore/Public/AssetImportCore.h)
-- [`MultiOutputImport.h`](../../Engine/Source/Editor/AssetImportCore/Public/MultiOutputImport.h)
-- [`AsyncImport.h`](../../Engine/Source/Editor/AssetImportCore/Public/AsyncImport.h)
-- [`AssetImportCore.cpp`](../../Engine/Source/Editor/AssetImportCore/Private/AssetImportCore.cpp)
-- [`MultiOutputImport.cpp`](../../Engine/Source/Editor/AssetImportCore/Private/MultiOutputImport.cpp)
-- [`StandardAssetImportProviders.cpp`](../../Engine/Source/Editor/StandardAssetImport/Private/StandardAssetImportProviders.cpp)
-- [`AssetImportCoreTests.cpp`](../../Engine/Tests/Native/AssetCoreTests/Private/AssetImportCoreTests.cpp)
-- [`ImportRecordTests.cpp`](../../Engine/Tests/Native/AssetCoreTests/Private/ImportRecordTests.cpp)
+- [`AssetImportCore.h`](../../../../Engine/Source/Editor/AssetImportCore/Public/AssetImportCore.h)
+- [`MultiOutputImport.h`](../../../../Engine/Source/Editor/AssetImportCore/Public/MultiOutputImport.h)
+- [`AsyncImport.h`](../../../../Engine/Source/Editor/AssetImportCore/Public/AsyncImport.h)
+- [`AssetImportCore.cpp`](../../../../Engine/Source/Editor/AssetImportCore/Private/AssetImportCore.cpp)
+- [`MultiOutputImport.cpp`](../../../../Engine/Source/Editor/AssetImportCore/Private/MultiOutputImport.cpp)
+- [`StandardAssetImportProviders.cpp`](../../../../Engine/Source/Editor/StandardAssetImport/Private/StandardAssetImportProviders.cpp)
+- [`AssetImportCoreTests.cpp`](../../../../Engine/Tests/Native/AssetCoreTests/Private/AssetImportCoreTests.cpp)
+- [`ImportRecordTests.cpp`](../../../../Engine/Tests/Native/AssetCoreTests/Private/ImportRecordTests.cpp)

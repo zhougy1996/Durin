@@ -4,13 +4,13 @@ Summary: Consolidate asset authoring mutations behind one transaction-owning ser
 
 Last reviewed: 2026-08-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-15
 
 ## Current Status
 
 This is the completed M1 child plan of the
-[Asset Architecture Simplification Roadmap](../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md).
+[Asset Architecture Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md).
 Its M0 dependency and Stage 0 are complete. The production mutation caller
 inventory, transaction ownership, callback contracts, and relocation,
 deletion, Fix Up, and Undo/Redo failure matrix are frozen. Stages 1 and 2 are
@@ -456,23 +456,23 @@ now own the implemented boundary, and all documentation validators passed.
 
 ## Related Documentation
 
-- [Asset Architecture Simplification Roadmap](../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md)
+- [Asset Architecture Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md)
 - [Asset Catalog and Load Boundary Plan](AssetCatalogAndLoadBoundary.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
-- [Content Browser](../Editor/Architecture/ContentBrowser.md)
-- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`AssetMutation.h`](../../Engine/Source/Runtime/AssetCore/Public/AssetMutation.h)
-- [`AssetSystem.cpp`](../../Engine/Source/Runtime/AssetCore/Private/AssetSystem.cpp)
-- [`EditorAssetMoveCoordinator.cpp`](../../Engine/Source/Editor/LevelEditor/Private/Assets/EditorAssetMoveCoordinator.cpp)
-- [`AssetRelocationTransaction.cpp`](../../Engine/Source/Editor/LevelEditor/Private/Assets/AssetRelocationTransaction.cpp)
-- [`ContentBrowserOperations.cpp`](../../Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserOperations.cpp)
-- [`ContentDeletionTransaction.cpp`](../../Engine/Source/Editor/LevelEditor/Private/Panels/ContentDeletionTransaction.cpp)
-- [`AssetImportCoreModule.cpp`](../../Engine/Source/Editor/AssetImportCore/Private/AssetImportCoreModule.cpp)
-- [`PackageTests.cpp`](../../Engine/Tests/Native/AssetCoreTests/Private/PackageTests.cpp)
-- [`ContentBrowserModelTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Editor/ContentBrowserModelTests.cpp)
+- [`AssetMutation.h`](../../../../Engine/Source/Runtime/AssetCore/Public/AssetMutation.h)
+- [`AssetSystem.cpp`](../../../../Engine/Source/Runtime/AssetCore/Private/AssetSystem.cpp)
+- [`EditorAssetMoveCoordinator.cpp`](../../../../Engine/Source/Editor/LevelEditor/Private/Assets/EditorAssetMoveCoordinator.cpp)
+- [`AssetRelocationTransaction.cpp`](../../../../Engine/Source/Editor/LevelEditor/Private/Assets/AssetRelocationTransaction.cpp)
+- [`ContentBrowserOperations.cpp`](../../../../Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserOperations.cpp)
+- [`ContentDeletionTransaction.cpp`](../../../../Engine/Source/Editor/LevelEditor/Private/Panels/ContentDeletionTransaction.cpp)
+- [`AssetImportCoreModule.cpp`](../../../../Engine/Source/Editor/AssetImportCore/Private/AssetImportCoreModule.cpp)
+- [`PackageTests.cpp`](../../../../Engine/Tests/Native/AssetCoreTests/Private/PackageTests.cpp)
+- [`ContentBrowserModelTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Editor/ContentBrowserModelTests.cpp)

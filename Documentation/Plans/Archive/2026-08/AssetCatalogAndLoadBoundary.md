@@ -4,13 +4,13 @@ Summary: Establish one authoritative asset catalog and one redirector-aware load
 
 Last reviewed: 2026-08-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-15
 
 ## Current Status
 
 This completed M0 child plan of the
-[Asset Architecture Simplification Roadmap](../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md).
+[Asset Architecture Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md).
 All six stages and the M0 exit gate are complete. Stage 0 froze the production caller inventory and the current
 exact, redirected, draft, refresh, and load behavior that must survive the
 boundary change. The physical-I/O seam now distinguishes logical metadata
@@ -31,7 +31,7 @@ validation, a full build, hidden-window editor smoke, performance-counter
 checks, and lasting documentation publication.
 
 The selected direction retains the redirector model completed by the
-[Asset Redirectors Refactor Plan](Archive/2026-08/AssetRedirectors.md). A
+[Asset Redirectors Refactor Plan](AssetRedirectors.md). A
 redirector remains a persistent exact catalog entry and an old authored path
 continues resolving after its real asset moves. This plan changes where that
 behavior lives: resolution becomes a pure catalog operation and ordinary load
@@ -666,27 +666,27 @@ into this plan.
 
 ## Related Documentation
 
-- [Asset Architecture Simplification Roadmap](../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Versioning](../Runtime/Assets/Versioning.md)
-- [Content Browser](../Editor/Architecture/ContentBrowser.md)
-- [Asset Redirectors Refactor Plan](Archive/2026-08/AssetRedirectors.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Asset Architecture Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Versioning](../../../Runtime/Assets/Versioning.md)
+- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Asset Redirectors Refactor Plan](AssetRedirectors.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`AssetPackage.h`](../../Engine/Source/Runtime/AssetCore/Public/AssetPackage.h)
-- [`AssetLoad.h`](../../Engine/Source/Runtime/AssetCore/Public/AssetLoad.h)
-- [`AssetMutation.h`](../../Engine/Source/Runtime/AssetCore/Public/AssetMutation.h)
-- [`AssetTestSupport.h`](../../Engine/Source/Runtime/AssetCore/Public/AssetTestSupport.h)
-- [`AssetSystem.cpp`](../../Engine/Source/Runtime/AssetCore/Private/AssetSystem.cpp)
-- [`AssetPackageV4Reader.h`](../../Engine/Source/Runtime/AssetCore/Public/AssetPackageV4Reader.h)
-- [`AssetPackageV4Reader.cpp`](../../Engine/Source/Runtime/AssetCore/Private/AssetPackageV4Reader.cpp)
-- [`MountedSource.h`](../../Engine/Source/Runtime/AssetCore/Public/Asset/MountedSource.h)
-- [`MountedSource.cpp`](../../Engine/Source/Runtime/AssetCore/Private/Asset/MountedSource.cpp)
-- [`EditorAssetMoveCoordinator.cpp`](../../Engine/Source/Editor/LevelEditor/Private/Assets/EditorAssetMoveCoordinator.cpp)
-- [`PackageTests.cpp`](../../Engine/Tests/Native/AssetCoreTests/Private/PackageTests.cpp)
-- [`PackageV4ReaderTests.cpp`](../../Engine/Tests/Native/AssetCoreTests/Private/PackageV4ReaderTests.cpp)
-- [`MountedSourceTests.cpp`](../../Engine/Tests/Native/AssetCoreTests/Private/MountedSourceTests.cpp)
+- [`AssetPackage.h`](../../../../Engine/Source/Runtime/AssetCore/Public/AssetPackage.h)
+- [`AssetLoad.h`](../../../../Engine/Source/Runtime/AssetCore/Public/AssetLoad.h)
+- [`AssetMutation.h`](../../../../Engine/Source/Runtime/AssetCore/Public/AssetMutation.h)
+- [`AssetTestSupport.h`](../../../../Engine/Source/Runtime/AssetCore/Public/AssetTestSupport.h)
+- [`AssetSystem.cpp`](../../../../Engine/Source/Runtime/AssetCore/Private/AssetSystem.cpp)
+- [`AssetPackageV4Reader.h`](../../../../Engine/Source/Runtime/AssetCore/Public/AssetPackageV4Reader.h)
+- [`AssetPackageV4Reader.cpp`](../../../../Engine/Source/Runtime/AssetCore/Private/AssetPackageV4Reader.cpp)
+- [`MountedSource.h`](../../../../Engine/Source/Runtime/AssetCore/Public/Asset/MountedSource.h)
+- [`MountedSource.cpp`](../../../../Engine/Source/Runtime/AssetCore/Private/Asset/MountedSource.cpp)
+- [`EditorAssetMoveCoordinator.cpp`](../../../../Engine/Source/Editor/LevelEditor/Private/Assets/EditorAssetMoveCoordinator.cpp)
+- [`PackageTests.cpp`](../../../../Engine/Tests/Native/AssetCoreTests/Private/PackageTests.cpp)
+- [`PackageV4ReaderTests.cpp`](../../../../Engine/Tests/Native/AssetCoreTests/Private/PackageV4ReaderTests.cpp)
+- [`MountedSourceTests.cpp`](../../../../Engine/Tests/Native/AssetCoreTests/Private/MountedSourceTests.cpp)

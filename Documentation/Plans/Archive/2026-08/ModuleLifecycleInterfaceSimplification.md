@@ -4,7 +4,7 @@ Summary: Restore parameterless module lifecycle hooks while preserving generatio
 
 Last reviewed: 2026-08-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-15
 
 ## Current Status
@@ -400,22 +400,22 @@ into this plan.
 
 ## Related Documentation
 
-- [Modular Features and Module Retirement](../Runtime/Core/ModularFeaturesAndModuleRetirement.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Task System](../Runtime/Core/TaskSystem.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Modular Features and Module Retirement](../../../Runtime/Core/ModularFeaturesAndModuleRetirement.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Task System](../../../Runtime/Core/TaskSystem.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`ModuleManager.h`](../../Engine/Source/Runtime/Core/Public/Modules/ModuleManager.h)
-- [`ModuleManager.cpp`](../../Engine/Source/Runtime/Core/Private/Modules/ModuleManager.cpp)
-- [`ModuleTestSupport.h`](../../Engine/Source/Runtime/Core/Public/Modules/ModuleTestSupport.h)
-- [`ModuleTestSupport.cpp`](../../Engine/Source/Runtime/Core/Private/Modules/ModuleTestSupport.cpp)
-- [`ModularFeature.h`](../../Engine/Source/Runtime/Core/Public/Modules/ModularFeature.h)
-- [`AsyncOperationGroup.h`](../../Engine/Source/Runtime/Core/Public/Modules/AsyncOperationGroup.h)
-- [`RendererModule.h`](../../Engine/Source/Runtime/Renderer/Public/RendererModule.h)
-- [`RendererModule.cpp`](../../Engine/Source/Runtime/Renderer/Private/RendererModule.cpp)
-- [`ModularFeatureTests.cpp`](../../Engine/Tests/Native/CoreTests/Private/ModularFeatureTests.cpp)
-- [`AsyncOperationGroupTests.cpp`](../../Engine/Tests/Native/CoreTests/Private/AsyncOperationGroupTests.cpp)
-- [`DynamicUnloadFixtureModule.cpp`](../../Engine/Tests/Fixtures/DynamicDllUnload/DynamicUnloadFixtureModule.cpp)
+- [`ModuleManager.h`](../../../../Engine/Source/Runtime/Core/Public/Modules/ModuleManager.h)
+- [`ModuleManager.cpp`](../../../../Engine/Source/Runtime/Core/Private/Modules/ModuleManager.cpp)
+- [`ModuleTestSupport.h`](../../../../Engine/Source/Runtime/Core/Public/Modules/ModuleTestSupport.h)
+- [`ModuleTestSupport.cpp`](../../../../Engine/Source/Runtime/Core/Private/Modules/ModuleTestSupport.cpp)
+- [`ModularFeature.h`](../../../../Engine/Source/Runtime/Core/Public/Modules/ModularFeature.h)
+- [`AsyncOperationGroup.h`](../../../../Engine/Source/Runtime/Core/Public/Modules/AsyncOperationGroup.h)
+- [`RendererModule.h`](../../../../Engine/Source/Runtime/Renderer/Public/RendererModule.h)
+- [`RendererModule.cpp`](../../../../Engine/Source/Runtime/Renderer/Private/RendererModule.cpp)
+- [`ModularFeatureTests.cpp`](../../../../Engine/Tests/Native/CoreTests/Private/ModularFeatureTests.cpp)
+- [`AsyncOperationGroupTests.cpp`](../../../../Engine/Tests/Native/CoreTests/Private/AsyncOperationGroupTests.cpp)
+- [`DynamicUnloadFixtureModule.cpp`](../../../../Engine/Tests/Fixtures/DynamicDllUnload/DynamicUnloadFixtureModule.cpp)

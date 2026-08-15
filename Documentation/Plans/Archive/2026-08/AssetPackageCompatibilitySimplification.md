@@ -4,13 +4,13 @@ Summary: Separate current-format package decoding from offline compatibility aud
 
 Last reviewed: 2026-08-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-15
 
 ## Current Status
 
 This is the completed M2 child plan of the
-[Asset Architecture Simplification Roadmap](../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md).
+[Asset Architecture Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md).
 M0 catalog/load ownership and M1 mutation ownership are complete. M2 now owns a
 strict one-decode live-load boundary and leaves canonical comparison to explicit
 construct-free maintenance.
@@ -247,16 +247,16 @@ active repository documents validated.
 
 ## Related Documentation
 
-- [Asset Architecture Simplification Roadmap](../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Versioning](../Runtime/Assets/Versioning.md)
-- [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Asset Architecture Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Versioning](../../../Runtime/Assets/Versioning.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`AssetCompatibility.h`](../../Engine/Source/Runtime/AssetCore/Public/AssetCompatibility.h)
-- [`AssetSystem.cpp`](../../Engine/Source/Runtime/AssetCore/Private/AssetSystem.cpp)
-- [`AssetPackageV4Reader.cpp`](../../Engine/Source/Runtime/AssetCore/Private/AssetPackageV4Reader.cpp)
-- [`PackageTests.cpp`](../../Engine/Tests/Native/AssetCoreTests/Private/PackageTests.cpp)
+- [`AssetCompatibility.h`](../../../../Engine/Source/Runtime/AssetCore/Public/AssetCompatibility.h)
+- [`AssetSystem.cpp`](../../../../Engine/Source/Runtime/AssetCore/Private/AssetSystem.cpp)
+- [`AssetPackageV4Reader.cpp`](../../../../Engine/Source/Runtime/AssetCore/Private/AssetPackageV4Reader.cpp)
+- [`PackageTests.cpp`](../../../../Engine/Tests/Native/AssetCoreTests/Private/PackageTests.cpp)
