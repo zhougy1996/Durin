@@ -119,7 +119,7 @@ durin_finalize_native_test(CoreConcurrencyQualificationTests
 )
 durin_discover_tests(CoreConcurrencyQualificationTests)
 
-if(WIN32)
+if(WIN32 OR APPLE)
 	set(_durin_dynamic_unload_fixture_dir
 		"${DURIN_PROJECT_ROOT_DIR}/Tests/Fixtures/DynamicDllUnload")
 	add_library(DynamicUnloadFixture MODULE
@@ -135,6 +135,9 @@ if(WIN32)
 		OUTPUT_NAME "${DURIN_RUNTIME_VARIANT}-DynamicUnloadFixture"
 		FOLDER "Tests/Fixtures"
 	)
+	if(APPLE)
+		set_target_properties(DynamicUnloadFixture PROPERTIES SUFFIX ".dylib")
+	endif()
 	durin_target_set_runtime_outputs(DynamicUnloadFixture)
 	if(DURIN_ENABLE_PCH AND TARGET SharedPCH_Core)
 		target_precompile_headers(DynamicUnloadFixture REUSE_FROM SharedPCH_Core)

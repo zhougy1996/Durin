@@ -86,6 +86,7 @@ TEST(FLaunchArgumentsTests, ParsesTypedCrashPhasesAndRejectsInvalidCompanions)
 	ExpectRejected({"--native-crash-at=nowhere"}, "--native-crash-at");
 	ExpectRejected({"--native-crash-at=running"}, "--native-crash-at");
 	ExpectRejected({"--native-crash-log-gap"}, "--native-crash-log-gap");
+	ExpectRejected({"--native-crash-fixture=unknown"}, "--native-crash-fixture");
 }
 
 TEST(FLaunchArgumentsTests, RepeatedCallsRetainNoParserState)

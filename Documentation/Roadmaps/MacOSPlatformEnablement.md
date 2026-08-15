@@ -9,20 +9,21 @@ Completed:
 
 ## Current Status
 
-Durin remains a Windows-qualified engine without macOS runtime support. M1 now
-provides a native Apple Silicon DevTool setup, pinned arm64 dependencies,
-platform-correct CMake/DHT source selection, a basic macOS `PlatformProcess`,
-and a repeatable fresh configure plus bounded Engine dylib build. The resulting
-development closure uses Mach-O arm64 dylibs with inspectable `@rpath`
-identities. This is toolchain and compile qualification, not Editor or rendering
-qualification.
+M2 now provides a real macOS process-crash adapter, synchronous process and
+open-path services, cross-process project ownership, actionable dylib loading,
+native-dialog failure policy, balanced ApplicationCore/GLFW teardown, and a
+clean ordinary native aggregate on Apple Silicon. Launch and the complete Debug
+Editor closure link as Mach-O arm64 with audited `@rpath` dependencies. The
+ordinary Editor startup owns the selected project and cleanly rolls back at an
+explicit diagnostic instead of crashing or fabricating presentation support.
 
-The first explicit M2 blocker is the absent macOS process-crash service required
-by Launch. Native test bodies reached so far complete their assertions but
-currently crash during process teardown. Further blockers include complete
-process/module/filesystem behavior, native dialogs, project ownership,
-Cocoa/GLFW input and shell lifecycle, Win32-specific Vulkan presentation
-admission, and cooked payload contracts that name only Win64.
+The remaining M2 exit blocker is the window/surface ordering shared with M3:
+normal startup performs Vulkan physical-device presentation admission before
+Mona creates the Editor's Cocoa window and Metal-backed surface. Standalone
+Cocoa/GLFW construction, Retina sizing, resize, close-state, worker rejection,
+and repeated teardown are implemented, but complete input injection and the
+normal Editor-window lifecycle are not yet qualified. The M2 child plan remains
+active until the surface-first handoff is resolved with the bounded M3 work.
 
 [macOS Host-Independent Preparation](../Plans/Archive/2026-08/MacOSHostIndependentPreparation.md)
 completed M0 on the Windows qualification host. Platform source ownership,

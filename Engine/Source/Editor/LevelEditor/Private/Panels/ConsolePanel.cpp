@@ -72,7 +72,11 @@ namespace Durin::Editor::Level
 		{
 			const std::time_t Time = std::chrono::system_clock::to_time_t(Record.Timestamp);
 			std::tm LocalTime{};
+#ifdef _WIN32
 			localtime_s(&LocalTime, &Time);
+#else
+			localtime_r(&Time, &LocalTime);
+#endif
 			std::array<char, 16> TimeText{};
 			std::strftime(TimeText.data(), TimeText.size(), "%H:%M:%S", &LocalTime);
 			return TimeText;

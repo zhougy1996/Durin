@@ -91,4 +91,41 @@ namespace Durin
 			*OutError = std::format("Could not open \"{}\": ShellExecuteW returned error {}.", Path, Result);
 		return false;
 	}
+
+	auto FWindowsPlatformProcess::ExecuteProcess(
+		std::string_view Executable,
+		std::string_view Arguments,
+		int32& OutReturnCode,
+		std::string* OutError) -> bool
+	{
+		OutReturnCode = 0;
+		std::wstring CommandLine = L"\"" + StringUtils::Utf8ToWide(Executable)
+			+ L"\" " + StringUtils::Utf8ToWide(Arguments);
+		STARTUPINFOW StartupInfo{};
+		StartupInfo.cb = sizeof(StartupInfo);
+		PROCESS_INFORMATION ProcessInfo{};
+		if (!CreateProcessW(nullptr, CommandLine.data(), nullptr, nullptr, FALSE, 0,
+			nullptr, nullptr, &StartupInfo, &ProcessInfo))
+		{
+			const DWORD Error = GetLastError();
+			if (OutError) *OutError = std::format(
+				"Could not launch \"{}\": {}.", Executable, FormatWindowsError(Error));
+			return false;
+		}
+		CloseHandle(ProcessInfo.hThread);
+		const DWORD WaitResult = WaitForSingleObject(ProcessInfo.hProcess, INFINITE);
+		DWORD ExitCode = 0;
+		const bool bReadExitCode = WaitResult == WAIT_OBJECT_0
+			&& GetExitCodeProcess(ProcessInfo.hProcess, &ExitCode) != FALSE;
+		const DWORD Error = bReadExitCode ? ERROR_SUCCESS : GetLastError();
+		CloseHandle(ProcessInfo.hProcess);
+		if (!bReadExitCode)
+		{
+			if (OutError) *OutError = std::format(
+				"Could not wait for \"{}\": {}.", Executable, FormatWindowsError(Error));
+			return false;
+		}
+		OutReturnCode = static_cast<int32>(ExitCode);
+		return true;
+	}
 }

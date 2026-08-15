@@ -43,8 +43,11 @@ namespace Durin
 
 		auto GetRegistryState() -> FRegistryState&
 		{
-			static FRegistryState State;
-			return State;
+			// Resource leases may be held by registries in other dylibs until their
+			// process-exit destructors run. Keep this process registry alive through
+			// cross-image teardown so those leases never lock a destroyed mutex.
+			static FRegistryState* State = new FRegistryState();
+			return *State;
 		}
 
 		thread_local std::vector<const Detail::FModuleOwnerState*> GActiveModuleOwners;

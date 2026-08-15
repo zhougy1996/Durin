@@ -3,6 +3,8 @@
 #define PLATFORM_HEADER_NAME MacOS
 
 #include <cassert>
+#include <cerrno>
+#include <cstdlib>
 #include <malloc/malloc.h>
 #include <dlfcn.h>
 
@@ -23,6 +25,14 @@
 
 #define STR(x) x
 
+// Matches the Microsoft CRT environment helper used by cross-platform tests
+// and runtime configuration scopes. An empty value removes the variable.
+inline auto _putenv_s(const char* Name, const char* Value) -> int
+{
+	if (Name == nullptr || Value == nullptr) return EINVAL;
+	return Value[0] == '\0' ? unsetenv(Name) : setenv(Name, Value, 1);
+}
+
 namespace Durin
 {
 	using CharT = char;
@@ -38,7 +48,16 @@ namespace Durin
 
 		static FModuleHandle LoadLibrary(const std::string& FileName)
 		{
-			return dlopen(FileName.c_str(), RTLD_NOW | RTLD_LOCAL);
+			dlerror();
+			FModuleHandle Handle = dlopen(FileName.c_str(), RTLD_NOW | RTLD_LOCAL);
+			const char* Error = dlerror();
+			LastLibraryError = Error ? Error : "";
+			return Handle;
+		}
+
+		static auto GetLastLibraryError() -> const std::string&
+		{
+			return LastLibraryError;
 		}
 
 		static void FreeLibrary(FModuleHandle InModuleHandle)
@@ -124,6 +143,9 @@ namespace Durin
 		{
 			return strncasecmp(Str1, Str2, Count);
 		}
+
+	private:
+		inline static thread_local std::string LastLibraryError;
 
 	};
 }

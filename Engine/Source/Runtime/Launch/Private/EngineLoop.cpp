@@ -162,8 +162,8 @@ namespace Durin
 		CollectGarbage();
 		const std::array DeferredModules{FName("VulkanRHI")};
 		FModuleManager::Get().UnloadModulesAtShutdown(DeferredModules);
-		ShutdownRenderingThread();
-		RHIExit();
+		// RHIInit owns rollback on failure; neither render-command admission nor
+		// a live dynamic RHI exists at this boundary.
 		ShutdownApplicationCore();
 		if (bProjectAuthoringOwnershipAcquired)
 		{
@@ -186,7 +186,21 @@ namespace Durin
 #endif
 		AddToRoot(GEngine);
 
-		InitializeApplicationCore();
+		if (!InitializeApplicationCore())
+		{
+			DURIN_ERROR("Engine initialization stopped because ApplicationCore could not start.");
+			RemoveFromRoot(GEngine);
+			MarkObjectHierarchyAsGarbage(GEngine);
+			GEngine = nullptr;
+			CollectGarbage();
+			if (bProjectAuthoringOwnershipAcquired)
+			{
+				ReleaseProjectAuthoringOwnership();
+				bProjectAuthoringOwnershipAcquired = false;
+			}
+			State = EEngineLoopState::Exited;
+			return false;
+		}
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.RHIInitialization");
 			if (!RHIInit())

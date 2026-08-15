@@ -27,6 +27,14 @@ namespace Durin::VulkanRHI
 {
 	namespace
 	{
+#ifdef _WIN32
+		constexpr std::string_view PlatformSurfaceExtension =
+			VK_KHR_WIN32_SURFACE_EXTENSION_NAME;
+#else
+		constexpr std::string_view PlatformSurfaceExtension =
+			VK_EXT_METAL_SURFACE_EXTENSION_NAME;
+#endif
+
 		auto ExpectVulkanModuleUnloaded() -> void
 		{
 			const auto Result = FModuleManager::Get().UnloadModule("VulkanRHI");
@@ -83,7 +91,7 @@ namespace Durin::VulkanRHI
 			Input.LoaderApiVersion = VK_API_VERSION_1_3;
 			Input.PlatformRequiredExtensions = {
 				VK_KHR_SURFACE_EXTENSION_NAME,
-				VK_KHR_WIN32_SURFACE_EXTENSION_NAME};
+				std::string(PlatformSurfaceExtension)};
 			Input.AvailableExtensions = Input.PlatformRequiredExtensions;
 			return Input;
 		}
@@ -285,7 +293,7 @@ namespace Durin::VulkanRHI
 		Input.AvailableExtensions.pop_back();
 		Result = NegotiateVulkanInstance(Input);
 		EXPECT_FALSE(Result.IsSuccess());
-		EXPECT_NE(Result.Diagnostic.find(VK_KHR_WIN32_SURFACE_EXTENSION_NAME), std::string::npos);
+		EXPECT_NE(Result.Diagnostic.find(PlatformSurfaceExtension), std::string::npos);
 		EXPECT_NE(Result.Diagnostic.find("platform required"), std::string::npos);
 	}
 

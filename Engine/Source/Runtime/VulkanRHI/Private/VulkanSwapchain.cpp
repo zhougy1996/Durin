@@ -29,11 +29,16 @@ namespace Durin::VulkanRHI
 		auto ArePresentQueueOperationsEnqueued(const vk::Result Result) -> bool
 		{
 			// Presentation-engine rejection still leaves the queue operations enqueued.
-			return Result == vk::Result::eSuccess
+			const bool bCommonResult = Result == vk::Result::eSuccess
 				|| Result == vk::Result::eSuboptimalKHR
 				|| Result == vk::Result::eErrorOutOfDateKHR
-				|| Result == vk::Result::eErrorSurfaceLostKHR
+				|| Result == vk::Result::eErrorSurfaceLostKHR;
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+			return bCommonResult
 				|| Result == vk::Result::eErrorFullScreenExclusiveModeLostEXT;
+#else
+			return bCommonResult;
+#endif
 		}
 
 		auto GetSystemErrorResult(const vk::SystemError& Error) -> vk::Result

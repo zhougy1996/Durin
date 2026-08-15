@@ -30,7 +30,7 @@ Process entry is the minimal C runtime `main()` in
 the exported `Durin::RunApplicationProcess()` boundary in Launch.
 
 Before profiling or subsystem startup, the process runner initializes Core's
-bounded crash state and installs the Windows process crash owner. It then parses
+bounded crash state and installs the platform process-crash owner. It then parses
 all arguments into one owned request and validates the complete command-line
 contract before waiting, publishing diagnostic state, configuring automation,
 or starting the engine. Runtime storage preparation later publishes
@@ -79,6 +79,14 @@ startup; the engine does not expose a partially initialized task system.
 `GEngine`.
 Render-command admission opens immediately after `RHIInit()` and before Mona,
 the renderer, editor previews, or engine initialization can enqueue work.
+
+On macOS M2, ApplicationCore and the Cocoa-capable GLFW runtime initialize, but
+the ordinary Editor path still reaches Vulkan physical-device admission before
+Mona constructs the Editor window and its Metal-backed surface. The platform
+adapter therefore rejects presentation with an explicit surface-qualified M3
+diagnostic. Hardware-backed Vulkan tests are classified as macOS qualification
+work until M3 changes this ordering and qualifies MoltenVK device, surface, and
+presentation behavior; ordinary startup never fabricates presentation support.
 
 Current engine selection is semantic:
 

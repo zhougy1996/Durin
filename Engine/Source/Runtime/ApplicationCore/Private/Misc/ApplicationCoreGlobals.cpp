@@ -9,6 +9,7 @@ namespace Durin
 {
 	namespace
 	{
+		uint32 GApplicationCoreInitializationCount = 0;
 		auto ConfigureConsoleOutputEncoding() -> void
 		{
 			#ifdef _WIN32
@@ -27,17 +28,39 @@ namespace Durin
 
 	std::shared_ptr<FGenericApplication> GApp = nullptr;
 
-	auto InitializeApplicationCore() -> void
+	auto InitializeApplicationCore() -> bool
 	{
+		if (GApplicationCoreInitializationCount > 0)
+		{
+			++GApplicationCoreInitializationCount;
+			return true;
+		}
 		ConfigureConsoleOutputEncoding();
-		glfwInit();
+		if (glfwInit() != GLFW_TRUE)
+		{
+			const char* Description = nullptr;
+			const int Error = glfwGetError(&Description);
+			DURIN_ERROR("GLFW initialization failed ({}): {}.", Error,
+				Description ? Description : "No native diagnostic was provided");
+			return false;
+		}
 		InitGlfwCursors();
 		AppendRequiredGlfwVulkanInstanceExtensions();
+		GApplicationCoreInitializationCount = 1;
+		return true;
+	}
+
+	auto IsApplicationCoreInitialized() -> bool
+	{
+		return GApplicationCoreInitializationCount > 0;
 	}
 
 	auto ShutdownApplicationCore() -> void
 	{
+		if (GApplicationCoreInitializationCount == 0) return;
+		if (--GApplicationCoreInitializationCount > 0) return;
 		DestroyGlfwCursors();
 		glfwTerminate();
+		GMonaRequiredVulkanInstanceExtensions.clear();
 	}
 }

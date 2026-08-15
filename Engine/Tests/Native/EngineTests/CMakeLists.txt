@@ -52,6 +52,16 @@ function(durin_add_engine_functional_test target_name)
 		"${multi_value_args}"
 		${ARGN}
 	)
+	if(APPLE
+		AND DURIN_ENGINE_TEST_GPU
+		AND vulkan IN_LIST DURIN_ENGINE_TEST_BACKENDS
+		AND NOT DURIN_ENGINE_TEST_KIND STREQUAL "qualification"
+		AND NOT DURIN_ENGINE_TEST_KIND STREQUAL "characterization")
+		# M2 establishes the Cocoa/surface handoff but does not qualify MoltenVK
+		# device or rendering behavior. Keep hardware-backed Vulkan targets built
+		# and discoverable while excluding them from the ordinary macOS aggregate.
+		set(DURIN_ENGINE_TEST_KIND qualification)
+	endif()
 
 	if(NOT DURIN_WITH_EDITOR)
 		set(_durin_editor_only ${DURIN_ENGINE_TEST_EDITOR_ONLY})

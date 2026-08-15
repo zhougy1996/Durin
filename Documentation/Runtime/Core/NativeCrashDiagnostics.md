@@ -1,16 +1,20 @@
 # Native Crash Diagnostics
 
-Summary: Define the bounded local artifact and crash-readable lifecycle contract for Windows native process failures.
+Summary: Define the bounded local artifact and crash-readable lifecycle contract for Windows and macOS native process failures.
 
 Modules: Core, Launch
 
-Last reviewed: 2026-08-11
+Last reviewed: 2026-08-16
 
 ## Ownership
 
-Launch installs the Windows unhandled-exception and `std::terminate` handlers at
-process entry, restores the previous handlers only after a normal exit, selects
-the crash root, writes artifacts, and preserves the terminal native status.
+Launch installs the platform process-crash owner at process entry, restores the
+previous handlers only after a normal exit, selects the crash root, writes
+artifacts, and preserves the terminal native status. Windows owns unhandled
+exceptions and `std::terminate`. macOS owns fatal POSIX signals plus
+`std::terminate`; its signal handler sends one fixed event through a pipe to a
+prestarted reporter thread, waits only for that reporter's acknowledgement,
+restores the default action, and re-raises the original signal.
 Core owns only platform-neutral fixed diagnostic state. DurinDevTool owns
 post-process discovery and optional symbolization.
 
@@ -39,9 +43,9 @@ capture never tries to close that gap.
 
 ## Artifact contract
 
-Windows x64 Debug, Release, and Shipping runtime variants install local capture.
-Intentional `--native-crash-*` fixtures are unavailable in Shipping. The first
-qualified layout is:
+Windows x64 and macOS arm64 runtime variants install local capture. Intentional
+`--native-crash-*` fixtures are unavailable in Shipping. The first qualified
+layout is:
 
 ```text
 Saved/Crashes/DurinEditor-20260811T135903.427Z-36740/
@@ -62,10 +66,14 @@ uptime, phase, breadcrumbs, log snapshot, dump path, and artifact error values.
 `Complete.marker` is authoritative for completion and is created last, after
 the context and dump handles have closed. A directory without it is partial.
 
-The dump flags are `MiniDumpNormal | MiniDumpWithThreadInfo |
+On Windows the dump flags are `MiniDumpNormal | MiniDumpWithThreadInfo |
 MiniDumpWithUnloadedModules`. Full memory, handle data, private read/write
 memory, and indirect memory are not enabled. `MiniDumpWriteDump` is the accepted
 in-process Windows boundary; failures still leave any writable context evidence.
+On macOS the versioned context records `SystemManaged` dump ownership and keeps
+the terminating POSIX signal intact so the operating system may publish its
+ordinary `.ips` report. Durin does not fabricate a minidump path or parse a
+system report from the signal path.
 
 Healthy startup retains at most 16 complete directories for 30 days. Partial
 directories older than 7 days are eligible for removal. Cleanup never runs in
@@ -76,18 +84,18 @@ versioned marker.
 
 | Class | Policy |
 | --- | --- |
-| Access violation (read/write/execute) | Supported; isolated children qualify exception metadata and dump creation. |
+| Access violation (read/write/execute) | Supported; isolated children qualify native status and context publication, plus Windows minidump or macOS system-report ownership. |
 | Worker-thread access violation | Supported; the OS faulting thread id is retained. |
-| `std::terminate` | Supported with private status `0xE0000001`; no synthetic SEH record is claimed. |
+| `std::terminate` | Supported; Windows uses private status `0xE0000001`, while macOS records the terminate reason and preserves `SIGABRT`. |
 | Stack overflow | Deferred; current hostile characterization can fault again while entering the in-process writer and does not reliably preserve `0xC00000FD` or artifacts. |
 | Simultaneous or recursive faults | Best-effort; characterization terminates promptly without duplicate artifacts but may produce no complete set. |
 | Assertions using the existing `abort` path | Deferred; assertion semantics are not changed merely to obtain a dump. |
 | GPU device loss | Outside this contract. |
-| Non-Windows and non-x64 platforms | Deferred to platform-specific adapters. |
+| Linux and unsupported architectures | Deferred to platform-specific adapters. |
 
-Durin does not invoke the previous unhandled filter from the crash path. This
-avoids unknown callbacks and recursive ownership; the previous filter is
-restored on successful exit.
+Durin does not invoke a previous Windows unhandled filter or macOS signal
+handler from the crash path. This avoids unknown callbacks and recursive
+ownership; previous handlers are restored on successful exit.
 
 ## Privacy
 

@@ -799,7 +799,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 				Durin::FlushRenderingCommands();
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
 			}
-			auto Median = [](const auto& Queries) {
+			auto Median = [ShadowMeasuredFrames](const auto& Queries) {
 				std::vector<Durin::uint64> Values;
 				for (size_t Index = ShadowWarmupFrames;
 					 Index < Queries.size(); ++Index)

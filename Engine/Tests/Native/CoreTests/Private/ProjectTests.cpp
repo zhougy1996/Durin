@@ -13,6 +13,7 @@
 #if defined(_WIN32)
 	#include <process.h>
 #elif defined(__APPLE__)
+	#include <sys/wait.h>
 	#include <unistd.h>
 #endif
 
@@ -87,6 +88,47 @@ TEST(FProjectTests, PlatformProcessLaunchFailureIncludesPathAndSystemError)
 #endif
 }
 
+#if defined(__APPLE__)
+TEST(FProjectTests, PlatformProcessExecutesAndReportsNativeReturnCode)
+{
+	int32_t ReturnCode = 0;
+	std::string Error;
+	ASSERT_TRUE(Durin::FPlatformProcess::ExecuteProcess(
+		"/bin/sh", "-c 'exit 7'", ReturnCode, &Error)) << Error;
+	EXPECT_EQ(ReturnCode, 7);
+
+	EXPECT_FALSE(Durin::FPlatformProcess::ExecuteProcess(
+		"/bin/sh", "-c 'unfinished", ReturnCode, &Error));
+	EXPECT_NE(Error.find("unfinished"), std::string::npos);
+}
+
+TEST(FProjectTests, PlatformProcessWaitsForObservedProcessExit)
+{
+	const pid_t Child = fork();
+	ASSERT_GE(Child, 0);
+	if (Child == 0)
+	{
+		usleep(20000);
+		_exit(0);
+	}
+	std::string Error;
+	EXPECT_TRUE(Durin::FPlatformProcess::WaitForProcessExit(
+		static_cast<Durin::uint32>(Child), &Error)) << Error;
+	int Status = 0;
+	EXPECT_EQ(waitpid(Child, &Status, 0), Child);
+}
+
+TEST(FProjectTests, PlatformOpenPathRejectsEmptyAndMissingPathsWithDiagnostics)
+{
+	std::string Error;
+	EXPECT_FALSE(Durin::FPlatformProcess::OpenPath({}, &Error));
+	EXPECT_FALSE(Error.empty());
+	EXPECT_FALSE(Durin::FPlatformProcess::OpenPath(
+		"/DurinTests/MissingOpenPath", &Error));
+	EXPECT_NE(Error.find("MissingOpenPath"), std::string::npos);
+}
+#endif
+
 TEST(FProjectTests, LoadsExplicitProjectFile)
 {
 	Durin::FProjectInitializationParams Params;
@@ -98,6 +140,35 @@ TEST(FProjectTests, LoadsExplicitProjectFile)
 	EXPECT_EQ(Durin::GetCurrentProject()->MountRoot, "/Game/");
 	EXPECT_EQ(Durin::FPaths::ProjectDir(), Durin::GetCurrentProject()->ProjectDir);
 }
+
+#if defined(__APPLE__)
+TEST(FProjectTests, ProjectAuthoringOwnershipIsExclusiveAcrossProcesses)
+{
+	Durin::FProjectInitializationParams Params;
+	Params.RequestedProjectFile = Durin::FPaths::RootDir() + "Sandbox/Sandbox.dproject";
+	std::string Error;
+	ASSERT_TRUE(Durin::InitializeCurrentProject(Params, &Error)) << Error;
+	ASSERT_TRUE(Durin::AcquireProjectAuthoringOwnership(&Error)) << Error;
+	EXPECT_TRUE(Durin::AcquireProjectAuthoringOwnership(&Error));
+
+	const pid_t Child = fork();
+	ASSERT_GE(Child, 0);
+	if (Child == 0)
+	{
+		std::string ChildError;
+		const bool bAcquired = Durin::AcquireProjectAuthoringOwnership(&ChildError);
+		_exit(!bAcquired && ChildError.find("already owns") != std::string::npos ? 0 : 1);
+	}
+	int Status = 0;
+	ASSERT_EQ(waitpid(Child, &Status, 0), Child);
+	EXPECT_TRUE(WIFEXITED(Status));
+	EXPECT_EQ(WEXITSTATUS(Status), 0);
+
+	Durin::ReleaseProjectAuthoringOwnership();
+	EXPECT_TRUE(Durin::AcquireProjectAuthoringOwnership(&Error)) << Error;
+	Durin::ReleaseProjectAuthoringOwnership();
+}
+#endif
 
 TEST(FProjectTests, RejectsMissingProject)
 {

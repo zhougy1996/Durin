@@ -913,10 +913,22 @@ namespace Durin
 	{
 	public:
 		TUniqueTaskHandle() = default;
+		~TUniqueTaskHandle()
+		{
+			if (ResultState) ResultState->Discard();
+		}
 		TUniqueTaskHandle(const TUniqueTaskHandle&) = delete;
 		auto operator=(const TUniqueTaskHandle&) -> TUniqueTaskHandle& = delete;
 		TUniqueTaskHandle(TUniqueTaskHandle&&) noexcept = default;
-		auto operator=(TUniqueTaskHandle&&) noexcept -> TUniqueTaskHandle& = default;
+		auto operator=(TUniqueTaskHandle&& Other) noexcept -> TUniqueTaskHandle&
+		{
+			if (this == &Other) return *this;
+			if (ResultState) ResultState->Discard();
+			Task = std::move(Other.Task);
+			ResultState = std::move(Other.ResultState);
+			ClaimTombstone = std::move(Other.ClaimTombstone);
+			return *this;
+		}
 
 		auto IsValid() const -> bool { return Task.IsValid(); }
 		auto IsComplete() const -> bool { return Task.IsComplete(); }

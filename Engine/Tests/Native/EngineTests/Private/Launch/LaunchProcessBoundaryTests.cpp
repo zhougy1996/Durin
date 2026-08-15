@@ -1,34 +1,16 @@
-#include "Misc/StringConvert.h"
+#include "HAL/PlatformProcess.h"
 
 #include <gtest/gtest.h>
 
 namespace
 {
-	constexpr DWORD LaunchChildTimeoutMilliseconds = 30000;
-
-	auto RunLaunchChild(std::string_view Arguments) -> DWORD
+	auto RunLaunchChild(std::string_view Arguments) -> Durin::int32
 	{
-		const std::string Command = std::format(
-			"\"{}\" {}", DURIN_LAUNCH_EXECUTABLE, Arguments);
-		std::wstring WideCommand = Durin::StringUtils::Utf8ToWide(Command);
-		STARTUPINFOW StartupInfo{};
-		StartupInfo.cb = sizeof(StartupInfo);
-		PROCESS_INFORMATION ProcessInfo{};
-		EXPECT_TRUE(CreateProcessW(nullptr, WideCommand.data(), nullptr, nullptr, FALSE,
-			CREATE_NO_WINDOW, nullptr, nullptr, &StartupInfo, &ProcessInfo));
-		if (ProcessInfo.hProcess == nullptr) return std::numeric_limits<DWORD>::max();
-		CloseHandle(ProcessInfo.hThread);
-		const DWORD Wait = WaitForSingleObject(ProcessInfo.hProcess, LaunchChildTimeoutMilliseconds);
-		EXPECT_EQ(Wait, WAIT_OBJECT_0);
-		if (Wait != WAIT_OBJECT_0)
-		{
-			TerminateProcess(ProcessInfo.hProcess, 0xEEu);
-			WaitForSingleObject(ProcessInfo.hProcess, 5000);
-		}
-		DWORD ExitCode = std::numeric_limits<DWORD>::max();
-		GetExitCodeProcess(ProcessInfo.hProcess, &ExitCode);
-		CloseHandle(ProcessInfo.hProcess);
-		return ExitCode;
+		Durin::int32 ReturnCode = -1;
+		std::string Error;
+		EXPECT_TRUE(Durin::FPlatformProcess::ExecuteProcess(
+			DURIN_LAUNCH_EXECUTABLE, Arguments, ReturnCode, &Error)) << Error;
+		return ReturnCode;
 	}
 }
 
@@ -41,7 +23,7 @@ TEST(FLaunchProcessBoundaryTests, RejectsParseAndDuplicateFailuresWithCommandLin
 
 TEST(FLaunchProcessBoundaryTests, ReportsWaitFailureAsRuntimeFailure)
 {
-	EXPECT_EQ(RunLaunchChild("--wait-for-process=4"), 1u);
+	EXPECT_EQ(RunLaunchChild("--wait-for-process=4294967295"), 1u);
 }
 
 // Full runtime startup is sensitive to unrelated host load, so keep these

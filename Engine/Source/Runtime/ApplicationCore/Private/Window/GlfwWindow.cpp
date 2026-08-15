@@ -10,6 +10,8 @@
 #if defined(_WIN32)
 #include <dwmapi.h>
 #include <shellapi.h>
+#elif defined(__APPLE__)
+#include <pthread.h>
 #endif
 
 namespace Durin
@@ -306,7 +308,9 @@ namespace Durin
 
 		FORCEINLINE auto FindPlatformWindow(GLFWwindow* InGlfwWindow) -> std::shared_ptr<FGenericWindow>
 		{
-			return GApp->FindWindowByNativeWindowHandle(glfwGetWindowUserPointer(InGlfwWindow));
+			return GApp
+				? GApp->FindWindowByNativeWindowHandle(glfwGetWindowUserPointer(InGlfwWindow))
+				: nullptr;
 		}
 
 		auto KeyCallBack(GLFWwindow* InGlfwWindow, int InKey, int Scancode, int InAction, int InMods) -> void
@@ -314,6 +318,7 @@ namespace Durin
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
 				auto* Handler = GApp->GetMessageHandler();
+				if (Handler == nullptr) return;
 				const EKeyAction Action = FromGlfw_KeyAction(InAction);
 				const EKey Key = FromGlfw_Key(InKey);
 				const EKeyModFlags Mods = FromGlfw_KeyModFlags(InMods);
@@ -334,7 +339,8 @@ namespace Durin
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
-				GApp->GetMessageHandler()->OnKeyChar(PlatformWindow, Codepoint);
+				if (auto* Handler = GApp->GetMessageHandler())
+					Handler->OnKeyChar(PlatformWindow, Codepoint);
 			}
 		}
 
@@ -343,6 +349,7 @@ namespace Durin
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
 				auto* Handler = GApp->GetMessageHandler();
+				if (Handler == nullptr) return;
 				EMouseButton MouseButton = FromGlfw_MouseButton(Button);
 				FVector2d CursorPos;
 				glfwGetCursorPos(InGlfwWindow, &CursorPos.x, &CursorPos.y);
@@ -361,7 +368,8 @@ namespace Durin
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
-				GApp->GetMessageHandler()->OnMouseMove(PlatformWindow, {XPos, YPos});
+				if (auto* Handler = GApp->GetMessageHandler())
+					Handler->OnMouseMove(PlatformWindow, {XPos, YPos});
 			}
 		}
 
@@ -369,13 +377,15 @@ namespace Durin
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
+				auto* Handler = GApp->GetMessageHandler();
+				if (Handler == nullptr) return;
 				if (Entered != 0)
 				{
-					GApp->GetMessageHandler()->OnMouseEnter(PlatformWindow);
+					Handler->OnMouseEnter(PlatformWindow);
 				}
 				else
 				{
-					GApp->GetMessageHandler()->OnMouseLeave(PlatformWindow);
+					Handler->OnMouseLeave(PlatformWindow);
 				}
 			}
 		}
@@ -384,7 +394,8 @@ namespace Durin
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
-				GApp->GetMessageHandler()->OnMouseWheel(PlatformWindow, XOffset, YOffset);
+				if (auto* Handler = GApp->GetMessageHandler())
+					Handler->OnMouseWheel(PlatformWindow, XOffset, YOffset);
 			}
 		}
 
@@ -392,7 +403,8 @@ namespace Durin
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
-				GApp->GetMessageHandler()->OnWindowFocus(PlatformWindow, Focused != 0);
+				if (auto* Handler = GApp->GetMessageHandler())
+					Handler->OnWindowFocus(PlatformWindow, Focused != 0);
 			}
 		}
 
@@ -400,7 +412,8 @@ namespace Durin
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
-				GApp->GetMessageHandler()->OnWindowResize(PlatformWindow, Width, Height, PlatformWindow->IsMinimized());
+				if (auto* Handler = GApp->GetMessageHandler())
+					Handler->OnWindowResize(PlatformWindow, Width, Height, PlatformWindow->IsMinimized());
 			}
 		}
 
@@ -408,7 +421,8 @@ namespace Durin
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
-				GApp->GetMessageHandler()->OnWindowMoved(PlatformWindow, X, Y);
+				if (auto* Handler = GApp->GetMessageHandler())
+					Handler->OnWindowMoved(PlatformWindow, X, Y);
 			}
 		}
 
@@ -416,7 +430,8 @@ namespace Durin
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
-				GApp->GetMessageHandler()->OnWindowViewportResize(PlatformWindow, Width, Height, PlatformWindow->IsMinimized());
+				if (auto* Handler = GApp->GetMessageHandler())
+					Handler->OnWindowViewportResize(PlatformWindow, Width, Height, PlatformWindow->IsMinimized());
 			}
 		}
 
@@ -424,7 +439,8 @@ namespace Durin
 		{
 			if (auto PlatformWindow = FindPlatformWindow(InGlfwWindow))
 			{
-				GApp->GetMessageHandler()->OnWindowCloseRequested(PlatformWindow);
+				if (auto* Handler = GApp->GetMessageHandler())
+					Handler->OnWindowCloseRequested(PlatformWindow);
 			}
 		}
 
@@ -554,12 +570,25 @@ namespace Durin
 
 	FGlfwWindow::~FGlfwWindow()
 	{
-		if (GlfwWindow != nullptr && CursorMode == ECursorMode::Captured)
+		if (GlfwWindow == nullptr) return;
+		if (CursorMode == ECursorMode::Captured)
 		{
 			SetCursorMode(ECursorMode::Free);
 		}
 		RemoveWindowsMessageBridge();
 		RemoveModalLoopHook();
+		glfwSetWindowUserPointer(GlfwWindow, nullptr);
+		glfwSetWindowPosCallback(GlfwWindow, nullptr);
+		glfwSetWindowSizeCallback(GlfwWindow, nullptr);
+		glfwSetFramebufferSizeCallback(GlfwWindow, nullptr);
+		glfwSetKeyCallback(GlfwWindow, nullptr);
+		glfwSetCharCallback(GlfwWindow, nullptr);
+		glfwSetMouseButtonCallback(GlfwWindow, nullptr);
+		glfwSetCursorPosCallback(GlfwWindow, nullptr);
+		glfwSetCursorEnterCallback(GlfwWindow, nullptr);
+		glfwSetScrollCallback(GlfwWindow, nullptr);
+		glfwSetWindowFocusCallback(GlfwWindow, nullptr);
+		glfwSetWindowCloseCallback(GlfwWindow, nullptr);
 		glfwDestroyWindow(GlfwWindow);
 		GlfwWindow = nullptr;
 	}
@@ -571,6 +600,23 @@ namespace Durin
 
 	auto FGlfwWindow::Initialize(const std::shared_ptr<FGenericWindowDefinition>& InDefinition) -> void
 	{
+		if (!IsApplicationCoreInitialized())
+		{
+			DURIN_ERROR("Cannot create a GLFW window before ApplicationCore initialization.");
+			return;
+		}
+#if defined(__APPLE__)
+		if (pthread_main_np() == 0)
+		{
+			DURIN_ERROR("Cocoa-backed GLFW windows must be created on the main thread.");
+			return;
+		}
+#endif
+		if (!InDefinition)
+		{
+			DURIN_ERROR("Cannot create a GLFW window without a window definition.");
+			return;
+		}
 		Definition = InDefinition;
 
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -587,6 +633,14 @@ namespace Durin
 		const int DesiredX = FMath::TruncToInt32(Definition->XDesiredPositionOnScreen);
 		const int DesiredY = FMath::TruncToInt32(Definition->YDesiredPositionOnScreen);
 		GlfwWindow = glfwCreateWindow(DesiredWidth, DesiredHeight, Definition->Title.c_str(), nullptr, nullptr);
+		if (GlfwWindow == nullptr)
+		{
+			const char* Description = nullptr;
+			const int Error = glfwGetError(&Description);
+			DURIN_ERROR("GLFW window creation failed ({}): {}.", Error,
+				Description ? Description : "No native diagnostic was provided");
+			return;
+		}
 #if defined(_WIN32)
 		OSNativeWindowHandle = glfwGetWin32Window(GlfwWindow);
 		InstallModalLoopHook();
@@ -642,7 +696,6 @@ namespace Durin
 		glfwSetWindowFocusCallback(GlfwWindow, WindowFocusCallBack);
 		glfwSetWindowCloseCallback(GlfwWindow, WindowCloseCallBack);
 
-		glfwMakeContextCurrent(GlfwWindow);
 	}
 
 	auto FGlfwWindow::InstallModalLoopHook() -> void

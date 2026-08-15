@@ -9,6 +9,8 @@
 
 #ifdef _WIN32
 	#include <Windows.h>
+#elif defined(__APPLE__)
+	#include <dlfcn.h>
 #endif
 
 namespace Durin::Tests
@@ -139,9 +141,25 @@ namespace Durin::Tests
 			const std::wstring FileName =
 				std::filesystem::path(ModuleInfo->FileName).filename().wstring();
 			return ::GetModuleHandleW(FileName.c_str()) != nullptr;
+#elif defined(__APPLE__)
+			if (!ModuleInfo) return false;
+			void* Handle = dlopen(ModuleInfo->FileName.c_str(), RTLD_LAZY | RTLD_NOLOAD);
+			if (!Handle) return false;
+			dlclose(Handle);
+			return true;
 #else
 			(void)ModuleInfo;
 			return false;
+#endif
+		}
+
+		auto ExpectFixtureReleased(
+			const FModuleManager::FModuleInfoPtr& ModuleInfo) -> void
+		{
+			ASSERT_NE(ModuleInfo, nullptr);
+			EXPECT_EQ(ModuleInfo->Handle, nullptr);
+#ifdef _WIN32
+			EXPECT_FALSE(IsFixtureImageMapped(ModuleInfo));
 #endif
 		}
 	}
@@ -149,9 +167,6 @@ namespace Durin::Tests
 	TEST(FDynamicDllUnloadQualificationTests,
 		SuccessfulUnloadDrainsCallsAsyncStorageAndReloadsNewGenerations)
 	{
-#ifndef _WIN32
-		GTEST_SKIP() << "Physical image qualification currently targets Windows.";
-#else
 		FTaskSystemGuard TaskGuard;
 		ASSERT_TRUE(InitializeTaskScheduler(2));
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
@@ -213,7 +228,7 @@ namespace Durin::Tests
 			EDynamicUnloadFixtureEvent::Shutdown, *FirstSerial));
 		EXPECT_TRUE(Host.WaitFor(
 			EDynamicUnloadFixtureEvent::ModuleDestroyed, *FirstSerial));
-		EXPECT_FALSE(IsFixtureImageMapped(FirstInfo));
+		ExpectFixtureReleased(FirstInfo);
 
 		ASSERT_NE(Manager.LoadModule(FName(FixtureModuleName)), nullptr);
 		const auto SecondInfo = Manager.FindModule(FName(FixtureModuleName));
@@ -247,7 +262,7 @@ namespace Durin::Tests
 			Host.EventIndex(
 				EDynamicUnloadFixtureEvent::ModuleDestroyed,
 				*SecondSerial));
-		EXPECT_FALSE(IsFixtureImageMapped(SecondInfo));
+		ExpectFixtureReleased(SecondInfo);
 
 		ASSERT_NE(Manager.LoadModule(FName(FixtureModuleName)), nullptr);
 		const auto ThirdInfo = Manager.FindModule(FName(FixtureModuleName));
@@ -259,7 +274,7 @@ namespace Durin::Tests
 		const FModuleUnloadResult ThirdUnload =
 			Manager.UnloadModule(FName(FixtureModuleName));
 		ASSERT_TRUE(ThirdUnload.Succeeded()) << ThirdUnload.Message;
-		EXPECT_FALSE(IsFixtureImageMapped(ThirdInfo));
+		ExpectFixtureReleased(ThirdInfo);
 
 		const size_t FirstEventCount = Host.EventCount(*FirstSerial);
 		const size_t SecondEventCount = Host.EventCount(*SecondSerial);
@@ -282,11 +297,10 @@ namespace Durin::Tests
 				Manager.UnloadModule(FName(FixtureModuleName));
 			ASSERT_TRUE(CycleUnload.Succeeded())
 				<< "stress cycle " << Cycle << ": " << CycleUnload.Message;
-			EXPECT_FALSE(IsFixtureImageMapped(CycleInfo));
+			ExpectFixtureReleased(CycleInfo);
 		}
 		EXPECT_EQ(Host.EventCount(*FirstSerial), FirstEventCount);
 		EXPECT_EQ(Host.EventCount(*SecondSerial), SecondEventCount);
 		EXPECT_EQ(Host.EventCount(*ThirdSerial), ThirdEventCount);
-#endif
 	}
 }

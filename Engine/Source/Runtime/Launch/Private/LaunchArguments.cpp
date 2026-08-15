@@ -60,6 +60,16 @@ namespace Durin
 			return true;
 		}
 
+		auto IsSupportedNativeCrashFixture(std::string_view Fixture) -> bool
+		{
+			return Fixture == "access-read"
+				|| Fixture == "access-write"
+				|| Fixture == "access-execute"
+				|| Fixture == "terminate"
+				|| Fixture == "worker-access-read"
+				|| Fixture == "simultaneous-access";
+		}
+
 		auto ParseSyntax(std::span<const std::string_view> Arguments)
 			-> std::variant<FParsedLaunchArguments, FLaunchArgumentError>
 		{
@@ -155,6 +165,9 @@ namespace Durin
 			FLaunchDiagnosticsRequest& Diagnostics = Request.Diagnostics;
 			if (Diagnostics.NativeCrashFixture && Diagnostics.NativeCrashFixture->empty())
 				return Failure("--native-crash-fixture", "requires a non-empty fixture name");
+			if (Diagnostics.NativeCrashFixture
+				&& !IsSupportedNativeCrashFixture(*Diagnostics.NativeCrashFixture))
+				return Failure("--native-crash-fixture", "has an unsupported fixture name");
 			if (Diagnostics.NativeCrashSavedRoot && Diagnostics.NativeCrashSavedRoot->empty())
 				return Failure("--native-crash-saved", "requires a non-empty path");
 			if (Diagnostics.NativeCrashPhase && !Diagnostics.NativeCrashFixture)

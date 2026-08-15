@@ -17,6 +17,11 @@ namespace Durin
 			std::string_view Executable,
 			std::string_view Arguments,
 			std::string* OutError = nullptr) -> bool;
+		static CORE_API auto ExecuteProcess(
+			std::string_view Executable,
+			std::string_view Arguments,
+			int32& OutReturnCode,
+			std::string* OutError = nullptr) -> bool;
 		static CORE_API auto OpenPath(
 			std::string_view Path,
 			std::string* OutError = nullptr) -> bool;

@@ -338,6 +338,9 @@ namespace Durin
 		State->PeakOutstandingPayloadBytes = std::max(
 			State->PeakOutstandingPayloadBytes, State->OutstandingPayloadBytes);
 		State->Queue.push_back({Serial, std::move(Work)});
+		// std::function's moved-from state is valid but otherwise unspecified.
+		// Make accepted submission ownership explicit on every standard library.
+		Work = {};
 		State->WorkCV.notify_one();
 		return {
 			.Result = ERHIThreadEnqueueResult::Accepted,
@@ -394,6 +397,7 @@ namespace Durin
 		State->PeakOutstandingPayloadBytes = std::max(
 			State->PeakOutstandingPayloadBytes, State->OutstandingPayloadBytes);
 		State->Queue.push_back({Serial, std::move(Work)});
+		Work = {};
 		State->WorkCV.notify_all();
 		State->CompletionCV.notify_all();
 		return {

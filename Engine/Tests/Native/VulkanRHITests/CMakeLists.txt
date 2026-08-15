@@ -43,8 +43,14 @@ set_target_properties(VulkanRHIIntegrationTests PROPERTIES
 	DURIN_TEST_HEAVY_RUNTIME_RATIONALE
 		"Failure-injection tests must share the test-only state compiled into VulkanRHI."
 )
+set(_durin_vulkan_rhi_test_kind integration)
+if(APPLE)
+	# MoltenVK hardware execution is part of the surface-qualified M3 gate. Keep
+	# the target buildable on macOS, but out of the ordinary non-GPU aggregate.
+	set(_durin_vulkan_rhi_test_kind qualification)
+endif()
 durin_finalize_native_test(VulkanRHIIntegrationTests
-	KIND integration
+	KIND ${_durin_vulkan_rhi_test_kind}
 	DOMAINS renderer viewport
 	MODULES rendercore rhi vulkan-rhi
 	BACKENDS vulkan

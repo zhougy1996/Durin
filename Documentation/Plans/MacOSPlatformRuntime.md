@@ -9,32 +9,29 @@ Completed:
 
 ## Current Status
 
-M0 and M1 are complete. The Apple Silicon host has a repeatable DevTool setup,
-pinned arm64 dependencies, platform-correct source generation, and a fresh-
-worktree Engine dylib build. Engine and DurinEd link as Mach-O arm64 dylibs with
-inspectable `@rpath` identities.
+Stages 0-2 are implemented. Launch owns a real macOS signal/terminate adapter
+with reporter-thread publication and system-managed `.ips` semantics. Process
+execution, return codes, open-path diagnostics, executable-adjacent dylib
+loading, project ownership, native-dialog handling, and cross-image shutdown
+ordering have focused coverage. Crash characterization, ordinary native tests,
+DevTool/DHT Python tests, and CMake metadata tests pass with clean processes.
 
-M2 begins at two concrete runtime boundaries. Launch compiles but cannot link
-because MacOS has no implementation of the required process-crash service.
-SkeletalAsset and Spline qualification test bodies pass 34/34 and 2/2 before
-both processes receive `SIGSEGV` after GoogleTest global teardown. Neither
-result is treated as a passing native test run. The Editor has not been launched
-and macOS runtime support is not claimed.
+Stage 3 has qualified standalone main-thread Cocoa/GLFW construction, logical
+and Retina framebuffer sizing, resize and close state, worker-thread rejection,
+and repeated teardown. A later run in a display-less desktop session reported
+zero monitors, so monitor/input injection evidence is not treated as complete.
+Keyboard, text, mouse, focus, minimize, and restoration remain an open native
+qualification boundary rather than a fabricated test response.
 
-The first shutdown defect is now characterized and repaired. macOS `.ips`
-reports for both suites show `EXC_BAD_ACCESS` at address `0x268`: a task worker
-logs its exit through an already-destroyed `FLogger` while the main thread joins
-that worker from the process-global task scheduler's static destructor. The
-native-test harness now explicitly stops and joins the scheduler immediately
-after `RUN_ALL_TESTS()`, while logging is alive. SkeletalAsset passes 34/34 and
-exits successfully, Spline qualification passes its 2 assertions and process,
-and the native-test isolation characterization control target remains green.
-
-The Launch link probe's unresolved set is limited to the five functions owned
-by the platform crash-service adapter: handler install/uninstall, crash-root
-publication, test option configuration, and native fixture execution. Engine
-and DurinEd already link, so Stage 1 can implement this real adapter without
-mixing in unrelated compiler or dependency work.
+The complete Debug Editor and Launch closure link as Mach-O arm64 with valid
+runtime `@rpath` dependencies. Normal Editor startup acquires the selected
+project and reaches an actionable M3 diagnostic, then unloads VulkanRHI,
+joins workers, collects objects, and exits with ordinary failure code 1. It
+cannot yet satisfy the final M2 gate: the current normal order calls `RHIInit()`
+before Mona creates the Editor Cocoa window, so MoltenVK presentation admission
+has no Metal surface. Resolving that surface-first ordering belongs to M3 and
+must not be bypassed by claiming presentation support. This plan remains active
+until that handoff and the remaining input/window evidence are qualified.
 
 This plan is M2 of the
 [macOS Platform Enablement roadmap](../Roadmaps/MacOSPlatformEnablement.md) and
@@ -114,7 +111,7 @@ bypassing or weakening it.
   LLDB where the host permits it; record the first
   invalid frame, owning dylib/module, thread, shutdown phase, and relevant
   loader state.
-- [ ] Inventory every process, module, filesystem, dialog, ownership, Cocoa,
+- [x] Inventory every process, module, filesystem, dialog, ownership, Cocoa,
   GLFW, and Editor-shell platform operation reachable before M3.
 - [x] Select or add focused regression fixtures before repairing any
   reproducible common or platform lifecycle defect.
@@ -127,13 +124,13 @@ bypassing or weakening it.
 
 ### Stage 1: Implement the macOS process-crash service
 
-- [ ] Add the MacOS Launch adapter for handler install/uninstall, crash-root
+- [x] Add the MacOS Launch adapter for handler install/uninstall, crash-root
   publication, test configuration, and native crash fixtures.
-- [ ] Preserve the common crash-context schema and deterministic fixture
+- [x] Preserve the common crash-context schema and deterministic fixture
   semantics while using macOS-appropriate signals and filesystem publication.
-- [ ] Validate handler restoration, repeated install/uninstall, normal exit,
+- [x] Validate handler restoration, repeated install/uninstall, normal exit,
   intentional crash subprocesses, and malformed/unsupported fixture requests.
-- [ ] Link Launch without weakening the common process-crash contract.
+- [x] Link Launch without weakening the common process-crash contract.
 
 #### Acceptance Gate
 
@@ -143,14 +140,14 @@ bypassing or weakening it.
 
 ### Stage 2: Complete process, module, filesystem, dialog, and ownership services
 
-- [ ] Implement and test the remaining `FMacOSPlatformProcess` operations needed
+- [x] Implement and test the remaining `FMacOSPlatformProcess` operations needed
   by Launch and the Editor shell, including executable/module discovery,
   subprocess lifetime, return codes, and relaunch/open-path behavior.
-- [ ] Qualify dylib load, symbol lookup, balanced unload, failure diagnostics,
+- [x] Qualify dylib load, symbol lookup, balanced unload, failure diagnostics,
   and shutdown order across representative engine modules.
-- [ ] Qualify saved/config/project path creation, normalization, case behavior,
+- [x] Qualify saved/config/project path creation, normalization, case behavior,
   permissions, migration, logging, and project ownership.
-- [ ] Implement the required native-dialog behavior and deterministic
+- [x] Implement the required native-dialog behavior and deterministic
   non-interactive/test handling without fabricating a user response.
 - [x] Repair the native-test global teardown crash and require clean process
   exit for the previously affected suites.
@@ -163,13 +160,13 @@ bodies; and failure paths provide actionable native diagnostics.
 
 ### Stage 3: Qualify Cocoa/GLFW window and input lifecycle
 
-- [ ] Create and destroy a Cocoa-backed GLFW window on the main thread through
+- [x] Create and destroy a Cocoa-backed GLFW window on the main thread through
   the normal ApplicationCore path.
 - [ ] Qualify event pumping, close requests, focus, keyboard, text, mouse,
   cursor, monitor, DPI/Retina framebuffer sizing, minimize, and restoration.
-- [ ] Validate repeated window/application construction and teardown without
+- [x] Validate repeated window/application construction and teardown without
   dangling callbacks, late events, or module lifetime violations.
-- [ ] Preserve the explicit Vulkan-surface handoff while leaving device,
+- [x] Preserve the explicit Vulkan-surface handoff while leaving device,
   swapchain, presentation, and rendering correctness to M3.
 
 #### Acceptance Gate
@@ -180,16 +177,16 @@ bodies; and failure paths provide actionable native diagnostics.
 
 ### Stage 4: Qualify the Editor shell and publish the M3 handoff
 
-- [ ] Build the complete Debug Editor target and audit its arm64 dylib closure,
+- [x] Build the complete Debug Editor target and audit its arm64 dylib closure,
   install names, rpaths, framework dependencies, and runtime deployment.
-- [ ] Launch through the normal Editor startup path, exercise project selection
+- [x] Launch through the normal Editor startup path, exercise project selection
   and ownership plus relaunch/open-path behavior, and reach the real rendering
   boundary without bypasses.
 - [ ] Validate normal close, startup failure, repeated launch, and shutdown with
   clean process exit and preserved logs/crash diagnostics.
-- [ ] Run the selected native, DevTool, DHT, CMake metadata, and Windows contract
+- [x] Run the selected native, DevTool, DHT, CMake metadata, and Windows contract
   regression suites.
-- [ ] Update lasting platform/runtime documentation and publish exact M3 entry
+- [x] Update lasting platform/runtime documentation and publish exact M3 entry
   diagnostics without claiming rendering, asset, or product support.
 
 #### Acceptance Gate

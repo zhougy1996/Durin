@@ -84,6 +84,7 @@ namespace Durin
 		auto Spawn(
 			std::string_view Executable,
 			std::vector<std::string> Arguments,
+			pid_t& OutProcess,
 			std::string* OutError) -> bool
 		{
 			if (Executable.empty())
@@ -100,9 +101,8 @@ namespace Durin
 				ArgumentPointers.push_back(Argument.data());
 			ArgumentPointers.push_back(nullptr);
 
-			pid_t ChildProcess = 0;
 			const int SpawnResult = posix_spawn(
-				&ChildProcess,
+				&OutProcess,
 				ExecutableStorage.c_str(),
 				nullptr,
 				nullptr,
@@ -117,13 +117,36 @@ namespace Durin
 				return false;
 			}
 
-			std::thread([ChildProcess] {
-				int Status = 0;
-				while (waitpid(ChildProcess, &Status, 0) == -1 && errno == EINTR)
-				{
-				}
-			}).detach();
 			return true;
+		}
+
+		auto WaitForChild(pid_t ChildProcess, int32& OutReturnCode, std::string* OutError) -> bool
+		{
+			int Status = 0;
+			pid_t Result = 0;
+			do
+			{
+				Result = waitpid(ChildProcess, &Status, 0);
+			} while (Result == -1 && errno == EINTR);
+			if (Result == -1)
+			{
+				if (OutError) *OutError = std::format(
+					"Could not wait for child process {}: {}.", ChildProcess, FormatErrno(errno));
+				return false;
+			}
+			if (WIFEXITED(Status))
+			{
+				OutReturnCode = WEXITSTATUS(Status);
+				return true;
+			}
+			if (WIFSIGNALED(Status))
+			{
+				OutReturnCode = 128 + WTERMSIG(Status);
+				return true;
+			}
+			if (OutError) *OutError = std::format(
+				"Child process {} ended with unsupported wait status {}.", ChildProcess, Status);
+			return false;
 		}
 	}
 
@@ -202,13 +225,44 @@ namespace Durin
 	{
 		std::vector<std::string> ParsedArguments;
 		if (!ParseArguments(Arguments, ParsedArguments, OutError)) return false;
-		return Spawn(Executable, std::move(ParsedArguments), OutError);
+		pid_t ChildProcess = 0;
+		if (!Spawn(Executable, std::move(ParsedArguments), ChildProcess, OutError)) return false;
+		std::thread([ChildProcess] {
+			int32 ReturnCode = 0;
+			(void)WaitForChild(ChildProcess, ReturnCode, nullptr);
+		}).detach();
+		return true;
+	}
+
+	auto FMacOSPlatformProcess::ExecuteProcess(
+		std::string_view Executable,
+		std::string_view Arguments,
+		int32& OutReturnCode,
+		std::string* OutError) -> bool
+	{
+		OutReturnCode = 0;
+		std::vector<std::string> ParsedArguments;
+		if (!ParseArguments(Arguments, ParsedArguments, OutError)) return false;
+		pid_t ChildProcess = 0;
+		if (!Spawn(Executable, std::move(ParsedArguments), ChildProcess, OutError)) return false;
+		return WaitForChild(ChildProcess, OutReturnCode, OutError);
 	}
 
 	auto FMacOSPlatformProcess::OpenPath(
 		std::string_view Path,
 		std::string* OutError) -> bool
 	{
-		return Spawn("/usr/bin/open", { "--", std::string(Path) }, OutError);
+		if (Path.empty())
+		{
+			if (OutError) *OutError = "Path to open is empty.";
+			return false;
+		}
+		int32 ReturnCode = 0;
+		if (!ExecuteProcess("/usr/bin/open",
+			std::format("-- \"{}\"", Path), ReturnCode, OutError)) return false;
+		if (ReturnCode == 0) return true;
+		if (OutError) *OutError = std::format(
+			"Could not open \"{}\": /usr/bin/open exited with code {}.", Path, ReturnCode);
+		return false;
 	}
 }

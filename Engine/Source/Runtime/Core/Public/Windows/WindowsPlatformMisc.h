@@ -28,6 +28,11 @@ namespace Durin
 			return ::LoadLibraryW(WideModuleName.c_str());
 		}
 
+		static auto GetLastLibraryError() -> std::string
+		{
+			return std::format("Windows error {}", ::GetLastError());
+		}
+
 		static auto FreeLibrary(FModuleHandle ModuleHandle) -> void
 		{
 			::FreeLibrary(ModuleHandle);

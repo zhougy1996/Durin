@@ -298,10 +298,16 @@ namespace Durin::Editor::Level::ContentBrowserItemView
 	auto FormatFileTime(const std::filesystem::file_time_type& Time) -> std::string
 	{
 		if (Time == std::filesystem::file_time_type{}) return "-";
-		const auto SysTime = std::chrono::clock_cast<std::chrono::system_clock>(Time);
+		const auto SysTime = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+			Time - std::filesystem::file_time_type::clock::now()
+			+ std::chrono::system_clock::now());
 		const std::time_t TimeT = std::chrono::system_clock::to_time_t(SysTime);
 		std::tm LocalTime{};
+#ifdef _WIN32
 		localtime_s(&LocalTime, &TimeT);
+#else
+		localtime_r(&TimeT, &LocalTime);
+#endif
 		std::array<char, 32> Buffer{};
 		std::strftime(Buffer.data(), Buffer.size(), "%Y-%m-%d %H:%M", &LocalTime);
 		return Buffer.data();

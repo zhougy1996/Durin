@@ -77,9 +77,12 @@ namespace Durin
 			std::fprintf(stderr, "Durin: --native-crash-saved could not publish the requested crash root.\n");
 			return 1;
 		}
-		if (IsProcessEntryCrash(Diagnostics)
-			&& RunProcessCrashFixture(*Diagnostics.NativeCrashFixture))
-			return 1;
+		if (IsProcessEntryCrash(Diagnostics))
+		{
+			if (RunProcessCrashFixture(*Diagnostics.NativeCrashFixture)) return 1;
+			std::fprintf(stderr, "Durin: native crash fixture was not supported by this platform.\n");
+			return 2;
+		}
 
 		if (Request.ProcessCoordination.WaitForProcessId
 			&& !FPlatformProcess::WaitForProcessExit(

@@ -173,7 +173,6 @@ namespace Durin
 			FAsyncOperationOwnerSnapshot AsyncSnapshot = {}
 		) -> FModuleShutdownResult;
 
-		FModuleMap Modules;
 		mutable std::mutex ModuleMapMutex;
 		uint32 ControlThreadId = 0;
 		uint32 NextLoadOrder = 0;
@@ -182,6 +181,9 @@ namespace Durin
 		bool bCanProcessNewlyLoadedObjects = false;
 		std::function<void()> ProcessLoadedObjectsCallback;
 		std::function<bool(FName)> PreShutdownModuleCallback;
+		// Keep the map last so module instances are destroyed before the mutex and
+		// callbacks they may consult during process-exit teardown.
+		FModuleMap Modules;
 
 		friend class FModuleTestHarness;
 	};

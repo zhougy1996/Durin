@@ -7,6 +7,7 @@ namespace Durin::VulkanRHI
 	class FVulkanFramebuffer;
 	class FVulkanCommandListContext;
 	class FVulkanSemaphore;
+	class FVulkanQueue;
 
 	class FVulkanCommandBufferPool;
 	class FVulkanCommandBufferManager;

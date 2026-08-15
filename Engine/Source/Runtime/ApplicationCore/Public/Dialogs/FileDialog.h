@@ -20,6 +20,8 @@ namespace Durin
 		std::vector<FFileDialogFilter> Filters;
 		std::string InitialDirectory;
 		std::string DefaultFileName;
+		// Tests and headless tools disable interaction and receive an explicit error.
+		bool bAllowUserInteraction = true;
 	};
 
 	// Distinguishes a selection from cancellation and native-dialog failure.

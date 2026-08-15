@@ -8,6 +8,10 @@
 
 #ifdef _WIN32
 	#include "Windows/WindowsPlatform.h"
+#elif defined(__APPLE__)
+	#include <fcntl.h>
+	#include <sys/file.h>
+	#include <unistd.h>
 #endif
 
 namespace Durin
@@ -18,6 +22,9 @@ namespace Durin
 		std::optional<std::string> GPendingEditorRelaunchArguments;
 #ifdef _WIN32
 		HANDLE GProjectAuthoringMutex = nullptr;
+#elif defined(__APPLE__)
+		int GProjectAuthoringFile = -1;
+		pid_t GProjectAuthoringOwnerProcess = 0;
 #endif
 
 		auto Normalize(const std::filesystem::path& Path) -> std::string
@@ -129,6 +136,52 @@ namespace Durin
 			return false;
 		}
 		GProjectAuthoringMutex = Mutex;
+#elif defined(__APPLE__)
+		if (GProjectAuthoringFile >= 0
+			&& GProjectAuthoringOwnerProcess == getpid()) return true;
+		if (GProjectAuthoringFile >= 0)
+		{
+			close(GProjectAuthoringFile);
+			GProjectAuthoringFile = -1;
+		}
+		std::error_code CanonicalError;
+		const std::string Identity = std::filesystem::weakly_canonical(
+			GCurrentProject->ProjectFile, CanonicalError).generic_string();
+		const std::string_view IdentityPath = CanonicalError
+			? std::string_view(GCurrentProject->ProjectFile) : std::string_view(Identity);
+		uint64 Hash = 14695981039346656037ull;
+		for (const unsigned char Character : IdentityPath)
+		{
+			Hash ^= Character;
+			Hash *= 1099511628211ull;
+		}
+		const std::filesystem::path LockPath = std::filesystem::temp_directory_path()
+			/ std::format("DurinProjectAuthoring-{:016x}.lock", Hash);
+		const int File = open(LockPath.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+		if (File < 0)
+		{
+			if (OutError) *OutError = std::format(
+				"Could not create project authoring lock '{}': macOS error {} ({}).",
+				LockPath.generic_string(), errno, std::generic_category().message(errno));
+			return false;
+		}
+		if (flock(File, LOCK_EX | LOCK_NB) != 0)
+		{
+			const int Error = errno;
+			close(File);
+			if (OutError) *OutError = Error == EWOULDBLOCK
+				? std::format("Another Editor process already owns project '{}'.",
+					GCurrentProject->Name)
+				: std::format("Could not acquire project authoring lock: macOS error {} ({}).",
+					Error, std::generic_category().message(Error));
+			return false;
+		}
+		const std::string Owner = std::format("pid={}\nproject={}\n",
+			getpid(), GCurrentProject->ProjectFile);
+		(void)ftruncate(File, 0);
+		(void)write(File, Owner.data(), Owner.size());
+		GProjectAuthoringFile = File;
+		GProjectAuthoringOwnerProcess = getpid();
 #endif
 		return true;
 	}
@@ -140,6 +193,12 @@ namespace Durin
 		ReleaseMutex(GProjectAuthoringMutex);
 		CloseHandle(GProjectAuthoringMutex);
 		GProjectAuthoringMutex = nullptr;
+#elif defined(__APPLE__)
+		if (GProjectAuthoringFile < 0) return;
+		(void)flock(GProjectAuthoringFile, LOCK_UN);
+		close(GProjectAuthoringFile);
+		GProjectAuthoringFile = -1;
+		GProjectAuthoringOwnerProcess = 0;
 #endif
 	}
 }

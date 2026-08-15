@@ -58,6 +58,20 @@ durin_finalize_native_test(NativeWindowModalLoopTests
 )
 durin_discover_tests(NativeWindowModalLoopTests)
 
+add_durin_test(FileDialogContractTests
+	Private/Launch/FileDialogContractTests.cpp
+)
+target_link_libraries(FileDialogContractTests PRIVATE ApplicationCore)
+set_target_properties(FileDialogContractTests PROPERTIES
+	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+)
+durin_finalize_native_test(FileDialogContractTests
+	KIND contract
+	DOMAINS launch
+	MODULES application-core
+)
+durin_discover_tests(FileDialogContractTests)
+
 add_durin_test(LaunchProcessBoundaryTests
 	Private/Launch/LaunchProcessBoundaryTests.cpp
 )
@@ -115,7 +129,81 @@ if(WIN32)
 			"Launch-owned crash-policy white-box coverage accompanies isolated native-fault characterization."
 	)
 	durin_discover_tests(NativeCrashCharacterizationTests)
-else()
+	elseif(APPLE)
+	durin_exclude_native_test_sources(
+		RATIONALE
+			"Windows native crash characterization and retention policy use Win32 process and dump APIs."
+		SOURCES
+			Private/Launch/NativeCrashCharacterizationTests.cpp
+			Private/Launch/WindowsProcessCrashPolicyTests.cpp
+	)
+
+	add_durin_test(MacOSProcessCrashHandlerTests
+		Private/Launch/MacOSProcessCrashHandlerTests.cpp
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Launch/Private/MacOS/MacOSProcessCrashHandler.cpp
+	)
+	target_include_directories(MacOSProcessCrashHandlerTests PRIVATE
+		${CMAKE_SOURCE_DIR}/Engine/Source)
+	target_link_libraries(MacOSProcessCrashHandlerTests PRIVATE Core)
+	set_target_properties(MacOSProcessCrashHandlerTests PROPERTIES
+		DURIN_TEST_CASE_PARALLEL_SAFE FALSE
+		DURIN_TEST_TARGET_LOCK_RATIONALE
+			"Temporarily installs process-wide POSIX signal and terminate handlers."
+	)
+	durin_finalize_native_test(MacOSProcessCrashHandlerTests
+		KIND contract
+		DOMAINS launch
+		MODULES launch
+		STACKS process
+		PRIVATE_SOURCE_OWNER Launch
+		PRIVATE_SOURCE_RATIONALE
+			"Launch-owned macOS crash-handler lifecycle coverage avoids exporting private adapter symbols."
+	)
+	durin_discover_tests(MacOSProcessCrashHandlerTests)
+
+	add_durin_test(MacOSNativeCrashCharacterizationTests
+		Private/Launch/MacOSNativeCrashCharacterizationTests.cpp
+	)
+	add_dependencies(MacOSNativeCrashCharacterizationTests DurinLauncher)
+	target_compile_definitions(MacOSNativeCrashCharacterizationTests PRIVATE
+		DURIN_CRASH_FIXTURE_EXECUTABLE="$<TARGET_FILE:DurinLauncher>"
+	)
+	set_target_properties(MacOSNativeCrashCharacterizationTests PROPERTIES
+		DURIN_TEST_CASE_PARALLEL_SAFE FALSE
+		DURIN_TEST_DIRECT_LIFECYCLE FALSE
+		DURIN_TEST_HEAVY_RUNTIME_RATIONALE
+			"Launches isolated runtime children because native POSIX faults cannot be characterized in-process."
+		DURIN_TEST_TARGET_LOCK_RATIONALE
+			"Serializes native-fault children and crash-artifact retention checks."
+		DURIN_TEST_TIMEOUT 120
+	)
+	durin_finalize_native_test(MacOSNativeCrashCharacterizationTests
+		KIND characterization
+		DOMAINS launch
+		MODULES launch
+		STACKS process
+	)
+	durin_discover_tests(MacOSNativeCrashCharacterizationTests)
+
+	add_durin_test(MacOSWindowLifecycleTests
+		Private/Launch/MacOSWindowLifecycleTests.cpp
+	)
+	target_link_libraries(MacOSWindowLifecycleTests PRIVATE ApplicationCore)
+	set_target_properties(MacOSWindowLifecycleTests PROPERTIES
+		DURIN_TEST_CASE_PARALLEL_SAFE FALSE
+		DURIN_TEST_HEAVY_RUNTIME_RATIONALE
+			"Creates real hidden Cocoa windows and exercises the host monitor and event services."
+		DURIN_TEST_TARGET_LOCK_RATIONALE
+			"Serializes access to the process-global GLFW Cocoa lifecycle."
+	)
+	durin_finalize_native_test(MacOSWindowLifecycleTests
+		KIND qualification
+		DOMAINS launch
+		MODULES application-core
+		STACKS window
+	)
+	durin_discover_tests(MacOSWindowLifecycleTests)
+	else()
 	durin_exclude_native_test_sources(
 		RATIONALE
 			"Native crash characterization currently requires the Windows crash-policy fixture."

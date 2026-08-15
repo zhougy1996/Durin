@@ -401,7 +401,7 @@ namespace Durin::Editor::Level
 				std::filesystem::path(Item.PhysicalPath)
 					.lexically_relative(CurrentPhysicalPath);
 			if (Relative.empty() || Relative == "."
-				|| Relative.native().starts_with(L".."))
+				|| (!Relative.empty() && *Relative.begin() == ".."))
 				continue;
 			if (!bSearching && !Relative.parent_path().empty()) continue;
 			if (!bShowHiddenFiles

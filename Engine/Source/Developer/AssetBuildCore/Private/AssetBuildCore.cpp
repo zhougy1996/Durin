@@ -574,13 +574,25 @@ namespace Durin::Asset::Build
 	{
 		std::lock_guard Lock(GHostMutex);
 		if (GHostRunning) return true;
-		std::vector<FRegisteredService*> Started;
+		std::vector<std::pair<std::string_view, FRegisteredService*>> OrderedServices;
+		OrderedServices.reserve(GServices.size());
 		for (auto& [Identity, Service] : GServices)
+			OrderedServices.emplace_back(Identity, &Service);
+		std::ranges::sort(OrderedServices, [](const auto& Left, const auto& Right) {
+			if (Left.second->Contribution.DrainOrder
+				!= Right.second->Contribution.DrainOrder)
+				return Left.second->Contribution.DrainOrder
+					< Right.second->Contribution.DrainOrder;
+			return Left.first < Right.first;
+		});
+		std::vector<FRegisteredService*> Started;
+		for (const auto& [Identity, ServicePointer] : OrderedServices)
 		{
+			FRegisteredService& Service = *ServicePointer;
 			auto Invocation = Service.Contribution.OwnerGate.TryEnter();
 			if (!Invocation || (Service.Contribution.Start && !Service.Contribution.Start()))
 			{
-				for (FRegisteredService* Item : Started)
+				for (FRegisteredService* Item : Started | std::views::reverse)
 				{
 					if (Item->Contribution.StopAdmission) Item->Contribution.StopAdmission();
 					if (Item->Contribution.Drain) Item->Contribution.Drain();

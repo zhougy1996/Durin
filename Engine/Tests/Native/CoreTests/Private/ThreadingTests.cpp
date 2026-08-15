@@ -2118,6 +2118,7 @@ namespace Durin
 		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 4, .MaxNonterminalTasks = 100'000}));
 
 		auto RetainedHeapBytes = []() -> uint64 {
+#ifdef _WIN32
 			const DWORD HeapCount = GetProcessHeaps(0, nullptr);
 			std::vector<HANDLE> Heaps(HeapCount);
 			EXPECT_EQ(HeapCount, GetProcessHeaps(HeapCount, Heaps.data()));
@@ -2136,6 +2137,13 @@ namespace Durin
 				EXPECT_TRUE(HeapUnlock(Heap));
 			}
 			return Bytes;
+#elif defined(__APPLE__)
+			malloc_statistics_t Statistics{};
+			malloc_zone_statistics(malloc_default_zone(), &Statistics);
+			return static_cast<uint64>(Statistics.size_in_use);
+#else
+			return 0;
+#endif
 		};
 		auto ElapsedNanoseconds = [](const auto& Function) -> uint64 {
 			const auto Start = std::chrono::steady_clock::now();

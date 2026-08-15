@@ -9,14 +9,21 @@
 
 #ifdef _WIN32
 	#include <Windows.h>
+#elif defined(__APPLE__)
+	#include <dlfcn.h>
 #endif
 
 namespace Durin::Tests
 {
 	namespace
 	{
+#ifdef _WIN32
 		constexpr std::string_view FixtureFileName =
 			DURIN_RUNTIME_VARIANT "-DynamicUnloadFixture.dll";
+#else
+		constexpr std::string_view FixtureFileName =
+			"lib" DURIN_RUNTIME_VARIANT "-DynamicUnloadFixture.dylib";
+#endif
 
 		class FFailureHost final : public IDynamicUnloadHostFeature
 		{
@@ -138,6 +145,12 @@ namespace Durin::Tests
 			const std::wstring FileName =
 				std::filesystem::path(Info->FileName).filename().wstring();
 			return ::GetModuleHandleW(FileName.c_str()) != nullptr;
+#elif defined(__APPLE__)
+			if (!Info) return false;
+			void* Handle = dlopen(Info->FileName.c_str(), RTLD_LAZY | RTLD_NOLOAD);
+			if (!Handle) return false;
+			dlclose(Handle);
+			return true;
 #else
 			(void)Info;
 			return false;
@@ -158,9 +171,6 @@ namespace Durin::Tests
 	TEST(FDynamicDllUnloadFailureQualificationTests,
 		EveryInjectedRetirementFailureLeavesTheRealImageMapped)
 	{
-#ifndef _WIN32
-		GTEST_SKIP() << "Physical image qualification currently targets Windows.";
-#else
 		FTaskSystemGuard TaskGuard;
 		ASSERT_TRUE(InitializeTaskScheduler(2));
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
@@ -338,6 +348,5 @@ namespace Durin::Tests
 		ExpectBlockedAndMapped(RecursiveInfo);
 		EXPECT_FALSE(Host.HasEvent(
 			EDynamicUnloadFixtureEvent::ModuleDestroyed, *RecursiveSerial));
-#endif
 	}
 }

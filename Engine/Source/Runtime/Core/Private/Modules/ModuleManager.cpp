@@ -2,6 +2,7 @@
 
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
+#include "HAL/PlatformProcess.h"
 #include "Misc/Build.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleStartupScope.h"
@@ -168,6 +169,16 @@ namespace Durin
 		ModuleInfo->State = EModuleState::Loading;
 		DURIN_TRACE(STR("Try load: {}"), ModuleInfo->FileName);
 		FModuleHandle ModuleHandle = FPlatformMisc::LoadLibrary(ModuleInfo->FileName);
+		if (!ModuleHandle)
+		{
+			const std::filesystem::path ExecutableModule =
+				std::filesystem::path(FPlatformProcess::ExecutablePath()).parent_path()
+				/ ModuleInfo->FileName;
+			DURIN_TRACE(STR("Try executable-adjacent module: {}"),
+				ExecutableModule.generic_string());
+			ModuleHandle = FPlatformMisc::LoadLibrary(ExecutableModule.generic_string());
+			if (ModuleHandle) ModuleInfo->FileName = ExecutableModule.generic_string();
+		}
 		if (!ModuleHandle && !FPaths::ProjectDir().empty())
 		{
 			const std::filesystem::path ProjectModule = std::filesystem::path(FPaths::ProjectDir())
@@ -180,7 +191,9 @@ namespace Durin
 		if (!ModuleHandle)
 		{
 			ModuleInfo->State = EModuleState::LoadFailed;
-			DURIN_ERROR(STR("Failed to load module \"{}\"."), InModuleName.ToString());
+			DURIN_ERROR(STR("Failed to load module \"{}\" from \"{}\": {}."),
+				InModuleName.ToString(), ModuleInfo->FileName,
+				FPlatformMisc::GetLastLibraryError());
 			return nullptr;
 		}
 

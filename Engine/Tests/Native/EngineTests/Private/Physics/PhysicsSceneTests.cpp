@@ -26,8 +26,15 @@
 
 namespace
 {
+#if defined(_WIN32)
 	inline constexpr Durin::uint64 ExpectedPrimitiveRetainedBytes =
 		DURIN_BUILD_DEBUG ? 208u : 200u;
+	inline constexpr Durin::uint64 ExpectedCompoundRetainedBytes =
+		DURIN_BUILD_DEBUG ? 7'264u : 7'256u;
+#else
+	inline constexpr Durin::uint64 ExpectedPrimitiveRetainedBytes = 200u;
+	inline constexpr Durin::uint64 ExpectedCompoundRetainedBytes = 7'256u;
+#endif
 	auto MakeBoxBody(
 		const Durin::FVector3& Center,
 		const Durin::FVector3& HalfExtent = Durin::FVector3(0.5),
@@ -1234,7 +1241,7 @@ TEST(FAetherCollisionGeometryResourceTests, ValidatesIdentityBoundsChildrenAndRe
 	ASSERT_TRUE(Compound.IsValid());
 	EXPECT_NE(Compound.GetIdentity(), 0u);
 	EXPECT_EQ(Compound.GetChildCount(), 64u);
-	EXPECT_EQ(Compound.GetRetainedBytes(), DURIN_BUILD_DEBUG ? 7'264u : 7'256u);
+	EXPECT_EQ(Compound.GetRetainedBytes(), ExpectedCompoundRetainedBytes);
 	Durin::FVector3 Min;
 	Durin::FVector3 Max;
 	ASSERT_TRUE(Compound.GetLocalBounds(Min, Max));
