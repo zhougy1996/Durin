@@ -5,16 +5,7 @@
 
 namespace Durin::Asset::Build
 {
-	// Stable owner-qualified identity of one Build function.
-	struct FBuildFunctionIdentity
-	{
-		std::string Owner;
-		std::string Name;
-
-		auto operator==(const FBuildFunctionIdentity&) const -> bool = default;
-	};
-
-	// Immutable named bytes exchanged by Build definitions and functions.
+	// Immutable named bytes exchanged with the derived-data cache.
 	class FBuildValue
 	{
 	public:
@@ -36,42 +27,11 @@ namespace Durin::Asset::Build
 		std::shared_ptr<const std::vector<uint8>> Bytes;
 	};
 
-	// Portable immutable recipe invocation facts. Local callbacks are deliberately absent.
-	struct FBuildDefinition
-	{
-		FBuildFunctionIdentity Function;
-		std::string ImplementationIdentity;
-		std::string RecipeIdentity;
-		std::string TargetPlatform;
-		std::string TargetProfile;
-		std::vector<FBuildValue> Inputs;
-		bool bExportable = true;
-	};
-
-	// Explicit cache/build/data-return intent for one request.
-	struct FBuildPolicy
+	// Explicit cache query/store policy for one operation.
+	struct FBuildCachePolicy
 	{
 		bool bQueryCache = true;
-		bool bAllowLocalBuild = true;
 		bool bStoreBuildResult = true;
 		bool bRequireStoreSuccess = false;
-		bool bReturnData = true;
-		int32 Priority = 0;
 	};
-
-	// Detached terminal result returned by a local Build function.
-	struct FBuildFunctionResult
-	{
-		bool bSucceeded = false;
-		bool bCanceled = false;
-		std::vector<FBuildValue> Values;
-		std::string Diagnostic;
-	};
-
-	ASSETBUILDCORE_API auto IsValidBuildFunctionIdentity(
-		const FBuildFunctionIdentity& Identity, std::string* OutError = nullptr) -> bool;
-	ASSETBUILDCORE_API auto BuildFunctionIdentityString(
-		const FBuildFunctionIdentity& Identity) -> std::string;
-	ASSETBUILDCORE_API auto ValidateBuildDefinition(
-		const FBuildDefinition& Definition, std::string* OutError = nullptr) -> bool;
 }

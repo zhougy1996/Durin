@@ -4,7 +4,7 @@ durin_add_engine_functional_test(AssetBuildCoreTests
 	DOMAINS derived-data
 	MODULES asset-build-core
 	RUNTIME_STACK_RATIONALE
-		"Exercises the Developer-only generic Build registry, cache and host contracts."
+		"Exercises the Developer-only derived-data cache and build-host contracts."
 	SOURCES
 		Private/AssetBuildCoreTests.cpp
 	LIBRARIES AssetBuildCore

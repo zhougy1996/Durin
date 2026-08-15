@@ -2,7 +2,6 @@
 
 #include "AssetBuild/BuildCache.h"
 #include "AssetBuild/BuildHost.h"
-#include "AssetBuild/BuildRegistry.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleTestSupport.h"
 #include "NativeTestSupport.h"
@@ -18,17 +17,6 @@ namespace
 		static auto Registration = Context.CreateOwnedCallbackRegistration(
 			"AssetBuildCoreTests.Registry");
 		return Registration.GetGate();
-	}
-
-	auto MakeDefinition(std::string Name = "Echo") -> FBuildDefinition
-	{
-		return {
-			.Function = {"Durin.Tests", std::move(Name)},
-			.ImplementationIdentity = "Durin.Tests.Implementation.V1",
-			.RecipeIdentity = "Durin.Tests.Recipe.V1",
-			.TargetPlatform = "Win64",
-			.TargetProfile = "Test",
-			.Inputs = {FBuildValue::FromOwned("Input", {1, 2, 3})}};
 	}
 
 	class FScopedDerivedDataCacheDirectory
@@ -54,112 +42,13 @@ namespace
 	};
 }
 
-TEST(FAssetBuildCoreTests, PortableDefinitionsOwnNamedContentIdentifiedValues)
-{
-	FBuildDefinition Definition = MakeDefinition();
-	std::string Error;
-	ASSERT_TRUE(ValidateBuildDefinition(Definition, &Error)) << Error;
-	EXPECT_EQ(BuildFunctionIdentityString(Definition.Function), "Durin.Tests::Echo");
-	ASSERT_EQ(Definition.Inputs.size(), 1u);
-	EXPECT_EQ(Definition.Inputs[0].GetSize(), 3u);
-	EXPECT_EQ(Definition.Inputs[0].GetContentIdentity(),
-		FXxHash128::HashBuffer(std::array<uint8, 3>{1, 2, 3}));
-
-	Definition.Inputs.push_back(FBuildValue::FromOwned("Input", {4}));
-	EXPECT_FALSE(ValidateBuildDefinition(Definition, &Error));
-	Definition = MakeDefinition();
-	Definition.Function.Owner = "bad owner";
-	EXPECT_FALSE(ValidateBuildDefinition(Definition, &Error));
-}
-
-TEST(FAssetBuildCoreTests, RegistryRejectsDuplicatesAndRunsIndependentFunctions)
-{
-	std::string Error;
-	auto Echo = RegisterLocalBuildFunction(
-		{"Durin.Tests", "Echo"},
-		[](const FBuildDefinition& Definition, const FBuildPolicy&,
-			const FBuildRequestOwner&) {
-			return FBuildFunctionResult{
-				.bSucceeded = true,
-				.Values = {FBuildValue::FromOwned(
-					"Output", std::vector<uint8>(Definition.Inputs[0].GetBytes().begin(),
-						Definition.Inputs[0].GetBytes().end()))}};
-		}, GetBuildRegistryTestGate(), {}, &Error);
-	ASSERT_TRUE(Echo.IsValid()) << Error;
-	auto Sum = RegisterLocalBuildFunction(
-		{"Durin.Tests", "Sum"},
-		[](const FBuildDefinition&, const FBuildPolicy&, const FBuildRequestOwner&) {
-			return FBuildFunctionResult{
-				.bSucceeded = true,
-				.Values = {FBuildValue::FromOwned("Output", {6})}};
-		}, GetBuildRegistryTestGate(), {}, &Error);
-	ASSERT_TRUE(Sum.IsValid()) << Error;
-	auto Duplicate = RegisterLocalBuildFunction(
-		{"Durin.Tests", "Echo"}, [](const auto&, const auto&, const auto&) {
-			return FBuildFunctionResult{};
-		}, GetBuildRegistryTestGate(), {}, &Error);
-	EXPECT_FALSE(Duplicate.IsValid());
-	EXPECT_EQ(GetRegisteredLocalBuildFunctionCount(), 2u);
-
-	FBuildFunctionResult Result;
-	bool bCallbackCalled = false;
-	ASSERT_TRUE(ExecuteLocalBuildFunction(MakeDefinition(), {}, Result,
-		[&bCallbackCalled](const FBuildFunctionResult& Completed) {
-			bCallbackCalled = Completed.bSucceeded;
-		}, &Error)) << Error;
-	EXPECT_TRUE(Result.bSucceeded);
-	EXPECT_TRUE(bCallbackCalled);
-	EXPECT_TRUE(std::ranges::equal(Result.Values[0].GetBytes(),
-		std::array<uint8, 3>{1, 2, 3}));
-
-	FBuildDefinition Missing = MakeDefinition("Missing");
-	EXPECT_FALSE(ExecuteLocalBuildFunction(Missing, {}, Result, {}, &Error));
-	Sum.Reset();
-	Echo.Reset();
-	EXPECT_EQ(GetRegisteredLocalBuildFunctionCount(), 0u);
-}
-
-TEST(FAssetBuildCoreTests, RequestOwnersCancelAndBoundWaits)
-{
-	auto Owner = std::make_shared<FBuildRequestOwner>();
-	std::atomic_bool Entered = false;
-	std::atomic_bool Release = false;
-	std::string Error;
-	auto Registration = RegisterLocalBuildFunction(
-		{"Durin.Tests", "Blocking"},
-		[&Entered, &Release](const FBuildDefinition&, const FBuildPolicy&,
-			const FBuildRequestOwner& RequestOwner) {
-			Entered = true;
-			while (!Release && !RequestOwner.IsCanceled()) std::this_thread::yield();
-			return FBuildFunctionResult{
-				.bSucceeded = !RequestOwner.IsCanceled(),
-				.bCanceled = RequestOwner.IsCanceled()};
-		}, GetBuildRegistryTestGate(), Owner, &Error);
-	ASSERT_TRUE(Registration.IsValid()) << Error;
-	FBuildFunctionResult Result;
-	std::thread Worker([&] {
-		ExecuteLocalBuildFunction(MakeDefinition("Blocking"), {}, Result, {}, &Error);
-	});
-	while (!Entered) std::this_thread::yield();
-	EXPECT_FALSE(Owner->Wait(0.001));
-	Owner->Cancel();
-	EXPECT_TRUE(Owner->Wait(5.0));
-	Worker.join();
-	EXPECT_TRUE(Result.bCanceled);
-	const FBuildRequestOwnerSnapshot Snapshot = Owner->GetSnapshot();
-	EXPECT_EQ(Snapshot.AcceptedRequestCount, 1u);
-	EXPECT_EQ(Snapshot.CompletedRequestCount, 1u);
-	EXPECT_EQ(Snapshot.ActiveRequestCount, 0u);
-	Release = true;
-}
-
 TEST(FAssetBuildCoreTests, CacheClientHonorsExplicitQueryAndStorePolicies)
 {
 	FScopedDerivedDataCacheDirectory CacheDirectory;
 	Asset::FDerivedDataObjectStore Store("AssetBuildCoreTests/Objects", 1024);
 	FBuildCacheClient Client(Store);
 	const std::string Key(32, 'a');
-	FBuildPolicy Policy;
+	FBuildCachePolicy Policy;
 	EXPECT_EQ(Client.Query(Key, "Value", Policy).Status, EBuildCacheQueryStatus::Missing);
 	const FBuildValue Value = FBuildValue::FromOwned("Value", {7, 8, 9});
 	std::string Error;
@@ -280,50 +169,6 @@ TEST(FAssetBuildCoreTests, HostOwnerRetirementRejectsLaterCallbacksAndDestroysCa
 	ShutdownBuildHost();
 }
 
-TEST(FAssetBuildCoreTests, FunctionCallbackMayReenterAndUnloadRegistration)
-{
-	std::string Error;
-	auto Registration = RegisterLocalBuildFunction(
-		{"Durin.Tests", "Reentrant"},
-		[](const FBuildDefinition&, const FBuildPolicy&, const FBuildRequestOwner&) {
-			return FBuildFunctionResult{.bSucceeded = true};
-		}, GetBuildRegistryTestGate(), {}, &Error);
-	ASSERT_TRUE(Registration.IsValid()) << Error;
-	FBuildFunctionResult Result;
-	ASSERT_TRUE(ExecuteLocalBuildFunction(MakeDefinition("Reentrant"), {}, Result,
-		[&](const FBuildFunctionResult&) {
-			EXPECT_TRUE(IsLocalBuildFunctionRegistered({"Durin.Tests", "Reentrant"}));
-			Registration.Reset();
-		}, &Error)) << Error;
-	EXPECT_FALSE(IsLocalBuildFunctionRegistered({"Durin.Tests", "Reentrant"}));
-}
-
-TEST(FAssetBuildCoreTests, UnloadingFunctionCancelsAndDrainsActiveRequest)
-{
-	auto Owner = std::make_shared<FBuildRequestOwner>();
-	std::atomic_bool Entered = false;
-	std::string WorkerError;
-	auto Registration = RegisterLocalBuildFunction(
-		{"Durin.Tests", "UnloadActive"},
-		[&](const FBuildDefinition&, const FBuildPolicy&,
-			const FBuildRequestOwner& RequestOwner) {
-			Entered = true;
-			while (!RequestOwner.IsCanceled()) std::this_thread::yield();
-			return FBuildFunctionResult{.bCanceled = true};
-		}, GetBuildRegistryTestGate(), Owner, &WorkerError);
-	ASSERT_TRUE(Registration.IsValid()) << WorkerError;
-	FBuildFunctionResult Result;
-	std::thread Worker([&] {
-		ExecuteLocalBuildFunction(
-			MakeDefinition("UnloadActive"), {}, Result, {}, &WorkerError);
-	});
-	while (!Entered) std::this_thread::yield();
-	Registration.Reset();
-	Worker.join();
-	EXPECT_TRUE(Result.bCanceled);
-	EXPECT_EQ(Owner->GetSnapshot().ActiveRequestCount, 0u);
-}
-
 TEST(FAssetBuildCoreTests, CacheRequiredAndBestEffortWritePoliciesDiffer)
 {
 	FScopedDerivedDataCacheDirectory CacheDirectory;
@@ -335,29 +180,4 @@ TEST(FAssetBuildCoreTests, CacheRequiredAndBestEffortWritePoliciesDiffer)
 		{.bRequireStoreSuccess = false}, &Error));
 	EXPECT_FALSE(Client.Store(std::string(32, 'd'), Invalid,
 		{.bRequireStoreSuccess = true}, &Error));
-}
-
-TEST(FAssetBuildCoreTests, AssetFamilyFreeLocalFunctionUsesPortableValuesOnly)
-{
-	std::string Error;
-	auto Registration = RegisterLocalBuildFunction(
-		{"Durin.Sample", "ReverseBytes"},
-		[](const FBuildDefinition& Definition, const FBuildPolicy& Policy,
-			const FBuildRequestOwner&) {
-			if (!Policy.bAllowLocalBuild) return FBuildFunctionResult{};
-			std::vector<uint8> Bytes(
-				Definition.Inputs[0].GetBytes().begin(),
-				Definition.Inputs[0].GetBytes().end());
-			std::ranges::reverse(Bytes);
-			return FBuildFunctionResult{.bSucceeded = true,
-				.Values = {FBuildValue::FromOwned("Reversed", std::move(Bytes))}};
-		}, GetBuildRegistryTestGate(), {}, &Error);
-	ASSERT_TRUE(Registration.IsValid()) << Error;
-	FBuildDefinition Definition = MakeDefinition();
-	Definition.Function = {"Durin.Sample", "ReverseBytes"};
-	FBuildFunctionResult Result;
-	ASSERT_TRUE(ExecuteLocalBuildFunction(Definition, {}, Result, {}, &Error)) << Error;
-	ASSERT_TRUE(Result.bSucceeded);
-	EXPECT_TRUE(std::ranges::equal(Result.Values[0].GetBytes(),
-		std::array<uint8, 3>{3, 2, 1}));
 }

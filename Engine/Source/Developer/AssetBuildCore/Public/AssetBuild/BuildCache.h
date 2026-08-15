@@ -30,10 +30,10 @@ namespace Durin::Asset::Build
 
 		ASSETBUILDCORE_API auto Query(
 			std::string_view Key, std::string ValueName,
-			const FBuildPolicy& Policy) const -> FBuildCacheQueryResult;
+			const FBuildCachePolicy& Policy) const -> FBuildCacheQueryResult;
 		ASSETBUILDCORE_API auto Store(
 			std::string_view Key, const FBuildValue& Value,
-			const FBuildPolicy& Policy, std::string* OutError = nullptr) const -> bool;
+			const FBuildCachePolicy& Policy, std::string* OutError = nullptr) const -> bool;
 
 	private:
 		Asset::FDerivedDataObjectStore* StoreTarget = nullptr;

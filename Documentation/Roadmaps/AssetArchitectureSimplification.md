@@ -35,8 +35,10 @@ The completed M3 child plan is
 M2 separated ordinary current-format decode from explicit canonical audit and
 removed migration/upgrader machinery that had no proven repository consumer.
 M3 consolidates the overlapping import registration and orchestration surfaces.
-M4 build/runtime-domain simplification is now dependency-ready and must begin
-with its own child plan.
+The active M4 child plan is
+[Asset Build And Runtime Domain Simplification](../Plans/AssetBuildAndRuntimeDomainSimplification.md).
+It removes the unused Build executor design and replaces mutable package-load
+mode with immutable authored/cooked runtime construction and payload policy.
 
 ## Outcome
 
@@ -241,7 +243,7 @@ flowchart LR
 | M1: Redirector mutation boundary | Required; completed | [Asset Redirector Mutation Boundary](../Plans/AssetRedirectorMutationBoundary.md) | M0 | One stateful resident-package model plus one authoring service and transaction abstraction for create/save/move/delete/Fix Up, preserving direct aliases and strict deletion proof | Passed: all mutation callers use M0 catalog values and load surface | Passed: no parallel draft store or discard-draft API remains; callers cannot sequence internal transaction phases; relocation, deletion, and Fix Up retain the completed failure matrix |
 | M2: Package compatibility simplification | Required; completed | [Asset Package Compatibility Simplification](../Plans/AssetPackageCompatibilitySimplification.md) | M0 | Validated decode separated from offline canonical audit; dead migration/upgrader and partial compatibility state removed; current-format failure policy made strict | Passed: catalog/load reports have stable structured format/schema errors | Passed: ordinary load performs no canonical re-encode and no production type branches on migration-load mode |
 | M3: Import service consolidation | Required; completed | [Asset Import Service Consolidation](../Plans/AssetImportServiceConsolidation.md) | M1-M2 | One importer descriptor, request, plan, execution, publication, reimport, record, and async ownership model | Passed: authoring publication and compatibility failures have one owner | Passed: production importers register once and initial import/reimport/multi-output share one service |
-| M4: Build and runtime-domain simplification | Required; proposed | Asset Build and Runtime Domain Simplification | M2 | Cache/host-only AssetBuildCore surface and immutable Authored/Cooked service construction with explicit payload policy | Package decode and post-load responsibilities are separated | No unused build executor abstraction or mutable package-load mode remains in production APIs |
+| M4: Build and runtime-domain simplification | Required; active | [Asset Build And Runtime Domain Simplification](../Plans/AssetBuildAndRuntimeDomainSimplification.md) | M2 | Cache/host-only AssetBuildCore surface and immutable Authored/Cooked service construction with explicit payload policy | Passed: package decode and post-load responsibilities are separated | No unused build executor abstraction or mutable package-load mode remains in production APIs |
 | M5: Final integration and contract handoff | Required; proposed | Asset Architecture Final Integration | M3-M4 | Repository-wide legacy API removal, performance/behavior qualification, and final Runtime/Editor contracts | All owning child plans completed with focused evidence | One public entry per operation, no obsolete compatibility surface, all program validation passes, and lasting contracts own final behavior |
 
 ## Child Plan Boundaries
@@ -252,12 +254,12 @@ flowchart LR
 | [Asset Redirector Mutation Boundary](../Plans/AssetRedirectorMutationBoundary.md) | Completed | Unified resident-package publication state, unload/discard policy, authoring service, relocation/deletion/Fix Up transaction facade, callback ownership, Undo/Redo integration | Removing redirectors, eager referencer rewriting, package-format redesign |
 | [Asset Package Compatibility Simplification](../Plans/AssetPackageCompatibilitySimplification.md) | Completed | Decode/audit split, schema failure policy, migration/upgrader removal, affected Engine load branches | Importer redesign, new asset format, cooked alias tables |
 | [Asset Import Service Consolidation](../Plans/AssetImportServiceConsolidation.md) | Completed | Provider registration, planning/execution, single/multi-output reimport, async ownership and publication | General job system or remote import execution |
-| Asset Build and Runtime Domain Simplification | Proposed after M2 | DDC/build host surface, removal of unused build execution design, immutable authored/cooked domain | Remote build protocol without a production consumer |
+| [Asset Build And Runtime Domain Simplification](../Plans/AssetBuildAndRuntimeDomainSimplification.md) | Active | DDC/build host surface, removal of unused build execution design, immutable authored/cooked domain and payload policy | Remote build protocol without a production consumer |
 | Asset Architecture Final Integration | Proposed after M3-M4 | Cross-module legacy search, final benchmarks/smoke tests, lasting contract reconciliation | New asset capabilities unrelated to simplification |
 
-M0 and M1 are completed and M2 is the only active child plan. A later plan is created
-when its dependencies pass and its production caller inventory is current;
-roadmap text does not serve as its implementation checklist.
+M0-M3 are complete and M4 is the only active child plan. A later plan is
+created when its dependencies pass and its production caller inventory is
+current; roadmap text does not serve as its implementation checklist.
 
 ## Program Validation Matrix
 
