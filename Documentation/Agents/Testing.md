@@ -15,6 +15,19 @@ Use the first scope that covers the changed behavior:
 .\DevTool.bat test all
 ```
 
+When the target name is not already known, query the configured test registry
+instead of inferring it from the source tree:
+
+```powershell
+.\DevTool.bat test list <query>
+.\DevTool.bat test explain <Target>
+```
+
+For example, `Engine/Tests/Native/EngineTests` is a source directory, not a
+test target named `EngineTests`; a test beneath it may belong to a target such
+as `ViewportTests`. Use `test list viewport` to discover that target before
+running it.
+
 1. Start with the smallest affected named target or failing case.
 2. Use a bounded domain or domain/backend set only when behavior crosses test
    targets.
