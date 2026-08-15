@@ -83,7 +83,7 @@ namespace Durin
 		auto GetRevision() const -> uint64 { return Revision; }
 		auto GetLatestPosePalette() const -> std::shared_ptr<const FSkeletalPosePalette>
 		{
-			return LatestCandidate.load(std::memory_order_acquire);
+			return std::atomic_load_explicit(&LatestCandidate, std::memory_order_acquire);
 		}
 
 	private:
@@ -92,7 +92,7 @@ namespace Durin
 			-> std::shared_ptr<const FSkeletalPosePalette>;
 
 		FSkeletalAnimationBinding Binding;
-		std::atomic<std::shared_ptr<const FSkeletalPosePalette>> LatestCandidate;
+		std::shared_ptr<const FSkeletalPosePalette> LatestCandidate;
 		float TimeSeconds = 0.0f;
 		float PlayRate = 1.0f;
 		uint64 Revision = 0;

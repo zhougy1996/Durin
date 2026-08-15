@@ -58,8 +58,8 @@ namespace Durin
 		{
 			Data.TextureCoordinates[Channel] = {
 				.VertexBuffer = &TexCoordBuffer,
-				.Offset = offsetof(FStaticMeshTexcoordVertex, TexCoords)
-					+ sizeof(FVector2f) * Channel,
+				.Offset = static_cast<uint32>(offsetof(FStaticMeshTexcoordVertex, TexCoords)
+					+ sizeof(FVector2f) * Channel),
 				.Stride =
 					static_cast<uint16>(TexCoordBuffer.GetStride()),
 				.Type = EVertexElementType::Float2,

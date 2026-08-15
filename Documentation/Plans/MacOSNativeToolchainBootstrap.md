@@ -35,14 +35,17 @@ pass 76 and 35 tests respectively.
 
 The bounded gate required a real basic `FMacOSPlatformProcess` implementation,
 portable UTF conversion, Apple pthread identity handling, and several strict-
-compiler fixes. A wider `Launch` probe progressed through RHI, AetherCore,
-ApplicationCore, RenderCore/Slang, and DHT generation before stopping in the
-Engine closure at libc++ `atomic<shared_ptr>` support and MSVC-dependent
-incomplete-type conversions. That wider Engine closure remains outside the
-agreed M1 Core/ApplicationCore gate; no Editor was launched and runtime support
-is not claimed. After those compiler-portability issues, the next known M2
-platform boundary remains the macOS Launch crash-service adapter. Clean-state
-reproduction and final documentation remain open.
+compiler fixes. A wider `Launch` probe now compiles and links the Engine and
+DurinEd dylibs after replacing unsupported libc++ `atomic<shared_ptr>` members
+with the repository's portable shared-pointer atomic operations and making
+vertex-layout offset narrowing explicit. The probe stops only when linking
+Launch against its absent macOS process-crash service, the already assigned M2
+platform boundary. The affected SkeletalAsset and Spline qualification test
+bodies pass 34/34 and 2/2 assertions respectively, but both executables then
+receive `SIGSEGV` after global test teardown; that exit-lifecycle failure remains
+runtime work and is not reported as a passing test run. No Editor was launched
+and runtime support is not claimed. Clean-state reproduction and final
+documentation remain open.
 
 ### Validated candidate host
 
@@ -291,7 +294,7 @@ that does not require M2 runtime implementations.
 - [x] Compile DHT generation, Core headers and common sources, then
   ApplicationCore/GLFW and the smallest reachable Editor bootstrap closure in
   dependency order.
-- [ ] Repair Apple Clang language, warning, visibility, framework, linker,
+- [x] Repair Apple Clang language, warning, visibility, framework, linker,
   install-name, and development-rpath issues that belong to M1 without adding
   runtime no-ops or weakening common contracts.
 - [x] Record the first remaining missing macOS platform implementations and

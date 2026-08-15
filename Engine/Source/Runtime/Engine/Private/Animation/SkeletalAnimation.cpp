@@ -333,7 +333,7 @@ namespace Durin
 		Revision = CandidateRevision;
 		bBound = true;
 		bPlaying = false;
-		LatestCandidate.store(std::move(CandidatePose), std::memory_order_release);
+		std::atomic_store_explicit(&LatestCandidate, std::move(CandidatePose), std::memory_order_release);
 		OutError.clear();
 		return true;
 	}
@@ -341,7 +341,8 @@ namespace Durin
 	auto FSkeletalAnimationInstance::Unbind() -> void
 	{
 		Binding = {};
-		LatestCandidate.store(nullptr, std::memory_order_release);
+		std::atomic_store_explicit(&LatestCandidate,
+			std::shared_ptr<const FSkeletalPosePalette>{}, std::memory_order_release);
 		TimeSeconds = 0.0f;
 		Revision = 0;
 		bBound = false;
@@ -391,7 +392,7 @@ namespace Durin
 		TimeSeconds = 0.0f;
 		Revision = Candidate->Revision;
 		bPlaying = false;
-		LatestCandidate.store(std::move(Candidate), std::memory_order_release);
+		std::atomic_store_explicit(&LatestCandidate, std::move(Candidate), std::memory_order_release);
 		OutError.clear();
 		return true;
 	}
@@ -426,7 +427,7 @@ namespace Durin
 		TimeSeconds = CandidateTime;
 		Revision = Candidate->Revision;
 		if (!bLooping && TimeSeconds == GetDurationSeconds()) bPlaying = false;
-		LatestCandidate.store(std::move(Candidate), std::memory_order_release);
+		std::atomic_store_explicit(&LatestCandidate, std::move(Candidate), std::memory_order_release);
 		OutError.clear();
 		return true;
 	}
@@ -458,7 +459,7 @@ namespace Durin
 		TimeSeconds = CandidateTime;
 		Revision = Candidate->Revision;
 		if (!bLooping && TimeSeconds == GetDurationSeconds()) bPlaying = false;
-		LatestCandidate.store(std::move(Candidate), std::memory_order_release);
+		std::atomic_store_explicit(&LatestCandidate, std::move(Candidate), std::memory_order_release);
 		OutError.clear();
 		return true;
 	}
