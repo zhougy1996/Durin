@@ -10,7 +10,7 @@ struct ContactShadowUniform
     float4x4 InverseViewProjection;
     float4x4 ViewProjection;
     float4 ToLightMaxDistance;
-    float4 ThicknessStepsOffsetReversedZ;
+    float4 SurfaceStepsMinBiasReversedZ;
     float4 Viewport; // xy = inverse local extent, zw = absolute origin
     float4 Trace;    // x = max screen displacement in pixels
 };
@@ -38,24 +38,65 @@ float3 ReconstructWorld(float2 localUV, float deviceDepth)
     return worldH.xyz / worldH.w;
 }
 
-bool IsContactHit(float3 rayPosition, float2 rayLocalUV, float rayDepth,
-    int2 targetSize, int2 viewportSize, float rayThickness)
+float PixelWorldRadius(float2 localUV, float deviceDepth, float3 worldPosition,
+    float3 surfaceNormal)
+{
+    float2 texel = Params.Viewport.xy;
+    float2 xUV = localUV + float2(
+        localUV.x + texel.x <= 1.0 ? texel.x : -texel.x, 0.0);
+    float2 yUV = localUV + float2(
+        0.0, localUV.y + texel.y <= 1.0 ? texel.y : -texel.y);
+    float3 xSpan = ReconstructWorld(xUV, deviceDepth) - worldPosition;
+    float3 ySpan = ReconstructWorld(yUV, deviceDepth) - worldPosition;
+    xSpan -= surfaceNormal * dot(xSpan, surfaceNormal);
+    ySpan -= surfaceNormal * dot(ySpan, surfaceNormal);
+    return 0.5 * length(float2(length(xSpan), length(ySpan)));
+}
+
+bool IsContactHit(float3 segmentStart, float3 segmentEnd,
+    float2 rayLocalUV, int2 targetSize, int2 viewportSize,
+    float3 receiverPosition, float3 receiverNormal, float receiverRadius)
 {
     int2 rayPixel = clamp(int2(Params.Viewport.zw)
-        + int2(rayLocalUV * float2(viewportSize)), int2(0), targetSize - int2(1));
+        + int2(rayLocalUV * float2(viewportSize)), int2(0),
+        targetSize - int2(1));
     float sceneDepth = SceneDepth.Load(int3(rayPixel, 0));
-    bool reversedZ = Params.ThicknessStepsOffsetReversedZ.w > 0.5;
+    bool reversedZ = Params.SurfaceStepsMinBiasReversedZ.w > 0.5;
     bool sceneValid = reversedZ ? sceneDepth > 0.001 : sceneDepth < 0.999;
     if (!sceneValid)
         return false;
-    float depthDifference = reversedZ
-        ? sceneDepth - rayDepth : rayDepth - sceneDepth;
-    if (depthDifference <= 0.0)
-        return false;
     float2 sceneLocalUV = (float2(rayPixel) + 0.5 - Params.Viewport.zw)
         * Params.Viewport.xy;
-    float3 separation = ReconstructWorld(sceneLocalUV, sceneDepth) - rayPosition;
-    return dot(separation, separation) <= rayThickness * rayThickness;
+    float3 surfacePosition = ReconstructWorld(sceneLocalUV, sceneDepth);
+    float3 surfaceNormal = DecodeOctahedralNormal(
+        GBufferNormals.Load(int3(rayPixel, 0)).ba);
+    float surfaceRadius = PixelWorldRadius(sceneLocalUV, sceneDepth,
+        surfacePosition, surfaceNormal)
+        * Params.SurfaceStepsMinBiasReversedZ.x;
+
+    // A parallel, near-coplanar sample is the receiver surface represented by
+    // another depth texel, not an independent blocker.
+    float receiverAlignment = abs(dot(surfaceNormal, receiverNormal));
+    float receiverPlaneDistance = abs(dot(
+        surfacePosition - receiverPosition, receiverNormal));
+    if (receiverAlignment >= 0.98
+        && receiverPlaneDistance <= receiverRadius + surfaceRadius)
+        return false;
+
+    // Treat the depth texel as a finite oriented surfel. A blocker exists only
+    // when this march segment crosses its plane inside the pixel footprint.
+    float startDistance = dot(segmentStart - surfacePosition, surfaceNormal);
+    float endDistance = dot(segmentEnd - surfacePosition, surfaceNormal);
+    float distanceDelta = startDistance - endDistance;
+    if (startDistance * endDistance > 0.0 || abs(distanceDelta) <= 1.0e-7)
+        return false;
+    float segmentT = startDistance / distanceDelta;
+    if (segmentT < 0.0 || segmentT > 1.0)
+        return false;
+    float3 intersection = lerp(segmentStart, segmentEnd, segmentT);
+    float3 footprintDelta = intersection - surfacePosition;
+    footprintDelta -= surfaceNormal * dot(footprintDelta, surfaceNormal);
+    return dot(footprintDelta, footprintDelta) <= surfaceRadius * surfaceRadius;
 }
 
 [shader("fragment")]
@@ -70,7 +111,7 @@ float ContactVisibilityFragmentMain(VSOutput input) : SV_Target0
     if ((receiver.flags & GBufferStandardLitFlag) == 0u)
         return 1.0;
     float centerDepth = SceneDepth.Load(int3(pixel, 0));
-    bool reversedZ = Params.ThicknessStepsOffsetReversedZ.w > 0.5;
+    bool reversedZ = Params.SurfaceStepsMinBiasReversedZ.w > 0.5;
     if (reversedZ ? centerDepth <= 0.001 : centerDepth >= 0.999)
         return 1.0;
 
@@ -84,17 +125,22 @@ float ContactVisibilityFragmentMain(VSOutput input) : SV_Target0
         * Params.Viewport.xy;
     float3 worldPosition = ReconstructWorld(localUV, centerDepth);
     float maxDistance = Params.ToLightMaxDistance.w;
-    float rayThickness = Params.ThicknessStepsOffsetReversedZ.x;
-    int stepCount = max(1, (int)Params.ThicknessStepsOffsetReversedZ.y);
-    float startOffset = Params.ThicknessStepsOffsetReversedZ.z;
+    float receiverRadius = PixelWorldRadius(localUV, centerDepth,
+        worldPosition, receiver.geometricNormal)
+        * Params.SurfaceStepsMinBiasReversedZ.x;
+    int stepCount = max(1, (int)Params.SurfaceStepsMinBiasReversedZ.y);
+    float normalBias = max(Params.SurfaceStepsMinBiasReversedZ.z,
+        receiverRadius * 0.5);
+    normalBias = min(normalBias, maxDistance * 0.05);
     int2 viewportSize = max(int2(round(rcp(Params.Viewport.xy))), int2(1));
     uint targetWidth;
     uint targetHeight;
     SceneDepth.GetDimensions(targetWidth, targetHeight);
     int2 targetSize = int2(targetWidth, targetHeight);
-    float stepDistance = max(maxDistance - startOffset, 1.0e-4) / (float)stepCount;
-    float rayDistance = startOffset + stepDistance * 0.5;
-    float3 rayPosition = worldPosition + toLight * rayDistance;
+    float stepDistance = max(maxDistance, 1.0e-4) / (float)stepCount;
+    float rayDistance = stepDistance;
+    float3 segmentStart = worldPosition + receiver.geometricNormal * normalBias;
+    float3 rayPosition = segmentStart + toLight * stepDistance;
     float occlusion = 0.0;
     for (int stepIndex = 0; stepIndex < stepCount; ++stepIndex)
     {
@@ -109,17 +155,19 @@ float ContactVisibilityFragmentMain(VSOutput input) : SV_Target0
         float screenDistanceSquared = dot(screenDeltaPixels, screenDeltaPixels);
         if (screenDistanceSquared > Params.Trace.x * Params.Trace.x)
             break;
-        if (IsContactHit(rayPosition, rayLocalUV, ndc.z,
-                targetSize, viewportSize, rayThickness))
+        if (IsContactHit(segmentStart, rayPosition, rayLocalUV,
+                targetSize, viewportSize, worldPosition,
+                receiver.geometricNormal, receiverRadius))
         {
             float distanceFade = 1.0 - smoothstep(
-                startOffset, maxDistance, rayDistance);
+                0.0, maxDistance, rayDistance);
             float screenFade = 1.0 - smoothstep(Params.Trace.x * 0.75,
                 Params.Trace.x, sqrt(screenDistanceSquared));
             occlusion = distanceFade * screenFade * facingFade;
             break;
         }
         rayDistance += stepDistance;
+        segmentStart = rayPosition;
         rayPosition += toLight * stepDistance;
     }
     return 1.0 - saturate(occlusion);

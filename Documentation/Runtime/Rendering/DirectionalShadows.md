@@ -125,11 +125,13 @@ local lights, environment lighting, emissive output, retained-forward Unlit
 and translucent surfaces, and already-shadowed contributions are unchanged.
 
 The pass is an opt-in detail trace rather than a default shadow tier. It
-decodes GBuffer material flags and geometric normal, reconstructs receiver
-positions from D32 scene depth, and marches exactly 16
-fixed midpoint samples toward the selected light. The trace starts 0.01 world
-units from the receiver, ends at 0.20 world units, accepts foreground depth
-within a 0.012-world-unit thickness, and stops at 48 screen pixels. Contribution
+decodes GBuffer material flags and geometric normals, reconstructs receiver
+positions from D32 scene depth, and marches exactly 16 bounded line segments
+toward the selected light. Each sampled depth texel represents a finite,
+oriented surface element derived from its geometric normal and projected pixel
+footprint. A hit requires the current ray segment to cross that surface plane
+inside its footprint; spatial proximity to a depth point alone is not a hit.
+The trace ends at 0.20 world units and stops at 48 screen pixels. Contribution
 fades with world distance and across the final 25% of the screen-distance
 budget, so crossing the screen bound does not introduce a full-strength hard
 cut. A ray that leaves the viewport terminates without attempting to represent
@@ -137,12 +139,16 @@ off-screen geometry.
 
 Only `GBufferStandardLitFlag` pixels participate. Backfacing receivers resolve
 fully visible and the unstable grazing interval fades from dot(normal,
-toward-light) 0.02 to 0.20. Depth is fetched with exact texel loads. Linear
-depth filtering and one-sided
-unbounded device-depth tests are forbidden because they create intermediate
-silhouette depths and detached false occlusion. The fixed start bias and finite
-thickness are the only self-hit controls. The pass does not reconstruct a
-receiver plane from neighboring depth, adaptively increase its step count,
+toward-light) 0.02 to 0.20. The ray origin moves along the receiver geometric
+normal by half its dilated pixel footprint, with a 0.0005 minimum and a bound
+of 5% of the trace distance. Parallel near-coplanar surfels are explicitly
+classified as the receiver rather than blockers. The 1.5 footprint dilation
+covers texel-center quantization without introducing a fixed world-space
+thickness. Depth and normals are fetched with exact texel loads. Linear depth
+filtering and one-sided unbounded device-depth tests are forbidden because
+they create intermediate silhouette depths and detached false occlusion. The
+pass does not reconstruct a receiver plane from neighboring depth, adaptively
+increase its step count,
 contract its world extent from endpoint projection, apply a viewport-edge mask,
 or refine hits with extra binary searches. This keeps the worst-case depth
 query budget explicit and avoids view-dependent classification heuristics.

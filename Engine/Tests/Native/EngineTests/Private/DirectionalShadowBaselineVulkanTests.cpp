@@ -1953,6 +1953,35 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	EXPECT_GT(PerspectiveChangedPixels, 0u);
 	EXPECT_LT(PerspectiveChangedPixels, CaptureWidth * CaptureHeight / 2u);
 
+	// A single tilted receiver is intentionally traced along a shallow outward
+	// direction that also moves away from the camera. A point/thickness test
+	// re-hits its own two triangles as large wedges; an oriented surface test
+	// must leave the receiver completely visible without suppressing the real
+	// floating-occluder coverage above.
+	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(2));
+	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(3));
+	Scene.AddOrReplacePrimitive(
+		Durin::FPrimitiveSceneId(1),
+		std::make_unique<Durin::FStaticMeshSceneProxy>(
+			Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1),
+		MakeTransform({.Translation = {0.0, 0.0, -0.5},
+			.Scale = {0.82, 0.82, 1.0}, .RotationYDegrees = 65.0})
+	);
+	Directional.Direction = {-0.55, 0.0, 0.835};
+	Scene.AddOrReplaceLight(
+		Durin::FLightSceneId(100),
+		std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional)
+	);
+	Durin::FlushRenderingCommands();
+	std::vector<Durin::uint8> CoplanarOff;
+	std::vector<Durin::uint8> CoplanarOn;
+	RenderCapture(false, false, CoplanarOff);
+	const Durin::FViewRenderCounters CoplanarCounters =
+		RenderCapture(true, false, CoplanarOn);
+	EXPECT_EQ(CoplanarCounters.ContactShadowEnabledViews, 1u);
+	EXPECT_EQ(CoplanarCounters.ContactShadowPassFailures, 0u);
+	EXPECT_EQ(CoplanarOn, CoplanarOff);
+
 	const FCaptureStatistics StatsOff =
 		CalculateStatistics("contact_off", PixelsOff, CountersOff);
 	const FCaptureStatistics StatsOn =
