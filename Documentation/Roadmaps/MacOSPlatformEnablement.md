@@ -29,10 +29,11 @@ completed M0 on the Windows qualification host. Platform source ownership,
 neutral Launch/Vulkan boundaries, target-aware DHT preprocessing, arm64 preset
 intent, dependency diagnostics, cook inventories, and the first-host checklist
 are qualified. An Apple Silicon development host is now available, so
-[macOS Native Toolchain Bootstrap](../Plans/MacOSNativeToolchainBootstrap.md)
-is active. Its setup, dependency, configuration, graph, and bounded compile
-stages are implemented; final qualification evidence, durable documentation,
-and the bounded M2 handoff are in progress.
+[macOS Native Toolchain Bootstrap](../Plans/Archive/2026-08/MacOSNativeToolchainBootstrap.md)
+completed M1. Its native setup, dependency, configuration, graph, fresh-
+worktree reproduction, bounded Engine compile, durable documentation, and M2
+entry diagnostics are qualified without claiming runtime support. M2 platform
+runtime and Editor-shell work is the next proposed milestone.
 
 ## Outcome
 
@@ -142,7 +143,7 @@ flowchart LR
 | Milestone | Requirement | Child plan | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- |
 | M0: Host-independent preparation | Required; completed | [macOS Host-Independent Preparation](../Plans/Archive/2026-08/MacOSHostIndependentPreparation.md) | Met: Windows build and test environment is available and the principal platform couplings are identifiable statically. | Met: Windows behavior remains qualified; build/source ownership, platform-neutral Vulkan admission models, target-aware generation metadata, and a reproducible first-Mac handoff are complete. |
-| M1: Native toolchain bootstrap | Required; active | [macOS Native Toolchain Bootstrap](../Plans/MacOSNativeToolchainBootstrap.md) | Met: M0 is complete and an Apple Silicon Mac is available for repeatable local execution. | Declared Xcode/macOS baseline configures and compiles a bounded Core/ApplicationCore target set with pinned arm64 dependencies and repeatable setup diagnostics. |
+| M1: Native toolchain bootstrap | Required; completed | [macOS Native Toolchain Bootstrap](../Plans/Archive/2026-08/MacOSNativeToolchainBootstrap.md) | Met: M0 is complete and an Apple Silicon Mac is available for repeatable local execution. | Met: the declared Xcode/macOS baseline configures and compiles a bounded Core/ApplicationCore target set with pinned arm64 dependencies, repeatable setup diagnostics, and fresh-worktree evidence. |
 | M2: Platform runtime and Editor shell | Required; proposed | `MacOSPlatformRuntime` | M1 toolchain and dependency preparation are stable. | Core process/module/filesystem services and the Editor shell launch, create a Cocoa window, process input, relaunch/open paths, enforce project ownership, and shut down without rendering-backend requirements being bypassed. |
 | M3: MoltenVK rendering vertical slice | Required; proposed | `MacOSMoltenVKRendering` | M2 provides a stable window/surface lifecycle and MoltenVK is pinned. | Editor renders and presents representative graphics and compute work with validation diagnostics, resize/minimize/recreate, shader compilation, resource lifetime, and clean shutdown passing on the target Mac. |
 | M4: Asset and cook compatibility | Required; proposed | `MacOSAssetCookCompatibility` | M3 publishes exact supported GPU formats and shader/runtime capabilities. | Every currently Win64-guarded runtime payload family has a recorded shared-or-recooked decision, versioned keys, focused tests, and representative Editor/Game load evidence. |
@@ -158,7 +159,7 @@ arm64 preset metadata, and the first-native-host readiness handoff. It does not
 add uncompiled Objective-C++ implementations, pin unverified macOS binary URLs,
 or claim native support.
 
-### [macOS Native Toolchain Bootstrap](../Plans/MacOSNativeToolchainBootstrap.md)
+### [macOS Native Toolchain Bootstrap](../Plans/Archive/2026-08/MacOSNativeToolchainBootstrap.md)
 
 Owns the supported macOS/Xcode baseline, command entrypoints, arm64 dependency
 acquisition/build, Vulkan SDK and MoltenVK layout, Slang dylib selection, CMake

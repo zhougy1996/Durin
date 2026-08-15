@@ -4,19 +4,19 @@ Summary: Establish a repeatable Apple Silicon macOS DevTool, dependency, configu
 
 Last reviewed: 2026-08-16
 
-Status: Active
-Completed:
+Status: Archived
+Completed: 2026-08-16
 
 ## Current Status
 
-M0 is complete and M1 is active on the first Apple Silicon development host.
+M0 and M1 are complete on the first Apple Silicon development host.
 Stage 1 is complete: the POSIX launcher, standard-library bootstrap validation,
 macOS preflight/toolchain strategy, native virtual environment, inherited or
 scripted environment persistence, build profile, and LLDB launch generation
 are implemented. A complete non-interactive setup and an immediate idempotent
 rerun both pass with the selected Vulkan environment script.
 
-Stage 2 is substantially complete. Slang 2026.5.2 is pinned from its official arm64
+Stage 2 is complete. Slang 2026.5.2 is pinned from its official arm64
 archive; GLM, bc7enc_rdo, GoogleTest, spdlog, GLFW, rapidyaml, Assimp, and Tracy
 prepare successfully. macOS shared-install validation now uses verified native
 artifact names, and Assimp uses the Xcode SDK zlib instead of its Darwin-
@@ -24,7 +24,7 @@ incompatible bundled zlib. Win64-only Tracy tools are skipped explicitly. The
 configured GLFW import supplies its required Cocoa, IOKit, and CoreFoundation
 framework closure; RenderCore links and deploys the pinned Slang dylib.
 
-Stage 3 is complete and Stage 4 is active. `MacOS-arm64-Debug-DurinEditor`
+Stages 3 and 4 are complete. `MacOS-arm64-Debug-DurinEditor`
 configures successfully. Its
 907 generated compile commands all target arm64, contain 75 MacOS or MacOS DHT
 sources, and contain no Windows implementation source or Windows target macro.
@@ -50,8 +50,8 @@ fresh-configured the declared preset, and rebuilt the 294-step Engine closure
 successfully. The resulting dylib is Mach-O arm64, keeps the
 `@rpath/libDurinEditor-Engine.dylib` identity, resolves repository modules
 through `@rpath`, and records the Debug runtime directory as an `LC_RPATH`.
-No Editor was launched and runtime support is not claimed. Final qualification
-and documentation remain open.
+No Editor was launched and runtime support is not claimed. M2 owns the first
+runtime and Editor-shell qualification.
 
 The Stage 4 control-plane regression pass is green: all 369 applicable
 DurinDevTool tests pass with two host-inapplicable skips, and all 159 DHT tests
@@ -91,11 +91,29 @@ is fresh-worktree evidence rather than a second fresh-host acquisition claim.
   platform zlib.
 
 This plan is M1 of the
-[macOS Platform Enablement roadmap](../Roadmaps/MacOSPlatformEnablement.md) and
+[macOS Platform Enablement roadmap](../../../Roadmaps/MacOSPlatformEnablement.md) and
 consumes the archived M0
-[first-host handoff](Archive/2026-08/MacOSHostIndependentPreparation.md#m1-first-host-handoff).
+[first-host handoff](MacOSHostIndependentPreparation.md#m1-first-host-handoff).
 It ends at repeatable native configuration and a bounded compile gate; M2-M5
 retain runtime, rendering, asset, and product qualification ownership.
+
+### Starting baseline and version policy
+
+- M0's first-host handoff is the preserved starting record. At that point the
+  repository had no POSIX setup launcher, dependency validation enumerated the
+  missing MacOS archive/required-file fields, and the arm64 Debug Editor preset
+  and schema parsed statically. Native configure had no result because an Apple
+  Silicon worker was not yet available; no compiler failure was invented as a
+  substitute baseline.
+- M1 qualifies the exact candidate host and tool versions listed below. It does
+  not infer older supported minima from one host. Selecting a minimum macOS,
+  Xcode, SDK, or tool version requires a later multi-version qualification
+  matrix; current support work therefore depends on the recorded candidate or
+  a newer version that independently passes the same gates.
+- Vulkan/MoltenVK and Slang metadata entered the manifests only after publisher,
+  integrity, required-file, arm64, install-name, dependency, and runtime-layout
+  inspection. No unverified candidate was pinned, and the stop-on-unverified-
+  artifact rule remains the rollback boundary.
 
 ## Goal
 
@@ -227,14 +245,14 @@ that does not require M2 runtime implementations.
 - [x] Record the host model and architecture, macOS version, selected Xcode and
   macOS SDK, Apple Clang, CMake, Ninja, Python, Git, Vulkan SDK/MoltenVK, and
   candidate Slang versions with their resolved executable and SDK paths.
-- [ ] Define the supported minimum/candidate baseline and explicitly record
+- [x] Define the supported minimum/candidate baseline and explicitly record
   whether qualification depends on a newer locally installed version.
 - [x] Verify the candidate Vulkan SDK/MoltenVK and Slang artifacts outside the
   repository, including provenance, hashes, arm64 slices, required files,
   executable behavior, dylib identities, dependencies, and current rpaths.
-- [ ] Capture the current macOS setup failure, dependency manifest diagnostics,
+- [x] Capture the current macOS setup failure, dependency manifest diagnostics,
   preset parse result, and configure result as the native starting baseline.
-- [ ] Stop without pinning metadata if an artifact cannot be traced to its
+- [x] Stop without pinning metadata if an artifact cannot be traced to its
   publisher, fails integrity or arm64 inspection, or requires an unsupported
   host-global mutation.
 
@@ -349,7 +367,7 @@ that does not require M2 runtime implementations.
 - [x] Publish M2's entry diagnostics for process, crash, filesystem/module,
   native dialog, window/input, project ownership, and Editor shell work without
   claiming runtime or rendering support.
-- [ ] Update this plan and the roadmap only after every M1 acceptance gate has
+- [x] Update this plan and the roadmap only after every M1 acceptance gate has
   evidence; leave the plan active if the native compile gate is incomplete.
 
 #### Acceptance Gate
@@ -402,9 +420,9 @@ that does not require M2 runtime implementations.
 | Documentation lifecycle | Changed-document validation, all-plan lifecycle validation, live roadmap links, and authoritative build/dependency guidance updated with evidence rather than anticipated behavior. |
 
 Build, native-test selection, and documentation validation follow the
-repository [agent build workflow](../Agents/BuildAndRun.md),
-[agent testing workflow](../Agents/Testing.md), and
-[documentation workflow](../Agents/Documentation.md). The plan records evidence
+repository [agent build workflow](../../../Agents/BuildAndRun.md),
+[agent testing workflow](../../../Agents/Testing.md), and
+[documentation workflow](../../../Agents/Documentation.md). The plan records evidence
 and target ownership rather than duplicating mutable command recipes.
 
 ## Definition of Done
@@ -440,13 +458,13 @@ and target ownership rather than duplicating mutable command recipes.
 
 ## Related Documentation
 
-- [macOS Platform Enablement roadmap](../Roadmaps/MacOSPlatformEnablement.md)
-- [macOS Host-Independent Preparation](Archive/2026-08/MacOSHostIndependentPreparation.md)
-- [Build And Run](../Development/Build/BuildAndRun.md)
-- [Third-Party Dependency Preparation](../Development/Build/ThirdPartyBootstrap.md)
-- [Agent Build And Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [Agent Documentation Workflow](../Agents/Documentation.md)
+- [macOS Platform Enablement roadmap](../../../Roadmaps/MacOSPlatformEnablement.md)
+- [macOS Host-Independent Preparation](MacOSHostIndependentPreparation.md)
+- [Build And Run](../../../Development/Build/BuildAndRun.md)
+- [Third-Party Dependency Preparation](../../../Development/Build/ThirdPartyBootstrap.md)
+- [Agent Build And Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [Agent Documentation Workflow](../../../Agents/Documentation.md)
 
 ## Related Code
 
