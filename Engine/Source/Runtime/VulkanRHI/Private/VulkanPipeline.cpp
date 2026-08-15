@@ -311,6 +311,8 @@ namespace Durin::VulkanRHI
 
 		std::vector<vk::VertexInputBindingDescription> BindingDescriptions;
 		std::vector<vk::VertexInputAttributeDescription> AttributeDescriptions;
+		const auto* VertexShader = static_cast<const FVulkanShader*>(
+			Initializer.BoundShaders.VertexShader);
 
 		const FRHIVertexDeclaration* VertexDeclarationElements = Initializer.VertexDeclaration;
 		for (auto& Element : VertexDeclarationElements->GetElements())
@@ -318,6 +320,11 @@ namespace Durin::VulkanRHI
 			if (Element.Type == EVertexElementType::None)
 			{
 				break;
+			}
+			if (VertexShader->HasReflectedVertexInputs()
+				&& !VertexShader->ConsumesVertexAttribute(Element.AttributeIndex))
+			{
+				continue;
 			}
 
 			// Check if this stream index already has a binding
