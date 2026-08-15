@@ -82,7 +82,7 @@ float SampleDirectionalShadowKernel(
 
 FDirectionalShadowSample EvaluateDirectionalShadowCascade(
     float3 worldPosition,
-    float3 worldNormal,
+    float3 geometricNormal,
     float4 control,
     float3 lightDirection,
     FDirectionalShadowCascadeUniform cascade,
@@ -116,15 +116,15 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
         int2(0), int2(int(width) - 1, int(height) - 1));
     float storedDepth = shadowTexture.Load(int4(texel, int(layer), 0));
     bool covered = storedDepth < 0.999999;
-	float normalLengthSquared = dot(worldNormal, worldNormal);
+	float normalLengthSquared = dot(geometricNormal, geometricNormal);
 	float lightLengthSquared = dot(lightBounds.xyz, lightBounds.xyz);
 	float texelWorld = max(texelBias.x, texelBias.y);
 	bool biasInputsValid = control.z < 0.5
-		&& all(isfinite(worldNormal)) && normalLengthSquared > 1.0e-8
+		&& all(isfinite(geometricNormal)) && normalLengthSquared > 1.0e-8
 		&& all(isfinite(lightBounds.xyz)) && lightLengthSquared > 1.0e-8
 		&& all(isfinite(texelBias.xy)) && texelWorld > 0.0;
 	float3 normal = biasInputsValid
-		? worldNormal * rsqrt(normalLengthSquared) : float3(0.0, 0.0, 1.0);
+		? geometricNormal * rsqrt(normalLengthSquared) : float3(0.0, 0.0, 1.0);
 	float3 toLight = biasInputsValid
 		? -lightBounds.xyz * rsqrt(lightLengthSquared) : float3(0.0, 0.0, 1.0);
 	float grazing = biasInputsValid
@@ -254,7 +254,7 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
 
 public FDirectionalShadowSample EvaluateDirectionalShadow(
     float3 worldPosition,
-    float3 worldNormal,
+    float3 geometricNormal,
     float4 control,
     float4 viewDepthTransform,
     float4 splitDepths,
@@ -306,13 +306,13 @@ public FDirectionalShadowSample EvaluateDirectionalShadow(
     if (mode >= 11u)
         localControl.y = 0.0;
     FDirectionalShadowSample nearSample = EvaluateDirectionalShadowCascade(
-        worldPosition, worldNormal, localControl, lightTransition.xyz,
+        worldPosition, geometricNormal, localControl, lightTransition.xyz,
         cascades[nearCascade], nearCascade, shadowTexture, shadowSampler);
     FDirectionalShadowSample farSample = nearSample;
     if (farCascade != nearCascade)
     {
         farSample = EvaluateDirectionalShadowCascade(
-            worldPosition, worldNormal, localControl, lightTransition.xyz,
+            worldPosition, geometricNormal, localControl, lightTransition.xyz,
             cascades[farCascade], farCascade, shadowTexture, shadowSampler);
     }
     result.attenuation = lerp(
@@ -337,13 +337,13 @@ public FDirectionalShadowSample EvaluateDirectionalShadow(
         float4 coverageControl = control;
         coverageControl.y = 1.0;
         FDirectionalShadowSample nearCoverage = EvaluateDirectionalShadowCascade(
-            worldPosition, worldNormal, coverageControl, lightTransition.xyz,
+            worldPosition, geometricNormal, coverageControl, lightTransition.xyz,
             cascades[nearCascade], nearCascade, shadowTexture, shadowSampler);
         FDirectionalShadowSample farCoverage = nearCoverage;
         if (farCascade != nearCascade)
         {
             farCoverage = EvaluateDirectionalShadowCascade(
-                worldPosition, worldNormal, coverageControl, lightTransition.xyz,
+                worldPosition, geometricNormal, coverageControl, lightTransition.xyz,
                 cascades[farCascade], farCascade, shadowTexture, shadowSampler);
         }
         result.diagnosticColor = lerp(

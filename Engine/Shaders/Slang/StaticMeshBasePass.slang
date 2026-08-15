@@ -392,7 +392,7 @@ float4 FragmentMain(
             * Lighting.DirectionalColorIntensity.a;
         FDirectionalShadowSample shadow = EvaluateDirectionalShadow(
             input.worldPosition,
-            normal,
+            normalFrame.geometricNormal,
             Lighting.DirectionalShadowControl,
             Lighting.DirectionalShadowViewDepthTransform,
             Lighting.DirectionalShadowSplitDepths,

@@ -140,7 +140,7 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
             * Lighting.DirectionalColorIntensity.a;
         FDirectionalShadowSample shadow = EvaluateDirectionalShadow(
             worldPosition,
-            frame.normal,
+            record.geometricNormal,
             Lighting.DirectionalShadowControl,
             Lighting.DirectionalShadowViewDepthTransform,
             Lighting.DirectionalShadowSplitDepths,

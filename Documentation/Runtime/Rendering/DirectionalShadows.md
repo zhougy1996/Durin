@@ -102,8 +102,9 @@ valid-region vectors. Local lights begin at offset 512.
 C++ size/offset assertions and Slang compilation/reflection tests own this
 packing.
 
-One shared Slang helper consumes production world position and the final
-mapped production normal. With normalized surface-to-light direction `l` and
+One shared Slang helper consumes production world position and the geometric
+normal; the mapped shading normal remains exclusive to BRDF evaluation. With
+normalized surface-to-light direction `l` and
 `g = 1-saturate(abs(dot(n,l)))`, it computes receiver world bias
 `R=clamp(t*(0.05+0.10g),0.0005,0.02)` and normal offset
 `N=clamp(t*(0.05+0.70g),0,0.06)`. `R+N` is limited to
