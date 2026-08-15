@@ -6,6 +6,7 @@
 
 namespace Durin
 {
+	class FViewportClient;
 	struct FSceneViewportStatisticsSnapshot;
 }
 
@@ -50,6 +51,7 @@ namespace Durin::Editor::Level
 		float RuntimeButtonWidth = 0.0f;
 		bool bCompact = false;
 		bool bOverflow = false;
+		bool bRenderSettingsTargetIsPlayWindow = false;
 	};
 
 	// Describes the FPS badge and optional statistics panel within one viewport.
@@ -148,10 +150,16 @@ namespace Durin::Editor::Level
 	class FViewportToolbar final
 	{
 	public:
-		auto CalculateLayout(const FLevelEditorViewportClient* ViewportClient, const FLevelViewportEditModeManager* EditModeManager, const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> FViewportToolbarLayout;
+		auto CalculateLayout(
+			const FViewportClient* RenderSettingsClient,
+			bool bRenderSettingsTargetIsPlayWindow,
+			const FLevelViewportEditModeManager* EditModeManager,
+			const ImVec2& ViewportMin,
+			const ImVec2& ViewportMax) const -> FViewportToolbarLayout;
 		auto Draw(
 			FLevelEditorContext& Context,
-			FLevelEditorViewportClient* ViewportClient,
+			FLevelEditorViewportClient* EditorViewportClient,
+			FViewportClient* RenderSettingsClient,
 			FLevelViewportEditModeManager* EditModeManager,
 			::Durin::Editor::EPlayStartLocation& PreferredPlayStartLocation,
 			::Durin::Editor::EPlayDestination& PreferredPlayDestination,

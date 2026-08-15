@@ -65,6 +65,7 @@ namespace Durin
 	class AActor;
 	class DObject;
 	class FSceneViewport;
+	class FViewportClient;
 	class FRenderCommandFence;
 	class MWindow;
 	class FGenericWindow;
@@ -99,6 +100,7 @@ namespace Durin
 		DURINED_API auto ReleasePlayMouseCapture() -> void;
 		DURINED_API auto ApplyPlaySessionChanges(const std::vector<AActor*>& PlayActors, uint32* OutAppliedActorCount = nullptr, std::string* OutError = nullptr) -> bool;
 		DURINED_API auto GetEditorObjectForPlayObject(const DObject* PlayObject) const -> DObject*;
+		DURINED_API auto GetPlayViewportRenderSettingsClient() -> FViewportClient*;
 		auto GetPlayState() const -> Editor::EPlayState { return PlayState; }
 		auto IsPlaying() const -> bool { return PlayState != Editor::EPlayState::Stopped; }
 		auto IsPlaySessionPaused() const -> bool { return PlayState == Editor::EPlayState::Paused; }
@@ -122,6 +124,8 @@ namespace Durin
 		auto TeardownPlaySession() -> void;
 		auto ReleaseRetiredPlaySessions(bool bReleaseAll = false) -> void;
 		auto SuspendPlayMouseCapture() -> void;
+		DURINED_API auto InitializePlayWindowViewportClient(
+			const FViewportClient* SourceClient) -> void;
 
 		std::unique_ptr<Editor::FTransactionManager> TransactionManager;
 		std::unique_ptr<Editor::FNotificationManager> NotificationManager;
@@ -151,6 +155,7 @@ namespace Durin
 		std::unordered_map<DObject*, DObject*> EditorToPlayObjects;
 		std::unordered_map<DObject*, DObject*> PlayToEditorObjects;
 		std::shared_ptr<FSceneViewport> PreviousSceneViewport;
+		std::unique_ptr<FViewportClient> PlayWindowViewportClient;
 		std::shared_ptr<FSceneViewport> PlayWindowViewport;
 		std::shared_ptr<MWindow> PlayWindow;
 		std::weak_ptr<FGenericWindow> CapturedMouseWindow;

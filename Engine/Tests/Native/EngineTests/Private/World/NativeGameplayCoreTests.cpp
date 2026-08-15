@@ -2,6 +2,7 @@
 
 #include "DObject/Class.h"
 #include "Editor/EditorEngine.h"
+#include "Client/ViewportClient.h"
 #include "Engine/GameEngine.h"
 #include "Gameplay/PawnControlIntent.h"
 #include "Input/GameInputState.h"
@@ -33,6 +34,13 @@ namespace Durin
 		{
 			Engine.PlayState = Editor::EPlayState::Playing;
 			Engine.PlayDestination = Destination;
+		}
+
+		static auto InitializePlayWindowViewportClient(
+			DEditorEngine& Engine,
+			const FViewportClient* SourceClient) -> void
+		{
+			Engine.InitializePlayWindowViewportClient(SourceClient);
 		}
 
 		static auto KeyDown(DEditorEngine& Engine, const std::shared_ptr<FGenericWindow>& Window, EKey Key, bool bRepeat = false) -> bool
@@ -889,6 +897,56 @@ TEST(FNativeGameplayViewTargetTests, RejectsForeignTargetsAndClearsDestroyedTarg
 	Durin::CollectGarbage();
 }
 
+TEST(FEditorPlayViewportTests, SeedsAndIsolatesNewWindowRenderSettingsPerSession)
+{
+	InitializeDObjectSystem();
+	auto* Engine = Durin::NewObject<Durin::DEditorEngine>(nullptr, "PlayViewportSettingsEngine");
+	Durin::FViewportClient EditorClient;
+	EditorClient.SetViewSettings({
+		.bEnableFXAA = false,
+		.ExposureEV = -1.25f,
+		.RenderMode = Durin::ERenderMode::Unlit,
+		.RasterMode = Durin::ERasterMode::Wireframe,
+		.bEnableContactShadows = true,
+	});
+
+	Durin::FEditorEngineTestAccess::InitializePlayWindowViewportClient(*Engine, &EditorClient);
+	Durin::FViewportClient* PlayClient = Engine->GetPlayViewportRenderSettingsClient();
+	ASSERT_NE(PlayClient, nullptr);
+	EXPECT_NE(PlayClient, &EditorClient);
+	EXPECT_FALSE(PlayClient->GetViewSettings().bEnableFXAA);
+	EXPECT_FLOAT_EQ(PlayClient->GetViewSettings().ExposureEV, -1.25f);
+	EXPECT_EQ(PlayClient->GetViewSettings().RenderMode, Durin::ERenderMode::Unlit);
+	EXPECT_EQ(PlayClient->GetViewSettings().RasterMode, Durin::ERasterMode::Wireframe);
+	EXPECT_TRUE(PlayClient->GetViewSettings().bEnableContactShadows);
+
+	Durin::FSceneViewSettings PlaySettings = PlayClient->GetViewSettings();
+	PlaySettings.RenderMode = Durin::ERenderMode::Lit;
+	PlaySettings.RasterMode = Durin::ERasterMode::Solid;
+	PlaySettings.ExposureEV = 2.0f;
+	PlayClient->SetViewSettings(PlaySettings);
+	EXPECT_EQ(EditorClient.GetViewSettings().RenderMode, Durin::ERenderMode::Unlit);
+	EXPECT_EQ(EditorClient.GetViewSettings().RasterMode, Durin::ERasterMode::Wireframe);
+	EXPECT_FLOAT_EQ(EditorClient.GetViewSettings().ExposureEV, -1.25f);
+
+	Durin::FEditorEngineTestAccess::InitializePlayWindowViewportClient(*Engine, &EditorClient);
+	PlayClient = Engine->GetPlayViewportRenderSettingsClient();
+	ASSERT_NE(PlayClient, nullptr);
+	EXPECT_EQ(PlayClient->GetViewSettings().RenderMode, Durin::ERenderMode::Unlit);
+	EXPECT_EQ(PlayClient->GetViewSettings().RasterMode, Durin::ERasterMode::Wireframe);
+	EXPECT_FLOAT_EQ(PlayClient->GetViewSettings().ExposureEV, -1.25f);
+	Durin::FEditorEngineTestAccess::InitializePlayWindowViewportClient(*Engine, nullptr);
+	PlayClient = Engine->GetPlayViewportRenderSettingsClient();
+	ASSERT_NE(PlayClient, nullptr);
+	EXPECT_TRUE(PlayClient->GetViewSettings().bEnableFXAA);
+	EXPECT_EQ(PlayClient->GetViewSettings().RenderMode, Durin::ERenderMode::Lit);
+	EXPECT_EQ(PlayClient->GetViewSettings().RasterMode, Durin::ERasterMode::Solid);
+	EXPECT_FLOAT_EQ(PlayClient->GetViewSettings().ExposureEV, 0.0f);
+
+	Durin::MarkObjectHierarchyAsGarbage(Engine);
+	Durin::CollectGarbage();
+}
+
 TEST(FNativeGameplayPIETests, RepeatsNativeLevelStartAndEditorCameraSessionsWithoutStaleRoles)
 {
 	InitializeDObjectSystem();
@@ -914,6 +972,11 @@ TEST(FNativeGameplayPIETests, RepeatsNativeLevelStartAndEditorCameraSessionsWith
 	EXPECT_EQ(
 		Engine->GetPlayWorld()->GetLocalPlayerController()->GetViewTarget(),
 		Engine->GetPlayWorld()->GetDefaultPawn());
+	EXPECT_FALSE(EditorWorld->IsCollisionDebugDrawEnabled());
+	EXPECT_FALSE(Engine->GetPlayWorld()->IsCollisionDebugDrawEnabled());
+	Engine->GetPlayWorld()->SetCollisionDebugDrawEnabled(true);
+	EXPECT_TRUE(Engine->GetPlayWorld()->IsCollisionDebugDrawEnabled());
+	EXPECT_FALSE(EditorWorld->IsCollisionDebugDrawEnabled());
 	Engine->SetPlaySessionPaused(true);
 	EXPECT_TRUE(Engine->GetPlayWorld()->IsPaused());
 	Engine->StepPlaySession();
@@ -923,6 +986,7 @@ TEST(FNativeGameplayPIETests, RepeatsNativeLevelStartAndEditorCameraSessionsWith
 	EXPECT_EQ(Engine->GetPlayState(), Durin::Editor::EPlayState::Stopped);
 	EXPECT_EQ(Engine->GetWorld(), EditorWorld);
 	EXPECT_EQ(EditorWorld->GetCurrentLevel(), EditorLevel);
+	EXPECT_FALSE(EditorWorld->IsCollisionDebugDrawEnabled());
 
 	Request.StartLocation = Durin::Editor::EPlayStartLocation::EditorCamera;
 	Request.CameraLocation = {11.0, 12.0, 13.0};

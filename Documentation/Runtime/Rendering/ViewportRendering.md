@@ -108,6 +108,13 @@ camera-less target is ignored. Engine then falls back to the active Level's
 primary `ACameraActor`, followed by the existing identity/no-camera behavior.
 Auxiliary editor viewports remain explicit and never inherit this fallback.
 
+Viewport policy and view-matrix ownership remain independent on the fallback
+path. When a viewport client declines to build matrices, Engine retains that
+client's complete `FSceneViewSettings` and combines them with the gameplay
+camera. A null client alone selects default settings. This lets embedded PIE
+keep the Level Editor viewport's diagnostic policy without letting its editor
+camera override the runtime view.
+
 For each valid non-zero output, `FSceneRenderer` preserves this order:
 
 1. Resolve size-keyed Scene Color and depth targets and fit the view to the
@@ -163,6 +170,13 @@ that native window. `Escape`, focus loss, pause, stop, Play-window close, and
 teardown restore `Free` mode synchronously before the window or Play world is
 released. Focus restoration and resume require another click rather than
 recapturing automatically.
+
+Embedded PIE keeps the Level Editor viewport client as its render-policy owner;
+settings changed during Play therefore remain on that viewport after Stop.
+New-window PIE creates a lightweight session-owned viewport client, seeds it
+from the previous editor viewport, and routes the Level Editor render controls
+to that client while the window is active. The Play window's later changes are
+discarded when it closes, and its viewport is released before its client.
 
 Flow:
 

@@ -24,6 +24,21 @@ read-only. Content and level document operations remain disabled. Focus the scen
 viewport to route keyboard and mouse input to gameplay. In new-window mode, input
 is enabled only while the game window is active; closing that window stops Play.
 
+## Debugging rendering during Play
+
+The Scene Viewport render menu remains available during Play and Pause. Release
+captured gameplay input with `Escape`, then use the menu to change Lit/Unlit,
+Solid/Wireframe, directional-shadow quality or debug views, contact shadows,
+FXAA, and runtime collision drawing. Editor camera, grid, transform, snapping,
+and edit-mode controls remain locked.
+
+Embedded Play applies these settings to the gameplay camera in the Scene
+Viewport. The selected settings remain on that viewport after Stop, which makes
+before/after comparison direct. During new-window Play, the same menu is labeled
+`Target: Play Window`; changes affect only that Play window and are discarded
+when it closes. Pausing with `F6` and stepping with `F7` do not change the active
+diagnostic target.
+
 ## Applying runtime changes
 
 **Apply Selected Runtime Changes** and **Apply All Runtime Changes** explicitly

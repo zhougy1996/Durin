@@ -532,6 +532,8 @@ TEST(FViewportSelectionTests, PrefersViewportClientThenControllerTargetThenPrima
 		.ExposureEV = -2.0f,
 		.RenderMode = Durin::ERenderMode::Unlit,
 		.RasterMode = Durin::ERasterMode::Wireframe,
+		.DirectionalShadowDiagnosticMode =
+			Durin::EDirectionalShadowDiagnosticMode::CascadeIndex,
 		.bEnableContactShadows = true,
 	});
 	auto ClientViewport = Durin::FSceneViewport::CreateOffscreen(&Client);
@@ -543,6 +545,9 @@ TEST(FViewportSelectionTests, PrefersViewportClientThenControllerTargetThenPrima
 	EXPECT_FLOAT_EQ(ClientView.Settings.ExposureEV, -2.0f);
 	EXPECT_EQ(ClientView.Settings.RenderMode, Durin::ERenderMode::Unlit);
 	EXPECT_EQ(ClientView.Settings.RasterMode, Durin::ERasterMode::Wireframe);
+	EXPECT_EQ(
+		ClientView.Settings.DirectionalShadowDiagnosticMode,
+		Durin::EDirectionalShadowDiagnosticMode::CascadeIndex);
 
 	Client.SetViewSettings({});
 	EXPECT_EQ(ClientView.Settings.RenderMode, Durin::ERenderMode::Unlit);
@@ -570,6 +575,8 @@ TEST(FViewportSelectionTests, PrefersViewportClientThenControllerTargetThenPrima
 		.ExposureEV = 1.5f,
 		.RenderMode = Durin::ERenderMode::Unlit,
 		.RasterMode = Durin::ERasterMode::Wireframe,
+		.DirectionalShadowDiagnosticMode =
+			Durin::EDirectionalShadowDiagnosticMode::CascadeIndex,
 		.bEnableContactShadows = true,
 	});
 	Engine.SetTestViewport(Durin::FSceneViewport::CreateOffscreen(&FallbackClient));
@@ -580,6 +587,9 @@ TEST(FViewportSelectionTests, PrefersViewportClientThenControllerTargetThenPrima
 	EXPECT_FLOAT_EQ(FallbackView.Settings.ExposureEV, 1.5f);
 	EXPECT_EQ(FallbackView.Settings.RenderMode, Durin::ERenderMode::Unlit);
 	EXPECT_EQ(FallbackView.Settings.RasterMode, Durin::ERasterMode::Wireframe);
+	EXPECT_EQ(
+		FallbackView.Settings.DirectionalShadowDiagnosticMode,
+		Durin::EDirectionalShadowDiagnosticMode::CascadeIndex);
 
 	Engine.SetTestViewport(nullptr);
 	ExpectVectorNear(Engine.BuildMainSceneView(640, 480).ViewLocation, {21.0, 22.0, 23.0});

@@ -2,6 +2,8 @@
 
 #include "Actors/GameMode.h"
 #include "Actors/PlayerStart.h"
+#include "Client/SceneViewport.h"
+#include "Client/ViewportClient.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
@@ -33,6 +35,16 @@ namespace Durin
 				Editor::EPlayStartLocation::LevelStart,
 				Editor::EPlayStartLocation::EditorCamera})
 			{
+				const std::shared_ptr<FSceneViewport> EditorSceneViewport =
+					GEditor->GetMainSceneViewport();
+				FViewportClient* EditorViewportClient = EditorSceneViewport
+					? EditorSceneViewport->GetViewportClient()
+					: nullptr;
+				checkf(EditorViewportClient,
+					"PIE lifecycle smoke could not resolve the editor viewport client.");
+				const FSceneViewSettings EditorSettingsBefore = EditorViewportClient
+					? EditorViewportClient->GetViewSettings()
+					: FSceneViewSettings{};
 				Editor::FPlayRequest Request;
 				Request.SourceLevel = SourceLevel;
 				Request.Destination = Destination;
@@ -52,6 +64,27 @@ namespace Durin
 				{
 					checkf(GEditor->GetPlayWorld()->FindActorByName("PIE_EditorCamera"),
 						"Play From Camera did not publish its transient camera.");
+				}
+				if (Destination == Editor::EPlayDestination::NewWindow)
+				{
+					FViewportClient* PlayViewportClient =
+						GEditor->GetPlayViewportRenderSettingsClient();
+					checkf(PlayViewportClient
+						&& PlayViewportClient->GetViewSettings().RenderMode
+							== EditorSettingsBefore.RenderMode
+						&& PlayViewportClient->GetViewSettings().RasterMode
+							== EditorSettingsBefore.RasterMode
+						&& PlayViewportClient->GetViewSettings().bEnableFXAA
+							== EditorSettingsBefore.bEnableFXAA,
+						"New-window PIE did not seed an independent render policy.");
+					if (PlayViewportClient)
+					{
+						FSceneViewSettings PlaySettings = PlayViewportClient->GetViewSettings();
+						PlaySettings.RenderMode = PlaySettings.RenderMode == ERenderMode::Lit
+							? ERenderMode::Unlit
+							: ERenderMode::Lit;
+						PlayViewportClient->SetViewSettings(PlaySettings);
+					}
 				}
 				const std::shared_ptr<MWindow> ActiveWindow = Mona::FMonaApplication::Get().GetActiveTopLevelWindow();
 				const std::shared_ptr<FGenericWindow> NativeWindow = ActiveWindow ? ActiveWindow->GetNativeWindow() : nullptr;
@@ -82,6 +115,18 @@ namespace Durin
 					&& GEditor->GetWorld() == EditorWorld
 					&& EditorWorld->GetCurrentLevel() == SourceLevel,
 					"PIE lifecycle smoke did not restore the editor World.");
+				if (Destination == Editor::EPlayDestination::NewWindow)
+				{
+					checkf(GEditor->GetPlayViewportRenderSettingsClient() == nullptr
+						&& EditorViewportClient
+						&& EditorViewportClient->GetViewSettings().RenderMode
+							== EditorSettingsBefore.RenderMode
+						&& EditorViewportClient->GetViewSettings().RasterMode
+							== EditorSettingsBefore.RasterMode
+						&& EditorViewportClient->GetViewSettings().bEnableFXAA
+							== EditorSettingsBefore.bEnableFXAA,
+						"New-window PIE leaked render policy across Stop.");
+				}
 				Mona::FMonaApplication::Get().Tick();
 			}
 		}

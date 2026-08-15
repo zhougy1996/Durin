@@ -45,6 +45,15 @@ the engine retains and restores the editor viewport across the latter session.
 Destroying the target clears it immediately, after which normal camera fallback
 applies.
 
+PIE read-only authority applies to editor content and camera mutation, not to
+viewport render inspection. Embedded Play combines the active gameplay camera
+with the existing Level Editor viewport's `FSceneViewSettings`. New-window Play
+owns a lightweight viewport client initialized from the previous editor
+viewport, so its diagnostic changes remain independent and are discarded on
+Stop. The window-backed viewport releases its raw client reference before the
+session-owned client is destroyed. Paused and single-step sessions use the same
+render-policy target as Playing.
+
 ## Physics And Input
 
 `DPhysicsComponent` is the initial runtime physics layer. It integrates linear
@@ -77,6 +86,13 @@ after full editor initialization; it is never enabled by ordinary startup.
 The active workspace receives Save, Undo, and Redo commands from the host.
 Shared reflected-property transactions remain editor-wide across document and
 project transitions and are cleared at explicit PIE lifecycle boundaries.
+
+The Level Editor toolbar resolves editor-interaction and render-settings targets
+separately. Transform, edit-mode, snapping, grid, drag/drop, and editor-camera
+controls remain disabled during PIE. Shading, rasterization, directional-shadow
+quality and diagnostics, contact shadows, FXAA, and transient Play-World
+collision drawing remain available. When new-window PIE is active, the popup
+labels its target as `Play Window`.
 
 ## Related Documentation
 

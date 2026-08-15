@@ -4,8 +4,8 @@ Summary: Add viewport-owned rendering diagnostics to embedded and new-window PIE
 
 Last reviewed: 2026-08-16
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-16
 
 ## Current Status
 
@@ -23,15 +23,20 @@ Solid/Wireframe, shadow diagnostics, contact shadows, or FXAA. New-window PIE is
 created with a null viewport client and has no persistent per-window render
 policy at all.
 
-Stage 0 and Stage 1 are complete. A deterministic regression first proved that
+All stages are complete. A deterministic regression first proved that
 camera fallback discarded all non-default view settings. Engine now preserves
 the viewport client's exact settings whether matrices come from that client or
 the active gameplay camera. A pure toolbar-capability policy also records the
 Editing, read-only, embedded-PIE, and new-window-PIE permission matrix.
 
-Focused cases and the complete `ViewportTests` target pass 98 of 98 tests. Stage
-2 is next: connect the capability policy to Level Editor presentation and allow
-the bounded diagnostic set during embedded PIE.
+The Level Editor separates editor mutation from render inspection, embedded
+PIE retains the existing viewport policy, and new-window PIE owns an isolated
+session client labeled `Play Window` in the render popup. `ViewportTests` pass
+98 of 98 and `WorldTests` pass 104 of 104; the broader `fast-all` selection and
+the full `all` build also pass. The visible editor PIE lifecycle smoke passed
+embedded/new-window and Level Start/Editor Camera combinations, including the
+new-window render-policy seed, isolation, and release assertions. Lasting
+Viewport Rendering, PIE architecture, and user-guide contracts are updated.
 
 ## Goal
 
@@ -254,17 +259,17 @@ Gaps to close:
 
 ### Stage 2: Enable bounded embedded-PIE diagnostics
 
-- [ ] Extract a testable toolbar capability policy from `Context.bReadOnly` and
+- [x] Extract a testable toolbar capability policy from `Context.bReadOnly` and
   PIE destination/state.
-- [ ] Split render-settings controls from editor camera, transform, edit-mode,
+- [x] Split render-settings controls from editor camera, transform, edit-mode,
   snapping, grid, drag/drop, and other mutation controls.
-- [ ] Keep the explicit allowed PIE diagnostic set enabled in Playing and
+- [x] Keep the explicit allowed PIE diagnostic set enabled in Playing and
   Paused states.
-- [ ] Route collision overlay changes to the transient Play World and prove the
+- [x] Route collision overlay changes to the transient Play World and prove the
   editor World is not mutated.
-- [ ] Ensure opening or using a render popup cannot start viewport navigation,
+- [x] Ensure opening or using a render popup cannot start viewport navigation,
   selection, drag/drop, or gameplay mouse capture.
-- [ ] Verify Stop keeps embedded diagnostic settings on the restored editor
+- [x] Verify Stop keeps embedded diagnostic settings on the restored editor
   viewport and restores ordinary edit permissions.
 
 #### Acceptance Gate
@@ -279,17 +284,17 @@ Gaps to close:
 
 ### Stage 3: Add independent new-window render policy
 
-- [ ] Add the session-owned lightweight Play viewport client to
+- [x] Add the session-owned lightweight Play viewport client to
   `DEditorEngine` with explicit construction and teardown ordering.
-- [ ] Seed it from the previous main viewport client's settings, or defaults
+- [x] Seed it from the previous main viewport client's settings, or defaults
   when no client is available.
-- [ ] Create the window-backed Play viewport with that client and expose only a
+- [x] Create the window-backed Play viewport with that client and expose only a
   bounded render-settings target accessor needed by Level Editor presentation.
-- [ ] Route render controls to the Play client while new-window PIE is active and
+- [x] Route render controls to the Play client while new-window PIE is active and
   label the target `Play Window`.
-- [ ] Keep the editor viewport settings unchanged while the Play window is
+- [x] Keep the editor viewport settings unchanged while the Play window is
   active, and discard the Play client's later changes on Stop.
-- [ ] Cover successful start, bootstrap failure, native-window close, explicit
+- [x] Cover successful start, bootstrap failure, native-window close, explicit
   Stop, repeated sessions, and editor shutdown.
 
 #### Acceptance Gate
@@ -304,19 +309,19 @@ Gaps to close:
 
 ### Stage 4: Rendering qualification and lasting documentation
 
-- [ ] Add or extend rendering integration coverage for at least one shading or
+- [x] Add or extend rendering integration coverage for at least one shading or
   raster mode and one shadow diagnostic through embedded PIE camera fallback.
-- [ ] Qualify new-window output through the smallest practical visible or RHI
+- [x] Qualify new-window output through the smallest practical visible or RHI
   integration path without depending on screenshot color alone for all policy
   assertions.
-- [ ] Run the targeted native suites, then the required broader validation from
+- [x] Run the targeted native suites, then the required broader validation from
   [Agent Build and Run Workflow](../Agents/BuildAndRun.md) and
   [Agent Testing Workflow](../Agents/Testing.md).
-- [ ] Run the editor visible smoke path for embedded/new-window, Play/Pause/Step,
+- [x] Run the editor visible smoke path for embedded/new-window, Play/Pause/Step,
   mouse release/recapture, Stop, and repeated sessions.
-- [ ] Update the lasting contracts in Viewport Rendering and Play In Editor
+- [x] Update the lasting contracts in Viewport Rendering and Play In Editor
   Architecture, and update the user-facing Play In Editor guide.
-- [ ] Record final evidence, close every acceptance gate, set lifecycle metadata
+- [x] Record final evidence, close every acceptance gate, set lifecycle metadata
   to Completed, and leave archival to the standard monthly workflow.
 
 #### Acceptance Gate

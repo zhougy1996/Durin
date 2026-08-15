@@ -2,6 +2,7 @@
 
 #include "Editor/EditorEngine.h"
 #include "Client/SceneViewport.h"
+#include "Client/ViewportClient.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Math/Vector.h"
@@ -83,7 +84,7 @@ namespace Durin::Editor::Level
 			}
 		}
 
-		auto DrawDirectionalShadowDiagnosticOptions(FLevelEditorViewportClient* ViewportClient) -> void
+		auto DrawDirectionalShadowDiagnosticOptions(FViewportClient* ViewportClient) -> void
 		{
 			if (ViewportClient == nullptr) return;
 			const FSceneViewSettings CurrentSettings = ViewportClient->GetViewSettings();
@@ -122,7 +123,7 @@ namespace Durin::Editor::Level
 			DrawModeOptions(CurrentMode, DirectionalShadowCascadeDiagnosticOptions, SetMode);
 		}
 
-		auto DrawDirectionalShadowQualityOptions(FLevelEditorViewportClient* ViewportClient) -> void
+		auto DrawDirectionalShadowQualityOptions(FViewportClient* ViewportClient) -> void
 		{
 			if (ViewportClient == nullptr) return;
 			const EDirectionalShadowFilterQuality CurrentQuality =
@@ -563,7 +564,8 @@ namespace Durin::Editor::Level
 	}
 
 	auto FViewportToolbar::CalculateLayout(
-		const FLevelEditorViewportClient* ViewportClient,
+		const FViewportClient* RenderSettingsClient,
+		bool bRenderSettingsTargetIsPlayWindow,
 		const FLevelViewportEditModeManager* EditModeManager,
 		const ImVec2& ViewportMin,
 		const ImVec2& ViewportMax
@@ -572,9 +574,10 @@ namespace Durin::Editor::Level
 		FViewportToolbarLayout Layout;
 		Layout.ViewportMin = ViewportMin;
 		Layout.ViewportMax = ViewportMax;
-		if (ViewportClient != nullptr)
+		Layout.bRenderSettingsTargetIsPlayWindow = bRenderSettingsTargetIsPlayWindow;
+		if (RenderSettingsClient != nullptr)
 		{
-			const FSceneViewSettings& Settings = ViewportClient->GetViewSettings();
+			const FSceneViewSettings& Settings = RenderSettingsClient->GetViewSettings();
 			Layout.bEnableFXAA = Settings.bEnableFXAA;
 			Layout.RenderMode = Settings.RenderMode;
 			Layout.RasterMode = Settings.RasterMode;
@@ -626,13 +629,19 @@ namespace Durin::Editor::Level
 
 	auto FViewportToolbar::Draw(
 		FLevelEditorContext& Context,
-		FLevelEditorViewportClient* ViewportClient,
+		FLevelEditorViewportClient* EditorViewportClient,
+		FViewportClient* RenderSettingsClient,
 		FLevelViewportEditModeManager* EditModeManager,
 		::Durin::Editor::EPlayStartLocation& PreferredPlayStartLocation,
 		::Durin::Editor::EPlayDestination& PreferredPlayDestination,
 		const FViewportToolbarLayout& Layout
 	) const -> void
 	{
+		FLevelEditorViewportClient* ViewportClient = EditorViewportClient;
+		const bool bPlaying = GEditor && GEditor->IsPlaying();
+		const bool bPlayingInNewWindow = GEditor && GEditor->IsPlayingInNewWindow();
+		const FViewportToolbarCapabilities Capabilities = ResolveViewportToolbarCapabilities(
+			Context.bReadOnly, bPlaying, bPlayingInNewWindow);
 		const ImVec2& ViewportMin = Layout.ViewportMin;
 		const ImVec2& ViewportMax = Layout.ViewportMax;
 
@@ -672,7 +681,7 @@ namespace Durin::Editor::Level
 			DrawToolbarSeparator(DrawList, HudSeparatorX, SpeedPosition.y, SpeedSize.y);
 			DrawList->PopClipRect();
 
-			if (Context.bReadOnly) ImGui::BeginDisabled();
+			if (!Capabilities.bCanEditCamera) ImGui::BeginDisabled();
 			if (DrawToolbarButton(
 				"##CameraSpeedButton", SpeedPosition, SpeedSize, SpeedLabel.c_str(),
 				EViewportToolbarIcon::Camera, ImGui::IsPopupOpen("CameraSpeedPopup"),
@@ -768,12 +777,17 @@ namespace Durin::Editor::Level
 				ImGui::TextDisabled("Hold the navigation mouse button and scroll to adjust.");
 				ImGui::EndPopup();
 			}
-			if (Context.bReadOnly) ImGui::EndDisabled();
+			if (!Capabilities.bCanEditCamera) ImGui::EndDisabled();
 		}
 
-		if (Context.bReadOnly) ImGui::BeginDisabled();
+		const bool bRenderSettingsAvailable = Capabilities.bCanEditRenderSettings
+			&& RenderSettingsClient != nullptr;
+		if (!bRenderSettingsAvailable) ImGui::BeginDisabled();
 
-		if (DrawToolbarButton("##ViewModeButton", Layout.ViewModeButtonPosition, Layout.ViewModeButtonSize, Layout.ViewModeLabel.c_str(), EViewportToolbarIcon::ChevronDown, false, "Viewport settings"))
+		const char* ViewModeTooltip = Layout.bRenderSettingsTargetIsPlayWindow
+			? "Play Window rendering settings"
+			: "Viewport settings";
+		if (DrawToolbarButton("##ViewModeButton", Layout.ViewModeButtonPosition, Layout.ViewModeButtonSize, Layout.ViewModeLabel.c_str(), EViewportToolbarIcon::ChevronDown, false, ViewModeTooltip))
 		{
 			ImGui::OpenPopup("ViewModePopup");
 		}
@@ -781,75 +795,85 @@ namespace Durin::Editor::Level
 		SetNextToolbarPopupPosition(Layout.ViewModeButtonPosition, Layout.ViewModeButtonSize);
 		if (ImGui::BeginPopup("ViewModePopup"))
 		{
+			if (Layout.bRenderSettingsTargetIsPlayWindow)
+			{
+				ImGui::TextDisabled("Target: Play Window");
+				ImGui::Separator();
+			}
 			ImGui::TextDisabled("Shading");
-			DrawModeOptions(Layout.RenderMode, RenderModeOptions, [ViewportClient](ERenderMode Mode) {
-				if (ViewportClient == nullptr) return;
-				FSceneViewSettings Settings = ViewportClient->GetViewSettings();
+			DrawModeOptions(Layout.RenderMode, RenderModeOptions, [RenderSettingsClient](ERenderMode Mode) {
+				if (RenderSettingsClient == nullptr) return;
+				FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
 				Settings.RenderMode = Mode;
-				ViewportClient->SetViewSettings(Settings);
+				RenderSettingsClient->SetViewSettings(Settings);
 			});
 			ImGui::Separator();
 			ImGui::TextDisabled("Rasterization");
-			DrawModeOptions(Layout.RasterMode, RasterModeOptions, [ViewportClient](ERasterMode Mode) {
-				if (ViewportClient == nullptr) return;
-				FSceneViewSettings Settings = ViewportClient->GetViewSettings();
+			DrawModeOptions(Layout.RasterMode, RasterModeOptions, [RenderSettingsClient](ERasterMode Mode) {
+				if (RenderSettingsClient == nullptr) return;
+				FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
 				Settings.RasterMode = Mode;
-				ViewportClient->SetViewSettings(Settings);
+				RenderSettingsClient->SetViewSettings(Settings);
 			});
 			ImGui::Separator();
-			if (ViewportClient != nullptr)
+			if (RenderSettingsClient != nullptr)
 			{
 				ImGui::TextDisabled("Directional Shadows");
-				DrawDirectionalShadowQualityOptions(ViewportClient);
+				DrawDirectionalShadowQualityOptions(RenderSettingsClient);
 				bool bEnableContactShadows =
-					ViewportClient->GetViewSettings().bEnableContactShadows;
+					RenderSettingsClient->GetViewSettings().bEnableContactShadows;
 				if (ImGui::Checkbox("Contact Shadows", &bEnableContactShadows))
 				{
-					FSceneViewSettings Settings = ViewportClient->GetViewSettings();
+					FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
 					Settings.bEnableContactShadows = bEnableContactShadows;
 					if (!bEnableContactShadows)
 						Settings.bShowContactShadowDebug = false;
-					ViewportClient->SetViewSettings(Settings);
+					RenderSettingsClient->SetViewSettings(Settings);
 				}
 				ImGui::Separator();
 				ImGui::TextDisabled("Post Processing");
 				bool bEnableFXAA = Layout.bEnableFXAA;
 				if (ImGui::Checkbox("FXAA", &bEnableFXAA))
 				{
-					FSceneViewSettings Settings = ViewportClient->GetViewSettings();
+					FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
 					Settings.bEnableFXAA = bEnableFXAA;
-					ViewportClient->SetViewSettings(Settings);
+					RenderSettingsClient->SetViewSettings(Settings);
 				}
 			}
 			ImGui::Separator();
 			ImGui::TextDisabled("Overlays");
 			if (ViewportClient != nullptr)
 			{
+				if (!Capabilities.bCanEditScene) ImGui::BeginDisabled();
 				bool bShowGrid = ViewportClient->IsGridVisible();
 				if (ImGui::Checkbox("World Grid", &bShowGrid)) ViewportClient->SetGridVisible(bShowGrid);
-				if (Context.World)
-				{
-					bool bShowCollision = Context.World->IsCollisionDebugDrawEnabled();
-					if (ImGui::Checkbox("Collision", &bShowCollision))
-						Context.World->SetCollisionDebugDrawEnabled(bShowCollision);
-				}
+				if (!Capabilities.bCanEditScene) ImGui::EndDisabled();
+			}
+			if (Context.World)
+			{
+				if (!Capabilities.bCanToggleCollision) ImGui::BeginDisabled();
+				bool bShowCollision = Context.World->IsCollisionDebugDrawEnabled();
+				if (ImGui::Checkbox("Collision", &bShowCollision))
+					Context.World->SetCollisionDebugDrawEnabled(bShowCollision);
+				if (!Capabilities.bCanToggleCollision) ImGui::EndDisabled();
 			}
 			ImGui::Separator();
 			ImGui::TextDisabled("Diagnostics");
-			if (ViewportClient != nullptr && ImGui::BeginMenu("Shadow Debug Views"))
+			if (RenderSettingsClient != nullptr && ImGui::BeginMenu("Shadow Debug Views"))
 			{
 				ImGui::TextDisabled("Temporary diagnostic view; choose Default to restore.");
-				DrawDirectionalShadowDiagnosticOptions(ViewportClient);
+				DrawDirectionalShadowDiagnosticOptions(RenderSettingsClient);
 				ImGui::EndMenu();
 			}
 			ImGui::EndPopup();
 		}
+		if (!bRenderSettingsAvailable) ImGui::EndDisabled();
 
 		if (ViewportClient == nullptr)
 		{
-			if (Context.bReadOnly) ImGui::EndDisabled();
 			return;
 		}
+		if (!Capabilities.bCanEditScene) ImGui::BeginDisabled();
 		FTransformGizmo& Gizmo = ViewportClient->GetTransformGizmo();
 		bool bOpenSnapSettings = false;
 		float X = Layout.ViewModeButtonPosition.x + Layout.ViewModeButtonSize.x + Layout.Gap;
@@ -956,9 +980,8 @@ namespace Durin::Editor::Level
 			ImGui::EndPopup();
 		}
 		ImGui::PopStyleVar(2);
-		if (Context.bReadOnly) ImGui::EndDisabled();
+		if (!Capabilities.bCanEditScene) ImGui::EndDisabled();
 
-		const bool bPlaying = GEditor && GEditor->IsPlaying();
 		const bool bPaused = bPlaying && GEditor->IsPlaySessionPaused();
 		float PlayX = Layout.PlayButtonPosition.x;
 		const float PlayY = Layout.PlayButtonPosition.y;

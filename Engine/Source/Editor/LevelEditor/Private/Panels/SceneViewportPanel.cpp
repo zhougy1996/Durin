@@ -389,7 +389,12 @@ namespace Durin::Editor::Level
 					ImGui::EndDragDropTarget();
 				}
 				EditModeManager.Synchronize(Context);
-				const FViewportToolbarLayout ToolbarLayout = ViewportToolbar->CalculateLayout(ViewportClient.get(), &EditModeManager, VpMin, VpMax);
+				FViewportClient* RenderSettingsClient = bPlayingInNewWindow && GEditor
+					? GEditor->GetPlayViewportRenderSettingsClient()
+					: ViewportClient.get();
+				const FViewportToolbarLayout ToolbarLayout = ViewportToolbar->CalculateLayout(
+					RenderSettingsClient, bPlayingInNewWindow,
+					&EditModeManager, VpMin, VpMax);
 				const FViewportStatisticsOverlayLayout StatisticsLayout =
 					CalculateViewportStatisticsOverlayLayout(
 						VpMin, VpMax, bShowStatistics);
@@ -438,7 +443,9 @@ namespace Durin::Editor::Level
 				{
 					DrawViewportPlayStateBorder(VpMin, VpMax, GEditor->IsPlaySessionPaused());
 				}
-				ViewportToolbar->Draw(Context, ViewportClient.get(), &EditModeManager, PreferredPlayStartLocation, PreferredPlayDestination, ToolbarLayout);
+				ViewportToolbar->Draw(
+					Context, ViewportClient.get(), RenderSettingsClient, &EditModeManager,
+					PreferredPlayStartLocation, PreferredPlayDestination, ToolbarLayout);
 				DrawCameraPreview(VpMin, VpMax);
 				DrawViewportOrientationOverlay(ViewportClient.get(), VpMin, VpMax);
 				DrawViewportCameraSpeedOverlay(ViewportClient.get(), VpMin, VpMax);

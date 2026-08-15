@@ -19,6 +19,7 @@
 #include "RenderingThread.h"
 #include "Mona.h"
 #include "Client/SceneViewport.h"
+#include "Client/ViewportClient.h"
 #include "Application/MonaApplication.h"
 #include "Widgets/MWindow.h"
 
@@ -214,6 +215,19 @@ namespace Durin
 		ReleaseRetiredPlaySessions(true);
 	}
 
+	auto DEditorEngine::GetPlayViewportRenderSettingsClient() -> FViewportClient*
+	{
+		return PlayWindowViewportClient.get();
+	}
+
+	auto DEditorEngine::InitializePlayWindowViewportClient(
+		const FViewportClient* SourceClient) -> void
+	{
+		PlayWindowViewportClient = std::make_unique<FViewportClient>();
+		if (SourceClient != nullptr)
+			PlayWindowViewportClient->SetViewSettings(SourceClient->GetViewSettings());
+	}
+
 	auto DEditorEngine::StartPlaySession(DLevel* SourceLevel, std::string* OutError) -> bool
 	{
 		Editor::FPlayRequest Request;
@@ -327,12 +341,15 @@ namespace Durin
 		if (Request.Destination == Editor::EPlayDestination::NewWindow)
 		{
 			PreviousSceneViewport = GetMainSceneViewport();
+			InitializePlayWindowViewportClient(
+				PreviousSceneViewport ? PreviousSceneViewport->GetViewportClient() : nullptr);
 			PlayWindow = std::make_shared<MWindow>();
 			PlayWindow->SetTitle("Durin Play");
 			PlayWindow->ReshapeWindow({160.0f, 160.0f}, {1280.0f, 720.0f});
 			Mona::FMonaApplication::Get().AddWindow(PlayWindow, true);
 			Mona::FMonaApplication::Get().GetRenderer()->CreateViewport(PlayWindow);
-			PlayWindowViewport = FSceneViewport::CreateWindowBacked(nullptr, PlayWindow);
+			PlayWindowViewport = FSceneViewport::CreateWindowBacked(
+				PlayWindowViewportClient.get(), PlayWindow);
 			SetMainSceneViewport(PlayWindowViewport);
 			SetGameInputWindow(PlayWindow->GetNativeWindow());
 		}
@@ -393,6 +410,7 @@ namespace Durin
 				if (std::ranges::find(Windows, PlayWindow) != Windows.end()) Mona::FMonaApplication::Get().RequestDestroyWindow(PlayWindow);
 			}
 			PlayWindowViewport.reset();
+			PlayWindowViewportClient.reset();
 			PlayWindow.reset();
 			PreviousSceneViewport.reset();
 		}
