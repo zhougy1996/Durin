@@ -139,6 +139,12 @@ frame up direction, interpolation, visibility, and collision policies. The
 **Path Output** row reports the generated segment count or an actionable native
 construction error.
 
+Use `/Engine/Models/SplineBox` for a built-in X-forward authoring sample. Its
+normalized rectangular prism has 16 longitudinal sections so curved paths are
+visibly deformed; the ordinary `/Engine/Models/Box` has no intermediate
+sections and therefore cannot display smooth bending. New splines start as a
+straight five-world-unit segment.
+
 Choose **Edit Spline** to select the Actor's native spline root and enter Spline
 mode. Every outgoing point creates one read-only generated SplineMesh segment;
 a closed loop also creates the last-to-first seam. Point drags update existing

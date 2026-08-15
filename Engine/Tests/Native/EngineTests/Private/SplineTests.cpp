@@ -134,8 +134,8 @@ TEST(FSplineCurveTests, EvaluationHandlesEmptySinglePointAndDefaultCurve)
 	Durin::FSplineCurve Curve;
 	auto Evaluation = Curve.BuildEvaluationData();
 	EXPECT_EQ(Evaluation->GetNumSegments(), 1u);
-	ExpectVectorNear(Evaluation->Evaluate({0, 0.5}).Position, {50.0, 0.0, 0.0});
-	EXPECT_NEAR(Evaluation->GetLocalLength(), 100.0, 1.e-8);
+	ExpectVectorNear(Evaluation->Evaluate({0, 0.5}).Position, {2.5, 0.0, 0.0});
+	EXPECT_NEAR(Evaluation->GetLocalLength(), 5.0, 1.e-8);
 
 	Curve.ClearPoints();
 	Evaluation = Curve.BuildEvaluationData();

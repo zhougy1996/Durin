@@ -16,6 +16,7 @@
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StandardAssetImportProviders.h"
+#include "StandardAssetAuthoringTestSupport.h"
 #include "StaticMeshSourceTranslation.h"
 
 #include <gtest/gtest.h>
@@ -49,6 +50,37 @@ TEST(FSplineMeshComponentTests, DefaultObjectPublishesDiagnosticStateAndReflects
 	EXPECT_NE(Component->GetClass()->FindPropertyByName(FName("OverrideMaterials")), nullptr);
 }
 
+TEST(FSplineMeshComponentTests, BuiltInSplineBoxProvidesLongitudinalDeformationSections)
+{
+	InitializeDObjectSystem();
+	PathUtilities::FScopedMountRegistryFixture MountRegistry;
+	PathUtilities::InitDefaultMountPoints();
+	ASSERT_TRUE(Asset::RefreshAssetCatalog());
+	std::string ProviderError;
+	ASSERT_TRUE(Asset::Import::Standard::RegisterStandardAssetImportProviders(
+		ProviderError, GetEngineTestModuleCallbackGate())) << ProviderError;
+	ASSERT_TRUE(Tests::InstallStandardAssetAuthoringFeatures());
+	FAssetPath Path;
+	ASSERT_TRUE(FAssetPath::TryCreate("/Engine/Models/SplineBox", Path));
+	DStaticMesh* Mesh = nullptr;
+	const Asset::FAssetResult LoadResult = Asset::LoadAsset(Path, Mesh);
+	ASSERT_TRUE(LoadResult) << LoadResult.Message;
+	ASSERT_NE(Mesh, nullptr);
+	const FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
+	ASSERT_NE(RenderData, nullptr);
+	ASSERT_FALSE(RenderData->LODResources.empty());
+	const auto Positions = RenderData->LODResources[0]
+		.VertexBuffers.PositionVertexBuffer.GetPositions();
+	std::set<float> LongitudinalSections;
+	for (const FVector3f& Position : Positions) LongitudinalSections.insert(Position.x);
+	EXPECT_EQ(LongitudinalSections.size(), 17u);
+	EXPECT_FLOAT_EQ(*LongitudinalSections.begin(), -0.75f);
+	EXPECT_FLOAT_EQ(*LongitudinalSections.rbegin(), 0.75f);
+	EXPECT_TRUE(Asset::UnloadPackage(
+		Path, Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	Asset::Import::Standard::UnregisterStandardAssetImportProviders();
+}
+
 TEST(FSplineMeshComponentTests, PublishesNormalizedExactLOD0AndConservativeBounds)
 {
 	auto [Component, Mesh] = MakeComponentWithMesh();
@@ -80,7 +112,7 @@ TEST(FSplineMeshComponentTests, PublishesNormalizedExactLOD0AndConservativeBound
 	ASSERT_TRUE(Curved && Curved->IsValid());
 	EXPECT_GT(Curved->DeformationRevision, Initial->DeformationRevision);
 	EXPECT_NE(Curved->CollisionInputIdentity, Initial->CollisionInputIdentity);
-	EXPECT_EQ(Initial->Params.EndPosition, FVector3(100.0, 0.0, 0.0));
+	EXPECT_EQ(Initial->Params.EndPosition, FVector3(5.0, 0.0, 0.0));
 }
 
 TEST(FSplineMeshComponentTests, InvalidProposalPreservesAuthoredAndPublishedState)

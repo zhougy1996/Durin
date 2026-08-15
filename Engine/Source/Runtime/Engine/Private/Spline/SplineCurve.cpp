@@ -133,7 +133,7 @@ namespace Durin
 	FSplineCurve::FSplineCurve()
 	{
 		Points.emplace_back(FVector3(0.0, 0.0, 0.0));
-		Points.emplace_back(FVector3(100.0, 0.0, 0.0));
+		Points.emplace_back(FVector3(5.0, 0.0, 0.0));
 		// Default-point identities are local to a curve, so stable values preserve
 		// authored parity without weakening uniqueness for subsequently added points.
 		Points[0].Id = FGuid(0x44555249, 0x4E53504C, 0x494E4500, 0x00000001);

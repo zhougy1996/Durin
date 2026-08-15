@@ -51,13 +51,13 @@ namespace Durin
 		FVector3 StartPosition{0.0};
 
 		DPROPERTY(Edit)
-		FVector3 StartTangent{100.0, 0.0, 0.0};
+		FVector3 StartTangent{5.0, 0.0, 0.0};
 
 		DPROPERTY(Edit)
-		FVector3 EndPosition{100.0, 0.0, 0.0};
+		FVector3 EndPosition{5.0, 0.0, 0.0};
 
 		DPROPERTY(Edit)
-		FVector3 EndTangent{100.0, 0.0, 0.0};
+		FVector3 EndTangent{5.0, 0.0, 0.0};
 
 		DPROPERTY(Edit)
 		FVector2 StartScale{1.0};
@@ -111,10 +111,10 @@ namespace Durin
 		FVector3 Position{0.0};
 
 		DPROPERTY(Edit)
-		FVector3 ArriveTangent{100.0, 0.0, 0.0};
+		FVector3 ArriveTangent{5.0, 0.0, 0.0};
 
 		DPROPERTY(Edit)
-		FVector3 LeaveTangent{100.0, 0.0, 0.0};
+		FVector3 LeaveTangent{5.0, 0.0, 0.0};
 
 		DPROPERTY(Edit)
 		ESplineSegmentInterpolation OutgoingInterpolation = ESplineSegmentInterpolation::Cubic;
