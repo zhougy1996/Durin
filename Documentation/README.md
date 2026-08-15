@@ -30,6 +30,7 @@ not open the other rows or scan an entire directory.
 | CPU tasks, dependencies, cancellation, waiting, or worker-thread ownership | [CPU task system](Runtime/Core/TaskSystem.md) |
 | Scene viewport or window-backed rendering | [Viewport rendering](Runtime/Rendering/ViewportRendering.md) |
 | GBuffer encoding, reconstruction, diagnostics, memory, or lifecycle | [Minimal GBuffer contract](Runtime/Rendering/GBuffer.md) |
+| Deferred directional lighting, parity, diagnostics, memory, or qualification | [Deferred directional lighting](Runtime/Rendering/DeferredDirectionalLighting.md) |
 | Shadow quality, bias, PCF, cascades, contact shadows, or future local-light shadow development | [Shadow system evolution roadmap](Roadmaps/Archive/2026-08/ShadowSystemEvolution.md) |
 | Editor architecture, design, or user workflow | Use a targeted search under `Editor/Architecture/`, `Editor/Design/`, or `Editor/Guides/` |
 | Material-system long-term status, sequencing, or future milestones | [Material system roadmap](Roadmaps/MaterialSystem.md) |

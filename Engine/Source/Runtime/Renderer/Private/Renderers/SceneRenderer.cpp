@@ -27,8 +27,12 @@ namespace Durin
 		std::atomic<FSceneColorTimingQuerySink> GSceneColorTimingQuerySink = nullptr;
 		std::atomic<FPostProcessTimingQuerySink> GPostProcessTimingQuerySink = nullptr;
 		std::atomic<FGBufferTimingQuerySink> GGBufferTimingQuerySink = nullptr;
+		std::atomic<FDeferredDirectionalTimingQuerySink>
+			GDeferredDirectionalTimingQuerySink = nullptr;
 		std::atomic<FHDRSceneColorCaptureSink> GHDRSceneColorCaptureSink = nullptr;
 		std::atomic<FGBufferCaptureSink> GGBufferCaptureSink = nullptr;
+		std::atomic<FDeferredDirectionalCaptureSink>
+			GDeferredDirectionalCaptureSink = nullptr;
 
 		auto AddSaturated(uint64 A, uint64 B) -> uint64
 		{
@@ -255,6 +259,13 @@ namespace Durin
 		GGBufferTimingQuerySink.store(Sink, std::memory_order_release);
 	}
 
+	auto SetDeferredDirectionalTimingQuerySink(
+		FDeferredDirectionalTimingQuerySink Sink) -> void
+	{
+		GDeferredDirectionalTimingQuerySink.store(
+			Sink, std::memory_order_release);
+	}
+
 	auto SetHDRSceneColorCaptureSink(FHDRSceneColorCaptureSink Sink) -> void
 	{
 		GHDRSceneColorCaptureSink.store(Sink, std::memory_order_release);
@@ -265,12 +276,20 @@ namespace Durin
 		GGBufferCaptureSink.store(Sink, std::memory_order_release);
 	}
 
+	auto SetDeferredDirectionalCaptureSink(
+		FDeferredDirectionalCaptureSink Sink) -> void
+	{
+		GDeferredDirectionalCaptureSink.store(
+			Sink, std::memory_order_release);
+	}
+
 	FSceneRenderer::FSceneRenderer()
 		: DefaultTextures(Coordinator)
 		, EnvironmentLighting(Coordinator)
 		, DirectionalShadowRenderer(Coordinator)
 		, GBufferRenderer(Coordinator)
 		, GBufferDebugRenderer(Coordinator, FullscreenGeometry)
+		, DeferredDirectionalLightingRenderer(Coordinator, FullscreenGeometry)
 		, StaticMeshRenderer(Coordinator, DefaultTextures, EnvironmentLighting)
 		, TerrainRenderer(Coordinator, DefaultTextures, EnvironmentLighting)
 		, SkeletalMeshRenderer(Coordinator, DefaultTextures, EnvironmentLighting)
@@ -337,6 +356,7 @@ namespace Durin
 		DirectionalShadowRenderer.ReleaseResources_RenderThread();
 		GBufferRenderer.ReleaseResources_RenderThread();
 		GBufferDebugRenderer.ReleaseResources_RenderThread();
+		DeferredDirectionalLightingRenderer.ReleaseResources_RenderThread();
 		Coordinator.ReleaseResources_RenderThread();
 		SkyBoxRenderer.ReleaseResources_RenderThread();
 		EditorAssistanceRenderer.ReleaseResources_RenderThread();
@@ -406,6 +426,8 @@ namespace Durin
 						DirectionalShadowRenderer.ReleaseResources_RenderThread();
 						GBufferRenderer.ReleaseResources_RenderThread();
 						GBufferDebugRenderer.ReleaseResources_RenderThread();
+						DeferredDirectionalLightingRenderer.
+							ReleaseResources_RenderThread();
 						SkyBoxRenderer.ReleaseResources_RenderThread();
 						PostProcessRenderer.ReleaseResources_RenderThread();
 						ContactShadowRenderer.ReleaseResources_RenderThread();
@@ -760,8 +782,13 @@ namespace Durin
 			TerrainRenderer, PreparedView);
 
 		FGBufferRenderer::FTargets* GBufferTargets = nullptr;
+		const bool bWantsDeferredDirectional =
+			Options.bEnableDeferredDirectionalQualification
+			|| Options.DeferredDirectionalDebugMode
+				!= EDeferredDirectionalDebugMode::Disabled;
 		const bool bNeedsGBuffer = Options.bEnableGBufferQualification
-			|| Options.GBufferDebugMode != EGBufferDebugMode::Disabled;
+			|| Options.GBufferDebugMode != EGBufferDebugMode::Disabled
+			|| bWantsDeferredDirectional;
 		if (bNeedsGBuffer)
 		{
 			GBufferTargets =
@@ -769,6 +796,8 @@ namespace Durin
 			if (GBufferTargets == nullptr)
 			{
 				++PreparedView.Counters.GBufferUnavailableViews;
+				if (bWantsDeferredDirectional)
+					++PreparedView.Counters.DeferredDirectionalUnavailableViews;
 				if (Options.GBufferDebugMode != EGBufferDebugMode::Disabled)
 					++PreparedView.Counters.GBufferDebugFailures;
 			}
@@ -808,17 +837,19 @@ namespace Durin
 				CommandList.BeginRenderPass(
 					GBufferPassInfo, "GBufferQualificationRenderPass");
 				CommandList.SetViewport(
-					static_cast<float>(View.ViewportX),
-					static_cast<float>(View.ViewportY),
+					static_cast<float>(RenderView.ViewportX),
+					static_cast<float>(RenderView.ViewportY),
 					0.0f,
-					static_cast<float>(View.ViewportX + Width),
-					static_cast<float>(View.ViewportY + Height),
+					static_cast<float>(RenderView.ViewportX
+						+ RenderView.ViewportWidth),
+					static_cast<float>(RenderView.ViewportY
+						+ RenderView.ViewportHeight),
 					1.0f);
 				CommandList.SetScissor(
-					static_cast<float>(View.ViewportX),
-					static_cast<float>(View.ViewportY),
-					static_cast<float>(Width),
-					static_cast<float>(Height));
+					static_cast<float>(RenderView.ViewportX),
+					static_cast<float>(RenderView.ViewportY),
+					static_cast<float>(RenderView.ViewportWidth),
+					static_cast<float>(RenderView.ViewportHeight));
 				StaticMeshRenderer.ExecuteGBuffer_RenderThread(
 					CommandList, RenderView, GBufferRenderer,
 					PreparedView.StaticMeshes);
@@ -897,6 +928,115 @@ namespace Durin
 					PreparedView.Terrains.GBufferRejectedDraws;
 				PreparedView.Counters.GBufferTerrainSkippedDraws =
 					PreparedView.Terrains.GBufferSkippedDraws;
+			}
+		}
+
+		if (bWantsDeferredDirectional && GBufferTargets != nullptr)
+		{
+			const bool bGBufferComplete =
+				PreparedView.Counters.GBufferAttemptedDraws
+					== PreparedView.Counters.GBufferSuccessfulDraws
+				&& PreparedView.Counters.GBufferRejectedDraws == 0
+				&& (PreparedView.Counters.GBufferAttemptedDraws == 0
+					|| PreparedView.Counters.GBufferSkippedDraws == 0);
+			FDeferredDirectionalLightingRenderer::FTargets* DeferredTargets =
+				bGBufferComplete
+				? DeferredDirectionalLightingRenderer.EnsureTargets_RenderThread(
+					Width, Height)
+				: nullptr;
+			if (DeferredTargets == nullptr)
+			{
+				++PreparedView.Counters.DeferredDirectionalUnavailableViews;
+			}
+			else
+			{
+				FForwardLightingUniform DeferredLighting = Lighting;
+				DeferredLighting.Counts[1] = 0;
+				const FRHIUniformBufferRange DeferredLightingRange =
+					CommandList.AllocateDynamicUniformBuffer(
+						&DeferredLighting, sizeof(DeferredLighting));
+				FRHITexture* EnvironmentIrradiance =
+					EnvironmentLighting.GetIrradiance_RenderThread();
+				FRHITexture* EnvironmentPrefiltered =
+					EnvironmentLighting.GetPrefiltered_RenderThread();
+				FRHITexture* EnvironmentBrdfLut =
+					EnvironmentLighting.GetBrdfLut_RenderThread();
+				FRHISampler* EnvironmentSampler =
+					EnvironmentLighting.GetSampler_RenderThread();
+				const bool bCompleteEnvironment =
+					EnvironmentIrradiance != nullptr
+					&& EnvironmentPrefiltered != nullptr
+					&& EnvironmentBrdfLut != nullptr
+					&& EnvironmentSampler != nullptr;
+				if (!bCompleteEnvironment)
+				{
+					EnvironmentIrradiance =
+						DefaultTextures.GetCube_RenderThread();
+					EnvironmentPrefiltered =
+						DefaultTextures.GetCube_RenderThread();
+					EnvironmentBrdfLut = DefaultTextures.Get_RenderThread(
+						EDefaultTexture::Black);
+					EnvironmentSampler = nullptr;
+				}
+				FDeferredDirectionalLightingRenderer::FRenderParameters Parameters{
+					.Material = GBufferTargets->Material,
+					.Normals = GBufferTargets->Normals,
+					.Surface = GBufferTargets->Surface,
+					.Emissive = GBufferTargets->Emissive,
+					.Depth = SceneTargets->Depth,
+					.EnvironmentIrradiance = EnvironmentIrradiance,
+					.EnvironmentPrefiltered = EnvironmentPrefiltered,
+					.EnvironmentBrdfLut = EnvironmentBrdfLut,
+					.EnvironmentSampler = EnvironmentSampler,
+					.DirectionalShadowTexture =
+						DirectionalShadowTexture != nullptr
+						? DirectionalShadowTexture
+						: DefaultTextures.GetArray_RenderThread(),
+					.DirectionalShadowSampler = DirectionalShadowSampler,
+					.Lighting = DeferredLightingRange,
+					.View = &RenderView,
+					.DiagnosticMode = static_cast<uint32>(
+						Options.DeferredDirectionalDebugMode)};
+				FGPUTimingQueryRHIRef DeferredTimingQuery;
+				const FDeferredDirectionalTimingQuerySink DeferredTimingSink =
+					GDeferredDirectionalTimingQuerySink.load(
+						std::memory_order_acquire);
+				if (DeferredTimingSink != nullptr && GDynamicRHI != nullptr)
+				{
+					DeferredTimingQuery =
+						GDynamicRHI->RHICreateGPUTimingQuery();
+					if (DeferredTimingQuery)
+						CommandList.BeginGPUTimingQuery(DeferredTimingQuery);
+				}
+				const bool bRendered =
+					DeferredDirectionalLightingRenderer.
+						Render_RenderThread(
+							CommandList, *DeferredTargets, Parameters);
+				if (DeferredTimingQuery)
+					CommandList.EndGPUTimingQuery(DeferredTimingQuery);
+				if (bRendered)
+				{
+					++PreparedView.Counters.DeferredDirectionalEnabledViews;
+					PreparedView.Counters.DeferredDirectionalOutputBytes =
+						FDeferredDirectionalLightingRenderer::
+							CalculateTargetBytes(Width, Height);
+					if (Options.DeferredDirectionalDebugMode
+						!= EDeferredDirectionalDebugMode::Disabled)
+					{
+						++PreparedView.Counters.DeferredDirectionalDebugViews;
+					}
+					if (DeferredTimingQuery)
+						DeferredTimingSink(DeferredTimingQuery);
+					const FDeferredDirectionalCaptureSink CaptureSink =
+						GDeferredDirectionalCaptureSink.load(
+							std::memory_order_acquire);
+					if (CaptureSink != nullptr)
+						CaptureSink(CommandList, DeferredTargets->Color);
+				}
+				else
+				{
+					++PreparedView.Counters.DeferredDirectionalPassFailures;
+				}
 			}
 		}
 

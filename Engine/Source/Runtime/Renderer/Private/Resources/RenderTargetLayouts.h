@@ -25,6 +25,9 @@ namespace Durin::RenderTargetLayouts
 	// One color-only RGBA16_FLOAT target that is cleared and published for
 	// sampling; used by the contact-shadow pass writing corrected Scene Color.
 	RENDERER_API auto MakeContactShadowOutput() -> FRHIRenderTargetLayout;
+	// Isolated M3 RGBA16_FLOAT qualification output, cleared per view and left
+	// shader-readable for capture/A-B without becoming the presented Scene Color.
+	RENDERER_API auto MakeDeferredDirectionalOutput() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeFinalScenePostProcessOutput(EViewportOutput Output)
 		-> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeEditorAssistanceOutput(EViewportOutput Output) -> FRHIRenderTargetLayout;

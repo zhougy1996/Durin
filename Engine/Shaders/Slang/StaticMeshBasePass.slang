@@ -12,6 +12,8 @@ import VertexFactory.SkeletalMeshVertexFactory;
 #endif
 import Lighting.PBRLighting;
 import Lighting.DirectionalShadow;
+import Lighting.ForwardLightingUniform;
+import Lighting.SurfaceLighting;
 import Material.SurfaceMaterial;
 
 // Static mesh material foundation shader.
@@ -46,28 +48,6 @@ struct TransformUniform
     float4 TransformParams;
 };
 
-struct LocalLightUniform
-{
-    float4 PositionInverseRange;
-    float4 DirectionType;
-    float4 ColorIntensity;
-    float4 SpotCone;
-};
-
-struct LightingUniform
-{
-    float4 ViewPosition;
-    uint4 Counts;
-    float4 DirectionalDirection;
-    float4 DirectionalColorIntensity;
-    float4 DirectionalShadowControl;
-    float4 DirectionalShadowViewDepthTransform;
-    float4 DirectionalShadowSplitDepths;
-    float4 DirectionalShadowLightTransition;
-    FDirectionalShadowCascadeUniform DirectionalShadowCascades[3];
-    LocalLightUniform Local[4];
-};
-
 struct MaterialUniform
 {
     float4 BaseColor;
@@ -88,7 +68,7 @@ struct MaterialUniform
 };
 
 [[vk::binding(0, 0)]] ConstantBuffer<TransformUniform> Transform;
-[[vk::binding(1, 0)]] ConstantBuffer<LightingUniform> Lighting;
+[[vk::binding(1, 0)]] ConstantBuffer<FForwardLightingUniform> Lighting;
 [[vk::binding(2, 0)]] ConstantBuffer<MaterialUniform> Material;
 [[vk::binding(3, 0)]] Texture2D<float4> BaseColorTexture;
 [[vk::binding(4, 0)]] Texture2D<float4> NormalTexture;
@@ -406,13 +386,12 @@ BasePassFragmentOutput FragmentMain(
         input.worldTangent,
         surface.tangentNormal,
         isFrontFace);
-    float3 normal = normalFrame.shadingNormal;
-    float3 viewVector = Lighting.ViewPosition.xyz - input.worldPosition;
-    float viewLengthSquared = dot(viewVector, viewVector);
-    float3 toView = viewLengthSquared > 1.0e-8
-        ? viewVector * rsqrt(viewLengthSquared)
-        : float3(0.0);
-    float NoV = saturate(dot(normal, toView));
+    FSurfaceLightingFrame lightingFrame = BuildSurfaceLightingFrame(
+        input.worldPosition,
+        normalFrame.shadingNormal,
+        Lighting.ViewPosition.xyz);
+    float3 normal = lightingFrame.normal;
+    float3 toView = lightingFrame.toView;
     float3 direct = float3(0.0);
 	float3 directionalDirect = float3(0.0);
     if (Lighting.Counts.x > 0u)
@@ -437,10 +416,9 @@ BasePassFragmentOutput FragmentMain(
 				shadow.diagnosticColor, surface.opacity);
 			return output;
 		}
-		directionalDirect = EvaluatePBRDirectLighting(
+		directionalDirect = EvaluateSurfaceDirectionalLighting(
             surface.baseColor, surface.metallic, surface.roughness,
-            normal, toLight, toView, radiance)
-            * shadow.attenuation;
+            lightingFrame, toLight, radiance, shadow.attenuation);
 		direct += directionalDirect;
     }
     [unroll]
@@ -480,25 +458,21 @@ BasePassFragmentOutput FragmentMain(
             surface.baseColor, surface.metallic, surface.roughness,
             normal, toLight, toView, radiance);
     }
-    float3 reflectionDirection = reflect(-toView, normal);
-    float3 irradiance = EnvironmentIrradiance.Sample(
-        EnvironmentSampler, normal).rgb;
-    float3 prefiltered = EnvironmentPrefiltered.SampleLevel(
-        EnvironmentSampler, reflectionDirection,
-        surface.roughness * 6.0).rgb;
-    float2 environmentBrdf = EnvironmentBrdfLut.Sample(
-        EnvironmentSampler, float2(NoV, surface.roughness)).rg;
-    float3 environment = EvaluatePBREnvironmentLighting(
+    float3 environment = EvaluateSurfaceEnvironmentLighting(
         surface.baseColor,
         surface.metallic,
         surface.roughness,
         surface.ambientOcclusion,
-        NoV,
-        irradiance,
-        prefiltered,
-        environmentBrdf);
-	output.color = float4(
-		direct + environment + surface.emissive, surface.opacity);
+        lightingFrame,
+        EnvironmentIrradiance,
+        EnvironmentPrefiltered,
+        EnvironmentBrdfLut,
+        EnvironmentSampler);
+	output.color = ComposeSurfaceLighting(
+		direct,
+		environment,
+		surface.emissive,
+		surface.opacity);
 	output.directionalDirect = float4(directionalDirect, 0.0);
 	return output;
 }

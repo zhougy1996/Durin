@@ -14,10 +14,12 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "RendererModule.h"
+#include "Renderers/DeferredDirectionalLightingRenderer.h"
 #include "Renderers/GBufferRenderer.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/SceneVisibility.h"
 #include "Resources/RenderTargetLayouts.h"
+#include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Scene.h"
 #include "SceneViewProjection.h"
@@ -419,6 +421,8 @@ namespace Durin
 					Options.GBufferDebugMode = bGBufferDebug
 						? EGBufferDebugMode::Flags
 						: EGBufferDebugMode::Disabled;
+					Options.bEnableDeferredDirectionalQualification =
+						bGBufferDebug;
 					EXPECT_EQ(Renderer.RenderView(
 						CommandList, nullptr, View, Output, false, Options),
 						ERenderViewResult::Success);
@@ -462,6 +466,15 @@ namespace Durin
 			EXPECT_EQ(GLastViewCounters.GBufferEnabledViews, 1u);
 			EXPECT_EQ(GLastViewCounters.GBufferDebugViews, 1u);
 			EXPECT_EQ(GLastViewCounters.GBufferDebugFailures, 0u);
+			EXPECT_EQ(
+				GLastViewCounters.DeferredDirectionalEnabledViews, 1u);
+			EXPECT_EQ(
+				GLastViewCounters.DeferredDirectionalUnavailableViews, 0u);
+			EXPECT_EQ(
+				GLastViewCounters.DeferredDirectionalPassFailures, 0u);
+			EXPECT_EQ(GLastViewCounters.DeferredDirectionalOutputBytes,
+				FDeferredDirectionalLightingRenderer::CalculateTargetBytes(
+					Route.Width, Route.Height));
 			EXPECT_EQ(GLastViewCounters.GBufferAttachmentBytes,
 				FGBufferRenderer::CalculateTargetBytes(Route.Width, Route.Height));
 			if (OrderIndex == 0u)
@@ -712,6 +725,121 @@ namespace Durin
 	}
 
 	TEST(FEditorGridVulkanTests,
+		DeferredDirectionalResourcesRecoverAcrossFailureAndGenerationChanges)
+	{
+		if (!GIsGameThreadIdInitialized)
+		{
+			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+			GIsGameThreadIdInitialized = true;
+		}
+		ASSERT_EQ(GDynamicRHI, nullptr);
+		FModuleManager::Get().LoadModule("RenderCore");
+		RHIInit();
+		ASSERT_NE(GDynamicRHI, nullptr);
+		InitRenderingThread();
+
+		FRendererResourceCoordinator Coordinator;
+		FFullscreenGeometryResources FullscreenGeometry;
+		FDeferredDirectionalLightingRenderer Deferred(
+			Coordinator, FullscreenGeometry);
+		auto Results = std::make_shared<std::array<bool, 16>>();
+		auto FirstTarget = std::make_shared<
+			FDeferredDirectionalLightingRenderer::FTargets>();
+		auto AlternateTarget = std::make_shared<
+			FDeferredDirectionalLightingRenderer::FTargets>();
+		VulkanRHI::ArmVulkanCreateFailure(
+			VulkanRHI::EVulkanCreateFailurePoint::Image);
+		VulkanRHI::ArmVulkanCreateFailure(
+			VulkanRHI::EVulkanCreateFailurePoint::ShaderModule);
+		VulkanRHI::ArmVulkanCreateFailure(
+			VulkanRHI::EVulkanCreateFailurePoint::GraphicsPipeline);
+		EnqueueRenderCommand<FFailDisplayPayloadContract>(
+			[&Coordinator, &FullscreenGeometry, &Deferred, Results,
+				FirstTarget, AlternateTarget](FRHICommandListImmediate& CommandList) {
+				(*Results)[0] =
+					Deferred.EnsureTargets_RenderThread(64, 32) == nullptr;
+				(*Results)[1] =
+					Deferred.EnsureTargets_RenderThread(64, 32) == nullptr;
+				Coordinator.Apply_RenderThread(
+					ERendererResourceInvalidationCause::ManualRetry,
+					FRendererResourceInvalidationTargets{});
+				const auto* Recovered =
+					Deferred.EnsureTargets_RenderThread(64, 32);
+				(*Results)[2] = Recovered != nullptr;
+				if (Recovered != nullptr) *FirstTarget = *Recovered;
+				const auto* Alternate =
+					Deferred.EnsureTargets_RenderThread(32, 16);
+				(*Results)[3] = Alternate != nullptr;
+				if (Alternate != nullptr) *AlternateTarget = *Alternate;
+
+				(*Results)[4] = !Deferred.EnsureResources_RenderThread(CommandList);
+				(*Results)[5] = !Deferred.EnsureResources_RenderThread(CommandList);
+				Coordinator.Apply_RenderThread(
+					ERendererResourceInvalidationCause::ManualRetry,
+					FRendererResourceInvalidationTargets{});
+				(*Results)[6] = !Deferred.EnsureResources_RenderThread(CommandList);
+				(*Results)[7] = !Deferred.EnsureResources_RenderThread(CommandList);
+				Coordinator.Apply_RenderThread(
+					ERendererResourceInvalidationCause::ManualRetry,
+					FRendererResourceInvalidationTargets{});
+				(*Results)[8] = Deferred.EnsureResources_RenderThread(CommandList);
+				Coordinator.Apply_RenderThread(
+					ERendererResourceInvalidationCause::ShaderChanged,
+					FRendererResourceInvalidationTargets{});
+				(*Results)[9] = Deferred.EnsureResources_RenderThread(CommandList);
+
+				FRHITexture* BeforeDevice = FirstTarget->Color.GetReference();
+				Coordinator.Apply_RenderThread(
+					ERendererResourceInvalidationCause::Device,
+					FRendererResourceInvalidationTargets{});
+				const auto* DeviceTarget =
+					Deferred.EnsureTargets_RenderThread(64, 32);
+				(*Results)[10] = DeviceTarget != nullptr
+					&& DeviceTarget->Color.GetReference() != BeforeDevice;
+				(*Results)[11] =
+					Deferred.EnsureResources_RenderThread(CommandList);
+
+				FRHITexture* BeforeRelease = DeviceTarget != nullptr
+					? DeviceTarget->Color.GetReference() : nullptr;
+				Deferred.ReleaseResources_RenderThread();
+				FullscreenGeometry.ReleaseResources_RenderThread();
+				const auto* ReleasedTarget =
+					Deferred.EnsureTargets_RenderThread(64, 32);
+				(*Results)[12] = ReleasedTarget != nullptr
+					&& ReleasedTarget->Color.GetReference() != BeforeRelease;
+				(*Results)[13] =
+					Deferred.EnsureResources_RenderThread(CommandList);
+				(*Results)[14] = ReleasedTarget != nullptr
+					&& ReleasedTarget->Color->GetFormat()
+						== EPixelFormat::RGBA16_FLOAT;
+				(*Results)[15] = AlternateTarget->Color != FirstTarget->Color;
+			});
+		FlushRenderingCommands();
+
+		for (size_t Index = 0; Index < Results->size(); ++Index)
+			EXPECT_TRUE((*Results)[Index]) << Index;
+		ASSERT_NE(FirstTarget->Color, nullptr);
+		EXPECT_EQ(FirstTarget->Color->GetSizeX(), 64u);
+		EXPECT_EQ(FirstTarget->Color->GetSizeY(), 32u);
+		ASSERT_NE(AlternateTarget->Color, nullptr);
+		EXPECT_EQ(AlternateTarget->Color->GetSizeX(), 32u);
+		EXPECT_EQ(AlternateTarget->Color->GetSizeY(), 16u);
+
+		EnqueueRenderCommand<FCaptureHDRDisplayContract>(
+			[&Deferred, &FullscreenGeometry, FirstTarget, AlternateTarget](
+				FRHICommandListImmediate&) {
+				Deferred.ReleaseResources_RenderThread();
+				FullscreenGeometry.ReleaseResources_RenderThread();
+				*FirstTarget = {};
+				*AlternateTarget = {};
+			});
+		FlushRenderingCommands();
+		ShutdownRenderingThread();
+		FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
+		RHIExit();
+	}
+
+	TEST(FEditorGridVulkanTests,
 		WindowBackedPresentPreservesDisplaySettingsAcrossResizeAndToggles)
 	{
 		class FTestApplication final : public FGenericApplication
@@ -800,6 +928,8 @@ namespace Durin
 					Options.GBufferDebugMode = bGBufferDebug
 						? EGBufferDebugMode::ReconstructionError
 						: EGBufferDebugMode::Disabled;
+					Options.bEnableDeferredDirectionalQualification =
+						bGBufferDebug;
 					*Result = Renderer.RenderView(
 						CommandList, nullptr, View, BackBuffer, true, Options);
 					CommandList.EndDrawingViewport(Viewport, true, false);
@@ -821,8 +951,16 @@ namespace Durin
 			ERenderViewResult::Success);
 		GDynamicRHI->RHIResizeViewport(Viewport, 129, 129, false);
 		FlushRenderingCommands();
+		SetViewRenderCounterSink(CaptureViewCounters);
 		EXPECT_EQ(RenderPresent(129, 129, 0.0f, true, false, true, true),
 			ERenderViewResult::Success);
+		EXPECT_EQ(GLastViewCounters.DeferredDirectionalEnabledViews, 1u);
+		EXPECT_EQ(GLastViewCounters.DeferredDirectionalUnavailableViews, 0u);
+		EXPECT_EQ(GLastViewCounters.DeferredDirectionalPassFailures, 0u);
+		EXPECT_GT(GLastViewCounters.DeferredDirectionalOutputBytes, 0u);
+		EXPECT_EQ(GLastViewCounters.GBufferAttachmentBytes,
+			GLastViewCounters.DeferredDirectionalOutputBytes * 2u);
+		SetViewRenderCounterSink(nullptr);
 
 		Viewport = nullptr;
 		auto RendererShutdownContext =

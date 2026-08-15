@@ -219,6 +219,11 @@ namespace Durin
 		size_t GBufferTerrainSuccessfulDraws = 0;
 		size_t GBufferTerrainRejectedDraws = 0;
 		size_t GBufferTerrainSkippedDraws = 0;
+		size_t DeferredDirectionalEnabledViews = 0;
+		size_t DeferredDirectionalUnavailableViews = 0;
+		size_t DeferredDirectionalPassFailures = 0;
+		size_t DeferredDirectionalDebugViews = 0;
+		size_t DeferredDirectionalOutputBytes = 0;
 		size_t OpaqueStaticMeshSections = 0;
 		size_t MaskedStaticMeshSections = 0;
 		size_t TranslucentStaticMeshSections = 0;

@@ -511,6 +511,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 				Durin::FSceneViewRenderOptions RenderOptions;
 				RenderOptions.bEnableGBufferQualification =
 					bEnableGBufferQualification;
+				RenderOptions.bEnableDeferredDirectionalQualification =
+					bEnableGBufferQualification;
 				EXPECT_EQ(Renderer.RenderView(
 					CommandList, &Scene, View, Target, false, RenderOptions),
 					Durin::ERenderViewResult::Success);
@@ -541,6 +543,9 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	EXPECT_EQ(GLastCounters.GBufferSkeletalMeshSuccessfulDraws, 2u);
 	EXPECT_EQ(GLastCounters.GBufferSkeletalMeshRejectedDraws, 0u);
 	EXPECT_EQ(GLastCounters.GBufferSkeletalMeshSkippedDraws, 1u);
+	EXPECT_EQ(GLastCounters.DeferredDirectionalEnabledViews, 0u);
+	EXPECT_EQ(GLastCounters.DeferredDirectionalUnavailableViews, 1u);
+	EXPECT_EQ(GLastCounters.DeferredDirectionalPassFailures, 0u);
 	Durin::FDirectionalLightSceneData Directional;
 	Directional.Direction = {0.0, 0.0, -1.0};
 	Directional.Color = {1.0f, 0.1f, 0.1f};

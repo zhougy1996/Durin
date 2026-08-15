@@ -4,8 +4,8 @@ Summary: Implement and qualify one deferred directional, environment, and emissi
 
 Last reviewed: 2026-08-15
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-15
 
 ## Current Status
 
@@ -17,12 +17,178 @@ and Slang share decode and analytic position reconstruction. Debug, readback,
 forward material-input A/B, view isolation, failure/reload, aggregate tests,
 full build, hidden-editor smoke, and the frozen RTX 3090 geometry budget pass.
 
-M3 is active at Stage 0 only. No deferred lighting pass or production routing
-change is authorized until Stage 0 freezes the shared-lighting seam,
-qualification target ownership, output/alpha contract, image tolerances,
-memory ceiling, reference fixtures, and absolute GPU gates. The production
-forward scene pass remains authoritative throughout M3 qualification. Local
-lights and translucent composition remain owned by M4.
+M3 Stage 0 is complete. Source inventory confirms the fixed 768-byte
+`FForwardLightingUniform` already carries the selected directional light,
+view position, full three-cascade shadow record, and local-light records. The
+deferred pass will bind that exact per-view range and ignore local entries.
+`Lighting/PBRLighting.slang` and `Lighting/DirectionalShadow.slang` already own
+the equations; Stage 1 will move only the remaining inline view-vector,
+environment-sampling, and composition orchestration into one shared
+`Lighting/SurfaceLighting.slang` module.
+
+The selected qualification result is one isolated `RGBA16_FLOAT` target at
+8 bytes per pixel with a `64 MiB` LRU ceiling. Clear/background, alpha,
+transitions, binding ABI, CPU/HDR/display tolerances, discontinuity policy,
+fixtures, and RTX 3090 budgets are frozen below. A 5,184-channel CPU sweep of
+the selected material/normal/light/view grid records display-byte p95 `1`, p99
+`3`, and maximum `17`; the gate allows `1/3/18`. The exactly aligned minimum-
+roughness specular singularity is deliberately decoded-reference-only because
+the already-qualified one-degree normal transport can change its unbounded
+peak by orders of magnitude. This is an explicit transport limitation, not a
+looser implementation tolerance. Stage 1 is complete. The new
+`Lighting/ForwardLightingUniform.slang` module freezes the existing 768-byte
+ABI, while `Lighting/SurfaceLighting.slang` owns the exact forward/deferred
+view frame, directional BRDF call, IBL sampling/evaluation, and final
+composition. The existing forward shader retains its ordered direct-light
+accumulation and passes material, skeletal, terrain, editor-grid, complete
+directional-shadow qualification, reflection, and image fixtures.
+
+`FDeferredDirectionalLightingRenderer` now owns a typed 13-binding shader/
+pipeline payload and complete-or-null `RGBA16_FLOAT` target cache without
+recording a draw. Layout/accounting tests freeze the 160-byte view uniform,
+8-byte-per-pixel target, and `64 MiB` ceiling. Vulkan injected image,
+shader-module, and graphics-pipeline failures prove same-generation
+suppression, ordered manual recovery, shader/device generation recreation,
+explicit release/recreation, and alternating-size isolation. The 55-target
+`fast-all` profile and full build pass. Production forward output remains
+authoritative.
+
+Stage 2 is complete. The opt-in route now records one isolated full-screen
+pass after the current view's GBuffer, reconstructs the world-space surface,
+and evaluates the shared unshadowed directional, environment, emissive, and
+opacity semantics into `RGBA16_FLOAT`. Invalid/background records retain the
+view clear color, while zero-candidate views consume the freshly cleared
+GBuffer without reusing an older view. Enabled/unavailable/failure counters,
+GPU timing and capture seams, and decoded/directional/environment/emissive/
+alpha/final diagnostics are live. Orthographic and perspective HDR A/B,
+display-quantization bounds, above-one emissive, zero-eligible Unlit behavior,
+all four primitive families, focused Vulkan owners, `fast-all`, and the full
+build pass; production forward Scene Color remains byte-identical. Stage 3
+is complete. Deferred lighting now consumes the selected shadow array,
+comparison sampler, and unchanged prepared cascade record through the shared
+receiver function. Low/Medium/High PCF, single-map and three-cascade
+diagnostics, no-light, directional-only, emissive-only, default-black
+environment, combined above-one HDR, perspective, orthographic, constrained-
+aspect, and large-coordinate fixtures pass the frozen parity gates. The
+existing decoded-record CPU/Slang sweep supplies custom-environment, mapped-
+normal, mirrored/two-sided, masked-edge, and material-extreme evidence; the
+runtime four-family fixture proves every geometry transport reaches the same
+full-screen evaluator.
+
+Main, auxiliary, camera-preview, thumbnail, offscreen, Present/resize, and
+alternating-extent sequences report a fresh correctly sized target. A new
+constrained-aspect regression exposed and fixed the GBuffer pass using the
+unfitted view while forward used the fitted viewport; all three passes now
+share the fitted viewport and the deferred shader reconstructs viewport-local
+NDC without expanding the frozen ABI. A partial GBuffer remains unavailable
+to deferred rather than sampling an incomplete payload. Focused contracts and
+Vulkan owners, `fast-all`, and the full build pass.
+
+Stage 4 and M3 are complete. The validation-enabled RTX 3090 1920x1080 run
+uses 30 warm-up and 120 measured frames: GBuffer is `79,968/80,768 ns`,
+isolated deferred directional is `200,896/201,952 ns`, and their sum is
+`280,864/282,208 ns` median/p95, all below frozen gates. The active route is
+`107,827,200` bytes. Focused owners, `fast-all`, the ordinary native aggregate,
+full build, native-window Present/resize, injected lifecycle/recovery fixtures,
+and an 8-second validation-clean hidden-editor smoke pass. The lasting
+[Deferred Directional Lighting](../Runtime/Rendering/DeferredDirectionalLighting.md)
+contract is published. M3 did not change the default opaque owner; the active
+[Hybrid Renderer Production Rollout](HybridRendererProductionRollout.md) plan
+now owns M4 from a fresh Stage 0 contract and budget freeze.
+
+## Frozen Stage 0 Contract
+
+### Shared functions and binding ABI
+
+- `Lighting/SurfaceLighting.slang` will own a finite normalized surface frame
+  from world position, shading normal, and view position; directional BRDF
+  evaluation from an already selected shadow attenuation; environment texture
+  sampling plus split-sum evaluation; and final
+  `direct + environment + emissive` composition with effective opacity.
+  Forward supplies its already ordered directional-plus-local direct sum; M3
+  deferred supplies its directional term. This preserves forward accumulation
+  order and avoids subtract/re-add rounding drift during extraction.
+- Both entry points continue to call `EvaluateDirectionalShadow` from
+  `Lighting/DirectionalShadow.slang`. The helper receives identical world
+  position, decoded/final shading normal, cascade uniform, texture, and sampler
+  semantics. Directional diagnostics replace lit color exactly as in forward.
+- The deferred shader binds, in order, GBuffer material, normals, surface,
+  emissive, D32, environment irradiance, prefiltered environment, BRDF LUT,
+  environment sampler, directional-shadow array, shadow comparison sampler,
+  one deferred-view uniform, and the existing 768-byte lighting uniform.
+- The deferred-view uniform is exactly 160 bytes: four projection rows (64),
+  view-to-world matrix (64), clear color (16), then inverse viewport XY,
+  diagnostic identity, and reserved zero (16). Analytic reconstruction uses
+  the projection rows; no inverse view-projection multiply is permitted.
+- Missing environment payload binds the same black cube/black LUT/default
+  sampler fallback used by forward geometry. Missing or disabled directional
+  light yields zero directional direct. M3 does not interpret local records.
+
+### Result, ordering, and memory
+
+- `DeferredDirectionalColor` is `RGBA16_FLOAT`, clears to immutable
+  `View.ClearColor`, and has no depth attachment. Valid standard-lit records
+  overwrite RGB with scene-linear directional + environment + emissive and A
+  with decoded effective opacity. Invalid flags, failed reconstruction, and
+  background D32 preserve the clear color.
+- M3 qualification order is shadow depth, GBuffer, deferred directional,
+  unchanged forward Scene Color, contact/display mapping, then editor
+  assistance. The deferred target finishes graphics-shader-readable and may be
+  copied explicitly for validation; it is never CPU-readable or presented.
+- SkyBox drawing, local lights, translucency, and contact composition are not
+  part of the M3 result. Fixtures use clear background while environment IBL
+  remains independently enabled. M4 owns those production composition layers.
+- The target costs 8 bytes per pixel: `16,588,800` bytes at 1920x1080. The
+  current extent is retained and oldest other extents are evicted above
+  `64 MiB`; four 1920x1080 targets fit and five do not. Frozen M1 + M2 + M3
+  cache ceilings total `384 MiB`. One 1920x1080 qualification route including
+  scene targets, GBuffer, deferred color, and one SDR output is `107,827,200`
+  bytes.
+
+### Parity and fixture gates
+
+- A decoded-record CPU/Slang reference owns correctness independent of forward
+  transport. Each finite HDR channel must be within
+  `max(0.002, 0.002 * abs(reference))`; opacity must be within `1/510`.
+- For unshadowed forward/deferred displayed valid pixels, absolute byte error
+  over RGB must have mean at most `1`, p99 at most `3`, and maximum at most
+  `18`. Alpha allows one byte. The grid covers base colors 0.04-1, metallic
+  0/0.5/1, roughness 0.045/0.06/0.1/0.2/0.5/1, AO 0/0.5/1, emissive 0/2/16/64,
+  flat and mapped normals, off-axis lights/views, mirrored/two-sided geometry,
+  and every M2 primitive family.
+- The exactly aligned roughness-0.045 specular case compares deferred GPU only
+  against the decoded-record reference. It must be finite; it is excluded from
+  forward/deferred image statistics because octahedral UNORM8 normal
+  quantization is allowed to move that mathematical singularity.
+- Shadow-stable pixels and diagnostic classes must be byte-identical. Any
+  changed classification must lie within a two-pixel dilation of a forward
+  shadow, cascade, guard, or masked-coverage discontinuity; changed pixels are
+  limited to `0.75%` of valid receiver pixels and may not form an unmatched
+  island larger than four pixels. No-light/disabled/failed shadow cases are
+  exact zero-directional references.
+- Fixtures cover default/black/custom environment terms, component-isolated
+  and combined lighting, three shadow filters, cascade interiors/transitions,
+  masked edges, perspective, orthographic, constrained-aspect,
+  large-coordinate, main/auxiliary/preview/thumbnail, Present/offscreen,
+  resize, alternating extents, reload, invalidation, and shutdown.
+
+### Timing and failure gates
+
+- RTX 3090 qualification uses driver 591.86, Vulkan 1.4.325,
+  `Win64-Debug-DurinEditor`, validation enabled, 1920x1080, 30 warm-up frames,
+  and 120 measured frames. The representative fixture uses one-cover opaque/
+  masked geometry over the four M2 primitive families, default studio IBL,
+  one Medium-filter shadowed directional light, and no local/translucent/sky
+  work.
+- The isolated deferred-light pass must not exceed `300,000 ns` median or
+  `450,000 ns` p95. GBuffer plus deferred light must not exceed `600,000 ns`
+  median or `800,000 ns` p95. Timing excludes capture, readback, forward
+  rendering, and display mapping.
+- Target/shader/pipeline/environment/GBuffer/shadow failure reports its exact
+  per-view category, preserves forward production output, and never publishes
+  or samples a partial/stale payload. Same-generation suppression, manual
+  retry, shader reload, device recreation, release, and shutdown follow the
+  resource coordinator without `WaitIdle`.
 
 ## Goal
 
@@ -110,29 +276,29 @@ become the qualified opaque-lighting foundation for M4.
 | Area | Existing foundation | M3 gap |
 | --- | --- | --- |
 | Surface data | Qualified four-attachment GBuffer, shared CPU/Slang decoder, sampled D32 | No lighting consumer outside debug |
-| PBR | Shared direct/environment BRDF primitives in `Lighting/PBRLighting.slang` | Forward base pass still owns orchestration and environment sampling inline |
+| PBR | Shared BRDF primitives plus extracted view, directional, IBL, and composition orchestration | No deferred full-screen execution yet |
 | Directional shadow | Immutable prepared payload, shared sampling helper, three qualified cascades | No reconstructed-position deferred receiver |
 | HDR | Scene-linear `RGBA16_FLOAT` Scene Color and one display transform | No isolated deferred HDR reference target |
-| Resources | Transactional renderer payloads and byte-bounded target caches | No deferred-light shader/pipeline/target owner |
-| Evidence | GBuffer captures, debug modes, GPU timestamps, forward fixtures | No lighting-component A/B, deferred lifecycle, or M3 timing seam |
+| Resources | Typed deferred shader/pipeline and 64 MiB transactional target cache | Payload is not yet bound or drawn by SceneRenderer |
+| Evidence | GBuffer captures, reflection/layout, injected deferred-resource lifecycle, forward image fixtures | No lighting-component A/B or M3 timing seam |
 
 ## Implementation Stages
 
 ### Stage 0: Freeze parity, composition, resources, and budgets
 
-- [ ] Inventory the exact forward code paths for view-vector construction,
+- [x] Inventory the exact forward code paths for view-vector construction,
       directional/shadow evaluation, environment sampling, emissive, opacity,
       diagnostic behavior, and scene/background ownership.
-- [ ] Freeze shared Slang function boundaries and reflection ABI so forward
+- [x] Freeze shared Slang function boundaries and reflection ABI so forward
       remains behaviorally unchanged while deferred consumes decoded records.
-- [ ] Select the qualification target format, clear/alpha rules, pass ordering,
+- [x] Select the qualification target format, clear/alpha rules, pass ordering,
       transitions, cache eviction policy, per-extent bytes, peak retained bytes,
       and combined M1-M3 memory ceiling.
-- [ ] Freeze CPU/HDR/display comparison tolerances and reference fixtures across
+- [x] Freeze CPU/HDR/display comparison tolerances and reference fixtures across
       material extremes, normal mapping, mirrored/two-sided geometry,
       perspective/orthographic views, cascade transitions, missing lights,
       missing environment, emissive above one, and background pixels.
-- [ ] Freeze RTX 3090 profile, resolution, warm-up/sample counts, isolated
+- [x] Freeze RTX 3090 profile, resolution, warm-up/sample counts, isolated
       deferred-light and combined geometry-plus-light median/p95 budgets before
       implementation timing is captured.
 
@@ -144,14 +310,14 @@ become the qualified opaque-lighting foundation for M4.
 
 ### Stage 1: Establish shared lighting transport and deferred resources
 
-- [ ] Extract shared view, directional, environment, emissive, and alpha Slang
+- [x] Extract shared view, directional, environment, emissive, and alpha Slang
       helpers while preserving existing forward shader compilation, reflection,
       and image output.
-- [ ] Add typed deferred-light shader/pipeline payloads and a complete-or-null,
+- [x] Add typed deferred-light shader/pipeline payloads and a complete-or-null,
       byte-bounded qualification target without recording a lighting pass.
-- [ ] Add CPU layout/accounting checks plus shader reflection for GBuffer,
+- [x] Add CPU layout/accounting checks plus shader reflection for GBuffer,
       D32, lighting, shadow, environment, and output bindings.
-- [ ] Prove image/shader/pipeline failure, retry suppression, manual recovery,
+- [x] Prove image/shader/pipeline failure, retry suppression, manual recovery,
       reload, device-generation recreation, and explicit release/recreation.
 
 #### Acceptance Gate
@@ -162,14 +328,14 @@ become the qualified opaque-lighting foundation for M4.
 
 ### Stage 2: Render the unshadowed directional and environment slice
 
-- [ ] Record the opt-in full-screen pass after a valid GBuffer, reconstruct
+- [x] Record the opt-in full-screen pass after a valid GBuffer, reconstruct
       position/view direction, decode material inputs, and reject invalid pixels.
-- [ ] Compose unshadowed directional direct, environment, emissive, and effective
+- [x] Compose unshadowed directional direct, environment, emissive, and effective
       opacity into the isolated HDR qualification target.
-- [ ] Add per-view enabled/unavailable/failure counters, timing/capture seams,
+- [x] Add per-view enabled/unavailable/failure counters, timing/capture seams,
       and component diagnostic modes for decoded, directional, environment,
       emissive, alpha, and final HDR terms.
-- [ ] Prove parity across primitive/material/view/background matrices with no
+- [x] Prove parity across primitive/material/view/background matrices with no
       local lights and shadows disabled, including values above one.
 
 #### Acceptance Gate
@@ -180,15 +346,15 @@ become the qualified opaque-lighting foundation for M4.
 
 ### Stage 3: Integrate directional shadows and close lighting parity
 
-- [ ] Bind the existing selected shadow texture/sampler and prepared cascade
+- [x] Bind the existing selected shadow texture/sampler and prepared cascade
       payload to the deferred pass and evaluate the shared receiver path from
       reconstructed world position and decoded shading normal.
-- [ ] Compare no-light, directional-only, environment-only, emissive-only,
+- [x] Compare no-light, directional-only, environment-only, emissive-only,
       shadowed, cascade-transition, filter-tier, and combined references against
       forward output and directional-direct evidence.
-- [ ] Prove perspective, orthographic, constrained-aspect, large-coordinate,
+- [x] Prove perspective, orthographic, constrained-aspect, large-coordinate,
       mirrored/two-sided, mapped-normal, masked-edge, and background behavior.
-- [ ] Prove main/auxiliary/preview/thumbnail, Present/offscreen, resize, and
+- [x] Prove main/auxiliary/preview/thumbnail, Present/offscreen, resize, and
       alternating-extent isolation with no stale lighting or GBuffer reuse.
 
 #### Acceptance Gate
@@ -199,18 +365,19 @@ become the qualified opaque-lighting foundation for M4.
 
 ### Stage 4: Qualify lifecycle and publish the M4 handoff
 
-- [ ] Run focused Renderer/Engine/RHI/Vulkan owners, `fast-all`, the required
+- [x] Run focused Renderer/Engine/RHI/Vulkan owners, `fast-all`, the required
       ordinary native aggregate, and the full build through root workflows.
-- [ ] Capture validation-enabled RTX 3090 isolated and combined timing matrices
+- [x] Capture validation-enabled RTX 3090 isolated and combined timing matrices
       with adapter, driver, profile, warm-up/sample count, median, p95,
       per-extent bytes, and peak retained bytes.
-- [ ] Run native-window and hidden-editor Present/resize/reload/device-
-      invalidation/shutdown smoke coverage, including injected target,
-      shader, pipeline, environment, and shadow failures.
-- [ ] Publish lasting shared-lighting, deferred-input, ordering, ownership,
+- [x] Run native-window and hidden-editor Present/resize/reload/device-
+      invalidation/shutdown smoke coverage, including injected target, shader,
+      and pipeline failures plus missing-environment and missing/disabled-shadow
+      fallbacks.
+- [x] Publish lasting shared-lighting, deferred-input, ordering, ownership,
       failure, diagnostics, memory, and performance contracts under Runtime
       Rendering.
-- [ ] Re-review M4 against the qualified directional slice and activate
+- [x] Re-review M4 against the qualified directional slice and activate
       `HybridRendererProductionRollout.md` only after this plan's exit gate.
 
 #### Acceptance Gate
@@ -259,7 +426,9 @@ become the qualified opaque-lighting foundation for M4.
 - [Forward Lighting](../Runtime/Rendering/ForwardLighting.md)
 - [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md)
 - [HDR Scene Color and Display Mapping](../Runtime/Rendering/HDRSceneColorAndDisplayMapping.md)
+- [Deferred Directional Lighting](../Runtime/Rendering/DeferredDirectionalLighting.md)
 - [Minimal GBuffer and Geometry Pass](MinimalGBufferAndGeometryPass.md)
+- [Hybrid Renderer Production Rollout](HybridRendererProductionRollout.md)
 
 ## Related Code
 

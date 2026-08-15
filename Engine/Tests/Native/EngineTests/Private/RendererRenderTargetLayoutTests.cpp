@@ -3,6 +3,7 @@
 #include "Resources/RenderTargetLayouts.h"
 #include "Renderers/PostProcessRenderer.h"
 #include "Renderers/GBufferRenderer.h"
+#include "Renderers/DeferredDirectionalLightingRenderer.h"
 
 #include <limits>
 
@@ -102,6 +103,39 @@ namespace Durin
 			5u * FPostProcessRenderer::CalculateSceneTargetBytes(1920, 1080));
 		EXPECT_EQ(
 			FPostProcessRenderer::CalculateSceneTargetBytes(
+				std::numeric_limits<uint32>::max(),
+				std::numeric_limits<uint32>::max()),
+			std::numeric_limits<uint64>::max());
+	}
+
+	TEST(FRendererRenderTargetLayoutTests,
+		DeferredDirectionalTargetFreezesLayoutUniformAndByteBudget)
+	{
+		const FRHIRenderTargetLayout Layout =
+			MakeDeferredDirectionalOutput();
+		ASSERT_TRUE(Layout.IsValid());
+		ASSERT_EQ(Layout.NumColorRenderTargets, 1u);
+		EXPECT_FALSE(Layout.bHasDepthStencil);
+		const FRHIAttachmentLayout& Color =
+			Layout.ColorAttachments[0].RenderTarget;
+		EXPECT_EQ(Color.Format, EPixelFormat::RGBA16_FLOAT);
+		EXPECT_EQ(Color.LoadAction, ERHIRenderTargetLoadAction::Clear);
+		EXPECT_EQ(Color.StoreAction, ERHIRenderTargetStoreAction::Store);
+		EXPECT_EQ(Color.FinalLayout, ERHITextureLayout::ShaderReadOnly);
+		EXPECT_EQ(Color.FinalAccess, ERHIAccess::GraphicsShaderRead);
+		EXPECT_EQ(sizeof(FDeferredDirectionalLightingRenderer::FViewUniform),
+			160u);
+		EXPECT_EQ(FDeferredDirectionalLightingRenderer::BytesPerPixel, 8u);
+		EXPECT_EQ(FDeferredDirectionalLightingRenderer::CalculateTargetBytes(
+				1920, 1080),
+			16'588'800u);
+		EXPECT_GE(FDeferredDirectionalLightingRenderer::MaximumRetainedBytes,
+			4u * FDeferredDirectionalLightingRenderer::CalculateTargetBytes(
+				1920, 1080));
+		EXPECT_LT(FDeferredDirectionalLightingRenderer::MaximumRetainedBytes,
+			5u * FDeferredDirectionalLightingRenderer::CalculateTargetBytes(
+				1920, 1080));
+		EXPECT_EQ(FDeferredDirectionalLightingRenderer::CalculateTargetBytes(
 				std::numeric_limits<uint32>::max(),
 				std::numeric_limits<uint32>::max()),
 			std::numeric_limits<uint64>::max());

@@ -129,6 +129,20 @@ namespace Durin::RenderTargetLayouts
 		return Layout;
 	}
 
+	auto MakeDeferredDirectionalOutput() -> FRHIRenderTargetLayout
+	{
+		FRHIRenderTargetLayout Layout;
+		Layout.NumColorRenderTargets = 1;
+		Layout.ColorAttachments[0].RenderTarget = MakeColorAttachment(
+			EPixelFormat::RGBA16_FLOAT,
+			ERHIRenderTargetLoadAction::Clear,
+			ERHITextureLayout::Undefined,
+			ERHIAccess::None,
+			ERHITextureLayout::ShaderReadOnly,
+			ERHIAccess::GraphicsShaderRead);
+		return Layout;
+	}
+
 	auto MakeScenePostProcessOutput() -> FRHIRenderTargetLayout
 	{
 		FRHIRenderTargetLayout Layout;

@@ -527,4 +527,44 @@ namespace Durin
 		ExpectBinding(Fragment, "Params", 5,
 			ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
 	}
+
+	TEST(FShaderReflectionTests,
+		DeferredDirectionalLightingFreezesPublishedInputAbi)
+	{
+		const std::filesystem::path ShaderPath =
+			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
+			/ "DeferredDirectionalLighting.slang";
+		FShaderCompileOptions Options;
+		Options.VirtualShaderPath = "/Engine/DeferredDirectionalLighting";
+		Options.EntryPoints = {"VertexMain", "FragmentMain"};
+		Options.Frequencies = {
+			EShaderFrequency::Vertex, EShaderFrequency::Fragment};
+		FSlangShaderCompiler Compiler;
+		const FShaderCompilerOutput Output =
+			Compiler.Compile(ShaderPath.string(), Options);
+		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
+		const FCompiledShader& Fragment = Output.CompiledShaders[1];
+		EXPECT_EQ(GetSpirvOutputLocations(Fragment), (std::set<uint32>{0}));
+		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 13u);
+		for (uint32 Index = 0; Index <= 7; ++Index)
+		{
+			const std::array<const char*, 8> Names{
+				"GBufferMaterial", "GBufferNormals", "GBufferSurface",
+				"GBufferEmissive", "SceneDepth", "EnvironmentIrradiance",
+				"EnvironmentPrefiltered", "EnvironmentBrdfLut"};
+			ExpectBinding(Fragment, Names[Index], Index,
+				ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		}
+		ExpectBinding(Fragment, "EnvironmentSampler", 8,
+			ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "DirectionalShadowTexture", 9,
+			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "DirectionalShadowSampler", 10,
+			ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "View", 11,
+			ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "Lighting", 12,
+			ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
+	}
 } // namespace Durin

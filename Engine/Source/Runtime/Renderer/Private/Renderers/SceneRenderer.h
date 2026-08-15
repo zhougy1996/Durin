@@ -3,6 +3,7 @@
 #include "Renderers/ContactShadowRenderer.h"
 #include "Renderers/EditorAssistance/EditorAssistanceRenderer.h"
 #include "Renderers/DirectionalShadowRenderer.h"
+#include "Renderers/DeferredDirectionalLightingRenderer.h"
 #include "Renderers/GBufferRenderer.h"
 #include "Renderers/GBufferDebugRenderer.h"
 #include "Renderers/PostProcessRenderer.h"
@@ -83,6 +84,7 @@ namespace Durin
 		FDirectionalShadowRenderer DirectionalShadowRenderer;
 		FGBufferRenderer GBufferRenderer;
 		FGBufferDebugRenderer GBufferDebugRenderer;
+		FDeferredDirectionalLightingRenderer DeferredDirectionalLightingRenderer;
 		FStaticMeshRenderer StaticMeshRenderer;
 		FTerrainRenderer TerrainRenderer;
 		FSkeletalMeshRenderer SkeletalMeshRenderer;

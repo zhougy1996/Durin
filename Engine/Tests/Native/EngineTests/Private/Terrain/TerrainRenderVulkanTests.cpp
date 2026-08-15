@@ -177,6 +177,7 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(CommandList, Target, 0, 0, *Readback));
 			Durin::FSceneViewRenderOptions QualificationOptions;
 			QualificationOptions.bEnableGBufferQualification = true;
+			QualificationOptions.bEnableDeferredDirectionalQualification = true;
 			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target,
 				false, QualificationOptions), Durin::ERenderViewResult::Success);
 			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
@@ -202,6 +203,9 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 	EXPECT_EQ(GCounterSnapshots[1].GBufferTerrainSuccessfulDraws, 1u);
 	EXPECT_EQ(GCounterSnapshots[1].GBufferTerrainRejectedDraws, 0u);
 	EXPECT_EQ(GCounterSnapshots[1].GBufferTerrainSkippedDraws, 0u);
+	EXPECT_EQ(GCounterSnapshots[1].DeferredDirectionalEnabledViews, 1u);
+	EXPECT_EQ(GCounterSnapshots[1].DeferredDirectionalUnavailableViews, 0u);
+	EXPECT_EQ(GCounterSnapshots[1].DeferredDirectionalPassFailures, 0u);
 	for (const auto& Attachment : TerrainGBufferPixels)
 		ASSERT_EQ(Attachment.size(), 65u * 65u * 4u);
 	size_t ValidTerrainGBufferPixels = 0;
@@ -364,6 +368,7 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 			View.Settings.LODMode = Durin::EViewLODMode::ForceLOD0;
 			Durin::FSceneViewRenderOptions QualificationOptions;
 			QualificationOptions.bEnableGBufferQualification = true;
+			QualificationOptions.bEnableDeferredDirectionalQualification = true;
 			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false,
 				QualificationOptions),
 				Durin::ERenderViewResult::Success);
@@ -376,6 +381,9 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 	EXPECT_EQ(GCounters.GBufferTerrainAttemptedDraws, 1u);
 	EXPECT_EQ(GCounters.GBufferTerrainSuccessfulDraws, 1u);
 	EXPECT_EQ(GCounters.GBufferTerrainRejectedDraws, 0u);
+	EXPECT_EQ(GCounters.DeferredDirectionalEnabledViews, 1u);
+	EXPECT_EQ(GCounters.DeferredDirectionalUnavailableViews, 0u);
+	EXPECT_EQ(GCounters.DeferredDirectionalPassFailures, 0u);
 
 	const std::array<Durin::uint16, 15> MixedSamples{
 		65535, 65535, 65535, 65535, 65535,

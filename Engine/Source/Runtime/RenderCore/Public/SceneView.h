@@ -133,6 +133,20 @@ namespace Durin
 		Count,
 	};
 
+	// Development-only component views written into the isolated deferred HDR
+	// qualification target. They never replace production Scene Color.
+	enum class EDeferredDirectionalDebugMode : uint8
+	{
+		Disabled,
+		DecodedMaterial,
+		Directional,
+		Environment,
+		Emissive,
+		Alpha,
+		Final,
+		Count,
+	};
+
 	// Carries optional value-owned content overrides for one renderer submission.
 	struct FSceneViewRenderOptions
 	{
@@ -141,6 +155,11 @@ namespace Durin
 		// minimal GBuffer before the unchanged forward scene pass.
 		bool bEnableGBufferQualification = false;
 		EGBufferDebugMode GBufferDebugMode = EGBufferDebugMode::Disabled;
+		// Development-only M3 route. Produces an isolated deferred directional,
+		// shadow, environment, and emissive result before unchanged forward Scene Color.
+		bool bEnableDeferredDirectionalQualification = false;
+		EDeferredDirectionalDebugMode DeferredDirectionalDebugMode =
+			EDeferredDirectionalDebugMode::Disabled;
 	};
 
 	// Identifies a procedural editor-assistance shape rendered over a scene view.

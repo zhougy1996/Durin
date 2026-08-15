@@ -1,5 +1,6 @@
 #include "CoreGlobals.h"
 #include "DynamicRHI.h"
+#include "Engine/LightSceneProxy.h"
 #include "Engine/SkeletalMeshSceneProxy.h"
 #include "Engine/SplineMeshSceneProxy.h"
 #include "Engine/StaticMeshSceneProxy.h"
@@ -11,6 +12,7 @@
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RendererModule.h"
+#include "Renderers/DeferredDirectionalLightingRenderer.h"
 #include "Renderers/GBufferRenderer.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/SceneVisibility.h"
@@ -35,7 +37,8 @@ namespace
 	constexpr Durin::uint32 TimingHeight = 1080;
 	constexpr Durin::uint32 WarmupFrames = 30;
 	constexpr Durin::uint32 MeasuredFrames = 120;
-	std::vector<Durin::FGPUTimingQueryRHIRef>* GTimingQueries = nullptr;
+	std::vector<Durin::FGPUTimingQueryRHIRef>* GGBufferTimingQueries = nullptr;
+	std::vector<Durin::FGPUTimingQueryRHIRef>* GDeferredTimingQueries = nullptr;
 	Durin::FViewRenderCounters GLastCounters;
 
 	struct FGBufferQualificationCommand
@@ -46,9 +49,16 @@ namespace
 		}
 	};
 
-	auto CaptureTiming(const Durin::FGPUTimingQueryRHIRef& Query) -> void
+	auto CaptureGBufferTiming(const Durin::FGPUTimingQueryRHIRef& Query) -> void
 	{
-		if (GTimingQueries != nullptr) GTimingQueries->push_back(Query);
+		if (GGBufferTimingQueries != nullptr)
+			GGBufferTimingQueries->push_back(Query);
+	}
+
+	auto CaptureDeferredTiming(const Durin::FGPUTimingQueryRHIRef& Query) -> void
+	{
+		if (GDeferredTimingQueries != nullptr)
+			GDeferredTimingQueries->push_back(Query);
 	}
 
 	auto CaptureCounters(const Durin::FViewRenderCounters& Counters) -> void
@@ -213,11 +223,21 @@ TEST(FGBufferQualificationTests,
 			1.0, 1.0, 0.0, 0.0,
 			std::vector<Durin::FTerrainPatchDescriptor>{Patch},
 			Patch.LocalBounds, Material, 1), Durin::FMatrix(1.0));
+	Durin::FDirectionalLightSceneData Directional;
+	Directional.Direction = {0.35, 0.2, -1.0};
+	Directional.Color = {1.0f, 1.0f, 1.0f};
+	Directional.Intensity = 3.0f;
+	Directional.bCastShadows = true;
+	Scene.AddOrReplaceLight(Durin::FLightSceneId(100),
+		std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
 	Durin::FlushRenderingCommands();
 
-	std::vector<Durin::FGPUTimingQueryRHIRef> Queries;
-	GTimingQueries = &Queries;
-	Durin::SetGBufferTimingQuerySink(CaptureTiming);
+	std::vector<Durin::FGPUTimingQueryRHIRef> GBufferQueries;
+	std::vector<Durin::FGPUTimingQueryRHIRef> DeferredQueries;
+	GGBufferTimingQueries = &GBufferQueries;
+	GDeferredTimingQueries = &DeferredQueries;
+	Durin::SetGBufferTimingQuerySink(CaptureGBufferTiming);
+	Durin::SetDeferredDirectionalTimingQuerySink(CaptureDeferredTiming);
 	Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
 		[&Renderer, &Scene](Durin::FRHICommandListImmediate& CommandList) {
 			const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
@@ -232,11 +252,16 @@ TEST(FGBufferQualificationTests,
 			View.ViewProjectionMatrix = Durin::FMatrix(1.0);
 			View.ViewportWidth = TimingWidth;
 			View.ViewportHeight = TimingHeight;
-			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
+			View.Settings.RenderMode = Durin::ERenderMode::Lit;
 			View.Settings.VisibilityMode =
 				Durin::EViewVisibilityMode::FrustumCullingDisabled;
+			View.Settings.DirectionalShadowCandidate =
+				Durin::EDirectionalShadowCandidate::SingleMap;
+			View.Settings.DirectionalShadowFilterQuality =
+				Durin::EDirectionalShadowFilterQuality::Medium;
 			Durin::FSceneViewRenderOptions Options;
 			Options.bEnableGBufferQualification = true;
+			Options.bEnableDeferredDirectionalQualification = true;
 			for (Durin::uint32 Frame = 0;
 				Frame < WarmupFrames + MeasuredFrames; ++Frame)
 			{
@@ -249,14 +274,21 @@ TEST(FGBufferQualificationTests,
 		});
 	Durin::FlushRenderingCommands();
 	Durin::SetGBufferTimingQuerySink(nullptr);
-	GTimingQueries = nullptr;
+	Durin::SetDeferredDirectionalTimingQuerySink(nullptr);
+	GGBufferTimingQueries = nullptr;
+	GDeferredTimingQueries = nullptr;
 	for (Durin::uint32 Attempt = 0; Attempt < 100; ++Attempt)
 	{
-		const bool bReady = Queries.size() == WarmupFrames + MeasuredFrames
-			&& std::ranges::all_of(Queries, [](const auto& Query) {
+		auto AllReady = [](const auto& Queries) {
+			return std::ranges::all_of(Queries, [](const auto& Query) {
 				return Query->GetResult().State
 					== Durin::ERHIGPUTimingResultState::Ready;
 			});
+		};
+		const bool bReady =
+			GBufferQueries.size() == WarmupFrames + MeasuredFrames
+			&& DeferredQueries.size() == WarmupFrames + MeasuredFrames
+			&& AllReady(GBufferQueries) && AllReady(DeferredQueries);
 		if (bReady) break;
 		Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
 			[](Durin::FRHICommandListImmediate& CommandList) {
@@ -267,21 +299,45 @@ TEST(FGBufferQualificationTests,
 		Durin::FlushRenderingCommands();
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
-	ASSERT_EQ(Queries.size(), WarmupFrames + MeasuredFrames);
-	std::vector<Durin::uint64> Durations;
-	for (size_t Index = WarmupFrames; Index < Queries.size(); ++Index)
+	ASSERT_EQ(GBufferQueries.size(), WarmupFrames + MeasuredFrames);
+	ASSERT_EQ(DeferredQueries.size(), WarmupFrames + MeasuredFrames);
+	std::vector<Durin::uint64> GBufferDurations;
+	std::vector<Durin::uint64> DeferredDurations;
+	std::vector<Durin::uint64> CombinedDurations;
+	for (size_t Index = WarmupFrames; Index < GBufferQueries.size(); ++Index)
 	{
-		const Durin::FRHIGPUTimingResult Result = Queries[Index]->GetResult();
-		ASSERT_EQ(Result.State, Durin::ERHIGPUTimingResultState::Ready);
-		Durations.push_back(Result.DurationNanoseconds);
+		const Durin::FRHIGPUTimingResult GBufferResult =
+			GBufferQueries[Index]->GetResult();
+		const Durin::FRHIGPUTimingResult DeferredResult =
+			DeferredQueries[Index]->GetResult();
+		ASSERT_EQ(GBufferResult.State, Durin::ERHIGPUTimingResultState::Ready);
+		ASSERT_EQ(DeferredResult.State, Durin::ERHIGPUTimingResultState::Ready);
+		GBufferDurations.push_back(GBufferResult.DurationNanoseconds);
+		DeferredDurations.push_back(DeferredResult.DurationNanoseconds);
+		CombinedDurations.push_back(
+			GBufferResult.DurationNanoseconds
+				+ DeferredResult.DurationNanoseconds);
 	}
-	std::ranges::sort(Durations);
-	ASSERT_EQ(Durations.size(), MeasuredFrames);
-	const Durin::uint64 Median =
-		(Durations[MeasuredFrames / 2 - 1] + Durations[MeasuredFrames / 2]) / 2;
-	const Durin::uint64 P95 = Durations[113];
-	EXPECT_LE(Median, 350'000u);
-	EXPECT_LE(P95, 500'000u);
+	std::ranges::sort(GBufferDurations);
+	std::ranges::sort(DeferredDurations);
+	std::ranges::sort(CombinedDurations);
+	ASSERT_EQ(GBufferDurations.size(), MeasuredFrames);
+	auto Median = [](const std::vector<Durin::uint64>& Durations) {
+		return (Durations[MeasuredFrames / 2 - 1]
+			+ Durations[MeasuredFrames / 2]) / 2;
+	};
+	const Durin::uint64 GBufferMedian = Median(GBufferDurations);
+	const Durin::uint64 GBufferP95 = GBufferDurations[113];
+	const Durin::uint64 DeferredMedian = Median(DeferredDurations);
+	const Durin::uint64 DeferredP95 = DeferredDurations[113];
+	const Durin::uint64 CombinedMedian = Median(CombinedDurations);
+	const Durin::uint64 CombinedP95 = CombinedDurations[113];
+	EXPECT_LE(GBufferMedian, 350'000u);
+	EXPECT_LE(GBufferP95, 500'000u);
+	EXPECT_LE(DeferredMedian, 300'000u);
+	EXPECT_LE(DeferredP95, 450'000u);
+	EXPECT_LE(CombinedMedian, 600'000u);
+	EXPECT_LE(CombinedP95, 800'000u);
 	EXPECT_EQ(GLastCounters.GBufferAttemptedDraws, 4u);
 	EXPECT_EQ(GLastCounters.GBufferSuccessfulDraws, 4u);
 	EXPECT_EQ(GLastCounters.GBufferRejectedDraws, 0u);
@@ -290,16 +346,32 @@ TEST(FGBufferQualificationTests,
 	EXPECT_EQ(GLastCounters.GBufferSplineMeshSuccessfulDraws, 1u);
 	EXPECT_EQ(GLastCounters.GBufferSkeletalMeshSuccessfulDraws, 1u);
 	EXPECT_EQ(GLastCounters.GBufferTerrainSuccessfulDraws, 1u);
+	EXPECT_EQ(GLastCounters.DeferredDirectionalEnabledViews, 1u);
+	EXPECT_EQ(GLastCounters.DeferredDirectionalUnavailableViews, 0u);
+	EXPECT_EQ(GLastCounters.DeferredDirectionalPassFailures, 0u);
+	EXPECT_EQ(GLastCounters.DeferredDirectionalOutputBytes,
+		Durin::FDeferredDirectionalLightingRenderer::CalculateTargetBytes(
+			TimingWidth, TimingHeight));
 	const Durin::uint64 AttachmentBytes =
 		Durin::FGBufferRenderer::CalculateTargetBytes(TimingWidth, TimingHeight);
 	EXPECT_EQ(GLastCounters.GBufferAttachmentBytes, AttachmentBytes);
 	EXPECT_LE(AttachmentBytes, Durin::FGBufferRenderer::MaximumRetainedBytes);
-	std::cout << "GBuffer qualification: adapter=NVIDIA GeForce RTX 3090, "
+	std::cout << "Deferred lighting qualification: adapter=NVIDIA GeForce RTX 3090, "
 		<< "resolution=1920x1080, warmup=" << WarmupFrames
-		<< ", samples=" << MeasuredFrames << ", median_ns=" << Median
-		<< ", p95_ns=" << P95 << ", attachment_bytes=" << AttachmentBytes
-		<< ", peak_retained_bytes=" << AttachmentBytes << "\n";
-	Queries.clear();
+		<< ", samples=" << MeasuredFrames
+		<< ", gbuffer_median_ns=" << GBufferMedian
+		<< ", gbuffer_p95_ns=" << GBufferP95
+		<< ", deferred_median_ns=" << DeferredMedian
+		<< ", deferred_p95_ns=" << DeferredP95
+		<< ", combined_median_ns=" << CombinedMedian
+		<< ", combined_p95_ns=" << CombinedP95
+		<< ", gbuffer_bytes=" << AttachmentBytes
+		<< ", deferred_bytes="
+		<< GLastCounters.DeferredDirectionalOutputBytes
+		<< ", active_route_bytes="
+		<< 107'827'200u << "\n";
+	GBufferQueries.clear();
+	DeferredQueries.clear();
 
 	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(1));
 	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(2));

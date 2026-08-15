@@ -1,0 +1,154 @@
+module DeferredDirectionalLighting;
+
+import Lighting.DirectionalShadow;
+import Lighting.ForwardLightingUniform;
+import Lighting.PBRLighting;
+import Lighting.SurfaceLighting;
+import Material.GBufferDecode;
+
+struct VSInput
+{
+    float2 pos : POSITION;
+    float2 uv : TEXCOORD;
+};
+
+struct VSOutput
+{
+    float4 pos : SV_Position;
+    float2 uv : TEXCOORD;
+};
+
+struct FDeferredDirectionalViewUniform
+{
+    float4 ProjectionRow0;
+    float4 ProjectionRow1;
+    float4 ProjectionRow2;
+    float4 ProjectionRow3;
+    float4x4 ViewToWorld;
+    float4 ClearColor;
+    float4 Params; // xy = inverse viewport, z = diagnostic, w = reserved zero
+};
+
+[[vk::binding(0, 0)]] Texture2D<float4> GBufferMaterial;
+[[vk::binding(1, 0)]] Texture2D<float4> GBufferNormals;
+[[vk::binding(2, 0)]] Texture2D<float4> GBufferSurface;
+[[vk::binding(3, 0)]] Texture2D<float3> GBufferEmissive;
+[[vk::binding(4, 0)]] Texture2D<float> SceneDepth;
+[[vk::binding(5, 0)]] TextureCube<float4> EnvironmentIrradiance;
+[[vk::binding(6, 0)]] TextureCube<float4> EnvironmentPrefiltered;
+[[vk::binding(7, 0)]] Texture2D<float4> EnvironmentBrdfLut;
+[[vk::binding(8, 0)]] SamplerState EnvironmentSampler;
+[[vk::binding(9, 0)]] Texture2DArray<float> DirectionalShadowTexture;
+[[vk::binding(10, 0)]] SamplerComparisonState DirectionalShadowSampler;
+[[vk::binding(11, 0)]] ConstantBuffer<FDeferredDirectionalViewUniform> View;
+[[vk::binding(12, 0)]] ConstantBuffer<FForwardLightingUniform> Lighting;
+
+[shader("vertex")]
+VSOutput VertexMain(VSInput input)
+{
+    VSOutput output;
+    output.pos = float4(input.pos, 0.0, 1.0);
+    output.uv = input.uv;
+    return output;
+}
+
+[shader("fragment")]
+float4 FragmentMain(VSOutput input) : SV_Target
+{
+    int2 pixel = int2(input.pos.xy);
+    FGBufferRecord record = DecodeGBuffer(
+        GBufferMaterial.Load(int3(pixel, 0)),
+        GBufferNormals.Load(int3(pixel, 0)),
+        GBufferSurface.Load(int3(pixel, 0)),
+        GBufferEmissive.Load(int3(pixel, 0)));
+    if ((record.flags & GBufferStandardLitFlag) == 0u)
+        return View.ClearColor;
+
+    float depth = SceneDepth.Load(int3(pixel, 0));
+    uint targetWidth;
+    uint targetHeight;
+    GBufferMaterial.GetDimensions(targetWidth, targetHeight);
+    // FitViewToOutput centers constrained content. Recover that integer origin
+    // from the frozen inverse-viewport ABI so letterboxed views reconstruct in
+    // viewport-local NDC while still loading absolute GBuffer pixels.
+    float2 viewportSize = round(rcp(View.Params.xy));
+    float2 viewportOrigin = floor(
+        (float2(targetWidth, targetHeight) - viewportSize) * 0.5);
+    float2 uv = (float2(pixel) + 0.5 - viewportOrigin) * View.Params.xy;
+    float3 viewPosition;
+    if (!ReconstructViewPositionAnalytic(
+            View.ProjectionRow0,
+            View.ProjectionRow1,
+            View.ProjectionRow2,
+            View.ProjectionRow3,
+            uv * 2.0 - 1.0,
+            depth,
+            viewPosition))
+    {
+        return View.ClearColor;
+    }
+    float4 worldPositionH = mul(
+        View.ViewToWorld, float4(viewPosition, 1.0));
+    if (!all(isfinite(worldPositionH)) || abs(worldPositionH.w) <= 1.0e-8)
+        return View.ClearColor;
+    float3 worldPosition = worldPositionH.xyz / worldPositionH.w;
+    FSurfaceLightingFrame frame = BuildSurfaceLightingFrame(
+        worldPosition, record.shadingNormal, Lighting.ViewPosition.xyz);
+
+    float3 directional = float3(0.0);
+    if (Lighting.Counts.x > 0u)
+    {
+        float3 lightVector = -Lighting.DirectionalDirection.xyz;
+        float lightLengthSquared = dot(lightVector, lightVector);
+        float3 toLight = lightLengthSquared > 1.0e-8
+            ? lightVector * rsqrt(lightLengthSquared)
+            : float3(0.0, 0.0, 1.0);
+        float3 radiance = Lighting.DirectionalColorIntensity.rgb
+            * Lighting.DirectionalColorIntensity.a;
+        FDirectionalShadowSample shadow = EvaluateDirectionalShadow(
+            worldPosition,
+            frame.normal,
+            Lighting.DirectionalShadowControl,
+            Lighting.DirectionalShadowViewDepthTransform,
+            Lighting.DirectionalShadowSplitDepths,
+            Lighting.DirectionalShadowLightTransition,
+            Lighting.DirectionalShadowCascades,
+            DirectionalShadowTexture,
+            DirectionalShadowSampler);
+        if (Lighting.DirectionalShadowControl.y > 0.5)
+            return float4(shadow.diagnosticColor, record.effectiveOpacity);
+        directional = EvaluateSurfaceDirectionalLighting(
+            record.baseColor,
+            record.metallic,
+            record.roughness,
+            frame,
+            toLight,
+            radiance,
+            shadow.attenuation);
+    }
+
+    float3 environment = EvaluateSurfaceEnvironmentLighting(
+        record.baseColor,
+        record.metallic,
+        record.roughness,
+        record.ambientOcclusion,
+        frame,
+        EnvironmentIrradiance,
+        EnvironmentPrefiltered,
+        EnvironmentBrdfLut,
+        EnvironmentSampler);
+    float4 composed = ComposeSurfaceLighting(
+        directional, environment, record.emissive, record.effectiveOpacity);
+    uint diagnostic = (uint)round(View.Params.z);
+    if (diagnostic == 1u)
+        return float4(record.baseColor, record.metallic);
+    if (diagnostic == 2u)
+        return float4(directional, record.effectiveOpacity);
+    if (diagnostic == 3u)
+        return float4(environment, record.effectiveOpacity);
+    if (diagnostic == 4u)
+        return float4(record.emissive, record.effectiveOpacity);
+    if (diagnostic == 5u)
+        return float4(record.effectiveOpacity.xxx, record.effectiveOpacity);
+    return composed;
+}

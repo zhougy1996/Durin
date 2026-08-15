@@ -2,6 +2,7 @@
 
 #include "Math/Vector.h"
 #include "RenderResourceCreation.h"
+#include "RendererAPI.h"
 #include "RHIResources.h"
 
 namespace Durin
@@ -9,7 +10,7 @@ namespace Durin
 	class FRHICommandListImmediate;
 
 	// Owns the fullscreen triangle shared by post process and editor grid.
-	class FFullscreenGeometryResources
+	class RENDERER_API FFullscreenGeometryResources
 	{
 	public:
 		struct FVertex
