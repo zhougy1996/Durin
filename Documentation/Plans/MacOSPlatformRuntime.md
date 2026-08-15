@@ -21,6 +21,21 @@ both processes receive `SIGSEGV` after GoogleTest global teardown. Neither
 result is treated as a passing native test run. The Editor has not been launched
 and macOS runtime support is not claimed.
 
+The first shutdown defect is now characterized and repaired. macOS `.ips`
+reports for both suites show `EXC_BAD_ACCESS` at address `0x268`: a task worker
+logs its exit through an already-destroyed `FLogger` while the main thread joins
+that worker from the process-global task scheduler's static destructor. The
+native-test harness now explicitly stops and joins the scheduler immediately
+after `RUN_ALL_TESTS()`, while logging is alive. SkeletalAsset passes 34/34 and
+exits successfully, Spline qualification passes its 2 assertions and process,
+and the native-test isolation characterization control target remains green.
+
+The Launch link probe's unresolved set is limited to the five functions owned
+by the platform crash-service adapter: handler install/uninstall, crash-root
+publication, test option configuration, and native fixture execution. Engine
+and DurinEd already link, so Stage 1 can implement this real adapter without
+mixing in unrelated compiler or dependency work.
+
 This plan is M2 of the
 [macOS Platform Enablement roadmap](../Roadmaps/MacOSPlatformEnablement.md) and
 consumes the archived M1
@@ -93,15 +108,16 @@ bypassing or weakening it.
 
 ### Stage 0: Characterize native runtime and shutdown failures
 
-- [ ] Capture the complete Launch unresolved-symbol set and prove its ownership
+- [x] Capture the complete Launch unresolved-symbol set and prove its ownership
   is limited to the missing macOS crash-service adapter.
-- [ ] Reproduce both post-test teardown crashes under LLDB and record the first
+- [x] Reproduce both post-test teardown crashes with native crash reports and
+  LLDB where the host permits it; record the first
   invalid frame, owning dylib/module, thread, shutdown phase, and relevant
   loader state.
 - [ ] Inventory every process, module, filesystem, dialog, ownership, Cocoa,
   GLFW, and Editor-shell platform operation reachable before M3.
-- [ ] Add focused regression fixtures before repairing any reproducible common
-  or platform lifecycle defect.
+- [x] Select or add focused regression fixtures before repairing any
+  reproducible common or platform lifecycle defect.
 
 #### Acceptance Gate
 
@@ -136,7 +152,7 @@ bypassing or weakening it.
   permissions, migration, logging, and project ownership.
 - [ ] Implement the required native-dialog behavior and deterministic
   non-interactive/test handling without fabricating a user response.
-- [ ] Repair the native-test global teardown crash and require clean process
+- [x] Repair the native-test global teardown crash and require clean process
   exit for the previously affected suites.
 
 #### Acceptance Gate

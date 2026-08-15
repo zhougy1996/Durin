@@ -4,6 +4,7 @@
 #include "CoreMinimal.h"
 #include "HAL/PlatformProcess.h"
 #include "Misc/Guid.h"
+#include "Threading/Task.h"
 
 #include <gtest/gtest.h>
 
@@ -436,6 +437,11 @@ namespace Durin::Testing
 				KeepWork,
 				ProgramListenerRan));
 		const int Result = RUN_ALL_TESTS();
+
+		// Tests may initialize the process-global scheduler through shared test
+		// support. Stop and join its workers while logging is still alive instead
+		// of relying on cross-translation-unit static destruction order.
+		ShutdownTaskScheduler(false);
 
 		// GoogleTest does not dispatch test-program listener events for
 		// --gtest_list_tests, which is used during CTest discovery.
