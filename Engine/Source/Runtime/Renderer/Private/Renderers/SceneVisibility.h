@@ -231,7 +231,6 @@ namespace Durin
 		size_t GroundTruthAmbientOcclusionActiveBytes = 0;
 		size_t GroundTruthAmbientOcclusionRetainedBytes = 0;
 		size_t HybridDeferredEnabledViews = 0;
-		size_t HybridDeferredFallbackViews = 0;
 		size_t HybridDeferredUnavailableViews = 0;
 		size_t OpaqueStaticMeshSections = 0;
 		size_t MaskedStaticMeshSections = 0;

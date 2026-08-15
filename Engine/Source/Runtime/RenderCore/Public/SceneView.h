@@ -161,13 +161,6 @@ namespace Durin
 		Count,
 	};
 
-	enum class EHybridOpaqueRoute : uint8
-	{
-		ForwardReference,
-		DeferredWithForwardFallback,
-		DeferredRequired,
-	};
-
 	// Carries optional value-owned content overrides for one renderer submission.
 	struct FSceneViewRenderOptions
 	{
@@ -188,10 +181,6 @@ namespace Durin
 		EGroundTruthAmbientOcclusionDebugMode
 			GroundTruthAmbientOcclusionDebugMode =
 				EGroundTruthAmbientOcclusionDebugMode::Disabled;
-		// Explicit route for tests and product callers. Product entry points select
-		// DeferredRequired; the value default remains the test-only A/B reference.
-		EHybridOpaqueRoute HybridOpaqueRoute =
-			EHybridOpaqueRoute::ForwardReference;
 	};
 
 	// Identifies a procedural editor-assistance shape rendered over a scene view.

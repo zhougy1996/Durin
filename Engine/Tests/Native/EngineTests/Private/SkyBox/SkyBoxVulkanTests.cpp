@@ -395,8 +395,6 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 				MakePrincipalAxisView(Directions[4], {}, 17, 17);
 			if (!RenderWithOptions(HybridSkyView, Result->ForwardLitSky, {}, Durin::ERenderMode::Lit)) return;
 			Durin::FSceneViewRenderOptions HybridSkyOptions;
-			HybridSkyOptions.HybridOpaqueRoute =
-				Durin::EHybridOpaqueRoute::DeferredRequired;
 			Durin::SetViewRenderCounterSink(CaptureHybridSkyCounters);
 			const bool bRenderedHybridSky = RenderWithOptions(HybridSkyView, Result->HybridLitSky, HybridSkyOptions, Durin::ERenderMode::Lit);
 			Result->HybridSkyCounters = GHybridSkyCounters;
@@ -433,7 +431,6 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		EXPECT_EQ(Result->ExplicitOverride, Result->PrincipalAxes[0]);
 		EXPECT_EQ(Result->HybridLitSky, Result->ForwardLitSky);
 		EXPECT_EQ(Result->HybridSkyCounters.HybridDeferredEnabledViews, 1u);
-		EXPECT_EQ(Result->HybridSkyCounters.HybridDeferredFallbackViews, 0u);
 		EXPECT_EQ(Result->HybridSkyCounters.HybridDeferredUnavailableViews, 0u);
 		for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
 		{

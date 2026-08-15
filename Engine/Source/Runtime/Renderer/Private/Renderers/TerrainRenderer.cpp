@@ -550,7 +550,7 @@ namespace Durin
 	FTerrainRenderer::~FTerrainRenderer() = default;
 
 	auto FTerrainRenderer::EnsureDrawResources_RenderThread(
-		FRHICommandListImmediate& CommandList, FPreparedTerrainDraw& Draw, FPreparedTerrainView& View, bool bShadowDepth, bool bHybridRetained
+		FRHICommandListImmediate& CommandList, FPreparedTerrainDraw& Draw, FPreparedTerrainView& View, bool bShadowDepth, bool bHybridRetained, bool bPrepareForwardPipeline
 	) -> bool
 	{
 		if (!Draw.SceneInfo || !Draw.Patch || GDynamicRHI == nullptr) return false;
@@ -619,15 +619,17 @@ namespace Durin
 		)
 												   .count();
 
-		const auto ShaderBegin = std::chrono::steady_clock::now();
-		auto& ShaderCache = bShadowDepth ? State->ShadowShaders : State->Shaders;
-		auto& ShaderEntry = ShaderCache.FindOrAdd(
-			Draw.Material.PipelineIdentity.ShaderMap
-		);
-		using FShaderResult = TRenderResourceCreateResult<FState::FShaderPayload>;
-		bool bShaderCreated = false;
-		++View.ShaderLookups;
-		auto* Shader = ShaderEntry.Slot.Resolve(Coordinator.GetGeneration_RenderThread(), [this, &Draw, bShadowDepth, &bShaderCreated]() -> FShaderResult {
+		if (bPrepareForwardPipeline)
+		{
+			const auto ShaderBegin = std::chrono::steady_clock::now();
+			auto& ShaderCache = bShadowDepth ? State->ShadowShaders : State->Shaders;
+			auto& ShaderEntry = ShaderCache.FindOrAdd(
+				Draw.Material.PipelineIdentity.ShaderMap
+			);
+			using FShaderResult = TRenderResourceCreateResult<FState::FShaderPayload>;
+			bool bShaderCreated = false;
+			++View.ShaderLookups;
+			auto* Shader = ShaderEntry.Slot.Resolve(Coordinator.GetGeneration_RenderThread(), [this, &Draw, bShadowDepth, &bShaderCreated]() -> FShaderResult {
 				bShaderCreated = true;
 				const auto& Identity = Draw.Material.PipelineIdentity.ShaderMap;
 				FShaderCompileOptions Options;
@@ -696,27 +698,27 @@ namespace Durin
 					Candidate.OpaqueShadowFragment = {
 						OpaqueShadowFragment, Candidate.Map.get()};
 				return FShaderResult::Success(std::move(Candidate)); }, ReportRendererResourceCreateDiagnostic);
-		if (!Shader) return false;
-		bShaderCreated ? ++View.ShaderCreations : ++View.ShaderReuses;
-		View.ShaderPreparationNanoseconds += std::chrono::duration_cast<
-												 std::chrono::nanoseconds>(
-												 std::chrono::steady_clock::now() - ShaderBegin
-		)
-												 .count();
+			if (!Shader) return false;
+			bShaderCreated ? ++View.ShaderCreations : ++View.ShaderReuses;
+			View.ShaderPreparationNanoseconds += std::chrono::duration_cast<
+													 std::chrono::nanoseconds>(
+													 std::chrono::steady_clock::now() - ShaderBegin
+			)
+													 .count();
 
-		const auto PipelineBegin = std::chrono::steady_clock::now();
-		FEffectiveStaticMeshPipelineKey EffectivePipelineKey =
-			bShadowDepth ? MakeShadowPipelineKey(Draw.PipelineKey) : Draw.PipelineKey;
-		EffectivePipelineKey.bHybridRetained =
-			!bShadowDepth && bHybridRetained;
-		auto& PipelineCache = bShadowDepth ? State->ShadowPipelines : State->Pipelines;
-		auto& PipelineEntry = PipelineCache.FindOrAdd(EffectivePipelineKey);
-		using FPipelineResult = TRenderResourceCreateResult<FState::FPipelinePayload>;
-		FRenderResourceGeneration Generation = Coordinator.GetGeneration_RenderThread();
-		Generation.Shader = ShaderEntry.Slot.GetPayloadGeneration().Shader;
-		bool bPipelineCreated = false;
-		++View.PipelineLookups;
-		auto* Pipeline = PipelineEntry.Slot.Resolve(Generation, [&EffectivePipelineKey, &PipelineEntry, Shader, &TopologyIt, bShadowDepth, &bPipelineCreated]() -> FPipelineResult {
+			const auto PipelineBegin = std::chrono::steady_clock::now();
+			FEffectiveStaticMeshPipelineKey EffectivePipelineKey =
+				bShadowDepth ? MakeShadowPipelineKey(Draw.PipelineKey) : Draw.PipelineKey;
+			EffectivePipelineKey.bHybridRetained =
+				!bShadowDepth && bHybridRetained;
+			auto& PipelineCache = bShadowDepth ? State->ShadowPipelines : State->Pipelines;
+			auto& PipelineEntry = PipelineCache.FindOrAdd(EffectivePipelineKey);
+			using FPipelineResult = TRenderResourceCreateResult<FState::FPipelinePayload>;
+			FRenderResourceGeneration Generation = Coordinator.GetGeneration_RenderThread();
+			Generation.Shader = ShaderEntry.Slot.GetPayloadGeneration().Shader;
+			bool bPipelineCreated = false;
+			++View.PipelineLookups;
+			auto* Pipeline = PipelineEntry.Slot.Resolve(Generation, [&EffectivePipelineKey, &PipelineEntry, Shader, &TopologyIt, bShadowDepth, &bPipelineCreated]() -> FPipelineResult {
 				bPipelineCreated = true;
 				FState::FPipelinePayload Candidate;
 				Candidate.Map = Shader->Map;
@@ -754,13 +756,14 @@ namespace Durin
 				Candidate.Pipeline = GDynamicRHI->RHICreateGraphicsPipelineState(FName(std::format("TerrainPipeline_{}", PipelineEntry.Index)), Initializer);
 				return Candidate.Pipeline ? FPipelineResult::Success(std::move(Candidate))
 					: FPipelineResult::Failure(MakeRendererResourceCreateError(ERenderResourceCreateErrorCategory::GraphicsPipeline, "TerrainPipeline", "terrain", "Pipeline creation returned null.", ERenderResourceGenerationDependency::Device)); }, ReportRendererResourceCreateDiagnostic);
-		if (!Pipeline) return false;
-		bPipelineCreated ? ++View.PipelineCreations : ++View.PipelineReuses;
-		View.PipelinePreparationNanoseconds += std::chrono::duration_cast<
-												   std::chrono::nanoseconds>(
-												   std::chrono::steady_clock::now() - PipelineBegin
-		)
-												   .count();
+			if (!Pipeline) return false;
+			bPipelineCreated ? ++View.PipelineCreations : ++View.PipelineReuses;
+			View.PipelinePreparationNanoseconds += std::chrono::duration_cast<
+													   std::chrono::nanoseconds>(
+													   std::chrono::steady_clock::now() - PipelineBegin
+			)
+													   .count();
+		}
 		for (const auto& Sampler : Draw.MaterialBinding.Samplers)
 		{
 			const size_t Key = GetSamplerKey(Sampler);
@@ -775,7 +778,7 @@ namespace Durin
 	}
 
 	auto FTerrainRenderer::PrepareResources_RenderThread(
-		FRHICommandListImmediate& CommandList, FPreparedTerrainView& View
+		FRHICommandListImmediate& CommandList, FPreparedTerrainView& View, bool bPrepareLitOpaqueForward
 	) -> bool
 	{
 		check(View.Phase == EPreparedTerrainPhase::Prepared);
@@ -786,8 +789,15 @@ namespace Durin
 			{
 				++View.ResourceAttemptedBatches;
 				if (Batch.DrawIndices.empty()) continue;
+				FPreparedTerrainDraw& FirstDraw =
+					(*Draws)[Batch.DrawIndices.front()];
+				const bool bPrepareForwardPipeline =
+					bPrepareLitOpaqueForward
+					|| FirstDraw.Material.PipelineIdentity.ShaderMap.ShadingModel
+						   != EMaterialShadingModel::Lit;
 				Batch.bResourcesReady = EnsureDrawResources_RenderThread(
-					CommandList, (*Draws)[Batch.DrawIndices.front()], View
+					CommandList, FirstDraw, View, false, false,
+					bPrepareForwardPipeline
 				);
 				for (uint32 DrawIndex : Batch.DrawIndices)
 					(*Draws)[DrawIndex].bResourcesReady = Batch.bResourcesReady;

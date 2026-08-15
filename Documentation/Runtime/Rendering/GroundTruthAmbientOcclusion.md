@@ -7,7 +7,7 @@ Modules: Renderer, RenderCore
 ## Ownership and ordering
 
 Ground truth ambient occlusion is an optional full-resolution screen-space
-factor for solid Lit views whose opaque route is `DeferredRequired`.
+factor for production solid Lit views with required deferred opaque ownership.
 `FSceneViewSettings::bEnableGroundTruthAmbientOcclusion` captures the immutable
 per-view selection and defaults to enabled. Forward-reference, migration
 fallback, wireframe, and Unlit views neither allocate nor sample GTAO.

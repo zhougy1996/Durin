@@ -49,7 +49,7 @@ namespace Durin
 			View.ViewportY = (TargetHeight - View.ViewportHeight) / 2;
 			return CameraAspectRatio;
 		}
-	}
+	} // namespace
 
 	class FEngineInputEventHandler final : public Mona::FMonaEventHandler
 	{
@@ -126,11 +126,13 @@ namespace Durin
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.RegistryScan");
 			const Asset::FAssetCatalogRefreshResult Refresh =
 				Asset::RefreshAssetCatalog(
-					Asset::EAssetRegistryScanMode::Incremental);
+					Asset::EAssetRegistryScanMode::Incremental
+				);
 			if (!Refresh)
 				DURIN_ERROR(
 					"Asset catalog refresh retained revision {} with {} error(s).",
-					Refresh.ResultingRevision, Refresh.Errors.size());
+					Refresh.ResultingRevision, Refresh.Errors.size()
+				);
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RegistryScanComplete);
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultMaterialBegin);
@@ -173,7 +175,7 @@ namespace Durin
 	auto DEngine::IsReadyForFinishDestroy() -> bool
 	{
 		return Super::IsReadyForFinishDestroy()
-			&& (!DestroyFence || DestroyFence->IsFenceComplete());
+			   && (!DestroyFence || DestroyFence->IsFenceComplete());
 	}
 
 	auto DEngine::FinishDestroy() -> void
@@ -212,21 +214,21 @@ namespace Durin
 			IScene* Scene = SceneViewport->GetRenderScene() != nullptr ? SceneViewport->GetRenderScene() : MainScene.get();
 			ENQUEUE_RENDER_COMMAND(RenderSceneRenderTarget)(
 				[RenderTargetRHI, View, Scene, SceneViewport,
-					RendererModule = RendererModule](FRHICommandListImmediate& CommandList) {
+				 RendererModule = RendererModule](FRHICommandListImmediate& CommandList) {
 					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 					FSceneViewStatistics Statistics;
 					ERenderViewResult Result = ERenderViewResult::RendererResourcesUnavailable;
 					if (RendererModule != nullptr)
 					{
-						const FSceneViewRenderOptions Options{
-							.HybridOpaqueRoute =
-								EHybridOpaqueRoute::DeferredRequired};
+						const FSceneViewRenderOptions Options{};
 						Result = RendererModule->RenderView(
 							CommandList, Scene, View, RenderTargetRHI, false, Options,
-							&Statistics);
+							&Statistics
+						);
 					}
 					SceneViewport->PublishRenderStatistics_RenderThread(
-						Statistics, Result == ERenderViewResult::Success);
+						Statistics, Result == ERenderViewResult::Success
+					);
 				}
 			);
 		};
@@ -250,7 +252,7 @@ namespace Durin
 					const std::shared_ptr<FSceneViewport> SceneViewport = MainSceneViewport;
 					ENQUEUE_RENDER_COMMAND(RenderMainSceneViewport)(
 						[ViewportRHI, View, SceneViewport, Scene = MainScene.get(),
-							RendererModule = RendererModule](FRHICommandListImmediate& CommandList) {
+						 RendererModule = RendererModule](FRHICommandListImmediate& CommandList) {
 							CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 							CommandList.BeginDrawingViewport(ViewportRHI, nullptr);
 
@@ -266,15 +268,15 @@ namespace Durin
 							ERenderViewResult Result = ERenderViewResult::RendererResourcesUnavailable;
 							if (RendererModule != nullptr)
 							{
-								const FSceneViewRenderOptions Options{
-									.HybridOpaqueRoute =
-										EHybridOpaqueRoute::DeferredRequired};
+								const FSceneViewRenderOptions Options{};
 								Result = RendererModule->RenderView(
 									CommandList, Scene, View, BackBuffer, true, Options,
-									&Statistics);
+									&Statistics
+								);
 							}
 							SceneViewport->PublishRenderStatistics_RenderThread(
-								Statistics, Result == ERenderViewResult::Success);
+								Statistics, Result == ERenderViewResult::Success
+							);
 
 							CommandList.EndDrawingViewport(ViewportRHI, true, false);
 						}
@@ -351,7 +353,7 @@ namespace Durin
 		if (MainWorld && MainWorld->GetCurrentLevel())
 		{
 			if (APlayerController* Controller = MainWorld->GetLocalPlayerController(); Controller
-				&& MainWorld->ContainsActor(Controller))
+																					   && MainWorld->ContainsActor(Controller))
 			{
 				AActor* Target = Controller->GetViewTarget();
 				if (Target
@@ -405,9 +407,7 @@ namespace Durin
 				OutView.FarClipDistance = CameraComponent->GetFarClip();
 				const FViewDistanceSettings& ViewDistance =
 					CameraComponent->GetViewDistance();
-				SceneViewProjection::ClampViewDistances(OutView.FarClipDistance,
-					ViewDistance.FadeStart, ViewDistance.RenderDistance,
-					OutView.ViewFadeStart, OutView.ViewRenderDistance);
+				SceneViewProjection::ClampViewDistances(OutView.FarClipDistance, ViewDistance.FadeStart, ViewDistance.RenderDistance, OutView.ViewFadeStart, OutView.ViewRenderDistance);
 				return true;
 			}
 		}

@@ -4,11 +4,11 @@ Summary: Defines isolated and production deferred lighting ownership, compositio
 
 Modules: Renderer, RenderCore
 
-The M3/M4 deferred lighting path evaluates opaque and masked Lit material
-records over the [minimal GBuffer](GBuffer.md). It supports both the isolated
-qualification target and the M4 production composition route. Production
-selection is immutable per view; every product view selects required deferred
-ownership, while the complete forward route remains test-only.
+The deferred lighting path evaluates opaque and masked Lit material records
+over the [minimal GBuffer](GBuffer.md). It supports both the isolated
+qualification target and the production composition route. Every solid Lit
+view requires deferred opaque ownership; no complete forward Lit route or
+migration fallback remains.
 
 ## Ordering and ownership
 
@@ -16,14 +16,14 @@ The isolated qualification route records:
 
 ```text
 directional shadow -> GBuffer -> deferred directional qualification
-                   -> unchanged forward Scene Color -> contact/display
+                   -> selected production or special scene -> contact/display
                    -> editor assistance
 ```
 
 `FDeferredDirectionalLightingRenderer` owns the shader/pipeline payload and a
 size-keyed `RGBA16_FLOAT` target cache. The result is isolated, never presented,
 and finishes graphics-shader-readable for explicit qualification capture. A
-failed or disabled route leaves forward output authoritative. Translucency,
+failed or disabled diagnostic leaves the selected scene output authoritative. Translucency,
 skybox drawing, contact composition, and editor assistance are not part of this
 target.
 
@@ -46,18 +46,18 @@ reason. This keeps Vulkan render-pass dependencies compatible while
 preserving Scene Color and GBuffer depth. Retained draws finish depth in the
 ordinary writable state expected by contact and the next view.
 
-`FSceneViewRenderOptions::HybridOpaqueRoute` defines three states. Production
-main, auxiliary/offscreen, preview, and thumbnail entry points select
-`DeferredRequired`. `ForwardReference` keeps the complete forward view
-authoritative only for explicit A/B tests.
-`DeferredWithForwardFallback` uses production deferred only when GBuffer,
-lighting, and retained-forward resources are complete; otherwise the normal
-scene pass clears and rerenders the whole view; it remains migration-test-only
-after M4 Stage 3. `DeferredRequired` reports
-`RendererResourcesUnavailable` on the same failure and never exposes partial
-HDR. Enabled, unavailable, and fallback counters diagnose these outcomes
-independently. Main, auxiliary, preview, thumbnail, Present, and offscreen
-views may select routes independently and sequentially.
+`FSceneRenderer::RenderScene_RenderThread` is the sole scene-color composition
+entry point. After common shadow, GBuffer, GTAO, and resource preparation, a
+solid Lit view records the production sequence above. Unlit, wireframe, and
+other explicitly named special view modes select the special-forward stage
+inside the same entry point; resource failure never changes the view mode or
+lighting owner.
+
+Missing GBuffer, lighting, or retained-forward resources report
+`RendererResourcesUnavailable` and never expose partial HDR. Enabled and
+unavailable counters diagnose production deferred outcomes. Main, auxiliary,
+preview, thumbnail, Present, and offscreen views retain independent prepared
+inputs and sequential isolation.
 
 ## Inputs and fixed ABI
 
@@ -144,10 +144,10 @@ M4 Stage 1 extends the same fixture to the selected `1 + 4` tier without
 changing the ABI or target. Its selected run measured GBuffer
 `79,840/80,704 ns`, isolated deferred `254,384/255,552 ns`, and their sum
 `334,272/335,904 ns` median/p95. The M4 lighting gate is
-`450,000/650,000 ns`. M4 Stage 2 then composes that evaluator directly into
-production Scene Color while retaining the qualification target only for A/B
-capture. M4 Stage 3 switches every product caller to required deferred opaque
-ownership; the complete forward view remains reachable only by explicit tests.
+`450,000/650,000 ns`. M4 Stage 2 then composed that evaluator directly into
+production Scene Color. The isolated target remains only for component
+diagnostics and qualification; it does not provide a complete forward A/B
+scene.
 
 The final M4 production qualification uses the same adapter, driver, Vulkan
 version, validation, profile, extent, and `30 + 120` sampling policy. Its mixed

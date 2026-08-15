@@ -28,7 +28,11 @@ namespace Durin
 		FTerrainRenderer(FRendererResourceCoordinator& InCoordinator, FDefaultTextureResources& InDefaultTextures, FEnvironmentLightingResources& InEnvironmentLighting);
 		~FTerrainRenderer();
 
-		auto PrepareResources_RenderThread(FRHICommandListImmediate& CommandList, FPreparedTerrainView& View) -> bool;
+		auto PrepareResources_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			FPreparedTerrainView& View,
+			bool bPrepareLitOpaqueForward
+		) -> bool;
 		auto PrepareHybridRetainedResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			FPreparedTerrainView& View
@@ -55,7 +59,7 @@ namespace Durin
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:
-		auto EnsureDrawResources_RenderThread(FRHICommandListImmediate& CommandList, FPreparedTerrainDraw& Draw, FPreparedTerrainView& View, bool bShadowDepth = false, bool bHybridRetained = false) -> bool;
+		auto EnsureDrawResources_RenderThread(FRHICommandListImmediate& CommandList, FPreparedTerrainDraw& Draw, FPreparedTerrainView& View, bool bShadowDepth = false, bool bHybridRetained = false, bool bPrepareForwardPipeline = true) -> bool;
 		auto Draw_RenderThread(FRHICommandListImmediate& CommandList, const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, const FPreparedTerrainDraw& Draw, bool bShadowDepth = false, std::span<const std::array<uint32, 2>> InstanceOrigins = {}, uint64* OutDynamicAllocationNanoseconds = nullptr, FGBufferRenderer* GBuffer = nullptr, bool bHybridRetained = false) -> bool;
 		auto DrawBatch_RenderThread(FRHICommandListImmediate& CommandList, const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode, const std::vector<FPreparedTerrainDraw>& Draws, const FPreparedTerrainBatch& Batch, bool bShadowDepth = false, uint64* OutDynamicAllocationNanoseconds = nullptr, FGBufferRenderer* GBuffer = nullptr) -> bool;
 		struct FState;

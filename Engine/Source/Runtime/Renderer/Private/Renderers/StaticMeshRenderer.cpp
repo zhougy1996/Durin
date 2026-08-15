@@ -1294,9 +1294,55 @@ namespace Durin
 			   != nullptr;
 	}
 
+	auto FStaticMeshRenderer::EnsureMaterialSamplers_RenderThread(
+		const FPreparedStaticMeshDraw& Item
+	) -> bool
+	{
+		FState::FBaseResources* BaseResources =
+			State->BaseResources.GetPayload();
+		if (BaseResources == nullptr)
+			return false;
+		for (const FMaterialSamplerState& SamplerState :
+			 Item.MaterialBinding.Samplers)
+		{
+			auto Entry = BaseResources->MaterialSamplerCache.try_emplace(
+																GetMaterialSamplerKey(SamplerState),
+																ERenderResourceGenerationDependency::Device
+			)
+							 .first;
+			using FSamplerResult = TRenderResourceCreateResult<FSamplerRHIRef>;
+			FSamplerRHIRef* Sampler = Entry->second.Resolve(
+				Coordinator.GetGeneration_RenderThread(),
+				[SamplerState]() -> FSamplerResult {
+					FSamplerRHIRef Candidate =
+						RHICreateSampler(MakeMaterialSamplerDesc(SamplerState));
+					if (Candidate == nullptr)
+					{
+						return FSamplerResult::Failure(
+							MakeRendererResourceCreateError(
+								ERenderResourceCreateErrorCategory::RHIResource,
+								"StaticMeshMaterialSampler",
+								std::format("min={},mag={},u={},v={}", static_cast<uint8>(SamplerState.MinFilter), static_cast<uint8>(SamplerState.MagFilter), static_cast<uint8>(SamplerState.AddressU), static_cast<uint8>(SamplerState.AddressV)),
+								"RHI sampler creation returned null.",
+								ERenderResourceGenerationDependency::Device
+									| ERenderResourceGenerationDependency::Manual
+							)
+						);
+					}
+					return FSamplerResult::Success(std::move(Candidate));
+				},
+				ReportRendererResourceCreateDiagnostic
+			);
+			if (Sampler == nullptr)
+				return false;
+		}
+		return true;
+	}
+
 	auto FStaticMeshRenderer::PrepareResources_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		FPreparedStaticMeshView& PreparedView
+		FPreparedStaticMeshView& PreparedView,
+		bool bPrepareLitOpaqueForward
 	) -> bool
 	{
 		check(IsInRenderingThread());
@@ -1311,20 +1357,26 @@ namespace Durin
 			PreparedView.Phase = EPreparedStaticMeshPhase::ResourcesPrepared;
 			return false;
 		}
-		auto PrepareBucket = [this, &PreparedView](auto& Bucket) {
+		auto PrepareBucket = [this, &PreparedView, bPrepareLitOpaqueForward](
+								 auto& Bucket, bool bOpaqueOrMasked
+							 ) {
 			for (FPreparedStaticMeshDraw& Item : Bucket)
 			{
 				const FPreparedStaticMeshPrimitive* Primitive =
 					PreparedView.GetPrimitive(Item);
+				const bool bNeedsForwardPipeline =
+					!bOpaqueOrMasked || bPrepareLitOpaqueForward
+					|| Item.Material.PipelineIdentity.ShaderMap.ShadingModel
+						   != EMaterialShadingModel::Lit;
 				Item.bResourcesReady = Primitive != nullptr
-									   && EnsureSectionResources_RenderThread(*Primitive, Item);
+									   && (bNeedsForwardPipeline ? EnsureSectionResources_RenderThread(*Primitive, Item) : EnsureMaterialSamplers_RenderThread(Item));
 				PreparedView.ResourcePreparationSuccessfulDraws +=
 					Item.bResourcesReady ? 1u : 0u;
 			}
 		};
-		PrepareBucket(PreparedView.Opaque);
-		PrepareBucket(PreparedView.Masked);
-		PrepareBucket(PreparedView.Translucent);
+		PrepareBucket(PreparedView.Opaque, true);
+		PrepareBucket(PreparedView.Masked, true);
+		PrepareBucket(PreparedView.Translucent, false);
 		PreparedView.ResourcePreparationRejectedDraws =
 			PreparedView.ResourcePreparationAttemptedDraws
 			- PreparedView.ResourcePreparationSuccessfulDraws;
@@ -1711,43 +1763,7 @@ namespace Durin
 			return false;
 		}
 
-		for (const FMaterialSamplerState& SamplerState :
-			 Item.MaterialBinding.Samplers)
-		{
-			auto Entry = BaseResources->MaterialSamplerCache.try_emplace(
-																GetMaterialSamplerKey(SamplerState),
-																ERenderResourceGenerationDependency::Device
-			)
-							 .first;
-			using FSamplerResult = TRenderResourceCreateResult<FSamplerRHIRef>;
-			FSamplerRHIRef* Sampler = Entry->second.Resolve(
-				Coordinator.GetGeneration_RenderThread(),
-				[SamplerState]() -> FSamplerResult {
-					FSamplerRHIRef Candidate =
-						RHICreateSampler(MakeMaterialSamplerDesc(SamplerState));
-					if (Candidate == nullptr)
-					{
-						return FSamplerResult::Failure(
-							MakeRendererResourceCreateError(
-								ERenderResourceCreateErrorCategory::RHIResource,
-								"StaticMeshMaterialSampler",
-								std::format("min={},mag={},u={},v={}", static_cast<uint8>(SamplerState.MinFilter), static_cast<uint8>(SamplerState.MagFilter), static_cast<uint8>(SamplerState.AddressU), static_cast<uint8>(SamplerState.AddressV)),
-								"RHI sampler creation returned null.",
-								ERenderResourceGenerationDependency::Device
-									| ERenderResourceGenerationDependency::Manual
-							)
-						);
-					}
-					return FSamplerResult::Success(std::move(Candidate));
-				},
-				ReportRendererResourceCreateDiagnostic
-			);
-			if (Sampler == nullptr)
-			{
-				return false;
-			}
-		}
-		return true;
+		return EnsureMaterialSamplers_RenderThread(Item);
 	}
 
 	auto FStaticMeshRenderer::Execute_RenderThread(
@@ -2271,6 +2287,38 @@ namespace Durin
 			   != nullptr;
 	}
 
+	auto FSkeletalMeshRenderer::EnsureMaterialSamplers_RenderThread(
+		const FPreparedSkeletalMeshDraw& Item
+	) -> bool
+	{
+		FState::FBaseResources* Base = State->BaseResources.GetPayload();
+		if (Base == nullptr)
+			return false;
+		for (const FMaterialSamplerState& SamplerState :
+			 Item.MaterialBinding.Samplers)
+		{
+			auto Entry = Base->MaterialSamplerCache.try_emplace(
+													   GetMaterialSamplerKey(SamplerState),
+													   ERenderResourceGenerationDependency::Device
+			)
+							 .first;
+			using FSamplerResult = TRenderResourceCreateResult<FSamplerRHIRef>;
+			if (Entry->second.Resolve(
+					Coordinator.GetGeneration_RenderThread(),
+					[SamplerState]() -> FSamplerResult {
+						FSamplerRHIRef Candidate = RHICreateSampler(
+							MakeMaterialSamplerDesc(SamplerState)
+						);
+						return Candidate != nullptr ? FSamplerResult::Success(std::move(Candidate)) : FSamplerResult::Failure(MakeRendererResourceCreateError(ERenderResourceCreateErrorCategory::RHIResource, "SkeletalMeshMaterialSampler", "material sampler", "RHI sampler creation returned null.", ERenderResourceGenerationDependency::Device));
+					},
+					ReportRendererResourceCreateDiagnostic
+				)
+				== nullptr)
+				return false;
+		}
+		return true;
+	}
+
 	auto FSkeletalMeshRenderer::EnsureSectionResources_RenderThread(
 		const FPreparedSkeletalMeshPrimitive& Primitive,
 		const FPreparedSkeletalMeshDraw& Item,
@@ -2477,31 +2525,13 @@ namespace Durin
 		);
 		if (Pipeline == nullptr) return false;
 
-		for (const FMaterialSamplerState& SamplerState : Item.MaterialBinding.Samplers)
-		{
-			auto Entry = Base->MaterialSamplerCache.try_emplace(
-													   GetMaterialSamplerKey(SamplerState),
-													   ERenderResourceGenerationDependency::Device
-			)
-							 .first;
-			using FSamplerResult = TRenderResourceCreateResult<FSamplerRHIRef>;
-			if (Entry->second.Resolve(Coordinator.GetGeneration_RenderThread(), [SamplerState]() -> FSamplerResult {
-					FSamplerRHIRef Candidate =
-						RHICreateSampler(MakeMaterialSamplerDesc(SamplerState));
-					return Candidate != nullptr
-						? FSamplerResult::Success(std::move(Candidate))
-						: FSamplerResult::Failure(MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::RHIResource,
-							"SkeletalMeshMaterialSampler", "material sampler",
-							"RHI sampler creation returned null.",
-							ERenderResourceGenerationDependency::Device)); }, ReportRendererResourceCreateDiagnostic) == nullptr) return false;
-		}
-		return true;
+		return EnsureMaterialSamplers_RenderThread(Item);
 	}
 
 	auto FSkeletalMeshRenderer::PrepareResources_RenderThread(
 		FRHICommandListImmediate& CommandList,
-		FPreparedSkeletalMeshView& PreparedView
+		FPreparedSkeletalMeshView& PreparedView,
+		bool bPrepareLitOpaqueForward
 	) -> bool
 	{
 		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::Prepared);
@@ -2567,22 +2597,26 @@ namespace Durin
 			PreparedView.UploadedPaletteMatrices += Primitive.Pose->Matrices.size();
 			PreparedView.UploadedPaletteBytes += Bytes;
 		}
-		auto PrepareBucket = [&](auto& Bucket) {
+		auto PrepareBucket = [&](auto& Bucket, bool bOpaqueOrMasked) {
 			for (FPreparedSkeletalMeshDraw& Draw : Bucket)
 			{
 				++PreparedView.ResourcePreparationAttemptedDraws;
 				const FPreparedSkeletalMeshPrimitive* Primitive =
 					PreparedView.GetPrimitive(Draw);
+				const bool bNeedsForwardPipeline =
+					!bOpaqueOrMasked || bPrepareLitOpaqueForward
+					|| Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
+						   != EMaterialShadingModel::Lit;
 				Draw.bResourcesReady = Primitive != nullptr
 									   && Primitive->PaletteRange.Buffer != nullptr
-									   && EnsureSectionResources_RenderThread(*Primitive, Draw);
+									   && (bNeedsForwardPipeline ? EnsureSectionResources_RenderThread(*Primitive, Draw) : EnsureMaterialSamplers_RenderThread(Draw));
 				if (Draw.bResourcesReady)
 					++PreparedView.ResourcePreparationSuccessfulDraws;
 			}
 		};
-		PrepareBucket(PreparedView.Opaque);
-		PrepareBucket(PreparedView.Masked);
-		PrepareBucket(PreparedView.Translucent);
+		PrepareBucket(PreparedView.Opaque, true);
+		PrepareBucket(PreparedView.Masked, true);
+		PrepareBucket(PreparedView.Translucent, false);
 		PreparedView.ResourcePreparationRejectedDraws =
 			PreparedView.ResourcePreparationAttemptedDraws
 			- PreparedView.ResourcePreparationSuccessfulDraws;

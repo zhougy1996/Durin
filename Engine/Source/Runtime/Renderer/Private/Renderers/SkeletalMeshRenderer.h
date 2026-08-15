@@ -34,7 +34,8 @@ namespace Durin
 
 		auto PrepareResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			FPreparedSkeletalMeshView& PreparedView
+			FPreparedSkeletalMeshView& PreparedView,
+			bool bPrepareLitOpaqueForward
 		) -> bool;
 		auto PrepareHybridRetainedResources_RenderThread(
 			FPreparedSkeletalMeshView& PreparedView
@@ -75,6 +76,9 @@ namespace Durin
 
 	private:
 		auto EnsureBaseResources_RenderThread() -> bool;
+		auto EnsureMaterialSamplers_RenderThread(
+			const FPreparedSkeletalMeshDraw& Item
+		) -> bool;
 		auto EnsureSectionResources_RenderThread(
 			const FPreparedSkeletalMeshPrimitive& Primitive,
 			const FPreparedSkeletalMeshDraw& Item,

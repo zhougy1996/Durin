@@ -744,94 +744,94 @@ TEST(FDirectionalShadowBaselineVulkanTests, CapturesFrozenLitArtifactsAndSubTexe
 	const size_t CascadeFixtureStart = Fixtures.size();
 	Fixtures.push_back({.Name = "q2_cascades_index_perspective", .Primitives = {{{24.0, 0.0, 0.0}, {7.0, 7.0, 1.0}, 90.0}, {{22.0, 0.5, 0.0}, {2.0, 2.0, 1.0}, 90.0}}, .LightDirection = {-1.0, 0.2, -0.25}, .DiagnosticMode = Durin::EDirectionalShadowDiagnosticMode::CascadeIndex, .FilterQuality = Durin::EDirectionalShadowFilterQuality::Medium, .Candidate = Durin::EDirectionalShadowCandidate::ThreeCascades, .bPerspective = true});
 	constexpr std::array<std::string_view, 13> ExpectedHashes{
-		"a9c6d03a221dc48a5a1f917c46bffe53",
-		"2fc63d2bb981d3b5c11390be8fb763c1",
-		"86dff89e5c178b1e3120b61d20614978",
-		"4882edb6eb156f96ac5ce87ef8fa6c8e",
-		"0e0f6a736cdd60d46b4381e76f8634a8",
-		"971ec5f1afc547585810ba97ba0d7847",
-		"e914e276ade2bbcf149da57e770e417a",
-		"e914e276ade2bbcf149da57e770e417a",
-		"e8bca9aceb4553f2737c5c5a53fe9e13",
-		"4882edb6eb156f96ac5ce87ef8fa6c8e",
-		"df160ad28d650a434d9c823e03c0dc0b",
-		"9b7a7173c58bca9f7c4128a62be8e979",
-		"868ca24b31c3e97bf2710a5e602fcef1"
+		"fe949c60fa7314c9154b390d9570b60a",
+		"148649a1ec8638f27c071034a1379afd",
+		"12f14c97e2a78de7a16bfb84ad1fee4f",
+		"0e23e4f5fb83a4802011082773a04a48",
+		"814082869560a86c7a49a071f4a9bbcb",
+		"bf00b0661b21f4b5e6a780680f66be7c",
+		"6fc3ad3c1350a8ec0457611a2975a171",
+		"6fc3ad3c1350a8ec0457611a2975a171",
+		"f9b8c29b56495e19f3287ec9e47240e6",
+		"0e23e4f5fb83a4802011082773a04a48",
+		"f38a6b8d01b1560c5dbfdf99895e9ea5",
+		"15b71c676cfb6f03d8deef760b61d778",
+		"aa87f5201aa0803bdc8afb8059e90cd7"
 	};
 	constexpr std::array<std::string_view, 8> Q1EntryExpectedHashes{
-		"74464084a42f0a742e4c19364844066a",
-		"c9ea8be1ea09006a1043c98b4d8d23b6",
-		"543a35a99e37c498b2b2c7b885b8b8ef",
-		"885b03e0e3da987d1c1f7ee7449cfe00",
-		"2285a4db208bf220b6a9396edeacab3b",
-		"74464084a42f0a742e4c19364844066a",
-		"a00cc36d6824d32a14fad324b62a21b5",
-		"79f30a3c9a09c6dcea5b2fa9182bc2d6"
+		"fe5b14d58d75dbdc5864bef7a4aa3e51",
+		"3450a4b8baa59fdcddf93d7409e038c3",
+		"e9f767e93a478da574e742f20b230ab5",
+		"482cad1b5d1b496e78f0e63b5596ea53",
+		"be3451889f9f6f92f88e6ee7be35c71d",
+		"fe5b14d58d75dbdc5864bef7a4aa3e51",
+		"87a9c58fae011bab403c759ecc390e53",
+		"d45a9c22647555e1c4a92802555e62cd"
 	};
 	constexpr std::array<std::string_view, 9> Q1FilterTrialExpectedHashes{
-		"43ebd9f05c042987f3dd992971aabab7",
-		"2d0090665ad9ea0c727810705cabaecc",
-		"2d0090665ad9ea0c727810705cabaecc",
-		"58599e19d1cc755f176ad86794a83f54",
-		"a56a28b391639201c318b6f96ffffabc",
-		"116e2e16eb73933e15b2f0d023d5edba",
-		"116e2e16eb73933e15b2f0d023d5edba",
-		"698d8c1691ad98c1ad81f3b115b19bac",
-		"f4806f45f808433531f39eaefccd903b"
+		"415f10788f025d5976cde60e8bf4b822",
+		"c0d655932d0a6099f30f0b462dd10a7c",
+		"c0d655932d0a6099f30f0b462dd10a7c",
+		"cd5d1d3b12d7c2243057bc7365df1902",
+		"fcda2566f657ca19c05955312767bdb9",
+		"1de0bd1bbef9302d919617dacae8c54c",
+		"1de0bd1bbef9302d919617dacae8c54c",
+		"d0247d12addee03defca5278ed9135aa",
+		"f67b54de0d48c3f4facd22dfb7ed140b"
 	};
 	constexpr std::array<std::string_view, 21> MediumParityExpectedHashes{
-		"a9c6d03a221dc48a5a1f917c46bffe53",
-		"2fc63d2bb981d3b5c11390be8fb763c1",
-		"59e3469f672c7a0196ded90dce57ba72",
-		"c70070a27c60a36b76d45c493c77e0af",
-		"7fa15518112f4237455375ff46d7c04e",
-		"971ec5f1afc547585810ba97ba0d7847",
-		"fc13829f394d933282acbb99c2fe02d3",
-		"fc13829f394d933282acbb99c2fe02d3",
-		"e8bca9aceb4553f2737c5c5a53fe9e13",
-		"c70070a27c60a36b76d45c493c77e0af",
-		"771ef08238991ffa9401493f29afcd90",
-		"2583c025517ec0ed4171679c201ce9af",
-		"d9375a4a62ce5c6ab21480b9785fedc9",
-		"2d0090665ad9ea0c727810705cabaecc",
-		"88ac796dedd43281f25366ff0ea39e46",
-		"625dc6b59852f92a7b6d75f05bcb6a07",
-		"d8d457fc4b02a54b4c0cb696adbf57ea",
-		"05ff3a91c143e2f10aea99ec5b42ab12",
-		"2d0090665ad9ea0c727810705cabaecc",
-		"58599e19d1cc755f176ad86794a83f54",
-		"a56a28b391639201c318b6f96ffffabc"
+		"fe949c60fa7314c9154b390d9570b60a",
+		"148649a1ec8638f27c071034a1379afd",
+		"e173ba7048a2f4719cead4781af76f59",
+		"2c60e91a1f0cb14ae9dfc7f0c9d07b11",
+		"c24ac18afcc2b7ee184e6cc218cc176a",
+		"bf00b0661b21f4b5e6a780680f66be7c",
+		"4ce402ab27a7e4dd71f6de78cec8af34",
+		"4ce402ab27a7e4dd71f6de78cec8af34",
+		"f9b8c29b56495e19f3287ec9e47240e6",
+		"2c60e91a1f0cb14ae9dfc7f0c9d07b11",
+		"7bac402557d1ae9f3d3f8d9e8442c311",
+		"d618fcfaac6b37468bb34cc0176a90a2",
+		"b52484f05f831871b580f7eeb02354b0",
+		"c0d655932d0a6099f30f0b462dd10a7c",
+		"35f50fe7e42049dacdb5a569186e180e",
+		"53827c1af6e9008cec0ab5109a4d10fc",
+		"8c75ef49c1b11418ce007dbc809c6b78",
+		"35e247243a52ae9cc2d914e4da731f0e",
+		"c0d655932d0a6099f30f0b462dd10a7c",
+		"cd5d1d3b12d7c2243057bc7365df1902",
+		"fcda2566f657ca19c05955312767bdb9"
 	};
 	constexpr std::array<std::string_view, 21> HighParityExpectedHashes{
-		"a9c6d03a221dc48a5a1f917c46bffe53",
-		"2fc63d2bb981d3b5c11390be8fb763c1",
-		"ea89c3e70fe2c0a38992db709394c530",
-		"fadf6a54550c39d1fa65ea5ed9d9eb66",
-		"a4ac790e2a91db4356feeee5dbc07911",
-		"971ec5f1afc547585810ba97ba0d7847",
-		"a35156a0c75fac053c4765a71ab549dd",
-		"a35156a0c75fac053c4765a71ab549dd",
-		"e8bca9aceb4553f2737c5c5a53fe9e13",
-		"fadf6a54550c39d1fa65ea5ed9d9eb66",
-		"bebfd70288a6f40e7df874b4d4466be0",
-		"b3b1566eda92c84711a398f2b69d3917",
-		"15291b435d9c21d136a85fcfe4aee259",
-		"116e2e16eb73933e15b2f0d023d5edba",
-		"8effed2f1710018e81e02b4627532230",
-		"9e0c2f7af3b274d98dd282b06a8e0706",
-		"ca28240889d87e0a0a98a2a0f7ac0cae",
-		"7b323acb88eef57b763fa93664b9888c",
-		"116e2e16eb73933e15b2f0d023d5edba",
-		"698d8c1691ad98c1ad81f3b115b19bac",
-		"f4806f45f808433531f39eaefccd903b"
+		"fe949c60fa7314c9154b390d9570b60a",
+		"148649a1ec8638f27c071034a1379afd",
+		"686fc52cdf3087af88d26ec4f443f2f2",
+		"2197366081c9dc992388f0cc3932d539",
+		"32083f72ee29d8226e129e2414dfbf9f",
+		"bf00b0661b21f4b5e6a780680f66be7c",
+		"8d7b188fba592f1921cda4822ee5cb0e",
+		"8d7b188fba592f1921cda4822ee5cb0e",
+		"f9b8c29b56495e19f3287ec9e47240e6",
+		"2197366081c9dc992388f0cc3932d539",
+		"eb19e052e6c2193577576a13db193d40",
+		"1b14c4ab0d2332fa233f2800363460ff",
+		"e24041ffaffc4b6cad8ecf6a158fd1fd",
+		"1de0bd1bbef9302d919617dacae8c54c",
+		"ea19ad7cb49a65dd8923a1f8c6531baf",
+		"bead2b75cb99be33cde1b84c37a3ec45",
+		"2282fc4ccf91b9999c8cf57110ea7c22",
+		"86d7521e521143a7e7ad669020499769",
+		"1de0bd1bbef9302d919617dacae8c54c",
+		"d0247d12addee03defca5278ed9135aa",
+		"f67b54de0d48c3f4facd22dfb7ed140b"
 	};
 	constexpr std::array<std::string_view, 6> FilterDiagnosticExpectedHashes{
 		"e22e583bc88b9a27f80616fd94f8c35f",
 		"3357331dfeb0990b1abeb54d046d7ed7",
-		"8c365a0b1b26af01d120a14a77fe5254",
+		"f1c08750ccd65ea60d703c91e6131258",
 		"ab04d1e1059d9d4e0c1abd1875e81c31",
 		"3357331dfeb0990b1abeb54d046d7ed7",
-		"7752036347675fdbc5a72c4297e92c35"
+		"8870cce35c892d90da61e0ee9d2eba17"
 	};
 
 	const std::filesystem::path OutputDirectory =
@@ -1050,7 +1050,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, CapturesFrozenLitArtifactsAndSubTexe
 	EXPECT_LT(MediumQ0Motion[1], CaptureWidth * CaptureHeight / 8u);
 	EXPECT_LT(MediumQ0Motion[2], CaptureWidth * CaptureHeight / 4u);
 	EXPECT_EQ(HighMotion[0], 32u);
-	EXPECT_EQ(HighMotion[1], 178u);
+	EXPECT_EQ(HighMotion[1], 190u);
 	EXPECT_LE(ShadowOnlyHighFrequencyFraction[1], ShadowOnlyHighFrequencyFraction[0] * 0.95);
 	EXPECT_LE(ShadowOnlyHighFrequencyFraction[2], ShadowOnlyHighFrequencyFraction[1] * 0.96);
 	const size_t LowTransitionWidth = MaximumTransitionWidth(Captures[23]);
@@ -1113,7 +1113,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	Durin::InitRenderingThread();
 	Durin::FRendererModule Renderer;
 	Durin::FModuleTestHarness RendererLifecycle(
-		"DirectionalContactShadowRendererTest");
+		"DirectionalContactShadowRendererTest"
+	);
 	RendererLifecycle.Start(Renderer);
 	Durin::SetViewRenderCounterSink(CaptureCounters);
 
@@ -1174,9 +1175,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 								 Durin::EDirectionalShadowFilterQuality::Low,
 							 Durin::EDirectionalShadowDiagnosticMode ShadowDiagnostic =
 								 Durin::EDirectionalShadowDiagnosticMode::Lit,
-							 float AspectRatioConstraint = 0.0f,
-							 Durin::EHybridOpaqueRoute HybridOpaqueRoute =
-								 Durin::EHybridOpaqueRoute::ForwardReference)
+							 float AspectRatioConstraint = 0.0f)
 		-> Durin::FViewRenderCounters {
 		auto Pixels = std::make_shared<std::vector<Durin::uint8>>();
 		GHDRSceneColorPixels = HDRSceneColorPixels;
@@ -1196,8 +1195,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 			 bShowContactShadowDebug, bPerspective,
 			 bEnableGBufferQualification, GBufferDebugMode, RenderMode,
 			 bEnableDeferredDirectional, DeferredDebugMode, ShadowCandidate,
-			 ShadowFilter, ShadowDiagnostic, AspectRatioConstraint,
-			 HybridOpaqueRoute, Pixels](
+			 ShadowFilter, ShadowDiagnostic, AspectRatioConstraint, Pixels](
 				Durin::FRHICommandListImmediate& CommandList
 			) {
 				Durin::GRenderFrameCounterRenderThread++;
@@ -1261,7 +1259,6 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 				RenderOptions.bEnableDeferredDirectionalQualification =
 					bEnableDeferredDirectional;
 				RenderOptions.DeferredDirectionalDebugMode = DeferredDebugMode;
-				RenderOptions.HybridOpaqueRoute = HybridOpaqueRoute;
 				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, RenderOptions), Durin::ERenderViewResult::Success);
 				ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
 					CommandList, Target, 0, 0, *Pixels
@@ -1416,12 +1413,10 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		Durin::EDeferredDirectionalDebugMode::Disabled, nullptr,
 		Durin::EDirectionalShadowCandidate::SingleMap,
 		Durin::EDirectionalShadowFilterQuality::Low,
-		Durin::EDirectionalShadowDiagnosticMode::Lit, 0.0f,
-		Durin::EHybridOpaqueRoute::DeferredRequired
+		Durin::EDirectionalShadowDiagnosticMode::Lit, 0.0f
 	);
 	ExpectDeferredParity(ForwardOnlyHDR, HybridHDR, GBufferSurfacePixels);
 	EXPECT_EQ(HybridCounters.HybridDeferredEnabledViews, 1u);
-	EXPECT_EQ(HybridCounters.HybridDeferredFallbackViews, 0u);
 	EXPECT_EQ(HybridCounters.HybridDeferredUnavailableViews, 0u);
 
 	auto Translucent = MakeMaterial(Durin::EMaterialBlendMode::Translucent, {0.1, 0.8, 0.25}, Durin::EMaterialShadingModel::Lit, Durin::FVector3(0.0), 0.45);
@@ -1442,14 +1437,12 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		Durin::EDeferredDirectionalDebugMode::Disabled, nullptr,
 		Durin::EDirectionalShadowCandidate::SingleMap,
 		Durin::EDirectionalShadowFilterQuality::Low,
-		Durin::EDirectionalShadowDiagnosticMode::Lit, 0.0f,
-		Durin::EHybridOpaqueRoute::DeferredRequired
+		Durin::EDirectionalShadowDiagnosticMode::Lit, 0.0f
 	);
 	ExpectDeferredParity(MixedForwardHDR, MixedHybridHDR, MixedSurface, "retained-unlit-translucent");
 	EXPECT_EQ(MixedHybridCounters.GBufferAttemptedDraws, 1u);
 	EXPECT_EQ(MixedHybridCounters.GBufferSkippedDraws, 2u);
 	EXPECT_EQ(MixedHybridCounters.HybridDeferredEnabledViews, 1u);
-	EXPECT_EQ(MixedHybridCounters.HybridDeferredFallbackViews, 0u);
 	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1), MakeTransform({.Translation = {-0.18, 0.08, -0.4}, .Scale = {0.22, 0.18, 1.0}}));
 	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(3), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1), MakeTransform({.Translation = {-0.35, 0.0, -0.45}, .Scale = {0.25, 0.25, 1.0}, .RotationYDegrees = 90.0}));
 	Durin::FlushRenderingCommands();
@@ -1738,12 +1731,10 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		Durin::EDeferredDirectionalDebugMode::Disabled, nullptr,
 		Durin::EDirectionalShadowCandidate::SingleMap,
 		Durin::EDirectionalShadowFilterQuality::Low,
-		Durin::EDirectionalShadowDiagnosticMode::Lit, 0.0f,
-		Durin::EHybridOpaqueRoute::DeferredRequired
+		Durin::EDirectionalShadowDiagnosticMode::Lit, 0.0f
 	);
 	ExpectDeferredParity(ContactForwardHDR, ContactHybridHDR, ContactHybridSurface, "production-contact-shadow");
 	EXPECT_EQ(ContactHybridCounters.HybridDeferredEnabledViews, 1u);
-	EXPECT_EQ(ContactHybridCounters.HybridDeferredFallbackViews, 0u);
 	EXPECT_EQ(ContactHybridCounters.ContactShadowEnabledViews, 1u);
 	EXPECT_EQ(ContactHybridCounters.ContactShadowPassFailures, 0u);
 

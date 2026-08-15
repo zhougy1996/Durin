@@ -80,16 +80,16 @@ namespace Durin
 		auto RenderScene_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			struct FPreparedSceneView& PreparedView,
-			FRHITexture* RenderTarget
-		) -> bool;
-		auto RenderHybridScene_RenderThread(
-			FRHICommandListImmediate& CommandList,
-			struct FPreparedSceneView& PreparedView,
 			FRHITexture* SceneColor,
 			FRHITexture* DirectionalDirect,
 			FRHITexture* Depth,
-			const FDeferredDirectionalLightingRenderer::FRenderParameters&
+			const FDeferredDirectionalLightingRenderer::FRenderParameters*
 				DeferredParameters
+		) -> ERenderViewResult;
+		auto RenderSpecialForwardScene_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			struct FPreparedSceneView& PreparedView,
+			FRHITexture* RenderTarget
 		) -> bool;
 
 		FRendererResourceCoordinator Coordinator;

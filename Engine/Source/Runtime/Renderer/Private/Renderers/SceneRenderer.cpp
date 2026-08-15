@@ -275,17 +275,21 @@ namespace Durin
 	}
 
 	auto SetGroundTruthAmbientOcclusionTimingQuerySink(
-		FGroundTruthAmbientOcclusionTimingQuerySink Sink) -> void
+		FGroundTruthAmbientOcclusionTimingQuerySink Sink
+	) -> void
 	{
 		GGroundTruthAmbientOcclusionTimingQuerySink.store(
-			Sink, std::memory_order_release);
+			Sink, std::memory_order_release
+		);
 	}
 
 	auto SetGroundTruthAmbientOcclusionFilterTimingQuerySink(
-		FGroundTruthAmbientOcclusionFilterTimingQuerySink Sink) -> void
+		FGroundTruthAmbientOcclusionFilterTimingQuerySink Sink
+	) -> void
 	{
 		GGroundTruthAmbientOcclusionFilterTimingQuerySink.store(
-			Sink, std::memory_order_release);
+			Sink, std::memory_order_release
+		);
 	}
 
 	auto SetHDRSceneColorCaptureSink(FHDRSceneColorCaptureSink Sink) -> void
@@ -308,10 +312,12 @@ namespace Durin
 	}
 
 	auto SetGroundTruthAmbientOcclusionCaptureSink(
-		FGroundTruthAmbientOcclusionCaptureSink Sink) -> void
+		FGroundTruthAmbientOcclusionCaptureSink Sink
+	) -> void
 	{
 		GGroundTruthAmbientOcclusionCaptureSink.store(
-			Sink, std::memory_order_release);
+			Sink, std::memory_order_release
+		);
 	}
 
 	FSceneRenderer::FSceneRenderer()
@@ -776,14 +782,17 @@ namespace Durin
 						AddTerrainDrawOverlay(Draw);
 			}
 		}
+		const bool bRequiresDeferredOpaque =
+			RenderView.Settings.RenderMode == ERenderMode::Lit
+			&& RenderView.Settings.RasterMode == ERasterMode::Solid;
 		StaticMeshRenderer.PrepareResources_RenderThread(
-			CommandList, PreparedView.StaticMeshes
+			CommandList, PreparedView.StaticMeshes, !bRequiresDeferredOpaque
 		);
 		SkeletalMeshRenderer.PrepareResources_RenderThread(
-			CommandList, PreparedView.SkeletalMeshes
+			CommandList, PreparedView.SkeletalMeshes, !bRequiresDeferredOpaque
 		);
 		TerrainRenderer.PrepareResources_RenderThread(
-			CommandList, PreparedView.Terrains
+			CommandList, PreparedView.Terrains, !bRequiresDeferredOpaque
 		);
 		DirectionalShadowRenderer.PrepareResources_RenderThread(
 			CommandList, StaticMeshRenderer, SkeletalMeshRenderer,
@@ -849,21 +858,17 @@ namespace Durin
 		const bool bWantsIsolatedGroundTruthAmbientOcclusion =
 			Options.bEnableGroundTruthAmbientOcclusionQualification
 			|| Options.GroundTruthAmbientOcclusionDebugMode
-				!= EGroundTruthAmbientOcclusionDebugMode::Disabled;
-		const bool bWantsProductionDeferred =
-			Options.HybridOpaqueRoute != EHybridOpaqueRoute::ForwardReference
-			&& RenderView.Settings.RenderMode == ERenderMode::Lit
-			&& RenderView.Settings.RasterMode == ERasterMode::Solid;
+				   != EGroundTruthAmbientOcclusionDebugMode::Disabled;
+		const bool bWantsProductionDeferred = bRequiresDeferredOpaque;
 		const bool bWantsProductionGroundTruthAmbientOcclusion =
 			bWantsProductionDeferred
-			&& Options.HybridOpaqueRoute == EHybridOpaqueRoute::DeferredRequired
 			&& RenderView.Settings.bEnableGroundTruthAmbientOcclusion;
 		const bool bWantsGroundTruthAmbientOcclusion =
 			bWantsIsolatedGroundTruthAmbientOcclusion
 			|| bWantsProductionGroundTruthAmbientOcclusion;
 		const bool bWantsDeferredInputs = bWantsIsolatedDeferred
-			|| bWantsProductionDeferred
-			|| bWantsGroundTruthAmbientOcclusion;
+										  || bWantsProductionDeferred
+										  || bWantsGroundTruthAmbientOcclusion;
 		const bool bHybridRetainedResourcesReady =
 			!bWantsProductionDeferred
 			|| (StaticMeshRenderer.PrepareHybridRetainedResources_RenderThread(
@@ -1086,24 +1091,23 @@ namespace Durin
 		if (bWantsGroundTruthAmbientOcclusion)
 		{
 			++PreparedView.Counters.GroundTruthAmbientOcclusionAttemptedViews;
-			auto* AmbientOcclusionTargets = bGBufferComplete
-				? GroundTruthAmbientOcclusionRenderer.EnsureTargets_RenderThread(
-					Width, Height)
-				: nullptr;
+			auto* AmbientOcclusionTargets = bGBufferComplete ? GroundTruthAmbientOcclusionRenderer.EnsureTargets_RenderThread(
+																   Width, Height
+															   ) :
+															   nullptr;
 			PreparedView.Counters.GroundTruthAmbientOcclusionRetainedBytes =
-				GroundTruthAmbientOcclusionRenderer.
-					GetRetainedTargetBytes_RenderThread();
+				GroundTruthAmbientOcclusionRenderer.GetRetainedTargetBytes_RenderThread();
 			if (AmbientOcclusionTargets == nullptr)
 			{
-				++PreparedView.Counters.
-					GroundTruthAmbientOcclusionUnavailableViews;
+				++PreparedView.Counters.GroundTruthAmbientOcclusionUnavailableViews;
 			}
 			else
 			{
 				FGPUTimingQueryRHIRef TimingQuery;
 				const FGroundTruthAmbientOcclusionTimingQuerySink TimingSink =
 					GGroundTruthAmbientOcclusionTimingQuerySink.load(
-						std::memory_order_acquire);
+						std::memory_order_acquire
+					);
 				if (TimingSink != nullptr && GDynamicRHI != nullptr)
 				{
 					TimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
@@ -1114,7 +1118,8 @@ namespace Durin
 					GroundTruthAmbientOcclusionRenderer.RenderRaw_RenderThread(
 						CommandList, *AmbientOcclusionTargets,
 						GBufferTargets->Normals, GBufferTargets->Surface,
-						SceneTargets->Depth, RenderView);
+						SceneTargets->Depth, RenderView
+					);
 				if (TimingQuery)
 					CommandList.EndGPUTimingQuery(TimingQuery);
 				if (bRendered)
@@ -1123,16 +1128,19 @@ namespace Durin
 						TimingSink(TimingQuery);
 					const FGroundTruthAmbientOcclusionCaptureSink CaptureSink =
 						GGroundTruthAmbientOcclusionCaptureSink.load(
-							std::memory_order_acquire);
+							std::memory_order_acquire
+						);
 					if (CaptureSink != nullptr)
 						CaptureSink(
-							CommandList, AmbientOcclusionTargets->Raw, false);
+							CommandList, AmbientOcclusionTargets->Raw, false
+						);
 
 					FGPUTimingQueryRHIRef FilterTimingQuery;
 					const FGroundTruthAmbientOcclusionFilterTimingQuerySink
 						FilterTimingSink =
 							GGroundTruthAmbientOcclusionFilterTimingQuerySink.load(
-								std::memory_order_acquire);
+								std::memory_order_acquire
+							);
 					if (FilterTimingSink != nullptr && GDynamicRHI != nullptr)
 					{
 						FilterTimingQuery =
@@ -1144,7 +1152,8 @@ namespace Durin
 						GroundTruthAmbientOcclusionRenderer.RenderFilter_RenderThread(
 							CommandList, *AmbientOcclusionTargets,
 							GBufferTargets->Normals, GBufferTargets->Surface,
-							SceneTargets->Depth, RenderView);
+							SceneTargets->Depth, RenderView
+						);
 					if (FilterTimingQuery)
 						CommandList.EndGPUTimingQuery(FilterTimingQuery);
 					if (bFiltered)
@@ -1156,17 +1165,19 @@ namespace Durin
 						{
 							std::swap(
 								AmbientOcclusionTargets->Raw,
-								AmbientOcclusionTargets->Scratch);
+								AmbientOcclusionTargets->Scratch
+							);
 							const bool bRawDiagnosticRendered =
-								GroundTruthAmbientOcclusionRenderer.
-									RenderRaw_RenderThread(
-										CommandList, *AmbientOcclusionTargets,
-										GBufferTargets->Normals,
-										GBufferTargets->Surface,
-										SceneTargets->Depth, RenderView);
+								GroundTruthAmbientOcclusionRenderer.RenderRaw_RenderThread(
+									CommandList, *AmbientOcclusionTargets,
+									GBufferTargets->Normals,
+									GBufferTargets->Surface,
+									SceneTargets->Depth, RenderView
+								);
 							std::swap(
 								AmbientOcclusionTargets->Raw,
-								AmbientOcclusionTargets->Scratch);
+								AmbientOcclusionTargets->Scratch
+							);
 							if (bRawDiagnosticRendered)
 								RawDiagnosticTexture =
 									AmbientOcclusionTargets->Scratch;
@@ -1176,34 +1187,30 @@ namespace Durin
 						DeferredParameters.GroundTruthAmbientOcclusionFiltered =
 							AmbientOcclusionTargets->Raw;
 						DeferredParameters.bGroundTruthAmbientOcclusionEnabled = true;
-						++PreparedView.Counters.
-							GroundTruthAmbientOcclusionEnabledViews;
-						PreparedView.Counters.
-							GroundTruthAmbientOcclusionActiveBytes =
-								FGroundTruthAmbientOcclusionRenderer::
-									CalculateTargetBytes(Width, Height);
+						++PreparedView.Counters.GroundTruthAmbientOcclusionEnabledViews;
+						PreparedView.Counters.GroundTruthAmbientOcclusionActiveBytes =
+							FGroundTruthAmbientOcclusionRenderer::
+								CalculateTargetBytes(Width, Height);
 						if (Options.GroundTruthAmbientOcclusionDebugMode
 							!= EGroundTruthAmbientOcclusionDebugMode::Disabled)
 						{
-							++PreparedView.Counters.
-								GroundTruthAmbientOcclusionDebugViews;
+							++PreparedView.Counters.GroundTruthAmbientOcclusionDebugViews;
 						}
 						if (FilterTimingQuery)
 							FilterTimingSink(FilterTimingQuery);
 						if (CaptureSink != nullptr)
 							CaptureSink(
-								CommandList, AmbientOcclusionTargets->Raw, true);
+								CommandList, AmbientOcclusionTargets->Raw, true
+							);
 					}
 					else
 					{
-						++PreparedView.Counters.
-							GroundTruthAmbientOcclusionFilterPassFailures;
+						++PreparedView.Counters.GroundTruthAmbientOcclusionFilterPassFailures;
 					}
 				}
 				else
 				{
-					++PreparedView.Counters.
-						GroundTruthAmbientOcclusionRawPassFailures;
+					++PreparedView.Counters.GroundTruthAmbientOcclusionRawPassFailures;
 				}
 			}
 		}
@@ -1220,7 +1227,8 @@ namespace Durin
 			{
 				DeferredParameters.GroundTruthAmbientOcclusionDebugMode =
 					static_cast<uint32>(
-						Options.GroundTruthAmbientOcclusionDebugMode);
+						Options.GroundTruthAmbientOcclusionDebugMode
+					);
 				FGPUTimingQueryRHIRef DeferredTimingQuery;
 				const FDeferredDirectionalTimingQuerySink DeferredTimingSink =
 					GDeferredDirectionalTimingQuerySink.load(
@@ -1272,93 +1280,32 @@ namespace Durin
 			}
 		}
 
-		bool bHybridSceneRendered = false;
-		if (bWantsProductionDeferred && bGBufferComplete
-			&& bHybridRetainedResourcesReady)
-		{
+		const bool bProductionResourcesReady =
+			!bWantsProductionDeferred
+			|| (bGBufferComplete && bHybridRetainedResourcesReady);
+		if (bWantsProductionDeferred)
 			DeferredParameters.DiagnosticMode = 0;
-			FGPUTimingQueryRHIRef HybridSceneTimingQuery;
-			const FSceneColorTimingQuerySink TimingSink =
-				GSceneColorTimingQuerySink.load(std::memory_order_acquire);
-			if (TimingSink != nullptr && GDynamicRHI != nullptr)
-			{
-				HybridSceneTimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
-				if (HybridSceneTimingQuery)
-					CommandList.BeginGPUTimingQuery(HybridSceneTimingQuery);
-			}
-			bHybridSceneRendered = RenderHybridScene_RenderThread(
-				CommandList, PreparedView, SceneColor,
-				SceneTargets->DirectionalDirect, SceneTargets->Depth,
-				DeferredParameters
-			);
-			if (HybridSceneTimingQuery)
-			{
-				CommandList.EndGPUTimingQuery(HybridSceneTimingQuery);
-				TimingSink(HybridSceneTimingQuery);
-			}
-			if (bHybridSceneRendered)
-				++PreparedView.Counters.HybridDeferredEnabledViews;
-			else
-				++PreparedView.Counters.HybridDeferredUnavailableViews;
-		}
-		else if (bWantsProductionDeferred)
+		FGPUTimingQueryRHIRef SceneColorTimingQuery;
+		const FSceneColorTimingQuerySink SceneColorTimingSink =
+			GSceneColorTimingQuerySink.load(std::memory_order_acquire);
+		if (SceneColorTimingSink != nullptr && GDynamicRHI != nullptr)
 		{
-			++PreparedView.Counters.HybridDeferredUnavailableViews;
-		}
-		if (bWantsProductionDeferred && !bHybridSceneRendered
-			&& Options.HybridOpaqueRoute == EHybridOpaqueRoute::DeferredRequired)
-		{
-			return ERenderViewResult::RendererResourcesUnavailable;
-		}
-		if (bWantsProductionDeferred && !bHybridSceneRendered)
-			++PreparedView.Counters.HybridDeferredFallbackViews;
-
-		if (!bHybridSceneRendered)
-		{
-			FRHIRenderPassInfo ScenePassInfo{};
-			ScenePassInfo.RenderTargetLayout =
-				RenderTargetLayouts::MakeSceneTargets();
-			ScenePassInfo.ColorRenderTargets[0] = SceneColor;
-			ScenePassInfo.ColorRenderTargets[1] = SceneTargets->DirectionalDirect;
-			ScenePassInfo.DepthStencilRenderTarget = SceneTargets->Depth;
-			ScenePassInfo.ColorClearValues[0] = FClearValueBinding(
-				View.ClearColor.r,
-				View.ClearColor.g,
-				View.ClearColor.b,
-				View.ClearColor.a
-			);
-			ScenePassInfo.ColorClearValues[1] =
-				FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f);
-			ScenePassInfo.DepthStencilClearValue = FClearValueBinding(
-				View.DepthConvention == ESceneDepthConvention::ReversedZ ? 0.0f : 1.0f,
-				0u
-			);
-			FGPUTimingQueryRHIRef SceneColorTimingQuery;
-			const FSceneColorTimingQuerySink TimingSink =
-				GSceneColorTimingQuerySink.load(std::memory_order_acquire);
-			if (TimingSink != nullptr && GDynamicRHI != nullptr)
-			{
-				SceneColorTimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
-				if (SceneColorTimingQuery)
-					CommandList.BeginGPUTimingQuery(SceneColorTimingQuery);
-			}
-			CommandList.BeginRenderPass(
-				ScenePassInfo,
-				"SceneColorRenderPass"
-			);
-			const bool bSceneRendered =
-				RenderScene_RenderThread(CommandList, PreparedView, SceneColor);
-			CommandList.EndRenderPass();
+			SceneColorTimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
 			if (SceneColorTimingQuery)
-			{
-				CommandList.EndGPUTimingQuery(SceneColorTimingQuery);
-				TimingSink(SceneColorTimingQuery);
-			}
-			if (!bSceneRendered)
-			{
-				return ERenderViewResult::RequiredEnvironmentUnavailable;
-			}
+				CommandList.BeginGPUTimingQuery(SceneColorTimingQuery);
 		}
+		const ERenderViewResult SceneResult = RenderScene_RenderThread(
+			CommandList, PreparedView, SceneColor,
+			SceneTargets->DirectionalDirect, SceneTargets->Depth,
+			bWantsProductionDeferred && bProductionResourcesReady ? &DeferredParameters : nullptr
+		);
+		if (SceneColorTimingQuery)
+		{
+			CommandList.EndGPUTimingQuery(SceneColorTimingQuery);
+			SceneColorTimingSink(SceneColorTimingQuery);
+		}
+		if (SceneResult != ERenderViewResult::Success)
+			return SceneResult;
 		CopyStaticMeshCounters(
 			PreparedView.StaticMeshes, PreparedView.Counters
 		);
@@ -1507,21 +1454,52 @@ namespace Durin
 		return ERenderViewResult::Success;
 	}
 
-	auto FSceneRenderer::RenderHybridScene_RenderThread(
+	auto FSceneRenderer::RenderScene_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FPreparedSceneView& PreparedView,
 		FRHITexture* SceneColor,
 		FRHITexture* DirectionalDirect,
 		FRHITexture* Depth,
-		const FDeferredDirectionalLightingRenderer::FRenderParameters&
+		const FDeferredDirectionalLightingRenderer::FRenderParameters*
 			DeferredParameters
-	) -> bool
+	) -> ERenderViewResult
 	{
 		check(IsInRenderingThread());
 		check(!CommandList.IsInsideRenderPass());
 		const FSceneView& View = PreparedView.View;
 		if (SceneColor == nullptr || DirectionalDirect == nullptr || Depth == nullptr)
-			return false;
+			return ERenderViewResult::RendererResourcesUnavailable;
+		if (View.Settings.RenderMode != ERenderMode::Lit
+			|| View.Settings.RasterMode != ERasterMode::Solid)
+		{
+			FRHIRenderPassInfo ScenePassInfo{};
+			ScenePassInfo.RenderTargetLayout =
+				RenderTargetLayouts::MakeSceneTargets();
+			ScenePassInfo.ColorRenderTargets[0] = SceneColor;
+			ScenePassInfo.ColorRenderTargets[1] = DirectionalDirect;
+			ScenePassInfo.DepthStencilRenderTarget = Depth;
+			ScenePassInfo.ColorClearValues[0] = FClearValueBinding(
+				View.ClearColor.r, View.ClearColor.g,
+				View.ClearColor.b, View.ClearColor.a
+			);
+			ScenePassInfo.ColorClearValues[1] =
+				FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f);
+			ScenePassInfo.DepthStencilClearValue = FClearValueBinding(
+				View.DepthConvention == ESceneDepthConvention::ReversedZ ? 0.0f : 1.0f,
+				0u
+			);
+			CommandList.BeginRenderPass(ScenePassInfo, "SceneColorRenderPass");
+			const bool bRendered = RenderSpecialForwardScene_RenderThread(
+				CommandList, PreparedView, SceneColor
+			);
+			CommandList.EndRenderPass();
+			return bRendered ? ERenderViewResult::Success : ERenderViewResult::RequiredEnvironmentUnavailable;
+		}
+		if (DeferredParameters == nullptr)
+		{
+			++PreparedView.Counters.HybridDeferredUnavailableViews;
+			return ERenderViewResult::RendererResourcesUnavailable;
+		}
 
 		auto SetViewRect = [&CommandList, &View]() {
 			CommandList.SetViewport(
@@ -1570,7 +1548,7 @@ namespace Durin
 		}
 		CommandList.EndRenderPass();
 		if (!bBootstrapRendered)
-			return false;
+			return ERenderViewResult::RequiredEnvironmentUnavailable;
 
 		FGPUTimingQueryRHIRef DeferredTimingQuery;
 		const FDeferredDirectionalTimingQuerySink DeferredTimingSink =
@@ -1583,7 +1561,7 @@ namespace Durin
 		}
 		const bool bDeferredRendered =
 			DeferredDirectionalLightingRenderer.RenderProduction_RenderThread(
-				CommandList, SceneColor, DirectionalDirect, DeferredParameters
+				CommandList, SceneColor, DirectionalDirect, *DeferredParameters
 			);
 		if (DeferredTimingQuery)
 		{
@@ -1592,7 +1570,8 @@ namespace Durin
 		}
 		if (!bDeferredRendered)
 		{
-			return false;
+			++PreparedView.Counters.HybridDeferredUnavailableViews;
+			return ERenderViewResult::RendererResourcesUnavailable;
 		}
 
 		FRHIRenderPassInfo Retained{};
@@ -1673,10 +1652,11 @@ namespace Durin
 		PreparedView.StaticMeshes.Phase = EPreparedStaticMeshPhase::Executed;
 		PreparedView.SkeletalMeshes.Phase = EPreparedSkeletalMeshPhase::Executed;
 		PreparedView.Terrains.Phase = EPreparedTerrainPhase::Executed;
-		return true;
+		++PreparedView.Counters.HybridDeferredEnabledViews;
+		return ERenderViewResult::Success;
 	}
 
-	auto FSceneRenderer::RenderScene_RenderThread(
+	auto FSceneRenderer::RenderSpecialForwardScene_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FPreparedSceneView& PreparedView,
 		FRHITexture* RenderTarget

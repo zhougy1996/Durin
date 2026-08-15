@@ -37,7 +37,8 @@ namespace Durin
 
 		auto PrepareResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			FPreparedStaticMeshView& PreparedView
+			FPreparedStaticMeshView& PreparedView,
+			bool bPrepareLitOpaqueForward
 		) -> bool;
 		auto PrepareHybridRetainedResources_RenderThread(
 			FPreparedStaticMeshView& PreparedView
@@ -87,6 +88,9 @@ namespace Durin
 			bool bHybridRetained = false
 		) -> bool;
 		auto EnsureBaseResources_RenderThread() -> bool;
+		auto EnsureMaterialSamplers_RenderThread(
+			const FPreparedStaticMeshDraw& Item
+		) -> bool;
 		auto EnsureSectionResources_RenderThread(
 			const FPreparedStaticMeshPrimitive& Primitive,
 			const FPreparedStaticMeshDraw& Item,

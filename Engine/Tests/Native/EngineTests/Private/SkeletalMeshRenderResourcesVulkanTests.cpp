@@ -499,14 +499,12 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 						 0u;
 	EXPECT_GT(RedPixels, 0u);
 	auto RenderLitReadback = [&](
-								 std::string Name, bool bEnableGBufferQualification = false,
-								 Durin::EHybridOpaqueRoute HybridRoute =
-									 Durin::EHybridOpaqueRoute::ForwardReference
+								 std::string Name, bool bEnableGBufferQualification = false
 							 ) {
 		auto Result = std::make_shared<std::vector<Durin::uint8>>();
 		Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
 			[&Renderer, &Scene, Result, Name = std::move(Name),
-			 bEnableGBufferQualification, HybridRoute](
+			 bEnableGBufferQualification](
 				Durin::FRHICommandListImmediate& CommandList
 			) {
 				Durin::GRenderFrameCounterRenderThread++;
@@ -532,7 +530,6 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 					bEnableGBufferQualification;
 				RenderOptions.bEnableDeferredDirectionalQualification =
 					bEnableGBufferQualification;
-				RenderOptions.HybridOpaqueRoute = HybridRoute;
 				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, RenderOptions), Durin::ERenderViewResult::Success);
 				ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
 					CommandList, Target, 0, 0, *Result
@@ -589,16 +586,10 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	Scene.AddOrReplaceLight(Durin::FLightSceneId(12), std::make_unique<Durin::FSpotLightSceneProxy>(Spot));
 	Durin::FlushRenderingCommands();
 	const auto MixedLightReadback = RenderLitReadback("MixedLightSkeletalColor");
-	const auto HybridMixedLightReadback = RenderLitReadback(
-		"HybridMixedLightSkeletalColor", false,
-		Durin::EHybridOpaqueRoute::DeferredRequired
-	);
 	EXPECT_EQ(ZeroLightReadback->size(), MixedLightReadback->size());
 	EXPECT_NE(*ZeroLightReadback, *MixedLightReadback);
-	EXPECT_EQ(HybridMixedLightReadback->size(), MixedLightReadback->size());
-	EXPECT_TRUE(std::ranges::any_of(*HybridMixedLightReadback, [](Durin::uint8 Value) { return Value != 0u; }));
+	EXPECT_TRUE(std::ranges::any_of(*MixedLightReadback, [](Durin::uint8 Value) { return Value != 0u; }));
 	EXPECT_EQ(GLastCounters.HybridDeferredEnabledViews, 1u);
-	EXPECT_EQ(GLastCounters.HybridDeferredFallbackViews, 0u);
 	EXPECT_EQ(GLastCounters.GBufferSkeletalMeshSkippedDraws, 1u);
 	EXPECT_EQ(GLastCounters.SelectedDirectionalLights, 1u);
 	EXPECT_EQ(GLastCounters.SelectedPointLights, 1u);

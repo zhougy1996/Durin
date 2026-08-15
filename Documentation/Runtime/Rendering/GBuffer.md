@@ -14,7 +14,7 @@ forward, sky, and editor-assistance surfaces do not publish records. Masked
 rejection and Terrain dithered-LOD rejection occur before any attachment
 write.
 
-Production `DeferredRequired` views always execute this pass, and it is the
+Production solid Lit views always execute this pass, and it is the
 sole depth/material owner for eligible Lit opaque/masked records. Explicit A/B
 tests may still request the M2 qualification route with
 `FSceneViewRenderOptions::bEnableGBufferQualification`; that isolated capture
@@ -78,7 +78,7 @@ invalidation, explicit release, and shutdown clear dependent resources before
 retry. A failed isolated qualification pass increments its per-family
 attempted/skipped counters and leaves the selected result authoritative. A
 failed production pass returns `RendererResourcesUnavailable`; it does not
-present a partial image or silently select the test-only forward reference. No
+present a partial image or select another lighting owner. No
 view may sample stale attachments from another view or extent.
 
 The size-keyed GBuffer cache retains the current extent and evicts oldest

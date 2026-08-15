@@ -26,32 +26,38 @@ namespace Durin::Editor
 			if (Dot > 1.0 - RotationTolerance) return FQuatConstants::Identity;
 			if (Dot < -1.0 + RotationTolerance)
 				return Math::MakeQuaternionFromAxisAngleRadians(
-					Math::Pi<double>(), FVectorConstants::Up);
+					Math::Pi<double>(), FVectorConstants::Up
+				);
 			const FVector3 Cross = Math::Cross(FVectorConstants::Forward, To);
 			return Math::Normalize(FQuat(1.0 + Dot, Cross.x, Cross.y, Cross.z));
 		}
 
 		auto BuildView(
 			const FAssetThumbnailOutputSettings& Output,
-			const FRenderedAssetThumbnailPreviewView& Preview) -> FSceneView
+			const FRenderedAssetThumbnailPreviewView& Preview
+		) -> FSceneView
 		{
 			FSceneView View;
 			const FVector3 Eye(
 				Preview.CameraPosition[0],
 				Preview.CameraPosition[1],
-				Preview.CameraPosition[2]);
+				Preview.CameraPosition[2]
+			);
 			const FVector3 Forward(
 				Preview.CameraForward[0],
 				Preview.CameraForward[1],
-				Preview.CameraForward[2]);
+				Preview.CameraForward[2]
+			);
 			const FVector3 Right(
 				Preview.CameraRight[0],
 				Preview.CameraRight[1],
-				Preview.CameraRight[2]);
+				Preview.CameraRight[2]
+			);
 			const FVector3 Up(
 				Preview.CameraUp[0],
 				Preview.CameraUp[1],
-				Preview.CameraUp[2]);
+				Preview.CameraUp[2]
+			);
 			View.ViewLocation = Eye;
 			View.ViewMatrix[0][0] = Forward.x;
 			View.ViewMatrix[1][0] = Forward.y;
@@ -67,12 +73,13 @@ namespace Durin::Editor
 			View.ViewMatrix[3][2] = -Math::Dot(Up, Eye);
 
 			const float AspectRatio = static_cast<float>(Output.Width)
-				/ static_cast<float>(Output.Height);
+									  / static_cast<float>(Output.Height);
 			const float NearClip = static_cast<float>(Preview.NearClipDistance);
 			const float FarClip = static_cast<float>(Preview.FarClipDistance);
 			const bool bValidProjection = SceneViewProjection::BuildPerspectiveProjection(
 				Preview.VerticalFieldOfViewDegrees, AspectRatio, NearClip, FarClip,
-				ESceneDepthConvention::ReversedZ, View.ProjectionMatrix);
+				ESceneDepthConvention::ReversedZ, View.ProjectionMatrix
+			);
 			check(bValidProjection);
 			View.NearClipDistance = NearClip;
 			View.FarClipDistance = FarClip;
@@ -80,13 +87,13 @@ namespace Durin::Editor
 			View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
 			View.ViewportWidth = Output.Width;
 			View.ViewportHeight = Output.Height;
-			View.Settings.LODMode = Preview.bForceLOD0
-				? EViewLODMode::ForceLOD0 : EViewLODMode::Automatic;
+			View.Settings.LODMode = Preview.bForceLOD0 ? EViewLODMode::ForceLOD0 : EViewLODMode::Automatic;
 			View.ClearColor = {
 				Preview.ClearRed,
 				Preview.ClearGreen,
 				Preview.ClearBlue,
-				Preview.ClearAlpha};
+				Preview.ClearAlpha
+			};
 			return View;
 		}
 
@@ -94,12 +101,15 @@ namespace Durin::Editor
 		{
 			const FRenderedAssetThumbnailVisualContract Contract;
 			const FVector3 Eye = Math::Normalize(FVector3(
-				Contract.CameraDirectionX,
-				Contract.CameraDirectionY,
-				Contract.CameraDirectionZ)) * static_cast<double>(Contract.CameraDistance);
+									 Contract.CameraDirectionX,
+									 Contract.CameraDirectionY,
+									 Contract.CameraDirectionZ
+								 ))
+								 * static_cast<double>(Contract.CameraDistance);
 			const FVector3 Forward = Math::Normalize(-Eye);
 			const FVector3 Right = Math::Normalize(
-				Math::Cross(FVectorConstants::Up, Forward));
+				Math::Cross(FVectorConstants::Up, Forward)
+			);
 			const FVector3 Up = Math::Normalize(Math::Cross(Forward, Right));
 			return {
 				.CameraPosition = {Eye.x, Eye.y, Eye.z},
@@ -112,7 +122,8 @@ namespace Durin::Editor
 				.ClearRed = Contract.BackgroundRed,
 				.ClearGreen = Contract.BackgroundGreen,
 				.ClearBlue = Contract.BackgroundBlue,
-				.ClearAlpha = Contract.bOutputOpaque ? 1.0f : Contract.BackgroundAlpha};
+				.ClearAlpha = Contract.bOutputOpaque ? 1.0f : Contract.BackgroundAlpha
+			};
 		}
 
 		auto GetRenderFailureDiagnostic(ERenderViewResult Result) -> std::string
@@ -156,12 +167,12 @@ namespace Durin::Editor
 
 		FImpl(
 			FRenderedAssetThumbnailVisualContract InContract,
-			const FAssetThumbnailBudgets& Budgets)
+			const FAssetThumbnailBudgets& Budgets
+		)
 			: Contract(std::move(InContract))
 			, Output(Contract.Output)
 		{
-			checkf(IsInGameThread(),
-				"Rendered thumbnail preview scenes must be created on the game thread.");
+			checkf(IsInGameThread(), "Rendered thumbnail preview scenes must be created on the game thread.");
 			if (Budgets.MaximumLivePreviewScenes == 0)
 			{
 				Error = "The rendered-thumbnail live-scene budget is zero.";
@@ -185,20 +196,18 @@ namespace Durin::Editor
 				return;
 			}
 			AActor* LightActor = PreviewScene->GetWorld()->SpawnActor<AActor>(
-				"RenderedAssetThumbnailLightActor");
-			Light = LightActor
-				? Cast<DDirectionalLightComponent>(LightActor->AddInstanceComponent(
-					DDirectionalLightComponent::StaticClass(), "PreviewLight"))
-				: nullptr;
+				"RenderedAssetThumbnailLightActor"
+			);
+			Light = LightActor ? Cast<DDirectionalLightComponent>(LightActor->AddInstanceComponent(
+									 DDirectionalLightComponent::StaticClass(), "PreviewLight"
+								 )) :
+								 nullptr;
 			if (Light == nullptr)
 			{
 				Error = "The rendered-thumbnail preview light could not be created.";
 				return;
 			}
-			Light->SetWorldRotation(RotationFromForward({
-				Contract.KeyLightDirectionX,
-				Contract.KeyLightDirectionY,
-				Contract.KeyLightDirectionZ}));
+			Light->SetWorldRotation(RotationFromForward({Contract.KeyLightDirectionX, Contract.KeyLightDirectionY, Contract.KeyLightDirectionZ}));
 			Light->SetIntensity(Contract.KeyLightIntensity);
 			Light->SetAmbientIntensity(Contract.FillLightIntensity);
 			Light->SetRimLightIntensity(0.16f);
@@ -208,10 +217,9 @@ namespace Durin::Editor
 				"RenderedAssetThumbnailOutput",
 				Output.Width,
 				Output.Height,
-				EPixelFormat::SRGBA8_UNORM);
-			Desc.SetFlags(ETextureCreateFlags::RenderTargetable
-				| ETextureCreateFlags::ShaderResource
-				| ETextureCreateFlags::CPUReadback);
+				EPixelFormat::SRGBA8_UNORM
+			);
+			Desc.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback);
 			RenderTarget = RHICreateTexture(Desc);
 			if (RenderTarget == nullptr)
 				Error = "Failed to create the rendered-thumbnail output target.";
@@ -219,8 +227,7 @@ namespace Durin::Editor
 
 		~FImpl()
 		{
-			checkf(IsInGameThread(),
-				"Rendered thumbnail preview scenes must be destroyed on the game thread.");
+			checkf(IsInGameThread(), "Rendered thumbnail preview scenes must be destroyed on the game thread.");
 			{
 				std::lock_guard Lock(Capture->Mutex);
 				++Capture->Generation;
@@ -233,7 +240,8 @@ namespace Durin::Editor
 
 	FRenderedAssetThumbnailPreviewScenePool::FRenderedAssetThumbnailPreviewScenePool(
 		FAssetThumbnailOutputSettings Output,
-		FAssetThumbnailBudgets Budgets)
+		FAssetThumbnailBudgets Budgets
+	)
 		: Impl([&Output, &Budgets] {
 			FRenderedAssetThumbnailVisualContract Contract;
 			Contract.Output = std::move(Output);
@@ -244,7 +252,8 @@ namespace Durin::Editor
 
 	FRenderedAssetThumbnailPreviewScenePool::FRenderedAssetThumbnailPreviewScenePool(
 		FRenderedAssetThumbnailVisualContract VisualContract,
-		FAssetThumbnailBudgets Budgets)
+		FAssetThumbnailBudgets Budgets
+	)
 		: Impl(std::make_unique<FImpl>(std::move(VisualContract), Budgets))
 	{
 	}
@@ -254,7 +263,7 @@ namespace Durin::Editor
 	auto FRenderedAssetThumbnailPreviewScenePool::IsAvailable() const -> bool
 	{
 		return Impl->Error.empty() && Impl->PreviewScene != nullptr
-			&& Impl->PreviewScene->IsAvailable() && Impl->RenderTarget != nullptr;
+			   && Impl->PreviewScene->IsAvailable() && Impl->RenderTarget != nullptr;
 	}
 
 	auto FRenderedAssetThumbnailPreviewScenePool::GetDiagnostic() const -> std::string
@@ -269,10 +278,10 @@ namespace Durin::Editor
 
 	auto FRenderedAssetThumbnailPreviewScenePool::SetView(
 		const FRenderedAssetThumbnailPreviewView& View,
-		std::string& OutError) -> bool
+		std::string& OutError
+	) -> bool
 	{
-		checkf(IsInGameThread(),
-			"Rendered thumbnail scene mutation must run on the game thread.");
+		checkf(IsInGameThread(), "Rendered thumbnail scene mutation must run on the game thread.");
 		OutError.clear();
 		if (!IsAvailable())
 		{
@@ -301,10 +310,10 @@ namespace Durin::Editor
 
 	auto FRenderedAssetThumbnailPreviewScenePool::SetViewEnvironment(
 		const FViewEnvironmentOverride& Environment,
-		std::string& OutError) -> bool
+		std::string& OutError
+	) -> bool
 	{
-		checkf(IsInGameThread(),
-			"Rendered thumbnail scene mutation must run on the game thread.");
+		checkf(IsInGameThread(), "Rendered thumbnail scene mutation must run on the game thread.");
 		OutError.clear();
 		if (!IsAvailable())
 		{
@@ -335,10 +344,10 @@ namespace Durin::Editor
 	}
 
 	auto FRenderedAssetThumbnailPreviewScenePool::BeginCapture(
-		std::string& OutError) -> bool
+		std::string& OutError
+	) -> bool
 	{
-		checkf(IsInGameThread(),
-			"Rendered thumbnail capture must start on the game thread.");
+		checkf(IsInGameThread(), "Rendered thumbnail capture must start on the game thread.");
 		OutError.clear();
 		if (!IsAvailable())
 		{
@@ -366,11 +375,12 @@ namespace Durin::Editor
 		FTextureRHIRef RenderTarget = Impl->RenderTarget;
 		const FSceneView View = Impl->View;
 		const FSceneViewRenderOptions Options{
-			.Environment = Impl->Environment,
-			.HybridOpaqueRoute = EHybridOpaqueRoute::DeferredRequired};
+			.Environment = Impl->Environment
+		};
 		ENQUEUE_RENDER_COMMAND(RenderAssetThumbnailPreview)(
 			[Capture, Generation, Renderer, Scene, RenderTarget, View, Options](
-				FRHICommandListImmediate& CommandList) {
+				FRHICommandListImmediate& CommandList
+			) {
 				std::vector<uint8> Pixels;
 				std::string Error;
 				if (Renderer == nullptr || Scene == nullptr || RenderTarget == nullptr)
@@ -381,30 +391,31 @@ namespace Durin::Editor
 				{
 					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 					const ERenderViewResult RenderResult = Renderer->RenderView(
-						CommandList, Scene, View, RenderTarget, false, Options);
+						CommandList, Scene, View, RenderTarget, false, Options
+					);
 					if (RenderResult != ERenderViewResult::Success)
 						Error = GetRenderFailureDiagnostic(RenderResult);
 					else if (!GDynamicRHI->RHIReadTexture2D(
-							CommandList, RenderTarget, 0, 0, Pixels))
+								 CommandList, RenderTarget, 0, 0, Pixels
+							 ))
 						Error = "Failed to read back the rendered-thumbnail output.";
 				}
 				std::lock_guard Lock(Capture->Mutex);
 				if (Capture->Generation != Generation) return;
 				Capture->Pixels = std::move(Pixels);
 				Capture->Error = std::move(Error);
-				Capture->State = Capture->Error.empty()
-					? ERenderedAssetThumbnailCaptureState::Ready
-					: ERenderedAssetThumbnailCaptureState::Failed;
-			});
+				Capture->State = Capture->Error.empty() ? ERenderedAssetThumbnailCaptureState::Ready : ERenderedAssetThumbnailCaptureState::Failed;
+			}
+		);
 		return true;
 	}
 
 	auto FRenderedAssetThumbnailPreviewScenePool::PollCapture(
 		std::vector<uint8>& OutPixels,
-		std::string& OutError) -> ERenderedAssetThumbnailCaptureState
+		std::string& OutError
+	) -> ERenderedAssetThumbnailCaptureState
 	{
-		checkf(IsInGameThread(),
-			"Rendered thumbnail capture polling must run on the game thread.");
+		checkf(IsInGameThread(), "Rendered thumbnail capture polling must run on the game thread.");
 		OutPixels.clear();
 		OutError.clear();
 		std::lock_guard Lock(Impl->Capture->Mutex);
@@ -417,8 +428,7 @@ namespace Durin::Editor
 
 	auto FRenderedAssetThumbnailPreviewScenePool::Reset() -> void
 	{
-		checkf(IsInGameThread(),
-			"Rendered thumbnail scene reset must run on the game thread.");
+		checkf(IsInGameThread(), "Rendered thumbnail scene reset must run on the game thread.");
 		{
 			std::lock_guard Lock(Impl->Capture->Mutex);
 			++Impl->Capture->Generation;

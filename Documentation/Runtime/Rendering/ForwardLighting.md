@@ -10,11 +10,16 @@ retain the behavior documented below.
 The production hybrid renderer evaluates Lit opaque/masked StaticMesh,
 SplineMesh, SkeletalMesh, and Terrain records after the GBuffer. Forward owns
 only Unlit opaque/masked surfaces, the globally sorted translucent list,
-wireframe or another explicitly named special mode, SkyBox bootstrap, and the
-test-only complete forward reference. Dedicated retained-forward pipeline
+wireframe or another explicitly named special mode, and SkyBox bootstrap.
+Dedicated retained-forward pipeline
 variants load existing HDR Scene Color, directional-direct, and GBuffer depth;
 they never clear or display-map those attachments. No product caller silently
 falls back to generic Lit opaque forward rendering.
+
+`FSceneRenderer::RenderScene_RenderThread` is the single scene-composition
+entry point. Solid Lit views use its deferred-opaque plus retained-forward
+sequence. Unlit, wireframe, and other explicitly named special view modes use
+its special-forward stage; resource failure never selects that stage.
 
 The fixed lighting ABI and the shared helpers below remain common to deferred
 Lit evaluation and retained forward translucency. The selected four local
