@@ -73,14 +73,20 @@ bool IsContactHit(float3 segmentStart, float3 segmentEnd,
     float surfaceRadius = PixelWorldRadius(sceneLocalUV, sceneDepth,
         surfacePosition, surfaceNormal)
         * Params.SurfaceStepsMinBiasReversedZ.x;
+    float3 surfaceTangentStep = segmentEnd - segmentStart;
+    surfaceTangentStep -= surfaceNormal
+        * dot(surfaceTangentStep, surfaceNormal);
+    surfaceRadius += length(surfaceTangentStep);
 
     // A parallel, near-coplanar sample is the receiver surface represented by
     // another depth texel, not an independent blocker.
     float receiverAlignment = abs(dot(surfaceNormal, receiverNormal));
     float receiverPlaneDistance = abs(dot(
         surfacePosition - receiverPosition, receiverNormal));
+    float coplanarTolerance = max(Params.SurfaceStepsMinBiasReversedZ.z,
+        min(receiverRadius, surfaceRadius) * 0.05);
     if (receiverAlignment >= 0.98
-        && receiverPlaneDistance <= receiverRadius + surfaceRadius)
+        && receiverPlaneDistance <= coplanarTolerance)
         return false;
 
     // Treat the depth texel as a finite oriented surfel. A blocker exists only
@@ -116,9 +122,8 @@ float ContactVisibilityFragmentMain(VSOutput input) : SV_Target0
         return 1.0;
 
     float3 toLight = Params.ToLightMaxDistance.xyz;
-    float facingFade = smoothstep(
-        0.02, 0.20, saturate(dot(receiver.geometricNormal, toLight)));
-    if (facingFade <= 0.0)
+    float receiverFacing = dot(receiver.geometricNormal, toLight);
+    if (receiverFacing <= 0.0)
         return 1.0;
 
     float2 localUV = (float2(pixel) + 0.5 - Params.Viewport.zw)
@@ -163,7 +168,7 @@ float ContactVisibilityFragmentMain(VSOutput input) : SV_Target0
                 0.0, maxDistance, rayDistance);
             float screenFade = 1.0 - smoothstep(Params.Trace.x * 0.75,
                 Params.Trace.x, sqrt(screenDistanceSquared));
-            occlusion = distanceFade * screenFade * facingFade;
+            occlusion = distanceFade * screenFade;
             break;
         }
         rayDistance += stepDistance;

@@ -1953,6 +1953,25 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	EXPECT_GT(PerspectiveChangedPixels, 0u);
 	EXPECT_LT(PerspectiveChangedPixels, CaptureWidth * CaptureHeight / 2u);
 
+	// A parallel blocker only 0.015 world units above the receiver is distinct
+	// geometry, not a coplanar self sample. Keep this near-contact range alive
+	// while the following fixture rejects the receiver's own triangle planes.
+	Scene.AddOrReplacePrimitive(
+		Durin::FPrimitiveSceneId(2),
+		std::make_unique<Durin::FStaticMeshSceneProxy>(
+			Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1),
+		MakeTransform({.Translation = {-0.18, 0.08, -0.485},
+			.Scale = {0.22, 0.18, 1.0}})
+	);
+	Durin::FlushRenderingCommands();
+	std::vector<Durin::uint8> CloseContactDebug;
+	RenderCapture(true, true, CloseContactDebug);
+	size_t CloseContactContributionPixels = 0;
+	for (size_t Pixel = 0; Pixel + 3 < CloseContactDebug.size(); Pixel += 4)
+		if (CloseContactDebug[Pixel] > 2u)
+			++CloseContactContributionPixels;
+	EXPECT_GT(CloseContactContributionPixels, 0u);
+
 	// A single tilted receiver is intentionally traced along a shallow outward
 	// direction that also moves away from the camera. A point/thickness test
 	// re-hits its own two triangles as large wedges; an oriented surface test
@@ -1972,6 +1991,29 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		Durin::FLightSceneId(100),
 		std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional)
 	);
+	Durin::FlushRenderingCommands();
+
+	// The same shallow receiver must retain a visible contact contribution from
+	// independently separated parallel geometry. Directional lighting already
+	// carries N.L, so contact visibility must not fade that response a second
+	// time merely because the light angle is shallow.
+	Scene.AddOrReplacePrimitive(
+		Durin::FPrimitiveSceneId(2),
+		std::make_unique<Durin::FStaticMeshSceneProxy>(
+			Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 1),
+		MakeTransform({.Translation = {0.0136, 0.0, -0.4937},
+			.Scale = {0.22, 0.18, 1.0}, .RotationYDegrees = 65.0})
+	);
+	Durin::FlushRenderingCommands();
+	std::vector<Durin::uint8> ShallowContactDebug;
+	RenderCapture(true, true, ShallowContactDebug);
+	Durin::uint8 ShallowContactPeak = 0u;
+	for (size_t Pixel = 0; Pixel + 3 < ShallowContactDebug.size(); Pixel += 4)
+		ShallowContactPeak = std::max(
+			ShallowContactPeak, ShallowContactDebug[Pixel]);
+	EXPECT_GT(ShallowContactPeak, 96u);
+
+	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(2));
 	Durin::FlushRenderingCommands();
 	std::vector<Durin::uint8> CoplanarOff;
 	std::vector<Durin::uint8> CoplanarOn;

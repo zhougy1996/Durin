@@ -137,12 +137,22 @@ budget, so crossing the screen bound does not introduce a full-strength hard
 cut. A ray that leaves the viewport terminates without attempting to represent
 off-screen geometry.
 
-Only `GBufferStandardLitFlag` pixels participate. Backfacing receivers resolve
-fully visible and the unstable grazing interval fades from dot(normal,
-toward-light) 0.02 to 0.20. The ray origin moves along the receiver geometric
+Each line segment selects the visible depth surfel at its projected endpoint.
+The surfel's finite tangent-plane coverage includes both its dilated pixel
+footprint and that segment's tangent-plane sweep, so a crossing near the start
+of a step is not lost when the endpoint enters the blocker silhouette. This
+does not add surface-normal thickness: the segment must still cross the
+oriented plane. Only `GBufferStandardLitFlag` pixels participate. Backfacing
+receivers resolve fully visible. Front-facing receivers do not apply a second
+grazing-angle fade because the directional BRDF already contains its `N·L`
+response; contact visibility therefore remains meaningful at shallow light
+angles after self-intersection is rejected geometrically. The ray origin moves
+along the receiver geometric
 normal by half its dilated pixel footprint, with a 0.0005 minimum and a bound
-of 5% of the trace distance. Parallel near-coplanar surfels are explicitly
-classified as the receiver rather than blockers. The 1.5 footprint dilation
+of 5% of the trace distance. Parallel surfels are classified as the receiver
+only when their plane separation is within the greater of the minimum bias or
+5% of the smaller pixel footprint; close but independently separated parallel
+surfaces remain valid blockers. The 1.5 footprint dilation
 covers texel-center quantization without introducing a fixed world-space
 thickness. Depth and normals are fetched with exact texel loads. Linear depth
 filtering and one-sided unbounded device-depth tests are forbidden because
