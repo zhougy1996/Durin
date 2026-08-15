@@ -24,7 +24,8 @@ incompatible bundled zlib. Win64-only Tracy tools are skipped explicitly. The
 configured GLFW import supplies its required Cocoa, IOKit, and CoreFoundation
 framework closure; RenderCore links and deploys the pinned Slang dylib.
 
-Stage 3 is active. `MacOS-arm64-Debug-DurinEditor` configures successfully. Its
+Stage 3 is complete and Stage 4 is active. `MacOS-arm64-Debug-DurinEditor`
+configures successfully. Its
 907 generated compile commands all target arm64, contain 75 MacOS or MacOS DHT
 sources, and contain no Windows implementation source or Windows target macro.
 CoreDObject DHT generation passes, and Core, ApplicationCore, and CoreDObject
@@ -43,9 +44,14 @@ Launch against its absent macOS process-crash service, the already assigned M2
 platform boundary. The affected SkeletalAsset and Spline qualification test
 bodies pass 34/34 and 2/2 assertions respectively, but both executables then
 receive `SIGSEGV` after global test teardown; that exit-lifecycle failure remains
-runtime work and is not reported as a passing test run. No Editor was launched
-and runtime support is not claimed. Clean-state reproduction and final
-documentation remain open.
+runtime work and is not reported as a passing test run. A documented
+`DevTool rebuild --target Engine` repetition cleaned 545 CMake-owned files,
+fresh-configured the declared preset, and rebuilt the 294-step Engine closure
+successfully. The resulting dylib is Mach-O arm64, keeps the
+`@rpath/libDurinEditor-Engine.dylib` identity, resolves repository modules
+through `@rpath`, and records the Debug runtime directory as an `LC_RPATH`.
+No Editor was launched and runtime support is not claimed. Final qualification
+and documentation remain open.
 
 ### Validated candidate host
 
@@ -300,7 +306,7 @@ that does not require M2 runtime implementations.
 - [x] Record the first remaining missing macOS platform implementations and
   assign them to M1 only when required for the bounded compile gate; otherwise
   preserve them as explicit M2 entry diagnostics.
-- [ ] Repeat the bounded configure and compile from a clean worktree/external
+- [x] Repeat the bounded configure and compile from a clean worktree/external
   state using only the documented host environment and DevTool workflow.
 
 #### Acceptance Gate
