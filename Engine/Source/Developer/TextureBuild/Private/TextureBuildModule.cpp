@@ -1,5 +1,13 @@
 #include "Modules/ModuleManager.h"
+#include "AssetBuild/BuildFunction.h"
 #include "Texture/TextureBuildService.h"
+
+namespace Durin::Asset::Build
+{
+	TEXTUREBUILD_API auto InitializeTexture2DBuildFunction(
+		FModuleOwnedCallbackGate Gate, std::string* OutError = nullptr) -> bool;
+	TEXTUREBUILD_API auto ShutdownTexture2DBuildFunction() -> void;
+}
 
 namespace Durin
 {
@@ -12,6 +20,10 @@ namespace Durin
 				FModuleStartup::CreateOwnedCallbackRegistration("AssetBuildCore.BuildHost");
 			BuildOperations = FModuleStartup::CreateAsyncOperationGroup("TextureBuild.Operations");
 			require(BuildOperations.IsValid());
+			std::string Error;
+			checkf(Asset::Build::InitializeTexture2DBuildFunction(
+				BuildHostCallbackRegistration.GetGate(), &Error),
+				"TextureBuild could not register Texture2D build function: {}", Error);
 			Asset::Build::FTexture2DBuildCoordinatorConfig Config;
 			Config.OwnerCancellationToken = BuildOperations.GetCancellationToken();
 			Config.OwnerTaskScope = BuildOperations.GetTaskScope();
@@ -27,6 +39,7 @@ namespace Durin
 		auto ShutdownModule() -> void override
 		{
 			Asset::Build::ShutdownTextureBuildService();
+			Asset::Build::ShutdownTexture2DBuildFunction();
 		}
 	};
 

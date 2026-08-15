@@ -25,14 +25,26 @@ Builder and translator versions invalidate production identity. Payload schema
 and stable value identifiers determine runtime readability, so a producer
 version change does not by itself make a compatible payload unreadable.
 
-`AssetBuildCore` deliberately has no generic executor, portable definition,
-function registry, or request-owner protocol. It retains immutable named cache
-values, explicit query/store policy, an opaque DDC client, and the authoring
-build host used by GeometryBuild and TextureBuild. Typed recipes, keys,
-compatibility rules, scheduling, and result interpretation remain with those
-production families. The host owns contribution registration, startup,
-completion pumping, bounded wait, admission closure, ordered drain, and
-module-retirement lifetime.
+`AssetBuildCore` owns a synchronous local derived-data request boundary. An
+immutable `FBuildDefinition` selects a versioned local `IBuildFunction`, carries
+an existing canonical key plus opaque local inputs, and declares one expected
+value. `FBuildSession` performs query, cached-value validation, local build,
+built-value validation, store, and cleanup in that order and reports structured
+origin, status, and failure phase. It does not own worker threads, priorities,
+callbacks, dependency graphs, remote execution, or typed asset interpretation.
+
+GeometryBuild registers the StaticMesh render and collision functions;
+TextureBuild registers the Texture2D function. Their DMSH, collision, and TXPL
+keys, cache roots, value bytes, and codecs remain family-owned and unchanged.
+TextureBuild's coordinator calls the synchronous session from its existing
+worker and retains cancellation, supersession, metrics, and main-thread
+publication ownership. TextureCube, skeletal/animation, Terrain, shader, and
+other DDC paths remain direct family clients until separately migrated.
+
+The separate authoring build host still owns service contribution registration,
+startup, completion pumping, bounded wait, admission closure, ordered drain,
+and module-retirement lifetime. A build function registration uses the same
+module callback gate for bounded calls but does not become a hosted scheduler.
 
 ## Storage Classes
 
@@ -253,6 +265,14 @@ supported beyond the traditional Windows `MAX_PATH` boundary under the
 Readers validate magic, versions, declared sizes, allocation limits, structural
 invariants, and checksums before publishing data. A cache write failure does not
 invalidate a complete in-memory build result.
+
+For migrated StaticMesh render/collision and Texture2D requests, invalid cached
+bytes are validated by the registered family function and become rebuildable
+misses only when authoritative local inputs are present. Authored cache-only
+loads disable local build and preserve missing, incompatible, and corrupt
+outcomes. Required-store policy remains transactional for these authoring
+operations; best-effort store is an explicit session policy for callers that
+can retain an in-memory result.
 
 ### Skeletal Derived Data
 

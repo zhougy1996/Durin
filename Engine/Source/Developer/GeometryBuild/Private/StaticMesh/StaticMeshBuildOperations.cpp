@@ -1,7 +1,6 @@
 #include "StaticMesh/StaticMeshBuildOperations.h"
 
-#include "AssetBuild/BuildCache.h"
-#include "DerivedDataObjectStore.h"
+#include "AssetBuild/BuildSession.h"
 #include "DObject/DObjectGlobals.h"
 #include "Logging/LogMacros.h"
 #include "Math/Operations.h"
@@ -31,20 +30,14 @@ namespace Durin::Asset::Build
 				});
 		}
 
-		auto GetObjectStore() -> Asset::FDerivedDataObjectStore&
-		{
-			static Asset::FDerivedDataObjectStore Store(
-				"StaticMesh/Objects", MaximumStaticMeshPayloadBytes);
-			return Store;
-		}
-
-		auto GetCollisionObjectStore() -> Asset::FDerivedDataObjectStore&
-		{
-			static Asset::FDerivedDataObjectStore Store(
-				"StaticMeshCollision/Objects",
-				MaximumStaticMeshCollisionPayloadBytes);
-			return Store;
-		}
+		const FBuildFunctionIdentity StaticMeshFunctionIdentity{
+			"Durin.GeometryBuild.StaticMesh", 1};
+		const FBuildFunctionIdentity StaticMeshCollisionFunctionIdentity{
+			"Durin.GeometryBuild.StaticMeshCollision", 1};
+		constexpr std::string_view StaticMeshInputName = "StaticMeshBuildInput";
+		constexpr std::string_view StaticMeshValueName = "StaticMeshPayload";
+		constexpr std::string_view CollisionInputName = "StaticMeshCollisionBuildInput";
+		constexpr std::string_view CollisionValueName = "StaticMeshCollisionPayload";
 
 		auto BuildCollisionGeometryHash(
 			std::span<const FVector3f> Positions,
@@ -69,9 +62,8 @@ namespace Durin::Asset::Build
 			return FXxHash128::HashBuffer(Bytes);
 		}
 
-		auto StoreProduct(
-			std::string_view Key,
-			const FStaticMeshRenderData& RenderData,
+		auto EncodeRenderData(
+			const FStaticMeshRenderData& RenderData, FBuildValue& OutValue,
 			std::string& OutError) -> bool
 		{
 			FStaticMeshPayloadData Payload;
@@ -84,15 +76,178 @@ namespace Durin::Asset::Build
 				OutError = Ar.GetFailure()->Message;
 				return false;
 			}
-			FBuildCacheClient Cache(GetObjectStore());
-			if (!Cache.Store(Key, FBuildValue::FromOwned("StaticMeshPayload", std::move(Bytes)),
-				{.bRequireStoreSuccess = true}, &OutError)) return false;
-			const Asset::FDerivedDataObjectCleanupResult Cleanup =
-				GetObjectStore().CleanupToBudget(
-					StaticMeshDerivedDataBudgetBytes,
-					StaticMeshDerivedDataCleanupDeleteLimit);
-			if (!Cleanup.Message.empty())
-				DURIN_WARN("Static-mesh DDC cleanup: {}", Cleanup.Message);
+			OutValue = FBuildValue::FromOwned(std::string(StaticMeshValueName), std::move(Bytes));
+			return true;
+		}
+
+		auto DecodeRenderData(const FBuildValue& Value,
+			std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
+			std::string& OutError) -> bool
+		{
+			FStaticMeshPayloadData Payload;
+			FCanonicalMemoryReader Ar(Value.GetBytes(), EArchivePurpose::DerivedDataPayload);
+			Payload.Serialize(Ar, EStaticMeshTargetPlatform::Win64);
+			if (Ar.HasError() || !RequireArchiveEnd(Ar))
+			{
+				OutError = Ar.GetFailure() ? Ar.GetFailure()->Message : "StaticMesh payload has trailing bytes.";
+				return false;
+			}
+			return MakeStaticMeshRenderData(Payload, OutRenderData, OutError);
+		}
+
+		auto AppendU32(std::vector<uint8>& Bytes, uint32 Value) -> void
+		{
+			for (uint32 Byte = 0; Byte < 4; ++Byte) Bytes.push_back(static_cast<uint8>(Value >> (Byte * 8)));
+		}
+		auto AppendU64(std::vector<uint8>& Bytes, uint64 Value) -> void
+		{
+			for (uint32 Byte = 0; Byte < 8; ++Byte) Bytes.push_back(static_cast<uint8>(Value >> (Byte * 8)));
+		}
+		auto ReadU32(std::span<const uint8> Bytes, size_t& Offset, uint32& Value) -> bool
+		{
+			if (Offset + 4 > Bytes.size()) return false;
+			Value = 0; for (uint32 Byte = 0; Byte < 4; ++Byte) Value |= uint32(Bytes[Offset++]) << (Byte * 8);
+			return true;
+		}
+		auto ReadU64(std::span<const uint8> Bytes, size_t& Offset, uint64& Value) -> bool
+		{
+			if (Offset + 8 > Bytes.size()) return false;
+			Value = 0; for (uint32 Byte = 0; Byte < 8; ++Byte) Value |= uint64(Bytes[Offset++]) << (Byte * 8);
+			return true;
+		}
+
+		auto EncodeCollisionInput(std::span<const FVector3f> Positions,
+			std::span<const uint32> Indices, EBodySetupCollisionSourceMode Mode,
+			EBodySetupCollisionQueryPolicy Policy) -> std::vector<uint8>
+		{
+			std::vector<uint8> Bytes;
+			AppendU32(Bytes, static_cast<uint32>(Mode));
+			AppendU32(Bytes, static_cast<uint32>(Policy));
+			AppendU64(Bytes, Positions.size());
+			for (const FVector3f& Position : Positions)
+				for (uint32 Axis = 0; Axis < 3; ++Axis) AppendU32(Bytes, std::bit_cast<uint32>(Position[Axis]));
+			AppendU64(Bytes, Indices.size());
+			for (uint32 Index : Indices) AppendU32(Bytes, Index);
+			return Bytes;
+		}
+
+		auto DecodeCollisionInput(std::span<const uint8> Bytes,
+			std::vector<FVector3>& Positions, std::vector<uint32>& Indices,
+			EBodySetupCollisionSourceMode& Mode, EBodySetupCollisionQueryPolicy& Policy,
+			std::string& OutError) -> bool
+		{
+			size_t Offset = 0; uint32 ModeValue = 0, PolicyValue = 0; uint64 Count = 0;
+			if (!ReadU32(Bytes, Offset, ModeValue) || !ReadU32(Bytes, Offset, PolicyValue)
+				|| !ReadU64(Bytes, Offset, Count) || Count > (Bytes.size() - Offset) / 12) goto Invalid;
+			Mode = static_cast<EBodySetupCollisionSourceMode>(ModeValue);
+			Policy = static_cast<EBodySetupCollisionQueryPolicy>(PolicyValue);
+			Positions.reserve(Count);
+			for (uint64 Index = 0; Index < Count; ++Index)
+			{
+				uint32 X = 0, Y = 0, Z = 0;
+				if (!ReadU32(Bytes, Offset, X) || !ReadU32(Bytes, Offset, Y) || !ReadU32(Bytes, Offset, Z)) goto Invalid;
+				Positions.emplace_back(std::bit_cast<float>(X), std::bit_cast<float>(Y), std::bit_cast<float>(Z));
+			}
+			if (!ReadU64(Bytes, Offset, Count) || Count > (Bytes.size() - Offset) / 4) goto Invalid;
+			Indices.reserve(Count);
+			for (uint64 Index = 0; Index < Count; ++Index) { uint32 Value = 0; if (!ReadU32(Bytes, Offset, Value)) goto Invalid; Indices.push_back(Value); }
+			if (Offset == Bytes.size() && !Positions.empty() && !Indices.empty() && Indices.size() % 3 == 0) return true;
+		Invalid:
+			OutError = "StaticMesh collision local build input is malformed.";
+			return false;
+		}
+
+		auto DecodeCollisionValue(const FBuildValue& Value,
+			EBodySetupCollisionSourceMode Mode, EBodySetupCollisionQueryPolicy Policy,
+			FCollisionGeometryRef& OutGeometry, std::string& OutError) -> bool
+		{
+			FStaticMeshCollisionPayloadData Payload;
+			FCanonicalMemoryReader Ar(Value.GetBytes(), EArchivePurpose::DerivedDataPayload);
+			Payload.Serialize(Ar, EStaticMeshTargetPlatform::Win64);
+			if (Ar.HasError() || !RequireArchiveEnd(Ar) || Payload.SourceMode != Mode)
+			{ OutError = Ar.GetError().empty() ? "StaticMesh collision payload is incompatible." : Ar.GetError(); return false; }
+			Payload.QueryPolicy = Policy;
+			return MakeStaticMeshCollisionGeometry(Payload, OutGeometry, OutError);
+		}
+
+		class FStaticMeshBuildFunction final : public IBuildFunction
+		{
+		public:
+			auto GetConfig() const -> FBuildFunctionConfig override { return {
+				.CacheRoot = "StaticMesh/Objects", .ExpectedValueName = std::string(StaticMeshValueName),
+				.MaximumValueBytes = MaximumStaticMeshPayloadBytes,
+				.CleanupBudgetBytes = StaticMeshDerivedDataBudgetBytes,
+				.CleanupDeleteLimit = StaticMeshDerivedDataCleanupDeleteLimit}; }
+			auto Validate(const FBuildDefinition&, const FBuildValue& Value, std::string& Error) const -> bool override
+			{ std::unique_ptr<FStaticMeshRenderData> Data; return DecodeRenderData(Value, Data, Error); }
+			auto Build(const FBuildContext& Context, FBuildValue& Value, std::string& Error) const -> bool override
+			{
+				const FBuildValue* Input = Context.GetInput(StaticMeshInputName);
+				if (!Input) { Error = "StaticMesh build input is missing."; return false; }
+				Value = FBuildValue::FromOwned(std::string(StaticMeshValueName),
+					std::vector<uint8>(Input->GetBytes().begin(), Input->GetBytes().end()));
+				return true;
+			}
+		};
+
+		class FStaticMeshCollisionBuildFunction final : public IBuildFunction
+		{
+		public:
+			auto GetConfig() const -> FBuildFunctionConfig override { return {
+				.CacheRoot = "StaticMeshCollision/Objects", .ExpectedValueName = std::string(CollisionValueName),
+				.MaximumValueBytes = MaximumStaticMeshCollisionPayloadBytes}; }
+			auto Validate(const FBuildDefinition& Definition, const FBuildValue& Value, std::string& Error) const -> bool override
+			{
+				const auto ModeFact = Definition.GetTargetFact("Mode");
+				const auto PolicyFact = Definition.GetTargetFact("Policy");
+				if (!ModeFact || !PolicyFact) { Error = "StaticMesh collision target facts are missing."; return false; }
+				FCollisionGeometryRef Geometry;
+				return DecodeCollisionValue(Value,
+					static_cast<EBodySetupCollisionSourceMode>(std::stoul(std::string(*ModeFact))),
+					static_cast<EBodySetupCollisionQueryPolicy>(std::stoul(std::string(*PolicyFact))), Geometry, Error);
+			}
+			auto Build(const FBuildContext& Context, FBuildValue& Value, std::string& Error) const -> bool override
+			{
+				const FBuildValue* Input = Context.GetInput(CollisionInputName);
+				std::vector<FVector3> Positions; std::vector<uint32> Indices;
+				EBodySetupCollisionSourceMode Mode; EBodySetupCollisionQueryPolicy Policy;
+				if (!Input || !DecodeCollisionInput(Input->GetBytes(), Positions, Indices, Mode, Policy, Error)) return false;
+				FCollisionGeometryBuildDiagnostics Facts;
+				FCollisionGeometryRef Geometry = Mode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0
+					? FCollisionGeometryRef::BuildConvexHull(Positions, &Facts)
+					: FCollisionGeometryRef::BuildTriangleMesh(Positions, Indices, &Facts);
+				if (!Geometry) { Error = std::format("StaticMesh collision build failed with status {}.", static_cast<uint32>(Facts.Status)); return false; }
+				FStaticMeshCollisionPayloadData Payload;
+				if (!MakeStaticMeshCollisionPayloadData(Geometry, Policy, Payload, Error)) return false;
+				std::vector<uint8> Bytes;
+				FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataPayload);
+				Payload.Serialize(Ar, EStaticMeshTargetPlatform::Win64);
+				if (Ar.HasError()) { Error = Ar.GetError(); return false; }
+				Value = FBuildValue::FromOwned(std::string(CollisionValueName), std::move(Bytes));
+				return true;
+			}
+		};
+		std::mutex GStaticMeshFunctionMutex;
+		FBuildFunctionRegistration GStaticMeshFunctionRegistration;
+		FBuildFunctionRegistration GStaticMeshCollisionFunctionRegistration;
+
+		auto EnsureStaticMeshBuildFunctions(std::string* OutError,
+			FModuleOwnedCallbackGate Gate = {}) -> bool
+		{
+			std::lock_guard Lock(GStaticMeshFunctionMutex);
+			if (GStaticMeshFunctionRegistration.IsValid()
+				&& GStaticMeshCollisionFunctionRegistration.IsValid()) return true;
+			GStaticMeshFunctionRegistration = RegisterBuildFunction(StaticMeshFunctionIdentity,
+				std::make_shared<FStaticMeshBuildFunction>(), Gate, OutError);
+			if (!GStaticMeshFunctionRegistration.IsValid()) return false;
+			GStaticMeshCollisionFunctionRegistration = RegisterBuildFunction(
+				StaticMeshCollisionFunctionIdentity,
+				std::make_shared<FStaticMeshCollisionBuildFunction>(), std::move(Gate), OutError);
+			if (!GStaticMeshCollisionFunctionRegistration.IsValid())
+			{
+				GStaticMeshFunctionRegistration.Reset();
+				return false;
+			}
 			return true;
 		}
 
@@ -542,6 +697,19 @@ namespace Durin::Asset::Build
 
 	}
 
+	auto InitializeStaticMeshBuildFunctions(FModuleOwnedCallbackGate Gate,
+		std::string* OutError) -> bool
+	{
+		return EnsureStaticMeshBuildFunctions(OutError, std::move(Gate));
+	}
+
+	auto ShutdownStaticMeshBuildFunctions() -> void
+	{
+		std::lock_guard Lock(GStaticMeshFunctionMutex);
+		GStaticMeshCollisionFunctionRegistration.Reset();
+		GStaticMeshFunctionRegistration.Reset();
+	}
+
 	auto FStaticMeshBuildOperations::CaptureReconciliationSnapshot(
 		const DStaticMesh& Mesh) -> FStaticMeshReconciliationSnapshot
 	{
@@ -579,6 +747,7 @@ namespace Durin::Asset::Build
 		std::string& OutError) -> bool
 	{
 		OutProduct = {};
+		if (!EnsureStaticMeshBuildFunctions(&OutError)) return false;
 		if (!SourceImportData.HasSource()
 			|| !IsCanonicalHash(SourceImportData.SourceContentHash)
 			|| SourceImportData.ImporterId.empty()
@@ -620,11 +789,43 @@ namespace Durin::Asset::Build
 			Product.FailureStage = EStaticMeshAuthoringFailureStage::Key;
 			return false;
 		}
-		if (!StoreProduct(Product.DerivedDataKey, *Product.RenderData, OutError))
+		FBuildValue CandidateValue;
+		if (!EncodeRenderData(*Product.RenderData, CandidateValue, OutError))
 		{
 			Product.FailureStage = EStaticMeshAuthoringFailureStage::DerivedDataWrite;
 			return false;
 		}
+		const std::vector<uint8> KeyBytes = BuildStaticMeshDerivedDataKeyBytes(KeyInput, OutError);
+		FBuildDefinition Definition;
+		FBuildDefinitionBuilder Builder(StaticMeshFunctionIdentity, std::string(StaticMeshValueName));
+		Builder.SetKey(FBuildKey::FromString(Product.DerivedDataKey), KeyBytes)
+			.AddTargetFact("Platform", "Win64")
+			.AddInput(FBuildValue::FromOwned(std::string(StaticMeshInputName),
+				std::vector<uint8>(CandidateValue.GetBytes().begin(), CandidateValue.GetBytes().end())));
+		if (!Builder.Build(Definition, &OutError))
+		{
+			Product.FailureStage = EStaticMeshAuthoringFailureStage::Key;
+			return false;
+		}
+		const FBuildOutput Output = FBuildSession().Build(Definition, {
+			.bQueryCache = true, .bAllowLocalBuild = true,
+			.bStoreBuildResult = true, .bRequireStoreSuccess = true});
+		if (!Output.Succeeded())
+		{
+			Product.FailureStage = Output.FailurePhase == EBuildFailurePhase::CacheStore
+				? EStaticMeshAuthoringFailureStage::DerivedDataWrite
+				: EStaticMeshAuthoringFailureStage::RenderConversion;
+			OutError = Output.Diagnostic;
+			return false;
+		}
+		std::unique_ptr<FStaticMeshRenderData> SelectedRenderData;
+		if (!DecodeRenderData(Output.Value, SelectedRenderData, OutError)
+			|| !RestoreRuntimeMetadata(Product.MaterialSlots, *SelectedRenderData, OutError))
+		{
+			Product.FailureStage = EStaticMeshAuthoringFailureStage::RenderConversion;
+			return false;
+		}
+		Product.RenderData = std::move(SelectedRenderData);
 
 		Product.SourceImportData = std::move(SourceImportData);
 		Product.FailureStage = EStaticMeshAuthoringFailureStage::None;
@@ -650,6 +851,12 @@ namespace Durin::Asset::Build
 		std::string& OutError) -> bool
 	{
 		OutProduct = {};
+		if (!EnsureStaticMeshBuildFunctions(&OutError))
+		{
+			OutStatus = EStaticMeshDerivedDataStatus::Corrupt;
+			OutMessage = OutError;
+			return false;
+		}
 		const FStaticMeshBuildKeyInput KeyInput{
 			.SourceContentHash = FXxHash128::FromString(
 				SourceImportData.SourceContentHash),
@@ -664,31 +871,28 @@ namespace Durin::Asset::Build
 			OutMessage = OutError;
 			return false;
 		}
-		const FBuildCacheQueryResult Read = FBuildCacheClient(GetObjectStore()).Query(
-			Key, "StaticMeshPayload", {});
-		if (Read.Status != EBuildCacheQueryStatus::Hit)
+		FBuildDefinition Definition;
+		FBuildDefinitionBuilder Builder(StaticMeshFunctionIdentity, std::string(StaticMeshValueName));
+		Builder.SetKey(FBuildKey::FromString(Key)).AddTargetFact("Platform", "Win64");
+		if (!Builder.Build(Definition, &OutError))
 		{
-			OutStatus = Read.Status == EBuildCacheQueryStatus::Missing
-				? EStaticMeshDerivedDataStatus::Missing
-				: EStaticMeshDerivedDataStatus::Corrupt;
-			OutMessage = Read.Diagnostic;
-			OutError = Read.Diagnostic;
+			OutStatus = EStaticMeshDerivedDataStatus::Incompatible;
+			OutMessage = OutError;
 			return false;
 		}
-		FStaticMeshPayloadData Payload;
-		FCanonicalMemoryReader Ar(Read.Value.GetBytes(), EArchivePurpose::DerivedDataPayload);
-		Payload.Serialize(Ar, EStaticMeshTargetPlatform::Win64);
-		if (Ar.HasError())
+		const FBuildOutput Output = FBuildSession().Build(Definition, {
+			.bQueryCache = true, .bAllowLocalBuild = false,
+			.bStoreBuildResult = false, .bReturnData = true});
+		if (!Output.Succeeded())
 		{
-			OutStatus = Ar.GetFailure()->Code == EArchiveFailureCode::UnsupportedVersion
-				? EStaticMeshDerivedDataStatus::Incompatible
-				: EStaticMeshDerivedDataStatus::Corrupt;
-			OutMessage = Ar.GetFailure()->Message;
+			OutStatus = Output.Status == EBuildStatus::CacheMiss
+				? EStaticMeshDerivedDataStatus::Missing : EStaticMeshDerivedDataStatus::Corrupt;
+			OutMessage = Output.Diagnostic;
 			OutError = OutMessage;
 			return false;
 		}
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
-		if (!MakeStaticMeshRenderData(Payload, RenderData, OutError)
+		if (!DecodeRenderData(Output.Value, RenderData, OutError)
 			|| !RestoreRuntimeMetadata(Reconciliation.MaterialSlots, *RenderData, OutError))
 		{
 			OutStatus = EStaticMeshDerivedDataStatus::Corrupt;
@@ -726,6 +930,7 @@ namespace Durin::Asset::Build
 		std::string& OutError) -> bool
 	{
 		OutProduct = {};
+		if (!EnsureStaticMeshBuildFunctions(&OutError)) return false;
 		if (Mode == EBodySetupCollisionSourceMode::None)
 		{
 			OutError.clear();
@@ -767,71 +972,39 @@ namespace Durin::Asset::Build
 			BuildStaticMeshCollisionDerivedDataKey(KeyInput, OutError);
 		if (OutProduct.DerivedDataKey.empty()) return false;
 
-		const FBuildCacheQueryResult Read = FBuildCacheClient(GetCollisionObjectStore()).Query(
-			OutProduct.DerivedDataKey, "StaticMeshCollisionPayload", {});
-		if (Read.Status == EBuildCacheQueryStatus::Hit)
+		const std::vector<uint8> KeyBytes =
+			BuildStaticMeshCollisionDerivedDataKeyBytes(KeyInput, OutError);
+		FBuildDefinition Definition;
+		FBuildDefinitionBuilder Builder(
+			StaticMeshCollisionFunctionIdentity, std::string(CollisionValueName));
+		Builder.SetKey(FBuildKey::FromString(OutProduct.DerivedDataKey), KeyBytes)
+			.AddTargetFact("Platform", "Win64")
+			.AddTargetFact("Mode", std::to_string(static_cast<uint32>(Mode)))
+			.AddTargetFact("Policy", std::to_string(static_cast<uint32>(Policy)))
+			.AddInput(FBuildValue::FromOwned(std::string(CollisionInputName),
+				EncodeCollisionInput(Positions, Indices, Mode, Policy)));
+		if (!Builder.Build(Definition, &OutError)) return false;
+		const FBuildOutput Output = FBuildSession().Build(Definition, {
+			.bQueryCache = true, .bAllowLocalBuild = true,
+			.bStoreBuildResult = true, .bRequireStoreSuccess = true});
+		if (!Output.Succeeded())
 		{
-			FStaticMeshCollisionPayloadData Payload;
-			FCanonicalMemoryReader Ar(Read.Value.GetBytes(), EArchivePurpose::DerivedDataPayload);
-			Payload.Serialize(Ar, EStaticMeshTargetPlatform::Win64);
-			FCollisionGeometryRef Geometry;
-			Payload.QueryPolicy = Policy;
-			if (!Ar.HasError() && Payload.SourceMode == Mode
-				&& MakeStaticMeshCollisionGeometry(Payload, Geometry, OutError))
-			{
-				if (Mode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0)
-					OutProduct.Simple = Geometry;
-				else OutProduct.Complex = Geometry;
-				OutProduct.Status = EBodySetupCollisionBuildStatus::CacheHit;
-				OutProduct.PayloadBytes = Read.Value.GetSize();
-				OutProduct.Diagnostic = std::format(
-					"StaticMesh collision DDC hit for key {}.",
-					OutProduct.DerivedDataKey);
-				OutError.clear();
-				return true;
-			}
-		}
-
-		std::vector<FVector3> BuildPositions;
-		BuildPositions.reserve(Positions.size());
-		for (const FVector3f& Position : Positions)
-			BuildPositions.emplace_back(Position);
-		FCollisionGeometryBuildDiagnostics Facts;
-		FCollisionGeometryRef Geometry =
-			Mode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0
-			? FCollisionGeometryRef::BuildConvexHull(BuildPositions, &Facts)
-			: FCollisionGeometryRef::BuildTriangleMesh(BuildPositions, Indices, &Facts);
-		if (!Geometry)
-		{
-			OutError = std::format(
-				"StaticMesh collision build failed with status {}.",
-				static_cast<uint32>(Facts.Status));
+			OutError = Output.Diagnostic;
 			return false;
 		}
-		FStaticMeshCollisionPayloadData Payload;
-		if (!MakeStaticMeshCollisionPayloadData(Geometry, Policy, Payload, OutError))
-			return false;
-		std::vector<uint8> Bytes;
-		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataPayload);
-		Payload.Serialize(Ar, EStaticMeshTargetPlatform::Win64);
-		if (Ar.HasError())
-		{
-			OutError = Ar.GetFailure()->Message;
-			return false;
-		}
-		if (!FBuildCacheClient(GetCollisionObjectStore()).Store(
-			OutProduct.DerivedDataKey,
-			FBuildValue::FromOwned("StaticMeshCollisionPayload", Bytes),
-			{.bRequireStoreSuccess = true}, &OutError)) return false;
+		FCollisionGeometryRef Geometry;
+		if (!DecodeCollisionValue(Output.Value, Mode, Policy, Geometry, OutError)) return false;
 		if (Mode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0)
 			OutProduct.Simple = Geometry;
 		else OutProduct.Complex = Geometry;
-		OutProduct.Status = EBodySetupCollisionBuildStatus::Rebuilt;
-		OutProduct.PayloadBytes = Bytes.size();
-		OutProduct.Diagnostic = std::format(
-			"Rebuilt StaticMesh collision key {} ({} triangles, {} bytes).",
-			OutProduct.DerivedDataKey, Facts.RetainedTriangles,
-			Geometry.GetRetainedBytes());
+		OutProduct.Status = Output.Status == EBuildStatus::CacheHit
+			? EBodySetupCollisionBuildStatus::CacheHit
+			: EBodySetupCollisionBuildStatus::Rebuilt;
+		OutProduct.PayloadBytes = Output.Value.GetSize();
+		OutProduct.Diagnostic = Output.Status == EBuildStatus::CacheHit
+			? std::format("StaticMesh collision DDC hit for key {}.", OutProduct.DerivedDataKey)
+			: std::format("Rebuilt StaticMesh collision key {} ({} bytes).",
+				OutProduct.DerivedDataKey, Geometry.GetRetainedBytes());
 		OutError.clear();
 		return true;
 	}

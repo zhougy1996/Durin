@@ -56,7 +56,7 @@ physical root communicates ownership but does not select them for a target.
 
 | Module | Primary responsibility | Source root |
 | --- | --- | --- |
-| `AssetBuildCore` | Family-neutral immutable cache values/policy, opaque DDC access, service contributions, and authoring-host lifecycle | [source](../../Engine/Source/Developer/AssetBuildCore) |
+| `AssetBuildCore` | Family-neutral immutable build definitions/values/policy, synchronous local build sessions, opaque DDC access, function/service registrations, and authoring-host lifecycle | [source](../../Engine/Source/Developer/AssetBuildCore) |
 | `TextureBuild` | Texture2D/TextureCube recipes, private offline compression, diagnostics, and asynchronous coordination | [source](../../Engine/Source/Developer/TextureBuild) |
 | `GeometryBuild` | StaticMesh/collision, skeletal/animation, and terrain recipes, keys, DDC policy, diagnostics, and Runtime registration adapters | [source](../../Engine/Source/Developer/GeometryBuild) |
 
@@ -78,6 +78,7 @@ gameplay module to [`Sandbox/Source/Runtime/Sandbox`](../../Sandbox/Source/Runti
 | editor workspace, reflected details, thumbnail service | `DurinEd` | The owning feature editor or `LevelEditor` |
 | Content Browser | `LevelEditor`, `DurinEd`, `AssetCore` | Asset-type editor/import modules for extensions |
 | importing assets | `AssetImportCore`, `StandardAssetImport` | `AssetBuildCore` for generic mechanics, `TextureBuild` or `GeometryBuild` for typed recipes, plus `AssetCore` and the destination runtime asset type |
+| local StaticMesh or Texture2D DDC request flow | `AssetBuildCore` | `GeometryBuild` or `TextureBuild` for function inputs, recipe execution, payload validation, and typed result reconstruction |
 
 Engine public headers are a repository-owned module contract rather than an
 installed external SDK. They must include what they use and resolve through

@@ -1,4 +1,5 @@
 #include "AssetBuild/BuildHost.h"
+#include "AssetBuild/BuildFunction.h"
 #include "Modules/ModuleManager.h"
 #include "Skeletal/SkeletalBuildOperations.h"
 #include "SkeletalMesh/SkeletalAssetPostLoad.h"
@@ -7,6 +8,13 @@
 
 namespace Durin
 {
+	namespace Asset::Build
+	{
+		GEOMETRYBUILD_API auto InitializeStaticMeshBuildFunctions(
+			FModuleOwnedCallbackGate Gate, std::string* OutError = nullptr) -> bool;
+		GEOMETRYBUILD_API auto ShutdownStaticMeshBuildFunctions() -> void;
+	}
+
 	class FGeometryBuildModule final
 		: public IModuleInterface
 		, public IStaticMeshCollisionBuildFeature
@@ -53,11 +61,15 @@ namespace Durin
 		auto StartupModule() -> void override
 		{
 			std::string Error;
+			BuildHostCallbackRegistration =
+				FModuleStartup::CreateOwnedCallbackRegistration("AssetBuildCore.BuildHost");
+			checkf(Asset::Build::InitializeStaticMeshBuildFunctions(
+				BuildHostCallbackRegistration.GetGate(), &Error),
+				"GeometryBuild could not register StaticMesh build functions: {}", Error);
 			auto Registration = Asset::Build::RegisterBuildServiceContribution({
 				.Identity = "Durin.GeometryBuild.Recipes",
 				.DrainOrder = 50,
-				.OwnerGate = (BuildHostCallbackRegistration =
-					FModuleStartup::CreateOwnedCallbackRegistration("AssetBuildCore.BuildHost")).GetGate(),
+				.OwnerGate = BuildHostCallbackRegistration.GetGate(),
 				.Start = [] { return true; },
 				.StopAdmission = [] {},
 				.PumpCompletions = [](uint32) { return 0; },
@@ -79,6 +91,7 @@ namespace Durin
 		auto ShutdownModule() -> void override
 		{
 			delete std::exchange(ServiceRegistration, nullptr);
+			Asset::Build::ShutdownStaticMeshBuildFunctions();
 		}
 	};
 

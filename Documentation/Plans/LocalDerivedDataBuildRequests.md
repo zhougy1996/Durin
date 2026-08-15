@@ -4,26 +4,33 @@ Summary: Add a production-used local derived-data Build request model and migrat
 
 Last reviewed: 2026-08-16
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-16
 
 ## Current Status
 
-The path is selected and implementation has not started. AssetBuildCore already
-owns immutable named cache values, explicit cache policy, opaque DDC access,
-and the authoring build-host lifecycle. GeometryBuild and TextureBuild already
-own canonical key inputs, deterministic payload codecs, detached worker data,
-and module-safe asynchronous services.
+Implementation and validation are complete. AssetBuildCore now owns immutable
+definitions, validated keys, structured policy/output, request-scoped
+cancellation, module-aware function registration, and the synchronous
+query/validate/build/validate/store/cleanup session. The deleted speculative
+registry/request-owner headers were not restored.
 
-The previously removed Build definition, local function registry, and request
-owner are historical input, not a restoration target. That implementation had
-no production consumer and dispatched a callback without owning the required
-cache-query, output-validation, local-build, or cache-store sequence. This plan
-introduces a smaller synchronous local session around real StaticMesh and
-Texture2D consumers from its first production stage.
+GeometryBuild registers StaticMesh render and collision functions and routes
+their production DDC operations through `FBuildSession`. TextureBuild registers
+the Texture2D function; direct builds, authored cache-only loads, and the
+existing authoring coordinator all use the same synchronous request path. The
+existing DMSH, collision, and TXPL key builders, roots, value names, encoded
+bytes, Cook formats, publication boundaries, and worker ownership remain
+unchanged. Direct linked test/application calls can lazily establish a
+process-resident local registration when module startup is intentionally absent;
+normal module startup supplies the module callback gate and shutdown resets the
+registration.
 
-Stage 0 is next. It freezes the exact keys, payload bytes, call sites, and
-failure behavior that the two migrations must preserve.
+Validation passed on 2026-08-16: AssetBuildCoreTests (7/7), TextureTests (66
+passed, 2 environment-gated skips), StaticMeshTests (68/68), AssetImportTests
+(17/17), a focused SceneImport regression, default `all` build, complete native
+aggregate, hidden-window editor startup/shutdown smoke, repository searches,
+and all documentation/plan/roadmap validators.
 
 ## Goal
 
@@ -142,9 +149,12 @@ existing responsibilities.
 - Registry state is private to AssetBuildCore. Public code can register a
   function and create/use a session, but cannot obtain or mutate a registry
   singleton.
-- Registration requires a canonical unique identity and a valid
+- Module-managed registration requires a canonical unique identity and a valid
   `FModuleOwnedCallbackGate`. Execution retains a module resource lease and
-  enters the owner gate before calling the function.
+  enters the owner gate before calling the function. Direct-linked test or tool
+  processes that intentionally omit module startup may establish the same
+  process-resident local registration without a gate; the owning module's
+  shutdown hook resets it when module lifecycle is active.
 - The registry lock protects lookup and generation changes only. Asset code,
   cache I/O, validation, build work, diagnostics, and registration destruction
   never run while that lock is held.
@@ -234,20 +244,20 @@ but callers do not infer status from diagnostic strings.
 
 Dependencies: None.
 
-- [ ] Inventory every StaticMesh render/collision and Texture2D call site that
+- [x] Inventory every StaticMesh render/collision and Texture2D call site that
   computes a key, queries DDC, builds bytes, validates bytes, stores bytes,
   performs cleanup, reports metrics, handles cancellation, or publishes typed
   state.
-- [ ] Record golden canonical key-input bytes, key strings, value names, DDC
+- [x] Record golden canonical key-input bytes, key strings, value names, DDC
   roots, maximum sizes, builder/schema versions, and representative encoded
   payload hashes for StaticMesh render data, StaticMesh collision, and
   Texture2D.
-- [ ] Characterize cold build, warm hit, query-only miss, corrupt/incompatible
+- [x] Characterize cold build, warm hit, query-only miss, corrupt/incompatible
   hit, disabled query, disabled build, required/best-effort store failure,
   cancellation, module retirement, and source-unavailable authored load.
-- [ ] Freeze the exact new header/type names and confirm they do not conflict
+- [x] Freeze the exact new header/type names and confirm they do not conflict
   with active production or completed-plan references.
-- [ ] Identify the GeometryBuild and TextureBuild module startup owners that
+- [x] Identify the GeometryBuild and TextureBuild module startup owners that
   will retain registrations and the existing worker boundaries that will call
   synchronous sessions.
 
@@ -262,23 +272,23 @@ Dependencies: None.
 
 Dependencies: Stage 0 complete.
 
-- [ ] Add `FBuildKey`, `FBuildFunctionIdentity`, `FBuildDefinition`,
+- [x] Add `FBuildKey`, `FBuildFunctionIdentity`, `FBuildDefinition`,
   `FBuildDefinitionBuilder`, `FBuildPolicy`, `FBuildOutput`, structured status
   and failure phase, and request-scoped cancellation vocabulary.
-- [ ] Add `FBuildContext`, `IBuildFunction`, move-only
+- [x] Add `FBuildContext`, `IBuildFunction`, move-only
   `FBuildFunctionRegistration`, and private module-safe function-registry
   storage without restoring the deleted registry header or public getter.
-- [ ] Add synchronous `FBuildSession::Build` with the ordered
+- [x] Add synchronous `FBuildSession::Build` with the ordered
   validate/query/validate-hit/build/validate-output/store/cleanup state machine.
-- [ ] Route cache access through existing `FBuildCacheClient`; extend its
+- [x] Route cache access through existing `FBuildCacheClient`; extend its
   family-neutral status/value surface only where the session requires facts
   currently lost by the client.
-- [ ] Add focused tests for definition immutability and key agreement, duplicate
+- [x] Add focused tests for definition immutability and key agreement, duplicate
   inputs and registrations, query-only requests, valid hits, corrupt hits,
   local miss builds, output validation, policy enforcement, required and
   best-effort stores, cancellation checkpoints, exception containment,
   reentrant diagnostics, and owner retirement during an active call.
-- [ ] Prove that no registry/cache lock is held across family code or terminal
+- [x] Prove that no registry/cache lock is held across family code or terminal
   module teardown and that session destruction requires no drain.
 
 #### Acceptance Gate
@@ -295,21 +305,21 @@ Dependencies: Stage 0 complete.
 
 Dependencies: Stage 1 complete.
 
-- [ ] Add canonical local execution-input codecs and registered GeometryBuild
+- [x] Add canonical local execution-input codecs and registered GeometryBuild
   functions for StaticMesh render data and StaticMesh collision without
   placing Engine objects or source paths in definitions.
-- [ ] Adapt `BuildImportedProduct` and `LoadDerivedDataProduct` to construct
+- [x] Adapt `BuildImportedProduct` and `LoadDerivedDataProduct` to construct
   definitions and consume structured session outputs; preserve material-slot
   restoration, source-availability diagnostics, package-dirty behavior, and
   detached publication.
-- [ ] Adapt `BuildCollisionProduct` so cache hit, corruption rebuild, local
+- [x] Adapt `BuildCollisionProduct` so cache hit, corruption rebuild, local
   collision construction, validation, required store, byte metrics, and
   diagnostics run through the same session state machine.
-- [ ] Remove migrated manual `FBuildCacheClient` query/store sequencing and
+- [x] Remove migrated manual `FBuildCacheClient` query/store sequencing and
   private store helpers from StaticMesh operations while retaining the exact
   roots, budgets, cleanup limits, keys, and encoded bytes through function
   configuration.
-- [ ] Extend StaticMesh tests for session origin/failure mapping, repeated
+- [x] Extend StaticMesh tests for session origin/failure mapping, repeated
   imports using a warm hit, corrupt-cache rebuild, write failure without partial
   publication, source-unavailable cache-only load, cancellation where
   applicable, and GeometryBuild registration retirement.
@@ -328,23 +338,23 @@ Dependencies: Stage 1 complete.
 Dependencies: Stage 1 complete; Stage 2 provides the first cross-module
 production qualification of the foundation.
 
-- [ ] Add canonical normalized Texture2D local input encoding and a registered
+- [x] Add canonical normalized Texture2D local input encoding and a registered
   TextureBuild function that owns mip generation, compression, TXPL encoding,
   and opaque output validation.
-- [ ] Adapt direct Texture2D builds/imports to construct definitions and decode
+- [x] Adapt direct Texture2D builds/imports to construct definitions and decode
   session outputs into `FTexture2DBuildProduct` while source translation and
   asset publication remain outside the function.
-- [ ] Route `LoadTexture2DDerivedData` through a cache-only session request and
+- [x] Route `LoadTexture2DDerivedData` through a cache-only session request and
   preserve missing, incompatible, corrupt, and source-fallback diagnostics.
-- [ ] Adapt `FTexture2DAuthoringCoordinator` to call the synchronous session
+- [x] Adapt `FTexture2DAuthoringCoordinator` to call the synchronous session
   from its existing admitted worker, map session status to current phases, and
   preserve cancellation, supersession, metrics, memory accounting, completion
   pumping, and main-thread publication.
-- [ ] Remove direct `FDerivedDataObjectStore` reads/writes and manual persistence
+- [x] Remove direct `FDerivedDataObjectStore` reads/writes and manual persistence
   callbacks from migrated Texture2D operations; configure the existing root,
   maximum value size, budget, and cleanup limit through the function/session
   boundary.
-- [ ] Extend Texture2D tests for cold/warm requests, cache-hit build avoidance,
+- [x] Extend Texture2D tests for cold/warm requests, cache-hit build avoidance,
   deterministic keys and TXPL bytes, corrupt-cache rebuild, query-only misses,
   required/best-effort write failure, cancellation before build/during recipe/
   before store, supersession, module retirement, and unchanged publication.
@@ -362,24 +372,24 @@ production qualification of the foundation.
 
 Dependencies: Stages 2 and 3 complete.
 
-- [ ] Search production source and tests for the deleted executor names and for
+- [x] Search production source and tests for the deleted executor names and for
   manual StaticMesh/Texture2D DDC sequencing that should have been removed;
   distinguish intentional deferred-family cache access.
-- [ ] Confirm GeometryBuild and TextureBuild registration startup, duplicate
+- [x] Confirm GeometryBuild and TextureBuild registration startup, duplicate
   rejection, shutdown admission closure, active-call drain, reload, and final
   capture destruction under the existing module lifecycle contract.
-- [ ] Measure cold build, warm hit, and cache-only load behavior sufficiently to
+- [x] Measure cold build, warm hit, and cache-only load behavior sufficiently to
   detect duplicate recipe execution, redundant payload copies, or a warm-path
   regression introduced by the session.
-- [ ] Update Asset Data Lifecycle and Code Modules with the implemented local
+- [x] Update Asset Data Lifecycle and Code Modules with the implemented local
   Build boundary, migrated families, deferred families, ownership, thread, and
   failure contracts; remove the lasting statement that AssetBuildCore has no
   generic executor only after production migration is complete.
-- [ ] Run focused AssetBuildCore, StaticMesh, Texture2D, import, Cook, and module
+- [x] Run focused AssetBuildCore, StaticMesh, Texture2D, import, Cook, and module
   lifecycle targets, then the default `all` build and complete native aggregate
   because AssetBuildCore is shared infrastructure. Run the hidden-window editor
   smoke to qualify module startup/shutdown and authored asset services.
-- [ ] Run changed-document, all-document, all-plan, and all-roadmap validation;
+- [x] Run changed-document, all-document, all-plan, and all-roadmap validation;
   record evidence, complete the plan, and leave broader asset-family migration
   as explicit follow-up work.
 
