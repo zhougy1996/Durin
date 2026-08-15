@@ -696,15 +696,15 @@ namespace Durin
 		EXPECT_FLOAT_EQ(Facing.RasterConstant, 1.25f);
 		EXPECT_FLOAT_EQ(Facing.RasterSlope, 1.375f);
 		EXPECT_FLOAT_EQ(Facing.RasterClamp, 3.0f);
-		EXPECT_FLOAT_EQ(Facing.ReceiverWorld, 0.00625f);
-		EXPECT_FLOAT_EQ(Facing.NormalWorld, 0.00625f);
+		EXPECT_FLOAT_EQ(Facing.ReceiverWorld, 0.0f);
+		EXPECT_FLOAT_EQ(Facing.NormalWorld, 0.0f);
 		EXPECT_FALSE(Facing.bUsedFallback);
 		EXPECT_FALSE(Facing.bTotalClamped);
 
 		const FDirectionalShadowBias Grazing =
 			CalculateDirectionalShadowBias({0.125, 0.0625}, 0.0);
-		EXPECT_FLOAT_EQ(Grazing.ReceiverWorld, 0.01875f);
-		EXPECT_FLOAT_EQ(Grazing.NormalWorld, 0.06f);
+		EXPECT_FLOAT_EQ(Grazing.ReceiverWorld, 0.0f);
+		EXPECT_FLOAT_EQ(Grazing.NormalWorld, 0.0f);
 		EXPECT_FALSE(Grazing.bTotalClamped);
 		EXPECT_LE(Grazing.ReceiverWorld + Grazing.NormalWorld, 0.08f);
 
@@ -713,8 +713,8 @@ namespace Durin
 		EXPECT_FLOAT_EQ(Maximum.RasterConstant, 1.5f);
 		EXPECT_FLOAT_EQ(Maximum.RasterSlope, 1.5f);
 		EXPECT_FLOAT_EQ(Maximum.RasterClamp, 4.0f);
-		EXPECT_FLOAT_EQ(Maximum.ReceiverWorld, 0.02f);
-		EXPECT_FLOAT_EQ(Maximum.NormalWorld, 0.06f);
+		EXPECT_FLOAT_EQ(Maximum.ReceiverWorld, 0.0f);
+		EXPECT_FLOAT_EQ(Maximum.NormalWorld, 0.0f);
 		EXPECT_FALSE(Maximum.bTotalClamped);
 
 		const FDirectionalShadowBias Invalid = CalculateDirectionalShadowBias(
@@ -744,7 +744,7 @@ namespace Durin
 				EXPECT_LE(Bias.RasterSlope, 2.0f);
 				EXPECT_GE(Bias.RasterClamp, 2.0f);
 				EXPECT_LE(Bias.RasterClamp, 4.0f);
-				EXPECT_GE(Bias.ReceiverWorld, 0.0005f);
+				EXPECT_GE(Bias.ReceiverWorld, 0.0f);
 				EXPECT_LE(Bias.ReceiverWorld,
 					DirectionalShadowMaximumReceiverWorldBias);
 				EXPECT_GE(Bias.NormalWorld, 0.0f);

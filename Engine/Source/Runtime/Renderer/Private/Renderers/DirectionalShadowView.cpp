@@ -46,28 +46,14 @@ namespace Durin
 			Result.bUsedFallback = true;
 			return Result;
 		}
-		const double Grazing = 1.0 - std::clamp(std::abs(SurfaceLightCosine), 0.0, 1.0);
 		Result.RasterConstant = static_cast<float>(
 			std::clamp(1.0 + 2.0 * Texel, 1.0, 1.5));
 		Result.RasterSlope = static_cast<float>(
 			std::clamp(1.25 + Texel, 1.25, 2.0));
 		Result.RasterClamp = static_cast<float>(
 			std::clamp(2.0 + 8.0 * Texel, 2.0, 4.0));
-		Result.ReceiverWorld = static_cast<float>(std::clamp(
-			Texel * (0.05 + 0.10 * Grazing), 0.0005,
-			static_cast<double>(DirectionalShadowMaximumReceiverWorldBias)));
-		Result.NormalWorld = static_cast<float>(std::clamp(
-			Texel * (0.05 + 0.70 * Grazing), 0.0,
-			static_cast<double>(DirectionalShadowMaximumNormalOffset)));
-		const float MaximumTotal = static_cast<float>(std::min(
-			0.75 * Texel,
-			static_cast<double>(DirectionalShadowMaximumTotalWorldBias)));
-		if (Result.ReceiverWorld + Result.NormalWorld > MaximumTotal)
-		{
-			Result.NormalWorld = std::max(
-				0.0f, MaximumTotal - Result.ReceiverWorld);
-			Result.bTotalClamped = true;
-		}
+		Result.ReceiverWorld = 0.0f;
+		Result.NormalWorld = 0.0f;
 		Result.NormalizedRasterSeparation = std::clamp(
 			(Result.RasterConstant + Result.RasterSlope) / 8.0f, 0.0f, 1.0f);
 		return Result;

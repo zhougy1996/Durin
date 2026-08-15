@@ -116,35 +116,14 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
         int2(0), int2(int(width) - 1, int(height) - 1));
     float storedDepth = shadowTexture.Load(int4(texel, int(layer), 0));
     bool covered = storedDepth < 0.999999;
-	float normalLengthSquared = dot(geometricNormal, geometricNormal);
-	float lightLengthSquared = dot(lightBounds.xyz, lightBounds.xyz);
-	float texelWorld = max(texelBias.x, texelBias.y);
-	bool biasInputsValid = control.z < 0.5
-		&& all(isfinite(geometricNormal)) && normalLengthSquared > 1.0e-8
-		&& all(isfinite(lightBounds.xyz)) && lightLengthSquared > 1.0e-8
-		&& all(isfinite(texelBias.xy)) && texelWorld > 0.0;
-	float3 normal = biasInputsValid
-		? geometricNormal * rsqrt(normalLengthSquared) : float3(0.0, 0.0, 1.0);
-	float3 toLight = biasInputsValid
-		? -lightBounds.xyz * rsqrt(lightLengthSquared) : float3(0.0, 0.0, 1.0);
-	float grazing = biasInputsValid
-		? 1.0 - saturate(abs(dot(normal, toLight))) : 0.0;
-	float receiverWorld = biasInputsValid
-		? clamp(texelWorld * (0.05 + 0.10 * grazing), 0.0005, 0.02) : 0.0;
-	float normalWorld = biasInputsValid
-		? clamp(texelWorld * (0.05 + 0.70 * grazing), 0.0, 0.06) : 0.0;
-	float maximumTotal = min(0.75 * texelWorld, 0.08);
-	bool totalClamped = biasInputsValid
-		&& receiverWorld + normalWorld > maximumTotal;
-	if (totalClamped)
-		normalWorld = max(0.0, maximumTotal - receiverWorld);
-	float3 receiverCoordinate = biasInputsValid
-		? ProjectShadow(worldPosition + toLight * receiverWorld, worldToShadow)
-		: coordinate - float3(0.0, 0.0, 0.0005);
-	float3 finalCoordinate = biasInputsValid
-		? ProjectShadow(worldPosition + toLight * receiverWorld
-			+ normal * normalWorld, worldToShadow)
-		: receiverCoordinate;
+	// control.z stores the active cascade count. Receiver-world and
+	// receiver-normal displacement stay disabled until they qualify as
+	// independent policies; preserve the frozen normalized-depth comparison.
+	float receiverWorld = 0.0;
+	float normalWorld = 0.0;
+	bool totalClamped = false;
+	float3 receiverCoordinate = coordinate - float3(0.0, 0.0, 0.0005);
+	float3 finalCoordinate = receiverCoordinate;
 	float validTapWeight = 0.0;
 	float finalComparison = SampleDirectionalShadowKernel(
 		finalCoordinate, filter, validRegion, layer,
@@ -200,8 +179,7 @@ FDirectionalShadowSample EvaluateDirectionalShadowCascade(
     }
     else if (mode == 6u)
 		result.diagnosticColor = totalClamped ? float3(1.0)
-			: float3(saturate(rasterBias.w),
-				saturate(receiverWorld / 0.02), saturate(normalWorld / 0.06));
+			: float3(saturate(rasterBias.w), 0.0, 0.0);
 	else if (mode == 7u)
 	{
 		bool displaced = IsValidShadowCoordinate(finalCoordinate)

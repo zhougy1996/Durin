@@ -103,15 +103,12 @@ C++ size/offset assertions and Slang compilation/reflection tests own this
 packing.
 
 One shared Slang helper consumes production world position and the geometric
-normal; the mapped shading normal remains exclusive to BRDF evaluation. With
-normalized surface-to-light direction `l` and
-`g = 1-saturate(abs(dot(n,l)))`, it computes receiver world bias
-`R=clamp(t*(0.05+0.10g),0.0005,0.02)` and normal offset
-`N=clamp(t*(0.05+0.70g),0,0.06)`. `R+N` is limited to
-`min(0.75t,0.08)`, reducing `N` first. The helper transforms `p+lR+nN` through
-the selected world-to-shadow matrix, preserving forward-depth `LessOrEqual`.
-Non-finite bias input uses the old normalized-depth `0.0005` comparison with
-no normal offset; invalid or outside projection remains fully lit. Only the
+normal; the mapped shading normal remains exclusive to BRDF evaluation.
+Receiver-world and receiver-normal displacement are explicitly disabled
+(`R=0`, `N=0`) while each policy is qualified independently against contact
+and motion gates. The helper preserves the frozen normalized-depth `0.0005`
+comparison with forward-depth `LessOrEqual`; invalid or outside projection
+remains fully lit. Only the
 selected directional direct-light term is attenuated. Local lights,
 environment/ambient, emissive, rim assistance, and Unlit output are unchanged.
 
