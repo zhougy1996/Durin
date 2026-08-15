@@ -72,6 +72,10 @@ namespace Durin
 		size_t AttemptedDraws = 0;
 		size_t SuccessfulDraws = 0;
 		size_t RejectedDraws = 0;
+		size_t GBufferAttemptedDraws = 0;
+		size_t GBufferSuccessfulDraws = 0;
+		size_t GBufferRejectedDraws = 0;
+		size_t GBufferSkippedDraws = 0;
 		size_t RequestedPaletteUploads = 0;
 		size_t UploadedPalettes = 0;
 		size_t ReusedPalettes = 0;

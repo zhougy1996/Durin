@@ -4,6 +4,7 @@
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "Renderers/ViewPreparationMath.h"
 #include "Renderers/DirectionalShadowView.h"
+#include "Renderers/GBufferRenderer.h"
 
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "RendererResourceSlotCache.h"
@@ -203,6 +204,74 @@ namespace Durin
 			FVector4f UVRotations0{0.0f};
 			FVector4f UVRotations1{0.0f};
 		};
+
+		auto MakeStaticMeshMaterialUniform(
+			const FMaterialRenderV3Binding& Binding,
+			bool bLit) -> FStaticMeshMaterialUniform
+		{
+			FStaticMeshMaterialUniform Result;
+			Result.BaseColor = Binding.BaseColor;
+			Result.EmissiveMetallic = FVector4f(
+				Binding.Emissive, Binding.Metallic);
+			Result.NormalRoughness = FVector4f(
+				Binding.Normal, Binding.Roughness);
+			Result.SurfaceParams = FVector4f(
+				Binding.AmbientOcclusion, Binding.OpacityMask,
+				bLit ? 1.0f : 0.0f, 0.0f);
+			for (size_t Role = 0; Role < Binding.Textures.size(); ++Role)
+			{
+				Result.UVTransforms[Role] = FVector4f(
+					Binding.UVScales[Role].x,
+					Binding.UVScales[Role].y,
+					Binding.UVOffsets[Role].x,
+					Binding.UVOffsets[Role].y);
+			}
+			Result.UVChannels0 = FVector4f(
+				Binding.UVChannels[0], Binding.UVChannels[1],
+				Binding.UVChannels[2], Binding.UVChannels[3]);
+			Result.UVChannels1 = FVector4f(
+				Binding.UVChannels[4], Binding.UVChannels[5],
+				Binding.UVChannels[6], Binding.UVChannels[7]);
+			Result.UVRotations0 = FVector4f(
+				Binding.UVRotations[0], Binding.UVRotations[1],
+				Binding.UVRotations[2], Binding.UVRotations[3]);
+			Result.UVRotations1 = FVector4f(
+				Binding.UVRotations[4], Binding.UVRotations[5],
+				Binding.UVRotations[6], Binding.UVRotations[7]);
+			return Result;
+		}
+
+		auto MakeGBufferFragmentParameters(
+			const FMaterialRenderV3Binding& Binding,
+			FDefaultTextureResources& DefaultTextures,
+			const FRHIUniformBufferRange& Material,
+			const std::array<FRHISampler*, 8>& Samplers)
+			-> FGBufferRenderer::FFragmentParameters
+		{
+			FGBufferRenderer::FFragmentParameters Result;
+			Result.Material = Material;
+			const std::array<EDefaultTexture, 8> Fallbacks{
+				EDefaultTexture::White,
+				EDefaultTexture::FlatNormal,
+				EDefaultTexture::White,
+				EDefaultTexture::White,
+				EDefaultTexture::White,
+				EDefaultTexture::Black,
+				EDefaultTexture::White,
+				EDefaultTexture::White};
+			for (size_t Role = 0; Role < Result.Textures.size(); ++Role)
+			{
+				FRHITexture* Texture = Binding.Textures[Role] != nullptr
+					? Binding.Textures[Role]
+						->GetReferencedTexture_RenderThread()
+					: nullptr;
+				Result.Textures[Role] = Texture != nullptr
+					? Texture
+					: DefaultTextures.Get_RenderThread(Fallbacks[Role]);
+				Result.Samplers[Role] = Samplers[Role];
+			}
+			return Result;
+		}
 
 		auto GetMaterialSamplerKey(const FMaterialSamplerState& State) -> size_t
 		{
@@ -1780,6 +1849,155 @@ namespace Durin
 		check(PreparedView.AttemptedDraws == PreparedView.GetNumSections());
 	}
 
+	auto FStaticMeshRenderer::ExecuteGBuffer_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		const FSceneView& View,
+		FGBufferRenderer& GBuffer,
+		FPreparedStaticMeshView& PreparedView) -> void
+	{
+		check(CommandList.IsInsideRenderPass());
+		check(PreparedView.Phase == EPreparedStaticMeshPhase::ResourcesPrepared);
+		auto RecordFamily = [](FPreparedStaticMeshView& Prepared,
+			const FPreparedStaticMeshDraw& Draw, size_t FPreparedStaticMeshView::* Local,
+			size_t FPreparedStaticMeshView::* Spline) {
+			++(Prepared.*(Draw.PipelineKey.VertexDomain
+				== EVertexDeformationDomain::Spline ? Spline : Local));
+		};
+		for (const FPreparedStaticMeshDraw& Draw : PreparedView.Translucent)
+		{
+			++PreparedView.GBufferSkippedDraws;
+			RecordFamily(PreparedView, Draw,
+				&FPreparedStaticMeshView::GBufferLocalSkippedDraws,
+				&FPreparedStaticMeshView::GBufferSplineSkippedDraws);
+		}
+		for (const auto* Bucket : {&PreparedView.Opaque, &PreparedView.Masked})
+		{
+			for (const FPreparedStaticMeshDraw& Draw : *Bucket)
+			{
+				if (Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
+					!= EMaterialShadingModel::Lit)
+				{
+					++PreparedView.GBufferSkippedDraws;
+					RecordFamily(PreparedView, Draw,
+						&FPreparedStaticMeshView::GBufferLocalSkippedDraws,
+						&FPreparedStaticMeshView::GBufferSplineSkippedDraws);
+					continue;
+				}
+				++PreparedView.GBufferAttemptedDraws;
+				RecordFamily(PreparedView, Draw,
+					&FPreparedStaticMeshView::GBufferLocalAttemptedDraws,
+					&FPreparedStaticMeshView::GBufferSplineAttemptedDraws);
+				const FPreparedStaticMeshPrimitive* Primitive =
+					PreparedView.GetPrimitive(Draw);
+				if (Primitive != nullptr && Draw.bResourcesReady
+					&& DrawGBufferSection_RenderThread(
+						CommandList, View, GBuffer, *Primitive, Draw))
+				{
+					++PreparedView.GBufferSuccessfulDraws;
+					RecordFamily(PreparedView, Draw,
+						&FPreparedStaticMeshView::GBufferLocalSuccessfulDraws,
+						&FPreparedStaticMeshView::GBufferSplineSuccessfulDraws);
+				}
+				else
+				{
+					++PreparedView.GBufferRejectedDraws;
+					RecordFamily(PreparedView, Draw,
+						&FPreparedStaticMeshView::GBufferLocalRejectedDraws,
+						&FPreparedStaticMeshView::GBufferSplineRejectedDraws);
+				}
+			}
+		}
+		check(PreparedView.GBufferAttemptedDraws
+			== PreparedView.GBufferSuccessfulDraws
+				+ PreparedView.GBufferRejectedDraws);
+		check(PreparedView.GBufferAttemptedDraws
+			== PreparedView.GBufferLocalAttemptedDraws
+				+ PreparedView.GBufferSplineAttemptedDraws);
+	}
+
+	auto FStaticMeshRenderer::DrawGBufferSection_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		const FSceneView& View,
+		FGBufferRenderer& GBuffer,
+		const FPreparedStaticMeshPrimitive& Primitive,
+		const FPreparedStaticMeshDraw& Item) -> bool
+	{
+		if (Primitive.LOD == nullptr || Primitive.VertexFactory == nullptr
+			|| Item.Section == nullptr)
+		{
+			return false;
+		}
+		FState::FBaseResources* BaseResources =
+			State->BaseResources.GetPayload();
+		if (BaseResources == nullptr) return false;
+		const FLocalVertexFactory& VertexFactory = *Primitive.VertexFactory;
+		const FVertexDeclarationRHIRef VertexDeclaration(
+			VertexFactory.GetDeclaration());
+		FGBufferRenderer::FPipeline* Pipeline =
+			GBuffer.EnsurePipeline_RenderThread({
+				.Material = Item.PipelineKey.Material,
+				.Rasterizer = Item.PipelineKey.Rasterizer,
+				.Depth = Item.PipelineKey.Depth,
+				.VertexDeclaration = VertexDeclaration,
+				.VertexDomain = Primitive.VertexDomain
+					== EVertexDeformationDomain::Spline
+					? EGBufferVertexDomain::Spline
+					: EGBufferVertexDomain::Local});
+		if (Pipeline == nullptr) return false;
+
+		FStaticMeshTransformUniform TransformUniform;
+		TransformUniform.LocalToClip = ToShaderMatrix(
+			View.ViewProjectionMatrix * Primitive.LocalToWorld);
+		TransformUniform.LocalToWorld = ToShaderMatrix(Primitive.LocalToWorld);
+		TransformUniform.NormalToWorld = ToShaderMatrix(
+			Math::Transpose(Math::Inverse(Primitive.LocalToWorld)));
+		TransformUniform.TransformParams.x = glm::determinant(
+			glm::mat3(FMatrix4f(Primitive.LocalToWorld))) < 0.0f
+			? -1.0f : 1.0f;
+		const FRHIUniformBufferRange TransformBuffer =
+			CommandList.AllocateDynamicUniformBuffer(
+				&TransformUniform, sizeof(TransformUniform));
+		const FSplineMeshUniform SplineUniform = MakeSplineMeshUniform(
+			Primitive.VertexDomain == EVertexDeformationDomain::Spline
+				? Primitive.SplineDynamicData.Params
+				: FSplineMeshParams{});
+		const FRHIUniformBufferRange SplineBuffer =
+			CommandList.AllocateDynamicUniformBuffer(
+				&SplineUniform, sizeof(SplineUniform));
+		const FStaticMeshMaterialUniform MaterialUniform =
+			MakeStaticMeshMaterialUniform(Item.MaterialBinding, true);
+		const FRHIUniformBufferRange MaterialBuffer =
+			CommandList.AllocateDynamicUniformBuffer(
+				&MaterialUniform, sizeof(MaterialUniform));
+
+		std::array<FRHISampler*, 8> Samplers{};
+		for (size_t Role = 0; Role < Samplers.size(); ++Role)
+		{
+			const auto It = BaseResources->MaterialSamplerCache.find(
+				GetMaterialSamplerKey(Item.MaterialBinding.Samplers[Role]));
+			if (It == BaseResources->MaterialSamplerCache.end()) return false;
+			FSamplerRHIRef* Sampler = It->second.GetPayload();
+			if (Sampler == nullptr) return false;
+			Samplers[Role] = Sampler->GetReference();
+		}
+		const FGBufferRenderer::FVertexParameters VertexParameters{
+			.Transform = TransformBuffer,
+			.SplineMesh = SplineBuffer};
+		const FGBufferRenderer::FFragmentParameters FragmentParameters =
+			MakeGBufferFragmentParameters(Item.MaterialBinding,
+				DefaultTextures, MaterialBuffer, Samplers);
+		if (!GBuffer.BindPipeline_RenderThread(
+				CommandList, *Pipeline, VertexParameters, FragmentParameters))
+		{
+			return false;
+		}
+		VertexFactory.BindStreams(CommandList);
+		CommandList.BindIndexBuffer(Primitive.LOD->IndexBuffer.GetRHI(), 0);
+		CommandList.DrawIndexed(
+			Item.Section->IndexCount, Item.Section->FirstIndex, 0);
+		return true;
+	}
+
 	auto FStaticMeshRenderer::DrawSection_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneView& View,
@@ -2527,6 +2745,116 @@ namespace Durin
 		check(PreparedView.AttemptedDraws
 			== PreparedView.SuccessfulDraws + PreparedView.RejectedDraws);
 		check(PreparedView.AttemptedDraws == PreparedView.GetNumSections());
+	}
+
+	auto FSkeletalMeshRenderer::ExecuteGBuffer_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		const FSceneView& View,
+		FGBufferRenderer& GBuffer,
+		FPreparedSkeletalMeshView& PreparedView) -> void
+	{
+		check(CommandList.IsInsideRenderPass());
+		check(PreparedView.Phase == EPreparedSkeletalMeshPhase::ResourcesPrepared);
+		PreparedView.GBufferSkippedDraws += PreparedView.Translucent.size();
+		for (const auto* Bucket : {&PreparedView.Opaque, &PreparedView.Masked})
+		{
+			for (const FPreparedSkeletalMeshDraw& Draw : *Bucket)
+			{
+				if (Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
+					!= EMaterialShadingModel::Lit)
+				{
+					++PreparedView.GBufferSkippedDraws;
+					continue;
+				}
+				++PreparedView.GBufferAttemptedDraws;
+				const FPreparedSkeletalMeshPrimitive* Primitive =
+					PreparedView.GetPrimitive(Draw);
+				if (Primitive != nullptr && Draw.bResourcesReady
+					&& DrawGBufferSection_RenderThread(
+						CommandList, View, GBuffer, *Primitive, Draw))
+				{
+					++PreparedView.GBufferSuccessfulDraws;
+				}
+				else
+				{
+					++PreparedView.GBufferRejectedDraws;
+				}
+			}
+		}
+		check(PreparedView.GBufferAttemptedDraws
+			== PreparedView.GBufferSuccessfulDraws
+				+ PreparedView.GBufferRejectedDraws);
+	}
+
+	auto FSkeletalMeshRenderer::DrawGBufferSection_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		const FSceneView& View,
+		FGBufferRenderer& GBuffer,
+		const FPreparedSkeletalMeshPrimitive& Primitive,
+		const FPreparedSkeletalMeshDraw& Item) -> bool
+	{
+		if (Primitive.RenderData == nullptr || Primitive.VertexFactory == nullptr
+			|| Primitive.Pose == nullptr || Item.Section == nullptr)
+		{
+			return false;
+		}
+		FState::FBaseResources* Base = State->BaseResources.GetPayload();
+		if (Base == nullptr) return false;
+		const FVertexDeclarationRHIRef VertexDeclaration(
+			Primitive.VertexFactory->GetDeclaration());
+		FGBufferRenderer::FPipeline* Pipeline =
+			GBuffer.EnsurePipeline_RenderThread({
+				.Material = Item.PipelineKey.Material,
+				.Rasterizer = Item.PipelineKey.Rasterizer,
+				.Depth = Item.PipelineKey.Depth,
+				.VertexDeclaration = VertexDeclaration,
+				.VertexDomain = EGBufferVertexDomain::Skeletal});
+		if (Pipeline == nullptr) return false;
+
+		FStaticMeshTransformUniform Transform;
+		Transform.LocalToClip = ToShaderMatrix(
+			View.ViewProjectionMatrix * Primitive.LocalToWorld);
+		Transform.LocalToWorld = ToShaderMatrix(Primitive.LocalToWorld);
+		Transform.NormalToWorld = ToShaderMatrix(
+			Math::Transpose(Math::Inverse(Primitive.LocalToWorld)));
+		Transform.TransformParams.x = glm::determinant(
+			glm::mat3(FMatrix4f(Primitive.LocalToWorld))) < 0.0f
+			? -1.0f : 1.0f;
+		Transform.TransformParams.y = static_cast<float>(
+			Primitive.Pose->Matrices.size());
+		const FRHIUniformBufferRange TransformBuffer =
+			CommandList.AllocateDynamicUniformBuffer(&Transform, sizeof(Transform));
+		const FStaticMeshMaterialUniform MaterialUniform =
+			MakeStaticMeshMaterialUniform(Item.MaterialBinding, true);
+		const FRHIUniformBufferRange MaterialBuffer =
+			CommandList.AllocateDynamicUniformBuffer(
+				&MaterialUniform, sizeof(MaterialUniform));
+		std::array<FRHISampler*, 8> Samplers{};
+		for (size_t Role = 0; Role < Samplers.size(); ++Role)
+		{
+			const auto It = Base->MaterialSamplerCache.find(
+				GetMaterialSamplerKey(Item.MaterialBinding.Samplers[Role]));
+			if (It == Base->MaterialSamplerCache.end()) return false;
+			FSamplerRHIRef* Sampler = It->second.GetPayload();
+			if (Sampler == nullptr) return false;
+			Samplers[Role] = Sampler->GetReference();
+		}
+		const FGBufferRenderer::FVertexParameters VertexParameters{
+			.Transform = TransformBuffer,
+			.SkinPalette = Primitive.PaletteRange};
+		const FGBufferRenderer::FFragmentParameters FragmentParameters =
+			MakeGBufferFragmentParameters(Item.MaterialBinding,
+				DefaultTextures, MaterialBuffer, Samplers);
+		if (!GBuffer.BindPipeline_RenderThread(
+				CommandList, *Pipeline, VertexParameters, FragmentParameters))
+		{
+			return false;
+		}
+		Primitive.VertexFactory->BindStreams(CommandList);
+		CommandList.BindIndexBuffer(Primitive.RenderData->IndexBuffer.GetRHI(), 0);
+		CommandList.DrawIndexed(
+			Item.Section->IndexCount, Item.Section->FirstIndex, 0);
+		return true;
 	}
 
 	auto FSkeletalMeshRenderer::DrawSection_RenderThread(

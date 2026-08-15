@@ -15,6 +15,9 @@ namespace Durin::RenderTargetLayouts
 	// Scene Color plus the selected directional light's post-shadow direct
 	// contribution, followed by the preserved scene depth attachment.
 	RENDERER_API auto MakeSceneTargets() -> FRHIRenderTargetLayout;
+	// Four stored color attachments plus D32 depth for the qualified opaque and
+	// masked geometry transport.
+	RENDERER_API auto MakeGBufferTargets() -> FRHIRenderTargetLayout;
 	// One D32 depth attachment that is cleared for shadow rendering and
 	// published for fragment-shader comparison sampling when the pass ends.
 	RENDERER_API auto MakeDirectionalShadowDepth() -> FRHIRenderTargetLayout;

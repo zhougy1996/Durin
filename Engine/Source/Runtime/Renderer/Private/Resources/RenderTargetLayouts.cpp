@@ -68,6 +68,33 @@ namespace Durin::RenderTargetLayouts
 		return Layout;
 	}
 
+	auto MakeGBufferTargets() -> FRHIRenderTargetLayout
+	{
+		FRHIRenderTargetLayout Layout;
+		Layout.NumColorRenderTargets = 4;
+		for (uint32 Index = 0; Index < 3; ++Index)
+		{
+			Layout.ColorAttachments[Index].RenderTarget = MakeColorAttachment(
+				EPixelFormat::RGBA8_UNORM,
+				ERHIRenderTargetLoadAction::Clear,
+				ERHITextureLayout::Undefined,
+				ERHIAccess::None,
+				ERHITextureLayout::ShaderReadOnly,
+				ERHIAccess::GraphicsShaderRead);
+		}
+		Layout.ColorAttachments[3].RenderTarget = MakeColorAttachment(
+			EPixelFormat::R11G11B10_FLOAT,
+			ERHIRenderTargetLoadAction::Clear,
+			ERHITextureLayout::Undefined,
+			ERHIAccess::None,
+			ERHITextureLayout::ShaderReadOnly,
+			ERHIAccess::GraphicsShaderRead);
+		Layout.bHasDepthStencil = true;
+		Layout.DepthStencilAttachment = MakeDirectionalShadowDepth()
+			.DepthStencilAttachment;
+		return Layout;
+	}
+
 	auto MakeDirectionalShadowDepth() -> FRHIRenderTargetLayout
 	{
 		FRHIRenderTargetLayout Layout;

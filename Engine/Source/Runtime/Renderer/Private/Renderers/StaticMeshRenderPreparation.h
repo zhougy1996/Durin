@@ -145,6 +145,18 @@ namespace Durin
 		size_t AttemptedDraws = 0;
 		size_t SuccessfulDraws = 0;
 		size_t RejectedDraws = 0;
+		size_t GBufferAttemptedDraws = 0;
+		size_t GBufferSuccessfulDraws = 0;
+		size_t GBufferRejectedDraws = 0;
+		size_t GBufferSkippedDraws = 0;
+		size_t GBufferLocalAttemptedDraws = 0;
+		size_t GBufferLocalSuccessfulDraws = 0;
+		size_t GBufferLocalRejectedDraws = 0;
+		size_t GBufferLocalSkippedDraws = 0;
+		size_t GBufferSplineAttemptedDraws = 0;
+		size_t GBufferSplineSuccessfulDraws = 0;
+		size_t GBufferSplineRejectedDraws = 0;
+		size_t GBufferSplineSkippedDraws = 0;
 		EPreparedStaticMeshPhase Phase = EPreparedStaticMeshPhase::Prepared;
 
 		auto GetNumSections() const -> size_t

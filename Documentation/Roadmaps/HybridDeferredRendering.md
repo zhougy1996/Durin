@@ -47,9 +47,17 @@ The measured 24-byte-per-pixel scene-target baseline opens M2 without granting
 an unmeasured attachment budget. The active
 [Compute Renderer Integration](../Plans/ComputeRendererIntegration.md) plan is
 sequenced afterward and rebaselined to map HDR samples into a bounded
-display-linear compute intermediate without double tone mapping. The active
+display-linear compute intermediate without double tone mapping. The completed
 [Minimal GBuffer and Geometry Pass](../Plans/MinimalGBufferAndGeometryPass.md)
-plan now owns M2.
+plan now closes M2. Its qualified 16-byte-per-pixel four-attachment contract
+uses depth-derived position, independent octahedral shading/geometric normals,
+and a 128 MiB GBuffer cache ceiling. At 1920x1080 the validation-enabled RTX
+3090 geometry fixture measures `78,096/79,136 ns` median/p95 against frozen
+`350,000/500,000 ns` gates. Encoding, reconstruction, primitive-family,
+debug/A-B, memory, lifecycle, aggregate/full-build, and editor smoke gates pass
+without changing production forward output. The active
+[Deferred Directional Lighting](../Plans/DeferredDirectionalLighting.md) plan
+now owns M3, beginning at Stage 0 contract and budget freeze before code.
 
 ## Outcome
 
@@ -185,8 +193,8 @@ plan now owns M2.
 | Milestone | Requirement | Dependencies | Deliverable | Entry gate | Exit gate | Child plan |
 | --- | --- | --- | --- | --- | --- | --- |
 | M1. HDR Scene Color and display mapping | Required; completed 2026-08-15 | Current post-process and PBR contracts | HDR scene intermediate, fixed exposure, selected tone mapper, SDR output, and consistent view ordering | PBR clipping is verified; compute/post-process overlap is identified | Passed: values above one survive production scene/contact rendering; display, lifecycle, view isolation, full build/native aggregate, editor smoke, and frozen RTX 3090 memory/GPU gates pass | [HDR Scene Color and Display Mapping](../Plans/HDRSceneColorAndDisplayMapping.md) — Completed |
-| M2. Minimal GBuffer contract and geometry proof | Required; active | M1 complete | Measured attachment layout, opaque/masked geometry pass, debug views, and forward A/B fixture | Met 2026-08-15: HDR output is stable and the active child plan owns the required field inventory | All supported opaque/masked primitive families encode deterministic data within frozen bandwidth and memory budgets | [Minimal GBuffer and Geometry Pass](../Plans/MinimalGBufferAndGeometryPass.md) — Active |
-| M3. Deferred directional lighting parity | Required | M2 complete | Full-screen directional/IBL/emissive composition using shared shading and shadow code | GBuffer data and reconstruction error are qualified | Forward/deferred references meet frozen tolerances across materials, cascades, views, and failure/reload paths | Proposed `DeferredDirectionalLighting.md` |
+| M2. Minimal GBuffer contract and geometry proof | Required; completed 2026-08-15 | M1 complete | Measured attachment layout, opaque/masked geometry pass, debug views, and forward A/B fixture | Met 2026-08-15: HDR output is stable and the child plan owns the required field inventory | Passed: all supported opaque/masked primitive families encode deterministic data within frozen reconstruction, bandwidth, memory, lifecycle, and RTX 3090 budgets | [Minimal GBuffer and Geometry Pass](../Plans/MinimalGBufferAndGeometryPass.md) — Completed |
+| M3. Deferred directional lighting parity | Required; active | M2 complete | Full-screen directional/IBL/emissive composition using shared shading and shadow code | Met 2026-08-15: GBuffer data, reconstruction error, ownership, lifecycle, and cost are qualified | Forward/deferred references meet frozen tolerances across materials, cascades, views, and failure/reload paths | [Deferred Directional Lighting](../Plans/DeferredDirectionalLighting.md) — Active |
 | M4. Deferred opaque production parity and rollout | Required | M3 complete | Current local-light tier, retained forward translucency, supported primitive parity, and one default opaque owner | Directional slice is stable and a representative mixed scene exists | `1 + 4` lighting, translucency composition, features, memory, and RTX 3090 gates pass; generic opaque forward is retired or retained only by an explicit product requirement | Proposed `HybridRendererProductionRollout.md` |
 | M5. Depth/normal grounding | Required for roadmap quality outcome | M3 complete; may overlap late M4 only with isolated ownership | GTAO-class indirect occlusion with history policy or documented non-temporal policy | Stable depth, normals, motion policy, and indirect-light composition point exist | Corners and foot contacts improve without direct-shadow rewriting, halos, view leakage, or failed performance gates | Proposed `GroundTruthAmbientOcclusion.md` |
 | M6. Scalable and optional consumers | Evidence-gated | M4 complete; M5 inputs where applicable | Tiled/clustered lights, decals, and/or normal-aware contact-shadow revision | A measured scene or product feature exceeds the required path's capability | The selected extension passes its own image, fallback, memory, and GPU gates | Create separate plans only for selected consumers |
@@ -196,8 +204,8 @@ plan now owns M2.
 | Plan | Owns | Does not own | Activation state |
 | --- | --- | --- | --- |
 | HDR Scene Color and Display Mapping | Scene/intermediate formats, exposure, tone mapping, SDR conversion, FXAA/display ordering, target cache cost | GBuffer, deferred lights, automatic exposure, bloom, HDR displays | Completed 2026-08-15 |
-| Minimal GBuffer and Geometry Pass | Attribute inventory, packing, attachment layouts, geometry writes, reconstruction, debug modes | Lighting rollout, GTAO algorithm, translucent migration | Active after M1 exit gate passed 2026-08-15 |
-| Deferred Directional Lighting | Shared directional/IBL/emissive evaluation and forward comparison | Local-light scaling, generic post-process graph | Create after M2 exit gate |
+| Minimal GBuffer and Geometry Pass | Attribute inventory, packing, attachment layouts, geometry writes, reconstruction, debug modes | Lighting rollout, GTAO algorithm, translucent migration | Completed 2026-08-15 |
+| Deferred Directional Lighting | Shared directional/IBL/emissive evaluation and forward comparison | Local-light scaling, generic post-process graph | Active at Stage 0 after M2 exit gate passed 2026-08-15 |
 | Hybrid Renderer Production Rollout | Existing local-light parity, forward translucency composition, primitive coverage, opaque-owner retirement | More-than-supported light tiers, GTAO, decals | Create after M3 exit gate |
 | Ground Truth Ambient Occlusion | Indirect occlusion, denoise/history policy, edge behavior, composition | Direct-shadow repair or contact-shadow replacement claims | Create after M3 publishes stable inputs |
 | Optional consumer plans | One measured extension each | Bundled renderer modernization | Evidence-gated |

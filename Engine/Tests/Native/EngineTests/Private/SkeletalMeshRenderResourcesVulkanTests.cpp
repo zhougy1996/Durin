@@ -3,6 +3,7 @@
 #include "Engine/SkeletalMeshSceneProxy.h"
 #include "Engine/SplineMeshSceneProxy.h"
 #include "Engine/StaticMeshSceneProxy.h"
+#include "GBufferContract.h"
 #include "HAL/PlatformLTS.h"
 #include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
@@ -50,6 +51,7 @@ namespace
 	Durin::FViewRenderCounters GLastCounters;
 	std::vector<Durin::FGPUTimingQueryRHIRef>* GSceneColorTimingQueries = nullptr;
 	std::vector<Durin::FGPUTimingQueryRHIRef>* GShadowDepthTimingQueries = nullptr;
+	std::array<std::vector<Durin::uint8>*, 4> GGBufferPixels{};
 	auto CaptureCounters(const Durin::FViewRenderCounters& Counters) -> void
 	{
 		GLastCounters = Counters;
@@ -65,6 +67,80 @@ namespace
 	{
 		if (GSceneColorTimingQueries != nullptr)
 			GSceneColorTimingQueries->push_back(Query);
+	}
+
+	auto CaptureGBuffer(
+		Durin::FRHICommandListImmediate& CommandList,
+		Durin::FRHITexture* Material,
+		Durin::FRHITexture* Normals,
+		Durin::FRHITexture* Surface,
+		Durin::FRHITexture* Emissive,
+		Durin::FRHITexture*) -> void
+	{
+		const std::array Sources{Material, Normals, Surface, Emissive};
+		const std::array Names{"SkeletalGBufferMaterial", "SkeletalGBufferNormals",
+			"SkeletalGBufferSurface", "SkeletalGBufferEmissive"};
+		for (size_t Index = 0; Index < Sources.size(); ++Index)
+		{
+			if (GGBufferPixels[Index] == nullptr) continue;
+			Durin::FRHITexture* Source = Sources[Index];
+			const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+				Names[Index], Source->GetSizeX(), Source->GetSizeY(),
+				Source->GetFormat())
+				.SetFlags(Durin::ETextureCreateFlags::DestinationCopy
+					| Durin::ETextureCreateFlags::CPUReadback
+					| Durin::ETextureCreateFlags::ShaderResource);
+			Durin::FTextureRHIRef Readback =
+				Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+			ASSERT_NE(Readback, nullptr);
+			const Durin::FRHITextureSubresourceRange Whole{
+				Durin::ERHITextureAspect::Color, 0, 1, 0, 1};
+			CommandList.TransitionTextures(std::array{
+				Durin::FRHITextureTransition{Source, Whole,
+					Durin::ERHIAccess::GraphicsShaderRead,
+					Durin::ERHIAccess::TransferRead},
+				Durin::FRHITextureTransition{Readback, Whole,
+					Durin::ERHIAccess::Discard,
+					Durin::ERHIAccess::TransferWrite}});
+			CommandList.CopyTexture(Source, Readback,
+				std::array{Durin::FRHITextureCopyRegion{
+					.Extent = {Source->GetSizeX(), Source->GetSizeY(), 1}}});
+			CommandList.TransitionTextures(std::array{
+				Durin::FRHITextureTransition{Source, Whole,
+					Durin::ERHIAccess::TransferRead,
+					Durin::ERHIAccess::GraphicsShaderRead},
+				Durin::FRHITextureTransition{Readback, Whole,
+					Durin::ERHIAccess::TransferWrite,
+					Durin::ERHIAccess::GraphicsShaderRead}});
+			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
+				CommandList, Readback, 0, 0, *GGBufferPixels[Index]));
+		}
+	}
+
+	auto ValidateCapturedGBuffer(
+		const std::array<std::vector<Durin::uint8>, 4>& Pixels) -> void
+	{
+		ASSERT_FALSE(Pixels[0].empty());
+		for (const auto& Attachment : Pixels)
+			ASSERT_EQ(Attachment.size(), Pixels[0].size());
+		size_t ValidPixels = 0;
+		for (size_t Offset = 0; Offset < Pixels[2].size(); Offset += 4)
+		{
+			if (Pixels[2][Offset + 3] == 0u) continue;
+			++ValidPixels;
+			EXPECT_EQ(Pixels[2][Offset + 3],
+				Durin::GBufferContract::StandardLitFlag);
+			auto DecodeNormal = [&Pixels, Offset](size_t PairOffset) {
+				return Durin::GBufferContract::DecodeOctahedralNormal({
+					static_cast<float>(Pixels[1][Offset + PairOffset]) / 255.0f,
+					static_cast<float>(Pixels[1][Offset + PairOffset + 1]) / 255.0f});
+			};
+			EXPECT_NEAR(Durin::Math::Length(DecodeNormal(0)), 1.0, 1.0e-5);
+			EXPECT_NEAR(Durin::Math::Length(DecodeNormal(2)), 1.0, 1.0e-5);
+			EXPECT_GE(static_cast<Durin::uint32>(Pixels[0][Offset])
+				+ Pixels[0][Offset + 1] + Pixels[0][Offset + 2], 254u);
+		}
+		EXPECT_GT(ValidPixels, 0u);
 	}
 
 	auto MakeRenderData(bool bComplete = true)
@@ -309,14 +385,16 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	Durin::FlushRenderingCommands();
 
 	auto MakeMaterial = [](Durin::EMaterialBlendMode BlendMode,
-		Durin::FVector3 Color) {
+		Durin::FVector3 Color,
+		Durin::EMaterialShadingModel ShadingModel =
+			Durin::EMaterialShadingModel::Lit) {
 		auto Material = Durin::MakeRefCount<Durin::FMaterialRenderProxy>();
 		Durin::FMaterialRenderProxyPublication Publication;
 		Publication.LocalVersion = 1;
 		Publication.LocalLayer.StaticProperties =
 			Durin::FMaterialStaticProperties{
 				.BlendMode = BlendMode,
-				.ShadingModel = Durin::EMaterialShadingModel::Lit,
+				.ShadingModel = ShadingModel,
 				.bTwoSided = true};
 		Publication.LocalLayer.Parameters.push_back({
 			.Id = Durin::MaterialParameters::BaseColorId,
@@ -331,6 +409,9 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		Durin::EMaterialBlendMode::Masked, {0.0, 1.0, 0.0});
 	auto Translucent = MakeMaterial(
 		Durin::EMaterialBlendMode::Translucent, {0.0, 0.0, 1.0});
+	auto Unlit = MakeMaterial(
+		Durin::EMaterialBlendMode::Opaque, {1.0, 1.0, 0.0},
+		Durin::EMaterialShadingModel::Unlit);
 	auto Pose = std::make_shared<Durin::FSkeletalPosePalette>();
 	Pose->Revision = 1;
 	Pose->SkeletonCompatibilityIdentity = "VulkanSkeletalMesh";
@@ -401,10 +482,12 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		RedPixels += (*Readback)[Offset] > (*Readback)[Offset + 1] + 20
 			&& (*Readback)[Offset] > (*Readback)[Offset + 2] + 20 ? 1u : 0u;
 	EXPECT_GT(RedPixels, 0u);
-	auto RenderLitReadback = [&](std::string Name) {
+	auto RenderLitReadback = [&](
+		std::string Name, bool bEnableGBufferQualification = false) {
 		auto Result = std::make_shared<std::vector<Durin::uint8>>();
 		Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
-			[&Renderer, &Scene, Result, Name = std::move(Name)](
+			[&Renderer, &Scene, Result, Name = std::move(Name),
+				bEnableGBufferQualification](
 				Durin::FRHICommandListImmediate& CommandList) {
 				Durin::GRenderFrameCounterRenderThread++;
 				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
@@ -425,8 +508,11 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 					Durin::EDirectionalShadowCandidate::SingleMap;
 				View.Settings.VisibilityMode =
 					Durin::EViewVisibilityMode::FrustumCullingDisabled;
+				Durin::FSceneViewRenderOptions RenderOptions;
+				RenderOptions.bEnableGBufferQualification =
+					bEnableGBufferQualification;
 				EXPECT_EQ(Renderer.RenderView(
-					CommandList, &Scene, View, Target, false, {}),
+					CommandList, &Scene, View, Target, false, RenderOptions),
 					Durin::ERenderViewResult::Success);
 				ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
 					CommandList, Target, 0, 0, *Result));
@@ -436,6 +522,25 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		return Result;
 	};
 	const auto ZeroLightReadback = RenderLitReadback("ZeroLightSkeletalColor");
+	std::array<std::vector<Durin::uint8>, 4> SkeletalGBufferPixels;
+	for (size_t Index = 0; Index < GGBufferPixels.size(); ++Index)
+		GGBufferPixels[Index] = &SkeletalGBufferPixels[Index];
+	Durin::SetGBufferCaptureSink(CaptureGBuffer);
+	const auto GBufferReadback = RenderLitReadback(
+		"GBufferSkeletalColor", true);
+	Durin::SetGBufferCaptureSink(nullptr);
+	GGBufferPixels.fill(nullptr);
+	EXPECT_EQ(*GBufferReadback, *ZeroLightReadback);
+	ValidateCapturedGBuffer(SkeletalGBufferPixels);
+	EXPECT_EQ(GLastCounters.GBufferEnabledViews, 1u);
+	EXPECT_EQ(GLastCounters.GBufferAttemptedDraws, 2u);
+	EXPECT_EQ(GLastCounters.GBufferSuccessfulDraws, 2u);
+	EXPECT_EQ(GLastCounters.GBufferRejectedDraws, 0u);
+	EXPECT_EQ(GLastCounters.GBufferSkippedDraws, 1u);
+	EXPECT_EQ(GLastCounters.GBufferSkeletalMeshAttemptedDraws, 2u);
+	EXPECT_EQ(GLastCounters.GBufferSkeletalMeshSuccessfulDraws, 2u);
+	EXPECT_EQ(GLastCounters.GBufferSkeletalMeshRejectedDraws, 0u);
+	EXPECT_EQ(GLastCounters.GBufferSkeletalMeshSkippedDraws, 1u);
 	Durin::FDirectionalLightSceneData Directional;
 	Directional.Direction = {0.0, 0.0, -1.0};
 	Directional.Color = {1.0f, 0.1f, 0.1f};
@@ -847,6 +952,10 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
 	auto SplineReadback = std::make_shared<std::vector<Durin::uint8>>();
+	std::array<std::vector<Durin::uint8>, 4> SplineGBufferPixels;
+	for (size_t Index = 0; Index < GGBufferPixels.size(); ++Index)
+		GGBufferPixels[Index] = &SplineGBufferPixels[Index];
+	Durin::SetGBufferCaptureSink(CaptureGBuffer);
 	Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
 		[&Renderer, &Scene, SplineReadback](Durin::FRHICommandListImmediate& CommandList) {
 			Durin::GRenderFrameCounterRenderThread++;
@@ -863,24 +972,37 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			View.ViewportHeight = 33;
 			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
 			View.Settings.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
-			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
+			Durin::FSceneViewRenderOptions QualificationOptions;
+			QualificationOptions.bEnableGBufferQualification = true;
+			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false,
+				QualificationOptions),
 				Durin::ERenderViewResult::Success);
 			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(CommandList, Target, 0, 0, *SplineReadback));
 			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 		});
 	Durin::FlushRenderingCommands();
+	Durin::SetGBufferCaptureSink(nullptr);
+	GGBufferPixels.fill(nullptr);
+	ValidateCapturedGBuffer(SplineGBufferPixels);
 	EXPECT_EQ(GLastCounters.VisibleSplineMeshCandidates, 1u);
 	EXPECT_EQ(GLastCounters.PreparedSplineMeshPrimitives, 1u);
 	EXPECT_EQ(GLastCounters.PreparedSplineMeshSections, 3u);
 	EXPECT_EQ(GLastCounters.PreparedSplineMeshTriangles, 3u);
 	EXPECT_EQ(GLastCounters.RetainedSplineMeshDeformationBytes,
 		sizeof(Durin::FSplineMeshRenderDynamicData));
+	EXPECT_EQ(GLastCounters.GBufferSplineMeshAttemptedDraws, 2u);
+	EXPECT_EQ(GLastCounters.GBufferSplineMeshSuccessfulDraws, 2u);
+	EXPECT_EQ(GLastCounters.GBufferSplineMeshRejectedDraws, 0u);
+	EXPECT_EQ(GLastCounters.GBufferSplineMeshSkippedDraws, 1u);
+	EXPECT_EQ(GLastCounters.GBufferStaticMeshAttemptedDraws, 0u);
 	EXPECT_EQ(SplineReadback->size(), 33u * 33u * 4u);
 	EXPECT_TRUE(std::ranges::any_of(*SplineReadback, [](Durin::uint8 Value) { return Value != 0; }));
-	auto CaptureSplineParity = [&](std::string Name) {
+	auto CaptureSplineParity = [&](std::string Name,
+		bool bEnableGBufferQualification = false) {
 		auto Result = std::make_shared<std::vector<Durin::uint8>>();
 		Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
-			[&Renderer, &Scene, Result, Name = std::move(Name)](Durin::FRHICommandListImmediate& CommandList) {
+			[&Renderer, &Scene, Result, Name = std::move(Name),
+				bEnableGBufferQualification](Durin::FRHICommandListImmediate& CommandList) {
 				Durin::GRenderFrameCounterRenderThread++;
 				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 				const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
@@ -895,13 +1017,35 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 				View.ViewportHeight = 33;
 				View.Settings.RenderMode = Durin::ERenderMode::Unlit;
 				View.Settings.VisibilityMode = Durin::EViewVisibilityMode::FrustumCullingDisabled;
-				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}), Durin::ERenderViewResult::Success);
+				Durin::FSceneViewRenderOptions RenderOptions;
+				RenderOptions.bEnableGBufferQualification =
+					bEnableGBufferQualification;
+				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target,
+					false, RenderOptions), Durin::ERenderViewResult::Success);
 				ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(CommandList, Target, 0, 0, *Result));
 				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			});
 		Durin::FlushRenderingCommands();
 		return Result;
 	};
+	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(2),
+		std::make_unique<Durin::FSplineMeshSceneProxy>(SplineSource.get(),
+			std::vector<Durin::FMaterialRenderProxyRef>{Unlit, Masked, Translucent},
+			1, SplineData), Durin::FMatrix(1.0));
+	Durin::FlushRenderingCommands();
+	const auto UnlitForwardReadback = CaptureSplineParity("UnlitSplineForwardColor");
+	const auto UnlitGBufferReadback = CaptureSplineParity(
+		"UnlitSplineGBufferColor", true);
+	EXPECT_EQ(*UnlitGBufferReadback, *UnlitForwardReadback);
+	EXPECT_EQ(GLastCounters.GBufferSplineMeshAttemptedDraws, 1u);
+	EXPECT_EQ(GLastCounters.GBufferSplineMeshSuccessfulDraws, 1u);
+	EXPECT_EQ(GLastCounters.GBufferSplineMeshRejectedDraws, 0u);
+	EXPECT_EQ(GLastCounters.GBufferSplineMeshSkippedDraws, 2u);
+	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(2),
+		std::make_unique<Durin::FSplineMeshSceneProxy>(SplineSource.get(),
+			std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent},
+			1, SplineData), Durin::FMatrix(1.0));
+	Durin::FlushRenderingCommands();
 	auto CpuSplineSource = MakeSplineSourceRenderData();
 	{
 		auto& LOD = CpuSplineSource->LODResources[0];

@@ -14,8 +14,11 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "RendererModule.h"
+#include "Renderers/GBufferRenderer.h"
 #include "Renderers/SceneRendererProfiling.h"
+#include "Renderers/SceneVisibility.h"
 #include "Resources/RenderTargetLayouts.h"
+#include "Resources/RendererResourceCoordinator.h"
 #include "Scene.h"
 #include "SceneViewProjection.h"
 #include "Terrain/TerrainHeightmap.h"
@@ -31,6 +34,12 @@ namespace Durin
 	namespace
 	{
 		std::vector<FGPUTimingQueryRHIRef>* GPostProcessTimingQueries = nullptr;
+		FViewRenderCounters GLastViewCounters;
+
+		auto CaptureViewCounters(const FViewRenderCounters& Counters) -> void
+		{
+			GLastViewCounters = Counters;
+		}
 
 		auto CapturePostProcessTiming(
 			const FGPUTimingQueryRHIRef& Query) -> void
@@ -124,6 +133,41 @@ namespace Durin
 					|| Pixels[Offset + 2] > 16 ? 1u : 0u;
 			}
 			return Result;
+		}
+
+		auto MakeGBufferVertexDeclaration(
+			EGBufferVertexDomain Domain) -> FVertexDeclarationRHIRef
+		{
+			FVertexDeclarationElementList Elements{};
+			if (Domain == EGBufferVertexDomain::Terrain)
+			{
+				Elements[0] = FVertexElement(
+					0, 0, EVertexElementType::UShort2, 0, 4);
+				return GDynamicRHI->RHICreateVertexDeclaration(Elements);
+			}
+			Elements[0] = FVertexElement(
+				0, 0, EVertexElementType::Float3, 0, 12);
+			Elements[1] = FVertexElement(
+				1, 0, EVertexElementType::Short4N, 1, 16);
+			Elements[2] = FVertexElement(
+				1, 8, EVertexElementType::Short4N, 2, 16);
+			for (uint8 Channel = 0; Channel < 4; ++Channel)
+			{
+				Elements[3 + Channel] = FVertexElement(
+					2, static_cast<uint16>(Channel * 8),
+					EVertexElementType::Float2,
+					static_cast<uint8>(3 + Channel), 32);
+			}
+			Elements[7] = FVertexElement(
+				3, 0, EVertexElementType::UByte4N, 7, 4);
+			if (Domain == EGBufferVertexDomain::Skeletal)
+			{
+				Elements[8] = FVertexElement(
+					4, 0, EVertexElementType::UShort4, 8, 24);
+				Elements[9] = FVertexElement(
+					4, 8, EVertexElementType::Float4, 9, 24);
+			}
+			return GDynamicRHI->RHICreateVertexDeclaration(Elements);
 		}
 
 		auto RenderGridCapture(
@@ -346,10 +390,11 @@ namespace Durin
 			FViewRouteCase{"AuxiliaryView", 64, 64, -2.0f, true},
 			FViewRouteCase{"CameraPreview", 80, 45, 1.0f, false},
 			FViewRouteCase{"AssetThumbnail", 96, 96, 0.0f, true}};
-		auto CaptureViewRoute = [&Renderer](const FViewRouteCase& Route) {
+		auto CaptureViewRoute = [&Renderer](const FViewRouteCase& Route,
+			bool bGBufferDebug = false) {
 			auto Pixels = std::make_shared<std::vector<uint8>>();
 			EnqueueRenderCommand<FCaptureHDRDisplayContract>(
-				[&Renderer, Route, Pixels](
+				[&Renderer, Route, Pixels, bGBufferDebug](
 					FRHICommandListImmediate& CommandList) {
 					++GRenderFrameCounterRenderThread;
 					GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
@@ -370,8 +415,12 @@ namespace Durin
 					View.ClearColor = {4.0f, 2.0f, 0.5f, 0.5f};
 					View.Settings.ExposureEV = Route.ExposureEV;
 					View.Settings.bEnableFXAA = Route.bEnableFXAA;
+					FSceneViewRenderOptions Options;
+					Options.GBufferDebugMode = bGBufferDebug
+						? EGBufferDebugMode::Flags
+						: EGBufferDebugMode::Disabled;
 					EXPECT_EQ(Renderer.RenderView(
-						CommandList, nullptr, View, Output, false, {}),
+						CommandList, nullptr, View, Output, false, Options),
 						ERenderViewResult::Success);
 					EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(
 						CommandList, Output, 0, 0, *Pixels));
@@ -398,6 +447,29 @@ namespace Durin
 		const std::vector<uint8> MainAfterOtherViews =
 			CaptureViewRoute(ViewRouteCases.front());
 		EXPECT_EQ(MainAfterOtherViews, RoutePixels.front());
+		SetViewRenderCounterSink(CaptureViewCounters);
+		const std::array<size_t, 5> GBufferRouteOrder{3u, 1u, 2u, 0u, 3u};
+		std::vector<uint8> FirstThumbnailDebug;
+		for (size_t OrderIndex = 0;
+			OrderIndex < GBufferRouteOrder.size(); ++OrderIndex)
+		{
+			const FViewRouteCase& Route =
+				ViewRouteCases[GBufferRouteOrder[OrderIndex]];
+			const std::vector<uint8> DebugPixels =
+				CaptureViewRoute(Route, true);
+			EXPECT_EQ(DebugPixels.size(),
+				static_cast<size_t>(Route.Width) * Route.Height * 4u);
+			EXPECT_EQ(GLastViewCounters.GBufferEnabledViews, 1u);
+			EXPECT_EQ(GLastViewCounters.GBufferDebugViews, 1u);
+			EXPECT_EQ(GLastViewCounters.GBufferDebugFailures, 0u);
+			EXPECT_EQ(GLastViewCounters.GBufferAttachmentBytes,
+				FGBufferRenderer::CalculateTargetBytes(Route.Width, Route.Height));
+			if (OrderIndex == 0u)
+				FirstThumbnailDebug = DebugPixels;
+			if (OrderIndex + 1u == GBufferRouteOrder.size())
+				EXPECT_EQ(DebugPixels, FirstThumbnailDebug);
+		}
+		SetViewRenderCounterSink(nullptr);
 
 		const std::array<uint16, 9> Samples{};
 		std::shared_ptr<const FTerrainHeightmapPayload> Payload;
@@ -478,6 +550,168 @@ namespace Durin
 	}
 
 	TEST(FEditorGridVulkanTests,
+		GBufferTargetsRecoverAtomicallyAfterInjectedImageFailure)
+	{
+		if (!GIsGameThreadIdInitialized)
+		{
+			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+			GIsGameThreadIdInitialized = true;
+		}
+		ASSERT_EQ(GDynamicRHI, nullptr);
+		FModuleManager::Get().LoadModule("RenderCore");
+		RHIInit();
+		ASSERT_NE(GDynamicRHI, nullptr);
+		InitRenderingThread();
+
+		FRendererResourceCoordinator Coordinator;
+		FGBufferRenderer GBuffer(Coordinator);
+		auto bFailed = std::make_shared<bool>(false);
+		auto bSuppressed = std::make_shared<bool>(false);
+		auto RecoveredTargets =
+			std::make_shared<FGBufferRenderer::FTargets>();
+		auto AlternateTargets =
+			std::make_shared<FGBufferRenderer::FTargets>();
+		auto PipelineResults =
+			std::make_shared<std::array<bool, 13>>();
+		VulkanRHI::ArmVulkanCreateFailure(
+			VulkanRHI::EVulkanCreateFailurePoint::Image);
+		VulkanRHI::ArmVulkanCreateFailure(
+			VulkanRHI::EVulkanCreateFailurePoint::ShaderModule);
+		VulkanRHI::ArmVulkanCreateFailure(
+			VulkanRHI::EVulkanCreateFailurePoint::GraphicsPipeline);
+		EnqueueRenderCommand<FFailDisplayPayloadContract>(
+			[&Coordinator, &GBuffer, bFailed, bSuppressed,
+				RecoveredTargets, AlternateTargets, PipelineResults](
+					FRHICommandListImmediate&) {
+				*bFailed = GBuffer.EnsureTargets_RenderThread(64, 32) == nullptr;
+				*bSuppressed =
+					GBuffer.EnsureTargets_RenderThread(64, 32) == nullptr;
+				Coordinator.Apply_RenderThread(
+					ERendererResourceInvalidationCause::ManualRetry,
+					FRendererResourceInvalidationTargets{});
+				const auto* Recovered =
+					GBuffer.EnsureTargets_RenderThread(64, 32);
+				ASSERT_NE(Recovered, nullptr);
+				*RecoveredTargets = *Recovered;
+				const auto* Alternate =
+					GBuffer.EnsureTargets_RenderThread(32, 16);
+				ASSERT_NE(Alternate, nullptr);
+				*AlternateTargets = *Alternate;
+
+				FMaterialPipelineIdentity Material;
+				Material.ShaderMap.BlendMode = EMaterialBlendMode::Opaque;
+				Material.ShaderMap.ShadingModel = EMaterialShadingModel::Lit;
+				FRHIDepthStencilState Depth;
+				Depth.bEnableTest = true;
+				Depth.bEnableWrite = true;
+				Depth.CompareOp = ERHIDepthCompareOp::Greater;
+				const std::array<EGBufferVertexDomain, 4> Domains{
+					EGBufferVertexDomain::Local,
+					EGBufferVertexDomain::Spline,
+					EGBufferVertexDomain::Skeletal,
+					EGBufferVertexDomain::Terrain};
+				std::array<FVertexDeclarationRHIRef, 4> Declarations;
+				for (size_t Index = 0; Index < Domains.size(); ++Index)
+				{
+					Declarations[Index] =
+						MakeGBufferVertexDeclaration(Domains[Index]);
+					ASSERT_NE(Declarations[Index], nullptr);
+				}
+				auto MakeRequest = [&](size_t Index) {
+					return FGBufferRenderer::FPipelineRequest{
+						.Material = Material,
+						.Rasterizer = FRHIRasterizerState{},
+						.Depth = Depth,
+						.VertexDeclaration = Declarations[Index],
+						.VertexDomain = Domains[Index]};
+				};
+				const auto LocalRequest = MakeRequest(0);
+				(*PipelineResults)[0] =
+					GBuffer.EnsurePipeline_RenderThread(LocalRequest) == nullptr;
+				(*PipelineResults)[1] =
+					GBuffer.EnsurePipeline_RenderThread(LocalRequest) == nullptr;
+				Coordinator.Apply_RenderThread(
+					ERendererResourceInvalidationCause::ManualRetry,
+					FRendererResourceInvalidationTargets{});
+				(*PipelineResults)[2] =
+					GBuffer.EnsurePipeline_RenderThread(LocalRequest) == nullptr;
+				(*PipelineResults)[3] =
+					GBuffer.EnsurePipeline_RenderThread(LocalRequest) == nullptr;
+				Coordinator.Apply_RenderThread(
+					ERendererResourceInvalidationCause::ManualRetry,
+					FRendererResourceInvalidationTargets{});
+				(*PipelineResults)[4] =
+					GBuffer.EnsurePipeline_RenderThread(LocalRequest) != nullptr;
+				for (size_t Index = 1; Index < Domains.size(); ++Index)
+				{
+					(*PipelineResults)[4 + Index] =
+						GBuffer.EnsurePipeline_RenderThread(
+							MakeRequest(Index)) != nullptr;
+				}
+				Coordinator.Apply_RenderThread(
+					ERendererResourceInvalidationCause::ShaderChanged,
+					FRendererResourceInvalidationTargets{});
+				(*PipelineResults)[8] =
+					GBuffer.EnsurePipeline_RenderThread(LocalRequest) != nullptr;
+				FRHITexture* BeforeDevice =
+					RecoveredTargets->Material.GetReference();
+				Coordinator.Apply_RenderThread(
+					ERendererResourceInvalidationCause::Device,
+					FRendererResourceInvalidationTargets{});
+				const auto* DeviceTargets =
+					GBuffer.EnsureTargets_RenderThread(64, 32);
+				(*PipelineResults)[9] = DeviceTargets != nullptr
+					&& DeviceTargets->Material.GetReference() != BeforeDevice;
+				(*PipelineResults)[10] =
+					GBuffer.EnsurePipeline_RenderThread(LocalRequest) != nullptr;
+				FRHITexture* BeforeRelease = DeviceTargets != nullptr
+					? DeviceTargets->Material.GetReference() : nullptr;
+				GBuffer.ReleaseResources_RenderThread();
+				const auto* ReleasedTargets =
+					GBuffer.EnsureTargets_RenderThread(64, 32);
+				(*PipelineResults)[11] = ReleasedTargets != nullptr
+					&& ReleasedTargets->Material.GetReference() != BeforeRelease;
+				(*PipelineResults)[12] =
+					GBuffer.EnsurePipeline_RenderThread(LocalRequest) != nullptr;
+			});
+		FlushRenderingCommands();
+
+		EXPECT_TRUE(*bFailed);
+		EXPECT_TRUE(*bSuppressed);
+		const FGBufferRenderer::FTargets& Targets = *RecoveredTargets;
+		ASSERT_NE(Targets.Material, nullptr);
+		ASSERT_NE(Targets.Normals, nullptr);
+		ASSERT_NE(Targets.Surface, nullptr);
+		ASSERT_NE(Targets.Emissive, nullptr);
+		EXPECT_EQ(Targets.Material->GetFormat(), EPixelFormat::RGBA8_UNORM);
+		EXPECT_EQ(Targets.Normals->GetFormat(), EPixelFormat::RGBA8_UNORM);
+		EXPECT_EQ(Targets.Surface->GetFormat(), EPixelFormat::RGBA8_UNORM);
+		EXPECT_EQ(Targets.Emissive->GetFormat(),
+			EPixelFormat::R11G11B10_FLOAT);
+		EXPECT_EQ(Targets.Material->GetSizeX(), 64u);
+		EXPECT_EQ(Targets.Material->GetSizeY(), 32u);
+		ASSERT_NE(AlternateTargets->Material, nullptr);
+		EXPECT_NE(AlternateTargets->Material, Targets.Material);
+		EXPECT_NE(AlternateTargets->Normals, Targets.Normals);
+		EXPECT_EQ(AlternateTargets->Material->GetSizeX(), 32u);
+		EXPECT_EQ(AlternateTargets->Material->GetSizeY(), 16u);
+		for (size_t Index = 0; Index < PipelineResults->size(); ++Index)
+			EXPECT_TRUE((*PipelineResults)[Index]) << Index;
+
+		EnqueueRenderCommand<FCaptureHDRDisplayContract>(
+			[&GBuffer, RecoveredTargets, AlternateTargets](
+				FRHICommandListImmediate&) {
+				GBuffer.ReleaseResources_RenderThread();
+				*RecoveredTargets = {};
+				*AlternateTargets = {};
+			});
+		FlushRenderingCommands();
+		ShutdownRenderingThread();
+		FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
+		RHIExit();
+	}
+
+	TEST(FEditorGridVulkanTests,
 		WindowBackedPresentPreservesDisplaySettingsAcrossResizeAndToggles)
 	{
 		class FTestApplication final : public FGenericApplication
@@ -537,13 +771,14 @@ namespace Durin
 			float ExposureEV,
 			bool bEnableFXAA,
 			bool bEnableContactShadows,
-			bool bEditorAssistance) {
+			bool bEditorAssistance,
+			bool bGBufferDebug = false) {
 			auto Result = std::make_shared<ERenderViewResult>(
 				ERenderViewResult::RendererResourcesUnavailable);
 			EnqueueRenderCommand<FCaptureHDRDisplayContract>(
 				[&Renderer, Viewport, Width, Height, ExposureEV,
 					bEnableFXAA, bEnableContactShadows,
-					bEditorAssistance, Result](
+					bEditorAssistance, bGBufferDebug, Result](
 					FRHICommandListImmediate& CommandList) {
 					++GRenderFrameCounterRenderThread;
 					GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
@@ -561,8 +796,12 @@ namespace Durin
 					View.Settings.bEnableFXAA = bEnableFXAA;
 					View.Settings.bEnableContactShadows =
 						bEnableContactShadows;
+					FSceneViewRenderOptions Options;
+					Options.GBufferDebugMode = bGBufferDebug
+						? EGBufferDebugMode::ReconstructionError
+						: EGBufferDebugMode::Disabled;
 					*Result = Renderer.RenderView(
-						CommandList, nullptr, View, BackBuffer, true, {});
+						CommandList, nullptr, View, BackBuffer, true, Options);
 					CommandList.EndDrawingViewport(Viewport, true, false);
 					GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 				});
@@ -582,7 +821,7 @@ namespace Durin
 			ERenderViewResult::Success);
 		GDynamicRHI->RHIResizeViewport(Viewport, 129, 129, false);
 		FlushRenderingCommands();
-		EXPECT_EQ(RenderPresent(129, 129, 0.0f, true, false, true),
+		EXPECT_EQ(RenderPresent(129, 129, 0.0f, true, false, true, true),
 			ERenderViewResult::Success);
 
 		Viewport = nullptr;

@@ -26,7 +26,9 @@ namespace Durin
 	{
 		std::atomic<FSceneColorTimingQuerySink> GSceneColorTimingQuerySink = nullptr;
 		std::atomic<FPostProcessTimingQuerySink> GPostProcessTimingQuerySink = nullptr;
+		std::atomic<FGBufferTimingQuerySink> GGBufferTimingQuerySink = nullptr;
 		std::atomic<FHDRSceneColorCaptureSink> GHDRSceneColorCaptureSink = nullptr;
+		std::atomic<FGBufferCaptureSink> GGBufferCaptureSink = nullptr;
 
 		auto AddSaturated(uint64 A, uint64 B) -> uint64
 		{
@@ -248,15 +250,27 @@ namespace Durin
 		GPostProcessTimingQuerySink.store(Sink, std::memory_order_release);
 	}
 
+	auto SetGBufferTimingQuerySink(FGBufferTimingQuerySink Sink) -> void
+	{
+		GGBufferTimingQuerySink.store(Sink, std::memory_order_release);
+	}
+
 	auto SetHDRSceneColorCaptureSink(FHDRSceneColorCaptureSink Sink) -> void
 	{
 		GHDRSceneColorCaptureSink.store(Sink, std::memory_order_release);
+	}
+
+	auto SetGBufferCaptureSink(FGBufferCaptureSink Sink) -> void
+	{
+		GGBufferCaptureSink.store(Sink, std::memory_order_release);
 	}
 
 	FSceneRenderer::FSceneRenderer()
 		: DefaultTextures(Coordinator)
 		, EnvironmentLighting(Coordinator)
 		, DirectionalShadowRenderer(Coordinator)
+		, GBufferRenderer(Coordinator)
+		, GBufferDebugRenderer(Coordinator, FullscreenGeometry)
 		, StaticMeshRenderer(Coordinator, DefaultTextures, EnvironmentLighting)
 		, TerrainRenderer(Coordinator, DefaultTextures, EnvironmentLighting)
 		, SkeletalMeshRenderer(Coordinator, DefaultTextures, EnvironmentLighting)
@@ -321,6 +335,8 @@ namespace Durin
 		TerrainRenderer.ReleaseResources_RenderThread();
 		SkeletalMeshRenderer.ReleaseResources_RenderThread();
 		DirectionalShadowRenderer.ReleaseResources_RenderThread();
+		GBufferRenderer.ReleaseResources_RenderThread();
+		GBufferDebugRenderer.ReleaseResources_RenderThread();
 		Coordinator.ReleaseResources_RenderThread();
 		SkyBoxRenderer.ReleaseResources_RenderThread();
 		EditorAssistanceRenderer.ReleaseResources_RenderThread();
@@ -388,6 +404,8 @@ namespace Durin
 						TerrainRenderer.ReleaseResources_RenderThread();
 						SkeletalMeshRenderer.ReleaseResources_RenderThread();
 						DirectionalShadowRenderer.ReleaseResources_RenderThread();
+						GBufferRenderer.ReleaseResources_RenderThread();
+						GBufferDebugRenderer.ReleaseResources_RenderThread();
 						SkyBoxRenderer.ReleaseResources_RenderThread();
 						PostProcessRenderer.ReleaseResources_RenderThread();
 						ContactShadowRenderer.ReleaseResources_RenderThread();
@@ -741,6 +759,147 @@ namespace Durin
 			CommandList, StaticMeshRenderer, SkeletalMeshRenderer,
 			TerrainRenderer, PreparedView);
 
+		FGBufferRenderer::FTargets* GBufferTargets = nullptr;
+		const bool bNeedsGBuffer = Options.bEnableGBufferQualification
+			|| Options.GBufferDebugMode != EGBufferDebugMode::Disabled;
+		if (bNeedsGBuffer)
+		{
+			GBufferTargets =
+				GBufferRenderer.EnsureTargets_RenderThread(Width, Height);
+			if (GBufferTargets == nullptr)
+			{
+				++PreparedView.Counters.GBufferUnavailableViews;
+				if (Options.GBufferDebugMode != EGBufferDebugMode::Disabled)
+					++PreparedView.Counters.GBufferDebugFailures;
+			}
+			else
+			{
+				FRHIRenderPassInfo GBufferPassInfo{};
+				GBufferPassInfo.RenderTargetLayout =
+					RenderTargetLayouts::MakeGBufferTargets();
+				GBufferPassInfo.ColorRenderTargets[0] =
+					GBufferTargets->Material;
+				GBufferPassInfo.ColorRenderTargets[1] =
+					GBufferTargets->Normals;
+				GBufferPassInfo.ColorRenderTargets[2] =
+					GBufferTargets->Surface;
+				GBufferPassInfo.ColorRenderTargets[3] =
+					GBufferTargets->Emissive;
+				GBufferPassInfo.DepthStencilRenderTarget = SceneTargets->Depth;
+				for (uint32 Index = 0; Index < 4; ++Index)
+				{
+					GBufferPassInfo.ColorClearValues[Index] =
+						FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f);
+				}
+				GBufferPassInfo.DepthStencilClearValue = FClearValueBinding(
+					View.DepthConvention == ESceneDepthConvention::ReversedZ
+						? 0.0f : 1.0f,
+					0u);
+				FGPUTimingQueryRHIRef GBufferTimingQuery;
+				const FGBufferTimingQuerySink GBufferTimingSink =
+					GGBufferTimingQuerySink.load(std::memory_order_acquire);
+				if (GBufferTimingSink != nullptr && GDynamicRHI != nullptr)
+				{
+					GBufferTimingQuery =
+						GDynamicRHI->RHICreateGPUTimingQuery();
+					if (GBufferTimingQuery)
+						CommandList.BeginGPUTimingQuery(GBufferTimingQuery);
+				}
+				CommandList.BeginRenderPass(
+					GBufferPassInfo, "GBufferQualificationRenderPass");
+				CommandList.SetViewport(
+					static_cast<float>(View.ViewportX),
+					static_cast<float>(View.ViewportY),
+					0.0f,
+					static_cast<float>(View.ViewportX + Width),
+					static_cast<float>(View.ViewportY + Height),
+					1.0f);
+				CommandList.SetScissor(
+					static_cast<float>(View.ViewportX),
+					static_cast<float>(View.ViewportY),
+					static_cast<float>(Width),
+					static_cast<float>(Height));
+				StaticMeshRenderer.ExecuteGBuffer_RenderThread(
+					CommandList, RenderView, GBufferRenderer,
+					PreparedView.StaticMeshes);
+				SkeletalMeshRenderer.ExecuteGBuffer_RenderThread(
+					CommandList, RenderView, GBufferRenderer,
+					PreparedView.SkeletalMeshes);
+				TerrainRenderer.ExecuteGBuffer_RenderThread(
+					CommandList, RenderView, GBufferRenderer,
+					PreparedView.Terrains);
+				CommandList.EndRenderPass();
+				if (GBufferTimingQuery)
+				{
+					CommandList.EndGPUTimingQuery(GBufferTimingQuery);
+					GBufferTimingSink(GBufferTimingQuery);
+				}
+				const FGBufferCaptureSink GBufferCaptureSink =
+					GGBufferCaptureSink.load(std::memory_order_acquire);
+				if (GBufferCaptureSink != nullptr)
+				{
+					GBufferCaptureSink(
+						CommandList,
+						GBufferTargets->Material,
+						GBufferTargets->Normals,
+						GBufferTargets->Surface,
+						GBufferTargets->Emissive,
+						SceneTargets->Depth);
+				}
+				++PreparedView.Counters.GBufferEnabledViews;
+				PreparedView.Counters.GBufferAttachmentBytes =
+					FGBufferRenderer::CalculateTargetBytes(Width, Height);
+				PreparedView.Counters.GBufferAttemptedDraws =
+					PreparedView.StaticMeshes.GBufferAttemptedDraws
+						+ PreparedView.SkeletalMeshes.GBufferAttemptedDraws
+						+ PreparedView.Terrains.GBufferAttemptedDraws;
+				PreparedView.Counters.GBufferSuccessfulDraws =
+					PreparedView.StaticMeshes.GBufferSuccessfulDraws
+						+ PreparedView.SkeletalMeshes.GBufferSuccessfulDraws
+						+ PreparedView.Terrains.GBufferSuccessfulDraws;
+				PreparedView.Counters.GBufferRejectedDraws =
+					PreparedView.StaticMeshes.GBufferRejectedDraws
+						+ PreparedView.SkeletalMeshes.GBufferRejectedDraws
+						+ PreparedView.Terrains.GBufferRejectedDraws;
+				PreparedView.Counters.GBufferSkippedDraws =
+					PreparedView.StaticMeshes.GBufferSkippedDraws
+						+ PreparedView.SkeletalMeshes.GBufferSkippedDraws
+						+ PreparedView.Terrains.GBufferSkippedDraws;
+				PreparedView.Counters.GBufferStaticMeshAttemptedDraws =
+					PreparedView.StaticMeshes.GBufferLocalAttemptedDraws;
+				PreparedView.Counters.GBufferStaticMeshSuccessfulDraws =
+					PreparedView.StaticMeshes.GBufferLocalSuccessfulDraws;
+				PreparedView.Counters.GBufferStaticMeshRejectedDraws =
+					PreparedView.StaticMeshes.GBufferLocalRejectedDraws;
+				PreparedView.Counters.GBufferStaticMeshSkippedDraws =
+					PreparedView.StaticMeshes.GBufferLocalSkippedDraws;
+				PreparedView.Counters.GBufferSplineMeshAttemptedDraws =
+					PreparedView.StaticMeshes.GBufferSplineAttemptedDraws;
+				PreparedView.Counters.GBufferSplineMeshSuccessfulDraws =
+					PreparedView.StaticMeshes.GBufferSplineSuccessfulDraws;
+				PreparedView.Counters.GBufferSplineMeshRejectedDraws =
+					PreparedView.StaticMeshes.GBufferSplineRejectedDraws;
+				PreparedView.Counters.GBufferSplineMeshSkippedDraws =
+					PreparedView.StaticMeshes.GBufferSplineSkippedDraws;
+				PreparedView.Counters.GBufferSkeletalMeshAttemptedDraws =
+					PreparedView.SkeletalMeshes.GBufferAttemptedDraws;
+				PreparedView.Counters.GBufferSkeletalMeshSuccessfulDraws =
+					PreparedView.SkeletalMeshes.GBufferSuccessfulDraws;
+				PreparedView.Counters.GBufferSkeletalMeshRejectedDraws =
+					PreparedView.SkeletalMeshes.GBufferRejectedDraws;
+				PreparedView.Counters.GBufferSkeletalMeshSkippedDraws =
+					PreparedView.SkeletalMeshes.GBufferSkippedDraws;
+				PreparedView.Counters.GBufferTerrainAttemptedDraws =
+					PreparedView.Terrains.GBufferAttemptedDraws;
+				PreparedView.Counters.GBufferTerrainSuccessfulDraws =
+					PreparedView.Terrains.GBufferSuccessfulDraws;
+				PreparedView.Counters.GBufferTerrainRejectedDraws =
+					PreparedView.Terrains.GBufferRejectedDraws;
+				PreparedView.Counters.GBufferTerrainSkippedDraws =
+					PreparedView.Terrains.GBufferSkippedDraws;
+			}
+		}
+
 		FRHIRenderPassInfo ScenePassInfo{};
 		ScenePassInfo.RenderTargetLayout =
 			RenderTargetLayouts::MakeSceneTargets();
@@ -788,7 +947,32 @@ namespace Durin
 		CopyTerrainCounters(PreparedView.Terrains, PreparedView.Counters);
 
 		FRHITexture* PostProcessInput = SceneColor;
-		if (RenderView.Settings.bEnableContactShadows
+		if (Options.GBufferDebugMode != EGBufferDebugMode::Disabled
+			&& GBufferTargets != nullptr
+			&& SceneTargets->ContactColor != nullptr)
+		{
+			if (GBufferDebugRenderer.Render_RenderThread(
+					CommandList,
+					GBufferTargets->Material,
+					GBufferTargets->Normals,
+					GBufferTargets->Surface,
+					GBufferTargets->Emissive,
+					SceneTargets->Depth,
+					SceneTargets->ContactColor,
+					RenderView,
+					Options.GBufferDebugMode,
+					Width,
+					Height))
+			{
+				PostProcessInput = SceneTargets->ContactColor;
+				++PreparedView.Counters.GBufferDebugViews;
+			}
+			else
+			{
+				++PreparedView.Counters.GBufferDebugFailures;
+			}
+		}
+		else if (RenderView.Settings.bEnableContactShadows
 			&& PreparedView.DirectionalShadow.bEnabled
 			&& SceneTargets->ContactColor != nullptr)
 		{

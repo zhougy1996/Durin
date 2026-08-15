@@ -1,6 +1,7 @@
 #include "CoreGlobals.h"
 #include "DynamicRHI.h"
 #include "Engine/StaticMeshSceneProxy.h"
+#include "GBufferContract.h"
 #include "HAL/PlatformLTS.h"
 #include "Hash/XxHash.h"
 #include "Materials/MaterialRenderProxy.h"
@@ -11,6 +12,7 @@
 #include "RendererModule.h"
 #include "Renderers/DirectionalShadowView.h"
 #include "Renderers/SceneRendererProfiling.h"
+#include "Renderers/GBufferRenderer.h"
 #include "Renderers/SceneVisibility.h"
 #include "RenderingThread.h"
 #include "Scene.h"
@@ -22,6 +24,7 @@
 
 #include <array>
 #include <complex>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <format>
@@ -87,6 +90,10 @@ namespace
 	Durin::FViewRenderCounters GLastCounters;
 	std::vector<Durin::uint8>* GHDRSceneColorPixels = nullptr;
 	std::vector<Durin::uint8>* GHDRPostProcessInputPixels = nullptr;
+	std::vector<Durin::uint8>* GGBufferMaterialPixels = nullptr;
+	std::vector<Durin::uint8>* GGBufferNormalsPixels = nullptr;
+	std::vector<Durin::uint8>* GGBufferSurfacePixels = nullptr;
+	std::vector<Durin::uint8>* GGBufferEmissivePixels = nullptr;
 
 	auto CaptureCounters(const Durin::FViewRenderCounters& Counters) -> void
 	{
@@ -139,6 +146,59 @@ namespace
 		Capture("HDRSceneColorReadback", SceneColor, GHDRSceneColorPixels);
 		Capture("HDRPostProcessInputReadback", PostProcessInput,
 			GHDRPostProcessInputPixels);
+	}
+
+	auto CaptureGBuffer(
+		Durin::FRHICommandListImmediate& CommandList,
+		Durin::FRHITexture* Material,
+		Durin::FRHITexture* Normals,
+		Durin::FRHITexture* Surface,
+		Durin::FRHITexture* Emissive,
+		Durin::FRHITexture*) -> void
+	{
+		auto Capture = [&CommandList](
+			const char* Name,
+			Durin::FRHITexture* Source,
+			std::vector<Durin::uint8>* Pixels,
+			Durin::ERHITextureAspect Aspect =
+				Durin::ERHITextureAspect::Color) {
+			if (Pixels == nullptr) return;
+			const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+				Name, Source->GetSizeX(), Source->GetSizeY(), Source->GetFormat())
+				.SetFlags(Durin::ETextureCreateFlags::DestinationCopy
+					| Durin::ETextureCreateFlags::CPUReadback
+					| Durin::ETextureCreateFlags::ShaderResource);
+			Durin::FTextureRHIRef Readback =
+				Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+			ASSERT_NE(Readback, nullptr);
+			const Durin::FRHITextureSubresourceRange Whole{
+				Aspect, 0, 1, 0, 1};
+			CommandList.TransitionTextures(std::array{
+				Durin::FRHITextureTransition{Source, Whole,
+					Durin::ERHIAccess::GraphicsShaderRead,
+					Durin::ERHIAccess::TransferRead},
+				Durin::FRHITextureTransition{Readback, Whole,
+					Durin::ERHIAccess::Discard,
+					Durin::ERHIAccess::TransferWrite}});
+			CommandList.CopyTexture(Source, Readback,
+				std::array{Durin::FRHITextureCopyRegion{
+					.SourceAspect = Aspect,
+					.DestinationAspect = Aspect,
+					.Extent = {Source->GetSizeX(), Source->GetSizeY(), 1}}});
+			CommandList.TransitionTextures(std::array{
+				Durin::FRHITextureTransition{Readback, Whole,
+					Durin::ERHIAccess::TransferWrite,
+					Durin::ERHIAccess::GraphicsShaderRead},
+				Durin::FRHITextureTransition{Source, Whole,
+					Durin::ERHIAccess::TransferRead,
+					Durin::ERHIAccess::GraphicsShaderRead}});
+			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
+				CommandList, Readback, 0, 0, *Pixels));
+		};
+		Capture("GBufferMaterialReadback", Material, GGBufferMaterialPixels);
+		Capture("GBufferNormalsReadback", Normals, GGBufferNormalsPixels);
+		Capture("GBufferSurfaceReadback", Surface, GGBufferSurfacePixels);
+		Capture("GBufferEmissiveReadback", Emissive, GGBufferEmissivePixels);
 	}
 
 	auto MakeQuadRenderData() -> std::unique_ptr<Durin::FStaticMeshRenderData>
@@ -1155,16 +1215,30 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 		std::vector<Durin::uint8>& OutPixels,
 		bool bPerspective = false,
 		std::vector<Durin::uint8>* HDRSceneColorPixels = nullptr,
-		std::vector<Durin::uint8>* HDRPostProcessInputPixels = nullptr)
+		std::vector<Durin::uint8>* HDRPostProcessInputPixels = nullptr,
+		bool bEnableGBufferQualification = false,
+		std::vector<Durin::uint8>* GBufferMaterialPixels = nullptr,
+		std::vector<Durin::uint8>* GBufferSurfacePixels = nullptr,
+		Durin::EGBufferDebugMode GBufferDebugMode =
+			Durin::EGBufferDebugMode::Disabled,
+		std::vector<Durin::uint8>* GBufferNormalsPixels = nullptr,
+		std::vector<Durin::uint8>* GBufferEmissivePixels = nullptr,
+		Durin::ERenderMode RenderMode = Durin::ERenderMode::Lit)
 		-> Durin::FViewRenderCounters
 	{
 		auto Pixels = std::make_shared<std::vector<Durin::uint8>>();
 		GHDRSceneColorPixels = HDRSceneColorPixels;
 		GHDRPostProcessInputPixels = HDRPostProcessInputPixels;
 		Durin::SetHDRSceneColorCaptureSink(CaptureHDRSceneColor);
+		GGBufferMaterialPixels = GBufferMaterialPixels;
+		GGBufferNormalsPixels = GBufferNormalsPixels;
+		GGBufferSurfacePixels = GBufferSurfacePixels;
+		GGBufferEmissivePixels = GBufferEmissivePixels;
+		Durin::SetGBufferCaptureSink(CaptureGBuffer);
 		Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
 			[&Renderer, &Scene, bEnableContactShadows,
-				bShowContactShadowDebug, bPerspective, Pixels](
+				bShowContactShadowDebug, bPerspective,
+				bEnableGBufferQualification, GBufferDebugMode, RenderMode, Pixels](
 				Durin::FRHICommandListImmediate& CommandList) {
 				Durin::GRenderFrameCounterRenderThread++;
 				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
@@ -1214,6 +1288,7 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 				View.ViewportHeight = CaptureHeight;
 				View.Settings.VisibilityMode =
 					Durin::EViewVisibilityMode::FrustumCullingDisabled;
+				View.Settings.RenderMode = RenderMode;
 				View.Settings.DirectionalShadowCandidate =
 					Durin::EDirectionalShadowCandidate::SingleMap;
 				View.Settings.DirectionalShadowFilterQuality =
@@ -1221,8 +1296,12 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 				View.Settings.bEnableContactShadows = bEnableContactShadows;
 				View.Settings.bShowContactShadowDebug =
 					bShowContactShadowDebug;
+				Durin::FSceneViewRenderOptions RenderOptions;
+				RenderOptions.bEnableGBufferQualification =
+					bEnableGBufferQualification;
+				RenderOptions.GBufferDebugMode = GBufferDebugMode;
 				EXPECT_EQ(Renderer.RenderView(
-					CommandList, &Scene, View, Target, false, {}),
+					CommandList, &Scene, View, Target, false, RenderOptions),
 					Durin::ERenderViewResult::Success);
 				ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
 					CommandList, Target, 0, 0, *Pixels));
@@ -1230,8 +1309,13 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 			});
 		Durin::FlushRenderingCommands();
 		Durin::SetHDRSceneColorCaptureSink(nullptr);
+		Durin::SetGBufferCaptureSink(nullptr);
 		GHDRSceneColorPixels = nullptr;
 		GHDRPostProcessInputPixels = nullptr;
+		GGBufferMaterialPixels = nullptr;
+		GGBufferNormalsPixels = nullptr;
+		GGBufferSurfacePixels = nullptr;
+		GGBufferEmissivePixels = nullptr;
 		EXPECT_EQ(Pixels->size(),
 			static_cast<size_t>(CaptureWidth) * CaptureHeight * 4u);
 		OutPixels = std::move(*Pixels);
@@ -1248,12 +1332,177 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 	std::vector<Durin::uint8> HDRInputOn;
 	const Durin::FViewRenderCounters CountersOn =
 		RenderCapture(true, false, PixelsOn, false, &HDRSceneOn, &HDRInputOn);
+	std::vector<Durin::uint8> GBufferPixels;
+	std::vector<Durin::uint8> GBufferMaterialPixels;
+	std::vector<Durin::uint8> GBufferNormalsPixels;
+	std::vector<Durin::uint8> GBufferSurfacePixels;
+	std::vector<Durin::uint8> GBufferEmissivePixels;
+	const Durin::FViewRenderCounters GBufferCounters =
+		RenderCapture(false, false, GBufferPixels, false,
+			nullptr, nullptr, true,
+			&GBufferMaterialPixels, &GBufferSurfacePixels,
+			Durin::EGBufferDebugMode::Disabled,
+			&GBufferNormalsPixels, &GBufferEmissivePixels);
 
 	// The pass must run exactly once when enabled, zero when disabled, and
 	// never report a resource/input failure.
 	EXPECT_EQ(CountersOff.ContactShadowEnabledViews, 0u);
 	EXPECT_EQ(CountersOn.ContactShadowEnabledViews, 1u);
 	EXPECT_EQ(CountersOn.ContactShadowPassFailures, 0u);
+	EXPECT_EQ(GBufferCounters.GBufferEnabledViews, 1u);
+	EXPECT_EQ(GBufferCounters.GBufferUnavailableViews, 0u);
+	EXPECT_EQ(GBufferCounters.GBufferAttachmentBytes,
+		Durin::FGBufferRenderer::CalculateTargetBytes(
+			CaptureWidth, CaptureHeight));
+	EXPECT_EQ(GBufferCounters.GBufferAttemptedDraws, 3u);
+	EXPECT_EQ(GBufferCounters.GBufferSuccessfulDraws, 3u);
+	EXPECT_EQ(GBufferCounters.GBufferRejectedDraws, 0u);
+	EXPECT_EQ(GBufferCounters.GBufferSkippedDraws, 0u);
+	EXPECT_EQ(GBufferCounters.GBufferStaticMeshAttemptedDraws, 3u);
+	EXPECT_EQ(GBufferCounters.GBufferStaticMeshSuccessfulDraws, 3u);
+	EXPECT_EQ(GBufferCounters.GBufferStaticMeshRejectedDraws, 0u);
+	EXPECT_EQ(GBufferCounters.GBufferStaticMeshSkippedDraws, 0u);
+	EXPECT_EQ(GBufferCounters.GBufferSplineMeshAttemptedDraws, 0u);
+	EXPECT_EQ(GBufferCounters.GBufferSkeletalMeshAttemptedDraws, 0u);
+	EXPECT_EQ(GBufferCounters.GBufferTerrainAttemptedDraws, 0u);
+	EXPECT_EQ(GBufferPixels, PixelsOff);
+	ASSERT_EQ(GBufferMaterialPixels.size(),
+		static_cast<size_t>(CaptureWidth) * CaptureHeight * 4u);
+	ASSERT_EQ(GBufferSurfacePixels.size(), GBufferMaterialPixels.size());
+	ASSERT_EQ(GBufferNormalsPixels.size(), GBufferMaterialPixels.size());
+	ASSERT_EQ(GBufferEmissivePixels.size(), GBufferMaterialPixels.size());
+	size_t ValidGBufferPixels = 0;
+	size_t BackgroundGBufferPixels = 0;
+	for (size_t Offset = 0; Offset < GBufferSurfacePixels.size(); Offset += 4)
+	{
+		Durin::uint32 PackedEmissive = 0;
+		std::memcpy(&PackedEmissive, GBufferEmissivePixels.data() + Offset,
+			sizeof(PackedEmissive));
+		if (GBufferSurfacePixels[Offset + 3] == 0u)
+		{
+			++BackgroundGBufferPixels;
+			EXPECT_EQ(GBufferMaterialPixels[Offset], 0u);
+			EXPECT_EQ(GBufferMaterialPixels[Offset + 1], 0u);
+			EXPECT_EQ(GBufferMaterialPixels[Offset + 2], 0u);
+			EXPECT_EQ(GBufferMaterialPixels[Offset + 3], 0u);
+			EXPECT_EQ(GBufferNormalsPixels[Offset], 0u);
+			EXPECT_EQ(GBufferNormalsPixels[Offset + 1], 0u);
+			EXPECT_EQ(GBufferNormalsPixels[Offset + 2], 0u);
+			EXPECT_EQ(GBufferNormalsPixels[Offset + 3], 0u);
+			EXPECT_EQ(PackedEmissive, 0u);
+			continue;
+		}
+		++ValidGBufferPixels;
+		const auto ToUNorm = [](Durin::uint8 Value) {
+			return static_cast<float>(Value) / 255.0f;
+		};
+		const Durin::GBufferContract::FDecodedRecord Record =
+			Durin::GBufferContract::DecodeRecord(
+				{ToUNorm(GBufferMaterialPixels[Offset]),
+				 ToUNorm(GBufferMaterialPixels[Offset + 1]),
+				 ToUNorm(GBufferMaterialPixels[Offset + 2]),
+				 ToUNorm(GBufferMaterialPixels[Offset + 3])},
+				{ToUNorm(GBufferNormalsPixels[Offset]),
+				 ToUNorm(GBufferNormalsPixels[Offset + 1]),
+				 ToUNorm(GBufferNormalsPixels[Offset + 2]),
+				 ToUNorm(GBufferNormalsPixels[Offset + 3])},
+				{ToUNorm(GBufferSurfacePixels[Offset]),
+				 ToUNorm(GBufferSurfacePixels[Offset + 1]),
+				 ToUNorm(GBufferSurfacePixels[Offset + 2]),
+				 ToUNorm(GBufferSurfacePixels[Offset + 3])},
+				Durin::GBufferContract::DecodeR11G11B10Float(
+					PackedEmissive));
+		EXPECT_EQ(Record.Flags,
+			Durin::GBufferContract::StandardLitFlag);
+		EXPECT_TRUE(Record.IsStandardLit());
+		for (const float Channel : {Record.BaseColor.x,
+			Record.BaseColor.y, Record.BaseColor.z})
+		{
+			EXPECT_NEAR(Channel, 0.72f,
+				Durin::GBufferContract::MaximumUNorm8Error);
+		}
+		EXPECT_NEAR(Record.Metallic, 0.0f,
+			Durin::GBufferContract::MaximumUNorm8Error);
+		EXPECT_NEAR(Record.Roughness, 0.5f,
+			Durin::GBufferContract::MaximumUNorm8Error);
+		EXPECT_NEAR(Record.AmbientOcclusion, 1.0f,
+			Durin::GBufferContract::MaximumUNorm8Error);
+		EXPECT_NEAR(Record.EffectiveOpacity, 1.0f,
+			Durin::GBufferContract::MaximumUNorm8Error);
+		EXPECT_NEAR(Record.Emissive.x, 0.0f, 0.00006104f);
+		EXPECT_NEAR(Record.Emissive.y, 0.0f, 0.00006104f);
+		EXPECT_NEAR(Record.Emissive.z, 1.1f, 0.011f);
+		EXPECT_NEAR(Durin::Math::Length(Record.ShadingNormal), 1.0, 1.0e-5);
+		EXPECT_NEAR(Durin::Math::Length(Record.GeometricNormal), 1.0, 1.0e-5);
+	}
+	EXPECT_GT(ValidGBufferPixels, 0u);
+	EXPECT_GT(BackgroundGBufferPixels, 0u);
+	const std::array GBufferDebugModes{
+		Durin::EGBufferDebugMode::Material,
+		Durin::EGBufferDebugMode::ShadingNormal,
+		Durin::EGBufferDebugMode::GeometricNormal,
+		Durin::EGBufferDebugMode::Surface,
+		Durin::EGBufferDebugMode::Emissive,
+		Durin::EGBufferDebugMode::Flags,
+		Durin::EGBufferDebugMode::Depth,
+		Durin::EGBufferDebugMode::ViewPosition,
+		Durin::EGBufferDebugMode::ReconstructionError};
+	std::vector<std::vector<Durin::uint8>> GBufferDebugImages;
+	for (const Durin::EGBufferDebugMode Mode : GBufferDebugModes)
+	{
+		auto& Image = GBufferDebugImages.emplace_back();
+		const Durin::FViewRenderCounters DebugViewCounters = RenderCapture(
+			false, false, Image, false, nullptr, nullptr, false,
+			nullptr, nullptr, Mode);
+		EXPECT_EQ(DebugViewCounters.GBufferEnabledViews, 1u);
+		EXPECT_EQ(DebugViewCounters.GBufferDebugViews, 1u);
+		EXPECT_EQ(DebugViewCounters.GBufferDebugFailures, 0u);
+		EXPECT_NE(Image, PixelsOff);
+		EXPECT_TRUE(std::ranges::any_of(Image, [](Durin::uint8 Value) {
+			return Value != 0u;
+		}));
+	}
+	EXPECT_NE(GBufferDebugImages.front(), GBufferDebugImages.back());
+	size_t SampledDepthPixels = 0;
+	for (size_t Offset = 0; Offset < GBufferDebugImages[6].size(); Offset += 4)
+	{
+		if (GBufferDebugImages[6][Offset] > 0u
+			&& GBufferDebugImages[6][Offset] < 255u)
+		{
+			++SampledDepthPixels;
+			EXPECT_EQ(GBufferDebugImages[6][Offset],
+				GBufferDebugImages[6][Offset + 1]);
+			EXPECT_EQ(GBufferDebugImages[6][Offset + 1],
+				GBufferDebugImages[6][Offset + 2]);
+		}
+	}
+	EXPECT_GT(SampledDepthPixels, 0u);
+	size_t WithinTolerancePixels = 0;
+	for (size_t Offset = 0; Offset < GBufferDebugImages.back().size(); Offset += 4)
+	{
+		if (GBufferDebugImages.back()[Offset + 1]
+			> GBufferDebugImages.back()[Offset])
+			++WithinTolerancePixels;
+	}
+	EXPECT_GT(WithinTolerancePixels, 0u);
+	std::vector<Durin::uint8> ForwardMaterialInputs;
+	RenderCapture(false, false, ForwardMaterialInputs, false,
+		nullptr, nullptr, false, nullptr, nullptr,
+		Durin::EGBufferDebugMode::Disabled, nullptr, nullptr,
+		Durin::ERenderMode::Unlit);
+	std::vector<Durin::uint8> DecodedMaterialInputs;
+	const Durin::FViewRenderCounters MaterialABCounters = RenderCapture(
+		false, false, DecodedMaterialInputs, false,
+		nullptr, nullptr, false, nullptr, nullptr,
+		Durin::EGBufferDebugMode::MaterialInputs, nullptr, nullptr,
+		Durin::ERenderMode::Unlit);
+	EXPECT_EQ(MaterialABCounters.GBufferDebugViews, 1u);
+	ASSERT_EQ(DecodedMaterialInputs.size(), ForwardMaterialInputs.size());
+	for (size_t Offset = 0; Offset < DecodedMaterialInputs.size(); ++Offset)
+	{
+		EXPECT_LE(std::abs(static_cast<int>(DecodedMaterialInputs[Offset])
+			- static_cast<int>(ForwardMaterialInputs[Offset])), 2);
+	}
 	const size_t ExpectedHDRBytes =
 		static_cast<size_t>(CaptureWidth) * CaptureHeight * 8u;
 	EXPECT_EQ(HDRSceneOff.size(), ExpectedHDRBytes);

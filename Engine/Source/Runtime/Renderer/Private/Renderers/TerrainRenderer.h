@@ -10,6 +10,7 @@ namespace Durin
 {
 	class FDefaultTextureResources;
 	class FEnvironmentLightingResources;
+	class FGBufferRenderer;
 	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
 	struct FPreparedTerrainDraw;
@@ -48,6 +49,11 @@ namespace Durin
 			ERenderMode RenderMode, const FPreparedTerrainDraw& Draw,
 			FPreparedTerrainView& View) -> void;
 		auto FinalizeExecution_RenderThread(FPreparedTerrainView& View) -> void;
+		auto ExecuteGBuffer_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			const FSceneView& SceneView,
+			FGBufferRenderer& GBuffer,
+			FPreparedTerrainView& View) -> void;
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:
@@ -59,12 +65,14 @@ namespace Durin
 			ERenderMode RenderMode, const FPreparedTerrainDraw& Draw,
 			bool bShadowDepth = false,
 			std::span<const std::array<uint32, 2>> InstanceOrigins = {},
-			uint64* OutDynamicAllocationNanoseconds = nullptr) -> bool;
+			uint64* OutDynamicAllocationNanoseconds = nullptr,
+			FGBufferRenderer* GBuffer = nullptr) -> bool;
 		auto DrawBatch_RenderThread(FRHICommandListImmediate& CommandList,
 			const FSceneView& SceneView, const FRHIUniformBufferRange& Lighting,
 			ERenderMode RenderMode, const std::vector<FPreparedTerrainDraw>& Draws,
 			const FPreparedTerrainBatch& Batch, bool bShadowDepth = false,
-			uint64* OutDynamicAllocationNanoseconds = nullptr) -> bool;
+			uint64* OutDynamicAllocationNanoseconds = nullptr,
+			FGBufferRenderer* GBuffer = nullptr) -> bool;
 		struct FState;
 		FRendererResourceCoordinator& Coordinator;
 		FDefaultTextureResources& DefaultTextures;

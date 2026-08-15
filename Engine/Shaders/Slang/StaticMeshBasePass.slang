@@ -12,6 +12,7 @@ import VertexFactory.SkeletalMeshVertexFactory;
 #endif
 import Lighting.PBRLighting;
 import Lighting.DirectionalShadow;
+import Material.SurfaceMaterial;
 
 // Static mesh material foundation shader.
 
@@ -263,29 +264,50 @@ float2 GetMaterialUV(VSOutput input, uint role)
         sine * scaled.x + cosine * scaled.y) + transform.zw;
 }
 
-float3 SafeNormal(float3 value)
+FMaterialSurface EvaluateInputMaterialSurface(VSOutput input)
 {
-    const float minVectorLengthSquared = 1.0e-8;
-    float lengthSquared = dot(value, value);
-    return lengthSquared > minVectorLengthSquared
-        ? value * rsqrt(lengthSquared)
-        : float3(0.0, 0.0, 1.0);
+    FMaterialSampleSet samples;
+    samples.baseColor = BaseColorTexture.Sample(
+        BaseColorSampler, GetMaterialUV(input, 0u));
+    samples.normal = DecodeTextureNormal(NormalTexture.Sample(
+        NormalSampler, GetMaterialUV(input, 1u)).rg);
+    samples.metallic = MetallicTexture.Sample(
+        MetallicSampler, GetMaterialUV(input, 2u)).r;
+    samples.roughness = RoughnessTexture.Sample(
+        RoughnessSampler, GetMaterialUV(input, 3u)).r;
+    samples.ambientOcclusion = AmbientOcclusionTexture.Sample(
+        AmbientOcclusionSampler, GetMaterialUV(input, 4u)).r;
+    samples.emissive = EmissiveTexture.Sample(
+        EmissiveSampler, GetMaterialUV(input, 5u)).rgb;
+    samples.opacity = OpacityTexture.Sample(
+        OpacitySampler, GetMaterialUV(input, 6u)).r;
+    samples.opacityMask = OpacityMaskTexture.Sample(
+        OpacityMaskSampler, GetMaterialUV(input, 7u)).r;
+    return EvaluateMaterialSurface(
+        Material.BaseColor,
+        Material.EmissiveMetallic,
+        Material.NormalRoughness,
+        Material.SurfaceParams,
+        input.color,
+        samples);
 }
 
-float3 DecodeTextureNormal(float2 encoded)
+bool RejectTerrainCoverage(VSOutput input)
 {
-    float2 xy = encoded * 2.0 - 1.0;
-    float xyLengthSquared = dot(xy, xy);
-    if (xyLengthSquared > 1.0)
-        xy *= rsqrt(xyLengthSquared);
-    return float3(xy, sqrt(max(1.0 - dot(xy, xy), 0.0)));
-}
-
-float3 BlendRNM(float3 baseNormal, float3 detailNormal)
-{
-    float3 first = SafeNormal(baseNormal) + float3(0.0, 0.0, 1.0);
-    float3 second = SafeNormal(detailNormal) * float3(-1.0, -1.0, 1.0);
-    return SafeNormal(first * dot(first, second) / max(first.z, 1.0e-5) - second);
+#if DURIN_TERRAIN && DURIN_MATERIAL_BLEND_MODE != 2
+    static const float coverageThresholds[16] =
+    {
+        0.03125, 0.53125, 0.15625, 0.65625,
+        0.78125, 0.28125, 0.90625, 0.40625,
+        0.21875, 0.71875, 0.09375, 0.59375,
+        0.96875, 0.46875, 0.84375, 0.34375
+    };
+    uint2 coveragePixel = uint2(input.pos.xy) & uint2(3u, 3u);
+    return input.terrainTransition
+        >= coverageThresholds[coveragePixel.y * 4u + coveragePixel.x];
+#else
+    return false;
+#endif
 }
 
 [shader("fragment")]
@@ -302,9 +324,52 @@ void ShadowFragmentMain(VSOutput input)
     float opacityMask = saturate(Material.SurfaceParams.y * opacityMaskSample);
     const float opacityMaskThreshold = saturate(asfloat(uint(
         DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS)));
-    if (opacityMask < opacityMaskThreshold)
+    if (RejectMaterialMask(opacityMask, opacityMaskThreshold))
         discard;
 #endif
+}
+
+struct GeometryPassFragmentOutput
+{
+    float4 material : SV_Target0;
+    float4 normals : SV_Target1;
+    float4 surface : SV_Target2;
+    float4 emissive : SV_Target3;
+};
+
+[shader("fragment")]
+GeometryPassFragmentOutput GeometryFragmentMain(
+    VSOutput input,
+    bool isFrontFace : SV_IsFrontFace)
+{
+    if (RejectTerrainCoverage(input))
+        discard;
+    FMaterialSurface surface = EvaluateInputMaterialSurface(input);
+#if DURIN_MATERIAL_BLEND_MODE == 1
+    const float opacityMaskThreshold = saturate(asfloat(uint(
+        DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS)));
+    if (RejectMaterialMask(surface.opacityMask, opacityMaskThreshold))
+        discard;
+#endif
+    if (Material.SurfaceParams.z < 0.5)
+        discard;
+    FMaterialNormalFrame normalFrame = EvaluateMaterialNormalFrame(
+        input.worldNormal,
+        input.worldTangent,
+        surface.tangentNormal,
+        isFrontFace);
+    GeometryPassFragmentOutput output;
+    output.material = float4(surface.baseColor, surface.metallic);
+    output.normals = float4(
+        EncodeOctahedralNormal(normalFrame.shadingNormal),
+        EncodeOctahedralNormal(normalFrame.geometricNormal));
+    output.surface = float4(
+        surface.roughness,
+        surface.ambientOcclusion,
+        surface.opacity,
+        1.0 / 255.0);
+    output.emissive = float4(surface.emissive, 0.0);
+    return output;
 }
 
 struct BasePassFragmentOutput
@@ -320,91 +385,40 @@ BasePassFragmentOutput FragmentMain(
 {
 	BasePassFragmentOutput output;
 	output.directionalDirect = float4(0.0);
-#if DURIN_TERRAIN && DURIN_MATERIAL_BLEND_MODE != 2
-    static const float coverageThresholds[16] =
-    {
-        0.03125, 0.53125, 0.15625, 0.65625,
-        0.78125, 0.28125, 0.90625, 0.40625,
-        0.21875, 0.71875, 0.09375, 0.59375,
-        0.96875, 0.46875, 0.84375, 0.34375
-    };
-    uint2 coveragePixel = uint2(input.pos.xy) & uint2(3u, 3u);
-    if (input.terrainTransition >= coverageThresholds[coveragePixel.y * 4u + coveragePixel.x])
+    if (RejectTerrainCoverage(input))
         discard;
-#endif
-    const float minVectorLengthSquared = 1.0e-8;
-    float4 baseColorSample = BaseColorTexture.Sample(BaseColorSampler, GetMaterialUV(input, 0u));
-    float3 normalSample = DecodeTextureNormal(
-        NormalTexture.Sample(NormalSampler, GetMaterialUV(input, 1u)).rg);
-    float metallicSample = MetallicTexture.Sample(MetallicSampler, GetMaterialUV(input, 2u)).r;
-    float roughnessSample = RoughnessTexture.Sample(RoughnessSampler, GetMaterialUV(input, 3u)).r;
-    float ambientOcclusionSample = AmbientOcclusionTexture.Sample(AmbientOcclusionSampler, GetMaterialUV(input, 4u)).r;
-    float3 emissiveSample = EmissiveTexture.Sample(EmissiveSampler, GetMaterialUV(input, 5u)).rgb;
-    float opacitySample = OpacityTexture.Sample(OpacitySampler, GetMaterialUV(input, 6u)).r;
-    float opacityMaskSample = OpacityMaskTexture.Sample(OpacityMaskSampler, GetMaterialUV(input, 7u)).r;
-    float3 baseColor = saturate(Material.BaseColor.rgb) * baseColorSample.rgb * input.color.rgb;
-    float opacity = saturate(Material.BaseColor.a) * saturate(opacitySample) * saturate(input.color.a);
-    float ambientOcclusion = saturate(Material.SurfaceParams.x) * saturate(ambientOcclusionSample);
-    float opacityMask = saturate(Material.SurfaceParams.y * opacityMaskSample);
+    FMaterialSurface surface = EvaluateInputMaterialSurface(input);
 #if DURIN_MATERIAL_BLEND_MODE == 1
     const float opacityMaskThreshold = saturate(asfloat(uint(
         DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS)));
-    if (opacityMask < opacityMaskThreshold)
+    if (RejectMaterialMask(surface.opacityMask, opacityMaskThreshold))
         discard;
 #endif
-    // SurfaceParams.w is a zero-valued runtime carry that keeps the fixed
-    // material descriptor ABI reflected across every static shader variant.
-    opacity = saturate(opacity + Material.SurfaceParams.w * (ambientOcclusion + opacityMask));
-    float3 emissive = max(Material.EmissiveMetallic.xyz, 0.0) + max(emissiveSample, 0.0);
     if (Material.SurfaceParams.z < 0.5)
 	{
-		output.color = float4(baseColor + emissive, opacity);
+		output.color = float4(
+			surface.baseColor + surface.emissive, surface.opacity);
 		return output;
 	}
 
-    float normalLengthSquared = dot(input.worldNormal, input.worldNormal);
-    float3 geometricNormal = normalLengthSquared > minVectorLengthSquared
-        ? input.worldNormal * rsqrt(normalLengthSquared)
-        : float3(0.0, 0.0, 1.0);
-    // Back faces are only rasterized by two-sided material pipelines. Orient
-    // their tangent frame toward the visible side before applying normal maps.
-    if (!isFrontFace)
-        geometricNormal = -geometricNormal;
-    float3 tangent = input.worldTangent.xyz
-        - geometricNormal * dot(geometricNormal, input.worldTangent.xyz);
-    float tangentLengthSquared = dot(tangent, tangent);
-    bool hasValidTangentBasis = tangentLengthSquared > minVectorLengthSquared
-        && abs(input.worldTangent.w) > 0.5;
-    float3 tangentFallbackAxis = abs(geometricNormal.z) < 0.999
-        ? float3(0.0, 0.0, 1.0)
-        : float3(0.0, 1.0, 0.0);
-    float3 tangentFallback = cross(tangentFallbackAxis, geometricNormal);
-    tangentFallback *= rsqrt(max(dot(tangentFallback, tangentFallback), minVectorLengthSquared));
-    tangent = tangentLengthSquared > minVectorLengthSquared
-        ? tangent * rsqrt(tangentLengthSquared)
-        : tangentFallback;
-    float3 bitangent = cross(geometricNormal, tangent) * input.worldTangent.w;
-    float3 tangentNormal = BlendRNM(Material.NormalRoughness.xyz, normalSample);
-    float3 mappedNormal = tangent * tangentNormal.x
-        + bitangent * tangentNormal.y + geometricNormal * tangentNormal.z;
-    float mappedNormalLengthSquared = dot(mappedNormal, mappedNormal);
-    float3 normal = hasValidTangentBasis
-        && mappedNormalLengthSquared > minVectorLengthSquared
-        ? mappedNormal * rsqrt(mappedNormalLengthSquared)
-        : geometricNormal;
+    FMaterialNormalFrame normalFrame = EvaluateMaterialNormalFrame(
+        input.worldNormal,
+        input.worldTangent,
+        surface.tangentNormal,
+        isFrontFace);
+    float3 normal = normalFrame.shadingNormal;
     float3 viewVector = Lighting.ViewPosition.xyz - input.worldPosition;
     float viewLengthSquared = dot(viewVector, viewVector);
-    float3 toView = viewLengthSquared > minVectorLengthSquared
+    float3 toView = viewLengthSquared > 1.0e-8
         ? viewVector * rsqrt(viewLengthSquared)
         : float3(0.0);
     float NoV = saturate(dot(normal, toView));
-    float metallic = saturate(Material.EmissiveMetallic.w) * saturate(metallicSample);
-    float roughness = clamp(saturate(Material.NormalRoughness.w) * saturate(roughnessSample), 0.045, 1.0);
     float3 direct = float3(0.0);
 	float3 directionalDirect = float3(0.0);
     if (Lighting.Counts.x > 0u)
     {
-        float3 toLight = SafeNormal(-Lighting.DirectionalDirection.xyz);
+        float3 toLight = SafeSurfaceNormal(
+            -Lighting.DirectionalDirection.xyz);
         float3 radiance = Lighting.DirectionalColorIntensity.rgb
             * Lighting.DirectionalColorIntensity.a;
         FDirectionalShadowSample shadow = EvaluateDirectionalShadow(
@@ -419,11 +433,13 @@ BasePassFragmentOutput FragmentMain(
             DirectionalShadowSampler);
         if (Lighting.DirectionalShadowControl.y > 0.5)
 		{
-			output.color = float4(shadow.diagnosticColor, opacity);
+			output.color = float4(
+				shadow.diagnosticColor, surface.opacity);
 			return output;
 		}
 		directionalDirect = EvaluatePBRDirectLighting(
-            baseColor, metallic, roughness, normal, toLight, toView, radiance)
+            surface.baseColor, surface.metallic, surface.roughness,
+            normal, toLight, toView, radiance)
             * shadow.attenuation;
 		direct += directionalDirect;
     }
@@ -435,7 +451,7 @@ BasePassFragmentOutput FragmentMain(
         float3 lightVector = Lighting.Local[lightIndex].PositionInverseRange.xyz
             - input.worldPosition;
         float distanceSquared = dot(lightVector, lightVector);
-        float3 toLight = distanceSquared > minVectorLengthSquared
+        float3 toLight = distanceSquared > 1.0e-8
             ? lightVector * rsqrt(distanceSquared) : float3(0.0);
         float inverseRange = Lighting.Local[lightIndex].PositionInverseRange.w;
         float normalizedDistance = sqrt(max(distanceSquared, 0.0)) * inverseRange;
@@ -461,26 +477,28 @@ BasePassFragmentOutput FragmentMain(
             * Lighting.Local[lightIndex].ColorIntensity.a
             * inverseSquare * rangeAttenuation * coneAttenuation;
         direct += EvaluatePBRDirectLighting(
-            baseColor, metallic, roughness, normal, toLight, toView, radiance);
+            surface.baseColor, surface.metallic, surface.roughness,
+            normal, toLight, toView, radiance);
     }
     float3 reflectionDirection = reflect(-toView, normal);
     float3 irradiance = EnvironmentIrradiance.Sample(
         EnvironmentSampler, normal).rgb;
     float3 prefiltered = EnvironmentPrefiltered.SampleLevel(
         EnvironmentSampler, reflectionDirection,
-        roughness * 6.0).rgb;
+        surface.roughness * 6.0).rgb;
     float2 environmentBrdf = EnvironmentBrdfLut.Sample(
-        EnvironmentSampler, float2(NoV, roughness)).rg;
+        EnvironmentSampler, float2(NoV, surface.roughness)).rg;
     float3 environment = EvaluatePBREnvironmentLighting(
-        baseColor,
-        metallic,
-        roughness,
-        ambientOcclusion,
+        surface.baseColor,
+        surface.metallic,
+        surface.roughness,
+        surface.ambientOcclusion,
         NoV,
         irradiance,
         prefiltered,
         environmentBrdf);
-	output.color = float4(direct + environment + emissive, opacity);
+	output.color = float4(
+		direct + environment + surface.emissive, surface.opacity);
 	output.directionalDirect = float4(directionalDirect, 0.0);
 	return output;
 }

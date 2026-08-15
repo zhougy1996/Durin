@@ -7,6 +7,7 @@
 #include "RHICommandList.h"
 #include "RendererResourceSlotCache.h"
 #include "Renderers/RendererResourceDiagnostics.h"
+#include "Renderers/GBufferRenderer.h"
 #include "Renderers/ViewPreparationMath.h"
 #include "Renderers/DirectionalShadowView.h"
 #include "SceneViewProjection.h"
@@ -892,7 +893,8 @@ namespace Durin
 		ERenderMode RenderMode, const FPreparedTerrainDraw& Draw,
 		bool bShadowDepth,
 		std::span<const std::array<uint32, 2>> InstanceOrigins,
-		uint64* OutDynamicAllocationNanoseconds) -> bool
+		uint64* OutDynamicAllocationNanoseconds,
+		FGBufferRenderer* GBuffer) -> bool
 	{
 		if (!Draw.bResourcesReady || !Draw.SceneInfo || !Draw.Patch) return false;
 		const FTerrainSceneProxy& Proxy = Draw.SceneInfo->GetTerrainProxy();
@@ -910,7 +912,9 @@ namespace Durin
 			? State->ShadowPipelines.Find(EffectivePipelineKey)
 			: State->Pipelines.Find(EffectivePipelineKey);
 		auto* Pipeline = PipelineEntry ? PipelineEntry->Slot.GetPayload() : nullptr;
-		if (HeightIt == State->Heights.end() || TopologyIt == State->Topologies.end() || !Pipeline) return false;
+		if (HeightIt == State->Heights.end()
+			|| TopologyIt == State->Topologies.end()
+			|| (GBuffer == nullptr && Pipeline == nullptr)) return false;
 		if (Draw.TriangleCount > std::numeric_limits<uint32>::max() / 3
 			|| TopologyIt->second->IndexCount != Draw.TriangleCount * 3) return false;
 		const uint32 PreparedIndexCount = static_cast<uint32>(Draw.TriangleCount * 3);
@@ -980,25 +984,31 @@ namespace Durin
 		Material.UVRotations0 = FVector4f(Binding.UVRotations[0], Binding.UVRotations[1], Binding.UVRotations[2], Binding.UVRotations[3]);
 		Material.UVRotations1 = FVector4f(Binding.UVRotations[4], Binding.UVRotations[5], Binding.UVRotations[6], Binding.UVRotations[7]);
 		const auto MaterialBuffer = CommandList.AllocateDynamicUniformBuffer(&Material, sizeof(Material));
-		CommandList.SetGraphicsPipelineState(*Pipeline->Pipeline);
-		if (bShadowDepth)
+		if (GBuffer == nullptr)
 		{
-			const FRHIRasterizerState Rasterizer =
-				MakeShadowRasterizerState(Draw.PipelineKey.Rasterizer);
-			CommandList.SetDepthBias(Rasterizer.DepthBiasConstantFactor,
-				Rasterizer.DepthBiasClamp, Rasterizer.DepthBiasSlopeFactor);
+			CommandList.SetGraphicsPipelineState(*Pipeline->Pipeline);
+			if (bShadowDepth)
+			{
+				const FRHIRasterizerState Rasterizer =
+					MakeShadowRasterizerState(Draw.PipelineKey.Rasterizer);
+				CommandList.SetDepthBias(Rasterizer.DepthBiasConstantFactor,
+					Rasterizer.DepthBiasClamp, Rasterizer.DepthBiasSlopeFactor);
+			}
 		}
 		TopologyIt->second->VertexFactory.BindStreams(CommandList);
 		CommandList.BindIndexBuffer(TopologyIt->second->Indices, 0);
-		FTerrainVertexShader::FParameters VS;
-		VS.Transform = TransformBuffer;
-		VS.HeightTexture = HeightIt->second.Texture;
-		VS.Terrain = TerrainBuffer;
-		VS.TerrainPatchOrigins = InstanceRange;
-		SetShaderParameters(CommandList, Pipeline->Vertex, VS);
+		if (GBuffer == nullptr)
+		{
+			FTerrainVertexShader::FParameters VS;
+			VS.Transform = TransformBuffer;
+			VS.HeightTexture = HeightIt->second.Texture;
+			VS.Terrain = TerrainBuffer;
+			VS.TerrainPatchOrigins = InstanceRange;
+			SetShaderParameters(CommandList, Pipeline->Vertex, VS);
+		}
 		const FRHIDrawIndexedArguments DrawArguments{
 			PreparedIndexCount, static_cast<uint32>(InstanceOrigins.size()), 0, 0, 0};
-		if (bShadowDepth
+		if (GBuffer == nullptr && bShadowDepth
 			&& Draw.PipelineKey.Material.ShaderMap.BlendMode
 				!= EMaterialBlendMode::Masked)
 		{
@@ -1021,6 +1031,43 @@ namespace Durin
 		for (size_t Role = 0; Role < 8; ++Role) Samplers[Role] = State->Samplers.at(GetSamplerKey(Binding.Samplers[Role]));
 		PS.BaseColorSampler = Samplers[0]; PS.NormalSampler = Samplers[1]; PS.MetallicSampler = Samplers[2]; PS.RoughnessSampler = Samplers[3];
 		PS.AmbientOcclusionSampler = Samplers[4]; PS.EmissiveSampler = Samplers[5]; PS.OpacitySampler = Samplers[6]; PS.OpacityMaskSampler = Samplers[7];
+		if (GBuffer != nullptr)
+		{
+			const FVertexDeclarationRHIRef VertexDeclaration(
+				TopologyIt->second->VertexFactory.GetDeclaration());
+			FGBufferRenderer::FPipeline* GBufferPipeline =
+				GBuffer->EnsurePipeline_RenderThread({
+					.Material = Draw.PipelineKey.Material,
+					.Rasterizer = Draw.PipelineKey.Rasterizer,
+					.Depth = Draw.PipelineKey.Depth,
+					.VertexDeclaration = VertexDeclaration,
+					.VertexDomain = EGBufferVertexDomain::Terrain});
+			if (GBufferPipeline == nullptr) return false;
+			const FGBufferRenderer::FVertexParameters VertexParameters{
+				.Transform = TransformBuffer,
+				.HeightTexture = HeightIt->second.Texture,
+				.Terrain = TerrainBuffer,
+				.TerrainPatchOrigins = InstanceRange};
+			FGBufferRenderer::FFragmentParameters FragmentParameters;
+			FragmentParameters.Material = MaterialBuffer;
+			FragmentParameters.Textures = {
+				PS.BaseColorTexture,
+				PS.NormalTexture,
+				PS.MetallicTexture,
+				PS.RoughnessTexture,
+				PS.AmbientOcclusionTexture,
+				PS.EmissiveTexture,
+				PS.OpacityTexture,
+				PS.OpacityMaskTexture};
+			FragmentParameters.Samplers = Samplers;
+			if (!GBuffer->BindPipeline_RenderThread(CommandList,
+					*GBufferPipeline, VertexParameters, FragmentParameters))
+			{
+				return false;
+			}
+			CommandList.DrawIndexed(DrawArguments);
+			return true;
+		}
 		if (bShadowDepth
 			&& Draw.PipelineKey.Material.ShaderMap.BlendMode
 				== EMaterialBlendMode::Masked)
@@ -1058,7 +1105,8 @@ namespace Durin
 		const FRHIUniformBufferRange& Lighting, ERenderMode RenderMode,
 		const std::vector<FPreparedTerrainDraw>& Draws,
 		const FPreparedTerrainBatch& Batch, bool bShadowDepth,
-		uint64* OutDynamicAllocationNanoseconds) -> bool
+		uint64* OutDynamicAllocationNanoseconds,
+		FGBufferRenderer* GBuffer) -> bool
 	{
 		if (!Batch.bResourcesReady || Batch.DrawIndices.empty()
 			|| Batch.DrawIndices.size() > MaximumTerrainInstancesPerChunk)
@@ -1074,7 +1122,8 @@ namespace Durin
 				Draws[DrawIndex].Patch->OriginY});
 		}
 		return Draw_RenderThread(CommandList, SceneView, Lighting, RenderMode,
-			First, bShadowDepth, Origins, OutDynamicAllocationNanoseconds);
+			First, bShadowDepth, Origins, OutDynamicAllocationNanoseconds,
+			GBuffer);
 	}
 
 	auto FTerrainRenderer::ExecutePreparedDraw_RenderThread(
@@ -1127,6 +1176,60 @@ namespace Durin
 			View.CommandRecordingNanoseconds += std::chrono::duration_cast<
 				std::chrono::nanoseconds>(std::chrono::steady_clock::now() - Begin).count();
 		}
+	}
+
+	auto FTerrainRenderer::ExecuteGBuffer_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		const FSceneView& SceneView,
+		FGBufferRenderer& GBuffer,
+		FPreparedTerrainView& View) -> void
+	{
+		check(CommandList.IsInsideRenderPass());
+		check(View.Phase == EPreparedTerrainPhase::ResourcesPrepared);
+		View.GBufferSkippedDraws += View.Translucent.size();
+		for (auto [Draws, Batches] : {
+			std::pair{&View.Opaque, &View.OpaqueBatches},
+			std::pair{&View.Masked, &View.MaskedBatches}})
+		{
+			for (const FPreparedTerrainBatch& Batch : *Batches)
+			{
+				if (Batch.DrawIndices.empty()
+					|| Batch.DrawIndices.front() >= Draws->size())
+				{
+					++View.GBufferAttemptedDraws;
+					++View.GBufferRejectedDraws;
+					continue;
+				}
+				const FPreparedTerrainDraw& Draw =
+					(*Draws)[Batch.DrawIndices.front()];
+				if (Draw.Material.PipelineIdentity.ShaderMap.ShadingModel
+					!= EMaterialShadingModel::Lit)
+				{
+					++View.GBufferSkippedDraws;
+					continue;
+				}
+				++View.GBufferAttemptedDraws;
+				if (DrawBatch_RenderThread(
+						CommandList,
+						SceneView,
+						{},
+						ERenderMode::Lit,
+						*Draws,
+						Batch,
+						false,
+						nullptr,
+						&GBuffer))
+				{
+					++View.GBufferSuccessfulDraws;
+				}
+				else
+				{
+					++View.GBufferRejectedDraws;
+				}
+			}
+		}
+		check(View.GBufferAttemptedDraws
+			== View.GBufferSuccessfulDraws + View.GBufferRejectedDraws);
 	}
 
 	auto FTerrainRenderer::FinalizeExecution_RenderThread(FPreparedTerrainView& View) -> void

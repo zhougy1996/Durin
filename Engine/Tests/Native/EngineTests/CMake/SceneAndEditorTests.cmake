@@ -139,6 +139,23 @@ durin_add_engine_functional_test(HDRDisplayMappingQualificationTests
 		${CMAKE_CURRENT_SOURCE_DIR}/Data/HDRDisplayMapping
 )
 
+durin_add_engine_functional_test(GBufferQualificationTests
+	KIND qualification
+	DOMAINS renderer
+	MODULES engine renderer
+	BACKENDS vulkan
+	STACKS renderer
+	GPU
+	TIMEOUT 900
+	RUNTIME_STACK_RATIONALE
+		"Measures the four-family minimal GBuffer pass at the frozen 1920x1080 RTX 3090 qualification point."
+	RUNTIME_ONLY_RATIONALE
+		"RHIInit selects VulkanRHI dynamically for hardware-backed timestamp measurements."
+	RUNTIME_ONLY_TARGETS VulkanRHI
+	SOURCES Private/GBufferQualificationTests.cpp
+	LIBRARIES ApplicationCore RenderCore Renderer
+)
+
 durin_add_engine_functional_test(EditorRenderingTests
 	KIND feature
 	DOMAINS renderer

@@ -115,10 +115,32 @@ namespace Durin
 		float Intensity = 1.0f;
 	};
 
+	// Development-only visualization sourced from the qualified GBuffer and
+	// written into HDR Scene Color before the normal display transform.
+	enum class EGBufferDebugMode : uint8
+	{
+		Disabled,
+		Material,
+		ShadingNormal,
+		GeometricNormal,
+		Surface,
+		Emissive,
+		Flags,
+		Depth,
+		ViewPosition,
+		ReconstructionError,
+		MaterialInputs,
+		Count,
+	};
+
 	// Carries optional value-owned content overrides for one renderer submission.
 	struct FSceneViewRenderOptions
 	{
 		std::optional<FViewEnvironmentOverride> Environment;
+		// Development-only A/B path. Writes opaque and masked geometry into the
+		// minimal GBuffer before the unchanged forward scene pass.
+		bool bEnableGBufferQualification = false;
+		EGBufferDebugMode GBufferDebugMode = EGBufferDebugMode::Disabled;
 	};
 
 	// Identifies a procedural editor-assistance shape rendered over a scene view.

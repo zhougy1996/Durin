@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "GBufferContract.h"
 #include "Renderers/DisplayMapping.h"
 #include "Renderers/SceneRenderer.h"
 #include "Renderers/PreparedSceneView.h"
@@ -120,6 +121,138 @@ namespace Durin
 			EXPECT_NEAR(FarPoint.z / FarPoint.w, 1.0, 1.0e-12);
 		}
 	} // namespace
+
+	TEST(FRendererSceneViewTests,
+		GBufferStage0OctahedralUNorm8NormalsMeetAngularTolerance)
+	{
+		double MaximumErrorDegrees = 0.0;
+		for (int Latitude = -90; Latitude <= 90; ++Latitude)
+		{
+			const double LatitudeRadians =
+				Math::DegreesToRadians(static_cast<double>(Latitude));
+			for (int Longitude = 0; Longitude < 360; ++Longitude)
+			{
+				const double LongitudeRadians =
+					Math::DegreesToRadians(static_cast<double>(Longitude));
+				const FVector3f Normal{
+					static_cast<float>(std::cos(LatitudeRadians)
+						* std::cos(LongitudeRadians)),
+					static_cast<float>(std::cos(LatitudeRadians)
+						* std::sin(LongitudeRadians)),
+					static_cast<float>(std::sin(LatitudeRadians))};
+				FVector2f Encoded =
+					GBufferContract::EncodeOctahedralNormal(Normal);
+				Encoded.x = std::round(std::clamp(Encoded.x, 0.0f, 1.0f)
+					* 255.0f) / 255.0f;
+				Encoded.y = std::round(std::clamp(Encoded.y, 0.0f, 1.0f)
+					* 255.0f) / 255.0f;
+				const FVector3f Decoded =
+					GBufferContract::DecodeOctahedralNormal(Encoded);
+				const double ErrorDegrees = Math::RadiansToDegrees(std::acos(
+					std::clamp(static_cast<double>(Math::Dot(Normal, Decoded)),
+						-1.0, 1.0)));
+				MaximumErrorDegrees = std::max(
+					MaximumErrorDegrees, ErrorDegrees);
+			}
+		}
+		EXPECT_LE(MaximumErrorDegrees, 1.0);
+	}
+
+	TEST(FRendererSceneViewTests,
+		GBufferStage0DepthReconstructionMeetsViewRelativeTolerance)
+	{
+		auto GetDevicePosition = [](const FMatrix& Projection,
+			const FVector3f& Point) {
+			const FMatrix4f ShaderProjection(Projection);
+			const FVector4f Clip =
+				ShaderProjection * FVector4f(Point, 1.0f);
+			EXPECT_GT(std::abs(Clip.w), 1.0e-8f);
+			return FVector3f(Clip) / Clip.w;
+		};
+		auto ExpectError = [](const FVector3f& Point,
+			const FVector3f& Reconstructed) {
+				const double Error = Math::Length(
+					FVector3(Reconstructed) - FVector3(Point));
+				const double Distance = Math::Length(FVector3(Point));
+				EXPECT_LE(Error,
+					GBufferContract::GetPositionTolerance(Distance));
+		};
+
+		constexpr float NearClip = 0.1f;
+		constexpr float FarClip = 500000.0f;
+		constexpr float AspectRatio = 16.0f / 9.0f;
+		constexpr float FieldOfViewDegrees = 60.0f;
+		FMatrix Perspective;
+		ASSERT_TRUE(SceneViewProjection::BuildPerspectiveProjection(
+			FieldOfViewDegrees, AspectRatio, NearClip, FarClip,
+			ESceneDepthConvention::ReversedZ, Perspective));
+		const std::array PerspectivePoints{
+			FVector3f{0.1f, 0.0f, 0.0f},
+			FVector3f{1.0f, 0.25f, -0.1f},
+			FVector3f{1000.0f, 700.0f, 300.0f},
+			FVector3f{200000.0f, -150000.0f, 80000.0f}};
+		for (const FVector3f& Point : PerspectivePoints)
+		{
+			const FVector3f Device = GetDevicePosition(Perspective, Point);
+			FVector3 Reconstructed;
+			ASSERT_TRUE(GBufferContract::ReconstructViewPositionAnalytic(
+				Perspective, FVector2f(Device), Device.z, Reconstructed));
+			ExpectError(Point, FVector3f(Reconstructed));
+		}
+
+		constexpr float HalfWidth = 200000.0f;
+		constexpr float HalfHeight = 100000.0f;
+		FMatrix Orthographic = MakeOrthographicProjection(
+			HalfWidth, HalfHeight, NearClip, FarClip);
+		Orthographic[0][2] = -Orthographic[0][2];
+		Orthographic[3][2] =
+			500000.0 / (500000.0 - 0.1);
+		const std::array OrthographicPoints{
+			FVector3f{0.1f, 0.0f, 0.0f},
+			FVector3f{1000.0f, 700.0f, 300.0f},
+			FVector3f{200000.0f, -150000.0f, 80000.0f}};
+		for (const FVector3f& Point : OrthographicPoints)
+		{
+			const FVector3f Device = GetDevicePosition(Orthographic, Point);
+			FVector3 Reconstructed;
+			ASSERT_TRUE(GBufferContract::ReconstructViewPositionAnalytic(
+				Orthographic, FVector2f(Device), Device.z, Reconstructed));
+			ExpectError(Point, FVector3f(Reconstructed));
+		}
+	}
+
+	TEST(FRendererSceneViewTests,
+		GBufferDecodePublishesFrozenChannelsAndPackedEmissive)
+	{
+		const uint32 PackedOne = (15u << 6u)
+			| ((15u << 6u) << 11u)
+			| ((15u << 5u) << 22u);
+		EXPECT_EQ(GBufferContract::DecodeR11G11B10Float(0u), FVector3f(0.0f));
+		const FVector3f DecodedOne =
+			GBufferContract::DecodeR11G11B10Float(PackedOne);
+		EXPECT_EQ(DecodedOne, FVector3f(1.0f));
+
+		const GBufferContract::FDecodedRecord Record =
+			GBufferContract::DecodeRecord(
+				{0.25f, 0.5f, 0.75f, 0.125f},
+				{0.5f, 0.5f, 0.5f, 0.5f},
+				{0.4f, 0.8f, 1.0f, 1.0f / 255.0f},
+				{2.0f, 3.0f, 4.0f});
+		EXPECT_EQ(Record.BaseColor, FVector3f(0.25f, 0.5f, 0.75f));
+		EXPECT_FLOAT_EQ(Record.Metallic, 0.125f);
+		EXPECT_FLOAT_EQ(Record.Roughness, 0.4f);
+		EXPECT_FLOAT_EQ(Record.AmbientOcclusion, 0.8f);
+		EXPECT_FLOAT_EQ(Record.EffectiveOpacity, 1.0f);
+		EXPECT_EQ(Record.Emissive, FVector3f(2.0f, 3.0f, 4.0f));
+		EXPECT_EQ(Record.Flags, GBufferContract::StandardLitFlag);
+		EXPECT_TRUE(Record.IsStandardLit());
+		EXPECT_EQ(Record.ShadingNormal, FVector3f(0.0f, 0.0f, 1.0f));
+		EXPECT_EQ(Record.GeometricNormal, FVector3f(0.0f, 0.0f, 1.0f));
+
+		FVector3 Reconstructed;
+		EXPECT_FALSE(GBufferContract::ReconstructViewPositionAnalytic(
+			FMatrix(0.0), FVector2f(0.0f), 0.5, Reconstructed));
+	}
 
 	TEST(FRendererSceneViewTests, UnconstrainedViewsFitIndependentOutputs)
 	{

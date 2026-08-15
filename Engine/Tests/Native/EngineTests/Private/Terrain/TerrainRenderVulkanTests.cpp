@@ -1,6 +1,7 @@
 #include "CoreGlobals.h"
 #include "DynamicRHI.h"
 #include "Engine/TerrainSceneProxy.h"
+#include "GBufferContract.h"
 #include "HAL/PlatformLTS.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Modules/ModuleManager.h"
@@ -23,10 +24,59 @@ namespace
 {
 	Durin::FViewRenderCounters GCounters;
 	std::vector<Durin::FViewRenderCounters> GCounterSnapshots;
+	std::array<std::vector<Durin::uint8>*, 4> GGBufferPixels{};
 	auto CaptureCounters(const Durin::FViewRenderCounters& Counters) -> void
 	{
 		GCounters = Counters;
 		GCounterSnapshots.push_back(Counters);
+	}
+
+	auto CaptureGBuffer(
+		Durin::FRHICommandListImmediate& CommandList,
+		Durin::FRHITexture* Material,
+		Durin::FRHITexture* Normals,
+		Durin::FRHITexture* Surface,
+		Durin::FRHITexture* Emissive,
+		Durin::FRHITexture*) -> void
+	{
+		const std::array Sources{Material, Normals, Surface, Emissive};
+		const std::array Names{"TerrainGBufferMaterial", "TerrainGBufferNormals",
+			"TerrainGBufferSurface", "TerrainGBufferEmissive"};
+		for (size_t Index = 0; Index < Sources.size(); ++Index)
+		{
+			if (GGBufferPixels[Index] == nullptr) continue;
+			Durin::FRHITexture* Source = Sources[Index];
+			const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+				Names[Index], Source->GetSizeX(), Source->GetSizeY(),
+				Source->GetFormat())
+				.SetFlags(Durin::ETextureCreateFlags::DestinationCopy
+					| Durin::ETextureCreateFlags::CPUReadback
+					| Durin::ETextureCreateFlags::ShaderResource);
+			Durin::FTextureRHIRef Readback =
+				Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+			ASSERT_NE(Readback, nullptr);
+			const Durin::FRHITextureSubresourceRange Whole{
+				Durin::ERHITextureAspect::Color, 0, 1, 0, 1};
+			CommandList.TransitionTextures(std::array{
+				Durin::FRHITextureTransition{Source, Whole,
+					Durin::ERHIAccess::GraphicsShaderRead,
+					Durin::ERHIAccess::TransferRead},
+				Durin::FRHITextureTransition{Readback, Whole,
+					Durin::ERHIAccess::Discard,
+					Durin::ERHIAccess::TransferWrite}});
+			CommandList.CopyTexture(Source, Readback,
+				std::array{Durin::FRHITextureCopyRegion{
+					.Extent = {Source->GetSizeX(), Source->GetSizeY(), 1}}});
+			CommandList.TransitionTextures(std::array{
+				Durin::FRHITextureTransition{Source, Whole,
+					Durin::ERHIAccess::TransferRead,
+					Durin::ERHIAccess::GraphicsShaderRead},
+				Durin::FRHITextureTransition{Readback, Whole,
+					Durin::ERHIAccess::TransferWrite,
+					Durin::ERHIAccess::GraphicsShaderRead}});
+			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
+				CommandList, Readback, 0, 0, *GGBufferPixels[Index]));
+		}
 	}
 
 	struct FTerrainRenderCommand
@@ -76,7 +126,7 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 	Publication.LocalVersion = 1;
 	Publication.LocalLayer.StaticProperties = Durin::FMaterialStaticProperties{
 		.BlendMode = Durin::EMaterialBlendMode::Opaque,
-		.ShadingModel = Durin::EMaterialShadingModel::Unlit,
+		.ShadingModel = Durin::EMaterialShadingModel::Lit,
 		.bTwoSided = true};
 	Publication.LocalLayer.Parameters.push_back({
 		.Id = Durin::MaterialParameters::BaseColorId,
@@ -97,8 +147,15 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 	Durin::FlushRenderingCommands();
 
 	auto Readback = std::make_shared<std::vector<Durin::uint8>>();
+	auto QualificationReadback =
+		std::make_shared<std::vector<Durin::uint8>>();
+	std::array<std::vector<Durin::uint8>, 4> TerrainGBufferPixels;
+	for (size_t Index = 0; Index < GGBufferPixels.size(); ++Index)
+		GGBufferPixels[Index] = &TerrainGBufferPixels[Index];
+	Durin::SetGBufferCaptureSink(CaptureGBuffer);
 	Durin::EnqueueRenderCommand<FTerrainRenderCommand>(
-		[&Renderer, &Scene, Readback](Durin::FRHICommandListImmediate& CommandList) {
+		[&Renderer, &Scene, Readback, QualificationReadback](
+			Durin::FRHICommandListImmediate& CommandList) {
 			Durin::GRenderFrameCounterRenderThread++;
 			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 			const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
@@ -118,15 +175,55 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
 				Durin::ERenderViewResult::Success);
 			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(CommandList, Target, 0, 0, *Readback));
+			Durin::FSceneViewRenderOptions QualificationOptions;
+			QualificationOptions.bEnableGBufferQualification = true;
+			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target,
+				false, QualificationOptions), Durin::ERenderViewResult::Success);
+			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
+				CommandList, Target, 0, 0, *QualificationReadback));
 			View.Settings.LODMode = Durin::EViewLODMode::Automatic;
 			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
 				Durin::ERenderViewResult::Success);
 			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 		});
 	Durin::FlushRenderingCommands();
+	Durin::SetGBufferCaptureSink(nullptr);
+	GGBufferPixels.fill(nullptr);
 	EXPECT_EQ(Readback->size(), 65u * 65u * 4u);
 	EXPECT_TRUE(std::ranges::any_of(*Readback, [](Durin::uint8 Value) { return Value != 0; }));
-	ASSERT_EQ(GCounterSnapshots.size(), 2u);
+	EXPECT_EQ(*QualificationReadback, *Readback);
+	ASSERT_EQ(GCounterSnapshots.size(), 3u);
+	EXPECT_EQ(GCounterSnapshots[1].GBufferEnabledViews, 1u);
+	EXPECT_EQ(GCounterSnapshots[1].GBufferAttemptedDraws, 1u);
+	EXPECT_EQ(GCounterSnapshots[1].GBufferSuccessfulDraws, 1u);
+	EXPECT_EQ(GCounterSnapshots[1].GBufferRejectedDraws, 0u);
+	EXPECT_EQ(GCounterSnapshots[1].GBufferSkippedDraws, 0u);
+	EXPECT_EQ(GCounterSnapshots[1].GBufferTerrainAttemptedDraws, 1u);
+	EXPECT_EQ(GCounterSnapshots[1].GBufferTerrainSuccessfulDraws, 1u);
+	EXPECT_EQ(GCounterSnapshots[1].GBufferTerrainRejectedDraws, 0u);
+	EXPECT_EQ(GCounterSnapshots[1].GBufferTerrainSkippedDraws, 0u);
+	for (const auto& Attachment : TerrainGBufferPixels)
+		ASSERT_EQ(Attachment.size(), 65u * 65u * 4u);
+	size_t ValidTerrainGBufferPixels = 0;
+	for (size_t Offset = 0; Offset < TerrainGBufferPixels[2].size(); Offset += 4)
+	{
+		if (TerrainGBufferPixels[2][Offset + 3] == 0u) continue;
+		++ValidTerrainGBufferPixels;
+		EXPECT_EQ(TerrainGBufferPixels[2][Offset + 3],
+			Durin::GBufferContract::StandardLitFlag);
+		EXPECT_NEAR(static_cast<float>(TerrainGBufferPixels[0][Offset]) / 255.0f,
+			0.8f, Durin::GBufferContract::MaximumUNorm8Error);
+		EXPECT_NEAR(static_cast<float>(TerrainGBufferPixels[0][Offset + 1]) / 255.0f,
+			0.2f, Durin::GBufferContract::MaximumUNorm8Error);
+		EXPECT_NEAR(static_cast<float>(TerrainGBufferPixels[0][Offset + 2]) / 255.0f,
+			0.1f, Durin::GBufferContract::MaximumUNorm8Error);
+		const Durin::FVector3f ShadingNormal =
+			Durin::GBufferContract::DecodeOctahedralNormal({
+				static_cast<float>(TerrainGBufferPixels[1][Offset]) / 255.0f,
+				static_cast<float>(TerrainGBufferPixels[1][Offset + 1]) / 255.0f});
+		EXPECT_NEAR(Durin::Math::Length(ShadingNormal), 1.0, 1.0e-5);
+	}
+	EXPECT_GT(ValidTerrainGBufferPixels, 0u);
 	EXPECT_EQ(GCounterSnapshots[0].PreparedTerrainTriangles, 8u);
 	EXPECT_EQ(GCounterSnapshots[0].TerrainHeightUploadBytes, 18u);
 	EXPECT_EQ(GCounterSnapshots[0].TerrainHeightUploads, 1u);
@@ -265,7 +362,10 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 			View.Settings.VisibilityMode =
 				Durin::EViewVisibilityMode::FrustumCullingDisabled;
 			View.Settings.LODMode = Durin::EViewLODMode::ForceLOD0;
-			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false, {}),
+			Durin::FSceneViewRenderOptions QualificationOptions;
+			QualificationOptions.bEnableGBufferQualification = true;
+			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View, Target, false,
+				QualificationOptions),
 				Durin::ERenderViewResult::Success);
 			ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
 				CommandList, Target, 0, 0, *LargeCoordinateReadback));
@@ -273,6 +373,9 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 		});
 	Durin::FlushRenderingCommands();
 	EXPECT_EQ(*LargeCoordinateReadback, *Readback);
+	EXPECT_EQ(GCounters.GBufferTerrainAttemptedDraws, 1u);
+	EXPECT_EQ(GCounters.GBufferTerrainSuccessfulDraws, 1u);
+	EXPECT_EQ(GCounters.GBufferTerrainRejectedDraws, 0u);
 
 	const std::array<Durin::uint16, 15> MixedSamples{
 		65535, 65535, 65535, 65535, 65535,

@@ -8,6 +8,7 @@ namespace Durin
 {
 	class FDefaultTextureResources;
 	class FEnvironmentLightingResources;
+	class FGBufferRenderer;
 	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
 	struct FPreparedStaticMeshView;
@@ -63,6 +64,11 @@ namespace Durin
 			FPreparedStaticMeshView& PreparedView) -> void;
 		auto FinalizeExecution_RenderThread(FPreparedStaticMeshView& PreparedView)
 			-> void;
+		auto ExecuteGBuffer_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			const FSceneView& View,
+			FGBufferRenderer& GBuffer,
+			FPreparedStaticMeshView& PreparedView) -> void;
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:
@@ -80,6 +86,12 @@ namespace Durin
 			const FPreparedStaticMeshPrimitive& Primitive,
 			const FPreparedStaticMeshDraw& Item,
 			bool bShadowDepth = false) -> bool;
+		auto DrawGBufferSection_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			const FSceneView& View,
+			FGBufferRenderer& GBuffer,
+			const FPreparedStaticMeshPrimitive& Primitive,
+			const FPreparedStaticMeshDraw& Item) -> bool;
 		struct FState;
 
 		FRendererResourceCoordinator& Coordinator;
