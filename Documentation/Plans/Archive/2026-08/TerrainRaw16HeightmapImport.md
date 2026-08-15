@@ -4,7 +4,7 @@ Summary: Add exact Gaea/Unity-style square little-endian unsigned RAW16 sources 
 
 Last reviewed: 2026-08-14
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-14
 
 ## Current Status
@@ -280,12 +280,12 @@ For the initial qualified profile:
 
 ## Related Documentation
 
-- [Terrain Heightmap Asset](../Runtime/Terrain/TerrainHeightmapAsset.md)
-- [Terrain Workflow](../Editor/Guides/TerrainWorkflow.md)
-- [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md)
-- [Runtime Collision](../Runtime/Physics/Collision.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md)
+- [Terrain Workflow](../../../Editor/Guides/TerrainWorkflow.md)
+- [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
+- [Runtime Collision](../../../Runtime/Physics/Collision.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 - [Terrain Draw Submission Scalability](TerrainDrawSubmissionScalability.md)
 
 ## Related Code

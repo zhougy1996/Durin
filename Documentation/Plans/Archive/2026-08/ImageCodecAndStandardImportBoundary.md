@@ -4,7 +4,7 @@ Summary: Move source-image decoding into a Core-owned codec boundary, distinguis
 
 Last reviewed: 2026-08-14
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-14
 
 ## Current Status
@@ -467,9 +467,9 @@ Dependencies: Stages 1-5.
 | Deployment | Standard import and Build modules present only in authoring profiles; Cooked Game remains source-decoder-policy free | Module closure and deployment checks |
 | Binary cost | Core, Editor, and Cooked Game binary/dependency comparison against Stage 0 | Build evidence |
 
-Validation execution follows [Agent Testing Workflow](../Agents/Testing.md),
-[Native Tests](../Development/Build/NativeTests.md), and
-[Agent Build and Run Workflow](../Agents/BuildAndRun.md). Use the smallest
+Validation execution follows [Agent Testing Workflow](../../../Agents/Testing.md),
+[Native Tests](../../../Development/Build/NativeTests.md), and
+[Agent Build and Run Workflow](../../../Agents/BuildAndRun.md). Use the smallest
 affected named targets during implementation; the Stage 6 gate requires the
 complete ordinary aggregate because the plan changes shared Core ownership and
 native-test registration.
@@ -527,13 +527,13 @@ versioning, diagnostics, and failure-isolation contracts.
 
 ## Related Documentation
 
-- [Code Modules](../Workspace/CodeModules.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
 - [Engine Asset Build Boundary Plan](EngineAssetBuildBoundary.md)
 - [Engine Module Simplification Plan](EngineModuleSimplification.md)
-- [Terrain Heightmap Asset](../Runtime/Terrain/TerrainHeightmapAsset.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [Native Tests](../Development/Build/NativeTests.md)
+- [Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code
 

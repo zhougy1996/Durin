@@ -4,7 +4,7 @@ Summary: Add deterministic per-view terrain patch LOD, adjacency resolution, cra
 
 Last reviewed: 2026-08-13
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-13
 
 ## Current Status
@@ -42,7 +42,7 @@ Focused Terrain contract/Vulkan tests, the Terrain domain including
 source/DDC-free Cooked Runtime proxy creation, the explicit qualification
 target, the ordinary native aggregate, full Debug Editor and Game builds, and
 normal-exit hidden-window Editor/Game smokes passed. Lasting behavior is owned
-by [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md); T4 may consume
+by [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md); T4 may consume
 the stable counters and overlay without redefining T3.
 
 ### Stage 0/1 semantics and foundation handoff (2026-08-13)
@@ -369,7 +369,7 @@ Dependencies: Stages 1-3 complete end-to-end rendering.
   editor smoke for user-visible rendering, plus a cooked Game smoke without
   source or DDC, according to the owning build/test guidance.
 - [x] Publish lasting LOD/error/adjacency/stitching/resource/diagnostic/limit
-  contracts in [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md),
+  contracts in [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md),
   update the Heightfield Terrain roadmap with T3 evidence and exact T4 entry
   state, and validate changed docs, all plans, and all roadmaps.
 - [x] Record final revision, build profile, fixtures, test counts, images,
@@ -440,14 +440,14 @@ Dependencies: Stages 1-3 complete end-to-end rendering.
 
 ## Related Documentation
 
-- [Heightfield Terrain Roadmap](../Roadmaps/HeightfieldTerrain.md)
-- [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md)
-- [Terrain Heightmap Asset](../Runtime/Terrain/TerrainHeightmapAsset.md)
-- [Runtime Collision](../Runtime/Physics/Collision.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Heightfield Terrain Roadmap](../../../Roadmaps/HeightfieldTerrain.md)
+- [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
+- [Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md)
+- [Runtime Collision](../../../Runtime/Physics/Collision.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

@@ -4,7 +4,7 @@ Summary: Qualify real native-module unload and reload across synchronous, asynch
 
 Last reviewed: 2026-08-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-15
 
 ## Current Status
@@ -257,18 +257,18 @@ prevents native release with actionable diagnostics.
 
 ## Related Documentation
 
-- [Parent roadmap](../Roadmaps/ModularFeatureAndDllUnloadSafety.md)
-- [Modular features and module retirement](../Runtime/Core/ModularFeaturesAndModuleRetirement.md)
-- [Task System](../Runtime/Core/TaskSystem.md)
-- [Native C++ Tests](../Development/Build/NativeTests.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
+- [Parent roadmap](../../../Roadmaps/Archive/2026-08/ModularFeatureAndDllUnloadSafety.md)
+- [Modular features and module retirement](../../../Runtime/Core/ModularFeaturesAndModuleRetirement.md)
+- [Task System](../../../Runtime/Core/TaskSystem.md)
+- [Native C++ Tests](../../../Development/Build/NativeTests.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 
-- [Module manager interface](../../Engine/Source/Runtime/Core/Public/Modules/ModuleManager.h)
-- [Module manager implementation](../../Engine/Source/Runtime/Core/Private/Modules/ModuleManager.cpp)
-- [Module test context](../../Engine/Source/Runtime/Core/Public/Modules/ModuleTestContext.h)
-- [Modular feature tests](../../Engine/Tests/Native/CoreTests/Private/ModularFeatureTests.cpp)
-- [Async operation tests](../../Engine/Tests/Native/CoreTests/Private/AsyncOperationGroupTests.cpp)
-- [Native test configuration](../../Engine/Tests/Native/CMakeLists.txt)
+- [Module manager interface](../../../../Engine/Source/Runtime/Core/Public/Modules/ModuleManager.h)
+- [Module manager implementation](../../../../Engine/Source/Runtime/Core/Private/Modules/ModuleManager.cpp)
+- [Module test context](../../../../Engine/Source/Runtime/Core/Public/Modules/ModuleTestContext.h)
+- [Modular feature tests](../../../../Engine/Tests/Native/CoreTests/Private/ModularFeatureTests.cpp)
+- [Async operation tests](../../../../Engine/Tests/Native/CoreTests/Private/AsyncOperationGroupTests.cpp)
+- [Native test configuration](../../../../Engine/Tests/Native/CMakeLists.txt)

@@ -4,7 +4,7 @@ Summary: Implement Core-owned typed feature registration, bounded synchronous in
 
 Last reviewed: 2026-08-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-15
 
 ## Current Status
@@ -248,13 +248,13 @@ entry gate lock; no code path may acquire them in the reverse order.
 
 ## Current Foundations and Gaps
 
-- [`FModuleManager`](../../Engine/Source/Runtime/Core/Public/Modules/ModuleManager.h)
+- [`FModuleManager`](../../../../Engine/Source/Runtime/Core/Public/Modules/ModuleManager.h)
   already owns module instances and native handles but exposes only `bIsReady`
   and `void` shutdown/unload operations.
-- [`FModuleManager::UnloadModule`](../../Engine/Source/Runtime/Core/Private/Modules/ModuleManager.cpp)
+- [`FModuleManager::UnloadModule`](../../../../Engine/Source/Runtime/Core/Private/Modules/ModuleManager.cpp)
   currently resets the module instance and calls `FreeLibrary` after
   `ShutdownModule()` without a feature-retirement audit.
-- [`PreShutdownModuleCallback`](../../Engine/Source/Runtime/Core/Public/Modules/ModuleManager.h)
+- [`PreShutdownModuleCallback`](../../../../Engine/Source/Runtime/Core/Public/Modules/ModuleManager.h)
   already provides a reflected-object rejection boundary that must be retained
   inside the new state machine.
 - Core already supplies unique delegate handles and thread-safe primitives that
@@ -417,9 +417,9 @@ entry gate lock; no code path may acquire them in the reverse order.
 | Documentation | Repository validators | Active plan, roadmap, and changed documentation links and metadata are valid |
 
 Before selecting or running tests, follow
-[Agent Testing Workflow](../Agents/Testing.md). Before configuring, building,
+[Agent Testing Workflow](../../../Agents/Testing.md). Before configuring, building,
 running, or recovering targets, follow
-[Agent Build and Run Workflow](../Agents/BuildAndRun.md).
+[Agent Build and Run Workflow](../../../Agents/BuildAndRun.md).
 
 ## Definition of Done
 
@@ -446,35 +446,35 @@ running, or recovering targets, follow
 
 - `FAsyncOperationGroup`, abort reasons, task inheritance, Game Thread drain,
   and retained-callable destruction proof belong to
-  `Documentation/Plans/ModuleAsyncOperationDrain.md` after its roadmap entry
+  `Documentation/Plans/Archive/2026-08/ModuleAsyncOperationDrain.md` after its roadmap entry
   gate is satisfied.
 - Migration of Runtime Engine authoring callback slots belongs to
-  `Documentation/Plans/EngineAuthoringModularFeatureMigration.md`.
+  `Documentation/Plans/Archive/2026-08/EngineAuthoringModularFeatureMigration.md`.
 - Asset import, Asset Build, thumbnail, workspace, delegate, timer, watcher, and
   render-callback audit belongs to
-  `Documentation/Plans/DynamicModuleRegistrySafetyAudit.md`.
+  `Documentation/Plans/Archive/2026-08/DynamicModuleRegistrySafetyAudit.md`.
 - A real unloadable DLL stress fixture belongs to
-  `Documentation/Plans/DynamicDllUnloadQualification.md`.
+  `Documentation/Plans/Archive/2026-08/DynamicDllUnloadQualification.md`.
 - Restart of a stopped-mapped or unload-blocked module requires separate
   evidence and is not implied by this plan.
 
 ## Related Documentation
 
-- [Parent roadmap](../Roadmaps/ModularFeatureAndDllUnloadSafety.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Task System](../Runtime/Core/TaskSystem.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [C++ Coding Standards](../Development/Standards/CodingStandards.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
+- [Parent roadmap](../../../Roadmaps/Archive/2026-08/ModularFeatureAndDllUnloadSafety.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Task System](../../../Runtime/Core/TaskSystem.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 
-- [Module manager interface](../../Engine/Source/Runtime/Core/Public/Modules/ModuleManager.h)
-- [Module manager implementation](../../Engine/Source/Runtime/Core/Private/Modules/ModuleManager.cpp)
-- [Delegate identity implementation](../../Engine/Source/Runtime/Core/Private/Delegates/Delegate.cpp)
-- [Core native-test target](../../Engine/Tests/Native/CoreTests/CMakeLists.txt)
-- [Vulkan RHI unload regressions](../../Engine/Tests/Native/VulkanRHITests/Private/VulkanFailureInjectionTests.cpp)
+- [Module manager interface](../../../../Engine/Source/Runtime/Core/Public/Modules/ModuleManager.h)
+- [Module manager implementation](../../../../Engine/Source/Runtime/Core/Private/Modules/ModuleManager.cpp)
+- [Delegate identity implementation](../../../../Engine/Source/Runtime/Core/Private/Delegates/Delegate.cpp)
+- [Core native-test target](../../../../Engine/Tests/Native/CoreTests/CMakeLists.txt)
+- [Vulkan RHI unload regressions](../../../../Engine/Tests/Native/VulkanRHITests/Private/VulkanFailureInjectionTests.cpp)
 
 Expected new implementation paths include
 `Engine/Source/Runtime/Core/Public/Modules/ModularFeature.h` and

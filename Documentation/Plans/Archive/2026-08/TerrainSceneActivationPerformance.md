@@ -4,7 +4,7 @@ Summary: Remove repeated Terrain payload validation and derived-data constructio
 
 Last reviewed: 2026-08-14
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-14
 
 ## Current Status
@@ -340,12 +340,12 @@ editor picking, collision query correctness, and asset corruption detection.
 
 ## Related Documentation
 
-- [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md)
-- [Aether Physics Evolution Roadmap](../Roadmaps/AetherPhysicsEvolution.md)
-- [CPU Task System](../Runtime/Core/TaskSystem.md)
-- [Terrain Workflow](../Editor/Guides/TerrainWorkflow.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
+- [Aether Physics Evolution Roadmap](../../../Roadmaps/AetherPhysicsEvolution.md)
+- [CPU Task System](../../../Runtime/Core/TaskSystem.md)
+- [Terrain Workflow](../../../Editor/Guides/TerrainWorkflow.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

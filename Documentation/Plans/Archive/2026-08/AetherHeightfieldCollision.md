@@ -4,7 +4,7 @@ Summary: Add immutable regular-grid heightfield collision to Aether and publish 
 
 Last reviewed: 2026-08-13
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-13
 
 ## Current Status
@@ -615,13 +615,13 @@ Dependencies: Stages 1-4 complete end-to-end behavior.
 
 ## Related Documentation
 
-- [Heightfield Terrain Roadmap](../Roadmaps/HeightfieldTerrain.md)
-- [Aether Physics Evolution Roadmap](../Roadmaps/AetherPhysicsEvolution.md)
-- [Terrain Heightmap Asset](../Runtime/Terrain/TerrainHeightmapAsset.md)
-- [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md)
-- [Runtime Collision](../Runtime/Physics/Collision.md)
-- [Native Tests](../Development/Build/NativeTests.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Heightfield Terrain Roadmap](../../../Roadmaps/HeightfieldTerrain.md)
+- [Aether Physics Evolution Roadmap](../../../Roadmaps/AetherPhysicsEvolution.md)
+- [Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md)
+- [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
+- [Runtime Collision](../../../Runtime/Physics/Collision.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

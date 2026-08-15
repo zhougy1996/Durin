@@ -4,7 +4,7 @@ Summary: Add package-level canonical resave detection, interactive actions, and 
 
 Last reviewed: 2026-08-13
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-13
 
 ## Current Status
@@ -321,8 +321,8 @@ maintenance workflow that:
 | Documentation | Changed-scope and all-plan validation pass; lasting reflection, package, Content Browser, import, and user workflow contracts are updated. |
 
 Build and native-test selection follow
-[Agent Build And Run Workflow](../Agents/BuildAndRun.md) and
-[Agent Testing Workflow](../Agents/Testing.md); stage work must use the smallest
+[Agent Build And Run Workflow](../../../Agents/BuildAndRun.md) and
+[Agent Testing Workflow](../../../Agents/Testing.md); stage work must use the smallest
 applicable targets before broader validation.
 
 ## Definition of Done
@@ -353,13 +353,13 @@ applicable targets before broader validation.
 
 ## Related Documentation
 
-- [Generated Reflection System](../Runtime/Core/ReflectionSystem.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
-- [Content Browser](../Editor/Architecture/ContentBrowser.md)
-- [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
-- [Agent Build And Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Generated Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Agent Build And Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

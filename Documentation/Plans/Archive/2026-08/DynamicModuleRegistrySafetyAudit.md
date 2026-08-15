@@ -4,7 +4,7 @@ Summary: Classify and integrate cross-DLL registries and callbacks with explicit
 
 Last reviewed: 2026-08-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-15
 
 ## Current Status
@@ -278,7 +278,7 @@ while preserving each specialized registry's domain selection semantics.
 - [x] Publish the lasting specialized-registry and callback ownership contract.
 - [x] Update the parent roadmap with Milestone 4 evidence and complete this
   plan only after every required disposition is closed.
-- [x] Create `Documentation/Plans/DynamicDllUnloadQualification.md` only after
+- [x] Create `Documentation/Plans/Archive/2026-08/DynamicDllUnloadQualification.md` only after
   the Milestone 4 exit gate passes.
 
 #### Completion Evidence
@@ -286,7 +286,7 @@ while preserving each specialized registry's domain selection semantics.
 - The frozen registration, render-command, task-root, and legacy authoring
   symbol searches leave only the documented process-resident, bounded,
   same-module, and native-test cases.
-- [Modular Features and Module Retirement](../Runtime/Core/ModularFeaturesAndModuleRetirement.md)
+- [Modular Features and Module Retirement](../../../Runtime/Core/ModularFeaturesAndModuleRetirement.md)
   now owns the specialized-registry, escaped-instance, external execution,
   render/RHI ordering, and bounded-exemption contracts.
 - `fast-all` passed all 55 selected contract, feature, and infrastructure
@@ -338,21 +338,21 @@ while preserving each specialized registry's domain selection semantics.
 
 ## Related Documentation
 
-- [Parent roadmap](../Roadmaps/ModularFeatureAndDllUnloadSafety.md)
-- [Modular features and module retirement](../Runtime/Core/ModularFeaturesAndModuleRetirement.md)
-- [Task System](../Runtime/Core/TaskSystem.md)
-- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
+- [Parent roadmap](../../../Roadmaps/Archive/2026-08/ModularFeatureAndDllUnloadSafety.md)
+- [Modular features and module retirement](../../../Runtime/Core/ModularFeaturesAndModuleRetirement.md)
+- [Task System](../../../Runtime/Core/TaskSystem.md)
+- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 
-- [Asset import registries](../../Engine/Source/Editor/AssetImportCore/Public/AssetImportCore.h)
-- [Standard asset import providers](../../Engine/Source/Editor/StandardAssetImport/Private/StandardAssetImportProviders.cpp)
-- [Build host](../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildHost.h)
-- [Local build registry](../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildRegistry.h)
-- [Workspace manager](../../Engine/Source/Editor/DurinEd/Public/Editor/WorkspaceManager.h)
-- [Thumbnail service](../../Engine/Source/Editor/DurinEd/Public/Thumbnail/RenderedAssetThumbnailService.h)
-- [Level editor customizations](../../Engine/Source/Editor/LevelEditor/Public/LevelEditorCustomizations.h)
-- [Viewport edit modes](../../Engine/Source/Editor/LevelEditor/Public/LevelEditorViewportEditing.h)
-- [Module manager](../../Engine/Source/Runtime/Core/Public/Modules/ModuleManager.h)
+- [Asset import registries](../../../../Engine/Source/Editor/AssetImportCore/Public/AssetImportCore.h)
+- [Standard asset import providers](../../../../Engine/Source/Editor/StandardAssetImport/Private/StandardAssetImportProviders.cpp)
+- [Build host](../../../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildHost.h)
+- [Local build registry](../../../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildRegistry.h)
+- [Workspace manager](../../../../Engine/Source/Editor/DurinEd/Public/Editor/WorkspaceManager.h)
+- [Thumbnail service](../../../../Engine/Source/Editor/DurinEd/Public/Thumbnail/RenderedAssetThumbnailService.h)
+- [Level editor customizations](../../../../Engine/Source/Editor/LevelEditor/Public/LevelEditorCustomizations.h)
+- [Viewport edit modes](../../../../Engine/Source/Editor/LevelEditor/Public/LevelEditorViewportEditing.h)
+- [Module manager](../../../../Engine/Source/Runtime/Core/Public/Modules/ModuleManager.h)

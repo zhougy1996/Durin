@@ -250,7 +250,7 @@ are unavailable.
 
 ## Related Documentation
 
-- [Shadow System Evolution Roadmap](../Roadmaps/ShadowSystemEvolution.md)
+- [Shadow System Evolution Roadmap](../Roadmaps/Archive/2026-08/ShadowSystemEvolution.md)
 - [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md)
 - [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
 

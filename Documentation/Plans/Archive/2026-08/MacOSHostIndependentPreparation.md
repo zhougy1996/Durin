@@ -4,7 +4,7 @@ Summary: Prepare and verify platform boundaries, portable Vulkan admission, targ
 
 Last reviewed: 2026-08-13
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-13
 
 ## Current Status
@@ -19,7 +19,7 @@ and hidden-window runtime smoke passed. macOS remains pending native
 qualification; M1 is not active because no Apple Silicon worker was available.
 
 This plan is M0 of the
-[macOS Platform Enablement roadmap](../Roadmaps/MacOSPlatformEnablement.md).
+[macOS Platform Enablement roadmap](../../../Roadmaps/MacOSPlatformEnablement.md).
 Every implementation stage is intentionally executable and qualifiable on the
 current Windows host. The plan ends with a native-host handoff, not with a
 macOS support claim.
@@ -396,8 +396,8 @@ captured logs for the next baseline decision.
 | Cook audit | Complete inventory and compatibility evidence requirements. | Per-family cook/load decisions and fixtures in M4. |
 | Regression closure | Focused suites, native aggregate, Debug Editor build, hidden-window smoke. | Cross-platform CI matrix beginning in M1 and expanding through M5. |
 
-Validation commands and target selection follow [Agent Build and Run](../Agents/BuildAndRun.md)
-and [Agent Testing](../Agents/Testing.md); this plan records results rather than
+Validation commands and target selection follow [Agent Build and Run](../../../Agents/BuildAndRun.md)
+and [Agent Testing](../../../Agents/Testing.md); this plan records results rather than
 duplicating command recipes.
 
 ## Definition of Done
@@ -429,12 +429,12 @@ duplicating command recipes.
 
 ## Related Documentation
 
-- [macOS Platform Enablement Roadmap](../Roadmaps/MacOSPlatformEnablement.md)
-- [Build System](../Development/Build/BuildSystem.md)
-- [Third-Party Dependency Preparation](../Development/Build/ThirdPartyBootstrap.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Shader Parameters](../Runtime/Rendering/ShaderParameters.md)
-- [Asset Versioning](../Runtime/Assets/Versioning.md)
+- [macOS Platform Enablement Roadmap](../../../Roadmaps/MacOSPlatformEnablement.md)
+- [Build System](../../../Development/Build/BuildSystem.md)
+- [Third-Party Dependency Preparation](../../../Development/Build/ThirdPartyBootstrap.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
+- [Asset Versioning](../../../Runtime/Assets/Versioning.md)
 
 ## Related Code
 

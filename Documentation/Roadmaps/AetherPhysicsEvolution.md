@@ -61,7 +61,7 @@ builder peak; sparse Production work is one node and zero features versus
 100,352 Reference features, with zero qualified mismatch or fallback.
 
 Terrain T2 completed on 2026-08-13 through the
-[Aether Heightfield Collision Plan](../Plans/AetherHeightfieldCollision.md).
+[Aether Heightfield Collision Plan](../Plans/Archive/2026-08/AetherHeightfieldCollision.md).
 AetherCore now owns immutable exact-sample HeightFields, deterministic 8x8-cell
 hierarchies, complete Reference/Production Ray/Sweep/Overlap, bounded work
 counters, and weak interning. Engine atomically republishes Terrain render and
@@ -355,7 +355,7 @@ settings and version, immutable convex/triangle payloads, asset BVH, derived
 data, serialization, import invalidation, runtime memory, and inspection. It
 does not reuse render BVHs as collision truth, add dynamic mesh deformation,
 or introduce rigid-body simulation. Heightfields are now owned by the separate
-[Aether Heightfield Collision](../Plans/AetherHeightfieldCollision.md) plan and
+[Aether Heightfield Collision](../Plans/Archive/2026-08/AetherHeightfieldCollision.md) plan and
 its concrete Terrain consumer rather than expanding this completed milestone.
 
 ### `AetherRigidBodySimulation`

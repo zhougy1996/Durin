@@ -4,7 +4,7 @@ Summary: Add three stabilized directional-shadow cascades with deterministic spl
 
 Last reviewed: 2026-08-14
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-14
 
 ## Current Status
@@ -361,7 +361,7 @@ fully lit fallback.
   driver, and Vulkan version.
 - [x] Publish lasting cascade ownership, resource, split, fit, selection,
   blending, diagnostic, counter, ABI, view, failure, fallback, and measurement
-  behavior in [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md).
+  behavior in [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md).
 - [x] Update the Shadow System Evolution roadmap with the Q2 result and
   disposition every conditional branch from recorded activation evidence.
 
@@ -431,18 +431,18 @@ fully lit fallback.
 
 ## Related Documentation
 
-- [Shadow System Evolution Roadmap](../Roadmaps/ShadowSystemEvolution.md)
+- [Shadow System Evolution Roadmap](../../../Roadmaps/Archive/2026-08/ShadowSystemEvolution.md)
 - [Directional Shadow PCF Quality Tiers Plan](DirectionalShadowPCFQualityTiers.md)
 - [Directional Shadow Diagnostics And Bias Plan](DirectionalShadowDiagnosticsAndBias.md)
-- [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md)
-- [Forward Lighting](../Runtime/Rendering/ForwardLighting.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Skeletal Mesh Rendering](../Runtime/Rendering/SkeletalMeshRendering.md)
-- [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md)
-- [RHI Diagnostics and Conformance](../Runtime/Rendering/RHIDiagnosticsAndConformance.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
+- [Forward Lighting](../../../Runtime/Rendering/ForwardLighting.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
+- [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
+- [RHI Diagnostics and Conformance](../../../Runtime/Rendering/RHIDiagnosticsAndConformance.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

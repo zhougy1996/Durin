@@ -22,7 +22,7 @@ handling referenced from common launch code, Windows-only dependency manifests,
 Win32-specific Vulkan presentation admission, unsupported native file dialogs,
 and cooked payload contracts that name only Win64.
 
-[macOS Host-Independent Preparation](../Plans/MacOSHostIndependentPreparation.md)
+[macOS Host-Independent Preparation](../Plans/Archive/2026-08/MacOSHostIndependentPreparation.md)
 completed M0 on the Windows qualification host. Platform source ownership,
 neutral Launch/Vulkan boundaries, target-aware DHT preprocessing, arm64 preset
 intent, dependency diagnostics, cook inventories, and the first-host checklist
@@ -136,7 +136,7 @@ flowchart LR
 
 | Milestone | Requirement | Child plan | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- |
-| M0: Host-independent preparation | Required; completed | [macOS Host-Independent Preparation](../Plans/MacOSHostIndependentPreparation.md) | Met: Windows build and test environment is available and the principal platform couplings are identifiable statically. | Met: Windows behavior remains qualified; build/source ownership, platform-neutral Vulkan admission models, target-aware generation metadata, and a reproducible first-Mac handoff are complete. |
+| M0: Host-independent preparation | Required; completed | [macOS Host-Independent Preparation](../Plans/Archive/2026-08/MacOSHostIndependentPreparation.md) | Met: Windows build and test environment is available and the principal platform couplings are identifiable statically. | Met: Windows behavior remains qualified; build/source ownership, platform-neutral Vulkan admission models, target-aware generation metadata, and a reproducible first-Mac handoff are complete. |
 | M1: Native toolchain bootstrap | Required; proposed | `MacOSNativeToolchainBootstrap` | M0 is complete and an Apple Silicon Mac is available for repeatable local or CI execution. | Declared Xcode/macOS baseline configures and compiles a bounded Core/ApplicationCore target set with pinned arm64 dependencies and repeatable setup diagnostics. |
 | M2: Platform runtime and Editor shell | Required; proposed | `MacOSPlatformRuntime` | M1 toolchain and dependency preparation are stable. | Core process/module/filesystem services and the Editor shell launch, create a Cocoa window, process input, relaunch/open paths, enforce project ownership, and shut down without rendering-backend requirements being bypassed. |
 | M3: MoltenVK rendering vertical slice | Required; proposed | `MacOSMoltenVKRendering` | M2 provides a stable window/surface lifecycle and MoltenVK is pinned. | Editor renders and presents representative graphics and compute work with validation diagnostics, resize/minimize/recreate, shader compilation, resource lifetime, and clean shutdown passing on the target Mac. |
@@ -145,7 +145,7 @@ flowchart LR
 
 ## Child Plan Boundaries
 
-### [macOS Host-Independent Preparation](../Plans/MacOSHostIndependentPreparation.md)
+### [macOS Host-Independent Preparation](../Plans/Archive/2026-08/MacOSHostIndependentPreparation.md)
 
 Owns platform source selection, neutral common APIs, deterministic Vulkan
 admission/extension policy models, target-aware DHT configuration, coherent

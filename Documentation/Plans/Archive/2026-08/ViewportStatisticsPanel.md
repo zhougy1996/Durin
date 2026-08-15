@@ -4,7 +4,7 @@ Summary: Turn the scene viewport FPS badge into the entry point for a compact, p
 
 Last reviewed: 2026-08-14
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-14
 
 ## Current Status
@@ -44,7 +44,7 @@ Validation completed on the `windows-msvc-x64` Debug DurinEditor profile:
   entries.
 
 The lasting ownership, metric, auxiliary-view, and interaction contracts now
-live in [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md).
+live in [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md).
 
 Stage 4 replaced the originally listed ad-hoc pointer-driven scenario pass with
 repeatable `ViewportTests`, viewport qualification, Vulkan render integration,
@@ -356,26 +356,26 @@ and never include a camera-preview or unrelated auxiliary viewport.
 
 ## Related Documentation
 
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [C++ Coding Standards](../Development/Standards/CodingStandards.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
 
 ## Related Code
 
-- [`FSceneViewportPanel`](../../Engine/Source/Editor/LevelEditor/Private/Panels/SceneViewportPanel.h)
-- [`SceneViewportPanel.cpp`](../../Engine/Source/Editor/LevelEditor/Private/Panels/SceneViewportPanel.cpp)
-- [`ViewportPresentation.h`](../../Engine/Source/Editor/LevelEditor/Private/Viewport/ViewportPresentation.h)
-- [`ViewportPresentation.cpp`](../../Engine/Source/Editor/LevelEditor/Private/Viewport/ViewportPresentation.cpp)
-- [`FLevelEditorSessionSettings`](../../Engine/Source/Editor/LevelEditor/Private/Settings/LevelEditorSessionSettings.h)
-- [`LevelEditorSessionSettings.cpp`](../../Engine/Source/Editor/LevelEditor/Private/Settings/LevelEditorSessionSettings.cpp)
-- [`FSceneViewport`](../../Engine/Source/Runtime/Engine/Public/Client/SceneViewport.h)
-- [`SceneViewport.cpp`](../../Engine/Source/Runtime/Engine/Private/Client/SceneViewport.cpp)
-- [`DEngine::RedrawViewports`](../../Engine/Source/Runtime/Engine/Private/Engine/Engine.cpp)
-- [`SceneView.h`](../../Engine/Source/Runtime/RenderCore/Public/SceneView.h)
-- [`IRendererModule`](../../Engine/Source/Runtime/RenderCore/Public/IRendererModule.h)
-- [`FSceneRenderer`](../../Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.cpp)
-- [`FViewRenderCounters`](../../Engine/Source/Runtime/Renderer/Private/Renderers/SceneVisibility.h)
-- [`FRHICommandListBase`](../../Engine/Source/Runtime/RHI/Public/RHICommandList.h)
-- [`RHICommandList.cpp`](../../Engine/Source/Runtime/RHI/Private/RHICommandList.cpp)
+- [`FSceneViewportPanel`](../../../../Engine/Source/Editor/LevelEditor/Private/Panels/SceneViewportPanel.h)
+- [`SceneViewportPanel.cpp`](../../../../Engine/Source/Editor/LevelEditor/Private/Panels/SceneViewportPanel.cpp)
+- [`ViewportPresentation.h`](../../../../Engine/Source/Editor/LevelEditor/Private/Viewport/ViewportPresentation.h)
+- [`ViewportPresentation.cpp`](../../../../Engine/Source/Editor/LevelEditor/Private/Viewport/ViewportPresentation.cpp)
+- [`FLevelEditorSessionSettings`](../../../../Engine/Source/Editor/LevelEditor/Private/Settings/LevelEditorSessionSettings.h)
+- [`LevelEditorSessionSettings.cpp`](../../../../Engine/Source/Editor/LevelEditor/Private/Settings/LevelEditorSessionSettings.cpp)
+- [`FSceneViewport`](../../../../Engine/Source/Runtime/Engine/Public/Client/SceneViewport.h)
+- [`SceneViewport.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Client/SceneViewport.cpp)
+- [`DEngine::RedrawViewports`](../../../../Engine/Source/Runtime/Engine/Private/Engine/Engine.cpp)
+- [`SceneView.h`](../../../../Engine/Source/Runtime/RenderCore/Public/SceneView.h)
+- [`IRendererModule`](../../../../Engine/Source/Runtime/RenderCore/Public/IRendererModule.h)
+- [`FSceneRenderer`](../../../../Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.cpp)
+- [`FViewRenderCounters`](../../../../Engine/Source/Runtime/Renderer/Private/Renderers/SceneVisibility.h)
+- [`FRHICommandListBase`](../../../../Engine/Source/Runtime/RHI/Public/RHICommandList.h)
+- [`RHICommandList.cpp`](../../../../Engine/Source/Runtime/RHI/Private/RHICommandList.cpp)

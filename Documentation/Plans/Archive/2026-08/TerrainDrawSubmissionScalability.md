@@ -4,7 +4,7 @@ Summary: Batch compatible finite-Terrain patches with direct hardware instancing
 
 Last reviewed: 2026-08-14
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-14
 
 ## Current Status
@@ -407,14 +407,14 @@ conservation remain mandatory.
 
 ## Related Documentation
 
-- [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md)
+- [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
 - [Terrain Patch LOD Plan](TerrainPatchLOD.md)
 - [Terrain Editor Workflow Plan](TerrainEditorWorkflow.md)
-- [Heightfield Terrain Roadmap](../Roadmaps/HeightfieldTerrain.md)
-- [RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md)
-- [Renderer Scene Representation](../Runtime/Rendering/SceneRepresentation.md)
-- [Agent Build And Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Heightfield Terrain Roadmap](../../../Roadmaps/HeightfieldTerrain.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
+- [Agent Build And Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

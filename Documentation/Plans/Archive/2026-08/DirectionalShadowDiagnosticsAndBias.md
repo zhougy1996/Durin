@@ -4,7 +4,7 @@ Summary: Add causal directional-shadow diagnostics and a bounded texel-scale-awa
 
 Last reviewed: 2026-08-13
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-13
 
 ## Current Status
@@ -114,8 +114,8 @@ coverage, comparison failure, texel position, individual bias contributions,
 or artifact classification.
 
 The completed
-[Directional Shadow Pipeline Plan](Archive/2026-08/DirectionalShadowPipeline.md)
-and lasting [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md)
+[Directional Shadow Pipeline Plan](DirectionalShadowPipeline.md)
+and lasting [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
 contract remain the baseline. This plan may change the production bias only
 after diagnostic views distinguish missing caster depth, receiver-comparison
 failure, excessive displacement, filter footprint, and authored geometry.
@@ -417,7 +417,7 @@ retains the existing complete fully lit fallback.
   logical/backend bytes, GPU-time deltas, failures/retries, and target hardware.
 - [x] Publish lasting diagnostic, bias, ownership, ABI, view, failure, and
   measurement behavior in
-  [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md).
+  [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md).
 - [x] Update the Shadow System Evolution roadmap with Q0 completion and the Q1
   entry evidence; do not activate wider PCF until coverage, geometry, and bias
   defects have been separated by Q0 results.
@@ -487,17 +487,17 @@ retains the existing complete fully lit fallback.
 
 ## Related Documentation
 
-- [Shadow System Evolution Roadmap](../Roadmaps/ShadowSystemEvolution.md)
-- [Directional Shadow Pipeline Plan](Archive/2026-08/DirectionalShadowPipeline.md)
-- [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md)
-- [Forward Lighting](../Runtime/Rendering/ForwardLighting.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Skeletal Mesh Rendering](../Runtime/Rendering/SkeletalMeshRendering.md)
-- [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md)
-- [RHI Diagnostics and Conformance](../Runtime/Rendering/RHIDiagnosticsAndConformance.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Shadow System Evolution Roadmap](../../../Roadmaps/Archive/2026-08/ShadowSystemEvolution.md)
+- [Directional Shadow Pipeline Plan](DirectionalShadowPipeline.md)
+- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
+- [Forward Lighting](../../../Runtime/Rendering/ForwardLighting.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
+- [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
+- [RHI Diagnostics and Conformance](../../../Runtime/Rendering/RHIDiagnosticsAndConformance.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

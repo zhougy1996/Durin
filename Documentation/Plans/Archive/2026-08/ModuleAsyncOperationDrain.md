@@ -4,7 +4,7 @@ Summary: Add explicit module-owned asynchronous operation groups, abort semantic
 
 Last reviewed: 2026-08-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-15
 
 ## Current Status
@@ -166,23 +166,23 @@ accounting so module shutdown can prove quiescence before native release.
 ## Deferred Follow-ups
 
 - Runtime Engine authoring feature migration remains in
-  `Documentation/Plans/EngineAuthoringModularFeatureMigration.md` after this
+  `Documentation/Plans/Archive/2026-08/EngineAuthoringModularFeatureMigration.md` after this
   plan completes.
 - Specialized registry audit and real DLL qualification remain Milestones 4
   and 5 of the parent roadmap.
 
 ## Related Documentation
 
-- [Parent roadmap](../Roadmaps/ModularFeatureAndDllUnloadSafety.md)
-- [Modular feature and retirement contract](../Runtime/Core/ModularFeaturesAndModuleRetirement.md)
-- [Task System](../Runtime/Core/TaskSystem.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
+- [Parent roadmap](../../../Roadmaps/Archive/2026-08/ModularFeatureAndDllUnloadSafety.md)
+- [Modular feature and retirement contract](../../../Runtime/Core/ModularFeaturesAndModuleRetirement.md)
+- [Task System](../../../Runtime/Core/TaskSystem.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 
-- [Module manager interface](../../Engine/Source/Runtime/Core/Public/Modules/ModuleManager.h)
-- [Modular feature interface](../../Engine/Source/Runtime/Core/Public/Modules/ModularFeature.h)
-- [Task system interface](../../Engine/Source/Runtime/Core/Public/Threading/Task.h)
-- [Task system implementation](../../Engine/Source/Runtime/Core/Private/Threading/Task.cpp)
+- [Module manager interface](../../../../Engine/Source/Runtime/Core/Public/Modules/ModuleManager.h)
+- [Modular feature interface](../../../../Engine/Source/Runtime/Core/Public/Modules/ModularFeature.h)
+- [Task system interface](../../../../Engine/Source/Runtime/Core/Public/Threading/Task.h)
+- [Task system implementation](../../../../Engine/Source/Runtime/Core/Private/Threading/Task.cpp)

@@ -4,7 +4,7 @@ Summary: Replace six Runtime Engine process-global authoring callback families w
 
 Last reviewed: 2026-08-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-15
 
 ## Current Status
@@ -200,7 +200,7 @@ retained in process-global Engine storage.
   focused native suites under the repository workflows.
 - [x] Publish the lasting Runtime Engine authoring contract and update the
   parent roadmap with evidence.
-- [x] Create `Documentation/Plans/DynamicModuleRegistrySafetyAudit.md` only
+- [x] Create `Documentation/Plans/Archive/2026-08/DynamicModuleRegistrySafetyAudit.md` only
   after the Milestone 3 exit gate passes.
 
 #### Acceptance Gate
@@ -244,20 +244,20 @@ retained in process-global Engine storage.
 
 ## Related Documentation
 
-- [Parent roadmap](../Roadmaps/ModularFeatureAndDllUnloadSafety.md)
-- [Modular features and module retirement](../Runtime/Core/ModularFeaturesAndModuleRetirement.md)
-- [Task System](../Runtime/Core/TaskSystem.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
+- [Parent roadmap](../../../Roadmaps/Archive/2026-08/ModularFeatureAndDllUnloadSafety.md)
+- [Modular features and module retirement](../../../Runtime/Core/ModularFeaturesAndModuleRetirement.md)
+- [Task System](../../../Runtime/Core/TaskSystem.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 
-- [Static mesh authoring boundary](../../Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMeshAuthoring.h)
-- [Texture2D post-load boundary](../../Engine/Source/Runtime/Engine/Public/Texture/Texture2DPostLoad.h)
-- [TextureCube post-load boundary](../../Engine/Source/Runtime/Engine/Public/Texture/TextureCubePostLoad.h)
-- [Terrain authoring boundary](../../Engine/Source/Runtime/Engine/Public/Terrain/TerrainHeightmapPostLoad.h)
-- [Skeletal payload boundary](../../Engine/Source/Runtime/Engine/Public/SkeletalMesh/SkeletalAssetPostLoad.h)
-- [StandardAssetImport providers](../../Engine/Source/Editor/StandardAssetImport/Private/StandardAssetImportProviders.cpp)
-- [Terrain authoring policy](../../Engine/Source/Editor/StandardAssetImport/Private/TerrainHeightmapAuthoringPolicy.cpp)
-- [GeometryBuild module](../../Engine/Source/Developer/GeometryBuild/Private/GeometryBuildModule.cpp)
+- [Static mesh authoring boundary](../../../../Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMeshAuthoring.h)
+- [Texture2D post-load boundary](../../../../Engine/Source/Runtime/Engine/Public/Texture/Texture2DPostLoad.h)
+- [TextureCube post-load boundary](../../../../Engine/Source/Runtime/Engine/Public/Texture/TextureCubePostLoad.h)
+- [Terrain authoring boundary](../../../../Engine/Source/Runtime/Engine/Public/Terrain/TerrainHeightmapPostLoad.h)
+- [Skeletal payload boundary](../../../../Engine/Source/Runtime/Engine/Public/SkeletalMesh/SkeletalAssetPostLoad.h)
+- [StandardAssetImport providers](../../../../Engine/Source/Editor/StandardAssetImport/Private/StandardAssetImportProviders.cpp)
+- [Terrain authoring policy](../../../../Engine/Source/Editor/StandardAssetImport/Private/TerrainHeightmapAuthoringPolicy.cpp)
+- [GeometryBuild module](../../../../Engine/Source/Developer/GeometryBuild/Private/GeometryBuildModule.cpp)

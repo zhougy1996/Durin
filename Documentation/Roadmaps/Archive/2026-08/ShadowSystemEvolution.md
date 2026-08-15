@@ -4,13 +4,13 @@ Summary: Evolve the first directional shadow-map path into a stable, scalable pr
 
 Last reviewed: 2026-08-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-14
 
 ## Current Status
 
 The completed
-[Directional Shadow Pipeline Plan](../Plans/Archive/2026-08/DirectionalShadowPipeline.md)
+[Directional Shadow Pipeline Plan](../../../Plans/Archive/2026-08/DirectionalShadowPipeline.md)
 established the first production shadow path. The selected directional light
 renders Opaque and Masked StaticMesh, SplineMesh, SkeletalMesh, and Terrain
 casters into one reusable 2048x2048 D32 map, and the shared forward-lighting
@@ -20,7 +20,7 @@ caster discovery, deformation, diagnostics, and the fully lit failure fallback
 are already qualified.
 
 Q0 is complete through the
-[Directional Shadow Diagnostics And Bias Plan](../Plans/DirectionalShadowDiagnosticsAndBias.md).
+[Directional Shadow Diagnostics And Bias Plan](../../../Plans/Archive/2026-08/DirectionalShadowDiagnosticsAndBias.md).
 The production tier now has per-view causal depth/coverage, receiver-before/
 after-bias, texel-grid, contribution, and classification modes plus a bounded
 texel/orientation bias policy. Its checked-in package retains fixed and
@@ -30,7 +30,7 @@ SplineMesh, SkeletalMesh, Terrain, Masked material, supported views, resource
 recovery, shader ABI, full Debug build, and editor smoke are qualified.
 
 Q1 is complete through the
-[Directional Shadow PCF Quality Tiers Plan](../Plans/DirectionalShadowPCFQualityTiers.md).
+[Directional Shadow PCF Quality Tiers Plan](../../../Plans/Archive/2026-08/DirectionalShadowPCFQualityTiers.md).
 Low, Medium, and High have exact immutable kernels, footprints, guards,
 diagnostics, counters, fallbacks, complete Q0/Q1 capture parity, and target-GPU
 evidence. The shadow-only frequency ratios are 0.837 for Medium/Low and 0.893
@@ -41,7 +41,7 @@ results. Low remains byte-identical, numeric zero, and the invalid/resource
 fallback.
 
 Q2 cascaded directional shadows is complete through the
-[Cascaded Directional Shadows Plan](../Plans/CascadedDirectionalShadows.md).
+[Cascaded Directional Shadows Plan](../../../Plans/Archive/2026-08/CascadedDirectionalShadows.md).
 Its frozen entry candidate is three 2048x2048 D32 array layers (48 MiB logical),
 the existing 256-unit shadow distance, practical splits at lambda 0.65, bounded
 10% transitions, independent caster discovery, and the selected Medium 3x3
@@ -52,7 +52,7 @@ backend bytes are 50,331,648, and the measured Medium combined increment over
 SingleMap Medium is 12,608 ns against the 1,000,000 ns gate. Three cascades
 with Medium are now the production default.
 Screen-space contact shadows are active through the
-[DirectionalContactShadows](../Plans/DirectionalContactShadows.md) plan.
+[DirectionalContactShadows](../../../Plans/DirectionalContactShadows.md) plan.
 Variable-penumbra filtering, persistent caching, local-light shadows, and
 alternative representations remain conditional branches.
 
@@ -229,8 +229,8 @@ flowchart LR
 | Milestone | Requirement | Proposed child plan | Dependencies | Deliverable | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- | --- | --- |
 | Q0: Diagnostics and bias correctness | Completed 2026-08-13 | `DirectionalShadowDiagnosticsAndBias` | Completed `DirectionalShadowPipeline`; current depth/bias RHI | Visual shadow-depth, comparison-error, coverage, texel-grid, and bias diagnostics; representative artifact fixtures; texel-scale-aware bounded bias model shared by all receivers. | Passed: named valid/defective, acne, contact, Masked, grazing, and motion entry evidence was frozen before defaults changed. | Passed: selected captures, exact fallbacks, geometry/view parity, motion, recovery, memory, timing, builds, and smoke meet the completed child-plan gate. |
-| Q1: PCF quality tiers | Completed 2026-08-14; Medium selected, High rejected by motion | [DirectionalShadowPCFQualityTiers](../Plans/DirectionalShadowPCFQualityTiers.md) | Completed Q0 bias/diagnostic contract | Deterministic low/medium/high directional filtering candidates, exact kernel/guard metadata, shared sampling helper, counters, image fixtures, and a selected default tier. | Passed by Q0 causal classification; Stage 0 froze the 1-sample-linear, 3x3 tent, literal 5x5 tent, guards, image/motion metrics, and RTX 3090 GPU budgets without changing Low. | Passed: Medium reduces shadow-only high-frequency energy, passes motion/correctness/performance and is default; High is bounded but rejected by motion; Low and failure output remain exact and fully bound. |
-| Q2: Cascaded directional shadows | Completed 2026-08-14 | [CascadedDirectionalShadows](../Plans/CascadedDirectionalShadows.md) | Q0-Q1; selected RHI texture-array contract | Three camera-relative cascades with deterministic splitting, independent fitting/stabilization/culling, array ownership, selection/blending, diagnostics, quality-tier integration, and qualified default budgets. | Passed: three 2048 D32 layers, 50,331,648 logical/backend bytes, lambda-0.65 practical splits, 256-unit maximum distance, 10% overlap, Medium's 1.5-texel footprint/two-texel guard, independent casters, exact Vulkan layer views, and RTX 3090 memory/time gates are frozen. | Passed: split/selection goldens, three-layer Vulkan captures, caster families, supported views, retry/reload, sequential-view isolation, 50,331,648 bytes, and a 12,608 ns combined increment all pass; ThreeCascades Medium is the default. |
+| Q1: PCF quality tiers | Completed 2026-08-14; Medium selected, High rejected by motion | [DirectionalShadowPCFQualityTiers](../../../Plans/Archive/2026-08/DirectionalShadowPCFQualityTiers.md) | Completed Q0 bias/diagnostic contract | Deterministic low/medium/high directional filtering candidates, exact kernel/guard metadata, shared sampling helper, counters, image fixtures, and a selected default tier. | Passed by Q0 causal classification; Stage 0 froze the 1-sample-linear, 3x3 tent, literal 5x5 tent, guards, image/motion metrics, and RTX 3090 GPU budgets without changing Low. | Passed: Medium reduces shadow-only high-frequency energy, passes motion/correctness/performance and is default; High is bounded but rejected by motion; Low and failure output remain exact and fully bound. |
+| Q2: Cascaded directional shadows | Completed 2026-08-14 | [CascadedDirectionalShadows](../../../Plans/Archive/2026-08/CascadedDirectionalShadows.md) | Q0-Q1; selected RHI texture-array contract | Three camera-relative cascades with deterministic splitting, independent fitting/stabilization/culling, array ownership, selection/blending, diagnostics, quality-tier integration, and qualified default budgets. | Passed: three 2048 D32 layers, 50,331,648 logical/backend bytes, lambda-0.65 practical splits, 256-unit maximum distance, 10% overlap, Medium's 1.5-texel footprint/two-texel guard, independent casters, exact Vulkan layer views, and RTX 3090 memory/time gates are frozen. | Passed: split/selection goldens, three-layer Vulkan captures, caster families, supported views, retry/reload, sequential-view isolation, 50,331,648 bytes, and a 12,608 ns combined increment all pass; ThreeCascades Medium is the default. |
 
 Q0 through Q2 are the required roadmap. Each is implemented through a bounded
 child plan created only when its entry gate is satisfied. A child plan may
@@ -289,7 +289,7 @@ selected only from qualified tiers.
 
 | Branch | Proposed child plan | Activation evidence | Boundary |
 | --- | --- | --- | --- |
-| Screen-space contact shadows | [DirectionalContactShadows](../Plans/DirectionalContactShadows.md) | Activated 2026-08-15; Q0/Q2 captures show short-range contact loss from necessary bias after valid geometry and cascade resolution are ruled out; scene depth and target-GPU cost support bounded ray marching. | Supplements only the near-field selected directional result; cannot represent off-screen casters or repair geometry gaps; owns explicit maximum world/screen distance and failure fallback. |
+| Screen-space contact shadows | [DirectionalContactShadows](../../../Plans/DirectionalContactShadows.md) | Activated 2026-08-15; Q0/Q2 captures show short-range contact loss from necessary bias after valid geometry and cascade resolution are ruled out; scene depth and target-GPU cost support bounded ray marching. | Supplements only the near-field selected directional result; cannot represent off-screen casters or repair geometry gaps; owns explicit maximum world/screen distance and failure fallback. |
 | Variable-penumbra directional softness | `DirectionalShadowPCSS` | A product lighting requirement supplies source angular size, desired penumbra behavior, representative blocker/receiver scenes, and budget beyond Q1 PCF. | Owns blocker search and variable kernel; builds on Q2 and does not change caster visibility or cascade ownership. |
 | Persistent shadow caching and scheduling | `ShadowCacheAndScheduling` | Shadow-depth profiling, static-scene captures, or multi-view workloads show regeneration cost is material; stable scene/light/caster revision facts are available. | Cache keys include scene, light, caster/material/deformation, quality, and view/cascade facts; no stale cross-view contents or dimension-only identity. |
 | Point and spot shadows | `LocalLightShadowScheduling` | A product scene specifies shadowed light counts, ranges, update frequency, selection priority, atlas/cube memory, and target-GPU budget. | Extends renderer-owned light snapshots and bounded selection; does not let arbitrary visible lights allocate unbounded maps. Point cube maps and spot projections retain distinct fitting tests. |
@@ -353,19 +353,19 @@ selected only from qualified tiers.
 
 ## Related Documentation
 
-- [Directional Shadow Pipeline Plan](../Plans/Archive/2026-08/DirectionalShadowPipeline.md)
-- [Directional Shadow PCF Quality Tiers Plan](../Plans/DirectionalShadowPCFQualityTiers.md)
-- [Directional Shadows](../Runtime/Rendering/DirectionalShadows.md)
-- [Rendering Capability Expansion Roadmap](Archive/2026-08/RenderingCapabilityExpansion.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Skeletal Mesh Rendering](../Runtime/Rendering/SkeletalMeshRendering.md)
-- [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md)
-- [RHI Resource Views and Transfers](../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
-- [RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md)
-- [RHI Diagnostics and Conformance](../Runtime/Rendering/RHIDiagnosticsAndConformance.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Directional Shadow Pipeline Plan](../../../Plans/Archive/2026-08/DirectionalShadowPipeline.md)
+- [Directional Shadow PCF Quality Tiers Plan](../../../Plans/Archive/2026-08/DirectionalShadowPCFQualityTiers.md)
+- [Directional Shadows](../../../Runtime/Rendering/DirectionalShadows.md)
+- [Rendering Capability Expansion Roadmap](RenderingCapabilityExpansion.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
+- [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
+- [RHI Resource Views and Transfers](../../../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
+- [RHI Diagnostics and Conformance](../../../Runtime/Rendering/RHIDiagnosticsAndConformance.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

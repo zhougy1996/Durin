@@ -4,7 +4,7 @@ Summary: Complete the finite Terrain editor workflow with transactional placemen
 
 Last reviewed: 2026-08-14
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-14
 
 ## Current Status
@@ -331,14 +331,14 @@ contracts.
 
 ## Related Documentation
 
-- [Heightfield Terrain Roadmap](../Roadmaps/HeightfieldTerrain.md)
-- [Terrain Heightmap Asset](../Runtime/Terrain/TerrainHeightmapAsset.md)
-- [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md)
-- [Runtime Collision](../Runtime/Physics/Collision.md)
-- [Viewport Editing Architecture](../Editor/Architecture/ViewportEditing.md)
-- [Asset Thumbnails](../Editor/Architecture/AssetThumbnails.md)
-- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
-- [Content Browser](../Editor/Architecture/ContentBrowser.md)
+- [Heightfield Terrain Roadmap](../../../Roadmaps/HeightfieldTerrain.md)
+- [Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md)
+- [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
+- [Runtime Collision](../../../Runtime/Physics/Collision.md)
+- [Viewport Editing Architecture](../../../Editor/Architecture/ViewportEditing.md)
+- [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
+- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
 
 ## Related Code
 

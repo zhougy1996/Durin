@@ -372,8 +372,8 @@ and coordinate envelopes.
 - [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md)
 - [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
 - [Editor Grid](../Runtime/Rendering/EditorGrid.md)
-- [Terrain Patch LOD Plan](TerrainPatchLOD.md)
-- [Terrain Draw Submission Scalability Plan](TerrainDrawSubmissionScalability.md)
+- [Terrain Patch LOD Plan](Archive/2026-08/TerrainPatchLOD.md)
+- [Terrain Draw Submission Scalability Plan](Archive/2026-08/TerrainDrawSubmissionScalability.md)
 - [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../Agents/Testing.md)
 

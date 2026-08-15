@@ -4,7 +4,7 @@ Summary: Establish typed modular services, explicit asynchronous abort semantics
 
 Last reviewed: 2026-08-15
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-15
 
 ## Current Status
@@ -20,11 +20,11 @@ passes under Windows Application Verifier.
 
 | Milestone | Status | Active child plan |
 | --- | --- | --- |
-| 1. Modular feature registry and module retirement | Complete | [Modular Feature Registry and Module Retirement](../Plans/ModularFeatureRegistryAndModuleRetirement.md) |
-| 2. Explicit asynchronous operation drain | Complete | [Module Async Operation Drain](../Plans/ModuleAsyncOperationDrain.md) |
-| 3. Engine authoring feature migration | Complete | [Engine Authoring Modular Feature Migration](../Plans/EngineAuthoringModularFeatureMigration.md) |
-| 4. Specialized registry integration and callback audit | Complete | [Dynamic Module Registry Safety Audit](../Plans/DynamicModuleRegistrySafetyAudit.md) |
-| 5. Dynamic DLL unload qualification | Complete | [Dynamic DLL Unload Qualification](../Plans/DynamicDllUnloadQualification.md) |
+| 1. Modular feature registry and module retirement | Complete | [Modular Feature Registry and Module Retirement](../../../Plans/Archive/2026-08/ModularFeatureRegistryAndModuleRetirement.md) |
+| 2. Explicit asynchronous operation drain | Complete | [Module Async Operation Drain](../../../Plans/Archive/2026-08/ModuleAsyncOperationDrain.md) |
+| 3. Engine authoring feature migration | Complete | [Engine Authoring Modular Feature Migration](../../../Plans/Archive/2026-08/EngineAuthoringModularFeatureMigration.md) |
+| 4. Specialized registry integration and callback audit | Complete | [Dynamic Module Registry Safety Audit](../../../Plans/Archive/2026-08/DynamicModuleRegistrySafetyAudit.md) |
+| 5. Dynamic DLL unload qualification | Complete | [Dynamic DLL Unload Qualification](../../../Plans/Archive/2026-08/DynamicDllUnloadQualification.md) |
 
 ## Outcome
 
@@ -305,11 +305,11 @@ to become active.
 
 | Proposed child plan | Owns | Entry gate |
 | --- | --- | --- |
-| [Modular Feature Registry and Module Retirement](../Plans/ModularFeatureRegistryAndModuleRetirement.md) | Milestone 1 Core API, state machine, manager integration, and tests | Complete; exit gate passed |
-| [Module Async Operation Drain](../Plans/ModuleAsyncOperationDrain.md) | Milestone 2 task ownership, explicit abort, GT drain, and callable destruction proof | Complete; exit gate passed |
-| [Engine Authoring Modular Feature Migration](../Plans/EngineAuthoringModularFeatureMigration.md) | Milestone 3 contracts, providers, consumers, and legacy API deletion | Complete; exit gate passed |
-| [Dynamic Module Registry Safety Audit](../Plans/DynamicModuleRegistrySafetyAudit.md) | Milestone 4 inventory, classification, and specialized-registry integration | Complete; exit gate passed |
-| [Dynamic DLL Unload Qualification](../Plans/DynamicDllUnloadQualification.md) | Milestone 5 real DLL fixture, stress testing, and lasting documentation | Complete; exit gate passed |
+| [Modular Feature Registry and Module Retirement](../../../Plans/Archive/2026-08/ModularFeatureRegistryAndModuleRetirement.md) | Milestone 1 Core API, state machine, manager integration, and tests | Complete; exit gate passed |
+| [Module Async Operation Drain](../../../Plans/Archive/2026-08/ModuleAsyncOperationDrain.md) | Milestone 2 task ownership, explicit abort, GT drain, and callable destruction proof | Complete; exit gate passed |
+| [Engine Authoring Modular Feature Migration](../../../Plans/Archive/2026-08/EngineAuthoringModularFeatureMigration.md) | Milestone 3 contracts, providers, consumers, and legacy API deletion | Complete; exit gate passed |
+| [Dynamic Module Registry Safety Audit](../../../Plans/Archive/2026-08/DynamicModuleRegistrySafetyAudit.md) | Milestone 4 inventory, classification, and specialized-registry integration | Complete; exit gate passed |
+| [Dynamic DLL Unload Qualification](../../../Plans/Archive/2026-08/DynamicDllUnloadQualification.md) | Milestone 5 real DLL fixture, stress testing, and lasting documentation | Complete; exit gate passed |
 
 ## Program Validation Matrix
 
@@ -329,8 +329,8 @@ to become active.
 | Functional regression | Existing asset import, post-load, source relocation, Build, cook, and editor workflows retain their expected results |
 
 Each child plan selects the smallest relevant native-test targets according to
-[Agent Testing Workflow](../Agents/Testing.md) and validates builds according to
-[Agent Build and Run Workflow](../Agents/BuildAndRun.md).
+[Agent Testing Workflow](../../../Agents/Testing.md) and validates builds according to
+[Agent Build and Run Workflow](../../../Agents/BuildAndRun.md).
 
 ## Risks and Control Gates
 
@@ -398,25 +398,25 @@ This roadmap is complete when:
 
 ## Related Documentation
 
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Task System](../Runtime/Core/TaskSystem.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Task System](../../../Runtime/Core/TaskSystem.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 
-- [Module manager interface](../../Engine/Source/Runtime/Core/Public/Modules/ModuleManager.h)
-- [Module manager implementation](../../Engine/Source/Runtime/Core/Private/Modules/ModuleManager.cpp)
-- [Task system interface](../../Engine/Source/Runtime/Core/Public/Threading/Task.h)
-- [Task system implementation](../../Engine/Source/Runtime/Core/Private/Threading/Task.cpp)
-- [Static-mesh authoring callbacks](../../Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMeshAuthoring.cpp)
-- [Texture2D post-load callback](../../Engine/Source/Runtime/Engine/Private/Texture/Texture2DPostLoad.cpp)
-- [TextureCube post-load callback](../../Engine/Source/Runtime/Engine/Private/Texture/TextureCubePostLoad.cpp)
-- [Terrain authoring callbacks](../../Engine/Source/Runtime/Engine/Private/Terrain/TerrainHeightmapPostLoad.cpp)
-- [Skeletal payload callbacks](../../Engine/Source/Runtime/Engine/Private/SkeletalMesh/SkeletalAssetPostLoad.cpp)
-- [Standard asset import registrations](../../Engine/Source/Editor/StandardAssetImport/Private/StandardAssetImportProviders.cpp)
-- [Terrain asynchronous authoring policy](../../Engine/Source/Editor/StandardAssetImport/Private/TerrainHeightmapAuthoringPolicy.cpp)
-- [Geometry build module](../../Engine/Source/Developer/GeometryBuild/Private/GeometryBuildModule.cpp)
-- [Asset build host](../../Engine/Source/Developer/AssetBuildCore/Private/AssetBuildCore.cpp)
-- [Asset import provider registry](../../Engine/Source/Editor/AssetImportCore/Private/AssetImportCore.cpp)
+- [Module manager interface](../../../../Engine/Source/Runtime/Core/Public/Modules/ModuleManager.h)
+- [Module manager implementation](../../../../Engine/Source/Runtime/Core/Private/Modules/ModuleManager.cpp)
+- [Task system interface](../../../../Engine/Source/Runtime/Core/Public/Threading/Task.h)
+- [Task system implementation](../../../../Engine/Source/Runtime/Core/Private/Threading/Task.cpp)
+- [Static-mesh authoring callbacks](../../../../Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMeshAuthoring.cpp)
+- [Texture2D post-load callback](../../../../Engine/Source/Runtime/Engine/Private/Texture/Texture2DPostLoad.cpp)
+- [TextureCube post-load callback](../../../../Engine/Source/Runtime/Engine/Private/Texture/TextureCubePostLoad.cpp)
+- [Terrain authoring callbacks](../../../../Engine/Source/Runtime/Engine/Private/Terrain/TerrainHeightmapPostLoad.cpp)
+- [Skeletal payload callbacks](../../../../Engine/Source/Runtime/Engine/Private/SkeletalMesh/SkeletalAssetPostLoad.cpp)
+- [Standard asset import registrations](../../../../Engine/Source/Editor/StandardAssetImport/Private/StandardAssetImportProviders.cpp)
+- [Terrain asynchronous authoring policy](../../../../Engine/Source/Editor/StandardAssetImport/Private/TerrainHeightmapAuthoringPolicy.cpp)
+- [Geometry build module](../../../../Engine/Source/Developer/GeometryBuild/Private/GeometryBuildModule.cpp)
+- [Asset build host](../../../../Engine/Source/Developer/AssetBuildCore/Private/AssetBuildCore.cpp)
+- [Asset import provider registry](../../../../Engine/Source/Editor/AssetImportCore/Private/AssetImportCore.cpp)
