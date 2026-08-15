@@ -59,7 +59,7 @@ namespace Durin
 	auto DStaticMesh::PostLoad(std::string& OutError) -> bool
 	{
 		DerivedDataDiagnostic = {};
-		if (Asset::GetPackageLoadContext().Mode == Asset::EPackageLoadMode::CookedRuntime)
+		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
 			return LoadCookedRenderData(OutError);
 		if (MaterialSlots.size() > MaximumStaticMeshMaterialSlots)
 		{
@@ -117,7 +117,8 @@ namespace Durin
 			return FailCooked("required DCOL descriptor is missing or incompatible.");
 		}
 
-		const Asset::FPackageLoadContext& LoadContext = Asset::GetPackageLoadContext();
+		const Asset::FAssetRuntimeConfiguration& LoadContext =
+			Asset::GetAssetRuntimeConfiguration();
 		if (!GetPackage())
 			return FailCooked("package companion path could not be resolved.");
 		Asset::FCookedPackagePayload LoadedPayload;

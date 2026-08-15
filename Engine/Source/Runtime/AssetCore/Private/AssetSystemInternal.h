@@ -143,14 +143,16 @@ namespace Durin::Asset
 		ASSETCORE_API auto CapturePackageLoadSnapshot() const -> FAssetPackageLoadSnapshot;
 		ASSETCORE_API auto ReleasePackagesLoadedSince(
 			const FAssetPackageLoadSnapshot& Snapshot) -> FAssetResult;
-		// Reopens an empty manager after Shutdown().
-		ASSETCORE_API auto Initialize() -> void;
+		// Reopens an empty manager with one configuration fixed until Shutdown().
+		ASSETCORE_API auto Initialize(FAssetRuntimeConfiguration Configuration)
+			-> FAssetResult;
 		ASSETCORE_API auto StopAcceptingRequests() -> void;
 		auto IsAcceptingRequests() const -> bool { return bAcceptingRequests; }
 		ASSETCORE_API auto Shutdown() -> void;
-		// Configuration is rejected after the first successful package load until shutdown.
-		ASSETCORE_API auto ConfigurePackageLoadContext(FPackageLoadContext InContext) -> FAssetResult;
-		auto GetPackageLoadContext() const -> const FPackageLoadContext& { return PackageLoadContext; }
+		auto GetRuntimeConfiguration() const -> const FAssetRuntimeConfiguration&
+		{
+			return RuntimeConfiguration;
+		}
 
 		auto GetRegistry() -> FAssetCatalogStore& { return Registry; }
 		auto GetRegistry() const -> const FAssetCatalogStore& { return Registry; }
@@ -244,8 +246,8 @@ namespace Durin::Asset
 		// Outermost loads commit residency as one boundary.
 		uint32 LoadDepth = 0;
 		std::vector<FAssetPath> TransactionPackages;
-		FPackageLoadContext PackageLoadContext;
-		bool bPackageLoadStarted = false;
+		FAssetRuntimeConfiguration RuntimeConfiguration =
+			FAssetRuntimeConfiguration::Authored();
 		bool bAcceptingRequests = true;
 
 		friend ASSETCORE_API auto SavePackagesAtomically(

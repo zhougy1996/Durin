@@ -11,11 +11,11 @@ namespace
 	using namespace Durin;
 	using namespace Durin::Asset::Build;
 
-	auto GetBuildRegistryTestGate() -> FModuleOwnedCallbackGate
+	auto GetBuildHostTestGate() -> FModuleOwnedCallbackGate
 	{
-		static FModuleTestOwner Context("AssetBuildCoreTests.Registry");
+		static FModuleTestOwner Context("AssetBuildCoreTests.Host");
 		static auto Registration = Context.CreateOwnedCallbackRegistration(
-			"AssetBuildCoreTests.Registry");
+			"AssetBuildCoreTests.Host");
 		return Registration.GetGate();
 	}
 
@@ -73,7 +73,7 @@ TEST(FAssetBuildCoreTests, HostAcceptsMultipleServicesAndDrainsInDeclaredOrder)
 		return FBuildServiceContribution{
 			.Identity = std::move(Identity),
 			.DrainOrder = DrainOrder,
-			.OwnerGate = GetBuildRegistryTestGate(),
+			.OwnerGate = GetBuildHostTestGate(),
 			.Start = [&Events, Name = CallbackIdentity] { Events.push_back("start:" + Name); return true; },
 			.StopAdmission = [&Events, Name = CallbackIdentity] { Events.push_back("stop:" + Name); },
 			.PumpCompletions = [&Pumped](uint32 Maximum) { const uint32 Count = std::min(Maximum, 1u); Pumped += Count; return Count; },
@@ -116,7 +116,7 @@ TEST(FAssetBuildCoreTests, HostRollsBackPartialStartupAndAllowsRetry)
 	auto First = RegisterBuildServiceContribution({
 		.Identity = "Durin.Tests.RollbackA",
 		.DrainOrder = 1,
-		.OwnerGate = GetBuildRegistryTestGate(),
+		.OwnerGate = GetBuildHostTestGate(),
 		.Start = [&] { ++Starts; return true; },
 		.StopAdmission = [&] { ++Stops; },
 		.Wait = [](double) { return true; },
@@ -124,7 +124,7 @@ TEST(FAssetBuildCoreTests, HostRollsBackPartialStartupAndAllowsRetry)
 	auto Second = RegisterBuildServiceContribution({
 		.Identity = "Durin.Tests.RollbackB",
 		.DrainOrder = 2,
-		.OwnerGate = GetBuildRegistryTestGate(),
+		.OwnerGate = GetBuildHostTestGate(),
 		.Start = [&] { ++Starts; return bAllowSecond; }}, &Error);
 	ASSERT_TRUE(First.IsValid() && Second.IsValid()) << Error;
 	EXPECT_FALSE(InitializeBuildHost(&Error));

@@ -10,7 +10,7 @@ Completed: 2026-08-15
 ## Current Status
 
 This completed M0 child plan of the
-[Asset Architecture Simplification Roadmap](../Roadmaps/AssetArchitectureSimplification.md).
+[Asset Architecture Simplification Roadmap](../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md).
 All six stages and the M0 exit gate are complete. Stage 0 froze the production caller inventory and the current
 exact, redirected, draft, refresh, and load behavior that must survive the
 boundary change. The physical-I/O seam now distinguishes logical metadata
@@ -666,7 +666,7 @@ into this plan.
 
 ## Related Documentation
 
-- [Asset Architecture Simplification Roadmap](../Roadmaps/AssetArchitectureSimplification.md)
+- [Asset Architecture Simplification Roadmap](../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md)
 - [Asset Packages](../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Versioning](../Runtime/Assets/Versioning.md)

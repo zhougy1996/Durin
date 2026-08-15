@@ -395,7 +395,7 @@ namespace Durin
 
 	auto DTerrainHeightmap::PostLoad(std::string& OutError) -> bool
 	{
-		if (Asset::GetPackageLoadContext().Mode == Asset::EPackageLoadMode::CookedRuntime)
+		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
 			return LoadCookedPayload(OutError);
 		if (!GetPackage() && Payload && Payload->IsValid())
 		{
@@ -422,7 +422,8 @@ namespace Durin
 			|| CookedPayload.CompressionMethod
 				!= static_cast<uint32>(Asset::ECookedPayloadCompression::None))
 			return FailCooked("required THPL descriptor is missing or incompatible.");
-		const Asset::FPackageLoadContext& LoadContext = Asset::GetPackageLoadContext();
+		const Asset::FAssetRuntimeConfiguration& LoadContext =
+			Asset::GetAssetRuntimeConfiguration();
 		if (!GetPackage()) return FailCooked(OutError);
 		Asset::FCookedPackagePayload LoadedPayload;
 		if (!Asset::LoadCookedPackagePayload(

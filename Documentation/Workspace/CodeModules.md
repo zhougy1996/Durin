@@ -56,7 +56,7 @@ physical root communicates ownership but does not select them for a target.
 
 | Module | Primary responsibility | Source root |
 | --- | --- | --- |
-| `AssetBuildCore` | Provider-neutral immutable Build definitions/values, explicit policy, local function/request registration, opaque cache access, service contributions, and authoring-host lifecycle | [source](../../Engine/Source/Developer/AssetBuildCore) |
+| `AssetBuildCore` | Family-neutral immutable cache values/policy, opaque DDC access, service contributions, and authoring-host lifecycle | [source](../../Engine/Source/Developer/AssetBuildCore) |
 | `TextureBuild` | Texture2D/TextureCube recipes, private offline compression, diagnostics, and asynchronous coordination | [source](../../Engine/Source/Developer/TextureBuild) |
 | `GeometryBuild` | StaticMesh/collision, skeletal/animation, and terrain recipes, keys, DDC policy, diagnostics, and Runtime registration adapters | [source](../../Engine/Source/Developer/GeometryBuild) |
 

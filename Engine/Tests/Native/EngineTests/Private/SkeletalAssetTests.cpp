@@ -334,11 +334,19 @@ namespace
 			}) != Bytes.end();
 	}
 
-	auto RestartAssetManager() -> void
+	auto RestartAssetManager(const std::filesystem::path& CookRoot = {}) -> void
 	{
 		Durin::Asset::ShutdownAssetManager();
 		Durin::CollectGarbage();
-		Durin::Asset::InitializeAssetManager();
+		if (CookRoot.empty())
+		{
+			ASSERT_TRUE(Durin::Asset::InitializeAssetManager());
+			return;
+		}
+		auto Configuration = Durin::Asset::FAssetRuntimeConfiguration::Authored();
+		ASSERT_TRUE(Durin::Asset::FAssetRuntimeConfiguration::Cooked(
+			CookRoot, Configuration));
+		ASSERT_TRUE(Durin::Asset::InitializeAssetManager(std::move(Configuration)));
 	}
 }
 
@@ -1132,9 +1140,7 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(SkeletonPath));
 	Durin::Testing::RemoveTestWorkDirectory(ContentRoot);
 	Durin::Testing::RemoveTestWorkDirectory(CacheRoot);
-	RestartAssetManager();
-	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
-		Durin::Asset::EPackageLoadMode::CookedRuntime, FirstCookRoot}));
+	RestartAssetManager(FirstCookRoot);
 	Durin::PathUtilities::RegisterMountPointForTests(
 		"/Game/", (FirstCookRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
@@ -1164,9 +1170,7 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 	MeshBulk.back() ^= 0x80;
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(MeshBulk)), FirstCookRoot / "Game/Mesh.dbulk"));
-	RestartAssetManager();
-	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
-		Durin::Asset::EPackageLoadMode::CookedRuntime, FirstCookRoot}));
+	RestartAssetManager(FirstCookRoot);
 	Durin::PathUtilities::RegisterMountPointForTests(
 		"/Game/", (FirstCookRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
@@ -1178,7 +1182,5 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 	EXPECT_NE(Corrupt.Message.find("checksum"), std::string::npos) << Corrupt.Message;
 
 	RestartAssetManager();
-	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
-		Durin::Asset::EPackageLoadMode::AuthoredEditor, {}}));
 	Durin::FPaths::SetDerivedDataCacheDirForTests({});
 }

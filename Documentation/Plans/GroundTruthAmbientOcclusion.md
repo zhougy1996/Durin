@@ -5,7 +5,7 @@ Summary: Add a bounded GTAO-class indirect-occlusion path over the production de
 Last reviewed: 2026-08-15
 
 Status: Active
-Completed: Stage 0, Stage 1
+Completed:
 
 ## Current Status
 

@@ -214,7 +214,7 @@ namespace Durin
 			return false;
 		}
 		if (PayloadData) return true;
-		if (Asset::GetPackageLoadContext().Mode == Asset::EPackageLoadMode::CookedRuntime)
+		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
 			return LoadCookedPayload(OutError);
 		if (!DerivedDataKey.empty() && !LoadDerivedDataPayload(OutError))
 		{
@@ -272,7 +272,8 @@ namespace Durin
 			|| CookedPayload.CompressionMethod
 				!= static_cast<uint32>(Asset::ECookedPayloadCompression::None))
 			return FailCooked("required DANM descriptor is missing or incompatible.");
-		const Asset::FPackageLoadContext& Context = Asset::GetPackageLoadContext();
+		const Asset::FAssetRuntimeConfiguration& Context =
+			Asset::GetAssetRuntimeConfiguration();
 		if (!GetPackage())
 			return FailCooked("package companion path could not be resolved.");
 		Asset::FCookedPackagePayload LoadedPayload;

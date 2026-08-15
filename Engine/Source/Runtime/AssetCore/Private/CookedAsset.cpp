@@ -228,18 +228,28 @@ namespace Durin::Asset
 		}
 	}
 
-	auto FPackageLoadContext::IsValid(std::string* OutError) const -> bool
+	auto FAssetRuntimeConfiguration::Authored() -> FAssetRuntimeConfiguration
 	{
-		if (Mode == EPackageLoadMode::AuthoredEditor)
+		return {};
+	}
+
+	auto FAssetRuntimeConfiguration::Cooked(
+		std::filesystem::path InCookRoot,
+		FAssetRuntimeConfiguration& OutConfiguration) -> FAssetResult
+	{
+		if (InCookRoot.empty() || !InCookRoot.is_absolute()
+			|| InCookRoot.lexically_normal() != InCookRoot)
 		{
-			if (!CookRoot.empty()) return Fail("Authored package mode must not specify a cook root.", OutError);
-			return true;
+			return {
+				.Error = EAssetError::InvalidPath,
+				.Message = "Cooked asset execution requires an absolute normalized cook root."};
 		}
-		if (Mode != EPackageLoadMode::CookedRuntime)
-			return Fail("Package load mode is unknown.", OutError);
-		if (CookRoot.empty() || !CookRoot.is_absolute() || CookRoot.lexically_normal() != CookRoot)
-			return Fail("Cooked package mode requires an absolute normalized cook root.", OutError);
-		return true;
+		FAssetRuntimeConfiguration Result;
+		Result.ExecutionDomain = EAssetExecutionDomain::Cooked;
+		Result.PayloadPolicy = EAssetPayloadPolicy::CookedPayloadRequired;
+		Result.CookRoot = std::move(InCookRoot);
+		OutConfiguration = std::move(Result);
+		return {};
 	}
 
 	auto EncodeCookedBulk(
@@ -459,7 +469,7 @@ namespace Durin::Asset
 	}
 
 	auto LoadCookedPackagePayload(
-		const FPackageLoadContext& LoadContext,
+		const FAssetRuntimeConfiguration& RuntimeConfiguration,
 		std::string_view VirtualPackagePath,
 		const FCookedPayloadDescriptor& Descriptor,
 		ECookTargetPlatform ExpectedPlatform,
@@ -469,11 +479,12 @@ namespace Durin::Asset
 	{
 		std::filesystem::path PackagePath;
 		std::filesystem::path CompanionPath;
-		if (!LoadContext.IsValid(OutError)
-			|| !ResolveCookedPackagePath(
-				LoadContext.CookRoot, VirtualPackagePath, PackagePath, OutError)
+		if (!RuntimeConfiguration.RequiresCookedPayload())
+			return Fail("Cooked payload loading requires the cooked runtime configuration.", OutError);
+		if (!ResolveCookedPackagePath(
+				RuntimeConfiguration.GetCookRoot(), VirtualPackagePath, PackagePath, OutError)
 			|| !ResolveCookedCompanionPath(
-				LoadContext.CookRoot, PackagePath, CompanionPath, OutError))
+				RuntimeConfiguration.GetCookRoot(), PackagePath, CompanionPath, OutError))
 		{
 			return false;
 		}

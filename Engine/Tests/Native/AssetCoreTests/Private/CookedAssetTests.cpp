@@ -166,8 +166,10 @@ TEST(FCookedPathTests, LoadsDescriptorSelectedPayloadWithExplicitContainerLifeti
 
 	FCookedPackagePayload Loaded;
 	std::string Error;
+	FAssetRuntimeConfiguration Runtime = FAssetRuntimeConfiguration::Authored();
+	ASSERT_TRUE(FAssetRuntimeConfiguration::Cooked(Root, Runtime));
 	ASSERT_TRUE(LoadCookedPackagePayload(
-		{EPackageLoadMode::CookedRuntime, Root},
+		Runtime,
 		"/Game/Textures/T",
 		Descriptors[1],
 		ECookTargetPlatform::Win64,
@@ -181,7 +183,7 @@ TEST(FCookedPathTests, LoadsDescriptorSelectedPayloadWithExplicitContainerLifeti
 
 	const std::span<const uint8> Previous = Loaded.Payload;
 	EXPECT_FALSE(LoadCookedPackagePayload(
-		{EPackageLoadMode::CookedRuntime, Root},
+		Runtime,
 		"/Game/Textures/Missing",
 		Descriptors[0],
 		ECookTargetPlatform::Win64,
@@ -191,16 +193,21 @@ TEST(FCookedPathTests, LoadsDescriptorSelectedPayloadWithExplicitContainerLifeti
 	EXPECT_EQ(Loaded.Payload.data(), Previous.data());
 }
 
-TEST(FCookedPathTests, ExplicitRuntimeContextRejectsFallbackAndPackageMutation)
+TEST(FCookedPathTests, ImmutableRuntimeConfigurationRejectsReplacementAndPackageMutation)
 {
 	const std::filesystem::path Root = std::filesystem::absolute(
 		Durin::Testing::GetTestWorkDirectory() / "CookedMode");
-	FPackageLoadContext Runtime{EPackageLoadMode::CookedRuntime, Root};
-	ASSERT_TRUE(Runtime.IsValid());
+	FAssetRuntimeConfiguration Runtime = FAssetRuntimeConfiguration::Authored();
+	FAssetRuntimeConfiguration Invalid = Runtime;
+	EXPECT_FALSE(FAssetRuntimeConfiguration::Cooked("relative/cook", Invalid));
+	EXPECT_EQ(Invalid, Runtime);
+	ASSERT_TRUE(FAssetRuntimeConfiguration::Cooked(Root, Runtime));
 	EXPECT_FALSE(Runtime.AllowsSourceFallback());
 	EXPECT_FALSE(Runtime.AllowsDerivedDataFallback());
-	ASSERT_TRUE(ConfigurePackageLoadContext(Runtime));
-	EXPECT_EQ(GetPackageLoadContext().Mode, EPackageLoadMode::CookedRuntime);
+	ShutdownAssetManager();
+	ASSERT_TRUE(InitializeAssetManager(Runtime));
+	EXPECT_TRUE(GetAssetRuntimeConfiguration().RequiresCookedPayload());
+	EXPECT_FALSE(InitializeAssetManager(FAssetRuntimeConfiguration::Authored()));
 	EXPECT_EQ(SavePackage(nullptr).Error, EAssetError::ReadOnlyMode);
 	FCookedBulkContainer Missing;
 	EXPECT_FALSE(LoadCookedBulkFile(
@@ -208,7 +215,8 @@ TEST(FCookedPathTests, ExplicitRuntimeContextRejectsFallbackAndPackageMutation)
 		ECookTargetPlatform::Win64,
 		ECookTargetProfile::Game,
 		Missing));
-	ASSERT_TRUE(ConfigurePackageLoadContext({}));
+	ShutdownAssetManager();
+	ASSERT_TRUE(InitializeAssetManager());
 }
 
 TEST(FCookManifestTests, IsDeterministicAndRejectsCorruptRecords)

@@ -306,7 +306,7 @@ namespace Durin
 
 	auto DTextureCube::PostLoad(std::string& OutError) -> bool
 	{
-		if (Asset::GetPackageLoadContext().Mode == Asset::EPackageLoadMode::CookedRuntime)
+		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
 			return LoadCookedPlatformData(OutError);
 		return InvokeTextureCubeUncookedPostLoadHandler(*this, OutError);
 	}
@@ -332,7 +332,8 @@ namespace Durin
 				!= static_cast<uint32>(Asset::ECookedPayloadCompression::None))
 			return FailCooked("required TXPL descriptor is missing or incompatible.");
 
-		const Asset::FPackageLoadContext& LoadContext = Asset::GetPackageLoadContext();
+		const Asset::FAssetRuntimeConfiguration& LoadContext =
+			Asset::GetAssetRuntimeConfiguration();
 		if (!GetPackage())
 			return FailCooked("package companion path could not be resolved.");
 		Asset::FCookedPackagePayload LoadedPayload;

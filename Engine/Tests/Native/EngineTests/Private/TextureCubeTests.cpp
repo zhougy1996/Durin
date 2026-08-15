@@ -83,11 +83,19 @@ namespace
 		return Root;
 	}
 
-	auto RestartAssetManager() -> void
+	auto RestartAssetManager(const std::filesystem::path& CookRoot = {}) -> void
 	{
 		Durin::Asset::ShutdownAssetManager();
 		Durin::CollectGarbage();
-		Durin::Asset::InitializeAssetManager();
+		if (CookRoot.empty())
+		{
+			ASSERT_TRUE(Durin::Asset::InitializeAssetManager());
+			return;
+		}
+		auto Configuration = Durin::Asset::FAssetRuntimeConfiguration::Authored();
+		ASSERT_TRUE(Durin::Asset::FAssetRuntimeConfiguration::Cooked(
+			CookRoot, Configuration));
+		ASSERT_TRUE(Durin::Asset::InitializeAssetManager(std::move(Configuration)));
 	}
 }
 
@@ -594,9 +602,7 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	Durin::FAssetPath AuthoredPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureCubeTests/CookedCube", AuthoredPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AuthoredPath));
-	RestartAssetManager();
-	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
-		Durin::Asset::EPackageLoadMode::CookedRuntime, FirstRoot}));
+	RestartAssetManager(FirstRoot);
 	Durin::PathUtilities::RegisterMountPointForTests(
 		"/Game/", (FirstRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
@@ -619,5 +625,4 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 			Expected.Faces[FaceIndex].Mips[0].Pixels);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(CookedPath));
 	RestartAssetManager();
-	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({}));
 }

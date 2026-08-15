@@ -4,13 +4,13 @@ Summary: Reduce AssetBuildCore to production-used cache and host behavior and co
 
 Last reviewed: 2026-08-15
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-16
 
 ## Current Status
 
-This is the active M4 child plan of the
-[Asset Architecture Simplification Roadmap](../Roadmaps/AssetArchitectureSimplification.md).
+This is the completed M4 child plan of the
+[Asset Architecture Simplification Roadmap](../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md).
 M2 already separated deterministic package decode from asset-specific
 post-load work. Stage 0 freezes the real cache, host, runtime-domain, payload,
 startup, and test consumers before deleting speculative Build execution APIs.
@@ -141,12 +141,12 @@ the reduced surface.
 
 Dependencies: Stage 1 complete.
 
-- [ ] Isolate cache and host public headers from deleted execution concerns.
-- [ ] Preserve GeometryBuild and TextureBuild host registration, startup,
+- [x] Isolate cache and host public headers from deleted execution concerns.
+- [x] Preserve GeometryBuild and TextureBuild host registration, startup,
   pumping, cancellation, wait, drain order, and module retirement behavior.
-- [ ] Preserve cache query/store skip, best-effort, required-write, and storage
+- [x] Preserve cache query/store skip, best-effort, required-write, and storage
   error behavior across production build families.
-- [ ] Search all source and tests for retired Build execution symbols and
+- [x] Search all source and tests for retired Build execution symbols and
   obsolete include/dependency edges.
 
 ### Acceptance Gate
@@ -155,18 +155,24 @@ Dependencies: Stage 1 complete.
   by named production modules.
 - Existing build families compile and retain DDC/host behavior.
 
+`BuildTypes.h`, `BuildCache.h`, and `BuildHost.h` now form the complete public
+surface. AssetBuildCoreTests passes 5/5 retained cache/host tests; GeometryBuild,
+TextureBuild, Engine, and their affected asset suites compile without a deleted
+executor dependency. Retired execution-symbol search is empty across source and
+native tests.
+
 ## Stage 3: Construct One Immutable Asset Runtime Domain
 
 Dependencies: Stage 0 complete.
 
-- [ ] Replace `EPackageLoadMode` and `ConfigurePackageLoadContext` with an
+- [x] Replace `EPackageLoadMode` and `ConfigurePackageLoadContext` with an
   immutable authored/cooked runtime configuration selected at AssetCore
   initialization.
-- [ ] Make authored fallback versus cooked-payload requirement an explicit,
+- [x] Make authored fallback versus cooked-payload requirement an explicit,
   validated payload policy of that configuration.
-- [ ] Prevent runtime configuration replacement while AssetCore is initialized;
+- [x] Prevent runtime configuration replacement while AssetCore is initialized;
   tests switch domains only through shutdown and fresh initialization.
-- [ ] Keep cooked root and target validation local to cooked construction and
+- [x] Keep cooked root and target validation local to cooked construction and
   package/payload resolution.
 
 ### Acceptance Gate
@@ -175,17 +181,23 @@ Dependencies: Stage 0 complete.
 - Authored and cooked configurations cannot form invalid domain/payload-policy
   combinations.
 
+`FAssetRuntimeConfiguration` has private state and only authored and validated
+cooked factories. Cooked construction binds the absolute normalized root to
+`CookedPayloadRequired`; authored construction binds source/DDC fallback and no
+cook root. AssetCore exposes the configuration read-only and rejects a different
+configuration until shutdown.
+
 ## Stage 4: Migrate Engine Payload Consumers
 
 Dependencies: Stages 2-3 complete.
 
-- [ ] Migrate animation, environment lighting, static/skeletal mesh, terrain,
+- [x] Migrate animation, environment lighting, static/skeletal mesh, terrain,
   texture, and cube texture post-load paths to immutable domain/payload policy.
-- [ ] Preserve authored source/DDC reconstruction and cooked payload-only hard
+- [x] Preserve authored source/DDC reconstruction and cooked payload-only hard
   failure for every affected asset family.
-- [ ] Migrate startup and tests from mode mutation to explicit runtime
+- [x] Migrate startup and tests from mode mutation to explicit runtime
   construction and remove retired symbols.
-- [ ] Qualify cooked roots, missing/corrupt payloads, source absence, cache
+- [x] Qualify cooked roots, missing/corrupt payloads, source absence, cache
   hit/miss, and restart behavior.
 
 ### Acceptance Gate
@@ -193,17 +205,24 @@ Dependencies: Stages 2-3 complete.
 - Engine asset types do not read a mutable package-load mode.
 - Authored rebuild and cooked hard failure remain explicit and covered.
 
+AnimationClip, EnvironmentLighting, StaticMesh, SkeletalMesh, TerrainHeightmap,
+Texture2D, and TextureCube query the immutable payload policy. Affected fixtures
+now switch domains only by shutdown plus fresh initialization. Focused AssetCook,
+StaticMesh, SkeletalAsset, SkeletalSceneLifecycle, Material, Texture,
+TextureCookIntegration, and TerrainHeightmapCook suites pass with source/DDC
+fallback, missing/corrupt payload, target/schema/hash, and restart coverage.
+
 ## Stage 5: Qualify And Publish Build/Domain Ownership
 
 Dependencies: Stages 0-4 complete.
 
-- [ ] Run focused AssetBuildCore, derived-data, cook/payload, runtime-domain,
+- [x] Run focused AssetBuildCore, derived-data, cook/payload, runtime-domain,
   affected Engine asset, and restart suites.
-- [ ] Run complete native qualification, default full build, and hidden-window
+- [x] Run complete native qualification, default full build, and hidden-window
   editor smoke without concurrent build processes.
-- [ ] Update lasting runtime/build/cook and roadmap documentation with the
+- [x] Update lasting runtime/build/cook and roadmap documentation with the
   implemented cache/host and immutable-domain contracts.
-- [ ] Run changed-document, all-plan, all-roadmap, and repository documentation
+- [x] Run changed-document, all-plan, all-roadmap, and repository documentation
   validation and record evidence for the M4 exit gate.
 
 ### Acceptance Gate
@@ -212,6 +231,16 @@ Dependencies: Stages 0-4 complete.
   production APIs.
 - Lasting documentation and validation evidence satisfy the M4 roadmap exit
   gate and unblock M5.
+
+Final qualification on 2026-08-16 passed AssetBuildCoreTests 5/5, AssetCookTests
+13/13, StaticMeshTests 68/68, SkeletalAssetTests 34/34,
+SkeletalSceneLifecycleTests 1/1, MaterialTests 74/74, TextureTests 66 passed
+with 2 existing conditional skips, TextureCookIntegrationTests 1/1, and
+TerrainHeightmapCookTests 1/1. The default `Win64-Debug-DurinEditor` `all`
+build, complete native-test aggregate, and eight-tick hidden-window Sandbox
+editor smoke passed. Retired build-executor and mutable-domain searches are
+empty. Asset Packages and Asset Data Lifecycle now own the lasting contracts;
+all required documentation validators pass in the final M5 handoff.
 
 ## Completion Criteria
 
@@ -222,7 +251,7 @@ Dependencies: Stages 0-4 complete.
 
 ## Related Documentation
 
-- [Asset Architecture Simplification Roadmap](../Roadmaps/AssetArchitectureSimplification.md)
+- [Asset Architecture Simplification Roadmap](../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md)
 - [Asset Packages](../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
 - [Agent Build and Run Workflow](../Agents/BuildAndRun.md)

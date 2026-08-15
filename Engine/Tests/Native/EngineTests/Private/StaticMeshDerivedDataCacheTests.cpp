@@ -129,11 +129,19 @@ namespace
 			std::as_bytes(std::span(PackageBytes)), PackagePath));
 	}
 
-	auto RestartAssetManager() -> void
+	auto RestartAssetManager(const std::filesystem::path& CookRoot = {}) -> void
 	{
 		Durin::Asset::ShutdownAssetManager();
 		Durin::CollectGarbage();
-		Durin::Asset::InitializeAssetManager();
+		if (CookRoot.empty())
+		{
+			ASSERT_TRUE(Durin::Asset::InitializeAssetManager());
+			return;
+		}
+		auto Configuration = Durin::Asset::FAssetRuntimeConfiguration::Authored();
+		ASSERT_TRUE(Durin::Asset::FAssetRuntimeConfiguration::Cooked(
+			CookRoot, Configuration));
+		ASSERT_TRUE(Durin::Asset::InitializeAssetManager(std::move(Configuration)));
 	}
 }
 
@@ -356,9 +364,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 
 	Durin::Testing::RemoveTestWorkDirectory(Fixture.CacheRoot);
 	Durin::Testing::RemoveTestWorkDirectory(Fixture.Root / "Content" / "Models");
-	RestartAssetManager();
-	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
-		Durin::Asset::EPackageLoadMode::CookedRuntime, CookRoot}));
+	RestartAssetManager(CookRoot);
 	Durin::PathUtilities::RegisterMountPointForTests("/Game/", (CookRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
@@ -382,9 +388,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 	EXPECT_EQ(CookedMesh->GetRenderData()->GetNumInitializedResources(), 0u);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 
-	RestartAssetManager();
-	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
-		Durin::Asset::EPackageLoadMode::CookedRuntime, InvalidRoot}));
+	RestartAssetManager(InvalidRoot);
 	Durin::PathUtilities::RegisterMountPointForTests("/Game/", (InvalidRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
@@ -394,9 +398,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 	EXPECT_EQ(CookedMesh, nullptr);
 	EXPECT_NE(Invalid.Message.find("DCOL"), std::string::npos) << Invalid.Message;
 
-	RestartAssetManager();
-	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
-		Durin::Asset::EPackageLoadMode::CookedRuntime, MissingRoot}));
+	RestartAssetManager(MissingRoot);
 	Durin::PathUtilities::RegisterMountPointForTests("/Game/", (MissingRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
@@ -530,9 +532,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 
 	Durin::Testing::RemoveTestWorkDirectory(Fixture.CacheRoot);
 	Durin::Testing::RemoveTestWorkDirectory(Fixture.Root / "Content" / "Models");
-	RestartAssetManager();
-	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
-		Durin::Asset::EPackageLoadMode::CookedRuntime, CookRoot}));
+	RestartAssetManager(CookRoot);
 	Durin::PathUtilities::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
@@ -574,9 +574,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 	EXPECT_NE(MissingBulk.Message.find("Cooked static mesh"), std::string::npos);
 
 	auto ExpectCookedFailure = [](const std::filesystem::path& Root, std::string_view ExpectedText) {
-		RestartAssetManager();
-		ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
-			Durin::Asset::EPackageLoadMode::CookedRuntime, Root}));
+		RestartAssetManager(Root);
 		Durin::PathUtilities::RegisterMountPointForTests(
 			"/Game/", (Root / "Game").generic_string() + "/");
 		ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(

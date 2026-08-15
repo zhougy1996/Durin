@@ -416,7 +416,7 @@ namespace Durin
 		std::unordered_set<FName> Names;
 		std::unordered_set<uint32> SourceIndices;
 		const bool bRequireSourceIndices =
-			Asset::GetPackageLoadContext().Mode != Asset::EPackageLoadMode::CookedRuntime;
+			Asset::GetAssetRuntimeConfiguration().AllowsSourceFallback();
 		for (const FSkeletalMeshMaterialSlotDefinition& Slot : MaterialSlots)
 			if (Slot.Name.IsNone() || !Names.insert(Slot.Name).second
 				|| (bRequireSourceIndices
@@ -451,7 +451,7 @@ namespace Durin
 		}
 		if (!PayloadData)
 		{
-			if (Asset::GetPackageLoadContext().Mode == Asset::EPackageLoadMode::CookedRuntime)
+			if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
 			{
 				if (!LoadCookedPayload(OutError)) return false;
 			}
@@ -514,7 +514,8 @@ namespace Durin
 				!= static_cast<uint32>(Asset::ECookedPayloadCompression::None))
 			return FailCooked("required DSKM descriptor is missing or incompatible.");
 
-		const Asset::FPackageLoadContext& Context = Asset::GetPackageLoadContext();
+		const Asset::FAssetRuntimeConfiguration& Context =
+			Asset::GetAssetRuntimeConfiguration();
 		if (!GetPackage())
 			return FailCooked("package companion path could not be resolved.");
 		Asset::FCookedPackagePayload LoadedPayload;

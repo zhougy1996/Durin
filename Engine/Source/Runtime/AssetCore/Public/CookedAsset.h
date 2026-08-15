@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AssetCoreAPI.h"
+#include "AssetResult.h"
 #include "DObject/CoreDObject.h"
 
 #include "CookedAsset.gen.h"
@@ -32,10 +33,16 @@ namespace Durin::Asset
 		PackageCompanion = 1
 	};
 
-	enum class EPackageLoadMode : uint32
+	enum class EAssetExecutionDomain : uint8
 	{
-		AuthoredEditor = 0,
-		CookedRuntime = 1
+		Authored,
+		Cooked
+	};
+
+	enum class EAssetPayloadPolicy : uint8
+	{
+		SourceAndDerivedDataAllowed,
+		CookedPayloadRequired
 	};
 
 	// Selects one logical payload without persisting a workstation or companion path.
@@ -83,15 +90,44 @@ namespace Durin::Asset
 		auto operator==(const FCookedPayloadDescriptor&) const -> bool = default;
 	};
 
-	// Carries immutable process-wide storage policy into every package lookup.
-	struct FPackageLoadContext
+	// Fixes the process asset domain and payload policy for one runtime lifetime.
+	class FAssetRuntimeConfiguration
 	{
-		EPackageLoadMode Mode = EPackageLoadMode::AuthoredEditor;
-		std::filesystem::path CookRoot;
+	public:
+		ASSETCORE_API static auto Authored() -> FAssetRuntimeConfiguration;
+		// Leaves OutConfiguration unchanged when the cook root is not absolute and normalized.
+		ASSETCORE_API static auto Cooked(
+			std::filesystem::path CookRoot,
+			FAssetRuntimeConfiguration& OutConfiguration) -> FAssetResult;
 
-		ASSETCORE_API auto IsValid(std::string* OutError = nullptr) const -> bool;
-		auto AllowsSourceFallback() const -> bool { return Mode == EPackageLoadMode::AuthoredEditor; }
-		auto AllowsDerivedDataFallback() const -> bool { return Mode == EPackageLoadMode::AuthoredEditor; }
+		auto GetExecutionDomain() const -> EAssetExecutionDomain { return ExecutionDomain; }
+		auto GetPayloadPolicy() const -> EAssetPayloadPolicy { return PayloadPolicy; }
+		auto GetCookRoot() const -> const std::filesystem::path& { return CookRoot; }
+		auto IsAuthored() const -> bool
+		{
+			return ExecutionDomain == EAssetExecutionDomain::Authored;
+		}
+		auto IsCooked() const -> bool
+		{
+			return ExecutionDomain == EAssetExecutionDomain::Cooked;
+		}
+		auto AllowsSourceFallback() const -> bool
+		{
+			return PayloadPolicy == EAssetPayloadPolicy::SourceAndDerivedDataAllowed;
+		}
+		auto AllowsDerivedDataFallback() const -> bool { return AllowsSourceFallback(); }
+		auto RequiresCookedPayload() const -> bool
+		{
+			return PayloadPolicy == EAssetPayloadPolicy::CookedPayloadRequired;
+		}
+		auto operator==(const FAssetRuntimeConfiguration&) const -> bool = default;
+
+	private:
+		FAssetRuntimeConfiguration() = default;
+
+		EAssetExecutionDomain ExecutionDomain = EAssetExecutionDomain::Authored;
+		EAssetPayloadPolicy PayloadPolicy = EAssetPayloadPolicy::SourceAndDerivedDataAllowed;
+		std::filesystem::path CookRoot;
 	};
 
 	// Supplies one uncompressed logical payload to deterministic DBLK construction.
@@ -164,7 +200,7 @@ namespace Durin::Asset
 	// Resolves the owning cooked package and DBLK companion, validates the
 	// requested target/profile, and selects one descriptor-matched opaque payload.
 	ASSETCORE_API auto LoadCookedPackagePayload(
-		const FPackageLoadContext& LoadContext,
+		const FAssetRuntimeConfiguration& RuntimeConfiguration,
 		std::string_view VirtualPackagePath,
 		const FCookedPayloadDescriptor& Descriptor,
 		ECookTargetPlatform ExpectedPlatform,

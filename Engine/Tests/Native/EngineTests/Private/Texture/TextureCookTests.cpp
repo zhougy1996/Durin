@@ -129,11 +129,19 @@ namespace
 			std::as_bytes(std::span(PackageBytes)), PackagePath));
 	}
 
-	auto RestartAssetManager() -> void
+	auto RestartAssetManager(const std::filesystem::path& CookRoot = {}) -> void
 	{
 		Durin::Asset::ShutdownAssetManager();
 		Durin::CollectGarbage();
-		Durin::Asset::InitializeAssetManager();
+		if (CookRoot.empty())
+		{
+			ASSERT_TRUE(Durin::Asset::InitializeAssetManager());
+			return;
+		}
+		auto Configuration = Durin::Asset::FAssetRuntimeConfiguration::Authored();
+		ASSERT_TRUE(Durin::Asset::FAssetRuntimeConfiguration::Cooked(
+			CookRoot, Configuration));
+		ASSERT_TRUE(Durin::Asset::InitializeAssetManager(std::move(Configuration)));
 	}
 }
 
@@ -287,9 +295,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 
 	Durin::Testing::RemoveTestWorkDirectory(CacheRoot);
 	Durin::Testing::RemoveTestWorkDirectory(Root / "Content" / "Textures");
-	RestartAssetManager();
-	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
-		Durin::Asset::EPackageLoadMode::CookedRuntime, CookRoot}));
+	RestartAssetManager(CookRoot);
 	Durin::PathUtilities::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
@@ -463,8 +469,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	Durin::FRHICommandListImmediate::Get().SwitchPipeline(Durin::ERHIPipeline::None);
 	Durin::RHIExit();
 	ASSERT_TRUE(std::filesystem::remove(CookRoot / "Game/CookedTexture.dbulk"));
-	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
-		Durin::Asset::EPackageLoadMode::CookedRuntime, CookRoot}));
+	RestartAssetManager(CookRoot);
 	Durin::PathUtilities::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
@@ -477,9 +482,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 
 	auto ExpectCookedFailure = [](const std::filesystem::path& FailureRoot,
 								   std::string_view ExpectedText) {
-		RestartAssetManager();
-		ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
-			Durin::Asset::EPackageLoadMode::CookedRuntime, FailureRoot}));
+		RestartAssetManager(FailureRoot);
 		Durin::PathUtilities::RegisterMountPointForTests(
 			"/Game/", (FailureRoot / "Game").generic_string() + "/");
 		ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(

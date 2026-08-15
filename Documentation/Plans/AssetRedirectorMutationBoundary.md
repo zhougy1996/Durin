@@ -10,7 +10,7 @@ Completed: 2026-08-15
 ## Current Status
 
 This is the completed M1 child plan of the
-[Asset Architecture Simplification Roadmap](../Roadmaps/AssetArchitectureSimplification.md).
+[Asset Architecture Simplification Roadmap](../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md).
 Its M0 dependency and Stage 0 are complete. The production mutation caller
 inventory, transaction ownership, callback contracts, and relocation,
 deletion, Fix Up, and Undo/Redo failure matrix are frozen. Stages 1 and 2 are
@@ -456,7 +456,7 @@ now own the implemented boundary, and all documentation validators passed.
 
 ## Related Documentation
 
-- [Asset Architecture Simplification Roadmap](../Roadmaps/AssetArchitectureSimplification.md)
+- [Asset Architecture Simplification Roadmap](../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md)
 - [Asset Catalog and Load Boundary Plan](AssetCatalogAndLoadBoundary.md)
 - [Asset Packages](../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)

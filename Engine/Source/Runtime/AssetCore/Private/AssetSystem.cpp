@@ -376,11 +376,13 @@ namespace Durin::Asset
 
 		auto GetPhysicalPath(const FAssetPath& Path) -> std::string
 		{
-			const FPackageLoadContext& Context = FAssetRuntimeState::Get().GetPackageLoadContext();
-			if (Context.Mode == EPackageLoadMode::CookedRuntime)
+			const FAssetRuntimeConfiguration& Context =
+				FAssetRuntimeState::Get().GetRuntimeConfiguration();
+			if (Context.IsCooked())
 			{
 				std::filesystem::path CookedPath;
-				if (!ResolveCookedPackagePath(Context.CookRoot, Path.GetView(), CookedPath)) return {};
+				if (!ResolveCookedPackagePath(
+					Context.GetCookRoot(), Path.GetView(), CookedPath)) return {};
 				return CookedPath.generic_string();
 			}
 			const PathUtilities::FAssetPathResult Resolved =
@@ -2164,7 +2166,7 @@ namespace Durin::Asset
 		if (Packages.empty())
 			return Error(EAssetError::InvalidPackageType, "An asset bundle must contain at least one package.");
 		FAssetRuntimeState& Manager = FAssetRuntimeState::Get();
-		if (Manager.PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
+		if (Manager.RuntimeConfiguration.IsCooked())
 			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit bundle saves.");
 		if (Options.RootPackage
 			&& std::ranges::find(Packages, Options.RootPackage) == Packages.end())
@@ -3664,7 +3666,7 @@ namespace Durin::Asset
 		OutAsset = nullptr;
 		if (!bAcceptingRequests)
 			return Error(EAssetError::ShuttingDown, "Asset creation is closed while the asset manager is shutting down.");
-		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
+		if (RuntimeConfiguration.IsCooked())
 			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit asset creation.");
 		if (!Path.IsValid() || !Class || !Class->ClassConstructor) return Error(EAssetError::InvalidPath, "Invalid asset path or class.");
 		if (const FAssetData* Existing = Registry.FindAssetExactPointer(Path))
@@ -3757,7 +3759,7 @@ namespace Durin::Asset
 		DPackage* Package,
 		const FAssetPackageSaveOptions&) -> FAssetResult
 	{
-		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
+		if (RuntimeConfiguration.IsCooked())
 			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit package saves.");
 		FAssetPath Path;
 		if (Package && Package->IsAssetPackage()
@@ -4356,7 +4358,7 @@ namespace Durin::Asset
 		if (!bAcceptingRequests)
 			return Error(EAssetError::ShuttingDown,
 				"Asset relocation is closed while the asset manager is shutting down.");
-		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
+		if (RuntimeConfiguration.IsCooked())
 			return Error(EAssetError::ReadOnlyMode,
 				"Cooked runtime package mode does not permit asset relocation.");
 		if (Mappings.empty())
@@ -5364,7 +5366,7 @@ namespace Durin::Asset
 		if (!bAcceptingRequests)
 			return Error(EAssetError::ShuttingDown,
 				"Redirector Fix Up is closed while the asset manager is shutting down.");
-		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
+		if (RuntimeConfiguration.IsCooked())
 			return Error(EAssetError::ReadOnlyMode,
 				"Cooked runtime package mode does not permit redirector Fix Up.");
 		if (Redirectors.empty())
@@ -6171,7 +6173,7 @@ namespace Durin::Asset
 		OutTransaction.State = std::make_shared<FAssetDeletionTransaction::FState>();
 		auto& OutToken = *OutTransaction.State;
 		OutBlockers.clear();
-		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
+		if (RuntimeConfiguration.IsCooked())
 			return Error(
 				EAssetError::ReadOnlyMode,
 				"Cooked runtime package mode does not permit asset deletion.");
@@ -6749,7 +6751,7 @@ namespace Durin::Asset
 	auto FAssetRuntimeState::DeleteAssetForTesting(const FAssetPath& Path)
 		-> FAssetResult
 	{
-		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
+		if (RuntimeConfiguration.IsCooked())
 			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit asset deletion.");
 		FAssetDeleteAnalysis Analysis;
 		FAssetResult Result = AnalyzeAssetDeletion(Path, Analysis);
@@ -6988,7 +6990,6 @@ namespace Durin::Asset
 				if (OutReport) *OutReport = std::move(FailureReport);
 			}
 			TransactionPackages.clear();
-			if (Result) bPackageLoadStarted = true;
 		}
 		OutAsset = Result && Package ? Package->GetAsset() : nullptr;
 		return Result;
@@ -7187,8 +7188,6 @@ namespace Durin::Asset
 		LoadingPackages.clear();
 		TransactionPackages.clear();
 		LoadDepth = 0;
-		PackageLoadContext = {};
-		bPackageLoadStarted = false;
 		for (DPackage* Package : Packages)
 		{
 			RemoveFromRoot(Package);
@@ -7196,12 +7195,21 @@ namespace Durin::Asset
 		}
 	}
 
-	auto FAssetRuntimeState::Initialize() -> void
+	auto FAssetRuntimeState::Initialize(FAssetRuntimeConfiguration Configuration)
+		-> FAssetResult
 	{
+		if (bAcceptingRequests)
+		{
+			if (RuntimeConfiguration == Configuration) return {};
+			return Error(EAssetError::InUse,
+				"Asset runtime configuration cannot be replaced while AssetCore is initialized.");
+		}
 		check(ResidentPackages.empty());
 		check(LoadingPackages.empty());
 		check(TransactionPackages.empty());
+		RuntimeConfiguration = std::move(Configuration);
 		bAcceptingRequests = true;
+		return {};
 	}
 
 	auto FAssetRuntimeState::StopAcceptingRequests() -> void
@@ -7209,17 +7217,6 @@ namespace Durin::Asset
 		if (!bAcceptingRequests) return;
 		bAcceptingRequests = false;
 		DURIN_DEBUG("Asset manager stopped accepting new requests.");
-	}
-
-	auto FAssetRuntimeState::ConfigurePackageLoadContext(FPackageLoadContext InContext) -> FAssetResult
-	{
-		std::string ValidationError;
-		if (!InContext.IsValid(&ValidationError)) return Error(EAssetError::InvalidPath, std::move(ValidationError));
-		if (bPackageLoadStarted || !ResidentPackages.empty()
-			|| !LoadingPackages.empty() || LoadDepth != 0)
-			return Error(EAssetError::InUse, "Package load context cannot change after package loading has begun.");
-		PackageLoadContext = std::move(InContext);
-		return {};
 	}
 
 	auto LoadAsset(
@@ -7496,14 +7493,13 @@ namespace Durin::Asset
 		return FAssetRuntimeState::Get().ReleasePackagesLoadedSince(Snapshot);
 	}
 	auto ShutdownAssetManager() -> void { FAssetRuntimeState::Get().Shutdown(); }
-	auto InitializeAssetManager() -> void { FAssetRuntimeState::Get().Initialize(); }
-	auto ConfigurePackageLoadContext(FPackageLoadContext Context) -> FAssetResult
+	auto InitializeAssetManager(FAssetRuntimeConfiguration Configuration) -> FAssetResult
 	{
-		return FAssetRuntimeState::Get().ConfigurePackageLoadContext(std::move(Context));
+		return FAssetRuntimeState::Get().Initialize(std::move(Configuration));
 	}
-	auto GetPackageLoadContext() -> const FPackageLoadContext&
+	auto GetAssetRuntimeConfiguration() -> const FAssetRuntimeConfiguration&
 	{
-		return FAssetRuntimeState::Get().GetPackageLoadContext();
+		return FAssetRuntimeState::Get().GetRuntimeConfiguration();
 	}
 	auto GetAssetCatalogStore() -> FAssetCatalogStore& { return FAssetRuntimeState::Get().GetRegistry(); }
 	auto FindAssetExact(const FAssetPath& Path) -> FAssetCatalogEntry

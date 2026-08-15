@@ -10,7 +10,7 @@ Completed: 2026-08-15
 ## Current Status
 
 This is the completed M2 child plan of the
-[Asset Architecture Simplification Roadmap](../Roadmaps/AssetArchitectureSimplification.md).
+[Asset Architecture Simplification Roadmap](../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md).
 M0 catalog/load ownership and M1 mutation ownership are complete. M2 now owns a
 strict one-decode live-load boundary and leaves canonical comparison to explicit
 construct-free maintenance.
@@ -247,7 +247,7 @@ active repository documents validated.
 
 ## Related Documentation
 
-- [Asset Architecture Simplification Roadmap](../Roadmaps/AssetArchitectureSimplification.md)
+- [Asset Architecture Simplification Roadmap](../Roadmaps/Archive/2026-08/AssetArchitectureSimplification.md)
 - [Asset Packages](../Runtime/Assets/AssetPackages.md)
 - [Asset Versioning](../Runtime/Assets/Versioning.md)
 - [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)

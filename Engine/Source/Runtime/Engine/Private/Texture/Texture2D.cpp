@@ -221,7 +221,7 @@ namespace Durin
 
 	auto DTexture2D::PostLoad(std::string& OutError) -> bool
 	{
-		if (Asset::GetPackageLoadContext().Mode == Asset::EPackageLoadMode::CookedRuntime)
+		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
 			return LoadCookedPlatformData(OutError);
 		BuildStatus = ETextureBuildStatus::Unbuilt;
 		LastBuildError.clear();
@@ -261,7 +261,8 @@ namespace Durin
 			return FailCooked("required TXPL descriptor is missing or incompatible.");
 		}
 
-		const Asset::FPackageLoadContext& LoadContext = Asset::GetPackageLoadContext();
+		const Asset::FAssetRuntimeConfiguration& LoadContext =
+			Asset::GetAssetRuntimeConfiguration();
 		if (!GetPackage())
 			return FailCooked("package companion path could not be resolved.");
 		Asset::FCookedPackagePayload LoadedPayload;

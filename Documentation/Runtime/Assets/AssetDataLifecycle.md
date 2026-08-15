@@ -2,7 +2,7 @@
 
 Summary: Define authored, derived, cooked, and runtime asset-data ownership and transitions.
 
-Modules: AssetCore, Engine, GeometryBuild, StandardAssetImport
+Modules: AssetCore, AssetBuildCore, Engine, GeometryBuild, TextureBuild, StandardAssetImport
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -25,13 +25,14 @@ Builder and translator versions invalidate production identity. Payload schema
 and stable value identifiers determine runtime readability, so a producer
 version change does not by itself make a compatible payload unreadable.
 
-`AssetBuildCore` definitions are portable only when every named input is an
-owned immutable value and `bExportable` remains true. Functions that capture
-process-local services, objects or callbacks are explicitly local-only and use
-the local registry without claiming transportability. A future remote executor
-may consume the same exportable definition/value contract; it is an additive
-transport and scheduling layer, not a reason to move runtime serialization,
-typed recipe ownership or publication back across module boundaries.
+`AssetBuildCore` deliberately has no generic executor, portable definition,
+function registry, or request-owner protocol. It retains immutable named cache
+values, explicit query/store policy, an opaque DDC client, and the authoring
+build host used by GeometryBuild and TextureBuild. Typed recipes, keys,
+compatibility rules, scheduling, and result interpretation remain with those
+production families. The host owns contribution registration, startup,
+completion pumping, bounded wait, admission closure, ordered drain, and
+module-retirement lifetime.
 
 ## Storage Classes
 
@@ -61,6 +62,15 @@ serialized class and field signature before constructing objects or publishing
 it to residency. A catalog miss with no resident package performs no disk
 probe. Construct-free audit may classify incompatible content in detail, but
 ordinary load never creates a partially compatible resident package.
+
+AssetCore has one immutable `FAssetRuntimeConfiguration` for each initialized
+runtime lifetime. `Authored()` selects the authored execution domain with
+source and DDC fallback allowed. The validated `Cooked(...)` factory requires
+an absolute normalized cook root and fixes the payload policy to
+`CookedPayloadRequired`. `InitializeAssetManager` may reopen a shut-down
+runtime with a new configuration, but it rejects replacement while a different
+configuration is initialized. Engine post-load code queries only this read-only
+domain and payload policy. There is no mutable process-wide package-load mode.
 
 `CreateAsset` creates a `NewlyCreated`, Dirty resident package. It can satisfy
 in-memory load and soft-reference resolution but does not appear in persistent
@@ -495,9 +505,10 @@ disposable while that build is running or installed.
 
 ## Current Implementation Status
 
-The shared DDC object store, DBLK container, logical descriptors, deterministic
-cook publication, manifest, and explicit authored-editor/cooked-runtime package
-modes are implemented. StaticMesh uses DMSH schema 2; Texture2D and TextureCube
+The shared DDC object store, cache-and-host-only AssetBuildCore surface, DBLK
+container, logical descriptors, deterministic cook publication, manifest, and
+immutable authored/cooked runtime construction are implemented. StaticMesh uses
+DMSH schema 2; Texture2D and TextureCube
 use TXPL schema 1; SkeletalMesh uses DSKM schema 1; AnimationClip uses DANM
 schema 1. Their cooked loaders validate the complete descriptor, container,
 target, payload schema, ranges, hash, and asset-specific structure

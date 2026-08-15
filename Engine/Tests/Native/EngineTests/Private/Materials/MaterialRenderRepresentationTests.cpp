@@ -210,10 +210,11 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 
 	Durin::Asset::ShutdownAssetManager();
 	Durin::CollectGarbage();
-	Durin::Asset::InitializeAssetManager();
-	Result = Durin::Asset::ConfigurePackageLoadContext({
-		Durin::Asset::EPackageLoadMode::CookedRuntime,
-		CookRoot});
+	auto RuntimeConfiguration = Durin::Asset::FAssetRuntimeConfiguration::Authored();
+	Result = Durin::Asset::FAssetRuntimeConfiguration::Cooked(
+		CookRoot, RuntimeConfiguration);
+	ASSERT_TRUE(Result) << Result.Message;
+	Result = Durin::Asset::InitializeAssetManager(std::move(RuntimeConfiguration));
 	ASSERT_TRUE(Result) << Result.Message;
 	{
 	const std::array CookMountDefinitions{
@@ -238,8 +239,7 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 
 	Durin::Asset::ShutdownAssetManager();
 	Durin::CollectGarbage();
-	Durin::Asset::InitializeAssetManager();
-	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({}));
+	ASSERT_TRUE(Durin::Asset::InitializeAssetManager());
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 }

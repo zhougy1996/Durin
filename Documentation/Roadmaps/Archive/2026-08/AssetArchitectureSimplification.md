@@ -4,13 +4,13 @@ Summary: Simplify asset runtime and authoring architecture while retaining expli
 
 Last reviewed: 2026-08-15
 
-Status: Active
-Completed:
+Status: Archived
+Completed: 2026-08-16
 
 ## Current Status
 
 The completed
-[Asset Redirectors Refactor Plan](../Plans/Archive/2026-08/AssetRedirectors.md)
+[Asset Redirectors Refactor Plan](../../../Plans/Archive/2026-08/AssetRedirectors.md)
 established the correct relocation semantics: moving an asset publishes a real
 package at the destination and an authored redirector at the old path without
 requiring every referencer to be loaded, writable, or indexed. Explicit Fix Up
@@ -27,18 +27,19 @@ use opaque transaction boundaries owned by AssetCore. Production callers cannot
 sequence mutation phases, and contribution registrations are lifetime-gated.
 M2 separated ordinary one-pass decode from explicit canonical audit, removed
 the dormant migration/upgrader and partial compatibility machinery, and made
-schema incompatibility fail before residency. Import still owns overlapping
-registration paths, and AssetBuildCore retains unused execution abstractions.
+schema incompatibility fail before residency.
 
 The completed M3 child plan is
-[Asset Import Service Consolidation](../Plans/AssetImportServiceConsolidation.md).
+[Asset Import Service Consolidation](../../../Plans/AssetImportServiceConsolidation.md).
 M2 separated ordinary current-format decode from explicit canonical audit and
 removed migration/upgrader machinery that had no proven repository consumer.
 M3 consolidates the overlapping import registration and orchestration surfaces.
-The active M4 child plan is
-[Asset Build And Runtime Domain Simplification](../Plans/AssetBuildAndRuntimeDomainSimplification.md).
+The completed M4 child plan is
+[Asset Build And Runtime Domain Simplification](../../../Plans/AssetBuildAndRuntimeDomainSimplification.md).
 It removes the unused Build executor design and replaces mutable package-load
 mode with immutable authored/cooked runtime construction and payload policy.
+The completed M5 child plan is
+[Asset Architecture Final Integration](../../../Plans/AssetArchitectureFinalIntegration.md).
 
 ## Outcome
 
@@ -239,27 +240,26 @@ flowchart LR
 
 | Milestone | Requirement | Proposed child plan | Dependencies | Deliverable | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- | --- | --- |
-| M0: Catalog and load boundary | Required; completed | [Asset Catalog and Load Boundary](../Plans/AssetCatalogAndLoadBoundary.md) | Current v4, registry, redirector and load tests | One authoritative exact catalog, pure resolution, one-read final-package load, explicit resident authoring state, private manager state, and split public headers | Existing exact/resolved/redirected behavior and production callers are inventoried | Passed: registry miss cannot load implicitly; redirect behavior is unchanged; no public manager or duplicate load path remains |
-| M1: Redirector mutation boundary | Required; completed | [Asset Redirector Mutation Boundary](../Plans/AssetRedirectorMutationBoundary.md) | M0 | One stateful resident-package model plus one authoring service and transaction abstraction for create/save/move/delete/Fix Up, preserving direct aliases and strict deletion proof | Passed: all mutation callers use M0 catalog values and load surface | Passed: no parallel draft store or discard-draft API remains; callers cannot sequence internal transaction phases; relocation, deletion, and Fix Up retain the completed failure matrix |
-| M2: Package compatibility simplification | Required; completed | [Asset Package Compatibility Simplification](../Plans/AssetPackageCompatibilitySimplification.md) | M0 | Validated decode separated from offline canonical audit; dead migration/upgrader and partial compatibility state removed; current-format failure policy made strict | Passed: catalog/load reports have stable structured format/schema errors | Passed: ordinary load performs no canonical re-encode and no production type branches on migration-load mode |
-| M3: Import service consolidation | Required; completed | [Asset Import Service Consolidation](../Plans/AssetImportServiceConsolidation.md) | M1-M2 | One importer descriptor, request, plan, execution, publication, reimport, record, and async ownership model | Passed: authoring publication and compatibility failures have one owner | Passed: production importers register once and initial import/reimport/multi-output share one service |
-| M4: Build and runtime-domain simplification | Required; active | [Asset Build And Runtime Domain Simplification](../Plans/AssetBuildAndRuntimeDomainSimplification.md) | M2 | Cache/host-only AssetBuildCore surface and immutable Authored/Cooked service construction with explicit payload policy | Passed: package decode and post-load responsibilities are separated | No unused build executor abstraction or mutable package-load mode remains in production APIs |
-| M5: Final integration and contract handoff | Required; proposed | Asset Architecture Final Integration | M3-M4 | Repository-wide legacy API removal, performance/behavior qualification, and final Runtime/Editor contracts | All owning child plans completed with focused evidence | One public entry per operation, no obsolete compatibility surface, all program validation passes, and lasting contracts own final behavior |
+| M0: Catalog and load boundary | Required; completed | [Asset Catalog and Load Boundary](../../../Plans/AssetCatalogAndLoadBoundary.md) | Current v4, registry, redirector and load tests | One authoritative exact catalog, pure resolution, one-read final-package load, explicit resident authoring state, private manager state, and split public headers | Existing exact/resolved/redirected behavior and production callers are inventoried | Passed: registry miss cannot load implicitly; redirect behavior is unchanged; no public manager or duplicate load path remains |
+| M1: Redirector mutation boundary | Required; completed | [Asset Redirector Mutation Boundary](../../../Plans/AssetRedirectorMutationBoundary.md) | M0 | One stateful resident-package model plus one authoring service and transaction abstraction for create/save/move/delete/Fix Up, preserving direct aliases and strict deletion proof | Passed: all mutation callers use M0 catalog values and load surface | Passed: no parallel draft store or discard-draft API remains; callers cannot sequence internal transaction phases; relocation, deletion, and Fix Up retain the completed failure matrix |
+| M2: Package compatibility simplification | Required; completed | [Asset Package Compatibility Simplification](../../../Plans/AssetPackageCompatibilitySimplification.md) | M0 | Validated decode separated from offline canonical audit; dead migration/upgrader and partial compatibility state removed; current-format failure policy made strict | Passed: catalog/load reports have stable structured format/schema errors | Passed: ordinary load performs no canonical re-encode and no production type branches on migration-load mode |
+| M3: Import service consolidation | Required; completed | [Asset Import Service Consolidation](../../../Plans/AssetImportServiceConsolidation.md) | M1-M2 | One importer descriptor, request, plan, execution, publication, reimport, record, and async ownership model | Passed: authoring publication and compatibility failures have one owner | Passed: production importers register once and initial import/reimport/multi-output share one service |
+| M4: Build and runtime-domain simplification | Required; completed | [Asset Build And Runtime Domain Simplification](../../../Plans/AssetBuildAndRuntimeDomainSimplification.md) | M2 | Cache/host-only AssetBuildCore surface and immutable Authored/Cooked service construction with explicit payload policy | Passed: package decode and post-load responsibilities are separated | Passed: no unused build executor abstraction or mutable package-load mode remains in production APIs |
+| M5: Final integration and contract handoff | Required; completed | [Asset Architecture Final Integration](../../../Plans/AssetArchitectureFinalIntegration.md) | M3-M4 | Repository-wide legacy API removal, performance/behavior qualification, and final Runtime/Editor contracts | Passed: all owning child plans completed with focused evidence | Passed: one public entry per operation, no obsolete compatibility surface, all program validation passes, and lasting contracts own final behavior |
 
 ## Child Plan Boundaries
 
 | Child plan | Status | Owns | Must not absorb |
 | --- | --- | --- | --- |
-| [Asset Catalog and Load Boundary](../Plans/AssetCatalogAndLoadBoundary.md) | Completed | Catalog value/query boundary, resolution, package-store load path, drafts, public runtime header split | Mutation transaction redesign, format migration removal, importer consolidation |
-| [Asset Redirector Mutation Boundary](../Plans/AssetRedirectorMutationBoundary.md) | Completed | Unified resident-package publication state, unload/discard policy, authoring service, relocation/deletion/Fix Up transaction facade, callback ownership, Undo/Redo integration | Removing redirectors, eager referencer rewriting, package-format redesign |
-| [Asset Package Compatibility Simplification](../Plans/AssetPackageCompatibilitySimplification.md) | Completed | Decode/audit split, schema failure policy, migration/upgrader removal, affected Engine load branches | Importer redesign, new asset format, cooked alias tables |
-| [Asset Import Service Consolidation](../Plans/AssetImportServiceConsolidation.md) | Completed | Provider registration, planning/execution, single/multi-output reimport, async ownership and publication | General job system or remote import execution |
-| [Asset Build And Runtime Domain Simplification](../Plans/AssetBuildAndRuntimeDomainSimplification.md) | Active | DDC/build host surface, removal of unused build execution design, immutable authored/cooked domain and payload policy | Remote build protocol without a production consumer |
-| Asset Architecture Final Integration | Proposed after M3-M4 | Cross-module legacy search, final benchmarks/smoke tests, lasting contract reconciliation | New asset capabilities unrelated to simplification |
+| [Asset Catalog and Load Boundary](../../../Plans/AssetCatalogAndLoadBoundary.md) | Completed | Catalog value/query boundary, resolution, package-store load path, drafts, public runtime header split | Mutation transaction redesign, format migration removal, importer consolidation |
+| [Asset Redirector Mutation Boundary](../../../Plans/AssetRedirectorMutationBoundary.md) | Completed | Unified resident-package publication state, unload/discard policy, authoring service, relocation/deletion/Fix Up transaction facade, callback ownership, Undo/Redo integration | Removing redirectors, eager referencer rewriting, package-format redesign |
+| [Asset Package Compatibility Simplification](../../../Plans/AssetPackageCompatibilitySimplification.md) | Completed | Decode/audit split, schema failure policy, migration/upgrader removal, affected Engine load branches | Importer redesign, new asset format, cooked alias tables |
+| [Asset Import Service Consolidation](../../../Plans/AssetImportServiceConsolidation.md) | Completed | Provider registration, planning/execution, single/multi-output reimport, async ownership and publication | General job system or remote import execution |
+| [Asset Build And Runtime Domain Simplification](../../../Plans/AssetBuildAndRuntimeDomainSimplification.md) | Completed | DDC/build host surface, removal of unused build execution design, immutable authored/cooked domain and payload policy | Remote build protocol without a production consumer |
+| [Asset Architecture Final Integration](../../../Plans/AssetArchitectureFinalIntegration.md) | Completed | Cross-module legacy search, final benchmarks/smoke tests, lasting contract reconciliation | New asset capabilities unrelated to simplification |
 
-M0-M3 are complete and M4 is the only active child plan. A later plan is
-created when its dependencies pass and its production caller inventory is
-current; roadmap text does not serve as its implementation checklist.
+M0-M5 are complete. Every implementation checklist and evidence record lives in
+its completed child plan rather than this roadmap.
 
 ## Program Validation Matrix
 
@@ -321,23 +321,24 @@ into this roadmap.
 
 ## Related Documentation
 
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Versioning](../Runtime/Assets/Versioning.md)
-- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
-- [Content Browser](../Editor/Architecture/ContentBrowser.md)
-- [Asset Redirectors Refactor Plan](../Plans/Archive/2026-08/AssetRedirectors.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Versioning](../../../Runtime/Assets/Versioning.md)
+- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Asset Redirectors Refactor Plan](../../../Plans/Archive/2026-08/AssetRedirectors.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`AssetPackage.h`](../../Engine/Source/Runtime/AssetCore/Public/AssetPackage.h)
-- [`AssetLoad.h`](../../Engine/Source/Runtime/AssetCore/Public/AssetLoad.h)
-- [`AssetMutation.h`](../../Engine/Source/Runtime/AssetCore/Public/AssetMutation.h)
-- [`AssetSystem.cpp`](../../Engine/Source/Runtime/AssetCore/Private/AssetSystem.cpp)
-- [`AssetPackageV4Reader.cpp`](../../Engine/Source/Runtime/AssetCore/Private/AssetPackageV4Reader.cpp)
-- [`AssetImportCore.h`](../../Engine/Source/Editor/AssetImportCore/Public/AssetImportCore.h)
-- [`MultiOutputImport.h`](../../Engine/Source/Editor/AssetImportCore/Public/MultiOutputImport.h)
-- [`BuildRegistry.h`](../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildRegistry.h)
-- [`EditorAssetMoveCoordinator.cpp`](../../Engine/Source/Editor/LevelEditor/Private/Assets/EditorAssetMoveCoordinator.cpp)
+- [`AssetPackage.h`](../../../../Engine/Source/Runtime/AssetCore/Public/AssetPackage.h)
+- [`AssetLoad.h`](../../../../Engine/Source/Runtime/AssetCore/Public/AssetLoad.h)
+- [`AssetMutation.h`](../../../../Engine/Source/Runtime/AssetCore/Public/AssetMutation.h)
+- [`AssetSystem.cpp`](../../../../Engine/Source/Runtime/AssetCore/Private/AssetSystem.cpp)
+- [`AssetPackageV4Reader.cpp`](../../../../Engine/Source/Runtime/AssetCore/Private/AssetPackageV4Reader.cpp)
+- [`AssetImportCore.h`](../../../../Engine/Source/Editor/AssetImportCore/Public/AssetImportCore.h)
+- [`MultiOutputImport.h`](../../../../Engine/Source/Editor/AssetImportCore/Public/MultiOutputImport.h)
+- [`BuildCache.h`](../../../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildCache.h)
+- [`BuildHost.h`](../../../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildHost.h)
+- [`EditorAssetMoveCoordinator.cpp`](../../../../Engine/Source/Editor/LevelEditor/Private/Assets/EditorAssetMoveCoordinator.cpp)

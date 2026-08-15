@@ -33,9 +33,17 @@ namespace
 		Durin::CollectGarbage();
 	}
 
-	auto InitializeAssetManager() -> void
+	auto InitializeAssetManager(const std::filesystem::path& CookRoot = {}) -> void
 	{
-		Durin::Asset::InitializeAssetManager();
+		if (CookRoot.empty())
+		{
+			ASSERT_TRUE(Durin::Asset::InitializeAssetManager());
+			return;
+		}
+		auto Configuration = Durin::Asset::FAssetRuntimeConfiguration::Authored();
+		ASSERT_TRUE(Durin::Asset::FAssetRuntimeConfiguration::Cooked(
+			CookRoot, Configuration));
+		ASSERT_TRUE(Durin::Asset::InitializeAssetManager(std::move(Configuration)));
 	}
 
 	using FCookTree = std::vector<std::pair<std::string, std::vector<Durin::uint8>>>;
@@ -356,9 +364,7 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 	EXPECT_FALSE(std::filesystem::exists(GameContent / "Scenes/DataUri.gltf"));
 	EXPECT_FALSE(std::filesystem::exists(GameContent / "Scenes/Binary.glb"));
 	EXPECT_FALSE(std::filesystem::exists(CacheRoot));
-	InitializeAssetManager();
-	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
-		Durin::Asset::EPackageLoadMode::CookedRuntime, FirstCookRoot}));
+	InitializeAssetManager(FirstCookRoot);
 	{
 		const std::array<Durin::PathUtilities::FMountPoint, 2> MountDefinitions{{
 			{
@@ -455,7 +461,5 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 		ShutdownAssetManager();
 	}
 	InitializeAssetManager();
-	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
-		Durin::Asset::EPackageLoadMode::AuthoredEditor, {}}));
 	Durin::FPaths::SetDerivedDataCacheDirForTests(PreviousDerivedDataCache);
 }

@@ -166,9 +166,13 @@ namespace Durin::Asset
 	ASSETCORE_API auto ReleasePackagesLoadedSince(
 		const FAssetPackageLoadSnapshot& Snapshot) -> FAssetResult;
 	ASSETCORE_API auto ShutdownAssetManager() -> void;
-	ASSETCORE_API auto InitializeAssetManager() -> void;
-	ASSETCORE_API auto ConfigurePackageLoadContext(FPackageLoadContext Context) -> FAssetResult;
-	ASSETCORE_API auto GetPackageLoadContext() -> const FPackageLoadContext&;
+	// Reopens a shut-down runtime; a different live configuration is rejected.
+	ASSETCORE_API auto InitializeAssetManager(
+		FAssetRuntimeConfiguration Configuration = FAssetRuntimeConfiguration::Authored())
+		-> FAssetResult;
+	// Returns the fixed configuration for the current runtime lifetime.
+	ASSETCORE_API auto GetAssetRuntimeConfiguration()
+		-> const FAssetRuntimeConfiguration&;
 	ASSETCORE_API auto CaptureAssetReferenceIndex() -> FAssetReferenceIndex;
 	ASSETCORE_API auto FindRedirectorsTo(const FAssetPath& Destination)
 		-> std::vector<FAssetPath>;

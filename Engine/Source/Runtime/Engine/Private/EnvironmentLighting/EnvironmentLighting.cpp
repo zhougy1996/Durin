@@ -271,7 +271,7 @@ namespace Durin
 	auto DEnvironmentLighting::PostLoad(std::string& OutError) -> bool
 	{
 		std::vector<uint8> PayloadBytes;
-		if (Asset::GetPackageLoadContext().Mode == Asset::EPackageLoadMode::CookedRuntime)
+		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (CookedPayload.PayloadId != EnvironmentLightingPrimaryCookedPayloadId
 				|| CookedPayload.LocationKind
@@ -284,7 +284,8 @@ namespace Durin
 			{
 				return Fail(OutError, "Cooked environment-lighting descriptor is missing or incompatible.");
 			}
-			const Asset::FPackageLoadContext& LoadContext = Asset::GetPackageLoadContext();
+			const Asset::FAssetRuntimeConfiguration& LoadContext =
+				Asset::GetAssetRuntimeConfiguration();
 			if (!GetPackage()) return false;
 			Asset::FCookedPackagePayload LoadedPayload;
 			if (!Asset::LoadCookedPackagePayload(
@@ -305,7 +306,7 @@ namespace Durin
 		}
 		auto Candidate = std::make_shared<FEnvironmentLightingData>();
 		FCanonicalMemoryReader PayloadAr(PayloadBytes,
-			Asset::GetPackageLoadContext().Mode == Asset::EPackageLoadMode::CookedRuntime
+			Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
 				? EArchivePurpose::CookedPayload : EArchivePurpose::DerivedDataPayload);
 		Candidate->Serialize(PayloadAr);
 		if (PayloadAr.HasError())

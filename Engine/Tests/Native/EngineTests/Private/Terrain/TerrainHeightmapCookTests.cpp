@@ -60,9 +60,10 @@ TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDd
 	Durin::Testing::RemoveTestWorkDirectory(Root / "DDC");
 	Durin::Testing::RemoveTestWorkDirectory(ContentRoot);
 	Durin::FPaths::SetDerivedDataCacheDirForTests((Root / "AbsentDDC").generic_string());
-	Durin::Asset::InitializeAssetManager();
-	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
-		Durin::Asset::EPackageLoadMode::CookedRuntime, CookRoot}));
+	auto RuntimeConfiguration = Durin::Asset::FAssetRuntimeConfiguration::Authored();
+	ASSERT_TRUE(Durin::Asset::FAssetRuntimeConfiguration::Cooked(
+		CookRoot, RuntimeConfiguration));
+	ASSERT_TRUE(Durin::Asset::InitializeAssetManager(std::move(RuntimeConfiguration)));
 	Durin::PathUtilities::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
