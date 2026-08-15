@@ -8,6 +8,7 @@ function(durin_spdlog_configure_imported_target)
 	durin_third_party_find_single_file(spdlog_library "${spdlog_lib_dir}"
 		"spdlog.lib"
 		"spdlogd.lib"
+		"libspdlogd.a"
 		"libspdlog.a"
 	)
 

@@ -132,7 +132,7 @@ namespace Durin
 
 		[[nodiscard]] FORCEINLINE auto GetNumber() const -> uint32 { return Number; }
 
-		[[nodiscard]] FORCEINLINE CORE_API auto Equals(const FName& Other, ENameCase CompareMethod = ENameCase::IgnoreCase, const bool bCompareNumber = true) const -> bool;
+		[[nodiscard]] CORE_API auto Equals(const FName& Other, ENameCase CompareMethod = ENameCase::IgnoreCase, const bool bCompareNumber = true) const -> bool;
 
 		[[nodiscard]] CORE_API auto ToString() const -> std::string;
 

@@ -6319,7 +6319,8 @@ namespace Durin::Asset
 						EAssetDeletionBatchBlocker::TargetRedirectorsNotSelected,
 						Path,
 						Redirector,
-						RedirectorData ? RedirectorData->PhysicalPath
+						RedirectorData
+							? std::filesystem::path(RedirectorData->PhysicalPath)
 							: std::filesystem::path{},
 						std::format(
 							"Asset {} still has redirector {}. Reveal redirectors and include every alias, or run Fix Up Redirectors before deleting the target.",

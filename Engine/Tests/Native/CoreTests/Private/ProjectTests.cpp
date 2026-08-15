@@ -10,8 +10,10 @@
 #include "NativeTestSupport.h"
 #include "Yaml/Yaml.h"
 
-#if PLATFORM_WINDOWS
+#if defined(_WIN32)
 	#include <process.h>
+#elif defined(__APPLE__)
+	#include <unistd.h>
 #endif
 
 namespace
@@ -52,20 +54,36 @@ namespace
 
 TEST(FProjectTests, PlatformProcessReportsCurrentProcessId)
 {
-#if PLATFORM_WINDOWS
+#if defined(_WIN32)
 	EXPECT_EQ(Durin::FPlatformProcess::CurrentProcessId(), static_cast<Durin::uint32>(::_getpid()));
+#elif defined(__APPLE__)
+	EXPECT_EQ(Durin::FPlatformProcess::CurrentProcessId(), static_cast<Durin::uint32>(::getpid()));
 #endif
+}
+
+TEST(FProjectTests, PlatformProcessReportsExistingExecutable)
+{
+	const std::filesystem::path Executable = Durin::FPlatformProcess::ExecutablePath();
+	EXPECT_FALSE(Executable.empty());
+	EXPECT_TRUE(std::filesystem::is_regular_file(Executable));
 }
 
 TEST(FProjectTests, PlatformProcessLaunchFailureIncludesPathAndSystemError)
 {
-#if PLATFORM_WINDOWS
+#if defined(_WIN32)
 	constexpr std::string_view MissingExecutable = "Z:/DurinTests/MissingProfiler.exe";
 	std::string Error;
 
 	EXPECT_FALSE(Durin::FPlatformProcess::LaunchProcess(MissingExecutable, {}, &Error));
 	EXPECT_NE(Error.find(MissingExecutable), std::string::npos);
 	EXPECT_NE(Error.find("Windows error"), std::string::npos);
+#elif defined(__APPLE__)
+	constexpr std::string_view MissingExecutable = "/DurinTests/MissingProfiler";
+	std::string Error;
+
+	EXPECT_FALSE(Durin::FPlatformProcess::LaunchProcess(MissingExecutable, {}, &Error));
+	EXPECT_NE(Error.find(MissingExecutable), std::string::npos);
+	EXPECT_NE(Error.find("macOS error"), std::string::npos);
 #endif
 }
 

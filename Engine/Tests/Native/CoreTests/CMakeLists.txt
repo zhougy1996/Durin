@@ -187,4 +187,12 @@ if(WIN32)
 		STACKS process
 	)
 	durin_discover_tests(DynamicDllUnloadFailureQualificationTests)
+else()
+	durin_exclude_native_test_sources(
+		RATIONALE
+			"Physical dynamic-library unload qualification currently requires the Windows DLL fixture."
+		SOURCES
+			Private/DynamicDllUnloadQualificationTests.cpp
+			Private/DynamicDllUnloadFailureQualificationTests.cpp
+	)
 endif()

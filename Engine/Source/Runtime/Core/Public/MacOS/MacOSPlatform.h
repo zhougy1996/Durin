@@ -8,6 +8,9 @@
 
 #include "HAL/GenericPlatform.h"
 
+#define DURIN_BUILD_PLATFORM MacOS
+#define DURIN_BUILD_PLATFORM_STRING "MacOS"
+
 #define PLATFORM_LITTLE_ENDIAN 1
 
 #define DLLEXPORT __attribute__((visibility("default")))

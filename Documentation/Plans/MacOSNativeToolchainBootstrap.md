@@ -16,13 +16,33 @@ scripted environment persistence, build profile, and LLDB launch generation
 are implemented. A complete non-interactive setup and an immediate idempotent
 rerun both pass with the selected Vulkan environment script.
 
-Stage 2 is partially complete. Slang 2026.5.2 is pinned from its official arm64
+Stage 2 is substantially complete. Slang 2026.5.2 is pinned from its official arm64
 archive; GLM, bc7enc_rdo, GoogleTest, spdlog, GLFW, rapidyaml, Assimp, and Tracy
 prepare successfully. macOS shared-install validation now uses verified native
 artifact names, and Assimp uses the Xcode SDK zlib instead of its Darwin-
-incompatible bundled zlib. Win64-only Tracy tools are skipped explicitly.
-Imported-target, dylib deployment/rpath, configure, and bounded compile
-qualification remain open.
+incompatible bundled zlib. Win64-only Tracy tools are skipped explicitly. The
+configured GLFW import supplies its required Cocoa, IOKit, and CoreFoundation
+framework closure; RenderCore links and deploys the pinned Slang dylib.
+
+Stage 3 is active. `MacOS-arm64-Debug-DurinEditor` configures successfully. Its
+907 generated compile commands all target arm64, contain 75 MacOS or MacOS DHT
+sources, and contain no Windows implementation source or Windows target macro.
+CoreDObject DHT generation passes, and Core, ApplicationCore, and CoreDObject
+compile and link as arm64 dylibs with `@rpath` identities. ApplicationCore links
+the selected Vulkan loader plus the GLFW framework closure and records build-
+tree runtime and Vulkan SDK rpaths. Focused Core utility and filesystem suites
+pass 76 and 35 tests respectively.
+
+The bounded gate required a real basic `FMacOSPlatformProcess` implementation,
+portable UTF conversion, Apple pthread identity handling, and several strict-
+compiler fixes. A wider `Launch` probe progressed through RHI, AetherCore,
+ApplicationCore, RenderCore/Slang, and DHT generation before stopping in the
+Engine closure at libc++ `atomic<shared_ptr>` support and MSVC-dependent
+incomplete-type conversions. That wider Engine closure remains outside the
+agreed M1 Core/ApplicationCore gate; no Editor was launched and runtime support
+is not claimed. After those compiler-portability issues, the next known M2
+platform boundary remains the macOS Launch crash-service adapter. Clean-state
+reproduction and final documentation remain open.
 
 ### Validated candidate host
 
@@ -237,7 +257,7 @@ that does not require M2 runtime implementations.
 
 - [x] Add only the Stage 0-verified MacOS Slang archive metadata, hash, required
   files, versioned package layout, and repair diagnostics.
-- [ ] Make source and shared-install dependency preparation consistently pass
+- [x] Make source and shared-install dependency preparation consistently pass
   the selected Apple Clang environment, arm64 architecture, deployment target,
   CMake configuration, and `MacOS` install layout.
 - [x] Validate and prepare GLM, spdlog, rapidyaml, GLFW, Assimp, GoogleTest,
@@ -247,7 +267,7 @@ that does not require M2 runtime implementations.
   ordinary engine preparation on a Win64-only profiler executable package.
 - [x] Validate the selected Vulkan SDK headers, loader, MoltenVK libraries, VMA
   header, architecture, and environment contract with actionable diagnostics.
-- [ ] Verify Slang imported targets, headers, compiler executable, dylibs,
+- [x] Verify Slang imported targets, headers, compiler executable, dylibs,
   dependent libraries, deployment locations, and development rpaths without
   relying on a global Homebrew Slang installation.
 - [ ] Add focused manifest, acquisition, publication, CMake argument, required
@@ -263,18 +283,18 @@ that does not require M2 runtime implementations.
 
 ### Stage 3: Configure and compile the bounded native closure
 
-- [ ] Configure only `MacOS-arm64-Debug-DurinEditor` and preserve the complete
+- [x] Configure only `MacOS-arm64-Debug-DurinEditor` and preserve the complete
   toolchain, dependency discovery, configure, and generation diagnostics.
-- [ ] Inspect the generated graph for common-plus-MacOS source ownership,
+- [x] Inspect the generated graph for common-plus-MacOS source ownership,
   Windows-source exclusion, arm64 target consistency, truthful DHT macros and
   triples, selected SDK/deployment target, and imported dependency locations.
-- [ ] Compile DHT generation, Core headers and common sources, then
+- [x] Compile DHT generation, Core headers and common sources, then
   ApplicationCore/GLFW and the smallest reachable Editor bootstrap closure in
   dependency order.
 - [ ] Repair Apple Clang language, warning, visibility, framework, linker,
   install-name, and development-rpath issues that belong to M1 without adding
   runtime no-ops or weakening common contracts.
-- [ ] Record the first remaining missing macOS platform implementations and
+- [x] Record the first remaining missing macOS platform implementations and
   assign them to M1 only when required for the bounded compile gate; otherwise
   preserve them as explicit M2 entry diagnostics.
 - [ ] Repeat the bounded configure and compile from a clean worktree/external
@@ -389,4 +409,8 @@ and target ownership rather than duplicating mutable command recipes.
 - `Tools/DurinDevTool/durin_dev_tool/toolchain.py`
 - `Tools/DurinDevTool/tests/`
 - `Engine/CMake/ThirdParty/`
+- `Engine/Source/Runtime/Core/Private/MacOS/`
+- `Engine/Source/Runtime/Core/Public/MacOS/`
+- `Engine/Source/Runtime/ApplicationCore/Public/ThirdParty/Glfw/`
+- `Engine/Tests/Native/CoreTests/`
 - `Engine/Source/Programs/DurinHeaderTool/`

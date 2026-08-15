@@ -28,6 +28,16 @@ function(durin_glfw_configure_imported_target)
 		IMPORTED_LOCATION "${glfw_library}"
 		INTERFACE_INCLUDE_DIRECTORIES "${glfw_include_dir}"
 	)
+	if(APPLE)
+		find_library(glfw_cocoa_framework Cocoa REQUIRED)
+		find_library(glfw_iokit_framework IOKit REQUIRED)
+		find_library(glfw_core_foundation_framework CoreFoundation REQUIRED)
+		set_property(TARGET glfw APPEND PROPERTY INTERFACE_LINK_LIBRARIES
+			"${glfw_cocoa_framework}"
+			"${glfw_iokit_framework}"
+			"${glfw_core_foundation_framework}"
+		)
+	endif()
 endfunction()
 
 function(durin_glfw_configure_source_build)

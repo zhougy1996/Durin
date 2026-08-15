@@ -79,9 +79,9 @@ list(LENGTH _stage0_sources _stage0_source_count)
 string(JOIN "\n" _stage0_source_manifest ${_stage0_sources})
 string(APPEND _stage0_source_manifest "\n")
 string(SHA256 _stage0_source_sha256 "${_stage0_source_manifest}")
-if(NOT _stage0_source_count EQUAL 427
+if(NOT _stage0_source_count EQUAL 445
 	OR NOT _stage0_source_sha256 STREQUAL
-		"4b7c2552c2fe1a5440539b5c3466e7be719073e4448182aa9cc455d8fc4d3fa2")
+		"629b43982d80809b713002bc9accb0bec02b55e3f745852f4ea98fa8de9f564e")
 	message(FATAL_ERROR
 		"Stage 0 Win64 module source baseline changed: "
 		"count=${_stage0_source_count}, sha256=${_stage0_source_sha256}.")
@@ -90,9 +90,9 @@ list(LENGTH _win64_module_compilation_sources _win64_source_count)
 string(JOIN "\n" _win64_source_manifest ${_win64_module_compilation_sources})
 string(APPEND _win64_source_manifest "\n")
 string(SHA256 _win64_source_sha256 "${_win64_source_manifest}")
-if(NOT _win64_source_count EQUAL 429
+if(NOT _win64_source_count EQUAL 447
 	OR NOT _win64_source_sha256 STREQUAL
-		"ea04c67d103a50d6a66b64fee27f655b182899811708281e5e23ba8f66c39897")
+		"06f47a7091b27d147f6a8e4999549c78cc3267d414bdbd87fd8d8788aa27ad7e")
 	message(FATAL_ERROR
 		"Win64 module compilation source baseline changed: "
 		"count=${_win64_source_count}, sha256=${_win64_source_sha256}.")

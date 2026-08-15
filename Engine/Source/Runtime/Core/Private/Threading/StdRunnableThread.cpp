@@ -69,7 +69,12 @@ namespace Durin
 		check(Thread.joinable());
 #ifdef _WIN32
 		return static_cast<uint32>(GetThreadId(Thread.native_handle()));
-#elif defined(__linux__) || defined(__APPLE__)
+#elif defined(__APPLE__)
+		uint64 ThreadId = 0;
+		const int Result = pthread_threadid_np(Thread.native_handle(), &ThreadId);
+		check(Result == 0);
+		return static_cast<uint32>(ThreadId);
+#elif defined(__linux__)
 		pthread_t pthread_id = Thread.native_handle();
 		return static_cast<uint32>(pthread_id);
 #endif
