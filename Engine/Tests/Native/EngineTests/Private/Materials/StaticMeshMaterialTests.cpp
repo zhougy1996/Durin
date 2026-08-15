@@ -619,7 +619,7 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(TexturePath));
 }
 
-TEST(FStaticMeshMaterialTests, LegacyParameterMapsAreSkippedWithoutMigration)
+TEST(FStaticMeshMaterialTests, LegacyParameterMapsFailBeforeResidency)
 {
 	InitializeDObjectSystem();
 	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "LegacyMaterials";
@@ -656,20 +656,10 @@ TEST(FStaticMeshMaterialTests, LegacyParameterMapsAreSkippedWithoutMigration)
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(InstanceBytes)), Root / "Instance.dasset"));
 
 	Durin::DMaterialInstance* LoadedInstance = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(InstancePath, LoadedInstance));
-	ASSERT_NE(LoadedInstance, nullptr);
-	auto* LoadedBase = Durin::Cast<Durin::DMaterial>(LoadedInstance->GetParent());
-	ASSERT_NE(LoadedBase, nullptr);
-
-	Durin::FVector3 BaseColor;
-	ASSERT_TRUE(LoadedBase->GetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), BaseColor));
-	EXPECT_EQ(BaseColor, Durin::FVector3(0.95, 0.62, 0.22));
-	EXPECT_TRUE(LoadedInstance->GetParameterOverrides().empty());
-	EXPECT_FALSE(LoadedInstance->HasScalarParameterOverride(Durin::MaterialParameters::OpacityName()));
-
-	float Opacity = 0.0f;
-	ASSERT_TRUE(LoadedInstance->GetScalarParameterValue(Durin::MaterialParameters::OpacityName(), Opacity));
-	EXPECT_FLOAT_EQ(Opacity, 1.0f);
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(InstancePath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(BasePath));
+	const Durin::Asset::FAssetResult Load =
+		Durin::Asset::LoadAsset(InstancePath, LoadedInstance);
+	EXPECT_EQ(Load.Error, Durin::Asset::EAssetError::UnsupportedProperty);
+	EXPECT_EQ(LoadedInstance, nullptr);
+	EXPECT_EQ(Durin::Asset::FindResidentPackage(InstancePath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindResidentPackage(BasePath), nullptr);
 }

@@ -118,7 +118,7 @@ namespace Durin::Profiling
 			bExpected, true, std::memory_order_acq_rel)) return false;
 
 		DURIN_INFO(
-			"StartupTiming mode={} preinit_ms={:.3f} rhi_ready_ms={:.3f} default_material_ms={:.3f} renderer_ms={:.3f} shell_ms={:.3f} workspace_registration_ms={:.3f} registry_scan_ms={:.3f} default_document_ms={:.3f} default_document_asset_load_ms={:.3f} default_document_compatibility_ms={:.3f} default_document_activation_ms={:.3f} native_viewport_ready_ms={:.3f} first_present_ms={:.3f} default_workspace_ready_ms={:.3f} default_document_ready_ms={:.3f}",
+			"StartupTiming mode={} preinit_ms={:.3f} rhi_ready_ms={:.3f} default_material_ms={:.3f} renderer_ms={:.3f} shell_ms={:.3f} workspace_registration_ms={:.3f} registry_scan_ms={:.3f} default_document_ms={:.3f} default_document_asset_load_ms={:.3f} default_document_activation_ms={:.3f} native_viewport_ready_ms={:.3f} first_present_ms={:.3f} default_workspace_ready_ms={:.3f} default_document_ready_ms={:.3f}",
 			GStartupTiming.bHasProject.load(std::memory_order_acquire) ? "project" : "project_browser",
 			GetStartupMilestoneMilliseconds(EStartupMilestone::PreInitComplete),
 			GetStartupMilestoneMilliseconds(EStartupMilestone::RHIReady),
@@ -129,7 +129,6 @@ namespace Durin::Profiling
 			StartupDurationMilliseconds(EStartupMilestone::RegistryScanBegin, EStartupMilestone::RegistryScanComplete),
 			StartupDurationMilliseconds(EStartupMilestone::DefaultDocumentBegin, EStartupMilestone::DefaultDocumentComplete),
 			StartupDurationMilliseconds(EStartupMilestone::DefaultDocumentAssetLoadBegin, EStartupMilestone::DefaultDocumentAssetLoadComplete),
-			StartupDurationMilliseconds(EStartupMilestone::DefaultDocumentCompatibilityBegin, EStartupMilestone::DefaultDocumentCompatibilityComplete),
 			StartupDurationMilliseconds(EStartupMilestone::DefaultDocumentActivationBegin, EStartupMilestone::DefaultDocumentActivationComplete),
 			GetStartupMilestoneMilliseconds(EStartupMilestone::NativeViewportReady),
 			GetStartupMilestoneMilliseconds(EStartupMilestone::FirstPresent),

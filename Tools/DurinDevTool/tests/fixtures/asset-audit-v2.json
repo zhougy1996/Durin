@@ -10,7 +10,8 @@
       "freshness": "Current",
       "fileSize": 82636,
       "lastWriteTimeTicks": 20,
-      "findings": []
+      "findings": [],
+      "canonicalizationEvidence": []
     }
   ]
 }

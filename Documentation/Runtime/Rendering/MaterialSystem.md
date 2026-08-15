@@ -223,10 +223,10 @@ coalescing, stale-update, startup-replay, and counted-resource contracts.
 ## Compatibility Boundary
 
 Legacy scalar/vector/texture maps have no compatibility properties or implicit
-migration. The asset loader skips their incompatible field records with a
-warning. Material assets carry no persistent parameter-schema version or
-upgrade chain; a package written under an older parameter schema fails
-canonical-schema validation on load rather than being migrated.
+migration. The package reader rejects their fields during schema preflight,
+before constructing or publishing any package object. Material assets carry no
+persistent parameter-schema version or upgrade chain; a package written under
+an older parameter schema fails loading rather than being migrated.
 
 Static-mesh components persist only the positional `OverrideMaterials`
 collection, and StaticMesh slots persist no GUID or slot-schema version. The

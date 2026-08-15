@@ -52,50 +52,6 @@ namespace Durin::Asset
 		explicit operator bool() const { return Succeeded(); }
 	};
 
-	// Classifies how a serialized field mismatch was handled during package loading.
-	enum class EAssetCompatibilityClassification : uint8
-	{
-		SafeCleanup,
-		Migrated,
-		DataLossRisk,
-		UnknownIncompatible
-	};
-
-	// Describes the consequence of persisting the in-memory representation after loading.
-	enum class EAssetCompatibilityRisk : uint8
-	{
-		None,
-		PotentialDataLoss,
-		UnknownNewerSchema
-	};
-
-	// Preserves one incompatible serialized field and its original payload for a registered upgrader.
-	struct FAssetLegacyField
-	{
-		std::string DeclaringClass;
-		std::string Name;
-		DurinCodeGen::EPropertyGenFlags Kind = DurinCodeGen::EPropertyGenFlags::None;
-		std::string TypeSignature;
-		std::vector<uint8> Payload;
-		// DAST v4 provenance 02 retains these two spans exactly. Legacy
-		// records leave them empty and continue to use Payload alone.
-		std::vector<uint8> DescriptorClosure;
-		std::vector<uint8> RetainedPayload;
-	};
-
-	// Groups related legacy fields on one object into a single user-facing compatibility item.
-	struct FAssetCompatibilityIssue
-	{
-		std::string ObjectPath;
-		std::string DeclaringClass;
-		std::vector<FAssetLegacyField> LegacyFields;
-		EAssetCompatibilityClassification Classification = EAssetCompatibilityClassification::UnknownIncompatible;
-		std::string MigrationSummary;
-		uint64 MigratedDataCount = 0;
-		EAssetCompatibilityRisk Risk = EAssetCompatibilityRisk::UnknownNewerSchema;
-		std::string HandlerId;
-	};
-
 	enum class EAssetLoadMutationKind : uint8
 	{
 		Upgrade,
@@ -147,17 +103,10 @@ namespace Durin::Asset
 		std::string ErrorMessage;
 		// Counts package-file reads across the root load and its dependency closure.
 		uint64 PackageFileReadCount = 0;
-		std::vector<FAssetCompatibilityIssue> CompatibilityIssues;
 		std::vector<FAssetLoadMutation> Mutations;
 		std::vector<FAssetCanonicalizationEvidence> CanonicalizationEvidence;
 
-		auto HasCompatibilityIssues() const -> bool { return !CompatibilityIssues.empty(); }
 		ASSETCORE_API auto HasNonUpgradeMutations() const -> bool;
-		ASSETCORE_API auto HasRiskItems() const -> bool;
-		ASSETCORE_API auto GetAffectedObjectCount() const -> uint64;
-		ASSETCORE_API auto GetLegacyFieldCount() const -> uint64;
-		ASSETCORE_API auto GetMigratedDataCount() const -> uint64;
-		ASSETCORE_API auto GetRiskItemCount() const -> uint64;
 	};
 
 	// Adds a mutation to the active root load report. Calls outside package loading are ignored.
@@ -166,36 +115,6 @@ namespace Durin::Asset
 		std::string HandlerId,
 		std::string Summary,
 		EAssetLoadMutationKind Kind = EAssetLoadMutationKind::NonUpgrade) -> void;
-
-	// Resolves serialized object-reference payloads without exposing AssetCore's file implementation.
-	class FAssetMigrationContext
-	{
-	public:
-		ASSETCORE_API auto ReadObjectReference(const FAssetLegacyField& Field, DObject*& OutObject) const -> FAssetResult;
-		ASSETCORE_API auto ReadObjectReferenceArray(
-			const FAssetLegacyField& Field,
-			std::vector<DObject*>& OutObjects) const -> FAssetResult;
-
-	private:
-		explicit FAssetMigrationContext(std::span<DObject* const> InObjects) : Objects(InObjects) {}
-		std::span<DObject* const> Objects;
-
-	#if defined(DURIN_ASSETCORE_INTERNAL)
-		friend class FAssetRuntimeState;
-	#endif
-	};
-
-	using FAssetStructureUpgrader = std::function<FAssetResult(
-		DObject*,
-		std::span<const FAssetLegacyField>,
-		const FAssetMigrationContext&,
-		std::vector<FAssetCompatibilityIssue>&)>;
-
-	// Registers the engine-owned upgrader responsible for incompatible fields on a reflected class.
-	ASSETCORE_API auto RegisterAssetStructureUpgrader(
-		DClass* Class,
-		std::string HandlerId,
-		FAssetStructureUpgrader Upgrader) -> void;
 
 	// Identifies the exact authored package bytes represented by an audit result.
 	struct FAssetPackageFingerprint
@@ -208,11 +127,7 @@ namespace Durin::Asset
 		auto operator==(const FAssetPackageFingerprint&) const -> bool = default;
 	};
 
-	// Requires an explicit opt-in before persistence may discard compatibility-risk payloads.
-	struct FAssetPackageSaveOptions
-	{
-		bool bAllowCompatibilityDataLoss = false;
-	};
+	struct FAssetPackageSaveOptions {};
 
 	// Captures package ownership before a higher-level load request begins.
 	struct FAssetPackageLoadSnapshot
@@ -280,10 +195,6 @@ namespace Durin::Asset
 	{
 		// The root package is published after every dependency package.
 		DPackage* RootPackage = nullptr;
-
-		// Explicit compatibility migration may retire preserved legacy fields
-		// across one failure-atomic package bundle.
-		bool bAllowCompatibilityDataLoss = false;
 
 		// Tests and higher-level transactions may stop immediately before a phase.
 		std::function<bool(EAssetBundleSavePhase, size_t)> ShouldFail;

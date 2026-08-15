@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "AssetPackageV4Reader.h"
+#include "AssetTestSupport.h"
 #include "AssetRedirector.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectArray.h"
@@ -156,7 +157,9 @@ TEST(FPackageV4ReaderTests, CompleteDecodeReconstructsAndReemitsCanonicalBytes)
 	const std::vector<uint8> Bytes = BuildPackage();
 	Production::FDecodedPackage Package;
 	Production::FReaderDiagnostic Diagnostic;
+	Production::ResetAssetPackageReencodeCountForTesting();
 	ASSERT_TRUE(Production::DecodePackage(Bytes, Package, {}, &Diagnostic)) << Diagnostic.Message;
+	EXPECT_EQ(Production::GetAssetPackageReencodeCountForTesting(), 1);
 	EXPECT_EQ(Package.Names.size(), 6);
 	EXPECT_EQ(Package.Types.size(), 3);
 	ASSERT_EQ(Package.Schemas.size(), 1);
@@ -251,13 +254,14 @@ TEST(FPackageV4ReaderTests, ExplicitLiveLoadPublishesOnlyAfterPostLoadAndRollsBa
 	Production::FLoadedAssetPackage Loaded;
 	Durin::Asset::FAssetLoadReport Report;
 	Production::FReaderDiagnostic Diagnostic;
+	Production::ResetAssetPackageReencodeCountForTesting();
 	ASSERT_TRUE(Production::LoadAssetPackage(Bytes, Path, Loaded, &Report, {}, {}, &Diagnostic))
 		<< Diagnostic.Message;
+	EXPECT_EQ(Production::GetAssetPackageReencodeCountForTesting(), 0);
 	ASSERT_TRUE(Loaded);
 	ASSERT_NE(Loaded.GetPackage()->GetAsset(), nullptr);
 	EXPECT_TRUE(Loaded.GetPackage()->GetAsset()->IsA(Durin::Asset::DAssetRedirector::StaticClass()));
 	EXPECT_FALSE(Loaded.GetPackage()->IsDirty());
-	EXPECT_FALSE(Report.HasCompatibilityIssues());
 	ASSERT_EQ(Loaded.GetPackage()->GetAsset()->GetAuthoredOverrideEntries().size(), 1);
 	EXPECT_EQ(Loaded.GetPackage()->GetAsset()->GetAuthoredOverrideEntries().front().Provenance,
 		Durin::EAuthoredOverrideProvenance::LoadedExplicit);
@@ -300,7 +304,7 @@ TEST(FPackageV4ReaderTests, ConstructFreeReferencesCoverInternalExternalAndSoftV
 	}));
 }
 
-TEST(FPackageV4ReaderTests, LiveUnknownReportRetainsExactClosureAndPayload)
+TEST(FPackageV4ReaderTests, LiveUnknownFieldFailsBeforePackagePublication)
 {
 	InitializeLiveReaderTest();
 	Durin::FAssetPath Path;
@@ -308,17 +312,11 @@ TEST(FPackageV4ReaderTests, LiveUnknownReportRetainsExactClosureAndPayload)
 	Production::FLoadedAssetPackage Loaded;
 	Durin::Asset::FAssetLoadReport Report;
 	Production::FReaderDiagnostic Diagnostic;
-	ASSERT_TRUE(Production::LoadAssetPackage(BuildLivePackage(true), Path, Loaded,
-		&Report, {}, {}, &Diagnostic)) << Diagnostic.Message;
-	ASSERT_TRUE(Report.HasCompatibilityIssues());
-	ASSERT_EQ(Report.CompatibilityIssues.size(), 1);
-	ASSERT_EQ(Report.CompatibilityIssues.front().LegacyFields.size(), 1);
-	const auto& Legacy = Report.CompatibilityIssues.front().LegacyFields.front();
-	EXPECT_FALSE(Legacy.DescriptorClosure.empty());
-	EXPECT_EQ(Legacy.RetainedPayload, (std::vector<uint8>{0xca, 0xfe}));
-	EXPECT_EQ(Report.CompatibilityIssues.front().Risk,
-		Durin::Asset::EAssetCompatibilityRisk::UnknownNewerSchema);
-	Loaded.Reset();
+	const Durin::Asset::FAssetResult Result = Production::LoadAssetPackage(
+		BuildLivePackage(true), Path, Loaded, &Report, {}, {}, &Diagnostic);
+	EXPECT_EQ(Result.Error, Durin::Asset::EAssetError::UnsupportedProperty);
+	EXPECT_EQ(Loaded.GetPackage(), nullptr);
+	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 }
 
 TEST(FPackageV4ReaderTests, CompatibilityMatchesKnownAndRetainedLiveSchemas)

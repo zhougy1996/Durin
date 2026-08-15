@@ -1,6 +1,5 @@
 #include "Widgets/MStaticMeshInspector.h"
 
-#include "Asset/WorkspaceAssetOpenCompatibility.h"
 #include "AssetLoad.h"
 #include "DObject/Object.h"
 #include "Editor/WorkspaceManager.h"
@@ -110,22 +109,13 @@ namespace Durin::Editor::StaticMesh
 			ErrorMessage = std::move(PathError);
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
-		::Durin::Editor::FWorkspaceAssetOpenCompatibility CompatibilityPolicy(AssetPath);
 		DStaticMesh* Mesh = nullptr;
-		Asset::FAssetLoadReport LoadReport;
-		const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Mesh, &LoadReport);
+		const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Mesh);
 		if (!Result || !Mesh)
 		{
 			ErrorMessage = Result ? "The selected asset is not a StaticMesh." : Result.Message;
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
-		std::string CompatibilityDiagnostic;
-		if (CompatibilityPolicy.RejectIfIncompatible(LoadReport, CompatibilityDiagnostic))
-		{
-			ErrorMessage = std::move(CompatibilityDiagnostic);
-			return ::Durin::Editor::EDocumentOpenResult::Rejected;
-		}
-
 		FDocumentState State;
 		State.Mesh = Mesh;
 		Documents.emplace(Document.ResourceId, std::move(State));

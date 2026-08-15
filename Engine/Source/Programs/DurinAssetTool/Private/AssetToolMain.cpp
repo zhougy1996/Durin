@@ -1,7 +1,5 @@
 #include "AssetCompatibility.h"
 #include "AssetCanonicalResave.h"
-#include "AssetMigration.h"
-#include "AssetBuild/AssetBuildCoreModule.h"
 #include "ImportRecord.h"
 
 #include "CoreGlobals.h"
@@ -9,10 +7,10 @@
 #include "EngineAssetServices.h"
 #include "Engine/Level.h"
 #include "GenericPlatform/GenericPlatformMisc.h"
+#include "Logging/Logger.h"
 #include "Misc/Name.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
-#include "Modules/ModuleManager.h"
 
 #include <csignal>
 #include <iostream>
@@ -26,7 +24,6 @@ namespace
 	struct FOptions
 	{
 		std::string Project;
-		bool bMigrate = false;
 		bool bCanonicalResave = false;
 		bool bCi = false;
 		bool bProjectScope = false;
@@ -35,36 +32,6 @@ namespace
 		std::vector<std::string> Mounts;
 		std::vector<std::string> Folders;
 		std::vector<std::string> Packages;
-	};
-
-	struct FSelectedAuthoringModules
-	{
-		bool bAssetBuildCore = false;
-		bool bGeometryBuild = false;
-		bool bTextureBuild = false;
-		bool bBuildHost = false;
-
-		~FSelectedAuthoringModules()
-		{
-			if (bBuildHost)
-				Durin::FModuleManager::LoadModuleChecked<
-					Durin::Asset::Build::IAssetBuildCoreModule>("AssetBuildCore").ShutdownHost();
-			if (bTextureBuild)
-			{
-				const auto Result = Durin::FModuleManager::Get().ShutdownModule("TextureBuild");
-				if (!Result.Succeeded()) std::cerr << "TextureBuild shutdown failed: " << Result.Message << '\n';
-			}
-			if (bGeometryBuild)
-			{
-				const auto Result = Durin::FModuleManager::Get().ShutdownModule("GeometryBuild");
-				if (!Result.Succeeded()) std::cerr << "GeometryBuild shutdown failed: " << Result.Message << '\n';
-			}
-			if (bAssetBuildCore)
-			{
-				const auto Result = Durin::FModuleManager::Get().ShutdownModule("AssetBuildCore");
-				if (!Result.Succeeded()) std::cerr << "AssetBuildCore shutdown failed: " << Result.Message << '\n';
-			}
-		}
 	};
 
 	auto ParseOptions(int ArgC, char** ArgV, FOptions& OutOptions, std::string& OutError) -> bool
@@ -81,7 +48,6 @@ namespace
 				}
 				OutOptions.Project = Argument.substr(std::string_view("--project=").size());
 			}
-			else if (Argument == "--operation=migrate") OutOptions.bMigrate = true;
 			else if (Argument == "--operation=canonical-resave") OutOptions.bCanonicalResave = true;
 			else if (Argument == "--ci") OutOptions.bCi = true;
 			else if (Argument == "--project-scope") OutOptions.bProjectScope = true;
@@ -101,14 +67,9 @@ namespace
 			OutError = "--project=<path-to-project.dproject> is required.";
 			return false;
 		}
-		if (OutOptions.bMigrate && OutOptions.bCanonicalResave)
+		if (OutOptions.bApply && !OutOptions.bCanonicalResave)
 		{
-			OutError = "Only one --operation may be selected.";
-			return false;
-		}
-		if (OutOptions.bApply && !OutOptions.bMigrate && !OutOptions.bCanonicalResave)
-		{
-			OutError = "--apply requires --operation=migrate or --operation=canonical-resave.";
+			OutError = "--apply requires --operation=canonical-resave.";
 			return false;
 		}
 		if (OutOptions.bCi && !OutOptions.bCanonicalResave)
@@ -154,49 +115,25 @@ int main(int ArgC, char** ArgV)
 	Durin::GIsGameThreadIdInitialized = true;
 	Durin::FPlatformMisc::EnableUserBinaryDirectoriesSearch();
 	Durin::FNameInit();
-	if (!Durin::InitializeCurrentProject({.RequestedProjectFile = Options.Project}, &Error)
-		|| !Durin::PathUtilities::InitDefaultMountPoints(&Error))
+	if (!Durin::InitializeCurrentProject(
+			{.RequestedProjectFile = Options.Project}, &Error))
+	{
+		std::cerr << "Error: " << Error << '\n';
+		return 1;
+	}
+	// Project initialization configures logging. From this point stdout is the
+	// machine-readable report channel consumed by DurinDevTool.
+	Durin::LoggerInit();
+	Durin::FLogger::Get().SetConsoleLogLevel(Durin::ELogLevel::Fatal);
+	if (!Durin::PathUtilities::InitDefaultMountPoints(&Error))
 	{
 		std::cerr << "Error: " << Error << '\n';
 		return 1;
 	}
 	Durin::DObjectInit();
 	Durin::InitializeEngineAssetServices();
-	FSelectedAuthoringModules AuthoringModules;
-	if (Options.bMigrate)
-	{
-		// Migration may deserialize uncooked Engine payloads. Select Build explicitly;
-		// the package-only audit path intentionally never loads this module.
-		auto& BuildCore = Durin::FModuleManager::LoadModuleChecked<
-			Durin::Asset::Build::IAssetBuildCoreModule>("AssetBuildCore");
-		AuthoringModules.bAssetBuildCore = true;
-		if (!Durin::FModuleManager::Get().LoadModule("GeometryBuild"))
-		{
-			std::cerr << "Error: GeometryBuild is unavailable for migration.\n";
-			return 1;
-		}
-		AuthoringModules.bGeometryBuild = true;
-		if (!Durin::FModuleManager::Get().LoadModule("TextureBuild"))
-		{
-			std::cerr << "Error: TextureBuild is unavailable for migration.\n";
-			return 1;
-		}
-		AuthoringModules.bTextureBuild = true;
-		if (!BuildCore.InitializeHost(&Error))
-		{
-			std::cerr << "Error: AssetBuildCore host is unavailable for migration: "
-				<< Error << '\n';
-			return 1;
-		}
-		AuthoringModules.bBuildHost = true;
-	}
 	(void)Durin::DLevel::StaticClass(); // Force the Engine reflection module into this process.
 	(void)Durin::Asset::Import::DImportRecord::StaticClass(); // AssetImport packages are part of the authored corpus.
-	if (Options.bMigrate && Options.bApply && !Durin::Asset::RecoverInterruptedAssetMigrations(Error))
-	{
-		std::cerr << "Error: " << Error << '\n';
-		return 1;
-	}
 	const Durin::Asset::FReflectionCompatibilityCatalog Catalog =
 		Durin::Asset::FReflectionCompatibilityCatalog::Capture();
 	Durin::Asset::FAssetPackageDiscoverySnapshot Snapshot =
@@ -207,6 +144,17 @@ int main(int ArgC, char** ArgV)
 	{
 		std::cerr << "Error: " << Snapshot.Error << '\n';
 		return 1;
+	}
+	if (Options.bCanonicalResave && Options.bApply)
+	{
+		const Durin::Asset::FAssetCatalogRefreshResult Refresh =
+			Durin::Asset::RefreshAssetCatalog(
+				Durin::Asset::EAssetRegistryScanMode::FullValidation);
+		if (!Refresh || !Refresh.bPublished)
+		{
+			std::cerr << "Error: canonical-resave requires a complete published asset catalog.\n";
+			return 1;
+		}
 	}
 
 	std::vector<Durin::Asset::FAssetPackageCompatibilityRecord> Records;
@@ -219,7 +167,7 @@ int main(int ArgC, char** ArgV)
 		if (Result.Status == Durin::Asset::EAssetCompatibilityProbeStatus::Cancelled) return 130;
 		if (Result.Record) Records.push_back(std::move(*Result.Record));
 	}
-	if (!Options.bMigrate && !Options.bCanonicalResave)
+	if (!Options.bCanonicalResave)
 	{
 		std::cout << Durin::Asset::SerializeAssetCompatibilityReportV1(Records) << '\n';
 		return 0;
@@ -315,61 +263,5 @@ int main(int ArgC, char** ArgV)
 		return 0;
 	}
 
-	Durin::Asset::FAssetMigrationRegistry Registry;
-	if (!Durin::Asset::RegisterBuiltInAssetMigrations(Registry, Error))
-	{
-		std::cerr << "Error: " << Error << '\n';
-		return 1;
-	}
-	Durin::Asset::FAssetMigrationSelection Selection{.Mounts = std::move(Options.Mounts)};
-	for (const std::string& Mount : Selection.Mounts)
-	{
-		if (Mount.size() < 2 || Mount.front() != '/' || Mount.back() == '/' || Mount.find("//") != std::string::npos
-			|| Mount.find('\\') != std::string::npos)
-		{
-			std::cerr << "Error: invalid --mount value '" << Mount << "'. Expected a virtual root such as /Engine.\n";
-			return 2;
-		}
-	}
-	for (const std::string& Value : Options.Packages)
-	{
-		Durin::FAssetPath Path;
-		if (!Durin::FAssetPath::TryCreate(Value, Path, &Error))
-		{
-			std::cerr << "Error: invalid --package value '" << Value << "': " << Error << '\n';
-			return 2;
-		}
-		Selection.Packages.push_back(std::move(Path));
-	}
-	for (const std::string& Mount : Selection.Mounts)
-	{
-		const bool bFound = std::ranges::any_of(Records, [&](const auto& Record) {
-			const std::string_view Path = Record.PackagePath.GetView();
-			return Path.starts_with(Mount) && Path.size() > Mount.size() && Path[Mount.size()] == '/';
-		});
-		if (!bFound)
-		{
-			std::cerr << "Error: --mount selector '" << Mount << "' matched no discovered package.\n";
-			return 1;
-		}
-	}
-	for (const Durin::FAssetPath& Package : Selection.Packages)
-	{
-		if (std::ranges::find(Records, Package, &Durin::Asset::FAssetPackageCompatibilityRecord::PackagePath) != Records.end()) continue;
-		std::cerr << "Error: --package selector '" << Package.ToString() << "' matched no discovered package.\n";
-		return 1;
-	}
-	const auto Plan = Durin::Asset::PlanAssetPackageMigrations(
-		Records, Registry, Selection, [] { return GCancelled.load(std::memory_order_relaxed); });
-	if (Plan.Status == Durin::Asset::EAssetMigrationPlanStatus::Cancelled) return 130;
-	if (Options.bApply)
-	{
-		auto ApplyResult = Durin::Asset::ApplyAssetPackageMigrations(
-			Plan, Registry, Catalog, {}, [] { return GCancelled.load(std::memory_order_relaxed); });
-		if (ApplyResult.Status == Durin::Asset::EAssetMigrationApplyStatus::Cancelled) return 130;
-		std::cout << Durin::Asset::SerializeAssetMigrationApplyReportV2(ApplyResult) << '\n';
-		return 0;
-	}
-	std::cout << Durin::Asset::SerializeAssetMigrationPlanReportV2(Plan) << '\n';
 	return 0;
 }

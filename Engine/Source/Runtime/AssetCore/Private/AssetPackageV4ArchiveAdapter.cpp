@@ -153,21 +153,9 @@ namespace Durin::Asset::Private
 				return EAssetError::CorruptFile;
 			}
 
-			auto TakeLegacyFields() -> std::vector<FAssetLegacyField>
+			auto HasUnconsumedFields() const -> bool
 			{
-				std::vector<FAssetLegacyField> Result;
-				for (size_t Index = 0; Index < Fields.size(); ++Index)
-				{
-					if (Consumed[Index]) continue;
-					const auto& Field = Fields[Index];
-					Result.push_back({
-						.DeclaringClass = Field.DeclaringClass,
-						.Name = Field.Name,
-						.Kind = Field.Kind,
-						.TypeSignature = Field.TypeSignature,
-						.Payload = Field.Payload});
-				}
-				return Result;
+				return std::ranges::find(Consumed, uint8{0}) != Consumed.end();
 			}
 
 			auto SerializeRawBytes(std::span<std::byte> Bytes) -> void override
@@ -1168,7 +1156,6 @@ namespace Durin::Asset::Private
 		std::span<const FAuthoredPackageFieldRecord> Fields,
 		std::span<DObject* const> Objects,
 		uint32 SourceVersion,
-		std::vector<FAssetLegacyField>& OutLegacyFields,
 		std::span<const FArchiveCustomVersion> CustomVersions) -> FAssetResult
 	{
 		FAuthoredLoadArchive Archive(Object, Fields, Objects, SourceVersion, CustomVersions);
@@ -1178,9 +1165,9 @@ namespace Durin::Asset::Private
 		}
 		if (Archive.HasError())
 			return {Archive.GetAssetError(), std::string(Archive.GetError())};
-		std::vector<FAssetLegacyField> Legacy = Archive.TakeLegacyFields();
-		OutLegacyFields.insert(OutLegacyFields.end(),
-			std::make_move_iterator(Legacy.begin()), std::make_move_iterator(Legacy.end()));
+		if (Archive.HasUnconsumedFields())
+			return {EAssetError::UnsupportedProperty,
+				"Serialized fields are not present in the live schema."};
 		return {};
 	}
 }

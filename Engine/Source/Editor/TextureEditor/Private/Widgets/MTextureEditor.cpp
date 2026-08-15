@@ -1,6 +1,5 @@
 #include "Widgets/MTextureEditor.h"
 
-#include "Asset/WorkspaceAssetOpenCompatibility.h"
 #include "AssetImportCore.h"
 #include "AssetMutation.h"
 #include "DObject/Class.h"
@@ -158,19 +157,11 @@ namespace Durin::Editor::Texture
 			SetError(std::move(PathError));
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
-		::Durin::Editor::FWorkspaceAssetOpenCompatibility CompatibilityPolicy(AssetPath);
 		DTexture2D* Texture = nullptr;
-		Asset::FAssetLoadReport LoadReport;
-		const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Texture, &LoadReport);
+		const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Texture);
 		if (!Result || !Texture)
 		{
 			SetError(Result ? "The selected asset is not a Texture2D." : Result.Message);
-			return ::Durin::Editor::EDocumentOpenResult::Rejected;
-		}
-		std::string CompatibilityDiagnostic;
-		if (CompatibilityPolicy.RejectIfIncompatible(LoadReport, CompatibilityDiagnostic))
-		{
-			SetError(std::move(CompatibilityDiagnostic));
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
 		OpenTextures.emplace(Document.ResourceId, Texture);

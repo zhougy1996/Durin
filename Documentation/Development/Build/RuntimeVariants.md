@@ -78,8 +78,8 @@ descriptor roots and dependency closure still decide whether that module is
 present. Developer modules required by headless programs are selected
 explicitly by those programs; `DurinGame` does not gain a Developer branch.
 The Engine editor currently selects `AssetBuildCore`, `TextureBuild`, and
-`GeometryBuild`; package-only tools select none, while migration mode loads
-those three dynamically and owns the generic host lifetime.
+`GeometryBuild`; package audit and canonical-resave tools select none and use
+ordinary AssetCore loading for current-format content.
 
 ## Adding A New Runtime Variant
 

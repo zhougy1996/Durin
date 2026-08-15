@@ -2,7 +2,6 @@
 #include "Documents/LevelDocumentRevisionState.h"
 
 #include "Animation/AnimationClip.h"
-#include "Asset/WorkspaceAssetOpenCompatibility.h"
 #include "MultiOutputImport.h"
 #include "SceneImport.h"
 #include "AssetMutation.h"
@@ -222,9 +221,9 @@ namespace Durin::Editor::Level
 			return true;
 		if (ClearError) ClearError();
 		const FAssetPath& Path = DefaultLevel.GetSoftObjectPath().GetAssetPath();
-		::Durin::Editor::FWorkspaceAssetOpenCompatibility CompatibilityPolicy(Path);
+		const Asset::FAssetPackageLoadSnapshot LoadSnapshot =
+			Asset::CapturePackageLoadSnapshot();
 		DLevel* Level = nullptr;
-		Asset::FAssetLoadReport LoadReport;
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadBegin);
 		Asset::FAssetResult Result;
 		std::string DerivedDataRepairError;
@@ -232,7 +231,7 @@ namespace Durin::Editor::Level
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.DefaultDocument.AssetLoad");
 			const FScopedSkeletalDerivedDataRepairLoad RepairLoad;
 			Result = Asset::LoadSoftObject(
-				DefaultLevel, Level, Asset::ESoftObjectNullPolicy::Reject, &LoadReport);
+				DefaultLevel, Level, Asset::ESoftObjectNullPolicy::Reject);
 			if (Result && !RepairMissingSkeletalDerivedData(
 				RepairLoad.GetMissingAssets(), DerivedDataRepairError))
 				Result = {Asset::EAssetError::InvalidObjectGraph, DerivedDataRepairError};
@@ -241,20 +240,6 @@ namespace Durin::Editor::Level
 		if (!Result)
 		{
 			SetError(Result.Message);
-			return false;
-		}
-		std::string CompatibilityDiagnostic;
-		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentCompatibilityBegin);
-		bool bRejectedAsIncompatible = false;
-		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.DefaultDocument.Compatibility");
-			bRejectedAsIncompatible = CompatibilityPolicy.RejectIfIncompatible(
-				LoadReport, CompatibilityDiagnostic);
-		}
-		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentCompatibilityComplete);
-		if (bRejectedAsIncompatible)
-		{
-			SetError(std::move(CompatibilityDiagnostic));
 			return false;
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentActivationBegin);
@@ -267,7 +252,7 @@ namespace Durin::Editor::Level
 		if (!bActivated)
 		{
 			const Asset::FAssetResult ReleaseResult =
-				CompatibilityPolicy.ReleaseIntroducedPackages();
+				Asset::ReleasePackagesLoadedSince(LoadSnapshot);
 			if (!ReleaseResult)
 				DURIN_WARN(
 					"Failed to release packages after default-level activation failed: {}",
@@ -287,14 +272,14 @@ namespace Durin::Editor::Level
 			SetError(PathError);
 			return ELevelDocumentOpenResult::Rejected;
 		}
-		::Durin::Editor::FWorkspaceAssetOpenCompatibility CompatibilityPolicy(Path);
+		const Asset::FAssetPackageLoadSnapshot LoadSnapshot =
+			Asset::CapturePackageLoadSnapshot();
 		DLevel* Level = nullptr;
-		Asset::FAssetLoadReport LoadReport;
 		Asset::FAssetResult Result;
 		std::string DerivedDataRepairError;
 		{
 			const FScopedSkeletalDerivedDataRepairLoad RepairLoad;
-			Result = Asset::LoadAsset(Path, Level, &LoadReport);
+			Result = Asset::LoadAsset(Path, Level);
 			if (Result && !RepairMissingSkeletalDerivedData(
 				RepairLoad.GetMissingAssets(), DerivedDataRepairError))
 				Result = {Asset::EAssetError::InvalidObjectGraph, DerivedDataRepairError};
@@ -304,15 +289,10 @@ namespace Durin::Editor::Level
 			SetError(Result.Message);
 			return ELevelDocumentOpenResult::Rejected;
 		}
-		std::string CompatibilityDiagnostic;
-		if (CompatibilityPolicy.RejectIfIncompatible(LoadReport, CompatibilityDiagnostic))
-		{
-			SetError(std::move(CompatibilityDiagnostic));
-			return ELevelDocumentOpenResult::Rejected;
-		}
 		if (!ActivateLevel(Level))
 		{
-			const Asset::FAssetResult ReleaseResult = CompatibilityPolicy.ReleaseIntroducedPackages();
+			const Asset::FAssetResult ReleaseResult =
+				Asset::ReleasePackagesLoadedSince(LoadSnapshot);
 			if (!ReleaseResult)
 				DURIN_WARN("Failed to release packages after level activation failed: {}", ReleaseResult.Message);
 			return ELevelDocumentOpenResult::Rejected;

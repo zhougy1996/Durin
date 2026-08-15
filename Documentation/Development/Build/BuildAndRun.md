@@ -321,7 +321,7 @@ smoke test, launch the runtime with PowerShell `Start-Process`, pass
 process after verification. `-WindowStyle Hidden` only affects process startup
 and is not a substitute for the application argument.
 
-## Asset Audit And Migration
+## Asset Audit And Canonical Resave
 
 Audit the engine, active project, and configured auto-scan mounts without
 starting an editor workspace:
@@ -332,10 +332,6 @@ starting an editor workspace:
 .\DevTool.bat asset audit --project Sandbox\Sandbox.dproject
 .\DevTool.bat asset audit --project Sandbox\Sandbox.dproject --format json
 .\DevTool.bat asset audit --project Sandbox\Sandbox.dproject --fail-on incompatible --fail-on unsupported --fail-on error
-.\DevTool.bat asset migrate --project Sandbox\Sandbox.dproject
-.\DevTool.bat asset migrate --project Sandbox\Sandbox.dproject --mount /Game --format json
-.\DevTool.bat asset migrate --project Sandbox\Sandbox.dproject --package /Game/Levels/NewLevel --report Saved\migration-plan.json
-.\DevTool.bat asset migrate --project Sandbox\Sandbox.dproject --apply --report Saved\migration-apply.json
 ```
 
 The default human output groups incompatible, unsupported, failed, and stale
@@ -357,33 +353,18 @@ validation before obsolete format support is removed.
 Exit status `0` means the scan and serialization completed and no selected
 policy matched. Status `3` means a selected policy matched. Status `1` is an
 operational scan/process/schema or command-line validation failure, and
-Ctrl+C/cancellation uses status `130`. Audit and migration planning initialize
+Ctrl+C/cancellation uses status `130`. Audit initializes
 only project paths, mount definitions, reflected types, and streaming AssetCore
 probing. They do not enter Launch, create an editor or renderer, load package
 objects or expose a source mutation path.
 
-`asset migrate` is a read-only dry-run. It resolves exact, stable migration
-handler edges and reports only fully lossless chains; mount and package filters
-are repeatable, and a selected package is blocked if an unselected authored
-dependency also requires migration. JSON uses
-`Tools/DurinDevTool/schemas/asset-migration-v1.schema.json`, while `--report`
-writes the same canonical report to the explicitly selected path. A ready plan
-returns `0`, a blocked plan returns `3`, cancellation returns `130`, and invalid
-selectors or native/schema failures return an operational or command-line
-error.
-
-`asset migrate --apply` is the only writable asset-tool operation. It repeats
-the full plan, rejects blocked or stale inputs, constructs every selected
-package in isolation, serializes deterministic current-format bytes, and stages
-the complete set before publication. Sibling rollback images and atomically
-updated transaction manifests cover the multi-file publish window. A failed
-publish or verification restores the complete selected set; an interrupted or
-incomplete rollback leaves explicit recovery state that the next apply restores
-before planning. Success is reported only after loaded objects are released and
-a new streaming compatibility audit finds current versions with no findings.
-Apply returns `0` on verified success, `3` when policy blocks the complete plan,
-`1` after rollback or another operational failure, and `130` when cancellation
-is honored before publication begins.
+`DurinAssetTool --operation=canonical-resave` is the explicitly selected
+current-format maintenance operation. It is a dry run unless `--apply` is
+present, refreshes and validates the Asset Catalog before ordinary package
+loading, rejects non-current or incompatible inputs, and publishes each changed
+package atomically. It is not a package-format migration command. Durin retains
+no general migration graph; a future real corpus conversion requires its own
+bounded plan and temporary offline converter.
 
 Select another registered configure preset with `--preset`:
 

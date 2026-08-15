@@ -31,8 +31,6 @@ namespace Durin::Profiling
 		DefaultDocumentComplete,
 		DefaultDocumentAssetLoadBegin,
 		DefaultDocumentAssetLoadComplete,
-		DefaultDocumentCompatibilityBegin,
-		DefaultDocumentCompatibilityComplete,
 		DefaultDocumentActivationBegin,
 		DefaultDocumentActivationComplete,
 		NativeViewportReady,

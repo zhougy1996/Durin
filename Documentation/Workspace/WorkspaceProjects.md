@@ -191,12 +191,12 @@ ordinary source discovery still uses its recursive `Public/` and `Private/`
 trees as the visibility boundary.
 
 Developer is not a third runtime variant and a `Source/Developer` path does
-not make a module authoring-only by itself. Programs such as Cook or migration
-tools explicitly select the Developer modules they require, while a game root
-that does not select them never receives them through directory discovery.
-For asset authoring, editor and migration roots select `AssetBuildCore` and the
-needed `TextureBuild`/`GeometryBuild` recipes explicitly; package-only audit
-and game roots select none of them.
+not make a module authoring-only by itself. Programs such as Cook explicitly
+select the Developer modules they require, while a game root that does not
+select them never receives them through directory discovery. For asset
+authoring, editor roots select `AssetBuildCore` and the needed
+`TextureBuild`/`GeometryBuild` recipes explicitly; package audit,
+canonical-resave, and game roots select none of them.
 
 Creation adds the selected relative directory to `ModuleDirs` and appends the
 selected enablement roots without reordering existing entries. Module names and

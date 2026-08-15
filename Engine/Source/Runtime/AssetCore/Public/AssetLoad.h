@@ -151,15 +151,6 @@ namespace Durin::Asset
 		const FAssetPath& Path,
 		DObject*& OutAsset,
 		FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
-	// Loads an exact package without redirect resolution for explicit migration.
-	ASSETCORE_API auto LoadPackageForMigration(
-		const FAssetPath& Path,
-		DPackage*& OutPackage,
-		FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
-	// True only while the migration loader constructs authored objects. Reflected
-	// deserialization and registered structure upgrades still run, but resource
-	// classes must not build or publish runtime-only state in this headless context.
-	ASSETCORE_API auto IsAssetMigrationLoad() -> bool;
 	ASSETCORE_API auto FindResidentPackage(const FAssetPath& Path) -> DPackage*;
 	ASSETCORE_API auto GetResidentPackagePublicationState(const FAssetPath& Path)
 		-> std::optional<EAssetPackagePublicationState>;
@@ -176,8 +167,6 @@ namespace Durin::Asset
 		const FAssetPackageLoadSnapshot& Snapshot) -> FAssetResult;
 	ASSETCORE_API auto ShutdownAssetManager() -> void;
 	ASSETCORE_API auto InitializeAssetManager() -> void;
-	ASSETCORE_API auto PublishMigratedPackageRegistryEntries(
-		std::span<FAssetData> Entries) -> void;
 	ASSETCORE_API auto ConfigurePackageLoadContext(FPackageLoadContext Context) -> FAssetResult;
 	ASSETCORE_API auto GetPackageLoadContext() -> const FPackageLoadContext&;
 	ASSETCORE_API auto CaptureAssetReferenceIndex() -> FAssetReferenceIndex;

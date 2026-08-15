@@ -25,7 +25,6 @@ namespace Durin::Asset
 	{
 		thread_local FAssetLoadReport* GActiveAssetLoadReport = nullptr;
 		thread_local uint64 GActivePackageFileReadCount = 0;
-		thread_local uint32 GAssetMigrationLoadDepth = 0;
 
 		auto CheckSoftObjectThread() -> void
 		{
@@ -347,18 +346,6 @@ namespace Durin::Asset
 				break;
 			}
 			return {};
-		}
-
-		struct FRegisteredStructureUpgrader
-		{
-			std::string HandlerId;
-			FAssetStructureUpgrader Upgrader;
-		};
-
-		auto GetStructureUpgraders() -> std::unordered_map<DClass*, FRegisteredStructureUpgrader>&
-		{
-			static std::unordered_map<DClass*, FRegisteredStructureUpgrader> Upgraders;
-			return Upgraders;
 		}
 
 		auto MakePackageFingerprint(
@@ -2155,19 +2142,6 @@ namespace Durin::Asset
 		return BuildPackageBytes(Package, OutBytes, nullptr, Options);
 	}
 
-	auto SerializeAssetPackageBytesForFormatForTesting(
-		DPackage* Package,
-		uint32 FormatVersion,
-		std::vector<uint8>& OutBytes) -> FAssetResult
-	{
-		const Private::FAssetPackageCodec* Codec =
-			Private::FindAssetPackageWriter(FormatVersion);
-		if (!Codec)
-			return Error(EAssetError::UnsupportedVersion,
-				"The requested test writer codec is unavailable.");
-		return Codec->Write(Package, OutBytes, EDefaultDeltaMode::NoDelta, {});
-	}
-
 	auto SavePackagesAtomically(
 		std::span<DPackage* const> Packages,
 		const FAssetBundleSaveOptions& Options) -> FAssetResult
@@ -2201,11 +2175,6 @@ namespace Durin::Asset
 		std::unordered_set<FAssetPath> Paths;
 		for (DPackage* Package : Packages)
 		{
-			if (Manager.CompatibilityRiskPackages.contains(Package)
-				&& !Options.bAllowCompatibilityDataLoss)
-				return Error(
-					EAssetError::UnsupportedProperty,
-					"The asset bundle contains compatibility-risk data and cannot be saved.");
 			FAssetPath Path;
 			if (!Package || !Package->IsAssetPackage()
 				|| !FAssetPath::TryCreate(Package->GetPackagePath(), Path))
@@ -2444,28 +2413,6 @@ namespace Durin::Asset
 			.LastWriteTime = LastWriteTime,
 			.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime)});
 		return {};
-	}
-
-	auto LoadPackageForMigration(
-		const FAssetPath& Path,
-		DPackage*& OutPackage,
-		FAssetLoadReport* OutReport) -> FAssetResult
-	{
-		struct FScopedMigrationLoad
-		{
-			FScopedMigrationLoad() { ++GAssetMigrationLoadDepth; }
-			~FScopedMigrationLoad() { --GAssetMigrationLoadDepth; }
-		} Scope;
-		DObject* Asset = nullptr;
-		FAssetResult Result = FAssetRuntimeState::Get().LoadAssetExactForMigration(
-			Path, nullptr, Asset, OutReport);
-		OutPackage = Result && Asset ? Asset->GetPackage() : nullptr;
-		return Result;
-	}
-
-	auto IsAssetMigrationLoad() -> bool
-	{
-		return GAssetMigrationLoadDepth != 0;
 	}
 
 	auto FAssetPackageField::TryReadString(std::string& OutValue) const -> bool
@@ -2741,15 +2688,6 @@ namespace Durin::Asset
 		});
 	}
 
-	auto FAssetLoadReport::HasRiskItems() const -> bool
-	{
-		return std::ranges::any_of(
-			CompatibilityIssues,
-			[](const FAssetCompatibilityIssue& Issue) {
-				return Issue.Risk != EAssetCompatibilityRisk::None;
-			});
-	}
-
 	auto ReportAssetLoadMutation(
 		DObject* Object,
 		std::string HandlerId,
@@ -2766,83 +2704,6 @@ namespace Durin::Asset
 			.HandlerId = std::move(HandlerId),
 			.Summary = std::move(Summary),
 			.Kind = Kind});
-	}
-
-	auto FAssetLoadReport::GetAffectedObjectCount() const -> uint64
-	{
-		std::unordered_set<std::string> ObjectPaths;
-		for (const FAssetCompatibilityIssue& Issue : CompatibilityIssues) ObjectPaths.insert(Issue.ObjectPath);
-		return static_cast<uint64>(ObjectPaths.size());
-	}
-
-	auto FAssetLoadReport::GetLegacyFieldCount() const -> uint64
-	{
-		uint64 Count = 0;
-		for (const FAssetCompatibilityIssue& Issue : CompatibilityIssues)
-			Count += static_cast<uint64>(Issue.LegacyFields.size());
-		return Count;
-	}
-
-	auto FAssetLoadReport::GetMigratedDataCount() const -> uint64
-	{
-		uint64 Count = 0;
-		for (const FAssetCompatibilityIssue& Issue : CompatibilityIssues) Count += Issue.MigratedDataCount;
-		return Count;
-	}
-
-	auto FAssetLoadReport::GetRiskItemCount() const -> uint64
-	{
-		return static_cast<uint64>(std::ranges::count_if(
-			CompatibilityIssues,
-			[](const FAssetCompatibilityIssue& Issue) {
-				return Issue.Risk != EAssetCompatibilityRisk::None;
-			}));
-	}
-
-	auto FAssetMigrationContext::ReadObjectReference(
-		const FAssetLegacyField& Field,
-		DObject*& OutObject) const -> FAssetResult
-	{
-		FByteReader Reader{Field.Payload};
-		FAssetResult Result = ReadObjectReferenceValue(Reader, Objects, OutObject);
-		if (Result && Reader.Offset != Field.Payload.size())
-			return Error(EAssetError::CorruptFile, "Object-reference payload has trailing bytes.");
-		return Result;
-	}
-
-	auto FAssetMigrationContext::ReadObjectReferenceArray(
-		const FAssetLegacyField& Field,
-		std::vector<DObject*>& OutObjects) const -> FAssetResult
-	{
-		OutObjects.clear();
-		FByteReader Reader{Field.Payload};
-		uint64 Count = 0;
-		if (!Reader.Read(Count) || Count > 10000000)
-			return Error(EAssetError::CorruptFile, "Invalid object-reference array payload.");
-		OutObjects.reserve(static_cast<size_t>(Count));
-		for (uint64 Index = 0; Index < Count; ++Index)
-		{
-			DObject* Object = nullptr;
-			FAssetResult Result = ReadObjectReferenceValue(Reader, Objects, Object);
-			if (!Result) return Result;
-			OutObjects.push_back(Object);
-		}
-		if (Reader.Offset != Field.Payload.size())
-			return Error(EAssetError::CorruptFile, "Object-reference array payload has trailing bytes.");
-		return {};
-	}
-
-	auto RegisterAssetStructureUpgrader(
-		DClass* Class,
-		std::string HandlerId,
-		FAssetStructureUpgrader Upgrader) -> void
-	{
-		if (!Class || HandlerId.empty() || !Upgrader) return;
-		GetStructureUpgraders().insert_or_assign(
-			Class,
-			FRegisteredStructureUpgrader{
-				.HandlerId = std::move(HandlerId),
-				.Upgrader = std::move(Upgrader)});
 	}
 
 	auto RegisterAssetOwnedPayloadRelocator(
@@ -3894,14 +3755,10 @@ namespace Durin::Asset
 
 	auto FAssetRuntimeState::SavePackage(
 		DPackage* Package,
-		const FAssetPackageSaveOptions& Options) -> FAssetResult
+		const FAssetPackageSaveOptions&) -> FAssetResult
 	{
 		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
 			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit package saves.");
-		if (Package && CompatibilityRiskPackages.contains(Package) && !Options.bAllowCompatibilityDataLoss)
-			return Error(
-				EAssetError::UnsupportedProperty,
-				"The package contains unknown incompatible fields and cannot be saved without explicit data-loss consent.");
 		FAssetPath Path;
 		if (Package && Package->IsAssetPackage()
 			&& !FAssetPath::TryCreate(Package->GetPackagePath(), Path))
@@ -3923,7 +3780,6 @@ namespace Durin::Asset
 			return Error(EAssetError::IoError, PublicationError.ToString());
 		}
 		Package->ClearDirty();
-		CompatibilityRiskPackages.erase(Package);
 		const auto LastWriteTime = std::filesystem::last_write_time(Destination);
 		Registry.AddOrUpdate(FAssetData{
 			.PackagePath = Path,
@@ -5687,9 +5543,6 @@ namespace Durin::Asset
 			if (Loaded && Loaded->IsDirty())
 				return Error(EAssetError::InUse,
 					"A dirty loaded package blocks redirector Fix Up.");
-			if (Loaded && CompatibilityRiskPackages.contains(Loaded))
-				return Error(EAssetError::UnsupportedProperty,
-					"A compatibility-risk loaded package blocks redirector Fix Up.");
 			std::vector<uint8> PreBytes;
 			FAssetResult Result = LoadRelocationBytes(Data->PhysicalPath, PreBytes);
 			if (!Result) return Result;
@@ -5833,9 +5686,6 @@ namespace Durin::Asset
 					if (Loaded && Loaded->IsDirty())
 						return Error(EAssetError::InUse,
 							"A dirty external-reference package blocks redirector Fix Up.");
-					if (Loaded && CompatibilityRiskPackages.contains(Loaded))
-						return Error(EAssetError::UnsupportedProperty,
-							"A compatibility-risk external-reference package blocks redirector Fix Up.");
 					std::vector<uint8> CurrentBytes;
 					Result = LoadRelocationBytes(Data->PhysicalPath, CurrentBytes);
 					if (!Result) return Result;
@@ -6035,9 +5885,7 @@ namespace Durin::Asset
 			{
 				if (FindResidentPackage(PackageState.SourcePath)
 						!= PackageState.LoadedPackage
-					|| PackageState.LoadedPackage->IsDirty()
-					|| CompatibilityRiskPackages.contains(
-						PackageState.LoadedPackage))
+					|| PackageState.LoadedPackage->IsDirty())
 					return Error(EAssetError::StaleData,
 						"A loaded Fix Up package changed after analysis.");
 			}
@@ -6751,7 +6599,6 @@ namespace Durin::Asset
 			ResidentPackages.erase(Entry.RegistryEntry.PackagePath);
 		for (DPackage* Package : Packages)
 		{
-			CompatibilityRiskPackages.erase(Package);
 			RemoveFromRoot(Package);
 			MarkObjectHierarchyAsGarbage(Package);
 		}
@@ -7074,16 +6921,6 @@ namespace Durin::Asset
 			Data.PackagePath, Data.PhysicalPath, ExpectedClass, OutAsset, OutReport);
 	}
 
-	auto FAssetRuntimeState::LoadAssetExactForMigration(
-		const FAssetPath& Path,
-		const DClass* ExpectedClass,
-		DObject*& OutAsset,
-		FAssetLoadReport* OutReport) -> FAssetResult
-	{
-		return LoadAssetFromPhysicalPath(
-			Path, GetPhysicalPath(Path), ExpectedClass, OutAsset, OutReport);
-	}
-
 	auto FAssetRuntimeState::LoadAssetFromPhysicalPath(
 		const FAssetPath& Path,
 		std::string_view PhysicalPath,
@@ -7208,17 +7045,10 @@ namespace Durin::Asset
 				[&](DPackage* LoadedPackage) {
 					LoadingPackages.erase(Path);
 					ResidentPackages.erase(Path);
-					CompatibilityRiskPackages.erase(LoadedPackage);
 				});
 			CodecReport->PackageFileReadCount = GActivePackageFileReadCount;
 			if (!Result) return Result;
 			LoadingPackages.erase(Path);
-			if (std::ranges::any_of(
-				CodecReport->CompatibilityIssues,
-				[](const FAssetCompatibilityIssue& Issue) {
-					return Issue.Risk != EAssetCompatibilityRisk::None;
-				}))
-				CompatibilityRiskPackages.insert(Package);
 			OutPackage = Package;
 			return {};
 		}
@@ -7277,7 +7107,6 @@ namespace Durin::Asset
 			return Error(EAssetError::InUse,
 				"Package has unsaved state; explicit discard policy is required.");
 		ResidentPackages.erase(It);
-		CompatibilityRiskPackages.erase(Package);
 		RemoveFromRoot(Package);
 		MarkObjectHierarchyAsGarbage(Package);
 		CollectGarbage();
@@ -7332,7 +7161,6 @@ namespace Durin::Asset
 				continue;
 			}
 			DPackage* Package = It->second;
-			CompatibilityRiskPackages.erase(Package);
 			ReleasedPackages.push_back(Package);
 			It = ResidentPackages.erase(It);
 		}
@@ -7343,12 +7171,6 @@ namespace Durin::Asset
 		}
 		if (!ReleasedPackages.empty()) CollectGarbage();
 		return {};
-	}
-
-	auto FAssetRuntimeState::PublishMigratedPackageRegistryEntries(
-		std::span<FAssetData> Entries) -> void
-	{
-		for (FAssetData& Entry : Entries) Registry.AddOrUpdate(std::move(Entry));
 	}
 
 	auto FAssetRuntimeState::Shutdown() -> void
@@ -7363,7 +7185,6 @@ namespace Durin::Asset
 		}
 		ResidentPackages.clear();
 		LoadingPackages.clear();
-		CompatibilityRiskPackages.clear();
 		TransactionPackages.clear();
 		LoadDepth = 0;
 		PackageLoadContext = {};
@@ -7676,11 +7497,6 @@ namespace Durin::Asset
 	}
 	auto ShutdownAssetManager() -> void { FAssetRuntimeState::Get().Shutdown(); }
 	auto InitializeAssetManager() -> void { FAssetRuntimeState::Get().Initialize(); }
-	auto PublishMigratedPackageRegistryEntries(
-		std::span<FAssetData> Entries) -> void
-	{
-		FAssetRuntimeState::Get().PublishMigratedPackageRegistryEntries(Entries);
-	}
 	auto ConfigurePackageLoadContext(FPackageLoadContext Context) -> FAssetResult
 	{
 		return FAssetRuntimeState::Get().ConfigurePackageLoadContext(std::move(Context));

@@ -397,11 +397,6 @@ namespace Durin
 	{
 		if (Asset::GetPackageLoadContext().Mode == Asset::EPackageLoadMode::CookedRuntime)
 			return LoadCookedPayload(OutError);
-		if (Asset::IsAssetMigrationLoad())
-		{
-			OutError.clear();
-			return true;
-		}
 		if (!GetPackage() && Payload && Payload->IsValid())
 		{
 			OutError.clear();

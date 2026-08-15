@@ -75,11 +75,6 @@ namespace Durin
 				return false;
 			}
 		}
-		if (Asset::IsAssetMigrationLoad())
-		{
-			OutError.clear();
-			return true;
-		}
 		if (!SourceImportData.HasSource())
 		{
 			OutError.clear();

@@ -2,7 +2,6 @@
 #include "Widgets/MaterialParameterPanelModel.h"
 #include "Widgets/MaterialPreview.h"
 
-#include "Asset/WorkspaceAssetOpenCompatibility.h"
 #include "AssetMutation.h"
 #include "DObject/Package.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -128,19 +127,11 @@ namespace Durin::Editor::Material
 			SetError(std::move(PathError));
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
-		::Durin::Editor::FWorkspaceAssetOpenCompatibility CompatibilityPolicy(AssetPath);
 		DMaterialInterface* Material = nullptr;
-		Asset::FAssetLoadReport LoadReport;
-		const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Material, &LoadReport);
+		const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Material);
 		if (!Result || !Material)
 		{
 			SetError(Result ? "The selected asset is not a material." : Result.Message);
-			return ::Durin::Editor::EDocumentOpenResult::Rejected;
-		}
-		std::string CompatibilityDiagnostic;
-		if (CompatibilityPolicy.RejectIfIncompatible(LoadReport, CompatibilityDiagnostic))
-		{
-			SetError(std::move(CompatibilityDiagnostic));
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
 		OpenMaterials.emplace(Document.ResourceId, Material);

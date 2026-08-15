@@ -167,7 +167,7 @@ namespace Durin::Asset
 			if (Record->Freshness != EAssetCompatibilityFreshness::Current)
 				Package.Diagnostics.push_back("StaleFingerprint: package changed during inspection.");
 			if (Record->FormatVersion != LatestAssetPackageWriterVersion)
-				Package.Diagnostics.push_back("NonCurrentFormat: use asset migrate for package-format migration.");
+				Package.Diagnostics.push_back("NonCurrentFormat: canonical resave accepts only the current package format.");
 			if (Record->EntryKind != EAssetRegistryEntryKind::Asset)
 				Package.Diagnostics.push_back("NonAuthorablePackage: redirectors cannot be canonically resaved.");
 			const PathUtilities::FMountLookupResult Mount =
@@ -263,8 +263,11 @@ namespace Durin::Asset
 					Result.Diagnostic = "Injected canonical-resave load failure.";
 					return Result;
 				}
-				FAssetResult Load = LoadPackageForMigration(PackagePlan.PackagePath, Package, &LoadReport);
-				if (!Load || !Package || LoadReport.HasRiskItems() || LoadReport.HasNonUpgradeMutations())
+				DObject* Asset = nullptr;
+				FAssetResult Load = LoadAsset(
+					PackagePlan.PackagePath, Asset, &LoadReport);
+				Package = Load && Asset ? Asset->GetPackage() : nullptr;
+				if (!Load || !Package || LoadReport.HasNonUpgradeMutations())
 				{
 					(void)ReleasePackagesLoadedSince(Snapshot);
 					PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;

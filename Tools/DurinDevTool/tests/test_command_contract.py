@@ -47,7 +47,6 @@ COMMAND_CASES = (
     (("run",), "run"),
     (("asset", "baseline"), "asset baseline --project Sandbox/Sandbox.dproject"),
     (("asset", "audit"), "asset audit --project Sandbox/Sandbox.dproject"),
-    (("asset", "migrate"), "asset migrate --project Sandbox/Sandbox.dproject"),
     (
         ("scene", "graybox-build"),
         "scene graybox-build --project Sandbox/Sandbox.dproject --output /Game/Test",
@@ -105,7 +104,6 @@ EXPECTED_COMMAND_PATHS = {
     ("asset",),
     ("asset", "baseline"),
     ("asset", "audit"),
-    ("asset", "migrate"),
     ("scene",),
     ("scene", "graybox-build"),
     ("create",),
@@ -226,10 +224,10 @@ class TestCommandGrammarContract:
             f"{' '.join(path)}\n{registry.format_command_help(path)}" for path in paths
         )
         assert hashlib.sha256(snapshot.encode()).hexdigest() == (
-            "6b684a6bdd9c83fb767d94d4471722b16679e1161487ff209f2c7e3c1da68158"
+            "316f8f1d208981f63adbc0ec5ff8e988afcac2129f8c3c446f79bd150c761d0e"
         )
         assert hashlib.sha256(registry.format_help().encode()).hexdigest() == (
-            "73d218bda4e908b2cce196a83153e26ab4042a17d3fee54c16ff0e1ad0e1a0c4"
+            "8765234499a12475560aa47c4eef12b10f96ea759b7629cd36910d817bced09c"
         )
 
 

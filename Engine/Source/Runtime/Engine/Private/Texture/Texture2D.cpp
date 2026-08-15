@@ -223,12 +223,6 @@ namespace Durin
 	{
 		if (Asset::GetPackageLoadContext().Mode == Asset::EPackageLoadMode::CookedRuntime)
 			return LoadCookedPlatformData(OutError);
-		if (Asset::IsAssetMigrationLoad())
-		{
-			OutError.clear();
-			return true;
-		}
-
 		BuildStatus = ETextureBuildStatus::Unbuilt;
 		LastBuildError.clear();
 		DerivedDataKey.clear();

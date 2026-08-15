@@ -4,16 +4,17 @@
 
 namespace Durin::Asset
 {
+	namespace DastV4
+	{
+		ASSETCORE_API auto ResetAssetPackageReencodeCountForTesting() -> void;
+		ASSETCORE_API auto GetAssetPackageReencodeCountForTesting() -> uint64;
+	}
 	ASSETCORE_API auto CreateAssetRedirectorForTesting(
 		const FAssetPath& RedirectorPath,
 		const FAssetPath& DestinationPath,
 		DAssetRedirector*& OutRedirector) -> FAssetResult;
 	ASSETCORE_API auto DeleteAssetForTesting(const FAssetPath& Path)
 		-> FAssetResult;
-	ASSETCORE_API auto SerializeAssetPackageBytesForFormatForTesting(
-		DPackage* Package,
-		uint32 FormatVersion,
-		std::vector<uint8>& OutBytes) -> FAssetResult;
 	enum class EAssetRedirectorFixupFailurePoint : uint8
 	{
 		None,

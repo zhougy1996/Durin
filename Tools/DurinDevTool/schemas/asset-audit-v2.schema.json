@@ -13,7 +13,7 @@
     "package": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["packagePath", "physicalPath", "formatVersion", "inspection", "compatibility", "freshness", "fileSize", "lastWriteTimeTicks", "findings"],
+      "required": ["packagePath", "physicalPath", "formatVersion", "inspection", "compatibility", "freshness", "fileSize", "lastWriteTimeTicks", "findings", "canonicalizationEvidence"],
       "properties": {
         "packagePath": { "type": "string", "minLength": 1 },
         "physicalPath": { "type": "string" },
@@ -23,7 +23,20 @@
         "freshness": { "enum": ["Current", "Stale"] },
         "fileSize": { "type": "integer", "minimum": 0 },
         "lastWriteTimeTicks": { "type": "integer" },
-        "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } }
+        "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+        "canonicalizationEvidence": { "type": "array", "items": { "$ref": "#/$defs/canonicalizationEvidence" } }
+      }
+    },
+    "canonicalizationEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["storedIdentity", "currentIdentity", "kind", "location", "logicalPath"],
+      "properties": {
+        "storedIdentity": { "type": "string", "minLength": 1 },
+        "currentIdentity": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["Class", "Struct", "Enum"] },
+        "location": { "enum": ["PackageHeader", "ObjectRecord", "Schema", "TypeDescriptor"] },
+        "logicalPath": { "type": "string" }
       }
     },
     "finding": {

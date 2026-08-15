@@ -262,7 +262,6 @@ namespace Durin
 			OutError = "Skeletal-mesh component play rate must be finite and non-negative.";
 			return false;
 		}
-		if (Asset::IsAssetMigrationLoad()) return true;
 		if (IsSkeletalDerivedDataRepairLoadActive()
 			&& SkeletalMesh
 			&& (!SkeletalMesh->GetPayloadData()

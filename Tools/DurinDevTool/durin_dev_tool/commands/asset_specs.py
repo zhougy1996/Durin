@@ -10,7 +10,7 @@ HANDLER = "durin_dev_tool.asset:run"
 
 COMMAND_SPEC = CommandSpec(
     "asset",
-    "inspect, enforce, or explicitly migrate authored asset packages",
+    "inspect or enforce authored asset package compatibility",
     subcommands=(
         CommandSpec(
             "baseline",
@@ -39,21 +39,6 @@ COMMAND_SPEC = CommandSpec(
                     action="append",
                     default=[],
                 ),
-            ),
-        ),
-        CommandSpec(
-            "migrate",
-            "plan an asset migration or apply it with explicit authorization",
-            HANDLER,
-            required_modules=("rich", "jsonschema"),
-            arguments=CONTEXT_ARGUMENTS
-            + (
-                argument("--project", dest="project_path", type=Path, required=True),
-                argument("--apply", action="store_true", default=False),
-                argument("--mount", dest="mounts", action="append", default=[]),
-                argument("--package", dest="packages", action="append", default=[]),
-                argument("--format", dest="format_name", choices=("human", "json"), default="human"),
-                argument("--report", dest="report_path", type=Path, default=None),
             ),
         ),
     ),

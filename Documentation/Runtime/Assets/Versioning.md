@@ -42,8 +42,8 @@ publication.
 
 ## Authored Package Version Policy
 
-Supported readers, the ordinary writer, and explicit migration writers are
-separate policies backed by one private, statically composed codec table. Each
+Supported readers and the ordinary writer are separate policies backed by one
+private, statically composed codec table. Each
 codec has an immutable string identity, wire version, and complete reader,
 writer, and mutation capability set. Shared code parses the magic/version
 preamble once, resolves a codec, and fails closed before codec parsing when no
@@ -54,30 +54,32 @@ version enum. The repository currently registers only the bounded production
 v4 codec; read-only entrypoints never select a writer or dirty authored content.
 
 A frozen writer constructs its Archive context from its own codec identity.
-The v4 writer therefore always reports DAST v4 to serializers and emits v4,
-independently of the selected ordinary or migration writer policy. The
+The v4 writer therefore always reports DAST v4 to serializers and emits v4. The
 reader-policy cache identity is an explicit generation, not a wire-version
 alias; changing the supported-reader contract requires changing that identity.
 
 Registry and reference-cache fingerprints include the source DAST version.
 Changing package bytes or versions invalidates the corresponding projection;
-full validation bypasses cheap timestamp/size reuse. When a future exact
-migration edge is registered, a migration plan records the source version and
-fingerprint, policy identity, codec identities, and one exact registered edge
-to its target writer, and fails
-closed on stale input, missing dependency closure, compatibility findings, or
-retained-data risk. Publication is bundle-atomic and journal-compensated.
+full validation bypasses cheap timestamp/size reuse. Ordinary load decodes the
+selected current-format package once and validates its serialized classes and
+fields against one captured reflection catalog before constructing any object
+skeleton. Unknown classes, fields, or signatures fail the complete load rather
+than producing a partially compatible resident package. Canonical byte
+comparison belongs to the construct-free audit path, not ordinary load.
 
 ## Early-Development Asset Compatibility
 
 Until Durin makes an explicit external compatibility commitment, the repository
 keeps one authored `.dasset` format and schema baseline. A format change first
-adds a temporary exact-edge, lossless migration to `DurinAssetTool`; developers
-review a dry-run, apply it explicitly to the complete tracked corpus, and verify
-the current baseline with `DevTool asset baseline`. Once all tracked packages
-are current, the previous reader, migration edge, fixtures, and compatibility
-branches are removed in the same bounded effort. Audit, registry discovery,
-ordinary loading, and editor startup never rewrite authored packages.
+inventories real source content and gets a separately scoped child plan. If
+conversion is required, that plan adds the smallest exact, lossless offline
+converter needed for the proven source format, rewrites the complete tracked
+corpus explicitly, verifies it with `DevTool asset baseline`, and removes the
+converter and obsolete reader in the same bounded effort. AssetCore does not
+retain a general migration graph, structure-upgrader registry, partial
+compatibility objects, or data-loss save permission between transitions.
+Audit, registry discovery, ordinary loading, and editor startup never rewrite
+authored packages.
 
 External-project compatibility windows, release deprecation policy, and
 downloadable migration bundles require a separate release-level decision; the

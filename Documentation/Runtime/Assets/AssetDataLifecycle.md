@@ -56,8 +56,11 @@ Mounted `.dasset` metadata becomes load-visible only through an atomic catalog
 refresh, successful authored publication, or explicit editor admission.
 An exact resident real package satisfies `LoadAsset` without a package read.
 Otherwise ordinary load resolves one immutable catalog revision, validates the
-final real class, reads the final package once, and publishes it to residency.
-A catalog miss with no resident package performs no disk probe.
+final real class, reads and decodes the final package once, and validates every
+serialized class and field signature before constructing objects or publishing
+it to residency. A catalog miss with no resident package performs no disk
+probe. Construct-free audit may classify incompatible content in detail, but
+ordinary load never creates a partially compatible resident package.
 
 `CreateAsset` creates a `NewlyCreated`, Dirty resident package. It can satisfy
 in-memory load and soft-reference resolution but does not appear in persistent

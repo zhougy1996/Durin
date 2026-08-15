@@ -2,7 +2,6 @@
 
 #include "Asset/SourcePath.h"
 #include "AssetCompatibility.h"
-#include "AssetMigration.h"
 #include "AssetPackageVersionPolicy.h"
 #include "AssetPackageV4Reader.h"
 #include "AssetPackageV4Writer.h"
@@ -90,8 +89,6 @@ namespace
 		Durin::Asset::AssetPackageV4FormatVersion);
 	static_assert(Durin::Asset::OrdinaryAssetPackageWriterVersion ==
 		Durin::Asset::AssetPackageV4FormatVersion);
-	static_assert(Durin::Asset::AssetPackageMigrationWriterVersion ==
-		Durin::Asset::LatestAssetPackageWriterVersion);
 	static_assert(Durin::Asset::SupportedAssetPackageReaderVersions ==
 		decltype(Durin::Asset::SupportedAssetPackageReaderVersions){
 			Durin::Asset::AssetPackageV4FormatVersion});
@@ -974,72 +971,6 @@ namespace
 		ASSERT_TRUE(Stream.good());
 	}
 
-	struct FSyntheticMigrationFixture
-	{
-		Durin::FAssetPath Path;
-		std::string PhysicalPath;
-		std::vector<Durin::uint8> SourceBytes;
-		Durin::Asset::FReflectionCompatibilityCatalog Catalog;
-		Durin::Asset::FAssetMigrationRegistry Registry;
-		Durin::Asset::FAssetMigrationPlan Plan;
-	};
-
-	auto PrepareSyntheticMigrationFixture() -> FSyntheticMigrationFixture
-	{
-		using namespace Durin::Asset;
-		InitializeAssetTests();
-		FSyntheticMigrationFixture Fixture;
-		if (!Durin::FAssetPath::TryCreate("/TestAssets/SyntheticMigration", Fixture.Path))
-			throw std::runtime_error("Failed to create the synthetic migration path.");
-		DPackageAssetForTest* Asset = nullptr;
-		if (!CreateAsset(Fixture.Path, Asset))
-			throw std::runtime_error("Failed to create the synthetic migration asset.");
-		Asset->Value = 73;
-		if (!SerializeAssetPackageBytesForFormatForTesting(
-			Asset->GetPackage(), SyntheticAssetPackageFormatVersionForTesting,
-			Fixture.SourceBytes)
-			|| !SavePackage(Asset->GetPackage()))
-			throw std::runtime_error("Failed to serialize the synthetic migration asset.");
-		const FAssetCatalogEntry Saved = FindAssetExact(Fixture.Path);
-		if (!Saved) throw std::runtime_error("Synthetic migration asset was not registered.");
-		Fixture.PhysicalPath = Saved->PhysicalPath;
-		if (!UnloadPackage(Fixture.Path))
-			throw std::runtime_error("Failed to unload the synthetic migration asset.");
-		const Durin::uint32 SyntheticVersion = SyntheticAssetPackageFormatVersionForTesting;
-		WriteTestBytes(Fixture.PhysicalPath, Fixture.SourceBytes);
-		if (!RefreshAssetCatalog(EAssetRegistryScanMode::FullValidation))
-			throw std::runtime_error("Failed to scan the synthetic package.");
-
-		const FAssetPackageDiscoverySnapshot Snapshot = CaptureMountedAssetPackageSnapshot();
-		if (Snapshot.Status != EAssetPackageSnapshotStatus::Completed)
-			throw std::runtime_error(Snapshot.Error);
-		const auto Input = std::ranges::find(Snapshot.Packages, Fixture.Path,
-			&FAssetPackageCompatibilityProbeInput::PackagePath);
-		if (Input == Snapshot.Packages.end())
-			throw std::runtime_error("Synthetic package was not discovered.");
-		Fixture.Catalog = FReflectionCompatibilityCatalog::Capture();
-		FAssetPackageCompatibilityProbeResult Probe =
-			ProbeAssetPackageCompatibility(*Input, Fixture.Catalog);
-		if (!Probe.Record || Probe.Record->Compatibility != EAssetPackageCompatibility::Compatible)
-			throw std::runtime_error("Synthetic package was not compatible.");
-		std::string Error;
-		if (!Fixture.Registry.Register({
-			.HandlerId = "test.synthetic-to-v4",
-			.SourceVersion = SyntheticVersion,
-			.TargetVersion = AssetPackageV4FormatVersion,
-			.SourceCodecId = "test-dast-v4-source",
-			.TargetCodecId = "dast-v4",
-			.Risk = EAssetMigrationRisk::Lossless}, Error))
-			throw std::runtime_error(Error);
-		Fixture.Plan = PlanAssetPackageMigrations(
-			std::span<const FAssetPackageCompatibilityRecord>(&*Probe.Record, 1),
-			Fixture.Registry);
-		if (Fixture.Plan.Packages.size() != 1
-			|| Fixture.Plan.Packages.front().Status != EAssetMigrationPackageStatus::Planned)
-			throw std::runtime_error(SerializeAssetMigrationPlanReportV2(Fixture.Plan));
-		return Fixture;
-	}
-
 	auto RenameSerializedString(
 		std::vector<Durin::uint8>& Bytes,
 		std::string_view OldValue,
@@ -1145,8 +1076,6 @@ namespace
 	auto RunRedirectorFixupVerificationFailureRestoresPackagesStoresAndAliasTest()
 		-> void;
 	auto RunRedirectorFixupRejectsUnavailableProviderWithoutMutationTest()
-		-> void;
-	auto RunRedirectorFixupRejectsDirtyAndCompatibilityRiskPackagesTest()
 		-> void;
 	auto RunRedirectorFixupRejectsReadOnlyAndChangedPackageInputsTest()
 		-> void;
@@ -2864,75 +2793,6 @@ namespace
 		ASSERT_TRUE(DeleteAssetClosureForTest({OldPath, NewPath}));
 	}
 
-	auto RunRedirectorFixupRejectsDirtyAndCompatibilityRiskPackagesTest() -> void
-	{
-		InitializeAssetTests();
-		auto RunCase = [](std::string_view Suffix, bool bCompatibilityRisk) {
-			Durin::FAssetPath OldPath;
-			Durin::FAssetPath NewPath;
-			Durin::FAssetPath OwnerPath;
-			ASSERT_TRUE(Durin::FAssetPath::TryCreate(
-				std::format("/TestAssets/Fixup{}Old", Suffix), OldPath
-			));
-			ASSERT_TRUE(Durin::FAssetPath::TryCreate(
-				std::format("/TestAssets/Fixup{}New", Suffix), NewPath
-			));
-			ASSERT_TRUE(Durin::FAssetPath::TryCreate(
-				std::format("/TestAssets/Fixup{}Owner", Suffix), OwnerPath
-			));
-			DPackageAssetForTest* Target = nullptr;
-			ASSERT_TRUE(Durin::Asset::CreateAsset(OldPath, Target));
-			ASSERT_TRUE(Durin::Asset::SavePackage(Target->GetPackage()));
-			DSoftPackageAssetForTest* Owner = nullptr;
-			ASSERT_TRUE(Durin::Asset::CreateAsset(OwnerPath, Owner));
-			Owner->Direct.SetPath(OldPath);
-			ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
-			if (bCompatibilityRisk)
-			{
-				const std::string OwnerFile = Durin::Asset::FindAssetExact(OwnerPath)
-												  ->PhysicalPath;
-				ASSERT_TRUE(Durin::Asset::UnloadPackage(OwnerPath));
-				std::vector<Durin::uint8> Bytes;
-				ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, OwnerFile));
-				ASSERT_TRUE(RenameSerializedString(Bytes, "Label", "Ghost"));
-				WriteTestBytes(OwnerFile, Bytes);
-				ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
-					Durin::Asset::EAssetRegistryScanMode::FullValidation
-				));
-				Durin::Asset::FAssetLoadReport Report;
-				ASSERT_TRUE(Durin::Asset::LoadAsset(OwnerPath, Owner, &Report));
-				ASSERT_TRUE(Report.HasRiskItems());
-			}
-			else
-			{
-				Owner->MarkPackageDirty();
-			}
-			ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
-			ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
-				Durin::Asset::EAssetRegistryScanMode::FullValidation
-			));
-			Durin::Asset::FAssetRedirectorFixupSummary Summary;
-			Durin::Asset::FAssetMutationTransaction Transaction;
-			const Durin::Asset::FAssetResult Result =
-				Durin::Asset::PrepareRedirectorFixupTransaction(
-					std::span{&OldPath, 1},
-					Durin::Asset::EAssetRedirectorFixupMode::RewriteAndDelete,
-					Summary,
-					Transaction
-				);
-			EXPECT_EQ(Result.Error, bCompatibilityRisk ? Durin::Asset::EAssetError::UnsupportedProperty : Durin::Asset::EAssetError::InUse) << Result.Message;
-			const auto Alias = Durin::Asset::FindAssetExact(OldPath);
-			ASSERT_NE(Alias, nullptr);
-			EXPECT_EQ(Alias->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Redirector);
-			Owner->GetPackage()->ClearDirty();
-			ASSERT_TRUE(Durin::Asset::UnloadPackage(OwnerPath));
-			ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(OwnerPath));
-			ASSERT_TRUE(DeleteAssetClosureForTest({OldPath, NewPath}));
-		};
-		RunCase("Dirty", false);
-		RunCase("Risk", true);
-	}
-
 	auto RunRedirectorFixupRejectsReadOnlyAndChangedPackageInputsTest() -> void
 	{
 		InitializeAssetTests();
@@ -3325,294 +3185,6 @@ TEST(FPackageAssetTests, MountedPackageSnapshotIsDeterministicHashedAndReadOnly)
 	EXPECT_TRUE(Cancelled.Packages.empty());
 }
 
-TEST(FPackageAssetTests, MigrationRegistryRejectsMalformedAndAmbiguousExactEdges)
-{
-	InitializeAssetTests();
-	using namespace Durin::Asset;
-	FAssetMigrationRegistry Registry;
-	std::string Error;
-	EXPECT_FALSE(Registry.Register({.HandlerId = "", .SourceVersion = 2, .TargetVersion = 3,
-		.SourceCodecId = "test-v2", .TargetCodecId = "test-v3"}, Error));
-	EXPECT_TRUE(Error.starts_with("MigrationHandlerInvalid:"));
-	ASSERT_TRUE(Registry.Register({.HandlerId = "test.2-to-3", .SourceVersion = 2, .TargetVersion = 3,
-		.SourceCodecId = "test-v2", .TargetCodecId = "test-v3"}, Error));
-	EXPECT_FALSE(Registry.Register({.HandlerId = "test.2-to-3", .SourceVersion = 3, .TargetVersion = 4,
-		.SourceCodecId = "test-v3", .TargetCodecId = "test-v4"}, Error));
-	EXPECT_TRUE(Error.starts_with("MigrationHandlerDuplicateId:"));
-	ASSERT_TRUE(Registry.Register({.HandlerId = "test.2-to-3-alternate", .SourceVersion = 2, .TargetVersion = 3,
-		.SourceCodecId = "test-v2", .TargetCodecId = "test-v3"}, Error));
-	EXPECT_FALSE(Registry.Validate(Error));
-	EXPECT_TRUE(Error.starts_with("MigrationEdgeAmbiguous:"));
-	EXPECT_EQ(Registry.ResolveExactEdge(EAssetMigrationKind::PackageFormat, 2, 3).Status,
-		EAssetMigrationResolutionStatus::AmbiguousEdge);
-
-}
-
-TEST(FPackageAssetTests, MigrationRegistryResolvesStableOrderedExactEdgesAndCancellation)
-{
-	InitializeAssetTests();
-	using namespace Durin::Asset;
-	FAssetMigrationRegistry Registry;
-	std::string Error;
-	ASSERT_TRUE(Registry.Register({
-		.HandlerId = "test.package.3-to-4", .SourceVersion = 3, .TargetVersion = 4,
-		.SourceCodecId = "test-v3", .TargetCodecId = "test-v4",
-		.Risk = EAssetMigrationRisk::Lossless}, Error));
-	ASSERT_TRUE(Registry.Register({
-		.HandlerId = "test.package.2-to-3", .SourceVersion = 2, .TargetVersion = 3,
-		.SourceCodecId = "test-v2", .TargetCodecId = "test-v3",
-		.Risk = EAssetMigrationRisk::Lossless}, Error));
-	ASSERT_TRUE(Registry.Validate(Error)) << Error;
-	const auto Chain = Registry.ResolveExactEdge(EAssetMigrationKind::PackageFormat, 2, 4);
-	EXPECT_EQ(Chain.Status, EAssetMigrationResolutionStatus::MissingEdge);
-	const auto Exact = Registry.ResolveExactEdge(EAssetMigrationKind::PackageFormat, 3, 4);
-	ASSERT_EQ(Exact.Status, EAssetMigrationResolutionStatus::Resolved);
-	ASSERT_EQ(Exact.Steps.size(), 1u);
-	EXPECT_EQ(Exact.Steps[0].HandlerId, "test.package.3-to-4");
-	EXPECT_EQ(Registry.ResolveExactEdge(EAssetMigrationKind::PackageFormat, 2, 4, [] { return true; }).Status,
-		EAssetMigrationResolutionStatus::Cancelled);
-}
-
-TEST(FPackageAssetTests, SyntheticExactMigrationRevalidatesAuthorizationAndPublishesV4)
-{
-	InitializeAssetTests();
-	using namespace Durin::Asset;
-	const Durin::uint32 ProductionPolicy = GetAssetPackageReaderPolicyIdentity();
-	FScopedSyntheticAssetPackageCodecForTesting SyntheticCodec;
-	EXPECT_NE(GetAssetPackageReaderPolicyIdentity(), ProductionPolicy);
-
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SyntheticMigration", Path));
-	DPackageAssetForTest* Asset = nullptr;
-	ASSERT_TRUE(CreateAsset(Path, Asset));
-	Asset->Value = 73;
-	std::vector<Durin::uint8> SourceBytes;
-	ASSERT_TRUE(SerializeAssetPackageBytesForFormatForTesting(
-		Asset->GetPackage(), SyntheticAssetPackageFormatVersionForTesting, SourceBytes));
-	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
-	const FAssetCatalogEntry Saved = FindAssetExact(Path);
-	ASSERT_NE(Saved, nullptr);
-	const std::string PhysicalPath = Saved->PhysicalPath;
-	ASSERT_TRUE(UnloadPackage(Path));
-	const Durin::uint32 SyntheticVersion = SyntheticAssetPackageFormatVersionForTesting;
-	WriteTestBytes(PhysicalPath, SourceBytes);
-	EXPECT_TRUE(ValidateAssetPackageBytes(SourceBytes));
-	FAssetPackageHeader SyntheticHeader;
-	ASSERT_TRUE(ReadAssetPackageHeader(PhysicalPath, SyntheticHeader));
-	EXPECT_EQ(SyntheticHeader.FormatVersion, SyntheticVersion);
-	FAssetPackageInspection SyntheticInspection;
-	ASSERT_TRUE(InspectAssetPackage(PhysicalPath, SyntheticInspection));
-	EXPECT_EQ(SyntheticInspection.Header.FormatVersion, SyntheticVersion);
-	std::vector<Durin::uint8> RejectedMutation{0xaa};
-	EXPECT_EQ(CanonicalizeAssetPackageForCook(SourceBytes, RejectedMutation).Error,
-		EAssetError::UnsupportedVersion);
-	EXPECT_TRUE(RejectedMutation.empty());
-	ASSERT_TRUE(RefreshAssetCatalog(EAssetRegistryScanMode::FullValidation));
-
-	const FAssetPackageDiscoverySnapshot Snapshot = CaptureMountedAssetPackageSnapshot();
-	ASSERT_EQ(Snapshot.Status, EAssetPackageSnapshotStatus::Completed) << Snapshot.Error;
-	const auto Input = std::ranges::find(Snapshot.Packages, Path,
-		&FAssetPackageCompatibilityProbeInput::PackagePath);
-	ASSERT_NE(Input, Snapshot.Packages.end());
-	const FReflectionCompatibilityCatalog Catalog =
-		FReflectionCompatibilityCatalog::Capture();
-	FAssetPackageCompatibilityProbeResult Probe =
-		ProbeAssetPackageCompatibility(*Input, Catalog);
-	ASSERT_TRUE(Probe.Record.has_value());
-	ASSERT_EQ(Probe.Record->Compatibility, EAssetPackageCompatibility::Compatible);
-	ASSERT_EQ(Probe.Record->FormatVersion, SyntheticVersion);
-
-	FAssetMigrationRegistry Registry;
-	std::string Error;
-	bool bTransformExecuted = false;
-	ASSERT_TRUE(Registry.Register({
-		.HandlerId = "test.synthetic-to-v4",
-		.SourceVersion = SyntheticVersion,
-		.TargetVersion = AssetPackageV4FormatVersion,
-		.SourceCodecId = "test-dast-v4-source",
-		.TargetCodecId = "dast-v4",
-		.Risk = EAssetMigrationRisk::Lossless,
-		.Transform = [&](Durin::DPackage*, const FAssetCompatibilityCancellationCheck&) {
-			bTransformExecuted = true;
-			return FAssetResult{};
-		}}, Error)) << Error;
-	FAssetMigrationPlan Plan = PlanAssetPackageMigrations(
-		std::span<const FAssetPackageCompatibilityRecord>(&*Probe.Record, 1), Registry);
-	ASSERT_EQ(Plan.Packages.size(), 1u);
-	ASSERT_EQ(Plan.Packages.front().Status, EAssetMigrationPackageStatus::Planned)
-		<< SerializeAssetMigrationPlanReportV2(Plan);
-
-	FAssetMigrationApplyResult Applied = ApplyAssetPackageMigrations(
-		std::move(Plan), Registry, Catalog);
-	ASSERT_EQ(Applied.Status, EAssetMigrationApplyStatus::Succeeded)
-		<< Applied.Diagnostic;
-	EXPECT_TRUE(bTransformExecuted);
-	ASSERT_EQ(Applied.ChangedPaths.size(), 1u);
-	std::vector<Durin::uint8> Published;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Published, PhysicalPath));
-	Durin::uint32 PublishedVersion = 0;
-	std::memcpy(&PublishedVersion, Published.data() + sizeof(Durin::uint32),
-		sizeof(PublishedVersion));
-	EXPECT_EQ(PublishedVersion, AssetPackageV4FormatVersion);
-}
-
-TEST(FPackageAssetTests, SyntheticMigrationRejectsMissingLossyTamperedStaleAndCancelledAuthorization)
-{
-	using namespace Durin::Asset;
-	FScopedSyntheticAssetPackageCodecForTesting SyntheticCodec;
-	auto ExpectSourceBytes = [](const FSyntheticMigrationFixture& Fixture) {
-		std::vector<Durin::uint8> Bytes;
-		EXPECT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, Fixture.PhysicalPath));
-		EXPECT_EQ(Bytes, Fixture.SourceBytes);
-	};
-
-	{
-		auto Fixture = PrepareSyntheticMigrationFixture();
-		Fixture.Plan.Packages.front().Steps.front().HandlerId = "fabricated.edge";
-		const auto Result = ApplyAssetPackageMigrations(
-			std::move(Fixture.Plan), Fixture.Registry, Fixture.Catalog);
-		EXPECT_EQ(Result.Status, EAssetMigrationApplyStatus::Blocked);
-		ExpectSourceBytes(Fixture);
-	}
-	{
-		auto Fixture = PrepareSyntheticMigrationFixture();
-		FAssetMigrationRegistry EmptyRegistry;
-		const auto Result = ApplyAssetPackageMigrations(
-			std::move(Fixture.Plan), EmptyRegistry, Fixture.Catalog);
-		EXPECT_EQ(Result.Status, EAssetMigrationApplyStatus::Blocked);
-		ExpectSourceBytes(Fixture);
-	}
-	{
-		auto Fixture = PrepareSyntheticMigrationFixture();
-		FAssetMigrationRegistry LossyRegistry;
-		std::string Error;
-		ASSERT_TRUE(LossyRegistry.Register({
-			.HandlerId = "test.synthetic-to-v4",
-			.SourceVersion = SyntheticAssetPackageFormatVersionForTesting,
-			.TargetVersion = AssetPackageV4FormatVersion,
-			.SourceCodecId = "test-dast-v4-source",
-			.TargetCodecId = "dast-v4",
-			.Risk = EAssetMigrationRisk::DataLoss}, Error)) << Error;
-		const auto Result = ApplyAssetPackageMigrations(
-			std::move(Fixture.Plan), LossyRegistry, Fixture.Catalog);
-		EXPECT_EQ(Result.Status, EAssetMigrationApplyStatus::Blocked);
-		ExpectSourceBytes(Fixture);
-	}
-	{
-		auto Fixture = PrepareSyntheticMigrationFixture();
-		auto Changed = Fixture.SourceBytes;
-		Changed.back() ^= 0x1;
-		WriteTestBytes(Fixture.PhysicalPath, Changed);
-		const auto Result = ApplyAssetPackageMigrations(
-			std::move(Fixture.Plan), Fixture.Registry, Fixture.Catalog);
-		EXPECT_EQ(Result.Status, EAssetMigrationApplyStatus::Failed);
-		std::vector<Durin::uint8> Current;
-		ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Current, Fixture.PhysicalPath));
-		EXPECT_EQ(Current, Changed);
-	}
-	{
-		auto Fixture = PrepareSyntheticMigrationFixture();
-		const auto Result = ApplyAssetPackageMigrations(
-			std::move(Fixture.Plan), Fixture.Registry, Fixture.Catalog, {},
-			[] { return true; });
-		EXPECT_EQ(Result.Status, EAssetMigrationApplyStatus::Cancelled);
-		ExpectSourceBytes(Fixture);
-	}
-}
-
-TEST(FPackageAssetTests, SyntheticMigrationFailurePhasesRollbackAndRecoverCompleteBytes)
-{
-	using namespace Durin::Asset;
-	FScopedSyntheticAssetPackageCodecForTesting SyntheticCodec;
-	const std::array FailurePhases{
-		EAssetMigrationApplyPhase::LoadPackage,
-		EAssetMigrationApplyPhase::SerializePackage,
-		EAssetMigrationApplyPhase::StagePackage,
-		EAssetMigrationApplyPhase::PublishPackage,
-		EAssetMigrationApplyPhase::VerifyPackage,
-		EAssetMigrationApplyPhase::PostAudit,
-		EAssetMigrationApplyPhase::PublishRegistry};
-	for (EAssetMigrationApplyPhase FailurePhase : FailurePhases)
-	{
-		auto Fixture = PrepareSyntheticMigrationFixture();
-		const auto Result = ApplyAssetPackageMigrations(
-			std::move(Fixture.Plan), Fixture.Registry, Fixture.Catalog,
-			{.ShouldFail = [=](EAssetMigrationApplyPhase Phase, size_t) {
-				return Phase == FailurePhase;
-			}});
-		if (FailurePhase == EAssetMigrationApplyPhase::LoadPackage
-			|| FailurePhase == EAssetMigrationApplyPhase::SerializePackage
-			|| FailurePhase == EAssetMigrationApplyPhase::StagePackage)
-			EXPECT_EQ(Result.Status, EAssetMigrationApplyStatus::Failed);
-		else
-			EXPECT_EQ(Result.Status, EAssetMigrationApplyStatus::RolledBack);
-		std::vector<Durin::uint8> Current;
-		ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Current, Fixture.PhysicalPath));
-		EXPECT_EQ(Current, Fixture.SourceBytes);
-	}
-
-	auto Fixture = PrepareSyntheticMigrationFixture();
-	const auto RecoveryRequired = ApplyAssetPackageMigrations(
-		std::move(Fixture.Plan), Fixture.Registry, Fixture.Catalog,
-		{.ShouldFail = [](EAssetMigrationApplyPhase Phase, size_t) {
-			return Phase == EAssetMigrationApplyPhase::PublishPackage
-				|| Phase == EAssetMigrationApplyPhase::RollbackPackage;
-		}});
-	EXPECT_EQ(RecoveryRequired.Status, EAssetMigrationApplyStatus::RecoveryRequired);
-	std::string RecoveryError;
-	EXPECT_TRUE(RecoverInterruptedAssetMigrations(RecoveryError)) << RecoveryError;
-	std::vector<Durin::uint8> Recovered;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Recovered, Fixture.PhysicalPath));
-	EXPECT_EQ(Recovered, Fixture.SourceBytes);
-}
-
-TEST(FPackageAssetTests, SyntheticMigrationPlanningRejectsOmittedDependencyClosure)
-{
-	InitializeAssetTests();
-	using namespace Durin::Asset;
-	FScopedSyntheticAssetPackageCodecForTesting SyntheticCodec;
-	Durin::FAssetPath OwnerPath;
-	Durin::FAssetPath DependencyPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/MigrationOwner", OwnerPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/MigrationDependency", DependencyPath));
-	FAssetPackageCompatibilityRecord Owner{
-		.PackagePath = OwnerPath,
-		.PhysicalPath = "MigrationOwner.dasset",
-		.ReportContentHash = "sha256:owner",
-		.FormatVersion = SyntheticAssetPackageFormatVersionForTesting,
-		.Dependencies = {DependencyPath},
-		.Inspection = EAssetCompatibilityInspection::Ready,
-		.Compatibility = EAssetPackageCompatibility::Compatible,
-		.Freshness = EAssetCompatibilityFreshness::Current};
-	FAssetPackageCompatibilityRecord Dependency{
-		.PackagePath = DependencyPath,
-		.PhysicalPath = "MigrationDependency.dasset",
-		.ReportContentHash = "sha256:dependency",
-		.FormatVersion = SyntheticAssetPackageFormatVersionForTesting,
-		.Inspection = EAssetCompatibilityInspection::Ready,
-		.Compatibility = EAssetPackageCompatibility::Compatible,
-		.Freshness = EAssetCompatibilityFreshness::Current};
-	FAssetMigrationRegistry Registry;
-	std::string Error;
-	ASSERT_TRUE(Registry.Register({
-		.HandlerId = "test.synthetic-to-v4",
-		.SourceVersion = SyntheticAssetPackageFormatVersionForTesting,
-		.TargetVersion = AssetPackageV4FormatVersion,
-		.SourceCodecId = "test-dast-v4-source",
-		.TargetCodecId = "dast-v4",
-		.Risk = EAssetMigrationRisk::Lossless}, Error)) << Error;
-	const std::array Records{Owner, Dependency};
-	const std::array Selected{OwnerPath};
-	const FAssetMigrationPlan Plan = PlanAssetPackageMigrations(
-		Records, Registry, {.Packages = {Selected.begin(), Selected.end()}});
-	ASSERT_EQ(Plan.Packages.size(), 1u);
-	EXPECT_EQ(Plan.Packages.front().Status, EAssetMigrationPackageStatus::Blocked);
-	EXPECT_TRUE(std::ranges::any_of(Plan.Packages.front().Diagnostics,
-		[](const std::string& Diagnostic) {
-			return Diagnostic.starts_with("DependencyNotSelected:");
-		}));
-}
-
 TEST(FPackageAssetTests, V4NoDeltaWriterAssociatesObjectPlansIndependentOfDiscoveryOrder)
 {
 	InitializeAssetTests();
@@ -3826,7 +3398,7 @@ TEST(FPackageAssetTests, AtomicBundleSaveRestoresFilesRegistryAndDirtyStateOnFai
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Added->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
-TEST(FPackageAssetTests, OrdinaryV4SavesAreDeterministicAndRejectUnsupportedVersionsBeforeMutation)
+TEST(FPackageAssetTests, OrdinaryV4SavesAreDeterministic)
 {
 	InitializeAssetTests();
 	Durin::FAssetPath Path;
@@ -3853,29 +3425,6 @@ TEST(FPackageAssetTests, OrdinaryV4SavesAreDeterministicAndRejectUnsupportedVers
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(RepeatedBytes, Current.PhysicalPath));
 	EXPECT_EQ(RepeatedBytes, FirstBytes);
 
-	Durin::Asset::FAssetData Unsupported = Current;
-	Unsupported.FormatVersion = 3;
-	std::array UnsupportedEntries{Unsupported};
-	Durin::Asset::PublishMigratedPackageRegistryEntries(
-		UnsupportedEntries);
-	Asset->Value = 42;
-	Asset->MarkPackageDirty();
-	const Durin::uint64 RevisionBeforeRejectedSave =
-		Durin::Asset::GetAssetCatalogRevision();
-	const Durin::Asset::FAssetResult Rejected =
-		Durin::Asset::SavePackage(Asset->GetPackage());
-	EXPECT_EQ(Rejected.Error, Durin::Asset::EAssetError::UnsupportedVersion);
-	EXPECT_TRUE(Asset->GetPackage()->IsDirty());
-	EXPECT_EQ(Durin::Asset::GetAssetCatalogRevision(), RevisionBeforeRejectedSave);
-	EXPECT_EQ(*Durin::Asset::FindAssetExact(Path), Unsupported);
-	std::vector<Durin::uint8> RejectedBytes;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(RejectedBytes, Current.PhysicalPath));
-	EXPECT_EQ(RejectedBytes, FirstBytes);
-
-	std::array CurrentEntries{Current};
-	Durin::Asset::PublishMigratedPackageRegistryEntries(
-		CurrentEntries);
-	Asset->GetPackage()->ClearDirty();
 }
 
 

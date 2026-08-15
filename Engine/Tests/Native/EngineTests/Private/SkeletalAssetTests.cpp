@@ -852,7 +852,7 @@ TEST(FSkeletalAssetTests, AuthoredReloadConsumesValidatedDerivedDataObjects)
 	Durin::FPaths::SetDerivedDataCacheDirForTests({});
 }
 
-TEST(FSkeletalAssetTests, MigrationLoadPreservesLevelReferencesWithoutRuntimeDerivedData)
+TEST(FSkeletalAssetTests, AuthoredLoadFailsClosedWithoutRequiredDerivedData)
 {
 	const std::filesystem::path Root = InitializeAssetMount();
 	const std::filesystem::path CacheRoot = Root / "MigrationDerivedDataCache";
@@ -897,23 +897,15 @@ TEST(FSkeletalAssetTests, MigrationLoadPreservesLevelReferencesWithoutRuntimeDer
 	ASSERT_TRUE(std::filesystem::remove(CacheRoot / "AnimationClip/Objects"
 		/ ClipKey.substr(0, 2) / (ClipKey + ".bin")));
 
-	Durin::DPackage* MigratedPackage = nullptr;
+	Durin::DLevel* ReloadedLevel = nullptr;
 	const Durin::Asset::FAssetResult Load =
-		Durin::Asset::LoadPackageForMigration(LevelPath, MigratedPackage);
-	ASSERT_TRUE(Load) << Load.Message;
-	auto* MigratedLevel = Durin::Cast<Durin::DLevel>(MigratedPackage->GetAsset());
-	ASSERT_NE(MigratedLevel, nullptr);
-	auto* MigratedActor = Durin::Cast<Durin::ASkeletalMeshActor>(
-		MigratedLevel->FindActorByName("AnimatedActor"));
-	ASSERT_NE(MigratedActor, nullptr);
-	ASSERT_NE(MigratedActor->GetSkeletalMeshComponent()->GetSkeletalMesh(), nullptr);
-	ASSERT_NE(MigratedActor->GetSkeletalMeshComponent()->GetAnimationClip(), nullptr);
-	EXPECT_EQ(MigratedActor->GetSkeletalMeshComponent()->GetSkeletalMesh()->GetPayloadData(), nullptr);
-	EXPECT_EQ(MigratedActor->GetSkeletalMeshComponent()->GetAnimationClip()->GetPayloadData(), nullptr);
-	EXPECT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
-	EXPECT_TRUE(Durin::Asset::UnloadPackage(ClipPath));
-	EXPECT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
-	EXPECT_TRUE(Durin::Asset::UnloadPackage(SkeletonPath));
+		Durin::Asset::LoadAsset(LevelPath, ReloadedLevel);
+	EXPECT_FALSE(Load);
+	EXPECT_EQ(ReloadedLevel, nullptr);
+	EXPECT_EQ(Durin::Asset::FindResidentPackage(LevelPath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindResidentPackage(ClipPath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindResidentPackage(MeshPath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindResidentPackage(SkeletonPath), nullptr);
 	Durin::FPaths::SetDerivedDataCacheDirForTests({});
 }
 

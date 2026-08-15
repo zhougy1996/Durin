@@ -3,8 +3,6 @@
 #include "EngineTestSupport.h"
 
 #include "Actors/StaticMeshActor.h"
-#include "AssetCompatibility.h"
-#include "AssetMigration.h"
 #include "AssetPackageVersionPolicy.h"
 #include "AssetMutation.h"
 #include "Components/StaticMeshComponent.h"
@@ -44,31 +42,6 @@ namespace Durin
 			Stream.write(reinterpret_cast<const char*>(PngBytes), static_cast<std::streamsize>(std::size(PngBytes)));
 		}
 
-		auto PlanMountMigration(std::string_view VirtualRoot)
-			-> Asset::FAssetMigrationPlan
-		{
-			const Asset::FAssetPackageDiscoverySnapshot Snapshot =
-				Asset::CaptureMountedAssetPackageSnapshot();
-			EXPECT_EQ(Snapshot.Status,
-				Asset::EAssetPackageSnapshotStatus::Completed) << Snapshot.Error;
-			const Asset::FReflectionCompatibilityCatalog Catalog =
-				Asset::FReflectionCompatibilityCatalog::Capture();
-			std::vector<Asset::FAssetPackageCompatibilityRecord> Records;
-			for (const Asset::FAssetPackageCompatibilityProbeInput& Input :
-				Snapshot.Packages)
-			{
-				if (!Input.PackagePath.ToString().starts_with(VirtualRoot)) continue;
-				Asset::FAssetPackageCompatibilityProbeResult Probe =
-					Asset::ProbeAssetPackageCompatibility(Input, Catalog);
-				EXPECT_TRUE(Probe.Record.has_value());
-				if (Probe.Record) Records.push_back(std::move(*Probe.Record));
-			}
-			Asset::FAssetMigrationRegistry Registry;
-			std::string Error;
-			EXPECT_TRUE(Asset::RegisterBuiltInAssetMigrations(Registry, Error))
-				<< Error;
-			return Asset::PlanAssetPackageMigrations(Records, Registry);
-		}
 	}
 
 	TEST(FEditorTextureSmokeTests,
@@ -127,26 +100,6 @@ namespace Durin
 		ASSERT_TRUE(Asset::UnloadPackage(MaterialPath));
 		ASSERT_TRUE(Asset::UnloadPackage(MeshPath));
 		ASSERT_TRUE(Asset::UnloadPackage(TexturePath));
-		const Asset::FReflectionCompatibilityCatalog Catalog =
-			Asset::FReflectionCompatibilityCatalog::Capture();
-		Asset::FAssetMigrationPlan Plan = PlanMountMigration("/EditorMixedV4/");
-		ASSERT_EQ(Plan.Packages.size(), 3u)
-			<< Asset::SerializeAssetMigrationPlanReportV2(Plan);
-		ASSERT_TRUE(std::ranges::all_of(Plan.Packages, [](const auto& Package) {
-			return Package.Status == Asset::EAssetMigrationPackageStatus::Skipped;
-		})) << Asset::SerializeAssetMigrationPlanReportV2(Plan);
-		const Asset::FAssetMigrationApplyResult Applied =
-			[&] {
-				Asset::FAssetMigrationRegistry Registry;
-				std::string Error;
-				EXPECT_TRUE(Asset::RegisterBuiltInAssetMigrations(Registry, Error))
-					<< Error;
-				return Asset::ApplyAssetPackageMigrations(
-					std::move(Plan), Registry, Catalog);
-			}();
-		ASSERT_EQ(Applied.Status, Asset::EAssetMigrationApplyStatus::Succeeded)
-			<< Applied.Diagnostic;
-		ASSERT_TRUE(Applied.ChangedPaths.empty());
 		for (const FAssetPath& Path : {MaterialPath, MeshPath, TexturePath})
 		{
 			const Asset::FAssetCatalogEntry Data =
@@ -167,9 +120,6 @@ namespace Durin
 			EXPECT_TRUE(Asset::LoadAsset(MaterialPath, LoadedMaterial,
 				&MaterialReport));
 			EXPECT_TRUE(Asset::LoadAsset(TexturePath, Texture, &TextureReport));
-			EXPECT_TRUE(MeshReport.CompatibilityIssues.empty());
-			EXPECT_TRUE(MaterialReport.CompatibilityIssues.empty());
-			EXPECT_TRUE(TextureReport.CompatibilityIssues.empty());
 			return std::tuple{Mesh, LoadedMaterial, Texture};
 		};
 		auto ValidateRenderableGraph = [](DStaticMesh* Mesh,

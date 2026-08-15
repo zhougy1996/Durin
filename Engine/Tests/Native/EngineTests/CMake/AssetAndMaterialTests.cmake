@@ -39,7 +39,6 @@ durin_add_engine_functional_test(EditorAssetWorkflowTests
 		"LevelEditor-owned asset workflow white-box coverage keeps transaction and browser implementation seams private."
 	RUNTIME_STACK_RATIONALE "Exercises editor asset workflows across DurinEd and Mona UI models."
 	SOURCES
-		Private/Editor/WorkspaceAssetOpenCompatibilityTests.cpp
 		Private/Editor/AssetCompatibilityAuditTests.cpp
 		Private/Editor/AssetDestinationValidationTests.cpp
 		Private/Editor/ImportDialogStateTests.cpp

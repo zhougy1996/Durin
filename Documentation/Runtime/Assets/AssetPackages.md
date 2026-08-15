@@ -1,6 +1,6 @@
 # Asset Packages
 
-Summary: Define asset identity, registry, package serialization, loading, migration, derived data, and cooking.
+Summary: Define asset identity, registry, package serialization, loading, compatibility audit, derived data, and cooking.
 
 Modules: AssetCore, CoreDObject
 
@@ -144,8 +144,9 @@ DAST v4 is the qualified authored format. AssetCore exposes production-owned
 low-level writer and reader boundaries, and package policy routes header,
 inspection, compatibility, reference, registry/cache, and live-load operations
 only to v4. Ordinary and bundle saves use the v4 live writer in no-delta mode.
-The layout below is frozen: later format changes must use a new version and an
-explicit migration rather than altering these bytes or semantics.
+The layout below is frozen: later format changes must use a new version rather
+than altering these bytes or semantics. Any required corpus conversion is a
+separately planned, temporary offline tool, not a permanent runtime facility.
 
 A v4 package starts with bytes `44 41 53 54`, then `04 00 00 00` (`uint32`
 little-endian version 4), a little-endian `uint32` public-summary byte length,
@@ -322,15 +323,19 @@ reordering never remaps or rebuilds those bytes.
 
 `Durin::Asset::DastV4::ReadHeader` validates the bounded public summary and
 five-entry directory without parsing or allocating body tables.
-`DecodePackage` owns a temporary pointer-free logical model containing immutable
+`DecodePackageStructure` owns a temporary pointer-free logical model containing immutable
 one-based ids, decoded values, raw payload locations, and separate exact
 retained closure/payload spans. It validates every primitive, extent, table,
-record, descriptor, topology, value, and closure, then re-emits through the
-production writer and requires byte equality before replacing the caller's
-destination. `ReencodePackage` exposes that same canonical round trip.
+record, descriptor, topology, value, and closure without re-encoding.
+`DecodePackage` is the explicit canonical-audit boundary: it performs that
+decode, re-emits through the production writer, and requires byte equality.
+`ReencodePackage` exposes the canonical round trip for offline maintenance and
+bounded byte mutations.
 
-`LoadAssetPackage` is the sole explicit live-reader entry. It creates every
-object skeleton and Outer before resolving dependencies, applies only known
+`LoadAssetPackage` is the sole explicit live-reader entry. After one structure
+decode, it compares every serialized class and field signature with one frozen
+reflection catalog. Only a fully compatible package may create object
+skeletons and Outers, resolve dependencies, and apply known
 overrides through the shared authored Archive relative to constructor/class and
 Struct defaults, restores loaded-explicit and forced authored intent, and calls
 PostLoad in reverse object order. The move-only `FLoadedAssetPackage` handle is
@@ -343,8 +348,9 @@ handle and report.
 same decoded logical model without constructing objects or invoking callbacks.
 Known values project to existing field/reference semantics, including intrinsic
 math Struct payloads and canonical Map routes. Provenance `02` never remaps
-through package tables: compatibility and live reports carry its exact
-`DescriptorClosure` and `RetainedPayload` spans and retain data-loss risk.
+through package tables: construct-free inspection can report its exact
+`DescriptorClosure` and `RetainedPayload` spans, while ordinary live load
+rejects it before residency.
 
 The package policy routes bounded header, validation, inspection, reference,
 compatibility, and ordinary live-load reads through these entries when the
@@ -373,8 +379,8 @@ tables, overrides, dependencies, objects, and Map ordering.
 
 Loading validates records and creates all object skeletons and Outer links
 before applying fields. Each live object receives exactly one DAST load Archive
-call; unavailable fields leave constructor defaults, while known incompatible
-fields fail and unknown fields enter the compatibility pipeline. Dependencies
+call; unavailable fields leave constructor defaults, while incompatible or
+unknown serialized fields fail during schema preflight. Dependencies
 are resolved before their references are applied. Successful objects receive
 `PostLoad` in reverse object order. A bounds, schema, Archive, dependency,
 callback, or `PostLoad` failure rolls back the complete new package and leaves
@@ -398,8 +404,7 @@ An ordinary single-package or atomic-bundle save may update an existing package
 only when its registered format equals the ordinary v4 writer. A stale or
 unsupported registry version is rejected before serialization, staging, file
 publication, registry publication, or dirty-state clearing. New packages use
-the same ordinary writer. Format transitions belong only to an explicit
-migration transaction.
+the same ordinary writer. A non-current format is not an ordinary save input.
 
 Current-format byte mutations resolve the source codec before decoding and
 require its declared mutation capability plus an exact match with the ordinary
@@ -411,8 +416,8 @@ reference edges, load handles, and byte results.
 
 ### Canonical Reflected-Identity Resave
 
-Canonical resave is current-format package maintenance, not package-format
-migration or reimport. The v4 metadata probe records every registered legacy
+Canonical resave is current-format package maintenance, not format conversion
+or reimport. The v4 metadata probe records every registered legacy
 class, struct, or enum identity in the package header, object records, schemas,
 and recursive type descriptors. Each finding carries the package, stored and
 current identity, reflected kind, stable location, and logical path. The same
@@ -442,77 +447,21 @@ uses `--package`, `--folder`, `--mount`, or explicit `--project-scope`; `--apply
 writes, `--format=human` selects a compact human report, and the default is a
 deterministic JSON report. `--ci` is read-only, cannot be combined with apply,
 and fails when selected compatible content still has registered legacy
-identities. This operation is separate from the exact-edge migration command
-below.
+identities.
 
-### Explicit Package Migration
-
-`DevTool asset migrate` is the only package-format migration boundary. The
-current v4-only baseline registers no built-in migration edge, so it reports no
-path for older packages. A future format transition must explicitly register
-its exact source-to-target edge before this workflow can select it.
-Planning is read-only, requires explicit package or mount selection (or an
-explicit whole-corpus invocation), closes dependencies that also require
-migration, and records content hashes, sizes, stable timestamps, source and
-target codec identities, the exact edge identity and risk, and the reader-policy
-identity. Major-zero migration intentionally supports one exact source-to-
-migration-target edge rather than a multi-hop graph. The edge executes a
-load-transform-write strategy: source-aware load and schema upgrade, an optional
-edge-owned transform callback, then the selected target codec writer. The unused
-identity-free asset-schema migration kind is not part of this contract.
-
-Apply acquires the migration writer lock, rereads the source preamble and
-fingerprint, resolves the exact edge again from the live registry, and compares
-all recorded authorization fields before staging. Missing, changed, fabricated,
-lossy, or codec-mismatched authorization is blocked. Successful serialization
-is validated by the target codec and repeated byte-for-byte before publication.
-Ordinary saves and the repository baseline remain independent of migration-
-writer policy.
-
-The existing package-bundle sidecar journal stages every selected destination
-before publication. The tool validates bounded target-format decode,
-byte-identical re-emission, fresh compatibility probes, and registry projections
-before removing sidecars. Any decode, dependency, upgrade, serialization, staging,
-publication, post-audit, cache, or registry failure compensates the complete
-bundle and restores authored bytes plus runtime state. Registry entries are
-published only after every package has passed post-audit; discovery, audit,
-inspection, ordinary loading, and dry-run planning never rewrite content.
-
-A permanent scoped test codec exposes the qualified v4 logical package through
-an independent format identity and writer. It keeps shared dispatch, non-
-ordinary mutation rejection, exact-edge execution, stale/tampered authorization,
-cancellation, every apply failure phase, rollback failure, recovery, post-audit,
-and registry publication covered without retaining a production legacy codec.
+There is no general package migration command or registered migration graph.
+If real non-current content requires conversion, its owning plan must introduce
+a narrowly scoped offline converter, qualify the complete corpus and restart
+boundary, and remove the converter after the baseline becomes current.
 
 ## Structure Compatibility
 
-AssetCore retains every unknown or removed serialized object field
-in an `FAssetLoadReport` instead of reducing compatibility to a log message.
-Each object-level issue records the package and object identity, declaring
-class, original field signatures and payloads, classification, risk, summary,
-and optional handler identifier. Related legacy fields may be grouped into one
-issue.
-
-AssetCore owns report construction, payload retention, object-reference
-resolution helpers, and optional class-specific upgrader registration. The
-current repository baseline ships no production asset-specific structure
-upgrader; unrecognized fields therefore remain explicit incompatibilities.
-The registration API remains a low-level integration point rather than a
-supported editor migration or resave workflow. Unhandled fields are
-`UnknownIncompatible` with `UnknownNewerSchema` risk and do not themselves mark
-the package Dirty. Rules that cannot preserve the represented data use
-`DataLossRisk`.
-
-A package whose load report contains compatibility-risk payloads rejects an
-ordinary save. Persisting the in-memory representation requires a low-level
-caller to pass explicit data-loss consent; editor workspaces expose no such
-action. Level, Material, and Texture document opens reject any load report with
-compatibility issues before activation, retain the previous active document or
-world, and release only packages introduced by the rejected request. The error
-directs the user to the read-only Asset Compatibility Audit for complete
-details. This prevents unknown newer fields from being silently discarded by
-normal editor saves while keeping the retained payloads as AssetCore's final
-safety boundary.
+Ordinary load captures the current reflection catalog and rejects an unknown
+class, unknown field, or mismatched field signature before object skeleton
+construction. No partially compatible package becomes resident, no retained
+legacy payload is attached to live state, and save has no data-loss escape
+hatch. Editor document opens receive the same structured load failure and keep
+their prior active document or world unchanged.
 
 The read-only compatibility probe is a separate, compact inspection path. The
 game thread freezes registered class and property identities into a value-only
@@ -654,7 +603,7 @@ of being silently omitted.
 ## Subsystem Boundary
 
 - `CoreDObject` owns `DPackage`, `FAssetPath`, object paths, qualified reflected class identities, and type-erased container access.
-- `AssetCore` owns `.dasset` I/O, the synchronous asset registry, package caching, dependency loading, structure-compatibility reports and upgrader registration, DDC storage, and cooked container/publication primitives.
+- `AssetCore` owns `.dasset` I/O, the synchronous asset registry, package caching, dependency loading, construct-free compatibility reports, strict schema preflight, DDC storage, and cooked container/publication primitives.
 - `Engine` owns asset-specific source provenance, import/build policy, derived-data keys and codecs, and cook contributions.
 - Editor modules invoke the provider-neutral import and reimport framework
   documented in [Asset Import Framework](../../Editor/Architecture/AssetImportFramework.md).
@@ -670,9 +619,9 @@ Other deferred package-system work includes async loading and hot reload.
 
 Package format versions are independent of the Durin engine release version.
 Adding, removing, or reordering tagged reflected fields does not change the
-package format. An engine release rewrites a package only when the package byte
-contract changes or a recognized legacy-field upgrader produces canonical
-authored state.
+package format. An engine release rewrites a package only through an explicit
+current-format canonical resave or a separately planned temporary corpus
+converter.
 
 ## Rebuildable Asset Caches
 

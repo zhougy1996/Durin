@@ -8,22 +8,6 @@ namespace Durin::Asset::Private
 {
 	namespace
 	{
-		bool GSyntheticCodecEnabled = false;
-
-		auto NormalizeSyntheticBytes(std::span<const uint8> Bytes, std::vector<uint8>& OutBytes)
-			-> FAssetResult
-		{
-			FAssetPackagePreamble Preamble;
-			if (FAssetResult Result = ReadAssetPackagePreamble(Bytes, Preamble); !Result)
-				return Result;
-			if (Preamble.FormatVersion != SyntheticAssetPackageFormatVersionForTesting)
-				return {EAssetError::UnsupportedVersion,
-					"The synthetic codec received bytes for another format."};
-			OutBytes.assign(Bytes.begin(), Bytes.end());
-			std::memcpy(OutBytes.data() + sizeof(uint32), &DastV4::Version, sizeof(uint32));
-			return {};
-		}
-
 		auto ReadV4Header(
 			std::span<const uint8> Bytes,
 			uint64 PackageSize,
@@ -120,95 +104,6 @@ namespace Durin::Asset::Private
 				{.DeltaMode = DeltaMode, .Serialization = Serialization}, &Diagnostic);
 		}
 
-		auto ReadSyntheticHeader(
-			std::span<const uint8> Bytes,
-			uint64 PackageSize,
-			FAssetPackageHeader& OutHeader)
-			-> FAssetResult
-		{
-			std::vector<uint8> Normalized;
-			if (FAssetResult Result = NormalizeSyntheticBytes(Bytes, Normalized); !Result)
-				return Result;
-			if (FAssetResult Result = ReadV4Header(
-				Normalized, PackageSize, OutHeader); !Result)
-				return Result;
-			OutHeader.FormatVersion = SyntheticAssetPackageFormatVersionForTesting;
-			return {};
-		}
-
-		auto ValidateSynthetic(std::span<const uint8> Bytes) -> FAssetResult
-		{
-			std::vector<uint8> Normalized;
-			if (FAssetResult Result = NormalizeSyntheticBytes(Bytes, Normalized); !Result)
-				return Result;
-			return ValidateV4(Normalized);
-		}
-
-		auto InspectSynthetic(
-			std::span<const uint8> Bytes, FAssetPackageInspection& OutInspection) -> FAssetResult
-		{
-			std::vector<uint8> Normalized;
-			if (FAssetResult Result = NormalizeSyntheticBytes(Bytes, Normalized); !Result)
-				return Result;
-			if (FAssetResult Result = InspectV4(Normalized, OutInspection); !Result)
-				return Result;
-			OutInspection.Header.FormatVersion = SyntheticAssetPackageFormatVersionForTesting;
-			return {};
-		}
-
-		auto ExtractSyntheticReferences(
-			std::span<const uint8> Bytes, const FAssetPath& SourcePackage,
-			std::vector<FAssetReferenceEdge>& OutReferences) -> FAssetResult
-		{
-			std::vector<uint8> Normalized;
-			if (FAssetResult Result = NormalizeSyntheticBytes(Bytes, Normalized); !Result)
-				return Result;
-			return ExtractV4References(Normalized, SourcePackage, OutReferences);
-		}
-
-		auto ProbeSyntheticCompatibility(
-			std::span<const uint8> Bytes, const FAssetPath& PackagePath,
-			const FReflectionCompatibilityCatalog& Catalog,
-			FAssetPackageCompatibilityRecord& OutRecord,
-			FAssetCompatibilityProbeStats* OutStats) -> FAssetResult
-		{
-			std::vector<uint8> Normalized;
-			if (FAssetResult Result = NormalizeSyntheticBytes(Bytes, Normalized); !Result)
-				return Result;
-			if (FAssetResult Result = ProbeV4Compatibility(
-				Normalized, PackagePath, Catalog, OutRecord, OutStats); !Result)
-				return Result;
-			OutRecord.FormatVersion = SyntheticAssetPackageFormatVersionForTesting;
-			OutRecord.Fingerprint.ReaderVersion = SyntheticAssetPackageFormatVersionForTesting;
-			return {};
-		}
-
-		auto LoadSynthetic(
-			std::span<const uint8> Bytes, const FAssetPath& PackagePath,
-			DPackage*& OutPackage, FAssetLoadReport* OutReport,
-			const std::function<FAssetResult(DPackage*)>& OnSkeletonReady,
-			const std::function<void(DPackage*)>& OnSkeletonRollback) -> FAssetResult
-		{
-			std::vector<uint8> Normalized;
-			if (FAssetResult Result = NormalizeSyntheticBytes(Bytes, Normalized); !Result)
-				return Result;
-			return LoadV4(Normalized, PackagePath, OutPackage, OutReport,
-				OnSkeletonReady, OnSkeletonRollback);
-		}
-
-		auto WriteSynthetic(
-			DPackage* Package, std::vector<uint8>& OutBytes,
-			EDefaultDeltaMode DeltaMode,
-			const FAssetPackageSerializationOptions& Serialization) -> FAssetResult
-		{
-			if (FAssetResult Result = WriteV4(
-				Package, OutBytes, DeltaMode, Serialization); !Result)
-				return Result;
-			const uint32 Version = SyntheticAssetPackageFormatVersionForTesting;
-			std::memcpy(OutBytes.data() + sizeof(uint32), &Version, sizeof(Version));
-			return {};
-		}
-
 		constexpr std::array Codecs{
 			FAssetPackageCodec{
 				.CodecId = "dast-v4",
@@ -227,18 +122,6 @@ namespace Durin::Asset::Private
 				.Relocate = &DastV4::RelocatePackage,
 				.WriteRedirector = &DastV4::WriteRedirectorPackage}};
 
-		constexpr FAssetPackageCodec SyntheticCodec{
-			.CodecId = "test-dast-v4-source",
-			.FormatVersion = SyntheticAssetPackageFormatVersionForTesting,
-			.bCanRead = true,
-			.bCanWrite = true,
-			.ReadHeader = &ReadSyntheticHeader,
-			.Validate = &ValidateSynthetic,
-			.Inspect = &InspectSynthetic,
-			.ExtractReferences = &ExtractSyntheticReferences,
-			.ProbeCompatibility = &ProbeSyntheticCompatibility,
-			.Load = &LoadSynthetic,
-			.Write = &WriteSynthetic};
 	}
 
 	auto ReadAssetPackagePreamble(
@@ -258,18 +141,12 @@ namespace Durin::Asset::Private
 
 	auto FindAssetPackageReader(uint32 FormatVersion) -> const FAssetPackageCodec*
 	{
-		if (GSyntheticCodecEnabled
-			&& FormatVersion == SyntheticCodec.FormatVersion)
-			return &SyntheticCodec;
 		const auto It = std::ranges::find(Codecs, FormatVersion, &FAssetPackageCodec::FormatVersion);
 		return It != Codecs.end() && It->bCanRead ? &*It : nullptr;
 	}
 
 	auto FindAssetPackageWriter(uint32 FormatVersion) -> const FAssetPackageCodec*
 	{
-		if (GSyntheticCodecEnabled
-			&& FormatVersion == SyntheticCodec.FormatVersion)
-			return &SyntheticCodec;
 		const auto It = std::ranges::find(Codecs, FormatVersion, &FAssetPackageCodec::FormatVersion);
 		return It != Codecs.end() && It->bCanWrite ? &*It : nullptr;
 	}
@@ -322,8 +199,7 @@ namespace Durin::Asset::Private
 					"AssetPackageReaderPolicyIncomplete: DAST v{} has no complete reader.", Version);
 				return false;
 			}
-		if (!FindAssetPackageWriter(OrdinaryAssetPackageWriterVersion)
-			|| !FindAssetPackageWriter(AssetPackageMigrationWriterVersion))
+		if (!FindAssetPackageWriter(OrdinaryAssetPackageWriterVersion))
 		{
 			OutError = "AssetPackageWriterPolicyIncomplete: a selected writer is unavailable.";
 			return false;
@@ -341,20 +217,6 @@ namespace Durin::Asset
 
 	auto GetAssetPackageReaderPolicyIdentity() -> uint32
 	{
-		return AssetPackageReaderPolicyFingerprint
-			^ (Private::GSyntheticCodecEnabled ? 0x80000000u : 0u);
-	}
-
-	FScopedSyntheticAssetPackageCodecForTesting::
-		FScopedSyntheticAssetPackageCodecForTesting()
-	{
-		require(!Private::GSyntheticCodecEnabled);
-		Private::GSyntheticCodecEnabled = true;
-	}
-
-	FScopedSyntheticAssetPackageCodecForTesting::
-		~FScopedSyntheticAssetPackageCodecForTesting()
-	{
-		Private::GSyntheticCodecEnabled = false;
+		return AssetPackageReaderPolicyFingerprint;
 	}
 }

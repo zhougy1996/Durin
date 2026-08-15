@@ -213,7 +213,6 @@ namespace Durin
 			OutError = std::format("{}: {}", GetName(), OutError);
 			return false;
 		}
-		if (Asset::IsAssetMigrationLoad()) return true;
 		if (PayloadData) return true;
 		if (Asset::GetPackageLoadContext().Mode == Asset::EPackageLoadMode::CookedRuntime)
 			return LoadCookedPayload(OutError);

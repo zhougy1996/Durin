@@ -143,10 +143,6 @@ namespace Durin::Asset
 		ASSETCORE_API auto CapturePackageLoadSnapshot() const -> FAssetPackageLoadSnapshot;
 		ASSETCORE_API auto ReleasePackagesLoadedSince(
 			const FAssetPackageLoadSnapshot& Snapshot) -> FAssetResult;
-		// Commit-only migration seam. Callers must fully validate every entry before
-		// publishing the complete selected bundle through this no-fail projection step.
-		ASSETCORE_API auto PublishMigratedPackageRegistryEntries(
-			std::span<FAssetData> Entries) -> void;
 		// Reopens an empty manager after Shutdown().
 		ASSETCORE_API auto Initialize() -> void;
 		ASSETCORE_API auto StopAcceptingRequests() -> void;
@@ -214,11 +210,6 @@ namespace Durin::Asset
 			const DClass* ExpectedClass,
 			DObject*& OutAsset,
 			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
-		auto LoadAssetExactForMigration(
-			const FAssetPath& Path,
-			const DClass* ExpectedClass,
-			DObject*& OutAsset,
-			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
 		auto LoadAssetFromPhysicalPath(
 			const FAssetPath& Path,
 			std::string_view PhysicalPath,
@@ -250,9 +241,6 @@ namespace Durin::Asset
 		// Tracks active loads to reject dependency cycles.
 		std::unordered_set<FAssetPath> LoadingPackages;
 
-		// Packages with unhandled compatibility data cannot be persisted without explicit consent.
-		std::unordered_set<DPackage*> CompatibilityRiskPackages;
-
 		// Outermost loads commit residency as one boundary.
 		uint32 LoadDepth = 0;
 		std::vector<FAssetPath> TransactionPackages;
@@ -263,10 +251,6 @@ namespace Durin::Asset
 		friend ASSETCORE_API auto SavePackagesAtomically(
 			std::span<DPackage* const>,
 			const FAssetBundleSaveOptions&) -> FAssetResult;
-		friend ASSETCORE_API auto LoadPackageForMigration(
-			const FAssetPath&,
-			DPackage*&,
-			FAssetLoadReport*) -> FAssetResult;
 		friend ASSETCORE_API auto ResolveSoftObject(
 			FSoftObjectPtr&,
 			const DClass*,

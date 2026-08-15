@@ -308,12 +308,6 @@ namespace Durin
 	{
 		if (Asset::GetPackageLoadContext().Mode == Asset::EPackageLoadMode::CookedRuntime)
 			return LoadCookedPlatformData(OutError);
-		if (Asset::IsAssetMigrationLoad())
-		{
-			OutError.clear();
-			return true;
-		}
-
 		return InvokeTextureCubeUncookedPostLoadHandler(*this, OutError);
 	}
 

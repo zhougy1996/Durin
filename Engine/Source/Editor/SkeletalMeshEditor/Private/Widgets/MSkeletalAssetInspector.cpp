@@ -1,7 +1,6 @@
 #include "Widgets/MSkeletalAssetInspector.h"
 
 #include "Animation/AnimationClip.h"
-#include "Asset/WorkspaceAssetOpenCompatibility.h"
 #include "AssetLoad.h"
 #include "ImportRecordIndex.h"
 #include "DObject/Object.h"
@@ -105,21 +104,13 @@ namespace Durin::Editor::SkeletalMesh
 			ErrorMessage = std::move(PathError);
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
-		::Durin::Editor::FWorkspaceAssetOpenCompatibility CompatibilityPolicy(AssetPath);
 		DObject* Asset = nullptr;
-		Asset::FAssetLoadReport Report;
-		const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Asset, &Report);
+		const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Asset);
 		if (!Result || !Asset || (Asset->GetClass() != DSkeleton::StaticClass()
 			&& Asset->GetClass() != DSkeletalMesh::StaticClass()
 			&& Asset->GetClass() != DAnimationClip::StaticClass()))
 		{
 			ErrorMessage = Result ? "The selected asset is not an exact skeletal asset." : Result.Message;
-			return ::Durin::Editor::EDocumentOpenResult::Rejected;
-		}
-		std::string CompatibilityDiagnostic;
-		if (CompatibilityPolicy.RejectIfIncompatible(Report, CompatibilityDiagnostic))
-		{
-			ErrorMessage = std::move(CompatibilityDiagnostic);
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
 		FDocumentState State{.Asset = Asset};

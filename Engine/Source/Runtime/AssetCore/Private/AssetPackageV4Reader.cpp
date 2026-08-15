@@ -18,6 +18,7 @@ namespace Durin::Asset::DastV4
 {
 	namespace
 	{
+		thread_local uint64 GReencodeCountForTesting = 0;
 		auto Fail(FReaderDiagnostic& Diagnostic, EReaderFailure Failure,
 			std::string_view Message, uint64 Offset = 0, std::string Path = {}) -> bool
 		{
@@ -1457,6 +1458,7 @@ namespace Durin::Asset::DastV4
 	auto ReencodePackage(const FDecodedPackage& Package, std::vector<uint8>& OutBytes,
 		FReaderDiagnostic* OutDiagnostic) -> bool
 	{
+		++GReencodeCountForTesting;
 		FReaderDiagnostic Diagnostic; FPackageInput Input;
 		if (!BuildWriterInput(Package, Input, Diagnostic))
 		{
@@ -1474,13 +1476,27 @@ namespace Durin::Asset::DastV4
 		return true;
 	}
 
-	auto DecodePackage(std::span<const uint8> Bytes, FDecodedPackage& OutPackage,
+	auto DecodePackageStructure(std::span<const uint8> Bytes, FDecodedPackage& OutPackage,
 		const FReaderLimits& Limits, FReaderDiagnostic* OutDiagnostic) -> bool
 	{
 		FReaderDiagnostic Diagnostic; FDecodedPackage Result;
 		if (!DecodeHeaderInner(
 			Bytes, Bytes.size(), Result.Header, Limits, Diagnostic)
 			|| !DecodeTablesAndValues(Bytes, Result, Limits, Diagnostic))
+		{
+			if (OutDiagnostic) *OutDiagnostic = std::move(Diagnostic); return false;
+		}
+		OutPackage = std::move(Result);
+		if (OutDiagnostic) OutDiagnostic->Reset();
+		return true;
+	}
+
+	auto DecodePackage(std::span<const uint8> Bytes, FDecodedPackage& OutPackage,
+		const FReaderLimits& Limits, FReaderDiagnostic* OutDiagnostic) -> bool
+	{
+		FReaderDiagnostic Diagnostic;
+		FDecodedPackage Result;
+		if (!DecodePackageStructure(Bytes, Result, Limits, &Diagnostic))
 		{
 			if (OutDiagnostic) *OutDiagnostic = std::move(Diagnostic); return false;
 		}
@@ -1498,6 +1514,16 @@ namespace Durin::Asset::DastV4
 		OutPackage = std::move(Result);
 		if (OutDiagnostic) OutDiagnostic->Reset();
 		return true;
+	}
+
+	auto ResetAssetPackageReencodeCountForTesting() -> void
+	{
+		GReencodeCountForTesting = 0;
+	}
+
+	auto GetAssetPackageReencodeCountForTesting() -> uint64
+	{
+		return GReencodeCountForTesting;
 	}
 
 	FLoadedAssetPackage::~FLoadedAssetPackage() { Reset(); }
@@ -1541,11 +1567,48 @@ namespace Durin::Asset::DastV4
 				"A package with the requested path is already live.");
 			return Finish({EAssetError::AlreadyExists, Diagnostic.Message});
 		}
-		if (!DecodePackage(Bytes, Decoded, Limits, &Diagnostic))
+		if (!DecodePackageStructure(Bytes, Decoded, Limits, &Diagnostic))
 			return Finish({EAssetError::CorruptFile, Diagnostic.Message});
 		std::vector<FAssetCanonicalizationEvidence> CanonicalizationEvidence =
 			GatherCanonicalizationEvidence(Decoded, PackagePath);
 		CanonicalizeSerializedReflectionNames(Decoded);
+		const FReflectionCompatibilityCatalog LiveCatalog =
+			FReflectionCompatibilityCatalog::Capture();
+		for (size_t ObjectIndex = 0; ObjectIndex < Decoded.Objects.size(); ++ObjectIndex)
+		{
+			const FDecodedObject& Object = Decoded.Objects[ObjectIndex];
+			const FReflectionCompatibilityClass* Class =
+				LiveCatalog.FindClass(Object.ClassName);
+			if (!Class)
+			{
+				Fail(Diagnostic, EReaderFailure::UnknownClass,
+					"Serialized class is unavailable.", 0, Object.Path);
+				return Finish({EAssetError::UnknownClass, Diagnostic.Message});
+			}
+			for (const FDecodedOverride& Override :
+				Decoded.ObjectValues[ObjectIndex].Overrides)
+			{
+				const FDecodedSchema* Schema = SchemaAt(Decoded, Override.SchemaId);
+				if (!Schema || Override.FieldId == 0
+					|| Override.FieldId > Schema->Fields.size())
+					continue;
+				const FDecodedField& Field =
+					Schema->Fields[static_cast<size_t>(Override.FieldId - 1)];
+				const FDecodedType* Type = TypeAt(Decoded, Field.TypeId);
+				const FReflectionCompatibilityField* Expected =
+					LiveCatalog.FindField(*Class, Schema->QualifiedName, Field.Name);
+				const bool bCompatible = Override.Provenance != 2 && Type && Expected
+					&& Expected->Kind == TypeKind(*Type, Decoded)
+					&& Expected->TypeSignature == TypeSignature(*Type, Decoded);
+				if (!bCompatible)
+				{
+					Fail(Diagnostic, EReaderFailure::ArchiveFailure,
+						std::format("Serialized field {}::{} is incompatible with the live schema.",
+							Schema->QualifiedName, Field.Name), 0, Object.Path);
+					return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
+				}
+			}
+		}
 		if (Decoded.Objects.empty() || Decoded.Objects.front().ClassName != Decoded.Header.AssetClass)
 		{
 			Fail(Diagnostic, EReaderFailure::InvalidTopology, "Main object class differs from the public summary.");
@@ -1665,18 +1728,6 @@ namespace Durin::Asset::DastV4
 			{
 				const FDecodedSchema* Schema = SchemaAt(Decoded, Override.SchemaId);
 				const FDecodedField& Field = Schema->Fields[static_cast<size_t>(Override.FieldId - 1)];
-				if (Override.Provenance == 2)
-				{
-					FAssetLegacyField Legacy{.DeclaringClass = Schema->QualifiedName, .Name = Field.Name,
-						.TypeSignature = "DASTv4:RetainedClosure", .DescriptorClosure = Override.DescriptorClosure,
-						.RetainedPayload = Override.RetainedPayload};
-					Report.CompatibilityIssues.push_back({.ObjectPath = Decoded.Objects[ObjectIndex].Path,
-						.DeclaringClass = Schema->QualifiedName, .LegacyFields = {std::move(Legacy)},
-						.Classification = EAssetCompatibilityClassification::UnknownIncompatible,
-						.MigrationSummary = "An exact DAST v4 unknown descriptor closure was retained.",
-						.Risk = EAssetCompatibilityRisk::UnknownNewerSchema});
-					continue;
-				}
 				const FDecodedType* Type = TypeAt(Decoded, Field.TypeId);
 				Private::FByteWriter Payload;
 				if (!Type || !EncodeInspectionValue(*Type, Override.Value, Decoded, Payload, Diagnostic,
@@ -1688,32 +1739,18 @@ namespace Durin::Asset::DastV4
 					TypeSignature(*Type, Decoded), std::move(Payload.Bytes)});
 				KnownOverrides.push_back(&Override);
 			}
-			std::vector<FAssetLegacyField> Legacy;
 			FAssetResult Result = Private::LoadAuthoredObject(*Objects[ObjectIndex], Fields, Objects,
-				Version, Legacy, CustomVersions);
+				Version, CustomVersions);
 			if (!Result)
 			{
 				Fail(Diagnostic, EReaderFailure::ArchiveFailure, Result.Message, 0, Decoded.Objects[ObjectIndex].Path); Rollback();
 				return Finish(Result);
 			}
-			std::vector<std::pair<std::string, std::string>> LegacyIdentities;
-			for (const FAssetLegacyField& Field : Legacy)
-				LegacyIdentities.emplace_back(Field.DeclaringClass, Field.Name);
-			for (FAssetLegacyField& Field : Legacy)
-				Report.CompatibilityIssues.push_back({.ObjectPath = Decoded.Objects[ObjectIndex].Path,
-					.DeclaringClass = Field.DeclaringClass, .LegacyFields = {std::move(Field)},
-					.Classification = EAssetCompatibilityClassification::UnknownIncompatible,
-					.MigrationSummary = "The DAST v4 field is incompatible with the live schema.",
-					.Risk = EAssetCompatibilityRisk::UnknownNewerSchema});
-
 			std::vector<FAuthoredOverrideEntry> LedgerEntries;
 			for (const FDecodedOverride* Override : KnownOverrides)
 			{
 				const FDecodedSchema* Schema = SchemaAt(Decoded, Override->SchemaId);
 				const FDecodedField& Field = Schema->Fields[static_cast<size_t>(Override->FieldId - 1)];
-				const bool bLegacy = std::ranges::any_of(LegacyIdentities, [&](const auto& Item) {
-					return Item.first == Schema->QualifiedName && Item.second == Field.Name; });
-				if (bLegacy) continue;
 				if (ShouldFail(Options, ELiveLoadPhase::RestoreLedger, Override->FieldId))
 				{
 					Fail(Diagnostic, EReaderFailure::ArchiveFailure, "Injected ledger restoration failure."); Rollback();

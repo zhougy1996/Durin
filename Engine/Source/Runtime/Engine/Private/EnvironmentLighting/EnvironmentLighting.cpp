@@ -270,11 +270,6 @@ namespace Durin
 
 	auto DEnvironmentLighting::PostLoad(std::string& OutError) -> bool
 	{
-		if (Asset::IsAssetMigrationLoad())
-		{
-			OutError.clear();
-			return true;
-		}
 		std::vector<uint8> PayloadBytes;
 		if (Asset::GetPackageLoadContext().Mode == Asset::EPackageLoadMode::CookedRuntime)
 		{

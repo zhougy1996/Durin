@@ -1,4 +1,4 @@
-"""Asset compatibility audit and explicit migration orchestration."""
+"""Asset compatibility audit and current-format baseline enforcement."""
 
 from __future__ import annotations
 
@@ -26,7 +26,6 @@ from .runtime_program import (
 
 POLICY_EXIT_CODE = 3
 SCHEMA_VERSION = 2
-MIGRATION_SCHEMA_VERSION = 2
 CURRENT_ASSET_FORMAT_VERSION = 4
 SCHEMA_DIRECTORY = Path(__file__).resolve().parents[1] / "schemas"
 
@@ -71,62 +70,6 @@ def _read_report(output: str) -> dict[str, Any]:
     return _validate_report(value)
 
 
-def _validate_migration_report(value: Any) -> dict[str, Any]:
-    assert isinstance(value, dict)
-    operation = value["operation"]
-    packages = value["packages"]
-    summary = value["summary"]
-    previous_path = ""
-    counts = {name: 0 for name in ("planned", "migrated", "skipped", "blocked", "failed", "rolledBack")}
-    status_to_count = {
-        "Planned": "planned", "Migrated": "migrated", "Skipped": "skipped",
-        "Blocked": "blocked", "Failed": "failed", "RolledBack": "rolledBack",
-    }
-    for package in packages:
-        path = package["packagePath"]
-        status = package["status"]
-        steps = package["steps"]
-        if previous_path and path <= previous_path:
-            raise DevToolError("Asset migration package order is not deterministic.")
-        previous_path = path
-        allowed_statuses = {"Planned", "Skipped", "Blocked", "Failed"} if operation == "Plan" else {
-            "Migrated", "Skipped", "Blocked", "Failed", "RolledBack"
-        }
-        if status not in allowed_statuses:
-            raise DevToolError("Asset migration returned an unknown package status.")
-        counts[status_to_count[status]] += 1
-        if status == "Planned" and (
-            not steps or any(step["risk"] != "Lossless" for step in steps)
-        ):
-            raise DevToolError("Asset migration planned a package without one lossless exact edge.")
-    changed_paths = value.get("changedPaths")
-    if operation == "Plan":
-        expected_result = "Blocked" if counts["blocked"] or counts["failed"] else "Ready"
-        if changed_paths or value["result"] != expected_result:
-            raise DevToolError("Asset migration dry-run summary or changed paths are invalid.")
-    elif value["result"] == "Succeeded":
-        if counts["planned"] or counts["failed"] or counts["rolledBack"] or len(changed_paths) != counts["migrated"]:
-            raise DevToolError("Asset migration apply success report is inconsistent.")
-    elif changed_paths:
-        raise DevToolError("A failed or rolled-back migration may not report changed paths.")
-    if summary != counts:
-        raise DevToolError("Asset migration report summary is inconsistent.")
-    return value
-
-
-def _read_migration_report(output: str) -> dict[str, Any]:
-    try:
-        value = parse_json_contract(
-            output,
-            label="Asset migration report",
-            source="from DurinAssetTool",
-            schema_path=SCHEMA_DIRECTORY / "asset-migration-v2.schema.json",
-        )
-    except JsonContractError as exc:
-        raise DevToolError(str(exc)) from exc
-    return _validate_migration_report(value)
-
-
 def _render_human(report: Mapping[str, Any], stdout: TextIO) -> None:
     packages: Sequence[Mapping[str, Any]] = report["packages"]
     compatible = sum(p["compatibility"] == "Compatible" for p in packages)
@@ -158,32 +101,6 @@ def _render_human(report: Mapping[str, Any], stdout: TextIO) -> None:
                     f"    [{finding['code']}] {finding['diagnostic']}",
                     file=stdout,
                 )
-
-
-def _render_migration_human(report: Mapping[str, Any], stdout: TextIO) -> None:
-    summary: Mapping[str, int] = report["summary"]
-    print(
-        f"Asset migration {str(report['operation']).lower()}: "
-        f"{summary['planned']} planned, {summary['migrated']} migrated, "
-        f"{summary['skipped']} skipped, {summary['blocked']} blocked, "
-        f"{summary['failed']} failed, {summary['rolledBack']} rolled back.",
-        file=stdout,
-    )
-    for label in ("Planned", "Migrated", "Skipped", "Blocked", "Failed", "RolledBack"):
-        selected = [package for package in report["packages"] if package["status"] == label]
-        if not selected:
-            continue
-        print(f"\n{label} ({len(selected)}):", file=stdout)
-        for package in selected:
-            print(f"  {package['packagePath']}", file=stdout)
-            for step in package["steps"]:
-                print(
-                    f"    [{step['kind']}] {step['handlerId']}: "
-                    f"{step['sourceVersion']} -> {step['targetVersion']} ({step['risk']})",
-                    file=stdout,
-                )
-            for diagnostic in package["diagnostics"]:
-                print(f"    {diagnostic}", file=stdout)
 
 
 def _policy_failed(report: Mapping[str, Any], policies: set[str]) -> bool:
@@ -223,8 +140,6 @@ def run(
 ) -> int:
     asset_command = getattr(namespace, "asset_command", "audit")
     is_baseline = asset_command == "baseline"
-    is_migrate = asset_command == "migrate"
-    is_apply = is_migrate and getattr(namespace, "apply", False)
     base_repository = RepositoryContext.load()
     repository = base_repository.at_root(repository_root)
     selection = select_runtime(
@@ -236,12 +151,6 @@ def run(
     executable = executable_resolver(namespace, repository_root)
     project = resolve_project(repository, Path(namespace.project_path))
     arguments = [f"--project={project}", "--format=json"]
-    if is_migrate:
-        arguments.append("--operation=migrate")
-        if is_apply:
-            arguments.append("--apply")
-        arguments.extend(f"--mount={value}" for value in getattr(namespace, "mounts", ()))
-        arguments.extend(f"--package={value}" for value in getattr(namespace, "packages", ()))
     if process_runner is subprocess.run:
         process_output = BuildOutput(
             plain=True,
@@ -256,11 +165,7 @@ def run(
                 arguments,
                 output=process_output,
                 policy=RuntimeProcessPolicy(
-                    interruption_message=(
-                        "Asset migration cancelled."
-                        if is_migrate
-                        else "Asset compatibility audit cancelled."
-                    ),
+                    interruption_message="Asset compatibility audit cancelled.",
                     show_heartbeat=True,
                     capture_output=True,
                 ),
@@ -268,7 +173,7 @@ def run(
             )
         except BuildToolError as error:
             if error.exit_code == 130:
-                print("Asset migration cancelled." if is_migrate else "Asset compatibility audit cancelled.", file=stderr)
+                print("Asset compatibility audit cancelled.", file=stderr)
                 return 130
             raise
     else:
@@ -280,24 +185,13 @@ def run(
             check=False,
         )
         if completed.returncode == 130:
-            print("Asset migration cancelled." if is_migrate else "Asset compatibility audit cancelled.", file=stderr)
+            print("Asset compatibility audit cancelled.", file=stderr)
             return 130
         if completed.returncode != 0:
             diagnostic = completed.stderr.strip() or "native audit process failed"
-            operation = "migration apply" if is_apply else ("migration planning" if is_migrate else "compatibility audit")
-            raise DevToolError(f"Asset {operation} failed: {diagnostic}")
+            raise DevToolError(f"Asset compatibility audit failed: {diagnostic}")
         native_output = completed.stdout
-    report = _read_migration_report(native_output) if is_migrate else _read_report(native_output)
-    report_path_value = getattr(namespace, "report_path", None)
-    if is_migrate and report_path_value is not None:
-        report_path = Path(report_path_value)
-        if not report_path.is_absolute():
-            report_path = repository_root / report_path
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(
-            json.dumps(report, separators=(",", ":"), ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
+    report = _read_report(native_output)
     if namespace.format_name == "json":
         print(json.dumps(report, separators=(",", ":"), ensure_ascii=False), file=stdout)
     elif is_baseline:
@@ -306,18 +200,8 @@ def run(
             print("\nAsset baseline rejected: every package must be current DAST v4 with no schema findings.", file=stdout)
         else:
             print(f"Asset baseline: {len(report['packages'])} current DAST v4 package(s).", file=stdout)
-    elif is_migrate:
-        _render_migration_human(report, stdout)
     else:
         _render_human(report, stdout)
-    if is_migrate and report_path_value is not None and namespace.format_name != "json":
-        print(f"\nReport: {report_path}", file=stdout)
     if is_baseline:
         return POLICY_EXIT_CODE if _baseline_failed(report) else 0
-    if is_migrate:
-        if report["result"] == "Cancelled":
-            return 130
-        if is_apply and report["result"] in {"Failed", "RolledBack"}:
-            return 1
-        return POLICY_EXIT_CODE if report["result"] in {"Blocked", "Failed"} else 0
     return POLICY_EXIT_CODE if _policy_failed(report, set(namespace.fail_on)) else 0

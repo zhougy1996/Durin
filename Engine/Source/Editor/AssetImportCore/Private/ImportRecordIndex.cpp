@@ -88,11 +88,6 @@ namespace Durin::Asset::Import
 					return Result ? ImportStoreError(
 						Asset::EAssetError::InvalidObjectGraph,
 						"An import record has no loaded main object.") : Result;
-				if (LoadReport.HasRiskItems())
-					return ImportStoreError(
-						Asset::EAssetError::UnsupportedProperty,
-						std::format("Import record {} has compatibility-risk fields.",
-							RecordPath.ToString()));
 				if (!Record->GetPackage() || Record->GetPackage()->IsDirty())
 					return ImportStoreError(
 						Asset::EAssetError::InUse,

@@ -257,8 +257,7 @@ namespace Durin
 
 	auto DMaterialInterface::SubmitMaterialRenderProxyState() const -> void
 	{
-		if (Asset::IsAssetMigrationLoad()
-			|| !bAcceptingMaterialProxyPublications
+		if (!bAcceptingMaterialProxyPublications
 			|| !MaterialRenderProxy
 			|| MaterialProxyLocalVersion == 0)
 		{
