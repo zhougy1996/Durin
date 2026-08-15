@@ -23,10 +23,13 @@ instead of inferring it from the source tree:
 .\DevTool.bat test explain <Target>
 ```
 
-For example, `Engine/Tests/Native/EngineTests` is a source directory, not a
-test target named `EngineTests`; a test beneath it may belong to a target such
-as `ViewportTests`. Use `test list viewport` to discover that target before
-running it.
+For example, the former monolithic `EngineTests` executable was intentionally
+split into cohesive functional and lifecycle targets. Its
+`Engine/Tests/Native/EngineTests` source directory remains, but `EngineTests`
+is not a runnable selection and must not be inferred or restored from that
+directory name. A test beneath it may belong to a focused target such as
+`ViewportTests`; use `test list viewport` to discover that target before
+running it, or select a registered domain when the behavior crosses targets.
 
 1. Start with the smallest affected named target or failing case.
 2. Use a bounded domain or domain/backend set only when behavior crosses test
