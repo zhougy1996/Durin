@@ -111,7 +111,8 @@ class TestLauncher:
         )
         assert 'exec "$VENV_PYTHON" "$ENTRY_POINT" "$@"' in content
         assert 'exec "$PYTHON_COMMAND" "$ENTRY_POINT" "$@"' in content
-        assert 'python3.12' in content
+        assert 'command -v "$PYTHON_NAME"' in content
+        assert 'sys.version_info >= (3, 10)' in content
         assert 'Tools/DurinDevTool/durin_dev_tool/__main__.py' in content
 
     def test_posix_launcher_runs_from_outside_the_repository(
