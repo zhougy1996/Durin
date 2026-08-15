@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AssetCompatibility.h"
+#include "AssetMutation.h"
 #include "AssetPackageV4Writer.h"
 
 #include <array>
@@ -10,6 +11,8 @@ namespace Durin::Asset::DastV4
 {
 	inline constexpr uint32 MaximumSummaryBytes = 65'535;
 	inline constexpr uint8 RequiredSectionCount = 5;
+	inline constexpr uint64 MaximumHeaderBytes =
+		13ull + MaximumSummaryBytes + RequiredSectionCount * 9ull;
 
 	enum class EReaderFailure : uint8
 	{
@@ -146,12 +149,15 @@ namespace Durin::Asset::DastV4
 	};
 
 	// Parses only the bounded public summary and fixed five-entry directory.
-	// OutHeader is replaced only after the complete header is valid.
+	// PackageSize permits a bounded prefix to validate full-file section extents;
+	// zero means the supplied span is the complete package. OutHeader is replaced
+	// only after the complete header is valid.
 	ASSETCORE_API auto ReadHeader(
 		std::span<const uint8> Bytes,
 		FValidatedHeader& OutHeader,
 		const FReaderLimits& Limits = {},
-		FReaderDiagnostic* OutDiagnostic = nullptr) -> bool;
+		FReaderDiagnostic* OutDiagnostic = nullptr,
+		uint64 PackageSize = 0) -> bool;
 
 	// Reconstructs the complete immutable logical package. Canonical validation
 	// includes byte-for-byte re-emission through the production v4 writer.
@@ -207,7 +213,6 @@ namespace Durin::Asset::DastV4
 	private:
 		DPackage* Package = nullptr;
 		explicit FLoadedAssetPackage(DPackage* InPackage) : Package(InPackage) {}
-		friend class ::Durin::Asset::FAssetManager;
 		friend ASSETCORE_API auto LoadAssetPackage(
 			std::span<const uint8>, const FAssetPath&, FLoadedAssetPackage&,
 			FAssetLoadReport*, const FLiveLoadOptions&, const FReaderLimits&,

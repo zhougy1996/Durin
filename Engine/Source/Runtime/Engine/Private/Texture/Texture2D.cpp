@@ -1,7 +1,7 @@
 #include "Texture/Texture2D.h"
 
 #include "AssetCore.h"
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"

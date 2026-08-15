@@ -121,8 +121,8 @@ TEST(FTexture2DTests, DefaultsToFlatSourceRootAndAllowsCustomSourceDestination)
 	Durin::FAssetPath DefaultAssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		"/TextureImportTests/Textures/FlatDefault", DefaultAssetPath));
-	const Durin::Asset::FAssetData* DefaultAssetData =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(DefaultAssetPath);
+	const Durin::Asset::FAssetCatalogEntry DefaultAssetData =
+		Durin::Asset::FindAssetExact(DefaultAssetPath);
 	ASSERT_NE(DefaultAssetData, nullptr);
 	Durin::Asset::FAssetPackageInspection Inspection;
 	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(

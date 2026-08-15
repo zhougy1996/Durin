@@ -2,7 +2,7 @@
 
 #include "AssetImportCore.h"
 #include "AsyncImport.h"
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleTestSupport.h"
 #include "NativeTestSupport.h"
@@ -442,7 +442,7 @@ TEST(FAssetImportCoreTests, ProducesDeterministicMutationFreePlans)
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
 	Durin::Asset::Import::FProviderRegistry Registry;
 	RegisterGraphProvider(Registry);
-	const Durin::uint64 RegistryRevision = Durin::Asset::GetAssetRegistry().GetRevision();
+	const Durin::uint64 RegistryRevision = Durin::Asset::GetAssetCatalogRevision();
 
 	const Durin::Asset::Import::FImportPlanRequest Request{
 		.RootSource = {.Path = "/ImportCoreTests/Root.graph"}};
@@ -454,7 +454,7 @@ TEST(FAssetImportCoreTests, ProducesDeterministicMutationFreePlans)
 	EXPECT_TRUE(std::ranges::equal(
 		First.Plan.GetOutputs(), Second.Plan.GetOutputs()));
 	EXPECT_EQ(First.Plan.GetSnapshot().GetSources().size(), 4u);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().GetRevision(), RegistryRevision);
+	EXPECT_EQ(Durin::Asset::GetAssetCatalogRevision(), RegistryRevision);
 	for (const Durin::Asset::Import::FImportOutputPreview& Output : First.Plan.GetOutputs())
 	{
 		EXPECT_EQ(Durin::Asset::FindLoadedPackage(Output.AssetPath), nullptr);

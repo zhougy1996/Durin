@@ -1,6 +1,6 @@
 #include "Source/SourceReferenceIndex.h"
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
@@ -85,13 +85,14 @@ namespace Durin::Editor
 
 	auto FSourceReferenceIndex::Refresh(size_t MaximumPackageInspections) -> void
 	{
-		const Asset::FAssetRegistry& Registry = Asset::GetAssetRegistry();
-		if (RegistryRevision == Registry.GetRevision()) return;
+		const Asset::FAssetCatalogSnapshot Catalog =
+			Asset::CaptureAssetCatalogSnapshot();
+		if (RegistryRevision == Catalog.Revision) return;
 
 		References.clear();
 		InspectedPackageCount = 0;
 		Warning.clear();
-		for (const auto& [Path, Asset] : Registry.GetAssets())
+		for (const auto& [Path, Asset] : Catalog.Assets)
 		{
 			if (Asset.AssetClassName.find("Texture2D") == std::string::npos
 				&& Asset.AssetClassName.find("TextureCube") == std::string::npos
@@ -114,7 +115,7 @@ namespace Durin::Editor
 			std::ranges::sort(Assets, {}, [](const FSourceReference& Reference) {
 				return Reference.AssetPath.ToString();
 			});
-		RegistryRevision = Registry.GetRevision();
+		RegistryRevision = Catalog.Revision;
 	}
 
 	auto FSourceReferenceIndex::Invalidate() -> void

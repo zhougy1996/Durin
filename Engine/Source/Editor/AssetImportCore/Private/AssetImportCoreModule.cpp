@@ -1,5 +1,5 @@
 #include "AsyncImport.h"
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "ImportRecordIndex.h"
 #include "Modules/ModuleManager.h"
 

@@ -1,6 +1,6 @@
 #include "CookedAsset.h"
 
-#include "AssetSystem.h"
+#include "AssetSystemInternal.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
 
@@ -35,7 +35,7 @@ namespace Durin::Asset
 			if (!FAssetPath::TryCreate(
 				VirtualPackagePath, RequestedPath))
 				return true;
-			const FAssetRegistry& Registry = GetAssetRegistry();
+			const FAssetCatalogStore& Registry = GetAssetCatalogStore();
 			if (!Registry.FindAssetExact(RequestedPath)) return true;
 			const FAssetPathResolveResult Resolution =
 				Registry.ResolveAssetPath(RequestedPath);

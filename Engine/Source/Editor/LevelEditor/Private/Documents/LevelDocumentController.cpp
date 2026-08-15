@@ -5,7 +5,7 @@
 #include "Asset/WorkspaceAssetOpenCompatibility.h"
 #include "MultiOutputImport.h"
 #include "SceneImport.h"
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/Transaction.h"
 #include "Settings/LevelEditorSessionSettings.h"
@@ -129,7 +129,7 @@ namespace Durin::Editor::Level
 		FAssetPath AssetPath;
 		if (!FAssetPath::TryCreate(Path, AssetPath)) return ELevelDocumentOpenResult::Rejected;
 		const Asset::FAssetPathResolveResult Resolution =
-			Asset::GetAssetRegistry().ResolveAssetPath(
+			Asset::ResolveAssetPath(
 				AssetPath, {.ExpectedClass = DLevel::StaticClass()});
 		if (!Resolution)
 			return ELevelDocumentOpenResult::Rejected;

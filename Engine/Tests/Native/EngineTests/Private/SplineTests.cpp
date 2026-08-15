@@ -1,7 +1,7 @@
 #include "Components/SplineComponent.h"
 #include "Components/SplineMeshComponent.h"
 #include "Actors/SplineMeshActor.h"
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "CoreGlobals.h"
 #include "DObject/Archive.h"
 #include "DObject/DObjectGlobals.h"
@@ -462,7 +462,7 @@ TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoReconcileWithoutIdent
 	EXPECT_NE(std::ranges::find(Segments, StableFirst), Segments.end());
 	EXPECT_TRUE(Error.empty());
 	Transactions.Clear();
-	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
+	EXPECT_TRUE(Durin::Asset::DiscardUnpublishedPackage(Level->GetPackage()));
 }
 
 TEST(FSplineComponentTests, LevelPackageRoundTripsV2ControlPointsAndIds)

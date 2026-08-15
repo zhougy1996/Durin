@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "EngineTestSupport.h"
 #include "Json/Json.h"

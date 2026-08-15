@@ -1,6 +1,6 @@
 #include "AssetMigration.h"
 #include "AssetPackageCodec.h"
-#include "AssetSystem.h"
+#include "AssetSystemInternal.h"
 
 #include "Misc/DerivedDataCache.h"
 #include "Misc/FileHelper.h"
@@ -843,7 +843,7 @@ namespace Durin::Asset
 		}
 		if (Options.ShouldFail && Options.ShouldFail(EAssetMigrationApplyPhase::PublishRegistry, 0))
 			return Rollback("Injected migration registry-publication failure.");
-		FAssetManager::Get().PublishMigratedPackageRegistryEntries(RegistryEntries);
+		FAssetRuntimeState::Get().PublishMigratedPackageRegistryEntries(RegistryEntries);
 
 		for (const auto& Entry : Entries)
 		{

@@ -1,7 +1,7 @@
 #include "ImportRecord.h"
 
 #include "AssetImportCore.h"
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "Hash/XxHash.h"
 
 namespace Durin::Asset::Import

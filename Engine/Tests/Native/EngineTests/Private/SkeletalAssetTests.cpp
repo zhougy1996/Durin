@@ -2,7 +2,7 @@
 
 #include "Animation/AnimationClip.h"
 #include "Actors/SkeletalMeshActor.h"
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DObject/Package.h"
 #include "Engine/Level.h"
@@ -338,7 +338,7 @@ namespace
 	{
 		Durin::Asset::ShutdownAssetManager();
 		Durin::CollectGarbage();
-		Durin::Asset::FAssetManager::Get().Initialize();
+		Durin::Asset::InitializeAssetManager();
 	}
 }
 
@@ -1145,6 +1145,8 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 		Durin::Asset::EPackageLoadMode::CookedRuntime, FirstCookRoot}));
 	Durin::PathUtilities::RegisterMountPointForTests(
 		"/Game/", (FirstCookRoot / "Game").generic_string() + "/");
+	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	Mesh = nullptr;
 	ASSERT_TRUE(Durin::Asset::LoadAsset(MeshPath, Mesh));
 	ASSERT_NE(Mesh, nullptr);
@@ -1175,6 +1177,8 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 		Durin::Asset::EPackageLoadMode::CookedRuntime, FirstCookRoot}));
 	Durin::PathUtilities::RegisterMountPointForTests(
 		"/Game/", (FirstCookRoot / "Game").generic_string() + "/");
+	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	Mesh = nullptr;
 	const Durin::Asset::FAssetResult Corrupt = Durin::Asset::LoadAsset(MeshPath, Mesh);
 	EXPECT_FALSE(Corrupt);

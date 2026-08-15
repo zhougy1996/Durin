@@ -3,7 +3,7 @@
 #include "Actors/DirectionalLightActor.h"
 #include "Actors/PlayerStart.h"
 #include "Actors/StaticMeshActor.h"
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/AssetPath.h"
 #include "DObject/Package.h"
@@ -107,8 +107,10 @@ namespace Durin::Editor::Level
 
 		auto CleanupCandidate(const FAssetPath& Path) -> bool
 		{
-			if (Asset::FindLoadedPackage(Path)) Asset::UnloadPackage(Path);
-			if (Asset::GetAssetRegistry().FindAssetExact(Path))
+			if (DPackage* Draft = Asset::FindDraftPackage(Path))
+				(void)Asset::DiscardUnpublishedPackage(Draft);
+			else if (Asset::FindLoadedPackage(Path)) Asset::UnloadPackage(Path);
+			if (Asset::FindAssetExact(Path))
 				return static_cast<bool>(Asset::DeleteAsset(Path));
 			const PathUtilities::FAssetPathResult Resolved =
 				PathUtilities::ResolveAssetPath(Path.ToString());
@@ -227,8 +229,9 @@ namespace Durin::Editor::Level
 			DURIN_ERROR("graybox-build: output must be a valid path in the current project mount.");
 			return 2;
 		}
-		if (Asset::GetAssetRegistry().FindAssetExact(OutputPath)
-			|| Asset::FindLoadedPackage(OutputPath))
+		if (Asset::FindAssetExact(OutputPath)
+			|| Asset::FindLoadedPackage(OutputPath)
+			|| Asset::FindDraftPackage(OutputPath))
 		{
 			DURIN_ERROR("graybox-build: output '{}' already exists; replacement is not supported.", OutputText);
 			return 3;
@@ -262,8 +265,9 @@ namespace Durin::Editor::Level
 				"{}__GrayboxBuildCandidate_{}_{}", Directory,
 				FPlatformProcess::CurrentProcessId(), Attempt);
 			if (FAssetPath::TryCreate(Text, CandidatePath)
-				&& !Asset::GetAssetRegistry().FindAssetExact(CandidatePath)
-				&& !Asset::FindLoadedPackage(CandidatePath))
+				&& !Asset::FindAssetExact(CandidatePath)
+				&& !Asset::FindLoadedPackage(CandidatePath)
+				&& !Asset::FindDraftPackage(CandidatePath))
 			{
 				bCandidatePathFound = true;
 				break;
@@ -337,7 +341,9 @@ namespace Durin::Editor::Level
 		Result = Asset::LoadAsset(OutputPath, Published);
 		if (!Result || !Published || !VerifyArena(*Published, *Box, Layout, Error))
 		{
-			if (Asset::FindLoadedPackage(OutputPath)) Asset::UnloadPackage(OutputPath);
+			if (DPackage* Draft = Asset::FindDraftPackage(OutputPath))
+				(void)Asset::DiscardUnpublishedPackage(Draft);
+			else if (Asset::FindLoadedPackage(OutputPath)) Asset::UnloadPackage(OutputPath);
 			const Asset::FAssetResult Restore = Asset::RestoreAssetRelocationBatch(Token);
 			CleanupCandidate(CandidatePath);
 			DURIN_ERROR("graybox-build: published verification failed: {}{}",

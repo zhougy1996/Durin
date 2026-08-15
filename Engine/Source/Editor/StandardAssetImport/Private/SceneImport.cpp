@@ -2,7 +2,7 @@
 
 #include "Animation/AnimationClip.h"
 #include "ImportedScene.h"
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "Image/ImageDecoder.h"
 #include "HAL/PlatformProcess.h"
 #include "Materials/Material.h"
@@ -907,7 +907,8 @@ namespace Durin::Asset::Import::Standard
 				if (!FAssetPath::TryCreate(std::format(
 					"{}_SceneCandidate_{}", TargetPath.ToString(), Suffix), OutPath)) return false;
 				if (!Asset::FindLoadedPackage(OutPath)
-					&& !Asset::GetAssetRegistry().FindAssetExact(OutPath)) return true;
+					&& !Asset::FindDraftPackage(OutPath)
+					&& !Asset::FindAssetExact(OutPath)) return true;
 			}
 			return false;
 		}

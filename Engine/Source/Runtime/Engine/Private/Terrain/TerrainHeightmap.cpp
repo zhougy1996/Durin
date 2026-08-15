@@ -1,7 +1,7 @@
 #include "Terrain/TerrainHeightmap.h"
 
 #include "AssetCore.h"
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "Serialization/Archive.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
 #include "Terrain/TerrainHeightmapRenderStateRecreateContext.h"

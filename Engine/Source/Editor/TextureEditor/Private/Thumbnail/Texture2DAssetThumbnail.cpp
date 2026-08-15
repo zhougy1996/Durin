@@ -1,6 +1,6 @@
 #include "Thumbnail/Texture2DAssetThumbnail.h"
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "Image/ImageDecoder.h"
 #include "Misc/Paths.h"
 #include "Texture/Texture2D.h"

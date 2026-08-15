@@ -2,7 +2,7 @@
 
 #include "AssetCoreAPI.h"
 #include "AssetPackageVersionPolicy.h"
-#include "AssetSystem.h"
+#include "AssetPackage.h"
 #include "DObject/DefaultDeltaPlan.h"
 
 #include <memory>

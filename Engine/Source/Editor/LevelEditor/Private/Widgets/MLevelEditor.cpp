@@ -1,6 +1,6 @@
 #include "Widgets/MLevelEditor.h"
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "Editor/AssetPicker.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/Notification.h"
@@ -102,7 +102,7 @@ namespace Durin::Editor::Level
 		};
 		Context->OpenAsset = [this](const FAssetPath& Path, std::string& Error) {
 			const Asset::FAssetPathResolveResult Resolution =
-				Asset::GetAssetRegistry().ResolveAssetPath(Path);
+				Asset::ResolveAssetPath(Path);
 			if (Resolution && Resolution.FinalAssetData
 				&& WorkspaceManager.OpenAsset(
 					Resolution.FinalPath.ToString(), Resolution.FinalAssetData->AssetClassName)) return true;
@@ -116,7 +116,13 @@ namespace Durin::Editor::Level
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RegistryScanBegin);
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.RegistryScan");
-			Asset::GetAssetRegistry().ScanMountedContent(Asset::EAssetRegistryScanMode::Incremental);
+			const Asset::FAssetCatalogRefreshResult Refresh =
+				Asset::RefreshAssetCatalog(
+					Asset::EAssetRegistryScanMode::Incremental);
+			if (!Refresh)
+				DURIN_ERROR(
+					"Asset catalog refresh retained revision {} with {} error(s).",
+					Refresh.ResultingRevision, Refresh.Errors.size());
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RegistryScanComplete);
 		SessionSettings.PruneInvalidViewportStates();
@@ -332,7 +338,7 @@ namespace Durin::Editor::Level
 		}
 		const Asset::FAssetPathResolveResult Resolution = DefaultLevel.IsNull()
 			? Asset::FAssetPathResolveResult{}
-			: Asset::GetAssetRegistry().ResolveAssetPath(
+			: Asset::ResolveAssetPath(
 				DefaultLevelPath, {.ExpectedClass = DLevel::StaticClass()});
 		if (!DefaultLevel.IsNull() && !Resolution)
 		{

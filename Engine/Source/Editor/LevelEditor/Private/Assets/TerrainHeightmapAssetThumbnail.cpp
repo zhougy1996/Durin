@@ -1,6 +1,6 @@
 #include "TerrainHeightmapAssetThumbnail.h"
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "Terrain/TerrainHeightmap.h"
 
 namespace Durin::Editor::Level
@@ -93,7 +93,9 @@ namespace Durin::Editor::Level
 			OutError = "The Terrain thumbnail provider received the wrong asset class.";
 			return false;
 		}
-		const Asset::FAssetData* Data = Asset::GetAssetRegistry().FindAssetExact(Request.Asset.VirtualPath);
+		const Asset::FAssetCatalogEntry Entry =
+			Asset::FindAssetExact(Request.Asset.VirtualPath);
+		const Asset::FAssetData* Data = Entry.Data ? &*Entry.Data : nullptr;
 		if (!Data || MakeFingerprint(*Data) != Request.Asset)
 		{
 			OutError = "Terrain thumbnail registry data is missing or changed.";

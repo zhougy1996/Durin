@@ -63,12 +63,12 @@ TEST(FRenderedAssetThumbnailFixtureTests, RecordsDirectAndTransitiveDependencyIn
 	ASSERT_TRUE(Durin::Tests::MakeRenderedThumbnailFixturePath(
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::StaticMeshPath, StaticMeshPath));
 
-	const Durin::Asset::FAssetData* MaterialData =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(MaterialPath);
-	const Durin::Asset::FAssetData* InstanceData =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(InstancePath);
-	const Durin::Asset::FAssetData* StaticMeshData =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(StaticMeshPath);
+	const Durin::Asset::FAssetCatalogEntry MaterialData =
+		Durin::Asset::FindAssetExact(MaterialPath);
+	const Durin::Asset::FAssetCatalogEntry InstanceData =
+		Durin::Asset::FindAssetExact(InstancePath);
+	const Durin::Asset::FAssetCatalogEntry StaticMeshData =
+		Durin::Asset::FindAssetExact(StaticMeshPath);
 	ASSERT_NE(MaterialData, nullptr);
 	ASSERT_NE(InstanceData, nullptr);
 	ASSERT_NE(StaticMeshData, nullptr);

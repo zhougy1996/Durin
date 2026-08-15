@@ -26,6 +26,11 @@ namespace
 		return {.bLoadedPackageExists = true};
 	}
 
+	auto DraftPackageOccupancy(const FAssetPath&) -> FAssetDestinationOccupancy
+	{
+		return {.bDraftPackageExists = true};
+	}
+
 	auto RedirectorOccupancy(const FAssetPath&) -> FAssetDestinationOccupancy
 	{
 		FAssetPath Destination;
@@ -138,6 +143,16 @@ TEST_F(FAssetDestinationValidationTests, ReportsRegistryAndLoadedPackageCollisio
 	EXPECT_EQ(
 		LoadedResult.Message,
 		"A loaded package already uses this path. Close it or choose another destination.");
+
+	const FAssetDestinationValidation DraftResult =
+		InspectAssetDestination("/Project/Textures/Draft", DraftPackageOccupancy);
+	EXPECT_FALSE(DraftResult.bRegistryAssetExists);
+	EXPECT_FALSE(DraftResult.bLoadedPackageExists);
+	EXPECT_TRUE(DraftResult.bDraftPackageExists);
+	EXPECT_FALSE(DraftResult);
+	EXPECT_EQ(
+		DraftResult.Message,
+		"An unpublished asset draft already uses this path. Save or discard it before reusing the destination.");
 
 	const FAssetDestinationValidation RedirectorResult =
 		InspectAssetDestination(

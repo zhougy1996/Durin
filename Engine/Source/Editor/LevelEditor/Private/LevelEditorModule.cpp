@@ -1,6 +1,6 @@
 #include "LevelEditorModule.h"
 
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "Editor/WorkspaceManager.h"
 #include "Settings/LevelEditorSessionSettings.h"
 #include "Settings/ProjectDefaultLevelReferenceStore.h"

@@ -121,6 +121,14 @@ Filesystem-backed creation and rename operations additionally require the owning
 mount to be authoring-writable. These browsing constraints do not change the
 validity of typed source paths or AssetCore's authoring policy.
 
+Its asset rows are derived from owned `FAssetCatalogSnapshot` values. Manual or
+automatic reconciliation consumes the single `FAssetCatalogRefreshResult`,
+including catalog/reference completeness, prior and resulting revisions,
+counters, warnings, and structured errors; the panel never retains a registry
+pointer or reads mutable last-error state. A failed refresh may display the
+explicitly retained prior snapshot, but it is not presented as a newly complete
+catalog.
+
 ## Recursive Deletion
 
 Folder and mixed-item deletion is one recursive, reversible editor transaction.

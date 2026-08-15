@@ -1,7 +1,7 @@
 #include "AssetCanonicalResave.h"
 
 #include "AssetPackageV4Reader.h"
-#include "AssetSystem.h"
+#include "AssetSystemInternal.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
 #include "Misc/DerivedDataCache.h"
@@ -135,7 +135,7 @@ namespace Durin::Asset
 		-> FAssetCanonicalResavePlan
 	{
 		FAssetCanonicalResavePlan Plan;
-		Plan.RegistryRevision = GetAssetRegistry().GetRevision();
+		Plan.RegistryRevision = GetAssetCatalogStore().GetRevision();
 		std::vector<const FAssetPackageCompatibilityRecord*> Sorted;
 		for (const auto& Record : Records)
 			if (IsSelected(Record.PackagePath, Selection)) Sorted.push_back(&Record);
@@ -149,7 +149,7 @@ namespace Durin::Asset
 				Plan.Status = EAssetCanonicalResavePlanStatus::Cancelled;
 				break;
 			}
-			DPackage* Loaded = FAssetManager::Get().FindLoadedPackage(Record->PackagePath);
+			DPackage* Loaded = FAssetRuntimeState::Get().FindLoadedPackage(Record->PackagePath);
 			FAssetCanonicalResavePackagePlan& Package = Plan.Packages.emplace_back();
 			Package.PackagePath = Record->PackagePath;
 			Package.PhysicalPath = Record->PhysicalPath;
@@ -197,7 +197,7 @@ namespace Durin::Asset
 			Result.Diagnostic = "CanonicalResaveCancelled: planning did not complete.";
 			return Result;
 		}
-		if (Result.Plan.RegistryRevision != GetAssetRegistry().GetRevision())
+		if (Result.Plan.RegistryRevision != GetAssetCatalogStore().GetRevision())
 		{
 			Result.Status = EAssetCanonicalResaveApplyStatus::Blocked;
 			Result.Diagnostic = "CanonicalResaveRegistryStale: registry changed after planning.";
@@ -251,7 +251,7 @@ namespace Durin::Asset
 			}
 
 			const FAssetPackageLoadSnapshot Snapshot = CapturePackageLoadSnapshot();
-			DPackage* Package = FAssetManager::Get().FindLoadedPackage(PackagePlan.PackagePath);
+			DPackage* Package = FAssetRuntimeState::Get().FindLoadedPackage(PackagePlan.PackagePath);
 			const bool bWasLoaded = Package != nullptr;
 			FAssetLoadReport LoadReport;
 			if (!Package)

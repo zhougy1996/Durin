@@ -1,6 +1,6 @@
 #include "SceneImport.h"
 
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "Materials/Material.h"
 
 namespace Durin::Asset::Import::Standard
@@ -11,7 +11,9 @@ namespace Durin::Asset::Import::Standard
 		if (!FAssetPath::TryCreate(
 			StandardImportedSurfaceMaterialPath, MaterialPath, &OutError)) return nullptr;
 
-		if (DPackage* LoadedPackage = Asset::FindLoadedPackage(MaterialPath))
+		DPackage* LoadedPackage = Asset::FindLoadedPackage(MaterialPath);
+		if (!LoadedPackage) LoadedPackage = Asset::FindDraftPackage(MaterialPath);
+		if (LoadedPackage)
 		{
 			DMaterial* Loaded = Cast<DMaterial>(LoadedPackage->GetAsset());
 			if (!Loaded)
@@ -30,7 +32,7 @@ namespace Durin::Asset::Import::Standard
 			return Loaded;
 		}
 
-		if (Asset::GetAssetRegistry().FindAssetExact(MaterialPath))
+		if (Asset::FindAssetExact(MaterialPath))
 		{
 			DMaterial* Loaded = nullptr;
 			const Asset::FAssetResult LoadResult = Asset::LoadAsset(MaterialPath, Loaded);

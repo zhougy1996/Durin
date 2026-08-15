@@ -5,7 +5,7 @@
 #include "MultiOutputImport.h"
 #include "Panels/ContentBrowserItemView.h"
 
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "Assets/ContentBrowserDragDrop.h"
 #include "Assets/ContentBrowserThumbnailCache.h"
 #include "Editor/WorkspaceUI.h"
@@ -407,7 +407,7 @@ namespace Durin::Editor::Level
 			return;
 		TextureCubeDetailsSnapshot = &TextureCubeDetailsCache.Get(
 			It->PhysicalPath,
-			Asset::GetAssetRegistry().GetRevision());
+			Asset::GetAssetCatalogRevision());
 	}
 
 	auto FContentBrowserPanel::DrawSelectionDetails() -> void
@@ -438,12 +438,12 @@ namespace Durin::Editor::Level
 				FAssetPath Path;
 				if (FAssetPath::TryCreate(Item.VirtualPath, Path))
 				{
-					if (const Asset::FAssetData* Data =
-						Asset::GetAssetRegistry().FindAssetExact(Path))
+					if (const Asset::FAssetCatalogEntry Data =
+						Asset::FindAssetExact(Path))
 					{
 						Row("Dependencies", std::format("{}", Data->Dependencies.size()));
-						const Asset::FAssetReferenceIndex& ReferenceIndex =
-							Asset::GetAssetRegistry().GetReferenceIndex();
+						const Asset::FAssetReferenceIndex ReferenceIndex =
+							Asset::CaptureAssetReferenceIndex();
 						size_t HardReferencers = 0;
 						size_t SoftReferencers = 0;
 						size_t RedirectReferencers = 0;
@@ -471,7 +471,7 @@ namespace Durin::Editor::Level
 						{
 							Row("Destination", Data->RedirectDestination.ToString());
 							const Asset::FAssetPathResolveResult Resolution =
-								Asset::GetAssetRegistry().ResolveAssetPath(Path);
+								Asset::ResolveAssetPath(Path);
 							Row("State", ResolveStateLabel(Resolution.State));
 							Row("Final", Resolution.FinalPath.IsValid()
 								? Resolution.FinalPath.ToString()
@@ -758,7 +758,7 @@ namespace Durin::Editor::Level
 			FAssetPath PackagePath;
 			if (FAssetPath::TryCreate(Item.VirtualPath, PackagePath))
 			{
-				DPackage* LoadedPackage = Asset::FAssetManager::Get().FindLoadedPackage(PackagePath);
+				DPackage* LoadedPackage = Asset::FindLoadedPackage(PackagePath);
 				const bool bCanSave = LoadedPackage && LoadedPackage->IsDirty();
 				if (ImGui::MenuItem("Save Package", nullptr, false, bCanSave))
 					DeferredContentAction = [this, PackagePath] { SaveAssetPackage(PackagePath); };
@@ -880,7 +880,7 @@ namespace Durin::Editor::Level
 			FAssetPath CapabilityPath;
 			DObject* CapabilityAsset = nullptr;
 			const bool bLoadedForCapabilities = FAssetPath::TryCreate(Item.VirtualPath, CapabilityPath)
-				&& Asset::FAssetManager::Get().LoadAsset(CapabilityPath, CapabilityAsset);
+				&& Asset::LoadAsset(CapabilityPath, CapabilityAsset);
 			const Asset::Import::FSingleAssetCapability* ReimportCapability = nullptr;
 			Asset::Import::FSingleAssetCapabilitySet CapabilitySet;
 			if (bLoadedForCapabilities && CapabilityAsset)
@@ -945,8 +945,7 @@ namespace Durin::Editor::Level
 			{
 				std::vector<FAssetPath> Referencers;
 				for (const Asset::FAssetReferenceEdge& Edge :
-					 Asset::GetAssetRegistry().GetReferenceIndex()
-						 .FindReferencers(Path))
+					 Asset::CaptureAssetReferenceIndex().FindReferencers(Path))
 					if (std::ranges::find(Referencers, Edge.SourcePackage)
 						== Referencers.end())
 						Referencers.push_back(Edge.SourcePackage);

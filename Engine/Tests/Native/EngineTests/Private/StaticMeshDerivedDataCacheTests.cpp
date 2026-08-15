@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "DerivedDataObjectStore.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -133,7 +133,7 @@ namespace
 	{
 		Durin::Asset::ShutdownAssetManager();
 		Durin::CollectGarbage();
-		Durin::Asset::FAssetManager::Get().Initialize();
+		Durin::Asset::InitializeAssetManager();
 	}
 }
 
@@ -354,6 +354,8 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
 		Durin::Asset::EPackageLoadMode::CookedRuntime, CookRoot}));
 	Durin::PathUtilities::RegisterMountPointForTests("/Game/", (CookRoot / "Game").generic_string() + "/");
+	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	Durin::FAssetPath Path;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedCollisionMesh", Path));
 	Durin::DStaticMesh* CookedMesh = nullptr;
@@ -378,6 +380,8 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
 		Durin::Asset::EPackageLoadMode::CookedRuntime, InvalidRoot}));
 	Durin::PathUtilities::RegisterMountPointForTests("/Game/", (InvalidRoot / "Game").generic_string() + "/");
+	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	CookedMesh = nullptr;
 	const Durin::Asset::FAssetResult Invalid = Durin::Asset::LoadAsset(Path, CookedMesh);
 	EXPECT_FALSE(Invalid);
@@ -388,6 +392,8 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
 		Durin::Asset::EPackageLoadMode::CookedRuntime, MissingRoot}));
 	Durin::PathUtilities::RegisterMountPointForTests("/Game/", (MissingRoot / "Game").generic_string() + "/");
+	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	CookedMesh = nullptr;
 	const Durin::Asset::FAssetResult Missing = Durin::Asset::LoadAsset(Path, CookedMesh);
 	EXPECT_FALSE(Missing);
@@ -523,6 +529,8 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 		Durin::Asset::EPackageLoadMode::CookedRuntime, CookRoot}));
 	Durin::PathUtilities::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
+	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	Durin::FAssetPath CookedPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedMesh", CookedPath));
 	Durin::DStaticMesh* CookedMesh = nullptr;
@@ -565,6 +573,8 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 			Durin::Asset::EPackageLoadMode::CookedRuntime, Root}));
 		Durin::PathUtilities::RegisterMountPointForTests(
 			"/Game/", (Root / "Game").generic_string() + "/");
+		ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+			Durin::Asset::EAssetRegistryScanMode::FullValidation));
 		Durin::FAssetPath Path;
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedMesh", Path));
 		Durin::DStaticMesh* Mesh = nullptr;

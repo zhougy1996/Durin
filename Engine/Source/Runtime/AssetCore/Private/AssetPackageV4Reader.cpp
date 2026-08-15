@@ -185,11 +185,13 @@ namespace Durin::Asset::DastV4
 			return true;
 		}
 
-		auto DecodeHeaderInner(std::span<const uint8> Bytes, FValidatedHeader& Out,
-			const FReaderLimits& Limits, FReaderDiagnostic& Diagnostic) -> bool
+		auto DecodeHeaderInner(std::span<const uint8> Bytes, uint64 PackageSize,
+			FValidatedHeader& Out, const FReaderLimits& Limits,
+			FReaderDiagnostic& Diagnostic) -> bool
 		{
 			if (!ValidateLimits(Limits, Diagnostic)) return false;
-			if (Bytes.size() > Limits.PackageBytes)
+			if (PackageSize == 0) PackageSize = Bytes.size();
+			if (PackageSize < Bytes.size() || PackageSize > Limits.PackageBytes)
 				return Fail(Diagnostic, EReaderFailure::LimitExceeded,
 					"Package exceeds the configured byte bound.");
 			FWireReader Reader(Bytes);
@@ -254,13 +256,13 @@ namespace Durin::Asset::DastV4
 					return Fail(Diagnostic, EReaderFailure::InvalidDirectory,
 						"Section kinds or extents are not canonical.", Reader.Position() - 9);
 				const uint64 End = uint64(Offset) + Length;
-				if (End < Offset || End > Bytes.size())
+				if (End < Offset || End > PackageSize)
 					return Fail(Diagnostic, EReaderFailure::InvalidDirectory,
 						"Section extent exceeds the package.", Reader.Position() - 8);
 				Result.Sections[Index] = {static_cast<ESectionKind>(Kind), Offset, Length};
 				ExpectedOffset = End;
 			}
-			if (ExpectedOffset != Bytes.size())
+			if (ExpectedOffset != PackageSize)
 				return Fail(Diagnostic, EReaderFailure::InvalidDirectory,
 					"Directory leaves gaps or trailing bytes.", Reader.Position());
 			Result.BytesRead = FirstSection;
@@ -1437,10 +1439,12 @@ namespace Durin::Asset::DastV4
 	}
 
 	auto ReadHeader(std::span<const uint8> Bytes, FValidatedHeader& OutHeader,
-		const FReaderLimits& Limits, FReaderDiagnostic* OutDiagnostic) -> bool
+		const FReaderLimits& Limits, FReaderDiagnostic* OutDiagnostic,
+		uint64 PackageSize) -> bool
 	{
 		FReaderDiagnostic Diagnostic; FValidatedHeader Result;
-		const bool Success = DecodeHeaderInner(Bytes, Result, Limits, Diagnostic);
+		const bool Success = DecodeHeaderInner(
+			Bytes, PackageSize, Result, Limits, Diagnostic);
 		if (Success)
 		{
 			CanonicalizeSerializedClassName(Result.AssetClass);
@@ -1474,7 +1478,8 @@ namespace Durin::Asset::DastV4
 		const FReaderLimits& Limits, FReaderDiagnostic* OutDiagnostic) -> bool
 	{
 		FReaderDiagnostic Diagnostic; FDecodedPackage Result;
-		if (!DecodeHeaderInner(Bytes, Result.Header, Limits, Diagnostic)
+		if (!DecodeHeaderInner(
+			Bytes, Bytes.size(), Result.Header, Limits, Diagnostic)
 			|| !DecodeTablesAndValues(Bytes, Result, Limits, Diagnostic))
 		{
 			if (OutDiagnostic) *OutDiagnostic = std::move(Diagnostic); return false;
@@ -1644,8 +1649,9 @@ namespace Durin::Asset::DastV4
 		std::vector<FArchiveCustomVersion> CustomVersions;
 		for (const FCustomVersion& Version : Decoded.CustomVersions)
 			CustomVersions.push_back({Version.Guid, static_cast<int32>(Version.Value)});
-		FAssetLoadReport Report{.PackagePath = PackagePath,
-			.CanonicalizationEvidence = std::move(CanonicalizationEvidence)};
+		FAssetLoadReport Report = OutReport ? *OutReport : FAssetLoadReport{};
+		Report.PackagePath = PackagePath;
+		Report.CanonicalizationEvidence = std::move(CanonicalizationEvidence);
 		for (size_t ObjectIndex = 0; ObjectIndex < Objects.size(); ++ObjectIndex)
 		{
 			if (ShouldFail(Options, ELiveLoadPhase::ApplyValues, ObjectIndex))

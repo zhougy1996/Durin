@@ -1,6 +1,6 @@
 #include "Source/MountedSourceRelocation.h"
 
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "DObject/Package.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -117,8 +117,13 @@ namespace Durin::Editor
 				if (!Snapshot.bWasLoaded)
 					Asset::UnloadPackage(Snapshot.Data.PackagePath);
 			}
-			Asset::GetAssetRegistry().ScanMountedContent(
-				Asset::EAssetRegistryScanMode::FullValidation);
+			const Asset::FAssetCatalogRefreshResult Refresh =
+				Asset::RefreshAssetCatalog(
+					Asset::EAssetRegistryScanMode::FullValidation);
+			if (!Refresh)
+				DURIN_WARN(
+					"Mounted-source rollback retained asset catalog revision {} with {} error(s).",
+					Refresh.ResultingRevision, Refresh.Errors.size());
 		}
 	} // namespace
 
@@ -174,8 +179,9 @@ namespace Durin::Editor
 					Reference.AssetPath.ToString(), Dependency.Message);
 				return false;
 			}
-			const Asset::FAssetData* Data =
-				Asset::GetAssetRegistry().FindAssetExact(Reference.AssetPath);
+			const Asset::FAssetCatalogEntry Entry =
+				Asset::FindAssetExact(Reference.AssetPath);
+			const Asset::FAssetData* Data = Entry.Data ? &*Entry.Data : nullptr;
 			if (!Data)
 			{
 				OutError = std::format(

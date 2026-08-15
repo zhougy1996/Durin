@@ -1,6 +1,6 @@
 #include "ImportRecordIndex.h"
 
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "DObject/DObjectGlobals.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
@@ -65,7 +65,8 @@ namespace Durin::Asset::Import
 			std::vector<FAssetPath> RecordPaths;
 			const std::string RecordClass =
 				DImportRecord::StaticClass()->GetQualifiedName().ToString();
-			for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
+			for (const auto& [Path, Data]
+				: Asset::CaptureAssetCatalogSnapshot().Assets)
 				if (Data.EntryKind == Asset::EAssetRegistryEntryKind::Asset
 					&& Data.AssetClassName == RecordClass)
 					RecordPaths.push_back(Path);
@@ -208,7 +209,8 @@ namespace Durin::Asset::Import
 		std::string& OutFingerprint,
 		std::string& OutError) -> bool
 	{
-		const Asset::FAssetData* Data = Asset::GetAssetRegistry().FindAssetExact(Path);
+		const Asset::FAssetCatalogEntry Entry = Asset::FindAssetExact(Path);
+		const Asset::FAssetData* Data = Entry.Data ? &*Entry.Data : nullptr;
 		std::vector<uint8> Bytes;
 		if (!Data || !FFileHelper::LoadFileToArray(Bytes, Data->PhysicalPath))
 		{
@@ -230,7 +232,8 @@ namespace Durin::Asset::Import
 		const std::string RecordClass =
 			DImportRecord::StaticClass()->GetQualifiedName().ToString();
 
-		for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
+		for (const auto& [Path, Data]
+			: Asset::CaptureAssetCatalogSnapshot().Assets)
 		{
 			if (Data.AssetClassName != RecordClass) continue;
 			DImportRecord* Record = nullptr;
@@ -257,7 +260,7 @@ namespace Durin::Asset::Import
 				if (Output.Policy == EImportRecordOutputPolicy::Managed)
 				{
 					const Asset::FAssetPathResolveResult Resolution =
-						Asset::GetAssetRegistry().ResolveAssetPath(Output.AssetPath);
+						Asset::ResolveAssetPath(Output.AssetPath);
 					Management.bOutputMissing = !Resolution;
 					if (Management.bOutputMissing)
 						Diagnostics.push_back({
@@ -334,7 +337,7 @@ namespace Durin::Asset::Import
 		Impl->ByRecord = std::move(ByRecord);
 		Impl->ConflictedRecords = std::move(ConflictedRecords);
 		Impl->Diagnostics = std::move(Diagnostics);
-		Impl->ObservedAssetRegistryRevision = Asset::GetAssetRegistry().GetRevision();
+		Impl->ObservedAssetRegistryRevision = Asset::GetAssetCatalogRevision();
 		++Impl->Revision;
 		OutError.clear();
 		return true;
@@ -344,7 +347,7 @@ namespace Durin::Asset::Import
 	{
 		{
 			std::lock_guard Lock(Impl->Mutex);
-			if (Impl->ObservedAssetRegistryRevision == Asset::GetAssetRegistry().GetRevision())
+			if (Impl->ObservedAssetRegistryRevision == Asset::GetAssetCatalogRevision())
 			{
 				OutError.clear();
 				return true;
@@ -529,8 +532,9 @@ namespace Durin::Asset::Import
 				return ImportStoreError(
 					Asset::EAssetError::InUse,
 					"A dirty import record blocks redirector Fix Up.");
-			const Asset::FAssetData* Data =
-				Asset::GetAssetRegistry().FindAssetExact(RecordPath);
+			const Asset::FAssetCatalogEntry Entry =
+				Asset::FindAssetExact(RecordPath);
+			const Asset::FAssetData* Data = Entry.Data ? &*Entry.Data : nullptr;
 			if (!Data)
 				return ImportStoreError(
 					Asset::EAssetError::StaleData,

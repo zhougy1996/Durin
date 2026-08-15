@@ -1,6 +1,6 @@
 #include "Panels/ContentBrowserModel.h"
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "Misc/LexicalPath.h"
 #include "Misc/Paths.h"
 #include "Misc/StringHelper.h"
@@ -103,8 +103,15 @@ namespace Durin::Editor::Level
 
 	auto FContentBrowserModel::RescanRegistry() -> Asset::FAssetResult
 	{
-		return Asset::GetAssetRegistry().ScanMountedContent(
-			Asset::EAssetRegistryScanMode::Incremental);
+		const Asset::FAssetCatalogRefreshResult Refresh =
+			Asset::RefreshAssetCatalog(
+				Asset::EAssetRegistryScanMode::Incremental);
+		if (Refresh) return {};
+		return Refresh.Errors.empty()
+			? Asset::FAssetResult{
+				Asset::EAssetError::IoError,
+				"Asset catalog refresh was incomplete."}
+			: Refresh.Errors.front();
 	}
 
 	auto FContentBrowserModel::PhysicalToVirtualDirectory(
@@ -210,8 +217,8 @@ namespace Durin::Editor::Level
 	{
 		FAssetPath Path;
 		if (!FAssetPath::TryCreate(AssetPath, Path)) return {};
-		const Asset::FAssetData* Data =
-			Asset::GetAssetRegistry().FindAssetExact(Path);
+		const Asset::FAssetCatalogEntry Entry = Asset::FindAssetExact(Path);
+		const Asset::FAssetData* Data = Entry.Data ? &*Entry.Data : nullptr;
 		if (!Data) return {};
 		if (Data->EntryKind == Asset::EAssetRegistryEntryKind::Redirector)
 			bShowRedirectors = true;
@@ -305,7 +312,8 @@ namespace Durin::Editor::Level
 					std::format("Directory traversal stopped: {}", IteratorError.message()));
 		}
 
-		for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
+		for (const auto& [Path, Data]
+			: Asset::CaptureAssetCatalogSnapshot().Assets)
 		{
 			if (!IsInsideCurrentDirectory(Data.PhysicalPath, true)) continue;
 			FContentBrowserItem Item{

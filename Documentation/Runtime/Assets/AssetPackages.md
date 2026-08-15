@@ -17,7 +17,9 @@ single `GetContentDir()`; neither virtual path includes `Root` or `ContentPath`.
 The immutable Core registry publishes `/Engine/` and `/Game/` plus validated
 project-declared extension and external-source mounts. Every mount may contain
 `.dasset` packages and ordinary authoring files. `AutoScan` controls recursive
-package discovery but never gates typed identity or direct loading. Typed
+package discovery and therefore ordinary load visibility. A package under a
+manual-scan mount is still a valid authored identity, but it must be admitted
+explicitly before `LoadAsset` can see it. Typed
 resolution reports invalid paths, unknown mounts, unavailable content
 directories, escapes, missing files, forbidden dependencies, and read-only
 authoring policy distinctly.
@@ -29,7 +31,22 @@ The physical filename is the resolved virtual path plus `.dasset`. Main assets u
 
 ## Runtime Lifetime
 
-`DPackage` is an Outer-less object graph root. The asset manager roots loaded packages for garbage collection and caches one package instance per exact `FAssetPath`. Public asset loads resolve redirectors first and cache only the final real package; redirector packages are constructed only through AssetCore's internal exact tooling seam. Unload removes the package from the active cache, calls `MarkObjectHierarchyAsGarbage()` for the package tree, and runs GC so the path can be loaded again only after GC-controlled physical removal. Objects that must survive unload must be reparented out of that package first. `DPackage::Asset` is a `TObjectPtr` that strongly retains the main asset; arbitrary descendants remain alive only through actual GC strong references, not merely because their Outer is the package or asset. A package cannot unload while another loaded package declares a hard dependency that resolves to it.
+`DPackage` is an Outer-less object graph root. AssetCore's private runtime state
+roots loaded packages for garbage collection and caches one package instance
+per final real `FAssetPath`. Newly created unpublished packages live in a
+separate draft store: authoring code finds them with `FindDraftPackage` and
+rolls them back with `DiscardUnpublishedPackage`; ordinary load and
+`FindLoadedPackage` never consult drafts. Public asset loads resolve redirectors
+first and cache only the final real package; redirector packages are constructed
+only through AssetCore's internal exact tooling seam. Unload removes a
+persistent resident package from the active cache, calls
+`MarkObjectHierarchyAsGarbage()` for the package tree, and runs GC so the path
+can be loaded again only after GC-controlled physical removal. Objects that
+must survive unload must be reparented out of that package first.
+`DPackage::Asset` is a `TObjectPtr` that strongly retains the main asset;
+arbitrary descendants remain alive only through actual GC strong references,
+not merely because their Outer is the package or asset. A package cannot unload
+while another loaded package declares a hard dependency that resolves to it.
 
 Compiled-in reflection metadata uses a separate `Cpp` package kind. Each reflected module has one rooted `/Cpp/<ModuleName>` package whose structural children are its `DClass`, `DStruct`, and `DEnum` metadata. Those metadata objects are permanent independently of the package's Outer relationship. Cpp packages have no main asset, are not saved as `.dasset`, and remain alive for the process lifetime. CoreDObject intrinsic types are attached to `/Cpp/CoreDObject` after reflection bootstrap completes.
 
@@ -61,9 +78,11 @@ ordinary `FAssetResult` diagnostics without changing the stored path.
 Public typed `LoadAsset(...)`, cross-package hard-reference loading, and typed
 soft resolve/load all use `ResolveAssetPath(...)` before constructing a package.
 Expected-class validation applies to the final real metadata, and normal callers
-never receive `DAssetRedirector` in place of the requested type. Registry-missing
-direct loads remain available for ordinary packages after bounded header
-validation; an unregistered redirector is not constructed by that fallback.
+never receive `DAssetRedirector` in place of the requested type. A catalog miss
+returns `NotFound` without deriving a filename, probing a package header,
+consulting drafts, or publishing metadata. Editor recovery may explicitly call
+`AdmitAssetPackageToCatalog`; startup and Cooked-runtime fixtures refresh the
+catalog after publishing their mounts.
 
 The registry exposes `FindAssetExact(...)` for physical entry identity,
 `ResolveAssetPath(...)` for final real identity, deterministic direct reverse
@@ -659,7 +678,13 @@ StaticMesh import writes this object for immediate editor reuse. A safe miss can
 be rebuilt from source, and a cook can reuse the resulting render data without
 making runtime depend on the DDC path.
 
-`AssetRegistry/Registry.bin` is a versioned, deterministic snapshot keyed by virtual mount root and normalized mount-relative package path. Startup still enumerates mounted `.dasset` files once. Exact file-size and stable last-write-time matches reuse cached class, entry kind, redirect destination, format-version, and dependency metadata without reading package headers; new or changed files use the bounded header reader, and missing files disappear from the freshly published live map. Full validation bypasses fingerprint reuse and verifies redirector bodies. Schema, package-format, serialization, or mount-manifest incompatibility and corrupt or missing snapshots cause a non-fatal rebuild. Successful mutations update the live registry and dirty the snapshot, which is atomically replaced after explicit reconciliation and during orderly asset-manager shutdown. The live registry exposes a monotonic process-local revision that advances only when its published asset metadata changes, allowing editor queries to cache derived views safely. Scan diagnostics expose elapsed milliseconds, enumeration/reuse/reparse/removal/failure/redirector counts, and package-header read attempts and bytes.
+`AssetRegistry/Registry.bin` is a versioned, deterministic snapshot keyed by virtual mount root and normalized mount-relative package path. Startup still enumerates mounted `.dasset` files once. Exact file-size and stable last-write-time matches reuse cached class, entry kind, redirect destination, format-version, and dependency metadata without reading package headers; new or changed files use the bounded header reader, and missing files disappear from the freshly published live map. Full validation bypasses fingerprint reuse and verifies redirector bodies. Schema, package-format, serialization, or mount-manifest incompatibility and corrupt or missing snapshots cause a non-fatal rebuild. Successful mutations update the private catalog store and dirty the snapshot, which is atomically replaced after explicit reconciliation and during orderly runtime shutdown. Public callers receive owned `FAssetCatalogEntry` values and immutable `FAssetCatalogSnapshot` values, never pointers into the store. `RefreshAssetCatalog` returns requested mode, completeness, prior/resulting revisions, catalog and reference counters, warnings, and structured errors in one value. The monotonic process-local revision advances only when published asset metadata changes, allowing editor queries to cache derived views safely. Scan diagnostics expose elapsed milliseconds, enumeration/reuse/reparse/removal/failure/redirector counts, and package-header read attempts and physical/logical bytes.
+
+Public ownership is split by purpose: `AssetPackage.h` owns package-format and
+inspection values, `AssetCatalog.h` owns immutable discovery values,
+`AssetLoad.h` owns runtime resolution/residency, `AssetMutation.h` owns current
+authoring operations, and `AssetTestSupport.h` owns deterministic failure seams.
+No public manager or mutable catalog container is part of the contract.
 
 `AssetRegistry/References.bin` is the single rebuildable hard, soft, and
 redirect occurrence projection. Every source entry is keyed by its full package

@@ -5,7 +5,7 @@
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 #include "Thumbnail/AssetThumbnailObjectStore.h"
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "Editor/WorkspaceManager.h"
 #include "MaterialEditorModule.h"
 #include "Materials/Material.h"
@@ -116,8 +116,8 @@ TEST(FStaticMeshAssetThumbnailTests,
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::StaticMeshPath,
 		StaticMeshPath));
-	const Durin::Asset::FAssetData* Data =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(StaticMeshPath);
+	const Durin::Asset::FAssetCatalogEntry Data =
+		Durin::Asset::FindAssetExact(StaticMeshPath);
 	ASSERT_NE(Data, nullptr);
 	const Durin::Editor::FAssetThumbnailPackageFingerprint Fingerprint =
 		MakeFingerprint(*Data);
@@ -212,8 +212,8 @@ TEST(FStaticMeshAssetThumbnailTests,
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::StaticMeshPath,
 		StaticMeshPath));
-	const Durin::Asset::FAssetData* Data =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(StaticMeshPath);
+	const Durin::Asset::FAssetCatalogEntry Data =
+		Durin::Asset::FindAssetExact(StaticMeshPath);
 	ASSERT_NE(Data, nullptr);
 	Durin::Editor::FAssetThumbnailPackageFingerprint Stale = MakeFingerprint(*Data);
 	++Stale.FileSize;
@@ -234,8 +234,8 @@ TEST(FStaticMeshAssetThumbnailTests,
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::StaticMeshPath,
 		StaticMeshPath));
-	const Durin::Asset::FAssetData* Data =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(StaticMeshPath);
+	const Durin::Asset::FAssetCatalogEntry Data =
+		Durin::Asset::FindAssetExact(StaticMeshPath);
 	ASSERT_NE(Data, nullptr);
 
 	Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailProvider Provider;
@@ -272,8 +272,8 @@ TEST(FStaticMeshAssetThumbnailTests,
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::StaticMeshPath,
 		StaticMeshPath));
-	const Durin::Asset::FAssetData* Data =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(StaticMeshPath);
+	const Durin::Asset::FAssetCatalogEntry Data =
+		Durin::Asset::FindAssetExact(StaticMeshPath);
 	ASSERT_NE(Data, nullptr);
 
 	Durin::Editor::FRenderedAssetThumbnailCache Cache;
@@ -319,8 +319,8 @@ TEST(FStaticMeshAssetThumbnailTests,
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::StaticMeshPath,
 		StaticMeshPath));
-	const Durin::Asset::FAssetData* Data =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(StaticMeshPath);
+	const Durin::Asset::FAssetCatalogEntry Data =
+		Durin::Asset::FindAssetExact(StaticMeshPath);
 	ASSERT_NE(Data, nullptr);
 	const Durin::Editor::FAssetThumbnailPackageFingerprint Fingerprint = MakeFingerprint(*Data);
 	Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailProvider Provider;
@@ -383,8 +383,8 @@ TEST(FStaticMeshAssetThumbnailTests,
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::StaticMeshPath,
 		StaticMeshPath));
-	const Durin::Asset::FAssetData* Data =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(StaticMeshPath);
+	const Durin::Asset::FAssetCatalogEntry Data =
+		Durin::Asset::FindAssetExact(StaticMeshPath);
 	ASSERT_NE(Data, nullptr);
 	const Durin::Editor::FAssetThumbnailPackageFingerprint Fingerprint = MakeFingerprint(*Data);
 	Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailProvider Provider;
@@ -443,8 +443,8 @@ TEST(FStaticMeshAssetThumbnailTests,
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::StaticMeshPath,
 		StaticMeshPath));
-	const Durin::Asset::FAssetData* Data =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(StaticMeshPath);
+	const Durin::Asset::FAssetCatalogEntry Data =
+		Durin::Asset::FindAssetExact(StaticMeshPath);
 	ASSERT_NE(Data, nullptr);
 	const Durin::Editor::FAssetThumbnailPackageFingerprint Current = MakeFingerprint(*Data);
 
@@ -546,8 +546,8 @@ TEST(FStaticMeshAssetThumbnailTests,
 	{
 		Durin::FAssetPath AssetPath;
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(Path, AssetPath));
-		const Durin::Asset::FAssetData* Data =
-			Durin::Asset::GetAssetRegistry().FindAssetExact(AssetPath);
+		const Durin::Asset::FAssetCatalogEntry Data =
+			Durin::Asset::FindAssetExact(AssetPath);
 		ASSERT_NE(Data, nullptr);
 		Cache.Request(MakeFingerprint(*Data), Durin::Editor::EAssetThumbnailPriority::Visible);
 		EXPECT_EQ(Cache.Find(AssetPath).State, Durin::Editor::EAssetThumbnailState::Queued);

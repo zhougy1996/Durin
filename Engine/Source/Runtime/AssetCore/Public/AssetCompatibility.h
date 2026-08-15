@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AssetCoreAPI.h"
-#include "AssetSystem.h"
+#include "AssetPackage.h"
 
 namespace Durin::Asset
 {

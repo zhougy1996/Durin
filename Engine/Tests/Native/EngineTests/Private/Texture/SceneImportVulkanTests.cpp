@@ -1,4 +1,4 @@
-#include "AssetSystem.h"
+#include "AssetTestSupport.h"
 #include "Asset/AssetRetention.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DynamicRHI.h"
@@ -97,6 +97,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Durin::FModuleManager::Get().LoadModuleChecked("StandardAssetImport");
 	Durin::PathUtilities::FScopedMountRegistryFixture SavedMountRegistry;
 	Durin::PathUtilities::InitDefaultMountPoints();
+	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog());
 	Durin::FAssetPath SpherePath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::Editor::FRenderedAssetThumbnailVisualContract::SphereVirtualPath, SpherePath));

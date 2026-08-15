@@ -2,7 +2,7 @@
 
 #include "Animation/AnimationClip.h"
 #include "Asset/WorkspaceAssetOpenCompatibility.h"
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "ImportRecordIndex.h"
 #include "DObject/Object.h"
 #include "Editor/WorkspaceManager.h"
@@ -62,8 +62,8 @@ namespace Durin::Editor::SkeletalMesh
 				const std::string_view Expected = Cast<DSkeletalMesh>(Asset)
 					? Cast<DSkeletalMesh>(Asset)->GetSkeletonCompatibilityIdentity()
 					: Cast<DAnimationClip>(Asset)->GetSkeletonCompatibilityIdentity();
-				const Asset::FAssetData* Data =
-					Asset::GetAssetRegistry().FindAssetExact(Candidate->AssetPath);
+				const Asset::FAssetCatalogEntry Data =
+					Asset::FindAssetExact(Candidate->AssetPath);
 				Asset::FAssetPackageInspection Package;
 				std::string Actual;
 				const Asset::FAssetPackageField* Field = Data

@@ -1,6 +1,6 @@
 #include "Settings/LevelEditorSessionSettings.h"
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "Engine/Level.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Misc/FilesystemMigration.h"
@@ -78,7 +78,7 @@ namespace Durin::Editor::Level
 					FAssetPath Path;
 					if (!FAssetPath::TryCreate(StoredPath, Path)) continue;
 					const Asset::FAssetPathResolveResult Resolution =
-						Asset::GetAssetRegistry().ResolveAssetPath(
+						Asset::ResolveAssetPath(
 							Path, {.ExpectedClass = DLevel::StaticClass()});
 					if (!Resolution) continue;
 					const std::string FinalPath = Resolution.FinalPath.ToString();

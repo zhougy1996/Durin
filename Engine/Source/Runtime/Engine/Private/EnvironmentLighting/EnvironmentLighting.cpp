@@ -1,6 +1,6 @@
 #include "EnvironmentLighting/EnvironmentLighting.h"
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "Hash/XxHash.h"
 #include "Misc/DerivedDataCache.h"
 #include "Misc/FileHelper.h"

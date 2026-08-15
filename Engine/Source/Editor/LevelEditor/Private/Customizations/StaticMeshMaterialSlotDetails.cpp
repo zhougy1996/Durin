@@ -1,6 +1,6 @@
 #include "StaticMeshMaterialSlotDetails.h"
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -121,7 +121,7 @@ namespace Durin::Editor::Level
 				FAssetPath MaterialPath;
 				const bool bHasMaterialAsset = Entry.Material && Entry.Material->GetPackage()
 					&& FAssetPath::TryCreate(Entry.Material->GetPackage()->GetPackagePath(), MaterialPath)
-					&& Asset::GetAssetRegistry().FindAssetExact(MaterialPath);
+					&& Asset::FindAssetExact(MaterialPath);
 				const std::array<::Durin::Editor::FAssetPickerAction, 2> AssetActions{{
 					{
 						.Icon = Icons::Crosshairs,

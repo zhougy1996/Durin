@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 
 namespace Durin::Editor::Level
 {

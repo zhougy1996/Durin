@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Asset/SourcePath.h"
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "AssetImportCoreAPI.h"
 #include "DObject/AssetPath.h"
 #include "Hash/XxHash.h"

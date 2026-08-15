@@ -1,7 +1,7 @@
 #include "Texture/TextureCube.h"
 
 #include "AssetCore.h"
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "DerivedDataObjectStore.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"

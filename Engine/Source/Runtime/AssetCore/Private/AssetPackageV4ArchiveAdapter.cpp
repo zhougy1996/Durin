@@ -1,4 +1,5 @@
 #include "AssetPackageArchive.h"
+#include "AssetSystemInternal.h"
 #include "AssetPackageVersionPolicy.h"
 #include "AssetPackageV4Writer.h"
 #include "AssetPackageValueCodec.h"
@@ -216,7 +217,7 @@ namespace Durin::Asset::Private
 							"Invalid external object reference.");
 						return;
 					}
-					FAssetResult Result = FAssetManager::Get().LoadAsset(Path, Value);
+					FAssetResult Result = FAssetRuntimeState::Get().LoadAsset(Path, Value);
 					if (!Result)
 					{
 						FailLoad(EAssetError::MissingDependency,

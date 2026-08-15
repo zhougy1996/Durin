@@ -135,7 +135,7 @@ TEST(FTexture2DTests, RejectsUnsupportedSourceWithoutCreatingAsset)
 
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Unsupported", AssetPath));
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(AssetPath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(AssetPath), nullptr);
 }
 
 TEST(FTexture2DTests, FailureState_RecordsMissingSourceOnPostLoad)
@@ -156,7 +156,7 @@ TEST(FTexture2DTests, FailureState_RecordsMissingSourceOnPostLoad)
 	EXPECT_FALSE(Error.empty());
 	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::MissingSource);
 	EXPECT_FALSE(Texture->GetLastBuildError().empty());
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::Asset::DiscardUnpublishedPackage(Texture->GetPackage()));
 }
 
 TEST(FTexture2DTests, FailureState_ReadyAfterSuccessfulPostLoad)

@@ -7,7 +7,7 @@
 #include "AssetPackageV4Reader.h"
 #include "AssetPackageV4Writer.h"
 #include "AssetRedirector.h"
-#include "AssetSystem.h"
+#include "AssetTestSupport.h"
 #include "CookedAsset.h"
 #include "CoreGlobals.h"
 #include "DObject/Archive.h"
@@ -852,8 +852,8 @@ namespace
 			Durin::Asset::EAssetRelocationFailurePoint::None);
 		Durin::Asset::SetAssetRedirectorFixupFailurePointForTesting(
 			Durin::Asset::EAssetRedirectorFixupFailurePoint::None);
-		Durin::Asset::FAssetManager::Get().Initialize();
-		if (!Durin::Asset::GetAssetRegistry().ScanMountedContent(
+		Durin::Asset::InitializeAssetManager();
+		if (!Durin::Asset::RefreshAssetCatalog(
 			Durin::Asset::EAssetRegistryScanMode::FullValidation))
 		{
 			throw std::runtime_error(
@@ -946,7 +946,7 @@ namespace
 	{
 		Durin::Asset::ShutdownAssetManager();
 		Durin::CollectGarbage();
-		Durin::Asset::FAssetManager::Get().Initialize();
+		Durin::Asset::InitializeAssetManager();
 	}
 
 	auto WriteTestBytes(const std::filesystem::path& Path, std::span<const Durin::uint8> Bytes) -> void
@@ -983,14 +983,14 @@ namespace
 			Fixture.SourceBytes)
 			|| !SavePackage(Asset->GetPackage()))
 			throw std::runtime_error("Failed to serialize the synthetic migration asset.");
-		const FAssetData* Saved = GetAssetRegistry().FindAssetExact(Fixture.Path);
+		const FAssetCatalogEntry Saved = FindAssetExact(Fixture.Path);
 		if (!Saved) throw std::runtime_error("Synthetic migration asset was not registered.");
 		Fixture.PhysicalPath = Saved->PhysicalPath;
 		if (!UnloadPackage(Fixture.Path))
 			throw std::runtime_error("Failed to unload the synthetic migration asset.");
 		const Durin::uint32 SyntheticVersion = SyntheticAssetPackageFormatVersionForTesting;
 		WriteTestBytes(Fixture.PhysicalPath, Fixture.SourceBytes);
-		if (!GetAssetRegistry().ScanMountedContent(EAssetRegistryScanMode::FullValidation))
+		if (!RefreshAssetCatalog(EAssetRegistryScanMode::FullValidation))
 			throw std::runtime_error("Failed to scan the synthetic package.");
 
 		const FAssetPackageDiscoverySnapshot Snapshot = CaptureMountedAssetPackageSnapshot();
@@ -1164,7 +1164,7 @@ TEST(FPackageAssetTests, HeaderReaderStopsBeforeLargeObjectPayload)
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/LargeHeaderOnly", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
-	Asset->Scores.resize(10000, 7);
+	Asset->Scores.resize(100000, 7);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
 	const auto File = Durin::Testing::GetTestWorkDirectory() / "Assets" / "LargeHeaderOnly.dasset";
 	ASSERT_GT(std::filesystem::file_size(File), 8u * 1024u);
@@ -1177,6 +1177,8 @@ TEST(FPackageAssetTests, HeaderReaderStopsBeforeLargeObjectPayload)
 	EXPECT_FALSE(Header.RedirectDestination.IsValid());
 	EXPECT_EQ(Header.ObjectCount, 2u);
 	EXPECT_LT(Header.BytesRead, 1024u);
+	EXPECT_EQ(Header.FileBytesRead, Durin::Asset::DastV4::MaximumHeaderBytes);
+	EXPECT_LT(Header.FileBytesRead, std::filesystem::file_size(File));
 }
 
 TEST(FPackageAssetTests, WriterEmitsVersionFourPrefix)
@@ -1321,21 +1323,22 @@ TEST(FPackageAssetTests, RedirectorsRoundTripAndResolveWithoutLoading)
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(NormalizedAliasPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AliasPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(TargetPath));
-	ASSERT_TRUE(Durin::Asset::GetAssetRegistry().ScanMountedContent(
+	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation
 	));
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(AliasPath), nullptr);
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(TargetPath), nullptr);
-	const Durin::Asset::FAssetData* Exact =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(AliasPath);
+	Durin::Asset::FAssetCatalogEntry Exact =
+		Durin::Asset::FindAssetExact(AliasPath);
 	ASSERT_NE(Exact, nullptr);
 	EXPECT_EQ(Exact->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Redirector);
 	EXPECT_EQ(Exact->RedirectDestination, TargetPath);
-	const auto Reverse = Durin::Asset::GetAssetRegistry().FindRedirectorsTo(TargetPath);
+	const auto Reverse = Durin::Asset::FindRedirectorsTo(TargetPath);
 	EXPECT_EQ(Reverse, (std::vector<Durin::FAssetPath>{NormalizedAliasPath, AliasPath}));
 	const Durin::Asset::FAssetPathResolveResult Resolved =
-		Durin::Asset::GetAssetRegistry().ResolveAssetPath(AliasPath);
+		Durin::Asset::ResolveAssetPath(AliasPath);
 	ASSERT_TRUE(Resolved);
+	EXPECT_EQ(Resolved.CatalogRevision, Durin::Asset::GetAssetCatalogRevision());
 	EXPECT_EQ(Resolved.RequestedPath, AliasPath);
 	EXPECT_EQ(Resolved.FinalPath, TargetPath);
 	EXPECT_EQ(Resolved.RedirectChain, (std::vector<Durin::FAssetPath>{AliasPath}));
@@ -1345,10 +1348,12 @@ TEST(FPackageAssetTests, RedirectorsRoundTripAndResolveWithoutLoading)
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(TargetPath), nullptr);
 
 	ShutdownAssetManagerForRestart();
-	ASSERT_TRUE(Durin::Asset::GetAssetRegistry().ScanMountedContent());
-	EXPECT_GE(Durin::Asset::GetAssetRegistry().GetLastScanStats().Reused, 2u);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().GetLastScanStats().Redirectors, 2u);
-	Exact = Durin::Asset::GetAssetRegistry().FindAssetExact(AliasPath);
+	const Durin::Asset::FAssetCatalogRefreshResult RestartRefresh =
+		Durin::Asset::RefreshAssetCatalog();
+	ASSERT_TRUE(RestartRefresh);
+	EXPECT_GE(RestartRefresh.CatalogStats.Reused, 2u);
+	EXPECT_EQ(RestartRefresh.CatalogStats.Redirectors, 2u);
+	Exact = Durin::Asset::FindAssetExact(AliasPath);
 	ASSERT_NE(Exact, nullptr);
 	EXPECT_EQ(Exact->RedirectDestination, TargetPath);
 	const auto RegistryCache = std::filesystem::path(
@@ -1357,23 +1362,42 @@ TEST(FPackageAssetTests, RedirectorsRoundTripAndResolveWithoutLoading)
 							   / "AssetRegistry" / "Registry.bin";
 	const std::array<Durin::uint8, 3> CorruptCache = {1, 2, 3};
 	WriteTestBytes(RegistryCache, CorruptCache);
-	ASSERT_TRUE(Durin::Asset::GetAssetRegistry().ScanMountedContent());
-	EXPECT_FALSE(Durin::Asset::GetAssetRegistry().GetCacheWarning().empty());
-	Exact = Durin::Asset::GetAssetRegistry().FindAssetExact(AliasPath);
+	const Durin::Asset::FAssetCatalogRefreshResult CacheRecoveryRefresh =
+		Durin::Asset::RefreshAssetCatalog();
+	ASSERT_TRUE(CacheRecoveryRefresh);
+	EXPECT_FALSE(CacheRecoveryRefresh.CatalogCacheWarning.empty());
+	Exact = Durin::Asset::FindAssetExact(AliasPath);
 	ASSERT_NE(Exact, nullptr);
 	EXPECT_EQ(Exact->RedirectDestination, TargetPath);
 	DPackageAssetForTest* RedirectedTarget = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(AliasPath, RedirectedTarget));
+	Durin::Asset::FAssetLoadReport RedirectedReport;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(
+		AliasPath, RedirectedTarget, &RedirectedReport));
 	ASSERT_NE(RedirectedTarget, nullptr);
+	EXPECT_EQ(RedirectedReport.RequestedPath, AliasPath);
+	EXPECT_EQ(RedirectedReport.FinalPath, TargetPath);
+	EXPECT_EQ(RedirectedReport.PackagePath, TargetPath);
+	EXPECT_EQ(RedirectedReport.CatalogRevision, Durin::Asset::GetAssetCatalogRevision());
+	EXPECT_EQ(RedirectedReport.RedirectChain,
+		(std::vector<Durin::FAssetPath>{AliasPath}));
+	EXPECT_EQ(RedirectedReport.FinalAssetClassName,
+		DPackageAssetForTest::StaticClass()->GetQualifiedName().ToString());
+	EXPECT_EQ(RedirectedReport.Error, Durin::Asset::EAssetError::None);
+	EXPECT_EQ(RedirectedReport.PackageFileReadCount, 1u);
 	EXPECT_EQ(RedirectedTarget->GetPackage()->GetPackagePath(), TargetPath.ToString());
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(AliasPath), nullptr);
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(TargetPath), RedirectedTarget->GetPackage());
 	Redirector = nullptr;
+	Durin::Asset::FAssetLoadReport WrongTypeReport;
 	EXPECT_EQ(
-		Durin::Asset::LoadAsset(AliasPath, Redirector).Error,
+		Durin::Asset::LoadAsset(AliasPath, Redirector, &WrongTypeReport).Error,
 		Durin::Asset::EAssetError::TypeMismatch
 	);
 	EXPECT_EQ(Redirector, nullptr);
+	EXPECT_EQ(WrongTypeReport.RequestedPath, AliasPath);
+	EXPECT_EQ(WrongTypeReport.FinalPath, TargetPath);
+	EXPECT_EQ(WrongTypeReport.Error, Durin::Asset::EAssetError::TypeMismatch);
+	EXPECT_EQ(WrongTypeReport.PackageFileReadCount, 0u);
 
 	EXPECT_EQ(
 		Durin::Asset::DeleteAsset(AliasPath).Error,
@@ -1482,12 +1506,14 @@ TEST(FPackageAssetTests, SavesLoadsContainersReferencesAndRegistryMetadata)
 
 	Durin::DPackage* Package = Asset->GetPackage();
 	ASSERT_NE(Package, nullptr);
-	ASSERT_TRUE(Durin::Asset::FAssetManager::Get().SavePackage(Package));
-	ASSERT_NE(Durin::Asset::FAssetManager::Get().GetRegistry().FindAssetExact(Path), nullptr);
-	ASSERT_TRUE(Durin::Asset::FAssetManager::Get().UnloadPackage(Path));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Package));
+	ASSERT_TRUE(Durin::Asset::FindAssetExact(Path));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 
 	DPackageAssetForTest* Loaded = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded));
+	Durin::Asset::FAssetLoadReport LoadReport;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded, &LoadReport));
+	EXPECT_EQ(LoadReport.PackageFileReadCount, 1u);
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_EQ(Loaded->Value, 42);
 	EXPECT_EQ(Loaded->Label, "RoundTrip");
@@ -1501,9 +1527,14 @@ TEST(FPackageAssetTests, SavesLoadsContainersReferencesAndRegistryMetadata)
 	ASSERT_NE(Loaded->DefaultChild.Get(), nullptr);
 	EXPECT_EQ(Durin::GDObjectArray.GetObjectsWithOuter(Loaded, Durin::EObjectQueryScope::LiveOnly).size(), 1u);
 	EXPECT_EQ(Loaded->DefaultChild->GetObjectPath(), "/TestAssets/RoundTrip:DefaultChild");
-	EXPECT_EQ(Durin::Asset::FAssetManager::Get().FindLoadedPackage(Path), Loaded->GetPackage());
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(Path), Loaded->GetPackage());
+	DPackageAssetForTest* Cached = nullptr;
+	Durin::Asset::FAssetLoadReport CachedReport;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Cached, &CachedReport));
+	EXPECT_EQ(Cached, Loaded);
+	EXPECT_EQ(CachedReport.PackageFileReadCount, 0u);
 
-	EXPECT_TRUE(Durin::Asset::FAssetManager::Get().UnloadPackage(Path));
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
 }
 
 TEST(FPackageAssetTests, SoftObjectResolveAndLoadPreservePathAcrossResidencyChanges)
@@ -1513,16 +1544,32 @@ TEST(FPackageAssetTests, SoftObjectResolveAndLoadPreservePathAcrossResidencyChan
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftObjectTarget", Path));
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftObjectAlias", AliasPath));
 
+	const Durin::uint64 CatalogRevisionBeforeDraft =
+		Durin::Asset::GetAssetCatalogRevision();
 	DPackageAssetForTest* Created = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Created));
+	EXPECT_EQ(Durin::Asset::GetAssetCatalogRevision(), CatalogRevisionBeforeDraft);
+	EXPECT_FALSE(Durin::Asset::FindAssetExact(Path));
+	EXPECT_EQ(Durin::Asset::FindDraftPackage(Path), Created->GetPackage());
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(Path), nullptr);
+	DPackageAssetForTest* DraftLoad = nullptr;
+	const Durin::Asset::FAssetResult DraftLoadResult =
+		Durin::Asset::LoadAsset(Path, DraftLoad);
+	EXPECT_FALSE(DraftLoadResult);
+	EXPECT_EQ(DraftLoad, nullptr);
+	EXPECT_EQ(Durin::Asset::FindDraftPackage(Path), Created->GetPackage());
 	Durin::TSoftObjectPtr<DPackageAssetForTest> UnpublishedReference(Path);
 	const auto UnpublishedResolve =
 		Durin::Asset::ResolveSoftObject(UnpublishedReference);
-	ASSERT_TRUE(UnpublishedResolve);
-	EXPECT_EQ(UnpublishedResolve.State, Durin::Asset::ESoftObjectResolveState::Loaded);
-	EXPECT_EQ(UnpublishedResolve.Object, Created);
-	EXPECT_EQ(UnpublishedResolve.ResolvedPath, Path);
+	EXPECT_FALSE(UnpublishedResolve);
+	EXPECT_EQ(UnpublishedResolve.Result.Error, Durin::Asset::EAssetError::NotFound);
+	EXPECT_EQ(UnpublishedResolve.State, Durin::Asset::ESoftObjectResolveState::NotLoaded);
+	EXPECT_EQ(UnpublishedResolve.Object, nullptr);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Created->GetPackage()));
+	EXPECT_EQ(Durin::Asset::FindDraftPackage(Path), nullptr);
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(Path), Created->GetPackage());
+	EXPECT_TRUE(Durin::Asset::FindAssetExact(Path));
+	EXPECT_GT(Durin::Asset::GetAssetCatalogRevision(), CatalogRevisionBeforeDraft);
 	Durin::Asset::DAssetRedirector* Redirector = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAssetRedirector(AliasPath, Path, Redirector));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Redirector->GetPackage()));
@@ -1716,8 +1763,8 @@ TEST(FPackageAssetTests, DastSoftFieldsRoundTripWithoutHardDependenciesOrTargetL
 	);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
 
-	const Durin::Asset::FAssetData* OwnerData =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(OwnerPath);
+	const Durin::Asset::FAssetCatalogEntry OwnerData =
+		Durin::Asset::FindAssetExact(OwnerPath);
 	ASSERT_NE(OwnerData, nullptr);
 	EXPECT_TRUE(OwnerData->Dependencies.empty());
 	Durin::Asset::FAssetPackageInspection Inspection;
@@ -1770,9 +1817,9 @@ TEST(FPackageAssetTests, DastSoftFieldsRoundTripWithoutHardDependenciesOrTargetL
 					  == Durin::Asset::EAssetReferenceRouteKind::MapValue;
 	}));
 
-	auto Referencers = Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindReferencers(TargetPath);
+	auto Referencers = Durin::Asset::CaptureAssetReferenceIndex().FindReferencers(TargetPath);
 	EXPECT_EQ(Referencers.size(), 3u);
-	auto Targets = Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindTargets(OwnerPath);
+	auto Targets = Durin::Asset::CaptureAssetReferenceIndex().FindTargets(OwnerPath);
 	ASSERT_EQ(Targets.size(), 2u);
 	EXPECT_EQ(Targets[0], MissingPath);
 	EXPECT_EQ(Targets[1], TargetPath);
@@ -1818,7 +1865,7 @@ TEST(FPackageAssetTests, SoftInspectionRejectsMalformedPayloadsAndPreservesUnkno
 	ASSERT_TRUE(Durin::Asset::CreateAsset(OwnerPath, Owner));
 	Owner->Direct.SetPath(TargetPath);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
-	const auto* Data = Durin::Asset::GetAssetRegistry().FindAssetExact(OwnerPath);
+	const auto Data = Durin::Asset::FindAssetExact(OwnerPath);
 	ASSERT_NE(Data, nullptr);
 	Durin::Asset::FAssetPackageInspection Valid;
 	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(Data->PhysicalPath, Valid));
@@ -1883,7 +1930,7 @@ TEST(FPackageAssetTests, SoftInspectionRejectsMalformedPayloadsAndPreservesUnkno
 	DPackageAssetForTest* OldAsset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(OldPath, OldAsset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(OldAsset->GetPackage()));
-	const auto* OldData = Durin::Asset::GetAssetRegistry().FindAssetExact(OldPath);
+	const auto OldData = Durin::Asset::FindAssetExact(OldPath);
 	ASSERT_NE(OldData, nullptr);
 	Durin::Asset::FAssetPackageInspection OldInspection;
 	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
@@ -1914,6 +1961,10 @@ TEST(FPackageAssetTests, SoftInspectionRejectsMalformedPayloadsAndPreservesUnkno
 		"/TestAssets/SoftOmittedFields", OmittedPath
 	));
 	DSoftPackageAssetForTest* Omitted = nullptr;
+	EXPECT_EQ(
+		Durin::Asset::LoadAsset(OmittedPath, Omitted).Error,
+		Durin::Asset::EAssetError::NotFound);
+	ASSERT_TRUE(Durin::Asset::AdmitAssetPackageToCatalog(OmittedPath));
 	ASSERT_TRUE(Durin::Asset::LoadAsset(OmittedPath, Omitted));
 	ASSERT_NE(Omitted, nullptr);
 	EXPECT_TRUE(Omitted->Direct.IsNull());
@@ -1942,21 +1993,21 @@ TEST(FPackageAssetTests, SoftCookReachabilityAddsSoftTargetsButRejectsMissingAnd
 	Owner->Direct.SetPath(TargetPath);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
 	std::vector<Durin::FAssetPath> Reachable;
-	ASSERT_TRUE(Durin::Asset::GetAssetRegistry().BuildCookReachability(
+	ASSERT_TRUE(Durin::Asset::BuildCookReachability(
 		std::span<const Durin::FAssetPath>(&OwnerPath, 1), Reachable
 	));
 	EXPECT_EQ(Reachable, (std::vector<Durin::FAssetPath>{OwnerPath, TargetPath}));
 
 	Owner->Direct.SetPath(MissingPath);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().BuildCookReachability(std::span<const Durin::FAssetPath>(&OwnerPath, 1), Reachable).Error, Durin::Asset::EAssetError::MissingDependency);
+	EXPECT_EQ(Durin::Asset::BuildCookReachability(std::span<const Durin::FAssetPath>(&OwnerPath, 1), Reachable).Error, Durin::Asset::EAssetError::MissingDependency);
 
 	DMathStructAssetForTest* WrongType = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(WrongTypePath, WrongType));
 	ASSERT_TRUE(Durin::Asset::SavePackage(WrongType->GetPackage()));
 	Owner->Direct.SetPath(WrongTypePath);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().BuildCookReachability(std::span<const Durin::FAssetPath>(&OwnerPath, 1), Reachable).Error, Durin::Asset::EAssetError::TypeMismatch);
+	EXPECT_EQ(Durin::Asset::BuildCookReachability(std::span<const Durin::FAssetPath>(&OwnerPath, 1), Reachable).Error, Durin::Asset::EAssetError::TypeMismatch);
 
 	Owner->Direct.SetPath(TargetPath);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
@@ -1968,7 +2019,7 @@ TEST(FPackageAssetTests, SoftCookReachabilityAddsSoftTargetsButRejectsMissingAnd
 	ASSERT_TRUE(Durin::Asset::SavePackage(CycleTarget->GetPackage()));
 	Owner->Direct.SetPath(CyclePath);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
-	ASSERT_TRUE(Durin::Asset::GetAssetRegistry().BuildCookReachability(
+	ASSERT_TRUE(Durin::Asset::BuildCookReachability(
 		std::span<const Durin::FAssetPath>(&OwnerPath, 1), Reachable
 	));
 	EXPECT_EQ(Reachable, (std::vector<Durin::FAssetPath>{CyclePath, OwnerPath}));
@@ -1999,8 +2050,8 @@ TEST(FPackageAssetTests, CookCanonicalizesRedirectedRootsReferencesAndPublishedB
 	Owner->Direct.SetPath(OldTargetPath);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
 
-	const Durin::Asset::FAssetData* OwnerData =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(OwnerPath);
+	const Durin::Asset::FAssetCatalogEntry OwnerData =
+		Durin::Asset::FindAssetExact(OwnerPath);
 	ASSERT_NE(OwnerData, nullptr);
 	const std::string OwnerPhysicalPath = OwnerData->PhysicalPath;
 	std::vector<Durin::uint8> AuthoredBytes;
@@ -2016,7 +2067,7 @@ TEST(FPackageAssetTests, CookCanonicalizesRedirectedRootsReferencesAndPublishedB
 	);
 	FScopedReferenceStoreRegistration RuntimeRootRegistration(&RuntimeRoot);
 	std::vector<Durin::FAssetPath> Reachable;
-	ASSERT_TRUE(Durin::Asset::GetAssetRegistry().BuildCookReachability(
+	ASSERT_TRUE(Durin::Asset::BuildCookReachability(
 		std::span{&OwnerPath, 1}, Reachable
 	));
 	std::vector ExpectedReachable{OwnerPath, FinalTargetPath};
@@ -2083,8 +2134,8 @@ TEST(FPackageAssetTests, CookCanonicalizesRedirectedRootsReferencesAndPublishedB
 	));
 	EXPECT_EQ(AuthoredAfterCook, AuthoredBytes);
 
-	const Durin::Asset::FAssetData* AliasData =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(OldTargetPath);
+	const Durin::Asset::FAssetCatalogEntry AliasData =
+		Durin::Asset::FindAssetExact(OldTargetPath);
 	ASSERT_NE(AliasData, nullptr);
 	std::vector<Durin::uint8> AliasBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
@@ -2126,19 +2177,19 @@ TEST(FPackageAssetTests, ReferenceIndexInvalidatesSourceSaveMoveAndDeleteMutatio
 	ASSERT_TRUE(Durin::Asset::CreateAsset(SourcePath, Source));
 	Source->Direct.SetPath(TargetPath);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Source->GetPackage()));
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindTargets(SourcePath), (std::vector<Durin::FAssetPath>{TargetPath}));
+	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(SourcePath), (std::vector<Durin::FAssetPath>{TargetPath}));
 
 	Source->Direct.Reset();
 	ASSERT_TRUE(Durin::Asset::SavePackage(Source->GetPackage()));
-	EXPECT_TRUE(Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindTargets(SourcePath).empty());
+	EXPECT_TRUE(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(SourcePath).empty());
 	Source->Direct.SetPath(TargetPath);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Source->GetPackage()));
 	ASSERT_TRUE(RelocateAssetForTest(SourcePath, MovedSourcePath));
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindTargets(SourcePath), (std::vector<Durin::FAssetPath>{MovedSourcePath}));
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindTargets(MovedSourcePath), (std::vector<Durin::FAssetPath>{TargetPath}));
+	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(SourcePath), (std::vector<Durin::FAssetPath>{MovedSourcePath}));
+	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(MovedSourcePath), (std::vector<Durin::FAssetPath>{TargetPath}));
 	ASSERT_TRUE(DeleteAssetClosureForTest({SourcePath, MovedSourcePath}));
-	EXPECT_TRUE(Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindTargets(MovedSourcePath).empty());
-	EXPECT_TRUE(Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindReferencers(TargetPath).empty());
+	EXPECT_TRUE(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(MovedSourcePath).empty());
+	EXPECT_TRUE(Durin::Asset::CaptureAssetReferenceIndex().FindReferencers(TargetPath).empty());
 }
 
 TEST(FPackageAssetTests, RelocationPreservesLoadedAndUnloadedSoftAuthoredPaths)
@@ -2185,13 +2236,13 @@ TEST(FPackageAssetTests, RelocationPreservesLoadedAndUnloadedSoftAuthoredPaths)
 	EXPECT_EQ(LoadedOwner->Map.at("loaded").GetSoftObjectPath().GetAssetPath(), OldPath);
 	EXPECT_FALSE(LoadedOwner->Direct.IsLoaded());
 
-	auto LoadedTargets = Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindTargets(LoadedOwnerPath);
-	auto UnloadedTargets = Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindTargets(UnloadedOwnerPath);
+	auto LoadedTargets = Durin::Asset::CaptureAssetReferenceIndex().FindTargets(LoadedOwnerPath);
+	auto UnloadedTargets = Durin::Asset::CaptureAssetReferenceIndex().FindTargets(UnloadedOwnerPath);
 	EXPECT_EQ(LoadedTargets, (std::vector<Durin::FAssetPath>{OldPath}));
 	EXPECT_EQ(UnloadedTargets, (std::vector<Durin::FAssetPath>{OldPath}));
 	ShutdownAssetManagerForRestart();
-	ASSERT_TRUE(Durin::Asset::GetAssetRegistry().ScanMountedContent());
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindTargets(UnloadedOwnerPath), (std::vector<Durin::FAssetPath>{OldPath}));
+	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog());
+	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(UnloadedOwnerPath), (std::vector<Durin::FAssetPath>{OldPath}));
 	DSoftPackageAssetForTest* ReloadedOwner = nullptr;
 	ASSERT_TRUE(Durin::Asset::LoadAsset(UnloadedOwnerPath, ReloadedOwner));
 	EXPECT_EQ(ReloadedOwner->Direct.GetSoftObjectPath().GetAssetPath(), OldPath);
@@ -2259,10 +2310,10 @@ TEST(FPackageAssetTests, RelocationIgnoresStaleAndReadOnlyUnloadedSoftReferencer
 			ASSERT_FALSE(Ec);
 		}
 		EXPECT_TRUE(Result) << Result.Message;
-		ASSERT_NE(Durin::Asset::GetAssetRegistry().FindAssetExact(OldPath), nullptr);
-		EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(OldPath)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Redirector);
-		EXPECT_NE(Durin::Asset::GetAssetRegistry().FindAssetExact(NewPath), nullptr);
-		EXPECT_EQ(Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindTargets(OwnerPath), (std::vector<Durin::FAssetPath>{OldPath}));
+		ASSERT_NE(Durin::Asset::FindAssetExact(OldPath), nullptr);
+		EXPECT_EQ(Durin::Asset::FindAssetExact(OldPath)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Redirector);
+		EXPECT_NE(Durin::Asset::FindAssetExact(NewPath), nullptr);
+		EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(OwnerPath), (std::vector<Durin::FAssetPath>{OldPath}));
 	};
 	RunCase("Stale", false);
 	RunCase("ReadOnly", true);
@@ -2299,10 +2350,10 @@ TEST(FPackageAssetTests, RelocationPublicationFailureRestoresAuthoredState)
 		Durin::Asset::ApplyAssetRelocationBatch(Token);
 	EXPECT_EQ(Result.Error, Durin::Asset::EAssetError::IoError);
 	EXPECT_EQ(ExternalSetting.GetSoftObjectPath().GetAssetPath(), OldPath);
-	ASSERT_NE(Durin::Asset::GetAssetRegistry().FindAssetExact(OldPath), nullptr);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(OldPath)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Asset);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(NewPath), nullptr);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindTargets(OwnerPath), (std::vector<Durin::FAssetPath>{OldPath}));
+	ASSERT_NE(Durin::Asset::FindAssetExact(OldPath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(OldPath)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Asset);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(NewPath), nullptr);
+	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(OwnerPath), (std::vector<Durin::FAssetPath>{OldPath}));
 }
 
 TEST(FPackageAssetTests, RelocationPreservesExternalAuthoredPathsAndRejectsRealCollision)
@@ -2325,9 +2376,9 @@ TEST(FPackageAssetTests, RelocationPreservesExternalAuthoredPathsAndRejectsRealC
 	Durin::TSoftObjectPtr<DPackageAssetForTest> ExternalSetting(OldPath);
 	ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
 	EXPECT_EQ(ExternalSetting.GetSoftObjectPath().GetAssetPath(), OldPath);
-	ASSERT_NE(Durin::Asset::GetAssetRegistry().FindAssetExact(OldPath), nullptr);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(OldPath)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Redirector);
-	EXPECT_NE(Durin::Asset::GetAssetRegistry().FindAssetExact(NewPath), nullptr);
+	ASSERT_NE(Durin::Asset::FindAssetExact(OldPath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(OldPath)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Redirector);
+	EXPECT_NE(Durin::Asset::FindAssetExact(NewPath), nullptr);
 }
 
 TEST(FPackageAssetTests, RelocationRejectsReadOnlySourceWithoutStagingMutation)
@@ -2345,7 +2396,7 @@ TEST(FPackageAssetTests, RelocationRejectsReadOnlySourceWithoutStagingMutation)
 	ASSERT_TRUE(Durin::Asset::CreateAsset(SourcePath, Asset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
 	const std::filesystem::path SourceFile =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(SourcePath)->PhysicalPath;
+		Durin::Asset::FindAssetExact(SourcePath)->PhysicalPath;
 	const std::filesystem::perms Original =
 		std::filesystem::status(SourceFile).permissions();
 	std::error_code ErrorCode;
@@ -2366,8 +2417,8 @@ TEST(FPackageAssetTests, RelocationRejectsReadOnlySourceWithoutStagingMutation)
 	);
 	ASSERT_FALSE(ErrorCode);
 	EXPECT_EQ(Result.Error, Durin::Asset::EAssetError::ReadOnlyMode);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(SourcePath)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Asset);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(DestinationPath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(SourcePath)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Asset);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(DestinationPath), nullptr);
 }
 
 TEST(FPackageAssetTests, RelocationFailureSeamsPreserveEveryOrdinaryBoundary)
@@ -2398,9 +2449,9 @@ TEST(FPackageAssetTests, RelocationFailureSeamsPreserveEveryOrdinaryBoundary)
 		));
 		Durin::Asset::SetAssetRelocationFailurePointForTesting(Points[Index]);
 		EXPECT_EQ(Durin::Asset::ApplyAssetRelocationBatch(Token).Error, Durin::Asset::EAssetError::IoError);
-		ASSERT_NE(Durin::Asset::GetAssetRegistry().FindAssetExact(SourcePath), nullptr);
-		EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(SourcePath)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Asset);
-		EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(DestinationPath), nullptr);
+		ASSERT_NE(Durin::Asset::FindAssetExact(SourcePath), nullptr);
+		EXPECT_EQ(Durin::Asset::FindAssetExact(SourcePath)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Asset);
+		EXPECT_EQ(Durin::Asset::FindAssetExact(DestinationPath), nullptr);
 	}
 
 	Durin::FAssetPath PrepareSource;
@@ -2422,8 +2473,8 @@ TEST(FPackageAssetTests, RelocationFailureSeamsPreserveEveryOrdinaryBoundary)
 	);
 	Durin::Asset::FAssetRelocationBatchToken PrepareToken;
 	EXPECT_EQ(Durin::Asset::AnalyzeAssetRelocationBatch(std::span{&PrepareMapping, 1}, PrepareToken).Error, Durin::Asset::EAssetError::IoError);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(PrepareSource)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Asset);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(PrepareDestination), nullptr);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(PrepareSource)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Asset);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(PrepareDestination), nullptr);
 }
 
 TEST(FPackageAssetTests, CompensationFailureRetainsDiagnosableRecoveryRoot)
@@ -2533,7 +2584,7 @@ namespace
 		Owner->ExternalReference = Target;
 		Owner->Direct.SetPath(OldPath);
 		ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
-		const auto* OwnerData = Durin::Asset::GetAssetRegistry().FindAssetExact(OwnerPath);
+		auto OwnerData = Durin::Asset::FindAssetExact(OwnerPath);
 		ASSERT_NE(OwnerData, nullptr);
 		Durin::Asset::FAssetPackageInspection BeforeInspection;
 		ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
@@ -2545,7 +2596,7 @@ namespace
 		ASSERT_TRUE(Durin::Asset::UnloadPackage(OwnerPath));
 		ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
 
-		const auto Incoming = Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindReferencers(OldPath);
+		const auto Incoming = Durin::Asset::CaptureAssetReferenceIndex().FindReferencers(OldPath);
 		ASSERT_EQ(Incoming.size(), 2u);
 		EXPECT_TRUE(std::ranges::any_of(Incoming, [](const auto& Edge) {
 			return Edge.Kind == Durin::Asset::EAssetReferenceKind::HardObject;
@@ -2571,11 +2622,11 @@ namespace
 		ASSERT_TRUE(Durin::Asset::ApplyRedirectorFixup(Plan));
 		EXPECT_EQ(GSoftPackageConstructionCount, ConstructionCount);
 		EXPECT_EQ(Store.Path, NewPath);
-		EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(OldPath), nullptr);
-		EXPECT_TRUE(Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindReferencers(OldPath).empty());
-		EXPECT_TRUE(Durin::Asset::GetAssetRegistry().GetReferenceIndex().IsComplete());
+		EXPECT_EQ(Durin::Asset::FindAssetExact(OldPath), nullptr);
+		EXPECT_TRUE(Durin::Asset::CaptureAssetReferenceIndex().FindReferencers(OldPath).empty());
+		EXPECT_TRUE(Durin::Asset::CaptureAssetReferenceIndex().IsComplete());
 
-		OwnerData = Durin::Asset::GetAssetRegistry().FindAssetExact(OwnerPath);
+		OwnerData = Durin::Asset::FindAssetExact(OwnerPath);
 		ASSERT_NE(OwnerData, nullptr);
 		Durin::Asset::FAssetPackageInspection AfterInspection;
 		ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
@@ -2584,7 +2635,7 @@ namespace
 		const auto* AfterLabel = AfterInspection.FindField("Label");
 		ASSERT_NE(AfterLabel, nullptr);
 		EXPECT_EQ(AfterLabel->Payload, UnrelatedBytes);
-		const auto NewIncoming = Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindReferencers(NewPath);
+		const auto NewIncoming = Durin::Asset::CaptureAssetReferenceIndex().FindReferencers(NewPath);
 		EXPECT_GE(NewIncoming.size(), 2u);
 		DSoftPackageAssetForTest* ReloadedOwner = nullptr;
 		ASSERT_TRUE(Durin::Asset::LoadAsset(OwnerPath, ReloadedOwner));
@@ -2610,12 +2661,11 @@ namespace
 		Owner->ExternalReference = Target;
 		Owner->Direct.SetPath(OldPath);
 		ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
-		const std::string OwnerFile = Durin::Asset::GetAssetRegistry()
-										  .FindAssetExact(OwnerPath)
+		const std::string OwnerFile = Durin::Asset::FindAssetExact(OwnerPath)
 										  ->PhysicalPath;
 		ASSERT_TRUE(Durin::Asset::UnloadPackage(OwnerPath));
 		ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
-		ASSERT_TRUE(Durin::Asset::GetAssetRegistry().ScanMountedContent(
+		ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
 			Durin::Asset::EAssetRegistryScanMode::FullValidation));
 		std::vector<Durin::uint8> BeforeBytes;
 		ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BeforeBytes, OwnerFile));
@@ -2636,10 +2686,10 @@ namespace
 		ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(AfterBytes, OwnerFile));
 		EXPECT_EQ(AfterBytes, BeforeBytes);
 		EXPECT_EQ(Store.Path, OldPath);
-		const auto* Alias = Durin::Asset::GetAssetRegistry().FindAssetExact(OldPath);
+		const auto Alias = Durin::Asset::FindAssetExact(OldPath);
 		ASSERT_NE(Alias, nullptr);
 		EXPECT_EQ(Alias->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Redirector);
-		EXPECT_EQ(Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindReferencers(OldPath).size(), 2u);
+		EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindReferencers(OldPath).size(), 2u);
 		ASSERT_TRUE(Durin::Asset::DeleteAsset(OwnerPath));
 		ASSERT_TRUE(DeleteAssetClosureForTest({OldPath, NewPath}));
 	}
@@ -2662,7 +2712,7 @@ namespace
 		ASSERT_TRUE(Durin::Asset::CreateAsset(OldPath, Target));
 		ASSERT_TRUE(Durin::Asset::SavePackage(Target->GetPackage()));
 		ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
-		ASSERT_TRUE(Durin::Asset::GetAssetRegistry().ScanMountedContent(
+		ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
 			Durin::Asset::EAssetRegistryScanMode::FullValidation
 		));
 		FMemoryAssetReferenceStore Store(OldPath);
@@ -2679,7 +2729,7 @@ namespace
 			Durin::Asset::ApplyRedirectorFixup(Plan);
 		EXPECT_EQ(Result.Error, Durin::Asset::EAssetError::StaleData);
 		EXPECT_EQ(Store.Path, OldPath);
-		const auto* Alias = Durin::Asset::GetAssetRegistry().FindAssetExact(OldPath);
+		const auto Alias = Durin::Asset::FindAssetExact(OldPath);
 		ASSERT_NE(Alias, nullptr);
 		EXPECT_EQ(Alias->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Redirector);
 		ASSERT_TRUE(DeleteAssetClosureForTest({OldPath, NewPath}));
@@ -2710,15 +2760,14 @@ namespace
 			ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
 			if (bCompatibilityRisk)
 			{
-				const std::string OwnerFile = Durin::Asset::GetAssetRegistry()
-												  .FindAssetExact(OwnerPath)
+				const std::string OwnerFile = Durin::Asset::FindAssetExact(OwnerPath)
 												  ->PhysicalPath;
 				ASSERT_TRUE(Durin::Asset::UnloadPackage(OwnerPath));
 				std::vector<Durin::uint8> Bytes;
 				ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, OwnerFile));
 				ASSERT_TRUE(RenameSerializedString(Bytes, "Label", "Ghost"));
 				WriteTestBytes(OwnerFile, Bytes);
-				ASSERT_TRUE(Durin::Asset::GetAssetRegistry().ScanMountedContent(
+				ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
 					Durin::Asset::EAssetRegistryScanMode::FullValidation
 				));
 				Durin::Asset::FAssetLoadReport Report;
@@ -2730,7 +2779,7 @@ namespace
 				Owner->MarkPackageDirty();
 			}
 			ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
-			ASSERT_TRUE(Durin::Asset::GetAssetRegistry().ScanMountedContent(
+			ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
 				Durin::Asset::EAssetRegistryScanMode::FullValidation
 			));
 			Durin::Asset::FAssetRedirectorFixupPlan Plan;
@@ -2741,7 +2790,7 @@ namespace
 					Plan
 				);
 			EXPECT_EQ(Result.Error, bCompatibilityRisk ? Durin::Asset::EAssetError::UnsupportedProperty : Durin::Asset::EAssetError::InUse) << Result.Message;
-			const auto* Alias = Durin::Asset::GetAssetRegistry().FindAssetExact(OldPath);
+			const auto Alias = Durin::Asset::FindAssetExact(OldPath);
 			ASSERT_NE(Alias, nullptr);
 			EXPECT_EQ(Alias->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Redirector);
 			Owner->GetPackage()->ClearDirty();
@@ -2776,12 +2825,11 @@ namespace
 			ASSERT_TRUE(Durin::Asset::CreateAsset(OwnerPath, Owner));
 			Owner->Direct.SetPath(OldPath);
 			ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
-			const std::string OwnerFile = Durin::Asset::GetAssetRegistry()
-											  .FindAssetExact(OwnerPath)
+			const std::string OwnerFile = Durin::Asset::FindAssetExact(OwnerPath)
 											  ->PhysicalPath;
 			ASSERT_TRUE(Durin::Asset::UnloadPackage(OwnerPath));
 			ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
-			ASSERT_TRUE(Durin::Asset::GetAssetRegistry().ScanMountedContent(
+			ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
 				Durin::Asset::EAssetRegistryScanMode::FullValidation
 			));
 			std::vector<Durin::uint8> PreBytes;
@@ -2833,7 +2881,7 @@ namespace
 					<< Result.Message;
 				WriteTestBytes(OwnerFile, PreBytes);
 			}
-			const auto* Alias = Durin::Asset::GetAssetRegistry().FindAssetExact(OldPath);
+			const auto Alias = Durin::Asset::FindAssetExact(OldPath);
 			ASSERT_NE(Alias, nullptr);
 			EXPECT_EQ(Alias->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Redirector);
 			ASSERT_TRUE(Durin::Asset::DeleteAsset(OwnerPath));
@@ -2873,14 +2921,13 @@ namespace
 			ASSERT_TRUE(Durin::Asset::CreateAsset(OwnerPath, Owner));
 			Owner->Direct.SetPath(OldPath);
 			ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
-			const std::string OwnerFile = Durin::Asset::GetAssetRegistry()
-											  .FindAssetExact(OwnerPath)
+			const std::string OwnerFile = Durin::Asset::FindAssetExact(OwnerPath)
 											  ->PhysicalPath;
 			ASSERT_TRUE(Durin::Asset::UnloadPackage(OwnerPath));
 			std::vector<Durin::uint8> BeforeBytes;
 			ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BeforeBytes, OwnerFile));
 			ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
-			ASSERT_TRUE(Durin::Asset::GetAssetRegistry().ScanMountedContent(
+			ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
 				Durin::Asset::EAssetRegistryScanMode::FullValidation
 			));
 			FMemoryAssetReferenceStore Store(OldPath);
@@ -2899,7 +2946,7 @@ namespace
 			ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(AfterBytes, OwnerFile));
 			EXPECT_EQ(AfterBytes, BeforeBytes);
 			EXPECT_EQ(Store.Path, OldPath);
-			const auto* Alias = Durin::Asset::GetAssetRegistry().FindAssetExact(OldPath);
+			const auto Alias = Durin::Asset::FindAssetExact(OldPath);
 			ASSERT_NE(Alias, nullptr);
 			EXPECT_EQ(Alias->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Redirector);
 			ASSERT_TRUE(Durin::Asset::DeleteAsset(OwnerPath));
@@ -2928,14 +2975,14 @@ TEST(FPackageAssetTests, SoftReferencedTargetDeletionLeavesDanglingPathWithoutBl
 	EXPECT_TRUE(Analysis.DirectReferencers.empty());
 	EXPECT_TRUE(Analysis.CanDelete());
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(TargetPath));
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(TargetPath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(TargetPath), nullptr);
 	auto Referencers =
-		Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindReferencers(TargetPath);
+		Durin::Asset::CaptureAssetReferenceIndex().FindReferencers(TargetPath);
 	ASSERT_EQ(Referencers.size(), 1u);
 	EXPECT_EQ(Referencers.front().SourcePackage, OwnerPath);
 
 	std::vector<Durin::FAssetPath> Reachable;
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().BuildCookReachability(std::span<const Durin::FAssetPath>(&OwnerPath, 1), Reachable).Error, Durin::Asset::EAssetError::MissingDependency);
+	EXPECT_EQ(Durin::Asset::BuildCookReachability(std::span<const Durin::FAssetPath>(&OwnerPath, 1), Reachable).Error, Durin::Asset::EAssetError::MissingDependency);
 }
 
 TEST(FPackageAssetTests, DastMapBytesAreCanonicalAcrossInsertionAndBucketHistory)
@@ -2967,7 +3014,7 @@ TEST(FPackageAssetTests, DastMapBytesAreCanonicalAcrossInsertionAndBucketHistory
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(ReverseBytes, File.generic_string()));
 
 	EXPECT_EQ(ForwardBytes, ReverseBytes);
-	EXPECT_TRUE(Durin::Asset::FAssetManager::Get().UnloadPackage(Path));
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
 }
 
 TEST(FPackageAssetTests, MathStructRegistrationPreservesDirectAndNestedSchemaIdentity)
@@ -3036,7 +3083,6 @@ TEST(FPackageAssetTests, WriterUsesVersionedWireSignaturesForLogicalEncodings)
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
-
 	const auto File =
 		Durin::Testing::GetTestWorkDirectory() / "Assets" / "WireSignatures.dasset";
 	Durin::Asset::FAssetPackageInspection Inspection;
@@ -3210,7 +3256,7 @@ TEST(FPackageAssetTests, SyntheticExactMigrationRevalidatesAuthorizationAndPubli
 	ASSERT_TRUE(SerializeAssetPackageBytesForFormatForTesting(
 		Asset->GetPackage(), SyntheticAssetPackageFormatVersionForTesting, SourceBytes));
 	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
-	const FAssetData* Saved = GetAssetRegistry().FindAssetExact(Path);
+	const FAssetCatalogEntry Saved = FindAssetExact(Path);
 	ASSERT_NE(Saved, nullptr);
 	const std::string PhysicalPath = Saved->PhysicalPath;
 	ASSERT_TRUE(UnloadPackage(Path));
@@ -3227,7 +3273,7 @@ TEST(FPackageAssetTests, SyntheticExactMigrationRevalidatesAuthorizationAndPubli
 	EXPECT_EQ(CanonicalizeAssetPackageForCook(SourceBytes, RejectedMutation).Error,
 		EAssetError::UnsupportedVersion);
 	EXPECT_TRUE(RejectedMutation.empty());
-	ASSERT_TRUE(GetAssetRegistry().ScanMountedContent(EAssetRegistryScanMode::FullValidation));
+	ASSERT_TRUE(RefreshAssetCatalog(EAssetRegistryScanMode::FullValidation));
 
 	const FAssetPackageDiscoverySnapshot Snapshot = CaptureMountedAssetPackageSnapshot();
 	ASSERT_EQ(Snapshot.Status, EAssetPackageSnapshotStatus::Completed) << Snapshot.Error;
@@ -3566,12 +3612,22 @@ TEST(FPackageAssetTests, SequentialPackageSavesPublishEarlierPackagesBeforeLater
 	EXPECT_EQ(SecondResult.Error, Durin::Asset::EAssetError::IoError);
 
 	EXPECT_TRUE(std::filesystem::is_regular_file(Root / "Stage0First.dasset"));
-	EXPECT_NE(Durin::Asset::GetAssetRegistry().FindAssetExact(FirstPath), nullptr);
+	EXPECT_NE(Durin::Asset::FindAssetExact(FirstPath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindDraftPackage(FirstPath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(FirstPath), First->GetPackage());
 	EXPECT_FALSE(First->GetPackage()->IsDirty());
 
 	EXPECT_FALSE(std::filesystem::exists(Root / "Stage0Blocked" / "Second.dasset"));
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(BlockedPath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(BlockedPath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindDraftPackage(BlockedPath), Second->GetPackage());
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(BlockedPath), nullptr);
 	EXPECT_TRUE(Second->GetPackage()->IsDirty());
+
+	ASSERT_TRUE(std::filesystem::remove(Blocker));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Second->GetPackage()));
+	EXPECT_EQ(Durin::Asset::FindDraftPackage(BlockedPath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(BlockedPath), Second->GetPackage());
+	EXPECT_TRUE(Durin::Asset::FindAssetExact(BlockedPath));
 }
 
 TEST(FPackageAssetTests, AtomicBundleSaveRestoresFilesRegistryAndDirtyStateOnFailure)
@@ -3587,7 +3643,7 @@ TEST(FPackageAssetTests, AtomicBundleSaveRestoresFilesRegistryAndDirtyStateOnFai
 	Existing->Value = 11;
 	ASSERT_TRUE(Durin::Asset::SavePackage(Existing->GetPackage()));
 	const Durin::Asset::FAssetData ExistingRegistry =
-		*Durin::Asset::GetAssetRegistry().FindAssetExact(ExistingPath);
+		*Durin::Asset::FindAssetExact(ExistingPath);
 	std::vector<Durin::uint8> ExistingBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		ExistingBytes, ExistingRegistry.PhysicalPath
@@ -3616,13 +3672,15 @@ TEST(FPackageAssetTests, AtomicBundleSaveRestoresFilesRegistryAndDirtyStateOnFai
 		RestoredBytes, ExistingRegistry.PhysicalPath
 	));
 	EXPECT_EQ(RestoredBytes, ExistingBytes);
-	EXPECT_EQ(*Durin::Asset::GetAssetRegistry().FindAssetExact(ExistingPath), ExistingRegistry);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(NewPath), nullptr);
+	EXPECT_EQ(*Durin::Asset::FindAssetExact(ExistingPath), ExistingRegistry);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(NewPath), nullptr);
 	EXPECT_FALSE(std::filesystem::exists(
 		Durin::Testing::GetTestWorkDirectory() / "Assets" / "AtomicBundleNew.dasset"
 	));
 	EXPECT_TRUE(Existing->GetPackage()->IsDirty());
 	EXPECT_TRUE(Added->GetPackage()->IsDirty());
+	EXPECT_EQ(Durin::Asset::FindDraftPackage(NewPath), Added->GetPackage());
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(NewPath), nullptr);
 	ASSERT_TRUE(Durin::Asset::DiscardUnpublishedPackage(Added->GetPackage()));
 }
 
@@ -3636,8 +3694,7 @@ TEST(FPackageAssetTests, OrdinaryV4SavesAreDeterministicAndRejectUnsupportedVers
 	Asset->Value = 41;
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
 
-	auto& Registry = Durin::Asset::GetAssetRegistry();
-	const Durin::Asset::FAssetData Current = *Registry.FindAssetExact(Path);
+	const Durin::Asset::FAssetData Current = *Durin::Asset::FindAssetExact(Path);
 	ASSERT_EQ(Current.FormatVersion, Durin::Asset::AssetPackageV4FormatVersion);
 	std::vector<Durin::uint8> FirstBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstBytes, Current.PhysicalPath));
@@ -3657,23 +3714,24 @@ TEST(FPackageAssetTests, OrdinaryV4SavesAreDeterministicAndRejectUnsupportedVers
 	Durin::Asset::FAssetData Unsupported = Current;
 	Unsupported.FormatVersion = 3;
 	std::array UnsupportedEntries{Unsupported};
-	Durin::Asset::FAssetManager::Get().PublishMigratedPackageRegistryEntries(
+	Durin::Asset::PublishMigratedPackageRegistryEntries(
 		UnsupportedEntries);
 	Asset->Value = 42;
 	Asset->MarkPackageDirty();
-	const Durin::uint64 RevisionBeforeRejectedSave = Registry.GetRevision();
+	const Durin::uint64 RevisionBeforeRejectedSave =
+		Durin::Asset::GetAssetCatalogRevision();
 	const Durin::Asset::FAssetResult Rejected =
 		Durin::Asset::SavePackage(Asset->GetPackage());
 	EXPECT_EQ(Rejected.Error, Durin::Asset::EAssetError::UnsupportedVersion);
 	EXPECT_TRUE(Asset->GetPackage()->IsDirty());
-	EXPECT_EQ(Registry.GetRevision(), RevisionBeforeRejectedSave);
-	EXPECT_EQ(*Registry.FindAssetExact(Path), Unsupported);
+	EXPECT_EQ(Durin::Asset::GetAssetCatalogRevision(), RevisionBeforeRejectedSave);
+	EXPECT_EQ(*Durin::Asset::FindAssetExact(Path), Unsupported);
 	std::vector<Durin::uint8> RejectedBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(RejectedBytes, Current.PhysicalPath));
 	EXPECT_EQ(RejectedBytes, FirstBytes);
 
 	std::array CurrentEntries{Current};
-	Durin::Asset::FAssetManager::Get().PublishMigratedPackageRegistryEntries(
+	Durin::Asset::PublishMigratedPackageRegistryEntries(
 		CurrentEntries);
 	Asset->GetPackage()->ClearDirty();
 }
@@ -3690,16 +3748,16 @@ TEST(FPackageAssetTests, LoadsExternalDependenciesAndPreventsPrematureUnload)
 	DPackageAssetForTest* Dependency = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(DependencyPath, Dependency));
 	Dependency->Label = "Dependency";
-	ASSERT_TRUE(Durin::Asset::FAssetManager::Get().SavePackage(Dependency->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Dependency->GetPackage()));
 
 	DPackageAssetForTest* Owner = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(OwnerPath, Owner));
 	Owner->ExternalReference = Dependency;
-	ASSERT_TRUE(Durin::Asset::FAssetManager::Get().SavePackage(Owner->GetPackage()));
-	ASSERT_EQ(Durin::Asset::FAssetManager::Get().GetRegistry().FindAssetExact(OwnerPath)->Dependencies.size(), 1u);
-	EXPECT_EQ(Durin::Asset::FAssetManager::Get().UnloadPackage(DependencyPath).Error, Durin::Asset::EAssetError::InUse);
-	ASSERT_TRUE(Durin::Asset::FAssetManager::Get().UnloadPackage(OwnerPath));
-	ASSERT_TRUE(Durin::Asset::FAssetManager::Get().UnloadPackage(DependencyPath));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
+	ASSERT_EQ(Durin::Asset::FindAssetExact(OwnerPath)->Dependencies.size(), 1u);
+	EXPECT_EQ(Durin::Asset::UnloadPackage(DependencyPath).Error, Durin::Asset::EAssetError::InUse);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(OwnerPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(DependencyPath));
 
 	DPackageAssetForTest* LoadedOwner = nullptr;
 	Durin::Asset::FAssetLoadReport LoadReport;
@@ -3707,13 +3765,13 @@ TEST(FPackageAssetTests, LoadsExternalDependenciesAndPreventsPrematureUnload)
 	EXPECT_EQ(LoadReport.PackageFileReadCount, 2u);
 	ASSERT_NE(LoadedOwner->ExternalReference.Get(), nullptr);
 	EXPECT_EQ(LoadedOwner->ExternalReference->GetObjectPath(), "/TestAssets/Dependency");
-	EXPECT_EQ(Durin::Asset::FAssetManager::Get().FindLoadedPackage(DependencyPath)->GetAsset(), LoadedOwner->ExternalReference.Get());
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(DependencyPath)->GetAsset(), LoadedOwner->ExternalReference.Get());
 
-	ASSERT_TRUE(Durin::Asset::FAssetManager::Get().UnloadPackage(OwnerPath));
-	ASSERT_TRUE(Durin::Asset::FAssetManager::Get().UnloadPackage(DependencyPath));
-	ASSERT_TRUE(Durin::Asset::FAssetManager::Get().GetRegistry().ScanMountedContent());
-	EXPECT_NE(Durin::Asset::FAssetManager::Get().GetRegistry().FindAssetExact(OwnerPath), nullptr);
-	EXPECT_NE(Durin::Asset::FAssetManager::Get().GetRegistry().FindAssetExact(DependencyPath), nullptr);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(OwnerPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(DependencyPath));
+	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog());
+	EXPECT_TRUE(Durin::Asset::FindAssetExact(OwnerPath));
+	EXPECT_TRUE(Durin::Asset::FindAssetExact(DependencyPath));
 }
 
 TEST(FPackageAssetTests, RejectsTruncatedPackagesWithoutCachingPartialObjects)
@@ -3763,25 +3821,25 @@ TEST(FPackageAssetTests, RelocationBatchPublishesOneRevisionAndSupportsExactUndo
 		Durin::Asset::AnalyzeAssetRelocationBatch(Mappings, Token);
 	ASSERT_TRUE(Analysis) << Analysis.Message;
 	const Durin::uint64 BeforeRevision =
-		Durin::Asset::GetAssetRegistry().GetRevision();
+		Durin::Asset::GetAssetCatalogRevision();
 	ASSERT_TRUE(Durin::Asset::ApplyAssetRelocationBatch(Token));
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().GetRevision(), BeforeRevision + 1);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(First)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Redirector);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(Second)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Redirector);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(FirstMoved)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Asset);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(SecondMoved)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Asset);
+	EXPECT_EQ(Durin::Asset::GetAssetCatalogRevision(), BeforeRevision + 1);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(First)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Redirector);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(Second)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Redirector);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(FirstMoved)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Asset);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(SecondMoved)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Asset);
 
 	ASSERT_TRUE(Durin::Asset::RestoreAssetRelocationBatch(Token));
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().GetRevision(), BeforeRevision + 2);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(First)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Asset);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(Second)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Asset);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(FirstMoved), nullptr);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(SecondMoved), nullptr);
+	EXPECT_EQ(Durin::Asset::GetAssetCatalogRevision(), BeforeRevision + 2);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(First)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Asset);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(Second)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Asset);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(FirstMoved), nullptr);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(SecondMoved), nullptr);
 
 	ASSERT_TRUE(Durin::Asset::ApplyAssetRelocationBatch(Token));
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().GetRevision(), BeforeRevision + 3);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().ResolveAssetPath(First).FinalPath, FirstMoved);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().ResolveAssetPath(Second).FinalPath, SecondMoved);
+	EXPECT_EQ(Durin::Asset::GetAssetCatalogRevision(), BeforeRevision + 3);
+	EXPECT_EQ(Durin::Asset::ResolveAssetPath(First).FinalPath, FirstMoved);
+	EXPECT_EQ(Durin::Asset::ResolveAssetPath(Second).FinalPath, SecondMoved);
 }
 
 TEST(FPackageAssetTests, RepeatedRelocationCompressesAliasesAndMoveBackReclaimsSameObject)
@@ -3799,20 +3857,20 @@ TEST(FPackageAssetTests, RepeatedRelocationCompressesAliasesAndMoveBackReclaimsS
 
 	ASSERT_TRUE(RelocateAssetForTest(First, Second));
 	ASSERT_TRUE(RelocateAssetForTest(Second, Third));
-	const auto* FirstAlias =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(First);
-	const auto* SecondAlias =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(Second);
+	const auto FirstAlias =
+		Durin::Asset::FindAssetExact(First);
+	const auto SecondAlias =
+		Durin::Asset::FindAssetExact(Second);
 	ASSERT_NE(FirstAlias, nullptr);
 	ASSERT_NE(SecondAlias, nullptr);
 	EXPECT_EQ(FirstAlias->RedirectDestination, Third);
 	EXPECT_EQ(SecondAlias->RedirectDestination, Third);
 
 	ASSERT_TRUE(RelocateAssetForTest(Third, First));
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(First)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Asset);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(Second)->RedirectDestination, First);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(Third)->RedirectDestination, First);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().ResolveAssetPath(Second).FinalPath, First);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(First)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Asset);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(Second)->RedirectDestination, First);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(Third)->RedirectDestination, First);
+	EXPECT_EQ(Durin::Asset::ResolveAssetPath(Second).FinalPath, First);
 
 	Durin::FAssetPath Unrelated;
 	Durin::FAssetPath UnrelatedAlias;
@@ -3831,7 +3889,7 @@ TEST(FPackageAssetTests, RepeatedRelocationCompressesAliasesAndMoveBackReclaimsS
 	));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Alias->GetPackage()));
 	EXPECT_EQ(RelocateAssetForTest(First, UnrelatedAlias).Error, Durin::Asset::EAssetError::AlreadyExists);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().ResolveAssetPath(UnrelatedAlias).FinalPath, Unrelated);
+	EXPECT_EQ(Durin::Asset::ResolveAssetPath(UnrelatedAlias).FinalPath, Unrelated);
 }
 
 TEST(FPackageAssetTests, PackageDoesNotStoreItsOwnPathAndDirectoryMoveIsByteStable)
@@ -3857,8 +3915,8 @@ TEST(FPackageAssetTests, PackageDoesNotStoreItsOwnPathAndDirectoryMoveIsByteStab
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(After, NewFile.generic_string()));
 	EXPECT_EQ(Before, After);
 	EXPECT_TRUE(std::filesystem::exists(OldFile));
-	ASSERT_NE(Durin::Asset::GetAssetRegistry().FindAssetExact(OldPath), nullptr);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(OldPath)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Redirector);
+	ASSERT_NE(Durin::Asset::FindAssetExact(OldPath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(OldPath)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Redirector);
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(OldPath), nullptr);
 	EXPECT_NE(Durin::Asset::FindLoadedPackage(NewPath), nullptr);
 }
@@ -3879,7 +3937,7 @@ TEST(FPackageAssetTests, RelocationLeavesMountedReferrersAuthoredToAlias)
 	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
 
 	ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
-	const Durin::Asset::FAssetData* OwnerData = Durin::Asset::GetAssetRegistry().FindAssetExact(OwnerPath);
+	const Durin::Asset::FAssetCatalogEntry OwnerData = Durin::Asset::FindAssetExact(OwnerPath);
 	ASSERT_NE(OwnerData, nullptr);
 	EXPECT_EQ(std::ranges::find(OwnerData->Dependencies, NewPath), OwnerData->Dependencies.end());
 	EXPECT_NE(std::ranges::find(OwnerData->Dependencies, OldPath), OwnerData->Dependencies.end());
@@ -3904,7 +3962,7 @@ TEST(FPackageAssetTests, DeletesUnreferencedAssetAndRegistryEntry)
 	EXPECT_TRUE(Analysis.CanDelete());
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(Path));
 	EXPECT_FALSE(std::filesystem::exists(File));
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(Path), nullptr);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(Path), nullptr);
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(Path), nullptr);
 }
 
@@ -3923,7 +3981,7 @@ TEST(FPackageAssetTests, UnloadsAndDeletesLoadedUnreferencedAsset)
 
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(Path));
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(Path), nullptr);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(Path), nullptr);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(Path), nullptr);
 	EXPECT_FALSE(std::filesystem::exists(
 		Durin::Testing::GetTestWorkDirectory() / "Assets" / "LoadedDelete.dasset"
 	));
@@ -3950,7 +4008,7 @@ TEST(FPackageAssetTests, RejectsDeletingReferencedAssetWithoutChangingDisk)
 	EXPECT_FALSE(Analysis.CanDelete());
 	EXPECT_EQ(Durin::Asset::DeleteAsset(DependencyPath).Error, Durin::Asset::EAssetError::InUse);
 	EXPECT_NE(Durin::Asset::FindLoadedPackage(DependencyPath), nullptr);
-	EXPECT_NE(Durin::Asset::GetAssetRegistry().FindAssetExact(DependencyPath), nullptr);
+	EXPECT_NE(Durin::Asset::FindAssetExact(DependencyPath), nullptr);
 	EXPECT_TRUE(std::filesystem::exists(
 		Durin::Testing::GetTestWorkDirectory() / "Assets" / "DeleteDependency.dasset"
 	));
@@ -4040,6 +4098,9 @@ TEST(FPackageAssetTests, VersionOneIsExplicitlyUnsupported)
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	const Durin::Asset::FAssetCatalogEntry BeforeRefresh =
+		Durin::Asset::FindAssetExact(Path);
+	ASSERT_TRUE(BeforeRefresh);
 	const auto File = Durin::Testing::GetTestWorkDirectory() / "Assets" / "LegacyVersion.dasset";
 	std::fstream Stream(File, std::ios::in | std::ios::out | std::ios::binary);
 	ASSERT_TRUE(Stream.is_open());
@@ -4050,17 +4111,27 @@ TEST(FPackageAssetTests, VersionOneIsExplicitlyUnsupported)
 	Durin::DObject* Loaded = nullptr;
 	EXPECT_EQ(Durin::Asset::LoadAsset(Path, Loaded).Error, Durin::Asset::EAssetError::UnsupportedVersion);
 	EXPECT_EQ(Loaded, nullptr);
-	ASSERT_TRUE(Durin::Asset::GetAssetRegistry().ScanMountedContent());
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(Path), nullptr);
+	const Durin::Asset::FAssetCatalogRefreshResult Refresh =
+		Durin::Asset::RefreshAssetCatalog();
+	EXPECT_FALSE(Refresh);
+	EXPECT_FALSE(Refresh.bCatalogComplete);
+	EXPECT_TRUE(Refresh.bRetainedPriorRevision);
+	EXPECT_EQ(Refresh.PriorRevision, BeforeRefresh.Revision);
+	EXPECT_EQ(Refresh.ResultingRevision, BeforeRefresh.Revision);
+	const Durin::Asset::FAssetCatalogEntry AfterRefresh =
+		Durin::Asset::FindAssetExact(Path);
+	ASSERT_TRUE(AfterRefresh);
+	EXPECT_EQ(AfterRefresh.Revision, BeforeRefresh.Revision);
+	EXPECT_EQ(AfterRefresh.Data, BeforeRefresh.Data);
 	EXPECT_TRUE(std::ranges::any_of(
-		Durin::Asset::GetAssetRegistry().GetScanErrors(),
+		Refresh.Errors,
 		[](const Durin::Asset::FAssetResult& Error) {
 			return Error.Error == Durin::Asset::EAssetError::UnsupportedVersion;
 		}
 	));
 }
 
-TEST(FPackageAssetTests, ManualScanMountsRetainPackageIdentityAndDirectLoading)
+TEST(FPackageAssetTests, ManualScanMountsRequireExplicitAdmissionBeforeLoading)
 {
 	InitializeAssetTests();
 	const std::filesystem::path Root =
@@ -4085,25 +4156,43 @@ TEST(FPackageAssetTests, ManualScanMountsRetainPackageIdentityAndDirectLoading)
 		DPackageAssetForTest* Asset = nullptr;
 		ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 		ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
-		ASSERT_TRUE(Durin::Asset::FAssetManager::Get().UnloadPackage(Path));
+		ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 
-		auto& Registry = Durin::Asset::GetAssetRegistry();
-		ASSERT_TRUE(Registry.ScanMountedContent(
-			Durin::Asset::EAssetRegistryScanMode::FullValidation
-		));
-		EXPECT_EQ(Registry.GetLastScanStats().Enumerated, 0u);
-		EXPECT_EQ(Registry.FindAssetExact(Path), nullptr);
+		const Durin::Asset::FAssetCatalogRefreshResult ManualRefresh =
+			Durin::Asset::RefreshAssetCatalog(
+				Durin::Asset::EAssetRegistryScanMode::FullValidation);
+		ASSERT_TRUE(ManualRefresh);
+		EXPECT_EQ(ManualRefresh.CatalogStats.Enumerated, 0u);
+		EXPECT_FALSE(Durin::Asset::FindAssetExact(Path));
 
 		Durin::DObject* Loaded = nullptr;
-		ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded));
+		Durin::Asset::FAssetLoadReport MissingReport;
+		const Durin::Asset::FAssetResult Missing =
+			Durin::Asset::LoadAsset(Path, Loaded, &MissingReport);
+		EXPECT_EQ(Missing.Error, Durin::Asset::EAssetError::NotFound);
+		EXPECT_EQ(MissingReport.Error, Durin::Asset::EAssetError::NotFound);
+		EXPECT_EQ(MissingReport.RequestedPath, Path);
+		EXPECT_EQ(MissingReport.CatalogRevision,
+			Durin::Asset::GetAssetCatalogRevision());
+		EXPECT_EQ(MissingReport.PackageFileReadCount, 0u);
+		EXPECT_EQ(Loaded, nullptr);
+
+		ASSERT_TRUE(Durin::Asset::AdmitAssetPackageToCatalog(Path));
+		ASSERT_TRUE(Durin::Asset::FindAssetExact(Path));
+		Durin::Asset::FAssetLoadReport LoadReport;
+		ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded, &LoadReport));
 		EXPECT_NE(Loaded, nullptr);
-		ASSERT_TRUE(Durin::Asset::FAssetManager::Get().UnloadPackage(Path));
+		EXPECT_EQ(LoadReport.RequestedPath, Path);
+		EXPECT_EQ(LoadReport.FinalPath, Path);
+		EXPECT_EQ(LoadReport.CatalogRevision,
+			Durin::Asset::GetAssetCatalogRevision());
+		EXPECT_EQ(LoadReport.Error, Durin::Asset::EAssetError::None);
+		EXPECT_EQ(LoadReport.PackageFileReadCount, 1u);
+		ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 	}
 
-	auto& Registry = Durin::Asset::GetAssetRegistry();
-	ASSERT_TRUE(Registry.ScanMountedContent(
-		Durin::Asset::EAssetRegistryScanMode::FullValidation
-	));
+	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(Path));
 }
 
@@ -4128,89 +4217,98 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	std::filesystem::copy_file(ValidSource, ContentA / "Beta.dasset");
 	Durin::PathUtilities::RegisterMountPointForTests("/TestAssets/", ContentA.generic_string() + "/");
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
-	auto& Registry = Durin::Asset::FAssetManager::Get().GetRegistry();
-
-	const Durin::uint64 RevisionBeforeInitialScan = Registry.GetRevision();
-	ASSERT_TRUE(Registry.ScanMountedContent(Durin::Asset::EAssetRegistryScanMode::FullValidation));
-	EXPECT_GT(Registry.GetRevision(), RevisionBeforeInitialScan);
-	EXPECT_EQ(Registry.GetLastScanStats().Enumerated, 2u);
-	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 2u);
-	EXPECT_EQ(Registry.GetLastScanStats().HeaderReadAttempts, 2u);
-	EXPECT_GT(Registry.GetLastScanStats().HeaderBytesRead, 0u);
-	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 2u);
-	EXPECT_GT(Registry.GetReferenceIndex().GetStats().PayloadBytesRead, 0u);
-	EXPECT_GE(Registry.GetLastScanStats().DurationMilliseconds, 0.0);
-	EXPECT_EQ(Registry.GetAssets().size(), 2u);
+	const Durin::uint64 RevisionBeforeInitialScan =
+		Durin::Asset::GetAssetCatalogRevision();
+	const auto InitialRefresh = Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation);
+	ASSERT_TRUE(InitialRefresh);
+	EXPECT_GT(InitialRefresh.ResultingRevision, RevisionBeforeInitialScan);
+	EXPECT_EQ(InitialRefresh.CatalogStats.Enumerated, 2u);
+	EXPECT_EQ(InitialRefresh.CatalogStats.Reparsed, 2u);
+	EXPECT_EQ(InitialRefresh.CatalogStats.HeaderReadAttempts, 2u);
+	EXPECT_GT(InitialRefresh.CatalogStats.HeaderBytesRead, 0u);
+	EXPECT_EQ(InitialRefresh.ReferenceStats.PayloadReadAttempts, 2u);
+	EXPECT_GT(InitialRefresh.ReferenceStats.PayloadBytesRead, 0u);
+	EXPECT_GE(InitialRefresh.CatalogStats.DurationMilliseconds, 0.0);
+	EXPECT_EQ(Durin::Asset::CaptureAssetCatalogSnapshot().Assets.size(), 2u);
 	const auto CacheFile = CacheRoot / "AssetRegistry" / "Registry.bin";
 	std::vector<Durin::uint8> FirstCache;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstCache, CacheFile.generic_string()));
 
-	const Durin::uint64 StableRevision = Registry.GetRevision();
-	ASSERT_TRUE(Registry.ScanMountedContent());
-	EXPECT_EQ(Registry.GetRevision(), StableRevision);
-	EXPECT_EQ(Registry.GetLastScanStats().Reused, 2u);
-	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 0u);
-	EXPECT_EQ(Registry.GetLastScanStats().HeaderReadAttempts, 0u);
-	EXPECT_EQ(Registry.GetLastScanStats().HeaderBytesRead, 0u);
-	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 0u);
-	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadBytesRead, 0u);
-	EXPECT_GE(Registry.GetLastScanStats().DurationMilliseconds, 0.0);
+	const Durin::uint64 StableRevision = Durin::Asset::GetAssetCatalogRevision();
+	const auto StableRefresh = Durin::Asset::RefreshAssetCatalog();
+	ASSERT_TRUE(StableRefresh);
+	EXPECT_EQ(StableRefresh.ResultingRevision, StableRevision);
+	EXPECT_EQ(StableRefresh.CatalogStats.Reused, 2u);
+	EXPECT_EQ(StableRefresh.CatalogStats.Reparsed, 0u);
+	EXPECT_EQ(StableRefresh.CatalogStats.HeaderReadAttempts, 0u);
+	EXPECT_EQ(StableRefresh.CatalogStats.HeaderBytesRead, 0u);
+	EXPECT_EQ(StableRefresh.ReferenceStats.PayloadReadAttempts, 0u);
+	EXPECT_EQ(StableRefresh.ReferenceStats.PayloadBytesRead, 0u);
+	EXPECT_GE(StableRefresh.CatalogStats.DurationMilliseconds, 0.0);
 	std::vector<Durin::uint8> SecondCache;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(SecondCache, CacheFile.generic_string()));
 	EXPECT_EQ(SecondCache, FirstCache);
 
 	const auto Alpha = ContentA / "Alpha.dasset";
 	std::filesystem::last_write_time(Alpha, std::filesystem::last_write_time(Alpha) + std::chrono::seconds(2));
-	ASSERT_TRUE(Registry.ScanMountedContent());
-	EXPECT_GT(Registry.GetRevision(), StableRevision);
-	EXPECT_EQ(Registry.GetLastScanStats().Reused, 1u);
-	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 1u);
-	EXPECT_EQ(Registry.GetLastScanStats().HeaderReadAttempts, 1u);
-	EXPECT_GT(Registry.GetLastScanStats().HeaderBytesRead, 0u);
-	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 1u);
-	EXPECT_GE(Registry.GetLastScanStats().DurationMilliseconds, 0.0);
+	const auto ChangedRefresh = Durin::Asset::RefreshAssetCatalog();
+	ASSERT_TRUE(ChangedRefresh);
+	EXPECT_GT(ChangedRefresh.ResultingRevision, StableRevision);
+	EXPECT_EQ(ChangedRefresh.CatalogStats.Reused, 1u);
+	EXPECT_EQ(ChangedRefresh.CatalogStats.Reparsed, 1u);
+	EXPECT_EQ(ChangedRefresh.CatalogStats.HeaderReadAttempts, 1u);
+	EXPECT_GT(ChangedRefresh.CatalogStats.HeaderBytesRead, 0u);
+	EXPECT_EQ(ChangedRefresh.ReferenceStats.PayloadReadAttempts, 1u);
+	EXPECT_GE(ChangedRefresh.CatalogStats.DurationMilliseconds, 0.0);
 
 	std::filesystem::copy_file(ValidSource, ContentA / "Gamma.dasset");
 	std::filesystem::remove(ContentA / "Beta.dasset");
-	ASSERT_TRUE(Registry.ScanMountedContent());
-	EXPECT_EQ(Registry.GetLastScanStats().Reused, 1u);
-	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 1u);
-	EXPECT_EQ(Registry.GetLastScanStats().Removed, 1u);
-	EXPECT_EQ(Registry.GetAssets().size(), 2u);
-	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 1u);
+	const auto AddedRemovedRefresh = Durin::Asset::RefreshAssetCatalog();
+	ASSERT_TRUE(AddedRemovedRefresh);
+	EXPECT_EQ(AddedRemovedRefresh.CatalogStats.Reused, 1u);
+	EXPECT_EQ(AddedRemovedRefresh.CatalogStats.Reparsed, 1u);
+	EXPECT_EQ(AddedRemovedRefresh.CatalogStats.Removed, 1u);
+	EXPECT_EQ(Durin::Asset::CaptureAssetCatalogSnapshot().Assets.size(), 2u);
+	EXPECT_EQ(AddedRemovedRefresh.ReferenceStats.PayloadReadAttempts, 1u);
 
 	std::filesystem::rename(ContentA / "Gamma.dasset", ContentA / "Delta.dasset");
-	ASSERT_TRUE(Registry.ScanMountedContent());
-	EXPECT_EQ(Registry.GetLastScanStats().Reused, 1u);
-	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 1u);
-	EXPECT_EQ(Registry.GetLastScanStats().Removed, 1u);
-	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 1u);
+	const auto RenamedRefresh = Durin::Asset::RefreshAssetCatalog();
+	ASSERT_TRUE(RenamedRefresh);
+	EXPECT_EQ(RenamedRefresh.CatalogStats.Reused, 1u);
+	EXPECT_EQ(RenamedRefresh.CatalogStats.Reparsed, 1u);
+	EXPECT_EQ(RenamedRefresh.CatalogStats.Removed, 1u);
+	EXPECT_EQ(RenamedRefresh.ReferenceStats.PayloadReadAttempts, 1u);
 
-	ASSERT_TRUE(Registry.ScanMountedContent(Durin::Asset::EAssetRegistryScanMode::FullValidation));
-	EXPECT_EQ(Registry.GetLastScanStats().Reused, 0u);
-	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 2u);
-	EXPECT_EQ(Registry.GetLastScanStats().HeaderReadAttempts, 2u);
-	EXPECT_GT(Registry.GetLastScanStats().HeaderBytesRead, 0u);
-	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 2u);
-	EXPECT_GE(Registry.GetLastScanStats().DurationMilliseconds, 0.0);
-	EXPECT_EQ(Registry.GetAssets().size(), 2u);
+	const auto FullRefresh = Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation);
+	ASSERT_TRUE(FullRefresh);
+	EXPECT_EQ(FullRefresh.CatalogStats.Reused, 0u);
+	EXPECT_EQ(FullRefresh.CatalogStats.Reparsed, 2u);
+	EXPECT_EQ(FullRefresh.CatalogStats.HeaderReadAttempts, 2u);
+	EXPECT_GT(FullRefresh.CatalogStats.HeaderBytesRead, 0u);
+	EXPECT_EQ(FullRefresh.ReferenceStats.PayloadReadAttempts, 2u);
+	EXPECT_GE(FullRefresh.CatalogStats.DurationMilliseconds, 0.0);
+	EXPECT_EQ(Durin::Asset::CaptureAssetCatalogSnapshot().Assets.size(), 2u);
 
 	const std::array<Durin::uint8, 3> CorruptCache = {1, 2, 3};
 	WriteTestBytes(CacheFile, CorruptCache);
-	ASSERT_TRUE(Registry.ScanMountedContent());
-	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 2u);
-	EXPECT_FALSE(Registry.GetCacheWarning().empty());
-	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 0u);
+	const auto CorruptCacheRefresh = Durin::Asset::RefreshAssetCatalog();
+	ASSERT_TRUE(CorruptCacheRefresh);
+	EXPECT_EQ(CorruptCacheRefresh.CatalogStats.Reparsed, 2u);
+	EXPECT_FALSE(CorruptCacheRefresh.CatalogCacheWarning.empty());
+	EXPECT_EQ(CorruptCacheRefresh.ReferenceStats.PayloadReadAttempts, 0u);
 
 	std::vector<Durin::uint8> IncompatibleCache;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(IncompatibleCache, CacheFile.generic_string()));
 	const Durin::uint32 IncompatibleSchema = 99;
 	std::memcpy(IncompatibleCache.data() + sizeof(Durin::uint32), &IncompatibleSchema, sizeof(IncompatibleSchema));
 	WriteTestBytes(CacheFile, IncompatibleCache);
-	ASSERT_TRUE(Registry.ScanMountedContent());
-	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 2u);
-	EXPECT_FALSE(Registry.GetCacheWarning().empty());
-	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 0u);
+	const auto IncompatibleCacheRefresh = Durin::Asset::RefreshAssetCatalog();
+	ASSERT_TRUE(IncompatibleCacheRefresh);
+	EXPECT_EQ(IncompatibleCacheRefresh.CatalogStats.Reparsed, 2u);
+	EXPECT_FALSE(IncompatibleCacheRefresh.CatalogCacheWarning.empty());
+	EXPECT_EQ(IncompatibleCacheRefresh.ReferenceStats.PayloadReadAttempts, 0u);
 
 	std::filesystem::create_directories(ContentB);
 	for (const auto& Source : {Alpha, ContentA / "Delta.dasset"})
@@ -4220,26 +4318,30 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 		std::filesystem::last_write_time(Destination, std::filesystem::last_write_time(Source));
 	}
 	Durin::PathUtilities::RegisterMountPointForTests("/TestAssets/", ContentB.generic_string() + "/");
-	ASSERT_TRUE(Registry.ScanMountedContent());
-	EXPECT_EQ(Registry.GetLastScanStats().Reused, 2u);
-	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 0u);
-	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 0u);
+	const auto RelocatedMountRefresh = Durin::Asset::RefreshAssetCatalog();
+	ASSERT_TRUE(RelocatedMountRefresh);
+	EXPECT_EQ(RelocatedMountRefresh.CatalogStats.Reused, 2u);
+	EXPECT_EQ(RelocatedMountRefresh.CatalogStats.Reparsed, 0u);
+	EXPECT_EQ(RelocatedMountRefresh.ReferenceStats.PayloadReadAttempts, 0u);
 
 	const auto AdditionalContent = WorkRoot / "AdditionalContent";
 	std::filesystem::create_directories(AdditionalContent);
 	Durin::PathUtilities::RegisterMountPointForTests("/Additional/", AdditionalContent.generic_string() + "/");
-	ASSERT_TRUE(Registry.ScanMountedContent());
-	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 2u);
-	EXPECT_NE(Registry.GetCacheWarning().find("mount manifest changed"), std::string::npos);
-	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 0u);
+	const auto ManifestRefresh = Durin::Asset::RefreshAssetCatalog();
+	ASSERT_TRUE(ManifestRefresh);
+	EXPECT_EQ(ManifestRefresh.CatalogStats.Reparsed, 2u);
+	EXPECT_NE(ManifestRefresh.CatalogCacheWarning.find("mount manifest changed"), std::string::npos);
+	EXPECT_EQ(ManifestRefresh.ReferenceStats.PayloadReadAttempts, 0u);
 
 	const auto BlockedCacheRoot = WorkRoot / "BlockedCacheRoot";
 	WriteTestBytes(BlockedCacheRoot, CorruptCache);
 	Durin::FPaths::SetDerivedDataCacheDirForTests(BlockedCacheRoot.generic_string());
-	ASSERT_TRUE(Registry.ScanMountedContent(Durin::Asset::EAssetRegistryScanMode::FullValidation));
-	EXPECT_EQ(Registry.GetAssets().size(), 2u);
-	EXPECT_FALSE(Registry.GetCacheWarning().empty());
-	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 2u);
+	const auto BlockedCacheRefresh = Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation);
+	ASSERT_TRUE(BlockedCacheRefresh);
+	EXPECT_EQ(Durin::Asset::CaptureAssetCatalogSnapshot().Assets.size(), 2u);
+	EXPECT_FALSE(BlockedCacheRefresh.CatalogCacheWarning.empty());
+	EXPECT_EQ(BlockedCacheRefresh.ReferenceStats.PayloadReadAttempts, 2u);
 }
 
 TEST(FPackageAssetTests, RegistryDuplicatePathsReadOnlyTheAcceptedReferenceSource)
@@ -4260,7 +4362,7 @@ TEST(FPackageAssetTests, RegistryDuplicatePathsReadOnlyTheAcceptedReferenceSourc
 	ASSERT_TRUE(Durin::Asset::CreateAsset(SeedPath, SeedAsset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(SeedAsset->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(SeedPath));
-	const auto* SeedData = Durin::Asset::GetAssetRegistry().FindAssetExact(SeedPath);
+	const auto SeedData = Durin::Asset::FindAssetExact(SeedPath);
 	ASSERT_NE(SeedData, nullptr);
 	const std::filesystem::path SeedFile = SeedData->PhysicalPath;
 	std::filesystem::copy_file(SeedFile, RootA / "Nested" / "Duplicate.dasset");
@@ -4284,15 +4386,23 @@ TEST(FPackageAssetTests, RegistryDuplicatePathsReadOnlyTheAcceptedReferenceSourc
 	Durin::PathUtilities::FScopedMountRegistryFixture Mounts(Definitions);
 	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
-	auto& Registry = Durin::Asset::GetAssetRegistry();
-	ASSERT_TRUE(Registry.ScanMountedContent(
-		Durin::Asset::EAssetRegistryScanMode::FullValidation));
-	EXPECT_EQ(Registry.GetLastScanStats().Enumerated, 2u);
-	EXPECT_EQ(Registry.GetLastScanStats().Failed, 1u);
-	EXPECT_EQ(Registry.GetAssets().size(), 1u);
-	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 1u);
+	const Durin::Asset::FAssetCatalogSnapshot BeforeRefresh =
+		Durin::Asset::CaptureAssetCatalogSnapshot();
+	const Durin::Asset::FAssetCatalogRefreshResult Refresh =
+		Durin::Asset::RefreshAssetCatalog(
+			Durin::Asset::EAssetRegistryScanMode::FullValidation);
+	EXPECT_FALSE(Refresh);
+	EXPECT_FALSE(Refresh.bCatalogComplete);
+	EXPECT_TRUE(Refresh.bRetainedPriorRevision);
+	EXPECT_EQ(Refresh.CatalogStats.Enumerated, 2u);
+	EXPECT_EQ(Refresh.CatalogStats.Failed, 1u);
+	EXPECT_EQ(Refresh.ReferenceStats.PayloadReadAttempts, 1u);
+	const Durin::Asset::FAssetCatalogSnapshot AfterRefresh =
+		Durin::Asset::CaptureAssetCatalogSnapshot();
+	EXPECT_EQ(AfterRefresh.Revision, BeforeRefresh.Revision);
+	EXPECT_EQ(AfterRefresh.Assets, BeforeRefresh.Assets);
 	EXPECT_TRUE(std::ranges::any_of(
-		Registry.GetScanErrors(),
+		Refresh.Errors,
 		[](const Durin::Asset::FAssetResult& Error) {
 			return Error.Error == Durin::Asset::EAssetError::AlreadyExists;
 		}));
@@ -4308,9 +4418,9 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 	std::filesystem::create_directories(ContentRoot);
 	Durin::PathUtilities::RegisterMountPointForTests("/TestAssets/", ContentRoot.generic_string() + "/");
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
-	auto& Registry = Durin::Asset::GetAssetRegistry();
-	ASSERT_TRUE(Registry.ScanMountedContent(Durin::Asset::EAssetRegistryScanMode::FullValidation));
-	const Durin::uint64 EmptyRegistryRevision = Registry.GetRevision();
+	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	const Durin::uint64 EmptyRegistryRevision = Durin::Asset::GetAssetCatalogRevision();
 
 	Durin::FAssetPath FirstPath;
 	Durin::FAssetPath MovedPath;
@@ -4321,52 +4431,59 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 
 	DPackageAssetForTest* FirstAsset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(FirstPath, FirstAsset));
-	EXPECT_EQ(Registry.GetRevision(), EmptyRegistryRevision);
-	EXPECT_TRUE(Registry.IsPersistentSnapshotDirty());
+	EXPECT_EQ(Durin::Asset::GetAssetCatalogRevision(), EmptyRegistryRevision);
+	EXPECT_FALSE(Durin::Asset::IsAssetCatalogSnapshotDirtyForTesting());
+	EXPECT_EQ(Durin::Asset::FindDraftPackage(FirstPath), FirstAsset->GetPackage());
 	ASSERT_TRUE(Durin::Asset::SavePackage(FirstAsset->GetPackage()));
-	EXPECT_GT(Registry.GetRevision(), EmptyRegistryRevision);
-	EXPECT_TRUE(Registry.IsPersistentSnapshotDirty());
+	EXPECT_GT(Durin::Asset::GetAssetCatalogRevision(), EmptyRegistryRevision);
+	EXPECT_TRUE(Durin::Asset::IsAssetCatalogSnapshotDirtyForTesting());
 	ShutdownAssetManagerForRestart();
-	EXPECT_FALSE(Registry.IsPersistentSnapshotDirty());
-	ASSERT_TRUE(Registry.ScanMountedContent());
-	EXPECT_EQ(Registry.GetLastScanStats().Reused, 1u);
-	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 0u);
+	EXPECT_FALSE(Durin::Asset::IsAssetCatalogSnapshotDirtyForTesting());
+	const auto FirstWarmRefresh = Durin::Asset::RefreshAssetCatalog();
+	ASSERT_TRUE(FirstWarmRefresh);
+	EXPECT_EQ(FirstWarmRefresh.CatalogStats.Reused, 1u);
+	EXPECT_EQ(FirstWarmRefresh.CatalogStats.Reparsed, 0u);
 
 	Durin::DObject* Reloaded = nullptr;
-	const Durin::uint64 RevisionBeforeLoad = Registry.GetRevision();
+	const Durin::uint64 RevisionBeforeLoad = Durin::Asset::GetAssetCatalogRevision();
 	ASSERT_TRUE(Durin::Asset::LoadAsset(FirstPath, Reloaded));
-	EXPECT_EQ(Registry.GetRevision(), RevisionBeforeLoad);
-	EXPECT_TRUE(Registry.IsPersistentSnapshotDirty());
+	EXPECT_EQ(Durin::Asset::GetAssetCatalogRevision(), RevisionBeforeLoad);
+	EXPECT_FALSE(Durin::Asset::IsAssetCatalogSnapshotDirtyForTesting());
 	ShutdownAssetManagerForRestart();
-	ASSERT_TRUE(Registry.ScanMountedContent());
-	EXPECT_EQ(Registry.GetLastScanStats().Reused, 1u);
-	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 0u);
+	const auto SecondWarmRefresh = Durin::Asset::RefreshAssetCatalog();
+	ASSERT_TRUE(SecondWarmRefresh);
+	EXPECT_EQ(SecondWarmRefresh.CatalogStats.Reused, 1u);
+	EXPECT_EQ(SecondWarmRefresh.CatalogStats.Reparsed, 0u);
 
 	ASSERT_TRUE(RelocateAssetForTest(FirstPath, MovedPath));
-	EXPECT_TRUE(Registry.IsPersistentSnapshotDirty());
+	EXPECT_TRUE(Durin::Asset::IsAssetCatalogSnapshotDirtyForTesting());
 	ShutdownAssetManagerForRestart();
-	ASSERT_TRUE(Registry.ScanMountedContent());
-	EXPECT_EQ(Registry.GetLastScanStats().Reused, 2u);
-	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 0u);
-	ASSERT_NE(Registry.FindAssetExact(FirstPath), nullptr);
-	EXPECT_EQ(Registry.FindAssetExact(FirstPath)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Redirector);
-	EXPECT_NE(Registry.FindAssetExact(MovedPath), nullptr);
+	const auto RelocatedRefresh = Durin::Asset::RefreshAssetCatalog();
+	ASSERT_TRUE(RelocatedRefresh);
+	EXPECT_EQ(RelocatedRefresh.CatalogStats.Reused, 2u);
+	EXPECT_EQ(RelocatedRefresh.CatalogStats.Reparsed, 0u);
+	ASSERT_NE(Durin::Asset::FindAssetExact(FirstPath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(FirstPath)->EntryKind,
+		Durin::Asset::EAssetRegistryEntryKind::Redirector);
+	EXPECT_NE(Durin::Asset::FindAssetExact(MovedPath), nullptr);
 
 	DPackageAssetForTest* ImportedAsset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(ImportedPath, ImportedAsset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(ImportedAsset->GetPackage()));
 	ShutdownAssetManagerForRestart();
-	ASSERT_TRUE(Registry.ScanMountedContent());
-	EXPECT_EQ(Registry.GetLastScanStats().Reused, 3u);
-	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 0u);
+	const auto ImportedRefresh = Durin::Asset::RefreshAssetCatalog();
+	ASSERT_TRUE(ImportedRefresh);
+	EXPECT_EQ(ImportedRefresh.CatalogStats.Reused, 3u);
+	EXPECT_EQ(ImportedRefresh.CatalogStats.Reparsed, 0u);
 
 	ASSERT_TRUE(DeleteAssetClosureForTest({FirstPath, MovedPath}));
-	EXPECT_TRUE(Registry.IsPersistentSnapshotDirty());
+	EXPECT_TRUE(Durin::Asset::IsAssetCatalogSnapshotDirtyForTesting());
 	ShutdownAssetManagerForRestart();
-	ASSERT_TRUE(Registry.ScanMountedContent());
-	EXPECT_EQ(Registry.GetLastScanStats().Reused, 1u);
-	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 0u);
-	EXPECT_EQ(Registry.FindAssetExact(MovedPath), nullptr);
+	const auto DeletedRefresh = Durin::Asset::RefreshAssetCatalog();
+	ASSERT_TRUE(DeletedRefresh);
+	EXPECT_EQ(DeletedRefresh.CatalogStats.Reused, 1u);
+	EXPECT_EQ(DeletedRefresh.CatalogStats.Reparsed, 0u);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(MovedPath), nullptr);
 
 	const auto BlockedCacheRoot = WorkRoot / "BlockedCacheRoot";
 	const std::array<Durin::uint8, 3> Blocker = {1, 2, 3};
@@ -4380,15 +4497,15 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 	std::vector<Durin::uint8> BeforeFailedFlush;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BeforeFailedFlush, AuthoredFile.generic_string()));
 	ShutdownAssetManagerForRestart();
-	EXPECT_TRUE(Registry.IsPersistentSnapshotDirty());
-	EXPECT_FALSE(Registry.GetCacheWarning().empty());
+	EXPECT_TRUE(Durin::Asset::IsAssetCatalogSnapshotDirtyForTesting());
+	EXPECT_FALSE(Durin::Asset::GetAssetCatalogCacheWarningForTesting().empty());
 	std::vector<Durin::uint8> AfterFailedFlush;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(AfterFailedFlush, AuthoredFile.generic_string()));
 	EXPECT_EQ(AfterFailedFlush, BeforeFailedFlush);
 
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
 	ShutdownAssetManagerForRestart();
-	EXPECT_FALSE(Registry.IsPersistentSnapshotDirty());
+	EXPECT_FALSE(Durin::Asset::IsAssetCatalogSnapshotDirtyForTesting());
 }
 
 TEST(FPackageAssetTests, SoftReferenceCacheUsesCheapMetadataAndFullValidationWithoutLoadingTargets)
@@ -4420,13 +4537,14 @@ TEST(FPackageAssetTests, SoftReferenceCacheUsesCheapMetadataAndFullValidationWit
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(TargetAPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(TargetBPath));
 
-	auto& Registry = Durin::Asset::GetAssetRegistry();
-	ASSERT_TRUE(Registry.ScanMountedContent(
-		Durin::Asset::EAssetRegistryScanMode::FullValidation));
-	EXPECT_GT(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 0u);
-	EXPECT_GT(Registry.GetReferenceIndex().GetStats().PayloadBytesRead, 512u * 1024u);
+	const auto InitialRefresh = Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation);
+	ASSERT_TRUE(InitialRefresh);
+	EXPECT_GT(InitialRefresh.ReferenceStats.PayloadReadAttempts, 0u);
+	EXPECT_GT(InitialRefresh.ReferenceStats.PayloadBytesRead, 512u * 1024u);
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(TargetAPath), nullptr);
-	EXPECT_EQ(Registry.GetReferenceIndex().FindTargets(OwnerPath), (std::vector<Durin::FAssetPath>{TargetAPath}));
+	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(OwnerPath),
+		(std::vector<Durin::FAssetPath>{TargetAPath}));
 	const auto CacheFile = CacheRoot / "AssetRegistry" / "References.bin";
 	ASSERT_TRUE(std::filesystem::is_regular_file(CacheFile));
 	std::vector<Durin::uint8> FirstCache;
@@ -4434,18 +4552,19 @@ TEST(FPackageAssetTests, SoftReferenceCacheUsesCheapMetadataAndFullValidationWit
 		FirstCache, CacheFile.generic_string()
 	));
 
-	ASSERT_TRUE(Registry.ScanMountedContent());
-	EXPECT_GT(Registry.GetReferenceIndex().GetStats().ReusedSources, 0u);
-	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().ExtractedSources, 0u);
-	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 0u);
-	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadBytesRead, 0u);
+	const auto WarmRefresh = Durin::Asset::RefreshAssetCatalog();
+	ASSERT_TRUE(WarmRefresh);
+	EXPECT_GT(WarmRefresh.ReferenceStats.ReusedSources, 0u);
+	EXPECT_EQ(WarmRefresh.ReferenceStats.ExtractedSources, 0u);
+	EXPECT_EQ(WarmRefresh.ReferenceStats.PayloadReadAttempts, 0u);
+	EXPECT_EQ(WarmRefresh.ReferenceStats.PayloadBytesRead, 0u);
 	std::vector<Durin::uint8> SecondCache;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		SecondCache, CacheFile.generic_string()
 	));
 	EXPECT_EQ(SecondCache, FirstCache);
 
-	const auto* OwnerData = Registry.FindAssetExact(OwnerPath);
+	const auto OwnerData = Durin::Asset::FindAssetExact(OwnerPath);
 	ASSERT_NE(OwnerData, nullptr);
 	const std::filesystem::path OwnerFile = OwnerData->PhysicalPath;
 	const auto PreservedTime = std::filesystem::last_write_time(OwnerFile);
@@ -4454,32 +4573,36 @@ TEST(FPackageAssetTests, SoftReferenceCacheUsesCheapMetadataAndFullValidationWit
 	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
 	std::filesystem::last_write_time(OwnerFile, PreservedTime);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(OwnerPath));
-	ASSERT_TRUE(Registry.ScanMountedContent());
-	EXPECT_GT(Registry.GetReferenceIndex().GetStats().ReusedSources, 0u);
-	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 0u);
-	EXPECT_EQ(Registry.GetReferenceIndex().FindTargets(OwnerPath),
+	const auto PreservedTimestampRefresh = Durin::Asset::RefreshAssetCatalog();
+	ASSERT_TRUE(PreservedTimestampRefresh);
+	EXPECT_GT(PreservedTimestampRefresh.ReferenceStats.ReusedSources, 0u);
+	EXPECT_EQ(PreservedTimestampRefresh.ReferenceStats.PayloadReadAttempts, 0u);
+	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(OwnerPath),
 		(std::vector<Durin::FAssetPath>{TargetAPath}));
-	ASSERT_TRUE(Registry.ScanMountedContent(
-		Durin::Asset::EAssetRegistryScanMode::FullValidation));
-	EXPECT_GT(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 0u);
-	EXPECT_EQ(Registry.GetReferenceIndex().FindTargets(OwnerPath),
+	const auto FullRefresh = Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation);
+	ASSERT_TRUE(FullRefresh);
+	EXPECT_GT(FullRefresh.ReferenceStats.PayloadReadAttempts, 0u);
+	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(OwnerPath),
 		(std::vector<Durin::FAssetPath>{TargetBPath}));
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(TargetBPath), nullptr);
 	std::filesystem::last_write_time(
 		OwnerFile, std::filesystem::last_write_time(OwnerFile) + std::chrono::seconds(2));
-	ASSERT_TRUE(Registry.ScanMountedContent());
-	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 1u);
-	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().ExtractedSources, 1u);
-	EXPECT_GT(Registry.GetReferenceIndex().GetStats().ReusedSources, 0u);
-	EXPECT_GT(Registry.GetReferenceIndex().GetStats().PayloadBytesRead, 512u * 1024u);
+	const auto ModifiedTimestampRefresh = Durin::Asset::RefreshAssetCatalog();
+	ASSERT_TRUE(ModifiedTimestampRefresh);
+	EXPECT_EQ(ModifiedTimestampRefresh.ReferenceStats.PayloadReadAttempts, 1u);
+	EXPECT_EQ(ModifiedTimestampRefresh.ReferenceStats.ExtractedSources, 1u);
+	EXPECT_GT(ModifiedTimestampRefresh.ReferenceStats.ReusedSources, 0u);
+	EXPECT_GT(ModifiedTimestampRefresh.ReferenceStats.PayloadBytesRead, 512u * 1024u);
 
 	const std::array<Durin::uint8, 3> CorruptCache = {1, 2, 3};
 	WriteTestBytes(CacheFile, CorruptCache);
-	ASSERT_TRUE(Registry.ScanMountedContent());
-	EXPECT_FALSE(Registry.GetReferenceIndex().GetCacheWarning().empty());
-	EXPECT_GT(Registry.GetReferenceIndex().GetStats().ExtractedSources, 0u);
-	EXPECT_GT(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 0u);
-	EXPECT_EQ(Registry.GetReferenceIndex().FindTargets(OwnerPath),
+	const auto CorruptCacheRefresh = Durin::Asset::RefreshAssetCatalog();
+	ASSERT_TRUE(CorruptCacheRefresh);
+	EXPECT_FALSE(CorruptCacheRefresh.ReferenceCacheWarning.empty());
+	EXPECT_GT(CorruptCacheRefresh.ReferenceStats.ExtractedSources, 0u);
+	EXPECT_GT(CorruptCacheRefresh.ReferenceStats.PayloadReadAttempts, 0u);
+	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(OwnerPath),
 		(std::vector<Durin::FAssetPath>{TargetBPath}));
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(TargetBPath), nullptr);
 	std::vector<Durin::uint8> RecoveredCache;

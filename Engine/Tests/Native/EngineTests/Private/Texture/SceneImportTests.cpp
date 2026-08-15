@@ -1,7 +1,7 @@
 #include "TextureTestSupport.h"
 
 #include "Animation/AnimationClip.h"
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "ImportRecord.h"
 #include "Materials/MaterialInstance.h"
 #include "SceneImport.h"
@@ -420,13 +420,15 @@ TEST(FSceneImportTests, SkeletalStaleCollisionPublishesNothing)
 	EXPECT_FALSE(Executed);
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(
 		Planned.Plan.GetMultiOutputPlan().GetRecordPath()), nullptr);
+	EXPECT_EQ(Durin::Asset::FindDraftPackage(
+		Planned.Plan.GetMultiOutputPlan().GetRecordPath()), nullptr);
 	for (const Durin::Asset::Import::FImportOutputPreview& Output : Generic.GetOutputs())
 	{
-		Durin::DPackage* Loaded = Durin::Asset::FindLoadedPackage(Output.AssetPath);
+		Durin::DPackage* Draft = Durin::Asset::FindDraftPackage(Output.AssetPath);
 		if (Output.AssetPath == SkeletonOutput->AssetPath)
-			EXPECT_EQ(Loaded, Occupant->GetPackage());
+			EXPECT_EQ(Draft, Occupant->GetPackage());
 		else
-			EXPECT_EQ(Loaded, nullptr);
+			EXPECT_EQ(Draft, nullptr);
 	}
 }
 

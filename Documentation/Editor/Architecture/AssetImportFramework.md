@@ -22,9 +22,11 @@ state exchanges and AssetCore transactions.
 The dependency direction is `Core/CoreDObject -> AssetCore -> AssetImportCore
 -> provider modules -> editor hosts`.
 
-- `AssetCore` owns packages, the registry, disposable DDC objects, unpublished
-  packages, and failure-atomic package-bundle publication. It has no knowledge
-  of providers or concrete imported asset classes.
+- `AssetCore` owns packages, the private catalog store, disposable DDC objects,
+  unpublished drafts, and failure-atomic package-bundle publication. Import
+  code consumes catalog values and uses `DiscardUnpublishedPackage` for failed
+  candidate rollback; a draft never masquerades as runtime residency. AssetCore
+  has no knowledge of providers or concrete imported asset classes.
 - `AssetImportCore` owns source snapshots, provider discovery, generic plans,
   diagnostics, candidates, import records, record indexing, and synchronous and
   asynchronous orchestration.

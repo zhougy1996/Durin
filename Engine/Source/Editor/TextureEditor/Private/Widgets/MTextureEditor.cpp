@@ -2,7 +2,7 @@
 
 #include "Asset/WorkspaceAssetOpenCompatibility.h"
 #include "AssetImportCore.h"
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
 #include "Dialogs/FileDialog.h"

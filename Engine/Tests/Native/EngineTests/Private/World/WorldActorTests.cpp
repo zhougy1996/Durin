@@ -204,7 +204,7 @@ TEST(FNativeConstructionTests, RepeatedDerivedReconciliationDoesNotDirtyTheLevel
 	ASSERT_TRUE(Actor->RequestNativeReconstruction());
 	EXPECT_FALSE(Level->GetPackage()->IsDirty());
 	EXPECT_EQ(Level->GetPackage()->GetEditRevision(), Revision);
-	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
+	EXPECT_TRUE(Durin::Asset::DiscardUnpublishedPackage(Level->GetPackage()));
 }
 
 TEST(FWorldTests, SkeletalMeshActorOwnsDefaultRootComponent)

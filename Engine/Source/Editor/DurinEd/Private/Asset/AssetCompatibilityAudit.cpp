@@ -1,6 +1,6 @@
 #include "Asset/AssetCompatibilityAudit.h"
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 
 namespace Durin::Editor
 {
@@ -143,7 +143,7 @@ namespace Durin::Editor
 
 	auto FAssetCompatibilityAuditModel::RunCurrentProjectAudit() -> bool
 	{
-		return RunAudit(Asset::GetAssetRegistry().GetAssets(),
+		return RunAudit(Asset::CaptureAssetCatalogSnapshot().Assets,
 			Asset::FReflectionCompatibilityCatalog::Capture());
 	}
 

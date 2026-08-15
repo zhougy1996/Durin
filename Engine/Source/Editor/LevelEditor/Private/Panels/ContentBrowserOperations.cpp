@@ -1,6 +1,6 @@
 #include "Panels/ContentBrowserOperations.h"
 
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "Engine/Level.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -289,7 +289,8 @@ namespace Durin::Editor::Level
 		std::vector<FEditorAssetMove> Moves;
 		std::unordered_set<std::string> ManagedFiles;
 		std::vector<std::filesystem::path> RelativeDirectories;
-		for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
+		for (const auto& [Path, Data]
+			: Asset::CaptureAssetCatalogSnapshot().Assets)
 		{
 			if (!PathUtilities::IsLexicalDescendantPath(
 					NormalizePath(Data.PhysicalPath), Item.PhysicalPath, true))
@@ -307,8 +308,8 @@ namespace Durin::Editor::Level
 				return {
 					Asset::EAssetError::InvalidPath,
 					"The destination contains an invalid asset path."};
-			if (const Asset::FAssetData* Existing =
-					Asset::GetAssetRegistry().FindAssetExact(NewPath))
+			if (const Asset::FAssetCatalogEntry Existing =
+					Asset::FindAssetExact(NewPath))
 				return {
 					Asset::EAssetError::AlreadyExists,
 					Existing->EntryKind == Asset::EAssetRegistryEntryKind::Redirector
@@ -318,7 +319,7 @@ namespace Durin::Editor::Level
 						: std::format(
 							"Asset {} already exists. Choose another folder name or remove the existing asset.",
 							NewPath.ToString())};
-			if (Asset::FindLoadedPackage(NewPath))
+			if (Asset::FindLoadedPackage(NewPath) || Asset::FindDraftPackage(NewPath))
 				return {
 					Asset::EAssetError::AlreadyExists,
 					std::format(
@@ -527,8 +528,9 @@ namespace Durin::Editor::Level
 				? "NewLevel"
 				: std::format("NewLevel{}", Suffix + 1);
 			if (!FAssetPath::TryCreate(Directory + Name, AssetPath)) continue;
-			if (!Asset::GetAssetRegistry().FindAssetExact(AssetPath)
-				&& !Asset::FindLoadedPackage(AssetPath))
+			if (!Asset::FindAssetExact(AssetPath)
+				&& !Asset::FindLoadedPackage(AssetPath)
+				&& !Asset::FindDraftPackage(AssetPath))
 			{
 				bFoundPath = true;
 				break;
@@ -574,8 +576,9 @@ namespace Durin::Editor::Level
 				? BaseName
 				: std::format("{}{}", BaseName, Suffix + 1);
 			if (!FAssetPath::TryCreate(Directory + Name, AssetPath)) continue;
-			if (!Asset::GetAssetRegistry().FindAssetExact(AssetPath)
-				&& !Asset::FindLoadedPackage(AssetPath))
+			if (!Asset::FindAssetExact(AssetPath)
+				&& !Asset::FindLoadedPackage(AssetPath)
+				&& !Asset::FindDraftPackage(AssetPath))
 			{
 				bFoundPath = true;
 				break;
@@ -631,7 +634,8 @@ namespace Durin::Editor::Level
 		std::string Prefix(VirtualDirectory);
 		if (!Prefix.empty() && !Prefix.ends_with('/')) Prefix += '/';
 		std::vector<FAssetPath> Redirectors;
-		for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
+		for (const auto& [Path, Data]
+			: Asset::CaptureAssetCatalogSnapshot().Assets)
 		{
 			if (Data.EntryKind != Asset::EAssetRegistryEntryKind::Redirector)
 				continue;
@@ -712,7 +716,7 @@ namespace Durin::Editor::Level
 		-> FContentDeletionPlanPtr
 	{
 		auto Plan = std::make_shared<FContentDeletionPlan>();
-		Plan->RegistryRevision = Asset::GetAssetRegistry().GetRevision();
+		Plan->RegistryRevision = Asset::GetAssetCatalogRevision();
 		Plan->StagingVolumeRoot = NormalizePath(
 			(std::filesystem::path(FPaths::ProjectDir())
 				/ "Saved/ContentBrowserUndo").generic_string());
@@ -826,8 +830,10 @@ namespace Durin::Editor::Level
 		else
 			Plan->DisplayName = std::format("{} Items", MaximalRoots.size());
 
+		const Asset::FAssetCatalogSnapshot Catalog =
+			Asset::CaptureAssetCatalogSnapshot();
 		std::unordered_map<std::string, const Asset::FAssetData*> AssetsByPhysicalPath;
-		for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
+		for (const auto& [Path, Data] : Catalog.Assets)
 			AssetsByPhysicalPath.emplace(NormalizePath(Data.PhysicalPath), &Data);
 		std::vector<FAssetPath> AssetPaths;
 		std::vector<std::filesystem::path> PhysicalRoots;
@@ -1158,7 +1164,7 @@ namespace Durin::Editor::Level
 		const FContentDeletionPlan& Plan) const -> bool
 	{
 		if (!Plan.CanExecute()
-			|| Plan.RegistryRevision != Asset::GetAssetRegistry().GetRevision())
+			|| Plan.RegistryRevision != Asset::GetAssetCatalogRevision())
 			return false;
 		std::vector<FContentBrowserItem> Items;
 		std::unordered_set<std::string> Selection;

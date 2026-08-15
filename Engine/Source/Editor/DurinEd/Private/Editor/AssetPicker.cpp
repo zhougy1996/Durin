@@ -1,6 +1,6 @@
 #include "Editor/AssetPicker.h"
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
 #include "Misc/StringHelper.h"
@@ -56,7 +56,7 @@ namespace Durin::Editor::AssetPicker
 		auto GetPickerCache() -> FAssetPickerCache&
 		{
 			static FAssetPickerCache Cache;
-			const uint64 RegistryRevision = Asset::GetAssetRegistry().GetRevision();
+			const uint64 RegistryRevision = Asset::GetAssetCatalogRevision();
 			if (Cache.RegistryRevision != RegistryRevision)
 			{
 				Cache.RegistryRevision = RegistryRevision;
@@ -72,8 +72,10 @@ namespace Durin::Editor::AssetPicker
 			if (!bInserted) return Iterator->second;
 
 			std::vector<FAssetPath>& Paths = Iterator->second;
-			Paths.reserve(Asset::GetAssetRegistry().GetAssets().size());
-			for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
+			const Asset::FAssetCatalogSnapshot Snapshot =
+				Asset::CaptureAssetCatalogSnapshot();
+			Paths.reserve(Snapshot.Assets.size());
+			for (const auto& [Path, Data] : Snapshot.Assets)
 			{
 				if (Data.EntryKind == Asset::EAssetRegistryEntryKind::Redirector)
 					continue;

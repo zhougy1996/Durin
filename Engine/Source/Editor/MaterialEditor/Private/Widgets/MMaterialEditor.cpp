@@ -3,7 +3,7 @@
 #include "Widgets/MaterialPreview.h"
 
 #include "Asset/WorkspaceAssetOpenCompatibility.h"
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "DObject/Package.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Editor/AssetPicker.h"

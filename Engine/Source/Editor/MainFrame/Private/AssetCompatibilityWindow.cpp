@@ -1,7 +1,7 @@
 #include "AssetCompatibilityWindow.h"
 
 #include "AssetCanonicalResave.h"
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "MonaImGui.h"
 #include "Misc/Paths.h"
 
@@ -69,7 +69,7 @@ namespace Durin::Editor::MainFrame
 		}
 
 		// Comparison only: this does not scan the registry or touch package bytes.
-		Audit.Tick(Asset::GetAssetRegistry().GetAssets());
+		Audit.Tick(Asset::CaptureAssetCatalogSnapshot().Assets);
 		TickCanonicalResave();
 		const auto State = Audit.GetState();
 		if (State == Editor::EAssetCompatibilityAuditState::Running)
@@ -286,7 +286,7 @@ namespace Durin::Editor::MainFrame
 			return;
 		}
 		Asset::FAssetCanonicalResavePlan Unit;
-		Unit.RegistryRevision = Asset::GetAssetRegistry().GetRevision();
+		Unit.RegistryRevision = Asset::GetAssetCatalogRevision();
 		Unit.Packages.push_back(*Ready);
 		const Asset::FReflectionCompatibilityCatalog Catalog =
 			Asset::FReflectionCompatibilityCatalog::Capture();

@@ -24,12 +24,16 @@ namespace Durin::Asset::Private
 			return {};
 		}
 
-		auto ReadV4Header(std::span<const uint8> Bytes, FAssetPackageHeader& OutHeader)
+		auto ReadV4Header(
+			std::span<const uint8> Bytes,
+			uint64 PackageSize,
+			FAssetPackageHeader& OutHeader)
 			-> FAssetResult
 		{
 			DastV4::FValidatedHeader Header;
 			DastV4::FReaderDiagnostic Diagnostic;
-			if (!DastV4::ReadHeader(Bytes, Header, {}, &Diagnostic))
+			if (!DastV4::ReadHeader(
+				Bytes, Header, {}, &Diagnostic, PackageSize))
 				return {EAssetError::CorruptFile, Diagnostic.Message};
 
 			FAssetPackageHeader Result{
@@ -116,13 +120,17 @@ namespace Durin::Asset::Private
 				{.DeltaMode = DeltaMode, .Serialization = Serialization}, &Diagnostic);
 		}
 
-		auto ReadSyntheticHeader(std::span<const uint8> Bytes, FAssetPackageHeader& OutHeader)
+		auto ReadSyntheticHeader(
+			std::span<const uint8> Bytes,
+			uint64 PackageSize,
+			FAssetPackageHeader& OutHeader)
 			-> FAssetResult
 		{
 			std::vector<uint8> Normalized;
 			if (FAssetResult Result = NormalizeSyntheticBytes(Bytes, Normalized); !Result)
 				return Result;
-			if (FAssetResult Result = ReadV4Header(Normalized, OutHeader); !Result)
+			if (FAssetResult Result = ReadV4Header(
+				Normalized, PackageSize, OutHeader); !Result)
 				return Result;
 			OutHeader.FormatVersion = SyntheticAssetPackageFormatVersionForTesting;
 			return {};

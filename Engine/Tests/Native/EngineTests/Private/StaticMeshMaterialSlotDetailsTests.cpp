@@ -1,6 +1,6 @@
 #include "StaticMeshMaterialSlotDetails.h"
 
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/Package.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -199,6 +199,6 @@ TEST(FStaticMeshMaterialSlotDetailsTests, CustomizationHidesCollectionsAndTransa
 	Transactions.Clear();
 	Durin::MarkAsGarbage(Material);
 	Durin::MarkAsGarbage(Mesh);
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	ASSERT_TRUE(Durin::Asset::DiscardUnpublishedPackage(Component->GetPackage()));
 	Durin::CollectGarbage();
 }

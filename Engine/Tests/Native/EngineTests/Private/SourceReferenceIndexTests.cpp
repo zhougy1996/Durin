@@ -49,7 +49,7 @@ TEST(FSourceReferenceIndexTests, BoundsPackageInspectionWork)
 	Index.Refresh(1);
 	EXPECT_LE(Index.GetInspectedPackageCount(), 1u);
 	const size_t SourceBearingAssets = std::ranges::count_if(
-		Durin::Asset::GetAssetRegistry().GetAssets(),
+		Durin::Asset::CaptureAssetCatalogSnapshot().Assets,
 		[](const auto& Entry) {
 			const std::string& ClassName = Entry.second.AssetClassName;
 			return ClassName.find("Texture2D") != std::string::npos

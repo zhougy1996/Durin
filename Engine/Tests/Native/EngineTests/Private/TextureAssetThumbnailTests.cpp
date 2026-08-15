@@ -6,7 +6,7 @@
 
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "Texture/TextureCube.h"
 #include "Texture/Texture2D.h"
 #include "ThirdParty/ImGui/imgui.h"
@@ -73,8 +73,8 @@ TEST(FTextureAssetThumbnailTests, Texture2DProviderCapturesAuthoredSourceImage)
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::ParentTexturePath,
 		TexturePath));
-	const Durin::Asset::FAssetData* Data =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(TexturePath);
+	const Durin::Asset::FAssetCatalogEntry Data =
+		Durin::Asset::FindAssetExact(TexturePath);
 	ASSERT_NE(Data, nullptr);
 	Durin::Editor::Texture::FTexture2DAssetThumbnailProvider Provider;
 	Durin::Editor::FAssetThumbnailSourceImage Source;
@@ -170,8 +170,8 @@ TEST(FTextureCubeAssetThumbnailTests, ProviderCapturesPackageAndCubeVisualContra
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::DirectionalCubePath,
 		CubePath));
-	const Durin::Asset::FAssetData* Data =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(CubePath);
+	const Durin::Asset::FAssetCatalogEntry Data =
+		Durin::Asset::FindAssetExact(CubePath);
 	ASSERT_NE(Data, nullptr);
 
 	Durin::Editor::Texture::FTextureCubeAssetThumbnailProvider Provider;
@@ -219,8 +219,8 @@ TEST(FTextureCubeAssetThumbnailTests,
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::DirectionalCubePath,
 		CubePath));
-	const Durin::Asset::FAssetData* Data =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(CubePath);
+	const Durin::Asset::FAssetCatalogEntry Data =
+		Durin::Asset::FindAssetExact(CubePath);
 	ASSERT_NE(Data, nullptr);
 
 	Durin::Editor::Texture::FTextureCubeAssetThumbnailProvider Provider;

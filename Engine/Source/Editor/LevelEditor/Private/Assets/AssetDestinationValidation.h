@@ -17,6 +17,7 @@ namespace Durin::Editor::Level
 	{
 		bool bRegistryAssetExists = false;
 		bool bLoadedPackageExists = false;
+		bool bDraftPackageExists = false;
 		EAssetDestinationOccupantKind OccupantKind =
 			EAssetDestinationOccupantKind::None;
 		FAssetPath RedirectDestination;
@@ -34,12 +35,16 @@ namespace Durin::Editor::Level
 		bool bMountedDestination = false;
 		bool bRegistryAssetExists = false;
 		bool bLoadedPackageExists = false;
+		bool bDraftPackageExists = false;
 		EAssetDestinationOccupantKind OccupantKind =
 			EAssetDestinationOccupantKind::None;
 		FAssetPath RedirectDestination;
 		std::string Message;
 
-		auto AssetExists() const -> bool { return bRegistryAssetExists || bLoadedPackageExists; }
+		auto AssetExists() const -> bool
+		{
+			return bRegistryAssetExists || bLoadedPackageExists || bDraftPackageExists;
+		}
 		explicit operator bool() const
 		{
 			return bAssetPathValid && bMountedDestination && !AssetExists() && Message.empty();

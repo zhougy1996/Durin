@@ -4,7 +4,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "ApplicationCore.h"
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "RHI.h"
 #include "Mona.h"
 #include "Engine/Engine.h"

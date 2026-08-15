@@ -1,7 +1,7 @@
 #include "Panels/ContentBrowserItemView.h"
 #include "Settings/LevelEditorSessionSettings.h"
 
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "EngineTestSupport.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Misc/Paths.h"
@@ -106,7 +106,7 @@ namespace Durin::Editor::Level
 		ContentBrowserItemView::FTextureCubeDetailsCache Cache;
 		const ContentBrowserItemView::FTextureCubeDetailsSnapshot& Details =
 			Cache.Get(PackagePath.generic_string(),
-				Asset::GetAssetRegistry().GetRevision());
+				Asset::GetAssetCatalogRevision());
 		EXPECT_TRUE(Details.bAvailable);
 		EXPECT_EQ(Details.SourceLayout, "Six Faces");
 		EXPECT_EQ(Details.Source, "-");
@@ -116,7 +116,7 @@ namespace Durin::Editor::Level
 			!= std::string::npos);
 		EXPECT_EQ(Asset::FindLoadedPackage(CubePath), nullptr);
 		Cache.Get(PackagePath.generic_string(),
-			Asset::GetAssetRegistry().GetRevision());
+			Asset::GetAssetCatalogRevision());
 		EXPECT_EQ(Asset::FindLoadedPackage(CubePath), nullptr);
 	}
 

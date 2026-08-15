@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AssetCompatibility.h"
-#include "AssetSystem.h"
+#include "AssetSystemInternal.h"
 #include "DObject/DefaultDeltaPlan.h"
 
 namespace Durin::Asset::Private
@@ -15,7 +15,8 @@ namespace Durin::Asset::Private
 		bool bCanWrite = false;
 		bool bCanMutate = false;
 
-		auto (*ReadHeader)(std::span<const uint8>, FAssetPackageHeader&) -> FAssetResult = nullptr;
+		auto (*ReadHeader)(std::span<const uint8>, uint64, FAssetPackageHeader&)
+			-> FAssetResult = nullptr;
 		auto (*Validate)(std::span<const uint8>) -> FAssetResult = nullptr;
 		auto (*Inspect)(std::span<const uint8>, FAssetPackageInspection&) -> FAssetResult = nullptr;
 		auto (*ExtractReferences)(

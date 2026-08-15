@@ -1,6 +1,6 @@
 #include "Components/SkeletalMeshComponent.h"
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Engine/Level.h"
 #include "Engine/SkeletalMeshSceneProxy.h"

@@ -488,7 +488,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshComponentOverridesRoundTripAfterMeshDep
 	Component->SetMaterial(1, Second);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Component->GetPackage()));
 
-	const auto* ComponentData = Durin::Asset::GetAssetRegistry().FindAssetExact(ComponentPath);
+	const auto ComponentData = Durin::Asset::FindAssetExact(ComponentPath);
 	ASSERT_NE(ComponentData, nullptr);
 	EXPECT_NE(std::ranges::find(ComponentData->Dependencies, MeshPath), ComponentData->Dependencies.end());
 	EXPECT_NE(std::ranges::find(ComponentData->Dependencies, FirstMaterialPath), ComponentData->Dependencies.end());
@@ -570,8 +570,8 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	Instance->SetVector2ParameterValue(Durin::FName("BaseColorUVOffset"), Durin::FVector2(0.25, 0.5));
 	Instance->SetTextureParameterValue(Durin::MaterialParameters::BaseColorTextureName(), TextureImport.Asset);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Instance->GetPackage()));
-	const Durin::Asset::FAssetData* InstanceData =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(InstancePath);
+	const Durin::Asset::FAssetCatalogEntry InstanceData =
+		Durin::Asset::FindAssetExact(InstancePath);
 	ASSERT_NE(InstanceData, nullptr);
 	EXPECT_NE(std::ranges::find(InstanceData->Dependencies, BasePath), InstanceData->Dependencies.end());
 	EXPECT_NE(std::ranges::find(InstanceData->Dependencies, TexturePath), InstanceData->Dependencies.end());

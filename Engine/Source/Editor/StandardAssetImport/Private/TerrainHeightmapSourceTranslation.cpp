@@ -2,7 +2,7 @@
 
 #include "EncodedSourceSnapshot.h"
 #include "Image/ImageDecoder.h"
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "Misc/Paths.h"
 #include "Asset/MountedSource.h"
 #include "Terrain/TerrainHeightmap.h"
@@ -211,8 +211,9 @@ namespace Durin::Asset::Import::Standard
 		std::string Error;
 		if (!FAssetPath::TryCreate(AssetPath, ParsedPath, &Error))
 			return {false, std::move(Error), nullptr};
-		if (Asset::GetAssetRegistry().FindAssetExact(ParsedPath)
-			|| Asset::FindLoadedPackage(ParsedPath))
+		if (Asset::FindAssetExact(ParsedPath)
+			|| Asset::FindLoadedPackage(ParsedPath)
+			|| Asset::FindDraftPackage(ParsedPath))
 			return {false, std::format("Asset {} already exists.", ParsedPath.ToString()), nullptr};
 		std::string StoredSourcePath;
 		if (!MakeCanonicalSourceLocation(
@@ -235,14 +236,14 @@ namespace Durin::Asset::Import::Standard
 		if (!BuildFromMountedSource(*Heightmap, MountedSource, Error))
 		{
 			RollbackMountedSourceFile(MountedSource);
-			Asset::UnloadPackage(ParsedPath);
+			Asset::DiscardUnpublishedPackage(Heightmap->GetPackage());
 			return {false, std::move(Error), nullptr};
 		}
 		const Asset::FAssetResult Saved = Asset::SavePackage(Heightmap->GetPackage());
 		if (!Saved)
 		{
 			RollbackMountedSourceFile(MountedSource);
-			Asset::UnloadPackage(ParsedPath);
+			Asset::DiscardUnpublishedPackage(Heightmap->GetPackage());
 			return {false, Saved.Message, nullptr};
 		}
 		CommitMountedSourceFile(MountedSource);

@@ -1,6 +1,6 @@
 #include "CoreMinimal.h"
 
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "EnvironmentLighting/EnvironmentLighting.h"
@@ -52,7 +52,7 @@ auto main(int ArgumentCount, char** Arguments) -> int
 		std::cerr << "Failed to mount Engine Content: " << Error << '\n';
 		return 1;
 	}
-	Durin::Asset::FAssetManager::Get().Initialize();
+	Durin::Asset::InitializeAssetManager();
 
 	std::cout << "Generating default studio environment...\n";
 	Durin::FEnvironmentLightingData Data =

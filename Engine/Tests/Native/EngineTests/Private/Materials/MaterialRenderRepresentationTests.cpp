@@ -73,6 +73,8 @@ TEST(FDefaultMaterialServiceTests, LoadsAndRetainsOneNeutralAuthoredProxy)
 {
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints());
+	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	const bool bOwnsRenderingThread =
 		Durin::GetRenderCommandAdmissionState()
 			== Durin::ERenderCommandAdmissionState::Stopped;
@@ -154,6 +156,8 @@ TEST(FDefaultMaterialServiceTests, MissingEngineContentSelectsErrorTerminal)
 			.bAuthoringWritable = false}};
 	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Definitions);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
+	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	EXPECT_FALSE(Durin::InitializeDefaultMaterialService());
 	EXPECT_FALSE(Durin::GetDefaultMaterialRenderProxy());
 	EXPECT_EQ(
@@ -172,6 +176,8 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 {
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints());
+	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	Durin::FAssetPath Path;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::DefaultMaterialAssetPath, Path));
@@ -204,11 +210,23 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 
 	Durin::Asset::ShutdownAssetManager();
 	Durin::CollectGarbage();
-	Durin::Asset::FAssetManager::Get().Initialize();
+	Durin::Asset::InitializeAssetManager();
 	Result = Durin::Asset::ConfigurePackageLoadContext({
 		Durin::Asset::EPackageLoadMode::CookedRuntime,
 		CookRoot});
 	ASSERT_TRUE(Result) << Result.Message;
+	{
+	const std::array CookMountDefinitions{
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/Engine/",
+			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.Root = CookRoot / "Engine",
+			.bAutoScan = true}};
+	Durin::PathUtilities::FScopedMountRegistryFixture CookMounts(
+		CookMountDefinitions);
+	ASSERT_TRUE(CookMounts.IsValid()) << CookMounts.GetError();
+	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	Durin::DMaterial* Cooked = nullptr;
 	Result = Durin::Asset::LoadAsset(Path, Cooked);
 	ASSERT_TRUE(Result) << Result.Message;
@@ -216,10 +234,14 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	EXPECT_EQ(
 		GetMaterialBinding(Cooked->GetRenderData()).BaseColor,
 		Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
+	}
 
 	Durin::Asset::ShutdownAssetManager();
 	Durin::CollectGarbage();
-	Durin::Asset::FAssetManager::Get().Initialize();
+	Durin::Asset::InitializeAssetManager();
+	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({}));
+	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 }
 
 TEST(FErrorMaterialTests, MissingStructuralProxyUsesErrorWithoutAssetLookup)

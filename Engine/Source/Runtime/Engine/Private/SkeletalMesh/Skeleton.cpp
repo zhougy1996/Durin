@@ -1,6 +1,6 @@
 #include "SkeletalMesh/Skeleton.h"
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "Hash/XxHash.h"
 #include "Math/Operations.h"
 

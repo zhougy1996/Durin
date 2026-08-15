@@ -1,6 +1,6 @@
 #include "MultiOutputImport.h"
 
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 
 namespace Durin::Asset::Import
 {
@@ -133,7 +133,8 @@ namespace Durin::Asset::Import
 				if (!FAssetPath::TryCreate(std::format(
 					"{}_RecordCandidate_{}", Path.ToString(), Suffix), OutPath)) return false;
 				if (!Asset::FindLoadedPackage(OutPath)
-					&& !Asset::GetAssetRegistry().FindAssetExact(OutPath)) return true;
+					&& !Asset::FindDraftPackage(OutPath)
+					&& !Asset::FindAssetExact(OutPath)) return true;
 			}
 			return false;
 		}
@@ -393,11 +394,12 @@ namespace Durin::Asset::Import
 				return Result;
 			}
 		}
-		else if (Asset::GetAssetRegistry().FindAssetExact(Request.RecordPath)
-			|| Asset::FindLoadedPackage(Request.RecordPath))
+		else if (Asset::FindAssetExact(Request.RecordPath)
+			|| Asset::FindLoadedPackage(Request.RecordPath)
+			|| Asset::FindDraftPackage(Request.RecordPath))
 		{
-			const Asset::FAssetData* Exact =
-				Asset::GetAssetRegistry().FindAssetExact(Request.RecordPath);
+			const Asset::FAssetCatalogEntry Exact =
+				Asset::FindAssetExact(Request.RecordPath);
 			Result.Message = Exact
 				&& Exact->EntryKind == Asset::EAssetRegistryEntryKind::Redirector
 				? std::format(
@@ -428,14 +430,16 @@ namespace Durin::Asset::Import
 				.AssetClassName = Preview.AssetClassName,
 				.PersistedPolicy = Previous ? Previous->Policy : ToRecordPolicy(Preview.Policy),
 				.PreviousAuthoredFingerprint = Previous ? Previous->AuthoredFingerprint : std::string{}};
-			const Asset::FAssetData* Exact =
-				Asset::GetAssetRegistry().FindAssetExact(Entry.AssetPath);
+			const Asset::FAssetCatalogEntry Exact =
+				Asset::FindAssetExact(Entry.AssetPath);
 			const Asset::FAssetPathResolveResult Resolution =
-				Asset::GetAssetRegistry().ResolveAssetPath(Entry.AssetPath);
+				Asset::ResolveAssetPath(Entry.AssetPath);
 			if (Resolution) Entry.ResolvedAssetPath = Resolution.FinalPath;
 			const Asset::FAssetData* Occupant = Resolution && Resolution.FinalAssetData
-				? &*Resolution.FinalAssetData : Exact;
+				? &*Resolution.FinalAssetData
+				: Exact.Data ? &*Exact.Data : nullptr;
 			DPackage* Loaded = Asset::FindLoadedPackage(Entry.ResolvedAssetPath);
+			if (!Loaded) Loaded = Asset::FindDraftPackage(Entry.ResolvedAssetPath);
 			const bool bOccupied = Exact || Resolution || Loaded;
 			const std::vector<FImportRecordManagement> Managers = Index.FindManagers(Entry.AssetPath);
 			if (!Managers.empty()) Entry.ObservedManager = Managers.front().RecordPath;
@@ -517,7 +521,7 @@ namespace Durin::Asset::Import
 		Result.Plan.ProviderState = Request.ProviderState;
 		Result.Plan.PrimaryOutput = Request.PrimaryOutput;
 		Result.Plan.IndexRevision = Index.GetRevision();
-		Result.Plan.AssetRegistryRevision = Asset::GetAssetRegistry().GetRevision();
+		Result.Plan.AssetRegistryRevision = Asset::GetAssetCatalogRevision();
 		if (Request.ExistingRecord)
 		{
 			Result.Plan.ExistingRecordFingerprint = Request.ExistingRecord->GetFingerprint();
@@ -661,7 +665,7 @@ namespace Durin::Asset::Import
 		std::lock_guard PublicationLock(GetImportPublicationMutex());
 		bool bStale = !Result.Message.empty()
 			|| Index.GetRevision() != Plan.IndexRevision
-			|| Asset::GetAssetRegistry().GetRevision() != Plan.AssetRegistryRevision
+			|| Asset::GetAssetCatalogRevision() != Plan.AssetRegistryRevision
 			|| Plan.GetGenericPlan().GetProviderRegistryRevision()
 				!= GetProviderRegistry().GetRevision();
 		if (Plan.GetExistingRecord())
@@ -677,8 +681,8 @@ namespace Durin::Asset::Import
 		}
 		else
 		{
-			bStale = bStale || Asset::GetAssetRegistry().FindAssetExact(Plan.GetRecordPath())
-				|| Asset::FindLoadedPackage(Plan.GetRecordPath()) != RecordCandidate->GetPackage();
+			bStale = bStale || Asset::FindAssetExact(Plan.GetRecordPath())
+				|| Asset::FindDraftPackage(Plan.GetRecordPath()) != RecordCandidate->GetPackage();
 		}
 		for (const FMultiOutputReconciliation& Entry : Plan.GetReconciliation())
 		{
@@ -700,8 +704,8 @@ namespace Durin::Asset::Import
 			else if (Entry.ProposedAction == EMultiOutputProposedAction::Create)
 			{
 				const FPreparedMultiOutput& Output = *PreparedByIdentity.at(Entry.StableIdentity);
-				bStale = bStale || Asset::GetAssetRegistry().FindAssetExact(Entry.AssetPath)
-					|| Asset::FindLoadedPackage(Entry.AssetPath)
+				bStale = bStale || Asset::FindAssetExact(Entry.AssetPath)
+					|| Asset::FindDraftPackage(Entry.AssetPath)
 						!= Output.Candidate->GetPackage();
 			}
 		}

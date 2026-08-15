@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "EngineAssetServices.h"

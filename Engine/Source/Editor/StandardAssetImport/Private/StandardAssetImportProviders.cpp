@@ -13,7 +13,7 @@
 #include "Animation/AnimationClip.h"
 #include "ImportedScene.h"
 #include "AssetImportCore.h"
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "DObject/ObjectLifecycle.h"
 #include "EncodedSourceSnapshot.h"
 #include "Hash/XxHash.h"
@@ -380,7 +380,8 @@ namespace Durin::Asset::Import::Standard
 				if (!FAssetPath::TryCreate(std::format("{}_ImportCandidate_{}",
 					TargetPath.ToString(), Suffix), OutPath)) return false;
 				if (!Asset::FindLoadedPackage(OutPath)
-					&& !Asset::GetAssetRegistry().FindAssetExact(OutPath)) return true;
+					&& !Asset::FindDraftPackage(OutPath)
+					&& !Asset::FindAssetExact(OutPath)) return true;
 			}
 			return false;
 		}
@@ -1247,8 +1248,9 @@ namespace Durin::Asset::Import::Standard
 			FAssetPath ParsedAssetPath;
 			if (!FAssetPath::TryCreate(AssetPath, ParsedAssetPath, &Error))
 				return {false, std::move(Error), nullptr};
-			if (Asset::GetAssetRegistry().FindAssetExact(ParsedAssetPath)
-				|| Asset::FindLoadedPackage(ParsedAssetPath))
+			if (Asset::FindAssetExact(ParsedAssetPath)
+				|| Asset::FindLoadedPackage(ParsedAssetPath)
+				|| Asset::FindDraftPackage(ParsedAssetPath))
 				return {
 					false,
 					std::format("Asset {} already exists.", ParsedAssetPath.ToString()),
@@ -1296,7 +1298,7 @@ namespace Durin::Asset::Import::Standard
 				|| !Mesh->PublishImportedProduct(std::move(Product), Error))
 			{
 				RollbackMountedSourceFile(MountedSource);
-				Asset::UnloadPackage(ParsedAssetPath);
+				Asset::DiscardUnpublishedPackage(Mesh->GetPackage());
 				return {false, std::move(Error), nullptr};
 			}
 
@@ -1304,7 +1306,7 @@ namespace Durin::Asset::Import::Standard
 			if (!SaveResult)
 			{
 				RollbackMountedSourceFile(MountedSource);
-				Asset::UnloadPackage(ParsedAssetPath);
+				Asset::DiscardUnpublishedPackage(Mesh->GetPackage());
 				return {false, SaveResult.Message, nullptr};
 			}
 			CommitMountedSourceFile(MountedSource);

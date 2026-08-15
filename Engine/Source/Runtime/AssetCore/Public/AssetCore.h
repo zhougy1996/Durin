@@ -7,5 +7,5 @@
 #include "CoreFwd.h"
 #include "Math/MathFwd.h"
 #include "AssetRedirector.h"
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "CookedAsset.h"

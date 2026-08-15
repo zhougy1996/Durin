@@ -1,6 +1,6 @@
 #include "Assets/AssetDestinationValidation.h"
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 
 namespace Durin::Editor::Level
 {
@@ -8,17 +8,18 @@ namespace Durin::Editor::Level
 	{
 		auto QueryAssetDestinationOccupancy(const FAssetPath& AssetPath) -> FAssetDestinationOccupancy
 		{
-			const Asset::FAssetData* Data =
-				Asset::GetAssetRegistry().FindAssetExact(AssetPath);
+			const Asset::FAssetCatalogEntry Entry = Asset::FindAssetExact(AssetPath);
 			return {
-				.bRegistryAssetExists = Data != nullptr,
+				.bRegistryAssetExists = Entry.Succeeded(),
 				.bLoadedPackageExists = Asset::FindLoadedPackage(AssetPath) != nullptr,
-				.OccupantKind = !Data
+				.bDraftPackageExists = Asset::FindDraftPackage(AssetPath) != nullptr,
+				.OccupantKind = !Entry
 					? EAssetDestinationOccupantKind::None
-					: Data->EntryKind == Asset::EAssetRegistryEntryKind::Redirector
+					: Entry->EntryKind == Asset::EAssetRegistryEntryKind::Redirector
 						? EAssetDestinationOccupantKind::Redirector
 						: EAssetDestinationOccupantKind::Asset,
-				.RedirectDestination = Data ? Data->RedirectDestination : FAssetPath{}
+				.RedirectDestination = Entry
+					? Entry->RedirectDestination : FAssetPath{}
 			};
 		}
 	} // namespace
@@ -47,6 +48,7 @@ namespace Durin::Editor::Level
 			(OccupancyQuery != nullptr ? OccupancyQuery : QueryAssetDestinationOccupancy)(Result.AssetPath);
 		Result.bRegistryAssetExists = Occupancy.bRegistryAssetExists;
 		Result.bLoadedPackageExists = Occupancy.bLoadedPackageExists;
+		Result.bDraftPackageExists = Occupancy.bDraftPackageExists;
 		Result.OccupantKind = Occupancy.OccupantKind;
 		Result.RedirectDestination = Occupancy.RedirectDestination;
 		if (Result.bRegistryAssetExists
@@ -60,6 +62,8 @@ namespace Durin::Editor::Level
 			Result.Message = "An asset already exists at this path. Choose another destination or delete the existing asset first.";
 		else if (Result.bLoadedPackageExists)
 			Result.Message = "A loaded package already uses this path. Close it or choose another destination.";
+		else if (Result.bDraftPackageExists)
+			Result.Message = "An unpublished asset draft already uses this path. Save or discard it before reusing the destination.";
 		return Result;
 	}
 

@@ -119,10 +119,10 @@ TEST(FMaterialAssetThumbnailTests, ProviderCapturesSortedTransitiveMaterialDepen
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::MaterialPath, MaterialPath));
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::MaterialInstancePath, InstancePath));
-	const Durin::Asset::FAssetData* MaterialData =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(MaterialPath);
-	const Durin::Asset::FAssetData* InstanceData =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(InstancePath);
+	const Durin::Asset::FAssetCatalogEntry MaterialData =
+		Durin::Asset::FindAssetExact(MaterialPath);
+	const Durin::Asset::FAssetCatalogEntry InstanceData =
+		Durin::Asset::FindAssetExact(InstancePath);
 	ASSERT_NE(MaterialData, nullptr);
 	ASSERT_NE(InstanceData, nullptr);
 
@@ -255,8 +255,8 @@ TEST(FMaterialAssetThumbnailTests, InvalidInstancePublishesOneStableDiagnostic)
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::InvalidMaterialInstancePath,
 		InvalidPath));
-	const Durin::Asset::FAssetData* Data =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(InvalidPath);
+	const Durin::Asset::FAssetCatalogEntry Data =
+		Durin::Asset::FindAssetExact(InvalidPath);
 	ASSERT_NE(Data, nullptr);
 
 	Durin::Editor::FRenderedAssetThumbnailService Service;

@@ -1,6 +1,6 @@
 #include "StaticMesh/StaticMesh.h"
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "DerivedDataObjectStore.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"

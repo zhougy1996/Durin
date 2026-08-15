@@ -2,7 +2,7 @@
 
 #include "CookedAsset.h"
 #include "AssetPackageV4Writer.h"
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/Object.h"

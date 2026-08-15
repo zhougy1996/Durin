@@ -4,7 +4,7 @@
 #include "Actors/DirectionalLightActor.h"
 #include "Actors/PlayerStart.h"
 #include "Actors/StaticMeshActor.h"
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "Customizations/CameraEditorCustomizations.h"
 #include "Client/ViewportClient.h"
 #include "Components/CameraComponent.h"

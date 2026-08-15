@@ -2,7 +2,7 @@
 #include "Editor/Notification.h"
 #include "Editor/Transaction.h"
 
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "DObject/Archive.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Actors/CameraActor.h"
@@ -148,7 +148,8 @@ namespace Durin
 					? Asset::EAssetRedirectorFixupMode::RewriteOnly
 					: Asset::EAssetRedirectorFixupMode::RewriteAndDelete;
 				size_t RedirectorCount = 0;
-				for (const auto& [_, Data] : Asset::GetAssetRegistry().GetAssets())
+				for (const auto& [_, Data]
+					: Asset::CaptureAssetCatalogSnapshot().Assets)
 					RedirectorCount += Data.EntryKind
 						== Asset::EAssetRegistryEntryKind::Redirector;
 				const Asset::FAssetResult Result =

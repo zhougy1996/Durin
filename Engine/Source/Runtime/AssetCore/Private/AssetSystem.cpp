@@ -1,4 +1,4 @@
-#include "AssetSystem.h"
+#include "AssetSystemInternal.h"
 #include "AssetPackageV4Reader.h"
 #include "AssetPackageCodec.h"
 #include "AssetPackageVersionPolicy.h"
@@ -355,7 +355,7 @@ namespace Durin::Asset
 
 		auto GetPhysicalPath(const FAssetPath& Path) -> std::string
 		{
-			const FPackageLoadContext& Context = FAssetManager::Get().GetPackageLoadContext();
+			const FPackageLoadContext& Context = FAssetRuntimeState::Get().GetPackageLoadContext();
 			if (Context.Mode == EPackageLoadMode::CookedRuntime)
 			{
 				std::filesystem::path CookedPath;
@@ -439,7 +439,7 @@ namespace Durin::Asset
 					std::string PathString;
 					FAssetPath Path;
 					if (!Reader.ReadString(PathString) || !FAssetPath::TryCreate(PathString, Path)) return Error(EAssetError::InvalidPath, "Invalid external object reference.");
-					FAssetResult Result = FAssetManager::Get().LoadAsset(Path, Value);
+					FAssetResult Result = FAssetRuntimeState::Get().LoadAsset(Path, Value);
 					if (!Result) return Error(EAssetError::MissingDependency, Result.Message);
 				}
 				else if (ReferenceKind != 0) return Error(EAssetError::CorruptFile, "Unknown object reference kind.");
@@ -690,7 +690,7 @@ namespace Durin::Asset
 				FAssetPath Path;
 				if (!Reader.ReadString(PathString) || !FAssetPath::TryCreate(PathString, Path))
 					return Error(EAssetError::InvalidPath, "Invalid external object reference.");
-				return FAssetManager::Get().LoadAsset(Path, OutObject);
+				return FAssetRuntimeState::Get().LoadAsset(Path, OutObject);
 			}
 			return Error(EAssetError::CorruptFile, "Unknown object reference kind.");
 		}
@@ -1534,7 +1534,8 @@ namespace Durin::Asset
 			if (FAssetResult Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
 				return Result;
 			FAssetPackageHeader Header;
-			if (FAssetResult Result = Codec->ReadHeader(Bytes, Header); !Result)
+			if (FAssetResult Result = Codec->ReadHeader(
+				Bytes, Bytes.size(), Header); !Result)
 				return Result;
 			FPackageFile File{
 				.FormatVersion = Header.FormatVersion,
@@ -2045,7 +2046,8 @@ namespace Durin::Asset
 			if (OutFile)
 			{
 				FAssetPackageHeader Header;
-				if (FAssetResult HeaderResult = Codec->ReadHeader(OutBytes, Header); !HeaderResult)
+				if (FAssetResult HeaderResult = Codec->ReadHeader(
+					OutBytes, OutBytes.size(), Header); !HeaderResult)
 					return HeaderResult;
 				OutFile->FormatVersion = Header.FormatVersion;
 				OutFile->AssetClassName = std::move(Header.AssetClassName);
@@ -2057,10 +2059,10 @@ namespace Durin::Asset
 		}
 
 		auto ValidateOrdinarySaveVersion(
-			const FAssetRegistry& Registry,
+			const FAssetCatalogStore& Registry,
 			const FAssetPath& Path) -> FAssetResult
 		{
-			const FAssetData* Existing = Registry.FindAssetExact(Path);
+			const FAssetCatalogEntry Existing = Registry.FindAssetExact(Path);
 			if (!Existing || Existing->FormatVersion == OrdinaryAssetPackageWriterVersion)
 				return {};
 			return Error(
@@ -2076,14 +2078,31 @@ namespace Durin::Asset
 	auto ReadAssetPackageHeader(std::string_view PhysicalPath, FAssetPackageHeader& OutHeader) -> FAssetResult
 	{
 		OutHeader = {};
-		std::vector<uint8> Bytes;
-		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath))
+		FFileByteReader Reader(PhysicalPath);
+		if (!Reader.IsOpen())
 			return Error(EAssetError::IoError,
 				std::format("Failed to open asset package {}.", PhysicalPath));
+		if (Reader.FileSize > DastV4::MaximumPackageBytes)
+			return Error(EAssetError::CorruptFile,
+				"Asset package exceeds the supported byte bound.");
+		const uint64 ReadSize = std::min(
+			Reader.FileSize, DastV4::MaximumHeaderBytes);
+		std::vector<uint8> Bytes(static_cast<size_t>(ReadSize));
+		if (ReadSize != 0)
+		{
+			Reader.Stream.read(
+				reinterpret_cast<char*>(Bytes.data()),
+				static_cast<std::streamsize>(ReadSize));
+			if (!Reader.Stream)
+				return Error(EAssetError::IoError,
+					std::format("Failed to read asset package {}.", PhysicalPath));
+		}
 		const Private::FAssetPackageCodec* Codec = nullptr;
 		if (FAssetResult Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
 			return Result;
-		return Codec->ReadHeader(Bytes, OutHeader);
+		FAssetResult Result = Codec->ReadHeader(Bytes, Reader.FileSize, OutHeader);
+		if (Result) OutHeader.FileBytesRead = ReadSize;
+		return Result;
 	}
 
 	auto ValidateAssetPackageBytes(std::span<const uint8> Bytes) -> FAssetResult
@@ -2136,7 +2155,7 @@ namespace Durin::Asset
 
 		if (Packages.empty())
 			return Error(EAssetError::InvalidPackageType, "An asset bundle must contain at least one package.");
-		FAssetManager& Manager = FAssetManager::Get();
+		FAssetRuntimeState& Manager = FAssetRuntimeState::Get();
 		if (Manager.PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
 			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit bundle saves.");
 		if (Options.RootPackage
@@ -2318,7 +2337,7 @@ namespace Durin::Asset
 
 		for (FStagedPackage& Staged : StagedPackages)
 		{
-			FAssetManager::Get().GetRegistry().AddOrUpdate(FAssetData{
+			Manager.GetRegistry().AddOrUpdate(FAssetData{
 				.PackagePath = Staged.Path,
 				.PhysicalPath = Staged.Destination.generic_string(),
 				.AssetClassName = Staged.File.AssetClassName,
@@ -2330,6 +2349,11 @@ namespace Durin::Asset
 				.LastWriteTime = Staged.PublishedLastWriteTime,
 				.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(
 					Staged.PublishedLastWriteTime)});
+			if (Manager.DraftPackages.Find(Staged.Path) == Staged.Package)
+			{
+				Manager.DraftPackages.Remove(Staged.Path);
+				Manager.LoadedPackages.emplace(Staged.Path, Staged.Package);
+			}
 			Staged.Package->ClearDirty();
 			std::error_code Ec;
 			std::filesystem::remove(Staged.Backup, Ec);
@@ -2343,13 +2367,65 @@ namespace Durin::Asset
 		if (!Package || !Package->IsAssetPackage()
 			|| !FAssetPath::TryCreate(Package->GetPackagePath(), Path))
 			return Error(EAssetError::InvalidPackageType, "The unpublished package is invalid.");
-		FAssetManager& Manager = FAssetManager::Get();
+		FAssetRuntimeState& Manager = FAssetRuntimeState::Get();
 		if (Manager.GetRegistry().FindAssetExact(Path))
 			return Error(EAssetError::InUse, std::format(
 				"Package {} is registry-visible and cannot be discarded.", Path.ToString()));
-		if (Manager.FindLoadedPackage(Path) != Package)
-			return Error(EAssetError::NotFound, "The unpublished package is not loaded.");
-		return Manager.UnloadPackage(Path);
+		if (Manager.FindDraftPackage(Path) != Package)
+			return Error(EAssetError::NotFound, "The unpublished package is not a draft.");
+		return Manager.DiscardDraftPackage(Path);
+	}
+
+	auto AdmitAssetPackageToCatalog(const FAssetPath& Path) -> FAssetResult
+	{
+		return FAssetRuntimeState::Get().AdmitAssetPackageToCatalog(Path);
+	}
+
+	auto FAssetRuntimeState::AdmitAssetPackageToCatalog(
+		const FAssetPath& Path) -> FAssetResult
+	{
+		if (!Path.IsValid())
+			return Error(EAssetError::InvalidPath, "The asset admission path is invalid.");
+		if (Registry.FindAssetExact(Path)
+			|| FindLoadedPackage(Path) || FindDraftPackage(Path))
+			return Error(EAssetError::AlreadyExists,
+				"The asset admission path is already occupied.");
+		const std::string PhysicalPath = GetPhysicalPath(Path);
+		if (PhysicalPath.empty())
+			return Error(EAssetError::InvalidPath,
+				"The asset admission path is outside mounted package content.");
+		FAssetPackageHeader Header;
+		if (FAssetResult Result = ReadAssetPackageHeader(PhysicalPath, Header); !Result)
+			return Result;
+		std::vector<uint8> Bytes;
+		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath))
+			return Error(EAssetError::IoError,
+				"The asset package could not be read for admission validation.");
+		if (FAssetResult Result = ValidateAssetPackageBytes(Bytes); !Result)
+			return Result;
+		std::error_code ErrorCode;
+		const auto LastWriteTime = std::filesystem::last_write_time(
+			PhysicalPath, ErrorCode);
+		if (ErrorCode)
+			return Error(EAssetError::IoError,
+				"The asset package timestamp could not be read for admission.");
+		const uintmax_t FileSize = std::filesystem::file_size(
+			PhysicalPath, ErrorCode);
+		if (ErrorCode)
+			return Error(EAssetError::IoError,
+				"The asset package size could not be read for admission.");
+		Registry.AddOrUpdate(FAssetData{
+			.PackagePath = Path,
+			.PhysicalPath = PhysicalPath,
+			.AssetClassName = Header.AssetClassName,
+			.EntryKind = Header.EntryKind,
+			.RedirectDestination = Header.RedirectDestination,
+			.FormatVersion = Header.FormatVersion,
+			.Dependencies = Header.Dependencies,
+			.FileSize = FileSize,
+			.LastWriteTime = LastWriteTime,
+			.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime)});
+		return {};
 	}
 
 	auto LoadPackageForMigration(
@@ -2363,7 +2439,7 @@ namespace Durin::Asset
 			~FScopedMigrationLoad() { --GAssetMigrationLoadDepth; }
 		} Scope;
 		DObject* Asset = nullptr;
-		FAssetResult Result = FAssetManager::Get().LoadAssetExact(
+		FAssetResult Result = FAssetRuntimeState::Get().LoadAssetExactForMigration(
 			Path, nullptr, Asset, OutReport);
 		OutPackage = Result && Asset ? Asset->GetPackage() : nullptr;
 		return Result;
@@ -2582,7 +2658,7 @@ namespace Durin::Asset
 		std::vector<FAssetReferenceEdge> References;
 		Result = ExtractAssetReferencesInternal({}, Inspection, References, false);
 		if (!Result) return Result;
-		const FAssetRegistry& Registry = GetAssetRegistry();
+		const FAssetCatalogStore& Registry = GetAssetCatalogStore();
 		std::vector<FAssetRedirectorFixupMapping> Mappings;
 		auto ResolveReference = [&](const FAssetPath& Path,
 			std::string_view ExpectedClassName, std::string_view Route) -> FAssetResult {
@@ -2849,7 +2925,7 @@ namespace Durin::Asset
 		OutOwnership = {};
 		const std::filesystem::path Candidate =
 			std::filesystem::absolute(PhysicalPath).lexically_normal();
-		for (const auto& [Path, Data] : GetAssetRegistry().GetAssets())
+		for (const auto& [Path, Data] : GetAssetCatalogStore().GetAssets())
 		{
 			std::error_code ExistenceError;
 			const bool bPackageExists =
@@ -2893,8 +2969,17 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRegistry::ScanMountedContent(EAssetRegistryScanMode Mode) -> FAssetResult
+	auto FAssetCatalogStore::ScanMountedContent(EAssetRegistryScanMode Mode) -> FAssetResult
 	{
+		RefreshMountedContent(Mode);
+		return {};
+	}
+
+	auto FAssetCatalogStore::RefreshMountedContent(
+		EAssetRegistryScanMode Mode) -> FAssetCatalogRefreshResult
+	{
+		const uint64 PriorRevision = Revision;
+		const FAssetReferenceIndex PriorReferenceIndex = ReferenceIndex;
 		const auto ScanStartTime = std::chrono::steady_clock::now();
 		std::unordered_map<FAssetPath, FAssetData> NewAssets;
 		std::vector<FRegistryCacheEntry> NewCacheEntries;
@@ -2968,6 +3053,7 @@ namespace Durin::Asset
 					++LastScanStats.HeaderReadAttempts;
 					FAssetResult Result = ReadAssetPackageHeader(It->path().generic_string(), PackageHeader);
 					LastScanStats.HeaderBytesRead += PackageHeader.BytesRead;
+					LastScanStats.HeaderFileBytesRead += PackageHeader.FileBytesRead;
 					if (!Result)
 					{
 						Result.Message = std::format("{} ({})", Result.Message, It->path().generic_string());
@@ -3145,6 +3231,35 @@ namespace Durin::Asset
 		std::ranges::sort(NewReferenceEdges, &AssetReferenceLess);
 		ReferenceIndex.bComplete = ReferenceIndex.Errors.empty()
 			&& NewReferenceFingerprints.size() == NewAssets.size();
+		if (!ScanErrors.empty() || !ReferenceIndex.bComplete)
+		{
+			LastScanStats.DurationMilliseconds =
+				std::chrono::duration<double, std::milli>(
+					std::chrono::steady_clock::now() - ScanStartTime).count();
+			FAssetCatalogRefreshResult Result{
+				.Mode = Mode,
+				.bCatalogComplete = ScanErrors.empty(),
+				.bReferenceIndexComplete = ReferenceIndex.bComplete,
+				.bPublished = false,
+				.bRetainedPriorRevision = true,
+				.PriorRevision = PriorRevision,
+				.ResultingRevision = PriorRevision,
+				.CatalogStats = LastScanStats,
+				.ReferenceStats = ReferenceIndex.Stats,
+				.Errors = ScanErrors,
+				.CatalogCacheWarning = CacheWarning,
+				.ReferenceCacheWarning = ReferenceIndex.CacheWarning};
+			Result.Errors.insert(
+				Result.Errors.end(), ReferenceIndex.Errors.begin(),
+				ReferenceIndex.Errors.end());
+			ReferenceIndex = PriorReferenceIndex;
+			DURIN_WARN_CATEGORY(
+				"AssetRegistry",
+				"Retained catalog revision {} after incomplete refresh with {} catalog error(s) and {} reference error(s).",
+				PriorRevision, ScanErrors.size(),
+				Result.Errors.size() - ScanErrors.size());
+			return Result;
+		}
 
 		const bool bAssetsChanged = Assets != NewAssets;
 		const bool bReferencesChanged = ReferenceIndex.Edges != NewReferenceEdges
@@ -3172,10 +3287,11 @@ namespace Durin::Asset
 		LastScanStats.DurationMilliseconds = std::chrono::duration<double, std::milli>(
 			std::chrono::steady_clock::now() - ScanStartTime).count();
 		DURIN_INFO_CATEGORY("AssetRegistry",
-			"Scanned {} asset package(s) in {:.3f} ms: {} redirector(s), {} reused, {} reparsed, {} header read(s), {} header byte(s), {} reference payload read(s), {} reference payload byte(s), {} removed, {} failed.",
+			"Scanned {} asset package(s) in {:.3f} ms: {} redirector(s), {} reused, {} reparsed, {} header read(s), {} logical header byte(s), {} file header byte(s), {} reference payload read(s), {} reference payload byte(s), {} removed, {} failed.",
 			LastScanStats.Enumerated, LastScanStats.DurationMilliseconds, LastScanStats.Redirectors,
 			LastScanStats.Reused, LastScanStats.Reparsed,
 			LastScanStats.HeaderReadAttempts, LastScanStats.HeaderBytesRead,
+			LastScanStats.HeaderFileBytesRead,
 			ReferenceIndex.Stats.PayloadReadAttempts, ReferenceIndex.Stats.PayloadBytesRead,
 			LastScanStats.Removed, LastScanStats.Failed);
 		if (!CacheWarning.empty())
@@ -3198,10 +3314,26 @@ namespace Durin::Asset
 		}
 		for (const FAssetResult& ReferenceError : ReferenceIndex.Errors)
 			DURIN_WARN_CATEGORY("AssetRegistry", "{}", ReferenceError.Message);
-		return {};
+		FAssetCatalogRefreshResult Result{
+			.Mode = Mode,
+			.bCatalogComplete = ScanErrors.empty(),
+			.bReferenceIndexComplete = ReferenceIndex.IsComplete(),
+			.bPublished = true,
+			.bRetainedPriorRevision = false,
+			.PriorRevision = PriorRevision,
+			.ResultingRevision = Revision,
+			.CatalogStats = LastScanStats,
+			.ReferenceStats = ReferenceIndex.GetStats(),
+			.Errors = ScanErrors,
+			.CatalogCacheWarning = CacheWarning,
+			.ReferenceCacheWarning = ReferenceIndex.CacheWarning};
+		Result.Errors.insert(
+			Result.Errors.end(), ReferenceIndex.Errors.begin(),
+			ReferenceIndex.Errors.end());
+		return Result;
 	}
 
-	auto FAssetRegistry::FlushPersistentSnapshot() -> void
+	auto FAssetCatalogStore::FlushPersistentSnapshot() -> void
 	{
 		if (bPersistentSnapshotDirty)
 		{
@@ -3237,23 +3369,38 @@ namespace Durin::Asset
 		}
 	}
 
-	auto FAssetRegistry::FindAssetExact(const FAssetPath& Path) const -> const FAssetData*
+	auto FAssetCatalogStore::FindAssetExactPointer(
+		const FAssetPath& Path) const -> const FAssetData*
 	{
 		auto It = Assets.find(Path);
 		return It == Assets.end() ? nullptr : &It->second;
 	}
 
-	auto FAssetRegistry::ResolveAssetPath(
+	auto FAssetCatalogStore::FindAssetExact(
+		const FAssetPath& Path) const -> FAssetCatalogEntry
+	{
+		const FAssetData* Data = FindAssetExactPointer(Path);
+		return {.Revision = Revision,
+			.Data = Data ? std::optional<FAssetData>(*Data) : std::nullopt};
+	}
+
+	auto FAssetCatalogStore::CaptureSnapshot() const -> FAssetCatalogSnapshot
+	{
+		return {.Revision = Revision, .Assets = Assets};
+	}
+
+	auto FAssetCatalogStore::ResolveAssetPath(
 		const FAssetPath& Path,
 		const FAssetPathResolveOptions& Options) const -> FAssetPathResolveResult
 	{
 		FAssetPathResolveResult Result;
+		Result.CatalogRevision = Revision;
 		Result.RequestedPath = Path;
 		FAssetPath Current = Path;
 		std::unordered_set<FAssetPath> Visited;
 		while (true)
 		{
-			const FAssetData* Data = FindAssetExact(Current);
+			const FAssetData* Data = FindAssetExactPointer(Current);
 			if (!Data)
 			{
 				Result.FinalPath = Current;
@@ -3317,7 +3464,7 @@ namespace Durin::Asset
 		}
 	}
 
-	auto FAssetRegistry::FindRedirectorsTo(
+	auto FAssetCatalogStore::FindRedirectorsTo(
 		const FAssetPath& Destination) const -> std::vector<FAssetPath>
 	{
 		const auto It = RedirectorsByDestination.find(Destination);
@@ -3325,7 +3472,7 @@ namespace Durin::Asset
 			? std::vector<FAssetPath>{} : It->second;
 	}
 
-	auto FAssetRegistry::RebuildRedirectorIndex() -> void
+	auto FAssetCatalogStore::RebuildRedirectorIndex() -> void
 	{
 		RedirectorsByDestination.clear();
 		for (const auto& [Path, Data] : Assets)
@@ -3364,7 +3511,7 @@ namespace Durin::Asset
 		return Result;
 	}
 
-	auto FAssetRegistry::BuildCookReachability(
+	auto FAssetCatalogStore::BuildCookReachability(
 		std::span<const FAssetPath> Roots,
 		std::vector<FAssetPath>& OutPackages) const -> FAssetResult
 	{
@@ -3436,7 +3583,7 @@ namespace Durin::Asset
 			}
 			const FAssetPath Source = SourceResolution.FinalPath;
 			if (!Visited.insert(Source).second) continue;
-			const FAssetData* SourceData = FindAssetExact(Source);
+			const FAssetData* SourceData = FindAssetExactPointer(Source);
 			if (!SourceData || SourceData->EntryKind != EAssetRegistryEntryKind::Asset)
 				return Error(EAssetError::InvalidPackageType, std::format(
 					"CookReachabilityNonAssetPackage: {} is not a real asset.", Source.ToString()));
@@ -3493,7 +3640,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRegistry::RemoveReferencesFromSource(const FAssetPath& Path) -> bool
+	auto FAssetCatalogStore::RemoveReferencesFromSource(const FAssetPath& Path) -> bool
 	{
 		const size_t PreviousCount = ReferenceIndex.Edges.size();
 		std::erase_if(ReferenceIndex.Edges, [&](const FAssetReferenceEdge& Reference) {
@@ -3505,7 +3652,7 @@ namespace Durin::Asset
 		return bChanged;
 	}
 
-	auto FAssetRegistry::RefreshReferencesForAsset(const FAssetData& Data) -> bool
+	auto FAssetCatalogStore::RefreshReferencesForAsset(const FAssetData& Data) -> bool
 	{
 		const std::vector<FAssetReferenceEdge> PreviousReferences = ReferenceIndex.Edges;
 		const auto PreviousFingerprints = ReferenceIndex.SourceFingerprints;
@@ -3549,7 +3696,7 @@ namespace Durin::Asset
 		return bChanged;
 	}
 
-	auto FAssetRegistry::AddOrUpdate(FAssetData Data) -> void
+	auto FAssetCatalogStore::AddOrUpdate(FAssetData Data) -> void
 	{
 		const FAssetPath Path = Data.PackagePath;
 		const auto Existing = Assets.find(Path);
@@ -3557,12 +3704,12 @@ namespace Durin::Asset
 		Assets.insert_or_assign(Path, std::move(Data));
 		if (bAssetChanged) RebuildRedirectorIndex();
 		bPersistentSnapshotDirty = true;
-		const FAssetData* Stored = FindAssetExact(Path);
+		const FAssetData* Stored = FindAssetExactPointer(Path);
 		const bool bReferencesChanged = Stored && RefreshReferencesForAsset(*Stored);
 		if (bAssetChanged || bReferencesChanged) ++Revision;
 	}
 
-	auto FAssetRegistry::Remove(const FAssetPath& Path) -> void
+	auto FAssetCatalogStore::Remove(const FAssetPath& Path) -> void
 	{
 		const bool bAssetChanged = Assets.erase(Path) != 0;
 		if (bAssetChanged) RebuildRedirectorIndex();
@@ -3574,15 +3721,15 @@ namespace Durin::Asset
 		++Revision;
 	}
 
-	auto FAssetManager::Get() -> FAssetManager&
+	auto FAssetRuntimeState::Get() -> FAssetRuntimeState&
 	{
-		static FAssetManager Instance;
+		static FAssetRuntimeState Instance;
 		return Instance;
 	}
 
-	FAssetManager::FAssetManager() = default;
+	FAssetRuntimeState::FAssetRuntimeState() = default;
 
-	auto FAssetManager::CreateAsset(const FAssetPath& Path, DClass* Class, size_t Size, DObject*& OutAsset) -> FAssetResult
+	auto FAssetRuntimeState::CreateAsset(const FAssetPath& Path, DClass* Class, size_t Size, DObject*& OutAsset) -> FAssetResult
 	{
 		OutAsset = nullptr;
 		if (!bAcceptingRequests)
@@ -3590,7 +3737,7 @@ namespace Durin::Asset
 		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
 			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit asset creation.");
 		if (!Path.IsValid() || !Class || !Class->ClassConstructor) return Error(EAssetError::InvalidPath, "Invalid asset path or class.");
-		if (const FAssetData* Existing = Registry.FindAssetExact(Path))
+		if (const FAssetData* Existing = Registry.FindAssetExactPointer(Path))
 			return Existing->EntryKind == EAssetRegistryEntryKind::Redirector
 				? Error(EAssetError::AlreadyExists, std::format(
 					"Asset {} is occupied by a redirector to {}. Run Fix Up Redirectors or choose another destination.",
@@ -3598,7 +3745,7 @@ namespace Durin::Asset
 				: Error(EAssetError::AlreadyExists, std::format(
 					"Asset {} already exists. Choose another destination or delete the existing asset.",
 					Path.ToString()));
-		if (LoadedPackages.contains(Path))
+		if (LoadedPackages.contains(Path) || DraftPackages.Contains(Path))
 			return Error(EAssetError::AlreadyExists, std::format(
 				"A loaded package already uses {}. Close it or choose another destination.",
 				Path.ToString()));
@@ -3617,12 +3764,11 @@ namespace Durin::Asset
 			OutAsset = nullptr;
 			return Error(EAssetError::InvalidObjectGraph, "Failed to assign package asset.");
 		}
-		LoadedPackages.emplace(Path, Package);
-		Registry.bPersistentSnapshotDirty = true;
+		DraftPackages.Add(Path, Package);
 		return {};
 	}
 
-	auto FAssetManager::CreateRedirector(
+	auto FAssetRuntimeState::CreateRedirector(
 		const FAssetPath& RedirectorPath,
 		const FAssetPath& DestinationPath,
 		DAssetRedirector*& OutRedirector) -> FAssetResult
@@ -3676,7 +3822,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetManager::SavePackage(
+	auto FAssetRuntimeState::SavePackage(
 		DPackage* Package,
 		const FAssetPackageSaveOptions& Options) -> FAssetResult
 	{
@@ -3720,6 +3866,11 @@ namespace Durin::Asset
 			.FileSize = std::filesystem::file_size(Destination),
 			.LastWriteTime = LastWriteTime,
 			.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime)});
+		if (DraftPackages.Find(Path) == Package)
+		{
+			DraftPackages.Remove(Path);
+			LoadedPackages.emplace(Path, Package);
+		}
 		return {};
 	}
 
@@ -4075,7 +4226,7 @@ namespace Durin::Asset
 			: std::span<const FAssetRelocationMapping>{};
 	}
 
-	auto FAssetManager::AnalyzeAssetRelocationBatch(
+	auto FAssetRuntimeState::AnalyzeAssetRelocationBatch(
 		std::span<const FAssetRelocationMapping> Mappings,
 		FAssetRelocationBatchToken& OutToken) -> FAssetResult
 	{
@@ -4234,7 +4385,7 @@ namespace Durin::Asset
 		for (const FAssetRelocationMapping& Mapping : State->Mappings)
 		{
 			const FAssetData* SourceData =
-				Registry.FindAssetExact(Mapping.SourcePath);
+				Registry.FindAssetExactPointer(Mapping.SourcePath);
 			if (!SourceData)
 				return Error(EAssetError::NotFound, std::format(
 					"Asset {} was not found.", Mapping.SourcePath.ToString()));
@@ -4258,7 +4409,7 @@ namespace Durin::Asset
 
 			bool bReclaimDestinationRedirector = false;
 			if (const FAssetData* DestinationData =
-				Registry.FindAssetExact(Mapping.DestinationPath))
+				Registry.FindAssetExactPointer(Mapping.DestinationPath))
 			{
 				if (DestinationData->EntryKind
 						!= EAssetRegistryEntryKind::Redirector)
@@ -4451,7 +4602,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetManager::RevalidateAssetRelocationBatch(
+	auto FAssetRuntimeState::RevalidateAssetRelocationBatch(
 		const FAssetRelocationBatchToken& Token) -> FAssetResult
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
@@ -4575,7 +4726,7 @@ namespace Durin::Asset
 		}
 	}
 
-	auto FAssetManager::ApplyAssetRelocationBatch(
+	auto FAssetRuntimeState::ApplyAssetRelocationBatch(
 		const FAssetRelocationBatchToken& Token) -> FAssetResult
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
@@ -4784,7 +4935,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetManager::RestoreAssetRelocationBatch(
+	auto FAssetRuntimeState::RestoreAssetRelocationBatch(
 		const FAssetRelocationBatchToken& Token) -> FAssetResult
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
@@ -5044,7 +5195,7 @@ namespace Durin::Asset
 			: std::span<const FAssetPath>{};
 	}
 
-	auto FAssetManager::AnalyzeRedirectorFixup(
+	auto FAssetRuntimeState::AnalyzeRedirectorFixup(
 		std::span<const FAssetPath> Redirectors,
 		EAssetRedirectorFixupMode Mode,
 		FAssetRedirectorFixupPlan& OutPlan) -> FAssetResult
@@ -5092,7 +5243,7 @@ namespace Durin::Asset
 				return Error(EAssetError::InvalidPath,
 					"Redirector Fix Up contains an invalid path.");
 			if (!Closure.insert(Alias).second) continue;
-			const FAssetData* Data = Registry.FindAssetExact(Alias);
+			const FAssetData* Data = Registry.FindAssetExactPointer(Alias);
 			if (!Data)
 				return Error(EAssetError::NotFound, std::format(
 					"Fix Up redirector {} is not registered.", Alias.ToString()));
@@ -5222,7 +5373,7 @@ namespace Durin::Asset
 			if (ConsumeFixupFailure(EAssetRedirectorFixupFailurePoint::PreparePackage))
 				return Error(EAssetError::IoError,
 					"Injected Fix Up package-preparation failure.");
-			const FAssetData* Data = Registry.FindAssetExact(SourcePath);
+			const FAssetData* Data = Registry.FindAssetExactPointer(SourcePath);
 			if (!Data)
 				return Error(EAssetError::StaleData,
 					"A package referencer is no longer registered.");
@@ -5366,7 +5517,7 @@ namespace Durin::Asset
 				for (FAssetReferenceStorePackageRewrite& PackageRewrite :
 					StoreState.Contribution.PackageRewrites)
 				{
-					const FAssetData* Data = Registry.FindAssetExact(
+					const FAssetData* Data = Registry.FindAssetExactPointer(
 						PackageRewrite.PackagePath);
 					if (!PackageRewrite.PackagePath.IsValid() || !Data
 						|| Data->EntryKind == EAssetRegistryEntryKind::Redirector)
@@ -5459,7 +5610,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetManager::RevalidateRedirectorFixup(
+	auto FAssetRuntimeState::RevalidateRedirectorFixup(
 		const FAssetRedirectorFixupPlan& Plan) -> FAssetResult
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
@@ -5555,7 +5706,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetManager::ApplyRedirectorFixup(
+	auto FAssetRuntimeState::ApplyRedirectorFixup(
 		const FAssetRedirectorFixupPlan& Plan) -> FAssetResult
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
@@ -5767,11 +5918,11 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetManager::AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult
+	auto FAssetRuntimeState::AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult
 	{
 		OutAnalysis = {};
 		OutAnalysis.AssetPath = Path;
-		const FAssetData* Data = Registry.FindAssetExact(Path);
+		const FAssetData* Data = Registry.FindAssetExactPointer(Path);
 		if (!Path.IsValid() || !Data) return Error(EAssetError::NotFound, std::format("Asset {} was not found.", Path.ToString()));
 		OutAnalysis.bRedirector =
 			Data->EntryKind == EAssetRegistryEntryKind::Redirector;
@@ -5797,7 +5948,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetManager::AnalyzeAssetDeletionBatch(
+	auto FAssetRuntimeState::AnalyzeAssetDeletionBatch(
 		std::span<const FAssetPath> Paths,
 		std::span<const std::filesystem::path> PhysicalRoots,
 		FAssetDeletionBatchToken& OutToken,
@@ -5844,7 +5995,7 @@ namespace Durin::Asset
 
 		for (const FAssetPath& Path : SortedPaths)
 		{
-			const FAssetData* Data = Registry.FindAssetExact(Path);
+			const FAssetData* Data = Registry.FindAssetExactPointer(Path);
 			if (!Path.IsValid() || !Data)
 			{
 				AddBlocker(
@@ -5909,7 +6060,7 @@ namespace Durin::Asset
 
 		for (const FAssetPath& Path : SortedPaths)
 		{
-			const FAssetData* Data = Registry.FindAssetExact(Path);
+			const FAssetData* Data = Registry.FindAssetExactPointer(Path);
 			if (!Data) continue;
 			if (Data->EntryKind == EAssetRegistryEntryKind::Redirector)
 			{
@@ -5946,7 +6097,7 @@ namespace Durin::Asset
 				else
 				{
 					const FAssetData* RedirectorData =
-						Registry.FindAssetExact(Redirector);
+						Registry.FindAssetExactPointer(Redirector);
 					AddBlocker(
 						EAssetDeletionBatchBlocker::TargetRedirectorsNotSelected,
 						Path,
@@ -6171,7 +6322,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetManager::RevalidateAssetDeletionBatch(
+	auto FAssetRuntimeState::RevalidateAssetDeletionBatch(
 		const FAssetDeletionBatchToken& Token,
 		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult
 	{
@@ -6206,7 +6357,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetManager::UnloadAssetDeletionBatch(
+	auto FAssetRuntimeState::UnloadAssetDeletionBatch(
 		const FAssetDeletionBatchToken& Token) -> FAssetResult
 	{
 		std::vector<DPackage*> Packages;
@@ -6235,7 +6386,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetManager::ApplyAssetDeletionBatch(
+	auto FAssetRuntimeState::ApplyAssetDeletionBatch(
 		const FAssetDeletionBatchToken& Token) -> FAssetResult
 	{
 		std::vector<FAssetDeletionBatchBlocker> Blockers;
@@ -6248,7 +6399,7 @@ namespace Durin::Asset
 		return RemoveAssetDeletionBatchRegistryProjection(Token);
 	}
 
-	auto FAssetManager::RemoveAssetDeletionBatchRegistryProjection(
+	auto FAssetRuntimeState::RemoveAssetDeletionBatchRegistryProjection(
 		const FAssetDeletionBatchToken& Token) -> FAssetResult
 	{
 		std::unordered_set<FAssetPath> DeletionSet;
@@ -6256,7 +6407,7 @@ namespace Durin::Asset
 			DeletionSet.insert(Entry.RegistryEntry.PackagePath);
 		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
 		{
-			const FAssetData* Current = Registry.FindAssetExact(
+			const FAssetData* Current = Registry.FindAssetExactPointer(
 				Entry.RegistryEntry.PackagePath);
 			if (!Current || !(*Current == Entry.RegistryEntry))
 				return Error(EAssetError::InUse, std::format(
@@ -6277,13 +6428,14 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetManager::RestoreAssetDeletionBatch(
+	auto FAssetRuntimeState::RestoreAssetDeletionBatch(
 		const FAssetDeletionBatchToken& Token) -> FAssetResult
 	{
 		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
 		{
 			const FAssetPath& Path = Entry.RegistryEntry.PackagePath;
-			if (Registry.FindAssetExact(Path) || LoadedPackages.contains(Path))
+			if (Registry.FindAssetExactPointer(Path) || LoadedPackages.contains(Path)
+				|| DraftPackages.Contains(Path))
 				return Error(EAssetError::AlreadyExists, std::format(
 					"Asset {} already exists and cannot be restored.",
 					Path.ToString()));
@@ -6299,7 +6451,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetManager::DeleteAsset(const FAssetPath& Path) -> FAssetResult
+	auto FAssetRuntimeState::DeleteAsset(const FAssetPath& Path) -> FAssetResult
 	{
 		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
 			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit asset deletion.");
@@ -6321,7 +6473,7 @@ namespace Durin::Asset
 			if (!Result) return Result;
 		}
 
-		const FAssetData* Data = Registry.FindAssetExact(Path);
+		const FAssetData* Data = Registry.FindAssetExactPointer(Path);
 		if (!Data) return Error(EAssetError::NotFound, std::format("Asset {} was not found.", Path.ToString()));
 		std::vector<std::filesystem::path> Files;
 		Files.emplace_back(Data->PhysicalPath);
@@ -6392,7 +6544,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetManager::LoadAsset(
+	auto FAssetRuntimeState::LoadAsset(
 		const FAssetPath& Path,
 		DObject*& OutAsset,
 		FAssetLoadReport* OutReport) -> FAssetResult
@@ -6400,69 +6552,72 @@ namespace Durin::Asset
 		return LoadAsset(Path, nullptr, OutAsset, OutReport);
 	}
 
-	auto FAssetManager::LoadAsset(
+	auto FAssetRuntimeState::LoadAsset(
 		const FAssetPath& Path,
 		const DClass* ExpectedClass,
 		DObject*& OutAsset,
 		FAssetLoadReport* OutReport) -> FAssetResult
 	{
 		OutAsset = nullptr;
+		if (OutReport) *OutReport = {
+			.RequestedPath = Path,
+			.PackagePath = Path};
+		auto Finish = [&](FAssetResult Result) -> FAssetResult
+		{
+			if (OutReport)
+			{
+				OutReport->Error = Result.Error;
+				OutReport->ErrorMessage = Result.Message;
+			}
+			return Result;
+		};
 		if (!bAcceptingRequests)
-			return Error(
+			return Finish(Error(
 				EAssetError::ShuttingDown,
-				"Asset loading is closed while the asset manager is shutting down.");
+				"Asset loading is closed while the asset manager is shutting down."));
 		if (ExpectedClass && !ExpectedClass->IsChildOf(DObject::StaticClass()))
-			return Error(EAssetError::TypeMismatch, "An asset load requires a DObject class.");
+			return Finish(Error(EAssetError::TypeMismatch, "An asset load requires a DObject class."));
 
 		const FAssetPathResolveResult Resolution = Registry.ResolveAssetPath(
 			Path, {.ExpectedClass = ExpectedClass});
-		if (!Resolution)
+		if (OutReport)
 		{
-			if (Resolution.State == EAssetPathResolveState::NotFound)
-			{
-				const auto Loaded = LoadedPackages.find(Path);
-				DObject* LoadedObject = Loaded != LoadedPackages.end()
-					? Loaded->second->GetAsset() : nullptr;
-				if (LoadedObject && !LoadedObject->IsA<DAssetRedirector>())
-				{
-					if (ExpectedClass && !LoadedObject->IsA(ExpectedClass))
-						return Error(EAssetError::TypeMismatch, std::format(
-							"Asset {} is not a {}.", Path.ToString(),
-							ExpectedClass->GetQualifiedName().ToString()));
-					OutAsset = LoadedObject;
-					return {};
-				}
-
-				const std::string PhysicalPath = GetPhysicalPath(Path);
-				FAssetPackageHeader Header;
-				FAssetResult HeaderResult = PhysicalPath.empty()
-					? AssetPathResolutionError(Resolution)
-					: ReadAssetPackageHeader(PhysicalPath, Header);
-				if (!HeaderResult) return HeaderResult;
-				if (Header.EntryKind == EAssetRegistryEntryKind::Redirector)
-					return Error(EAssetError::NotFound, std::format(
-						"Redirector {} must be present in the registry before public loading.",
-						Path.ToString()));
-				DClass* HeaderClass = FindClassByQualifiedName(FName(Header.AssetClassName));
-				if (!HeaderClass)
-					return Error(EAssetError::UnknownClass, std::format(
-						"Asset {} has unknown class {}.",
-						Path.ToString(), Header.AssetClassName));
-				if (ExpectedClass && !HeaderClass->IsChildOf(ExpectedClass))
-					return Error(EAssetError::TypeMismatch, std::format(
-						"Asset {} is registered as {}, not a {}.",
-						Path.ToString(), Header.AssetClassName,
-						ExpectedClass->GetQualifiedName().ToString()));
-				return LoadAssetExact(Path, ExpectedClass, OutAsset, OutReport);
-			}
-			return AssetPathResolutionError(Resolution);
+			OutReport->CatalogRevision = Resolution.CatalogRevision;
+			OutReport->FinalPath = Resolution.FinalPath;
+			OutReport->RedirectChain = Resolution.RedirectChain;
+			if (Resolution.FinalAssetData)
+				OutReport->FinalAssetClassName = Resolution.FinalAssetData->AssetClassName;
 		}
-		return LoadAssetExact(
-			Resolution.FinalPath, ExpectedClass, OutAsset, OutReport);
+		if (!Resolution)
+			return Finish(AssetPathResolutionError(Resolution));
+		check(Resolution.FinalAssetData.has_value());
+		return Finish(LoadAssetFromCatalog(
+			*Resolution.FinalAssetData, ExpectedClass, OutAsset, OutReport));
 	}
 
-	auto FAssetManager::LoadAssetExact(
+	auto FAssetRuntimeState::LoadAssetFromCatalog(
+		const FAssetData& Data,
+		const DClass* ExpectedClass,
+		DObject*& OutAsset,
+		FAssetLoadReport* OutReport) -> FAssetResult
+	{
+		return LoadAssetFromPhysicalPath(
+			Data.PackagePath, Data.PhysicalPath, ExpectedClass, OutAsset, OutReport);
+	}
+
+	auto FAssetRuntimeState::LoadAssetExactForMigration(
 		const FAssetPath& Path,
+		const DClass* ExpectedClass,
+		DObject*& OutAsset,
+		FAssetLoadReport* OutReport) -> FAssetResult
+	{
+		return LoadAssetFromPhysicalPath(
+			Path, GetPhysicalPath(Path), ExpectedClass, OutAsset, OutReport);
+	}
+
+	auto FAssetRuntimeState::LoadAssetFromPhysicalPath(
+		const FAssetPath& Path,
+		std::string_view PhysicalPath,
 		const DClass* ExpectedClass,
 		DObject*& OutAsset,
 		FAssetLoadReport* OutReport) -> FAssetResult
@@ -6475,7 +6630,15 @@ namespace Durin::Asset
 				EAssetError::ShuttingDown,
 				"Asset loading is closed while the asset manager is shutting down.");
 		}
-		if (OutReport) *OutReport = {.PackagePath = Path};
+		if (OutReport)
+		{
+			if (!OutReport->RequestedPath.IsValid())
+				*OutReport = {
+					.RequestedPath = Path,
+					.FinalPath = Path,
+					.PackagePath = Path};
+			else OutReport->PackagePath = Path;
+		}
 		const bool bRootLoad = LoadDepth++ == 0;
 		if (bRootLoad) GActivePackageFileReadCount = 0;
 		FAssetLoadReport FailureReport;
@@ -6483,12 +6646,12 @@ namespace Durin::Asset
 		{
 			if (OutReport) FailureReport = *OutReport;
 			TransactionPackages.clear();
-			TransactionRegistryEntries.clear();
 		}
 		FAssetLoadReport* PreviousLoadReport = GActiveAssetLoadReport;
 		if (bRootLoad) GActiveAssetLoadReport = OutReport;
 		DPackage* Package = nullptr;
-		FAssetResult Result = LoadPackageInternal(Path, Package, OutReport);
+		FAssetResult Result = LoadPackageInternal(
+			Path, PhysicalPath, Package, OutReport);
 		if (Result && Package && ExpectedClass)
 		{
 			DObject* Asset = Package->GetAsset();
@@ -6518,21 +6681,16 @@ namespace Durin::Asset
 				if (bDiscardedPackage) CollectGarbage();
 				if (OutReport) *OutReport = std::move(FailureReport);
 			}
-			else
-			{
-				for (FAssetData& Data : TransactionRegistryEntries)
-					Registry.AddOrUpdate(std::move(Data));
-			}
 			TransactionPackages.clear();
-			TransactionRegistryEntries.clear();
 			if (Result) bPackageLoadStarted = true;
 		}
 		OutAsset = Result && Package ? Package->GetAsset() : nullptr;
 		return Result;
 	}
 
-	auto FAssetManager::LoadPackageInternal(
+	auto FAssetRuntimeState::LoadPackageInternal(
 		const FAssetPath& Path,
+		std::string_view PhysicalPath,
 		DPackage*& OutPackage,
 		FAssetLoadReport* OutReport) -> FAssetResult
 	{
@@ -6545,18 +6703,17 @@ namespace Durin::Asset
 		FAssetLoadReport LocalReport{.PackagePath = Path};
 		FAssetLoadReport* CodecReport = OutReport ? OutReport : &LocalReport;
 		std::vector<uint8> Bytes;
-		const std::string PhysicalPath = GetPhysicalPath(Path);
 		if (PhysicalPath.empty()) return Error(EAssetError::InvalidPath, "Asset path cannot be resolved in the selected package mode.");
 		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath)) return Error(EAssetError::NotFound, std::format("Asset {} was not found.", Path.ToString()));
 		++GActivePackageFileReadCount;
-		const Private::FAssetPackageCodec* Codec = nullptr;
-		Private::FAssetPackagePreamble Preamble;
-		if (FAssetResult Result = Private::ResolveAssetPackageReader(
-			Bytes, Codec, &Preamble); !Result)
+			const Private::FAssetPackageCodec* Codec = nullptr;
+			if (FAssetResult Result = Private::ResolveAssetPackageReader(
+				Bytes, Codec); !Result)
 			return Result;
 		{
 			FAssetPackageHeader Header;
-			FAssetResult Result = Codec->ReadHeader(Bytes, Header);
+			FAssetResult Result = Codec->ReadHeader(
+				Bytes, Bytes.size(), Header);
 			if (!Result) return Result;
 			FPackageFile HeaderFile{
 				.FormatVersion = Header.FormatVersion,
@@ -6571,7 +6728,8 @@ namespace Durin::Asset
 			Result = Codec->Load(
 				Bytes, Path, Package, CodecReport,
 				[&](DPackage* LoadedPackage) -> FAssetResult {
-					if (!LoadedPackage || LoadedPackages.contains(Path))
+					if (!LoadedPackage || LoadedPackages.contains(Path)
+						|| DraftPackages.Contains(Path))
 						return Error(EAssetError::AlreadyExists,
 							"The package skeleton is already resident.");
 					LoadedPackages.emplace(Path, LoadedPackage);
@@ -6594,29 +6752,35 @@ namespace Durin::Asset
 				}))
 				CompatibilityRiskPackages.insert(Package);
 			OutPackage = Package;
-			const auto LastWriteTime = std::filesystem::last_write_time(PhysicalPath);
-			TransactionRegistryEntries.push_back(FAssetData{
-				.PackagePath = Path,
-				.PhysicalPath = PhysicalPath,
-				.AssetClassName = Header.AssetClassName,
-				.EntryKind = Header.EntryKind,
-				.RedirectDestination = Header.RedirectDestination,
-				.FormatVersion = Preamble.FormatVersion,
-				.Dependencies = Header.Dependencies,
-				.FileSize = std::filesystem::file_size(PhysicalPath),
-				.LastWriteTime = LastWriteTime,
-				.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime)});
 			return {};
 		}
 	}
 
-	auto FAssetManager::FindLoadedPackage(const FAssetPath& Path) const -> DPackage*
+	auto FAssetRuntimeState::FindLoadedPackage(const FAssetPath& Path) const -> DPackage*
 	{
 		auto It = LoadedPackages.find(Path);
 		return It == LoadedPackages.end() ? nullptr : It->second;
 	}
 
-	auto FAssetManager::IsPackageReferenced(const DPackage* Package) const -> bool
+	auto FAssetRuntimeState::FindDraftPackage(const FAssetPath& Path) const -> DPackage*
+	{
+		return DraftPackages.Find(Path);
+	}
+
+	auto FAssetRuntimeState::DiscardDraftPackage(const FAssetPath& Path) -> FAssetResult
+	{
+		DPackage* Package = DraftPackages.Find(Path);
+		if (!Package)
+			return Error(EAssetError::NotFound, "Package is not an unpublished draft.");
+		DraftPackages.Remove(Path);
+		CompatibilityRiskPackages.erase(Package);
+		RemoveFromRoot(Package);
+		MarkObjectHierarchyAsGarbage(Package);
+		CollectGarbage();
+		return {};
+	}
+
+	auto FAssetRuntimeState::IsPackageReferenced(const DPackage* Package) const -> bool
 	{
 		if (!Package) return false;
 		FAssetPath Path;
@@ -6624,7 +6788,7 @@ namespace Durin::Asset
 		for (const auto& [OtherPath, OtherPackage] : LoadedPackages)
 		{
 			if (OtherPackage == Package) continue;
-			const FAssetData* Data = Registry.FindAssetExact(OtherPath);
+			const FAssetData* Data = Registry.FindAssetExactPointer(OtherPath);
 			if (!Data) continue;
 			for (const FAssetPath& Dependency : Data->Dependencies)
 			{
@@ -6635,7 +6799,7 @@ namespace Durin::Asset
 		return false;
 	}
 
-	auto FAssetManager::UnloadPackage(const FAssetPath& Path) -> FAssetResult
+	auto FAssetRuntimeState::UnloadPackage(const FAssetPath& Path) -> FAssetResult
 	{
 		auto It = LoadedPackages.find(Path);
 		if (It == LoadedPackages.end()) return Error(EAssetError::NotFound, "Package is not loaded.");
@@ -6649,7 +6813,7 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetManager::CapturePackageLoadSnapshot() const -> FAssetPackageLoadSnapshot
+	auto FAssetRuntimeState::CapturePackageLoadSnapshot() const -> FAssetPackageLoadSnapshot
 	{
 		FAssetPackageLoadSnapshot Snapshot;
 		Snapshot.LoadedPackages.reserve(LoadedPackages.size());
@@ -6660,7 +6824,7 @@ namespace Durin::Asset
 		return Snapshot;
 	}
 
-	auto FAssetManager::ReleasePackagesLoadedSince(
+	auto FAssetRuntimeState::ReleasePackagesLoadedSince(
 		const FAssetPackageLoadSnapshot& Snapshot) -> FAssetResult
 	{
 		if (LoadDepth != 0 || !LoadingPackages.empty())
@@ -6675,7 +6839,7 @@ namespace Durin::Asset
 			for (const auto& [Path, Package] : LoadedPackages)
 			{
 				if (!Protected.contains(Path)) continue;
-				const FAssetData* Data = Registry.FindAssetExact(Path);
+				const FAssetData* Data = Registry.FindAssetExactPointer(Path);
 				if (!Data) continue;
 				for (const FAssetPath& Dependency : Data->Dependencies)
 				{
@@ -6707,27 +6871,31 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetManager::PublishMigratedPackageRegistryEntries(
+	auto FAssetRuntimeState::PublishMigratedPackageRegistryEntries(
 		std::span<FAssetData> Entries) -> void
 	{
 		for (FAssetData& Entry : Entries) Registry.AddOrUpdate(std::move(Entry));
 	}
 
-	auto FAssetManager::Shutdown() -> void
+	auto FAssetRuntimeState::Shutdown() -> void
 	{
 		StopAcceptingRequests();
 		Registry.FlushPersistentSnapshot();
 		std::vector<DPackage*> Packages;
-		Packages.reserve(LoadedPackages.size());
+		Packages.reserve(LoadedPackages.size() + DraftPackages.Size());
 		for (const auto& [Path, Package] : LoadedPackages)
 		{
 			if (Package) Packages.push_back(Package);
 		}
+		for (const auto& [Path, Package] : DraftPackages)
+		{
+			if (Package) Packages.push_back(Package);
+		}
 		LoadedPackages.clear();
+		DraftPackages.Clear();
 		LoadingPackages.clear();
 		CompatibilityRiskPackages.clear();
 		TransactionPackages.clear();
-		TransactionRegistryEntries.clear();
 		LoadDepth = 0;
 		PackageLoadContext = {};
 		bPackageLoadStarted = false;
@@ -6738,26 +6906,28 @@ namespace Durin::Asset
 		}
 	}
 
-	auto FAssetManager::Initialize() -> void
+	auto FAssetRuntimeState::Initialize() -> void
 	{
 		check(LoadedPackages.empty());
+		check(DraftPackages.Empty());
 		check(LoadingPackages.empty());
 		check(TransactionPackages.empty());
 		bAcceptingRequests = true;
 	}
 
-	auto FAssetManager::StopAcceptingRequests() -> void
+	auto FAssetRuntimeState::StopAcceptingRequests() -> void
 	{
 		if (!bAcceptingRequests) return;
 		bAcceptingRequests = false;
 		DURIN_DEBUG("Asset manager stopped accepting new requests.");
 	}
 
-	auto FAssetManager::ConfigurePackageLoadContext(FPackageLoadContext InContext) -> FAssetResult
+	auto FAssetRuntimeState::ConfigurePackageLoadContext(FPackageLoadContext InContext) -> FAssetResult
 	{
 		std::string ValidationError;
 		if (!InContext.IsValid(&ValidationError)) return Error(EAssetError::InvalidPath, std::move(ValidationError));
-		if (bPackageLoadStarted || !LoadedPackages.empty() || !LoadingPackages.empty() || LoadDepth != 0)
+		if (bPackageLoadStarted || !LoadedPackages.empty() || !DraftPackages.Empty()
+			|| !LoadingPackages.empty() || LoadDepth != 0)
 			return Error(EAssetError::InUse, "Package load context cannot change after package loading has begun.");
 		PackageLoadContext = std::move(InContext);
 		return {};
@@ -6768,7 +6938,26 @@ namespace Durin::Asset
 		DObject*& OutAsset,
 		FAssetLoadReport* OutReport) -> FAssetResult
 	{
-		return FAssetManager::Get().LoadAsset(Path, OutAsset, OutReport);
+		return FAssetRuntimeState::Get().LoadAsset(Path, OutAsset, OutReport);
+	}
+
+	auto LoadAsset(
+		const FAssetPath& Path,
+		const DClass* ExpectedClass,
+		DObject*& OutAsset,
+		FAssetLoadReport* OutReport) -> FAssetResult
+	{
+		return FAssetRuntimeState::Get().LoadAsset(
+			Path, ExpectedClass, OutAsset, OutReport);
+	}
+
+	auto CreateAsset(
+		const FAssetPath& Path,
+		DClass* Class,
+		size_t Size,
+		DObject*& OutAsset) -> FAssetResult
+	{
+		return FAssetRuntimeState::Get().CreateAsset(Path, Class, Size, OutAsset);
 	}
 
 	auto CreateAssetRedirector(
@@ -6776,11 +6965,11 @@ namespace Durin::Asset
 		const FAssetPath& DestinationPath,
 		DAssetRedirector*& OutRedirector) -> FAssetResult
 	{
-		return FAssetManager::Get().CreateRedirector(
+		return FAssetRuntimeState::Get().CreateRedirector(
 			RedirectorPath, DestinationPath, OutRedirector);
 	}
 
-	auto FAssetManager::ResolveSoftObjectInternal(
+	auto FAssetRuntimeState::ResolveSoftObjectInternal(
 		FSoftObjectPtr& Reference,
 		const DClass* ExpectedClass,
 		ESoftObjectNullPolicy NullPolicy) -> FSoftObjectResolveResult
@@ -6884,7 +7073,7 @@ namespace Durin::Asset
 			.bRedirected = !Resolution.RedirectChain.empty()};
 	}
 
-	auto FAssetManager::LoadSoftObjectInternal(
+	auto FAssetRuntimeState::LoadSoftObjectInternal(
 		FSoftObjectPtr& Reference,
 		const DClass* ExpectedClass,
 		DObject*& OutObject,
@@ -6931,7 +7120,7 @@ namespace Durin::Asset
 		const DClass* ExpectedClass,
 		ESoftObjectNullPolicy NullPolicy) -> FSoftObjectResolveResult
 	{
-		return FAssetManager::Get().ResolveSoftObjectInternal(
+		return FAssetRuntimeState::Get().ResolveSoftObjectInternal(
 			Reference, ExpectedClass, NullPolicy);
 	}
 
@@ -6942,54 +7131,54 @@ namespace Durin::Asset
 		ESoftObjectNullPolicy NullPolicy,
 		FAssetLoadReport* OutReport) -> FAssetResult
 	{
-		return FAssetManager::Get().LoadSoftObjectInternal(
+		return FAssetRuntimeState::Get().LoadSoftObjectInternal(
 			Reference, ExpectedClass, OutObject, NullPolicy, OutReport);
 	}
 	auto SavePackage(
 		DPackage* Package,
 		const FAssetPackageSaveOptions& Options) -> FAssetResult
 	{
-		return FAssetManager::Get().SavePackage(Package, Options);
+		return FAssetRuntimeState::Get().SavePackage(Package, Options);
 	}
 	auto AnalyzeAssetRelocationBatch(
 		std::span<const FAssetRelocationMapping> Mappings,
 		FAssetRelocationBatchToken& OutToken) -> FAssetResult
 	{
-		return FAssetManager::Get().AnalyzeAssetRelocationBatch(
+		return FAssetRuntimeState::Get().AnalyzeAssetRelocationBatch(
 			Mappings, OutToken);
 	}
 	auto RevalidateAssetRelocationBatch(
 		const FAssetRelocationBatchToken& Token) -> FAssetResult
 	{
-		return FAssetManager::Get().RevalidateAssetRelocationBatch(Token);
+		return FAssetRuntimeState::Get().RevalidateAssetRelocationBatch(Token);
 	}
 	auto ApplyAssetRelocationBatch(
 		const FAssetRelocationBatchToken& Token) -> FAssetResult
 	{
-		return FAssetManager::Get().ApplyAssetRelocationBatch(Token);
+		return FAssetRuntimeState::Get().ApplyAssetRelocationBatch(Token);
 	}
 	auto RestoreAssetRelocationBatch(
 		const FAssetRelocationBatchToken& Token) -> FAssetResult
 	{
-		return FAssetManager::Get().RestoreAssetRelocationBatch(Token);
+		return FAssetRuntimeState::Get().RestoreAssetRelocationBatch(Token);
 	}
 	auto AnalyzeRedirectorFixup(
 		std::span<const FAssetPath> Redirectors,
 		EAssetRedirectorFixupMode Mode,
 		FAssetRedirectorFixupPlan& OutPlan) -> FAssetResult
 	{
-		return FAssetManager::Get().AnalyzeRedirectorFixup(
+		return FAssetRuntimeState::Get().AnalyzeRedirectorFixup(
 			Redirectors, Mode, OutPlan);
 	}
 	auto RevalidateRedirectorFixup(
 		const FAssetRedirectorFixupPlan& Plan) -> FAssetResult
 	{
-		return FAssetManager::Get().RevalidateRedirectorFixup(Plan);
+		return FAssetRuntimeState::Get().RevalidateRedirectorFixup(Plan);
 	}
 	auto ApplyRedirectorFixup(
 		const FAssetRedirectorFixupPlan& Plan) -> FAssetResult
 	{
-		return FAssetManager::Get().ApplyRedirectorFixup(Plan);
+		return FAssetRuntimeState::Get().ApplyRedirectorFixup(Plan);
 	}
 	auto FixUpRedirectors(
 		std::span<const FAssetPath> Redirectors,
@@ -7002,7 +7191,7 @@ namespace Durin::Asset
 	auto FixUpAllRedirectors(EAssetRedirectorFixupMode Mode) -> FAssetResult
 	{
 		std::vector<FAssetPath> Redirectors;
-		for (const auto& [Path, Data] : GetAssetRegistry().GetAssets())
+		for (const auto& [Path, Data] : GetAssetCatalogStore().GetAssets())
 			if (Data.EntryKind == EAssetRegistryEntryKind::Redirector)
 				Redirectors.push_back(Path);
 		std::ranges::sort(Redirectors,
@@ -7012,62 +7201,120 @@ namespace Durin::Asset
 		if (Redirectors.empty()) return {};
 		return FixUpRedirectors(Redirectors, Mode);
 	}
-	auto AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult { return FAssetManager::Get().AnalyzeAssetDeletion(Path, OutAnalysis); }
+	auto AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult { return FAssetRuntimeState::Get().AnalyzeAssetDeletion(Path, OutAnalysis); }
 	auto AnalyzeAssetDeletionBatch(
 		std::span<const FAssetPath> Paths,
 		std::span<const std::filesystem::path> PhysicalRoots,
 		FAssetDeletionBatchToken& OutToken,
 		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult
 	{
-		return FAssetManager::Get().AnalyzeAssetDeletionBatch(
+		return FAssetRuntimeState::Get().AnalyzeAssetDeletionBatch(
 			Paths, PhysicalRoots, OutToken, OutBlockers);
 	}
 	auto RevalidateAssetDeletionBatch(
 		const FAssetDeletionBatchToken& Token,
 		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult
 	{
-		return FAssetManager::Get().RevalidateAssetDeletionBatch(
+		return FAssetRuntimeState::Get().RevalidateAssetDeletionBatch(
 			Token, OutBlockers);
 	}
 	auto UnloadAssetDeletionBatch(
 		const FAssetDeletionBatchToken& Token) -> FAssetResult
 	{
-		return FAssetManager::Get().UnloadAssetDeletionBatch(Token);
+		return FAssetRuntimeState::Get().UnloadAssetDeletionBatch(Token);
 	}
 	auto ApplyAssetDeletionBatch(
 		const FAssetDeletionBatchToken& Token) -> FAssetResult
 	{
-		return FAssetManager::Get().ApplyAssetDeletionBatch(Token);
+		return FAssetRuntimeState::Get().ApplyAssetDeletionBatch(Token);
 	}
 	auto RemoveAssetDeletionBatchRegistryProjection(
 		const FAssetDeletionBatchToken& Token) -> FAssetResult
 	{
-		return FAssetManager::Get().RemoveAssetDeletionBatchRegistryProjection(Token);
+		return FAssetRuntimeState::Get().RemoveAssetDeletionBatchRegistryProjection(Token);
 	}
 	auto RestoreAssetDeletionBatch(
 		const FAssetDeletionBatchToken& Token) -> FAssetResult
 	{
-		return FAssetManager::Get().RestoreAssetDeletionBatch(Token);
+		return FAssetRuntimeState::Get().RestoreAssetDeletionBatch(Token);
 	}
-	auto DeleteAsset(const FAssetPath& Path) -> FAssetResult { return FAssetManager::Get().DeleteAsset(Path); }
-	auto FindLoadedPackage(const FAssetPath& Path) -> DPackage* { return FAssetManager::Get().FindLoadedPackage(Path); }
-	auto UnloadPackage(const FAssetPath& Path) -> FAssetResult { return FAssetManager::Get().UnloadPackage(Path); }
+	auto DeleteAsset(const FAssetPath& Path) -> FAssetResult { return FAssetRuntimeState::Get().DeleteAsset(Path); }
+	auto FindLoadedPackage(const FAssetPath& Path) -> DPackage* { return FAssetRuntimeState::Get().FindLoadedPackage(Path); }
+	auto FindDraftPackage(const FAssetPath& Path) -> DPackage* { return FAssetRuntimeState::Get().FindDraftPackage(Path); }
+	auto UnloadPackage(const FAssetPath& Path) -> FAssetResult { return FAssetRuntimeState::Get().UnloadPackage(Path); }
 	auto CapturePackageLoadSnapshot() -> FAssetPackageLoadSnapshot
 	{
-		return FAssetManager::Get().CapturePackageLoadSnapshot();
+		return FAssetRuntimeState::Get().CapturePackageLoadSnapshot();
 	}
 	auto ReleasePackagesLoadedSince(const FAssetPackageLoadSnapshot& Snapshot) -> FAssetResult
 	{
-		return FAssetManager::Get().ReleasePackagesLoadedSince(Snapshot);
+		return FAssetRuntimeState::Get().ReleasePackagesLoadedSince(Snapshot);
 	}
-	auto ShutdownAssetManager() -> void { FAssetManager::Get().Shutdown(); }
+	auto ShutdownAssetManager() -> void { FAssetRuntimeState::Get().Shutdown(); }
+	auto InitializeAssetManager() -> void { FAssetRuntimeState::Get().Initialize(); }
+	auto PublishMigratedPackageRegistryEntries(
+		std::span<FAssetData> Entries) -> void
+	{
+		FAssetRuntimeState::Get().PublishMigratedPackageRegistryEntries(Entries);
+	}
 	auto ConfigurePackageLoadContext(FPackageLoadContext Context) -> FAssetResult
 	{
-		return FAssetManager::Get().ConfigurePackageLoadContext(std::move(Context));
+		return FAssetRuntimeState::Get().ConfigurePackageLoadContext(std::move(Context));
 	}
 	auto GetPackageLoadContext() -> const FPackageLoadContext&
 	{
-		return FAssetManager::Get().GetPackageLoadContext();
+		return FAssetRuntimeState::Get().GetPackageLoadContext();
 	}
-	auto GetAssetRegistry() -> FAssetRegistry& { return FAssetManager::Get().GetRegistry(); }
+	auto GetAssetCatalogStore() -> FAssetCatalogStore& { return FAssetRuntimeState::Get().GetRegistry(); }
+	auto FindAssetExact(const FAssetPath& Path) -> FAssetCatalogEntry
+	{
+		return FAssetRuntimeState::Get().GetRegistry().FindAssetExact(Path);
+	}
+	auto ResolveAssetPath(
+		const FAssetPath& Path,
+		const FAssetPathResolveOptions& Options) -> FAssetPathResolveResult
+	{
+		return FAssetRuntimeState::Get().GetRegistry().ResolveAssetPath(Path, Options);
+	}
+	auto CaptureAssetCatalogSnapshot() -> FAssetCatalogSnapshot
+	{
+		return FAssetRuntimeState::Get().GetRegistry().CaptureSnapshot();
+	}
+	auto GetAssetCatalogRevision() -> uint64
+	{
+		return FAssetRuntimeState::Get().GetRegistry().GetRevision();
+	}
+	auto CaptureAssetReferenceIndex() -> FAssetReferenceIndex
+	{
+		return FAssetRuntimeState::Get().GetRegistry().GetReferenceIndex();
+	}
+	auto FindRedirectorsTo(const FAssetPath& Destination)
+		-> std::vector<FAssetPath>
+	{
+		return FAssetRuntimeState::Get().GetRegistry().FindRedirectorsTo(Destination);
+	}
+	auto BuildCookReachability(
+		std::span<const FAssetPath> Roots,
+		std::vector<FAssetPath>& OutPackages) -> FAssetResult
+	{
+		return FAssetRuntimeState::Get().GetRegistry().BuildCookReachability(
+			Roots, OutPackages);
+	}
+	auto FlushAssetCatalogSnapshotForTesting() -> void
+	{
+		FAssetRuntimeState::Get().GetRegistry().FlushPersistentSnapshot();
+	}
+	auto IsAssetCatalogSnapshotDirtyForTesting() -> bool
+	{
+		return FAssetRuntimeState::Get().GetRegistry().IsPersistentSnapshotDirty();
+	}
+	auto GetAssetCatalogCacheWarningForTesting() -> std::string
+	{
+		return FAssetRuntimeState::Get().GetRegistry().GetCacheWarning();
+	}
+	auto RefreshAssetCatalog(
+		EAssetRegistryScanMode Mode) -> FAssetCatalogRefreshResult
+	{
+		return FAssetRuntimeState::Get().GetRegistry().RefreshMountedContent(Mode);
+	}
 }

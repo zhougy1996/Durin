@@ -1,4 +1,4 @@
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "Components/StaticMeshComponent.h"
 #include "CookedAsset.h"
 #include "DObject/Class.h"
@@ -133,7 +133,7 @@ namespace
 	{
 		Durin::Asset::ShutdownAssetManager();
 		Durin::CollectGarbage();
-		Durin::Asset::FAssetManager::Get().Initialize();
+		Durin::Asset::InitializeAssetManager();
 	}
 }
 
@@ -292,6 +292,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		Durin::Asset::EPackageLoadMode::CookedRuntime, CookRoot}));
 	Durin::PathUtilities::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
+	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	Durin::RHIInit();
@@ -465,6 +467,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		Durin::Asset::EPackageLoadMode::CookedRuntime, CookRoot}));
 	Durin::PathUtilities::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
+	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	const Durin::Asset::FAssetResult MissingBulk =
 		Durin::Asset::LoadAsset(CookedPath, CookedTexture);
 	EXPECT_FALSE(MissingBulk);
@@ -478,6 +482,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 			Durin::Asset::EPackageLoadMode::CookedRuntime, FailureRoot}));
 		Durin::PathUtilities::RegisterMountPointForTests(
 			"/Game/", (FailureRoot / "Game").generic_string() + "/");
+		ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+			Durin::Asset::EAssetRegistryScanMode::FullValidation));
 		Durin::FAssetPath Path;
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedTexture", Path));
 		Durin::DTexture2D* Texture = nullptr;

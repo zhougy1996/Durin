@@ -1,6 +1,6 @@
 #include "Thumbnail/TextureCubeAssetThumbnail.h"
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "Math/Operations.h"
 #include "Texture/TextureCube.h"
 
@@ -218,8 +218,9 @@ namespace Durin::Editor::Texture
 			OutError = "The TextureCube thumbnail provider received the wrong asset class.";
 			return false;
 		}
-		const Asset::FAssetData* Data =
-			Asset::GetAssetRegistry().FindAssetExact(Request.Asset.VirtualPath);
+		const Asset::FAssetCatalogEntry Entry =
+			Asset::FindAssetExact(Request.Asset.VirtualPath);
+		const Asset::FAssetData* Data = Entry.Data ? &*Entry.Data : nullptr;
 		if (Data == nullptr)
 		{
 			OutError = std::format(

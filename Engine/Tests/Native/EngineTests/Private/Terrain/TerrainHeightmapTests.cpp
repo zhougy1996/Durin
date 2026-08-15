@@ -1,5 +1,5 @@
 #include "AssetImportCore.h"
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "DObject/Archive.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DerivedDataObjectStore.h"

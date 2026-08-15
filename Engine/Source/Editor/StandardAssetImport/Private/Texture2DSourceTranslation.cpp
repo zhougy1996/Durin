@@ -5,7 +5,7 @@
 #include "Texture2DPostLoad.h"
 #include "Texture2DSourceRelocation.h"
 
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "Hash/XxHash.h"
 #include "Image/ImageDecoder.h"
 #include "Misc/Paths.h"
@@ -245,8 +245,9 @@ namespace Durin::Asset::Import::Standard
 		std::string Error;
 		if (!FAssetPath::TryCreate(AssetPath, ParsedAssetPath, &Error))
 			return {false, std::move(Error), nullptr};
-		if (Asset::GetAssetRegistry().FindAssetExact(ParsedAssetPath)
-			|| Asset::FindLoadedPackage(ParsedAssetPath))
+		if (Asset::FindAssetExact(ParsedAssetPath)
+			|| Asset::FindLoadedPackage(ParsedAssetPath)
+			|| Asset::FindDraftPackage(ParsedAssetPath))
 			return {false,
 				std::format("Asset {} already exists.", ParsedAssetPath.ToString()), nullptr};
 
@@ -290,14 +291,14 @@ namespace Durin::Asset::Import::Standard
 			Error))
 		{
 			RollbackMountedSourceFile(MountedSource);
-			Asset::UnloadPackage(ParsedAssetPath);
+			Asset::DiscardUnpublishedPackage(Texture->GetPackage());
 			return {false, std::move(Error), nullptr};
 		}
 		const Asset::FAssetResult SaveResult = Asset::SavePackage(Texture->GetPackage());
 		if (!SaveResult)
 		{
 			RollbackMountedSourceFile(MountedSource);
-			Asset::UnloadPackage(ParsedAssetPath);
+			Asset::DiscardUnpublishedPackage(Texture->GetPackage());
 			return {false, SaveResult.Message, nullptr};
 		}
 		CommitMountedSourceFile(MountedSource);

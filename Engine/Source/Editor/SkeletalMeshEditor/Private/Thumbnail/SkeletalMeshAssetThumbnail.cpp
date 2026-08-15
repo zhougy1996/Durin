@@ -1,6 +1,6 @@
 #include "Thumbnail/SkeletalMeshAssetThumbnail.h"
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/Actor.h"
 #include "Engine/World.h"
@@ -173,15 +173,16 @@ namespace Durin::Editor::SkeletalMesh
 		{
 			OutError = "The skeletal thumbnail provider received the wrong asset class."; return false;
 		}
-		const Asset::FAssetRegistry& Registry = Asset::GetAssetRegistry();
-		const Asset::FAssetData* Root = Registry.FindAssetExact(Request.Asset.VirtualPath);
+		const Asset::FAssetCatalogSnapshot Catalog =
+			Asset::CaptureAssetCatalogSnapshot();
+		const Asset::FAssetData* Root = Catalog.FindExact(Request.Asset.VirtualPath);
 		if (!Root || MakeFingerprint(*Root) != Request.Asset)
 		{
 			OutError = "Skeletal thumbnail registry data is missing or changed."; return false;
 		}
 		std::vector<::Durin::Editor::FAssetThumbnailDependencyNode> Nodes;
-		Nodes.reserve(Registry.GetAssets().size());
-		for (const auto& [Path, Data] : Registry.GetAssets())
+		Nodes.reserve(Catalog.Assets.size());
+		for (const auto& [Path, Data] : Catalog.Assets)
 			Nodes.push_back({.Package = MakeFingerprint(Data), .Dependencies = Data.Dependencies});
 		std::vector<::Durin::Editor::FAssetThumbnailPackageFingerprint> Dependencies;
 		if (!::Durin::Editor::BuildAssetThumbnailDependencyClosure(Request.Asset.VirtualPath,

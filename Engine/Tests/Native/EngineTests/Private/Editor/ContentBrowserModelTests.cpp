@@ -136,8 +136,8 @@ TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToRenderedThumbnails)
 	DStaticMesh* StaticMesh = nullptr;
 	ASSERT_TRUE(Asset::CreateAsset(AssetPath, StaticMesh));
 	ASSERT_TRUE(Asset::SavePackage(StaticMesh->GetPackage()));
-	const Asset::FAssetData* AssetData =
-		Asset::GetAssetRegistry().FindAssetExact(AssetPath);
+	const Asset::FAssetCatalogEntry AssetData =
+		Asset::FindAssetExact(AssetPath);
 	ASSERT_NE(AssetData, nullptr);
 	std::string RegistrationError;
 	auto ThumbnailRegistration =
@@ -172,8 +172,8 @@ TEST_F(FContentBrowserModelTests, SourceProviderWithoutUsableSourceKeepsAssetIco
 	DStaticMesh* StaticMesh = nullptr;
 	ASSERT_TRUE(Asset::CreateAsset(AssetPath, StaticMesh));
 	ASSERT_TRUE(Asset::SavePackage(StaticMesh->GetPackage()));
-	const Asset::FAssetData* AssetData =
-		Asset::GetAssetRegistry().FindAssetExact(AssetPath);
+	const Asset::FAssetCatalogEntry AssetData =
+		Asset::FindAssetExact(AssetPath);
 	ASSERT_NE(AssetData, nullptr);
 	std::string Error;
 	auto Registration =
@@ -309,15 +309,15 @@ TEST_F(FContentBrowserModelTests, RelocationUsesOneSharedUndoRedoTransaction)
 	ASSERT_TRUE(Transactions.CommitApplied(
 		std::make_unique<FAssetRelocationTransaction>(std::move(Token))));
 	EXPECT_EQ(Transactions.GetUndoDescription(), "Move Asset");
-	EXPECT_EQ(Asset::GetAssetRegistry().ResolveAssetPath(SourcePath).FinalPath,
+	EXPECT_EQ(Asset::ResolveAssetPath(SourcePath).FinalPath,
 		DestinationPath);
 
 	ASSERT_TRUE(Transactions.Undo());
-	EXPECT_EQ(Asset::GetAssetRegistry().FindAssetExact(SourcePath)->EntryKind,
+	EXPECT_EQ(Asset::FindAssetExact(SourcePath)->EntryKind,
 		Asset::EAssetRegistryEntryKind::Asset);
-	EXPECT_EQ(Asset::GetAssetRegistry().FindAssetExact(DestinationPath), nullptr);
+	EXPECT_EQ(Asset::FindAssetExact(DestinationPath), nullptr);
 	ASSERT_TRUE(Transactions.Redo());
-	EXPECT_EQ(Asset::GetAssetRegistry().ResolveAssetPath(SourcePath).FinalPath,
+	EXPECT_EQ(Asset::ResolveAssetPath(SourcePath).FinalPath,
 		DestinationPath);
 	Transactions.Clear();
 }
@@ -1354,11 +1354,11 @@ TEST_F(FContentBrowserModelTests, MixedFolderAndExternalCompanionRoundTripAsOneT
 		std::make_unique<FContentDeletionTransaction>(Plan)));
 	EXPECT_FALSE(std::filesystem::exists(Folder));
 	EXPECT_FALSE(std::filesystem::exists(Companion));
-	EXPECT_EQ(Asset::GetAssetRegistry().FindAssetExact(AssetPath), nullptr);
+	EXPECT_EQ(Asset::FindAssetExact(AssetPath), nullptr);
 	ASSERT_TRUE(Transactions.Undo());
 	EXPECT_TRUE(std::filesystem::is_regular_file(OrdinaryFile));
 	EXPECT_TRUE(std::filesystem::is_regular_file(Companion));
-	EXPECT_NE(Asset::GetAssetRegistry().FindAssetExact(AssetPath), nullptr);
+	EXPECT_NE(Asset::FindAssetExact(AssetPath), nullptr);
 	EXPECT_EQ(Asset::FindLoadedPackage(AssetPath), nullptr);
 	ASSERT_TRUE(Transactions.Redo());
 	EXPECT_FALSE(std::filesystem::exists(Folder));
@@ -1377,7 +1377,7 @@ TEST_F(FContentBrowserModelTests, DeletionTransactionPreservesRegistryWithoutRes
 	ASSERT_TRUE(Asset::CreateAsset(AssetPath, Material));
 	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
 	const std::filesystem::path PackagePath =
-		Asset::GetAssetRegistry().FindAssetExact(AssetPath)->PhysicalPath;
+		Asset::FindAssetExact(AssetPath)->PhysicalPath;
 
 	FContentBrowserModel Model;
 	Model.RefreshMountSnapshot();
@@ -1404,7 +1404,7 @@ TEST_F(FContentBrowserModelTests, DeletionTransactionPreservesRegistryWithoutRes
 	EXPECT_EQ(
 		Transactions.GetMountedContentMutationRevision(), InitialContentRevision + 1);
 	EXPECT_FALSE(std::filesystem::exists(PackagePath));
-	EXPECT_EQ(Asset::GetAssetRegistry().FindAssetExact(AssetPath), nullptr);
+	EXPECT_EQ(Asset::FindAssetExact(AssetPath), nullptr);
 	EXPECT_EQ(Asset::FindLoadedPackage(AssetPath), nullptr);
 	EXPECT_EQ(TransactionView->GetState(), EContentDeletionTransactionState::Applied);
 
@@ -1412,13 +1412,13 @@ TEST_F(FContentBrowserModelTests, DeletionTransactionPreservesRegistryWithoutRes
 	EXPECT_EQ(
 		Transactions.GetMountedContentMutationRevision(), InitialContentRevision + 2);
 	EXPECT_TRUE(std::filesystem::is_regular_file(PackagePath));
-	EXPECT_NE(Asset::GetAssetRegistry().FindAssetExact(AssetPath), nullptr);
+	EXPECT_NE(Asset::FindAssetExact(AssetPath), nullptr);
 	EXPECT_EQ(Asset::FindLoadedPackage(AssetPath), nullptr);
 	ASSERT_TRUE(Transactions.Redo());
 	EXPECT_EQ(
 		Transactions.GetMountedContentMutationRevision(), InitialContentRevision + 3);
 	EXPECT_FALSE(std::filesystem::exists(PackagePath));
-	EXPECT_EQ(Asset::GetAssetRegistry().FindAssetExact(AssetPath), nullptr);
+	EXPECT_EQ(Asset::FindAssetExact(AssetPath), nullptr);
 	ASSERT_TRUE(Transactions.Undo());
 	EXPECT_EQ(
 		Transactions.GetMountedContentMutationRevision(), InitialContentRevision + 4);
@@ -1446,10 +1446,10 @@ TEST_F(FContentBrowserModelTests, RedirectorDeletionRequiresClosureAndUndoRestor
 		std::span{&Mapping, 1}, Relocation));
 	ASSERT_TRUE(Asset::ApplyAssetRelocationBatch(Relocation));
 
-	const Asset::FAssetData* AliasData =
-		Asset::GetAssetRegistry().FindAssetExact(OldPath);
-	const Asset::FAssetData* FinalData =
-		Asset::GetAssetRegistry().FindAssetExact(FinalPath);
+	Asset::FAssetCatalogEntry AliasData =
+		Asset::FindAssetExact(OldPath);
+	Asset::FAssetCatalogEntry FinalData =
+		Asset::FindAssetExact(FinalPath);
 	ASSERT_NE(AliasData, nullptr);
 	ASSERT_NE(FinalData, nullptr);
 	const FContentBrowserItem AliasItem{
@@ -1502,11 +1502,11 @@ TEST_F(FContentBrowserModelTests, RedirectorDeletionRequiresClosureAndUndoRestor
 	Durin::Editor::FTransactionManager Transactions;
 	ASSERT_TRUE(Transactions.Execute(
 		std::make_unique<FContentDeletionTransaction>(Complete)));
-	EXPECT_EQ(Asset::GetAssetRegistry().FindAssetExact(OldPath), nullptr);
-	EXPECT_EQ(Asset::GetAssetRegistry().FindAssetExact(FinalPath), nullptr);
+	EXPECT_EQ(Asset::FindAssetExact(OldPath), nullptr);
+	EXPECT_EQ(Asset::FindAssetExact(FinalPath), nullptr);
 	ASSERT_TRUE(Transactions.Undo());
-	AliasData = Asset::GetAssetRegistry().FindAssetExact(OldPath);
-	FinalData = Asset::GetAssetRegistry().FindAssetExact(FinalPath);
+	AliasData = Asset::FindAssetExact(OldPath);
+	FinalData = Asset::FindAssetExact(FinalPath);
 	ASSERT_NE(AliasData, nullptr);
 	ASSERT_NE(FinalData, nullptr);
 	EXPECT_EQ(AliasData->EntryKind,

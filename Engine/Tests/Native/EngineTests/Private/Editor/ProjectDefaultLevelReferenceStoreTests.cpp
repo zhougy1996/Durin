@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "AssetSystem.h"
+#include "AssetTestSupport.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "Engine/Level.h"
@@ -88,7 +88,7 @@ namespace
 	{
 		Durin::Asset::ShutdownAssetManager();
 		Durin::CollectGarbage();
-		Durin::Asset::FAssetManager::Get().Initialize();
+		Durin::Asset::InitializeAssetManager();
 		Durin::FPaths::SetDerivedDataCacheDirForTests(
 			(Scenario.Root / "DerivedDataCache").generic_string());
 		const std::array Mounts = {Durin::PathUtilities::FMountPoint{
@@ -99,7 +99,7 @@ namespace
 			.bAuthoringWritable = true}};
 		auto Fixture = std::make_unique<
 			Durin::PathUtilities::FScopedMountRegistryFixture>(Mounts);
-		EXPECT_TRUE(Durin::Asset::GetAssetRegistry().ScanMountedContent(
+		EXPECT_TRUE(Durin::Asset::RefreshAssetCatalog(
 			Durin::Asset::EAssetRegistryScanMode::FullValidation));
 		Scenario.OldPath = MakePath("/DefaultLevelTests/Levels/Old");
 		Scenario.NewPath = MakePath("/DefaultLevelTests/Levels/New");
@@ -142,7 +142,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, FixUpRewritesYamlAndPreservesOther
 	ASSERT_TRUE(Durin::Asset::FixUpRedirectors(
 		std::span{&Scenario.OldPath, 1}));
 	EXPECT_EQ(NotifiedPath, Scenario.NewPath);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(
+	EXPECT_EQ(Durin::Asset::FindAssetExact(
 		Scenario.OldPath), nullptr);
 	const Durin::FYamlDocument Settings = LoadSettings(Scenario);
 	EXPECT_EQ(Settings.GetRootView().GetView("Game")
@@ -169,7 +169,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, VerificationFailureRestoresYamlAnd
 		Durin::Asset::EAssetRedirectorFixupFailurePoint::None);
 	EXPECT_EQ(Result.Error, Durin::Asset::EAssetError::IoError);
 	EXPECT_EQ(NotifiedPath, Scenario.OldPath);
-	const auto* Alias = Durin::Asset::GetAssetRegistry().FindAssetExact(
+	const auto Alias = Durin::Asset::FindAssetExact(
 		Scenario.OldPath);
 	ASSERT_NE(Alias, nullptr);
 	EXPECT_EQ(Alias->EntryKind,
@@ -196,7 +196,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, CookContributesCanonicalRootWithou
 		Durin::DLevel::StaticClass()->GetQualifiedName().ToString());
 
 	std::vector<Durin::FAssetPath> Reachable;
-	ASSERT_TRUE(Durin::Asset::GetAssetRegistry().BuildCookReachability(
+	ASSERT_TRUE(Durin::Asset::BuildCookReachability(
 		{}, Reachable));
 	EXPECT_EQ(Reachable, (std::vector{Scenario.NewPath}));
 	const Durin::FYamlDocument Settings = LoadSettings(Scenario);

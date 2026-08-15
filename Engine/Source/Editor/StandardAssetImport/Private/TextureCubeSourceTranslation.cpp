@@ -1,7 +1,7 @@
 #include "TextureCubeSourceTranslation.h"
 
 #include "Asset/MountedSource.h"
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "DObject/DObjectGlobals.h"
 #include "EncodedSourceSnapshot.h"
 #include "Image/ImageDecoder.h"
@@ -305,8 +305,9 @@ namespace Durin::Asset::Import::Standard
 		std::string Error;
 		if (!FAssetPath::TryCreate(AssetPath, ParsedAssetPath, &Error))
 			return {false, std::move(Error), nullptr};
-		if (Asset::GetAssetRegistry().FindAssetExact(ParsedAssetPath)
-			|| Asset::FindLoadedPackage(ParsedAssetPath))
+		if (Asset::FindAssetExact(ParsedAssetPath)
+			|| Asset::FindLoadedPackage(ParsedAssetPath)
+			|| Asset::FindDraftPackage(ParsedAssetPath))
 			return {false, std::format("Asset {} already exists.", ParsedAssetPath.ToString()), nullptr};
 		std::string StoredSourcePath;
 		if (!MakeCanonicalSourceLocation(ParsedAssetPath, "_panorama",
@@ -321,14 +322,14 @@ namespace Durin::Asset::Import::Standard
 		if (!Created || !BuildPanorama(*Texture, Source, Settings, Error))
 		{
 			Asset::RollbackMountedSourceFile(Source);
-			if (Created) Asset::UnloadPackage(ParsedAssetPath);
+			if (Created) Asset::DiscardUnpublishedPackage(Texture->GetPackage());
 			return {false, Created ? std::move(Error) : Created.Message, nullptr};
 		}
 		const Asset::FAssetResult Saved = Asset::SavePackage(Texture->GetPackage());
 		if (!Saved)
 		{
 			Asset::RollbackMountedSourceFile(Source);
-			Asset::UnloadPackage(ParsedAssetPath);
+			Asset::DiscardUnpublishedPackage(Texture->GetPackage());
 			return {false, Saved.Message, nullptr};
 		}
 		Asset::CommitMountedSourceFile(Source);
@@ -346,8 +347,9 @@ namespace Durin::Asset::Import::Standard
 		std::string Error;
 		if (!FAssetPath::TryCreate(AssetPath, ParsedAssetPath, &Error))
 			return {false, std::move(Error), nullptr};
-		if (Asset::GetAssetRegistry().FindAssetExact(ParsedAssetPath)
-			|| Asset::FindLoadedPackage(ParsedAssetPath))
+		if (Asset::FindAssetExact(ParsedAssetPath)
+			|| Asset::FindLoadedPackage(ParsedAssetPath)
+			|| Asset::FindDraftPackage(ParsedAssetPath))
 			return {false, std::format("Asset {} already exists.", ParsedAssetPath.ToString()), nullptr};
 		std::array<Asset::FMountedSourceFile, TextureCubeFaceCount> Sources;
 		auto Rollback = [&] {
@@ -380,14 +382,14 @@ namespace Durin::Asset::Import::Standard
 		if (!Created || !BuildFaces(*Texture, Sources, Settings, Error))
 		{
 			Rollback();
-			if (Created) Asset::UnloadPackage(ParsedAssetPath);
+			if (Created) Asset::DiscardUnpublishedPackage(Texture->GetPackage());
 			return {false, Created ? std::move(Error) : Created.Message, nullptr};
 		}
 		const Asset::FAssetResult Saved = Asset::SavePackage(Texture->GetPackage());
 		if (!Saved)
 		{
 			Rollback();
-			Asset::UnloadPackage(ParsedAssetPath);
+			Asset::DiscardUnpublishedPackage(Texture->GetPackage());
 			return {false, Saved.Message, nullptr};
 		}
 		for (auto& Source : Sources) Asset::CommitMountedSourceFile(Source);

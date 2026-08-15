@@ -1,4 +1,4 @@
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "TextureCubeSourceTranslation.h"
 #include "CookedAsset.h"
 #include "DObject/Property.h"
@@ -85,7 +85,7 @@ namespace
 	{
 		Durin::Asset::ShutdownAssetManager();
 		Durin::CollectGarbage();
-		Durin::Asset::FAssetManager::Get().Initialize();
+		Durin::Asset::InitializeAssetManager();
 	}
 }
 
@@ -204,7 +204,7 @@ TEST(FTextureCubeTests, RejectsMissingNonsquareAndMismatchedFacesWithoutArtifact
 	{
 		Durin::FAssetPath AssetPath;
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(std::format("/TextureCubeTests/{}", AssetName), AssetPath));
-		EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(AssetPath), nullptr);
+		EXPECT_EQ(Durin::Asset::FindAssetExact(AssetPath), nullptr);
 		EXPECT_EQ(Durin::Asset::FindLoadedPackage(AssetPath), nullptr);
 	}
 	EXPECT_FALSE(std::filesystem::exists(Root / "MissingFace_px.png"));
@@ -419,7 +419,7 @@ TEST(FTextureCubeTests, RejectsInvalidPanoramaImportsWithoutArtifacts)
 
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureCubeTests/InvalidPanorama", AssetPath));
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(AssetPath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(AssetPath), nullptr);
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(AssetPath), nullptr);
 	EXPECT_FALSE(std::filesystem::exists(Root / "InvalidPanorama_panorama.tga"));
 	EXPECT_FALSE(std::filesystem::exists(Root / "InvalidPanorama_panorama.hdr"));
@@ -597,6 +597,8 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 		Durin::Asset::EPackageLoadMode::CookedRuntime, FirstRoot}));
 	Durin::PathUtilities::RegisterMountPointForTests(
 		"/Game/", (FirstRoot / "Game").generic_string() + "/");
+	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	Durin::FAssetPath CookedPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedCube", CookedPath));
 	Durin::DTextureCube* Cooked = nullptr;

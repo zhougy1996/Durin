@@ -6,7 +6,7 @@
 #include "AssetCompatibility.h"
 #include "AssetMigration.h"
 #include "AssetPackageVersionPolicy.h"
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/StaticMeshSceneProxy.h"
@@ -149,8 +149,8 @@ namespace Durin
 		ASSERT_TRUE(Applied.ChangedPaths.empty());
 		for (const FAssetPath& Path : {MaterialPath, MeshPath, TexturePath})
 		{
-			const Asset::FAssetData* Data =
-				Asset::GetAssetRegistry().FindAssetExact(Path);
+			const Asset::FAssetCatalogEntry Data =
+				Asset::FindAssetExact(Path);
 			ASSERT_NE(Data, nullptr);
 			EXPECT_EQ(Data->FormatVersion,
 				Asset::AssetPackageV4FormatVersion);
@@ -227,7 +227,7 @@ namespace Durin
 		ASSERT_NE(LoadedTexture, nullptr);
 		ValidateRenderableGraph(LoadedMesh, LoadedMaterial, LoadedTexture);
 		const std::string MaterialFile =
-			Asset::GetAssetRegistry().FindAssetExact(MaterialPath)->PhysicalPath;
+			Asset::FindAssetExact(MaterialPath)->PhysicalPath;
 		std::vector<uint8> BeforeSave;
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(
 			BeforeSave, MaterialFile));
@@ -250,7 +250,7 @@ namespace Durin
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(
 			AfterSave, MaterialFile));
 		EXPECT_EQ(AfterSave, BeforeSave);
-		EXPECT_EQ(Asset::GetAssetRegistry().FindAssetExact(MaterialPath)
+		EXPECT_EQ(Asset::FindAssetExact(MaterialPath)
 			->FormatVersion, Asset::AssetPackageV4FormatVersion);
 
 		ShutdownRenderingThread();
@@ -396,10 +396,10 @@ namespace Durin
 			});
 		CommandStartedFuture.wait();
 		PrimitiveProxy.reset();
+		const Asset::FAssetResult MaterialUnload =
+			Asset::DiscardUnpublishedPackage(Material->GetPackage());
 		MarkObjectHierarchyAsGarbage(Actor);
 		CollectGarbage();
-		const Asset::FAssetResult MaterialUnload =
-			Asset::UnloadPackage(MaterialPath);
 		const Asset::FAssetResult MeshUnload =
 			Asset::UnloadPackage(MeshPath);
 		const Asset::FAssetResult TextureUnload =

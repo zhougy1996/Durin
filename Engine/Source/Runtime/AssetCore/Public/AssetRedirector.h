@@ -26,6 +26,6 @@ namespace Durin::Asset
 			DestinationObject = InDestination;
 		}
 
-		friend class FAssetManager;
+		friend class FAssetRuntimeState;
 	};
 }

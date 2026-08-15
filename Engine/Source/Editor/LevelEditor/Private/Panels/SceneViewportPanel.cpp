@@ -1,6 +1,6 @@
 #include "Panels/SceneViewportPanel.h"
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "Components/CameraComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Assets/ContentBrowserDragDrop.h"

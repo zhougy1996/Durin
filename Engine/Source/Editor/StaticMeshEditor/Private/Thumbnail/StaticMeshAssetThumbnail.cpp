@@ -2,7 +2,7 @@
 
 // StaticMeshEditor owns the complete StaticMesh thumbnail extension.
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Actor.h"
 #include "Engine/World.h"
@@ -298,9 +298,10 @@ namespace Durin::Editor::StaticMesh
 			return false;
 		}
 
-		const Asset::FAssetRegistry& Registry = Asset::GetAssetRegistry();
+		const Asset::FAssetCatalogSnapshot Catalog =
+			Asset::CaptureAssetCatalogSnapshot();
 		const Asset::FAssetData* Root =
-			Registry.FindAssetExact(Request.Asset.VirtualPath);
+			Catalog.FindExact(Request.Asset.VirtualPath);
 		if (Root == nullptr)
 		{
 			OutError = std::format(
@@ -317,8 +318,8 @@ namespace Durin::Editor::StaticMesh
 		}
 
 		std::vector<::Durin::Editor::FAssetThumbnailDependencyNode> Nodes;
-		Nodes.reserve(Registry.GetAssets().size());
-		for (const auto& [Path, Data] : Registry.GetAssets())
+		Nodes.reserve(Catalog.Assets.size());
+		for (const auto& [Path, Data] : Catalog.Assets)
 		{
 			Nodes.push_back({
 				.Package = MakeStaticMeshThumbnailFingerprint(Data),

@@ -1,4 +1,4 @@
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "CookedAsset.h"
 #include "DObject/ObjectLifecycle.h"
 #include "EngineTestSupport.h"
@@ -60,11 +60,13 @@ TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDd
 	Durin::Testing::RemoveTestWorkDirectory(Root / "DDC");
 	Durin::Testing::RemoveTestWorkDirectory(ContentRoot);
 	Durin::FPaths::SetDerivedDataCacheDirForTests((Root / "AbsentDDC").generic_string());
-	Durin::Asset::FAssetManager::Get().Initialize();
+	Durin::Asset::InitializeAssetManager();
 	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
 		Durin::Asset::EPackageLoadMode::CookedRuntime, CookRoot}));
 	Durin::PathUtilities::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
+	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	Durin::DTerrainHeightmap* Cooked = nullptr;
 	const Durin::Asset::FAssetResult Loaded = Durin::Asset::LoadAsset(AssetPath, Cooked);
 	ASSERT_TRUE(Loaded) << Loaded.Message;

@@ -1,7 +1,7 @@
 #include "Editor/PropertyView.h"
 #include "Editor/PropertyValueDraft.h"
 
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "DObject/Archive.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -675,7 +675,7 @@ namespace Durin::Editor
 			FAssetPath CurrentAssetPath;
 			const bool bHasCurrentAsset = Current && Current->GetPackage()
 				&& FAssetPath::TryCreate(Current->GetPackage()->GetPackagePath(), CurrentAssetPath)
-				&& Asset::GetAssetRegistry().FindAssetExact(CurrentAssetPath);
+				&& Asset::FindAssetExact(CurrentAssetPath);
 			const FAssetPickerAction RevealAction{
 				.Icon = Icons::Crosshairs,
 				.ButtonId = "RevealObject",
@@ -724,7 +724,7 @@ namespace Durin::Editor
 				|| (ViewState.State == ESoftObjectViewState::Redirected
 					&& !ViewState.LoadedObject);
 			const bool bCanReveal = ViewState.Path.IsValid()
-				&& Asset::GetAssetRegistry().FindAssetExact(ViewState.Path) && Context.RevealAsset;
+				&& Asset::FindAssetExact(ViewState.Path) && Context.RevealAsset;
 
 			const FAssetPickerAction LoadAction{
 				.Icon = Icons::Play,

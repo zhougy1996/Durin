@@ -1,0 +1,329 @@
+# Asset Architecture Simplification Roadmap
+
+Summary: Simplify asset runtime and authoring architecture while retaining explicit, bounded redirectors as the durable relocation compatibility mechanism.
+
+Last reviewed: 2026-08-15
+
+Status: Active
+Completed:
+
+## Current Status
+
+The completed
+[Asset Redirectors Refactor Plan](../Plans/Archive/2026-08/AssetRedirectors.md)
+established the correct relocation semantics: moving an asset publishes a real
+package at the destination and an authored redirector at the old path without
+requiring every referencer to be loaded, writable, or indexed. Explicit Fix Up
+later rewrites proven-complete package and external references, and Cook emits
+only canonical real paths. Those semantics remain requirements of this
+roadmap.
+
+The implementation boundary is now wider than those semantics require.
+`AssetSystem.h` exposes registry, loading, save, relocation, deletion, Fix Up,
+cooking, compatibility, test injection, and a stateful singleton manager in one
+header, while free functions duplicate many manager methods. Registry misses
+can still trigger physical-path probing and direct package loading, ordinary
+package decode proves canonical encoding by reserializing, and dormant runtime
+migration and structure-upgrader mechanisms remain beside the only production
+v4 codec. Import owns three overlapping registration paths, and AssetBuildCore
+retains execution abstractions without production executors.
+
+The first active child plan is
+[Asset Catalog and Load Boundary](../Plans/AssetCatalogAndLoadBoundary.md). It
+establishes one exact catalog, one redirect-aware resolver, and one ordinary
+load path without changing redirector persistence, move, Fix Up, or Cook
+semantics. Later child plans are activated only after that boundary is stable.
+
+## Outcome
+
+Durin has a small asset architecture in which each state and operation has one
+owner:
+
+- an authoritative catalog represents every persistent real asset and
+  redirector at its exact authored path;
+- a pure resolver follows explicit redirector metadata and returns one
+  structured final result without loading packages;
+- a package store reads and materializes only final real packages and keeps
+  drafts separate from persistent catalog entries;
+- an authoring service owns create, save, relocation, deletion, Fix Up, and
+  their journaled transactions;
+- one import service owns provider discovery, planning, execution, reimport,
+  multi-output reconciliation, and asynchronous admission;
+- AssetBuildCore exposes only cache and build-host behavior justified by
+  production consumers; and
+- authored and cooked execution domains are fixed at runtime construction
+  rather than selected through mutable global state.
+
+Redirectors remain durable authored compatibility records. They are not a
+general missing-file fallback, a runtime object returned to callers, an excuse
+to accept incomplete registry state, or a second asset-loading path.
+
+## Scope
+
+- AssetCore public API, internal ownership, catalog refresh, exact lookup,
+  redirect resolution, package loading, drafts, save, relocation, deletion,
+  Fix Up, compatibility, cooking, and test seams.
+- Redirector registry metadata, chain compression, corruption diagnostics,
+  external reference stores, editor visibility, Undo/Redo, and cooked-output
+  canonicalization.
+- AssetImportCore and StandardAssetImport provider, handler, record,
+  publication, asynchronous request, and reimport boundaries.
+- AssetBuildCore cache, host, build-request, definition, policy, and unused
+  executor surfaces.
+- Engine asset `PostLoad` behavior that currently branches on mutable load or
+  migration mode.
+- Focused native tests, integration tests, editor workflow qualification, and
+  lasting asset/editor architecture documentation affected by each child plan.
+
+## Non-Goals
+
+- Removing authored redirectors or returning to eager move-time rewriting of
+  every referencer.
+- Replacing path identity with GUIDs, content hashes, database identities, or
+  a second identity system.
+- Adding Core Redirects for native types or reflected class, property, enum,
+  function, or schema names.
+- Shipping redirector packages or a mutable redirect table in normal cooked
+  runtime output.
+- Adding asynchronous streaming, bundles, remote assets, source-control
+  automation, or asset consolidation merely as part of simplification.
+- Changing the DAST v4 wire format unless a child plan proves that a format
+  change is necessary for its own bounded outcome.
+- Preserving source compatibility for redundant public APIs, dead extension
+  points, or test-only controls.
+
+## Program Decisions and Invariants
+
+### Redirectors are explicit compatibility records
+
+- A redirector remains a persistent `.dasset` entry, participates in registry
+  snapshots, source control, editor inspection, Undo/Redo, and recovery, and
+  retains the current validated v4 representation unless a later format plan
+  explicitly replaces it.
+- Only AssetCore relocation may create or retarget a redirector. Ordinary save,
+  import, registry refresh, load, and error recovery cannot synthesize one.
+- A successful `A -> B` move leaves `A -> B`. A later `B -> C` move rewrites
+  same-object upstream aliases directly to `C`, so normal authoring commits do
+  not leave chains. Resolution remains bounded and detects cycles, missing
+  targets, type mismatches, and depth overflow for corrupt, externally edited,
+  or merged content.
+- Redirectors preserve old authored paths; they never silently mutate the
+  serialized identity, equality, or hash of a soft reference.
+
+### Exact lookup and resolution are different operations
+
+- Exact lookup reports the entry physically occupying a path, including a
+  redirector. Collision checks, mutation, deletion, registry inspection, and
+  Content Browser tooling use exact lookup.
+- Resolution is a pure catalog operation returning requested path, final path,
+  chain, final metadata, and a structured terminal state. It performs no file
+  I/O, package construction, reference rewrite, registry mutation, or implicit
+  refresh.
+- Ordinary load resolves once, validates the final class, and loads only the
+  final real package. A redirector object may be constructed only through an
+  internal exact inspection seam and never escapes an ordinary typed load.
+- A catalog miss is `NotFound`. Physical-path guessing and direct load are not
+  compatibility behavior. Explicit editor recovery or import tools may inspect
+  an unindexed file, validate it, and publish it to the catalog before normal
+  loading.
+
+### The catalog is persistent truth; drafts are separate
+
+- Every persistent load begins from one published catalog revision. A load
+  does not discover or add catalog entries as a side effect.
+- Catalog refresh publishes one complete replacement or an explicit incomplete
+  result. It never returns success while hiding parse or reference-index
+  failures only in mutable side-channel arrays.
+- New unsaved packages live in an explicit draft store. Draft lookup is
+  available only to authoring operations that intentionally accept drafts and
+  does not change exact persistent lookup or redirect resolution.
+- Catalog query results and snapshots have revision-safe value semantics; raw
+  pointers into mutable registry containers do not cross the catalog boundary.
+
+### Move and Fix Up remain separate transactions
+
+- Relocation cost is independent of arbitrary referencer count and
+  writability. It moves the selected real assets and owned payloads, creates or
+  compresses redirectors, and publishes one atomic catalog revision without
+  visiting referencers.
+- An incomplete reference index does not block relocation. It does block any
+  Fix Up mode that claims a redirector is safe to delete.
+- Fix Up is the only bulk path canonicalization operation. Redirector deletion
+  requires a complete reference index, every required external reference
+  store, writable and fingerprint-matching inputs, successful atomic rewrite,
+  and proof of zero remaining incoming persistent references.
+- Owned payload relocation, persistent external reference rewriting, and
+  transient editor observation remain different contribution contracts.
+  Callbacks cannot participate in a transaction whose failure semantics they
+  do not own.
+
+### Authoring aliases do not enter cooked runtime
+
+- Cook resolves roots and package references through the shared catalog
+  resolver and writes final real identities to staged output without modifying
+  authored packages.
+- Redirector packages are excluded from normal cooked manifests. An unresolved
+  alias, cycle, missing target, type mismatch, or redirector remaining in
+  produced bytes fails before manifest publication.
+- Cooked execution has no mutable redirect table and never constructs a
+  redirector object.
+
+### One operation has one public entry and one owner
+
+- Public APIs use one calling style. Stateful manager implementations,
+  registries, package stores, journals, registries of callbacks, and failure
+  injection remain private to their owning module or focused test support.
+- Previewable mutations may expose an immutable summary/token, but callers do
+  not manually sequence internal prepare, revalidate, commit, and rollback
+  phases. Commit owns final revalidation and compensation.
+- Extension points exist only when at least one production consumer requires
+  substitution or contribution. No-op contributors, unconsumed upgrader
+  registries, and hypothetical local/remote build executors are removed rather
+  than retained for possible future use.
+- Normal failure is explicit and local. Unknown schema, corrupt content,
+  incomplete scans, unavailable reference stores, stale transaction inputs,
+  and cooked-domain payload absence do not fall through to a weaker path.
+
+### Compatibility work is temporary and evidence-driven
+
+- The current production codec remains v4. Canonical encoding is guaranteed by
+  the writer and verified by tests or offline audit, not by reserializing every
+  ordinary load.
+- Runtime does not retain a general migration graph, structure-upgrader
+  registry, partial compatibility objects, or data-loss save escape hatch when
+  there is no production migration edge.
+- A future format transition introduces the smallest explicit offline
+  converter required by real source content. After the tracked corpus is
+  migrated and qualified, that converter is removed according to the versioning
+  contract.
+
+## Current Foundations and Gaps
+
+| Area | Foundation to preserve | Gap to remove | Owning milestone |
+| --- | --- | --- | --- |
+| Redirectors | Exact registry metadata, bounded resolution, direct aliases, atomic relocation, explicit Fix Up, editor and Cook integration | Redirector behavior shares a monolithic manager and load fallback path with unrelated responsibilities | M0-M1 |
+| Catalog | Incremental/full reconciliation, persistent snapshots, revisions, exact and resolved queries | Mutable-pointer results, success with side-channel errors, load-time discovery, and draft/persistent state overlap | M0 |
+| Package loading | Typed load, dependency handling, loaded-package cache, authored/cooked policies | Public singleton manager, duplicate facades, registry-miss disk probing, repeated file reads, and redirector construction seams mixed with normal load | M0 and M2 |
+| Mutation | Journaled relocation, deletion and Fix Up with Undo/Redo | Public phase orchestration, duplicated revalidation, broad callback/test surface, and all operations co-located in `AssetSystem` | M1 |
+| Compatibility | Deterministic v4 codec, bounded reader, offline audit/resave tools | Empty migration graph, unused structure upgraders, partial compatibility packages, and load-time canonical re-encoding | M2 |
+| Import | Format-neutral planning, publication transactions, source records, reimport, and scene multi-output support | General provider, single-asset handler, and record-handler registries overlap; identity providers exist only as adapters | M3 |
+| Build and domains | DDC client, build host, authored rebuild, cooked hard-failure behavior | Unused executor/definition abstractions and mutable global load/migration modes leak into Engine asset types | M4 |
+| Public surface | Most production users already call free AssetCore facades | `FAssetManager`, large shared headers, duplicate member/free APIs, and production failure injection remain public | M0-M4 |
+
+## Milestone Map
+
+```mermaid
+flowchart LR
+    M0["M0: Catalog and load boundary"] --> M1["M1: Redirector mutation boundary"]
+    M0 --> M2["M2: Package compatibility simplification"]
+    M1 --> M3["M3: Import service consolidation"]
+    M2 --> M3
+    M2 --> M4["M4: Build and runtime-domain simplification"]
+    M3 --> M5["M5: Final integration and contract handoff"]
+    M4 --> M5
+```
+
+| Milestone | Requirement | Proposed child plan | Dependencies | Deliverable | Entry gate | Exit gate |
+| --- | --- | --- | --- | --- | --- | --- |
+| M0: Catalog and load boundary | Required; active | [Asset Catalog and Load Boundary](../Plans/AssetCatalogAndLoadBoundary.md) | Current v4, registry, redirector and load tests | One authoritative exact catalog, pure resolution, one-read final-package load, explicit drafts, private manager state, and split public headers | Existing exact/resolved/redirected behavior and production callers are inventoried | Registry miss cannot load implicitly; redirect behavior is unchanged; no public manager or duplicate load path remains |
+| M1: Redirector mutation boundary | Required; proposed | Asset Redirector Mutation Boundary | M0 | One authoring service and one transaction abstraction for create/save/move/delete/Fix Up, preserving direct aliases and strict deletion proof | All mutation callers use M0 catalog values and load surface | Callers cannot sequence internal transaction phases; relocation and Fix Up retain the completed redirector failure matrix |
+| M2: Package compatibility simplification | Required; proposed | Asset Package Compatibility Simplification | M0 | Validated decode separated from offline canonical audit; dead migration/upgrader and partial compatibility state removed; current-format failure policy made strict | Catalog/load reports have stable structured format/schema errors | Ordinary load performs no canonical re-encode and no production type branches on migration-load mode |
+| M3: Import service consolidation | Required; proposed | Asset Import Service Consolidation | M1-M2 | One importer descriptor, request, plan, execution, publication, reimport, record, and async ownership model | Authoring publication and compatibility failures have one owner | Production importers register once and initial import/reimport/multi-output share one pipeline |
+| M4: Build and runtime-domain simplification | Required; proposed | Asset Build and Runtime Domain Simplification | M2 | Cache/host-only AssetBuildCore surface and immutable Authored/Cooked service construction with explicit payload policy | Package decode and post-load responsibilities are separated | No unused build executor abstraction or mutable package/migration mode remains in production APIs |
+| M5: Final integration and contract handoff | Required; proposed | Asset Architecture Final Integration | M3-M4 | Repository-wide legacy API removal, performance/behavior qualification, and final Runtime/Editor contracts | All owning child plans completed with focused evidence | One public entry per operation, no obsolete compatibility surface, all program validation passes, and lasting contracts own final behavior |
+
+## Child Plan Boundaries
+
+| Child plan | Status | Owns | Must not absorb |
+| --- | --- | --- | --- |
+| [Asset Catalog and Load Boundary](../Plans/AssetCatalogAndLoadBoundary.md) | Active | Catalog value/query boundary, resolution, package-store load path, drafts, public runtime header split | Mutation transaction redesign, format migration removal, importer consolidation |
+| Asset Redirector Mutation Boundary | Proposed after M0 | Authoring service, relocation/Fix Up transaction facade, callback ownership, Undo/Redo integration | Removing redirectors, eager referencer rewriting, package-format redesign |
+| Asset Package Compatibility Simplification | Proposed after M0 | Decode/audit split, schema failure policy, migration/upgrader removal, affected Engine load branches | Importer redesign, new asset format, cooked alias tables |
+| Asset Import Service Consolidation | Proposed after M1-M2 | Provider registration, planning/execution, single/multi-output reimport, async ownership and publication | General job system or remote import execution |
+| Asset Build and Runtime Domain Simplification | Proposed after M2 | DDC/build host surface, removal of unused build execution design, immutable authored/cooked domain | Remote build protocol without a production consumer |
+| Asset Architecture Final Integration | Proposed after M3-M4 | Cross-module legacy search, final benchmarks/smoke tests, lasting contract reconciliation | New asset capabilities unrelated to simplification |
+
+Only the M0 child plan is created now. A later plan is created when its
+dependencies pass and its production caller inventory is current; roadmap text
+does not serve as its implementation checklist.
+
+## Program Validation Matrix
+
+| Area | Required program evidence |
+| --- | --- |
+| Catalog truth | Cold/full/incremental refresh converge; incomplete refresh is explicit; exact results remain revision-safe; no load-time discovery occurs |
+| Resolution | Direct alias, repeated move compression, move-back, missing target, cycle, depth limit, type mismatch, and no-I/O resolution behave deterministically |
+| Ordinary load | Real, redirected, loaded, unloaded, dependency, draft, missing, corrupt, and wrong-class cases use one path and never return a redirector object |
+| Mutation | Single/folder/batch relocation, deletion, stale plans, publication failure, compensation, Undo/Redo, and registry revision atomicity preserve authored content |
+| Fix Up | Complete and incomplete reference indexes, package fields, external stores, read-only/dirty/stale inputs, rewrite-only, rewrite-and-delete, and zero-incoming proof remain fail-closed |
+| Cook | Redirected roots and hard/soft references canonicalize; redirectors, unresolved aliases, cycles, and missing providers cannot enter a published manifest |
+| Compatibility | Current v4 fixtures load deterministically; unknown/corrupt/incompatible content fails without partial package residency; canonical audit remains available offline |
+| Import | Every production format registers once; create, reimport, repair, record reconciliation, multi-output, cancellation, and shutdown share one service boundary |
+| Build/domain | Authored rebuild and cooked hard failure are explicit; DDC failure policies remain qualified; no mutable domain or unused executor path remains |
+| API and ownership | Repository search proves one public entry per operation, no public `FAssetManager`, no retired headers/types, and no unowned async or mutation callback |
+| Qualification | Focused native suites, full affected targets, full native tests, hidden-window editor smoke, documentation validation, and measured load/refresh baselines pass under the repository workflows |
+
+Build and test selection, process-conflict checks, target invocation, and result
+reporting follow the repository agent workflows rather than commands copied
+into this roadmap.
+
+## Risks and Control Gates
+
+| Risk | Control gate |
+| --- | --- |
+| Simplification accidentally turns redirectors back into eager rewrite | M0-M1 tests require relocation to succeed with unloaded, read-only, malformed, or incompletely indexed referencers while old paths continue resolving |
+| Exact and resolved identities become interchangeable | Separate value types/results, exact collision tests, and Content Browser mutation tests reject final-target substitution at an occupied alias path |
+| Removing disk fallback breaks a real recovery flow | M0 inventories every production caller and introduces an explicit validate-and-publish recovery/import operation before deleting fallback behavior |
+| Catalog refresh publishes partial truth | Refresh result carries completeness and one atomic revision; mutation and strict Fix Up gate on the required completeness level |
+| Redirector corruption becomes an unbounded runtime cost | Resolution has fixed depth, visited-path detection, no package I/O, stable diagnostics, and Cook failure before publication |
+| Large API moves obscure behavioral regressions | Each child plan preserves a characterization suite, migrates one ownership boundary at a time, and deletes legacy paths only after caller search and parity gates pass |
+| Removing compatibility scaffolding loses real content | M2 inventories tracked and project fixtures, runs construct-free audit, and migrates any actual non-current content before deleting a required converter |
+| Import or build cleanup removes an undocumented consumer | M3-M4 require production registration/execution inventories and delete only surfaces with named destinations or proven absence |
+
+## Completion Criteria
+
+- All required milestones pass their exit gates and every conditional or
+  deferred proposal is explicitly dispositioned.
+- Redirectors remain durable authored aliases, moves remain independent of
+  referencer availability, and strict Fix Up remains the only operation that
+  rewrites and deletes them.
+- Persistent loads use one catalog revision, one resolver, and one final-package
+  read path; missing catalog entries cannot load by physical-path inference.
+- Runtime and editor call sites expose no stateful asset manager, duplicate
+  member/free operation, manual mutation phase protocol, or production
+  failure-injection control.
+- Ordinary load performs no canonical re-encode and creates no partial
+  compatibility package; migration support exists only while a real transition
+  requires it.
+- Importers register once and all import modes use one plan/execution/publication
+  service.
+- AssetBuildCore contains only production-used cache and host abstractions, and
+  authored/cooked execution domains are immutable after startup.
+- Lasting behavior is transferred to the owning Runtime and Editor architecture
+  documents, all documentation lifecycle validators pass, and required build,
+  native-test, editor-smoke, and performance evidence is recorded.
+
+## Related Documentation
+
+- [Asset Packages](../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Versioning](../Runtime/Assets/Versioning.md)
+- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
+- [Content Browser](../Editor/Architecture/ContentBrowser.md)
+- [Asset Redirectors Refactor Plan](../Plans/Archive/2026-08/AssetRedirectors.md)
+- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../Agents/Testing.md)
+
+## Related Code
+
+- [`AssetPackage.h`](../../Engine/Source/Runtime/AssetCore/Public/AssetPackage.h)
+- [`AssetLoad.h`](../../Engine/Source/Runtime/AssetCore/Public/AssetLoad.h)
+- [`AssetMutation.h`](../../Engine/Source/Runtime/AssetCore/Public/AssetMutation.h)
+- [`AssetSystem.cpp`](../../Engine/Source/Runtime/AssetCore/Private/AssetSystem.cpp)
+- [`AssetPackageV4Reader.cpp`](../../Engine/Source/Runtime/AssetCore/Private/AssetPackageV4Reader.cpp)
+- [`AssetMigration.h`](../../Engine/Source/Runtime/AssetCore/Public/AssetMigration.h)
+- [`AssetMigration.cpp`](../../Engine/Source/Runtime/AssetCore/Private/AssetMigration.cpp)
+- [`AssetImportCore.h`](../../Engine/Source/Editor/AssetImportCore/Public/AssetImportCore.h)
+- [`MultiOutputImport.h`](../../Engine/Source/Editor/AssetImportCore/Public/MultiOutputImport.h)
+- [`BuildRegistry.h`](../../Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildRegistry.h)
+- [`EditorAssetMoveCoordinator.cpp`](../../Engine/Source/Editor/LevelEditor/Private/Assets/EditorAssetMoveCoordinator.cpp)

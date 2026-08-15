@@ -5,7 +5,7 @@
 #include "AssetCompatibility.h"
 #include "SceneImport.h"
 #include "StaticMesh/StaticMesh.h"
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "Assets/ContentBrowserThumbnailCache.h"
 #include "Misc/Paths.h"
 #include "Panels/ContentBrowserItemView.h"
@@ -19,7 +19,7 @@ namespace Durin::Editor::Level
 {
 	auto FContentBrowserPanel::SaveAssetPackage(const FAssetPath& Path) -> void
 	{
-		DPackage* Package = Asset::FAssetManager::Get().FindLoadedPackage(Path);
+		DPackage* Package = Asset::FindLoadedPackage(Path);
 		if (!Package || !Package->IsDirty())
 		{
 			SetError("Save Package is available only for a loaded package with authored changes.");
@@ -96,7 +96,7 @@ namespace Durin::Editor::Level
 			GetMountedContentMutationRevision
 				? GetMountedContentMutationRevision()
 				: uint64{0},
-			Asset::GetAssetRegistry().GetRevision(),
+			Asset::GetAssetCatalogRevision(),
 			std::move(InMountedContentReconciliationState))
 		, Model()
 		, Operations(Model, std::move(InMoveAssets))
@@ -192,12 +192,12 @@ namespace Durin::Editor::Level
 					MountedContentRevision,
 					[this] { return Model.RescanRegistry(); },
 					[this] { RefreshPublishedContent(); },
-					[] { return Asset::GetAssetRegistry().GetRevision(); });
+					[] { return Asset::GetAssetCatalogRevision(); });
 			if (!Result) SetError(Result.Message);
 			return;
 		}
 		RefreshCoordinator.RefreshRegistryView(
-			Asset::GetAssetRegistry().GetRevision(),
+			Asset::GetAssetCatalogRevision(),
 			[this] { RefreshPublishedContent(); });
 	}
 
@@ -315,7 +315,7 @@ namespace Durin::Editor::Level
 				return;
 			}
 			const Asset::FAssetPathResolveResult Resolution =
-				Asset::GetAssetRegistry().ResolveAssetPath(Path);
+				Asset::ResolveAssetPath(Path);
 			if (!Resolution || !Resolution.FinalAssetData
 				|| !OpenAsset
 				|| !OpenAsset(
@@ -453,7 +453,7 @@ namespace Durin::Editor::Level
 		}
 		DObject* AssetObject = nullptr;
 		const Asset::FAssetResult Load =
-			Asset::FAssetManager::Get().LoadAsset(Path, AssetObject);
+			Asset::LoadAsset(Path, AssetObject);
 		if (!Load || !AssetObject)
 		{
 			SetError(Load ? "The selected asset could not be loaded." : Load.Message);
@@ -650,10 +650,10 @@ namespace Durin::Editor::Level
 			: RefreshCoordinator.GetObservedMountedContentRevision();
 		const Asset::FAssetResult Result = RefreshCoordinator.Synchronize(
 			MountedContentRevision,
-			Asset::GetAssetRegistry().GetRevision(),
+			Asset::GetAssetCatalogRevision(),
 			[this] { return Model.RescanRegistry(); },
 			[this] { RefreshPublishedContent(); },
-			[] { return Asset::GetAssetRegistry().GetRevision(); });
+			[] { return Asset::GetAssetCatalogRevision(); });
 		if (!Result) SetError(Result.Message);
 	}
 

@@ -2,7 +2,7 @@
 
 #include "Animation/AnimationClip.h"
 #include "Components/SkeletalMeshComponent.h"
-#include "AssetSystem.h"
+#include "AssetLoad.h"
 #include "EngineTestSupport.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -35,7 +35,7 @@ namespace
 
 	auto InitializeAssetManager() -> void
 	{
-		Durin::Asset::FAssetManager::Get().Initialize();
+		Durin::Asset::InitializeAssetManager();
 	}
 
 	using FCookTree = std::vector<std::pair<std::string, std::vector<Durin::uint8>>>;
@@ -118,6 +118,8 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 				.Dependencies = {"/Engine/"}}}};
 		Durin::PathUtilities::FScopedMountRegistryFixture Mounts(MountDefinitions);
 		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
+		ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+			Durin::Asset::EAssetRegistryScanMode::FullValidation));
 		std::string Error;
 		ASSERT_TRUE(Durin::Tests::InstallStandardAssetAuthoringFeatures());
 		ASSERT_TRUE(Durin::Asset::Import::Standard::RegisterStandardAssetImportProviders(
@@ -163,8 +165,8 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 			{
 				const Durin::FAssetPath MeshPath =
 					MakeAssetPath(Mesh->GetPackage()->GetPackagePath());
-				const Durin::Asset::FAssetData* MeshData =
-					Durin::Asset::GetAssetRegistry().FindAssetExact(MeshPath);
+				const Durin::Asset::FAssetCatalogEntry MeshData =
+					Durin::Asset::FindAssetExact(MeshPath);
 				ASSERT_NE(MeshData, nullptr);
 				Durin::Editor::SkeletalMesh::FSkeletalMeshAssetThumbnailProvider Provider;
 				Durin::Editor::FAssetThumbnailGenerationRequest ThumbnailRequest;
@@ -372,6 +374,8 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 				.Dependencies = {"/Engine/"}}}};
 		Durin::PathUtilities::FScopedMountRegistryFixture Mounts(MountDefinitions);
 		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
+		ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+			Durin::Asset::EAssetRegistryScanMode::FullValidation));
 		std::vector<Durin::DSkeletalMesh*> RuntimeMeshes;
 		RuntimeMeshes.reserve(MeshPaths.size());
 		for (size_t Index = 0; Index < MeshPaths.size(); ++Index)

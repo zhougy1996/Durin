@@ -1,6 +1,6 @@
 #include "EngineAssetServices.h"
 
-#include "AssetSystem.h"
+#include "AssetMutation.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
