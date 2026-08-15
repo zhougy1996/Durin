@@ -165,10 +165,12 @@ Contact shadows default off in `FSceneViewSettings` and are enabled explicitly
 by the viewport control or a caller-owned view setting. Missing targets,
 invalid light or matrix input, or resource creation failure binds the complete
 white fallback and continues the same deferred path. A view with no successful
-deferred receiver draw records no target or pass. The viewport View menu exposes a
-`Contact Shadows` checkbox. Its mutually exclusive `Shadow Debug Views >
-Contact Shadow Contribution` mode enables the pass and displays the computed
-contribution as a red mask; selecting another diagnostic clears that mode.
+deferred receiver draw records no target or pass. The viewport View menu
+exposes a `Shadows > Contact Shadows` checkbox. Its mutually exclusive `Debug
+Views > Contact Shadow Contribution` mode enables the pass and displays the
+computed contribution as a red mask; selecting another diagnostic clears that
+mode. `Debug Views > Reset Debug Views` restores normal rendering and clears
+every shadow diagnostic mode.
 Per-view counters distinguish enabled passes from pass failures. The method
 remains screen-space: off-screen casters are not
 represented and contact shadows do not replace cascade coverage.

@@ -90,6 +90,8 @@ namespace Durin::Editor::Level
 			const FSceneViewSettings CurrentSettings = ViewportClient->GetViewSettings();
 			const EDirectionalShadowDiagnosticMode CurrentMode =
 				CurrentSettings.DirectionalShadowDiagnosticMode;
+			const bool bDebugViewsActive = CurrentMode != EDirectionalShadowDiagnosticMode::Lit
+				|| CurrentSettings.bShowContactShadowDebug;
 			auto SetMode = [ViewportClient](EDirectionalShadowDiagnosticMode Mode) {
 				FSceneViewSettings Settings = ViewportClient->GetViewSettings();
 				Settings.DirectionalShadowDiagnosticMode = Mode;
@@ -97,12 +99,13 @@ namespace Durin::Editor::Level
 				ViewportClient->SetViewSettings(Settings);
 			};
 
-			if (ImGui::RadioButton("Default (Lit / Diagnostics Off)",
-				CurrentMode == EDirectionalShadowDiagnosticMode::Lit
-				&& !CurrentSettings.bShowContactShadowDebug))
+			if (ImGui::MenuItem("Reset Debug Views", nullptr, false, bDebugViewsActive))
 			{
 				SetMode(EDirectionalShadowDiagnosticMode::Lit);
 			}
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+				ImGui::SetTooltip("Disable all shadow diagnostics without changing production rendering settings.");
+			ImGui::Separator();
 			if (ImGui::RadioButton("Contact Shadow Contribution",
 				CurrentSettings.bShowContactShadowDebug))
 			{
@@ -113,14 +116,21 @@ namespace Durin::Editor::Level
 				ViewportClient->SetViewSettings(Settings);
 			}
 			ImGui::Separator();
-			ImGui::TextDisabled("Coverage and Bias");
-			DrawModeOptions(CurrentMode, DirectionalShadowBiasDiagnosticOptions, SetMode);
-			ImGui::Separator();
-			ImGui::TextDisabled("Filtering");
-			DrawModeOptions(CurrentMode, DirectionalShadowFilterDiagnosticOptions, SetMode);
-			ImGui::Separator();
-			ImGui::TextDisabled("Cascades");
-			DrawModeOptions(CurrentMode, DirectionalShadowCascadeDiagnosticOptions, SetMode);
+			if (ImGui::BeginMenu("Coverage and Bias"))
+			{
+				DrawModeOptions(CurrentMode, DirectionalShadowBiasDiagnosticOptions, SetMode);
+				ImGui::EndMenu();
+			}
+			if (ImGui::BeginMenu("Filtering"))
+			{
+				DrawModeOptions(CurrentMode, DirectionalShadowFilterDiagnosticOptions, SetMode);
+				ImGui::EndMenu();
+			}
+			if (ImGui::BeginMenu("Cascades"))
+			{
+				DrawModeOptions(CurrentMode, DirectionalShadowCascadeDiagnosticOptions, SetMode);
+				ImGui::EndMenu();
+			}
 		}
 
 		auto DrawDirectionalShadowQualityOptions(FViewportClient* ViewportClient) -> void
@@ -800,26 +810,31 @@ namespace Durin::Editor::Level
 				ImGui::TextDisabled("Target: Play Window");
 				ImGui::Separator();
 			}
-			ImGui::TextDisabled("Shading");
-			DrawModeOptions(Layout.RenderMode, RenderModeOptions, [RenderSettingsClient](ERenderMode Mode) {
-				if (RenderSettingsClient == nullptr) return;
-				FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
-				Settings.RenderMode = Mode;
-				RenderSettingsClient->SetViewSettings(Settings);
-			});
-			ImGui::Separator();
-			ImGui::TextDisabled("Rasterization");
-			DrawModeOptions(Layout.RasterMode, RasterModeOptions, [RenderSettingsClient](ERasterMode Mode) {
-				if (RenderSettingsClient == nullptr) return;
-				FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
-				Settings.RasterMode = Mode;
-				RenderSettingsClient->SetViewSettings(Settings);
-			});
-			ImGui::Separator();
-			if (RenderSettingsClient != nullptr)
+			if (ImGui::BeginMenu("Shading"))
 			{
-				ImGui::TextDisabled("Directional Shadows");
+				DrawModeOptions(Layout.RenderMode, RenderModeOptions, [RenderSettingsClient](ERenderMode Mode) {
+					if (RenderSettingsClient == nullptr) return;
+					FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
+					Settings.RenderMode = Mode;
+					RenderSettingsClient->SetViewSettings(Settings);
+				});
+				ImGui::EndMenu();
+			}
+			if (ImGui::BeginMenu("Rasterization"))
+			{
+				DrawModeOptions(Layout.RasterMode, RasterModeOptions, [RenderSettingsClient](ERasterMode Mode) {
+					if (RenderSettingsClient == nullptr) return;
+					FSceneViewSettings Settings = RenderSettingsClient->GetViewSettings();
+					Settings.RasterMode = Mode;
+					RenderSettingsClient->SetViewSettings(Settings);
+				});
+				ImGui::EndMenu();
+			}
+			if (RenderSettingsClient != nullptr && ImGui::BeginMenu("Shadows"))
+			{
+				ImGui::TextDisabled("Directional Shadow Quality");
 				DrawDirectionalShadowQualityOptions(RenderSettingsClient);
+				ImGui::Separator();
 				bool bEnableContactShadows =
 					RenderSettingsClient->GetViewSettings().bEnableContactShadows;
 				if (ImGui::Checkbox("Contact Shadows", &bEnableContactShadows))
@@ -830,8 +845,10 @@ namespace Durin::Editor::Level
 						Settings.bShowContactShadowDebug = false;
 					RenderSettingsClient->SetViewSettings(Settings);
 				}
-				ImGui::Separator();
-				ImGui::TextDisabled("Post Processing");
+				ImGui::EndMenu();
+			}
+			if (RenderSettingsClient != nullptr && ImGui::BeginMenu("Post Processing"))
+			{
 				bool bEnableFXAA = Layout.bEnableFXAA;
 				if (ImGui::Checkbox("FXAA", &bEnableFXAA))
 				{
@@ -839,29 +856,32 @@ namespace Durin::Editor::Level
 					Settings.bEnableFXAA = bEnableFXAA;
 					RenderSettingsClient->SetViewSettings(Settings);
 				}
+				ImGui::EndMenu();
 			}
 			ImGui::Separator();
-			ImGui::TextDisabled("Overlays");
-			if (ViewportClient != nullptr)
+			if (ImGui::BeginMenu("Overlays"))
 			{
-				if (!Capabilities.bCanEditScene) ImGui::BeginDisabled();
-				bool bShowGrid = ViewportClient->IsGridVisible();
-				if (ImGui::Checkbox("World Grid", &bShowGrid)) ViewportClient->SetGridVisible(bShowGrid);
-				if (!Capabilities.bCanEditScene) ImGui::EndDisabled();
-			}
-			if (Context.World)
-			{
-				if (!Capabilities.bCanToggleCollision) ImGui::BeginDisabled();
-				bool bShowCollision = Context.World->IsCollisionDebugDrawEnabled();
-				if (ImGui::Checkbox("Collision", &bShowCollision))
-					Context.World->SetCollisionDebugDrawEnabled(bShowCollision);
-				if (!Capabilities.bCanToggleCollision) ImGui::EndDisabled();
+				if (ViewportClient != nullptr)
+				{
+					if (!Capabilities.bCanEditScene) ImGui::BeginDisabled();
+					bool bShowGrid = ViewportClient->IsGridVisible();
+					if (ImGui::Checkbox("World Grid", &bShowGrid)) ViewportClient->SetGridVisible(bShowGrid);
+					if (!Capabilities.bCanEditScene) ImGui::EndDisabled();
+				}
+				if (Context.World)
+				{
+					if (!Capabilities.bCanToggleCollision) ImGui::BeginDisabled();
+					bool bShowCollision = Context.World->IsCollisionDebugDrawEnabled();
+					if (ImGui::Checkbox("Collision", &bShowCollision))
+						Context.World->SetCollisionDebugDrawEnabled(bShowCollision);
+					if (!Capabilities.bCanToggleCollision) ImGui::EndDisabled();
+				}
+				ImGui::EndMenu();
 			}
 			ImGui::Separator();
-			ImGui::TextDisabled("Diagnostics");
-			if (RenderSettingsClient != nullptr && ImGui::BeginMenu("Shadow Debug Views"))
+			if (RenderSettingsClient != nullptr && ImGui::BeginMenu("Debug Views"))
 			{
-				ImGui::TextDisabled("Temporary diagnostic view; choose Default to restore.");
+				ImGui::TextDisabled("Temporary diagnostic rendering.");
 				DrawDirectionalShadowDiagnosticOptions(RenderSettingsClient);
 				ImGui::EndMenu();
 			}
