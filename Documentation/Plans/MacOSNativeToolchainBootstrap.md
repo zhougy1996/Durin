@@ -53,6 +53,11 @@ through `@rpath`, and records the Debug runtime directory as an `LC_RPATH`.
 No Editor was launched and runtime support is not claimed. Final qualification
 and documentation remain open.
 
+The Stage 4 control-plane regression pass is green: all 367 applicable
+DurinDevTool tests pass with two host-inapplicable skips, and all 159 DHT tests
+pass. The DevTool suite includes the synthetic Windows setup, profile,
+dependency, build-graph, launcher, and recovery contracts affected by M1.
+
 ### Validated candidate host
 
 - Apple Silicon arm64, macOS 26.6.1 (25G76), Xcode 26.6 (17F113), macOS SDK
@@ -279,7 +284,7 @@ that does not require M2 runtime implementations.
 - [x] Verify Slang imported targets, headers, compiler executable, dylibs,
   dependent libraries, deployment locations, and development rpaths without
   relying on a global Homebrew Slang installation.
-- [ ] Add focused manifest, acquisition, publication, CMake argument, required
+- [x] Add focused manifest, acquisition, publication, CMake argument, required
   file, architecture, and unsupported-development-tool tests.
 
 #### Acceptance Gate
@@ -319,17 +324,17 @@ that does not require M2 runtime implementations.
 
 ### Stage 4: Qualify the workflow and publish the M2 handoff
 
-- [ ] Run the focused DurinDevTool, dependency, CMake metadata, DHT, and native
+- [x] Run the focused DurinDevTool, dependency, CMake metadata, DHT, and native
   compile validations selected through the repository testing workflow.
-- [ ] Re-run the required Windows DevTool and build-graph regression coverage
+- [x] Re-run the required Windows DevTool and build-graph regression coverage
   for every shared setup, profile, dependency, and CMake behavior changed by
   M1.
-- [ ] Update the authoritative build/run and third-party preparation contracts
+- [x] Update the authoritative build/run and third-party preparation contracts
   with macOS prerequisites, root command syntax, environment ownership,
   dependency layout, baseline versions, and bounded qualification status.
 - [ ] Record exact fresh-host/fresh-worktree reproduction evidence, resolved
   binary locations, dylib closure, known limitations, and rollback boundaries.
-- [ ] Publish M2's entry diagnostics for process, crash, filesystem/module,
+- [x] Publish M2's entry diagnostics for process, crash, filesystem/module,
   native dialog, window/input, project ownership, and Editor shell work without
   claiming runtime or rendering support.
 - [ ] Update this plan and the roadmap only after every M1 acceptance gate has
@@ -342,6 +347,33 @@ that does not require M2 runtime implementations.
   compile result; shared Windows behavior remains qualified; authoritative
   documentation matches the implemented commands; and M2 receives a bounded,
   evidence-backed platform-runtime handoff.
+
+### M2 entry diagnostics and rollback boundary
+
+- **Process and crash:** Launch compiles but does not link because MacOS lacks
+  `InstallProcessCrashHandler`, `UninstallProcessCrashHandler`,
+  `ConfigureProcessCrashTestOptions`, `RunProcessCrashFixture`, and
+  `PublishProcessCrashRoot`. M2 must implement the real contract rather than a
+  link-only no-op.
+- **Module/filesystem and shutdown:** the M1 `FMacOSPlatformProcess` covers the
+  basic bounded compile needs, but full process/module lifetime is unqualified.
+  SkeletalAsset and Spline qualification test bodies pass 34/34 and 2/2 before
+  both processes receive `SIGSEGV` after global teardown; M2 owns diagnosis and
+  clean-exit qualification.
+- **Dialogs, window/input, and ownership:** GLFW compiles with its Cocoa, IOKit,
+  and CoreFoundation closure, but native dialogs, project ownership, Cocoa
+  input, window lifecycle, relaunch/open-path behavior, and the Editor shell
+  have not been run or qualified.
+- **Rendering boundary:** Vulkan SDK and MoltenVK discovery is qualified only as
+  a dependency contract. Device admission, surface/presentation, rendering,
+  resize, and shader workload behavior remain M3 work.
+- **Rollback:** M1 changes are confined to repository launchers, DevTool host
+  policy/tests, dependency metadata/build glue, MacOS platform sources, portable
+  compiler fixes, and documentation. DevTool did not install host packages,
+  modify shell profiles, or change system-global Xcode/Vulkan selection. A code
+  rollback can therefore revert the M1 commits; generated preset outputs can be
+  removed with the documented `DevTool purge` workflow, while external SDK and
+  Homebrew installations remain user-owned.
 
 ## Validation Matrix
 

@@ -17,8 +17,16 @@ Common commands:
 .\DevTool.bat dependency validate
 ```
 
-For a fresh Windows clone, use
-`.\DevTool.bat setup`. It creates `.venv`, installs
+On macOS, use the same command surface through the POSIX launcher:
+
+```bash
+./DevTool dependency prepare --all --with-tests
+./DevTool dependency prepare --all --with-development
+./DevTool dependency validate
+```
+
+For a fresh clone, use `.\DevTool.bat setup` on Windows or `./DevTool setup` on
+macOS. It creates `.venv`, installs
 `requirements.txt`, and prepares test and development dependencies through the
 same dependency service.
 
@@ -67,7 +75,13 @@ Current example: `slang`
 
 - Source location: `Engine/External/Packages/<Library>`
 - Build or install behavior: bootstrap downloads or extracts a prepared package
-- Runtime implications: consuming modules deploy required runtime DLLs into `Engine/Binaries/...`
+- Runtime implications: consuming modules deploy required runtime DLLs or
+  dylibs into `Engine/Binaries/...`
+
+The macOS Slang package is the pinned official arm64 archive. Bootstrap verifies
+its SHA-256 digest, required headers/tools/libraries, arm64 identities, and
+dylib layout before publishing it. A separate Homebrew Slang installation is
+not part of Durin's dependency contract.
 
 ### Direct Source
 
@@ -110,13 +124,16 @@ Current examples: `spdlog`, `glfw`, `rapidyaml`, `assimp`
 - Build or install behavior: bootstrap clones source, configures it, and installs it into the shared install tree
 - Runtime implications: the main project imports the installed targets from `Engine/External/Install/...`
 
-## Runtime DLL Notes
+## Runtime Library Notes
 
 - Use `Engine/Binaries/<Platform>/ThirdParty/<Config>/` for shared third-party
   runtime DLLs. Preset roles such as Profiling share this directory with the
   matching ordinary CMake configuration.
 - If a library is delay-loaded or path-sensitive on Windows, also copy it beside the consuming runtime binary.
 - `RenderCore` currently depends on Slang DLL deployment, and those DLLs may need to exist in both the shared third-party directory and the active runtime directory.
+- On macOS, shared libraries retain `@rpath` install names. RenderCore deploys
+  `libslang.dylib` beside the active runtime closure, and configured development
+  rpaths must resolve it without a shell-only loader override.
 
 ## Manifest Model
 
@@ -154,10 +171,15 @@ architecture, install names, and runtime behavior have been verified.
 - Tracy `v0.13.1` source and matching Win64 host tools are development-only and
   licensed under BSD-3-Clause. Setup prepares both by default; use
   `DevTool dependency prepare --libs tracy,tracy-tools` to prepare or repair
-  them together.
+  them together. On macOS the Tracy client remains available, while the
+  explicitly unsupported Win64-only Tracy tool package is skipped without
+  blocking ordinary setup.
   The upstream binary archive does not include its license file; the prepared
   Tracy source retains `Engine/External/Source/tracy/LICENSE`, and repository
   documentation accompanying the managed download retains the license and
   copyright reference required for binary redistribution.
-- Vulkan Memory Allocator is supplied by the Vulkan SDK rather than this bootstrap. See `BuildAndRun.md` for the required SDK layout and the older-SDK fallback.
+- Vulkan Memory Allocator is supplied by the Vulkan SDK rather than this
+  bootstrap. On macOS, preflight also validates the selected arm64 Vulkan loader
+  and MoltenVK libraries. See `BuildAndRun.md` for the host-specific SDK layout
+  and the Windows older-SDK fallback.
 - Main project configure and build still start from `CMakePresets.json`.

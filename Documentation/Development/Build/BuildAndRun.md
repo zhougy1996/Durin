@@ -8,10 +8,12 @@ symptom-first fixes to common environment and command failures, see
 
 ## Setup
 
-Install the following Windows prerequisites, then run
-`.\DevTool.bat setup` once in the main checkout. Create
-linked worktrees with `DevTool worktree add`, or initialize an existing linked
-worktree with `DevTool worktree prepare`:
+Install the prerequisites for the host, then run the host launcher once in the
+main checkout: `.\DevTool.bat setup` on Windows or `./DevTool setup` on macOS.
+Create linked worktrees with `DevTool worktree add`, or initialize an existing
+linked worktree with `DevTool worktree prepare`.
+
+### Windows prerequisites
 
 - Python 3.10 or newer, including `venv`.
 - Windows 10 version 1607 or newer with **Enable Win32 long paths** enabled under
@@ -25,6 +27,32 @@ worktree with `DevTool worktree prepare`:
 - Git, CMake 3.24 or newer, and Ninja. The Ninja bundled with Visual Studio is accepted.
 - The LunarG Vulkan SDK. `VULKAN_SDK` must name an installation containing `Include/vulkan/vulkan.h`, `Include/vma/vk_mem_alloc.h`, and `Lib/vulkan-1.lib`. Current SDK releases include VMA. For an older SDK, either update it or download `vk_mem_alloc.h` from VulkanMemoryAllocator and place it under that SDK's `Include/vma` directory; Durin does not bootstrap a second VMA copy.
 
+### macOS prerequisites
+
+The current M1 qualification baseline is Apple Silicon arm64 with macOS 26.6.1,
+Xcode 26.6, Apple Clang 21, CMake 4.4.2, Ninja 1.13.2, Python 3.12, Git 2.55,
+and LunarG Vulkan SDK 1.4.357. These are the qualified candidate versions, not
+yet a declared minimum-version support matrix.
+
+- Install full Xcode and select it with `xcode-select`; Command Line Tools alone
+  are not the qualified compiler/SDK environment.
+- Install arm64 CMake, Ninja, Python 3.10 or newer with `venv`, and Git. Homebrew
+  is acceptable, but DevTool does not install packages or edit shell startup
+  files.
+- Install the LunarG Vulkan SDK with its Vulkan SDK core and
+  KosmicKrisp/MoltenVK components. `VULKAN_SDK` must name the SDK's `macOS`
+  directory and contain Vulkan headers, VMA, an arm64 Vulkan loader, and arm64
+  MoltenVK libraries. Source the SDK's `setup-env.sh` before setup, or record
+  that script as the optional machine-local environment override.
+- Do not install Slang separately for Durin. Setup downloads and validates the
+  pinned official macOS arm64 Slang package in `Engine/External/Packages`.
+
+Durin's macOS setup preflight validates native arm64 execution, selected Xcode,
+Apple Clang and SDK discovery, CMake, Ninja, Python, Git, and the Vulkan SDK
+layout before mutating repository state. It inherits the caller environment by
+default and never installs Homebrew packages, changes `xcode-select`, or edits
+shell profiles.
+
 In a normal checkout, `DevTool setup` runs a non-mutating prerequisite check,
 then creates `.agents/DevTool.user.json` from
 `Templates/DurinDevTool/DevTool.user.json` when the
@@ -36,19 +64,21 @@ runtime executable from the resolved CMake preset. Existing local configuration
 files are never replaced; only the confirmed toolchain fields may be updated.
 If preflight reports a tool that automatic detection cannot find, edit the
 configuration and rerun `DevTool setup`.
-Preflight reports all detected prerequisite problems together so an old MSVC
-toolset, incomplete Vulkan SDK, or missing command does not first appear halfway
-through bootstrap or during the main build. DurinDevTool separately validates
-the Visual Studio English language pack when it first initializes MSVC. Setup
+Preflight reports all detected prerequisite problems together so an old
+toolchain, incomplete Vulkan SDK, or missing command does not first appear
+halfway through bootstrap or during the main build. DurinDevTool separately
+validates the Visual Studio English language pack when it first initializes
+MSVC. Setup
 initializes only the main checkout; a linked worktree exits with an error
 directing the caller to `DevTool worktree prepare`.
-On the first interactive setup, automatic CMake and `VsDevCmd.bat` detection is
-shown for confirmation. If detection is incomplete or the proposed settings are
-declined, Setup prompts for the CMake executable, environment script, and script
-arguments, validates them, and saves the confirmed absolute paths in
-`.agents/DevTool.user.json`. Use `DevTool setup --non-interactive` for scripts
-or CI; it accepts valid automatic or already-configured settings and fails with
-an actionable message instead of waiting for input.
+On Windows, the first interactive setup shows automatic CMake and
+`VsDevCmd.bat` detection for confirmation and can save validated absolute paths
+in `.agents/DevTool.user.json`. On macOS, setup automatically selects the
+`macos-xcode-arm64` profile and normally persists an inherited environment;
+`toolchain.environmentScript` is needed only when a repeatable local SDK script
+override is desired. Use `DevTool setup --non-interactive` for scripts or CI;
+it accepts valid automatic or already-configured settings and fails with an
+actionable message instead of waiting for input.
 Because Setup must install DurinDevTool's Python packages, its terminal styling
 uses a standard-library-only fallback until the prepared environment is ready.
 `setup --plain` and `NO_COLOR` disable that styling as usual.
@@ -57,9 +87,9 @@ In a normal checkout, `DevTool setup` creates `.venv`, installs the pinned
 Python dependencies from `requirements.txt` (including the `clang.cindex`
 bindings and native `libclang` library), and prepares all repository-managed
 third-party libraries, including development-only dependencies such as Tracy.
-The confirmed Visual Studio environment is passed to every third-party CMake
-configure and build subprocess, and later `DevTool dependency prepare` calls
-recreate it from the saved local configuration.
+The confirmed Windows Visual Studio environment or validated macOS inherited
+environment is passed to every third-party CMake configure and build subprocess;
+later `DevTool dependency prepare` calls recreate the saved selection.
 The operation is idempotent and can be rerun after a failed prerequisite check
 or interrupted download. `DevTool worktree prepare` owns linked-worktree
 preparation: it links `.agents`, `.vscode`, `Engine/External`, and `.venv` from
@@ -73,7 +103,7 @@ linked worktree rather than silently using a different system Python.
 
 Machine-specific CMake, build-profile, environment, or job overrides belong in
 `.agents/DevTool.user.json`. Normally, leave them empty and let the build driver
-detect the Visual Studio environment and parallelism. Setup's preflight honors
+select the host profile, environment, and parallelism. Setup's preflight honors
 both `cmake.command` and `toolchain.environmentScript`; the third-party
 bootstrap also uses `cmake.command`, and `CMAKE_COMMAND` still takes precedence
 during Setup. The file uses schema version 1; `null` means no path or profile
@@ -90,6 +120,31 @@ the supported fields. Module and project scaffolding assets live under
 root so the templates remain repository-owned assets independent of the Python
 package layout. Do not place machine-local tool paths in this tracked
 configuration.
+
+## macOS Workflow
+
+Use the extensionless root launcher. The currently qualified M1 target is the
+Debug Editor preset on Apple Silicon:
+
+```bash
+./DevTool setup
+./DevTool status
+./DevTool configure
+./DevTool build --target Engine
+./DevTool rebuild --target Engine
+```
+
+`setup` is idempotent. Once `.venv` and `.agents/DevTool.user.json` exist, later
+commands use `.venv/bin/python` and the saved `macos-xcode-arm64` profile. If
+the local configuration names the Vulkan SDK `setup-env.sh`, DevTool evaluates
+it for each dependency/configure/build invocation; otherwise the current shell
+must already expose the validated Vulkan environment.
+
+M1 qualifies setup, dependency preparation, fresh configuration, and the
+bounded `Engine` dylib closure only. The Engine dylib is arm64 with an `@rpath`
+install name. `Launch` still requires the M2 macOS crash-service implementation,
+and Editor launch, MoltenVK rendering, clean runtime shutdown, `.app` bundles,
+signing, and distribution are not qualified by this workflow.
 
 ## Windows Workflow
 

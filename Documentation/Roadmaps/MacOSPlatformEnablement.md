@@ -9,18 +9,20 @@ Completed:
 
 ## Current Status
 
-Durin is a Windows-qualified engine with partial macOS scaffolding. CMake
-recognizes `APPLE`, Core contains initial macOS type, dynamic-library, aligned
-allocation, and thread-ID support, GLFW exposes Cocoa windows and creates
-Vulkan surfaces, and the Slang import target has a dylib branch. These pieces
-have no macOS build or runtime qualification and do not constitute platform
-support.
+Durin remains a Windows-qualified engine without macOS runtime support. M1 now
+provides a native Apple Silicon DevTool setup, pinned arm64 dependencies,
+platform-correct CMake/DHT source selection, a basic macOS `PlatformProcess`,
+and a repeatable fresh configure plus bounded Engine dylib build. The resulting
+development closure uses Mach-O arm64 dylibs with inspectable `@rpath`
+identities. This is toolchain and compile qualification, not Editor or rendering
+qualification.
 
-Known blockers include an absent macOS `PlatformProcess` implementation,
-unfiltered compilation of platform-specific source directories, Windows crash
-handling referenced from common launch code, Windows-only dependency manifests,
-Win32-specific Vulkan presentation admission, unsupported native file dialogs,
-and cooked payload contracts that name only Win64.
+The first explicit M2 blocker is the absent macOS process-crash service required
+by Launch. Native test bodies reached so far complete their assertions but
+currently crash during process teardown. Further blockers include complete
+process/module/filesystem behavior, native dialogs, project ownership,
+Cocoa/GLFW input and shell lifecycle, Win32-specific Vulkan presentation
+admission, and cooked payload contracts that name only Win64.
 
 [macOS Host-Independent Preparation](../Plans/Archive/2026-08/MacOSHostIndependentPreparation.md)
 completed M0 on the Windows qualification host. Platform source ownership,
@@ -28,9 +30,9 @@ neutral Launch/Vulkan boundaries, target-aware DHT preprocessing, arm64 preset
 intent, dependency diagnostics, cook inventories, and the first-host checklist
 are qualified. An Apple Silicon development host is now available, so
 [macOS Native Toolchain Bootstrap](../Plans/MacOSNativeToolchainBootstrap.md)
-is active. M1 begins by freezing the native baseline, adding the repository-root
-POSIX DevTool entrypoint, and making setup diagnostics host-aware before
-dependency and bounded compile qualification.
+is active. Its setup, dependency, configuration, graph, and bounded compile
+stages are implemented; final qualification evidence, durable documentation,
+and the bounded M2 handoff are in progress.
 
 ## Outcome
 
