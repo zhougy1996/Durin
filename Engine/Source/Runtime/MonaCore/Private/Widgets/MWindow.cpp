@@ -135,18 +135,33 @@ namespace Durin
 		}
 	}
 
-	auto MWindow::SetWindowDecorated(bool bDecorated) -> void
+	auto MWindow::SetWindowDecorationMode(EWindowDecorationMode Mode) -> void
 	{
-		bWindowDecorated = bDecorated;
+		WindowDecorationMode = Mode;
 		if (NativeWindow != nullptr)
 		{
-			NativeWindow->SetWindowDecorated(bDecorated);
+			NativeWindow->SetWindowDecorationMode(Mode);
 		}
 	}
 
-	auto MWindow::IsWindowDecorated() const -> bool
+	auto MWindow::GetWindowDecorationMode() const -> EWindowDecorationMode
 	{
-		return bWindowDecorated;
+		return WindowDecorationMode;
+	}
+
+	auto MWindow::GetEffectiveWindowDecorationMode() const -> EWindowDecorationMode
+	{
+		return NativeWindow != nullptr ? NativeWindow->GetEffectiveWindowDecorationMode() : WindowDecorationMode;
+	}
+
+	auto MWindow::PublishTitleBarLayout(const FWindowTitleBarLayout& Layout) -> void
+	{
+		if (NativeWindow != nullptr) NativeWindow->PublishTitleBarLayout(Layout);
+	}
+
+	auto MWindow::GetTitleBarInteractionState() const -> FWindowTitleBarInteractionState
+	{
+		return NativeWindow != nullptr ? NativeWindow->GetTitleBarInteractionState() : FWindowTitleBarInteractionState{};
 	}
 
 	auto MWindow::SetTitleBarDarkMode(bool bDarkMode) -> void
@@ -310,5 +325,10 @@ namespace Durin
 		{
 			NativeWindow->RestoreWindow();
 		}
+	}
+
+	auto MWindow::MinimizeWindow() -> void
+	{
+		if (NativeWindow != nullptr) NativeWindow->MinimizeWindow();
 	}
 } // namespace Durin

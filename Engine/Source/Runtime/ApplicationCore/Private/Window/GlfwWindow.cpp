@@ -29,6 +29,50 @@ namespace Durin
 		}
 
 #if defined(_WIN32)
+		constexpr wchar_t GlfwWindowInstanceProperty[] = L"DURIN_APPLICATION_CORE_GLFW_WINDOW";
+
+		auto WindowTitleBarHitTestToWindows(EWindowTitleBarHitTest HitTest) -> LRESULT
+		{
+			switch (HitTest)
+			{
+			case EWindowTitleBarHitTest::Caption: return HTCAPTION;
+			case EWindowTitleBarHitTest::Minimize: return HTMINBUTTON;
+			case EWindowTitleBarHitTest::Maximize: return HTMAXBUTTON;
+			case EWindowTitleBarHitTest::Close: return HTCLOSE;
+			case EWindowTitleBarHitTest::ResizeLeft: return HTLEFT;
+			case EWindowTitleBarHitTest::ResizeRight: return HTRIGHT;
+			case EWindowTitleBarHitTest::ResizeTop: return HTTOP;
+			case EWindowTitleBarHitTest::ResizeBottom: return HTBOTTOM;
+			case EWindowTitleBarHitTest::ResizeTopLeft: return HTTOPLEFT;
+			case EWindowTitleBarHitTest::ResizeTopRight: return HTTOPRIGHT;
+			case EWindowTitleBarHitTest::ResizeBottomLeft: return HTBOTTOMLEFT;
+			case EWindowTitleBarHitTest::ResizeBottomRight: return HTBOTTOMRIGHT;
+			default: return HTCLIENT;
+			}
+		}
+
+		auto WindowsToWindowTitleBarHitTest(WPARAM HitTest) -> EWindowTitleBarHitTest
+		{
+			switch (HitTest)
+			{
+			case HTMINBUTTON: return EWindowTitleBarHitTest::Minimize;
+			case HTMAXBUTTON: return EWindowTitleBarHitTest::Maximize;
+			case HTCLOSE: return EWindowTitleBarHitTest::Close;
+			case HTCAPTION: return EWindowTitleBarHitTest::Caption;
+			default: return EWindowTitleBarHitTest::Client;
+			}
+		}
+
+		auto CALLBACK GlfwWindowMessageBridge(HWND WindowHandle, UINT Message, WPARAM WParam, LPARAM LParam) -> LRESULT
+		{
+			auto* Window = static_cast<FGlfwWindow*>(GetPropW(WindowHandle, GlfwWindowInstanceProperty));
+			if (Window == nullptr) return DefWindowProcW(WindowHandle, Message, WParam, LParam);
+			bool bHandled = false;
+			const int64 Result = Window->ProcessWindowsMessage(
+				static_cast<uint32>(Message), static_cast<uint64>(WParam), static_cast<int64>(LParam), bHandled);
+			return static_cast<LRESULT>(Result);
+		}
+
 		auto ApplyWindowsWindowIcon(void* NativeWindowHandle) -> void
 		{
 			const HWND WindowHandle = static_cast<HWND>(NativeWindowHandle);
@@ -448,11 +492,12 @@ namespace Durin
 
 	FGlfwWindow::~FGlfwWindow()
 	{
-		RemoveModalLoopHook();
 		if (GlfwWindow != nullptr && CursorMode == ECursorMode::Captured)
 		{
 			SetCursorMode(ECursorMode::Free);
 		}
+		RemoveWindowsMessageBridge();
+		RemoveModalLoopHook();
 		glfwDestroyWindow(GlfwWindow);
 		GlfwWindow = nullptr;
 	}
@@ -469,7 +514,7 @@ namespace Durin
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 		glfwWindowHint(GLFW_RESIZABLE, WindowMode == EWindowMode::Windowed);
 		glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-		glfwWindowHint(GLFW_DECORATED, Definition->bHasOSWindowBorder ? GLFW_TRUE : GLFW_FALSE);
+		glfwWindowHint(GLFW_DECORATED, Definition->DecorationMode == EWindowDecorationMode::None ? GLFW_FALSE : GLFW_TRUE);
 #if defined(__APPLE__)
 		glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_TRUE);
 		glfwWindowHint(GLFW_COCOA_GRAPHICS_SWITCHING, GLFW_TRUE);
@@ -484,8 +529,38 @@ namespace Durin
 		OSNativeWindowHandle = glfwGetWin32Window(GlfwWindow);
 		InstallModalLoopHook();
 		ApplyWindowsWindowIcon(OSNativeWindowHandle);
+		EffectiveDecorationMode = Definition->DecorationMode;
+		if (Definition->DecorationMode == EWindowDecorationMode::CustomTitleBar)
+		{
+			TitleBarLayout = {
+				.Generation = 1,
+				.bValid = true,
+				.Height = 36,
+				.MinimumWindowWidth = 640,
+				.DragRegions = {{0, 0, std::max(0, DesiredWidth - 138), 36}},
+				.MinimizeRegion = {std::max(0, DesiredWidth - 138), 0, std::max(0, DesiredWidth - 92), 36},
+				.MaximizeRegion = {std::max(0, DesiredWidth - 92), 0, std::max(0, DesiredWidth - 46), 36},
+				.CloseRegion = {std::max(0, DesiredWidth - 46), 0, DesiredWidth, 36}
+			};
+			if (!InstallWindowsMessageBridge() || !ApplyWindowsCustomFrame())
+			{
+				RemoveWindowsMessageBridge();
+				EffectiveDecorationMode = EWindowDecorationMode::System;
+				Definition->DecorationMode = EWindowDecorationMode::System;
+				DURIN_ERROR("Failed to activate the Windows custom title bar; using the system frame.");
+			}
+			else
+			{
+				DURIN_DEBUG("Activated Windows custom title bar.");
+			}
+		}
 #elif defined(__APPLE__)
 		OSNativeWindowHandle = glfwGetCocoaWindow(GlfwWindow);
+		EffectiveDecorationMode = Definition->DecorationMode == EWindowDecorationMode::CustomTitleBar
+			? EWindowDecorationMode::System : Definition->DecorationMode;
+#else
+		EffectiveDecorationMode = Definition->DecorationMode == EWindowDecorationMode::CustomTitleBar
+			? EWindowDecorationMode::System : Definition->DecorationMode;
 #endif
 
 		glfwSetWindowPos(GlfwWindow, DesiredX, DesiredY);
@@ -752,6 +827,11 @@ namespace Durin
 		glfwRestoreWindow(GlfwWindow);
 	}
 
+	auto FGlfwWindow::MinimizeWindow() -> void
+	{
+		glfwIconifyWindow(GlfwWindow);
+	}
+
 	auto FGlfwWindow::IsFocused() const -> bool
 	{
 		return glfwGetWindowAttrib(GlfwWindow, GLFW_FOCUSED) != 0;
@@ -772,13 +852,45 @@ namespace Durin
 		glfwSetWindowOpacity(GlfwWindow, InOpacity);
 	}
 
-	auto FGlfwWindow::SetWindowDecorated(bool bDecorated) -> void
+	auto FGlfwWindow::SetWindowDecorationMode(EWindowDecorationMode Mode) -> void
 	{
-		glfwSetWindowAttrib(GlfwWindow, GLFW_DECORATED, bDecorated ? GLFW_TRUE : GLFW_FALSE);
+		if (Mode == EWindowDecorationMode::CustomTitleBar)
+		{
+			return;
+		}
+		glfwSetWindowAttrib(GlfwWindow, GLFW_DECORATED, Mode == EWindowDecorationMode::System ? GLFW_TRUE : GLFW_FALSE);
 		if (Definition != nullptr)
 		{
-			Definition->bHasOSWindowBorder = bDecorated;
+			Definition->DecorationMode = Mode;
 		}
+		EffectiveDecorationMode = Mode;
+	}
+
+	auto FGlfwWindow::PublishTitleBarLayout(const FWindowTitleBarLayout& Layout) -> void
+	{
+		if (EffectiveDecorationMode == EWindowDecorationMode::CustomTitleBar && !Layout.bValid && !bLoggedInvalidTitleBarLayout)
+		{
+			DURIN_WARN("Received an invalid custom title-bar layout; client hit testing remains active.");
+			bLoggedInvalidTitleBarLayout = true;
+		}
+		if (EffectiveDecorationMode == EWindowDecorationMode::CustomTitleBar
+			&& Layout.Generation < TitleBarLayout.Generation && !bLoggedStaleTitleBarLayout)
+		{
+			DURIN_WARN("Ignored a stale custom title-bar layout generation.");
+			bLoggedStaleTitleBarLayout = true;
+		}
+		if (EffectiveDecorationMode == EWindowDecorationMode::CustomTitleBar && Layout.Generation >= TitleBarLayout.Generation)
+		{
+			TitleBarLayout = Layout;
+		}
+	}
+
+	auto FGlfwWindow::GetTitleBarInteractionState() const -> FWindowTitleBarInteractionState
+	{
+		FWindowTitleBarInteractionState State = TitleBarInteractionState;
+		State.bFocused = IsFocused();
+		State.bMaximized = IsMaximized();
+		return State;
 	}
 
 	auto FGlfwWindow::SetTitleBarDarkMode(bool bDarkMode) -> void
@@ -810,6 +922,191 @@ namespace Durin
 		glfwGetWindowContentScale(GlfwWindow, &ScaleX, &ScaleY);
 		return SanitizeDpiScale(ScaleX);
 	}
+
+	auto FGlfwWindow::InstallWindowsMessageBridge() -> bool
+	{
+#if defined(_WIN32)
+		if (bWindowsMessageBridgeInstalled) return true;
+		const HWND WindowHandle = static_cast<HWND>(OSNativeWindowHandle);
+		if (WindowHandle == nullptr || !SetPropW(WindowHandle, GlfwWindowInstanceProperty, this)) return false;
+		SetLastError(ERROR_SUCCESS);
+		const LONG_PTR PreviousProcedure = SetWindowLongPtrW(
+			WindowHandle, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(GlfwWindowMessageBridge));
+		if (PreviousProcedure == 0 && GetLastError() != ERROR_SUCCESS)
+		{
+			RemovePropW(WindowHandle, GlfwWindowInstanceProperty);
+			return false;
+		}
+		PreviousWindowsProcedure = reinterpret_cast<void*>(PreviousProcedure);
+		bWindowsMessageBridgeInstalled = true;
+		return true;
+#else
+		return false;
+#endif
+	}
+
+	auto FGlfwWindow::RemoveWindowsMessageBridge() -> void
+	{
+#if defined(_WIN32)
+		if (!bWindowsMessageBridgeInstalled) return;
+		const HWND WindowHandle = static_cast<HWND>(OSNativeWindowHandle);
+		if (WindowHandle != nullptr)
+		{
+			const auto CurrentProcedure = reinterpret_cast<WNDPROC>(GetWindowLongPtrW(WindowHandle, GWLP_WNDPROC));
+			if (CurrentProcedure == GlfwWindowMessageBridge && PreviousWindowsProcedure != nullptr)
+			{
+				SetWindowLongPtrW(WindowHandle, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(PreviousWindowsProcedure));
+			}
+			RemovePropW(WindowHandle, GlfwWindowInstanceProperty);
+		}
+		PreviousWindowsProcedure = nullptr;
+		bWindowsMessageBridgeInstalled = false;
+#endif
+	}
+
+	auto FGlfwWindow::ApplyWindowsCustomFrame() -> bool
+	{
+#if defined(_WIN32)
+		const HWND WindowHandle = static_cast<HWND>(OSNativeWindowHandle);
+		if (WindowHandle == nullptr || !bWindowsMessageBridgeInstalled) return false;
+		SetLastError(ERROR_SUCCESS);
+		const LONG_PTR CurrentStyle = GetWindowLongPtrW(WindowHandle, GWL_STYLE);
+		if (CurrentStyle == 0 && GetLastError() != ERROR_SUCCESS) return false;
+		const LONG_PTR CustomStyle = (CurrentStyle & ~static_cast<LONG_PTR>(WS_CAPTION))
+			| WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU;
+		SetLastError(ERROR_SUCCESS);
+		const LONG_PTR PreviousStyle = SetWindowLongPtrW(WindowHandle, GWL_STYLE, CustomStyle);
+		if (PreviousStyle == 0 && GetLastError() != ERROR_SUCCESS) return false;
+		if (!SetWindowPos(WindowHandle, nullptr, 0, 0, 0, 0,
+			SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE))
+		{
+			SetWindowLongPtrW(WindowHandle, GWL_STYLE, CurrentStyle);
+			SetWindowPos(WindowHandle, nullptr, 0, 0, 0, 0,
+				SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+			return false;
+		}
+		return true;
+#else
+		return false;
+#endif
+	}
+
+#if defined(_WIN32)
+	auto FGlfwWindow::ProcessWindowsMessage(uint32 Message, uint64 WParamValue, int64 LParamValue, bool& bHandled) -> int64
+	{
+		const HWND WindowHandle = static_cast<HWND>(OSNativeWindowHandle);
+		const WPARAM WParam = static_cast<WPARAM>(WParamValue);
+		const LPARAM LParam = static_cast<LPARAM>(LParamValue);
+		const auto CallPrevious = [&]() -> LRESULT {
+			return CallWindowProcW(reinterpret_cast<WNDPROC>(PreviousWindowsProcedure), WindowHandle, Message, WParam, LParam);
+		};
+		bHandled = false;
+		if (EffectiveDecorationMode != EWindowDecorationMode::CustomTitleBar) return CallPrevious();
+
+		switch (Message)
+		{
+		case WM_NCCALCSIZE:
+			bHandled = true;
+			if (WParam != 0 && IsZoomed(WindowHandle))
+			{
+				auto* Parameters = reinterpret_cast<NCCALCSIZE_PARAMS*>(LParam);
+				const HMONITOR Monitor = MonitorFromWindow(WindowHandle, MONITOR_DEFAULTTONEAREST);
+				MONITORINFO MonitorInfo{.cbSize = sizeof(MONITORINFO)};
+				if (GetMonitorInfoW(Monitor, &MonitorInfo)) Parameters->rgrc[0] = MonitorInfo.rcWork;
+			}
+			return 0;
+
+		case WM_GETMINMAXINFO:
+		{
+			const HMONITOR Monitor = MonitorFromWindow(WindowHandle, MONITOR_DEFAULTTONEAREST);
+			MONITORINFO MonitorInfo{.cbSize = sizeof(MONITORINFO)};
+			if (GetMonitorInfoW(Monitor, &MonitorInfo))
+			{
+				auto* MinMaxInfo = reinterpret_cast<MINMAXINFO*>(LParam);
+				const UINT Dpi = GetDpiForWindow(WindowHandle);
+				MinMaxInfo->ptMinTrackSize = {
+					std::max(
+						MulDiv(640, static_cast<int32>(Dpi), USER_DEFAULT_SCREEN_DPI),
+						TitleBarLayout.MinimumWindowWidth),
+					MulDiv(480, static_cast<int32>(Dpi), USER_DEFAULT_SCREEN_DPI)};
+				MinMaxInfo->ptMaxPosition = {
+					MonitorInfo.rcWork.left - MonitorInfo.rcMonitor.left,
+					MonitorInfo.rcWork.top - MonitorInfo.rcMonitor.top};
+				MinMaxInfo->ptMaxSize = {
+					MonitorInfo.rcWork.right - MonitorInfo.rcWork.left,
+					MonitorInfo.rcWork.bottom - MonitorInfo.rcWork.top};
+				bHandled = true;
+				return 0;
+			}
+			break;
+		}
+
+		case WM_NCHITTEST:
+		{
+			LRESULT DwmResult = 0;
+			if (DwmDefWindowProc(WindowHandle, Message, WParam, LParam, &DwmResult))
+			{
+				bHandled = true;
+				return DwmResult;
+			}
+			POINT ClientPoint{
+				static_cast<int16>(LOWORD(static_cast<DWORD_PTR>(LParam))),
+				static_cast<int16>(HIWORD(static_cast<DWORD_PTR>(LParam)))};
+			ScreenToClient(WindowHandle, &ClientPoint);
+			RECT ClientRect{};
+			GetClientRect(WindowHandle, &ClientRect);
+			const UINT Dpi = GetDpiForWindow(WindowHandle);
+			const int32 ResizeBorderX = GetSystemMetricsForDpi(SM_CXSIZEFRAME, Dpi)
+				+ GetSystemMetricsForDpi(SM_CXPADDEDBORDER, Dpi);
+			const int32 ResizeBorderY = GetSystemMetricsForDpi(SM_CYSIZEFRAME, Dpi)
+				+ GetSystemMetricsForDpi(SM_CXPADDEDBORDER, Dpi);
+			const EWindowTitleBarHitTest HitTest = HitTestWindowTitleBar(
+				TitleBarLayout,
+				{ClientPoint.x, ClientPoint.y},
+				{ClientRect.right, ClientRect.bottom},
+				ResizeBorderX,
+				ResizeBorderY,
+				!IsZoomed(WindowHandle));
+			bHandled = true;
+			return WindowTitleBarHitTestToWindows(HitTest);
+		}
+
+		case WM_NCMOUSEMOVE:
+			TitleBarInteractionState.HoveredPart = WindowsToWindowTitleBarHitTest(WParam);
+			{
+				TRACKMOUSEEVENT Tracking{.cbSize = sizeof(TRACKMOUSEEVENT), .dwFlags = TME_LEAVE | TME_NONCLIENT, .hwndTrack = WindowHandle};
+				TrackMouseEvent(&Tracking);
+			}
+			break;
+
+		case WM_NCMOUSELEAVE:
+			TitleBarInteractionState.HoveredPart = EWindowTitleBarHitTest::Client;
+			TitleBarInteractionState.PressedPart = EWindowTitleBarHitTest::Client;
+			break;
+
+		case WM_NCLBUTTONDOWN:
+			TitleBarInteractionState.PressedPart = WindowsToWindowTitleBarHitTest(WParam);
+			break;
+
+		case WM_NCLBUTTONUP:
+			TitleBarInteractionState.PressedPart = EWindowTitleBarHitTest::Client;
+			break;
+
+		case WM_NCACTIVATE:
+			TitleBarInteractionState.bFocused = WParam != 0;
+			bHandled = true;
+			return 1;
+
+		case WM_NCPAINT:
+			bHandled = true;
+			return 0;
+
+		default:
+			break;
+		}
+		return CallPrevious();
+	}
+#endif
 
 	auto FGlfwWindow::SetCursor(EMouseCursor Cursor) -> void
 	{

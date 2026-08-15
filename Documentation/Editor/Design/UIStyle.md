@@ -54,6 +54,30 @@ Level Editor toolbars classify their available width as full, compact, or narrow
 and primary actions, and narrow layouts move secondary actions to another row or an overflow
 menu. New panels should degrade in the same order instead of clipping fixed-width controls.
 
+## Editor Main Window Title Bar
+
+On Windows, the editor root window uses one integrated title/menu bar drawn by
+`MainFrame`. Secondary windows keep their system or undecorated frame policy.
+If custom-title-bar activation fails, the root keeps the system caption and the
+workspace host draws its ordinary client menu bar.
+
+The base geometry before global UI scaling is a 36-pixel bar, an 18-pixel Durin
+mark, 8-pixel internal gaps, and three 46-pixel caption regions. The order is
+brand, project/editor title, File/Edit/Tools/Window/Help menus, explicit drag
+space, minimize, maximize/restore, and close. At narrow widths the title truncates
+and then disappears; menus and caption regions remain intact.
+
+Use `ImGuiCol_MenuBarBg` for the bar, normal/disabled text for active/inactive
+windows, and normal button hover/active colors for minimize and maximize. Close
+uses `EUIThemeColor::Error` only while hovered or pressed. The established Durin
+brand-mark geometry is shared with the project browser and avoids another image
+lifetime in MainFrame.
+
+Caption regions are drawn but are not ImGui buttons. ApplicationCore publishes
+native hover, pressed, focus, and maximized state; Windows owns caption commands
+and Snap Layout. Menu rectangles remain client input, while only the title and
+explicit spacer are draggable.
+
 ## Validation
 
 Check editor UI changes in both color themes at 75%, 100%, 125%, 150%, and 200% UI scale.

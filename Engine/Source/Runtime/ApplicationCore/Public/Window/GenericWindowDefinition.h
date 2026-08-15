@@ -2,6 +2,14 @@
 
 namespace Durin
 {
+	// Selects which layer owns a window's visible frame and title bar.
+	enum class EWindowDecorationMode : uint8
+	{
+		System,
+		CustomTitleBar,
+		None
+	};
+
 	// Describes the initial placement and presentation of a platform window.
 	struct FGenericWindowDefinition
 	{
@@ -12,7 +20,7 @@ namespace Durin
 		float WidthDesiredOnScreen;
 		float HeightDesiredOnScreen;
 
-		bool bHasOSWindowBorder = true;
+		EWindowDecorationMode DecorationMode = EWindowDecorationMode::System;
 
 		std::string Title;
 	};

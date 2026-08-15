@@ -417,7 +417,7 @@ namespace Durin::MonaImGui
 		}
 
 		const bool bDecorated = (Viewport->Flags & ImGuiViewportFlags_NoDecoration) == 0;
-		Window->SetWindowDecorated(bDecorated);
+		Window->SetWindowDecorationMode(bDecorated ? EWindowDecorationMode::System : EWindowDecorationMode::None);
 		if (!bDecorated && Window->GetTitle() != "")
 		{
 			Window->SetTitle("");

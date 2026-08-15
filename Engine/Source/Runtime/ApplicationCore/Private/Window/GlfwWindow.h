@@ -21,6 +21,10 @@ namespace Durin
 
 		APPLICATIONCORE_API static auto Make() -> std::shared_ptr<FGlfwWindow>;
 
+#if defined(_WIN32)
+		auto ProcessWindowsMessage(uint32 Message, uint64 WParam, int64 LParam, bool& bHandled) -> int64;
+#endif
+
 		APPLICATIONCORE_API auto Initialize(const std::shared_ptr<FGenericWindowDefinition>& InDefinition) -> void override;
 
 		APPLICATIONCORE_API auto PollEvents() const -> void override;
@@ -63,13 +67,19 @@ namespace Durin
 
 		APPLICATIONCORE_API auto RestoreWindow() -> void override;
 
+		APPLICATIONCORE_API auto MinimizeWindow() -> void override;
+
 		APPLICATIONCORE_API auto IsFocused() const -> bool override;
 
 		APPLICATIONCORE_API auto SetTitle(const std::string& InTitle) -> void override;
 
 		APPLICATIONCORE_API auto SetOpacity(float InOpacity) -> void override;
 
-		APPLICATIONCORE_API auto SetWindowDecorated(bool bDecorated) -> void override;
+		APPLICATIONCORE_API auto SetWindowDecorationMode(EWindowDecorationMode Mode) -> void override;
+
+		APPLICATIONCORE_API auto PublishTitleBarLayout(const FWindowTitleBarLayout& Layout) -> void override;
+
+		APPLICATIONCORE_API auto GetTitleBarInteractionState() const -> FWindowTitleBarInteractionState override;
 
 		APPLICATIONCORE_API auto SetTitleBarDarkMode(bool bDarkMode) -> void override;
 
@@ -97,11 +107,20 @@ namespace Durin
 		auto EnterModalLoop() -> void;
 		auto ExitModalLoop() -> void;
 		auto HandleModalLoopTimer(uint64 TimerIdentity) -> bool;
+		auto InstallWindowsMessageBridge() -> bool;
+		auto RemoveWindowsMessageBridge() -> void;
+		auto ApplyWindowsCustomFrame() -> bool;
 
 		GLFWwindow* GlfwWindow = nullptr;
+		FWindowTitleBarLayout TitleBarLayout;
+		FWindowTitleBarInteractionState TitleBarInteractionState;
 		void* PreviousWindowProcedure = nullptr;
+		void* PreviousWindowsProcedure = nullptr;
 		uint64 ModalLoopTimerIdentity = 0;
 		bool bInModalLoop = false;
+		bool bWindowsMessageBridgeInstalled = false;
+		bool bLoggedInvalidTitleBarLayout = false;
+		bool bLoggedStaleTitleBarLayout = false;
 	};
 
 }

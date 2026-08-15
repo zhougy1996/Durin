@@ -46,6 +46,26 @@ namespace Durin::Editor::MainFrame
 
 	namespace
 	{
+		constexpr float EditorTitleBarHeight = 36.0f;
+		constexpr float EditorTitleBarBrandHeight = 18.0f;
+		constexpr float EditorCaptionButtonWidth = 46.0f;
+		constexpr float EditorTitleBarGap = 8.0f;
+
+		auto DrawEditorBrandMark(ImDrawList* DrawList, const ImVec2& Min, float Height) -> void
+		{
+			const float Width = Height * 0.82f;
+			const auto Point = [&](float X, float Y) { return Min + ImVec2(Width * X, Height * Y); };
+			const std::array Outer = {
+				Point(0.00f, 0.00f), Point(0.63f, 0.00f), Point(1.00f, 0.30f), Point(1.00f, 0.70f),
+				Point(0.65f, 1.00f), Point(0.00f, 1.00f), Point(0.00f, 0.77f), Point(0.63f, 0.77f),
+				Point(0.76f, 0.62f), Point(0.76f, 0.35f), Point(0.62f, 0.23f), Point(0.00f, 0.23f)};
+			DrawList->AddConcavePolyFilled(Outer.data(), static_cast<int>(Outer.size()), IM_COL32(24, 104, 232, 255));
+			const std::array Highlight = {
+				Point(0.00f, 0.00f), Point(0.63f, 0.00f), Point(1.00f, 0.30f), Point(1.00f, 0.46f),
+				Point(0.76f, 0.35f), Point(0.62f, 0.23f), Point(0.00f, 0.23f)};
+			DrawList->AddConcavePolyFilled(Highlight.data(), static_cast<int>(Highlight.size()), IM_COL32(28, 193, 235, 255));
+		}
+
 		auto TransitionBootstrap(
 			FBootstrapContext& Context,
 			EBootstrapState NextState) -> void
@@ -447,6 +467,185 @@ namespace Durin::Editor::MainFrame
 			ImGui::EndMenu();
 		}
 
+		auto DrawWorkspaceMenus(
+			Editor::FWorkspaceManager& WorkspaceManager,
+			const std::shared_ptr<Editor::IWorkspace>& ActiveWorkspace,
+			const FProfilingToolService& ProfilingTools,
+			bool& bAboutDialogOpen,
+			bool& bEditorPreferencesOpen,
+			std::string& ProfilingStatusMessage,
+			bool& bProfilingStatusOpen,
+			bool& bAssetCompatibilityOpen) -> void
+		{
+			const std::vector<std::shared_ptr<Editor::IWorkspace>> Workspaces = WorkspaceManager.GetRegisteredWorkspaces();
+			if (ImGui::BeginMenu("File"))
+			{
+				if (ImGui::MenuItem("Save Current", "Ctrl+S", false, ActiveWorkspace && ActiveWorkspace->CanSaveActiveDocument()))
+					ActiveWorkspace->SaveActiveDocument();
+				ImGui::Separator();
+				for (const std::shared_ptr<Editor::IWorkspace>& Workspace : Workspaces) Workspace->DrawFileMenu();
+				ImGui::EndMenu();
+			}
+			if (ImGui::BeginMenu("Edit"))
+			{
+				const std::string UndoLabel = ActiveWorkspace && ActiveWorkspace->CanUndo() && !ActiveWorkspace->GetUndoDescription().empty()
+					? std::format("Undo {}", ActiveWorkspace->GetUndoDescription()) : "Undo";
+				const std::string RedoLabel = ActiveWorkspace && ActiveWorkspace->CanRedo() && !ActiveWorkspace->GetRedoDescription().empty()
+					? std::format("Redo {}", ActiveWorkspace->GetRedoDescription()) : "Redo";
+				if (ImGui::MenuItem(UndoLabel.c_str(), "Ctrl+Z", false, ActiveWorkspace && ActiveWorkspace->CanUndo())) ActiveWorkspace->Undo();
+				if (ImGui::MenuItem(RedoLabel.c_str(), "Ctrl+Y", false, ActiveWorkspace && ActiveWorkspace->CanRedo())) ActiveWorkspace->Redo();
+				ImGui::Separator();
+				if (ImGui::MenuItem("Editor Preferences...")) bEditorPreferencesOpen = true;
+				for (const std::shared_ptr<Editor::IWorkspace>& Workspace : Workspaces) Workspace->DrawEditMenu();
+				ImGui::EndMenu();
+			}
+			DrawProfilingMenu(ProfilingTools, ProfilingStatusMessage, bProfilingStatusOpen, bAssetCompatibilityOpen);
+			if (ImGui::BeginMenu("Window"))
+			{
+				DrawOpenEditorsMenu(WorkspaceManager);
+				if (ActiveWorkspace)
+				{
+					ImGui::Separator();
+					ActiveWorkspace->DrawWindowMenu();
+					if (ImGui::MenuItem("Reset Active Editor Layout")) ActiveWorkspace->ResetLayout();
+				}
+				ImGui::EndMenu();
+			}
+			if (ImGui::BeginMenu("Help"))
+			{
+				if (ImGui::MenuItem("About Durin...")) bAboutDialogOpen = true;
+				ImGui::EndMenu();
+			}
+		}
+
+		auto DrawCustomEditorTitleBar(
+			Editor::FWorkspaceManager& WorkspaceManager,
+			MWindow& RootWindow,
+			const FProfilingToolService& ProfilingTools,
+			bool bDrawWorkspaceMenus,
+			bool& bAboutDialogOpen,
+			bool& bEditorPreferencesOpen,
+			std::string& ProfilingStatusMessage,
+			bool& bProfilingStatusOpen,
+			bool& bAssetCompatibilityOpen) -> void
+		{
+			const float BarHeight = MonaImGui::ScaleUI(EditorTitleBarHeight);
+			const float ButtonWidth = MonaImGui::ScaleUI(EditorCaptionButtonWidth);
+			const float VerticalPadding = std::max(0.0f, (BarHeight - ImGui::GetFontSize()) * 0.5f);
+			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(MonaImGui::ScaleUI(EditorTitleBarGap), VerticalPadding));
+			if (!ImGui::BeginMainMenuBar())
+			{
+				ImGui::PopStyleVar();
+				return;
+			}
+
+			ImGuiViewport* Viewport = ImGui::GetMainViewport();
+			ImDrawList* DrawList = ImGui::GetWindowDrawList();
+			const ImVec2 BarMin = ImGui::GetWindowPos();
+			const ImVec2 BarMax(BarMin.x + ImGui::GetWindowWidth(), BarMin.y + ImGui::GetWindowHeight());
+			const float CaptionStartX = BarMax.x - ButtonWidth * 3.0f;
+			const float BrandHeight = MonaImGui::ScaleUI(EditorTitleBarBrandHeight);
+			const float BrandWidth = BrandHeight * 0.82f;
+			const ImVec2 BrandMin(
+				ImGui::GetCursorScreenPos().x + MonaImGui::ScaleUI(EditorTitleBarGap),
+				BarMin.y + (BarMax.y - BarMin.y - BrandHeight) * 0.5f);
+			DrawEditorBrandMark(DrawList, BrandMin, BrandHeight);
+			ImGui::Dummy(ImVec2(BrandWidth + MonaImGui::ScaleUI(EditorTitleBarGap * 2.0f), 0.0f));
+			ImGui::SameLine();
+
+			const std::string WindowTitle = RootWindow.GetTitle();
+			const float RequiredMenuWidth = bDrawWorkspaceMenus ? MonaImGui::ScaleUI(245.0f) : 0.0f;
+			const float AvailableTitleWidth = CaptionStartX - ImGui::GetCursorScreenPos().x
+				- RequiredMenuWidth - MonaImGui::ScaleUI(56.0f);
+			if (AvailableTitleWidth >= MonaImGui::ScaleUI(120.0f))
+			{
+				const ImVec2 TitlePosition = ImGui::GetCursorScreenPos();
+				const float TitleWidth = ImGui::CalcTextSize(WindowTitle.c_str()).x;
+				if (TitleWidth <= AvailableTitleWidth)
+				{
+					ImGui::TextUnformatted(WindowTitle.c_str());
+				}
+				else
+				{
+					const ImVec4 ClipRect(
+						TitlePosition.x, BarMin.y, TitlePosition.x + AvailableTitleWidth, BarMax.y);
+					DrawList->AddText(
+						ImGui::GetFont(), ImGui::GetFontSize(), TitlePosition, ImGui::GetColorU32(ImGuiCol_Text),
+						WindowTitle.c_str(), nullptr, 0.0f, &ClipRect);
+					ImGui::Dummy(ImVec2(AvailableTitleWidth, 0.0f));
+				}
+				ImGui::SameLine();
+			}
+
+			const float FirstMenuX = ImGui::GetCursorScreenPos().x;
+			std::shared_ptr<Editor::IWorkspace> ActiveWorkspace;
+			if (const Editor::FDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument())
+				ActiveWorkspace = WorkspaceManager.FindWorkspace(ActiveDocument->WorkspaceType);
+			if (bDrawWorkspaceMenus)
+			{
+				DrawWorkspaceMenus(
+					WorkspaceManager, ActiveWorkspace, ProfilingTools, bAboutDialogOpen, bEditorPreferencesOpen,
+					ProfilingStatusMessage, bProfilingStatusOpen, bAssetCompatibilityOpen);
+			}
+			const float MenuEndX = ImGui::GetCursorScreenPos().x;
+
+			const FWindowTitleBarInteractionState Interaction = RootWindow.GetTitleBarInteractionState();
+			const ImU32 TextColor = ImGui::GetColorU32(
+				Interaction.bFocused ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+			const auto DrawCaptionButton = [&](int32 Index, EWindowTitleBarHitTest Part) {
+				const ImVec2 Min(CaptionStartX + ButtonWidth * static_cast<float>(Index), BarMin.y);
+				const ImVec2 Max(Min.x + ButtonWidth, BarMax.y);
+				const bool bHovered = Interaction.HoveredPart == Part;
+				const bool bPressed = Interaction.PressedPart == Part;
+				if (bHovered || bPressed)
+				{
+					const ImU32 Background = Part == EWindowTitleBarHitTest::Close
+						? MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::Error)
+						: ImGui::GetColorU32(bPressed ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered);
+					DrawList->AddRectFilled(Min, Max, Background);
+				}
+				const ImVec2 Center((Min.x + Max.x) * 0.5f, (Min.y + Max.y) * 0.5f);
+				const float Radius = MonaImGui::ScaleUI(5.0f);
+				if (Part == EWindowTitleBarHitTest::Minimize)
+					DrawList->AddLine({Center.x - Radius, Center.y + Radius * 0.45f}, {Center.x + Radius, Center.y + Radius * 0.45f}, TextColor, 1.0f);
+				else if (Part == EWindowTitleBarHitTest::Maximize)
+				{
+					if (Interaction.bMaximized)
+					{
+						DrawList->AddRect({Center.x - Radius + 2.0f, Center.y - Radius}, {Center.x + Radius, Center.y + Radius - 2.0f}, TextColor);
+						DrawList->AddRect({Center.x - Radius, Center.y - Radius + 2.0f}, {Center.x + Radius - 2.0f, Center.y + Radius}, TextColor);
+					}
+					else DrawList->AddRect({Center.x - Radius, Center.y - Radius}, {Center.x + Radius, Center.y + Radius}, TextColor);
+				}
+				else
+				{
+					DrawList->AddLine({Center.x - Radius, Center.y - Radius}, {Center.x + Radius, Center.y + Radius}, TextColor, 1.0f);
+					DrawList->AddLine({Center.x + Radius, Center.y - Radius}, {Center.x - Radius, Center.y + Radius}, TextColor, 1.0f);
+				}
+			};
+			DrawCaptionButton(0, EWindowTitleBarHitTest::Minimize);
+			DrawCaptionButton(1, EWindowTitleBarHitTest::Maximize);
+			DrawCaptionButton(2, EWindowTitleBarHitTest::Close);
+
+			static uint64 LayoutGeneration = 1;
+			const auto ToClientX = [&](float ScreenX) { return static_cast<int32>(std::round(ScreenX - Viewport->Pos.x)); };
+			const int32 ClientHeight = static_cast<int32>(std::round(BarMax.y - Viewport->Pos.y));
+			FWindowTitleBarLayout Layout;
+			Layout.Generation = ++LayoutGeneration;
+			Layout.bValid = true;
+			Layout.Height = ClientHeight;
+			Layout.MinimumWindowWidth = static_cast<int32>(std::ceil(MonaImGui::ScaleUI(640.0f)));
+			if (FirstMenuX > BarMin.x) Layout.DragRegions.push_back({0, 0, ToClientX(FirstMenuX), ClientHeight});
+			if (CaptionStartX > MenuEndX) Layout.DragRegions.push_back({ToClientX(MenuEndX), 0, ToClientX(CaptionStartX), ClientHeight});
+			Layout.MinimizeRegion = {ToClientX(CaptionStartX), 0, ToClientX(CaptionStartX + ButtonWidth), ClientHeight};
+			Layout.MaximizeRegion = {ToClientX(CaptionStartX + ButtonWidth), 0, ToClientX(CaptionStartX + ButtonWidth * 2.0f), ClientHeight};
+			Layout.CloseRegion = {ToClientX(CaptionStartX + ButtonWidth * 2.0f), 0, ToClientX(BarMax.x), ClientHeight};
+			RootWindow.PublishTitleBarLayout(Layout);
+
+			ImGui::EndMainMenuBar();
+			ImGui::PopStyleVar();
+		}
+
 		auto DrawWorkspaceHost(
 			Editor::FWorkspaceManager& WorkspaceManager,
 			FHostSettings& HostSettings,
@@ -468,10 +667,11 @@ namespace Durin::Editor::MainFrame
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+			const bool bCustomTitleBar = RootWindow.GetEffectiveWindowDecorationMode() == EWindowDecorationMode::CustomTitleBar;
 			const ImGuiWindowFlags HostFlags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings |
 				ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize |
 				ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
-				ImGuiWindowFlags_MenuBar;
+				(bCustomTitleBar ? ImGuiWindowFlags_None : ImGuiWindowFlags_MenuBar);
 			ImGui::Begin("###Durin.Editor.WorkspaceHost", nullptr, HostFlags);
 			ImGui::PopStyleVar(3);
 
@@ -487,47 +687,11 @@ namespace Durin::Editor::MainFrame
 				if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) ActiveWorkspace->Undo();
 				if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) ActiveWorkspace->Redo();
 			}
-			if (ImGui::BeginMenuBar())
+			if (!bCustomTitleBar && ImGui::BeginMenuBar())
 			{
-				const std::vector<std::shared_ptr<Editor::IWorkspace>> Workspaces = WorkspaceManager.GetRegisteredWorkspaces();
-				if (ImGui::BeginMenu("File"))
-				{
-					if (ImGui::MenuItem("Save Current", "Ctrl+S", false, ActiveWorkspace && ActiveWorkspace->CanSaveActiveDocument()))
-						ActiveWorkspace->SaveActiveDocument();
-					ImGui::Separator();
-					for (const std::shared_ptr<Editor::IWorkspace>& Workspace : Workspaces) Workspace->DrawFileMenu();
-					ImGui::EndMenu();
-				}
-				if (ImGui::BeginMenu("Edit"))
-				{
-					const std::string UndoLabel = ActiveWorkspace && ActiveWorkspace->CanUndo() && !ActiveWorkspace->GetUndoDescription().empty()
-						? std::format("Undo {}", ActiveWorkspace->GetUndoDescription()) : "Undo";
-					const std::string RedoLabel = ActiveWorkspace && ActiveWorkspace->CanRedo() && !ActiveWorkspace->GetRedoDescription().empty()
-						? std::format("Redo {}", ActiveWorkspace->GetRedoDescription()) : "Redo";
-					if (ImGui::MenuItem(UndoLabel.c_str(), "Ctrl+Z", false, ActiveWorkspace && ActiveWorkspace->CanUndo())) ActiveWorkspace->Undo();
-					if (ImGui::MenuItem(RedoLabel.c_str(), "Ctrl+Y", false, ActiveWorkspace && ActiveWorkspace->CanRedo())) ActiveWorkspace->Redo();
-					ImGui::Separator();
-					if (ImGui::MenuItem("Editor Preferences...")) bEditorPreferencesOpen = true;
-					for (const std::shared_ptr<Editor::IWorkspace>& Workspace : Workspaces) Workspace->DrawEditMenu();
-					ImGui::EndMenu();
-				}
-				DrawProfilingMenu(ProfilingTools, ProfilingStatusMessage, bProfilingStatusOpen, bAssetCompatibilityOpen);
-				if (ImGui::BeginMenu("Window"))
-				{
-					DrawOpenEditorsMenu(WorkspaceManager);
-					if (ActiveWorkspace)
-					{
-						ImGui::Separator();
-						ActiveWorkspace->DrawWindowMenu();
-						if (ImGui::MenuItem("Reset Active Editor Layout")) ActiveWorkspace->ResetLayout();
-					}
-					ImGui::EndMenu();
-				}
-				if (ImGui::BeginMenu("Help"))
-				{
-					if (ImGui::MenuItem("About Durin...")) bAboutDialogOpen = true;
-					ImGui::EndMenu();
-				}
+				DrawWorkspaceMenus(
+					WorkspaceManager, ActiveWorkspace, ProfilingTools, bAboutDialogOpen, bEditorPreferencesOpen,
+					ProfilingStatusMessage, bProfilingStatusOpen, bAssetCompatibilityOpen);
 				ImGui::EndMenuBar();
 			}
 			DrawAboutDialog(bAboutDialogOpen);
@@ -586,6 +750,7 @@ namespace Durin
 		MonaImGui::SetColorTheme(Context.HostSettings->GetColorTheme());
 		MonaImGui::SetGlobalUIScale(Context.HostSettings->GetUIScale());
 		Context.RootWindow = std::make_shared<MWindow>();
+		Context.RootWindow->SetWindowDecorationMode(EWindowDecorationMode::CustomTitleBar);
 		MonaImGui::BindMainViewportToWindow(Context.RootWindow);
 		Context.WorkspaceManager = std::make_shared<Editor::FWorkspaceManager>();
 		Context.ProjectBrowser = std::make_shared<FProjectBrowser>();
@@ -621,8 +786,22 @@ namespace Durin
 			Asset::Build::PumpBuildHostCompletions();
 			ObserveHostWindowState(
 				*Context->HostSettings, *Context->RootWindow);
-			if (Context->State == EBootstrapState::Ready
-				&& Context->bHasProject && Context->LevelEditorModule)
+			const bool bReadyWorkspace = Context->State == EBootstrapState::Ready
+				&& Context->bHasProject && Context->LevelEditorModule;
+			if (Context->RootWindow->GetEffectiveWindowDecorationMode() == EWindowDecorationMode::CustomTitleBar)
+			{
+				DrawCustomEditorTitleBar(
+					*Context->WorkspaceManager,
+					*Context->RootWindow,
+					*Context->ProfilingTools,
+					bReadyWorkspace,
+					bAboutDialogOpen,
+					bEditorPreferencesOpen,
+					ProfilingStatusMessage,
+					bProfilingStatusOpen,
+					bAssetCompatibilityOpen);
+			}
+			if (bReadyWorkspace)
 			{
 				DrawWorkspaceHost(
 					*Context->WorkspaceManager,

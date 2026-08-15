@@ -1,4 +1,6 @@
 #include "ViewportTestSupport.h"
+#include "Application/GenericApplication.h"
+#include "ApplicationCoreGlobals.h"
 #include "Application/MonaEventHandler.h"
 #include "Documents/LevelDocumentRevisionState.h"
 #include "Math/Operations.h"
@@ -6,6 +8,12 @@
 #include "Runtime/MonaImGui/Private/ImGuiMonaImpl.h"
 #include "Viewport/ViewportPresentation.h"
 #include "Window/GenericWindow.h"
+
+#if defined(_WIN32)
+#include <Windows.h>
+#undef IsMaximized
+#undef IsMinimized
+#endif
 
 namespace
 {
@@ -52,6 +60,120 @@ TEST(FGenericWindowCursorTests, KeepsCursorShapeAndModeAsIndependentState)
 	EXPECT_EQ(Window.GetCursorPosition(), Durin::FVector2d(31.0, 47.0));
 	EXPECT_EQ(Window.GetOperations(), (std::vector<std::string>{"captured", "free", "position"}));
 }
+
+TEST(FGenericWindowTitleBarTests, PrioritizesResizeCaptionButtonsDragAndClientRegions)
+{
+	using namespace Durin;
+	const FWindowTitleBarLayout Layout{
+		.Generation = 7,
+		.bValid = true,
+		.Height = 36,
+		.MinimumWindowWidth = 640,
+		.DragRegions = {{20, 0, 600, 36}},
+		.MinimizeRegion = {662, 0, 708, 36},
+		.MaximizeRegion = {708, 0, 754, 36},
+		.CloseRegion = {754, 0, 800, 36}};
+	const FIntPoint ClientSize{800, 600};
+	const auto Hit = [&](FIntPoint Point, bool bResizable = true) {
+		return HitTestWindowTitleBar(Layout, Point, ClientSize, 8, 8, bResizable);
+	};
+
+	EXPECT_EQ(Hit({0, 0}), EWindowTitleBarHitTest::ResizeTopLeft);
+	EXPECT_EQ(Hit({799, 0}), EWindowTitleBarHitTest::ResizeTopRight);
+	EXPECT_EQ(Hit({0, 599}), EWindowTitleBarHitTest::ResizeBottomLeft);
+	EXPECT_EQ(Hit({799, 599}), EWindowTitleBarHitTest::ResizeBottomRight);
+	EXPECT_EQ(Hit({0, 300}), EWindowTitleBarHitTest::ResizeLeft);
+	EXPECT_EQ(Hit({799, 300}), EWindowTitleBarHitTest::ResizeRight);
+	EXPECT_EQ(Hit({400, 0}), EWindowTitleBarHitTest::ResizeTop);
+	EXPECT_EQ(Hit({400, 599}), EWindowTitleBarHitTest::ResizeBottom);
+	EXPECT_EQ(Hit({680, 20}), EWindowTitleBarHitTest::Minimize);
+	EXPECT_EQ(Hit({730, 20}), EWindowTitleBarHitTest::Maximize);
+	EXPECT_EQ(Hit({780, 20}), EWindowTitleBarHitTest::Close);
+	EXPECT_EQ(Hit({300, 20}), EWindowTitleBarHitTest::Caption);
+	EXPECT_EQ(Hit({630, 20}), EWindowTitleBarHitTest::Client);
+	EXPECT_EQ(Hit({780, 2}, false), EWindowTitleBarHitTest::Close);
+}
+
+TEST(FGenericWindowTitleBarTests, FallsThroughWhenThePublishedLayoutIsInvalid)
+{
+	Durin::FWindowTitleBarLayout Layout;
+	EXPECT_EQ(
+		Durin::HitTestWindowTitleBar(Layout, {100, 20}, {800, 600}, 8, 8, true),
+		Durin::EWindowTitleBarHitTest::Client);
+	EXPECT_EQ(
+		Durin::HitTestWindowTitleBar(Layout, {2, 20}, {800, 600}, 8, 8, true),
+		Durin::EWindowTitleBarHitTest::ResizeLeft);
+}
+
+#if defined(_WIN32)
+TEST(FGenericWindowTitleBarTests, ActivatesTheWindowsCustomFrameAndNativeHitTests)
+{
+	using namespace Durin;
+	InitializeApplicationCore();
+	{
+		std::shared_ptr<FGenericWindow> Window = MakePlatformWindow();
+		auto Definition = std::make_shared<FGenericWindowDefinition>();
+		Definition->XDesiredPositionOnScreen = 100.0f;
+		Definition->YDesiredPositionOnScreen = 100.0f;
+		Definition->WidthDesiredOnScreen = 800.0f;
+		Definition->HeightDesiredOnScreen = 600.0f;
+		Definition->DecorationMode = EWindowDecorationMode::CustomTitleBar;
+		Definition->Title = "Custom title bar integration test";
+		Window->Initialize(Definition);
+		ASSERT_EQ(Window->GetEffectiveWindowDecorationMode(), EWindowDecorationMode::CustomTitleBar);
+
+		const HWND Handle = static_cast<HWND>(Window->GetOSNativeWindowHandle());
+		ASSERT_NE(Handle, nullptr);
+		EXPECT_NE(GetPropW(Handle, L"DURIN_APPLICATION_CORE_GLFW_WINDOW"), nullptr);
+		const LONG_PTR Style = GetWindowLongPtrW(Handle, GWL_STYLE);
+		EXPECT_EQ(Style & WS_CAPTION, 0);
+		EXPECT_NE(Style & WS_THICKFRAME, 0);
+		EXPECT_NE(Style & WS_MINIMIZEBOX, 0);
+		EXPECT_NE(Style & WS_MAXIMIZEBOX, 0);
+		EXPECT_NE(Style & WS_SYSMENU, 0);
+
+		Window->PublishTitleBarLayout({
+			.Generation = 2,
+			.bValid = true,
+			.Height = 36,
+			.MinimumWindowWidth = 640,
+			.DragRegions = {{20, 0, 600, 36}},
+			.MinimizeRegion = {662, 0, 708, 36},
+			.MaximizeRegion = {708, 0, 754, 36},
+			.CloseRegion = {754, 0, 800, 36}});
+		const auto NativeHit = [&](POINT ClientPoint) {
+			ClientToScreen(Handle, &ClientPoint);
+			return SendMessageW(Handle, WM_NCHITTEST, 0,
+				MAKELPARAM(static_cast<int16>(ClientPoint.x), static_cast<int16>(ClientPoint.y)));
+		};
+		EXPECT_EQ(NativeHit({300, 20}), HTCAPTION);
+		EXPECT_EQ(NativeHit({680, 20}), HTMINBUTTON);
+		EXPECT_EQ(NativeHit({730, 20}), HTMAXBUTTON);
+		EXPECT_EQ(NativeHit({780, 20}), HTCLOSE);
+		EXPECT_EQ(NativeHit({630, 20}), HTCLIENT);
+
+		const std::shared_ptr<FGenericWindow> SystemWindow = MakePlatformWindow();
+		auto SystemDefinition = std::make_shared<FGenericWindowDefinition>(*Definition);
+		SystemDefinition->DecorationMode = EWindowDecorationMode::System;
+		SystemDefinition->Title = "System frame integration test";
+		SystemWindow->Initialize(SystemDefinition);
+		EXPECT_EQ(SystemWindow->GetEffectiveWindowDecorationMode(), EWindowDecorationMode::System);
+		EXPECT_NE(GetWindowLongPtrW(static_cast<HWND>(SystemWindow->GetOSNativeWindowHandle()), GWL_STYLE) & WS_CAPTION, 0);
+
+		const std::shared_ptr<FGenericWindow> NoneWindow = MakePlatformWindow();
+		auto NoneDefinition = std::make_shared<FGenericWindowDefinition>(*Definition);
+		NoneDefinition->DecorationMode = EWindowDecorationMode::None;
+		NoneDefinition->Title = "Undecorated integration test";
+		NoneWindow->Initialize(NoneDefinition);
+		EXPECT_EQ(NoneWindow->GetEffectiveWindowDecorationMode(), EWindowDecorationMode::None);
+		EXPECT_EQ(GetWindowLongPtrW(static_cast<HWND>(NoneWindow->GetOSNativeWindowHandle()), GWL_STYLE) & WS_CAPTION, 0);
+
+		Window.reset();
+		EXPECT_EQ(GetPropW(Handle, L"DURIN_APPLICATION_CORE_GLFW_WINDOW"), nullptr);
+	}
+	ShutdownApplicationCore();
+}
+#endif
 
 TEST(FMonaImGuiInputTests, KeepsCapturedVirtualMouseEventsOutOfTheUI)
 {

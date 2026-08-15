@@ -389,7 +389,7 @@ namespace Durin::Mona
 		const auto Definition = std::make_shared<FGenericWindowDefinition>();
 
 		Definition->Title = InMonaWindow->GetTitle();
-		Definition->bHasOSWindowBorder = InMonaWindow->IsWindowDecorated();
+		Definition->DecorationMode = InMonaWindow->GetWindowDecorationMode();
 
 		const FVector2f DesiredScreenPosition = InMonaWindow->GetDesiredScreenPosition();
 		Definition->XDesiredPositionOnScreen = DesiredScreenPosition.x;

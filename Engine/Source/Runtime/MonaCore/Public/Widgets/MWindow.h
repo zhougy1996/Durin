@@ -41,9 +41,15 @@ namespace Durin
 
 		MONACORE_API auto SetTitle(const std::string& InTitle) -> void;
 
-		MONACORE_API auto SetWindowDecorated(bool bDecorated) -> void;
+		MONACORE_API auto SetWindowDecorationMode(EWindowDecorationMode Mode) -> void;
 
-		MONACORE_API auto IsWindowDecorated() const -> bool;
+		MONACORE_API auto GetWindowDecorationMode() const -> EWindowDecorationMode;
+
+		MONACORE_API auto GetEffectiveWindowDecorationMode() const -> EWindowDecorationMode;
+
+		MONACORE_API auto PublishTitleBarLayout(const FWindowTitleBarLayout& Layout) -> void;
+
+		MONACORE_API auto GetTitleBarInteractionState() const -> FWindowTitleBarInteractionState;
 
 		MONACORE_API auto SetTitleBarDarkMode(bool bDarkMode) -> void;
 
@@ -87,10 +93,12 @@ namespace Durin
 
 		MONACORE_API auto RestoreWindow() -> void;
 
+		MONACORE_API auto MinimizeWindow() -> void;
+
 	protected:
 		std::string Title;
 
-		bool bWindowDecorated = true;
+		EWindowDecorationMode WindowDecorationMode = EWindowDecorationMode::System;
 
 		bool bTitleBarDarkMode = true;
 

@@ -9,11 +9,34 @@ Completed:
 
 ## Current Status
 
-Planning is complete and implementation has not started. The editor main frame
-is currently a GLFW decorated window. Windows owns its non-client caption,
-while `MainFrame` draws a second ImGui menu bar at the top of the client area.
-The selected path extends the client area through the main window's caption and
-draws one integrated Durin title/menu bar there.
+Implementation through the integrated MainFrame bar is complete. ApplicationCore
+now exposes explicit decoration modes and owns one Windows WndProc bridge, custom
+non-client calculation, DPI-aware native hit testing, work-area maximization,
+interaction state, and complete system-frame fallback. MainFrame requests custom
+mode before creation and draws one scaled title/menu bar across project-browser,
+loading, and ready states while sharing all workspace menu commands with fallback.
+
+The implemented visual baseline remains 36 pixels with an 18-pixel brand mark,
+8-pixel gaps, and three 46-pixel caption regions before UI scaling. Inspection of
+the existing project browser established an authored vector Durin mark already in
+editor code; MainFrame reuses that geometry instead of introducing a second image
+resource lifetime. The supported minimum track size is 640 by 480 base pixels,
+scaled by window DPI; the project title truncates and hides before menus or native
+caption regions.
+
+Automated evidence on 2026-08-16: `ApplicationCore` and `MainFrame` target builds,
+a full `all` build, all 72 default native-test targets through `test all`, and
+three focused `FGenericWindowTitleBarTests` passed. The focused set includes a
+real hidden Win32 window proving retained style capabilities, caption suppression,
+and native `WM_NCHITTEST` results. A visible editor startup reached ready state
+and created the main swapchain without fallback or crash.
+
+The plan remains active at Stage 3. The current desktop harness cannot inspect
+another application's pixels, so dark/light screenshots and the full manual
+interaction matrix (Snap Layout, system menu, cross-monitor DPI, taskbar edges,
+and narrow/theme/UI-scale comparisons) remain explicitly unverified. Layout
+snapshot automation and injected hook-failure/maximized-work-area integration
+coverage also remain open.
 
 Only the Windows editor main window adopts custom title-bar mode. Detached ImGui
 viewports, PIE/game windows, dialogs, and other Mona windows retain their current
@@ -295,18 +318,18 @@ code.
 
 - [ ] Capture the current Windows 11 main-frame caption/menu seam in dark and
   light themes at 100% DPI and UI scale as baseline evidence.
-- [ ] Record whether the modal-loop plan's shared `FGlfwWindow` hook exists at
+- [x] Record whether the modal-loop plan's shared `FGlfwWindow` hook exists at
   implementation time and select reuse or scaffold-first ownership without
   installing a second hook.
-- [ ] Define the decoration-mode, effective-mode, hit-region snapshot, and
+- [x] Define the decoration-mode, effective-mode, hit-region snapshot, and
   caption-interaction value contracts with no Win32 or ImGui public types.
-- [ ] Freeze client versus screen coordinate conversion, DPI border metrics,
+- [x] Freeze client versus screen coordinate conversion, DPI border metrics,
   first-frame fallback regions, and maximized work-area calculation.
 - [ ] Produce a checked-in or review-captured 36-pixel top-bar comparison in both
   themes and record any approved metric change in this plan before Stage 1.
-- [ ] Identify the supported minimum main-window width and prove the proposed
+- [x] Identify the supported minimum main-window width and prove the proposed
   responsive order leaves menus, caption controls, and a drag region available.
-- [ ] Add pure value tests for hit-test priority, edge/corner classification,
+- [x] Add pure value tests for hit-test priority, edge/corner classification,
   caption regions, client fallthrough, and invalid snapshot fallback.
 
 Dependencies: none. Coordination with the active modal-loop plan is required
@@ -327,18 +350,18 @@ Outcome: a hidden/test main window can activate a captionless native frame with
 correct client bounds, resize semantics, and deterministic fallback before any
 custom pixels are drawn.
 
-- [ ] Replace the Boolean decoration definition with the explicit mode throughout
+- [x] Replace the Boolean decoration definition with the explicit mode throughout
   `FGenericWindow`, `FGenericWindowDefinition`, `MWindow`, Mona window creation,
   and ImGui platform viewport styling.
-- [ ] Add effective-mode reporting, title-bar layout publication, interaction
+- [x] Add effective-mode reporting, title-bar layout publication, interaction
   state retrieval, and minimize support to the neutral window API.
-- [ ] Implement or extend the single `FGlfwWindow` Windows WndProc lifecycle with
+- [x] Implement or extend the single `FGlfwWindow` Windows WndProc lifecycle with
   exact-once install, chain, property/state cleanup, and restore.
-- [ ] Activate custom non-client calculation only for `CustomTitleBar`; leave
+- [x] Activate custom non-client calculation only for `CustomTitleBar`; leave
   `System` and `None` behavior byte-for-byte equivalent where practical.
-- [ ] Preserve the required native style flags, apply frame change while hidden,
+- [x] Preserve the required native style flags, apply frame change while hidden,
   and retain DWM shadow/corner behavior.
-- [ ] Implement DPI-aware resize hit testing, caption/drag hit testing,
+- [x] Implement DPI-aware resize hit testing, caption/drag hit testing,
   maximized work-area correction, and system fallback on partial failure.
 - [ ] Add Windows integration tests using a hidden/test window for hook lifetime,
   effective-mode fallback, client extent, hit-test results, maximize bounds, and
@@ -363,22 +386,22 @@ Dependencies: Stage 0.
 Outcome: the editor main window visibly uses one themed top bar and publishes
 native hit regions that exactly match the rendered geometry.
 
-- [ ] Request `CustomTitleBar` on the editor root before binding/creation and
+- [x] Request `CustomTitleBar` on the editor root before binding/creation and
   branch layout from the effective mode after native attachment.
-- [ ] Refactor existing menu commands into a shared drawing helper so custom and
+- [x] Refactor existing menu commands into a shared drawing helper so custom and
   system-fallback layouts execute identical File/Edit/Tools/Window behavior.
-- [ ] Draw branding, current project/editor title, menus, explicit drag space,
+- [x] Draw branding, current project/editor title, menus, explicit drag space,
   and three caption controls using the selected theme tokens and metrics.
-- [ ] Load/reuse the existing editor branding asset through an editor-owned
-  lifetime that survives the whole MainFrame and has a text-safe fallback.
-- [ ] Publish draggable and caption rectangles only after their final ImGui
+- [x] Reuse the established project-browser brand-mark geometry without adding
+  another texture lifetime to MainFrame.
+- [x] Publish draggable and caption rectangles only after their final ImGui
   layout is known; publish one complete generation per frame.
-- [ ] Render hover, pressed, focus, and maximize/restore states from the native
+- [x] Render hover, pressed, focus, and maximize/restore states from the native
   interaction snapshot without creating ImGui buttons over native caption
   regions.
-- [ ] Implement the selected narrow-width truncation/hide behavior and preserve
+- [x] Implement the selected narrow-width truncation/hide behavior and preserve
   the minimum drag region without overlapping menus or caption controls.
-- [ ] Draw the same bar during project-browser, loading, and ready-workspace
+- [x] Draw the same bar during project-browser, loading, and ready-workspace
   states so bootstrap never swaps between incompatible top layouts.
 - [ ] Add layout tests for full/minimum widths, long project names, both themes,
   and every supported editor UI scale.
@@ -416,7 +439,7 @@ for window management and remains composable with all current window consumers.
   and any modal-loop messages implemented by the related plan.
 - [ ] Confirm native move/resize modal-loop behavior is no worse than baseline;
   record continuous ticking evidence only if the related plan is complete.
-- [ ] Add diagnostics for effective decoration mode and invalid/stale layout
+- [x] Add diagnostics for effective decoration mode and invalid/stale layout
   generations without logging per-frame or per-hit-test noise.
 
 Dependencies: Stage 2. The modal-loop plan is not required to render custom
@@ -440,18 +463,18 @@ either plan has begun implementation.
 Outcome: automated, visible, and behavioral evidence is complete, and future
 window/UI work routes to maintained contracts instead of this plan.
 
-- [ ] Build affected native tests and `DurinEditor` through the repository build
+- [x] Build affected native tests and `DurinEditor` through the repository build
   workflow.
-- [ ] Run focused window/UI tests and the required broader native suite through
+- [x] Run focused window/UI tests and the required broader native suite through
   the repository test-selection workflow.
 - [ ] Complete the full visual and interaction matrix on supported Windows 11;
   run system-fallback qualification on another platform or an injected
   unsupported path.
 - [ ] Capture before/after dark and light screenshots at representative normal,
   maximized, snapped, and narrow sizes.
-- [ ] Update Editor UI Style with title-bar tokens, responsive order, visual
+- [x] Update Editor UI Style with title-bar tokens, responsive order, visual
   states, and custom-versus-fallback ownership.
-- [ ] Create a focused implemented Runtime windowing contract under
+- [x] Create a focused implemented Runtime windowing contract under
   `Documentation/Runtime/Core/` covering decoration modes, the shared native
   hook, hit-region coordinates, system-command ownership, DPI, and fallback.
 - [ ] Cross-link the modal-loop plan/contract to the shared native hook if that
@@ -528,6 +551,7 @@ Related Documentation rather than being copied into this plan.
 ## Related Documentation
 
 - [Editor UI Style](../Editor/Design/UIStyle.md)
+- [Window Frame Contract](../Runtime/Core/WindowFrames.md)
 - [Windows Native Window Modal-Loop Ticking](WindowsNativeWindowModalLoopTick.md)
 - [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../Agents/Testing.md)

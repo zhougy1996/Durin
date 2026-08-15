@@ -8,6 +8,69 @@ namespace Durin
 {
 	class FGenericApplication;
 
+	// Identifies the native non-client role of a point in the custom title bar.
+	enum class EWindowTitleBarHitTest : uint8
+	{
+		Client,
+		Caption,
+		Minimize,
+		Maximize,
+		Close,
+		ResizeLeft,
+		ResizeRight,
+		ResizeTop,
+		ResizeBottom,
+		ResizeTopLeft,
+		ResizeTopRight,
+		ResizeBottomLeft,
+		ResizeBottomRight
+	};
+
+	// Defines an axis-aligned rectangle in window-client pixels.
+	struct FWindowTitleBarRect
+	{
+		int32 MinX = 0;
+		int32 MinY = 0;
+		int32 MaxX = 0;
+		int32 MaxY = 0;
+
+		auto Contains(FIntPoint Point) const -> bool
+		{
+			return Point.x >= MinX && Point.x < MaxX && Point.y >= MinY && Point.y < MaxY;
+		}
+	};
+
+	// Publishes one complete rendered title-bar layout for native hit testing.
+	struct FWindowTitleBarLayout
+	{
+		uint64 Generation = 0;
+		bool bValid = false;
+		int32 Height = 0;
+		int32 MinimumWindowWidth = 0;
+		std::vector<FWindowTitleBarRect> DragRegions;
+		FWindowTitleBarRect MinimizeRegion;
+		FWindowTitleBarRect MaximizeRegion;
+		FWindowTitleBarRect CloseRegion;
+	};
+
+	// Describes native caption interaction state consumed by the renderer.
+	struct FWindowTitleBarInteractionState
+	{
+		EWindowTitleBarHitTest HoveredPart = EWindowTitleBarHitTest::Client;
+		EWindowTitleBarHitTest PressedPart = EWindowTitleBarHitTest::Client;
+		bool bFocused = false;
+		bool bMaximized = false;
+	};
+
+	// Classifies a client point using resize-first custom-title-bar semantics.
+	APPLICATIONCORE_API auto HitTestWindowTitleBar(
+		const FWindowTitleBarLayout& Layout,
+		FIntPoint Point,
+		FIntPoint ClientSize,
+		int32 ResizeBorderX,
+		int32 ResizeBorderY,
+		bool bAllowResize) -> EWindowTitleBarHitTest;
+
 	// Selects how a platform window occupies its monitor.
 	enum class EWindowMode : uint8
 	{
@@ -80,13 +143,23 @@ namespace Durin
 
 		APPLICATIONCORE_API virtual auto RestoreWindow() -> void;
 
+		APPLICATIONCORE_API virtual auto MinimizeWindow() -> void;
+
 		APPLICATIONCORE_API virtual auto IsFocused() const -> bool;
 
 		APPLICATIONCORE_API virtual auto SetTitle(const std::string& InTitle) -> void;
 
 		APPLICATIONCORE_API virtual auto SetOpacity(float InOpacity) -> void;
 
-		APPLICATIONCORE_API virtual auto SetWindowDecorated(bool bDecorated) -> void;
+		APPLICATIONCORE_API virtual auto SetWindowDecorationMode(EWindowDecorationMode Mode) -> void;
+
+		APPLICATIONCORE_API virtual auto GetWindowDecorationMode() const -> EWindowDecorationMode;
+
+		APPLICATIONCORE_API virtual auto GetEffectiveWindowDecorationMode() const -> EWindowDecorationMode;
+
+		APPLICATIONCORE_API virtual auto PublishTitleBarLayout(const FWindowTitleBarLayout& Layout) -> void;
+
+		APPLICATIONCORE_API virtual auto GetTitleBarInteractionState() const -> FWindowTitleBarInteractionState;
 
 		APPLICATIONCORE_API virtual auto SetTitleBarDarkMode(bool bDarkMode) -> void;
 
@@ -119,6 +192,7 @@ namespace Durin
 		EMouseCursor CursorShape = EMouseCursor::Arrow;
 		FVector2d CursorPositionBeforeCapture{0.0};
 		bool bHasCursorPositionBeforeCapture = false;
+		EWindowDecorationMode EffectiveDecorationMode = EWindowDecorationMode::System;
 
 		// Non-owning handle supplied by the platform windowing implementation.
 		void* OSNativeWindowHandle = nullptr;

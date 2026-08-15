@@ -2,6 +2,41 @@
 
 namespace Durin
 {
+	auto HitTestWindowTitleBar(
+		const FWindowTitleBarLayout& Layout,
+		FIntPoint Point,
+		FIntPoint ClientSize,
+		int32 ResizeBorderX,
+		int32 ResizeBorderY,
+		bool bAllowResize) -> EWindowTitleBarHitTest
+	{
+		if (bAllowResize)
+		{
+			const bool bLeft = Point.x >= 0 && Point.x < ResizeBorderX;
+			const bool bRight = Point.x >= ClientSize.x - ResizeBorderX && Point.x < ClientSize.x;
+			const bool bTop = Point.y >= 0 && Point.y < ResizeBorderY;
+			const bool bBottom = Point.y >= ClientSize.y - ResizeBorderY && Point.y < ClientSize.y;
+			if (bTop && bLeft) return EWindowTitleBarHitTest::ResizeTopLeft;
+			if (bTop && bRight) return EWindowTitleBarHitTest::ResizeTopRight;
+			if (bBottom && bLeft) return EWindowTitleBarHitTest::ResizeBottomLeft;
+			if (bBottom && bRight) return EWindowTitleBarHitTest::ResizeBottomRight;
+			if (bLeft) return EWindowTitleBarHitTest::ResizeLeft;
+			if (bRight) return EWindowTitleBarHitTest::ResizeRight;
+			if (bTop) return EWindowTitleBarHitTest::ResizeTop;
+			if (bBottom) return EWindowTitleBarHitTest::ResizeBottom;
+		}
+
+		if (!Layout.bValid) return EWindowTitleBarHitTest::Client;
+		if (Layout.CloseRegion.Contains(Point)) return EWindowTitleBarHitTest::Close;
+		if (Layout.MaximizeRegion.Contains(Point)) return EWindowTitleBarHitTest::Maximize;
+		if (Layout.MinimizeRegion.Contains(Point)) return EWindowTitleBarHitTest::Minimize;
+		for (const FWindowTitleBarRect& Region : Layout.DragRegions)
+		{
+			if (Region.Contains(Point)) return EWindowTitleBarHitTest::Caption;
+		}
+		return EWindowTitleBarHitTest::Client;
+	}
+
 	FGenericWindow::FGenericWindow() = default;
 
 	FGenericWindow::~FGenericWindow() = default;
@@ -119,6 +154,10 @@ namespace Durin
 	{
 	}
 
+	auto FGenericWindow::MinimizeWindow() -> void
+	{
+	}
+
 	auto FGenericWindow::IsFocused() const -> bool
 	{
 		return false;
@@ -137,8 +176,29 @@ namespace Durin
 	{
 	}
 
-	auto FGenericWindow::SetWindowDecorated(bool bDecorated) -> void
+	auto FGenericWindow::SetWindowDecorationMode(EWindowDecorationMode Mode) -> void
 	{
+		if (Definition != nullptr) Definition->DecorationMode = Mode;
+	}
+
+	auto FGenericWindow::GetWindowDecorationMode() const -> EWindowDecorationMode
+	{
+		return Definition != nullptr ? Definition->DecorationMode : EWindowDecorationMode::System;
+	}
+
+	auto FGenericWindow::GetEffectiveWindowDecorationMode() const -> EWindowDecorationMode
+	{
+		return EffectiveDecorationMode;
+	}
+
+	auto FGenericWindow::PublishTitleBarLayout(const FWindowTitleBarLayout& Layout) -> void
+	{
+		(void)Layout;
+	}
+
+	auto FGenericWindow::GetTitleBarInteractionState() const -> FWindowTitleBarInteractionState
+	{
+		return {};
 	}
 
 	auto FGenericWindow::SetTitleBarDarkMode(bool bDarkMode) -> void
