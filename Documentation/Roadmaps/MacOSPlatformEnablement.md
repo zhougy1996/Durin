@@ -32,8 +32,8 @@ are qualified. An Apple Silicon development host is now available, so
 [macOS Native Toolchain Bootstrap](../Plans/Archive/2026-08/MacOSNativeToolchainBootstrap.md)
 completed M1. Its native setup, dependency, configuration, graph, fresh-
 worktree reproduction, bounded Engine compile, durable documentation, and M2
-entry diagnostics are qualified without claiming runtime support. M2 platform
-runtime and Editor-shell work is the next proposed milestone.
+entry diagnostics are qualified without claiming runtime support.
+[macOS Platform Runtime](../Plans/MacOSPlatformRuntime.md) is active for M2.
 
 ## Outcome
 
@@ -144,7 +144,7 @@ flowchart LR
 | --- | --- | --- | --- | --- |
 | M0: Host-independent preparation | Required; completed | [macOS Host-Independent Preparation](../Plans/Archive/2026-08/MacOSHostIndependentPreparation.md) | Met: Windows build and test environment is available and the principal platform couplings are identifiable statically. | Met: Windows behavior remains qualified; build/source ownership, platform-neutral Vulkan admission models, target-aware generation metadata, and a reproducible first-Mac handoff are complete. |
 | M1: Native toolchain bootstrap | Required; completed | [macOS Native Toolchain Bootstrap](../Plans/Archive/2026-08/MacOSNativeToolchainBootstrap.md) | Met: M0 is complete and an Apple Silicon Mac is available for repeatable local execution. | Met: the declared Xcode/macOS baseline configures and compiles a bounded Core/ApplicationCore target set with pinned arm64 dependencies, repeatable setup diagnostics, and fresh-worktree evidence. |
-| M2: Platform runtime and Editor shell | Required; proposed | `MacOSPlatformRuntime` | M1 toolchain and dependency preparation are stable. | Core process/module/filesystem services and the Editor shell launch, create a Cocoa window, process input, relaunch/open paths, enforce project ownership, and shut down without rendering-backend requirements being bypassed. |
+| M2: Platform runtime and Editor shell | Required; active | [macOS Platform Runtime](../Plans/MacOSPlatformRuntime.md) | Met: M1 toolchain and dependency preparation are stable. | Core process/module/filesystem services and the Editor shell launch, create a Cocoa window, process input, relaunch/open paths, enforce project ownership, and shut down without rendering-backend requirements being bypassed. |
 | M3: MoltenVK rendering vertical slice | Required; proposed | `MacOSMoltenVKRendering` | M2 provides a stable window/surface lifecycle and MoltenVK is pinned. | Editor renders and presents representative graphics and compute work with validation diagnostics, resize/minimize/recreate, shader compilation, resource lifetime, and clean shutdown passing on the target Mac. |
 | M4: Asset and cook compatibility | Required; proposed | `MacOSAssetCookCompatibility` | M3 publishes exact supported GPU formats and shader/runtime capabilities. | Every currently Win64-guarded runtime payload family has a recorded shared-or-recooked decision, versioned keys, focused tests, and representative Editor/Game load evidence. |
 | M5: Product qualification and distribution | Required; proposed | `MacOSProductQualification` | M2-M4 are complete and the supported runtime feature set is frozen. | Debug/Release Editor and Game pass native suites and runtime smoke; Shipping `.app`, dylib closure, resources, signing/notarization policy, installation, upgrade, and supported-machine matrix are documented and verified. |
@@ -167,7 +167,7 @@ configure, compiler repairs, rpaths for development binaries, and a small native
 compile qualification set. It does not implement full Editor services or
 rendering correctness.
 
-### `MacOSPlatformRuntime`
+### [macOS Platform Runtime](../Plans/MacOSPlatformRuntime.md)
 
 Owns macOS process and shell services, platform source implementations, crash
 diagnostic policy, project ownership, native dialogs, Cocoa/GLFW behavior,
