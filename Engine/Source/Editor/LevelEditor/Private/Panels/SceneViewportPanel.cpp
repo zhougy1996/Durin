@@ -147,6 +147,10 @@ namespace Durin::Editor::Level
 	{
 		if (ViewportClient == nullptr || Level == nullptr || ViewportClient->GetCurrentLevel() != Level) return false;
 		OutState = ViewportClient->GetCameraTransform().GetState();
+		OutState.NearClip = ViewportClient->GetNearClip();
+		OutState.FarClip = ViewportClient->GetFarClip();
+		OutState.ViewFadeStart = ViewportClient->GetViewFadeStart();
+		OutState.ViewRenderDistance = ViewportClient->GetViewRenderDistance();
 		return true;
 	}
 

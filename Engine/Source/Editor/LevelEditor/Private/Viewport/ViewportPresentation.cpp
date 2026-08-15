@@ -6,6 +6,7 @@
 #include "Engine/World.h"
 #include "Math/Vector.h"
 #include "MonaImGui.h"
+#include "MonaImGuiPropertyTable.h"
 #include "SceneViewProjection.h"
 #include "Viewport/LevelEditorViewportClient.h"
 #include "LevelEditorViewportEditing.h"
@@ -680,71 +681,90 @@ namespace Durin::Editor::Level
 				ImGui::OpenPopup("CameraSpeedPopup");
 			}
 			SetNextToolbarPopupPosition(SpeedPosition, SpeedSize);
-			ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(310.0f), 0.0f), ImGuiCond_Appearing);
+			ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(390.0f), 0.0f), ImGuiCond_Appearing);
 			if (ImGui::BeginPopup("CameraSpeedPopup"))
 			{
 				ImGui::TextUnformatted("Camera");
 				ImGui::Separator();
-				ImGui::TextDisabled("Position");
-				FVector3 CameraLocation = ViewportClient->GetCameraTransform().GetLocation();
-				bool bLocationChanged = false;
-				if (ImGui::BeginTable("##CameraPosition", 3, ImGuiTableFlags_SizingStretchSame))
+				if (MonaImGui::PropertyEdit::BeginTable("##CameraProperties"))
 				{
-					constexpr std::array AxisLabels = {"X", "Y", "Z"};
-					for (int AxisIndex = 0; AxisIndex < 3; ++AxisIndex)
+					if (MonaImGui::PropertyEdit::BeginGroup("Transform", "Transform"))
 					{
-						ImGui::TableNextColumn();
-						ImGui::PushID(AxisIndex);
-						ImGui::TextDisabled("%s", AxisLabels[AxisIndex]);
-						ImGui::SetNextItemWidth(-FLT_MIN);
-						bLocationChanged |= ImGui::DragScalar(
-							"##Position", ImGuiDataType_Double, &CameraLocation[AxisIndex],
-							0.25f, nullptr, nullptr, "%.1f", ImGuiSliderFlags_NoRoundToFormat);
-						if (ImGui::IsItemHovered())
-							ImGui::SetTooltip("Drag to move; Ctrl+click to enter an exact coordinate.");
-						ImGui::PopID();
+						FVector3 CameraLocation = ViewportClient->GetCameraTransform().GetLocation();
+						MonaImGui::PropertyEdit::FValueWidgetConfig PositionConfig;
+						PositionConfig.Format = "%.1f";
+						if (MonaImGui::PropertyEdit::EditVector("Position", CameraLocation, false, 0.25,
+							nullptr, PositionConfig, "Editor camera world position"))
+							ViewportClient->SetCameraLocation(CameraLocation);
+						MonaImGui::PropertyEdit::EndGroup();
 					}
-					ImGui::EndTable();
+
+					if (MonaImGui::PropertyEdit::BeginGroup("Navigation", "Navigation"))
+					{
+						float MovementSpeed = ViewportClient->GetMovementSpeed();
+						MonaImGui::PropertyEdit::BeginRow("Fly Speed", false, 0.0f, "Editor camera navigation speed");
+						ImGui::SetNextItemWidth(-FLT_MIN);
+						const char* SpeedFormat = MovementSpeed >= 1.0f ? "%.0f units/s" : "%.1f units/s";
+						if (ImGui::DragFloat("##FlySpeed", &MovementSpeed, 0.25f, 0.05f, 10000.0f, SpeedFormat,
+							ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+							ViewportClient->SetMovementSpeed(MovementSpeed);
+						MonaImGui::PropertyEdit::EndRow();
+						MonaImGui::PropertyEdit::BeginRow("Speed Presets");
+						for (const float Preset : {1.0f, 5.0f, 25.0f, 100.0f})
+						{
+							if (Preset != 1.0f) ImGui::SameLine();
+							if (ImGui::SmallButton(std::format("{:g}##CameraSpeedPreset", Preset).c_str()))
+								ViewportClient->SetMovementSpeed(Preset);
+						}
+						MonaImGui::PropertyEdit::EndRow();
+						MonaImGui::PropertyEdit::EndGroup();
+					}
+
+					if (MonaImGui::PropertyEdit::BeginGroup("ViewDistance", "View Distance"))
+					{
+						float NearClip = ViewportClient->GetNearClip();
+						float FarClip = ViewportClient->GetFarClip();
+						float FadeStart = ViewportClient->GetViewFadeStart();
+						float RenderDistance = ViewportClient->GetViewRenderDistance();
+						auto DrawDistance = [](const char* Label, float& Value, float Speed, float Minimum,
+							float Maximum, const char* Format) {
+							MonaImGui::PropertyEdit::BeginRow(Label);
+							ImGui::SetNextItemWidth(-FLT_MIN);
+							const bool bChanged = ImGui::DragFloat("##Value", &Value, Speed, Minimum, Maximum,
+								Format, ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat);
+							MonaImGui::PropertyEdit::EndRow();
+							return bChanged;
+						};
+						ImGui::PushID("NearClip");
+						const bool bNearChanged = DrawDistance("Near Clip", NearClip, 0.01f, 0.001f, FarClip - 1.0f, "%.3f");
+						ImGui::PopID();
+						ImGui::PushID("FarClip");
+						const bool bFarChanged = DrawDistance("Far Clip", FarClip, 100.0f, NearClip + 1.0f, 10000000.0f, "%.1f");
+						ImGui::PopID();
+						if (bNearChanged || bFarChanged)
+						{
+							ViewportClient->SetClipDistances(NearClip, FarClip);
+							NearClip = ViewportClient->GetNearClip();
+							FarClip = ViewportClient->GetFarClip();
+							FadeStart = ViewportClient->GetViewFadeStart();
+							RenderDistance = ViewportClient->GetViewRenderDistance();
+						}
+						ImGui::PushID("FadeStart");
+						const bool bFadeChanged = DrawDistance("Fade Start", FadeStart, 100.0f, 0.0f, RenderDistance - 1.0f, "%.1f");
+						ImGui::PopID();
+						ImGui::PushID("RenderDistance");
+						const bool bRenderChanged = DrawDistance("Render Distance", RenderDistance, 100.0f, FadeStart + 1.0f,
+							static_cast<float>(SceneViewProjection::GetMaximumViewRenderDistance(FarClip)), "%.1f");
+						ImGui::PopID();
+						if (bFadeChanged || bRenderChanged) ViewportClient->SetViewDistance(FadeStart, RenderDistance);
+						MonaImGui::PropertyEdit::BeginRow("Defaults");
+						if (ImGui::Button("Restore View Defaults")) ViewportClient->ResetViewDistances();
+						MonaImGui::PropertyEdit::EndRow();
+						MonaImGui::PropertyEdit::EndGroup();
+					}
+					MonaImGui::PropertyEdit::EndTable();
 				}
-				if (bLocationChanged) ViewportClient->SetCameraLocation(CameraLocation);
-				ImGui::Spacing();
-				ImGui::TextDisabled("Fly Speed");
-				float MovementSpeed = ViewportClient->GetMovementSpeed();
-				ImGui::SetNextItemWidth(-FLT_MIN);
-				const char* SpeedFormat = MovementSpeed >= 1.0f ? "%.0f units/s" : "%.1f units/s";
-				if (ImGui::DragFloat("##FlySpeed", &MovementSpeed, 0.25f, 0.05f, 10000.0f, SpeedFormat,
-					ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
-					ViewportClient->SetMovementSpeed(MovementSpeed);
-				for (const float Preset : {1.0f, 5.0f, 25.0f, 100.0f})
-				{
-					if (Preset != 1.0f) ImGui::SameLine();
-					if (ImGui::SmallButton(std::format("{:g}##CameraSpeedPreset", Preset).c_str()))
-						ViewportClient->SetMovementSpeed(Preset);
-				}
-				ImGui::Separator();
-				ImGui::TextDisabled("View Distance");
-				float NearClip = ViewportClient->GetNearClip();
-				float FarClip = ViewportClient->GetFarClip();
-				float FadeStart = ViewportClient->GetViewFadeStart();
-				float RenderDistance = ViewportClient->GetViewRenderDistance();
-				if (ImGui::DragFloat("Near Clip", &NearClip, 0.01f, 0.001f, FarClip - 1.0f, "%.3f"))
-					ViewportClient->SetClipDistances(NearClip, FarClip);
-				if (ImGui::DragFloat("Far Clip", &FarClip, 100.0f, NearClip + 1.0f, 10000000.0f, "%.1f"))
-					ViewportClient->SetClipDistances(NearClip, FarClip);
-				if (ImGui::DragFloat("Fade Start", &FadeStart, 100.0f, 0.0f, RenderDistance - 1.0f, "%.1f"))
-					ViewportClient->SetViewDistance(FadeStart, RenderDistance);
-				if (ImGui::DragFloat("Render Distance", &RenderDistance, 100.0f, FadeStart + 1.0f,
-					static_cast<float>(SceneViewProjection::GetMaximumViewRenderDistance(FarClip)), "%.1f"))
-					ViewportClient->SetViewDistance(FadeStart, RenderDistance);
-				ImGui::Separator();
-				if (ImGui::Button("Restore Defaults"))
-					ViewportClient->ResetViewDistances();
-				ImGui::SameLine();
-				ImGui::TextDisabled("Near %.1f / Far %.0f",
-					FLevelEditorViewportClient::DefaultNearClip,
-					FLevelEditorViewportClient::DefaultFarClip);
 				ImGui::TextDisabled("Main scene depth: Reversed Z");
-				ImGui::Separator();
 				ImGui::TextDisabled("Hold the navigation mouse button and scroll to adjust.");
 				ImGui::EndPopup();
 			}

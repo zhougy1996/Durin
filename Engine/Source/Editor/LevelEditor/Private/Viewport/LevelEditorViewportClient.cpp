@@ -583,8 +583,13 @@ namespace Durin::Editor::Level
 		ResetNavigation();
 		HoveredVisualization = {};
 		InvalidatePreparedSceneView(true);
+		ResetViewDistances();
 		if (SavedState != nullptr)
+		{
 			CameraTransform.SetState(*SavedState);
+			SetClipDistances(SavedState->NearClip, SavedState->FarClip);
+			SetViewDistance(SavedState->ViewFadeStart, SavedState->ViewRenderDistance);
+		}
 		else
 			CameraTransform.Reset();
 	}

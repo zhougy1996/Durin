@@ -299,11 +299,24 @@ TEST(FLevelEditorViewportClientTests, ResetsIndependentViewUnlessSavedStateExist
 	Durin::Editor::Level::FLevelEditorViewportClient Client;
 	Client.InitializeForLevel(Level);
 	ExpectVectorNear(Client.GetCameraTransform().GetLocation(), Durin::Editor::Level::FLevelViewportCameraState{}.Location);
+	EXPECT_FLOAT_EQ(Client.GetNearClip(), Durin::Editor::Level::FLevelEditorViewportClient::DefaultNearClip);
+	EXPECT_FLOAT_EQ(Client.GetFarClip(), Durin::Editor::Level::FLevelEditorViewportClient::DefaultFarClip);
 	Durin::Editor::Level::FLevelViewportCameraState Saved;
 	Saved.Location = {8.0, 9.0, 10.0};
 	Saved.OrbitPivot = {1.0, 2.0, 3.0};
+	Saved.NearClip = 2.0f;
+	Saved.FarClip = 10000.0f;
+	Saved.ViewFadeStart = 7000.0f;
+	Saved.ViewRenderDistance = 9000.0f;
 	Client.InitializeForLevel(Level, &Saved);
 	ExpectVectorNear(Client.GetCameraTransform().GetLocation(), Saved.Location);
+	EXPECT_FLOAT_EQ(Client.GetNearClip(), Saved.NearClip);
+	EXPECT_FLOAT_EQ(Client.GetFarClip(), Saved.FarClip);
+	EXPECT_FLOAT_EQ(Client.GetViewFadeStart(), Saved.ViewFadeStart);
+	EXPECT_FLOAT_EQ(Client.GetViewRenderDistance(), Saved.ViewRenderDistance);
+	Client.InitializeForLevel(Level);
+	EXPECT_FLOAT_EQ(Client.GetNearClip(), Durin::Editor::Level::FLevelEditorViewportClient::DefaultNearClip);
+	EXPECT_FLOAT_EQ(Client.GetFarClip(), Durin::Editor::Level::FLevelEditorViewportClient::DefaultFarClip);
 }
 
 TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)

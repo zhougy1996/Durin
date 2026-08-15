@@ -4,7 +4,7 @@
 
 namespace Durin::Editor::Level
 {
-	// Persists level-viewport camera position, orbit target, and Euler angles.
+	// Persists one level's editor-camera transform and visibility distances.
 	struct FLevelViewportCameraState
 	{
 		FVector3 Location{-5.0, -5.0, 3.0};
@@ -12,6 +12,10 @@ namespace Durin::Editor::Level
 		FReal OrbitDistance = 8.0;
 		FReal Pitch = -20.0;
 		FReal Yaw = 45.0;
+		float NearClip = 0.1f;
+		float FarClip = 500000.0f;
+		float ViewFadeStart = 180000.0f;
+		float ViewRenderDistance = 200000.0f;
 	};
 
 	// Applies fly, pan, orbit, dolly, and focus operations to an editor camera.
@@ -21,7 +25,16 @@ namespace Durin::Editor::Level
 		auto SetFromTransform(const FVector3& InLocation, const FQuat& InRotation) -> void;
 		auto SetState(const FLevelViewportCameraState& State) -> void;
 		auto Reset() -> void;
-		auto GetState() const -> FLevelViewportCameraState { return {Location, OrbitPivot, OrbitDistance, Pitch, Yaw}; }
+		auto GetState() const -> FLevelViewportCameraState
+		{
+			return {
+				.Location = Location,
+				.OrbitPivot = OrbitPivot,
+				.OrbitDistance = OrbitDistance,
+				.Pitch = Pitch,
+				.Yaw = Yaw,
+			};
+		}
 		auto Rotate(float DeltaYawDegrees, float DeltaPitchDegrees) -> void;
 		auto MoveLocal(const FVector3& LocalDelta) -> void;
 		auto Pan(float DeltaRight, float DeltaUp) -> void;

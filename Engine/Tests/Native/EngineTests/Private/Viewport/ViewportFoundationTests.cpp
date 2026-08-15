@@ -508,7 +508,8 @@ TEST(FViewportCameraTransformTests, RestoresCompleteStateAndConstrainsInvalidNav
 TEST(FLevelViewportSessionSettingsTests, RoundTripsProjectsAndLevelsAndSkipsInvalidEntries)
 {
 	Durin::Editor::Level::FLevelViewportStateMap States;
-	States["G:/Projects/A/A.dproject"]["/A/Levels/Main"] = {{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, 7.0, -8.0, 9.0};
+	States["G:/Projects/A/A.dproject"]["/A/Levels/Main"] = {
+		{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, 7.0, -8.0, 9.0, 0.25f, 250000.0f, 120000.0f, 180000.0f};
 	States["G:/Projects/B/B.dproject"]["/B/Levels/Other"] = {{10.0, 20.0, 30.0}, {40.0, 50.0, 60.0}, 70.0, -80.0, 90.0};
 	Durin::FYamlDocument Document;
 	Durin::FYamlNodeRef Root = Document.GetMutableRoot();
@@ -518,15 +519,34 @@ TEST(FLevelViewportSessionSettingsTests, RoundTripsProjectsAndLevelsAndSkipsInva
 	Invalid.SetChildValue("Project", "G:/Projects/A/A.dproject");
 	Invalid.SetChildValue("Level", "/A/Levels/Broken");
 	Invalid.AddSequence("Location").AppendValue(1.0).AppendValue(2.0);
+	Durin::FYamlNodeRef Legacy = Root.GetRef("LevelViewportStates").AppendMap();
+	Legacy.SetChildValue("Project", "G:/Projects/A/A.dproject");
+	Legacy.SetChildValue("Level", "/A/Levels/Legacy");
+	Legacy.AddSequence("Location").AppendValue(1.0).AppendValue(2.0).AppendValue(3.0);
+	Legacy.AddSequence("OrbitPivot").AppendValue(4.0).AppendValue(5.0).AppendValue(6.0);
+	Legacy.SetChildValue("OrbitDistance", 7.0);
+	Legacy.SetChildValue("Pitch", -8.0);
+	Legacy.SetChildValue("Yaw", 9.0);
 
 	Durin::Editor::Level::FLevelViewportStateMap Loaded;
 	Durin::Editor::Level::LoadLevelViewportStates(Document.GetRootView(), Loaded);
 	ASSERT_EQ(Loaded.size(), 2u);
-	ASSERT_EQ(Loaded.at("G:/Projects/A/A.dproject").size(), 1u);
+	ASSERT_EQ(Loaded.at("G:/Projects/A/A.dproject").size(), 2u);
 	const Durin::Editor::Level::FLevelViewportCameraState& Main = Loaded.at("G:/Projects/A/A.dproject").at("/A/Levels/Main");
 	ExpectVectorNear(Main.Location, {1.0, 2.0, 3.0});
 	ExpectVectorNear(Main.OrbitPivot, {4.0, 5.0, 6.0});
 	EXPECT_DOUBLE_EQ(Main.OrbitDistance, 7.0);
 	EXPECT_DOUBLE_EQ(Main.Pitch, -8.0);
 	EXPECT_DOUBLE_EQ(Main.Yaw, 9.0);
+	EXPECT_FLOAT_EQ(Main.NearClip, 0.25f);
+	EXPECT_FLOAT_EQ(Main.FarClip, 250000.0f);
+	EXPECT_FLOAT_EQ(Main.ViewFadeStart, 120000.0f);
+	EXPECT_FLOAT_EQ(Main.ViewRenderDistance, 180000.0f);
+	const Durin::Editor::Level::FLevelViewportCameraState& LegacyState =
+		Loaded.at("G:/Projects/A/A.dproject").at("/A/Levels/Legacy");
+	const Durin::Editor::Level::FLevelViewportCameraState Defaults;
+	EXPECT_FLOAT_EQ(LegacyState.NearClip, Defaults.NearClip);
+	EXPECT_FLOAT_EQ(LegacyState.FarClip, Defaults.FarClip);
+	EXPECT_FLOAT_EQ(LegacyState.ViewFadeStart, Defaults.ViewFadeStart);
+	EXPECT_FLOAT_EQ(LegacyState.ViewRenderDistance, Defaults.ViewRenderDistance);
 }

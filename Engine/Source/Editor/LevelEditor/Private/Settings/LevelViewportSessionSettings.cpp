@@ -44,6 +44,14 @@ namespace Durin::Editor::Level
 			State.OrbitDistance = OrbitDistance;
 			State.Pitch = Pitch;
 			State.Yaw = Yaw;
+			const double NearClip = Entry.GetView("NearClip").GetDouble(State.NearClip);
+			const double FarClip = Entry.GetView("FarClip").GetDouble(State.FarClip);
+			const double ViewFadeStart = Entry.GetView("ViewFadeStart").GetDouble(State.ViewFadeStart);
+			const double ViewRenderDistance = Entry.GetView("ViewRenderDistance").GetDouble(State.ViewRenderDistance);
+			if (std::isfinite(NearClip)) State.NearClip = static_cast<float>(NearClip);
+			if (std::isfinite(FarClip)) State.FarClip = static_cast<float>(FarClip);
+			if (std::isfinite(ViewFadeStart)) State.ViewFadeStart = static_cast<float>(ViewFadeStart);
+			if (std::isfinite(ViewRenderDistance)) State.ViewRenderDistance = static_cast<float>(ViewRenderDistance);
 			OutStates[Project][Level] = State;
 		}
 	}
@@ -66,6 +74,10 @@ namespace Durin::Editor::Level
 			Entry.SetChildValue("OrbitDistance", State.OrbitDistance);
 			Entry.SetChildValue("Pitch", State.Pitch);
 			Entry.SetChildValue("Yaw", State.Yaw);
+			Entry.SetChildValue("NearClip", static_cast<double>(State.NearClip));
+			Entry.SetChildValue("FarClip", static_cast<double>(State.FarClip));
+			Entry.SetChildValue("ViewFadeStart", static_cast<double>(State.ViewFadeStart));
+			Entry.SetChildValue("ViewRenderDistance", static_cast<double>(State.ViewRenderDistance));
 		}
 	}
 }
