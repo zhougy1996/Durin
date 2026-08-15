@@ -65,6 +65,9 @@ class _BootstrapOutput:
     def flush(self) -> None:
         self.stream.flush()
 
+    def fileno(self) -> int:
+        return self.stream.fileno()
+
     def isatty(self) -> bool:
         return bool(getattr(self.stream, "isatty", lambda: False)())
 

@@ -9,21 +9,40 @@ Completed:
 
 ## Current Status
 
-M0 is complete and an Apple Silicon development host is now available, so M1
-is active. The host prerequisites are being installed manually, but the
-repository has not yet frozen a supported macOS/Xcode baseline or qualified
-its Vulkan SDK, MoltenVK, Slang, dependency, configure, or compile paths.
+M0 is complete and M1 is active on the first Apple Silicon development host.
+Stage 1 is complete: the POSIX launcher, standard-library bootstrap validation,
+macOS preflight/toolchain strategy, native virtual environment, inherited or
+scripted environment persistence, build profile, and LLDB launch generation
+are implemented. A complete non-interactive setup and an immediate idempotent
+rerun both pass with the selected Vulkan environment script.
 
-The first host-neutral portion of Stage 1 is implemented: the repository-root
-POSIX `DevTool` launcher selects `.venv/bin/python` when prepared and otherwise
-finds a supported bootstrap Python, while tracked and machine-local bootstrap
-configuration use strict standard-library validation. Help, dependency
-manifest validation, changed-document validation, and all-plan validation now
-run on the current Homebrew Python without `jsonschema`. Full pytest evidence
-remains pending creation of the repository `.venv`; host-aware macOS preflight,
-toolchain selection, and setup orchestration are still open. This bounded
-Stage 1 prerequisite was taken before Stage 0 artifact work because it pins no
-native metadata and is required to run the repository workflow on the host.
+Stage 2 is partially complete. Slang 2026.5.2 is pinned from its official arm64
+archive; GLM, bc7enc_rdo, GoogleTest, spdlog, GLFW, rapidyaml, Assimp, and Tracy
+prepare successfully. macOS shared-install validation now uses verified native
+artifact names, and Assimp uses the Xcode SDK zlib instead of its Darwin-
+incompatible bundled zlib. Win64-only Tracy tools are skipped explicitly.
+Imported-target, dylib deployment/rpath, configure, and bounded compile
+qualification remain open.
+
+### Validated candidate host
+
+- Apple Silicon arm64, macOS 26.6.1 (25G76), Xcode 26.6 (17F113), macOS SDK
+  26.5, and Apple Clang 21.0.0 targeting `arm64-apple-darwin25.6.0`. The
+  selected developer directory is `/Applications/Xcode.app/Contents/Developer`;
+  `xcrun` and `clang` resolve from `/usr/bin`.
+- CMake 4.4.2 at `/opt/homebrew/Cellar/cmake/4.4.2/bin/cmake`, plus Homebrew
+  Ninja 1.13.2, Python 3.12.14, and Git 2.55.0 under `/opt/homebrew/bin`.
+- LunarG Vulkan SDK 1.4.357.0 with Vulkan header revision 357. Its Vulkan
+  loader and MoltenVK dylibs contain arm64 slices and retain `@rpath` install
+  names. `VULKAN_SDK` resolves to
+  `/Users/zhougy/Programs/VulkanSDK/1.4.357.0/macOS`; the machine-local
+  environment entrypoint is the parent SDK `setup-env.sh`.
+- Official Slang 2026.5.2 macOS arm64 package. `slangc` and the compiler dylib
+  are arm64 under `Engine/External/Packages/slang`, and setup validates the
+  pinned archive digest and required files.
+- Repository-built spdlog, GLFW, rapidyaml, and Assimp Debug artifacts are
+  arm64. Assimp 6.0.4 installs as `@rpath/libassimp.6.dylib` and links the
+  platform zlib.
 
 This plan is M1 of the
 [macOS Platform Enablement roadmap](../Roadmaps/MacOSPlatformEnablement.md) and
@@ -159,12 +178,12 @@ that does not require M2 runtime implementations.
 
 ### Stage 0: Freeze the native baseline and artifact evidence
 
-- [ ] Record the host model and architecture, macOS version, selected Xcode and
+- [x] Record the host model and architecture, macOS version, selected Xcode and
   macOS SDK, Apple Clang, CMake, Ninja, Python, Git, Vulkan SDK/MoltenVK, and
   candidate Slang versions with their resolved executable and SDK paths.
 - [ ] Define the supported minimum/candidate baseline and explicitly record
   whether qualification depends on a newer locally installed version.
-- [ ] Verify the candidate Vulkan SDK/MoltenVK and Slang artifacts outside the
+- [x] Verify the candidate Vulkan SDK/MoltenVK and Slang artifacts outside the
   repository, including provenance, hashes, arm64 slices, required files,
   executable behavior, dylib identities, dependencies, and current rpaths.
 - [ ] Capture the current macOS setup failure, dependency manifest diagnostics,
@@ -189,21 +208,21 @@ that does not require M2 runtime implementations.
   validating `DevTool.json` and `.agents/DevTool.user.json` without
   `jsonschema`; retain lazy JSON Schema validation for complex prepared-
   environment contracts and test the hand-written/schema field parity.
-- [ ] Introduce explicit Windows and macOS setup/toolchain strategies while
+- [x] Introduce explicit Windows and macOS setup/toolchain strategies while
   preserving preflight-before-mutation ordering and shared error aggregation.
-- [ ] Implement host-correct virtual-environment interpreter discovery,
+- [x] Implement host-correct virtual-environment interpreter discovery,
   creation, package installation, and libclang native-library validation.
-- [ ] Register `macos-xcode-arm64` with the inherited environment provider,
+- [x] Register `macos-xcode-arm64` with the inherited environment provider,
   `MacOS-arm64-Debug-DurinEditor`, `MacOS` output identity, and suffix-free
   native executable names.
-- [ ] Make saved toolchain settings support a valid inherited macOS environment
+- [x] Make saved toolchain settings support a valid inherited macOS environment
   without requiring an environment script, while retaining explicit local
   script overrides.
-- [ ] Generate LLDB-compatible macOS VS Code launch entries and retain existing
+- [x] Generate LLDB-compatible macOS VS Code launch entries and retain existing
   Windows `cppvsdbg` entries.
-- [ ] Make all setup and prepared-environment repair diagnostics render the
+- [x] Make all setup and prepared-environment repair diagnostics render the
   correct root launcher for the active host.
-- [ ] Add focused launcher, preflight, selection, local-config, Python-layout,
+- [x] Add focused launcher, preflight, selection, local-config, Python-layout,
   profile, VS Code, and Windows-regression tests.
 
 #### Acceptance Gate
@@ -216,17 +235,17 @@ that does not require M2 runtime implementations.
 
 ### Stage 2: Prepare pinned MacOS dependencies
 
-- [ ] Add only the Stage 0-verified MacOS Slang archive metadata, hash, required
+- [x] Add only the Stage 0-verified MacOS Slang archive metadata, hash, required
   files, versioned package layout, and repair diagnostics.
 - [ ] Make source and shared-install dependency preparation consistently pass
   the selected Apple Clang environment, arm64 architecture, deployment target,
   CMake configuration, and `MacOS` install layout.
-- [ ] Validate and prepare GLM, spdlog, rapidyaml, GLFW, Assimp, GoogleTest,
+- [x] Validate and prepare GLM, spdlog, rapidyaml, GLFW, Assimp, GoogleTest,
   Tracy client, and other selected source dependencies one at a time before
   exercising the complete setup selection.
-- [ ] Treat unsupported host-only development tools explicitly; do not block
+- [x] Treat unsupported host-only development tools explicitly; do not block
   ordinary engine preparation on a Win64-only profiler executable package.
-- [ ] Validate the selected Vulkan SDK headers, loader, MoltenVK libraries, VMA
+- [x] Validate the selected Vulkan SDK headers, loader, MoltenVK libraries, VMA
   header, architecture, and environment contract with actionable diagnostics.
 - [ ] Verify Slang imported targets, headers, compiler executable, dylibs,
   dependent libraries, deployment locations, and development rpaths without

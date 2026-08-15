@@ -62,6 +62,43 @@ class TestThirdPartyBootstrap:
         assert run.call_count == 2
         assert all(call.kwargs['environment'] == {'PATH': 'ready'} for call in run.call_args_list)
 
+    def test_shared_install_uses_platform_specific_required_files(self) -> None:
+        manifest = {
+            'install_required_file_sets': {
+                'Debug': [['lib/library.lib']],
+            },
+            'install_required_file_sets_by_platform': {
+                'MacOS': {
+                    'Debug': [['lib/liblibraryd.a']],
+                    'Release': [['lib/liblibrary.a']],
+                },
+            },
+        }
+        assert dependency_installer.install_required_file_sets(
+            manifest, 'MacOS', 'Debug'
+        ) == [['lib/liblibraryd.a']]
+        assert dependency_installer.install_required_file_sets(
+            manifest, 'Win64', 'Debug'
+        ) == [['lib/library.lib']]
+
+    def test_platform_specific_required_files_must_cover_all_configs(self) -> None:
+        manifest = {
+            'name': 'library',
+            'kind': 'shared_install',
+            'source_dir': 'library',
+            'cmake_dir': 'CMake',
+            'source': {'type': 'git', 'tag': 'v1'},
+            'install_required_file_sets': {
+                'Debug': [['lib/library.lib']],
+                'Release': [['lib/library.lib']],
+            },
+            'install_required_file_sets_by_platform': {
+                'MacOS': {'Debug': [['lib/liblibraryd.a']]},
+            },
+        }
+        with pytest.raises(BootstrapError, match='must define Debug and Release'):
+            dependency_manifests.validate_manifests([manifest])
+
     def test_configured_cmake_uses_typed_local_config(
         self,
         tmp_path_factory: pytest.TempPathFactory,
@@ -160,3 +197,24 @@ class TestRelocatedManifest:
         manifest = next((item for item in dependency_manifests.load_manifests(REPOSITORY) if item['name'] == 'tracy-tools'))
         assert manifest['repair_command'] == 'DevTool.bat dependency prepare --libs tracy,tracy-tools'
         assert (REPOSITORY_ROOT / 'DevTool.bat').is_file()
+
+    def test_slang_macos_archive_is_pinned_to_verified_arm64_sdk(self) -> None:
+        manifest = next(
+            item
+            for item in dependency_manifests.load_manifests(REPOSITORY)
+            if item['name'] == 'slang'
+        )
+        source = manifest['source']['platforms']['MacOS']
+        assert source['archive_name'] == 'slang-2026.5.2-macos-aarch64.tar.gz'
+        assert source['sha256'] == (
+            'e21cac48c01fbfae100648e68f90216f881aa414678066f37cc4bc0e98ac3f6a'
+        )
+        required = set(source['required_files'])
+        assert {
+            'bin/slangc',
+            'include/slang.h',
+            'lib/libslang.dylib',
+            'lib/libslang-compiler.0.2026.5.2.dylib',
+            'lib/libslang-glslang-2026.5.2.dylib',
+        } <= required
+        assert manifest['required_files_by_platform']['MacOS'] == source['required_files']

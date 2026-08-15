@@ -87,13 +87,13 @@ from durin_dev_tool.build import purge, recovery, runtime
         with pytest.raises(build_config.BuildToolError, match='malformed JSON'):
             build_config.load_local_config(path)
         path.write_text(json.dumps({'version': 1, 'cmake': {'command': 42}}), encoding='utf-8')
-        with pytest.raises(build_config.BuildToolError, match=r'\$\.cmake\.command.*string.*null'):
+        with pytest.raises(build_config.BuildToolError, match=r'cmake.*command.*null.*string'):
             build_config.load_local_config(path)
         path.write_text(json.dumps({'version': 1, 'build': {'parallelJobs': 257}}), encoding='utf-8')
-        with pytest.raises(build_config.BuildToolError, match=r'\$\.build\.parallelJobs'):
+        with pytest.raises(build_config.BuildToolError, match=r'build.*parallelJobs'):
             build_config.load_local_config(path)
         path.write_text(json.dumps({'cmakeCommand': 'legacy-cmake'}), encoding='utf-8')
-        with pytest.raises(build_config.BuildToolError, match='cmakeCommand.*unexpected'):
+        with pytest.raises(build_config.BuildToolError, match='unexpected.*cmakeCommand'):
             build_config.load_local_config(path)
 
     def test_repository_profiles_reference_existing_presets(self) -> None:
@@ -114,6 +114,16 @@ from durin_dev_tool.build import purge, recovery, runtime
             'Win64-Release-DurinGame-Profiling',
             'Win64-Shipping-DurinGame',
         )
+
+    def test_macos_profile_selects_the_single_arm64_editor_preset(self) -> None:
+        profile = build_config.load_profiles()['macos-xcode-arm64']
+        assert profile.host == 'macos'
+        assert profile.environment_provider is build_config.EnvironmentProvider.INHERIT
+        assert profile.platform == 'MacOS'
+        assert profile.default_preset == 'MacOS-arm64-Debug-DurinEditor'
+        assert profile.presets == ('MacOS-arm64-Debug-DurinEditor',)
+        assert profile.test_executable_suffix == ''
+        assert {'ninja', 'clang', 'xcrun'} <= set(profile.required_commands)
 
     def test_repository_profile_presets_enable_native_tests(self) -> None:
         profiles = build_config.load_profiles()

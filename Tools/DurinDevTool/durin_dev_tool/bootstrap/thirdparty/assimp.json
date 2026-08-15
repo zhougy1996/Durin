@@ -35,5 +35,21 @@
         "bin/assimp.dll"
       ]
     ]
+  },
+  "install_required_file_sets_by_platform": {
+    "MacOS": {
+      "Debug": [
+        [
+          "include/assimp/Importer.hpp",
+          "lib/libassimp.dylib"
+        ]
+      ],
+      "Release": [
+        [
+          "include/assimp/Importer.hpp",
+          "lib/libassimp.dylib"
+        ]
+      ]
+    }
   }
 }

@@ -20,6 +20,22 @@
         "ninja"
       ],
       "testExecutableSuffix": ".exe"
+    },
+    "macos-xcode-arm64": {
+      "host": "macos",
+      "default": true,
+      "defaultPreset": "MacOS-arm64-Debug-DurinEditor",
+      "presets": [
+        "MacOS-arm64-Debug-DurinEditor"
+      ],
+      "platform": "MacOS",
+      "environmentProvider": "inherit",
+      "requiredCommands": [
+        "ninja",
+        "clang",
+        "xcrun"
+      ],
+      "testExecutableSuffix": ""
     }
   }
 }

@@ -9,13 +9,20 @@ function(durin_assimp_configure_imported_target)
 	durin_third_party_find_single_file(assimp_import_lib "${assimp_lib_dir}"
 		"assimp-vc143-mt.lib"
 		"assimp.lib"
+		"libassimp.dylib"
 	)
 	durin_third_party_find_single_file(assimp_runtime_dll "${assimp_bin_dir}"
 		"assimp-vc143-mt.dll"
 		"assimp.dll"
 	)
 
-	if(NOT EXISTS "${assimp_include_dir}/assimp/Importer.hpp" OR NOT assimp_import_lib OR NOT assimp_runtime_dll)
+	if(APPLE)
+		set(assimp_runtime "${assimp_import_lib}")
+	else()
+		set(assimp_runtime "${assimp_runtime_dll}")
+	endif()
+
+	if(NOT EXISTS "${assimp_include_dir}/assimp/Importer.hpp" OR NOT assimp_import_lib OR NOT assimp_runtime)
 		durin_third_party_get_arch(durin_arch)
 		message(FATAL_ERROR
 			"Installed assimp package was not found for ${durin_arch} ${CMAKE_BUILD_TYPE}.\n"
@@ -28,11 +35,15 @@ function(durin_assimp_configure_imported_target)
 
 	add_library(assimp::assimp SHARED IMPORTED GLOBAL)
 	set_target_properties(assimp::assimp PROPERTIES
-		IMPORTED_LOCATION "${assimp_runtime_dll}"
-		IMPORTED_IMPLIB "${assimp_import_lib}"
+		IMPORTED_LOCATION "${assimp_runtime}"
 		INTERFACE_INCLUDE_DIRECTORIES "${assimp_include_dir}"
-		DURIN_RUNTIME_DEPLOY_FILES "${assimp_runtime_dll}"
+		DURIN_RUNTIME_DEPLOY_FILES "${assimp_runtime}"
 	)
+	if(WIN32)
+		set_target_properties(assimp::assimp PROPERTIES
+			IMPORTED_IMPLIB "${assimp_import_lib}"
+		)
+	endif()
 endfunction()
 
 function(durin_assimp_configure_source_build)
@@ -57,7 +68,14 @@ function(durin_assimp_configure_source_build)
 	set(ASSIMP_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/assimp/lib" CACHE STRING "" FORCE)
 	set(ASSIMP_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/assimp/bin" CACHE STRING "" FORCE)
 	set(ASSIMP_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/assimp/bin" CACHE STRING "" FORCE)
-	set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "")
+	if(WIN32)
+		set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "" FORCE)
+	else()
+		# Assimp's bundled zlib 1.2.13 treats modern Darwin as both classic
+		# MacOS and Apple, which conflicts with current Xcode SDK headers.
+		# Use the platform zlib on POSIX hosts, matching Assimp's own default.
+		set(ASSIMP_BUILD_ZLIB OFF CACHE BOOL "" FORCE)
+	endif()
 	set(ASSIMP_INSTALL ON CACHE BOOL "" FORCE)
 	set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "")
 	set(ASSIMP_BUILD_SAMPLES OFF CACHE BOOL "Disable Assimp samples" FORCE)

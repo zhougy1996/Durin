@@ -74,6 +74,21 @@ class TestSetupPreflight:
         assert saved['toolchain']['environmentScript'] == script.as_posix()
         assert saved['toolchain']['environmentArguments'] == ['-arch=x64']
 
+    def test_inherited_toolchain_config_saves_null_environment_script(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        root = Path(tmp_path_factory.mktemp('case'))
+        config = root / '.agents' / 'DevTool.user.json'
+        config.parent.mkdir()
+        config.write_text(json.dumps({'version': 1}), encoding='utf-8')
+        agent_config.save_toolchain_config(
+            root,
+            cmake_command='/opt/homebrew/bin/cmake',
+            environment_script=None,
+            environment_arguments=[],
+        )
+        saved = json.loads(config.read_text(encoding='utf-8'))
+        assert saved['toolchain']['environmentScript'] is None
+        assert saved['toolchain']['environmentArguments'] == []
+
     def test_vswhere_lookup_uses_registry_when_program_files_environment_is_missing(
         self,
         tmp_path_factory: pytest.TempPathFactory,
@@ -119,10 +134,67 @@ class TestSetupPreflight:
 
     def test_vulkan_sdk_check_reports_every_required_file(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
-        error = preflight.check_vulkan_sdk({'VULKAN_SDK': directory})
+        error = preflight.check_vulkan_sdk(
+            {'VULKAN_SDK': directory}, current_platform='win32'
+        )
         assert 'vulkan.h' in (error or '')
         assert 'vk_mem_alloc.h' in (error or '')
         assert 'vulkan-1.lib' in (error or '')
+
+    def test_macos_vulkan_sdk_requires_headers_loader_and_moltenvk(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        root = Path(tmp_path_factory.mktemp('case'))
+        error = preflight.check_vulkan_sdk(
+            {'VULKAN_SDK': str(root)}, current_platform='darwin'
+        )
+        assert 'include/vulkan/vulkan.h' in (error or '')
+        assert 'include/vma/vk_mem_alloc.h' in (error or '')
+        assert 'lib/libvulkan.dylib' in (error or '')
+        assert 'lib/libMoltenVK.dylib' in (error or '')
+        assert 'share/vulkan/icd.d/MoltenVK_icd.json' in (error or '')
+
+        for relative in (
+            'include/vulkan/vulkan.h',
+            'include/vma/vk_mem_alloc.h',
+            'lib/libvulkan.dylib',
+            'lib/libMoltenVK.dylib',
+            'share/vulkan/icd.d/MoltenVK_icd.json',
+        ):
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+        assert preflight.check_vulkan_sdk(
+            {'VULKAN_SDK': str(root)}, current_platform='darwin'
+        ) is None
+
+    def test_macos_toolchain_inherits_environment_without_setup_script(self) -> None:
+        environment = {'PATH': '/toolchain/bin', 'VULKAN_SDK': '/sdk'}
+        with mock.patch.object(toolchain_selection.sys, 'platform', 'darwin'), mock.patch.dict(
+            toolchain_selection.os.environ, environment, clear=True
+        ), mock.patch.object(
+            toolchain_selection,
+            'configured_visual_studio_environment',
+            return_value=(None, []),
+        ), mock.patch.object(
+            toolchain_selection, 'resolve_cmake_executable', return_value='/toolchain/bin/cmake'
+        ):
+            selection = toolchain_selection.select_toolchain(REPOSITORY_ROOT)
+        assert selection.environment_script is None
+        assert selection.environment_arguments == ()
+        assert selection.environment == environment
+
+    def test_macos_toolchain_detects_vulkan_setup_script(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        root = Path(tmp_path_factory.mktemp('case'))
+        sdk = root / 'macOS'
+        sdk.mkdir()
+        script = root / 'setup-env.sh'
+        script.touch()
+        assert toolchain_selection.find_macos_vulkan_environment_script(
+            {'VULKAN_SDK': str(sdk)}
+        ) == script
+
+    def test_macos_architecture_rejects_non_arm64(self) -> None:
+        assert preflight.check_macos_architecture('arm64') is None
+        assert 'Apple Silicon arm64' in (preflight.check_macos_architecture('x86_64') or '')
 
     def test_old_msvc_toolset_has_actionable_version_error(self) -> None:
         environment = {'PATH': 'tools', 'VCTOOLSVERSION': '14.43.34808'}
@@ -130,4 +202,3 @@ class TestSetupPreflight:
             error = preflight.check_msvc_version(environment)
         assert 'requires 14.44 or newer' in (error or '')
         assert 'std::format_string' in (error or '')
-

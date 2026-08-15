@@ -25,6 +25,15 @@ def install_directory(manifest: dict[str, Any], platform: str, config: str, repo
     )
 
 
+def install_required_file_sets(
+    manifest: dict[str, Any], platform: str, config: str
+) -> list[list[str]]:
+    platform_sets = manifest.get("install_required_file_sets_by_platform", {}).get(platform)
+    if platform_sets is not None:
+        return platform_sets[config]
+    return manifest["install_required_file_sets"][config]
+
+
 def install_shared_library(
     manifest: dict[str, Any],
     platform: str,
@@ -36,7 +45,7 @@ def install_shared_library(
     environment: Mapping[str, str] | None,
 ) -> None:
     install_dir = install_directory(manifest, platform, config, repository)
-    required_sets = manifest["install_required_file_sets"][config]
+    required_sets = install_required_file_sets(manifest, platform, config)
     if sources.verify_any_required_file_set(install_dir, required_sets):
         command_io.out(f"{manifest['name']} {config} is already installed at \"{install_dir}\".")
         return

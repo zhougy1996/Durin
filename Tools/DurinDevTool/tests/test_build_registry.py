@@ -1,6 +1,7 @@
 from . import build_request_fixtures as request_fixtures
 import pytest
 import io
+import os
 import sys
 from pathlib import Path
 from unittest import mock
@@ -381,11 +382,14 @@ class TestBuildRegistry:
     def test_styled_preset_table_highlights_state_without_changing_plain_output(self) -> None:
         context = self.shell_context()
         styled_stdout = io.StringIO()
-        styled_output = build_operations.BuildOutput(
-            stdout=styled_stdout,
-            stderr=io.StringIO(),
-            force_terminal=True,
-        )
+        with mock.patch.dict(os.environ):
+            os.environ.pop('NO_COLOR', None)
+            os.environ['TERM'] = 'xterm-256color'
+            styled_output = build_operations.BuildOutput(
+                stdout=styled_stdout,
+                stderr=io.StringIO(),
+                force_terminal=True,
+            )
         build_operations.show_presets(styled_output, context, 'debug')
 
         plain_stdout = io.StringIO()

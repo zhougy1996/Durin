@@ -44,13 +44,14 @@ class TestCore:
         assert run.call_args.kwargs['colorize_test_output']
     def test_all_native_tests_use_ctest_registration(self) -> None:
         preset = self.make_preset()
-        context = build_config.BuildContext(request_fixtures.command_request(build_config.Action.TEST, options=request_fixtures.TestActionOptions(target='ALL', timeout_seconds=60, schedule_random=True, output_junit=Path('Build/results.xml'), ctest_regex='^Core\\.', granularity=build_config.TestGranularity.CASE)), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake=r'C:\Tools\CMake\bin\cmake.exe', jobs=4, environment={'PATH': 'cached'})
+        cmake = 'C:/Tools/CMake/bin/cmake.exe'
+        context = build_config.BuildContext(request_fixtures.command_request(build_config.Action.TEST, options=request_fixtures.TestActionOptions(target='ALL', timeout_seconds=60, schedule_random=True, output_junit=Path('Build/results.xml'), ctest_regex='^Core\\.', granularity=build_config.TestGranularity.CASE)), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake=cmake, jobs=4, environment={'PATH': 'cached'})
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         build_directory = Path('Build/debug')
         with mock.patch.object(build_runtime, 'preset_build_directory', return_value=build_directory), mock.patch.object(build_runtime, 'run_command') as run:
             build_runtime.run_all_native_tests(context, output)
         run.assert_called_once_with(
-            [r'C:\Tools\CMake\bin\ctest.exe', '--test-dir', str(build_directory), '--output-on-failure', '--no-tests=error', '-j', '4', '-L', 'native-test-case', '-LE', 'native-test-characterization|native-test-qualification', '--timeout', '60', '--schedule-random', '-R', '^Core\\.', '--output-junit', str(build_config.default_build_paths().root / 'Build/results.xml')],
+            [str(Path(cmake).with_name('ctest.exe')), '--test-dir', str(build_directory), '--output-on-failure', '--no-tests=error', '-j', '4', '-L', 'native-test-case', '-LE', 'native-test-characterization|native-test-qualification', '--timeout', '60', '--schedule-random', '-R', '^Core\\.', '--output-junit', str(build_config.default_build_paths().root / 'Build/results.xml')],
             environment={'PATH': 'cached'},
             output=output,
             recovery_required_on_interrupt=False,

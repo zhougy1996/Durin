@@ -126,6 +126,26 @@ class TestVSCodeConfigLifecycle:
             'Runtime/DurinGame/DurinGame.exe'
         )
 
+    def test_launch_configuration_uses_lldb_for_macos_profile(self) -> None:
+        with mock.patch.object(setup, 'load_local_config', return_value=build_config.LocalConfig()):
+            launch = setup.generate_vscode_launch_configuration(
+                REPOSITORY_ROOT,
+                current_host='macos',
+                environment={},
+            )
+        assert launch['configurations'] == [
+            {
+                'name': 'MacOS-arm64-Debug-DurinEditor',
+                'type': 'cppdbg',
+                'request': 'launch',
+                'program': '${workspaceFolder}/Engine/Binaries/MacOS/Debug/Runtime/DurinEditor/DurinEditor',
+                'cwd': '${workspaceFolder}',
+                'stopAtEntry': False,
+                'console': 'integratedTerminal',
+                'MIMode': 'lldb',
+            }
+        ]
+
 class TestBootstrapRegistry:
 
     @pytest.fixture(autouse=True)
@@ -174,6 +194,13 @@ class TestSetupOrchestration:
         output = handler._BootstrapOutput(stream, plain=True)
         print('Durin setup completed successfully.', file=output)
         assert '\x1b[' not in stream.getvalue()
+
+    def test_setup_fallback_exposes_child_process_file_descriptor(self) -> None:
+        stream = mock.Mock()
+        stream.fileno.return_value = 42
+        output = handler._BootstrapOutput(stream, plain=True)
+        assert output.fileno() == 42
+        stream.fileno.assert_called_once_with()
 
     def test_preflight_runs_before_every_repository_mutation(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
@@ -269,4 +296,3 @@ class TestSetupOrchestration:
         assert session['exit_requested']
         assert run.call_args.args[0][0] == str(prepared_python)
         assert run.call_args.args[0][-1] == 'shell'
-

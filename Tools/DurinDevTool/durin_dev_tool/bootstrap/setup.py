@@ -13,6 +13,7 @@ from typing import Mapping, Sequence
 
 from ..context import CommandIO, RepositoryContext
 from ..errors import DevToolError
+from ..python_environment import prepared_python_path
 from ..toolchain import find_command, find_vsdevcmd
 from ..build.config import (
     BuildToolError,
@@ -84,8 +85,8 @@ def run_command(command: Sequence[str], *, cwd: Path, command_io: CommandIO) -> 
 def _system_python_command() -> list[str]:
     if sys.platform == "win32" and find_command("py"):
         return ["py", "-3"]
-    if executable := find_command("python"):
-        return [executable]
+    if sys.version_info >= MINIMUM_PYTHON:
+        return [sys.executable]
     raise BootstrapError(
         "Python 3.10 or newer was not found. Install Python and enable "
         "the Python launcher or PATH option."
@@ -100,7 +101,10 @@ def ensure_python_environment(
     command_io = _command_io(command_io)
     repository_root = repository.root
     environment = repository_root / repository.config.worktrees.python_environment
-    python = environment / "Scripts" / "python.exe"
+    python = prepared_python_path(
+        repository_root,
+        repository.config.worktrees.python_environment,
+    )
     if not python.is_file():
         command_io.out(f'Creating Python virtual environment at "{environment}"...')
         run_command(
@@ -143,10 +147,12 @@ def ensure_python_environment(
             str(python),
             "-c",
             (
-                "import clang.cindex; from clang import native; "
+                "import clang.cindex, sys; from clang import native; "
                 "from pathlib import Path; "
+                "names = {'win32': ('libclang.dll',), "
+                "'darwin': ('libclang.dylib',)}.get(sys.platform, ('libclang.so',)); "
                 "raise SystemExit(0 if "
-                "(Path(native.__file__).parent / 'libclang.dll').is_file() else 1)"
+                "any((Path(native.__file__).parent / name).is_file() for name in names) else 1)"
             ),
         ],
         cwd=repository_root,
@@ -192,17 +198,18 @@ def generate_vscode_launch_configuration(
             f"{profile.platform}/{output_configuration}/Runtime/"
             f"{runtime_variant}/{runtime_variant}{profile.test_executable_suffix}"
         )
-        configurations.append(
-            {
-                "name": preset.name,
-                "type": "cppvsdbg",
-                "request": "launch",
-                "program": executable,
-                "cwd": "${workspaceFolder}",
-                "stopAtEntry": False,
-                "console": "integratedTerminal",
-            }
-        )
+        launch: dict[str, object] = {
+            "name": preset.name,
+            "type": "cppvsdbg" if profile.host == "windows" else "cppdbg",
+            "request": "launch",
+            "program": executable,
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": False,
+            "console": "integratedTerminal",
+        }
+        if profile.host == "macos":
+            launch["MIMode"] = "lldb"
+        configurations.append(launch)
     return {"version": "0.2.0", "configurations": configurations}
 
 
@@ -279,8 +286,11 @@ def _prompt_value(label: str, default: str = "") -> str:
 def _confirm_toolchain(selection: ToolchainSelection, command_io: CommandIO) -> bool:
     command_io.out("Automatically detected toolchain:")
     command_io.out(f'  CMake: {selection.cmake_command}')
-    command_io.out(f'  VsDevCmd: {selection.environment_script}')
-    command_io.out(f'  Arguments: {" ".join(selection.environment_arguments)}')
+    if selection.environment_script is None:
+        command_io.out("  Environment: inherited from the current process")
+    else:
+        command_io.out(f'  Environment script: {selection.environment_script}')
+        command_io.out(f'  Arguments: {" ".join(selection.environment_arguments)}')
     return _prompt_value("Use these settings?", "Y").casefold() in {"y", "yes"}
 
 
@@ -291,18 +301,19 @@ def _manual_toolchain_selection(
     default_cmake: str,
     default_script: Path | None,
     default_arguments: Sequence[str],
+    current_platform: str,
 ) -> ToolchainSelection:
     while True:
         cmake_command = _prompt_value("CMake executable or command", default_cmake)
         script_value = _prompt_value(
-            "VsDevCmd.bat path",
+            "VsDevCmd.bat path" if current_platform == "win32" else "Environment setup script path (optional)",
             str(default_script) if default_script else "",
         )
-        if not script_value:
+        if current_platform == "win32" and not script_value:
             command_io.out("VsDevCmd.bat path is required.")
             continue
         arguments_text = _prompt_value(
-            "VsDevCmd.bat arguments",
+            "VsDevCmd.bat arguments" if current_platform == "win32" else "Environment script arguments",
             " ".join(default_arguments),
         )
         try:
@@ -310,7 +321,9 @@ def _manual_toolchain_selection(
             selection = resolve_toolchain(
                 repository.root,
                 cmake_command=cmake_command,
-                environment_script=Path(script_value).expanduser().resolve(),
+                environment_script=(
+                    Path(script_value).expanduser().resolve() if script_value else None
+                ),
                 environment_arguments=arguments,
                 repository_context=repository,
             )
@@ -348,8 +361,9 @@ def select_setup_toolchain(
         detail = automatic_error if selection is None else "automatic settings were declined"
         raise BootstrapError(
             f"Toolchain setup was not confirmed: {detail}. "
-            "Set cmake.command and toolchain.environmentScript in "
-            '".agents/DevTool.user.json", then rerun with --non-interactive.'
+            "Set cmake.command or an optional toolchain.environmentScript in "
+            '".agents/DevTool.user.json" when automatic discovery is insufficient, '
+            "then rerun with --non-interactive."
         )
 
     configured_script, configured_arguments = configured_visual_studio_environment(
@@ -376,7 +390,12 @@ def select_setup_toolchain(
         command_io,
         default_cmake=default_cmake,
         default_script=configured_script,
-        default_arguments=configured_arguments or DEFAULT_ENVIRONMENT_ARGUMENTS,
+        default_arguments=(
+            configured_arguments or DEFAULT_ENVIRONMENT_ARGUMENTS
+            if sys.platform == "win32"
+            else configured_arguments
+        ),
+        current_platform=sys.platform,
     )
 
 

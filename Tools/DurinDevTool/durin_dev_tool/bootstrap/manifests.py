@@ -74,6 +74,19 @@ def validate_manifests(manifests: list[dict[str, Any]]) -> None:
             raise BootstrapError(
                 f"Shared-install manifest {manifest['name']} must define cmake_dir and install_required_file_sets."
             )
+        if manifest["kind"] == "shared_install":
+            platform_sets = manifest.get("install_required_file_sets_by_platform", {})
+            if not isinstance(platform_sets, dict):
+                raise BootstrapError(
+                    f"Shared-install manifest {manifest['name']} install_required_file_sets_by_platform must be an object."
+                )
+            for platform_name, config_sets in platform_sets.items():
+                if not isinstance(config_sets, dict) or any(
+                    config not in config_sets for config in VALID_CONFIGS
+                ):
+                    raise BootstrapError(
+                        f"Shared-install manifest {manifest['name']} platform {platform_name} must define Debug and Release required file sets."
+                    )
         if manifest["kind"] == "prebuilt_sdk" and "required_files_by_platform" not in manifest:
             raise BootstrapError(f"Prebuilt SDK manifest {manifest['name']} must define required_files_by_platform.")
         if manifest["kind"] == "tool_package" and source_kind != "archive":

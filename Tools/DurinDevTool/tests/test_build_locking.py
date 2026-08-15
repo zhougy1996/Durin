@@ -47,12 +47,14 @@ class TestCore:
             assert build_locking.open_checkout_lock(path) is handle
     def test_windows_lock_acl_is_reset_to_directory_inheritance(self) -> None:
         result = mock.Mock(returncode=0)
+        cwd = Path.cwd()
         with mock.patch.object(build_locking.os, 'name', 'nt'), mock.patch.object(build_locking.subprocess, 'run', return_value=result) as run:
-            assert build_locking.normalize_windows_lock_acl(Path('checkout.lock'))
+            assert build_locking.normalize_windows_lock_acl(Path('checkout.lock'), cwd=cwd)
         assert run.call_args.args[0] == ['icacls', 'checkout.lock', '/reset', '/q']
     def test_windows_lock_acl_reset_is_best_effort(self) -> None:
+        cwd = Path.cwd()
         with mock.patch.object(build_locking.os, 'name', 'nt'), mock.patch.object(build_locking.subprocess, 'run', return_value=mock.Mock(returncode=5)):
-            assert not build_locking.normalize_windows_lock_acl(Path('checkout.lock'))
+            assert not build_locking.normalize_windows_lock_acl(Path('checkout.lock'), cwd=cwd)
     def test_stop_ignores_stale_unowned_lock(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
         path = Path(directory) / 'checkout.lock'

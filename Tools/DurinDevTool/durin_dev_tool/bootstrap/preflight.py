@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import platform
 import re
 import subprocess
 import sys
@@ -110,7 +111,7 @@ def check_msvc_version(environment: Mapping[str, str]) -> str | None:
     return None
 
 
-def check_vulkan_sdk(environment: Mapping[str, str]) -> str | None:
+def check_windows_vulkan_sdk(environment: Mapping[str, str]) -> str | None:
     sdk_value = environment.get("VULKAN_SDK", os.environ.get("VULKAN_SDK", ""))
     if not sdk_value:
         return "VULKAN_SDK is not set. Install the LunarG Vulkan SDK and reopen the terminal."
@@ -128,6 +129,115 @@ def check_vulkan_sdk(environment: Mapping[str, str]) -> str | None:
             + ". Update the Vulkan SDK, or install VulkanMemoryAllocator's vk_mem_alloc.h "
             "under the SDK Include/vma directory."
         )
+    return None
+
+
+def check_macos_vulkan_sdk(environment: Mapping[str, str]) -> str | None:
+    sdk_value = environment.get("VULKAN_SDK", os.environ.get("VULKAN_SDK", ""))
+    if not sdk_value:
+        return (
+            "VULKAN_SDK is not set. Source the selected LunarG macOS SDK "
+            "setup-env.sh in this terminal, then rerun DevTool setup."
+        )
+    sdk = Path(sdk_value)
+    required = [
+        ("Vulkan header", (sdk / "include/vulkan/vulkan.h",)),
+        ("VMA header", (sdk / "include/vma/vk_mem_alloc.h",)),
+        ("Vulkan loader", (sdk / "lib/libvulkan.dylib",)),
+        ("MoltenVK library", (sdk / "lib/libMoltenVK.dylib",)),
+        ("MoltenVK ICD manifest", (sdk / "share/vulkan/icd.d/MoltenVK_icd.json",)),
+    ]
+    missing = [
+        f"{label} ({' or '.join(str(path) for path in candidates)})"
+        for label, candidates in required
+        if not any(path.is_file() for path in candidates)
+    ]
+    if missing:
+        return "The macOS Vulkan SDK is incomplete; missing: " + ", ".join(missing) + "."
+    return None
+
+
+def check_vulkan_sdk(
+    environment: Mapping[str, str],
+    *,
+    current_platform: str | None = None,
+) -> str | None:
+    if (current_platform or sys.platform) == "darwin":
+        return check_macos_vulkan_sdk(environment)
+    return check_windows_vulkan_sdk(environment)
+
+
+def check_macos_architecture(machine: str | None = None) -> str | None:
+    detected = (machine or platform.machine()).lower()
+    if detected == "arm64":
+        return None
+    return (
+        f"Apple Silicon arm64 is required for the macOS bootstrap (detected {detected or 'unknown'}). "
+        "Intel and translated processes are not supported by this plan."
+    )
+
+
+def check_macos_xcode(environment: Mapping[str, str]) -> str | None:
+    xcodebuild = find_command("xcodebuild", environment)
+    xcrun = find_command("xcrun", environment)
+    missing = [
+        command
+        for command, executable in (("xcodebuild", xcodebuild), ("xcrun", xcrun))
+        if executable is None
+    ]
+    if missing:
+        return f"Xcode command-line tools were not found in PATH: {', '.join(missing)}."
+    try:
+        version = subprocess.run(
+            [xcodebuild, "-version"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=dict(environment),
+        )
+        sdk = subprocess.run(
+            [xcrun, "--sdk", "macosx", "--show-sdk-path"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=dict(environment),
+        )
+    except OSError as exc:
+        return f"Xcode tools could not be launched: {exc}"
+    if version.returncode != 0 or not version.stdout.strip().startswith("Xcode "):
+        return "The selected developer directory does not provide a complete Xcode installation."
+    sdk_path = Path(sdk.stdout.strip())
+    if sdk.returncode != 0 or not sdk_path.is_dir():
+        return "xcrun could not resolve an installed macOS SDK from the selected Xcode."
+    return None
+
+
+def check_apple_clang(environment: Mapping[str, str]) -> str | None:
+    compiler = find_command("clang", environment)
+    if not compiler:
+        return "Apple Clang was not found in PATH. Select a complete Xcode installation."
+    try:
+        version = subprocess.run(
+            [compiler, "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=dict(environment),
+        )
+        target = subprocess.run(
+            [compiler, "-dumpmachine"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=dict(environment),
+        )
+    except OSError as exc:
+        return f'Apple Clang could not be launched from "{compiler}": {exc}'
+    if version.returncode != 0 or "Apple clang version" not in version.stdout:
+        return f'The selected compiler is not Apple Clang: "{compiler}".'
+    target_name = target.stdout.strip().lower()
+    if target.returncode != 0 or not target_name.startswith("arm64-apple-"):
+        return f"Apple Clang does not target arm64 natively (detected {target_name or 'unknown'})."
     return None
 
 
@@ -159,23 +269,29 @@ def collect_errors(
     *,
     selection: ToolchainSelection | None = None,
     repository_context: RepositoryContext | None = None,
+    current_platform: str | None = None,
+    machine: str | None = None,
 ) -> list[str]:
     repository = _repository(repository_root, repository_context)
+    platform_name = current_platform or sys.platform
     errors: list[str] = []
     if sys.version_info < MINIMUM_PYTHON:
         errors.append(
             f"Python {sys.version_info.major}.{sys.version_info.minor} is installed; "
             "Durin requires Python 3.10 or newer."
         )
-    if sys.platform != "win32":
+    if platform_name not in {"win32", "darwin"}:
         errors.append(
-            f"DevTool setup supports Windows hosts only (detected {sys.platform})."
+            f"DevTool setup does not support host platform {platform_name!r}."
         )
         return errors
-    if not find_command("git"):
+    if not find_command("git", selection.environment if selection is not None else None):
         errors.append("Git was not found in PATH.")
-    if long_paths_error := check_windows_long_paths():
-        errors.append(long_paths_error)
+    if platform_name == "win32":
+        if long_paths_error := check_windows_long_paths():
+            errors.append(long_paths_error)
+    elif architecture_error := check_macos_architecture(machine):
+        errors.append(architecture_error)
     selected = selection
     if selection is None:
         try:
@@ -189,19 +305,31 @@ def collect_errors(
             errors.append(str(exc))
             return errors
     assert selected is not None
-    vs_environment: Mapping[str, str] = selected.environment
+    toolchain_environment: Mapping[str, str] = selected.environment
+    if platform_name == "darwin":
+        if xcode_error := check_macos_xcode(toolchain_environment):
+            errors.append(xcode_error)
+        if clang_error := check_apple_clang(toolchain_environment):
+            errors.append(clang_error)
     if cmake_error := check_cmake(
         repository.root,
-        environment=vs_environment,
+        environment=toolchain_environment,
         command=selected.cmake_command,
         repository_context=repository,
     ):
         errors.append(cmake_error)
-    if not find_ninja(vs_environment):
-        errors.append("Ninja was not found in PATH or in the selected Visual Studio installation.")
-    if msvc_error := check_msvc_version(vs_environment):
-        errors.append(msvc_error)
-    if vulkan_error := check_vulkan_sdk(vs_environment):
+    if not find_ninja(toolchain_environment):
+        message = "Ninja was not found in PATH"
+        if platform_name == "win32":
+            message += " or in the selected Visual Studio installation"
+        errors.append(message + ".")
+    if platform_name == "win32":
+        if msvc_error := check_msvc_version(toolchain_environment):
+            errors.append(msvc_error)
+    if vulkan_error := check_vulkan_sdk(
+        toolchain_environment,
+        current_platform=platform_name,
+    ):
         errors.append(vulkan_error)
     return errors
 

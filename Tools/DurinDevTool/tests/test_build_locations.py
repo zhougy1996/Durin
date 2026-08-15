@@ -264,7 +264,7 @@ class TestBuildLocations:
             current_host="windows",
             root=build_config.default_build_paths().root,
         )
-        assert 'Opened binaries directory: "resolved\\binaries"' in stdout.getvalue()
+        assert f'Opened binaries directory: "{location.path}"' in stdout.getvalue()
 
     def test_path_all_plain_output_is_stable_tab_separated(self) -> None:
         profile = make_profile()

@@ -13,6 +13,19 @@
           "bin/slang.dll",
           "bin/slang-compiler.dll"
         ]
+      },
+      "MacOS": {
+        "url": "https://github.com/shader-slang/slang/releases/download/v2026.5.2/slang-2026.5.2-macos-aarch64.tar.gz",
+        "archive_name": "slang-2026.5.2-macos-aarch64.tar.gz",
+        "sha256": "e21cac48c01fbfae100648e68f90216f881aa414678066f37cc4bc0e98ac3f6a",
+        "required_files": [
+          "LICENSE",
+          "bin/slangc",
+          "include/slang.h",
+          "lib/libslang.dylib",
+          "lib/libslang-compiler.0.2026.5.2.dylib",
+          "lib/libslang-glslang-2026.5.2.dylib"
+        ]
       }
     }
   },
@@ -20,6 +33,14 @@
     "Win64": [
       "bin/slang.dll",
       "bin/slang-compiler.dll"
+    ],
+    "MacOS": [
+      "LICENSE",
+      "bin/slangc",
+      "include/slang.h",
+      "lib/libslang.dylib",
+      "lib/libslang-compiler.0.2026.5.2.dylib",
+      "lib/libslang-glslang-2026.5.2.dylib"
     ]
   }
 }

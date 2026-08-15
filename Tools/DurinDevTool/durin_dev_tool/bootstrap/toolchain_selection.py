@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
 
 from ..build.config import load_local_config
 from ..context import RepositoryContext
-from ..toolchain import capture_windows_environment, find_command, find_vsdevcmd
+from ..toolchain import capture_setup_environment, capture_windows_environment, find_command, find_vsdevcmd
 from .preflight import PreflightError, check_cmake, check_msvc_version, find_ninja
 
 DEFAULT_ENVIRONMENT_ARGUMENTS = ("-arch=x64", "-host_arch=x64")
@@ -18,7 +19,7 @@ DEFAULT_ENVIRONMENT_ARGUMENTS = ("-arch=x64", "-host_arch=x64")
 @dataclass(frozen=True)
 class ToolchainSelection:
     cmake_command: str
-    environment_script: Path
+    environment_script: Path | None
     environment_arguments: tuple[str, ...]
     environment: dict[str, str]
 
@@ -66,6 +67,17 @@ def resolve_cmake_executable(command: str, environment: Mapping[str, str]) -> st
     return str(Path(executable).resolve())
 
 
+def find_macos_vulkan_environment_script(
+    environment: Mapping[str, str],
+) -> Path | None:
+    sdk_value = environment.get("VULKAN_SDK", "").strip()
+    if not sdk_value:
+        return None
+    sdk = Path(sdk_value).expanduser().resolve()
+    candidate = sdk.parent / "setup-env.sh" if sdk.name == "macOS" else sdk / "setup-env.sh"
+    return candidate if candidate.is_file() else None
+
+
 def select_toolchain(
     repository_root: Path | None = None,
     *,
@@ -79,14 +91,37 @@ def select_toolchain(
         repository.root,
         repository_context=repository,
     )
-    script = environment_script or configured_script or find_vsdevcmd(os.environ)
-    arguments = tuple(
-        environment_arguments
-        if environment_arguments is not None
-        else configured_arguments or DEFAULT_ENVIRONMENT_ARGUMENTS
-    )
-    environment = capture_windows_environment(script, arguments)
-    environment["VSLANG"] = "1033"
+    script = environment_script or configured_script
+    if sys.platform == "win32":
+        script = script or find_vsdevcmd(os.environ)
+        arguments = tuple(
+            environment_arguments
+            if environment_arguments is not None
+            else configured_arguments or DEFAULT_ENVIRONMENT_ARGUMENTS
+        )
+        environment = capture_windows_environment(script, arguments)
+        environment["VSLANG"] = "1033"
+    elif sys.platform == "darwin":
+        script = script or find_macos_vulkan_environment_script(os.environ)
+        arguments = tuple(
+            environment_arguments
+            if environment_arguments is not None
+            else configured_arguments
+        )
+        environment = (
+            capture_setup_environment(
+                script,
+                arguments,
+                current_host="macos",
+                cwd=repository.root,
+            )
+            if script is not None
+            else dict(os.environ)
+        )
+    else:
+        raise PreflightError(
+            f"DevTool setup does not support host platform {sys.platform!r}."
+        )
     configured_cmake = cmake_command or configured_cmake_command(
         repository.root,
         repository_context=repository,
@@ -124,9 +159,11 @@ def resolve_toolchain(
     ):
         raise PreflightError(cmake_error)
     if not find_ninja(selection.environment):
-        raise PreflightError(
-            "Ninja was not found in PATH or in the selected Visual Studio installation."
-        )
-    if msvc_error := check_msvc_version(selection.environment):
-        raise PreflightError(msvc_error)
+        message = "Ninja was not found in PATH"
+        if sys.platform == "win32":
+            message += " or in the selected Visual Studio installation"
+        raise PreflightError(message + ".")
+    if sys.platform == "win32":
+        if msvc_error := check_msvc_version(selection.environment):
+            raise PreflightError(msvc_error)
     return selection

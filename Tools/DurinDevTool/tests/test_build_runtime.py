@@ -69,8 +69,8 @@ class TestCore:
         process_job = mock.Mock()
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
-        with mock.patch.object(build_process, 'command_log_path', return_value=Path(directory) / 'command.log'), mock.patch.object(build_process.subprocess, 'Popen', return_value=process), mock.patch.object(build_process, 'WindowsProcessJob', return_value=process_job):
-            build_process.run_command(['DurinEditor.exe'], environment={}, output=output, wait_for_descendants=True)
+        with mock.patch.object(build_process, 'command_log_path', return_value=directory / 'command.log'), mock.patch.object(build_process.subprocess, 'Popen', return_value=process), mock.patch.object(build_process.subprocess, 'CREATE_NEW_PROCESS_GROUP', 512, create=True), mock.patch.object(build_process, 'WindowsProcessJob', return_value=process_job), mock.patch.object(build_process.os, 'name', 'nt'):
+            build_process.run_command(['DurinEditor.exe'], environment={}, output=output, wait_for_descendants=True, cwd=directory, state_directory=directory)
         process_job.assign.assert_called_once_with(process)
         process_job.wait.assert_called_once_with()
         process_job.close.assert_called_once_with()
@@ -83,7 +83,7 @@ class TestCore:
         process_job.wait.side_effect = KeyboardInterrupt
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
-        with mock.patch.object(build_process, 'command_log_path', return_value=Path(directory) / 'command.log'), mock.patch.object(build_process.subprocess, 'Popen', return_value=process), mock.patch.object(build_process, 'WindowsProcessJob', return_value=process_job), pytest.raises(build_config.BuildToolError, match='Application run was interrupted'):
-            build_process.run_command(['DurinEditor.exe'], environment={}, output=output, recovery_required_on_interrupt=False, wait_for_descendants=True)
+        with mock.patch.object(build_process, 'command_log_path', return_value=directory / 'command.log'), mock.patch.object(build_process.subprocess, 'Popen', return_value=process), mock.patch.object(build_process.subprocess, 'CREATE_NEW_PROCESS_GROUP', 512, create=True), mock.patch.object(build_process, 'WindowsProcessJob', return_value=process_job), mock.patch.object(build_process.os, 'name', 'nt'), pytest.raises(build_config.BuildToolError, match='Application run was interrupted'):
+            build_process.run_command(['DurinEditor.exe'], environment={}, output=output, recovery_required_on_interrupt=False, wait_for_descendants=True, cwd=directory, state_directory=directory)
         process_job.terminate.assert_called_once_with()
         process_job.close.assert_called_once_with()

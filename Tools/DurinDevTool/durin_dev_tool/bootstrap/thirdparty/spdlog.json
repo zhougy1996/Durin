@@ -39,5 +39,21 @@
         "lib/libspdlog.a"
       ]
     ]
+  },
+  "install_required_file_sets_by_platform": {
+    "MacOS": {
+      "Debug": [
+        [
+          "include/spdlog/spdlog.h",
+          "lib/libspdlogd.a"
+        ]
+      ],
+      "Release": [
+        [
+          "include/spdlog/spdlog.h",
+          "lib/libspdlog.a"
+        ]
+      ]
+    }
   }
 }

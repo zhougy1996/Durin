@@ -1,4 +1,5 @@
 import pytest
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -83,6 +84,7 @@ class TestWorktreeTool:
         with mock.patch.object(worktree_links, 'directory_links_under', return_value=[vscode]), mock.patch.object(worktree_links, 'is_link_like', side_effect=lambda path: path == vscode):
             assert worktree_links.validate_directory_links(worktree, REPOSITORY) == [vscode]
 
+    @pytest.mark.skipif(os.name != 'nt', reason='Windows junction behavior')
     def test_detaching_junction_preserves_its_target(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
         root = Path(directory)
@@ -97,4 +99,3 @@ class TestWorktreeTool:
         assert detached.kind == 'junction'
         assert not link.exists()
         assert marker.read_text(encoding='utf-8') == 'preserved'
-

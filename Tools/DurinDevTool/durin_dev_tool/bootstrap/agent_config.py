@@ -76,7 +76,7 @@ def save_toolchain_config(
     command_io: CommandIO | None = None,
     *,
     cmake_command: str,
-    environment_script: Path,
+    environment_script: Path | None,
     environment_arguments: Sequence[str],
 ) -> Path:
     repository = _repository(repo_root, repository)
@@ -100,7 +100,9 @@ def save_toolchain_config(
             f'Agent build config contains invalid cmake or toolchain sections: "{target}"'
         )
     cmake["command"] = cmake_command
-    toolchain["environmentScript"] = environment_script.as_posix()
+    toolchain["environmentScript"] = (
+        environment_script.as_posix() if environment_script is not None else None
+    )
     toolchain["environmentArguments"] = list(environment_arguments)
 
     temporary = target.with_name(f".{target.name}.tmp")

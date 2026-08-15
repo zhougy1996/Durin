@@ -9,6 +9,7 @@ from typing import Sequence, TextIO
 from .context import CommandIO, RepositoryContext
 from .configuration import RepositoryConfigError
 from .errors import DevToolError
+from .python_environment import launcher_command, prepared_python_path
 from .commands.asset_specs import COMMAND_SPEC as ASSET_COMMAND_SPEC
 from .commands.bootstrap_specs import DEPENDENCY_COMMAND_SPEC, SETUP_COMMAND_SPEC
 from .commands.build_specs import COMMAND_SPECS as BUILD_COMMAND_SPECS, SCAFFOLDING_COMMAND_SPEC
@@ -247,7 +248,7 @@ def require_prepared_environment(
             python_environment = RepositoryContext.load(root).config.worktrees.python_environment
         except RepositoryConfigError:
             python_environment = Path(".venv")
-    interpreter = root / python_environment / "Scripts" / "python.exe"
+    interpreter = prepared_python_path(root, python_environment)
     if not interpreter.is_file():
         raise DevToolError(
             "Durin's prepared Python environment is missing. "
@@ -263,7 +264,7 @@ def require_prepared_environment(
         raise DevToolError(
             "Durin's prepared Python environment exists, but DevTool is "
             f'running with "{active_interpreter}". Restart through '
-            "'DevTool.bat' so it selects the prepared environment."
+            f"'{launcher_command()}' so it selects the prepared environment."
         )
     missing_modules = tuple(
         module
