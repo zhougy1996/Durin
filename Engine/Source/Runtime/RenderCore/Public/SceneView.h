@@ -148,6 +148,16 @@ namespace Durin
 		Count,
 	};
 
+	enum class EGroundTruthAmbientOcclusionDebugMode : uint8
+	{
+		Disabled,
+		Raw,
+		Confidence,
+		Filtered,
+		FinalFactor,
+		Count,
+	};
+
 	enum class EHybridOpaqueRoute : uint8
 	{
 		ForwardReference,
@@ -169,6 +179,12 @@ namespace Durin
 		bool bEnableDeferredDirectionalQualification = false;
 		EDeferredDirectionalDebugMode DeferredDirectionalDebugMode =
 			EDeferredDirectionalDebugMode::Disabled;
+		// Development-only M5 path. Produces isolated raw R8 visibility from
+		// the qualified production depth/normal inputs without changing HDR.
+		bool bEnableGroundTruthAmbientOcclusionQualification = false;
+		EGroundTruthAmbientOcclusionDebugMode
+			GroundTruthAmbientOcclusionDebugMode =
+				EGroundTruthAmbientOcclusionDebugMode::Disabled;
 		// Explicit route for tests and product callers. Product entry points select
 		// DeferredRequired; the value default remains the test-only A/B reference.
 		EHybridOpaqueRoute HybridOpaqueRoute =

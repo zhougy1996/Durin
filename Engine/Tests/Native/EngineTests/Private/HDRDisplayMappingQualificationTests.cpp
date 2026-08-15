@@ -4,7 +4,7 @@
 #include "DynamicRHI.h"
 #include "HAL/PlatformLTS.h"
 #include "Modules/ModuleManager.h"
-#include "Modules/ModuleTestContext.h"
+#include "Modules/ModuleTestSupport.h"
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
@@ -65,9 +65,8 @@ namespace Durin
 		InitRenderingThread();
 
 		FRendererModule Renderer;
-		auto RendererContext = FModuleTestContextFactory::CreateStartupContext(
-			"HDRDisplayMappingQualification");
-		Renderer.StartupModule(RendererContext);
+		FModuleTestHarness RendererLifecycle("HDRDisplayMappingQualification");
+		RendererLifecycle.Start(Renderer);
 
 		auto ProfileRoute = [&Renderer](const char* TargetName, bool bEnableFXAA) {
 			std::vector<FGPUTimingQueryRHIRef> Queries;
@@ -178,9 +177,7 @@ namespace Durin
 		EXPECT_GE(FXAA.MedianNanoseconds, Copy.MedianNanoseconds);
 		EXPECT_LE(FXAAP95Increment, 90'000u);
 
-		auto ShutdownContext =
-			FModuleTestContextFactory::CreateShutdownContext(RendererContext);
-		Renderer.ShutdownModule(ShutdownContext);
+		RendererLifecycle.Shutdown();
 		ShutdownRenderingThread();
 		FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
 		RHIExit();

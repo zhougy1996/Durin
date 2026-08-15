@@ -222,6 +222,13 @@ namespace Durin
 		size_t DeferredDirectionalPassFailures = 0;
 		size_t DeferredDirectionalDebugViews = 0;
 		size_t DeferredDirectionalOutputBytes = 0;
+		size_t GroundTruthAmbientOcclusionAttemptedViews = 0;
+		size_t GroundTruthAmbientOcclusionEnabledViews = 0;
+		size_t GroundTruthAmbientOcclusionUnavailableViews = 0;
+		size_t GroundTruthAmbientOcclusionRawPassFailures = 0;
+		size_t GroundTruthAmbientOcclusionFilterPassFailures = 0;
+		size_t GroundTruthAmbientOcclusionDebugViews = 0;
+		size_t GroundTruthAmbientOcclusionActiveBytes = 0;
 		size_t HybridDeferredEnabledViews = 0;
 		size_t HybridDeferredFallbackViews = 0;
 		size_t HybridDeferredUnavailableViews = 0;

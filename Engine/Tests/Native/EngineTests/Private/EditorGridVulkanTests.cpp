@@ -16,6 +16,7 @@
 #include "RendererModule.h"
 #include "Renderers/DeferredDirectionalLightingRenderer.h"
 #include "Renderers/GBufferRenderer.h"
+#include "Renderers/GroundTruthAmbientOcclusionRenderer.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/SceneVisibility.h"
 #include "Resources/RenderTargetLayouts.h"
@@ -789,6 +790,133 @@ namespace Durin
 		RHIExit();
 	}
 
+	TEST(FEditorGridVulkanTests,
+		GroundTruthAmbientOcclusionTargetsRecoverAfterFailureAndInvalidation)
+	{
+		if (!GIsGameThreadIdInitialized)
+		{
+			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+			GIsGameThreadIdInitialized = true;
+		}
+		ASSERT_EQ(GDynamicRHI, nullptr);
+		FModuleManager::Get().LoadModule("RenderCore");
+		RHIInit();
+		ASSERT_NE(GDynamicRHI, nullptr);
+		InitRenderingThread();
+
+		FRendererResourceCoordinator Coordinator;
+		FFullscreenGeometryResources FullscreenGeometry;
+		FGroundTruthAmbientOcclusionRenderer AmbientOcclusion(
+			Coordinator, FullscreenGeometry);
+		auto Results = std::make_shared<std::array<bool, 13>>();
+		VulkanRHI::ArmVulkanCreateFailure(
+			VulkanRHI::EVulkanCreateFailurePoint::Image);
+		VulkanRHI::ArmVulkanCreateFailure(
+			VulkanRHI::EVulkanCreateFailurePoint::ShaderModule);
+		VulkanRHI::ArmVulkanCreateFailure(
+			VulkanRHI::EVulkanCreateFailurePoint::GraphicsPipeline);
+		EnqueueRenderCommand<FFailDisplayPayloadContract>(
+			[&Coordinator, &AmbientOcclusion, &FullscreenGeometry, Results](
+				FRHICommandListImmediate& CommandList) {
+				(*Results)[0] =
+					AmbientOcclusion.EnsureTargets_RenderThread(64, 32) == nullptr;
+				(*Results)[1] =
+					AmbientOcclusion.EnsureTargets_RenderThread(64, 32) == nullptr;
+				Coordinator.Apply_RenderThread(
+					ERendererResourceInvalidationCause::ManualRetry,
+					FRendererResourceInvalidationTargets{});
+				auto* Recovered =
+					AmbientOcclusion.EnsureTargets_RenderThread(64, 32);
+				(*Results)[2] = Recovered != nullptr && Recovered->Raw != nullptr
+					&& Recovered->Scratch != nullptr
+					&& Recovered->Raw->GetFormat() == EPixelFormat::R8_UNORM;
+				FRHITexture* RecoveredRaw =
+					Recovered != nullptr ? Recovered->Raw.GetReference() : nullptr;
+				auto* Alternate =
+					AmbientOcclusion.EnsureTargets_RenderThread(32, 16);
+				(*Results)[3] = Alternate != nullptr && Alternate->Raw != nullptr
+					&& Alternate->Raw->GetSizeX() == 32
+					&& Alternate->Raw->GetSizeY() == 16;
+				Coordinator.Apply_RenderThread(
+					ERendererResourceInvalidationCause::Device,
+					FRendererResourceInvalidationTargets{});
+				auto* DeviceTargets =
+					AmbientOcclusion.EnsureTargets_RenderThread(64, 32);
+				(*Results)[4] = DeviceTargets != nullptr
+					&& DeviceTargets->Raw.GetReference() != RecoveredRaw;
+				FRHITexture* DeviceRaw = DeviceTargets != nullptr
+					? DeviceTargets->Raw.GetReference() : nullptr;
+				AmbientOcclusion.ReleaseResources_RenderThread();
+				auto* ReleasedTargets =
+					AmbientOcclusion.EnsureTargets_RenderThread(64, 32);
+				(*Results)[5] = ReleasedTargets != nullptr
+					&& ReleasedTargets->Raw.GetReference() != DeviceRaw;
+				(*Results)[6] = ReleasedTargets != nullptr
+					&& ReleasedTargets->Raw->GetSizeX() == 64
+					&& ReleasedTargets->Raw->GetSizeY() == 32;
+				(*Results)[7] =
+					FGroundTruthAmbientOcclusionRenderer::CalculateRawTargetBytes(
+						64, 32) == 2048;
+				const auto ColorDesc = FRHITextureCreateDesc::Create2D(
+					"GroundTruthAmbientOcclusionFailureColor", 64, 32,
+					EPixelFormat::RGBA8_UNORM)
+					.SetFlags(ETextureCreateFlags::RenderTargetable
+						| ETextureCreateFlags::ShaderResource);
+				const auto DepthDesc = FRHITextureCreateDesc::Create2D(
+					"GroundTruthAmbientOcclusionFailureDepth", 64, 32,
+					EPixelFormat::D32)
+					.SetFlags(ETextureCreateFlags::DepthStencilTargetable
+						| ETextureCreateFlags::ShaderResource);
+				FTextureRHIRef Normals = RHICreateTexture(ColorDesc);
+				FTextureRHIRef Surface = RHICreateTexture(ColorDesc);
+				FTextureRHIRef Depth = RHICreateTexture(DepthDesc);
+				ASSERT_NE(Normals, nullptr);
+				ASSERT_NE(Surface, nullptr);
+				ASSERT_NE(Depth, nullptr);
+				const FRHITextureSubresourceRange ColorRange{
+					ERHITextureAspect::Color, 0, 1, 0, 1};
+				const FRHITextureSubresourceRange DepthRange{
+					ERHITextureAspect::Depth, 0, 1, 0, 1};
+				CommandList.TransitionTextures(std::array{
+					FRHITextureTransition{Normals, ColorRange,
+						ERHIAccess::Discard, ERHIAccess::GraphicsShaderRead},
+					FRHITextureTransition{Surface, ColorRange,
+						ERHIAccess::Discard, ERHIAccess::GraphicsShaderRead},
+					FRHITextureTransition{Depth, DepthRange,
+						ERHIAccess::Discard, ERHIAccess::GraphicsShaderRead}});
+				FSceneView View;
+				View.ViewportWidth = 64;
+				View.ViewportHeight = 32;
+				++GRenderFrameCounterRenderThread;
+				GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+				auto RenderRaw = [&]() {
+					return AmbientOcclusion.RenderRaw_RenderThread(
+						CommandList, *ReleasedTargets, Normals, Surface, Depth, View);
+				};
+				(*Results)[8] = !RenderRaw();
+				(*Results)[9] = !RenderRaw();
+				Coordinator.Apply_RenderThread(
+					ERendererResourceInvalidationCause::ManualRetry,
+					FRendererResourceInvalidationTargets{});
+				(*Results)[10] = !RenderRaw();
+				(*Results)[11] = !RenderRaw();
+				Coordinator.Apply_RenderThread(
+					ERendererResourceInvalidationCause::ManualRetry,
+					FRendererResourceInvalidationTargets{});
+				(*Results)[12] = RenderRaw();
+				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+				AmbientOcclusion.ReleaseResources_RenderThread();
+				FullscreenGeometry.ReleaseResources_RenderThread();
+			});
+		FlushRenderingCommands();
+		for (size_t Index = 0; Index < Results->size(); ++Index)
+			EXPECT_TRUE((*Results)[Index]) << Index;
+
+		ShutdownRenderingThread();
+		FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
+		RHIExit();
+	}
+
 	TEST(FEditorGridVulkanTests, HybridProductionFallsBackOrFailsRequiredWhenGBufferIsUnavailable)
 	{
 		if (!GIsGameThreadIdInitialized)
@@ -802,10 +930,8 @@ namespace Durin
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 		FRendererModule Renderer;
-		auto RendererContext = FModuleTestContextFactory::CreateStartupContext(
-			"HybridProductionFallbackTest"
-		);
-		Renderer.StartupModule(RendererContext);
+		FModuleTestHarness RendererLifecycle("HybridProductionFallbackTest");
+		RendererLifecycle.Start(Renderer);
 
 		auto Output = std::make_shared<FTextureRHIRef>();
 		auto ForwardPixels = std::make_shared<std::vector<uint8>>();
@@ -881,9 +1007,7 @@ namespace Durin
 			[Output](FRHICommandListImmediate&) { *Output = nullptr; }
 		);
 		FlushRenderingCommands();
-		auto ShutdownContext =
-			FModuleTestContextFactory::CreateShutdownContext(RendererContext);
-		Renderer.ShutdownModule(ShutdownContext);
+		RendererLifecycle.Shutdown();
 		FlushRenderingCommands();
 		ShutdownRenderingThread();
 		FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
@@ -1055,11 +1179,8 @@ namespace Durin
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 		FRendererModule Renderer;
-		auto RendererContext =
-			FModuleTestContextFactory::CreateStartupContext(
-				"HDRDisplayMappingPresentTest"
-			);
-		Renderer.StartupModule(RendererContext);
+		FModuleTestHarness RendererLifecycle("HDRDisplayMappingPresentTest");
+		RendererLifecycle.Start(Renderer);
 
 		TRefCountPtr<FRHIViewport> Viewport = GDynamicRHI->RHICreateViewport(
 			Window->GetOSNativeWindowHandle(),
@@ -1142,9 +1263,7 @@ namespace Durin
 		SetViewRenderCounterSink(nullptr);
 
 		Viewport = nullptr;
-		auto RendererShutdownContext =
-			FModuleTestContextFactory::CreateShutdownContext(RendererContext);
-		Renderer.ShutdownModule(RendererShutdownContext);
+		RendererLifecycle.Shutdown();
 		FlushRenderingCommands();
 		ShutdownRenderingThread();
 		FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);

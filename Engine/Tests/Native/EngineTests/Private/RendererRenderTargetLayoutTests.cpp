@@ -4,6 +4,7 @@
 #include "Renderers/PostProcessRenderer.h"
 #include "Renderers/GBufferRenderer.h"
 #include "Renderers/DeferredDirectionalLightingRenderer.h"
+#include "Renderers/GroundTruthAmbientOcclusionRenderer.h"
 
 #include <limits>
 
@@ -193,6 +194,36 @@ namespace Durin
 			EXPECT_EQ(Layout.DepthStencilAttachment.InitialLayout, ERHITextureLayout::DepthStencilAttachment);
 			EXPECT_EQ(Layout.DepthStencilAttachment.InitialAccess, ERHIAccess::DepthStencilReadWrite);
 		}
+	}
+
+	TEST(FRendererRenderTargetLayoutTests, GroundTruthAmbientOcclusionRawTargetFreezesLayoutAndBudget)
+	{
+		const FRHIRenderTargetLayout Layout =
+			MakeGroundTruthAmbientOcclusionOutput();
+		ASSERT_TRUE(Layout.IsValid());
+		ASSERT_EQ(Layout.NumColorRenderTargets, 1u);
+		EXPECT_FALSE(Layout.bHasDepthStencil);
+		const FRHIAttachmentLayout& Color =
+			Layout.ColorAttachments[0].RenderTarget;
+		EXPECT_EQ(Color.Format, EPixelFormat::R8_UNORM);
+		EXPECT_EQ(Color.LoadAction, ERHIRenderTargetLoadAction::Clear);
+		EXPECT_EQ(Color.StoreAction, ERHIRenderTargetStoreAction::Store);
+		EXPECT_EQ(Color.FinalLayout, ERHITextureLayout::ShaderReadOnly);
+		EXPECT_EQ(Color.FinalAccess, ERHIAccess::GraphicsShaderRead);
+		EXPECT_EQ(sizeof(FGroundTruthAmbientOcclusionRenderer::FViewUniform), 160u);
+		EXPECT_EQ(FGroundTruthAmbientOcclusionRenderer::BytesPerPixel, 1u);
+		EXPECT_EQ(
+			FGroundTruthAmbientOcclusionRenderer::CalculateRawTargetBytes(1920, 1080),
+			2'073'600u);
+		EXPECT_EQ(
+			FGroundTruthAmbientOcclusionRenderer::CalculateTargetBytes(1920, 1080),
+			4'147'200u);
+		EXPECT_GE(FGroundTruthAmbientOcclusionRenderer::MaximumRetainedBytes,
+			8u * FGroundTruthAmbientOcclusionRenderer::CalculateTargetBytes(
+				1920, 1080));
+		EXPECT_LT(FGroundTruthAmbientOcclusionRenderer::MaximumRetainedBytes,
+			9u * FGroundTruthAmbientOcclusionRenderer::CalculateTargetBytes(
+				1920, 1080));
 	}
 
 	TEST(FRendererRenderTargetLayoutTests, OutputVariantOwnsOnlyTheColorFinalTransition)

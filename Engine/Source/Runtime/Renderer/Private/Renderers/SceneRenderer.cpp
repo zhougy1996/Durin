@@ -29,10 +29,16 @@ namespace Durin
 		std::atomic<FGBufferTimingQuerySink> GGBufferTimingQuerySink = nullptr;
 		std::atomic<FDeferredDirectionalTimingQuerySink>
 			GDeferredDirectionalTimingQuerySink = nullptr;
+		std::atomic<FGroundTruthAmbientOcclusionTimingQuerySink>
+			GGroundTruthAmbientOcclusionTimingQuerySink = nullptr;
+		std::atomic<FGroundTruthAmbientOcclusionFilterTimingQuerySink>
+			GGroundTruthAmbientOcclusionFilterTimingQuerySink = nullptr;
 		std::atomic<FHDRSceneColorCaptureSink> GHDRSceneColorCaptureSink = nullptr;
 		std::atomic<FGBufferCaptureSink> GGBufferCaptureSink = nullptr;
 		std::atomic<FDeferredDirectionalCaptureSink>
 			GDeferredDirectionalCaptureSink = nullptr;
+		std::atomic<FGroundTruthAmbientOcclusionCaptureSink>
+			GGroundTruthAmbientOcclusionCaptureSink = nullptr;
 
 		auto AddSaturated(uint64 A, uint64 B) -> uint64
 		{
@@ -268,6 +274,20 @@ namespace Durin
 		);
 	}
 
+	auto SetGroundTruthAmbientOcclusionTimingQuerySink(
+		FGroundTruthAmbientOcclusionTimingQuerySink Sink) -> void
+	{
+		GGroundTruthAmbientOcclusionTimingQuerySink.store(
+			Sink, std::memory_order_release);
+	}
+
+	auto SetGroundTruthAmbientOcclusionFilterTimingQuerySink(
+		FGroundTruthAmbientOcclusionFilterTimingQuerySink Sink) -> void
+	{
+		GGroundTruthAmbientOcclusionFilterTimingQuerySink.store(
+			Sink, std::memory_order_release);
+	}
+
 	auto SetHDRSceneColorCaptureSink(FHDRSceneColorCaptureSink Sink) -> void
 	{
 		GHDRSceneColorCaptureSink.store(Sink, std::memory_order_release);
@@ -287,6 +307,13 @@ namespace Durin
 		);
 	}
 
+	auto SetGroundTruthAmbientOcclusionCaptureSink(
+		FGroundTruthAmbientOcclusionCaptureSink Sink) -> void
+	{
+		GGroundTruthAmbientOcclusionCaptureSink.store(
+			Sink, std::memory_order_release);
+	}
+
 	FSceneRenderer::FSceneRenderer()
 		: DefaultTextures(Coordinator)
 		, EnvironmentLighting(Coordinator)
@@ -294,6 +321,7 @@ namespace Durin
 		, GBufferRenderer(Coordinator)
 		, GBufferDebugRenderer(Coordinator, FullscreenGeometry)
 		, DeferredDirectionalLightingRenderer(Coordinator, FullscreenGeometry)
+		, GroundTruthAmbientOcclusionRenderer(Coordinator, FullscreenGeometry)
 		, StaticMeshRenderer(Coordinator, DefaultTextures, EnvironmentLighting)
 		, TerrainRenderer(Coordinator, DefaultTextures, EnvironmentLighting)
 		, SkeletalMeshRenderer(Coordinator, DefaultTextures, EnvironmentLighting)
@@ -367,6 +395,7 @@ namespace Durin
 		GBufferRenderer.ReleaseResources_RenderThread();
 		GBufferDebugRenderer.ReleaseResources_RenderThread();
 		DeferredDirectionalLightingRenderer.ReleaseResources_RenderThread();
+		GroundTruthAmbientOcclusionRenderer.ReleaseResources_RenderThread();
 		Coordinator.ReleaseResources_RenderThread();
 		SkyBoxRenderer.ReleaseResources_RenderThread();
 		EditorAssistanceRenderer.ReleaseResources_RenderThread();
@@ -444,6 +473,7 @@ namespace Durin
 						GBufferRenderer.ReleaseResources_RenderThread();
 						GBufferDebugRenderer.ReleaseResources_RenderThread();
 						DeferredDirectionalLightingRenderer.ReleaseResources_RenderThread();
+						GroundTruthAmbientOcclusionRenderer.ReleaseResources_RenderThread();
 						SkyBoxRenderer.ReleaseResources_RenderThread();
 						PostProcessRenderer.ReleaseResources_RenderThread();
 						ContactShadowRenderer.ReleaseResources_RenderThread();
@@ -814,12 +844,17 @@ namespace Durin
 			Options.bEnableDeferredDirectionalQualification
 			|| Options.DeferredDirectionalDebugMode
 				   != EDeferredDirectionalDebugMode::Disabled;
+		const bool bWantsIsolatedGroundTruthAmbientOcclusion =
+			Options.bEnableGroundTruthAmbientOcclusionQualification
+			|| Options.GroundTruthAmbientOcclusionDebugMode
+				!= EGroundTruthAmbientOcclusionDebugMode::Disabled;
 		const bool bWantsProductionDeferred =
 			Options.HybridOpaqueRoute != EHybridOpaqueRoute::ForwardReference
 			&& RenderView.Settings.RenderMode == ERenderMode::Lit
 			&& RenderView.Settings.RasterMode == ERasterMode::Solid;
-		const bool bWantsDeferredInputs =
-			bWantsIsolatedDeferred || bWantsProductionDeferred;
+		const bool bWantsDeferredInputs = bWantsIsolatedDeferred
+			|| bWantsProductionDeferred
+			|| bWantsIsolatedGroundTruthAmbientOcclusion;
 		const bool bHybridRetainedResourcesReady =
 			!bWantsProductionDeferred
 			|| (StaticMeshRenderer.PrepareHybridRetainedResources_RenderThread(
@@ -1029,6 +1064,101 @@ namespace Durin
 						Options.DeferredDirectionalDebugMode
 					)
 				};
+			}
+		}
+
+		if (bWantsIsolatedGroundTruthAmbientOcclusion)
+		{
+			++PreparedView.Counters.GroundTruthAmbientOcclusionAttemptedViews;
+			auto* AmbientOcclusionTargets = bGBufferComplete
+				? GroundTruthAmbientOcclusionRenderer.EnsureTargets_RenderThread(
+					Width, Height)
+				: nullptr;
+			if (AmbientOcclusionTargets == nullptr)
+			{
+				++PreparedView.Counters.
+					GroundTruthAmbientOcclusionUnavailableViews;
+			}
+			else
+			{
+				FGPUTimingQueryRHIRef TimingQuery;
+				const FGroundTruthAmbientOcclusionTimingQuerySink TimingSink =
+					GGroundTruthAmbientOcclusionTimingQuerySink.load(
+						std::memory_order_acquire);
+				if (TimingSink != nullptr && GDynamicRHI != nullptr)
+				{
+					TimingQuery = GDynamicRHI->RHICreateGPUTimingQuery();
+					if (TimingQuery)
+						CommandList.BeginGPUTimingQuery(TimingQuery);
+				}
+				const bool bRendered =
+					GroundTruthAmbientOcclusionRenderer.RenderRaw_RenderThread(
+						CommandList, *AmbientOcclusionTargets,
+						GBufferTargets->Normals, GBufferTargets->Surface,
+						SceneTargets->Depth, RenderView);
+				if (TimingQuery)
+					CommandList.EndGPUTimingQuery(TimingQuery);
+				if (bRendered)
+				{
+					if (TimingQuery)
+						TimingSink(TimingQuery);
+					const FGroundTruthAmbientOcclusionCaptureSink CaptureSink =
+						GGroundTruthAmbientOcclusionCaptureSink.load(
+							std::memory_order_acquire);
+					if (CaptureSink != nullptr)
+						CaptureSink(
+							CommandList, AmbientOcclusionTargets->Raw, false);
+
+					FGPUTimingQueryRHIRef FilterTimingQuery;
+					const FGroundTruthAmbientOcclusionFilterTimingQuerySink
+						FilterTimingSink =
+							GGroundTruthAmbientOcclusionFilterTimingQuerySink.load(
+								std::memory_order_acquire);
+					if (FilterTimingSink != nullptr && GDynamicRHI != nullptr)
+					{
+						FilterTimingQuery =
+							GDynamicRHI->RHICreateGPUTimingQuery();
+						if (FilterTimingQuery)
+							CommandList.BeginGPUTimingQuery(FilterTimingQuery);
+					}
+					const bool bFiltered =
+						GroundTruthAmbientOcclusionRenderer.RenderFilter_RenderThread(
+							CommandList, *AmbientOcclusionTargets,
+							GBufferTargets->Normals, GBufferTargets->Surface,
+							SceneTargets->Depth, RenderView);
+					if (FilterTimingQuery)
+						CommandList.EndGPUTimingQuery(FilterTimingQuery);
+					if (bFiltered)
+					{
+						++PreparedView.Counters.
+							GroundTruthAmbientOcclusionEnabledViews;
+						PreparedView.Counters.
+							GroundTruthAmbientOcclusionActiveBytes =
+								FGroundTruthAmbientOcclusionRenderer::
+									CalculateTargetBytes(Width, Height);
+						if (Options.GroundTruthAmbientOcclusionDebugMode
+							!= EGroundTruthAmbientOcclusionDebugMode::Disabled)
+						{
+							++PreparedView.Counters.
+								GroundTruthAmbientOcclusionDebugViews;
+						}
+						if (FilterTimingQuery)
+							FilterTimingSink(FilterTimingQuery);
+						if (CaptureSink != nullptr)
+							CaptureSink(
+								CommandList, AmbientOcclusionTargets->Raw, true);
+					}
+					else
+					{
+						++PreparedView.Counters.
+							GroundTruthAmbientOcclusionFilterPassFailures;
+					}
+				}
+				else
+				{
+					++PreparedView.Counters.
+						GroundTruthAmbientOcclusionRawPassFailures;
+				}
 			}
 		}
 

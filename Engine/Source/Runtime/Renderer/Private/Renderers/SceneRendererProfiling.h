@@ -16,6 +16,10 @@ namespace Durin
 		const FGPUTimingQueryRHIRef& Query);
 	using FDeferredDirectionalTimingQuerySink = void (*)(
 		const FGPUTimingQueryRHIRef& Query);
+	using FGroundTruthAmbientOcclusionTimingQuerySink = void (*)(
+		const FGPUTimingQueryRHIRef& Query);
+	using FGroundTruthAmbientOcclusionFilterTimingQuerySink = void (*)(
+		const FGPUTimingQueryRHIRef& Query);
 	using FHDRSceneColorCaptureSink = void (*)(
 		FRHICommandListImmediate& CommandList,
 		FRHITexture* SceneColor,
@@ -30,6 +34,10 @@ namespace Durin
 	using FDeferredDirectionalCaptureSink = void (*)(
 		FRHICommandListImmediate& CommandList,
 		FRHITexture* DeferredColor);
+	using FGroundTruthAmbientOcclusionCaptureSink = void (*)(
+		FRHICommandListImmediate& CommandList,
+		FRHITexture* Visibility,
+		bool bFiltered);
 
 	// Development seam receiving each explicitly requested Scene Color GPU interval.
 	RENDERER_API auto SetSceneColorTimingQuerySink(
@@ -42,6 +50,10 @@ namespace Durin
 		FGBufferTimingQuerySink Sink) -> void;
 	RENDERER_API auto SetDeferredDirectionalTimingQuerySink(
 		FDeferredDirectionalTimingQuerySink Sink) -> void;
+	RENDERER_API auto SetGroundTruthAmbientOcclusionTimingQuerySink(
+		FGroundTruthAmbientOcclusionTimingQuerySink Sink) -> void;
+	RENDERER_API auto SetGroundTruthAmbientOcclusionFilterTimingQuerySink(
+		FGroundTruthAmbientOcclusionFilterTimingQuerySink Sink) -> void;
 
 	// Development seam receiving scene-linear color after optional contact
 	// composition and before display mapping.
@@ -52,4 +64,6 @@ namespace Durin
 	RENDERER_API auto SetGBufferCaptureSink(FGBufferCaptureSink Sink) -> void;
 	RENDERER_API auto SetDeferredDirectionalCaptureSink(
 		FDeferredDirectionalCaptureSink Sink) -> void;
+	RENDERER_API auto SetGroundTruthAmbientOcclusionCaptureSink(
+		FGroundTruthAmbientOcclusionCaptureSink Sink) -> void;
 }

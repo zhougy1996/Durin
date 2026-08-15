@@ -28,6 +28,9 @@ namespace Durin::RenderTargetLayouts
 	// Isolated M3 RGBA16_FLOAT qualification output, cleared per view and left
 	// shader-readable for capture/A-B without becoming the presented Scene Color.
 	RENDERER_API auto MakeDeferredDirectionalOutput() -> FRHIRenderTargetLayout;
+	// One cleared R8_UNORM raw visibility target published for sampling/capture.
+	RENDERER_API auto MakeGroundTruthAmbientOcclusionOutput()
+		-> FRHIRenderTargetLayout;
 	// Clears/loads the authoritative hybrid Scene Color pair while preserving
 	// GBuffer depth across sky bootstrap, deferred lighting, and retained forward.
 	RENDERER_API auto MakeHybridSceneBootstrap() -> FRHIRenderTargetLayout;

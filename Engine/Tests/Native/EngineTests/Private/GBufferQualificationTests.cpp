@@ -8,7 +8,7 @@
 #include "HAL/PlatformLTS.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Modules/ModuleManager.h"
-#include "Modules/ModuleTestContext.h"
+#include "Modules/ModuleTestSupport.h"
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RendererModule.h"
@@ -44,6 +44,12 @@ namespace
 	std::vector<Durin::FGPUTimingQueryRHIRef>* GSceneTimingQueries = nullptr;
 	std::vector<Durin::FGPUTimingQueryRHIRef>* GPostProcessTimingQueries = nullptr;
 	std::vector<Durin::FGPUTimingQueryRHIRef>* GShadowTimingQueries = nullptr;
+	std::vector<Durin::FGPUTimingQueryRHIRef>*
+		GGroundTruthAmbientOcclusionTimingQueries = nullptr;
+	std::vector<Durin::FGPUTimingQueryRHIRef>*
+		GGroundTruthAmbientOcclusionFilterTimingQueries = nullptr;
+	std::vector<Durin::uint8>* GGroundTruthAmbientOcclusionPixels = nullptr;
+	std::vector<Durin::uint8>* GGroundTruthAmbientOcclusionFilteredPixels = nullptr;
 	Durin::FViewRenderCounters GLastCounters;
 
 	struct FGBufferQualificationCommand
@@ -82,6 +88,64 @@ namespace
 	{
 		if (GShadowTimingQueries != nullptr)
 			GShadowTimingQueries->push_back(Query);
+	}
+
+	auto CaptureGroundTruthAmbientOcclusionTiming(
+		const Durin::FGPUTimingQueryRHIRef& Query) -> void
+	{
+		if (GGroundTruthAmbientOcclusionTimingQueries != nullptr)
+			GGroundTruthAmbientOcclusionTimingQueries->push_back(Query);
+	}
+
+	auto CaptureGroundTruthAmbientOcclusionFilterTiming(
+		const Durin::FGPUTimingQueryRHIRef& Query) -> void
+	{
+		if (GGroundTruthAmbientOcclusionFilterTimingQueries != nullptr)
+			GGroundTruthAmbientOcclusionFilterTimingQueries->push_back(Query);
+	}
+
+	auto CaptureGroundTruthAmbientOcclusion(
+		Durin::FRHICommandListImmediate& CommandList,
+		Durin::FRHITexture* RawVisibility,
+		bool bFiltered) -> void
+	{
+		auto* Pixels = bFiltered
+			? GGroundTruthAmbientOcclusionFilteredPixels
+			: GGroundTruthAmbientOcclusionPixels;
+		if (Pixels == nullptr) return;
+		const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+			"GroundTruthAmbientOcclusionReadback",
+			RawVisibility->GetSizeX(), RawVisibility->GetSizeY(),
+			RawVisibility->GetFormat())
+			.SetFlags(Durin::ETextureCreateFlags::DestinationCopy
+				| Durin::ETextureCreateFlags::CPUReadback
+				| Durin::ETextureCreateFlags::ShaderResource);
+		Durin::FTextureRHIRef Readback =
+			Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+		ASSERT_NE(Readback, nullptr);
+		const Durin::FRHITextureSubresourceRange Whole{
+			Durin::ERHITextureAspect::Color, 0, 1, 0, 1};
+		CommandList.TransitionTextures(std::array{
+			Durin::FRHITextureTransition{RawVisibility, Whole,
+				Durin::ERHIAccess::GraphicsShaderRead,
+				Durin::ERHIAccess::TransferRead},
+			Durin::FRHITextureTransition{Readback, Whole,
+				Durin::ERHIAccess::Discard,
+				Durin::ERHIAccess::TransferWrite}});
+		CommandList.CopyTexture(RawVisibility, Readback,
+			std::array{Durin::FRHITextureCopyRegion{
+				.Extent = {RawVisibility->GetSizeX(),
+					RawVisibility->GetSizeY(), 1}}});
+		CommandList.TransitionTextures(std::array{
+			Durin::FRHITextureTransition{RawVisibility, Whole,
+				Durin::ERHIAccess::TransferRead,
+				Durin::ERHIAccess::GraphicsShaderRead},
+			Durin::FRHITextureTransition{Readback, Whole,
+				Durin::ERHIAccess::TransferWrite,
+				Durin::ERHIAccess::GraphicsShaderRead}});
+		ASSERT_TRUE(Durin::GDynamicRHI->RHIReadTexture2D(
+			CommandList, Readback, 0, 0,
+			*Pixels));
 	}
 
 	auto CaptureCounters(const Durin::FViewRenderCounters& Counters) -> void
@@ -174,9 +238,8 @@ TEST(FGBufferQualificationTests,
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
 	Durin::FRendererModule Renderer;
-	auto RendererContext = Durin::FModuleTestContextFactory::CreateStartupContext(
-		"GBufferQualificationTest");
-	Renderer.StartupModule(RendererContext);
+	Durin::FModuleTestHarness RendererLifecycle("GBufferQualificationTest");
+	RendererLifecycle.Start(Renderer);
 	Durin::SetViewRenderCounterSink(CaptureCounters);
 
 	auto StaticQuad = MakeStaticQuad();
@@ -434,6 +497,274 @@ TEST(FGBufferQualificationTests,
 		<< 107'827'200u << "\n";
 	GBufferQueries.clear();
 	DeferredQueries.clear();
+	std::vector<Durin::FGPUTimingQueryRHIRef> AmbientOcclusionQueries;
+	std::vector<Durin::FGPUTimingQueryRHIRef> AmbientOcclusionFilterQueries;
+	GGroundTruthAmbientOcclusionTimingQueries = &AmbientOcclusionQueries;
+	GGroundTruthAmbientOcclusionFilterTimingQueries =
+		&AmbientOcclusionFilterQueries;
+	Durin::SetGroundTruthAmbientOcclusionTimingQuerySink(
+		CaptureGroundTruthAmbientOcclusionTiming);
+	Durin::SetGroundTruthAmbientOcclusionFilterTimingQuerySink(
+		CaptureGroundTruthAmbientOcclusionFilterTiming);
+	Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
+		[&Renderer, &Scene](Durin::FRHICommandListImmediate& CommandList) {
+			const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+				"GroundTruthAmbientOcclusionQualification", TimingWidth, TimingHeight,
+				Durin::EPixelFormat::SRGBA8_UNORM)
+				.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
+					| Durin::ETextureCreateFlags::ShaderResource);
+			Durin::FTextureRHIRef Target =
+				Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+			ASSERT_NE(Target, nullptr);
+			Durin::FSceneView View;
+			View.ViewProjectionMatrix = Durin::FMatrix(1.0);
+			View.ViewportWidth = TimingWidth;
+			View.ViewportHeight = TimingHeight;
+			View.Settings.RenderMode = Durin::ERenderMode::Lit;
+			View.Settings.VisibilityMode =
+				Durin::EViewVisibilityMode::FrustumCullingDisabled;
+			Durin::FSceneViewRenderOptions Options;
+			Options.bEnableGroundTruthAmbientOcclusionQualification = true;
+			for (Durin::uint32 Frame = 0;
+				Frame < WarmupFrames + MeasuredFrames; ++Frame)
+			{
+				++Durin::GRenderFrameCounterRenderThread;
+				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View,
+					Target, false, Options), Durin::ERenderViewResult::Success);
+				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+			}
+		});
+	Durin::FlushRenderingCommands();
+	Durin::SetGroundTruthAmbientOcclusionTimingQuerySink(nullptr);
+	Durin::SetGroundTruthAmbientOcclusionFilterTimingQuerySink(nullptr);
+	GGroundTruthAmbientOcclusionTimingQueries = nullptr;
+	GGroundTruthAmbientOcclusionFilterTimingQueries = nullptr;
+	for (Durin::uint32 Attempt = 0; Attempt < 100; ++Attempt)
+	{
+		const bool bReady =
+			AmbientOcclusionQueries.size() == WarmupFrames + MeasuredFrames
+			&& AmbientOcclusionFilterQueries.size()
+				== WarmupFrames + MeasuredFrames
+			&& std::ranges::all_of(AmbientOcclusionQueries,
+				[](const auto& Query) {
+					return Query->GetResult().State
+						== Durin::ERHIGPUTimingResultState::Ready;
+				})
+			&& std::ranges::all_of(AmbientOcclusionFilterQueries,
+				[](const auto& Query) {
+					return Query->GetResult().State
+						== Durin::ERHIGPUTimingResultState::Ready;
+				});
+		if (bReady) break;
+		Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
+			[](Durin::FRHICommandListImmediate& CommandList) {
+				++Durin::GRenderFrameCounterRenderThread;
+				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+			});
+		Durin::FlushRenderingCommands();
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+	ASSERT_EQ(AmbientOcclusionQueries.size(), WarmupFrames + MeasuredFrames);
+	ASSERT_EQ(AmbientOcclusionFilterQueries.size(),
+		WarmupFrames + MeasuredFrames);
+	std::vector<Durin::uint64> AmbientOcclusionDurations;
+	std::vector<Durin::uint64> AmbientOcclusionFilterDurations;
+	std::vector<Durin::uint64> AmbientOcclusionCombinedDurations;
+	for (size_t Index = WarmupFrames; Index < AmbientOcclusionQueries.size(); ++Index)
+	{
+		const auto Result = AmbientOcclusionQueries[Index]->GetResult();
+		ASSERT_EQ(Result.State, Durin::ERHIGPUTimingResultState::Ready);
+		AmbientOcclusionDurations.push_back(Result.DurationNanoseconds);
+		const auto FilterResult =
+			AmbientOcclusionFilterQueries[Index]->GetResult();
+		ASSERT_EQ(FilterResult.State, Durin::ERHIGPUTimingResultState::Ready);
+		AmbientOcclusionFilterDurations.push_back(
+			FilterResult.DurationNanoseconds);
+		AmbientOcclusionCombinedDurations.push_back(
+			Result.DurationNanoseconds + FilterResult.DurationNanoseconds);
+	}
+	std::ranges::sort(AmbientOcclusionDurations);
+	std::ranges::sort(AmbientOcclusionFilterDurations);
+	std::ranges::sort(AmbientOcclusionCombinedDurations);
+	const Durin::uint64 AmbientOcclusionMedian = Median(AmbientOcclusionDurations);
+	const Durin::uint64 AmbientOcclusionP95 = AmbientOcclusionDurations[113];
+	const Durin::uint64 AmbientOcclusionFilterMedian =
+		Median(AmbientOcclusionFilterDurations);
+	const Durin::uint64 AmbientOcclusionFilterP95 =
+		AmbientOcclusionFilterDurations[113];
+	const Durin::uint64 AmbientOcclusionCombinedMedian =
+		Median(AmbientOcclusionCombinedDurations);
+	const Durin::uint64 AmbientOcclusionCombinedP95 =
+		AmbientOcclusionCombinedDurations[113];
+	EXPECT_GT(AmbientOcclusionMedian, 0u);
+	EXPECT_LE(AmbientOcclusionMedian, 600'000u);
+	EXPECT_LE(AmbientOcclusionP95, 900'000u);
+	EXPECT_GT(AmbientOcclusionFilterMedian, 0u);
+	EXPECT_LE(AmbientOcclusionFilterMedian, 250'000u);
+	EXPECT_LE(AmbientOcclusionFilterP95, 400'000u);
+	EXPECT_LE(AmbientOcclusionCombinedMedian, 850'000u);
+	EXPECT_LE(AmbientOcclusionCombinedP95, 1'100'000u);
+	EXPECT_EQ(GLastCounters.GroundTruthAmbientOcclusionAttemptedViews, 1u);
+	EXPECT_EQ(GLastCounters.GroundTruthAmbientOcclusionEnabledViews, 1u);
+	EXPECT_EQ(GLastCounters.GroundTruthAmbientOcclusionUnavailableViews, 0u);
+	EXPECT_EQ(GLastCounters.GroundTruthAmbientOcclusionRawPassFailures, 0u);
+	EXPECT_EQ(GLastCounters.GroundTruthAmbientOcclusionFilterPassFailures, 0u);
+	EXPECT_EQ(GLastCounters.GroundTruthAmbientOcclusionActiveBytes, 4'147'200u);
+	std::cout << "GTAO_RAW_QUALIFICATION gpu=NVIDIA_GeForce_RTX_3090"
+		<< ",driver=591.86,vulkan=1.4.325"
+		<< ",configuration=Win64-Debug-DurinEditor,validation=enabled"
+		<< ",resolution=1920x1080,warmup_frames=" << WarmupFrames
+		<< ",measured_frames=" << MeasuredFrames
+		<< ",median_ns=" << AmbientOcclusionMedian
+		<< ",p95_ns=" << AmbientOcclusionP95
+		<< ",filter_median_ns=" << AmbientOcclusionFilterMedian
+		<< ",filter_p95_ns=" << AmbientOcclusionFilterP95
+		<< ",combined_median_ns=" << AmbientOcclusionCombinedMedian
+		<< ",combined_p95_ns=" << AmbientOcclusionCombinedP95
+		<< ",active_bytes="
+		<< GLastCounters.GroundTruthAmbientOcclusionActiveBytes << '\n';
+	AmbientOcclusionQueries.clear();
+	AmbientOcclusionFilterQueries.clear();
+
+	constexpr Durin::uint32 CaptureWidth = 320;
+	constexpr Durin::uint32 CaptureHeight = 180;
+	auto CaptureAmbientOcclusionFrame = [&Renderer, &Scene](
+		Durin::uint32 Width, Durin::uint32 Height,
+		std::vector<Durin::uint8>& Pixels,
+		std::vector<Durin::uint8>& FilteredPixels) {
+		GGroundTruthAmbientOcclusionPixels = &Pixels;
+		GGroundTruthAmbientOcclusionFilteredPixels = &FilteredPixels;
+		Durin::SetGroundTruthAmbientOcclusionCaptureSink(
+			CaptureGroundTruthAmbientOcclusion);
+		Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
+			[&Renderer, &Scene, Width, Height](
+				Durin::FRHICommandListImmediate& CommandList) {
+				const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+					"GroundTruthAmbientOcclusionCapture", Width, Height,
+					Durin::EPixelFormat::SRGBA8_UNORM)
+					.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
+						| Durin::ETextureCreateFlags::ShaderResource);
+				Durin::FTextureRHIRef Target =
+					Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+				ASSERT_NE(Target, nullptr);
+				Durin::FSceneView View;
+				// Look down world -Z using Durin's X-forward view convention.
+				View.ViewLocation = {0.0, 0.0, 1.0};
+				View.ViewMatrix = Durin::FMatrix(0.0);
+				View.ViewMatrix[2][0] = -1.0;
+				View.ViewMatrix[3][0] = 1.0;
+				View.ViewMatrix[0][1] = 1.0;
+				View.ViewMatrix[1][2] = -1.0;
+				View.ViewMatrix[3][3] = 1.0;
+				constexpr double NearClip = 0.1;
+				constexpr double FarClip = 10.0;
+				const double YScale = 1.0 / std::tan(
+					Durin::Math::DegreesToRadians(60.0) * 0.5);
+				View.ProjectionMatrix = Durin::FMatrix(0.0);
+				View.ProjectionMatrix[1][0] = YScale;
+				View.ProjectionMatrix[2][1] = -YScale;
+				View.ProjectionMatrix[0][2] =
+					FarClip / (FarClip - NearClip);
+				View.ProjectionMatrix[3][2] =
+					-NearClip * FarClip / (FarClip - NearClip);
+				View.ProjectionMatrix[0][3] = 1.0;
+				View.ViewProjectionMatrix =
+					View.ProjectionMatrix * View.ViewMatrix;
+				View.ViewportWidth = Width;
+				View.ViewportHeight = Height;
+				View.Settings.RenderMode = Durin::ERenderMode::Lit;
+				View.Settings.VisibilityMode =
+					Durin::EViewVisibilityMode::FrustumCullingDisabled;
+				Durin::FSceneViewRenderOptions Options;
+				Options.bEnableGroundTruthAmbientOcclusionQualification = true;
+				++Durin::GRenderFrameCounterRenderThread;
+				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View,
+					Target, false, Options), Durin::ERenderViewResult::Success);
+				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+			});
+		Durin::FlushRenderingCommands();
+		Durin::SetGroundTruthAmbientOcclusionCaptureSink(nullptr);
+		GGroundTruthAmbientOcclusionPixels = nullptr;
+		GGroundTruthAmbientOcclusionFilteredPixels = nullptr;
+	};
+	std::vector<Durin::uint8> FirstRawVisibility;
+	std::vector<Durin::uint8> FirstFilteredVisibility;
+	std::vector<Durin::uint8> ResizedRawVisibility;
+	std::vector<Durin::uint8> ResizedFilteredVisibility;
+	std::vector<Durin::uint8> RepeatedRawVisibility;
+	std::vector<Durin::uint8> RepeatedFilteredVisibility;
+	CaptureAmbientOcclusionFrame(
+		CaptureWidth, CaptureHeight,
+		FirstRawVisibility, FirstFilteredVisibility);
+	CaptureAmbientOcclusionFrame(
+		384, 216, ResizedRawVisibility, ResizedFilteredVisibility);
+	CaptureAmbientOcclusionFrame(
+		CaptureWidth, CaptureHeight,
+		RepeatedRawVisibility, RepeatedFilteredVisibility);
+	ASSERT_EQ(FirstRawVisibility.size(), CaptureWidth * CaptureHeight);
+	ASSERT_EQ(FirstFilteredVisibility.size(), CaptureWidth * CaptureHeight);
+	ASSERT_EQ(ResizedRawVisibility.size(), 384u * 216u);
+	ASSERT_EQ(ResizedFilteredVisibility.size(), 384u * 216u);
+	EXPECT_EQ(RepeatedRawVisibility, FirstRawVisibility);
+	EXPECT_EQ(RepeatedFilteredVisibility, FirstFilteredVisibility);
+	auto PixelAt = [&FirstRawVisibility](Durin::uint32 X, Durin::uint32 Y) {
+		return FirstRawVisibility[Y * CaptureWidth + X];
+	};
+	EXPECT_GE(PixelAt(80, 45), 250u);
+	EXPECT_GE(PixelAt(240, 45), 250u);
+	EXPECT_GE(PixelAt(80, 135), 250u);
+	EXPECT_GE(PixelAt(240, 135), 250u);
+	auto FilteredPixelAt = [&FirstFilteredVisibility](
+		Durin::uint32 X, Durin::uint32 Y) {
+		return FirstFilteredVisibility[Y * CaptureWidth + X];
+	};
+	EXPECT_GE(FilteredPixelAt(80, 45), 250u);
+	EXPECT_GE(FilteredPixelAt(240, 45), 250u);
+	EXPECT_GE(FilteredPixelAt(80, 135), 250u);
+	EXPECT_GE(FilteredPixelAt(240, 135), 250u);
+	EXPECT_EQ(GLastCounters.GroundTruthAmbientOcclusionActiveBytes,
+		2u * CaptureWidth * CaptureHeight);
+
+	Durin::FMatrix RaisedTransform = Durin::Math::TranslationMatrix(
+		Durin::FVector3{-0.25, -0.25, 0.25});
+	RaisedTransform = glm::scale(
+		RaisedTransform, Durin::FVector3{0.5, 0.5, 1.0});
+	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(7),
+		std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(),
+			std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1),
+		RaisedTransform);
+	Durin::FlushRenderingCommands();
+	std::vector<Durin::uint8> RaisedContactVisibility;
+	std::vector<Durin::uint8> RaisedContactFilteredVisibility;
+	CaptureAmbientOcclusionFrame(
+		CaptureWidth, CaptureHeight,
+		RaisedContactVisibility, RaisedContactFilteredVisibility);
+	ASSERT_EQ(RaisedContactVisibility.size(), FirstRawVisibility.size());
+	ASSERT_EQ(RaisedContactFilteredVisibility.size(),
+		FirstFilteredVisibility.size());
+	size_t OccludedPixels = 0;
+	for (size_t Index = 0; Index < RaisedContactVisibility.size(); ++Index)
+	{
+		if (static_cast<Durin::uint32>(RaisedContactVisibility[Index]) + 2u
+			< FirstRawVisibility[Index])
+			++OccludedPixels;
+	}
+	EXPECT_GT(OccludedPixels, 0u);
+	EXPECT_LT(OccludedPixels, CaptureWidth * CaptureHeight);
+	size_t FilteredOccludedPixels = 0;
+	for (size_t Index = 0; Index < RaisedContactFilteredVisibility.size(); ++Index)
+	{
+		if (static_cast<Durin::uint32>(RaisedContactFilteredVisibility[Index])
+				+ 2u < FirstFilteredVisibility[Index])
+			++FilteredOccludedPixels;
+	}
+	EXPECT_GT(FilteredOccludedPixels, 0u);
+	EXPECT_LT(FilteredOccludedPixels, CaptureWidth * CaptureHeight);
+	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(7));
+	Durin::FlushRenderingCommands();
 
 	auto UnlitMaterial = Durin::MakeRefCount<Durin::FMaterialRenderProxy>();
 	Durin::FMaterialRenderProxyPublication UnlitPublication;
@@ -777,9 +1108,7 @@ TEST(FGBufferQualificationTests,
 			SkeletalQuad->ReleaseResources();
 		});
 	Durin::FlushRenderingCommands();
-	auto ShutdownContext =
-		Durin::FModuleTestContextFactory::CreateShutdownContext(RendererContext);
-	Renderer.ShutdownModule(ShutdownContext);
+	RendererLifecycle.Shutdown();
 	Durin::SetViewRenderCounterSink(nullptr);
 	Durin::ShutdownRenderingThread();
 	Durin::RHIExit();

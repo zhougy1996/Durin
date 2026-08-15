@@ -6,6 +6,7 @@
 #include "Renderers/DeferredDirectionalLightingRenderer.h"
 #include "Renderers/GBufferRenderer.h"
 #include "Renderers/GBufferDebugRenderer.h"
+#include "Renderers/GroundTruthAmbientOcclusionRenderer.h"
 #include "Renderers/PostProcessRenderer.h"
 #include "Renderers/SkyBoxRenderer.h"
 #include "Renderers/SkeletalMeshRenderer.h"
@@ -99,6 +100,7 @@ namespace Durin
 		FGBufferRenderer GBufferRenderer;
 		FGBufferDebugRenderer GBufferDebugRenderer;
 		FDeferredDirectionalLightingRenderer DeferredDirectionalLightingRenderer;
+		FGroundTruthAmbientOcclusionRenderer GroundTruthAmbientOcclusionRenderer;
 		FStaticMeshRenderer StaticMeshRenderer;
 		FTerrainRenderer TerrainRenderer;
 		FSkeletalMeshRenderer SkeletalMeshRenderer;

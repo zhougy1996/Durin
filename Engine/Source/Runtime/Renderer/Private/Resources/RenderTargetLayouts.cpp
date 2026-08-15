@@ -139,6 +139,20 @@ namespace Durin::RenderTargetLayouts
 		return Layout;
 	}
 
+	auto MakeGroundTruthAmbientOcclusionOutput() -> FRHIRenderTargetLayout
+	{
+		FRHIRenderTargetLayout Layout;
+		Layout.NumColorRenderTargets = 1;
+		Layout.ColorAttachments[0].RenderTarget = MakeColorAttachment(
+			EPixelFormat::R8_UNORM,
+			ERHIRenderTargetLoadAction::Clear,
+			ERHITextureLayout::Undefined,
+			ERHIAccess::None,
+			ERHITextureLayout::ShaderReadOnly,
+			ERHIAccess::GraphicsShaderRead);
+		return Layout;
+	}
+
 	auto MakeHybridSceneBootstrap() -> FRHIRenderTargetLayout
 	{
 		FRHIRenderTargetLayout Layout;
