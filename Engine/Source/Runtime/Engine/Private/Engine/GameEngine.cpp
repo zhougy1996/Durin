@@ -64,17 +64,6 @@ namespace Durin
 				FSoftObjectPath SoftPath;
 				TSoftObjectPtr<DLevel> DefaultLevel;
 				DLevel* Level = nullptr;
-				const Asset::FAssetCatalogRefreshResult Refresh =
-					Asset::RefreshAssetCatalog(
-						Asset::EAssetRegistryScanMode::Incremental);
-				if (!Refresh)
-				{
-					StartupError = Refresh.Errors.empty()
-						? "Asset catalog refresh was incomplete."
-						: Refresh.Errors.front().Message;
-					DURIN_ERROR("Could not refresh the asset catalog: {}", StartupError);
-					return FEngineInitializationResult::Success();
-				}
 				if (FSoftObjectPath::TryCreate(Settings.DefaultLevel, SoftPath))
 				{
 					DefaultLevel.SetPath(std::move(SoftPath));

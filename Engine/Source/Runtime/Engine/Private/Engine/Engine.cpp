@@ -16,6 +16,7 @@
 #include "Profiling/Profiling.h"
 #include "Application/MonaApplication.h"
 #include "Application/MonaEventHandler.h"
+#include "AssetCatalog.h"
 #include "Window/GenericWindow.h"
 
 #include "DynamicRHI.h"
@@ -120,6 +121,18 @@ namespace Durin
 
 	auto DEngine::Init(const FEngineInitContext&) -> FEngineInitializationResult
 	{
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RegistryScanBegin);
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.RegistryScan");
+			const Asset::FAssetCatalogRefreshResult Refresh =
+				Asset::RefreshAssetCatalog(
+					Asset::EAssetRegistryScanMode::Incremental);
+			if (!Refresh)
+				DURIN_ERROR(
+					"Asset catalog refresh retained revision {} with {} error(s).",
+					Refresh.ResultingRevision, Refresh.Errors.size());
+		}
+		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RegistryScanComplete);
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultMaterialBegin);
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.DefaultMaterial");

@@ -113,18 +113,6 @@ namespace Durin::Editor::Level
 
 	auto MLevelEditor::InitializeSession() -> void
 	{
-		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RegistryScanBegin);
-		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.RegistryScan");
-			const Asset::FAssetCatalogRefreshResult Refresh =
-				Asset::RefreshAssetCatalog(
-					Asset::EAssetRegistryScanMode::Incremental);
-			if (!Refresh)
-				DURIN_ERROR(
-					"Asset catalog refresh retained revision {} with {} error(s).",
-					Refresh.ResultingRevision, Refresh.Errors.size());
-		}
-		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RegistryScanComplete);
 		SessionSettings.PruneInvalidViewportStates();
 		LoadProjectSettings();
 		SessionSettings.Save(nullptr);
