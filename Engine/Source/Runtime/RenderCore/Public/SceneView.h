@@ -104,6 +104,9 @@ namespace Durin
 		bool bEnableContactShadows = false;
 		// Development overlay that visualizes the contact-shadow occlusion.
 		bool bShowContactShadowDebug = false;
+		// Indirect-only GTAO for solid Lit views using required deferred opaque
+		// ownership. Optional resource failure degrades this factor to white.
+		bool bEnableGroundTruthAmbientOcclusion = true;
 	};
 
 	// Supplies one submission-local cube environment without publishing scene state.
@@ -179,8 +182,8 @@ namespace Durin
 		bool bEnableDeferredDirectionalQualification = false;
 		EDeferredDirectionalDebugMode DeferredDirectionalDebugMode =
 			EDeferredDirectionalDebugMode::Disabled;
-		// Development-only M5 path. Produces isolated raw R8 visibility from
-		// the qualified production depth/normal inputs without changing HDR.
+		// Development-only M5 path. Produces isolated raw and filtered R8
+		// visibility from the qualified production depth/normal inputs.
 		bool bEnableGroundTruthAmbientOcclusionQualification = false;
 		EGroundTruthAmbientOcclusionDebugMode
 			GroundTruthAmbientOcclusionDebugMode =

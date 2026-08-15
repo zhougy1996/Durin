@@ -34,6 +34,8 @@ namespace Durin
 	DURIN_SHADER_PARAMETER_SAMPLER(EnvironmentSampler);       \
 	DURIN_SHADER_PARAMETER_TEXTURE(DirectionalShadowTexture); \
 	DURIN_SHADER_PARAMETER_SAMPLER(DirectionalShadowSampler); \
+	DURIN_SHADER_PARAMETER_TEXTURE(GroundTruthAmbientOcclusionRaw); \
+	DURIN_SHADER_PARAMETER_TEXTURE(GroundTruthAmbientOcclusionFiltered); \
 	DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(View);      \
 	DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Lighting);
 
@@ -344,6 +346,8 @@ namespace Durin
 			|| Parameters.EnvironmentPrefiltered == nullptr
 			|| Parameters.EnvironmentBrdfLut == nullptr
 			|| Parameters.DirectionalShadowTexture == nullptr
+			|| Parameters.GroundTruthAmbientOcclusionRaw == nullptr
+			|| Parameters.GroundTruthAmbientOcclusionFiltered == nullptr
 			|| Parameters.Lighting.Buffer == nullptr)
 		{
 			return false;
@@ -378,8 +382,11 @@ namespace Durin
 		Uniform.Params = {
 			1.0f / static_cast<float>(View->ViewportWidth),
 			1.0f / static_cast<float>(View->ViewportHeight),
-			static_cast<float>(Parameters.DiagnosticMode),
-			bProduction ? 1.0f : 0.0f
+			Parameters.bGroundTruthAmbientOcclusionEnabled
+				? static_cast<float>(Parameters.DiagnosticMode)
+				: -static_cast<float>(Parameters.DiagnosticMode + 1u),
+			bProduction ? 1.0f :
+				-static_cast<float>(Parameters.GroundTruthAmbientOcclusionDebugMode)
 		};
 		const FRHIUniformBufferRange ViewUniform =
 			CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
@@ -430,6 +437,10 @@ namespace Durin
 				Parameters.DirectionalShadowTexture;
 			ShaderParameters.DirectionalShadowSampler =
 				Parameters.DirectionalShadowSampler ? Parameters.DirectionalShadowSampler : Payload->FallbackShadowSampler.GetReference();
+			ShaderParameters.GroundTruthAmbientOcclusionRaw =
+				Parameters.GroundTruthAmbientOcclusionRaw;
+			ShaderParameters.GroundTruthAmbientOcclusionFiltered =
+				Parameters.GroundTruthAmbientOcclusionFiltered;
 			ShaderParameters.View = ViewUniform;
 			ShaderParameters.Lighting = Parameters.Lighting;
 		};

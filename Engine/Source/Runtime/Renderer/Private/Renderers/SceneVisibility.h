@@ -229,6 +229,7 @@ namespace Durin
 		size_t GroundTruthAmbientOcclusionFilterPassFailures = 0;
 		size_t GroundTruthAmbientOcclusionDebugViews = 0;
 		size_t GroundTruthAmbientOcclusionActiveBytes = 0;
+		size_t GroundTruthAmbientOcclusionRetainedBytes = 0;
 		size_t HybridDeferredEnabledViews = 0;
 		size_t HybridDeferredFallbackViews = 0;
 		size_t HybridDeferredUnavailableViews = 0;

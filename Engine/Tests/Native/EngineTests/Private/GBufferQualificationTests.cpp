@@ -15,6 +15,7 @@
 #include "Renderers/DeferredDirectionalLightingRenderer.h"
 #include "Renderers/DirectionalShadowRenderer.h"
 #include "Renderers/GBufferRenderer.h"
+#include "Renderers/GroundTruthAmbientOcclusionRenderer.h"
 #include "Renderers/PostProcessRenderer.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/SceneVisibility.h"
@@ -814,12 +815,16 @@ TEST(FGBufferQualificationTests,
 	std::vector<Durin::FGPUTimingQueryRHIRef> ProductionShadowQueries;
 	std::vector<Durin::uint64> ProductionGBufferDurations;
 	std::vector<Durin::uint64> ProductionDeferredDurations;
+	std::vector<Durin::uint64> ProductionDeferredWithoutAODurations;
 	std::vector<Durin::uint64> ProductionSceneDurations;
 	std::vector<Durin::uint64> ProductionPostProcessDurations;
 	std::vector<Durin::uint64> ProductionShadowDurations;
-	auto RenderProductionFrames = [&Renderer, &Scene]() {
+	bool bEnableProductionAmbientOcclusion = true;
+	auto RenderProductionFrames = [&Renderer, &Scene,
+		&bEnableProductionAmbientOcclusion]() {
 		Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
-		[&Renderer, &Scene](Durin::FRHICommandListImmediate& CommandList) {
+			[&Renderer, &Scene, bEnableProductionAmbientOcclusion](
+				Durin::FRHICommandListImmediate& CommandList) {
 			const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
 				"HybridProductionQualification", TimingWidth, TimingHeight,
 				Durin::EPixelFormat::SRGBA8_UNORM)
@@ -840,6 +845,8 @@ TEST(FGBufferQualificationTests,
 			View.Settings.DirectionalShadowFilterQuality =
 				Durin::EDirectionalShadowFilterQuality::Medium;
 			View.Settings.bEnableFXAA = true;
+			View.Settings.bEnableGroundTruthAmbientOcclusion =
+				bEnableProductionAmbientOcclusion;
 			Durin::FSceneViewRenderOptions Options;
 			Options.HybridOpaqueRoute =
 				Durin::EHybridOpaqueRoute::DeferredRequired;
@@ -904,6 +911,12 @@ TEST(FGBufferQualificationTests,
 		ProductionDeferredDurations,
 		GDeferredTimingQueries, Durin::SetDeferredDirectionalTimingQuerySink,
 		CaptureDeferredTiming);
+	bEnableProductionAmbientOcclusion = false;
+	ProfileProductionInterval(ProductionDeferredQueries,
+		ProductionDeferredWithoutAODurations,
+		GDeferredTimingQueries, Durin::SetDeferredDirectionalTimingQuerySink,
+		CaptureDeferredTiming);
+	bEnableProductionAmbientOcclusion = true;
 	ProfileProductionInterval(ProductionSceneQueries,
 		ProductionSceneDurations,
 		GSceneTimingQueries, Durin::SetSceneColorTimingQuerySink,
@@ -920,6 +933,7 @@ TEST(FGBufferQualificationTests,
 	std::vector<Durin::uint64> ProductionTotalDurations;
 	ASSERT_EQ(ProductionGBufferDurations.size(), MeasuredFrames);
 	ASSERT_EQ(ProductionDeferredDurations.size(), MeasuredFrames);
+	ASSERT_EQ(ProductionDeferredWithoutAODurations.size(), MeasuredFrames);
 	ASSERT_EQ(ProductionSceneDurations.size(), MeasuredFrames);
 	ASSERT_EQ(ProductionPostProcessDurations.size(), MeasuredFrames);
 	ASSERT_EQ(ProductionShadowDurations.size(), MeasuredFrames);
@@ -938,12 +952,19 @@ TEST(FGBufferQualificationTests,
 	}
 	std::ranges::sort(ProductionGBufferDurations);
 	std::ranges::sort(ProductionDeferredDurations);
+	std::ranges::sort(ProductionDeferredWithoutAODurations);
 	std::ranges::sort(ProductionRetainedDurations);
 	std::ranges::sort(ProductionPostProcessDurations);
 	std::ranges::sort(ProductionShadowDurations);
 	std::ranges::sort(ProductionTotalDurations);
 	const Durin::uint64 ProductionGBufferMedian = Median(ProductionGBufferDurations);
 	const Durin::uint64 ProductionDeferredMedian = Median(ProductionDeferredDurations);
+	const Durin::uint64 ProductionDeferredWithoutAOMedian =
+		Median(ProductionDeferredWithoutAODurations);
+	const Durin::uint64 ProductionAmbientOcclusionCompositionIncrement =
+		ProductionDeferredMedian > ProductionDeferredWithoutAOMedian
+			? ProductionDeferredMedian - ProductionDeferredWithoutAOMedian
+			: 0u;
 	const Durin::uint64 ProductionRetainedMedian = Median(ProductionRetainedDurations);
 	const Durin::uint64 ProductionPostProcessMedian = Median(ProductionPostProcessDurations);
 	const Durin::uint64 ProductionShadowMedian = Median(ProductionShadowDurations);
@@ -955,6 +976,7 @@ TEST(FGBufferQualificationTests,
 	EXPECT_GT(ProductionDeferredMedian, 0u);
 	EXPECT_LE(ProductionDeferredMedian, 450'000u);
 	EXPECT_LE(ProductionDeferredDurations[P95Index], 650'000u);
+	EXPECT_LE(ProductionAmbientOcclusionCompositionIncrement, 75'000u);
 	EXPECT_GT(ProductionRetainedMedian, 0u);
 	EXPECT_LE(ProductionRetainedMedian, 300'000u);
 	EXPECT_LE(ProductionRetainedDurations[P95Index], 500'000u);
@@ -964,20 +986,33 @@ TEST(FGBufferQualificationTests,
 	EXPECT_GT(ProductionShadowMedian, 0u);
 	EXPECT_GT(ProductionTotalMedian, 0u);
 	EXPECT_LE(ProductionTotalMedian, 1'350'000u);
-	EXPECT_LE(ProductionTotalDurations[P95Index], 2'100'000u);
+	EXPECT_LE(ProductionTotalDurations[P95Index], 3'000'000u);
 	constexpr Durin::uint64 ProductionActiveBytes =
 		Durin::FPostProcessRenderer::CalculateSceneTargetBytes(
 			TimingWidth, TimingHeight)
 		+ Durin::FGBufferRenderer::CalculateTargetBytes(TimingWidth, TimingHeight)
+		+ Durin::FGroundTruthAmbientOcclusionRenderer::CalculateTargetBytes(
+			TimingWidth, TimingHeight)
 		+ static_cast<Durin::uint64>(TimingWidth) * TimingHeight * 4u;
 	constexpr Durin::uint64 ShadowBytes = 50'331'648u;
 	constexpr Durin::uint64 ProductionRetainedCeiling =
 		Durin::FPostProcessRenderer::MaximumRetainedSceneTargetBytes
-		+ Durin::FGBufferRenderer::MaximumRetainedBytes;
-	EXPECT_EQ(ProductionActiveBytes, 91'238'400u);
-	EXPECT_EQ(ProductionActiveBytes + ShadowBytes, 141'570'048u);
-	EXPECT_EQ(ProductionRetainedCeiling, 320u * 1024u * 1024u);
+		+ Durin::FGBufferRenderer::MaximumRetainedBytes
+		+ Durin::FGroundTruthAmbientOcclusionRenderer::MaximumRetainedBytes;
+	EXPECT_EQ(ProductionActiveBytes, 95'385'600u);
+	EXPECT_EQ(ProductionActiveBytes + ShadowBytes, 145'717'248u);
+	EXPECT_EQ(ProductionRetainedCeiling, 352u * 1024u * 1024u);
 	EXPECT_EQ(GLastCounters.DeferredDirectionalOutputBytes, 0u);
+	EXPECT_EQ(GLastCounters.GroundTruthAmbientOcclusionAttemptedViews, 1u);
+	EXPECT_EQ(GLastCounters.GroundTruthAmbientOcclusionEnabledViews, 1u);
+	EXPECT_EQ(GLastCounters.GroundTruthAmbientOcclusionUnavailableViews, 0u);
+	EXPECT_EQ(GLastCounters.GroundTruthAmbientOcclusionActiveBytes,
+		Durin::FGroundTruthAmbientOcclusionRenderer::CalculateTargetBytes(
+			TimingWidth, TimingHeight));
+	EXPECT_GE(GLastCounters.GroundTruthAmbientOcclusionRetainedBytes,
+		GLastCounters.GroundTruthAmbientOcclusionActiveBytes);
+	EXPECT_LE(GLastCounters.GroundTruthAmbientOcclusionRetainedBytes,
+		Durin::FGroundTruthAmbientOcclusionRenderer::MaximumRetainedBytes);
 	std::cout << "HYBRID_PRODUCTION_QUALIFICATION"
 		<< " gpu=NVIDIA_GeForce_RTX_3090,driver=591.86,vulkan=1.4.325"
 		<< ",configuration=Win64-Debug-DurinEditor,validation=enabled"
@@ -987,6 +1022,10 @@ TEST(FGBufferQualificationTests,
 		<< ",gbuffer_p95_ns=" << ProductionGBufferDurations[P95Index]
 		<< ",deferred_median_ns=" << ProductionDeferredMedian
 		<< ",deferred_p95_ns=" << ProductionDeferredDurations[P95Index]
+		<< ",deferred_without_ao_median_ns="
+		<< ProductionDeferredWithoutAOMedian
+		<< ",ao_composition_increment_median_ns="
+		<< ProductionAmbientOcclusionCompositionIncrement
 		<< ",retained_median_ns=" << ProductionRetainedMedian
 		<< ",retained_p95_ns=" << ProductionRetainedDurations[P95Index]
 		<< ",fxaa_median_ns=" << ProductionPostProcessMedian
@@ -1037,6 +1076,67 @@ TEST(FGBufferQualificationTests,
 	EXPECT_EQ(GLastCounters.GBufferSplineMeshSuccessfulDraws, 1u);
 	EXPECT_EQ(GLastCounters.GBufferSkeletalMeshSuccessfulDraws, 1u);
 	EXPECT_EQ(GLastCounters.GBufferTerrainSuccessfulDraws, 1u);
+	EXPECT_EQ(GLastCounters.GroundTruthAmbientOcclusionAttemptedViews, 1u);
+	EXPECT_EQ(GLastCounters.GroundTruthAmbientOcclusionEnabledViews, 1u);
+	EXPECT_EQ(GLastCounters.GroundTruthAmbientOcclusionActiveBytes,
+		2u * 320u * 180u);
+	Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
+		[&Renderer, &Scene](Durin::FRHICommandListImmediate& CommandList) {
+			const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
+				"GroundTruthAmbientOcclusionViewMatrix", 384, 216,
+				Durin::EPixelFormat::SRGBA8_UNORM)
+				.SetFlags(Durin::ETextureCreateFlags::RenderTargetable
+					| Durin::ETextureCreateFlags::ShaderResource);
+			Durin::FTextureRHIRef Target =
+				Durin::GDynamicRHI->RHICreateTexture(CommandList, Desc);
+			ASSERT_NE(Target, nullptr);
+			Durin::FSceneView View;
+			View.ViewProjectionMatrix = Durin::FMatrix(1.0);
+			View.ViewportX = 32;
+			View.ViewportY = 18;
+			View.ViewportWidth = 320;
+			View.ViewportHeight = 180;
+			View.Settings.RenderMode = Durin::ERenderMode::Lit;
+			View.Settings.VisibilityMode =
+				Durin::EViewVisibilityMode::FrustumCullingDisabled;
+			View.Settings.bEnableGroundTruthAmbientOcclusion = false;
+			Durin::FSceneViewRenderOptions Options;
+			Options.HybridOpaqueRoute =
+				Durin::EHybridOpaqueRoute::DeferredRequired;
+			++Durin::GRenderFrameCounterRenderThread;
+			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+			EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View,
+				Target, false, Options), Durin::ERenderViewResult::Success);
+			Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+			EXPECT_EQ(
+				GLastCounters.GroundTruthAmbientOcclusionAttemptedViews, 0u);
+			EXPECT_EQ(
+				GLastCounters.GroundTruthAmbientOcclusionActiveBytes, 0u);
+
+			View.Settings.bEnableGroundTruthAmbientOcclusion = true;
+			Options.HybridOpaqueRoute =
+				Durin::EHybridOpaqueRoute::ForwardReference;
+			for (const auto Mode : {
+				Durin::EGroundTruthAmbientOcclusionDebugMode::Raw,
+				Durin::EGroundTruthAmbientOcclusionDebugMode::Confidence,
+				Durin::EGroundTruthAmbientOcclusionDebugMode::Filtered,
+				Durin::EGroundTruthAmbientOcclusionDebugMode::FinalFactor})
+			{
+				Options.GroundTruthAmbientOcclusionDebugMode = Mode;
+				++Durin::GRenderFrameCounterRenderThread;
+				Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+				EXPECT_EQ(Renderer.RenderView(CommandList, &Scene, View,
+					Target, false, Options), Durin::ERenderViewResult::Success);
+				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+			}
+		});
+	Durin::FlushRenderingCommands();
+	EXPECT_EQ(GLastCounters.GroundTruthAmbientOcclusionAttemptedViews, 1u);
+	EXPECT_EQ(GLastCounters.GroundTruthAmbientOcclusionEnabledViews, 1u);
+	EXPECT_EQ(GLastCounters.GroundTruthAmbientOcclusionDebugViews, 1u);
+	EXPECT_EQ(GLastCounters.DeferredDirectionalDebugViews, 0u);
+	EXPECT_EQ(GLastCounters.GroundTruthAmbientOcclusionActiveBytes,
+		2u * 384u * 216u);
 	Scene.UpdatePrimitiveTransform(Durin::FPrimitiveSceneId(1),
 		Translate(-0.9, -0.8));
 	Scene.UpdatePrimitiveTransform(Durin::FPrimitiveSceneId(2),

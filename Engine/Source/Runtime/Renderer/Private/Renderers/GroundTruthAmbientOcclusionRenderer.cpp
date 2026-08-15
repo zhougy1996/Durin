@@ -457,6 +457,18 @@ namespace Durin
 				"GroundTruthAmbientOcclusionVerticalFilter");
 	}
 
+	auto FGroundTruthAmbientOcclusionRenderer::
+		GetRetainedTargetBytes_RenderThread() const -> uint64
+	{
+		check(IsInRenderingThread());
+		return State->TargetsBySize.GetRetainedPayloadWeight(
+			[](uint64 SizeKey, const FTargets&) {
+				return CalculateTargetBytes(
+					static_cast<uint32>(SizeKey >> 32),
+					static_cast<uint32>(SizeKey));
+			});
+	}
+
 	auto FGroundTruthAmbientOcclusionRenderer::ReleaseResources_RenderThread()
 		-> void
 	{

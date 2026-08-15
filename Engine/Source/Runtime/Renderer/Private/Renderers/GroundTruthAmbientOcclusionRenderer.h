@@ -83,6 +83,7 @@ namespace Durin
 			FRHITexture* Surface,
 			FRHITexture* Depth,
 			const FSceneView& View) -> bool;
+		auto GetRetainedTargetBytes_RenderThread() const -> uint64;
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:

@@ -843,7 +843,9 @@ namespace Durin
 		const bool bWantsIsolatedDeferred =
 			Options.bEnableDeferredDirectionalQualification
 			|| Options.DeferredDirectionalDebugMode
-				   != EDeferredDirectionalDebugMode::Disabled;
+				   != EDeferredDirectionalDebugMode::Disabled
+			|| Options.GroundTruthAmbientOcclusionDebugMode
+				   != EGroundTruthAmbientOcclusionDebugMode::Disabled;
 		const bool bWantsIsolatedGroundTruthAmbientOcclusion =
 			Options.bEnableGroundTruthAmbientOcclusionQualification
 			|| Options.GroundTruthAmbientOcclusionDebugMode
@@ -852,9 +854,16 @@ namespace Durin
 			Options.HybridOpaqueRoute != EHybridOpaqueRoute::ForwardReference
 			&& RenderView.Settings.RenderMode == ERenderMode::Lit
 			&& RenderView.Settings.RasterMode == ERasterMode::Solid;
+		const bool bWantsProductionGroundTruthAmbientOcclusion =
+			bWantsProductionDeferred
+			&& Options.HybridOpaqueRoute == EHybridOpaqueRoute::DeferredRequired
+			&& RenderView.Settings.bEnableGroundTruthAmbientOcclusion;
+		const bool bWantsGroundTruthAmbientOcclusion =
+			bWantsIsolatedGroundTruthAmbientOcclusion
+			|| bWantsProductionGroundTruthAmbientOcclusion;
 		const bool bWantsDeferredInputs = bWantsIsolatedDeferred
 			|| bWantsProductionDeferred
-			|| bWantsIsolatedGroundTruthAmbientOcclusion;
+			|| bWantsGroundTruthAmbientOcclusion;
 		const bool bHybridRetainedResourcesReady =
 			!bWantsProductionDeferred
 			|| (StaticMeshRenderer.PrepareHybridRetainedResources_RenderThread(
@@ -1018,6 +1027,9 @@ namespace Durin
 
 		bool bGBufferComplete = false;
 		FDeferredDirectionalLightingRenderer::FRenderParameters DeferredParameters;
+		FRHITexture* GroundTruthAmbientOcclusionFallback =
+			DefaultTextures.Get_RenderThread(EDefaultTexture::White);
+		FRHITexture* GroundTruthAmbientOcclusionDebugOutput = nullptr;
 		if (bWantsDeferredInputs && GBufferTargets != nullptr)
 		{
 			bGBufferComplete =
@@ -1058,6 +1070,10 @@ namespace Durin
 					.EnvironmentSampler = EnvironmentSampler,
 					.DirectionalShadowTexture = DirectionalShadowTexture != nullptr ? DirectionalShadowTexture : DefaultTextures.GetArray_RenderThread(),
 					.DirectionalShadowSampler = DirectionalShadowSampler,
+					.GroundTruthAmbientOcclusionRaw =
+						GroundTruthAmbientOcclusionFallback,
+					.GroundTruthAmbientOcclusionFiltered =
+						GroundTruthAmbientOcclusionFallback,
 					.Lighting = PreparedView.LightingUniformBuffer,
 					.View = &RenderView,
 					.DiagnosticMode = static_cast<uint32>(
@@ -1067,13 +1083,16 @@ namespace Durin
 			}
 		}
 
-		if (bWantsIsolatedGroundTruthAmbientOcclusion)
+		if (bWantsGroundTruthAmbientOcclusion)
 		{
 			++PreparedView.Counters.GroundTruthAmbientOcclusionAttemptedViews;
 			auto* AmbientOcclusionTargets = bGBufferComplete
 				? GroundTruthAmbientOcclusionRenderer.EnsureTargets_RenderThread(
 					Width, Height)
 				: nullptr;
+			PreparedView.Counters.GroundTruthAmbientOcclusionRetainedBytes =
+				GroundTruthAmbientOcclusionRenderer.
+					GetRetainedTargetBytes_RenderThread();
 			if (AmbientOcclusionTargets == nullptr)
 			{
 				++PreparedView.Counters.
@@ -1130,6 +1149,33 @@ namespace Durin
 						CommandList.EndGPUTimingQuery(FilterTimingQuery);
 					if (bFiltered)
 					{
+						FRHITexture* RawDiagnosticTexture =
+							AmbientOcclusionTargets->Raw;
+						if (Options.GroundTruthAmbientOcclusionDebugMode
+							== EGroundTruthAmbientOcclusionDebugMode::Raw)
+						{
+							std::swap(
+								AmbientOcclusionTargets->Raw,
+								AmbientOcclusionTargets->Scratch);
+							const bool bRawDiagnosticRendered =
+								GroundTruthAmbientOcclusionRenderer.
+									RenderRaw_RenderThread(
+										CommandList, *AmbientOcclusionTargets,
+										GBufferTargets->Normals,
+										GBufferTargets->Surface,
+										SceneTargets->Depth, RenderView);
+							std::swap(
+								AmbientOcclusionTargets->Raw,
+								AmbientOcclusionTargets->Scratch);
+							if (bRawDiagnosticRendered)
+								RawDiagnosticTexture =
+									AmbientOcclusionTargets->Scratch;
+						}
+						DeferredParameters.GroundTruthAmbientOcclusionRaw =
+							RawDiagnosticTexture;
+						DeferredParameters.GroundTruthAmbientOcclusionFiltered =
+							AmbientOcclusionTargets->Raw;
+						DeferredParameters.bGroundTruthAmbientOcclusionEnabled = true;
 						++PreparedView.Counters.
 							GroundTruthAmbientOcclusionEnabledViews;
 						PreparedView.Counters.
@@ -1172,6 +1218,9 @@ namespace Durin
 				++PreparedView.Counters.DeferredDirectionalUnavailableViews;
 			else
 			{
+				DeferredParameters.GroundTruthAmbientOcclusionDebugMode =
+					static_cast<uint32>(
+						Options.GroundTruthAmbientOcclusionDebugMode);
 				FGPUTimingQueryRHIRef DeferredTimingQuery;
 				const FDeferredDirectionalTimingQuerySink DeferredTimingSink =
 					GDeferredDirectionalTimingQuerySink.load(
@@ -1209,6 +1258,12 @@ namespace Durin
 						);
 					if (CaptureSink != nullptr)
 						CaptureSink(CommandList, DeferredTargets->Color);
+					if (Options.GroundTruthAmbientOcclusionDebugMode
+						!= EGroundTruthAmbientOcclusionDebugMode::Disabled)
+					{
+						GroundTruthAmbientOcclusionDebugOutput =
+							DeferredTargets->Color;
+					}
 				}
 				else
 				{
@@ -1338,6 +1393,10 @@ namespace Durin
 			{
 				++PreparedView.Counters.GBufferDebugFailures;
 			}
+		}
+		else if (GroundTruthAmbientOcclusionDebugOutput != nullptr)
+		{
+			PostProcessInput = GroundTruthAmbientOcclusionDebugOutput;
 		}
 		else if (RenderView.Settings.bEnableContactShadows
 				 && PreparedView.DirectionalShadow.bEnabled

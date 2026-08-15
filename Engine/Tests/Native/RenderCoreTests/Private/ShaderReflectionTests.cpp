@@ -546,7 +546,7 @@ namespace Durin
 		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
 		const FCompiledShader& Fragment = Output.CompiledShaders[1];
 		EXPECT_EQ(GetSpirvOutputLocations(Fragment), (std::set<uint32>{0}));
-		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 13u);
+		ASSERT_EQ(Fragment.Reflection.ResourceBindings.size(), 15u);
 		for (uint32 Index = 0; Index <= 7; ++Index)
 		{
 			const std::array<const char*, 8> Names{
@@ -566,5 +566,9 @@ namespace Durin
 			ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
 		ExpectBinding(Fragment, "Lighting", 12,
 			ERHIBindingType::UniformBuffer, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "GroundTruthAmbientOcclusionRaw", 13,
+			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(Fragment, "GroundTruthAmbientOcclusionFiltered", 14,
+			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
 	}
 } // namespace Durin

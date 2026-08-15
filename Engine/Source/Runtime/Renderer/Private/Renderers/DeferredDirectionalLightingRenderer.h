@@ -57,9 +57,13 @@ namespace Durin
 			FRHISampler* EnvironmentSampler = nullptr;
 			FRHITexture* DirectionalShadowTexture = nullptr;
 			FRHISampler* DirectionalShadowSampler = nullptr;
+			FRHITexture* GroundTruthAmbientOcclusionRaw = nullptr;
+			FRHITexture* GroundTruthAmbientOcclusionFiltered = nullptr;
 			FRHIUniformBufferRange Lighting;
 			const FSceneView* View = nullptr;
 			uint32 DiagnosticMode = 0;
+			uint32 GroundTruthAmbientOcclusionDebugMode = 0;
+			bool bGroundTruthAmbientOcclusionEnabled = false;
 		};
 
 		FDeferredDirectionalLightingRenderer(

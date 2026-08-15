@@ -2,35 +2,40 @@
 
 Summary: Add a bounded GTAO-class indirect-occlusion path over the production depth/normal seam without rewriting direct shadows or leaking state across views.
 
-Last reviewed: 2026-08-15
+Last reviewed: 2026-08-16
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-16
 
 ## Current Status
 
-M1-M4 of the
+M5 of the
 [Hybrid Deferred Rendering Roadmap](../Roadmaps/HybridDeferredRendering.md)
-are complete. Production owns sampled D32 plus octahedral geometric and shading
-normals, composes scene-linear environment light before retained forward
-surfaces, isolates every view and extent, and has exact memory and RTX 3090 GPU
-budgets. Stage 0 must freeze the AO algorithm, quality fixture, composition
-term, history policy, resource/failure ownership, and absolute budgets before
-implementation.
+completed on 2026-08-16. Production solid Lit `DeferredRequired` views now run
+the deterministic full-resolution three-slice/four-step GTAO horizon pass and
+the non-temporal radius-two bilateral pair before deferred composition. The
+filtered factor multiplies material AO only at the environment-light input;
+explicit disable or optional AO failure binds factor one without failing the
+required deferred view. Raw, Confidence, Filtered, and FinalFactor diagnostics,
+viewport-origin/extent isolation, repeated/mutated frames, resource retry,
+reload/device invalidation, exact active/retained bytes, and all four geometry
+families pass.
 
-Stage 0 is complete. M5 selects a deterministic full-resolution GTAO-class
-horizon pass with three directions and four steps per side, followed by a
-non-temporal two-pass bilateral filter. Production enables it only for solid
-Lit `DeferredRequired` views and degrades a failed optional AO payload to one
-for that view. The exact algorithm, fixtures, tolerances, bytes, lifecycle,
-diagnostics, and RTX 3090 gates are frozen below. Stage 1 is complete: the raw
-isolated signal uses the shared analytic reconstruction, Durin's X-forward
-view convention, fixed 4x4 rotation, coplanar-thickness rejection, and finite
-R8 output without changing production HDR. Stage 2 may now add the frozen
-bilateral filter and complete the edge-oriented image matrix. Stage 2 is in
-progress: the two-pass filter, two-target accounting, independent raw/filtered
-captures, timing seam, and non-temporal resize/repeat evidence are implemented;
-the complete view/diagnostic motion matrix remains open.
+The selected validation-enabled RTX 3090 run measured raw
+`556,976/560,672 ns`, bilateral `209,472/212,928 ns`, combined GTAO
+`766,800/1,059,520 ns`, and shadow-through-display production total
+`595,008/639,584 ns` median/p95. The measured AO composition increment passes
+the frozen `75,000 ns` median gate. `EditorRenderingTests`, the Vulkan renderer
+integration set, `fast-all`, the ordinary native aggregate, full `all` build,
+HDR/native-window qualification matrix, and the 30-tick hidden DurinEditor
+startup/runtime/shutdown smoke pass. Lasting behavior is published in
+[Ground Truth Ambient Occlusion](../Runtime/Rendering/GroundTruthAmbientOcclusion.md).
+
+M6 candidates remain unselected: no measured product scene exceeds the
+qualified `1 + 4` light tier, no selected decal requirement exists, and the
+depth-only contact-shadow experiment supplies no evidence for a normal-aware
+production revision. Each remains eligible for a future dedicated plan when
+its own entry evidence exists; none blocks M5 or roadmap completion.
 
 ## Frozen Stage 0 Contract
 
@@ -316,11 +321,11 @@ forward, display, and editor-assistance semantics.
       or explicitly non-temporal policy without cross-view state.
 - [x] Reject out-of-viewport taps plus depth/normal discontinuities in the
       separable filter; preserve background ownership and center contribution.
-- [ ] Prove silhouettes, disocclusions, camera
+- [x] Prove silhouettes, disocclusions, camera
       cuts, projection changes, viewport-origin changes, and extent changes.
-- [ ] Prove static convergence/no-history determinism, camera/object motion,
+- [x] Prove static convergence/no-history determinism, camera/object motion,
       alternating main/auxiliary/preview/thumbnail views, resize, and reload.
-- [ ] Capture raw, confidence, denoised/history, and final-factor diagnostics;
+- [x] Capture raw, confidence, denoised/history, and final-factor diagnostics;
       meet frozen halo, stability, memory, and GPU gates.
 
 #### Acceptance Gate
@@ -330,14 +335,14 @@ forward, display, and editor-assistance semantics.
 
 ### Stage 3: Compose indirect occlusion into production HDR
 
-- [ ] Apply AO only to deferred environment/indirect lighting before emissive,
+- [x] Apply AO only to deferred environment/indirect lighting before emissive,
       retained forward surfaces, contact composition, and the one display map.
-- [ ] Preserve direct directional/local light, shadow visibility, emissive,
+- [x] Preserve direct directional/local light, shadow visibility, emissive,
       alpha, Unlit/translucent, SkyBox/background, FXAA, Present/offscreen, and
       editor-assistance references.
-- [ ] Add an immutable per-view enable/quality contract and prove optional
+- [x] Add an immutable per-view enable/quality contract and prove optional
       failure returns factor one for only the affected view.
-- [ ] Prove repeated frames, scene/material/light mutation, all geometry
+- [x] Prove repeated frames, scene/material/light mutation, all geometry
       families, views, projection modes, alternating extents, and shutdown.
 
 #### Acceptance Gate
@@ -347,16 +352,16 @@ forward, display, and editor-assistance semantics.
 
 ### Stage 4: Qualify, publish, and hand off optional consumers
 
-- [ ] Run focused Renderer/Engine/RHI/Vulkan owners, `fast-all`, ordinary
+- [x] Run focused Renderer/Engine/RHI/Vulkan owners, `fast-all`, ordinary
       native aggregate, full build, native-window matrix, and hidden-editor
       startup/runtime/shutdown smoke through root workflows.
-- [ ] Capture the validation-enabled RTX 3090 timing/memory matrix with adapter,
+- [x] Capture the validation-enabled RTX 3090 timing/memory matrix with adapter,
       driver, profile, extent, warm-up/sample count, median, p95, active bytes,
       retained bytes, and comparison to frozen gates.
-- [ ] Publish lasting AO quality limits, input/composition ownership,
+- [x] Publish lasting AO quality limits, input/composition ownership,
       diagnostics, failure, view/history lifecycle, memory, and performance
       contracts; update the roadmap and M6 evidence seam.
-- [ ] Evaluate M6 candidates independently and create a dedicated plan only
+- [x] Evaluate M6 candidates independently and create a dedicated plan only
       for a candidate supported by measured product evidence.
 
 #### Acceptance Gate

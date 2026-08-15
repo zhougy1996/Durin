@@ -57,6 +57,8 @@ FDeferredLightingOutput MakeDeferredLightingOutput(
 [[vk::binding(10, 0)]] SamplerComparisonState DirectionalShadowSampler;
 [[vk::binding(11, 0)]] ConstantBuffer<FDeferredDirectionalViewUniform> View;
 [[vk::binding(12, 0)]] ConstantBuffer<FForwardLightingUniform> Lighting;
+[[vk::binding(13, 0)]] Texture2D<float> GroundTruthAmbientOcclusionRaw;
+[[vk::binding(14, 0)]] Texture2D<float> GroundTruthAmbientOcclusionFiltered;
 
 [shader("vertex")]
 VSOutput VertexMain(VSInput input)
@@ -75,8 +77,13 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
         GBufferNormals.Load(int3(pixel, 0)),
         GBufferSurface.Load(int3(pixel, 0)),
         GBufferEmissive.Load(int3(pixel, 0)));
+	uint aoDiagnostic = View.Params.w < -0.5
+		? (uint)round(-View.Params.w) : 0u;
+	bool gtaoEnabled = View.Params.z >= 0.0;
     if ((record.flags & GBufferStandardLitFlag) == 0u)
     {
+		if (aoDiagnostic != 0u)
+			return MakeDeferredLightingOutput(float4(0.0, 0.0, 0.0, 1.0), float3(0.0));
         if (View.Params.w > 0.5)
             discard;
         return MakeDeferredLightingOutput(View.ClearColor, float3(0.0));
@@ -172,7 +179,8 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
         record.baseColor,
         record.metallic,
         record.roughness,
-        record.ambientOcclusion,
+		record.ambientOcclusion * (gtaoEnabled
+			? GroundTruthAmbientOcclusionFiltered.Load(int3(pixel, 0)) : 1.0),
         frame,
         EnvironmentIrradiance,
         EnvironmentPrefiltered,
@@ -183,7 +191,65 @@ FDeferredLightingOutput EvaluateDeferredLighting(VSOutput input)
         environment,
         record.emissive,
         record.effectiveOpacity);
-    uint diagnostic = (uint)round(View.Params.z);
+	uint diagnostic = gtaoEnabled
+		? (uint)round(View.Params.z)
+		: (uint)round(-View.Params.z - 1.0);
+	if (aoDiagnostic == 1u)
+	{
+		float visibility = gtaoEnabled
+			? GroundTruthAmbientOcclusionRaw.Load(int3(pixel, 0)) : 1.0;
+		return MakeDeferredLightingOutput(
+			float4(visibility.xxx, 1.0), directional);
+	}
+	if (aoDiagnostic == 2u)
+	{
+		uint width;
+		uint height;
+		GBufferSurface.GetDimensions(width, height);
+		bool acceptedNeighbor = false;
+		bool rejectedEdge = false;
+		static const int2 offsets[4] = {
+			int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1)};
+		float3 centerNormal = record.geometricNormal;
+		[unroll]
+		for (uint index = 0u; index < 4u; ++index)
+		{
+			int2 neighbor = pixel + offsets[index];
+			if (any(neighbor < int2(0, 0))
+				|| any(neighbor >= int2(width, height)))
+			{
+				rejectedEdge = true;
+				continue;
+			}
+			FGBufferRecord neighborRecord = DecodeGBuffer(
+				GBufferMaterial.Load(int3(neighbor, 0)),
+				GBufferNormals.Load(int3(neighbor, 0)),
+				GBufferSurface.Load(int3(neighbor, 0)),
+				GBufferEmissive.Load(int3(neighbor, 0)));
+			if ((neighborRecord.flags & GBufferStandardLitFlag) == 0u
+				|| dot(centerNormal, neighborRecord.geometricNormal) < 0.90)
+				rejectedEdge = true;
+			else
+				acceptedNeighbor = true;
+		}
+		float3 confidence = rejectedEdge ? float3(1.0, 0.75, 0.0)
+			: acceptedNeighbor ? float3(0.0, 1.0, 0.0)
+			: float3(0.0, 0.25, 1.0);
+		return MakeDeferredLightingOutput(float4(confidence, 1.0), directional);
+	}
+	if (aoDiagnostic == 3u)
+	{
+		float visibility = gtaoEnabled
+			? GroundTruthAmbientOcclusionFiltered.Load(int3(pixel, 0)) : 1.0;
+		return MakeDeferredLightingOutput(
+			float4(visibility.xxx, 1.0), directional);
+	}
+	if (aoDiagnostic == 4u)
+	{
+		float factor = record.ambientOcclusion * (gtaoEnabled
+			? GroundTruthAmbientOcclusionFiltered.Load(int3(pixel, 0)) : 1.0);
+		return MakeDeferredLightingOutput(float4(factor.xxx, 1.0), directional);
+	}
     if (diagnostic == 1u)
         return MakeDeferredLightingOutput(
             float4(record.baseColor, record.metallic), directional);

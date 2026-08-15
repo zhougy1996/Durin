@@ -95,6 +95,12 @@ shadow receiver implementation for forward and deferred. The GBuffer changes
 transport precision only; it does not select another material or lighting
 model.
 
+Production deferred lighting also consumes the optional
+[ground truth ambient occlusion](GroundTruthAmbientOcclusion.md) factor. It
+multiplies decoded material AO only at the environment-light input; a disabled
+or unavailable payload uses factor one and does not affect direct light,
+shadows, emissive, alpha, retained forward surfaces, or display mapping.
+
 Valid standard-lit pixels write scene-linear RGB and decoded effective opacity.
 Invalid flags, failed reconstruction, and background depth retain immutable
 `View.ClearColor`. Unlit and translucent surfaces remain excluded and continue
