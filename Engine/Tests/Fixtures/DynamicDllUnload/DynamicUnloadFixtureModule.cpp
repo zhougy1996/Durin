@@ -53,7 +53,7 @@ namespace Durin
 				InstanceSerial);
 		}
 
-			auto StartupModule(FModuleContext& Context) -> void override
+			auto StartupModule() -> void override
 		{
 			const auto Serial = FModularFeatureRegistry::Get()
 				.InvokeSingle<Tests::IDynamicUnloadHostFeature>(
@@ -63,15 +63,15 @@ namespace Durin
 			if (!Serial.WasInvoked() || !Serial.Value) throw std::runtime_error(
 				"Dynamic unload fixture requires its process-resident host feature.");
 			InstanceSerial = *Serial.Value;
-			ModuleName = Context.GetModuleName();
+			ModuleName = FModuleStartup::GetModuleName();
 			FeatureRegistration =
-				Context.RegisterFeature<Tests::IDynamicUnloadFixtureFeature>(*this);
-			OwnedCallbacks = Context.CreateOwnedCallbackRegistration(
+				FModuleStartup::RegisterFeature<Tests::IDynamicUnloadFixtureFeature>(*this);
+			OwnedCallbacks = FModuleStartup::CreateOwnedCallbackRegistration(
 				"DynamicUnloadFixture.SpecializedCallbacks");
-			AsyncOperations = Context.CreateAsyncOperationGroup(
+			AsyncOperations = FModuleStartup::CreateAsyncOperationGroup(
 				"DynamicUnloadFixture.Drained",
 				{.ShutdownMode = EAsyncOperationCloseMode::Drain});
-			FailureOperations = Context.CreateAsyncOperationGroup(
+			FailureOperations = FModuleStartup::CreateAsyncOperationGroup(
 				"DynamicUnloadFixture.Failures",
 				{.ShutdownMode = EAsyncOperationCloseMode::Cancel});
 			if (!FeatureRegistration.IsValid() || !OwnedCallbacks.IsValid()
@@ -83,7 +83,7 @@ namespace Durin
 				InstanceSerial);
 		}
 
-			auto ShutdownModule(FModuleShutdownContext&) -> void override
+			auto ShutdownModule() -> void override
 		{
 			RecordHostEvent(
 				Tests::EDynamicUnloadFixtureEvent::Shutdown,

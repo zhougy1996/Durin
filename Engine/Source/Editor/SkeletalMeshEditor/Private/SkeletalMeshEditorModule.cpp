@@ -16,13 +16,13 @@ namespace Durin
 	IMPLEMENT_MODULE(FSkeletalMeshEditorModule, SkeletalMeshEditor)
 
 	FSkeletalMeshEditorModule::~FSkeletalMeshEditorModule() = default;
-	auto FSkeletalMeshEditorModule::StartupModule(FModuleContext& Context) -> void
+	auto FSkeletalMeshEditorModule::StartupModule() -> void
 	{
 		EditorExtensionCallbacks =
-			Context.CreateOwnedCallbackRegistration("Editor.ExtensionRegistries");
+			FModuleStartup::CreateOwnedCallbackRegistration("Editor.ExtensionRegistries");
 		require(EditorExtensionCallbacks.IsValid());
 	}
-	auto FSkeletalMeshEditorModule::ShutdownModule(FModuleShutdownContext&) -> void { UnregisterSkeletalMeshEditor(); }
+	auto FSkeletalMeshEditorModule::ShutdownModule() -> void { UnregisterSkeletalMeshEditor(); }
 
 	auto FSkeletalMeshEditorModule::RegisterSkeletalMeshEditor(
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager,

@@ -8,15 +8,15 @@ namespace Durin
 	class FAssetImportCoreModule final : public IModuleInterface
 	{
 	public:
-		auto StartupModule(FModuleContext& Context) -> void override
+		auto StartupModule() -> void override
 		{
 			RegistryCallbacks =
-				Context.CreateOwnedCallbackRegistration("AssetCore.ReferenceStores");
+				FModuleStartup::CreateOwnedCallbackRegistration("AssetCore.ReferenceStores");
 			ReferenceStoreHandle = Asset::RegisterAssetReferenceStore(
 				&Asset::Import::GetImportRecordIndex(), RegistryCallbacks.GetGate());
 		}
 
-		auto ShutdownModule(FModuleShutdownContext&) -> void override
+		auto ShutdownModule() -> void override
 		{
 			Asset::UnregisterAssetReferenceStore(ReferenceStoreHandle);
 			ReferenceStoreHandle = 0;

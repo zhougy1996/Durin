@@ -4,7 +4,7 @@
 #include "AsyncImport.h"
 #include "AssetSystem.h"
 #include "Misc/Paths.h"
-#include "Modules/ModuleTestContext.h"
+#include "Modules/ModuleTestSupport.h"
 #include "NativeTestSupport.h"
 #include "Threading/Task.h"
 
@@ -12,8 +12,7 @@ namespace
 {
 	auto GetImportRegistryTestGate() -> Durin::FModuleOwnedCallbackGate
 	{
-		static auto Context = Durin::FModuleTestContextFactory::CreateStartupContext(
-			"AssetImportCoreTests.Registry");
+		static Durin::FModuleTestOwner Context("AssetImportCoreTests.Registry");
 		static auto Registration = Context.CreateOwnedCallbackRegistration(
 			"AssetImportCoreTests.Registry");
 		return Registration.GetGate();
@@ -265,8 +264,7 @@ namespace
 
 TEST(FAssetImportCoreTests, ProviderOwnerRetirementRejectsLookupAndAuditsLeaseDestruction)
 {
-	auto Context = Durin::FModuleTestContextFactory::CreateStartupContext(
-		"AssetImportCoreTests.ProviderRetirement");
+	Durin::FModuleTestOwner Context("AssetImportCoreTests.ProviderRetirement");
 	auto Registration = Context.CreateOwnedCallbackRegistration(
 		"AssetImportCore.ProviderRegistry");
 	Durin::Asset::Import::FProviderRegistry Registry;

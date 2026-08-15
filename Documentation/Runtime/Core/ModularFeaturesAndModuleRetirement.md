@@ -13,12 +13,16 @@ A modular feature derives from `IModularFeature` and declares a stable
 cross-DLL interface identity; RTTI, interface addresses, and registration order
 are not identities.
 
-Modules register implementations only through the `FModuleContext` passed to
-`StartupModule`. The context carries the Core-created owner identity for that
-logical module's current load generation. Registration returns a move-only
-`FModularFeatureRegistration`. Moving, retiring, or resetting a token affects
-only its exact entry. Test code uses `FModuleTestContextFactory`; its isolated
-owners cannot retire a production module generation.
+Module lifecycle hooks are parameterless. Immediately around each manager-
+initiated `StartupModule()`, Core installs a stack-disciplined current startup
+identity carrying the logical module name and exact load-generation owner.
+Modules register implementations only through `FModuleStartup`; callers cannot
+select or retain an owner. Registration outside the current startup scope is a
+programming error and cannot publish an unattributed entry. Registration
+returns a move-only `FModularFeatureRegistration`. Moving, retiring, or
+resetting a token affects only its exact entry. Low-level tests use an isolated
+`FModuleTestOwner`; concrete module tests use `FModuleTestHarness`. Neither can
+retire a production module generation.
 
 Consumers call `FModularFeatureRegistry::InvokeSingle<T>` or `InvokeAll<T>`.
 The feature reference exists only during the visitor call and must not be
@@ -62,6 +66,11 @@ Calls from another thread return `WrongControlThread` without changing state.
 Stopped or blocked modules are never returned as active by `LoadModule` or
 `GetModule`.
 
+The startup identity is nested and exception-safe. If module A loads module B
+from A's startup callback, B temporarily becomes current and Core restores A
+after B returns or unwinds. The stack lives in Core so every native module sees
+the same identity rather than a DLL-local copy.
+
 Shutdown performs this fixed sequence:
 
 1. transition `Active` to `Retiring`;
@@ -69,8 +78,8 @@ Shutdown performs this fixed sequence:
 3. close every owner-bound asynchronous operation group using its declared
    drain or cancel shutdown policy;
 4. run the reflected-object drain callback while the library is mapped;
-5. call `ShutdownModule(FModuleShutdownContext&)` without Core locks so the
-   module can release result handles and inspect or drain its closing groups;
+5. call parameterless `ShutdownModule()` without Core locks so the module can
+   release result handles and clean up its owned services and registrations;
 6. drain all owned asynchronous operations and audit active tasks, result
    handles, Worker callables, and Game Thread callables;
 7. audit that no owned feature entry is published or in flight;
@@ -98,11 +107,11 @@ feature, reflected-object, startup, or shutdown code.
 
 Returning from a feature visitor does not prove that work submitted by the
 implementation has finished. A module creates `FAsyncOperationGroup` instances
-through its startup `FModuleContext`. Each group owns one task scope, explicit
-cancellation source, stable abort reason, close policy, and diagnostic identity
-under the module load generation. A root task explicitly selects the group's
-scope and cancellation token; accepted descendants and continuations inherit
-the scope under the Task System rules.
+through `FModuleStartup` during its startup callback. Each group owns one task
+scope, explicit cancellation source, stable abort reason, close policy, and
+diagnostic identity under the module load generation. A root task explicitly
+selects the group's scope and cancellation token; accepted descendants and
+continuations inherit the scope under the Task System rules.
 
 Closing a group is irreversible. `Drain` rejects later roots and lets accepted
 work finish; `Cancel` additionally requests cooperative cancellation and records

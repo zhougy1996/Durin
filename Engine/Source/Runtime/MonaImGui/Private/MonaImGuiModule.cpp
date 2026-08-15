@@ -7,14 +7,14 @@ namespace Durin
 	class FMonaImGuiModule : public IModuleInterface
 	{
 	public:
-		auto StartupModule(FModuleContext&) -> void override
+		auto StartupModule() -> void override
 		{
 			check(Mona::GActiveUIBackend == nullptr);
 			Mona::GActiveUIBackend = new MonaImGui::FMonaImGuiBackend();
 			Mona::GActiveUIBackend->Initialize();
 		}
 
-		auto ShutdownModule(FModuleShutdownContext&) -> void override
+		auto ShutdownModule() -> void override
 		{
 			check(Mona::GActiveUIBackend);
 			Mona::GActiveUIBackend->Shutdown();

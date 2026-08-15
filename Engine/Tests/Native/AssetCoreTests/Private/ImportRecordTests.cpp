@@ -13,7 +13,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "MultiOutputImport.h"
-#include "Modules/ModuleTestContext.h"
+#include "Modules/ModuleTestSupport.h"
 #include "NativeTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "Threading/RunnableThread.h"
@@ -22,8 +22,7 @@ namespace
 {
 	auto GetImportRecordRegistryTestGate() -> Durin::FModuleOwnedCallbackGate
 	{
-		static auto Context = Durin::FModuleTestContextFactory::CreateStartupContext(
-			"ImportRecordTests.Registry");
+		static Durin::FModuleTestOwner Context("ImportRecordTests.Registry");
 		static auto Registration = Context.CreateOwnedCallbackRegistration(
 			"ImportRecordTests.Registry");
 		return Registration.GetGate();

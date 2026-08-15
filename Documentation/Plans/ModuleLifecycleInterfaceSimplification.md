@@ -4,24 +4,24 @@ Summary: Restore parameterless module lifecycle hooks while preserving generatio
 
 Last reviewed: 2026-08-15
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-15
 
 ## Current Status
 
-The design direction is selected and implementation has not begun. Public
-module lifecycle hooks will match the parameterless shape used by Unreal
-Engine. Durin's stronger owner-generation, asynchronous-operation, retained
-callback, and native-unload audits remain mandatory, but their attribution
-will move behind an internal scoped current-module mechanism instead of being
-passed through every lifecycle override.
+Stages 0 through 3 are implemented. Public module lifecycle hooks are
+parameterless; Core installs a nested, exception-safe startup owner scope and
+`FModuleStartup` is the sole production attribution facade. Shutdown policy
+and diagnostics remain manager-owned. Production modules have migrated, the
+shared owner uses `ModuleOwner`/`FModuleOwnerState` terminology, and tests now
+use `FModuleTestOwner` or `FModuleTestHarness` from `ModuleTestSupport`.
 
-The current production inventory has fourteen custom startup overrides: ten
-use `FModuleContext` to create owner-bound resources and four ignore it. All
-fourteen custom shutdown overrides ignore `FModuleShutdownContext`; its drain
-and snapshot APIs have no production callers. Tests currently compensate by
-constructing synthetic contexts and directly invoking module callbacks, which
-spreads lifecycle implementation details outside Core.
+Focused startup-scope coverage proves nested restoration, exception unwinding,
+and rejection outside startup. The final full `all` build,
+`CoreConcurrencyTests` (141 tests), `fast-all`, routine `test all`, and both
+dynamic DLL unload qualification targets pass. The Core runtime contracts now
+describe parameterless lifecycle, scoped startup attribution, and manager-owned
+shutdown policy. Changed-document and all-plan validation pass.
 
 ## Goal
 
@@ -221,14 +221,14 @@ continues to enforce correctness before DLL unmap.
 
 ### Stage 0: Lock the public boundary and regression inventory
 
-- [ ] Record the exact production and test call sites for context-bearing
+- [x] Record the exact production and test call sites for context-bearing
   lifecycle hooks, context creation, context member use, and direct callback
   invocation.
-- [ ] Confirm `FModuleStartup` is the sole production owner-attribution entry
+- [x] Confirm `FModuleStartup` is the sole production owner-attribution entry
   point and that no use case requires retaining startup authority.
-- [ ] Classify existing tests into low-level owner tests and complete module
+- [x] Classify existing tests into low-level owner tests and complete module
   lifecycle tests before changing their helpers.
-- [ ] Add or identify coverage for nested module loading, startup failure,
+- [x] Add or identify coverage for nested module loading, startup failure,
   owner-generation reload, and outside-startup registration rejection.
 
 #### Acceptance Gate
@@ -242,18 +242,18 @@ continues to enforce correctness before DLL unmap.
 
 ### Stage 1: Introduce the scoped startup foundation
 
-- [ ] Implement the Core-owned current startup stack and
+- [x] Implement the Core-owned current startup stack and
   `Detail::FScopedModuleStartup` with nested save/restore and exception-safe
   teardown.
-- [ ] Implement `FModuleStartup` as a stateless exported facade over the current
+- [x] Implement `FModuleStartup` as a stateless exported facade over the current
   owner.
-- [ ] Restrict raw owner-bearing feature, callback, and async creation APIs to
+- [x] Restrict raw owner-bearing feature, callback, and async creation APIs to
   Core internals and test-only friends.
-- [ ] Change `IModuleInterface` to parameterless hooks and update manager load,
+- [x] Change `IModuleInterface` to parameterless hooks and update manager load,
   startup-failure, shutdown, and test-install call paths.
-- [ ] Delete `FModuleShutdownContext` and move any remaining diagnostic access
+- [x] Delete `FModuleShutdownContext` and move any remaining diagnostic access
   to operation result or test-owner APIs.
-- [ ] Preserve the exact existing retirement transition and callback ordering.
+- [x] Preserve the exact existing retirement transition and callback ordering.
 
 #### Acceptance Gate
 
@@ -270,15 +270,15 @@ continues to enforce correctness before DLL unmap.
 
 ### Stage 2: Migrate production modules and simplify module code
 
-- [ ] Convert every module declaration and definition to parameterless startup
+- [x] Convert every module declaration and definition to parameterless startup
   and shutdown hooks.
-- [ ] Replace production context member calls with `FModuleStartup` calls.
-- [ ] Remove empty startup overrides and unused declarations.
-- [ ] Remove `FDefaultModuleImpl` and inherit directly from
+- [x] Replace production context member calls with `FModuleStartup` calls.
+- [x] Remove empty startup overrides and unused declarations.
+- [x] Remove `FDefaultModuleImpl` and inherit directly from
   `IModuleInterface` where a custom module class remains necessary.
-- [ ] Verify specialized-registry registrations, async groups, and modular
+- [x] Verify specialized-registry registrations, async groups, and modular
   feature tokens remain module-owned and are cleaned up in the required order.
-- [ ] Rename every `FeatureOwner` field/local and
+- [x] Rename every `FeatureOwner` field/local and
   `FModularFeatureOwnerState` type reference to `ModuleOwner` and
   `FModuleOwnerState`, including Core internals, tests, diagnostics, comments,
   and lasting documentation.
@@ -299,16 +299,16 @@ continues to enforce correctness before DLL unmap.
 
 ### Stage 3: Replace synthetic contexts in tests
 
-- [ ] Replace `FModuleTestContextFactory` with narrowly named low-level owner
+- [x] Replace `FModuleTestContextFactory` with narrowly named low-level owner
   and complete lifecycle fixtures.
-- [ ] Migrate modular-feature and async-operation tests to the isolated test
+- [x] Migrate modular-feature and async-operation tests to the isolated test
   owner fixture.
-- [ ] Migrate direct Renderer and editor module startup/shutdown pairs to the
+- [x] Migrate direct Renderer and editor module startup/shutdown pairs to the
   lifecycle harness.
-- [ ] Ensure lifecycle tests observe shutdown and unload evidence through
+- [x] Ensure lifecycle tests observe shutdown and unload evidence through
   `FModuleShutdownResult`/`FModuleUnloadResult` rather than shutdown context
   snapshots.
-- [ ] Add focused tests for current-scope nesting, restoration, wrong-phase
+- [x] Add focused tests for current-scope nesting, restoration, wrong-phase
   access, startup exception, reload generation, and final unload audit.
 
 #### Acceptance Gate
@@ -324,17 +324,17 @@ continues to enforce correctness before DLL unmap.
 
 ### Stage 4: Validate and publish the lasting contract
 
-- [ ] Build affected Core, module, editor, and native-test targets using the
+- [x] Build affected Core, module, editor, and native-test targets using the
   repository build workflow.
-- [ ] Run focused Core modular-feature, async-operation, and module lifecycle
+- [x] Run focused Core modular-feature, async-operation, and module lifecycle
   tests.
-- [ ] Run affected Renderer/editor/asset tests that adopt the new lifecycle
+- [x] Run affected Renderer/editor/asset tests that adopt the new lifecycle
   harness.
-- [ ] Run dynamic DLL unload success and failure qualification according to the
+- [x] Run dynamic DLL unload success and failure qualification according to the
   native-test workflow.
-- [ ] Update the Core modular-feature/module-retirement contract with the
+- [x] Update the Core modular-feature/module-retirement contract with the
   parameterless lifecycle and scoped startup attribution rules.
-- [ ] Run changed-document and all-plan validation.
+- [x] Run changed-document and all-plan validation.
 
 #### Acceptance Gate
 
@@ -410,8 +410,8 @@ into this plan.
 
 - [`ModuleManager.h`](../../Engine/Source/Runtime/Core/Public/Modules/ModuleManager.h)
 - [`ModuleManager.cpp`](../../Engine/Source/Runtime/Core/Private/Modules/ModuleManager.cpp)
-- [`ModuleTestContext.h`](../../Engine/Source/Runtime/Core/Public/Modules/ModuleTestContext.h)
-- [`ModuleTestContext.cpp`](../../Engine/Source/Runtime/Core/Private/Modules/ModuleTestContext.cpp)
+- [`ModuleTestSupport.h`](../../Engine/Source/Runtime/Core/Public/Modules/ModuleTestSupport.h)
+- [`ModuleTestSupport.cpp`](../../Engine/Source/Runtime/Core/Private/Modules/ModuleTestSupport.cpp)
 - [`ModularFeature.h`](../../Engine/Source/Runtime/Core/Public/Modules/ModularFeature.h)
 - [`AsyncOperationGroup.h`](../../Engine/Source/Runtime/Core/Public/Modules/AsyncOperationGroup.h)
 - [`RendererModule.h`](../../Engine/Source/Runtime/Renderer/Public/RendererModule.h)

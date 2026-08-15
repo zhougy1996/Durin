@@ -4,7 +4,7 @@
 #include "HAL/PlatformLTS.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Modules/ModuleManager.h"
-#include "Modules/ModuleTestContext.h"
+#include "Modules/ModuleTestSupport.h"
 #include "RHICommandList.h"
 #include "RHI.h"
 #include "RendererModule.h"
@@ -61,8 +61,8 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
 	Durin::FRendererModule Renderer;
-	auto RendererContext = Durin::FModuleTestContextFactory::CreateStartupContext("TerrainRendererTest");
-	Renderer.StartupModule(RendererContext);
+	Durin::FModuleTestHarness RendererLifecycle("TerrainRendererTest");
+	RendererLifecycle.Start(Renderer);
 	Durin::SetViewRenderCounterSink(CaptureCounters);
 	GCounterSnapshots.clear();
 
@@ -460,8 +460,7 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesCounters)
 	Durin::FlushRenderingCommands();
 	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(91));
 	Durin::FlushRenderingCommands();
-	auto RendererShutdownContext = Durin::FModuleTestContextFactory::CreateShutdownContext(RendererContext);
-	Renderer.ShutdownModule(RendererShutdownContext);
+	RendererLifecycle.Shutdown();
 	Durin::SetViewRenderCounterSink(nullptr);
 	Durin::ShutdownRenderingThread();
 	Durin::RHIExit();

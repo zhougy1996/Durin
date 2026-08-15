@@ -1,4 +1,4 @@
-#include "Modules/ModuleTestContext.h"
+#include "Modules/ModuleTestSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -56,9 +56,9 @@ namespace Durin::Tests
 			{
 			}
 
-			auto StartupModule(FModuleContext& Context) -> void override
+			auto StartupModule() -> void override
 			{
-				Group = Context.CreateAsyncOperationGroup("BlockingOperation");
+				Group = FModuleStartup::CreateAsyncOperationGroup("BlockingOperation");
 				Task = LaunchCancelableTask("CancelableModuleTask", [this](const FTaskCancellationToken& Token) {
 					Started.Trigger();
 					while (!Token.IsCancellationRequested()) std::this_thread::yield();
@@ -79,9 +79,9 @@ namespace Durin::Tests
 			{
 			}
 
-			auto StartupModule(FModuleContext& Context) -> void override
+			auto StartupModule() -> void override
 			{
-				Group = Context.CreateAsyncOperationGroup("BlockingOperation");
+				Group = FModuleStartup::CreateAsyncOperationGroup("BlockingOperation");
 				Task = LaunchTask("BlockingModuleTask", [this]() {
 					Started.Trigger();
 					Release.Wait();
@@ -102,7 +102,7 @@ namespace Durin::Tests
 	{
 		FTaskSystemTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(1));
-		auto Context = FModuleTestContextFactory::CreateStartupContext("AsyncAdmission");
+		FModuleTestOwner Context("AsyncAdmission");
 		auto Group = Context.CreateAsyncOperationGroup("Import");
 		ASSERT_TRUE(Group.IsValid());
 
@@ -134,7 +134,7 @@ namespace Durin::Tests
 	{
 		FTaskSystemTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(1));
-		auto Context = FModuleTestContextFactory::CreateStartupContext("AsyncSelfWait");
+		FModuleTestOwner Context("AsyncSelfWait");
 		auto Group = Context.CreateAsyncOperationGroup("Build");
 		FThreadEvent Started;
 		FThreadEvent BeginDrain;
@@ -157,7 +157,7 @@ namespace Durin::Tests
 		FTaskSystemTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
-		auto Context = FModuleTestContextFactory::CreateStartupContext("AsyncDeferred");
+		FModuleTestOwner Context("AsyncDeferred");
 		auto First = Context.CreateAsyncOperationGroup("First");
 		auto Second = Context.CreateAsyncOperationGroup("Second");
 		std::atomic<uint32> FirstRuns = 0;
@@ -203,7 +203,7 @@ namespace Durin::Tests
 	{
 		FTaskSystemTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(1));
-		auto Context = FModuleTestContextFactory::CreateStartupContext("AsyncStorage");
+		FModuleTestOwner Context("AsyncStorage");
 
 		auto Results = Context.CreateAsyncOperationGroup("Results");
 		auto Typed = LaunchTask<int>("RetainedTypedResult", []() { return 17; }, MakeOptions(Results));
@@ -241,7 +241,7 @@ namespace Durin::Tests
 		FTaskSystemTestGuard Guard;
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		FThreadEvent Started;
-		ASSERT_NE(nullptr, FModuleTestContextFactory::InstallStartedModule(
+		ASSERT_NE(nullptr, FModuleTestHarness::InstallStartedModule(
 			"ManagedAsyncCancel", std::make_unique<FCancelableAsyncModule>(Started)));
 		ASSERT_TRUE(Started.WaitFor(1.0));
 		const auto Result = FModuleManager::Get().UnloadModule("ManagedAsyncCancel");
@@ -259,13 +259,13 @@ namespace Durin::Tests
 		ASSERT_TRUE(InitializeTaskScheduler(1));
 		FThreadEvent Started;
 		FThreadEvent Release;
-		auto* Module = static_cast<FBlockingAsyncModule*>(FModuleTestContextFactory::InstallStartedModule(
+		auto* Module = static_cast<FBlockingAsyncModule*>(FModuleTestHarness::InstallStartedModule(
 			"ManagedAsyncTimeout", std::make_unique<FBlockingAsyncModule>(Started, Release)));
 		ASSERT_NE(nullptr, Module);
 		ASSERT_TRUE(Started.WaitFor(1.0));
-		const auto PreviousTimeout = FModuleTestContextFactory::SetRetirementTimeout(std::chrono::milliseconds(2));
+		const auto PreviousTimeout = FModuleTestHarness::SetRetirementTimeout(std::chrono::milliseconds(2));
 		const auto Result = FModuleManager::Get().UnloadModule("ManagedAsyncTimeout");
-		(void)FModuleTestContextFactory::SetRetirementTimeout(PreviousTimeout);
+		(void)FModuleTestHarness::SetRetirementTimeout(PreviousTimeout);
 
 		EXPECT_EQ(EModuleOperationStatus::AsyncOperationDrainTimeout, Result.Status);
 		EXPECT_EQ(EModuleState::UnloadBlocked, Result.ObservedState);

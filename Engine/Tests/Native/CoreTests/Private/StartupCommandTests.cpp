@@ -1,12 +1,11 @@
 #include <gtest/gtest.h>
 
 #include "Misc/StartupCommand.h"
-#include "Modules/ModuleTestContext.h"
+#include "Modules/ModuleTestSupport.h"
 
 TEST(FStartupCommandTests, DispatchesOneOpaqueCommandAfterHandlerRegistration)
 {
-	static auto Context = Durin::FModuleTestContextFactory::CreateStartupContext(
-		"StartupCommandTests");
+	static Durin::FModuleTestOwner Context("StartupCommandTests");
 	static auto Registration = Context.CreateOwnedCallbackRegistration(
 		"Tests.StartupCommands");
 	std::vector<std::string> Received;

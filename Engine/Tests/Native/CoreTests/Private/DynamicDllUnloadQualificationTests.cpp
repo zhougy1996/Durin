@@ -2,7 +2,7 @@
 
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
-#include "Modules/ModuleTestContext.h"
+#include "Modules/ModuleTestSupport.h"
 #include "Threading/Task.h"
 
 #include <gtest/gtest.h>
@@ -157,8 +157,7 @@ namespace Durin::Tests
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
 
 		FDynamicUnloadHost Host;
-		auto HostContext = FModuleTestContextFactory::CreateStartupContext(
-			"DynamicUnloadQualification.Host");
+		FModuleTestOwner HostContext("DynamicUnloadQualification.Host");
 		auto HostRegistration =
 			HostContext.RegisterFeature<IDynamicUnloadHostFeature>(Host);
 		ASSERT_TRUE(HostRegistration.IsValid());

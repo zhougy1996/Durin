@@ -30,10 +30,10 @@ namespace Durin
 
 	FRendererModule::~FRendererModule() = default;
 
-	auto FRendererModule::StartupModule(FModuleContext& Context) -> void
+	auto FRendererModule::StartupModule() -> void
 	{
 		ConsoleCallbacks =
-			Context.CreateOwnedCallbackRegistration("Core.ConsoleCommands");
+			FModuleStartup::CreateOwnedCallbackRegistration("Core.ConsoleCommands");
 		require(ConsoleCallbacks.IsValid());
 		check(SceneRenderer == nullptr);
 		SceneRenderer = std::make_unique<FSceneRenderer>();
@@ -63,7 +63,7 @@ namespace Durin
 		}
 	}
 
-	auto FRendererModule::ShutdownModule(FModuleShutdownContext&) -> void
+	auto FRendererModule::ShutdownModule() -> void
 	{
 		if (SceneRenderer == nullptr)
 		{

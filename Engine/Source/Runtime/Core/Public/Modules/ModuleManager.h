@@ -11,93 +11,42 @@
 
 namespace Durin
 {
-	class FModuleTestContextFactory;
+	class FModuleTestHarness;
 
-	// Exposes the current load generation's owner-scoped registration surface during startup.
-	class FModuleContext final
+	// Creates state attributed to the exact module load generation currently starting.
+	class FModuleStartup final
 	{
 	public:
-		FModuleContext(FModuleContext&&) noexcept = default;
-		auto operator=(FModuleContext&&) noexcept -> FModuleContext& = default;
-		FModuleContext(const FModuleContext&) = delete;
-		auto operator=(const FModuleContext&) -> FModuleContext& = delete;
-
+		// These operations require the manager-controlled startup scope and reject unattributed use.
 		template<CModularFeature T>
-		auto RegisterFeature(T& Implementation) -> FModularFeatureRegistration
+		static auto RegisterFeature(T& Implementation) -> FModularFeatureRegistration
 		{
 			return FModularFeatureRegistry::Get().Register(
-				Owner,
+				GetCurrentOwner(),
 				{FName(std::string_view(T::FeatureName)), static_cast<uint32>(T::FeatureVersion)},
 				Implementation);
 		}
 
-		// Creates one owner-bound task admission and shutdown drain boundary.
-		auto CreateAsyncOperationGroup(
+		CORE_API static auto CreateAsyncOperationGroup(
 			FName GroupName,
 			FAsyncOperationGroupOptions Options = {}
-		) -> FAsyncOperationGroup
-		{
-			return Detail::CreateAsyncOperationGroup(Owner, GroupName, Options);
-		}
+		) -> FAsyncOperationGroup;
 
-		// Creates one owner-bound admission and retained-resource audit domain for
-		// a semantically specialized registry.
-		auto CreateOwnedCallbackRegistration(FName DomainName)
-			-> FModuleOwnedCallbackRegistration
-		{
-			return FModularFeatureRegistry::Get().RegisterOwnedCallback(
-				Owner, std::move(DomainName));
-		}
-
-		[[nodiscard]] auto GetModuleName() const -> FName { return ModuleName; }
+		CORE_API static auto CreateOwnedCallbackRegistration(FName DomainName)
+			-> FModuleOwnedCallbackRegistration;
+		[[nodiscard]] CORE_API static auto GetModuleName() -> FName;
 
 	private:
-		FModuleContext(FName InModuleName, std::shared_ptr<Detail::FModularFeatureOwnerState> InOwner)
-			: ModuleName(InModuleName), Owner(std::move(InOwner)) {}
-
-		FName ModuleName;
-		std::shared_ptr<Detail::FModularFeatureOwnerState> Owner;
-
-		friend class FModuleManager;
-		friend class FModuleTestContextFactory;
+		CORE_API static auto GetCurrentOwner() -> std::shared_ptr<Detail::FModuleOwnerState>;
 	};
 
-	// Exposes mapped-library retirement evidence during the shutdown callback.
-	class FModuleShutdownContext final
-	{
-	public:
-		FModuleShutdownContext(FModuleShutdownContext&&) noexcept = default;
-		auto operator=(FModuleShutdownContext&&) noexcept -> FModuleShutdownContext& = default;
-		FModuleShutdownContext(const FModuleShutdownContext&) = delete;
-		auto operator=(const FModuleShutdownContext&) -> FModuleShutdownContext& = delete;
-
-		[[nodiscard]] auto GetModuleName() const -> FName { return ModuleName; }
-		[[nodiscard]] auto GetFeatureRetirementSnapshot() const -> const FModularFeatureRetirementSnapshot& { return Snapshot; }
-		[[nodiscard]] auto GetAsyncOperationSnapshot() const -> FAsyncOperationOwnerSnapshot;
-		auto DrainAsyncOperations(std::chrono::milliseconds Timeout = std::chrono::seconds(5)) -> FAsyncOperationDrainResult;
-
-	private:
-		FModuleShutdownContext(
-			FName InModuleName,
-			FModularFeatureRetirementSnapshot InSnapshot,
-			std::shared_ptr<Detail::FModularFeatureOwnerState> InOwner)
-			: ModuleName(InModuleName), Snapshot(std::move(InSnapshot)), Owner(std::move(InOwner)) {}
-
-		FName ModuleName;
-		FModularFeatureRetirementSnapshot Snapshot;
-		std::shared_ptr<Detail::FModularFeatureOwnerState> Owner;
-
-		friend class FModuleManager;
-		friend class FModuleTestContextFactory;
-	};
-
-	// Defines context-bearing lifecycle hooks for one native module instance.
+	// Defines parameterless lifecycle hooks for one native module instance.
 	class IModuleInterface
 	{
 	public:
 		virtual ~IModuleInterface() = default;
-		virtual auto StartupModule(FModuleContext& Context) -> void {}
-		virtual auto ShutdownModule(FModuleShutdownContext& Context) -> void {}
+		virtual auto StartupModule() -> void {}
+		virtual auto ShutdownModule() -> void {}
 	};
 
 	// Describes metadata, mapped-instance, retirement, and native-release lifecycle states.
@@ -173,7 +122,7 @@ namespace Durin
 		std::atomic<EModuleState> State = EModuleState::Registered;
 		uint32 LoadOrder = 0;
 		uint64 OwnerGeneration = 0;
-		std::shared_ptr<Detail::FModularFeatureOwnerState> FeatureOwner;
+		std::shared_ptr<Detail::FModuleOwnerState> ModuleOwner;
 	};
 
 	using InitializeModuleFunc = IModuleInterface* (*)();
@@ -234,12 +183,7 @@ namespace Durin
 		std::function<void()> ProcessLoadedObjectsCallback;
 		std::function<bool(FName)> PreShutdownModuleCallback;
 
-		friend class FModuleTestContextFactory;
-	};
-
-	// Supplies no-op context-bearing lifecycle hooks for modules without custom work.
-	class FDefaultModuleImpl : public IModuleInterface
-	{
+		friend class FModuleTestHarness;
 	};
 }
 

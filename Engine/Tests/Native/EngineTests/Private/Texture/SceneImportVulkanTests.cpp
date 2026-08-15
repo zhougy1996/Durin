@@ -9,7 +9,7 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Modules/ModuleManager.h"
-#include "Modules/ModuleTestContext.h"
+#include "Modules/ModuleTestSupport.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "RHICommandList.h"
@@ -587,8 +587,8 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 
 	FSceneImportRenderEngine Engine;
 	Durin::FRendererModule Renderer;
-	auto RendererContext = Durin::FModuleTestContextFactory::CreateStartupContext("SceneImportRendererTest");
-	Renderer.StartupModule(RendererContext);
+	Durin::FModuleTestHarness RendererLifecycle("SceneImportRendererTest");
+	RendererLifecycle.Start(Renderer);
 	Engine.SetRenderer(&Renderer);
 	Durin::GEngine = &Engine;
 	Durin::DMaterialInstance* TextureOnly =
@@ -755,8 +755,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(TexturePath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(StandardPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(LODContractPath));
-	auto RendererShutdownContext = Durin::FModuleTestContextFactory::CreateShutdownContext(RendererContext);
-	Renderer.ShutdownModule(RendererShutdownContext);
+	RendererLifecycle.Shutdown();
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
 	Durin::FRHICommandListImmediate::Get().SwitchPipeline(Durin::ERHIPipeline::None);

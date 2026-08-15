@@ -567,11 +567,7 @@ namespace Durin
 
 	IMPLEMENT_MODULE(FMainFrameModule, MainFrame)
 
-	auto FMainFrameModule::StartupModule(FModuleContext&) -> void
-	{
-	}
-
-	auto FMainFrameModule::ShutdownModule(FModuleShutdownContext&) -> void
+	auto FMainFrameModule::ShutdownModule() -> void
 	{
 		DestroyDefaultFrame();
 	}

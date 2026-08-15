@@ -50,14 +50,14 @@ namespace Durin
 			return Asset::Build::LoadAnimationClipDerivedData(Key, Context, OutPayload, OutMessage);
 		}
 
-		auto StartupModule(FModuleContext& Context) -> void override
+		auto StartupModule() -> void override
 		{
 			std::string Error;
 			auto Registration = Asset::Build::RegisterBuildServiceContribution({
 				.Identity = "Durin.GeometryBuild.Recipes",
 				.DrainOrder = 50,
 				.OwnerGate = (BuildHostCallbackRegistration =
-					Context.CreateOwnedCallbackRegistration("AssetBuildCore.BuildHost")).GetGate(),
+					FModuleStartup::CreateOwnedCallbackRegistration("AssetBuildCore.BuildHost")).GetGate(),
 				.Start = [] { return true; },
 				.StopAdmission = [] {},
 				.PumpCompletions = [](uint32) { return 0; },
@@ -68,15 +68,15 @@ namespace Durin
 				"GeometryBuild could not register its recipe service: {}", Error);
 			ServiceRegistration = new Asset::Build::FBuildServiceRegistration(
 				std::move(Registration));
-			CollisionFeatureRegistration = Context.RegisterFeature<IStaticMeshCollisionBuildFeature>(*this);
-			SkeletalFeatureRegistration = Context.RegisterFeature<ISkeletalDerivedDataFeature>(*this);
+			CollisionFeatureRegistration = FModuleStartup::RegisterFeature<IStaticMeshCollisionBuildFeature>(*this);
+			SkeletalFeatureRegistration = FModuleStartup::RegisterFeature<ISkeletalDerivedDataFeature>(*this);
 			checkf(CollisionFeatureRegistration.IsValid(),
 				"GeometryBuild could not register StaticMesh collision building.");
 			checkf(SkeletalFeatureRegistration.IsValid(),
 				"GeometryBuild could not register skeletal DDC loading.");
 		}
 
-		auto ShutdownModule(FModuleShutdownContext&) -> void override
+		auto ShutdownModule() -> void override
 		{
 			delete std::exchange(ServiceRegistration, nullptr);
 		}

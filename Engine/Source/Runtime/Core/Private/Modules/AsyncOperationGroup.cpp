@@ -45,7 +45,7 @@ namespace Durin
 		struct FAsyncOperationGroupState : std::enable_shared_from_this<FAsyncOperationGroupState>
 		{
 			FAsyncOperationGroupState(
-				std::shared_ptr<FModularFeatureOwnerState> InOwner,
+				std::shared_ptr<FModuleOwnerState> InOwner,
 				FName InName,
 				FAsyncOperationGroupOptions InOptions,
 				FTaskScope InScope)
@@ -64,7 +64,7 @@ namespace Durin
 				return FAsyncOperationGroup(shared_from_this());
 			}
 
-			std::weak_ptr<FModularFeatureOwnerState> Owner;
+			std::weak_ptr<FModuleOwnerState> Owner;
 			FName OwnerName;
 			uint64 OwnerGeneration = 0;
 			FName Name;
@@ -253,7 +253,7 @@ namespace Durin
 	}
 
 	auto Detail::CreateAsyncOperationGroup(
-		const std::shared_ptr<FModularFeatureOwnerState>& Owner,
+		const std::shared_ptr<FModuleOwnerState>& Owner,
 		FName GroupName,
 		FAsyncOperationGroupOptions Options
 	) -> FAsyncOperationGroup
@@ -271,7 +271,7 @@ namespace Durin
 	}
 
 	auto Detail::BeginRetireAsyncOperationOwner(
-		const std::shared_ptr<FModularFeatureOwnerState>& Owner
+		const std::shared_ptr<FModuleOwnerState>& Owner
 	) -> FAsyncOperationOwnerSnapshot
 	{
 		if (!Owner) return {};
@@ -289,7 +289,7 @@ namespace Durin
 	}
 
 	auto Detail::DrainAsyncOperationOwner(
-		const std::shared_ptr<FModularFeatureOwnerState>& Owner,
+		const std::shared_ptr<FModuleOwnerState>& Owner,
 		std::chrono::milliseconds Timeout
 	) -> FAsyncOperationDrainResult
 	{
@@ -317,7 +317,7 @@ namespace Durin
 	}
 
 	auto Detail::SnapshotAsyncOperationOwner(
-		const std::shared_ptr<FModularFeatureOwnerState>& Owner
+		const std::shared_ptr<FModuleOwnerState>& Owner
 	) -> FAsyncOperationOwnerSnapshot
 	{
 		FAsyncOperationOwnerSnapshot Result;

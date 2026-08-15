@@ -218,10 +218,12 @@ shutdown boundary and wait only where their thread contract permits it.
 ### Module-owned operation groups
 
 `FAsyncOperationGroup` is the Core module-lifecycle facade over a task scope.
-It is created only from `FModuleContext`, binds the scope to one module owner
-generation, supplies a cancellation token and stable abort reason, and adds the
-storage audit required for DLL unload. Ordinary subsystem scopes remain valid
-without a module owner and retain their existing active-task-only wait contract.
+Production modules create it only through `FModuleStartup` during their
+manager-controlled startup callback. The current startup scope binds it to one
+module owner generation, supplies a cancellation token and stable abort reason,
+and adds the storage audit required for DLL unload. Ordinary subsystem scopes
+remain valid without a module owner and retain their existing active-task-only
+wait contract.
 
 Terminal execution and retained storage are separate observations. A scoped
 typed task increments `CurrentRetainedResultCount` when terminal result storage

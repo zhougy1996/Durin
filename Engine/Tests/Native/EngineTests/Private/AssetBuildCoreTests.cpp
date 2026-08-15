@@ -4,7 +4,7 @@
 #include "AssetBuild/BuildHost.h"
 #include "AssetBuild/BuildRegistry.h"
 #include "Misc/Paths.h"
-#include "Modules/ModuleTestContext.h"
+#include "Modules/ModuleTestSupport.h"
 #include "NativeTestSupport.h"
 
 namespace
@@ -14,8 +14,7 @@ namespace
 
 	auto GetBuildRegistryTestGate() -> FModuleOwnedCallbackGate
 	{
-		static auto Context = FModuleTestContextFactory::CreateStartupContext(
-			"AssetBuildCoreTests.Registry");
+		static FModuleTestOwner Context("AssetBuildCoreTests.Registry");
 		static auto Registration = Context.CreateOwnedCallbackRegistration(
 			"AssetBuildCoreTests.Registry");
 		return Registration.GetGate();
@@ -251,8 +250,7 @@ TEST(FAssetBuildCoreTests, HostRollsBackPartialStartupAndAllowsRetry)
 TEST(FAssetBuildCoreTests, HostOwnerRetirementRejectsLaterCallbacksAndDestroysCaptures)
 {
 	ShutdownBuildHost();
-	auto Context = FModuleTestContextFactory::CreateStartupContext(
-		"AssetBuildCoreTests.HostRetirement");
+	FModuleTestOwner Context("AssetBuildCoreTests.HostRetirement");
 	auto OwnerRegistration = Context.CreateOwnedCallbackRegistration(
 		"AssetBuildCore.BuildHost");
 	auto Capture = std::make_shared<int>(7);

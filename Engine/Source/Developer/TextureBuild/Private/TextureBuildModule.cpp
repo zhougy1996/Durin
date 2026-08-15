@@ -6,11 +6,11 @@ namespace Durin
 	class FTextureBuildModule final : public IModuleInterface
 	{
 	public:
-		auto StartupModule(FModuleContext& Context) -> void override
+		auto StartupModule() -> void override
 		{
 			BuildHostCallbackRegistration =
-				Context.CreateOwnedCallbackRegistration("AssetBuildCore.BuildHost");
-			BuildOperations = Context.CreateAsyncOperationGroup("TextureBuild.Operations");
+				FModuleStartup::CreateOwnedCallbackRegistration("AssetBuildCore.BuildHost");
+			BuildOperations = FModuleStartup::CreateAsyncOperationGroup("TextureBuild.Operations");
 			require(BuildOperations.IsValid());
 			Asset::Build::FTexture2DBuildCoordinatorConfig Config;
 			Config.OwnerCancellationToken = BuildOperations.GetCancellationToken();
@@ -24,7 +24,7 @@ namespace Durin
 		FModuleOwnedCallbackRegistration BuildHostCallbackRegistration;
 		FAsyncOperationGroup BuildOperations;
 
-		auto ShutdownModule(FModuleShutdownContext&) -> void override
+		auto ShutdownModule() -> void override
 		{
 			Asset::Build::ShutdownTextureBuildService();
 		}

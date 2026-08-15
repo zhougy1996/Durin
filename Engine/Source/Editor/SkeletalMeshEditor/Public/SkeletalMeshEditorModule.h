@@ -18,8 +18,8 @@ namespace Durin
 	{
 	public:
 		SKELETALMESHEDITOR_API ~FSkeletalMeshEditorModule() override;
-		SKELETALMESHEDITOR_API auto StartupModule(FModuleContext& Context) -> void override;
-		SKELETALMESHEDITOR_API auto ShutdownModule(FModuleShutdownContext& Context) -> void override;
+		SKELETALMESHEDITOR_API auto StartupModule() -> void override;
+		SKELETALMESHEDITOR_API auto ShutdownModule() -> void override;
 		SKELETALMESHEDITOR_API auto RegisterSkeletalMeshEditor(
 			::Durin::Editor::FWorkspaceManager& WorkspaceManager,
 			::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool;

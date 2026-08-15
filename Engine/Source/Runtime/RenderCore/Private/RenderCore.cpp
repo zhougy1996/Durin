@@ -8,16 +8,16 @@ namespace Durin
 	auto InitShaderCompileService() -> void;
 	auto ShutdownShaderCompileService() -> void;
 
-	class FRenderCoreModule : public FDefaultModuleImpl
+	class FRenderCoreModule : public IModuleInterface
 	{
 	public:
-		auto StartupModule(FModuleContext&) -> void override
+		auto StartupModule() -> void override
 		{
 			FShaderPaths::InitDefaultMountPoints();
 			InitShaderCompileService();
 		}
 
-		auto ShutdownModule(FModuleShutdownContext&) -> void override
+		auto ShutdownModule() -> void override
 		{
 			ClearShaderMapResourceCache();
 			ShutdownShaderCompileService();

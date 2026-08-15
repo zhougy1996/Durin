@@ -16,8 +16,7 @@ namespace Durin
 		FMainFrameModule() = default;
 		~FMainFrameModule() = default;
 
-		auto StartupModule(FModuleContext& Context) -> void override;
-		auto ShutdownModule(FModuleShutdownContext& Context) -> void override;
+		auto ShutdownModule() -> void override;
 		auto CreateDefaultFrame() -> void override;
 		auto DestroyDefaultFrame() -> void override;
 		auto AdvanceDefaultBootstrap(bool bFirstPresentAvailable)

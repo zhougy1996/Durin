@@ -6,7 +6,7 @@
 #include "Texture/Texture.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
-#include "Modules/ModuleTestContext.h"
+#include "Modules/ModuleTestSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -119,8 +119,7 @@ TEST(FEditorWorkspaceManagerTests, CommitsWorkspaceAndAssetEditorsAsOneBatch)
 
 TEST(FEditorWorkspaceManagerTests, OwnerRetirementRejectsEscapedWorkspaceCallsAndAuditsLease)
 {
-	auto Context = Durin::FModuleTestContextFactory::CreateStartupContext(
-		"EditorWorkspaceTests.Owner");
+	Durin::FModuleTestOwner Context("EditorWorkspaceTests.Owner");
 	auto Owner = Context.CreateOwnedCallbackRegistration("Editor.Workspaces");
 	Durin::Editor::FWorkspaceManager Manager;
 	auto Workspace = std::make_shared<FTestWorkspace>("OwnedEditor");

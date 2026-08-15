@@ -15,14 +15,14 @@ namespace Durin
 
 	FStaticMeshEditorModule::~FStaticMeshEditorModule() = default;
 
-	auto FStaticMeshEditorModule::StartupModule(FModuleContext& Context) -> void
+	auto FStaticMeshEditorModule::StartupModule() -> void
 	{
 		EditorExtensionCallbacks =
-			Context.CreateOwnedCallbackRegistration("Editor.ExtensionRegistries");
+			FModuleStartup::CreateOwnedCallbackRegistration("Editor.ExtensionRegistries");
 		require(EditorExtensionCallbacks.IsValid());
 	}
 
-	auto FStaticMeshEditorModule::ShutdownModule(FModuleShutdownContext&) -> void
+	auto FStaticMeshEditorModule::ShutdownModule() -> void
 	{
 		UnregisterStaticMeshEditor();
 	}

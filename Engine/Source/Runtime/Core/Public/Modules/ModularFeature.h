@@ -15,9 +15,10 @@
 
 namespace Durin
 {
-	class FModuleContext;
 	class FModuleManager;
-	class FModuleTestContextFactory;
+	class FModuleStartup;
+	class FModuleTestOwner;
+	class FModuleTestHarness;
 	class FModularFeatureRegistry;
 
 	// Marks a typed interface as eligible for bounded modular-feature invocation.
@@ -117,7 +118,7 @@ namespace Durin
 
 	namespace Detail
 	{
-		struct FModularFeatureOwnerState;
+		struct FModuleOwnerState;
 		struct FModularFeatureEntryState;
 
 		class FModularFeatureInvocation final
@@ -258,7 +259,8 @@ namespace Durin
 		explicit FModularFeatureRegistration(std::shared_ptr<Detail::FModularFeatureEntryState> InEntry);
 		std::shared_ptr<Detail::FModularFeatureEntryState> Entry;
 
-		friend class FModuleContext;
+		friend class FModuleStartup;
+		friend class FModuleTestOwner;
 		friend class FModularFeatureRegistry;
 	};
 
@@ -347,12 +349,12 @@ namespace Durin
 		}
 
 		CORE_API auto Register(
-			const std::shared_ptr<Detail::FModularFeatureOwnerState>& Owner,
+			const std::shared_ptr<Detail::FModuleOwnerState>& Owner,
 			FModularFeatureIdentity Identity,
 			IModularFeature& Implementation
 		) -> FModularFeatureRegistration;
 		CORE_API auto RegisterOwnedCallback(
-			const std::shared_ptr<Detail::FModularFeatureOwnerState>& Owner,
+			const std::shared_ptr<Detail::FModuleOwnerState>& Owner,
 			FName DomainName) -> FModuleOwnedCallbackRegistration;
 		CORE_API auto BeginInvoke(const FModularFeatureIdentity& Identity) -> std::vector<Detail::FModularFeatureInvocation>;
 		CORE_API auto BeginInvokeEntry(
@@ -361,21 +363,22 @@ namespace Durin
 		CORE_API auto RetainEntryResource(
 			const std::shared_ptr<Detail::FModularFeatureEntryState>& Entry)
 			-> FModuleOwnedResourceLease;
-		CORE_API auto CreateOwner(FName OwnerName, uint64 Generation) -> std::shared_ptr<Detail::FModularFeatureOwnerState>;
+		CORE_API auto CreateOwner(FName OwnerName, uint64 Generation) -> std::shared_ptr<Detail::FModuleOwnerState>;
 		CORE_API auto RetireOwner(
-			const std::shared_ptr<Detail::FModularFeatureOwnerState>& Owner,
+			const std::shared_ptr<Detail::FModuleOwnerState>& Owner,
 			std::chrono::milliseconds Timeout
 		) -> FModularFeatureRetirementResult;
-		CORE_API auto SnapshotOwner(const std::shared_ptr<Detail::FModularFeatureOwnerState>& Owner) -> FModularFeatureRetirementSnapshot;
+		CORE_API auto SnapshotOwner(const std::shared_ptr<Detail::FModuleOwnerState>& Owner) -> FModularFeatureRetirementSnapshot;
 		CORE_API auto RetireEntry(const std::shared_ptr<Detail::FModularFeatureEntryState>& Entry) -> FModularFeatureRetirementSnapshot;
 		CORE_API auto WaitEntry(
 			const std::shared_ptr<Detail::FModularFeatureEntryState>& Entry,
 			std::chrono::milliseconds Timeout
 		) -> FModularFeatureRetirementResult;
 
-		friend class FModuleContext;
+		friend class FModuleStartup;
 		friend class FModuleManager;
-		friend class FModuleTestContextFactory;
+		friend class FModuleTestOwner;
+		friend class FModuleTestHarness;
 		friend class FModularFeatureRegistration;
 		friend class FModuleOwnedCallbackGate;
 		friend class FModuleOwnedCallbackRegistration;

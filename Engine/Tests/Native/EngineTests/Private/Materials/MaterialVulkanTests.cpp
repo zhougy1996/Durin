@@ -82,8 +82,7 @@ namespace
 
 TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDifferences)
 {
-	static auto AuthoringContext = Durin::FModuleTestContextFactory::CreateStartupContext(
-		"MaterialVulkanTests.Authoring");
+	static Durin::FModuleTestOwner AuthoringContext("MaterialVulkanTests.Authoring");
 	static Durin::Asset::Import::Standard::FStandardAssetAuthoringFeatures AuthoringFeatures;
 	static auto StaticMeshAuthoring =
 		AuthoringContext.RegisterFeature<Durin::IStaticMeshAuthoringFeature>(AuthoringFeatures);
@@ -168,8 +167,8 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 
 	FMaterialTestEngine Engine;
 	Durin::FRendererModule Renderer;
-	auto RendererContext = Durin::FModuleTestContextFactory::CreateStartupContext("MaterialRendererTest");
-	Renderer.StartupModule(RendererContext);
+	Durin::FModuleTestHarness RendererLifecycle("MaterialRendererTest");
+	RendererLifecycle.Start(Renderer);
 	Engine.SetTestRendererModule(&Renderer);
 	Durin::GEngine = &Engine;
 
@@ -1130,8 +1129,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			Durin::FRHICommandListImmediate&) {});
 	Durin::FlushRenderingCommands();
 	Durin::CollectGarbage();
-	auto RendererShutdownContext = Durin::FModuleTestContextFactory::CreateShutdownContext(RendererContext);
-	Renderer.ShutdownModule(RendererShutdownContext);
+	RendererLifecycle.Shutdown();
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
 	// The native suite may create another RHI in the same process; force the

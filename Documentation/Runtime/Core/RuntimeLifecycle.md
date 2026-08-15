@@ -300,19 +300,23 @@ into retained history.
 
 Modules load by logical name and use
 `<RuntimeVariant>-<ModuleName>.dll`. Each successful load generation receives a
-Core-created owner identity through `FModuleContext`, and only an `Active`
-record is returned to callers. Startup and shutdown callbacks run without the
-module-map lock.
+Core-created module owner. The manager installs that identity in a nested,
+exception-safe startup scope while invoking parameterless `StartupModule()`;
+owner-bound creation is available only through `FModuleStartup`. Only an
+`Active` record is returned to callers. Startup and shutdown callbacks run
+without the module-map lock.
 
 Shutdown transitions the module to `Retiring`, closes all typed modular-feature
 admission for its owner, and waits for admitted synchronous visitors before
 the CoreDObject pre-shutdown hook drains the module's `/Cpp/<Module>` package.
-It then calls the context-bearing shutdown callback and audits feature
-quiescence. Success leaves the instance `StoppedMapped`; explicit unload alone
-destroys the instance and releases the library. Wrong-thread, recursive,
-timeout, reflected-object, callback, or audit failure leaves the module
-`UnloadBlocked` and mapped. Process shutdown preserves reverse load order and
-uses the same retirement path without physically releasing libraries.
+It then calls parameterless `ShutdownModule()` and audits feature quiescence.
+Owner-wide retirement policy and diagnostics remain manager-owned and are
+reported through shutdown or unload results rather than a callback context.
+Success leaves the instance `StoppedMapped`; explicit unload alone destroys
+the instance and releases the library. Wrong-thread, recursive, timeout,
+reflected-object, callback, or audit failure leaves the module `UnloadBlocked`
+and mapped. Process shutdown preserves reverse load order and uses the same
+retirement path without physically releasing libraries.
 
 The typed visitor API, state machine, lock order, failure categories, and the
 synchronous/asynchronous boundary are defined by

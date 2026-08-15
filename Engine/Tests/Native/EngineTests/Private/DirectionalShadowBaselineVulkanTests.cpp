@@ -5,7 +5,7 @@
 #include "Hash/XxHash.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Modules/ModuleManager.h"
-#include "Modules/ModuleTestContext.h"
+#include "Modules/ModuleTestSupport.h"
 #include "NativeTestSupport.h"
 #include "RHICommandList.h"
 #include "RendererModule.h"
@@ -421,8 +421,8 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
 	Durin::FRendererModule Renderer;
-	auto RendererContext = Durin::FModuleTestContextFactory::CreateStartupContext("DirectionalShadowRendererTest");
-	Renderer.StartupModule(RendererContext);
+	Durin::FModuleTestHarness RendererLifecycle("DirectionalShadowRendererTest");
+	RendererLifecycle.Start(Renderer);
 	Durin::SetViewRenderCounterSink(CaptureCounters);
 
 	auto Quad = MakeQuadRenderData();
@@ -1022,8 +1022,7 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 		<< Q1EntryMotionChangedPixels[1] << '\n';
 
 	Durin::SetViewRenderCounterSink(nullptr);
-	auto RendererShutdownContext = Durin::FModuleTestContextFactory::CreateShutdownContext(RendererContext);
-	Renderer.ShutdownModule(RendererShutdownContext);
+	RendererLifecycle.Shutdown();
 	Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
 		[&](Durin::FRHICommandListImmediate&) { Quad->ReleaseResources(); });
 	Durin::FlushRenderingCommands();
@@ -1045,10 +1044,9 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
 	Durin::FRendererModule Renderer;
-	auto RendererContext =
-		Durin::FModuleTestContextFactory::CreateStartupContext(
-			"DirectionalContactShadowRendererTest");
-	Renderer.StartupModule(RendererContext);
+	Durin::FModuleTestHarness RendererLifecycle(
+		"DirectionalContactShadowRendererTest");
+	RendererLifecycle.Start(Renderer);
 	Durin::SetViewRenderCounterSink(CaptureCounters);
 
 	auto Quad = MakeQuadRenderData();
@@ -1275,10 +1273,7 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 	EXPECT_EQ(UnlitOn, UnlitOff);
 
 	Durin::SetViewRenderCounterSink(nullptr);
-	auto RendererShutdownContext =
-		Durin::FModuleTestContextFactory::CreateShutdownContext(
-			RendererContext);
-	Renderer.ShutdownModule(RendererShutdownContext);
+	RendererLifecycle.Shutdown();
 	Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
 		[&](Durin::FRHICommandListImmediate&) { Quad->ReleaseResources(); });
 	Durin::FlushRenderingCommands();

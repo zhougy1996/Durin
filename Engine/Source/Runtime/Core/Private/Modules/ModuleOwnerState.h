@@ -7,7 +7,7 @@ namespace Durin::Detail
 	struct FAsyncOperationGroupState;
 
 	// Carries immutable load-generation identity plus independently retired feature and operation admission.
-	struct FModularFeatureOwnerState
+	struct FModuleOwnerState
 	{
 		FName Name;
 		uint64 Generation = 0;

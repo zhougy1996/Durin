@@ -35,13 +35,13 @@ namespace Durin
 
 	FLevelEditorModule::~FLevelEditorModule() = default;
 
-	LEVELEDITOR_API auto FLevelEditorModule::StartupModule(FModuleContext& Context) -> void
+	LEVELEDITOR_API auto FLevelEditorModule::StartupModule() -> void
 	{
 		EditorExtensionCallbacks =
-			Context.CreateOwnedCallbackRegistration("Editor.ExtensionRegistries");
+			FModuleStartup::CreateOwnedCallbackRegistration("Editor.ExtensionRegistries");
 		require(EditorExtensionCallbacks.IsValid());
 		ThumbnailOperations =
-			Context.CreateAsyncOperationGroup("SourceImageThumbnail.Decodes");
+			FModuleStartup::CreateAsyncOperationGroup("SourceImageThumbnail.Decodes");
 		require(ThumbnailOperations.IsValid());
 		ProjectDefaultLevelReferenceStore =
 			std::make_unique<FProjectDefaultLevelReferenceStore>(
@@ -77,7 +77,7 @@ namespace Durin
 			"LevelEditor graybox-build startup command must register exactly once");
 	}
 
-	LEVELEDITOR_API auto FLevelEditorModule::ShutdownModule(FModuleShutdownContext&) -> void
+	LEVELEDITOR_API auto FLevelEditorModule::ShutdownModule() -> void
 	{
 		UnregisterLevelEditorWorkspace();
 		UnregisterStartupCommandHandler(GrayboxBuildStartupCommandHandle);

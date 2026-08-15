@@ -1,5 +1,5 @@
 #include "Console/ConsoleCommand.h"
-#include "Modules/ModuleTestContext.h"
+#include "Modules/ModuleTestSupport.h"
 #include "gtest/gtest.h"
 
 namespace Durin
@@ -45,8 +45,7 @@ namespace Durin
 
 	TEST(FConsoleCommandTests, OwnerRetirementRejectsDispatchAndAuditsStoredCallable)
 	{
-		auto Context = FModuleTestContextFactory::CreateStartupContext(
-			"ConsoleCommandTests.Owner");
+		FModuleTestOwner Context("ConsoleCommandTests.Owner");
 		auto Owner = Context.CreateOwnedCallbackRegistration("Core.ConsoleCommands");
 		FConsoleCommandRegistry Registry;
 		auto Capture = std::make_shared<int>(7);

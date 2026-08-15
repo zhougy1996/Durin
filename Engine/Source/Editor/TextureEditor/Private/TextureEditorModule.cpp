@@ -17,14 +17,14 @@ namespace Durin
 
 	FTextureEditorModule::~FTextureEditorModule() = default;
 
-	auto FTextureEditorModule::StartupModule(FModuleContext& Context) -> void
+	auto FTextureEditorModule::StartupModule() -> void
 	{
 		EditorExtensionCallbacks =
-			Context.CreateOwnedCallbackRegistration("Editor.ExtensionRegistries");
+			FModuleStartup::CreateOwnedCallbackRegistration("Editor.ExtensionRegistries");
 		require(EditorExtensionCallbacks.IsValid());
 	}
 
-	auto FTextureEditorModule::ShutdownModule(FModuleShutdownContext&) -> void
+	auto FTextureEditorModule::ShutdownModule() -> void
 	{
 		UnregisterTextureEditor();
 		FTexturePreview::ReleaseSharedResources();

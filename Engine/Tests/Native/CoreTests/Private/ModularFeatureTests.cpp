@@ -1,5 +1,5 @@
 #include "Modules/ModularFeature.h"
-#include "Modules/ModuleTestContext.h"
+#include "Modules/ModuleTestSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -69,11 +69,11 @@ namespace Durin::Tests
 			: Observations(InObservations) {}
 		~FManagedTestModule() override { Observations.bDestroyed = true; }
 
-		auto StartupModule(FModuleContext& Context) -> void override
+		auto StartupModule() -> void override
 		{
-			Registration = Context.RegisterFeature<IManagedModuleFeature>(*this);
+			Registration = FModuleStartup::RegisterFeature<IManagedModuleFeature>(*this);
 		}
-		auto ShutdownModule(FModuleShutdownContext&) -> void override { Observations.bShutdown = true; }
+		auto ShutdownModule() -> void override { Observations.bShutdown = true; }
 		auto GetValue() -> int override { return 42; }
 
 	private:
@@ -86,7 +86,7 @@ namespace Durin::Tests
 	public:
 		explicit FFailingShutdownModule(bool& InDestroyed) : bDestroyed(InDestroyed) {}
 		~FFailingShutdownModule() override { bDestroyed = true; }
-		auto ShutdownModule(FModuleShutdownContext&) -> void override
+		auto ShutdownModule() -> void override
 		{
 			throw std::runtime_error("expected shutdown failure");
 		}
@@ -98,9 +98,9 @@ namespace Durin::Tests
 	class FOwnedCallbackTestModule final : public IModuleInterface
 	{
 	public:
-		auto StartupModule(FModuleContext& Context) -> void override
+		auto StartupModule() -> void override
 		{
-			Registration = Context.CreateOwnedCallbackRegistration("Tests.SpecializedRegistry");
+			Registration = FModuleStartup::CreateOwnedCallbackRegistration("Tests.SpecializedRegistry");
 			Gate = Registration.GetGate();
 		}
 
@@ -109,9 +109,100 @@ namespace Durin::Tests
 		FModuleOwnedCallbackRegistration Registration;
 	};
 
+	class FStartupNameCaptureModule final : public IModuleInterface
+	{
+	public:
+		explicit FStartupNameCaptureModule(std::vector<FName>& InNames)
+			: Names(InNames) {}
+
+		auto StartupModule() -> void override
+		{
+			Names.push_back(FModuleStartup::GetModuleName());
+		}
+
+	private:
+		std::vector<FName>& Names;
+	};
+
+	class FNestedStartupModule final : public IModuleInterface
+	{
+	public:
+		FNestedStartupModule(
+			std::vector<FName>& InNames,
+			FModuleTestHarness& InNestedHarness,
+			IModuleInterface& InNestedModule)
+			: Names(InNames)
+			, NestedHarness(InNestedHarness)
+			, NestedModule(InNestedModule) {}
+
+		auto StartupModule() -> void override
+		{
+			Names.push_back(FModuleStartup::GetModuleName());
+			NestedHarness.Start(NestedModule);
+			Names.push_back(FModuleStartup::GetModuleName());
+		}
+
+	private:
+		std::vector<FName>& Names;
+		FModuleTestHarness& NestedHarness;
+		IModuleInterface& NestedModule;
+	};
+
+	class FThrowingStartupModule final : public IModuleInterface
+	{
+	public:
+		auto StartupModule() -> void override
+		{
+			throw std::runtime_error("expected startup failure");
+		}
+	};
+
+	TEST(FModuleStartupTests, NestedStartupRestoresTheOuterModuleIdentity)
+	{
+		std::vector<FName> Names;
+		FStartupNameCaptureModule NestedModule(Names);
+		FModuleTestHarness NestedHarness("NestedStartupB");
+		FNestedStartupModule OuterModule(Names, NestedHarness, NestedModule);
+		FModuleTestHarness OuterHarness("NestedStartupA");
+
+		OuterHarness.Start(OuterModule);
+
+		ASSERT_EQ(3u, Names.size());
+		EXPECT_EQ(FName("NestedStartupA"), Names[0]);
+		EXPECT_EQ(FName("NestedStartupB"), Names[1]);
+		EXPECT_EQ(FName("NestedStartupA"), Names[2]);
+
+		NestedHarness.Shutdown();
+		OuterHarness.Shutdown();
+	}
+
+	TEST(FModuleStartupTests, StartupExceptionRestoresThePreviousScope)
+	{
+		FThrowingStartupModule ThrowingModule;
+		FModuleTestHarness ThrowingHarness("ThrowingStartup");
+		EXPECT_THROW(ThrowingHarness.Start(ThrowingModule), std::runtime_error);
+
+		std::vector<FName> Names;
+		FStartupNameCaptureModule RecoveryModule(Names);
+		FModuleTestHarness RecoveryHarness("RecoveryStartup");
+		RecoveryHarness.Start(RecoveryModule);
+
+		ASSERT_EQ(1u, Names.size());
+		EXPECT_EQ(FName("RecoveryStartup"), Names.front());
+		RecoveryHarness.Shutdown();
+	}
+
+	TEST(FModuleStartupTests, OwnerCreationOutsideStartupIsRejected)
+	{
+		EXPECT_DEATH(
+			(void)FModuleStartup::CreateOwnedCallbackRegistration(
+				"Tests.OutsideModuleStartup"),
+			".*");
+	}
+
 	TEST(FModularFeatureTests, UsesDeclaredNameAndVersionAndRejectsInvalidIdentity)
 	{
-		auto Context = FModuleTestContextFactory::CreateStartupContext("FeatureIdentityTest");
+		FModuleTestOwner Context("FeatureIdentityTest");
 		FArithmeticFeature V1;
 		FArithmeticFeatureV2 V2;
 		FInvalidFeature Invalid;
@@ -134,8 +225,8 @@ namespace Durin::Tests
 
 	TEST(FModularFeatureTests, ReportsUnavailableAmbiguousAndInvokesPinnedSet)
 	{
-		auto FirstContext = FModuleTestContextFactory::CreateStartupContext("FeatureCardinalityA");
-		auto SecondContext = FModuleTestContextFactory::CreateStartupContext("FeatureCardinalityB");
+		FModuleTestOwner FirstContext("FeatureCardinalityA");
+		FModuleTestOwner SecondContext("FeatureCardinalityB");
 		FArithmeticFeature First;
 		FArithmeticFeature Second;
 
@@ -159,7 +250,7 @@ namespace Durin::Tests
 
 	TEST(FModularFeatureTests, MoveResetAndStaleGenerationAreIdentitySafe)
 	{
-		auto OldContext = FModuleTestContextFactory::CreateStartupContext("FeatureGeneration");
+		FModuleTestOwner OldContext("FeatureGeneration");
 		FArithmeticFeature OldFeature;
 		auto OldRegistration = OldContext.RegisterFeature(OldFeature);
 		auto MovedRegistration = std::move(OldRegistration);
@@ -168,7 +259,7 @@ namespace Durin::Tests
 		EXPECT_TRUE(MovedRegistration.Reset().Succeeded());
 		EXPECT_EQ(EModularFeatureRetirementStatus::InvalidRegistration, MovedRegistration.Reset().Status);
 
-		auto NewContext = FModuleTestContextFactory::CreateStartupContext("FeatureGeneration");
+		FModuleTestOwner NewContext("FeatureGeneration");
 		FArithmeticFeature NewFeature;
 		auto NewRegistration = NewContext.RegisterFeature(NewFeature);
 		EXPECT_EQ(EFeatureInvokeStatus::Invoked,
@@ -179,11 +270,11 @@ namespace Durin::Tests
 
 	TEST(FModularFeatureTests, OwnerRetirementIrreversiblyRejectsLaterRegistration)
 	{
-		auto Context = FModuleTestContextFactory::CreateStartupContext("RetiredOwner");
+		FModuleTestOwner Context("RetiredOwner");
 		FArithmeticFeature FirstFeature;
 		auto FirstRegistration = Context.RegisterFeature(FirstFeature);
-		auto ShutdownContext = FModuleTestContextFactory::CreateShutdownContext(Context);
-		EXPECT_EQ(0u, ShutdownContext.GetFeatureRetirementSnapshot().PublishedCount);
+		const auto Retirement = Context.BeginRetirement();
+		EXPECT_EQ(0u, Retirement.Snapshot.PublishedCount);
 
 		FArithmeticFeature LateFeature;
 		auto LateRegistration = Context.RegisterFeature(LateFeature);
@@ -194,7 +285,7 @@ namespace Durin::Tests
 
 	TEST(FModularFeatureTests, RetirementClosesAdmissionAndWaitsForEnteredInvocation)
 	{
-		auto Context = FModuleTestContextFactory::CreateStartupContext("FeatureRace");
+		FModuleTestOwner Context("FeatureRace");
 		FArithmeticFeature Feature;
 		auto Registration = Context.RegisterFeature(Feature);
 		std::mutex Mutex;
@@ -236,7 +327,7 @@ namespace Durin::Tests
 
 	TEST(FModularFeatureTests, SelfWaitAndVisitorFailureAreCategorizedWithoutLeakingAdmission)
 	{
-		auto Context = FModuleTestContextFactory::CreateStartupContext("FeatureFailures");
+		FModuleTestOwner Context("FeatureFailures");
 		FArithmeticFeature Feature;
 		auto Registration = Context.RegisterFeature(Feature);
 		EModularFeatureRetirementStatus SelfWaitStatus = EModularFeatureRetirementStatus::Succeeded;
@@ -247,7 +338,7 @@ namespace Durin::Tests
 		EXPECT_EQ(EModularFeatureRetirementStatus::SelfWait, SelfWaitStatus);
 		EXPECT_TRUE(Registration.Reset().Succeeded());
 
-		auto FailureContext = FModuleTestContextFactory::CreateStartupContext("FeatureVisitorFailure");
+		FModuleTestOwner FailureContext("FeatureVisitorFailure");
 		FArithmeticFeature FailureFeature;
 		auto FailureRegistration = FailureContext.RegisterFeature(FailureFeature);
 		const auto Failure = FModularFeatureRegistry::Get().InvokeSingle<IArithmeticFeature>([](IArithmeticFeature&) -> int {
@@ -259,7 +350,7 @@ namespace Durin::Tests
 
 	TEST(FModularFeatureTests, OwnedCallbackGateRetiresCallsAndAuditsResources)
 	{
-		auto Context = FModuleTestContextFactory::CreateStartupContext("OwnedCallbackGate");
+		FModuleTestOwner Context("OwnedCallbackGate");
 		auto Registration = Context.CreateOwnedCallbackRegistration("Tests.Registry");
 		ASSERT_TRUE(Registration.IsValid());
 		const FModuleOwnedCallbackGate Gate = Registration.GetGate();
@@ -272,7 +363,7 @@ namespace Durin::Tests
 		}
 		EXPECT_TRUE(Registration.Reset().Succeeded());
 
-		auto ResourceContext = FModuleTestContextFactory::CreateStartupContext("OwnedCallbackResource");
+		FModuleTestOwner ResourceContext("OwnedCallbackResource");
 		auto ResourceRegistration = ResourceContext.CreateOwnedCallbackRegistration("Tests.Registry");
 		const auto ResourceGate = ResourceRegistration.GetGate();
 		auto Resource = ResourceGate.RetainResource();
@@ -290,7 +381,7 @@ namespace Durin::Tests
 	{
 		auto Module = std::make_unique<FOwnedCallbackTestModule>();
 		auto* ModulePointer = Module.get();
-		ASSERT_NE(nullptr, FModuleTestContextFactory::InstallStartedModule(
+		ASSERT_NE(nullptr, FModuleTestHarness::InstallStartedModule(
 			"ManagedModuleRetainedResource", std::move(Module)));
 		auto Resource = ModulePointer->Gate.RetainResource();
 		ASSERT_TRUE(Resource);
@@ -304,7 +395,7 @@ namespace Durin::Tests
 	TEST(FModuleManagerRetirementTests, SuccessfulUnloadRetiresFeaturesBeforeDestroyingModule)
 	{
 		FManagedModuleObservations Observations;
-		ASSERT_NE(nullptr, FModuleTestContextFactory::InstallStartedModule(
+		ASSERT_NE(nullptr, FModuleTestHarness::InstallStartedModule(
 			"ManagedModuleSuccess", std::make_unique<FManagedTestModule>(Observations)));
 		const auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<IManagedModuleFeature>(
 			[](IManagedModuleFeature& Feature) { return Feature.GetValue(); });
@@ -323,7 +414,7 @@ namespace Durin::Tests
 	TEST(FModuleManagerRetirementTests, ReflectedObjectRejectionFailsClosedAndRetainsInstance)
 	{
 		FManagedModuleObservations Observations;
-		ASSERT_NE(nullptr, FModuleTestContextFactory::InstallStartedModule(
+		ASSERT_NE(nullptr, FModuleTestHarness::InstallStartedModule(
 			"ManagedModuleReflectedBlock", std::make_unique<FManagedTestModule>(Observations)));
 		FModuleManager::Get().SetPreShutdownModuleCallback([](FName) { return false; });
 		const auto Result = FModuleManager::Get().UnloadModule("ManagedModuleReflectedBlock");
@@ -339,7 +430,7 @@ namespace Durin::Tests
 	TEST(FModuleManagerRetirementTests, SelfUnloadIsRejectedWithoutBlockingOrReleasingTheModule)
 	{
 		FManagedModuleObservations Observations;
-		ASSERT_NE(nullptr, FModuleTestContextFactory::InstallStartedModule(
+		ASSERT_NE(nullptr, FModuleTestHarness::InstallStartedModule(
 			"ManagedModuleSelfUnload", std::make_unique<FManagedTestModule>(Observations)));
 		FModuleUnloadResult UnloadResult;
 		const auto Invocation = FModularFeatureRegistry::Get().InvokeSingle<IManagedModuleFeature>(
@@ -357,7 +448,7 @@ namespace Durin::Tests
 	TEST(FModuleManagerRetirementTests, WrongThreadDoesNotStartIrreversibleRetirement)
 	{
 		FManagedModuleObservations Observations;
-		ASSERT_NE(nullptr, FModuleTestContextFactory::InstallStartedModule(
+		ASSERT_NE(nullptr, FModuleTestHarness::InstallStartedModule(
 			"ManagedModuleWrongThread", std::make_unique<FManagedTestModule>(Observations)));
 		FModuleShutdownResult WrongThreadResult;
 		std::thread Worker([&]() {
@@ -374,7 +465,7 @@ namespace Durin::Tests
 	TEST(FModuleManagerRetirementTests, InvocationTimeoutFailsClosedAndRetainsInstance)
 	{
 		FManagedModuleObservations Observations;
-		ASSERT_NE(nullptr, FModuleTestContextFactory::InstallStartedModule(
+		ASSERT_NE(nullptr, FModuleTestHarness::InstallStartedModule(
 			"ManagedModuleTimeout", std::make_unique<FManagedTestModule>(Observations)));
 		std::mutex Mutex;
 		std::condition_variable CV;
@@ -392,9 +483,9 @@ namespace Durin::Tests
 			std::unique_lock Lock(Mutex);
 			CV.wait(Lock, [&]() { return bEntered; });
 		}
-		const auto PreviousTimeout = FModuleTestContextFactory::SetRetirementTimeout(std::chrono::milliseconds(5));
+		const auto PreviousTimeout = FModuleTestHarness::SetRetirementTimeout(std::chrono::milliseconds(5));
 		const auto Result = FModuleManager::Get().UnloadModule("ManagedModuleTimeout");
-		(void)FModuleTestContextFactory::SetRetirementTimeout(PreviousTimeout);
+		(void)FModuleTestHarness::SetRetirementTimeout(PreviousTimeout);
 		EXPECT_EQ(EModuleOperationStatus::FeatureInvocationDrainTimeout, Result.Status);
 		EXPECT_EQ(EModuleState::UnloadBlocked, Result.ObservedState);
 		EXPECT_EQ(1u, Result.RetirementSnapshot.InFlightInvocationCount);
@@ -410,7 +501,7 @@ namespace Durin::Tests
 	TEST(FModuleManagerRetirementTests, ShutdownCallbackFailureRetainsMappedInstance)
 	{
 		bool bDestroyed = false;
-		ASSERT_NE(nullptr, FModuleTestContextFactory::InstallStartedModule(
+		ASSERT_NE(nullptr, FModuleTestHarness::InstallStartedModule(
 			"ManagedModuleShutdownFailure", std::make_unique<FFailingShutdownModule>(bDestroyed)));
 		const auto Result = FModuleManager::Get().UnloadModule("ManagedModuleShutdownFailure");
 		EXPECT_EQ(EModuleOperationStatus::ShutdownCallbackFailure, Result.Status);

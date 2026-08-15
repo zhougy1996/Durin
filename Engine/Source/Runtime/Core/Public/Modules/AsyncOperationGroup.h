@@ -9,7 +9,7 @@ namespace Durin
 	namespace Detail
 	{
 		struct FAsyncOperationGroupState;
-		struct FModularFeatureOwnerState;
+		struct FModuleOwnerState;
 	}
 
 	// Selects whether accepted work finishes normally or observes explicit cancellation during close.
@@ -133,26 +133,27 @@ namespace Durin
 		explicit FAsyncOperationGroup(std::shared_ptr<Detail::FAsyncOperationGroupState> InState);
 		std::shared_ptr<Detail::FAsyncOperationGroupState> State;
 
-		friend class FModuleContext;
+		friend class FModuleStartup;
+		friend class FModuleTestOwner;
 		friend struct Detail::FAsyncOperationGroupState;
 	};
 
 	namespace Detail
 	{
 		CORE_API auto CreateAsyncOperationGroup(
-			const std::shared_ptr<FModularFeatureOwnerState>& Owner,
+			const std::shared_ptr<FModuleOwnerState>& Owner,
 			FName GroupName,
 			FAsyncOperationGroupOptions Options
 		) -> FAsyncOperationGroup;
 		CORE_API auto BeginRetireAsyncOperationOwner(
-			const std::shared_ptr<FModularFeatureOwnerState>& Owner
+			const std::shared_ptr<FModuleOwnerState>& Owner
 		) -> FAsyncOperationOwnerSnapshot;
 		CORE_API auto DrainAsyncOperationOwner(
-			const std::shared_ptr<FModularFeatureOwnerState>& Owner,
+			const std::shared_ptr<FModuleOwnerState>& Owner,
 			std::chrono::milliseconds Timeout
 		) -> FAsyncOperationDrainResult;
 		CORE_API auto SnapshotAsyncOperationOwner(
-			const std::shared_ptr<FModularFeatureOwnerState>& Owner
+			const std::shared_ptr<FModuleOwnerState>& Owner
 		) -> FAsyncOperationOwnerSnapshot;
 	}
 }

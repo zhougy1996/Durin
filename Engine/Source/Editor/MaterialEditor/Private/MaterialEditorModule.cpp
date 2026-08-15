@@ -16,14 +16,14 @@ namespace Durin
 
 	FMaterialEditorModule::~FMaterialEditorModule() = default;
 
-	auto FMaterialEditorModule::StartupModule(FModuleContext& Context) -> void
+	auto FMaterialEditorModule::StartupModule() -> void
 	{
 		EditorExtensionCallbacks =
-			Context.CreateOwnedCallbackRegistration("Editor.ExtensionRegistries");
+			FModuleStartup::CreateOwnedCallbackRegistration("Editor.ExtensionRegistries");
 		require(EditorExtensionCallbacks.IsValid());
 	}
 
-	auto FMaterialEditorModule::ShutdownModule(FModuleShutdownContext&) -> void
+	auto FMaterialEditorModule::ShutdownModule() -> void
 	{
 		UnregisterMaterialEditor();
 	}

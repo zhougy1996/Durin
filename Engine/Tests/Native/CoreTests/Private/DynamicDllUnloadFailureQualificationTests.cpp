@@ -2,7 +2,7 @@
 
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
-#include "Modules/ModuleTestContext.h"
+#include "Modules/ModuleTestSupport.h"
 #include "Threading/Task.h"
 
 #include <gtest/gtest.h>
@@ -165,8 +165,7 @@ namespace Durin::Tests
 		ASSERT_TRUE(InitializeTaskScheduler(2));
 		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
 		FFailureHost Host;
-		auto HostContext = FModuleTestContextFactory::CreateStartupContext(
-			"DynamicUnloadQualification.FailureHost");
+		FModuleTestOwner HostContext("DynamicUnloadQualification.FailureHost");
 		auto HostRegistration =
 			HostContext.RegisterFeature<IDynamicUnloadHostFeature>(Host);
 		ASSERT_TRUE(HostRegistration.IsValid());
@@ -184,10 +183,10 @@ namespace Durin::Tests
 		});
 		ASSERT_TRUE(Host.WaitFor(
 			EDynamicUnloadFixtureEvent::SynchronousEntered, *SyncSerial));
-		auto PreviousTimeout = FModuleTestContextFactory::SetRetirementTimeout(
+		auto PreviousTimeout = FModuleTestHarness::SetRetirementTimeout(
 			std::chrono::milliseconds(5));
 		const auto SyncUnload = Manager.UnloadModule(SyncName);
-		(void)FModuleTestContextFactory::SetRetirementTimeout(PreviousTimeout);
+		(void)FModuleTestHarness::SetRetirementTimeout(PreviousTimeout);
 		EXPECT_EQ(SyncUnload.Status,
 			EModuleOperationStatus::FeatureInvocationDrainTimeout);
 		EXPECT_EQ(SyncUnload.RetirementSnapshot.InFlightInvocationCount, 1u);
@@ -222,10 +221,10 @@ namespace Durin::Tests
 			&& WorkerStarted.Value && *WorkerStarted.Value);
 		ASSERT_TRUE(Host.WaitFor(
 			EDynamicUnloadFixtureEvent::BlockingWorkerEntered, *WorkerSerial));
-		PreviousTimeout = FModuleTestContextFactory::SetRetirementTimeout(
+		PreviousTimeout = FModuleTestHarness::SetRetirementTimeout(
 			std::chrono::milliseconds(5));
 		const auto WorkerUnload = Manager.UnloadModule(WorkerName);
-		(void)FModuleTestContextFactory::SetRetirementTimeout(PreviousTimeout);
+		(void)FModuleTestHarness::SetRetirementTimeout(PreviousTimeout);
 		EXPECT_EQ(WorkerUnload.Status,
 			EModuleOperationStatus::AsyncOperationDrainTimeout);
 		EXPECT_EQ(WorkerUnload.AsyncOperationSnapshot.ActiveTaskCount, 1u);
@@ -245,10 +244,10 @@ namespace Durin::Tests
 			&& ResultStarted.Value && *ResultStarted.Value);
 		ASSERT_TRUE(Host.WaitFor(
 			EDynamicUnloadFixtureEvent::RetainedResultReady, *ResultSerial));
-		PreviousTimeout = FModuleTestContextFactory::SetRetirementTimeout(
+		PreviousTimeout = FModuleTestHarness::SetRetirementTimeout(
 			std::chrono::milliseconds(5));
 		const auto ResultUnload = Manager.UnloadModule(ResultName);
-		(void)FModuleTestContextFactory::SetRetirementTimeout(PreviousTimeout);
+		(void)FModuleTestHarness::SetRetirementTimeout(PreviousTimeout);
 		EXPECT_EQ(ResultUnload.Status,
 			EModuleOperationStatus::AsyncOperationDrainTimeout);
 		EXPECT_EQ(ResultUnload.AsyncOperationSnapshot.RetainedResultCount, 1u);

@@ -305,8 +305,7 @@ namespace Durin::Tests
 	) -> bool
 	{
 		InitializeDObjectSystem();
-		static auto AuthoringContext = FModuleTestContextFactory::CreateStartupContext(
-			"RenderedAssetThumbnailFixtures.Authoring");
+		static FModuleTestOwner AuthoringContext("RenderedAssetThumbnailFixtures.Authoring");
 		static Asset::Import::Standard::FStandardAssetAuthoringFeatures AuthoringFeatures;
 		static auto StaticMeshAuthoring =
 			AuthoringContext.RegisterFeature<IStaticMeshAuthoringFeature>(AuthoringFeatures);

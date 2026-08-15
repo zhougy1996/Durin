@@ -8,28 +8,28 @@ namespace Durin
 	class FStandardAssetImportModule final : public IModuleInterface
 	{
 	public:
-			auto StartupModule(FModuleContext& Context) -> void override
+			auto StartupModule() -> void override
 		{
 			ImportRegistryCallbackRegistration =
-				Context.CreateOwnedCallbackRegistration("AssetImportCore.Registries");
+					FModuleStartup::CreateOwnedCallbackRegistration("AssetImportCore.Registries");
 			require(ImportRegistryCallbackRegistration.IsValid());
-			StaticMeshRegistration = Context.RegisterFeature<IStaticMeshAuthoringFeature>(AuthoringFeatures);
-			Texture2DRegistration = Context.RegisterFeature<ITexture2DAuthoringFeature>(AuthoringFeatures);
-			TextureCubeRegistration = Context.RegisterFeature<ITextureCubeAuthoringFeature>(AuthoringFeatures);
+			StaticMeshRegistration = FModuleStartup::RegisterFeature<IStaticMeshAuthoringFeature>(AuthoringFeatures);
+			Texture2DRegistration = FModuleStartup::RegisterFeature<ITexture2DAuthoringFeature>(AuthoringFeatures);
+			TextureCubeRegistration = FModuleStartup::RegisterFeature<ITextureCubeAuthoringFeature>(AuthoringFeatures);
 			require(StaticMeshRegistration.IsValid());
 			require(Texture2DRegistration.IsValid());
 			require(TextureCubeRegistration.IsValid());
 			TerrainFeatures = std::make_unique<Asset::Import::Standard::FStandardTerrainAuthoringFeature>();
 			require(TerrainFeatures->SetOperationGroup(
-				Context.CreateAsyncOperationGroup("TerrainAuthoringLoads")));
-			TerrainRegistration = Context.RegisterFeature<ITerrainHeightmapAuthoringFeature>(*TerrainFeatures);
+				FModuleStartup::CreateAsyncOperationGroup("TerrainAuthoringLoads")));
+			TerrainRegistration = FModuleStartup::RegisterFeature<ITerrainHeightmapAuthoringFeature>(*TerrainFeatures);
 			require(TerrainRegistration.IsValid());
 			std::string Error;
 			requiref(Asset::Import::Standard::RegisterStandardAssetImportProviders(
 				Error, ImportRegistryCallbackRegistration.GetGate()), "{}", Error);
 		}
 
-		auto ShutdownModule(FModuleShutdownContext&) -> void override
+		auto ShutdownModule() -> void override
 		{
 			TerrainFeatures->Shutdown();
 			Asset::Import::Standard::UnregisterStandardAssetImportProviders();

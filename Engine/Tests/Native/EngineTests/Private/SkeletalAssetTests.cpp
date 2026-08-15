@@ -9,7 +9,7 @@
 #include "EngineTestSupport.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
-#include "Modules/ModuleTestContext.h"
+#include "Modules/ModuleTestSupport.h"
 #include "NativeTestSupport.h"
 #include "Serialization/Archive.h"
 #include "Skeletal/SkeletalBuildOperations.h"
@@ -276,7 +276,7 @@ namespace
 	auto InitializeAssetMount() -> std::filesystem::path
 	{
 		InitializeDObjectSystem();
-		static auto Context = Durin::FModuleTestContextFactory::CreateStartupContext("SkeletalAssetTests");
+		static Durin::FModuleTestOwner Context("SkeletalAssetTests");
 		static FTestSkeletalDerivedDataFeature Feature;
 		static auto Registration = Context.RegisterFeature<Durin::ISkeletalDerivedDataFeature>(Feature);
 		check(Registration.IsValid());

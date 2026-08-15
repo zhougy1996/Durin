@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Modules/ModuleTestContext.h"
+#include "Modules/ModuleTestSupport.h"
 #include "StandardAssetAuthoringFeatures.h"
 #include "StandardTerrainAuthoringFeature.h"
 
@@ -16,8 +16,7 @@ namespace Durin::Tests
 			Terrain = Context.RegisterFeature<ITerrainHeightmapAuthoringFeature>(TerrainFeatures);
 		}
 
-		FModuleContext Context = FModuleTestContextFactory::CreateStartupContext(
-			"EngineTests.StandardAssetAuthoring");
+		FModuleTestOwner Context{"EngineTests.StandardAssetAuthoring"};
 		Asset::Import::Standard::FStandardAssetAuthoringFeatures Features;
 		Asset::Import::Standard::FStandardTerrainAuthoringFeature TerrainFeatures;
 		FModularFeatureRegistration StaticMesh;

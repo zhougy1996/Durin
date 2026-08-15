@@ -20,7 +20,7 @@ namespace Durin
 		struct FModularFeatureEntryState
 		{
 			uint64 Identity = 0;
-			std::shared_ptr<FModularFeatureOwnerState> Owner;
+			std::shared_ptr<FModuleOwnerState> Owner;
 			FModularFeatureIdentity FeatureIdentity;
 			IModularFeature* Implementation = nullptr;
 			EEntryState State = EEntryState::Published;
@@ -47,16 +47,16 @@ namespace Durin
 			return State;
 		}
 
-		thread_local std::vector<const Detail::FModularFeatureOwnerState*> GActiveFeatureOwners;
+		thread_local std::vector<const Detail::FModuleOwnerState*> GActiveModuleOwners;
 
-		auto IsOwnerActiveOnThisThread(const Detail::FModularFeatureOwnerState* Owner) -> bool
+		auto IsOwnerActiveOnThisThread(const Detail::FModuleOwnerState* Owner) -> bool
 		{
-			return std::ranges::find(GActiveFeatureOwners, Owner) != GActiveFeatureOwners.end();
+			return std::ranges::find(GActiveModuleOwners, Owner) != GActiveModuleOwners.end();
 		}
 
 		auto MakeSnapshotLocked(
 			const FRegistryState& State,
-			const std::shared_ptr<Detail::FModularFeatureOwnerState>& Owner
+			const std::shared_ptr<Detail::FModuleOwnerState>& Owner
 		) -> FModularFeatureRetirementSnapshot
 		{
 			FModularFeatureRetirementSnapshot Snapshot;
@@ -152,16 +152,16 @@ namespace Durin
 	auto Detail::FModularFeatureInvocation::Enter() -> void
 	{
 		if (!Entry || bEntered) return;
-		GActiveFeatureOwners.push_back(Entry->Owner.get());
+		GActiveModuleOwners.push_back(Entry->Owner.get());
 		bEntered = true;
 	}
 
 	auto Detail::FModularFeatureInvocation::Leave() -> void
 	{
 		if (!bEntered) return;
-		check(!GActiveFeatureOwners.empty());
-		check(GActiveFeatureOwners.back() == Entry->Owner.get());
-		GActiveFeatureOwners.pop_back();
+		check(!GActiveModuleOwners.empty());
+		check(GActiveModuleOwners.back() == Entry->Owner.get());
+		GActiveModuleOwners.pop_back();
 		bEntered = false;
 	}
 
@@ -311,16 +311,16 @@ namespace Durin
 	}
 
 	auto FModularFeatureRegistry::CreateOwner(FName OwnerName, uint64 Generation)
-		-> std::shared_ptr<Detail::FModularFeatureOwnerState>
+		-> std::shared_ptr<Detail::FModuleOwnerState>
 	{
-		auto Owner = std::make_shared<Detail::FModularFeatureOwnerState>();
+		auto Owner = std::make_shared<Detail::FModuleOwnerState>();
 		Owner->Name = OwnerName;
 		Owner->Generation = Generation;
 		return Owner;
 	}
 
 	auto FModularFeatureRegistry::Register(
-		const std::shared_ptr<Detail::FModularFeatureOwnerState>& Owner,
+		const std::shared_ptr<Detail::FModuleOwnerState>& Owner,
 		FModularFeatureIdentity Identity,
 		IModularFeature& Implementation
 	) -> FModularFeatureRegistration
@@ -341,7 +341,7 @@ namespace Durin
 	}
 
 	auto FModularFeatureRegistry::RegisterOwnedCallback(
-		const std::shared_ptr<Detail::FModularFeatureOwnerState>& Owner,
+		const std::shared_ptr<Detail::FModuleOwnerState>& Owner,
 		FName DomainName) -> FModuleOwnedCallbackRegistration
 	{
 		if (!Owner || DomainName.IsNone()) return {};
@@ -432,7 +432,7 @@ namespace Durin
 	}
 
 	auto FModularFeatureRegistry::RetireOwner(
-		const std::shared_ptr<Detail::FModularFeatureOwnerState>& Owner,
+		const std::shared_ptr<Detail::FModuleOwnerState>& Owner,
 		std::chrono::milliseconds Timeout
 	) -> FModularFeatureRetirementResult
 	{
@@ -464,7 +464,7 @@ namespace Durin
 		};
 	}
 
-	auto FModularFeatureRegistry::SnapshotOwner(const std::shared_ptr<Detail::FModularFeatureOwnerState>& Owner)
+	auto FModularFeatureRegistry::SnapshotOwner(const std::shared_ptr<Detail::FModuleOwnerState>& Owner)
 		-> FModularFeatureRetirementSnapshot
 	{
 		auto& State = GetRegistryState();

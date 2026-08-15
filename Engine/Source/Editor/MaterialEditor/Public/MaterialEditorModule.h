@@ -18,8 +18,8 @@ namespace Durin
 	{
 	public:
 		MATERIALEDITOR_API ~FMaterialEditorModule() override;
-		MATERIALEDITOR_API auto StartupModule(FModuleContext& Context) -> void override;
-		MATERIALEDITOR_API auto ShutdownModule(FModuleShutdownContext& Context) -> void override;
+		MATERIALEDITOR_API auto StartupModule() -> void override;
+		MATERIALEDITOR_API auto ShutdownModule() -> void override;
 		MATERIALEDITOR_API auto RegisterMaterialEditor(
 			::Durin::Editor::FWorkspaceManager& WorkspaceManager,
 			::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool;

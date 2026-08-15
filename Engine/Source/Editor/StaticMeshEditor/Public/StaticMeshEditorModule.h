@@ -18,8 +18,8 @@ namespace Durin
 	{
 	public:
 		STATICMESHEDITOR_API ~FStaticMeshEditorModule() override;
-		STATICMESHEDITOR_API auto StartupModule(FModuleContext& Context) -> void override;
-		STATICMESHEDITOR_API auto ShutdownModule(FModuleShutdownContext& Context) -> void override;
+		STATICMESHEDITOR_API auto StartupModule() -> void override;
+		STATICMESHEDITOR_API auto ShutdownModule() -> void override;
 		STATICMESHEDITOR_API auto RegisterStaticMeshEditor(
 			::Durin::Editor::FWorkspaceManager& WorkspaceManager,
 			::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool;
