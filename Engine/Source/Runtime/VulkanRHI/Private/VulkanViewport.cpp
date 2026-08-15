@@ -562,11 +562,16 @@ namespace Durin::VulkanRHI
 			}
 		}
 
+		// Present fences do not cover an acquire semaphore whose graphics wait was
+		// submitted before the frame reached PresentPending. Resize can land in that
+		// interval, so drain graphics work before destroying swapchain-owned acquire
+		// semaphores. Swapchain recreation is rare and correctness owns this stall.
+		Device.GetGraphicsQueue()->GetHandle().waitIdle();
+
 		// A failed-to-enqueue present did not consume its rendering-done semaphore.
 		// Drain the queues before destroying those resources during recreation.
 		if (bHasRetiredResources)
 		{
-			Device.GetGraphicsQueue()->GetHandle().waitIdle();
 			if (Device.GetPresentQueue() != Device.GetGraphicsQueue())
 			{
 				Device.GetPresentQueue()->GetHandle().waitIdle();

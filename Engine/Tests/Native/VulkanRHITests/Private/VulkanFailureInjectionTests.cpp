@@ -1844,6 +1844,7 @@ namespace Durin::VulkanRHI
 		ASSERT_EQ(GApp->FindWindowByNativeWindowHandle(
 			Window->GetOSNativeWindowHandle()), Window);
 
+		_putenv_s("DURIN_VULKAN_VALIDATION", "on");
 		ASSERT_TRUE(RHIInit());
 		ASSERT_NE(GRHIThread, nullptr);
 		if (!GIsGameThreadIdInitialized)
@@ -1890,6 +1891,51 @@ namespace Durin::VulkanRHI
 			FirstSwapchain = VulkanViewport->GetSwapchain()->GetHandle();
 		});
 		ASSERT_TRUE(FirstSwapchain);
+
+		GCommandListExecutor.ExecuteSynchronousOperation(false, []() {
+			GDynamicRHI->RHIResetDiagnosticStatistics();
+		});
+		bool bRecordedAcquireWithoutPresent = false;
+		ENQUEUE_RENDER_COMMAND(RecordAcquireWithoutPresent)(
+			[Viewport, &bRecordedAcquireWithoutPresent](FRHICommandListImmediate& Commands) {
+				Commands.SwitchPipeline(ERHIPipeline::Graphics);
+				Commands.BeginDrawingViewport(Viewport, nullptr);
+				FTextureRHIRef BackBuffer = GDynamicRHI->RHIGetViewportBackBuffer(Viewport);
+				if (BackBuffer)
+				{
+					FRHIRenderPassInfo Pass;
+					Pass.RenderTargetLayout.NumColorRenderTargets = 1;
+					auto& Attachment = Pass.RenderTargetLayout.ColorAttachments[0].RenderTarget;
+					Attachment.Format = BackBuffer->GetFormat();
+					Attachment.LoadAction = ERHIRenderTargetLoadAction::Clear;
+					Attachment.StoreAction = ERHIRenderTargetStoreAction::Store;
+					Attachment.InitialLayout = ERHITextureLayout::Undefined;
+					Attachment.InitialAccess = ERHIAccess::None;
+					Attachment.FinalLayout = ERHITextureLayout::Present;
+					Attachment.FinalAccess = ERHIAccess::Present;
+					Pass.ColorRenderTargets[0] = BackBuffer;
+					Pass.ColorClearValues[0] = FClearValueBinding(0.05f, 0.1f, 0.2f, 1.0f);
+					Commands.BeginRenderPass(Pass, "AcquireWithoutPresent");
+					Commands.EndRenderPass();
+					bRecordedAcquireWithoutPresent = true;
+				}
+				Commands.EndDrawingViewport(Viewport, false, false);
+			});
+		FlushRenderingCommands();
+		ASSERT_TRUE(bRecordedAcquireWithoutPresent);
+		FRHICommandListImmediate::Get().ImmediateFlush(
+			EImmediateFlushType::FlushRHIThread,
+			ERHISubmitFlags::SubmitToGPU);
+		GDynamicRHI->RHIResizeViewport(Viewport, 68, 68, false);
+		FlushRenderingCommands();
+		FVulkanDebugMessageStatistics ResizeDiagnostics;
+		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
+			ResizeDiagnostics = static_cast<FVulkanDynamicRHI*>(GDynamicRHI)
+				->GetDebugMessageStatistics();
+			ASSERT_NE(VulkanViewport->GetSwapchain(), nullptr);
+			FirstSwapchain = VulkanViewport->GetSwapchain()->GetHandle();
+		});
+		EXPECT_EQ(ResizeDiagnostics.ValidationCount, 0u);
 
 		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Swapchain);
 		GDynamicRHI->RHIResizeViewport(Viewport, 80, 80, false);
